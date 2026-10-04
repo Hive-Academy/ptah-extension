@@ -1914,7 +1914,8 @@ Orchestrator decision (2026-10-04): D-1 to D-5 ACCEPTED as written (inside user 
 
 D-6 (orchestrator, 2026-10-04, from the 27a report): `COMPACTION_MAX_DWELL_MS` is 300_000, not the planned 180_000. TASK_2026_411 B8 measured real compactions at 213-216 s; a 180 s bound would make the watchdog time them out. 300 s keeps a margin and still bounds a stuck compaction.
 
-State: 16 and 35a IN_PROGRESS (W1). Everything else in this section is PENDING.
+State: ALL Wave D sub-batches COMPLETE (2026-10-05) on `fix/task-597-s4-wave-d`; 29.3/30.1 NO-OP. Phase S4-b review
+REVISE → fix round `73f882d8c` → re-review APPROVED. See context.md § Handoff 5.
 
 ---
 

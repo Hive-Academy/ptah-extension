@@ -213,6 +213,30 @@ OUT:
 - Avoid the files of TASK_2026_609_c495: agent-generation services/templates, `.claude/agents`, the system-prompt
   parts of `sdk-query-options-builder.ts`.
 
+## Handoff 5 (2026-10-05, end of fifth orchestration session)
+
+- PR #642 (S4-a) MERGED (`0a0438384`) with the CI fix `a806e6e17` and the 8 CodeRabbit fixes (`50eb14bce` curator,
+  `ccd8a8a9c` waits/run_check/waitFor).
+- S4 Wave D COMPLETE on `fix/task-597-s4-wave-d` (same worktree): Batch 16 (16.2, 16.3), 17a (17.1, 17.3), 17b (17.4,
+  17.5), 25a, 25b, 26a, 26b, 27a, 27b, 28a-28e (Component 10.1-10.3), 29a, 29b, 31, 35a-35c; 29.3 and 30.1 NO-OP (D-2).
+  Decisions: D-1..D-5 accepted; D-6 dwell 300 s; CLI host does not bind `SDK_CODE_OUTLINER` (reducer fallback).
+- Phase S4-b review: code-logic A REVISE (1 S), code-logic B REVISE (2 S), style REVISE (2 S), visual APPROVED (1 S).
+  One fix round `73f882d8c` (A-S1, B-S1/S2/M1/M2/M4, style S1/S2 + barrels, A-M3 spool `.gitignore`, visual S1), then
+  the re-review `reviews/s4b-code-logic-rereview.md` APPROVED (14/14 resolved; new Minors N1 fallback warn logs the
+  defaults not the invalid values, N2 unchecked `as number` on the defaults lookup, N3 spool `.gitignore` catch logs
+  nothing — named later tasks).
+- Named later tasks from S4-b: A-M1 (outline keeps original Read line numbers), A-M2 (tracker/monitor released only
+  on abort), A-M4 (subagent stop has no off switch, ignores `compaction.enabled`), B-M3 (OpenCode `command` segments
+  not counted by the guard), B-M5 ("Keep this session" lost when the banner is rebuilt), B-M6 (Rotate may reuse an
+  older handoff copy), 28b TTL not passed to the monitor (5m weight), 28a handoff message has no task text and no
+  dispatcher ordering lock, CLI outliner binding, all Minors in the three review files. Flakes seen under load:
+  `session-handoff-writer.spec.ts`, `subagent-message-dispatcher.spec.ts`, `markdown.reducer.spec.ts`,
+  `electron-shell.review-dock.spec.ts` (all pass alone).
+- Worktree lesson: `api-*`, `ptah-license-server`, `ptah-landing-page-e2e` fail typecheck here (no Prisma client);
+  exclude them from affected sets. Judge checks by exit code, not by grepping colored output.
+- NEXT: after the Wave D PR merges: S3 rest (12-15, 16.1, 17.2 with the `compaction.threshold` migration, 18-22, owns
+  PR1-M2), S1b (8-9 + Task 9.3), S2 (11), then the QA session (Handoff 4 list) and the named later tasks.
+
 ## Handoff 4 (2026-10-04, end of fourth orchestration session)
 
 - PR #639 (PR 3, N7/N8) MERGED (`518caa996`) after two CI fix rounds in this session: `a6a8af2ef` (handoff writer
