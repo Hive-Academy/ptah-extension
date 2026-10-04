@@ -146,6 +146,178 @@ describe('parseRetryAfterMs', () => {
   });
 });
 
+describe('ProviderQuotaStore — observers (TASK_2026_596 Component 9)', () => {
+  const OWNER_A = 'a-provider#credential:0123456789abcdef';
+
+  it('notifies rate-limit observers after the gate is updated, with the owner context', () => {
+    const store = new ProviderQuotaStore();
+    const seen: unknown[] = [];
+    store.onRateLimit((observation) => {
+      // The gate is already armed when the observer runs.
+      expect(store.cooldownFor('a-provider', T0)).not.toBeNull();
+      seen.push(observation);
+    });
+
+    store.recordRateLimit(' a-provider ', ['90', '120'], T0, {
+      ownerKey: OWNER_A,
+      model: 'model-x',
+      statusCode: 429,
+    });
+
+    expect(seen).toEqual([
+      {
+        providerId: 'a-provider',
+        ownerKey: OWNER_A,
+        model: 'model-x',
+        retryAfterRaw: '90',
+        observedAt: T0,
+        gateUntil: T0 + 90_000,
+      },
+    ]);
+  });
+
+  it('reports a 429 without context as unattributed (owner null)', () => {
+    const store = new ProviderQuotaStore();
+    const listener = jest.fn();
+    store.onRateLimit(listener);
+
+    store.recordRateLimit('a-provider', undefined, T0);
+
+    expect(listener).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ownerKey: null,
+        retryAfterRaw: null,
+        gateUntil: T0 + PROVIDER_QUOTA_DEFAULT_COOLDOWN_MS,
+      }),
+    );
+  });
+
+  it('F80: a 2xx clears the gate and emits a success with the owner', () => {
+    const store = new ProviderQuotaStore();
+    const listener = jest.fn();
+    store.onSuccess(listener);
+    store.recordRateLimit('a-provider', undefined, T0);
+
+    store.recordSuccess(
+      'a-provider',
+      { ownerKey: OWNER_A, model: 'model-x', statusCode: 200 },
+      T0 + 1,
+    );
+
+    expect(store.cooldownFor('a-provider', T0 + 1)).toBeNull();
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(listener).toHaveBeenCalledWith({
+      providerId: 'a-provider',
+      ownerKey: OWNER_A,
+      model: 'model-x',
+      retryAfterRaw: null,
+      observedAt: T0 + 1,
+      gateUntil: null,
+    });
+  });
+
+  it.each([299, 204])('F80: status %i is a ledger success', (statusCode) => {
+    const store = new ProviderQuotaStore();
+    const listener = jest.fn();
+    store.onSuccess(listener);
+    store.recordSuccess('a-provider', { ownerKey: OWNER_A, statusCode });
+    expect(listener).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([300, 302, 304, 199])(
+    'F80: status %i clears the gate but emits no ledger success',
+    (statusCode) => {
+      const store = new ProviderQuotaStore();
+      const listener = jest.fn();
+      store.onSuccess(listener);
+      store.recordRateLimit('a-provider', undefined, T0);
+
+      store.recordSuccess('a-provider', { ownerKey: OWNER_A, statusCode });
+
+      expect(store.cooldownFor('a-provider', T0)).toBeNull();
+      expect(listener).not.toHaveBeenCalled();
+    },
+  );
+
+  it('F80: a 2xx with a null owner is emitted unattributed (the ledger clears nothing for it)', () => {
+    const store = new ProviderQuotaStore();
+    const listener = jest.fn();
+    store.onSuccess(listener);
+
+    store.recordSuccess('a-provider', { ownerKey: null, statusCode: 200 });
+
+    expect(listener).toHaveBeenCalledWith(
+      expect.objectContaining({ ownerKey: null, gateUntil: null }),
+    );
+  });
+
+  it('emits no success without a status (legacy callers clear the gate only)', () => {
+    const store = new ProviderQuotaStore();
+    const listener = jest.fn();
+    store.onSuccess(listener);
+    store.recordRateLimit('a-provider', undefined, T0);
+
+    store.recordSuccess('a-provider');
+
+    expect(store.cooldownFor('a-provider', T0)).toBeNull();
+    expect(listener).not.toHaveBeenCalled();
+  });
+
+  it('isolates a throwing observer from the gate and from other observers', () => {
+    const store = new ProviderQuotaStore();
+    const after = jest.fn();
+    store.onRateLimit(() => {
+      throw new Error('observer broke');
+    });
+    store.onRateLimit(after);
+    store.onSuccess(() => {
+      throw new Error('observer broke');
+    });
+
+    expect(() =>
+      store.recordRateLimit('a-provider', undefined, T0),
+    ).not.toThrow();
+    expect(store.cooldownFor('a-provider', T0)).not.toBeNull();
+    expect(after).toHaveBeenCalledTimes(1);
+    expect(() =>
+      store.recordSuccess('a-provider', { ownerKey: null, statusCode: 200 }),
+    ).not.toThrow();
+    expect(store.cooldownFor('a-provider', T0)).toBeNull();
+  });
+
+  it('stops notifying after unsubscribe, including an unsubscribe during delivery', () => {
+    const store = new ProviderQuotaStore();
+    const second = jest.fn();
+    const unsubscribeFirst = store.onRateLimit(() => unsubscribeFirst());
+    const unsubscribeSecond = store.onRateLimit(second);
+
+    store.recordRateLimit('a-provider', undefined, T0);
+    expect(second).toHaveBeenCalledTimes(1);
+
+    unsubscribeSecond();
+    store.recordRateLimit('a-provider', undefined, T0);
+    expect(second).toHaveBeenCalledTimes(1);
+
+    const success = jest.fn();
+    const unsubscribeSuccess = store.onSuccess(success);
+    unsubscribeSuccess();
+    store.recordSuccess('a-provider', { ownerKey: null, statusCode: 200 });
+    expect(success).not.toHaveBeenCalled();
+  });
+
+  it('notifies nobody for a blank provider id', () => {
+    const store = new ProviderQuotaStore();
+    const listener = jest.fn();
+    store.onRateLimit(listener);
+    store.onSuccess(listener);
+
+    store.recordRateLimit('  ', undefined, T0);
+    store.recordSuccess('  ', { ownerKey: null, statusCode: 200 });
+
+    expect(listener).not.toHaveBeenCalled();
+  });
+});
+
 describe('the process-wide instance', () => {
   it('is a real store and starts clean', () => {
     providerQuotaStore.clear();

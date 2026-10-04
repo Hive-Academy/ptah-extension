@@ -27,6 +27,12 @@ describe('required auth registration without the memory curator', () => {
     c.registerInstance(TOKENS.AUTH_SECRETS_SERVICE, {});
     c.registerInstance(SETTINGS_TOKENS.WORKSPACE_SCOPE_RESOLVER, {});
     c.registerInstance(SDK_TOKENS.SDK_INTERNAL_QUERY_SERVICE, {});
+    // The Codex proxy reads its quota owner from the Codex account service,
+    // which needs these two agent-sdk boundaries (registered by every host).
+    c.registerInstance(SDK_TOKENS.SDK_PROCESS_SPAWNER, {});
+    c.registerInstance(SDK_TOKENS.SDK_ADAPTER_EVENTS, {
+      onAuthFileChanged: jest.fn(),
+    });
     registerAuthProvidersServices(c, logger);
     // Host-specific auth boundaries are outside this registration contract.
     c.registerInstance(AUTH_PROVIDERS_TOKENS.SDK_COPILOT_AUTH, {});

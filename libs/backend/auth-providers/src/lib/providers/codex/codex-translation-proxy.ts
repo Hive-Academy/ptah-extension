@@ -17,7 +17,10 @@ import { injectable, inject } from 'tsyringe';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import { TranslationProxyBase } from '../../translation';
 import { AUTH_PROVIDERS_TOKENS } from '../../di/tokens';
-import type { ICodexAuthService } from './codex-provider.types';
+import type {
+  ICodexAuthService,
+  ICodexOwnerKeySource,
+} from './codex-provider.types';
 import {
   CODEX_PROVIDER_ENTRY,
   CODEX_DEFAULT_TIERS,
@@ -25,10 +28,17 @@ import {
 
 @injectable()
 export class CodexTranslationProxy extends TranslationProxyBase {
+  /**
+   * @param codexOwnerKeys the account owner of the shared `CODEX_HOME`. The
+   *   container always supplies it; a proxy built by hand without it has no
+   *   Codex identity, so its quota evidence is unattributed (owner `null`).
+   */
   constructor(
     @inject(TOKENS.LOGGER) logger: Logger,
     @inject(AUTH_PROVIDERS_TOKENS.SDK_CODEX_AUTH)
     private readonly codexAuth: ICodexAuthService,
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_CODEX_ACCOUNT_USAGE)
+    private readonly codexOwnerKeys?: ICodexOwnerKeySource,
   ) {
     super(logger, {
       name: 'Codex',
@@ -45,6 +55,17 @@ export class CodexTranslationProxy extends TranslationProxyBase {
    */
   protected getProviderId(): string {
     return CODEX_PROVIDER_ENTRY.id;
+  }
+
+  /**
+   * The Codex account owner, not the request's bearer: the OAuth token rotates
+   * on refresh and identifies nobody. `null` until the account has been read
+   * (identity unavailable), so a 429 then is recorded unattributed.
+   */
+  protected override async resolveQuotaOwnerKey(
+    _headers: Record<string, string>,
+  ): Promise<string | null> {
+    return this.codexOwnerKeys?.currentOwnerKey() ?? null;
   }
 
   /**

@@ -40,6 +40,37 @@ export interface ProviderQuotaState {
 }
 
 /**
+ * What the proxy knew about the request whose answer is being recorded.
+ * `ownerKey` is the canonical quota owner key of the credential that served
+ * it, or `null` when the identity is unavailable.
+ */
+export interface ProviderQuotaContext {
+  readonly ownerKey: string | null;
+  readonly model?: string;
+  readonly statusCode: number;
+}
+
+/**
+ * Observer payload for {@link ProviderQuotaStore.onRateLimit} and
+ * {@link ProviderQuotaStore.onSuccess}. Carries an opaque owner key only,
+ * never credential material.
+ */
+export interface ProviderQuotaObservation {
+  readonly providerId: string;
+  readonly ownerKey: string | null;
+  readonly model?: string;
+  /** First `retry-after` value as received; `null` on success or when absent. */
+  readonly retryAfterRaw: string | null;
+  readonly observedAt: number;
+  /** The provider gate deadline now in effect; `null` once cleared. */
+  readonly gateUntil: number | null;
+}
+
+export type ProviderQuotaListener = (
+  observation: ProviderQuotaObservation,
+) => void;
+
+/**
  * How long a provider is gated when the upstream sent no `retry-after`.
  *
  * Deliberately shorter than `skill-synthesis`'s 30-minute `LANE_AUTH_RETRY_MS`:
@@ -93,6 +124,8 @@ function clampCooldown(ms: number): number {
 export class ProviderQuotaStore {
   /** provider id → epoch-ms deadline. Absent means "not gated". */
   private readonly cooldowns = new Map<string, number>();
+  private readonly rateLimitListeners = new Set<ProviderQuotaListener>();
+  private readonly successListeners = new Set<ProviderQuotaListener>();
 
   /**
    * Record a 429 against `providerId`.
@@ -101,14 +134,18 @@ export class ProviderQuotaStore {
    * in flight at once, and shortening a live cooldown because the second reply
    * carried no header would re-open the gate early.
    *
+   * Rate-limit observers are notified after the gate is updated.
+   *
    * @param retryAfter the raw `retry-after` response header, if the upstream
    *   sent one. Absent is the normal case on this path.
+   * @param ctx the owner, model and status of the request that was refused.
    * @returns the state now in effect.
    */
   recordRateLimit(
     providerId: string,
     retryAfter?: string | string[] | undefined,
     now: number = Date.now(),
+    ctx?: ProviderQuotaContext,
   ): ProviderQuotaState | null {
     const id = providerId.trim();
     if (id.length === 0) return null;
@@ -116,6 +153,16 @@ export class ProviderQuotaStore {
       parseRetryAfterMs(retryAfter, now) ?? PROVIDER_QUOTA_DEFAULT_COOLDOWN_MS;
     const until = Math.max(now + cooldownMs, this.cooldowns.get(id) ?? 0);
     this.cooldowns.set(id, until);
+    const retryAfterRaw =
+      (Array.isArray(retryAfter) ? retryAfter[0] : retryAfter)?.trim() || null;
+    this.notify(this.rateLimitListeners, {
+      providerId: id,
+      ownerKey: ctx?.ownerKey ?? null,
+      model: ctx?.model,
+      retryAfterRaw,
+      observedAt: now,
+      gateUntil: until,
+    });
     return { providerId: id, until };
   }
 
@@ -126,9 +173,65 @@ export class ProviderQuotaStore {
    * that refills early would otherwise stay gated for the rest of the cooldown
    * even though the very next request would have worked. The cost of being
    * wrong in this direction is one extra upstream 429, which re-arms the gate.
+   *
+   * The gate clears for any answer the caller reports (the proxy reports every
+   * status below 400). Success observers are notified only for a 2xx: a 3xx
+   * clears the gate but is not evidence that a quota owner was served.
    */
-  recordSuccess(providerId: string): void {
-    this.cooldowns.delete(providerId.trim());
+  recordSuccess(
+    providerId: string,
+    ctx?: ProviderQuotaContext,
+    now: number = Date.now(),
+  ): void {
+    const id = providerId.trim();
+    this.cooldowns.delete(id);
+    if (id.length === 0 || !ctx) return;
+    if (ctx.statusCode < 200 || ctx.statusCode >= 300) return;
+    this.notify(this.successListeners, {
+      providerId: id,
+      ownerKey: ctx.ownerKey,
+      model: ctx.model,
+      retryAfterRaw: null,
+      observedAt: now,
+      gateUntil: null,
+    });
+  }
+
+  /** Observe every recorded 429. Returns the unsubscribe function. */
+  onRateLimit(listener: ProviderQuotaListener): () => void {
+    this.rateLimitListeners.add(listener);
+    return () => {
+      this.rateLimitListeners.delete(listener);
+    };
+  }
+
+  /** Observe every recorded 2xx answer. Returns the unsubscribe function. */
+  onSuccess(listener: ProviderQuotaListener): () => void {
+    this.successListeners.add(listener);
+    return () => {
+      this.successListeners.delete(listener);
+    };
+  }
+
+  /**
+   * Deliver to a snapshot of the listeners, so one that unsubscribes during
+   * delivery cannot make the loop skip another. A listener's throw is
+   * swallowed on purpose: recording runs on the proxy's response path, and the
+   * gate update has already happened, so an observer's failure must not reach
+   * the response or the other observers. The store has no logger; observers
+   * (the plan-limit ledger) log their own failures.
+   */
+  private notify(
+    listeners: ReadonlySet<ProviderQuotaListener>,
+    observation: ProviderQuotaObservation,
+  ): void {
+    for (const listener of [...listeners]) {
+      try {
+        listener(observation);
+      } catch {
+        // See the method comment: observer failures are isolated by design.
+      }
+    }
   }
 
   /**
