@@ -316,6 +316,83 @@ describe('PtahUiBlockComponent', () => {
       expect(native().textContent).toContain('pending');
     });
 
+    it('updates a live block in place when $diff goes from pending to available', async () => {
+      create();
+      useBody(SOURCE_BODY);
+      fixture.componentInstance.snapshot.set(PENDING);
+      await settle(fixture);
+      const before = fixture.debugElement.query(By.directive(PtahUiBlockComponent)).componentInstance;
+      expect(native().textContent).toContain('pending');
+      expect(native().textContent).not.toContain('No files changed this turn');
+
+      fixture.componentInstance.snapshot.set(EMPTY);
+      await settle(fixture);
+
+      const after = fixture.debugElement.query(By.directive(PtahUiBlockComponent)).componentInstance;
+      expect(after).toBe(before);
+      expect(native().textContent).toContain('No files changed this turn');
+      expect(native().textContent).toContain('No tests ran this turn');
+      expect(native().textContent).toContain('$0.01');
+      expect(native().textContent).not.toContain('pending');
+    });
+
+    it('never recomputes a frozen (non-live) block when the snapshot changes', async () => {
+      create();
+      // Eight newer blocks already hold the window: this one mounts as a snapshot.
+      const window = fixture.debugElement.injector.get(PtahUiLiveWindow);
+      for (let index = 0; index < 8; index += 1) window.register(`newer-${index}`, 100 + index);
+      useBody(SOURCE_BODY);
+      await settle(fixture);
+
+      expect(
+        native().querySelector('[data-testid="ptah-ui-block"]')?.getAttribute('data-ptah-ui-mode'),
+      ).toBe('snapshot');
+      const surfaceId = 'ptah-ui-node-1-0';
+      expect(pipelineCalls.get(surfaceId)).toBe(1);
+
+      fixture.componentInstance.snapshot.set(EMPTY);
+      await settle(fixture);
+
+      expect(pipelineCalls.get(surfaceId)).toBe(1);
+      // The frozen renderable stays: the available data never reaches this block.
+      expect(native().textContent).toContain('unavailable');
+      expect(native().textContent).not.toContain('No files changed this turn');
+    });
+
+    it('renders "unavailable" for sources while the snapshot is null', async () => {
+      create();
+      useBody(SOURCE_BODY);
+      await settle(fixture);
+
+      expect(native().textContent).toContain('unavailable');
+      expect(native().textContent).not.toContain('pending');
+      expect(native().querySelector('[data-ptah-ui-reason]')).toBeNull();
+    });
+
+    it('leaves a block without sources unaffected by snapshot changes', async () => {
+      create();
+      await settle(fixture);
+      const rendererBefore = fixture.debugElement.query(
+        By.directive(SurfaceRendererComponent),
+      ).componentInstance as SurfaceRendererComponent;
+      const before = native().textContent;
+
+      fixture.componentInstance.snapshot.set(PENDING);
+      await settle(fixture);
+      fixture.componentInstance.snapshot.set(EMPTY);
+      await settle(fixture);
+
+      expect(native().textContent).toBe(before);
+      expect(
+        native().querySelector('[data-testid="ptah-ui-block"]')?.getAttribute('data-ptah-ui-mode'),
+      ).toBe('live');
+      expect(native().querySelector('[data-ptah-ui-reason]')).toBeNull();
+      const rendererAfter = fixture.debugElement.query(
+        By.directive(SurfaceRendererComponent),
+      ).componentInstance as SurfaceRendererComponent;
+      expect(rendererAfter).toBe(rendererBefore);
+    });
+
     it('keeps every control a natural tab stop in a live block (no trap)', async () => {
       create();
       await settle(fixture);
