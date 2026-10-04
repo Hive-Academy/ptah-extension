@@ -288,6 +288,11 @@ test.describe('Canvas', () => {
     if (!firstBox || !thirdBox)
       throw new Error('Canvas tile handles are not measurable');
     const dropY = firstBox.y + firstBox.height + thirdBox.height / 2;
+    const gestureCommitsBefore = await metric('data-canvas-gesture-commits');
+    const rejectedGesturesBefore = await metric(
+      'data-canvas-rejected-gestures',
+    );
+    const changeCallbacksBefore = await metric('data-canvas-change-callbacks');
     await page.mouse.move(
       thirdBox.x + thirdBox.width / 2,
       thirdBox.y + thirdBox.height / 2,
@@ -311,6 +316,24 @@ test.describe('Canvas', () => {
     });
     await page.mouse.up();
 
+    await expect
+      .poll(() => metric('data-canvas-change-callbacks'), {
+        message:
+          'no change callback after drop: change swallowed or never emitted',
+      })
+      .toBeGreaterThan(changeCallbacksBefore);
+    const rejectedGesturesAfterDrop = await metric(
+      'data-canvas-rejected-gestures',
+    );
+    await expect
+      .poll(() => metric('data-canvas-gesture-commits'), {
+        message: `gesture did not commit; rejected gestures: ${rejectedGesturesAfterDrop}`,
+      })
+      .toBe(gestureCommitsBefore + 1);
+    expect(
+      await metric('data-canvas-rejected-gestures'),
+      'gesture rejected',
+    ).toBe(rejectedGesturesBefore);
     await expect
       .poll(async () => (await readGeometry()).map(({ y }) => y))
       .toEqual(['0', '0', '6']);
