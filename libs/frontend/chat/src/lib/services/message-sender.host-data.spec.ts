@@ -35,11 +35,13 @@ import {
 } from '@ptah-extension/chat-streaming';
 import {
   MESSAGE_TYPES,
+  buildTurnSourceSnapshot,
   createExecutionChatMessage,
   createExecutionNode,
   type ExecutionChatMessage,
   type TurnChangeSet,
 } from '@ptah-extension/shared';
+import { renderPtahUiBlock } from '@ptah-extension/shared/mcp-apps-contracts/surface';
 import type { TabState } from '@ptah-extension/chat-types';
 import { anchorTurnTests } from '../components/organisms/transcript/transcript-turns';
 import { ChangeSetStore } from './change-set/change-set.store';
@@ -57,6 +59,20 @@ const SENTINEL_PATH = 'zz_sentinel_610.ts';
 const SENTINEL_COST = 0.610610;
 const SENTINEL_TOKENS = 610610;
 const SENTINEL_LABEL = 'A5_SENTINEL_TEST_LABEL';
+
+const PTAH_UI_FENCE_BODY = [
+  'stats',
+  '  Files | $diff.files',
+  '  Cost | $usage.cost',
+  'table $diff',
+  'list $tests',
+].join('\n');
+const ASSISTANT_TEXT = [
+  'All tests passed and 3 files changed.',
+  '```ptah-ui',
+  PTAH_UI_FENCE_BODY,
+  '```',
+].join('\n');
 
 /**
  * Every string that must not appear in a serialized `chat:continue` request.
@@ -105,12 +121,6 @@ interface SeededSender {
  * is seeded through its public push path before the send.
  */
 function setupSeededSender(): SeededSender {
-  const assistantText = [
-    'All tests passed and 3 files changed.',
-    '```ptah-ui',
-    '{"$diff":"$diff","$tests":"$tests","$usage":"$usage"}',
-    '```',
-  ].join('\n');
   const changeSet: TurnChangeSet = {
     sessionId: SESSION_ID,
     workspaceRoot: WORKSPACE_ROOT,
@@ -124,7 +134,7 @@ function setupSeededSender(): SeededSender {
   const assistant = createExecutionChatMessage({
     id: 'assistant-host-data',
     role: 'assistant',
-    rawContent: assistantText,
+    rawContent: ASSISTANT_TEXT,
     cost: SENTINEL_COST,
     duration: SENTINEL_TOKENS,
     tokens: { input: SENTINEL_TOKENS, output: 1 },
@@ -132,7 +142,7 @@ function setupSeededSender(): SeededSender {
       id: 'root-host-data',
       type: 'message',
       status: 'complete',
-      content: assistantText,
+      content: ASSISTANT_TEXT,
       children: [
         createExecutionNode({
           id: 'bash-host-data',
@@ -327,5 +337,34 @@ describe('MessageSenderService host data boundary', () => {
     }
     files.push(SENTINEL_PATH);
     expect(() => expectNoSentinels(params)).toThrow();
+  });
+
+  it('renders fence bindings from host sources without writing resolved values back to the model', async () => {
+    const { changeSet, assistant, messages, send } = setupSeededSender();
+    const snapshot = buildTurnSourceSnapshot({
+      turnMessages: messages,
+      blockMessage: assistant,
+      changeSet,
+      finalized: true,
+    });
+    const rendered = renderPtahUiBlock(PTAH_UI_FENCE_BODY, {
+      surfaceId: 'host-data-boundary',
+      snapshot,
+      countBytes: (value) => new TextEncoder().encode(JSON.stringify(value)).length,
+    });
+    if (!rendered.ok) throw new Error(rendered.reason);
+
+    // Positive control: the real render pipeline resolves every seeded host
+    // source for display, so a later absence from params is meaningful.
+    const resolvedContent = JSON.stringify(rendered.content);
+    expect(resolvedContent).toContain(SENTINEL_PATH);
+    expect(resolvedContent).toContain('$0.61');
+    expect(resolvedContent).toContain(SENTINEL_LABEL);
+
+    const { outcome, params } = await send();
+    expect(outcome.success).toBe(true);
+    expectNoSentinels(params);
+    expect(assistant.streamingState?.content).toBe(ASSISTANT_TEXT);
+    expect(assistant.streamingState?.content).toContain('$diff.files');
   });
 });

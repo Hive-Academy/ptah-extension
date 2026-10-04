@@ -49,4 +49,41 @@ describe('SdkQueryOptionsBuilder host data boundary', () => {
     }
     expect(systemHint).toContain('ptah-ui');
   });
+
+  it('keeps a prior assistant ptah-ui fence raw in the provider prompt and system hint', async () => {
+    const rawFence = [
+      '```ptah-ui',
+      'stats',
+      '  Files | $diff.files',
+      '  Cost | $usage.cost',
+      'table $diff',
+      'list $tests',
+      '```',
+    ].join('\n');
+    const priorAssistantMessage = {
+      type: 'user',
+      message: { role: 'assistant', content: rawFence },
+    };
+    const config = await makeBuilder().build({
+      userMessageStream: (async function* () { yield priorAssistantMessage as never; })(),
+      abortController: new AbortController(),
+      sessionConfig: {
+        model: 'claude-sonnet-4', projectPath: 'D:/repo', tabId: 'a5-host-data-tab',
+        mcpToolProfile: 'coding', ptahUiFence: true,
+      } as AISessionConfig,
+    });
+    const promptMessages: unknown[] = [];
+    for await (const message of config.prompt) promptMessages.push(message);
+    const providerPrompt = JSON.stringify(promptMessages);
+    const systemPrompt = config.options.systemPrompt;
+    const systemHint = typeof systemPrompt === 'object' && systemPrompt !== null && 'append' in systemPrompt
+      ? systemPrompt.append ?? '' : '';
+
+    expect(promptMessages).toContainEqual(priorAssistantMessage);
+    expect(providerPrompt).toContain('$diff.files');
+    for (const sentinel of SENTINELS) {
+      expect(providerPrompt).not.toContain(sentinel);
+      expect(systemHint).not.toContain(sentinel);
+    }
+  });
 });
