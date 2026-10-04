@@ -188,6 +188,16 @@ OUT:
    Lesson: a limit in the prompt is advice only. Two developers ignored it (Batch 34: 165 calls, 310k context; S4-a
    fix round: 141 calls, 178k). TASK_2026_613 adds a hard `maxTurns`; until then the orchestrator states the limit
    and splits work small enough to fit it.
+9. Wave D (2026-10-04, fifth session, one AskUserQuestion):
+   - Setting keys: PULL S3 Batch 16 + Tasks 17.3-17.5 into Wave D, ahead of Batch 25. Task 17.1 (read-only AS14
+     host check) runs too, because 17.3 depends on it. Tasks 16.1 and 17.2 (compaction RPC + migration) are part of
+     Batch 16 / 17 as the team-leader decides; the user chose "Batch 16 + Tasks 17.3-17.5".
+   - A6: REBUILD on the N8 pieces from #639. Batch 29 `seedPrompt` uses `session-handoff-builder`; Batch 31 builds
+     on `session-budget-banner` (no second banner); Task 26.2 reuses the N8 `getContextUsage` read.
+   - PR #642 CI fix `a806e6e17` (`requestCanvasTab` workspace path after the main merge) pushed with user approval.
+10. Push/PR authorization (2026-10-04, fifth session, user): "push once the agent finishes and whenever we finish the
+    task push and open a PR as well don't wait for my input on that". The orchestrator pushes the PR #642 review
+    fixes when they are committed, and pushes + opens the Wave D PR at the end without asking.
 
 ## Workspace
 

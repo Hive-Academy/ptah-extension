@@ -1359,7 +1359,7 @@ Batch 6 follow-ups (recorded, not fixed now):
 
 ---
 
-## Batch 16: Compaction and lane-guard settings types (S3, component 6b part 1 + component 6 guard keys) — DEFERRED (follow-up, decision 11)
+## Batch 16: Compaction and lane-guard settings types (S3, component 6b part 1 + component 6 guard keys) — IN_PROGRESS (pulled into S4 Wave D, decision 9: Tasks 16.2 + 16.3 only; Task 16.1 and the `compaction.threshold` key stay DEFERRED in S3; see § S4 Wave D plan)
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer re-run
@@ -1377,7 +1377,7 @@ Batch 6 follow-ups (recorded, not fixed now):
 - Validation notes: every method listed in both places.
 - Implementation details: none.
 
-### Task 16.2: File-based keys — four compaction keys and three lane-guard keys — PENDING
+### Task 16.2: File-based keys — four compaction keys and three lane-guard keys — IN_PROGRESS (Wave D: without `compaction.threshold`, plus `compaction.subagentStopWeightedTokens`; D.1)
 
 - File: `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/backend/platform-core/src/file-settings-keys.ts` (+ spec)
 - Plan reference: implementation-plan.md:409-414, :422-438
@@ -1386,7 +1386,7 @@ Batch 6 follow-ups (recorded, not fixed now):
 - Validation notes: `compaction.enabled` stays VS Code-contributed. The reroute takes effect in hosts only after AS14 (Task 17.1).
 - Implementation details: none.
 
-### Task 16.3: Lane-guard fields in RPC types and scoped keys — PENDING
+### Task 16.3: Lane-guard fields in RPC types and scoped keys — IN_PROGRESS
 
 - Batch 6 follow-up F6-c: fix the stale `AgentSpawnEnvironment.mapEffortToCli` comment at `rpc-agents.types.ts:160`. The function now lives in `lane-spawn-policy.ts`.
 
@@ -1404,7 +1404,7 @@ Batch 6 follow-ups (recorded, not fixed now):
 
 ---
 
-## Batch 17: Compaction RPC, migration, provider reads, lane-guard RPC (S3, component 6b part 2 + 6 guard keys) — DEFERRED (follow-up, decision 11)
+## Batch 17: Compaction RPC, migration, provider reads, lane-guard RPC (S3, component 6b part 2 + 6 guard keys) — PENDING (S4 Wave D, decision 9: Tasks 17.1 + 17.3 as 17a, Tasks 17.4 + 17.5 as 17b; Task 17.2 stays DEFERRED in S3; see § S4 Wave D plan)
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer re-run
@@ -1804,6 +1804,118 @@ In a fresh worktree, run `npx nx run ptah-electron:build-workspace-watch-host` o
 
 ---
 
+## S4 Wave D plan (decision 9)
+
+Worktree and branch: `D:/projects/ptah-extension/.claude-worktrees/task-597-s4`, `fix/task-597-s4-lane-guards` (PR #642 open). Every path below is in this worktree. Where an older task body in Batch 16/17 still names `task-597-lane-token-burn`, the path in this section wins. Phase: S4-b = every sub-batch in this section.
+
+### D.1 What is in and what stays out
+
+- Batch 16: Tasks 16.2 and 16.3 are in. Task 16.1 (`rpc-compaction.types.ts`) stays in S3 with Task 17.2, because nothing in Wave D calls `compaction:getConfig`/`setConfig`.
+- Task 16.2 leaves out `compaction.threshold`. Today that key is VS Code-contributed (`compaction-config-provider.ts:77`, `settings-export.types.ts:60`) and not file-based. If Wave D made it file-based without the Task 17.2 migration, the value a user already saved would stop being read and would be silently lost. It moves in S3, together with 17.2. The keys that are new in Wave D have no earlier value, so they need no migration.
+- Task 16.2 adds a key the old plan did not list: `compaction.subagentStopWeightedTokens`, provisional default 3,000,000. Addendum § Component 10 uses it for the safety stop (part 10.1). The final value comes from the Batch 36 p95 (DEVIATION D-1 below).
+- Batch 17: Tasks 17.1, 17.3, 17.4 and 17.5 are in. Task 17.2 (compaction RPC + migration) stays DEFERRED in S3, and no pulled task needs it.
+- `compaction.rotationSuggestTokens` (300000) stays, because A6 is kept.
+- A6 is rebuilt on the N8 pieces from #639. These pieces exist on disk:
+  - Handoff builder: `libs/backend/agent-sdk/src/lib/helpers/session-budget/session-handoff-builder.ts` (`SessionHandoffBuilder`, `assembleSessionHandoff`). `SessionBudgetService.previewHandoff` (`session-budget.service.ts:679-694`) returns `seed` through the `session:budgetAction` action `preview-handoff` (`SessionBudgetActionResult.handoff.seed`, at most 8,200 characters, `libs/shared/src/lib/types/session-budget.types.ts`).
+  - Banner: `libs/frontend/chat/src/lib/components/molecules/notifications/session-budget-banner.component.ts` (inputs include `contextTokens` `:155`, `busy` `:158`; stage bodies `:239-290`). It is mounted in `libs/frontend/chat/src/lib/components/templates/chat-view.component.html`/`.ts`.
+  - N8 context read: `getContextUsage?(): Promise<ContextUsageReadBack>` on the session query (`libs/backend/agent-sdk/src/lib/helpers/session-lifecycle-manager.ts:109-117`). The tighten read-back calls it at `libs/backend/agent-sdk/src/lib/helpers/session-lifecycle/session-control.service.ts:676-708`.
+  - Budget state carrier: `SessionBudgetState` rides `ResultStatsPayload.budget` (`libs/shared/src/lib/types/agent-adapter.types.ts:84`). It is forwarded to the webview at `libs/backend/cli-agent-runtime/src/lib/wiring/sdk-callbacks.ts:420`, and the frontend reads it in `libs/frontend/chat/src/lib/services/chat-store/session-stats-aggregator.service.ts` and `libs/frontend/chat-state/src/lib/tab-manager.service.ts`.
+- 29.1 shared message type: DROPPED. N8 already has a message that can carry the advisory, `SessionBudgetState` on the result-stats path. A6 adds an optional `rotation` field to that state, which also covers 29.3 and 30.1 (D-2).
+
+### D.2 Order and sub-batches (R2: about 6 files, source + spec counted)
+
+| # | Sub-batch | Tasks | Files (all under the worktree) | Count | Model (R4) | Depends on |
+| - | --------- | ----- | ------------------------------ | ----- | ---------- | ---------- |
+| 1 | 16 | 16.2 (minus `compaction.threshold`, plus `compaction.subagentStopWeightedTokens`), 16.3 | `libs/backend/platform-core/src/file-settings-keys.ts` + `.spec.ts`; `libs/shared/src/lib/types/rpc/rpc-agents.types.ts`; `libs/shared/src/lib/types/rpc/rpc-auth.types.ts` | 4 | Sonnet (keys/types) | none |
+| 2 | 17a | 17.1, 17.3 | `libs/backend/agent-sdk/src/lib/helpers/compaction-config-provider.ts` + `.spec.ts`; read-only: `apps/ptah-extension-vscode/src/di/phase-1-infra.ts`, `apps/ptah-electron/src/di/phase-1-infra.ts`, the `ptah-cli` `ConfigManager` construction (edited only if a host passes a different key set, at most 3 more files) | 2 (max 5) | Sonnet | 16 |
+| 2 | 17b | 17.4, 17.5 | `libs/backend/rpc-handlers/src/lib/handlers/agent-rpc.handlers.ts` + `agent-rpc.handlers.spec.ts` + `agent-rpc.handlers.set-config.spec.ts`; `libs/backend/agent-sdk/src/lib/types/settings-export.types.ts` | 4 | Opus (write-path validation, partial write against the stored sibling) | 16 |
+| 3 | 25a | 25.1 + capper tokens/register | `libs/backend/agent-sdk/src/lib/helpers/compaction/tool-output-capper.ts` + `.spec.ts`; `libs/backend/agent-sdk/src/lib/di/tokens.ts`; `libs/backend/agent-sdk/src/lib/di/register.ts` | 4 | Opus | 17a, 24 |
+| 4 | 25b | 25.2 + host outliner bindings | `libs/backend/agent-sdk/src/lib/helpers/post-tool-use-hook-handler.ts` + `.spec.ts`; the vscode and electron DI phase files that bind `SDK_CODE_OUTLINER` (under `apps/ptah-extension-vscode/src/di/`, `apps/ptah-electron/src/di/`) | 4 | Sonnet (wiring) | 25a |
+| 5 | 26a | 26.1 | `libs/backend/agent-sdk/src/lib/helpers/compaction/compaction-state.types.ts`; `compaction-coordinator.ts` + `.spec.ts` (same folder) | 3 | Opus (state machine) | 25b |
+| 6 | 26b | 26.2 (rescoped, see D.3) + 26.3 | `libs/backend/agent-sdk/src/lib/helpers/compaction/context-usage.port.ts` + `.spec.ts`; `di/tokens.ts`; `di/register.ts` | 4 | Opus | 26a |
+| 7 | 27a | 27.1 + hook-handler part of 27.2 | `libs/backend/agent-sdk/src/lib/helpers/no-activity-watchdog.ts` + `.spec.ts`; `libs/backend/agent-sdk/src/lib/helpers/compaction-hook-handler.ts` + spec | 4 | Opus | 26b |
+| 8 | 27b | executor + events part of 27.2 | `libs/backend/agent-sdk/src/lib/helpers/session-lifecycle/session-query-executor.service.ts` + spec; `libs/backend/agent-sdk/src/lib/helpers/sdk-adapter-events.service.ts` + spec | 4 | Opus | 27a |
+| 9 | 28a | 28.1 + Component 10.1 + 10.2 (advice function) | `libs/backend/agent-sdk/src/lib/helpers/compaction/subagent-budget-monitor.ts` + `.spec.ts`; AS10 sanitized fixture under `helpers/compaction/__fixtures__/` | 3 | Opus | 27b |
+| 10 | 28b | 28.3 | `session-query-executor.service.ts` + spec; `di/tokens.ts`; `di/register.ts` | 4 | Sonnet (wiring) | 28a |
+| 11 | 28c | Component 10.3 backend (F11 figure on the existing subagent event stream) | the shared subagent stream/registry payload type that already reaches `MonitoredAgent` (executor names it; candidates are `libs/shared/src/lib/types/subagent-registry.types.ts` or the subagent stream event type); the agent-sdk emit point + spec (executor names it: `subagent-message-dispatcher.ts` or `sdk-adapter-events.service.ts`) | 3-4 | Opus | 28b |
+| 12 | 28d | Component 10.2 surface (advice beside the Batch 41 cache state) | `libs/backend/rpc-handlers/src/lib/chat/session/chat-subagent-context-injector.service.ts` + spec | 2 | Sonnet | 28c |
+| 12 | 28e | Component 10.3 frontend (F11) | `libs/frontend/chat-streaming/src/lib/agent-monitor.store.ts` + spec (`AgentUsageView.contextTokens` `:124` and `subagentUsageView` `:243-260` take the backend figure; the frontend `lastRequestContextTokens` sum `:113` is removed when the backend figure is present) | 2 | Sonnet (frontend-developer) | 28c |
+| 13 | 29a | 29.1 (rescoped) + 29.2 | `libs/shared/src/lib/types/session-budget.types.ts` + `.spec.ts`; `libs/backend/agent-sdk/src/lib/helpers/compaction/session-rotation-advisor.ts` + `.spec.ts`; `libs/backend/agent-sdk/src/lib/helpers/session-budget/session-budget.service.ts` + `.spec.ts` | 6 | Opus | 28b (28c-e not needed) |
+| 14 | 29b | advisor registration | `di/register.ts` (+ `di/tokens.ts` only if the advisor is injected by token rather than by class like `SessionHandoffBuilder`) | 1-2 | Sonnet | 29a |
+| — | 29.3, 30.1 | NO-OP (D-2) | none: the existing `budget` forward at `sdk-callbacks.ts:420` carries the new field | 0 | — | — |
+| 15 | 31 | 31.1 + 31.2 (rescoped) | `libs/frontend/chat/src/lib/components/molecules/notifications/session-budget-banner.component.ts` + `.spec.ts`; `libs/frontend/chat/src/lib/components/templates/chat-view.component.ts` + `.html` + `.spec.ts` | 5 | Sonnet (frontend-developer); Opus if the stage-priority rule in D.3 needs a store change | 29b |
+| B1 | 35a | 35.1, 35.2 | `libs/backend/cli-agent-runtime/src/lib/cli-agents/lane-budget-guard.ts` + `.spec.ts`; `libs/shared/src/lib/types/agent-process.types.ts` | 3 | Opus | none (thresholds are passed in) |
+| B2 | 35b | 35.3 | `libs/backend/cli-agent-runtime/src/lib/cli-agents/lane-spawn-policy.ts` + `.spec.ts`; `agent-spawn-environment.service.ts` (+ its spec if one exists) | 3-4 | Sonnet | 16 |
+| B3 | 35c | 35.4 | `libs/backend/cli-agent-runtime/src/lib/cli-agents/agent-process-manager.service.ts` + spec | 2 | Opus | 35a, 35b |
+
+Serial chain (the agent-sdk DI files `tokens.ts`/`register.ts`, `session-query-executor`, `sdk-adapter-events` are shared): 16 → {17a, 17b} → 25a → 25b → 26a → 26b → 27a → 27b → 28a → 28b → 29a → 29b → 31. The 28c → {28d, 28e} branch runs after 28b, alongside 29a: 28c touches neither `session-budget.*` nor the DI files. If 28c's emit point turns out to be `sdk-adapter-events.service.ts`, run it after 29a instead. Batch 35 chain: 35a (start with 16) → 35b (after 16) → 35c.
+
+Parallel windows (max 3 agents, file-disjoint, subagents only):
+
+- W1: 16 + 35a.
+- W2: 17a + 17b + 35b (after 16 is committed; 17a and 17b touch different files, and `settings-export.types.ts` is only in 17b).
+- W3: 25a + 35c.
+- W4 onward: the agent-sdk chain one at a time, plus 28c/28d/28e beside 29a/29b (at most 3 at once).
+
+### D.3 Rescoped A6 and port tasks (these override the task bodies of 26.2, 29.x, 30.1, 31.x)
+
+- 26.2 `IContextUsagePort`: the single per-turn context reader. It calls the same `query.getContextUsage` accessor and returns the narrowed `ContextUsageReadBack` type from `session-lifecycle-manager.ts:109-117`, mapped to `{totalTokens, maxTokens, autoCompactThreshold?, source}`. It does not add a second SDK type, and makes at most one call per turn end, cached per session and turn. The coordinator (27b) and the rotation advisor (29a) read the cached value. `session-control.service.ts:676-708` keeps its own direct before/after read-back: it needs a fresh read right after applying the window, and a per-turn cached read would return the old threshold (D-3).
+- 29.1 (rescoped): add `rotation?: { readonly contextTokens: number; readonly threshold: number }` to `SessionBudgetState` in `session-budget.types.ts` and add a spec. There is no new message constant and no `seedPrompt` in the payload.
+- 29.2 `SessionRotationAdvisor`: one advisory per session per upward crossing of `compaction.rotationSuggestTokens`. It re-arms when the context drops below the threshold, for example after compaction. The context figure comes from the 26.2 port's last cached reading, with `SessionStatsEntry` last-turn context as the fallback. `SessionBudgetService.composeState` and `disabledState` attach `rotation`. Edge case: the advisory must also appear when `sessionBudget.enabled` is false, through `disabledState`. The spec must cover "fires once per crossing", re-arm, the disabled-budget path, and the port being absent (no advisory, one log line).
+- 29.3 and 30.1: NO-OP (D-2). The `budget` state already reaches the webview on the result-stats path (`sdk-callbacks.ts:420`).
+- Seed: "Rotate session" calls the existing `session:budgetAction` `preview-handoff` and opens a new session tab prefilled with `handoff.seed`, which is built by `SessionHandoffBuilder`. The user sends it. This reuses the N8 "Continue in new session" handler in chat-view. There is no second seed builder. The seed cap is N8's 8,200 characters, not the old 4,000 (D-4). RISK R-W2: `previewHandoff` may refuse when no budget entry exists (budget disabled). 29a must verify this in its spec and, if it refuses, allow `preview-handoff` for a session with a live stats entry.
+- 31 banner: the advisory is a `rotation` variant of `session-budget-banner`, not a second component. It has "Rotate session" and "Keep this session" buttons and `role="status"`. "Keep this session" dismisses locally per session and per crossing (keyed on sessionId + threshold) and makes no RPC. Stage priority: when the N8 stage is `handoff` or `limit`, the N8 banner wins and the rotation variant is hidden. Old 31.2 (`compaction-lifecycle.service.ts`, `chat-message-handler.service.ts`, `session:contextAdvisory`) is DROPPED, because no new message exists.
+
+### D.4 Batch 28 — Component 10 parts (replaces 28.2)
+
+Addendum § Component 10 (`implementation-plan-addendum-n7-n8.md:307-318`) does not number its parts, so they are mapped here:
+
+- 10.1, in 28a: per subagent, in the A5 monitor, `contextTokens` (last request input + cache read + cache write) and `weightedUsed`. `weightedUsed` uses the TTL-aware cache-write weight from Batch 37 (`libs/shared/src/lib/utils/subagent-prompt-cache-ttl.ts`). The safety stop at `compaction.subagentStopWeightedTokens` goes through `stopSubagent` (`subagent-message-dispatcher.ts:258`).
+- 10.2, pure advice function in 28a; surfaced in 28d: `fresh` when the subagent is stopped, cold, has context ≥ `compaction.subagentHandoffTokens` (150k), or has reached its budget; otherwise `resume`.
+- 10.3 F11, in 28c + 28e: the backend `contextTokens` is the only figure. It reaches `MonitoredAgent` on the existing subagent event stream, without a poll, and replaces the Batch 46.2 frontend figure. F9 (an "approximate" subagent share beside the session total) is optional in the addendum and is NOT built here.
+- ASSUMPTION A-W1: an existing subagent event already reaches `agent-monitor.store.ts` and can take one optional field. 28c verifies this first. If no such event exists, 28c stops and reports, because F11 would then need a new message, which is a design call.
+
+### D.5 Scoped checks per sub-batch (R3/R5; output tailed)
+
+Every sub-batch also runs `npx nx run di-lint:lint` and `npx nx run degradation-audit:lint`.
+
+- 16: `npx nx run-many -t test,lint,typecheck -p @ptah-extension/shared @ptah-extension/platform-core`; `npx nx run-many -t typecheck -p $(npx nx show projects --affected --files=libs/shared/src/lib/types/rpc/rpc-agents.types.ts,libs/shared/src/lib/types/rpc/rpc-auth.types.ts,libs/backend/platform-core/src/file-settings-keys.ts --sep=,)`.
+- 17a, 25a, 25b, 26a, 26b, 27a, 27b, 28a, 28b, 29b: `npx nx run-many -t test,lint,typecheck -p @ptah-extension/agent-sdk`; `npx nx run-many -t typecheck -p $(npx nx show projects --affected --files=libs/backend/agent-sdk/src/index.ts --sep=,)`. This covers the three apps when 17a or 25b edits a host file.
+- 17b: `test,lint,typecheck -p @ptah-extension/rpc-handlers @ptah-extension/agent-sdk`, plus typecheck of the affected set for `libs/backend/rpc-handlers/src/index.ts` and `libs/backend/agent-sdk/src/index.ts`.
+- 28c, 29a: `test,lint,typecheck -p @ptah-extension/shared @ptah-extension/agent-sdk`, plus typecheck of the affected set for the changed shared file.
+- 28d: `test,lint,typecheck -p @ptah-extension/rpc-handlers`, plus typecheck of the affected set for its index.
+- 28e: `test,lint,typecheck` on the chat-streaming project, plus typecheck of the affected set for `libs/frontend/chat-streaming/src/index.ts`.
+- 31: `test,lint,typecheck -p @ptah-extension/chat`, plus typecheck of the affected set for `libs/frontend/chat/src/index.ts`.
+- 35a: `test,lint,typecheck -p @ptah-extension/cli-agent-runtime @ptah-extension/shared`, plus typecheck of the affected set for `libs/shared/src/lib/types/agent-process.types.ts`.
+- 35b, 35c: `test,lint,typecheck -p @ptah-extension/cli-agent-runtime`, plus typecheck of the affected set for `libs/backend/cli-agent-runtime/src/index.ts`.
+
+### D.6 Phase S4-b review and completion evidence
+
+- One code-logic review on the combined Wave D diff, after the last of 31 and 35c commits.
+- A style review too, because Wave D adds new public API: setting keys, `SessionBudgetState.rotation`, and the subagent payload field.
+- Visual evidence for 31: dark and light screenshots of the chat view with the rotation variant. The banner is an existing surface with a new variant, so no prototype is required, but "before" screenshots from base commit `492b0762c` are required. This is a judgment call (D-5).
+- Mode 3 write-path trace: the Batch 16 keys and the 17b `agent:setConfig` write go to the file store, and the reader is the ConfigManager key set confirmed by 17.1 (AS14).
+- Parity: N/A, because no surface is replaced. A6 extends the N8 banner.
+
+### D.7 Deviations and risks the orchestrator must decide
+
+- D-1: the new key `compaction.subagentStopWeightedTokens` (provisional 3,000,000) is added in 16.2, read in 17a and exported in 17b. The addendum names it, but the old Batch 16 did not.
+- D-2: drop 29.3 and 30.1 (NO-OP). The user's order listed 30.1, but the N8 result-stats path already forwards the budget state, so a second channel would duplicate it. Confirm, or keep a separate `session:contextAdvisory` message (that restores 29.1, 29.3, 30.1 and old 31.2, and adds about 6 files).
+- D-3: 26.2 is the single per-turn reader, but N8's apply read-back stays direct, because caching would break the before/after check. The alternative of routing the read-back through an uncached port method changes `session-control.service.ts`, which #639 shipped.
+- D-4: the seed comes from N8 `preview-handoff` with an 8,200-character cap, instead of A6's own 4,000-character `seedPrompt`.
+- D-5: visual evidence for 31 uses before/after screenshots, not a prototype.
+- R-W1 (HIGH, avoided): `compaction.threshold` stays out of Wave D, because moving it to the file store without the 17.2 migration loses saved values.
+- R-W2 (MEDIUM): `preview-handoff` may refuse when the budget is disabled. Handled in 29a.
+- R-W3 (MEDIUM): A-W1. 28c stops if no existing subagent event can carry the figure.
+- R-W4 (LOW): order of events. The advisor may use the previous turn's port reading if the budget is observed before the turn-end port read, so the advisory can arrive one turn late. Accepted and recorded in the 29a spec.
+- R1 relay rule: every executor stops at about 150k context or 60 tool calls and writes a progress note. A fresh agent then continues from the note.
+
+Orchestrator decision (2026-10-04): D-1 to D-5 ACCEPTED as written (inside user decision 9 "rebuild A6 on N8").
+
+State: 16 and 35a IN_PROGRESS (W1). Everything else in this section is PENDING.
+
+---
+
 ## Batch 24: Output budget engine moves to tool-output-reducers (S4, component 18 part 1) — COMPLETE (S4 wave A; commit 7099066f3; report reports/batch-24-report.md)
 
 - Recommended executor: backend-developer
@@ -1840,7 +1952,7 @@ In a fresh worktree, run `npx nx run ptah-electron:build-workspace-watch-host` o
 
 ---
 
-## Batch 25: A3 capper wiring (S4, component 18 part 2) — PENDING (S4 Wave D; #639 merged; see § S4 stage start and context.md § Handoff 4)
+## Batch 25: A3 capper wiring (S4, component 18 part 2) — PENDING (S4 Wave D as 25a + 25b; see § S4 Wave D plan)
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer re-run
@@ -1885,7 +1997,7 @@ In a fresh worktree, run `npx nx run ptah-electron:build-workspace-watch-host` o
 
 ---
 
-## Batch 26: A8 coordinator core and context-usage port (S4, component 21 part 1) — PENDING (S4 Wave D; #639 merged; see § S4 stage start and context.md § Handoff 4)
+## Batch 26: A8 coordinator core and context-usage port (S4, component 21 part 1) — PENDING (S4 Wave D as 26a + 26b; Task 26.2 rescoped in § S4 Wave D plan D.3)
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer re-run
@@ -1931,7 +2043,7 @@ In a fresh worktree, run `npx nx run ptah-electron:build-workspace-watch-host` o
 
 ---
 
-## Batch 27: A8 wiring — watchdog, hooks, executor, events (S4, component 21 part 2) — PENDING (S4 Wave D; #639 merged; see § S4 stage start and context.md § Handoff 4)
+## Batch 27: A8 wiring — watchdog, hooks, executor, events (S4, component 21 part 2) — PENDING (S4 Wave D as 27a + 27b; see § S4 Wave D plan)
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer re-run
@@ -1966,7 +2078,7 @@ In a fresh worktree, run `npx nx run ptah-electron:build-workspace-watch-host` o
 
 ---
 
-## Batch 28: A5 subagent budget monitor (S4, component 19) — PENDING (S4 Wave D; #639 merged; see § S4 stage start and context.md § Handoff 4)
+## Batch 28: A5 subagent budget monitor (S4, component 19) — PENDING (S4 Wave D as 28a-28e; Task 28.2 replaced by addendum Component 10 parts 10.1-10.3, § S4 Wave D plan D.4)
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer re-run
@@ -2012,7 +2124,7 @@ In a fresh worktree, run `npx nx run ptah-electron:build-workspace-watch-host` o
 
 ---
 
-## Batch 29: A6 rotation advisor backend (S4, component 20 backend) — PENDING (S4 Wave D; #639 merged; see § S4 stage start and context.md § Handoff 4)
+## Batch 29: A6 rotation advisor backend (S4, component 20 backend) — PENDING (S4 Wave D as 29a + 29b, rebuilt on N8; Task 29.1 rescoped to a `SessionBudgetState.rotation` field; Task 29.3 NO-OP pending D-2; § S4 Wave D plan D.3)
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer re-run
@@ -2056,7 +2168,7 @@ In a fresh worktree, run `npx nx run ptah-electron:build-workspace-watch-host` o
 
 ---
 
-## Batch 30: Advisory notifier and A7 curator guardrail (S4, component 20) — PENDING (Task 30.2 COMPLETE in S4 wave A, commit 539fed084, report reports/batch-30-2-report.md; Task 30.1 PENDING with Batch 29, S4 Wave D)
+## Batch 30: Advisory notifier and A7 curator guardrail (S4, component 20) — PENDING (Task 30.2 COMPLETE in S4 wave A, commit 539fed084, report reports/batch-30-2-report.md; Task 30.1 NO-OP in S4 Wave D pending orchestrator decision D-2: the N8 result-stats path already forwards the budget state; § S4 Wave D plan D.3)
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer re-run
@@ -2092,7 +2204,7 @@ In a fresh worktree, run `npx nx run ptah-electron:build-workspace-watch-host` o
 
 ---
 
-## Batch 31: Session rotation banner (S4, component 20 frontend) — PENDING (S4 Wave D; #639 merged; see § S4 stage start and context.md § Handoff 4)
+## Batch 31: Session rotation banner (S4, component 20 frontend) — PENDING (S4 Wave D; rebuilt as a `rotation` variant of `session-budget-banner`, no new component; old Task 31.2 dropped; § S4 Wave D plan D.3)
 
 - Recommended executor: frontend-developer
 - Fallback executor: frontend-developer re-run
@@ -2270,7 +2382,7 @@ In a fresh worktree, run `npx nx run ptah-electron:build-workspace-watch-host` o
 
 ---
 
-## Batch 35: Lane budget guard and blocked models (S4, component 16 + R9.5) — PENDING (S4 Wave D; #639 merged; see § S4 stage start and context.md § Handoff 4)
+## Batch 35: Lane budget guard and blocked models (S4, component 16 + R9.5) — IN_PROGRESS (S4 Wave D as 35a IN_PROGRESS, then 35b after Batch 16, then 35c; § S4 Wave D plan)
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer re-run
@@ -2280,7 +2392,7 @@ In a fresh worktree, run `npx nx run ptah-electron:build-workspace-watch-host` o
 - Phase: S4-b
 - Verify: `npx nx run-many -t test,lint,typecheck -p @ptah-extension/cli-agent-runtime @ptah-extension/shared`; `npx nx run-many -t typecheck -p $(npx nx show projects --affected --files=libs/shared/src/lib/types/agent-process.types.ts --sep=,)`; `npx nx run di-lint:lint`; `npx nx run degradation-audit:lint`
 
-### Task 35.1: `LaneBudgetGuard` — PENDING
+### Task 35.1: `LaneBudgetGuard` — IN_PROGRESS
 
 - File: `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/cli-agent-runtime/src/lib/cli-agents/lane-budget-guard.ts` (+ spec)
 - Plan reference: implementation-plan.md:1101-1117
@@ -2289,7 +2401,7 @@ In a fresh worktree, run `npx nx run ptah-electron:build-workspace-watch-host` o
 - Validation notes: cursor keys may be coarser (accepted, recorded).
 - Implementation details: spec: steer once at 40, stop at 60, repeat at 20, settings honoured; a long run of identical `glob` calls stops at the repeat threshold, and varied `glob` args stop at the call budget (Batch 10 finding b).
 
-### Task 35.2: `AgentProcessInfo.stopReason` — PENDING
+### Task 35.2: `AgentProcessInfo.stopReason` — IN_PROGRESS
 
 - File: `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/shared/src/lib/types/agent-process.types.ts`
 - Plan reference: implementation-plan.md:452-453

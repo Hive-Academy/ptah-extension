@@ -250,6 +250,31 @@ describe('isFileBasedSettingKey', () => {
     });
   });
 
+  describe('compaction and lane-guard keys (TASK_2026_597 Wave D)', () => {
+    const wave = {
+      'compaction.toolOutputBudgetTokens': 2500,
+      'compaction.subagentHandoffTokens': 150000,
+      'compaction.rotationSuggestTokens': 300000,
+      'compaction.subagentStopWeightedTokens': 3000000,
+      'agentOrchestration.laneToolCallSteerAt': 40,
+      'agentOrchestration.laneToolCallStopAt': 60,
+      'agentOrchestration.laneRepeatCallStopAt': 20,
+    } as const;
+
+    it.each(Object.entries(wave))(
+      'registers and defaults %s to %s',
+      (key, expected) => {
+        expect(FILE_BASED_SETTINGS_KEYS.has(key)).toBe(true);
+        expect(isFileBasedSettingKey(key)).toBe(true);
+        expect(FILE_BASED_SETTINGS_DEFAULTS[key]).toBe(expected);
+      },
+    );
+
+    it('keeps compaction.threshold out of the file-based set', () => {
+      expect(FILE_BASED_SETTINGS_KEYS.has('compaction.threshold')).toBe(false);
+    });
+  });
+
   describe('subagent prompt-cache TTL key (TASK_2026_597 N1)', () => {
     // Written through `agent:setConfig`; unrouted, the write would be dropped
     // while the read still served the default.
