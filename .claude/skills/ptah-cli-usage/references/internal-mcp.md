@@ -13,7 +13,7 @@ Source of truth:
 
 ## 1. Tool count
 
-**51 tools with every namespace enabled.**
+**52 tools with every namespace enabled.**
 
 Namespaces can be disabled: adding a namespace key to the
 `ptah.agentOrchestration.disabledMcpNamespaces` setting (a string array,
@@ -22,7 +22,7 @@ also settable with `ptah agent-cli config set --key disabledMcpNamespaces
 
 The `ide` group (3 tools) additionally requires `hasIDECapabilities ===
 true`, set by the host adapter. It is **absent outside an IDE host**, so
-a headless `ptah mcp-serve` or an Electron host advertises **49**.
+a headless `ptah mcp-serve` or an Electron host advertises **50**.
 
 | Namespace key | Toggle value                         | Tools | Extra requirement    |
 | ------------- | ------------------------------------ | ----- | -------------------- |
@@ -33,9 +33,9 @@ a headless `ptah mcp-serve` or an Electron host advertises **49**.
 | `json`        | `disabledMcpNamespaces: ['json']`    | 1     | —                    |
 | `browser`     | `disabledMcpNamespaces: ['browser']` | 11    | —                    |
 | `harness`     | `disabledMcpNamespaces: ['harness']` | 6     | —                    |
-| `code`        | `disabledMcpNamespaces: ['code']`    | 9     | —                    |
+| `code`        | `disabledMcpNamespaces: ['code']`    | 10    | —                    |
 
-12 + 3 + 7 + 3 + 1 + 11 + 6 + 9 = **52**.
+12 + 3 + 7 + 3 + 1 + 11 + 6 + 10 = **53**.
 
 ---
 
@@ -80,15 +80,15 @@ Absent unless the host reports IDE capabilities.
 
 ## 4. `agent` namespace (7)
 
-| Name                 | Returns                                         |
-| -------------------- | ----------------------------------------------- |
-| `ptah_agent_spawn`   | `SpawnAgentResult { agentId, cli, status, … }`. |
-| `ptah_agent_status`  | `AgentProcessInfo` (or array of all agents).    |
-| `ptah_agent_read`    | Buffered stdout/stderr + exit code if finished. |
-| `ptah_agent_message` | `{ agentId, mode, detail? }` — instruct a running agent. |
+| Name                 | Returns                                                                                   |
+| -------------------- | ----------------------------------------------------------------------------------------- |
+| `ptah_agent_spawn`   | `SpawnAgentResult { agentId, cli, status, … }`.                                           |
+| `ptah_agent_status`  | `AgentProcessInfo` (or array of all agents).                                              |
+| `ptah_agent_read`    | Buffered stdout/stderr + exit code if finished.                                           |
+| `ptah_agent_message` | `{ agentId, mode, detail? }` — instruct a running agent.                                  |
 | `ptah_agent_report`  | `{ delivered, reason?, parentSessionId? }` — a spawned agent reports back to its spawner. |
-| `ptah_agent_stop`    | Final `AgentProcessInfo` after termination.     |
-| `ptah_agent_list`    | Detected CLIs + configured Ptah CLI agents.     |
+| `ptah_agent_stop`    | Final `AgentProcessInfo` after termination.                                               |
+| `ptah_agent_list`    | Detected CLIs + configured Ptah CLI agents.                                               |
 
 `ptah_agent_list` is how an agent DISCOVERS the available CLI vendors.
 Never hardcode a roster.
@@ -180,26 +180,28 @@ own `--settings`.
 
 ---
 
-## 9. `code` namespace (9)
+## 9. `code` namespace (10)
 
-| Name                           | Returns                                     |
-| ------------------------------ | ------------------------------------------- |
-| `ptah_ast_analyze`             | Tree-sitter structure of one JS/TS file.    |
-| `ptah_context_enrich_file`     | `.d.ts`-style structural summary of a file. |
-| `ptah_get_dependents`          | Files that depend on the target.            |
-| `ptah_get_dependencies`        | Files the target depends on.                |
-| `ptah_get_symbol_index`        | Symbol index for the workspace.             |
-| `ptah_code_search_symbols`     | Hybrid BM25 + vector symbol search.         |
-| `ptah_memory_search`           | Hybrid search over persistent memory.       |
-| `ptah_relevance_rank_files`    | Files ranked by relevance to a query.       |
-| `ptah_project_detect_monorepo` | Monorepo layout detection result.           |
+| Name                           | Returns                                       |
+| ------------------------------ | --------------------------------------------- |
+| `ptah_ast_analyze`             | Tree-sitter structure of one JS/TS file.      |
+| `ptah_context_enrich_file`     | `.d.ts`-style structural summary of a file.   |
+| `ptah_get_dependents`          | Files that depend on the target.              |
+| `ptah_get_dependencies`        | Files the target depends on.                  |
+| `ptah_get_symbol_index`        | Symbol index for the workspace.               |
+| `ptah_code_search_symbols`     | Hybrid BM25 + vector symbol search.           |
+| `ptah_code_reindex`            | Background full reindex, or one file's stats. |
+| `ptah_memory_search`           | Hybrid search over persistent memory.         |
+| `ptah_relevance_rank_files`    | Files ranked by relevance to a query.         |
+| `ptah_project_detect_monorepo` | Monorepo layout detection result.             |
 
 `ast_analyze`, `context_enrich_file`, `get_dependencies`,
 `relevance_rank_files` and `project_detect_monorepo` work on every
 runtime. `code_search_symbols` and `memory_search` are backed by the
 SQLite index and return a graceful "unavailable" result where that index
 is absent (for example inside VS Code) — fall back to
-`ptah_search_files` there.
+`ptah_search_files` there. `code_reindex` returns an error result where
+that index is absent.
 
 ---
 

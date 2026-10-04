@@ -9,11 +9,11 @@ side of the exchange.
 
 ## Modes
 
-| Mode | Invoke when | It produces |
-| --- | --- | --- |
-| 1 — Decomposition | Architect approved (BUGFIX: plan-free, after init and any required research/design gate); no `batches.md` yet | `batches.md`, Batch 1 marked `IN_PROGRESS` |
-| 2 — Verify and commit | An executor returned a report, or a phase review verdict is ready | A commit plus the next assignment, a phase review request, or a rejection |
-| 3 — Completion | Every batch is `COMPLETE` | Final verification summary and QA options |
+| Mode                  | Invoke when                                                                                                   | It produces                                                               |
+| --------------------- | ------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| 1 — Decomposition     | Architect approved (BUGFIX: plan-free, after init and any required research/design gate); no `batches.md` yet | `batches.md`, Batch 1 marked `IN_PROGRESS`                                |
+| 2 — Verify and commit | An executor returned a report, or a phase review verdict is ready                                             | A commit plus the next assignment, a phase review request, or a rejection |
+| 3 — Completion        | Every batch is `COMPLETE`                                                                                     | Final verification summary and QA options                                 |
 
 ```typescript
 Task({
@@ -66,16 +66,16 @@ its approval and review are not required either.
 Every return ends with a `### Next action:` line. Do what it says; the heading tells you which case
 you are in.
 
-| Return heading | Your action |
-| --- | --- |
-| `DECOMPOSITION COMPLETE` | Spawn Batch 1's executor (below) |
-| `DECOMPOSITION BLOCKED` | Plan-free BUGFIX: return the blocking questions to the orchestrator, who runs Gate SR or commissions researcher-expert, then re-invokes Mode 1; no software-architect/Gate 2 for a flow without a plan. Planned flows: re-invoke software-architect with the blocking issues, refresh the document review, then Gate 2 again. |
-| `BATCH [N] PARTIAL FAILURE` | Re-invoke the same executor for the missing tasks only |
-| `NEEDS REVIEW` | A phase review is due. Pick each reviewer's execution side per agent-lanes §6. Obtain the phase's code-logic review of the combined diff (`code-logic-review.md`; reuse an eligible existing review) and invoke any additional named reviewer. Re-invoke Mode 2 with each review's actual report path (`code-logic-review.md`, `code-style-review.md`, `visual-review.md` as applicable) and verdict |
-| `BATCH [N] NOT ACCEPTED` | Re-invoke the same executor with the listed issues (a failing scoped check, or the fix batch for a rejected phase review), then Mode 2 again |
-| `BATCH [N] COMPLETE` | Spawn the next batch's executor |
-| `ALL BATCHES COMPLETE` | Invoke Mode 3 |
-| `TASK COMPLETE` | Present Gate 3 with the options it returned |
+| Return heading              | Your action                                                                                                                                                                                                                                                                                                                                                                                          |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DECOMPOSITION COMPLETE`    | Spawn Batch 1's executor (below)                                                                                                                                                                                                                                                                                                                                                                     |
+| `DECOMPOSITION BLOCKED`     | Plan-free BUGFIX: return the blocking questions to the orchestrator, who runs Gate SR or commissions researcher-expert, then re-invokes Mode 1; no software-architect/Gate 2 for a flow without a plan. Planned flows: re-invoke software-architect with the blocking issues, refresh the document review, then Gate 2 again.                                                                        |
+| `BATCH [N] PARTIAL FAILURE` | Re-invoke the same executor for the missing tasks only                                                                                                                                                                                                                                                                                                                                               |
+| `NEEDS REVIEW`              | A phase review is due. Pick each reviewer's execution side per agent-lanes §6. Obtain the phase's code-logic review of the combined diff (`code-logic-review.md`; reuse an eligible existing review) and invoke any additional named reviewer. Re-invoke Mode 2 with each review's actual report path (`code-logic-review.md`, `code-style-review.md`, `visual-review.md` as applicable) and verdict |
+| `BATCH [N] NOT ACCEPTED`    | Re-invoke the same executor with the listed issues (a failing scoped check, or the fix batch for a rejected phase review), then Mode 2 again                                                                                                                                                                                                                                                         |
+| `BATCH [N] COMPLETE`        | Spawn the next batch's executor                                                                                                                                                                                                                                                                                                                                                                      |
+| `ALL BATCHES COMPLETE`      | Invoke Mode 3                                                                                                                                                                                                                                                                                                                                                                                        |
+| `TASK COMPLETE`             | Present Gate 3 with the options it returned                                                                                                                                                                                                                                                                                                                                                          |
 
 A hook failure during its commit is your gate: [git-standards.md](git-standards.md#hook-failure-protocol).
 
