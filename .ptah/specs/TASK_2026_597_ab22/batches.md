@@ -3381,7 +3381,7 @@ When Batch 28 is scheduled, its decomposition adds these parts. Task 28.2 stays 
 
 ---
 
-## Batch 57: N7 `session:budgetAction` RPC unit — IN_PROGRESS (PR 3, decision 13)
+## Batch 57: N7 `session:budgetAction` RPC unit — COMPLETE (PR 3, decision 13; report batch-57-executor-report.md)
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer re-run
@@ -3500,7 +3500,7 @@ When Batch 28 is scheduled, its decomposition adds these parts. Task 28.2 stays 
 
 ---
 
-## Batch 60: N7 chip, banner, chat-view mount — PENDING (PR 3, decision 13)
+## Batch 60: N7 chip, banner, chat-view mount — IN_PROGRESS (PR 3, decision 13)
 
 - Recommended executor: frontend-developer
 - Fallback executor: frontend-developer re-run

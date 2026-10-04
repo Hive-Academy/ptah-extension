@@ -211,4 +211,9 @@ describe('VS Code RPC surface', () => {
     const registered = new Set(surface.registered);
     expect(surface.excluded.filter((m) => registered.has(m))).toEqual([]);
   });
+
+  it('serves the session budget banner action (TASK_2026_597 N7)', () => {
+    expect(surface.registered).toContain('session:budgetAction');
+    expect(surface.excluded).not.toContain('session:budgetAction');
+  });
 });

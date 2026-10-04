@@ -79,6 +79,7 @@ export type {
 export { EmbedderRpcHandlers } from './embedder-rpc.handlers';
 export { TasksRpcHandlers } from './tasks-rpc.handlers';
 export { SessionOrganizationRpcHandlers } from './session-organization-rpc.handlers';
+export { SessionBudgetRpcHandlers } from './session-budget-rpc.handlers';
 export { ElectronFileOpenRpcHandlers } from './file-open-rpc.handlers';
 export { EditorRpcHandlers } from './editor-rpc.handlers';
 export { FileViewRpcHandlers } from './file-view-rpc.handlers';
