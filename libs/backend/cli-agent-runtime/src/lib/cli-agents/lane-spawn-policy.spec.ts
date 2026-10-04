@@ -1,11 +1,34 @@
 import {
   CODEX_LANE_DEFAULT_MODEL,
+  findBlockedLaneModel,
   isReviewerOrTester,
   resolveLaneEffort,
   resolveLaneModel,
 } from './lane-spawn-policy';
 
 describe('lane spawn policy (TASK_2026_597, D4)', () => {
+  describe('findBlockedLaneModel()', () => {
+    it('matches the bare id and a provider-prefixed id, case-insensitively', () => {
+      expect(findBlockedLaneModel('mimo-v2.6-flash-free')).toBe(
+        'mimo-v2.6-flash-free',
+      );
+      expect(findBlockedLaneModel('opencode/mimo-v2.6-flash-free')).toBe(
+        'mimo-v2.6-flash-free',
+      );
+      expect(findBlockedLaneModel('a/b/MiMo-V2.6-Flash-Free')).toBe(
+        'mimo-v2.6-flash-free',
+      );
+    });
+
+    it('does not match other models or an empty value', () => {
+      expect(findBlockedLaneModel('gpt-6-sol')).toBeUndefined();
+      expect(findBlockedLaneModel('mimo-v2.6-flash-free-x')).toBeUndefined();
+      expect(findBlockedLaneModel('mimo-v2.6-flash-free/other')).toBeUndefined();
+      expect(findBlockedLaneModel(undefined)).toBeUndefined();
+      expect(findBlockedLaneModel('')).toBeUndefined();
+    });
+  });
+
   describe('resolveLaneModel()', () => {
     it('uses the spawn request first', () => {
       expect(resolveLaneModel('codex', 'gpt-requested', 'gpt-setting')).toEqual(
