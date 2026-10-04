@@ -262,7 +262,7 @@ describe('applicableWindows / applicableOwnerEvidence (Req 4.5)', () => {
     expect(applicableOwnerEvidence(owner, ' OPUS ')).toHaveLength(2);
   });
 
-  it('an unknown scope matches unscoped windows only', () => {
+  it('an unknown scope matches unscoped windows only and records the omission', () => {
     expect(applicableWindows(owner, null).map((w) => w.key)).toEqual([
       'five_hour',
       'weekly',
@@ -271,6 +271,23 @@ describe('applicableWindows / applicableOwnerEvidence (Req 4.5)', () => {
       'five_hour',
       'weekly',
     ]);
+    expect(applicableLimits(owner, null).modelScopeUnresolved).toBe(true);
+    expect(applicableLimits(owner, '  ').modelScopeUnresolved).toBe(true);
+    expect(applicableLimits(owner, 'opus').modelScopeUnresolved).toBe(false);
+  });
+
+  it('scope completeness covers model-scoped evidence and weekly_model keys', () => {
+    const evidenceOnly = snapshot({
+      ownerEvidence: [ownerHit({ modelScope: 'opus' })],
+    });
+    expect(applicableLimits(evidenceOnly, undefined).modelScopeUnresolved).toBe(
+      true,
+    );
+    const keyOnly = snapshot({
+      windows: [win(), opusWeekly({ modelScope: undefined })],
+    });
+    expect(applicableLimits(keyOnly, null).modelScopeUnresolved).toBe(true);
+    expect(applicableLimits(snapshot(), null).modelScopeUnresolved).toBe(false);
   });
 
   it('reads the scope from a weekly_model key when none is declared', () => {
@@ -305,6 +322,48 @@ describe('classifyLaneState (design §2.2)', () => {
     const sonnet = classify(owner, 'sonnet');
     expect(sonnet.state).toBe('confirmed-room');
     expect(sonnet.windows.map((w) => w.window.key)).toEqual([
+      'five_hour',
+      'weekly',
+    ]);
+  });
+
+  it('unknown scope + fresh ok unscoped windows + exhausted weekly_model:opus is unknown, never confirmed room', () => {
+    const owner = snapshot({ windows: [win(), weekly(), opusWeekly()] });
+    for (const scope of [null, '', '  ']) {
+      const result = classify(owner, scope);
+      expect(result.state).toBe('unknown');
+      expect(result.state).not.toBe('confirmed-room');
+      expect(result.reasons).toEqual([{ kind: 'model-scope-unknown' }]);
+      // The Opus window may not apply, so it is not shown as the lane's limit.
+      expect(result.windows.map((w) => w.window.key)).toEqual([
+        'five_hour',
+        'weekly',
+      ]);
+    }
+  });
+
+  it('unknown scope + model-scoped owner evidence is unknown, never confirmed room', () => {
+    const owner = snapshot({
+      ownerEvidence: [ownerHit({ modelScope: 'opus' })],
+    });
+    const result = classify(owner, null);
+    expect(result.state).toBe('unknown');
+    expect(result.reasons).toEqual([{ kind: 'model-scope-unknown' }]);
+  });
+
+  it('unknown scope still reaches at-limit from an unscoped exhaustion', () => {
+    const owner = snapshot({
+      windows: [win(), weekly(), opusWeekly()],
+      ownerEvidence: [ownerHit({ resetsAt: at(4, 17, 5) })],
+    });
+    expect(classify(owner, null).state).toBe('at-limit');
+  });
+
+  it('unknown scope with only unscoped windows still confirms room', () => {
+    const result = classify(snapshot(), null);
+    expect(result.state).toBe('confirmed-room');
+    expect(result.reasons).toEqual([]);
+    expect(result.windows.map((w) => w.window.key)).toEqual([
       'five_hour',
       'weekly',
     ]);

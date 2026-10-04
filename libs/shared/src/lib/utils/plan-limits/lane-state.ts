@@ -84,7 +84,8 @@ function appliesToScope(
  * The windows of `owner` that apply to `modelScope` (Req 4.5). An unscoped
  * window applies to every model; a model-scoped window (`weekly_model:opus`)
  * applies only to the same scope, so an Opus-only exhaustion never touches a
- * Sonnet lane. A `null` scope matches unscoped windows only.
+ * Sonnet lane. A `null` scope matches unscoped windows only; `applicableLimits`
+ * records that omission so the lane cannot confirm room.
  */
 export function applicableWindows(
   owner: Pick<PlanLimitOwnerSnapshot, 'windows'>,
@@ -111,9 +112,27 @@ export function applicableOwnerEvidence(
 export interface ApplicableLimits {
   readonly status: ProviderAccountUsageStatus;
   readonly windowSetEstablished: boolean;
+  /**
+   * `true` when the lane's model scope is unknown and the owner holds
+   * model-scoped windows or evidence. Those were left out of `windows` and
+   * `ownerEvidence` because they may not apply, so the narrowed set is not
+   * known to be complete for this lane and can never confirm room.
+   */
+  readonly modelScopeUnresolved: boolean;
   readonly windows: readonly PlanLimitWindow[];
   readonly ownerEvidence: readonly OwnerLimitEvidence[];
   readonly cooldown?: PlanLimitCooldown;
+}
+
+function hasModelScopedLimits(
+  owner: Pick<PlanLimitOwnerSnapshot, 'windows' | 'ownerEvidence'>,
+): boolean {
+  return (
+    owner.windows.some((window) => windowModelScope(window) !== undefined) ||
+    owner.ownerEvidence.some(
+      (evidence) => normaliseScope(evidence.modelScope) !== undefined,
+    )
+  );
 }
 
 /**
@@ -127,6 +146,8 @@ export function applicableLimits(
   return {
     status: owner.status,
     windowSetEstablished: owner.windowSetEstablished,
+    modelScopeUnresolved:
+      normaliseScope(modelScope) === undefined && hasModelScopedLimits(owner),
     windows: applicableWindows(owner, modelScope),
     ownerEvidence: applicableOwnerEvidence(owner, modelScope),
     cooldown: owner.cooldown,
@@ -168,6 +189,7 @@ export type LaneStateReason =
   | { readonly kind: 'stale' }
   | { readonly kind: 'no-windows' }
   | { readonly kind: 'window-set-not-established' }
+  | { readonly kind: 'model-scope-unknown' }
   | { readonly kind: 'cooldown-active'; readonly cooldown: PlanLimitCooldown }
   | { readonly kind: 'estimated-limit'; readonly evidence: OwnerLimitEvidence }
   | {
@@ -249,6 +271,7 @@ function unknownReasons(
   else if (!limits.windowSetEstablished) {
     push({ kind: 'window-set-not-established' });
   }
+  if (limits.modelScopeUnresolved) push({ kind: 'model-scope-unknown' });
   if (limits.cooldown !== undefined && limits.cooldown.until > ctx.now) {
     push({ kind: 'cooldown-active', cooldown: limits.cooldown });
   }
@@ -279,8 +302,11 @@ function unknownReasons(
  *    establish this; it can never establish room.
  * 3. `confirmed-room` — the lookup succeeded, status `available`, the window
  *    set is established by a full-table read and non-empty, every applicable
- *    window is `ok`, no active cooldown and no active estimated limit.
- * 4. `unknown` — everything else, always with at least one reason.
+ *    window is `ok`, the model scope is known whenever the owner has
+ *    model-scoped limits, no active cooldown and no active estimated limit.
+ * 4. `unknown` — everything else, always with at least one reason. A lane
+ *    of unknown model scope whose owner has model-scoped limits lands here
+ *    (`model-scope-unknown`) rather than at a scoped window it may not run.
  *
  * `limits` is `undefined` when there is no snapshot for the lane's own owner;
  * the lane is then unknown and borrows nothing.
