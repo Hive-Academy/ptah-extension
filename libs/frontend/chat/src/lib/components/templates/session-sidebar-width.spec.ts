@@ -6,6 +6,7 @@ import {
   SESSION_SIDEBAR_MIN_WIDTH,
   SESSION_SIDEBAR_TAB_RESERVE,
   clampSessionSidebarWidth,
+  nextChosenSessionSidebarWidth,
   parseStoredSessionSidebarWidth,
   sessionSidebarWidthCap,
 } from './session-sidebar-width';
@@ -36,6 +37,20 @@ describe('clampSessionSidebarWidth', () => {
     expect(clampSessionSidebarWidth(120, 400)).toBe(SESSION_SIDEBAR_MIN_WIDTH);
     expect(clampSessionSidebarWidth(450, 400)).toBe(400);
     expect(clampSessionSidebarWidth(250.6, 400)).toBe(251);
+  });
+});
+
+describe('nextChosenSessionSidebarWidth', () => {
+  it('keeps a wider choice when the cap turns the request into no change', () => {
+    // Chosen 480, capped at 224: ArrowRight (+16) and an outward drag.
+    expect(nextChosenSessionSidebarWidth(240, 480, 224)).toBe(480);
+    expect(nextChosenSessionSidebarWidth(600, 480, 224)).toBe(480);
+  });
+
+  it('stores a request that changes the rendered width', () => {
+    expect(nextChosenSessionSidebarWidth(208, 480, 224)).toBe(208);
+    expect(nextChosenSessionSidebarWidth(300, 272, 400)).toBe(300);
+    expect(nextChosenSessionSidebarWidth(600, 272, 400)).toBe(400);
   });
 });
 

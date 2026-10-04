@@ -46,7 +46,7 @@ import {
   SESSION_SIDEBAR_MIN_WIDTH,
   SESSION_SIDEBAR_WIDTH_STEP,
   SESSION_SIDEBAR_WIDTH_STORAGE_KEY,
-  clampSessionSidebarWidth,
+  nextChosenSessionSidebarWidth,
   parseStoredSessionSidebarWidth,
   sessionSidebarWidthCap,
 } from './session-sidebar-width';
@@ -562,10 +562,14 @@ export class AppShellComponent {
     return () => observer.disconnect();
   }
 
-  /** Clamp to the bounds and the current cap, and store as the choice. */
+  /** Store a drag or keyboard request; see nextChosenSessionSidebarWidth. */
   private applySidebarWidth(width: number): void {
     this.chosenSidebarWidth.set(
-      clampSessionSidebarWidth(width, this.sidebarMaxWidth()),
+      nextChosenSessionSidebarWidth(
+        width,
+        this.chosenSidebarWidth(),
+        this.sidebarMaxWidth(),
+      ),
     );
   }
 

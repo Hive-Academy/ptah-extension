@@ -45,6 +45,20 @@ export function clampSessionSidebarWidth(width: number, cap: number): number {
   return clamp(Math.round(width), SESSION_SIDEBAR_MIN_WIDTH, cap);
 }
 
+/**
+ * The chosen width after a drag or keyboard request. A request the cap turns
+ * into no visible change keeps the current choice, so a wider preference
+ * survives ArrowRight or an outward drag on a capped sidebar.
+ */
+export function nextChosenSessionSidebarWidth(
+  requested: number,
+  chosen: number,
+  cap: number,
+): number {
+  const next = clampSessionSidebarWidth(requested, cap);
+  return next === Math.min(chosen, cap) ? chosen : next;
+}
+
 /** The persisted width, or the default when missing or not a number. */
 export function parseStoredSessionSidebarWidth(stored: string | null): number {
   if (stored === null) return SESSION_SIDEBAR_DEFAULT_WIDTH;
