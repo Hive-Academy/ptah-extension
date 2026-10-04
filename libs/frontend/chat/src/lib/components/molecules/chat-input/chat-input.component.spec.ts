@@ -847,6 +847,37 @@ describe('ChatInputComponent', () => {
       );
     });
 
+    // TASK_2026_597 N7: a send refused at the session budget limit keeps the
+    // draft; any other outcome clears the composer as before.
+    it('keeps the draft when the send is refused at the budget limit', async () => {
+      mockChatStore.sendOrQueueMessage.mockResolvedValueOnce({
+        success: false,
+        error: 'Session budget reached',
+        errorCode: 'SESSION_BUDGET_REACHED',
+      });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (component as any)._currentMessage.set('keep me');
+
+      await component.handleSend();
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      expect((component as any)._currentMessage()).toBe('keep me');
+    });
+
+    it('clears the draft after any other failed send', async () => {
+      mockChatStore.sendOrQueueMessage.mockResolvedValueOnce({
+        success: false,
+        error: 'not sent',
+      });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (component as any)._currentMessage.set('gone');
+
+      await component.handleSend();
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      expect((component as any)._currentMessage()).toBe('');
+    });
+
     it('should preserve colon in namespaced commands with args', async () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (component as any)._currentMessage.set('/ptah-core:review-code file.ts');

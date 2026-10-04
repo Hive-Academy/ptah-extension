@@ -409,9 +409,13 @@ describe('MessageSenderService', () => {
       it('also removes the bubble when a rejected queue flush re-queues the text', async () => {
         failContinue({ success: true, data: { success: false, error: 'no' } });
 
-        await service.continueExistingSessionForQueueFlush('queued', 'sess-X' as SessionId, {
-          tabId: 'tab-1',
-        });
+        await service.continueExistingSessionForQueueFlush(
+          'queued',
+          'sess-X' as SessionId,
+          {
+            tabId: 'tab-1',
+          },
+        );
 
         expect(removeBoundary).toHaveBeenCalledWith(
           'tab-1',
@@ -423,9 +427,13 @@ describe('MessageSenderService', () => {
       it('also removes the bubble when a queue flush throws', async () => {
         failContinue(new Error('socket closed'), true);
 
-        await service.continueExistingSessionForQueueFlush('queued', 'sess-X' as SessionId, {
-          tabId: 'tab-1',
-        });
+        await service.continueExistingSessionForQueueFlush(
+          'queued',
+          'sess-X' as SessionId,
+          {
+            tabId: 'tab-1',
+          },
+        );
 
         expect(removeBoundary).toHaveBeenCalledWith(
           'tab-1',
@@ -434,12 +442,77 @@ describe('MessageSenderService', () => {
         expect(tabsSignal()[0].messages).toEqual([]);
       });
 
+      // TASK_2026_597 N7: the session is at its budget limit.
+      it.each([
+        [
+          'on data',
+          {
+            success: true,
+            data: {
+              success: false,
+              errorCode: 'SESSION_BUDGET_REACHED',
+              error: 'Session budget reached',
+            },
+          },
+        ],
+        [
+          'on the envelope',
+          {
+            success: false,
+            errorCode: 'SESSION_BUDGET_REACHED',
+            error: 'Session budget reached',
+          },
+        ],
+      ])(
+        'refuses at the budget limit (%s): bubble and boundary go, code returned, no retry, no auth banner',
+        async (_where, continueResult) => {
+          failContinue(continueResult);
+
+          const outcome = await service.send('over budget', { tabId: 'tab-1' });
+
+          expect(outcome).toEqual({
+            success: false,
+            error: 'Session budget reached',
+            errorCode: 'SESSION_BUDGET_REACHED',
+          });
+          expect(removeBoundary).toHaveBeenCalledWith(
+            'tab-1',
+            recordedBubbleId(),
+          );
+          expect(tabsSignal()[0].messages).toEqual([]);
+          expect(tabsSignal()[0].status).toBe('loaded');
+          expect(streamingTabIds.has('tab-1')).toBe(false);
+          expect(
+            rpcCall.mock.calls.filter(([method]) => method === 'chat:continue'),
+          ).toHaveLength(1);
+          expect(
+            rpcCall.mock.calls.some(([method]) => method === 'chat:start'),
+          ).toBe(false);
+          expect(flagAuthRequired).not.toHaveBeenCalled();
+        },
+      );
+
+      it('returns no error code for any other rejection', async () => {
+        failContinue({
+          success: true,
+          data: { success: false, errorCode: 'AUTH_REQUIRED', error: 'auth' },
+        });
+
+        const outcome = await service.send('follow up', { tabId: 'tab-1' });
+
+        expect(outcome).toEqual({ success: false, error: 'auth' });
+      });
+
       it('rolls nothing back when the continue is delivered', async () => {
         failContinue({ success: true });
 
-        await service.continueExistingSessionForQueueFlush('queued', 'sess-X' as SessionId, {
-          tabId: 'tab-1',
-        });
+        await service.continueExistingSessionForQueueFlush(
+          'queued',
+          'sess-X' as SessionId,
+          {
+            tabId: 'tab-1',
+          },
+        );
 
         expect(removeBoundary).not.toHaveBeenCalled();
         expect(tabsSignal()[0].messages).toHaveLength(1);
@@ -1119,9 +1192,13 @@ describe('MessageSenderService', () => {
       const existing = new AbortController();
       tabManager.getAbortSignal.mockReturnValue(existing.signal);
 
-      await service.continueExistingSessionForQueueFlush('queued', 'sess-X' as SessionId, {
-        tabId: 'tab-1',
-      });
+      await service.continueExistingSessionForQueueFlush(
+        'queued',
+        'sess-X' as SessionId,
+        {
+          tabId: 'tab-1',
+        },
+      );
 
       expect(tabManager.createAbortController).not.toHaveBeenCalled();
       // The chat:continue RPC must carry the reused signal so stop/close still
@@ -1137,9 +1214,13 @@ describe('MessageSenderService', () => {
     it('sends with no signal when no existing controller is tracked (already finalized)', async () => {
       tabManager.getAbortSignal.mockReturnValue(undefined);
 
-      await service.continueExistingSessionForQueueFlush('queued', 'sess-X' as SessionId, {
-        tabId: 'tab-1',
-      });
+      await service.continueExistingSessionForQueueFlush(
+        'queued',
+        'sess-X' as SessionId,
+        {
+          tabId: 'tab-1',
+        },
+      );
 
       // Clean tab — must NOT install a fresh controller (that would be the
       // old band-aid behavior that risks aborting a still-tracked controller
@@ -1159,12 +1240,16 @@ describe('MessageSenderService', () => {
     it('forwards files, images, and effort to the chat:continue payload', async () => {
       tabManager.getAbortSignal.mockReturnValue(undefined);
 
-      await service.continueExistingSessionForQueueFlush('queued', 'sess-X' as SessionId, {
-        tabId: 'tab-1',
-        files: ['a.ts', 'b.ts'],
-        images: [{ data: 'base64', mediaType: 'image/png' }],
-        effort: 'high',
-      });
+      await service.continueExistingSessionForQueueFlush(
+        'queued',
+        'sess-X' as SessionId,
+        {
+          tabId: 'tab-1',
+          files: ['a.ts', 'b.ts'],
+          images: [{ data: 'base64', mediaType: 'image/png' }],
+          effort: 'high',
+        },
+      );
 
       const continueCall = rpcCall.mock.calls.find(
         (c) => c[0] === 'chat:continue',
@@ -1185,9 +1270,13 @@ describe('MessageSenderService', () => {
       const existing = new AbortController();
       tabManager.getAbortSignal.mockReturnValue(existing.signal);
 
-      await service.continueExistingSessionForQueueFlush('queued', 'sess-X' as SessionId, {
-        tabId: 'tab-1',
-      });
+      await service.continueExistingSessionForQueueFlush(
+        'queued',
+        'sess-X' as SessionId,
+        {
+          tabId: 'tab-1',
+        },
+      );
 
       // The previous stream ended cleanly — the reused controller must NOT be
       // aborted, otherwise chat:abort would fire spuriously. The stop button

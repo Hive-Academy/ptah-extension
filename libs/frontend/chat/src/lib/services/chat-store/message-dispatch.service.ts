@@ -198,7 +198,14 @@ export class MessageDispatchService {
       return { success: true };
     }
     const outcome = await this.messageSender.send(content, options);
-    if (outcome && !outcome.success && resolvedTabId) {
+    // At the budget limit the composer keeps the draft and the budget banner
+    // explains the block, so no generic failure notice is added.
+    if (
+      outcome &&
+      !outcome.success &&
+      outcome.errorCode !== 'SESSION_BUDGET_REACHED' &&
+      resolvedTabId
+    ) {
       this.showSendFailure(resolvedTabId, outcome.error);
     }
     return outcome;
@@ -238,19 +245,25 @@ export class MessageDispatchService {
       }
       queuedOptions = tab?.queuedOptions ?? undefined;
       this.tabManager.clearQueuedContentAndOptions(tabId);
-      const outcome = await this.messageSender.continueExistingSessionForQueueFlush(
-        content,
-        sessionId,
-        { ...queuedOptions, tabId },
-      );
+      const outcome =
+        await this.messageSender.continueExistingSessionForQueueFlush(
+          content,
+          sessionId,
+          { ...queuedOptions, tabId },
+        );
       if (outcome && !outcome.success) {
         this.restoreFailedQueue(tabId, content, queuedOptions);
-        this.showSendFailure(tabId, outcome.error);
+        if (outcome.errorCode !== 'SESSION_BUDGET_REACHED') {
+          this.showSendFailure(tabId, outcome.error);
+        }
       }
     } catch (error) {
       console.error('[ChatStore] sendQueuedMessage failed:', error);
       this.restoreFailedQueue(tabId, content, queuedOptions);
-      this.showSendFailure(tabId, error instanceof Error ? error.message : undefined);
+      this.showSendFailure(
+        tabId,
+        error instanceof Error ? error.message : undefined,
+      );
     }
   }
 
@@ -271,34 +284,51 @@ export class MessageDispatchService {
     const targets = this.permissionHandler.targetTabsFor(perm.id);
     if (targets.length > 0) return targets.includes(tabId);
     if (perm.sessionId) {
-      return perm.sessionId === tabId || perm.sessionId === tab?.claudeSessionId;
+      return (
+        perm.sessionId === tabId || perm.sessionId === tab?.claudeSessionId
+      );
     }
     return tabId === this.tabManager.activeTabId();
   }
 
-  private restoreFailedQueue(tabId: string, content: string, options?: SendMessageOptions): void {
+  private restoreFailedQueue(
+    tabId: string,
+    content: string,
+    options?: SendMessageOptions,
+  ): void {
     const current = this.tabManager.findTabByIdAcrossWorkspaces(tabId)?.tab;
     const newer = current?.queuedContent;
     const newerOptions = current?.queuedOptions;
     // Restore before newer arrivals, preserving attachments from both. No retry
     // is dispatched here: delivery requires another explicit flush action.
-    this.tabManager.setQueuedContentAndOptions(tabId, newer ? `${content}
-${newer}` : content, {
-      ...options, ...newerOptions, tabId,
-      files: [...(options?.files ?? []), ...(newerOptions?.files ?? [])],
-      images: [...(options?.images ?? []), ...(newerOptions?.images ?? [])],
-    });
+    this.tabManager.setQueuedContentAndOptions(
+      tabId,
+      newer
+        ? `${content}
+${newer}`
+        : content,
+      {
+        ...options,
+        ...newerOptions,
+        tabId,
+        files: [...(options?.files ?? []), ...(newerOptions?.files ?? [])],
+        images: [...(options?.images ?? []), ...(newerOptions?.images ?? [])],
+      },
+    );
   }
 
   private showSendFailure(tabId: string, error?: string): void {
     const tab = this.tabManager.findTabByIdAcrossWorkspaces(tabId)?.tab;
     if (!tab) return;
     // Existing transcript channel; rendered through the normal markdown path.
-    this.tabManager.setMessages(tabId, [...tab.messages, createExecutionChatMessage({
-      id: MessageId.create(),
-      role: 'assistant',
-      rawContent: `Message delivery failed. ${error ?? 'Please retry.'}`,
-    })]);
+    this.tabManager.setMessages(tabId, [
+      ...tab.messages,
+      createExecutionChatMessage({
+        id: MessageId.create(),
+        role: 'assistant',
+        rawContent: `Message delivery failed. ${error ?? 'Please retry.'}`,
+      }),
+    ]);
   }
 
   /**
