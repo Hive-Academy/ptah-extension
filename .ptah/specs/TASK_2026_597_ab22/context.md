@@ -234,7 +234,9 @@ OUT:
   `electron-shell.review-dock.spec.ts` (all pass alone).
 - Worktree lesson: `api-*`, `ptah-license-server`, `ptah-landing-page-e2e` fail typecheck here (no Prisma client);
   exclude them from affected sets. Judge checks by exit code, not by grepping colored output.
-- NEXT: after the Wave D PR merges: S3 rest (12-15, 16.1, 17.2 with the `compaction.threshold` migration, 18-22, owns
+- MOVED (2026-10-05, user): every remaining stage and named later task is now TASK_2026_614_327a (its context.md
+  § Work list). This task closes with PR #647.
+- Former NEXT (now in TASK_2026_614): after the Wave D PR merges: S3 rest (12-15, 16.1, 17.2 with the `compaction.threshold` migration, 18-22, owns
   PR1-M2), S1b (8-9 + Task 9.3), S2 (11), then the QA session (Handoff 4 list) and the named later tasks.
 
 ## Handoff 4 (2026-10-04, end of fourth orchestration session)

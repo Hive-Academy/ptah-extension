@@ -1,0 +1,153 @@
+# Task Context - TASK_2026_614_327a
+
+## User Request
+
+"can we combine all the remaining and follow up in a task and file it and commit to the PR we opened and give me a
+prompt to start on them once i merge that PR in a new session" (2026-10-05, after PR #647 opened).
+
+## Task Type
+
+BUGFIX (continuation of TASK_2026_597_ab22, same strategy).
+
+## Complexity
+
+Complex.
+
+## Strategy
+
+BUGFIX, Partial depth. The plan and Gate 1/2 approvals of TASK_2026_597_ab22 still apply to the deferred stages
+(implementation-plan.md, implementation-plan-addendum-n7-n8.md, decisions 1-11 in its context.md). The follow-up
+items are review findings with file:line evidence, so they need no new architect pass: a team-leader decomposes them
+into batches of about 6 files. New design work (only where an item below says "design call") goes to the user first.
+
+## CLI Lanes
+
+Disabled unless the user enables them at Gate 0.1 of the new session.
+
+## Rules (carried over, strict)
+
+- Decision 8 token rules R1-R5 and decision 11 review policy from TASK_2026_597_ab22 context.md § User Decisions:
+  R1 each developer/reviewer run stops at about 150k context or 60 tool calls and writes a progress note; R2 batches of
+  about 6 files; R3 the orchestrator commits a clean batch after `di-lint:lint`, `degradation-audit:lint` and the
+  scoped typecheck (all importers when a libs/shared type changes); R4 Sonnet for mechanical roles, Opus for logic and
+  code-logic review; R5 short check output. One code-logic review per phase on the combined diff (+ Sonnet style only
+  for new public API), at most one fix round, one short re-review.
+- Restore rewritten baseline PNGs before each commit. Commit messages through a Bash heredoc; commits in the background.
+  Skills/agents/plugin asset changes: `npm run manifest:generate` and commit `content-manifest.json`.
+- Max 3 agents at once. Ask before push/PR unless the user says otherwise in the new session.
+- Avoid the files of TASK_2026_609_c495 (agent-generation services/templates, `.claude/agents`, the system-prompt parts
+  of `sdk-query-options-builder.ts`).
+
+## Workspace lessons (from TASK_2026_597 Handoff 5)
+
+- A new worktree needs a `node_modules` junction to the main checkout. Without a generated Prisma client, `api-*`,
+  `ptah-license-server` and `ptah-landing-page-e2e` fail typecheck: exclude them from affected sets (CI checks them).
+- Judge checks by exit code, not by grepping colored Nx output.
+- Load flakes that pass alone: `session-handoff-writer.spec.ts`, `subagent-message-dispatcher.spec.ts`,
+  `markdown.reducer.spec.ts`, `electron-shell.review-dock.spec.ts`.
+- Merge the latest `origin/main` and re-run scoped checks on the merged branch BEFORE pushing.
+
+## Work list
+
+Source of truth for details: the file named in each line (paths under `../TASK_2026_597_ab22/`).
+
+### Stage A — S3 rest (compaction settings, Codex config, usage UI)
+
+Batch bodies: `batches.md` Batches 12-15, 16 (Task 16.1 only), 17 (Task 17.2 only), 18-22. Re-validate paths first:
+the bodies still name the old `task-597-lane-token-burn` worktree, and Wave D already landed 16.2, 16.3, 17.1, 17.3-17.5.
+
+- A.1 Batches 12-15: Ollama window, proxied predicate, Responses translator, OpenCode lane config and usage split,
+  strict MCP on proxied routes, cache flag, ledger cost, skill budget cache columns.
+- A.2 Task 16.1 + Task 17.2: `compaction:getConfig`/`setConfig` RPC with the one-shot migration of
+  `compaction.threshold` into the file store (never clobbers; reads the raw VS Code value, `inspect()` if needed).
+  Wave D kept `compaction.threshold` in VS Code settings on purpose (R-W1).
+- A.3 PR1-M2: a live change to `compaction.enabled` is not applied (`session-lifecycle-manager.ts:~409`).
+- A.4 Batches 18-19: Codex config TOML writer and RPC (opt-in, diff preview, rule 561 A9).
+- A.5 Batches 20-22: frontend settings state, lane budgets card (also binds the Wave D lane-guard and compaction
+  keys), usage displays and the no-cache hint.
+
+### Stage B — S1b and S2
+
+- B.1 Batches 8-9: `CodexExecRunner` and the adapter switch to the runner, with Task 9.3 (model-rejection matcher
+  accepts dotted model names).
+- B.2 Batch 11: lane capture entries for tool M.
+
+### Stage C — QA session (decisions 5-7 of TASK_2026_597)
+
+Small budgeted runs only (at most 5 short headless runs per runtime). Items: experiment E2 (does the SDK honor
+`autoCompactWindow`; gates decision 2 and the tighten stage, and is the condition for leaving OBSERVE_ONLY in the
+compaction coordinator); N1 "after" measurement (needs `CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL` cleared, user
+approval); before/after screenshots (dark + light) for Batches 39, 47, 60, 61; PR 3 scripted 2M-token session; one
+proxied-route run in the cost unit; the transcript-fix check; Batch 36 p95 to set the final
+`compaction.subagentStopWeightedTokens` (provisional 3,000,000).
+
+### Stage D — follow-ups from the S4-b review (PR #647)
+
+Files: `reviews/s4b-code-logic-review-a.md`, `-b.md`, `s4b-code-style-review.md`, `s4b-code-logic-rereview.md`.
+
+- D.1 A-M1: the Read outline keeps the original line numbers/counts (`tool-output-capper.ts:~296-306`).
+- D.2 A-M2: compaction tracker and subagent monitor are released only on abort; a run that ends normally keeps state
+  (`session-query-executor.service.ts:~508-512`).
+- D.3 A-M4: the subagent stop has no off switch and ignores `compaction.enabled` (`subagent-budget-monitor.ts:~257-270`).
+- D.4 B-M3: OpenCode bash calls arrive as `command` segments, which the lane guard does not count
+  (`opencode-cli.adapter.ts:~833-848`).
+- D.5 B-M5: "Keep this session" is lost when the banner is rebuilt (`chat-view.component.html:~136`).
+- D.6 B-M6: "Rotate session" can reuse an older handoff copy (`session-budget.service.ts:~700-703`).
+- D.7 28b: the effective subagent prompt-cache TTL is not passed to the monitor (5m weight used).
+- D.8 28a: the parent handoff message has no task text and skips the dispatcher ordering lock; a failed
+  `stopSubagent` is never retried; coordinator listener errors are rethrown uncaught (review A notes).
+- D.9 Re-review Minors: N1 the fallback warn logs the defaults, not the invalid values
+  (`agent-spawn-environment.service.ts:~215-234`); N2 unchecked `as number` on the defaults lookup
+  (`compaction-config-provider.ts:~148`); N3 the spool `.gitignore` catch logs nothing (`spool.ts:~181-184`).
+- D.10 The CLI host does not bind `SDK_CODE_OUTLINER` (reducer fallback; needs a `vscode-lm-tools` import in
+  cli-engine and `TREE_SITTER_PARSER_SERVICE`).
+- D.11 Design note from review A: the 27b message tap is a watchdog subclass in the executor file; an explicit
+  message callback on the stream transformer is cleaner (design call: refactor or accept).
+- D.12 The Minors listed in the three S4-b review files.
+
+### Stage E — follow-ups from S4-a (PR #642)
+
+Files: `reviews/s4a-code-logic-review.md`, `s4a-code-logic-rereview.md`, `s4a-code-style-review.md`.
+
+- E.1 M3: a Codex lane with no rollout figure falls back to the turn total.
+- E.2 M4: the `run_check` Nx process is not killed on cancel or host exit.
+- E.3 M5: waits cannot be cancelled.
+- E.4 M6: idle-lane continuation and `spawnFromSdkHandle` skip the resume gate.
+- E.5 RM1: the `ptah_run_check` description still says "worktrees too" while HTTP refuses a worktree outside every open
+  folder. RM2: a worktree without `node_modules/nx` gets "Nx was not found".
+- E.6 SM1: the 900 s wait ceiling is defined twice. SM2: `openWorldHint: false` on run_check.
+
+### Stage F — follow-ups from PR 3 (#639) and PR 2 (#637)
+
+Files: `batches.md` § "PR 3 phase-end reviews", § "Batch 47a", the PR 2 review block before it, and § "Named later
+tasks"; review files `pr3-phase-end-code-logic-review.md`, `pr3-phase-end-code-style-review.md`,
+`pr2-phase-end-code-logic-review.md`.
+
+- F.1 PR3-M1 restore `failed` shape vs `session-budget.types.ts`; PR3-M3 empty/failed handoff read not flagged; PR3-M4
+  v4-only UUID check; PR3-M5 handoff actions accepted for unknown sessions; PR3-M6 chat-view `resolvedSessionBudget`
+  ordering and clearing; PR3-M7 entry release on eviction, `/clear` and headless child sessions; PR3-M8 `/compact`
+  exemption cannot lower a cumulative measure.
+- F.2 PR3-S1 split `chat-view.component.ts` and `session-stats-summary.component.ts`; move the "Continue in new
+  session" and the new "Rotate session" flows out of chat-view (style Moderates; use the `humanize-library` skill).
+- F.3 #639 CI-fix review Moderates: the sibling percent draft can auto-save before blur; `settings:set` keeps the 30 s
+  default timeout.
+- F.4 N7-M1: `canSend` reads `sessionBudget.enabled` directly; turning it off at `limit` keeps blocking until the next
+  result or resume. The `sessionBudget.enabled` Moderate from decision 7.
+- F.5 PR2-M1 `markAllInterrupted` does not stamp `lastActivityAt`; PR2-M2 subagent usage entries without a record are
+  never evicted; PR2-M3 cost estimate low without a cache price or on a mid-run model change; PR2-M4 rekey a pending
+  identity that holds a placeholder tab id; PR2-M5 evict pending identities when `agent_start` never arrives; PR2-B1
+  backend binding of `agentId` when SubagentStart has no `toolUseId`.
+- F.6 The PR 2 / PR 3 Minors in their review files (tooltip hard-codes 50/80/100%, failed preview keeps "Loading…",
+  `.tmp` orphan, `keepPreviousFigure`).
+
+## Suggested order
+
+1. Stage D + Stage E (small, file-local fixes; can share the first PR).
+2. Stage F (F.2 is a refactor of chat-view: run it after D.5/F.1 touch chat-view, not in parallel).
+3. Stage A, then Stage B.
+4. Stage C last (QA with live proof), then close TASK_2026_597_ab22 and this task.
+
+## Conversation Summary
+
+- 2026-10-05: created at the end of the fifth TASK_2026_597 orchestration session, committed with PR #647. The user will
+  start it in a new session after PR #647 merges.

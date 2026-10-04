@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_597_ab22
-status: in_progress
+status: done
 type: BUGFIX
 title: Stop token burn in spawned CLI lanes and add the Ptah compaction layer
 description: >-
