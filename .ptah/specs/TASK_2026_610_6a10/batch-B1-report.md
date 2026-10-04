@@ -45,3 +45,7 @@ The source table is deliberately limited to `diff`, `tests`, and `usage`; `$cont
 The corrected grammar makes `$` a normal `cchar` (`task-description.md:348`). Its only source position is the beginning of a stats value (`value = scalar | vcell`, `task-description.md:327-328`): `$diff.files` parses as a scalar, `$5.00` rejects because it is not one, and `\$5.00` is literal. In every other cell position — including a literal table cell, stats label, and chart label — leading and mid-cell dollars are literal (`task-description.md:367`). This preserves the required `$diff.files` versus `\$diff.files` distinction.
 
 The target opener remains the normative exact ```` ```ptah-ui ```` form at column 0 (`implementation-plan.md:428`). General outer backtick/tilde fences accept CommonMark's zero-to-three leading spaces, while four spaces remain an indented code block; this tracking only suppresses nested target fences (`implementation-plan.md:427`).
+
+## Review fix 2
+
+Source names are now checked with an own-key lookup, rather than `in`, before a source definition is read. This prevents inherited `Object.prototype` names from being accepted or dereferenced. Regression cases verify that `$constructor.files`, `$toString.files`, `$__proto__.files`, `$diff.constructor`, source tables named `$constructor` (with and without `cols`), and lists named `$constructor` or `$hasownproperty` reject as `unknown-source` without throwing.

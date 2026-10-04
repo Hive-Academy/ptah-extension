@@ -327,7 +327,7 @@ Edge cases:
 
 ---
 
-## Batch B1: fence segmentation and parser — IN_PROGRESS (Wave 2 NOT ACCEPTED; fix round)
+## Batch B1: fence segmentation and parser — COMPLETE (dad0b4efa)
 
 - Wave 2 result: the scoped `shared` run passed (typecheck, 90 suites / 2,393 tests, lint 0 errors), but the parser
   breaks its own B1.3 validation notes ("never throws"; unknown sources reject). Not committed.
@@ -338,11 +338,11 @@ Edge cases:
 - Phase: B
 - Verify: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/shared`
 
-### Task B1.1: ptah-ui.types.ts — IMPLEMENTED
+### Task B1.1: ptah-ui.types.ts — COMPLETE
 
 - Files: CREATE `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\shared\src\mcp-apps-contracts\ptah-ui.types.ts`
 
-### Task B1.2: segmentPtahUi — IMPLEMENTED
+### Task B1.2: segmentPtahUi — COMPLETE
 
 - Files:
   - CREATE `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\shared\src\mcp-apps-contracts\ptah-ui-fence.ts`
@@ -350,7 +350,7 @@ Edge cases:
 - Plan reference: implementation-plan.md:420-445
 - Validation notes: outer-fence tracking (backtick or tilde, ≥3); unclosed stays markdown; nested fences
 
-### Task B1.3: parsePtahUi — IN_PROGRESS (defect, must fix)
+### Task B1.3: parsePtahUi — COMPLETE (own-key fix verified at `ptah-ui-parser.ts:143`)
 
 - Defect (reproduced with `tsx`): `sourceName` tests `value in PTAH_UI_SOURCES`
   (`libs\shared\src\mcp-apps-contracts\ptah-ui-parser.ts:143`), which matches `Object.prototype` keys, and `isName`
@@ -370,7 +370,7 @@ Edge cases:
 - Validation notes: caps first (8,192 bytes, 200 lines); one valid + one invalid case per lexical row; every listed
   fixture; `$diff.files` vs `\$diff.files`; `$context` unknown; never throws; `note` NOT included (PR D)
 
-## Batch B2: converter, resolver, pipeline — IN_PROGRESS (review fix 1 done; commits with B1 + B3)
+## Batch B2: converter, resolver, pipeline — COMPLETE (5284f9e89)
 
 - Recommended executor: codex lane | Fallback: backend-developer subagent | Mode: sequential
 - Tasks: 3 | Depends on: B1, A2 (`TurnSourceSnapshot`, formatters) | Parallel group: W3
@@ -378,21 +378,21 @@ Edge cases:
 - Phase: B
 - Verify: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/shared`
 
-### Task B2.1: convertPtahUi — PENDING
+### Task B2.1: convertPtahUi — COMPLETE
 
 - Files:
   - CREATE `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\shared\src\mcp-apps-contracts\ptah-ui-converter.ts`
   - CREATE `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\shared\src\mcp-apps-contracts\ptah-ui-converter.spec.ts`
 - Validation notes: per-element deep-equal fixtures; no actions/inputs/data refs; versions from `surface-catalog.ts:10-11`
 
-### Task B2.2: resolvePtahUi — PENDING
+### Task B2.2: resolvePtahUi — COMPLETE
 
 - Files:
   - CREATE `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\shared\src\mcp-apps-contracts\ptah-ui-resolver.ts`
   - CREATE `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\shared\src\mcp-apps-contracts\ptah-ui-resolver.spec.ts`
 - Validation notes: `pending`/`unavailable` text never `0`/`$0`/blank; literals never merge into source rows
 
-### Task B2.3: renderPtahUiBlock and exports — PENDING
+### Task B2.3: renderPtahUiBlock and exports — COMPLETE (`surface.index.ts` 136 lines)
 
 - Files:
   - CREATE `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\shared\src\mcp-apps-contracts\ptah-ui-pipeline.ts`
@@ -400,7 +400,7 @@ Edge cases:
 - Validation notes: caps → parse → convert → resolve → `validateSurfaceDocument(doc, countBytes)`; a throw →
   `internal error`; `surface.index.ts` stays ≤150 lines (118 today); main barrel stays zod-free
 
-## Batch B3: pipeline trust specs, corpus, compactness — IN_PROGRESS (finished, orchestrator-verified; commits with B1 + B2)
+## Batch B3: pipeline trust specs, corpus, compactness — COMPLETE (3282f0978)
 
 - Recommended executor: codex lane | Fallback: backend-developer subagent | Mode: sequential
 - Tasks: 3 | Depends on: B2 | Parallel group: W4
@@ -408,17 +408,17 @@ Edge cases:
 - Phase: B
 - Verify: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/shared`
 
-### Task B3.1: corpus — PENDING
+### Task B3.1: corpus — COMPLETE
 
 - Files: CREATE `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\shared\src\mcp-apps-contracts\ptah-ui.corpus.ts`
 - Validation notes: ≥6 cases; B10 takes its worked examples from here
 
-### Task B3.2: pipeline spec — PENDING
+### Task B3.2: pipeline spec — COMPLETE
 
 - Files: CREATE `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\shared\src\mcp-apps-contracts\ptah-ui-pipeline.spec.ts`
 - Validation notes: markdown/HTML/URL/entity literals stay literal; no `url`/`actions` keys; budget breach names budget
 
-### Task B3.3: compactness spec — PENDING
+### Task B3.3: compactness spec — COMPLETE
 
 - Files: CREATE `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\shared\src\mcp-apps-contracts\ptah-ui-compactness.spec.ts`
 - Implementation details: `gpt-tokenizer` `encode` (4.0.0); fence tokens < `JSON.stringify(conversion)` tokens
@@ -697,6 +697,18 @@ Edge cases:
   text/chars/tokens (5.11), corpus figures (5.13), eager-closure `--base` output
 
 ## Run log
+
+### Wave 4 commits (team-leader, B1-B3)
+
+- Scoped run before commit: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/shared --parallel=1` passed
+  (0/3 from cache), including the zod-free barrel spec and the A7 contract spec; `surface.index.ts` is 136 lines.
+- B9 gap closed: `ptah-ui-hint.spec.ts` 3/3 passes now that `parsePtahUi` is exported from the surface entry (B2).
+- Commits: B1 `dad0b4efa`, B2 `5284f9e89`, B3 `3282f0978`. `ptah-ui-pipeline.spec.ts` is in B3 (its owning task
+  B3.2); B2 stays covered without it because `ptah-ui-resolver.spec.ts` drives `renderPtahUiBlock`.
+- Next when A4 and B5a land: B5b (frontend-developer subagent; needs B2, B4, B5a, A3), then B6
+  (frontend-developer subagent, security-sensitive; needs B5b). Now startable: B10 (codex lane; B3 committed),
+  C1 (codex lane; B1+B2+B3 and A2 committed). C3 (codex lane) needs B10's `references\ptah-ui.md` first, and
+  shares `content-manifest.json` with B10, so run it after B10, not beside it.
 
 ### Wave 1 (A1, A6, A7) — COMPLETE
 
