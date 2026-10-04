@@ -67,6 +67,7 @@
     "manifest:generate": "node scripts/generate-content-manifest.js",
     "manifest:check": "node scripts/generate-content-manifest.js --check",
     "manifest:self-test": "node scripts/generate-content-manifest.js --self-test",
+    "gate:eager-closure": "node scripts/eager-closure-gate.js dist/apps/ptah-extension-webview/stats.json",
     "vendor:brand-icons": "node scripts/vendor-brand-icons.mjs",
     "sanitize:sessions": "npx ts-node --project scripts/tsconfig.json scripts/sanitize-claude-sessions.ts",
     "db:drain-observations": "npx ts-node --project scripts/tsconfig.json scripts/drain-observation-queue.ts",
