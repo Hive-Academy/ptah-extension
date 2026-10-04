@@ -285,13 +285,14 @@ describe('build() wiring', () => {
     // build to `buildFlagSettings` — so the style still reaches the flag tier
     // through exactly one builder. Auto-compaction keys ride the same call
     // (TASK_2026_414), which is why `autoCompact` is an argument here and not
-    // a second settings object.
+    // a second settings object. The subagent prompt-cache TTL rides it too
+    // (TASK_2026_597 N1), and only from this call.
     //
     // Whitespace-collapsed because the call is formatted across lines; the
     // argument ORDER is what this guard is pinning.
     const normalized = source.replace(/\s+/g, ' ');
     expect(normalized).toContain(
-      "settings: buildFlagSettingsArg( sessionConfig, 'accept', this.logger, autoCompact, capabilityFlags, ),",
+      "settings: buildFlagSettingsArg( sessionConfig, 'accept', this.logger, autoCompact, capabilityFlags, subagentTtl.sdkValue, ),",
     );
     // The bare reference is what this task replaced. If it reappears on the
     // options object, the flag tier stops carrying the style.
