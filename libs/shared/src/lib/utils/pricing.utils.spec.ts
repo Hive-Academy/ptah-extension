@@ -3,6 +3,9 @@
  * calculation, context window lookup, and display-name formatting.
  */
 
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+
 import {
   registerModelContextWindows,
   getDiscoveredContextWindow,
@@ -843,5 +846,120 @@ describe('pricing.utils', () => {
       updatePricingMap({ constructor: pricing });
       expect(findModelPricing('x/constructor[1m]')).toBe(pricing);
     });
+  });
+});
+
+/**
+ * N6 cost parity (TASK_2026_597 Task 46.1). The agent monitor estimates a
+ * Claude subagent's cost with `calculateMessageCost` on the subagent's summed
+ * usage. The measurement tool M (`scripts/agent-usage`) reports the same
+ * subagent in tokens only. This spec reads M's sanitized Claude subagent
+ * fixture, sums its four usage fields per response the way M does (one row per
+ * `message.id`, last line wins per field), checks the sums against the totals
+ * M's own spec asserts for that fixture, and checks the estimate on the sums.
+ */
+describe('calculateMessageCost parity with the agent-usage tool (M)', () => {
+  const FIXTURE = resolve(
+    __dirname,
+    '../../../../../scripts/agent-usage/__fixtures__/claude-session/subagents/agent-code-logic-reviewer.jsonl',
+  );
+
+  /** Totals asserted by `scripts/agent-usage/subagent-metrics.spec.ts` for this fixture. */
+  const M_TOTALS = {
+    cacheRead: 2_918_449,
+    cacheCreation: 353_847,
+    output: 41_714,
+  };
+
+  /** Explicit prices so the parity does not depend on the bundled table. */
+  const PRICING = {
+    inputCostPerToken: 0.000003,
+    outputCostPerToken: 0.000015,
+    cacheReadCostPerToken: 0.0000003,
+    cacheCreationCostPerToken: 0.00000375,
+  };
+
+  interface Usage {
+    input: number;
+    output: number;
+    cacheHit: number;
+    cacheCreation: number;
+  }
+
+  function readResponses(): { model: string; responses: Usage[] } {
+    const byId = new Map<string, Usage>();
+    let model = '';
+    for (const line of readFileSync(FIXTURE, 'utf8').split('\n')) {
+      if (line.trim() === '') continue;
+      const record = JSON.parse(line) as {
+        type?: string;
+        message?: {
+          id?: string;
+          model?: string;
+          usage?: Record<string, number | undefined>;
+        };
+      };
+      const usage = record.message?.usage;
+      if (record.type !== 'assistant' || !usage || !record.message?.id) {
+        continue;
+      }
+      model = record.message.model || model;
+      const prev = byId.get(record.message.id);
+      byId.set(record.message.id, {
+        input: usage['input_tokens'] ?? prev?.input ?? 0,
+        output: usage['output_tokens'] ?? prev?.output ?? 0,
+        cacheHit: usage['cache_read_input_tokens'] ?? prev?.cacheHit ?? 0,
+        cacheCreation:
+          usage['cache_creation_input_tokens'] ?? prev?.cacheCreation ?? 0,
+      });
+    }
+    return { model, responses: [...byId.values()] };
+  }
+
+  function sum(responses: readonly Usage[]): Usage {
+    return responses.reduce(
+      (acc, r) => ({
+        input: acc.input + r.input,
+        output: acc.output + r.output,
+        cacheHit: acc.cacheHit + r.cacheHit,
+        cacheCreation: acc.cacheCreation + r.cacheCreation,
+      }),
+      { input: 0, output: 0, cacheHit: 0, cacheCreation: 0 },
+    );
+  }
+
+  it('sums the fixture to the totals M reports', () => {
+    const totals = sum(readResponses().responses);
+    expect(totals.cacheHit).toBe(M_TOTALS.cacheRead);
+    expect(totals.cacheCreation).toBe(M_TOTALS.cacheCreation);
+    expect(totals.output).toBe(M_TOTALS.output);
+  });
+
+  it('estimates the summed usage with the four price fields', () => {
+    const { model, responses } = readResponses();
+    const totals = sum(responses);
+    const expected =
+      totals.input * PRICING.inputCostPerToken +
+      totals.output * PRICING.outputCostPerToken +
+      totals.cacheHit * PRICING.cacheReadCostPerToken +
+      totals.cacheCreation * PRICING.cacheCreationCostPerToken;
+
+    expect(calculateMessageCost(model, totals, PRICING)).toBeCloseTo(
+      expected,
+      6,
+    );
+  });
+
+  it('equals the sum of the per-response estimates', () => {
+    const { model, responses } = readResponses();
+    const perResponse = responses.reduce(
+      (acc, r) => acc + (calculateMessageCost(model, r, PRICING) ?? NaN),
+      0,
+    );
+
+    expect(calculateMessageCost(model, sum(responses), PRICING)).toBeCloseTo(
+      perResponse,
+      5,
+    );
   });
 });

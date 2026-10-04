@@ -276,6 +276,84 @@ describe('Codex lane budget settings (TASK_2026_597)', () => {
   });
 });
 
+describe('subagent prompt-cache TTL setting (TASK_2026_597 N1)', () => {
+  const ENV = 'CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL';
+  const KEY = 'ptah.agentOrchestration.subagentPromptCacheTtl';
+  const originalEnv = process.env[ENV];
+  beforeEach(() => {
+    delete process.env[ENV];
+  });
+  afterEach(() => {
+    if (originalEnv === undefined) delete process.env[ENV];
+    else process.env[ENV] = originalEnv;
+  });
+
+  it('getConfig returns the file-settings default and no env override when nothing is set', async () => {
+    const h = makeHarness();
+    const result = await h.getConfig();
+    expect(result.subagentPromptCacheTtl).toBe(
+      FILE_BASED_SETTINGS_DEFAULTS['agentOrchestration.subagentPromptCacheTtl'],
+    );
+    expect(result.subagentPromptCacheTtl).toBe('auto');
+    expect('subagentPromptCacheTtlEnvOverride' in result).toBe(false);
+  });
+
+  it.each(['auto', '5m', '1h'])('round-trips %p', async (value) => {
+    const h = makeHarness();
+    expect(await h.setConfig({ subagentPromptCacheTtl: value })).toEqual({
+      success: true,
+    });
+    expect(h.settings.get(KEY)).toBe(value);
+    expect((await h.getConfig()).subagentPromptCacheTtl).toBe(value);
+  });
+
+  it.each(['10m', '1H', '', 'Auto', 5, null, true])(
+    'rejects %p with the field message before any write',
+    async (value) => {
+      const h = makeHarness();
+      const result = await h.setConfig({
+        subagentPromptCacheTtl: value,
+        piModel: 'openai/gpt-4o',
+      });
+      expect(result).toEqual({
+        success: false,
+        error: 'Unsupported subagentPromptCacheTtl value',
+      });
+      expect(h.workspace.setConfiguration).not.toHaveBeenCalled();
+      expect(h.settings.size).toBe(0);
+    },
+  );
+
+  it('getConfig reports a hand-edited invalid file value as auto', async () => {
+    const h = makeHarness();
+    h.settings.set(KEY, '2h');
+    expect((await h.getConfig()).subagentPromptCacheTtl).toBe('auto');
+  });
+
+  it.each([
+    ['5m', '5m'],
+    ['1h', '1h'],
+    ['30m', 'invalid'],
+  ])(
+    'reports env %p as override %p alongside the stored setting',
+    async (env, override) => {
+      const h = makeHarness();
+      h.settings.set(KEY, '5m');
+      process.env[ENV] = env;
+      const result = await h.getConfig();
+      expect(result.subagentPromptCacheTtl).toBe('5m');
+      expect(result.subagentPromptCacheTtlEnvOverride).toBe(override);
+    },
+  );
+
+  it('treats a blank env value as unset', async () => {
+    const h = makeHarness();
+    process.env[ENV] = '  ';
+    const result = await h.getConfig();
+    expect('subagentPromptCacheTtlEnvOverride' in result).toBe(false);
+  });
+});
+
 describe('agent:setConfig logging', () => {
   it('never writes a credential value to the log', async () => {
     const h = makeHarness();

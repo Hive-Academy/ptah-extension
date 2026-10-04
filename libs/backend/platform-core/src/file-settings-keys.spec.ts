@@ -6,6 +6,10 @@ import {
   FILE_BASED_SETTINGS_DEFAULTS,
   isFileBasedSettingKey,
 } from './file-settings-keys';
+import {
+  SCOPED_SETTING_KEYS,
+  SUBAGENT_PROMPT_CACHE_TTL_SETTINGS,
+} from '@ptah-extension/shared';
 
 describe('isFileBasedSettingKey', () => {
   describe('static SET membership', () => {
@@ -238,6 +242,31 @@ describe('isFileBasedSettingKey', () => {
         expect(Number.isInteger(value)).toBe(true);
         expect(value).toBeGreaterThanOrEqual(0);
       }
+    });
+  });
+
+  describe('subagent prompt-cache TTL key (TASK_2026_597 N1)', () => {
+    // Written through `agent:setConfig`; unrouted, the write would be dropped
+    // while the read still served the default.
+    const key = 'agentOrchestration.subagentPromptCacheTtl';
+
+    it('is file-based and defaults to auto', () => {
+      expect(FILE_BASED_SETTINGS_KEYS.has(key)).toBe(true);
+      expect(isFileBasedSettingKey(key)).toBe(true);
+      expect(FILE_BASED_SETTINGS_DEFAULTS[key]).toBe('auto');
+    });
+
+    it('defaults to a value the setting accepts', () => {
+      expect(SUBAGENT_PROMPT_CACHE_TTL_SETTINGS).toContain(
+        FILE_BASED_SETTINGS_DEFAULTS[key],
+      );
+    });
+
+    it('is a global-only scoped key', () => {
+      expect(SCOPED_SETTING_KEYS[key]).toEqual({
+        appScopable: false,
+        supportedTargets: ['global'],
+      });
     });
   });
 

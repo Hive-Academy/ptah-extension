@@ -325,8 +325,10 @@ describe('AgentMonitorPanelComponent — session subagents', () => {
   let getSubagentTranscriptMock: jest.Mock;
   let allSubagentsMap: Map<string, SubagentRecord>;
   let getSubagentMock: jest.Mock;
+  let loadSubagentCacheInfoMock: jest.Mock;
 
   beforeEach(() => {
+    loadSubagentCacheInfoMock = jest.fn().mockResolvedValue(undefined);
     activeWorkflowSubagentsSig = signal<SubagentRecord[]>([]);
     activeSessionSubagentsSig = signal<SubagentRecord[]>([]);
     activeTabAgentsSig = signal<MonitoredAgent[]>([]);
@@ -363,6 +365,7 @@ describe('AgentMonitorPanelComponent — session subagents', () => {
             tick: signal(0),
             getSubagent: getSubagentMock,
             getSubagentTranscript: getSubagentTranscriptMock,
+            loadSubagentCacheInfo: loadSubagentCacheInfoMock,
           },
         },
         {
@@ -478,6 +481,33 @@ describe('AgentMonitorPanelComponent — session subagents', () => {
     expect(transcriptViewer).toBeTruthy();
   });
 
+  it('shows the usage summary only once a subagent row is opened, and loads its cache info then', () => {
+    activeSessionSubagentsSig.set([
+      subagent({
+        parentToolUseId: 'toolu_task_1',
+        teammateName: 'Worker 1',
+        status: 'running',
+      }),
+    ]);
+    const fixture = createPanel(null);
+    expect(
+      fixture.nativeElement.querySelector('ptah-subagent-usage-summary'),
+    ).toBeNull();
+    expect(loadSubagentCacheInfoMock).not.toHaveBeenCalled();
+
+    (
+      fixture.nativeElement.querySelector(
+        'button[title="Worker 1"]',
+      ) as HTMLButtonElement
+    ).click();
+    fixture.detectChanges();
+
+    expect(
+      fixture.nativeElement.querySelector('ptah-subagent-usage-summary'),
+    ).toBeTruthy();
+    expect(loadSubagentCacheInfoMock).toHaveBeenCalledWith('toolu_task_1');
+  });
+
   it('does not auto-select session subagents when a CLI agent is selected', () => {
     activeTabAgentsSig.set([
       agent({ agentId: 'cli_1', displayName: 'CLI Agent' }),
@@ -569,6 +599,72 @@ describe('AgentMonitorPanelComponent — session subagents', () => {
     ).toBeNull();
     expect(fixture.nativeElement.textContent).toContain(
       'Transcript is not available yet',
+    );
+  });
+
+  function selectTile(
+    fixture: ReturnType<typeof createPanel>,
+    title: string,
+  ): void {
+    (
+      fixture.nativeElement.querySelector(
+        `button[title="${title}"]`,
+      ) as HTMLButtonElement
+    ).click();
+    fixture.detectChanges();
+  }
+
+  it('renders the transcript viewer and loads the transcript once for a background subagent whose agentId came from background_agent_started', () => {
+    activeSessionSubagentsSig.set([
+      subagent({
+        parentToolUseId: 'toolu_bg_named',
+        teammateName: 'reviewer-pr2',
+        status: 'running',
+        agentId: 'a1b2c3',
+        parentSessionId: 'sess_bg',
+      }),
+    ]);
+    const fixture = createPanel(null);
+
+    selectTile(fixture, 'reviewer-pr2');
+    fixture.detectChanges();
+
+    expect(
+      fixture.nativeElement.querySelector('ptah-subagent-transcript-viewer'),
+    ).toBeTruthy();
+    expect(fixture.nativeElement.textContent).not.toContain(
+      'Transcript is not available yet',
+    );
+    expect(getSubagentTranscriptMock).toHaveBeenCalledTimes(1);
+    expect(getSubagentTranscriptMock).toHaveBeenCalledWith('sess_bg', 'a1b2c3');
+  });
+
+  it('falls back to the active tab session when the record has no parentSessionId', () => {
+    (
+      TestBed.inject(TabManagerService).activeTabSessionId as ReturnType<
+        typeof signal<string | null>
+      >
+    ).set('sess_active');
+    activeSessionSubagentsSig.set([
+      subagent({
+        parentToolUseId: 'toolu_bg_no_session',
+        teammateName: 'No Session',
+        status: 'running',
+        agentId: 'd4e5f6',
+        parentSessionId: undefined,
+      }),
+    ]);
+    const fixture = createPanel(null);
+
+    selectTile(fixture, 'No Session');
+
+    expect(
+      fixture.nativeElement.querySelector('ptah-subagent-transcript-viewer'),
+    ).toBeTruthy();
+    expect(getSubagentTranscriptMock).toHaveBeenCalledTimes(1);
+    expect(getSubagentTranscriptMock).toHaveBeenCalledWith(
+      'sess_active',
+      'd4e5f6',
     );
   });
 

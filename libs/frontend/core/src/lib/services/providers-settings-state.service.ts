@@ -1,6 +1,14 @@
-import { Injectable, computed, effect, inject, signal, untracked } from '@angular/core';
+import {
+  Injectable,
+  computed,
+  effect,
+  inject,
+  signal,
+  untracked,
+} from '@angular/core';
 import {
   SCOPED_SETTING_KEYS,
+  SUBAGENT_PROMPT_CACHE_TTL_SETTINGS,
   getAllAnthropicProviders,
   setCustomProviderEntries,
   type AuthCancelDraftVerificationParams,
@@ -17,7 +25,11 @@ import {
 } from '@ptah-extension/shared';
 import { ClaudeRpcService } from './claude-rpc.service';
 import { EffortSettingsChangeService } from './effort-settings-change.service';
-import { ProvidersCommitService, type ProvidersCommitHooks, type ProvidersModelTier } from './providers-commit.service';
+import {
+  ProvidersCommitService,
+  type ProvidersCommitHooks,
+  type ProvidersModelTier,
+} from './providers-commit.service';
 import {
   ProvidersConnectionSetupService,
   type ProvidersConnectionSetupHooks,
@@ -70,7 +82,12 @@ export type {
 } from './providers-settings.types';
 
 /** Route statuses that do not block a driver. `unknown`/`skipped` mean "not checkable", not "failed". */
-const ACTIVATABLE_STATUSES: ReadonlySet<string> = new Set(['connected', 'reachable', 'unknown', 'skipped']);
+const ACTIVATABLE_STATUSES: ReadonlySet<string> = new Set([
+  'connected',
+  'reachable',
+  'unknown',
+  'skipped',
+]);
 
 /** Above the host's own 30 s abort of `ptahCli:testConnection` (`ptah-cli-registry.ts`). */
 const CLI_TEST_TIMEOUT_MS = 45_000;
@@ -78,7 +95,8 @@ const CLI_TEST_TIMEOUT_MS = 45_000;
 const CLI_TEST_REASONS: Readonly<Record<string, string>> = {
   'API key not configured': 'No API key is stored for this instance.',
   'No response received from provider': 'The provider did not respond.',
-  'Agent configuration not found': 'This instance was not found. Refresh and try again.',
+  'Agent configuration not found':
+    'This instance was not found. Refresh and try again.',
 };
 
 /** Page-owned lifecycle: call open() on entry. No constructor I/O or polling. */
@@ -94,24 +112,30 @@ export class ProvidersSettingsStateService {
   private readonly workspace = inject(WorkspaceScopeService);
   private readonly routeStore = createSectionStore<ProvidersEffectiveRoute>();
   private readonly scopesStore = createSectionStore<ConfigGetScopesResult>();
-  private readonly modelStore = createSectionStore<RpcMethodResult<'config:model-get'>>();
+  private readonly modelStore =
+    createSectionStore<RpcMethodResult<'config:model-get'>>();
   private readonly effortStore =
     createSectionStore<RpcMethodResult<'config:effort-get'>>();
   private readonly memoryStore =
     createSectionStore<RpcMethodResult<'memory:getTriggers'>['triggers']>();
   private readonly lanesStore =
     createSectionStore<RpcMethodResult<'skillSynthesis:getLanes'>['lanes']>();
-  private readonly judgingStore = createSectionStore<ProvidersJudgingSettings>();
+  private readonly judgingStore =
+    createSectionStore<ProvidersJudgingSettings>();
   private readonly cliStore =
     createSectionStore<RpcMethodResult<'ptahCli:list'>['agents']>();
-  private readonly orchestrationStore = createSectionStore<ProvidersOrchestration>();
-  private readonly customEntriesStore = createSectionStore<readonly ProvidersCustomEntry[]>();
+  private readonly orchestrationStore =
+    createSectionStore<ProvidersOrchestration>();
+  private readonly customEntriesStore =
+    createSectionStore<readonly ProvidersCustomEntry[]>();
   private readonly detectionStore = createSectionStore<ProvidersDetectedClis>();
   private readonly tiersStore =
     createSectionStore<RpcMethodResult<'provider:getModelTiers'>>();
-  private readonly connectionsStore = createSectionStore<readonly ProvidersConnection[]>();
+  private readonly connectionsStore =
+    createSectionStore<readonly ProvidersConnection[]>();
   private readonly cliModelsStore = createSectionStore<ProvidersCliModels>();
-  private readonly mainSourcesStore = createSectionStore<ProvidersMainSources>();
+  private readonly mainSourcesStore =
+    createSectionStore<ProvidersMainSources>();
   private scopeKeys: readonly string[] = Object.keys(
     SCOPED_SETTING_KEYS,
   ).filter((key) => !key.includes('<'));
@@ -133,7 +157,10 @@ export class ProvidersSettingsStateService {
   readonly verification = this.setup.verification;
   readonly connections = this.view(this.connectionsStore);
   readonly cliModels = this.view(this.cliModelsStore);
-  readonly mainSources = this.freshEffortView(this.mainSourcesStore, this.sourcesRevision);
+  readonly mainSources = this.freshEffortView(
+    this.mainSourcesStore,
+    this.sourcesRevision,
+  );
   readonly externalAuth = this.setup.externalAuth;
   readonly commit = this.commits.commit;
   /**
@@ -227,19 +254,38 @@ export class ProvidersSettingsStateService {
    * Tiers are the MAIN-AGENT mapping: the wizard's Models step edits what the main agent uses on this
    * connection. CLI sub-agent tiers (`cliAgent`) belong to the CLI agent editor, not to connection setup.
    */
-  private readonly setupStore = createSectionStore<{ providerId: string; baseUrl: string | null; customName?: string; customProtocol?: 'openai' | 'anthropic'; tiers: { sonnet: string | null; opus: string | null; haiku: string | null } }>();
+  private readonly setupStore = createSectionStore<{
+    providerId: string;
+    baseUrl: string | null;
+    customName?: string;
+    customProtocol?: 'openai' | 'anthropic';
+    tiers: { sonnet: string | null; opus: string | null; haiku: string | null };
+  }>();
   readonly connectionSetup = this.view(this.setupStore);
   async refreshConnectionSetup(providerId: string): Promise<void> {
     this.setupStore.value.set({ status: 'unloaded', data: null, error: null });
     await this.read(this.setupStore, async () => {
       const [endpoint, tiers] = await Promise.all([
         this.require('llm:getProviderBaseUrl', { provider: providerId }),
-        this.require('provider:getModelTiers', { providerId, scope: 'mainAgent' }),
+        this.require('provider:getModelTiers', {
+          providerId,
+          scope: 'mainAgent',
+        }),
       ]);
-      const custom = this.connections().data?.find((entry) => entry.id === providerId)?.custom
-        ? (await this.require('provider:listCustomEntries', {})).entries.find((entry) => entry.id === providerId) : undefined;
-      return { providerId, baseUrl: endpoint.baseUrl ?? endpoint.defaultBaseUrl, tiers,
-        ...(custom ? { customName: custom.name, customProtocol: custom.lane } : {}),
+      const custom = this.connections().data?.find(
+        (entry) => entry.id === providerId,
+      )?.custom
+        ? (await this.require('provider:listCustomEntries', {})).entries.find(
+            (entry) => entry.id === providerId,
+          )
+        : undefined;
+      return {
+        providerId,
+        baseUrl: endpoint.baseUrl ?? endpoint.defaultBaseUrl,
+        tiers,
+        ...(custom
+          ? { customName: custom.name, customProtocol: custom.lane }
+          : {}),
       };
     });
   }
@@ -249,10 +295,13 @@ export class ProvidersSettingsStateService {
    * CLI names, not provider-registry ids, so they come from agent:listCliModels, never provider:listModels.
    * Loaded on demand: the host may fetch remote catalogues.
    */
-  private readonly delegatedModelsStore = createSectionStore<RpcMethodResult<'agent:listCliModels'>>();
+  private readonly delegatedModelsStore =
+    createSectionStore<RpcMethodResult<'agent:listCliModels'>>();
   readonly delegatedModelOptions = this.view(this.delegatedModelsStore);
   async refreshDelegatedModelOptions(): Promise<void> {
-    await this.read(this.delegatedModelsStore, () => this.require('agent:listCliModels', undefined));
+    await this.read(this.delegatedModelsStore, () =>
+      this.require('agent:listCliModels', undefined),
+    );
   }
 
   private readonly cliTestStore = createSectionStore<ProvidersCliTest>();
@@ -266,13 +315,32 @@ export class ProvidersSettingsStateService {
    * `null` otherwise (M1): `sanitizeErrorMessage` is pattern-based, so host text never enters state.
    */
   async testCliConnection(id: string): Promise<void> {
-    this.cliTestStore.value.set({ status: 'unloaded', data: null, error: null });
+    this.cliTestStore.value.set({
+      status: 'unloaded',
+      data: null,
+      error: null,
+    });
     this.cliTestRunId = id;
-    await readSection(this.cliTestStore, this.workspace, async () => {
-      const result = await this.require('ptahCli:testConnection', { id }, CLI_TEST_TIMEOUT_MS);
-      return { id, success: result.success, latencyMs: result.latencyMs ?? null,
-        reason: result.success ? null : CLI_TEST_REASONS[result.error ?? ''] ?? null };
-    }, false);
+    await readSection(
+      this.cliTestStore,
+      this.workspace,
+      async () => {
+        const result = await this.require(
+          'ptahCli:testConnection',
+          { id },
+          CLI_TEST_TIMEOUT_MS,
+        );
+        return {
+          id,
+          success: result.success,
+          latencyMs: result.latencyMs ?? null,
+          reason: result.success
+            ? null
+            : (CLI_TEST_REASONS[result.error ?? ''] ?? null),
+        };
+      },
+      false,
+    );
   }
   /**
    * M8: the last Test describes the key, name and tiers it ran with; a write to any of them drops it (and discards an
@@ -282,18 +350,36 @@ export class ProvidersSettingsStateService {
     if (this.cliTestRunId !== id) return;
     this.cliTestRunId = null;
     this.cliTestStore.generation += 1;
-    this.cliTestStore.value.set({ status: 'unloaded', data: null, error: null });
+    this.cliTestStore.value.set({
+      status: 'unloaded',
+      data: null,
+      error: null,
+    });
   }
   /**
    * An empty key clears the stored secret. Read-back checks the secrets store alone
    * (`cursorApiKeyStored`): `cursorApiKeyConfigured` also counts `CURSOR_API_KEY`, which would make
    * a successful clear read back as a failure while the env var is set (TASK_2026_551).
    */
-  async saveCursorCredential(apiKey: string, context: ProvidersEditContext): Promise<boolean> {
+  async saveCursorCredential(
+    apiKey: string,
+    context: ProvidersEditContext,
+  ): Promise<boolean> {
     const stored = !!apiKey.trim();
-    return this.runCommit([{ fields: ['Cursor credential'], write: async () => (await this.require('agent:setConfig', { cursorApiKey: apiKey })).success,
-      readBack: async () => (await this.require('agent:getConfig', undefined)).cursorApiKeyStored === stored,
-    }], context);
+    return this.runCommit(
+      [
+        {
+          fields: ['Cursor credential'],
+          write: async () =>
+            (await this.require('agent:setConfig', { cursorApiKey: apiKey }))
+              .success,
+          readBack: async () =>
+            (await this.require('agent:getConfig', undefined))
+              .cursorApiKeyStored === stored,
+        },
+      ],
+      context,
+    );
   }
 
   /** Non-secret metadata of a user-defined connection, read with the connections; null until loaded. */
@@ -303,114 +389,247 @@ export class ProvidersSettingsStateService {
 
   async refreshConnections(): Promise<void> {
     // One host read feeds both sections; each keeps its own generation and workspace scope.
-    const custom = this.require('provider:listCustomEntries', {})
-      .then((result) => setCustomProviderEntries(result.entries).accepted);
+    const custom = this.require('provider:listCustomEntries', {}).then(
+      (result) => setCustomProviderEntries(result.entries).accepted,
+    );
     await Promise.all([
-      this.read(this.customEntriesStore, async () => (await custom).map(({ id, name, baseUrl, lane, modelsEndpoint, helpUrl, pricing }) =>
-        ({ id, name, baseUrl, lane, modelsEndpoint, helpUrl, pricing }))),
+      this.read(this.customEntriesStore, async () =>
+        (await custom).map(
+          ({ id, name, baseUrl, lane, modelsEndpoint, helpUrl, pricing }) => ({
+            id,
+            name,
+            baseUrl,
+            lane,
+            modelsEndpoint,
+            helpUrl,
+            pricing,
+          }),
+        ),
+      ),
       this.readConnections(custom),
     ]);
   }
-  private async readConnections(custom: Promise<readonly ProvidersCustomEntry[]>): Promise<void> {
-    await this.read(this.connectionsStore, async (): Promise<readonly ProvidersConnection[]> => {
-      const [status, accepted, auth] = await Promise.all([
-        this.require('auth:getApiKeyStatus', {}),
-        custom,
-        this.require('auth:getAuthStatus', {}),
-      ]);
-      const customIds = new Set(accepted.map((entry) => entry.id));
-      const entries = getAllAnthropicProviders();
-      const savedSetupIds = new Set(await Promise.all(entries.filter((entry) => entry.isLocal).map(async (entry) => {
-        const endpoint = await this.require('llm:getProviderBaseUrl', { provider: entry.id });
-        return endpoint.baseUrl ? entry.id : null;
-      })));
-      const connections: ProvidersConnection[] = entries.map((entry): ProvidersConnection => {
-        const host = status.providers.find((provider) => provider.provider === entry.id);
-        // Native CLI auth has no stored setup of its own; an installed CLI is the connection.
-        const authenticated = entry.id === 'github-copilot' ? auth.copilotAuthenticated === true
-          : entry.id === 'openai-codex' ? auth.codexAuthenticated === true && !auth.codexTokenStale
-          : entry.nativeAuth ? auth.claudeCliInstalled === true : false;
-        return {
-          id: entry.id, name: entry.name, hasKey: host?.hasApiKey === true, ...hostKeyHint(host?.hasApiKey ? host.keyHint : undefined),
-          // An unreadable key (M-6) is unknown, not absent: configured, with no hint and `hasKey` false.
-          ...(host?.keyUnreadable === true ? { keyUnreadable: true } : {}),
-          configured: host?.hasApiKey === true || host?.keyUnreadable === true || customIds.has(entry.id) || savedSetupIds.has(entry.id) || authenticated,
-          custom: customIds.has(entry.id), defaultsResolvable: !!entry.defaultTiers,
-          authMode: entry.nativeAuth ? 'cli' : entry.authType === 'oauth' ? 'oauth'
-            : entry.isLocal ? entry.requiresProxy ? 'local-proxy' : 'local-native' : 'apiKey',
-          accountLabel: entry.id === 'github-copilot' && auth.copilotAuthenticated === true ? auth.copilotUsername ?? null : null,
-          tokenStale: entry.id === 'openai-codex' && auth.codexTokenStale === true,
-        };
-      });
-      connections.unshift({ id: 'anthropic', name: 'Claude API', authMode: 'apiKey',
-        hasKey: auth.hasApiKey, configured: auth.hasApiKey, custom: false, defaultsResolvable: false,
-        accountLabel: null, tokenStale: false, ...hostKeyHint(auth.hasApiKey ? auth.apiKeyHint : undefined) });
-      return connections;
-    });
+  private async readConnections(
+    custom: Promise<readonly ProvidersCustomEntry[]>,
+  ): Promise<void> {
+    await this.read(
+      this.connectionsStore,
+      async (): Promise<readonly ProvidersConnection[]> => {
+        const [status, accepted, auth] = await Promise.all([
+          this.require('auth:getApiKeyStatus', {}),
+          custom,
+          this.require('auth:getAuthStatus', {}),
+        ]);
+        const customIds = new Set(accepted.map((entry) => entry.id));
+        const entries = getAllAnthropicProviders();
+        const savedSetupIds = new Set(
+          await Promise.all(
+            entries
+              .filter((entry) => entry.isLocal)
+              .map(async (entry) => {
+                const endpoint = await this.require('llm:getProviderBaseUrl', {
+                  provider: entry.id,
+                });
+                return endpoint.baseUrl ? entry.id : null;
+              }),
+          ),
+        );
+        const connections: ProvidersConnection[] = entries.map(
+          (entry): ProvidersConnection => {
+            const host = status.providers.find(
+              (provider) => provider.provider === entry.id,
+            );
+            // Native CLI auth has no stored setup of its own; an installed CLI is the connection.
+            const authenticated =
+              entry.id === 'github-copilot'
+                ? auth.copilotAuthenticated === true
+                : entry.id === 'openai-codex'
+                  ? auth.codexAuthenticated === true && !auth.codexTokenStale
+                  : entry.nativeAuth
+                    ? auth.claudeCliInstalled === true
+                    : false;
+            return {
+              id: entry.id,
+              name: entry.name,
+              hasKey: host?.hasApiKey === true,
+              ...hostKeyHint(host?.hasApiKey ? host.keyHint : undefined),
+              // An unreadable key (M-6) is unknown, not absent: configured, with no hint and `hasKey` false.
+              ...(host?.keyUnreadable === true ? { keyUnreadable: true } : {}),
+              configured:
+                host?.hasApiKey === true ||
+                host?.keyUnreadable === true ||
+                customIds.has(entry.id) ||
+                savedSetupIds.has(entry.id) ||
+                authenticated,
+              custom: customIds.has(entry.id),
+              defaultsResolvable: !!entry.defaultTiers,
+              authMode: entry.nativeAuth
+                ? 'cli'
+                : entry.authType === 'oauth'
+                  ? 'oauth'
+                  : entry.isLocal
+                    ? entry.requiresProxy
+                      ? 'local-proxy'
+                      : 'local-native'
+                    : 'apiKey',
+              accountLabel:
+                entry.id === 'github-copilot' &&
+                auth.copilotAuthenticated === true
+                  ? (auth.copilotUsername ?? null)
+                  : null,
+              tokenStale:
+                entry.id === 'openai-codex' && auth.codexTokenStale === true,
+            };
+          },
+        );
+        connections.unshift({
+          id: 'anthropic',
+          name: 'Claude API',
+          authMode: 'apiKey',
+          hasKey: auth.hasApiKey,
+          configured: auth.hasApiKey,
+          custom: false,
+          defaultsResolvable: false,
+          accountLabel: null,
+          tokenStale: false,
+          ...hostKeyHint(auth.hasApiKey ? auth.apiKeyHint : undefined),
+        });
+        return connections;
+      },
+    );
   }
 
   /** The drawer's "Check connection": the host check when it has one, then the route re-read carrying `lastCheck`. */
   readonly connectionCheck = this.setup.connectionCheck;
-  checkProviderConnection(providerId: string): Promise<void> { return this.setup.checkConnection(providerId, this.setupHooks); }
+  checkProviderConnection(providerId: string): Promise<void> {
+    return this.setup.checkConnection(providerId, this.setupHooks);
+  }
   /** Only supported host login operations run; launch acknowledgements are not authentication. */
-  performExternalAuth(providerId: string | null, action: ProvidersExternalAuthAction): Promise<void> {
+  performExternalAuth(
+    providerId: string | null,
+    action: ProvidersExternalAuthAction,
+  ): Promise<void> {
     return this.setup.performExternalAuth(providerId, action, this.setupHooks);
   }
   /**
    * Store setup without selecting it, then optionally activate only after all earlier writes succeed.
    * Resolves `false` when refused because another save is in flight (see `ProvidersCommitService.run`).
    */
-  connectProvider(draft: ProvidersConnectionDraft, context: ProvidersEditContext): Promise<boolean> {
+  connectProvider(
+    draft: ProvidersConnectionDraft,
+    context: ProvidersEditContext,
+  ): Promise<boolean> {
     return this.setup.connectProvider(draft, context, this.setupHooks);
   }
   /**
    * Select an existing connection for the main agent. Tier mapping is left to `auth:saveSettings`,
    * whose autoMapProviderTiers fills only UNSET main-agent tiers; the user's existing tiers stay.
    */
-  activateConnection(providerId: string, applyTo: SettingScope, context: ProvidersEditContext): Promise<boolean> {
-    return this.setup.activateConnection(providerId, applyTo, context, this.setupHooks);
+  activateConnection(
+    providerId: string,
+    applyTo: SettingScope,
+    context: ProvidersEditContext,
+  ): Promise<boolean> {
+    return this.setup.activateConnection(
+      providerId,
+      applyTo,
+      context,
+      this.setupHooks,
+    );
   }
   /** Probe is non-mutating. A caller-owned credential is never copied into a signal. */
   verifyDraft(params: AuthVerifyDraftConnectionParams): Promise<void> {
     return this.setup.verifyDraft(params);
   }
-  cancelVerification(params?: AuthCancelDraftVerificationParams): Promise<AuthCancelDraftVerificationResult> {
+  cancelVerification(
+    params?: AuthCancelDraftVerificationParams,
+  ): Promise<AuthCancelDraftVerificationResult> {
     return this.setup.cancelVerification(params);
   }
 
   // Writes for the redesigned surface. Each resolves `false` when refused because another save is
   // in flight, and reports through `commit()` like every other save (D15).
   /** D4: deletes one stored key without changing the auth method or resetting the SDK. */
-  deleteStoredKey(providerId: string, context: ProvidersEditContext): Promise<boolean> {
+  deleteStoredKey(
+    providerId: string,
+    context: ProvidersEditContext,
+  ): Promise<boolean> {
     return this.setup.deleteStoredKey(providerId, context, this.setupHooks);
   }
   disconnectCopilot(context: ProvidersEditContext): Promise<boolean> {
     return this.setup.disconnectCopilot(context, this.setupHooks);
   }
   /** Blocked with "Switch the main agent first." while the connection drives the main agent. */
-  removeCustomEntry(id: string, context: ProvidersEditContext): Promise<boolean> {
+  removeCustomEntry(
+    id: string,
+    context: ProvidersEditContext,
+  ): Promise<boolean> {
     return this.setup.removeCustomEntry(id, context, this.setupHooks);
   }
   /** Help URL and pricing: metadata, saved without a connection check. */
-  updateCustomEntryFields(id: string, changes: Partial<Pick<ProvidersCustomEntry, 'helpUrl' | 'pricing'>>,
-    context: ProvidersEditContext): Promise<boolean> {
-    return this.setup.updateCustomEntryFields(id, changes, context, this.setupHooks);
+  updateCustomEntryFields(
+    id: string,
+    changes: Partial<Pick<ProvidersCustomEntry, 'helpUrl' | 'pricing'>>,
+    context: ProvidersEditContext,
+  ): Promise<boolean> {
+    return this.setup.updateCustomEntryFields(
+      id,
+      changes,
+      context,
+      this.setupHooks,
+    );
   }
   /** D7: base URL and/or models endpoint, saved only with a verified probe of this connection. */
-  updateCustomEntryEndpoint(id: string, changes: Partial<Pick<ProvidersCustomEntry, 'baseUrl' | 'modelsEndpoint'>>,
-    probeId: string, context: ProvidersEditContext): Promise<boolean> {
-    return this.setup.updateCustomEntryEndpoint(id, changes, probeId, context, this.setupHooks);
+  updateCustomEntryEndpoint(
+    id: string,
+    changes: Partial<Pick<ProvidersCustomEntry, 'baseUrl' | 'modelsEndpoint'>>,
+    probeId: string,
+    context: ProvidersEditContext,
+  ): Promise<boolean> {
+    return this.setup.updateCustomEntryEndpoint(
+      id,
+      changes,
+      probeId,
+      context,
+      this.setupHooks,
+    );
   }
-  updateLocalBaseUrl(providerId: string, baseUrl: string, probeId: string, context: ProvidersEditContext): Promise<boolean> {
-    return this.setup.updateLocalBaseUrl(providerId, baseUrl, probeId, context, this.setupHooks);
+  updateLocalBaseUrl(
+    providerId: string,
+    baseUrl: string,
+    probeId: string,
+    context: ProvidersEditContext,
+  ): Promise<boolean> {
+    return this.setup.updateLocalBaseUrl(
+      providerId,
+      baseUrl,
+      probeId,
+      context,
+      this.setupHooks,
+    );
   }
   /** An empty `modelId` clears the stored main-agent tier (the provider default applies). */
-  setMainAgentTier(providerId: string, tier: ProvidersModelTier, modelId: string, context: ProvidersEditContext): Promise<boolean> {
-    return this.runCommit([this.commits.mainAgentTierOperation(providerId, tier, modelId)], context);
+  setMainAgentTier(
+    providerId: string,
+    tier: ProvidersModelTier,
+    modelId: string,
+    context: ProvidersEditContext,
+  ): Promise<boolean> {
+    return this.runCommit(
+      [this.commits.mainAgentTierOperation(providerId, tier, modelId)],
+      context,
+    );
   }
   /** D5: the instance's own tier mapping, always written as the full object. */
-  setCliInstanceTiers(id: string, tiers: Partial<Record<ProvidersModelTier, string>>, context: ProvidersEditContext): Promise<boolean> {
-    return this.runCommit([this.commits.cliInstanceTiersOperation(id, tiers)], context);
+  setCliInstanceTiers(
+    id: string,
+    tiers: Partial<Record<ProvidersModelTier, string>>,
+    context: ProvidersEditContext,
+  ): Promise<boolean> {
+    return this.runCommit(
+      [this.commits.cliInstanceTiersOperation(id, tiers)],
+      context,
+    );
   }
 
   /** Supply concrete provider/auth-key paths, never the allowlist's <...> families. */
@@ -467,24 +686,43 @@ export class ProvidersSettingsStateService {
   /** The CLI summary omits pinned models. Project only model fields from persisted non-secret configuration. */
   async refreshCliModels(): Promise<void> {
     await this.read(this.cliModelsStore, async () => {
-      const result = await this.require('settings:get', { key: 'ptahCliAgents' });
-      if (!result.success || !Array.isArray(result.value)) throw new Error('CLI models unavailable');
-      const models: Record<string, Pick<PtahCliConfig, 'selectedModel' | 'tierMappings'>> = {};
+      const result = await this.require('settings:get', {
+        key: 'ptahCliAgents',
+      });
+      if (!result.success || !Array.isArray(result.value))
+        throw new Error('CLI models unavailable');
+      const models: Record<
+        string,
+        Pick<PtahCliConfig, 'selectedModel' | 'tierMappings'>
+      > = {};
       for (const item of result.value as unknown[]) {
-        if (!item || typeof item !== 'object' || !('id' in item) || typeof item.id !== 'string') throw new Error('Invalid CLI configuration');
-        const selectedModel = 'selectedModel' in item ? item.selectedModel : undefined;
-        if (selectedModel !== undefined && typeof selectedModel !== 'string') throw new Error('Invalid CLI model');
+        if (
+          !item ||
+          typeof item !== 'object' ||
+          !('id' in item) ||
+          typeof item.id !== 'string'
+        )
+          throw new Error('Invalid CLI configuration');
+        const selectedModel =
+          'selectedModel' in item ? item.selectedModel : undefined;
+        if (selectedModel !== undefined && typeof selectedModel !== 'string')
+          throw new Error('Invalid CLI model');
         const tiers = 'tierMappings' in item ? item.tierMappings : undefined;
-        if (tiers !== undefined && (!tiers || typeof tiers !== 'object')) throw new Error('Invalid CLI tiers');
+        if (tiers !== undefined && (!tiers || typeof tiers !== 'object'))
+          throw new Error('Invalid CLI tiers');
         const mappings: { sonnet?: string; opus?: string; haiku?: string } = {};
         for (const tier of ['sonnet', 'opus', 'haiku'] as const) {
           if (tiers && typeof tiers === 'object' && tier in tiers) {
             const value: unknown = (tiers as Record<string, unknown>)[tier];
-            if (typeof value !== 'string') throw new Error('Invalid CLI tier model');
+            if (typeof value !== 'string')
+              throw new Error('Invalid CLI tier model');
             mappings[tier] = value;
           }
         }
-        Object.defineProperty(models, item.id, { enumerable: true, value: { selectedModel, tierMappings: mappings } });
+        Object.defineProperty(models, item.id, {
+          enumerable: true,
+          value: { selectedModel, tierMappings: mappings },
+        });
       }
       return models;
     });
@@ -495,12 +733,22 @@ export class ProvidersSettingsStateService {
     this.sourcesRevision.set(this.effortChanges.revision());
     await this.read(this.mainSourcesStore, async () => {
       const auth = await this.require('auth:getAuthStatus', {});
-      if (!['apiKey', 'claudeCli', 'thirdParty'].includes(auth.authMethod)) throw new Error('Authentication source unavailable');
+      if (!['apiKey', 'claudeCli', 'thirdParty'].includes(auth.authMethod))
+        throw new Error('Authentication source unavailable');
       // Public settings namespace: provider.<authKey>.selectedModel / reasoningEffort (plan target key map).
-      const authKey = auth.authMethod === 'thirdParty' ? `thirdParty.${auth.anthropicProviderId}` : auth.authMethod;
-      const model = `provider.${authKey}.selectedModel`, effort = `provider.${authKey}.reasoningEffort`;
-      const scopes = await this.require('config:getScopes', { keys: [model, effort] });
-      return { model: scopes.entries.find((entry) => entry.key === model), effort: scopes.entries.find((entry) => entry.key === effort) };
+      const authKey =
+        auth.authMethod === 'thirdParty'
+          ? `thirdParty.${auth.anthropicProviderId}`
+          : auth.authMethod;
+      const model = `provider.${authKey}.selectedModel`,
+        effort = `provider.${authKey}.reasoningEffort`;
+      const scopes = await this.require('config:getScopes', {
+        keys: [model, effort],
+      });
+      return {
+        model: scopes.entries.find((entry) => entry.key === model),
+        effort: scopes.entries.find((entry) => entry.key === effort),
+      };
     });
   }
   /**
@@ -508,20 +756,40 @@ export class ProvidersSettingsStateService {
    * The section shows its error and Retry instead.
    */
   async refreshOrchestration(): Promise<void> {
-    await readSection(this.orchestrationStore, this.workspace, async (): Promise<ProvidersOrchestration> => {
-      const config = await this.require('agent:getConfig', undefined);
-      return {
-        codexModel: config.codexModel, copilotModel: config.copilotModel, cursorModel: config.cursorModel,
-        antigravityModel: config.antigravityModel, opencodeModel: config.opencodeModel, piModel: config.piModel,
-        codexReasoningEffort: config.codexReasoningEffort, copilotReasoningEffort: config.copilotReasoningEffort,
-        piReasoningEffort: config.piReasoningEffort,
-        detectedClis: config.detectedClis, disabledClis: config.disabledClis,
-        preferredAgentOrder: config.preferredAgentOrder, maxConcurrentAgents: config.maxConcurrentAgents,
-        copilotAutoApprove: config.copilotAutoApprove,
-        cursorApiKeyConfigured: config.cursorApiKeyConfigured, cursorApiKeyStored: config.cursorApiKeyStored,
-        cursorApiKeyEnvSet: config.cursorApiKeyEnvSet,
-      };
-    }, false);
+    await readSection(
+      this.orchestrationStore,
+      this.workspace,
+      async (): Promise<ProvidersOrchestration> => {
+        const config = await this.require('agent:getConfig', undefined);
+        return {
+          codexModel: config.codexModel,
+          copilotModel: config.copilotModel,
+          cursorModel: config.cursorModel,
+          antigravityModel: config.antigravityModel,
+          opencodeModel: config.opencodeModel,
+          piModel: config.piModel,
+          codexReasoningEffort: config.codexReasoningEffort,
+          copilotReasoningEffort: config.copilotReasoningEffort,
+          piReasoningEffort: config.piReasoningEffort,
+          detectedClis: config.detectedClis,
+          disabledClis: config.disabledClis,
+          preferredAgentOrder: config.preferredAgentOrder,
+          maxConcurrentAgents: config.maxConcurrentAgents,
+          copilotAutoApprove: config.copilotAutoApprove,
+          // Both optional on the RPC result: a missing or unknown setting reads as 'auto', a missing override as none.
+          subagentPromptCacheTtl:
+            SUBAGENT_PROMPT_CACHE_TTL_SETTINGS.find(
+              (value) => value === config.subagentPromptCacheTtl,
+            ) ?? 'auto',
+          subagentPromptCacheTtlEnvOverride:
+            config.subagentPromptCacheTtlEnvOverride,
+          cursorApiKeyConfigured: config.cursorApiKeyConfigured,
+          cursorApiKeyStored: config.cursorApiKeyStored,
+          cursorApiKeyEnvSet: config.cursorApiKeyEnvSet,
+        };
+      },
+      false,
+    );
   }
   /**
    * Re-detects installed CLIs, then rereads everything derived from them. A failed detection
@@ -536,7 +804,11 @@ export class ProvidersSettingsStateService {
       return clis;
     });
     if (!detected) return;
-    await Promise.all([this.refreshOrchestration(), this.refreshCliAgents(), this.refreshCliModels()]);
+    await Promise.all([
+      this.refreshOrchestration(),
+      this.refreshCliAgents(),
+      this.refreshCliModels(),
+    ]);
   }
   async refreshTiers(
     params: RpcMethodParams<'provider:getModelTiers'>,
@@ -560,7 +832,10 @@ export class ProvidersSettingsStateService {
   scopeEntry(key: string): ScopedSettingEntry | null {
     return (
       this.scopes().data?.entries.find((entry) => entry.key === key) ??
-      Object.values(this.mainSources().data ?? {}).find((entry) => entry?.key === key) ?? null
+      Object.values(this.mainSources().data ?? {}).find(
+        (entry) => entry?.key === key,
+      ) ??
+      null
     );
   }
   groupScope(keys: readonly string[]): SettingScope | 'mixed' | null {
@@ -616,7 +891,9 @@ export class ProvidersSettingsStateService {
     });
   }
 
-  async clearWorkspaceOverride(context: ProvidersEditContext): Promise<boolean> {
+  async clearWorkspaceOverride(
+    context: ProvidersEditContext,
+  ): Promise<boolean> {
     return this.runCommit(
       [
         {
@@ -678,20 +955,21 @@ export class ProvidersSettingsStateService {
     refreshScopes: () => this.refreshScopes(),
     refresh: () => this.refresh(),
     scopes: () => this.scopes(),
-    sectionsReady: () => [
-      this.route(),
-      this.scopes(),
-      this.mainSources(),
-      this.model(),
-      this.effort(),
-      this.memory(),
-      this.lanes(),
-      this.judging(),
-      this.cliAgents(),
-      this.cliModels(),
-      this.orchestration(),
-      this.connections(),
-    ].every((state) => state.status === 'ready'),
+    sectionsReady: () =>
+      [
+        this.route(),
+        this.scopes(),
+        this.mainSources(),
+        this.model(),
+        this.effort(),
+        this.memory(),
+        this.lanes(),
+        this.judging(),
+        this.cliAgents(),
+        this.cliModels(),
+        this.orchestration(),
+        this.connections(),
+      ].every((state) => state.status === 'ready'),
   };
   /** Connection setup reads the catalogue and write targets, and commits through the same hooks. */
   private readonly setupHooks: ProvidersConnectionSetupHooks = {
@@ -710,13 +988,24 @@ export class ProvidersSettingsStateService {
   ): Promise<boolean> {
     return this.commits.run(operations, context, this.commitHooks, allowed);
   }
-  private freshEffortView<T>(store: SectionStore<T>, readRevision: () => number) {
-    return effortFreshSectionView(store, readRevision, this.workspace, this.effortChanges);
+  private freshEffortView<T>(
+    store: SectionStore<T>,
+    readRevision: () => number,
+  ) {
+    return effortFreshSectionView(
+      store,
+      readRevision,
+      this.workspace,
+      this.effortChanges,
+    );
   }
   private view<T>(store: SectionStore<T>) {
     return sectionView(store, this.workspace);
   }
-  private read<T>(store: SectionStore<T>, request: () => Promise<T>): Promise<void> {
+  private read<T>(
+    store: SectionStore<T>,
+    request: () => Promise<T>,
+  ): Promise<void> {
     return readSection(store, this.workspace, request);
   }
   private require<T extends RpcMethodName>(

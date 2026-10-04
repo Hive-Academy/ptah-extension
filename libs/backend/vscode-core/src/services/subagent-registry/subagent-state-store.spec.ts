@@ -38,6 +38,31 @@ describe('SubagentStateStore', () => {
     store = new SubagentStateStore(logger);
   });
 
+  describe('activity clock', () => {
+    it('now() reads the injected clock on every call', () => {
+      let t = 1_000;
+      const clocked = new SubagentStateStore(logger, () => t);
+      expect(clocked.now()).toBe(1_000);
+      t = 2_500;
+      expect(clocked.now()).toBe(2_500);
+    });
+
+    it('now() defaults to Date.now() read at call time', () => {
+      const spy = jest.spyOn(Date, 'now').mockReturnValue(42);
+      try {
+        expect(store.now()).toBe(42);
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
+    it('set stores the record as given and does not stamp activity', () => {
+      const record = makeRecord({ toolCallId: 'tc-carry' });
+      store.set('tc-carry', record);
+      expect(store.getRaw('tc-carry')?.lastActivityAt).toBeUndefined();
+    });
+  });
+
   describe('basic CRUD', () => {
     it('set and getRaw and has return expected values', () => {
       const record = makeRecord({ toolCallId: 'tc-a' });

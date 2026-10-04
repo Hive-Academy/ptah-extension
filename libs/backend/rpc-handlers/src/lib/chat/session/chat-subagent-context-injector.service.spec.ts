@@ -15,7 +15,8 @@ import 'reflect-metadata';
 
 import type { Logger } from '@ptah-extension/vscode-core';
 import { SubagentRegistryService } from '@ptah-extension/vscode-core';
-import type { SessionId } from '@ptah-extension/shared';
+import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
+import type { SessionId, SubagentRecord } from '@ptah-extension/shared';
 
 import {
   ChatSubagentContextInjectorService,
@@ -34,22 +35,40 @@ function makeLogger(): jest.Mocked<Logger> {
 
 const SESSION = 'sess-1' as SessionId;
 const WORKSPACE = 'D:/ws';
+const TTL_ENV = 'CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL';
+const GUIDANCE =
+  'Resume a subagent only when its cache is warm. When it is cold, start a fresh subagent with a short brief.';
 
 describe('ChatSubagentContextInjectorService', () => {
   let registry: SubagentRegistryService;
   let ptahCli: { probeSubagentTranscript: jest.Mock };
+  let workspace: { getConfiguration: jest.Mock };
   let injector: ChatSubagentContextInjectorService;
+  let savedTtlEnv: string | undefined;
 
   beforeEach(() => {
+    savedTtlEnv = process.env[TTL_ENV];
+    delete process.env[TTL_ENV];
     registry = new SubagentRegistryService(makeLogger());
     ptahCli = {
       probeSubagentTranscript: jest.fn().mockResolvedValue('present'),
     };
+    workspace = { getConfiguration: jest.fn().mockReturnValue('auto') };
     injector = new ChatSubagentContextInjectorService(
       makeLogger(),
       registry,
       ptahCli as unknown as ChatPtahCliService,
+      workspace as unknown as IWorkspaceProvider,
     );
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+    if (savedTtlEnv === undefined) {
+      delete process.env[TTL_ENV];
+    } else {
+      process.env[TTL_ENV] = savedTtlEnv;
+    }
   });
 
   function registerInterrupted(toolCallId: string, agentId: string): void {
@@ -88,7 +107,7 @@ describe('ChatSubagentContextInjectorService', () => {
 
     expect(result.injected).toBe(true);
     expect(result.prompt).toContain('[SYSTEM CONTEXT - INTERRUPTED AGENTS]');
-    expect(result.prompt).toContain('Resume agent abc1234');
+    expect(result.prompt).toContain('Resume agent <agentId>');
     expect(result.prompt).not.toContain('"resume" parameter set to');
     expect(result.prompt.endsWith('continue please')).toBe(true);
 
@@ -213,7 +232,7 @@ describe('ChatSubagentContextInjectorService', () => {
     );
 
     expect(second.injected).toBe(true);
-    expect(second.prompt).toContain('Resume agent abc1234');
+    expect(second.prompt).toContain('Resume agent <agentId>');
   });
 
   it('KEEPS the record when there is no workspace path to probe against', async () => {
@@ -243,5 +262,134 @@ describe('ChatSubagentContextInjectorService', () => {
 
     expect(result.prompt).toContain('agentId: aaa1111');
     expect(result.prompt).toContain('agentId: bbb2222');
+  });
+
+  // -------------------------------------------------------------------------
+  // N2 — cache state per agent and the warm/cold resume guidance
+  // -------------------------------------------------------------------------
+
+  describe('cache state', () => {
+    const T0 = 1_800_000_000_000;
+    const MIN = 60_000;
+
+    function at(ms: number): void {
+      jest.spyOn(Date, 'now').mockReturnValue(ms);
+    }
+
+    it('marks a just-interrupted agent warm with the auto TTL (1h) and resumes it first', async () => {
+      at(T0);
+      registerInterrupted('tc-1', 'abc1234');
+
+      const { prompt } = await injector.injectInterruptedAgentsContext(
+        'msg',
+        SESSION,
+        WORKSPACE,
+      );
+
+      expect(prompt).toContain(
+        'Explore agent (agentId: abc1234) - cache: warm (TTL 1h, idle 0 min)',
+      );
+      expect(prompt).toContain(GUIDANCE);
+      expect(prompt).toContain('1. Your FIRST action should be to resume');
+      expect(prompt).toContain('Resume agent <agentId>');
+      expect(prompt).not.toContain('cache: cold');
+      expect(prompt).not.toContain('start a fresh subagent of the same type');
+      expect(workspace.getConfiguration).toHaveBeenCalledWith(
+        'ptah',
+        'agentOrchestration.subagentPromptCacheTtl',
+        'auto',
+      );
+    });
+
+    it('marks an agent cold once the idle time reaches the 5m TTL and never tells the model to resume it', async () => {
+      workspace.getConfiguration.mockReturnValue('5m');
+      at(T0);
+      registerInterrupted('tc-1', 'abc1234');
+      at(T0 + 10 * MIN);
+
+      const { prompt, injected } =
+        await injector.injectInterruptedAgentsContext(
+          'msg',
+          SESSION,
+          WORKSPACE,
+        );
+
+      expect(injected).toBe(true);
+      expect(prompt).toContain(
+        'interrupted 10 min ago - cache: cold (TTL 5m, idle 10 min)',
+      );
+      expect(prompt).toContain(GUIDANCE);
+      expect(prompt).not.toContain('Your FIRST action');
+      expect(prompt).not.toContain('Resume agent abc1234');
+      expect(prompt).toContain(
+        '1. Do NOT resume the agents marked "cache: cold". For each of them, start a fresh subagent of the same type with a short brief',
+      );
+    });
+
+    it('lets a valid host env override win over the setting', async () => {
+      workspace.getConfiguration.mockReturnValue('1h');
+      process.env[TTL_ENV] = '5m';
+      at(T0);
+      registerInterrupted('tc-1', 'abc1234');
+      at(T0 + 6 * MIN);
+
+      const { prompt } = await injector.injectInterruptedAgentsContext(
+        'msg',
+        SESSION,
+        WORKSPACE,
+      );
+
+      expect(prompt).toContain('cache: cold (TTL 5m, idle 6 min)');
+    });
+
+    it('resumes only the warm agent when warm and cold agents are mixed', async () => {
+      workspace.getConfiguration.mockReturnValue('5m');
+      at(T0);
+      registerInterrupted('tc-cold', 'cold111');
+      at(T0 + 8 * MIN);
+      registerInterrupted('tc-warm', 'warm222');
+
+      const { prompt } = await injector.injectInterruptedAgentsContext(
+        'msg',
+        SESSION,
+        WORKSPACE,
+      );
+
+      expect(prompt).toContain(
+        'agentId: cold111) - interrupted 8 min ago - cache: cold (TTL 5m, idle 8 min)',
+      );
+      expect(prompt).toContain(
+        'agentId: warm222) - cache: warm (TTL 5m, idle 0 min)',
+      );
+      expect(prompt).not.toContain('Resume agent warm222');
+      expect(prompt).toContain('Resume agent <agentId>');
+      expect(prompt).not.toContain('Resume agent cold111');
+      expect(prompt).toContain('1. Your FIRST action should be to resume');
+      expect(prompt).toContain('2. Do NOT resume the agents marked');
+    });
+
+    it('prints "idle unknown", not "idle 0 min", for a record with no recorded activity', async () => {
+      at(T0);
+      const restored: SubagentRecord = {
+        toolCallId: 'tc-hist',
+        agentType: 'Plan',
+        agentId: 'hist999',
+        status: 'interrupted',
+        startedAt: T0 - MIN,
+        interruptedAt: T0 - MIN,
+        parentSessionId: SESSION as string,
+      };
+      expect(registry.restoreResumableBySession(SESSION, [restored])).toBe(1);
+
+      const { prompt } = await injector.injectInterruptedAgentsContext(
+        'msg',
+        SESSION,
+        WORKSPACE,
+      );
+
+      expect(prompt).toContain('cache: cold (TTL 1h, idle unknown)');
+      expect(prompt).not.toContain('idle 0 min');
+      expect(prompt).not.toContain('Resume agent hist999');
+    });
   });
 });

@@ -78,6 +78,7 @@ export const KNOWN_CONFIG_KEYS = [
   'agentOrchestration.codexAutoCompactTokens',
   'agentOrchestration.codexToolOutputTokenLimit',
   'agentOrchestration.codexWebSearch',
+  'agentOrchestration.subagentPromptCacheTtl',
   'agentOrchestration.disabledClis',
   'provider.github-copilot.tokenExchangeUrl',
   'provider.github-copilot.apiEndpoint',
