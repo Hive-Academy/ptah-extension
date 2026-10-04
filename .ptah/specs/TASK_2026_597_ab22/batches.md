@@ -3185,7 +3185,7 @@ When Batch 28 is scheduled, its decomposition adds these parts. Task 28.2 stays 
 
 ---
 
-## Batch 53: N8 handoff builder and writer — IN_PROGRESS (PR 3, decision 13)
+## Batch 53: N8 handoff builder and writer — COMPLETE (PR 3, decision 13; report batch-53-executor-report.md)
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer re-run
@@ -3235,7 +3235,7 @@ When Batch 28 is scheduled, its decomposition adds these parts. Task 28.2 stays 
 
 ---
 
-## Batch 54: N7 stage machine and `SessionBudgetService` — PENDING (PR 3, decision 13)
+## Batch 54: N7 stage machine and `SessionBudgetService` — IN_PROGRESS (PR 3, decision 13)
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer re-run
