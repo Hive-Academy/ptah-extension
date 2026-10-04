@@ -1804,7 +1804,7 @@ In a fresh worktree, run `npx nx run ptah-electron:build-workspace-watch-host` o
 
 ---
 
-## Batch 24: Output budget engine moves to tool-output-reducers (S4, component 18 part 1) — COMPLETE (S4 wave A; report reports/batch-24-report.md)
+## Batch 24: Output budget engine moves to tool-output-reducers (S4, component 18 part 1) — COMPLETE (S4 wave A; commit 7099066f3; report reports/batch-24-report.md)
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer re-run
@@ -2056,7 +2056,7 @@ In a fresh worktree, run `npx nx run ptah-electron:build-workspace-watch-host` o
 
 ---
 
-## Batch 30: Advisory notifier and A7 curator guardrail (S4, component 20) — IN_PROGRESS (S4 wave A: Task 30.2 only; Task 30.1 WAITS-FOR-#639 with Batch 29)
+## Batch 30: Advisory notifier and A7 curator guardrail (S4, component 20) — PENDING (Task 30.2 COMPLETE in S4 wave A, report reports/batch-30-2-report.md; Task 30.1 WAITS-FOR-#639 with Batch 29)
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer re-run
@@ -2076,7 +2076,7 @@ In a fresh worktree, run `npx nx run ptah-electron:build-workspace-watch-host` o
 - Validation notes: none.
 - Implementation details: none.
 
-### Task 30.2: Curator PreCompact coalescing — IN_PROGRESS
+### Task 30.2: Curator PreCompact coalescing — COMPLETE
 
 - File: `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/memory-curator/src/lib/memory-curator.service.ts` (+ spec)
 - Plan reference: implementation-plan.md:1212-1213

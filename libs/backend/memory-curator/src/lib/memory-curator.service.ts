@@ -108,6 +108,19 @@ const MANUAL_COMPACTION_MAX_WINDOWS = 1;
  */
 const INTERNAL_QUERY_SESSION_PREFIX = 'internal-query-';
 
+/**
+ * The shortest gap between two PreCompact-triggered curations of one session
+ * (TASK_2026_597 A7, R5.5).
+ *
+ * A session close to its context limit can compact several times in a few
+ * minutes, and every PreCompact queued a full curation pass on the same
+ * provider account the user's turns run on. The transcript between two such
+ * compactions is mostly the same text, so the second pass re-extracts what the
+ * first just stored. A PreCompact inside this interval is skipped and logged;
+ * the reactor stays registered, so the next one after the interval runs.
+ */
+export const CURATOR_PRECOMPACT_MIN_INTERVAL_MS = 900_000;
+
 export type {
   CuratorRunOutcome,
   CuratorRunStats,
@@ -156,6 +169,15 @@ export class MemoryCuratorService {
   private readonly autoRebuildState = new Map<
     string,
     { lastRebuildAt: number }
+  >();
+  /**
+   * Per-session watermark of the last PreCompact that started a curation.
+   * Keyed by session id; the entry is removed by {@link forgetSession} when the
+   * session ends, and moved by {@link rekeySession}.
+   */
+  private readonly preCompactWatermarks = new Map<
+    string,
+    { lastFiredAt: number }
   >();
   /** The window-and-extract collaborator. See its own file for why it is not injected. */
   private readonly windowRunner: CuratorWindowRunner;
@@ -225,6 +247,7 @@ export class MemoryCuratorService {
         );
         return;
       }
+      if (this.coalescePreCompact(data.sessionId, data.trigger)) return;
       this.running = (async () => {
         const cwd =
           typeof data.cwd === 'string' && data.cwd.length > 0 ? data.cwd : null;
@@ -273,6 +296,49 @@ export class MemoryCuratorService {
       });
     });
     this.logger.info('[memory-curator] started — subscribed to PreCompact');
+  }
+
+  /**
+   * `true` when this PreCompact arrives within
+   * {@link CURATOR_PRECOMPACT_MIN_INTERVAL_MS} of the last one that started a
+   * curation for the same session, and must be skipped. Otherwise stamps the
+   * watermark and returns `false`. A blank session id has no identity to
+   * throttle on (see {@link coalesceKey}), so it is never skipped.
+   */
+  private coalescePreCompact(
+    sessionId: string,
+    trigger: 'manual' | 'auto',
+  ): boolean {
+    const key = blankToUndefined(sessionId);
+    if (key === undefined) return false;
+    const now = Date.now();
+    const watermark = this.preCompactWatermarks.get(key);
+    if (
+      watermark !== undefined &&
+      now - watermark.lastFiredAt < CURATOR_PRECOMPACT_MIN_INTERVAL_MS
+    ) {
+      this.logger.info(
+        '[memory-curator] skipping a PreCompact curation; this session was curated on PreCompact within the minimum interval',
+        {
+          sessionId: key,
+          trigger,
+          sinceLastMs: now - watermark.lastFiredAt,
+          minIntervalMs: CURATOR_PRECOMPACT_MIN_INTERVAL_MS,
+        },
+      );
+      return true;
+    }
+    this.preCompactWatermarks.set(key, { lastFiredAt: now });
+    return false;
+  }
+
+  /**
+   * Drop the PreCompact watermark of a session that has ended. Called by
+   * `MemoryTriggerService` on session end, so the map holds live sessions only.
+   */
+  forgetSession(sessionId: string): void {
+    const key = blankToUndefined(sessionId);
+    if (key !== undefined) this.preCompactWatermarks.delete(key);
   }
 
   pushEvent(ev: MemoryCuratorEvent): void {
@@ -474,6 +540,13 @@ export class MemoryCuratorService {
     const from = blankToUndefined(fromId);
     const to = blankToUndefined(toId);
     if (from === undefined || to === undefined || from === to) return;
+
+    // The PreCompact watermark moves under the same refuse-overwrite rule.
+    const watermark = this.preCompactWatermarks.get(from);
+    this.preCompactWatermarks.delete(from);
+    if (watermark !== undefined && !this.preCompactWatermarks.has(to)) {
+      this.preCompactWatermarks.set(to, watermark);
+    }
 
     for (const [key, work] of [...this.inFlight]) {
       const split = key.lastIndexOf('::');
