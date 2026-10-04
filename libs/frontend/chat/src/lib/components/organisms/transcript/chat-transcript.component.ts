@@ -34,6 +34,7 @@ import type { ChangeSetCardHost } from '@ptah-extension/chat-ui/change-set-card'
 // Same lazy-entry contract as the change-set card above (see
 // `libs/frontend/chat-ui/src/turn-recap.ts`).
 import { TurnTestsRowComponent } from '@ptah-extension/chat-ui/turn-recap';
+import { PtahUiLiveWindow } from '@ptah-extension/chat-ui';
 import {
   ChangeSetStore,
   type ChangeSetMarks,
@@ -160,7 +161,9 @@ const EMPTY_VIEW_MODEL: TranscriptViewModel = {
     // Used only inside `@defer`, so the compiler loads it lazily.
     TurnTestsRowComponent,
   ],
-  providers: [TranscriptRenderWindow],
+  // `PtahUiLiveWindow` is per tab: one transcript per tab owns it, so each
+  // tab caps its own live `ptah-ui` blocks (TASK_2026_610, decision 10).
+  providers: [TranscriptRenderWindow, PtahUiLiveWindow],
   templateUrl: './chat-transcript.component.html',
   styleUrl: './chat-transcript.component.css',
   changeDetection: ChangeDetectionStrategy.OnPush,
