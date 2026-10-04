@@ -118,6 +118,13 @@ the start of a stats value and as a `table`/`list` argument; table cells and cha
 `$5.00` are literal. B1's parser currently rejects a bare `$` at the start of non-value cells and must
 be fixed to match.
 
+### User decision 2026-10-04 (during Wave 3): ship PR B and PR C together
+
+"yeah lets ship them together." PR B (fence channel + hint) and PR C (host sources in fences) ship as one
+PR, so the hint may advertise `$diff`/`$tests`/`$usage` from the start and sources never show
+"unavailable" merely because PR C has not landed. Phase B and Phase C reviews may run as one review.
+PR A still ships first; PR D stays blocked on TASK_2026_594.
+
 ### Standing decisions this task must respect
 
 - No raw agent HTML rendered without the template gate, no agent scripts ever (TASK_2026_490/493/494).
