@@ -15,6 +15,10 @@
  * - OpenCode    "Free usage exceeded" (provisional)
  * - Ollama      HTTP 429 with a limit wording (provisional)
  *
+ * A Ptah CLI lane is checked against its provider's wordings (Claude for
+ * `anthropic`, Ollama for `ollama-cloud`) once its owner names the provider,
+ * and against the Claude wording only while the provider is unknown.
+ *
  * `MODEL_CAPACITY_EXHAUSTED` (the provider is out of capacity, not the
  * owner out of quota), timeouts and authentication failures are never quota.
  */
@@ -61,6 +65,7 @@ const FIVE_HOUR_REGEX = /\b5[- ]hour\b/i;
 const WEEKLY_REGEX = /\bweekly\b/i;
 const CLAUDE_FAMILY_REGEX = /\b(opus|sonnet|haiku)\b/i;
 
+const WEEKLY_MODEL_PREFIX = 'weekly_model:';
 const FIVE_HOUR_MINUTES = 300;
 const WEEKLY_MINUTES = 10_080;
 
@@ -138,17 +143,41 @@ const matchOllama: PatternMatcher = (text) =>
   OLLAMA_LIMIT_REGEX.test(text) ? quota('ollama-429', {}) : null;
 
 /**
- * Wordings per CLI or provider. A Ptah CLI lane may run Claude or Ollama
- * Cloud, and its provider is not known where lanes exit, so it gets both.
+ * Wordings per CLI or provider. A Ptah CLI lane is classified by its provider
+ * when its recorded owner names one ({@link laneLimitWording}). With no
+ * provider known it gets the Claude wording only: the Ollama "429 … too many
+ * requests" wording is also what an Anthropic rate limit prints, so matching
+ * it on an unknown provider would misread a plain rate limit as quota.
  */
 const MATCHERS: Readonly<Record<string, readonly PatternMatcher[]>> = {
   codex: [matchCodex],
   antigravity: [matchAntigravity],
   opencode: [matchOpenCode],
-  'ptah-cli': [matchClaude, matchOllama],
+  'ptah-cli': [matchClaude],
   anthropic: [matchClaude],
   'ollama-cloud': [matchOllama],
 };
+
+/** Owner providers whose own wordings a Ptah CLI lane is classified by. */
+const PTAH_CLI_WORDING_PROVIDERS: ReadonlySet<string> = new Set([
+  'anthropic',
+  'ollama-cloud',
+]);
+
+/**
+ * The `cliOrProvider` a lane is classified under: a Ptah CLI lane's owner
+ * provider when it has its own wordings, otherwise the CLI itself.
+ */
+export function laneLimitWording(
+  cli: string,
+  ownerProviderId: string | undefined,
+): string {
+  return cli === 'ptah-cli' &&
+    ownerProviderId !== undefined &&
+    PTAH_CLI_WORDING_PROVIDERS.has(ownerProviderId)
+    ? ownerProviderId
+    : cli;
+}
 
 /**
  * Classify a lane failure. Returns `null` when no quota wording of this CLI
@@ -201,7 +230,10 @@ export function laneLimitEvidence(
   return {
     kind: 'window',
     window: {
-      ...windowDescriptor(classification.windowKey, classification.modelScope),
+      ...laneWindowDescriptor(
+        classification.windowKey,
+        classification.modelScope,
+      ),
       ...scope,
       ...reset,
       exhaustion,
@@ -239,13 +271,22 @@ function claudeWindow(
     : { windowKey: 'weekly' };
 }
 
-function windowDescriptor(
+/**
+ * Kind and label of a window a lane names, matching the labels the ledger
+ * gives the same keys.
+ */
+export function laneWindowDescriptor(
   key: PlanWindowKey,
   modelScope: string | undefined,
 ): Pick<PlanLimitWindow, 'key' | 'kind' | 'label'> {
   if (key === 'five_hour') return windowKindFromDuration(FIVE_HOUR_MINUTES, 0);
   if (key === 'weekly') return windowKindFromDuration(WEEKLY_MINUTES, 0);
-  const scope = modelScope ?? '';
+  if (key === 'monthly') return { key, kind: 'monthly', label: 'Monthly' };
+  if (key === 'overage') return { key, kind: 'overage', label: 'Overage' };
+  if (!key.startsWith(WEEKLY_MODEL_PREFIX)) {
+    return { key, kind: 'other', label: 'Other' };
+  }
+  const scope = modelScope ?? key.slice(WEEKLY_MODEL_PREFIX.length);
   return {
     key,
     kind: 'weekly_model',

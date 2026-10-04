@@ -67,6 +67,16 @@ import type { PtahCliConfigPersistence } from './helpers/ptah-cli-config-persist
 import type { PtahCliSpawnOptions } from './helpers/ptah-cli-spawn-options.service';
 import type { ISdkProcessSpawner } from '../spawn/sdk-process-spawner.port';
 import { PtahCliStreamLoop } from './helpers/ptah-cli-stream-loop.service';
+import {
+  PtahCliLanePlanLimits,
+  isPlanBilledLaneProvider,
+  type LanePlanLimitWriter,
+} from './helpers/ptah-cli-lane-plan-limits';
+import {
+  LaneOwnerResolver,
+  type LaneOwnerSource,
+} from '../cli-agents/limits/lane-owner.resolver';
+import type { AgentProcessManager } from '../cli-agents/agent-process-manager.service';
 import { createPromptMailbox } from './helpers/ptah-cli-prompt-mailbox';
 import { CLI_AGENT_RUNTIME_TOKENS } from '../di/tokens';
 import {
@@ -872,6 +882,14 @@ export class PtahCliRegistry {
           pendingTurns.push(resolve);
         });
       const turn1Done = enqueueTurn();
+      const lanePlanLimits = this.createLanePlanLimits(
+        id,
+        agentConfig.providerId,
+      );
+      const attachAgentId = (agentId: string): void => {
+        agentIdHolder.value = agentId;
+        lanePlanLimits.attach(agentId);
+      };
       const streamLoop = new PtahCliStreamLoop({
         logger: this.logger,
         messageTransformer: this.messageTransformer,
@@ -881,16 +899,23 @@ export class PtahCliRegistry {
         agentName: agentConfig.name,
         onSessionResolved: (sessionId: string) => {
           resolvedSessionId = sessionId;
+          // The system init: the lane's own account can be read from here.
+          lanePlanLimits.onSystemInit(sdkQuery);
           for (const cb of sessionResolvedCallbacks) {
             cb(sessionId);
           }
         },
+        // A turn is released to the manager only once the lane's owner read
+        // has settled (bounded at 3 s), so the exit it triggers is classified
+        // and persisted with the owner (Batch 11 carry-forward).
         onTurnComplete: (exitCode: number) => {
           const resolve = pendingTurns.shift();
           if (resolve) {
-            resolve(exitCode);
+            void lanePlanLimits.settled.then(() => resolve(exitCode));
           }
         },
+        onPlanLimitSignal: (signal) => lanePlanLimits.onSignal(signal),
+        planBilledSuccess: isPlanBilledLaneProvider(agentConfig.providerId),
       });
       streamLoop
         .run(sdkQuery)
@@ -908,10 +933,13 @@ export class PtahCliRegistry {
           disposeCallbacks();
           void stopProxy();
           sessionResolvedCallbacks.length = 0;
-          while (pendingTurns.length > 0) {
-            const resolve = pendingTurns.shift();
-            resolve?.(exitCode);
-          }
+          lanePlanLimits.end();
+          void lanePlanLimits.settled.then(() => {
+            while (pendingTurns.length > 0) {
+              const resolve = pendingTurns.shift();
+              resolve?.(exitCode);
+            }
+          });
         });
 
       // No `getPid`, deliberately, and it is not an oversight the way it looks.
@@ -939,6 +967,9 @@ export class PtahCliRegistry {
           }
         },
         supportsContinuation: () => true,
+        // Called by the manager as soon as it tracks the run, which is when
+        // the lane's owner can be recorded on it.
+        setAgentId: attachAgentId,
         continue: (message: string) => {
           const done = enqueueTurn();
           this.logger.info(
@@ -961,9 +992,7 @@ export class PtahCliRegistry {
         /** Call this AFTER spawnFromSdkHandle() returns with the agentId.
          *  Populates the lazy resolver used by SdkPermissionHandler to route
          *  CLI agent permissions to the agent monitor panel. */
-        setAgentId: (agentId: string) => {
-          agentIdHolder.value = agentId;
-        },
+        setAgentId: attachAgentId,
       };
     } catch (error: unknown) {
       await stopProxy();
@@ -990,6 +1019,39 @@ export class PtahCliRegistry {
    * apps/ptah-electron/src/di/container.ts:40,
    * libs/backend/cli-engine/src/lib/container.ts:357).
    */
+  /**
+   * The plan-limit side of one lane (TASK_2026_596, Component 10): its owner
+   * read and the ledger its stream signals go to. Looked up at spawn like the
+   * capability resolver, for the same reason — the ledger and the manager are
+   * whole graphs the registry's construction must not depend on. A host
+   * missing any of them gets a lane with no owner and no ledger writes.
+   */
+  private createLanePlanLimits(
+    ptahCliId: string,
+    providerId: string,
+  ): PtahCliLanePlanLimits {
+    const ownerSource = this.lookupOptional<LaneOwnerSource>(
+      AUTH_PROVIDERS_TOKENS.PROVIDER_OWNER_RESOLVER,
+    );
+    const manager = this.lookupOptional<
+      Pick<AgentProcessManager, 'recordQuotaOwner'>
+    >(TOKENS.AGENT_PROCESS_MANAGER);
+    return new PtahCliLanePlanLimits({
+      logger: this.logger,
+      ledger: this.lookupOptional<LanePlanLimitWriter>(
+        AUTH_PROVIDERS_TOKENS.PLAN_LIMIT_LEDGER,
+      ),
+      owners: ownerSource
+        ? new LaneOwnerResolver(this.logger, ownerSource)
+        : null,
+      recordOwner: manager
+        ? (agentId, owner) => manager.recordQuotaOwner(agentId, owner)
+        : null,
+      ptahCliId,
+      providerId,
+    });
+  }
+
   private lookupOptional<T>(token: symbol): T | null {
     if (this.container === null || !this.container.isRegistered(token, true)) {
       return null;

@@ -6,6 +6,8 @@
 import {
   classifyLaneLimit,
   laneLimitEvidence,
+  laneLimitWording,
+  laneWindowDescriptor,
   RETRY_AT_REGEX,
   USAGE_LIMIT_REGEX,
 } from './lane-limit-classifier';
@@ -133,10 +135,28 @@ describe('classifyLaneLimit', () => {
       ).toMatchObject({ failureKind: 'quota', pattern: 'ollama-429' });
     });
 
-    it('reaches a ptah-cli lane, whose provider is not known at exit', () => {
+    it('is never matched on a ptah-cli lane whose provider is unknown', () => {
       expect(
         classify('ptah-cli', 'HTTP 429 - weekly usage limit exceeded'),
-      ).toMatchObject({ pattern: 'ollama-429' });
+      ).toBeNull();
+    });
+
+    it('is not matched on an Anthropic lane: a 429 there is a rate limit, not quota', () => {
+      expect(
+        classify(
+          laneLimitWording('ptah-cli', 'anthropic'),
+          'API Error: 429 Too Many Requests (rate_limit_error)',
+        ),
+      ).toBeNull();
+    });
+
+    it('reaches a ptah-cli lane whose owner provider is ollama-cloud', () => {
+      expect(
+        classify(
+          laneLimitWording('ptah-cli', 'ollama-cloud'),
+          'HTTP 429 - weekly usage limit exceeded',
+        ),
+      ).toMatchObject({ failureKind: 'quota', pattern: 'ollama-429' });
     });
 
     it('ignores a bare 429 in ordinary output', () => {
@@ -192,7 +212,32 @@ describe('classifyLaneLimit', () => {
           'status 429 too many requests',
           '5-hour limit reached ∙ resets 2am',
         ),
-      ).toMatchObject({ pattern: 'ollama-429' });
+      ).toMatchObject({ pattern: 'claude-limit-reached' });
+    });
+  });
+
+  describe('laneLimitWording', () => {
+    it.each([
+      ['ptah-cli', 'anthropic', 'anthropic'],
+      ['ptah-cli', 'ollama-cloud', 'ollama-cloud'],
+      ['ptah-cli', 'z-ai', 'ptah-cli'],
+      ['ptah-cli', undefined, 'ptah-cli'],
+      ['codex', 'openai-codex', 'codex'],
+    ] as const)('%s with owner provider %s → %s', (cli, provider, expected) => {
+      expect(laneLimitWording(cli, provider)).toBe(expected);
+    });
+  });
+
+  describe('laneWindowDescriptor', () => {
+    it.each([
+      ['five_hour', undefined, 'five_hour', '5-hour session'],
+      ['weekly', undefined, 'weekly', 'Weekly'],
+      ['weekly_model:opus', 'opus', 'weekly_model', 'Weekly · Opus'],
+      ['weekly_model:sonnet', undefined, 'weekly_model', 'Weekly · Sonnet'],
+      ['overage', undefined, 'overage', 'Overage'],
+      ['monthly', undefined, 'monthly', 'Monthly'],
+    ] as const)('%s → %s / %s', (key, scope, kind, label) => {
+      expect(laneWindowDescriptor(key, scope)).toEqual({ key, kind, label });
     });
   });
 });

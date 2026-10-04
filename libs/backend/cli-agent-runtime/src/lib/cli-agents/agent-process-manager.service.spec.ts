@@ -1717,6 +1717,90 @@ describe('AgentProcessManager - SDK Execution Path', () => {
       );
     });
 
+    describe('ptah-cli lanes are classified by their owner provider', () => {
+      const spawnPtahCliLane = async (
+        laneOwner?: QuotaOwnerRef,
+      ): Promise<string> => {
+        const { agentId } = await manager.spawnFromSdkHandle(
+          sdkControls.handle,
+          {
+            task: 'Task',
+            cli: 'ptah-cli',
+            workingDirectory: '/workspace/root',
+            ptahCliName: 'Lane',
+            ptahCliId: 'ptah-cli-1',
+          },
+        );
+        if (laneOwner) manager.recordQuotaOwner(agentId, laneOwner);
+        return agentId;
+      };
+      const RATE_LIMIT_429 =
+        'API Error: 429 Too Many Requests {"type":"rate_limit_error"}\n';
+
+      it('does not read an Anthropic lane 429 as quota', async () => {
+        const anthropic = owner('anthropic', 'account');
+        const agentId = await spawnPtahCliLane(anthropic);
+
+        sdkControls.emitOutput(RATE_LIMIT_429);
+        sdkControls.resolve(1);
+        await settle();
+
+        const status = manager.getStatus(agentId) as AgentProcessInfo;
+        expect(status.status).toBe('failed');
+        expect(status.failureKind).toBeUndefined();
+        expect(planLimits.recordOwnerEvidence).not.toHaveBeenCalled();
+      });
+
+      it('does not read a 429 as quota while the provider is unknown', async () => {
+        const agentId = await spawnPtahCliLane();
+
+        sdkControls.emitOutput(RATE_LIMIT_429);
+        sdkControls.resolve(1);
+        await settle();
+
+        expect(manager.getStatus(agentId)).not.toHaveProperty(
+          'failureKind',
+          'quota',
+        );
+      });
+
+      it('still reads the Ollama 429 wording on an ollama-cloud lane (F38)', async () => {
+        const ollama = owner('ollama-cloud', 'credential');
+        const agentId = await spawnPtahCliLane(ollama);
+
+        sdkControls.emitOutput('status 429: Too Many Requests\n');
+        sdkControls.resolve(1);
+        await settle();
+
+        expect(manager.getStatus(agentId)).toMatchObject({
+          status: 'failed',
+          failureKind: 'quota',
+        });
+        expect(planLimits.recordOwnerEvidence).toHaveBeenCalledWith(
+          ollama,
+          expect.objectContaining({ source: 'error-derived' }),
+        );
+      });
+
+      it('reads the Claude wording on an Anthropic lane', async () => {
+        const anthropic = owner('anthropic', 'account');
+        const agentId = await spawnPtahCliLane(anthropic);
+
+        sdkControls.emitOutput('5-hour limit reached ∙ resets 2am\n');
+        sdkControls.resolve(1);
+        await settle();
+
+        expect(manager.getStatus(agentId)).toHaveProperty(
+          'failureKind',
+          'quota',
+        );
+        expect(planLimits.recordWindowEvidence).toHaveBeenCalledWith(
+          anthropic,
+          expect.objectContaining({ key: 'five_hour' }),
+        );
+      });
+    });
+
     describe('recordQuotaOwner()', () => {
       it('upgrades unknown to known and announces it for immediate persistence', async () => {
         laneOwners.ownerForLane.mockReturnValue(codexUnknown);

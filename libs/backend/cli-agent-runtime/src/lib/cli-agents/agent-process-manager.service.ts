@@ -68,6 +68,7 @@ import type { TrackedAgent } from './tracked-agent';
 import {
   classifyLaneLimit,
   laneLimitEvidence,
+  laneLimitWording,
   type LaneLimitClassification,
 } from './limits/lane-limit-classifier';
 import {
@@ -1809,6 +1810,8 @@ export class AgentProcessManager {
   /**
    * Whether a failed run hit its plan quota, read from its newest error
    * segments and the last 16 KB of its output. Runs once per failed exit.
+   * A Ptah CLI lane is read with its owner provider's wordings when the owner
+   * names one, never with the Ollama wording while the provider is unknown.
    */
   private classifyLaneFailure(
     tracked: TrackedAgent,
@@ -1820,7 +1823,10 @@ export class AgentProcessManager {
       .reverse()
       .map((segment) => segment.content.slice(-LIMIT_CLASSIFIER_SEGMENT_CHARS));
     const limit = classifyLaneLimit({
-      cliOrProvider: tracked.info.cli,
+      cliOrProvider: laneLimitWording(
+        tracked.info.cli,
+        tracked.info.quotaOwner?.providerId,
+      ),
       texts: [
         ...errors,
         tracked.stdoutBuffer.slice(-LIMIT_CLASSIFIER_TAIL_CHARS),
