@@ -59,6 +59,7 @@ import { SessionStreamPump } from './session-lifecycle/session-stream-pump.servi
 import {
   SessionQueryExecutor,
   type CompactionCoordinatorSink,
+  type SubagentBudgetSink,
 } from './session-lifecycle/session-query-executor.service';
 import type { IContextUsagePort } from './compaction/context-usage.port';
 import { SessionControl } from './session-lifecycle/session-control.service';
@@ -393,6 +394,8 @@ export class SessionLifecycleManager {
     private readonly compactionCoordinator: CompactionCoordinatorSink | null = null,
     @inject(SDK_TOKENS.SDK_CONTEXT_USAGE_PORT, { isOptional: true })
     private readonly contextUsagePort: IContextUsagePort | null = null,
+    @inject(SDK_TOKENS.SDK_SUBAGENT_BUDGET_MONITOR, { isOptional: true })
+    private readonly subagentBudgetMonitor: SubagentBudgetSink | null = null,
   ) {
     this._registry = new SessionRegistry(this.logger);
     this._streamPump = new SessionStreamPump(
@@ -414,6 +417,7 @@ export class SessionLifecycleManager {
       this.harnessPolicySync,
       this.compactionCoordinator,
       this.contextUsagePort,
+      this.subagentBudgetMonitor,
     );
     const compactionProvider = this.compactionConfigProvider;
     this._control = new SessionControl(

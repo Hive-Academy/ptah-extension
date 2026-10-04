@@ -45,6 +45,7 @@ import {
 import type { CompactionCoordinator } from '../compaction/compaction-coordinator';
 import type { CompactionSessionClass } from '../compaction/compaction-state.types';
 import type { IContextUsagePort } from '../compaction/context-usage.port';
+import type { SubagentBudgetMonitor } from '../compaction/subagent-budget-monitor';
 import type { SdkModuleLoader } from '../sdk-module-loader';
 import {
   resolveSessionCapabilityPolicy,
@@ -145,6 +146,12 @@ export type CompactionCoordinatorSink = Pick<
   | 'onContextUsage'
 >;
 
+/** The subagent budget monitor surface the executor drives (TASK_2026_597 28b). */
+export type SubagentBudgetSink = Pick<
+  SubagentBudgetMonitor,
+  'observe' | 'release'
+>;
+
 /**
  * Compaction bookkeeping for one query run (TASK_2026_597 A8).
  *
@@ -161,6 +168,7 @@ class CompactionSessionTap {
   private readonly trackedIds = new Set<string>();
   private query: Query | null = null;
   private turn = 0;
+  private readonly subagentIds = new Set<string>();
   private released = false;
 
   constructor(
@@ -170,6 +178,7 @@ class CompactionSessionTap {
     private readonly sessionClass: CompactionSessionClass,
     /** Unique per query run, so a resumed run never reuses a cached turn read. */
     private readonly runToken: string,
+    private readonly subagentMonitor: SubagentBudgetSink | null = null,
   ) {}
 
   attachQuery(query: Query): void {
@@ -187,7 +196,10 @@ class CompactionSessionTap {
   }
 
   private handle(message: SDKMessage): void {
-    if ('parent_tool_use_id' in message && message.parent_tool_use_id) return;
+    if ('parent_tool_use_id' in message && message.parent_tool_use_id) {
+      this.feedSubagentMonitor(message);
+      return;
+    }
     const id =
       'session_id' in message && typeof message.session_id === 'string'
         ? message.session_id
@@ -197,9 +209,7 @@ class CompactionSessionTap {
     if (sessionId === null) return;
     if (message.type === 'system') {
       if (message.subtype === 'status' && message.status === 'compacting') {
-        this.guard('status-compacting', (c) =>
-          c.onStatusCompacting(sessionId),
-        );
+        this.guard('status-compacting', (c) => c.onStatusCompacting(sessionId));
       } else if (message.subtype === 'compact_boundary') {
         const { pre_tokens, post_tokens } = message.compact_metadata;
         this.guard('compact-boundary', (c) =>
@@ -214,10 +224,48 @@ class CompactionSessionTap {
     }
   }
 
+  /**
+   * A subagent message goes to the budget monitor under the session id the
+   * dispatcher and registry use. The effective subagent prompt-cache TTL is not
+   * visible to the executor (the options builder resolves it internally), so
+   * the monitor's default applies; real SDK messages carry the cache split.
+   */
+  private feedSubagentMonitor(message: SDKMessage): void {
+    const monitor = this.subagentMonitor;
+    if (!monitor) return;
+    const id =
+      'session_id' in message && typeof message.session_id === 'string'
+        ? message.session_id
+        : this.sessionId;
+    if (!id) return;
+    this.subagentIds.add(id);
+    try {
+      monitor
+        .observe(id, message)
+        .catch((error: unknown) =>
+          this.warn('Subagent budget monitor failed', 'subagent-budget', error),
+        );
+    } catch (error: unknown) {
+      this.warn('Subagent budget monitor failed', 'subagent-budget', error);
+    }
+  }
+
   /** Session end: drop every id this run tracked. Idempotent. */
   release(): void {
     if (this.released) return;
     this.released = true;
+    for (const id of this.subagentIds) {
+      try {
+        this.subagentMonitor?.release(id);
+      } catch (error: unknown) {
+        this.warn(
+          'Subagent budget monitor failed on release',
+          'release',
+          error,
+        );
+      }
+    }
+    this.subagentIds.clear();
     for (const id of this.trackedIds) {
       this.guard('release', (c) => c.unregister(id));
       try {
@@ -341,6 +389,7 @@ export class SessionQueryExecutor {
      */
     private readonly compactionCoordinator: CompactionCoordinatorSink | null = null,
     private readonly contextUsagePort: IContextUsagePort | null = null,
+    private readonly subagentBudgetMonitor: SubagentBudgetSink | null = null,
   ) {}
 
   /**
@@ -454,6 +503,7 @@ export class SessionQueryExecutor {
         e2Passed: null,
       },
       rec.token,
+      this.subagentBudgetMonitor,
     );
     abortController.signal.addEventListener(
       'abort',

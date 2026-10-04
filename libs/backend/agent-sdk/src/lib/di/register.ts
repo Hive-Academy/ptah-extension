@@ -106,6 +106,7 @@ import { SessionRotationAdvisor } from '../helpers/compaction/session-rotation-a
 import { ToolOutputCapper } from '../helpers/compaction/tool-output-capper';
 import { CompactionCoordinator } from '../helpers/compaction/compaction-coordinator';
 import { ContextUsagePort } from '../helpers/compaction/context-usage.port';
+import { SubagentBudgetMonitor } from '../helpers/compaction/subagent-budget-monitor';
 import { SDK_TOKENS } from './tokens';
 
 /**
@@ -438,6 +439,12 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_CONTEXT_USAGE_PORT,
     { useClass: ContextUsagePort },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  container.register(
+    SDK_TOKENS.SDK_SUBAGENT_BUDGET_MONITOR,
+    { useClass: SubagentBudgetMonitor },
     { lifecycle: Lifecycle.Singleton },
   );
 

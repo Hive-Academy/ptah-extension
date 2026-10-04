@@ -76,6 +76,12 @@ export const SDK_TOKENS = {
    * per session and turn for the coordinator and the rotation advisor.
    */
   SDK_CONTEXT_USAGE_PORT: Symbol.for('SdkContextUsagePort'),
+  /**
+   * `SubagentBudgetMonitor`: per-subagent context and weighted-token budget
+   * watcher fed by the executor's forwarded subagent messages
+   * (TASK_2026_597 A8). Singleton.
+   */
+  SDK_SUBAGENT_BUDGET_MONITOR: Symbol.for('SdkSubagentBudgetMonitor'),
 
   SDK_COMPACTION_CALLBACK_REGISTRY: Symbol.for('SdkCompactionCallbackRegistry'),
   SDK_COMPACTION_BOUNDARY_GENERATION_REGISTRY: Symbol.for(

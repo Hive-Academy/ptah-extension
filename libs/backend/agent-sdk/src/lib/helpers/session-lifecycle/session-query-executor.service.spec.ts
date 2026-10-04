@@ -41,6 +41,7 @@ import {
   resolveCapacityRoute,
   type CompactionCoordinatorSink,
 } from './session-query-executor.service';
+import type { SubagentBudgetSink } from './session-query-executor.service';
 import { CompactionCoordinator } from '../compaction/compaction-coordinator';
 import type { CompactionTimers } from '../compaction/compaction-state.types';
 import type {
@@ -113,6 +114,7 @@ function makeHarness(
   compaction: {
     coordinator?: CompactionCoordinatorSink;
     port?: IContextUsagePort;
+    subagentMonitor?: SubagentBudgetSink;
     logger?: Logger;
   } = {},
 ): Harness {
@@ -185,6 +187,7 @@ function makeHarness(
     null,
     compaction.coordinator ?? null,
     compaction.port ?? null,
+    compaction.subagentMonitor ?? null,
   );
 
   return {
@@ -691,8 +694,7 @@ describe('SessionQueryExecutor — compaction coordinator wiring (TASK_2026_597 
   function msg(value: Record<string, unknown>): SDKMessage {
     return value as unknown as SDKMessage;
   }
-  const init = () =>
-    msg({ type: 'system', subtype: 'init', session_id: REAL });
+  const init = () => msg({ type: 'system', subtype: 'init', session_id: REAL });
   const result = () =>
     msg({
       type: 'result',
@@ -950,5 +952,86 @@ describe('SessionQueryExecutor — compaction coordinator wiring (TASK_2026_597 
       run.activityWatchdog.observe(result());
     }).not.toThrow();
     run.abortController.abort();
+  });
+});
+
+describe('SessionQueryExecutor — subagent budget monitor wiring (TASK_2026_597 28b)', () => {
+  const REAL = 'sdk-real-uuid';
+  const msg = (value: Record<string, unknown>) =>
+    value as unknown as SDKMessage;
+  const init = () => msg({ type: 'system', subtype: 'init', session_id: REAL });
+  const mainAssistant = () =>
+    msg({ type: 'assistant', session_id: REAL, parent_tool_use_id: null });
+  const subAssistant = () =>
+    msg({ type: 'assistant', session_id: REAL, parent_tool_use_id: 'toolu_1' });
+  const flush = () => new Promise((resolve) => setImmediate(resolve));
+
+  function makeMonitor(observe = jest.fn().mockResolvedValue(undefined)) {
+    const release = jest.fn();
+    const monitor = { observe, release } as unknown as SubagentBudgetSink;
+    return { monitor, observe, release };
+  }
+
+  it('forwards a subagent message to the monitor and ignores a main-session one', async () => {
+    const { monitor, observe } = makeMonitor();
+    const { executor } = makeHarness('ask', {} as AuthEnv, {
+      subagentMonitor: monitor,
+    });
+    const run = await executor.executeQuery(makeConfig('tab_m1'));
+    run.activityWatchdog.observe(init());
+    run.activityWatchdog.observe(mainAssistant());
+    expect(observe).not.toHaveBeenCalled();
+    const sub = subAssistant();
+    run.activityWatchdog.observe(sub);
+    expect(observe).toHaveBeenCalledTimes(1);
+    expect(observe).toHaveBeenCalledWith(REAL, sub);
+    run.abortController.abort();
+  });
+
+  it('releases the monitor once on session end', async () => {
+    const { monitor, release } = makeMonitor();
+    const { executor } = makeHarness('ask', {} as AuthEnv, {
+      subagentMonitor: monitor,
+    });
+    const run = await executor.executeQuery(makeConfig('tab_m2'));
+    run.activityWatchdog.observe(init());
+    run.activityWatchdog.observe(subAssistant());
+    run.abortController.abort();
+    run.abortController.abort();
+    expect(release).toHaveBeenCalledTimes(1);
+    expect(release).toHaveBeenCalledWith(REAL);
+  });
+
+  it('a throwing or rejecting monitor does not break the turn', async () => {
+    const logger = makeLogger();
+    const throwing = makeMonitor(
+      jest.fn(() => {
+        throw new Error('sync boom');
+      }),
+    );
+    const { executor } = makeHarness('ask', {} as AuthEnv, {
+      subagentMonitor: throwing.monitor,
+      logger,
+    });
+    const run = await executor.executeQuery(makeConfig('tab_m3'));
+    run.activityWatchdog.observe(init());
+    expect(() => run.activityWatchdog.observe(subAssistant())).not.toThrow();
+
+    const rejecting = makeMonitor(jest.fn().mockRejectedValue(new Error('x')));
+    const h2 = makeHarness('ask', {} as AuthEnv, {
+      subagentMonitor: rejecting.monitor,
+      logger,
+    });
+    const run2 = await h2.executor.executeQuery(makeConfig('tab_m4'));
+    run2.activityWatchdog.observe(init());
+    run2.activityWatchdog.observe(subAssistant());
+    await flush();
+    const lines = (logger.warn as jest.Mock).mock.calls.filter((c) =>
+      (c[0] as string).includes('Subagent budget monitor failed'),
+    );
+    expect(lines).toHaveLength(2);
+    expect(logger.error).not.toHaveBeenCalled();
+    run.abortController.abort();
+    run2.abortController.abort();
   });
 });
