@@ -380,7 +380,8 @@ import { SubagentTranscriptViewerService } from '../../../services/subagent-tran
           >
             <textarea
               #sendTextarea
-              class="textarea textarea-bordered textarea-xs flex-1 text-[11px] resize-none leading-snug min-h-0"
+              class="textarea textarea-bordered textarea-xs flex-1 text-[11px] resize-none leading-snug min-h-[calc(1lh+0.5rem)] max-h-[72px] overflow-y-auto"
+              style="field-sizing: content"
               [class.textarea-disabled]="!canSendMessage()"
               [disabled]="!canSendMessage()"
               [title]="canSendMessage() ? '' : 'Agent is no longer running'"
@@ -1046,9 +1047,6 @@ export class InlineAgentBubbleComponent {
   protected onSendDraftInput(event: Event): void {
     const target = event.target as HTMLTextAreaElement;
     this.sendDraft.set(target.value);
-    target.style.height = 'auto';
-    const max = 72; // ~3 lines @ 24px line-height
-    target.style.height = Math.min(target.scrollHeight, max) + 'px';
   }
 
   protected onSendKeydown(event: KeyboardEvent): void {
