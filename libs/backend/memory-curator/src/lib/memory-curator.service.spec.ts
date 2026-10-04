@@ -1606,6 +1606,97 @@ describe('MemoryCuratorService — PreCompact coalescing (TASK_2026_597 A7)', ()
     expect(h.read).toHaveBeenCalledTimes(2);
     expect(skipLogs(h.logger)).toHaveLength(1);
   });
+
+  /** Holds the next transcript read open until `release()` is called. */
+  function holdNextRead(read: jest.Mock): () => void {
+    let release: () => void = () => undefined;
+    read.mockImplementationOnce(
+      () =>
+        new Promise<string>((resolve) => {
+          release = () => resolve('USER: hello\n\nASSISTANT: hi');
+        }),
+    );
+    return () => release();
+  }
+
+  it('skips a second auto PreCompact that arrives while the first pass is still pending', async () => {
+    const h = buildHarness();
+    const release = holdNextRead(h.read);
+
+    const first = h.fire();
+    const second = h.fire();
+    release();
+    await Promise.all([first, second]);
+
+    expect(h.read).toHaveBeenCalledTimes(1);
+    expect(
+      skipLogs(h.logger).some((c) => String(c[0]).includes('already in flight')),
+    ).toBe(true);
+
+    // The settled reservation became the watermark.
+    now += 1_000;
+    await h.fire();
+    expect(h.read).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not stamp the watermark after a manual compaction', async () => {
+    const h = buildHarness();
+
+    await h.fire('s-compact', 'manual');
+    now += 1_000;
+    await h.fire('s-compact', 'auto');
+
+    expect(h.read).toHaveBeenCalledTimes(2);
+    expect(skipLogs(h.logger)).toHaveLength(0);
+  });
+
+  it('stamps the CURRENT session id when the session is rekeyed while its pass is pending', async () => {
+    const h = buildHarness();
+    const release = holdNextRead(h.read);
+
+    const first = h.fire('tab-1');
+    h.svc.rekeySession('tab-1', 'real-1');
+    release();
+    await first;
+    now += 1_000;
+    await h.fire('real-1');
+    await h.fire('tab-1');
+
+    expect(h.read).toHaveBeenCalledTimes(2);
+    expect(skipLogs(h.logger)).toHaveLength(1);
+    expect(skipLogs(h.logger)[0][1]).toMatchObject({ sessionId: 'real-1' });
+  });
+
+  it('does not restore the watermark of a session forgotten while its pass was pending', async () => {
+    const h = buildHarness();
+    const release = holdNextRead(h.read);
+
+    const first = h.fire();
+    h.svc.forgetSession('s-compact');
+    release();
+    await first;
+    now += 1_000;
+    await h.fire();
+
+    expect(h.read).toHaveBeenCalledTimes(2);
+    expect(skipLogs(h.logger)).toHaveLength(0);
+  });
+
+  it('keeps the later watermark when both rekeyed ids have one', async () => {
+    const h = buildHarness();
+    const halfInterval = CURATOR_PRECOMPACT_MIN_INTERVAL_MS / 2;
+
+    await h.fire('real-1');
+    now += halfInterval + 1;
+    await h.fire('tab-1');
+    h.svc.rekeySession('tab-1', 'real-1');
+    now += halfInterval;
+    await h.fire('real-1');
+
+    // Measured from tab-1's later pass, real-1 is still inside the interval.
+    expect(h.read).toHaveBeenCalledTimes(2);
+    expect(skipLogs(h.logger)).toHaveLength(1);
+  });
 });
 
 /**
