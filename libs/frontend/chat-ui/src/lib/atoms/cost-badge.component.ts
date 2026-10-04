@@ -4,6 +4,7 @@ import {
   computed,
   ChangeDetectionStrategy,
 } from '@angular/core';
+import { formatUsdCost } from '@ptah-extension/shared';
 
 /**
  * CostBadgeComponent - Displays message cost with formatting
@@ -11,10 +12,9 @@ import {
  * Complexity Level: 1 (Simple atom)
  * Patterns: Standalone component, OnPush change detection
  *
- * Formats costs:
- * - < $0.01: "$0.0042" (4 decimal places)
- * - >= $0.01: "$0.12" (2 decimal places)
- * - >= $1.00: "$1.23" (2 decimal places)
+ * Formatting lives in the shared `formatUsdCost` (`@ptah-extension/shared`),
+ * so this badge and every other surface print the same string for the same
+ * cost.
  *
  * UNKNOWN vs ZERO: a null/undefined cost renders "cost unavailable", never
  * "$0.00". The two are different facts and the difference is load-bearing —
@@ -32,7 +32,7 @@ import {
         class="badge badge-sm badge-success text-success-content"
         [title]="'$' + cost.value.toFixed(4) + ' USD'"
       >
-        {{ formatCost(cost.value) }}
+        {{ formatUsdCost(cost.value) }}
       </span>
     } @else {
       <span
@@ -68,11 +68,6 @@ export class CostBadgeComponent {
       : null;
   });
 
-  protected formatCost(cost: number): string {
-    if (cost < 0.01) {
-      return `$${cost.toFixed(4)}`;
-    }
-
-    return `$${cost.toFixed(2)}`;
-  }
+  /** Shared formatter; the known-cost branch always passes a finite number. */
+  protected readonly formatUsdCost = formatUsdCost;
 }

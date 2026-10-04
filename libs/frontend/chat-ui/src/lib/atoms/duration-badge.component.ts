@@ -1,4 +1,5 @@
 import { Component, input, ChangeDetectionStrategy } from '@angular/core';
+import { formatDurationMs } from '@ptah-extension/shared';
 
 /**
  * DurationBadgeComponent - Displays execution duration
@@ -6,17 +7,16 @@ import { Component, input, ChangeDetectionStrategy } from '@angular/core';
  * Complexity Level: 1 (Simple atom)
  * Patterns: Standalone component, OnPush change detection
  *
- * Formats durations:
- * - < 1s: "500ms"
- * - < 60s: "12.5s"
- * - >= 60s: "2.3m"
+ * Formatting lives in the shared `formatDurationMs`
+ * (`@ptah-extension/shared`), so this badge and every other surface print the
+ * same string for the same duration.
  */
 @Component({
   selector: 'ptah-duration-badge',
   standalone: true,
   template: `
     <span class="badge badge-ghost badge-sm">
-      {{ formatDuration() }}
+      {{ formatDurationMs(durationMs()) }}
     </span>
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -24,22 +24,6 @@ import { Component, input, ChangeDetectionStrategy } from '@angular/core';
 export class DurationBadgeComponent {
   readonly durationMs = input.required<number>();
 
-  protected formatDuration(): string {
-    let ms = this.durationMs();
-    if (ms > 0 && ms < 100) {
-      ms = ms * 1000;
-    }
-
-    if (ms < 1000) {
-      return `${Math.round(ms)}ms`;
-    }
-
-    if (ms < 60_000) {
-      return `${(ms / 1000).toFixed(1)}s`;
-    }
-
-    const minutes = Math.floor(ms / 60_000);
-    const seconds = Math.round((ms % 60_000) / 1000);
-    return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;
-  }
+  /** Shared formatter; values below 100 are seconds, not milliseconds. */
+  protected readonly formatDurationMs = formatDurationMs;
 }
