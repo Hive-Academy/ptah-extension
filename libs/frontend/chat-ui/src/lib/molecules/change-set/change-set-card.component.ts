@@ -4,6 +4,7 @@ import {
   computed,
   input,
   output,
+  signal,
 } from '@angular/core';
 import { LucideAngularModule, ChevronRight, FileDiff } from 'lucide-angular';
 import { FileStatusBadgeComponent } from '@ptah-extension/ui';
@@ -41,6 +42,14 @@ const ACCENT = {
 
 /** Share of additions at or above which a set reads as "mostly additions". */
 const DOMINANT_SHARE = 0.75;
+
+/** Sets with more files than this start collapsed. */
+export const AUTO_EXPAND_MAX_FILES = 5;
+
+/** Rows rendered per group before a "Show more" step. */
+export const ROW_PAGE_SIZE = 50;
+
+let nextBodyId = 0;
 
 /**
  * Per-file counts as the row shows them. A binary file reads `binary` (git
@@ -96,6 +105,11 @@ export function changeSetAccent(changeSet: TurnChangeSet): string {
  * so Review stays on the card, and at 240 px or less each row puts
  * its path on a full-width second line, left-truncated so the file name end
  * stays visible, and drops the decorative chevron. Nothing overflows the card.
+ *
+ * Size: the header toggles the body. Sets of more than
+ * {@link AUTO_EXPAND_MAX_FILES} files, and sets with nothing left to open,
+ * start collapsed; a conflict opens the card. Reconciled rows sit in their own
+ * collapsed group, and each group renders {@link ROW_PAGE_SIZE} rows per step.
  */
 @Component({
   selector: 'ptah-change-set-card',
@@ -103,7 +117,7 @@ export function changeSetAccent(changeSet: TurnChangeSet): string {
   imports: [LucideAngularModule, FileStatusBadgeComponent],
   template: `
     <section
-      class="bg-base-300/30 rounded border-l-2 max-w-md text-base-content"
+      class="bg-base-300 shadow-card rounded-box border-l-2 overflow-hidden text-base-content"
       [style.border-left-color]="accent()"
       [attr.aria-label]="filesLabel()"
       data-testid="change-set-card"
@@ -112,36 +126,64 @@ export function changeSetAccent(changeSet: TurnChangeSet): string {
         class="cs-pad py-1.5 px-2 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[11px]"
         data-testid="change-set-header"
       >
-        <lucide-angular
-          [img]="FileDiffIcon"
-          class="w-3 h-3 shrink-0 text-base-content-muted"
-          aria-hidden="true"
-        />
-        <span
-          class="font-semibold text-base-content-muted"
-          data-testid="change-set-files"
-          >{{ filesLabel() }}</span
+        <button
+          type="button"
+          class="flex flex-1 min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 text-left rounded focus-visible:-outline-offset-2"
+          [attr.aria-expanded]="expanded()"
+          [attr.aria-controls]="bodyId"
+          data-testid="change-set-toggle"
+          (click)="toggleExpanded()"
         >
-        @if (changeSet().countsUnavailable) {
+          <lucide-angular
+            [img]="ChevronRightIcon"
+            class="w-3 h-3 shrink-0 text-base-content-muted transition-transform duration-150"
+            [class.rotate-90]="expanded()"
+            aria-hidden="true"
+          />
+          <lucide-angular
+            [img]="FileDiffIcon"
+            class="w-3 h-3 shrink-0 text-base-content-muted"
+            aria-hidden="true"
+          />
           <span
-            class="cs-badge badge badge-ghost badge-xs text-base-content"
-            data-testid="change-set-counts-unavailable"
-            >counts unavailable</span
+            class="font-semibold text-base-content-muted"
+            data-testid="change-set-files"
+            >{{ filesLabel() }}</span
           >
-        } @else {
-          <span
-            class="inline-flex flex-wrap gap-1 font-mono text-[10px]"
-            data-testid="change-set-totals"
-          >
-            <span class="diff-add-text"
-              >+{{ changeSet().totals.additions }}</span
+          @if (changeSet().countsUnavailable) {
+            <span
+              class="cs-badge badge badge-ghost badge-xs text-base-content"
+              data-testid="change-set-counts-unavailable"
+              >counts unavailable</span
             >
-            <span class="diff-del-text"
-              >−{{ changeSet().totals.deletions }}</span
+          } @else if (hasLineCounts()) {
+            <span
+              class="inline-flex flex-wrap gap-1 font-mono text-[10px]"
+              data-testid="change-set-totals"
             >
-          </span>
-        }
-        <span class="ml-auto"></span>
+              <span class="diff-add-text"
+                >+{{ changeSet().totals.additions }}</span
+              >
+              <span class="diff-del-text"
+                >−{{ changeSet().totals.deletions }}</span
+              >
+            </span>
+          }
+          @if (conflictedCount() > 0) {
+            <span
+              class="cs-badge badge badge-xs bg-error border-error err-solid-text"
+              data-testid="change-set-conflicted-count"
+              >{{ conflictedCount() }} conflicted</span
+            >
+          }
+          @if (reconciledRows().length > 0) {
+            <span
+              class="cs-badge badge badge-ghost badge-xs text-base-content"
+              data-testid="change-set-reconciled-summary"
+              >{{ reconciledSummary() }}</span
+            >
+          }
+        </button>
         <button
           type="button"
           class="btn btn-primary btn-xs shrink-0"
@@ -152,108 +194,167 @@ export function changeSetAccent(changeSet: TurnChangeSet): string {
         </button>
       </div>
 
-      @if (changeSet().baselineMissing) {
-        <p
-          class="px-2 pb-1.5 text-[10px] text-base-content-muted"
-          data-testid="change-set-baseline-missing"
-        >
-          May include changes made before this turn started.
-        </p>
-      }
+      @if (expanded()) {
+        <div [id]="bodyId" data-testid="change-set-body">
+          @if (changeSet().baselineMissing) {
+            <p
+              class="px-2 pb-1.5 text-[10px] text-base-content-muted"
+              data-testid="change-set-baseline-missing"
+            >
+              May include changes made before this turn started.
+            </p>
+          }
 
-      <ul class="border-t border-base-300/30" role="list">
-        @for (row of rows(); track row.file.path) {
-          <li>
-            @if (row.state === 'reconciled') {
-              <!-- The path spells out truncation instead of using the
-                   .truncate class: anubis-light forces full ink on every
-                   .truncate (styles.css "Tab Bar Fixes"), which undid the
-                   muted dimming of this inert row in light only. -->
-              <div
-                class="cs-pad cs-row w-full flex items-center gap-2 px-2 py-1 text-[11px] text-base-content-muted"
-                data-testid="change-set-row-reconciled"
+          <ul class="border-t border-base-content/10" role="list">
+            @for (row of visibleActiveRows(); track row.file.path) {
+              <li>
+                <button
+                  type="button"
+                  class="cs-pad cs-row w-full flex items-center gap-2 px-2 py-1 text-[11px] text-left text-base-content hover:bg-base-200/60 focus-visible:bg-base-300/50 focus-visible:-outline-offset-2"
+                  [title]="rowTitle(row)"
+                  data-testid="change-set-row"
+                  (click)="openFile.emit(row.file.path)"
+                >
+                  <ptah-file-status-badge
+                    [status]="
+                      row.state === 'conflicted' ? 'U' : row.file.status
+                    "
+                  />
+                  <span
+                    class="cs-path font-mono truncate flex-1 min-w-0 text-left"
+                    dir="rtl"
+                    ><bdi dir="ltr"
+                      >{{ row.file.path }}
+                      @if (row.file.origPath) {
+                        <span class="sr-only"> renamed from </span
+                        ><span
+                          class="text-base-content-muted"
+                          aria-hidden="true"
+                        >
+                          ← </span
+                        ><span class="text-base-content-muted">{{
+                          row.file.origPath
+                        }}</span>
+                      }
+                    </bdi></span
+                  >
+                  @if (row.state === 'conflicted') {
+                    <span
+                      class="cs-badge badge badge-xs bg-error border-error err-solid-text"
+                      data-testid="change-set-row-conflicted"
+                      >Conflicted</span
+                    >
+                  } @else {
+                    <span
+                      class="text-[10px] text-base-content-muted font-mono shrink-0"
+                      data-testid="change-set-row-counts"
+                      >{{ row.counts }}</span
+                    >
+                  }
+                  <lucide-angular
+                    [img]="ChevronRightIcon"
+                    class="cs-chevron w-3 h-3 shrink-0 text-base-content-muted"
+                    aria-hidden="true"
+                  />
+                </button>
+              </li>
+            }
+            @if (hiddenActiveCount() > 0) {
+              <li>
+                <button
+                  type="button"
+                  class="w-full px-2 py-1 text-[10px] text-left text-base-content-muted hover:bg-base-200/60 focus-visible:-outline-offset-2"
+                  data-testid="change-set-show-more"
+                  (click)="showMoreActive()"
+                >
+                  {{ showMoreLabel(hiddenActiveCount()) }}
+                </button>
+              </li>
+            }
+            @if (changeSet().truncatedCount > 0) {
+              <li
+                class="px-2 py-1 text-[10px] text-base-content-muted"
+                data-testid="change-set-truncated"
               >
-                <ptah-file-status-badge [status]="row.file.status" />
-                <span
-                  class="cs-path font-mono overflow-hidden text-ellipsis whitespace-nowrap flex-1 min-w-0 text-left text-base-content-muted"
-                  dir="rtl"
-                  [title]="row.file.path"
-                  data-testid="change-set-row-reconciled-path"
-                  ><bdi dir="ltr">{{ row.file.path }}</bdi></span
-                >
-                <span
-                  class="cs-badge badge badge-ghost badge-xs text-base-content"
-                  >No longer changes HEAD</span
-                >
-              </div>
-            } @else {
+                {{ truncatedLabel() }}
+              </li>
+            }
+          </ul>
+
+          @if (reconciledRows().length > 0) {
+            <div class="border-t border-base-content/10">
               <button
                 type="button"
-                class="cs-pad cs-row w-full flex items-center gap-2 px-2 py-1 text-[11px] text-left text-base-content hover:bg-base-300/50 focus-visible:bg-base-300/50 focus-visible:-outline-offset-2"
-                [title]="rowTitle(row)"
-                data-testid="change-set-row"
-                (click)="openFile.emit(row.file.path)"
+                class="cs-pad w-full flex items-center gap-1.5 px-2 py-1 text-[10px] text-left text-base-content-muted hover:bg-base-200/60 focus-visible:-outline-offset-2"
+                [attr.aria-expanded]="reconciledExpanded()"
+                data-testid="change-set-reconciled-toggle"
+                (click)="reconciledExpanded.set(!reconciledExpanded())"
               >
-                <ptah-file-status-badge
-                  [status]="row.state === 'conflicted' ? 'U' : row.file.status"
-                />
-                <span
-                  class="cs-path font-mono truncate flex-1 min-w-0 text-left"
-                  dir="rtl"
-                  ><bdi dir="ltr"
-                    >{{ row.file.path }}
-                    @if (row.file.origPath) {
-                      <span class="sr-only"> renamed from </span
-                      ><span class="text-base-content-muted" aria-hidden="true">
-                        ← </span
-                      ><span class="text-base-content-muted">{{
-                        row.file.origPath
-                      }}</span>
-                    }
-                  </bdi></span
-                >
-                @if (row.state === 'conflicted') {
-                  <span
-                    class="cs-badge badge badge-xs bg-error border-error err-solid-text"
-                    data-testid="change-set-row-conflicted"
-                    >Conflicted</span
-                  >
-                } @else {
-                  <span
-                    class="text-[10px] text-base-content-muted font-mono shrink-0"
-                    data-testid="change-set-row-counts"
-                    >{{ row.counts }}</span
-                  >
-                }
                 <lucide-angular
                   [img]="ChevronRightIcon"
-                  class="cs-chevron w-3 h-3 shrink-0 text-base-content-muted"
+                  class="w-3 h-3 shrink-0 transition-transform duration-150"
+                  [class.rotate-90]="reconciledExpanded()"
                   aria-hidden="true"
                 />
+                {{ reconciledToggleLabel() }}
               </button>
-            }
-          </li>
-        }
-        @if (changeSet().truncatedCount > 0) {
-          <li
-            class="px-2 py-1 text-[10px] text-base-content-muted"
-            data-testid="change-set-truncated"
-          >
-            {{ truncatedLabel() }}
-          </li>
-        }
-      </ul>
+              @if (reconciledExpanded()) {
+                <ul role="list">
+                  @for (row of visibleReconciledRows(); track row.file.path) {
+                    <li>
+                      <!-- The path spells out truncation instead of using the
+                           .truncate class: anubis-light forces full ink on
+                           every .truncate (styles.css "Tab Bar Fixes"), which
+                           undid the muted dimming of this inert row in light
+                           only. -->
+                      <div
+                        class="cs-pad cs-row w-full flex items-center gap-2 px-2 py-1 text-[11px] text-base-content-muted"
+                        data-testid="change-set-row-reconciled"
+                      >
+                        <ptah-file-status-badge [status]="row.file.status" />
+                        <span
+                          class="cs-path font-mono overflow-hidden text-ellipsis whitespace-nowrap flex-1 min-w-0 text-left text-base-content-muted"
+                          dir="rtl"
+                          [title]="row.file.path"
+                          data-testid="change-set-row-reconciled-path"
+                          ><bdi dir="ltr">{{ row.file.path }}</bdi></span
+                        >
+                        <span
+                          class="cs-badge badge badge-ghost badge-xs text-base-content"
+                          >No longer changes HEAD</span
+                        >
+                      </div>
+                    </li>
+                  }
+                  @if (hiddenReconciledCount() > 0) {
+                    <li>
+                      <button
+                        type="button"
+                        class="w-full px-2 py-1 text-[10px] text-left text-base-content-muted hover:bg-base-200/60 focus-visible:-outline-offset-2"
+                        data-testid="change-set-show-more-reconciled"
+                        (click)="showMoreReconciled()"
+                      >
+                        {{ showMoreLabel(hiddenReconciledCount()) }}
+                      </button>
+                    </li>
+                  }
+                </ul>
+              }
+            </div>
+          }
 
-      @if (host() === 'vscode') {
-        <div class="border-t border-base-300/30 px-2 py-1.5">
-          <button
-            type="button"
-            class="btn btn-ghost btn-xs text-base-content"
-            data-testid="change-set-open-scm"
-            (click)="openScm.emit()"
-          >
-            Open Source Control
-          </button>
+          @if (host() === 'vscode') {
+            <div class="border-t border-base-content/10 px-2 py-1.5">
+              <button
+                type="button"
+                class="btn btn-ghost btn-xs text-base-content"
+                data-testid="change-set-open-scm"
+                (click)="openScm.emit()"
+              >
+                Open Source Control
+              </button>
+            </div>
+          }
         </div>
       }
     </section>
@@ -330,7 +431,67 @@ export class ChangeSetCardComponent {
     }));
   });
 
+  protected readonly activeRows = computed(() =>
+    this.rows().filter((row) => row.state !== 'reconciled'),
+  );
+  protected readonly reconciledRows = computed(() =>
+    this.rows().filter((row) => row.state === 'reconciled'),
+  );
+  protected readonly conflictedCount = computed(
+    () => this.rows().filter((row) => row.state === 'conflicted').length,
+  );
+
+  /** Null until the user toggles; then the user's choice wins. */
+  private readonly userExpanded = signal<boolean | null>(null);
+  /**
+   * Small sets open, large sets and sets with nothing left to open collapse,
+   * unless a conflict needs attention.
+   */
+  protected readonly expanded = computed(() => {
+    const choice = this.userExpanded();
+    if (choice !== null) return choice;
+    if (this.conflictedCount() > 0) return true;
+    const active = this.activeRows().length;
+    return active > 0 && this.rows().length <= AUTO_EXPAND_MAX_FILES;
+  });
+  protected readonly reconciledExpanded = signal(false);
+
+  private readonly activeLimit = signal(ROW_PAGE_SIZE);
+  private readonly reconciledLimit = signal(ROW_PAGE_SIZE);
+  protected readonly visibleActiveRows = computed(() =>
+    this.activeRows().slice(0, this.activeLimit()),
+  );
+  protected readonly visibleReconciledRows = computed(() =>
+    this.reconciledRows().slice(0, this.reconciledLimit()),
+  );
+  protected readonly hiddenActiveCount = computed(
+    () => this.activeRows().length - this.visibleActiveRows().length,
+  );
+  protected readonly hiddenReconciledCount = computed(
+    () => this.reconciledRows().length - this.visibleReconciledRows().length,
+  );
+
+  protected readonly bodyId = `change-set-body-${nextBodyId++}`;
+
   protected readonly accent = computed(() => changeSetAccent(this.changeSet()));
+
+  /** `+0 −0` says nothing (e.g. a set whose files a commit already took). */
+  protected readonly hasLineCounts = computed(() => {
+    const { additions, deletions } = this.changeSet().totals;
+    return additions + deletions > 0;
+  });
+
+  protected readonly reconciledSummary = computed(() => {
+    const count = this.reconciledRows().length;
+    return count === this.rows().length
+      ? 'No longer changes HEAD'
+      : `${count} no longer ${count === 1 ? 'changes' : 'change'} HEAD`;
+  });
+
+  protected readonly reconciledToggleLabel = computed(() => {
+    const count = this.reconciledRows().length;
+    return `${count} ${count === 1 ? 'file' : 'files'} committed or reverted since this turn`;
+  });
 
   protected readonly filesLabel = computed(() => {
     const count = this.changeSet().totals.files;
@@ -345,6 +506,22 @@ export class ChangeSetCardComponent {
     const count = this.changeSet().truncatedCount;
     return `${count} more ${count === 1 ? 'file' : 'files'} not listed`;
   });
+
+  protected toggleExpanded(): void {
+    this.userExpanded.set(!this.expanded());
+  }
+
+  protected showMoreActive(): void {
+    this.activeLimit.update((limit) => limit + ROW_PAGE_SIZE);
+  }
+
+  protected showMoreReconciled(): void {
+    this.reconciledLimit.update((limit) => limit + ROW_PAGE_SIZE);
+  }
+
+  protected showMoreLabel(hidden: number): string {
+    return `Show ${Math.min(hidden, ROW_PAGE_SIZE)} more (${hidden} hidden)`;
+  }
 
   protected rowTitle(row: ChangeSetRow): string {
     if (row.state === 'conflicted') {

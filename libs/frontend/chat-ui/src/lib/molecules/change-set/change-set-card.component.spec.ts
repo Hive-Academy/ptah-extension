@@ -115,6 +115,23 @@ describe('ChangeSetCardComponent', () => {
     fixture.detectChanges();
   }
 
+  function click(sel: string): void {
+    el(sel).click();
+    fixture.detectChanges();
+  }
+
+  /** Open the card if it starts collapsed, then the reconciled group. */
+  function showReconciled(): void {
+    if (!query('[data-testid="change-set-body"]')) {
+      click('[data-testid="change-set-toggle"]');
+    }
+    click('[data-testid="change-set-reconciled-toggle"]');
+  }
+
+  function manyFiles(count: number): TurnChangeSetFile[] {
+    return Array.from({ length: count }, (_, i) => file({ path: `f${i}.ts` }));
+  }
+
   beforeEach(() => {
     TestBed.configureTestingModule({ imports: [ChangeSetCardComponent] });
     fixture = TestBed.createComponent(ChangeSetCardComponent);
@@ -212,6 +229,8 @@ describe('ChangeSetCardComponent', () => {
     const openFile = jest.fn();
     render(changeSet(), { reconciled: new Set(['src/app.ts']) });
     fixture.componentInstance.openFile.subscribe(openFile);
+    expect(query('[data-testid="change-set-row-reconciled"]')).toBeNull();
+    showReconciled();
 
     const reconciled = el('[data-testid="change-set-row-reconciled"]');
     expect(reconciled.tagName).toBe('DIV');
@@ -258,6 +277,7 @@ describe('ChangeSetCardComponent', () => {
       }),
       { host: 'vscode', reconciled: new Set(['src/merged.ts']) },
     );
+    showReconciled();
 
     const row = el('[data-testid="change-set-row-reconciled"]');
     expect(text(row)).toContain('No longer changes HEAD');
@@ -349,6 +369,7 @@ describe('ChangeSetCardComponent', () => {
       }),
       { reconciled: new Set(['src/app.ts']) },
     );
+    showReconciled();
     const badges = [
       el('[data-testid="change-set-counts-unavailable"]'),
       el('[data-testid="change-set-row-reconciled"] .badge'),
@@ -361,11 +382,101 @@ describe('ChangeSetCardComponent', () => {
 
   it('dims the reconciled path itself, outside the light theme .truncate ink rule', () => {
     render(changeSet(), { reconciled: new Set(['src/old.ts']) });
+    showReconciled();
     const path = el('[data-testid="change-set-row-reconciled-path"]');
     expect(path.classList).toContain('text-base-content-muted');
     expect(path.classList).not.toContain('truncate');
     expect(path.classList).toContain('text-ellipsis');
     expect(path.getAttribute('title')).toBe('src/old.ts');
+  });
+
+  describe('collapse and paging', () => {
+    it('opens a small set and collapses a large one behind the header toggle', () => {
+      render(changeSet());
+      const toggle = el('[data-testid="change-set-toggle"]');
+      expect(toggle.getAttribute('aria-expanded')).toBe('true');
+      expect(query('[data-testid="change-set-body"]')).not.toBeNull();
+
+      render(
+        changeSet({
+          files: manyFiles(6),
+          totals: { files: 6, additions: 6, deletions: 6 },
+        }),
+      );
+      expect(toggle.getAttribute('aria-expanded')).toBe('false');
+      expect(query('[data-testid="change-set-body"]')).toBeNull();
+      // Review stays one click away while collapsed.
+      expect(query('[data-testid="change-set-review"]')).not.toBeNull();
+
+      click('[data-testid="change-set-toggle"]');
+      expect(queryAll('[data-testid="change-set-row"]')).toHaveLength(6);
+    });
+
+    it('collapses a set whose files all no longer change HEAD, and says so in the header', () => {
+      const set = changeSet({
+        files: [file({ path: 'a.ts', status: 'D', additions: 0, deletions: 0 })],
+        totals: { files: 1, additions: 0, deletions: 0 },
+      });
+      render(set, { reconciled: new Set(['a.ts']) });
+
+      expect(query('[data-testid="change-set-body"]')).toBeNull();
+      expect(text(el('[data-testid="change-set-reconciled-summary"]'))).toBe(
+        'No longer changes HEAD',
+      );
+      // `+0 −0` says nothing, so the header leaves it out.
+      expect(query('[data-testid="change-set-totals"]')).toBeNull();
+    });
+
+    it('opens a large set when a file is conflicted', () => {
+      render(
+        changeSet({
+          files: manyFiles(8),
+          totals: { files: 8, additions: 8, deletions: 8 },
+        }),
+        { conflicted: new Set(['f3.ts']) },
+      );
+      expect(query('[data-testid="change-set-body"]')).not.toBeNull();
+      expect(text(el('[data-testid="change-set-conflicted-count"]'))).toBe(
+        '1 conflicted',
+      );
+    });
+
+    it('renders rows in pages of 50', () => {
+      render(
+        changeSet({
+          files: manyFiles(120),
+          totals: { files: 120, additions: 120, deletions: 120 },
+        }),
+      );
+      click('[data-testid="change-set-toggle"]');
+      expect(queryAll('[data-testid="change-set-row"]')).toHaveLength(50);
+      expect(text(el('[data-testid="change-set-show-more"]'))).toBe(
+        'Show 50 more (70 hidden)',
+      );
+
+      click('[data-testid="change-set-show-more"]');
+      click('[data-testid="change-set-show-more"]');
+      expect(queryAll('[data-testid="change-set-row"]')).toHaveLength(120);
+      expect(query('[data-testid="change-set-show-more"]')).toBeNull();
+    });
+
+    it('keeps reconciled rows in their own collapsed group', () => {
+      render(changeSet(), {
+        reconciled: new Set(['src/app.ts', 'src/old.ts']),
+      });
+      expect(queryAll('[data-testid="change-set-row"]')).toHaveLength(2);
+      expect(text(el('[data-testid="change-set-reconciled-summary"]'))).toBe(
+        '2 no longer change HEAD',
+      );
+      const toggle = el('[data-testid="change-set-reconciled-toggle"]');
+      expect(toggle.getAttribute('aria-expanded')).toBe('false');
+      expect(text(toggle)).toBe('2 files committed or reverted since this turn');
+
+      click('[data-testid="change-set-reconciled-toggle"]');
+      expect(queryAll('[data-testid="change-set-row-reconciled"]')).toHaveLength(
+        2,
+      );
+    });
   });
 
   describe('narrow tile', () => {
@@ -402,6 +513,7 @@ describe('ChangeSetCardComponent', () => {
       expect(tier).toMatch(/\.cs-chevron\s*\{[^}]*display:\s*none/);
 
       render(changeSet(), { reconciled: new Set(['src/old.ts']) });
+      showReconciled();
       for (const row of queryAll(
         '[data-testid="change-set-row"], [data-testid="change-set-row-reconciled"]',
       )) {
@@ -416,6 +528,7 @@ describe('ChangeSetCardComponent', () => {
       host: 'vscode',
       reconciled: new Set(['src/old.ts']),
     });
+    showReconciled();
     expect(fixture.nativeElement.innerHTML).not.toMatch(
       /text-base-content\/\d+/,
     );
