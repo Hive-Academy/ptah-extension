@@ -72,6 +72,17 @@ export function formatFileCounts(
   return parts.join(' ');
 }
 
+/** A row's state; conflicted wins over reconciled. */
+function rowState(
+  path: string,
+  conflicted: ReadonlySet<string>,
+  reconciled: ReadonlySet<string>,
+): ChangeSetRowState {
+  if (conflicted.has(path)) return 'conflicted';
+  if (reconciled.has(path)) return 'reconciled';
+  return 'changed';
+}
+
 /** The accent colour for a set, from its header totals. */
 export function changeSetAccent(changeSet: TurnChangeSet): string {
   if (changeSet.countsUnavailable) return ACCENT.neutral;
@@ -422,11 +433,7 @@ export class ChangeSetCardComponent {
     // so a conflict resolved since the turn can reconcile.
     return changeSet.files.map((file) => ({
       file,
-      state: conflicted.has(file.path)
-        ? 'conflicted'
-        : reconciled.has(file.path)
-          ? 'reconciled'
-          : 'changed',
+      state: rowState(file.path, conflicted, reconciled),
       counts: formatFileCounts(file, changeSet.countsUnavailable),
     }));
   });
