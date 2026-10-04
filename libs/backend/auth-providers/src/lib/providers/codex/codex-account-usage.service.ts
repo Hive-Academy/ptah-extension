@@ -4,9 +4,10 @@ import type { IProcessSpawner, SpawnedProcessHandle } from '@ptah-extension/plat
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import { SDK_TOKENS, type SdkAdapterEvents } from '@ptah-extension/agent-sdk';
 import { AUTH_PROVIDERS_TOKENS } from '../../di/tokens';
+import { accountOwnerKey } from '../../quota/provider-owner.resolver';
 import { CodexHomeResolver } from './codex-home-resolver';
 import type {
-  ICodexAccountUsageService, ICodexAuthService, CodexAccountUsageResult,
+  ICodexAccountUsageService, ICodexAuthService, ICodexOwnerKeySource, CodexAccountUsageResult,
 } from './codex-provider.types';
 import {
   CODEX_ACCOUNT_PROTOCOL_VERSION, CODEX_ACCOUNT_USAGE_INT64_FIELDS, codexAccountResponseSchema,
@@ -25,6 +26,9 @@ class AppServerError extends Error {
 }
 
 interface RpcResponse { id: number; result?: unknown; error?: { code?: number } }
+
+/** One App Server read: the RPC-safe result plus its backend-only owner key. */
+interface AppServerRead { result: CodexAccountUsageResult; ownerKey: string | null }
 
 function samePath(left: string, right: string): boolean {
   const [a, b] = [resolve(left), resolve(right)];
@@ -73,8 +77,15 @@ function packagedCodexScript(): string {
 }
 
 @injectable()
-export class CodexAccountUsageService implements ICodexAccountUsageService {
+export class CodexAccountUsageService implements ICodexAccountUsageService, ICodexOwnerKeySource {
   private cached: CodexAccountUsageResult | null = null;
+  private ownerKey: string | null = null;
+  /**
+   * Bumped by `clearCache`. A read that started before the bump finishes for
+   * its own callers but is not cached, so an account change (auth file
+   * rewritten mid-read) never re-installs the previous account's data or key.
+   */
+  private generation = 0;
   private readInFlight: Promise<CodexAccountUsageResult> | null = null;
   private readonly active = new Set<SpawnedProcessHandle>();
   private readonly closing = new Map<SpawnedProcessHandle, Promise<void>>();
@@ -91,7 +102,15 @@ export class CodexAccountUsageService implements ICodexAccountUsageService {
     });
   }
 
-  clearCache(): void { this.cached = null; }
+  clearCache(): void {
+    this.cached = null;
+    this.ownerKey = null;
+    this.generation += 1;
+    // Later callers start a fresh read instead of joining one begun before the change.
+    this.readInFlight = null;
+  }
+
+  currentOwnerKey(): string | null { return this.ownerKey; }
 
   async getAccountUsage(options: { refresh?: boolean; signal?: AbortSignal } = {}): Promise<CodexAccountUsageResult> {
     const eligibility = await this.auth.getAccountUsageEligibility();
@@ -116,9 +135,13 @@ export class CodexAccountUsageService implements ICodexAccountUsageService {
   }
 
   private async performRead(signal?: AbortSignal): Promise<CodexAccountUsageResult> {
+    const generation = this.generation;
     try {
-      const result = await this.readFromAppServer(signal);
-      this.cached = result;
+      const { result, ownerKey } = await this.readFromAppServer(signal);
+      if (generation === this.generation) {
+        this.cached = result;
+        this.ownerKey = ownerKey;
+      }
       return result;
     } catch (error: unknown) {
       const status = error instanceof AppServerError && error.kind === 'version'
@@ -135,7 +158,7 @@ export class CodexAccountUsageService implements ICodexAccountUsageService {
     }
   }
 
-  private async readFromAppServer(signal?: AbortSignal): Promise<CodexAccountUsageResult> {
+  private async readFromAppServer(signal?: AbortSignal): Promise<AppServerRead> {
     await this.assertVersion(signal);
     const child = this.spawn(['app-server']);
     const rpc = this.createRpcClient(child, signal);
@@ -149,29 +172,37 @@ export class CodexAccountUsageService implements ICodexAccountUsageService {
         await rpc.request(2, 'account/read', { refreshToken: false }),
       );
       if (account.account?.type === 'apiKey' || account.account?.type === 'amazonBedrock') {
-        return { status: 'unsupported-auth', providerId: 'openai-codex' };
+        return { result: { status: 'unsupported-auth', providerId: 'openai-codex' }, ownerKey: null };
       }
       if (account.account?.type !== 'chatgpt') {
-        return { status: 'service-unavailable', providerId: 'openai-codex' };
+        return { result: { status: 'service-unavailable', providerId: 'openai-codex' }, ownerKey: null };
       }
+      // The email is identity material only: hashed here, never returned or logged.
+      const email = account.account.email?.trim();
+      const ownerKey = email
+        ? accountOwnerKey('openai-codex', `${this.codexHome.path}\0${email}`)
+        : null;
       const quota = codexRateLimitsResponseSchema.parse(
         await rpc.request(3, 'account/rateLimits/read'),
       );
       const activity = codexTokenUsageResponseSchema.parse(
         await rpc.request(4, 'account/usage/read'),
       );
-      return {
+      const reachedType = quota.rateLimits.rateLimitReachedType;
+      const result: CodexAccountUsageResult = {
         status: 'available', providerId: 'openai-codex', fetchedAt: Date.now(),
         account: { planType: account.account.planType },
         quota: {
           ...(quota.rateLimits.primary ? { primary: quota.rateLimits.primary } : {}),
           ...(quota.rateLimits.secondary ? { secondary: quota.rateLimits.secondary } : {}),
+          ...(reachedType ? { rateLimitReachedType: reachedType } : {}),
         },
         activity: {
           lifetimeTokens: activity.summary.lifetimeTokens,
           dailyUsage: activity.dailyUsageBuckets ?? [],
         },
       };
+      return { result, ownerKey };
     } finally {
       await this.closeChild(child);
     }
