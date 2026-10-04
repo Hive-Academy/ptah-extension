@@ -108,6 +108,16 @@ lands, before D2 starts. `HOST_KIND` token stays in `vscode-core` as planned. St
 `batches.md`, then PR A + PR B batches (Codex lanes for shared/backend, opencode lanes for Angular,
 max 3 in flight, subagent reviewers for lane-written code).
 
+### Spec correction 2026-10-04 (during Wave 2)
+
+The Gate 1 `$` fix (`cchar` excludes bare `$`) contradicted the lexical table row for escaped dollar
+(`task-description.md:366`: `$` inside a table row cell or mid-cell is literal). Corrected the EBNF to
+the lexical table's intent without reopening the ambiguity: `value = scalar | vcell`,
+`vcell = [ (cchar - "$") { cchar } ]`, and `cchar` allows `$` again. So `$` is a source position only at
+the start of a stats value and as a `table`/`list` argument; table cells and chart labels such as
+`$5.00` are literal. B1's parser currently rejects a bare `$` at the start of non-value cells and must
+be fixed to match.
+
 ### Standing decisions this task must respect
 
 - No raw agent HTML rendered without the template gate, no agent scripts ever (TASK_2026_490/493/494).
