@@ -59,8 +59,27 @@ import {
   type ChatSessionSummary,
   type ExecutionNode,
   type FlatStreamEventUnion,
+  type SessionBudgetState,
   type SubagentRecord,
 } from '@ptah-extension/shared';
+
+/** A resume reply's budget (TASK_2026_597 N7), keyed to `sessionId`. */
+function makeBudget(sessionId: string): SessionBudgetState {
+  return {
+    sessionId,
+    stage: 'handoff',
+    unit: 'tokens',
+    measure: 'tokens',
+    used: 41_000_000,
+    limit: 50_000_000,
+    percent: 82,
+    lowerBound: false,
+    revision: null,
+    compactions: 1,
+    extensions: 0,
+    blocked: false,
+  };
+}
 
 const historyPagingMock = {
   tailRequest: jest.fn(() => ({ maxEvents: 250 })),
@@ -703,6 +722,34 @@ describe('SessionLoaderService', () => {
         contextWindow: 1_000_000,
         contextPercent: 1.1,
       });
+    });
+
+    it('installs the resume budget together with the restored snapshot', async () => {
+      const restoredTabId = TabId.from('6c3a1d2e-4b5f-4a6b-9c7d-8e9f0a1b2c3d');
+      activeTabSessionIdSignal.set(SESSION);
+      activeTabIdSignal.set(restoredTabId);
+      const stats = {
+        sessionId: SESSION,
+        totalCost: 2,
+        tokens: { input: 10, output: 5, cacheRead: 0, cacheCreation: 0 },
+        messageCount: 4,
+        model: 'claude-sonnet-4-5',
+      };
+      const budget = makeBudget(SESSION);
+      rpcCall.mockImplementation(async (method: string) =>
+        method === 'chat:resume'
+          ? { success: true, data: { stats, budget } }
+          : { success: true, data: {} },
+      );
+
+      activeTabStatusSignal.set('loaded');
+      TestBed.tick();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(applyLoadedSessionStats.mock.calls).toEqual([
+        [restoredTabId, stats, stats.model, budget],
+      ]);
     });
 
     it('applyResumeStats uses snapshot.contextWindow (gpt-5.6-sol, 400000) instead of the name lookup', async () => {
@@ -1688,6 +1735,36 @@ describe('SessionLoaderService', () => {
       };
     }
 
+    it('installs the resume budget together with the snapshot on a session switch', async () => {
+      const harness = makeTargetedService();
+      const stats = {
+        sessionId: SESSION,
+        totalCost: 1,
+        tokens: { input: 10, output: 5, cacheRead: 0, cacheCreation: 0 },
+        messageCount: 2,
+        model: 'claude-sonnet-4-5',
+      };
+      const budget = makeBudget(SESSION);
+      rpcCall.mockImplementation(async (method: string) =>
+        method === 'chat:resume'
+          ? {
+              success: true,
+              data: { events: [{ type: 'noop' }], stats, budget },
+            }
+          : { success: true, data: {} },
+      );
+
+      await harness.service.switchSession(SESSION, {
+        reason: 'compaction',
+        activate: true,
+        targetTabId: TAB_B,
+      });
+
+      expect(harness.applyLoadedSessionStats.mock.calls).toEqual([
+        [TAB_B, stats, stats.model, budget],
+      ]);
+    });
+
     it('restores history and stats to the second matching tab without opening or activating another tab', async () => {
       const harness = makeTargetedService();
       const stats = {
@@ -1742,6 +1819,7 @@ describe('SessionLoaderService', () => {
         TAB_B,
         stats,
         stats.model,
+        undefined,
       );
       expect(harness.setLiveModelStats).toHaveBeenCalledWith(
         TAB_B,

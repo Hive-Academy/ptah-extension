@@ -180,6 +180,31 @@ OUT:
 - Avoid the files of TASK_2026_609_c495: agent-generation services/templates, `.claude/agents`, the system-prompt
   parts of `sdk-query-options-builder.ts`.
 
+## Handoff 3 (2026-10-04, end of third orchestration session)
+
+- PR #637 (`fix/task-597-followups`, PR 2, decision 12): Batches 36-41, 46, 47, bug fix 47a (background named
+  subagents showed "Transcript is not available yet") and the CodeRabbit fix. MERGED 2026-10-04 (`c179f3eb5`).
+- PR #639 (`fix/task-597-session-budget`, PR 3, N7/N8, decision 13): Batches 50-61 and fix round, reviews APPROVED,
+  rebased on `main` after #637. Open; the user merges it. Worktree `.claude-worktrees/task-597-session-budget`.
+  The PR 2 worktree `.claude-worktrees/task-597-followups` can be removed.
+- Open, in order of value:
+  1. QA session (needs user approval, decisions 6/7): experiment E2 (does the runtime honour `autoCompactWindow`? A1
+     defaults and the N8 tighten stage stay advisory until it passes); N1 "after" measurement with
+     `CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL` cleared in the child run only (tool M `--subagents`, compare with
+     `measurements/s9-subagent-baselines.md`: 19 resumes > 5 min, 3,544,590 cache-write tokens); visual-reviewer
+     before/after screenshots (dark + light) for Batches 39, 47, 60, 61; manual check of the Batch 47a transcript fix;
+     PR 3 scripted 2M-token session and one proxied-route run.
+  2. Still DEFERRED stages (batches.md): S4 24-35 (largest lane saving; owns PR1-M1 and F6-M1 Task 34.2; component 10
+     per-subagent budget waits for Batch 28), S3 12-22 (owns PR1-M2 with 16/17), S1b 8-9 + Task 9.3, S2 11.
+  3. Named later tasks: PR2-M1..M5, PR2-B1 (backend `agentId` binding when SubagentStart has no `toolUseId`; covers
+     foreground subagents and steer/stop), N7-M1 (`sessionBudget.enabled`), PR3-M1..M8, PR3-S1 (split chat-view and
+     the stats chip).
+- Lessons: `degradation-audit:lint` and `di-lint:lint` scan the whole working tree in the commit hook, so a batch with
+  an unregistered `@inject` token or a swallowing catch blocks every commit in that worktree (Batch 54 committed with
+  55). Fresh worktrees need `npx nx run ptah-electron:build-workspace-watch-host` for one platform-electron spec, and the
+  Prisma client is not generated (`libs/api` typecheck fails; unrelated). Write commit messages with a Bash heredoc
+  (PowerShell `Set-Content -Encoding utf8` adds a BOM that commitlint rejects).
+
 ## Handoff 2 (2026-10-03, end of second orchestration session)
 
 - PR #634 (branch `fix/task-597-lane-token-burn`) holds the decision 11 PR 1 subset: Batches 1-7, 10, 23, 42-44,

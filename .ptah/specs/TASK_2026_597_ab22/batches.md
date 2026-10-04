@@ -3132,7 +3132,7 @@ When Batch 28 is scheduled, its decomposition adds these parts. Task 28.2 stays 
 
 ---
 
-## Batch 50: N7 shared contracts — PENDING (PR 3, decision 13)
+## Batch 50: N7 shared contracts — COMPLETE (PR 3, decision 13; report batch-50-executor-report.md)
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer re-run
@@ -3176,7 +3176,7 @@ When Batch 28 is scheduled, its decomposition adds these parts. Task 28.2 stays 
 
 ---
 
-## Batch 51: N7 settings keys and their reader — PENDING (PR 3, decision 13)
+## Batch 51: N7 settings keys and their reader — COMPLETE (PR 3, decision 13; report batch-51-executor-report.md)
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer re-run
@@ -3216,7 +3216,7 @@ When Batch 28 is scheduled, its decomposition adds these parts. Task 28.2 stays 
 
 ---
 
-## Batch 52: N7 per-session auto-compact window override (E2-gated tighten) — PENDING (PR 3, decision 13)
+## Batch 52: N7 per-session auto-compact window override (E2-gated tighten) — COMPLETE (PR 3, decision 13; report batch-52-executor-report.md)
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer re-run
@@ -3262,7 +3262,7 @@ When Batch 28 is scheduled, its decomposition adds these parts. Task 28.2 stays 
 
 ---
 
-## Batch 53: N8 handoff builder and writer — PENDING (PR 3, decision 13)
+## Batch 53: N8 handoff builder and writer — COMPLETE (PR 3, decision 13; report batch-53-executor-report.md)
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer re-run
@@ -3312,7 +3312,7 @@ When Batch 28 is scheduled, its decomposition adds these parts. Task 28.2 stays 
 
 ---
 
-## Batch 54: N7 stage machine and `SessionBudgetService` — PENDING (PR 3, decision 13)
+## Batch 54: N7 stage machine and `SessionBudgetService` — COMPLETE (PR 3, decision 13; committed with Batch 55 because di-lint needs the writer registration)
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer re-run
@@ -3361,7 +3361,7 @@ When Batch 28 is scheduled, its decomposition adds these parts. Task 28.2 stays 
 
 ---
 
-## Batch 55: N7 agent-sdk wiring and broadcast forwarding — PENDING (PR 3, decision 13)
+## Batch 55: N7 agent-sdk wiring and broadcast forwarding — COMPLETE (PR 3, decision 13; report batch-55-executor-report.md)
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer re-run
@@ -3420,7 +3420,7 @@ When Batch 28 is scheduled, its decomposition adds these parts. Task 28.2 stays 
 
 ---
 
-## Batch 56: N7 `chat:continue` gate and resume budget — PENDING (PR 3, decision 13)
+## Batch 56: N7 `chat:continue` gate and resume budget — COMPLETE (PR 3, decision 13; report batch-56-executor-report.md)
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer re-run
@@ -3458,7 +3458,7 @@ When Batch 28 is scheduled, its decomposition adds these parts. Task 28.2 stays 
 
 ---
 
-## Batch 57: N7 `session:budgetAction` RPC unit — PENDING (PR 3, decision 13)
+## Batch 57: N7 `session:budgetAction` RPC unit — COMPLETE (PR 3, decision 13; report batch-57-executor-report.md)
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer re-run
@@ -3505,7 +3505,7 @@ When Batch 28 is scheduled, its decomposition adds these parts. Task 28.2 stays 
 
 ---
 
-## Batch 58: N7 tab state — PENDING (PR 3, decision 13)
+## Batch 58: N7 tab state — COMPLETE (PR 3, decision 13; report batch-58-executor-report.md)
 
 - Recommended executor: frontend-developer
 - Fallback executor: frontend-developer re-run
@@ -3542,7 +3542,7 @@ When Batch 28 is scheduled, its decomposition adds these parts. Task 28.2 stays 
 
 ---
 
-## Batch 59: N7 aggregator, loader, send failure — PENDING (PR 3, decision 13)
+## Batch 59: N7 aggregator, loader, send failure — COMPLETE (PR 3, decision 13; report batch-59-executor-report.md)
 
 - Recommended executor: frontend-developer
 - Fallback executor: frontend-developer re-run
@@ -3577,7 +3577,7 @@ When Batch 28 is scheduled, its decomposition adds these parts. Task 28.2 stays 
 
 ---
 
-## Batch 60: N7 chip, banner, chat-view mount — PENDING (PR 3, decision 13)
+## Batch 60: N7 chip, banner, chat-view mount — COMPLETE (PR 3, decision 13; report batch-60-executor-report.md)
 
 - Recommended executor: frontend-developer
 - Fallback executor: frontend-developer re-run
@@ -3632,7 +3632,7 @@ When Batch 28 is scheduled, its decomposition adds these parts. Task 28.2 stays 
 
 ---
 
-## Batch 61: N7 budget settings card — PENDING (PR 3, decision 13)
+## Batch 61: N7 budget settings card — COMPLETE (PR 3, decision 13; report batch-61-executor-report.md)
 
 - Recommended executor: frontend-developer
 - Fallback executor: frontend-developer re-run
@@ -3683,3 +3683,22 @@ Batch 47a scoped review: APPROVED (0 Blocking, 0 Serious, 2 Moderate, 2 Minor; `
 § Batch 47a scoped review). Named later tasks: PR2-M4 rekey a pending identity that holds a placeholder tab id
 (`agent-monitor.store.ts:1686-1700`); PR2-M5 evict pending identities when `agent_start` never arrives or the session is
 cleared (`agent-monitor.store.ts:599-601`).
+
+## PR 3 phase-end reviews (decision 13) — APPROVED after one fix round
+
+- Code-logic: `pr3-phase-end-code-logic-review.md` on `ecc953410..HEAD` (Batches 50-61): CHANGES REQUIRED (0 Blocking,
+  4 Serious, 8 Moderate). Fix round `d79a195cb` (`pr3-fix-round-report.md`) fixed S-1..S-4 and M-2. Re-review
+  (§ Fix round re-review): APPROVED, all five RESOLVED.
+- Style: `pr3-phase-end-code-style-review.md`: APPROVED (0 Blocking, 0 Serious, 2 Moderate, 4 Minor).
+- Named later tasks:
+  - PR3-M1 restore `failed` shape vs `session-budget.types.ts` (M-1); PR3-M3 empty/failed handoff read not flagged;
+    PR3-M4 v4-only UUID check (verify SDK ids); PR3-M5 handoff actions accepted for unknown sessions; PR3-M6
+    chat-view `resolvedSessionBudget` ordering and clearing; PR3-M7 entry release on eviction, `/clear` and headless
+    child sessions (`session-spawner.service.ts`) now keep their entry until dispose; PR3-M8 `/compact` exemption
+    cannot lower a cumulative measure (banner copy or accept).
+  - PR3-S1 split `chat-view.component.ts` (1105 lines) and `session-stats-summary.component.ts` (859 lines); move the
+    "Continue in new session" flow out of chat-view (style Moderates).
+  - Minor items: in the review files only (tooltip hard-codes 50/80/100%, failed preview keeps "Loading…", `.tmp`
+    orphan, `keepPreviousFigure`).
+- QA (not yet run): before/after screenshots (dark + light) for Batches 60 and 61; a scripted 2M-token session; one
+  proxied-route run in the cost unit; experiment E2 for the tighten stage.

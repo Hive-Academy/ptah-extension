@@ -1,0 +1,19 @@
+{
+  "baseCommit": "77f99a687",
+  "parentTabId": "440c5977-099a-44ee-a1fb-741e627198c6",
+  "tabIdsBeforeAdoption": [
+    "440c5977-099a-44ee-a1fb-741e627198c6"
+  ],
+  "tabIdsAfterAdoption": [
+    "440c5977-099a-44ee-a1fb-741e627198c6",
+    "9f0c1c3e-3a55-4d7e-9a47-0b7a9c1d2e3f"
+  ],
+  "childTabAdoptedInTabManager": true,
+  "canvasTilesBefore": 1,
+  "canvasTilesAfter": 1,
+  "sidebarChildRow": {
+    "text": "TASK 531 canvas gating\n2m ago\n14 msgs\ntranscript expired",
+    "nameOpacity": "0.5",
+    "nameClass": "font-medium text-sm truncate w-full leading-snug text-base-content opacity-50"
+  }
+}

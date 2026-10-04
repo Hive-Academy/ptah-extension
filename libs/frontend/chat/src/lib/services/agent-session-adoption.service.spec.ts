@@ -1,11 +1,12 @@
 /**
  * AgentSessionAdoptionService — late adoption of agent-started child tabs
- * (TASK_2026_584), against a fake RPC client and a fake TabManager.
+ * (TASK_2026_584), against a fake RPC client, a fake TabManager and a fake
+ * AppStateManager.
  */
 
 import { TestBed } from '@angular/core/testing';
 import { signal, type WritableSignal } from '@angular/core';
-import { ClaudeRpcService } from '@ptah-extension/core';
+import { AppStateManager, ClaudeRpcService } from '@ptah-extension/core';
 import {
   MODEL_REFRESH_CONTROL,
   TabManagerService,
@@ -42,11 +43,17 @@ function descriptor(
 describe('AgentSessionAdoptionService', () => {
   let service: AgentSessionAdoptionService;
   let rpc: { call: jest.Mock };
+  let appState: {
+    layoutMode: WritableSignal<'grid' | 'single'>;
+    requestCanvasTab: jest.Mock;
+  };
   let tabManager: {
     adoptAgentSessionTab: jest.Mock;
+    activeWorkspacePath: string | null;
     activeWorkspacePath$: WritableSignal<string | null>;
     activeTab: WritableSignal<null>;
     isTabStreaming: jest.Mock;
+    findTabByIdAcrossWorkspaces: jest.Mock;
   };
   let warn: jest.SpyInstance;
   let error: jest.SpyInstance;
@@ -60,14 +67,27 @@ describe('AgentSessionAdoptionService', () => {
     };
     tabManager = {
       adoptAgentSessionTab: jest.fn().mockReturnValue('adopted'),
+      activeWorkspacePath: null,
       activeWorkspacePath$: signal<string | null>(null),
       activeTab: signal(null),
       isTabStreaming: jest.fn().mockReturnValue(false),
+      // Post-adoption lookup: with no active workspace (VS Code panel) the
+      // child sits in the only tab set and reports `workspacePath: null`;
+      // tests move it to a partition by overriding the return value.
+      findTabByIdAcrossWorkspaces: jest.fn(() => ({
+        tab: null,
+        workspacePath: null,
+      })),
+    };
+    appState = {
+      layoutMode: signal<'grid' | 'single'>('grid'),
+      requestCanvasTab: jest.fn(),
     };
     TestBed.configureTestingModule({
       providers: [
         AgentSessionAdoptionService,
         { provide: ClaudeRpcService, useValue: rpc },
+        { provide: AppStateManager, useValue: appState },
         { provide: TabManagerService, useValue: tabManager },
         {
           provide: SessionLoaderService,
@@ -214,6 +234,105 @@ describe('AgentSessionAdoptionService', () => {
     });
   });
 
+  describe('canvas tile request (TASK_2026_612)', () => {
+    it('grid layout: adopting a child asks the canvas for exactly one tile, unfocused', () => {
+      service.adopt(descriptor('c1'), 'live');
+
+      expect(appState.requestCanvasTab).toHaveBeenCalledTimes(1);
+      expect(appState.requestCanvasTab).toHaveBeenCalledWith(
+        'c1',
+        null,
+        'X',
+        false,
+      );
+    });
+
+    it('single layout: adoption never touches tile logic', () => {
+      appState.layoutMode.set('single');
+
+      service.adopt(descriptor('c1'), 'live');
+
+      expect(appState.requestCanvasTab).not.toHaveBeenCalled();
+    });
+
+    it('requests for a child that landed in the active tab set (VS Code panel, no partition)', () => {
+      service.adopt(descriptor('c1'), 'live');
+
+      expect(appState.requestCanvasTab).toHaveBeenCalledWith(
+        'c1',
+        null,
+        'X',
+        false,
+      );
+    });
+
+    it('requests exactly one tile for a child in the ACTIVE partition (Electron, active workspace)', () => {
+      tabManager.activeWorkspacePath = '/ws/a';
+      (tabManager.findTabByIdAcrossWorkspaces as jest.Mock).mockReturnValue({
+        tab: null,
+        workspacePath: '/ws/a',
+      });
+
+      service.adopt(descriptor('c1'), 'live');
+
+      expect(appState.requestCanvasTab).toHaveBeenCalledTimes(1);
+      expect(appState.requestCanvasTab).toHaveBeenCalledWith(
+        'c1',
+        '/ws/a',
+        'X',
+        false,
+      );
+    });
+
+    it('never tiles a child adopted into a background partition into the wrong grid', () => {
+      tabManager.activeWorkspacePath = '/ws/a';
+      (tabManager.findTabByIdAcrossWorkspaces as jest.Mock).mockReturnValue({
+        tab: null,
+        workspacePath: '/ws/other',
+      });
+
+      service.adopt(descriptor('c1'), 'live');
+
+      expect(appState.requestCanvasTab).not.toHaveBeenCalled();
+    });
+
+    it('a settled child is never re-requested on this page (no second tile)', () => {
+      service.adopt(descriptor('c1'), 'live');
+      service.adopt(descriptor('c1'), 'late');
+
+      expect(appState.requestCanvasTab).toHaveBeenCalledTimes(1);
+    });
+
+    it('an already-present child (exists) still queues one request — the canvas dedups it', () => {
+      tabManager.adoptAgentSessionTab.mockReturnValue('exists');
+
+      service.adopt(descriptor('c1'), 'late');
+
+      expect(appState.requestCanvasTab).toHaveBeenCalledTimes(1);
+      expect(appState.requestCanvasTab).toHaveBeenCalledWith(
+        'c1',
+        null,
+        'X',
+        false,
+      );
+    });
+
+    it('a parent-absent, invalid or throwing adoption queues nothing', () => {
+      tabManager.adoptAgentSessionTab
+        .mockReturnValueOnce('parent-absent')
+        .mockReturnValueOnce('invalid')
+        .mockImplementationOnce(() => {
+          throw new Error('bad');
+        });
+
+      service.adopt(descriptor('c1'), 'live');
+      service.adopt(descriptor('c1'), 'live');
+      service.adopt(descriptor('c1'), 'live');
+
+      expect(appState.requestCanvasTab).not.toHaveBeenCalled();
+    });
+  });
+
   describe('parseAgentSessionOpenedPayload', () => {
     it('accepts a full descriptor and copies only known fields', () => {
       const parsed = parseAgentSessionOpenedPayload({
@@ -281,6 +400,13 @@ describe('AgentSessionAdoptionService — history load on first activation', () 
           },
         },
         { provide: SessionLoaderService, useValue: { switchSession } },
+        {
+          provide: AppStateManager,
+          useValue: {
+            layoutMode: signal<'grid' | 'single'>('single'),
+            requestCanvasTab: jest.fn(),
+          },
+        },
         {
           provide: MODEL_REFRESH_CONTROL,
           useValue: { refreshModels: jest.fn().mockResolvedValue(undefined) },

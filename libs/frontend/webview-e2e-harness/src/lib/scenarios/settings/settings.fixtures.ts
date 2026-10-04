@@ -64,9 +64,25 @@ export const MOONSHOT_KEY_HINT = '•••• 8f21';
 /** `auth:getApiKeyStatus` — per-provider key presence (BRIEF connections table); Moonshot carries a key hint (28c). */
 export const API_KEY_STATUS_FIXTURE = {
   providers: [
-    { provider: 'moonshot', displayName: 'Moonshot (Kimi)', hasApiKey: true, isDefault: false, keyHint: MOONSHOT_KEY_HINT },
-    { provider: 'ollama-cloud', displayName: 'Ollama Cloud', hasApiKey: true, isDefault: false },
-    { provider: 'sovereigneg', displayName: 'sovereigneg', hasApiKey: true, isDefault: false },
+    {
+      provider: 'moonshot',
+      displayName: 'Moonshot (Kimi)',
+      hasApiKey: true,
+      isDefault: false,
+      keyHint: MOONSHOT_KEY_HINT,
+    },
+    {
+      provider: 'ollama-cloud',
+      displayName: 'Ollama Cloud',
+      hasApiKey: true,
+      isDefault: false,
+    },
+    {
+      provider: 'sovereigneg',
+      displayName: 'sovereigneg',
+      hasApiKey: true,
+      isDefault: false,
+    },
   ],
 };
 
@@ -92,9 +108,27 @@ export const CUSTOM_ENTRIES_FIXTURE = {
  */
 export const PROVIDER_MODELS_FIXTURE = {
   models: [
-    { id: 'kimi-k2.5', name: 'Kimi K2.5', description: '', contextLength: 131072, supportsToolUse: true },
-    { id: 'kimi-k2.7-code', name: 'Kimi K2.7 Code', description: '', contextLength: 131072, supportsToolUse: true },
-    { id: 'kimi-lite', name: 'Kimi Lite', description: '', contextLength: 32768, supportsToolUse: false },
+    {
+      id: 'kimi-k2.5',
+      name: 'Kimi K2.5',
+      description: '',
+      contextLength: 131072,
+      supportsToolUse: true,
+    },
+    {
+      id: 'kimi-k2.7-code',
+      name: 'Kimi K2.7 Code',
+      description: '',
+      contextLength: 131072,
+      supportsToolUse: true,
+    },
+    {
+      id: 'kimi-lite',
+      name: 'Kimi Lite',
+      description: '',
+      contextLength: 32768,
+      supportsToolUse: false,
+    },
   ],
   totalCount: 3,
   isStatic: true,
@@ -104,14 +138,34 @@ export const PROVIDER_MODELS_FIXTURE = {
 export const AGENT_CONFIG_FIXTURE = {
   detectedClis: [
     { cli: 'codex', installed: true, version: '1.4.0', messagingMode: 'none' },
-    { cli: 'copilot', installed: true, version: '0.9.2', messagingMode: 'none' },
+    {
+      cli: 'copilot',
+      installed: true,
+      version: '0.9.2',
+      messagingMode: 'none',
+    },
     { cli: 'cursor', installed: false, messagingMode: 'none' },
-    { cli: 'antigravity', installed: true, version: '2.1.0', messagingMode: 'none' },
-    { cli: 'opencode', installed: true, version: '0.6.0', messagingMode: 'none' },
+    {
+      cli: 'antigravity',
+      installed: true,
+      version: '2.1.0',
+      messagingMode: 'none',
+    },
+    {
+      cli: 'opencode',
+      installed: true,
+      version: '0.6.0',
+      messagingMode: 'none',
+    },
     { cli: 'pi', installed: false, messagingMode: 'none' },
     {
-      cli: 'ptah-cli', installed: true, messagingMode: 'none',
-      ptahCliId: 'glm-instance-1', ptahCliName: 'Glm', providerName: 'Ollama Cloud', providerId: 'ollama-cloud',
+      cli: 'ptah-cli',
+      installed: true,
+      messagingMode: 'none',
+      ptahCliId: 'glm-instance-1',
+      ptahCliName: 'Glm',
+      providerName: 'Ollama Cloud',
+      providerId: 'ollama-cloud',
     },
   ],
   preferredAgentOrder: ['codex', 'antigravity', 'glm-instance-1', 'copilot'],
@@ -161,10 +215,41 @@ export const PTAH_CLI_AGENTS_SETTING_FIXTURE = {
     {
       id: 'glm-instance-1',
       selectedModel: 'glm-5.3:cloud',
-      tierMappings: { sonnet: 'glm-5.3:cloud', opus: 'glm-5.3:cloud', haiku: 'glm-5.3:cloud' },
+      tierMappings: {
+        sonnet: 'glm-5.3:cloud',
+        opus: 'glm-5.3:cloud',
+        haiku: 'glm-5.3:cloud',
+      },
     },
   ],
 };
+
+/** `settings:get({key:'sessionBudget.*'})` â€” N7's persisted session-budget values. */
+export const SESSION_BUDGET_SETTINGS_FIXTURE: Readonly<
+  Record<string, unknown>
+> = {
+  'sessionBudget.enabled': true,
+  'sessionBudget.unit': 'tokens',
+  'sessionBudget.tokens': 50_000_000,
+  'sessionBudget.usd': 30,
+  'sessionBudget.fallbackWeightedTokens': 9_000_000,
+  'sessionBudget.tightenPercent': 50,
+  'sessionBudget.handoffPercent': 80,
+  'sessionBudget.handoffAfterCompactions': 3,
+  'sessionBudget.tightenWindowTokens': null,
+  'sessionBudget.blockAtLimit': true,
+};
+
+function settingsGetResolver(params: unknown): {
+  success: boolean;
+  value: unknown;
+} {
+  const key = (params as { key?: unknown }).key;
+  if (typeof key === 'string' && key in SESSION_BUDGET_SETTINGS_FIXTURE) {
+    return { success: true, value: SESSION_BUDGET_SETTINGS_FIXTURE[key] };
+  }
+  return PTAH_CLI_AGENTS_SETTING_FIXTURE;
+}
 
 /** `memory:getTriggers` — memory-curator background role (BRIEF:60-61). */
 export const MEMORY_TRIGGERS_FIXTURE = {
@@ -181,10 +266,38 @@ export const MEMORY_TRIGGERS_FIXTURE = {
 /** `skillSynthesis:getLanes` — archaeologist/synthesis/judge/replay (BRIEF:60-62). */
 export const SKILL_LANES_FIXTURE = {
   lanes: {
-    archaeologist: { id: 'archaeologist', provider: '', model: '', defaultTier: 'haiku', structuredOutput: 'parse', retrievalDepth: 'none' },
-    synthesis: { id: 'synthesis', provider: '', model: '', defaultTier: 'sonnet', structuredOutput: 'parse', retrievalDepth: 'none' },
-    judge: { id: 'judge', provider: 'moonshot', model: 'kimi-k2.5', defaultTier: 'sonnet', structuredOutput: 'parse', retrievalDepth: 'none' },
-    replay: { id: 'replay', provider: '', model: '', defaultTier: 'haiku', structuredOutput: 'parse', retrievalDepth: 'none' },
+    archaeologist: {
+      id: 'archaeologist',
+      provider: '',
+      model: '',
+      defaultTier: 'haiku',
+      structuredOutput: 'parse',
+      retrievalDepth: 'none',
+    },
+    synthesis: {
+      id: 'synthesis',
+      provider: '',
+      model: '',
+      defaultTier: 'sonnet',
+      structuredOutput: 'parse',
+      retrievalDepth: 'none',
+    },
+    judge: {
+      id: 'judge',
+      provider: 'moonshot',
+      model: 'kimi-k2.5',
+      defaultTier: 'sonnet',
+      structuredOutput: 'parse',
+      retrievalDepth: 'none',
+    },
+    replay: {
+      id: 'replay',
+      provider: '',
+      model: '',
+      defaultTier: 'haiku',
+      structuredOutput: 'parse',
+      retrievalDepth: 'none',
+    },
   },
 };
 
@@ -205,7 +318,12 @@ export const SKILL_SYNTHESIS_SETTINGS_FIXTURE = {
     minJudgeScore: 0.7,
     judgeModel: 'inherit',
     judgeProvider: '',
-    enhanceTimeoutMs: { value: 120000, default: 120000, min: 30000, max: 600000 },
+    enhanceTimeoutMs: {
+      value: 120000,
+      default: 120000,
+      min: 30000,
+      max: 600000,
+    },
   },
 };
 
@@ -233,9 +351,21 @@ export const EFFECTIVE_ROUTE_FIXTURE = {
   providers: [
     { id: 'claude-cli', type: 'cli' as const, status: 'connected' as const },
     { id: 'moonshot', type: 'apiKey' as const, status: 'connected' as const },
-    { id: 'openai-codex', type: 'oauth' as const, status: 'connected' as const },
-    { id: 'ollama-cloud', type: 'local-native' as const, status: 'unreachable' as const },
-    { id: 'sovereigneg', type: 'apiKey' as const, status: 'connected' as const },
+    {
+      id: 'openai-codex',
+      type: 'oauth' as const,
+      status: 'connected' as const,
+    },
+    {
+      id: 'ollama-cloud',
+      type: 'local-native' as const,
+      status: 'unreachable' as const,
+    },
+    {
+      id: 'sovereigneg',
+      type: 'apiKey' as const,
+      status: 'connected' as const,
+    },
   ],
   lastSuccessfulProbeAt: '2026-01-01T00:00:00.000Z',
   lastFailedProbeAt: null,
@@ -256,7 +386,12 @@ export interface FixtureCheckRecord {
  * connections time no request (`latencyMs: null`, 28c).
  */
 const CHECK_LATENCY_MS: Readonly<Record<string, number | null>> = {
-  moonshot: 92, sovereigneg: 140, anthropic: 75, 'claude-cli': null, 'github-copilot': null, 'openai-codex': null,
+  moonshot: 92,
+  sovereigneg: 140,
+  anthropic: 75,
+  'claude-cli': null,
+  'github-copilot': null,
+  'openai-codex': null,
 };
 
 /**
@@ -267,9 +402,16 @@ const CHECK_LATENCY_MS: Readonly<Record<string, number | null>> = {
 function checkConnectionResolver(state: FixtureState): RpcFixtureResolver {
   return (params) => {
     record(state, 'auth:checkConnection', params);
-    const providerId = (params as { providerId?: string } | null)?.providerId ?? '';
-    if (!Object.hasOwn(CHECK_LATENCY_MS, providerId)) throw new Error(`This connection cannot be checked here: ${providerId}`);
-    const check: FixtureCheckRecord = { status: 'verified', reason: null, latencyMs: CHECK_LATENCY_MS[providerId], checkedAt: new Date().toISOString() };
+    const providerId =
+      (params as { providerId?: string } | null)?.providerId ?? '';
+    if (!Object.hasOwn(CHECK_LATENCY_MS, providerId))
+      throw new Error(`This connection cannot be checked here: ${providerId}`);
+    const check: FixtureCheckRecord = {
+      status: 'verified',
+      reason: null,
+      latencyMs: CHECK_LATENCY_MS[providerId],
+      checkedAt: new Date().toISOString(),
+    };
     state.connectionChecks.set(providerId, check);
     return check;
   };
@@ -285,7 +427,10 @@ function checkConnectionResolver(state: FixtureState): RpcFixtureResolver {
 export function llmProviderBaseUrlResolver(): RpcFixtureResolver {
   return (params) => {
     const provider = (params as { provider?: string } | null)?.provider ?? '';
-    return { baseUrl: null, defaultBaseUrl: provider ? `https://${provider}.example` : null };
+    return {
+      baseUrl: null,
+      defaultBaseUrl: provider ? `https://${provider}.example` : null,
+    };
   };
 }
 
@@ -311,16 +456,28 @@ export function verifyDraftConnectionResolver(): RpcFixtureResolver {
       credential?: { kind: 'apiKey' | 'stored'; value?: string };
     } | null;
     const probeId = p?.probeId ?? 'probe-1';
-    if (p?.credential?.kind === 'apiKey' && p.credential.value === INVALID_PROBE_KEY) {
+    if (
+      p?.credential?.kind === 'apiKey' &&
+      p.credential.value === INVALID_PROBE_KEY
+    ) {
       return {
-        probeId, outcome: 'failed', reason: 'credential-rejected',
-        detail: 'The provider rejected this key (401).', latencyMs: 80, modelUsed: null,
+        probeId,
+        outcome: 'failed',
+        reason: 'credential-rejected',
+        detail: 'The provider rejected this key (401).',
+        latencyMs: 80,
+        modelUsed: null,
         checkedAt: '2026-01-01T00:00:00.000Z',
       };
     }
     return {
-      probeId, outcome: 'verified', reason: null, detail: null,
-      latencyMs: 120, modelUsed: null, checkedAt: '2026-01-01T00:00:00.000Z',
+      probeId,
+      outcome: 'verified',
+      reason: null,
+      detail: null,
+      latencyMs: 120,
+      modelUsed: null,
+      checkedAt: '2026-01-01T00:00:00.000Z',
     };
   };
 }
@@ -346,21 +503,33 @@ export const LICENSE_STATUS_FIXTURE = {
  */
 export const LLM_PROVIDER_STATUS_FIXTURE = {
   providers: [
-    { provider: 'vscode-lm', displayName: 'VS Code Language Model', isConfigured: true, defaultModel: '', capabilities: [] },
+    {
+      provider: 'vscode-lm',
+      displayName: 'VS Code Language Model',
+      isConfigured: true,
+      defaultModel: '',
+      capabilities: [],
+    },
   ],
   defaultProvider: 'vscode-lm' as const,
 };
 
 /** `llm:listProviderModels` — the model `<select>` options for the card above. */
-export const VSCODE_LM_MODELS_FIXTURE = { models: [{ id: 'copilot-gpt-4o', displayName: 'GitHub Copilot GPT-4o' }] };
+export const VSCODE_LM_MODELS_FIXTURE = {
+  models: [{ id: 'copilot-gpt-4o', displayName: 'GitHub Copilot GPT-4o' }],
+};
 
 /** `agent:listCliModels` — delegated-model pickers' option lists. */
 export const CLI_MODELS_FIXTURE = {
   codex: [{ id: 'gpt-5.5-codex', name: 'GPT 5.5 Codex' }],
   copilot: [{ id: 'gpt-5.4', name: 'GPT 5.4' }],
   cursor: [{ id: 'cursor-default', name: 'Cursor default' }],
-  antigravity: [{ id: 'claude-sonnet-4-6', name: 'Claude Sonnet 4.6 Thinking' }],
-  opencode: [{ id: 'opencode/nemotron-3-ultra-free', name: 'nemotron-3-ultra-free' }],
+  antigravity: [
+    { id: 'claude-sonnet-4-6', name: 'Claude Sonnet 4.6 Thinking' },
+  ],
+  opencode: [
+    { id: 'opencode/nemotron-3-ultra-free', name: 'nemotron-3-ultra-free' },
+  ],
   pi: [{ id: 'pi-default', name: 'Pi default' }],
 };
 
@@ -389,7 +558,11 @@ export interface RecordedCall {
 type MutableAgentConfig = typeof AGENT_CONFIG_FIXTURE;
 type MutableAuthStatus = typeof AUTH_STATUS_FIXTURE;
 type MutablePtahCliAgent = (typeof PTAH_CLI_LIST_FIXTURE)['agents'][number];
-type ModelTiers = { sonnet: string | null; opus: string | null; haiku: string | null };
+type ModelTiers = {
+  sonnet: string | null;
+  opus: string | null;
+  haiku: string | null;
+};
 
 export interface FixtureState {
   readonly calls: RecordedCall[];
@@ -403,7 +576,9 @@ export interface FixtureState {
   /** Scope keys cleared via `config:clearScopeOverride` (read back by `statefulConfigGetScopesResolver`). */
   readonly clearedOverrides: Set<string>;
   /** `provider:listCustomEntries`, mutated by `provider:updateCustomEntry` (Batch 22 drawer Advanced tab). */
-  customEntries: Array<(typeof CUSTOM_ENTRIES_FIXTURE)['entries'][number] & Record<string, unknown>>;
+  customEntries: Array<
+    (typeof CUSTOM_ENTRIES_FIXTURE)['entries'][number] & Record<string, unknown>
+  >;
   /** Recorded checks by provider id (`auth:checkConnection`), read back as the route's `providers[].lastCheck`. */
   readonly connectionChecks: Map<string, FixtureCheckRecord>;
 }
@@ -411,16 +586,32 @@ export interface FixtureState {
 function createFixtureState(): FixtureState {
   return {
     calls: [],
-    agentConfig: { ...AGENT_CONFIG_FIXTURE, detectedClis: AGENT_CONFIG_FIXTURE.detectedClis.map((c) => ({ ...c })), disabledClis: [...AGENT_CONFIG_FIXTURE.disabledClis] },
+    agentConfig: {
+      ...AGENT_CONFIG_FIXTURE,
+      detectedClis: AGENT_CONFIG_FIXTURE.detectedClis.map((c) => ({ ...c })),
+      disabledClis: [...AGENT_CONFIG_FIXTURE.disabledClis],
+    },
     authStatus: { ...AUTH_STATUS_FIXTURE },
     effort: EFFORT_GET_FIXTURE.effort,
     model: MODEL_GET_FIXTURE.model,
     ptahCliAgents: PTAH_CLI_LIST_FIXTURE.agents.map((a) => ({ ...a })),
     modelTiers: new Map(),
     clearedOverrides: new Set(),
-    customEntries: CUSTOM_ENTRIES_FIXTURE.entries.map((entry) => ({ ...entry })),
+    customEntries: CUSTOM_ENTRIES_FIXTURE.entries.map((entry) => ({
+      ...entry,
+    })),
     // The prototype's Moonshot drawer: "Connected & verified (92ms)", checked in this session (boot time).
-    connectionChecks: new Map([['moonshot', { status: 'verified', reason: null, latencyMs: 92, checkedAt: new Date().toISOString() }]]),
+    connectionChecks: new Map([
+      [
+        'moonshot',
+        {
+          status: 'verified',
+          reason: null,
+          latencyMs: 92,
+          checkedAt: new Date().toISOString(),
+        },
+      ],
+    ]),
   };
 }
 
@@ -433,7 +624,10 @@ function tierKey(providerId: string, scope: string): string {
 }
 
 /** `config:getScopes` resolver, state-aware version of the plain one above. */
-function statefulConfigGetScopesResolver(state: FixtureState, workspaceName = 'ptah-e2e-ws-a'): RpcFixtureResolver {
+function statefulConfigGetScopesResolver(
+  state: FixtureState,
+  workspaceName = 'ptah-e2e-ws-a',
+): RpcFixtureResolver {
   return (params) => {
     const keys = (params as { keys?: readonly string[] } | null)?.keys ?? [];
     return {
@@ -447,7 +641,9 @@ function statefulConfigGetScopesResolver(state: FixtureState, workspaceName = 'p
           hasOverride,
           effectiveKey: key,
           supportedTargets: ['global', 'app', 'workspace'],
-          fallbackPreview: hasOverride ? { scope: 'global', value: null } : null,
+          fallbackPreview: hasOverride
+            ? { scope: 'global', value: null }
+            : null,
           credentialSource: 'not-a-secret',
         };
       }),
@@ -482,11 +678,15 @@ function statefulSettingsFixtures(
       }),
     }),
     'auth:checkConnection': checkConnectionResolver(state),
-    'provider:listCustomEntries': () => ({ entries: state.customEntries.map((entry) => ({ ...entry })) }),
+    'provider:listCustomEntries': () => ({
+      entries: state.customEntries.map((entry) => ({ ...entry })),
+    }),
     'provider:updateCustomEntry': (params: unknown) => {
       record(state, 'provider:updateCustomEntry', params);
       const p = params as { id: string; changes: Record<string, unknown> };
-      const entry = state.customEntries.find((candidate) => candidate.id === p.id);
+      const entry = state.customEntries.find(
+        (candidate) => candidate.id === p.id,
+      );
       if (!entry) return { entry: null };
       Object.assign(entry, p.changes);
       return { entry: { ...entry } };
@@ -497,20 +697,43 @@ function statefulSettingsFixtures(
     },
     'provider:getModelTiers': (params: unknown) => {
       const p = params as { providerId: string; scope: string };
-      return { ...(state.modelTiers.get(tierKey(p.providerId, p.scope)) ?? { sonnet: null, opus: null, haiku: null }) };
+      return {
+        ...(state.modelTiers.get(tierKey(p.providerId, p.scope)) ?? {
+          sonnet: null,
+          opus: null,
+          haiku: null,
+        }),
+      };
     },
     'provider:setModelTier': (params: unknown) => {
       record(state, 'provider:setModelTier', params);
-      const p = params as { providerId: string; scope: string; tier: keyof ModelTiers; modelId: string };
-      const tiers = state.modelTiers.get(tierKey(p.providerId, p.scope)) ?? { sonnet: null, opus: null, haiku: null };
+      const p = params as {
+        providerId: string;
+        scope: string;
+        tier: keyof ModelTiers;
+        modelId: string;
+      };
+      const tiers = state.modelTiers.get(tierKey(p.providerId, p.scope)) ?? {
+        sonnet: null,
+        opus: null,
+        haiku: null,
+      };
       tiers[p.tier] = p.modelId;
       state.modelTiers.set(tierKey(p.providerId, p.scope), tiers);
       return { success: true };
     },
     'provider:clearModelTier': (params: unknown) => {
       record(state, 'provider:clearModelTier', params);
-      const p = params as { providerId: string; scope: string; tier: keyof ModelTiers };
-      const tiers = state.modelTiers.get(tierKey(p.providerId, p.scope)) ?? { sonnet: null, opus: null, haiku: null };
+      const p = params as {
+        providerId: string;
+        scope: string;
+        tier: keyof ModelTiers;
+      };
+      const tiers = state.modelTiers.get(tierKey(p.providerId, p.scope)) ?? {
+        sonnet: null,
+        opus: null,
+        haiku: null,
+      };
       tiers[p.tier] = null;
       state.modelTiers.set(tierKey(p.providerId, p.scope), tiers);
       return { success: true };
@@ -529,7 +752,7 @@ function statefulSettingsFixtures(
       record(state, 'ptahCli:testConnection', params);
       return { success: true };
     },
-    'settings:get': PTAH_CLI_AGENTS_SETTING_FIXTURE,
+    'settings:get': settingsGetResolver,
     'agent:getConfig': () => ({ ...state.agentConfig }),
     'agent:setConfig': (params: unknown) => {
       record(state, 'agent:setConfig', params);
@@ -588,8 +811,15 @@ function statefulSettingsFixtures(
       record(state, 'ptahCli:create', params);
       const p = params as { name: string; providerId: string };
       const agent: MutablePtahCliAgent = {
-        id: `created-${state.ptahCliAgents.length + 1}`, name: p.name, providerName: p.providerId,
-        providerId: p.providerId, hasApiKey: true, hasStoredKey: true, status: 'available', enabled: true, modelCount: 0,
+        id: `created-${state.ptahCliAgents.length + 1}`,
+        name: p.name,
+        providerName: p.providerId,
+        providerId: p.providerId,
+        hasApiKey: true,
+        hasStoredKey: true,
+        status: 'available',
+        enabled: true,
+        modelCount: 0,
       };
       state.ptahCliAgents.push(agent);
       return { success: true, agent };
@@ -633,7 +863,12 @@ export function baseSettingsFixtures(
 }
 
 /** Every `<h2>`/tab label the reachability spec drives by name. */
-export const SETTINGS_TAB_LABELS = ['Providers', 'Agent Orchestration', 'Advanced', 'Search & Voice'] as const;
+export const SETTINGS_TAB_LABELS = [
+  'Providers',
+  'Agent Orchestration',
+  'Advanced',
+  'Search & Voice',
+] as const;
 
 const stateByPage = new WeakMap<Page, FixtureState>();
 
@@ -645,7 +880,10 @@ const stateByPage = new WeakMap<Page, FixtureState>();
  */
 export function getFixtureState(page: Page): FixtureState {
   const state = stateByPage.get(page);
-  if (!state) throw new Error('getFixtureState: bootSettings() was never called on this page.');
+  if (!state)
+    throw new Error(
+      'getFixtureState: bootSettings() was never called on this page.',
+    );
   return state;
 }
 
@@ -667,14 +905,18 @@ export async function bootSettings(
   await installCspStub(page);
   const bridge = await installPostMessageBridge(page);
   await installHost(page, host, 'chat');
-  await installRpcAutoResponder(page, { ...withAdvancedSearchVoice(state, statefulSettingsFixtures(state)), ...overrides });
+  await installRpcAutoResponder(page, {
+    ...withAdvancedSearchVoice(state, statefulSettingsFixtures(state)),
+    ...overrides,
+  });
   await page.addInitScript((t: string) => {
     localStorage.setItem('ptah-theme', t);
   }, theme);
   // Batch 53.6: the app build's `load` takes 2-3 s here, but on a machine at 100 % CPU it was seen past the 15 s
   // navigation default. Boot is setup, not what these tests measure, so it gets 30 s; every assertion keeps its own.
   await page.goto(fixtureUrl, { timeout: 30_000 });
-  const readySelector = host === 'electron' ? 'ptah-electron-shell' : 'ptah-app-shell';
+  const readySelector =
+    host === 'electron' ? 'ptah-electron-shell' : 'ptah-app-shell';
   await expect(page.locator(readySelector).first()).toBeVisible();
   await bridge.inject({ type: 'switchView', payload: { view: 'settings' } });
   await expect(page.locator('[data-testid="settings-back"]')).toBeVisible();
@@ -691,7 +933,10 @@ export async function bootSettings(
  * section (`providers-settings.component.ts:66-68`) and `[attr.aria-busy]`
  * on the section wrapper.
  */
-export async function waitForSettled(page: Page, scope = page.locator('body')): Promise<void> {
+export async function waitForSettled(
+  page: Page,
+  scope = page.locator('body'),
+): Promise<void> {
   await expect(
     scope.locator('[aria-busy="true"], .loading-spinner, [data-read-loading]'),
   ).toHaveCount(0);

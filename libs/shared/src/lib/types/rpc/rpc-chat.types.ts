@@ -16,6 +16,7 @@ import type { AskUserQuestionRequest } from '../permission.types';
 import type { SubagentRecord } from '../subagent-registry.types';
 import type { RpcUserErrorCode } from './rpc-error-codes.types';
 import type { SessionStatsEntry } from './rpc-session.types';
+import type { SessionBudgetState } from '../session-budget.types';
 import type { AgentSessionOpenedPayload } from '../messages/agent-session';
 
 /**
@@ -167,6 +168,12 @@ export interface ChatContinueResult {
   errorCode?: RpcUserErrorCode;
   /** Provider whose auth is required, when errorCode is 'AUTH_REQUIRED'. */
   providerId?: string;
+  /**
+   * The budget state that refused the send, when errorCode is
+   * 'SESSION_BUDGET_REACHED' (TASK_2026_597): lets the tab show the banner
+   * even when it never received a published state for this session.
+   */
+  budget?: SessionBudgetState;
 }
 
 /** Parameters for chat:abort RPC method */
@@ -290,6 +297,11 @@ export interface ChatResumeResult {
    * `contextWindow` carry the backend-known context data.
    */
   stats?: SessionStatsEntry | null;
+  /**
+   * The session's budget state evaluated from `stats`. Absent = keep the last
+   * state: no figure to evaluate, or no budget service on the host.
+   */
+  budget?: SessionBudgetState;
   /**
    * Resumable subagents for this session.
    * Frontend uses this to mark agent nodes as resumable when loading from history.

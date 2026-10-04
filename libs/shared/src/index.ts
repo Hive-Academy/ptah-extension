@@ -51,6 +51,7 @@ export * from './lib/types/harness-blocked-wording';
 export * from './lib/types/origin-sidecar.types';
 export * from './lib/types/user-layer-agents';
 export * from './lib/types/agent-models.types';
+export * from './lib/types/session-budget.types';
 export * from './lib/type-guards/guards';
 export * from './lib/utils/message-normalizer';
 export * from './lib/utils';

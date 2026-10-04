@@ -11,6 +11,8 @@
  * The Set provides O(1) lookup for routing checks in workspace providers.
  */
 
+import { SESSION_BUDGET_SETTINGS } from '@ptah-extension/shared';
+
 /**
  * BUILT-IN provider auth keys that each get a `selectedModel` +
  * `reasoningEffort` slot.
@@ -141,6 +143,24 @@ const SKILL_LANE_SETTINGS_DEFAULTS: Record<string, string | number> =
           value,
         ]),
     ),
+  );
+
+/**
+ * `sessionBudget.*` → default (TASK_2026_597 N7), derived from the shared
+ * bounds table so the key list, these defaults, the backend reader and the
+ * settings card all read one source. `tightenWindowTokens` defaults to
+ * `null` (advisory only): `PtahFileSettingsManager.get` returns a registered
+ * `null` default as `null`, not as "unset".
+ *
+ * Deliberately NOT in `KNOWN_CONFIG_KEYS` (settings export, AS-N7a): that
+ * would write the shipped defaults into every export file.
+ */
+const SESSION_BUDGET_SETTINGS_DEFAULTS: Record<string, unknown> =
+  Object.fromEntries(
+    Object.values(SESSION_BUDGET_SETTINGS).map((setting) => [
+      setting.key,
+      setting.default,
+    ]),
   );
 
 /**
@@ -435,6 +455,8 @@ export const FILE_BASED_SETTINGS_KEYS = new Set<string>([
     `provider.${k}.selectedModel`,
     `provider.${k}.reasoningEffort`,
   ]),
+  // Session budget (TASK_2026_597 N7): ten keys spread from the shared table.
+  ...Object.keys(SESSION_BUDGET_SETTINGS_DEFAULTS),
 ]);
 
 /**
@@ -693,6 +715,8 @@ export const FILE_BASED_SETTINGS_DEFAULTS: Record<string, unknown> = {
       [`provider.${k}.reasoningEffort`, ''],
     ]),
   ),
+  // Session budget (TASK_2026_597 N7). Same table as the key list above.
+  ...SESSION_BUDGET_SETTINGS_DEFAULTS,
 };
 
 /**

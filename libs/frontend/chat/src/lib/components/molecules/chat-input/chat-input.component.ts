@@ -1357,7 +1357,7 @@ export class ChatInputComponent implements OnInit {
         data: img.data,
         mediaType: img.mediaType,
       }));
-      await this.chatStore.sendOrQueueMessage(
+      const outcome = await this.chatStore.sendOrQueueMessage(
         normalizedContent || 'What is in this image?',
         {
           files: filePaths.length > 0 ? filePaths : undefined,
@@ -1365,6 +1365,9 @@ export class ChatInputComponent implements OnInit {
           tabId: this._sessionContext?.() ?? undefined,
         },
       );
+      // Refused at the session budget limit: keep the draft and attachments
+      // so the user can send them after acting on the budget banner.
+      if (outcome?.errorCode === 'SESSION_BUDGET_REACHED') return;
       this._currentMessage.set('');
       this._selectedFiles.set([]);
       this._pastedImages.set([]);
