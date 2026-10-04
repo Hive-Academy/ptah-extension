@@ -1,6 +1,7 @@
 import {
   DestroyRef,
   Injectable,
+  NgZone,
   signal,
   computed,
   inject,
@@ -212,6 +213,7 @@ export class TabManagerService {
    */
   private readonly modelRefresh = inject(MODEL_REFRESH_CONTROL);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly ngZone = inject(NgZone);
 
   // ============================================================================
   // PRIVATE STATE SIGNALS
@@ -2585,23 +2587,27 @@ export class TabManagerService {
     }
 
     // Schedule debounced save (reduces 220+ writes to just a few during streaming)
-    this._saveTimeout = setTimeout(() => {
-      this._saveTimeout = null;
-      this._clearSaveMaxWait();
-      this._doSaveTabState();
-    }, this.SAVE_DEBOUNCE_MS);
+    this.ngZone.runOutsideAngular(() => {
+      this._saveTimeout = setTimeout(() => {
+        this._saveTimeout = null;
+        this._clearSaveMaxWait();
+        this._doSaveTabState();
+      }, this.SAVE_DEBOUNCE_MS);
+    });
 
     // Started on the first pending save and deliberately NOT reset by later
     // calls, so continuous streaming cannot starve persistence.
     if (this._saveMaxWaitTimeout === null) {
-      this._saveMaxWaitTimeout = setTimeout(() => {
-        this._saveMaxWaitTimeout = null;
-        if (this._saveTimeout) {
-          clearTimeout(this._saveTimeout);
-          this._saveTimeout = null;
-        }
-        this._doSaveTabState();
-      }, this.SAVE_MAX_WAIT_MS);
+      this.ngZone.runOutsideAngular(() => {
+        this._saveMaxWaitTimeout = setTimeout(() => {
+          this._saveMaxWaitTimeout = null;
+          if (this._saveTimeout) {
+            clearTimeout(this._saveTimeout);
+            this._saveTimeout = null;
+          }
+          this._doSaveTabState();
+        }, this.SAVE_MAX_WAIT_MS);
+      });
     }
   }
 

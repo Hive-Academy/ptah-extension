@@ -13,6 +13,7 @@ import {
   Injector,
   DestroyRef,
   TemplateRef,
+  NgZone,
 } from '@angular/core';
 import {
   LucideAngularModule,
@@ -445,7 +446,6 @@ import { SubagentTranscriptViewerService } from '../../../services/subagent-tran
           <div
             #contentContainer
             class="px-3 pb-2 max-h-80 overflow-y-auto border-t border-base-300/30"
-            (scroll)="onAgentScroll()"
           >
             <!-- summaryContent is rendered as a text child node instead of a
              separate block. This ensures agent text is properly interleaved
@@ -613,6 +613,7 @@ import { SubagentTranscriptViewerService } from '../../../services/subagent-tran
 export class InlineAgentBubbleComponent {
   private readonly injector = inject(Injector);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly ngZone = inject(NgZone);
   private readonly agentMonitorStore = inject(AgentMonitorStore);
   private readonly backgroundAgentStore = inject(BackgroundAgentStore);
   private readonly modelState = inject(ModelStateService);
@@ -636,6 +637,8 @@ export class InlineAgentBubbleComponent {
   /** Suppresses onAgentScroll bookkeeping during our own programmatic scroll. */
   private isAdjusting = false;
   private readonly NEAR_BOTTOM_PX = 60;
+  private scrollElement: HTMLElement | null = null;
+  private readonly scrollHandler = (): void => this.onAgentScroll();
 
   /**
    * Flag to prevent multiple afterNextRender callbacks from being queued
@@ -704,6 +707,7 @@ export class InlineAgentBubbleComponent {
     });
     afterNextRender(
       () => {
+        this.setupScrollListener();
         this.setupMutationObserver();
       },
       { injector: this.injector },
@@ -754,6 +758,16 @@ export class InlineAgentBubbleComponent {
     });
   }
 
+  private setupScrollListener(): void {
+    const container = this.contentContainerRef()?.nativeElement;
+    if (!container || container === this.scrollElement) return;
+    this.scrollElement?.removeEventListener('scroll', this.scrollHandler);
+    this.ngZone.runOutsideAngular(() => {
+      container.addEventListener('scroll', this.scrollHandler, { passive: true });
+    });
+    this.scrollElement = container;
+  }
+
   /**
    * Setup MutationObserver to watch for DOM changes in content container.
    * This ensures scroll happens after recursive ExecutionNode tree completes rendering.
@@ -801,6 +815,8 @@ export class InlineAgentBubbleComponent {
    * Cleanup observer and timeout on component destruction.
    */
   private cleanup(): void {
+    this.scrollElement?.removeEventListener('scroll', this.scrollHandler);
+    this.scrollElement = null;
     if (this.observer) {
       this.observer.disconnect();
       this.observer = null;
