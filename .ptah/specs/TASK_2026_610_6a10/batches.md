@@ -1,6 +1,6 @@
 # Batches - TASK_2026_610_6a10
 
-Total tasks: 51 (PR A + PR B) + PR C | Batches: 27 active (A 8, B+C 19: B 14, C 5 after the C2 split) + 4 blocked (D) | Complete: 19/27 (A1, A6, A7, A2, A3, A4, B1, B2, B3, B4, B5a, B5b, B8a, B8b, B8c, B9, B10, C1, C3) | In progress: B6, C2b
+Total tasks: 51 (PR A + PR B) + PR C | Batches: 27 active (A 8, B+C 19: B 14, C 5 after the C2 split) + 4 blocked (D) | Complete: 22/27 (A1, A6, A7, A2, A3, A4, A5, B1, B2, B3, B4, B5a, B5b, B6, B8a, B8b, B8c, B9, B10, C1, C2b, C3) | In progress: none | Next: AM ∥ B7, then C2a, C4, BM
 
 Worktree root: `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat` (branch
 `feat/task-610-a2ui-coding-chat`, HEAD = merge-base `f314a4f8a`, verified with `git merge-base`). Every path below is
@@ -249,7 +249,11 @@ Edge cases:
 - Verified: `run-many -t typecheck,test,lint -p @ptah-extension/chat` passed (161 suites, 2964 tests, lint 0
   errors). Report: `batch-A4-report.md`.
 
-## Batch A5: zero-model-token boundary specs — PENDING
+## Batch A5: zero-model-token boundary specs — COMPLETE (6b4946e24)
+
+- Verified 2026-10-04: `chat` run-many passed; `npx jest -c libs/backend/agent-sdk/jest.config.ts
+  .../sdk-query-options-builder.host-data.spec.ts` 1/1. Orchestrator fixed the backend spec (missing `tabId`, dead
+  `hostTurn`); see `batch-A5-report.md`. PR A code is complete; AM can start.
 
 - Recommended executor: codex lane | Fallback: backend-developer subagent | Mode: sequential
 - Tasks: 2 | Depends on: A4 | Parallel group: W5
@@ -257,13 +261,13 @@ Edge cases:
 - Phase: A
 - Verify: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/chat,@ptah-extension/agent-sdk`
 
-### Task A5.1: sender boundary spec — PENDING
+### Task A5.1: sender boundary spec — COMPLETE
 
 - Files: CREATE `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\frontend\chat\src\lib\services\message-sender.host-data.spec.ts`
 - Validation notes: serialized `ChatContinueParams` (sender `:689`) contains no sentinel (`zz_sentinel_610.ts`,
   `0.610610`, `610610`, tests label); text `ExecutionNode.content` byte-identical
 
-### Task A5.2: builder boundary spec — PENDING
+### Task A5.2: builder boundary spec — COMPLETE
 
 - Files: CREATE `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\backend\agent-sdk\src\lib\helpers\sdk-query-options-builder.host-data.spec.ts`
 - Pattern to follow: positional-stub construction in `sdk-query-options-builder.spec.ts`
@@ -519,7 +523,13 @@ Edge cases:
   recomputations, `inert` ancestor; blocks 5-12 live; remount 1, 6, 12); axe per state; resolve A-5 (copy sites);
   no outputs bound on the renderer; lint confirms the `chat-ui` → `declarative-dashboard` edge is allowed
 
-## Batch B6: execution-node and bubble wiring with the Electron gate — IN_PROGRESS
+## Batch B6: execution-node and bubble wiring with the Electron gate — COMPLETE (2dac29bcb)
+
+- Verified 2026-10-04: `chat-ui,chat` run-many (`--parallel=1`) passed (orchestrator: 163 suites, 2,992 tests);
+  production webview build AOT OK; eager-closure gate 720 inputs (+6 vs 714), 2,848,414 initial bytes (+7.3 KB).
+- Accepted deviation: `chat-transcript.component.ts` adds only the `PtahUiLiveWindow` import and provider (diff
+  checked). B7.1's provider half is therefore done; B7.1 keeps the order key, the `.html` binding and its spec.
+  Report: `batch-B6-report.md`.
 
 - MUST (from B5b): provide `PtahUiLiveWindow` in the per-tab (transcript-scoped) injector. Without it the block's
   injection fails and every block falls into the `@error` markdown.
@@ -534,7 +544,7 @@ Edge cases:
 - Phase: B
 - Verify: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/chat`
 
-### Task B6.1: fence-line check and execution-node branch — PENDING
+### Task B6.1: fence-line check and execution-node branch — COMPLETE
 
 - Files:
   - CREATE `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\frontend\chat\src\lib\components\organisms\execution\ptah-ui-fence-line.ts`
@@ -542,7 +552,7 @@ Edge cases:
 - Validation notes: `hasPtahUiFenceLine` has zero imports; `ptahUi` input forwarded only in `@case ('message')`
   (`:249-262`), never in agent (`:239-246`) or tool recursions (`:176, :205`)
 
-### Task B6.2: bubble builds the context on Electron only — PENDING
+### Task B6.2: bubble builds the context on Electron only — COMPLETE
 
 - Files:
   - MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\frontend\chat\src\lib\components\organisms\message-bubble.component.ts`
@@ -550,7 +560,7 @@ Edge cases:
 - Implementation details: input `ptahUiOrderKey`; context `null` unless `role === 'assistant'` and
   `inject(VSCodeService).isElectron`; mount at `message-bubble.component.html:102-110`
 
-### Task B6.3: execution-node ptah-ui spec — PENDING
+### Task B6.3: execution-node ptah-ui spec — COMPLETE
 
 - Files: CREATE `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\frontend\chat\src\lib\components\organisms\execution\execution-node.ptah-ui.spec.ts`
 - Validation notes: VS Code (`isElectron=false`) → ordinary code block, no reason line, no `ptah-ui-*`, no deferred
@@ -571,7 +581,9 @@ Edge cases:
   - MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\frontend\chat\src\lib\components\organisms\transcript\chat-transcript.component.ts`
   - MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\frontend\chat\src\lib\components\organisms\transcript\chat-transcript.component.html`
   - CREATE `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\frontend\chat\src\lib\components\organisms\transcript\chat-transcript.ptah-ui.spec.ts`
-- Implementation details: `providers: [TranscriptRenderWindow, PtahUiLiveWindow]` (`:153`); `[ptahUiOrderKey]` on
+- Scope change 2026-10-04: the provider already landed in B6 (`2dac29bcb`); do not add it again. B7.1 = order key
+  binding + spec (the spec must assert one `PtahUiLiveWindow` per transcript/tab).
+- Implementation details: `providers: [TranscriptRenderWindow, PtahUiLiveWindow]` (`:153`, done in B6); `[ptahUiOrderKey]` on
   `<ptah-message-bubble>` at `.html:50` (file added by this decomposition, plan defect 2)
 
 ### Task B7.2: sender sets `ptahUiFence` on Electron — PENDING
@@ -723,6 +735,16 @@ Edge cases:
 
 ## Run log
 
+### Wave 6 commits (team-leader, C2b, A5, B6)
+
+- `npx nx run-many -t typecheck,test,lint -p @ptah-extension/chat-ui,@ptah-extension/chat --parallel=1` exit 0;
+  `npx jest -c libs/backend/agent-sdk/jest.config.ts .../sdk-query-options-builder.host-data.spec.ts` 1/1.
+- Commits: C2b `3f686a897`, A5 `6b4946e24`, B6 `2dac29bcb`. Only batch files staged; 594/595 `task.md` untouched.
+- Next, dependencies confirmed: AM (A1-A7 committed; codex lane, fallback devops-engineer) ∥ B7 (B6, A4, B8a
+  committed; opencode lane, fallback frontend-developer; file-disjoint from AM). Then C2a (C2b, B6, B7; opencode,
+  fallback frontend-developer), then C4 (C2a; codex, fallback backend-developer), then BM (B1-B10, C1-C4; codex,
+  fallback devops-engineer), which triggers the Phase B+C review. AM triggers the Phase A review.
+
 ### Wave 4 commits (team-leader, B1-B3)
 
 - Scoped run before commit: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/shared --parallel=1` passed
@@ -839,6 +861,20 @@ method, so the A7 contract spec must stay green. B4 and B8c take the next free s
    would spare the agent its first skill load (the 3-line example was dropped at 107 tokens). "in Ptah Electron" is
    redundant: only Electron sessions receive the hint.
 
+## Phase B+C review — notes added at the B6/A5/C2b commit (orchestrator, recorded by team-leader)
+
+10. **VS Code output is not literally byte-identical.** Text output matches, but each text node gains one empty
+    `<!--container-->` Angular comment from B6's new `@if`. Accepted by the orchestrator as invisible and
+    behaviour-neutral; the reviewer confirms (copy, a11y tree, any DOM-snapshot specs).
+11. **CI flake risk.** Specs that reach `execution-node` now load the lazy `ptah-ui` chunk eagerly. On a cold run
+    `electron-shell.review-dock.spec.ts` hit its 5 s timeout once. Consider mocking the lazy entry in that spec or
+    raising its timeout.
+12. **Eager-closure growth +6 inputs** (714 → 720; +7.3 KB initial). BM must run the gate with `--base` and confirm
+    every new eager input is allow-listed.
+13. **A5 backend spec is narrow by construction.** The builder has no host-data input, so
+    `sdk-query-options-builder.host-data.spec.ts` can only assert absence. The frontend
+    `message-sender.host-data.spec.ts` is the real boundary test; C4 extends both.
+
 ## Phase B review — notes added in Wave 2
 
 1. **Style: inline `HOST_KIND`.** `tokens.ts:290` writes `HOST_KIND: Symbol.for('HostKind')` inline; every other
@@ -891,7 +927,11 @@ files they extend. Phase: B+C.
 - Verified 2026-10-04: shared run-many passed. Closes Req 3.2/3.4/3.5/3.6 gaps; A-6 resolved (`$diff` stays pending
   until the late `git:turnChangeSet` push). Report: `batch-C1-report.md`.
 
-## Batch C2b: block snapshot input — IN_PROGRESS
+## Batch C2b: block snapshot input — COMPLETE (3f686a897)
+
+- Verified 2026-10-04: specs only (B5b had already added the `snapshot` input); 4 specs: in-place update without
+  remount, 0 recomputations when frozen, `null` snapshot → "unavailable", block with no sources. `chat-ui` run-many
+  passed. Report: `batch-C2b-report.md`.
 
 - Split from C2 (plan defect 5: the plan's 6 files omit `chat-transcript.component.html`, bubble binding at `:50`;
   7 files total). C2b runs first.
