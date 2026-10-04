@@ -67,6 +67,11 @@ function eagerInputs(stats) {
 }
 
 function assertNoForbiddenEager(stats, patterns = FORBIDDEN_EAGER_INPUTS) {
+  if (!stats.outputs?.['main.js']) {
+    throw new Error(
+      '[eager-closure-gate] stats output is missing required main.js entry.',
+    );
+  }
   const outputs = forbiddenOutputs(stats, patterns);
   try {
     assertEagerClosureKept(stats, outputs);

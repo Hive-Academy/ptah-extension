@@ -34,6 +34,16 @@ function stats(outputs: ChunkStats['outputs']): ChunkStats {
 }
 
 describe('eager-closure bundle gate', () => {
+  it('throws when stats do not contain main.js', () => {
+    expect(() =>
+      eagerClosureGate.assertNoForbiddenEager(
+        stats({
+          'renamed-entry.js': { inputs: {} },
+        }),
+      ),
+    ).toThrow('missing required main.js entry');
+  });
+
   it('throws for a forbidden input in main.js', () => {
     expect(() =>
       eagerClosureGate.assertNoForbiddenEager(
