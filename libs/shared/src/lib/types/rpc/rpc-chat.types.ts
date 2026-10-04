@@ -16,6 +16,7 @@ import type { AskUserQuestionRequest } from '../permission.types';
 import type { SubagentRecord } from '../subagent-registry.types';
 import type { RpcUserErrorCode } from './rpc-error-codes.types';
 import type { SessionStatsEntry } from './rpc-session.types';
+import type { SessionBudgetState } from '../session-budget.types';
 import type { AgentSessionOpenedPayload } from '../messages/agent-session';
 
 /**
@@ -290,6 +291,11 @@ export interface ChatResumeResult {
    * `contextWindow` carry the backend-known context data.
    */
   stats?: SessionStatsEntry | null;
+  /**
+   * The session's budget state evaluated from `stats`. Absent = keep the last
+   * state: no figure to evaluate, or no budget service on the host.
+   */
+  budget?: SessionBudgetState;
   /**
    * Resumable subagents for this session.
    * Frontend uses this to mark agent nodes as resumable when loading from history.

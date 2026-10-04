@@ -20,4 +20,9 @@ export type RpcUserErrorCode =
   | 'OUTPUT_CURSOR_STALE'
   | 'HISTORY_CURSOR_STALE'
   /** The connection is the main agent's current driver and cannot be removed. */
-  | 'CONNECTION_IN_USE';
+  | 'CONNECTION_IN_USE'
+  /**
+   * The session reached its budget limit and sends are blocked until the user
+   * allows more, compacts, clears or continues in a new session.
+   */
+  | 'SESSION_BUDGET_REACHED';

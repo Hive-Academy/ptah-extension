@@ -3055,7 +3055,7 @@ When Batch 28 is scheduled, its decomposition adds these parts. Task 28.2 stays 
 
 ---
 
-## Batch 50: N7 shared contracts — PENDING (PR 3, decision 13)
+## Batch 50: N7 shared contracts — COMPLETE (PR 3, decision 13; report batch-50-executor-report.md)
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer re-run
@@ -3099,7 +3099,7 @@ When Batch 28 is scheduled, its decomposition adds these parts. Task 28.2 stays 
 
 ---
 
-## Batch 51: N7 settings keys and their reader — PENDING (PR 3, decision 13)
+## Batch 51: N7 settings keys and their reader — IN_PROGRESS (PR 3, decision 13)
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer re-run
@@ -3139,7 +3139,7 @@ When Batch 28 is scheduled, its decomposition adds these parts. Task 28.2 stays 
 
 ---
 
-## Batch 52: N7 per-session auto-compact window override (E2-gated tighten) — PENDING (PR 3, decision 13)
+## Batch 52: N7 per-session auto-compact window override (E2-gated tighten) — IN_PROGRESS (PR 3, decision 13)
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer re-run
