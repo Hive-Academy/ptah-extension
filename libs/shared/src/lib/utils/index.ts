@@ -8,6 +8,14 @@ export { parseWorktreeList } from './git.utils';
 export { NestedRepoRoots, nestedRepoRootOf } from './nested-repo-roots';
 export * from './image-media-type';
 export { pickPrimaryModel, type ModelUsageEntry } from './pick-primary-model';
+export { classifyTestCommand } from './test-command-matcher';
+export {
+  collectTurnTests,
+  summarizeTurnTests,
+  type TurnTestOutcome,
+  type TurnTestRun,
+  type TurnTestSummary,
+} from './turn-tests.utils';
 export { blankToUndefined, blankToNull } from './session-id.utils';
 export {
   decodeHistoryCursor,
