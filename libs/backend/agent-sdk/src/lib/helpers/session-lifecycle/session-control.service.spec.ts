@@ -30,6 +30,8 @@ import { SessionControl } from './session-control.service';
 import { SessionRegistry } from './session-registry.service';
 import type { IModelResolver } from '../../auth-env.port';
 import type { SessionEndCallbackRegistry } from '../session-end-callback-registry';
+import type { CompactionConfig } from '../compaction-config-provider';
+import { A1_DEFAULT_WINDOW } from '../auto-compact-control';
 
 const KEY = 'tab_shared_key';
 const KEY_ID = KEY as SessionId;
@@ -59,7 +61,9 @@ interface Harness {
   logger: Logger;
 }
 
-function makeHarness(): Harness {
+function makeHarness(
+  getCompactionConfig: (() => CompactionConfig) | null = null,
+): Harness {
   const logger = makeLogger();
   const registry = new SessionRegistry(logger);
 
@@ -91,6 +95,7 @@ function makeHarness(): Harness {
     subagentRegistry,
     modelResolver,
     sessionEndRegistry,
+    getCompactionConfig,
   );
 
   return {
@@ -452,5 +457,284 @@ describe('SessionControl.applyAutoCompactConfig — live compaction.threshold ch
     } finally {
       jest.useRealTimers();
     }
+  });
+});
+
+describe('SessionControl.applySessionAutoCompactWindow — E2-gated tighten (TASK_2026_597 N7)', () => {
+  type MirrorQuery = NonNullable<
+    ReturnType<SessionRegistry['register']>['query']
+  >;
+
+  const TAB = 'tab_budget';
+  const TAB_ID = TAB as SessionId;
+  const TARGET = 200_000;
+
+  function configOf(over: Partial<CompactionConfig> = {}): CompactionConfig {
+    return {
+      enabled: true,
+      contextTokenThreshold: null,
+      envWindow: null,
+      ...over,
+    };
+  }
+
+  /**
+   * A query whose read-back follows the flag layer when `honours` is true:
+   * the threshold becomes the last window sent (minus a buffer), as the
+   * runtime would compute it. When false it never moves (E2 failure).
+   */
+  function attachQuery(
+    h: Harness,
+    opts: {
+      startThreshold?: number;
+      honours?: boolean;
+      withReadBack?: boolean;
+      baseUrl?: string;
+    } = {},
+  ): {
+    rec: ReturnType<SessionRegistry['register']>;
+    applyFlagSettings: jest.Mock;
+    getContextUsage: jest.Mock;
+  } {
+    const rec = h.registry.register(
+      TAB,
+      makeConfig(),
+      new AbortController(),
+      undefined,
+      {
+        usageCostSource: 'unreported',
+        authEnv: opts.baseUrl ? { ANTHROPIC_BASE_URL: opts.baseUrl } : {},
+      },
+    );
+    let threshold = opts.startThreshold ?? 967_000;
+    const applyFlagSettings = jest.fn(
+      async (s: { autoCompactWindow?: number | null }) => {
+        if (opts.honours !== false && typeof s.autoCompactWindow === 'number') {
+          threshold = s.autoCompactWindow - 13_000;
+        }
+      },
+    );
+    const getContextUsage = jest.fn(async () => ({
+      autoCompactThreshold: threshold,
+      isAutoCompactEnabled: true,
+    }));
+    rec.query = (opts.withReadBack === false
+      ? { applyFlagSettings }
+      : { applyFlagSettings, getContextUsage }) as unknown as MirrorQuery;
+    return { rec, applyFlagSettings, getContextUsage };
+  }
+
+  it('applies the window, reads it back and reports it applied', async () => {
+    const h = makeHarness(() => configOf());
+    const q = attachQuery(h);
+
+    const result = await h.control.applySessionAutoCompactWindow(
+      TAB_ID,
+      TARGET,
+    );
+
+    expect(result).toEqual({ target: TARGET, applied: true });
+    expect(q.applyFlagSettings).toHaveBeenCalledWith({
+      autoCompactWindow: TARGET,
+    });
+    expect(q.getContextUsage).toHaveBeenCalledTimes(2);
+    expect(q.rec.autoCompactOverride).toBe(TARGET);
+  });
+
+  it('keeps the override when a compaction.threshold change re-applies the config', async () => {
+    const h = makeHarness(() => configOf());
+    const q = attachQuery(h);
+    await h.control.applySessionAutoCompactWindow(TAB_ID, TARGET);
+    q.applyFlagSettings.mockClear();
+
+    await h.control.applyAutoCompactConfig(
+      configOf({ contextTokenThreshold: 600_000 }),
+    );
+
+    expect(q.applyFlagSettings).toHaveBeenCalledWith({
+      autoCompactWindow: TARGET,
+    });
+    expect(q.applyFlagSettings).not.toHaveBeenCalledWith({
+      autoCompactWindow: 600_000,
+    });
+  });
+
+  it('a read-back miss sends null back, drops the override and reports not-honoured with the model class', async () => {
+    const h = makeHarness(() => configOf({ contextTokenThreshold: 600_000 }));
+    const q = attachQuery(h, {
+      honours: false,
+      baseUrl: 'http://127.0.0.1:8123',
+    });
+
+    const result = await h.control.applySessionAutoCompactWindow(
+      TAB_ID,
+      TARGET,
+    );
+
+    expect(result).toEqual({
+      target: TARGET,
+      applied: false,
+      reason: 'not-honoured',
+    });
+    expect(q.applyFlagSettings.mock.calls.map((c) => c[0])).toEqual([
+      { autoCompactWindow: TARGET },
+      { autoCompactWindow: null },
+    ]);
+    expect(q.rec.autoCompactOverride).toBeNull();
+    const warn = h.logger.warn as jest.Mock;
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('NOT honoured'),
+      expect.objectContaining({ modelClass: 'proxied', target: TARGET }),
+    );
+  });
+
+  it('skips with env-override when CLAUDE_CODE_AUTO_COMPACT_WINDOW pins the window', async () => {
+    const h = makeHarness(() => configOf({ envWindow: 400_000 }));
+    const q = attachQuery(h);
+
+    const result = await h.control.applySessionAutoCompactWindow(
+      TAB_ID,
+      TARGET,
+    );
+
+    expect(result).toEqual({
+      target: TARGET,
+      applied: false,
+      reason: 'env-override',
+    });
+    expect(q.applyFlagSettings).not.toHaveBeenCalled();
+    expect(q.getContextUsage).not.toHaveBeenCalled();
+    expect(q.rec.autoCompactOverride).toBeUndefined();
+  });
+
+  it('skips with already-lower when the read-back threshold is already at or below the target', async () => {
+    const h = makeHarness(() => configOf());
+    const q = attachQuery(h, { startThreshold: TARGET });
+
+    const result = await h.control.applySessionAutoCompactWindow(
+      TAB_ID,
+      TARGET,
+    );
+
+    expect(result).toEqual({
+      target: TARGET,
+      applied: false,
+      reason: 'already-lower',
+    });
+    expect(q.applyFlagSettings).not.toHaveBeenCalled();
+    expect(q.rec.autoCompactOverride).toBeUndefined();
+  });
+
+  it('a timeout gives failed and the session keeps the window it had', async () => {
+    jest.useFakeTimers();
+    try {
+      const h = makeHarness(() => configOf());
+      const q = attachQuery(h);
+      q.applyFlagSettings.mockReturnValue(new Promise<void>(() => undefined));
+
+      const done = h.control.applySessionAutoCompactWindow(TAB_ID, TARGET);
+      await jest.advanceTimersByTimeAsync(5000);
+      const result = await done;
+
+      expect(result).toEqual({
+        target: TARGET,
+        applied: false,
+        reason: 'failed',
+      });
+      expect(q.rec.autoCompactOverride).toBeNull();
+      expect(h.logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining(
+          'Failed to apply a session auto-compact window',
+        ),
+        expect.objectContaining({
+          message: expect.stringContaining('timed out'),
+        }),
+      );
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('a query without getContextUsage gives failed and sends nothing', async () => {
+    const h = makeHarness(() => configOf());
+    const q = attachQuery(h, { withReadBack: false });
+
+    const result = await h.control.applySessionAutoCompactWindow(
+      TAB_ID,
+      TARGET,
+    );
+
+    expect(result).toEqual({
+      target: TARGET,
+      applied: false,
+      reason: 'failed',
+    });
+    expect(q.applyFlagSettings).not.toHaveBeenCalled();
+  });
+
+  it('an unknown session gives failed', async () => {
+    const h = makeHarness(() => configOf());
+
+    await expect(
+      h.control.applySessionAutoCompactWindow(
+        'tab_missing' as SessionId,
+        TARGET,
+      ),
+    ).resolves.toEqual({ target: TARGET, applied: false, reason: 'failed' });
+  });
+
+  it('restore clears the override and sends the configured window', async () => {
+    const h = makeHarness(() => configOf({ contextTokenThreshold: 600_000 }));
+    const q = attachQuery(h);
+    await h.control.applySessionAutoCompactWindow(TAB_ID, TARGET);
+    q.applyFlagSettings.mockClear();
+
+    const result = await h.control.applySessionAutoCompactWindow(TAB_ID, null);
+
+    expect(result).toBeUndefined();
+    expect(q.applyFlagSettings).toHaveBeenCalledWith({
+      autoCompactWindow: 600_000,
+    });
+    expect(q.rec.autoCompactOverride).toBeNull();
+  });
+
+  it('restore sends null (runtime decides) when no window is configured, never a class default', async () => {
+    const h = makeHarness(() => configOf());
+    const q = attachQuery(h);
+    await h.control.applySessionAutoCompactWindow(TAB_ID, TARGET);
+    q.applyFlagSettings.mockClear();
+
+    await h.control.applySessionAutoCompactWindow(TAB_ID, null);
+
+    expect(q.applyFlagSettings).toHaveBeenCalledWith({
+      autoCompactWindow: null,
+    });
+  });
+
+  it('restore with no override recorded sends nothing', async () => {
+    const h = makeHarness(() => configOf());
+    const q = attachQuery(h);
+
+    await expect(
+      h.control.applySessionAutoCompactWindow(TAB_ID, null),
+    ).resolves.toBeUndefined();
+    expect(q.applyFlagSettings).not.toHaveBeenCalled();
+  });
+
+  it('a failed restore keeps the override and reports failed', async () => {
+    const h = makeHarness(() => configOf());
+    const q = attachQuery(h);
+    await h.control.applySessionAutoCompactWindow(TAB_ID, TARGET);
+    q.applyFlagSettings.mockRejectedValueOnce(new Error('control closed'));
+
+    const result = await h.control.applySessionAutoCompactWindow(TAB_ID, null);
+
+    expect(result).toEqual({ target: TARGET, applied: true, reason: 'failed' });
+    expect(q.rec.autoCompactOverride).toBe(TARGET);
+  });
+
+  it('leaves the A1 class defaults null (E2 has not passed)', () => {
+    expect(A1_DEFAULT_WINDOW).toEqual({ claude: null, proxied: null });
   });
 });
