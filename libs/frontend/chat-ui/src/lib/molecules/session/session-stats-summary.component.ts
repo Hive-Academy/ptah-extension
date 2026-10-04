@@ -83,7 +83,7 @@ type ModelUsageRow = NonNullable<SessionStatsEntry['modelUsageList']>[number];
                 [title]="contextTooltip()"
               >
                 <span class="text-[10px] uppercase text-base-content-muted"
-                  >Main context</span
+                  >Context</span
                 >
                 <span class="text-cyan-400" data-testid="stats-context">{{
                   contextPercentLabel()
@@ -240,7 +240,7 @@ type ModelUsageRow = NonNullable<SessionStatsEntry['modelUsageList']>[number];
               <div
                 class="text-[10px] uppercase tracking-wider text-base-content-muted leading-tight"
               >
-                Main context
+                Context
               </div>
               <div
                 class="text-sm font-semibold text-cyan-400 leading-tight mt-0.5"
@@ -818,10 +818,10 @@ export class SessionStatsSummaryComponent {
     const stats = this.liveModelStats();
     if (!stats) return '';
     if (!this.hasKnownContextWindow()) {
-      return 'Main context unknown: the latest main request or its verified capacity is unavailable.';
+      return 'Context unknown: the latest main request or its verified capacity is unavailable.';
     }
     return [
-      `Main context used (latest main request): ${stats.contextUsed.toLocaleString()} tokens`,
+      `Context used (latest main request): ${stats.contextUsed.toLocaleString()} tokens`,
       `Context Window: ${stats.contextWindow.toLocaleString()} tokens`,
       `Usage: ${stats.contextPercent}%`,
     ].join('\n');

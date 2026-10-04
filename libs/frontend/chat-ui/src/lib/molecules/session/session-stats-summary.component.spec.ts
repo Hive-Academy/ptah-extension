@@ -172,7 +172,8 @@ describe('SessionStatsSummaryComponent', () => {
       ).parentElement;
       expect(card?.textContent).not.toContain('(0)');
       expect(card?.textContent).not.toContain('(50.0k)');
-      expect(root.textContent).toContain('Main context');
+      expect(root.textContent).toContain('Context');
+      expect(root.textContent).not.toContain('Main context');
       expect(text(root, 'stats-cost')).toBe('$38.18');
       expect(text(root, 'stats-tokens')).toBe('14.9M');
       expect(fixture.componentInstance.snapshot()).toBe(SNAPSHOT);
