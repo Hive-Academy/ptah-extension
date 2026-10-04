@@ -399,6 +399,13 @@ describe('wireSdkCallbacks — the remap is unscoped by construction', () => {
           reason: 'chat-runtime-unavailable',
         })),
       } as unknown as Args[7],
+      // No quota owner and no ledger: plan limits are pinned by the manager spec.
+      { ownerForLane: jest.fn(() => undefined) } as unknown as Args[8],
+      {
+        recordWindowEvidence: jest.fn(),
+        recordOwnerEvidence: jest.fn(),
+        recordSuccess: jest.fn(),
+      } as unknown as Args[9],
     );
   }
 

@@ -7,6 +7,10 @@
  * dump in the chat bubble. The full text still belongs in the log; only this
  * summary reaches the stream.
  */
+import {
+  RETRY_AT_REGEX,
+  USAGE_LIMIT_REGEX,
+} from '../limits/lane-limit-classifier';
 
 /** Hard cap on the summary's headline, in characters. */
 const MAX_SUMMARY_LENGTH = 500;
@@ -16,10 +20,6 @@ const MAX_RETRY_HINT_LENGTH = 40;
 
 /** Marker the vendor SDKs use before pasting the child's captured output. */
 const OUTPUT_MARKER_REGEX = /\boutput:/i;
-
-const USAGE_LIMIT_REGEX = /usage limit/i;
-
-const RETRY_AT_REGEX = /try again at\s+([^\n.)]+)/i;
 
 /** Fixed marker that replaces every literal secret occurrence. */
 const REDACTED_MARKER = '[REDACTED]';

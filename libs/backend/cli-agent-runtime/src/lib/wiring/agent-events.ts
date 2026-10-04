@@ -212,6 +212,29 @@ function wireAgentMonitorListeners(
     }
   });
 
+  // A run's quota owner became known after spawn (TASK_2026_596). Persisted at
+  // once so a host that dies before the run exits still restores the owner.
+  // A running run without a CLI session id is skipped, as on spawn: its
+  // reference would be keyed by the agent id and never replaced by the real
+  // one; the exit persist carries the owner instead.
+  agentProcessManager.events.on(
+    'agent:quota-owner',
+    (info: AgentProcessInfo) => {
+      if (
+        persistCliSession &&
+        (info.cliSessionId || info.status !== 'running')
+      ) {
+        persistCliSessionReference(
+          container,
+          logger,
+          tag,
+          info,
+          getSdkSessionId,
+        );
+      }
+    },
+  );
+
   // The TTL sweep that drops a completed agent from the manager's map. Not a
   // lifecycle transition — the agent already exited — but the webview's card is
   // still on screen offering a follow-up, and this is the only notice it gets
@@ -410,6 +433,9 @@ export function persistCliSessionReference(
         : {}),
       ...(info.ptahCliId ? { ptahCliId: info.ptahCliId } : {}),
       ...(sdkSessionId ? { sdkSessionId } : {}),
+      // The full non-secret owner reference, so a restored run still names the
+      // owner it ran on even when the ledger holds nothing for it (Gate 2 G3).
+      ...(info.quotaOwner ? { quotaOwner: info.quotaOwner } : {}),
     };
 
     // Bulk FIRST, reference SECOND, both inside ONE retry.
