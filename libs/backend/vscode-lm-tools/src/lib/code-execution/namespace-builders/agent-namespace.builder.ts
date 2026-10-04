@@ -2,7 +2,7 @@
  * Agent Namespace Builder
  *
  * Async agent orchestration via CLI agents. Provides spawn, status, read,
- * message, report, stop, list, waitFor methods for managing headless CLI
+ * message, report, stop, list, waitFor, waitForAgents methods for managing headless CLI
  * agents as background workers. Which agents exist is a runtime fact answered by `list`
  * (`SYSTEM_CLI_TYPES` for the shipped adapters, user config for Ptah CLI
  * providers) — this layer never names a vendor.
@@ -11,7 +11,9 @@
  */
 
 import type { AgentNamespace } from '../types';
+import { MAX_EFFORT_LENGTH } from '../mcp-core/agent-spawn-args.schema';
 import {
+  MAX_AGENT_WAIT_MS,
   PTAH_CLI_ROLE_DELIVERY,
   renderLaneCompletionContract,
   type AgentProcessManager,
@@ -21,13 +23,10 @@ import {
   type SdkHandle,
 } from '@ptah-extension/cli-agent-runtime';
 import type {
-  AgentProcessInfo,
   AgentRoleDefinition,
   CliDetectionResult,
+  SpawnAgentRequest,
 } from '@ptah-extension/shared';
-
-/** Maximum waitFor timeout: 1 hour */
-const MAX_WAIT_TIMEOUT = 60 * 60 * 1000;
 
 /**
  * Minimal summary returned by PtahCliRegistry.listAgents().
@@ -144,6 +143,44 @@ export interface AgentNamespaceDependencies {
   ) => Promise<AgentRoleDefinition>;
   /** List the role names defined for a workspace. */
   listAgentRoles?: (workspaceRoot: string) => Promise<string[]>;
+  /** Receives the one-line WARN for a spawn field this layer drops or a lane ignores. */
+  logger: {
+    warn(message: string, metadata?: Record<string, unknown>): void;
+  };
+}
+
+/**
+ * `execute_code` callers are untyped JavaScript, so a spawn request can carry
+ * keys `SpawnAgentRequest` no longer has. `systemPrompt` is the one that
+ * matters: system-CLI lanes stopped receiving a generated system prompt
+ * (TASK_2026_597, R3.4), and a caller-supplied one is dropped here.
+ */
+type UntypedSpawnRequest = SpawnAgentRequest & {
+  readonly systemPrompt?: unknown;
+};
+
+/**
+ * `effort` at the `execute_code` boundary: the same string, 1..32 rule the
+ * MCP spawn schema applies (`agent-spawn-args.schema.ts`), so the `Lane
+ * policy` log line that echoes an ignored effort stays bounded. The value
+ * itself is never echoed: it may be anything.
+ */
+function assertEffort(effort: unknown): void {
+  if (effort === undefined) return;
+  if (
+    typeof effort !== 'string' ||
+    effort.length < 1 ||
+    effort.length > MAX_EFFORT_LENGTH
+  ) {
+    const got =
+      typeof effort === 'string'
+        ? `a ${effort.length}-char string`
+        : typeof effort;
+    throw new Error(
+      `ptah.agent.spawn: "effort" must be a string of 1 to ${MAX_EFFORT_LENGTH} ` +
+        `characters (got ${got}). The agent was not spawned.`,
+    );
+  }
 }
 
 /**
@@ -166,10 +203,19 @@ export function buildAgentNamespace(
     deliverAgentReport,
     resolveAgentRole,
     listAgentRoles,
+    logger,
   } = deps;
 
   return {
-    spawn: async (request) => {
+    spawn: async (request: UntypedSpawnRequest) => {
+      assertEffort(request.effort);
+      if (request.systemPrompt !== undefined) {
+        logger.warn(
+          'ptah.agent.spawn: "systemPrompt" is not a spawn field and was dropped; ' +
+            'lanes receive the capped project guidance instead.',
+        );
+      }
+
       // An empty parentSessionId is absent, not supplied. `??` alone kept it,
       // which BOTH suppressed the active-session fallback AND was then
       // discarded by the truthiness check below — so the spawn was attributed
@@ -204,6 +250,16 @@ export function buildAgentNamespace(
           );
         }
         const workingDirectory = request.workingDirectory ?? getWorkspaceRoot();
+
+        // The registry's spawn options have no effort field: a Ptah CLI lane
+        // runs at its provider's default. Said once, rather than dropped
+        // without notice (PR1-M1).
+        if (request.effort !== undefined) {
+          logger.warn(
+            'ptah.agent.spawn: Ptah CLI lanes do not take "effort"; it is ignored for this lane.',
+            { ptahCliId: request.ptahCliId, effort: request.effort },
+          );
+        }
 
         // ONE id, minted once, before the handle exists (TASK_2026_402).
         // `spawnFromSdkHandle` would otherwise mint it AFTER the handle — and
@@ -300,10 +356,11 @@ export function buildAgentNamespace(
       // otherwise carry an unusable '' straight through, since the conditional
       // spread below only overwrites when a resolved id exists. A
       // caller-supplied roleDefinition is dropped too: only the resolver may
-      // produce one.
+      // produce one. So is a caller-supplied systemPrompt (warned above).
       const {
         parentSessionId: _rawParentSessionId,
         roleDefinition: _callerRoleDefinition,
+        systemPrompt: _callerSystemPrompt,
         ...requestFields
       } = request;
 
@@ -414,53 +471,37 @@ export function buildAgentNamespace(
       return listAgentRoles ? listAgentRoles(getWorkspaceRoot()) : [];
     },
 
+    // One event-driven wait (TASK_2026_597, D13): it settles on the lane's
+    // `agent:exited` event, with no polling loop behind it.
     waitFor: async (agentId, options?) => {
-      const pollInterval = options?.pollInterval ?? 2000;
-      const timeout = Math.min(
-        options?.timeout ?? MAX_WAIT_TIMEOUT,
-        MAX_WAIT_TIMEOUT,
+      const timeoutMs = Math.min(
+        options?.timeout ?? MAX_AGENT_WAIT_MS,
+        MAX_AGENT_WAIT_MS,
       );
-      const startTime = Date.now();
-
-      return new Promise<AgentProcessInfo>((resolve, reject) => {
-        let pollHandle: ReturnType<typeof setTimeout> | null = null;
-
-        const cleanup = () => {
-          if (pollHandle !== null) {
-            clearTimeout(pollHandle);
-            pollHandle = null;
-          }
-        };
-
-        const check = () => {
-          try {
-            const status = agentProcessManager.getStatus(
-              agentId,
-            ) as AgentProcessInfo;
-            if (status.status !== 'running') {
-              cleanup();
-              resolve(status);
-              return;
-            }
-            if (Date.now() - startTime > timeout) {
-              cleanup();
-              reject(
-                new Error(
-                  `waitFor timed out after ${timeout}ms for agent ${agentId}`,
-                ),
-              );
-              return;
-            }
-
-            pollHandle = setTimeout(check, pollInterval);
-          } catch (error) {
-            cleanup();
-            reject(error);
-          }
-        };
-
-        check();
-      });
+      const result = await agentProcessManager.waitForAgents(
+        [agentId],
+        'all',
+        timeoutMs,
+      );
+      const entry = result.entries[0];
+      if (entry?.state === 'exited') {
+        return entry.info;
+      }
+      if (entry?.state === 'running') {
+        throw new Error(
+          `waitFor timed out after ${timeoutMs}ms for agent ${agentId}: it is ` +
+            'still running. Call waitFor again to keep waiting.',
+        );
+      }
+      // `not_found` or `other_workspace`: `getStatus` throws the established
+      // message for each (the `Agent not found: <id>` prefix callers match
+      // on, or the "exists but belongs to another workspace" one). The throw
+      // below is reached only if the record appeared in between.
+      agentProcessManager.getStatus(agentId);
+      throw new Error(`Agent not found: ${agentId}`);
     },
+
+    waitForAgents: async (agentIds, mode, timeoutMs) =>
+      agentProcessManager.waitForAgents(agentIds, mode, timeoutMs),
   };
 }

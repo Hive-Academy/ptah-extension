@@ -1,10 +1,24 @@
 // tool-description.builder reads the language registry (Batch 24c) from the
 // workspace-intelligence barrel, whose DI services need the reflect polyfill.
 import 'reflect-metadata';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { AgentSpawnArgsSchema } from './agent-spawn-args.schema';
 import { buildAgentSpawnTool } from './tool-description.builder';
 import { getToolResultBudget } from './tool-result-budget';
-import { buildMcpAgentSpawnTool } from '../mcp-stdio/tool-builders';
+import {
+  AgentWaitArgsSchema,
+  RunCheckArgsSchema,
+} from './wait-tools-args.schema';
+import { buildAgentWaitTool } from './agent-wait.tool';
+import { buildRunCheckTool } from './run-check.tool';
+import {
+  buildMcpAgentSpawnTool,
+  buildMcpAgentWaitTool,
+  buildMcpMvpTools,
+  buildMcpRunCheckTool,
+} from '../mcp-stdio/tool-builders';
 import { AgentToolDispatcher } from '../mcp-stdio/agent-tool.dispatcher';
 import {
   handleMCPRequest,
@@ -176,4 +190,275 @@ describe('agent spawn surface parity', () => {
       expect(stdio.spawn).not.toHaveBeenCalled();
     },
   );
+});
+
+// ---------------------------------------------------------------------------
+// Blocking waits (TASK_2026_597, Batch 34): ptah_agent_wait / agent_wait and
+// ptah_run_check / run_check are served by both surfaces with one contract.
+// ---------------------------------------------------------------------------
+
+function textOf(response: MCPResponse | null): string {
+  const content = (
+    response?.result as { content?: Array<{ text?: string }> } | undefined
+  )?.content;
+  return content?.[0]?.text ?? '';
+}
+
+async function callOverHttp(
+  name: string,
+  args: Record<string, unknown>,
+  ptahAPI: unknown,
+  workspaceFolders: string[] = [],
+): Promise<MCPResponse> {
+  const deps: ProtocolHandlerDependencies = {
+    ptahAPI: ptahAPI as PtahAPI,
+    permissionPromptService:
+      {} as ProtocolHandlerDependencies['permissionPromptService'],
+    logger: quietLogger(),
+    workspaceProvider: { getWorkspaceFolders: () => workspaceFolders },
+  };
+  return handleMCPRequest(
+    {
+      jsonrpc: '2.0',
+      id: 'parity',
+      method: 'tools/call',
+      params: { name, arguments: args },
+    },
+    deps,
+  );
+}
+
+async function callOverStdio(
+  name: string,
+  args: Record<string, unknown>,
+  ptahAPI: unknown,
+  spoolRoot: string = tmpdir(),
+): Promise<MCPResponse | null> {
+  const dispatcher = new AgentToolDispatcher(
+    ptahAPI as PtahAPI,
+    quietLogger(),
+    undefined,
+    undefined,
+    () => Date.now(),
+    () => spoolRoot,
+  );
+  return dispatcher.dispatch(
+    name,
+    { jsonrpc: '2.0', id: 'parity', method: 'tools/call' },
+    args,
+  );
+}
+
+function waitApi(): {
+  agent: { waitForAgents: jest.Mock; read: jest.Mock };
+} {
+  return {
+    agent: {
+      waitForAgents: jest.fn().mockResolvedValue({
+        mode: 'all',
+        timedOut: false,
+        waitedMs: 4_000,
+        entries: [
+          {
+            agentId: 'a-1',
+            state: 'exited',
+            info: {
+              agentId: 'a-1',
+              cli: 'codex',
+              task: 't',
+              workingDirectory: '/ws',
+              status: 'completed',
+              exitCode: 0,
+              startedAt: '2026-10-03T00:00:00.000Z',
+              completedAt: '2026-10-03T00:01:00.000Z',
+            },
+          },
+          { agentId: 'ghost', state: 'not_found' },
+        ],
+      }),
+      read: jest.fn().mockResolvedValue({
+        agentId: 'a-1',
+        stdout: 'line one\nWROTE: review.md\n',
+        stderr: '',
+        lineCount: 2,
+        totalLines: 2,
+        truncated: false,
+      }),
+    },
+  };
+}
+
+describe('blocking wait surface parity', () => {
+  it.each([
+    [
+      'ptah_agent_wait',
+      'agent_wait',
+      buildAgentWaitTool,
+      buildMcpAgentWaitTool,
+    ],
+    ['ptah_run_check', 'run_check', buildRunCheckTool, buildMcpRunCheckTool],
+  ] as const)(
+    '%s and stdio %s serve the same definition under their own names',
+    (httpName, stdioName, buildHttp, buildStdio) => {
+      const http = buildHttp();
+      const stdio = buildStdio();
+
+      expect(http.name).toBe(httpName);
+      expect(stdio.name).toBe(stdioName);
+      expect({ ...stdio, name: http.name }).toEqual({
+        ...http,
+        _meta: {
+          ...http._meta,
+          'anthropic/maxResultSizeChars': getToolResultBudget(http.name).chars,
+        },
+      });
+    },
+  );
+
+  it('advertises exactly the keys each shared schema accepts', () => {
+    expect(
+      Object.keys(buildAgentWaitTool().inputSchema.properties).sort(),
+    ).toEqual(Object.keys(AgentWaitArgsSchema.shape).sort());
+    expect(
+      Object.keys(buildRunCheckTool().inputSchema.properties).sort(),
+    ).toEqual(Object.keys(RunCheckArgsSchema.shape).sort());
+  });
+
+  it('lists both tools on HTTP tools/list and on the stdio catalog', async () => {
+    const deps: ProtocolHandlerDependencies = {
+      ptahAPI: {} as PtahAPI,
+      permissionPromptService:
+        {} as ProtocolHandlerDependencies['permissionPromptService'],
+      logger: quietLogger(),
+    };
+    const listed = await handleMCPRequest(
+      { jsonrpc: '2.0', id: 'list', method: 'tools/list' },
+      deps,
+    );
+    const httpNames = (
+      listed.result as { tools: Array<{ name: string }> }
+    ).tools.map((t) => t.name);
+    const stdioNames = buildMcpMvpTools().map((t) => t.name);
+
+    expect(httpNames).toEqual(
+      expect.arrayContaining(['ptah_agent_wait', 'ptah_run_check']),
+    );
+    expect(stdioNames).toEqual(
+      expect.arrayContaining(['agent_wait', 'run_check']),
+    );
+  });
+
+  it('drops both tools from HTTP tools/list when the agent namespace is off', async () => {
+    const deps: ProtocolHandlerDependencies = {
+      ptahAPI: {} as PtahAPI,
+      permissionPromptService:
+        {} as ProtocolHandlerDependencies['permissionPromptService'],
+      logger: quietLogger(),
+      disabledMcpNamespaces: ['agent'],
+    };
+    const listed = await handleMCPRequest(
+      { jsonrpc: '2.0', id: 'list', method: 'tools/list' },
+      deps,
+    );
+    const names = (
+      listed.result as { tools: Array<{ name: string }> }
+    ).tools.map((t) => t.name);
+
+    expect(names).not.toContain('ptah_agent_wait');
+    expect(names).not.toContain('ptah_run_check');
+  });
+
+  it('waits through the same PtahAPI call and returns the same reply on both surfaces', async () => {
+    const httpApi = waitApi();
+    const stdioApi = waitApi();
+    const args = { agentIds: ['a-1', 'ghost'], mode: 'all', timeoutSec: 30 };
+
+    const http = await callOverHttp('ptah_agent_wait', args, httpApi);
+    const stdio = await callOverStdio('agent_wait', args, stdioApi);
+
+    expect(isError(http)).toBe(false);
+    expect(isError(stdio)).toBe(false);
+    expect(httpApi.agent.waitForAgents).toHaveBeenCalledWith(
+      ['a-1', 'ghost'],
+      'all',
+      30_000,
+    );
+    expect(stdioApi.agent.waitForAgents.mock.calls).toEqual(
+      httpApi.agent.waitForAgents.mock.calls,
+    );
+    expect(textOf(stdio)).toBe(textOf(http));
+    expect(textOf(http)).toContain('WROTE: review.md');
+    expect(textOf(http)).toContain('[ghost] not found');
+    expect(textOf(http).length).toBeLessThanOrEqual(4_000);
+    expect(
+      (stdio?.result as { structuredContent?: unknown }).structuredContent,
+    ).toEqual({
+      timedOut: false,
+      lanes: [
+        { agentId: 'a-1', state: 'exited', status: 'completed', exitCode: 0 },
+        { agentId: 'ghost', state: 'not_found' },
+      ],
+    });
+  });
+
+  it.each([
+    ['no agentIds', {}],
+    ['an empty agentIds', { agentIds: [] }],
+    ['a timeout over 900 s', { agentIds: ['a'], timeoutSec: 901 }],
+    ['an unknown mode', { agentIds: ['a'], mode: 'first' }],
+    ['an unknown key', { agentIds: ['a'], pollInterval: 5 }],
+  ])(
+    'rejects agent_wait with %s on both surfaces without waiting',
+    async (_label, args) => {
+      const httpApi = waitApi();
+      const stdioApi = waitApi();
+
+      const http = await callOverHttp('ptah_agent_wait', args, httpApi);
+      const stdio = await callOverStdio('agent_wait', args, stdioApi);
+
+      expect(isError(http)).toBe(true);
+      expect(isError(stdio)).toBe(true);
+      expect(httpApi.agent.waitForAgents).not.toHaveBeenCalled();
+      expect(stdioApi.agent.waitForAgents).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    [
+      'a shell metacharacter in project',
+      { project: 'app; rm -rf /', targets: ['test'] },
+    ],
+    ['a leading dash in project', { project: '--help', targets: ['test'] }],
+    ['an unknown target', { project: 'app', targets: ['serve'] }],
+    ['no targets', { project: 'app', targets: [] }],
+    [
+      'a workspace path argument',
+      { project: 'app', targets: ['lint'], cwd: '/' },
+    ],
+  ])('rejects run_check with %s on both surfaces', async (_label, args) => {
+    const http = await callOverHttp('ptah_run_check', args, {});
+    const stdio = await callOverStdio('run_check', args, {});
+
+    expect(isError(http)).toBe(true);
+    expect(isError(stdio)).toBe(true);
+    expect(textOf(http)).toMatch(/invalid ptah_run_check arguments/);
+    expect(textOf(stdio)).toMatch(/Invalid arguments for run_check/);
+  });
+
+  it('runs the check in the host-owned workspace root on both surfaces (no Nx there: the same error, nothing spawned)', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'ptah-run-check-parity-'));
+    try {
+      const args = { project: 'app', targets: ['lint'] };
+      const http = await callOverHttp('ptah_run_check', args, {}, [root]);
+      const stdio = await callOverStdio('run_check', args, {}, root);
+
+      expect(isError(http)).toBe(true);
+      expect(isError(stdio)).toBe(true);
+      expect(textOf(http)).toContain('Nx was not found in this workspace');
+      expect(textOf(http)).toContain(join(root, 'node_modules', 'nx'));
+      expect(textOf(stdio)).toBe(textOf(http));
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });

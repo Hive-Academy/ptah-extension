@@ -40,6 +40,20 @@ import {
   MAX_AGENT_REPORT_LENGTH,
 } from '@ptah-extension/cli-agent-runtime';
 import { AgentSpawnArgsSchema } from './agent-spawn-args.schema';
+import {
+  AgentWaitArgsSchema,
+  RunCheckArgsSchema,
+} from './wait-tools-args.schema';
+import {
+  AGENT_WAIT_TOOL_NAME,
+  buildAgentWaitTool,
+  runAgentWait,
+} from './agent-wait.tool';
+import {
+  RUN_CHECK_TOOL_NAME,
+  buildRunCheckTool,
+  runCheck,
+} from './run-check.tool';
 import type { PermissionPromptService } from '../../permission/permission-prompt.service';
 import type {
   PtahAPI,
@@ -367,7 +381,8 @@ function handleInitialize(request: MCPRequest, logger: Logger): MCPResponse {
  * Namespace-toggleable tool groups (disabled via disabledMcpNamespaces):
  * - 'ide': ptah_lsp_references, ptah_lsp_definitions, ptah_get_dirty_files
  *          (also requires hasIDECapabilities === true)
- * - 'agent': ptah_agent_spawn/status/read/message/report/stop/list
+ * - 'agent': ptah_agent_spawn/status/read/message/report/stop/list/wait,
+ *            ptah_run_check, ptah_session_start/send/status/read/stop
  * - 'git': ptah_git_worktree_list/add/remove
  * - 'json': ptah_json_validate
  * - 'browser': all ptah_browser_* tools (12 tools)
@@ -474,6 +489,11 @@ function buildToolDefinitions(
           buildSessionStatusTool(),
           buildSessionReadTool(),
           buildSessionStopTool(),
+          // Blocking waits (TASK_2026_597, D13): one call instead of a
+          // ptah_agent_status loop, and an Nx check that blocks until it ends.
+          // Both are orchestration steps, so the `agent` toggle governs them.
+          buildAgentWaitTool(),
+          buildRunCheckTool(),
         ]
       : []),
     ...(!disabled.has('git')
@@ -1301,6 +1321,51 @@ async function handleIndividualTool(
           formatAgentList(agents, roles),
           deps,
         );
+      }
+
+      case AGENT_WAIT_TOOL_NAME: {
+        const parsed = AgentWaitArgsSchema.safeParse(
+          args !== null && typeof args === 'object' ? args : {},
+        );
+        if (!parsed.success) {
+          return toolErrorResponse(
+            request,
+            `Error: invalid ${AGENT_WAIT_TOOL_NAME} arguments — ${describeZodIssues(
+              parsed.error,
+            )}. Required: "agentIds".`,
+          );
+        }
+        // The reply is self-bounded (WAIT_SUMMARY_MAX_CHARS, half the default
+        // budget), so the budget step returns it unchanged.
+        const text = await runAgentWait(parsed.data, {
+          waitForAgents: (ids, mode, timeoutMs) =>
+            ptahAPI.agent.waitForAgents(ids, mode, timeoutMs),
+          readOutput: (agentId, tail) => ptahAPI.agent.read(agentId, tail),
+        });
+        return await createToolSuccessResponse(request, text, deps);
+      }
+
+      case RUN_CHECK_TOOL_NAME: {
+        const parsed = RunCheckArgsSchema.safeParse(
+          args !== null && typeof args === 'object' ? args : {},
+        );
+        if (!parsed.success) {
+          return toolErrorResponse(
+            request,
+            `Error: invalid ${RUN_CHECK_TOOL_NAME} arguments — ${describeZodIssues(
+              parsed.error,
+            )}. Required: "project" and "targets".`,
+          );
+        }
+        // The workspace root is the host's own record of the caller's folder
+        // (the spool-root rule), never an argument: the Nx path and the cwd
+        // both derive from it.
+        const outcome = await runCheck(parsed.data, {
+          workspaceRoot: await resolveSpoolRoot(deps),
+        });
+        return outcome.isError
+          ? toolErrorResponse(request, outcome.text)
+          : await createToolSuccessResponse(request, outcome.text, deps);
       }
 
       case 'ptah_web_search': {

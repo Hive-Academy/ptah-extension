@@ -11,7 +11,8 @@
  * it is never spooled; the full output stays readable through
  * `ptah_agent_read`. A timeout is a partial result, never an error.
  *
- * Wired into the HTTP and stdio dispatchers by Batch 34.
+ * Served as `ptah_agent_wait` (HTTP, `protocol-dispatcher.ts`) and
+ * `agent_wait` (stdio, `agent-tool.dispatcher.ts`).
  */
 import { stat } from 'node:fs/promises';
 import { isAbsolute, resolve } from 'node:path';

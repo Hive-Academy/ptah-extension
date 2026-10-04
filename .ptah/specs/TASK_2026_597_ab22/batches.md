@@ -2186,7 +2186,7 @@ In a fresh worktree, run `npx nx run ptah-electron:build-workspace-watch-host` o
 
 ---
 
-## Batch 33: Blocking waits — manager and tools (S4, component 15 part 1) — COMPLETE (commit: SHA_PENDING)
+## Batch 33: Blocking waits — manager and tools (S4, component 15 part 1) — COMPLETE (commit: 378688a1f)
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer re-run
@@ -2231,7 +2231,7 @@ In a fresh worktree, run `npx nx run ptah-electron:build-workspace-watch-host` o
 
 ---
 
-## Batch 34: Blocking waits — surfaces and `waitFor` rewrite (S4, component 15 part 2) — IN_PROGRESS (S4 wave C)
+## Batch 34: Blocking waits — surfaces and `waitFor` rewrite (S4, component 15 part 2) — COMPLETE (orchestrator commit, rule 3; deviations in reports/batch-34-report.md accepted)
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer re-run

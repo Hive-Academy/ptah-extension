@@ -15,7 +15,8 @@
  * failing run, and the log path — is at most {@link WAIT_SUMMARY_MAX_CHARS}
  * chars. On timeout the whole process tree is killed and the reply says so.
  *
- * Wired into the HTTP and stdio dispatchers by Batch 34.
+ * Served as `ptah_run_check` (HTTP, `protocol-dispatcher.ts`) and
+ * `run_check` (stdio, `agent-tool.dispatcher.ts`).
  */
 import { createWriteStream, type WriteStream } from 'node:fs';
 import { access, mkdir } from 'node:fs/promises';

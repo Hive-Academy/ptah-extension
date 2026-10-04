@@ -7678,7 +7678,8 @@ describe('MCP tool profile listing, eager loading and dispatch', () => {
       const apps = await list('apps');
       expect(await list('coding')).toEqual(coding);
       expect(await list('admin')).toEqual(coding);
-      expect(coding).toHaveLength(hasIDECapabilities ? 59 : 56);
+      // +2 (TASK_2026_597 Batch 34): ptah_agent_wait and ptah_run_check.
+      expect(coding).toHaveLength(hasIDECapabilities ? 61 : 58);
       expect(
         apps.filter((tool) => !APPS_ONLY_TOOL_NAMES.has(tool.name)),
       ).toEqual(coding);

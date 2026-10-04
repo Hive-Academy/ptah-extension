@@ -6,7 +6,7 @@
  *   - status / read / message / stop — thin delegation to AgentProcessManager
  *   - list   — merging cliDetectionService + PtahCliRegistry + preferred-order
  *              ranking
- *   - waitFor — polling loop, natural completion, and timeout rejection
+ *   - waitFor / waitForAgents — the event-driven manager wait, no polling
  *
  * The builder only uses a small slice of the AgentProcessManager and
  * CliDetectionService surfaces, so we mock them with typed `jest.Mocked<T>`
@@ -17,6 +17,7 @@
 // reflect-metadata polyfill. The builder needs only PTAH_CLI_ROLE_DELIVERY at
 // runtime, overridden with non-default values so a hand-typed literal fails.
 jest.mock('@ptah-extension/cli-agent-runtime', () => ({
+  MAX_AGENT_WAIT_MS: 900_000,
   PTAH_CLI_ROLE_DELIVERY: {
     roleDelivery: 'native',
     roleChannel: 'agent-selection',
@@ -57,6 +58,7 @@ interface ProcessManagerMock {
   readOutput: jest.Mock;
   sendToAgent: jest.Mock;
   stop: jest.Mock;
+  waitForAgents: jest.Mock;
 }
 
 interface DetectionMock {
@@ -79,6 +81,7 @@ function createProcessManager(): ProcessManagerMock {
     readOutput: jest.fn(),
     sendToAgent: jest.fn().mockResolvedValue({ mode: 'queue-next-turn' }),
     stop: jest.fn(),
+    waitForAgents: jest.fn(),
   };
 }
 
@@ -111,8 +114,10 @@ function makeDeps(
     processManager: ProcessManagerMock;
     detection: DetectionMock;
     registry: RegistryMock | undefined;
+    warn: jest.Mock;
   };
 } {
+  const warn = jest.fn();
   const processManager = overrides.processManager ?? createProcessManager();
   const detection = overrides.detection ?? createDetection();
   const registry =
@@ -131,9 +136,10 @@ function makeDeps(
     resolveSessionId: overrides.resolveSessionId,
     resolveAgentRole: overrides.resolveAgentRole,
     listAgentRoles: overrides.listAgentRoles,
+    logger: { warn },
   };
 
-  return { deps, mocks: { processManager, detection, registry } };
+  return { deps, mocks: { processManager, detection, registry, warn } };
 }
 
 // ---------------------------------------------------------------------------
@@ -154,6 +160,7 @@ describe('buildAgentNamespace — shape', () => {
     expect(typeof ns.list).toBe('function');
     expect(typeof ns.listRoles).toBe('function');
     expect(typeof ns.waitFor).toBe('function');
+    expect(typeof ns.waitForAgents).toBe('function');
   });
 });
 
@@ -987,45 +994,205 @@ describe('buildAgentNamespace — list', () => {
 // ---------------------------------------------------------------------------
 
 describe('buildAgentNamespace — waitFor', () => {
-  beforeEach(() => {
-    jest.useFakeTimers();
-  });
-  afterEach(() => {
-    jest.useRealTimers();
-  });
+  const info = { agentId: 'x', status: 'completed' } as AgentProcessInfo;
 
-  it('resolves with final status when agent transitions out of running', async () => {
+  it('resolves with the terminal record from one waitForAgents call, never polling', async () => {
     const { deps, mocks } = makeDeps();
-    mocks.processManager.getStatus
-      .mockReturnValueOnce({ agentId: 'x', status: 'running' })
-      .mockReturnValueOnce({ agentId: 'x', status: 'completed' });
+    mocks.processManager.waitForAgents.mockResolvedValue({
+      mode: 'all',
+      timedOut: false,
+      waitedMs: 12,
+      entries: [{ agentId: 'x', state: 'exited', info }],
+    });
+    const setTimeoutSpy = jest.spyOn(global, 'setTimeout');
 
-    const promise = buildAgentNamespace(deps).waitFor('x', {
-      pollInterval: 100,
+    const result = await buildAgentNamespace(deps).waitFor('x', {
       timeout: 5000,
     });
 
-    // First tick returns running → schedules next check
-    await jest.advanceTimersByTimeAsync(100);
-    const result = await promise;
-
-    expect(result).toEqual({ agentId: 'x', status: 'completed' });
+    expect(result).toBe(info);
+    expect(mocks.processManager.waitForAgents).toHaveBeenCalledTimes(1);
+    expect(mocks.processManager.waitForAgents).toHaveBeenCalledWith(
+      ['x'],
+      'all',
+      5000,
+    );
+    expect(mocks.processManager.getStatus).not.toHaveBeenCalled();
+    expect(setTimeoutSpy).not.toHaveBeenCalled();
+    setTimeoutSpy.mockRestore();
   });
 
-  it('rejects with timeout error once elapsed exceeds the budget', async () => {
+  it('defaults the timeout to, and caps it at, MAX_AGENT_WAIT_MS', async () => {
     const { deps, mocks } = makeDeps();
-    mocks.processManager.getStatus.mockReturnValue({
-      agentId: 'x',
-      status: 'running',
+    mocks.processManager.waitForAgents.mockResolvedValue({
+      mode: 'all',
+      timedOut: false,
+      waitedMs: 0,
+      entries: [{ agentId: 'x', state: 'exited', info }],
+    });
+    const ns = buildAgentNamespace(deps);
+
+    await ns.waitFor('x');
+    await ns.waitFor('x', { timeout: 60 * 60 * 1000 });
+
+    expect(mocks.processManager.waitForAgents.mock.calls[0][2]).toBe(900_000);
+    expect(mocks.processManager.waitForAgents.mock.calls[1][2]).toBe(900_000);
+  });
+
+  it('rejects with a timeout error when the lane is still running', async () => {
+    const { deps, mocks } = makeDeps();
+    mocks.processManager.waitForAgents.mockResolvedValue({
+      mode: 'all',
+      timedOut: true,
+      waitedMs: 100,
+      entries: [
+        {
+          agentId: 'x',
+          state: 'running',
+          info: { ...info, status: 'running' },
+        },
+      ],
     });
 
-    const promise = buildAgentNamespace(deps).waitFor('x', {
-      pollInterval: 50,
-      timeout: 100,
-    });
-    const rejection = expect(promise).rejects.toThrow(/timed out after 100ms/);
+    await expect(
+      buildAgentNamespace(deps).waitFor('x', { timeout: 100 }),
+    ).rejects.toThrow(/timed out after 100ms for agent x/);
+  });
 
-    await jest.advanceTimersByTimeAsync(250);
-    await rejection;
+  it.each([
+    ['not_found', 'Agent not found: x. This host holds no record'],
+    ['other_workspace', 'Agent x exists but belongs to another workspace'],
+  ])(
+    'rejects a %s id with the getStatus message for it',
+    async (state, message) => {
+      const { deps, mocks } = makeDeps();
+      mocks.processManager.waitForAgents.mockResolvedValue({
+        mode: 'all',
+        timedOut: false,
+        waitedMs: 0,
+        entries: [{ agentId: 'x', state }],
+      });
+      mocks.processManager.getStatus.mockImplementation(() => {
+        throw new Error(message);
+      });
+
+      await expect(buildAgentNamespace(deps).waitFor('x')).rejects.toThrow(
+        message,
+      );
+    },
+  );
+});
+
+describe('buildAgentNamespace — waitForAgents', () => {
+  it('delegates ids, mode and timeout to the manager unchanged', async () => {
+    const { deps, mocks } = makeDeps();
+    const result = {
+      mode: 'any',
+      timedOut: false,
+      waitedMs: 3,
+      entries: [],
+    };
+    mocks.processManager.waitForAgents.mockResolvedValue(result);
+
+    await expect(
+      buildAgentNamespace(deps).waitForAgents(['a', 'b'], 'any', 30_000),
+    ).resolves.toBe(result);
+    expect(mocks.processManager.waitForAgents).toHaveBeenCalledWith(
+      ['a', 'b'],
+      'any',
+      30_000,
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// spawn — execute_code boundary (F6-M1, PR1-M1)
+// ---------------------------------------------------------------------------
+
+describe('buildAgentNamespace — spawn boundary', () => {
+  it.each([
+    ['a number', 3],
+    ['an empty string', ''],
+    ['an over-long string', 'x'.repeat(33)],
+    ['an object', { level: 'high' }],
+  ])('rejects effort as %s without spawning', async (_label, effort) => {
+    const { deps, mocks } = makeDeps();
+
+    await expect(
+      buildAgentNamespace(deps).spawn({
+        task: 't',
+        effort,
+      } as unknown as SpawnAgentRequest),
+    ).rejects.toThrow(/"effort" must be a string of 1 to 32 characters/);
+    expect(mocks.processManager.spawn).not.toHaveBeenCalled();
+  });
+
+  it('passes a valid effort through to a system-CLI lane', async () => {
+    const { deps, mocks } = makeDeps();
+    mocks.processManager.spawn.mockResolvedValue({
+      agentId: 'a',
+    } as SpawnAgentResult);
+
+    await buildAgentNamespace(deps).spawn({
+      task: 't',
+      cli: 'codex',
+      effort: 'e'.repeat(32),
+    } as SpawnAgentRequest);
+
+    expect(mocks.processManager.spawn.mock.calls[0][0].effort).toBe(
+      'e'.repeat(32),
+    );
+  });
+
+  it('drops a caller-supplied systemPrompt with one WARN', async () => {
+    const { deps, mocks } = makeDeps();
+    mocks.processManager.spawn.mockResolvedValue({
+      agentId: 'a',
+    } as SpawnAgentResult);
+
+    await buildAgentNamespace(deps).spawn({
+      task: 't',
+      systemPrompt: 'You are a pirate.',
+    } as unknown as SpawnAgentRequest);
+
+    expect(mocks.processManager.spawn.mock.calls[0][0]).not.toHaveProperty(
+      'systemPrompt',
+    );
+    expect(mocks.warn).toHaveBeenCalledTimes(1);
+    expect(mocks.warn.mock.calls[0][0]).toMatch(/"systemPrompt".*dropped/);
+  });
+
+  it('does not warn when no systemPrompt or effort is supplied', async () => {
+    const { deps, mocks } = makeDeps();
+    mocks.processManager.spawn.mockResolvedValue({
+      agentId: 'a',
+    } as SpawnAgentResult);
+
+    await buildAgentNamespace(deps).spawn({ task: 't' } as SpawnAgentRequest);
+
+    expect(mocks.warn).not.toHaveBeenCalled();
+  });
+
+  it('warns once that a Ptah CLI lane ignores effort, and does not pass it on', async () => {
+    const { deps, mocks } = makeDeps();
+    mockPtahCliSpawn(mocks);
+    mocks.processManager.spawnFromSdkHandle.mockResolvedValue({
+      agentId: 'spawned',
+    } as SpawnAgentResult);
+
+    await buildAgentNamespace(deps).spawn({
+      task: 't',
+      ptahCliId: 'agent-a',
+      effort: 'high',
+    } as SpawnAgentRequest);
+
+    expect(mocks.warn).toHaveBeenCalledTimes(1);
+    expect(mocks.warn).toHaveBeenCalledWith(
+      expect.stringMatching(/Ptah CLI lanes do not take "effort"/),
+      { ptahCliId: 'agent-a', effort: 'high' },
+    );
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    const options = mocks.registry!.spawnAgent.mock.calls[0][2];
+    expect(options).not.toHaveProperty('effort');
   });
 });

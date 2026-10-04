@@ -27,6 +27,8 @@ import {
   buildAgentStopTool,
   buildAgentListTool,
 } from '../mcp-core/tool-description.builder';
+import { buildAgentWaitTool } from '../mcp-core/agent-wait.tool';
+import { buildRunCheckTool } from '../mcp-core/run-check.tool';
 import { getToolResultBudget } from '../mcp-core/tool-result-budget';
 import type { MCPToolDefinition } from '../mcp-core/types/mcp-protocol.types';
 
@@ -61,6 +63,8 @@ export const MCP_MVP_TOOL_NAMES = [
   'agent_report',
   'agent_stop',
   'agent_list',
+  'agent_wait',
+  'run_check',
   'session_submit',
 ] as const;
 
@@ -111,6 +115,14 @@ export function buildMcpAgentStopTool(): MCPToolDefinition {
 
 export function buildMcpAgentListTool(): MCPToolDefinition {
   return rename(buildAgentListTool(), 'agent_list');
+}
+
+export function buildMcpAgentWaitTool(): MCPToolDefinition {
+  return rename(buildAgentWaitTool(), 'agent_wait');
+}
+
+export function buildMcpRunCheckTool(): MCPToolDefinition {
+  return rename(buildRunCheckTool(), 'run_check');
 }
 
 /**
@@ -172,7 +184,7 @@ export function buildMcpSessionSubmitTool(): MCPToolDefinition {
 }
 
 /**
- * Build the full 8-tool MVP list advertised by `tools/list`. Order is
+ * Build the full 10-tool MVP list advertised by `tools/list`. Order is
  * deterministic so external hosts that fingerprint the catalog see stable
  * output across `mcp-serve` boots.
  */
@@ -185,6 +197,8 @@ export function buildMcpMvpTools(): readonly MCPToolDefinition[] {
     buildMcpAgentReportTool(),
     buildMcpAgentStopTool(),
     buildMcpAgentListTool(),
+    buildMcpAgentWaitTool(),
+    buildMcpRunCheckTool(),
     buildMcpSessionSubmitTool(),
   ];
 }
