@@ -83,6 +83,23 @@ export interface SkillDetectionResult {
   recommendedSkills: SkillShEntry[];
 }
 
+/**
+ * Values of the `agentOrchestration.subagentPromptCacheTtl` setting.
+ * `'auto'` = 1h when the session can spawn subagents, otherwise the SDK default (5m).
+ */
+export const SUBAGENT_PROMPT_CACHE_TTL_SETTINGS = ['auto', '5m', '1h'] as const;
+
+/** A value of the `agentOrchestration.subagentPromptCacheTtl` setting. */
+export type SubagentPromptCacheTtlSetting =
+  (typeof SUBAGENT_PROMPT_CACHE_TTL_SETTINGS)[number];
+
+/** A concrete prompt-cache TTL, as `CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL` takes it. */
+export type SubagentPromptCacheTtl = '5m' | '1h';
+
+/** What the host env var holds when set: a valid TTL, or `'invalid'` for any other value. */
+export type SubagentPromptCacheTtlEnvOverride =
+  SubagentPromptCacheTtl | 'invalid';
+
 /** Agent orchestration configuration for settings UI */
 export interface AgentOrchestrationConfig {
   /** Detected CLI agents (Codex, Copilot) */
@@ -123,6 +140,10 @@ export interface AgentOrchestrationConfig {
   codexToolOutputTokenLimit?: number;
   /** Codex lane web search (`web_search` "live" when true, "disabled" when false; default true). */
   codexWebSearch?: boolean;
+  /** Subagent prompt-cache TTL setting (default 'auto'). */
+  subagentPromptCacheTtl?: SubagentPromptCacheTtlSetting;
+  /** Value of the host's `CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL` env var when set; it overrides the setting. Absent when unset. */
+  subagentPromptCacheTtlEnvOverride?: SubagentPromptCacheTtlEnvOverride;
   /** Auto-approve all Copilot tool calls without user prompt (default: true) */
   copilotAutoApprove: boolean;
   /** MCP server port (default: 51820) */
@@ -220,6 +241,8 @@ export interface AgentSetConfigParams {
   codexToolOutputTokenLimit?: number;
   /** Codex lane web search on/off. */
   codexWebSearch?: boolean;
+  /** Subagent prompt-cache TTL setting. Rejected when outside `SUBAGENT_PROMPT_CACHE_TTL_SETTINGS`. */
+  subagentPromptCacheTtl?: SubagentPromptCacheTtlSetting;
   /** Copilot reasoning effort override */
   copilotReasoningEffort?: string;
   /** Pi reasoning effort override, mapped to `--thinking` (off|minimal|low|medium|high|xhigh|max) */

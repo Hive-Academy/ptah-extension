@@ -88,6 +88,7 @@ describe('HistoryMessageBuilder', () => {
       onAgentProgress: jest.fn(),
       onAgentStatus: jest.fn(),
       onAgentCompleted: jest.fn(),
+      onBackgroundAgentStarted: jest.fn(),
     };
     const backgroundAgentStore = {
       onStarted: jest.fn((event: { toolCallId: string }) => {

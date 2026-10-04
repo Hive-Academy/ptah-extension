@@ -11,10 +11,15 @@
  * is counted once per id with the LAST line's usage (the rule
  * `session-usage-ledger.ts` uses).
  *
+ * A subagent transcript `<session>/subagents/agent-<id>.jsonl` has a sibling
+ * `agent-<id>.meta.json` written by Claude Code; its `agentType` names the
+ * subagent type. Only that field is read.
+ *
  * Read-only. Message text is tested for the lane contract marker while parsing
  * and never kept.
  */
 
+import { existsSync, readFileSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
 
@@ -36,15 +41,35 @@ import {
   type ToolOutputSize,
 } from './lane-metrics';
 
+/** One API response, after the per-id dedupe (last line wins per field). */
+export interface ClaudeRequest {
+  /**
+   * Send time (epoch-ms): the timestamp of the last non-assistant line before
+   * the response (the prompt or tool result it answers), else the response's
+   * own first line; null when neither carries a timestamp.
+   */
+  readonly atMs: number | null;
+  readonly input: number;
+  readonly cacheRead: number;
+  readonly cacheCreation: number;
+  readonly output: number;
+}
+
 export interface ClaudeTranscriptSummary {
   readonly file: string;
   readonly id: string;
   /** `session` for a top-level transcript, `subagent` under `subagents/`. */
   readonly kind: 'session' | 'subagent';
+  /** Subagent type from the sibling `.meta.json`; null for a session or when absent. */
+  readonly agentType: string | null;
   readonly cwd: string;
   readonly startedAt: string | null;
   readonly model: string;
   readonly requestInputs: readonly number[];
+  /** Every response that carried usage, in arrival order. */
+  readonly requests: readonly ClaudeRequest[];
+  /** Assistant responses that never carried a usage object: skipped, not 0. */
+  readonly missingUsage: number;
   readonly cached: number;
   readonly output: number;
   readonly compactions: number;
@@ -97,12 +122,30 @@ function requestContext(usage: UsageFields): number {
   );
 }
 
+/**
+ * `agentType` of a subagent transcript's sibling `.meta.json`, or null when
+ * the file is absent, unreadable or carries no string `agentType`.
+ */
+export function readSubagentType(transcriptFile: string): string | null {
+  const metaFile = transcriptFile.replace(/\.jsonl$/, '.meta.json');
+  if (metaFile === transcriptFile || !existsSync(metaFile)) return null;
+  try {
+    const type = asString(
+      asObject(JSON.parse(readFileSync(metaFile, 'utf8')))['agentType'],
+    );
+    return type !== null && type.trim() !== '' ? type : null;
+  } catch {
+    return null; // A torn or unreadable meta file leaves the type unknown.
+  }
+}
+
 /** Summarise one transcript. A line that does not parse is counted. */
 export function readClaudeTranscript(file: string): ClaudeTranscriptSummary {
   const { records, badLines } = readJsonLines(file);
   const segments = file.split(/[\\/]/);
   // Insertion order = order of each response's first line.
   const usageById = new Map<string, UsageFields>();
+  const firstAtById = new Map<string, number | null>();
   let firstRequestSeen = false;
   const toolNames: Record<string, string> = {};
   const firstRequestUserTexts: string[] = [];
@@ -115,13 +158,19 @@ export function readClaudeTranscript(file: string): ClaudeTranscriptSummary {
   let compactions = 0;
   let largestToolOutput: ToolOutputSize | null = null;
 
+  // Send time of the next request: the last non-assistant line (prompt, tool
+  // result, attachment) before it.
+  let lastInputAtMs: number | null = null;
+
   for (const [index, raw] of records.entries()) {
     const record = asObject(raw);
     const type = asString(record['type']);
     if (!cwd) cwd = asString(record['cwd']) ?? '';
-    if (startedAt === null) {
-      const stamp = asString(record['timestamp']);
-      if (stamp !== null) startedAt = isoInstant(Date.parse(stamp));
+    const stamp = asString(record['timestamp']);
+    const stampMs = stamp === null ? NaN : Date.parse(stamp);
+    if (startedAt === null && stamp !== null) startedAt = isoInstant(stampMs);
+    if (type !== 'assistant' && Number.isFinite(stampMs)) {
+      lastInputAtMs = stampMs;
     }
     if (type === 'system' && record['subtype'] === 'compact_boundary') {
       compactions++;
@@ -161,12 +210,18 @@ export function readClaudeTranscript(file: string): ClaudeTranscriptSummary {
         }
       }
     }
+    const key = asString(message['id']) ?? `#line-${index}`;
+    if (!firstAtById.has(key)) {
+      firstAtById.set(
+        key,
+        lastInputAtMs ?? (Number.isFinite(stampMs) ? stampMs : null),
+      );
+    }
     const usage = asObject(message['usage']);
     if (Object.keys(usage).length === 0) continue;
     model = asString(message['model']) || model;
     // Last line wins per field: later lines of one response carry the final
     // `output_tokens`; a field a later line omits keeps its earlier value.
-    const key = asString(message['id']) ?? `#line-${index}`;
     const merged: UsageFields = { ...(usageById.get(key) ?? {}) };
     for (const field of USAGE_FIELDS) {
       if (typeof usage[field] === 'number')
@@ -176,22 +231,38 @@ export function readClaudeTranscript(file: string): ClaudeTranscriptSummary {
     if (requestContext(merged) > 0) firstRequestSeen = true;
   }
 
-  for (const usage of usageById.values()) {
+  const requests: ClaudeRequest[] = [];
+  for (const [key, usage] of usageById) {
     requestInputs.push(requestContext(usage));
     cached += usage.cache_read_input_tokens ?? 0;
     output += usage.output_tokens ?? 0;
+    requests.push({
+      atMs: firstAtById.get(key) ?? null,
+      input: usage.input_tokens ?? 0,
+      cacheRead: usage.cache_read_input_tokens ?? 0,
+      cacheCreation: usage.cache_creation_input_tokens ?? 0,
+      output: usage.output_tokens ?? 0,
+    });
+  }
+  let missingUsage = 0;
+  for (const key of firstAtById.keys()) {
+    if (!usageById.has(key)) missingUsage++;
   }
 
   const leaf = segments[segments.length - 1] ?? file;
+  const kind = segments.includes('subagents') ? 'subagent' : 'session';
   return {
     file,
     id: leaf.replace(/\.jsonl$/, '').slice(0, 24),
-    kind: segments.includes('subagents') ? 'subagent' : 'session',
+    kind,
+    agentType: kind === 'subagent' ? readSubagentType(file) : null,
     cwd:
       (cwd || segments[segments.length - 2] || '').split(/[\\/]/).pop() ?? '',
     startedAt,
     model,
     requestInputs,
+    requests,
+    missingUsage,
     cached,
     output,
     compactions,
@@ -239,6 +310,13 @@ export function readClaudeStore(
         vendor: 'claude',
         location: file,
         reason: `${summary.badLines} unparseable line(s) skipped`,
+      });
+    }
+    if (summary.missingUsage > 0) {
+      skipped.push({
+        vendor: 'claude',
+        location: file,
+        reason: `${summary.missingUsage} response(s) without usage skipped`,
       });
     }
     if (summary.requestInputs.length > 0) transcripts.push(summary);

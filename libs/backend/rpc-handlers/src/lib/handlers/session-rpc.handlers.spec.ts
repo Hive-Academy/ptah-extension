@@ -48,6 +48,7 @@
 import 'reflect-metadata';
 
 import * as fs from 'fs/promises';
+import type { PathLike } from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
@@ -60,14 +61,20 @@ jest.mock('fs/promises', () => ({
   ...jest.requireActual('fs/promises'),
   access: jest.fn(),
   readdir: jest.fn(),
+  unlink: jest.fn(),
+  rmdir: jest.fn(),
 }));
 
 const mockAccess = fs.access as jest.MockedFunction<typeof fs.access>;
 const mockReaddir = fs.readdir as jest.MockedFunction<typeof fs.readdir>;
+const mockUnlink = fs.unlink as jest.MockedFunction<typeof fs.unlink>;
+const mockRmdir = fs.rmdir as jest.MockedFunction<typeof fs.rmdir>;
 
 beforeEach(() => {
   mockAccess.mockReset().mockRejectedValue(new Error('ENOENT'));
   mockReaddir.mockReset().mockRejectedValue(new Error('ENOENT'));
+  mockUnlink.mockReset().mockResolvedValue(undefined);
+  mockRmdir.mockReset().mockResolvedValue(undefined);
 });
 
 import type {
@@ -84,10 +91,14 @@ import {
 } from '@ptah-extension/vscode-core/testing';
 import {
   StateStorageValueTooLargeError,
+  type IFileSystemProvider,
+  type IPlatformInfo,
   type IWorkspaceProvider,
 } from '@ptah-extension/platform-core';
 import {
+  createMockFileSystemProvider,
   createMockWorkspaceProvider,
+  type MockFileSystemProvider,
   type MockWorkspaceProvider,
 } from '@ptah-extension/platform-core/testing';
 import type {
@@ -248,6 +259,7 @@ interface MetadataFixture {
   totalCost: number;
   totalTokens: { input: number; output: number };
   cliSessions?: CliSessionReference[];
+  workingDirectory?: string;
 }
 
 function makeMetadata(
@@ -294,6 +306,7 @@ interface Harness {
   metadataStore: MockMetadataStore;
   statsReader: MockStatsReader;
   workspace: MockWorkspaceProvider;
+  fileSystem: MockFileSystemProvider;
   sentry: MockSentryService;
   sdkAdapter: MockSdkAdapter;
   chatSession: MockChatSession;
@@ -326,6 +339,11 @@ function makeHarness(
   const workspace = createMockWorkspaceProvider({
     folders: opts.workspaceFolders ?? [WORKSPACE],
   });
+  const fileSystem = createMockFileSystemProvider();
+  const platformInfo = {
+    extensionPath: '/ptah-app',
+    globalStoragePath: '/ptah-storage',
+  } as IPlatformInfo;
   const sentry = createMockSentryService();
   const sdkAdapter = createMockSdkAdapter();
   const chatSession = createMockChatSession();
@@ -345,6 +363,8 @@ function makeHarness(
     statsReader as unknown as SessionStatsReaderService,
     sentry as unknown as SentryService,
     workspace as unknown as IWorkspaceProvider,
+    fileSystem as unknown as IFileSystemProvider,
+    platformInfo,
     sdkAdapter as unknown as SdkAgentAdapter,
     chatSession as never,
     turnState as never,
@@ -363,6 +383,7 @@ function makeHarness(
     metadataStore,
     statsReader,
     workspace,
+    fileSystem,
     sentry,
     sdkAdapter,
     chatSession,
@@ -693,6 +714,95 @@ describe('SessionRpcHandlers', () => {
         expect(
           result.sessions.find((s) => s.id === prunedId)?.hasTranscript,
         ).toBe(false);
+      });
+
+      it('indexes child transcripts from their recorded worktree while normal sessions stay in the workspace directory', async () => {
+        const h = makeHarness({
+          workspaceFolders: [WORKSPACE, '/child-root'],
+        });
+        const childId = uuidForRow(32);
+        const normalId = uuidForRow(33);
+        const worktreePath = '/child-root/child';
+        const escapedWorktreeDir = worktreePath.replace(/[:\\/]/g, '-');
+        const childSessionsDir = path.join(PROJECTS_DIR, escapedWorktreeDir);
+        const workspaceSessionsDir = path.join(
+          PROJECTS_DIR,
+          ESCAPED_WORKSPACE_DIR,
+        );
+        h.metadataStore.getForWorkspace.mockResolvedValue([
+          makeMetadata({
+            sessionId: childId,
+            workingDirectory: worktreePath,
+          }),
+          makeMetadata({ sessionId: normalId }),
+        ]);
+        await h.fileSystem.createDirectory(worktreePath);
+        mockAccess.mockResolvedValue(undefined);
+        mockReaddir.mockImplementation((async (target: unknown) => {
+          const directory = String(target);
+          if (directory === PROJECTS_DIR) {
+            return [ESCAPED_WORKSPACE_DIR, escapedWorktreeDir];
+          }
+          if (directory === childSessionsDir) return [`${childId}.jsonl`];
+          if (directory === workspaceSessionsDir) return [];
+          return [];
+        }) as unknown as typeof fs.readdir);
+        h.handlers.register();
+
+        const result = await call<{
+          sessions: Array<{ id: string; hasTranscript?: boolean }>;
+        }>(h, 'session:list', { workspacePath: WORKSPACE });
+
+        expect(
+          result.sessions.find((session) => session.id === childId)
+            ?.hasTranscript,
+        ).toBe(true);
+        expect(
+          result.sessions.find((session) => session.id === normalId)
+            ?.hasTranscript,
+        ).toBe(false);
+        expect(mockReaddir).toHaveBeenCalledWith(childSessionsDir);
+        expect(mockReaddir).toHaveBeenCalledWith(workspaceSessionsDir);
+      });
+
+      it('falls back to the workspace transcript directory when a child worktree was deleted', async () => {
+        const h = makeHarness({
+          workspaceFolders: [WORKSPACE, '/child-root'],
+        });
+        const childId = uuidForRow(34);
+        const worktreePath = '/child-root/deleted-child';
+        const escapedWorktreeDir = worktreePath.replace(/[:\\/]/g, '-');
+        const childSessionsDir = path.join(PROJECTS_DIR, escapedWorktreeDir);
+        const workspaceSessionsDir = path.join(
+          PROJECTS_DIR,
+          ESCAPED_WORKSPACE_DIR,
+        );
+        h.metadataStore.getForWorkspace.mockResolvedValue([
+          makeMetadata({
+            sessionId: childId,
+            workingDirectory: worktreePath,
+          }),
+        ]);
+        mockAccess.mockResolvedValue(undefined);
+        mockReaddir.mockImplementation((async (target: unknown) => {
+          const directory = String(target);
+          if (directory === PROJECTS_DIR) {
+            return [ESCAPED_WORKSPACE_DIR, escapedWorktreeDir];
+          }
+          if (directory === childSessionsDir) return [`${childId}.jsonl`];
+          if (directory === workspaceSessionsDir) return [];
+          return [];
+        }) as unknown as typeof fs.readdir);
+        h.handlers.register();
+
+        const result = await call<{
+          sessions: Array<{ id: string; hasTranscript?: boolean }>;
+        }>(h, 'session:list', { workspacePath: WORKSPACE });
+
+        expect(result.sessions[0].hasTranscript).toBe(false);
+        expect(h.fileSystem.exists).toHaveBeenCalledWith(worktreePath);
+        expect(mockReaddir).not.toHaveBeenCalledWith(childSessionsDir);
+        expect(mockReaddir).toHaveBeenCalledWith(workspaceSessionsDir);
       });
 
       it('reads the sessions directory once regardless of row count', async () => {
@@ -1479,6 +1589,48 @@ describe('SessionRpcHandlers', () => {
       expect(h.turnChangeSets.remove).toHaveBeenCalledWith(VALID_SESSION_ID);
     });
 
+    it('deletes a child transcript from its recorded worktree directory after the worktree was removed', async () => {
+      const worktreePath = '/child-root/deleted-child';
+      const escapedWorktreeDir = worktreePath.replace(/[:\\/]/g, '-');
+      const projectsDir = path.join(os.homedir(), '.claude', 'projects');
+      const childSessionsDir = path.join(projectsDir, escapedWorktreeDir);
+      const expectedFilePath = path.join(
+        childSessionsDir,
+        `${VALID_SESSION_ID}.jsonl`,
+      );
+      const h = makeHarness({
+        workspaceFolders: [WORKSPACE],
+      });
+      h.metadataStore.get.mockResolvedValue(
+        makeMetadata({
+          sessionId: VALID_SESSION_ID,
+          workspaceId: WORKSPACE,
+          workingDirectory: worktreePath,
+        }) as never,
+      );
+      mockAccess.mockImplementation(async (target: PathLike) => {
+        if (
+          String(target) === projectsDir ||
+          String(target) === expectedFilePath
+        ) {
+          return;
+        }
+        throw new Error('ENOENT');
+      });
+      mockReaddir.mockImplementation((async (target: unknown) =>
+        String(target) === projectsDir
+          ? [escapedWorktreeDir]
+          : []) as unknown as typeof fs.readdir);
+      h.handlers.register();
+
+      const result = await call<{ success: boolean }>(h, 'session:delete', {
+        sessionId: VALID_SESSION_ID,
+      });
+
+      expect(result.success).toBe(true);
+      expect(mockUnlink).toHaveBeenCalledWith(expectedFilePath);
+    });
+
     it('still succeeds and warns when removing the turn change sets fails', async () => {
       const h = makeHarness();
       h.metadataStore.get.mockResolvedValue(
@@ -1603,6 +1755,78 @@ describe('SessionRpcHandlers', () => {
       });
 
       expect(result.exists).toBe(false);
+    });
+
+    it('finds a child session transcript in its recorded worktree directory', async () => {
+      const worktreePath = '/child-root/child';
+      const h = makeHarness({
+        workspaceFolders: [WORKSPACE, '/child-root'],
+      });
+      const escapedWorktreeDir = worktreePath.replace(/[:\\/]/g, '-');
+      const projectsDir = path.join(os.homedir(), '.claude', 'projects');
+      const expectedFilePath = path.join(
+        projectsDir,
+        escapedWorktreeDir,
+        `${VALID_SESSION_ID}.jsonl`,
+      );
+      h.metadataStore.get.mockResolvedValue(
+        makeMetadata({
+          sessionId: VALID_SESSION_ID,
+          workingDirectory: worktreePath,
+        }) as never,
+      );
+      await h.fileSystem.createDirectory(worktreePath);
+      mockAccess.mockImplementation(async (target: PathLike) => {
+        if (
+          String(target) === projectsDir ||
+          String(target) === expectedFilePath
+        ) {
+          return;
+        }
+        throw new Error('ENOENT');
+      });
+      mockReaddir.mockImplementation((async (target: unknown) =>
+        String(target) === projectsDir
+          ? [escapedWorktreeDir]
+          : []) as unknown as typeof fs.readdir);
+      h.handlers.register();
+
+      const result = await call<{ exists: boolean; filePath?: string }>(
+        h,
+        'session:validate',
+        { sessionId: VALID_SESSION_ID, workspacePath: WORKSPACE },
+      );
+
+      expect(result).toEqual({ exists: true, filePath: expectedFilePath });
+      expect(mockAccess).not.toHaveBeenCalledWith(
+        path.join(
+          projectsDir,
+          WORKSPACE.replace(/[:\\/]/g, '-'),
+          `${VALID_SESSION_ID}.jsonl`,
+        ),
+      );
+    });
+
+    it('rejects a child transcript when its recorded worktree no longer exists', async () => {
+      const worktreePath = '/child-root/deleted-child';
+      const h = makeHarness({
+        workspaceFolders: [WORKSPACE, '/child-root'],
+      });
+      h.metadataStore.get.mockResolvedValue(
+        makeMetadata({
+          sessionId: VALID_SESSION_ID,
+          workingDirectory: worktreePath,
+        }) as never,
+      );
+      h.handlers.register();
+
+      const result = await call<{ exists: boolean }>(h, 'session:validate', {
+        sessionId: VALID_SESSION_ID,
+        workspacePath: WORKSPACE,
+      });
+
+      expect(result).toEqual({ exists: false });
+      expect(h.fileSystem.exists).toHaveBeenCalledWith(worktreePath);
     });
   });
 

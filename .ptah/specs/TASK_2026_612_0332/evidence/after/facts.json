@@ -1,0 +1,23 @@
+{
+  "baseCommit": "77f99a687+working-tree",
+  "parentTabId": "8c309ad1-d082-4612-8e99-2ceae2efb773",
+  "tabIdsBeforeAdoption": [
+    "8c309ad1-d082-4612-8e99-2ceae2efb773"
+  ],
+  "tabIdsAfterAdoption": [
+    "8c309ad1-d082-4612-8e99-2ceae2efb773",
+    "9f0c1c3e-3a55-4d7e-9a47-0b7a9c1d2e3f"
+  ],
+  "childTabAdoptedInTabManager": true,
+  "transcriptExpiredLabelCount": 0,
+  "tabsStorageKeys": [
+    "ptah.tabs.ws.C_3A_5Cptah-e2e-ws.electron-main"
+  ],
+  "canvasTilesBefore": 1,
+  "canvasTilesAfter": 2,
+  "sidebarChildRow": {
+    "text": "TASK 531 canvas gating\n2m ago\n14 msgs",
+    "nameOpacity": "1",
+    "nameClass": "font-medium text-sm truncate w-full leading-snug"
+  }
+}

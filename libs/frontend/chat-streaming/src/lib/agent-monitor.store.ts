@@ -26,11 +26,19 @@ import type {
   AgentStatusEvent,
   AgentCompletedEvent,
   AgentStartEvent,
+  BackgroundAgentStartedEvent,
   CliSessionReference,
+  MessageCompleteEvent,
+  SubagentPromptCacheTtl,
   SubagentTranscriptMessage,
+} from '@ptah-extension/shared';
+import {
+  calculateMessageCost,
+  computeSubagentCacheState,
 } from '@ptah-extension/shared';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import { ClaudeRpcService, VSCodeService } from '@ptah-extension/core';
+import { BackgroundAgentStore } from './background-agent.store';
 import { agentVisibleInSession, knownSessionId } from './session-scope';
 import {
   MAX_FRONTEND_BUFFER,
@@ -59,17 +67,6 @@ function readWorkflowFields(src: unknown): WorkflowRunFields {
   return { workflowRunId: s.workflowRunId, workflowName: s.workflowName };
 }
 
-/** A plain (non-workflow) subagent that is still running, queued, backgrounded, or paused. */
-function isActiveSessionSubagent(r: SubagentRecord): boolean {
-  return (
-    !r.workflowRunId &&
-    (r.status === 'running' ||
-      r.status === 'pending' ||
-      r.status === 'background' ||
-      r.status === 'paused')
-  );
-}
-
 /** Maximum completed/failed agents retained in the store.
  * Only agents with status 'completed' or 'failed' are evicted; 'running' and
  * 'interrupted' agents are always preserved. */
@@ -82,6 +79,220 @@ const MAX_COMPLETED_AGENTS = 20;
  * far more interrupted agents than one workspace ever accumulates.
  */
 const MAX_RESUMED_NODE_IDS = 500;
+
+/**
+ * Prompt-cache state shown for an agent. `'unknown'` means there is no basis
+ * for warm or cold (no effective TTL known, or a CLI lane that reports none)
+ * and the UI shows no badge.
+ */
+export type AgentCacheState = 'warm' | 'cold' | 'unknown';
+
+/** Token usage of one subagent request (one assistant message). */
+interface SubagentRequestUsage {
+  readonly input: number;
+  readonly output: number;
+  readonly cacheRead?: number;
+  readonly cacheWrite?: number;
+  readonly model?: string;
+}
+
+/**
+ * Usage of a Claude subagent summed over its assistant messages (one entry per
+ * `messageId`, the latest report wins). A cache field is `undefined` when no
+ * message reported it — never 0 in its place.
+ */
+export interface SubagentUsageTotals {
+  readonly input: number;
+  readonly output: number;
+  readonly cacheRead?: number;
+  readonly cacheWrite?: number;
+  /**
+   * Context of the most recent request: its input + cache read + cache write.
+   * `undefined` when that request did not report both cache fields.
+   */
+  readonly lastRequestContextTokens?: number;
+  /** Latest model the subagent's messages named. */
+  readonly model?: string;
+}
+
+/**
+ * Per-agent usage, context and cache data for display (TASK_2026_597 N6).
+ * Built for a Claude subagent by {@link subagentUsageView}.
+ */
+export interface AgentUsageView {
+  /** Size of the last request's context; `undefined` when not reported. */
+  readonly contextTokens?: number;
+  readonly cacheState: AgentCacheState;
+  /** Whether the provider reported cache tokens at all. */
+  readonly cacheReported: boolean;
+  /** TTL the warm/cold state was measured against. */
+  readonly effectiveTtl?: SubagentPromptCacheTtl;
+  /** Time since the last activity; `undefined` when the idle time is unknown. */
+  readonly idleMs?: number;
+  readonly usage?: {
+    readonly cacheRead?: number;
+    readonly cacheWrite?: number;
+    readonly output: number;
+  };
+  /**
+   * Estimate from the shared pricing table. `null` when the model has no
+   * price, `undefined` when no usage or no model was reported.
+   */
+  readonly estimatedCostUsd?: number | null;
+}
+
+function isTokenCount(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0;
+}
+
+/**
+ * Read one request's usage off a `message_complete` event. The shared event
+ * type declares `{ input, output }` only, but the backend's assistant-message
+ * transformer adds `cacheRead` / `cacheCreation` when the SDK reports them, so
+ * they are read structurally and validated here.
+ */
+function readRequestUsage(
+  event: MessageCompleteEvent,
+): SubagentRequestUsage | undefined {
+  const raw = event.tokenUsage as
+    | {
+        readonly input?: unknown;
+        readonly output?: unknown;
+        readonly cacheRead?: unknown;
+        readonly cacheCreation?: unknown;
+      }
+    | undefined;
+  if (!raw || !isTokenCount(raw.input) || !isTokenCount(raw.output)) {
+    return undefined;
+  }
+  return {
+    input: raw.input,
+    output: raw.output,
+    cacheRead: isTokenCount(raw.cacheRead) ? raw.cacheRead : undefined,
+    cacheWrite: isTokenCount(raw.cacheCreation) ? raw.cacheCreation : undefined,
+    model: event.model || undefined,
+  };
+}
+
+function addOptional(
+  total: number | undefined,
+  value: number | undefined,
+): number | undefined {
+  if (value === undefined) return total;
+  return (total ?? 0) + value;
+}
+
+/** Sum per-message usage; the last entry in insertion order is the latest request. */
+function sumRequestUsage(
+  requests: ReadonlyMap<string, SubagentRequestUsage> | undefined,
+): SubagentUsageTotals | undefined {
+  if (!requests || requests.size === 0) return undefined;
+  let input = 0;
+  let output = 0;
+  let cacheRead: number | undefined;
+  let cacheWrite: number | undefined;
+  let model: string | undefined;
+  let last: SubagentRequestUsage | undefined;
+  for (const request of requests.values()) {
+    input += request.input;
+    output += request.output;
+    cacheRead = addOptional(cacheRead, request.cacheRead);
+    cacheWrite = addOptional(cacheWrite, request.cacheWrite);
+    model = request.model ?? model;
+    last = request;
+  }
+  const lastRequestContextTokens =
+    last && last.cacheRead !== undefined && last.cacheWrite !== undefined
+      ? last.input + last.cacheRead + last.cacheWrite
+      : undefined;
+  return {
+    input,
+    output,
+    cacheRead,
+    cacheWrite,
+    lastRequestContextTokens,
+    model,
+  };
+}
+
+/** Latest of two activity timestamps, ignoring missing or non-finite ones. */
+function latestTimestamp(
+  current: number | undefined,
+  candidate: number | undefined,
+): number | undefined {
+  if (typeof candidate !== 'number' || !Number.isFinite(candidate)) {
+    return current;
+  }
+  if (current === undefined) return candidate;
+  return Math.max(current, candidate);
+}
+
+function asCacheTtl(value: unknown): SubagentPromptCacheTtl | undefined {
+  return value === '5m' || value === '1h' ? value : undefined;
+}
+
+/**
+ * Usage, context and cache data of a Claude subagent at time `now`.
+ *
+ * The cache state needs the effective TTL, which only the
+ * `chat:subagent-query` answer carries (see
+ * {@link AgentMonitorStore.loadSubagentCacheInfo}); until it is known the state
+ * is `'unknown'`. With a TTL, warm/cold is measured from the latest activity
+ * the store saw. No activity at all is cold with an unknown idle time.
+ */
+export function subagentUsageView(
+  record: SubagentRecord,
+  now: number,
+): AgentUsageView {
+  const usage = record.usage;
+  let cacheState: AgentCacheState = 'unknown';
+  let idleMs: number | undefined;
+  if (record.cacheTtl) {
+    const info = computeSubagentCacheState(
+      record.lastEventAt,
+      record.cacheTtl,
+      now,
+    );
+    cacheState = info.cacheState;
+    idleMs = record.lastEventAt === undefined ? undefined : info.idleMs;
+  }
+  return {
+    contextTokens: usage?.lastRequestContextTokens,
+    cacheState,
+    cacheReported:
+      usage !== undefined &&
+      (usage.cacheRead !== undefined || usage.cacheWrite !== undefined),
+    effectiveTtl: record.cacheTtl,
+    idleMs,
+    usage: usage
+      ? {
+          cacheRead: usage.cacheRead,
+          cacheWrite: usage.cacheWrite,
+          output: usage.output,
+        }
+      : undefined,
+    estimatedCostUsd:
+      usage?.model !== undefined
+        ? calculateMessageCost(usage.model, {
+            input: usage.input,
+            output: usage.output,
+            cacheHit: usage.cacheRead,
+            cacheCreation: usage.cacheWrite,
+          })
+        : undefined,
+  };
+}
+
+/**
+ * Cache fields of every CLI lane card. Lane adapters report no cache tokens
+ * and no per-request context yet (TASK_2026_597 Batches 13 and 32 are
+ * deferred), so a lane shows "not reported" and no warm/cold badge.
+ * `contextTokens` stays absent.
+ */
+const CLI_LANE_CACHE_FIELDS = {
+  cacheState: 'unknown',
+  cacheReported: false,
+} as const satisfies Pick<MonitoredAgent, 'cacheState' | 'cacheReported'>;
 
 export interface MonitoredAgent {
   readonly agentId: string;
@@ -159,6 +370,22 @@ export interface MonitoredAgent {
    * reports it, so consumers must tolerate a missing name for a known run.
    */
   workflowName?: string;
+  /**
+   * Size of the agent's last request context. Always `undefined` for CLI lanes
+   * today: no lane adapter reports a per-request context.
+   */
+  readonly contextTokens?: number;
+  /**
+   * Prompt-cache state. `'unknown'` for every CLI lane today (no badge); the
+   * lane's own reported cost stays in its output segments.
+   */
+  readonly cacheState?: AgentCacheState;
+  /**
+   * Whether the provider reports cache tokens. `false` for every CLI lane
+   * today: `CliOutputSegment.usage` carries no cache fields, so the UI shows
+   * "not reported", never 0.
+   */
+  readonly cacheReported?: boolean;
 }
 
 /**
@@ -248,7 +475,28 @@ export interface SubagentRecord {
   workflowRunId?: string;
   /** Display name of the owning workflow run (may be undefined until known). */
   workflowName?: string;
+  /**
+   * Latest event timestamp (epoch ms) the store saw for this subagent: its
+   * lifecycle events and its own assistant messages. Drives warm/cold.
+   */
+  lastEventAt?: number;
+  /** Summed usage of the subagent's assistant messages; absent until one reports usage. */
+  usage?: SubagentUsageTotals;
+  /**
+   * Effective subagent prompt-cache TTL, from the `chat:subagent-query`
+   * answer's `cacheInfo`. Absent until that query ran for this subagent.
+   */
+  cacheTtl?: SubagentPromptCacheTtl;
 }
+
+const ACTIVE_SESSION_SUBAGENT_STATUSES: ReadonlySet<SubagentRecord['status']> =
+  new Set(['running', 'pending', 'paused', 'background']);
+
+/** Identity fields a `background_agent_started` event can supply to a record. */
+type BackgroundIdentity = Pick<
+  SubagentRecord,
+  'agentId' | 'teammateName' | 'parentSessionId'
+>;
 
 /**
  * Error surfaced from subagent RPC calls. Lives in a dedicated channel so
@@ -272,6 +520,7 @@ export class AgentMonitorStore implements OnDestroy {
   private readonly tabManager = inject(TabManagerService);
   private readonly vscodeService = inject(VSCodeService);
   private readonly rpc = inject(ClaudeRpcService);
+  private readonly backgroundAgentStore = inject(BackgroundAgentStore);
   private readonly _agents = signal<readonly MonitoredAgent[]>([]);
 
   /**
@@ -322,6 +571,29 @@ export class AgentMonitorStore implements OnDestroy {
   private readonly _subagents = signal<ReadonlyMap<string, SubagentRecord>>(
     new Map(),
   );
+
+  /**
+   * Per-subagent request usage keyed by `messageId` — the source of
+   * `SubagentRecord.usage`. Keying by message makes a replayed or repeated
+   * `message_complete` replace its earlier report instead of counting twice.
+   * Kept outside the signal (the record's totals are the reactive copy); it
+   * lives as long as the records, which are never removed, and is cleared on
+   * destroy.
+   */
+  private readonly _subagentRequestUsage = new Map<
+    string,
+    Map<string, SubagentRequestUsage>
+  >();
+
+  /**
+   * Identity fields from a `background_agent_started` that arrived before its
+   * subagent had a record, keyed by parentToolUseId. The lifecycle reducer
+   * that creates the record applies and removes the entry. Cleared on destroy.
+   */
+  private readonly _pendingBackgroundIdentity = new Map<
+    string,
+    BackgroundIdentity
+  >();
 
   /** Public readonly view of the subagent record map. */
   readonly subagents = this._subagents.asReadonly();
@@ -494,8 +766,9 @@ export class AgentMonitorStore implements OnDestroy {
    * are shown in every tab.
    */
   readonly activeSessionSubagents = computed<SubagentRecord[]>(() => {
+    this.backgroundAgentStore.revision();
     const sessionSubs = [...this._subagents().values()].filter(
-      isActiveSessionSubagent,
+      (r) => this.isBackgroundSessionSubagent(r),
     );
     const activeSessionId = this.tabManager.activeTabSessionId();
     if (!activeSessionId) return sessionSubs;
@@ -511,10 +784,21 @@ export class AgentMonitorStore implements OnDestroy {
   sessionSubagentsForSession(
     sessionId: string | null | undefined,
   ): SubagentRecord[] {
+    this.backgroundAgentStore.revision();
     return [...this._subagents().values()].filter(
       (r) =>
-        isActiveSessionSubagent(r) &&
+        this.isBackgroundSessionSubagent(r) &&
         agentVisibleInSession(r.parentSessionId, sessionId),
+    );
+  }
+
+  private isBackgroundSessionSubagent(r: SubagentRecord): boolean {
+    return (
+      !r.workflowRunId &&
+      ACTIVE_SESSION_SUBAGENT_STATUSES.has(r.status) &&
+      // `background` is a type-level guard; BackgroundAgentStore is the real source.
+      (r.status === 'background' ||
+        this.backgroundAgentStore.isBackgroundAgent(r.parentToolUseId))
     );
   }
 
@@ -583,6 +867,8 @@ export class AgentMonitorStore implements OnDestroy {
   ngOnDestroy(): void {
     this.stopTick();
     this._pendingPermissionBuffer.clear();
+    this._subagentRequestUsage.clear();
+    this._pendingBackgroundIdentity.clear();
   }
 
   private startTick(): void {
@@ -760,6 +1046,7 @@ export class AgentMonitorStore implements OnDestroy {
           supportsContinuation: info.supportsContinuation,
           workflowRunId: wf.workflowRunId,
           workflowName: wf.workflowName,
+          ...CLI_LANE_CACHE_FIELDS,
         };
         return insertAgentSorted(
           list.filter((a) => a.agentId !== oldCard.agentId),
@@ -788,6 +1075,7 @@ export class AgentMonitorStore implements OnDestroy {
         supportsContinuation: info.supportsContinuation,
         workflowRunId: wf.workflowRunId,
         workflowName: wf.workflowName,
+        ...CLI_LANE_CACHE_FIELDS,
       };
       return insertAgentSorted(list, fresh);
     });
@@ -1145,6 +1433,7 @@ export class AgentMonitorStore implements OnDestroy {
           parentSessionId,
           ptahCliId: ref.ptahCliId,
           permissionQueue: [],
+          ...CLI_LANE_CACHE_FIELDS,
         });
         existingIds.add(ref.agentId);
       }
@@ -1385,10 +1674,61 @@ export class AgentMonitorStore implements OnDestroy {
           knownSessionId(event.sessionId) ?? existing?.parentSessionId,
         workflowRunId: wf.workflowRunId ?? existing?.workflowRunId,
         workflowName: wf.workflowName ?? existing?.workflowName,
+        ...this.carriedUsageFields(key, existing, event.timestamp),
       };
-      next.set(key, merged);
+      next.set(key, this.withPendingIdentity(key, merged));
       return next;
     });
+  }
+
+  /**
+   * Fill a subagent record's identity from a `background_agent_started` event.
+   *
+   * When the backend's SubagentStart hook carries no tool_use id, no lifecycle
+   * event ships an `agentId`, and the only copy is the one this event parses
+   * from the background placeholder. Without it the transcript cannot load.
+   *
+   * Only fills fields the record does not have yet; never creates a record and
+   * never changes status. When the event arrives before the record exists, the
+   * fields are kept and applied by the lifecycle reducer that creates it.
+   */
+  onBackgroundAgentStarted(event: BackgroundAgentStartedEvent): void {
+    const key = event.toolCallId;
+    if (!key) return;
+    const identity: BackgroundIdentity = {
+      agentId: event.agentId || undefined,
+      teammateName: event.teammateName || undefined,
+      parentSessionId: knownSessionId(event.sessionId),
+    };
+    if (!this._subagents().has(key)) {
+      this._pendingBackgroundIdentity.set(key, identity);
+      return;
+    }
+    this._subagents.update((map) => {
+      const existing = map.get(key);
+      if (!existing) return map;
+      const filled = fillIdentity(existing, identity);
+      if (filled === existing) return map;
+      const next = new Map(map);
+      next.set(key, filled);
+      return next;
+    });
+  }
+
+  /**
+   * A record a lifecycle reducer is about to store, with any identity a
+   * `background_agent_started` left pending for it. An entry is only pending
+   * while the record does not exist, so the reducer that creates the record
+   * consumes it.
+   */
+  private withPendingIdentity(
+    key: string,
+    merged: SubagentRecord,
+  ): SubagentRecord {
+    const pending = this._pendingBackgroundIdentity.get(key);
+    if (!pending) return merged;
+    this._pendingBackgroundIdentity.delete(key);
+    return fillIdentity(merged, pending);
   }
 
   /** Reducer for SDK `agent_progress` events. */
@@ -1418,8 +1758,9 @@ export class AgentMonitorStore implements OnDestroy {
           knownSessionId(event.sessionId) ?? existing?.parentSessionId,
         workflowRunId: wf.workflowRunId ?? existing?.workflowRunId,
         workflowName: wf.workflowName ?? existing?.workflowName,
+        ...this.carriedUsageFields(key, existing, event.timestamp),
       };
-      next.set(key, merged);
+      next.set(key, this.withPendingIdentity(key, merged));
       return next;
     });
   }
@@ -1451,8 +1792,9 @@ export class AgentMonitorStore implements OnDestroy {
           knownSessionId(event.sessionId) ?? existing?.parentSessionId,
         workflowRunId: wf.workflowRunId ?? existing?.workflowRunId,
         workflowName: wf.workflowName ?? existing?.workflowName,
+        ...this.carriedUsageFields(key, existing, event.timestamp),
       };
-      next.set(key, merged);
+      next.set(key, this.withPendingIdentity(key, merged));
       return next;
     });
   }
@@ -1484,8 +1826,115 @@ export class AgentMonitorStore implements OnDestroy {
           knownSessionId(event.sessionId) ?? existing?.parentSessionId,
         workflowRunId: wf.workflowRunId ?? existing?.workflowRunId,
         workflowName: wf.workflowName ?? existing?.workflowName,
+        ...this.carriedUsageFields(key, existing, event.timestamp),
       };
-      next.set(key, merged);
+      next.set(key, this.withPendingIdentity(key, merged));
+      return next;
+    });
+  }
+
+  /**
+   * Usage and cache fields a lifecycle reducer carries into the merged record:
+   * the activity stamp moves forward to `eventAt`, and a record created by
+   * this event picks up any usage its messages reported before it existed.
+   */
+  private carriedUsageFields(
+    key: string,
+    existing: SubagentRecord | undefined,
+    eventAt: number,
+  ): Pick<SubagentRecord, 'lastEventAt' | 'usage' | 'cacheTtl'> {
+    return {
+      lastEventAt: latestTimestamp(existing?.lastEventAt, eventAt),
+      usage: existing
+        ? existing.usage
+        : sumRequestUsage(this._subagentRequestUsage.get(key)),
+      cacheTtl: existing?.cacheTtl,
+    };
+  }
+
+  /**
+   * Reducer for a subagent's own `message_complete` (one with a
+   * `parentToolUseId`). Records the request's usage under its `messageId` and
+   * stamps the activity time. A message whose subagent has no record yet is
+   * kept and summed when the record is created. An event without usage (the
+   * stream-source completion) only stamps the time.
+   */
+  onSubagentMessageComplete(event: MessageCompleteEvent): void {
+    const key = event.parentToolUseId;
+    if (!key) return;
+    const request = readRequestUsage(event);
+    if (request) {
+      let requests = this._subagentRequestUsage.get(key);
+      if (!requests) {
+        requests = new Map();
+        this._subagentRequestUsage.set(key, requests);
+      }
+      requests.set(event.messageId, request);
+    }
+    this._subagents.update((map) => {
+      const existing = map.get(key);
+      if (!existing) return map;
+      const usage = request
+        ? sumRequestUsage(this._subagentRequestUsage.get(key))
+        : existing.usage;
+      const lastEventAt = latestTimestamp(
+        existing.lastEventAt,
+        event.timestamp,
+      );
+      if (usage === existing.usage && lastEventAt === existing.lastEventAt) {
+        return map;
+      }
+      const next = new Map(map);
+      next.set(key, { ...existing, usage, lastEventAt });
+      return next;
+    });
+  }
+
+  /**
+   * Fetch one subagent's cache info with a single `chat:subagent-query` call —
+   * made when its row is opened, never on a timer. Stores the effective TTL
+   * from `cacheInfo` and moves `lastEventAt` forward to the registry's
+   * `lastActivityAt` when that is later. A failed call, an unknown id, or an
+   * answer without `cacheInfo` (an older host) leaves the record as it was, so
+   * its cache state stays `'unknown'`.
+   */
+  async loadSubagentCacheInfo(parentToolUseId: string): Promise<void> {
+    const result = await this.rpc.call('chat:subagent-query', {
+      toolCallId: parentToolUseId,
+    });
+    if (!result.isSuccess()) {
+      console.warn(
+        '[AgentMonitorStore] chat:subagent-query failed:',
+        result.error ?? 'Unknown error',
+      );
+      return;
+    }
+    const remote = result.data?.subagents?.find(
+      (s) => s.toolCallId === parentToolUseId,
+    );
+    if (!remote) return;
+    const cacheTtl = asCacheTtl(remote.cacheInfo?.effectiveTtl);
+    this._subagents.update((map) => {
+      const existing = map.get(parentToolUseId);
+      if (!existing) return map;
+      const nextTtl = cacheTtl ?? existing.cacheTtl;
+      // `latestTimestamp` drops a missing or non-finite host value.
+      const lastEventAt = latestTimestamp(
+        existing.lastEventAt,
+        remote.lastActivityAt,
+      );
+      if (
+        nextTtl === existing.cacheTtl &&
+        lastEventAt === existing.lastEventAt
+      ) {
+        return map;
+      }
+      const next = new Map(map);
+      next.set(parentToolUseId, {
+        ...existing,
+        cacheTtl: nextTtl,
+        lastEventAt,
+      });
       return next;
     });
   }
@@ -1844,4 +2293,26 @@ function insertAgentSorted(
   const next = [...list];
   next.splice(index, 0, agent);
   return next;
+}
+
+/**
+ * `record` with each identity field it lacks taken from `identity`. A field
+ * the record already holds is never replaced. Returns `record` itself when
+ * nothing was filled, so callers can skip the signal write.
+ */
+function fillIdentity(
+  record: SubagentRecord,
+  identity: BackgroundIdentity,
+): SubagentRecord {
+  const agentId = record.agentId ?? identity.agentId;
+  const teammateName = record.teammateName ?? identity.teammateName;
+  const parentSessionId = record.parentSessionId ?? identity.parentSessionId;
+  if (
+    agentId === record.agentId &&
+    teammateName === record.teammateName &&
+    parentSessionId === record.parentSessionId
+  ) {
+    return record;
+  }
+  return { ...record, agentId, teammateName, parentSessionId };
 }

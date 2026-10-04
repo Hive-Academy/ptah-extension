@@ -6,7 +6,12 @@
  */
 
 import { TestBed } from '@angular/core/testing';
-import { AgentMonitorStore } from './agent-monitor.store';
+import {
+  AgentMonitorStore,
+  subagentUsageView,
+  type SubagentRecord,
+} from './agent-monitor.store';
+import { BackgroundAgentStore } from './background-agent.store';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import { ClaudeRpcService, VSCodeService } from '@ptah-extension/core';
 import {
@@ -20,9 +25,12 @@ import type {
   AgentStatusEvent,
   AgentCompletedEvent,
   AgentStartEvent,
+  BackgroundAgentStartedEvent,
   CliSessionReference,
   FlatStreamEventUnion,
+  MessageCompleteEvent,
 } from '@ptah-extension/shared';
+import { calculateMessageCost } from '@ptah-extension/shared';
 
 // Mock TabManagerService with signal-based activeTab
 const mockActiveTab = signal<{ claudeSessionId?: string } | null>(null);
@@ -40,6 +48,7 @@ const mockVSCodeService = {
 
 describe('AgentMonitorStore', () => {
   let store: AgentMonitorStore;
+  let backgroundAgentStore: BackgroundAgentStore;
   let rpcMock: ReturnType<typeof createMockRpcService>;
 
   beforeEach(() => {
@@ -47,6 +56,7 @@ describe('AgentMonitorStore', () => {
     TestBed.configureTestingModule({
       providers: [
         AgentMonitorStore,
+        BackgroundAgentStore,
         { provide: TabManagerService, useValue: mockTabManager },
         { provide: VSCodeService, useValue: mockVSCodeService },
         { provide: ClaudeRpcService, useValue: rpcMock },
@@ -54,6 +64,7 @@ describe('AgentMonitorStore', () => {
     });
 
     store = TestBed.inject(AgentMonitorStore);
+    backgroundAgentStore = TestBed.inject(BackgroundAgentStore);
     mockActiveTab.set(null);
   });
 
@@ -409,6 +420,93 @@ describe('AgentMonitorStore', () => {
         outputFile: '/tmp/x',
       } as AgentCompletedEvent);
       expect(store.getSubagent('toolu_wf')?.agentId).toBe('a01fea2eb1b977576');
+    });
+  });
+
+  describe('onBackgroundAgentStarted (identity merge)', () => {
+    const T = 'toolu_bg_named';
+    const S = 'sess-bg';
+
+    function start(overrides: Partial<AgentStartEvent> = {}): AgentStartEvent {
+      return {
+        eventType: 'agent_start',
+        id: 'bg-start',
+        timestamp: 1,
+        sessionId: S,
+        toolCallId: T,
+        agentType: 'reviewer',
+        source: 'hook',
+        ...overrides,
+      } as AgentStartEvent;
+    }
+
+    function bgStarted(
+      overrides: Partial<BackgroundAgentStartedEvent> = {},
+    ): BackgroundAgentStartedEvent {
+      return {
+        eventType: 'background_agent_started',
+        id: 'bg-started',
+        timestamp: 2,
+        sessionId: S,
+        toolCallId: T,
+        agentType: 'reviewer',
+        agentId: 'a1b2c3',
+        teammateName: 'reviewer-pr2',
+        source: 'hook',
+        ...overrides,
+      } as BackgroundAgentStartedEvent;
+    }
+
+    it('fills agentId, teammateName and parentSessionId on an existing record without changing status', () => {
+      store.onAgentStart(start());
+      expect(store.getSubagent(T)?.agentId).toBeUndefined();
+      const statusBefore = store.getSubagent(T)?.status;
+
+      store.onBackgroundAgentStarted(bgStarted());
+
+      const rec = store.getSubagent(T);
+      expect(rec?.agentId).toBe('a1b2c3');
+      expect(rec?.teammateName).toBe('reviewer-pr2');
+      expect(rec?.parentSessionId).toBe(S);
+      expect(rec?.status).toBe(statusBefore);
+    });
+
+    it('fills parentSessionId when the record has none yet', () => {
+      store.onAgentStart(start({ sessionId: '' }));
+      expect(store.getSubagent(T)?.parentSessionId).toBeUndefined();
+
+      store.onBackgroundAgentStarted(bgStarted());
+
+      expect(store.getSubagent(T)?.parentSessionId).toBe(S);
+    });
+
+    it('never replaces fields the record already has', () => {
+      store.onAgentStart(
+        start({ agentId: 'orig-id', teammateName: 'orig-name' }),
+      );
+
+      store.onBackgroundAgentStarted(bgStarted({ sessionId: 'other-session' }));
+
+      const rec = store.getSubagent(T);
+      expect(rec?.agentId).toBe('orig-id');
+      expect(rec?.teammateName).toBe('orig-name');
+      expect(rec?.parentSessionId).toBe(S);
+    });
+
+    it('does not create a record on its own', () => {
+      store.onBackgroundAgentStarted(bgStarted());
+      expect(store.getSubagent(T)).toBeUndefined();
+    });
+
+    it('applies an identity that arrived before agent_start once the record is created', () => {
+      store.onBackgroundAgentStarted(bgStarted());
+      store.onAgentStart(start({ sessionId: '' }));
+
+      const rec = store.getSubagent(T);
+      expect(rec?.agentId).toBe('a1b2c3');
+      expect(rec?.teammateName).toBe('reviewer-pr2');
+      expect(rec?.parentSessionId).toBe(S);
+      expect(rec?.status).toBe('running');
     });
   });
 
@@ -905,47 +1003,83 @@ describe('AgentMonitorStore', () => {
         }
       }
 
-      it('returns only records with no workflowRunId', () => {
+      function markTaskBackgrounded(toolCallId: string, sessionId?: string): void {
+        backgroundAgentStore.onStarted({
+          toolCallId,
+          agentId: `background-${toolCallId}`,
+          agentType: 'Explore',
+          agentDescription: 'explore',
+          sessionId,
+          timestamp: 2,
+        } as BackgroundAgentStartedEvent);
+      }
+
+      it('excludes foreground subagents and workflow subagents', () => {
         startPlainSubagent('toolu_plain_1', 'running');
         startWorkflowSubagent('toolu_wf_1', 'run-1');
 
         mockActiveTab.set(null);
         const subs = store.activeSessionSubagents();
-        expect(subs.map((r) => r.parentToolUseId)).toEqual(['toolu_plain_1']);
+        expect(subs).toEqual([]);
+      });
+
+      it('includes a record whose status is background', () => {
+        startPlainSubagent('toolu_background', 'background');
+        mockActiveTab.set(null);
+        const ids = store
+          .activeSessionSubagents()
+          .map((r) => r.parentToolUseId);
+        expect(ids).toEqual(['toolu_background']);
       });
 
       it.each<SubagentRecord['status']>([
         'running',
         'pending',
         'paused',
-        'background',
-      ])('includes active status: %s', (status) => {
-        startPlainSubagent(`toolu_${status}`, status);
+      ])('excludes foreground status: %s', (status) => {
+        startPlainSubagent(`toolu_foreground_${status}`, status);
         mockActiveTab.set(null);
         const ids = store
           .activeSessionSubagents()
           .map((r) => r.parentToolUseId);
-        expect(ids).toContain(`toolu_${status}`);
+        expect(ids).not.toContain(`toolu_foreground_${status}`);
       });
 
-      it.each<SubagentRecord['status']>([
-        'completed',
-        'failed',
-        'killed',
-        'stopped',
-      ])('excludes non-active terminal status: %s', (status) => {
-        startPlainSubagent(`toolu_terminal_${status}`, status);
-        mockActiveTab.set(null);
-        const ids = store
-          .activeSessionSubagents()
-          .map((r) => r.parentToolUseId);
-        expect(ids).not.toContain(`toolu_terminal_${status}`);
+      it('includes a running record once its Task tool call is backgrounded reactively', () => {
+        startPlainSubagent('toolu_backgrounded', 'running');
+        expect(store.activeSessionSubagents()).toEqual([]);
+
+        markTaskBackgrounded('toolu_backgrounded', 'sess-A');
+
+        expect(store.activeSessionSubagents().map((r) => r.parentToolUseId)).toEqual([
+          'toolu_backgrounded',
+        ]);
+      });
+
+      it('excludes a completed record even while its Task tool call remains backgrounded', () => {
+        startPlainSubagent('toolu_completed_background', 'completed', 'sess-A');
+        backgroundAgentStore.onStarted({
+          toolCallId: 'toolu_completed_background',
+          agentId: 'completed-background-agent',
+          agentType: 'Explore',
+          agentDescription: 'explore',
+          sessionId: 'sess-A',
+          timestamp: 2,
+        } as BackgroundAgentStartedEvent);
+
+        mockActiveTab.set({ claudeSessionId: 'sess-A' });
+
+        expect(store.activeSessionSubagents()).toEqual([]);
+        expect(store.sessionSubagentsForSession('sess-A')).toEqual([]);
       });
 
       it('scopes by active session and shows unowned subagents in all sessions', () => {
         startPlainSubagent('toolu_sess_a', 'running', 'sess-A');
         startPlainSubagent('toolu_sess_b', 'running', 'sess-B');
         startPlainSubagent('toolu_unowned', 'running');
+        markTaskBackgrounded('toolu_sess_a', 'sess-A');
+        markTaskBackgrounded('toolu_sess_b', 'sess-B');
+        markTaskBackgrounded('toolu_unowned');
 
         mockActiveTab.set({ claudeSessionId: 'sess-A' });
         const ids = store
@@ -958,6 +1092,8 @@ describe('AgentMonitorStore', () => {
       it('sessionSubagentsForSession filters by exact sessionId and handles unresolved scope', () => {
         startPlainSubagent('toolu_a', 'running', 'sess-A');
         startPlainSubagent('toolu_b', 'running', 'sess-B');
+        markTaskBackgrounded('toolu_a', 'sess-A');
+        markTaskBackgrounded('toolu_b', 'sess-B');
 
         expect(
           store
@@ -1246,6 +1382,329 @@ describe('AgentMonitorStore', () => {
       const result = await store.resumeAgentWithMessage(expired, 'do more');
 
       expect(result).toEqual({ ok: false, error: 'no such session file' });
+    });
+  });
+
+  describe('N6 per-agent usage, context and cache data', () => {
+    const PARENT = 'toolu_usage_1';
+    const NOW = 1_000_000_000;
+
+    function start(timestamp = NOW - 10_000): void {
+      store.onAgentStart({
+        eventType: 'agent_start',
+        id: 'start-usage',
+        timestamp,
+        toolCallId: PARENT,
+        agentType: 'Explore',
+        agentDescription: 'Explore',
+        agentId: 'short-usage',
+        source: 'hook',
+      } as AgentStartEvent);
+    }
+
+    function complete(
+      messageId: string,
+      tokenUsage: Record<string, number> | undefined,
+      overrides: Partial<MessageCompleteEvent> = {},
+    ): MessageCompleteEvent {
+      return {
+        id: `mc-${messageId}`,
+        eventType: 'message_complete',
+        timestamp: NOW - 5_000,
+        sessionId: 'sess-usage',
+        messageId,
+        source: 'complete',
+        parentToolUseId: PARENT,
+        model: 'gpt-4o',
+        tokenUsage,
+        ...overrides,
+      } as MessageCompleteEvent;
+    }
+
+    function view(now = NOW) {
+      const record = store.getSubagent(PARENT);
+      if (!record) throw new Error('record missing');
+      return subagentUsageView(record, now);
+    }
+
+    function answerQuery(subagent: Record<string, unknown> | null): void {
+      rpcMock.call.mockResolvedValueOnce(
+        rpcSuccess({
+          subagents: subagent ? [{ toolCallId: PARENT, ...subagent }] : [],
+        } as never),
+      );
+    }
+
+    it('gives every CLI lane card "not reported" cache data and no context size', () => {
+      spawnAgent('lane-1', 'sess-lanes');
+      store.loadCliSessions(
+        [
+          {
+            agentId: 'lane-2',
+            cli: 'codex',
+            task: 'restored',
+            startedAt: '2026-09-01T00:00:00.000Z',
+            status: 'completed',
+          } as unknown as CliSessionReference,
+        ],
+        'sess-lanes',
+      );
+
+      for (const id of ['lane-1', 'lane-2']) {
+        const lane = store.agentsById().get(id);
+        expect(lane?.cacheState).toBe('unknown');
+        expect(lane?.cacheReported).toBe(false);
+        expect(lane?.contextTokens).toBeUndefined();
+      }
+    });
+
+    it('sums usage per message and sizes the context from the last request', () => {
+      start();
+      store.onSubagentMessageComplete(
+        complete('m1', {
+          input: 2,
+          output: 20,
+          cacheRead: 0,
+          cacheCreation: 40_000,
+        }),
+      );
+      store.onSubagentMessageComplete(
+        complete('m2', {
+          input: 3,
+          output: 30,
+          cacheRead: 40_000,
+          cacheCreation: 500,
+        }),
+      );
+
+      const v = view();
+      expect(v.contextTokens).toBe(3 + 40_000 + 500);
+      expect(v.cacheReported).toBe(true);
+      expect(v.usage).toEqual({
+        cacheRead: 40_000,
+        cacheWrite: 40_500,
+        output: 50,
+      });
+      expect(v.estimatedCostUsd).toBe(
+        calculateMessageCost('gpt-4o', {
+          input: 5,
+          output: 50,
+          cacheHit: 40_000,
+          cacheCreation: 40_500,
+        }),
+      );
+      expect(typeof v.estimatedCostUsd).toBe('number');
+    });
+
+    it('replaces a repeated report of the same message instead of adding it again', () => {
+      start();
+      store.onSubagentMessageComplete(
+        complete('m1', {
+          input: 2,
+          output: 5,
+          cacheRead: 10,
+          cacheCreation: 1,
+        }),
+      );
+      store.onSubagentMessageComplete(
+        complete('m1', {
+          input: 2,
+          output: 9,
+          cacheRead: 10,
+          cacheCreation: 1,
+        }),
+      );
+
+      expect(view().usage).toEqual({ cacheRead: 10, cacheWrite: 1, output: 9 });
+    });
+
+    it('keeps cache tokens and context undefined, never 0, when no message reports them', () => {
+      start();
+      store.onSubagentMessageComplete(complete('m1', { input: 7, output: 3 }));
+
+      const v = view();
+      expect(v.cacheReported).toBe(false);
+      expect(v.contextTokens).toBeUndefined();
+      expect(v.usage).toEqual({
+        cacheRead: undefined,
+        cacheWrite: undefined,
+        output: 3,
+      });
+    });
+
+    it('reports no usage and no estimate before any message reports usage', () => {
+      start();
+      store.onSubagentMessageComplete(
+        complete('m1', undefined, { source: 'stream' }),
+      );
+
+      const v = view();
+      expect(v.usage).toBeUndefined();
+      expect(v.estimatedCostUsd).toBeUndefined();
+      expect(v.cacheReported).toBe(false);
+    });
+
+    it('returns a null estimate for an unpriced model', () => {
+      start();
+      store.onSubagentMessageComplete(
+        complete(
+          'm1',
+          { input: 1, output: 1, cacheRead: 1, cacheCreation: 1 },
+          { model: 'unpriced-model-n6' },
+        ),
+      );
+      expect(view().estimatedCostUsd).toBeNull();
+    });
+
+    it('ignores malformed usage numbers from the host', () => {
+      start();
+      store.onSubagentMessageComplete(
+        complete('m1', { input: Number.NaN, output: 1 }),
+      );
+      store.onSubagentMessageComplete(
+        complete('m2', { input: 1, output: 1, cacheRead: -5 }),
+      );
+      expect(view().usage).toEqual({
+        cacheRead: undefined,
+        cacheWrite: undefined,
+        output: 1,
+      });
+    });
+
+    it('applies usage reported before the subagent record existed', () => {
+      store.onSubagentMessageComplete(
+        complete('m1', { input: 1, output: 4, cacheRead: 2, cacheCreation: 3 }),
+      );
+      expect(store.getSubagent(PARENT)).toBeUndefined();
+
+      start();
+      expect(view().usage).toEqual({ cacheRead: 2, cacheWrite: 3, output: 4 });
+    });
+
+    it('ignores a main-session message', () => {
+      start();
+      store.onSubagentMessageComplete(
+        complete('m1', { input: 1, output: 1 }, { parentToolUseId: undefined }),
+      );
+      expect(view().usage).toBeUndefined();
+    });
+
+    it('shows cache state "unknown" until the effective TTL is known', () => {
+      start();
+      const v = view();
+      expect(v.cacheState).toBe('unknown');
+      expect(v.effectiveTtl).toBeUndefined();
+      expect(v.idleMs).toBeUndefined();
+    });
+
+    it('loads the TTL with one subagent query and measures warm/cold from the last event', async () => {
+      start(NOW - 10_000);
+      store.onSubagentMessageComplete(
+        complete(
+          'm1',
+          { input: 1, output: 1 },
+          { timestamp: NOW - 4 * 60_000 },
+        ),
+      );
+      answerQuery({
+        cacheInfo: { cacheState: 'cold', effectiveTtl: '5m', idleMs: 0 },
+      });
+
+      await store.loadSubagentCacheInfo(PARENT);
+
+      expect(rpcMock.call).toHaveBeenCalledTimes(1);
+      expect(rpcMock.call).toHaveBeenCalledWith('chat:subagent-query', {
+        toolCallId: PARENT,
+      });
+      // The latest activity is the agent_start at NOW - 10 s.
+      expect(view()).toMatchObject({
+        cacheState: 'warm',
+        effectiveTtl: '5m',
+        idleMs: 10_000,
+      });
+      expect(view(NOW - 10_000 + 5 * 60_000).cacheState).toBe('cold');
+    });
+
+    it('moves the activity time forward to the host lastActivityAt', async () => {
+      start(NOW - 30 * 60_000);
+      answerQuery({
+        lastActivityAt: NOW - 1_000,
+        cacheInfo: { cacheState: 'warm', effectiveTtl: '1h', idleMs: 1_000 },
+      });
+
+      await store.loadSubagentCacheInfo(PARENT);
+
+      expect(view()).toMatchObject({
+        cacheState: 'warm',
+        idleMs: 1_000,
+        effectiveTtl: '1h',
+      });
+    });
+
+    it('treats a record with no activity as cold with an unknown idle time', async () => {
+      start(Number.NaN);
+      answerQuery({
+        cacheInfo: { cacheState: 'cold', effectiveTtl: '5m', idleMs: 0 },
+      });
+
+      await store.loadSubagentCacheInfo(PARENT);
+
+      const v = view();
+      expect(v.cacheState).toBe('cold');
+      expect(v.idleMs).toBeUndefined();
+    });
+
+    it('stays "unknown" when the query fails, misses, or carries no valid cacheInfo', async () => {
+      start();
+      rpcMock.call.mockResolvedValueOnce(rpcError('boom'));
+      await store.loadSubagentCacheInfo(PARENT);
+      answerQuery(null);
+      await store.loadSubagentCacheInfo(PARENT);
+      answerQuery({});
+      await store.loadSubagentCacheInfo(PARENT);
+      answerQuery({
+        cacheInfo: { cacheState: 'warm', effectiveTtl: '2h', idleMs: 0 },
+      });
+      await store.loadSubagentCacheInfo(PARENT);
+
+      expect(view().cacheState).toBe('unknown');
+    });
+
+    it('keeps usage, TTL and activity across later lifecycle events', async () => {
+      start(NOW - 10_000);
+      store.onSubagentMessageComplete(
+        complete('m1', { input: 1, output: 2, cacheRead: 3, cacheCreation: 4 }),
+      );
+      answerQuery({
+        cacheInfo: { cacheState: 'warm', effectiveTtl: '5m', idleMs: 0 },
+      });
+      await store.loadSubagentCacheInfo(PARENT);
+
+      store.onAgentProgress({
+        eventType: 'agent_progress',
+        id: 'p',
+        timestamp: NOW - 1_000,
+        parentToolUseId: PARENT,
+      } as AgentProgressEvent);
+      store.onAgentStatus({
+        eventType: 'agent_status',
+        id: 's',
+        timestamp: NOW - 2_000,
+        parentToolUseId: PARENT,
+        status: 'running',
+      } as AgentStatusEvent);
+      store.onAgentCompleted({
+        eventType: 'agent_completed',
+        id: 'c',
+        timestamp: NOW - 500,
+        parentToolUseId: PARENT,
+        status: 'completed',
+      } as AgentCompletedEvent);
+
+      const record = store.getSubagent(PARENT);
+      expect(record?.lastEventAt).toBe(NOW - 500);
+      expect(record?.cacheTtl).toBe('5m');
+      expect(view().usage).toEqual({ cacheRead: 3, cacheWrite: 4, output: 2 });
     });
   });
 });

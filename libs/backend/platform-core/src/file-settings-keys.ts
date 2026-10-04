@@ -173,6 +173,7 @@ export const FILE_BASED_SETTINGS_KEYS = new Set<string>([
   'agentOrchestration.antigravityModel',
   'agentOrchestration.opencodeModel',
   'agentOrchestration.piModel',
+  'agentOrchestration.subagentPromptCacheTtl',
   // Machine scope: { "<agent-slug>" | "*": { claude?, codex?, copilot?, cursor?, opencode?: string } }.
   // Workspace override: workspace.<hash>.agentGeneration.models,
   // already routed by SCOPED_SETTING_PREFIX_PATTERN.
@@ -480,6 +481,8 @@ export const FILE_BASED_SETTINGS_DEFAULTS: Record<string, unknown> = {
   'agentOrchestration.antigravityModel': '',
   'agentOrchestration.opencodeModel': '',
   'agentOrchestration.piModel': '',
+  // Subagent prompt-cache TTL: 'auto' | '5m' | '1h'. 'auto' asks for 1h only when the session can spawn subagents.
+  'agentOrchestration.subagentPromptCacheTtl': 'auto',
   'agentOrchestration.disabledClis': [],
   'agentOrchestration.disabledMcpNamespaces': [],
   'provider.cursor.apiKey': '',

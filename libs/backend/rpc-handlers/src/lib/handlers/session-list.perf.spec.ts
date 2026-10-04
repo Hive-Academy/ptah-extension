@@ -18,6 +18,7 @@ import 'reflect-metadata';
 
 import * as fs from 'fs/promises';
 import * as fsSync from 'fs';
+import type { PathLike } from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { performance } from 'perf_hooks';
@@ -34,6 +35,8 @@ import {
 } from '@ptah-extension/persistence-sqlite';
 import {
   normalizeWorkspaceRoot,
+  type IFileSystemProvider,
+  type IPlatformInfo,
   type IOutputChannel,
   type IWorkspaceProvider,
 } from '@ptah-extension/platform-core';
@@ -278,6 +281,8 @@ describe('session:list AC1 performance (real SQLite store)', () => {
       createMockWorkspaceProvider({
         folders: [WORKSPACE],
       }) as unknown as IWorkspaceProvider,
+      {} as IFileSystemProvider,
+      {} as IPlatformInfo,
       {} as SdkAgentAdapter,
       {} as never,
       { get: jest.fn().mockReturnValue(undefined) } as never,
