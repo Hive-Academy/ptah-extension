@@ -38,6 +38,7 @@ import {
 } from '@ptah-extension/shared';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import { ClaudeRpcService, VSCodeService } from '@ptah-extension/core';
+import { BackgroundAgentStore } from './background-agent.store';
 import { agentVisibleInSession, knownSessionId } from './session-scope';
 import {
   MAX_FRONTEND_BUFFER,
@@ -64,17 +65,6 @@ interface WorkflowRunFields {
 function readWorkflowFields(src: unknown): WorkflowRunFields {
   const s = (src ?? {}) as WorkflowRunFields;
   return { workflowRunId: s.workflowRunId, workflowName: s.workflowName };
-}
-
-/** A plain (non-workflow) subagent that is still running, queued, backgrounded, or paused. */
-function isActiveSessionSubagent(r: SubagentRecord): boolean {
-  return (
-    !r.workflowRunId &&
-    (r.status === 'running' ||
-      r.status === 'pending' ||
-      r.status === 'background' ||
-      r.status === 'paused')
-  );
 }
 
 /** Maximum completed/failed agents retained in the store.
@@ -499,6 +489,9 @@ export interface SubagentRecord {
   cacheTtl?: SubagentPromptCacheTtl;
 }
 
+const ACTIVE_SESSION_SUBAGENT_STATUSES: ReadonlySet<SubagentRecord['status']> =
+  new Set(['running', 'pending', 'paused', 'background']);
+
 /** Identity fields a `background_agent_started` event can supply to a record. */
 type BackgroundIdentity = Pick<
   SubagentRecord,
@@ -527,6 +520,7 @@ export class AgentMonitorStore implements OnDestroy {
   private readonly tabManager = inject(TabManagerService);
   private readonly vscodeService = inject(VSCodeService);
   private readonly rpc = inject(ClaudeRpcService);
+  private readonly backgroundAgentStore = inject(BackgroundAgentStore);
   private readonly _agents = signal<readonly MonitoredAgent[]>([]);
 
   /**
@@ -772,8 +766,9 @@ export class AgentMonitorStore implements OnDestroy {
    * are shown in every tab.
    */
   readonly activeSessionSubagents = computed<SubagentRecord[]>(() => {
+    this.backgroundAgentStore.revision();
     const sessionSubs = [...this._subagents().values()].filter(
-      isActiveSessionSubagent,
+      (r) => this.isBackgroundSessionSubagent(r),
     );
     const activeSessionId = this.tabManager.activeTabSessionId();
     if (!activeSessionId) return sessionSubs;
@@ -789,10 +784,21 @@ export class AgentMonitorStore implements OnDestroy {
   sessionSubagentsForSession(
     sessionId: string | null | undefined,
   ): SubagentRecord[] {
+    this.backgroundAgentStore.revision();
     return [...this._subagents().values()].filter(
       (r) =>
-        isActiveSessionSubagent(r) &&
+        this.isBackgroundSessionSubagent(r) &&
         agentVisibleInSession(r.parentSessionId, sessionId),
+    );
+  }
+
+  private isBackgroundSessionSubagent(r: SubagentRecord): boolean {
+    return (
+      !r.workflowRunId &&
+      ACTIVE_SESSION_SUBAGENT_STATUSES.has(r.status) &&
+      // `background` is a type-level guard; BackgroundAgentStore is the real source.
+      (r.status === 'background' ||
+        this.backgroundAgentStore.isBackgroundAgent(r.parentToolUseId))
     );
   }
 
