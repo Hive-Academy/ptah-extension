@@ -182,12 +182,11 @@ OUT:
 
 ## Handoff 3 (2026-10-04, end of third orchestration session)
 
-- PR #637 (`fix/task-597-followups`, PR 2, decision 12): Batches 36-41, 46, 47 and bug fix 47a (background named
-  subagents showed "Transcript is not available yet") plus the CodeRabbit fix `22ddc9f9f`. Reviews APPROVED. Pushed; the
-  user merges it. Worktree `.claude-worktrees/task-597-followups`.
-- PR 3 (`fix/task-597-session-budget`, N7/N8, decision 13): Batches 50-61 and fix round `d79a195cb`, reviews APPROVED.
-  Stacked on the PR 2 branch; the PR targets `fix/task-597-followups` and retargets to `main` after #637 merges (rebase
-  on `origin/main` then if GitHub shows conflicts). Worktree `.claude-worktrees/task-597-session-budget`.
+- PR #637 (`fix/task-597-followups`, PR 2, decision 12): Batches 36-41, 46, 47, bug fix 47a (background named
+  subagents showed "Transcript is not available yet") and the CodeRabbit fix. MERGED 2026-10-04 (`c179f3eb5`).
+- PR #639 (`fix/task-597-session-budget`, PR 3, N7/N8, decision 13): Batches 50-61 and fix round, reviews APPROVED,
+  rebased on `main` after #637. Open; the user merges it. Worktree `.claude-worktrees/task-597-session-budget`.
+  The PR 2 worktree `.claude-worktrees/task-597-followups` can be removed.
 - Open, in order of value:
   1. QA session (needs user approval, decisions 6/7): experiment E2 (does the runtime honour `autoCompactWindow`? A1
      defaults and the N8 tighten stage stay advisory until it passes); N1 "after" measurement with
