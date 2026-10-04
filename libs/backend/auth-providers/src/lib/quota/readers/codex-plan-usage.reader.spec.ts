@@ -119,6 +119,65 @@ describe('Codex plan-usage reader', () => {
     expect(reading.windows.every((w) => w.observedAt === FETCHED)).toBe(true);
   });
 
+  describe('rateLimitReachedType as window evidence (Component 7)', () => {
+    const limited = (
+      primary: number,
+      secondary: number,
+      rateLimitReachedType?: string,
+    ) =>
+      result({
+        quota: {
+          primary: { usedPercent: primary, windowDurationMins: 300 },
+          secondary: { usedPercent: secondary, windowDurationMins: 10_080 },
+          ...(rateLimitReachedType !== undefined && { rateLimitReachedType }),
+        },
+      });
+
+    it('marks the window at or over 100% exhausted from the provider api', () => {
+      const reading = mapCodexAccountUsage(
+        limited(100, 40, 'rate_limit_reached'),
+        NOW,
+      );
+      expect(reading.windows[0].exhaustion).toEqual({
+        observedAt: FETCHED,
+        source: 'provider-api',
+      });
+      expect(reading.windows[1].exhaustion).toBeUndefined();
+    });
+
+    it('marks every window at the limit when both are', () => {
+      const reading = mapCodexAccountUsage(
+        limited(100, 103, 'workspace_member_usage_limit_reached'),
+        NOW,
+      );
+      expect(reading.windows.map((w) => w.exhaustion?.source)).toEqual([
+        'provider-api',
+        'provider-api',
+      ]);
+    });
+
+    it('marks nothing when no window can be matched', () => {
+      const reading = mapCodexAccountUsage(
+        limited(60, 70, 'workspace_owner_credits_depleted'),
+        NOW,
+      );
+      expect(reading.windows.some((w) => w.exhaustion)).toBe(false);
+    });
+
+    it('a window at 100% without a reached type is a reading, not exhaustion', () => {
+      const reading = mapCodexAccountUsage(limited(100, 4), NOW);
+      expect(reading.windows.some((w) => w.exhaustion)).toBe(false);
+    });
+
+    it('a stale answer keeps the original fetch time on the exhaustion', () => {
+      const reading = mapCodexAccountUsage(
+        { ...limited(100, 4, 'rate_limit_reached'), status: 'stale' },
+        NOW,
+      );
+      expect(reading.windows[0].exhaustion?.observedAt).toBe(FETCHED);
+    });
+  });
+
   it.each([
     'unsupported-auth',
     'unsupported-config',

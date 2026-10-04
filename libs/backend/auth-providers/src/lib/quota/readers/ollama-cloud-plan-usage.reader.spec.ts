@@ -113,6 +113,55 @@ describe('Ollama Cloud plan-usage reader', () => {
     });
   });
 
+  it.each([401, 403])(
+    'maps a rejected key (HTTP %i) to unsupported-auth',
+    async (status) => {
+      const reader = createOllamaCloudPlanUsageReader(
+        createMockLogger() as unknown as Logger,
+        () => 1,
+        jest.fn(async () => new Response('', { status })),
+      );
+      await expect(
+        reader({
+          target: TARGET,
+          credential: new PlanSecret(API_KEY),
+          refresh: true,
+        }),
+      ).resolves.toEqual({
+        status: 'unsupported-auth',
+        windowSetEstablished: false,
+        windows: [],
+      });
+    },
+  );
+
+  it('never lets the bearer header follow a redirect', async () => {
+    const fetcher = jest.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.redirect === 'error') throw new TypeError('redirect refused');
+      return new Response(JSON.stringify(PROVISIONAL_PAYLOAD), { status: 200 });
+    });
+    const reader = createOllamaCloudPlanUsageReader(
+      createMockLogger() as unknown as Logger,
+      () => 1,
+      fetcher as unknown as typeof fetch,
+    );
+    await expect(
+      reader({
+        target: TARGET,
+        credential: new PlanSecret(API_KEY),
+        refresh: true,
+      }),
+    ).resolves.toEqual({
+      status: 'service-unavailable',
+      windowSetEstablished: false,
+      windows: [],
+    });
+    expect(fetcher).toHaveBeenCalledWith(
+      'https://ollama.com/api/usage',
+      expect.objectContaining({ redirect: 'error' }),
+    );
+  });
+
   it('honours an already-aborted caller signal without fetching', async () => {
     const fetcher = jest.fn();
     const controller = new AbortController();

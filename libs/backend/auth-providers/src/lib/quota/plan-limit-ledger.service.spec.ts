@@ -18,6 +18,7 @@ import { CodexHomeResolver } from '../providers/codex/codex-home-resolver';
 import {
   PLAN_LIMIT_LEDGER_STORAGE_KEY,
   PlanLimitLedgerService,
+  SESSION_IDLE_MS,
 } from './plan-limit-ledger.service';
 import {
   ProviderOwnerResolver,
@@ -580,9 +581,57 @@ describe('PlanLimitLedgerService — proxy observers (F66-F68)', () => {
     expect(snapshot?.windows[0].exhaustion).toBeDefined();
   });
 
-  it('F66/F68: a 2xx with a null owner clears nothing', () => {
+  it("F66/F68: a null-owner 2xx clears only its own proxy's unattributed cooldown", () => {
     const { ledger, quotaStore } = harness();
-    quotaStore.recordRateLimit(PROVIDER, undefined, T0, {
+    // A seven-day Retry-After: without the proxy's own success clearing it,
+    // this cooldown would outlive working traffic for a week.
+    for (const sourceId of ['p1', 'p2']) {
+      quotaStore.recordRateLimit(PROVIDER, String(7 * 24 * 3600), T0, {
+        ownerKey: null,
+        statusCode: 429,
+        sourceId,
+      });
+    }
+    quotaStore.recordSuccess(
+      PROVIDER,
+      { ownerKey: null, statusCode: 200, sourceId: 'p1' },
+      T0 + 1,
+    );
+
+    expect(
+      ledger.snapshotFor(unknownOwnerKey(PROVIDER, 'proxy:p1')),
+    ).toBeUndefined();
+    expect(
+      ledger.snapshotFor(unknownOwnerKey(PROVIDER, 'proxy:p2'))?.cooldown
+        ?.rawUntil,
+    ).toBe(T0 + 7 * DAY);
+  });
+
+  it('F66: a null-owner 2xx is billed unknown and never clears exhaustion', () => {
+    const { ledger, quotaStore } = harness();
+    const unattributed = quotaOwnerRefFromKey(
+      unknownOwnerKey(PROVIDER, 'proxy:p1'),
+    );
+    quotaStore.recordRateLimit(PROVIDER, '120', T0, {
+      ownerKey: null,
+      statusCode: 429,
+      sourceId: 'p1',
+    });
+    ledger.recordWindowEvidence(unattributed, exhaustedWindow('weekly', T0));
+    quotaStore.recordSuccess(
+      PROVIDER,
+      { ownerKey: null, statusCode: 200, sourceId: 'p1' },
+      T0 + 1,
+    );
+
+    const snapshot = ledger.snapshotFor(unattributed.key);
+    expect(snapshot?.cooldown).toBeUndefined();
+    expect(snapshot?.windows[0].exhaustion).toBeDefined();
+  });
+
+  it('F66: a 2xx observed before the 429 does not clear it', () => {
+    const { ledger, quotaStore } = harness();
+    quotaStore.recordRateLimit(PROVIDER, '120', T0, {
       ownerKey: null,
       statusCode: 429,
       sourceId: 'p1',
@@ -590,11 +639,12 @@ describe('PlanLimitLedgerService — proxy observers (F66-F68)', () => {
     quotaStore.recordSuccess(
       PROVIDER,
       { ownerKey: null, statusCode: 200, sourceId: 'p1' },
-      T0 + 1,
+      T0 - 1,
     );
 
-    const unattributed = unknownOwnerKey(PROVIDER, 'proxy:p1');
-    expect(ledger.snapshotFor(unattributed)?.cooldown).toBeDefined();
+    expect(
+      ledger.snapshotFor(unknownOwnerKey(PROVIDER, 'proxy:p1'))?.cooldown,
+    ).toBeDefined();
   });
 
   it('F67/F68: unattributed 429s from two proxies stay two unknown owners', () => {
@@ -913,5 +963,107 @@ describe('PlanLimitLedgerService — lifecycle', () => {
     } finally {
       jest.useRealTimers();
     }
+  });
+});
+
+describe('PlanLimitLedgerService — provider-api exhaustion (Component 7)', () => {
+  const providerApiExhausted = (
+    key: PlanLimitWindow['key'],
+    at: number,
+    options: { stale?: boolean } = {},
+  ) => ({
+    window: readWindow(key, at, 100, {
+      exhaustion: { observedAt: at, source: 'provider-api' },
+    }),
+    options,
+  });
+
+  it('accepts a provider-api exhaustion and carries it past a newer at-limit read', () => {
+    const { ledger } = harness();
+    const first = providerApiExhausted('weekly', T0);
+    ledger.recordWindowEvidence(OWNER_A, first.window);
+    expect(windowOf(ledger, OWNER_A, 'weekly')?.exhaustion).toEqual({
+      observedAt: T0,
+      source: 'provider-api',
+    });
+
+    ledger.recordWindowEvidence(
+      OWNER_A,
+      readWindow('weekly', T0 + MINUTE, 100),
+    );
+    expect(windowOf(ledger, OWNER_A, 'weekly')?.exhaustion?.observedAt).toBe(
+      T0,
+    );
+
+    ledger.recordWindowEvidence(
+      OWNER_A,
+      readWindow('weekly', T0 + 2 * MINUTE, 40),
+    );
+    expect(windowOf(ledger, OWNER_A, 'weekly')?.exhaustion).toBeUndefined();
+  });
+
+  it('never displaces newer live evidence, fresh or stale', () => {
+    const { ledger } = harness();
+    ledger.recordWindowEvidence(
+      OWNER_A,
+      exhaustedWindow('five_hour', T0 + 10, { resetsAt: T0 + 2 * HOUR }),
+    );
+
+    const older = providerApiExhausted('five_hour', T0);
+    ledger.recordWindowEvidence(OWNER_A, older.window);
+    const stale = providerApiExhausted('five_hour', T0 + 5, { stale: true });
+    ledger.recordWindowEvidence(OWNER_A, stale.window, stale.options);
+
+    const held = windowOf(ledger, OWNER_A, 'five_hour');
+    expect(held?.exhaustion?.source).toBe('stream-event');
+    expect(held?.observedAt).toBe(T0 + 10);
+  });
+});
+
+describe('PlanLimitLedgerService — session index eviction', () => {
+  it('forgets a session idle past SESSION_IDLE_MS whose owner has no live evidence', async () => {
+    const { ledger, signal, clock } = harness();
+    signal('s1', { kind: 'turn-start', observedAt: T0 });
+    await settle();
+    expect(Object.keys(ledger.sessionOwners())).toEqual(['s1']);
+
+    clock.now = T0 + SESSION_IDLE_MS - 1;
+    expect(ledger.knownOwners().map((o) => o.key)).toEqual([OWNER_A.key]);
+
+    clock.now = T0 + SESSION_IDLE_MS;
+    expect(ledger.knownOwners()).toEqual([]);
+    expect(ledger.sessionOwners()).toEqual({});
+  });
+
+  it('keeps an idle session while its owner still holds live evidence', async () => {
+    const { ledger, signal, clock } = harness();
+    signal('s1', { kind: 'turn-start', observedAt: T0 });
+    await settle();
+    ledger.recordOwnerEvidence(OWNER_A, unknownEvidence(T0));
+
+    clock.now = T0 + SESSION_IDLE_MS + HOUR;
+    expect(ledger.sessionOwners()).toEqual({
+      s1: { ownerKey: OWNER_A.key, modelScope: null },
+    });
+  });
+
+  it('keeps a session with a recent signal and re-registers an evicted one on its next signal', async () => {
+    const { ledger, signal, clock } = harness();
+    signal('old', { kind: 'turn-start', observedAt: T0 });
+    signal('live', { kind: 'turn-start', observedAt: T0 });
+    await settle();
+
+    clock.now = T0 + SESSION_IDLE_MS - MINUTE;
+    signal('live', { kind: 'turn-start', observedAt: clock.now });
+    await settle();
+    clock.now = T0 + SESSION_IDLE_MS;
+    expect(Object.keys(ledger.sessionOwners())).toEqual(['live']);
+
+    signal('old', { kind: 'turn-start', observedAt: clock.now });
+    await settle();
+    expect(ledger.sessionOwners()['old']).toEqual({
+      ownerKey: OWNER_A.key,
+      modelScope: null,
+    });
   });
 });

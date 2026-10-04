@@ -15,8 +15,9 @@
  *   `onSuccess`. A 429 is a cooldown on the owner captured at the proxy's
  *   response boundary. Without one it goes under
  *   `unknownOwnerKey(providerId, proxy instance id)`, which no lane or other
- *   proxy shares (F68). A proxy 2xx is billed `unknown`: it clears that
- *   owner's cooldown and nothing else (F66).
+ *   proxy shares (F68). A proxy 2xx is billed `unknown`: it clears the
+ *   cooldown of the same owner its 429 would land on (the captured key, else
+ *   that proxy's own unknown owner) and nothing else (F66).
  * - cli-agent-runtime lanes, directly through the public write methods.
  *
  * ## Rules (Decision 4)
@@ -33,6 +34,9 @@
  * - Expired and superseded entries are removed on access. Nothing active is
  *   evicted early, and there is no owner cap; owners with nothing left drop.
  * - Only known-reset exhaustion and owner evidence are persisted (P6).
+ * - A session idle for {@link SESSION_IDLE_MS} whose owner has no live
+ *   evidence is forgotten on the next signal or read; its next turn-start
+ *   re-registers it.
  *
  * Logs are debug-level and carry ids and failure kinds only.
  */
@@ -93,6 +97,12 @@ import {
 
 export { PLAN_LIMIT_LEDGER_STORAGE_KEY };
 
+/**
+ * A session with no signal for this long, whose owner holds no live evidence,
+ * is dropped from the session index so it cannot grow with host lifetime.
+ */
+export const SESSION_IDLE_MS = 86_400_000;
+
 /** How a success was billed. Only `plan` clears exhaustion. */
 export type PlanLimitBilling = 'plan' | 'overage' | 'fallback' | 'unknown';
 
@@ -144,6 +154,8 @@ interface SessionState {
   owner: QuotaOwnerRef | null;
   modelScope: string | null;
   ownerRequested: boolean;
+  /** Last signal or owner change, on the ledger clock. */
+  lastSignalAt: number;
   /** Serialises this session's signals so each lands under its turn's owner. */
   pending: Promise<void>;
 }
@@ -278,6 +290,7 @@ export class PlanLimitLedgerService {
     modelScope: string | null,
   ): void {
     const state = this.sessionState(sessionId);
+    state.lastSignalAt = this.now();
     const scope = normaliseScope(modelScope ?? undefined) ?? null;
     if (state.owner?.key === owner?.key && state.modelScope === scope) return;
     state.owner = owner;
@@ -306,6 +319,7 @@ export class PlanLimitLedgerService {
     for (const state of [...this.owners.values()]) {
       if (this.prune(state, now)) found.set(state.owner.key, state.owner);
     }
+    this.evictIdleSessions(now);
     for (const session of this.sessions.values()) {
       if (session.owner) found.set(session.owner.key, session.owner);
     }
@@ -315,6 +329,7 @@ export class PlanLimitLedgerService {
   /** Current owner and scope of every session the ledger has seen. */
   sessionOwners(): Record<string, PlanLimitSessionOwner> {
     const result: Record<string, PlanLimitSessionOwner> = {};
+    this.evictIdleSessions(this.now());
     for (const [sessionId, session] of this.sessions) {
       result[sessionId] = {
         ownerKey: session.owner?.key ?? null,
@@ -344,7 +359,10 @@ export class PlanLimitLedgerService {
 
   private onSessionSignal({ sessionId, signal }: SessionPlanLimitEvent): void {
     if (this.disposed) return;
+    const now = this.now();
+    this.evictIdleSessions(now);
     const state = this.sessionState(sessionId);
+    state.lastSignalAt = now;
     const resolveOwner = signal.kind === 'turn-start' || !state.ownerRequested;
     state.ownerRequested = true;
     // `then` defers past the synchronous fan-out, so the probe's own
@@ -432,10 +450,12 @@ export class PlanLimitLedgerService {
   }
 
   private onProxySuccess(observation: ProviderQuotaObservation): void {
-    if (this.disposed || observation.ownerKey === null) return;
-    // No in-scope proxy provider is provably plan-billed (Decision 4, S4).
+    if (this.disposed) return;
+    // The same owner the proxy's 429 lands on, so an unattributed proxy's
+    // own 2xx clears its own cooldown and no other proxy's. No in-scope proxy
+    // provider is provably plan-billed (Decision 4, S4), so exhaustion stays.
     this.recordSuccess({
-      ownerKey: observation.ownerKey,
+      ownerKey: proxyOwner(observation).key,
       modelScopes: [],
       billing: 'unknown',
       observedAt: observation.observedAt,
@@ -460,11 +480,26 @@ export class PlanLimitLedgerService {
         owner: null,
         modelScope: null,
         ownerRequested: false,
+        lastSignalAt: this.now(),
         pending: Promise.resolve(),
       };
       this.sessions.set(sessionId, state);
     }
     return state;
+  }
+
+  /**
+   * Forget sessions idle for {@link SESSION_IDLE_MS} whose owner holds no
+   * live evidence. A session with a recent signal, or whose owner still has
+   * evidence, keeps its current owner.
+   */
+  private evictIdleSessions(now: number): void {
+    for (const [sessionId, session] of [...this.sessions]) {
+      if (now - session.lastSignalAt < SESSION_IDLE_MS) continue;
+      const ownerState = session.owner && this.owners.get(session.owner.key);
+      if (ownerState && this.prune(ownerState, now)) continue;
+      this.sessions.delete(sessionId);
+    }
   }
 
   /** Drop what has expired. Returns false (and forgets the owner) when nothing is left. */

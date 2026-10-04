@@ -45,8 +45,14 @@ export function createOllamaCloudPlanUsageReader(
       const response = await fetcher(OLLAMA_CLOUD_USAGE_URL, {
         method: 'GET',
         headers: { Authorization: `Bearer ${credential.reveal()}` },
+        // A redirect would carry the bearer header to another URL; fail instead.
+        redirect: 'error',
         signal: controller.signal,
       });
+      // A rejected key is an auth state, not a transient failure to retry.
+      if (response.status === 401 || response.status === 403) {
+        return unavailable('unsupported-auth');
+      }
       if (!response.ok) return unavailable('service-unavailable');
       const parsed = UsageSchema.safeParse(await response.json());
       if (!parsed.success) {

@@ -12,6 +12,12 @@
  * - `resetsAt` goes through `normaliseInstant` (the App Server reports epoch
  *   seconds).
  * - `account.planType` and `activity` pass through unchanged.
+ * - `quota.rateLimitReachedType` is window evidence (Component 7): the
+ *   window it names carries `exhaustion {observedAt, source:'provider-api'}`.
+ *   No reached type the App Server defines today names a window (they name
+ *   the cause: rate limit, credits, workspace usage), so it lands on every
+ *   window at or over 100%; with none, no window is marked. The ledger's
+ *   `supersedes` keeps newer live evidence over this reading.
  * - Every non-`available` status passes through. A `stale` answer (the
  *   service's own cache after a failed read) keeps its windows at the time
  *   they were originally read, never the time they were re-served.
@@ -62,9 +68,10 @@ export function mapCodexAccountUsage(
     return { status: result.status, windowSetEstablished: false, windows: [] };
   }
   const observedAt = result.fetchedAt ?? readAt;
+  const reached = Boolean(result.quota?.rateLimitReachedType);
   const windows = [
-    toWindow(result.quota?.primary, 1, observedAt),
-    toWindow(result.quota?.secondary, 2, observedAt),
+    toWindow(result.quota?.primary, 1, observedAt, reached),
+    toWindow(result.quota?.secondary, 2, observedAt, reached),
   ].filter((window): window is PlanLimitWindow => window !== undefined);
   return {
     status: result.status,
@@ -80,8 +87,11 @@ function toWindow(
   quota: CodexQuotaWindow | undefined,
   position: 1 | 2,
   observedAt: number,
+  limitReached: boolean,
 ): PlanLimitWindow | undefined {
   if (!quota) return undefined;
+  const atLimit =
+    Number.isFinite(quota.usedPercent) && quota.usedPercent >= 100;
   const descriptor = windowKindFromDuration(quota.windowDurationMins, position);
   const resetsAt = normaliseInstant(quota.resetsAt);
   const durationMins = quota.windowDurationMins;
@@ -97,6 +107,10 @@ function toWindow(
       resetsAt,
       resetSource: 'provider-api',
     }),
+    ...(limitReached &&
+      atLimit && {
+        exhaustion: { observedAt, source: 'provider-api' },
+      }),
     observedAt,
   };
 }
