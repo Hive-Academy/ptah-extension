@@ -27,6 +27,11 @@ import {
   type SessionBudgetSessionControl,
   type SessionBudgetStatsSource,
 } from './session-budget.service';
+import type { ContextUsageReading } from '../compaction/context-usage.port';
+import {
+  SessionRotationAdvisor,
+  type SessionRotationConfigSource,
+} from '../compaction/session-rotation-advisor';
 
 const SID = '11111111-2222-4333-8444-555555555555';
 const OTHER = '99999999-2222-4333-8444-555555555555';
@@ -82,7 +87,11 @@ interface Harness {
   getWorkspace: jest.Mock;
   build: jest.Mock;
   write: jest.Mock;
+  /** The context-usage port's `getLast`. */
+  getLast: jest.Mock;
 }
+
+const ROTATION_THRESHOLD = 300_000;
 
 function harness(initial: Partial<SessionBudgetConfig> = {}): Harness {
   let config: SessionBudgetConfig = {
@@ -105,6 +114,17 @@ function harness(initial: Partial<SessionBudgetConfig> = {}): Harness {
     path: `/home/.ptah/handoffs/${sessionId}.md`,
   }));
 
+  const getLast = jest.fn(
+    (_sessionId: string): ContextUsageReading | undefined => undefined,
+  );
+  const advisor = new SessionRotationAdvisor(
+    logger as unknown as Logger,
+    {
+      getConfig: () => ({ rotationSuggestTokens: ROTATION_THRESHOLD }),
+    } as unknown as SessionRotationConfigSource,
+    { getLast },
+  );
+
   const service = new SessionBudgetService(
     logger as unknown as Logger,
     { getConfig } as SessionBudgetConfigSource,
@@ -115,6 +135,7 @@ function harness(initial: Partial<SessionBudgetConfig> = {}): Harness {
     } as unknown as SessionBudgetSessionControl,
     { build } as unknown as SessionBudgetHandoffBuilder,
     { write } as unknown as SessionBudgetHandoffWriter,
+    advisor,
   );
   return {
     service,
@@ -128,7 +149,13 @@ function harness(initial: Partial<SessionBudgetConfig> = {}): Harness {
     getWorkspace,
     build,
     write,
+    getLast,
   };
+}
+
+/** A port reading of `totalTokens` context. */
+function reading(totalTokens: number): ContextUsageReading {
+  return { totalTokens, maxTokens: 1_000_000, source: 'sdk-getContextUsage' };
 }
 
 describe('SessionBudgetService.observe', () => {
@@ -709,5 +736,96 @@ describe('SessionBudgetService.release / clearAll', () => {
     expect(h.service.canSend(SID)).toEqual({ ok: true });
     expect(h.service.canSend(OTHER)).toEqual({ ok: true });
     expect((await h.service.act(SID, 'dismiss')).success).toBe(false);
+  });
+});
+
+describe('SessionBudgetService — rotation advisory (A6)', () => {
+  // R-W4 (accepted): `observe` can run before the turn-end port read lands, so
+  // the reading here may be the previous turn's and the advisory can arrive
+  // one turn late. The specs feed the port reading before `observe`.
+
+  it('attaches `rotation` from the port reading at or above the threshold', () => {
+    const h = harness();
+    h.getLast.mockReturnValue(reading(250_000));
+    expect(h.service.observe(at(10, 1))?.rotation).toBeUndefined();
+
+    h.getLast.mockReturnValue(reading(310_000));
+    expect(h.service.observe(at(11, 2))?.rotation).toEqual({
+      contextTokens: 310_000,
+      threshold: ROTATION_THRESHOLD,
+    });
+    expect(h.getLast).toHaveBeenCalledWith(SID);
+  });
+
+  it('falls back to the snapshot last-turn context when the port has no reading', () => {
+    const h = harness();
+    const state = h.service.observe(
+      snapshot(LIMIT * 0.1, 1, {
+        contextSnapshot: { model: 'claude-test', contextTokens: 320_000 },
+      }),
+    );
+    expect(state?.rotation).toEqual({
+      contextTokens: 320_000,
+      threshold: ROTATION_THRESHOLD,
+    });
+  });
+
+  it('clears after a compaction drops the context, and comes back on the next crossing', () => {
+    const h = harness();
+    h.getLast.mockReturnValue(reading(310_000));
+    expect(h.service.observe(at(10, 1))?.rotation).toBeDefined();
+    h.getLast.mockReturnValue(reading(40_000));
+    expect(h.service.observe(at(11, 2))?.rotation).toBeUndefined();
+    h.getLast.mockReturnValue(reading(305_000));
+    expect(h.service.observe(at(12, 3))?.rotation?.contextTokens).toBe(305_000);
+  });
+
+  it('disabled budget: the advisory still rides the disabled state', () => {
+    const h = harness({ enabled: false });
+    h.getLast.mockReturnValue(reading(400_000));
+    expect(h.service.observe(at(10, 1))).toMatchObject({
+      stage: 'unknown',
+      used: null,
+      blocked: false,
+      rotation: { contextTokens: 400_000, threshold: ROTATION_THRESHOLD },
+    });
+  });
+
+  it('every state composed afterwards (actions included) carries the advisory', async () => {
+    const h = harness();
+    h.getLast.mockReturnValue(reading(310_000));
+    h.service.observe(at(60, 1));
+    const dismissed = await h.service.act(SID, 'dismiss');
+    expect(dismissed.state?.rotation).toEqual({
+      contextTokens: 310_000,
+      threshold: ROTATION_THRESHOLD,
+    });
+  });
+
+  it('release drops the advisory with the session state', () => {
+    const h = harness({ enabled: false });
+    h.getLast.mockReturnValue(reading(310_000));
+    expect(h.service.observe(at(10, 1))?.rotation).toBeDefined();
+    h.service.release(SID);
+    // No figure at all on the next snapshot: nothing is carried over.
+    h.getLast.mockReturnValue(undefined);
+    expect(h.service.observe(at(10, 2))?.rotation).toBeUndefined();
+  });
+
+  it('R-W2: preview-handoff works with the budget disabled for a session with a live stats entry', async () => {
+    const h = harness({ enabled: false });
+    h.getLast.mockReturnValue(reading(310_000));
+    h.service.observe(at(10, 1));
+    const result = await h.service.act(SID, 'preview-handoff');
+    expect(result).toEqual({
+      success: true,
+      handoff: { content: '# Handoff', seed: 'seed:# Handoff', path: null },
+    });
+    // Built from the transcript (no budget figure to embed), never written.
+    expect(h.build).toHaveBeenCalledWith({
+      sessionId: SID,
+      workspacePath: '/workspace',
+    });
+    expect(h.write).not.toHaveBeenCalled();
   });
 });

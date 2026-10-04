@@ -8,6 +8,8 @@ import {
   SESSION_BUDGET_SETTINGS,
   isSessionBudgetPercentOrderValid,
   type SessionBudgetConfig,
+  type SessionBudgetRotation,
+  type SessionBudgetState,
 } from './session-budget.types';
 
 const entries = Object.entries(SESSION_BUDGET_SETTINGS) as Array<
@@ -82,6 +84,45 @@ describe('SESSION_BUDGET_SETTINGS', () => {
         SESSION_BUDGET_SETTINGS.handoffPercent.default,
       ),
     ).toBe(true);
+  });
+});
+
+describe('SessionBudgetState.rotation', () => {
+  const base: SessionBudgetState = {
+    sessionId: 's1',
+    stage: 'unknown',
+    unit: 'tokens',
+    measure: 'tokens',
+    used: null,
+    limit: 50_000_000,
+    percent: null,
+    lowerBound: false,
+    revision: null,
+    compactions: 0,
+    extensions: 0,
+    blocked: false,
+  };
+
+  it('is optional: a state without the advisory is complete', () => {
+    expect(base.rotation).toBeUndefined();
+  });
+
+  it('carries the crossed context figure and threshold, and survives JSON', () => {
+    const rotation: SessionBudgetRotation = {
+      contextTokens: 312_000,
+      threshold: 300_000,
+    };
+    const state: SessionBudgetState = { ...base, rotation };
+    // The state rides the result-stats broadcast as JSON.
+    const roundTripped = JSON.parse(JSON.stringify(state)) as SessionBudgetState;
+    expect(roundTripped.rotation).toEqual({
+      contextTokens: 312_000,
+      threshold: 300_000,
+    });
+    expect(Object.keys(roundTripped.rotation ?? {}).sort()).toEqual([
+      'contextTokens',
+      'threshold',
+    ]);
   });
 });
 
