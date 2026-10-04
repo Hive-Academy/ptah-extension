@@ -80,6 +80,72 @@ describe('SessionBudgetBannerComponent', () => {
     expect(banner(render(BASE))).toBeNull();
   });
 
+  describe('rotation', () => {
+    const ROTATION = { contextTokens: 210_000, threshold: 200_000 };
+
+    it('renders status role, context size and both buttons', () => {
+      const root = render({ ...BASE, rotation: ROTATION });
+
+      expect(banner(root)?.getAttribute('role')).toBe('status');
+      expect(text(root, 'session-budget-body')).toContain('210.0k');
+      expect(buttons(root)).toEqual(['Rotate session', 'Keep this session']);
+    });
+
+    it('Rotate emits rotate', () => {
+      const root = render({ ...BASE, rotation: ROTATION });
+      const spy = jest.fn();
+      fixture.componentInstance.rotate.subscribe(spy);
+
+      button(root, 'Rotate session').click();
+
+      expect(spy).toHaveBeenCalledTimes(1);
+    });
+
+    it('Keep dismisses for the same key and reappears after rotation clears', () => {
+      const root = render({ ...BASE, rotation: ROTATION });
+
+      button(root, 'Keep this session').click();
+      fixture.detectChanges();
+      expect(banner(root)).toBeNull();
+
+      // Same key, newer revision: still dismissed.
+      fixture.componentRef.setInput('budget', {
+        ...BASE,
+        revision: 8,
+        rotation: ROTATION,
+      });
+      fixture.detectChanges();
+      expect(banner(root)).toBeNull();
+
+      // Rotation clears, then a later crossing shows it again.
+      fixture.componentRef.setInput('budget', BASE);
+      fixture.detectChanges();
+      fixture.componentRef.setInput('budget', {
+        ...BASE,
+        rotation: ROTATION,
+      });
+      fixture.detectChanges();
+      expect(banner(root)).not.toBeNull();
+    });
+
+    it.each(['handoff', 'limit'] as const)(
+      'is hidden under the %s stage (N8 banner wins)',
+      (stage) => {
+        const root = render({
+          ...BASE,
+          stage,
+          handoff: HANDOFF,
+          rotation: ROTATION,
+        });
+
+        expect(text(root, 'session-budget-title')).not.toBe(
+          'This session is getting large',
+        );
+        expect(buttons(root)).not.toContain('Rotate session');
+      },
+    );
+  });
+
   describe('tighten', () => {
     it('advisory (no window): status role, /compact advice, OK only', () => {
       const root = render({ ...BASE, stage: 'tighten' });

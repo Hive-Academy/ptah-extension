@@ -371,6 +371,7 @@ function makeHarness(
     .fn<Promise<boolean>, [string, string?]>()
     .mockResolvedValue(true);
   const requestCanvasTabMock = jest.fn();
+  const requestComposerPrefillMock = jest.fn();
   const appStateStub = {
     currentView: signal('chat'),
     layoutMode: layoutModeSig.asReadonly(),
@@ -381,6 +382,7 @@ function makeHarness(
     }).asReadonly(),
     requestCanvasSession: requestCanvasSessionMock,
     requestCanvasTab: requestCanvasTabMock,
+    requestComposerPrefill: requestComposerPrefillMock,
   } as unknown as AppStateManager;
 
   const treeBuilderStub = {
@@ -510,6 +512,7 @@ function makeHarness(
     createTabMock,
     sendOrQueueMessageMock,
     requestCanvasTabMock,
+    requestComposerPrefillMock,
   };
 }
 
@@ -1927,6 +1930,7 @@ describe('ChatViewComponent — session budget banner wiring (TASK_2026_597 N7)'
     onBudgetAction(a: 'dismiss' | 'extend' | 'restore-window'): Promise<void>;
     onBudgetPreview(): Promise<void>;
     onBudgetContinue(): Promise<void>;
+    onBudgetRotate(): Promise<void>;
   };
 
   function setup(budget: SessionBudgetState | null = BUDGET) {
@@ -2081,6 +2085,55 @@ describe('ChatViewComponent — session budget banner wiring (TASK_2026_597 N7)'
 
     expect(h.createTabMock).not.toHaveBeenCalled();
     expect(h.sendOrQueueMessageMock).not.toHaveBeenCalled();
+  });
+
+  it('rotate previews the handoff and only prefills the new tab composer', async () => {
+    const { h, view } = setup();
+    h.rpcCallMock.mockResolvedValue(
+      rpcOk({
+        success: true,
+        handoff: { content: '# H', path: null, seed: 'ROTATE SEED' },
+      }),
+    );
+
+    await view.onBudgetRotate();
+
+    expect(h.rpcCallMock).toHaveBeenCalledWith('session:budgetAction', {
+      sessionId: SESSION,
+      action: 'preview-handoff',
+    });
+    expect(h.createTabMock).toHaveBeenCalledTimes(1);
+    expect(h.requestComposerPrefillMock).toHaveBeenCalledWith(
+      'ROTATE SEED',
+      null,
+    );
+    expect(h.sendOrQueueMessageMock).not.toHaveBeenCalled();
+  });
+
+  it('rotate in grid layout targets the new tab composer', async () => {
+    const { h, view } = setup();
+    h.layoutModeSig.set('grid');
+    h.rpcCallMock.mockResolvedValue(
+      rpcOk({
+        success: true,
+        handoff: { content: 'c', path: null, seed: 'S' },
+      }),
+    );
+
+    await view.onBudgetRotate();
+
+    expect(h.requestCanvasTabMock).toHaveBeenCalledWith('tab-new', '/ws');
+    expect(h.requestComposerPrefillMock).toHaveBeenCalledWith('S', 'tab-new');
+  });
+
+  it('rotate opens no tab when the handoff has no seed', async () => {
+    const { h, view } = setup();
+    h.rpcCallMock.mockResolvedValue(rpcOk({ success: true }));
+
+    await view.onBudgetRotate();
+
+    expect(h.createTabMock).not.toHaveBeenCalled();
+    expect(h.requestComposerPrefillMock).not.toHaveBeenCalled();
   });
 
   it('does nothing without a budget', async () => {
