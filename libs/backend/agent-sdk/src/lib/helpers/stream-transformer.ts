@@ -213,6 +213,13 @@ export interface StreamTransformConfig {
    */
   onTurnEnd?: () => void;
   /**
+   * Fired once per `compact_boundary` message in THIS stream (the main loop;
+   * subagent streams are dispatched elsewhere), with the effective session id
+   * — the real SDK id once it is known. The session budget counts it toward
+   * its compaction trigger (TASK_2026_597 N7, F8). Must not throw.
+   */
+  onCompactBoundary?: (sessionId: SessionId) => void;
+  /**
    * Passed to callback so frontend can find tab directly without temp ID lookup.
    */
   tabId?: string;
@@ -352,6 +359,7 @@ export class StreamTransformer {
       onSessionIdResolved,
       onResultStats,
       onTurnEnd,
+      onCompactBoundary,
       tabId,
       activityWatchdog,
       runToken,
@@ -794,6 +802,7 @@ export class StreamTransformer {
             }
             if (isCompactBoundary(sdkMessage)) {
               lastTurnContextByModel.clear();
+              onCompactBoundary?.(effectiveSessionId);
             }
 
             if (

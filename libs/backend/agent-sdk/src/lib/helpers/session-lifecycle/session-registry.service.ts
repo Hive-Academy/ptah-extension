@@ -113,6 +113,14 @@ export interface SessionRecord {
    */
   readonly accountingAuthEnv: Readonly<AuthEnv>;
   readonly capacityRoute?: ContextCapacityRoute;
+  /**
+   * A per-session auto-compact window set by the session budget's `tighten`
+   * stage (`SessionControl.applySessionAutoCompactWindow`). While it is a
+   * number, a live `compaction.threshold` re-apply sends it instead of the
+   * configured value, so a settings change does not undo the tighten for this
+   * session. `null` or absent: no override, the configured value applies.
+   */
+  autoCompactOverride?: number | null;
 }
 
 /** Cost authority and pricing context of one query, frozen at creation. */

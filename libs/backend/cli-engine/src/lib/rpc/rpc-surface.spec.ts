@@ -99,6 +99,15 @@ describe('CLI RPC surface', () => {
     );
     expect(surface.excluded).toContain('file:open');
   });
+
+  it.each([['cli'], ['tui']] as const)(
+    '%s serves the session budget banner action (TASK_2026_597 N7)',
+    (host) => {
+      const hostSurface = deriveRpcSurface(createCliRpcHostProfile(host));
+      expect(hostSurface.registered).toContain('session:budgetAction');
+      expect(hostSurface.excluded).not.toContain('session:budgetAction');
+    },
+  );
 });
 
 describe('CLI / TUI host parity', () => {

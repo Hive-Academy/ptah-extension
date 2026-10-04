@@ -17,6 +17,7 @@ import type { McpHttpServerOverride } from './rpc/rpc-chat.types';
 import type { SessionStatsEntry } from './rpc/rpc-session.types';
 import type { PermissionLevel } from './model-autopilot.types';
 import type { ProviderProfile } from './provider-profile.types';
+import type { SessionBudgetState } from './session-budget.types';
 
 /**
  * Callback signatures — mirrored from agent-sdk's SdkAgentAdapter public API.
@@ -76,6 +77,11 @@ export interface ResultStatsPayload {
    * Absent when the backend had no snapshot to publish.
    */
   readonly sessionStats?: SessionStatsEntry;
+  /**
+   * The session's budget state computed from `sessionStats`. Absent = keep
+   * the last state: no figure to evaluate, or no budget service on the host.
+   */
+  readonly budget?: SessionBudgetState;
 }
 
 export type ResultStatsCallback = (stats: ResultStatsPayload) => void;

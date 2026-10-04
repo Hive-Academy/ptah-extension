@@ -12,6 +12,7 @@ import type { TabState } from '@ptah-extension/chat-types';
 import {
   SessionId,
   type ResultStatsPayload,
+  type SessionBudgetState,
   type SessionStatsEntry,
 } from '@ptah-extension/shared';
 import {
@@ -52,6 +53,8 @@ export type SessionStatsResultEvent = Omit<
 export interface SessionStatsSnapshotEvent {
   readonly sessionId: string;
   readonly sessionStats?: SessionStatsEntry;
+  /** Budget computed from `sessionStats`; installed with it, never alone. */
+  readonly budget?: SessionBudgetState;
   readonly turnCost?: undefined;
   readonly tokens?: undefined;
   readonly duration?: undefined;
@@ -133,7 +136,7 @@ export class SessionStatsAggregatorService {
         this.recordSurfaceStats(stats, snapshot);
       } else if (snapshot) {
         for (const t of targetTabs) {
-          this.tabManager.installSessionStats(t.id, snapshot);
+          this.tabManager.installSessionStats(t.id, snapshot, stats.budget);
         }
       }
       return;
@@ -153,7 +156,7 @@ export class SessionStatsAggregatorService {
     }
     if (snapshot) {
       for (const t of targetTabs) {
-        this.tabManager.installSessionStats(t.id, snapshot);
+        this.tabManager.installSessionStats(t.id, snapshot, stats.budget);
       }
     }
     if (stats.modelUsage && stats.modelUsage.length > 0) {

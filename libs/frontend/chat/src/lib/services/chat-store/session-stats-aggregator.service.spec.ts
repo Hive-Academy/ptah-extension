@@ -33,7 +33,11 @@ import { SessionLoaderService } from './session-loader.service';
 import { CompactionLifecycleService } from './compaction-lifecycle.service';
 import { MessageDispatchService } from './message-dispatch.service';
 import type { TabState } from '@ptah-extension/chat-types';
-import { SessionId, type SessionStatsEntry } from '@ptah-extension/shared';
+import {
+  SessionId,
+  type SessionBudgetState,
+  type SessionStatsEntry,
+} from '@ptah-extension/shared';
 
 // Production `SessionStatsAggregatorService.handleSessionStats` validates the
 // inbound sessionId via `SessionId.from()` (UUID v4). Mint stable ids per run.
@@ -580,6 +584,7 @@ describe('SessionStatsAggregatorService', () => {
       expect(installSessionStatsMock).toHaveBeenCalledWith(
         'tab-1',
         sessionStats,
+        undefined,
       );
       expect(streamHandleStatsMock).not.toHaveBeenCalled();
       expect(clearCompactionStateMock).not.toHaveBeenCalled();
@@ -719,6 +724,7 @@ describe('SessionStatsAggregatorService', () => {
       expect(installSessionStatsMock).toHaveBeenLastCalledWith(
         'tab-1',
         sessionStats,
+        undefined,
       );
       expect(streamHandleStatsMock).not.toHaveBeenCalled();
     });
@@ -869,6 +875,7 @@ describe('SessionStatsAggregatorService', () => {
       expect(installSessionStatsMock).toHaveBeenCalledWith(
         'tab-1',
         sessionStats,
+        undefined,
       );
     });
   });
@@ -965,6 +972,59 @@ describe('SessionStatsAggregatorService', () => {
   // Stop-observed guard inside StreamingHandlerService.handleSessionStats
   // (see streaming-handler.service.spec.ts → "Stop-observed guard"
   // describe block).
+  // TASK_2026_597 N7: the budget rides the same broadcast as its snapshot and
+  // is handed to the tab manager in the same install call, never on its own.
+  describe('session budget', () => {
+    const budget: SessionBudgetState = {
+      sessionId: SESS_1,
+      stage: 'limit',
+      unit: 'tokens',
+      measure: 'tokens',
+      used: 50_000_000,
+      limit: 50_000_000,
+      percent: 100,
+      lowerBound: false,
+      revision: 7,
+      compactions: 0,
+      extensions: 0,
+      blocked: true,
+    };
+
+    it('installs the budget with the snapshot of a turn result', () => {
+      const sessionStats = makeSnapshot(SESS_1, 7, 3);
+
+      service.handleSessionStats({ ...baseStats, sessionStats, budget });
+
+      expect(installSessionStatsMock.mock.calls).toEqual([
+        ['tab-1', sessionStats, budget],
+      ]);
+    });
+
+    it('installs the budget with the snapshot of a snapshot-only payload', () => {
+      const sessionStats = makeSnapshot(SESS_1, 7, 3);
+
+      service.handleSessionStats({ sessionId: SESS_1, sessionStats, budget });
+
+      expect(installSessionStatsMock.mock.calls).toEqual([
+        ['tab-1', sessionStats, budget],
+      ]);
+    });
+
+    it('never installs a budget whose snapshot is missing or rejected', () => {
+      service.handleSessionStats({ ...baseStats, budget });
+      service.handleSessionStats({
+        ...baseStats,
+        sessionStats: {
+          ...makeSnapshot(SESS_1, 8, 1),
+          sessionId: SESS_UNKNOWN,
+        },
+        budget,
+      });
+
+      expect(installSessionStatsMock).not.toHaveBeenCalled();
+    });
+  });
+
   describe('Phase 2 Batch 4 — SESSION_STATS demotion', () => {
     it('SESSION_STATS arriving AFTER Stop installs the snapshot and delegates to streamingHandler (no aggregator-side status mutation)', () => {
       tabs = [

@@ -40,4 +40,8 @@ describe('Electron RPC surface', () => {
       [...RPC_METHOD_NAMES].sort(),
     );
   });
+
+  it('serves the session budget banner action (TASK_2026_597 N7)', () => {
+    expect(surface.registered).toContain('session:budgetAction');
+  });
 });

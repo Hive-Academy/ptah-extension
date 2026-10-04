@@ -31,6 +31,7 @@ import {
   type ICapabilityResolver,
   type McpHttpServerOverride,
   type PermissionLevel,
+  type SessionBudgetWindow,
 } from '@ptah-extension/shared';
 import { SDK_TOKENS } from '../di/tokens';
 import { AUTH_PROVIDERS_TOKENS } from '@ptah-extension/auth-providers-tokens';
@@ -70,6 +71,15 @@ export type {
 } from './session-lifecycle/session-registry.service';
 
 /**
+ * The part of the SDK's `SDKControlGetContextUsageResponse` Ptah reads.
+ * `autoCompactThreshold` is optional in the SDK type as well.
+ */
+export interface ContextUsageReadBack {
+  readonly autoCompactThreshold?: number;
+  readonly isAutoCompactEnabled: boolean;
+}
+
+/**
  * Query interface - matches SDK's Query runtime structure
  * Properly typed with SDKMessage instead of any
  */
@@ -94,6 +104,17 @@ export interface Query {
     effortLevel?: FlagEffortLevel;
     autoCompactWindow?: number | null;
   }): Promise<void>;
+  /**
+   * Current context usage, as the runtime computes it. Mirrors the SDK's
+   * `Query.getContextUsage` (`sdk.d.ts:2852`) narrowed to the fields Ptah
+   * reads from `SDKControlGetContextUsageResponse` (`sdk.d.ts:3739-3808`).
+   * `autoCompactThreshold` is the read-back that proves a per-session window
+   * change took effect (see `SessionControl.applySessionAutoCompactWindow`).
+   *
+   * OPTIONAL so query fakes without it keep compiling; a caller treats a
+   * query without it as unable to verify.
+   */
+  getContextUsage?(): Promise<ContextUsageReadBack>;
   /** Stream input messages to the query */
   streamInput(stream: AsyncIterable<SDKUserMessage>): Promise<void>;
   /**
@@ -378,6 +399,7 @@ export class SessionLifecycleManager {
       this.capabilityResolver,
       this.harnessPolicySync,
     );
+    const compactionProvider = this.compactionConfigProvider;
     this._control = new SessionControl(
       this.logger,
       this._registry,
@@ -385,6 +407,7 @@ export class SessionLifecycleManager {
       this.subagentRegistry,
       this.modelResolver,
       this.sessionEndRegistry,
+      compactionProvider ? () => compactionProvider.getConfig() : null,
     );
     this._registry.startEvictionSweep();
     this.watchCompactionThreshold();
@@ -701,5 +724,17 @@ export class SessionLifecycleManager {
     effort: EffortLevel | undefined,
   ): Promise<void> {
     return this._control.setSessionEffort(sessionId, effort);
+  }
+
+  /**
+   * Lower one session's auto-compact window (`window`), or restore it
+   * (`null`), and report whether the runtime honoured it. See
+   * `SessionControl.applySessionAutoCompactWindow`.
+   */
+  async applySessionAutoCompactWindow(
+    sessionId: SessionId,
+    window: number | null,
+  ): Promise<SessionBudgetWindow | undefined> {
+    return this._control.applySessionAutoCompactWindow(sessionId, window);
   }
 }

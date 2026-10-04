@@ -129,3 +129,24 @@ describe('wizard:get-resumable-run registration (TASK_2026_361)', () => {
     expect(ALLOWED_METHOD_PREFIXES).toContain('wizard:');
   });
 });
+
+describe('session:budgetAction registration (TASK_2026_597 N7)', () => {
+  // Same dual-registration spelled out for the session budget banner method:
+  // shared registry, one manifest owner served on every host, and the
+  // existing `session:` runtime prefix.
+  it('is in the shared RPC registry', () => {
+    expect(RPC_METHOD_NAMES).toContain('session:budgetAction');
+  });
+
+  it('is owned by the sessionBudget manifest entry alone, on every host', () => {
+    const owners = RPC_HANDLER_MANIFEST.filter((entry) =>
+      (entry.methods as readonly string[]).includes('session:budgetAction'),
+    );
+    expect(owners.map((entry) => entry.key)).toEqual(['sessionBudget']);
+    expect(owners[0].requires).toEqual([]);
+  });
+
+  it('is accepted by the existing `session:` runtime prefix', () => {
+    expect(ALLOWED_METHOD_PREFIXES).toContain('session:');
+  });
+});
