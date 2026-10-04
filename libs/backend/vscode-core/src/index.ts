@@ -1,4 +1,4 @@
-export { TOKENS } from './di/tokens';
+export { TOKENS, type HostKind } from './di/tokens';
 export { registerVsCodeCoreServices } from './di';
 export { registerVsCodeCorePlatformAgnostic } from './di/register-platform-agnostic';
 export type { PlatformAgnosticRegistrationOptions } from './di/register-platform-agnostic';

@@ -14,7 +14,7 @@
 
 import { injectable, inject } from 'tsyringe';
 import { randomUUID } from 'node:crypto';
-import { Logger, TOKENS } from '@ptah-extension/vscode-core';
+import { Logger, TOKENS, type HostKind } from '@ptah-extension/vscode-core';
 import { MemoryPromptInjector } from './memory-prompt-injector';
 import { CodeSymbolPromptInjector } from './code-symbol-prompt-injector';
 import { redactMcpUrl, redactMcpOverrideMap } from './redact-mcp-url';
@@ -101,7 +101,7 @@ import {
   OPENROUTER_PROXY_TOKEN_PLACEHOLDER,
   OLLAMA_AUTH_TOKEN_PLACEHOLDER,
 } from '@ptah-extension/shared';
-import { PTAH_CORE_SYSTEM_PROMPT } from '../prompt-harness';
+import { PTAH_CORE_SYSTEM_PROMPT, PTAH_UI_HINT } from '../prompt-harness';
 import { PTAH_MCP_PORT, PTAH_DISABLE_SDK_AUTO_MEMORY } from '../constants';
 
 /**
@@ -259,6 +259,8 @@ export interface AssembleSystemPromptInput {
   enhancedPromptsContent?: string;
   /** Selected preset: 'claude_code', 'enhanced', or undefined for auto-select */
   preset?: string;
+  /** Whether this session may receive the ptah-ui authoring hint. */
+  ptahUiHint?: boolean;
 }
 
 /**
@@ -308,6 +310,9 @@ export function assembleSystemPrompt(
     appendParts.push(identityPrompt);
   }
   appendParts.push(PTAH_CORE_SYSTEM_PROMPT);
+  if (input.ptahUiHint === true) {
+    appendParts.push(PTAH_UI_HINT);
+  }
   if (userSystemPrompt) {
     appendParts.push(userSystemPrompt);
   }
@@ -949,6 +954,8 @@ export class SdkQueryOptionsBuilder {
       isOptional: true,
     })
     private readonly mcpBackoffService?: McpServerBackoffService,
+    @inject(TOKENS.HOST_KIND, { isOptional: true })
+    private readonly hostKind?: HostKind,
   ) {}
 
   /**
@@ -1700,6 +1707,10 @@ export class SdkQueryOptionsBuilder {
       // Set only on the `inject` branch of ActivationDecision; the `flag`
       // branch travels on options.settings instead (see buildFlagSettings).
       outputStyleBody: sessionConfig?.outputStyleBody,
+      ptahUiHint:
+        this.hostKind === 'electron' &&
+        (sessionConfig?.mcpToolProfile ?? 'coding') === 'coding' &&
+        sessionConfig?.ptahUiFence === true,
     });
     let sessionStartBlock = '';
     if (cwd) {
