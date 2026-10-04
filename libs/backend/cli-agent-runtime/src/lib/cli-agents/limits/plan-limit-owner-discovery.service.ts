@@ -25,14 +25,22 @@
  * 5. **Ledger-only owners**: the view's `ownerKeys` (runs that recorded an
  *    owner), then owners with active evidence. Each is listed only when no
  *    live source above named it, from ledger evidence alone, with no read —
- *    so an old account is never read as, or shown as, the current one.
+ *    so an old account is never read as, or shown as, the current one. The
+ *    status is the one `planOwnerRead` already knows for that owner (an
+ *    Anthropic API key stays `unsupported-auth`); `service-unavailable` only
+ *    when the owner would need a live read.
  *
  * Owner keys come from `ProviderOwnerResolver` at call time, so a changed
  * account is a new key and a new target (Decision 10). The list is
- * deduplicated by owner key; the first source to name an owner wins.
+ * deduplicated by owner key; the first source in the order above to name an
+ * owner wins.
  *
- * A source that throws is dropped, logged at debug; the others still return.
- * `discoverTargets` never rejects.
+ * ## Deadline
+ *
+ * The sources run together, each bounded by the shared lookup deadline
+ * (`LIMIT_LOOKUP_DEADLINE_MS`), so one call takes at most that long. A source
+ * that throws or misses the deadline is dropped alone, logged at debug; the
+ * others still return. `discoverTargets` never rejects.
  */
 import { inject, injectable } from 'tsyringe';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
@@ -55,6 +63,7 @@ import {
 } from '@ptah-extension/auth-providers';
 import {
   ANTHROPIC_DIRECT_PROVIDER_ID,
+  LIMIT_LOOKUP_DEADLINE_MS,
   getAllAnthropicProviders,
   type AnthropicProvider,
   type CliDetectionResult,
@@ -138,6 +147,8 @@ const STORED_KEY_PROVIDERS: ReadonlySet<string> = new Set([
   'opencode-zen',
 ]);
 const CLI_STORE_CLIS = ['opencode', 'antigravity'] as const;
+/** What a source's deadline resolves with. */
+const TIMED_OUT: unique symbol = Symbol('plan-owner-source-timed-out');
 
 @injectable()
 export class PlanLimitOwnerDiscoveryService {
@@ -171,29 +182,34 @@ export class PlanLimitOwnerDiscoveryService {
       }
     };
 
+    // Every source starts now and races its own copy of the same deadline;
+    // results are added in source order, so precedence does not depend on
+    // which source settles first.
     const detected = this.fromSource('detection', () =>
       this.detection.detectAll(),
     );
-    add([
-      await this.fromSource('selected-provider', () =>
-        this.selectedProvider(request.selectedProviderId, sessionIds),
+    const sources: Array<
+      Promise<ReadonlyArray<DiscoveredPlanOwner | undefined> | undefined>
+    > = [
+      this.fromSource('selected-provider', async () => [
+        await this.selectedProvider(request.selectedProviderId, sessionIds),
+      ]),
+      this.fromSource('cli-store', async () =>
+        this.cliStores((await detected) ?? []),
       ),
-    ]);
-    add((await this.fromSource('cli-store', async () =>
-      this.cliStores((await detected) ?? []),
-    )) ?? []);
-    add((await this.fromSource('session', () => this.sessions(sessionIds))) ??
-      []);
-    add((await this.fromSource('lane', async () =>
-      this.detectedLanes((await detected) ?? []),
-    )) ?? []);
-    add((await this.fromSource('ptah-cli', () => this.ptahCliLanes())) ?? []);
-    add((await this.fromSource('owner-key', async () =>
-      this.ledgerOnly(parseOwnerKeys(request.ownerKeys ?? []), 'owner-key'),
-    )) ?? []);
-    add((await this.fromSource('active-evidence', async () =>
-      this.ledgerOnly(this.ledger.knownOwners(), 'active-evidence'),
-    )) ?? []);
+      this.fromSource('session', () => this.sessions(sessionIds)),
+      this.fromSource('lane', async () =>
+        this.detectedLanes((await detected) ?? []),
+      ),
+      this.fromSource('ptah-cli', () => this.ptahCliLanes()),
+      this.fromSource('owner-key', async () =>
+        this.ledgerOnly(parseOwnerKeys(request.ownerKeys ?? []), 'owner-key'),
+      ),
+      this.fromSource('active-evidence', async () =>
+        this.ledgerOnly(this.ledger.knownOwners(), 'active-evidence'),
+      ),
+    ];
+    for (const entries of await Promise.all(sources)) add(entries ?? []);
     return [...listed.values()];
   }
 
@@ -295,19 +311,29 @@ export class PlanLimitOwnerDiscoveryService {
     );
   }
 
-  /** Known, in-scope owners from ledger evidence alone, never read. */
+  /**
+   * Known, in-scope owners from ledger evidence alone, never read. An owner
+   * whose status `planOwnerRead` already knows keeps it (and its reason);
+   * one that would need a live read is `service-unavailable`.
+   */
   private ledgerOnly(
     owners: readonly QuotaOwnerRef[],
     origin: PlanOwnerOrigin,
   ): DiscoveredPlanOwner[] {
-    return owners
-      .filter(
-        (owner) =>
-          owner.identityKind !== 'unknown' && planOwnerRead(owner) !== null,
-      )
-      .map((owner) =>
-        this.known(owner, { status: 'service-unavailable' }, origin),
+    const entries: DiscoveredPlanOwner[] = [];
+    for (const owner of owners) {
+      if (owner.identityKind === 'unknown') continue;
+      const plan = planOwnerRead(owner);
+      if (!plan) continue;
+      entries.push(
+        this.known(
+          owner,
+          plan.kind === 'known' ? plan : { status: 'service-unavailable' },
+          origin,
+        ),
       );
+    }
+    return entries;
   }
 
   // ------------------------------------------------------------ helpers
@@ -399,13 +425,29 @@ export class PlanLimitOwnerDiscoveryService {
     };
   }
 
-  /** `read()`, or `undefined` when it throws; the other sources go on. */
+  /**
+   * `read()`, or `undefined` when it throws or misses the lookup deadline;
+   * the other sources go on. A late read cannot be cancelled, but its
+   * result is ignored and its timer is released either way.
+   */
   private async fromSource<T>(
     source: string,
     read: () => Promise<T>,
   ): Promise<T | undefined> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const deadline = new Promise<typeof TIMED_OUT>((resolve) => {
+      timer = setTimeout(() => resolve(TIMED_OUT), LIMIT_LOOKUP_DEADLINE_MS);
+      timer.unref?.();
+    });
     try {
-      return await read();
+      const result = await Promise.race([read(), deadline]);
+      if (result === TIMED_OUT) {
+        this.logger.debug('[PlanLimitOwnerDiscovery] source timed out', {
+          source,
+        });
+        return undefined;
+      }
+      return result;
     } catch (error: unknown) {
       // Only the failure kind: a detection, registry or secret-store error
       // may quote a path or a stored value.
@@ -414,6 +456,8 @@ export class PlanLimitOwnerDiscoveryService {
         errorName: error instanceof Error ? error.name : typeof error,
       });
       return undefined;
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
     }
   }
 }

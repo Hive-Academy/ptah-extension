@@ -16,10 +16,11 @@ import {
   type ActiveAuth,
   type PlanCredentialResolution,
 } from '@ptah-extension/auth-providers';
-import type {
-  CliDetectionResult,
-  PtahCliSummary,
-  QuotaOwnerRef,
+import {
+  LIMIT_LOOKUP_DEADLINE_MS,
+  type CliDetectionResult,
+  type PtahCliSummary,
+  type QuotaOwnerRef,
 } from '@ptah-extension/shared';
 import {
   PlanLimitOwnerDiscoveryService,
@@ -360,8 +361,107 @@ describe('PlanLimitOwnerDiscoveryService', () => {
         windows: [],
         ownerEvidence: [{ observedAt: 1, source: 'stream-event' }],
         cooldown,
+        // A Claude account without its session: the status planOwnerRead knows.
+        unavailableReason: 'no-open-session',
       },
     });
+  });
+
+  it('a ledger-only owner needing a live read is plain service-unavailable', async () => {
+    const h = createHarness(THIRD_PARTY('openrouter'));
+
+    const entries = await h.service.discoverTargets({
+      ownerKeys: [OPENCODE.key],
+    });
+
+    const entry = entries.find((e) => ownerKeyOf(e) === OPENCODE.key);
+    expect(entry?.kind).toBe('known');
+    if (entry?.kind !== 'known') return;
+    expect(entry.origin).toBe('owner-key');
+    expect(entry.snapshot.status).toBe('service-unavailable');
+    expect(entry.snapshot).not.toHaveProperty('unavailableReason');
+  });
+
+  it('a ledger-only Anthropic API-key owner keeps unsupported-auth, with no windows', async () => {
+    const h = createHarness(THIRD_PARTY('openrouter'));
+    h.ledger.snapshotFor.mockImplementation((key: string) =>
+      key === CLAUDE_KEY.key
+        ? {
+            owner: CLAUDE_KEY,
+            windows: [
+              {
+                key: 'five_hour',
+                kind: 'five_hour',
+                label: '5-hour',
+                observedAt: 1,
+              },
+            ],
+            ownerEvidence: [],
+          }
+        : undefined,
+    );
+    h.ledger.knownOwners.mockReturnValue([CLAUDE_KEY]);
+
+    const fromKeys = await h.service.discoverTargets({
+      ownerKeys: [CLAUDE_KEY.key],
+    });
+    const fromEvidence = await h.service.discoverTargets({});
+
+    for (const [entries, origin] of [
+      [fromKeys, 'owner-key'],
+      [fromEvidence, 'active-evidence'],
+    ] as const) {
+      const entry = entries.find((e) => ownerKeyOf(e) === CLAUDE_KEY.key);
+      expect(entry).toEqual({
+        kind: 'known',
+        origin,
+        snapshot: expect.objectContaining({
+          status: 'unsupported-auth',
+          windows: [],
+        }),
+      });
+    }
+  });
+
+  it('a source that never settles is dropped alone at the lookup deadline, timers released', async () => {
+    jest.useFakeTimers();
+    try {
+      const h = createHarness(THIRD_PARTY('openai-codex'));
+      h.detection.detectAll.mockResolvedValue(detected('opencode'));
+      h.agents.listAgents.mockImplementation(
+        () => new Promise<PtahCliSummary[]>(() => undefined),
+      );
+
+      let settled = false;
+      const pending = h.service
+        .discoverTargets({ ownerKeys: [CLAUDE_KEY.key] })
+        .then((entries) => {
+          settled = true;
+          return entries;
+        });
+      for (let i = 0; i < 20; i++) await Promise.resolve();
+      jest.advanceTimersByTime(LIMIT_LOOKUP_DEADLINE_MS - 1);
+      for (let i = 0; i < 20; i++) await Promise.resolve();
+      expect(settled).toBe(false);
+
+      jest.advanceTimersByTime(1);
+      const entries = await pending;
+
+      expect(entries.map(ownerKeyOf)).toEqual([
+        CODEX_A.key,
+        OPENCODE.key,
+        CLAUDE_KEY.key,
+      ]);
+      const timedOut = h.logger.debug.mock.calls.filter(
+        ([message]) => message === '[PlanLimitOwnerDiscovery] source timed out',
+      );
+      expect(timedOut).toEqual([
+        ['[PlanLimitOwnerDiscovery] source timed out', { source: 'ptah-cli' }],
+      ]);
+      expect(jest.getTimerCount()).toBe(0);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('lists owners with active evidence, skipping unknown owners and providers outside the scope', async () => {
