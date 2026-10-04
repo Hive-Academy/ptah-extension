@@ -3099,7 +3099,7 @@ When Batch 28 is scheduled, its decomposition adds these parts. Task 28.2 stays 
 
 ---
 
-## Batch 51: N7 settings keys and their reader — IN_PROGRESS (PR 3, decision 13)
+## Batch 51: N7 settings keys and their reader — COMPLETE (PR 3, decision 13; report batch-51-executor-report.md)
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer re-run
