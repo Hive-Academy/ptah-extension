@@ -3555,7 +3555,7 @@ When Batch 28 is scheduled, its decomposition adds these parts. Task 28.2 stays 
 
 ---
 
-## Batch 61: N7 budget settings card — IN_PROGRESS (PR 3, decision 13)
+## Batch 61: N7 budget settings card — COMPLETE (PR 3, decision 13; report batch-61-executor-report.md)
 
 - Recommended executor: frontend-developer
 - Fallback executor: frontend-developer re-run

@@ -18,6 +18,7 @@ import {
 import { AgentOrchestrationConfigComponent } from './agent-orchestration-config.component';
 import { CliOrchestrationMatrixComponent } from './cli-orchestration-matrix.component';
 import { SubagentCacheTtlSettingComponent } from './subagent-cache-ttl-setting.component';
+import { SessionBudgetSettingsComponent } from './session-budget-settings.component';
 import { ProviderConsumerAssignmentsComponent } from '../providers/provider-consumer-assignments.component';
 import type { BackgroundConsumerId } from '../providers/provider-consumer-rows';
 
@@ -61,6 +62,7 @@ const FOCUS =
     CliOrchestrationMatrixComponent,
     ProviderConsumerAssignmentsComponent,
     SubagentCacheTtlSettingComponent,
+    SessionBudgetSettingsComponent,
   ],
   template: `
     <div class="space-y-2.5 font-sans text-sm text-base-content">
@@ -74,6 +76,17 @@ const FOCUS =
           class="min-h-[22rem] rounded-xl border border-base-300 bg-base-200/40"
           aria-busy="true"
           data-testid="cli-matrix-placeholder"
+        ></div>
+      }
+
+      <!-- Session budget (TASK_2026_597 N7): its own chunk, loaded when scrolled into view. -->
+      @defer (on viewport) {
+        <ptah-session-budget-settings />
+      } @placeholder {
+        <div
+          class="min-h-[30rem] rounded-xl border border-base-300 bg-base-200/40"
+          aria-busy="true"
+          data-testid="session-budget-placeholder"
         ></div>
       }
 

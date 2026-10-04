@@ -21,6 +21,7 @@ import { OrchestrationSettingsComponent } from './orchestration-settings.compone
 import { AgentOrchestrationConfigComponent } from './agent-orchestration-config.component';
 import { CliOrchestrationMatrixComponent } from './cli-orchestration-matrix.component';
 import { SubagentCacheTtlSettingComponent } from './subagent-cache-ttl-setting.component';
+import { SessionBudgetSettingsComponent } from './session-budget-settings.component';
 import { ProviderConsumerAssignmentsComponent } from '../providers/provider-consumer-assignments.component';
 import type { BackgroundConsumerId } from '../providers/provider-consumer-rows';
 
@@ -68,6 +69,14 @@ class CliMatrixStub {}
   template: '<section data-testid="subagent-cache-ttl-setting">TTL</section>',
 })
 class SubagentCacheTtlStub {}
+
+@Component({
+  selector: 'ptah-session-budget-settings',
+  standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  template: '<section data-testid="session-budget-settings">Budget</section>',
+})
+class SessionBudgetStub {}
 
 const ready = <T>(data: T): ProvidersSettingsSection<T> => ({
   status: 'ready',
@@ -132,6 +141,7 @@ describe('OrchestrationSettingsComponent', () => {
             ProviderConsumerAssignmentsComponent,
             CliOrchestrationMatrixComponent,
             SubagentCacheTtlSettingComponent,
+            SessionBudgetSettingsComponent,
           ],
         },
         add: {
@@ -140,6 +150,7 @@ describe('OrchestrationSettingsComponent', () => {
             ConsumerStub,
             CliMatrixStub,
             SubagentCacheTtlStub,
+            SessionBudgetStub,
           ],
         },
       })
@@ -212,6 +223,31 @@ describe('OrchestrationSettingsComponent', () => {
       Node.DOCUMENT_POSITION_FOLLOWING,
     );
     expect(ttl()?.compareDocumentPosition(rolesDetails() as Node)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+  });
+
+  it('defers the session budget card in its own block, between the CLI matrix and the subagent cache TTL card', async () => {
+    await render();
+    const budget = () =>
+      element.querySelector('[data-testid="session-budget-settings"]');
+    const blocks = await fixture.getDeferBlocks();
+    expect(blocks).toHaveLength(3);
+    const block = blocks[1];
+    await block.render(DeferBlockState.Placeholder);
+    expect(
+      element.querySelector('[data-testid="session-budget-placeholder"]'),
+    ).not.toBeNull();
+    expect(budget()).toBeNull();
+    await block.render(DeferBlockState.Complete);
+    await blocks[2].render(DeferBlockState.Complete);
+    const ttl = element.querySelector(
+      '[data-testid="subagent-cache-ttl-setting"]',
+    );
+    expect(matrixTable()?.compareDocumentPosition(budget() as Node)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+    expect(budget()?.compareDocumentPosition(ttl as Node)).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
     );
   });
