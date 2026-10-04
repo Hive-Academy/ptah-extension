@@ -35,7 +35,7 @@ import type {
 } from '../types';
 import { AgentToolDispatcher } from '../mcp-stdio/agent-tool.dispatcher';
 import type { AgentLimit } from './agent-limit.formatter';
-import { formatAgentSpawn } from './mcp-response-formatter';
+import { formatAgentList, formatAgentSpawn } from './mcp-response-formatter';
 import {
   handleMCPRequest,
   type ProtocolHandlerDependencies,
@@ -328,5 +328,85 @@ describe('ptah_agent_spawn generic failure', () => {
     const { text } = await overStdio(h, { task: 'Review', cli: 'codex' });
 
     expect(text).toBe('agent_spawn failed: no slot');
+  });
+});
+
+/**
+ * `ptah_agent_list` holds the same enrichment-only invariant as spawn: a
+ * throwing `agent.limits` leaves the list text exactly as it is without a
+ * lookup (review phase 5, finding 2).
+ */
+describe('ptah_agent_list when the limit lookup throws', () => {
+  const ROLES = ['reviewer'];
+
+  function listHarness(limits: AgentNamespace['limits']): PtahAPI {
+    const agent: Pick<AgentNamespace, 'list' | 'listRoles' | 'limits'> = {
+      list: async () => [CODEX_ROW, GLM_ROW],
+      listRoles: async () => ROLES,
+      limits,
+    };
+    return { agent: agent as AgentNamespace } as PtahAPI;
+  }
+
+  async function listOverHttp(ptahAPI: PtahAPI) {
+    const deps: ProtocolHandlerDependencies = {
+      ptahAPI,
+      permissionPromptService:
+        {} as ProtocolHandlerDependencies['permissionPromptService'],
+      logger: quietLogger(),
+    };
+    return resultText(
+      await handleMCPRequest(
+        {
+          jsonrpc: '2.0',
+          id: 'list',
+          method: 'tools/call',
+          params: { name: 'ptah_agent_list', arguments: {} },
+        },
+        deps,
+      ),
+    );
+  }
+
+  async function listOverStdio(ptahAPI: PtahAPI) {
+    const dispatcher = new AgentToolDispatcher(ptahAPI, quietLogger());
+    return resultText(
+      await dispatcher.dispatch(
+        'agent_list',
+        { jsonrpc: '2.0', id: 'list', method: 'tools/call' },
+        {},
+      ),
+    );
+  }
+
+  const throwing: ReadonlyArray<[string, AgentNamespace['limits']]> = [
+    [
+      'rejects',
+      async () => {
+        throw new Error('lookup down');
+      },
+    ],
+    [
+      'throws synchronously',
+      () => {
+        throw new Error('lookup down');
+      },
+    ],
+  ];
+
+  describe.each([
+    ['protocol', listOverHttp],
+    ['stdio', listOverStdio],
+  ] as const)('over %s', (_name, call) => {
+    it.each(throwing)(
+      'keeps the list text unchanged when the lookup %s',
+      async (_how, limits) => {
+        const { text, isError } = await call(listHarness(limits));
+
+        expect(isError).toBe(false);
+        expect(text).toBe(formatAgentList([CODEX_ROW, GLM_ROW], ROLES));
+        expect(text).not.toContain('Limit state');
+      },
+    );
   });
 });

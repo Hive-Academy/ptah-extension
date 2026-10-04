@@ -1780,7 +1780,8 @@ function agentListRow(agent: CliDetectionResult): Record<string, string> {
  * Without `limits` the output is the pre-plan-limits text, byte for byte.
  * With `limits` a `Limit state` column is appended last, and the
  * `### Plan limits` and `### Alternatives by limit state` sections follow the
- * workspace roles line (design §5.1).
+ * workspace roles line (design §5.1); an empty roster gets only the
+ * alternatives section.
  */
 export function formatAgentList(
   agents: CliDetectionResult[],
@@ -1824,6 +1825,11 @@ export function formatAgentList(
       ]);
     }
     if (limits === undefined) return listed;
+    // An empty roster has no lanes to tabulate: §5.1 lists only the
+    // alternatives section after the roles line.
+    if (agents.length === 0) {
+      return `${listed}\n\n${formatAlternatives(limits)}`;
+    }
     return `${listed}\n\n${formatPlanLimitsSection(limits)}\n\n${formatAlternatives(limits)}`;
   } catch {
     return fallbackJson(agents);

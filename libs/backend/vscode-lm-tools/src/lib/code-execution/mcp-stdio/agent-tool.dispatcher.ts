@@ -30,6 +30,7 @@
 import { z } from 'zod';
 import type { IOutputChannel } from '@ptah-extension/platform-core';
 import type { Logger } from '@ptah-extension/vscode-core';
+import type { CliDetectionResult } from '@ptah-extension/shared';
 import type {
   MCPRequest,
   MCPResponse,
@@ -234,13 +235,16 @@ export class AgentToolDispatcher {
   }
 
   /**
-   * Lane limits for the spawn text, read only after `agent.spawn` settled.
-   * Enrichment only: any failure yields `undefined`, never a changed outcome.
+   * Lane limits for the agent tool text: for `rows` when given (the list
+   * tool), else for a fresh roster (the spawn tool, after `agent.spawn`
+   * settled). Enrichment only: any failure yields `undefined`, never a
+   * changed outcome.
    */
-  private async lookupAgentLimits() {
+  private async lookupAgentLimits(rows?: readonly CliDetectionResult[]) {
     try {
-      const rows = await this.ptahAPI.agent.list();
-      return await this.ptahAPI.agent.limits?.(rows);
+      return await this.ptahAPI.agent.limits?.(
+        rows ?? (await this.ptahAPI.agent.list()),
+      );
     } catch {
       return undefined;
     }
@@ -711,7 +715,7 @@ export class AgentToolDispatcher {
     }
     try {
       const agents = await this.ptahAPI.agent.list();
-      const limits = await this.ptahAPI.agent.limits?.(agents);
+      const limits = await this.lookupAgentLimits(agents);
       const roles = await this.listRolesOrEmpty();
       return await this.toolSuccess(
         request,

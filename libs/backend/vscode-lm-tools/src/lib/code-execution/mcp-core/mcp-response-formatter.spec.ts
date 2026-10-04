@@ -1905,6 +1905,25 @@ describe('mcp-response-formatter › agent namespace', () => {
     expect(out).toMatch(/No agents found/);
   });
 
+  it('formatAgentList keeps an empty roster to the design §5.1 text, with and without limits', () => {
+    const roles = ['reviewer'];
+    const withoutLimits = formatAgentList([], roles);
+    expect(withoutLimits).toMatch(/No agents found/);
+    expect(withoutLimits).not.toContain('### Plan limits');
+    expect(withoutLimits).not.toContain('### Alternatives by limit state');
+
+    expect(formatAgentList([], roles, [])).toBe(
+      [
+        withoutLimits,
+        '### Alternatives by limit state\nNo lanes are available to list. This does not mean any lane is at its limit.',
+        '**Confirmed room:** none',
+        '**Near limit:** none',
+        '**Unknown:** none',
+        '**At limit:** none',
+      ].join('\n\n'),
+    );
+  });
+
   it('formatAgentSpawn includes model tier when provided', () => {
     const result = {
       agentId: 'agent-42',

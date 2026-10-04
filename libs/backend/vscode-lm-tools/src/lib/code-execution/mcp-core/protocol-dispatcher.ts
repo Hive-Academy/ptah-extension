@@ -20,7 +20,11 @@ import {
   type IWorkspaceProvider,
   type LanguageCoverage,
 } from '@ptah-extension/platform-core';
-import type { McpInstallTarget, McpServerConfig } from '@ptah-extension/shared';
+import type {
+  CliDetectionResult,
+  McpInstallTarget,
+  McpServerConfig,
+} from '@ptah-extension/shared';
 import { formatAstAnalysisResult } from '@ptah-extension/workspace-intelligence';
 import {
   countTokensPiecewise,
@@ -208,13 +212,16 @@ import {
 } from './agent-limit.formatter';
 
 /**
- * Lane limits for the spawn text, read only after `agent.spawn` settled.
+ * Lane limits for the agent tool text: for `rows` when given (the list
+ * tool), else for a fresh roster (the spawn tool, after `agent.spawn` settled).
  * Enrichment only: any failure yields `undefined`, never a changed outcome.
  */
-async function lookupAgentLimits(ptahAPI: PtahAPI) {
+async function lookupAgentLimits(
+  ptahAPI: PtahAPI,
+  rows?: readonly CliDetectionResult[],
+) {
   try {
-    const rows = await ptahAPI.agent.list();
-    return await ptahAPI.agent.limits?.(rows);
+    return await ptahAPI.agent.limits?.(rows ?? (await ptahAPI.agent.list()));
   } catch {
     return undefined;
   }
@@ -1315,7 +1322,7 @@ async function handleIndividualTool(
       case 'ptah_agent_list': {
         logger.info('[MCP] ptah_agent_list called', 'CodeExecutionMCP');
         const agents = await ptahAPI.agent.list();
-        const limits = await ptahAPI.agent.limits?.(agents);
+        const limits = await lookupAgentLimits(ptahAPI, agents);
         let roles: string[] = [];
         try {
           roles = await ptahAPI.agent.listRoles();
