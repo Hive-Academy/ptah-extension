@@ -42,3 +42,17 @@ export {
   PTAH_AGENTS_REGION_END,
   type AgentBody,
 } from './agents-region.utils';
+export { addCliUsage, type CliUsageTotals } from './cli-usage.utils';
+export {
+  FRESHNESS_MS,
+  LIMIT_LOOKUP_DEADLINE_MS,
+  NEAR_LIMIT_PERCENT,
+  normaliseInstant,
+  parseRetryAfterDeadline,
+  resolveClockTimeReset,
+  resolveRelativeReset,
+  supersedes,
+  windowKindFromDuration,
+  type PlanLimitEvidenceStamp,
+  type PlanWindowDescriptor,
+} from './plan-limits';
