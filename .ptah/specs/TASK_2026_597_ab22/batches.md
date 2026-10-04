@@ -3578,3 +3578,17 @@ When Batch 28 is scheduled, its decomposition adds these parts. Task 28.2 stays 
 ### Batch 61 verification
 
 - Card spec green; Batch 61 scoped checks pass; before/after screenshots (dark + light) of Settings → Orchestration at QA
+
+## PR 2 phase-end review (decision 12) — APPROVED
+
+Review: `pr2-phase-end-code-logic-review.md` on `5bb19f9fb..HEAD` (Batches 37-41, 46, 47): 0 Blocking, 0 Serious,
+3 Moderate, 3 Minor. No fix round (lean rule 4: no Moderate can break a lane config or lose data). Named later tasks:
+
+- PR2-M1: `markAllInterrupted` does not stamp `lastActivityAt`, so an aborted foreground subagent that ran longer than
+  the TTL can read cold while its cache is warm (extra tokens, no lost work). Fix with the AS-N2 activity stamping.
+- PR2-M2: subagent usage entries for an id that never gets a record are never evicted (agent monitor store).
+- PR2-M3: the cost estimate can be low when the model has no cache price or the model changes mid-run.
+- Minor items: recorded in the review file only.
+
+QA (not yet run): before/after screenshots (dark + light) for Batches 39 and 47; N1 "after" measurement needs
+`CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL` cleared (user approval).
