@@ -1,0 +1,13 @@
+ .../lib/chat/session/chat-history-read.service.ts  |  68 ++-----
+ .../src/lib/handlers/session-rpc.handlers.spec.ts  | 222 +++++++++++++++++++++
+ .../src/lib/handlers/session-rpc.handlers.ts       | 118 ++++++++++-
+ libs/frontend/canvas/src/lib/canvas.store.spec.ts  |  13 ++
+ .../src/lib/orchestra-canvas.component.spec.ts     | 106 ++++++++--
+ .../canvas/src/lib/orchestra-canvas.component.ts   |  36 +++-
+ .../agent-session-adoption.service.spec.ts         | 130 +++++++++++-
+ .../lib/services/agent-session-adoption.service.ts |  49 ++++-
+ .../chat-store/task-prompt-bridge.service.spec.ts  |  35 +++-
+ .../chat-store/task-prompt-bridge.service.ts       |  10 +-
+ .../src/lib/services/app-state.service.spec.ts     |  38 +++-
+ .../core/src/lib/services/app-state.service.ts     |  77 +++++--
+ 12 files changed, 782 insertions(+), 120 deletions(-)
