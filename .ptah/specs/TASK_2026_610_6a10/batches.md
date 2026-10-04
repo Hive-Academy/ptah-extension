@@ -1,6 +1,6 @@
 # Batches - TASK_2026_610_6a10
 
-Total tasks: 51 (PR A + PR B) + PR C | Batches: 27 active (A 8, B+C 19: B 14, C 5 after the C2 split) + 4 blocked (D) | Complete: 22/27 (A1, A6, A7, A2, A3, A4, A5, B1, B2, B3, B4, B5a, B5b, B6, B8a, B8b, B8c, B9, B10, C1, C2b, C3) | In progress: none | Next: AM ∥ B7, then C2a, C4, BM
+Total tasks: 51 (PR A + PR B) + PR C + 4 Phase A fixes | Batches: 30 active (A 7 + AF1-AF4, B+C 19 incl. the merged final measurement M) + 4 blocked (D) | Complete: 26/30 (A1-A7, AF1, AF2, AF3, AF4, B1, B2, B3, B4, B5a, B5b, B6, B8a, B8b, B8c, B9, B10, C1, C2b, C3) | Verified, commit held: B7 (commits with C2a) | In progress: C2a | Next: Phase A re-review of AF1-AF4; then C2a (+B7 commit), C4, M (final measurement, replaces AM and BM)
 
 Worktree root: `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat` (branch
 `feat/task-610-a2ui-coding-chat`, HEAD = merge-base `f314a4f8a`, verified with `git merge-base`). Every path below is
@@ -323,7 +323,11 @@ Edge cases:
 - Files: CREATE `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\shared\src\lib\types\rpc\host-source-registry.contract.spec.ts`
 - Validation notes: header states a baseline change needs a Gate 2 exception; deep-equality on both arrays
 
-## Batch AM: PR A Electron measurement — PENDING
+## Batch AM: PR A Electron measurement — MERGED INTO M (plan change 2026-10-04)
+
+- Plan change (orchestrator, 2026-10-04): AM and BM merge into one final measurement batch M that runs after C4,
+  with one base build (`f314a4f8a`) measured against the final head. AM no longer gates the Phase A review; the
+  Phase A review ran on A1-A7 and its fix round is AF1-AF4 below. The AM.1 content moves into M.
 
 - Recommended executor: codex lane | Fallback: devops-engineer subagent | Mode: sequential
 - Tasks: 1 | Depends on: A1-A7 | Parallel group: W6
@@ -337,6 +341,57 @@ Edge cases:
 - Implementation details: initial-chunk report (evidence D5 method), eager-closure `--base` output, coding
   `tools/list` length and hash on the Electron-like host (evidence C6); base stats built in a temporary checkout of
   `f314a4f8a` that the lane does not commit
+
+## Phase A review and fix round
+
+- Reviews: `code-logic-review-phase-a.md` (5/10, REVISE) and `code-style-review-phase-a.md` (7/10, REVISE; 0
+  blocking, 3 serious, 4 minor). Both REVISE findings are addressed by AF1-AF4 below.
+- Status: fix round COMPLETE; awaiting the one re-review by the same two reviewers, scoped to `8bf2836a6..6d27e3c4f`
+  (parent `36fb24ad9`).
+- Checks before commit (team-leader, 2026-10-04): `npx nx run-many -t typecheck,test,lint -p
+  @ptah-extension/shared,@ptah-extension/chat-execution-tree,@ptah-extension/chat-ui --parallel=1` exit 0 (9/9
+  targets; tests 2481 + 486 + 26 = 2993 passed); `npx jest -c libs/frontend/chat/jest.config.ts
+  transcript-turns.spec.ts message-sender.host-data.spec.ts` 2 suites, 12/12 passed. The full `chat` target was not
+  run because C2a is editing chat files.
+- Follow-up (out of scope, named later task): consolidate the 4 pre-existing cost formatters onto
+  `formatUsdCost` — `compact-session-stats.component.ts:57`, `session-cost-summary.component.ts:121`,
+  `session-stats-summary.component.ts:836`, `dashboard/format.utils.ts:26`.
+
+## Batch AF1: failing test run shown as passed (blocking) — COMPLETE (8bf2836a6)
+
+- Phase: A (fix round) | Report: `batch-AF1-report.md`
+- Files: `libs/shared/src/lib/types/execution/node.ts` (`isError?`), `libs/frontend/chat-execution-tree/src/lib/builders/tool-node.fn.ts`
+  (`isError: resultEvent?.isError`), `builders.spec.ts`, `libs/shared/src/lib/utils/turn-tests.utils.ts` + spec,
+  `test-command-matcher.ts`; plus the orchestrator fixture fix in
+  `libs/frontend/chat/src/lib/components/organisms/transcript/transcript-turns.spec.ts` (`bashNode` sets `isError`
+  as the builder does). `ToolResultEvent.isError` is a required boolean (`stream.ts:172`), backend default `false`.
+
+### Task AF1.1: outcome from `isError`, masked commands unknown — COMPLETE
+
+## Batch AF2: bounded host-source contract and formatter docs — COMPLETE (31b66ac11)
+
+- Phase: A (fix round) | Report: `batch-AF2-report.md`
+- Files: `host-source-registry.contract.spec.ts` (bounded pattern check), `host-source-registry.baseline.ts`
+  (header only), `usage-format.utils.ts` (JSDoc)
+
+### Task AF2.1: contract spec, baseline header, JSDoc — COMPLETE
+
+## Batch AF3: tests row a11y and real-store host-data spec — COMPLETE (041069db6)
+
+- Phase: A (fix round) | Report: `batch-AF3-report.md` (written by the orchestrator after verifying the lane)
+- Files: `turn-tests-row.component.ts` + spec (no `role="status"`, `rows()` computed),
+  `message-sender.host-data.spec.ts` (real `ChangeSetStore`, positive and negative controls)
+
+### Task AF3.1: tests row and host-data spec — COMPLETE
+
+## Batch AF4: CI enforces the eager-closure gate — COMPLETE (6d27e3c4f)
+
+- Phase: A (fix round) | Report: `batch-AF4-report.md`
+- Files: `.github/workflows/ci.yml` — `Enforce eager-closure bundle gate` after `nx affected -t build`, guarded by
+  `hashFiles('dist/apps/ptah-extension-webview/stats.json') != ''` (webview default build is production with
+  `statsJson`)
+
+### Task AF4.1: CI gate step — COMPLETE
 
 ---
 
@@ -567,7 +622,11 @@ Edge cases:
   load; 2.10 scope cases; forged HTML/`data-ptah-ui-*`, ```` ```ptah-ui-x ````, indented fence → no surface; no
   deferred load without a fence line; `provide-markdown-rendering.spec.ts` untouched
 
-## Batch B7: transcript live window and Electron sender flag — PENDING
+## Batch B7: transcript live window and Electron sender flag — IMPLEMENTED (verified; commit held for C2a)
+
+- Verified by the orchestrator (`batch-B7-report.md`). Its transcript files (`chat-transcript.component.ts/.html`,
+  `chat-transcript.ptah-ui.spec.ts`, `transcript-spec-harness.ts`) are shared with C2a, which is editing them now,
+  so B7 (with `message-sender.service.ts/.spec.ts` and its report) commits together with C2a.
 
 - Recommended executor: opencode lane | Fallback: frontend-developer subagent | Mode: sequential
 - Tasks: 2 | Depends on: B6, A4 (transcript files), B8a (`ptahUiFence` param type) | Parallel group: W7
@@ -719,7 +778,11 @@ Edge cases:
 - Verified 2026-10-04: `manifest:check` up to date (sha256:c847c91c…, 228 files); the manifest diff adds only the two
   skill files. C3 changed no asset, so the manifest is committed with B10. Report: `batch-B10-report.md`.
 
-## Batch BM: PR B+C Electron measurement — PENDING
+## Batch BM: PR B+C Electron measurement — PENDING (becomes M: the single final measurement after C4)
+
+- Plan change 2026-10-04: AM is merged here. M runs after C4, builds the base (`f314a4f8a`) once and measures it
+  against the final head, and writes both the PR A and PR B+C sections of `measurement.md`. M still triggers the
+  Phase B+C review.
 
 - Recommended executor: codex lane | Fallback: devops-engineer subagent | Mode: sequential
 - Tasks: 1 | Depends on: B1-B10, C1-C4 (PR B+C merged) | Parallel group: W8 (after C4)
