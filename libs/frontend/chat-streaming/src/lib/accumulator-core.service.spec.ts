@@ -328,6 +328,7 @@ describe('StreamingAccumulatorCore (TASK_2026_107 Phase 2)', () => {
       | 'onAgentCompleted'
       | 'getSubagent'
       | 'onTaskToolResult'
+      | 'onSubagentMessageComplete'
     >
   >;
   let state: StreamingState;
@@ -384,6 +385,7 @@ describe('StreamingAccumulatorCore (TASK_2026_107 Phase 2)', () => {
       onAgentCompleted: jest.fn(),
       getSubagent: jest.fn().mockReturnValue(undefined),
       onTaskToolResult: jest.fn(),
+      onSubagentMessageComplete: jest.fn(),
     } as jest.Mocked<
       Pick<
         AgentMonitorStore,
@@ -395,6 +397,7 @@ describe('StreamingAccumulatorCore (TASK_2026_107 Phase 2)', () => {
         | 'onAgentCompleted'
         | 'getSubagent'
         | 'onTaskToolResult'
+        | 'onSubagentMessageComplete'
       >
     >;
 
@@ -929,6 +932,25 @@ describe('StreamingAccumulatorCore (TASK_2026_107 Phase 2)', () => {
     it('background_agent_stopped → onStopped', () => {
       core.process(state, bgAgentStopped(), makeCtx());
       expect(backgroundAgentStore.onStopped).toHaveBeenCalled();
+    });
+  });
+
+  // ---- Subagent usage via message_complete (TASK_2026_597 N6) -------------
+
+  describe('message_complete feeds subagent usage', () => {
+    it('forwards a subagent message to onSubagentMessageComplete', () => {
+      const event = messageComplete({ parentToolUseId: 'tool-1' });
+      core.process(state, event, makeCtx());
+      expect(agentMonitorStore.onSubagentMessageComplete).toHaveBeenCalledWith(
+        event,
+      );
+    });
+
+    it('does not forward a main-session message', () => {
+      core.process(state, messageComplete(), makeCtx());
+      expect(
+        agentMonitorStore.onSubagentMessageComplete,
+      ).not.toHaveBeenCalled();
     });
   });
 

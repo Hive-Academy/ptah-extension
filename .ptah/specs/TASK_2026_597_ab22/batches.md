@@ -2702,7 +2702,7 @@ Edge cases:
 
 ---
 
-## Batch 46: N6 per-agent usage, context and cache data (extends R7) — IN_PROGRESS (PR 2, decision 12)
+## Batch 46: N6 per-agent usage, context and cache data (extends R7) — COMPLETE (PR 2, decision 12; report batch-46-executor-report.md)
 
 - Recommended executor: frontend-developer
 - Fallback executor: frontend-developer re-run
@@ -2736,7 +2736,7 @@ Edge cases:
 
 ---
 
-## Batch 47: N6 agent panel display — PENDING (PR 2, decision 12)
+## Batch 47: N6 agent panel display — IN_PROGRESS (PR 2, decision 12)
 
 - Recommended executor: frontend-developer
 - Fallback executor: frontend-developer re-run

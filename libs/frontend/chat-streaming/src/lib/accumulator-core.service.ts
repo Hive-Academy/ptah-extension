@@ -532,6 +532,11 @@ export class StreamingAccumulatorCore {
         this.indexEventByMessage(state, event);
 
         state.currentTokenUsage = event.tokenUsage || null;
+        // A subagent's own message: its usage and activity time feed the
+        // agent monitor's per-subagent usage and cache state.
+        if (event.parentToolUseId) {
+          agentMonitorStore.onSubagentMessageComplete(event);
+        }
 
         ctx.onStateChanged?.(state);
         return this.mutated(event.eventType);
