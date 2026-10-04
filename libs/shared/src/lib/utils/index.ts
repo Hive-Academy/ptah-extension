@@ -37,6 +37,11 @@ export {
   normalizeServerKey,
 } from './mcp-server-identity';
 export {
+  resolveSubagentPromptCacheTtl,
+  type SubagentPromptCacheTtlInput,
+  type SubagentPromptCacheTtlResolution,
+} from './subagent-prompt-cache-ttl';
+export {
   mergeAgentsRegion,
   PTAH_AGENTS_REGION_BEGIN,
   PTAH_AGENTS_REGION_END,

@@ -161,12 +161,38 @@ OUT:
 5. Rule kept from 561/562: agents never edit user-owned files (`~/.codex/config.toml`); Ptah features may write them only
    after explicit opt-in with a diff preview (561 A9 rules).
 
+6. PR 2 scope (2026-10-04, after PR #634 merged): stage N1/N2/N6 = Batches 36-41 and 46-47. The open follow-ups stay
+   with their owner stages (none is in an N1/N2/N6 file): PR1-M1 and F6-M1 (Task 34.2) with S4, PR1-M2 with S3
+   (Batches 16/17), Task 9.3 with S1b. N7/N8 addendum revision 2 runs in parallel, then Gate 2. CLI lanes stay
+   disabled. Decision 11 review policy and lean rules apply.
+7. Gate 2 for N7/N8 (2026-10-04): user replied "approved" to implementation-plan-addendum-n7-n8.md revision 2 (review
+   round 2 APPROVED, 14/15 RESOLVED, F10 PARTIAL). The recommended options apply: (1) budget unit TOKENS 50M as
+   displayed; (2) count the displayed figure, per-subagent advice and safety stop built with Batches 28/36/37/40-41;
+   (3) deterministic handoff from the transcript in `~/.ptah/handoffs/`, newest 50 kept; (4) at 100% pause after the
+   current turn with "Allow 20% more" and "Continue in new session". The team-leader adds the F10 Batch 39 dependency
+   note; the `sessionBudget.enabled` Moderate becomes a named later task.
+
 ## Workspace
 
-- Worktree: `D:\projects\ptah-extension\.claude-worktrees\task-597-lane-token-burn`
-- Branch: `fix/task-597-lane-token-burn` (from `main` at `4ad10d856`, not pushed)
-- The task folder was first created in the `main` checkout by mistake. It moves into the worktree when the architect
-  returns. After the move, every agent uses the worktree paths only. Never write product code in the `main` checkout.
+- PR 2 worktree: `D:\projects\ptah-extension\.claude-worktrees\task-597-followups`
+- PR 2 branch: `fix/task-597-followups` (from `origin/main` at `5bb19f9fb`, not pushed)
+- PR 1 (merged as #634): branch `fix/task-597-lane-token-burn`. Do not reuse it.
+- Avoid the files of TASK_2026_609_c495: agent-generation services/templates, `.claude/agents`, the system-prompt
+  parts of `sdk-query-options-builder.ts`.
+
+## Handoff 2 (2026-10-03, end of second orchestration session)
+
+- PR #634 (branch `fix/task-597-lane-token-burn`) holds the decision 11 PR 1 subset: Batches 1-7, 10, 23, 42-44,
+  48-49 COMPLETE; 45 NO-OP; phase-end review APPROVED; CI fixes (manifest, Sonar S2871, chat popover `inherit`
+  label) and the 4 CodeRabbit comments are pushed. The user merges #634.
+- Remaining: every batch marked `DEFERRED (follow-up, decision 11)` in batches.md (S1b 8-9, S2 11, S3 12-22,
+  S4 24-35, N1/N2/N6 36-41 and 46-47), N7/N8 (addendum rev 1 + REVISE review F1-F15; rev 2 run was stopped), the
+  open Moderates (batches.md § PR 1 phase-end review, F6-M1/M2, Task 9.3), QA live proof (decisions 6/7) and
+  experiment E2 (A1 defaults stay null until it passes).
+- Related work in another session: TASK_2026_609_c495 (subagent setup + system prompt, branch
+  `fix/task-609-subagent-setup`). Avoid its files.
+- Lesson: scoped checks must include every project that imports a changed `libs/shared` type (the `chat` lib
+  failed in CI only).
 
 ## Handoff (2026-10-03, end of first orchestration session)
 
