@@ -28,6 +28,7 @@ import {
 } from '@ptah-extension/vscode-core';
 
 import { isAuthorizedWorkspace } from '../../utils/workspace-authorization';
+import { resolveResumeWorkingDirectory } from './resume-working-directory';
 
 @injectable()
 export class ChatHistoryReadService {
@@ -52,11 +53,15 @@ export class ChatHistoryReadService {
     fallbackWorkspacePath: string,
     persistedPath?: string,
   ) {
-    const resolvedWorkspacePath = await this.resolveResumeWorkingDirectory(
+    const resolvedWorkspacePath = await resolveResumeWorkingDirectory({
       persistedPath,
-      fallbackWorkspacePath,
+      fallbackPath: fallbackWorkspacePath,
       sessionId,
-    );
+      workspaceProvider: this.workspaceProvider,
+      fileSystemProvider: this.fileSystemProvider,
+      platformInfo: this.platformInfo,
+      logger: this.logger,
+    });
     const history = await this.historyReader.readSessionHistory(
       sessionId,
       resolvedWorkspacePath,
@@ -97,11 +102,15 @@ export class ChatHistoryReadService {
     }
 
     const metadata = await this.sessionMetadataStore.get(params.sessionId);
-    const resolvedWorkspacePath = await this.resolveResumeWorkingDirectory(
-      metadata?.workingDirectory,
-      fallbackWorkspacePath,
-      params.sessionId,
-    );
+    const resolvedWorkspacePath = await resolveResumeWorkingDirectory({
+      persistedPath: metadata?.workingDirectory,
+      fallbackPath: fallbackWorkspacePath,
+      sessionId: params.sessionId,
+      workspaceProvider: this.workspaceProvider,
+      fileSystemProvider: this.fileSystemProvider,
+      platformInfo: this.platformInfo,
+      logger: this.logger,
+    });
     const events = await this.historyReader.readSessionEvents(
       params.sessionId,
       resolvedWorkspacePath,
@@ -117,48 +126,5 @@ export class ChatHistoryReadService {
         params.sessionId,
       ),
     };
-  }
-
-  /**
-   * Resolve the SDK process cwd from durable session metadata before any JSONL
-   * lookup. Invalid, unsafe, deleted, or unreadable paths use the caller's
-   * authorized fallback workspace.
-   */
-  private async resolveResumeWorkingDirectory(
-    persistedPath: string | undefined,
-    fallbackPath: string,
-    sessionId: string,
-  ): Promise<string> {
-    if (!persistedPath) return fallbackPath;
-    if (!isAuthorizedWorkspace(persistedPath, this.workspaceProvider)) {
-      this.logger.warn(
-        '[RPC] chat:resume - persisted working directory is not authorized; using fallback',
-        { sessionId, persistedPath, fallbackPath },
-      );
-      return fallbackPath;
-    }
-    const safety = isUnsafeWorkspacePath(persistedPath, this.platformInfo);
-    if (!safety.ok) {
-      this.logger.warn(
-        '[RPC] chat:resume - persisted working directory is unsafe; using fallback',
-        { sessionId, persistedPath, fallbackPath, reason: safety.reason },
-      );
-      return fallbackPath;
-    }
-    try {
-      if (await this.fileSystemProvider.exists(persistedPath))
-        return persistedPath;
-    } catch (error: unknown) {
-      this.logger.warn(
-        '[RPC] chat:resume - persisted working directory could not be checked; using fallback',
-        error instanceof Error ? error : new Error(String(error)),
-      );
-      return fallbackPath;
-    }
-    this.logger.warn(
-      '[RPC] chat:resume - persisted working directory no longer exists; using fallback',
-      { sessionId, persistedPath, fallbackPath },
-    );
-    return fallbackPath;
   }
 }

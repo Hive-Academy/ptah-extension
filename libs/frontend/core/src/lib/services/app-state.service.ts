@@ -230,10 +230,23 @@ export interface CanvasFocusRequest {
  * Request to adopt an existing chat tab as a canvas tile (F-D3). Fire-and-forget
  * (no resolver): the canvas effect dedups and respects the tile cap, and nothing
  * consumes it in single layout, so it is a harmless no-op there.
+ *
+ * `workspacePath` is the partition the tab belongs to (null: the single tab
+ * set, VS Code panel), captured at REQUEST time; the canvas drops a request
+ * whose workspace is no longer the one it is showing, so a request queued
+ * while the canvas wasn't mounted (another view) never tiles a foreign
+ * workspace's tab into the now-active grid.
+ *
+ * `focus: false` appends the tile without switching the active tab — used by
+ * agent-child adoption, which must not steal focus the way a user-initiated
+ * launch does (`TabManagerService.adoptAgentSessionTab` never activates the
+ * child). Absent means focus, preserving the F-D3 launch behavior.
  */
 export interface CanvasTabRequest {
   tabId: string;
+  workspacePath: string | null;
   name?: string;
+  focus?: boolean;
 }
 
 /**
@@ -444,15 +457,18 @@ export class AppStateManager implements MessageHandler {
   /** Signal bridge: request to create a new session as a canvas tile (from "New Session" in grid mode) */
   private readonly _newCanvasSessionRequest = signal<string | null>(null);
   /**
-   * Signal bridge: request to adopt an EXISTING tab as a canvas tile without
-   * creating a new tab/session. Fire-and-forget (mirrors
-   * {@link _newCanvasSessionRequest}): used by the Tasks-board launch path so an
-   * orchestration tab created while the canvas is ALREADY mounted becomes a tile
-   * (the one gap `restoreCanvasTilesFromTabs` — which only runs on canvas mount —
-   * doesn't cover). Nothing consumes it in single layout, so it's a harmless
-   * no-op there; `CanvasStore.adoptTab` dedups and respects the tile cap.
+   * Signal bridge: requests to adopt an EXISTING tab as a canvas tile without
+   * creating a new tab/session. FIFO queue (mirrors
+   * {@link _canvasSessionRequests}) so a burst of requests — e.g. late agent
+   * adoption of several children in one `chat:agent-sessions` result — cannot
+   * overwrite an earlier request before the canvas effect runs. Fire-and-forget
+   * (no resolver): used by the Tasks-board launch path and agent-child adoption
+   * so a tab created while the canvas is ALREADY mounted becomes a tile (the one
+   * gap first-visit hydration doesn't cover). Nothing consumes it in single
+   * layout, so it's a harmless no-op there; `CanvasStore.adoptTab` dedups and
+   * respects the tile cap.
    */
-  private readonly _canvasTabRequest = signal<CanvasTabRequest | null>(null);
+  private readonly _canvasTabRequests = signal<readonly CanvasTabRequest[]>([]);
   /** Signal bridge: request to open the harness surface and run a workflow */
   private readonly _harnessWorkflowRequest =
     signal<HarnessWorkflowRequest | null>(null);
@@ -676,7 +692,7 @@ export class AppStateManager implements MessageHandler {
   /** Pending request to create a new canvas tile (consumed by OrchestraCanvasComponent) */
   readonly newCanvasSessionRequest = this._newCanvasSessionRequest.asReadonly();
   /** Pending request to adopt an existing tab as a canvas tile (consumed by OrchestraCanvasComponent) */
-  readonly canvasTabRequest = this._canvasTabRequest.asReadonly();
+  readonly canvasTabRequests = this._canvasTabRequests.asReadonly();
   /** Pending request to open the harness surface workflow (consumed by HarnessBuilderViewComponent) */
   readonly harnessWorkflowRequest = this._harnessWorkflowRequest.asReadonly();
   /** Pending request to launch a chat session with a seed prompt (consumed by the chat-lib bridge) */
@@ -1282,19 +1298,42 @@ export class AppStateManager implements MessageHandler {
   }
 
   /**
-   * Request that the canvas adopts an already-existing tab as a tile (no new
-   * tab/session created). Fire-and-forget: the canvas effect calls
-   * `CanvasStore.adoptTab` (dedups, respects `MAX_TILES`) and focuses it. When
-   * the canvas isn't mounted (single layout) nothing consumes the signal — a
-   * harmless no-op, so callers need not gate on layout themselves.
+   * Queue a request that the canvas adopts an already-existing tab as a tile
+   * (no new tab/session created). Fire-and-forget: the canvas effect calls
+   * `CanvasStore.adoptTab` (dedups, respects `MAX_TILES`) and focuses it unless
+   * `focus` is `false`, and drops a request whose `workspacePath` is no longer
+   * the canvas's active workspace. FIFO: a burst cannot overwrite an earlier
+   * request before the canvas effect drains the queue. When the canvas isn't
+   * mounted (single layout, or grid layout on another view) nothing consumes
+   * the queue yet — requests wait until the canvas mounts.
    */
-  requestCanvasTab(tabId: string, name?: string): void {
-    this._canvasTabRequest.set({ tabId, ...(name ? { name } : {}) });
+  requestCanvasTab(
+    tabId: string,
+    workspacePath: string | null,
+    name?: string,
+    focus?: boolean,
+  ): void {
+    this._canvasTabRequests.update((requests) => [
+      ...requests,
+      {
+        tabId,
+        workspacePath,
+        ...(name ? { name } : {}),
+        ...(focus === false ? { focus } : {}),
+      },
+    ]);
   }
 
-  /** Clear the canvas tab-adoption request after the canvas has processed it. */
-  clearCanvasTabRequest(): void {
-    this._canvasTabRequest.set(null);
+  /**
+   * Return all pending canvas tab-adoption requests in FIFO order and empty
+   * the queue.
+   */
+  takeCanvasTabRequests(): readonly CanvasTabRequest[] {
+    const requests = this._canvasTabRequests();
+    if (requests.length > 0) {
+      this._canvasTabRequests.set([]);
+    }
+    return requests;
   }
 
   /** Request that the harness surface opens and runs the given workflow. */

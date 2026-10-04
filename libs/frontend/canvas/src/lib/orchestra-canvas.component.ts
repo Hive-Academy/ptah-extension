@@ -399,24 +399,38 @@ export class OrchestraCanvasComponent implements OnDestroy {
         this.appState.clearNewCanvasSessionRequest();
       }
     });
-    // Adopt an already-existing tab as a tile (F-D3). The Tasks-board launch
-    // creates a tab then navigates to chat; when the canvas is ALREADY mounted
-    // (no remount / no workspace switch), `restoreCanvasTilesFromTabs` — which
-    // only runs on mount — never sees that new tab, so it would linger as a bare
-    // tab. This closes exactly that gap. `adoptTab` dedups (safe if a fresh
-    // hydration already tiled it) and returns null at `MAX_CANVAS_TILES`, in which
-    // case the tab simply stays in the tab list as the graceful fallback.
+    // Adopt already-existing tabs as tiles (F-D3). The Tasks-board launch and
+    // agent-child adoption create tabs outside the canvas; when the canvas is
+    // ALREADY mounted (no remount / no workspace switch), first-visit
+    // hydration never sees those new tabs, so they would linger as bare tabs.
+    // This closes exactly that gap. The queue is drained in one pass, so a
+    // burst — e.g. late adoption of several agent children — tiles every
+    // child. A request whose `workspacePath` is no longer the workspace this
+    // canvas is showing (queued while the canvas wasn't mounted, with a
+    // workspace switch in between) is DROPPED, never tiled into the wrong
+    // grid; `null` (single tab set, VS Code panel) normalizes to the implicit
+    // partition, matching `ensureActivePath`'s `?? IMPLICIT_WORKSPACE_PATH`.
+    // `adoptTab` dedups (safe if a fresh hydration already tiled it, and
+    // re-adoption never doubles a tile) and returns null at `MAX_CANVAS_TILES`,
+    // in which case the tab simply stays in the tab list as the graceful
+    // fallback. `focus: false` (agent children) appends the tile without
+    // switching the active tab.
     // KNOWN GAP (TASK_2026_471): the refusal is not reported back, so a caller
     // that also prefills the composer for this tab prefills a surface nobody
     // mounted. Raising the cap makes it rarer; it does not close it.
     effect(() => {
-      const req = this.appState.canvasTabRequest();
-      if (req) {
+      const pending = this.appState.canvasTabRequests();
+      if (pending.length === 0) return;
+      const requests = untracked(() =>
+        this.appState.takeCanvasTabRequests(),
+      );
+      const activeWorkspacePath = this.canvasStore.activeWorkspacePath() ?? '';
+      for (const req of requests) {
+        if ((req.workspacePath ?? '') !== activeWorkspacePath) continue;
         const adopted = this.canvasStore.adoptTab(req.tabId);
-        if (adopted) {
+        if (adopted && req.focus !== false) {
           this.canvasStore.focusTile(req.tabId);
         }
-        this.appState.clearCanvasTabRequest();
       }
     });
     effect(() => {

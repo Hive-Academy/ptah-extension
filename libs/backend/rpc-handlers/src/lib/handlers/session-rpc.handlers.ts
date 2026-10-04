@@ -17,6 +17,8 @@ import {
 import type { SentryService } from '@ptah-extension/vscode-core';
 import {
   PLATFORM_TOKENS,
+  type IFileSystemProvider,
+  type IPlatformInfo,
   type IWorkspaceProvider,
   StateStorageValueTooLargeError,
 } from '@ptah-extension/platform-core';
@@ -64,6 +66,7 @@ import { isAuthorizedWorkspace } from '../utils/workspace-authorization';
 import { z } from 'zod';
 import { CHAT_TOKENS } from '../chat/tokens';
 import { TurnChangeSetStore } from '../chat/change-set/turn-change-set.store';
+import { resolveResumeWorkingDirectory } from '../chat/session/resume-working-directory';
 import type { ChatSessionService } from '../chat/session/chat-session.service';
 import type { SessionMcpStatusRegistry } from '../chat/session/session-mcp-status.registry';
 import type {
@@ -163,6 +166,10 @@ export class SessionRpcHandlers {
     private readonly sentryService: SentryService,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
     private readonly workspaceProvider: IWorkspaceProvider,
+    @inject(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER)
+    private readonly fileSystemProvider: IFileSystemProvider,
+    @inject(PLATFORM_TOKENS.PLATFORM_INFO)
+    private readonly platformInfo: IPlatformInfo,
     @inject(SDK_TOKENS.SDK_AGENT_ADAPTER)
     private readonly sdkAdapter: SdkAgentAdapter,
     @inject(CHAT_TOKENS.SESSION)
@@ -425,7 +432,12 @@ export class SessionRpcHandlers {
           // ~/.claude/projects after `cleanupPeriodDays` (default 30) while
           // this store is never pruned. Index the surviving transcripts once
           // so the sidebar can mark the rows that will open empty.
-          const transcriptIds = await this.listTranscriptIds(workspacePath);
+          const transcriptDirectories = await this.resolveTranscriptDirectories(
+            paginated,
+            workspacePath,
+          );
+          const transcriptIdsByDirectory =
+            await this.listTranscriptIdsByDirectory(transcriptDirectories);
           const missingTaskIds = organization
             ? await this.findMissingTaskIds(
                 workspacePath,
@@ -447,6 +459,9 @@ export class SessionRpcHandlers {
               return [];
             }
             const livePhase = this.turnState.get(s.sessionId)?.phase;
+            const transcriptIds = transcriptIdsByDirectory.get(
+              transcriptDirectories.get(s.sessionId) ?? workspacePath,
+            );
             return [
               {
                 id,
@@ -690,7 +705,11 @@ export class SessionRpcHandlers {
         await this.metadataStore.delete(sessionId);
         await this.removeTurnChangeSets(sessionId);
         if (workspacePath) {
-          await this.deleteSessionFiles(sessionId, workspacePath);
+          await this.deleteSessionFiles(
+            sessionId,
+            workspacePath,
+            metadata?.workingDirectory,
+          );
         } else {
           this.logger.warn(
             'RPC: session:delete - no workspace path in metadata, skipping file deletion',
@@ -801,14 +820,19 @@ export class SessionRpcHandlers {
    * Agent sub-sessions are stored in two possible layouts (SDK version dependent):
    * - Current (nested): {sessionsDir}/{sessionId}/subagents/agent-{id}.jsonl
    * - Legacy (flat): {sessionsDir}/agent-{id}.jsonl (filtered by sessionId match)
+   *
+   * Use the recorded directory verbatim here: its escaped Claude projects
+   * directory remains the transcript location even after a child worktree is
+   * removed.
    */
   private async deleteSessionFiles(
     sessionId: string,
     workspacePath: string,
+    workingDirectory?: string,
   ): Promise<void> {
     const sessionFilePath = await this.findSessionFile(
       sessionId,
-      workspacePath,
+      workingDirectory ?? workspacePath,
     );
 
     if (!sessionFilePath) {
@@ -949,7 +973,16 @@ export class SessionRpcHandlers {
             return { exists: false };
           }
 
-          const filePath = await this.findSessionFile(sessionId, workspacePath);
+          const metadata = await this.metadataStore.get(sessionId);
+          const resolvedWorkspacePath = await this.resolveTranscriptDirectory(
+            metadata?.workingDirectory,
+            workspacePath,
+            sessionId,
+          );
+          const filePath = await this.findSessionFile(
+            sessionId,
+            resolvedWorkspacePath,
+          );
 
           if (filePath) {
             this.logger.debug('RPC: session:validate - session file exists', {
@@ -1572,7 +1605,7 @@ export class SessionRpcHandlers {
   /**
    * Index the session IDs that still have a transcript on disk for a workspace.
    *
-   * One `readdir` per `session:list` call rather than one `stat` per row.
+   * One `readdir` per transcript directory rather than one `stat` per row.
    * Returns `null` when the sessions directory can't be resolved or read — the
    * caller must then leave `hasTranscript` undefined rather than marking every
    * session expired.
@@ -1601,5 +1634,80 @@ export class SessionRpcHandlers {
       });
       return null;
     }
+  }
+
+  /**
+   * Index transcript directories once per recorded session cwd. Child sessions
+   * belong to their parent's workspace in metadata but the SDK writes their
+   * JSONL under the child worktree's escaped directory.
+   */
+  private async listTranscriptIdsByDirectory(
+    directoriesBySession: ReadonlyMap<string, string>,
+  ): Promise<ReadonlyMap<string, ReadonlySet<string> | null>> {
+    const directories = new Set(directoriesBySession.values());
+    const entries = await Promise.all(
+      [...directories].map(
+        async (directory) =>
+          [directory, await this.listTranscriptIds(directory)] as const,
+      ),
+    );
+    return new Map(entries);
+  }
+
+  private async resolveTranscriptDirectories(
+    sessions: readonly {
+      readonly sessionId: string;
+      readonly workingDirectory?: string;
+    }[],
+    workspacePath: string,
+  ): Promise<ReadonlyMap<string, string>> {
+    const sessionIdsByWorkingDirectory = new Map<string | undefined, string>();
+    for (const session of sessions) {
+      if (!sessionIdsByWorkingDirectory.has(session.workingDirectory)) {
+        sessionIdsByWorkingDirectory.set(
+          session.workingDirectory,
+          session.sessionId,
+        );
+      }
+    }
+    const resolvedDirectories = await Promise.all(
+      [...sessionIdsByWorkingDirectory.entries()].map(
+        async ([workingDirectory, sessionId]) =>
+          [
+            workingDirectory,
+            await this.resolveTranscriptDirectory(
+              workingDirectory,
+              workspacePath,
+              sessionId,
+            ),
+          ] as const,
+      ),
+    );
+    const byWorkingDirectory = new Map(resolvedDirectories);
+    return new Map(
+      sessions.map((session) => [
+        session.sessionId,
+        byWorkingDirectory.get(session.workingDirectory) ?? workspacePath,
+      ]),
+    );
+  }
+
+  private async resolveTranscriptDirectory(
+    workingDirectory: string | undefined,
+    workspacePath: string,
+    sessionId: string,
+  ): Promise<string> {
+    if (!workingDirectory || workingDirectory === workspacePath) {
+      return workspacePath;
+    }
+    return resolveResumeWorkingDirectory({
+      persistedPath: workingDirectory,
+      fallbackPath: workspacePath,
+      sessionId,
+      workspaceProvider: this.workspaceProvider,
+      fileSystemProvider: this.fileSystemProvider,
+      platformInfo: this.platformInfo,
+      logger: this.logger,
+    });
   }
 }

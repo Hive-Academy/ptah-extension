@@ -73,6 +73,19 @@ describe('CanvasStore', () => {
     store.hydrateWorkspace(path, ids);
   };
 
+  it('adoptTab of an already-tiled tab adds no second tile (agent re-adoption, TASK_2026_612)', () => {
+    hydrate('/ws/a', ['parent']);
+
+    expect(store.adoptTab('child')).toBe('child');
+    // Re-adoption (e.g. chat:agent-sessions on webview bootstrap) must not
+    // double the tile; a fresh canvas mount restores it by hydration instead.
+    expect(store.adoptTab('child')).toBe('child');
+
+    expect(
+      store.tiles().filter((tile) => tile.tabId === 'child'),
+    ).toHaveLength(1);
+  });
+
   it('hydrates exact authoritative ids once before enabling writes', () => {
     const persisted: TileIntent[] = [
       { tabId: 'kept', order: 0, width: { kind: 'span', span: 'half' }, rowBreakBefore: false },
