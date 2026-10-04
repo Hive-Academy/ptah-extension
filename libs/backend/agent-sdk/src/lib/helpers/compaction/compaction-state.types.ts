@@ -34,8 +34,13 @@ export const CompactionState = {
 export type CompactionState =
   (typeof CompactionState)[keyof typeof CompactionState];
 
-/** Longest time a compaction may stay open (TRIGGERED or COMPACTING) before BACKOFF. */
-export const COMPACTION_MAX_DWELL_MS = 180_000;
+/**
+ * Longest time a compaction may stay open (TRIGGERED or COMPACTING) before
+ * BACKOFF, and the bound at which the no-activity watchdog stops accounting
+ * for it. Five minutes: real upstream summarization was measured at 213-216 s
+ * (TASK_2026_411 B8) and must complete; a truly stuck one is still bounded.
+ */
+export const COMPACTION_MAX_DWELL_MS = 300_000;
 
 /** Share of the effective context window at which a session is ARMED. */
 export const COMPACTION_ARM_RATIO = 0.8;

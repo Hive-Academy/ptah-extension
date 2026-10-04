@@ -240,7 +240,8 @@ describe('CompactionCoordinator', () => {
   });
 
   describe('dwell timeout', () => {
-    it('uses the real 180 s bound with the default timers', () => {
+    it('uses the real 300 s bound with the default timers', () => {
+      expect(COMPACTION_MAX_DWELL_MS).toBe(300_000);
       jest.useFakeTimers();
       try {
         const real = new CompactionCoordinator();

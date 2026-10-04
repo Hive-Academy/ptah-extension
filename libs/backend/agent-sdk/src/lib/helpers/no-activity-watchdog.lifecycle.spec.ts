@@ -35,9 +35,9 @@ describe('query operation ownership', () => {
   };
 
   it.each(['manual', 'auto'] as const)(
-    '%s compaction survives long silence and ends on explicit terminal',
+    '%s compaction is accounted until its explicit terminal within the A8 dwell bound',
     async (trigger) => {
-      const { wd, hook, timeout, overdue } = harness();
+      const { wd, hook, timeout } = harness();
       await hook({
         ...base,
         hook_event_name: 'PreCompact',
@@ -50,9 +50,10 @@ describe('query operation ownership', () => {
         trigger,
         custom_instructions: null,
       });
-      jest.advanceTimersByTime(WINDOW * 20);
+      // Past COMPACTION_MAX_DWELL_MS the watchdog times out instead; that
+      // bound is pinned in no-activity-watchdog.spec.ts.
+      jest.advanceTimersByTime(WINDOW - 1);
       expect(timeout).not.toHaveBeenCalled();
-      expect(overdue).toHaveBeenCalledWith(['compaction']);
       wd.observe({
         type: 'system',
         subtype: 'status',
@@ -61,7 +62,9 @@ describe('query operation ownership', () => {
         uuid: '00000000-0000-0000-0000-000000000000',
         session_id: 's',
       });
-      jest.advanceTimersByTime(WINDOW);
+      jest.advanceTimersByTime(WINDOW - 1);
+      expect(timeout).not.toHaveBeenCalled();
+      jest.advanceTimersByTime(1);
       expect(timeout).toHaveBeenCalledTimes(1);
     },
   );

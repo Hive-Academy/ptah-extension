@@ -4,11 +4,16 @@ import type {
   HookInput,
   SDKMessage,
 } from '../types/sdk-types/claude-sdk.types';
+import { COMPACTION_MAX_DWELL_MS } from './compaction/compaction-state.types';
 
 /**
  * Query-local root activity accounting. Silence is not evidence of failure while
- * a known tool or compaction is running: report uncertainty, never impose a
- * runtime limit. Only unaccounted root silence invokes the recovery callback.
+ * a known tool is running: report uncertainty, never impose a tool runtime
+ * limit. A compaction is accounted the same way for at most
+ * {@link COMPACTION_MAX_DWELL_MS} from when it opened; past that bound the
+ * watchdog stops re-arming and takes the timeout path (TASK_2026_597 A8), the
+ * same bound at which the compaction coordinator gives up on the compaction.
+ * Only unaccounted root silence invokes the recovery callback.
  * Idle/permission holds remain reference counted; operation ownership is keyed
  * and idempotent instead. Child registration never owns a parent hold.
  */
@@ -26,7 +31,8 @@ export class NoActivityWatchdog {
     this.kick();
   }
   private readonly tools = new Map<string, string>();
-  private compacting = false;
+  /** Monotonic time the open compaction began; null while none is open. */
+  private compactingSinceMs: number | null = null;
   private readonly tasks = new Map<string, string>();
 
   constructor(
@@ -68,7 +74,7 @@ export class NoActivityWatchdog {
     this.turnOpen = false;
     this.tools.clear();
     this.tasks.clear();
-    this.compacting = false;
+    this.setCompacting(false);
     this.kick();
   }
 
@@ -120,10 +126,10 @@ export class NoActivityWatchdog {
         this.tools.delete(input.tool_use_id);
         break;
       case 'PreCompact':
-        this.compacting = true;
+        this.setCompacting(true);
         break;
       case 'PostCompact':
-        this.compacting = false;
+        this.setCompacting(false);
         break;
       case 'Stop':
       case 'StopFailure':
@@ -182,11 +188,31 @@ export class NoActivityWatchdog {
     message: Extract<SDKMessage, { type: 'system' }>,
   ): void {
     if (message.subtype === 'status') {
-      if (message.status === 'compacting') this.compacting = true;
+      if (message.status === 'compacting') this.setCompacting(true);
       // null alone is not proof of completion; compact_result is explicit.
-      if (message.compact_result) this.compacting = false;
+      if (message.compact_result) this.setCompacting(false);
     }
-    if (message.subtype === 'compact_boundary') this.compacting = false;
+    if (message.subtype === 'compact_boundary') this.setCompacting(false);
+  }
+
+  /**
+   * A re-announced compaction keeps its original start, so the dwell bound
+   * covers the whole open time (PreCompact, `status:'compacting'`, retries).
+   */
+  private setCompacting(open: boolean): void {
+    if (!open) {
+      this.compactingSinceMs = null;
+    } else if (this.compactingSinceMs === null) {
+      this.compactingSinceMs = performance.now();
+    }
+  }
+
+  /** Milliseconds left before the open compaction exceeds its dwell bound. */
+  private compactionDwellRemainingMs(): number | null {
+    if (this.compactingSinceMs === null) return null;
+    return (
+      this.compactingSinceMs + COMPACTION_MAX_DWELL_MS - performance.now()
+    );
   }
 
   private observeTaskUpdate(
@@ -215,12 +241,22 @@ export class NoActivityWatchdog {
   private arm(): void {
     this.clear();
     if (this.holds > 0 || this.stopped || this.fired || !this.started) return;
+    // While a compaction is open the deadline never runs past its dwell bound.
+    const dwellRemainingMs = this.compactionDwellRemainingMs();
+    const delayMs =
+      dwellRemainingMs === null
+        ? this.timeoutMs
+        : Math.min(this.timeoutMs, Math.max(0, dwellRemainingMs));
     this.timer = setTimeout(() => {
       this.timer = null;
       if (this.stopped || this.fired) return;
       const operations = [...this.tools.values()];
-      if (this.compacting) operations.push('compaction');
-      if (operations.length > 0) {
+      const remainingMs = this.compactionDwellRemainingMs();
+      if (remainingMs !== null) operations.push('compaction');
+      // A compaction open for COMPACTION_MAX_DWELL_MS is no longer accounted
+      // silence: stop re-arming and take the timeout path below.
+      const dwellExceeded = remainingMs !== null && remainingMs <= 0;
+      if (operations.length > 0 && !dwellExceeded) {
         // One timer, no polling I/O and no invented failure verdict. A missing
         // terminal hook is reconciled by result/interrupt/cancel/stream failure.
         // Re-arm even if a diagnostic sink throws.
@@ -233,7 +269,7 @@ export class NoActivityWatchdog {
       }
       this.fired = true;
       this.onTimeout();
-    }, this.timeoutMs);
+    }, delayMs);
     this.timer.unref?.();
   }
 
@@ -245,7 +281,10 @@ export class NoActivityWatchdog {
   }
 }
 
-/** Unaccounted silence recovery window, NOT a tool or compaction runtime cap. */
+/**
+ * Unaccounted silence recovery window, NOT a tool runtime cap. Compaction is
+ * capped separately at `COMPACTION_MAX_DWELL_MS` from when it opened.
+ */
 export const NO_ACTIVITY_TIMEOUT_MS = 180_000;
 
 export interface ActivityHold {

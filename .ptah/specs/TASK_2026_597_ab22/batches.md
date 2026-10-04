@@ -1912,6 +1912,8 @@ Every sub-batch also runs `npx nx run di-lint:lint` and `npx nx run degradation-
 
 Orchestrator decision (2026-10-04): D-1 to D-5 ACCEPTED as written (inside user decision 9 "rebuild A6 on N8").
 
+D-6 (orchestrator, 2026-10-04, from the 27a report): `COMPACTION_MAX_DWELL_MS` is 300_000, not the planned 180_000. TASK_2026_411 B8 measured real compactions at 213-216 s; a 180 s bound would make the watchdog time them out. 300 s keeps a margin and still bounds a stuck compaction.
+
 State: 16 and 35a IN_PROGRESS (W1). Everything else in this section is PENDING.
 
 ---
