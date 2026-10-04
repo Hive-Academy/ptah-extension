@@ -2056,7 +2056,7 @@ In a fresh worktree, run `npx nx run ptah-electron:build-workspace-watch-host` o
 
 ---
 
-## Batch 30: Advisory notifier and A7 curator guardrail (S4, component 20) — PENDING (Task 30.2 COMPLETE in S4 wave A, report reports/batch-30-2-report.md; Task 30.1 WAITS-FOR-#639 with Batch 29)
+## Batch 30: Advisory notifier and A7 curator guardrail (S4, component 20) — PENDING (Task 30.2 COMPLETE in S4 wave A, commit 539fed084, report reports/batch-30-2-report.md; Task 30.1 WAITS-FOR-#639 with Batch 29)
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer re-run
@@ -2127,7 +2127,7 @@ In a fresh worktree, run `npx nx run ptah-electron:build-workspace-watch-host` o
 
 ---
 
-## Batch 32: Lane resume gate (S4, component 14) — IN_PROGRESS (S4 wave A)
+## Batch 32: Lane resume gate (S4, component 14) — COMPLETE (S4 wave A; report reports/batch-32-report.md)
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer re-run
@@ -2139,7 +2139,7 @@ In a fresh worktree, run `npx nx run ptah-electron:build-workspace-watch-host` o
 
 - S4 stage start (reduced scope): Batch 13 (OpenCode stream usage) is still DEFERRED. Until it lands, label OpenCode lanes `estimate`, which is the gate's existing fallback; there is no OpenCode stream read yet. Task 32.4's resume guidance reuses the Batch 41 wording (`chat-subagent-context-injector.service.ts:153-175`). The stale warning is now at `agent-process-manager.service.ts:342`. File-disjoint from Batches 24 and 30.2 in wave A.
 
-### Task 32.1: `AgentProcessInfo.lastRequestContext` — IN_PROGRESS
+### Task 32.1: `AgentProcessInfo.lastRequestContext` — COMPLETE
 
 - File: `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/shared/src/lib/types/agent-process.types.ts`
 - Plan reference: implementation-plan.md:454
@@ -2148,7 +2148,7 @@ In a fresh worktree, run `npx nx run ptah-electron:build-workspace-watch-host` o
 - Validation notes: none.
 - Implementation details: none.
 
-### Task 32.2: Codex rollout usage reader — IN_PROGRESS
+### Task 32.2: Codex rollout usage reader — COMPLETE
 
 - File: `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/cli-agent-runtime/src/lib/cli-agents/cli-adapters/codex/codex-rollout-usage.reader.ts` (+ spec)
 - Plan reference: implementation-plan.md:1053-1055
@@ -2157,7 +2157,7 @@ In a fresh worktree, run `npx nx run ptah-electron:build-workspace-watch-host` o
 - Validation notes: never the `turn.completed` sum.
 - Implementation details: fixture tail spec.
 
-### Task 32.3: `LaneResumeGate` with token and register — IN_PROGRESS
+### Task 32.3: `LaneResumeGate` with token and register — COMPLETE
 
 - Depends on: Task 32.2
 - File: `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/cli-agent-runtime/src/lib/cli-agents/lane-resume-gate.ts` (+ spec), `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/cli-agent-runtime/src/lib/di/tokens.ts`, `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/cli-agent-runtime/src/lib/di/register.ts`
@@ -2167,7 +2167,7 @@ In a fresh worktree, run `npx nx run ptah-electron:build-workspace-watch-host` o
 - Validation notes: missing rollout → estimate; decision always logged with source.
 - Implementation details: spec boundaries 60k, 10 min, each source.
 
-### Task 32.4: Manager consults the gate; handoff spawn; stale warning fixed — IN_PROGRESS
+### Task 32.4: Manager consults the gate; handoff spawn; stale warning fixed — COMPLETE
 
 - Depends on: Tasks 32.1, 32.3
 - File: `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/cli-agent-runtime/src/lib/cli-agents/agent-process-manager.service.ts` (resume entry, + spec)
@@ -2178,6 +2178,8 @@ In a fresh worktree, run `npx nx run ptah-electron:build-workspace-watch-host` o
 - Implementation details: spec: fresh decision yields a new spawn with the handoff fields.
 
 ### Batch 32 verification
+
+- Accepted deviations (team-leader, S4 wave A): only the `resumeSessionId` spawn is gated; continuation of an idle lane (`continueConversation`/`sendToAgent`) and `spawnFromSdkHandle` stay ungated (contract change to `AgentMessageOutcome` needed); `contextTokens` is `number | null`; every streamed figure is labelled `estimate` until Batch 13. Carry the two ungated paths into the S4-a phase review and Batch 35 scope.
 
 - Gate specced; manager handoff; scoped + app typecheck pass
 - Reviewer: code-logic-reviewer

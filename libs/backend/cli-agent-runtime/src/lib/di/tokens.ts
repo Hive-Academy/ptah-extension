@@ -21,6 +21,12 @@ export const CLI_AGENT_RUNTIME_TOKENS = {
    * without a chat runtime.
    */
   CHILD_CHAT_SESSION_HOST: Symbol.for('ChildChatSessionHost'),
+  /**
+   * `LaneResumeGate` (TASK_2026_597, R9.1): decides whether a resume spawn
+   * resumes the lane or starts a fresh one with a handoff. Injected by the
+   * process manager.
+   */
+  LANE_RESUME_GATE: Symbol.for('LaneResumeGate'),
 } as const;
 
 export type CliAgentRuntimeDIToken = keyof typeof CLI_AGENT_RUNTIME_TOKENS;

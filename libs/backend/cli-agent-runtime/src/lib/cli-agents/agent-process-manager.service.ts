@@ -58,6 +58,12 @@ import {
 import { AgentSpawnEnvironment } from './agent-spawn-environment.service';
 import { LaneCompletionNotifier } from './lane-completion-notifier.service';
 import { AgentOutputBuffer } from './agent-output-buffer.service';
+import {
+  buildLaneHandoffTask,
+  collectHandoffCarryOver,
+  type LaneResumeGate,
+} from './lane-resume-gate';
+import { CLI_AGENT_RUNTIME_TOKENS } from '../di/tokens';
 import type { TrackedAgent } from './tracked-agent';
 
 const DEFAULT_AGENT_READ_TAIL_LINES = 200;
@@ -173,6 +179,12 @@ export class AgentProcessManager {
      */
     @inject(LaneCompletionNotifier)
     private readonly laneCompletion: LaneCompletionNotifier,
+    /**
+     * Decides, on a `resumeSessionId` spawn, whether to resume the lane or
+     * start a fresh one with a handoff (TASK_2026_597, R9.1).
+     */
+    @inject(CLI_AGENT_RUNTIME_TOKENS.LANE_RESUME_GATE)
+    private readonly resumeGate: LaneResumeGate,
   ) {
     this.logger.info('[AgentProcessManager] Initialized');
   }
@@ -262,10 +274,13 @@ export class AgentProcessManager {
       adapter.supportsMcp !== false
         ? await this.spawnEnvironment.mcpPort()
         : undefined;
+    const gated = request.resumeSessionId
+      ? await this.gateResume(request, request.resumeSessionId, cli)
+      : { request, task: request.task };
     return this.doSpawnSdk({
       runSdk: adapter.runSdk.bind(adapter),
-      request,
-      task: request.task,
+      request: gated.request,
+      task: gated.task,
       workingDirectory,
       cli,
       displayName: adapter.displayName,
@@ -274,6 +289,79 @@ export class AgentProcessManager {
       mcpPort,
       cliVersion: detection.version,
     });
+  }
+
+  /**
+   * Consult the resume gate for a `resumeSessionId` spawn (TASK_2026_597,
+   * R9.1). Every adapter `doSpawn` reaches accepts a resume id, so the only
+   * question left is whether resuming is worth its cost.
+   *
+   * On `resume` the request goes through unchanged. On `fresh` the resume id
+   * is dropped and the lane is started with a handoff task built from the
+   * records this host holds for that session: the new message, the original
+   * task, the previous final text and the files it changed. No git process.
+   */
+  private async gateResume(
+    request: SpawnAgentRequest,
+    resumeSessionId: string,
+    cli: CliType,
+  ): Promise<{ request: SpawnAgentRequest; task: string }> {
+    const lane = this.laneRecordsForSession(resumeSessionId);
+    const latest = lane[lane.length - 1];
+    const lastActivityAt = latest
+      ? Date.parse(latest.info.completedAt ?? latest.info.startedAt)
+      : Number.NaN;
+    const lastRequestContext = [...lane]
+      .reverse()
+      .find((tracked) => tracked.info.lastRequestContext !== undefined)
+      ?.info.lastRequestContext;
+
+    const gate = await this.resumeGate.evaluate({
+      cli,
+      cliSessionId: resumeSessionId,
+      ...(Number.isFinite(lastActivityAt) ? { lastActivityAt } : {}),
+      ...(lastRequestContext ? { lastRequestContext } : {}),
+    });
+    this.logger.info('[AgentProcessManager] Resume gate', {
+      cli,
+      resumeSessionId,
+      decision: gate.decision,
+      reason: gate.reason,
+      contextTokens: gate.contextTokens,
+      source: gate.source,
+      idleMs: gate.idleMs,
+      recordsHeld: lane.length,
+    });
+    if (gate.decision === 'resume') {
+      return { request, task: request.task };
+    }
+
+    const carryOver = collectHandoffCarryOver(
+      lane.flatMap((tracked) => tracked.accumulatedSegments),
+    );
+    const finalText =
+      carryOver.finalText || (latest?.stdoutBuffer.trim() ?? '');
+    return {
+      request: { ...request, resumeSessionId: undefined },
+      task: buildLaneHandoffTask({
+        message: request.task,
+        reason: gate.reason,
+        originalTask: lane[0]?.info.task,
+        finalText,
+        changedFiles: carryOver.changedFiles,
+      }),
+    };
+  }
+
+  /**
+   * Every record this host holds for one CLI session, oldest first. A resumed
+   * lane keeps its session id, so a lane resumed twice has three records; the
+   * first holds the original task and the last the latest activity.
+   */
+  private laneRecordsForSession(cliSessionId: string): TrackedAgent[] {
+    return Array.from(this.agents.values())
+      .filter((tracked) => tracked.info.cliSessionId === cliSessionId)
+      .sort((a, b) => a.info.startedAt.localeCompare(b.info.startedAt));
   }
 
   /**
@@ -336,12 +424,6 @@ export class AgentProcessManager {
       role: roleStamp?.role,
       roleChannel: roleStamp?.roleChannel,
     });
-
-    if (request.resumeSessionId && request.cli !== 'copilot') {
-      this.logger.warn(
-        `[AgentProcessManager] resume_session_id provided for ${request.cli} which does not support session resume`,
-      );
-    }
 
     // R2.5: one line per spawn naming the model and effort and what produced
     // each. Codex lanes add the binary version and the state of the lane's
@@ -580,6 +662,7 @@ export class AgentProcessManager {
           segment,
           onFlushDue,
         );
+        this.recordRequestContext(tracked, segment);
         if (captureSessionId) {
           const sessionId = captureSessionId();
           if (sessionId && sessionId !== tracked.info.cliSessionId) {
@@ -646,6 +729,30 @@ export class AgentProcessManager {
     this.markParentSubagentsAsCliAgent(info.parentSessionId);
 
     return spawnResult;
+  }
+
+  /**
+   * Keep the latest input figure a segment reports as the lane's
+   * `lastRequestContext`, for the resume gate.
+   *
+   * Labelled `estimate` for every CLI: what the adapters stream today is a
+   * per-turn figure (Codex's `turn.completed` sum, OpenCode's final
+   * `step_finish`), not the size of one request. The gate replaces it with the
+   * rollout figure for Codex. An adapter that reports a true per-request
+   * figure (Batch 13, OpenCode) is the point to record `stream` instead.
+   */
+  private recordRequestContext(
+    tracked: TrackedAgent,
+    segment: CliOutputSegment,
+  ): void {
+    const tokens = segment.usage?.inputTokens;
+    if (typeof tokens !== 'number' || !Number.isFinite(tokens) || tokens <= 0) {
+      return;
+    }
+    tracked.info = {
+      ...tracked.info,
+      lastRequestContext: { tokens, source: 'estimate' },
+    };
   }
 
   /**

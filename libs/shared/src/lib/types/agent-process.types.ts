@@ -146,6 +146,24 @@ export interface AgentProcessInfo {
    * after the process is gone and the request object is not reachable there.
    */
   readonly deliverables?: readonly string[];
+  /**
+   * The input size of the lane's most recent model request, as far as it is
+   * known (TASK_2026_597, R9.1). The resume gate reads it to decide between
+   * resuming this lane and starting a fresh one. `source` says how the figure
+   * was obtained: `rollout` (read from the Codex rollout file), `stream` (a
+   * per-request figure the adapter reported) or `estimate` (anything coarser,
+   * such as a per-turn total).
+   */
+  readonly lastRequestContext?: LaneRequestContext;
+}
+
+/** Where a {@link LaneRequestContext} figure came from. */
+export type LaneRequestContextSource = 'rollout' | 'stream' | 'estimate';
+
+/** Input tokens of a lane's last model request, with its source. */
+export interface LaneRequestContext {
+  readonly tokens: number;
+  readonly source: LaneRequestContextSource;
 }
 
 export interface SpawnAgentRequest {
