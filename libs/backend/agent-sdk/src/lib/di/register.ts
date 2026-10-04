@@ -96,6 +96,7 @@ import { PluginLoaderService } from '../helpers/plugin-loader.service';
 import { HarnessPolicySync } from '../harness/harness-policy-sync';
 import { TurnStateForegroundSource } from '../helpers/turn-state-foreground-source';
 import { SessionPlanLimitCallbackRegistry } from '../helpers/plan-limits/session-plan-limit-callback-registry';
+import { SessionQuotaProbeService } from '../helpers/plan-limits/session-quota-probe.service';
 import { SettingsExportService } from '../settings-export.service';
 import { SettingsImportService } from '../settings-import.service';
 import { SDK_TOKENS } from './tokens';
@@ -442,6 +443,14 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_SESSION_PLAN_LIMIT_REGISTRY,
     { useClass: SessionPlanLimitCallbackRegistry },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  // Resolved lazily by its consumers; it subscribes to the plan-limit registry
+  // and `turnFailed` when first constructed, before which it holds no cache.
+  container.register(
+    SDK_TOKENS.SDK_SESSION_QUOTA_PROBE,
+    { useClass: SessionQuotaProbeService },
     { lifecycle: Lifecycle.Singleton },
   );
 

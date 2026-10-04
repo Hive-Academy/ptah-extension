@@ -170,6 +170,12 @@ export const SDK_TOKENS = {
    */
   SDK_SESSION_PLAN_LIMIT_REGISTRY: Symbol.for('SdkSessionPlanLimitRegistry'),
   /**
+   * `SessionQuotaProbe`: a live native session's `accountInfo()` (re-read
+   * once per turn), on-demand `/usage` and route kind (TASK_2026_596). The
+   * owner resolver and the Claude plan reader in `auth-providers` inject it.
+   */
+  SDK_SESSION_QUOTA_PROBE: Symbol.for('SdkSessionQuotaProbe'),
+  /**
    * Tracks failed stdio/HTTP MCP servers and manages exponential back-off to prevent
    * repeated subprocess leaks on consecutive sessions (TASK_2026_479).
    */

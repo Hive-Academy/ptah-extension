@@ -51,8 +51,10 @@ import type {
   CliOutputSegment,
   CliSessionReference,
   FlatStreamEventUnion,
+  QuotaOwnerRef,
   SubagentRecord,
 } from '@ptah-extension/shared';
+import { ownerRelation } from '@ptah-extension/shared';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { SdkError } from './errors';
 
@@ -1570,6 +1572,92 @@ describe('SessionMetadataStore', () => {
         false,
       );
       expect(await store.get('sess-1')).toBeNull();
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // TASK_2026_596 G3 — the persisted run owner is validated on restore
+  // -------------------------------------------------------------------------
+
+  describe('getCliSessionsForRestore quotaOwner validation', () => {
+    const OWNER_A: QuotaOwnerRef = {
+      providerId: 'anthropic',
+      identityKind: 'account',
+      key: 'anthropic#account:aaaaaaaaaaaaaaaa',
+      label: 'Claude account',
+    };
+    const OWNER_B: QuotaOwnerRef = {
+      ...OWNER_A,
+      key: 'anthropic#account:bbbbbbbbbbbbbbbb',
+    };
+
+    async function seedRun(quotaOwner: unknown, extra = {}): Promise<void> {
+      await store.create('sess-1', WORKSPACE, 'parent');
+      await store.addCliSession('sess-1', {
+        ...cliRef(),
+        quotaOwner,
+        ...extra,
+      } as unknown as CliSessionReference);
+    }
+
+    it('G3 restart: run A recorded on account A, no ledger evidence, session now on B -> still "Different owner"', async () => {
+      await seedRun(OWNER_A);
+      await store.flush();
+
+      // A reload: a fresh store over the same storage, as on host restart.
+      const reloaded = new SessionMetadataStore(storage, asLogger(logger));
+      const [run] = await reloaded.getCliSessionsForRestore('sess-1');
+
+      expect(run.quotaOwner).toEqual(OWNER_A);
+      expect(ownerRelation(run.quotaOwner, OWNER_B)).toBe('different');
+    });
+
+    it.each<[string, unknown]>([
+      ['a legacy key string', 'anthropic#account:aaaaaaaaaaaaaaaa'],
+      ['an unknown identityKind', { ...OWNER_A, identityKind: 'email' }],
+      ['an extra secret-looking field', { ...OWNER_A, apiKey: 'sk-secret' }],
+      ['a malformed key', { ...OWNER_A, key: 'anthropic#account:me@x.test' }],
+      ['a wrong type', 17],
+    ])(
+      'drops %s to no owner, never the current owner',
+      async (_name, value) => {
+        await seedRun(value);
+
+        const [run] = await store.getCliSessionsForRestore('sess-1');
+
+        expect(run).not.toHaveProperty('quotaOwner');
+        expect(ownerRelation(run.quotaOwner, OWNER_B)).toBe('unknown');
+        expect(run.cliSessionId).toBe('cli-1');
+      },
+    );
+
+    it('drops a stray legacy quotaOwnerKey field and restores no owner', async () => {
+      await seedRun(undefined, {
+        quotaOwnerKey: 'anthropic#account:aaaaaaaaaaaaaaaa',
+      });
+
+      const [run] = await store.getCliSessionsForRestore('sess-1');
+
+      expect(run).not.toHaveProperty('quotaOwnerKey');
+      expect(run).not.toHaveProperty('quotaOwner');
+    });
+
+    it('keeps a valid owner while dropping a stray quotaOwnerKey beside it', async () => {
+      await seedRun(OWNER_A, { quotaOwnerKey: 'legacy' });
+
+      const [run] = await store.getCliSessionsForRestore('sess-1');
+
+      expect(run).not.toHaveProperty('quotaOwnerKey');
+      expect(run.quotaOwner).toEqual(OWNER_A);
+    });
+
+    it('leaves a reference without owner fields untouched', async () => {
+      await store.create('sess-1', WORKSPACE, 'parent');
+      await store.addCliSession('sess-1', cliRef());
+
+      await expect(store.getCliSessionsForRestore('sess-1')).resolves.toEqual([
+        cliRef(),
+      ]);
     });
   });
 

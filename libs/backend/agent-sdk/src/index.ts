@@ -207,10 +207,20 @@ export {
   type SessionPlanLimitEvent,
   type SessionPlanLimitSignal,
 } from './lib/helpers/plan-limits/session-plan-limit-callback-registry';
-export type {
-  ClaudePlanLimitEvidence,
-  ClaudeTurnBilling,
+export {
+  mapClaudePlanLimitMessage,
+  claudeModelFamily,
+  billingFromRateLimitInfo,
+  type ClaudePlanLimitEvidence,
+  type ClaudePlanLimitMapping,
+  type ClaudeTurnBilling,
 } from './lib/helpers/plan-limits/claude-rate-limit.mapper';
+export type {
+  SessionQuotaProbe,
+  SessionQuotaRoute,
+  ClaudePlanUsage,
+} from './lib/helpers/plan-limits/session-quota-probe.service';
+export { parseQuotaOwnerRef } from './lib/helpers/plan-limits/quota-owner-ref.schema';
 export { SdkModuleLoader, SubagentHookHandler } from './lib/helpers';
 export {
   SdkAdapterEvents,
