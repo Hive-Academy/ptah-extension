@@ -50,6 +50,8 @@
           <ptah-message-bubble
             class="block px-2 pb-3"
             [message]="msg"
+            [ptahUiOrderKey]="ptahUiOrderKeys().get(msg.id) ?? 0"
+            [ptahUiSnapshot]="ptahUiSnapshots().get(msg.id) ?? null"
             [messageIndex]="i"
             [totalMessages]="vm().totalCount"
             [isStreaming]="i >= vm().streamingBoundary"

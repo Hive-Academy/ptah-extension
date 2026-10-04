@@ -15,6 +15,7 @@ import type {
   ExecutionChatMessage,
   ExecutionNode,
   TurnChangeSet,
+  TurnSourceSnapshot,
 } from '@ptah-extension/shared';
 import { ChangeSetStore } from '../../../../services/change-set/change-set.store';
 import { ChangeSetActionsService } from '../../../../services/change-set/change-set-actions.service';
@@ -31,6 +32,10 @@ import { ChatTranscriptComponent } from '../chat-transcript.component';
 })
 export class TranscriptMessageBubbleStub {
   @Input() message!: ExecutionChatMessage;
+  // Mirrors MessageBubbleComponent's ptah-ui input (TASK_2026_610 B7): the
+  // transcript template binds it, so the stub must accept it.
+  @Input() ptahUiOrderKey = 0;
+  @Input() ptahUiSnapshot: TurnSourceSnapshot | null = null;
   @Input() messageIndex = 0;
   @Input() totalMessages = 0;
   @Input() isStreaming = false;

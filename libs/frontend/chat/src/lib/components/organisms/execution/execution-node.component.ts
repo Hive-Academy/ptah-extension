@@ -39,6 +39,7 @@ import type {
   ExecutionNode,
   PermissionRequest,
   PermissionResponse,
+  TurnSourceSnapshot,
 } from '@ptah-extension/shared';
 import { hasPtahUiFenceLine } from './ptah-ui-fence-line';
 
@@ -51,6 +52,15 @@ export interface PtahUiNodeContext {
   readonly messageId: string;
   /** Transcript order of the message; higher is newer. */
   readonly orderKey: number;
+  /**
+   * The turn's host data (PR C), threaded from the transcript's
+   * `ptahUiSnapshots` map: what `$diff`/`$tests`/`$usage` resolve from.
+   * Optional so pre-PR-C context literals keep compiling; production always
+   * sets it, and `null` (the VS Code / absent case) resolves every binding to
+   * `unavailable`. Compared by identity — the transcript keeps an unchanged
+   * turn's snapshot object stable, so only a real source change re-renders.
+   */
+  readonly snapshot?: TurnSourceSnapshot | null;
 }
 
 /** Context equality by value, so a new message object does not re-render the host. */
@@ -63,7 +73,8 @@ export function samePtahUiContext(
     (left !== null &&
       right !== null &&
       left.messageId === right.messageId &&
-      left.orderKey === right.orderKey)
+      left.orderKey === right.orderKey &&
+      (left.snapshot ?? null) === (right.snapshot ?? null))
   );
 }
 
@@ -172,6 +183,7 @@ function scheduleFrame(cb: () => void): FrameHandle {
                 [nodeId]="node().id"
                 [orderKey]="host.orderKey"
                 [active]="surfaceActive()"
+                [snapshot]="host.snapshot ?? null"
               />
             } @placeholder {
               <markdown
@@ -309,7 +321,9 @@ function scheduleFrame(cb: () => void): FrameHandle {
       @case ('message') {
         <!-- Message node unwraps to its children. The ptah-ui context is
              forwarded HERE ONLY: agent, tool and SendMessage recursions above
-             never pass it, so subagent, tool and nested text stay code. -->
+             never pass it, so subagent, tool and nested text stay code. The
+             turn-source snapshot rides INSIDE the context (PR C), so it
+             reaches this message's assistant text only — never a subagent's. -->
         <div class="exec-children">
           @for (child of node().children; track child.id) {
             <ptah-execution-node

@@ -23,9 +23,14 @@ import { SESSION_CONTEXT } from '../../../tokens/session-context.token';
 import { SURFACE_ACTIVE, VSCodeService } from '@ptah-extension/core';
 import {
   createExecutionChatMessage,
+  buildTurnSourceSnapshot,
   ExecutionChatMessage,
 } from '@ptah-extension/shared';
-import type { ExecutionNode, TurnChangeSet } from '@ptah-extension/shared';
+import type {
+  ExecutionNode,
+  TurnChangeSet,
+  TurnSourceSnapshot,
+} from '@ptah-extension/shared';
 // Its own declaration from its own entry point: the compiler defers an import
 // only when every symbol of the declaration is used inside `@defer` alone,
 // and esbuild splits it out only when no eager code imports that file.
@@ -60,6 +65,126 @@ import { TranscriptSlotDirective } from './transcript-slot.directive';
 const EMPTY_STRING_SET: ReadonlySet<string> = new Set<string>();
 const EMPTY_MESSAGES: readonly ExecutionChatMessage[] = [];
 const EMPTY_TREES: readonly ExecutionNode[] = [];
+const EMPTY_ORDER_KEYS: ReadonlyMap<string, number> = new Map<string, number>();
+const NO_PTAH_UI_SNAPSHOTS: ReadonlyMap<string, TurnSourceSnapshot> =
+  new Map<string, TurnSourceSnapshot>();
+
+/**
+ * The still-open turn's snapshot: every source pending, exactly what
+ * `buildTurnSourceSnapshot` returns for an unfinalized turn. One frozen object
+ * so a growing turn's blocks keep one snapshot identity and do not re-run
+ * their pipeline per streaming delta.
+ */
+const PENDING_TURN_SNAPSHOT: TurnSourceSnapshot = {
+  state: 'pending',
+  incomplete: false,
+  diff: { kind: 'pending' },
+  tests: { kind: 'pending' },
+  usage: { kind: 'pending' },
+};
+
+/**
+ * One transcript turn's assistant messages, with the array index of its last
+ * (turn-ending) message. The same walk `groupTurns` performs
+ * (`transcript-turns.ts`): a user message starts a turn, roles other than
+ * `user`/`assistant` are skipped, and assistant messages before the first
+ * user message belong to no turn. Kept in lockstep with it so a run here is a
+ * turn there.
+ */
+interface AssistantRun {
+  readonly assistants: readonly ExecutionChatMessage[];
+  readonly endIndex: number;
+}
+
+/** The `groupTurns` walk, returning each turn's assistant messages. */
+function assistantRuns(
+  messages: readonly ExecutionChatMessage[],
+): readonly AssistantRun[] {
+  const runs: AssistantRun[] = [];
+  let assistants: ExecutionChatMessage[] = [];
+  let endIndex = -1;
+  let started = false;
+
+  const closeRun = (): void => {
+    if (assistants.length === 0) return;
+    runs.push({ assistants, endIndex });
+    assistants = [];
+    endIndex = -1;
+  };
+
+  for (let index = 0; index < messages.length; index += 1) {
+    const message = messages[index];
+    if (message.role === 'user') {
+      closeRun();
+      started = true;
+    } else if (message.role === 'assistant' && started) {
+      assistants.push(message);
+      endIndex = index;
+    }
+  }
+  closeRun();
+  return runs;
+}
+
+/**
+ * The change set covering one message — the `anchorInTurnWindow` window rule
+ * (`transcript-change-set-anchors.ts:47-60`) generalised from "the last
+ * assistant message in a change set's `(turnStartedAt, turnEndedAt]` window"
+ * to "the change set whose window contains this message's order key" (plan
+ * §4, decision 12). `changeSets` is oldest-first, as `changeSetsFor` returns,
+ * so the newest covering window wins.
+ */
+function changeSetForMessage(
+  message: ExecutionChatMessage,
+  changeSets: readonly TurnChangeSet[],
+): TurnChangeSet | null {
+  const key = transcriptOrderKey(message);
+  for (let index = changeSets.length - 1; index >= 0; index -= 1) {
+    const changeSet = changeSets[index];
+    if (changeSet.turnStartedAt < key && key <= changeSet.turnEndedAt) {
+      return changeSet;
+    }
+  }
+  return null;
+}
+
+/**
+ * Fallback when no window covers the turn-ending message (a clock the two
+ * sides do not share): the newest change set the existing anchor join places
+ * after that same message — the same placement the card renders, skew
+ * fallback included — so `$diff` and the card never disagree about a turn
+ * the join already resolved.
+ */
+function anchoredChangeSetFor(
+  anchors: ChangeSetAnchors,
+  message: ExecutionChatMessage,
+): TurnChangeSet | null {
+  const anchored = anchors.get(message.id);
+  if (anchored === undefined || anchored.length === 0) return null;
+  return anchored[anchored.length - 1];
+}
+
+function sameAssistantList(
+  left: readonly ExecutionChatMessage[],
+  right: readonly ExecutionChatMessage[],
+): boolean {
+  return (
+    left.length === right.length &&
+    left.every((message, index) => message === right[index])
+  );
+}
+
+/**
+ * One turn's snapshot inputs and result, cached by the turn-ending message id
+ * so an unchanged turn keeps its snapshot object identity across
+ * recomputes — a new but equal object would re-run every live block's
+ * pipeline for no source change.
+ */
+interface TurnSnapshotEntry {
+  readonly changeSet: TurnChangeSet | null | 'pending';
+  readonly assistants: readonly ExecutionChatMessage[];
+  readonly snapshot: TurnSourceSnapshot;
+}
 
 /**
  * Merge finalized and streaming messages in TIME order rather than in
@@ -479,6 +604,30 @@ export class ChatTranscriptComponent {
     return next;
   });
 
+  /**
+   * Transcript order key per message id, fed to each bubble's
+   * `ptahUiOrderKey` input so the tab's `PtahUiLiveWindow` ranks its
+   * `ptah-ui` blocks by transcript order (higher is newer — see
+   * `transcriptOrderKey`, which keeps streaming and finalized assistant
+   * messages on one stable clock).
+   *
+   * Electron only [user scope]: the live window exists only there, so the
+   * VS Code webview computes no map and its bubbles keep the input's `0`
+   * default — which their `ptah-ui` context (always `null` on VS Code)
+   * never reads. Derived from the gated `vm`, so a hidden transcript
+   * builds no map and reactivation recomputes it exactly once.
+   */
+  protected readonly ptahUiOrderKeys = computed<ReadonlyMap<string, number>>(
+    () => {
+      if (!this.vscodeService.isElectron) return EMPTY_ORDER_KEYS;
+      const messages = this.vm().messages;
+      if (messages.length === 0) return EMPTY_ORDER_KEYS;
+      const keys = new Map<string, number>();
+      for (const msg of messages) keys.set(msg.id, transcriptOrderKey(msg));
+      return keys;
+    },
+  );
+
   private _frozenAnchors: ChangeSetAnchors = NO_CHANGE_SET_ANCHORS;
 
   /**
@@ -514,6 +663,98 @@ export class ChatTranscriptComponent {
     this._frozenTurnTestsAnchors = next;
     return next;
   });
+
+  private _frozenPtahUiSnapshots: ReadonlyMap<string, TurnSourceSnapshot> =
+    NO_PTAH_UI_SNAPSHOTS;
+
+  /** Per-turn snapshot cache, keyed by the turn-ending message id. */
+  private readonly _turnSnapshotEntries = new Map<string, TurnSnapshotEntry>();
+
+  /** Session the cache was built for; a different session's turns start fresh. */
+  private _turnSnapshotSessionId: string | null = null;
+
+  /**
+   * Turn-source snapshots per message: every assistant message of a turn
+   * maps to the turn's ONE snapshot (TASK_2026_610 PR C, component 4), built
+   * with the turn's change set — `changeSetForMessage`'s window rule over the
+   * session's sets, falling back to the existing anchor join's placement of
+   * the same turn's card — the turn's assistant trees, and the turn-ENDING
+   * message's tokens/cost/duration (`$usage`). The newest turn keeps `$diff`
+   * `pending` until its late `git:turnChangeSet` push (A-6); an older turn
+   * nothing covers is `unavailable`.
+   *
+   * Electron only [user scope] — the VS Code webview computes no map and every
+   * bubble keeps the input's `null` default, which its `ptah-ui` context
+   * (always `null` there) never reads. Frozen while the tab is hidden like
+   * `vm`; each turn's snapshot keeps its object identity across recomputes,
+   * so a source change (finalization, a late push) updates blocks in place
+   * rather than remounting them (Req 3.2).
+   */
+  protected readonly ptahUiSnapshots = computed<
+    ReadonlyMap<string, TurnSourceSnapshot>
+  >(() => {
+    if (!this.vscodeService.isElectron) return NO_PTAH_UI_SNAPSHOTS;
+    const view = this.vm();
+    if (!this.workActive()) return this._frozenPtahUiSnapshots;
+    const sessionId = this.sessionId();
+    if (sessionId !== this._turnSnapshotSessionId) {
+      this._turnSnapshotEntries.clear();
+      this._turnSnapshotSessionId = sessionId;
+    }
+    const changeSets = this.changeSetStore.changeSetsFor(sessionId);
+    const anchors = this.changeSetAnchors();
+    const runs = assistantRuns(view.messages);
+    const snapshots = new Map<string, TurnSourceSnapshot>();
+    for (let index = 0; index < runs.length; index += 1) {
+      const run = runs[index];
+      const endMessage = run.assistants[run.assistants.length - 1];
+      const finalized = run.endIndex < view.streamingBoundary;
+      const changeSet: TurnChangeSet | null | 'pending' = finalized
+        ? changeSetForMessage(endMessage, changeSets) ??
+          anchoredChangeSetFor(anchors, endMessage) ??
+          (index === runs.length - 1 ? 'pending' : null)
+        : 'pending';
+      const entry = this._turnSnapshotEntries.get(endMessage.id);
+      const snapshot =
+        entry !== undefined &&
+        entry.changeSet === changeSet &&
+        sameAssistantList(entry.assistants, run.assistants)
+          ? entry.snapshot
+          : this.buildTurnSnapshot(run, endMessage, changeSet, finalized);
+      for (const assistant of run.assistants) {
+        snapshots.set(assistant.id, snapshot);
+      }
+    }
+    this._frozenPtahUiSnapshots = snapshots;
+    return snapshots;
+  });
+
+  /**
+   * Build (and cache) one turn's snapshot. An unfinalized turn gets the
+   * shared {@link PENDING_TURN_SNAPSHOT} — its inputs churn per streaming
+   * delta, so the constant is what keeps the blocks' inputs stable.
+   */
+  private buildTurnSnapshot(
+    run: AssistantRun,
+    endMessage: ExecutionChatMessage,
+    changeSet: TurnChangeSet | null | 'pending',
+    finalized: boolean,
+  ): TurnSourceSnapshot {
+    const snapshot = finalized
+      ? buildTurnSourceSnapshot({
+          turnMessages: run.assistants,
+          blockMessage: endMessage,
+          changeSet,
+          finalized: true,
+        })
+      : PENDING_TURN_SNAPSHOT;
+    this._turnSnapshotEntries.set(endMessage.id, {
+      changeSet,
+      assistants: run.assistants,
+      snapshot,
+    });
+    return snapshot;
+  }
 
   protected readonly changeSetHost = computed<ChangeSetCardHost>(() =>
     this.vscodeService.isElectron ? 'electron' : 'vscode',

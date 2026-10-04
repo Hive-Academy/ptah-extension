@@ -444,6 +444,9 @@ export class MessageSenderService {
           name: autoName, // Send message-derived name to backend (not stale activeTab reference)
           ...(workspacePath ? { workspacePath } : {}),
           ptahCliId, // Route to Ptah CLI agent adapter
+          // Electron's transcript renders `ptah-ui` fences as live surfaces;
+          // VS Code sends no key at all (TASK_2026_610 comp. 11).
+          ...(this.vscodeService.isElectron ? { ptahUiFence: true } : {}),
           options: {
             ...(effectiveModel ? { model: effectiveModel } : {}),
             ...(files ? { files } : {}),
@@ -695,6 +698,9 @@ export class MessageSenderService {
           ...(resolvedWorkspacePath
             ? { workspacePath: resolvedWorkspacePath }
             : {}),
+          // Re-sent on every continue: the fence flag lives in the
+          // in-memory session config (TASK_2026_610 comp. 11, L-820).
+          ...(this.vscodeService.isElectron ? { ptahUiFence: true } : {}),
           ...(effectiveModel ? { model: effectiveModel } : {}),
           files: files ?? [],
           ...(images && images.length > 0 ? { images } : {}),
