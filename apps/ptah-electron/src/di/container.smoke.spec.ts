@@ -64,6 +64,7 @@ import { AUTH_PROVIDERS_TOKENS } from '@ptah-extension/auth-providers-tokens';
 
 import { EXPECTED_RESOLVABLE } from './expected-resolvable';
 import { registerPhase0Platform } from './phase-0-platform';
+import { registerPhase1Infra } from './phase-1-infra';
 import { registerPhase4Handlers } from './phase-4-handlers';
 import { UPDATE_MANAGER_TOKEN } from '../services/update/update-tokens';
 
@@ -242,6 +243,37 @@ describe('Electron DI — shared RPC handler resolution', () => {
         }
       ).modelSettings;
       expect(typeof ms.selectedModel.get).toBe('function');
+    }
+  });
+});
+
+describe('Electron DI — trusted host kind', () => {
+  it('resolves HOST_KIND as electron after phase 1 registration', () => {
+    const c = buildMinimalContainer();
+    const logger = c.resolve<Logger>(TOKENS.LOGGER);
+    const userDataPath = fs.mkdtempSync(path.join(os.tmpdir(), 'ptah-host-kind-'));
+
+    try {
+      registerPhase1Infra(
+        c,
+        {
+          appPath: userDataPath,
+          userDataPath,
+          logsPath: path.join(userDataPath, 'logs'),
+          safeStorage: {
+            isEncryptionAvailable: () => false,
+            encryptString: (value: string) => Buffer.from(value),
+            decryptString: (value: Buffer) => value.toString(),
+          },
+          dialog: {} as never,
+          getWindow: () => null,
+        },
+        logger,
+      );
+
+      expect(c.resolve(TOKENS.HOST_KIND)).toBe('electron');
+    } finally {
+      fs.rmSync(userDataPath, { recursive: true, force: true });
     }
   });
 });

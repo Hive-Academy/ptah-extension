@@ -202,6 +202,8 @@ export const BACKGROUND_WORK_GOVERNOR = Symbol.for('BackgroundWorkGovernor');
  */
 export const DEGRADATION_REPORTER = Symbol.for('DegradationReporter');
 
+export type HostKind = 'vscode' | 'electron' | 'cli' | 'tui';
+
 /**
  * TOKENS constant for convenient access to all DI tokens
  * Provides a single source of truth for all dependency injection symbols
@@ -285,6 +287,7 @@ export const TOKENS = {
   MAIN_LOOP_WATCHDOG,
   BACKGROUND_WORK_GOVERNOR,
   DEGRADATION_REPORTER,
+  HOST_KIND: Symbol.for('HostKind'),
 } as const;
 
 /**
