@@ -3428,7 +3428,7 @@ When Batch 28 is scheduled, its decomposition adds these parts. Task 28.2 stays 
 
 ---
 
-## Batch 58: N7 tab state — PENDING (PR 3, decision 13)
+## Batch 58: N7 tab state — COMPLETE (PR 3, decision 13; report batch-58-executor-report.md)
 
 - Recommended executor: frontend-developer
 - Fallback executor: frontend-developer re-run
@@ -3465,7 +3465,7 @@ When Batch 28 is scheduled, its decomposition adds these parts. Task 28.2 stays 
 
 ---
 
-## Batch 59: N7 aggregator, loader, send failure — PENDING (PR 3, decision 13)
+## Batch 59: N7 aggregator, loader, send failure — IN_PROGRESS (PR 3, decision 13)
 
 - Recommended executor: frontend-developer
 - Fallback executor: frontend-developer re-run

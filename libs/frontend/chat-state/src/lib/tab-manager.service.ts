@@ -28,6 +28,7 @@ import {
   createExecutionChatMessage,
   type AgentSessionOpenedPayload,
   type SessionStatsEntry,
+  type SessionBudgetState,
 } from '@ptah-extension/shared';
 import { ConfirmationDialogService } from './confirmation-dialog.service';
 import { MODEL_REFRESH_CONTROL } from './model-refresh-control';
@@ -135,6 +136,20 @@ export interface ClosedTabEvent {
    * sets it; absent or false means no stream abort was dispatched by the close.
    */
   readonly streamAbortDispatched?: boolean;
+}
+
+/**
+ * The `sessionBudget` part of an accepted snapshot's tab update. An absent
+ * budget, or one keyed to another session than the snapshot, leaves the tab's
+ * last budget in place.
+ */
+function budgetPatch(
+  snapshot: SessionStatsEntry,
+  budget: SessionBudgetState | undefined,
+): { sessionBudget?: SessionBudgetState } {
+  return budget?.sessionId === snapshot.sessionId
+    ? { sessionBudget: budget }
+    : {};
 }
 
 /**
@@ -1196,6 +1211,7 @@ export class TabManagerService {
       queuedContent: null,
       queuedOptions: null,
       sessionStats: null,
+      sessionBudget: null,
       liveModelStats: null,
       hasLiveSession: false,
       compactionCount: 0,
@@ -2202,21 +2218,33 @@ export class TabManagerService {
    * session, or carries no revision after a revisioned one was accepted while
    * this tab already shows a snapshot for the session — a late broadcast or a
    * delayed history read must not regress the panel.
+   *
+   * `budget` is the session budget computed from this snapshot. It installs in
+   * the same update and is dropped with it; an absent budget keeps the last.
    */
-  installSessionStats(tabId: string, snapshot: SessionStatsEntry): void {
+  installSessionStats(
+    tabId: string,
+    snapshot: SessionStatsEntry,
+    budget?: SessionBudgetState,
+  ): void {
     if (!this.acceptSessionStats(tabId, snapshot)) return;
-    this.updateTabInternal(tabId, { sessionStats: snapshot });
+    this.updateTabInternal(tabId, {
+      sessionStats: snapshot,
+      ...budgetPatch(snapshot, budget),
+    });
   }
 
   /**
    * Apply a loaded session's resume payload: install the backend snapshot and
    * the originating sessionModel together so future `chat:continue` calls use
-   * the original session model.
+   * the original session model. `budget` follows the snapshot exactly as in
+   * {@link installSessionStats}.
    */
   applyLoadedSessionStats(
     tabId: string,
     stats: SessionStatsEntry,
     sessionModel: string | null,
+    budget?: SessionBudgetState,
   ): void {
     // Keep the model visible until the loader applies the independent history frame.
     // A legacy model-only record establishes neither numerator nor capacity.
@@ -2230,7 +2258,10 @@ export class TabManagerService {
         }
       : null;
     this.updateTabInternal(tabId, {
-      ...(this.acceptSessionStats(tabId, stats) && { sessionStats: stats }),
+      ...(this.acceptSessionStats(tabId, stats) && {
+        sessionStats: stats,
+        ...budgetPatch(stats, budget),
+      }),
       sessionModel,
       liveModelStats,
     });
@@ -2332,6 +2363,7 @@ export class TabManagerService {
       currentMessageId: null,
       queuedContent: null,
       sessionStats: null,
+      sessionBudget: null,
       liveModelStats: null,
       compactionCount: 0,
     });
