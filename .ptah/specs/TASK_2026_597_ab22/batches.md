@@ -2736,7 +2736,7 @@ Edge cases:
 
 ---
 
-## Batch 47: N6 agent panel display — IN_PROGRESS (PR 2, decision 12)
+## Batch 47: N6 agent panel display — COMPLETE (PR 2, decision 12; report batch-47-executor-report.md)
 
 - Recommended executor: frontend-developer
 - Fallback executor: frontend-developer re-run

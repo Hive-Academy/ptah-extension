@@ -62,6 +62,7 @@ import { TabManagerService } from '@ptah-extension/chat-state';
 import { PanelResizeService } from '../../services/panel-resize.service';
 import { AgentCardComponent } from '../molecules/agent-card/agent-card.component';
 import { AgentContinueInputComponent } from '../molecules/agent-continue-input/agent-continue-input.component';
+import { SubagentUsageSummaryComponent } from '../molecules/agent-card/subagent-usage-summary.component';
 import {
   groupAgentsByWorkflowRun,
   type WorkflowRunGroup,
@@ -187,6 +188,7 @@ function subagentToTile(r: SubagentRecord): WorkflowTileVM {
     AgentCardComponent,
     AgentContinueInputComponent,
     SubagentTranscriptViewerComponent,
+    SubagentUsageSummaryComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: `
@@ -560,6 +562,7 @@ function subagentToTile(r: SubagentRecord): WorkflowTileVM {
                  has no MonitoredAgent shape (no card / permissions / continue),
                  so we render the shared transcript viewer instead. -->
                 <div class="p-1.5">
+                  <ptah-subagent-usage-summary [record]="sub" />
                   @if (
                     sub.workflowRunId || (sub.agentId && sub.parentSessionId)
                   ) {

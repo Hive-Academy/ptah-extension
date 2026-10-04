@@ -13,6 +13,26 @@ export function formatTokens(count: number): string {
   return count.toString();
 }
 
+/** Shown in place of a value the provider did not report — never 0. */
+export const NOT_REPORTED = '—';
+
+/** {@link formatTokens}, or {@link NOT_REPORTED} when the count is missing. */
+export function formatOptionalTokens(count: number | undefined): string {
+  return count === undefined ? NOT_REPORTED : formatTokens(count);
+}
+
+/**
+ * Format an estimated USD cost as "~$x.xx est.". `null` (the model has no
+ * price) and `undefined` (no usage or model reported) both render as
+ * {@link NOT_REPORTED}.
+ */
+export function formatEstimatedCost(
+  costUsd: number | null | undefined,
+): string {
+  if (costUsd === null || costUsd === undefined) return NOT_REPORTED;
+  return `~$${costUsd.toFixed(2)} est.`;
+}
+
 /**
  * Format a duration in milliseconds for display.
  * Returns "250ms", "2.3s", or "1m 5s" depending on magnitude.

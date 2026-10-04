@@ -325,8 +325,10 @@ describe('AgentMonitorPanelComponent — session subagents', () => {
   let getSubagentTranscriptMock: jest.Mock;
   let allSubagentsMap: Map<string, SubagentRecord>;
   let getSubagentMock: jest.Mock;
+  let loadSubagentCacheInfoMock: jest.Mock;
 
   beforeEach(() => {
+    loadSubagentCacheInfoMock = jest.fn().mockResolvedValue(undefined);
     activeWorkflowSubagentsSig = signal<SubagentRecord[]>([]);
     activeSessionSubagentsSig = signal<SubagentRecord[]>([]);
     activeTabAgentsSig = signal<MonitoredAgent[]>([]);
@@ -363,6 +365,7 @@ describe('AgentMonitorPanelComponent — session subagents', () => {
             tick: signal(0),
             getSubagent: getSubagentMock,
             getSubagentTranscript: getSubagentTranscriptMock,
+            loadSubagentCacheInfo: loadSubagentCacheInfoMock,
           },
         },
         {
@@ -476,6 +479,33 @@ describe('AgentMonitorPanelComponent — session subagents', () => {
       'ptah-subagent-transcript-viewer',
     );
     expect(transcriptViewer).toBeTruthy();
+  });
+
+  it('shows the usage summary only once a subagent row is opened, and loads its cache info then', () => {
+    activeSessionSubagentsSig.set([
+      subagent({
+        parentToolUseId: 'toolu_task_1',
+        teammateName: 'Worker 1',
+        status: 'running',
+      }),
+    ]);
+    const fixture = createPanel(null);
+    expect(
+      fixture.nativeElement.querySelector('ptah-subagent-usage-summary'),
+    ).toBeNull();
+    expect(loadSubagentCacheInfoMock).not.toHaveBeenCalled();
+
+    (
+      fixture.nativeElement.querySelector(
+        'button[title="Worker 1"]',
+      ) as HTMLButtonElement
+    ).click();
+    fixture.detectChanges();
+
+    expect(
+      fixture.nativeElement.querySelector('ptah-subagent-usage-summary'),
+    ).toBeTruthy();
+    expect(loadSubagentCacheInfoMock).toHaveBeenCalledWith('toolu_task_1');
   });
 
   it('does not auto-select session subagents when a CLI agent is selected', () => {
