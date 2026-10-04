@@ -70,11 +70,14 @@
 <!-- 2. Shared chrome — ALWAYS rendered, hidden when standalone view is active -->
 <!-- Uses [class.hidden] (CSS display:none) so canvas tiles survive navigation to settings/analytics -->
 <div class="flex h-full" [class.hidden]="isStandaloneView()">
-  <!-- Session Sidebar (toggleable width, no border — tab provides visual edge) -->
+  <!-- Session Sidebar (toggleable and resizable width, no border — tab
+       provides visual edge). Open width defaults to 272 px, follows the
+       right-edge resize handle (bottom of the aside) and persists. -->
   <aside
-    class="flex flex-col bg-base-200 transition-all duration-300"
-    [class.w-0]="!sidebarOpen()"
-    [class.w-56]="sidebarOpen()"
+    class="relative flex flex-col bg-base-200 duration-300"
+    [class.transition-all]="!sidebarResizing()"
+    [class.transition-none]="sidebarResizing()"
+    [style.width.px]="sidebarOpen() ? sidebarWidth() : 0"
     [class.overflow-hidden]="!sidebarOpen()"
   >
     <!-- Sidebar header with Ptah icon -->
@@ -222,7 +225,7 @@
           } @else {
             <button
               type="button"
-              class="flex flex-col items-start gap-1 py-2.5 px-3 w-full text-left rounded-md transition-all duration-200 border-l-2 border-transparent hover:bg-base-300/50"
+              class="flex items-center gap-2 py-2.5 px-3 w-full text-left rounded-md transition-all duration-200 border-l-2 border-transparent hover:bg-base-300/50"
               [class.pr-16]="!organizationAvailable()"
               [class.sidebar-item-active]="
                 session.id === chatStore.currentSession()?.id
@@ -236,42 +239,54 @@
               "
               (click)="onSessionClick(session)"
             >
-              <!-- Session name -->
-              @if (depth > 0) {
-                <span class="sr-only">Child session:</span>
+              <!-- Leading live-phase column (organization hosts): the
+                   running/waiting/failed marker, vertically centered beside
+                   the name and time instead of under them. Idle hides it, so
+                   the row keeps its no-marker layout. -->
+              @if (organizationAvailable()) {
+                <ptah-session-live-phase-indicator [session]="session" />
               }
-              <span
-                class="font-medium text-sm truncate w-full leading-snug"
-                [class.text-primary]="
-                  session.id === chatStore.currentSession()?.id ||
-                  isSessionOpen(session.id)
-                "
-                [class.text-base-content]="session.hasTranscript === false"
-                [class.opacity-50]="session.hasTranscript === false"
-                [title]="session.name"
-              >
-                {{ getSessionDisplayName(session) }}
-              </span>
-              <!-- Session metadata row -->
-              <span
-                class="text-xs text-base-content-muted flex items-center gap-2 w-full"
-                [class.whitespace-nowrap]="organizationAvailable()"
-                [class.overflow-hidden]="organizationAvailable()"
-                [class.pr-20]="organizationAvailable()"
-              >
-                <span>{{ formatRelativeDate(session.lastActivityAt) }}</span>
-                @if (session.messageCount > 0) {
-                  <span class="text-base-content-muted"
-                    >{{ session.messageCount }} msgs</span
-                  >
+              <!-- Session name and metadata: the row's main column -->
+              <span class="flex flex-col items-start gap-1 min-w-0 flex-1">
+                <!-- Session name -->
+                @if (depth > 0) {
+                  <span class="sr-only">Child session:</span>
                 }
-                @if (session.hasTranscript === false) {
-                  <span
-                    class="text-base-content-muted italic"
-                    [title]="expiredTranscriptHint"
-                    >transcript expired</span
-                  >
-                }
+                <span
+                  class="font-medium text-sm truncate w-full leading-snug"
+                  [class.text-primary]="
+                    session.id === chatStore.currentSession()?.id ||
+                    isSessionOpen(session.id)
+                  "
+                  [class.text-base-content]="session.hasTranscript === false"
+                  [class.opacity-50]="session.hasTranscript === false"
+                  [title]="session.name"
+                >
+                  {{ getSessionDisplayName(session) }}
+                </span>
+                <!-- Session metadata row -->
+                <span
+                  class="text-xs text-base-content-muted flex items-center gap-2 w-full"
+                  [class.whitespace-nowrap]="organizationAvailable()"
+                  [class.overflow-hidden]="organizationAvailable()"
+                  [class.pr-20]="organizationAvailable()"
+                >
+                  <span>{{
+                    formatRelativeDate(session.lastActivityAt)
+                  }}</span>
+                  @if (session.messageCount > 0) {
+                    <span class="text-base-content-muted"
+                      >{{ session.messageCount }} msgs</span
+                    >
+                  }
+                  @if (session.hasTranscript === false) {
+                    <span
+                      class="text-base-content-muted italic"
+                      [title]="expiredTranscriptHint"
+                      >transcript expired</span
+                    >
+                  }
+                </span>
               </span>
             </button>
             <!-- Action buttons (hover reveal) -->
@@ -324,11 +339,13 @@
             @if (organizationAvailable()) {
               <!-- Organization chips sit beside the row button, not inside
                      it: a list is not phrasing content, and the chips would
-                     otherwise all be read as part of the button's name.
-                     Here the hover actions anchor to the row's bottom line
-                     (chips or metadata), so the title keeps the full width;
-                     `pr-24` on this line and `pr-20` on the metadata line
-                     keep the actions off both. -->
+                     otherwise all be read as part of the button's name. (The
+                     live-phase indicator above is a span — phrasing content —
+                     so it stays inside the button as the row's leading
+                     column.) Here the hover actions anchor to the row's
+                     bottom line (chips or metadata), so the title keeps the
+                     full width; `pr-24` on this line and `pr-20` on the
+                     metadata line keep the actions off both. -->
 
               <div class="pl-3 pr-24 has-[li]:-mt-1.5 has-[li]:pb-2">
                 <ptah-session-organization-chips [session]="session" />
@@ -468,6 +485,31 @@
         </div>
       }
     </div>
+
+    <!-- Sidebar resize handle — the open sidebar's right edge. Pointer drag
+         (the handle captures the pointer) resizes; the focused handle takes
+         ArrowLeft/ArrowRight (±16 px) and double-click resets to 272 px. -->
+    @if (sidebarOpen()) {
+      <div
+        #sidebarResizeHandle
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize session sidebar"
+        title="Drag to resize; Arrow keys step; double-click resets"
+        tabindex="0"
+        class="absolute top-0 right-0 z-10 h-full w-1 cursor-col-resize touch-none hover:bg-primary/40 focus-visible:bg-primary/40 transition-colors duration-200"
+        [attr.aria-valuemin]="sidebarMinWidth"
+        [attr.aria-valuemax]="sidebarMaxWidth"
+        [attr.aria-valuenow]="sidebarWidth()"
+        (pointerdown)="onSidebarResizeStart($event)"
+        (pointermove)="onSidebarResizeMove($event)"
+        (pointerup)="onSidebarResizeEnd()"
+        (pointercancel)="onSidebarResizeEnd()"
+        (dblclick)="resetSidebarWidth()"
+        (keydown)="onSidebarResizeKeydown($event)"
+        data-testid="sidebar-resize-handle"
+      ></div>
+    }
   </aside>
 
   <!-- Sessions vertical tab (always visible — primary toggle for session panel) -->
