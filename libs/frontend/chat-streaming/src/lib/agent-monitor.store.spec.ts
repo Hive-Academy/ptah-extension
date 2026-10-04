@@ -1352,6 +1352,27 @@ describe('AgentMonitorStore', () => {
       expect(card('restored-legacy')?.usageTotals).toBeNull();
       expect(card('restored-legacy')?.quotaOwner).toBeUndefined();
     });
+
+    it('marks only cards rebuilt by loadCliSessions as restored, whatever their status', () => {
+      spawnLane('live-done', {});
+      exitLane('live-done', {});
+      store.loadCliSessions(
+        [
+          {
+            agentId: 'restored-running',
+            cli: 'codex',
+            task: 'restored while the backend still runs it',
+            startedAt: '2026-09-01T00:00:00.000Z',
+            status: 'running',
+          } as unknown as CliSessionReference,
+        ],
+        'sess-restore-flag',
+      );
+
+      // A finished live card is not restored; a running restored card is.
+      expect(card('live-done')?.restored).toBeUndefined();
+      expect(card('restored-running')?.restored).toBe(true);
+    });
   });
 
   describe('resumeAgentWithMessage', () => {

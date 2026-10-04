@@ -181,6 +181,12 @@ export interface MonitoredAgent {
    * unknown owner, never as the current owner.
    */
   quotaOwner?: QuotaOwnerRef;
+  /**
+   * `true` only on a card rebuilt by `loadCliSessions` from persisted history;
+   * absent on a live-spawned card. Set where the card is created, never
+   * inferred from status.
+   */
+  restored?: boolean;
 }
 
 /**
@@ -1197,6 +1203,7 @@ export class AgentMonitorStore implements OnDestroy {
           // segments are not folded. The recorded owner may be absent.
           usageTotals: null,
           quotaOwner: ref.quotaOwner,
+          restored: true,
         });
         existingIds.add(ref.agentId);
       }

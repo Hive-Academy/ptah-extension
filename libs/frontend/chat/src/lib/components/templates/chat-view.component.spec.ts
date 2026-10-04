@@ -26,6 +26,7 @@ import {
   NgModule,
   NO_ERRORS_SCHEMA,
   ChangeDetectionStrategy,
+  LOCALE_ID,
   signal,
 } from '@angular/core';
 
@@ -64,6 +65,7 @@ import { TestBed } from '@angular/core/testing';
 import {
   ChatViewComponent,
   AGENT_PANEL_OVERLAY_BREAKPOINT,
+  toStatsLimitLaneRun,
 } from './chat-view.component';
 import { ChatStore } from '../../services/chat.store';
 import { ActionBannerService } from '../../services/action-banner.service';
@@ -74,7 +76,14 @@ import {
   ClaudeRpcService,
   AppStateManager,
   AuthStateService,
+  PlanLimitsStore,
 } from '@ptah-extension/core';
+import type {
+  PlanLimitOwnerSnapshot,
+  PlanLimitsSnapshot,
+  ProviderGetPlanLimitsParams,
+  QuotaOwnerRef,
+} from '@ptah-extension/shared';
 import {
   TabManagerService,
   ConversationRegistry,
@@ -330,9 +339,26 @@ function makeHarness(
     ? realActionBanner
     : actionBannerStub;
 
+  const agentsForSessionMock = jest.fn(
+    (_sessionId: string): MonitoredAgent[] => [],
+  );
+  const planLimitsLoadMock = jest.fn(
+    async (_params: ProviderGetPlanLimitsParams): Promise<void> => undefined,
+  );
+  const planLimitsSnapshotSig = signal<PlanLimitsSnapshot | null>(null);
+  const planLimitsNowSig = signal<number>(Date.UTC(2026, 9, 5, 12, 0, 0));
+  const planLimitsStub = {
+    load: planLimitsLoadMock,
+    snapshot: planLimitsSnapshotSig.asReadonly(),
+    now: planLimitsNowSig.asReadonly(),
+    loading: signal(false).asReadonly(),
+    sessionOwner: (sessionId: string) =>
+      planLimitsSnapshotSig()?.sessionOwners[sessionId] ?? null,
+  } as unknown as PlanLimitsStore;
+
   const agentMonitorStoreStub = {
     agents: agentsSig.asReadonly(),
-    agentsForSession: jest.fn(() => []),
+    agentsForSession: agentsForSessionMock,
     activeTabAgents: signal([]).asReadonly(),
     activeWorkflowSubagents: signal([]).asReadonly(),
     pendingPermissions: signal([]).asReadonly(),
@@ -428,6 +454,7 @@ function makeHarness(
       { provide: ConversationRegistry, useValue: conversationRegistryStub },
       { provide: TabSessionBinding, useValue: tabSessionBindingStub },
       { provide: AuthStateService, useValue: authStateStub },
+      { provide: PlanLimitsStore, useValue: planLimitsStub },
       {
         provide: SESSION_CONTEXT,
         useValue:
@@ -499,6 +526,9 @@ function makeHarness(
     loadOlderMock,
     olderHistoryLoadingTabIds,
     agentsSig,
+    agentsForSessionMock,
+    planLimitsLoadMock,
+    planLimitsSnapshotSig,
   };
 }
 
@@ -1398,6 +1428,227 @@ describe('ChatViewComponent — showBackgroundStrip() / traySessionId()', () => 
     expect(h.component.resolvedSessionId()).toBe(h.sessionId);
     expect(h.component.showBackgroundStrip()).toBe(true);
     expect(h.component.traySessionId()).toBe(h.sessionId);
+  });
+});
+
+// -----------------------------------------------------------------------------
+// TASK_2026_596 Batch 20 — plan-limit wiring of the stats strip.
+// -----------------------------------------------------------------------------
+describe('ChatViewComponent — plan limits wiring (TASK_2026_596)', () => {
+  const OWNER_A: QuotaOwnerRef = {
+    key: 'openai-codex#account:aaa',
+    providerId: 'openai-codex',
+    identityKind: 'account',
+    label: 'Codex account',
+  };
+  const OWNER_B: QuotaOwnerRef = {
+    key: 'openai-codex#account:bbb',
+    providerId: 'openai-codex',
+    identityKind: 'account',
+    label: 'Codex account',
+  };
+  const STARTED = Date.UTC(2026, 9, 5, 11, 0, 0);
+
+  function run(
+    agentId: string,
+    parentSessionId: string,
+    extra: Partial<MonitoredAgent> = {},
+  ): MonitoredAgent {
+    return {
+      agentId,
+      cli: 'codex',
+      task: `task ${agentId}`,
+      status: 'completed',
+      startedAt: STARTED,
+      stdout: '',
+      stderr: '',
+      expanded: false,
+      segments: [],
+      streamEvents: [],
+      streamRevision: 0,
+      permissionQueue: [],
+      parentSessionId,
+      ...extra,
+    } as MonitoredAgent;
+  }
+
+  function ownerSnapshot(owner: QuotaOwnerRef): PlanLimitOwnerSnapshot {
+    return {
+      owner,
+      status: 'available',
+      windowSetEstablished: true,
+      windows: [
+        {
+          key: 'weekly_model:opus',
+          kind: 'weekly_model',
+          label: 'Weekly · Opus',
+          modelScope: 'opus',
+          used: { kind: 'percent', percent: 10 },
+          usedSource: 'provider-api',
+          usedObservedAt: STARTED,
+          observedAt: STARTED,
+        },
+      ],
+      ownerEvidence: [],
+    };
+  }
+
+  function harness() {
+    // Children are swapped out (NO_ERRORS_SCHEMA) so `TestBed.tick()` can run
+    // the effects without wiring every child component's DI graph.
+    const h = makeHarness({ renderCompactTemplate: true });
+    h.agentsForSessionMock.mockImplementation((sessionId: string) =>
+      h.agentsSig().filter((a) => a.parentSessionId === sessionId),
+    );
+    return h;
+  }
+
+  afterEach(() => {
+    TestBed.resetTestingModule();
+    jest.restoreAllMocks();
+    jest.clearAllMocks();
+  });
+
+  it('loads the session with its recorded owner keys, and sends [] for both once no session is open', () => {
+    const h = harness();
+    h.agentsSig.set([
+      run('a1', h.sessionId, { quotaOwner: OWNER_A }),
+      // No recorded owner: contributes no key, never the current owner's.
+      run('a2', h.sessionId),
+      run('b1', 'session-other', { quotaOwner: OWNER_B }),
+    ]);
+    TestBed.tick();
+
+    expect(h.planLimitsLoadMock).toHaveBeenLastCalledWith({
+      sessionIds: [h.sessionId],
+      ownerKeys: [OWNER_A.key],
+    });
+
+    h.sessionIdSig.set(null);
+    TestBed.tick();
+
+    expect(h.planLimitsLoadMock).toHaveBeenLastCalledWith({
+      sessionIds: [],
+      ownerKeys: [],
+    });
+    expect(h.component.resolvedStatsLimits()).toBeNull();
+  });
+
+  it('reloads when the recorded owner set changes, not on a usage-only update', () => {
+    const h = harness();
+    h.agentsSig.set([run('a1', h.sessionId, { quotaOwner: OWNER_A })]);
+    TestBed.tick();
+    const calls = h.planLimitsLoadMock.mock.calls.length;
+
+    h.agentsSig.set([
+      run('a1', h.sessionId, {
+        quotaOwner: OWNER_A,
+        usageTotals: { inputTokens: 5 },
+      }),
+    ]);
+    TestBed.tick();
+    expect(h.planLimitsLoadMock.mock.calls.length).toBe(calls);
+
+    h.agentsSig.update((list) => [
+      ...list,
+      run('a3', h.sessionId, { quotaOwner: OWNER_B }),
+    ]);
+    TestBed.tick();
+    expect(h.planLimitsLoadMock).toHaveBeenLastCalledWith({
+      sessionIds: [h.sessionId],
+      ownerKeys: [OWNER_A.key, OWNER_B.key],
+    });
+  });
+
+  it('builds limits from this session`s runs only (F58), and only once a snapshot exists', () => {
+    const h = harness();
+    h.agentsSig.set([
+      run('a1', h.sessionId, { quotaOwner: OWNER_A }),
+      run('a2', h.sessionId),
+      run('b1', 'session-other', { quotaOwner: OWNER_A }),
+    ]);
+    expect(h.component.resolvedStatsLimits()).toBeNull();
+
+    h.planLimitsSnapshotSig.set({
+      generatedAt: STARTED,
+      owners: [ownerSnapshot(OWNER_A)],
+      sessionOwners: {
+        [h.sessionId]: { ownerKey: OWNER_A.key, modelScope: 'opus' },
+      },
+    });
+
+    const limits = h.component.resolvedStatsLimits();
+    expect(limits?.lanesCount).toBe(2);
+    const statuses = limits?.laneTiles
+      .flatMap((tile) => tile.subgroups)
+      .map((group) => group.ownerStatus)
+      .sort();
+    expect(statuses).toEqual(['not-recorded', 'same']);
+    // The session's backend-resolved scope (`opus`) shows its window tile.
+    expect(limits?.planTiles.some((tile) => tile.kind === 'window')).toBe(
+      true,
+    );
+    // A run carries no resolved scope, so model-scoped limits are not applied.
+    const sameGroup = limits?.laneTiles
+      .flatMap((tile) => tile.subgroups)
+      .find((group) => group.ownerStatus === 'same');
+    expect(sameGroup?.notes).toContainEqual({
+      tone: 'info',
+      text: 'Model unknown · model-specific limits are not applied',
+    });
+  });
+
+  it('formats times in the host zone and app locale, never a fixed UTC', () => {
+    const real = Intl.DateTimeFormat.prototype.resolvedOptions;
+    jest
+      .spyOn(Intl.DateTimeFormat.prototype, 'resolvedOptions')
+      .mockImplementation(function (this: Intl.DateTimeFormat) {
+        return { ...real.call(this), timeZone: 'Europe/Berlin' };
+      });
+    const h = harness();
+
+    expect(
+      (h.component as unknown as { _limitTime: unknown })._limitTime,
+    ).toEqual({
+      timeZone: 'Europe/Berlin',
+      zoneNameLocale: TestBed.inject(LOCALE_ID),
+    });
+  });
+
+  describe('toStatsLimitLaneRun', () => {
+    it('marks a run restored only by the restore flag, not by its status', () => {
+      expect(
+        toStatsLimitLaneRun(run('r', 's', { restored: true, status: 'running' }))
+          .restored,
+      ).toBe(true);
+      expect(
+        toStatsLimitLaneRun(run('l', 's', { status: 'completed' })).restored,
+      ).toBe(false);
+    });
+
+    it.each([
+      ['null', null],
+      ['absent', undefined],
+    ])('passes %s usageTotals through as unknown, never 0', (_label, usage) => {
+      const lane = toStatsLimitLaneRun(
+        run('u', 's', usage === null ? { usageTotals: null } : {}),
+      );
+      expect(lane.usageTotals ?? null).toBeNull();
+    });
+
+    it('uses the card display name, no model scope, and keeps an absent owner absent', () => {
+      const named = toStatsLimitLaneRun(
+        run('n', 's', { displayName: 'Codex', model: 'gpt-5-codex' }),
+      );
+      expect(named.cliLabel).toBe('Codex');
+      expect(named.model).toBe('gpt-5-codex');
+      expect(named.modelScope).toBeNull();
+      expect(named.quotaOwner).toBeUndefined();
+
+      const bare = toStatsLimitLaneRun(run('b', 's'));
+      expect(bare.cliLabel).toBe('codex');
+      expect(bare.model).toBeNull();
+    });
   });
 });
 

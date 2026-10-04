@@ -9,6 +9,7 @@ import {
   afterRenderEffect,
   untracked,
   ElementRef,
+  LOCALE_ID,
   NgZone,
   OnDestroy,
 } from '@angular/core';
@@ -31,6 +32,10 @@ import {
   CompactionNotificationComponent,
   CompactionMarkerComponent,
   SidebarTabComponent,
+  StatsTileExpansionState,
+  buildStatsLimitViewModel,
+  type StatsLimitLaneRun,
+  type StatsLimitViewModel,
 } from '@ptah-extension/chat-ui';
 import { ResumeNotificationBannerComponent } from '../molecules/notifications/resume-notification-banner.component';
 import { AuthRequiredBannerComponent } from '../molecules/notifications/auth-required-banner.component';
@@ -46,6 +51,7 @@ import { HistoryPagingService } from '../../services/chat-store/history-paging.s
 import {
   AgentMonitorStore,
   agentVisibleInSession,
+  type MonitoredAgent,
 } from '@ptah-extension/chat-streaming';
 import { PanelResizeService } from '../../services/panel-resize.service';
 import {
@@ -65,15 +71,58 @@ import {
   ClaudeRpcService,
   AppStateManager,
   AuthStateService,
+  PlanLimitsStore,
   RpcResult,
 } from '@ptah-extension/core';
 import { isCompactViewMode } from '@ptah-extension/chat-types';
 import { SessionId } from '@ptah-extension/shared';
 import type {
   ChatSessionSummary,
+  LocalTimeOptions,
   SubagentRecord,
   MessageAnchorHint,
 } from '@ptah-extension/shared';
+
+/**
+ * Map one lane run to the stats limit view-model input (TASK_2026_596,
+ * Component 15). Every field comes from the run record; nothing is guessed.
+ * - `restored` is the flag `loadCliSessions` sets, never inferred from status.
+ * - `cliLabel` is the agent card's own display name.
+ * - `modelScope` is `null`: a run record carries no backend-resolved scope,
+ *   and the UI never derives one from the model id string.
+ * - `quotaOwner` and `usageTotals` pass through; absent or `null` reads
+ *   unknown, never the current owner and never 0.
+ */
+export function toStatsLimitLaneRun(agent: MonitoredAgent): StatsLimitLaneRun {
+  return {
+    runId: agent.agentId,
+    cli: agent.cli,
+    cliLabel: agent.displayName || agent.cli,
+    role: agent.role ?? null,
+    model: agent.usageTotals?.model ?? agent.model ?? null,
+    modelScope: null,
+    status: agent.status,
+    restored: agent.restored === true,
+    startedAt: agent.startedAt,
+    failureKind: agent.failureKind,
+    quotaOwner: agent.quotaOwner,
+    usageTotals: agent.usageTotals,
+  };
+}
+
+/** Sorted, de-duplicated recorded owner keys; a run with no owner adds none. */
+function recordedOwnerKeys(agents: readonly MonitoredAgent[]): string[] {
+  const keys = new Set<string>();
+  for (const agent of agents) {
+    const key = agent.quotaOwner?.key;
+    if (key) keys.add(key);
+  }
+  return [...keys].sort();
+}
+
+function sameStrings(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((value, i) => value === b[i]);
+}
 
 /**
  * ChatViewComponent - Main chat view with message list and Egyptian themed welcome
@@ -134,7 +183,12 @@ export const AGENT_PANEL_OVERLAY_BREAKPOINT = 600;
   templateUrl: './chat-view.component.html',
   styleUrl: './chat-view.component.css',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  providers: [TranscriptRetentionService, PanelResizeService],
+  providers: [
+    TranscriptRetentionService,
+    PanelResizeService,
+    // One tile-expansion map per session view, released with the view (A3).
+    StatsTileExpansionState,
+  ],
 })
 export class ChatViewComponent implements OnDestroy {
   readonly chatStore = inject(ChatStore);
@@ -791,6 +845,56 @@ export class ChatViewComponent implements OnDestroy {
       : this.chatStore.compactionCount();
   });
 
+  private readonly _planLimits = inject(PlanLimitsStore);
+
+  /** Explicit zone and zone-name locale for reset times; never a fixed UTC. */
+  private readonly _limitTime: LocalTimeOptions = {
+    timeZone: new Intl.DateTimeFormat().resolvedOptions().timeZone,
+    zoneNameLocale: inject(LOCALE_ID),
+  };
+
+  /**
+   * Lane runs of this surface's own session only (F58). Unlike
+   * {@link sessionAgents}, the main panel with no session gets none, never
+   * every session's runs.
+   */
+  private readonly sessionLaneRuns = computed<readonly MonitoredAgent[]>(() => {
+    const sessionId = this.resolvedSessionId();
+    return sessionId ? this.agentMonitorStore.agentsForSession(sessionId) : [];
+  });
+
+  /**
+   * Owner keys recorded at this session's runs, so the host also returns the
+   * snapshots of past owners. Structural equality keeps streaming deltas from
+   * re-triggering a load; only a changed key set does.
+   */
+  private readonly sessionRunOwnerKeys = computed(
+    () => recordedOwnerKeys(this.sessionLaneRuns()),
+    { equal: sameStrings },
+  );
+
+  /**
+   * Plan-limit tiles and lane tiles of the stats strip; `null` without a
+   * session or before the first snapshot (the strip then renders as before).
+   * The clock is the store's shared tick; this view starts no timer.
+   */
+  readonly resolvedStatsLimits = computed<StatsLimitViewModel | null>(() => {
+    const sessionId = this.resolvedSessionId();
+    const snapshot = this._planLimits.snapshot();
+    if (!sessionId || !snapshot) return null;
+    const sessionOwner = this._planLimits.sessionOwner(sessionId);
+    return buildStatsLimitViewModel({
+      sessionId,
+      sessionOwnerKey: sessionOwner?.ownerKey ?? null,
+      // Backend-resolved scope only; the UI never parses the model id.
+      sessionModelScope: sessionOwner?.modelScope ?? null,
+      owners: snapshot.owners,
+      laneRuns: this.sessionLaneRuns().map(toStatsLimitLaneRun),
+      now: this._planLimits.now(),
+      time: this._limitTime,
+    });
+  });
+
   /**
    * Resolved isCompacting: tile-scoped when SESSION_CONTEXT is provided, otherwise global.
    * Prevents compaction banner from showing on ALL canvas tiles when only one session compacts.
@@ -946,6 +1050,21 @@ export class ChatViewComponent implements OnDestroy {
               err,
             );
           });
+      });
+    });
+
+    // Point the plan-limits host at this surface's session and the owners its
+    // runs recorded. The store keeps any field a call omits, so both are
+    // always sent — `[]` when no session is open — or a closed session would
+    // stay in the host's push scope.
+    effect(() => {
+      const sessionId = this.resolvedSessionId();
+      const ownerKeys = this.sessionRunOwnerKeys();
+      untracked(() => {
+        void this._planLimits.load({
+          sessionIds: sessionId ? [sessionId] : [],
+          ownerKeys: [...ownerKeys],
+        });
       });
     });
 
