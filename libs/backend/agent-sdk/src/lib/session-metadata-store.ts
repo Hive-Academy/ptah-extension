@@ -311,8 +311,13 @@ function countReferencesWithBulk(metadata: SessionMetadata): number {
  * malformed or legacy value — including an older build's bare `quotaOwnerKey`,
  * which is dropped too — restores with no owner, which renders as "Unknown
  * owner". It is never replaced by the session's current owner.
+ *
+ * A non-object entry (persisted `null`, a string, a number) passes through
+ * unchanged, as the restore path returned it before this seam existed: the `in`
+ * checks below would throw on it, and restore must never throw.
  */
 function restoreQuotaOwner(ref: CliSessionReference): CliSessionReference {
+  if (typeof ref !== 'object' || ref === null) return ref;
   const stored = ref as CliSessionReference & { quotaOwnerKey?: unknown };
   if (!('quotaOwner' in stored) && !('quotaOwnerKey' in stored)) return ref;
   const { quotaOwner, quotaOwnerKey: _legacy, ...rest } = stored;

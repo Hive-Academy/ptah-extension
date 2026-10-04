@@ -1659,6 +1659,50 @@ describe('SessionMetadataStore', () => {
         cliRef(),
       ]);
     });
+
+    it.each<[string, unknown]>([
+      ['null', null],
+      ['a string', 'cli-orphan'],
+      ['a number', 42],
+    ])(
+      'does not throw on a persisted %s entry and still restores valid siblings with their owners',
+      async (_name, junk) => {
+        await store.create('sess-1', WORKSPACE, 'parent');
+        await store.addCliSession('sess-1', {
+          ...cliRef(),
+          quotaOwner: OWNER_A,
+        });
+        await store.addCliSession('sess-1', {
+          ...cliRef({ cliSessionId: 'cli-2' }),
+          quotaOwner: OWNER_B,
+        });
+        await store.flush();
+
+        // Corrupt the persisted blob directly, as an older or damaged file would.
+        const blob = storage.__state.entries.get(METADATA_KEY) as Array<{
+          sessionId: string;
+          cliSessions: unknown[];
+        }>;
+        const session = blob.find((m) => m.sessionId === 'sess-1');
+        if (!session) throw new Error('seeded session missing');
+        session.cliSessions = [
+          session.cliSessions[0],
+          junk,
+          session.cliSessions[1],
+        ];
+        storage.__state.seed(METADATA_KEY, blob);
+
+        const reloaded = new SessionMetadataStore(storage, asLogger(logger));
+        const refs = await reloaded.getCliSessionsForRestore('sess-1');
+
+        expect(refs).toHaveLength(3);
+        expect(refs[1]).toBe(junk);
+        expect(refs[0].cliSessionId).toBe('cli-1');
+        expect(refs[0].quotaOwner).toEqual(OWNER_A);
+        expect(refs[2].cliSessionId).toBe('cli-2');
+        expect(refs[2].quotaOwner).toEqual(OWNER_B);
+      },
+    );
   });
 
   // -------------------------------------------------------------------------
