@@ -24,6 +24,7 @@ export {
   type PlanLimitSuccess,
   type PlanLimitWindowRecordOptions,
 } from './plan-limit-ledger.service';
+export { windowFromClaudeEvidence } from './plan-limit-ledger.rules';
 // Credential boundary for plan-usage readers
 export {
   PlanCredentialSource,

@@ -24,6 +24,9 @@ import { AgentSpawnEnvironment } from '../cli-agents/agent-spawn-environment.ser
 import { AgentOutputBuffer } from '../cli-agents/agent-output-buffer.service';
 import { LaneCompletionNotifier } from '../cli-agents/lane-completion-notifier.service';
 import { AgentReportRouter } from '../cli-agents/agent-report-router.service';
+import { LaneOwnerResolver } from '../cli-agents/limits/lane-owner.resolver';
+import { LaneLimitLookupService } from '../cli-agents/limits/lane-limit-lookup.service';
+import { PlanLimitOwnerDiscoveryService } from '../cli-agents/limits/plan-limit-owner-discovery.service';
 import { SessionChildRegistry } from '../session-children/session-child.registry';
 import { ChildWorktreeProvisioner } from '../session-children/child-worktree.provisioner';
 import { SessionSpawnerService } from '../session-children/session-spawner.service';
@@ -85,6 +88,24 @@ export function registerCliAgentRuntimeServices(
   // `libs/backend/cli-engine/src/lib/container.ts:629`), so nothing can
   // construct the notifier while the adapter is still absent (TASK_2026_515).
   container.registerSingleton(LaneCompletionNotifier);
+  // Plan limits (TASK_2026_596). The owner resolver is registered BEFORE the
+  // manager that injects it. All three read the auth-providers plan-limit
+  // services, which every host registers before this function.
+  container.register(
+    CLI_AGENT_RUNTIME_TOKENS.LANE_OWNER_RESOLVER,
+    { useClass: LaneOwnerResolver },
+    { lifecycle: Lifecycle.Singleton },
+  );
+  container.register(
+    CLI_AGENT_RUNTIME_TOKENS.LANE_LIMIT_LOOKUP,
+    { useClass: LaneLimitLookupService },
+    { lifecycle: Lifecycle.Singleton },
+  );
+  container.register(
+    CLI_AGENT_RUNTIME_TOKENS.PLAN_LIMIT_OWNER_DISCOVERY,
+    { useClass: PlanLimitOwnerDiscoveryService },
+    { lifecycle: Lifecycle.Singleton },
+  );
   container.registerSingleton(
     TOKENS.AGENT_PROCESS_MANAGER,
     AgentProcessManager,

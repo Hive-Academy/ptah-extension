@@ -10,7 +10,6 @@ import {
   LANE_OWNER_READ_TIMEOUT_MS,
   PtahCliLanePlanLimits,
   isPlanBilledLaneProvider,
-  laneWindowFromEvidence,
   type LaneOwnerReader,
   type LanePlanLimitWriter,
 } from './ptah-cli-lane-plan-limits';
@@ -386,10 +385,16 @@ describe('isPlanBilledLaneProvider', () => {
   });
 });
 
-describe('laneWindowFromEvidence', () => {
-  it('maps a model-scoped window that is not exhausted, with no reset', () => {
-    expect(
-      laneWindowFromEvidence({
+describe('PtahCliLanePlanLimits — window conversion', () => {
+  it('files a model-scoped window that is not exhausted through the ledger conversion', async () => {
+    const { lane, ledger } = createLane('claude-cli');
+    lane.attach('agent-1');
+    lane.onSystemInit({ accountInfo: async () => ({ email: 'a@b.test' }) });
+    await lane.settled;
+
+    lane.onSignal({
+      kind: 'evidence',
+      evidence: {
         kind: 'window',
         windowKey: 'weekly_model:opus',
         modelScope: 'opus',
@@ -397,8 +402,11 @@ describe('laneWindowFromEvidence', () => {
         exhausted: false,
         source: 'stream-event',
         observedAt: 1_000,
-      }),
-    ).toEqual({
+      },
+    });
+    await flush();
+
+    expect(ledger.recordWindowEvidence).toHaveBeenCalledWith(claudeAccount, {
       key: 'weekly_model:opus',
       kind: 'weekly_model',
       label: 'Weekly · Opus',

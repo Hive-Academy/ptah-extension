@@ -39,6 +39,8 @@ import type {
 import type { DependencyContainer } from 'tsyringe';
 import { PtahCliRegistry } from './ptah-cli-registry';
 import { createFakeSdkProcessSpawner } from './testing/fake-sdk-process-spawner';
+import { CLI_AGENT_RUNTIME_TOKENS } from '../di/tokens';
+import { LaneOwnerResolver } from '../cli-agents/limits/lane-owner.resolver';
 
 jest.mock('@ptah-extension/agent-sdk', () => {
   const actual = jest.requireActual('@ptah-extension/agent-sdk');
@@ -143,13 +145,13 @@ function buildHarness(accountInfo: jest.Mock): Harness {
       { resolve: jest.fn().mockResolvedValue(policy) },
     ],
     [
-      AUTH_PROVIDERS_TOKENS.PROVIDER_OWNER_RESOLVER,
-      {
+      CLI_AGENT_RUNTIME_TOKENS.LANE_OWNER_RESOLVER,
+      new LaneOwnerResolver(logger as unknown as Logger, {
         ownerForClaudeAccount,
         ownerForPtahCli: jest.fn(),
         ownerForCodexHome: jest.fn(),
         ownerForCliStore: jest.fn(),
-      },
+      }),
     ],
     [
       AUTH_PROVIDERS_TOKENS.PLAN_LIMIT_LEDGER,

@@ -72,9 +72,10 @@ import {
   type LaneLimitClassification,
 } from './limits/lane-limit-classifier';
 import {
-  LaneOwnerResolver,
   upgradeQuotaOwner,
+  type LaneOwnerResolver,
 } from './limits/lane-owner.resolver';
+import { CLI_AGENT_RUNTIME_TOKENS } from '../di/tokens';
 
 const DEFAULT_AGENT_READ_TAIL_LINES = 200;
 
@@ -214,7 +215,7 @@ export class AgentProcessManager {
     @inject(LaneCompletionNotifier)
     private readonly laneCompletion: LaneCompletionNotifier,
     /** Names the quota owner each run is recorded against (TASK_2026_596). */
-    @inject(LaneOwnerResolver)
+    @inject(CLI_AGENT_RUNTIME_TOKENS.LANE_OWNER_RESOLVER)
     private readonly laneOwners: LaneOwnerResolver,
     /**
      * Receives a lane's quota failures and S3 successes. A write failure is
@@ -815,6 +816,10 @@ export class AgentProcessManager {
         startedAt: ref.startedAt,
         ...(ref.cliSessionId ? { cliSessionId: ref.cliSessionId } : {}),
         ...(ref.ptahCliId ? { ptahCliId: ref.ptahCliId } : {}),
+        // The owner the run recorded (Gate 2 G3). `getCliSessionsForRestore`
+        // already dropped a malformed or legacy value, so a run without one
+        // stays "Unknown owner" and is never given the current owner.
+        ...(ref.quotaOwner ? { quotaOwner: ref.quotaOwner } : {}),
       };
 
       this.agents.set(agentId, {

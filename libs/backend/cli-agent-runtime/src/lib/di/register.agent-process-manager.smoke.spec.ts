@@ -26,6 +26,8 @@ import { AgentProcessManager } from '../cli-agents/agent-process-manager.service
 import { AgentSpawnEnvironment } from '../cli-agents/agent-spawn-environment.service';
 import { AgentOutputBuffer } from '../cli-agents/agent-output-buffer.service';
 import { LaneOwnerResolver } from '../cli-agents/limits/lane-owner.resolver';
+import { LaneLimitLookupService } from '../cli-agents/limits/lane-limit-lookup.service';
+import { PlanLimitOwnerDiscoveryService } from '../cli-agents/limits/plan-limit-owner-discovery.service';
 
 function createMockLogger(): Logger {
   return {
@@ -223,6 +225,25 @@ describe('registerCliAgentRuntimeServices — AgentProcessManager DI smoke', () 
 
     expect(internals.planLimits).toBe(ledger);
     expect(internals.laneOwners).toBeInstanceOf(LaneOwnerResolver);
+    expect(internals.laneOwners).toBe(
+      container.resolve(CLI_AGENT_RUNTIME_TOKENS.LANE_OWNER_RESOLVER),
+    );
+  });
+
+  it('resolves the plan-limit lane lookup and owner discovery as singletons (TASK_2026_596)', () => {
+    const lookup = container.resolve(CLI_AGENT_RUNTIME_TOKENS.LANE_LIMIT_LOOKUP);
+    const discovery = container.resolve(
+      CLI_AGENT_RUNTIME_TOKENS.PLAN_LIMIT_OWNER_DISCOVERY,
+    );
+
+    expect(lookup).toBeInstanceOf(LaneLimitLookupService);
+    expect(discovery).toBeInstanceOf(PlanLimitOwnerDiscoveryService);
+    expect(container.resolve(CLI_AGENT_RUNTIME_TOKENS.LANE_LIMIT_LOOKUP)).toBe(
+      lookup,
+    );
+    expect(
+      container.resolve(CLI_AGENT_RUNTIME_TOKENS.PLAN_LIMIT_OWNER_DISCOVERY),
+    ).toBe(discovery);
   });
 
   it('resolves CLI_AGENT_RUNTIME_TOKENS.AGENT_ROLE_RESOLVER as a singleton', () => {

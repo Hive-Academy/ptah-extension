@@ -70,12 +70,9 @@ import { PtahCliStreamLoop } from './helpers/ptah-cli-stream-loop.service';
 import {
   PtahCliLanePlanLimits,
   isPlanBilledLaneProvider,
+  type LaneOwnerReader,
   type LanePlanLimitWriter,
 } from './helpers/ptah-cli-lane-plan-limits';
-import {
-  LaneOwnerResolver,
-  type LaneOwnerSource,
-} from '../cli-agents/limits/lane-owner.resolver';
 import type { AgentProcessManager } from '../cli-agents/agent-process-manager.service';
 import { createPromptMailbox } from './helpers/ptah-cli-prompt-mailbox';
 import { CLI_AGENT_RUNTIME_TOKENS } from '../di/tokens';
@@ -1001,6 +998,36 @@ export class PtahCliRegistry {
   }
 
   /**
+   * The plan-limit side of one lane (TASK_2026_596, Component 10): its owner
+   * read and the ledger its stream signals go to. Looked up at spawn like the
+   * capability resolver, for the same reason — the ledger and the manager are
+   * whole graphs the registry's construction must not depend on. A host
+   * missing any of them gets a lane with no owner and no ledger writes.
+   */
+  private createLanePlanLimits(
+    ptahCliId: string,
+    providerId: string,
+  ): PtahCliLanePlanLimits {
+    const manager = this.lookupOptional<
+      Pick<AgentProcessManager, 'recordQuotaOwner'>
+    >(TOKENS.AGENT_PROCESS_MANAGER);
+    return new PtahCliLanePlanLimits({
+      logger: this.logger,
+      ledger: this.lookupOptional<LanePlanLimitWriter>(
+        AUTH_PROVIDERS_TOKENS.PLAN_LIMIT_LEDGER,
+      ),
+      owners: this.lookupOptional<LaneOwnerReader>(
+        CLI_AGENT_RUNTIME_TOKENS.LANE_OWNER_RESOLVER,
+      ),
+      recordOwner: manager
+        ? (agentId, owner) => manager.recordQuotaOwner(agentId, owner)
+        : null,
+      ptahCliId,
+      providerId,
+    });
+  }
+
+  /**
    * Look `token` up in the container at call time; `null` when there is no
    * container, the token is not registered, or building it throws. Every
    * caller treats `null` as the narrower path (unverified policy, bare
@@ -1019,39 +1046,6 @@ export class PtahCliRegistry {
    * apps/ptah-electron/src/di/container.ts:40,
    * libs/backend/cli-engine/src/lib/container.ts:357).
    */
-  /**
-   * The plan-limit side of one lane (TASK_2026_596, Component 10): its owner
-   * read and the ledger its stream signals go to. Looked up at spawn like the
-   * capability resolver, for the same reason — the ledger and the manager are
-   * whole graphs the registry's construction must not depend on. A host
-   * missing any of them gets a lane with no owner and no ledger writes.
-   */
-  private createLanePlanLimits(
-    ptahCliId: string,
-    providerId: string,
-  ): PtahCliLanePlanLimits {
-    const ownerSource = this.lookupOptional<LaneOwnerSource>(
-      AUTH_PROVIDERS_TOKENS.PROVIDER_OWNER_RESOLVER,
-    );
-    const manager = this.lookupOptional<
-      Pick<AgentProcessManager, 'recordQuotaOwner'>
-    >(TOKENS.AGENT_PROCESS_MANAGER);
-    return new PtahCliLanePlanLimits({
-      logger: this.logger,
-      ledger: this.lookupOptional<LanePlanLimitWriter>(
-        AUTH_PROVIDERS_TOKENS.PLAN_LIMIT_LEDGER,
-      ),
-      owners: ownerSource
-        ? new LaneOwnerResolver(this.logger, ownerSource)
-        : null,
-      recordOwner: manager
-        ? (agentId, owner) => manager.recordQuotaOwner(agentId, owner)
-        : null,
-      ptahCliId,
-      providerId,
-    });
-  }
-
   private lookupOptional<T>(token: symbol): T | null {
     if (this.container === null || !this.container.isRegistered(token, true)) {
       return null;

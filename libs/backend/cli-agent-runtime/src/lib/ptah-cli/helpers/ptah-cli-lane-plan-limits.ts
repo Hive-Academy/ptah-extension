@@ -27,13 +27,13 @@
  */
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { ClaudePlanLimitEvidence } from '@ptah-extension/agent-sdk';
-import type {
-  ClaudeAccountInfo,
-  PlanLimitLedgerService,
+import {
+  windowFromClaudeEvidence,
+  type ClaudeAccountInfo,
+  type PlanLimitLedgerService,
 } from '@ptah-extension/auth-providers';
-import type { PlanLimitWindow, QuotaOwnerRef } from '@ptah-extension/shared';
+import type { QuotaOwnerRef } from '@ptah-extension/shared';
 import type { LaneOwnerResolver } from '../../cli-agents/limits/lane-owner.resolver';
-import { laneWindowDescriptor } from '../../cli-agents/limits/lane-limit-classifier';
 import type { PtahCliPlanLimitSignal } from './ptah-cli-stream-loop.service';
 
 /** Bound on the lane's owner read: `accountInfo()` or the stored-key read. */
@@ -265,7 +265,7 @@ export class PtahCliLanePlanLimits {
     evidence: ClaudePlanLimitEvidence,
   ): void {
     if (evidence.kind === 'window') {
-      ledger.recordWindowEvidence(owner, laneWindowFromEvidence(evidence));
+      ledger.recordWindowEvidence(owner, windowFromClaudeEvidence(evidence));
       return;
     }
     ledger.recordOwnerEvidence(owner, {
@@ -278,34 +278,6 @@ export class PtahCliLanePlanLimits {
     });
     if (evidence.cooldown) ledger.recordCooldown(owner, evidence.cooldown);
   }
-}
-
-/** A lane's `rate_limit_event` as a window; a rejected one carries exhaustion. */
-export function laneWindowFromEvidence(
-  evidence: Extract<ClaudePlanLimitEvidence, { kind: 'window' }>,
-): PlanLimitWindow {
-  const reset =
-    evidence.resetsAt !== undefined
-      ? { resetsAt: evidence.resetsAt, resetSource: evidence.source }
-      : {};
-  const scope =
-    evidence.modelScope !== undefined
-      ? { modelScope: evidence.modelScope }
-      : {};
-  return {
-    ...laneWindowDescriptor(evidence.windowKey, evidence.modelScope),
-    ...scope,
-    ...reset,
-    ...(evidence.exhausted && {
-      exhaustion: {
-        observedAt: evidence.observedAt,
-        source: evidence.source,
-        ...reset,
-        ...scope,
-      },
-    }),
-    observedAt: evidence.observedAt,
-  };
 }
 
 /** `pending`, or a rejection after `ms`; the timer never outlives the race. */
