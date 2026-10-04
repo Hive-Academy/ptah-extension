@@ -34,6 +34,7 @@ import { providerQuotaStore } from '../auth/provider-quota.store';
 import { ProviderOwnerResolver } from '../quota/provider-owner.resolver';
 import { PlanLimitLedgerService } from '../quota/plan-limit-ledger.service';
 import { PlanCredentialSource } from '../quota/plan-credential.source';
+import { PlanUsageService } from '../quota/plan-usage.service';
 
 export function registerAuthProvidersServices(
   container: DependencyContainer,
@@ -193,7 +194,7 @@ export function registerCuratorAuthServices(
 }
 
 /**
- * Plan-limit services (TASK_2026_596). All three resolve lazily: on every host
+ * Plan-limit services (TASK_2026_596). All four resolve lazily: on every host
  * `registerSdkServices` runs AFTER this function, and it registers the
  * agent-sdk tokens they depend on (`SDK_SESSION_QUOTA_PROBE`,
  * `SDK_SESSION_PLAN_LIMIT_REGISTRY`). Nothing here resolves anything.
@@ -220,6 +221,19 @@ function registerPlanLimitServices(container: DependencyContainer): void {
           c.resolve(SDK_TOKENS.SDK_SESSION_PLAN_LIMIT_REGISTRY),
           c.resolve(AUTH_PROVIDERS_TOKENS.PROVIDER_OWNER_RESOLVER),
           c.resolve(AUTH_PROVIDERS_TOKENS.SDK_PROVIDER_QUOTA_STORE),
+        ),
+    ),
+  });
+  // A factory for the same reason: the trailing clock is a test seam.
+  container.register(AUTH_PROVIDERS_TOKENS.PLAN_USAGE_SERVICE, {
+    useFactory: instanceCachingFactory(
+      (c) =>
+        new PlanUsageService(
+          c.resolve(TOKENS.LOGGER),
+          c.resolve(AUTH_PROVIDERS_TOKENS.PLAN_LIMIT_LEDGER),
+          c.resolve(AUTH_PROVIDERS_TOKENS.PLAN_CREDENTIAL_SOURCE),
+          c.resolve(SDK_TOKENS.SDK_SESSION_QUOTA_PROBE),
+          c.resolve(AUTH_PROVIDERS_TOKENS.SDK_CODEX_ACCOUNT_USAGE),
         ),
     ),
   });

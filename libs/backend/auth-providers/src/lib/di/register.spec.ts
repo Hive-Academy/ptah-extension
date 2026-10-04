@@ -16,6 +16,7 @@ import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import { PlanLimitLedgerService } from '../quota/plan-limit-ledger.service';
 import { ProviderOwnerResolver } from '../quota/provider-owner.resolver';
 import { PlanCredentialSource } from '../quota/plan-credential.source';
+import { PlanUsageService } from '../quota/plan-usage.service';
 
 describe('required auth registration without the memory curator', () => {
   afterEach(() => jest.restoreAllMocks());
@@ -79,6 +80,9 @@ describe('required auth registration without the memory curator', () => {
     expect(
       c.resolve(AUTH_PROVIDERS_TOKENS.PLAN_CREDENTIAL_SOURCE),
     ).toBeInstanceOf(PlanCredentialSource);
+    const usage = c.resolve(AUTH_PROVIDERS_TOKENS.PLAN_USAGE_SERVICE);
+    expect(usage).toBeInstanceOf(PlanUsageService);
+    expect(c.resolve(AUTH_PROVIDERS_TOKENS.PLAN_USAGE_SERVICE)).toBe(usage);
     ledger.dispose();
   });
 

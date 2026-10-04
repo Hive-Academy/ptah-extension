@@ -31,6 +31,12 @@ export {
   type PlanCredentialResolution,
   type PlanCredentialUnavailableStatus,
 } from './plan-credential.source';
+// Plan usage: one snapshot per owner, best source merged with the ledger
+export {
+  PLAN_USAGE_CACHE_TTL_MS,
+  PlanUsageService,
+  type PlanUsageRequestOptions,
+} from './plan-usage.service';
 // Reader contracts
 export type {
   PlanCredentialRef,
