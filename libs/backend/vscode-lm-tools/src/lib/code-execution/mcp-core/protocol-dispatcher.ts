@@ -202,6 +202,23 @@ import {
   formatBrowserRecordStart,
   formatBrowserRecordStop,
 } from './mcp-response-formatter';
+import {
+  formatSpawnLimitBlock,
+  spawnRequestTarget,
+} from './agent-limit.formatter';
+
+/**
+ * Lane limits for the spawn text, read only after `agent.spawn` settled.
+ * Enrichment only: any failure yields `undefined`, never a changed outcome.
+ */
+async function lookupAgentLimits(ptahAPI: PtahAPI) {
+  try {
+    const rows = await ptahAPI.agent.list();
+    return await ptahAPI.agent.limits?.(rows);
+  } catch {
+    return undefined;
+  }
+}
 
 /**
  * Callback invoked when a tool execution completes (success or error).
@@ -1117,19 +1134,30 @@ async function handleIndividualTool(
             effort: spawnArgs.effort,
           });
         } catch (error: unknown) {
+          // Any other failure keeps its pre-existing path: re-thrown to the
+          // generic tool error handler, with no limit lookup.
+          if (
+            !(error instanceof AgentRoleError) &&
+            !(error instanceof CliCommandLineTooLongError)
+          ) {
+            throw error;
+          }
+          // The lane the request named, so a failed spawn shows the same
+          // `Limit state` a successful spawn on that lane would (design §5.2).
+          const limits = await lookupAgentLimits(ptahAPI);
+          const limitBlock = limits
+            ? `\n\n${formatSpawnLimitBlock(limits, spawnRequestTarget(spawnArgs), true)}`
+            : '';
           if (error instanceof AgentRoleError) {
             return toolErrorResponse(
               request,
-              `Error: ptah_agent_spawn role ${error.code}: ${error.message}`,
+              `Error: ptah_agent_spawn role ${error.code}: ${error.message}${limitBlock}`,
             );
           }
-          if (error instanceof CliCommandLineTooLongError) {
-            return toolErrorResponse(
-              request,
-              `Error: ptah_agent_spawn command line too long (${error.measured} against a limit of ${error.limit}): ${error.message}`,
-            );
-          }
-          throw error;
+          return toolErrorResponse(
+            request,
+            `Error: ptah_agent_spawn command line too long (${error.measured} against a limit of ${error.limit}): ${error.message}${limitBlock}`,
+          );
         }
 
         logger.info('[MCP] ptah_agent_spawn result', 'CodeExecutionMCP', {
@@ -1140,11 +1168,14 @@ async function handleIndividualTool(
           role: result.role,
         });
 
+        const limits = await lookupAgentLimits(ptahAPI);
         return await createToolSuccessResponse(
           request,
-          formatAgentSpawn(result, {
-            modelTier: ptahCliId ? (modelTier ?? 'sonnet') : undefined,
-          }),
+          formatAgentSpawn(
+            result,
+            { modelTier: ptahCliId ? (modelTier ?? 'sonnet') : undefined },
+            limits,
+          ),
           deps,
         );
       }
@@ -1284,6 +1315,7 @@ async function handleIndividualTool(
       case 'ptah_agent_list': {
         logger.info('[MCP] ptah_agent_list called', 'CodeExecutionMCP');
         const agents = await ptahAPI.agent.list();
+        const limits = await ptahAPI.agent.limits?.(agents);
         let roles: string[] = [];
         try {
           roles = await ptahAPI.agent.listRoles();
@@ -1298,7 +1330,7 @@ async function handleIndividualTool(
         }
         return await createToolSuccessResponse(
           request,
-          formatAgentList(agents, roles),
+          formatAgentList(agents, roles, limits),
           deps,
         );
       }

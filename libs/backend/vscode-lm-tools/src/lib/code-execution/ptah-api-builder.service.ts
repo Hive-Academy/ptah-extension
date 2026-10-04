@@ -131,6 +131,7 @@ import type {
   AgentReportRouter,
   AgentRoleResolver,
   ISessionSpawner,
+  LaneLimitLookupService,
 } from '@ptah-extension/cli-agent-runtime';
 import { buildSessionNamespace } from './namespace-builders/session-namespace.builder';
 import type { IAuthSecretsService } from '@ptah-extension/vscode-core';
@@ -514,6 +515,9 @@ export class PtahAPIBuilder {
      */
     @inject(PLATFORM_TOKENS.DI_CONTAINER, { isOptional: true })
     private readonly container?: DependencyContainer,
+
+    @inject(CLI_AGENT_RUNTIME_TOKENS.LANE_LIMIT_LOOKUP, { isOptional: true })
+    private readonly laneLimitLookup?: LaneLimitLookupService,
   ) {
     diagnosticsCacheInvalidator.start();
     this.logger.info('PtahAPIBuilder initialized with 21 namespaces');
@@ -743,6 +747,7 @@ export class PtahAPIBuilder {
             }
             return this.agentRoleResolver.listRoles(workspaceRoot);
           },
+          getLaneLimits: this.laneLimitLookup?.lookup.bind(this.laneLimitLookup),
           getDisabledClis: () => {
             return (
               this.workspaceProvider.getConfiguration<string[]>(

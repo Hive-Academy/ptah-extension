@@ -18,12 +18,18 @@ import {
   type AgentReportDelivery,
   type AgentReportInput,
   type CliDetectionService,
+  type LaneLimitLookupService,
   type SdkHandle,
 } from '@ptah-extension/cli-agent-runtime';
 import type {
   AgentProcessInfo,
   AgentRoleDefinition,
   CliDetectionResult,
+} from '@ptah-extension/shared';
+import {
+  FRESHNESS_MS,
+  NEAR_LIMIT_PERCENT,
+  classifyLaneState,
 } from '@ptah-extension/shared';
 
 /** Maximum waitFor timeout: 1 hour */
@@ -41,6 +47,7 @@ interface PtahCliListEntry {
   id: string;
   name: string;
   providerName: string;
+  providerId?: string;
   hasApiKey: boolean;
   enabled: boolean;
 }
@@ -144,6 +151,8 @@ export interface AgentNamespaceDependencies {
   ) => Promise<AgentRoleDefinition>;
   /** List the role names defined for a workspace. */
   listAgentRoles?: (workspaceRoot: string) => Promise<string[]>;
+  /** Optional plan-limit enrichment supplied by cli-agent-runtime. */
+  getLaneLimits?: Pick<LaneLimitLookupService, 'lookup'>['lookup'];
 }
 
 /**
@@ -166,6 +175,7 @@ export function buildAgentNamespace(
     deliverAgentReport,
     resolveAgentRole,
     listAgentRoles,
+    getLaneLimits,
   } = deps;
 
   return {
@@ -381,6 +391,7 @@ export function buildAgentNamespace(
               ptahCliId: a.id,
               ptahCliName: a.name,
               providerName: a.providerName,
+              providerId: a.providerId,
               ...PTAH_CLI_ROLE_DELIVERY,
             }));
 
@@ -408,6 +419,27 @@ export function buildAgentNamespace(
         }));
       }
       return merged.map((r) => ({ ...r, preferredRank: 0 }));
+    },
+
+    limits: async (rows) => {
+      if (!getLaneLimits) return undefined;
+      try {
+        return await getLaneLimits(rows);
+      } catch {
+        // Limit lookup is enrichment only. Preserve each lane's ownership
+        // boundary and make a failed lookup explicitly unknown.
+        const now = Date.now();
+        return rows.map((row) => ({
+          row,
+          lookup: 'failed' as const,
+          state: classifyLaneState(undefined, {
+            now,
+            nearLimitPercent: NEAR_LIMIT_PERCENT,
+            freshnessMs: FRESHNESS_MS,
+            lookupFailure: 'failed' as const,
+          }),
+        }));
+      }
     },
 
     listRoles: async () => {
