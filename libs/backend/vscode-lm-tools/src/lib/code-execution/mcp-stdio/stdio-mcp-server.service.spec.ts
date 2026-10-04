@@ -148,7 +148,7 @@ describe('StdioMcpServerService', () => {
   });
 
   describe('handleToolsList', () => {
-    it('returns exactly the 7 MVP tool definitions with MCP-wire names', () => {
+    it('returns exactly the 10 MVP tool definitions with MCP-wire names', () => {
       const { svc } = makeService();
       const req = makeRequest({ method: 'tools/list' });
       const resp = svc.handleToolsList(req);
@@ -161,9 +161,11 @@ describe('StdioMcpServerService', () => {
         'agent_report',
         'agent_stop',
         'agent_list',
+        'agent_wait',
+        'run_check',
         'session_submit',
       ]);
-      expect(tools).toHaveLength(8);
+      expect(tools).toHaveLength(10);
       expect(tools.every((t) => !t.name.startsWith('ptah_'))).toBe(true);
     });
 
@@ -175,12 +177,12 @@ describe('StdioMcpServerService', () => {
       expect(tools.map((t) => t.name)).toEqual(['agent_spawn', 'agent_list']);
     });
 
-    it('ignores an empty allowedTools array (returns all 8 tools)', () => {
+    it('ignores an empty allowedTools array (returns all 10 tools)', () => {
       const { svc } = makeService();
       const req = makeRequest({ method: 'tools/list' });
       const resp = svc.handleToolsList(req, []);
       const tools = (resp.result as { tools: { name: string }[] }).tools;
-      expect(tools).toHaveLength(8);
+      expect(tools).toHaveLength(10);
     });
 
     it('declares each served tool’s result ceiling in _meta (review r3: R3-06)', () => {
@@ -194,7 +196,7 @@ describe('StdioMcpServerService', () => {
       const declared = Object.fromEntries(
         tools.map((t) => [t.name, t._meta?.['anthropic/maxResultSizeChars']]),
       );
-      // The seven agent tools enforce their `ptah_agent_*` budget (8,000
+      // The nine dispatcher tools enforce their `ptah_*` budget (8,000
       // chars); session_submit returns up to its own 1 MiB aggregate cap
       // (apps/ptah-cli session-submit.service.ts `AGGREGATE_BUFFER_CAP`).
       expect(declared).toEqual({
@@ -205,6 +207,8 @@ describe('StdioMcpServerService', () => {
         agent_report: 8000,
         agent_stop: 8000,
         agent_list: 8000,
+        agent_wait: 8000,
+        run_check: 8000,
         session_submit: 1_048_576,
       });
       for (const tool of tools) {

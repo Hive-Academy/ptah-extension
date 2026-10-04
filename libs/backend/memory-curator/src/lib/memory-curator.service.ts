@@ -108,6 +108,19 @@ const MANUAL_COMPACTION_MAX_WINDOWS = 1;
  */
 const INTERNAL_QUERY_SESSION_PREFIX = 'internal-query-';
 
+/**
+ * The shortest gap between two PreCompact-triggered curations of one session
+ * (TASK_2026_597 A7, R5.5).
+ *
+ * A session close to its context limit can compact several times in a few
+ * minutes, and every PreCompact queued a full curation pass on the same
+ * provider account the user's turns run on. The transcript between two such
+ * compactions is mostly the same text, so the second pass re-extracts what the
+ * first just stored. A PreCompact inside this interval is skipped and logged;
+ * the reactor stays registered, so the next one after the interval runs.
+ */
+export const CURATOR_PRECOMPACT_MIN_INTERVAL_MS = 900_000;
+
 export type {
   CuratorRunOutcome,
   CuratorRunStats,
@@ -157,6 +170,25 @@ export class MemoryCuratorService {
     string,
     { lastRebuildAt: number }
   >();
+  /**
+   * Per-session watermark of the last PreCompact that started a curation.
+   * Keyed by session id; the entry is removed by {@link forgetSession} when the
+   * session ends, and moved by {@link rekeySession}.
+   */
+  private readonly preCompactWatermarks = new Map<
+    string,
+    { lastFiredAt: number }
+  >();
+  /**
+   * Per-session reservation of an AUTO PreCompact pass that has started and
+   * not settled. Taken synchronously before the handler's first `await`, so a
+   * second auto PreCompact arriving meanwhile is skipped instead of reading the
+   * transcript again. The token is the pass's identity: {@link rekeySession}
+   * moves it, {@link forgetSession} drops it, and the pass stamps the
+   * watermark only for the key that still holds its token — so a completion
+   * can neither stamp a stale id nor revive an ended session.
+   */
+  private readonly preCompactPending = new Map<string, symbol>();
   /** The window-and-extract collaborator. See its own file for why it is not injected. */
   private readonly windowRunner: CuratorWindowRunner;
   /**
@@ -225,6 +257,8 @@ export class MemoryCuratorService {
         );
         return;
       }
+      if (this.coalescePreCompact(data.sessionId, data.trigger)) return;
+      const reservation = this.reservePreCompact(data.sessionId, data.trigger);
       this.running = (async () => {
         const cwd =
           typeof data.cwd === 'string' && data.cwd.length > 0 ? data.cwd : null;
@@ -259,20 +293,122 @@ export class MemoryCuratorService {
               ? MANUAL_COMPACTION_MAX_WINDOWS
               : undefined,
         });
-      })().catch((err) => {
-        const message = err instanceof Error ? err.message : String(err);
-        this.pushEvent({
-          kind: 'error',
-          timestamp: Date.now(),
-          error: message,
+      })()
+        .then(
+          // Stamp only an auto pass that ran. A thrown or stalled/deferred
+          // pass releases its reservation and leaves the watermark alone so
+          // the next PreCompact can retry.
+          (stats) =>
+            this.settlePreCompact(reservation, stats.outcome === 'ran'),
+          (err: unknown) => {
+            this.settlePreCompact(reservation, false);
+            throw err;
+          },
+        )
+        .catch((err) => {
+          const message = err instanceof Error ? err.message : String(err);
+          this.pushEvent({
+            kind: 'error',
+            timestamp: Date.now(),
+            error: message,
+          });
+          this.logger.error(
+            '[memory-curator] curate() failed',
+            err instanceof Error ? err : new Error(String(err)),
+          );
         });
-        this.logger.error(
-          '[memory-curator] curate() failed',
-          err instanceof Error ? err : new Error(String(err)),
-        );
-      });
     });
     this.logger.info('[memory-curator] started — subscribed to PreCompact');
+  }
+
+  /**
+   * `true` when this PreCompact must be skipped: an auto pass for the same
+   * session is still pending, or it arrives within
+   * {@link CURATOR_PRECOMPACT_MIN_INTERVAL_MS} of the last auto PreCompact that
+   * started a SUCCESSFUL curation. Read-only: the reservation is taken by
+   * {@link reservePreCompact} and the watermark stamped by
+   * {@link settlePreCompact}. A manual compaction and a blank session id (no
+   * identity to throttle on, see {@link coalesceKey}) are never skipped.
+   */
+  private coalescePreCompact(
+    sessionId: string,
+    trigger: 'manual' | 'auto',
+  ): boolean {
+    // A manual `/compact` is the user asking; it is never coalesced.
+    if (trigger === 'manual') return false;
+    const key = blankToUndefined(sessionId);
+    if (key === undefined) return false;
+    if (this.preCompactPending.has(key)) {
+      this.logger.info(
+        '[memory-curator] skipping a PreCompact curation; a PreCompact curation for this session is already in flight',
+        { sessionId: key, trigger },
+      );
+      return true;
+    }
+    const now = Date.now();
+    const watermark = this.preCompactWatermarks.get(key);
+    if (
+      watermark !== undefined &&
+      now - watermark.lastFiredAt < CURATOR_PRECOMPACT_MIN_INTERVAL_MS
+    ) {
+      this.logger.info(
+        '[memory-curator] skipping a PreCompact curation; this session was curated on PreCompact within the minimum interval',
+        {
+          sessionId: key,
+          trigger,
+          sinceLastMs: now - watermark.lastFiredAt,
+          minIntervalMs: CURATOR_PRECOMPACT_MIN_INTERVAL_MS,
+        },
+      );
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Reserve the pending slot of an AUTO PreCompact pass, synchronously, before
+   * the handler's first `await`. `null` for a manual compaction or a blank
+   * session id: neither is coalesced, so neither reserves nor stamps.
+   */
+  private reservePreCompact(
+    sessionId: string,
+    trigger: 'manual' | 'auto',
+  ): symbol | null {
+    if (trigger !== 'auto') return null;
+    const key = blankToUndefined(sessionId);
+    if (key === undefined) return null;
+    const token = Symbol(key);
+    this.preCompactPending.set(key, token);
+    return token;
+  }
+
+  /**
+   * Release a reservation and, when its pass ran, convert it into the
+   * completed watermark. The key is found by token, so it is the session's
+   * CURRENT id after any {@link rekeySession}; a reservation dropped by
+   * {@link forgetSession} (or by a refused rekey) is found nowhere and stamps
+   * nothing.
+   */
+  private settlePreCompact(token: symbol | null, ran: boolean): void {
+    if (token === null) return;
+    for (const [key, pending] of this.preCompactPending) {
+      if (pending !== token) continue;
+      this.preCompactPending.delete(key);
+      if (ran) this.preCompactWatermarks.set(key, { lastFiredAt: Date.now() });
+      return;
+    }
+  }
+
+  /**
+   * Drop the PreCompact watermark and any pending reservation of a session
+   * that has ended. Called by `MemoryTriggerService` on session end, so the
+   * maps hold live sessions only and an outstanding pass cannot restore one.
+   */
+  forgetSession(sessionId: string): void {
+    const key = blankToUndefined(sessionId);
+    if (key === undefined) return;
+    this.preCompactWatermarks.delete(key);
+    this.preCompactPending.delete(key);
   }
 
   pushEvent(ev: MemoryCuratorEvent): void {
@@ -474,6 +610,25 @@ export class MemoryCuratorService {
     const from = blankToUndefined(fromId);
     const to = blankToUndefined(toId);
     if (from === undefined || to === undefined || from === to) return;
+
+    // The PreCompact watermark merges onto `toId`, keeping the later one: the
+    // more recent pass is what the interval is measured from.
+    const watermark = this.preCompactWatermarks.get(from);
+    this.preCompactWatermarks.delete(from);
+    const existing = this.preCompactWatermarks.get(to);
+    if (
+      watermark !== undefined &&
+      (existing === undefined || watermark.lastFiredAt > existing.lastFiredAt)
+    ) {
+      this.preCompactWatermarks.set(to, watermark);
+    }
+    // A pending reservation moves under the refuse-overwrite rule; a refused
+    // one is dropped, so its pass settles without stamping a stale id.
+    const pending = this.preCompactPending.get(from);
+    this.preCompactPending.delete(from);
+    if (pending !== undefined && !this.preCompactPending.has(to)) {
+      this.preCompactPending.set(to, pending);
+    }
 
     for (const [key, work] of [...this.inFlight]) {
       const split = key.lastIndexOf('::');

@@ -234,6 +234,7 @@ function makeCurator(): MemoryCuratorService {
     pushEvent: jest.fn(),
     recentEvents: jest.fn(() => []),
     lastRunInfo: jest.fn(() => ({ at: null, stats: null })),
+    forgetSession: jest.fn(),
     rekeySession: jest.fn(),
   } as unknown as MemoryCuratorService;
 }
@@ -1387,6 +1388,22 @@ describe('MemoryTriggerService — episode / failure / session-end', () => {
     for (let i = 0; i < 8; i++) await Promise.resolve();
     expect(curator.curate).not.toHaveBeenCalled();
   });
+
+  it('session end drops the curator PreCompact watermark even with sessionEnd curation disabled', () => {
+    const { service, sessionEndHook, curator } = buildService({
+      workspace: makeWorkspace({
+        'memory.triggers.sessionEnd.enabled': false,
+      }),
+    });
+    service.start();
+    sessionEndHook.fire({
+      sessionId: 's1',
+      workspaceRoot: '/ws',
+      reason: 'clear',
+      timestamp: 20,
+    });
+    expect(curator.forgetSession).toHaveBeenCalledWith('s1');
+  });
 });
 
 describe('MemoryTriggerService — buffer preservation under rate-limit', () => {
@@ -1899,6 +1916,7 @@ describe('MemoryTriggerService — invokeCurate transcript composition + queue l
       pushEvent: jest.fn(),
       recentEvents: jest.fn(() => []),
       lastRunInfo: jest.fn(() => ({ at: null, stats: null })),
+      forgetSession: jest.fn(),
     } as unknown as MemoryCuratorService;
     const { service, stop, queue } = buildService({
       curator: failingCurator,
@@ -1955,6 +1973,7 @@ describe('MemoryTriggerService — invokeCurate transcript composition + queue l
         pushEvent: jest.fn(),
         recentEvents: jest.fn(() => []),
         lastRunInfo: jest.fn(() => ({ at: null, stats: null })),
+        forgetSession: jest.fn(),
         rekeySession: jest.fn(),
       } as unknown as MemoryCuratorService;
     }
@@ -2080,6 +2099,7 @@ describe('MemoryTriggerService — invokeCurate transcript composition + queue l
       pushEvent: jest.fn(),
       recentEvents: jest.fn(() => []),
       lastRunInfo: jest.fn(() => ({ at: null, stats: null })),
+      forgetSession: jest.fn(),
     } as unknown as MemoryCuratorService;
     const { service, stop } = buildService({
       curator: blockingCurator,
@@ -2530,6 +2550,7 @@ describe('MemoryTriggerService — the network back-off spends no hourly slot (C
       pushEvent: jest.fn(),
       recentEvents: jest.fn(() => []),
       lastRunInfo: jest.fn(() => ({ at: null, stats: null })),
+      forgetSession: jest.fn(),
       rekeySession: jest.fn(),
     } as unknown as MemoryCuratorService;
   }

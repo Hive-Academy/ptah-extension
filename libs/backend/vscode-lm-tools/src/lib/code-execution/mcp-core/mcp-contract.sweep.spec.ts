@@ -442,6 +442,46 @@ const TOOL_DRIVERS: Readonly<Record<string, ToolDriver>> = {
       };
     },
   },
+  ptah_agent_wait: {
+    // Self-bounded (`WAIT_SUMMARY_MAX_CHARS`, 4,000 chars) before the budget
+    // layer sees it, so it is an OWN_WINDOWING tool: the driver floods the
+    // output tail and the reply must keep the newest line (the marker) and
+    // still fit without a trailer.
+    args: { agentIds: ['agent-1'] },
+    mock: (api, marker) => {
+      api.agent = {
+        waitForAgents: async () => ({
+          mode: 'all',
+          timedOut: false,
+          waitedMs: 1_000,
+          entries: [
+            {
+              agentId: 'agent-1',
+              state: 'exited',
+              info: {
+                agentId: 'agent-1',
+                cli: 'codex',
+                task: 't',
+                workingDirectory: '/fixture',
+                status: 'completed',
+                exitCode: 0,
+                startedAt: new Date(0).toISOString(),
+                completedAt: new Date(60_000).toISOString(),
+              },
+            },
+          ],
+        }),
+        read: async () => ({
+          agentId: 'agent-1',
+          stdout: `${bigStringArray(2000, filler(150, 'o')).join('\n')}\n${marker}\n`,
+          stderr: '',
+          lineCount: 2001,
+          totalLines: 2001,
+          truncated: false,
+        }),
+      };
+    },
+  },
   ptah_agent_list: {
     // Rendered as a Markdown TABLE (`formatAgentList`). The generic,
     // non-`ptah-cli` branch only ever shows `cli`/`messaging` in a cell, so
@@ -1304,6 +1344,8 @@ const BELOW_OUTLINE_CAP_DRIVERS: Readonly<Record<string, ToolDriver>> = {
 const CONTROL_TOOL_EXCEPTIONS: Readonly<Record<string, string>> = {
   approval_prompt:
     'control/UI: answers the host permission prompt with an allow/deny decision; it never returns model-facing content to budget',
+  ptah_run_check:
+    'process launcher: it runs the workspace-local Nx in a child process, which this in-process sweep cannot fake through the PtahAPI stub. Its reply is self-bounded at WAIT_SUMMARY_MAX_CHARS (4,000), asserted in run-check.tool.spec.ts; both surfaces are pinned in agent-spawn-surface-parity.spec.ts',
 };
 
 /**
@@ -1317,6 +1359,9 @@ const OWN_WINDOWING_TOOLS = new Set<string>([
   'ptah_get_symbol_index',
   'ptah_agent_read',
   'ptah_browser_evaluate',
+  // Bounded at WAIT_SUMMARY_MAX_CHARS; its size bound is asserted in
+  // agent-wait.tool.spec.ts.
+  'ptah_agent_wait',
 ]);
 
 /** Every tool this file does not (yet) drive; used only to build a clear failure message. */
@@ -1840,11 +1885,12 @@ describe('coverage matrix — served tools across host, caller and transport (de
     // Pinned at this HEAD (2026-09-27): update deliberately if the served
     // set legitimately changes. 62 in total: the five ptah_session_* tools
     // (TASK_2026_584) and ptah_session_link_task (TASK_2026_580); coding
-    // drops the 3 Apps-only tools (TASK_2026_595).
-    expect(namesPerCaller[0]).toHaveLength(59);
+    // drops the 3 Apps-only tools (TASK_2026_595). +2 (TASK_2026_597 Batch
+    // 34): ptah_agent_wait and ptah_run_check.
+    expect(namesPerCaller[0]).toHaveLength(61);
   });
 
-  it('HTTP coding without IDE capabilities serves 56 tools, identically across caller kinds, minus exactly the 3 IDE-gated tools', async () => {
+  it('HTTP coding without IDE capabilities serves 58 tools, identically across caller kinds, minus exactly the 3 IDE-gated tools', async () => {
     const deps = buildDeps({}, { hasIDECapabilities: false });
     const callers: Array<Partial<MCPRequest>> = [
       {},
@@ -1865,8 +1911,8 @@ describe('coverage matrix — served tools across host, caller and transport (de
     for (const names of namesPerCaller.slice(1)) {
       expect(names).toEqual(namesPerCaller[0]);
     }
-    // 59 in total minus the 3 Apps-only tools; see the note above.
-    expect(namesPerCaller[0]).toHaveLength(56);
+    // 61 in total minus the 3 Apps-only tools; see the note above.
+    expect(namesPerCaller[0]).toHaveLength(58);
     for (const ideOnly of [
       'ptah_lsp_references',
       'ptah_lsp_definitions',
@@ -1904,7 +1950,7 @@ describe('coverage matrix — served tools across host, caller and transport (de
             deps,
           ),
         );
-        expect(apps).toHaveLength(hasIDECapabilities ? 62 : 59);
+        expect(apps).toHaveLength(hasIDECapabilities ? 64 : 61);
         expect(apps.filter((name) => !APPS_ONLY_TOOL_NAMES.has(name))).toEqual(
           coding,
         );
@@ -1941,7 +1987,7 @@ describe('coverage matrix — served tools across host, caller and transport (de
     },
   );
 
-  it('the stdio MCP server advertises exactly its 8 documented tool names', () => {
+  it('the stdio MCP server advertises exactly its 10 documented tool names', () => {
     expect([...MCP_MVP_TOOL_NAMES]).toEqual([
       'agent_spawn',
       'agent_status',
@@ -1950,12 +1996,14 @@ describe('coverage matrix — served tools across host, caller and transport (de
       'agent_report',
       'agent_stop',
       'agent_list',
+      'agent_wait',
+      'run_check',
       'session_submit',
     ]);
-    // `AgentToolDispatcher` owns 7 of the 8; `session_submit` is dispatched
+    // `AgentToolDispatcher` owns 9 of the 10; `session_submit` is dispatched
     // elsewhere (a composite harness trigger, not this contract's concern —
     // see the stdio describe block below).
-    expect(AgentToolDispatcher.TOOL_NAMES).toHaveLength(7);
+    expect(AgentToolDispatcher.TOOL_NAMES).toHaveLength(9);
     expect(AgentToolDispatcher.TOOL_NAMES).not.toContain('session_submit');
   });
 });
@@ -2342,6 +2390,9 @@ describe('MCP dispatcher contract sweep (TASK_2026_559 Batch 21, Task 21.1)', ()
       ptah_session_status: 479,
       ptah_session_read: 312,
       ptah_session_stop: 313,
+      // TASK_2026_597 Batch 34, measured 2026-10-04: 498 and 491 chars.
+      ptah_agent_wait: 548,
+      ptah_run_check: 540,
     };
     const tools = await listAllTools();
     const violations: string[] = [];
@@ -2938,7 +2989,7 @@ describe('stdio MCP server tools (TASK_2026_559 Batch 21 r2: real served-catalog
     };
   }
 
-  it('the real served catalog is exactly the 8 documented tool names', () => {
+  it('the real served catalog is exactly the 10 documented tool names', () => {
     const service = buildService({});
     const res = service.handleToolsList(callRequest('list'));
     const names = (res.result as { tools: Array<{ name: string }> }).tools.map(
@@ -2952,6 +3003,8 @@ describe('stdio MCP server tools (TASK_2026_559 Batch 21 r2: real served-catalog
       'agent_report',
       'agent_stop',
       'agent_list',
+      'agent_wait',
+      'run_check',
       'session_submit',
     ]);
   });
