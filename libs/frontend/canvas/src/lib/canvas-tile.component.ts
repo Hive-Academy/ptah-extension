@@ -21,6 +21,7 @@ import {
   TabManagerService,
   SESSION_CONTEXT,
   SESSION_VISIBLE,
+  SESSION_FOCUSED,
   SendToMessagingComponent,
 } from '@ptah-extension/chat';
 import {
@@ -128,6 +129,24 @@ const NEXT_VIEW_MODE_LABEL: Readonly<Record<TabViewMode, string>> = {
     TileAgentIndicatorComponent,
     TileAgentMiniPanelComponent,
     SendToMessagingComponent,
+  ],
+  host: {
+    // Marker for the unfocused-tile CSS below. Host-level so the tile content
+    // needs no focus wiring of its own for the animation pause.
+    '[class.tile-unfocused]': '!focused()',
+  },
+  styles: [
+    `
+      /* Unfocused tiles freeze purely decorative infinite animations
+         (streaming loaders, skeleton pulses, monitor rows). The focused tile
+         and the single chat view keep animating. ::ng-deep reaches child
+         content classes, as the workspace grid does for gridstack internals. */
+      :host(.tile-unfocused) ::ng-deep [class*='animate-spin'],
+      :host(.tile-unfocused) ::ng-deep [class*='animate-pulse'],
+      :host(.tile-unfocused) ::ng-deep .loading {
+        animation-play-state: paused;
+      }
+    `,
   ],
   template: `
     <div
@@ -407,10 +426,12 @@ export class CanvasTileComponent implements OnInit, OnDestroy {
   readonly tabId = input.required<string>();
 
   /**
-   * Whether this tile is the currently focused tile.
-   * When true, renders a primary-colored ring border.
+   * Whether this tile is the currently focused tile. When true, renders a
+   * primary-colored ring border. Defaults to TRUE so a host that does not
+   * bind it keeps focused behaviour — wide render margin, live animations.
+   * The workspace grid always binds it explicitly.
    */
-  readonly focused = input<boolean>(false);
+  readonly focused = input<boolean>(true);
 
   /**
    * Whether this tile's workspace grid is on-screen. Drives visibility-based
@@ -595,6 +616,7 @@ export class CanvasTileComponent implements OnInit, OnDestroy {
         [
           { provide: SESSION_CONTEXT, useValue: tabIdSignal },
           { provide: SESSION_VISIBLE, useValue: this.visible },
+          { provide: SESSION_FOCUSED, useValue: this.focused },
           { provide: SURFACE_ACTIVE, useValue: this.tileSurfaceActive },
         ],
         this.parentEnvInjector,
