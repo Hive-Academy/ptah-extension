@@ -72,9 +72,12 @@ export type {
 
 /**
  * The part of the SDK's `SDKControlGetContextUsageResponse` Ptah reads.
- * `autoCompactThreshold` is optional in the SDK type as well.
+ * `autoCompactThreshold` is optional in the SDK type as well. `totalTokens`
+ * and `maxTokens` feed the per-turn `ContextUsagePort`.
  */
 export interface ContextUsageReadBack {
+  readonly totalTokens: number;
+  readonly maxTokens: number;
   readonly autoCompactThreshold?: number;
   readonly isAutoCompactEnabled: boolean;
 }
@@ -114,7 +117,9 @@ export interface Query {
    * OPTIONAL so query fakes without it keep compiling; a caller treats a
    * query without it as unable to verify.
    */
-  getContextUsage?(): Promise<ContextUsageReadBack>;
+  getContextUsage?(opts?: {
+    detail?: 'summary' | 'full';
+  }): Promise<ContextUsageReadBack>;
   /** Stream input messages to the query */
   streamInput(stream: AsyncIterable<SDKUserMessage>): Promise<void>;
   /**

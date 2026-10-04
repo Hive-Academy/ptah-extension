@@ -66,6 +66,16 @@ export const SDK_TOKENS = {
    * plus the file path pointer.
    */
   SDK_CODE_OUTLINER: Symbol.for('SdkCodeOutliner'),
+  /**
+   * `CompactionCoordinator`: the per-session compaction state machine
+   * (TASK_2026_597 A8). Singleton — one record per live session.
+   */
+  SDK_COMPACTION_COORDINATOR: Symbol.for('SdkCompactionCoordinator'),
+  /**
+   * `ContextUsagePort`: the single per-turn `getContextUsage` reader, cached
+   * per session and turn for the coordinator and the rotation advisor.
+   */
+  SDK_CONTEXT_USAGE_PORT: Symbol.for('SdkContextUsagePort'),
 
   SDK_COMPACTION_CALLBACK_REGISTRY: Symbol.for('SdkCompactionCallbackRegistry'),
   SDK_COMPACTION_BOUNDARY_GENERATION_REGISTRY: Symbol.for(

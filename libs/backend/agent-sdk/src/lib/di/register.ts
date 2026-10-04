@@ -103,6 +103,8 @@ import { SessionHandoffBuilder } from '../helpers/session-budget/session-handoff
 import { SessionHandoffWriter } from '../helpers/session-budget/session-handoff-writer';
 import { SessionBudgetService } from '../helpers/session-budget/session-budget.service';
 import { ToolOutputCapper } from '../helpers/compaction/tool-output-capper';
+import { CompactionCoordinator } from '../helpers/compaction/compaction-coordinator';
+import { ContextUsagePort } from '../helpers/compaction/context-usage.port';
 import { SDK_TOKENS } from './tokens';
 
 /**
@@ -424,6 +426,19 @@ export function registerSdkServices(
         ),
     ),
   });
+
+  // A factory rather than `useClass`: the coordinator is a plain class (no
+  // tsyringe decorator) whose optional `timers` seam is for specs only; the
+  // container builds it with the default unref'd Node timers.
+  container.register(SDK_TOKENS.SDK_COMPACTION_COORDINATOR, {
+    useFactory: instanceCachingFactory(() => new CompactionCoordinator()),
+  });
+
+  container.register(
+    SDK_TOKENS.SDK_CONTEXT_USAGE_PORT,
+    { useClass: ContextUsagePort },
+    { lifecycle: Lifecycle.Singleton },
+  );
 
   container.register(
     SDK_TOKENS.SDK_COMPACTION_CALLBACK_REGISTRY,
