@@ -7,6 +7,8 @@ import {
 } from '@ptah-extension/shared/testing';
 
 import { SdkAdapterEvents } from './sdk-adapter-events.service';
+import { CompactionCoordinator } from './compaction/compaction-coordinator';
+import type { CompactionTimers } from './compaction/compaction-state.types';
 
 function asLogger(mock: MockLogger): Logger {
   return mock as unknown as Logger;
@@ -487,6 +489,111 @@ describe('SdkAdapterEvents', () => {
       expect(events.listenerCount('initialized')).toBe(0);
       expect(events.listenerCount('disposed')).toBe(0);
       expect(events.listenerCount('configChanged')).toBe(0);
+    });
+  });
+  describe('compactionStateChanged (TASK_2026_597 A8)', () => {
+    const noTimers: CompactionTimers = {
+      setTimeout: () => undefined,
+      clearTimeout: () => undefined,
+    };
+
+    function makeWithCoordinator(): {
+      events: SdkAdapterEvents;
+      logger: MockLogger;
+      coordinator: CompactionCoordinator;
+    } {
+      const logger = createMockLogger();
+      const coordinator = new CompactionCoordinator(noTimers);
+      const events = new SdkAdapterEvents(asLogger(logger), coordinator);
+      return { events, logger, coordinator };
+    }
+
+    it('logs every coordinator transition at INFO with from, to, trigger and pre/post tokens', () => {
+      const { logger, coordinator } = makeWithCoordinator();
+      coordinator.register('real-1', { codexProxy: false, e2Passed: true });
+
+      coordinator.onPreCompact('real-1', 'auto');
+      coordinator.onCompactBoundary('real-1', {
+        preTokens: 180_000,
+        postTokens: 20_000,
+      });
+
+      expect(logger.info).toHaveBeenCalledWith(
+        '[SdkAdapterEvents] Compaction state changed',
+        {
+          sessionId: 'real-1',
+          from: 'IDLE',
+          to: 'TRIGGERED',
+          trigger: 'auto',
+          preTokens: undefined,
+          postTokens: undefined,
+        },
+      );
+      expect(logger.info).toHaveBeenCalledWith(
+        '[SdkAdapterEvents] Compaction state changed',
+        {
+          sessionId: 'real-1',
+          from: 'TRIGGERED',
+          to: 'COOLDOWN',
+          trigger: 'compact-boundary',
+          preTokens: 180_000,
+          postTokens: 20_000,
+        },
+      );
+    });
+
+    it('publishes the transition to subscribers with a timestamp', () => {
+      const { events, coordinator } = makeWithCoordinator();
+      const listener = jest.fn();
+      events.onCompactionStateChanged(listener);
+      coordinator.register('real-1', { codexProxy: false, e2Passed: true });
+
+      coordinator.onPreCompact('real-1', 'manual');
+
+      expect(listener).toHaveBeenCalledTimes(1);
+      expect(listener).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sessionId: 'real-1',
+          from: 'IDLE',
+          to: 'TRIGGERED',
+          trigger: 'manual',
+          timestamp: expect.any(Number),
+        }),
+      );
+    });
+
+    it('logs nothing for an OBSERVE_ONLY session, which never transitions', () => {
+      const { logger, coordinator } = makeWithCoordinator();
+      coordinator.register('codex-1', { codexProxy: true, e2Passed: true });
+
+      coordinator.onPreCompact('codex-1', 'auto');
+
+      expect(logger.info).not.toHaveBeenCalledWith(
+        '[SdkAdapterEvents] Compaction state changed',
+        expect.anything(),
+      );
+    });
+
+    it('a throwing subscriber does not stop the INFO log or the transition', () => {
+      const { events, logger, coordinator } = makeWithCoordinator();
+      events.onCompactionStateChanged(() => {
+        throw new Error('listener boom');
+      });
+      coordinator.register('real-1', { codexProxy: false, e2Passed: true });
+
+      expect(coordinator.onPreCompact('real-1', 'auto')).toBe(true);
+
+      expect(coordinator.getState('real-1')).toBe('TRIGGERED');
+      expect(logger.info).toHaveBeenCalledWith(
+        '[SdkAdapterEvents] Compaction state changed',
+        expect.objectContaining({ to: 'TRIGGERED' }),
+      );
+      expect(logger.warn).toHaveBeenCalledTimes(1);
+    });
+
+    it('constructs without a coordinator', () => {
+      const { events } = make();
+      expect(events.listenerCount('compactionStateChanged')).toBe(0);
     });
   });
 });

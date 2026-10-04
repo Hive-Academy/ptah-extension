@@ -56,7 +56,11 @@ import {
   type BindRealSessionIdOutcome,
 } from './session-lifecycle/session-registry.service';
 import { SessionStreamPump } from './session-lifecycle/session-stream-pump.service';
-import { SessionQueryExecutor } from './session-lifecycle/session-query-executor.service';
+import {
+  SessionQueryExecutor,
+  type CompactionCoordinatorSink,
+} from './session-lifecycle/session-query-executor.service';
+import type { IContextUsagePort } from './compaction/context-usage.port';
 import { SessionControl } from './session-lifecycle/session-control.service';
 import type { SessionEndCallbackRegistry } from './session-end-callback-registry';
 import type { SdkQueryRunner } from './sdk-query-runner.service';
@@ -384,6 +388,11 @@ export class SessionLifecycleManager {
     private readonly configManager: ConfigManager | null = null,
     @inject(SDK_TOKENS.SDK_COMPACTION_CONFIG_PROVIDER, { isOptional: true })
     private readonly compactionConfigProvider: CompactionConfigProvider | null = null,
+    /** A8 coordinator and per-turn context reader, handed to the executor. */
+    @inject(SDK_TOKENS.SDK_COMPACTION_COORDINATOR, { isOptional: true })
+    private readonly compactionCoordinator: CompactionCoordinatorSink | null = null,
+    @inject(SDK_TOKENS.SDK_CONTEXT_USAGE_PORT, { isOptional: true })
+    private readonly contextUsagePort: IContextUsagePort | null = null,
   ) {
     this._registry = new SessionRegistry(this.logger);
     this._streamPump = new SessionStreamPump(
@@ -403,6 +412,8 @@ export class SessionLifecycleManager {
       this.queryRunner,
       this.capabilityResolver,
       this.harnessPolicySync,
+      this.compactionCoordinator,
+      this.contextUsagePort,
     );
     const compactionProvider = this.compactionConfigProvider;
     this._control = new SessionControl(
