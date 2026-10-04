@@ -16,6 +16,18 @@ export {
   type TurnTestRun,
   type TurnTestSummary,
 } from './turn-tests.utils';
+export {
+  buildTurnSourceSnapshot,
+  type BuildTurnSourceSnapshotInput,
+  type TurnDiffSource,
+  type TurnSourceSnapshot,
+  type TurnSourceUnavailable,
+  type TurnTestsSource,
+  type TurnTestsSnapshotSource,
+  type TurnUsageSource,
+  type TurnUsageSnapshotSource,
+} from './turn-sources.utils';
+export { formatDurationMs, formatUsdCost } from './usage-format.utils';
 export { blankToUndefined, blankToNull } from './session-id.utils';
 export {
   decodeHistoryCursor,
