@@ -1,6 +1,6 @@
 # Batches - TASK_2026_610_6a10
 
-Total tasks: 51 (PR A + PR B) + PR C | Batches: 27 active (A 8, B+C 19: B 14, C 5 after the C2 split) + 4 blocked (D) | Complete: 10/27 (A1, A6, A7, A2, A3, B4, B8a, B8b, B8c, B9)
+Total tasks: 51 (PR A + PR B) + PR C | Batches: 27 active (A 8, B+C 19: B 14, C 5 after the C2 split) + 4 blocked (D) | Complete: 15/27 (A1, A6, A7, A2, A3, A4, B1, B2, B3, B4, B8a, B8b, B8c, B9, C1)
 
 Worktree root: `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat` (branch
 `feat/task-610-a2ui-coding-chat`, HEAD = merge-base `f314a4f8a`, verified with `git merge-base`). Every path below is
@@ -209,7 +209,7 @@ Edge cases:
   - MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\tsconfig.base.json`
 - Pattern to follow: `libs\frontend\chat-ui\src\change-set-card.ts`, `tsconfig.base.json:49-51`
 
-## Batch A4: transcript turn grouping and Electron-only tests row — IN_PROGRESS
+## Batch A4: transcript turn grouping and Electron-only tests row — COMPLETE (75b78cb74)
 
 - Recommended executor: opencode lane | Fallback: frontend-developer subagent | Mode: sequential
 - Tasks: 3 | Depends on: A3 | Parallel group: W4
@@ -217,7 +217,7 @@ Edge cases:
 - Phase: A
 - Verify: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/chat`
 
-### Task A4.1: transcript-turns.ts — PENDING
+### Task A4.1: transcript-turns.ts — COMPLETE
 
 - Files:
   - CREATE `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\frontend\chat\src\lib\components\organisms\transcript\transcript-turns.ts`
@@ -225,7 +225,7 @@ Edge cases:
 - Pattern to follow: `transcript-change-set-anchors.ts:47-60` (`anchorInTurnWindow`)
 - Validation notes: resolve A-3, A-4 (cite `message-finalization.service.ts:153-171`); unknown roles skipped
 
-### Task A4.2: tests-row mount in the transcript — PENDING
+### Task A4.2: tests-row mount in the transcript — COMPLETE
 
 - Files:
   - MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\frontend\chat\src\lib\components\organisms\transcript\chat-transcript.component.ts`
@@ -234,11 +234,20 @@ Edge cases:
   `@defer (when runs.length > 0)` after the bubble slot, importing `@ptah-extension/chat-ui/turn-recap`; change-set
   block unchanged
 
-### Task A4.3: change-set spec extensions — PENDING
+### Task A4.3: change-set spec extensions — COMPLETE
 
 - Files: MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\frontend\chat\src\lib\components\organisms\transcript\chat-transcript.change-set.spec.ts`
 - Validation notes: card after turn-ending message (1.1); no row or card for no-op turn (1.4); one file listing
   (1.12); reloaded tests row (1.8, A-1 session-loader fixture); `isElectron=false` → no tests row
+
+### A4 notes (verification 2026-10-04)
+
+- Plan cite is stale: message-finalization lives at
+  `libs/frontend/chat-streaming/src/lib/message-finalization.service.ts`, not
+  `libs/frontend/chat/src/lib/services/chat-store/message-finalization.service.ts`.
+- `changeSetForMessage` (implementation-plan.md §4) is deferred to C2a, its only consumer.
+- Verified: `run-many -t typecheck,test,lint -p @ptah-extension/chat` passed (161 suites, 2964 tests, lint 0
+  errors). Report: `batch-A4-report.md`.
 
 ## Batch A5: zero-model-token boundary specs — PENDING
 
@@ -439,7 +448,7 @@ Edge cases:
 - Plan reference: implementation-plan.md:494-502; heading at `surface-renderer.component.ts:190-192`
 - Validation notes: existing specs unchanged and green; Apps page unchanged for non-empty titles
 
-## Batch B5a: PtahUiLiveWindow — IN_PROGRESS
+## Batch B5a: PtahUiLiveWindow — IN_PROGRESS (verified, commit pending: held until B5b lands so its half-written `chat-ui` files stay out of the checks)
 
 - Recommended executor: opencode lane | Fallback: frontend-developer subagent | Mode: sequential
 - Tasks: 2 | Depends on: none | Parallel group: W3 or later
@@ -447,7 +456,7 @@ Edge cases:
 - Phase: B
 - Verify: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/chat-ui`
 
-### Task B5a.1: live window service and spec — PENDING
+### Task B5a.1: live window service and spec — IMPLEMENTED
 
 - Files:
   - CREATE `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\frontend\chat-ui\src\lib\services\ptah-ui-live-window.ts`
@@ -457,7 +466,7 @@ Edge cases:
 - Validation notes: spec covers 12 registrations, `liveCount() <= 8` after each, re-registration of a destroyed key
   keeps its position (remount case)
 
-### Task B5a.2: main barrel export — PENDING
+### Task B5a.2: main barrel export — IMPLEMENTED
 
 - Files: MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\frontend\chat-ui\src\index.ts`
 - Validation notes: export only the window and cap; nothing from the lazy entry enters the main barrel
@@ -661,7 +670,7 @@ Edge cases:
 - Files: MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\backend\vscode-core\src\index.ts`
 - Implementation details: `export { TOKENS, type HostKind } from './di/tokens';`; nothing else in the barrel changes
 
-## Batch B10: `ptah-surface-authoring` skill — PENDING
+## Batch B10: `ptah-surface-authoring` skill — IN_PROGRESS (verified, commit pending: held until C3, which edits the same reference and manifest)
 
 - Recommended executor: codex lane | Fallback: technical-content-writer subagent | Mode: sequential
 - Tasks: 2 | Depends on: B3 (corpus examples; plan defect 3) | Parallel group: W5
@@ -669,7 +678,7 @@ Edge cases:
 - Phase: B
 - Verify: `npm run manifest:check`
 
-### Task B10.1: SKILL.md and reference — PENDING
+### Task B10.1: SKILL.md and reference — IMPLEMENTED
 
 - Files:
   - CREATE `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\apps\ptah-extension-vscode\assets\plugins\ptah-core\skills\ptah-surface-authoring\SKILL.md`
@@ -677,7 +686,7 @@ Edge cases:
 - Validation notes: re-check SKILL.md absence at start (594 may have added it; then add only a pointer); EBNF, lexical
   table, source table without `$context`, caps, fallback, six corpus examples; no `note` yet
 
-### Task B10.2: regenerate manifest — PENDING
+### Task B10.2: regenerate manifest — IMPLEMENTED
 
 - Files: MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\content-manifest.json`
 - Implementation details: `npm run manifest:generate`, never hand-edit
@@ -854,12 +863,14 @@ Waves are guidance; the hard rule is the "Depends on" line plus file-disjointnes
 C batches follow the B batches on this branch and precede BM. Dependencies re-pointed from BM to the B batches whose
 files they extend. Phase: B+C.
 
-## Batch C1: resolver and snapshot sources — PENDING
+## Batch C1: resolver and snapshot sources — COMPLETE (991015ec4)
 
 - Executor: codex lane | Depends on: B1+B2+B3 committed (resolver, pipeline spec), A2 | Group: G-C1 (C1 ∥ C3)
 - Files: `libs\shared\src\mcp-apps-contracts\ptah-ui-resolver.ts` (+ `.spec.ts`), `libs\shared\src\lib\utils\turn-sources.utils.ts` (+ `.spec.ts`) under the worktree root
 - Requirements: Req 3.1-3.8; A-6 resolved here
 - Verify: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/shared`
+- Verified 2026-10-04: shared run-many passed. Closes Req 3.2/3.4/3.5/3.6 gaps; A-6 resolved (`$diff` stays pending
+  until the late `git:turnChangeSet` push). Report: `batch-C1-report.md`.
 
 ## Batch C2b: block snapshot input — PENDING
 
