@@ -1,6 +1,6 @@
 # Batches - TASK_2026_610_6a10
 
-Total tasks: 51 (PR A + PR B) + PR C | Batches: 27 active (A 8, B+C 19: B 14, C 5 after the C2 split) + 4 blocked (D) | Complete: 17/27 (A1, A6, A7, A2, A3, A4, B1, B2, B3, B4, B8a, B8b, B8c, B9, B10, C1, C3)
+Total tasks: 51 (PR A + PR B) + PR C | Batches: 27 active (A 8, B+C 19: B 14, C 5 after the C2 split) + 4 blocked (D) | Complete: 19/27 (A1, A6, A7, A2, A3, A4, B1, B2, B3, B4, B5a, B5b, B8a, B8b, B8c, B9, B10, C1, C3) | In progress: B6, C2b
 
 Worktree root: `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat` (branch
 `feat/task-610-a2ui-coding-chat`, HEAD = merge-base `f314a4f8a`, verified with `git merge-base`). Every path below is
@@ -448,7 +448,7 @@ Edge cases:
 - Plan reference: implementation-plan.md:494-502; heading at `surface-renderer.component.ts:190-192`
 - Validation notes: existing specs unchanged and green; Apps page unchanged for non-empty titles
 
-## Batch B5a: PtahUiLiveWindow — IN_PROGRESS (verified, commit pending: held until B5b lands so its half-written `chat-ui` files stay out of the checks)
+## Batch B5a: PtahUiLiveWindow — COMPLETE (2bbd53f93)
 
 - Recommended executor: opencode lane | Fallback: frontend-developer subagent | Mode: sequential
 - Tasks: 2 | Depends on: none | Parallel group: W3 or later
@@ -456,7 +456,9 @@ Edge cases:
 - Phase: B
 - Verify: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/chat-ui`
 
-### Task B5a.1: live window service and spec — IMPLEMENTED
+- Verified 2026-10-04: chat-ui typecheck/test/lint passed (run together with B5b). Report: `batch-B5a-report.md`.
+
+### Task B5a.1: live window service and spec — COMPLETE
 
 - Files:
   - CREATE `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\frontend\chat-ui\src\lib\services\ptah-ui-live-window.ts`
@@ -466,12 +468,21 @@ Edge cases:
 - Validation notes: spec covers 12 registrations, `liveCount() <= 8` after each, re-registration of a destroyed key
   keeps its position (remount case)
 
-### Task B5a.2: main barrel export — IMPLEMENTED
+### Task B5a.2: main barrel export — COMPLETE
 
 - Files: MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\frontend\chat-ui\src\index.ts`
 - Validation notes: export only the window and cap; nothing from the lazy entry enters the main barrel
 
-## Batch B5b: `chat-ui/ptah-ui` lazy entry, message text host and block — PENDING
+## Batch B5b: `chat-ui/ptah-ui` lazy entry, message text host and block — COMPLETE (9ce4f84f7)
+
+- Verified 2026-10-04: chat-ui typecheck/test/lint passed (479 tests); `@ptah-extension/chat` typecheck passed
+  (`tsconfig.base.json` alias). 12-block live-cap test: blocks 1-4 snapshot, 1 detach, 0 pipeline reruns, `inert`.
+  Axe 0 serious/critical across 6 states x 2 themes. A-5 resolved. Deviation 1 accepted (`PTAH_UI_BLOCK_PIPELINE`
+  declared in the block file to avoid an import cycle). Deviation 2 fixed by orchestrator decision: only
+  `(renderFailed)` bound (shows the "could not display" fallback); specs pin the 4 interaction outputs unbound.
+  Report: `batch-B5b-report.md`.
+- Note for visual review: check the effect of `prose` styles on the renderer, and run colour contrast in the live
+  app (jsdom cannot check it).
 
 - Recommended executor: frontend-developer subagent
 - Fallback executor: opencode lane with the full task text
@@ -483,14 +494,14 @@ Edge cases:
 - Phase: B
 - Verify: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/chat-ui`
 
-### Task B5b.1: entry and path alias — PENDING
+### Task B5b.1: entry and path alias — COMPLETE
 
 - Files:
   - CREATE `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\frontend\chat-ui\src\ptah-ui.ts`
   - MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\tsconfig.base.json`
 - Implementation details: `PTAH_UI_BLOCK_PIPELINE` InjectionToken, `providedIn: 'root'`, factory `() => renderPtahUiBlock`
 
-### Task B5b.2: PtahUiMessageTextComponent — PENDING
+### Task B5b.2: PtahUiMessageTextComponent — COMPLETE
 
 - Files:
   - CREATE `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\frontend\chat-ui\src\lib\organisms\ptah-ui\ptah-ui-message-text.component.ts`
@@ -498,7 +509,7 @@ Edge cases:
 - Validation notes: markdown segments use `<markdown [data]="seg.text | surfaceMarkdown: active()">` as at
   `execution-node.component.ts:136-138`; track `md:<n>`/`ui:<ordinal>`; open fence = code; 50-chunk identity = 1
 
-### Task B5b.3: PtahUiBlockComponent — PENDING
+### Task B5b.3: PtahUiBlockComponent — COMPLETE
 
 - Files:
   - CREATE `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\frontend\chat-ui\src\lib\organisms\ptah-ui\ptah-ui-block.component.ts`
@@ -508,7 +519,10 @@ Edge cases:
   recomputations, `inert` ancestor; blocks 5-12 live; remount 1, 6, 12); axe per state; resolve A-5 (copy sites);
   no outputs bound on the renderer; lint confirms the `chat-ui` → `declarative-dashboard` edge is allowed
 
-## Batch B6: execution-node and bubble wiring with the Electron gate — PENDING
+## Batch B6: execution-node and bubble wiring with the Electron gate — IN_PROGRESS
+
+- MUST (from B5b): provide `PtahUiLiveWindow` in the per-tab (transcript-scoped) injector. Without it the block's
+  injection fails and every block falls into the `@error` markdown.
 
 - Recommended executor: frontend-developer subagent
 - Fallback executor: opencode lane with the full task text
@@ -877,7 +891,7 @@ files they extend. Phase: B+C.
 - Verified 2026-10-04: shared run-many passed. Closes Req 3.2/3.4/3.5/3.6 gaps; A-6 resolved (`$diff` stays pending
   until the late `git:turnChangeSet` push). Report: `batch-C1-report.md`.
 
-## Batch C2b: block snapshot input — PENDING
+## Batch C2b: block snapshot input — IN_PROGRESS
 
 - Split from C2 (plan defect 5: the plan's 6 files omit `chat-transcript.component.html`, bubble binding at `:50`;
   7 files total). C2b runs first.
