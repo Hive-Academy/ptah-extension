@@ -49,6 +49,9 @@
       "@ptah-extension/chat-ui/change-set-card": [
         "./libs/frontend/chat-ui/src/change-set-card.ts"
       ],
+      "@ptah-extension/chat-ui/ptah-ui": [
+        "./libs/frontend/chat-ui/src/ptah-ui.ts"
+      ],
       "@ptah-extension/chat-ui/turn-recap": [
         "./libs/frontend/chat-ui/src/turn-recap.ts"
       ],
