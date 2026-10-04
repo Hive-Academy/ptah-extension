@@ -42,7 +42,26 @@ export interface CompactionConfig {
    * runtime would ignore it. Read for the log only; Ptah never forwards it.
    */
   readonly envWindow: number | null;
+  /** Per-tool-output cap in tokens (`compaction.toolOutputBudgetTokens`). */
+  readonly toolOutputBudgetTokens: number;
+  /** Subagent handoff size in tokens (`compaction.subagentHandoffTokens`). */
+  readonly subagentHandoffTokens: number;
+  /** Session size at which rotation is suggested (`compaction.rotationSuggestTokens`). */
+  readonly rotationSuggestTokens: number;
+  /** Weighted-token total at which a subagent is stopped (`compaction.subagentStopWeightedTokens`). */
+  readonly subagentStopWeightedTokens: number;
 }
+
+/**
+ * Defaults for the file-based compaction budgets. They mirror
+ * `FILE_BASED_SETTINGS_DEFAULTS` in platform-core, which supplies them when the
+ * key is absent; they are repeated here so a hand-edited invalid value falls
+ * back to the same number.
+ */
+const TOOL_OUTPUT_BUDGET_TOKENS_DEFAULT = 2500;
+const SUBAGENT_HANDOFF_TOKENS_DEFAULT = 150_000;
+const ROTATION_SUGGEST_TOKENS_DEFAULT = 300_000;
+const SUBAGENT_STOP_WEIGHTED_TOKENS_DEFAULT = 3_000_000;
 
 /**
  * Provides compaction configuration from settings
@@ -102,6 +121,22 @@ export class CompactionConfigProvider {
       enabled,
       contextTokenThreshold,
       envWindow,
+      toolOutputBudgetTokens: this.readBudget(
+        'compaction.toolOutputBudgetTokens',
+        TOOL_OUTPUT_BUDGET_TOKENS_DEFAULT,
+      ),
+      subagentHandoffTokens: this.readBudget(
+        'compaction.subagentHandoffTokens',
+        SUBAGENT_HANDOFF_TOKENS_DEFAULT,
+      ),
+      rotationSuggestTokens: this.readBudget(
+        'compaction.rotationSuggestTokens',
+        ROTATION_SUGGEST_TOKENS_DEFAULT,
+      ),
+      subagentStopWeightedTokens: this.readBudget(
+        'compaction.subagentStopWeightedTokens',
+        SUBAGENT_STOP_WEIGHTED_TOKENS_DEFAULT,
+      ),
     };
 
     this.logger.debug(
@@ -114,6 +149,24 @@ export class CompactionConfigProvider {
     );
 
     return compactionConfig;
+  }
+
+  /**
+   * Reads one positive-integer budget. Unset is the default; a hand-edited
+   * value that is not a positive integer (non-number, non-integer, zero or
+   * negative) is warned about and treated as unset.
+   */
+  private readBudget(key: string, defaultValue: number): number {
+    const raw = this.config.get<unknown>(key);
+    if (raw === undefined || raw === null) return defaultValue;
+    if (typeof raw === 'number' && Number.isSafeInteger(raw) && raw > 0) {
+      return raw;
+    }
+    this.logger.warn(
+      `[CompactionConfigProvider] Invalid ${key}, using the default`,
+      { providedType: typeof raw, defaultValue },
+    );
+    return defaultValue;
   }
 
   /**
