@@ -12,6 +12,26 @@ import {
 } from '@ptah-extension/shared';
 
 /**
+ * One rendered run: the run's own fields plus its precomputed full class
+ * list, so the template never calls a method to style a row.
+ */
+interface TurnTestRow {
+  readonly command: string;
+  readonly outcome: TurnTestOutcome;
+  readonly cls: string;
+}
+
+/**
+ * The full class list for one outcome word — layout classes plus the colour
+ * cue; the word itself carries the meaning, never the colour alone.
+ */
+const OUTCOME_CLASS: Readonly<Record<TurnTestOutcome, string>> = {
+  passed: 'font-semibold w-14 shrink-0 diff-add-text',
+  failed: 'font-semibold w-14 shrink-0 diff-del-text',
+  unknown: 'font-semibold w-14 shrink-0 text-base-content-muted',
+};
+
+/**
  * TurnTestsRowComponent - the tests-run section a turn that ran test commands
  * leaves in the transcript, next to the change-set card (TASK_2026_610 Req
  * 1.6/1.7, plan §3).
@@ -40,7 +60,6 @@ import {
     @if (summary().total > 0) {
       <section
         class="bg-base-300/30 rounded max-w-md py-1.5 px-2 text-[11px] text-base-content"
-        role="status"
         [attr.aria-label]="ariaLabel()"
         data-testid="turn-tests-row"
       >
@@ -65,21 +84,21 @@ import {
           }
         </div>
         <ul class="mt-1 border-t border-base-300/30" role="list">
-          @for (run of runs(); track $index) {
+          @for (row of rows(); track $index) {
             <li
               class="flex items-baseline gap-1.5 py-0.5"
               data-testid="turn-tests-run"
             >
               <span
-                [class]="outcomeClass(run.outcome)"
+                [class]="row.cls"
                 data-testid="turn-tests-run-outcome"
-                >{{ run.outcome }}</span
+                >{{ row.outcome }}</span
               >
               <span
                 class="font-mono text-[10px] text-base-content-muted min-w-0 flex-1 break-all"
-                [title]="run.command"
+                [title]="row.command"
                 data-testid="turn-tests-run-command"
-                >{{ run.command }}</span
+                >{{ row.command }}</span
               >
             </li>
           }
@@ -123,13 +142,16 @@ export class TurnTestsRowComponent {
   });
 
   /**
-   * The full class list for one outcome word — layout classes plus the colour
-   * cue; the word itself carries the meaning, never the colour alone.
+   * View rows precomputed from the runs: the template binds `row.cls`
+   * directly instead of calling a method per check. Tracked by `$index` —
+   * the list is append-only and a new runs array replaces it wholesale, so
+   * index identity is stable for Angular's DOM reuse.
    */
-  protected outcomeClass(outcome: TurnTestOutcome): string {
-    const base = 'font-semibold w-14 shrink-0';
-    if (outcome === 'passed') return `${base} diff-add-text`;
-    if (outcome === 'failed') return `${base} diff-del-text`;
-    return `${base} text-base-content-muted`;
-  }
+  protected readonly rows = computed<readonly TurnTestRow[]>(() =>
+    this.runs().map((run) => ({
+      command: run.command,
+      outcome: run.outcome,
+      cls: OUTCOME_CLASS[run.outcome],
+    })),
+  );
 }

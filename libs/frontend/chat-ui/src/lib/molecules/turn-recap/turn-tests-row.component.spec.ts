@@ -88,6 +88,26 @@ describe('TurnTestsRowComponent', () => {
     },
   );
 
+  it.each([
+    ['passed', 'diff-add-text'],
+    ['failed', 'diff-del-text'],
+    ['unknown', 'text-base-content-muted'],
+  ] as const)(
+    'styles the %s row with its precomputed class',
+    (outcome, cls) => {
+      render([run('npx cmd', outcome)]);
+
+      // Match per class token: the DOM may reorder the class list.
+      const classes = (query('turn-tests-run-outcome')?.className ?? '')
+        .trim()
+        .split(/\s+/);
+      expect(classes).toContain(cls);
+      expect(classes).toContain('font-semibold');
+      expect(classes).toContain('w-14');
+      expect(classes).toContain('shrink-0');
+    },
+  );
+
   it('marks an aborted turn "(incomplete)" only when told', () => {
     render([run('nx test chat', 'failed')]);
     expect(query('turn-tests-incomplete')).toBeNull();
@@ -96,11 +116,16 @@ describe('TurnTestsRowComponent', () => {
     expect(text(query('turn-tests-incomplete'))).toBe('(incomplete)');
   });
 
-  it('labels the row a status region naming the outcome', () => {
+  it('labels the section with the outcome and is not a live region', () => {
     render([run('nx test chat', 'passed'), run('npx jest foo', 'failed')], true);
 
+    // A historical recap row must not be announced again on reload or a lazy
+    // mount, so nothing inside it is a live region (review concern d).
     const root = query('turn-tests-row');
-    expect(root?.getAttribute('role')).toBe('status');
+    expect(root?.getAttribute('role')).toBeNull();
+    expect(
+      native().querySelectorAll('[role="status"], [aria-live]'),
+    ).toHaveLength(0);
     expect(root?.getAttribute('aria-label')).toBe(
       'Tests: 1 passed, 1 failed (incomplete)',
     );
