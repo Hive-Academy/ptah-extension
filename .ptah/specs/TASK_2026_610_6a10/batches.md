@@ -1,0 +1,794 @@
+# Batches - TASK_2026_610_6a10
+
+Total tasks: 51 (PR A + PR B) | Batches: 22 active (A 8, B 14) + 8 queued (C 4, D 4) | Complete: 3/22 (A1, A6, A7)
+
+Worktree root: `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat` (branch
+`feat/task-610-a2ui-coding-chat`, HEAD = merge-base `f314a4f8a`, verified with `git merge-base`). Every path below is
+absolute. Lanes never run git. The team-leader verifies and commits each batch after its scoped check passes.
+
+## Execution defaults (recorded, from the prompt and implementation-plan.md:929-1018)
+
+- Executors: `codex` lane for shared, backend, scripts and assets batches. `opencode` lane for Angular webview batches
+  (opencode has no messaging: each prompt is self-contained, with absolute paths, the plan line ranges, the pattern
+  file and the exact verification command). A subagent (`frontend-developer`) where a batch needs judgement a lane
+  cannot exercise (B5b, B6). Fallbacks: `backend-developer` for codex, `frontend-developer` for opencode.
+- At most 3 batches in flight, all file-disjoint.
+- Concurrency rule: two lanes may write to the same Nx project (for example A1 and A7 in `shared`) only on disjoint
+  files. Lanes run only their own spec files while working. The team-leader runs the batch's full scoped
+  `run-many` command serially at verification time, so a peer lane's half-finished file cannot fail another batch.
+- PR boundary: plan rows say "PR A merged" for B1, B8a, B8c and B10. The prompt starts PR A and PR B now, and none of
+  those batches has a code dependency on PR A (verified below). Default chosen: one branch, commits may interleave,
+  dependencies are on committed batches, not on merged PRs. At the PR A cut the team-leader cherry-picks the A-batch
+  commits (file-disjoint from every B commit, so they apply cleanly) onto `feat/task-610-pr-a`; PR B stacks on it.
+- Review: one phase per PR. Phase A = A1-AM, Phase B = B1-BM. Each phase gets code-logic + style (new public API:
+  shared utils exports, `chat-ui/turn-recap`, `chat-ui/ptah-ui`, `surface.index.ts` exports, `TOKENS.HOST_KIND`) +
+  visual (tests row in A; blocks, fallbacks, reason line, snapshots in B; dark + light). Phase B's code-logic review
+  checks B6 against TASK_2026_532 defects 1-6 and B8a-B9 against the L-7 truth table (implementation-plan.md:667-675).
+- Never stage: `.ptah/specs/TASK_2026_594_31ff/task.md`, `.ptah/specs/TASK_2026_595_1c01/task.md` (pre-existing,
+  unrelated modifications in this worktree).
+
+## Plan validation
+
+Status: PASSED WITH RISKS (4 plan defects fixed by re-splitting; no BLOCKER for PR A or PR B)
+
+Plan defects found and how this decomposition resolves them:
+
+1. **B4/B5 order is infeasible as written.** B4 creates `ptah-ui-block.component.ts`, which "registers with
+   `PtahUiLiveWindow` and renders snapshot mode when not live" (implementation-plan.md:520), but `PtahUiLiveWindow` is
+   created in B5 (implementation-plan.md:961), and B5 does not list `ptah-ui-block.component.ts` to wire it later.
+   B4 also creates both components with no spec. Re-split: **B4** = renderer empty-title (declarative-dashboard
+   only), **B5a** = live window, **B5b** = lazy entry + both components + their specs.
+2. **B7 is missing a file.** B7 passes `[ptahUiOrderKey]` to the bubble (implementation-plan.md:377-378), but the
+   bubble is mounted in the external template
+   `libs\frontend\chat\src\lib\components\organisms\transcript\chat-transcript.component.html:50`, which B7 does not
+   list (implementation-plan.md:963). Added to B7 (5 files).
+3. **B10 runs before its content exists.** The reference needs "six worked examples from the corpus"
+   (implementation-plan.md:693-694); the corpus is created in B3. Plan places B10 in G-B1. B10 now depends on B3.
+4. **`measurement.md` has no owning batch.** Per-PR Electron measurements (implementation-plan.md:830-832,
+   1011-1017) are required evidence but no batch writes them. Added **AM** and **BM** (measurement-only batches).
+
+Queued-batch defect (fix before PR C starts):
+
+5. **C2 is infeasible as written.** It passes `[ptahUiSnapshot]` from the transcript to the bubble, which binds at
+   `chat-transcript.component.html:50`, not listed; C2 already has 6 files over 2 libs
+   (implementation-plan.md:970). Adding the template makes 7. Must split into C2a (chat) and C2b (chat-ui) before
+   PR C starts.
+
+Assumptions:
+
+- Every MODIFY path in PR A and PR B exists — verified (`test -e` over all 33 paths, run).
+- `ptah-surface-authoring/SKILL.md` does not exist — verified, so B10 creates it (plan decision 9).
+- A-7 `mcpToolProfile` forwarding sites: non-spec occurrences are only in `rpc-chat.types.ts`, `ai-provider.types.ts`,
+  `chat-rpc.schema.ts`, `chat-session.service.ts` (6), `chat-slash-command-router.service.ts` (2),
+  `sdk-query-options-builder.ts` and `mcp-apps-page/.../apps-session.service.ts` (Apps sender, out of scope) —
+  verified by grep. B8b re-greps and must forward `ptahUiFence` at every site.
+- A-10 DI order: `container.ts:41-42` calls `registerPhase0Platform` then `registerPhase1Infra` before phase 2 —
+  verified. B8c's smoke spec pins it.
+- `assembleSystemPrompt` is in `sdk-query-options-builder.ts:295` and called at `:1693`; optional-inject precedent at
+  `:927, :945, :949` — verified.
+- `assertEagerClosureKept` is exported (`scripts/electron-only-chunks.js:195-201`); `describeIfBuiltOrFail` and
+  `PTAH_ALLOW_SKIP_UNBUILT` exist (`build-artifact-gate.ts:18, 27`); the webview has `statsJson: true`
+  (`apps/ptah-extension-webview/project.json:71`) — verified.
+- `chat-ui` does not import `declarative-dashboard` today (grep, no hit). The lattice allows it (`scope:webview`,
+  `type:feature` → `type:ui`) — unverified against `eslint.config` depConstraints; B5b's lint run checks it.
+- A-1, A-2 (Bash node shape after reload) — unverified; checked in A1 (fixture from an existing execution-tree spec)
+  and A4 (session-loader fixture).
+- A-3, A-4 (abort and legacy `streamingState`) — unverified; checked in A4.
+- A-5 (copy reads node text, not DOM) — unverified; checked in B5b.
+- A-6 (change set present after `session:turnEnded`) — PR C; recorded for C1.
+- A-8, A-11 (594 `alert` tones, `dashboard-catalog/3`) — PR D; not checkable now.
+- Nx project names (`project.json`, read): `@ptah-extension/shared`, `@ptah-extension/chat`,
+  `@ptah-extension/chat-ui`, `@ptah-extension/declarative-dashboard`, `@ptah-extension/rpc-handlers`,
+  `@ptah-extension/vscode-core`, `@ptah-extension/agent-sdk`, `ptah-electron`. All have `typecheck`, `test`, `lint`.
+
+| Risk | Severity | Mitigation |
+| --- | --- | --- |
+| Concurrent lanes in one Nx project see each other's half-written files | MEDIUM | Concurrency rule above; team-leader runs scoped checks serially |
+| Shared main barrel gains zod through new utils | HIGH | A1, A2: `libs\shared\src\index.zod-free.spec.ts` must stay green (part of `shared` test run) |
+| Fence mount forgeable (TASK_2026_532 defects 1-6) or leaks to VS Code | HIGH | B6 by subagent; trust and VS Code regression specs; phase B code-logic review |
+| Hint reaches non-Electron sessions via a spoofed flag | HIGH | B8c host fact + B9 truth table; phase B code-logic review against L-7 |
+| A6 real-build case fails closed without `stats.json` | MEDIUM | A6 verification builds the webview with `--stats-json` first |
+| Parser/renderer enter the eager closure | HIGH | A6 gate; AM/BM run `npm run gate:eager-closure` and the `--base` diff |
+| Registry drift (new RPC/push for host data) | MEDIUM | A7 contract spec, re-run in every `shared` test |
+| `tsconfig.base.json`, `utils/index.ts`, `surface.index.ts`, `chat-transcript.component.*` edited by several batches | MEDIUM | Serialized by dependencies: A3 → B5b (tsconfig); A1 → A2 (utils barrel); A4 → B7 (transcript) |
+| Live cap invariant (detach, inert, no source reads) needs design judgement | MEDIUM | B5b by subagent; instrumented 12-block test |
+
+Edge cases:
+
+- Quoted or chained test commands, background Bash runs — Task A1.1 / A1.2
+- Missing tokens or duration → `unavailable`, never `0` — Task A2.1
+- No-op turn (no card, no row), reloaded tests row, VS Code shows no row — Task A4.3
+- CRLF, escapes, tabs, indentation, caps 8,192/8,193 bytes, unclosed and nested fences, `$context` — Task B1.2 / B1.3
+- Markdown, HTML, URL and entity literals stay literal; no `url`/`actions` keys — Task B3.2
+- Empty title renders no `<h2>` — Task B4.1
+- Chunk load failure, throwing pipeline, streaming open fence, 50-chunk identity, remount of snapshot — Task B5b.2 / B5b.3
+- Subagent, user, thinking and `sendMessage`-nested text stay code; forged `ptah-ui-*` HTML; VS Code — Task B6.3
+- Spoofed `ptahUiFence: true` on VS Code/TUI/CLI, `apps` profile — Task B9.2
+
+---
+
+## Batch A1: test-command matcher and turn tests detection — COMPLETE (8bcaf4049)
+
+- Recommended executor: codex lane
+- Fallback executor: backend-developer subagent
+- Execution mode: sequential (single lane)
+- Rationale: pure framework-free TypeScript in `libs/shared` (L-13)
+- Tasks: 3 | Depends on: none | Parallel group: W1 (A1 ∥ A6 ∥ A7)
+- Requirements: Req 1.2 (R1-R6 and example table), 1.6-1.7 (status table); comp. 1
+- Phase: A | Phase review: code-logic + style + visual (at AM)
+- Verify: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/shared`
+
+### Task A1.1: classifyTestCommand with quote-aware tokenizer — COMPLETE
+
+- Files:
+  - CREATE `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\shared\src\lib\utils\test-command-matcher.ts`
+  - CREATE `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\shared\src\lib\utils\test-command-matcher.spec.ts`
+  - CREATE `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\shared\src\lib\utils\test-command.fixtures.ts`
+- Plan reference: implementation-plan.md:300-322; task-description.md Req 1.2
+- Pattern to follow: `libs\shared\src\lib\utils\` existing pure utils (`pickPrimaryModel`)
+- Quality requirements: hand-written tokenizer, no backtracking regex; never throws; fixtures in a separate module
+- Validation notes: every positive and negative row of the Req 1.2 example table is a fixture
+- Implementation details: segment by `&&`, `||`, `;`, `|` outside quotes, then apply R1-R6
+
+### Task A1.2: collectTurnTests and summarizeTurnTests — COMPLETE
+
+- Depends on: Task A1.1
+- Files:
+  - CREATE `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\shared\src\lib\utils\turn-tests.utils.ts`
+  - CREATE `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\shared\src\lib\utils\turn-tests.utils.spec.ts`
+- Plan reference: implementation-plan.md:305-310
+- Validation notes: resolve A-2 (`toolName === 'Bash'`, `run_in_background` in `toolInput`) from an existing
+  execution-tree spec fixture and cite it in the spec; depth-first including agent subtrees; each node once
+- Implementation details: `TurnTestRun = { command; outcome: 'passed'|'failed'|'unknown' }`
+
+### Task A1.3: export from the utils barrel — COMPLETE
+
+- Files: MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\shared\src\lib\utils\index.ts`
+- Validation notes: `libs\shared\src\index.zod-free.spec.ts` stays green
+
+## Batch A2: turn source snapshot and usage formatters — IN_PROGRESS
+
+- Recommended executor: codex lane | Fallback: backend-developer subagent | Mode: sequential
+- Rationale: pure shared TypeScript; edits the utils barrel after A1
+- Tasks: 3 | Depends on: A1 | Parallel group: W2
+- Requirements: Req 1.3, 1.13 (read layer), 3.1 formatter agreement; comp. 2
+- Phase: A
+- Verify: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/shared`
+
+### Task A2.1: buildTurnSourceSnapshot — IN_PROGRESS
+
+- Files:
+  - CREATE `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\shared\src\lib\utils\turn-sources.utils.ts`
+  - CREATE `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\shared\src\lib\utils\turn-sources.utils.spec.ts`
+- Plan reference: implementation-plan.md:324-347
+- Validation notes: missing tokens or duration → `unavailable`, never `0`; `TurnChangeSet` from `rpc-change-set.types.ts:47-70`
+
+### Task A2.2: formatUsdCost and formatDurationMs — IN_PROGRESS
+
+- Files:
+  - CREATE `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\shared\src\lib\utils\usage-format.utils.ts`
+  - CREATE `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\shared\src\lib\utils\usage-format.utils.spec.ts`
+- Pattern to follow: `libs\frontend\chat-ui\src\lib\atoms\cost-badge.component.ts:64-69`, `duration-badge.component.ts:27` (byte-identical output)
+
+### Task A2.3: export from the utils barrel — IN_PROGRESS
+
+- Files: MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\shared\src\lib\utils\index.ts`
+
+## Batch A3: badges use shared formatters; tests row; turn-recap entry — PENDING
+
+- Recommended executor: opencode lane | Fallback: frontend-developer subagent | Mode: sequential
+- Rationale: presentational Angular in `chat-ui`, precedent `change-set-card` entry
+- Tasks: 3 | Depends on: A2 | Parallel group: W3
+- Requirements: Req 1.2, 1.3 (existing badge specs pass unchanged), 1.4, 1.6, 1.7, 1.11, 1.12; NFR a11y; comp. 2-3
+- Phase: A
+- Verify: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/chat-ui`
+
+### Task A3.1: badges delegate to shared formatters — PENDING
+
+- Files:
+  - MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\frontend\chat-ui\src\lib\atoms\cost-badge.component.ts`
+  - MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\frontend\chat-ui\src\lib\atoms\duration-badge.component.ts`
+- Validation notes: existing badge specs must pass without edits; delete the local formatting code (no duplicate)
+
+### Task A3.2: TurnTestsRowComponent — PENDING
+
+- Files:
+  - CREATE `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\frontend\chat-ui\src\lib\molecules\turn-recap\turn-tests-row.component.ts`
+  - CREATE `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\frontend\chat-ui\src\lib\molecules\turn-recap\turn-tests-row.component.spec.ts`
+- Plan reference: implementation-plan.md:348-363
+- Quality requirements: standalone, OnPush; outcome as text not colour alone; nothing for empty list; axe zero
+  serious/critical in both themes
+
+### Task A3.3: `@ptah-extension/chat-ui/turn-recap` entry — PENDING
+
+- Files:
+  - CREATE `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\frontend\chat-ui\src\turn-recap.ts`
+  - MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\tsconfig.base.json`
+- Pattern to follow: `libs\frontend\chat-ui\src\change-set-card.ts`, `tsconfig.base.json:49-51`
+
+## Batch A4: transcript turn grouping and Electron-only tests row — PENDING
+
+- Recommended executor: opencode lane | Fallback: frontend-developer subagent | Mode: sequential
+- Tasks: 3 | Depends on: A3 | Parallel group: W4
+- Requirements: Req 1.1, 1.4, 1.6-1.8, 1.12, VS Code no-row [user]; comp. 4 (PR A part)
+- Phase: A
+- Verify: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/chat`
+
+### Task A4.1: transcript-turns.ts — PENDING
+
+- Files:
+  - CREATE `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\frontend\chat\src\lib\components\organisms\transcript\transcript-turns.ts`
+  - CREATE `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\frontend\chat\src\lib\components\organisms\transcript\transcript-turns.spec.ts`
+- Pattern to follow: `transcript-change-set-anchors.ts:47-60` (`anchorInTurnWindow`)
+- Validation notes: resolve A-3, A-4 (cite `message-finalization.service.ts:153-171`); unknown roles skipped
+
+### Task A4.2: tests-row mount in the transcript — PENDING
+
+- Files:
+  - MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\frontend\chat\src\lib\components\organisms\transcript\chat-transcript.component.ts`
+  - MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\frontend\chat\src\lib\components\organisms\transcript\chat-transcript.component.html`
+- Implementation details: `turnTestsAnchors` computed only when `VSCodeService.isElectron`; second
+  `@defer (when runs.length > 0)` after the bubble slot, importing `@ptah-extension/chat-ui/turn-recap`; change-set
+  block unchanged
+
+### Task A4.3: change-set spec extensions — PENDING
+
+- Files: MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\frontend\chat\src\lib\components\organisms\transcript\chat-transcript.change-set.spec.ts`
+- Validation notes: card after turn-ending message (1.1); no row or card for no-op turn (1.4); one file listing
+  (1.12); reloaded tests row (1.8, A-1 session-loader fixture); `isElectron=false` → no tests row
+
+## Batch A5: zero-model-token boundary specs — PENDING
+
+- Recommended executor: codex lane | Fallback: backend-developer subagent | Mode: sequential
+- Tasks: 2 | Depends on: A4 | Parallel group: W5
+- Requirements: Req 1.5, 5.12 (PR A sentinels); comp. 5
+- Phase: A
+- Verify: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/chat,@ptah-extension/agent-sdk`
+
+### Task A5.1: sender boundary spec — PENDING
+
+- Files: CREATE `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\frontend\chat\src\lib\services\message-sender.host-data.spec.ts`
+- Validation notes: serialized `ChatContinueParams` (sender `:689`) contains no sentinel (`zz_sentinel_610.ts`,
+  `0.610610`, `610610`, tests label); text `ExecutionNode.content` byte-identical
+
+### Task A5.2: builder boundary spec — PENDING
+
+- Files: CREATE `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\backend\agent-sdk\src\lib\helpers\sdk-query-options-builder.host-data.spec.ts`
+- Pattern to follow: positional-stub construction in `sdk-query-options-builder.spec.ts`
+- Validation notes: prompt and `systemPrompt.append` (`build()` `:972`, return `:1758-1762`) contain no sentinel
+
+## Batch A6: eager-closure bundle gate — COMPLETE (4c47c7a43)
+
+- Recommended executor: codex lane | Fallback: devops-engineer subagent | Mode: sequential
+- Rationale: CommonJS script plus a node-side jest spec; precedent `packaged-deps.spec.ts`
+- Tasks: 3 | Depends on: none | Parallel group: W1 (A1 ∥ A6 ∥ A7)
+- Requirements: Req 5.1, 5.2, 5.9; comp. 15
+- Phase: A
+- Verify: `npx nx build ptah-extension-webview --configuration=production --skip-nx-cache --stats-json` then
+  `npx nx run-many -t typecheck,test,lint -p ptah-electron` and `npm run gate:eager-closure`
+
+### Task A6.1: scripts/eager-closure-gate.js — COMPLETE
+
+- Files: CREATE `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\scripts\eager-closure-gate.js`
+- Plan reference: implementation-plan.md:725-776
+- Pattern to follow: `scripts\electron-only-chunks.js:150-173, 195-201` (reuse `assertEagerClosureKept`, do not copy)
+- Implementation details: `forbiddenOutputs`, `assertNoForbiddenEager`, `eagerInputs`, `assertNoUnlistedEagerGrowth`,
+  `FORBIDDEN_EAGER_INPUTS` and allow list exactly as the plan; CLI `<head-stats> [--base <base-stats>]`, exit 1
+
+### Task A6.2: gate spec — COMPLETE
+
+- Files: CREATE `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\apps\ptah-electron\src\config\eager-closure-gate.spec.ts`
+- Pattern to follow: `apps\ptah-electron\src\config\packaged-deps.spec.ts:69,215`; `build-artifact-gate.ts:27`
+- Validation notes: synthetic cases (forbidden in `main.js` throws; in static chunk throws; only dynamic passes;
+  unlisted growth with `--base` throws) plus the real-build case via `describeIfBuiltOrFail`, failing closed
+
+### Task A6.3: npm script — COMPLETE
+
+- Files: MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\package.json`
+- Implementation details: `"gate:eager-closure": "node scripts/eager-closure-gate.js dist/apps/ptah-extension-webview/stats.json"`
+
+## Batch A7: host-source registry contract test — COMPLETE (9814e1612)
+
+- Recommended executor: codex lane | Fallback: backend-developer subagent | Mode: sequential
+- Tasks: 2 | Depends on: none | Parallel group: W1 (A1 ∥ A6 ∥ A7)
+- Requirements: Req 1.13; comp. 16
+- Phase: A
+- Verify: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/shared`
+
+### Task A7.1: baseline fixture — COMPLETE
+
+- Files: CREATE `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\shared\src\lib\types\rpc\host-source-registry.baseline.ts`
+- Implementation details: sorted `RPC_METHOD_NAMES` (`rpc.types.ts:4122`) and `Object.values(MESSAGE_TYPES)`
+  (`messages/message-constants.ts:18`) captured at `f314a4f8a` (current HEAD); generate the arrays by running code,
+  do not hand-type them
+
+### Task A7.2: contract spec — COMPLETE
+
+- Files: CREATE `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\shared\src\lib\types\rpc\host-source-registry.contract.spec.ts`
+- Validation notes: header states a baseline change needs a Gate 2 exception; deep-equality on both arrays
+
+## Batch AM: PR A Electron measurement — PENDING
+
+- Recommended executor: codex lane | Fallback: devops-engineer subagent | Mode: sequential
+- Tasks: 1 | Depends on: A1-A7 | Parallel group: W6
+- Requirements: Req 5.1, 5.2, 5.9, 5.10 (Electron only [user]); measurement only, no source edits
+- Phase: A (last batch; triggers the Phase A review)
+- Verify: `npm run gate:eager-closure` exits 0; `--base` run against `f314a4f8a` stats recorded
+
+### Task AM.1: measurement.md (PR A section) — PENDING
+
+- Files: CREATE `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\.ptah\specs\TASK_2026_610_6a10\measurement.md`
+- Implementation details: initial-chunk report (evidence D5 method), eager-closure `--base` output, coding
+  `tools/list` length and hash on the Electron-like host (evidence C6); base stats built in a temporary checkout of
+  `f314a4f8a` that the lane does not commit
+
+---
+
+## Batch B1: fence segmentation and parser — IN_PROGRESS
+
+- Recommended executor: codex lane | Fallback: backend-developer subagent | Mode: sequential
+- Tasks: 3 | Depends on: none in code (see PR boundary default) | Parallel group: W2
+- Requirements: grammar (EBNF, lexical table), Req 2.12, 3.3, 3.10; comp. 6
+- Phase: B
+- Verify: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/shared`
+
+### Task B1.1: ptah-ui.types.ts — IN_PROGRESS
+
+- Files: CREATE `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\shared\src\mcp-apps-contracts\ptah-ui.types.ts`
+
+### Task B1.2: segmentPtahUi — IN_PROGRESS
+
+- Files:
+  - CREATE `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\shared\src\mcp-apps-contracts\ptah-ui-fence.ts`
+  - CREATE `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\shared\src\mcp-apps-contracts\ptah-ui-fence.spec.ts`
+- Plan reference: implementation-plan.md:420-445
+- Validation notes: outer-fence tracking (backtick or tilde, ≥3); unclosed stays markdown; nested fences
+
+### Task B1.3: parsePtahUi — IN_PROGRESS
+
+- Files:
+  - CREATE `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\shared\src\mcp-apps-contracts\ptah-ui-parser.ts`
+  - CREATE `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\shared\src\mcp-apps-contracts\ptah-ui-parser.spec.ts`
+- Validation notes: caps first (8,192 bytes, 200 lines); one valid + one invalid case per lexical row; every listed
+  fixture; `$diff.files` vs `\$diff.files`; `$context` unknown; never throws; `note` NOT included (PR D)
+
+## Batch B2: converter, resolver, pipeline — PENDING
+
+- Recommended executor: codex lane | Fallback: backend-developer subagent | Mode: sequential
+- Tasks: 3 | Depends on: B1, A2 (`TurnSourceSnapshot`, formatters) | Parallel group: W3
+- Requirements: Req 2.1, 2.2, 2.4, 2.11, 2.17, 3.2-3.8 (with `null` snapshot); comp. 7
+- Phase: B
+- Verify: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/shared`
+
+### Task B2.1: convertPtahUi — PENDING
+
+- Files:
+  - CREATE `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\shared\src\mcp-apps-contracts\ptah-ui-converter.ts`
+  - CREATE `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\shared\src\mcp-apps-contracts\ptah-ui-converter.spec.ts`
+- Validation notes: per-element deep-equal fixtures; no actions/inputs/data refs; versions from `surface-catalog.ts:10-11`
+
+### Task B2.2: resolvePtahUi — PENDING
+
+- Files:
+  - CREATE `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\shared\src\mcp-apps-contracts\ptah-ui-resolver.ts`
+  - CREATE `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\shared\src\mcp-apps-contracts\ptah-ui-resolver.spec.ts`
+- Validation notes: `pending`/`unavailable` text never `0`/`$0`/blank; literals never merge into source rows
+
+### Task B2.3: renderPtahUiBlock and exports — PENDING
+
+- Files:
+  - CREATE `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\shared\src\mcp-apps-contracts\ptah-ui-pipeline.ts`
+  - MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\shared\src\mcp-apps-contracts\surface.index.ts`
+- Validation notes: caps → parse → convert → resolve → `validateSurfaceDocument(doc, countBytes)`; a throw →
+  `internal error`; `surface.index.ts` stays ≤150 lines (118 today); main barrel stays zod-free
+
+## Batch B3: pipeline trust specs, corpus, compactness — PENDING
+
+- Recommended executor: codex lane | Fallback: backend-developer subagent | Mode: sequential
+- Tasks: 3 | Depends on: B2 | Parallel group: W4
+- Requirements: Req 2.3, 2.8, 2.12, 3.3, 5.13; comp. 7
+- Phase: B
+- Verify: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/shared`
+
+### Task B3.1: corpus — PENDING
+
+- Files: CREATE `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\shared\src\mcp-apps-contracts\ptah-ui.corpus.ts`
+- Validation notes: ≥6 cases; B10 takes its worked examples from here
+
+### Task B3.2: pipeline spec — PENDING
+
+- Files: CREATE `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\shared\src\mcp-apps-contracts\ptah-ui-pipeline.spec.ts`
+- Validation notes: markdown/HTML/URL/entity literals stay literal; no `url`/`actions` keys; budget breach names budget
+
+### Task B3.3: compactness spec — PENDING
+
+- Files: CREATE `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\shared\src\mcp-apps-contracts\ptah-ui-compactness.spec.ts`
+- Implementation details: `gpt-tokenizer` `encode` (4.0.0); fence tokens < `JSON.stringify(conversion)` tokens
+
+## Batch B4: renderer omits empty title — PENDING
+
+- Recommended executor: opencode lane | Fallback: frontend-developer subagent | Mode: sequential
+- Tasks: 1 | Depends on: none | Parallel group: W2 or later (file-disjoint from every other batch)
+- Requirements: L-9; comp. 8
+- Phase: B
+- Verify: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/declarative-dashboard`
+
+### Task B4.1: `@if (title())` around the heading — PENDING
+
+- Files:
+  - MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\frontend\declarative-dashboard\src\lib\components\surface-renderer.component.ts`
+  - MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\frontend\declarative-dashboard\src\lib\components\surface-renderer.component.spec.ts`
+- Plan reference: implementation-plan.md:494-502; heading at `surface-renderer.component.ts:190-192`
+- Validation notes: existing specs unchanged and green; Apps page unchanged for non-empty titles
+
+## Batch B5a: PtahUiLiveWindow — PENDING
+
+- Recommended executor: opencode lane | Fallback: frontend-developer subagent | Mode: sequential
+- Tasks: 2 | Depends on: none | Parallel group: W3 or later
+- Requirements: Req 5.4 (window half), decision 10, L-5; comp. 9
+- Phase: B
+- Verify: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/chat-ui`
+
+### Task B5a.1: live window service and spec — PENDING
+
+- Files:
+  - CREATE `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\frontend\chat-ui\src\lib\services\ptah-ui-live-window.ts`
+  - CREATE `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\frontend\chat-ui\src\lib\services\ptah-ui-live-window.spec.ts`
+- Implementation details: `@Injectable()` (not root); `register(key, orderKey): Signal<boolean>`; ≤512 keys; no
+  timers/observers; `liveCount()` test seam; `PTAH_UI_LIVE_CAP = 8`
+- Validation notes: spec covers 12 registrations, `liveCount() <= 8` after each, re-registration of a destroyed key
+  keeps its position (remount case)
+
+### Task B5a.2: main barrel export — PENDING
+
+- Files: MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\frontend\chat-ui\src\index.ts`
+- Validation notes: export only the window and cap; nothing from the lazy entry enters the main barrel
+
+## Batch B5b: `chat-ui/ptah-ui` lazy entry, message text host and block — PENDING
+
+- Recommended executor: frontend-developer subagent
+- Fallback executor: opencode lane with the full task text
+- Execution mode: sequential
+- Rationale: the live-cap invariant (frozen renderable, detached detector, `inert` subtree, hidden text alternative)
+  and the instrumented 12-block test need design decisions mid-flight
+- Tasks: 3 | Depends on: B2, B4, B5a, A3 (serial `tsconfig.base.json`) | Parallel group: W5
+- Requirements: Req 2.3-2.7, 2.13, 2.17, 5.4, NFR a11y (axe both themes, keyboard); comp. 9
+- Phase: B
+- Verify: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/chat-ui`
+
+### Task B5b.1: entry and path alias — PENDING
+
+- Files:
+  - CREATE `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\frontend\chat-ui\src\ptah-ui.ts`
+  - MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\tsconfig.base.json`
+- Implementation details: `PTAH_UI_BLOCK_PIPELINE` InjectionToken, `providedIn: 'root'`, factory `() => renderPtahUiBlock`
+
+### Task B5b.2: PtahUiMessageTextComponent — PENDING
+
+- Files:
+  - CREATE `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\frontend\chat-ui\src\lib\organisms\ptah-ui\ptah-ui-message-text.component.ts`
+  - CREATE `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\frontend\chat-ui\src\lib\organisms\ptah-ui\ptah-ui-message-text.component.spec.ts`
+- Validation notes: markdown segments use `<markdown [data]="seg.text | surfaceMarkdown: active()">` as at
+  `execution-node.component.ts:136-138`; track `md:<n>`/`ui:<ordinal>`; open fence = code; 50-chunk identity = 1
+
+### Task B5b.3: PtahUiBlockComponent — PENDING
+
+- Files:
+  - CREATE `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\frontend\chat-ui\src\lib\organisms\ptah-ui\ptah-ui-block.component.ts`
+  - CREATE `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\frontend\chat-ui\src\lib\organisms\ptah-ui\ptah-ui-block.component.spec.ts`
+- Validation notes: fallback HTML identical to a normal fence; reason line `data-ptah-ui-reason` outside `<code>` with
+  `aria-describedby`; throwing pipeline stub; instrumented live-cap test (blocks 1-4 snapshot with detach spy, 0
+  recomputations, `inert` ancestor; blocks 5-12 live; remount 1, 6, 12); axe per state; resolve A-5 (copy sites);
+  no outputs bound on the renderer; lint confirms the `chat-ui` → `declarative-dashboard` edge is allowed
+
+## Batch B6: execution-node and bubble wiring with the Electron gate — PENDING
+
+- Recommended executor: frontend-developer subagent
+- Fallback executor: opencode lane with the full task text
+- Execution mode: sequential
+- Rationale: security-relevant mount (TASK_2026_532 defects 1-6) and the VS Code byte-for-byte regression; needs
+  judgement on `@defer`/`@placeholder`/`@error` composition and on which recursions must not forward the context
+- Tasks: 3 | Depends on: B5b | Parallel group: W6
+- Requirements: Req 2.1, 2.4, 2.9, 2.10, 5.2, VS Code fence stays code [user]; comp. 10
+- Phase: B
+- Verify: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/chat`
+
+### Task B6.1: fence-line check and execution-node branch — PENDING
+
+- Files:
+  - CREATE `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\frontend\chat\src\lib\components\organisms\execution\ptah-ui-fence-line.ts`
+  - MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\frontend\chat\src\lib\components\organisms\execution\execution-node.component.ts`
+- Validation notes: `hasPtahUiFenceLine` has zero imports; `ptahUi` input forwarded only in `@case ('message')`
+  (`:249-262`), never in agent (`:239-246`) or tool recursions (`:176, :205`)
+
+### Task B6.2: bubble builds the context on Electron only — PENDING
+
+- Files:
+  - MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\frontend\chat\src\lib\components\organisms\message-bubble.component.ts`
+  - MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\frontend\chat\src\lib\components\organisms\message-bubble.component.html`
+- Implementation details: input `ptahUiOrderKey`; context `null` unless `role === 'assistant'` and
+  `inject(VSCodeService).isElectron`; mount at `message-bubble.component.html:102-110`
+
+### Task B6.3: execution-node ptah-ui spec — PENDING
+
+- Files: CREATE `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\frontend\chat\src\lib\components\organisms\execution\execution-node.ptah-ui.spec.ts`
+- Validation notes: VS Code (`isElectron=false`) → ordinary code block, no reason line, no `ptah-ui-*`, no deferred
+  load; 2.10 scope cases; forged HTML/`data-ptah-ui-*`, ```` ```ptah-ui-x ````, indented fence → no surface; no
+  deferred load without a fence line; `provide-markdown-rendering.spec.ts` untouched
+
+## Batch B7: transcript live window and Electron sender flag — PENDING
+
+- Recommended executor: opencode lane | Fallback: frontend-developer subagent | Mode: sequential
+- Tasks: 2 | Depends on: B6, A4 (transcript files), B8a (`ptahUiFence` param type) | Parallel group: W7
+- Requirements: Req 2.14 (client half), 5.4 (tab scope), 3.x transcript wiring with `null` snapshot; comp. 4 (PR B), 11
+- Phase: B
+- Verify: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/chat`
+
+### Task B7.1: provide PtahUiLiveWindow and pass the order key — PENDING
+
+- Files:
+  - MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\frontend\chat\src\lib\components\organisms\transcript\chat-transcript.component.ts`
+  - MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\frontend\chat\src\lib\components\organisms\transcript\chat-transcript.component.html`
+  - CREATE `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\frontend\chat\src\lib\components\organisms\transcript\chat-transcript.ptah-ui.spec.ts`
+- Implementation details: `providers: [TranscriptRenderWindow, PtahUiLiveWindow]` (`:153`); `[ptahUiOrderKey]` on
+  `<ptah-message-bubble>` at `.html:50` (file added by this decomposition, plan defect 2)
+
+### Task B7.2: sender sets `ptahUiFence` on Electron — PENDING
+
+- Files:
+  - MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\frontend\chat\src\lib\services\message-sender.service.ts`
+  - MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\frontend\chat\src\lib\services\message-sender.service.spec.ts`
+- Implementation details: `...(this.vscode.isElectron ? { ptahUiFence: true } : {})` at `chat:start` (`:440`) and
+  `chat:continue` (`:689`); spec: Electron → `true`, `isElectron=false` → key absent
+
+## Batch B8a: `ptahUiFence` wire types and zod — IN_PROGRESS
+
+- Recommended executor: codex lane | Fallback: backend-developer subagent | Mode: sequential
+- Tasks: 2 | Depends on: none in code | Parallel group: W2
+- Requirements: Req 2.14, 1.13 (param key set = base + `ptahUiFence`); comp. 11
+- Phase: B
+- Verify: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/shared,@ptah-extension/rpc-handlers`
+
+### Task B8a.1: types — IN_PROGRESS
+
+- Files:
+  - MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\shared\src\lib\types\rpc\rpc-chat.types.ts`
+  - MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\shared\src\lib\types\ai-provider.types.ts`
+- Implementation details: `ptahUiFence?: boolean` beside `mcpToolProfile` (`rpc-chat.types.ts:66`, `:124-159`;
+  `ai-provider.types.ts:161`)
+
+### Task B8a.2: zod schema and spec — IN_PROGRESS
+
+- Files:
+  - MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\backend\rpc-handlers\src\lib\handlers\chat-rpc.schema.ts`
+  - MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\backend\rpc-handlers\src\lib\handlers\chat-rpc.schema.spec.ts`
+- Validation notes: `z.boolean().optional()` at `:61, :75`; accept `true`/`false`/absent, reject `"yes"` for start
+  and continue; key set = base + `ptahUiFence`
+
+## Batch B8b: forward the flag into AISessionConfig — PENDING
+
+- Recommended executor: codex lane | Fallback: backend-developer subagent | Mode: sequential
+- Tasks: 2 | Depends on: B8a | Parallel group: W3
+- Requirements: Req 2.14; A-7; comp. 11
+- Phase: B
+- Verify: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/rpc-handlers`
+
+### Task B8b.1: propagation — PENDING
+
+- Files:
+  - MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\backend\rpc-handlers\src\lib\chat\session\chat-session.service.ts`
+  - MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\backend\rpc-handlers\src\lib\chat\session\chat-slash-command-router.service.ts`
+- Validation notes: re-grep `mcpToolProfile`; forward `ptahUiFence` at every site (`chat-session.service.ts:122, 157,
+  567, 745, 1429`; router `:127-128`); report any extra site found
+
+### Task B8b.2: specs — PENDING
+
+- Files:
+  - CREATE `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\backend\rpc-handlers\src\lib\chat\session\chat-session.ptah-ui-flag.spec.ts`
+  - MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\backend\rpc-handlers\src\lib\chat\session\chat-continue-slash-before-resume.spec.ts`
+
+## Batch B8c: trusted host fact `TOKENS.HOST_KIND` — PENDING
+
+- Recommended executor: codex lane | Fallback: backend-developer subagent | Mode: sequential
+- Tasks: 2 | Depends on: none | Parallel group: W2 or W3
+- Requirements: Req 2.14 (Electron only [user]), decision 8, L-7, A-10; comp. 11
+- Phase: B
+- Verify: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/vscode-core,ptah-electron`
+
+### Task B8c.1: token and type — PENDING
+
+- Files: MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\backend\vscode-core\src\di\tokens.ts`
+- Implementation details: `HOST_KIND: Symbol.for('HostKind')`; `export type HostKind = 'vscode' | 'electron' | 'cli' | 'tui'`
+
+### Task B8c.2: Electron registration and smoke spec — PENDING
+
+- Files:
+  - MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\apps\ptah-electron\src\di\phase-1-infra.ts`
+  - MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\apps\ptah-electron\src\di\container.smoke.spec.ts`
+- Validation notes: `{ useValue: 'electron' }`; spec resolves `TOKENS.HOST_KIND === 'electron'`; no other host edited
+
+## Batch B9: system-prompt hint and the L-7 gate — PENDING
+
+- Recommended executor: codex lane | Fallback: backend-developer subagent | Mode: sequential
+- Tasks: 2 | Depends on: B8a, B8c | Parallel group: W4
+- Requirements: Req 2.14, 5.11, Electron-only hint [user]; comp. 12
+- Phase: B
+- Verify: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/agent-sdk`
+
+### Task B9.1: hint constant — PENDING
+
+- Files:
+  - CREATE `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\backend\agent-sdk\src\lib\prompt-harness\ptah-ui-hint.ts`
+  - CREATE `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\backend\agent-sdk\src\lib\prompt-harness\ptah-ui-hint.spec.ts`
+  - MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\backend\agent-sdk\src\lib\prompt-harness\index.ts`
+- Validation notes: PR B text omits the "Host data…" sentence and `note`; `encode(...).length <= 100`; names skill
+  `ptah-surface-authoring`; hint exactly once directly after `PTAH_CORE_SYSTEM_PROMPT`; absent without the field
+
+### Task B9.2: builder gate and truth-table spec — PENDING
+
+- Files:
+  - MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\backend\agent-sdk\src\lib\helpers\sdk-query-options-builder.ts`
+  - CREATE `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\backend\agent-sdk\src\lib\helpers\sdk-query-options-builder.ptah-ui-hint.spec.ts`
+- Implementation details: last optional ctor param `@inject(TOKENS.HOST_KIND, { isOptional: true })` (pattern
+  `:945-951`); `AssembleSystemPromptInput.ptahUiHint?` (`:230-262`), push after `:310`; at `:1693`
+  `ptahUiHint: this.hostKind === 'electron' && (sessionConfig?.mcpToolProfile ?? 'coding') === 'coding' && sessionConfig?.ptahUiFence === true`
+- Validation notes: all 7 truth-table rows (implementation-plan.md:667-675), including spoofed `true` on
+  `undefined`/`'vscode'`/`'tui'`/`'cli'`
+
+## Batch B10: `ptah-surface-authoring` skill — PENDING
+
+- Recommended executor: codex lane | Fallback: technical-content-writer subagent | Mode: sequential
+- Tasks: 2 | Depends on: B3 (corpus examples; plan defect 3) | Parallel group: W5
+- Requirements: Req 2.15; comp. 13
+- Phase: B
+- Verify: `npm run manifest:check`
+
+### Task B10.1: SKILL.md and reference — PENDING
+
+- Files:
+  - CREATE `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\apps\ptah-extension-vscode\assets\plugins\ptah-core\skills\ptah-surface-authoring\SKILL.md`
+  - CREATE `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\apps\ptah-extension-vscode\assets\plugins\ptah-core\skills\ptah-surface-authoring\references\ptah-ui.md`
+- Validation notes: re-check SKILL.md absence at start (594 may have added it; then add only a pointer); EBNF, lexical
+  table, source table without `$context`, caps, fallback, six corpus examples; no `note` yet
+
+### Task B10.2: regenerate manifest — PENDING
+
+- Files: MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\content-manifest.json`
+- Implementation details: `npm run manifest:generate`, never hand-edit
+
+## Batch BM: PR B Electron measurement — PENDING
+
+- Recommended executor: codex lane | Fallback: devops-engineer subagent | Mode: sequential
+- Tasks: 1 | Depends on: B1-B10 | Parallel group: W8
+- Requirements: Req 5.1, 5.2, 5.9, 5.10, 5.11, 5.13 (Electron only [user]); measurement only
+- Phase: B (last batch; triggers the Phase B review)
+- Verify: `npm run gate:eager-closure` exits 0 on the PR B build; `--base` diff shows only allow-listed eager growth
+
+### Task BM.1: measurement.md (PR B section) — PENDING
+
+- Files: MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\.ptah\specs\TASK_2026_610_6a10\measurement.md`
+- Implementation details: initial chunk, no-fence chunk log (5.2), coding `tools/list` hash unchanged (5.10), hint
+  text/chars/tokens (5.11), corpus figures (5.13), eager-closure `--base` output
+
+## Run log
+
+### Wave 1 (A1, A6, A7) — COMPLETE
+
+- A1 `8bcaf4049`, A7 `9814e1612`: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/shared --skip-nx-cache`
+  passed (86 suites, 2,323 tests, including `index.zod-free.spec.ts` and the new contract spec).
+- A6 `4c47c7a43`: `npx nx run-many -t typecheck,test,lint -p ptah-electron --skip-nx-cache` passed (gate spec 5/5,
+  real-build case ran against the current `stats.json`); `npm run gate:eager-closure` exit 0, baseline 714 eager
+  inputs, 2,841,104 initial bytes. Not rebuilt for verification (stats file current). The first A6 build failure
+  came from the environment: `node_modules` was not a junction. The orchestrator fixed it.
+- Lanes touched only their listed files (`git status`, `git diff --stat`).
+
+### Wave 2 (next) — IN_PROGRESS
+
+| Batch | Executor | Fallback | Files (file-disjoint) |
+| --- | --- | --- | --- |
+| A2 | codex lane | backend-developer | `libs/shared/src/lib/utils/turn-sources.utils*`, `usage-format.utils*`, `utils/index.ts` |
+| B1 | codex lane | backend-developer | `libs/shared/src/mcp-apps-contracts/ptah-ui.types.ts`, `ptah-ui-fence*`, `ptah-ui-parser*` |
+| B8a | codex lane | backend-developer | `rpc-chat.types.ts`, `ai-provider.types.ts`, `chat-rpc.schema(.spec).ts` |
+
+A2 and B1 share the `shared` project, so each lane runs only its own specs. B8a also reaches `shared`. The
+team-leader runs each batch's scoped `run-many` serially at verification. B8a adds a param field, not an RPC
+method, so the A7 contract spec must stay green. B4 and B8c take the next free slots.
+
+## Phase A code-logic review — orchestrator findings to examine (at AM; not fixed now)
+
+1. **A7 registry scope is unbounded.** `host-source-registry.contract.spec.ts:13-21` deep-equals the whole
+   `RPC_METHOD_NAMES` and `MESSAGE_TYPES`. After merge, any unrelated PR that adds an RPC method or message type
+   fails this test. The review should weigh limiting it to host-source-related names (turn usage, change set,
+   tests, duration, cost) or another bounded approach.
+2. **Bash exit status → node status is unverified.** `turn-tests.utils.ts:19-25` (`outcomeFor`) maps `complete` →
+   `passed` and `error` → `failed`. No spec or cited code shows that a non-zero Bash exit sets `status: 'error'` in the
+   execution tree. If it stays `complete`, a failing `npm test` shows as passed. Trace the SDK tool_result
+   `is_error` → node status path and pin it with a fixture.
+3. **Blanket catches hide bugs.** `turn-tests.utils.ts:32,51-53` (`collectTurnTests`) returns `[]` on any throw.
+   The catch at `turn-tests.utils.ts:58,68-70` (`summarizeTurnTests`) cannot be reached. Remove both or narrow
+   them. Also weigh `test-command-matcher.ts:163-168`.
+
+## Suggested waves (≤3 in flight, file-disjoint)
+
+| Wave | Batches | Executors |
+| --- | --- | --- |
+| W1 | A1, A6, A7 | codex, codex, codex |
+| W2 | A2, B1, B8a (then B4, B8c as slots free) | codex, codex, codex (B4 opencode) |
+| W3 | A3, B2, B8b / B8c / B5a | opencode, codex, codex/opencode |
+| W4 | A4, B3, B9 | opencode, codex, codex |
+| W5 | A5, B5b, B10 | codex, subagent, codex |
+| W6 | AM, B6 | codex, subagent |
+| W7 | B7 | opencode |
+| W8 | BM | codex |
+
+Waves are guidance; the hard rule is the "Depends on" line plus file-disjointness. Serialized shared files:
+`utils/index.ts` (A1 → A2), `tsconfig.base.json` (A3 → B5b), `chat-transcript.component.*` (A4 → B7),
+`surface.index.ts` (B2 only in PR B).
+
+---
+
+## Queued: PR C (starts after PR B batches committed)
+
+## Batch C1: resolver and snapshot sources — QUEUED
+
+- Executor: codex lane | Depends on: BM | Group: G-C1 (C1 ∥ C3)
+- Files: `libs\shared\src\mcp-apps-contracts\ptah-ui-resolver.ts` (+ `.spec.ts`), `libs\shared\src\lib\utils\turn-sources.utils.ts` (+ `.spec.ts`) under the worktree root
+- Requirements: Req 3.1-3.8; A-6 resolved here
+- Verify: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/shared`
+
+## Batch C2: snapshot wiring — QUEUED, NEEDS RE-SPLIT
+
+- Infeasible as written (plan defect 5): the plan's 6 files omit
+  `libs\frontend\chat\src\lib\components\organisms\transcript\chat-transcript.component.html` (bubble binding at
+  `:50`). Proposed split, to confirm when PR C starts:
+  - C2a (chat, 6): `chat-transcript.component.ts`, `chat-transcript.component.html`, `message-bubble.component.ts`,
+    `message-bubble.component.html`, `execution-node.component.ts`, `chat-transcript.ptah-ui.spec.ts`
+  - C2b (chat-ui, 2): `ptah-ui-block.component.ts`, `ptah-ui-block.component.spec.ts` (snapshot input updates in place)
+- Executor: opencode lane | Depends on: C1 (C2b before C2a)
+
+## Batch C3: hint and skill sources text — QUEUED
+
+- Executor: codex lane | Depends on: BM | Group: G-C1
+- Files: `ptah-ui-hint.ts`, `ptah-ui-hint.spec.ts`, `references\ptah-ui.md`, `content-manifest.json`
+- Verify: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/agent-sdk` and `npm run manifest:check`
+
+## Batch C4: fence-bound sentinels — QUEUED
+
+- Executor: codex lane | Depends on: C2a
+- Files: `message-sender.host-data.spec.ts`, `sdk-query-options-builder.host-data.spec.ts`
+- Verify: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/chat,@ptah-extension/agent-sdk`
+
+## Queued: PR D — BLOCKED on TASK_2026_594 and the D2 plan amendment
+
+D cannot start until TASK_2026_594 merges with `SURFACE_CATALOG_VERSION = 'dashboard-catalog/3'` and an `alert`
+kind (A-11, A-8), and the Gate 2 condition is met: a plan amendment giving D2's exact file list and its
+parallel-group conflict check (context.md, "Gate 2 — APPROVED"; implementation-plan-review.md defect 1).
+
+## Batch D1: `text-block` catalog kind — QUEUED, BLOCKED (594)
+
+- Executor: codex lane | Group: G-D1 (D1 ∥ D3)
+- Files (confirm after 594 lands): `surface-catalog.ts`, `surface.types.ts`, `surface.schemas.ts`,
+  `surface-text-fallback.ts`, `surface-contract.spec.ts`, `surface-text-fallback.spec.ts` (all
+  `libs\shared\src\mcp-apps-contracts\`); must NOT change `SURFACE_CATALOG_VERSION`
+
+## Batch D2: `text-block` renderer mapping — QUEUED, BLOCKED (594 + D2 amendment)
+
+- Executor: opencode lane | Group: G-D2 | File list: none until the amendment
+
+## Batch D3: `note` in parser and converter — QUEUED, BLOCKED (594)
+
+- Executor: codex lane | Group: G-D1
+- Files: `ptah-ui-parser.ts` (+ `.spec.ts`), `ptah-ui-converter.ts` (+ `.spec.ts`), `ptah-ui.corpus.ts`
+
+## Batch D4: hint and skill `note` text — QUEUED, BLOCKED (D3)
+
+- Executor: codex lane | Group: G-D2
+- Files: `ptah-ui-hint.ts`, `ptah-ui-hint.spec.ts`, `references\ptah-ui.md`, `content-manifest.json`
+
+## Phase verification (each PR)
+
+- Every listed artifact exists and contains real work (no TODO, stub or placeholder)
+- Each batch's one scoped command passes before its commit; output tailed
+- No per-batch review: the phase's code-logic (+ style + visual) review runs on the combined diff after AM / BM commit
+- `libs\shared\src\index.zod-free.spec.ts` and `host-source-registry.contract.spec.ts` green on every `shared` run
+- Edge cases listed above are addressed
