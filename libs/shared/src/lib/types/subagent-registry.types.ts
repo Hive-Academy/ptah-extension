@@ -184,8 +184,14 @@ export interface SubagentQueryParams {
  * Result of the subagent:query RPC method
  */
 export interface SubagentQueryResult {
-  /** Array of subagent records matching the query */
-  readonly subagents: SubagentRecord[];
+  /**
+   * Array of subagent records matching the query. Each record carries its
+   * prompt-cache state; `cacheInfo` is optional so a webview built before the
+   * field existed still parses the result.
+   */
+  readonly subagents: Array<
+    SubagentRecord & { readonly cacheInfo?: SubagentCacheInfo }
+  >;
 }
 
 /**

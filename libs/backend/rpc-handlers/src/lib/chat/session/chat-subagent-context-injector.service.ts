@@ -22,7 +22,13 @@ import {
   TOKENS,
   SubagentRegistryService,
 } from '@ptah-extension/vscode-core';
-import type { SessionId } from '@ptah-extension/shared';
+import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
+import {
+  computeSubagentCacheState,
+  resolveSubagentPromptCacheTtl,
+} from '@ptah-extension/shared';
+import type { SessionId, SubagentCacheInfo } from '@ptah-extension/shared';
 
 import { CHAT_TOKENS } from '../tokens';
 import type { ChatPtahCliService } from '../ptah-cli/chat-ptah-cli.service';
@@ -55,6 +61,8 @@ export class ChatSubagentContextInjectorService {
     private readonly subagentRegistry: SubagentRegistryService,
     @inject(CHAT_TOKENS.PTAH_CLI)
     private readonly ptahCli: ChatPtahCliService,
+    @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
+    private readonly workspace: IWorkspaceProvider,
   ) {}
 
   /**
@@ -153,25 +161,49 @@ export class ChatSubagentContextInjectorService {
     if (resumableSubagents.length === 0) {
       return { prompt, injected: false };
     }
-    const agentDetails = resumableSubagents
-      .map((s) => {
+    const effectiveTtl = this.resolveEffectiveTtl();
+    const now = Date.now();
+    const agents = resumableSubagents.map((s) => ({
+      record: s,
+      cache: computeSubagentCacheState(s.lastActivityAt, effectiveTtl, now),
+    }));
+    const agentDetails = agents
+      .map(({ record: s, cache }) => {
         const interruptedAgo = s.interruptedAt
-          ? Math.round((Date.now() - s.interruptedAt) / 1000 / 60)
+          ? Math.round((now - s.interruptedAt) / 1000 / 60)
           : 0;
         return `  - ${s.agentType} agent (agentId: ${s.agentId})${
           interruptedAgo > 0 ? ` - interrupted ${interruptedAgo} min ago` : ''
-        }`;
+        } - ${formatCacheState(cache, hasActivity(s.lastActivityAt))}`;
       })
       .join('\n');
+    const firstWarm = agents.find((a) => a.cache.cacheState === 'warm');
+    const hasCold = agents.some((a) => a.cache.cacheState === 'cold');
+    const instructions: string[] = [];
+    if (firstWarm) {
+      instructions.push(
+        `Your FIRST action should be to resume the agents marked "cache: warm" so they continue their previous work. To resume an agent, invoke the Agent tool with the same subagent type shown above and a prompt that begins exactly with "Resume agent ${firstWarm.record.agentId}" (use each agent's own agentId), followed by an instruction to continue from where it was interrupted. If a SendMessage tool is available, you may instead send a message addressed to the agent's ID asking it to continue. Do NOT pass a "resume" parameter to the Agent tool — no such parameter exists.`,
+      );
+    }
+    if (hasCold) {
+      instructions.push(
+        `Do NOT resume the agents marked "cache: cold". For each of them, start a fresh subagent of the same type with a short brief of the work that remains.`,
+      );
+    }
+    instructions.push(
+      'Handle the agents in the order they are listed above.',
+      "After that, address the user's current message if it requires additional work.",
+      'If the user explicitly asks to start fresh or work on something completely unrelated, you may skip this and acknowledge the interrupted work was abandoned.',
+    );
     const contextPrefix = `[SYSTEM CONTEXT - INTERRUPTED AGENTS]
 The following subagent(s) were interrupted and did not complete their work:
 ${agentDetails}
 
+${SUBAGENT_CACHE_GUIDANCE}
+${SUBAGENT_CACHE_ESTIMATE_NOTE}
+
 IMPORTANT INSTRUCTIONS:
-1. Your FIRST action should be to resume these interrupted agents so they continue their previous work. To resume an agent, invoke the Agent tool with the same subagent type shown above and a prompt that begins exactly with "Resume agent ${resumableSubagents[0].agentId}" (use each agent's own agentId), followed by an instruction to continue from where it was interrupted. If a SendMessage tool is available, you may instead send a message addressed to the agent's ID asking it to continue. Do NOT pass a "resume" parameter to the Agent tool — no such parameter exists.
-2. Resume agents in the order they are listed above.
-3. After resumption completes, address the user's current message if it requires additional work.
-4. If the user explicitly asks to start fresh or work on something completely unrelated, you may skip resumption and acknowledge the interrupted work was abandoned.
+${instructions.map((line, i) => `${i + 1}. ${line}`).join('\n')}
 
 [END SYSTEM CONTEXT]
 
@@ -186,6 +218,8 @@ IMPORTANT INSTRUCTIONS:
         agentType: s.agentType,
         parentSessionId: s.parentSessionId,
       })),
+      effectiveTtl,
+      cacheStates: agents.map((a) => a.cache.cacheState),
     });
     for (const s of resumableSubagents) {
       this.subagentRegistry.recordInjectionAttempt(s.toolCallId);
@@ -193,4 +227,51 @@ IMPORTANT INSTRUCTIONS:
 
     return { prompt: enhancedPrompt, injected: true };
   }
+
+  /**
+   * TTL the SDK uses for subagent prompt caching: the setting plus the host
+   * env override. The session that produced these records could spawn
+   * subagents, so the `'auto'` setting resolves as for such a session.
+   */
+  private resolveEffectiveTtl(): SubagentCacheInfo['effectiveTtl'] {
+    return resolveSubagentPromptCacheTtl({
+      setting: this.workspace.getConfiguration<unknown>(
+        'ptah',
+        'agentOrchestration.subagentPromptCacheTtl',
+        'auto',
+      ),
+      envValue: process.env['CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL'],
+      canSpawnSubagents: true,
+    }).effective;
+  }
+}
+
+/** Resume guidance shown above the numbered instructions. */
+const SUBAGENT_CACHE_GUIDANCE =
+  'Resume a subagent only when its cache is warm. When it is cold, start a fresh subagent with a short brief.';
+
+/**
+ * Activity is stamped only at lifecycle events (start, stop, move to the
+ * background), not per message, so a long foreground run reads older than it
+ * is. Say so rather than present the estimate as exact.
+ */
+const SUBAGENT_CACHE_ESTIMATE_NOTE =
+  'Idle time counts from the last lifecycle event Ptah recorded for the agent (start, stop or move to the background), so an agent that ran a long time in the foreground can show cold while its cache is still warm.';
+
+function hasActivity(lastActivityAt: number | undefined): boolean {
+  return lastActivityAt !== undefined && Number.isFinite(lastActivityAt);
+}
+
+/**
+ * `cache: warm (TTL 1h, idle 12 min)`. A record with no recorded activity is
+ * cold with an unknown idle time, so it never prints "idle 0 min".
+ */
+function formatCacheState(
+  cache: SubagentCacheInfo,
+  activityRecorded: boolean,
+): string {
+  const idle = activityRecorded
+    ? `idle ${Math.floor(cache.idleMs / 60_000)} min`
+    : 'idle unknown';
+  return `cache: ${cache.cacheState} (TTL ${cache.effectiveTtl}, ${idle})`;
 }

@@ -2425,7 +2425,7 @@ Edge cases:
 
 ---
 
-## Batch 38: N1 RPC and options builder (replaces the Task 28.2 gate) — IN_PROGRESS (PR 2, decision 12)
+## Batch 38: N1 RPC and options builder (replaces the Task 28.2 gate) — COMPLETE (PR 2, decision 12; commit 218cd2f11)
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer re-run
@@ -2463,7 +2463,7 @@ Edge cases:
 
 ---
 
-## Batch 39: N1 setting and env-override display in the UI — IN_PROGRESS (PR 2, decision 12)
+## Batch 39: N1 setting and env-override display in the UI — COMPLETE (PR 2, decision 12; commit ecc953410)
 
 - Recommended executor: frontend-developer
 - Fallback executor: frontend-developer re-run
@@ -2498,7 +2498,7 @@ Edge cases:
 
 ---
 
-## Batch 40: N2 subagent activity and cache state (shared, vscode-core) — IN_PROGRESS (PR 2, decision 12)
+## Batch 40: N2 subagent activity and cache state (shared, vscode-core) — COMPLETE (PR 2, decision 12; commit dca8438dc)
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer re-run
@@ -2532,7 +2532,7 @@ Edge cases:
 
 ---
 
-## Batch 41: N2 cache state in agent status and the orchestrator-facing context — PENDING (PR 2, decision 12)
+## Batch 41: N2 cache state in agent status and the orchestrator-facing context — COMPLETE (PR 2, decision 12; report batch-41-executor-report.md)
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer re-run
@@ -2702,7 +2702,7 @@ Edge cases:
 
 ---
 
-## Batch 46: N6 per-agent usage, context and cache data (extends R7) — PENDING (PR 2, decision 12)
+## Batch 46: N6 per-agent usage, context and cache data (extends R7) — IN_PROGRESS (PR 2, decision 12)
 
 - Recommended executor: frontend-developer
 - Fallback executor: frontend-developer re-run

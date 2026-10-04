@@ -25,7 +25,12 @@ import {
   SubagentRegistryService,
 } from '@ptah-extension/vscode-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
+import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import {
+  computeSubagentCacheState,
+  resolveSubagentPromptCacheTtl,
+  SubagentRecord,
   SubagentQueryParams,
   SubagentQueryResult,
   SubagentSendMessageParams,
@@ -93,6 +98,8 @@ export class SubagentRpcHandlers {
     private readonly sentryService: SentryService,
     @inject(SDK_TOKENS.SDK_SUBAGENT_MESSAGE_DISPATCHER)
     private readonly dispatcher: SubagentMessageDispatcher,
+    @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
+    private readonly workspace: IWorkspaceProvider,
   ) {}
 
   /**
@@ -139,7 +146,7 @@ export class SubagentRpcHandlers {
           });
           if (toolCallId) {
             const record = this.registry.get(toolCallId);
-            return { subagents: record ? [record] : [] };
+            return { subagents: this.withCacheInfo(record ? [record] : []) };
           }
           // A sessionId that is present but empty is a scoped query whose
           // scope cannot be resolved — answer with nothing. Falling through to
@@ -157,13 +164,13 @@ export class SubagentRpcHandlers {
               sessionId,
               count: subagents.length,
             });
-            return { subagents };
+            return { subagents: this.withCacheInfo(subagents) };
           }
           const subagents = this.registry.getResumable();
           this.logger.debug('RPC: subagent:query all resumable result', {
             count: subagents.length,
           });
-          return { subagents };
+          return { subagents: this.withCacheInfo(subagents) };
         } catch (error) {
           this.logger.error(
             'RPC: subagent:query failed',
@@ -177,6 +184,37 @@ export class SubagentRpcHandlers {
         }
       },
     );
+  }
+
+  /**
+   * Attach each record's prompt-cache state, measured against the TTL the SDK
+   * uses for subagents (setting plus host env override; subagent-capable
+   * sessions, as every session that produced a subagent record is).
+   */
+  private withCacheInfo(
+    records: readonly SubagentRecord[],
+  ): SubagentQueryResult['subagents'] {
+    if (records.length === 0) {
+      return [];
+    }
+    const { effective } = resolveSubagentPromptCacheTtl({
+      setting: this.workspace.getConfiguration<unknown>(
+        'ptah',
+        'agentOrchestration.subagentPromptCacheTtl',
+        'auto',
+      ),
+      envValue: process.env['CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL'],
+      canSpawnSubagents: true,
+    });
+    const now = Date.now();
+    return records.map((record) => ({
+      ...record,
+      cacheInfo: computeSubagentCacheState(
+        record.lastActivityAt,
+        effective,
+        now,
+      ),
+    }));
   }
 
   /**

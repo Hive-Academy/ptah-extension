@@ -46,7 +46,8 @@ import {
   type MockRpcHandler,
   type MockSentryService,
 } from '@ptah-extension/vscode-core/testing';
-import type { SubagentRecord } from '@ptah-extension/shared';
+import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
+import type { SubagentCacheInfo, SubagentRecord } from '@ptah-extension/shared';
 import {
   createMockLogger,
   type MockLogger,
@@ -109,6 +110,36 @@ function makeSubagentRecord(
   } as SubagentRecord;
 }
 
+/**
+ * Expected wire shape of a record with no `lastActivityAt` under the default
+ * (`'auto'` -> 1h) TTL: cold, idle time unknown (0).
+ */
+function withUnknownActivity(
+  record: SubagentRecord,
+): SubagentRecord & { cacheInfo: SubagentCacheInfo } {
+  return {
+    ...record,
+    cacheInfo: { cacheState: 'cold', effectiveTtl: '1h', idleMs: 0 },
+  };
+}
+
+const TTL_ENV = 'CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL';
+let savedTtlEnv: string | undefined;
+
+beforeEach(() => {
+  savedTtlEnv = process.env[TTL_ENV];
+  delete process.env[TTL_ENV];
+});
+
+afterEach(() => {
+  jest.restoreAllMocks();
+  if (savedTtlEnv === undefined) {
+    delete process.env[TTL_ENV];
+  } else {
+    process.env[TTL_ENV] = savedTtlEnv;
+  }
+});
+
 // ---------------------------------------------------------------------------
 // Harness
 // ---------------------------------------------------------------------------
@@ -120,6 +151,7 @@ interface Harness {
   registry: MockSubagentRegistry;
   sentry: MockSentryService;
   dispatcher: MockDispatcher;
+  workspace: { getConfiguration: jest.Mock };
 }
 
 function makeHarness(): Harness {
@@ -128,6 +160,7 @@ function makeHarness(): Harness {
   const registry = createMockSubagentRegistry();
   const sentry = createMockSentryService();
   const dispatcher = createMockDispatcher();
+  const workspace = { getConfiguration: jest.fn().mockReturnValue('auto') };
 
   const handlers = new SubagentRpcHandlers(
     logger as unknown as Logger,
@@ -135,9 +168,18 @@ function makeHarness(): Harness {
     registry as unknown as SubagentRegistryService,
     sentry as unknown as SentryService,
     dispatcher as unknown as SubagentMessageDispatcher,
+    workspace as unknown as IWorkspaceProvider,
   );
 
-  return { handlers, logger, rpcHandler, registry, sentry, dispatcher };
+  return {
+    handlers,
+    logger,
+    rpcHandler,
+    registry,
+    sentry,
+    dispatcher,
+    workspace,
+  };
 }
 
 async function call<TResult>(
@@ -194,7 +236,7 @@ describe('SubagentRpcHandlers', () => {
         { toolCallId: 'toolu_match' },
       );
 
-      expect(result.subagents).toEqual([record]);
+      expect(result.subagents).toEqual([withUnknownActivity(record)]);
       expect(h.registry.get).toHaveBeenCalledWith('toolu_match');
       // Specificity contract: must NOT fall through to the other branches.
       expect(h.registry.getResumable).not.toHaveBeenCalled();
@@ -239,7 +281,7 @@ describe('SubagentRpcHandlers', () => {
         { sessionId: 'parent-session-uuid' },
       );
 
-      expect(result.subagents).toEqual(records);
+      expect(result.subagents).toEqual(records.map(withUnknownActivity));
       expect(h.registry.getResumableBySession).toHaveBeenCalledWith(
         'parent-session-uuid',
       );
@@ -295,10 +337,80 @@ describe('SubagentRpcHandlers', () => {
         {},
       );
 
-      expect(result.subagents).toEqual(records);
+      expect(result.subagents).toEqual(records.map(withUnknownActivity));
       expect(h.registry.getResumable).toHaveBeenCalledTimes(1);
       expect(h.registry.get).not.toHaveBeenCalled();
       expect(h.registry.getResumableBySession).not.toHaveBeenCalled();
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // chat:subagent-query — cacheInfo (N2)
+  // -------------------------------------------------------------------------
+
+  describe('chat:subagent-query cacheInfo', () => {
+    const NOW = 1_800_000_000_000;
+    const MIN = 60_000;
+
+    it('reports warm and cold against the configured TTL', async () => {
+      const h = makeHarness();
+      jest.spyOn(Date, 'now').mockReturnValue(NOW);
+      h.workspace.getConfiguration.mockReturnValue('5m');
+      h.registry.getResumableBySession.mockReturnValue([
+        makeSubagentRecord({
+          toolCallId: 'toolu_warm',
+          lastActivityAt: NOW - 2 * MIN,
+        }),
+        makeSubagentRecord({
+          toolCallId: 'toolu_cold',
+          lastActivityAt: NOW - 5 * MIN,
+        }),
+      ]);
+      h.handlers.register();
+
+      const result = await call<{
+        subagents: Array<SubagentRecord & { cacheInfo?: SubagentCacheInfo }>;
+      }>(h, 'chat:subagent-query', { sessionId: 'parent-session-uuid' });
+
+      expect(result.subagents.map((s) => s.cacheInfo)).toEqual([
+        { cacheState: 'warm', effectiveTtl: '5m', idleMs: 2 * MIN },
+        { cacheState: 'cold', effectiveTtl: '5m', idleMs: 5 * MIN },
+      ]);
+      expect(h.workspace.getConfiguration).toHaveBeenCalledWith(
+        'ptah',
+        'agentOrchestration.subagentPromptCacheTtl',
+        'auto',
+      );
+    });
+
+    it('uses the host env TTL when it is valid', async () => {
+      const h = makeHarness();
+      jest.spyOn(Date, 'now').mockReturnValue(NOW);
+      h.workspace.getConfiguration.mockReturnValue('5m');
+      process.env[TTL_ENV] = '1h';
+      h.registry.get.mockReturnValue(
+        makeSubagentRecord({ lastActivityAt: NOW - 30 * MIN }),
+      );
+      h.handlers.register();
+
+      const result = await call<{
+        subagents: Array<{ cacheInfo?: SubagentCacheInfo }>;
+      }>(h, 'chat:subagent-query', { toolCallId: 'toolu_abc123' });
+
+      expect(result.subagents[0].cacheInfo).toEqual({
+        cacheState: 'warm',
+        effectiveTtl: '1h',
+        idleMs: 30 * MIN,
+      });
+    });
+
+    it('does not read the TTL setting when no record is returned', async () => {
+      const h = makeHarness();
+      h.handlers.register();
+
+      await call(h, 'chat:subagent-query', {});
+
+      expect(h.workspace.getConfiguration).not.toHaveBeenCalled();
     });
   });
 
@@ -422,7 +534,7 @@ describe('SubagentRpcHandlers', () => {
         { someFutureField: 'from a newer webview' },
       );
 
-      expect(result.subagents).toEqual(records);
+      expect(result.subagents).toEqual(records.map(withUnknownActivity));
       expect(h.registry.getResumable).toHaveBeenCalledTimes(1);
     });
   });
