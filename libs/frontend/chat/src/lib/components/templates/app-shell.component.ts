@@ -555,7 +555,7 @@ export class AppShellComponent {
   private observeShellRowWidth(row: HTMLElement): () => void {
     if (typeof ResizeObserver === 'undefined') return () => undefined;
     const observer = new ResizeObserver((entries) => {
-      const width = entries[entries.length - 1]?.contentRect.width ?? 0;
+      const width = entries.at(-1)?.contentRect.width ?? 0;
       if (width > 0) this.shellRowWidth.set(width);
     });
     observer.observe(row);
