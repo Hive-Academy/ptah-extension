@@ -213,3 +213,31 @@ Implicit requirements not addressed: settings change while blocked; budget feedb
 - Confidence: HIGH on S-1 to S-3 (traced through code paths), MEDIUM on M-4 (depends on SDK id format)
 - Top risk: the gate trusts stored per-session state whose lifetime and freshness are not tied to Stop, to settings, or to what the tab can show, so it can both let sends through and refuse them with no recourse.
 - What a robust implementation would add: keep `extensions`/`compactions` across interrupt (release only on real end); re-evaluate the stored figure against current config inside `canSend`; make `checkSnapshot` publish its state and put `budget` on the refusal; send the configured window (not `null`) on a not-honoured read-back; record a transcript-read status on the handoff; require an existing session for handoff actions; release entries on every session-end path and never recreate one from a late event.
+
+## Fix round re-review
+
+Scope: commit `d79a195cb` (libs/apps only) against S-1..S-4 and M-2 and `pr3-fix-round-report.md`. Read the diff plus the surrounding release/dispose paths; I did not re-run the specs.
+
+| Finding                                 | Status   | Evidence                                                                                                                                                                                                                                                                                                                                          |
+| --------------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| S-1 Stop releases budget                | RESOLVED | `sdk-agent-adapter.ts:1444-1450` no longer calls `releaseBudget`; real ends still release (`endSession` :826-832, token-matched end :1141-1148, `dispose` :580 `clearAll`).                                                                                                                                                                       |
+| S-2 `canSend` ignores settings          | RESOLVED | `session-budget.service.ts` `canSend` reads current config, disabled gives OK, and `checkStored` re-evaluates when `configKey` differs (limit, blockAtLimit, unit changes unblock at once).                                                                                                                                                       |
+| S-3 refusal with no state / dead extend | RESOLVED | `checkSnapshot` installs the blocking figure via `installFigure` (falls back to `entry.snapshot`); `extend` builds a figure through `entryWithCurrentFigure`; refusal carries `budget: check.state` (`chat-session.service.ts:481`); frontend installs it (`message-sender.service.ts:728-731`, `tab-manager.service.ts` `installSessionBudget`). |
+| S-4 not-honoured clears user window     | RESOLVED | `session-control.service.ts` `revertSessionAutoCompactWindow` sends previous override, else `configuredAutoCompactWindow(modelClass)` (same resolution as restore); record changes only after the runtime accepted it.                                                                                                                            |
+| M-2 override/runtime divergence         | RESOLVED | catch block: not-yet-sent restores the old override; sent-but-revert-failed keeps `rec.autoCompactOverride = target` since the runtime holds it.                                                                                                                                                                                                  |
+
+### Side effect: `/clear` and other `interruptSession` callers leave the old entry
+
+Bounded, not a defect worth blocking. Entries are small, keyed per distinct session id, and `clearAll()` runs on adapter dispose (`sdk-agent-adapter.ts:580`). Growth is limited to sessions interrupted and never ended in one process lifetime. The one non-chat caller class is headless child sessions (`session-spawner.service.ts:724`, `:1298`), which used to release on interrupt; unless their stream-exit end also fires (token-matched end releases), those entries persist until dispose. Moderate, observability/hygiene only: consider releasing from the spawner path after a stop that is a true end. A `/clear` that yields a new SDK id strands the old-id entry, harmless since nothing sends under it.
+
+### `ChatContinueResult.budget` cannot install another session's budget
+
+`installSessionBudget` (`tab-manager.service.ts`, new method) drops the state unless `tab.claudeSessionId === budget.sessionId`, resolves the tab by the `activeTabId` captured at send time (not the currently active tab, so a tab switch during the await is safe), and writes only `sessionBudget`, never the stats snapshot. Installed only when `errorCode` is `SESSION_BUDGET_REACHED`. Residual: a tab not yet bound to a session id silently drops the banner state, but `chat:continue` always carries a bound id, so this is not reachable on the refusal path.
+
+### New findings
+
+None Blocking or Serious.
+
+### Verdict
+
+APPROVED. All five items are resolved; the only residual is a Moderate entry-lifetime note for headless child sessions.

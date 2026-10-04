@@ -3606,3 +3606,22 @@ Batch 47a scoped review: APPROVED (0 Blocking, 0 Serious, 2 Moderate, 2 Minor; `
 § Batch 47a scoped review). Named later tasks: PR2-M4 rekey a pending identity that holds a placeholder tab id
 (`agent-monitor.store.ts:1686-1700`); PR2-M5 evict pending identities when `agent_start` never arrives or the session is
 cleared (`agent-monitor.store.ts:599-601`).
+
+## PR 3 phase-end reviews (decision 13) — APPROVED after one fix round
+
+- Code-logic: `pr3-phase-end-code-logic-review.md` on `ecc953410..HEAD` (Batches 50-61): CHANGES REQUIRED (0 Blocking,
+  4 Serious, 8 Moderate). Fix round `d79a195cb` (`pr3-fix-round-report.md`) fixed S-1..S-4 and M-2. Re-review
+  (§ Fix round re-review): APPROVED, all five RESOLVED.
+- Style: `pr3-phase-end-code-style-review.md`: APPROVED (0 Blocking, 0 Serious, 2 Moderate, 4 Minor).
+- Named later tasks:
+  - PR3-M1 restore `failed` shape vs `session-budget.types.ts` (M-1); PR3-M3 empty/failed handoff read not flagged;
+    PR3-M4 v4-only UUID check (verify SDK ids); PR3-M5 handoff actions accepted for unknown sessions; PR3-M6
+    chat-view `resolvedSessionBudget` ordering and clearing; PR3-M7 entry release on eviction, `/clear` and headless
+    child sessions (`session-spawner.service.ts`) now keep their entry until dispose; PR3-M8 `/compact` exemption
+    cannot lower a cumulative measure (banner copy or accept).
+  - PR3-S1 split `chat-view.component.ts` (1105 lines) and `session-stats-summary.component.ts` (859 lines); move the
+    "Continue in new session" flow out of chat-view (style Moderates).
+  - Minor items: in the review files only (tooltip hard-codes 50/80/100%, failed preview keeps "Loading…", `.tmp`
+    orphan, `keepPreviousFigure`).
+- QA (not yet run): before/after screenshots (dark + light) for Batches 60 and 61; a scripted 2M-token session; one
+  proxied-route run in the cost unit; experiment E2 for the tighten stage.
