@@ -102,6 +102,7 @@ import { SessionBudgetConfigProvider } from '../helpers/session-budget/session-b
 import { SessionHandoffBuilder } from '../helpers/session-budget/session-handoff-builder';
 import { SessionHandoffWriter } from '../helpers/session-budget/session-handoff-writer';
 import { SessionBudgetService } from '../helpers/session-budget/session-budget.service';
+import { SessionRotationAdvisor } from '../helpers/compaction/session-rotation-advisor';
 import { ToolOutputCapper } from '../helpers/compaction/tool-output-capper';
 import { CompactionCoordinator } from '../helpers/compaction/compaction-coordinator';
 import { ContextUsagePort } from '../helpers/compaction/context-usage.port';
@@ -678,6 +679,7 @@ export function registerSdkServices(
   // injects the service.
   container.registerSingleton(SessionBudgetConfigProvider);
   container.registerSingleton(SessionHandoffBuilder);
+  container.registerSingleton(SessionRotationAdvisor);
   container.register(SessionHandoffWriter, {
     useFactory: instanceCachingFactory(
       (c) => new SessionHandoffWriter(c.resolve<Logger>(TOKENS.LOGGER)),
