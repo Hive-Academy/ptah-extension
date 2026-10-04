@@ -58,6 +58,10 @@ function bashNode(
     toolName: 'Bash',
     toolInput: { command },
     status,
+    // Mirrors `buildToolNode`: a finished tool always carries the result's boolean `isError`.
+    ...(status === 'complete' || status === 'error'
+      ? { isError: status === 'error' }
+      : {}),
     content: '',
   });
 }

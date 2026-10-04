@@ -20,19 +20,25 @@ function node(
   };
 }
 
-function bash(command: string, status: ExecutionStatus, background = false): ExecutionNode {
+function bash(
+  command: string,
+  status: ExecutionStatus,
+  isError?: boolean,
+  background = false,
+): ExecutionNode {
   return node({
     toolName: 'Bash',
     status,
     toolInput: { command, ...(background ? { run_in_background: true } : {}) },
+    ...(isError === undefined ? {} : { isError }),
   });
 }
 
 describe('collectTurnTests', () => {
   it('walks roots and agent subtrees depth-first, counting each node once', () => {
-    const first = bash('npm test', 'complete');
-    const nested = bash('pytest', 'error');
-    const shared = bash('go test ./...', 'complete');
+    const first = bash('npm test', 'complete', false);
+    const nested = bash('pytest', 'error', true);
+    const shared = bash('go test ./...', 'complete', false);
     const roots = [node({ id: 'root', type: 'message' }, [first, node({ id: 'agent', type: 'agent' }, [nested, shared])]), shared];
 
     expect(collectTurnTests(roots, { finalized: true })).toEqual([
@@ -43,16 +49,26 @@ describe('collectTurnTests', () => {
   });
 
   it.each([
-    ['complete', false, 'passed'],
-    ['error', false, 'failed'],
-    ['pending', false, 'unknown'],
-    ['streaming', false, 'unknown'],
-    ['interrupted', false, 'unknown'],
-    ['resumed', false, 'unknown'],
-    ['complete', true, 'unknown'],
-  ] as const)('maps %s and background=%s to %s', (status, background, outcome) => {
-    expect(collectTurnTests([bash('npm test', status, background)], { finalized: true })).toEqual([
+    ['complete', false, false, 'passed'],
+    ['complete', true, false, 'failed'],
+    ['error', false, false, 'passed'],
+    ['error', true, false, 'failed'],
+    ['complete', undefined, false, 'unknown'],
+    ['error', undefined, false, 'unknown'],
+    ['pending', false, false, 'unknown'],
+    ['streaming', false, false, 'unknown'],
+    ['interrupted', false, false, 'unknown'],
+    ['resumed', false, false, 'unknown'],
+    ['complete', false, true, 'unknown'],
+  ] as const)('maps %s with isError=%s and background=%s to %s', (status, isError, background, outcome) => {
+    expect(collectTurnTests([bash('npm test', status, isError, background)], { finalized: true })).toEqual([
       { command: 'npm test', outcome },
+    ]);
+  });
+
+  it.each(['npm test | tee log', 'npm test || true'])('marks a test command with a masked exit code as unknown', (command) => {
+    expect(collectTurnTests([bash(command, 'complete', false)], { finalized: true })).toEqual([
+      { command, outcome: 'unknown' },
     ]);
   });
 
@@ -60,7 +76,7 @@ describe('collectTurnTests', () => {
     expect(collectTurnTests([
       node({ toolName: 'Read', toolInput: { command: 'npm test' } }),
       node({ toolName: 'Bash', toolInput: {} }),
-      bash('npm run build', 'complete'),
+      bash('npm run build', 'complete', false),
     ], { finalized: false })).toEqual([]);
   });
 });

@@ -152,6 +152,8 @@ export interface ExecutionNode {
   readonly toolInput?: Record<string, unknown>;
   /** Tool execution output/result */
   readonly toolOutput?: unknown;
+  /** The tool result's error flag. */
+  readonly isError?: boolean;
   /** Tool call ID (for linking tool_use to tool_result) */
   readonly toolCallId?: string;
   /**

@@ -3,8 +3,15 @@ interface CommandToken {
   readonly quoted: boolean;
 }
 
-function splitSegments(command: string): readonly string[] {
-  const segments: string[] = [];
+type SegmentSeparator = '&&' | '||' | '|' | ';' | '\n';
+
+interface CommandSegment {
+  readonly value: string;
+  readonly followingSeparator?: SegmentSeparator;
+}
+
+function splitSegments(command: string): readonly CommandSegment[] {
+  const segments: CommandSegment[] = [];
   let segment = '';
   let quote: 'single' | 'double' | null = null;
 
@@ -34,14 +41,17 @@ function splitSegments(command: string): readonly string[] {
       (character === '&' && command[index + 1] === '&') ||
       (character === '|' && command[index + 1] === '|');
     if (isDoubleSeparator || character === ';' || character === '|' || character === '\n') {
-      segments.push(segment);
+      const followingSeparator: SegmentSeparator = isDoubleSeparator
+        ? `${character}${character}` as '&&' | '||'
+        : character as '|' | ';' | '\n';
+      segments.push({ value: segment, followingSeparator });
       segment = '';
       if (isDoubleSeparator) index += 1;
       continue;
     }
     segment += character;
   }
-  segments.push(segment);
+  segments.push({ value: segment });
   return segments;
 }
 
@@ -162,7 +172,21 @@ function matchesSegment(segment: string): boolean {
 export function classifyTestCommand(command: string): boolean {
   try {
     if (typeof command !== 'string') return false;
-    return splitSegments(command).some(matchesSegment);
+    return splitSegments(command).some((segment) => matchesSegment(segment.value));
+  } catch {
+    return false;
+  }
+}
+
+/** Returns whether a test command's shell status is masked by a pipe or `||` tail. */
+export function hasMaskedTestCommandOutcome(command: string): boolean {
+  try {
+    if (typeof command !== 'string') return false;
+    return splitSegments(command).some(
+      (segment) =>
+        matchesSegment(segment.value) &&
+        (segment.followingSeparator === '|' || segment.followingSeparator === '||'),
+    );
   } catch {
     return false;
   }
