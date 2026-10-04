@@ -985,6 +985,23 @@ describe('AgentProcessManager - SDK Execution Path', () => {
       expect(runSdkCall.resumeSessionId).toBe(SESSION);
     });
 
+    it('reports a `resumed` decision on the spawn result', async () => {
+      restorePreviousLane();
+
+      const result = await manager.spawn({
+        task: 'Fix the lexer tests',
+        cli: 'codex',
+        workingDirectory: '/workspace/root',
+        resumeSessionId: SESSION,
+      });
+
+      expect(result.resumeDecision).toEqual({
+        decision: 'resumed',
+        reason: expect.any(String),
+        sessionKnown: true,
+      });
+    });
+
     it('spawns a fresh lane with the handoff fields on `fresh`', async () => {
       restorePreviousLane();
       resumeGate.evaluate.mockResolvedValueOnce({
@@ -1018,6 +1035,57 @@ describe('AgentProcessManager - SDK Execution Path', () => {
       const info = manager.getStatus(result.agentId) as AgentProcessInfo;
       expect(info.task).toBe('Fix the lexer tests');
       expect(info.cliSessionId).toBeUndefined();
+      // S2: the caller is told the lane was not resumed, and why.
+      expect(result.resumeDecision).toEqual({
+        decision: 'fresh',
+        reason: 'last request 61000 tokens exceeds 60000',
+        sessionKnown: true,
+      });
+      // M1: the fresh record keeps the chain's first task.
+      expect(info.originalTask).toBe('Implement the parser');
+    });
+
+    it('keeps the original task across two successive fresh lanes (M1)', async () => {
+      restorePreviousLane();
+      const fresh = {
+        decision: 'fresh' as const,
+        reason: 'idle 900s exceeds 600s',
+        contextTokens: null,
+        source: 'estimate' as const,
+        idleMs: 900_000,
+      };
+      resumeGate.evaluate
+        .mockResolvedValueOnce(fresh)
+        .mockResolvedValueOnce(fresh);
+      // The first fresh lane reports a new CLI session id.
+      (
+        sdkControls.handle as unknown as { getSessionId: () => string }
+      ).getSessionId = () => 'thread-2';
+
+      const first = await manager.spawn({
+        task: 'Fix the lexer tests',
+        cli: 'codex',
+        workingDirectory: '/workspace/root',
+        resumeSessionId: SESSION,
+      });
+      expect(
+        (manager.getStatus(first.agentId) as AgentProcessInfo).cliSessionId,
+      ).toBe('thread-2');
+
+      const second = await manager.spawn({
+        task: 'Now the docs',
+        cli: 'codex',
+        workingDirectory: '/workspace/root',
+        resumeSessionId: 'thread-2',
+      });
+
+      const secondTask: string = (sdkAdapter.runSdk as jest.Mock).mock
+        .calls[1][0].task;
+      expect(secondTask).toContain('Original task:\nImplement the parser');
+      expect(secondTask.endsWith('New instruction:\nNow the docs')).toBe(true);
+      expect(
+        (manager.getStatus(second.agentId) as AgentProcessInfo).originalTask,
+      ).toBe('Implement the parser');
     });
 
     it('still consults the gate when this host holds no record of the session', async () => {
@@ -1029,7 +1097,7 @@ describe('AgentProcessManager - SDK Execution Path', () => {
         idleMs: 900_000,
       });
 
-      await manager.spawn({
+      const result = await manager.spawn({
         task: 'Carry on',
         cli: 'codex',
         workingDirectory: '/workspace/root',
@@ -1042,7 +1110,13 @@ describe('AgentProcessManager - SDK Execution Path', () => {
       });
       const task: string = (sdkAdapter.runSdk as jest.Mock).mock.calls[0][0]
         .task;
-      expect(task).toContain('Original task:\n(not available');
+      expect(task).toContain('This host holds no record of the previous lane');
+      expect(task).toContain('Original task:\n(unknown');
+      expect(result.resumeDecision).toEqual({
+        decision: 'fresh',
+        reason: 'idle 900s exceeds 600s',
+        sessionKnown: false,
+      });
       expect(task).toContain(
         'Files the previous lane changed:\n(none recorded)',
       );

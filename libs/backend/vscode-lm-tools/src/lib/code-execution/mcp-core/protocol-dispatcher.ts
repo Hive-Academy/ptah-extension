@@ -169,6 +169,7 @@ import {
   getCallerAgentId,
   getCallerSessionId,
   getCallerWorkspaceRoot,
+  isMcpRequestInFlight,
   runWithMcpRequestContext,
 } from './mcp-request-context';
 import {
@@ -1357,15 +1358,22 @@ async function handleIndividualTool(
             )}. Required: "project" and "targets".`,
           );
         }
-        // The workspace root is the host's own record of the caller's folder
-        // (the spool-root rule), never an argument: the Nx path and the cwd
-        // both derive from it.
+        // The workspace root is never an argument: it is the caller's own
+        // declared root, checked against the host's open folders. There is no
+        // fallback folder — a check run in another tree reports a verdict for
+        // code the caller never touched.
+        const root = await resolveRunCheckRoot(deps);
+        if ('error' in root) {
+          return toolErrorResponse(request, root.error);
+        }
         const outcome = await runCheck(parsed.data, {
-          workspaceRoot: await resolveSpoolRoot(deps),
+          workspaceRoot: root.root,
         });
-        return outcome.isError
+        const response = outcome.isError
           ? toolErrorResponse(request, outcome.text)
           : await createToolSuccessResponse(request, outcome.text, deps);
+        attachStructuredContent(response, outcome.structured);
+        return response;
       }
 
       case 'ptah_web_search': {
@@ -3387,6 +3395,105 @@ async function resolveSpoolRoot(
     }
   }
   return known[0] ?? os.tmpdir();
+}
+
+/**
+ * Where `ptah_run_check` runs: the caller's own declared workspace root, and
+ * nothing else.
+ *
+ * - The declared root names an open folder: the host's record of it.
+ * - The declared root is an existing directory INSIDE an open folder (a
+ *   worktree lane declares the directory it runs in): that directory, real
+ *   path. A UNC path is accepted only by the equality rule, never stat'd.
+ * - No declared root: only off the MCP request path (stdio / internal), and
+ *   only when exactly one folder is open, is that folder used.
+ *
+ * Every other case is an error: unlike the spool root there is no fallback to
+ * the first open folder, because a check run there is a verdict on a tree the
+ * caller never edited.
+ */
+async function resolveRunCheckRoot(
+  deps: ProtocolHandlerDependencies,
+): Promise<{ readonly root: string } | { readonly error: string }> {
+  const known = knownWorkspaceFolders(deps);
+  const openList =
+    known.length > 0 ? `open folders: ${known.join(', ')}` : 'no folder is open';
+  const declared = getCallerWorkspaceRoot()?.trim();
+  if (declared !== undefined && declared !== '') {
+    const match =
+      (await findKnownWorkspaceFolder(declared, known)) ??
+      (await findDirectoryInsideKnownFolder(declared, known));
+    if (match !== undefined) {
+      return { root: match };
+    }
+    return {
+      error:
+        `${RUN_CHECK_TOOL_NAME}: nothing was run. The caller declared workspace '${declared}', ` +
+        `which is not an open folder of this host or an existing directory inside one (${openList}). ` +
+        `Re-read the 'ptah' entry in .mcp.json of the tree you mean to check.`,
+    };
+  }
+  if (!isMcpRequestInFlight() && known.length === 1) {
+    return { root: known[0] };
+  }
+  return {
+    error:
+      `${RUN_CHECK_TOOL_NAME}: nothing was run. The caller declared no workspace root, so Ptah cannot ` +
+      `tell which tree to check (${openList}). Call it through the workspace-scoped MCP URL of the ` +
+      `tree you mean (the 'ptah' entry in that tree's .mcp.json).`,
+  };
+}
+
+/**
+ * The real path of `declared` when it is an existing directory strictly
+ * inside one of `known` (compared by {@link canonicalFolderKey});
+ * `undefined` otherwise. UNC paths are never touched.
+ */
+async function findDirectoryInsideKnownFolder(
+  declared: string,
+  known: readonly string[],
+): Promise<string | undefined> {
+  const plain = stripExtendedLengthPrefix(declared);
+  if (known.length === 0 || !path.isAbsolute(plain) || isUncPath(plain)) {
+    return undefined;
+  }
+  let real: string;
+  try {
+    real = stripExtendedLengthPrefix(
+      await fs.promises.realpath(path.resolve(plain)),
+    );
+    if (!(await fs.promises.stat(real)).isDirectory()) {
+      return undefined;
+    }
+  } catch {
+    // degradation-audit: reported — a missing or unreadable directory is not
+    // one this check can run in; `undefined` makes the caller refuse with an
+    // error reply that names the declared root, so nothing runs silently.
+    return undefined;
+  }
+  const target = await canonicalFolderKey(real);
+  for (const folder of known) {
+    if (target.startsWith(`${await canonicalFolderKey(folder)}${path.sep}`)) {
+      return real;
+    }
+  }
+  return undefined;
+}
+
+/** Adds `structuredContent` to a tool response's result, in place (keeps budget-outcome identity). */
+function attachStructuredContent(
+  response: MCPResponse,
+  structured: object | undefined,
+): void {
+  if (
+    structured !== undefined &&
+    response.result !== null &&
+    typeof response.result === 'object'
+  ) {
+    (response.result as Record<string, unknown>)['structuredContent'] = {
+      ...structured,
+    };
+  }
 }
 
 /** The host's open workspace folders; none (logged) when the provider is absent or fails. */

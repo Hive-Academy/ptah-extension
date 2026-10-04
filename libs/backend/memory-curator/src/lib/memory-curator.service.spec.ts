@@ -1441,14 +1441,18 @@ describe('MemoryCuratorService — PreCompact coalescing (TASK_2026_597 A7)', ()
 
   function buildHarness(): {
     svc: MemoryCuratorService;
-    fire: (sessionId?: string) => Promise<void>;
+    fire: (sessionId?: string, trigger?: string) => Promise<void>;
     read: jest.Mock;
     register: jest.Mock;
     dispose: jest.Mock;
     logger: { info: jest.Mock };
+    extract: jest.Mock;
   } {
     let handler: ((data: PreCompactData) => void) | null = null;
     const dispose = jest.fn();
+    const extract = jest
+      .fn()
+      .mockResolvedValue({ status: 'extracted', drafts: [] });
     const register = jest.fn((cb: (data: PreCompactData) => void) => {
       handler = cb;
       return dispose;
@@ -1469,7 +1473,7 @@ describe('MemoryCuratorService — PreCompact coalescing (TASK_2026_597 A7)', ()
       store,
       { read } as unknown as ITranscriptReader,
       {
-        extract: jest.fn().mockResolvedValue({ status: 'extracted', drafts: [] }),
+        extract,
         resolve: jest.fn().mockResolvedValue([]),
       } as unknown as ICuratorLLM,
     );
@@ -1479,13 +1483,14 @@ describe('MemoryCuratorService — PreCompact coalescing (TASK_2026_597 A7)', ()
       read,
       register,
       dispose,
+      extract,
       logger: logger as unknown as { info: jest.Mock },
-      fire: async (sessionId = 's-compact') => {
+      fire: async (sessionId = 's-compact', trigger = 'auto') => {
         if (!handler)
           throw new Error('curator did not subscribe to PreCompact');
         handler({
           sessionId,
-          trigger: 'auto',
+          trigger: trigger as PreCompactData['trigger'],
           timestamp: now,
           preTokens: 150_000,
           cwd: '/ws',
@@ -1561,6 +1566,33 @@ describe('MemoryCuratorService — PreCompact coalescing (TASK_2026_597 A7)', ()
     await h.fire();
 
     expect(h.read).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not stamp the watermark when the pass fails, so the next PreCompact retries', async () => {
+    const h = buildHarness();
+    h.extract.mockResolvedValueOnce({
+      status: 'stalled',
+      reason: 'provider-unreachable',
+      providerId: 'openai-codex',
+    });
+
+    await h.fire();
+    now += 1_000;
+    await h.fire();
+
+    expect(h.read).toHaveBeenCalledTimes(2);
+    expect(skipLogs(h.logger)).toHaveLength(0);
+  });
+
+  it('does not skip a manual compaction inside the interval', async () => {
+    const h = buildHarness();
+
+    await h.fire('s-compact', 'auto');
+    now += 1_000;
+    await h.fire('s-compact', 'manual');
+
+    expect(h.read).toHaveBeenCalledTimes(2);
+    expect(skipLogs(h.logger)).toHaveLength(0);
   });
 
   it('carries the watermark across rekeySession', async () => {

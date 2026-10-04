@@ -209,6 +209,7 @@ async function callOverHttp(
   args: Record<string, unknown>,
   ptahAPI: unknown,
   workspaceFolders: string[] = [],
+  declaredRoot?: string,
 ): Promise<MCPResponse> {
   const deps: ProtocolHandlerDependencies = {
     ptahAPI: ptahAPI as PtahAPI,
@@ -223,6 +224,9 @@ async function callOverHttp(
       id: 'parity',
       method: 'tools/call',
       params: { name, arguments: args },
+      ...(declaredRoot !== undefined
+        ? { _callerWorkspaceRoot: declaredRoot }
+        : {}),
     },
     deps,
   );
@@ -445,11 +449,19 @@ describe('blocking wait surface parity', () => {
     expect(textOf(stdio)).toMatch(/Invalid arguments for run_check/);
   });
 
-  it('runs the check in the host-owned workspace root on both surfaces (no Nx there: the same error, nothing spawned)', async () => {
+  it('runs the check in the caller workspace root on both surfaces (no Nx there: the same error, nothing spawned)', async () => {
     const root = mkdtempSync(join(tmpdir(), 'ptah-run-check-parity-'));
     try {
       const args = { project: 'app', targets: ['lint'] };
-      const http = await callOverHttp('ptah_run_check', args, {}, [root]);
+      // HTTP: the caller declares its root in the MCP URL (S4-a review S1);
+      // stdio: the launching process's working directory.
+      const http = await callOverHttp(
+        'ptah_run_check',
+        args,
+        {},
+        [root],
+        root,
+      );
       const stdio = await callOverStdio('run_check', args, {}, root);
 
       expect(isError(http)).toBe(true);

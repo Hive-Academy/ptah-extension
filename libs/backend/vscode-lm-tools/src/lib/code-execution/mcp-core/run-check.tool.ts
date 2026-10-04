@@ -108,6 +108,18 @@ export interface RunCheckOutcome {
   readonly text: string;
   /** Absolute path of the full log, when one was written. */
   readonly logPath?: string;
+  /** The tool reply's `structuredContent`: always names the folder the check ran in (`cwd`). */
+  readonly structured: RunCheckStructuredResult;
+}
+
+export interface RunCheckStructuredResult {
+  /** The folder Nx was (or would have been) run in. */
+  readonly cwd: string;
+  readonly project: string;
+  readonly targets: readonly RunCheckTarget[];
+  readonly verdict: 'passed' | 'failed' | 'timed_out' | 'not_run';
+  readonly exitCode: number | null;
+  readonly logPath?: string;
 }
 
 type TargetResult = 'passed' | 'failed' | 'not run' | 'incomplete' | 'unknown';
@@ -116,7 +128,8 @@ export function buildRunCheckTool(): MCPToolDefinition {
   return {
     name: RUN_CHECK_TOOL_NAME,
     description:
-      `Run Nx targets (${RUN_CHECK_TARGETS.join(', ')}) for ONE project in this workspace and ` +
+      `Run Nx targets (${RUN_CHECK_TARGETS.join(', ')}) for ONE project in your declared workspace ` +
+      '(worktrees too) and ' +
       'block until they finish. Runs `nx run-many -t <targets> -p <project> --outputStyle=static` ' +
       'with the workspace-local Nx, no shell. Returns exit code, duration, per-target result and ' +
       `the last lines of a failing run in at most ${WAIT_SUMMARY_MAX_CHARS} chars; the full log is ` +
@@ -162,13 +175,22 @@ export async function runCheck(
   const root = deps.workspaceRoot;
   const exists = deps.fileExists ?? fileExists;
   const candidates = NX_ENTRY_CANDIDATES.map((parts) => join(root, ...parts));
+  const notRun = (logPath?: string): RunCheckStructuredResult => ({
+    cwd: root,
+    project: args.project,
+    targets: args.targets,
+    verdict: 'not_run',
+    exitCode: null,
+    ...(logPath ? { logPath } : {}),
+  });
   const nxEntry = await firstExisting(candidates, exists);
   if (nxEntry === undefined) {
     return {
       isError: true,
       text:
-        `ptah_run_check: Nx was not found in this workspace. Looked for ${candidates.join(' and ')}. ` +
+        `ptah_run_check: Nx was not found in this workspace (${root}). Looked for ${candidates.join(' and ')}. ` +
         'Install the workspace dependencies first.',
+      structured: notRun(),
     };
   }
 
@@ -214,16 +236,21 @@ export async function runCheck(
     return {
       isError: true,
       text:
-        `ptah_run_check: could not start "${node}": ${run.spawnError}. ` +
+        `ptah_run_check: could not start "${node}" in ${root}: ${run.spawnError}. ` +
         'Node.js must be on PATH for the host process.' +
         (log.path ? ` Log: ${log.path}` : ''),
       ...(log.path ? { logPath: log.path } : {}),
+      structured: notRun(log.path),
     };
   }
 
+  let verdict: RunCheckStructuredResult['verdict'] = 'failed';
+  if (run.timedOut) verdict = 'timed_out';
+  else if (run.code === 0) verdict = 'passed';
   return {
     isError: false,
     text: formatRunCheckSummary({
+      cwd: root,
       project: args.project,
       targets: args.targets,
       timeoutSec: args.timeoutSec,
@@ -236,10 +263,20 @@ export async function runCheck(
       logError: log.error,
     }),
     ...(log.path ? { logPath: log.path } : {}),
+    structured: {
+      cwd: root,
+      project: args.project,
+      targets: args.targets,
+      verdict,
+      exitCode: run.code,
+      ...(log.path ? { logPath: log.path } : {}),
+    },
   };
 }
 
 export interface RunCheckSummaryInput {
+  /** The folder the check ran in; always printed. */
+  readonly cwd: string;
   readonly project: string;
   readonly targets: readonly RunCheckTarget[];
   readonly timeoutSec: number;
@@ -269,6 +306,7 @@ export function formatRunCheckSummary(input: RunCheckSummaryInput): string {
   }
   const fixed = [
     `ptah_run_check ${input.project} [${input.targets.join(', ')}]: ${verdict}, ${seconds}s.`,
+    `Ran in: ${input.cwd}`,
     'Targets:',
     ...input.targets.map((t) => `- ${t}: ${input.results.get(t) ?? 'unknown'}`),
     logLine(input),

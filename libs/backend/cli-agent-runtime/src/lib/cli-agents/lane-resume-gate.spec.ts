@@ -258,6 +258,7 @@ describe('buildLaneHandoffTask', () => {
     const task = buildLaneHandoffTask({
       message: 'Now add tests',
       reason: 'idle 900s exceeds 600s',
+      sessionKnown: true,
       originalTask: 'Write the parser',
       finalText: 'Parser written.',
       changedFiles: ['src/parser.ts'],
@@ -290,11 +291,30 @@ describe('buildLaneHandoffTask', () => {
     const task = buildLaneHandoffTask({
       message: 'm',
       reason: 'r',
+      sessionKnown: true,
       finalText: 'x'.repeat(5_000),
       changedFiles: [],
     });
 
     expect(task).not.toContain('x'.repeat(HANDOFF_FINAL_TEXT_MAX_CHARS + 1));
     expect(task).toContain('x'.repeat(HANDOFF_FINAL_TEXT_MAX_CHARS));
+  });
+
+  it('says plainly that this host holds no record when the session is unknown', () => {
+    const task = buildLaneHandoffTask({
+      message: 'Carry on',
+      reason: 'idle 900s exceeds 600s',
+      sessionKnown: false,
+      finalText: '',
+      changedFiles: [],
+    });
+
+    expect(task).toContain(
+      'This host holds no record of the previous lane (it ran in another window or before a restart)',
+    );
+    expect(task).toContain(
+      'Original task:\n(unknown: this host holds no record of the previous lane)',
+    );
+    expect(task).not.toContain('(not available');
   });
 });

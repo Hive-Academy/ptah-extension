@@ -20,6 +20,7 @@ import {
   AgentId,
   AgentStatus,
   AgentProcessInfo,
+  AgentResumeOutcome,
   SpawnAgentRequest,
   SpawnAgentResult,
   AgentOutput,
@@ -117,6 +118,18 @@ interface SdkSpawnOptions {
   readonly mcpPort?: number;
   /** Detected CLI version, for the `Lane policy` log line only (never passed to the adapter, F2). */
   readonly cliVersion?: string;
+  /** The resume gate's outcome, for a spawn that asked to resume. */
+  readonly resumeDecision?: AgentResumeOutcome;
+  /** First task of the lane chain, kept on a fresh lane's record. */
+  readonly originalTask?: string;
+}
+
+/** A spawn request after the resume gate, with what the gate decided. */
+interface GatedSpawn {
+  readonly request: SpawnAgentRequest;
+  readonly task: string;
+  readonly resumeDecision?: AgentResumeOutcome;
+  readonly originalTask?: string;
 }
 
 function roleStampOf(
@@ -313,10 +326,12 @@ export class AgentProcessManager {
       adapter.supportsMcp !== false
         ? await this.spawnEnvironment.mcpPort()
         : undefined;
-    const gated = request.resumeSessionId
+    const gated: GatedSpawn = request.resumeSessionId
       ? await this.gateResume(request, request.resumeSessionId, cli)
       : { request, task: request.task };
     return this.doSpawnSdk({
+      resumeDecision: gated.resumeDecision,
+      originalTask: gated.originalTask,
       runSdk: adapter.runSdk.bind(adapter),
       request: gated.request,
       task: gated.task,
@@ -344,7 +359,7 @@ export class AgentProcessManager {
     request: SpawnAgentRequest,
     resumeSessionId: string,
     cli: CliType,
-  ): Promise<{ request: SpawnAgentRequest; task: string }> {
+  ): Promise<GatedSpawn> {
     const lane = this.laneRecordsForSession(resumeSessionId);
     const latest = lane[lane.length - 1];
     const lastActivityAt = latest
@@ -371,8 +386,17 @@ export class AgentProcessManager {
       idleMs: gate.idleMs,
       recordsHeld: lane.length,
     });
+    const sessionKnown = lane.length > 0;
     if (gate.decision === 'resume') {
-      return { request, task: request.task };
+      return {
+        request,
+        task: request.task,
+        resumeDecision: {
+          decision: 'resumed',
+          reason: gate.reason,
+          sessionKnown,
+        },
+      };
     }
 
     const carryOver = collectHandoffCarryOver(
@@ -380,15 +404,27 @@ export class AgentProcessManager {
     );
     const finalText =
       carryOver.finalText || (latest?.stdoutBuffer.trim() ?? '');
+    // The chain's first task: a lane that was itself started fresh records
+    // it as `originalTask` (its own `task` is the follow-up message), so a
+    // second fresh handoff still carries the task the chain began with.
+    const first = lane[0]?.info;
+    const originalTask = first ? (first.originalTask ?? first.task) : undefined;
     return {
       request: { ...request, resumeSessionId: undefined },
       task: buildLaneHandoffTask({
         message: request.task,
         reason: gate.reason,
-        originalTask: lane[0]?.info.task,
+        sessionKnown,
+        originalTask,
         finalText,
         changedFiles: carryOver.changedFiles,
       }),
+      resumeDecision: {
+        decision: 'fresh',
+        reason: gate.reason,
+        sessionKnown,
+      },
+      ...(originalTask?.trim() ? { originalTask } : {}),
     };
   }
 
@@ -421,6 +457,8 @@ export class AgentProcessManager {
       binaryPath,
       mcpPort,
       cliVersion,
+      resumeDecision,
+      originalTask,
     } = options;
     const agentId = AgentId.create();
     const startedAt = new Date().toISOString();
@@ -452,6 +490,7 @@ export class AgentProcessManager {
       ...(request.resumeSessionId
         ? { cliSessionId: request.resumeSessionId }
         : {}),
+      ...(originalTask !== undefined ? { originalTask } : {}),
       ...roleStamp,
     };
 
@@ -523,12 +562,13 @@ export class AgentProcessManager {
       ? { ...info, cliSessionId: initialCliSessionId }
       : info;
 
-    return this.trackSdkHandle(
+    const spawned = this.trackSdkHandle(
       sdkHandle,
       infoWithSession,
       request.timeout,
       () => sdkHandle.getSessionId?.(),
     );
+    return resumeDecision ? { ...spawned, resumeDecision } : spawned;
   }
 
   /**

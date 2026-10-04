@@ -115,6 +115,11 @@ describe('runCheck', () => {
       expect(outcome.text).toContain(join(root, ...parts));
     }
     expect(d.spawnProcess).not.toHaveBeenCalled();
+    expect(outcome.structured).toMatchObject({
+      cwd: root,
+      verdict: 'not_run',
+      exitCode: null,
+    });
   });
 
   it('runs node with an argument array in the workspace root, never a shell string', async () => {
@@ -144,8 +149,17 @@ describe('runCheck', () => {
     );
     expect(outcome.isError).toBe(false);
     expect(outcome.text).toContain('PASSED (exit 0)');
+    expect(outcome.text).toContain(`Ran in: ${root}`);
     expect(outcome.text).toContain('- lint: passed');
     expect(outcome.logPath).toMatch(/checks[\\/].+-_scope_lib\.log$/);
+    expect(outcome.structured).toEqual({
+      cwd: root,
+      project: '@scope/lib',
+      targets: ['lint', 'typecheck'],
+      verdict: 'passed',
+      exitCode: 0,
+      logPath: outcome.logPath,
+    });
   });
 
   it('reports per-target results and the last task lines of a failing run, and writes the full log', async () => {
@@ -273,6 +287,7 @@ describe('formatRunCheckSummary', () => {
       (_, i) => `line-${i} ${'z'.repeat(280)}`,
     );
     const text = formatRunCheckSummary({
+      cwd: root,
       project: 'p'.repeat(120),
       targets: ['test', 'lint', 'typecheck', 'build'],
       timeoutSec: 900,
@@ -291,6 +306,7 @@ describe('formatRunCheckSummary', () => {
 
   it('omits output lines on a passing run', () => {
     const text = formatRunCheckSummary({
+      cwd: '/work/tree',
       project: 'app',
       targets: ['lint'],
       timeoutSec: 60,
@@ -303,5 +319,6 @@ describe('formatRunCheckSummary', () => {
     });
     expect(text).not.toContain('noise');
     expect(text).toContain('PASSED (exit 0), 1.0s.');
+    expect(text).toContain('Ran in: /work/tree');
   });
 });

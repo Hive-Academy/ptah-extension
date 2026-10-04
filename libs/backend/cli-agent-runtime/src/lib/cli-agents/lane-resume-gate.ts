@@ -188,6 +188,8 @@ export interface LaneHandoffInput extends LaneHandoffCarryOver {
   readonly message: string;
   /** Why the gate chose a fresh lane. */
   readonly reason: string;
+  /** False when this host holds no record of the session asked to resume. */
+  readonly sessionKnown: boolean;
   /** The previous lane's task, when this host still holds its record. */
   readonly originalTask?: string;
 }
@@ -204,10 +206,19 @@ export function buildLaneHandoffTask(input: LaneHandoffInput): string {
     `A previous lane worked on this task. It was not resumed (${input.reason}), ` +
       'so this is a fresh lane with a short brief of the work that remains. ' +
       'Check the current state of the files below before changing them.',
+    ...(input.sessionKnown
+      ? []
+      : [
+          'This host holds no record of the previous lane (it ran in another window or before a restart), ' +
+            'so its original task, the files it changed and its final text are unknown here. ' +
+            'Work from the new instruction below and inspect the repository for what was already done.',
+        ]),
     '',
     'Original task:',
     input.originalTask?.trim() ||
-      '(not available: this host holds no record of the previous lane)',
+      (input.sessionKnown
+        ? '(not recorded)'
+        : '(unknown: this host holds no record of the previous lane)'),
     '',
     'Files the previous lane changed:',
     input.changedFiles.length > 0

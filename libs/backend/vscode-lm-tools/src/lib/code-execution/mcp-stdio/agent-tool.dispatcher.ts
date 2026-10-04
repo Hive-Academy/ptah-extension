@@ -794,12 +794,12 @@ export class AgentToolDispatcher {
       if (outcome.isError) {
         return toolError(request, outcome.text, 'mcp_tool_failed', {
           tool: 'run_check',
+          cwd: outcome.structured.cwd,
         });
       }
+      // `structured.cwd` names the folder the check ran in (S4-a review S1).
       return await this.toolSuccess(request, 'run_check', outcome.text, {
-        project: parsed.data.project,
-        targets: parsed.data.targets,
-        ...(outcome.logPath !== undefined ? { logPath: outcome.logPath } : {}),
+        ...outcome.structured,
       });
     } catch (err: unknown) {
       return toolError(

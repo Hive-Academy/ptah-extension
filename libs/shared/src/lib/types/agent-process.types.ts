@@ -155,6 +155,26 @@ export interface AgentProcessInfo {
    * such as a per-turn total).
    */
   readonly lastRequestContext?: LaneRequestContext;
+  /**
+   * The task the lane chain began with, set only on a lane the resume gate
+   * started fresh in place of a resume (TASK_2026_597). `task` on such a
+   * record is the follow-up message; this keeps the first task so a later
+   * fresh handoff from this lane still carries it.
+   */
+  readonly originalTask?: string;
+}
+
+/**
+ * What the resume gate did with a `resumeSessionId` spawn (TASK_2026_597):
+ * `resumed` — the session was continued; `fresh` — a new lane was started
+ * with a handoff brief instead, so the CLI does not have the old context.
+ */
+export interface AgentResumeOutcome {
+  readonly decision: 'resumed' | 'fresh';
+  /** Why, in words a caller can show as is. */
+  readonly reason: string;
+  /** False when this host holds no record of the session: a fresh brief then has no original task, final text or changed files. */
+  readonly sessionKnown: boolean;
 }
 
 /** Where a {@link LaneRequestContext} figure came from. */
@@ -264,6 +284,8 @@ export interface SpawnAgentResult {
   readonly roleDelivery?: AgentRoleDelivery;
   /** Adapter channel that carried the role (only set when `role` is set). */
   readonly roleChannel?: AgentRoleChannel;
+  /** Set only on a spawn that asked to resume a session: whether it was resumed or started fresh, and why. */
+  readonly resumeDecision?: AgentResumeOutcome;
 }
 
 /**

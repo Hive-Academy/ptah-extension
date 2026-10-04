@@ -282,18 +282,24 @@ export class MemoryCuratorService {
               ? MANUAL_COMPACTION_MAX_WINDOWS
               : undefined,
         });
-      })().catch((err) => {
-        const message = err instanceof Error ? err.message : String(err);
-        this.pushEvent({
-          kind: 'error',
-          timestamp: Date.now(),
-          error: message,
+      })()
+        .then((stats) => {
+          // Stamp only a pass that ran. A thrown or stalled/deferred pass
+          // leaves the watermark alone so the next PreCompact can retry.
+          if (stats.outcome === 'ran') this.stampPreCompact(data.sessionId);
+        })
+        .catch((err) => {
+          const message = err instanceof Error ? err.message : String(err);
+          this.pushEvent({
+            kind: 'error',
+            timestamp: Date.now(),
+            error: message,
+          });
+          this.logger.error(
+            '[memory-curator] curate() failed',
+            err instanceof Error ? err : new Error(String(err)),
+          );
         });
-        this.logger.error(
-          '[memory-curator] curate() failed',
-          err instanceof Error ? err : new Error(String(err)),
-        );
-      });
     });
     this.logger.info('[memory-curator] started — subscribed to PreCompact');
   }
@@ -301,14 +307,17 @@ export class MemoryCuratorService {
   /**
    * `true` when this PreCompact arrives within
    * {@link CURATOR_PRECOMPACT_MIN_INTERVAL_MS} of the last one that started a
-   * curation for the same session, and must be skipped. Otherwise stamps the
-   * watermark and returns `false`. A blank session id has no identity to
-   * throttle on (see {@link coalesceKey}), so it is never skipped.
+   * SUCCESSFUL curation for the same session, and must be skipped. Read-only:
+   * the watermark is stamped by {@link stampPreCompact} after a pass runs. A
+   * manual compaction and a blank session id (no identity to throttle on, see
+   * {@link coalesceKey}) are never skipped.
    */
   private coalescePreCompact(
     sessionId: string,
     trigger: 'manual' | 'auto',
   ): boolean {
+    // A manual `/compact` is the user asking; it is never coalesced.
+    if (trigger === 'manual') return false;
     const key = blankToUndefined(sessionId);
     if (key === undefined) return false;
     const now = Date.now();
@@ -328,8 +337,14 @@ export class MemoryCuratorService {
       );
       return true;
     }
-    this.preCompactWatermarks.set(key, { lastFiredAt: now });
     return false;
+  }
+
+  /** Record that a PreCompact curation pass for this session completed. */
+  private stampPreCompact(sessionId: string): void {
+    const key = blankToUndefined(sessionId);
+    if (key === undefined) return;
+    this.preCompactWatermarks.set(key, { lastFiredAt: Date.now() });
   }
 
   /**
