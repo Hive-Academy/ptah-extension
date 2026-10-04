@@ -25,6 +25,7 @@ import {
   clampCompactHeightUnits,
   compactResizeBounds,
   effectiveUnits,
+  firstTileIdByOrder,
   projectDragIntent,
   sameViewConstraints,
   snapSpan,
@@ -35,6 +36,7 @@ import {
   type TileViewConstraint,
   type TileViewConstraints,
 } from './canvas-layout-intent';
+import { readCompleteGestureNodes } from './canvas-gesture-observation';
 import { CanvasRenderMetricsService } from './canvas-render-metrics.service';
 import { TabManagerService } from '@ptah-extension/chat';
 import { isCompactViewMode } from '@ptah-extension/chat-types';
@@ -99,6 +101,8 @@ const UNMEASURED_ITEM = { x: 0, y: 0, w: 12, h: 6 } as const;
     '[attr.data-canvas-apply-passes]': "metric('applyPasses')",
     '[attr.data-canvas-grid-updates]': "metric('gridUpdates')",
     '[attr.data-canvas-gesture-commits]': "metric('acceptedGestures')",
+    '[attr.data-canvas-rejected-gestures]': "metric('rejectedGestures')",
+    '[attr.data-canvas-change-callbacks]': "metric('changeCallbacks')",
   },
   template: `
     <gridstack
@@ -121,7 +125,7 @@ const UNMEASURED_ITEM = { x: 0, y: 0, w: 12, h: 6 } as const;
           <ptah-canvas-tile
             data-testid="canvas-tile"
             [tabId]="item.tabId"
-            [visible]="visible()"
+            [visible]="active()"
             [focused]="canvasStore.focusedTabId() === item.tabId"
             [widthIntent]="item.width"
             [rowBreakBefore]="item.rowBreakBefore"
@@ -200,6 +204,9 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
   private readonly tabManager = inject(TabManagerService);
   protected readonly layoutService = inject(CanvasLayoutService);
   protected readonly metrics = inject(CanvasRenderMetricsService);
+  protected readonly active = computed(
+    () => this.layoutService.active() && this.visible(),
+  );
 
   private readonly gridComp = viewChild(GridstackComponent);
 
@@ -322,7 +329,7 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
     const frozen = this.locked() || this.layoutFocusTabId() !== null;
     const noMove = frozen || this.isSingleton();
     const compactIds = this.compactTabIds();
-    const firstId = firstByOrder(this.tiles());
+    const firstId = firstTileIdByOrder(this.tiles());
     return this.tiles().map((tile) => {
       const position = derived.get(tile.tabId) ?? UNMEASURED_ITEM;
       // Compact tiles resize too, but only in height (south handle, CSS-gated).
@@ -368,6 +375,7 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
   /** Captured at gesture start, consumed by the following `change`. */
   private _gesture: GestureSnapshot | null = null;
   private _gestureStopped = false;
+  private _geometryDeferred = false;
 
   private _wasVisible = false;
 
@@ -388,11 +396,14 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
     // grid, and while locked so a frozen arrangement stays frozen — except the
     // view-mode exception below.
     effect(() => {
-      if (!this.visible()) return;
+      if (!this.active()) return;
       if (this.locked()) {
         this._lockedMeasurements ??=
           this._lastAppliedMeasurements ?? this.currentMeasurements();
-        if (this.viewFingerprint() !== this._appliedViewFingerprint) {
+        if (
+          this._geometryDeferred ||
+          this.viewFingerprint() !== this._appliedViewFingerprint
+        ) {
           // The one application a locked grid may perform: tab-owned view-mode
           // geometry. Its non-view measurements are frozen at lock time, so a
           // pending responsive reflow cannot hitchhike on this exception.
@@ -408,17 +419,13 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
     // leaves Gridstack with a stale 0-width column measurement. Wrapped in the
     // same flag: the re-measure is the other non-gesture `change` source.
     effect(() => {
-      const visible = this.visible();
+      const active = this.active();
       const grid = this.gridComp()?.grid;
-      if (visible && !this._wasVisible && grid) {
-        this._applyingLayout = true;
-        try {
-          (grid as unknown as { onResize?: () => void }).onResize?.();
-        } finally {
-          this._applyingLayout = false;
-        }
+      if (!active) {
+        this._wasVisible = false;
+        return;
       }
-      this._wasVisible = visible;
+      this.remeasureIfNeeded(grid);
     });
 
     // Apply the canvas-wide lock to this grid's Gridstack instance.
@@ -443,7 +450,7 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
     });
 
     effect(() => {
-      const visible = this.visible();
+      const active = this.active();
       const locked = this.locked();
       const workspacePath = this.workspacePath();
       const capacity = this.capacity();
@@ -453,7 +460,7 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
       const gesture = this._gesture;
       if (
         gesture &&
-        (!visible ||
+        (!active ||
           locked ||
           gesture.workspacePath !== workspacePath ||
           gesture.responsiveCapacity !== capacity ||
@@ -467,9 +474,9 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
   }
 
   onGestureStart(kind: GestureKind, event: elementCB): void {
-    this.cancelGesture();
+    if (this._gesture) this.cancelGesture();
     if (
-      !this.visible() ||
+      !this.active() ||
       this.locked() ||
       (kind === 'drag' && this.isSingleton()) ||
       this.layoutFocusTabId() !== null
@@ -532,7 +539,7 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
   onGridChange(): void {
     this.metrics.increment('changeCallbacks');
     if (this._applyingLayout) return;
-    if (this.locked() || !this.visible()) {
+    if (this.locked() || !this.active()) {
       this.cancelGesture();
       return;
     }
@@ -551,14 +558,14 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
       gesture.viewFingerprint !== this.viewFingerprint()
     ) {
       this.metrics.increment('rejectedGestures');
-      this.reconcileGesture(gesture);
+      this.settleGesture(gesture);
       return;
     }
 
-    const nodes = this.readCompleteNodes(grid.engine.nodes, gesture);
+    const nodes = readCompleteGestureNodes(grid.engine.nodes, gesture);
     if (!nodes) {
       this.metrics.increment('rejectedGestures');
-      this.reconcileGesture(gesture);
+      this.settleGesture(gesture);
       return;
     }
 
@@ -579,13 +586,13 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
         )
       ) {
         this.metrics.increment('rejectedGestures');
-        this.reconcileGesture(gesture);
+        this.settleGesture(gesture);
         return;
       }
       this.metrics.increment('acceptedGestures');
       // A successful commit may still be a semantic no-op. Reconcile now
       // because an unchanged store revision would not retrigger the effect.
-      this.reconcileGesture(gesture);
+      this.settleGesture(gesture);
       return;
     }
 
@@ -600,7 +607,7 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
     );
     if (draggedConstraint?.compact) {
       this.commitCompactHeight(draggedConstraint, draggedNode?.h);
-      this.reconcileGesture(gesture);
+      this.settleGesture(gesture);
       return;
     }
 
@@ -634,7 +641,7 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
     } else {
       this.metrics.increment('rejectedGestures');
     }
-    this.reconcileGesture(gesture);
+    this.settleGesture(gesture);
   }
 
   /**
@@ -671,46 +678,21 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
     this.canvasStore.toggleRowBreak(this.workspacePath(), tabId);
   }
 
-  private readCompleteNodes(
-    nodes: readonly GridStackNode[],
-    gesture: GestureSnapshot,
-  ): readonly TilePositionObservation[] | null {
-    if (nodes.length !== gesture.expectedTabIds.length) return null;
-    const expected = new Set(gesture.expectedTabIds);
-    const seen = new Set<string>();
-    const observations: TilePositionObservation[] = [];
-    for (const node of nodes) {
-      if (
-        typeof node.id !== 'string' ||
-        !expected.has(node.id) ||
-        seen.has(node.id) ||
-        typeof node.x !== 'number' ||
-        !Number.isFinite(node.x) ||
-        typeof node.y !== 'number' ||
-        !Number.isInteger(node.y) ||
-        typeof node.w !== 'number' ||
-        !Number.isFinite(node.w) ||
-        typeof node.h !== 'number' ||
-        !Number.isInteger(node.h)
-      ) {
-        return null;
-      }
-      seen.add(node.id);
-      observations.push(
-        gesture.kind === 'drag' && node.id === gesture.draggedId
-          ? gesture.lastDraggedPosition
-          : { tabId: node.id, x: node.x, y: node.y, w: node.w, h: node.h },
-      );
-    }
-    return seen.size === expected.size ? observations : null;
-  }
-
-  private cancelGesture(reconcile = true): void {
+  private cancelGesture(): void {
     const gesture = this._gesture;
     if (gesture) this.metrics.increment('cancelledGestures');
     this._gesture = null;
     this._gestureStopped = false;
-    if (reconcile && gesture) this.reconcileGesture(gesture);
+    this.settleGesture(gesture);
+  }
+
+  private settleGesture(gesture: GestureSnapshot | null): void {
+    if (gesture) this.reconcileGesture(gesture);
+    if (this._geometryDeferred) {
+      // Reconcile may skip a stale workspace; release its deferred successor.
+      this.applyAuthoritativeGeometry();
+    }
+    if (this.active()) this.remeasureIfNeeded(this.gridComp()?.grid);
   }
 
   private reconcileGesture(gesture: GestureSnapshot): void {
@@ -735,7 +717,15 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
     force = false,
     frozenMeasurements?: LayoutMeasurements,
   ): void {
-    if (!force && (!this.visible() || this.locked())) return;
+    if (!this.active()) {
+      if (force) this._geometryDeferred = true;
+      return;
+    }
+    if (!force && this.locked()) return;
+    if (!force && this._gesture !== null) {
+      this._geometryDeferred = true;
+      return;
+    }
     const measurements = frozenMeasurements ?? this.currentMeasurements();
     const { cellHeight, tiles: positioned } = frozenMeasurements
       ? this.layoutService.computeLayout(
@@ -748,6 +738,7 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
     this.metrics.increment('applyChecks');
     const viewFingerprint = this.viewFingerprint();
     if (positioned.length === 0) {
+      this._geometryDeferred = false;
       this._appliedViewFingerprint = viewFingerprint;
       this._lastAppliedMeasurements = measurements;
       return;
@@ -813,6 +804,7 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
       } else if (grid.getCellHeight() !== cellHeight) {
         grid.cellHeight(cellHeight);
       }
+      this._geometryDeferred = false;
       this._appliedViewFingerprint = viewFingerprint;
       this._lastAppliedMeasurements = measurements;
       if (!restoreStatic) this.applyNodeInteractionState(grid);
@@ -837,6 +829,17 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
       width: this.layoutService.containerWidth(),
       height: this.layoutService.containerHeight(),
     };
+  }
+
+  private remeasureIfNeeded(grid: { onResize?: () => void } | undefined): void {
+    if (this._wasVisible || this._gesture !== null || !grid) return;
+    this._applyingLayout = true;
+    try {
+      grid.onResize?.();
+    } finally {
+      this._applyingLayout = false;
+    }
+    this._wasVisible = true;
   }
 
   private applyNodeInteractionState(grid: {
@@ -877,14 +880,7 @@ export class CanvasWorkspaceGridComponent implements OnDestroy {
   }
 
   ngOnDestroy(): void {
-    this.cancelGesture(false);
+    this._gesture = null;
+    this._gestureStopped = false;
   }
-}
-
-function firstByOrder(
-  tiles: readonly { tabId: string; order: number }[],
-): string | undefined {
-  return [...tiles].sort(
-    (a, b) => a.order - b.order || a.tabId.localeCompare(b.tabId),
-  )[0]?.tabId;
 }

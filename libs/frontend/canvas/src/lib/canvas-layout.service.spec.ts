@@ -1,4 +1,6 @@
+import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
+import { provideSurfaceActiveTesting } from '@ptah-extension/core/testing';
 import {
   CanvasLayoutService,
   MAX_COLUMNS,
@@ -17,6 +19,7 @@ let originalObserver: typeof ResizeObserver;
 let originalRaf: typeof requestAnimationFrame;
 let originalCancel: typeof cancelAnimationFrame;
 let disconnectMock: jest.Mock;
+let observeMock: jest.Mock;
 
 const width = (
   span: 'third' | 'half' | 'two-thirds' | 'full',
@@ -43,6 +46,7 @@ const geometry = (layout: ReturnType<CanvasLayoutService['computeLayout']>) =>
   layout.tiles.map(({ tabId, x, y, w, h }) => ({ tabId, x, y, w, h }));
 
 describe('CanvasLayoutService', () => {
+  const active = signal(true);
   let service: CanvasLayoutService;
   const measure = (containerWidth: number, height = 900): void => {
     callback?.([
@@ -51,17 +55,19 @@ describe('CanvasLayoutService', () => {
   };
 
   beforeEach(() => {
+    active.set(true);
     callback = null;
     originalObserver = globalThis.ResizeObserver;
     originalRaf = globalThis.requestAnimationFrame;
     originalCancel = globalThis.cancelAnimationFrame;
     disconnectMock = jest.fn();
+    observeMock = jest.fn();
     globalThis.ResizeObserver = class {
       constructor(cb: ObserverCallback) {
         callback = cb;
       }
       observe(): void {
-        /* no-op */
+        observeMock();
       }
       unobserve(): void {
         /* no-op */
@@ -76,7 +82,9 @@ describe('CanvasLayoutService', () => {
     }) as typeof requestAnimationFrame;
     globalThis.cancelAnimationFrame = (() =>
       undefined) as typeof cancelAnimationFrame;
-    TestBed.configureTestingModule({ providers: [CanvasLayoutService] });
+    TestBed.configureTestingModule({
+      providers: [CanvasLayoutService, provideSurfaceActiveTesting(active)],
+    });
     service = TestBed.inject(CanvasLayoutService);
     service.observe(document.createElement('div'));
   });
@@ -85,6 +93,72 @@ describe('CanvasLayoutService', () => {
     globalThis.ResizeObserver = originalObserver;
     globalThis.requestAnimationFrame = originalRaf;
     globalThis.cancelAnimationFrame = originalCancel;
+  });
+
+  it('keeps a valid pending measurement when a later entry is zero-size', () => {
+    measure(1464);
+    let pending: FrameRequestCallback | undefined;
+    globalThis.requestAnimationFrame = (cb) => {
+      pending = cb;
+      return 2;
+    };
+    measure(1180);
+    const cancel = jest.spyOn(globalThis, 'cancelAnimationFrame');
+    cancel.mockClear();
+
+    measure(0, 0);
+
+    expect(cancel).not.toHaveBeenCalled();
+    pending?.(0);
+    expect(service.containerWidth()).toBe(1180);
+  });
+
+  it('ignores inactive observations and re-observes on reactivation', () => {
+    measure(1464);
+    const pending: FrameRequestCallback[] = [];
+    globalThis.requestAnimationFrame = (cb) => {
+      pending.push(cb);
+      return pending.length + 1;
+    };
+
+    active.set(false);
+    TestBed.tick();
+    pending.length = 0;
+    measure(1180);
+    expect(pending).toHaveLength(0);
+    expect(service.containerWidth()).toBe(1464);
+
+    active.set(true);
+    TestBed.tick();
+    expect(observeMock).toHaveBeenCalledTimes(2);
+    pending.length = 0;
+    measure(1180);
+    pending.at(-1)?.(0);
+    expect(service.containerWidth()).toBe(1180);
+  });
+
+  it('does not commit a pending frame after deactivation', () => {
+    measure(1464);
+    let pending: FrameRequestCallback | undefined;
+    globalThis.requestAnimationFrame = (cb) => {
+      pending = cb;
+      return 2;
+    };
+    measure(1180);
+    const resizeFrame = pending;
+
+    active.set(false);
+    TestBed.tick();
+    resizeFrame?.(0);
+    expect(service.containerWidth()).toBe(1464);
+
+    active.set(true);
+    TestBed.tick();
+    measure(1300);
+    pending?.(0);
+    expect(service.containerWidth()).toBe(1300);
+    resizeFrame?.(0);
+    expect(service.containerWidth()).toBe(1300);
   });
 
   it('derives responsive columns from minimum tile width', () => {
@@ -295,10 +369,10 @@ describe('CanvasLayoutService', () => {
   });
 
   it('debounces observed measurements through animation frames and disconnects on destroy', () => {
-    let queuedFrame: FrameRequestCallback | null = null;
+    const queuedFrames: FrameRequestCallback[] = [];
     let nextFrameId = 10;
     const requestFrame = jest.fn((frame: FrameRequestCallback) => {
-      queuedFrame = frame;
+      queuedFrames.push(frame);
       nextFrameId += 1;
       return nextFrameId;
     });
@@ -313,8 +387,8 @@ describe('CanvasLayoutService', () => {
     expect(cancelFrame).toHaveBeenCalledWith(11);
     expect(service.containerWidth()).toBe(0);
     expect(service.containerHeight()).toBe(0);
-    expect(queuedFrame).not.toBeNull();
-    queuedFrame?.(0);
+    expect(queuedFrames).toHaveLength(2);
+    queuedFrames.at(-1)?.(0);
     expect(service.containerWidth()).toBe(1234);
     expect(service.containerHeight()).toBe(777);
 

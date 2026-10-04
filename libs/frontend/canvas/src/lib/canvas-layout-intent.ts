@@ -185,6 +185,14 @@ export interface TilePositionObservation {
   readonly h: number;
 }
 
+export function firstTileIdByOrder(
+  tiles: readonly Pick<TileIntent, 'tabId' | 'order'>[],
+): string | undefined {
+  return [...tiles].sort(
+    (a, b) => a.order - b.order || a.tabId.localeCompare(b.tabId),
+  )[0]?.tabId;
+}
+
 /** Complete projected geometry for one tile; concrete values are never stored. */
 export interface ProjectedTileGeometry {
   readonly tabId: string;
