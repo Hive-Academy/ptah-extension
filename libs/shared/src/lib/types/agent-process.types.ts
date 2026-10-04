@@ -162,6 +162,14 @@ export interface AgentProcessInfo {
    * fresh handoff from this lane still carries it.
    */
   readonly originalTask?: string;
+  /**
+   * Why the host stopped the lane, when it was not the caller
+   * (TASK_2026_597, R9.4): `tool-call-budget` — the lane reached its tool-call
+   * stop threshold; `repeat-call` — it repeated one identical tool call up to
+   * the repeat threshold. Status, the agent card and the completion signal
+   * read it. Unset when the lane ended on its own or the caller stopped it.
+   */
+  stopReason?: 'tool-call-budget' | 'repeat-call' | string;
 }
 
 /**
