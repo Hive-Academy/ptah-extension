@@ -182,7 +182,7 @@ export class ChatSubagentContextInjectorService {
     const instructions: string[] = [];
     if (firstWarm) {
       instructions.push(
-        `Your FIRST action should be to resume the agents marked "cache: warm" so they continue their previous work. To resume an agent, invoke the Agent tool with the same subagent type shown above and a prompt that begins exactly with "Resume agent ${firstWarm.record.agentId}" (use each agent's own agentId), followed by an instruction to continue from where it was interrupted. If a SendMessage tool is available, you may instead send a message addressed to the agent's ID asking it to continue. Do NOT pass a "resume" parameter to the Agent tool — no such parameter exists.`,
+        `Your FIRST action should be to resume the agents marked "cache: warm" so they continue their previous work. To resume an agent, invoke the Agent tool with the same subagent type shown above and a prompt that begins exactly with "Resume agent <agentId>", where <agentId> is that agent's own agentId listed above, followed by an instruction to continue from where it was interrupted. If a SendMessage tool is available, you may instead send a message addressed to the agent's ID asking it to continue. Do NOT pass a "resume" parameter to the Agent tool — no such parameter exists.`,
       );
     }
     if (hasCold) {

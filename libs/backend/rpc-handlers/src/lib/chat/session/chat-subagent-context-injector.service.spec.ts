@@ -107,7 +107,7 @@ describe('ChatSubagentContextInjectorService', () => {
 
     expect(result.injected).toBe(true);
     expect(result.prompt).toContain('[SYSTEM CONTEXT - INTERRUPTED AGENTS]');
-    expect(result.prompt).toContain('Resume agent abc1234');
+    expect(result.prompt).toContain('Resume agent <agentId>');
     expect(result.prompt).not.toContain('"resume" parameter set to');
     expect(result.prompt.endsWith('continue please')).toBe(true);
 
@@ -232,7 +232,7 @@ describe('ChatSubagentContextInjectorService', () => {
     );
 
     expect(second.injected).toBe(true);
-    expect(second.prompt).toContain('Resume agent abc1234');
+    expect(second.prompt).toContain('Resume agent <agentId>');
   });
 
   it('KEEPS the record when there is no workspace path to probe against', async () => {
@@ -291,7 +291,7 @@ describe('ChatSubagentContextInjectorService', () => {
       );
       expect(prompt).toContain(GUIDANCE);
       expect(prompt).toContain('1. Your FIRST action should be to resume');
-      expect(prompt).toContain('Resume agent abc1234');
+      expect(prompt).toContain('Resume agent <agentId>');
       expect(prompt).not.toContain('cache: cold');
       expect(prompt).not.toContain('start a fresh subagent of the same type');
       expect(workspace.getConfiguration).toHaveBeenCalledWith(
@@ -361,7 +361,8 @@ describe('ChatSubagentContextInjectorService', () => {
       expect(prompt).toContain(
         'agentId: warm222) - cache: warm (TTL 5m, idle 0 min)',
       );
-      expect(prompt).toContain('Resume agent warm222');
+      expect(prompt).not.toContain('Resume agent warm222');
+      expect(prompt).toContain('Resume agent <agentId>');
       expect(prompt).not.toContain('Resume agent cold111');
       expect(prompt).toContain('1. Your FIRST action should be to resume');
       expect(prompt).toContain('2. Do NOT resume the agents marked');
