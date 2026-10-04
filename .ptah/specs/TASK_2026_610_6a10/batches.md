@@ -1,6 +1,6 @@
 # Batches - TASK_2026_610_6a10
 
-Total tasks: 51 (PR A + PR B) + PR C | Batches: 27 active (A 8, B+C 19: B 14, C 5 after the C2 split) + 4 blocked (D) | Complete: 15/27 (A1, A6, A7, A2, A3, A4, B1, B2, B3, B4, B8a, B8b, B8c, B9, C1)
+Total tasks: 51 (PR A + PR B) + PR C | Batches: 27 active (A 8, B+C 19: B 14, C 5 after the C2 split) + 4 blocked (D) | Complete: 17/27 (A1, A6, A7, A2, A3, A4, B1, B2, B3, B4, B8a, B8b, B8c, B9, B10, C1, C3)
 
 Worktree root: `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat` (branch
 `feat/task-610-a2ui-coding-chat`, HEAD = merge-base `f314a4f8a`, verified with `git merge-base`). Every path below is
@@ -670,7 +670,7 @@ Edge cases:
 - Files: MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\backend\vscode-core\src\index.ts`
 - Implementation details: `export { TOKENS, type HostKind } from './di/tokens';`; nothing else in the barrel changes
 
-## Batch B10: `ptah-surface-authoring` skill — IN_PROGRESS (verified, commit pending: held until C3, which edits the same reference and manifest)
+## Batch B10: `ptah-surface-authoring` skill — COMPLETE (6546ab57f)
 
 - Recommended executor: codex lane | Fallback: technical-content-writer subagent | Mode: sequential
 - Tasks: 2 | Depends on: B3 (corpus examples; plan defect 3) | Parallel group: W5
@@ -678,7 +678,7 @@ Edge cases:
 - Phase: B
 - Verify: `npm run manifest:check`
 
-### Task B10.1: SKILL.md and reference — IMPLEMENTED
+### Task B10.1: SKILL.md and reference — COMPLETE
 
 - Files:
   - CREATE `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\apps\ptah-extension-vscode\assets\plugins\ptah-core\skills\ptah-surface-authoring\SKILL.md`
@@ -686,10 +686,12 @@ Edge cases:
 - Validation notes: re-check SKILL.md absence at start (594 may have added it; then add only a pointer); EBNF, lexical
   table, source table without `$context`, caps, fallback, six corpus examples; no `note` yet
 
-### Task B10.2: regenerate manifest — IMPLEMENTED
+### Task B10.2: regenerate manifest — COMPLETE
 
 - Files: MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\content-manifest.json`
 - Implementation details: `npm run manifest:generate`, never hand-edit
+- Verified 2026-10-04: `manifest:check` up to date (sha256:c847c91c…, 228 files); the manifest diff adds only the two
+  skill files. C3 changed no asset, so the manifest is committed with B10. Report: `batch-B10-report.md`.
 
 ## Batch BM: PR B+C Electron measurement — PENDING
 
@@ -819,6 +821,9 @@ method, so the A7 contract spec must stay green. B4 and B8c take the next free s
 8. **B9 commit ordering.** `ptah-ui-hint.spec.ts:2` imports `parsePtahUi` from
    `@ptah-extension/shared/mcp-apps-contracts/surface`, exported by B1/B2 (`surface.index.ts`), not yet committed.
    B9 `a220a6bbe` is not standalone-green until the B1+B2+B3 commit lands next run.
+9. **C3 hint headroom.** The C3 hint (`13bf47252`) is 77 tokens, 23 under budget. A one-line example might fit and
+   would spare the agent its first skill load (the 3-line example was dropped at 107 tokens). "in Ptah Electron" is
+   redundant: only Electron sessions receive the hint.
 
 ## Phase B review — notes added in Wave 2
 
@@ -880,6 +885,10 @@ files they extend. Phase: B+C.
   input updates in place; exact paths as B5b creates them)
 - Executor: opencode lane | Fallback: frontend-developer | Depends on: C1, B5b (creates the block)
 - Verify: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/chat-ui`
+- Next after B5b commits: C2b (opencode) runs in parallel with B6 (frontend-developer subagent). They are
+  file-disjoint (confirmed 2026-10-04). C2b touches only the `chat-ui` block component and its spec. B6 touches only `chat`
+  files: `ptah-ui-fence-line.ts`, `execution-node.component.ts`, `message-bubble.component.ts/.html` and
+  `execution-node.ptah-ui.spec.ts`.
 
 ## Batch C2a: snapshot wiring in chat — PENDING
 
@@ -889,11 +898,14 @@ files they extend. Phase: B+C.
   (`chat-transcript.component.*`; serialized A4 → B7 → C2a)
 - Verify: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/chat`
 
-## Batch C3: hint and skill sources text — PENDING
+## Batch C3: hint and skill sources text — COMPLETE (13bf47252)
 
 - Executor: codex lane | Depends on: B9 (hint, committed a220a6bbe), B10 (`references\ptah-ui.md`) | Group: G-C1
 - Files: `ptah-ui-hint.ts`, `ptah-ui-hint.spec.ts`, `references\ptah-ui.md`, `content-manifest.json`
 - Verify: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/agent-sdk` and `npm run manifest:check`
+- Verified 2026-10-04: agent-sdk typecheck, test, lint passed; `manifest:check` up to date. Hint rewritten to 77 tokens
+  (was 99); `references\ptah-ui.md` and the manifest unchanged by C3 (manifest committed with B10). Report:
+  `batch-C3-report.md`.
 
 ## Batch C4: fence-bound sentinels — PENDING
 
