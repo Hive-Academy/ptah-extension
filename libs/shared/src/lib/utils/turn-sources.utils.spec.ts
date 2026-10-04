@@ -43,4 +43,20 @@ describe('buildTurnSourceSnapshot', () => {
     expect(snapshot.incomplete).toBe(true);
     expect(snapshot.diff).toEqual({ kind: 'pending' });
   });
+
+  it('marks a finalized turn incomplete when a test command remains non-terminal', () => {
+    const message = assistant({
+      streamingState: {
+        id: 'root', type: 'message', status: 'complete', content: null, isCollapsed: false,
+        children: [{ id: 'test', type: 'tool', status: 'streaming', content: null, isCollapsed: false, children: [], toolName: 'Bash', toolInput: { command: 'npm test' } }],
+      },
+    });
+    expect(buildTurnSourceSnapshot({ turnMessages: [message], blockMessage: message, changeSet, finalized: true }).incomplete).toBe(true);
+  });
+
+  it('uses the late change set when the same terminal turn is resolved again', () => {
+    const message = assistant();
+    expect(buildTurnSourceSnapshot({ turnMessages: [message], blockMessage: message, changeSet: 'pending', finalized: true }).diff).toEqual({ kind: 'pending' });
+    expect(buildTurnSourceSnapshot({ turnMessages: [message], blockMessage: message, changeSet, finalized: true }).diff).toEqual({ kind: 'available', changeSet });
+  });
 });

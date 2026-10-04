@@ -11,6 +11,14 @@ const snapshot: TurnSourceSnapshot = {
   usage: { kind: 'available', input: 12, output: 8, cost: 0.5, durationMs: 1500 },
 };
 
+const bytes = (value: unknown): number => new TextEncoder().encode(JSON.stringify(value)).length;
+
+function snapshotWithEmptyDiff(): TurnSourceSnapshot {
+  const diff = snapshot.diff;
+  if (diff.kind !== 'available') return snapshot;
+  return { ...snapshot, diff: { kind: 'available', changeSet: { ...diff.changeSet, files: [] } } };
+}
+
 describe('resolvePtahUi', () => {
   it('formats host scalars and keeps literal rows separate', () => {
     const result = resolvePtahUi(convertPtahUi({ elements: [
@@ -36,6 +44,26 @@ describe('resolvePtahUi', () => {
     const result = resolvePtahUi(convertPtahUi({ elements: [{ kind: 'stats', items: [{ label: 'Files', value: { source: 'diff', field: 'files' } }] }] }, 'surface'), pending);
     expect(surfaceOf(result).components[0]).toMatchObject({ value: 'pending' });
   });
+
+  it.each([
+    ['pending', { ...snapshot, state: 'pending' as const, diff: { kind: 'pending' as const } }, 'pending'],
+    ['unavailable', { ...snapshot, diff: { kind: 'unavailable' as const } }, 'unavailable'],
+    ['empty', snapshotWithEmptyDiff(), 'No files changed this turn'],
+  ] as const)('keeps a %s source-table state surface-valid', (_state, sourceSnapshot, expected) => {
+    const result = renderPtahUiBlock('table $diff\n', { surfaceId: 'surface', snapshot: sourceSnapshot, countBytes: bytes });
+    expect(result).toMatchObject({ ok: true });
+    expect(JSON.stringify(result)).toContain(expected);
+  });
+
+  it.each([
+    ['pending', { ...snapshot, state: 'pending' as const, usage: { kind: 'pending' as const } }, 'pending'],
+    ['unavailable', { ...snapshot, usage: { kind: 'unavailable' as const } }, 'unavailable'],
+    ['empty', snapshot, 'No rows available'],
+  ] as const)('keeps a rowless usage %s state surface-valid', (_state, sourceSnapshot, expected) => {
+    const result = renderPtahUiBlock('table $usage\n', { surfaceId: 'surface', snapshot: sourceSnapshot, countBytes: bytes });
+    expect(result).toMatchObject({ ok: true });
+    expect(JSON.stringify(result)).toContain(expected);
+  });
 });
 
 function surfaceOf(content: SurfaceContent) {
@@ -44,7 +72,6 @@ function surfaceOf(content: SurfaceContent) {
 }
 
 describe('renderPtahUiBlock', () => {
-  const bytes = (value: unknown): number => new TextEncoder().encode(JSON.stringify(value)).length;
   it('returns validated SurfaceContent and reports parser failures', () => {
     expect(renderPtahUiBlock('stats\n  Files | $diff.files\n', { surfaceId: 'surface', snapshot: null, countBytes: bytes }).ok).toBe(true);
     expect(renderPtahUiBlock('gauge nope\n', { surfaceId: 'surface', snapshot: null, countBytes: bytes })).toMatchObject({ ok: false, reason: expect.any(String) });

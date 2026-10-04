@@ -7,6 +7,7 @@ import {
   type TurnTestRun,
   type TurnTestSummary,
 } from './turn-tests.utils';
+import { classifyTestCommand } from './test-command-matcher';
 
 export type TurnSourceUnavailable =
   | { readonly kind: 'unavailable' }
@@ -58,8 +59,26 @@ function hasFiniteNonNegativeValue(value: unknown): value is number {
 function isIncomplete(messages: readonly ExecutionChatMessage[]): boolean {
   return messages.some((message) => {
     const status = message.streamingState?.status;
-    return status === 'error' || status === 'interrupted';
+    return status === 'error' || status === 'interrupted' || hasNonTerminalTest(message.streamingState);
   });
+}
+
+function hasNonTerminalTest(node: ExecutionNode | null): boolean {
+  if (node === null) return false;
+  const command = node.toolInput !== undefined && Object.hasOwn(node.toolInput, 'command')
+    ? node.toolInput['command']
+    : undefined;
+  if (
+    node.type === 'tool' &&
+    node.toolName === 'Bash' &&
+    typeof command === 'string' &&
+    classifyTestCommand(command) &&
+    node.status !== 'complete' &&
+    node.status !== 'error'
+  ) {
+    return true;
+  }
+  return node.children.some(hasNonTerminalTest);
 }
 
 function assistantRoots(messages: readonly ExecutionChatMessage[]): readonly ExecutionNode[] | null {

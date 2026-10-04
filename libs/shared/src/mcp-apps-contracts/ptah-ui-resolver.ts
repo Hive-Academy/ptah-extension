@@ -75,6 +75,11 @@ function resolveRows(
   snapshot: TurnSourceSnapshot | null,
 ): SurfaceComponent {
   const source = rowsSource(snapshot, binding.source);
+  if (component.kind === 'table' && component.columns.length === 0) {
+    return statusList(component.id, source === 'pending' || source === 'unavailable'
+      ? source
+      : emptyMessage(binding.source));
+  }
   if (component.kind === 'list') {
     if (source === 'pending' || source === 'unavailable') return { ...component, items: [{ text: { text: source } }] };
     const rows = rowValues(binding.source, source, binding.columns);
@@ -90,7 +95,11 @@ function resolveRows(
 }
 
 function statusRow(columnCount: number, status: 'pending' | 'unavailable'): readonly string[] {
-  return [status, ...Array.from({ length: Math.max(0, columnCount - 1) }, () => '')];
+  return Array.from({ length: columnCount }, () => status);
+}
+
+function statusList(id: string, text: string): SurfaceComponent {
+  return { kind: 'list', id, items: [{ text: { text } }] };
 }
 
 function rowsSource(snapshot: TurnSourceSnapshot | null, name: PtahUiSourceName): TurnSourceSnapshot['diff'] | TurnSourceSnapshot['tests'] | TurnSourceSnapshot['usage'] | 'pending' | 'unavailable' {
@@ -99,20 +108,28 @@ function rowsSource(snapshot: TurnSourceSnapshot | null, name: PtahUiSourceName)
   return source.kind === 'available' ? source : source.kind;
 }
 
+function isDiffRowsSource(value: Exclude<ReturnType<typeof rowsSource>, 'pending' | 'unavailable'>): value is Extract<TurnSourceSnapshot['diff'], { readonly kind: 'available' }> {
+  return Object.hasOwn(value, 'changeSet');
+}
+
+function isTestRowsSource(value: Exclude<ReturnType<typeof rowsSource>, 'pending' | 'unavailable'>): value is Extract<TurnSourceSnapshot['tests'], { readonly kind: 'available' }> {
+  return Object.hasOwn(value, 'runs');
+}
+
 function rowValues(source: PtahUiSourceName, value: Exclude<ReturnType<typeof rowsSource>, 'pending' | 'unavailable'>, columns: readonly string[]): readonly (readonly (string | number | null)[])[] {
-  if (source === 'diff' && 'changeSet' in value) return value.changeSet.files.map((file) => columns.map((column) => {
+  if (source === 'diff' && isDiffRowsSource(value)) return value.changeSet.files.map((file) => columns.map((column) => {
     if (column === 'path') return file.path;
     if (column === 'status') return file.status;
     if (column === 'additions') return file.binary ? 'binary' : file.additions ?? 'unknown';
     if (column === 'deletions') return file.binary ? 'binary' : file.deletions ?? 'unknown';
     return 'unavailable';
   }));
-  if (source === 'tests' && 'runs' in value) return value.runs.map((run) => columns.map((column) => column === 'command' ? run.command : column === 'outcome' ? run.outcome : 'unavailable'));
+  if (source === 'tests' && isTestRowsSource(value)) return value.runs.map((run) => columns.map((column) => column === 'command' ? run.command : column === 'outcome' ? run.outcome : 'unavailable'));
   return [];
 }
 
 function sourceDescription(source: PtahUiSourceName, value: Exclude<ReturnType<typeof rowsSource>, 'pending' | 'unavailable'>): { readonly text: string } | undefined {
-  if (source !== 'diff' || !('changeSet' in value)) return undefined;
+  if (source !== 'diff' || !isDiffRowsSource(value)) return undefined;
   const notes: string[] = [];
   if (value.changeSet.truncatedCount > 0) notes.push(`+${value.changeSet.truncatedCount} more`);
   if (value.changeSet.baselineMissing) notes.push('may include earlier changes');
