@@ -26,6 +26,7 @@ import type {
   AgentStatusEvent,
   AgentCompletedEvent,
   AgentStartEvent,
+  BackgroundAgentStartedEvent,
   CliSessionReference,
   MessageCompleteEvent,
   SubagentPromptCacheTtl,
@@ -498,6 +499,12 @@ export interface SubagentRecord {
   cacheTtl?: SubagentPromptCacheTtl;
 }
 
+/** Identity fields a `background_agent_started` event can supply to a record. */
+type BackgroundIdentity = Pick<
+  SubagentRecord,
+  'agentId' | 'teammateName' | 'parentSessionId'
+>;
+
 /**
  * Error surfaced from subagent RPC calls. Lives in a dedicated channel so
  * components can show a transient toast / inline message without polluting
@@ -582,6 +589,16 @@ export class AgentMonitorStore implements OnDestroy {
   private readonly _subagentRequestUsage = new Map<
     string,
     Map<string, SubagentRequestUsage>
+  >();
+
+  /**
+   * Identity fields from a `background_agent_started` that arrived before its
+   * subagent had a record, keyed by parentToolUseId. The lifecycle reducer
+   * that creates the record applies and removes the entry. Cleared on destroy.
+   */
+  private readonly _pendingBackgroundIdentity = new Map<
+    string,
+    BackgroundIdentity
   >();
 
   /** Public readonly view of the subagent record map. */
@@ -845,6 +862,7 @@ export class AgentMonitorStore implements OnDestroy {
     this.stopTick();
     this._pendingPermissionBuffer.clear();
     this._subagentRequestUsage.clear();
+    this._pendingBackgroundIdentity.clear();
   }
 
   private startTick(): void {
@@ -1652,9 +1670,59 @@ export class AgentMonitorStore implements OnDestroy {
         workflowName: wf.workflowName ?? existing?.workflowName,
         ...this.carriedUsageFields(key, existing, event.timestamp),
       };
-      next.set(key, merged);
+      next.set(key, this.withPendingIdentity(key, merged));
       return next;
     });
+  }
+
+  /**
+   * Fill a subagent record's identity from a `background_agent_started` event.
+   *
+   * When the backend's SubagentStart hook carries no tool_use id, no lifecycle
+   * event ships an `agentId`, and the only copy is the one this event parses
+   * from the background placeholder. Without it the transcript cannot load.
+   *
+   * Only fills fields the record does not have yet; never creates a record and
+   * never changes status. When the event arrives before the record exists, the
+   * fields are kept and applied by the lifecycle reducer that creates it.
+   */
+  onBackgroundAgentStarted(event: BackgroundAgentStartedEvent): void {
+    const key = event.toolCallId;
+    if (!key) return;
+    const identity: BackgroundIdentity = {
+      agentId: event.agentId || undefined,
+      teammateName: event.teammateName || undefined,
+      parentSessionId: knownSessionId(event.sessionId),
+    };
+    if (!this._subagents().has(key)) {
+      this._pendingBackgroundIdentity.set(key, identity);
+      return;
+    }
+    this._subagents.update((map) => {
+      const existing = map.get(key);
+      if (!existing) return map;
+      const filled = fillIdentity(existing, identity);
+      if (filled === existing) return map;
+      const next = new Map(map);
+      next.set(key, filled);
+      return next;
+    });
+  }
+
+  /**
+   * A record a lifecycle reducer is about to store, with any identity a
+   * `background_agent_started` left pending for it. An entry is only pending
+   * while the record does not exist, so the reducer that creates the record
+   * consumes it.
+   */
+  private withPendingIdentity(
+    key: string,
+    merged: SubagentRecord,
+  ): SubagentRecord {
+    const pending = this._pendingBackgroundIdentity.get(key);
+    if (!pending) return merged;
+    this._pendingBackgroundIdentity.delete(key);
+    return fillIdentity(merged, pending);
   }
 
   /** Reducer for SDK `agent_progress` events. */
@@ -1686,7 +1754,7 @@ export class AgentMonitorStore implements OnDestroy {
         workflowName: wf.workflowName ?? existing?.workflowName,
         ...this.carriedUsageFields(key, existing, event.timestamp),
       };
-      next.set(key, merged);
+      next.set(key, this.withPendingIdentity(key, merged));
       return next;
     });
   }
@@ -1720,7 +1788,7 @@ export class AgentMonitorStore implements OnDestroy {
         workflowName: wf.workflowName ?? existing?.workflowName,
         ...this.carriedUsageFields(key, existing, event.timestamp),
       };
-      next.set(key, merged);
+      next.set(key, this.withPendingIdentity(key, merged));
       return next;
     });
   }
@@ -1754,7 +1822,7 @@ export class AgentMonitorStore implements OnDestroy {
         workflowName: wf.workflowName ?? existing?.workflowName,
         ...this.carriedUsageFields(key, existing, event.timestamp),
       };
-      next.set(key, merged);
+      next.set(key, this.withPendingIdentity(key, merged));
       return next;
     });
   }
@@ -2219,4 +2287,26 @@ function insertAgentSorted(
   const next = [...list];
   next.splice(index, 0, agent);
   return next;
+}
+
+/**
+ * `record` with each identity field it lacks taken from `identity`. A field
+ * the record already holds is never replaced. Returns `record` itself when
+ * nothing was filled, so callers can skip the signal write.
+ */
+function fillIdentity(
+  record: SubagentRecord,
+  identity: BackgroundIdentity,
+): SubagentRecord {
+  const agentId = record.agentId ?? identity.agentId;
+  const teammateName = record.teammateName ?? identity.teammateName;
+  const parentSessionId = record.parentSessionId ?? identity.parentSessionId;
+  if (
+    agentId === record.agentId &&
+    teammateName === record.teammateName &&
+    parentSessionId === record.parentSessionId
+  ) {
+    return record;
+  }
+  return { ...record, agentId, teammateName, parentSessionId };
 }

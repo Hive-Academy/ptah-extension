@@ -602,6 +602,72 @@ describe('AgentMonitorPanelComponent — session subagents', () => {
     );
   });
 
+  function selectTile(
+    fixture: ReturnType<typeof createPanel>,
+    title: string,
+  ): void {
+    (
+      fixture.nativeElement.querySelector(
+        `button[title="${title}"]`,
+      ) as HTMLButtonElement
+    ).click();
+    fixture.detectChanges();
+  }
+
+  it('renders the transcript viewer and loads the transcript once for a background subagent whose agentId came from background_agent_started', () => {
+    activeSessionSubagentsSig.set([
+      subagent({
+        parentToolUseId: 'toolu_bg_named',
+        teammateName: 'reviewer-pr2',
+        status: 'running',
+        agentId: 'a1b2c3',
+        parentSessionId: 'sess_bg',
+      }),
+    ]);
+    const fixture = createPanel(null);
+
+    selectTile(fixture, 'reviewer-pr2');
+    fixture.detectChanges();
+
+    expect(
+      fixture.nativeElement.querySelector('ptah-subagent-transcript-viewer'),
+    ).toBeTruthy();
+    expect(fixture.nativeElement.textContent).not.toContain(
+      'Transcript is not available yet',
+    );
+    expect(getSubagentTranscriptMock).toHaveBeenCalledTimes(1);
+    expect(getSubagentTranscriptMock).toHaveBeenCalledWith('sess_bg', 'a1b2c3');
+  });
+
+  it('falls back to the active tab session when the record has no parentSessionId', () => {
+    (
+      TestBed.inject(TabManagerService).activeTabSessionId as ReturnType<
+        typeof signal<string | null>
+      >
+    ).set('sess_active');
+    activeSessionSubagentsSig.set([
+      subagent({
+        parentToolUseId: 'toolu_bg_no_session',
+        teammateName: 'No Session',
+        status: 'running',
+        agentId: 'd4e5f6',
+        parentSessionId: undefined,
+      }),
+    ]);
+    const fixture = createPanel(null);
+
+    selectTile(fixture, 'No Session');
+
+    expect(
+      fixture.nativeElement.querySelector('ptah-subagent-transcript-viewer'),
+    ).toBeTruthy();
+    expect(getSubagentTranscriptMock).toHaveBeenCalledTimes(1);
+    expect(getSubagentTranscriptMock).toHaveBeenCalledWith(
+      'sess_active',
+      'd4e5f6',
+    );
+  });
+
   it('ensures a record is never shown twice even if present in workflow and session subagents', () => {
     activeWorkflowSubagentsSig.set([
       subagent({

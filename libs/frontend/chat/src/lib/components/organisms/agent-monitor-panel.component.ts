@@ -54,6 +54,7 @@ import type {
 import {
   AgentMonitorStore,
   agentVisibleInSession,
+  knownSessionId,
   type MonitoredAgent,
   type SubagentRecord,
 } from '@ptah-extension/chat-streaming';
@@ -564,7 +565,8 @@ function subagentToTile(r: SubagentRecord): WorkflowTileVM {
                 <div class="p-1.5">
                   <ptah-subagent-usage-summary [record]="sub" />
                   @if (
-                    sub.workflowRunId || (sub.agentId && sub.parentSessionId)
+                    sub.workflowRunId ||
+                    (sub.agentId && selectedTranscriptSessionId())
                   ) {
                     <ptah-subagent-transcript-viewer
                       [agentName]="
@@ -888,6 +890,23 @@ export class AgentMonitorPanelComponent {
     );
   });
 
+  /**
+   * Session to read the selected subagent's transcript from: its own
+   * `parentSessionId`, else this panel's session, else the active tab's. A
+   * record whose events carried an empty session id would otherwise never
+   * load its transcript.
+   */
+  readonly selectedTranscriptSessionId = computed<string | null>(() => {
+    const sub = this.selectedWorkflowSubagent();
+    if (!sub) return null;
+    return (
+      knownSessionId(sub.parentSessionId) ??
+      knownSessionId(this.sessionId()) ??
+      knownSessionId(this.tabManager.activeTabSessionId?.()) ??
+      null
+    );
+  });
+
   /** Exact selection only; a removed selection must not open a fallback workflow. */
   private readonly explicitSelectedAgent = computed<MonitoredAgent | null>(
     () =>
@@ -1042,14 +1061,13 @@ export class AgentMonitorPanelComponent {
     // re-fire the RPC.
     effect(() => {
       const sub = this.selectedWorkflowSubagent();
+      const sessionId = this.selectedTranscriptSessionId();
       const key =
-        sub && sub.agentId && sub.parentSessionId
-          ? `${sub.parentSessionId}::${sub.agentId}`
-          : null;
+        sub && sub.agentId && sessionId ? `${sessionId}::${sub.agentId}` : null;
       untracked(() => {
         if (key === this._lastTranscriptKey) return;
         this._lastTranscriptKey = key;
-        void this.loadTranscriptFor(sub);
+        void this.loadTranscriptFor(sub, sessionId);
       });
     });
 
@@ -1121,7 +1139,10 @@ export class AgentMonitorPanelComponent {
 
   /** Re-fetch the currently selected workflow subagent's transcript. */
   reloadTranscript(): void {
-    void this.loadTranscriptFor(this.selectedWorkflowSubagent());
+    void this.loadTranscriptFor(
+      this.selectedWorkflowSubagent(),
+      this.selectedTranscriptSessionId(),
+    );
   }
 
   /** Close the transcript view — land back on a standalone agent or clear. */
@@ -1138,8 +1159,11 @@ export class AgentMonitorPanelComponent {
    * inline bubble / background-agent tray use). A missing agentId/session (no
    * viewable transcript) clears to the viewer's empty state.
    */
-  private async loadTranscriptFor(sub: SubagentRecord | null): Promise<void> {
-    if (!sub || !sub.agentId || !sub.parentSessionId) {
+  private async loadTranscriptFor(
+    sub: SubagentRecord | null,
+    sessionId: string | null,
+  ): Promise<void> {
+    if (!sub || !sub.agentId || !sessionId) {
       this._transcriptToken++;
       this._transcriptMessages.set([]);
       this._transcriptError.set(null);
@@ -1151,7 +1175,7 @@ export class AgentMonitorPanelComponent {
     this._transcriptError.set(null);
     try {
       const messages = await this.store.getSubagentTranscript(
-        sub.parentSessionId,
+        sessionId,
         sub.agentId,
       );
       if (token !== this._transcriptToken) return;

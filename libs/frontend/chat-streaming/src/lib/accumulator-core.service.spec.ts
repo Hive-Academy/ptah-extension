@@ -329,6 +329,7 @@ describe('StreamingAccumulatorCore (TASK_2026_107 Phase 2)', () => {
       | 'getSubagent'
       | 'onTaskToolResult'
       | 'onSubagentMessageComplete'
+      | 'onBackgroundAgentStarted'
     >
   >;
   let state: StreamingState;
@@ -386,6 +387,7 @@ describe('StreamingAccumulatorCore (TASK_2026_107 Phase 2)', () => {
       getSubagent: jest.fn().mockReturnValue(undefined),
       onTaskToolResult: jest.fn(),
       onSubagentMessageComplete: jest.fn(),
+      onBackgroundAgentStarted: jest.fn(),
     } as jest.Mocked<
       Pick<
         AgentMonitorStore,
@@ -398,6 +400,7 @@ describe('StreamingAccumulatorCore (TASK_2026_107 Phase 2)', () => {
         | 'getSubagent'
         | 'onTaskToolResult'
         | 'onSubagentMessageComplete'
+        | 'onBackgroundAgentStarted'
       >
     >;
 
@@ -924,6 +927,13 @@ describe('StreamingAccumulatorCore (TASK_2026_107 Phase 2)', () => {
     it('background_agent_started → onStarted', () => {
       core.process(state, bgAgentStarted(), makeCtx());
       expect(backgroundAgentStore.onStarted).toHaveBeenCalled();
+    });
+    it('background_agent_started also merges identity into the monitor record', () => {
+      const event = bgAgentStarted();
+      core.process(state, event, makeCtx());
+      expect(agentMonitorStore.onBackgroundAgentStarted).toHaveBeenCalledWith(
+        event,
+      );
     });
     it('background_agent_completed → onCompleted', () => {
       core.process(state, bgAgentCompleted(), makeCtx());

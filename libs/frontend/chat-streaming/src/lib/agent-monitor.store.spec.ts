@@ -20,6 +20,7 @@ import type {
   AgentStatusEvent,
   AgentCompletedEvent,
   AgentStartEvent,
+  BackgroundAgentStartedEvent,
   CliSessionReference,
   FlatStreamEventUnion,
   MessageCompleteEvent,
@@ -411,6 +412,93 @@ describe('AgentMonitorStore', () => {
         outputFile: '/tmp/x',
       } as AgentCompletedEvent);
       expect(store.getSubagent('toolu_wf')?.agentId).toBe('a01fea2eb1b977576');
+    });
+  });
+
+  describe('onBackgroundAgentStarted (identity merge)', () => {
+    const T = 'toolu_bg_named';
+    const S = 'sess-bg';
+
+    function start(overrides: Partial<AgentStartEvent> = {}): AgentStartEvent {
+      return {
+        eventType: 'agent_start',
+        id: 'bg-start',
+        timestamp: 1,
+        sessionId: S,
+        toolCallId: T,
+        agentType: 'reviewer',
+        source: 'hook',
+        ...overrides,
+      } as AgentStartEvent;
+    }
+
+    function bgStarted(
+      overrides: Partial<BackgroundAgentStartedEvent> = {},
+    ): BackgroundAgentStartedEvent {
+      return {
+        eventType: 'background_agent_started',
+        id: 'bg-started',
+        timestamp: 2,
+        sessionId: S,
+        toolCallId: T,
+        agentType: 'reviewer',
+        agentId: 'a1b2c3',
+        teammateName: 'reviewer-pr2',
+        source: 'hook',
+        ...overrides,
+      } as BackgroundAgentStartedEvent;
+    }
+
+    it('fills agentId, teammateName and parentSessionId on an existing record without changing status', () => {
+      store.onAgentStart(start());
+      expect(store.getSubagent(T)?.agentId).toBeUndefined();
+      const statusBefore = store.getSubagent(T)?.status;
+
+      store.onBackgroundAgentStarted(bgStarted());
+
+      const rec = store.getSubagent(T);
+      expect(rec?.agentId).toBe('a1b2c3');
+      expect(rec?.teammateName).toBe('reviewer-pr2');
+      expect(rec?.parentSessionId).toBe(S);
+      expect(rec?.status).toBe(statusBefore);
+    });
+
+    it('fills parentSessionId when the record has none yet', () => {
+      store.onAgentStart(start({ sessionId: '' }));
+      expect(store.getSubagent(T)?.parentSessionId).toBeUndefined();
+
+      store.onBackgroundAgentStarted(bgStarted());
+
+      expect(store.getSubagent(T)?.parentSessionId).toBe(S);
+    });
+
+    it('never replaces fields the record already has', () => {
+      store.onAgentStart(
+        start({ agentId: 'orig-id', teammateName: 'orig-name' }),
+      );
+
+      store.onBackgroundAgentStarted(bgStarted({ sessionId: 'other-session' }));
+
+      const rec = store.getSubagent(T);
+      expect(rec?.agentId).toBe('orig-id');
+      expect(rec?.teammateName).toBe('orig-name');
+      expect(rec?.parentSessionId).toBe(S);
+    });
+
+    it('does not create a record on its own', () => {
+      store.onBackgroundAgentStarted(bgStarted());
+      expect(store.getSubagent(T)).toBeUndefined();
+    });
+
+    it('applies an identity that arrived before agent_start once the record is created', () => {
+      store.onBackgroundAgentStarted(bgStarted());
+      store.onAgentStart(start({ sessionId: '' }));
+
+      const rec = store.getSubagent(T);
+      expect(rec?.agentId).toBe('a1b2c3');
+      expect(rec?.teammateName).toBe('reviewer-pr2');
+      expect(rec?.parentSessionId).toBe(S);
+      expect(rec?.status).toBe('running');
     });
   });
 

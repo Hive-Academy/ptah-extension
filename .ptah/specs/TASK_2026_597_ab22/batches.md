@@ -3592,3 +3592,12 @@ Review: `pr2-phase-end-code-logic-review.md` on `5bb19f9fb..HEAD` (Batches 37-41
 
 QA (not yet run): before/after screenshots (dark + light) for Batches 39 and 47; N1 "after" measurement needs
 `CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL` cleared (user approval).
+
+## Batch 47a: Subagent transcript for background named subagents (user bug report, PR 2) — COMPLETE (report batch-47a-executor-report.md)
+
+User decision (2026-10-04): frontend fix in PR 2. Research: `bug-subagent-transcript-research.md`. The agent monitor store
+merges `agentId`, `teammateName` and `parentSessionId` from `background_agent_started` into the existing record (or holds
+them until `agent_start` creates it); the panel falls back to its session input, then the active tab, when
+`parentSessionId` is missing. Named later task PR2-B1: backend binding of `agentId` when the SubagentStart hook has no
+`toolUseId` (covers foreground subagents and `subagent:send-message` / `subagent:stop`); heuristic, exact `agentId:` match
+only.
