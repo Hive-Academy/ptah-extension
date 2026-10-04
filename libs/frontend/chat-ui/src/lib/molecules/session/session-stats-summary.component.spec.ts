@@ -1,7 +1,14 @@
-import { signal } from '@angular/core';
+import { signal, type Provider } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { ModelStateService } from '@ptah-extension/core';
-import type { SessionStatsEntry } from '@ptah-extension/shared';
+import type {
+  PlanLimitWindow,
+  QuotaOwnerRef,
+  SessionStatsEntry,
+} from '@ptah-extension/shared';
+import { buildStatsLimitViewModel } from './plan-limits/stats-limit-view-model';
+import type { StatsLimitViewModel } from './plan-limits/stats-limit-view-model.types';
+import { StatsTileExpansionState } from './plan-limits/stats-tile-expansion.state';
 import {
   SessionStatsSummaryComponent,
   type LiveModelStats,
@@ -326,5 +333,306 @@ describe('SessionStatsSummaryComponent', () => {
     expect(text(root, 'stats-duration')).toBe('2m 5s');
     click(root, '[data-testid="stats-expand"]');
     expect(text(root, 'stats-duration')).toBe('2m 5s');
+  });
+});
+
+/**
+ * TASK_2026_596: plan-limit and lane tiles in the same card grid (design
+ * §3.1-3.3, A1-A3). `limits` null keeps today's output.
+ */
+describe('SessionStatsSummaryComponent limits', () => {
+  const NOW = Date.UTC(2026, 9, 5, 12, 0);
+  const MIN = 60_000;
+  const HOUR = 60 * MIN;
+  const UTC = { timeZone: 'UTC', zoneNameLocale: 'en-GB' } as const;
+  const OWNER: QuotaOwnerRef = {
+    key: 'claude-cli#account:aaa',
+    providerId: 'claude-cli',
+    identityKind: 'account',
+    label: 'Claude account',
+  };
+  const FIVE_HOUR_TILE = `plan:${OWNER.key}:five_hour`;
+
+  function fiveHour(percent: number): PlanLimitWindow {
+    return {
+      key: 'five_hour',
+      kind: 'five_hour',
+      label: '5-hour',
+      used: { kind: 'percent', percent },
+      usedSource: 'provider-api',
+      resetsAt: NOW + 3 * HOUR + 10 * MIN,
+      resetSource: 'provider-api',
+      lastResetAt: NOW - 2 * HOUR,
+      observedAt: NOW - MIN,
+    };
+  }
+
+  function limitsFor(percent: number, withLane = true): StatsLimitViewModel {
+    return buildStatsLimitViewModel({
+      sessionId: 'session-1',
+      sessionOwnerKey: OWNER.key,
+      sessionModelScope: 'sonnet',
+      owners: [
+        {
+          owner: OWNER,
+          status: 'available',
+          windowSetEstablished: true,
+          windows: [fiveHour(percent)],
+          ownerEvidence: [],
+        },
+      ],
+      laneRuns: withLane
+        ? [
+            {
+              runId: 'run-1',
+              cli: 'codex',
+              cliLabel: 'Codex',
+              role: 'review',
+              model: 'gpt-5',
+              modelScope: null,
+              status: 'completed',
+              restored: false,
+              startedAt: NOW - HOUR,
+              quotaOwner: OWNER,
+              usageTotals: { inputTokens: 1000, outputTokens: 500 },
+            },
+          ]
+        : [],
+      now: NOW,
+      time: UTC,
+    });
+  }
+
+  let fixture: ComponentFixture<SessionStatsSummaryComponent>;
+
+  function render(
+    limits: StatsLimitViewModel | null,
+    options: { sessionId?: string | null; providers?: Provider[] } = {},
+  ): HTMLElement {
+    TestBed.configureTestingModule({
+      imports: [SessionStatsSummaryComponent],
+      providers: [
+        {
+          provide: ModelStateService,
+          useValue: {
+            availableModels: signal([
+              { id: 'claude-opus-4-7', name: 'Opus 4.7' },
+              { id: 'claude-haiku-4-5', name: 'Haiku 4.5' },
+            ]),
+          },
+        },
+        ...(options.providers ?? []),
+      ],
+    });
+    fixture = TestBed.createComponent(SessionStatsSummaryComponent);
+    fixture.componentRef.setInput('snapshot', SNAPSHOT);
+    fixture.componentRef.setInput('liveModelStats', LIVE);
+    if (limits !== null) fixture.componentRef.setInput('limits', limits);
+    if (options.sessionId !== undefined) {
+      fixture.componentRef.setInput('sessionId', options.sessionId);
+    }
+    fixture.detectChanges();
+    return fixture.nativeElement as HTMLElement;
+  }
+
+  function click(root: HTMLElement, selector: string): void {
+    const button = root.querySelector<HTMLButtonElement>(selector);
+    if (!button) throw new Error(`No element for ${selector}`);
+    button.click();
+    fixture.detectChanges();
+  }
+
+  function tileButton(root: HTMLElement, tileId: string): HTMLButtonElement {
+    const found = root.querySelector<HTMLButtonElement>(
+      `[data-tile-id="${tileId}"] > button`,
+    );
+    if (!found) throw new Error(`No tile ${tileId}`);
+    return found;
+  }
+
+  /** Expanded-grid children as short names, in DOM order. */
+  function gridOrder(root: HTMLElement): string[] {
+    const grid = root.querySelector('.stats-cards');
+    if (!grid) throw new Error('grid not expanded');
+    return Array.from(grid.children).map((child) => {
+      const tag = child.tagName.toLowerCase();
+      if (tag.startsWith('ptah-')) return tag.replace('ptah-', '');
+      const testId = child.getAttribute('data-testid');
+      if (testId) return testId;
+      return (child.firstElementChild?.textContent ?? '').trim();
+    });
+  }
+
+  afterEach(() => TestBed.resetTestingModule());
+
+  it('renders exactly the pre-limits output when limits is null (harness host)', () => {
+    const withoutInput = render(null);
+    const collapsedHtml = withoutInput.innerHTML;
+    click(withoutInput, '[data-testid="stats-expand"]');
+    const expandedOrder = gridOrder(withoutInput);
+    TestBed.resetTestingModule();
+
+    const explicitNull = render(null, { sessionId: null });
+    fixture.componentRef.setInput('limits', null);
+    fixture.detectChanges();
+
+    expect(explicitNull.innerHTML).toBe(collapsedHtml);
+    expect(explicitNull.querySelector('ptah-limits-alert')).toBeNull();
+    expect(
+      explicitNull.querySelector('[data-testid="stats-lanes"]'),
+    ).toBeNull();
+    expect(expandedOrder).toEqual([
+      'Context',
+      'Tokens',
+      'Cost',
+      'Agents',
+      'stats-models-toggle',
+      'stats-collapse',
+    ]);
+  });
+
+  it('shows the limits alert as a status line above the chip strip (variant A)', () => {
+    const root = render(limitsFor(94), { sessionId: 'session-1' });
+    const alertHost = root.querySelector('ptah-limits-alert');
+    const status = root.querySelector('[role="status"]');
+
+    expect(status?.textContent?.replace(/\s+/g, ' ').trim()).toMatch(
+      /^Limits Near · 5-hour 94% · resets today 15:10 UTC$/,
+    );
+    expect(alertHost?.closest('.overflow-x-auto')).toBeNull();
+    expect(
+      alertHost?.nextElementSibling?.querySelector('.overflow-x-auto'),
+    ).not.toBeNull();
+  });
+
+  it('shows no alert when the session is not at or near the limit', () => {
+    const root = render(limitsFor(40), { sessionId: 'session-1' });
+
+    expect(root.querySelector('ptah-limits-alert')).toBeNull();
+  });
+
+  it('puts the LANES pill directly after Cost, titled as separate from totals', () => {
+    const root = render(limitsFor(40), { sessionId: 'session-1' });
+    const pill = root.querySelector('[data-testid="stats-lanes"]')
+      ?.parentElement as HTMLElement;
+
+    expect(pill.textContent?.replace(/\s+/g, '')).toBe('Lanes1');
+    expect(pill.title).toBe(
+      'Lane runs are counted separately from session totals',
+    );
+    expect(
+      pill.previousElementSibling?.querySelector('[data-testid="stats-cost"]'),
+    ).not.toBeNull();
+    // Lane usage never enters the session totals (Req 8).
+    expect(
+      root.querySelector('[data-testid="stats-tokens"]')?.textContent?.trim(),
+    ).toBe('14.9M');
+  });
+
+  it('appends plan, lane and subtotal tiles after the session cards in DOM order', () => {
+    const root = render(limitsFor(40), { sessionId: 'session-1' });
+    click(root, '[data-testid="stats-expand"]');
+    const grid = root.querySelector('.stats-cards') as HTMLElement;
+
+    expect(gridOrder(root)).toEqual([
+      'Context',
+      'Tokens',
+      'Cost',
+      'Agents',
+      'stats-models-toggle',
+      'plan-limit-tile',
+      'lane-usage-tile',
+      'lane-subtotal-tile',
+      'stats-collapse',
+    ]);
+    expect(grid.className).not.toContain('dense');
+    expect(grid.getAttribute('style') ?? '').not.toContain('dense');
+    // Every tile starts closed.
+    for (const button of Array.from(grid.querySelectorAll('[aria-expanded]'))) {
+      expect(button.getAttribute('aria-expanded')).toBe('false');
+    }
+  });
+
+  it('toggles a tile open and closed', () => {
+    const root = render(limitsFor(40), { sessionId: 'session-1' });
+    click(root, '[data-testid="stats-expand"]');
+
+    click(root, `[data-tile-id="${FIVE_HOUR_TILE}"] > button`);
+    expect(tileButton(root, FIVE_HOUR_TILE).getAttribute('aria-expanded')).toBe(
+      'true',
+    );
+
+    click(root, `[data-tile-id="${FIVE_HOUR_TILE}"] > button`);
+    expect(tileButton(root, FIVE_HOUR_TILE).getAttribute('aria-expanded')).toBe(
+      'false',
+    );
+  });
+
+  it('keeps an open tile open across a re-render and a limits push (F57)', () => {
+    const root = render(limitsFor(40), { sessionId: 'session-1' });
+    click(root, '[data-testid="stats-expand"]');
+    click(root, `[data-tile-id="${FIVE_HOUR_TILE}"] > button`);
+    click(root, '[data-testid="lane-usage-tile"]');
+
+    // A push: a new view-model object with new usage for the same tiles.
+    fixture.componentRef.setInput('limits', limitsFor(94));
+    fixture.detectChanges();
+    expect(tileButton(root, FIVE_HOUR_TILE).getAttribute('aria-expanded')).toBe(
+      'true',
+    );
+    expect(
+      tileButton(root, 'lane:codex:review').getAttribute('aria-expanded'),
+    ).toBe('true');
+
+    // A collapse/expand re-render destroys and recreates every tile.
+    click(root, '[data-testid="stats-collapse"]');
+    click(root, '[data-testid="stats-expand"]');
+    expect(tileButton(root, FIVE_HOUR_TILE).getAttribute('aria-expanded')).toBe(
+      'true',
+    );
+  });
+
+  it('keys the open state by session: another session starts closed', () => {
+    const root = render(limitsFor(40), { sessionId: 'session-1' });
+    click(root, '[data-testid="stats-expand"]');
+    click(root, `[data-tile-id="${FIVE_HOUR_TILE}"] > button`);
+
+    fixture.componentRef.setInput('sessionId', 'session-2');
+    fixture.detectChanges();
+    expect(tileButton(root, FIVE_HOUR_TILE).getAttribute('aria-expanded')).toBe(
+      'false',
+    );
+
+    fixture.componentRef.setInput('sessionId', 'session-1');
+    fixture.detectChanges();
+    expect(tileButton(root, FIVE_HOUR_TILE).getAttribute('aria-expanded')).toBe(
+      'true',
+    );
+  });
+
+  it('uses the view-provided expansion state when one is provided', () => {
+    const state = new StatsTileExpansionState();
+    const root = render(limitsFor(40), {
+      sessionId: 'session-1',
+      providers: [{ provide: StatsTileExpansionState, useValue: state }],
+    });
+    click(root, '[data-testid="stats-expand"]');
+    click(root, `[data-tile-id="${FIVE_HOUR_TILE}"] > button`);
+
+    expect(state.isOpen('session-1', FIVE_HOUR_TILE)).toBe(true);
+
+    // A choice made elsewhere in the same view is reflected here.
+    state.setOpen('session-1', 'lane:codex:review', true);
+    fixture.detectChanges();
+    expect(
+      tileButton(root, 'lane:codex:review').getAttribute('aria-expanded'),
+    ).toBe('true');
+  });
+
+  it('keeps the "Context" label', () => {
+    const root = render(limitsFor(40), { sessionId: 'session-1' });
+
+    expect(root.textContent).toContain('Context');
+    expect(root.textContent).not.toContain('Main context');
   });
 });
