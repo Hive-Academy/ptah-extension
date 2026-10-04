@@ -64,6 +64,8 @@ export interface ChatStartParams {
   surfaceMode?: boolean;
   /** Ptah MCP tool profile for this session. Absent means `coding`. */
   mcpToolProfile?: McpToolProfile;
+  /** Whether the Electron chat client can render `ptah-ui` blocks. */
+  ptahUiFence?: boolean;
   /** Additional options */
   options?: {
     model?: string;
@@ -156,6 +158,8 @@ export interface ChatContinueParams {
    * Absent means `coding`.
    */
   mcpToolProfile?: McpToolProfile;
+  /** Whether the Electron chat client can render `ptah-ui` blocks. */
+  ptahUiFence?: boolean;
 }
 
 /** Response from chat:continue RPC method */

@@ -159,6 +159,8 @@ export interface AISessionConfig {
    * `apps`. Read by `SdkQueryOptionsBuilder.buildMcpServers`.
    */
   readonly mcpToolProfile?: McpToolProfile;
+  /** Whether the Electron chat client can render `ptah-ui` blocks. */
+  readonly ptahUiFence?: boolean;
   readonly projectPath?: string;
   readonly workspaceId?: string;
   readonly maxTokens?: number;
