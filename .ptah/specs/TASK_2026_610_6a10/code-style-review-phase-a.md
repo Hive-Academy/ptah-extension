@@ -43,3 +43,33 @@ Score 7/10. Verdict REVISE (0 blocking, 3 serious, 4 minor). Scope: commits A1-A
 - Gate: reuses `assertEagerClosureKept` from `electron-only-chunks.js` and keeps its CommonJS style. The `staticClosure` BFS is nearly identical to `electron-only-chunks.js:154-166`, so export a shared `staticClosure` there instead of copying it. The spec `require`s the `.js` file via `eslint-disable no-require-imports`. That avoids the ts-jest `allowJs` warning. Fine, but the cast type is hand-maintained.
 - Boundary: the shared (leaf) to chat-ui to chat direction is respected. `transcript-turns.ts` sits in the chat lib next to `transcript-change-set-anchors`.
 - `CostBadge`/`DurationBadge`: `protected readonly formatUsdCost = formatUsdCost` is a reference assignment, not a template call. Fine, but see finding 1 for the remaining duplicates.
+
+---
+
+# Re-review round 1 (`git diff 36fb24ad9..6d27e3c4f`)
+
+Verdict: APPROVED (score 8/10). 0 blocking, 0 serious, 4 minor. I did not re-run diagnostics or tests.
+
+## Status of original findings
+
+| # | Original | Status | Evidence |
+|---|----------|--------|----------|
+| 1 | Four duplicate cost formatters | ACCEPTED-BY-DECISION (follow-up). The false JSDoc claim is CLOSED. | `usage-format.utils.ts:1,8` now reads "Shared formatter used by the chat cost/duration badge". The four copies remain at the original locations. |
+| 2 | Gate not wired; `--base` and allowlist dead | PARTIAL: wired, allowlist still dead. | `ci.yml:196-198` runs `npm run gate:eager-closure` in the build job. `package.json:70` still passes no `--base`, so `ALLOWED_EAGER_GROWTH_INPUTS` (`eager-closure-gate.js:22`) has no caller. See N1 and N2. |
+| 3 | Eager barrel growth, fixtures excluded | ACCEPTED-BY-DECISION | The fixtures are not barrelled. |
+| 4 | `_frozenTurnTestsAnchors` side effect | ACCEPTED-BY-DECISION | Copies `_frozenAnchors`; a shared helper is out of scope. |
+| 5 | Template method call `outcomeClass()` | CLOSED | `turn-tests-row.component.ts:~25-32` `OUTCOME_CLASS` lookup, `rows` computed at `~150`, template binds `row.cls`. The `track $index` rationale is documented. Spec covers class tokens. |
+| 6 | `role="status"` | CLOSED | Removed. The spec asserts no `role` and no `[aria-live]`. A plain `<section>` with `aria-label` is fine. The redundant `role="list"` was not addressed (still minor, kept for the Safari list-style reset). |
+| 7 | Baseline maintenance | MOSTLY CLOSED | The header now carries a regeneration command and the A7 spec checks only added host-source-shaped names. See N3 and N4. |
+
+## New findings
+
+N1. MINOR. `ci.yml:197`: `if: hashFiles('dist/apps/ptah-extension-webview/stats.json') != ''` makes the gate a silent no-op whenever `nx affected -t build` skips the webview, so a green check can mean "not run". Fix: add a step name or echo such as "gate skipped: no stats.json" (an `else` step), or build the webview unconditionally in that job.
+
+N2. MINOR. `package.json:70` plus `eager-closure-gate.js:22-29`: the base-compare mode and the growth allowlist are still unreachable from CI. Fix: either pass `--base` from a main-branch stats artifact or delete the allowlist and `--base` until used.
+
+N3. MINOR. `host-source-registry.baseline.ts:1-6`: the regeneration one-liner is about 700 chars and its output template writes the header without the command, so regenerating erases the instructions. Also the file keeps `"` quotes. Fix: move the generator to `scripts/gen-host-source-baseline.ts` (an npm script) and have the header say only `npm run ...`.
+
+N4. MINOR. `host-source-registry.contract.spec.ts:~17`: the weakened contract (regex `turn|recap|...|usage`, additions only) no longer detects removals. `usage` and `turn` are broad: an unrelated `usage:` RPC addition (for example license usage) will trip it. This is acceptable, but note in the spec header that removals are no longer pinned.
+
+Scope note: the same range also changes `ExecutionNode` (`node.ts:155` new `isError?`, `tool-node.fn.ts:227`) and `turn-tests.utils.ts`/`test-command-matcher.ts` (`hasMaskedTestCommandOutcome`). Style-wise the additions are consistent (readonly optional field, `import type`, no `any`). The `` `${character}${character}` as '&&' | '||' `` cast in `splitSegments` is a small contract-looseness smell, and the correctness side belongs to code-logic-reviewer.

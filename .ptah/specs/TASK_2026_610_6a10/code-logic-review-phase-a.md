@@ -87,3 +87,35 @@ Targeted runs (both green, so none of the defects below is caught by the existin
   - The `@defer` is lazy, and the A6 gate forbids `turn-recap` in the eager closure.
 - A late `session:turnEnded` cannot leave the row stale: the row is derived from finalized messages and the streaming boundary, and the reload spec at `:347` passes.
 - Requirements not met: Req 1.6, "outcome is accurate", by defect 1 (the row is accurate only for hand-built fixtures).
+
+## Re-review round 1 (`git diff 36fb24ad9..6d27e3c4f`)
+
+New verdict: APPROVED (score 8/10). No blocking or major defects remain. Two new minor items are below.
+
+### Original defects
+
+- 1 (failing test shown as passed): CLOSED.
+  - `tool-node.fn.ts:227` now copies `resultEvent?.isError` onto the node. `node.ts:155-156` adds the field.
+  - `turn-tests.utils.ts:22-30`: `isError === true` gives failed, `false` gives passed, and absent gives unknown. The conservative default is correct.
+  - `builders.spec.ts` builds the node from a real `tool_result` event with `isError: true`. This is the missing regression test.
+  - The fixture in `transcript-turns.spec.ts` now mirrors the builder.
+- Replay path (checked specifically): CLOSED, `isError` survives a reload.
+  - Backend: `agent-correlation.service.ts:280` sets `isError: block.is_error === true`. `session-replay.service.ts:370, 437` pass it into `createToolResult`, which sets it on the event (`history-event-factory.ts:240`).
+  - Frontend: `session-history-replayer.service.ts:209-217` feeds `processStreamEvent`, the same accumulator and `buildToolNode` as live streaming. Live events also set it (`user-message.transformer.ts:60`, `sdk-stream-processor.ts:244`).
+  - Retention keeps it: `execution-tree-retention.ts:302` spreads `...node`.
+  - The synthetic Task `tool_result` at `session-replay.service.ts:~432` hard-codes `false`, but it applies to Task nodes only, not Bash.
+- 2 (masked exits): CLOSED. `hasMaskedTestCommandOutcome` (`test-command-matcher.ts:~181-190`) returns true for a `|` or `||` tail, and `collectTurnTests` yields unknown, with a spec at `turn-tests.utils.spec.ts:69`.
+  - Residual: a command like `npm test; true` is not treated as masked. It is minor.
+- 3 (A5 spec tautological): CLOSED. The real `ChangeSetStore` is injected and seeded via the public push path, with positive controls and a negative control (`message-sender.host-data.spec.ts`).
+- 4 (A7 unbounded): CLOSED. `host-source-registry.contract.spec.ts:17-39` asserts only that no new host-source-shaped names were added. The pattern is sanity-tested against `foo:bar`.
+  - Residual: a deny-pattern check is a bounded guard, not an exact pin. It is acceptable.
+- 5 (role=status, method call): CLOSED. `turn-tests-row.component.ts` has no `role` and a precomputed `rows()` with a `cls` map. The spec asserts there is no `[role=status]` or `[aria-live]`.
+- 6 (try/catch): CLOSED. `turn-tests.utils.ts` has an `Array.isArray` guard only.
+- 7, 8 (incomplete flag too eager, frozen anchors) and 9 (race): unchanged. They were judged minor or no-fix, and they stay so.
+- 10 (gate vacuous pass): PARTIALLY CLOSED. CI now runs `gate:eager-closure` (`ci.yml:~196-199`). The webview build defaults to production with `statsJson` (`project.json:71, 93`), so the stats exist whenever it is affected. The `main.js` missing-entry check was not added. It is still minor.
+
+### New defects introduced by the fixes
+
+- N1 (minor). `libs/shared/src/lib/types/execution/schemas.ts:~58-64`: `ExecutionNodeSchema` has no `isError`, and a non-strict `z.object` strips unknown keys. A node parsed through this schema loses `isError`, so its run would show unknown. A grep finds no non-spec consumer today. Fix: add `isError: z.boolean().optional()` to the schema.
+- N2 (minor). `ci.yml:~196`: the `hashFiles(...) != ''` guard skips the gate silently if the stats file is not emitted, for example after a build config change. Fix: fail when the webview project is in the affected set and the stats file is missing.
+- Not a defect, but worth noting: other providers' adapters (for example the Codex and Copilot paths) that omit `isError` render unknown, which is truthful rather than wrong.

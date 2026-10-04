@@ -1,6 +1,10 @@
 # Batches - TASK_2026_610_6a10
 
-Total tasks: 51 (PR A + PR B) + PR C + 4 Phase A fixes + 5 AF5 hardening | Batches: 31 active (A 7 + AF1-AF5, B+C 19 incl. the merged final measurement M) + 4 blocked (D) | Complete: 28/31 (A1-A7, AF1, AF2, AF3, AF4, B1, B2, B3, B4, B5a, B5b, B6, B7, B8a, B8b, B8c, B9, B10, C1, C2a, C2b, C3) | Next: C4 ∥ AF5 (file-disjoint), then M (final measurement, replaces AM and BM)
+Total tasks: 51 (PR A + PR B) + PR C + 4 Phase A fixes + 5 AF5 hardening | Batches: 31 active (A 7 + AF1-AF5, B+C 19 incl. the merged final measurement M) + 4 blocked (D) | Complete: 30/31 (A1-A7, AF1, AF2, AF3, AF4, AF5 [AF5a + AF5b], B1, B2, B3, B4, B5a, B5b, B6, B7, B8a, B8b, B8c, B9, B10, C1, C2a, C2b, C3, C4) | Phase A: APPROVED (logic 8/10, style 8/10, re-review round 1)
+
+**Status 2026-10-05:** every implementation batch for PR A and PR B+C is done and committed. PR D (D1-D4) stays
+BLOCKED on TASK_2026_594. Next: (1) M, the final measurement (orchestrator running it now; base `f314a4f8a` vs head);
+(2) the Phase B+C review — code-logic, code-style and visual — on the combined B1-B10, C1-C4 and M diff.
 
 Worktree root: `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat` (branch
 `feat/task-610-a2ui-coding-chat`, HEAD = merge-base `f314a4f8a`, verified with `git merge-base`). Every path below is
@@ -346,8 +350,10 @@ Edge cases:
 
 - Reviews: `code-logic-review-phase-a.md` (5/10, REVISE) and `code-style-review-phase-a.md` (7/10, REVISE; 0
   blocking, 3 serious, 4 minor). Both REVISE findings are addressed by AF1-AF4 below.
-- Status: fix round COMPLETE; awaiting the one re-review by the same two reviewers, scoped to `8bf2836a6..6d27e3c4f`
-  (parent `36fb24ad9`).
+- Status: **Phase A APPROVED** (2026-10-05). Re-review round 1 by the same two reviewers, scoped to
+  `8bf2836a6..6d27e3c4f` (parent `36fb24ad9`): `code-logic-review-phase-a.md` 8/10 APPROVED and
+  `code-style-review-phase-a.md` 8/10 APPROVED. Their minors were taken as AF5 hardening (AF5a `72d4ddca2`, AF5b
+  `4fd4449e5`), not a second fix round.
 - Checks before commit (team-leader, 2026-10-04): `npx nx run-many -t typecheck,test,lint -p
   @ptah-extension/shared,@ptah-extension/chat-execution-tree,@ptah-extension/chat-ui --parallel=1` exit 0 (9/9
   targets; tests 2481 + 486 + 26 = 2993 passed); `npx jest -c libs/frontend/chat/jest.config.ts
@@ -393,7 +399,17 @@ Edge cases:
 
 ### Task AF4.1: CI gate step — COMPLETE
 
-## Batch AF5: hardening (Phase A re-review minors + review-dock flake) — PENDING
+## Batch AF5: hardening (Phase A re-review minors + review-dock flake) — COMPLETE (AF5a 72d4ddca2, AF5b 4fd4449e5)
+
+- Committed as two batches (2026-10-05): **AF5a** `72d4ddca2` = AF5.2, AF5.4, AF5.5 (shared schema `isError` +
+  `schemas.spec.ts`, `scripts/generate-host-source-registry-baseline.ts`, baseline header, contract spec pins
+  removals); report `batch-AF5a-report.md`. **AF5b** `4fd4449e5` = AF5.1, AF5.3 (gate fails without `main.js`, gate
+  spec 6 tests, review-dock spec mocks `chat-ui/ptah-ui` with a commented 20 s cold-test timeout); report
+  `batch-AF5b-report.md`.
+- Checks before commit: orchestrator ran full `shared` typecheck/test/lint (no cache) and the full `chat` test run,
+  both pass; team-leader ran `nx run-many -t typecheck,lint -p @ptah-extension/chat,@ptah-extension/agent-sdk,ptah-electron
+  --parallel=1` (6/6) and jest `eager-closure-gate.spec.ts` 6/6, `electron-shell.review-dock.spec.ts` with the
+  host-data spec 2 suites 5/5.
 
 - Source: Phase A re-review round 1 (`code-logic-review-phase-a.md`, `code-style-review-phase-a.md`, both
   APPROVED with minors) and the review-dock flake recorded at the B7+C2a commit (18f51a600).
@@ -404,7 +420,7 @@ Edge cases:
 - Depends on: AF4 (committed) | Runs in parallel with C4 (file-disjoint, confirmed under C4)
 - Phase: A (hardening) | Phase review: code-logic, scoped to the AF5 diff
 
-### Task AF5.1: review-dock cold-load flake — PENDING
+### Task AF5.1: review-dock cold-load flake — COMPLETE (AF5b)
 
 - File: `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\frontend\chat\src\lib\components\templates\electron-shell.review-dock.spec.ts`
 - Mock the lazy `@ptah-extension/chat-ui/ptah-ui` entry in this spec (preferred), or raise the test timeout with a
@@ -412,27 +428,27 @@ Edge cases:
   loads before the dock opens.
 - Verify: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/chat --parallel=1`, full suite, with zero failures.
 
-### Task AF5.2: `isError` in `ExecutionNodeSchema` (logic N1) — PENDING
+### Task AF5.2: `isError` in `ExecutionNodeSchema` (logic N1) — COMPLETE (AF5a)
 
 - File: `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\shared\src\lib\types\execution\schemas.ts`
   (object at about :53-75; `isError` is on `ExecutionNode`, `node.ts:155-156`, since AF1)
 - Add `isError: z.boolean().optional()` and a schema spec case that keeps the value through a parse.
 - Verify: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/shared`
 
-### Task AF5.3: eager-closure gate fails without `main.js` (logic N2 / style N2) — PENDING
+### Task AF5.3: eager-closure gate fails without `main.js` (logic N2 / style N2) — COMPLETE (AF5b)
 
 - Files: `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\scripts\eager-closure-gate.js`,
   `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\apps\ptah-electron\src\config\eager-closure-gate.spec.ts`
 - Exit non-zero with a clear message when `main.js` is not found in the stats, and add a spec case for it.
 
-### Task AF5.4: baseline regeneration script (style N3) — PENDING
+### Task AF5.4: baseline regeneration script (style N3) — COMPLETE (AF5a)
 
 - Files: CREATE a script under `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\scripts\`
   that holds the regeneration one-liner, and MODIFY
   `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\shared\src\lib\types\rpc\host-source-registry.baseline.ts`
   so its header references that script.
 
-### Task AF5.5: A7 check pins removals (style N4) — PENDING
+### Task AF5.5: A7 check pins removals (style N4) — COMPLETE (AF5a)
 
 - Depends on: AF5.4 (same lane)
 - File: `D:\projects\ptah-extension\.claude-worktrees\task-610-a2ui-coding-chat\libs\shared\src\lib\types\rpc\host-source-registry.contract.spec.ts`
@@ -1081,7 +1097,11 @@ files they extend. Phase: B+C.
   (was 99); `references\ptah-ui.md` and the manifest unchanged by C3 (manifest committed with B10). Report:
   `batch-C3-report.md`.
 
-## Batch C4: fence-bound sentinels — PENDING (NEXT; runs in parallel with AF5)
+## Batch C4: fence-bound sentinels — COMPLETE (d056195dd)
+
+- Committed 2026-10-05; report `batch-C4-report.md`. The orchestrator removed a wrong assertion (the system hint must
+  not be required to carry the prior fence) and noted it in the report. Checks: chat + agent-sdk + ptah-electron
+  typecheck/lint 6/6; jest backend host-data 2/2, frontend host-data 3/3.
 
 - Executor: codex lane | Depends on: C2a (committed 18f51a600)
 - File-disjoint from AF5 (confirmed 2026-10-04): C4 writes only the two `*.host-data.spec.ts` files below. AF5
