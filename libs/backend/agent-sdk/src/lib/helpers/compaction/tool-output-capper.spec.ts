@@ -178,7 +178,15 @@ describe('ToolOutputCapper', () => {
 
     expect(result.type).toBe('text');
     expect(result.file.filePath).toBe(filePath);
-    expect(result.file.numLines).toBe(result.file.content.split('\n').length);
+    // Outline lines only: the "\n\n[outline: ...]" trailer is not counted.
+    const outlineBody = result.file.content.slice(
+      0,
+      result.file.content.lastIndexOf('\n\n[outline: '),
+    );
+    expect(result.file.numLines).toBe(outlineBody.split('\n').length);
+    expect(result.file.numLines).toBe(
+      result.file.content.split('\n').length - 2,
+    );
     expect(result.file.numLines).toBeLessThan(300);
     expect(result.file.startLine).toBe(1);
     expect(result.file.totalLines).toBe(300);

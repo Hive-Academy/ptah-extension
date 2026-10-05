@@ -299,6 +299,24 @@ describe('PostToolUseHookHandler', () => {
       expect(await run(cap, makeLogger())).toEqual({ continue: true });
     });
 
+    it('a hook called without options never throws and is never treated as aborted', async () => {
+      const logger = makeLogger();
+      const cap = jest
+        .fn()
+        .mockImplementation(async (_n: string, _i: unknown, r: unknown) => r);
+      const handler = new PostToolUseHookHandler(
+        logger,
+        new PostToolUseCallbackRegistry(logger),
+        { cap } as never,
+      );
+      const hook = getHookCallback(handler, 'sess-1', '/ws') as unknown as (
+        input: HookInput,
+        toolUseId: string | undefined,
+      ) => Promise<unknown>;
+      expect(await hook(input, undefined)).toEqual({ continue: true });
+      expect(cap).toHaveBeenCalledTimes(1);
+    });
+
     it('fails open when the capper throws', async () => {
       const logger = makeLogger();
       const cap = jest.fn().mockRejectedValue(new Error('boom'));

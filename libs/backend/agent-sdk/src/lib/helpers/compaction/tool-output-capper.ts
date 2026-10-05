@@ -310,7 +310,17 @@ export class ToolOutputCapper {
       // count. `totalLines` stays the real file length. Only keys the response
       // already had are touched.
       if ('startLine' in file) nextFile['startLine'] = 1;
-      if ('numLines' in file) nextFile['numLines'] = next.split('\n').length;
+      if ('numLines' in file) {
+        // Outline lines only: the trailer is not part of the file's lines.
+        const trailerAt = next.lastIndexOf(`${TRAILER_SEPARATOR}[outline: `);
+        const outline =
+          trailerAt >= 0
+            ? next.slice(0, trailerAt)
+            : next.startsWith('[outline: ')
+              ? ''
+              : next;
+        nextFile['numLines'] = outline === '' ? 0 : outline.split('\n').length;
+      }
     }
     return { ...toolResponse, file: nextFile };
   }
