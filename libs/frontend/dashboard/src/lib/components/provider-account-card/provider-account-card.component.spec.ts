@@ -59,6 +59,7 @@ const snapshotOf = (...owners: PlanLimitOwnerSnapshot[]): PlanLimitsSnapshot => 
 interface FakeStore {
   snapshot: WritableSignal<PlanLimitsSnapshot | null>;
   loading: WritableSignal<boolean>;
+  loadError: WritableSignal<boolean>;
   now: WritableSignal<number>;
   load: jest.Mock;
 }
@@ -72,6 +73,7 @@ describe('ProviderAccountCardComponent', () => {
     store = {
       snapshot: signal(snapshot),
       loading: signal(false),
+      loadError: signal(false),
       now: signal(NOW),
       load: jest.fn().mockResolvedValue(undefined),
     };
@@ -304,6 +306,14 @@ describe('ProviderAccountCardComponent', () => {
     expect(textOf(el)).toContain('cli-version-unsupported · Usage cannot be read');
   });
 
+  it('16b. the header wraps at narrow width: the status chip never truncates or overlaps the title', () => {
+    const el = render(snapshotOf(owner('antigravity', 'Claude account', { status: 'service-unavailable' })));
+    const header = el.querySelector('[data-testid="section-header"]') as HTMLElement;
+    expect(header.className).toContain('flex-wrap');
+    expect(header.firstElementChild?.className).toContain('min-w-0');
+    expect(el.querySelector('[data-testid="status-chip"]')?.className).toContain('whitespace-nowrap');
+  });
+
   // ---- ledger-only and informational evidence ----
 
   it('a ledger-only owner with no open session shows past evidence, not a read failure', () => {
@@ -394,6 +404,102 @@ describe('ProviderAccountCardComponent', () => {
         usedSource: 'provider-api', resetsAt: NOW + 2 * HOUR, resetSource: 'provider-api', lastResetAt: NOW - HOUR })],
     })), 'en-GB');
     expect(textOf(el)).toContain(`Resets ${at(NOW + 2 * HOUR, 'en-GB')}`);
+  });
+
+  describe('failed refresh while data is held', () => {
+    const notice = (el: HTMLElement) => el.querySelector<HTMLElement>('[data-testid="refresh-failed"]');
+    const held = () =>
+      snapshotOf(
+        owner('anthropic', 'Claude account', {
+          windows: [
+            win({ key: 'five_hour', kind: 'five_hour', label: '5-hour session', used: { kind: 'percent', percent: 10 },
+              usedSource: 'provider-api', resetsAt: NOW + 2 * HOUR, resetSource: 'provider-api', lastResetAt: NOW - HOUR,
+              observedAt: NOW - 30 * MIN }),
+          ],
+        }),
+        owner('openai-codex', 'Codex account', {
+          windows: [win({ key: 'primary', label: 'Primary', observedAt: NOW - 3 * HOUR })],
+        }),
+      );
+
+    it('shows a neutral status notice with the newest observation in local time, above the kept sections', () => {
+      const el = render(held());
+      expect(notice(el)).toBeNull();
+
+      store.loadError.set(true);
+      fixture.detectChanges();
+      const line = notice(el);
+      expect(line?.getAttribute('role')).toBe('status');
+      expect(textOf(line)).toBe(`Refresh failed — showing last observed data (observed ${abs(NOW - 30 * MIN)})`);
+      expect(line?.className).toContain('text-base-content-muted');
+      expect(line?.className).toContain('border-info');
+      expect(line?.className).not.toMatch(/border-(warning|error)|text-(warning|error)/);
+      expect(line?.nextElementSibling?.getAttribute('data-testid')).toBe('provider-account-section');
+      expect(sections(el)).toHaveLength(2);
+    });
+
+    it('keeps the age-based window states unchanged', () => {
+      const el = render(held());
+      const before = rows(el).map((r) => textOf(r));
+      store.loadError.set(true);
+      fixture.detectChanges();
+      expect(rows(el).map((r) => textOf(r))).toEqual(before);
+    });
+
+    it('hides the notice once a load or push succeeds', () => {
+      const el = render(held());
+      store.loadError.set(true);
+      fixture.detectChanges();
+      expect(notice(el)).not.toBeNull();
+      store.loadError.set(false);
+      fixture.detectChanges();
+      expect(notice(el)).toBeNull();
+    });
+
+    it('is not shown when nothing is held: the empty placeholder covers that', () => {
+      const el = render(snapshotOf());
+      store.loadError.set(true);
+      fixture.detectChanges();
+      expect(notice(el)).toBeNull();
+      expect(textOf(el.querySelector('[data-testid="usage-unavailable"]'))).toBe('Account usage unavailable');
+    });
+
+    it('through the real store: a failed Refresh shows the notice, a later push clears it', async () => {
+      const good = snapshotOf(owner('anthropic', 'Claude account', {
+        windows: [win({ key: 'five_hour', kind: 'five_hour', label: '5-hour session', observedAt: NOW - 30 * MIN })],
+      }));
+      const rpc = { call: jest.fn().mockResolvedValue(new RpcResult(true, good)) };
+      TestBed.configureTestingModule({
+        imports: [ProviderAccountCardComponent],
+        providers: [
+          { provide: ClaudeRpcService, useValue: rpc },
+          { provide: AuthStateService, useValue: { persistedProviderId: signal('anthropic') } },
+        ],
+      });
+      const real = TestBed.createComponent(ProviderAccountCardComponent);
+      const flush = async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        real.detectChanges();
+      };
+      real.detectChanges();
+      await flush();
+      const el = real.nativeElement as HTMLElement;
+      expect(notice(el)).toBeNull();
+
+      rpc.call.mockResolvedValueOnce(new RpcResult(false, undefined, 'boom'));
+      el.querySelector<HTMLButtonElement>('button[type="button"]')?.click();
+      await flush();
+      expect(textOf(notice(el))).toMatch(/^Refresh failed — showing last observed data \(observed /);
+      expect(sections(el)).toHaveLength(1);
+
+      TestBed.inject(PlanLimitsStore).handleMessage({
+        type: 'planLimits:changed',
+        payload: { ...good, generatedAt: NOW + MIN },
+      });
+      real.detectChanges();
+      expect(notice(el)).toBeNull();
+      real.destroy();
+    });
   });
 
   it('through the real store: the effect requests provider:getPlanLimits for the selected provider', async () => {

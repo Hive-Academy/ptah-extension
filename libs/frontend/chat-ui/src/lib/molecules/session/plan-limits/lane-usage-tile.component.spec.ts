@@ -254,6 +254,76 @@ describe('LaneUsageTileComponent', () => {
     expect(root.textContent).not.toMatch(/\b0 tokens|\$0\.00/);
   });
 
+  it('a restored lane of a last-known owner: the face agrees with its panel', () => {
+    const CLAUDE_B: QuotaOwnerRef = { ...CLAUDE_A, key: 'claude-cli#account:bbb' };
+    const vm = buildStatsLimitViewModel({
+      sessionId: 'session-1',
+      sessionOwnerKey: CLAUDE_A.key,
+      sessionModelScope: null,
+      owners: [
+        {
+          owner: CLAUDE_A,
+          status: 'available',
+          windowSetEstablished: true,
+          windows: [],
+          ownerEvidence: [],
+        },
+        {
+          owner: CLAUDE_B,
+          status: 'service-unavailable',
+          windowSetEstablished: false,
+          windows: [
+            {
+              key: 'weekly',
+              kind: 'weekly',
+              label: 'Weekly',
+              used: { kind: 'percent', percent: 60 },
+              usedSource: 'provider-api',
+              resetsAt: NOW + 3 * 86_400_000,
+              resetSource: 'provider-api',
+              lastResetAt: NOW - 4 * 86_400_000,
+              observedAt: NOW - 60_000,
+            },
+          ],
+          ownerEvidence: [],
+        },
+      ],
+      laneRuns: [
+        {
+          runId: 'run-r',
+          cli: 'ptah-cli',
+          cliLabel: 'Ptah CLI',
+          role: null,
+          model: null,
+          modelScope: null,
+          status: 'completed',
+          restored: true,
+          startedAt: NOW - 3_600_000,
+          quotaOwner: CLAUDE_B,
+          usageTotals: null,
+        },
+      ],
+      now: NOW,
+      time: UTC,
+    });
+    const root = render(vm.laneTiles[0], true);
+
+    expect(face(root).textContent).toContain('Ptah CLI');
+    expect(text(root, 'lane-limit-chip')).toContain(
+      'Last known · Weekly 60% used',
+    );
+    expect(face(root).textContent).not.toContain('Limit unknown');
+    expect(root.textContent).toContain('Different owner · Claude account');
+    expect(root.textContent).toContain('showing its last-known evidence');
+  });
+
+  it('draws a focus ring in base-content, which reaches 3:1 in both themes', () => {
+    const root = render(laneTile());
+
+    expect(face(root).className).toContain('focus-visible:outline-base-content');
+    expect(face(root).className).not.toContain('outline-info');
+  });
+
   it('marks the live run chip with a reduced-motion-safe dot', () => {
     const root = render(laneTile());
     const dot = root.querySelector(

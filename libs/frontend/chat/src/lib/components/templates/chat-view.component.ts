@@ -5,6 +5,7 @@ import {
   computed,
   viewChild,
   ChangeDetectionStrategy,
+  DestroyRef,
   effect,
   afterRenderEffect,
   untracked,
@@ -78,16 +79,29 @@ import { isCompactViewMode } from '@ptah-extension/chat-types';
 import { SessionId } from '@ptah-extension/shared';
 import type {
   ChatSessionSummary,
+  CliType,
   LocalTimeOptions,
   SubagentRecord,
   MessageAnchorHint,
 } from '@ptah-extension/shared';
 
+/** Product names of the lane CLIs, for runs that carry no display name. */
+const CLI_LABELS: Readonly<Record<CliType, string>> = {
+  codex: 'Codex',
+  copilot: 'Copilot',
+  cursor: 'Cursor',
+  antigravity: 'Antigravity',
+  opencode: 'OpenCode',
+  pi: 'Pi',
+  'ptah-cli': 'Ptah CLI',
+};
+
 /**
  * Map one lane run to the stats limit view-model input (TASK_2026_596,
  * Component 15). Every field comes from the run record; nothing is guessed.
  * - `restored` is the flag `loadCliSessions` sets, never inferred from status.
- * - `cliLabel` is the agent card's own display name.
+ * - `cliLabel` is the agent card's own display name; a run without one (a
+ *   restored run) gets the CLI's product name, never the raw id.
  * - `modelScope` is `null`: a run record carries no backend-resolved scope,
  *   and the UI never derives one from the model id string.
  * - `quotaOwner` and `usageTotals` pass through; absent or `null` reads
@@ -97,7 +111,7 @@ export function toStatsLimitLaneRun(agent: MonitoredAgent): StatsLimitLaneRun {
   return {
     runId: agent.agentId,
     cli: agent.cli,
-    cliLabel: agent.displayName || agent.cli,
+    cliLabel: agent.displayName || CLI_LABELS[agent.cli],
     role: agent.role ?? null,
     model: agent.usageTotals?.model ?? agent.model ?? null,
     modelScope: null,
@@ -846,6 +860,10 @@ export class ChatViewComponent implements OnDestroy {
   });
 
   private readonly _planLimits = inject(PlanLimitsStore);
+  /** This surface's share of the plan-limits request; released on destroy. */
+  private readonly _planLimitsScope = this._planLimits.registerScope(
+    inject(DestroyRef),
+  );
 
   /** Explicit zone and zone-name locale for reset times; never a fixed UTC. */
   private readonly _limitTime: LocalTimeOptions = {
@@ -856,11 +874,14 @@ export class ChatViewComponent implements OnDestroy {
   /**
    * Lane runs of this surface's own session only (F58). Unlike
    * {@link sessionAgents}, the main panel with no session gets none, never
-   * every session's runs.
+   * every session's runs, and a lane whose parent session is not resolved yet
+   * is in no session's quota or lane tiles (exact parent match only).
    */
   private readonly sessionLaneRuns = computed<readonly MonitoredAgent[]>(() => {
     const sessionId = this.resolvedSessionId();
-    return sessionId ? this.agentMonitorStore.agentsForSession(sessionId) : [];
+    return sessionId
+      ? this.agentMonitorStore.agentsOwnedBySession(sessionId)
+      : [];
   });
 
   /**
@@ -892,6 +913,7 @@ export class ChatViewComponent implements OnDestroy {
       laneRuns: this.sessionLaneRuns().map(toStatsLimitLaneRun),
       now: this._planLimits.now(),
       time: this._limitTime,
+      refreshFailed: this._planLimits.loadError(),
     });
   });
 
@@ -1053,15 +1075,15 @@ export class ChatViewComponent implements OnDestroy {
       });
     });
 
-    // Point the plan-limits host at this surface's session and the owners its
-    // runs recorded. The store keeps any field a call omits, so both are
-    // always sent — `[]` when no session is open — or a closed session would
-    // stay in the host's push scope.
+    // Name this surface's session and the owners its runs recorded in its own
+    // plan-limits scope. The store asks the host for the union of every live
+    // surface's scope, so a sibling grid pane (or this pane with no session,
+    // `[]`) never erases another pane's sessions.
     effect(() => {
       const sessionId = this.resolvedSessionId();
       const ownerKeys = this.sessionRunOwnerKeys();
       untracked(() => {
-        void this._planLimits.load({
+        void this._planLimitsScope.update({
           sessionIds: sessionId ? [sessionId] : [],
           ownerKeys: [...ownerKeys],
         });

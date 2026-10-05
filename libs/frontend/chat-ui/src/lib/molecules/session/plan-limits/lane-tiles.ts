@@ -17,6 +17,7 @@ import {
   type LaneLimitState,
   type LaneStateReason,
   type LaneStateResult,
+  type OwnerLimitEvidence,
   type PlanLimitOwnerSnapshot,
   type PlanWindowBlockingState,
   type QuotaOwnerIdentityKind,
@@ -155,6 +156,8 @@ function subgroupKey(run: StatsLimitLaneRun): string {
 
 interface EvaluatedSubgroup {
   readonly state: LaneLimitState;
+  /** The face chip: the state chip, or the last-known chip (see below). */
+  readonly chip: StatsChip;
   readonly faceSources: readonly string[];
   readonly runs: readonly StatsLimitLaneRun[];
   readonly model: LaneSubgroupModel;
@@ -187,6 +190,7 @@ function laneSubgroup(
     const status: LaneOwnerStatus = owner ? 'undetermined' : 'not-recorded';
     return {
       state: 'unknown',
+      chip: LANE_STATE_CHIPS.unknown,
       faceSources: [],
       runs,
       model: {
@@ -238,9 +242,19 @@ function laneSubgroup(
       }
     }
   }
-  const evidenceLines = (limits?.ownerEvidence ?? [])
-    .filter((evidence) => !(same && session.renderedEvidence.has(evidence)))
-    .map((evidence) => evidenceLine(evidence, ctx));
+  const shownEvidence = (limits?.ownerEvidence ?? []).filter(
+    (evidence) => !(same && session.renderedEvidence.has(evidence)),
+  );
+  const evidenceLines = shownEvidence.map((evidence) =>
+    evidenceLine(evidence, ctx),
+  );
+  // An unknown lane whose own owner has no current read shows that owner's
+  // last-known values on its face, the same decision as the panel note.
+  const lastKnown =
+    result.state === 'unknown' && showsLastKnownEvidence(snapshot, same)
+      ? lastKnownFace(windows, shownEvidence)
+      : undefined;
+  const chip = lastKnown?.chip ?? LANE_STATE_CHIPS[result.state];
   const cooldown =
     limits && !same ? activeCooldown(limits, ctx.now) : undefined;
   const ownerText =
@@ -253,7 +267,8 @@ function laneSubgroup(
           : `Unknown owner · this session's account is not resolved; showing ${owner.label} only`;
   return {
     state: result.state,
-    faceSources: faceSources(result),
+    chip,
+    faceSources: lastKnown?.sources ?? faceSources(result),
     runs,
     model: {
       ...base,
@@ -266,7 +281,7 @@ function laneSubgroup(
             : 'Unknown owner',
       ownerText,
       state: result.state,
-      stateChip: LANE_STATE_CHIPS[result.state],
+      stateChip: chip,
       planTileChips,
       windows,
       evidenceLines,
@@ -306,9 +321,64 @@ function faceSources(result: LaneStateResult): string[] {
 }
 
 /**
- * The owner's status as an explanatory note. A ledger-only owner
- * (`service-unavailable`, with or without `no-open-session`) is last-known
- * evidence, never a live failure; a same-owner status is on the plan tiles.
+ * Whether a lane's own owner is shown from its last-known evidence: a
+ * ledger-only owner (`service-unavailable`, with or without
+ * `no-open-session`) of another account. Used by the panel note and the face
+ * so the two never disagree; a same-owner status is on the plan tiles.
+ */
+function showsLastKnownEvidence(
+  snapshot: PlanLimitOwnerSnapshot | undefined,
+  same: boolean,
+): boolean {
+  return (
+    snapshot !== undefined &&
+    !same &&
+    snapshot.status === 'service-unavailable'
+  );
+}
+
+/**
+ * The face of a lane shown from last-known evidence: the most-used window
+ * with a known value, else the owner's own evidence. The lane state stays
+ * `unknown` (no room is confirmed); only the face wording follows the panel.
+ * `undefined` when the panel holds no known value, so the face keeps
+ * "Limit unknown".
+ */
+function lastKnownFace(
+  windows: readonly PlanWindowDetailModel[],
+  evidence: readonly OwnerLimitEvidence[],
+): { chip: StatsChip; sources: readonly string[] } | undefined {
+  const known = windows.filter((window) => window.percent !== undefined);
+  if (known.length > 0) {
+    const top = known.reduce((max, window) =>
+      (window.percent ?? 0) > (max.percent ?? 0) ? window : max,
+    );
+    return {
+      chip: {
+        tone: 'neutral',
+        glyph: '◷',
+        text: `Last known · ${top.label} ${top.usedText}`,
+      },
+      sources: top.sourceChips,
+    };
+  }
+  if (evidence.length > 0) {
+    return {
+      chip: {
+        tone: 'neutral',
+        glyph: '◷',
+        text: 'Last known · limit evidence',
+      },
+      sources: [...new Set(evidence.flatMap(evidenceSources))],
+    };
+  }
+  return undefined;
+}
+
+/**
+ * The owner's status as an explanatory note. A ledger-only owner is
+ * last-known evidence (`showsLastKnownEvidence`), never a live failure; a
+ * same-owner status is on the plan tiles.
  */
 function ownerStatusNote(
   snapshot: PlanLimitOwnerSnapshot | undefined,
@@ -321,18 +391,19 @@ function ownerStatusNote(
       text: 'No limit data for this account · treated as unknown, never as room',
     };
   }
+  if (showsLastKnownEvidence(snapshot, same)) {
+    return {
+      tone: 'info',
+      text:
+        snapshot.unavailableReason === 'no-open-session'
+          ? 'No open session for this account · showing its last-known evidence'
+          : 'No current read for this account · showing its last-known evidence',
+    };
+  }
   if (same) return undefined;
   switch (snapshot.status) {
     case 'available':
       return undefined;
-    case 'service-unavailable':
-      return {
-        tone: 'info',
-        text:
-          snapshot.unavailableReason === 'no-open-session'
-            ? 'No open session for this account · showing its last-known evidence'
-            : 'No current read for this account · showing its last-known evidence',
-      };
     case 'unsupported-auth':
       return {
         tone: 'neutral',
@@ -454,35 +525,47 @@ const FACE_ORDER: readonly LaneLimitState[] = [
   'confirmed-room',
 ];
 
-/** The face: one chip per distinct state, with affected-run wording. */
+/**
+ * The face: one chip per distinct face chip (a state, or a last-known
+ * value), in state order, with affected-run wording when there are several.
+ */
 function laneFaceChips(
   subgroups: readonly EvaluatedSubgroup[],
   total: number,
 ): LaneFaceChipModel[] {
-  const byState = new Map<
-    LaneLimitState,
-    { runs: StatsLimitLaneRun[]; sources: Set<string> }
+  const byChip = new Map<
+    string,
+    {
+      state: LaneLimitState;
+      chip: StatsChip;
+      runs: StatsLimitLaneRun[];
+      sources: Set<string>;
+    }
   >();
   for (const group of subgroups) {
-    const entry = byState.get(group.state) ?? {
+    const entry = byChip.get(group.chip.text) ?? {
+      state: group.state,
+      chip: group.chip,
       runs: [],
       sources: new Set<string>(),
     };
     entry.runs.push(...group.runs);
     group.faceSources.forEach((source) => entry.sources.add(source));
-    byState.set(group.state, entry);
+    byChip.set(group.chip.text, entry);
   }
-  return FACE_ORDER.flatMap((state) => {
-    const entry = byState.get(state);
-    if (!entry) return [];
-    const base = LANE_STATE_CHIPS[state];
-    const models = entry.runs.map((run) => run.model || 'unknown model');
-    const text =
-      byState.size > 1
-        ? `${base.text} · ${entry.runs.length} of ${total} runs (${models.join(', ')})`
-        : base.text;
-    return [{ chip: { ...base, text }, sourceChips: [...entry.sources] }];
-  });
+  return [...byChip.values()]
+    .sort((a, b) => FACE_ORDER.indexOf(a.state) - FACE_ORDER.indexOf(b.state))
+    .map((entry) => {
+      const models = entry.runs.map((run) => run.model || 'unknown model');
+      const text =
+        byChip.size > 1
+          ? `${entry.chip.text} · ${entry.runs.length} of ${total} runs (${models.join(', ')})`
+          : entry.chip.text;
+      return {
+        chip: { ...entry.chip, text },
+        sourceChips: [...entry.sources],
+      };
+    });
 }
 
 // ------------------------------------------------------------- run usage

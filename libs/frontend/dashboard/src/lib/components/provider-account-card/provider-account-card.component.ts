@@ -136,14 +136,28 @@ const STATUS_SENTENCES: Partial<Record<ProviderAccountUsageStatus, string>> = {
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (sections(); as list) {
+      @if (refreshNotice(); as notice) {
+        <p
+          role="status"
+          class="mb-2 border-l-2 border-info pl-2 text-xs text-base-content-muted"
+          data-testid="refresh-failed"
+        >
+          {{ notice }}
+        </p>
+      }
       @for (section of list; track section.key) {
         <section
           class="rounded-lg border border-base-content/10 bg-base-100/40 p-3"
           [attr.aria-label]="section.label + ' usage'"
           data-testid="provider-account-section"
         >
-          <div class="flex items-start justify-between gap-3">
-            <div class="min-w-0">
+          <div
+            class="flex flex-wrap items-start justify-between gap-x-3 gap-y-1"
+            data-testid="section-header"
+          >
+            <!-- A 5rem basis, not the subtitle's full width, decides when the
+                 chip group wraps below: only when the title would get less. -->
+            <div class="min-w-0 flex-1 basis-20">
               <h4 class="font-medium text-sm">{{ section.label }}</h4>
               <p class="text-[10px] text-base-content-muted">
                 {{ section.subtitle }}
@@ -152,7 +166,7 @@ const STATUS_SENTENCES: Partial<Record<ProviderAccountUsageStatus, string>> = {
             <div class="flex items-center gap-1.5 shrink-0">
               @if (section.statusChip; as status) {
                 <span
-                  class="text-[11px] px-1.5 rounded border border-dashed border-base-content/20"
+                  class="text-[11px] px-1.5 rounded border border-dashed border-base-content/20 whitespace-nowrap"
                   data-testid="status-chip"
                   >{{ status }}</span
                 >
@@ -361,6 +375,22 @@ export class ProviderAccountCardComponent {
     },
   );
 
+  /**
+   * Neutral notice while a failed pull leaves the last snapshot in place;
+   * `null` after a good pull or push, and when no owner is held (the empty
+   * placeholder renders "Account usage unavailable" instead).
+   */
+  protected readonly refreshNotice = computed<string | null>(() => {
+    if (!this.planLimits.loadError()) return null;
+    const snapshot = this.planLimits.snapshot();
+    if (snapshot === null) return null;
+    return refreshFailedNotice(
+      snapshot,
+      this.planLimits.now(),
+      this.timeOptions,
+    );
+  });
+
   private readonly providerWatcher = effect(() => {
     const providerId = this.auth.persistedProviderId();
     untracked(() => void this.planLimits.load({ providerId }));
@@ -440,6 +470,34 @@ export function buildOwnerSections(
   return [...selected, ...others].map((owner) =>
     buildOwnerSection(owner, now, time),
   );
+}
+
+/**
+ * "Refresh failed — showing last observed data", with the newest host
+ * observation among the held owners. `null` when no owner is held. Window
+ * states keep their own age-based classification.
+ */
+export function refreshFailedNotice(
+  snapshot: PlanLimitsSnapshot,
+  now: number,
+  time: LocalTimeOptions,
+): string | null {
+  if (snapshot.owners.length === 0) return null;
+  let newest: number | undefined;
+  for (const owner of snapshot.owners) {
+    const instants = [
+      ...owner.windows.map(windowObservedAt),
+      ...owner.ownerEvidence.map((evidence) => evidence.observedAt),
+    ];
+    for (const instant of instants) {
+      if (Number.isFinite(instant) && (newest === undefined || instant > newest)) {
+        newest = instant;
+      }
+    }
+  }
+  return newest === undefined
+    ? 'Refresh failed — showing last observed data'
+    : `Refresh failed — showing last observed data (observed ${formatLocalAbsolute(newest, now, time)})`;
 }
 
 function buildOwnerSection(

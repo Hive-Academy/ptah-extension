@@ -623,6 +623,81 @@ describe('buildStatsLimitViewModel', () => {
       expect(vm.laneTiles[0].tone).toBe('neutral');
     });
 
+    it('(i) the face of a last-known owner shows its own last-known value, never "Limit unknown" (G3)', () => {
+      const past = snapshot(CLAUDE_B, {
+        status: 'service-unavailable',
+        windowSetEstablished: false,
+        windows: [
+          planWindow({ used: { kind: 'percent', percent: 20 } }),
+          weekly({ used: { kind: 'percent', percent: 60 } }),
+        ],
+      });
+      const vm = buildStatsLimitViewModel(
+        input({
+          // The session owner A has a weekly window at 40%; it is never borrowed.
+          owners: [snapshot(CLAUDE_A), past],
+          laneRuns: [
+            run({ restored: true, usageTotals: null, quotaOwner: CLAUDE_B }),
+          ],
+        }),
+      );
+      const group = onlySubgroup(vm);
+      const lastKnown = {
+        tone: 'neutral',
+        glyph: '◷',
+        text: 'Last known · Weekly 60% used',
+      };
+      // No room is confirmed: the state stays unknown, only the wording follows the panel.
+      expect(group.state).toBe('unknown');
+      expect(group.stateChip).toEqual(lastKnown);
+      expect(vm.laneTiles[0].limitChips).toEqual([
+        { chip: lastKnown, sourceChips: ['Provider API'] },
+      ]);
+      expect(vm.laneTiles[0].tone).toBe('neutral');
+    });
+
+    it('(i) a last-known owner with only expired evidence names it on the face', () => {
+      const past = snapshot(CLAUDE_B, {
+        status: 'service-unavailable',
+        windowSetEstablished: false,
+        windows: [],
+        ownerEvidence: [
+          {
+            observedAt: NOW - 3 * DAY,
+            source: 'error-derived',
+            resetsAt: NOW - DAY,
+          },
+        ],
+      });
+      const vm = buildStatsLimitViewModel(
+        input({
+          owners: [snapshot(CLAUDE_A), past],
+          laneRuns: [run({ quotaOwner: CLAUDE_B })],
+        }),
+      );
+      expect(vm.laneTiles[0].limitChips.map((face) => face.chip.text)).toEqual(
+        ['Last known · limit evidence'],
+      );
+      expect(onlySubgroup(vm).state).toBe('unknown');
+    });
+
+    it('(i) a last-known owner with an unknown value keeps "Limit unknown" on the face', () => {
+      const past = snapshot(CLAUDE_B, {
+        status: 'service-unavailable',
+        windowSetEstablished: false,
+        windows: [weekly({ used: undefined, usedSource: undefined })],
+      });
+      const vm = buildStatsLimitViewModel(
+        input({
+          owners: [snapshot(CLAUDE_A), past],
+          laneRuns: [run({ quotaOwner: CLAUDE_B })],
+        }),
+      );
+      expect(vm.laneTiles[0].limitChips.map((face) => face.chip.text)).toEqual(
+        ['Limit unknown'],
+      );
+    });
+
     it('(ii) a saved Claude account owner with no open session', () => {
       const saved = snapshot(CLAUDE_B, {
         status: 'service-unavailable',
@@ -644,6 +719,11 @@ describe('buildStatsLimitViewModel', () => {
         },
       ]);
       expect(group.state).toBe('unknown');
+      // No evidence of its own: the session owner's windows are never borrowed.
+      expect(group.stateChip.text).toBe('Limit unknown');
+      expect(vm.laneTiles[0].limitChips.map((face) => face.chip.text)).toEqual(
+        ['Limit unknown'],
+      );
     });
 
     it('(iii) a saved Anthropic API-key owner is unsupported, with no windows', () => {
@@ -788,6 +868,64 @@ describe('buildStatsLimitViewModel', () => {
       expect(vm.laneTiles).toEqual([]);
       expect(vm.subtotal).toBeUndefined();
       expect(vm.lanesCount).toBe(0);
+    });
+  });
+
+  describe('failed refresh while data is held', () => {
+    it('adds a neutral notice with the newest held observation in local time', () => {
+      const vm = buildStatsLimitViewModel(
+        input({
+          refreshFailed: true,
+          owners: [
+            snapshot(CLAUDE_A, {
+              windows: [
+                planWindow({ observedAt: NOW - 2 * HOUR }),
+                weekly({ observedAt: NOW - 3 * HOUR }),
+              ],
+              ownerEvidence: [
+                {
+                  observedAt: NOW - HOUR - 30 * MIN,
+                  source: 'error-derived',
+                },
+              ],
+            }),
+          ],
+        }),
+      );
+      expect(vm.refreshNotice).toBe(
+        'Refresh failed — showing last observed data (observed today 10:30 UTC)',
+      );
+    });
+
+    it('keeps the age-based window states as they are', () => {
+      const failed = buildStatsLimitViewModel(input({ refreshFailed: true }));
+      const ok = buildStatsLimitViewModel(input());
+      expect(failed.planTiles).toEqual(ok.planTiles);
+      expect(failed.indicator).toEqual(ok.indicator);
+    });
+
+    it('has no notice after a good read or when nothing is held', () => {
+      expect(buildStatsLimitViewModel(input()).refreshNotice).toBeUndefined();
+      expect(
+        buildStatsLimitViewModel(input({ refreshFailed: false }))
+          .refreshNotice,
+      ).toBeUndefined();
+      expect(
+        buildStatsLimitViewModel(input({ refreshFailed: true, owners: [] }))
+          .refreshNotice,
+      ).toBeUndefined();
+    });
+
+    it('omits the time when no held owner has an observation', () => {
+      const vm = buildStatsLimitViewModel(
+        input({
+          refreshFailed: true,
+          owners: [snapshot(CLAUDE_A, { windows: [], ownerEvidence: [] })],
+        }),
+      );
+      expect(vm.refreshNotice).toBe(
+        'Refresh failed — showing last observed data',
+      );
     });
   });
 });

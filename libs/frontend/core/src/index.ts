@@ -4,6 +4,8 @@ export { PeerSessionFacade } from './lib/services/peer-session.facade';
 export {
   PlanLimitsStore,
   PLAN_LIMITS_CLOCK_TICK_MS,
+  type PlanLimitsScopeHandle,
+  type PlanLimitsSurfaceScope,
 } from './lib/services/plan-limits.store';
 export { LogLevel, type LoggingConfig } from './lib/services/logging.service';
 

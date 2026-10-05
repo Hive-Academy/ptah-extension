@@ -77,11 +77,11 @@ import {
   AppStateManager,
   AuthStateService,
   PlanLimitsStore,
+  type PlanLimitsSurfaceScope,
 } from '@ptah-extension/core';
 import type {
   PlanLimitOwnerSnapshot,
   PlanLimitsSnapshot,
-  ProviderGetPlanLimitsParams,
   QuotaOwnerRef,
 } from '@ptah-extension/shared';
 import {
@@ -342,16 +342,24 @@ function makeHarness(
   const agentsForSessionMock = jest.fn(
     (_sessionId: string): MonitoredAgent[] => [],
   );
-  const planLimitsLoadMock = jest.fn(
-    async (_params: ProviderGetPlanLimitsParams): Promise<void> => undefined,
+  const planLimitsScopeUpdateMock = jest.fn(
+    async (_scope: PlanLimitsSurfaceScope): Promise<void> => undefined,
   );
+  const planLimitsScopeReleaseMock = jest.fn();
   const planLimitsSnapshotSig = signal<PlanLimitsSnapshot | null>(null);
   const planLimitsNowSig = signal<number>(Date.UTC(2026, 9, 5, 12, 0, 0));
+  const planLimitsLoadErrorSig = signal(false);
+  const planLimitsRegisterScopeMock = jest.fn((_destroyRef: unknown) => ({
+    id: 1,
+    update: planLimitsScopeUpdateMock,
+    release: planLimitsScopeReleaseMock,
+  }));
   const planLimitsStub = {
-    load: planLimitsLoadMock,
+    registerScope: planLimitsRegisterScopeMock,
     snapshot: planLimitsSnapshotSig.asReadonly(),
     now: planLimitsNowSig.asReadonly(),
     loading: signal(false).asReadonly(),
+    loadError: planLimitsLoadErrorSig.asReadonly(),
     sessionOwner: (sessionId: string) =>
       planLimitsSnapshotSig()?.sessionOwners[sessionId] ?? null,
   } as unknown as PlanLimitsStore;
@@ -359,6 +367,11 @@ function makeHarness(
   const agentMonitorStoreStub = {
     agents: agentsSig.asReadonly(),
     agentsForSession: agentsForSessionMock,
+    // Exact-parent rule of the real store: an unresolved parent matches none.
+    agentsOwnedBySession: (sessionId: string): MonitoredAgent[] =>
+      sessionId
+        ? agentsSig().filter((a) => a.parentSessionId === sessionId)
+        : [],
     activeTabAgents: signal([]).asReadonly(),
     activeWorkflowSubagents: signal([]).asReadonly(),
     pendingPermissions: signal([]).asReadonly(),
@@ -527,8 +540,10 @@ function makeHarness(
     olderHistoryLoadingTabIds,
     agentsSig,
     agentsForSessionMock,
-    planLimitsLoadMock,
+    planLimitsScopeUpdateMock,
+    planLimitsRegisterScopeMock,
     planLimitsSnapshotSig,
+    planLimitsLoadErrorSig,
   };
 }
 
@@ -1497,8 +1512,12 @@ describe('ChatViewComponent — plan limits wiring (TASK_2026_596)', () => {
     // Children are swapped out (NO_ERRORS_SCHEMA) so `TestBed.tick()` can run
     // the effects without wiring every child component's DI graph.
     const h = makeHarness({ renderCompactTemplate: true });
+    // The monitor's TOLERANT rule (unresolved parent visible everywhere). The
+    // quota and lane tiles must not read it; they use the exact accessor.
     h.agentsForSessionMock.mockImplementation((sessionId: string) =>
-      h.agentsSig().filter((a) => a.parentSessionId === sessionId),
+      h
+        .agentsSig()
+        .filter((a) => !a.parentSessionId || a.parentSessionId === sessionId),
     );
     return h;
   }
@@ -1509,7 +1528,17 @@ describe('ChatViewComponent — plan limits wiring (TASK_2026_596)', () => {
     jest.clearAllMocks();
   });
 
-  it('loads the session with its recorded owner keys, and sends [] for both once no session is open', () => {
+  it('registers ONE plan-limits scope per surface, bound to its DestroyRef', () => {
+    const h = harness();
+    TestBed.tick();
+
+    expect(h.planLimitsRegisterScopeMock).toHaveBeenCalledTimes(1);
+    expect(h.planLimitsRegisterScopeMock).toHaveBeenCalledWith(
+      expect.objectContaining({ onDestroy: expect.any(Function) }),
+    );
+  });
+
+  it('scopes the session with its recorded owner keys, and names [] for both once no session is open', () => {
     const h = harness();
     h.agentsSig.set([
       run('a1', h.sessionId, { quotaOwner: OWNER_A }),
@@ -1519,7 +1548,7 @@ describe('ChatViewComponent — plan limits wiring (TASK_2026_596)', () => {
     ]);
     TestBed.tick();
 
-    expect(h.planLimitsLoadMock).toHaveBeenLastCalledWith({
+    expect(h.planLimitsScopeUpdateMock).toHaveBeenLastCalledWith({
       sessionIds: [h.sessionId],
       ownerKeys: [OWNER_A.key],
     });
@@ -1527,7 +1556,7 @@ describe('ChatViewComponent — plan limits wiring (TASK_2026_596)', () => {
     h.sessionIdSig.set(null);
     TestBed.tick();
 
-    expect(h.planLimitsLoadMock).toHaveBeenLastCalledWith({
+    expect(h.planLimitsScopeUpdateMock).toHaveBeenLastCalledWith({
       sessionIds: [],
       ownerKeys: [],
     });
@@ -1538,7 +1567,7 @@ describe('ChatViewComponent — plan limits wiring (TASK_2026_596)', () => {
     const h = harness();
     h.agentsSig.set([run('a1', h.sessionId, { quotaOwner: OWNER_A })]);
     TestBed.tick();
-    const calls = h.planLimitsLoadMock.mock.calls.length;
+    const calls = h.planLimitsScopeUpdateMock.mock.calls.length;
 
     h.agentsSig.set([
       run('a1', h.sessionId, {
@@ -1547,14 +1576,14 @@ describe('ChatViewComponent — plan limits wiring (TASK_2026_596)', () => {
       }),
     ]);
     TestBed.tick();
-    expect(h.planLimitsLoadMock.mock.calls.length).toBe(calls);
+    expect(h.planLimitsScopeUpdateMock.mock.calls.length).toBe(calls);
 
     h.agentsSig.update((list) => [
       ...list,
       run('a3', h.sessionId, { quotaOwner: OWNER_B }),
     ]);
     TestBed.tick();
-    expect(h.planLimitsLoadMock).toHaveBeenLastCalledWith({
+    expect(h.planLimitsScopeUpdateMock).toHaveBeenLastCalledWith({
       sessionIds: [h.sessionId],
       ownerKeys: [OWNER_A.key, OWNER_B.key],
     });
@@ -1596,6 +1625,57 @@ describe('ChatViewComponent — plan limits wiring (TASK_2026_596)', () => {
       tone: 'info',
       text: 'Model unknown · model-specific limits are not applied',
     });
+  });
+
+  it('passes a failed refresh to the strip while data is held, and clears it on the next good read', () => {
+    const h = harness();
+    h.planLimitsSnapshotSig.set({
+      generatedAt: STARTED,
+      owners: [ownerSnapshot(OWNER_A)],
+      sessionOwners: {
+        [h.sessionId]: { ownerKey: OWNER_A.key, modelScope: 'opus' },
+      },
+    });
+    expect(h.component.resolvedStatsLimits()?.refreshNotice).toBeUndefined();
+
+    h.planLimitsLoadErrorSig.set(true);
+    expect(h.component.resolvedStatsLimits()?.refreshNotice).toMatch(
+      /^Refresh failed — showing last observed data/,
+    );
+
+    h.planLimitsLoadErrorSig.set(false);
+    expect(h.component.resolvedStatsLimits()?.refreshNotice).toBeUndefined();
+  });
+
+  it('shows a lane in no session`s tiles until its parent resolves, then only in that session`s', () => {
+    // One surface viewed under two sessions (TestBed mounts one ChatView per
+    // test); the store-level spec covers both sessions side by side.
+    const OTHER = 'session-other';
+    const h = harness();
+    h.planLimitsSnapshotSig.set({
+      generatedAt: STARTED,
+      owners: [ownerSnapshot(OWNER_A)],
+      sessionOwners: {
+        [h.sessionId]: { ownerKey: OWNER_A.key, modelScope: null },
+        [OTHER]: { ownerKey: OWNER_A.key, modelScope: null },
+      },
+    });
+    const lanes = () => h.component.resolvedStatsLimits()?.lanesCount;
+
+    // Unresolved parent: the lane is in neither session's tiles, even though
+    // the monitor's tolerant accessor would list it in both.
+    const lane = run('lane', h.sessionId, { quotaOwner: OWNER_A });
+    delete (lane as { parentSessionId?: string }).parentSessionId;
+    h.agentsSig.set([lane]);
+    expect(lanes()).toBe(0);
+    h.sessionIdSig.set(OTHER);
+    expect(lanes()).toBe(0);
+
+    // Resolved to OTHER: only OTHER's tiles count it.
+    h.agentsSig.set([run('lane', OTHER, { quotaOwner: OWNER_A })]);
+    expect(lanes()).toBe(1);
+    h.sessionIdSig.set(h.sessionId);
+    expect(lanes()).toBe(0);
   });
 
   it('formats times in the host zone and app locale, never a fixed UTC', () => {
@@ -1646,8 +1726,15 @@ describe('ChatViewComponent — plan limits wiring (TASK_2026_596)', () => {
       expect(named.quotaOwner).toBeUndefined();
 
       const bare = toStatsLimitLaneRun(run('b', 's'));
-      expect(bare.cliLabel).toBe('codex');
+      expect(bare.cliLabel).toBe('Codex');
       expect(bare.model).toBeNull();
+    });
+
+    it('labels a restored Ptah CLI run without a display name by product name, never the raw id', () => {
+      const restored = toStatsLimitLaneRun(
+        run('r', 's', { cli: 'ptah-cli', restored: true }),
+      );
+      expect(restored.cliLabel).toBe('Ptah CLI');
     });
   });
 });

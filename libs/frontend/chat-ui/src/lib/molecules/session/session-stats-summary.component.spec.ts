@@ -629,6 +629,47 @@ describe('SessionStatsSummaryComponent limits', () => {
     ).toBe('true');
   });
 
+  describe('failed refresh notice', () => {
+    const failedLimits = (): StatsLimitViewModel => ({
+      ...limitsFor(40),
+      refreshNotice:
+        'Refresh failed — showing last observed data (observed today 11:59 UTC)',
+    });
+    const notice = (root: HTMLElement) =>
+      root.querySelector<HTMLElement>('[data-testid="limits-refresh-failed"]');
+
+    it('shows a neutral status line beside the held data in both layouts', () => {
+      const root = render(failedLimits(), { sessionId: 'session-1' });
+      const line = notice(root);
+
+      expect(line?.getAttribute('role')).toBe('status');
+      expect(line?.textContent?.trim()).toBe(
+        'Refresh failed — showing last observed data (observed today 11:59 UTC)',
+      );
+      expect(line?.className).toContain('text-base-content-muted');
+      expect(line?.className).toContain('border-info');
+      expect(line?.className).not.toMatch(/text-(error|warning)/);
+
+      click(root, '[data-testid="stats-expand"]');
+      expect(notice(root)).not.toBeNull();
+      expect(
+        root.querySelector(`[data-tile-id="${FIVE_HOUR_TILE}"]`),
+      ).not.toBeNull();
+    });
+
+    it('hides the line once the next read succeeds', () => {
+      const root = render(failedLimits(), { sessionId: 'session-1' });
+      fixture.componentRef.setInput('limits', limitsFor(40));
+      fixture.detectChanges();
+
+      expect(notice(root)).toBeNull();
+    });
+
+    it('shows no line when no limit data is held', () => {
+      expect(notice(render(null))).toBeNull();
+    });
+  });
+
   it('keeps the "Context" label', () => {
     const root = render(limitsFor(40), { sessionId: 'session-1' });
 

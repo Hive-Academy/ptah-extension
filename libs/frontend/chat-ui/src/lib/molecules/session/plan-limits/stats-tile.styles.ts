@@ -13,9 +13,13 @@ import type {
   StatsTileTone,
 } from './stats-limit-view-model.types';
 
-/** The card face every tile shares with the existing session cards. */
+/**
+ * The card face every tile shares with the existing session cards. The focus
+ * ring is `base-content`, not `info`: light `info` is about 2.6:1 on the
+ * light card, under the 3:1 non-text minimum (visual review finding 2).
+ */
 export const TILE_FACE =
-  'block w-full text-left rounded px-2 py-1.5 border relative pr-5 cursor-pointer transition-colors hover:bg-base-200/80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-info';
+  'block w-full text-left rounded px-2 py-1.5 border relative pr-5 cursor-pointer transition-colors hover:bg-base-200/80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content';
 
 /** The detail panel joined under an open tile. */
 export const TILE_PANEL =

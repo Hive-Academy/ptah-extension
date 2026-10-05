@@ -5,16 +5,22 @@
  * Two inputs feed one signal:
  * - `load()` pulls `provider:getPlanLimits` (initial read, session change,
  *   explicit refresh). A generation guard drops a response that a newer
- *   `load()` superseded.
+ *   `load()` superseded. Each chat surface registers its own scope
+ *   (`registerScope`), and every load asks for the union of all live scopes
+ *   plus the latest provider, so grid panes never erase each other's sessions.
  * - `planLimits:changed` pushes a full snapshot after the host's ledger saw new
  *   evidence. A push replaces the snapshot outright; no re-read follows.
  *
  * A snapshot older than the one already held (by its `generatedAt`) is
  * ignored, so a slow pull cannot overwrite a newer push.
  *
- * Failure behaviour: a failed or malformed RPC result sets an EMPTY snapshot,
- * so every surface renders "Usage / Unavailable" — never a fabricated 0. A
- * malformed push is logged and ignored, keeping the last good snapshot.
+ * Failure behaviour: a failed or malformed RPC result sets `loadError()` and
+ * keeps the last valid snapshot. Only when no snapshot is held does it
+ * install an EMPTY one, so surfaces render "Usage / Unavailable" and never a
+ * fabricated 0. That placeholder is stamped `generatedAt: 0`, never the browser
+ * clock, so it cannot outrank host evidence. A failed pull therefore cannot
+ * erase a newer pushed snapshot. A malformed push is logged and ignored, and
+ * the last good snapshot stays.
  *
  * Runtime cost: ONE 30 s interval drives `now()` for every limit surface. It
  * starts on the first `load()` and is released through `DestroyRef`. Surfaces
@@ -42,6 +48,28 @@ import type { MessageHandler } from './message-router.types';
 /** Period of the shared `now()` clock. */
 export const PLAN_LIMITS_CLOCK_TICK_MS = 30_000;
 
+/** The sessions and run owners one surface shows. */
+export interface PlanLimitsSurfaceScope {
+  readonly sessionIds: readonly string[];
+  readonly ownerKeys: readonly string[];
+}
+
+/** One surface's registration in the shared request scope. */
+export interface PlanLimitsScopeHandle {
+  /** Stable for the surface's lifetime. */
+  readonly id: number;
+  /** Replaces this surface's scope and loads the union. No-op once released. */
+  update(scope: PlanLimitsSurfaceScope): Promise<void>;
+  /** Drops this surface's scope; also runs on its `DestroyRef`. */
+  release(): void;
+}
+
+/** Load options; sessions and owners come only from registered scopes. */
+export type PlanLimitsLoadParams = Pick<
+  ProviderGetPlanLimitsParams,
+  'providerId' | 'refresh'
+>;
+
 @Injectable({ providedIn: 'root' })
 export class PlanLimitsStore implements MessageHandler {
   private readonly rpc = inject(ClaudeRpcService);
@@ -49,13 +77,22 @@ export class PlanLimitsStore implements MessageHandler {
 
   readonly handledMessageTypes = [MESSAGE_TYPES.PLAN_LIMITS_CHANGED] as const;
 
-  /** `null` until the first snapshot arrives; empty after a failed read. */
+  /**
+   * `null` until the first snapshot arrives; empty when the first read failed;
+   * otherwise the last valid snapshot (a later failed read keeps it).
+   */
   private readonly _snapshot = signal<PlanLimitsSnapshot | null>(null);
   private readonly _loading = signal(false);
+  private readonly _loadError = signal(false);
   private readonly _now = signal<number>(Date.now());
 
   readonly snapshot = this._snapshot.asReadonly();
   readonly loading = this._loading.asReadonly();
+  /**
+   * `true` when the newest pull failed or was malformed. Cleared by a valid
+   * pull or push.
+   */
+  readonly loadError = this._loadError.asReadonly();
   /** Shared wall clock for "resets in …" text; ticks every 30 s once loaded. */
   readonly now = this._now.asReadonly();
 
@@ -70,12 +107,15 @@ export class PlanLimitsStore implements MessageHandler {
   private loadGeneration = 0;
   private clockHandle: ReturnType<typeof setInterval> | null = null;
   /**
-   * The view scope the host is asked about. Each `load()` replaces only the
-   * fields it names, so the dashboard asking about its provider does not drop
-   * the sessions the chat view asked about (both read this one snapshot, and
-   * the host's push repeats the last request's scope).
+   * Session and run-owner scope of every live surface, by handle id. Every
+   * load sends the UNION, because all surfaces read this one snapshot and the
+   * host's push repeats only the last request's scope: with one shared field,
+   * a second grid pane (or a pane with no session) erased the first's.
    */
-  private scope: Omit<ProviderGetPlanLimitsParams, 'refresh'> = {};
+  private readonly surfaceScopes = new Map<number, PlanLimitsSurfaceScope>();
+  private nextScopeId = 0;
+  /** Latest provider any caller named; kept by loads that omit it. */
+  private providerId: string | undefined;
 
   constructor() {
     this.destroyRef.onDestroy(() => this.stopClock());
@@ -95,16 +135,44 @@ export class PlanLimitsStore implements MessageHandler {
     return owners[sessionId];
   }
 
-  async load(params: ProviderGetPlanLimitsParams = {}): Promise<void> {
+  /**
+   * Registers one surface's scope. The surface names its sessions and run
+   * owners through `update()` (which loads); the scope leaves the union on
+   * `release()` or when `destroyRef` is destroyed. Release does not reload:
+   * the next load from any surface sends the smaller union.
+   */
+  registerScope(destroyRef: DestroyRef): PlanLimitsScopeHandle {
+    const id = ++this.nextScopeId;
+    this.surfaceScopes.set(id, { sessionIds: [], ownerKeys: [] });
+    const release = () => {
+      this.surfaceScopes.delete(id);
+    };
+    destroyRef.onDestroy(release);
+    return {
+      id,
+      update: (scope) => {
+        if (!this.surfaceScopes.has(id)) return Promise.resolve();
+        this.surfaceScopes.set(id, {
+          sessionIds: [...scope.sessionIds],
+          ownerKeys: [...scope.ownerKeys],
+        });
+        return this.load();
+      },
+      release,
+    };
+  }
+
+  /**
+   * Reads a snapshot for the union of registered surface scopes. `providerId`
+   * replaces the remembered provider; omitting it keeps the last one.
+   */
+  async load(params: PlanLimitsLoadParams = {}): Promise<void> {
     this.startClock();
-    const { refresh, ...fields } = params;
-    this.scope = { ...this.scope, ...definedFields(fields) };
+    if (params.providerId !== undefined) this.providerId = params.providerId;
     const generation = ++this.loadGeneration;
     this._loading.set(true);
     try {
-      const request: ProviderGetPlanLimitsParams = refresh
-        ? { ...this.scope, refresh: true }
-        : { ...this.scope };
+      const request = this.request(params.refresh === true);
       const response = await this.rpc.call('provider:getPlanLimits', request);
       if (generation !== this.loadGeneration) return;
       if (response.isSuccess() && isPlanLimitsSnapshot(response.data)) {
@@ -113,17 +181,17 @@ export class PlanLimitsStore implements MessageHandler {
       }
       if (response.isSuccess()) {
         console.warn(
-          '[PlanLimitsStore] provider:getPlanLimits returned a malformed snapshot; showing limits as unavailable',
+          '[PlanLimitsStore] provider:getPlanLimits returned a malformed snapshot; keeping the last snapshot',
         );
       }
-      this.applyEmpty();
+      this.applyLoadFailure();
     } catch (error) {
       if (generation !== this.loadGeneration) return;
       console.warn(
-        '[PlanLimitsStore] provider:getPlanLimits failed; showing limits as unavailable',
+        '[PlanLimitsStore] provider:getPlanLimits failed; keeping the last snapshot',
         error instanceof Error ? error.name : typeof error,
       );
-      this.applyEmpty();
+      this.applyLoadFailure();
     } finally {
       if (generation === this.loadGeneration) this._loading.set(false);
     }
@@ -140,18 +208,49 @@ export class PlanLimitsStore implements MessageHandler {
     this.apply(message.payload);
   }
 
+  /**
+   * The request scope: the remembered provider plus the union of surface
+   * scopes. With no surface registered, sessions and owners are omitted (the
+   * dashboard alone names only its provider).
+   */
+  private request(refresh: boolean): ProviderGetPlanLimitsParams {
+    const request: ProviderGetPlanLimitsParams = {};
+    if (this.providerId !== undefined) request.providerId = this.providerId;
+    if (this.surfaceScopes.size > 0) {
+      const sessionIds = new Set<string>();
+      const ownerKeys = new Set<string>();
+      for (const scope of this.surfaceScopes.values()) {
+        scope.sessionIds.forEach((id) => sessionIds.add(id));
+        scope.ownerKeys.forEach((key) => ownerKeys.add(key));
+      }
+      request.sessionIds = [...sessionIds];
+      request.ownerKeys = [...ownerKeys];
+    }
+    if (refresh) request.refresh = true;
+    return request;
+  }
+
+  /** A valid host snapshot (pull or push); older than the held one is ignored. */
   private apply(next: PlanLimitsSnapshot): void {
+    this._loadError.set(false);
     const current = this._snapshot();
     if (current && next.generatedAt < current.generatedAt) return;
     this._snapshot.set(next);
     this._now.set(Date.now());
   }
 
-  /** Empty, never zero: surfaces render "Usage / Unavailable" from this. */
-  private applyEmpty(): void {
-    const now = Date.now();
-    this._snapshot.set({ generatedAt: now, owners: [], sessionOwners: {} });
-    this._now.set(now);
+  /**
+   * A failed or malformed pull. Keeps any snapshot already held, including a
+   * newer push. With none held, installs an empty placeholder, which is never
+   * zero (surfaces render "Usage / Unavailable" from it). The placeholder's
+   * `generatedAt` is 0, never the browser clock, so any host snapshot outranks it.
+   */
+  private applyLoadFailure(): void {
+    this._loadError.set(true);
+    if (this._snapshot() === null) {
+      this._snapshot.set({ generatedAt: 0, owners: [], sessionOwners: {} });
+    }
+    this._now.set(Date.now());
   }
 
   private startClock(): void {
@@ -167,16 +266,6 @@ export class PlanLimitsStore implements MessageHandler {
     clearInterval(this.clockHandle);
     this.clockHandle = null;
   }
-}
-
-function definedFields(
-  fields: Omit<ProviderGetPlanLimitsParams, 'refresh'>,
-): Omit<ProviderGetPlanLimitsParams, 'refresh'> {
-  const out: Omit<ProviderGetPlanLimitsParams, 'refresh'> = {};
-  if (fields.providerId !== undefined) out.providerId = fields.providerId;
-  if (fields.sessionIds !== undefined) out.sessionIds = [...fields.sessionIds];
-  if (fields.ownerKeys !== undefined) out.ownerKeys = [...fields.ownerKeys];
-  return out;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

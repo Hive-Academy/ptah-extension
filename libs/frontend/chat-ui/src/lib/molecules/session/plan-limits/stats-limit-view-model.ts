@@ -26,7 +26,12 @@
  *   as a live read failure. An Anthropic API-key owner arrives as
  *   `unsupported-auth` with no windows and is shown as unsupported.
  */
-import { FRESHNESS_MS, NEAR_LIMIT_PERCENT } from '@ptah-extension/shared';
+import {
+  formatLocalAbsolute,
+  FRESHNESS_MS,
+  NEAR_LIMIT_PERCENT,
+  windowObservedAt,
+} from '@ptah-extension/shared';
 import { groupLaneRuns, laneTile, subtotalTile } from './lane-tiles';
 import { sessionPlan } from './plan-limit-tiles';
 import type {
@@ -51,8 +56,10 @@ export function buildStatsLimitViewModel(
   const laneTiles = groupLaneRuns(input.laneRuns).map((runs) =>
     laneTile(runs, input.owners, session, ctx),
   );
+  const refreshNotice = refreshFailedNotice(input);
   return {
     ...(session.indicator && { indicator: session.indicator }),
+    ...(refreshNotice !== undefined && { refreshNotice }),
     planTiles: session.tiles,
     laneTiles,
     ...(input.laneRuns.length > 0 && {
@@ -60,4 +67,40 @@ export function buildStatsLimitViewModel(
     }),
     lanesCount: input.laneRuns.length,
   };
+}
+
+/**
+ * "Refresh failed — showing last observed data", with the newest host
+ * observation among the held owners when there is one. Absent when the pull
+ * succeeded or nothing is held (the empty placeholder has no owners). The
+ * window states keep their own age-based classification.
+ */
+function refreshFailedNotice(
+  input: StatsLimitViewModelInput,
+): string | undefined {
+  if (input.refreshFailed !== true || input.owners.length === 0) {
+    return undefined;
+  }
+  const observedAt = newestObservation(input.owners);
+  return observedAt === undefined
+    ? 'Refresh failed — showing last observed data'
+    : `Refresh failed — showing last observed data (observed ${formatLocalAbsolute(observedAt, input.now, input.time)})`;
+}
+
+function newestObservation(
+  owners: StatsLimitViewModelInput['owners'],
+): number | undefined {
+  let newest: number | undefined;
+  for (const owner of owners) {
+    const instants = [
+      ...owner.windows.map(windowObservedAt),
+      ...owner.ownerEvidence.map((evidence) => evidence.observedAt),
+    ];
+    for (const instant of instants) {
+      if (Number.isFinite(instant) && (newest === undefined || instant > newest)) {
+        newest = instant;
+      }
+    }
+  }
+  return newest;
 }

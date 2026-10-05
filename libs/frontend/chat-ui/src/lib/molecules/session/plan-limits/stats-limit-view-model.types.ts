@@ -53,6 +53,11 @@ export interface StatsLimitViewModelInput {
   readonly now: number;
   /** Zone and zone-name locale for absolute times; pass both explicitly. */
   readonly time: LocalTimeOptions;
+  /**
+   * The newest pull failed while `owners` is the retained snapshot. The host
+   * view passes it in; this library never reads the store.
+   */
+  readonly refreshFailed?: boolean;
 }
 
 // ----------------------------------------------------------------- output
@@ -203,6 +208,11 @@ export interface LaneSubtotalTileModel {
 
 export interface StatsLimitViewModel {
   readonly indicator?: StatsLimitIndicator;
+  /**
+   * Neutral "refresh failed — showing last observed data" line; present only
+   * when a pull failed while owner data is held.
+   */
+  readonly refreshNotice?: string;
   readonly planTiles: readonly PlanLimitTileModel[];
   readonly laneTiles: readonly LaneUsageTileModel[];
   readonly subtotal?: LaneSubtotalTileModel;

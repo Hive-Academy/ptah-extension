@@ -69,6 +69,16 @@ type ModelUsageRow = NonNullable<SessionStatsEntry['modelUsageList']>[number];
   ],
   template: `
     <div class="stats-grid" style="container-type: inline-size">
+      <!-- Failed refresh while limit data is held: neutral, both layouts -->
+      @if (limits()?.refreshNotice; as notice) {
+        <p
+          role="status"
+          class="mb-1 border-l-2 border-info pl-2 text-[11px] text-base-content-muted"
+          data-testid="limits-refresh-failed"
+        >
+          {{ notice }}
+        </p>
+      }
       <!-- Collapsed: compact summary bar -->
       @if (isStatsCollapsed()) {
         <!-- Limits alert (P4 variant A): above the strip, never clipped -->

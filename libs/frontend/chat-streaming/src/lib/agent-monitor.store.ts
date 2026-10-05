@@ -479,6 +479,18 @@ export class AgentMonitorStore implements OnDestroy {
   }
 
   /**
+   * Agents whose RESOLVED parent is exactly this session. Unlike
+   * {@link agentsForSession}, an agent with no resolved parent belongs to no
+   * session yet: per-session quota and lane tiles attribute usage to a
+   * session, so an unresolved lane must not appear in every session's tiles.
+   * The monitor UI keeps the tolerant rule above.
+   */
+  agentsOwnedBySession(sessionId: string): MonitoredAgent[] {
+    if (!sessionId) return [];
+    return this.agents().filter((a) => a.parentSessionId === sessionId);
+  }
+
+  /**
    * Workflow subagents — SubagentRecords carrying a `workflowRunId` — scoped to
    * the active tab's session. Mirrors {@link activeTabAgents} scoping: when no
    * tab is active all workflow subagents are returned; records without a
