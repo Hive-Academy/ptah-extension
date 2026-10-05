@@ -85,5 +85,6 @@ export {
   SESSION_CONTEXT,
   HIDE_AGENT_SIDEBAR,
   SESSION_VISIBLE,
+  SESSION_FOCUSED,
 } from '../tokens/session-context.token';
 export { provideModelRefreshControl } from './chat-store/model-refresh-control.provider';

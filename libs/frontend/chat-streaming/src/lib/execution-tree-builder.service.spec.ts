@@ -597,6 +597,42 @@ describe('ExecutionTreeBuilderService — incremental rebuild', () => {
     expect(rebuildMs).toBeLessThan(sweepMs * rebuilds * 8);
   });
 
+  describe('tab-scoped cache release', () => {
+    const cachedKeys = (): string[] => [
+      ...(builder as unknown as { treeCache: Map<string, unknown> }).treeCache
+        .keys(),
+    ];
+
+    beforeEach(() => {
+      feed(messageStart('m1', 'assistant'));
+      feed(textDelta('m1', 1, 'hello'));
+      for (const key of [
+        'tab-T',
+        'tile-T',
+        'history-page-T',
+        'tile-OTHER',
+        'tab-OTHER',
+      ]) {
+        builder.buildTree(state, key);
+      }
+    });
+
+    it('clearForClosedTab releases the tab, tile and history-page memos of that tab only', () => {
+      builder.clearForClosedTab('T');
+
+      expect(cachedKeys().sort()).toEqual(['tab-OTHER', 'tile-OTHER']);
+    });
+
+    it('clearForTab stays main-panel scoped so a still-open tile keeps its memo', () => {
+      builder.clearForTab('T');
+
+      expect(cachedKeys()).toEqual(
+        expect.arrayContaining(['tile-T', 'history-page-T']),
+      );
+      expect(cachedKeys()).not.toContain('tab-T');
+    });
+  });
+
   /**
    * THE ORACLE (TASK_2026_333).
    *

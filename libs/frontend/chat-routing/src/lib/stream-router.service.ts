@@ -26,7 +26,7 @@
  * the conversation from the registry if no other tab still references it.
  */
 
-import { Injectable, effect, inject } from '@angular/core';
+import { DestroyRef, Injectable, effect, inject, untracked } from '@angular/core';
 import {
   ConversationId,
   ConversationRegistry,
@@ -73,14 +73,17 @@ export class StreamRouter {
   private readonly batchedUpdate = inject(BatchedUpdateService);
   private readonly backgroundAgentStore = inject(BackgroundAgentStore);
   private readonly treeBuilder = inject(ExecutionTreeBuilderService);
+  private readonly destroyRef = inject(DestroyRef);
 
   constructor() {
     this.migratePersistedTabs();
-    effect(() => {
-      const evt = this.tabManager.closedTab();
-      if (!evt) return;
-      this.handleTabClosed(evt);
-    });
+    this.destroyRef.onDestroy(
+      this.tabManager.onTabClosed((evt) =>
+        // The teardown reads store signals (e.g. the agent list via
+        // `forceClearSessionAgents`), so keep those reads untracked.
+        untracked(() => this.handleTabClosed(evt)),
+      ),
+    );
     effect(() => {
       const pulse = this.permissionHandler.decisionPulse();
       if (!pulse) return;
@@ -925,7 +928,7 @@ export class StreamRouter {
   }
 
   /**
-   * Reactive cleanup driven by `TabManagerService.closedTab`. Performs:
+   * Synchronous cleanup driven by `TabManagerService.onTabClosed`. Performs:
    *   - cleanupSessionDeduplication (always, when sessionId present)
    *   - clearSessionAgents (on `kind === 'close'` or `'reset'` — pop-out
    *     transfers keep agents alive in the target panel)
@@ -935,6 +938,10 @@ export class StreamRouter {
    * `reset` (the `/clear` command) shares all of `close`'s teardown; the tab
    * itself survives — TabManager re-empties it rather than removing it.
    *
+   * Session-keyed teardown (agents, background agents, session tree memo) is
+   * skipped while another open tab — e.g. a second canvas tile — still shows
+   * the same session; the tab-keyed memos are always released.
+   *
    * Wrapped in try/catch so a single defect can't wedge the effect runner
    * for subsequent close events.
    */
@@ -943,15 +950,22 @@ export class StreamRouter {
       if (evt.sessionId) {
         const sid = evt.sessionId as ClaudeSessionId;
         this.streamingHandler.cleanupSessionDeduplication(sid);
-        if (evt.kind === 'close' || evt.kind === 'reset') {
+        if (
+          (evt.kind === 'close' || evt.kind === 'reset') &&
+          !this.sessionShownByOtherTab(sid, evt.tabId)
+        ) {
           this.agentMonitorStore.forceClearSessionAgents(sid);
           this.backgroundAgentStore.clearSession(sid);
           this.treeBuilder.clearForSession(sid);
         }
       }
 
-      if (evt.kind === 'close' || evt.kind === 'reset') {
-        this.treeBuilder.clearForTab(evt.tabId);
+      if (
+        evt.kind === 'close' ||
+        evt.kind === 'reset' ||
+        evt.kind === 'forceClose'
+      ) {
+        this.treeBuilder.clearForClosedTab(evt.tabId);
         this.batchedUpdate.clearPendingUpdates(evt.tabId);
       }
 
@@ -967,5 +981,14 @@ export class StreamRouter {
         evt,
       );
     }
+  }
+
+  private sessionShownByOtherTab(
+    sessionId: ClaudeSessionId,
+    closedTabId: string,
+  ): boolean {
+    return this.tabManager
+      .tabs()
+      .some((t) => t.id !== closedTabId && t.claudeSessionId === sessionId);
   }
 }

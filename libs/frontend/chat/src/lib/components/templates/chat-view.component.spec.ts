@@ -282,6 +282,7 @@ function makeHarness(
     closeTab: closeTabMock,
     // Consumed by the component-scoped TranscriptRetentionService effects.
     closedTab: signal(null).asReadonly(),
+    onTabClosed: jest.fn(() => () => undefined),
     removedWorkspace$: signal(null).asReadonly(),
     findTabByIdAcrossWorkspaces: findTabByIdAcrossWorkspacesMock,
     clearRemovedWorkspace: jest.fn(),

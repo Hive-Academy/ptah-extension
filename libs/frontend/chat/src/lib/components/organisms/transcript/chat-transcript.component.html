@@ -8,7 +8,6 @@
   [active]="workActive()"
   [historyReplaying]="historyReplaying()"
   [pinnedToBottom]="isPinnedToBottom()"
-  (scroll)="onScroll($event)"
 >
   <div #messageContent class="chat-scroll-content">
     @if (vm().hasOlderHistory && !historyReplaying()) {

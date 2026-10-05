@@ -67,9 +67,9 @@ function readWorkflowFields(src: unknown): WorkflowRunFields {
   return { workflowRunId: s.workflowRunId, workflowName: s.workflowName };
 }
 
-/** Maximum completed/failed agents retained in the store.
- * Only agents with status 'completed' or 'failed' are evicted; 'running' and
- * 'interrupted' agents are always preserved. */
+/** Maximum finished agents retained in the store.
+ * Every terminal status ('completed', 'failed', 'timeout', 'stopped') counts
+ * toward the cap and is evictable; 'running' agents are always preserved. */
 const MAX_COMPLETED_AGENTS = 20;
 
 /**
@@ -1238,16 +1238,15 @@ export class AgentMonitorStore implements OnDestroy {
   }
 
   /**
-   * Evict the oldest completed/failed agents when count exceeds
-   * MAX_COMPLETED_AGENTS. Preserves 'running' and 'interrupted' agents.
-   * Returns a new array (does not mutate the input).
+   * Evict the oldest finished agents when count exceeds MAX_COMPLETED_AGENTS.
+   * Any non-running status is terminal — 'timeout' and 'stopped' cards used to
+   * be exempt and so accumulated (with their full output) forever. Running
+   * agents are never evicted. Returns a new array (does not mutate the input).
    */
   private evictOldCompletedAgents(
     list: readonly MonitoredAgent[],
   ): MonitoredAgent[] {
-    const completedAgents = list.filter(
-      (a) => a.status === 'completed' || a.status === 'failed',
-    );
+    const completedAgents = list.filter((a) => a.status !== 'running');
 
     if (completedAgents.length <= MAX_COMPLETED_AGENTS) return [...list];
     const sortedCompleted = [...completedAgents].sort(
@@ -1560,11 +1559,33 @@ export class AgentMonitorStore implements OnDestroy {
     });
   }
 
+  /**
+   * Full teardown for a closed (or `/clear`-reset) session: drops its agent
+   * cards and its SDK subagent records. Subagent records had no other delete
+   * path, so every closed session's records — and their per-message usage —
+   * were retained for the life of the webview.
+   */
   forceClearSessionAgents(sessionId: string): void {
     this._agents.update((list) => {
       const next = list.filter((a) => a.parentSessionId !== sessionId);
       return next.length === list.length ? list : next;
     });
+    this._subagents.update((map) => {
+      let next: Map<string, SubagentRecord> | null = null;
+      for (const [key, rec] of map) {
+        if (rec.parentSessionId !== sessionId) continue;
+        next ??= new Map(map);
+        next.delete(key);
+        this._subagentRequestUsage.delete(key);
+        this._pendingBackgroundIdentity.delete(key);
+      }
+      return next ?? map;
+    });
+    for (const [key, identity] of this._pendingBackgroundIdentity) {
+      if (identity.parentSessionId === sessionId) {
+        this._pendingBackgroundIdentity.delete(key);
+      }
+    }
     this.syncTick();
   }
 

@@ -13,7 +13,7 @@ import type {
   SubagentRecord,
 } from '@ptah-extension/chat-streaming';
 import { signal } from '@angular/core';
-import { TestBed } from '@angular/core/testing';
+import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideSurfaceActiveTesting } from '@ptah-extension/core/testing';
 import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
 import { TabManagerService } from '@ptah-extension/chat-state';
@@ -313,6 +313,180 @@ describe('AgentMonitorPanelComponent — overlay focus', () => {
     fixture.detectChanges();
 
     expect(focusSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe('AgentMonitorPanelComponent — sticky-to-bottom scrolling', () => {
+  const originalResizeObserver = globalThis.ResizeObserver;
+  const originalRaf = globalThis.requestAnimationFrame;
+  const originalCancelRaf = globalThis.cancelAnimationFrame;
+  let resizeCallbacks: (() => void)[];
+  let scheduledFrames: Map<number, FrameRequestCallback>;
+  let cancelCalls: number[];
+  let nextHandle: number;
+
+  beforeEach(() => {
+    resizeCallbacks = [];
+    scheduledFrames = new Map();
+    cancelCalls = [];
+    nextHandle = 1;
+    globalThis.ResizeObserver = class {
+      observe = jest.fn();
+      unobserve = jest.fn();
+      disconnect = jest.fn();
+      constructor(callback: ResizeObserverCallback) {
+        resizeCallbacks.push(() => callback([], this));
+      }
+    };
+    globalThis.requestAnimationFrame = (cb: FrameRequestCallback): number => {
+      const handle = nextHandle++;
+      scheduledFrames.set(handle, cb);
+      return handle;
+    };
+    globalThis.cancelAnimationFrame = (handle: number): void => {
+      cancelCalls.push(handle);
+      scheduledFrames.delete(handle);
+    };
+
+    TestBed.configureTestingModule({
+      imports: [AgentMonitorPanelComponent],
+      providers: [
+        {
+          provide: AgentMonitorStore,
+          useValue: {
+            activeWorkflowSubagents: signal([]),
+            workflowSubagentsForSession: jest.fn(() => []),
+            activeSessionSubagents: signal([]),
+            sessionSubagentsForSession: jest.fn(() => []),
+            activeTabAgents: signal([]),
+            pendingPermissions: signal([]),
+            panelOpen: signal(false),
+            closePanel: jest.fn(),
+            clearCompleted: jest.fn(),
+            clearCompletedInSession: jest.fn(),
+            getSubagent: jest.fn(),
+          },
+        },
+        {
+          provide: VSCodeService,
+          useValue: {
+            config: signal({ panelId: '', workspaceRoot: '/tmp' }),
+            postMessage: jest.fn(),
+          },
+        },
+        {
+          provide: TabManagerService,
+          useValue: {
+            findTabBySessionIdAcrossWorkspaces: jest.fn(() => null),
+            activeTabSessionId: signal(null),
+          },
+        },
+        {
+          provide: PanelResizeService,
+          useValue: {
+            customWidth: signal<number | null>(320),
+            dragging: signal(false),
+          },
+        },
+      ],
+    });
+  });
+
+  afterEach(() => {
+    TestBed.resetTestingModule();
+    globalThis.ResizeObserver = originalResizeObserver;
+    globalThis.requestAnimationFrame = originalRaf;
+    globalThis.cancelAnimationFrame = originalCancelRaf;
+  });
+
+  function createPanel(): ComponentFixture<AgentMonitorPanelComponent> {
+    const fixture = TestBed.createComponent(AgentMonitorPanelComponent);
+    fixture.componentRef.setInput('embeddedAgents', []);
+    fixture.componentRef.setInput('embeddedOpen', true);
+    fixture.componentRef.setInput('sessionId', 'session-1');
+    fixture.detectChanges();
+    // Drop any framework-internal rAF scheduled during setup so the
+    // per-frame scheduling assertions below count only the pin measurement.
+    scheduledFrames.clear();
+    return fixture;
+  }
+
+  /**
+   * The `#agentScroll` viewChild (private) — the panel's detail scroll
+   * container. `viewChild()` returns a signal, so it is invoked to resolve
+   * the ElementRef. Read through a structural cast, the same way the
+   * chat-input spec reaches `_currentMessage`; there is no DOM marker on the
+   * container.
+   */
+  function scrollContainerOf(
+    fixture: ComponentFixture<AgentMonitorPanelComponent>,
+  ): HTMLElement {
+    const panel = fixture.componentInstance as unknown as {
+      _scroll: () => { nativeElement: HTMLElement } | undefined;
+    };
+    const container = panel._scroll()?.nativeElement;
+    if (!container) {
+      throw new Error('#agentScroll container did not render');
+    }
+    return container;
+  }
+
+  /** Run the coalesced pin measurement for the frames scheduled so far. */
+  function flushFrames(): void {
+    const pending = [...scheduledFrames.values()];
+    scheduledFrames.clear();
+    for (const callback of pending) callback(0);
+  }
+
+  it('follows while pinned, stops when the reader scrolls up, and re-pins at the bottom', () => {
+    const fixture = createPanel();
+    const container = scrollContainerOf(fixture);
+    Object.defineProperty(container, 'scrollHeight', {
+      value: 1000,
+      configurable: true,
+    });
+    Object.defineProperty(container, 'clientHeight', { value: 200 });
+
+    // Content grows while pinned: the ResizeObserver writes the follow.
+    resizeCallbacks.forEach((callback) => callback());
+    expect(container.scrollTop).toBe(1000);
+
+    // Reader scrolls 700px up. The pin state updates in the next animation
+    // frame, not synchronously in the scroll handler (a synchronous read
+    // forces a full-document reflow while a turn streams).
+    container.scrollTop = 100;
+    container.dispatchEvent(new Event('scroll'));
+    flushFrames();
+    Object.defineProperty(container, 'scrollHeight', {
+      value: 1500,
+      configurable: true,
+    });
+    resizeCallbacks.forEach((callback) => callback());
+    expect(container.scrollTop).toBe(100);
+
+    // Reader returns to within NEAR_BOTTOM_PX of the end: follow resumes.
+    container.scrollTop = 1300;
+    container.dispatchEvent(new Event('scroll'));
+    flushFrames();
+    resizeCallbacks.forEach((callback) => callback());
+    expect(container.scrollTop).toBe(1500);
+  });
+
+  it('coalesces a burst of scroll events into one measurement and cancels it on destroy', () => {
+    const fixture = createPanel();
+    const container = scrollContainerOf(fixture);
+
+    container.scrollTop = 100;
+    container.dispatchEvent(new Event('scroll'));
+    container.dispatchEvent(new Event('scroll'));
+    expect(scheduledFrames.size).toBe(1);
+
+    const pendingHandle = [...scheduledFrames.keys()][0];
+    fixture.destroy();
+    // The pending pin measurement is canceled through its own handle. The
+    // framework may schedule its own rAFs during teardown — those are not
+    // this test's concern.
+    expect(cancelCalls).toContain(pendingHandle);
   });
 });
 

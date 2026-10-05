@@ -208,6 +208,56 @@ describe('TabManagerService — abort streaming on tab close (Wave E2)', () => {
     expect(signal.aborted).toBe(false);
   });
 
+  it('isolates a throwing close listener so remaining listeners and post-close state still run', () => {
+    const closingTab = service.createTab('closing');
+    const remainingTab = service.createTab('remaining');
+    service.switchTab(closingTab);
+    const saveTabState = jest
+      .spyOn(service, 'saveTabState')
+      .mockImplementation(() => undefined);
+    const received = jest.fn();
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    service.onTabClosed(() => {
+      throw new Error('view listener failure');
+    });
+    service.onTabClosed(received);
+
+    service.forceCloseTab(closingTab);
+
+    expect(received).toHaveBeenCalledWith(
+      expect.objectContaining({ tabId: closingTab, kind: 'forceClose' }),
+    );
+    expect(service.activeTabId()).toBe(remainingTab);
+    expect(saveTabState).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('[TabManager] Closed-tab listener failed'),
+      expect.any(Error),
+    );
+    warn.mockRestore();
+  });
+
+  it('delivers a re-entrant close to every listener without corrupting the outer delivery', () => {
+    const firstTab = service.createTab('first');
+    const nestedTab = service.createTab('nested');
+    const firstListener = jest.fn((event: { tabId: string }) => {
+      if (event.tabId === firstTab) service.forceCloseTab(nestedTab);
+    });
+    const secondListener = jest.fn();
+    service.onTabClosed(firstListener);
+    service.onTabClosed(secondListener);
+
+    service.forceCloseTab(firstTab);
+
+    expect(firstListener.mock.calls.map(([event]) => event.tabId)).toEqual([
+      firstTab,
+      nestedTab,
+    ]);
+    expect(secondListener.mock.calls.map(([event]) => event.tabId)).toEqual([
+      nestedTab,
+      firstTab,
+    ]);
+  });
+
   it('abortStreamingForTab is a no-op returning false when no controller is registered', () => {
     expect(service.abortStreamingForTab('nonexistent')).toBe(false);
   });

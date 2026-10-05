@@ -1754,4 +1754,72 @@ describe('AgentMonitorStore', () => {
       expect(view().usage).toEqual({ cacheRead: 3, cacheWrite: 4, output: 2 });
     });
   });
+
+  describe('retention of finished agents and closed-session records', () => {
+    function exitAgent(
+      agentId: string,
+      status: 'completed' | 'failed' | 'timeout' | 'stopped',
+      completedAt: number,
+      parentSessionId = 'sess-retention',
+    ): void {
+      store.onAgentSpawned({
+        agentId,
+        cli: 'codex',
+        task: `Task for ${agentId}`,
+        parentSessionId,
+        status: 'running',
+        startedAt: new Date(completedAt - 1).toISOString(),
+        displayName: 'Codex',
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any);
+      store.onAgentExited({
+        agentId,
+        cli: 'codex',
+        task: `Task for ${agentId}`,
+        parentSessionId,
+        status,
+        startedAt: new Date(completedAt - 1).toISOString(),
+        completedAt: new Date(completedAt).toISOString(),
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any);
+    }
+
+    it('evicts the oldest timeout/stopped agents past the cap but never a running one', () => {
+      spawnAgent('still-running', 'sess-retention');
+      const terminal = ['timeout', 'stopped', 'completed', 'failed'] as const;
+      for (let i = 0; i < 25; i++) {
+        exitAgent(`done-${i}`, terminal[i % terminal.length], 1_000 + i);
+      }
+
+      const ids = store.agents().map((a) => a.agentId);
+      expect(ids).toContain('still-running');
+      expect(ids.filter((id) => id.startsWith('done-'))).toHaveLength(20);
+      for (let i = 0; i < 5; i++) expect(ids).not.toContain(`done-${i}`);
+      expect(ids).toContain('done-24');
+    });
+
+    it('forceClearSessionAgents prunes subagent records of the closed session only', () => {
+      store.onAgentStart({
+        eventType: 'agent_start',
+        id: 'start-closed',
+        timestamp: 1,
+        toolCallId: 'tool-closed',
+        sessionId: 'sess-closed',
+        source: 'hook',
+      } as AgentStartEvent);
+      store.onAgentStart({
+        eventType: 'agent_start',
+        id: 'start-open',
+        timestamp: 1,
+        toolCallId: 'tool-open',
+        sessionId: 'sess-open',
+        source: 'hook',
+      } as AgentStartEvent);
+
+      store.forceClearSessionAgents('sess-closed');
+
+      expect(store.getSubagent('tool-closed')).toBeUndefined();
+      expect(store.getSubagent('tool-open')).toBeDefined();
+    });
+  });
 });

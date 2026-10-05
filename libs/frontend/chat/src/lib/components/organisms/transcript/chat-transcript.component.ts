@@ -13,13 +13,17 @@ import {
   Injector,
   DestroyRef,
   ElementRef,
+  NgZone,
 } from '@angular/core';
 import { AlertTriangle, LucideAngularModule } from 'lucide-angular';
 import { MessageBubbleComponent } from '../message-bubble.component';
 import { ChatEmptyStateComponent } from '../../molecules/setup-plugins/chat-empty-state.component';
 import { ExecutionTreeBuilderService } from '@ptah-extension/chat-streaming';
 import { TabManagerService } from '@ptah-extension/chat-state';
-import { SESSION_CONTEXT } from '../../../tokens/session-context.token';
+import {
+  SESSION_CONTEXT,
+  SESSION_FOCUSED,
+} from '../../../tokens/session-context.token';
 import { SURFACE_ACTIVE, VSCodeService } from '@ptah-extension/core';
 import {
   createExecutionChatMessage,
@@ -176,6 +180,11 @@ export class ChatTranscriptComponent {
   private readonly _sessionContext = inject(SESSION_CONTEXT, {
     optional: true,
   });
+  /** Tile surfaces provide their focus state; absent → always focused. */
+  private readonly _sessionFocused = inject(SESSION_FOCUSED, {
+    optional: true,
+  });
+  private readonly ngZone = inject(NgZone);
   private readonly changeSetStore = inject(ChangeSetStore);
   private readonly changeSetActions = inject(ChangeSetActionsService);
 
@@ -236,6 +245,16 @@ export class ChatTranscriptComponent {
   /** Distance from bottom (px) within which the user is considered "pinned". */
   private readonly NEAR_BOTTOM_PX = 120;
 
+  /** Bound native scroll listener body; registered outside the zone. */
+  private readonly scrollHandler = (): void => this.onScroll();
+
+  /**
+   * Scroll container captured when the listener is bound. Kept past destroy —
+   * viewChild signals read null in ngOnDestroy, so the listener body and
+   * cleanup must not go through them.
+   */
+  private scrollElement: HTMLElement | null = null;
+
   /**
    * The plain scroll container (`#messageContainer`). Off-screen message
    * bubbles are unmounted by `TranscriptRenderWindow`, and native scroll
@@ -251,9 +270,11 @@ export class ChatTranscriptComponent {
   /**
    * Whether the transcript is pinned to the bottom (auto-follows new content).
    * Set false when the user scrolls up past NEAR_BOTTOM_PX, true when they
-   * scroll back down or send a new message.
+   * scroll back down or send a new message. A SIGNAL so a flip written from
+   * the outside-the-zone scroll listener still refreshes the template's
+   * `[pinnedToBottom]` binding — a plain-field write would not.
    */
-  private pinnedToBottom = true;
+  private readonly pinnedToBottom = signal(true);
 
   /** Track message count to detect new user messages */
   private lastMessageCount = 0;
@@ -626,9 +647,9 @@ export class ChatTranscriptComponent {
           count > this.lastMessageCount && last?.role === 'user';
         this.lastMessageCount = count;
         if (isNewUserMessage) {
-          this.pinnedToBottom = true;
+          this.pinnedToBottom.set(true);
         }
-        if (this.pinnedToBottom) {
+        if (this.pinnedToBottom()) {
           this.scheduleStickToBottom();
         }
       });
@@ -638,7 +659,7 @@ export class ChatTranscriptComponent {
       untracked(() => {
         if (this.wasStreaming && !isStreaming) {
           this.isFinalizingTransition.set(true);
-          if (this.pinnedToBottom) {
+          if (this.pinnedToBottom()) {
             this.scheduleStickToBottom();
           }
           if (this.finalizingTimeoutId) {
@@ -647,7 +668,7 @@ export class ChatTranscriptComponent {
           this.finalizingTimeoutId = setTimeout(() => {
             this.isFinalizingTransition.set(false);
             this.finalizingTimeoutId = null;
-            if (this.pinnedToBottom) {
+            if (this.pinnedToBottom()) {
               this.scheduleStickToBottom();
             }
           }, 300);
@@ -678,12 +699,21 @@ export class ChatTranscriptComponent {
         );
       });
     });
+    // Focus-driven render margin: an unfocused tile's window shrinks (fewer
+    // mounted bubbles); refocus re-creates the observer with the wide margin.
+    effect(() => {
+      const focused = this._sessionFocused ? this._sessionFocused() : true;
+      untracked(() => this.renderWindow.setFocused(focused));
+    });
     afterNextRender(
       () => {
         // Attach FIRST: an unattached render window mounts only its tail, and
-        // that is indistinguishable from data loss. The resize observer only
+        // that is indistinguishable from data loss. The scroll listener is
+        // bound before the resize observer for the same reason — a throw in
+        // one setup must not lose another's binding. The resize observer only
         // costs a pinned transcript its auto-follow.
         this.renderWindow.attach(this.scrollContainer()?.nativeElement ?? null);
+        this.setupScrollListener();
         this.setupResizeObserver();
       },
       { injector: this.injector },
@@ -694,14 +724,19 @@ export class ChatTranscriptComponent {
   }
 
   /**
-   * Handle viewport scroll events and cache the offset per tab. Any upward
-   * move that leaves the bottom unpins at once — one wheel tick is enough, and
-   * a pending stick-to-bottom is dropped. Moving back within NEAR_BOTTOM_PX
-   * re-pins.
+   * Handle viewport scroll events and cache the offset per tab. Runs OUTSIDE
+   * the zone (see `setupScrollListener`): it only rAF-scrolls and writes the
+   * `pinnedToBottom` SIGNAL — whose writes refresh the prepend-anchor's
+   * `[pinnedToBottom]` binding without a zone tick — plus plain fields no
+   * binding reads.
+   *
+   * Any upward move that leaves the bottom unpins at once — one wheel tick is
+   * enough, and a pending stick-to-bottom is dropped. Moving back within
+   * NEAR_BOTTOM_PX re-pins.
    */
-  onScroll(_event: Event): void {
+  onScroll(): void {
     if (!this.workActive()) return;
-    const el = this.scrollContainer()?.nativeElement;
+    const el = this.scrollElement;
     if (!el) return;
 
     const top = el.scrollTop;
@@ -711,17 +746,33 @@ export class ChatTranscriptComponent {
     this.savedScrollTop = top;
 
     if (movedUp && distanceFromBottom > 1) {
-      this.pinnedToBottom = false;
+      this.pinnedToBottom.set(false);
       this.cancelScrollFrame();
       return;
     }
     if (distanceFromBottom < this.NEAR_BOTTOM_PX) {
-      this.pinnedToBottom = true;
+      this.pinnedToBottom.set(true);
     }
   }
-  /** Current pin state; read-only directive wiring. */
+
+  /**
+   * Bind the native passive scroll listener outside the zone. The template
+   * carries no `(scroll)` binding: every scroll event under zone.js would
+   * otherwise tick app-wide change detection. The container element is
+   * captured here — viewChild signals read null after destroy, so the
+   * listener body and cleanup must not go through them.
+   */
+  private setupScrollListener(): void {
+    const el = this.scrollContainer()?.nativeElement;
+    if (!el || this.scrollElement) return;
+    this.scrollElement = el;
+    this.ngZone.runOutsideAngular(() => {
+      el.addEventListener('scroll', this.scrollHandler, { passive: true });
+    });
+  }
+  /** Current pin state; reads the signal so the binding stays reactive. */
   protected isPinnedToBottom(): boolean {
-    return this.pinnedToBottom;
+    return this.pinnedToBottom();
   }
   /**
    * Stick the container to the bottom on the next frame. rAF-coalesced so a
@@ -737,7 +788,7 @@ export class ChatTranscriptComponent {
       if (generation !== this.scrollGeneration || !this.workActive()) return;
       this.scrollRafId = null;
       const el = this.scrollContainer()?.nativeElement;
-      if (!el || !this.pinnedToBottom) return;
+      if (!el || !this.pinnedToBottom()) return;
       const bottom = el.scrollHeight - el.clientHeight;
       if (el.scrollTop < bottom) {
         el.scrollTop = el.scrollHeight;
@@ -758,7 +809,7 @@ export class ChatTranscriptComponent {
       this.scrollRafId = null;
       const el = this.scrollContainer()?.nativeElement;
       if (!el) return;
-      if (this.pinnedToBottom || this.savedScrollTop === null) {
+      if (this.pinnedToBottom() || this.savedScrollTop === null) {
         el.scrollTop = el.scrollHeight;
       } else {
         el.scrollTop = this.savedScrollTop;
@@ -782,7 +833,7 @@ export class ChatTranscriptComponent {
       const height = entries[0]?.contentRect.height ?? 0;
       if (Math.abs(height - this.lastContentHeight) < 1) return;
       this.lastContentHeight = height;
-      if (this.pinnedToBottom) {
+      if (this.pinnedToBottom()) {
         this.scheduleStickToBottom();
       }
     });
@@ -801,6 +852,10 @@ export class ChatTranscriptComponent {
     if (this.resizeObserver) {
       this.resizeObserver.disconnect();
       this.resizeObserver = null;
+    }
+    if (this.scrollElement) {
+      this.scrollElement.removeEventListener('scroll', this.scrollHandler);
+      this.scrollElement = null;
     }
     this.cancelScrollFrame();
     this.cancelReplayRetentionRelease();

@@ -1,6 +1,7 @@
 import {
   DestroyRef,
   Injectable,
+  NgZone,
   signal,
   computed,
   inject,
@@ -212,6 +213,7 @@ export class TabManagerService {
    */
   private readonly modelRefresh = inject(MODEL_REFRESH_CONTROL);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly ngZone = inject(NgZone);
 
   // ============================================================================
   // PRIVATE STATE SIGNALS
@@ -261,17 +263,40 @@ export class TabManagerService {
    *
    * Emits a `ClosedTabEvent` whenever a tab is closed (via `closeTab` or
    * `forceCloseTab`). The StreamRouter (in `@ptah-extension/chat-routing`)
-   * subscribes via `effect()` and performs the per-session cleanup. This
+   * subscribes synchronously and performs the per-session cleanup. This
    * arrangement avoids the
    * `TabManager → StreamingHandler/AgentMonitor → TabManager` NG0200 cycle
-   * that a direct push API would re-introduce.
+   * that a direct dependency would re-introduce.
    *
-   * Held as `null` between events. Each new emission overwrites the previous
-   * one — consumers must read it inside an `effect()` or computed reactor;
-   * polling is not supported.
+   * Backward-compatible last-event view. New consumers must use
+   * `onTabClosed`, whose synchronous delivery cannot coalesce consecutive
+   * closes before an Angular effect runs.
    */
   private readonly _closedTab = signal<ClosedTabEvent | null>(null);
   readonly closedTab = this._closedTab.asReadonly();
+  private readonly closedTabListeners = new Set<
+    (event: ClosedTabEvent) => void
+  >();
+
+  /** Subscribe to every close event. Returns a teardown for the consumer. */
+  onTabClosed(listener: (event: ClosedTabEvent) => void): () => void {
+    this.closedTabListeners.add(listener);
+    return () => this.closedTabListeners.delete(listener);
+  }
+
+  private emitTabClosed(event: ClosedTabEvent): void {
+    this._closedTab.set(event);
+    // Snapshotting keeps a nested close and listener teardown from changing
+    // this event's recipient list. Each recipient is isolated so a view-level
+    // failure cannot leave tab state half-closed.
+    for (const listener of Array.from(this.closedTabListeners)) {
+      try {
+        listener(event);
+      } catch (error) {
+        console.warn('[TabManager] Closed-tab listener failed:', error);
+      }
+    }
+  }
 
   // Debounce timer for localStorage saves (reduces spam during streaming)
   private _saveTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -1061,13 +1086,13 @@ export class TabManagerService {
       this.workspacePartition.unregisterSession(tab.claudeSessionId);
     }
 
-    this._closedTab.set({
+    this._tabs.update((tabs) => tabs.filter((t) => t.id !== tabId));
+
+    this.emitTabClosed({
       tabId,
       sessionId: tab.claudeSessionId ?? null,
       kind: 'forceClose',
     });
-
-    this._tabs.update((tabs) => tabs.filter((t) => t.id !== tabId));
 
     if (this._activeTabId() === tabId) {
       const remaining = this._tabs();
@@ -1141,17 +1166,17 @@ export class TabManagerService {
       this.workspacePartition.unregisterSession(tab.claudeSessionId);
     }
 
-    this._closedTab.set({
+    const tabIndex = tabs.findIndex((t) => t.id === tabId);
+
+    // Remove tab
+    this._tabs.update((tabs) => tabs.filter((t) => t.id !== tabId));
+
+    this.emitTabClosed({
       tabId,
       sessionId: tab.claudeSessionId ?? null,
       kind: 'close',
       streamAbortDispatched,
     });
-
-    const tabIndex = tabs.findIndex((t) => t.id === tabId);
-
-    // Remove tab
-    this._tabs.update((tabs) => tabs.filter((t) => t.id !== tabId));
 
     // Switch to adjacent tab if closing active
     if (this._activeTabId() === tabId) {
@@ -1228,7 +1253,7 @@ export class TabManagerService {
       lastTurnStateSessionId: undefined,
     });
 
-    this._closedTab.set({
+    this.emitTabClosed({
       tabId,
       sessionId: previousSessionId ?? null,
       kind: 'reset',
@@ -2562,23 +2587,27 @@ export class TabManagerService {
     }
 
     // Schedule debounced save (reduces 220+ writes to just a few during streaming)
-    this._saveTimeout = setTimeout(() => {
-      this._saveTimeout = null;
-      this._clearSaveMaxWait();
-      this._doSaveTabState();
-    }, this.SAVE_DEBOUNCE_MS);
+    this.ngZone.runOutsideAngular(() => {
+      this._saveTimeout = setTimeout(() => {
+        this._saveTimeout = null;
+        this._clearSaveMaxWait();
+        this._doSaveTabState();
+      }, this.SAVE_DEBOUNCE_MS);
+    });
 
     // Started on the first pending save and deliberately NOT reset by later
     // calls, so continuous streaming cannot starve persistence.
     if (this._saveMaxWaitTimeout === null) {
-      this._saveMaxWaitTimeout = setTimeout(() => {
-        this._saveMaxWaitTimeout = null;
-        if (this._saveTimeout) {
-          clearTimeout(this._saveTimeout);
-          this._saveTimeout = null;
-        }
-        this._doSaveTabState();
-      }, this.SAVE_MAX_WAIT_MS);
+      this.ngZone.runOutsideAngular(() => {
+        this._saveMaxWaitTimeout = setTimeout(() => {
+          this._saveMaxWaitTimeout = null;
+          if (this._saveTimeout) {
+            clearTimeout(this._saveTimeout);
+            this._saveTimeout = null;
+          }
+          this._doSaveTabState();
+        }, this.SAVE_MAX_WAIT_MS);
+      });
     }
   }
 

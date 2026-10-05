@@ -120,7 +120,10 @@ describe('typed usage accumulation contract', () => {
       imports: [CliAgentOutputComponent],
       providers: [
         provideMarkdown(),
-        { provide: AgentMonitorStore, useValue: { tick: signal(0) } },
+        {
+          provide: AgentMonitorStore,
+          useValue: { tick: signal(0), agentsById: signal(new Map()) },
+        },
         { provide: ClaudeRpcService, useValue: createMockRpcService() },
         {
           provide: VSCodeService,
