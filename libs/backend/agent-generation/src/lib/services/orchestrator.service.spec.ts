@@ -62,7 +62,16 @@ jest.mock('@ptah-extension/workspace-intelligence', () => ({
   MonorepoDetectorService: jest.fn(),
 }));
 
+// settings-core is mocked like the sibling specs do: only the DI token is read
+// at runtime, and the repository itself is a hand-built stub per test.
+jest.mock('@ptah-extension/settings-core', () => ({
+  SETTINGS_TOKENS: { AGENT_MODEL_SETTINGS: Symbol.for('AgentModelSettings') },
+}));
+
 import { existsSync } from 'fs';
+import * as path from 'path';
+import type { AgentModelSettings } from '@ptah-extension/settings-core';
+import type { AgentModelLayers } from '@ptah-extension/shared';
 import { Result } from '@ptah-extension/shared';
 import {
   ProjectType,
@@ -172,7 +181,7 @@ interface OrchestratorMocks {
   outputValidation: jest.Mocked<IOutputValidationService>;
 }
 
-function createOrchestrator(): {
+function createOrchestrator(agentModelSettings?: AgentModelSettings): {
   service: AgentGenerationOrchestratorService;
   mocks: OrchestratorMocks;
 } {
@@ -243,6 +252,7 @@ function createOrchestrator(): {
     monorepoDetector,
     sentryService,
     outputValidation,
+    agentModelSettings,
   );
 
   return {
@@ -1539,6 +1549,321 @@ describe('AgentGenerationOrchestratorService', () => {
       expect(writtenAgent.content).toContain(
         'disallowedTools: mcp__firecrawl\n---\n',
       );
+    });
+  });
+
+  // ===========================================================================
+  // 7. CLAUDE MODEL OVERRIDE (agentGeneration.models, TASK_2026_609 C6 / R8)
+  //    The user's per-agent Claude model replaces the template's `model:` only
+  //    when Claude Code would accept it; anything else keeps the template's.
+  // ===========================================================================
+  describe('Claude model override from agentGeneration.models', () => {
+    const WS = '/workspace/test-project';
+
+    function settingsReturning(
+      layers: unknown,
+    ): jest.Mocked<Pick<AgentModelSettings, 'layersForPath'>> {
+      return {
+        layersForPath: jest.fn(() => layers as AgentModelLayers),
+      } as unknown as jest.Mocked<Pick<AgentModelSettings, 'layersForPath'>>;
+    }
+
+    async function frontmatterFor(
+      settings: Pick<AgentModelSettings, 'layersForPath'> | undefined,
+      template: AgentTemplate = createMockTemplate({
+        id: 'backend-developer',
+        name: 'backend-developer',
+        model: 'opus',
+      }),
+    ): Promise<{ frontmatter: string; mocks: OrchestratorMocks }> {
+      const { service, mocks } = createOrchestrator(
+        settings as AgentModelSettings | undefined,
+      );
+      wireHappyPath(mocks, template);
+      await service.generateAgents({ workspacePath: WS });
+      const writtenAgent = mocks.fileWriter.writeAgent.mock.calls[0]![0];
+      return {
+        frontmatter: writtenAgent.content.split('\n---\n')[0],
+        mocks,
+      };
+    }
+
+    it('uses the workspace per-agent value', async () => {
+      const settings = settingsReturning({
+        workspace: { 'backend-developer': { claude: 'haiku' } },
+      });
+      const { frontmatter } = await frontmatterFor(settings);
+      expect(frontmatter).toContain('model: haiku');
+      expect(frontmatter).not.toContain('model: opus');
+      // No `.ptah`/`.git` marker exists (fs is mocked), so the harness root is
+      // the resolved workspace path itself.
+      expect(settings.layersForPath).toHaveBeenCalledWith(path.resolve(WS));
+    });
+
+    it('reads the override saved for the .git root when opened in a subfolder', async () => {
+      const root = path.resolve('/workspace/mono');
+      const sub = path.join(root, 'apps', 'web');
+      existsSyncMock.mockImplementation((p) => p === path.join(root, '.git'));
+      const settings = settingsReturning({
+        workspace: { 'backend-developer': { claude: 'haiku' } },
+      });
+      const { service, mocks } = createOrchestrator(
+        settings as unknown as AgentModelSettings,
+      );
+      wireHappyPath(
+        mocks,
+        createMockTemplate({
+          id: 'backend-developer',
+          name: 'backend-developer',
+          model: 'opus',
+        }),
+      );
+
+      await service.generateAgents({ workspacePath: sub });
+
+      expect(settings.layersForPath).toHaveBeenCalledWith(root);
+      const writtenAgent = mocks.fileWriter.writeAgent.mock.calls[0]![0];
+      expect(writtenAgent.content.split('\n---\n')[0]).toContain(
+        'model: haiku',
+      );
+    });
+
+    it('looks the override up by the agent file slug (template id), not its name', async () => {
+      const settings = settingsReturning({
+        workspace: {
+          'backend-developer': { claude: 'haiku' },
+          'Backend Developer': { claude: 'sonnet' },
+        },
+      });
+      const { frontmatter } = await frontmatterFor(
+        settings,
+        createMockTemplate({
+          id: 'backend-developer',
+          name: 'Backend Developer',
+          model: 'opus',
+        }),
+      );
+      expect(frontmatter).toContain('model: haiku');
+      expect(frontmatter).not.toContain('model: sonnet');
+    });
+
+    it("uses the workspace '*' value for an agent with no entry of its own", async () => {
+      const settings = settingsReturning({
+        workspace: {
+          '*': { claude: 'sonnet' },
+          'other-agent': { claude: 'haiku' },
+        },
+      });
+      const { frontmatter } = await frontmatterFor(settings);
+      expect(frontmatter).toContain('model: sonnet');
+    });
+
+    it('falls back to the machine value when the workspace layer is empty', async () => {
+      const settings = settingsReturning({
+        workspace: {},
+        machine: { 'backend-developer': { claude: 'inherit' } },
+      });
+      const { frontmatter } = await frontmatterFor(settings);
+      expect(frontmatter).toContain('model: inherit');
+    });
+
+    it('lets the workspace value beat the machine value', async () => {
+      const settings = settingsReturning({
+        workspace: { 'backend-developer': { claude: 'haiku' } },
+        machine: { 'backend-developer': { claude: 'sonnet' } },
+      });
+      const { frontmatter } = await frontmatterFor(settings);
+      expect(frontmatter).toContain('model: haiku');
+      expect(frontmatter).not.toContain('model: sonnet');
+    });
+
+    it('emits the trimmed value when the stored one carries whitespace', async () => {
+      const settings = settingsReturning({
+        workspace: { 'backend-developer': { claude: '  sonnet \t' } },
+      });
+      const { frontmatter } = await frontmatterFor(settings);
+      expect(frontmatter).toMatch(/^model: sonnet$/m);
+    });
+
+    it.each([
+      ['an unknown alias', 'claude-sonnet-4-7'],
+      ['a value with a control character', 'opus\nevil: true'],
+      ['an internal space', 'son net'],
+    ])(
+      'ignores %s, warns, and keeps the template model (R8)',
+      async (_label, value) => {
+        const settings = settingsReturning({
+          workspace: { 'backend-developer': { claude: value } },
+        });
+        const { frontmatter, mocks } = await frontmatterFor(settings);
+        expect(frontmatter).toContain('model: opus');
+        expect(frontmatter).not.toContain('evil');
+        expect(frontmatter.match(/^model:/gm)).toHaveLength(1);
+        expect(mocks.logger.warn).toHaveBeenCalledWith(
+          expect.stringContaining('Ignoring the Claude model override'),
+          expect.objectContaining({ value: JSON.stringify(value) }),
+        );
+      },
+    );
+
+    it('emits no model: for an invalid override on a template without one', async () => {
+      const settings = settingsReturning({
+        workspace: { 'backend-developer': { claude: 'gpt-5' } },
+      });
+      const { frontmatter } = await frontmatterFor(
+        settings,
+        createMockTemplate({
+          id: 'backend-developer',
+          name: 'backend-developer',
+        }),
+      );
+      expect(frontmatter).not.toContain('model:');
+    });
+
+    it('never reads another provider value', async () => {
+      const settings = settingsReturning({
+        workspace: { 'backend-developer': { codex: 'gpt-5' } },
+      });
+      const { frontmatter } = await frontmatterFor(settings);
+      expect(frontmatter).toContain('model: opus');
+    });
+
+    it('keeps the template model when the token is absent', async () => {
+      const { frontmatter, mocks } = await frontmatterFor(undefined);
+      expect(frontmatter).toContain('model: opus');
+      expect(mocks.logger.warn).not.toHaveBeenCalled();
+    });
+
+    it('keeps the template model and still writes when the read throws', async () => {
+      const settings = {
+        layersForPath: jest.fn(() => {
+          throw new Error('A workspace path is required');
+        }),
+      };
+      const { frontmatter, mocks } = await frontmatterFor(settings);
+      expect(frontmatter).toContain('model: opus');
+      expect(mocks.fileWriter.writeAgent).toHaveBeenCalledTimes(1);
+      expect(mocks.logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('Could not read agentGeneration.models'),
+        { error: 'A workspace path is required' },
+      );
+    });
+
+    it.each([
+      ['a string', 'garbage'],
+      ['null', null],
+      ['array layers', { workspace: [], machine: ['opus'] }],
+      [
+        'a non-object slug entry',
+        { workspace: { 'backend-developer': 'haiku' } },
+      ],
+      [
+        'a non-string leaf',
+        { machine: { 'backend-developer': { claude: 7 } } },
+      ],
+    ])(
+      'keeps the template model when the layers are malformed (%s)',
+      async (_label, layers) => {
+        const { frontmatter, mocks } = await frontmatterFor(
+          settingsReturning(layers),
+        );
+        expect(frontmatter).toContain('model: opus');
+        expect(mocks.fileWriter.writeAgent).toHaveBeenCalledTimes(1);
+      },
+    );
+
+    it('emits model: from the override when the template declares none', async () => {
+      const settings = settingsReturning({
+        machine: { '*': { claude: 'sonnet' } },
+      });
+      const { frontmatter } = await frontmatterFor(
+        settings,
+        createMockTemplate({
+          id: 'backend-developer',
+          name: 'backend-developer',
+        }),
+      );
+      expect(frontmatter).toContain('model: sonnet');
+    });
+
+    it('keeps the disallowedTools line, after the overridden model:', async () => {
+      const settings = settingsReturning({
+        workspace: { 'code-logic-reviewer': { claude: 'haiku' } },
+      });
+      const { frontmatter } = await frontmatterFor(
+        settings,
+        createMockTemplate({
+          id: 'code-logic-reviewer',
+          name: 'code-logic-reviewer',
+          model: 'opus',
+        }),
+      );
+      expect(frontmatter).toContain(
+        'disallowedTools: mcp__firecrawl, mcp__ptah__ptah_web_search, mcp__ptah__ptah_browser_navigate,',
+      );
+      expect(frontmatter.indexOf('disallowedTools:')).toBeGreaterThan(
+        frontmatter.indexOf('model: haiku'),
+      );
+    });
+
+    it('applies the same override on the authored-fallback path', async () => {
+      const settings = settingsReturning({
+        workspace: { 'backend-developer': { claude: 'haiku' } },
+      });
+      const { service, mocks } = createOrchestrator(
+        settings as unknown as AgentModelSettings,
+      );
+      wireHappyPath(
+        mocks,
+        createMockTemplate({
+          id: 'backend-developer',
+          name: 'backend-developer',
+          model: 'opus',
+        }),
+      );
+      mocks.contentGenerator.generateContent.mockResolvedValue(
+        Result.err(new Error('SDK unavailable')),
+      );
+
+      await service.generateAgents({ workspacePath: WS });
+
+      const writtenAgent = mocks.fileWriter.writeAgent.mock.calls[0]![0];
+      expect(writtenAgent.content.split('\n---\n')[0]).toContain(
+        'model: haiku',
+      );
+    });
+
+    it('reads the settings once per run and resolves each agent by name', async () => {
+      const settings = settingsReturning({
+        workspace: {
+          'agent-a': { claude: 'haiku' },
+          '*': { claude: 'sonnet' },
+        },
+      });
+      const { service, mocks } = createOrchestrator(
+        settings as unknown as AgentModelSettings,
+      );
+      wireHappyPath(mocks);
+      const tplA = createMockTemplate({ id: 'agent-a', name: 'agent-a' });
+      const tplB = createMockTemplate({ id: 'agent-b', name: 'agent-b' });
+      mocks.agentSelector.selectAgents.mockResolvedValue(
+        Result.ok([
+          { template: tplA, relevanceScore: 100, matchedCriteria: [] },
+          { template: tplB, relevanceScore: 100, matchedCriteria: [] },
+        ]),
+      );
+      mocks.templateStorage.loadTemplate.mockImplementation(async (id) =>
+        Result.ok(id === 'agent-a' ? tplA : tplB),
+      );
+
+      await service.generateAgents({ workspacePath: WS });
+
+      expect(settings.layersForPath).toHaveBeenCalledTimes(1);
+      const [first, second] = mocks.fileWriter.writeAgent.mock.calls.map(
+        (call) => call[0].content.split('\n---\n')[0],
+      );
+      expect(first).toContain('model: haiku');
+      expect(second).toContain('model: sonnet');
     });
   });
 });

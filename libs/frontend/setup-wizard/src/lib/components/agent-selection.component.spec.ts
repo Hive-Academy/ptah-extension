@@ -4,6 +4,7 @@ import type {
   AgentPackInfoDto,
   AgentRecommendation,
   MultiPhaseAnalysisResponse,
+  WizardPreviewGenerationResponse,
 } from '@ptah-extension/shared';
 import { AgentSelectionComponent } from './agent-selection.component';
 import { SetupWizardStateService } from '../services/setup-wizard-state.service';
@@ -28,6 +29,41 @@ const mockMultiPhase = {
   isMultiPhase: true,
   analysisDir: '/mock/.ptah/analysis/demo',
 } as unknown as MultiPhaseAnalysisResponse;
+
+const preview: WizardPreviewGenerationResponse = {
+  agents: [
+    {
+      agentId: 'a',
+      files: [
+        {
+          relPath: '.claude/agents/a.md',
+          target: 'claude',
+          certainty: 'definite',
+          willOverwrite: true,
+        },
+        {
+          relPath: '.codex/agents/a.toml',
+          target: 'codex',
+          certainty: 'conditional',
+          willOverwrite: true,
+          condition:
+            'generation changes at least one selected agent file; other CLIs are only synced when a file is written',
+        },
+      ],
+    },
+  ],
+  warning: 'Some provider paths could not be checked',
+};
+
+// jsdom lacks the native dialog methods; preserve the open attribute like the NativeModal specs.
+beforeAll(() => {
+  HTMLDialogElement.prototype.showModal = function () {
+    this.setAttribute('open', '');
+  };
+  HTMLDialogElement.prototype.close = function () {
+    this.removeAttribute('open');
+  };
+});
 
 describe('AgentSelectionComponent', () => {
   let component: AgentSelectionComponent;
@@ -107,6 +143,7 @@ describe('AgentSelectionComponent', () => {
     } as unknown as Partial<SetupWizardStateService>;
 
     mockRpcService = {
+      previewGeneration: jest.fn().mockResolvedValue(preview),
       submitAgentSelection: jest.fn().mockResolvedValue({ success: true }),
       listAgentPacks: jest.fn().mockResolvedValue([]),
       installPackAgents: jest.fn().mockResolvedValue({
@@ -294,7 +331,9 @@ describe('AgentSelectionComponent', () => {
 
     it('should submit the selected agents with the analysis dir', async () => {
       await component['onGenerateAgents']();
+      await component['onConfirmPreview']();
 
+      // Generation now starts only after preview confirmation.
       expect(mockRpcService.submitAgentSelection).toHaveBeenCalledWith(
         [
           {
@@ -312,8 +351,11 @@ describe('AgentSelectionComponent', () => {
 
     it('should transition to the generation step on success', async () => {
       await component['onGenerateAgents']();
+      await component['onConfirmPreview']();
 
+      // Generation now starts only after preview confirmation.
       expect(mockStateService.setSkillGenerationProgress).toHaveBeenCalled();
+      // Generation now starts only after preview confirmation.
       expect(mockStateService.setCurrentStep).toHaveBeenCalledWith(
         'generation',
       );
@@ -321,23 +363,31 @@ describe('AgentSelectionComponent', () => {
 
     it('should reset isGenerating after completion', async () => {
       await component['onGenerateAgents']();
+      await component['onConfirmPreview']();
+      // Generation now starts only after preview confirmation.
       expect(component['isGenerating']()).toBe(false);
     });
 
     it('should not submit when nothing is selected', async () => {
       selectedAgentsMap.set({});
       await component['onGenerateAgents']();
+      await component['onConfirmPreview']();
+      // Generation now starts only after preview confirmation.
       expect(mockRpcService.submitAgentSelection).not.toHaveBeenCalled();
     });
 
     it('should surface an error when analysis data is missing', async () => {
       multiPhaseResult.set(null);
       await component['onGenerateAgents']();
+      await component['onConfirmPreview']();
 
+      // Generation now starts only after preview confirmation.
       expect(mockRpcService.submitAgentSelection).not.toHaveBeenCalled();
+      // Generation now starts only after preview confirmation.
       expect(component['errorMessage']()).toContain(
         'No analysis data available',
       );
+      // Generation now starts only after preview confirmation.
       expect(mockStateService.setCurrentStep).not.toHaveBeenCalledWith(
         'generation',
       );
@@ -351,8 +401,11 @@ describe('AgentSelectionComponent', () => {
       });
 
       await component['onGenerateAgents']();
+      await component['onConfirmPreview']();
 
+      // Generation now starts only after preview confirmation.
       expect(component['errorMessage']()).toContain('Backend exploded');
+      // Generation now starts only after preview confirmation.
       expect(mockStateService.setCurrentStep).not.toHaveBeenCalledWith(
         'generation',
       );
@@ -365,8 +418,11 @@ describe('AgentSelectionComponent', () => {
       );
 
       await component['onGenerateAgents']();
+      await component['onConfirmPreview']();
 
+      // Generation now starts only after preview confirmation.
       expect(component['errorMessage']()).toContain('RPC timeout');
+      // Generation now starts only after preview confirmation.
       expect(component['isGenerating']()).toBe(false);
     });
 
@@ -378,13 +434,163 @@ describe('AgentSelectionComponent', () => {
         }),
       );
 
-      const first = component['onGenerateAgents']();
-      const second = component['onGenerateAgents']();
+      await component['onGenerateAgents']();
+      const first = component['onConfirmPreview']();
+      await Promise.resolve();
+      const second = component['onConfirmPreview']();
 
+      // Generation now starts only after preview confirmation.
       expect(mockRpcService.submitAgentSelection).toHaveBeenCalledTimes(1);
 
       resolve({ success: true });
       await Promise.all([first, second]);
+    });
+    it('lists definite files, overwrite markers, conditional files with conditions, and warning separately', async () => {
+      await component['onGenerateAgents']();
+      fixture.detectChanges();
+      const dialog: HTMLDialogElement =
+        fixture.nativeElement.querySelector('dialog');
+      expect(dialog.open).toBe(true);
+      expect(dialog.getAttribute('aria-label')).toBe(
+        'Preview agent generation',
+      );
+      expect(dialog.textContent).toContain('.claude/agents/a.md');
+      // Assert the full marker so mangled wording fails this regression. The
+      // marker is a warning badge (solid fill, warning-content text) so it
+      // stays >= 4.5:1 in the light theme.
+      expect(
+        dialog
+          .querySelector('section > ul .badge-warning')
+          ?.textContent?.trim(),
+      ).toBe('will overwrite');
+      expect(dialog.textContent).toContain(preview.warning);
+      const conditional = dialog.querySelector(
+        '[data-testid="conditional-files"]',
+      );
+      // Assert the conditional overwrite wording.
+      expect(
+        conditional?.querySelector('.badge-warning')?.textContent?.trim(),
+      ).toBe('will overwrite if written');
+      // No warning sentence in the modal uses bare text-warning (2.46:1 on
+      // the light theme's base-100).
+      expect(dialog.querySelector('.text-warning')).toBeNull();
+      expect(conditional?.textContent).toContain('May also write, if');
+      expect(conditional?.textContent).toContain(
+        preview.agents[0].files[1].condition,
+      );
+      expect(conditional?.textContent).toContain('.codex/agents/a.toml');
+      expect(conditional?.textContent).not.toContain('.claude/agents/a.md');
+      expect(mockRpcService.previewGeneration).toHaveBeenCalledWith(['a']);
+      expect(mockRpcService.submitAgentSelection).not.toHaveBeenCalled();
+    });
+
+    it('cancels the preview without submitting and keeps selection', async () => {
+      await component['onGenerateAgents']();
+      fixture.detectChanges();
+      const cancel: HTMLButtonElement = fixture.nativeElement.querySelector(
+        '[modal-footer] button',
+      );
+      cancel.click();
+      fixture.detectChanges();
+      expect(component['previewOpen']()).toBe(false);
+      expect(selectedAgentsMap()).toEqual({ a: true });
+      await component['onConfirmPreview']();
+      expect(mockRpcService.submitAgentSelection).not.toHaveBeenCalled();
+    });
+
+    it('re-previews unchanged targets and submits once on confirm', async () => {
+      await component['onGenerateAgents']();
+      await component['onConfirmPreview']();
+      expect(mockRpcService.previewGeneration).toHaveBeenCalledTimes(2);
+      expect(mockRpcService.submitAgentSelection).toHaveBeenCalledTimes(1);
+    });
+
+    it('shows Targets changed since preview and requires a second confirm for a changed definite set', async () => {
+      const changed: WizardPreviewGenerationResponse = {
+        agents: [
+          {
+            agentId: 'a',
+            files: preview.agents[0].files.map((file) => ({
+              ...file,
+              certainty: 'definite',
+            })),
+          },
+        ],
+      };
+      await component['onGenerateAgents']();
+      (mockRpcService.previewGeneration as jest.Mock).mockResolvedValue(
+        changed,
+      );
+      await component['onConfirmPreview']();
+      fixture.detectChanges();
+      expect(
+        fixture.nativeElement.querySelector('dialog').textContent,
+      ).toContain('Targets changed since preview');
+      expect(
+        fixture.nativeElement.querySelector('dialog').textContent,
+      ).toContain('.codex/agents/a.toml');
+      expect(mockRpcService.submitAgentSelection).not.toHaveBeenCalled();
+      await component['onConfirmPreview']();
+      expect(mockRpcService.submitAgentSelection).toHaveBeenCalledTimes(1);
+      expect(mockRpcService.previewGeneration).toHaveBeenCalledTimes(3);
+    });
+
+    it.each(['initial', 'confirm'])(
+      'shows the reason and permits explicit generation after %s preview failure',
+      async (stage) => {
+        if (stage === 'confirm') await component['onGenerateAgents']();
+        (mockRpcService.previewGeneration as jest.Mock).mockRejectedValue(
+          new Error('preview offline'),
+        );
+        if (stage === 'initial') await component['onGenerateAgents']();
+        else await component['onConfirmPreview']();
+        fixture.detectChanges();
+        const dialog: HTMLDialogElement =
+          fixture.nativeElement.querySelector('dialog');
+        expect(dialog.textContent).toContain('preview offline');
+        const generate = dialog.querySelector<HTMLButtonElement>(
+          '[modal-footer] .btn-primary',
+        );
+        expect(generate?.disabled).toBe(false);
+        expect(generate?.textContent).toContain('Generate without preview');
+        expect(mockRpcService.submitAgentSelection).not.toHaveBeenCalled();
+        generate?.click();
+        await fixture.whenStable();
+        expect(mockRpcService.submitAgentSelection).toHaveBeenCalledTimes(1);
+      },
+    );
+
+    it('ignores a pending re-preview after cancellation', async () => {
+      await component['onGenerateAgents']();
+      let resolve!: (value: WizardPreviewGenerationResponse) => void;
+      (mockRpcService.previewGeneration as jest.Mock).mockReturnValue(
+        new Promise((r) => {
+          resolve = r;
+        }),
+      );
+      const confirm = component['onConfirmPreview']();
+      component['cancelPreview']();
+      resolve(preview);
+      await confirm;
+      expect(mockRpcService.submitAgentSelection).not.toHaveBeenCalled();
+      expect(component['previewOpen']()).toBe(false);
+    });
+
+    it('compares definite paths as a set regardless of ordering or conditional changes', async () => {
+      const files = [
+        preview.agents[0].files[0],
+        { ...preview.agents[0].files[0], relPath: '.claude/agents/b.md' },
+      ];
+      (mockRpcService.previewGeneration as jest.Mock)
+        .mockResolvedValueOnce({ agents: [{ agentId: 'a', files }] })
+        .mockResolvedValueOnce({
+          agents: [
+            { agentId: 'a', files: [...files].reverse().concat(files[0]) },
+          ],
+        });
+      await component['onGenerateAgents']();
+      await component['onConfirmPreview']();
+      expect(mockRpcService.submitAgentSelection).toHaveBeenCalledTimes(1);
     });
   });
 

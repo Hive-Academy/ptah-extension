@@ -1,4 +1,4 @@
-import { Injectable, effect, inject, untracked } from '@angular/core';
+import { DestroyRef, Injectable, inject, untracked } from '@angular/core';
 import { ClaudeRpcService } from '@ptah-extension/core';
 import {
   ConversationRegistry,
@@ -12,11 +12,11 @@ import type { SessionId } from '@ptah-extension/shared';
  * ClosedTabSessionEnderService — ends the backend session of a tab the user
  * closed (TASK_2026_592).
  *
- * Reacts to `TabManagerService.closedTab` and sends `chat:abort` for the
+ * Reacts to `TabManagerService.onTabClosed` and sends `chat:abort` for the
  * closed tab's session, so closing a tab stops its claude process instead of
  * leaving it alive until app exit. It acts only on a real `close`:
  *   - `forceClose` (pop-out transfer) and `reset` (`/clear`) never end a
- *     session, and a workspace switch never emits `closedTab` at all.
+ *     session, and a workspace switch never emits a close event at all.
  *   - A streaming close already sent `chat:abort` through the abort listener
  *     in `MessageSenderService` (`streamAbortDispatched`); a second abort could
  *     overwrite the first one's persisted resume state, so it is skipped.
@@ -34,30 +34,27 @@ export class ClosedTabSessionEnderService {
   private readonly conversations = inject(ConversationRegistry);
   private readonly binding = inject(TabSessionBinding);
   private readonly claudeRpcService = inject(ClaudeRpcService);
+  private readonly destroyRef = inject(DestroyRef);
 
   constructor() {
-    // A close recorded before this service existed belongs to another
-    // lifetime; skip that exact event (by identity) on the first run.
-    const preexisting = untracked(() => this.tabManager.closedTab());
-
-    // Known limitation: `closedTab` is a single-value signal, so two closes in
-    // the same tick coalesce and only the last reaches this effect. Every
-    // current caller awaits one close per tick (recorded follow-up).
-    effect(() => {
-      const closed = this.tabManager.closedTab();
-      if (!closed || closed === preexisting) return;
-      untracked(() => this.endSessionIfOrphaned(closed));
-    });
+    // `onTabClosed` delivers every event synchronously, so back-to-back closes
+    // cannot coalesce before this service evaluates each orphaned session.
+    this.destroyRef.onDestroy(
+      this.tabManager.onTabClosed((closed) =>
+        untracked(() => this.endSessionIfOrphaned(closed)),
+      ),
+    );
   }
 
   private endSessionIfOrphaned(closed: ClosedTabEvent): void {
     if (closed.kind !== 'close') return;
     if (closed.streamAbortDispatched === true) return;
-    const sessionId = closed.sessionId;
-    if (typeof sessionId !== 'string' || sessionId.length === 0) return;
-    if (this.isStillDisplayed(sessionId)) return;
+    if (typeof closed.sessionId !== 'string' || closed.sessionId.length === 0)
+      return;
+    const sessionId = closed.sessionId as SessionId;
+    if (this.isStillDisplayed(sessionId, closed.tabId)) return;
 
-    const params = { sessionId: sessionId as SessionId };
+    const params = { sessionId };
     try {
       this.claudeRpcService.call('chat:abort', params).catch((error) => {
         this.warn(closed.tabId, sessionId, error);
@@ -69,16 +66,21 @@ export class ClosedTabSessionEnderService {
 
   /**
    * True when another tab or a non-tab surface still shows the session. The
-   * closed tab is already removed when this runs (`closeTab` emits, then
-   * removes, and effects flush afterwards). The surface check reads the
-   * conversation registry, which StreamRouter keeps while any surface remains
-   * bound, so it does not depend on effect order between the two consumers.
+   * closed tab is excluded explicitly, so this remains correct regardless of
+   * whether StreamRouter has unbound it yet.
    */
-  private isStillDisplayed(sessionId: string): boolean {
-    if (this.tabManager.findTabBySessionId(sessionId) !== null) return true;
-    const record = this.conversations.findContainingSession(
-      sessionId as SessionId,
-    );
+  private isStillDisplayed(
+    sessionId: SessionId,
+    closedTabId: string,
+  ): boolean {
+    if (
+      this.tabManager
+        .findTabsBySessionId(sessionId)
+        .some((tab) => tab.id !== closedTabId)
+    ) {
+      return true;
+    }
+    const record = this.conversations.findContainingSession(sessionId);
     return record !== null && this.binding.surfacesFor(record.id).length > 0;
   }
 

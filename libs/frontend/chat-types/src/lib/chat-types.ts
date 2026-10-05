@@ -11,6 +11,7 @@ import {
   SdkTerminalReason,
   GatewayPlatformId,
   SessionStatsEntry,
+  SessionBudgetState,
   type ContextCapacity,
 } from '@ptah-extension/shared';
 
@@ -641,6 +642,14 @@ export interface TabState {
    * or rebuilt from messages. `null`/absent means unavailable.
    */
   sessionStats?: SessionStatsEntry | null;
+
+  /**
+   * The backend's session budget state, published beside `sessionStats` and
+   * computed from that snapshot. Installed only together with an accepted
+   * snapshot, so it never runs ahead of or behind the figures the chip shows.
+   * `null`/absent means no budget is known for the session.
+   */
+  sessionBudget?: SessionBudgetState | null;
 
   /**
    * Live model stats from current session (updated after each turn completion).

@@ -77,6 +77,168 @@ Risks added by the subset:
   config, checked by the content check and covered by the combined review).
 - The team-leader still verifies every batch on disk before its commit.
 
+## PR 2 scope (decision 12)
+
+Source: context.md § User Decisions item 12 (2026-10-04). PR 2 = N1/N2/N6 = Batches 36, 37, 38, 39, 40, 41, 46, 47
+(8 batches, 15 tasks). Headers changed from `DEFERRED (follow-up, decision 11)` to `PENDING (PR 2, decision 12)`.
+Every other DEFERRED batch stays deferred with its owner stage. Decision 11 review policy and lean rules apply; CLI lanes
+stay disabled.
+
+Worktree root for PR 2 (every task path in Batches 36-41, 46, 47 was rewritten to it):
+`D:/projects/ptah-extension/.claude-worktrees/task-597-followups`, branch `fix/task-597-followups`, base `5bb19f9fb`
+(origin/main; contains PR 1 = #634 merge `f314a4f8a` and TASK_2026_609 = #635 merge `0ec714c79`). The line 5 root above
+is PR 1's and does not apply to PR 2. Never touch `D:/projects/ptah-extension` (main checkout).
+
+Re-validation (2026-10-04, against the files on this branch): every task's file list, pattern and line refs were checked
+and corrected in place. Main corrections: Task 37.1 adds `rpc-auth.types.ts` (`SCOPED_SETTING_KEYS`, as Batch 2 did) and
+makes the new result fields optional; Task 38.2 is the first and only TTL path (no Task 28.2 gate exists) and touches
+only the options part of the builder; Task 39.1 adds `providers-commit.service.ts` and follows the existing
+`copilotAutoApprove` path; Task 41.2 edits `subagent-registry.types.ts` (`SubagentQueryResult`), not `rpc-chat.types.ts`;
+Task 46.1 becomes a parity spec (`calculateMessageCost` already exists); Task 47.1 adds a small subagent component
+because `agent-card-header` renders CLI lanes only. AS-N1a (sdk.d.ts:8542, SDK 0.3.278) and AS-N1b
+(`sdk-query-options-builder.ts:1259-1274` spreads `process.env`) are now VERIFIED, so `envOverrideReachesSdk` is dropped.
+
+### Subset
+
+| Wave | Batch | Item                                       | State   | Executor                   | Depends on (inside PR 2) | Production files / libs                    |
+| ---- | ----- | ------------------------------------------ | ------- | -------------------------- | ------------------------ | ------------------------------------------ |
+| 0    | -     | `npm ci` in the worktree (orchestrator)    | -       | orchestrator (not a batch) | -                        | -                                          |
+| 1    | 36    | M `--subagents` view + "before" baselines  | PENDING | backend-developer          | none                     | 2 + new file / `scripts/` (not Nx)         |
+| 1    | 37    | N1 setting key, RPC types, TTL resolver    | PENDING | backend-developer          | none                     | 5 / platform-core, shared                  |
+| 2    | 38    | N1 RPC get/set + options builder           | PENDING | backend-developer          | 37 (36 soft)             | 3 / rpc-handlers, agent-sdk                |
+| 2    | 39    | N1 settings state + TTL card               | PENDING | frontend-developer         | 37                       | 5 / core, chat                             |
+| 2    | 40    | N2 `lastActivityAt` + cache state          | PENDING | backend-developer          | 37                       | 5 / shared, vscode-core                    |
+| 3    | 41    | N2 cache state in context + subagent query | PENDING | backend-developer          | 40, 37                   | 3 / rpc-handlers, shared                   |
+| 4    | 46    | N6 store data (+ cost parity spec)         | PENDING | frontend-developer         | 41, 40                   | 1 + 1 spec / chat-streaming, shared (spec) |
+| 5    | 47    | N6 agent panel display                     | PENDING | frontend-developer         | 46                       | 4 / chat                                   |
+| 6    | -     | ONE code-logic review on the combined diff | -       | code-logic-reviewer        | all of the above         | -                                          |
+
+Executor: one Claude subagent per batch, execution mode sequential inside each batch, max 3 subagents at once. Commits
+stay serial (team-leader owns git); a parallel set is committed in finish order.
+
+File-disjoint waves (checked against each batch's file list):
+
+- Wave 1: 36 (`scripts/agent-usage/*`, `scripts/agent-usage-report.ts`, `measurements/`) and 37 (`file-settings-keys.ts`,
+  `rpc-agents.types.ts`, `rpc-auth.types.ts`, new `subagent-prompt-cache-ttl.ts`, `utils/index.ts`). 40 is NOT in wave 1:
+  it edits the same `libs/shared/src/lib/utils/index.ts` barrel as 37 and imports the TTL type.
+- Wave 2, after 37 is committed: 38 (`agent-rpc.handlers.ts`, `settings-export.types.ts`, `sdk-query-options-builder.ts`),
+  39 (`providers-settings.types.ts`, `providers-settings-state.service.ts`, `providers-commit.service.ts`, new
+  `subagent-cache-ttl-setting.component.ts`, `orchestration-settings.component.ts`) and 40 (`subagent-registry.types.ts`,
+  new `subagent-cache-state.ts`, `utils/index.ts`, `subagent-registry.service.ts`, `subagent-state-store.ts`). No file in
+  common. 38 waits for 36 only as ordering (wave 1), not for code.
+- Wave 3, after 40 is committed: 41 (`chat-subagent-context-injector.service.ts`, `subagent-rpc.handlers.ts`,
+  `subagent-registry.types.ts`). 39 may still be running (disjoint). 41 shares the rpc-handlers project with 38 but no file.
+- Wave 4: 46 after 41. Wave 5: 47 after 46 (same chat project as 39, no shared file).
+- In-flight edits: in wave 2, 40 changes `libs/shared` while 38 and 39 typecheck projects that import it. A failing scoped
+  check is attributed by `file:line` before a batch is rejected; the team-leader re-runs the check after the other batch
+  commits if the failure is in the other batch's file.
+
+### Dependencies on deferred batches — resolved
+
+| PR 2 batch | Deferred dependency                                  | Resolution                                                                                                                                                                                     | Evidence                                                                                                                   |
+| ---------- | ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| 36         | 11 (serial only, both under `scripts/`)              | DROPPED. 11 stays deferred; there is nothing to serialise against.                                                                                                                             | Batch 11 header DEFERRED                                                                                                   |
+| 37         | 16 (compaction + lane-guard keys)                    | DROPPED. 16 only shared `file-settings-keys.ts` / `rpc-agents.types.ts` for serialisation; 37 uses no 16 symbol and follows the Batch 2 codex-key pattern that already exists.                 | `file-settings-keys.ts:162-167`, `:468-474`; Batch 2 commit `70af32f03` touched the same four files                        |
+| 38         | 14 (strict MCP, cache flag, cost)                    | DROPPED. Shared the builder only for serialisation; no 14 symbol (`isProxiedProviderBaseUrl`, `reportsCacheUsage`, `costUsd` ledger) is used by 38.                                            | grep `isProxiedProviderBaseUrl\|reportsCacheUsage` in `libs/`: absent                                                      |
+| 38         | 17 (compaction RPC, lane-guard keys in getConfig)    | DROPPED. Task 17.4 only shared `agent-rpc.handlers.ts`; 38 follows the codex-budget validation that exists.                                                                                    | `agent-rpc.handlers.ts:340-346`, `:405-410`                                                                                |
+| 38         | 28 (Task 28.2 TTL gate)                              | DROPPED and inverted. No 28.2 gate exists, so 38 is the first and only TTL path. Task 28.2 is superseded: when Batch 28 is scheduled it must not add a second TTL path (28.1/28.3 unaffected). | grep `subagentPromptCacheTtl\|CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL` in `libs/`: no match                                  |
+| 38         | 36 ("before" numbers exist first)                    | KEPT as order only (36 is wave 1, 38 wave 2). The baselines come from historical transcripts, so there is no code dependency.                                                                  | Task 36.2                                                                                                                  |
+| 39         | 20 (frontend settings state / commit loop)           | DROPPED. The commit loop and orchestration state exist; 39 follows the `copilotAutoApprove` path.                                                                                              | `providers-settings.types.ts:75-115`, `providers-settings-state.service.ts:510-524`, `providers-commit.service.ts:181-204` |
+| 39         | 21 (lane budget card + `@defer (on viewport)` mount) | DROPPED. Pattern swapped to `copilot-auto-approve-toggle.component.ts`; the defer-mount pattern exists in `orchestration-settings.component.ts:45-50`.                                         | `lane-budget-settings.component.ts` absent                                                                                 |
+| 39         | 38                                                   | DROPPED as a hard dependency. 39 compiles against the 37 types and is specced with mocked RPC; the end-to-end read-back is checked at QA after 38 lands.                                       | Task 39.1 file list                                                                                                        |
+| 40         | 37                                                   | KEPT (in PR 2): same `utils/index.ts` barrel and the `'5m' \| '1h'` TTL type.                                                                                                                  | Task 37.2 / 40.1 file lists                                                                                                |
+| 41         | 32 (lane resume-gate wording, Task 32.4)             | DROPPED. 41.1 builds on the existing injector resume block; Batch 32 reuses the 41 wording when it is scheduled (the addendum LOW risk is reversed).                                           | `chat-subagent-context-injector.service.ts:153-175`                                                                        |
+| 41         | 40                                                   | KEPT (in PR 2): same `subagent-registry.types.ts`; needs `SubagentCacheInfo`.                                                                                                                  | Task 40.1 / 41.2 file lists                                                                                                |
+| 46         | 13 (cache fields on `CliOutputSegment.usage`)        | DROPPED with NARROWED lane scope: CLI lanes show cache as "not reported" (`cacheReported: false`) and keep their reported `costUsd`; Claude subagents get the full N6 data.                    | `stats-bar.utils.ts:37-66` (usage has model, input, output, total, cost, duration only)                                    |
+| 46         | 22 (agent card sums cache separately)                | DROPPED. 46/47 carry the cache fields themselves; "not reported" follows R7.4 directly.                                                                                                        | Batch 22 header DEFERRED                                                                                                   |
+| 46         | 32 (`AgentProcessInfo.lastRequestContext`)           | DROPPED with NARROWED lane scope: lanes get `contextTokens` undefined and `cacheState: 'unknown'` (no badge).                                                                                  | grep `lastRequestContext` in `libs/`: absent                                                                               |
+| 46         | 41                                                   | KEPT (in PR 2): `cacheInfo` on the subagent query.                                                                                                                                             | Task 41.2                                                                                                                  |
+| 47         | 22                                                   | DROPPED, as for 46.                                                                                                                                                                            | as above                                                                                                                   |
+| 47         | 46                                                   | KEPT (in PR 2).                                                                                                                                                                                | Task 46.2                                                                                                                  |
+
+Open follow-ups stay with their owner stages (decision 12) and none is in a PR 2 file: PR1-M1 and F6-M1 (Task 34.2,
+vscode-lm-tools), PR1-M2 (Batches 16/17), Task 9.3 (S1b, cli-agent-runtime codex adapter).
+
+### Conflict check with TASK_2026_609_c495
+
+`git diff --stat origin/main...origin/fix/task-609-subagent-setup` fails after `git fetch`: the branch no longer exists on
+origin because it was merged as PR #635 (`0ec714c79`, already in this branch's base `5bb19f9fb`). The same change set was
+read with `git diff --stat 0ec714c79^1 0ec714c79` (103 files). Its open follow-up task TASK_2026_611_8fe7 (status backlog,
+worktree `task-611-609-followups`, docs only so far) was checked from its `context.md` file list.
+
+| PR 2 task | File shared with TASK_2026_609 / 611                                                                                                                                                                                                                                           | State                                                           | Rule for the executor                                                                                                                                                                                                                                               |
+| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 37.1      | `libs/backend/platform-core/src/file-settings-keys.ts` (+spec): 609 added 4 lines                                                                                                                                                                                              | Merged in base; no live branch. LOW.                            | Add next to the `agentOrchestration.codex*` block; do not move the 609 entries.                                                                                                                                                                                     |
+| 38.1      | `libs/backend/rpc-handlers/src/lib/handlers/agent-rpc.handlers.ts` (net -99) and 4 `agent-rpc.handlers.*.spec.ts`                                                                                                                                                              | Merged in base; line refs refreshed on this branch. LOW.        | Additive fields and one validation check only.                                                                                                                                                                                                                      |
+| 38.2      | `libs/backend/agent-sdk/src/lib/helpers/sdk-query-options-builder.ts`                                                                                                                                                                                                          | NOT in the 609 diff; still protected by context.md § Workspace. | Options part only: `buildFlagSettings` `:380-409`, `buildFlagSettingsArg` `:661`, the `settings:` call `:1218-1224`, one INFO log near `:1115-1120`. Never `buildSystemPrompt` (`:1045-1053`, `:1683` onward). The team-leader rejects the batch on any hunk there. |
+| none      | agent-generation services/templates, `.claude/agents`                                                                                                                                                                                                                          | Off limits; no PR 2 task lists them.                            | Do not touch.                                                                                                                                                                                                                                                       |
+| none      | 611 files (harness-sync, `wizard-generation-rpc.handlers.ts`, `skills-synthesis-rpc.handlers.ts`, `skill-clones-view.component.ts`, `agent-selection.component.ts`, `workspace-scope-resolver.ts`, `plugin-config-source-resolver.ts`, `code-logic-reviewer` agent + template) | No overlap; 41 and 38 share only the rpc-handlers project.      | -                                                                                                                                                                                                                                                                   |
+
+### Scoped checks per batch
+
+Run in the worktree, output tailed. First `typecheck,lint`, then `test`. A project that imports a changed `libs/shared`
+type is in the typecheck list even when no file in it changes (PR 1 failed CI on the chat lib for this reason). Consumer
+lists come from a grep of the changed symbols on this branch.
+
+| Batch | `npx nx run-many -t typecheck,lint -p …`                                                                                                                                                                                                                                                                           | `npx nx run-many -t test -p … --maxWorkers=2`                                                                                                                                                                           | Why these projects                                                                                                                                                                                                                                                                                            |
+| ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 36    | not Nx: `npx tsc -p scripts/tsconfig.json --noEmit 2>&1 \| tail -20` and `npx eslint scripts/agent-usage scripts/agent-usage-report.ts 2>&1 \| tail -20`                                                                                                                                                           | `npm run test:scripts 2>&1 \| tail -30`                                                                                                                                                                                 | scripts only                                                                                                                                                                                                                                                                                                  |
+| 37    | `@ptah-extension/shared @ptah-extension/platform-core @ptah-extension/rpc-handlers @ptah-extension/core @ptah-extension/skill-synthesis-ui @ptah-extension/tribunal-panel @ptah-extension/webview-e2e-harness ptah-cli ptah-electron-e2e ptah-extension-vscode ptah-electron ptah-extension-webview`               | `@ptah-extension/shared @ptah-extension/platform-core @ptah-extension/platform-vscode @ptah-extension/platform-electron @ptah-extension/platform-cli @ptah-extension/tribunal-panel @ptah-extension/skill-synthesis-ui` | `AgentOrchestrationConfig` / `AgentSetConfigParams`: rpc-handlers, skill-synthesis-ui, tribunal-panel, webview-e2e-harness, ptah-cli, ptah-electron-e2e; `SCOPED_SETTING_KEYS`: rpc-handlers, core; file-based key enumeration specs: platform-vscode/electron/cli; the three apps + webview per run defaults |
+| 38    | `@ptah-extension/rpc-handlers @ptah-extension/agent-sdk @ptah-extension/cli-agent-runtime ptah-extension-vscode ptah-electron ptah-cli`                                                                                                                                                                            | `@ptah-extension/rpc-handlers @ptah-extension/agent-sdk @ptah-extension/cli-agent-runtime`                                                                                                                              | no shared change; `buildFlagSettings` / `buildFlagSettingsArg` are exported and called from cli-agent-runtime (`ptah-cli-spawn-options.service.ts`, `ptah-cli-registry.ts`); `KnownConfigKey` is used only in agent-sdk                                                                                       |
+| 39    | `@ptah-extension/core @ptah-extension/chat @ptah-extension/webview-e2e-harness ptah-extension-webview`                                                                                                                                                                                                             | `@ptah-extension/core @ptah-extension/chat`                                                                                                                                                                             | core state types are consumed by chat and the webview e2e settings fixtures                                                                                                                                                                                                                                   |
+| 40    | `@ptah-extension/shared @ptah-extension/vscode-core @ptah-extension/agent-sdk @ptah-extension/cli-agent-runtime @ptah-extension/rpc-handlers @ptah-extension/core @ptah-extension/chat @ptah-extension/chat-streaming @ptah-extension/chat-ui ptah-extension-vscode ptah-electron ptah-cli ptah-extension-webview` | `@ptah-extension/shared @ptah-extension/vscode-core`                                                                                                                                                                    | shared `SubagentRecord` is imported by agent-sdk, cli-agent-runtime, rpc-handlers, vscode-core, core, chat, chat-streaming, chat-ui                                                                                                                                                                           |
+| 41    | `@ptah-extension/shared @ptah-extension/rpc-handlers @ptah-extension/core @ptah-extension/chat @ptah-extension/chat-state ptah-extension-vscode ptah-electron ptah-cli ptah-extension-webview`                                                                                                                     | `@ptah-extension/shared @ptah-extension/rpc-handlers @ptah-extension/core`                                                                                                                                              | `SubagentQueryResult` / `chat:subagent-query`: rpc-handlers, core (`claude-rpc.service.ts`); resumable-subagent types also read in chat, chat-state                                                                                                                                                           |
+| 46    | `@ptah-extension/chat-streaming @ptah-extension/chat @ptah-extension/canvas @ptah-extension/tribunal-panel @ptah-extension/shared ptah-extension-webview`                                                                                                                                                          | `@ptah-extension/chat-streaming @ptah-extension/shared @ptah-extension/chat @ptah-extension/canvas @ptah-extension/tribunal-panel`                                                                                      | `MonitoredAgent` is used by chat, canvas, tribunal-panel (specs build literals); shared changes only by a spec                                                                                                                                                                                                |
+| 47    | `@ptah-extension/chat ptah-extension-webview`                                                                                                                                                                                                                                                                      | `@ptah-extension/chat`                                                                                                                                                                                                  | display only, in chat                                                                                                                                                                                                                                                                                         |
+
+Append ` 2>&1 | tail -40` to each Nx command. If a project lacks a target, run the ones it has and say so in the report.
+New fields on shared types are OPTIONAL in every PR 2 batch; a required field is a rejection reason.
+
+### Review policy (decision 11, PR 2)
+
+| Batch | Phase-end code-logic review | Other                                                                       |
+| ----- | --------------------------- | --------------------------------------------------------------------------- |
+| 36    | none (measurement only)     | excluded from the review scope (`scripts/`, `measurements/`)                |
+| 37    | yes (resolver logic)        | -                                                                           |
+| 38    | yes                         | reviewer also confirms no hunk in `buildSystemPrompt`                       |
+| 39    | yes                         | visual-reviewer at QA: before/after, dark + light, Settings → Orchestration |
+| 40    | yes                         | -                                                                           |
+| 41    | yes                         | -                                                                           |
+| 46    | yes (46.1 is spec-only)     | -                                                                           |
+| 47    | yes                         | visual-reviewer at QA: before/after, dark + light, agent monitor panel      |
+
+- ONE code-logic review after Batch 47 commits, on the combined diff `5bb19f9fb..HEAD` minus `scripts/` and
+  `.ptah/specs/`. One fix round, then a re-review scoped to the fixes (lean rules).
+- No style review: PR 2 adds no new RPC method, tool or exported module; it adds optional fields and one optional
+  parameter on the exported `buildFlagSettings` / `buildFlagSettingsArg`.
+- No prototype exists for 39/47. The "before" screenshots come from a build of base `5bb19f9fb` and can be taken at any
+  time (the base is fixed).
+
+### Measurement note (Batch 36 and QA)
+
+- Batch 36 records only "before" numbers. The N1 "after" measurement (resumes after more than 5 minutes) needs
+  `CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL` CLEARED in the run process, because the env var wins in the SDK and the user set
+  it to `1h` as a Windows user variable on 2026-10-03. Clearing it, even for one process, needs explicit user approval
+  and happens at QA only, inside the decision 6 budget (at most 5 short Claude-side runs). Without approval the N1
+  "after" row is recorded as "not measured (env override active)".
+
+### Risks added by PR 2
+
+| Risk                                                                                                                                             | Severity | Mitigation                                                                                                                                                                 |
+| ------------------------------------------------------------------------------------------------------------------------------------------------ | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| N6 for CLI lanes is narrowed: no cache tokens, no context size, no warm/cold until Batches 13 (S3) and 32 (S4) land                              | MEDIUM   | Tasks 46.2/47.1 show "not reported" and no badge for lanes, never 0; the PR description states it. The orchestrator may confirm the narrowing with the user before Wave 4. |
+| `auto` now sends `'1h'` for every main session (all can spawn subagents); a 1-hour write costs more than a 5-minute write when no resume follows | MEDIUM   | This is the decision 8 rule; the INFO line records `source`, and the N1 "after" numbers at QA show the net effect.                                                         |
+| Wave 2 runs 40 (shared edit) beside 38/39 typechecks of shared consumers                                                                         | LOW      | Failures attributed by `file:line`; re-run after the other batch commits; commits serial.                                                                                  |
+| Existing identity specs expect the shared `PTAH_DISABLE_SDK_AUTO_MEMORY` object back                                                             | LOW      | Task 38.2 keeps the absence rule; it updates an identity assertion only where the TTL key legitimately applies and says why.                                               |
+| New key lands in every settings export file (`KNOWN_CONFIG_KEYS` + shipped default `auto`)                                                       | LOW      | Same as the Batch 2 codex keys; `settings-export.types.spec.ts` covers it.                                                                                                 |
+| Mode 3 write-path trace for `agentOrchestration.subagentPromptCacheTtl`                                                                          | -        | Trace `agent:setConfig` → file settings store → the builder read in Task 38.2 and the injector read in Task 41.1 (same key, same scope, value format `auto\|5m\|1h`).      |
+
+### Worktree dependencies
+
+`node_modules` is ABSENT in `D:/projects/ptah-extension/.claude-worktrees/task-597-followups` (`ls node_modules`: no
+such directory). The orchestrator must run `npm ci` there before Wave 1 (not run by the team-leader). `package.json`
+and `package-lock.json` are identical to main's `871b0022b`, and the pinned SDK is `0.3.278` (`package.json:103`).
+
 ## Run defaults (recorded by the team-leader)
 
 - Slice order follows implementation-plan.md § Sequencing (:1371-1389) and the orchestrator brief: S1a (Batches 1-7),
@@ -1587,28 +1749,84 @@ Batch 6 follow-ups (recorded, not fixed now):
 
 ---
 
-## Batch 24: Output budget engine moves to tool-output-reducers (S4, component 18 part 1) — DEFERRED (follow-up, decision 11)
+## S4 stage start (user chose S4 = Batches 24-35; re-validated on origin/main c179f3eb5, branch `fix/task-597-s4-lane-guards`)
+
+Task paths in Batches 24-35 now point at the `task-597-s4` worktree (they named `task-597-lane-token-burn`).
+
+Drift on main:
+
+- All edited files exist. New files (`agent-sdk/.../helpers/compaction/*`, `tool-output-reducers/src/lib/output-budget/*`, lane gate/guard, wait/run-check tools) do not exist yet, as expected. `tool-output-reducers/src/index.ts` is 33 lines.
+- `session-metadata-store.ts` is at `libs/backend/agent-sdk/src/lib/session-metadata-store.ts` (not under `helpers/`).
+- The stale resume warning is at `agent-process-manager.service.ts:342` (plan said `:332-336`).
+- Task 28.2 is SUPERSEDED (row 38 above): Batch 38 shipped the only TTL path. Do not build 28.2.
+- Batch 32 reuses the Batch 41 resume wording (row 41 above).
+- Unmet dependencies: Batches 25, 28, 29 and 35.3 read keys that S3 Batches 16-17 add (`compaction.toolOutputBudgetTokens`, `subagentHandoffTokens`, `rotationSuggestTokens`, `agentOrchestration.laneToolCallSteerAt/StopAt`, `laneRepeatCallStopAt`). Those batches are still DEFERRED, and grep finds none of these keys in `libs/`. Batch 32 lists Batch 13 (OpenCode stream usage) as a dependency, also DEFERRED.
+
+Overlap with open PR #639 (`fix/task-597-session-budget`, N7/N8 Batches 50-61; 89 files):
+
+- #639 edits `agent-sdk/src/lib/di/tokens.ts`, `di/register.ts`, `src/index.ts`, `platform-core/src/file-settings-keys.ts`, `shared/.../rpc.types.ts`, and these chat files: `chat-view.component.*`, `message-dispatch.service`, `session-loader.service`.
+- N8 does not reuse A5/A6/A8 (addendum :27-29). It builds its own pieces instead: a `getContextUsage` read, a deterministic handoff builder, and a `session-budget-banner` with "Continue in new session". As a result, A6 (Batches 29-31) duplicates the N8 handoff and banner, and Task 26.2 overlaps the N8 context read. Component 10 (addendum § Component 10) waits for Batch 28.
+
+Per-batch decision:
+
+| Batch | Decision | Why |
+| ----- | -------- | --- |
+| 24 | Run now | tool-output-reducers + vscode-lm-tools; no #639 file |
+| 25 | WAITS-FOR-#639 | agent-sdk `di/tokens.ts`/`register.ts`; also needs the Batch 16-17 budget key |
+| 26-27 | WAITS-FOR-#639, reduce scope | same DI files; after the merge, 26.2 wraps the N8 `getContextUsage` read instead of adding a second one |
+| 28 | WAITS-FOR-#639 | DI files; 28.2 dropped; add Component 10 parts 10.1-10.3; needs the Batch 16-17 handoff key |
+| 29, 31 | WAITS-FOR-#639, scope review | duplicate the N8 handoff and banner. After the merge, the orchestrator decides with the user: either drop A6, or rebuild `seedPrompt` on `session-handoff-builder` and the banner on `session-budget-banner` |
+| 30 | Split | Task 30.2 (curator) runs now; Task 30.1 waits with Batch 29 |
+| 32 | Run now, reduced scope | no #639 file. OpenCode is labelled `estimate` until Batch 13 lands (already the gate's fallback) |
+| 33, 34 | Run now, in order after 32 | cli-agent-runtime + vscode-lm-tools only |
+| 35 | WAITS-FOR-#639 | 35.3 needs the lane-guard keys, which belong to the `file-settings-keys.ts` contract #639 edits; 35.4 also runs after 33 |
+
+RISK (the orchestrator must decide before the post-#639 wave): S3 Batches 16-17 must land before Batches 25, 28, 29 and 35. Recommended: after #639 merges, pull Batch 16 and Tasks 17.3-17.5 into the second S4 wave, ahead of Batch 25. The alternative is to keep S3 whole and run it first.
+
+Parallel groups (subagent executors only; CLI lanes disabled; max 3 at once; file-disjoint):
+
+- Wave A (now): Batch 24 (backend-developer) + Batch 30, Task 30.2 only (backend-developer) + Batch 32 (backend-developer).
+- Wave B: Batch 33 (backend-developer), after 32 is committed.
+- Wave C: Batch 34 (backend-developer), after 33 is committed.
+- After #639 merges and the 16-17 decision is made: Batches 25 → 26 → 27 → 28 → 29 → 30.1 → 31 run in series (shared agent-sdk DI files). Batch 35 (cli-agent-runtime) can run in parallel with that chain.
+
+Phases: S4-a = Batches 24, 30.2, 32, 33, 34. Its review is code-logic plus style, because `ptah_agent_wait` and `ptah_run_check` are new public tools; it is requested after Batch 34 commits. S4-b = the post-#639 batches: code-logic, plus visual for Batch 31 if A6 is kept.
+
+Scoped checks (every batch): `test,lint,typecheck` on the changed projects, plus `typecheck` on every project that imports them. Also run `npx nx run di-lint:lint` and `npx nx run degradation-audit:lint`. Importer sets on main:
+
+- tool-output-reducers → vscode-lm-tools, workspace-intelligence
+- vscode-lm-tools → ptah-extension-vscode, ptah-electron, ptah-cli, cli-engine, rpc-handlers, gateway-chat-bridge
+- cli-agent-runtime → the three apps, cli-engine, rpc-handlers, vscode-lm-tools
+- memory-curator → ptah-extension-vscode, ptah-electron, cli-engine, rpc-handlers, skill-synthesis, thoth-runtime
+- shared changes → `npx nx run-many -t typecheck -p $(npx nx show projects --affected --files=<changed shared file> --sep=,)`
+
+In a fresh worktree, run `npx nx run ptah-electron:build-workspace-watch-host` once before tests that include `@ptah-extension/platform-electron`; one of its specs needs that build.
+
+---
+
+## Batch 24: Output budget engine moves to tool-output-reducers (S4, component 18 part 1) — COMPLETE (S4 wave A; commit 7099066f3; report reports/batch-24-report.md)
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer re-run
 - Execution mode: sequential
 - Rationale: behaviour-preserving move across two libraries, pinned by the existing spec
 - Tasks: 2 | Depends on: Task 1.0, Batch 7 | Concurrent-safe with: Batches 23, 32
-- Verify: `npx nx run-many -t test,lint,typecheck -p @ptah-extension/tool-output-reducers @ptah-extension/vscode-lm-tools`
+- Phase: S4-a | Phase review: code-logic + style at phase end (after Batch 34)
+- Verify: `npx nx run-many -t test,lint,typecheck -p @ptah-extension/tool-output-reducers @ptah-extension/vscode-lm-tools`; `npx nx run-many -t typecheck -p @ptah-extension/workspace-intelligence ptah-extension-vscode ptah-electron ptah-cli @ptah-extension/cli-engine @ptah-extension/rpc-handlers @ptah-extension/gateway-chat-bridge`; `npx nx run di-lint:lint`; `npx nx run degradation-audit:lint`
 
-### Task 24.1: `applyOutputBudget` and `spool` — PENDING
+### Task 24.1: `applyOutputBudget` and `spool` — COMPLETE
 
-- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/backend/tool-output-reducers/src/lib/output-budget/apply-output-budget.ts`, `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/backend/tool-output-reducers/src/lib/output-budget/spool.ts` (+ specs), `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/backend/tool-output-reducers/src/index.ts`
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/tool-output-reducers/src/lib/output-budget/apply-output-budget.ts`, `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/tool-output-reducers/src/lib/output-budget/spool.ts` (+ specs), `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/tool-output-reducers/src/index.ts`
 - Plan reference: implementation-plan.md:299-307 (D8), :1160-1162
 - Pattern to follow: `tool-result-budget.ts:20-24, 52-54, 162-215, 291+`
 - Quality requirements: generic reduce, fit, spool, trailer; depends only on `platform-core`.
 - Validation notes: barrel stays ≤150 lines.
 - Implementation details: none.
 
-### Task 24.2: `applyToolResultBudget` becomes a thin wrapper — PENDING
+### Task 24.2: `applyToolResultBudget` becomes a thin wrapper — COMPLETE
 
 - Depends on: Task 24.1
-- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/tool-result-budget.ts`
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/tool-result-budget.ts`
 - Plan reference: implementation-plan.md:1160-1162
 - Pattern to follow: same file
 - Quality requirements: keeps Ptah override tables; calls the moved engine.
@@ -1622,18 +1840,19 @@ Batch 6 follow-ups (recorded, not fixed now):
 
 ---
 
-## Batch 25: A3 capper wiring (S4, component 18 part 2) — DEFERRED (follow-up, decision 11)
+## Batch 25: A3 capper wiring (S4, component 18 part 2) — PENDING (S4 Wave D; #639 merged; see § S4 stage start and context.md § Handoff 4)
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer re-run
 - Execution mode: sequential
 - Rationale: first of the serial agent-sdk `di/tokens.ts` edits; host bindings for the outliner
 - Tasks: 3 | Depends on: Batches 17, 24 | Concurrent-safe with: Batch 32
-- Verify: `npx nx run-many -t test,lint,typecheck -p @ptah-extension/agent-sdk` and `npx nx run-many -t typecheck -p ptah-extension-vscode ptah-electron`
+- Phase: S4-b
+- Verify: `npx nx run-many -t test,lint,typecheck -p @ptah-extension/agent-sdk`; typecheck every agent-sdk importer (`npx nx run-many -t typecheck -p $(npx nx show projects --affected --files=libs/backend/agent-sdk/src/index.ts --sep=,)`); `npx nx run di-lint:lint`; `npx nx run degradation-audit:lint`
 
 ### Task 25.1: `ToolOutputCapper` — PENDING
 
-- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/backend/agent-sdk/src/lib/helpers/compaction/tool-output-capper.ts` (+ spec)
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/agent-sdk/src/lib/helpers/compaction/tool-output-capper.ts` (+ spec)
 - Plan reference: implementation-plan.md:1163-1170
 - Pattern to follow: `applyOutputBudget` from Batch 24
 - Quality requirements: Bash, PowerShell, Grep, Read, non-`ptah` MCP; `mcp__ptah__*` skipped; budget from `compaction.toolOutputBudgetTokens`; whole-file Read over budget → outline + trailer naming the path and "read with offset/limit"; others → reduced form + spool path.
@@ -1643,7 +1862,7 @@ Batch 6 follow-ups (recorded, not fixed now):
 ### Task 25.2: Hook returns `updatedToolOutput` — PENDING
 
 - Depends on: Task 25.1
-- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/backend/agent-sdk/src/lib/helpers/post-tool-use-hook-handler.ts` (+ spec)
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/agent-sdk/src/lib/helpers/post-tool-use-hook-handler.ts` (+ spec)
 - Plan reference: implementation-plan.md:1169
 - Pattern to follow: `:60-108`
 - Quality requirements: returns `hookSpecificOutput.updatedToolOutput` only when changed.
@@ -1652,7 +1871,7 @@ Batch 6 follow-ups (recorded, not fixed now):
 
 ### Task 25.3: Tokens, register, host outliner bindings — PENDING
 
-- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/backend/agent-sdk/src/lib/di/tokens.ts`, the agent-sdk register file under `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/backend/agent-sdk/src/lib/di/`, `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/apps/ptah-extension-vscode/src/di/` and `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/apps/ptah-electron/src/di/` phase files
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/agent-sdk/src/lib/di/tokens.ts`, the agent-sdk register file under `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/agent-sdk/src/lib/di/`, `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/apps/ptah-extension-vscode/src/di/` and `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/apps/ptah-electron/src/di/` phase files
 - Plan reference: implementation-plan.md:487-491
 - Pattern to follow: `Symbol.for` tokens at `agent-sdk/src/lib/di/tokens.ts:49`; `TreeSitterCodeOutliner` `vscode-lm-tools mcp-core/code-outliner.adapter.ts:338`
 - Quality requirements: `SDK_TOOL_OUTPUT_CAPPER`, `SDK_CODE_OUTLINER` (optional injection).
@@ -1666,18 +1885,19 @@ Batch 6 follow-ups (recorded, not fixed now):
 
 ---
 
-## Batch 26: A8 coordinator core and context-usage port (S4, component 21 part 1) — DEFERRED (follow-up, decision 11)
+## Batch 26: A8 coordinator core and context-usage port (S4, component 21 part 1) — PENDING (S4 Wave D; #639 merged; see § S4 stage start and context.md § Handoff 4)
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer re-run
 - Execution mode: sequential
 - Rationale: state machine needs design care; placed before A5/A6 because the advisor needs the port (order deviation recorded above)
 - Tasks: 3 | Depends on: Batches 23, 25 | Concurrent-safe with: Batches 30, 32
-- Verify: `npx nx run-many -t test,lint,typecheck -p @ptah-extension/agent-sdk`
+- Phase: S4-b
+- Verify: `npx nx run-many -t test,lint,typecheck -p @ptah-extension/agent-sdk`; typecheck every agent-sdk importer (`npx nx run-many -t typecheck -p $(npx nx show projects --affected --files=libs/backend/agent-sdk/src/index.ts --sep=,)`); `npx nx run di-lint:lint`; `npx nx run degradation-audit:lint`
 
 ### Task 26.1: State types and coordinator — PENDING
 
-- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/backend/agent-sdk/src/lib/helpers/compaction/compaction-state.types.ts`, `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/backend/agent-sdk/src/lib/helpers/compaction/compaction-coordinator.ts` (+ spec)
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/agent-sdk/src/lib/helpers/compaction/compaction-state.types.ts`, `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/agent-sdk/src/lib/helpers/compaction/compaction-coordinator.ts` (+ spec)
 - Plan reference: implementation-plan.md:1225-1250
 - Pattern to follow: `/compact` streamed path `slash-command-interceptor.ts:1-20, 77`
 - Quality requirements: IDLE, ARMED, TRIGGERED, COMPACTING, COOLDOWN, BACKOFF, OBSERVE_ONLY with the listed transitions; `COMPACTION_MAX_DWELL_MS = 180_000`; dedupe of manual `/compact` with "compaction already running"; rebind on PostCompact `session_id`; sync idempotent `dispose`.
@@ -1686,7 +1906,9 @@ Batch 6 follow-ups (recorded, not fixed now):
 
 ### Task 26.2: `IContextUsagePort` — PENDING
 
-- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/backend/agent-sdk/src/lib/helpers/compaction/context-usage.port.ts` (+ spec)
+- S4 stage start: N8 (#639) already reads `getContextUsage` for its tighten step. After the merge, build the port as the single reader that N8 and the coordinator share. Do not add a second call per turn.
+
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/agent-sdk/src/lib/helpers/compaction/context-usage.port.ts` (+ spec)
 - Plan reference: implementation-plan.md:1245-1246
 - Pattern to follow: SDK `getContextUsage` (plan :151)
 - Quality requirements: `{totalTokens, maxTokens, autoCompactThreshold?, source}`; at most once per turn end.
@@ -1695,7 +1917,7 @@ Batch 6 follow-ups (recorded, not fixed now):
 
 ### Task 26.3: Tokens and register — PENDING
 
-- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/backend/agent-sdk/src/lib/di/tokens.ts`, the agent-sdk register file
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/agent-sdk/src/lib/di/tokens.ts`, the agent-sdk register file
 - Plan reference: implementation-plan.md:487
 - Pattern to follow: Task 25.3
 - Quality requirements: `SDK_COMPACTION_COORDINATOR`, `SDK_CONTEXT_USAGE_PORT`.
@@ -1709,18 +1931,19 @@ Batch 6 follow-ups (recorded, not fixed now):
 
 ---
 
-## Batch 27: A8 wiring — watchdog, hooks, executor, events (S4, component 21 part 2) — DEFERRED (follow-up, decision 11)
+## Batch 27: A8 wiring — watchdog, hooks, executor, events (S4, component 21 part 2) — PENDING (S4 Wave D; #639 merged; see § S4 stage start and context.md § Handoff 4)
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer re-run
 - Execution mode: sequential
 - Rationale: edits to live session plumbing; serial on `session-query-executor` and `sdk-adapter-events`
 - Tasks: 2 | Depends on: Batch 26 | Concurrent-safe with: Batches 30, 32
-- Verify: `npx nx run-many -t test,lint,typecheck -p @ptah-extension/agent-sdk`
+- Phase: S4-b
+- Verify: `npx nx run-many -t test,lint,typecheck -p @ptah-extension/agent-sdk`; typecheck every agent-sdk importer (`npx nx run-many -t typecheck -p $(npx nx show projects --affected --files=libs/backend/agent-sdk/src/index.ts --sep=,)`); `npx nx run di-lint:lint`; `npx nx run degradation-audit:lint`
 
 ### Task 27.1: Bounded watchdog dwell — PENDING
 
-- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/backend/agent-sdk/src/lib/helpers/no-activity-watchdog.ts` (+ spec)
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/agent-sdk/src/lib/helpers/no-activity-watchdog.ts` (+ spec)
 - Plan reference: implementation-plan.md:1243-1244
 - Pattern to follow: `arm()` `:215-238, 249`
 - Quality requirements: stops re-arming once compaction has been open 180 s, then fires its timeout path.
@@ -1729,7 +1952,7 @@ Batch 6 follow-ups (recorded, not fixed now):
 
 ### Task 27.2: Hook handler, executor and events wiring — PENDING
 
-- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/backend/agent-sdk/src/lib/helpers/compaction-hook-handler.ts`, `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/backend/agent-sdk/src/lib/helpers/session-lifecycle/session-query-executor.service.ts`, `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/backend/agent-sdk/src/lib/helpers/sdk-adapter-events.service.ts` (+ specs)
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/agent-sdk/src/lib/helpers/compaction-hook-handler.ts`, `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/agent-sdk/src/lib/helpers/session-lifecycle/session-query-executor.service.ts`, `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/agent-sdk/src/lib/helpers/sdk-adapter-events.service.ts` (+ specs)
 - Plan reference: implementation-plan.md:1247, :1253
 - Pattern to follow: `compaction-hook-handler.ts:246, 353-387, 404-480`; `session-query-executor.service.ts:259-268`; `sdk-adapter-events.service.ts:131-137`
 - Quality requirements: PreCompact/PostCompact and `compact_boundary` reach the coordinator; turn end calls the port once; `compactionStateChanged` (from, to, trigger, pre/post) logged at INFO.
@@ -1743,36 +1966,39 @@ Batch 6 follow-ups (recorded, not fixed now):
 
 ---
 
-## Batch 28: A5 subagent budget monitor (S4, component 19) — DEFERRED (follow-up, decision 11)
+## Batch 28: A5 subagent budget monitor (S4, component 19) — PENDING (S4 Wave D; #639 merged; see § S4 stage start and context.md § Handoff 4)
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer re-run
 - Execution mode: sequential
 - Rationale: agent-sdk only; serial on options builder, executor and tokens
 - Tasks: 3 | Depends on: Batch 27 | Concurrent-safe with: Batches 30, 32
-- Verify: `npx nx run-many -t test,lint,typecheck -p @ptah-extension/agent-sdk`
+- Phase: S4-b
+- Verify: `npx nx run-many -t test,lint,typecheck -p @ptah-extension/agent-sdk`; typecheck every agent-sdk importer (`npx nx run-many -t typecheck -p $(npx nx show projects --affected --files=libs/backend/agent-sdk/src/index.ts --sep=,)`); `npx nx run di-lint:lint`; `npx nx run degradation-audit:lint`
 
 ### Task 28.1: `SubagentBudgetMonitor` — PENDING
 
-- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/backend/agent-sdk/src/lib/helpers/compaction/subagent-budget-monitor.ts` (+ spec)
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/agent-sdk/src/lib/helpers/compaction/subagent-budget-monitor.ts` (+ spec)
 - Plan reference: implementation-plan.md:1183-1199
 - Pattern to follow: `stopSubagent` `subagent-message-dispatcher.ts:280`
 - Quality requirements: at or above `compaction.subagentHandoffTokens`, stop the subagent, stream the one parent handoff message, mark not resumable; fresh spawn delegated to the parent model.
 - Validation notes: AS10 — fixture from a `~/.claude/projects/**/subagents/*.jsonl` line (sanitized); no usage → observe-only, logged once per session.
 - Implementation details: spec: below threshold no action; at threshold stop + message once.
 
-### Task 28.2: Selective `subagentPromptCacheTtl` — PENDING
+### Task 28.2: Selective `subagentPromptCacheTtl` — SUPERSEDED (do not build; Batch 38 shipped the only TTL path, row 38 of the dedupe table)
 
-- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/backend/agent-sdk/src/lib/helpers/sdk-query-options-builder.ts` (TTL only, + spec)
+- S4 stage start: when Batch 28 runs, add addendum § Component 10 parts 10.1-10.3 instead of this task. Those parts are per-subagent `contextTokens`/`weightedUsed`, the `subagentStopWeightedTokens` stop, resume advice, and F11. Read them from `implementation-plan-addendum-n7-n8.md` once #639 has merged.
+
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/agent-sdk/src/lib/helpers/sdk-query-options-builder.ts` (TTL only, + spec)
 - Plan reference: implementation-plan.md:1195-1196
-- Pattern to follow: `session-metadata-store.ts:117`
+- Pattern to follow: `libs/backend/agent-sdk/src/lib/session-metadata-store.ts:117`
 - Quality requirements: `'1h'` only when the session lists resumable subagents.
 - Validation notes: none.
 - Implementation details: none.
 
 ### Task 28.3: Executor feed, tokens, register — PENDING
 
-- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/backend/agent-sdk/src/lib/helpers/session-lifecycle/session-query-executor.service.ts`, `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/backend/agent-sdk/src/lib/di/tokens.ts`, the agent-sdk register file
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/agent-sdk/src/lib/helpers/session-lifecycle/session-query-executor.service.ts`, `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/agent-sdk/src/lib/di/tokens.ts`, the agent-sdk register file
 - Plan reference: implementation-plan.md:1200, :487
 - Pattern to follow: Batch 27 wiring
 - Quality requirements: forwarded subagent messages reach the monitor; `SDK_SUBAGENT_BUDGET_MONITOR`.
@@ -1786,18 +2012,19 @@ Batch 6 follow-ups (recorded, not fixed now):
 
 ---
 
-## Batch 29: A6 rotation advisor backend (S4, component 20 backend) — DEFERRED (follow-up, decision 11)
+## Batch 29: A6 rotation advisor backend (S4, component 20 backend) — PENDING (S4 Wave D; #639 merged; see § S4 stage start and context.md § Handoff 4)
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer re-run
 - Execution mode: sequential
 - Rationale: agent-sdk advisor plus the shared message contract
 - Tasks: 3 | Depends on: Batch 28 | Concurrent-safe with: Batch 32
-- Verify: `npx nx run-many -t test,lint,typecheck -p @ptah-extension/agent-sdk @ptah-extension/shared` and the three-app typecheck
+- Phase: S4-b
+- Verify: `npx nx run-many -t test,lint,typecheck -p @ptah-extension/agent-sdk @ptah-extension/shared`; `npx nx run-many -t typecheck -p $(npx nx show projects --affected --files=libs/shared/src/lib/types/messages/message-constants.ts --sep=,)`; `npx nx run di-lint:lint`; `npx nx run degradation-audit:lint`
 
 ### Task 29.1: Message type and payload — PENDING
 
-- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/shared/src/lib/types/messages/message-constants.ts`, `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/shared/src/lib/types/sdk-hook.types.ts`
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/shared/src/lib/types/messages/message-constants.ts`, `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/shared/src/lib/types/sdk-hook.types.ts`
 - Plan reference: implementation-plan.md:476-477
 - Pattern to follow: `SESSION_COMPACTION_COMPLETE` `message-constants.ts:136`
 - Quality requirements: `SESSION_CONTEXT_ADVISORY = 'session:contextAdvisory'`; payload `{ sessionId, kind: 'rotation-suggested', contextTokens, threshold, seedPrompt }`.
@@ -1806,7 +2033,7 @@ Batch 6 follow-ups (recorded, not fixed now):
 
 ### Task 29.2: `SessionRotationAdvisor` with tokens and register — PENDING
 
-- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/backend/agent-sdk/src/lib/helpers/compaction/session-rotation-advisor.ts` (+ spec), `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/backend/agent-sdk/src/lib/di/tokens.ts`, the agent-sdk register file
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/agent-sdk/src/lib/helpers/compaction/session-rotation-advisor.ts` (+ spec), `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/agent-sdk/src/lib/di/tokens.ts`, the agent-sdk register file
 - Plan reference: implementation-plan.md:1206-1209
 - Pattern to follow: port from Batch 26
 - Quality requirements: one advisory per session per threshold crossing at `compaction.rotationSuggestTokens`; `seedPrompt` ≤4,000 chars with task folder paths if known, latest compact summary or last assistant text, and "continue from here".
@@ -1815,7 +2042,7 @@ Batch 6 follow-ups (recorded, not fixed now):
 
 ### Task 29.3: `SdkAdapterEvents` emits the advisory — PENDING
 
-- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/backend/agent-sdk/src/lib/helpers/sdk-adapter-events.service.ts` (+ spec)
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/agent-sdk/src/lib/helpers/sdk-adapter-events.service.ts` (+ spec)
 - Plan reference: implementation-plan.md:1209
 - Pattern to follow: `emitCompactionComplete` `:131-137`
 - Quality requirements: new emit method.
@@ -1829,28 +2056,29 @@ Batch 6 follow-ups (recorded, not fixed now):
 
 ---
 
-## Batch 30: Advisory notifier and A7 curator guardrail (S4, component 20) — DEFERRED (follow-up, decision 11)
+## Batch 30: Advisory notifier and A7 curator guardrail (S4, component 20) — PENDING (Task 30.2 COMPLETE in S4 wave A, commit 539fed084, report reports/batch-30-2-report.md; Task 30.1 PENDING with Batch 29, S4 Wave D)
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer re-run
 - Execution mode: sequential
 - Rationale: two small disjoint edits in two libraries
 - Tasks: 2 | Depends on: Task 29.1 for the notifier (curator part has no dependency) | Concurrent-safe with: Batches 26-28 (curator part only), 32
-- Verify: `npx nx run-many -t test,lint,typecheck -p @ptah-extension/rpc-handlers @ptah-extension/memory-curator`
+- Phase: S4-a (Task 30.2) / S4-b (Task 30.1)
+- Verify (Task 30.2 now): `npx nx run-many -t test,lint,typecheck -p @ptah-extension/memory-curator`; `npx nx run-many -t typecheck -p ptah-extension-vscode ptah-electron @ptah-extension/cli-engine @ptah-extension/rpc-handlers @ptah-extension/skill-synthesis @ptah-extension/thoth-runtime`; `npx nx run di-lint:lint`; `npx nx run degradation-audit:lint`. Task 30.1 later: `test,lint,typecheck -p @ptah-extension/rpc-handlers` plus typecheck of its importers
 
 ### Task 30.1: `SessionLifecycleNotifier` forwards the advisory — PENDING
 
 - Depends on: Batch 29
-- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/backend/rpc-handlers/src/lib/handlers/session-lifecycle-notifier.ts` (+ spec)
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/rpc-handlers/src/lib/handlers/session-lifecycle-notifier.ts` (+ spec)
 - Plan reference: implementation-plan.md:1209, :1214
 - Pattern to follow: `:90-113`
 - Quality requirements: broadcast to the webview; failure logged (`:107-113`).
 - Validation notes: none.
 - Implementation details: none.
 
-### Task 30.2: Curator PreCompact coalescing — PENDING
+### Task 30.2: Curator PreCompact coalescing — COMPLETE
 
-- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/backend/memory-curator/src/lib/memory-curator.service.ts` (+ spec)
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/memory-curator/src/lib/memory-curator.service.ts` (+ spec)
 - Plan reference: implementation-plan.md:1212-1213
 - Pattern to follow: reactor `:218-276`
 - Quality requirements: per-session `{lastFiredAt}`; `CURATOR_PRECOMPACT_MIN_INTERVAL_MS = 900_000`; skip logged; reactor stays registered; entry deleted on session end.
@@ -1864,18 +2092,19 @@ Batch 6 follow-ups (recorded, not fixed now):
 
 ---
 
-## Batch 31: Session rotation banner (S4, component 20 frontend) — DEFERRED (follow-up, decision 11)
+## Batch 31: Session rotation banner (S4, component 20 frontend) — PENDING (S4 Wave D; #639 merged; see § S4 stage start and context.md § Handoff 4)
 
 - Recommended executor: frontend-developer
 - Fallback executor: frontend-developer re-run
 - Execution mode: sequential
 - Rationale: rendered chat UI
 - Tasks: 2 | Depends on: Batch 30 | Concurrent-safe with: Batch 32
-- Verify: `npx nx run-many -t test,lint,typecheck -p @ptah-extension/chat`
+- Phase: S4-b
+- Verify: `npx nx run-many -t test,lint,typecheck -p @ptah-extension/chat`; `npx nx run-many -t typecheck -p $(npx nx show projects --affected --files=libs/frontend/chat/src/index.ts --sep=,)`; `npx nx run di-lint:lint`; `npx nx run degradation-audit:lint`
 
 ### Task 31.1: `session-rotation-banner` component — PENDING
 
-- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/frontend/chat/src/lib/components/molecules/session-rotation-banner.component.ts` (+ spec)
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/frontend/chat/src/lib/components/molecules/session-rotation-banner.component.ts` (+ spec)
 - Plan reference: implementation-plan.md:1210-1211
 - Pattern to follow: existing chat molecules
 - Quality requirements: "Rotate session" opens a new session tab prefilled with `seedPrompt` (the user sends it); "Keep this session" dismisses, nothing changes.
@@ -1884,7 +2113,7 @@ Batch 6 follow-ups (recorded, not fixed now):
 
 ### Task 31.2: Store and handler wiring — PENDING
 
-- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/frontend/chat/src/lib/services/chat-store/compaction-lifecycle.service.ts`, `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/frontend/chat/src/lib/services/chat-message-handler.service.ts` (+ specs)
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/frontend/chat/src/lib/services/chat-store/compaction-lifecycle.service.ts`, `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/frontend/chat/src/lib/services/chat-message-handler.service.ts` (+ specs)
 - Plan reference: implementation-plan.md:1221
 - Pattern to follow: `compaction-lifecycle.service.ts:584`
 - Quality requirements: handles `session:contextAdvisory`; banner shown per session.
@@ -1898,47 +2127,50 @@ Batch 6 follow-ups (recorded, not fixed now):
 
 ---
 
-## Batch 32: Lane resume gate (S4, component 14) — DEFERRED (follow-up, decision 11)
+## Batch 32: Lane resume gate (S4, component 14) — COMPLETE (S4 wave A; commit 384266a77; report reports/batch-32-report.md)
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer re-run
 - Execution mode: sequential
 - Rationale: second serial edit of the manager; adds `lastRequestContext` (moved here from component 16 because the gate needs it first)
 - Tasks: 4 | Depends on: Batches 6, 13 | Concurrent-safe with: Batches 23-31
-- Verify: `npx nx run-many -t test,lint,typecheck -p @ptah-extension/cli-agent-runtime @ptah-extension/shared` and the three-app typecheck
+- Phase: S4-a
+- Verify: `npx nx run-many -t test,lint,typecheck -p @ptah-extension/cli-agent-runtime @ptah-extension/shared`; `npx nx run-many -t typecheck -p $(npx nx show projects --affected --files=libs/shared/src/lib/types/agent-process.types.ts --sep=,)` (covers the three apps, vscode-lm-tools, platform-electron); `npx nx run di-lint:lint`; `npx nx run degradation-audit:lint`
 
-### Task 32.1: `AgentProcessInfo.lastRequestContext` — PENDING
+- S4 stage start (reduced scope): Batch 13 (OpenCode stream usage) is still DEFERRED. Until it lands, label OpenCode lanes `estimate`, which is the gate's existing fallback; there is no OpenCode stream read yet. Task 32.4's resume guidance reuses the Batch 41 wording (`chat-subagent-context-injector.service.ts:153-175`). The stale warning is now at `agent-process-manager.service.ts:342`. File-disjoint from Batches 24 and 30.2 in wave A.
 
-- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/shared/src/lib/types/agent-process.types.ts`
+### Task 32.1: `AgentProcessInfo.lastRequestContext` — COMPLETE
+
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/shared/src/lib/types/agent-process.types.ts`
 - Plan reference: implementation-plan.md:454
 - Pattern to follow: existing `AgentProcessInfo`
 - Quality requirements: `{ tokens: number; source: 'rollout' | 'stream' | 'estimate' }`.
 - Validation notes: none.
 - Implementation details: none.
 
-### Task 32.2: Codex rollout usage reader — PENDING
+### Task 32.2: Codex rollout usage reader — COMPLETE
 
-- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/backend/cli-agent-runtime/src/lib/cli-agents/cli-adapters/codex/codex-rollout-usage.reader.ts` (+ spec)
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/cli-agent-runtime/src/lib/cli-agents/cli-adapters/codex/codex-rollout-usage.reader.ts` (+ spec)
 - Plan reference: implementation-plan.md:1053-1055
 - Pattern to follow: field names in `scripts/agent-usage/codex-rollout.reader.ts` (Batch 10); `codexHomeDir()`
 - Quality requirements: finds `rollout-*-<threadId>.jsonl`, newest date dirs first; reads the last `token_count` `info.last_token_usage` from the file tail.
 - Validation notes: never the `turn.completed` sum.
 - Implementation details: fixture tail spec.
 
-### Task 32.3: `LaneResumeGate` with token and register — PENDING
+### Task 32.3: `LaneResumeGate` with token and register — COMPLETE
 
 - Depends on: Task 32.2
-- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/backend/cli-agent-runtime/src/lib/cli-agents/lane-resume-gate.ts` (+ spec), `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/backend/cli-agent-runtime/src/lib/di/tokens.ts`, `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/backend/cli-agent-runtime/src/lib/di/register.ts`
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/cli-agent-runtime/src/lib/cli-agents/lane-resume-gate.ts` (+ spec), `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/cli-agent-runtime/src/lib/di/tokens.ts`, `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/cli-agent-runtime/src/lib/di/register.ts`
 - Plan reference: implementation-plan.md:1050-1058, :484-486
 - Pattern to follow: `CLI_AGENT_RUNTIME_TOKENS` `di/tokens.ts:1-25`; `register.ts:49, 77`
 - Quality requirements: `RESUME_GATE_MAX_CONTEXT_TOKENS = 60_000`, `RESUME_GATE_MAX_IDLE_MS = 600_000`; Codex from rollout, OpenCode from stream, others labelled estimate; logs through `IOutputChannel`.
 - Validation notes: missing rollout → estimate; decision always logged with source.
 - Implementation details: spec boundaries 60k, 10 min, each source.
 
-### Task 32.4: Manager consults the gate; handoff spawn; stale warning fixed — PENDING
+### Task 32.4: Manager consults the gate; handoff spawn; stale warning fixed — COMPLETE
 
 - Depends on: Tasks 32.1, 32.3
-- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/backend/cli-agent-runtime/src/lib/cli-agents/agent-process-manager.service.ts` (resume entry, + spec)
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/cli-agent-runtime/src/lib/cli-agents/agent-process-manager.service.ts` (resume entry, + spec)
 - Plan reference: implementation-plan.md:1059-1062
 - Pattern to follow: `:332-336`
 - Quality requirements: on `fresh`, spawn a new lane with the new message, the original task, the previous final text (last 2,000 chars) and changed files from `file-change` segments; no git process. Records `lastRequestContext` from the stream.
@@ -1947,41 +2179,44 @@ Batch 6 follow-ups (recorded, not fixed now):
 
 ### Batch 32 verification
 
+- Accepted deviations (team-leader, S4 wave A): only the `resumeSessionId` spawn is gated; continuation of an idle lane (`continueConversation`/`sendToAgent`) and `spawnFromSdkHandle` stay ungated (contract change to `AgentMessageOutcome` needed); `contextTokens` is `number | null`; every streamed figure is labelled `estimate` until Batch 13. Carry the two ungated paths into the S4-a phase review and Batch 35 scope.
+
 - Gate specced; manager handoff; scoped + app typecheck pass
 - Reviewer: code-logic-reviewer
 
 ---
 
-## Batch 33: Blocking waits — manager and tools (S4, component 15 part 1) — DEFERRED (follow-up, decision 11)
+## Batch 33: Blocking waits — manager and tools (S4, component 15 part 1) — COMPLETE (commit: 378688a1f)
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer re-run
 - Execution mode: sequential
 - Rationale: third serial manager edit plus new tool files; process spawning in `run-check`
 - Tasks: 3 | Depends on: Batch 32 | Concurrent-safe with: Batches 23-31
-- Verify: `npx nx run-many -t test,lint,typecheck -p @ptah-extension/cli-agent-runtime @ptah-extension/vscode-lm-tools`
+- Phase: S4-a
+- Verify: `npx nx run-many -t test,lint,typecheck -p @ptah-extension/cli-agent-runtime @ptah-extension/vscode-lm-tools`; `npx nx run-many -t typecheck -p ptah-extension-vscode ptah-electron ptah-cli @ptah-extension/cli-engine @ptah-extension/rpc-handlers @ptah-extension/gateway-chat-bridge`; `npx nx run di-lint:lint`; `npx nx run degradation-audit:lint`
 
-### Task 33.1: `waitForAgents` — PENDING
+### Task 33.1: `waitForAgents` — COMPLETE
 
-- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/backend/cli-agent-runtime/src/lib/cli-agents/agent-process-manager.service.ts` (+ spec)
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/cli-agent-runtime/src/lib/cli-agents/agent-process-manager.service.ts` (+ spec)
 - Plan reference: implementation-plan.md:362-372 (D13), :1074-1075
 - Pattern to follow: `events` emitter `:143-144, 1269, 1653`
 - Quality requirements: `(ids, 'any'|'all', timeoutMs ≤ 900_000)`; resolves on `agent:exited`, no polling; timeout returns partial; unknown ids reported per id; listeners removed.
 - Validation notes: resolves within one tick of the exit event.
 - Implementation details: none.
 
-### Task 33.2: Schema and `ptah_agent_wait` tool — PENDING
+### Task 33.2: Schema and `ptah_agent_wait` tool — COMPLETE
 
-- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/wait-tools-args.schema.ts`, `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/agent-wait.tool.ts` (+ specs)
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/wait-tools-args.schema.ts`, `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/agent-wait.tool.ts` (+ specs)
 - Plan reference: implementation-plan.md:1076-1078
 - Pattern to follow: `agent-spawn-args.schema.ts`; `tool-result-budget.ts:52-54`
 - Quality requirements: `{agentIds, mode, timeoutSec ≤ 900}`; per lane status, exit code, duration, stop reason, deliverable check, last lines; whole reply ≤4,000 chars (`WAIT_SUMMARY_MAX_CHARS`).
 - Validation notes: size bound asserted.
 - Implementation details: none.
 
-### Task 33.3: `ptah_run_check` tool — PENDING
+### Task 33.3: `ptah_run_check` tool — COMPLETE
 
-- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/run-check.tool.ts` (+ spec)
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/run-check.tool.ts` (+ spec)
 - Plan reference: implementation-plan.md:1079-1093
 - Pattern to follow: `.ptah/tmp` convention `tool-result-budget.ts:20-24`
 - Quality requirements: `project` `^[A-Za-z0-9@/_.-]{1,120}$`; `targets` ⊆ test, lint, typecheck, build; runs `node <workspace>/node_modules/nx/bin/nx.js run-many -t <targets> -p <project> --outputStyle=static` from an argument array, `shell:false`, cwd = caller workspace root; full log `.ptah/tmp/checks/<ts>-<project>.log`; summary ≤4,000 chars; timeout kills the process tree.
@@ -1992,33 +2227,36 @@ Batch 6 follow-ups (recorded, not fixed now):
 
 - Size bounds and schema rejections specced; scoped command passes
 - Reviewer: code-logic-reviewer (process spawning and input validation)
+- Accepted deviations (team-leader, Mode 2): Nx entry is `node_modules/nx/dist/bin/nx.js` first, then `node_modules/nx/bin/nx.js` (Nx 23.2.1 has no `bin/`, verified on disk); barrel `cli-agents/index.ts` exports `MAX_AGENT_WAIT_MS` and the wait types; `project` additionally refuses a leading `-`; defaults `mode=all`, timeouts 600 s, `agentIds` ≤10. Batch 34 carries the wiring notes in `reports/batch-33-report.md` § Plan deviations (workspaceRoot from `resolveSpoolRoot`, `describeZodIssues`, `toolErrorResponse`, no budget override).
 
 ---
 
-## Batch 34: Blocking waits — surfaces and `waitFor` rewrite (S4, component 15 part 2) — DEFERRED (follow-up, decision 11)
+## Batch 34: Blocking waits — surfaces and `waitFor` rewrite (S4, component 15 part 2) — COMPLETE (orchestrator commit, rule 3; deviations in reports/batch-34-report.md accepted)
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer re-run
 - Execution mode: sequential
 - Rationale: one library; serial after Batches 5 and 7 on the same files
 - Tasks: 2 | Depends on: Batch 33 | Concurrent-safe with: Batches 23-31
-- Verify: `npx nx run-many -t test,lint,typecheck -p @ptah-extension/vscode-lm-tools`
+- Phase: S4-a (last batch of the phase; code-logic + style phase review due after its commit)
+- Verify: `npx nx run-many -t test,lint,typecheck -p @ptah-extension/vscode-lm-tools`; `npx nx run-many -t typecheck -p ptah-extension-vscode ptah-electron ptah-cli @ptah-extension/cli-engine @ptah-extension/rpc-handlers @ptah-extension/gateway-chat-bridge`; `npx nx run di-lint:lint`; `npx nx run degradation-audit:lint`
 
-### Task 34.1: Advertised schemas and both dispatchers — PENDING
+### Task 34.1: Advertised schemas and both dispatchers — IN_PROGRESS
 
-- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/tool-description.builder.ts`, `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/protocol-dispatcher.ts`, `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-stdio/agent-tool.dispatcher.ts` (+ parity spec)
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/tool-description.builder.ts`, `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/protocol-dispatcher.ts`, `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-stdio/agent-tool.dispatcher.ts` (+ parity spec)
 - Plan reference: implementation-plan.md:1099
 - Pattern to follow: Batch 7 edits
 - Quality requirements: both tools on HTTP and stdio surfaces.
 - Validation notes: parity spec updated.
 - Implementation details: none.
 
-### Task 34.2: `ptah.agent.waitFor` uses `waitForAgents`; help text — PENDING
+### Task 34.2: `ptah.agent.waitFor` uses `waitForAgents`; help text — IN_PROGRESS
 
 - Batch 6 follow-up F6-M1: in `ptah.agent.spawn`, destructure and drop a caller-supplied `systemPrompt` with a one-line WARN, as `roleDefinition` already is. Also reject a non-string `effort` at this boundary.
+- PR 1 phase-end follow-up PR1-M1 (folded here, same file): the Ptah-CLI branch drops a caller's `effort` without notice. The `registry.spawnAgent(request.ptahCliId, ptahCliTask, {...})` options at `agent-namespace.builder.ts:229-237` do not carry it. Fix: if the registry's spawn options accept `effort`, pass the validated value through. If they do not, log a one-line WARN that names the lane and says `effort` is ignored, as the `systemPrompt` drop does. Add a spec for whichever path applies.
 - Carried from Batch 7 (d992ea3b9), deferred: the MCP surfaces now bound `effort` with `MAX_EFFORT_LENGTH` (`mcp-core/agent-spawn-args.schema.ts`), but the `execute_code` path does not. Apply the same string, 1..32 rule here so the `Lane policy` log line stays bounded.
 
-- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/backend/vscode-lm-tools/src/lib/code-execution/namespace-builders/agent-namespace.builder.ts`, `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/backend/vscode-lm-tools/src/lib/code-execution/namespace-builders/system-namespace.builders.ts` (+ specs)
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/vscode-lm-tools/src/lib/code-execution/namespace-builders/agent-namespace.builder.ts`, `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/vscode-lm-tools/src/lib/code-execution/namespace-builders/system-namespace.builders.ts` (+ specs)
 - Plan reference: implementation-plan.md:1087, :1099
 - Pattern to follow: `agent-namespace.builder.ts:29-30, 415-450`; `system-namespace.builders.ts:508`
 - Quality requirements: polling loop removed.
@@ -2032,18 +2270,19 @@ Batch 6 follow-ups (recorded, not fixed now):
 
 ---
 
-## Batch 35: Lane budget guard and blocked models (S4, component 16 + R9.5) — DEFERRED (follow-up, decision 11)
+## Batch 35: Lane budget guard and blocked models (S4, component 16 + R9.5) — PENDING (S4 Wave D; #639 merged; see § S4 stage start and context.md § Handoff 4)
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer re-run
 - Execution mode: sequential
 - Rationale: last serial manager edit; reads the lane-guard keys from Batches 16-17
 - Tasks: 4 | Depends on: Batches 17, 33 | Concurrent-safe with: Batches 23-31
-- Verify: `npx nx run-many -t test,lint,typecheck -p @ptah-extension/cli-agent-runtime @ptah-extension/shared` and the three-app typecheck
+- Phase: S4-b
+- Verify: `npx nx run-many -t test,lint,typecheck -p @ptah-extension/cli-agent-runtime @ptah-extension/shared`; `npx nx run-many -t typecheck -p $(npx nx show projects --affected --files=libs/shared/src/lib/types/agent-process.types.ts --sep=,)`; `npx nx run di-lint:lint`; `npx nx run degradation-audit:lint`
 
 ### Task 35.1: `LaneBudgetGuard` — PENDING
 
-- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/backend/cli-agent-runtime/src/lib/cli-agents/lane-budget-guard.ts` (+ spec)
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/cli-agent-runtime/src/lib/cli-agents/lane-budget-guard.ts` (+ spec)
 - Plan reference: implementation-plan.md:1101-1117
 - Pattern to follow: plain class, no token (plan :485-486)
 - Quality requirements: counts `tool-call` segments; ONE steer at steer-at ("You have made N tool calls. Stop exploring, finish the deliverable now, and report."); stop at stop-at with `stopReason:'tool-call-budget'`; identical tool + normalised `toolInput` (else `toolArgs`, else name) reaching repeat-at stops with `'repeat-call'`. O(1) per segment, no timers.
@@ -2052,7 +2291,7 @@ Batch 6 follow-ups (recorded, not fixed now):
 
 ### Task 35.2: `AgentProcessInfo.stopReason` — PENDING
 
-- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/shared/src/lib/types/agent-process.types.ts`
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/shared/src/lib/types/agent-process.types.ts`
 - Plan reference: implementation-plan.md:452-453
 - Pattern to follow: Task 32.1
 - Quality requirements: `stopReason?: 'tool-call-budget' | 'repeat-call' | string`.
@@ -2063,7 +2302,7 @@ Batch 6 follow-ups (recorded, not fixed now):
 
 - Batch 6 note F6-m3: `isReviewerOrTester` is exact and case-sensitive, per R2.4. Leave it unchanged unless R2.4 is relaxed.
 
-- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/backend/cli-agent-runtime/src/lib/cli-agents/lane-spawn-policy.ts` (+ spec), `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/backend/cli-agent-runtime/src/lib/cli-agents/agent-spawn-environment.service.ts`
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/cli-agent-runtime/src/lib/cli-agents/lane-spawn-policy.ts` (+ spec), `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/cli-agent-runtime/src/lib/cli-agents/agent-spawn-environment.service.ts`
 - Plan reference: implementation-plan.md:440-441, :698, :728
 - Pattern to follow: Task 6.1
 - Quality requirements: `BLOCKED_LANE_MODELS = ['mimo-v2.6-flash-free']`, matched on the id after the last `/`, case-insensitive; spawn environment returns the three guard thresholds (routed reads, defaults 40/60/20; invalid file values → default).
@@ -2077,7 +2316,7 @@ Batch 6 follow-ups (recorded, not fixed now):
   - Bound each `ignoredEfforts` value with `String(v).slice(0, 32)`.
 
 - Depends on: Tasks 35.1-35.3
-- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/backend/cli-agent-runtime/src/lib/cli-agents/agent-process-manager.service.ts` (+ spec)
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/cli-agent-runtime/src/lib/cli-agents/agent-process-manager.service.ts` (+ spec)
 - Plan reference: implementation-plan.md:708-710, :1113
 - Pattern to follow: `trackSdkHandle` `:476-605`, segment subscription `:535-548`, `stop` `:1227`
 - Quality requirements: guard per tracked lane, released on exit; steer through `sendToAgent`; `unsupported` delivery logged, stop still enforced; `stopReason` in status; `LaneModelBlockedError` (lib error base) thrown before `runSdk`: "Model `<id>` is blocked for lanes because it is known to loop. Choose another model."
@@ -2191,18 +2430,21 @@ Edge cases:
 
 ---
 
-## Batch 36: M subagent views and decision-9 "before" baselines (N1/N3/N4 measurement) — DEFERRED (follow-up, decision 11)
+## Batch 36: M subagent views and decision-9 "before" baselines (N1/N3/N4 measurement) — COMPLETE (PR 2, decision 12; report batch-36-executor-report.md)
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer re-run
 - Execution mode: sequential
 - Rationale: scripts-only extension of tool M (Batch 10); the baselines must exist before any N1/N3/N4 change lands
-- Tasks: 2 | Depends on: Batch 10 | Concurrent-safe with: Batches 4-9, 12-35, 37-41, 46-49 (serial with 11)
+- Tasks: 2 | Depends on: Batch 10 (COMPLETE) | Concurrent-safe with: Batches 37-41, 46, 47 (PR 2); Batch 11 stays deferred
 - Verify: `npm run test:scripts 2>&1 | tail -30` (scripts are not an Nx project; same exception as Batch 10)
+- PR 2 re-validation (2026-10-04): `claude-transcript.reader.ts:189` still sets `kind: 'subagent'`; `--lanes` view and
+  `--since` live in `agent-usage-report.ts` (header :21-51, flag :97); `subagent-metrics.ts` and
+  `measurements/s9-subagent-baselines.md` do not exist yet. M computes tokens only (no pricing in `scripts/agent-usage`).
 
 ### Task 36.1: `--subagents` view in M — PENDING
 
-- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/scripts/agent-usage/claude-transcript.reader.ts`, `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/scripts/agent-usage/subagent-metrics.ts` (new), `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/scripts/agent-usage-report.ts` (+ specs and a sanitized `__fixtures__/` subagent jsonl)
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-followups/scripts/agent-usage/claude-transcript.reader.ts`, `D:/projects/ptah-extension/.claude-worktrees/task-597-followups/scripts/agent-usage/subagent-metrics.ts` (new), `D:/projects/ptah-extension/.claude-worktrees/task-597-followups/scripts/agent-usage-report.ts` (+ specs and a sanitized `__fixtures__/` subagent jsonl)
 - Plan reference: context.md item 9 N1, N3; implementation-plan.md:945-993 (M)
 - Pattern to follow: `lane-metrics.ts` and the `--lanes` view (Task 10.2)
 - Quality requirements: reads `~/.claude/projects/**/subagents/*.jsonl` read-only. Per subagent: agent type, first-request prefix (input + cache_read + cache_creation), request count, total cache_read / cache_creation / output, and every request whose gap to the previous request of the SAME subagent is > 300 s, with its cache_creation tokens. Summary: prefix min / median / max per agent type; "resume after > 5 min" count, cache_creation sum and median; `--since <iso>` filter.
@@ -2212,41 +2454,41 @@ Edge cases:
 ### Task 36.2: Record the decision-9 "before" baselines — PENDING
 
 - Depends on: Task 36.1
-- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/.ptah/specs/TASK_2026_597_ab22/measurements/s9-subagent-baselines.md` (new)
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-followups/.ptah/specs/TASK_2026_597_ab22/measurements/s9-subagent-baselines.md` (new)
 - Plan reference: context.md § Handoff (1,075 requests; start prefix 34-44k, median 39.6k)
 - Pattern to follow: `measurements/s2-offline-baselines.md` (Task 10.3)
-- Quality requirements: run M on this task's Claude session transcripts. Record N1 "before" = resumes after > 5 min (count, cache_creation sum, median) and N3/N4 "before" = start prefix min / median / max per agent type. The median must land within 10% of 39.6k, or the difference is explained. Record whether `CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL` was set for those sessions (set on 2026-10-03; split before/after that time). Leave empty "after (QA)" tables for N1, N3 and N4.
+- Quality requirements: run M on this task's Claude session transcripts. Record N1 "before" = resumes after > 5 min (count, cache_creation sum, median) and N3/N4 "before" = start prefix min / median / max per agent type. The median must land within 10% of 39.6k, or the difference is explained. Record whether `CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL` was set for those sessions (set on 2026-10-03; split before/after that time). N3/N4 shipped in PR 1 (#634, merge `f314a4f8a`): the N3 "before" prefix uses only subagent transcripts older than the first session run on that build; say which cut-off was used. Leave empty "after (QA)" tables for N1, N3 and N4.
 - Validation notes: numbers only, no transcript content.
 - Implementation details: none.
 
 ### Batch 36 verification
 
 - View specced on the fixture; baselines file holds the prefix median and the resume numbers
-- Reviewer: code-logic-reviewer
+- Reviewer: none (measurement only, decision 11)
 
 ---
 
-## Batch 37: N1 setting key and TTL resolver (platform-core, shared) — DEFERRED (follow-up, decision 11)
+## Batch 37: N1 setting key and TTL resolver (platform-core, shared) — COMPLETE (PR 2, decision 12; report batch-37-executor-report.md)
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer re-run
 - Execution mode: sequential
 - Rationale: types and a pure resolver that Batches 38-41 import; same files as Batches 2 and 16
-- Tasks: 2 | Depends on: Batch 16 | Concurrent-safe with: Batches 36, 42-44, 48
-- Verify: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/platform-core @ptah-extension/shared 2>&1 | tail -40` and `npx nx run-many -t typecheck -p ptah-extension-vscode ptah-electron ptah-cli 2>&1 | tail -20`
+- Tasks: 2 | Depends on: none in PR 2 (Batch 16 dependency DROPPED, see § PR 2 scope) | Concurrent-safe with: Batch 36
+- Verify: see § PR 2 scope → Scoped checks (Batch 37 row); it replaces the old command.
 
 ### Task 37.1: File-based key `agentOrchestration.subagentPromptCacheTtl` — PENDING
 
-- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/backend/platform-core/src/file-settings-keys.ts` (+ spec), `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/shared/src/lib/types/rpc/rpc-agents.types.ts`
-- Plan reference: context.md item 9 N1; pattern of Tasks 2.1-2.2
-- Pattern to follow: `agentOrchestration.codex*` keys `file-settings-keys.ts:162-167`
-- Quality requirements: values `'auto' | '5m' | '1h'`, default `'auto'`; the getConfig result gains `subagentPromptCacheTtl` and `subagentPromptCacheTtlEnvOverride?: '5m' | '1h' | 'invalid'`; setConfig accepts the key.
-- Validation notes: none.
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-followups/libs/backend/platform-core/src/file-settings-keys.ts` (+ spec), `D:/projects/ptah-extension/.claude-worktrees/task-597-followups/libs/shared/src/lib/types/rpc/rpc-agents.types.ts`, `D:/projects/ptah-extension/.claude-worktrees/task-597-followups/libs/shared/src/lib/types/rpc/rpc-auth.types.ts` (`SCOPED_SETTING_KEYS` entry, as Batch 2 did for `agentOrchestration.codexWebSearch` at `:425-428`)
+- Plan reference: context.md item 9 N1; pattern of Tasks 2.1-2.2 (commit `70af32f03`: same four files)
+- Pattern to follow: `agentOrchestration.codex*` keys `file-settings-keys.ts:162-167` and defaults `:468-474`; optional `codexAutoCompactTokens?` on `AgentOrchestrationConfig` `rpc-agents.types.ts:87-138` and on `AgentSetConfigParams` `:192-237`
+- Quality requirements: values `'auto' | '5m' | '1h'`, default `'auto'`; the getConfig result gains `subagentPromptCacheTtl?` and `subagentPromptCacheTtlEnvOverride?: '5m' | '1h' | 'invalid'`; setConfig accepts the key. Both new result fields are OPTIONAL: `AgentOrchestrationConfig` literals are built in `tribunal-discovery.service.spec.ts:25`, `apps/ptah-electron-e2e/src/specs/thoth/skills.spec.ts:151` and the webview e2e fixtures, and a required field breaks their typecheck (the PR 1 chat-lib CI failure pattern).
+- Validation notes: no `envOverrideReachesSdk` field — AS-N1b is verified: the builder passes `...process.env` into the SDK `env` (`sdk-query-options-builder.ts:1259-1274`).
 - Implementation details: none.
 
 ### Task 37.2: `resolveSubagentPromptCacheTtl` pure resolver — PENDING
 
-- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/shared/src/lib/utils/subagent-prompt-cache-ttl.ts` (new, + spec, exported from the shared utils barrel)
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-followups/libs/shared/src/lib/utils/subagent-prompt-cache-ttl.ts` (new, + spec), exported from `D:/projects/ptah-extension/.claude-worktrees/task-597-followups/libs/shared/src/lib/utils/index.ts`
 - Plan reference: context.md item 9 N1
 - Pattern to follow: `resolveContextCapacity` `pricing.utils.ts:495-521`
 - Quality requirements: input `{ setting, envValue, canSpawnSubagents }`; output `{ sdkValue: '5m' | '1h' | undefined, effective: '5m' | '1h', source: 'env' | 'setting' | 'auto' | 'sdk-default', envOverride?: '5m' | '1h' | 'invalid' }`. A valid env value → `effective` = env, `source:'env'`; `sdkValue` still follows the setting (the SDK lets env win). `auto` → `'1h'` when `canSpawnSubagents`, else unset (`effective:'5m'`, `source:'sdk-default'`). Unknown setting value → treated as `auto`.
@@ -2255,146 +2497,149 @@ Edge cases:
 
 ### Batch 37 verification
 
-- Key, types and resolver specced; scoped + three-app typecheck pass
-- Reviewer: code-logic-reviewer
+- Key, types and resolver specced; the Batch 37 scoped checks in § PR 2 scope pass
+- Reviewer: PR 2 phase-end code-logic review (no per-batch review)
 
 ---
 
-## Batch 38: N1 RPC and options builder (replaces the Task 28.2 gate) — DEFERRED (follow-up, decision 11)
+## Batch 38: N1 RPC and options builder (replaces the Task 28.2 gate) — COMPLETE (PR 2, decision 12; commit 218cd2f11)
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer re-run
 - Execution mode: sequential
-- Rationale: one serial edit on the options builder after Batches 14, 23 and 28 have landed there
-- Tasks: 2 | Depends on: Batches 14, 17, 28, 36, 37 | Concurrent-safe with: Batches 40, 42-44, 48
-- Verify: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/rpc-handlers @ptah-extension/agent-sdk 2>&1 | tail -40`
+- Rationale: one serial edit on the options part of the builder; Batch 23 (COMPLETE, `65aed6387`) is the last change there
+- Tasks: 2 | Depends on: Batch 37; Batch 36 soft (see § PR 2 scope) | Concurrent-safe with: Batches 39, 40
+- Verify: see § PR 2 scope → Scoped checks (Batch 38 row); it replaces the old command.
+- PR 2 note: Batch 28 is still deferred, so NO Task 28.2 gate exists in the code (grep `subagentPromptCacheTtl` in
+  `libs/`: no match). Batch 38 adds the first and only TTL path; Task 28.2 is superseded and must not be built when
+  Batch 28 is scheduled. TASK_2026_609 rule: touch only the options part of `sdk-query-options-builder.ts`.
 - Before/after: before = Task 36.2 "resumes after > 5 min" cache_creation; after = QA re-run of `npm run usage:report -- --subagents` on post-build runs with the env var cleared, recorded in `measurements/s9-subagent-baselines.md`.
 
 ### Task 38.1: `agent:getConfig` / `agent:setConfig` for the TTL key; env override reported — PENDING
 
-- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/backend/rpc-handlers/src/lib/handlers/agent-rpc.handlers.ts` (+ spec), `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/backend/agent-sdk/src/lib/types/settings-export.types.ts` (`KNOWN_CONFIG_KEYS`)
-- Plan reference: context.md item 9 N1; Tasks 3.1-3.2, 17.4
-- Pattern to follow: Task 3.2 validation
-- Quality requirements: set rejects values outside `auto | 5m | 1h` with the Task 3.2 error shape; get returns the setting plus `subagentPromptCacheTtlEnvOverride` from `resolveSubagentPromptCacheTtl` (host env), including `'invalid'`.
-- Validation notes: AS-N1b — if Task 38.2 finds the env is not passed to the SDK, add `envOverrideReachesSdk: false` and say so in the report.
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-followups/libs/backend/rpc-handlers/src/lib/handlers/agent-rpc.handlers.ts` (+ spec), `D:/projects/ptah-extension/.claude-worktrees/task-597-followups/libs/backend/agent-sdk/src/lib/types/settings-export.types.ts` (`KNOWN_CONFIG_KEYS`)
+- Plan reference: context.md item 9 N1; Tasks 3.1-3.2 (Task 17.4 is deferred and not needed)
+- Pattern to follow: `invalidCodexBudget` check `agent-rpc.handlers.ts:340-346` (error `Unsupported <field> value`), getConfig literal `:229-297`, setConfig writes `:347-451`; `KNOWN_CONFIG_KEYS` `settings-export.types.ts:53-81` (codex keys `:76-80`)
+- Quality requirements: set rejects values outside `auto | 5m | 1h` with the Task 3.2 error shape, before any write; get returns the setting plus `subagentPromptCacheTtlEnvOverride` from `resolveSubagentPromptCacheTtl` (host env), including `'invalid'`.
+- Validation notes: AS-N1b verified (env reaches the SDK, `sdk-query-options-builder.ts:1259-1274` spreads `process.env`), so no `envOverrideReachesSdk` field. `agent-rpc.handlers.ts` was reshaped by TASK_2026_609 (merge `0ec714c79`, net -99 lines); the line refs above are from the current branch.
 - Implementation details: none.
 
 ### Task 38.2: Builder sets the TTL through the resolver; one INFO line — PENDING
 
-- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/backend/agent-sdk/src/lib/helpers/sdk-query-options-builder.ts` (+ spec)
-- Plan reference: context.md item 9 N1; implementation-plan.md:1195-1196 (Task 28.2, superseded here)
-- Pattern to follow: `buildFlagSettings` `sdk-query-options-builder.ts:377`; Task 23.3 log line
-- Quality requirements: REPLACE the Task 28.2 gate in place (no second path). `canSpawnSubagents` = the query is not an internal query AND the subagent tool (`Task`/`Agent`) is not disallowed, OR session metadata lists resumable subagents (the 28.2 condition). Set `subagentPromptCacheTtl` in the flag settings only when `sdkValue` is defined. Log once per session at INFO: `subagentPromptCacheTtl effective=<5m|1h> source=<env|setting|auto|sdk-default> sdkOption=<5m|1h|unset>`.
-- Validation notes: AS-N1a (Settings field), AS-N1b (env reaches the child — check how `env` is built), AS-N1c (options built once per session — record the finding in the report). Internal queries leave the field unset.
-- Implementation details: spec: auto + subagent-capable → `'1h'`; auto + internal → unset; `5m` setting → `'5m'`; env set → log `source=env`; the Task 28.2 spec cases are kept or rewritten to the new rule.
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-followups/libs/backend/agent-sdk/src/lib/helpers/sdk-query-options-builder.ts` (+ spec)
+- Plan reference: context.md item 9 N1; implementation-plan.md:1195-1196 (Task 28.2, superseded here and never built)
+- Pattern to follow: `buildFlagSettings` `sdk-query-options-builder.ts:380-409` (absence rule for `autoCompactKeys`), `buildFlagSettingsArg` `:661`, the call in `build()` `:1218-1224`; Task 23.3 log line `:1115-1120`
+- Quality requirements: the ONLY TTL path (no Task 28.2 gate exists). Add an optional TTL argument to `buildFlagSettings` / `buildFlagSettingsArg`; only `build()` (`:972`, the main-session path) passes it. The other callers (`sdk-query-runner.service.ts` internal queries, `cli-agent-runtime` `ptah-cli-spawn-options.service.ts` and `ptah-cli-registry.ts`) pass nothing, so their output is unchanged. `canSpawnSubagents` in `build()` = the subagent tool (`Task`/`Agent`) is not disallowed for the session. Set `subagentPromptCacheTtl` in the flag settings only when `sdkValue` is defined, and include it in the "no opinion" check so the shared `PTAH_DISABLE_SDK_AUTO_MEMORY` constant is still returned untouched when no key applies. Log once per build at INFO: `subagentPromptCacheTtl effective=<5m|1h> source=<env|setting|auto|sdk-default> sdkOption=<5m|1h|unset>`. Read the setting from the same store key `agent:setConfig` writes (Mode 3 write-path trace).
+- Validation notes: AS-N1a verified (`Settings.subagentPromptCacheTtl?: '5m' | '1h'`, sdk.d.ts:8542, SDK 0.3.278 = `package.json:103`). AS-N1b verified (`:1259-1274`). AS-N1c: record in the report how often `build()` runs per session (`session-query-executor.service.ts`). OFF LIMITS (TASK_2026_609 / context.md § Workspace): `buildSystemPrompt` and its call (`:1045-1053`, `:1683` onward); no change to system-prompt text or its inputs.
+- Implementation details: spec: auto + subagent-capable → `'1h'`; auto + subagent tool disallowed → unset; internal-query and ptah-cli callers → unset; `5m` setting → `'5m'`; env set → log `source=env`. Existing identity assertions (`sdk-query-options-builder.capabilities.spec.ts:451` `toBe(PTAH_DISABLE_SDK_AUTO_MEMORY)`, `output-style.spec.ts:57-65`) are updated only where the new default legitimately adds the key, with the reason in the report.
 
 ### Batch 38 verification
 
-- Setting honoured end to end in specs; the Task 28.2 gate code is gone; scoped command passes
-- Reviewer: code-logic-reviewer
+- Setting honoured end to end in specs; one TTL path only; `git diff` shows no hunk in `buildSystemPrompt`; the Batch 38 scoped checks in § PR 2 scope pass
+- Reviewer: PR 2 phase-end code-logic review (no per-batch review)
 
 ---
 
-## Batch 39: N1 setting and env-override display in the UI — DEFERRED (follow-up, decision 11)
+## Batch 39: N1 setting and env-override display in the UI — COMPLETE (PR 2, decision 12; commit ecc953410)
 
 - Recommended executor: frontend-developer
 - Fallback executor: frontend-developer re-run
 - Execution mode: sequential
 - Rationale: settings state, then one small card mounted in orchestration settings
-- Tasks: 2 | Depends on: Batches 20, 21, 38 | Concurrent-safe with: Batches 41-45, 48
-- Verify: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/core @ptah-extension/chat 2>&1 | tail -40`
+- Tasks: 2 | Depends on: Batch 37 (types); Batches 20 and 21 DROPPED, Batch 38 not needed for compile (see § PR 2 scope) | Concurrent-safe with: Batches 38, 40, 41
+- Verify: see § PR 2 scope → Scoped checks (Batch 39 row); it replaces the old command.
 
 ### Task 39.1: State carries the TTL setting and env override — PENDING
 
-- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/frontend/core/src/lib/services/providers-settings.types.ts`, `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/frontend/core/src/lib/services/providers-settings-state.service.ts` (+ spec)
-- Plan reference: context.md item 9 N1; Batch 20
-- Pattern to follow: Task 20.1 field unions, Task 20.3 state service
-- Quality requirements: field `subagentPromptCacheTtl` committed through the Batch 20 commit loop; read-only `subagentPromptCacheTtlEnvOverride`.
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-followups/libs/frontend/core/src/lib/services/providers-settings.types.ts`, `D:/projects/ptah-extension/.claude-worktrees/task-597-followups/libs/frontend/core/src/lib/services/providers-settings-state.service.ts` (+ spec), `D:/projects/ptah-extension/.claude-worktrees/task-597-followups/libs/frontend/core/src/lib/services/providers-commit.service.ts` (+ spec)
+- Plan reference: context.md item 9 N1 (Batch 20 is deferred; the commit loop it planned already exists)
+- Pattern to follow: `copilotAutoApprove` end to end — `ProvidersOrchestrationPolicyField` `providers-settings.types.ts:75-79`, `ProvidersSettingsPatch.orchestration` `:89-94`, `ProvidersOrchestration` `:108-115`, read in `refreshOrchestration` `providers-settings-state.service.ts:510-524`, write + read-back loop `providers-commit.service.ts:181-204`
+- Quality requirements: field `subagentPromptCacheTtl` committed through the existing `saveSettings` → `providers-commit.service.ts` write/read-back loop; read-only `subagentPromptCacheTtlEnvOverride` (never written). Both optional on the RPC result, so the read maps a missing value to `'auto'` / no override.
 - Validation notes: none.
 - Implementation details: none.
 
 ### Task 39.2: `subagent-cache-ttl-setting` component — PENDING
 
 - Depends on: Task 39.1
-- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/frontend/chat/src/lib/settings/ptah-ai/subagent-cache-ttl-setting.component.ts` (new, + spec), `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/frontend/chat/src/lib/settings/ptah-ai/orchestration-settings.component.ts`
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-followups/libs/frontend/chat/src/lib/settings/ptah-ai/subagent-cache-ttl-setting.component.ts` (new, + spec), `D:/projects/ptah-extension/.claude-worktrees/task-597-followups/libs/frontend/chat/src/lib/settings/ptah-ai/orchestration-settings.component.ts`
 - Plan reference: context.md item 9 N1 ("show it in the UI when the env var overrides the setting")
-- Pattern to follow: `lane-budget-settings.component.ts` (Task 21.1) and its `@defer (on viewport)` mount (Task 21.2)
-- Quality requirements: select `Auto (1 hour for sessions with subagents) | 5 minutes | 1 hour`. With an env override the select stays editable and a notice reads "`CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL=<value>` is set in your environment and takes precedence." (`invalid` → "has an invalid value and is ignored by Ptah"; `envOverrideReachesSdk: false` → "is set but not passed to the SDK").
-- Validation notes: dark + light screenshots needed at Mode 3 (added to the visual list with Batches 21, 22, 31).
+- Pattern to follow: `copilot-auto-approve-toggle.component.ts` (`state.saveSettings({ orchestration: … })` + `SettingsSaveFeedbackService`, `:54-91`); mount in `orchestration-settings.component.ts` inside its own `@defer (on viewport)` block with a same-footprint `@placeholder`, like the CLI matrix at `:45-50` (the eager bundle is at its budget). `lane-budget-settings.component.ts` (Task 21.1) does not exist.
+- Quality requirements: select `Auto (1 hour for sessions with subagents) | 5 minutes | 1 hour`. With an env override the select stays editable and a notice reads "`CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL=<value>` is set in your environment and takes precedence." (`invalid` → "has an invalid value and is ignored by Ptah"). No "not passed to the SDK" notice: AS-N1b is verified.
+- Validation notes: no prototype exists; Mode 3 needs before/after screenshots (dark + light) of Settings → Orchestration, the "before" from base `5bb19f9fb`.
 - Implementation details: none.
 
 ### Batch 39 verification
 
-- Component specced with and without an override; scoped command passes
-- Reviewer: code-logic-reviewer (visual-reviewer at QA)
+- Component specced with and without an override; the Batch 39 scoped checks in § PR 2 scope pass
+- Reviewer: PR 2 phase-end code-logic review (visual-reviewer at QA)
 
 ---
 
-## Batch 40: N2 subagent activity and cache state (shared, vscode-core) — DEFERRED (follow-up, decision 11)
+## Batch 40: N2 subagent activity and cache state (shared, vscode-core) — COMPLETE (PR 2, decision 12; commit dca8438dc)
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer re-run
 - Execution mode: sequential
 - Rationale: shared type and pure function, then the registry stamps activity
-- Tasks: 2 | Depends on: Batch 37 | Concurrent-safe with: Batches 38, 42-44, 48
-- Verify: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/shared @ptah-extension/vscode-core 2>&1 | tail -40` and `npx nx run-many -t typecheck -p ptah-extension-vscode ptah-electron ptah-cli 2>&1 | tail -20`
+- Tasks: 2 | Depends on: Batch 37 (KEPT: same `libs/shared/src/lib/utils/index.ts` barrel, and the TTL type) | Concurrent-safe with: Batches 38, 39
+- Verify: see § PR 2 scope → Scoped checks (Batch 40 row); it replaces the old command.
 
 ### Task 40.1: `lastActivityAt` and `computeSubagentCacheState` — PENDING
 
-- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/shared/src/lib/types/subagent-registry.types.ts`, `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/shared/src/lib/utils/subagent-cache-state.ts` (new, + spec)
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-followups/libs/shared/src/lib/types/subagent-registry.types.ts`, `D:/projects/ptah-extension/.claude-worktrees/task-597-followups/libs/shared/src/lib/utils/subagent-cache-state.ts` (new, + spec), exported from `D:/projects/ptah-extension/.claude-worktrees/task-597-followups/libs/shared/src/lib/utils/index.ts`
 - Plan reference: context.md item 9 N2
 - Pattern to follow: `SubagentRecord.startedAt` `subagent-registry.types.ts:52`
-- Quality requirements: `SubagentRecord.lastActivityAt?: number`; `SubagentCacheInfo = { cacheState: 'warm' | 'cold'; effectiveTtl: '5m' | '1h'; idleMs: number }`; pure `computeSubagentCacheState(lastActivityAt, effectiveTtl, now)`: warm when idle < TTL; missing timestamp → cold; future timestamp → warm, idle 0.
+- Quality requirements: `SubagentRecord.lastActivityAt?: number` (optional: `SubagentRecord` is used in agent-sdk, cli-agent-runtime, rpc-handlers, vscode-core, core, chat, chat-streaming, chat-ui); `SubagentCacheInfo = { cacheState: 'warm' | 'cold'; effectiveTtl: '5m' | '1h'; idleMs: number }`; pure `computeSubagentCacheState(lastActivityAt, effectiveTtl, now)`: warm when idle < TTL; missing timestamp → cold; future timestamp → warm, idle 0.
 - Validation notes: idle exactly equal to the TTL → cold.
 - Implementation details: none.
 
 ### Task 40.2: Registry stamps activity — PENDING
 
-- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/backend/vscode-core/src/services/subagent-registry.service.ts`, `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/backend/vscode-core/src/services/subagent-registry/subagent-state-store.ts` (+ specs)
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-followups/libs/backend/vscode-core/src/services/subagent-registry.service.ts`, `D:/projects/ptah-extension/.claude-worktrees/task-597-followups/libs/backend/vscode-core/src/services/subagent-registry/subagent-state-store.ts` (+ specs)
 - Plan reference: context.md item 9 N2
-- Pattern to follow: `register` `:89-130`, `update` `:276-358`, `restoreResumableBySession` `:519-551`
-- Quality requirements: `lastActivityAt = now` on register and every update (including the SubagentStop completion); restore keeps a persisted value, else leaves it unset (cold).
+- Pattern to follow: `register` `:90`, `update` `:277`, `restoreResumableBySession` `:520`, `registerFromHistoryEvents` `:928` (lines re-checked on this branch); the store has no disk persistence (`subagent-state-store.ts:16-17`), `set` `:118`
+- Quality requirements: `lastActivityAt = now` on register and every update (including the SubagentStop completion); restore and history replay keep a carried value, else leave it unset (cold).
 - Validation notes: AS-N2 — the report names which hooks reach `update` during a subagent run.
 - Implementation details: injectable clock for specs.
 
 ### Batch 40 verification
 
-- Function and stamping specced; scoped + three-app typecheck pass
-- Reviewer: code-logic-reviewer
+- Function and stamping specced; the Batch 40 scoped checks in § PR 2 scope pass
+- Reviewer: PR 2 phase-end code-logic review (no per-batch review)
 
 ---
 
-## Batch 41: N2 cache state in agent status and the orchestrator-facing context — DEFERRED (follow-up, decision 11)
+## Batch 41: N2 cache state in agent status and the orchestrator-facing context — COMPLETE (PR 2, decision 12; report batch-41-executor-report.md)
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer re-run
 - Execution mode: sequential
 - Rationale: the two places the orchestrator and the UI read Claude subagent status
-- Tasks: 2 | Depends on: Batch 40 | Concurrent-safe with: Batches 39, 42-45, 48
-- Verify: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/rpc-handlers @ptah-extension/shared 2>&1 | tail -40` and `npx nx run-many -t typecheck -p ptah-extension-vscode ptah-electron ptah-cli 2>&1 | tail -20`
+- Tasks: 2 | Depends on: Batch 40 (same `subagent-registry.types.ts`), Batch 37 (resolver) | Concurrent-safe with: Batch 39
+- Verify: see § PR 2 scope → Scoped checks (Batch 41 row); it replaces the old command.
 
 ### Task 41.1: Resumable-subagent context carries cache state and guidance — PENDING
 
-- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/backend/rpc-handlers/src/lib/chat/session/chat-subagent-context-injector.service.ts` (+ spec)
-- Plan reference: context.md item 9 N2; Batch 32 guidance (component 14)
-- Pattern to follow: Task 32.4 stale warning wording
-- Quality requirements: each resumable subagent line adds `cache: warm|cold (TTL <5m|1h>, idle <n> min)`; one guidance line: "Resume a subagent only when its cache is warm. When it is cold, start a fresh subagent with a short brief." Effective TTL from `resolveSubagentPromptCacheTtl` (setting + host env, `canSpawnSubagents: true`).
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-followups/libs/backend/rpc-handlers/src/lib/chat/session/chat-subagent-context-injector.service.ts` (+ spec)
+- Plan reference: context.md item 9 N2 (Batch 32 is deferred; its guidance wording does not exist yet)
+- Pattern to follow: the existing resume block `chat-subagent-context-injector.service.ts:153-175` (agent detail lines `:156`, numbered instructions `:171-174`)
+- Quality requirements: each resumable subagent line adds `cache: warm|cold (TTL <5m|1h>, idle <n> min)`; one guidance line: "Resume a subagent only when its cache is warm. When it is cold, start a fresh subagent with a short brief." The existing instruction 1 ("Your FIRST action should be to resume …") is reconciled with it so the prompt never says both "resume first" and "start fresh" for a cold agent. Effective TTL from `resolveSubagentPromptCacheTtl` (setting + host env, `canSpawnSubagents: true`). When Batch 32 lands later it reuses this wording (RISK row "N2 vs Batch 32 wording" is reversed: 32 follows 41).
 - Validation notes: no change to which subagents are listed.
 - Implementation details: none.
 
 ### Task 41.2: Subagent status RPC returns `SubagentCacheInfo` — PENDING
 
-- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/backend/rpc-handlers/src/lib/handlers/subagent-rpc.handlers.ts` (+ spec; `subagent-rpc.schema.ts` only if the response is schema-checked), `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/shared/src/lib/types/rpc/rpc-chat.types.ts`
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-followups/libs/backend/rpc-handlers/src/lib/handlers/subagent-rpc.handlers.ts` (+ spec; `subagent-rpc.schema.ts` only if the response is schema-checked), `D:/projects/ptah-extension/.claude-worktrees/task-597-followups/libs/shared/src/lib/types/subagent-registry.types.ts` (`SubagentQueryResult` `:157-160`). Corrected: `rpc-chat.types.ts` only re-uses `SubagentRecord` (`:16`, `:187`, `:298`, `:352`) and is not edited.
 - Plan reference: context.md item 9 N2
-- Pattern to follow: the existing resumable-list response in `subagent-rpc.handlers.ts`
+- Pattern to follow: the `chat:subagent-query` handler `subagent-rpc.handlers.ts:125-170` (resumable list `:155`, all `:162`)
 - Quality requirements: optional `cacheInfo` on each returned record (optional so older webviews still parse).
 - Validation notes: none.
 - Implementation details: none.
 
 ### Batch 41 verification
 
-- Context lines and RPC field specced; scoped + three-app typecheck pass
-- Reviewer: code-logic-reviewer
+- Context lines and RPC field specced; the Batch 41 scoped checks in § PR 2 scope pass
+- Reviewer: PR 2 phase-end code-logic review (no per-batch review)
 
 ---
 
@@ -2534,62 +2779,62 @@ Edge cases:
 
 ---
 
-## Batch 46: N6 per-agent usage, context and cache data (extends R7) — DEFERRED (follow-up, decision 11)
+## Batch 46: N6 per-agent usage, context and cache data (extends R7) — COMPLETE (PR 2, decision 12; report batch-46-executor-report.md)
 
 - Recommended executor: frontend-developer
 - Fallback executor: frontend-developer re-run
 - Execution mode: sequential
 - Rationale: one shared estimate function, then the monitor store mapping; same data as M
-- Tasks: 2 | Depends on: Batches 13, 22, 32, 41 | Concurrent-safe with: Batches 42-45, 48
-- Verify: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/shared @ptah-extension/chat-streaming 2>&1 | tail -40` and `npx nx run-many -t typecheck -p ptah-extension-vscode ptah-electron ptah-cli 2>&1 | tail -20`
+- Tasks: 2 | Depends on: Batch 41 (KEPT: `cacheInfo`), Batch 40 (`computeSubagentCacheState`); Batches 13, 22, 32 DROPPED with a narrowed lane scope (see § PR 2 scope) | Concurrent-safe with: none (runs alone in its wave)
+- Verify: see § PR 2 scope → Scoped checks (Batch 46 row); it replaces the old command.
 
 ### Task 46.1: `estimateUsageCost` on the shared pricing table — PENDING
 
-- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/shared/src/lib/utils/pricing.utils.ts` (+ spec)
-- Plan reference: context.md item 9 N6; R7.3; Task 14.3
-- Pattern to follow: `findModelPricing` `pricing.utils.ts:221` and its cache-rate fields
-- Quality requirements: `{ input, cacheRead, cacheWrite, output, model }` → USD estimate, or `undefined` when the model has no price; reuse an existing function if one already does this (no duplicate).
-- Validation notes: spec uses the Batch 10 M fixture numbers and asserts the totals M reports.
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-followups/libs/shared/src/lib/utils/pricing.utils.spec.ts` (spec only; NO production edit)
+- Plan reference: context.md item 9 N6; R7.3 (Task 14.3 is deferred and not needed)
+- Pattern to follow: `calculateMessageCost(modelId, { input, output, cacheHit, cacheCreation })` `pricing.utils.ts:400-417` (returns `null` when the model has no price) with `TokenBreakdown` `:36-41`
+- Quality requirements: REUSE, no new function: `calculateMessageCost` already maps the four usage fields to a USD estimate with `null` for an unpriced model. This task adds a parity spec only.
+- Validation notes: M reports tokens, not cost (no pricing code in `scripts/agent-usage`), so the spec takes the Batch 10 M fixture token sums, asserts they equal M's totals, and asserts the cost equals `calculateMessageCost` on those sums.
 - Implementation details: none.
 
 ### Task 46.2: `MonitoredAgent` gains context size, cache state and usage — PENDING
 
-- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/frontend/chat-streaming/src/lib/agent-monitor.store.ts` (+ spec)
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-followups/libs/frontend/chat-streaming/src/lib/agent-monitor.store.ts` (+ spec)
 - Plan reference: context.md item 9 N6
-- Pattern to follow: `MonitoredAgent` `agent-monitor.store.ts:86`
-- Quality requirements: per agent `contextTokens` (last request input + cache read + cache write; lanes from `lastRequestContext`, Task 32.1), `cacheState` (subagents from `cacheInfo`, Task 41.2; lanes when the Batch 32 status reports it, else `unknown`), `usage { cacheRead, cacheWrite, output }` and `estimatedCostUsd`. No cache fields from the provider → `cacheReported: false`.
-- Validation notes: never coerce missing values to 0.
+- Pattern to follow: `MonitoredAgent` (CLI lanes) `agent-monitor.store.ts:86-162`; the store's own Claude-subagent `SubagentRecord` `:175` (distinct from the shared one); Claude-subagent usage with cache fields = `MessageTokenUsage` (`libs/shared/src/lib/types/execution/node.ts:60-69`) via `getAgentCostBreakdown` (`subagent-cost.utils.ts:98`)
+- Quality requirements: Claude subagents: `contextTokens` (last request input + cache read + cache write), `cacheState` from `cacheInfo` (Task 41.2) or `computeSubagentCacheState` (Task 40.1) on the store's last event time and the effective TTL, `usage { cacheRead, cacheWrite, output }` and `estimatedCostUsd` (`calculateMessageCost`). CLI lanes (narrowed, Batches 13 and 32 deferred): `CliOutputSegment.usage` has no cache fields and there is no `lastRequestContext`, so lanes get `contextTokens` undefined, `cacheState: 'unknown'`, `cacheReported: false`, and keep the existing reported `costUsd`. No new polling loop: the state is derived from data the store already receives or from one query when a subagent row is opened.
+- Validation notes: never coerce missing values to 0. ASSUMPTION AS-N6a: the execution-tree agent node for a Claude subagent carries `MessageTokenUsage` with cache fields during streaming; the report states the source used, and if none exists the subagent row shows "not reported" for cache tokens.
 - Implementation details: none.
 
 ### Batch 46 verification
 
-- Estimate equals M on the fixture; store mapping specced; scoped + three-app typecheck pass
-- Reviewer: code-logic-reviewer
+- Estimate equals M on the fixture; store mapping specced; the Batch 46 scoped checks in § PR 2 scope pass
+- Reviewer: PR 2 phase-end code-logic review (no per-batch review)
 
 ---
 
-## Batch 47: N6 agent panel display — DEFERRED (follow-up, decision 11)
+## Batch 47: N6 agent panel display — COMPLETE (PR 2, decision 12; report batch-47-executor-report.md)
 
 - Recommended executor: frontend-developer
 - Fallback executor: frontend-developer re-run
 - Execution mode: sequential
 - Rationale: display only, on the agent card the agent monitor panel renders
-- Tasks: 1 | Depends on: Batches 22, 46 | Concurrent-safe with: Batches 42-45, 48
-- Verify: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/chat 2>&1 | tail -40`
+- Tasks: 1 | Depends on: Batch 46 (KEPT); Batch 22 DROPPED (see § PR 2 scope) | Concurrent-safe with: none (last wave)
+- Verify: see § PR 2 scope → Scoped checks (Batch 47 row); it replaces the old command.
 
 ### Task 47.1: Context, cache state and cost on each agent card — PENDING
 
-- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/frontend/chat/src/lib/components/molecules/agent-card/agent-card-header.component.ts`, `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/frontend/chat/src/lib/components/molecules/agent-card/stats-bar.utils.ts` (+ specs)
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-followups/libs/frontend/chat/src/lib/components/molecules/agent-card/agent-card-header.component.ts`, `D:/projects/ptah-extension/.claude-worktrees/task-597-followups/libs/frontend/chat/src/lib/components/molecules/agent-card/stats-bar.utils.ts` (+ specs), and for Claude subagents a new small component `D:/projects/ptah-extension/.claude-worktrees/task-597-followups/libs/frontend/chat/src/lib/components/molecules/agent-card/subagent-usage-summary.component.ts` (+ spec) used by the subagent tiles in `D:/projects/ptah-extension/.claude-worktrees/task-597-followups/libs/frontend/chat/src/lib/components/organisms/agent-monitor-panel.component.ts` (tile VM `:82-160`, tiles `:374-378`, `:439-470`; template edit only — the file is 1212 lines, `max-lines` 700 is a warning, do not grow it with logic)
 - Plan reference: context.md item 9 N6; R7.4
-- Pattern to follow: Task 22.1 (cache summed separately), Task 22.2 ("not reported")
-- Quality requirements: shows context size, a warm/cold badge (TTL in the tooltip), cache read / write / output tokens and "~$x.xx est."; "not reported" when the provider reports no cache; `unknown` state shows no badge.
-- Validation notes: dark + light screenshots at Mode 3 (added to the visual list).
+- Pattern to follow: `agent-card-header.component.ts:128` (`input.required<MonitoredAgent>()`; lanes only), `extractCliAgentStats` `stats-bar.utils.ts:37-66` (keeps `undefined` when nothing is reported). Tasks 22.1/22.2 are deferred; "not reported" follows R7.4 directly.
+- Quality requirements: shows context size, a warm/cold badge (TTL in the tooltip), cache read / write / output tokens and "~$x.xx est."; "not reported" when the provider reports no cache (every CLI lane in PR 2); `unknown` state shows no badge.
+- Validation notes: no prototype exists; Mode 3 needs before/after screenshots (dark + light) of the agent monitor panel with one lane and one Claude subagent, the "before" from base `5bb19f9fb`.
 - Implementation details: none.
 
 ### Batch 47 verification
 
-- Display specced including "not reported"; scoped command passes
-- Reviewer: code-logic-reviewer (visual-reviewer at QA)
+- Display specced including "not reported"; the Batch 47 scoped checks in § PR 2 scope pass
+- Reviewer: PR 2 phase-end code-logic review (visual-reviewer at QA)
 
 ---
 
@@ -2657,6 +2902,803 @@ Edge cases:
 
 Review: `pr1-phase-end-code-logic-review.md` (0 Blocking, 0 Serious, 2 Moderate, 3 Minor). No fix round. Follow-ups:
 
-- PR1-M1: a Ptah-CLI lane silently drops `effort` (`agent-namespace.builder.ts:231`). Follow-up task, with F6-M1 (Task 34.2).
+- PR1-M1: a Ptah-CLI lane silently drops `effort` (`agent-namespace.builder.ts:231`). Follow-up task, with F6-M1 (Task 34.2). Folded into Task 34.2 at S4 stage start.
 - PR1-M2: a live change to `compaction.enabled` is not applied; only `compaction.threshold` is (`session-lifecycle-manager.ts:409`). Follow-up task, with the deferred compaction settings batches (16/17).
 - Minor items: recorded in the review file only.
+
+---
+
+# Addendum: N7/N8 (decision 13) — Batches 50+
+
+Source: `implementation-plan-addendum-n7-n8.md` revision 2 (Gate 2 approved, context.md § User Decisions item 13:
+TOKENS 50M as displayed; count the displayed figure; deterministic handoff in `~/.ptah/handoffs/`, newest 50; pause at
+100% with "Allow 20% more" and "Continue in new session"). Review: `implementation-plan-addendum-review.md` § Review
+round 2 (APPROVED; F10 PARTIAL handled below; the `sessionBudget.enabled` Moderate is the named later task N7-M1).
+
+Total tasks: 27 | Batches: 12 (50-61) | Complete: 0/12. Component 10 is not decomposed (see § Component 10).
+
+## N7/N8 PR placement (team-leader decision): PR 3, not PR 2
+
+- Size: 12 batches, 11 created and about 30 modified files across 9 Nx libraries (shared, platform-core, agent-sdk,
+  cli-agent-runtime, rpc-handlers, chat-types, chat-state, chat-ui, chat). PR 2 is 8 batches. Merging both makes one
+  phase review over roughly 2.5 times the diff.
+- Risk: N7 adds the first send-blocking gate on `chat:continue` and a new RPC method (`session:budgetAction`) plus a new
+  exported agent-sdk token and service. That is new public API, so its phase needs a style review as well as the
+  code-logic review. PR 2 needs no style review and should not wait for one.
+- File overlap with Batches 36-47: two files only. `libs/backend/platform-core/src/file-settings-keys.ts` (+ spec) is
+  shared with Batch 37, and `libs/frontend/chat/src/lib/settings/ptah-ai/orchestration-settings.component.ts` with
+  Batch 39 (review F10). Both are append-style edits. Same-project, different-file sharing: shared (37, 40, 41),
+  rpc-handlers (38, 41) and chat (39, 47). The overlap is ordering only, not code.
+- Chosen default: PR 3 on its own branch (suggested `fix/task-597-session-budget`), cut from `origin/main` after
+  PR 2 merges. Faster option the orchestrator may take: cut PR 3 from `origin/main` now in its own worktree, run
+  Batches 50 and 52-60, and hold 51 and 61 until PR 2 is merged and PR 3 is rebased. Either way the per-task paths below
+  use this worktree's root. Replace the root
+  `D:/projects/ptah-extension/.claude-worktrees/task-597-followups` with the PR 3 worktree root when assigning, as was
+  done for PR 2.
+- CLI lanes stay disabled. One Claude subagent per batch, sequential inside the batch, at most 3 at once. Commits stay
+  serial and the team-leader owns git.
+- Batch 50 stays PENDING here. It moves to IN_PROGRESS when the PR 3 branch exists and the orchestrator assigns it.
+
+## N7/N8 plan validation
+
+Status: PASSED WITH RISKS (re-validated on `5bb19f9fb`).
+
+Verified on disk: every MODIFY file in components 1-9 exists. Both CREATE paths are absent (`session-budget.types.ts`,
+`helpers/session-budget/`). Anchors re-checked:
+
+- `wrapResultStatsForActivity` (`sdk-agent-adapter.ts:796, 918, 1056`) and `sendStatsWithRetry` (`sdk-callbacks.ts:400`);
+- `applyFlagSettings` (`session-lifecycle-manager.ts:93`) has no `getContextUsage` member;
+- `isCompactBoundary(sdkMessage)` (`stream-transformer.ts:795`) and `NATIVE_COMMANDS = new Set(['clear'])`
+  (`slash-command-interceptor.ts:37`);
+- `readForResume` (`chat-session.service.ts:963`), `installSessionStats` / `applyLoadedSessionStats`
+  (`tab-manager.service.ts:2206, 2216`) and `handleAuthRequired` (`message-sender.service.ts:97`);
+- `UUID_REGEX` (`branded.types.ts:39`) and `SDK_SESSION_STATS_OWNER` (`di/tokens.ts:40`);
+- the manifest registers handler classes (`host-profile/manifest.ts:283-301`), and the handler barrels are
+  `handlers/index.ts` plus `rpc-handlers/src/index.ts:41`;
+- the surface specs exist: `rpc-allowlist.spec.ts`, `apps/ptah-extension-vscode/src/di/rpc-surface.spec.ts`,
+  `apps/ptah-electron/src/di/rpc-surface.spec.ts` and `libs/backend/cli-engine/src/lib/rpc/rpc-surface.spec.ts`.
+
+`RpcUserErrorCode` is a plain union (`rpc-error-codes.types.ts:7-22`). No `Record<RpcUserErrorCode, …>` exists, so
+adding a member is non-breaking.
+
+Assumptions:
+
+- AS-1 `stats.sessionId` is the SDK id at every result: unverified. Task 55.2 carries the parity spec (tracking id
+  differs from the real id).
+- AS-2 `compact_boundary` in the parent stream is main-loop only: unverified. QA runs it with a compacting subagent.
+  Task 55.3 records the boundary once per message.
+- AS-3 the transcript path is `<sessionsDir>/<sessionId>.jsonl`: unverified. Task 53.1 has a builder spec on a
+  fixture dir.
+- AS-4 `getContextUsage()` is callable between turns: unverified. Task 52.2 specs it, and the E2 live check runs at QA.
+- AS-N7a (team-leader): the `sessionBudget.*` keys are NOT added to `KNOWN_CONFIG_KEYS` (settings export). Membership
+  writes the shipped default into every export file (`settings-export.types.spec.ts:5-13`), and
+  `settings-export.types.ts` is a Batch 38 file. Task 51.1 records it; adding the keys to exports is a later task if
+  the user asks.
+- AS-N7b (team-leader): the "Continue in new session" seed is the backend-built text (component 5, at most 8,200
+  chars) returned by `session:budgetAction` (`write-handoff` / `preview-handoff`). The webview never assembles it.
+  Tasks 53.1 and 60.3.
+- AS-N7c (team-leader): `getContextUsage` is added to the structural query mirror as an OPTIONAL member, so existing
+  query fakes in specs keep compiling. A call on a query without it gives `window.reason = 'failed'`. Task 52.1.
+
+| Risk                                                                                                                              | Severity | Mitigation                                                                                                                                                                |
+| --------------------------------------------------------------------------------------------------------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The send gate blocks a session wrongly (stale or mis-keyed state)                                                                 | HIGH     | Fail-open on unknown. Keyed by `snapshot.sessionId`. `/compact` and `/clear` allowlist. Specs in 54.2, 55.2 and 56.1. QA scripted run at `sessionBudget.tokens = 2000000` |
+| N7-M1: toggling `sessionBudget.enabled` off while at `limit` still blocks until the next figure                                   | MEDIUM   | Named later task N7-M1 (not planned here): `canSend` reads the setting directly. Recorded in the PR 3 description                                                         |
+| File overlap with PR 2 Batch 37 (`file-settings-keys.ts` + spec) and Batch 39 (`orchestration-settings.component.ts`), review F10 | MEDIUM   | Batch 51 depends on 37 and Batch 61 depends on 39, both on main (PR 2 merged) before they start                                                                           |
+| E2 unproven: the window may be ignored on proxied ids                                                                             | MEDIUM   | `tightenWindowTokens` defaults to `null` (advisory). Read-back and revert in 52.2. A1 defaults untouched                                                                  |
+| Bounded overshoot at 100% (crossing turn plus one held follow-up, F7)                                                             | MEDIUM   | Accepted. Specced in 54.2 and stated in the limit text in 60.2                                                                                                            |
+| Shared edits in flight (50, 57) while other batches typecheck shared consumers                                                    | LOW      | Waves keep 50 alone. 57 runs beside 56 only. Failures attributed by `file:line`, then re-run after the other commit                                                       |
+| Handoff path from a session id (F12)                                                                                              | LOW      | `UUID_REGEX` plus confined resolve. Spec in 53.2                                                                                                                          |
+| `chat-view.component.ts` is 1487 lines (max-lines warning)                                                                        | LOW      | 60.3 adds bindings and thin handlers only. Banner logic stays in the banner component                                                                                     |
+| `file-settings-keys.ts` is shared with TASK_2026_609                                                                              | LOW      | Append-only. The 609 entries are not moved                                                                                                                                |
+| Measure stickiness needs a settings-change signal                                                                                 | LOW      | 51.2 reads per call. 54.2 resets the measure on a changed config, and it is specced                                                                                       |
+
+Edge cases:
+
+- An absent snapshot keeps the state, a lower revision is ignored, and `unknown` appears only before the first figure.
+  Task 54.1.
+- A resume snapshot without `revision` is accepted only when no state exists. Task 54.2.
+- `tokenCount` undefined gives `unknown`, never 0. Task 54.1.
+- `pricingCoverage` `partial` gives `cost-lower-bound`; `none` gives `weighted-fallback`. Task 54.1.
+- A custom slash command at the limit is blocked; `/compact` and `/clear` pass (exact trimmed match). Task 56.1.
+- An env override, `already-lower`, a read-back miss and a timeout during tighten. Task 52.2.
+- Handoff with no compact summary, no TodoWrite, or more than 50 changed files; a write failure. Tasks 53.1 and 53.2.
+- Budget token missing on a host: the gate is ok and the action returns `unavailable`. Tasks 56.1 and 57.2.
+- After a restart the stage is recomputed from the resume snapshot; compactions, extensions and dismissals reset.
+  Tasks 54.2 and 56.2.
+
+## N7/N8 waves
+
+| Wave | Batch | Item                                                                    | Executor                                 | Depends on                | Production files / libs          |
+| ---- | ----- | ----------------------------------------------------------------------- | ---------------------------------------- | ------------------------- | -------------------------------- |
+| 1    | 50    | Shared contracts (types, bounds, error code, payload fields)            | backend-developer                        | none (main)               | 5 / shared                       |
+| 2    | 51    | Settings keys + config provider                                         | backend-developer                        | 50; PR 2 Batch 37 on base | 2 / platform-core, agent-sdk     |
+| 2    | 52    | Per-session auto-compact override (E2-gated)                            | backend-developer                        | 50                        | 3 / agent-sdk                    |
+| 2    | 53    | Handoff builder + writer                                                | backend-developer                        | 50                        | 2 / agent-sdk                    |
+| 3    | 54    | Stage function, weighted tokens, `SessionBudgetService`                 | backend-developer                        | 51, 52, 53                | 3 / agent-sdk                    |
+| 3    | 58    | `TabState.sessionBudget` + tab-manager install                          | frontend-developer                       | 50                        | 2 / chat-types, chat-state       |
+| 4    | 55    | agent-sdk wiring + broadcast forwarding                                 | backend-developer                        | 54                        | 6 / agent-sdk, cli-agent-runtime |
+| 4    | 59    | Aggregator, loader, send-failure handling                               | frontend-developer                       | 58                        | 3 / chat                         |
+| 4    | 61    | Budget settings card                                                    | frontend-developer                       | 50; PR 2 Batch 39 on base | 2 / chat                         |
+| 5    | 56    | `chat:continue` gate + resume budget                                    | backend-developer                        | 55                        | 1 / rpc-handlers                 |
+| 5    | 57    | `session:budgetAction` RPC unit (map, handler, manifest, surface specs) | backend-developer                        | 55                        | 5 / shared, rpc-handlers         |
+| 6    | 60    | Chip budget input, banner, chat-view mount                              | frontend-developer                       | 57, 59                    | 4 / chat-ui, chat                |
+| 7    | -     | ONE code-logic review + ONE style review on the PR 3 combined diff      | code-logic-reviewer, code-style-reviewer | all above                 | -                                |
+
+File-disjoint check:
+
+- Wave 2: 51 (`file-settings-keys.ts`, new `session-budget-config.provider.ts`), 52 (`session-control.service.ts`,
+  `session-lifecycle-manager.ts`, `session-registry.service.ts`) and 53 (new builder and writer) share no file. None of
+  them touches the agent-sdk barrel; that is Batch 55's.
+- Wave 3: 54 is agent-sdk only, 58 is frontend only.
+- Wave 4: 55, 59 and 61 share no file. 59 and 61 are both in chat but edit different files.
+- Wave 5: 56 edits `chat-session.service.ts`. 57 edits `rpc.types.ts`, the new handler, `handlers/index.ts`,
+  `manifest.ts`, `src/index.ts` and specs. Same project, different files. The F4 "Total" invariant stays inside 57.
+- Wave 6: 60 runs alone.
+
+Component-level order kept from the plan's handoff: 1 before all; 2 before 3; 4 and 5 before 3's actions; 6 after 3-5;
+7 with 6; 8 after 6; 9 after 7 and 8. Batches 58, 59 and 61 compile against 50 only, and the end-to-end check is at QA.
+
+## N7/N8 scoped checks per batch
+
+Run in the PR 3 worktree, output tailed: first `npx nx run-many -t typecheck,lint -p …`, then
+`npx nx run-many -t test -p … --maxWorkers=2`, each with ` 2>&1 | tail -40`. If a project lacks a target, run the
+ones it has and say so.
+
+Every project that imports a changed `libs/shared` symbol is in the typecheck list. The lists come from a grep on
+`5bb19f9fb`:
+
+- `ResultStatsPayload`: ptah-tui, agent-sdk, cli-agent-runtime, chat, chat-streaming.
+- `ChatResumeResult`: rpc-handlers, chat.
+- `RpcUserErrorCode`: rpc-handlers, vscode-core, core, mcp-apps-page, skill-synthesis-ui, ptah-electron-e2e.
+- `TabState`: chat-types, chat-state, chat, chat-streaming, chat-ui, canvas, git-ui, harness-builder, marketplace.
+
+New fields on shared types are OPTIONAL, and a required field is a rejection reason.
+
+| Batch | `-t typecheck,lint -p`                                                                                                                                                                                                                                                                                                                                                                                                                       | `-t test -p … --maxWorkers=2`                                                                                                                            |
+| ----- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 50    | `@ptah-extension/shared @ptah-extension/agent-sdk @ptah-extension/cli-agent-runtime @ptah-extension/rpc-handlers @ptah-extension/vscode-core @ptah-extension/core @ptah-extension/chat @ptah-extension/chat-types @ptah-extension/chat-state @ptah-extension/chat-streaming @ptah-extension/mcp-apps-page @ptah-extension/skill-synthesis-ui ptah-tui ptah-electron-e2e ptah-extension-vscode ptah-electron ptah-cli ptah-extension-webview` | `@ptah-extension/shared`                                                                                                                                 |
+| 51    | `@ptah-extension/platform-core @ptah-extension/agent-sdk ptah-extension-vscode ptah-electron ptah-cli`                                                                                                                                                                                                                                                                                                                                       | `@ptah-extension/platform-core @ptah-extension/agent-sdk @ptah-extension/platform-vscode @ptah-extension/platform-electron @ptah-extension/platform-cli` |
+| 52    | `@ptah-extension/agent-sdk @ptah-extension/cli-agent-runtime @ptah-extension/rpc-handlers ptah-extension-vscode ptah-electron ptah-cli`                                                                                                                                                                                                                                                                                                      | `@ptah-extension/agent-sdk`                                                                                                                              |
+| 53    | `@ptah-extension/agent-sdk`                                                                                                                                                                                                                                                                                                                                                                                                                  | `@ptah-extension/agent-sdk`                                                                                                                              |
+| 54    | `@ptah-extension/agent-sdk`                                                                                                                                                                                                                                                                                                                                                                                                                  | `@ptah-extension/agent-sdk`                                                                                                                              |
+| 55    | `@ptah-extension/agent-sdk @ptah-extension/cli-agent-runtime @ptah-extension/rpc-handlers ptah-extension-vscode ptah-electron ptah-cli`                                                                                                                                                                                                                                                                                                      | `@ptah-extension/agent-sdk @ptah-extension/cli-agent-runtime`                                                                                            |
+| 56    | `@ptah-extension/rpc-handlers ptah-extension-vscode ptah-electron ptah-cli`                                                                                                                                                                                                                                                                                                                                                                  | `@ptah-extension/rpc-handlers`                                                                                                                           |
+| 57    | `@ptah-extension/shared @ptah-extension/rpc-handlers @ptah-extension/cli-engine @ptah-extension/core @ptah-extension/chat ptah-tui ptah-extension-vscode ptah-electron ptah-cli ptah-extension-webview`                                                                                                                                                                                                                                      | `@ptah-extension/shared @ptah-extension/rpc-handlers @ptah-extension/cli-engine ptah-extension-vscode ptah-electron`                                     |
+| 58    | `@ptah-extension/chat-types @ptah-extension/chat-state @ptah-extension/chat @ptah-extension/chat-streaming @ptah-extension/chat-ui @ptah-extension/canvas @ptah-extension/git-ui @ptah-extension/harness-builder @ptah-extension/marketplace ptah-extension-webview`                                                                                                                                                                         | `@ptah-extension/chat-types @ptah-extension/chat-state`                                                                                                  |
+| 59    | `@ptah-extension/chat ptah-extension-webview`                                                                                                                                                                                                                                                                                                                                                                                                | `@ptah-extension/chat`                                                                                                                                   |
+| 60    | `@ptah-extension/chat-ui @ptah-extension/chat @ptah-extension/dashboard ptah-extension-webview`                                                                                                                                                                                                                                                                                                                                              | `@ptah-extension/chat-ui @ptah-extension/chat`                                                                                                           |
+| 61    | `@ptah-extension/chat @ptah-extension/webview-e2e-harness ptah-extension-webview`                                                                                                                                                                                                                                                                                                                                                            | `@ptah-extension/chat`                                                                                                                                   |
+
+Why the less obvious projects are in the lists:
+
+- 51: platform-vscode, platform-electron and platform-cli enumerate the file-based keys in their specs.
+- 52: the structural query mirror is read by cli-agent-runtime and the hosts.
+- 57: the method map is read by core (`claude-rpc.service.ts`), the four surface specs and the TUI client.
+- 60: dashboard renders `SessionStatsEntry` beside the chip.
+
+## N7/N8 review policy (decision 11, one phase = Batches 50-61)
+
+| Batch | In the phase-end code-logic review               | Other                                                                                               |
+| ----- | ------------------------------------------------ | --------------------------------------------------------------------------------------------------- |
+| 50    | yes (diff), no own review: types and bounds only | -                                                                                                   |
+| 51    | yes                                              | reviewer checks out-of-range values read as defaults                                                |
+| 52    | yes                                              | reviewer checks `A1_DEFAULT_WINDOW` is unchanged and the override survives `applyAutoCompactConfig` |
+| 53    | yes                                              | reviewer checks the UUID guard and path confinement                                                 |
+| 54    | yes                                              | -                                                                                                   |
+| 55    | yes                                              | reviewer checks the identical `sessionStats` reference                                              |
+| 56    | yes                                              | -                                                                                                   |
+| 57    | yes                                              | style review (new public RPC method)                                                                |
+| 58    | yes                                              | -                                                                                                   |
+| 59    | yes                                              | -                                                                                                   |
+| 60    | yes                                              | visual-reviewer at QA: before/after, dark + light, chat view with the chip and each banner stage    |
+| 61    | yes                                              | visual-reviewer at QA: before/after, dark + light, Settings → Orchestration budget card             |
+
+- ONE code-logic review after the last of Batches 50-61 commits, on the PR 3 combined diff minus `.ptah/specs/`. ONE
+  style review on the same diff, scoped to the new public API: `session:budgetAction`, `SessionBudgetRpcHandlers`, the
+  `SDK_SESSION_BUDGET` token and `SessionBudgetService` exports, `SessionBudgetState` and `SESSION_BUDGET_SETTINGS`, and
+  the two new components. One fix round (Blocking and Serious; Moderate only if it can break a lane config or lose
+  data), then one re-review scoped to the fixes.
+- No prototype exists. The "before" screenshots come from a build of the PR 3 base commit.
+- Mode 3 write-path trace has two parts:
+  - `sessionBudget.*`: `settings:set` → `isFileBasedSettingKey` → `~/.ptah/settings.json` →
+    `SessionBudgetConfigProvider.getConfig()` (same key, scope `ptah`, value formats per component 2).
+  - Handoff files: `~/.ptah/handoffs/<uuid>.md` (temp+rename, newest 50) → read by `preview-handoff` / the seed. Never
+    inside a workspace.
+- QA (from the plan) has two runs:
+  - one scripted session at `sessionBudget.tokens = 2000000` through every stage: chip equals state, block, `/compact`
+    passes, the new session gets only the seed;
+  - one proxied-route run in the `cost` unit.
+
+  It also covers the AS-2 compacting-subagent check and the E2 read-back log line.
+
+## Named later tasks (not planned here)
+
+- N7-M1 (review round 2 Moderate): `canSend` reads `sessionBudget.enabled` directly. As planned, turning it off while
+  a session is at `limit` keeps blocking until the next result or resume.
+- AS-N7a: adding `sessionBudget.*` to `KNOWN_CONFIG_KEYS` (settings export), only if the user asks.
+- Surface-submit and Ptah CLI turns are not gated (accepted risk in plan component 8).
+
+## Component 10 (per-subagent budgets and resume advice): NOT SCHEDULED in PR 2 or PR 3
+
+| Part                                                                                                                                                            | Needs                                                                                                          | Where it goes                        |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- | ------------------------------------ |
+| 10.1 Per-subagent `contextTokens` and `weightedUsed` in the A5 monitor; safety stop at `subagentStopWeightedTokens` through `stopSubagent`                      | Batch 28 (A5 monitor, DEFERRED with S4); Batch 37 TTL weight (PR 2); Batch 36 p95 for the final default (PR 2) | Waits for Batch 28; later PR with S4 |
+| 10.2 Resume advice `fresh`/`resume`                                                                                                                             | 10.1 context figure; Batches 40-41 warm/cold (PR 2); Batch 54 budget state (PR 3)                              | Waits for Batch 28; same later PR    |
+| 10.3 F11: backend `contextTokens` replaces the Batch 46.2 frontend field; running-subagent figures reach `MonitoredAgent` on the existing subagent event stream | 10.1; Batches 46-47 (PR 2)                                                                                     | Waits for Batch 28; same later PR    |
+| F9 approximate subagent share beside TOKENS                                                                                                                     | Decision 13 chose option 1 (not this)                                                                          | Dropped                              |
+
+When Batch 28 is scheduled, its decomposition adds these parts. Task 28.2 stays superseded (see § PR 2 scope).
+
+---
+
+## Batch 50: N7 shared contracts — COMPLETE (PR 3, decision 13; report batch-50-executor-report.md)
+
+- Recommended executor: backend-developer
+- Fallback executor: backend-developer re-run
+- Execution mode: sequential
+- Rationale: leaf types and bounds that every later batch compiles against; additive optional fields only
+- Tasks: 2 | Depends on: none (main) | Concurrent-safe with: none (wave 1 alone; it changes shared)
+- Phase: N7/N8 | Phase review: code-logic + style at phase end (this batch is types and bounds only)
+- Verify: § N7/N8 scoped checks, Batch 50 row
+
+### Task 50.1: `session-budget.types.ts` — PENDING
+
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-followups/libs/shared/src/lib/types/session-budget.types.ts` (new, + spec for the bounds table), exported from `D:/projects/ptah-extension/.claude-worktrees/task-597-followups/libs/shared/src/index.ts`
+- Plan reference: implementation-plan-addendum-n7-n8.md:118-140 (component 1), :141-161 (bounds table)
+- Pattern to follow: `libs/shared/src/lib/types/rpc/rpc-error-codes.types.ts` (single-source union with doc comments); barrel line `libs/shared/src/index.ts:64`
+- Quality requirements:
+  - `SessionBudgetState` exactly as component 1, with optional `window`, `handoff` and `dismissedStage`.
+  - `SessionBudgetConfig`, the shape the provider returns.
+  - `SESSION_BUDGET_SETTINGS`: key names, min/max, defaults (`tokens` 50000000, `usd` 30, `fallbackWeightedTokens`
+    9000000, `tightenPercent` 50, `handoffPercent` 80, `handoffAfterCompactions` 3, `tightenWindowTokens` null,
+    `blockAtLimit` true, `unit` 'tokens', `enabled` true) and the rule tighten < handoff.
+  - `SessionBudgetActionParams` / `SessionBudgetActionResult` (action enum
+    `dismiss|extend|restore-window|write-handoff|preview-handoff`; the result's `handoff` carries `content`, `path` and
+    the seed). The method-map entry is NOT added here; it is Task 57.1 (F4).
+- Validation notes: the spec asserts each default lies inside its own bounds and tighten < handoff for the defaults
+- Implementation details: zod-free (the barrel stays zod-free, see the `index.ts:29-33` comment)
+
+### Task 50.2: Error code and the two payload fields — PENDING
+
+- Depends on: Task 50.1
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-followups/libs/shared/src/lib/types/rpc/rpc-error-codes.types.ts`, `D:/projects/ptah-extension/.claude-worktrees/task-597-followups/libs/shared/src/lib/types/agent-adapter.types.ts`, `D:/projects/ptah-extension/.claude-worktrees/task-597-followups/libs/shared/src/lib/types/rpc/rpc-chat.types.ts`
+- Plan reference: implementation-plan-addendum-n7-n8.md:128-130
+- Pattern to follow: `ResultStatsPayload` doc style `agent-adapter.types.ts:44-80`; `ChatResumeResult` `rpc-chat.types.ts:268-292`
+- Quality requirements: `'SESSION_BUDGET_REACHED'` with a doc comment; `readonly budget?: SessionBudgetState` on `ResultStatsPayload` and `budget?: SessionBudgetState` on `ChatResumeResult`, both documented ("absent = keep last state")
+- Validation notes: every consumer project in the Batch 50 row typechecks in this batch (F10 same-unit rule)
+- Implementation details: none
+
+### Batch 50 verification
+
+- Types exported from the barrel; bounds spec green; Batch 50 scoped checks pass
+- No per-batch review (phase-end review covers the diff)
+
+---
+
+## Batch 51: N7 settings keys and their reader — COMPLETE (PR 3, decision 13; report batch-51-executor-report.md)
+
+- Recommended executor: backend-developer
+- Fallback executor: backend-developer re-run
+- Execution mode: sequential
+- Rationale: append ten file-store keys, then one validating provider
+- Tasks: 2 | Depends on: Batch 50; PR 2 Batch 37 on the base (same `file-settings-keys.ts` + spec, F10) | Concurrent-safe with: Batches 52, 53
+- Phase: N7/N8 | Phase review: code-logic at phase end
+- Verify: § N7/N8 scoped checks, Batch 51 row
+
+### Task 51.1: `sessionBudget.*` file-based keys and defaults — PENDING
+
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-followups/libs/backend/platform-core/src/file-settings-keys.ts` (+ `file-settings-keys.spec.ts` if it enumerates keys)
+- Plan reference: implementation-plan-addendum-n7-n8.md:141-164
+- Pattern to follow: the `agentOrchestration.codex*` key block and its defaults (Batch 2 commit `70af32f03`; `FILE_BASED_SETTINGS_KEYS` `:154`, defaults near `:460`)
+- Quality requirements: ten keys appended with defaults taken from `SESSION_BUDGET_SETTINGS`; append-only, the TASK_2026_609 and Batch 37 entries are not moved
+- Validation notes: AS-N7a: the keys are NOT added to `KNOWN_CONFIG_KEYS`. The `tightenWindowTokens` default `null`
+  must survive the file store's default handling (spec it).
+- Implementation details: none
+
+### Task 51.2: `SessionBudgetConfigProvider` — PENDING
+
+- Depends on: Task 51.1
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-followups/libs/backend/agent-sdk/src/lib/helpers/session-budget/session-budget-config.provider.ts` (new, + spec)
+- Plan reference: implementation-plan-addendum-n7-n8.md:158-164
+- Pattern to follow: `libs/backend/agent-sdk/src/lib/helpers/compaction-config-provider.ts:75-117` (reads through `ConfigManager`)
+- Quality requirements:
+  - `getConfig(): SessionBudgetConfig`, read per call with no cache, so a settings change is seen on the next
+    evaluation (54.2 relies on it).
+  - An out-of-range value, a wrong type or tighten ≥ handoff → WARN once per key and value, then use the default.
+  - An unreadable store → all defaults.
+- Validation notes: spec each bound (min-1, min, max, max+1), the cross-field rule, `null` window, wrong types
+- Implementation details: not registered in DI here (Batch 55)
+
+### Batch 51 verification
+
+- Keys present with defaults; provider spec green; Batch 51 scoped checks pass
+
+---
+
+## Batch 52: N7 per-session auto-compact window override (E2-gated tighten) — COMPLETE (PR 3, decision 13; report batch-52-executor-report.md)
+
+- Recommended executor: backend-developer
+- Fallback executor: backend-developer re-run
+- Execution mode: sequential
+- Rationale: one session-control capability with read-back; no dependency on the budget service
+- Tasks: 2 | Depends on: Batch 50 (window reason type) | Concurrent-safe with: Batches 51, 53
+- Phase: N7/N8 | Phase review: code-logic at phase end
+- Verify: § N7/N8 scoped checks, Batch 52 row
+
+### Task 52.1: Query mirror member and session record field — PENDING
+
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-followups/libs/backend/agent-sdk/src/lib/helpers/session-lifecycle-manager.ts`, `D:/projects/ptah-extension/.claude-worktrees/task-597-followups/libs/backend/agent-sdk/src/lib/helpers/session-lifecycle/session-registry.service.ts` (+ specs)
+- Plan reference: implementation-plan-addendum-n7-n8.md:202-222
+- Pattern to follow: the structural mirror `session-lifecycle-manager.ts:80-104` (`applyFlagSettings` `:93`)
+- Quality requirements: `getContextUsage?()` OPTIONAL on the mirror (AS-N7c), typed from SDK `sdk.d.ts:2852, 3807` (at least `autoCompactThreshold`); the session record gains `autoCompactOverride?: number | null`
+- Validation notes: existing query fakes compile unchanged
+- Implementation details: none
+
+### Task 52.2: `applySessionAutoCompactWindow` with read-back and restore — PENDING
+
+- Depends on: Task 52.1
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-followups/libs/backend/agent-sdk/src/lib/helpers/session-lifecycle/session-control.service.ts` (+ spec)
+- Plan reference: implementation-plan-addendum-n7-n8.md:204-220
+- Pattern to follow: live apply loop and timeout `session-control.service.ts:532-598`; `resolveAutoCompactControl` `helpers/auto-compact-control.ts:166-203`
+- Quality requirements: implement the component 4 behaviour as one method (`window | null`):
+  - `applyAutoCompactConfig` keeps a recorded override for its session;
+  - skip with `env-override` when the env window is set, or `already-lower` when the read-back threshold is already ≤
+    target;
+  - after the apply, read back through `getContextUsage()`. On a miss, send `null` back, set `not-honoured`, and log
+    WARN once with the model class (E2 record);
+  - restore clears the override and sends the resolved configured value or `null`, never a guessed class default;
+  - any throw → `failed`, and the session keeps its window.
+
+  Returns the `window` part of `SessionBudgetState`.
+
+- Validation notes: spec the override surviving a config re-apply; a read-back miss restores `null`; env skip;
+  `already-lower`; timeout; method absent (`failed`); `A1_DEFAULT_WINDOW` untouched
+- Implementation details: injectable timeout as in the existing apply
+
+### Batch 52 verification
+
+- Session-control specs green; `git diff` shows no change to `A1_DEFAULT_WINDOW`; Batch 52 scoped checks pass
+
+---
+
+## Batch 53: N8 handoff builder and writer — COMPLETE (PR 3, decision 13; report batch-53-executor-report.md)
+
+- Recommended executor: backend-developer
+- Fallback executor: backend-developer re-run
+- Execution mode: sequential
+- Rationale: two new files with fixture specs; no wiring
+- Tasks: 2 | Depends on: Batch 50 | Concurrent-safe with: Batches 51, 52
+- Phase: N7/N8 | Phase review: code-logic at phase end
+- Verify: § N7/N8 scoped checks, Batch 53 row
+
+### Task 53.1: `session-handoff-builder.ts` — PENDING
+
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-followups/libs/backend/agent-sdk/src/lib/helpers/session-budget/session-handoff-builder.ts` (new, + spec and fixture transcripts)
+- Plan reference: implementation-plan-addendum-n7-n8.md:224-233
+- Pattern to follow: `readJsonlTail` `helpers/history/jsonl-reader.service.ts:55-110, 239, 554-569` (bounded tail, 4 MB window); transcript path as `session-stats-reader.service.ts:123-139` resolves it (AS-3)
+- Quality requirements:
+  - Facts and caps exactly as component 5:
+    - the latest compact summary (≤2,500 chars), else the first user prompt (≤1,000);
+    - Edit/Write/MultiEdit/NotebookEdit paths (≤50, "+N more");
+    - open TodoWrite items (≤20);
+    - the next action (≤800);
+    - TASK folder paths (≤5).
+  - Fixed sections, an 8,000-char total and `[truncated]` markers.
+  - It also returns the seed prompt (≤8,200 chars, AS-N7b).
+  - Deterministic, with no model call.
+- Validation notes: spec each fact, each cap, truncation, an empty transcript, no summary, and a restart (facts read
+  only from the file)
+- Implementation details: a pure assembly function separate from the tail read, so the spec drives it with parsed lines
+
+### Task 53.2: `session-handoff-writer.ts` — PENDING
+
+- Depends on: Task 53.1
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-followups/libs/backend/agent-sdk/src/lib/helpers/session-budget/session-handoff-writer.ts` (new, + spec on a temp dir)
+- Plan reference: implementation-plan-addendum-n7-n8.md:234-240
+- Pattern to follow: `~/.ptah` root `libs/backend/platform-core/src/content-download.service.ts:4-8`; `UUID_REGEX` `libs/shared/src/lib/types/branded.types.ts:39`; `fs/promises` use in `session-stats-reader.service.ts`
+- Quality requirements:
+  - Writes `~/.ptah/handoffs/<sessionId>.md`.
+  - The id must match `UUID_REGEX`, and the resolved path must stay under the handoffs dir (F12).
+  - Atomic temp+rename, then prune to the newest 50 after a write.
+  - A read or write error returns the content with `writeError` and logs WARN once.
+- Validation notes: spec the atomic rename, retention at 51 files, a rejected non-UUID id, a `..` escape and an
+  unwritable dir
+- Implementation details: home dir injectable for specs
+
+### Batch 53 verification
+
+- Builder and writer specs green; no path under a workspace; Batch 53 scoped checks pass
+
+---
+
+## Batch 54: N7 stage machine and `SessionBudgetService` — COMPLETE (PR 3, decision 13; committed with Batch 55 because di-lint needs the writer registration)
+
+- Recommended executor: backend-developer
+- Fallback executor: backend-developer re-run
+- Execution mode: sequential
+- Rationale: pure functions first, then the service that calls 51-53
+- Tasks: 2 | Depends on: Batches 51, 52, 53 | Concurrent-safe with: Batch 58
+- Phase: N7/N8 | Phase review: code-logic at phase end
+- Verify: § N7/N8 scoped checks, Batch 54 row
+
+### Task 54.1: `weighted-tokens.ts` and `session-budget-stage.ts` — PENDING
+
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-followups/libs/backend/agent-sdk/src/lib/helpers/session-budget/weighted-tokens.ts`, `D:/projects/ptah-extension/.claude-worktrees/task-597-followups/libs/backend/agent-sdk/src/lib/helpers/session-budget/session-budget-stage.ts` (new, + specs)
+- Plan reference: implementation-plan-addendum-n7-n8.md:166-200
+- Pattern to follow: `SessionStatsEntry` fields `libs/shared/src/lib/types/rpc/rpc-session.types.ts:343-439`; revision rule `tab-manager.service.ts:2206`
+- Quality requirements:
+  - Weights: input 1, cache write 1.25, cache read 0.1, output 5. Fixture 177M/7.7M/1.1M → 32.8M.
+  - The measure rules (F6), with stickiness of `weighted-fallback`.
+  - Percent bands at boundaries 49.9/50/79.9/80/99.9/100.
+  - The compaction trigger, and stages that only rise except after `extend` or a config change.
+  - `undefined` is never coerced to 0.
+- Validation notes: spec every boundary, lower bound, revision ignore, absent snapshot, measure stickiness
+- Implementation details: pure, no DI
+
+### Task 54.2: `session-budget.service.ts` — PENDING
+
+- Depends on: Task 54.1
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-followups/libs/backend/agent-sdk/src/lib/helpers/session-budget/session-budget.service.ts` (new, + spec with fakes)
+- Plan reference: implementation-plan-addendum-n7-n8.md:166-200
+- Pattern to follow: injectable services in `helpers/session-lifecycle/`; `SDK_SESSION_STATS_OWNER` `di/tokens.ts:40`
+- Quality requirements: implement component 3 in full:
+  - `observe`, `observeLoaded` (a resume snapshot without `revision` only when no state exists), `recordCompaction`,
+    `canSend` (state → `statsOwner.snapshot` → ok), `act`, `release` and `clearAll`;
+  - actions run once per stage entry: tighten → 52 only when `tightenWindowTokens` is set, else `reason: 'disabled'`;
+    handoff → 53; limit → fresh write plus `blocked = blockAtLimit`;
+  - `extend` works at limit only, adds 20% per extension and logs INFO;
+  - INFO one line per stage change, and WARN once per session per failure kind;
+  - a changed `getConfig()` resets the measure and recomputes the stage.
+- Validation notes: the F7 overshoot is specced (crossing turn plus one held follow-up); keyed by `snapshot.sessionId`;
+  no timers
+- Implementation details: the injection token is added in Batch 55. The constructor takes the provider, session
+  control and handoff collaborators.
+
+### Batch 54 verification
+
+- Stage and service specs green; Batch 54 scoped checks pass
+
+---
+
+## Batch 55: N7 agent-sdk wiring and broadcast forwarding — COMPLETE (PR 3, decision 13; report batch-55-executor-report.md)
+
+- Recommended executor: backend-developer
+- Fallback executor: backend-developer re-run
+- Execution mode: sequential
+- Rationale: register, then the two call sites, then the one forwarder; all of it touches the live result path
+- Tasks: 4 | Depends on: Batch 54 | Concurrent-safe with: Batches 59, 61
+- Phase: N7/N8 | Phase review: code-logic + style (new exported token and service) at phase end
+- Verify: § N7/N8 scoped checks, Batch 55 row
+
+### Task 55.1: Token, registration, barrel — PENDING
+
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-followups/libs/backend/agent-sdk/src/lib/di/tokens.ts`, `D:/projects/ptah-extension/.claude-worktrees/task-597-followups/libs/backend/agent-sdk/src/lib/di/register.ts`, `D:/projects/ptah-extension/.claude-worktrees/task-597-followups/libs/backend/agent-sdk/src/index.ts`
+- Plan reference: implementation-plan-addendum-n7-n8.md:242-252
+- Pattern to follow: `di/register.ts:161-173`; `SDK_SESSION_STATS_OWNER` `di/tokens.ts:40`
+- Quality requirements: `SDK_SESSION_BUDGET` plus the provider, the handoff collaborators and the service are
+  registered. The service and `SessionBudgetState` are re-exported for rpc-handlers.
+- Validation notes: every host that runs agent-sdk `register` gets the service; hosts typecheck in the batch
+- Implementation details: none
+
+### Task 55.2: Adapter wrap and release — PENDING
+
+- Depends on: Task 55.1
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-followups/libs/backend/agent-sdk/src/lib/sdk-agent-adapter.ts` (+ spec)
+- Plan reference: implementation-plan-addendum-n7-n8.md:244-250
+- Pattern to follow: `wrapResultStatsForActivity` (call sites `sdk-agent-adapter.ts:796, 918, 1056`; body near `:1581-1591`); session end near `:806`, `:1389-1395`
+- Quality requirements: call `observe(stats.sessionStats)`, then `inner({...stats, budget})` with the IDENTICAL
+  `sessionStats` reference. An `observe` throw logs once and `inner(stats)` still runs. `release` runs on session end.
+- Validation notes: parity spec with the same object reference; a new session with tracking id ≠ real id keys by the
+  real id (AS-1, F1)
+- Implementation details: none
+
+### Task 55.3: Transformer records compaction — PENDING
+
+- Depends on: Task 55.1
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-followups/libs/backend/agent-sdk/src/lib/helpers/stream-transformer.ts` (+ spec)
+- Plan reference: implementation-plan-addendum-n7-n8.md:247-250
+- Pattern to follow: the `isCompactBoundary(sdkMessage)` branch `stream-transformer.ts:795` and `effectiveSessionId`
+  `:393, 472-474`. Pass the call the same way the transformer already receives `onResultStats`: an optional callback,
+  no new DI into the transformer.
+- Quality requirements: `recordCompaction(effectiveSessionId)` once per boundary message, main stream only
+- Validation notes: spec once per boundary; no call when the callback is absent; AS-2 noted for QA
+- Implementation details: none
+
+### Task 55.4: `sendStatsWithRetry` forwards `budget` — PENDING
+
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-followups/libs/backend/cli-agent-runtime/src/lib/wiring/sdk-callbacks.ts` (+ spec)
+- Plan reference: implementation-plan-addendum-n7-n8.md:254-258
+- Pattern to follow: `sdk-callbacks.ts:400-418` (`sessionStats` forwarded unchanged; absent keeps the panel's last)
+- Quality requirements: `budget` forwarded next to `sessionStats` only when present
+- Validation notes: spec present and absent
+- Implementation details: none
+
+### Batch 55 verification
+
+- Parity, transformer and callbacks specs green; Batch 55 scoped checks pass
+
+---
+
+## Batch 56: N7 `chat:continue` gate and resume budget — COMPLETE (PR 3, decision 13; report batch-56-executor-report.md)
+
+- Recommended executor: backend-developer
+- Fallback executor: backend-developer re-run
+- Execution mode: sequential
+- Rationale: one service file, two insertion points
+- Tasks: 2 | Depends on: Batch 55 | Concurrent-safe with: Batch 57 (different files, same project; attribute failures by `file:line`)
+- Phase: N7/N8 | Phase review: code-logic at phase end
+- Verify: § N7/N8 scoped checks, Batch 56 row
+
+### Task 56.1: Send gate with the `/compact` and `/clear` allowlist — PENDING
+
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-followups/libs/backend/rpc-handlers/src/lib/chat/session/chat-session.service.ts` (+ spec)
+- Plan reference: implementation-plan-addendum-n7-n8.md:262-274
+- Pattern to follow: structured failures `chat-session.service.ts:759-795`; insertion after the Ptah CLI branch (`:792-795`) and before the slash/resume branch (`:836`)
+- Quality requirements: when `canSend` is not ok and the trimmed prompt is not exactly `/compact` or `/clear`, return
+  `{success:false, errorCode:'SESSION_BUDGET_REACHED', error}`. The budget service is injected optionally; when it is
+  missing, the gate is ok.
+- Validation notes: spec blocked; `/compact` and `/clear` pass; a custom slash command is blocked; unknown passes; a
+  missing token passes
+- Implementation details: none
+
+### Task 56.2: Resume attaches budget — PENDING
+
+- Depends on: Task 56.1
+- File: same file (+ spec)
+- Plan reference: implementation-plan-addendum-n7-n8.md:266
+- Pattern to follow: `readForResume` `chat-session.service.ts:963`, `result.stats` `:987`
+- Quality requirements: `observeLoaded(result.stats)` and `budget` on the result; `null` stats → no budget field
+- Validation notes: parity spec: resume `budget.used` equals `result.stats.tokenCount`
+- Implementation details: none
+
+### Batch 56 verification
+
+- Gate and resume specs green; Batch 56 scoped checks pass
+
+---
+
+## Batch 57: N7 `session:budgetAction` RPC unit — COMPLETE (PR 3, decision 13; report batch-57-executor-report.md)
+
+- Recommended executor: backend-developer
+- Fallback executor: backend-developer re-run
+- Execution mode: sequential
+- Rationale: F4, so the method map, handler, manifest, allowlist and surface specs land in one commit to keep the
+  manifest "Total" invariant
+- Tasks: 3 | Depends on: Batch 55 | Concurrent-safe with: Batch 56
+- Phase: N7/N8 | Phase review: code-logic + style (new public RPC method) at phase end
+- Verify: § N7/N8 scoped checks, Batch 57 row
+
+### Task 57.1: Method map and registry entry — PENDING
+
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-followups/libs/shared/src/lib/types/rpc.types.ts`
+- Plan reference: implementation-plan-addendum-n7-n8.md:131-132, 353
+- Pattern to follow: `'settings:get'` in the method map (`rpc.types.ts:1580`) and in the registry (`:3883`); `RPC_METHOD_ENTRIES` near `:785`
+- Quality requirements: `'session:budgetAction'` with the 50.1 param/result types
+- Validation notes: none
+- Implementation details: none
+
+### Task 57.2: Handler, barrels, manifest — PENDING
+
+- Depends on: Task 57.1
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-followups/libs/backend/rpc-handlers/src/lib/handlers/session-budget-rpc.handlers.ts` (new, + spec; a sibling `session-budget-rpc.schema.ts` only if the repo pattern requires it), `D:/projects/ptah-extension/.claude-worktrees/task-597-followups/libs/backend/rpc-handlers/src/lib/handlers/index.ts`, `D:/projects/ptah-extension/.claude-worktrees/task-597-followups/libs/backend/rpc-handlers/src/lib/host-profile/manifest.ts`, `D:/projects/ptah-extension/.claude-worktrees/task-597-followups/libs/backend/rpc-handlers/src/index.ts`
+- Plan reference: implementation-plan-addendum-n7-n8.md:267-271
+- Pattern to follow: `SettingsRpcHandlers` (`handlers/settings-rpc.handlers.ts:65, 99`, schema `settings-rpc.schema.ts`); manifest entry `manifest.ts:283-301`; barrels `handlers/index.ts:53`, `src/index.ts:41`
+- Quality requirements: zod validation with `sessionId` as a UUID and an action enum. When the budget token is
+  missing, return `{success:false, error:'unavailable'}`. `requires: []`.
+- Validation notes: spec each action, an invalid id, an invalid action and a missing service
+- Implementation details: none
+
+### Task 57.3: Allowlist and surface specs — PENDING
+
+- Depends on: Task 57.2
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-followups/libs/backend/rpc-handlers/src/lib/rpc-allowlist.spec.ts`, `D:/projects/ptah-extension/.claude-worktrees/task-597-followups/apps/ptah-extension-vscode/src/di/rpc-surface.spec.ts`, `D:/projects/ptah-extension/.claude-worktrees/task-597-followups/apps/ptah-electron/src/di/rpc-surface.spec.ts`, `D:/projects/ptah-extension/.claude-worktrees/task-597-followups/libs/backend/cli-engine/src/lib/rpc/rpc-surface.spec.ts`
+- Plan reference: implementation-plan-addendum-n7-n8.md:272-278
+- Pattern to follow: the existing `settings:*` entries in the same specs
+- Quality requirements: the method recorded on every host surface
+- Validation notes: spec-only
+- Implementation details: none
+
+### Batch 57 verification
+
+- Manifest invariant holds; the four specs and the handler spec green; Batch 57 scoped checks pass
+
+---
+
+## Batch 58: N7 tab state — COMPLETE (PR 3, decision 13; report batch-58-executor-report.md)
+
+- Recommended executor: frontend-developer
+- Fallback executor: frontend-developer re-run
+- Execution mode: sequential
+- Rationale: the field, then installing it together with the snapshot under the same revision rule
+- Tasks: 2 | Depends on: Batch 50 | Concurrent-safe with: Batch 54
+- Phase: N7/N8 | Phase review: code-logic at phase end
+- Verify: § N7/N8 scoped checks, Batch 58 row
+
+### Task 58.1: `TabState.sessionBudget` — PENDING
+
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-followups/libs/frontend/chat-types/src/lib/chat-types.ts`
+- Plan reference: implementation-plan-addendum-n7-n8.md:282-284
+- Pattern to follow: `sessionStats` neighbour near `chat-types.ts:643`
+- Quality requirements: optional `sessionBudget?: SessionBudgetState | null`
+- Validation notes: none
+- Implementation details: none
+
+### Task 58.2: Tab manager installs the budget with the snapshot — PENDING
+
+- Depends on: Task 58.1
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-followups/libs/frontend/chat-state/src/lib/tab-manager.service.ts` (+ spec)
+- Plan reference: implementation-plan-addendum-n7-n8.md:282-284
+- Pattern to follow: `installSessionStats` `tab-manager.service.ts:2206`, `applyLoadedSessionStats` `:2216`
+- Quality requirements: the budget is installed in the same update as the snapshot and dropped with it on a lower
+  revision. An absent budget keeps the last one. It resets on a tab reset, like `sessionStats`.
+- Validation notes: spec the revision rule, absent, reset
+- Implementation details: an optional parameter on the two existing methods; no new public method unless the pattern
+  needs one
+
+### Batch 58 verification
+
+- Tab-manager spec green; Batch 58 scoped checks pass
+
+---
+
+## Batch 59: N7 aggregator, loader, send failure — COMPLETE (PR 3, decision 13; report batch-59-executor-report.md)
+
+- Recommended executor: frontend-developer
+- Fallback executor: frontend-developer re-run
+- Execution mode: sequential
+- Rationale: the three chat services that receive the budget or the error code
+- Tasks: 2 | Depends on: Batch 58 | Concurrent-safe with: Batches 55, 61
+- Phase: N7/N8 | Phase review: code-logic at phase end
+- Verify: § N7/N8 scoped checks, Batch 59 row
+
+### Task 59.1: Live and resume entry paths — PENDING
+
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-followups/libs/frontend/chat/src/lib/services/chat-store/session-stats-aggregator.service.ts`, `D:/projects/ptah-extension/.claude-worktrees/task-597-followups/libs/frontend/chat/src/lib/services/chat-store/session-loader.service.ts` (+ specs)
+- Plan reference: implementation-plan-addendum-n7-n8.md:282-284, 296
+- Pattern to follow: `handleSessionStats` `session-stats-aggregator.service.ts:54, 130-158`; loader `session-loader.service.ts:1033`
+- Quality requirements: `stats.budget` and `resume.budget` passed to the 58.2 installers together with their snapshot
+- Validation notes: spec budget installed with the snapshot on both paths
+- Implementation details: none
+
+### Task 59.2: `SESSION_BUDGET_REACHED` on send — PENDING
+
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-followups/libs/frontend/chat/src/lib/services/message-sender.service.ts` (+ spec)
+- Plan reference: implementation-plan-addendum-n7-n8.md:292
+- Pattern to follow: `handleAuthRequired` `message-sender.service.ts:58, 94-111`
+- Quality requirements: the code restores the draft and surfaces the limit state, with no generic error toast and no
+  retry
+- Validation notes: spec
+- Implementation details: none
+
+### Batch 59 verification
+
+- Specs green; Batch 59 scoped checks pass
+
+---
+
+## Batch 60: N7 chip, banner, chat-view mount — COMPLETE (PR 3, decision 13; report batch-60-executor-report.md)
+
+- Recommended executor: frontend-developer
+- Fallback executor: frontend-developer re-run
+- Execution mode: sequential
+- Rationale: the two display pieces, then the one place that mounts them and calls the action RPC
+- Tasks: 3 | Depends on: Batches 57 (method map), 59 | Concurrent-safe with: none (wave 6 alone)
+- Phase: N7/N8 | Phase review: code-logic + style (new component) at phase end; visual at QA
+- Verify: § N7/N8 scoped checks, Batch 60 row
+
+### Task 60.1: Chip `budget` input — PENDING
+
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-followups/libs/frontend/chat-ui/src/lib/molecules/session/session-stats-summary.component.ts` (+ spec)
+- Plan reference: implementation-plan-addendum-n7-n8.md:285-287, 375-376
+- Pattern to follow: TOKENS/COST rendering `session-stats-summary.component.ts:669, 761, 768-776, 790-794`
+- Quality requirements:
+  - An optional input `budget: SessionBudgetState | null`.
+  - The numerator stays `snapshot()` for `tokens`/`cost`.
+  - `cost-lower-bound` shows "COST ≥ $x / $30 (some models have no price)"; `weighted-fallback` shows "est. <used> /
+    <limit> weighted tokens (no price for this model)".
+  - Without a budget nothing changes.
+- Validation notes: spec each measure label and the no-budget case
+- Implementation details: none
+
+### Task 60.2: `session-budget-banner.component.ts` — PENDING
+
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-followups/libs/frontend/chat/src/lib/components/molecules/notifications/session-budget-banner.component.ts` (new, + spec)
+- Plan reference: implementation-plan-addendum-n7-n8.md:288-291, 366-377 (+ revision 1 § User-facing text)
+- Pattern to follow: `resume-notification-banner.component.ts` (dumb, inputs/outputs, OnPush)
+- Quality requirements:
+  - The stage texts from the plan, including the F7 limit sentence and the F14 tighten text.
+  - Roles: `role="status"` for tighten and handoff, `role="alert"` for limit.
+  - Outputs for dismiss, extend ("Allow 20% more"), restore-window, preview and "Continue in new session".
+  - The preview renders as plain text in `<pre>`, never HTML.
+- Validation notes: spec each stage, the buttons, the roles and the no-HTML rendering
+- Implementation details: none
+
+### Task 60.3: Mount in chat view and wire actions — PENDING
+
+- Depends on: Tasks 60.1, 60.2
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-followups/libs/frontend/chat/src/lib/components/templates/chat-view.component.html`, `D:/projects/ptah-extension/.claude-worktrees/task-597-followups/libs/frontend/chat/src/lib/components/templates/chat-view.component.ts` (+ spec)
+- Plan reference: implementation-plan-addendum-n7-n8.md:285-291
+- Pattern to follow: chip binding `chat-view.component.html:27-31`, `chat-view.component.ts:773-777`; banner slot `chat-view.component.html:127-137`
+- Quality requirements: the chip gets `tab.sessionBudget` and the banner sits in the slot. The banner's outputs call
+  `session:budgetAction`. "Continue in new session" starts a tab with `ChatStartParams.prompt` set to the seed the
+  action returned (AS-N7b), and nothing else.
+- Validation notes: `chat-view.component.ts` is 1487 lines: bindings and thin handlers only
+- Implementation details: none
+
+### Batch 60 verification
+
+- Chip, banner and chat-view specs green; Batch 60 scoped checks pass; before/after screenshots (dark + light) at QA
+
+---
+
+## Batch 61: N7 budget settings card — COMPLETE (PR 3, decision 13; report batch-61-executor-report.md)
+
+- Recommended executor: frontend-developer
+- Fallback executor: frontend-developer re-run
+- Execution mode: sequential
+- Rationale: one new card mounted in its own defer block
+- Tasks: 1 | Depends on: Batch 50; PR 2 Batch 39 on the base (same `orchestration-settings.component.ts`, review F10) | Concurrent-safe with: Batches 55, 59
+- Phase: N7/N8 | Phase review: code-logic + style (new component) at phase end; visual at QA
+- Verify: § N7/N8 scoped checks, Batch 61 row
+
+### Task 61.1: `session-budget-settings.component.ts` and mount — PENDING
+
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-followups/libs/frontend/chat/src/lib/settings/ptah-ai/session-budget-settings.component.ts` (new, + spec), `D:/projects/ptah-extension/.claude-worktrees/task-597-followups/libs/frontend/chat/src/lib/settings/ptah-ai/orchestration-settings.component.ts`
+- Plan reference: implementation-plan-addendum-n7-n8.md:293-295
+- Pattern to follow: `settings:get/set` use in `libs/frontend/git-ui/src/lib/open-in/open-in-button.component.ts:261, 280`. Mount it like Batch 39's card: its own `@defer (on viewport)` with a same-footprint `@placeholder`. The file's existing block at `:45` is `@defer (on immediate)`.
+- Quality requirements: the ten keys with inline validation from `SESSION_BUDGET_SETTINGS`, including tighten <
+  handoff. Invalid values are not written. `tightenWindowTokens` explains "advisory only until set".
+- Validation notes: spec load, each bound, the cross-field rule and a failed write; the Batch 39 mount stays untouched
+- Implementation details: none
+
+### Batch 61 verification
+
+- Card spec green; Batch 61 scoped checks pass; before/after screenshots (dark + light) of Settings → Orchestration at QA
+
+## PR 2 phase-end review (decision 12) — APPROVED
+
+Review: `pr2-phase-end-code-logic-review.md` on `5bb19f9fb..HEAD` (Batches 37-41, 46, 47): 0 Blocking, 0 Serious,
+3 Moderate, 3 Minor. No fix round (lean rule 4: no Moderate can break a lane config or lose data). Named later tasks:
+
+- PR2-M1: `markAllInterrupted` does not stamp `lastActivityAt`, so an aborted foreground subagent that ran longer than
+  the TTL can read cold while its cache is warm (extra tokens, no lost work). Fix with the AS-N2 activity stamping.
+- PR2-M2: subagent usage entries for an id that never gets a record are never evicted (agent monitor store).
+- PR2-M3: the cost estimate can be low when the model has no cache price or the model changes mid-run.
+- Minor items: recorded in the review file only.
+
+QA (not yet run): before/after screenshots (dark + light) for Batches 39 and 47; N1 "after" measurement needs
+`CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL` cleared (user approval).
+
+## Batch 47a: Subagent transcript for background named subagents (user bug report, PR 2) — COMPLETE (report batch-47a-executor-report.md)
+
+User decision (2026-10-04): frontend fix in PR 2. Research: `bug-subagent-transcript-research.md`. The agent monitor store
+merges `agentId`, `teammateName` and `parentSessionId` from `background_agent_started` into the existing record (or holds
+them until `agent_start` creates it); the panel falls back to its session input, then the active tab, when
+`parentSessionId` is missing. Named later task PR2-B1: backend binding of `agentId` when the SubagentStart hook has no
+`toolUseId` (covers foreground subagents and `subagent:send-message` / `subagent:stop`); heuristic, exact `agentId:` match
+only.
+
+Batch 47a scoped review: APPROVED (0 Blocking, 0 Serious, 2 Moderate, 2 Minor; `pr2-phase-end-code-logic-review.md`
+§ Batch 47a scoped review). Named later tasks: PR2-M4 rekey a pending identity that holds a placeholder tab id
+(`agent-monitor.store.ts:1686-1700`); PR2-M5 evict pending identities when `agent_start` never arrives or the session is
+cleared (`agent-monitor.store.ts:599-601`).
+
+## PR 3 phase-end reviews (decision 13) — APPROVED after one fix round
+
+- Code-logic: `pr3-phase-end-code-logic-review.md` on `ecc953410..HEAD` (Batches 50-61): CHANGES REQUIRED (0 Blocking,
+  4 Serious, 8 Moderate). Fix round `d79a195cb` (`pr3-fix-round-report.md`) fixed S-1..S-4 and M-2. Re-review
+  (§ Fix round re-review): APPROVED, all five RESOLVED.
+- Style: `pr3-phase-end-code-style-review.md`: APPROVED (0 Blocking, 0 Serious, 2 Moderate, 4 Minor).
+- Named later tasks:
+  - PR3-M1 restore `failed` shape vs `session-budget.types.ts` (M-1); PR3-M3 empty/failed handoff read not flagged;
+    PR3-M4 v4-only UUID check (verify SDK ids); PR3-M5 handoff actions accepted for unknown sessions; PR3-M6
+    chat-view `resolvedSessionBudget` ordering and clearing; PR3-M7 entry release on eviction, `/clear` and headless
+    child sessions (`session-spawner.service.ts`) now keep their entry until dispose; PR3-M8 `/compact` exemption
+    cannot lower a cumulative measure (banner copy or accept).
+  - PR3-S1 split `chat-view.component.ts` (1105 lines) and `session-stats-summary.component.ts` (859 lines); move the
+    "Continue in new session" flow out of chat-view (style Moderates).
+  - Minor items: in the review files only (tooltip hard-codes 50/80/100%, failed preview keeps "Loading…", `.tmp`
+    orphan, `keepPreviousFigure`).
+- QA (not yet run): before/after screenshots (dark + light) for Batches 60 and 61; a scripted 2M-token session; one
+  proxied-route run in the cost unit; experiment E2 for the tighten stage.

@@ -426,6 +426,10 @@ export const SCOPED_SETTING_KEYS: Record<
     appScopable: false,
     supportedTargets: ['global'],
   },
+  'agentOrchestration.subagentPromptCacheTtl': {
+    appScopable: false,
+    supportedTargets: ['global'],
+  },
   'agentOrchestration.copilotModel': {
     appScopable: false,
     supportedTargets: ['global'],

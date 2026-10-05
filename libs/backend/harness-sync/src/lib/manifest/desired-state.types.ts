@@ -7,6 +7,7 @@
  */
 
 import type {
+  AgentModelProvider,
   HarnessCollision,
   HarnessSourcesStatus,
   HarnessTargetId,
@@ -42,7 +43,16 @@ export interface HarnessDesiredCommand {
 export interface HarnessDesiredAgent {
   slug: string;
   sourceFile: string;
+  /** {@link hashFile} over `sourceFile`. Never includes a model. */
   contentHash: string;
+  /**
+   * The effective model per rival provider, already resolved across the
+   * workspace and machine layers and checked by `isAgentModelEmittable`.
+   * Absent when no rival provider has one, so an agent without models is
+   * exactly the object it was before models existed. Claude is never a key:
+   * the Claude target writes no agents.
+   */
+  models?: Partial<Record<AgentModelProvider, string>>;
 }
 
 /**

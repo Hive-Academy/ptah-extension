@@ -120,6 +120,8 @@ jest.mock('@ptah-extension/workspace-intelligence', () => ({
   ContextEnrichmentService: class ContextEnrichmentServiceStub {},
 }));
 
+import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import type { DependencyContainer } from 'tsyringe';
 import type {
@@ -148,6 +150,9 @@ import {
   Result,
   type GenerationAgentOutcome,
   type GenerationCompletePayload,
+  type HarnessFacetMatrix,
+  type HarnessTargetId,
+  type WizardPreviewGenerationResponse,
   type WizardSubmitSelectionParams,
 } from '@ptah-extension/shared';
 import { TOKENS } from '@ptah-extension/vscode-core';
@@ -178,6 +183,8 @@ const AGENT_GENERATION_TOKENS = {
 const HARNESS_SYNC_TOKENS = {
   PROPAGATION: Symbol.for('HarnessSyncPropagation'),
   AGENT_SYNC_GATE: Symbol.for('HarnessSyncAgentSyncGate'),
+  RECONCILER: Symbol.for('HarnessSyncReconciler'),
+  SOURCE_RESOLVER: Symbol.for('HarnessSyncSourceResolver'),
 } as const;
 
 import { WizardGenerationRpcHandlers } from './wizard-generation-rpc.handlers';
@@ -616,16 +623,20 @@ const BASE_SUBMIT_PARAMS: WizardSubmitSelectionParams = {
 
 describe('WizardGenerationRpcHandlers', () => {
   describe('register()', () => {
-    it('registers all three wizard generation RPC methods', () => {
+    it('registers all four wizard generation RPC methods, exactly the METHODS list', () => {
       const h = makeHarness();
       h.handlers.register();
 
       expect(h.rpcHandler.getRegisteredMethods().sort()).toEqual(
         [
           'wizard:cancel',
+          'wizard:preview-generation',
           'wizard:retry-item',
           'wizard:submit-selection',
         ].sort(),
+      );
+      expect([...WizardGenerationRpcHandlers.METHODS].sort()).toEqual(
+        h.rpcHandler.getRegisteredMethods().sort(),
       );
     });
   });
@@ -1515,6 +1526,450 @@ describe('WizardGenerationRpcHandlers', () => {
       expect(manifest.lifecycle).toBe('completed');
       expect(h.propagation.propagate).toHaveBeenCalledTimes(2);
       expect(completeBroadcasts(h)).toHaveLength(2);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // wizard:preview-generation (TASK_2026_609 C3)
+  // -------------------------------------------------------------------------
+
+  describe('wizard:preview-generation', () => {
+    const SUPPORTED: HarnessFacetMatrix = {
+      skills: 'supported',
+      commands: 'unsupported',
+      agents: 'supported',
+      mcp: 'supported',
+    };
+
+    function targetHealth(
+      target: HarnessTargetId,
+      detected: boolean,
+      facets: HarnessFacetMatrix = SUPPORTED,
+      agentsInSync?: string[],
+    ) {
+      return {
+        target,
+        detected,
+        facets,
+        ...(agentsInSync ? { agentsInSync } : {}),
+      };
+    }
+
+    /**
+     * Claude, two detected agent targets, one undetected, one unsupported.
+     * `backend-developer` is already in sync on codex and opencode, so its
+     * rival copies hold the generated content whether or not this run writes.
+     */
+    const HEALTH = {
+      targets: [
+        targetHealth('claude', true, {
+          ...SUPPORTED,
+          agents: 'source-managed',
+        }),
+        targetHealth('codex', true, SUPPORTED, [
+          '.codex/agents/backend-developer.toml',
+        ]),
+        targetHealth('copilot', false),
+        targetHealth('antigravity', true, {
+          ...SUPPORTED,
+          agents: 'unsupported',
+        }),
+        targetHealth('opencode', true, SUPPORTED, [
+          '.opencode/agent/backend-developer.md',
+        ]),
+      ],
+    };
+
+    const WRITE_DEPENDENT_CONDITION =
+      'generation changes at least one selected agent file; other CLIs are only synced when a file is written';
+
+    let tempWorkspace: string;
+
+    beforeEach(() => {
+      tempWorkspace = fs.mkdtempSync(path.join(os.tmpdir(), 'ptah-preview-'));
+      // A root marker, so the harness root is this folder and not an ancestor.
+      fs.mkdirSync(path.join(tempWorkspace, '.ptah'));
+    });
+
+    afterEach(() => {
+      fs.rmSync(tempWorkspace, { recursive: true, force: true });
+    });
+
+    interface PreviewHarness extends Harness {
+      reconciler: { verify: jest.Mock; reconcile: jest.Mock };
+      sourceResolver: { resolve: jest.Mock };
+      gate: { enable: jest.Mock };
+    }
+
+    function makePreviewHarness(
+      opts: {
+        skip?: Array<symbol | string>;
+        disabledAgentIds?: string[];
+        policyUnknown?: boolean;
+      } = {},
+    ): PreviewHarness {
+      const h = makeHarness({ workspaceRoot: tempWorkspace, skip: opts.skip });
+      const reconciler = {
+        verify: jest.fn().mockResolvedValue(HEALTH),
+        reconcile: jest.fn(),
+      };
+      const sourceResolver = {
+        resolve: jest.fn().mockResolvedValue({
+          disabledAgentIds: opts.disabledAgentIds ?? [],
+          ...(opts.policyUnknown ? { policyUnknown: true } : {}),
+        }),
+      };
+      const skip = new Set(opts.skip ?? []);
+      if (!skip.has(HARNESS_SYNC_TOKENS.RECONCILER)) {
+        h.registry.set(HARNESS_SYNC_TOKENS.RECONCILER, reconciler);
+      }
+      h.registry.set(HARNESS_SYNC_TOKENS.SOURCE_RESOLVER, sourceResolver);
+      const gate = (h.registry.get(HARNESS_SYNC_TOKENS.AGENT_SYNC_GATE) ?? {
+        enable: jest.fn(),
+      }) as { enable: jest.Mock };
+      h.handlers.register();
+      return { ...h, reconciler, sourceResolver, gate };
+    }
+
+    function files(
+      response: WizardPreviewGenerationResponse,
+      agentId: string,
+    ): Array<[string, string, string, boolean]> {
+      const agent = response.agents.find((a) => a.agentId === agentId);
+      if (!agent) throw new Error(`no preview for ${agentId}`);
+      return agent.files.map((f) => [
+        f.target,
+        f.relPath,
+        f.certainty,
+        f.willOverwrite,
+      ]);
+    }
+
+    it('lists the Claude file plus one copy per detected agent-capable CLI, all definite when in sync (codex + opencode → 3 paths)', async () => {
+      // Definite rivals: HEALTH lists both backend-developer copies in agentsInSync.
+      const h = makePreviewHarness();
+
+      const response = await call<WizardPreviewGenerationResponse>(
+        h,
+        'wizard:preview-generation',
+        { selectedAgentIds: ['backend-developer'] },
+      );
+
+      expect(response.warning).toBeUndefined();
+      expect(files(response, 'backend-developer')).toEqual([
+        ['claude', '.claude/agents/backend-developer.md', 'definite', false],
+        ['codex', '.codex/agents/backend-developer.toml', 'definite', false],
+        ['opencode', '.opencode/agent/backend-developer.md', 'definite', false],
+      ]);
+      expect(
+        response.agents[0].files.every((f) => f.condition === undefined),
+      ).toBe(true);
+      // A fresh verify of this workspace's harness root, never the cache.
+      expect(h.reconciler.verify).toHaveBeenCalledWith(
+        path.resolve(tempWorkspace),
+        'wizard:preview-generation',
+      );
+    });
+
+    it('keeps request order, one entry per agent, duplicates collapsed', async () => {
+      const h = makePreviewHarness();
+
+      const response = await call<WizardPreviewGenerationResponse>(
+        h,
+        'wizard:preview-generation',
+        { selectedAgentIds: ['b-agent', 'a-agent', 'b-agent'] },
+      );
+
+      expect(response.agents.map((a) => a.agentId)).toEqual([
+        'b-agent',
+        'a-agent',
+      ]);
+    });
+
+    it('marks willOverwrite for a path that already exists (lstat), and only for it', async () => {
+      fs.mkdirSync(path.join(tempWorkspace, '.claude', 'agents'), {
+        recursive: true,
+      });
+      fs.writeFileSync(
+        path.join(tempWorkspace, '.claude', 'agents', 'backend-developer.md'),
+        'hand-written',
+      );
+      fs.mkdirSync(path.join(tempWorkspace, '.codex', 'agents'), {
+        recursive: true,
+      });
+      fs.writeFileSync(
+        path.join(tempWorkspace, '.codex', 'agents', 'backend-developer.toml'),
+        'name = "x"',
+      );
+      const h = makePreviewHarness();
+
+      const response = await call<WizardPreviewGenerationResponse>(
+        h,
+        'wizard:preview-generation',
+        { selectedAgentIds: ['backend-developer'] },
+      );
+
+      // Rivals definite because HEALTH lists both copies in agentsInSync.
+      expect(files(response, 'backend-developer')).toEqual([
+        ['claude', '.claude/agents/backend-developer.md', 'definite', true],
+        ['codex', '.codex/agents/backend-developer.toml', 'definite', true],
+        ['opencode', '.opencode/agent/backend-developer.md', 'definite', false],
+      ]);
+      // Read-only: the existing files are untouched.
+      expect(
+        fs.readFileSync(
+          path.join(tempWorkspace, '.claude', 'agents', 'backend-developer.md'),
+          'utf8',
+        ),
+      ).toBe('hand-written');
+    });
+
+    it('no reconciler registered → Claude paths only plus a warning', async () => {
+      const h = makePreviewHarness({ skip: [HARNESS_SYNC_TOKENS.RECONCILER] });
+
+      const response = await call<WizardPreviewGenerationResponse>(
+        h,
+        'wizard:preview-generation',
+        { selectedAgentIds: ['backend-developer'] },
+      );
+
+      expect(response.warning).toMatch(/only the Claude agent files/i);
+      expect(files(response, 'backend-developer')).toEqual([
+        ['claude', '.claude/agents/backend-developer.md', 'definite', false],
+      ]);
+    });
+
+    it('verify throws → Claude paths only plus a warning, never an RPC error', async () => {
+      const h = makePreviewHarness();
+      h.reconciler.verify.mockRejectedValueOnce(new Error('EACCES'));
+
+      const response = await call<WizardPreviewGenerationResponse>(
+        h,
+        'wizard:preview-generation',
+        { selectedAgentIds: ['backend-developer', 'tester'] },
+      );
+
+      expect(response.warning).toMatch(/could not check which other CLIs/i);
+      expect(response.agents.map((a) => a.files.map((f) => f.target))).toEqual([
+        ['claude'],
+        ['claude'],
+      ]);
+      expect(h.sentry.captureException).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['AGENT_SYNC_GATE', HARNESS_SYNC_TOKENS.AGENT_SYNC_GATE],
+      ['PROPAGATION', HARNESS_SYNC_TOKENS.PROPAGATION],
+    ])(
+      '%s unregistered → every rival path conditional with "agent sync not available on this host"; Claude stays definite',
+      async (_name, token) => {
+        const h = makePreviewHarness({ skip: [token] });
+
+        const response = await call<WizardPreviewGenerationResponse>(
+          h,
+          'wizard:preview-generation',
+          { selectedAgentIds: ['backend-developer'] },
+        );
+
+        expect(response.warning).toBeUndefined();
+        const agentFiles = response.agents[0].files;
+        expect(agentFiles[0]).toEqual({
+          relPath: '.claude/agents/backend-developer.md',
+          target: 'claude',
+          certainty: 'definite',
+          willOverwrite: false,
+        });
+        expect(agentFiles.slice(1)).toEqual([
+          {
+            relPath: '.codex/agents/backend-developer.toml',
+            target: 'codex',
+            certainty: 'conditional',
+            condition: 'agent sync not available on this host',
+            willOverwrite: false,
+          },
+          {
+            relPath: '.opencode/agent/backend-developer.md',
+            target: 'opencode',
+            certainty: 'conditional',
+            condition: 'agent sync not available on this host',
+            willOverwrite: false,
+          },
+        ]);
+      },
+    );
+
+    it('an agent the user switched off (disabledAgentIds) gets no rival path; the others keep theirs', async () => {
+      const h = makePreviewHarness({ disabledAgentIds: ['tester'] });
+
+      const response = await call<WizardPreviewGenerationResponse>(
+        h,
+        'wizard:preview-generation',
+        { selectedAgentIds: ['backend-developer', 'tester'] },
+      );
+
+      expect(files(response, 'tester')).toEqual([
+        ['claude', '.claude/agents/tester.md', 'definite', false],
+      ]);
+      expect(files(response, 'backend-developer')).toHaveLength(3);
+      expect(h.sourceResolver.resolve).toHaveBeenCalledWith(
+        path.resolve(tempWorkspace),
+      );
+    });
+
+    it('a reserved slug gets no rival path (the builder rejects it)', async () => {
+      const h = makePreviewHarness();
+
+      const response = await call<WizardPreviewGenerationResponse>(
+        h,
+        'wizard:preview-generation',
+        { selectedAgentIds: ['con'] },
+      );
+
+      expect(files(response, 'con')).toEqual([
+        ['claude', '.claude/agents/con.md', 'definite', false],
+      ]);
+    });
+
+    it('a detected, supported target that does not list the agent in agentsInSync → rival conditional on a write; Claude stays definite', async () => {
+      const h = makePreviewHarness();
+      // HEALTH lists only backend-developer as in sync, so `tester` is not.
+
+      const response = await call<WizardPreviewGenerationResponse>(
+        h,
+        'wizard:preview-generation',
+        { selectedAgentIds: ['tester'] },
+      );
+
+      expect(response.warning).toBeUndefined();
+      expect(response.agents[0].files).toEqual([
+        {
+          relPath: '.claude/agents/tester.md',
+          target: 'claude',
+          certainty: 'definite',
+          willOverwrite: false,
+        },
+        {
+          relPath: '.codex/agents/tester.toml',
+          target: 'codex',
+          certainty: 'conditional',
+          condition: WRITE_DEPENDENT_CONDITION,
+          willOverwrite: false,
+        },
+        {
+          relPath: '.opencode/agent/tester.md',
+          target: 'opencode',
+          certainty: 'conditional',
+          condition: WRITE_DEPENDENT_CONDITION,
+          willOverwrite: false,
+        },
+      ]);
+    });
+
+    it('a target health without agentsInSync → rival conditional on a write', async () => {
+      const h = makePreviewHarness();
+      h.reconciler.verify.mockResolvedValueOnce({
+        targets: [targetHealth('codex', true)],
+      });
+
+      const response = await call<WizardPreviewGenerationResponse>(
+        h,
+        'wizard:preview-generation',
+        { selectedAgentIds: ['backend-developer'] },
+      );
+
+      expect(files(response, 'backend-developer')).toEqual([
+        ['claude', '.claude/agents/backend-developer.md', 'definite', false],
+        ['codex', '.codex/agents/backend-developer.toml', 'conditional', false],
+      ]);
+      expect(response.agents[0].files[1].condition).toBe(
+        WRITE_DEPENDENT_CONDITION,
+      );
+    });
+
+    it('an unreadable capability policy makes rival paths conditional (the reconciler freezes agents)', async () => {
+      const h = makePreviewHarness({ policyUnknown: true });
+
+      const response = await call<WizardPreviewGenerationResponse>(
+        h,
+        'wizard:preview-generation',
+        { selectedAgentIds: ['backend-developer'] },
+      );
+
+      const rivals = response.agents[0].files.slice(1);
+      expect(rivals.map((f) => f.certainty)).toEqual([
+        'conditional',
+        'conditional',
+      ]);
+      expect(rivals[0].condition).toMatch(/settings become readable/i);
+    });
+
+    it('never mutates: no consent grant, no propagation, no reconcile, no checkpoint', async () => {
+      const h = makePreviewHarness();
+
+      await call(h, 'wizard:preview-generation', {
+        selectedAgentIds: ['backend-developer'],
+      });
+
+      expect(h.gate.enable).not.toHaveBeenCalled();
+      expect(h.propagation.propagate).not.toHaveBeenCalled();
+      expect(h.reconciler.reconcile).not.toHaveBeenCalled();
+      expect(h.storage.writeGenerationManifest).not.toHaveBeenCalled();
+      expect(h.orchestrator.generateAgents).not.toHaveBeenCalled();
+      expect(fs.readdirSync(tempWorkspace)).toEqual(['.ptah']);
+      expect(fs.readdirSync(path.join(tempWorkspace, '.ptah'))).toEqual([]);
+    });
+
+    it.each([
+      ['a traversal id', { selectedAgentIds: ['../../etc/passwd'] }],
+      ['an empty selection', { selectedAgentIds: [] }],
+      ['a missing selection', {}],
+    ])(
+      'rejects %s as INVALID_PARAMS before verifying',
+      async (_label, params) => {
+        const h = makePreviewHarness();
+
+        const response = await callRaw(h, 'wizard:preview-generation', params);
+
+        expect(response.success).toBe(false);
+        expect(response.errorCode).toBe('INVALID_PARAMS');
+        expect(h.reconciler.verify).not.toHaveBeenCalled();
+      },
+    );
+
+    it('rejects with INVALID_PARAMS when no workspace folder is open', async () => {
+      const h = makeHarness({ workspaceRoot: '' });
+      h.handlers.register();
+
+      const response = await callRaw(h, 'wizard:preview-generation', {
+        selectedAgentIds: ['backend-developer'],
+      });
+
+      expect(response.success).toBe(false);
+      expect(response.errorCode).toBe('INVALID_PARAMS');
+    });
+
+    it('a folder nested under another harness root lists Claude paths only, with a warning naming that root', async () => {
+      const nested = path.join(tempWorkspace, 'packages', 'app');
+      fs.mkdirSync(nested, { recursive: true });
+      const h = makeHarness({ workspaceRoot: nested });
+      const reconciler = { verify: jest.fn(), reconcile: jest.fn() };
+      h.registry.set(HARNESS_SYNC_TOKENS.RECONCILER, reconciler);
+      h.registry.set(HARNESS_SYNC_TOKENS.SOURCE_RESOLVER, {
+        resolve: jest.fn(),
+      });
+      h.handlers.register();
+
+      const response = await call<WizardPreviewGenerationResponse>(
+        h,
+        'wizard:preview-generation',
+        { selectedAgentIds: ['backend-developer'] },
+      );
+
+      expect(response.warning).toContain(path.resolve(tempWorkspace));
+      expect(files(response, 'backend-developer')).toEqual([
+        ['claude', '.claude/agents/backend-developer.md', 'definite', false],
+      ]);
+      expect(reconciler.verify).not.toHaveBeenCalled();
     });
   });
 });

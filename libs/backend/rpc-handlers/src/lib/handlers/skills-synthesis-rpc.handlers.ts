@@ -11,7 +11,12 @@
  */
 import * as fs from 'node:fs';
 import { join, resolve, sep } from 'node:path';
-import { inject, injectable } from 'tsyringe';
+import {
+  inject,
+  injectable,
+  type DependencyContainer,
+  type InjectionToken,
+} from 'tsyringe';
 import { Logger, RpcHandler, TOKENS } from '@ptah-extension/vscode-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
 import {
@@ -62,7 +67,21 @@ import {
   type CronScheduler,
   type JobRun,
 } from '@ptah-extension/cron-scheduler';
-import type { UserLayerMirrorService } from '@ptah-extension/agent-generation';
+import type {
+  UserLayerMirrorService,
+  QuarantinedAgentItem,
+  QuarantineRestoreResult,
+} from '@ptah-extension/agent-generation';
+import {
+  HARNESS_SYNC_TOKENS,
+  resolveHarnessWorkspaceRoot,
+  type AgentConsentReader,
+} from '@ptah-extension/harness-sync';
+import {
+  SETTINGS_TOKENS,
+  type AgentModelSettings,
+} from '@ptah-extension/settings-core';
+import { CliModelListService } from '../services/cli-model-list.service';
 import type {
   RpcMethodName,
   SkillAnalyzeNowParams,
@@ -135,6 +154,12 @@ import type {
   SkillSynthesisGetScorecardsResult,
   SkillSynthesisGetScorecardDetailParams,
   SkillSynthesisGetScorecardDetailResult,
+  SkillSynthesisListQuarantinedAgentsParams,
+  SkillSynthesisListQuarantinedAgentsResult,
+  SkillSynthesisRestoreQuarantinedAgentParams,
+  SkillSynthesisRestoreQuarantinedAgentResult,
+  QuarantinedAgentEntry,
+  QuarantineAgentSyncState,
   SkillSynthesisListSuggestionsParams,
   SkillSynthesisListSuggestionsResult,
   SkillSynthesisAcceptSuggestionParams,
@@ -172,8 +197,22 @@ import type {
   CloneSummary,
   SkillCloneKind,
   AgentScorecard,
+  AgentModelClass,
+  AgentModelEntry,
+  AgentModelLayerClassification,
+  AgentModelProvider,
+  AgentModelSettingsValue,
+  SkillSynthesisGetAgentModelsParams,
+  SkillSynthesisGetAgentModelsResult,
+  SkillSynthesisSetAgentModelParams,
+  SkillSynthesisSetAgentModelResult,
 } from '@ptah-extension/shared';
-import { SKILL_DRAIN_JOB_IDS, SKILL_DRAIN_TIERS } from '@ptah-extension/shared';
+import {
+  AGENT_MODEL_PROVIDERS,
+  SKILL_DRAIN_JOB_IDS,
+  SKILL_DRAIN_TIERS,
+  classifyAgentModelValue,
+} from '@ptah-extension/shared';
 import { RpcUserError } from '@ptah-extension/vscode-core';
 import { z } from 'zod';
 import {
@@ -198,6 +237,10 @@ import {
   SkillKeepCloneParamsSchema,
   SkillSaveCloneBodyParamsSchema,
   SkillInvocationStatsParamsSchema,
+  SkillListQuarantinedAgentsParamsSchema,
+  SkillRestoreQuarantinedAgentParamsSchema,
+  SkillGetAgentModelsParamsSchema,
+  SkillSetAgentModelParamsSchema,
   SkillListCandidatesParamsSchema,
   SkillListSuggestionsParamsSchema,
   SkillAcceptSuggestionParamsSchema,
@@ -220,6 +263,20 @@ const DEFAULT_QUEUE_ITEM_LIMIT = 50;
 
 /** Drain runs returned per tier, and after merging, when unspecified. */
 const DEFAULT_DRAIN_RUN_LIMIT = 20;
+
+/**
+ * Providers whose agent format cannot carry a per-agent model. Empty: every
+ * transformer emits `model` (B-5e). Kept as data so a provider that loses
+ * support is refused up front and the editor disables its row.
+ */
+const UNSUPPORTED_AGENT_MODEL_PROVIDERS: readonly AgentModelProvider[] = [];
+
+/**
+ * Upper bound on reading the classification lists (CLI detection plus the
+ * Codex/Copilot live queries). Past it the save proceeds with no list, so
+ * values classify `unverifiable` rather than the editor hanging.
+ */
+const AGENT_MODEL_LIST_TIMEOUT_MS = 15_000;
 
 interface ICuratorService {
   runManual(origin?: QueryOrigin): Promise<{
@@ -268,6 +325,10 @@ export class SkillsSynthesisRpcHandlers {
     'skillSynthesis:rebaseClone',
     'skillSynthesis:keepClone',
     'skillSynthesis:saveCloneBody',
+    'skillSynthesis:listQuarantinedAgents',
+    'skillSynthesis:restoreQuarantinedAgent',
+    'skillSynthesis:getAgentModels',
+    'skillSynthesis:setAgentModel',
     'skillSynthesis:invocationStats',
     'skillSynthesis:getScorecards',
     'skillSynthesis:getScorecardDetail',
@@ -347,6 +408,22 @@ export class SkillsSynthesisRpcHandlers {
       isOptional: true,
     })
     private readonly gapCurator: SkillGapCuratorService | null,
+    // Optional for the same construction-site reason as the gap curator, and
+    // because it is only ever READ here: the quarantine surface reports
+    // agent-sync consent, it never grants it (Restore must not turn agent sync
+    // on). Typed as the read-only `AgentConsentReader`, so `enable` is not
+    // reachable from this class. Absent means `agentSync: 'unknown'`.
+    @inject(HARNESS_SYNC_TOKENS.AGENT_SYNC_GATE, { isOptional: true })
+    private readonly agentSyncGate: AgentConsentReader | null,
+    // The agent model RPCs resolve `SETTINGS_TOKENS.AGENT_MODEL_SETTINGS` and
+    // `CliModelListService` from here at call time. Not injected directly:
+    // `CliModelListService` is a class token, which tsyringe constructs even
+    // under `isOptional`, so a direct injection would break every existing
+    // construction site that does not register its CLI dependencies. Call-time
+    // lookup also makes "this host has no agent model settings" a refusal of
+    // those two methods instead of a failure to build the whole class.
+    @inject(PLATFORM_TOKENS.DI_CONTAINER, { isOptional: true })
+    private readonly runtimeContainer: DependencyContainer | null,
   ) {}
 
   register(): void {
@@ -377,6 +454,10 @@ export class SkillsSynthesisRpcHandlers {
     this.registerRebaseClone();
     this.registerKeepClone();
     this.registerSaveCloneBody();
+    this.registerListQuarantinedAgents();
+    this.registerRestoreQuarantinedAgent();
+    this.registerGetAgentModels();
+    this.registerSetAgentModel();
     this.registerInvocationStats();
     this.registerGetScorecards();
     this.registerGetScorecardDetail();
@@ -1416,6 +1497,249 @@ export class SkillsSynthesisRpcHandlers {
     });
   }
 
+  /**
+   * The agents the one-time seed quarantine moved out of this workspace's
+   * scoped clone root, with their derived state. Read-only.
+   *
+   * No mirror service is an explicit error rather than an empty list: an empty
+   * list would tell the user nothing was quarantined when this host simply
+   * cannot tell. No open folder IS a real answer (nothing can be quarantined
+   * for no workspace) and comes back empty with `workspaceRoot: null`.
+   */
+  private registerListQuarantinedAgents(): void {
+    this.rpcHandler.registerMethod<
+      SkillSynthesisListQuarantinedAgentsParams,
+      SkillSynthesisListQuarantinedAgentsResult
+    >('skillSynthesis:listQuarantinedAgents', async (params) => {
+      this.parseParams(
+        SkillListQuarantinedAgentsParamsSchema,
+        params,
+        'skillSynthesis:listQuarantinedAgents',
+      );
+      try {
+        const mirror = this.requireDesktop(this.mirror);
+        const workspaceRoot = this.quarantineWorkspaceRoot();
+        if (workspaceRoot === null) {
+          return {
+            workspaceRoot: null,
+            agentSync: 'unknown',
+            quarantined: [],
+            notOwned: [],
+          };
+        }
+        const listing = await mirror.listQuarantinedAgents(workspaceRoot);
+        return {
+          workspaceRoot,
+          agentSync: this.readAgentSync(workspaceRoot),
+          ...(listing.recordUnreadable
+            ? { recordUnreadable: true as const }
+            : {}),
+          quarantined: listing.quarantined.map(toQuarantinedAgentEntry),
+          notOwned: [...listing.notOwned],
+        };
+      } catch (error: unknown) {
+        if (error instanceof RpcUserError) throw error;
+        this.report(
+          error,
+          'SkillsSynthesisRpcHandlers.registerListQuarantinedAgents',
+        );
+        throw this.toUserError('skillSynthesis:listQuarantinedAgents');
+      }
+    });
+  }
+
+  /**
+   * Restore one quarantined agent's workspace source file from its snapshot.
+   *
+   * The schema's `SlugSchema` is the first gate on the slug (no `..`, no
+   * separators); the mirror re-checks it before any path join. Every refusal
+   * (`conflict`, `not-quarantined`, `no-snapshot`, `copy-failed`) is a result
+   * the surface renders, not an error. A THROWN failure is never mapped to a
+   * success outcome. `agentSync` is read after the restore and never changed:
+   * with consent off the source is back but no clone is re-created, which the
+   * list then reports as `source-restored`.
+   */
+  private registerRestoreQuarantinedAgent(): void {
+    this.rpcHandler.registerMethod<
+      SkillSynthesisRestoreQuarantinedAgentParams,
+      SkillSynthesisRestoreQuarantinedAgentResult
+    >('skillSynthesis:restoreQuarantinedAgent', async (params) => {
+      const parsed = this.parseParams(
+        SkillRestoreQuarantinedAgentParamsSchema,
+        params,
+        'skillSynthesis:restoreQuarantinedAgent',
+      );
+      try {
+        const mirror = this.requireDesktop(this.mirror);
+        const workspaceRoot = this.quarantineWorkspaceRoot();
+        if (workspaceRoot === null) {
+          throw new RpcUserError(
+            'Open a workspace folder to restore a quarantined agent.',
+            'INVALID_PARAMS',
+          );
+        }
+        const result: QuarantineRestoreResult =
+          await mirror.restoreQuarantinedAgent(workspaceRoot, parsed.slug);
+        return {
+          outcome: result.outcome,
+          path: result.path,
+          ...(result.reason !== undefined ? { reason: result.reason } : {}),
+          agentSync: this.readAgentSync(workspaceRoot),
+        };
+      } catch (error: unknown) {
+        if (error instanceof RpcUserError) throw error;
+        this.report(
+          error,
+          'SkillsSynthesisRpcHandlers.registerRestoreQuarantinedAgent',
+        );
+        throw this.toUserError('skillSynthesis:restoreQuarantinedAgent');
+      }
+    });
+  }
+
+  /**
+   * Both `agentGeneration.models` layers for the active workspace, with every
+   * stored value classified against the server's lists
+   * (`CliModelListService.listForClassification`, provider-reported entries
+   * only make a value `listed`). The editor labels rows from this result and
+   * never classifies from `agent:listCliModels`.
+   *
+   * No folder open is a real answer (`workspaceRoot: null`, nothing to edit).
+   * A `workspaceRoot` that is not the active workspace is refused.
+   */
+  private registerGetAgentModels(): void {
+    const method = 'skillSynthesis:getAgentModels';
+    this.rpcHandler.registerMethod<
+      SkillSynthesisGetAgentModelsParams,
+      SkillSynthesisGetAgentModelsResult
+    >(method, async (params) => {
+      const parsed = this.parseParams(
+        SkillGetAgentModelsParamsSchema,
+        params,
+        method,
+      );
+      const settings = this.requireAgentModelSettings();
+      const workspaceRoot =
+        parsed?.workspaceRoot !== undefined
+          ? this.requireActiveWorkspace(parsed.workspaceRoot)
+          : this.quarantineWorkspaceRoot();
+      const unsupportedProviders = [...UNSUPPORTED_AGENT_MODEL_PROVIDERS];
+      if (workspaceRoot === null) {
+        return {
+          workspaceRoot: null,
+          machine: null,
+          workspace: null,
+          lists: null,
+          classification: { machine: {}, workspace: {} },
+          unsupportedProviders,
+        };
+      }
+      try {
+        const layers = settings.layersForPath(workspaceRoot);
+        const machine = toStoredAgentModelLayer(layers.machine);
+        const workspace = toStoredAgentModelLayer(layers.workspace);
+        const lists = await this.loadAgentModelLists();
+        return {
+          workspaceRoot,
+          machine,
+          workspace,
+          lists,
+          classification: {
+            machine: classifyAgentModelLayer(machine, lists),
+            workspace: classifyAgentModelLayer(workspace, lists),
+          },
+          unsupportedProviders,
+        };
+      } catch (error: unknown) {
+        if (error instanceof RpcUserError) throw error;
+        this.report(error, 'SkillsSynthesisRpcHandlers.registerGetAgentModels');
+        throw this.toUserError(method);
+      }
+    });
+  }
+
+  /**
+   * Set or clear one `[slug][provider]` model in one layer.
+   *
+   * Every refusal happens before the write, so a refused call changes neither
+   * layer. `workspaceRoot` is required even for the machine scope (whose
+   * physical key does not depend on it) and must be the active workspace, both
+   * on entry and again after the list read, so a folder switch between load
+   * and save is refused. The server's classification wins over the editor's.
+   * Reconcile is never started here; the editor runs it after a save.
+   */
+  private registerSetAgentModel(): void {
+    const method = 'skillSynthesis:setAgentModel';
+    this.rpcHandler.registerMethod<
+      SkillSynthesisSetAgentModelParams,
+      SkillSynthesisSetAgentModelResult
+    >(method, async (params) => {
+      const parsed = this.parseParams(
+        SkillSetAgentModelParamsSchema,
+        params,
+        method,
+      );
+      const settings = this.requireAgentModelSettings();
+      const workspaceRoot = this.requireActiveWorkspace(parsed.workspaceRoot);
+      const { provider } = parsed;
+      if (UNSUPPORTED_AGENT_MODEL_PROVIDERS.includes(provider)) {
+        throw new RpcUserError(
+          `Per-agent models are not supported for ${provider}.`,
+          'INVALID_PARAMS',
+        );
+      }
+
+      const value =
+        parsed.value === null || parsed.value.trim() === ''
+          ? null
+          : parsed.value;
+      let classification: AgentModelClass = 'empty';
+      if (value !== null) {
+        const lists = await this.loadAgentModelLists();
+        classification = classifyAgentModelValue(
+          provider,
+          value,
+          lists?.[provider] ?? null,
+        );
+        if (classification === 'malformed') {
+          throw new RpcUserError(
+            `That model id cannot be written for ${provider}.${agentModelSyntaxHint(provider)}`,
+            'INVALID_PARAMS',
+          );
+        }
+        if (classification === 'unlisted' && parsed.confirmUnlisted !== true) {
+          throw new RpcUserError(
+            `That model is not in ${provider}'s model list; it needs confirmation before it is saved.`,
+            'MODEL_NOT_AVAILABLE',
+          );
+        }
+        // The list read can take seconds; a folder switch during it must not
+        // land this value in another workspace's settings.
+        this.requireActiveWorkspace(parsed.workspaceRoot);
+      }
+
+      try {
+        await settings.update(
+          workspaceRoot,
+          parsed.slug,
+          provider,
+          value,
+          parsed.scope,
+        );
+        const layers = settings.layersForPath(workspaceRoot);
+        return {
+          classification,
+          machine: toStoredAgentModelLayer(layers.machine),
+          workspace: toStoredAgentModelLayer(layers.workspace),
+        };
+      } catch (error: unknown) {
+        if (error instanceof RpcUserError) throw error;
+        this.report(error, 'SkillsSynthesisRpcHandlers.registerSetAgentModel');
+        throw this.toUserError(method);
+      }
+    });
+  }
+
   private registerInvocationStats(): void {
     this.rpcHandler.registerMethod<
       SkillSynthesisInvocationStatsParams,
@@ -2036,6 +2360,137 @@ export class SkillsSynthesisRpcHandlers {
     }
   }
 
+  /**
+   * The root the quarantine is keyed by: the harness-resolved workspace root,
+   * the same one the mirror pass and the agent-sync gate use
+   * (`resolveAgentMirrorSource`). Absolute by construction (`path.resolve`),
+   * which the mirror facade requires. `null` when no folder is open.
+   */
+  private quarantineWorkspaceRoot(): string | null {
+    const raw = this.agentScope();
+    return raw === undefined ? null : resolveHarnessWorkspaceRoot(raw);
+  }
+
+  /**
+   * Agent-sync consent for `harnessRoot`, read through `resolve` only.
+   * `'unknown'` when the gate is not registered on this host or the read
+   * throws, never guessed as enabled or disabled.
+   */
+  private readAgentSync(harnessRoot: string): QuarantineAgentSyncState {
+    if (!this.agentSyncGate) return 'unknown';
+    try {
+      return this.agentSyncGate.resolve(harnessRoot).enabled
+        ? 'enabled'
+        : 'disabled';
+    } catch (error: unknown) {
+      // degradation-audit: optional-capability - consent is reported, not
+      // acted on, by this surface; an unreadable gate is stated as 'unknown'
+      // rather than failing the listing or the completed restore.
+      this.logger.warn('[skill-synthesis] could not read agent-sync consent', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return 'unknown';
+    }
+  }
+
+  /**
+   * The harness-resolved form of `requested`, which must equal the active
+   * workspace root exactly. Exact, not case-folded: the settings key is a hash
+   * of the path, so a path that differs only in case would address another
+   * workspace's key. The editor sends back the root `getAgentModels` returned.
+   */
+  private requireActiveWorkspace(requested: string): string {
+    const active = this.quarantineWorkspaceRoot();
+    if (active === null) {
+      throw new RpcUserError(
+        'Open a workspace folder to change agent models.',
+        'WORKSPACE_NOT_OPEN',
+      );
+    }
+    if (resolveHarnessWorkspaceRoot(requested) !== active) {
+      throw new RpcUserError(
+        'The workspace changed; reload the agent models and try again.',
+        'UNAUTHORIZED_WORKSPACE',
+      );
+    }
+    return active;
+  }
+
+  /** The host's one `AgentModelSettings`, or a refusal when it has none. */
+  private requireAgentModelSettings(): AgentModelSettings {
+    const settings = this.lookupRuntime<AgentModelSettings>(
+      SETTINGS_TOKENS.AGENT_MODEL_SETTINGS,
+    );
+    if (settings === null) {
+      throw new RpcUserError(
+        'Per-agent model settings are not available in this host.',
+        'PERSISTENCE_UNAVAILABLE',
+      );
+    }
+    return settings;
+  }
+
+  /**
+   * The classification lists, or `null` when they cannot be read in time.
+   * `null` makes every value `unverifiable` (never `listed`), the B-5c safe
+   * default; it never blocks a save.
+   */
+  private async loadAgentModelLists(): Promise<Record<
+    AgentModelProvider,
+    AgentModelEntry[]
+  > | null> {
+    const service =
+      this.lookupRuntime<CliModelListService>(CliModelListService);
+    if (service === null) return null;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const lists = await Promise.race([
+        service.listForClassification(),
+        new Promise<null>((resolveTimeout) => {
+          timer = setTimeout(
+            () => resolveTimeout(null),
+            AGENT_MODEL_LIST_TIMEOUT_MS,
+          );
+        }),
+      ]);
+      if (lists === null) {
+        this.logger.warn(
+          '[skill-synthesis] agent model lists timed out; values are unverifiable',
+          { timeoutMs: AGENT_MODEL_LIST_TIMEOUT_MS },
+        );
+      }
+      return lists;
+    } catch (error: unknown) {
+      // degradation-audit: optional-capability - without lists a value is
+      // classified `unverifiable`, which the editor labels; failing the read
+      // or the save instead would hide every stored model from the user.
+      this.logger.warn('[skill-synthesis] could not read agent model lists', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
+    }
+  }
+
+  /** `token` from the host container, or `null` when absent or unbuildable. */
+  private lookupRuntime<T>(token: InjectionToken<T>): T | null {
+    const runtime = this.runtimeContainer;
+    if (!runtime) return null;
+    try {
+      return runtime.isRegistered(token, true)
+        ? runtime.resolve<T>(token)
+        : null;
+    } catch (error: unknown) {
+      // degradation-audit: optional-capability - callers turn `null` into a
+      // refusal (settings) or an unverifiable classification (lists).
+      this.logger.warn('[skill-synthesis] could not resolve a dependency', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    }
+  }
+
   private async readOrphanFlags(
     mirror: UserLayerMirrorService,
   ): Promise<ReadonlyMap<string, boolean>> {
@@ -2575,6 +3030,99 @@ function toDigestItem(item: DigestItem): SkillDigestItem {
       winRate: item.evidence.winRate,
     },
   };
+}
+
+function toQuarantinedAgentEntry(
+  item: QuarantinedAgentItem,
+): QuarantinedAgentEntry {
+  return {
+    slug: item.slug,
+    state: item.state,
+    quarantinedAt: item.quarantinedAt,
+    hasSnapshot: item.hasSnapshot,
+    sourcePath: item.sourcePath,
+  };
+}
+
+/**
+ * Own-property define, so a hand-edited `__proto__` slug in the settings file
+ * stays an ordinary key instead of replacing the result's prototype.
+ */
+function defineOwnEntry<T>(
+  target: Record<string, T>,
+  key: string,
+  value: T,
+): void {
+  Object.defineProperty(target, key, {
+    value,
+    enumerable: true,
+    writable: true,
+    configurable: true,
+  });
+}
+
+/** Own-property read of one provider leaf from an untyped slug entry. */
+function readProviderLeaf(
+  entry: Record<string, unknown>,
+  provider: AgentModelProvider,
+): unknown {
+  return Object.prototype.hasOwnProperty.call(entry, provider)
+    ? entry[provider]
+    : undefined;
+}
+
+/**
+ * A stored layer as the wire shape: slug entries that are objects, and within
+ * them string values of known providers. Anything else (a hand-edited
+ * non-object layer, entry or leaf) carries nothing emission would use.
+ */
+function toStoredAgentModelLayer(raw: unknown): AgentModelSettingsValue | null {
+  if (!isRecord(raw)) return null;
+  const layer: AgentModelSettingsValue = {};
+  for (const [slug, entry] of Object.entries(raw)) {
+    if (!isRecord(entry)) continue;
+    const kept: Partial<Record<AgentModelProvider, string>> = {};
+    for (const provider of AGENT_MODEL_PROVIDERS) {
+      const leaf = readProviderLeaf(entry, provider);
+      if (typeof leaf === 'string') kept[provider] = leaf;
+    }
+    if (Object.keys(kept).length > 0) defineOwnEntry(layer, slug, kept);
+  }
+  return layer;
+}
+
+function classifyAgentModelLayer(
+  layer: AgentModelSettingsValue | null,
+  lists: Record<AgentModelProvider, AgentModelEntry[]> | null,
+): AgentModelLayerClassification {
+  const result: AgentModelLayerClassification = {};
+  if (layer === null) return result;
+  for (const [slug, entry] of Object.entries(layer)) {
+    const classes: Partial<Record<AgentModelProvider, AgentModelClass>> = {};
+    for (const provider of AGENT_MODEL_PROVIDERS) {
+      const value = entry[provider];
+      if (value === undefined) continue;
+      classes[provider] = classifyAgentModelValue(
+        provider,
+        value,
+        lists?.[provider] ?? null,
+      );
+    }
+    defineOwnEntry(result, slug, classes);
+  }
+  return result;
+}
+
+/** The provider's documented id format, for a malformed-value refusal. */
+function agentModelSyntaxHint(provider: AgentModelProvider): string {
+  switch (provider) {
+    case 'opencode':
+      return ' OpenCode expects "provider/model" with no spaces.';
+    case 'claude':
+      return ' Claude accepts opus, sonnet, haiku or inherit.';
+    default:
+      return ' Model ids cannot contain spaces or control characters.';
+  }
 }
 
 function toInvocation(row: SkillInvocationRow): SkillSynthesisInvocationEntry {

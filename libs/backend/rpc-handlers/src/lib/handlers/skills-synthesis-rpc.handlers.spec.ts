@@ -37,6 +37,30 @@ import {
   createMockWorkspaceProvider,
   type MockWorkspaceProvider,
 } from '@ptah-extension/platform-core/testing';
+import {
+  AgentSyncGate,
+  HARNESS_SYNC_TOKENS,
+  HarnessStateStore,
+  ManagedManifestStore,
+  harnessStatePath,
+  type AgentConsentReader,
+} from '@ptah-extension/harness-sync';
+import type {
+  QuarantinedAgentsListing,
+  QuarantineRestoreResult,
+} from '@ptah-extension/agent-generation';
+import {
+  AGENT_MODEL_SETTINGS_KEY,
+  AgentModelSettings,
+  SETTINGS_TOKENS,
+  WorkspaceScopeResolver,
+  type ISettingsStore,
+} from '@ptah-extension/settings-core';
+import type {
+  AgentModelEntry,
+  AgentModelProvider,
+} from '@ptah-extension/shared';
+import { CliModelListService } from '../services/cli-model-list.service';
 import { SkillsSynthesisRpcHandlers } from './skills-synthesis-rpc.handlers';
 
 function makeLogger() {
@@ -3919,5 +3943,883 @@ describe('SkillsSynthesisRpcHandlers — user-initiated work skips the governor'
     expect(gapCurator.runDigest).toHaveBeenCalledWith(
       expect.objectContaining({ allowRewrite: true, userInitiated: true }),
     );
+  });
+});
+
+/**
+ * C2 quarantine list + restore (TASK_2026_609 B-2b).
+ *
+ * The filesystem restore itself (snapshot selection, link/copy, conflicts) is
+ * pinned against a real `UserLayerMirrorService` in agent-generation's
+ * `user-layer-seed-quarantine.spec.ts`. Here the mirror is a stateful double of
+ * its two facade methods, and the agent-sync gate is the REAL `AgentSyncGate`
+ * over a real `.ptah/harness/state.json`, so "restore never changes consent"
+ * is asserted on the bytes the gate reads, not on a mock.
+ */
+describe('SkillsSynthesisRpcHandlers — quarantine list / restore (C2)', () => {
+  let tempRoot: string;
+  let ws: string;
+
+  beforeEach(() => {
+    tempRoot = fs.mkdtempSync(join(tmpdir(), 'ptah-quarantine-rpc-'));
+    ws = join(tempRoot, 'project');
+    // `.ptah` is a harness workspace-root marker, so `ws` is its own resolved
+    // root and a sub-folder of it resolves back to `ws`.
+    fs.mkdirSync(join(ws, '.ptah', 'harness'), { recursive: true });
+    fs.mkdirSync(join(ws, 'packages', 'app'), { recursive: true });
+  });
+
+  afterEach(() => {
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  });
+
+  /**
+   * Stateful double of the two mirror facade methods: Restore brings the
+   * source back, and a later listing then reports the item as
+   * `source-restored`, which is what the real derivation does while no clone
+   * has been re-created (gate off).
+   */
+  function makeQuarantineMirror() {
+    let sourceRestored = false;
+    return {
+      listQuarantinedAgents: jest.fn(
+        async (root: string): Promise<QuarantinedAgentsListing> => ({
+          recordUnreadable: false,
+          quarantined: [
+            {
+              slug: 'reviewer',
+              state: sourceRestored ? 'source-restored' : 'quarantined',
+              quarantinedAt: '2026-10-01T08:00:00.000Z',
+              hasSnapshot: true,
+              sourcePath: join(root, '.claude', 'agents', 'reviewer.md'),
+            },
+          ],
+          notOwned: ['kept-local'],
+        }),
+      ),
+      restoreQuarantinedAgent: jest.fn(
+        async (
+          root: string,
+          slug: string,
+        ): Promise<QuarantineRestoreResult> => {
+          sourceRestored = true;
+          return {
+            outcome: 'restored',
+            path: join(root, '.claude', 'agents', `${slug}.md`),
+          };
+        },
+      ),
+    };
+  }
+
+  function buildQuarantineHandlers(options: {
+    folders?: string[];
+    mirror?: ReturnType<typeof makeQuarantineMirror> | null;
+    gate?: AgentConsentReader | null;
+  }) {
+    const rpcHandler = makeRpcHandler();
+    const sentry = makeSentry();
+    const logger = makeLogger();
+    const child = container.createChildContainer();
+    child.registerInstance(TOKENS.LOGGER, logger);
+    child.registerInstance(TOKENS.RPC_HANDLER, rpcHandler);
+    child.registerInstance(TOKENS.SENTRY_SERVICE, sentry);
+    child.registerInstance(
+      SKILL_SYNTHESIS_TOKENS.SKILL_SYNTHESIS_SERVICE,
+      makeSynthesis(),
+    );
+    child.registerInstance(
+      SKILL_SYNTHESIS_TOKENS.SKILL_CANDIDATE_STORE,
+      makeStore(),
+    );
+    child.registerInstance(
+      SKILL_SYNTHESIS_TOKENS.SKILL_DIAGNOSTICS_SERVICE,
+      makeDiagnostics(),
+    );
+    child.registerInstance(
+      SKILL_SYNTHESIS_TOKENS.SKILL_QUEUE_STORE,
+      makeQueueStore(),
+    );
+    child.registerInstance(
+      SKILL_SYNTHESIS_TOKENS.SKILL_BUDGET_STORE,
+      makeBudgetStore(),
+    );
+    child.registerInstance(
+      PLATFORM_TOKENS.WORKSPACE_PROVIDER,
+      createMockWorkspaceProvider({ folders: options.folders ?? [ws] }),
+    );
+    if (options.mirror) {
+      child.registerInstance(USER_LAYER_MIRROR_SERVICE_TOKEN, options.mirror);
+    }
+    if (options.gate) {
+      child.registerInstance(HARNESS_SYNC_TOKENS.AGENT_SYNC_GATE, options.gate);
+    }
+    child.register(SkillsSynthesisRpcHandlers, {
+      useClass: SkillsSynthesisRpcHandlers,
+    });
+    child.resolve(SkillsSynthesisRpcHandlers).register();
+    return { rpcHandler, sentry, logger };
+  }
+
+  function writeGateState(enabled: boolean): string {
+    expect(
+      new HarnessStateStore().save(ws, {
+        version: 1,
+        agentSyncEnabled: enabled,
+      }),
+    ).toBe(true);
+    return harnessStatePath(ws);
+  }
+
+  it('gate disabled: restore is `restored` with agentSync disabled, consent untouched, item then `source-restored`', async () => {
+    const statePath = writeGateState(false);
+    const stateBefore = fs.readFileSync(statePath);
+    const gate = new AgentSyncGate(new ManagedManifestStore());
+    const enableSpy = jest.spyOn(gate, 'enable');
+    const mirror = makeQuarantineMirror();
+    const { rpcHandler } = buildQuarantineHandlers({ mirror, gate });
+
+    const restore = await rpcHandler.call(
+      'skillSynthesis:restoreQuarantinedAgent',
+      { slug: 'reviewer' },
+    );
+
+    expect(restore).toEqual({
+      outcome: 'restored',
+      path: join(ws, '.claude', 'agents', 'reviewer.md'),
+      agentSync: 'disabled',
+    });
+    expect(mirror.restoreQuarantinedAgent).toHaveBeenCalledWith(ws, 'reviewer');
+    // PR5: Restore never grants agent-sync consent.
+    expect(enableSpy).not.toHaveBeenCalled();
+    expect(fs.readFileSync(statePath).equals(stateBefore)).toBe(true);
+    expect(gate.resolve(ws)).toEqual({ enabled: false, derived: false });
+
+    const listing = await rpcHandler.call(
+      'skillSynthesis:listQuarantinedAgents',
+      {},
+    );
+    expect(listing).toEqual({
+      workspaceRoot: ws,
+      agentSync: 'disabled',
+      quarantined: [
+        {
+          slug: 'reviewer',
+          state: 'source-restored',
+          quarantinedAt: '2026-10-01T08:00:00.000Z',
+          hasSnapshot: true,
+          sourcePath: join(ws, '.claude', 'agents', 'reviewer.md'),
+        },
+      ],
+      notOwned: ['kept-local'],
+    });
+    expect(fs.readFileSync(statePath).equals(stateBefore)).toBe(true);
+  });
+
+  it('gate enabled: reports `enabled`', async () => {
+    writeGateState(true);
+    const { rpcHandler } = buildQuarantineHandlers({
+      mirror: makeQuarantineMirror(),
+      gate: new AgentSyncGate(new ManagedManifestStore()),
+    });
+
+    const listing = (await rpcHandler.call(
+      'skillSynthesis:listQuarantinedAgents',
+      undefined,
+    )) as { agentSync: string };
+
+    expect(listing.agentSync).toBe('enabled');
+  });
+
+  it('gate unregistered: agentSync is `unknown` on list and restore', async () => {
+    const { rpcHandler } = buildQuarantineHandlers({
+      mirror: makeQuarantineMirror(),
+      gate: null,
+    });
+
+    const listing = (await rpcHandler.call(
+      'skillSynthesis:listQuarantinedAgents',
+      {},
+    )) as { agentSync: string };
+    const restore = await rpcHandler.call(
+      'skillSynthesis:restoreQuarantinedAgent',
+      { slug: 'reviewer' },
+    );
+
+    expect(listing.agentSync).toBe('unknown');
+    expect(restore).toMatchObject({
+      outcome: 'restored',
+      agentSync: 'unknown',
+    });
+  });
+
+  it('gate resolve throws: agentSync is `unknown`, the restore result still stands', async () => {
+    const gate: AgentConsentReader = {
+      resolve: jest.fn(() => {
+        throw new Error('state unreadable');
+      }),
+    };
+    const { rpcHandler, logger } = buildQuarantineHandlers({
+      mirror: makeQuarantineMirror(),
+      gate,
+    });
+
+    const restore = await rpcHandler.call(
+      'skillSynthesis:restoreQuarantinedAgent',
+      { slug: 'reviewer' },
+    );
+
+    expect(restore).toMatchObject({
+      outcome: 'restored',
+      agentSync: 'unknown',
+    });
+    expect(logger.warn).toHaveBeenCalledWith(
+      '[skill-synthesis] could not read agent-sync consent',
+      { error: 'state unreadable' },
+    );
+  });
+
+  it('passes the harness-resolved absolute root, not the raw sub-folder', async () => {
+    const mirror = makeQuarantineMirror();
+    const { rpcHandler } = buildQuarantineHandlers({
+      folders: [join(ws, 'packages', 'app')],
+      mirror,
+    });
+
+    const listing = (await rpcHandler.call(
+      'skillSynthesis:listQuarantinedAgents',
+      {},
+    )) as { workspaceRoot: string };
+    await rpcHandler.call('skillSynthesis:restoreQuarantinedAgent', {
+      slug: 'reviewer',
+    });
+
+    expect(listing.workspaceRoot).toBe(ws);
+    expect(mirror.listQuarantinedAgents).toHaveBeenCalledWith(ws);
+    expect(mirror.restoreQuarantinedAgent).toHaveBeenCalledWith(ws, 'reviewer');
+  });
+
+  it('maps an unreadable record to `recordUnreadable: true` and omits it otherwise', async () => {
+    const mirror = makeQuarantineMirror();
+    mirror.listQuarantinedAgents.mockResolvedValueOnce({
+      recordUnreadable: true,
+      quarantined: [],
+      notOwned: [],
+    });
+    const { rpcHandler } = buildQuarantineHandlers({ mirror });
+
+    const unreadable = await rpcHandler.call(
+      'skillSynthesis:listQuarantinedAgents',
+      {},
+    );
+    const readable = await rpcHandler.call(
+      'skillSynthesis:listQuarantinedAgents',
+      {},
+    );
+
+    expect(unreadable).toMatchObject({ recordUnreadable: true });
+    expect(readable).not.toHaveProperty('recordUnreadable');
+  });
+
+  it('carries a refusal outcome and its reason through as a result', async () => {
+    const mirror = makeQuarantineMirror();
+    mirror.restoreQuarantinedAgent.mockResolvedValueOnce({
+      outcome: 'conflict',
+      path: join(ws, '.claude', 'agents', 'reviewer.md'),
+      reason: 'source differs from the snapshot',
+    });
+    const { rpcHandler } = buildQuarantineHandlers({ mirror });
+
+    await expect(
+      rpcHandler.call('skillSynthesis:restoreQuarantinedAgent', {
+        slug: 'reviewer',
+      }),
+    ).resolves.toEqual({
+      outcome: 'conflict',
+      path: join(ws, '.claude', 'agents', 'reviewer.md'),
+      reason: 'source differs from the snapshot',
+      agentSync: 'unknown',
+    });
+  });
+
+  it.each(['../evil', '..', 'a/b', 'a\\b', ''])(
+    'rejects traversal slug %p before the mirror is called (PR4)',
+    async (slug) => {
+      const mirror = makeQuarantineMirror();
+      const { rpcHandler } = buildQuarantineHandlers({ mirror });
+
+      await expect(
+        rpcHandler.call('skillSynthesis:restoreQuarantinedAgent', { slug }),
+      ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+      expect(mirror.restoreQuarantinedAgent).not.toHaveBeenCalled();
+    },
+  );
+
+  it('mirror service absent: both methods fail with an explicit error, not an empty list', async () => {
+    const { rpcHandler } = buildQuarantineHandlers({ mirror: null });
+
+    await expect(
+      rpcHandler.call('skillSynthesis:listQuarantinedAgents', {}),
+    ).rejects.toMatchObject({ errorCode: 'PERSISTENCE_UNAVAILABLE' });
+    await expect(
+      rpcHandler.call('skillSynthesis:restoreQuarantinedAgent', {
+        slug: 'reviewer',
+      }),
+    ).rejects.toMatchObject({ errorCode: 'PERSISTENCE_UNAVAILABLE' });
+  });
+
+  it('a thrown facade error becomes an RPC error, never a success', async () => {
+    const mirror = makeQuarantineMirror();
+    mirror.listQuarantinedAgents.mockRejectedValueOnce(
+      new Error(
+        '[UserLayerMirror] quarantine needs an absolute workspace root',
+      ),
+    );
+    mirror.restoreQuarantinedAgent.mockRejectedValueOnce(new Error('EIO'));
+    const { rpcHandler, sentry } = buildQuarantineHandlers({ mirror });
+
+    const listErr = await rpcHandler
+      .call('skillSynthesis:listQuarantinedAgents', {})
+      .catch((e: unknown) => e);
+    const restoreErr = await rpcHandler
+      .call('skillSynthesis:restoreQuarantinedAgent', { slug: 'reviewer' })
+      .catch((e: unknown) => e);
+
+    expect(listErr).toBeInstanceOf(RpcUserError);
+    expect((listErr as RpcUserError).errorCode).toBe('PERSISTENCE_UNAVAILABLE');
+    expect((listErr as Error).message).not.toContain('absolute');
+    expect(restoreErr).toBeInstanceOf(RpcUserError);
+    expect(sentry.captureException).toHaveBeenCalledTimes(2);
+  });
+
+  it('no open folder: list is empty with a null root; restore is refused', async () => {
+    const mirror = makeQuarantineMirror();
+    const { rpcHandler } = buildQuarantineHandlers({ folders: [], mirror });
+
+    await expect(
+      rpcHandler.call('skillSynthesis:listQuarantinedAgents', {}),
+    ).resolves.toEqual({
+      workspaceRoot: null,
+      agentSync: 'unknown',
+      quarantined: [],
+      notOwned: [],
+    });
+    await expect(
+      rpcHandler.call('skillSynthesis:restoreQuarantinedAgent', {
+        slug: 'reviewer',
+      }),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+    expect(mirror.listQuarantinedAgents).not.toHaveBeenCalled();
+    expect(mirror.restoreQuarantinedAgent).not.toHaveBeenCalled();
+  });
+});
+
+describe('SkillsSynthesisRpcHandlers — agent models get / set (C6)', () => {
+  type Lists = Record<AgentModelProvider, AgentModelEntry[]>;
+
+  let tempRoot: string;
+  let ws: string;
+  let otherWs: string;
+
+  beforeEach(() => {
+    tempRoot = fs.mkdtempSync(join(tmpdir(), 'ptah-agent-models-rpc-'));
+    ws = join(tempRoot, 'project');
+    otherWs = join(tempRoot, 'other');
+    // `.ptah` marks each folder as its own harness workspace root. The specs
+    // read and write nothing under the home directory: the settings store is
+    // in memory and the model list service is a double.
+    fs.mkdirSync(join(ws, '.ptah'), { recursive: true });
+    fs.mkdirSync(join(otherWs, '.ptah'), { recursive: true });
+  });
+
+  afterEach(() => {
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  });
+
+  /** Live Codex list (provider-reported) and curated lists elsewhere. */
+  function defaultLists(): Lists {
+    return {
+      claude: [],
+      codex: [{ id: 'gpt-5-codex' }, { id: 'gpt 5 preview' }],
+      copilot: [{ id: 'gpt-4.1', isFallback: true }],
+      cursor: [{ id: 'cursor-small', isFallback: true }],
+      opencode: [{ id: 'anthropic/claude-sonnet', isFallback: true }],
+    };
+  }
+
+  /** In-memory settings store; values are JSON-copied like a real file. */
+  function makeMemoryStore() {
+    const data = new Map<string, unknown>();
+    let failWrites = false;
+    const writeGlobal = jest.fn(async (key: string, value: unknown) => {
+      if (failWrites) throw new Error('EACCES: settings file is read-only');
+      if (value === undefined) data.delete(key);
+      else data.set(key, JSON.parse(JSON.stringify(value)));
+    });
+    const store = {
+      readGlobal: <T>(key: string): T | undefined => data.get(key) as T,
+      writeGlobal,
+      readSecret: async () => undefined,
+      writeSecret: async () => undefined,
+      deleteSecret: async () => undefined,
+      watchGlobal: () => ({ dispose: () => undefined }),
+      watchSecret: () => ({ dispose: () => undefined }),
+      flushSync: () => undefined,
+    } as unknown as ISettingsStore;
+    return {
+      store,
+      data,
+      writeGlobal,
+      failWrites: (fail: boolean) => {
+        failWrites = fail;
+      },
+      snapshot: () => JSON.stringify([...data.entries()]),
+    };
+  }
+
+  function buildAgentModelHandlers(
+    options: {
+      folders?: string[];
+      registerSettings?: boolean;
+      registerContainer?: boolean;
+      listForClassification?: jest.Mock;
+    } = {},
+  ) {
+    const rpcHandler = makeRpcHandler();
+    const sentry = makeSentry();
+    const memory = makeMemoryStore();
+    const workspaceProvider = createMockWorkspaceProvider({
+      folders: options.folders ?? [ws],
+    });
+    const resolver = new WorkspaceScopeResolver(memory.store, {
+      getActivePath: () => workspaceProvider.getWorkspaceRoot(),
+      onDidChange: () => ({ dispose: () => undefined }),
+    });
+    const settings = new AgentModelSettings(memory.store, resolver);
+    const updateSpy = jest.spyOn(settings, 'update');
+    const listForClassification =
+      options.listForClassification ??
+      jest.fn(async (): Promise<Lists> => defaultLists());
+
+    const child = container.createChildContainer();
+    child.registerInstance(TOKENS.LOGGER, makeLogger());
+    child.registerInstance(TOKENS.RPC_HANDLER, rpcHandler);
+    child.registerInstance(TOKENS.SENTRY_SERVICE, sentry);
+    child.registerInstance(
+      SKILL_SYNTHESIS_TOKENS.SKILL_SYNTHESIS_SERVICE,
+      makeSynthesis(),
+    );
+    child.registerInstance(
+      SKILL_SYNTHESIS_TOKENS.SKILL_CANDIDATE_STORE,
+      makeStore(),
+    );
+    child.registerInstance(
+      SKILL_SYNTHESIS_TOKENS.SKILL_DIAGNOSTICS_SERVICE,
+      makeDiagnostics(),
+    );
+    child.registerInstance(
+      SKILL_SYNTHESIS_TOKENS.SKILL_QUEUE_STORE,
+      makeQueueStore(),
+    );
+    child.registerInstance(
+      SKILL_SYNTHESIS_TOKENS.SKILL_BUDGET_STORE,
+      makeBudgetStore(),
+    );
+    child.registerInstance(
+      PLATFORM_TOKENS.WORKSPACE_PROVIDER,
+      workspaceProvider,
+    );
+    if (options.registerContainer !== false) {
+      child.registerInstance(PLATFORM_TOKENS.DI_CONTAINER, child);
+    }
+    if (options.registerSettings !== false) {
+      child.registerInstance(SETTINGS_TOKENS.AGENT_MODEL_SETTINGS, settings);
+    }
+    child.registerInstance(CliModelListService, {
+      listForClassification,
+    } as unknown as CliModelListService);
+    child.register(SkillsSynthesisRpcHandlers, {
+      useClass: SkillsSynthesisRpcHandlers,
+    });
+    child.resolve(SkillsSynthesisRpcHandlers).register();
+
+    const workspaceKey = (root: string) =>
+      resolver.inspectForPath(AGENT_MODEL_SETTINGS_KEY, root).key;
+    return {
+      rpcHandler,
+      sentry,
+      memory,
+      settings,
+      updateSpy,
+      listForClassification,
+      workspaceProvider,
+      workspaceKey,
+    };
+  }
+
+  function setParams(overrides: Record<string, unknown> = {}) {
+    return {
+      workspaceRoot: ws,
+      slug: 'backend-developer',
+      provider: 'codex',
+      scope: 'workspace',
+      value: 'gpt-5-codex',
+      ...overrides,
+    };
+  }
+
+  it('getAgentModels: returns both layers, the lists and the server classification', async () => {
+    const h = buildAgentModelHandlers();
+    h.memory.data.set(AGENT_MODEL_SETTINGS_KEY, {
+      '*': { codex: 'gpt-5-codex', cursor: 'cursor-small' },
+      junk: 'not-an-object',
+    });
+    h.memory.data.set(h.workspaceKey(ws), {
+      'backend-developer': {
+        codex: 'my-private-model',
+        opencode: 'no-slash',
+        claude: 'opus',
+        bogus: 'x',
+        copilot: 42,
+      },
+    });
+
+    const result = await h.rpcHandler.call('skillSynthesis:getAgentModels', {});
+
+    expect(result).toEqual({
+      workspaceRoot: ws,
+      machine: { '*': { codex: 'gpt-5-codex', cursor: 'cursor-small' } },
+      workspace: {
+        'backend-developer': {
+          claude: 'opus',
+          codex: 'my-private-model',
+          opencode: 'no-slash',
+        },
+      },
+      lists: defaultLists(),
+      classification: {
+        machine: { '*': { codex: 'listed', cursor: 'unverifiable' } },
+        workspace: {
+          'backend-developer': {
+            claude: 'unverifiable',
+            codex: 'unlisted',
+            opencode: 'malformed',
+          },
+        },
+      },
+      unsupportedProviders: [],
+    });
+    expect(h.listForClassification).toHaveBeenCalledTimes(1);
+  });
+
+  it('getAgentModels: no open folder is a null root with nothing to edit', async () => {
+    const h = buildAgentModelHandlers({ folders: [] });
+
+    await expect(
+      h.rpcHandler.call('skillSynthesis:getAgentModels', undefined),
+    ).resolves.toEqual({
+      workspaceRoot: null,
+      machine: null,
+      workspace: null,
+      lists: null,
+      classification: { machine: {}, workspace: {} },
+      unsupportedProviders: [],
+    });
+    expect(h.listForClassification).not.toHaveBeenCalled();
+  });
+
+  it('getAgentModels: a workspaceRoot that is not the active workspace is refused', async () => {
+    const h = buildAgentModelHandlers();
+
+    await expect(
+      h.rpcHandler.call('skillSynthesis:getAgentModels', {
+        workspaceRoot: otherWs,
+      }),
+    ).rejects.toMatchObject({ errorCode: 'UNAUTHORIZED_WORKSPACE' });
+  });
+
+  it('getAgentModels: unreadable lists degrade to null lists and unverifiable values', async () => {
+    const h = buildAgentModelHandlers({
+      listForClassification: jest.fn(async () => {
+        throw new Error('cli detection failed');
+      }),
+    });
+    h.memory.data.set(h.workspaceKey(ws), {
+      reviewer: { codex: 'gpt-5-codex' },
+    });
+
+    const result = await h.rpcHandler.call('skillSynthesis:getAgentModels', {
+      workspaceRoot: ws,
+    });
+
+    expect(result).toMatchObject({
+      lists: null,
+      classification: {
+        machine: {},
+        workspace: { reviewer: { codex: 'unverifiable' } },
+      },
+    });
+  });
+
+  it.each([
+    ['no AGENT_MODEL_SETTINGS registration', { registerSettings: false }],
+    ['no container at all', { registerContainer: false }],
+  ])(
+    'host with %s: both methods refuse with PERSISTENCE_UNAVAILABLE, nothing written',
+    async (_label, options) => {
+      const h = buildAgentModelHandlers(options);
+
+      await expect(
+        h.rpcHandler.call('skillSynthesis:getAgentModels', {}),
+      ).rejects.toMatchObject({ errorCode: 'PERSISTENCE_UNAVAILABLE' });
+      await expect(
+        h.rpcHandler.call('skillSynthesis:setAgentModel', setParams()),
+      ).rejects.toMatchObject({ errorCode: 'PERSISTENCE_UNAVAILABLE' });
+      expect(h.memory.writeGlobal).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    ['missing', undefined],
+    ['empty', ''],
+    ['blank', '   '],
+  ])(
+    '%s workspaceRoot is refused even for machine scope; the global key is unchanged',
+    async (_label, workspaceRoot) => {
+      const h = buildAgentModelHandlers();
+      h.memory.data.set(AGENT_MODEL_SETTINGS_KEY, {
+        '*': { codex: 'gpt-5-codex' },
+      });
+      const before = h.memory.snapshot();
+      const params: Record<string, unknown> = setParams({
+        scope: 'machine',
+        value: 'gpt 5 preview',
+      });
+      if (workspaceRoot === undefined) delete params['workspaceRoot'];
+      else params['workspaceRoot'] = workspaceRoot;
+
+      await expect(
+        h.rpcHandler.call('skillSynthesis:setAgentModel', params),
+      ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+      expect(h.updateSpy).not.toHaveBeenCalled();
+      expect(h.memory.writeGlobal).not.toHaveBeenCalled();
+      expect(h.memory.snapshot()).toBe(before);
+    },
+  );
+
+  it('no open folder: setAgentModel is refused with WORKSPACE_NOT_OPEN', async () => {
+    const h = buildAgentModelHandlers({ folders: [] });
+
+    await expect(
+      h.rpcHandler.call('skillSynthesis:setAgentModel', setParams()),
+    ).rejects.toMatchObject({ errorCode: 'WORKSPACE_NOT_OPEN' });
+    expect(h.memory.writeGlobal).not.toHaveBeenCalled();
+  });
+
+  it.each(['workspace', 'machine'])(
+    'workspace switched between load and save (%s scope): refused, neither workspace key nor the global key changed',
+    async (scope) => {
+      const h = buildAgentModelHandlers();
+      h.memory.data.set(h.workspaceKey(ws), {
+        reviewer: { codex: 'gpt-5-codex' },
+      });
+      h.memory.data.set(h.workspaceKey(otherWs), {
+        reviewer: { cursor: 'cursor-small' },
+      });
+      h.memory.data.set(AGENT_MODEL_SETTINGS_KEY, { '*': { codex: 'x-1' } });
+
+      const loaded = (await h.rpcHandler.call(
+        'skillSynthesis:getAgentModels',
+        {},
+      )) as { workspaceRoot: string };
+      const before = h.memory.snapshot();
+      h.workspaceProvider.__state.setFolders([otherWs]);
+
+      await expect(
+        h.rpcHandler.call(
+          'skillSynthesis:setAgentModel',
+          setParams({ workspaceRoot: loaded.workspaceRoot, scope }),
+        ),
+      ).rejects.toMatchObject({ errorCode: 'UNAUTHORIZED_WORKSPACE' });
+      expect(h.updateSpy).not.toHaveBeenCalled();
+      expect(h.memory.snapshot()).toBe(before);
+    },
+  );
+
+  it('workspace switched while the lists are read: refused before any write', async () => {
+    let switchFolders: () => void = () => undefined;
+    const h = buildAgentModelHandlers({
+      listForClassification: jest.fn(async () => {
+        switchFolders();
+        return defaultLists();
+      }),
+    });
+    switchFolders = () => h.workspaceProvider.__state.setFolders([otherWs]);
+
+    await expect(
+      h.rpcHandler.call('skillSynthesis:setAgentModel', setParams()),
+    ).rejects.toMatchObject({ errorCode: 'UNAUTHORIZED_WORKSPACE' });
+    expect(h.updateSpy).not.toHaveBeenCalled();
+    expect(h.memory.writeGlobal).not.toHaveBeenCalled();
+  });
+
+  it('listed value: saved to the request workspace key with update(root, slug, provider, value, scope)', async () => {
+    const h = buildAgentModelHandlers();
+    h.memory.data.set(h.workspaceKey(ws), {
+      'backend-developer': { cursor: 'cursor-small' },
+      reviewer: { codex: 'gpt-5-codex' },
+    });
+
+    const result = await h.rpcHandler.call(
+      'skillSynthesis:setAgentModel',
+      setParams(),
+    );
+
+    expect(h.updateSpy).toHaveBeenCalledWith(
+      ws,
+      'backend-developer',
+      'codex',
+      'gpt-5-codex',
+      'workspace',
+    );
+    expect(result).toEqual({
+      classification: 'listed',
+      machine: null,
+      workspace: {
+        'backend-developer': { cursor: 'cursor-small', codex: 'gpt-5-codex' },
+        reviewer: { codex: 'gpt-5-codex' },
+      },
+    });
+    expect(h.memory.data.has(AGENT_MODEL_SETTINGS_KEY)).toBe(false);
+  });
+
+  it('machine scope writes the global key and leaves the workspace key alone', async () => {
+    const h = buildAgentModelHandlers();
+
+    await h.rpcHandler.call(
+      'skillSynthesis:setAgentModel',
+      setParams({ scope: 'machine', slug: '*' }),
+    );
+
+    expect(h.memory.data.get(AGENT_MODEL_SETTINGS_KEY)).toEqual({
+      '*': { codex: 'gpt-5-codex' },
+    });
+    expect(h.memory.data.has(h.workspaceKey(ws))).toBe(false);
+  });
+
+  it('Unlisted without confirmUnlisted: refused "needs confirmation", nothing written', async () => {
+    const h = buildAgentModelHandlers();
+
+    const error = await h.rpcHandler
+      .call(
+        'skillSynthesis:setAgentModel',
+        setParams({ value: 'my-private-model' }),
+      )
+      .catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(RpcUserError);
+    expect((error as RpcUserError).errorCode).toBe('MODEL_NOT_AVAILABLE');
+    expect((error as Error).message).toContain('needs confirmation');
+    expect(h.memory.writeGlobal).not.toHaveBeenCalled();
+  });
+
+  it('Unlisted with confirmUnlisted: saved and reported as unlisted', async () => {
+    const h = buildAgentModelHandlers();
+
+    const result = await h.rpcHandler.call(
+      'skillSynthesis:setAgentModel',
+      setParams({ value: 'my-private-model', confirmUnlisted: true }),
+    );
+
+    expect(result).toMatchObject({ classification: 'unlisted' });
+    expect(h.memory.data.get(h.workspaceKey(ws))).toEqual({
+      'backend-developer': { codex: 'my-private-model' },
+    });
+  });
+
+  it('listed-but-syntax-failing Codex value is accepted and saved', async () => {
+    const h = buildAgentModelHandlers();
+
+    const result = await h.rpcHandler.call(
+      'skillSynthesis:setAgentModel',
+      setParams({ value: 'gpt 5 preview' }),
+    );
+
+    expect(result).toMatchObject({ classification: 'listed' });
+    expect(h.memory.data.get(h.workspaceKey(ws))).toEqual({
+      'backend-developer': { codex: 'gpt 5 preview' },
+    });
+  });
+
+  it('OpenCode listed-but-malformed is refused, even when provider-reported', async () => {
+    const lists = defaultLists();
+    lists.opencode = [{ id: 'no-slash' }];
+    const h = buildAgentModelHandlers({
+      listForClassification: jest.fn(async () => lists),
+    });
+
+    await expect(
+      h.rpcHandler.call(
+        'skillSynthesis:setAgentModel',
+        setParams({ provider: 'opencode', value: 'no-slash' }),
+      ),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+    expect(h.memory.writeGlobal).not.toHaveBeenCalled();
+  });
+
+  it('a value with a control character is refused as malformed', async () => {
+    const h = buildAgentModelHandlers();
+
+    await expect(
+      h.rpcHandler.call(
+        'skillSynthesis:setAgentModel',
+        setParams({ value: 'gpt-5\nmodel: evil', confirmUnlisted: true }),
+      ),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+    expect(h.memory.writeGlobal).not.toHaveBeenCalled();
+  });
+
+  it('a fallback-only list never makes a value listed or unlisted: unverifiable, saved without confirmation', async () => {
+    const h = buildAgentModelHandlers();
+
+    const result = await h.rpcHandler.call(
+      'skillSynthesis:setAgentModel',
+      setParams({ provider: 'cursor', value: 'some-new-model' }),
+    );
+
+    expect(result).toMatchObject({ classification: 'unverifiable' });
+  });
+
+  it('null value clears one provider, keeps the others, and reads no list', async () => {
+    const h = buildAgentModelHandlers();
+    h.memory.data.set(h.workspaceKey(ws), {
+      'backend-developer': { codex: 'gpt-5-codex', cursor: 'cursor-small' },
+    });
+
+    const result = await h.rpcHandler.call(
+      'skillSynthesis:setAgentModel',
+      setParams({ value: null }),
+    );
+
+    expect(result).toMatchObject({
+      classification: 'empty',
+      workspace: { 'backend-developer': { cursor: 'cursor-small' } },
+    });
+    expect(h.listForClassification).not.toHaveBeenCalled();
+  });
+
+  it('save failure: refused with PERSISTENCE_UNAVAILABLE and the prior settings bytes kept', async () => {
+    const h = buildAgentModelHandlers();
+    h.memory.data.set(h.workspaceKey(ws), {
+      'backend-developer': { codex: 'gpt 5 preview' },
+    });
+    const before = h.memory.snapshot();
+    h.memory.failWrites(true);
+
+    await expect(
+      h.rpcHandler.call('skillSynthesis:setAgentModel', setParams()),
+    ).rejects.toMatchObject({ errorCode: 'PERSISTENCE_UNAVAILABLE' });
+    expect(h.memory.snapshot()).toBe(before);
+    expect(h.sentry.captureException).toHaveBeenCalledTimes(1);
   });
 });

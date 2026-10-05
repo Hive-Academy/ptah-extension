@@ -1,487 +1,417 @@
-# Implementation Plan Addendum - TASK_2026_597 - Decision 10 (N7 budgets, N8 handoff workflow)
+# Implementation Plan Addendum - TASK_2026_597 - N7 budgets, N8 handoff workflow (revision 2)
 
-Status: draft for Gate 2. No batch may be appended to `batches.md` before the user approves this addendum and answers
-`## Decisions for the user`.
+Status: draft for Gate 2 (follow-up task, decision 11). Revision 2 resolves the REVISE review
+(`implementation-plan-addendum-review.md`, F1-F15). Nothing is decomposed into batches before the user answers
+`## Gate 2 decisions`. All line references are verified on branch `fix/task-597-followups` (HEAD `5bb19f9fb`, which
+contains PR #634 merge `f314a4f8a`).
 
 ## Inputs and constraints
 
-- Requirements used: `context.md` § User Decisions items 9 and 10 (lines 108-146); coordinator message (2026-10-03):
-  "the budgets must use the SAME values the chat already shows in the session stats summary (TOKENS 14.1M, COST $8.96)
-  ... Do not invent a second counter".
-- Plan components integrated with (read by grep only): 6b `implementation-plan.md:802-822`, 17 `:1122-1154`,
-  19 `:1183-1200`, 20 `:1202-1223`, 21 `:1225-1253`, settings table `:430-431`, `compaction:getConfig` `:463`.
-- Batches integrated with (headers and task bodies read): 16-17, 20-21, 23, 26-31, 32, 36, 37-41, 46-47
-  (`batches.md:1102-1200, 1286-1370, 1426-1476, 1557-1787, 1789-1842, 2073-2278, 2413-2470`).
-- Corrections applied: the coordinator message above replaces the "reuse the ledger, weighted fallback" wording of item
-  10 with "one figure, the one the chat shows".
-- Missing decision-critical input: none blocks the design. Four choices need the user (see the last section).
+- Requirements used: `context.md` § User Decisions item 2 (A1 gated on E2), item 9 (N7, N8), item 11 (follow-up task,
+  risk-based review); the review file (F1-F15); `research-report.md:96, 100` (E2, PostCompact).
+- Corrections applied: "one figure, the one the chat shows" (coordinator, kept from revision 1). The weighted formula
+  is a fallback only where no dollar figure exists.
+- Revision 1 state: the file was unmodified by the stopped revision-2 run; this revision replaces it in place.
+- Out of bounds (TASK_2026_609): agent-generation services and templates, `.claude/agents`, and the system-prompt parts
+  of `sdk-query-options-builder.ts`. This plan touches none of them. Shared file with 609:
+  `libs/backend/platform-core/src/file-settings-keys.ts` (append-only additions here).
+- Missing decision-critical input: none. Four choices go to the user.
+
+## What PR #634 shipped and what this addendum depends on
+
+| Batch                        | State on main                                                                      | Used here?         | How                                                                                                  |
+| ---------------------------- | ---------------------------------------------------------------------------------- | ------------------ | ---------------------------------------------------------------------------------------------------- |
+| 23 (A1 machinery)            | Shipped `65aed6387`: `A1_DEFAULT_WINDOW` all `null`, live `applyAutoCompactConfig` | Yes                | `resolveAutoCompactControl` and the live `applyFlagSettings({autoCompactWindow})` path (component 4) |
+| 42-44 (N3), 48-49 (N5)       | Shipped                                                                            | No                 | Unrelated                                                                                            |
+| 16-17, 20-21 (6b settings)   | DEFERRED                                                                           | No                 | Budget keys use the existing file store plus `settings:get/set` instead                              |
+| 26-27 (A8 coordinator, port) | DEFERRED                                                                           | No                 | Tighten reads `getContextUsage` itself; no `IContextUsagePort`                                       |
+| 28 (A5 subagent monitor)     | DEFERRED                                                                           | Subagent part only | Component 10 waits for it (Decision 2)                                                               |
+| 29-31 (A6 advisory, banner)  | DEFERRED                                                                           | No                 | Budget state rides the existing `session:stats` broadcast; a new budget banner is built here         |
+| 36 (M subagent views)        | DEFERRED                                                                           | Subagent part only | Calibrates the safety-stop default                                                                   |
+| 37-39 (N1 TTL)               | DEFERRED                                                                           | Subagent part only | Cache-write weight per subagent                                                                      |
+| 40-41 (N2 cache state)       | DEFERRED                                                                           | Subagent part only | warm/cold input of resume advice                                                                     |
+| 46-47 (N6 agent card)        | DEFERRED                                                                           | Subagent part only | Display of the per-subagent figure                                                                   |
+
+Result: the session budget and the handoff workflow (components 1-9) depend only on code already on main. Everything
+per-subagent (component 10) is a contract that is built with or after Batches 28, 36, 37 and 40-41.
 
 ## Codebase evidence
 
-### What the chat's TOKENS and COST are today (verified trace)
+### The figure the chat shows (single source)
 
-| Evidence                                                                                                                                                                                                                            | Location                                                                                                                                                                                                      | Implication                                                                                                       |
-| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| The summary renders ONLY the backend snapshot: TOKENS = `snapshot().tokenCount`, COST = `snapshot().totalCost` (`null` → "cost unavailable", plus a labelled `knownCost` subtotal when pricing is partial)                          | `libs/frontend/chat-ui/src/lib/molecules/session/session-stats-summary.component.ts:669, 761, 768-776, 790-794`                                                                                               | The budget must read `SessionStatsEntry.tokenCount` / `.totalCost` of the same snapshot object.                   |
-| The chat installs the snapshot as-is from `session:stats.sessionStats`, after shape and session-id checks; no frontend arithmetic                                                                                                   | `libs/frontend/chat/src/lib/services/chat-store/session-stats-aggregator.service.ts:113-160, 239-256`                                                                                                         | No frontend counter exists to diverge from.                                                                       |
-| `session-live-stats.util.ts` derives only the context badge (latest main request / capacity); it is "not an accounting figure"                                                                                                      | `libs/frontend/chat/src/lib/services/chat-store/session-live-stats.util.ts:38-105`; `session-stats-summary.component.ts:672-676`                                                                              | Context % is a separate signal (A6/A8 use it); it is not the budget.                                              |
-| `tokenCount` = input + output + cacheRead + cacheCreation (all four classes)                                                                                                                                                        | `session-usage-aggregator.ts:432, 461`; owner run contribution `session-stats-owner.service.ts:837-838`; type doc `libs/shared/src/lib/types/rpc/rpc-session.types.ts:367-368`                                | TOKENS is raw tokens, dominated by cache-read. It is optional in the type, so "absent" must be handled.           |
-| Snapshot = fixed history prefix + Σ per query run (latest cumulative SDK result minus restored base)                                                                                                                                | `session-stats-owner.service.ts:16-20, 652-701`                                                                                                                                                               | Lifetime of the session, all turns, across restarts and resumes.                                                  |
-| Live runs come from the SDK `result.modelUsage` (cumulative per query, every model, Task subagents included); the per-turn `usage` is main-loop only and is NOT counted                                                             | `libs/backend/agent-sdk/src/lib/helpers/stream-transformer.ts:653-655, 684-689, 704-718, 767-773`                                                                                                             | TOKENS and COST include subagent spend live. Live subagent spend is not separable (only per model id).            |
-| History prefix aggregates the parent ledger AND every subagent ledger (`scope: 'session'`)                                                                                                                                          | `session-usage-aggregator.ts:161-171, 243-250`; ledgers per transcript file `session-usage-ledger.ts:37-48, 213-247`                                                                                          | From history, parent vs subagent IS separable (separate ledgers), but the snapshot sums them.                     |
-| Snapshot is published per SDK `result` (one per turn) on `session:stats`, and returned to `onResultStats`                                                                                                                           | `stream-transformer.ts:698-746, 788-791`; broadcast `libs/backend/cli-agent-runtime/src/lib/wiring/sdk-callbacks.ts:400-418`; adapter wrapper `libs/backend/agent-sdk/src/lib/sdk-agent-adapter.ts:1581-1591` | Budget granularity is per turn, not per request. The wrapper sees the exact object the webview gets.              |
-| `snapshot(sessionId)` returns `null` while the prefix read is in flight or the session has no owner                                                                                                                                 | `session-stats-owner.service.ts:562-572`                                                                                                                                                                      | "No stats yet" is a defined state.                                                                                |
-| A run without per-model usage marks the snapshot `coverage: 'partial'` and `totalCost: null`                                                                                                                                        | `session-stats-owner.service.ts:528-546, 680-692`                                                                                                                                                             | TOKENS is then a lower bound; COST is null.                                                                       |
-| Cost authority per query: `'reported'` only on the direct Anthropic route; every translated/custom base URL (Ollama Cloud, OpenRouter, Codex/OpenAI translation proxy) is `'unreported'` and priced from the rate card per model id | `libs/backend/agent-sdk/src/lib/helpers/session-lifecycle/session-query-executor.service.ts:65-80`; `session-stats-owner.service.ts:52-59, 239-259, 656-669` (transformer)                                    | "COST" is provider-reported only for direct Anthropic runs.                                                       |
-| History prefix dollars are ALWAYS rate-card priced (`calculateMessageCost` per model), never the provider's figure                                                                                                                  | `session-usage-aggregator.ts:252-292`                                                                                                                                                                         | A resumed session's COST = estimated prefix + reported live runs.                                                 |
-| `totalCost` is `null` whenever any counted model is unpriced (partial sum is never a total)                                                                                                                                         | `rpc-session.types.ts:348-353`; `session-usage-aggregator.ts:279-292`                                                                                                                                         | COST can be unavailable on proxied models missing from the rate card; TOKENS never is (when the snapshot exists). |
-| Codex/OpenCode/other CLI lanes are separate processes; the owner only takes SDK results and transcript ledgers of the session                                                                                                       | `session-usage-aggregator.ts:243-250`; owner API `session-stats-owner.service.ts:386-560`                                                                                                                     | Lane spend is in neither TOKENS nor COST. Lanes keep their own guards (Batches 32, 35).                           |
+| Evidence                                                                                                                                 | Location                                                                                                                                                                                                        | Implication                                                                                                              |
+| ---------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| TOKENS chip = `snapshot().tokenCount`; COST = `snapshot().totalCost`; `knownCost` labelled subtotal when `pricingCoverage === 'partial'` | `libs/frontend/chat-ui/src/lib/molecules/session/session-stats-summary.component.ts:669, 761, 768-776, 790-794`                                                                                                 | The budget numerator is these two fields of the same object.                                                             |
+| The chip's `[snapshot]` is `tab.sessionStats`                                                                                            | `libs/frontend/chat/src/lib/components/templates/chat-view.component.html:27-31`; `chat-view.component.ts:773-777`                                                                                              | One per-tab slot.                                                                                                        |
+| Live install: `session:stats` → `installSessionStats` (revision guard)                                                                   | `libs/frontend/chat/src/lib/services/chat-store/session-stats-aggregator.service.ts:113-158`; `libs/frontend/chat-state/src/lib/tab-manager.service.ts:2196-2209`                                               | Lower revisions are dropped; the budget must apply the same rule (F5).                                                   |
+| Resume install: `chat:resume.stats` → `applyLoadedSessionStats`                                                                          | `libs/frontend/chat/src/lib/services/chat-store/session-loader.service.ts:1033`; `tab-manager.service.ts:2216-2237`                                                                                             | Second entry path (F2).                                                                                                  |
+| Resume stats = owner snapshot when an owner exists, else transcript aggregate                                                            | `libs/backend/agent-sdk/src/lib/session-history-reader.service.ts:1002-1016`; called via `libs/backend/rpc-handlers/src/lib/chat/session/chat-history-read.service.ts:50-66` from `chat-session.service.ts:963` | The backend sees the resume figure at `readForResume`.                                                                   |
+| Broadcast forwards `sessionStats` unchanged; absent → panel keeps the last one                                                           | `libs/backend/cli-agent-runtime/src/lib/wiring/sdk-callbacks.ts:400-418`                                                                                                                                        | Absent ≠ unknown (F5).                                                                                                   |
+| Snapshot producer: `publish()` returns a frozen object, prefix + Σ runs                                                                  | `libs/backend/agent-sdk/src/lib/session-stats/session-stats-owner.service.ts:16-20, 652-700`                                                                                                                    | No second counter needed.                                                                                                |
+| `snapshot()` is `null` with no owner or a prefix read in flight                                                                          | `session-stats-owner.service.ts:562-572`                                                                                                                                                                        | Defined "no figure" state.                                                                                               |
+| Owner keyed by provisional tab key until `rebind`                                                                                        | `session-stats-owner.service.ts:381-391, 446-453`                                                                                                                                                               | Key budget state by the snapshot's `sessionId` (F1).                                                                     |
+| `'reported'` cost: per-model `usage.costUSD` and `total_cost_usd` on direct Anthropic; `'unreported'` routes priced from the rate card   | `libs/backend/agent-sdk/src/lib/helpers/stream-transformer.ts:579-600, 656-669`; `session-lifecycle/session-query-executor.service.ts:65-80`; owner `:52-59, 239-273`                                           | COST is provider-reported only on the direct route; history prefix is rate-card (`session-usage-aggregator.ts:252-292`). |
+| `modelUsage` is cumulative per query, subagents included; `usage` is main-loop only                                                      | `stream-transformer.ts:653-655, 684-689`                                                                                                                                                                        | TOKENS/COST include Task-subagent spend live.                                                                            |
+| Result order: `onTurnEnd` (releases held follow-up) BEFORE pricing awaits and `onResultStats`                                            | `stream-transformer.ts:513-516, 585-587, 788-791`; `sdk-agent-adapter.ts:1598-1602`; `session-registry.service.ts:516-530`                                                                                      | A held follow-up is sent before the crossing figure is known (F7).                                                       |
+| `effectiveSessionId` becomes the SDK id at `system/init`                                                                                 | `stream-transformer.ts:393, 472-474, 775`                                                                                                                                                                       | `stats.sessionId` is the real id at result time.                                                                         |
+| Wrapper id is the tab-derived `trackingId` for new sessions                                                                              | `libs/backend/agent-sdk/src/lib/sdk-agent-adapter.ts:693, 796-800, 1581-1591`                                                                                                                                   | Never key by the wrapper id (F1).                                                                                        |
+| `SessionStatsEntry`: `totalCost` null unless pricing full; `knownCost`; `tokenCount?`; `coverage`; `pricingCoverage: 'full'              | 'partial'                                                                                                                                                                                                       | 'none'`; `revision?`                                                                                                     | `libs/shared/src/lib/types/rpc/rpc-session.types.ts:343-424, 436-439` | Measure rules in component 3. |
 
 ### Other integration points
 
-| Evidence                                                                                                                                  | Location                                                                                                                                                                                                | Implication                                                                            |
-| ----------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| `applyFlagSettings` accepts only `{effortLevel}` today; Batch 23.4 widens it to `{effortLevel?, autoCompactWindow?}`                      | `session-lifecycle-manager.ts:86`; `session-control.service.ts:499`; `batches.md:1462-1469`                                                                                                             | Tighten stage reuses the Batch 23.4 path; no new SDK call.                             |
-| `IContextUsagePort` returns `{totalTokens, maxTokens, autoCompactThreshold?, source}` once per turn end (planned)                         | `implementation-plan.md:1245-1246`; `batches.md:1575-1582`                                                                                                                                              | Current threshold for the "already lower" check.                                       |
-| PostCompact emits `compactionComplete` with `compactSummary`                                                                              | `compaction-hook-handler.ts:463-469`; `sdk-adapter-events.service.ts:131, 181` (`emitCompactionComplete` / `onCompactionComplete`)                                                                      | Compaction count and the latest summary come from an existing event.                   |
-| A6 advisory message `session:contextAdvisory` with `kind: 'rotation-suggested'` and `seedPrompt` (planned)                                | `batches.md:1686-1711`; banner `:1764-1771`; store `:1773-1780`                                                                                                                                         | N8 reuses the message, emitter, notifier and banner by adding a second `kind`.         |
-| `compaction.subagentHandoffTokens` default 150,000 (range 50k-1M) is the A5 stop threshold                                                | `implementation-plan.md:430, 1183-1200`                                                                                                                                                                 | It equals the provisional 150k resume limit: reuse the key, no new one.                |
-| `stopSubagent(sessionId, taskId)` exists                                                                                                  | `subagent-message-dispatcher.ts:258`                                                                                                                                                                    | Safety stop reuses it (Batch 28 already does).                                         |
-| N2: `SubagentCacheInfo {cacheState, effectiveTtl, idleMs}`, `computeSubagentCacheState`; injector lines and status RPC carry it (planned) | `batches.md:2221-2271`                                                                                                                                                                                  | `resumeAdvice` sits next to it.                                                        |
-| N6: `MonitoredAgent` gains `contextTokens`, `cacheState`, `usage`, `estimatedCostUsd` (planned)                                           | `batches.md:2431-2438, 2456-2462`                                                                                                                                                                       | Agent card shows the same per-subagent figure the backend budgets.                     |
-| `chat:continue` returns `{success:false, error, errorCode?}`; `ChatContinueResult.errorCode` is `RpcUserErrorCode`                        | `libs/backend/rpc-handlers/src/lib/chat/session/chat-session.service.ts:759-795`; `libs/shared/src/lib/types/rpc/rpc-chat.types.ts:162-170`; `libs/shared/src/lib/types/rpc/rpc-error-codes.types.ts:7` | The limit block is a structured `errorCode`, not a thrown error.                       |
-| `ChatStartParams.prompt` starts a new session with a first prompt                                                                         | `rpc-chat.types.ts:44-46`                                                                                                                                                                               | "Continue in new session" needs no new start RPC.                                      |
-| File-based settings set and defaults                                                                                                      | `libs/backend/platform-core/src/file-settings-keys.ts:154, 456`                                                                                                                                         | New keys go here (ConfigManager file store), served by the 6b `compaction:*` RPC.      |
-| The summary is bound in `chat-view.component.html:27-31` (`[snapshot]`, `[liveModelStats]`, `[compactionCount]`)                          | `libs/frontend/chat/src/lib/components/templates/chat-view.component.html:27-31`                                                                                                                        | The budget input is added on the same element.                                         |
-| No weighted-token helper exists in `shared`, `agent-sdk` or `scripts/agent-usage`                                                         | grep for `weighted` (no hits)                                                                                                                                                                           | One pure helper is created; it is used only by the fallback and the per-subagent stop. |
-
-### Calibration numbers (from context.md § Handoff and the user's chat)
-
-- Last session: 177M cache-read, 7.7M cache-write, 1.1M output, 1,075 requests. Raw TOKENS ≈ 186M (+ uncached input,
-  small). Weighted ≈ 17.7M + 9.6M (cache write ×1.25) + 5.5M ≈ 33M (≈38M if all cache writes were 1h at ×2).
-  Weighted/raw ≈ 0.18.
-- User's chat: TOKENS 14.1M ↔ COST $8.96 → $0.64 per 1M displayed tokens for that mix.
-- A 50M TOKENS budget therefore equals ≈ 9M weighted and ≈ $32 at that mix. The last session would have reached
-  50M TOKENS after roughly a quarter of its requests.
+| Evidence                                                                                                                                 | Location                                                                                                                                                                                                                                                | Implication                                                                               |
+| ---------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `applyFlagSettings({effortLevel?, autoCompactWindow?: number \| null})`; `null` clears the key                                           | `libs/backend/agent-sdk/src/lib/helpers/session-lifecycle-manager.ts:88-96`                                                                                                                                                                             | Restore = send the configured window or `null` (F14).                                     |
+| Live apply loops over ALL live sessions with a timeout; never throws                                                                     | `session-lifecycle/session-control.service.ts:532-598`                                                                                                                                                                                                  | A settings change would overwrite a per-session tighten; needs an override (component 4). |
+| `A1_DEFAULT_WINDOW = {claude: null, proxied: null}` until E2 passes; env wins                                                            | `helpers/auto-compact-control.ts:51-69, 166-203`                                                                                                                                                                                                        | Tighten must not assume the window is honoured.                                           |
+| E2: source-level yes; live check = `getContextUsage().autoCompactThreshold` follows the window; proxied ids unproven                     | `research-report.md:96`; SDK `node_modules/@anthropic-ai/claude-agent-sdk/sdk.d.ts:2852, 3807`                                                                                                                                                          | Tighten verifies by read-back.                                                            |
+| `getContextUsage` absent from Ptah's structural query mirror                                                                             | `session-lifecycle-manager.ts:80-104` (no member); grep in `libs/backend` (no hits)                                                                                                                                                                     | Add one member to the mirror.                                                             |
+| `compact_boundary` is seen in the main stream; it carries no `parent_tool_use_id`                                                        | `stream-transformer.ts:795-797`; `claude-sdk.types.ts:356-364`; `sdk.d.ts:3530-3536`                                                                                                                                                                    | Count compactions here (F8).                                                              |
+| PostCompact missed in four August auto events                                                                                            | `research-report.md:100`                                                                                                                                                                                                                                | Not the counting source.                                                                  |
+| The chat's compaction count is per-tab memory, reset on load                                                                             | `compaction-lifecycle.service.ts:524-531`; `tab-manager.service.ts:1201, 2336`                                                                                                                                                                          | Both counts reset on restart; documented.                                                 |
+| `NATIVE_COMMANDS = new Set(['clear'])`; `/compact` goes to the SDK via the slash router                                                  | `libs/backend/agent-sdk/src/lib/helpers/slash-command-interceptor.ts:37`; `chat-session.service.ts:836-873`                                                                                                                                             | Explicit allowlist (F3).                                                                  |
+| `chat:continue` returns structured failures; Ptah CLI branch first                                                                       | `chat-session.service.ts:759-795`; `rpc-chat.types.ts:162-170`; `rpc-error-codes.types.ts:7`                                                                                                                                                            | Gate returns `errorCode`.                                                                 |
+| Frontend handles `errorCode` on send results                                                                                             | `libs/frontend/chat/src/lib/services/message-sender.service.ts:97-111`                                                                                                                                                                                  | Same pattern for the budget code.                                                         |
+| Other turn sources: surface submits, Ptah CLI                                                                                            | `chat/session/surface-submit-turn.service.ts:298`; `chat/ptah-cli/chat-ptah-cli.service.ts:274`                                                                                                                                                         | Not gated (accepted risk, below).                                                         |
+| RPC manifest invariant "Total" and method registry                                                                                       | `libs/backend/rpc-handlers/src/lib/host-profile/manifest.ts:14-18, 283-295`; `libs/shared/src/lib/types/rpc.types.ts:785, 3695, 4157`; specs `rpc-allowlist.spec.ts`, `apps/*/src/di/rpc-surface.spec.ts`, `cli-engine/src/lib/rpc/rpc-surface.spec.ts` | New method, handler, manifest and specs land together (F4).                               |
+| `settings:get/set` route file-based keys to `~/.ptah/settings.json`; set is allow-listed by `isFileBasedSettingKey`, no value validation | `rpc-handlers/src/lib/handlers/settings-rpc.handlers.ts:103-173`; used by `libs/frontend/git-ui/src/lib/open-in/open-in-button.component.ts:261, 280`                                                                                                   | Settings need no new RPC; validation on read (component 2).                               |
+| File store key set and defaults                                                                                                          | `libs/backend/platform-core/src/file-settings-keys.ts:154, 460`                                                                                                                                                                                         | New keys here.                                                                            |
+| `compaction.*` keys are VS Code contributions only today                                                                                 | grep `compaction.threshold`: `apps/ptah-extension-vscode/package.json`, provider `compaction-config-provider.ts:75-77`                                                                                                                                  | Use a new `sessionBudget.*` namespace, not the deferred 6b move.                          |
+| Transcript tail read, bounded, not size-capped                                                                                           | `libs/backend/agent-sdk/src/lib/helpers/history/jsonl-reader.service.ts:239, 554-569`                                                                                                                                                                   | Handoff facts read at write time (restart-safe).                                          |
+| Session id guard                                                                                                                         | `UUID_REGEX` `libs/shared/src/lib/types/branded.types.ts:39`, used `session-stats-reader.service.ts:36, 117`                                                                                                                                            | Validate before any path join (F12).                                                      |
+| `~/.ptah` home root                                                                                                                      | `libs/backend/platform-core/src/content-download.service.ts:4-8`                                                                                                                                                                                        | Handoff directory root.                                                                   |
+| Dumb banner pattern (inputs/outputs, OnPush) and host slot                                                                               | `chat/src/lib/components/molecules/notifications/resume-notification-banner.component.ts`; `chat-view.component.html:127-137`                                                                                                                           | New budget banner follows it.                                                             |
+| `ChatStartParams.prompt`; `ChatResumeResult.stats`                                                                                       | `rpc-chat.types.ts:44-46, 268-292`                                                                                                                                                                                                                      | New session from handoff; resume carries budget.                                          |
+| `stopSubagent(sessionId, taskId)`                                                                                                        | `helpers/subagent-message-dispatcher.ts:258`                                                                                                                                                                                                            | Used only by component 10.                                                                |
 
 ## Architecture decision
 
-- Chosen approach: one backend `SessionBudgetService` in `agent-sdk` that evaluates the SAME `SessionStatsEntry` object
-  the stream transformer hands to `onResultStats` (and the webview receives). It reads `tokenCount` (unit `tokens`) or
-  `totalCost` (unit `cost`). It never sums anything itself. The weighted formula is used only when the unit is `cost`
-  and `totalCost` is `null`. Stage actions reuse Batch 23.4 (live window), A8/A6 events and banner, A5 stop, and N2
-  cache state. Per-subagent budgets live in the A5 `SubagentBudgetMonitor`, and the agent card shows that same figure.
-- Rationale: the user requires one figure ("the limit and the chat display can never disagree"). The snapshot is
-  already the single authority (`session-stats-owner.service.ts:1-3`), is lifetime-correct across resumes, and is
-  published per turn.
+- Chosen approach: one `SessionBudgetService` in agent-sdk evaluates the SAME `SessionStatsEntry` the chat installs,
+  on both entry paths (live `onResultStats`, resume `readForResume`). It never sums usage. Its state travels to the
+  webview on the same messages that carry the snapshot (`session:stats` and `chat:resume`), so the chip's numerator
+  and the budget's numerator are one object. Tighten is advisory by default; the live window change is opt-in and
+  self-verifying (E2 read-back). The handoff is assembled deterministically from the transcript tail at write time.
+- Rationale: the user's requirement "the limit and the chat display can never disagree" holds by construction; the
+  plan uses only code already on main for the session part.
 - Rejected alternatives:
-  - A main-loop-only counter (summing the per-turn `usage`, `stream-transformer.ts:687-688`): it would be a second
-    counter that disagrees with TOKENS by exactly the subagent spend. Rejected by the coordinator message.
-  - Reading the ledger directly per turn: the ledger is the restart path of the same aggregator; reading it live
-    duplicates the owner and re-reads JSONL each turn.
-  - A model-written handoff (an extra model request at 80%): adds spend in a token-burn task and can fail or
-    hallucinate. Deterministic assembly is chosen (Decision 3 lets the user override).
-  - Writing `handoff.md` into the workspace (`<cwd>/.ptah/handoffs/`): `.ptah/**` is git-ignored here
-    (`.gitignore:135`) but not in user repositories, so it would create untracked files in users' repos. The handoff
-    goes under `~/.ptah/handoffs/` (same home-dir root as `platform-core/src/content-download.service.ts:98`).
-  - A new banner component: A6's banner (Batch 31) already has the "start a new session from a seed" action.
+  - A main-loop-only counter (`usage`, `stream-transformer.ts:687-688`): disagrees with TOKENS by the subagent spend.
+  - A separate `session:contextAdvisory` push (A6, Batch 29): deferred; adding the channel here would build half of A6.
+    The budget rides `ResultStatsPayload` instead (one optional field).
+  - Relying on `autoCompactWindow` at 50%: unproven until E2 (decision item 2); proxied ids may ignore it.
+  - An in-memory facts collector fed per stream message: hot-path cost and empty after restart. Reading the transcript
+    tail at the 2-3 write moments costs one bounded read each.
+  - A new compaction settings RPC: Batches 16-17 are deferred; `settings:get/set` already serves file-based keys.
 - Assumptions (each with its check):
-  - AS-B1: Batch 23.4 `applyFlagSettings({autoCompactWindow})` changes the threshold of a live query. Check: Batch 23
-    spec plus E2 result in `research-report.md`. If E2 failed for the class, tighten is a logged no-op (see failure
-    behaviour).
-  - AS-B2: forwarded subagent assistant messages carry per-request `usage` (A5's AS10, `batches.md:1649`). If not, the
-    per-subagent budget is `null` and advice falls back to cache state only.
-  - AS-B3: `SessionStatsEntry.tokenCount` is always set by the owner (`session-usage-aggregator.ts:432`). Check: owner
-    spec asserts it; the evaluator treats `undefined` as "unknown", never 0.
-  - AS-B4: `chat:continue` is the only path that sends a NEW user turn to an idle SDK session; mid-turn follow-ups go
-    through `surface-submit-turn.service.ts`. Check: grep both for `sdkAdapter.send*` callers before Batch 55.
-- Effect on existing code: no change to the owner, aggregator, ledger, transformer arithmetic or the summary's
-  existing figures. A6's payload gains a second `kind`; A5's monitor gains a weighted total and a second stop reason;
-  N2's status gains three fields; the summary gains an optional `budget` input.
+  - AS-1: `stats.sessionId` is the SDK id for every result of a new session. Check: adapter spec with tracking id ≠
+    real id (`stream-transformer.ts:472-474` sets it before any result).
+  - AS-2: `compact_boundary` in the parent stream is main-loop only. Check: one QA run with a compacting subagent; if
+    subagent boundaries appear, filter on the session's own boundary ids.
+  - AS-3: the transcript path is `<sessionsDir>/<sessionId>.jsonl` (as `session-stats-reader.service.ts:123-139`
+    resolves it). Check: writer spec on a fixture dir.
+  - AS-4: `getContextUsage()` is callable on a live query between turns. Check: E2 run (component 4).
+- Effect on existing code: no change to owner, aggregator, ledger or transformer arithmetic. Additive optional fields
+  on `ResultStatsPayload`, `ChatResumeResult`, `TabState`; one new RPC method; one new banner; one transformer call
+  at the compact-boundary branch; a per-session window override in session control.
 
 ## Component specifications
 
-### 1. Shared budget contracts and pure helpers
+### 1. Shared contracts
 
-- Purpose: one set of types and two pure functions used by backend and UI.
+- Purpose: types and bounds shared by backend and UI.
 - Responsibilities:
-  - `SessionBudgetUnit = 'tokens' | 'cost'`; `SessionBudgetStage = 'unknown' | 'normal' | 'tighten' | 'handoff' | 'limit'`.
-  - `SessionBudgetState = { sessionId; stage; unit; measure: 'tokens' | 'cost' | 'weighted-fallback'; used: number | null;
-limit: number; percent: number | null; lowerBound: boolean; compactions: number; extensions: number;
-window?: { target: number; applied: boolean; reason?: 'env-override' | 'not-supported' | 'already-lower' | 'failed' };
-handoff?: { path: string | null; chars: number; truncated: boolean; writtenAt: number; writeError?: string };
-blocked: boolean; dismissedStage?: SessionBudgetStage }`.
-  - `weightedTokens({input, output, cacheRead, cacheCreation}, cacheWriteWeight: 1.25 | 2): number` = input×1 +
-    cacheCreation×w + cacheRead×0.1 + output×5. Pure; no rounding beyond integer.
-  - `computeSubagentResumeAdvice({cacheState, contextTokens, contextLimit, budgetUsed, budgetLimit, stopped})` →
-    `{ advice: 'resume' | 'fresh'; reason: 'warm-small' | 'cold' | 'context-over-limit' | 'budget-over-limit' |
-'stopped' | 'cache-only' }`. Rule: `stopped` → fresh; `cold` → fresh; `contextTokens ≥ contextLimit` → fresh;
-    `budgetLimit > 0 && budgetUsed ≥ budgetLimit` → fresh; warm and both known and below → resume `warm-small`; warm
-    with unknown context/budget → resume `cache-only`.
+  - `SessionBudgetState { sessionId; stage: 'unknown'|'normal'|'tighten'|'handoff'|'limit'; unit: 'tokens'|'cost';
+measure: 'tokens'|'cost'|'cost-lower-bound'|'weighted-fallback'; used: number|null; limit: number;
+percent: number|null; lowerBound: boolean; revision: number|null; compactions: number; extensions: number;
+window?: {target; applied; reason?: 'disabled'|'env-override'|'already-lower'|'not-honoured'|'failed'};
+handoff?: {path|null; chars; truncated; writtenAt; writeError?}; blocked: boolean; dismissedStage? }`.
+  - `SESSION_BUDGET_SETTINGS` bounds and defaults (table in component 2), used by the UI form and the backend reader.
   - `SESSION_BUDGET_REACHED` added to `RpcUserErrorCode`.
-  - A6 payload (Batch 29.1) widened to a union: existing `{kind:'rotation-suggested', ...}` plus
-    `{kind:'budget-stage', sessionId, state: SessionBudgetState, seedPrompt?: string}`.
-  - RPC types: `session:getBudgetState {sessionId} → {state: SessionBudgetState | null}`;
-    `session:budgetAction {sessionId, action: 'dismiss' | 'extend' | 'restore-window' | 'write-handoff'} →
-{success, state?, error?}`; `session:getHandoff {sessionId} → {content: string | null; path: string | null}`.
-  - `compaction:getConfig` / `setConfig` types gain the keys in the settings table below.
-- Verified contracts: `rpc-error-codes.types.ts:7`; `rpc-chat.types.ts:162-170`; method map and
-  `RPC_METHOD_ENTRIES` in `libs/shared/src/lib/types/rpc.types.ts` (registry at `:3665` per plan 6b `:822`).
-- Dependencies: none (shared is the leaf).
-- Failure behaviour: helpers are total; `weightedTokens` rejects non-finite input by returning `null` (caller treats as
-  unknown).
-- Quality: no `any`; every union exhaustively switched in specs.
-- Verification seam: unit specs for both helpers (each advice reason; weights 1.25 and 2; the "33M" calibration row
-  as a fixture: 177M/7.7M/1.1M → 32.8M at ×1.25).
-- Files:
-  - CREATE `libs/shared/src/lib/types/session-budget.types.ts`, `libs/shared/src/lib/utils/session-budget.utils.ts` (+ spec),
-    `libs/shared/src/lib/types/rpc/rpc-session-budget.types.ts`.
-  - MODIFY `libs/shared/src/lib/types/rpc/rpc-error-codes.types.ts`, `libs/shared/src/lib/types/rpc.types.ts`,
-    `libs/shared/src/lib/types/rpc/rpc-compaction.types.ts` (Batch 16.1 file), `libs/shared/src/lib/types/sdk-hook.types.ts`
-    (Batch 29.1 payload), the shared barrel exports.
+  - Optional `budget?: SessionBudgetState` on `ResultStatsPayload` (`agent-adapter.types.ts:44`) and on
+    `ChatResumeResult` (`rpc-chat.types.ts:268`).
+  - `session:budgetAction { sessionId; action: 'dismiss'|'extend'|'restore-window'|'write-handoff'|'preview-handoff' }
+→ { success; state?; handoff?: {content; path|null}; error? }` in the method map and `RPC_METHOD_ENTRIES`.
+- Dependencies: none (leaf).
+- Failure: n/a (types).
+- Verification seam: typecheck of every consumer of the two widened payloads (agent-sdk, cli-agent-runtime,
+  rpc-handlers, chat, chat-state, chat-types) in the same unit of work (F10).
+- Files: CREATE `libs/shared/src/lib/types/session-budget.types.ts`; MODIFY
+  `libs/shared/src/lib/types/rpc/rpc-error-codes.types.ts`, `libs/shared/src/lib/types/agent-adapter.types.ts`,
+  `libs/shared/src/lib/types/rpc/rpc-chat.types.ts`, `libs/shared/src/lib/types/rpc.types.ts`, shared barrel.
 
-### 2. Settings keys (file store) and their RPC
+### 2. Settings keys and their reader
 
-- Purpose: user-editable budgets, validated before write, host-independent.
-- Keys (all `ptah.` file-based, added to `FILE_BASED_SETTINGS_KEYS` / `_DEFAULTS`, `file-settings-keys.ts:154, 456`):
+- Keys (file store, `FILE_BASED_SETTINGS_KEYS`/`_DEFAULTS`, `file-settings-keys.ts:154, 460`):
 
-| Key                                              | Type / range                                                                   | Default                                                | Evidence for default                                    |
-| ------------------------------------------------ | ------------------------------------------------------------------------------ | ------------------------------------------------------ | ------------------------------------------------------- |
-| `compaction.sessionBudgetEnabled`                | boolean                                                                        | `true`                                                 | Decision 10 asks for budgets on                         |
-| `compaction.sessionBudgetUnit`                   | `'tokens' \| 'cost'`                                                           | `'tokens'` (Decision 1)                                | user target is "about 50M raw tokens"                   |
-| `compaction.sessionBudgetTokens`                 | integer 1,000,000-2,000,000,000                                                | `50000000`                                             | user target                                             |
-| `compaction.sessionBudgetUsd`                    | number 0.5-10,000                                                              | `30`                                                   | 50M × $0.64/M from the user's 14.1M ↔ $8.96             |
-| `compaction.sessionBudgetFallbackWeightedTokens` | integer 100,000-500,000,000                                                    | `9000000`                                              | 50M × 0.18 (last session weighted/raw)                  |
-| `compaction.budgetTightenPercent`                | integer 10-95                                                                  | `50`                                                   | decision 10                                             |
-| `compaction.budgetHandoffPercent`                | integer 20-99, must be > tighten                                               | `80`                                                   | decision 10                                             |
-| `compaction.budgetHandoffAfterCompactions`       | integer 1-20                                                                   | `3`                                                    | decision 10                                             |
-| `compaction.budgetTightenWindowTokens`           | integer 100,000-1,000,000 (same bounds as `compaction.threshold`, plan `:835`) | `120000`                                               | 60% of the A1 class default 200,000 (plan `:1140-1141`) |
-| `compaction.budgetBlockAtLimit`                  | boolean                                                                        | `true`                                                 | decision 10 "no new requests"                           |
-| `compaction.subagentStopWeightedTokens`          | integer 0 (off) or 100,000-100,000,000                                         | `3000000` provisional; final from Batch 50 calibration | decision 10                                             |
-| (reused) `compaction.subagentHandoffTokens`      | existing 50,000-1,000,000                                                      | existing `150000`                                      | doubles as the resume context limit                     |
+| Key                                     | Range              | Default                 | Basis                                  |
+| --------------------------------------- | ------------------ | ----------------------- | -------------------------------------- |
+| `sessionBudget.enabled`                 | boolean            | `true`                  | item 9                                 |
+| `sessionBudget.unit`                    | `'tokens'\|'cost'` | `'tokens'` (Decision 1) | "about 50M raw tokens"                 |
+| `sessionBudget.tokens`                  | 1M-2B integer      | `50000000`              | user target                            |
+| `sessionBudget.usd`                     | 0.5-10,000         | `30`                    | 50M × $0.64/M (14.1M ↔ $8.96)          |
+| `sessionBudget.fallbackWeightedTokens`  | 100k-500M integer  | `9000000`               | 50M × 0.18 (last session weighted/raw) |
+| `sessionBudget.tightenPercent`          | 10-95, < handoff   | `50`                    | item 9                                 |
+| `sessionBudget.handoffPercent`          | 20-99              | `80`                    | item 9                                 |
+| `sessionBudget.handoffAfterCompactions` | 1-20               | `3`                     | item 9                                 |
+| `sessionBudget.tightenWindowTokens`     | `null` or 100k-1M  | `null` (advisory only)  | decision item 2 (E2 gate)              |
+| `sessionBudget.blockAtLimit`            | boolean            | `true`                  | Decision 4                             |
 
-- Responsibilities: `CompactionRpcHandlers` (6b) validates every new key (range, the tighten < handoff cross-field rule,
-  enum) before any write and rejects with the field and range; `CompactionConfigProvider` returns the new keys;
-  hand-edited invalid values read as unset → default (existing behaviour `compaction-config-provider.ts:62-76`).
-- Dependencies: Batches 16-17 (the 6b handler and provider exist).
-- Failure: invalid write → `{success:false, error:'<field>: must be <range>'}`, nothing written.
-- Verification seam: handler spec (each bound, cross-field rule, round-trip), provider spec (defaults, invalid → default).
-- Files: MODIFY `libs/backend/platform-core/src/file-settings-keys.ts`,
-  `libs/backend/rpc-handlers/src/lib/handlers/compaction-rpc.handlers.ts` (+ spec),
-  `libs/backend/agent-sdk/src/lib/helpers/compaction-config-provider.ts` (+ spec).
+- Responsibilities: `SessionBudgetConfigProvider.getConfig()` reads through `ConfigManager` like
+  `compaction-config-provider.ts:75-117`; any out-of-range value, or tighten ≥ handoff, is WARNed and read as the
+  default (covers raw `settings:set` writes, which do not validate values).
+- Failure: unreadable → defaults.
+- Verification seam: provider spec (each bound, the cross-field rule, defaults).
+- Files: MODIFY `libs/backend/platform-core/src/file-settings-keys.ts` (+ its spec if it enumerates keys); CREATE
+  `libs/backend/agent-sdk/src/lib/helpers/session-budget/session-budget-config.provider.ts` (+ spec).
 
-### 3. `SessionBudgetService` (agent-sdk) — N7 session budget + N8 stage machine
+### 3. `SessionBudgetService` (agent-sdk) — stage machine
 
-- Purpose: per session, map the displayed figure to a stage and run each stage's action once.
+- Purpose: map the displayed figure to a stage and run each stage's action once.
 - Responsibilities:
-  - `observe(sessionId, snapshot: SessionStatsEntry | undefined)`: called from the `onResultStats` wrapper with the SAME
-    `sessionStats` object the webview receives. Measure:
-    - unit `tokens`: `used = snapshot.tokenCount`; `undefined` → stage `unknown`.
-    - unit `cost`: `used = snapshot.totalCost`; when `null` → `measure: 'weighted-fallback'`,
-      `used = weightedTokens(snapshot.tokens, 1.25)`, `limit = sessionBudgetFallbackWeightedTokens`.
-    - `lowerBound = snapshot.coverage === 'partial'`.
-    - limit = configured limit × (1 + 0.2 × extensions).
-  - Stage = highest of: by percent (`<tighten` normal, `≥tighten` tighten, `≥handoff` handoff, `≥100` limit) and
-    `handoff` when `compactions ≥ budgetHandoffAfterCompactions`. Stages only rise, except after `extend` or a settings
-    change, when they are recomputed from the new limit.
-  - `onCompactionComplete` (existing event `sdk-adapter-events.service.ts:181`) increments `compactions` and stores
-    `compactSummary` in the facts collector (component 4). Only completed compactions count; A8 BACKOFF does not.
-  - Actions, each once per stage entry:
-    - tighten: target = `budgetTightenWindowTokens`. Skip with `reason` when the A1 source is `env`
-      (`CLAUDE_CODE_AUTO_COMPACT_WINDOW` wins, plan `:1128-1129`), when A8 is OBSERVE_ONLY (`not-supported`), or when
-      the port's `autoCompactThreshold` is already ≤ target (`already-lower`). Else call the Batch 23.4
-      `applyFlagSettings({autoCompactWindow: target})` through the session lifecycle.
-    - handoff: ask component 4 to write the handoff; store `handoff` in the state.
-    - limit: rewrite the handoff (fresh facts), set `blocked = budgetBlockAtLimit`.
-  - Emit `session:contextAdvisory {kind:'budget-stage', state, seedPrompt}` through the A6 emitter (Batch 29.3) on each
-    stage change, including back to `normal` after `extend` (clears the banner). Log one INFO line per change:
-    `[SessionBudget] <sessionId> <from>→<to> used=<n> limit=<n> measure=<m>`.
-  - `canSend(sessionId)`: `{ ok: true } | { ok: false, state }`. `unknown` and missing state → ok.
-  - `act(sessionId, action)`: `dismiss` (sets `dismissedStage` = current; banner hidden until the next stage),
-    `extend` (only in `limit`; extensions++; INFO log), `restore-window` (re-applies the configured
-    `compaction.threshold`, or the class default when none), `write-handoff` (manual write now).
-  - `release(sessionId)` on session end and `clearAll()` on disposal.
-- Verified contracts: owner snapshot shape `rpc-session.types.ts:343-393`; wrapper `sdk-agent-adapter.ts:1581-1591`;
-  session end `sdk-agent-adapter.ts:1391-1395`; events `sdk-adapter-events.service.ts:131, 181`.
-- Dependencies (direction agent-sdk internal only): `CompactionConfigProvider`, `IContextUsagePort` and
-  `CompactionCoordinator` state (Batch 26), session lifecycle `applyFlagSettings` (Batch 23.4), A6 emit (Batch 29.3),
-  component 4. No dependency on the frontend, rpc-handlers or vscode-core.
-- Integration points: rpc-handlers reads `canSend` / `getState` / `act` through a new `SDK_SESSION_BUDGET` token (same
-  pattern as `SDK_SESSION_STATS_READER` injected in `session-rpc.handlers.ts:160`).
-- Failure behaviour:
-  - no snapshot (`null`, prefix read in flight, or no owner): stage `unknown`; no action; never blocks.
-  - stats late: evaluation waits for the next `result`; at most one turn of overshoot past 100% (no interrupt of a
-    running turn; documented in the limit text as "after this turn").
-  - `totalCost` null with unit `cost`: weighted fallback, labelled.
-  - tighten call throws: `window.applied=false, reason:'failed'`, WARN once; stage still advances.
-  - handoff write fails: content stays in memory; `handoff.writeError` set; WARN once; the continue action still works.
-  - settings unreadable: defaults (provider behaviour).
-- Quality: no timers, no polling; state map bounded by live sessions and released on session end.
-- Verification seam: pure stage function spec (every boundary 49.9/50/79.9/80/99.9/100, compaction trigger, lower bound,
-  extend, unit switch, fallback); service spec with fakes for lifecycle, port, emitter, writer (each action once, each
-  failure path, release).
-- Files: CREATE `libs/backend/agent-sdk/src/lib/helpers/compaction/session-budget-stage.ts` (pure, + spec),
-  `libs/backend/agent-sdk/src/lib/helpers/compaction/session-budget.service.ts` (+ spec).
+  - Key: `snapshot.sessionId` (F1). Never the wrapper id.
+  - `observe(snapshot | undefined)` (live) and `observeLoaded(snapshot | null)` (resume): an absent snapshot keeps
+    the last state; a snapshot with a lower `revision` than the last accepted is ignored (same rule as
+    `tab-manager.service.ts:2196-2209`); `unknown` only before the first figure (F5). A resume snapshot without
+    `revision` is accepted only when no state exists.
+  - Measure (F6):
+    - unit `tokens`: `used = tokenCount`; `undefined` → `unknown`; `lowerBound = coverage === 'partial'`.
+    - unit `cost`: `totalCost` when non-null; else `knownCost` as `cost-lower-bound` (`≥`) when `pricingCoverage ===
+'partial'`; else (`'none'`) `weighted-fallback` from `snapshot.tokens` against `fallbackWeightedTokens`.
+    - Once a session enters `weighted-fallback` it keeps that measure until a settings change (no flapping).
+  - `recordCompaction(sessionId)`: called from the main-loop `compact_boundary` branch (F8); main loop only (AS-2);
+    in memory, resets on restart exactly like the chat's per-tab count.
+  - Stage = highest of percent bands (`<tighten`, `≥tighten`, `≥handoff`, `≥100`) and `handoff` when
+    `compactions ≥ handoffAfterCompactions`. Stages only rise, except after `extend` or a settings change.
+  - Actions, once per stage entry: tighten → component 4 (only when `tightenWindowTokens` is set, else
+    `window.reason='disabled'`); handoff → component 5 write; limit → fresh write + `blocked = blockAtLimit`.
+  - `canSend(sessionId)`: state, else `statsOwner.snapshot(sessionId)` evaluated on the fly, else ok (F2).
+  - `act(sessionId, action)`: dismiss, extend (limit only, +20% per extension, INFO), restore-window (component 4),
+    write-handoff, preview-handoff.
+  - `release(sessionId)` on session end; `clearAll()` on disposal. INFO one line per stage change.
+- Dependencies: `SDK_SESSION_STATS_OWNER` (`di/tokens.ts:40`), component 2, 4, 5. No frontend, rpc-handlers or
+  vscode-core dependency beyond the logger already used in agent-sdk.
+- Failure: no figure → `unknown`, never blocks; at most the crossing turn plus one held follow-up run past 100% (F7,
+  accepted and specced: `onTurnEnd` releases the held message before `onResultStats`); write or tighten failure →
+  state fields set, WARN once, stage still advances.
+- Quality: no timers or polling; one map entry per live session, released on end.
+- Verification seam: pure stage function spec (boundaries 49.9/50/79.9/80/99.9/100, compaction trigger, lower bound,
+  extend, revision ignore, absent snapshot, measure stickiness); service spec with fakes.
+- Files: CREATE `libs/backend/agent-sdk/src/lib/helpers/session-budget/session-budget-stage.ts`,
+  `session-budget.service.ts`, `weighted-tokens.ts` (+ specs; weights input 1, cache write 1.25, cache read 0.1,
+  output 5; fixture 177M/7.7M/1.1M → 32.8M).
 
-### 4. Handoff facts collector and writer (agent-sdk) — N8 `handoff.md`
+### 4. Per-session auto-compact window override (E2-gated tighten)
 
-- Purpose: a deterministic, bounded handoff with no extra model call.
-- Location: `~/.ptah/handoffs/<sessionId>.md` (UUID session ids; outside the user's repository). Written atomically
-  (write `<file>.tmp`, then rename) with `fs/promises` (existing agent-sdk pattern, e.g.
-  `helpers/attachment-processor.service.ts:7`). Overwritten on each write for that session.
-- Writer: Ptah (backend), on entering `handoff`, again on `limit`, and on the manual `write-handoff` action.
-- Facts (per session, in memory, each bounded), fed from stream messages by the executor (same feed as Batch 28.3):
-  - goal: the session's first user prompt text (≤1,000 chars);
-  - decisions/state: the latest `compactSummary` (≤2,500 chars), else "No compaction summary yet.";
-  - changed files: unique `file_path` / `notebook_path` inputs of Edit, Write, MultiEdit, NotebookEdit tool uses from
-    the main loop and subagents (≤50 paths, then "+N more");
-  - open items: the latest TodoWrite list, items not `completed` (≤20);
-  - next action: first `in_progress` todo, else first `pending`, else the last assistant text (≤800 chars);
-  - task folders: matches of `\.ptah[\\/]specs[\\/]TASK_\d{4}_\d{3}[\w-]*` in user prompts and tool inputs (≤5).
-- Schema (Markdown, fixed section order; total cap 8,000 chars; a section over its cap ends with `[truncated]`):
+- Purpose: lower one session's window and prove the runtime honoured it.
+- Responsibilities:
+  - `SessionControl.applySessionAutoCompactWindow(sessionId, window | null)`: same timeout and logging as
+    `session-control.service.ts:559-595`; records the override on the session record so `applyAutoCompactConfig`
+    keeps it for that session instead of overwriting it.
+  - Skip with a reason: `env-override` when `envWindow` is set (`auto-compact-control.ts:189-192`); `already-lower`
+    when the read-back threshold is already ≤ target.
+  - Verify: after the apply, `query.getContextUsage()`; if `autoCompactThreshold` did not move to ≤ target, send `null`
+    back, set `not-honoured`, WARN once. This is the E2 live check for that model class; its result is logged with the
+    class so the A1 default decision can use it.
+  - Restore (F14): clear the override and send what `resolveAutoCompactControl` gives for the current config, or
+    `null` (runtime decides) when that is unset; never a guessed class default.
+- Dependencies: Batch 23 code only. Adds `getContextUsage` to the structural query mirror
+  (`session-lifecycle-manager.ts:80-104`).
+- Failure: any throw → `failed`, session keeps its window.
+- Verification seam: session-control spec (override survives a config re-apply; read-back miss restores null; env
+  skip; timeout).
+- Files: MODIFY `libs/backend/agent-sdk/src/lib/helpers/session-lifecycle/session-control.service.ts`,
+  `session-lifecycle-manager.ts`, `session-lifecycle/session-registry.service.ts` (record field) (+ specs).
 
-```
-# Session handoff
-- Session: <sessionId> | Written: <ISO time> | Stage: handoff|limit
-- Budget: <used> of <limit> <unit label> (<percent>%)
-- Task folders: <paths or "none found">
-## Goal
-## Decisions and current state
-## Changed files
-## Open items
-## Next action
-## How to continue
-Continue this work from this handoff. Read the task folder files listed above for detail; do not re-read files you do not need.
-```
+### 5. Handoff builder and writer (agent-sdk)
 
-- Seed prompt for the new session: `Continue from the handoff of session <sessionId> (saved at <path>).\n\n<handoff>`
-  (≤8,200 chars; sent as `ChatStartParams.prompt`).
-- After an app restart the collector is empty for a resumed session; the handoff then states "Earlier facts are not
-  available after a restart; see session <id>." (Assumption AS-B5: seeding from the transcript is deferred; resolve at
-  Gate 2 only if the user asks.)
-- Failure: write error → returned to component 3 (content kept); collector errors are caught per message and logged
-  once (fail-open; the chat stream is never affected).
-- Verification seam: collector spec (each fact type, caps, dedupe, subagent tool uses), renderer spec (golden text,
-  8,000 cap, truncation markers), writer spec with a temp dir (atomic rename, failure surfaces).
-- Files: CREATE `libs/backend/agent-sdk/src/lib/helpers/compaction/handoff-facts-collector.ts`,
-  `session-handoff-renderer.ts`, `session-handoff-writer.ts` (+ specs), same folder.
+- Purpose: a bounded, deterministic `handoff.md`; no model call (Decision 3).
+- Facts, read at write time from the main transcript tail (`readJsonlTail`, 4 MB window): latest compact summary
+  (≤2,500 chars; also the goal source), else the first user prompt in the window (≤1,000); Edit/Write/MultiEdit/
+  NotebookEdit paths (≤50, "+N more"); latest TodoWrite items not completed (≤20); next action (first in-progress,
+  else first pending, else last assistant text ≤800); task folder paths matching `.ptah/specs/TASK_\d{4}_\d{3}…` (≤5).
+  Works the same after a restart.
+- Schema: fixed sections (Session/Budget/Task folders, Goal, Decisions and current state, Changed files, Open items,
+  Next action, How to continue), total cap 8,000 chars, `[truncated]` markers. Seed prompt ≤ 8,200 chars.
+- Location (Decision 3): `~/.ptah/handoffs/<sessionId>.md`, atomic temp+rename, retention newest 50 files pruned on
+  write (F15). Session id must match `UUID_REGEX`; the resolved path must stay under the handoffs dir (F12).
+- Failure: read or write error → content kept in memory for the session, `writeError` set, WARN once.
+- Verification seam: builder spec on fixture transcripts (each fact, caps, truncation), writer spec on a temp dir
+  (atomic rename, retention, rejected id, path escape).
+- Files: CREATE `libs/backend/agent-sdk/src/lib/helpers/session-budget/session-handoff-builder.ts`,
+  `session-handoff-writer.ts` (+ specs).
 
-### 5. agent-sdk wiring
+### 6. agent-sdk wiring
 
-- Responsibilities: tokens `SDK_SESSION_BUDGET`, `SDK_HANDOFF_FACTS_COLLECTOR`; register; `wrapResultStatsForActivity`
-  (`sdk-agent-adapter.ts:1581`) also calls `sessionBudget.observe(sessionId, stats.sessionStats)`; session end
-  (`:1391-1395`) calls `release`; the executor feeds stream messages to the collector (next to the Batch 28.3 monitor
-  feed); `onCompactionComplete` subscription registered once in the service constructor with its unsubscribe on dispose.
-- Failure: `observe` is wrapped so an exception logs once and never breaks `onResultStats`.
-- Verification seam: adapter spec (observe receives the identical object passed to the inner callback; release on
-  end); executor spec (collector fed).
-- Files: MODIFY `libs/backend/agent-sdk/src/lib/di/tokens.ts`, `libs/backend/agent-sdk/src/lib/di/register.ts`,
-  `libs/backend/agent-sdk/src/lib/sdk-agent-adapter.ts`,
-  `libs/backend/agent-sdk/src/lib/helpers/session-lifecycle/session-query-executor.service.ts` (+ specs).
+- Responsibilities: token `SDK_SESSION_BUDGET`; registration (`di/register.ts:161-173` pattern);
+  `wrapResultStatsForActivity` (`sdk-agent-adapter.ts:1581-1591`) calls `observe(stats.sessionStats)` and passes
+  `{...stats, budget}` to `inner` with the identical `sessionStats` reference; session end (`:806`, `:1389-1395`)
+  calls `release`; `StreamTransformer` calls `recordCompaction(effectiveSessionId)` at `stream-transformer.ts:795`.
+- Failure: `observe` wrapped; an exception logs once and the inner callback still runs unchanged.
+- Verification seam: adapter parity spec (same object reference; new session with tracking id ≠ real id keys by the
+  real id); transformer spec (boundary recorded once per boundary).
+- Files: MODIFY `libs/backend/agent-sdk/src/lib/di/tokens.ts`, `di/register.ts`, `sdk-agent-adapter.ts`,
+  `helpers/stream-transformer.ts`, agent-sdk barrel (+ specs).
 
-### 6. Subagent budget and resume advice (agent-sdk monitor) — N7 subagent part
+### 7. Broadcast forwarding (cli-agent-runtime)
 
-- Purpose: per subagent, the context and spend the main agent needs to choose resume vs fresh, plus a safety stop.
-- Responsibilities (extends Batch 28 `SubagentBudgetMonitor`):
-  - Per subagent keep `contextTokens` (last request input + cacheRead + cacheCreation, A5's existing measure) and
-    `weightedUsed` (Σ `weightedTokens` per request, deduped by `message.id`, cache-write weight from the effective TTL
-    of `resolveSubagentPromptCacheTtl`, Batch 37: `1h` → 2, else 1.25).
-  - Safety stop: `subagentStopWeightedTokens > 0 && weightedUsed ≥ limit` → the existing stop path (stop, one parent
-    message, not resumable) with the text: "Subagent `<type>` was stopped after using <n> weighted tokens (limit <m>).
-    Start a fresh subagent with a short brief; its output so far is in the session transcript."
-  - `getSubagentBudget(sessionId, agentId)` → `{contextTokens: number | null; budgetUsed: number | null;
-budgetLimit: number; stopped: boolean}`.
-- Why weighted here and not TOKENS: the session snapshot has no per-subagent split (verified above), so a per-subagent
-  figure must come from the monitor in any case; the agent card (Batch 46/47) displays this same backend figure, so
-  display and limit still agree. Decision 2 lets the user change this.
-- Failure: no usage on forwarded messages → `null` figures, observe-only (A5 behaviour), advice `cache-only`.
-- Verification seam: monitor spec (accumulation, dedupe, TTL weight, stop once, `null` path).
-- Files: MODIFY `libs/backend/agent-sdk/src/lib/helpers/compaction/subagent-budget-monitor.ts` (+ spec).
+- Responsibility: `sendStatsWithRetry` forwards `budget` next to `sessionStats` (`sdk-callbacks.ts:409-418`).
+- Verification seam: sdk-callbacks spec.
+- Files: MODIFY `libs/backend/cli-agent-runtime/src/lib/wiring/sdk-callbacks.ts` (+ spec).
 
-### 7. Orchestrator-facing subagent status (rpc-handlers)
+### 8. rpc-handlers: gate, resume, action RPC
 
 - Responsibilities:
-  - `chat-subagent-context-injector.service.ts` (Batch 41.1 line) becomes:
-    `- <type> (<id>): cache warm|cold (TTL 1h, idle 3 min) · context 82k / 150k · used 1.2M / 3M weighted · advice: resume|fresh (<reason>)`.
-    The guidance line becomes: "Resume a subagent only when advice is resume (cache warm and context below the limit).
-    Otherwise start a fresh subagent with a short brief."
-  - `subagent-rpc.handlers.ts` (Batch 41.2) adds optional `budget {contextTokens, budgetUsed, budgetLimit}` and
-    `resumeAdvice {advice, reason}` next to `cacheInfo`.
-  - Advice computed with `computeSubagentResumeAdvice` (component 1); context limit = `compaction.subagentHandoffTokens`.
-- Dependencies: rpc-handlers → agent-sdk token `SDK_SUBAGENT_BUDGET_MONITOR` (Batch 28.3) and shared helper.
-  CLI lanes are unchanged (they keep Batch 32's gate).
-- Failure: monitor missing a subagent → fields omitted; advice from cache state only.
-- Verification seam: injector spec (line text for each reason), RPC spec (optional fields).
-- Files: MODIFY `libs/backend/rpc-handlers/src/lib/chat/session/chat-subagent-context-injector.service.ts`,
-  `libs/backend/rpc-handlers/src/lib/handlers/subagent-rpc.handlers.ts` (+ specs), `libs/shared/src/lib/types/rpc/rpc-chat.types.ts`
-  (optional fields).
-
-### 8. Send gate and budget RPC (rpc-handlers)
-
-- Responsibilities:
-  - `chat:continue` (`chat-session.service.ts:759`), after the Ptah CLI branch (`:792-794`) and before resume/send:
-    when `canSend` is not ok, return `{success:false, errorCode:'SESSION_BUDGET_REACHED', error:<limit text>}`.
-    Native slash commands (`/compact`, `/clear`, … `slash-command-interceptor.ts` `NATIVE_COMMANDS`) pass, so the user
-    can still compact. The same check on the mid-turn follow-up path in `surface-submit-turn.service.ts` if AS-B4 shows
-    it sends new user turns.
-  - New `SessionBudgetRpcHandlers`: `session:getBudgetState`, `session:budgetAction`, `session:getHandoff`; input
-    validated with zod (session id string, action enum); registered in `register-shared-rpc-handlers.ts`.
-- Failure: budget service missing (host without agent-sdk) → `canSend` ok; RPC returns `{state:null}`.
-- Verification seam: chat-session spec (blocked, native slash allowed, unknown passes), handler spec (validation,
-  each action).
+  - `chat:continue`: after the Ptah CLI branch (`chat-session.service.ts:792-795`) and BEFORE the slash/resume branch
+    (`:836`), if `canSend` is not ok and the trimmed prompt is not exactly `/compact` or `/clear` (allowlist, F3),
+    return `{success:false, errorCode:'SESSION_BUDGET_REACHED', error}`. Custom slash commands are blocked.
+  - Resume (`:963`): `observeLoaded(result.stats)` and attach `budget` to the result.
+  - `SessionBudgetRpcHandlers` with `session:budgetAction` (zod: `sessionId` UUID, action enum), exported from
+    `handlers/index.ts`, a manifest entry like `manifest.ts:283-286`.
+- Not gated (accepted risk, recorded): surface submits (`surface-submit-turn.service.ts:298`, MCP-apps contract
+  would need a new reject reason) and Ptah CLI sessions (outside the snapshot).
+- Failure: budget token missing on a host → gate ok, action returns `{success:false, error:'unavailable'}`.
+- Verification seam: chat-session spec (blocked; `/compact` and `/clear` pass; a custom command is blocked; unknown
+  passes; resume attaches budget); handler spec; manifest, allowlist and the three rpc-surface specs updated in the
+  same unit as the method map (F4).
 - Files: CREATE `libs/backend/rpc-handlers/src/lib/handlers/session-budget-rpc.handlers.ts` (+ spec); MODIFY
-  `libs/backend/rpc-handlers/src/lib/chat/session/chat-session.service.ts` (+ spec), possibly
-  `surface-submit-turn.service.ts`, `libs/backend/rpc-handlers/src/lib/register-shared-rpc-handlers.ts`.
+  `chat/session/chat-session.service.ts` (+ spec), `handlers/index.ts`, `host-profile/manifest.ts`,
+  `rpc-allowlist.spec.ts`, `apps/ptah-extension-vscode/src/di/rpc-surface.spec.ts`,
+  `apps/ptah-electron/src/di/rpc-surface.spec.ts`, `libs/backend/cli-engine/src/lib/rpc/rpc-surface.spec.ts`.
 
-### 9. Frontend: banner stages, stats chip budget, settings, agent card
+### 9. Frontend
 
-- Banner (reuse Batch 31 `session-rotation-banner`): input becomes the advisory union; `budget-stage` renders the stage
-  text below. Buttons call `session:budgetAction` or start a new session with `ChatStartParams.prompt = seedPrompt`
-  (sent immediately for "Continue in new session"; A6's rotation keeps "prefill, user sends"). "Preview handoff" opens
-  an inline `<details>` with the text rendered as plain text (`<pre>`), fetched lazily via `session:getHandoff`.
-  On tab activation the store calls `session:getBudgetState` so a reload restores the banner. OnPush, signals,
-  `role="status"` (tighten/handoff) and `role="alert"` (limit).
-- Stats chip (`session-stats-summary.component.ts`): new optional input `budget: {unit, limit, stage, lowerBound} | null`.
-  The numerator is the component's existing `snapshot().tokenCount` / `totalCost`, so it cannot differ from TOKENS/COST.
-  Label: `TOKENS 14.1M / 50M` (or `COST $8.96 / $30`); `≥` prefix when `lowerBound`; colour by stage. Fallback label:
-  "est. 6.2M / 9M weighted (this provider reports no cost)".
-- Settings: `session-budget-settings.component.ts` beside the Batch 21 card, in its own `@defer (on viewport)`; fields
-  from component 2 with inline range messages; state in the Batch 20 services.
-- Agent card (Batch 46/47): `MonitoredAgent` maps `budget` and `resumeAdvice` from the backend RPC (no frontend
-  recomputation); the header shows "context 82k/150k · 1.2M/3M weighted · resume".
-- Files: MODIFY `libs/frontend/chat/src/lib/components/molecules/session-rotation-banner.component.ts`,
-  `libs/frontend/chat/src/lib/services/chat-store/compaction-lifecycle.service.ts`,
-  `libs/frontend/chat/src/lib/services/chat-message-handler.service.ts`,
+- Tab state: `TabState.sessionBudget` (`chat-types.ts:643` neighbour); set by `handleSessionStats` from
+  `stats.budget` with the snapshot (`session-stats-aggregator.service.ts:54, 130-158`) and by the loader from the
+  resume result (`session-loader.service.ts:1033`).
+- Chip (`session-stats-summary.component.ts`): optional input `budget: SessionBudgetState | null`. Numerator for
+  `tokens`/`cost` stays `snapshot()`; `used` from the budget is shown only for `cost-lower-bound` (`≥ $x`) and
+  `weighted-fallback` ("est. 6.2M / 9M weighted — no price for this model"). Label text depends on measure (F6).
+- Banner: new dumb `session-budget-banner.component.ts` in `molecules/notifications/` (pattern
+  `resume-notification-banner.component.ts`), placed in the `chat-view.component.html:127-137` slot; OnPush,
+  `role="status"` (tighten/handoff), `role="alert"` (limit); preview renders plain text in `<pre>`.
+  "Continue in new session" starts a tab with `ChatStartParams.prompt = seed`.
+- Send failure: `message-sender.service.ts` handles `SESSION_BUDGET_REACHED` like `handleAuthRequired` (`:97-111`).
+- Settings card: `session-budget-settings.component.ts` in `settings/ptah-ai/`, hosted by
+  `orchestration-settings.component.ts` in its own `@defer (on viewport)`, reading and writing through
+  `settings:get/set` with the shared bounds for inline validation.
+- Verification seam: aggregator and loader specs (budget installed with the snapshot, revision rule); chip spec (each
+  measure label); banner spec (each stage, buttons, roles); message-sender spec; settings card spec.
+- Files: MODIFY `libs/frontend/chat-types/src/lib/chat-types.ts`, `libs/frontend/chat-state/src/lib/tab-manager.service.ts`,
+  `libs/frontend/chat/src/lib/services/chat-store/session-stats-aggregator.service.ts`,
+  `chat-store/session-loader.service.ts`, `libs/frontend/chat/src/lib/services/message-sender.service.ts`,
   `libs/frontend/chat-ui/src/lib/molecules/session/session-stats-summary.component.ts`,
-  `libs/frontend/chat/src/lib/components/templates/chat-view.component.html` and `.ts`,
-  `libs/frontend/core/src/lib/services/providers-settings.types.ts`, `providers-commit.service.ts`,
-  `providers-settings-state.service.ts`, `libs/frontend/chat/src/lib/settings/ptah-ai/orchestration-settings.component.ts`,
-  `libs/frontend/chat-streaming/src/lib/agent-monitor.store.ts`,
-  `libs/frontend/chat/src/lib/components/molecules/agent-card/agent-card-header.component.ts`, `stats-bar.utils.ts`
-  (+ specs); CREATE `libs/frontend/chat/src/lib/settings/ptah-ai/session-budget-settings.component.ts` (+ spec).
+  `chat/src/lib/components/templates/chat-view.component.html` and `.ts`,
+  `chat/src/lib/settings/ptah-ai/orchestration-settings.component.ts` (+ specs); CREATE
+  `chat/src/lib/components/molecules/notifications/session-budget-banner.component.ts`,
+  `chat/src/lib/settings/ptah-ai/session-budget-settings.component.ts` (+ specs).
 
-## User-facing text per stage (exact)
+### 10. Subagent budgets and resume advice (contract; built with Batches 28, 36, 37, 40-41, 46-47)
 
-Placeholders: `<used>`, `<limit>` formatted like the chip (`14.1M`, `$8.96`); `<unit>` = "tokens" | "of cost" |
-"weighted tokens (estimate)".
-
-- Normal (<50%): no banner. Chip tooltip: "Session budget: <percent>% used (<used> of <limit>). At 50% Ptah lowers
-  auto-compact; at 80% it prepares a handoff; at 100% new messages pause."
-- Tighten (≥50%):
-  - Title: "Half of this session's budget is used"
-  - Body (applied): "<used> of <limit> <unit>. Ptah lowered auto-compact to <target> tokens for this session, so each
-    request resends less context. Start a fresh session for unrelated work."
-  - Body (not applied): "<used> of <limit> <unit>. Ptah could not lower auto-compact here (<reason text>). Use /compact
-    or start a fresh session to slow the spend." Reason texts: env-override "CLAUDE_CODE_AUTO_COMPACT_WINDOW is set";
-    not-supported "this provider does not support it"; already-lower "it is already at or below <target>"; failed
-    "the change was rejected".
-  - Buttons: "OK" (dismiss), "Restore auto-compact" (only when applied).
-- Prepare handoff (≥80% or 3rd compaction):
-  - Title: "Time to hand off this session"
-  - Body: "<used> of <limit> <unit> (<percent>%)." or "This session has compacted <n> times, and each compaction loses
-    detail." then "Ptah saved a handoff with the goal, decisions, changed files, open items and next step. At 100% new
-    messages in this session pause."
-  - Buttons: "Start new session from handoff" (primary), "Preview handoff", "Keep working" (dismiss).
-  - Write failure line: "Ptah could not save the handoff file (<error>). You can still start a new session; the handoff
-    text is kept until this session closes."
-- Limit (100%):
-  - Title: "This session reached its budget"
-  - Body: "<used> of <limit> <unit>. New messages here are paused so the context stops growing. Continue in a new
-    session that starts with only the handoff (about <handoffChars/4> tokens instead of <contextTokens>)."
-  - Buttons: "Continue in new session" (primary), "Preview handoff", "Allow 20% more".
-  - Blocked send error (`SESSION_BUDGET_REACHED`): "This session reached its budget (<used> of <limit>). Use “Continue
-    in new session” or “Allow 20% more” in the banner. /compact still works."
-  - With `budgetBlockAtLimit=false`: same banner, body ends "New messages are not paused (blocking is off in settings)."
+- Contract kept from revision 1, corrected:
+  - Per subagent, in the A5 monitor: `contextTokens` (last request input + cache read + cache write) and
+    `weightedUsed` (TTL-aware cache-write weight from Batch 37). Safety stop at `subagentStopWeightedTokens`
+    (provisional 3M, final from Batch 36 p95) through `stopSubagent` (`subagent-message-dispatcher.ts:258`).
+  - Advice: `fresh` when stopped, cold, context ≥ `subagentHandoffTokens` (150k), or budget reached; else `resume`.
+  - F11: the backend `contextTokens` is the one figure; Batch 46.2's frontend `contextTokens` is replaced by it, and
+    running-subagent figures reach `MonitoredAgent` on the existing subagent event stream, not a poll.
+  - F9: the "session + subagents" information total is already TOKENS; a subagent share (monitor figure) may be shown
+    beside it, labelled approximate, never as a limit figure.
+- Files: as revision 1 component 6-7, planned when those batches are scheduled.
 
 ## Integration architecture
 
-- Data flow:
-  1. SDK `result` → `StreamTransformer` → `SessionStatsOwnerService.replaceRun` → snapshot
-     (`stream-transformer.ts:704-746`).
-  2. `onResultStats({..., sessionStats})` → adapter wrapper → `SessionBudgetService.observe(snapshot)` and the inner
-     callback → `session:stats` → chat summary (same object).
-  3. Stage change → action (Batch 23.4 window / handoff writer / block flag) → `session:contextAdvisory
-{kind:'budget-stage'}` → `SessionLifecycleNotifier` (Batch 30.1) → webview store → banner.
-  4. User clicks → `session:budgetAction` or `chat:start {prompt: seedPrompt}`.
-  5. Next `chat:continue` → `canSend` → blocked or sent.
-  6. Subagent messages → executor → `SubagentBudgetMonitor` (+ facts collector) → status RPC and injector line →
-     orchestrator and agent card.
-- State: all budget and handoff state in memory per session, released on session end. The handoff file persists in
-  `~/.ptah/handoffs/`. After a restart the snapshot is rebuilt from the transcript (owner contract), so the stage is
-  recomputed on the next result; extensions and dismissals reset (the user can extend again).
-- External boundaries: settings values validated in the RPC handler; RPC inputs validated with zod; handoff content is
-  rendered as text, never HTML; no secret is written (facts are prompts, file paths, todo text, model summaries, the
-  same material already in `~/.claude/projects` transcripts).
-- Failure and rollback: every step is fail-open except the explicit block. Disabling `compaction.sessionBudgetEnabled`
-  removes the block and banners on the next result.
-- Observability: INFO per stage change, per extend, per tighten result; WARN once per session for tighten failure,
-  handoff write failure and observe errors.
+- Data flow: SDK `result` → owner `replaceRun` → snapshot → wrapper `observe` → `{...stats, budget}` → broadcast →
+  aggregator installs snapshot and budget together → chip and banner. Resume: `readForResume` → `observeLoaded` →
+  `chat:resume {stats, budget}` → loader. Send: `chat:continue` → `canSend`. Compaction: `compact_boundary` →
+  `recordCompaction`. Actions: banner → `session:budgetAction`.
+- State: in memory per session; handoff files persist in `~/.ptah/handoffs/` (50 newest). After a restart the stage
+  is recomputed from the resume snapshot; compaction count, extensions and dismissals reset (as the chat's count does).
+- External boundaries: RPC input validated with zod (UUID, enum); settings validated on read; handoff path confined;
+  handoff text rendered as text only.
+- Failure and rollback: fail-open everywhere except the explicit block; `sessionBudget.enabled=false` removes block
+  and banner on the next figure.
+- Observability: INFO per stage change, extend, tighten result (with model class, feeding the E2 record); WARN once per
+  session for tighten miss, handoff failure, observe error.
 
 ## Architecture-level quality requirements
 
-- Functional: for any session, `state.used` equals the chat's TOKENS (unit tokens) or COST (unit cost) for the same
-  revision; a 100% crossing blocks the next `chat:continue` but not `/compact`; "Continue in new session" starts a tab
-  whose first prompt is the handoff only.
-- Performance: one stage evaluation per SDK result (O(1)); no timers or polling; facts bounded (caps above).
-- Security: no HTML rendering of handoff text; file under the user's home dir; atomic write.
-- Maintainability: no new counter; shared types in `shared`, services in `agent-sdk`, RPC in `rpc-handlers`, no
-  vscode-core changes; Angular OnPush + signals.
-- Testability: pure stage and advice functions carry the logic; services tested with fakes; one parity spec asserts
-  `observe` receives the identical object the webview callback receives.
+- Functional: `state.used` equals the chip's TOKENS or COST for the same revision on both live and resume paths; the
+  next `chat:continue` after a 100% figure is blocked except `/compact` and `/clear`; "Continue in new session" sends
+  only the seed.
+- Performance: O(1) per result; transcript tail read only at 2-3 write moments; no timers or polls.
+- Security: UUID-checked ids, confined paths, no HTML rendering, no secrets beyond what the transcript holds.
+- Maintainability: shared types in `shared`; services in `agent-sdk`; RPC in `rpc-handlers`; no vscode-core changes;
+  no edits to TASK_2026_609 areas; A1 defaults untouched.
+- Testability: pure stage, measure and weighting functions carry the logic; one parity spec per entry path.
 
-## Suggested batch split (numbering continues at 50)
+## Review resolution
 
-| Batch | Scope                                                                                                                                                                                                            | Executor           | Depends on                                                                    | Verify (scoped)                                                                                                    |
-| ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------ | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| 50    | M: weighted per subagent and p50/p95 per type in `--subagents`; record the calibration in `measurements/s9-subagent-baselines.md` (default = p95 × 1.5 rounded to 0.5M, floor 3M unless the data says otherwise) | backend-developer  | 36                                                                            | `npm run test:scripts`                                                                                             |
-| 51    | Component 1 + component 2 keys in `platform-core`                                                                                                                                                                | backend-developer  | 16, 29.1, 40                                                                  | `nx run-many -t typecheck,test,lint -p @ptah-extension/shared @ptah-extension/platform-core` + three-app typecheck |
-| 52    | Components 3 and 4 (new files) + provider keys                                                                                                                                                                   | backend-developer  | 23, 26, 29, 51                                                                | `-p @ptah-extension/agent-sdk`                                                                                     |
-| 53    | Component 5 wiring                                                                                                                                                                                               | backend-developer  | 27, 28, 52                                                                    | `-p @ptah-extension/agent-sdk`                                                                                     |
-| 54    | Component 6 (monitor)                                                                                                                                                                                            | backend-developer  | 28, 37, 51; serial with 53 only if both touch the executor feed (they do not) | `-p @ptah-extension/agent-sdk`                                                                                     |
-| 55    | Component 8 + compaction RPC keys                                                                                                                                                                                | backend-developer  | 17, 30, 53                                                                    | `-p @ptah-extension/rpc-handlers` + three-app typecheck                                                            |
-| 56    | Component 7                                                                                                                                                                                                      | backend-developer  | 41, 54                                                                        | `-p @ptah-extension/rpc-handlers @ptah-extension/shared` + three-app typecheck                                     |
-| 57    | Settings state (frontend core)                                                                                                                                                                                   | frontend-developer | 20, 51                                                                        | `-p @ptah-extension/core`                                                                                          |
-| 58    | Settings card                                                                                                                                                                                                    | frontend-developer | 21, 57                                                                        | `-p @ptah-extension/chat`                                                                                          |
-| 59    | Banner stages + store + new session from handoff                                                                                                                                                                 | frontend-developer | 31, 55                                                                        | `-p @ptah-extension/chat` (visual-reviewer dark + light)                                                           |
-| 60    | Stats chip budget input + chat-view binding                                                                                                                                                                      | frontend-developer | 51, 59 (same `chat-view` area; serial)                                        | `-p @ptah-extension/chat-ui @ptah-extension/chat`                                                                  |
-| 61    | Agent card budget and advice                                                                                                                                                                                     | frontend-developer | 47, 56                                                                        | `-p @ptah-extension/chat-streaming @ptah-extension/chat`                                                           |
+| Finding                      | Resolution                                                                                                                       | Where                 |
+| ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------- | --------------------- |
+| F1 key by wrapper id         | Key by `snapshot.sessionId`; parity spec with tracking id ≠ real id                                                              | Comp. 3, 6; AS-1      |
+| F2 resume path unknown       | `observeLoaded` at `readForResume`; `canSend` falls back to `statsOwner.snapshot`                                                | Comp. 3, 8            |
+| F3 `/compact` not native     | Explicit allowlist `/compact`, `/clear` before the slash/resume branch; custom commands blocked                                  | Comp. 8               |
+| F4 RPC manifest              | One new method; map, handler, manifest, allowlist and three surface specs in one unit; settings use existing `settings:get/set`  | Comp. 1, 8            |
+| F5 absent snapshot           | Absent keeps state; lower revision ignored; `unknown` only before the first figure                                               | Comp. 3               |
+| F6 cost fallback             | `knownCost` lower bound when partial; weighted only at `'none'`; sticky measure; `used`/`measure` in chip input; label by reason | Comp. 3, 9            |
+| F7 held follow-up            | Accepted: at most crossing turn + one held follow-up; specced and stated in the limit text                                       | Comp. 3               |
+| F8 compaction source         | `compact_boundary`, main loop; resets on restart like the chat; tighten → earlier handoff stated in text                         | Comp. 3, 6; user text |
+| F9 subagent info total       | TOKENS is the info total; optional labelled share; "needs a second, approximate figure"                                          | Comp. 10; Decision 2  |
+| F10 batch deps               | No batch table (team-leader owns it); ordering constraints and same-unit typecheck rules below                                   | Handoff               |
+| F11 two context figures      | Backend figure only; event delivery, no poll                                                                                     | Comp. 10              |
+| F12 id in path               | `UUID_REGEX` + confined resolve                                                                                                  | Comp. 5, 8            |
+| F13 reported-cost preference | Stated in Decision 1                                                                                                             | Gate 2                |
+| F14 tighten/restore          | Text says it compacts on the next request when above target; restore sends configured window or `null`                           | Comp. 4; user text    |
+| F15 retention/location       | Newest 50 files; location is Decision 3                                                                                          | Comp. 5; Gate 2       |
 
-- Parallel-safe: 50 with all; 54 with 52-53 (file-disjoint: the monitor file only); 56 with 55; 57-58 with 52-56.
-- QA (senior-tester, within the decision 6/7 run budget): one scripted session with a lowered budget
-  (`sessionBudgetTokens = 2,000,000`) that walks normal → tighten → handoff → limit; assert chip = state, block works,
-  `/compact` passes, new session starts with only the handoff; one proxied-route run with unit `cost` to see the
-  fallback label.
+## User-facing text (changes from revision 1 only)
+
+- Tighten, advisory (default while E2 is open): "Half of this session's budget is used (<used> of <limit>). Run
+  /compact or start a fresh session for unrelated work to slow the spend."
+- Tighten, applied: "... Ptah lowered auto-compact to <target> tokens for this session. If the context is already above
+  that, the next request compacts first. More compactions bring the handoff step sooner." Not-honoured reason text:
+  "this model ignored the lower auto-compact setting".
+- Limit: "... New messages here are paused after the current turn (one queued message may still run). /compact and
+  /clear still work."
+- Cost lower bound: "COST ≥ $x / $30 (some models have no price)". Weighted: "est. <used> / <limit> weighted tokens (no
+  price for this model)".
+- All other stage texts, buttons and roles: as revision 1 § User-facing text.
 
 ## Team-leader handoff
 
-- Recommended executors: backend-developer for 50-56 (agent-sdk/rpc-handlers/shared); frontend-developer for 57-61.
-- Complexity: HIGH overall (stage machine across four libraries and live session plumbing); each batch MEDIUM or LOW.
-- Dependencies: component level only — 1 before everything; 3 needs 23.4, 26 and 29; 5 needs 3-4; 7 needs 6 and 41;
-  8 needs 5; 9 needs 8 and 31.
-- Files affected: CREATE 11 (listed per component), MODIFY about 30 (listed per component).
-- Verification points: confirm AS-B1..AS-B4 before Batches 52/55; parity spec (identical snapshot object); no
-  `undefined` → 0 coercion; `.ptah/handoffs` never created inside a workspace.
+- Recommended executors: backend-developer for components 1-8; frontend-developer for 9; component 10 is not
+  scheduled until Batches 28, 36, 37 and 40-41 exist.
+- Complexity: MEDIUM-HIGH (stage machine plus two entry paths across five libraries); each component LOW-MEDIUM.
+- Dependencies and ordering (component level): 1 before all; 2 before 3; 4 and 5 before 3's actions are wired; 6
+  after 3-5; 7 after 1; 8 after 6; 9 after 7 and 8. A unit that widens `ResultStatsPayload` or `ChatResumeResult`
+  typechecks agent-sdk, cli-agent-runtime, rpc-handlers, chat-types, chat-state and chat in the same unit. The RPC
+  method map change and component 8's handler, manifest and surface specs are one unit.
+- Parallel-safe: 4 and 5 (disjoint files); 7 with 4-5; 9's settings card with 3-8.
+- Files affected: CREATE 11 (listed per component); MODIFY about 30 (listed per component).
+- Verification points: parity specs on both entry paths; no `undefined → 0` coercion; `.ptah/handoffs` never inside a
+  workspace; `A1_DEFAULT_WINDOW` unchanged; repository commands
+  `npx nx run-many -t typecheck,lint,test -p <touched projects>` plus `@ptah-extension/cli-engine` and the three app
+  typechecks after component 8. QA: one scripted session at `sessionBudget.tokens = 2000000` through all stages
+  (chip = state, block, `/compact` passes, seed-only new session), and one proxied-route run in `cost` unit.
 
-## Decisions for the user
+## Gate 2 decisions
 
-1. Session budget unit.
-   - TOKENS as displayed (Recommended): always present when the chat shows stats, works on every provider, matches
-     your "about 50M" target; default 50,000,000. It counts cache-read at full weight, so it tracks context resent
-     per request rather than dollars.
-   - COST as displayed: closest to money; default $30 (from your 14.1M ↔ $8.96). Only direct-Anthropic runs are
-     provider-reported; history and proxied runs are rate-card estimates; unpriced models make it unavailable and the
-     weighted fallback (default 9M) applies.
-   - Weighted tokens: not shown anywhere in the chat today, so it would be a second figure; offered only as the
-     fallback.
-2. Subagent spend in the session limit. Your note said subagents should not count by default, but the chat's TOKENS
-   and COST already include them, and live data cannot separate them.
-   - Count the figure as displayed, subagents included (Recommended): one figure, display and limit agree.
-   - Exclude subagents: needs a second, main-loop-only counter that will not match the chat.
-3. How the handoff is written.
-   - Deterministic, from session facts, no model call (Recommended): free, cannot fail on the model, capped at 8,000
-     chars.
-   - Deterministic plus an optional "Improve with model" button that spends one extra request.
-4. At 100%.
-   - Pause new messages, with "Allow 20% more" and "Continue in new session" (Recommended).
+1. **Session budget unit.** You prefer provider-reported figures, but COST is provider-reported only for live runs on
+   the direct Anthropic route; resumed history and every proxied route are rate-card estimates, and with subscription
+   auth the "reported" dollars are API-equivalent, not billed.
+   - TOKENS as displayed, 50M (Recommended): present whenever the chip shows stats, identical on every provider.
+   - COST as displayed, $30: closest to money; `≥` lower bound when some models are unpriced; weighted fallback (9M)
+     only when nothing is priced.
+2. **Subagents in the budget.** TOKENS and COST already include Task-subagent spend; excluding it needs a second,
+   approximate figure.
+   - Count the displayed figure, ship the session part now, build per-subagent resume advice and safety stop with the
+     deferred Batches 28/36/37/40-41 (Recommended).
+   - Same, plus show an approximate subagent share beside TOKENS once the monitor exists.
+   - Exclude subagents from the limit with a main-loop-only counter (will not match the chip).
+3. **Handoff writing and location.**
+   - Deterministic from the transcript, `~/.ptah/handoffs/`, newest 50 kept (Recommended): free, never in your repo.
+   - Deterministic, written beside the detected task folder (`.ptah/specs/TASK_…/handoff.md`), home dir otherwise.
+   - Deterministic plus an "Improve with model" button that spends one extra request.
+4. **At 100%.**
+   - Pause new messages after the current turn, with "Allow 20% more" and "Continue in new session" (Recommended).
    - Banner only, never pause.
    - Pause with no override.

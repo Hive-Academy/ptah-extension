@@ -25,6 +25,7 @@ import type {
   AgentProcessInfo,
   IAgentAdapter,
   ResultStatsPayload,
+  SessionBudgetState,
   SessionStatsEntry,
 } from '@ptah-extension/shared';
 import { MESSAGE_TYPES } from '@ptah-extension/shared';
@@ -399,6 +400,8 @@ describe('wireSdkCallbacks — the remap is unscoped by construction', () => {
           reason: 'chat-runtime-unavailable',
         })),
       } as unknown as Args[7],
+      // Never consulted: these tests make no resume spawn.
+      { evaluate: jest.fn() } as unknown as Args[8],
     );
   }
 
@@ -572,6 +575,41 @@ describe('wireSdkCallbacks — session stats snapshot transport (TASK_2026_533)'
     const payload = webviewManager.broadcastMessage.mock.calls[0][1];
     expect(payload).not.toHaveProperty('sessionStats');
     expect(payload).toMatchObject(footer);
+  });
+
+  // TASK_2026_597 N7: the budget rides beside the snapshot it was computed
+  // from, and only when present.
+  it('forwards budget unchanged when the backend computed one', async () => {
+    const { onResult, webviewManager } = wireResultStats();
+    const budget: SessionBudgetState = {
+      sessionId: REAL_SESSION_ID,
+      stage: 'limit',
+      unit: 'tokens',
+      measure: 'tokens',
+      used: 50_000_000,
+      limit: 50_000_000,
+      percent: 100,
+      lowerBound: false,
+      revision: 7,
+      compactions: 1,
+      extensions: 0,
+      blocked: true,
+    };
+
+    await onResult({ ...footer, budget });
+
+    const payload = webviewManager.broadcastMessage.mock.calls[0][1];
+    expect(payload.budget).toBe(budget);
+    expect(payload).toMatchObject(footer);
+  });
+
+  it('omits budget when the backend had none', async () => {
+    const { onResult, webviewManager } = wireResultStats();
+
+    await onResult(footer);
+
+    const payload = webviewManager.broadcastMessage.mock.calls[0][1];
+    expect(payload).not.toHaveProperty('budget');
   });
 });
 

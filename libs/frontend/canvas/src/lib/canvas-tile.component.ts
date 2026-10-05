@@ -21,9 +21,14 @@ import {
   TabManagerService,
   SESSION_CONTEXT,
   SESSION_VISIBLE,
+  SESSION_FOCUSED,
   SendToMessagingComponent,
 } from '@ptah-extension/chat';
-import { EffortStateService, ModelStateService } from '@ptah-extension/core';
+import {
+  EffortStateService,
+  ModelStateService,
+  SURFACE_ACTIVE,
+} from '@ptah-extension/core';
 import { NativePopoverComponent } from '@ptah-extension/ui';
 import {
   isCompactViewMode,
@@ -124,6 +129,24 @@ const NEXT_VIEW_MODE_LABEL: Readonly<Record<TabViewMode, string>> = {
     TileAgentIndicatorComponent,
     TileAgentMiniPanelComponent,
     SendToMessagingComponent,
+  ],
+  host: {
+    // Marker for the unfocused-tile CSS below. Host-level so the tile content
+    // needs no focus wiring of its own for the animation pause.
+    '[class.tile-unfocused]': '!focused()',
+  },
+  styles: [
+    `
+      /* Unfocused tiles freeze purely decorative infinite animations
+         (streaming loaders, skeleton pulses, monitor rows). The focused tile
+         and the single chat view keep animating. ::ng-deep reaches child
+         content classes, as the workspace grid does for gridstack internals. */
+      :host(.tile-unfocused) ::ng-deep [class*='animate-spin'],
+      :host(.tile-unfocused) ::ng-deep [class*='animate-pulse'],
+      :host(.tile-unfocused) ::ng-deep .loading {
+        animation-play-state: paused;
+      }
+    `,
   ],
   template: `
     <div
@@ -388,7 +411,7 @@ const NEXT_VIEW_MODE_LABEL: Readonly<Record<TabViewMode, string>> = {
 
       <!-- Chat view — only rendered after child injector is ready -->
       @if (childInjector()) {
-        <div class="flex-1 min-h-0 overflow-hidden">
+        <div class="tile-content flex-1 min-h-0 overflow-hidden">
           <ng-container
             [ngComponentOutlet]="chatViewComponent"
             [ngComponentOutletInjector]="childInjector()!"
@@ -403,10 +426,12 @@ export class CanvasTileComponent implements OnInit, OnDestroy {
   readonly tabId = input.required<string>();
 
   /**
-   * Whether this tile is the currently focused tile.
-   * When true, renders a primary-colored ring border.
+   * Whether this tile is the currently focused tile. When true, renders a
+   * primary-colored ring border. Defaults to TRUE so a host that does not
+   * bind it keeps focused behaviour — wide render margin, live animations.
+   * The workspace grid always binds it explicitly.
    */
-  readonly focused = input<boolean>(false);
+  readonly focused = input<boolean>(true);
 
   /**
    * Whether this tile's workspace grid is on-screen. Drives visibility-based
@@ -468,6 +493,27 @@ export class CanvasTileComponent implements OnInit, OnDestroy {
   private readonly effortState = inject(EffortStateService);
   private readonly modelState = inject(ModelStateService);
   private readonly parentEnvInjector = inject(EnvironmentInjector);
+
+  /**
+   * The canvas surface's activity, resolved through this tile's ELEMENT chain
+   * (`ptahSurfaceActive="canvas"`: chat route addressed && grid layout). The
+   * tile's content cannot see that provider itself — NgComponentOutlet uses
+   * the child EnvironmentInjector below in place of the element chain, so it
+   * would fall through to the app-level chat-surface value and keep rendering
+   * while this tile's workspace is hidden or the canvas is not on screen.
+   */
+  private readonly canvasSurfaceActive = inject(SURFACE_ACTIVE);
+
+  /**
+   * SURFACE_ACTIVE for this tile's content: render work (markdown, execution
+   * node frames, transcript) runs only while the canvas is active AND this
+   * tile's workspace grid is on-screen. Ingest is unaffected — stores keep
+   * receiving stream data — and every consumer re-renders the latest content
+   * when this flips back to true.
+   */
+  private readonly tileSurfaceActive = computed(
+    () => this.canvasSurfaceActive() && this.visible(),
+  );
 
   private readonly _freezeEffort = effect(() => {
     if (!this.effortState.isLoaded()) return;
@@ -570,6 +616,8 @@ export class CanvasTileComponent implements OnInit, OnDestroy {
         [
           { provide: SESSION_CONTEXT, useValue: tabIdSignal },
           { provide: SESSION_VISIBLE, useValue: this.visible },
+          { provide: SESSION_FOCUSED, useValue: this.focused },
+          { provide: SURFACE_ACTIVE, useValue: this.tileSurfaceActive },
         ],
         this.parentEnvInjector,
       ),

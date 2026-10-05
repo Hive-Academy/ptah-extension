@@ -157,6 +157,47 @@ describe('readClaudeTranscript', () => {
   });
 });
 
+describe('subagent type and missing usage', () => {
+  it('reads agentType from the sibling .meta.json', () => {
+    const file = writeTranscript('p/s/subagents/agent-2.jsonl', [
+      { type: 'assistant', message: { id: 'r', usage } },
+    ]);
+    fs.writeFileSync(
+      file.replace(/\.jsonl$/, '.meta.json'),
+      JSON.stringify({ agentType: 'code-logic-reviewer', description: 'x' }),
+    );
+    expect(readClaudeTranscript(file).agentType).toBe('code-logic-reviewer');
+  });
+
+  it('leaves the type null without a readable meta file or for a session', () => {
+    const file = writeTranscript('p/s/subagents/agent-3.jsonl', [
+      { type: 'assistant', message: { id: 'r', usage } },
+    ]);
+    expect(readClaudeTranscript(file).agentType).toBeNull();
+    fs.writeFileSync(file.replace(/\.jsonl$/, '.meta.json'), '{torn');
+    expect(readClaudeTranscript(file).agentType).toBeNull();
+    const session = writeTranscript('p/main.jsonl', [
+      { type: 'assistant', message: { id: 'r', usage } },
+    ]);
+    expect(readClaudeTranscript(session).agentType).toBeNull();
+  });
+
+  it('counts a response without usage as skipped, not as a 0 request', () => {
+    writeTranscript('p/s/subagents/agent-4.jsonl', [
+      { type: 'assistant', message: { id: 'r1', usage } },
+      { type: 'assistant', message: { id: 'r2', content: [] } },
+    ]);
+    const report = readClaudeStore(tmp);
+    const [summary] = report.transcripts;
+    expect(summary?.missingUsage).toBe(1);
+    expect(summary?.requests).toHaveLength(1);
+    expect(summary?.requestInputs).toEqual([100]);
+    expect(report.skipped.map((s) => s.reason)).toContain(
+      '1 response(s) without usage skipped',
+    );
+  });
+});
+
 describe('readClaudeStore', () => {
   it('reports a missing store as skipped', () => {
     const report = readClaudeStore(path.join(tmp, 'none'));

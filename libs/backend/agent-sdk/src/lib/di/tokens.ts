@@ -38,6 +38,12 @@ export const SDK_TOKENS = {
    * (TASK_2026_533). Singleton — every producer and reader shares one.
    */
   SDK_SESSION_STATS_OWNER: Symbol.for('SdkSessionStatsOwner'),
+  /**
+   * The session budget stage machine (`SessionBudgetService`, TASK_2026_597
+   * N7). Singleton — one in-memory state per live session, keyed by the real
+   * SDK session id; fed by the adapter, read by the `chat:continue` gate.
+   */
+  SDK_SESSION_BUDGET: Symbol.for('SdkSessionBudget'),
   SDK_PERMISSION_HANDLER: Symbol.for('SdkPermissionHandler'),
   SDK_MESSAGE_TRANSFORMER: Symbol.for('SdkMessageTransformer'),
   SDK_SESSION_LIFECYCLE_MANAGER: Symbol.for('SdkSessionLifecycleManager'),

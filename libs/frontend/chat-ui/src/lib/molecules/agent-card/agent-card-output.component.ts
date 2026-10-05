@@ -10,6 +10,7 @@ import {
   signal,
   inject,
   Component,
+  computed,
   input,
   effect,
   ChangeDetectionStrategy,
@@ -20,6 +21,15 @@ import { NgClass } from '@angular/common';
 import { MarkdownModule } from 'ngx-markdown';
 import { SurfaceMarkdownPipe } from '@ptah-extension/markdown';
 import type { RenderSegment, StderrSegment } from './agent-card.types';
+
+interface KeyedRenderSegment {
+  readonly key: string;
+  readonly segment: RenderSegment;
+}
+
+function segmentContentKey(segment: RenderSegment): string {
+  return `${segment.type}:${segment.content.length}:${segment.content.slice(0, 48)}${segment.toolCallId ? `:${segment.toolCallId}` : ''}`;
+}
 
 @Component({
   selector: 'ptah-agent-card-output',
@@ -35,6 +45,7 @@ import type { RenderSegment, StderrSegment } from './agent-card.types';
       .ptah-tool-name-text {
         color: var(--ptah-gold);
       }
+
     `,
   ],
   template: `
@@ -47,7 +58,8 @@ import type { RenderSegment, StderrSegment } from './agent-card.types';
       "
     >
       <div class="p-2 space-y-1.5">
-        @for (segment of segments(); track $index) {
+        @for (keyedSegment of keyedSegments(); track keyedSegment.key) {
+          @let segment = keyedSegment.segment;
           @switch (segment.type) {
             @case ('heading') {
               <div class="flex items-center gap-1.5 mt-2.5 mb-1 first:mt-0">
@@ -317,6 +329,21 @@ export class AgentCardOutputComponent {
   readonly segments = input.required<RenderSegment[]>();
   readonly embedded = input(false);
   readonly stderrSegments = input.required<StderrSegment[]>();
+  readonly keyedSegments = computed<readonly KeyedRenderSegment[]>(() => {
+    const segments = this.segments();
+    const occurrences = new Map<string, number>();
+
+    return segments.map((segment, index) => {
+      if (index === segments.length - 1) {
+        return { key: `tail:${segment.type}`, segment };
+      }
+
+      const contentKey = segmentContentKey(segment);
+      const occurrence = occurrences.get(contentKey) ?? 0;
+      occurrences.set(contentKey, occurrence + 1);
+      return { key: `${contentKey}#${occurrence}`, segment };
+    });
+  });
   private readonly outputContainer =
     viewChild<ElementRef<HTMLDivElement>>('outputContainer');
 

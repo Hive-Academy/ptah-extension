@@ -473,10 +473,13 @@ describe('SdkQueryOptionsBuilder.build — file checkpointing wiring', () => {
     const opts = await buildWith();
     // Serialized, because `crossSessionInbound` is a key the installed
     // `Settings` interface does not model. See `buildFlagSettingsArg`.
+    // `subagentPromptCacheTtl: '1h'` is the `auto` default for a session that
+    // can spawn subagents (TASK_2026_597 N1).
     expect(JSON.parse(opts.settings as string)).toEqual({
       autoMemoryEnabled: false,
       autoDreamEnabled: false,
       crossSessionInbound: 'accept',
+      subagentPromptCacheTtl: '1h',
     });
   });
 
@@ -706,11 +709,16 @@ describe('SdkQueryOptionsBuilder.build — auto-compact control', () => {
     return JSON.parse(options.settings as string) as Record<string, unknown>;
   }
 
-  /** The keys every interactive session carries, whatever compaction says. */
+  /**
+   * The keys every interactive session carries, whatever compaction says.
+   * `subagentPromptCacheTtl: '1h'` is the `auto` default for a session that
+   * can spawn subagents (TASK_2026_597 N1).
+   */
   const ALWAYS = {
     autoMemoryEnabled: false,
     autoDreamEnabled: false,
     crossSessionInbound: 'accept',
+    subagentPromptCacheTtl: '1h',
   } as const;
 
   it('never emits CLAUDE_CODE_MAX_CONTEXT_TOKENS, even for a proxied model with a known window', async () => {

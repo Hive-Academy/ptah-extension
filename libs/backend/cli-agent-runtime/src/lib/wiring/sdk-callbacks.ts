@@ -415,6 +415,9 @@ async function sendStatsWithRetry(
           // The backend's authoritative lifetime snapshot (TASK_2026_533);
           // the panel installs it as-is. Absent → the panel keeps its last one.
           ...(stats.sessionStats && { sessionStats: stats.sessionStats }),
+          // The session budget computed from that same snapshot
+          // (TASK_2026_597 N7). Absent → the panel keeps its last one.
+          ...(stats.budget && { budget: stats.budget }),
         }),
       {
         retries: 3,

@@ -704,3 +704,106 @@ describe('WorkspaceScopeResolver.inspect', () => {
     ]);
   });
 });
+
+describe('WorkspaceScopeResolver.writeForPath / inspectForPath', () => {
+  const PATH_A = path.resolve(
+    process.platform === 'win32' ? 'C:\\wsForPathA' : '/wsForPathA',
+  );
+  const PATH_B = path.resolve(
+    process.platform === 'win32' ? 'C:\\wsForPathB' : '/wsForPathB',
+  );
+
+  it('writes the explicit path key, not the active one and not the global key', async () => {
+    const store = makeMemoryStore({ k: 'global' });
+    const resolver = new WorkspaceScopeResolver(store, makeSource(PATH_B));
+
+    await resolver.writeForPath('k', PATH_A, 'a');
+
+    expect(store.writeCalls).toHaveLength(1);
+    expect(store.writeCalls[0].key).toMatch(
+      new RegExp(`^${WORKSPACE_PREFIX}\\.[0-9a-f]{16}\\.k$`),
+    );
+    expect(store.data['k']).toBe('global');
+    expect(resolver.readForPath<string>('k', PATH_A)).toBe('a');
+    expect(resolver.read<string>('k')).toBe('global');
+  });
+
+  it('uses the same physical key as an active-path workspace write', async () => {
+    const store = makeMemoryStore();
+    const active = new WorkspaceScopeResolver(store, makeSource(PATH_A));
+    await active.write('k', 'active', 'workspace');
+    const activeKey = store.writeCalls[0].key;
+
+    const explicit = new WorkspaceScopeResolver(store, makeSource(undefined));
+    expect(explicit.inspectForPath<string>('k', PATH_A)).toEqual({
+      key: activeKey,
+      value: 'active',
+    });
+  });
+
+  it.each([[''], ['   ']])(
+    'writeForPath(%j) throws and leaves the global key unchanged',
+    async (bad) => {
+      const store = makeMemoryStore({ k: 'global' });
+      const resolver = new WorkspaceScopeResolver(store, makeSource(PATH_A));
+
+      await expect(resolver.writeForPath('k', bad, 'x')).rejects.toThrow(
+        /workspace path is required/,
+      );
+      expect(store.writeCalls).toHaveLength(0);
+      expect(store.data).toEqual({ k: 'global' });
+    },
+  );
+
+  it('writeForPath throws on a missing (non-string) path', async () => {
+    const store = makeMemoryStore({ k: 'global' });
+    const resolver = new WorkspaceScopeResolver(store, makeSource(PATH_A));
+
+    await expect(
+      resolver.writeForPath('k', undefined as unknown as string, 'x'),
+    ).rejects.toThrow(/workspace path is required/);
+    expect(store.writeCalls).toHaveLength(0);
+  });
+
+  it('inspectForPath throws on an empty path instead of reading the global key', () => {
+    const store = makeMemoryStore({ k: 'global' });
+    const resolver = new WorkspaceScopeResolver(store, makeSource(PATH_A));
+
+    expect(() => resolver.inspectForPath('k', '')).toThrow(
+      /workspace path is required/,
+    );
+  });
+
+  it('inspectForPath returns the raw workspace value with no global fallback', async () => {
+    const store = makeMemoryStore({ k: 'global' });
+    const resolver = new WorkspaceScopeResolver(store, makeSource(PATH_A));
+
+    expect(resolver.inspectForPath('k', PATH_A).value).toBeUndefined();
+    await resolver.writeForPath('k', PATH_A, { a: 1 });
+    expect(resolver.inspectForPath('k', PATH_A).value).toEqual({ a: 1 });
+  });
+
+  it('keeps two workspaces isolated', async () => {
+    const store = makeMemoryStore();
+    const resolver = new WorkspaceScopeResolver(store, makeSource(undefined));
+
+    await resolver.writeForPath('k', PATH_A, 'a');
+    await resolver.writeForPath('k', PATH_B, 'b');
+
+    expect(resolver.inspectForPath('k', PATH_A).value).toBe('a');
+    expect(resolver.inspectForPath('k', PATH_B).value).toBe('b');
+    expect(resolver.inspectForPath('k', PATH_A).key).not.toBe(
+      resolver.inspectForPath('k', PATH_B).key,
+    );
+  });
+
+  it('writing undefined drops the workspace key', async () => {
+    const store = makeMemoryStore();
+    const resolver = new WorkspaceScopeResolver(store, makeSource(undefined));
+
+    await resolver.writeForPath('k', PATH_A, 'a');
+    await resolver.writeForPath('k', PATH_A, undefined);
+
+    expect(store.data).toEqual({});
+  });
+});

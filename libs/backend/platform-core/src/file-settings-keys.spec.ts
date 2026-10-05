@@ -6,6 +6,15 @@ import {
   FILE_BASED_SETTINGS_DEFAULTS,
   isFileBasedSettingKey,
 } from './file-settings-keys';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
+import {
+  SCOPED_SETTING_KEYS,
+  SESSION_BUDGET_SETTINGS,
+  SUBAGENT_PROMPT_CACHE_TTL_SETTINGS,
+} from '@ptah-extension/shared';
+import { PtahFileSettingsManager } from './file-settings-manager';
 
 describe('isFileBasedSettingKey', () => {
   describe('static SET membership', () => {
@@ -18,6 +27,15 @@ describe('isFileBasedSettingKey', () => {
     it('returns false for keys not in any registered pattern', () => {
       expect(isFileBasedSettingKey('nonExistent.key')).toBe(false);
       expect(isFileBasedSettingKey('')).toBe(false);
+    });
+  });
+
+  describe('agent generation model keys (TASK_2026_609)', () => {
+    it.each([
+      'agentGeneration.models',
+      'workspace.abc123.agentGeneration.models',
+    ])('routes %s to file-based storage', (key) => {
+      expect(isFileBasedSettingKey(key)).toBe(true);
     });
   });
 
@@ -229,6 +247,31 @@ describe('isFileBasedSettingKey', () => {
         expect(Number.isInteger(value)).toBe(true);
         expect(value).toBeGreaterThanOrEqual(0);
       }
+    });
+  });
+
+  describe('subagent prompt-cache TTL key (TASK_2026_597 N1)', () => {
+    // Written through `agent:setConfig`; unrouted, the write would be dropped
+    // while the read still served the default.
+    const key = 'agentOrchestration.subagentPromptCacheTtl';
+
+    it('is file-based and defaults to auto', () => {
+      expect(FILE_BASED_SETTINGS_KEYS.has(key)).toBe(true);
+      expect(isFileBasedSettingKey(key)).toBe(true);
+      expect(FILE_BASED_SETTINGS_DEFAULTS[key]).toBe('auto');
+    });
+
+    it('defaults to a value the setting accepts', () => {
+      expect(SUBAGENT_PROMPT_CACHE_TTL_SETTINGS).toContain(
+        FILE_BASED_SETTINGS_DEFAULTS[key],
+      );
+    });
+
+    it('is a global-only scoped key', () => {
+      expect(SCOPED_SETTING_KEYS[key]).toEqual({
+        appScopable: false,
+        supportedTargets: ['global'],
+      });
     });
   });
 
@@ -1071,6 +1114,66 @@ describe('isFileBasedSettingKey', () => {
         )
         .map(([key]) => key);
       expect(slashed).toEqual([]);
+    });
+  });
+
+  describe('session budget keys (TASK_2026_597 N7)', () => {
+    /**
+     * Named literally so a key dropped from the shared table, or a default
+     * changed there, is a red test here rather than a silently dropped write.
+     */
+    const budgetDefaults: Record<string, unknown> = {
+      'sessionBudget.enabled': true,
+      'sessionBudget.unit': 'tokens',
+      'sessionBudget.tokens': 50_000_000,
+      'sessionBudget.usd': 30,
+      'sessionBudget.fallbackWeightedTokens': 9_000_000,
+      'sessionBudget.tightenPercent': 50,
+      'sessionBudget.handoffPercent': 80,
+      'sessionBudget.handoffAfterCompactions': 3,
+      'sessionBudget.tightenWindowTokens': null,
+      'sessionBudget.blockAtLimit': true,
+    };
+
+    it.each(Object.entries(budgetDefaults))(
+      'registers, routes and defaults %s to %s',
+      (key, expected) => {
+        expect(FILE_BASED_SETTINGS_KEYS.has(key)).toBe(true);
+        expect(isFileBasedSettingKey(key)).toBe(true);
+        expect(
+          Object.prototype.hasOwnProperty.call(
+            FILE_BASED_SETTINGS_DEFAULTS,
+            key,
+          ),
+        ).toBe(true);
+        expect(FILE_BASED_SETTINGS_DEFAULTS[key]).toBe(expected);
+      },
+    );
+
+    it('registers exactly the ten keys of the shared table', () => {
+      const budgetKeys = [...FILE_BASED_SETTINGS_KEYS].filter((key) =>
+        key.startsWith('sessionBudget.'),
+      );
+      expect(budgetKeys.sort()).toEqual(Object.keys(budgetDefaults).sort());
+      expect(
+        Object.values(SESSION_BUDGET_SETTINGS)
+          .map((setting) => setting.key)
+          .sort(),
+      ).toEqual(Object.keys(budgetDefaults).sort());
+    });
+
+    it('serves the null tightenWindowTokens default as null through the file store', () => {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ptah-budget-keys-'));
+      try {
+        const store = new PtahFileSettingsManager(
+          FILE_BASED_SETTINGS_DEFAULTS,
+          dir,
+        );
+        expect(store.get('sessionBudget.tightenWindowTokens')).toBeNull();
+        expect(store.get('sessionBudget.tokens')).toBe(50_000_000);
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
     });
   });
 });

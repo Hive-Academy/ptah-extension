@@ -1,10 +1,14 @@
 import { TestBed } from '@angular/core/testing';
-import { signal } from '@angular/core';
+import { computed, signal } from '@angular/core';
 import { ThemeService, VSCodeService } from '@ptah-extension/core';
+import { HarnessHealthStore } from '@ptah-extension/marketplace/services';
 import type {
   AgentScorecard,
   CloneSummary,
+  HarnessHealth,
+  HarnessTargetHealth,
   SkillSynthesisGetScorecardDetailResult,
+  SkillSynthesisListQuarantinedAgentsResult,
   SkillSynthesisSaveCloneBodyResult,
 } from '@ptah-extension/shared';
 
@@ -161,24 +165,116 @@ function makeRpcStub() {
     })),
     listClones: jest.fn(async () => []),
     saveCloneBody: jest.fn(async () => saveResult()),
+    listQuarantinedAgents: jest.fn(
+      async (): Promise<SkillSynthesisListQuarantinedAgentsResult> => ({
+        workspaceRoot: '/ws',
+        agentSync: 'enabled',
+        quarantined: [],
+        notOwned: [],
+      }),
+    ),
+    restoreQuarantinedAgent: jest.fn(async () => ({
+      outcome: 'restored' as const,
+      path: '/ws/.claude/agents/x.md',
+      agentSync: 'enabled' as const,
+    })),
   };
 }
 
 type RpcStub = ReturnType<typeof makeRpcStub>;
 
+/**
+ * `HarnessHealthStore` stand-in: the signals the view and the reconcile guard
+ * read, and the two calls they make, as mocks.
+ */
+function makeHarnessStub(health: HarnessHealth | null = null) {
+  const loading = signal<boolean>(false);
+  const reconciling = signal<boolean>(false);
+  return {
+    health: signal<HarnessHealth | null>(health),
+    error: signal<string | null>(null),
+    loading,
+    reconciling,
+    busy: computed(() => loading() || reconciling()),
+    refresh: jest.fn(async () => undefined),
+    reconcile: jest.fn(async () => undefined),
+  };
+}
+
+type HarnessStub = ReturnType<typeof makeHarnessStub>;
+
+function harnessTarget(
+  overrides: Partial<HarnessTargetHealth> = {},
+): HarnessTargetHealth {
+  return {
+    target: 'codex',
+    detected: true,
+    facets: {
+      skills: 'supported',
+      commands: 'supported',
+      agents: 'supported',
+      mcp: 'supported',
+    },
+    expected: 0,
+    found: 0,
+    missing: [],
+    foreign: [],
+    writeFailed: [],
+    overwrittenLocalEdit: [],
+    removed: [],
+    localEdit: [],
+    agentsInSync: [],
+    durationMs: 1,
+    ...overrides,
+  };
+}
+
+function harnessReport(targets: HarnessTargetHealth[]): HarnessHealth {
+  return {
+    workspaceRoot: '/ws',
+    generatedAt: '2026-10-03T00:00:00.000Z',
+    mode: 'preflight',
+    reason: 'test',
+    sources: 'ok',
+    targets,
+    collisions: [],
+  };
+}
+
+/** jsdom implements no HTMLDialogElement methods (same stub as reconcile-guard.spec). */
+beforeAll(() => {
+  if (!HTMLDialogElement.prototype.showModal) {
+    HTMLDialogElement.prototype.showModal = function showModal(
+      this: HTMLDialogElement,
+    ) {
+      this.setAttribute('open', '');
+    } as HTMLDialogElement['showModal'];
+  }
+  if (!HTMLDialogElement.prototype.close) {
+    HTMLDialogElement.prototype.close = function close(
+      this: HTMLDialogElement,
+    ) {
+      this.removeAttribute('open');
+    } as HTMLDialogElement['close'];
+  }
+});
+
 function setup(opts: {
   isElectron?: boolean;
   state?: StateStub;
   rpc?: RpcStub;
+  harness?: HarnessStub;
   divergedFilterRequest?: number;
 }) {
   const state = opts.state ?? makeStateStub();
   const rpc = opts.rpc ?? makeRpcStub();
+  const harness = opts.harness ?? makeHarnessStub();
   TestBed.configureTestingModule({
     imports: [SkillClonesViewComponent],
     providers: [
       { provide: SkillClonesStateService, useValue: state },
       { provide: SkillSynthesisRpcService, useValue: rpc },
+      { provide: HarnessHealthStore, useValue: harness },
       themeServiceProvider,
       {
         provide: VSCodeService,
@@ -233,6 +329,7 @@ function setup(opts: {
     fixture,
     state,
     rpc,
+    harness,
     el,
     q,
     all,
@@ -873,6 +970,238 @@ describe('SkillClonesViewComponent — bulk rebase', () => {
   });
 });
 
+// ── Agents tab: provider chips, Sync, quarantine panel (TASK_2026_609) ────
+
+describe('SkillClonesViewComponent — Agents tab harness wiring', () => {
+  const agents = () => [
+    clone({ slug: 'deep-research', kind: 'skill' }),
+    clone({ slug: 'planner', kind: 'agent' }),
+  ];
+
+  it('makes no harness or quarantine call on the Skills and Commands tabs', () => {
+    const rpc = makeRpcStub();
+    const { harness, selectTab, q } = setup({
+      state: makeStateStub(agents()),
+      rpc,
+    });
+    selectTab(2);
+
+    expect(harness.refresh).not.toHaveBeenCalled();
+    expect(harness.reconcile).not.toHaveBeenCalled();
+    expect(rpc.listQuarantinedAgents).not.toHaveBeenCalled();
+    expect(q('clones-agent-sync-btn')).toBeNull();
+    expect(q('quarantine-panel')).toBeNull();
+    expect(q('clone-card-sync-chips')).toBeNull();
+  });
+
+  it('makes no harness call in VS Code, even with the Agents tab selected', () => {
+    const rpc = makeRpcStub();
+    const { harness, fixture } = setup({ isElectron: false, rpc });
+    fixture.componentInstance.activeKind.set('agent');
+    fixture.detectChanges();
+
+    expect(harness.refresh).not.toHaveBeenCalled();
+    expect(rpc.listQuarantinedAgents).not.toHaveBeenCalled();
+  });
+
+  it('verifies once per tab entry, fresh, and never polls', () => {
+    const rpc = makeRpcStub();
+    const { harness, selectTab, fixture } = setup({
+      state: makeStateStub(agents()),
+      rpc,
+    });
+
+    selectTab(1);
+    fixture.detectChanges();
+    fixture.detectChanges();
+    expect(harness.refresh).toHaveBeenCalledTimes(1);
+    expect(harness.refresh).toHaveBeenCalledWith({ refresh: true });
+    expect(rpc.listQuarantinedAgents).toHaveBeenCalledTimes(1);
+
+    selectTab(0);
+    selectTab(1);
+    expect(harness.refresh).toHaveBeenCalledTimes(2);
+    expect(rpc.listQuarantinedAgents).toHaveBeenCalledTimes(2);
+  });
+
+  it('re-verifies once on a workspace switch while the Agents tab is open, and not elsewhere', () => {
+    const { harness, selectTab, fixture } = setup({
+      state: makeStateStub(agents()),
+    });
+    const config = TestBed.inject(VSCodeService).config as unknown as {
+      set(value: { isElectron: boolean; workspaceRoot?: string }): void;
+    };
+    const switchWorkspace = (workspaceRoot: string): void => {
+      config.set({ isElectron: true, workspaceRoot });
+      fixture.detectChanges();
+    };
+
+    switchWorkspace('/ws-a');
+    expect(harness.refresh).not.toHaveBeenCalled();
+
+    selectTab(1);
+    expect(harness.refresh).toHaveBeenCalledTimes(1);
+
+    switchWorkspace('/ws-b');
+    fixture.detectChanges();
+    expect(harness.refresh).toHaveBeenCalledTimes(2);
+    expect(harness.refresh).toHaveBeenLastCalledWith({ refresh: true });
+
+    selectTab(0);
+    switchWorkspace('/ws-c');
+    expect(harness.refresh).toHaveBeenCalledTimes(2);
+  });
+
+  it('Refresh on the Agents tab re-verifies and re-lists the quarantine once each', async () => {
+    const rpc = makeRpcStub();
+    const { harness, selectTab, click, state } = setup({
+      state: makeStateStub(agents()),
+      rpc,
+    });
+    selectTab(1);
+
+    await click('clones-refresh');
+
+    expect(state.refreshClones).toHaveBeenCalledTimes(2);
+    expect(harness.refresh).toHaveBeenCalledTimes(2);
+    expect(rpc.listQuarantinedAgents).toHaveBeenCalledTimes(2);
+  });
+
+  it('renders provider chips on agent cards from the store report', () => {
+    const harness = makeHarnessStub(
+      harnessReport([
+        harnessTarget({
+          target: 'codex',
+          agentsInSync: ['.codex/agents/planner.toml'],
+        }),
+      ]),
+    );
+    const { selectTab, all } = setup({
+      state: makeStateStub(agents()),
+      harness,
+    });
+    selectTab(1);
+
+    const chips = all('clone-card-sync-chip');
+    const codex = chips.find((c) => c.textContent?.includes('codex'));
+    expect(codex?.getAttribute('data-state')).toBe('in-sync');
+    // Targets the report does not mention are `unknown`, never `in sync`.
+    const cursor = chips.find((c) => c.textContent?.includes('cursor'));
+    expect(cursor?.getAttribute('data-state')).toBe('unknown');
+  });
+
+  it('marks an agent the quarantine kept but this workspace does not own', async () => {
+    const rpc = makeRpcStub();
+    rpc.listQuarantinedAgents.mockResolvedValue({
+      workspaceRoot: '/ws',
+      agentSync: 'enabled',
+      quarantined: [],
+      notOwned: ['planner'],
+    });
+    const { selectTab, settle, q } = setup({
+      state: makeStateStub(agents()),
+      rpc,
+    });
+    selectTab(1);
+    await settle();
+
+    expect(q('clone-card-not-owned')).toBeTruthy();
+  });
+
+  it('renders the quarantine panel outside the empty-state paragraph', async () => {
+    const { selectTab, settle, q } = setup({
+      state: makeStateStub([clone({ kind: 'skill' })]),
+    });
+    selectTab(1);
+    await settle();
+
+    const empty = q('clones-empty');
+    const panel = q('quarantine-panel');
+    expect(empty?.textContent).toContain('No agents');
+    expect(panel).toBeTruthy();
+    expect(empty?.contains(panel)).toBe(false);
+  });
+
+  it('locks the surface-wide actions while a harness call is in flight', () => {
+    const harness = makeHarnessStub();
+    const { selectTab, q, fixture } = setup({
+      state: makeStateStub(agents()),
+      harness,
+    });
+    selectTab(1);
+    harness.loading.set(true);
+    fixture.detectChanges();
+
+    expect(q<HTMLButtonElement>('clones-refresh')?.disabled).toBe(true);
+    expect(q<HTMLButtonElement>('clones-agent-sync-btn')?.disabled).toBe(true);
+
+    harness.loading.set(false);
+    fixture.detectChanges();
+    expect(q<HTMLButtonElement>('clones-refresh')?.disabled).toBe(false);
+  });
+
+  describe('Sync', () => {
+    function syncSetup() {
+      const harness = makeHarnessStub(harnessReport([harnessTarget()]));
+      const harnessSetup = setup({ state: makeStateStub(agents()), harness });
+      harnessSetup.selectTab(1);
+      harness.refresh.mockClear();
+      return harnessSetup;
+    }
+
+    it('cancel at the guard reconciles nothing', async () => {
+      const { click, harness, q } = syncSetup();
+
+      await click('clones-agent-sync-btn');
+      expect(harness.refresh).toHaveBeenCalledWith({ refresh: true });
+      expect(q('reconcile-guard-confirm')?.textContent?.trim()).toBe('Sync');
+
+      await click('reconcile-guard-cancel');
+      expect(harness.reconcile).not.toHaveBeenCalled();
+    });
+
+    it('confirm at the guard runs exactly one reconcile', async () => {
+      // Plain clicks + `settle`: `click` awaits `whenStable()`, which would
+      // wait out the toast's own dismissal timer.
+      const { harness, settle, q } = syncSetup();
+
+      (
+        q<HTMLButtonElement>('clones-agent-sync-btn') as HTMLButtonElement
+      ).click();
+      await settle();
+      (
+        q<HTMLButtonElement>('reconcile-guard-confirm') as HTMLButtonElement
+      ).click();
+      await settle();
+
+      expect(harness.reconcile).toHaveBeenCalledTimes(1);
+      expect(q('clones-toast')?.textContent).toContain(
+        'Provider copies updated.',
+      );
+    });
+
+    it('reports a failed reconcile as an error, not success', async () => {
+      const { harness, settle, q } = syncSetup();
+      harness.reconcile.mockImplementation(async () => {
+        harness.error.set('reconcile timed out');
+      });
+
+      (
+        q<HTMLButtonElement>('clones-agent-sync-btn') as HTMLButtonElement
+      ).click();
+      await settle();
+      (
+        q<HTMLButtonElement>('reconcile-guard-confirm') as HTMLButtonElement
+      ).click();
+      await settle();
+
+      const toast = q('clones-toast');
+      expect(toast?.textContent).toContain('reconcile timed out');
+      expect(Array.from(toast?.classList ?? [])).toContain('alert-error');
+    });
+  });
+});
+
 describe('SkillClonesViewComponent — body save', () => {
   function openDrawerWithBody(body: string | null) {
     const state = makeStateStub([clone()]);
@@ -1033,6 +1362,9 @@ describe('SkillClonesViewComponent — body save', () => {
         imports: [SkillClonesViewComponent],
         providers: [
           { provide: SkillSynthesisRpcService, useValue: rpc },
+          // The view now injects the harness store (Agents tab); this test
+          // stays on the Skills tab, so the stub is never called.
+          { provide: HarnessHealthStore, useValue: makeHarnessStub() },
           themeServiceProvider,
           { provide: VSCodeService, useValue: vscodeServiceStub(true) },
         ],

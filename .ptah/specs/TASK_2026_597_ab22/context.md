@@ -161,12 +161,120 @@ OUT:
 5. Rule kept from 561/562: agents never edit user-owned files (`~/.codex/config.toml`); Ptah features may write them only
    after explicit opt-in with a diff preview (561 A9 rules).
 
+6. PR 2 scope (2026-10-04, after PR #634 merged): stage N1/N2/N6 = Batches 36-41 and 46-47. The open follow-ups stay
+   with their owner stages (none is in an N1/N2/N6 file): PR1-M1 and F6-M1 (Task 34.2) with S4, PR1-M2 with S3
+   (Batches 16/17), Task 9.3 with S1b. N7/N8 addendum revision 2 runs in parallel, then Gate 2. CLI lanes stay
+   disabled. Decision 11 review policy and lean rules apply.
+7. Gate 2 for N7/N8 (2026-10-04): user replied "approved" to implementation-plan-addendum-n7-n8.md revision 2 (review
+   round 2 APPROVED, 14/15 RESOLVED, F10 PARTIAL). The recommended options apply: (1) budget unit TOKENS 50M as
+   displayed; (2) count the displayed figure, per-subagent advice and safety stop built with Batches 28/36/37/40-41;
+   (3) deterministic handoff from the transcript in `~/.ptah/handoffs/`, newest 50 kept; (4) at 100% pause after the
+   current turn with "Allow 20% more" and "Continue in new session". The team-leader adds the F10 Batch 39 dependency
+   note; the `sessionBudget.enabled` Moderate becomes a named later task.
+8. S4 and token rules (2026-10-04, fourth session). The user chose stage S4. After measuring the session (tool M,
+   see TASK_2026_613 context.md § Evidence) the user APPROVED these rules for every remaining batch:
+   - R1 relay per agent run: a developer or reviewer stops at about 150k context (main trigger) or 60 tool calls
+     (backup), writes a progress note in its report, and a FRESH agent continues from the note. Not for the main
+     session (it uses the PR 3 session budget and handoff).
+   - R2 batches of about 6 files (split larger batches before running them).
+   - R3 the orchestrator commits a clean batch itself (report all green, no deviation to judge) after re-running
+     only `di-lint:lint`, `degradation-audit:lint` and the scoped typecheck (all importers when a libs/shared type
+     changes). The team-leader keeps decomposition, deviation calls and phase completion.
+   - R4 Sonnet for mechanical roles (verify-and-commit, style review, batches that change only types, specs,
+     fixtures or wiring). Opus for design, code-logic review and complex batches.
+   - R5 short check output: `ptah_run_check` (4,000-character cap) or `| tail` / summary greps; re-run one failing
+     spec, not the suite.
+   Shipping these rules to all users (plugin assets, generated agents, Settings) is TASK_2026_613_8f34.
+   Lesson: a limit in the prompt is advice only. Two developers ignored it (Batch 34: 165 calls, 310k context; S4-a
+   fix round: 141 calls, 178k). TASK_2026_613 adds a hard `maxTurns`; until then the orchestrator states the limit
+   and splits work small enough to fit it.
+
 ## Workspace
 
-- Worktree: `D:\projects\ptah-extension\.claude-worktrees\task-597-lane-token-burn`
-- Branch: `fix/task-597-lane-token-burn` (from `main` at `4ad10d856`, not pushed)
-- The task folder was first created in the `main` checkout by mistake. It moves into the worktree when the architect
-  returns. After the move, every agent uses the worktree paths only. Never write product code in the `main` checkout.
+- S4 worktree: `D:\projects\ptah-extension\.claude-worktrees\task-597-s4` (node_modules is a junction to the main
+  checkout). Branch `fix/task-597-s4-lane-guards`, PR #642 (S4-a). Reuse this worktree and branch for S4 Wave D
+  only if PR #642 is still open; once #642 merges, start Wave D on a NEW branch from the latest `origin/main`.
+- PR 3 (merged as #639): branch `fix/task-597-session-budget`. PR 2 (merged as #637) and PR 1 (merged as #634):
+  do not reuse them. The worktrees `.claude-worktrees/task-597-session-budget` and `task-597-followups` can be
+  removed.
+- Avoid the files of TASK_2026_609_c495: agent-generation services/templates, `.claude/agents`, the system-prompt
+  parts of `sdk-query-options-builder.ts`.
+
+## Handoff 4 (2026-10-04, end of fourth orchestration session)
+
+- PR #639 (PR 3, N7/N8) MERGED (`518caa996`) after two CI fix rounds in this session: `a6a8af2ef` (handoff writer
+  ENOTDIR warns once on Linux, banner `text-base-content-muted`, rejected budget action shown, sibling percent
+  re-validation, settings read 5 s timeout, `sessionBudget.*` e2e fixtures, no `aria-busy` on the deferred
+  placeholder) and `477c30b9b` (session-budget block moved below the roles summary, placeholder 44 px). Lanes used:
+  codex and opencode (user enabled them for the #639 fixes only).
+- PR #642 (S4-a) OPEN on `fix/task-597-s4-lane-guards`: Batches 24 `7099066f3`, 30.2 `539fed084`, 32 `384266a77`,
+  33 `378688a1f`, 34 `7619f91ac`; phase review REVISE → fix round `746601373` (S1 run_check runs only in the
+  caller's declared root and names it; S2 `resumeDecision` / `AgentResumeOutcome` on the spawn result and a
+  `Resume:` line; M1 original task kept across fresh lanes; M2 curator watermark only after a pass ran, manual
+  `/compact` never coalesced) → re-review APPROVED (`reviews/s4a-code-logic-rereview.md`). Style review APPROVED.
+  `origin/main` (with #639) merged into the branch (`492b0762c`). TASK_2026_613_8f34 specs are in this PR.
+- Named later tasks from S4-a: M3 (Codex lane with no rollout figure falls back to the turn total), M4 (`run_check`
+  Nx process not killed on cancel or host exit), M5 (waits cannot be cancelled), M6 (idle-lane continuation and
+  `spawnFromSdkHandle` skip the resume gate), re-review RM1 (`ptah_run_check` description still says "worktrees
+  too" while HTTP refuses a worktree outside every open folder), RM2 (a worktree without `node_modules/nx` gets
+  "Nx was not found"), style SM1 (900 s wait ceiling defined twice), SM2 (`openWorldHint: false` on run_check).
+  PR #639 CI-fix review Moderates: sibling percent draft can auto-save before blur; `settings:set` keeps the 30 s
+  default timeout.
+- NEXT: S4 Wave D = Batches 25 → 26 → 27 → 28 → 29 → 30.1 → 31 in series, with 35 alongside (batches.md
+  § S4 stage start). Status headers still read WAITS-FOR-#639; #639 is merged, so they are runnable. Two open
+  decisions to ask the user at the start (one AskUserQuestion):
+  1. Batches 25, 28, 29 and Task 35.3 need setting keys that S3 Batch 16 and Tasks 17.3-17.5 add (not in `libs/`
+     yet). Pull Batch 16 + Tasks 17.3-17.5 into Wave D first, or reduce those tasks to hard-coded defaults?
+  2. A6 (Batches 29, 30.1, 31) duplicates the N8 handoff builder and "Continue in new session" banner from #639.
+     Drop A6, or rebuild it on the N8 pieces? Task 26.2 must reuse N8's `getContextUsage` read.
+  Batch 28 also takes the per-subagent budget parts the N7/N8 addendum deferred (Component 10.1-10.3).
+- After S4: S3 (12-22, owns PR1-M2), S1b (8-9 + Task 9.3), S2 (11), then the QA session (E2, N1 "after"
+  measurement, screenshots for Batches 39/47/60/61, PR 3 scripted 2M-token run, transcript-fix check) and the named
+  later tasks (PR2-M1..M5, PR2-B1, N7-M1, PR3-M1..M8, PR3-S1, plus the S4-a list above).
+- Lessons: the PR 3 worktree e2e runs rewrite ~100 baseline PNGs under `.ptah/specs/TASK_2026_555/screenshots`;
+  restore them before every commit (`git diff --name-only -- '*.png' | xargs -r git restore --`). A fresh worktree
+  has no `node_modules`: create a junction to the main checkout (git ignores it). The commit hook takes up to
+  5 minutes; run commits in the background. CI e2e failures that pass on Windows were layout or OS-specific
+  (viewport fold, `fs.rm` ENOTDIR); read the CI log first and give the lane the failing locator.
+
+## Handoff 3 (2026-10-04, end of third orchestration session)
+
+- PR #637 (`fix/task-597-followups`, PR 2, decision 12): Batches 36-41, 46, 47, bug fix 47a (background named
+  subagents showed "Transcript is not available yet") and the CodeRabbit fix. MERGED 2026-10-04 (`c179f3eb5`).
+- PR #639 (`fix/task-597-session-budget`, PR 3, N7/N8, decision 13): Batches 50-61 and fix round, reviews APPROVED,
+  rebased on `main` after #637. Open; the user merges it. Worktree `.claude-worktrees/task-597-session-budget`.
+  The PR 2 worktree `.claude-worktrees/task-597-followups` can be removed.
+- Open, in order of value:
+  1. QA session (needs user approval, decisions 6/7): experiment E2 (does the runtime honour `autoCompactWindow`? A1
+     defaults and the N8 tighten stage stay advisory until it passes); N1 "after" measurement with
+     `CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL` cleared in the child run only (tool M `--subagents`, compare with
+     `measurements/s9-subagent-baselines.md`: 19 resumes > 5 min, 3,544,590 cache-write tokens); visual-reviewer
+     before/after screenshots (dark + light) for Batches 39, 47, 60, 61; manual check of the Batch 47a transcript fix;
+     PR 3 scripted 2M-token session and one proxied-route run.
+  2. Still DEFERRED stages (batches.md): S4 24-35 (largest lane saving; owns PR1-M1 and F6-M1 Task 34.2; component 10
+     per-subagent budget waits for Batch 28), S3 12-22 (owns PR1-M2 with 16/17), S1b 8-9 + Task 9.3, S2 11.
+  3. Named later tasks: PR2-M1..M5, PR2-B1 (backend `agentId` binding when SubagentStart has no `toolUseId`; covers
+     foreground subagents and steer/stop), N7-M1 (`sessionBudget.enabled`), PR3-M1..M8, PR3-S1 (split chat-view and
+     the stats chip).
+- Lessons: `degradation-audit:lint` and `di-lint:lint` scan the whole working tree in the commit hook, so a batch with
+  an unregistered `@inject` token or a swallowing catch blocks every commit in that worktree (Batch 54 committed with
+  55). Fresh worktrees need `npx nx run ptah-electron:build-workspace-watch-host` for one platform-electron spec, and the
+  Prisma client is not generated (`libs/api` typecheck fails; unrelated). Write commit messages with a Bash heredoc
+  (PowerShell `Set-Content -Encoding utf8` adds a BOM that commitlint rejects).
+
+## Handoff 2 (2026-10-03, end of second orchestration session)
+
+- PR #634 (branch `fix/task-597-lane-token-burn`) holds the decision 11 PR 1 subset: Batches 1-7, 10, 23, 42-44,
+  48-49 COMPLETE; 45 NO-OP; phase-end review APPROVED; CI fixes (manifest, Sonar S2871, chat popover `inherit`
+  label) and the 4 CodeRabbit comments are pushed. The user merges #634.
+- Remaining: every batch marked `DEFERRED (follow-up, decision 11)` in batches.md (S1b 8-9, S2 11, S3 12-22,
+  S4 24-35, N1/N2/N6 36-41 and 46-47), N7/N8 (addendum rev 1 + REVISE review F1-F15; rev 2 run was stopped), the
+  open Moderates (batches.md § PR 1 phase-end review, F6-M1/M2, Task 9.3), QA live proof (decisions 6/7) and
+  experiment E2 (A1 defaults stay null until it passes).
+- Related work in another session: TASK_2026_609_c495 (subagent setup + system prompt, branch
+  `fix/task-609-subagent-setup`). Avoid its files.
+- Lesson: scoped checks must include every project that imports a changed `libs/shared` type (the `chat` lib
+  failed in CI only).
 
 ## Handoff (2026-10-03, end of first orchestration session)
 

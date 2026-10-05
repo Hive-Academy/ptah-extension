@@ -1,12 +1,20 @@
 import { Injectable, OnDestroy, signal } from '@angular/core';
 
 /**
- * Vertical `rootMargin` (px) applied to the transcript's intersection observer.
- * Messages within this distance of the scroll viewport, above or below, are
- * mounted. Wide enough that a fast flick never reaches an unmounted region
- * before the browser has delivered the callback.
+ * Vertical `rootMargin` (px) applied to the transcript's intersection observer
+ * while the surface is focused (or not tile-hosted at all). Messages within
+ * this distance of the scroll viewport, above or below, are mounted. Wide
+ * enough that a fast flick never reaches an unmounted region before the
+ * browser has delivered the callback.
  */
 export const RENDER_WINDOW_MARGIN_PX = 2000;
+
+/**
+ * Margin applied while the hosting tile is NOT focused. An unfocused tile is
+ * small and rarely read, so it mounts only the messages near its viewport;
+ * focus widens the window back to `RENDER_WINDOW_MARGIN_PX`.
+ */
+export const UNFOCUSED_RENDER_WINDOW_MARGIN_PX = 600;
 
 /**
  * How many trailing messages are mounted unconditionally, on top of whatever
@@ -47,6 +55,9 @@ export class TranscriptRenderWindow implements OnDestroy {
 
   private observer: IntersectionObserver | null = null;
   private root: HTMLElement | null = null;
+
+  /** Focus-driven rootMargin, px. Fixed per observer — see setFocused. */
+  private margin = RENDER_WINDOW_MARGIN_PX;
 
   /** Registered slot element → message id. Written by the slot directive. */
   private readonly elements = new Map<HTMLElement, string>();
@@ -97,11 +108,31 @@ export class TranscriptRenderWindow implements OnDestroy {
         // disconnect() does not invalidate callbacks already queued by the browser.
         if (this.observer === observer) this.handleEntries(entries);
       },
-      { root: this.root, rootMargin: `${RENDER_WINDOW_MARGIN_PX}px 0px` },
+      { root: this.root, rootMargin: `${this.margin}px 0px` },
     );
     this.observer = observer;
     this.seedMountSet();
     for (const element of this.elements.keys()) observer.observe(element);
+  }
+
+  /**
+   * Focus-driven margin: the focused (or non-tile) surface keeps the wide
+   * margin, an unfocused tile shrinks to the narrow one. `rootMargin` is fixed
+   * per observer, so a change re-creates the observer; the stale observer is
+   * disconnected first so its queued entries hit the identity guard and are
+   * dropped. While inactive only the margin moves — the next activation
+   * connects with the new value.
+   */
+  setFocused(focused: boolean): void {
+    const next = focused
+      ? RENDER_WINDOW_MARGIN_PX
+      : UNFOCUSED_RENDER_WINDOW_MARGIN_PX;
+    if (next === this.margin) return;
+    this.margin = next;
+    if (!this.observer) return;
+    this.observer.disconnect();
+    this.observer = null;
+    this.connect();
   }
 
   /**
@@ -116,8 +147,8 @@ export class TranscriptRenderWindow implements OnDestroy {
       const rect = element.getBoundingClientRect();
       if (
         rect.height > 0 &&
-        rect.bottom >= bounds.top - RENDER_WINDOW_MARGIN_PX &&
-        rect.top <= bounds.bottom + RENDER_WINDOW_MARGIN_PX
+        rect.bottom >= bounds.top - this.margin &&
+        rect.top <= bounds.bottom + this.margin
       )
         next.add(id);
     }

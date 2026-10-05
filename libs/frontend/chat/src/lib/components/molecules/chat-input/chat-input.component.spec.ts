@@ -847,6 +847,37 @@ describe('ChatInputComponent', () => {
       );
     });
 
+    // TASK_2026_597 N7: a send refused at the session budget limit keeps the
+    // draft; any other outcome clears the composer as before.
+    it('keeps the draft when the send is refused at the budget limit', async () => {
+      mockChatStore.sendOrQueueMessage.mockResolvedValueOnce({
+        success: false,
+        error: 'Session budget reached',
+        errorCode: 'SESSION_BUDGET_REACHED',
+      });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (component as any)._currentMessage.set('keep me');
+
+      await component.handleSend();
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      expect((component as any)._currentMessage()).toBe('keep me');
+    });
+
+    it('clears the draft after any other failed send', async () => {
+      mockChatStore.sendOrQueueMessage.mockResolvedValueOnce({
+        success: false,
+        error: 'not sent',
+      });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (component as any)._currentMessage.set('gone');
+
+      await component.handleSend();
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      expect((component as any)._currentMessage()).toBe('');
+    });
+
     it('should preserve colon in namespaced commands with args', async () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (component as any)._currentMessage.set('/ptah-core:review-code file.ts');
@@ -1089,6 +1120,43 @@ describe('ChatInputComponent', () => {
     it('hides Stop when there is no active tab at all', () => {
       activeTabIdSignal.set(null);
       expect(component.isActiveTabStreaming()).toBe(false);
+    });
+  });
+
+  // ============================================================================
+  // AUTO-RESIZE — CSS `field-sizing: content` replaced the JS height writes
+  // (each keystroke used to force a full-document layout via scrollHeight)
+  // ============================================================================
+
+  describe('handleInput (CSS-sized textarea)', () => {
+    it('updates the message signal without touching the textarea style', () => {
+      const styleWrites: string[] = [];
+      const target = {
+        value: 'hello world',
+        get style(): Record<string, string> {
+          return new Proxy(
+            {},
+            {
+              set: (_obj, prop): boolean => {
+                styleWrites.push(String(prop));
+                return true;
+              },
+            },
+          );
+        },
+      };
+
+      component.handleInput({ target } as unknown as Event);
+
+      expect(component.currentMessage()).toBe('hello world');
+      expect(styleWrites).toEqual([]);
+    });
+
+    it('still updates the message signal on every input event', () => {
+      component.handleInput({ target: { value: 'a' } } as unknown as Event);
+      expect(component.currentMessage()).toBe('a');
+      component.handleInput({ target: { value: 'ab' } } as unknown as Event);
+      expect(component.currentMessage()).toBe('ab');
     });
   });
 });

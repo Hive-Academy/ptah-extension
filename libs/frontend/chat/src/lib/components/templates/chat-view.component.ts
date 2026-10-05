@@ -34,6 +34,7 @@ import {
 } from '@ptah-extension/chat-ui';
 import { ResumeNotificationBannerComponent } from '../molecules/notifications/resume-notification-banner.component';
 import { AuthRequiredBannerComponent } from '../molecules/notifications/auth-required-banner.component';
+import { SessionBudgetBannerComponent } from '../molecules/notifications/session-budget-banner.component';
 import { VoiceProviderErrorToastComponent } from '../molecules/notifications/voice-provider-error-toast.component';
 import { CompactSessionCardComponent } from '../molecules/compact-session/compact-session-card.component';
 import { AgentOriginBannerComponent } from '../molecules/agent-origin-banner/agent-origin-banner.component';
@@ -73,6 +74,9 @@ import type {
   ChatSessionSummary,
   SubagentRecord,
   MessageAnchorHint,
+  SessionBudgetAction,
+  SessionBudgetActionResult,
+  SessionBudgetState,
 } from '@ptah-extension/shared';
 
 /**
@@ -124,6 +128,7 @@ export const AGENT_PANEL_OVERLAY_BREAKPOINT = 600;
     SessionStatsSummaryComponent,
     ResumeNotificationBannerComponent,
     AuthRequiredBannerComponent,
+    SessionBudgetBannerComponent,
     VoiceProviderErrorToastComponent,
     CompactionNotificationComponent,
     CompactionMarkerComponent,
@@ -791,6 +796,41 @@ export class ChatViewComponent implements OnDestroy {
       : this.chatStore.compactionCount();
   });
 
+  /** Latest `session:budgetAction` state; newer stats replace it. */
+  private readonly _budgetActionState = signal<SessionBudgetState | null>(null);
+  private readonly _budgetPreview = signal<{
+    sessionId: string;
+    content: string;
+  } | null>(null);
+  protected readonly budgetActionBusy = signal(false);
+
+  /**
+   * The tab's budget (installed with its stats snapshot), or the state a
+   * budget action returned for the same session when it is not older.
+   */
+  readonly resolvedSessionBudget = computed(() => {
+    const fromTab = this.resolvedActiveTab()?.sessionBudget ?? null;
+    const acted = this._budgetActionState();
+    if (!fromTab || acted?.sessionId !== fromTab.sessionId) return fromTab;
+    return (acted.revision ?? -1) >= (fromTab.revision ?? -1) ? acted : fromTab;
+  });
+
+  protected readonly budgetPreviewText = computed(() => {
+    const preview = this._budgetPreview();
+    return preview &&
+      preview.sessionId === this.resolvedSessionBudget()?.sessionId
+      ? preview.content
+      : null;
+  });
+
+  /** Main-context tokens for the banner's limit comparison, when known. */
+  protected readonly budgetContextTokens = computed(() => {
+    const live = this.resolvedActiveTab()?.liveModelStats;
+    return live && live.contextKnown !== false && live.contextUsed > 0
+      ? live.contextUsed
+      : null;
+  });
+
   /**
    * Resolved isCompacting: tile-scoped when SESSION_CONTEXT is provided, otherwise global.
    * Prevents compaction banner from showing on ALL canvas tiles when only one session compacts.
@@ -1084,6 +1124,86 @@ export class ChatViewComponent implements OnDestroy {
     this.chatStore.sendOrQueueMessage(prompt, { tabId });
     for (const agent of agents) {
       this.chatStore.removeResumableSubagent(agent.toolCallId);
+    }
+  }
+
+  /** Budget banner buttons that only change the budget state. */
+  protected async onBudgetAction(
+    action: 'dismiss' | 'extend' | 'restore-window',
+  ): Promise<void> {
+    await this.runBudgetAction(action);
+  }
+
+  protected async onBudgetPreview(): Promise<void> {
+    const sessionId = this.resolvedSessionBudget()?.sessionId;
+    const result = await this.runBudgetAction('preview-handoff');
+    if (sessionId && result?.handoff) {
+      this._budgetPreview.set({ sessionId, content: result.handoff.content });
+    }
+  }
+
+  /**
+   * "Continue in new session": write a fresh handoff, then open a new tab
+   * whose first prompt is exactly the seed the backend returned (AS-N7b).
+   */
+  protected async onBudgetContinue(): Promise<void> {
+    const result = await this.runBudgetAction('write-handoff');
+    if (!result) return;
+    const seed = result.handoff?.seed;
+    if (!seed) {
+      this.showActionError(
+        'The handoff is not ready yet. Please try again.',
+        this.resolvedTabId(),
+      );
+      return;
+    }
+    const tabId = this._tabManager.createTab();
+    if (this._appState.layoutMode() === 'grid') {
+      this._appState.requestCanvasTab(
+        tabId,
+        this._tabManager.activeWorkspacePath,
+      );
+    }
+    const outcome = await this.chatStore.sendOrQueueMessage(seed, { tabId });
+    if (!outcome.success) {
+      this.showActionError(
+        `Could not start the new session: ${outcome.error ?? 'Unknown error'}`,
+        tabId,
+      );
+    }
+  }
+
+  /** One `session:budgetAction` call; returns the result only on success. */
+  private async runBudgetAction(
+    action: SessionBudgetAction,
+  ): Promise<SessionBudgetActionResult | null> {
+    const budget = this.resolvedSessionBudget();
+    if (!budget || this.budgetActionBusy()) return null;
+    this.budgetActionBusy.set(true);
+    try {
+      const result = await this._claudeRpc.call('session:budgetAction', {
+        sessionId: budget.sessionId,
+        action,
+      });
+      const data = result.isSuccess() ? result.data : null;
+      if (data?.state) this._budgetActionState.set(data.state);
+      if (data?.success) return data;
+      const error = data?.error ?? result.error ?? 'Unknown error';
+      this.showActionError(
+        error === 'unavailable'
+          ? 'Session budget actions are not available in this window.'
+          : `Budget action failed: ${error}`,
+        this.resolvedTabId(),
+      );
+      return null;
+    } catch (error: unknown) {
+      this.showActionError(
+        `Budget action failed: ${error instanceof Error ? error.message : String(error)}`,
+        this.resolvedTabId(),
+      );
+      return null;
+    } finally {
+      this.budgetActionBusy.set(false);
     }
   }
 

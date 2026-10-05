@@ -102,7 +102,22 @@ export class SubagentStateStore {
    */
   private lastCleanupAt = 0;
 
-  constructor(private readonly logger: Logger) {}
+  /**
+   * @param clock - Source of the activity timestamps (Unix epoch ms). Specs
+   *   inject a fixed clock; the default reads `Date.now()` on each call.
+   */
+  constructor(
+    private readonly logger: Logger,
+    private readonly clock: () => number = () => Date.now(),
+  ) {}
+
+  /**
+   * Current time from the activity clock (Unix epoch ms); the value the
+   * registry stamps into `SubagentRecord.lastActivityAt`.
+   */
+  now(): number {
+    return this.clock();
+  }
 
   /** Get the record for a toolCallId without touching expiration state. */
   getRaw(toolCallId: string): SubagentRecord | undefined {

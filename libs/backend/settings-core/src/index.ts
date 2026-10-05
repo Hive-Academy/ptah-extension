@@ -63,6 +63,11 @@ export { ProviderSettings } from './repositories/provider-settings';
 export { GatewaySettings } from './repositories/gateway-settings';
 export { MemorySettings } from './repositories/memory-settings';
 export { SkillSynthesisSettings } from './repositories/skill-synthesis-settings';
+export {
+  AgentModelSettings,
+  AGENT_MODEL_SETTINGS_KEY,
+} from './repositories/agent-model-settings';
+export type { AgentModelScope } from './repositories/agent-model-settings';
 export { CronSettings } from './repositories/cron-settings';
 export { TasksSettings } from './repositories/tasks-settings';
 export {

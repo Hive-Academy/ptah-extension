@@ -12,11 +12,13 @@
  * 4. Returns root-level children (skips message wrapper since agent card provides its own chrome)
  *
  * PERFORMANCE: Memoized by events.length -- only rebuilds when new events arrive.
+ * A per-agent entry is released when AgentMonitorStore drops that agent.
  *
  * @see ExecutionTreeBuilderService for the full chat-context version
  */
 
-import { Injectable } from '@angular/core';
+import { Injectable, computed, effect, inject } from '@angular/core';
+import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
 import { fenceCodeBlock } from '@ptah-extension/chat-ui';
 import type {
   ExecutionNode,
@@ -34,6 +36,12 @@ import {
   createExecutionNode,
   isAgentDispatchTool,
 } from '@ptah-extension/shared';
+
+function sameMembers(a: ReadonlySet<string>, b: ReadonlySet<string>): boolean {
+  if (a.size !== b.size) return false;
+  for (const id of a) if (!b.has(id)) return false;
+  return true;
+}
 
 /** Maximum recursion depth for nested agent tree building */
 const MAX_DEPTH = 10;
@@ -91,6 +99,34 @@ export class AgentMonitorTreeBuilderService {
    */
   private readonly eventStateMap = new Map<string, AgentBuildState>();
   private readonly segmentCacheMap = new Map<string, TreeCache>();
+
+  private readonly agentStore = inject(AgentMonitorStore);
+
+  /**
+   * Ids of the agents the store currently holds. Equal by membership, so
+   * output deltas (which replace the agent list on every chunk) don't wake the
+   * release effect — only spawn, eviction and session teardown do.
+   */
+  private readonly storeAgentIds = computed(
+    () => new Set(this.agentStore.agentsById().keys()),
+    { equal: sameMembers },
+  );
+
+  constructor() {
+    // Release an agent's accumulated text/thinking/tool state once the store
+    // drops it (completed-agent eviction, tab close, clear). Only ids that left
+    // the store are released: ids never seen there, and agents still held —
+    // running or finished — keep their cache, so hiding a tile never costs a
+    // rebuild.
+    let previous: ReadonlySet<string> = new Set();
+    effect(() => {
+      const current = this.storeAgentIds();
+      for (const id of previous) {
+        if (!current.has(id)) this.clearAgentCache(id);
+      }
+      previous = current;
+    });
+  }
 
   /**
    * Build ExecutionNode tree from flat streaming events.

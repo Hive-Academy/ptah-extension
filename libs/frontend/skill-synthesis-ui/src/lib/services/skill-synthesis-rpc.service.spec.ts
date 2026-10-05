@@ -349,6 +349,203 @@ describe('SkillSynthesisRpcService', () => {
     );
   });
 
+  it('listQuarantinedAgents() calls skillSynthesis:listQuarantinedAgents with {} and returns the listing untouched', async () => {
+    const listing = {
+      workspaceRoot: '/ws',
+      agentSync: 'disabled',
+      recordUnreadable: true,
+      quarantined: [
+        {
+          slug: 'reviewer',
+          state: 'quarantined',
+          quarantinedAt: null,
+          hasSnapshot: true,
+          sourcePath: '/ws/.claude/agents/reviewer.md',
+        },
+      ],
+      notOwned: ['planner'],
+    };
+    rpcCall.mockResolvedValue(okResult(listing));
+
+    const result = await service.listQuarantinedAgents();
+
+    expect(rpcCall).toHaveBeenCalledWith(
+      'skillSynthesis:listQuarantinedAgents',
+      {},
+      expect.objectContaining({ timeout: expect.any(Number) }),
+    );
+    expect(result).toBe(listing);
+  });
+
+  it('listQuarantinedAgents() keeps the no-folder answer (workspaceRoot: null) distinct from an empty quarantine', async () => {
+    rpcCall.mockResolvedValue(
+      okResult({
+        workspaceRoot: null,
+        agentSync: 'unknown',
+        quarantined: [],
+        notOwned: [],
+      }),
+    );
+
+    const result = await service.listQuarantinedAgents();
+
+    expect(result.workspaceRoot).toBeNull();
+  });
+
+  it('listQuarantinedAgents() throws the RPC error rather than returning an empty listing', async () => {
+    rpcCall.mockResolvedValue({
+      ...errResult('Quarantine record could not be read'),
+      errorCode: 'PERSISTENCE_UNAVAILABLE',
+    });
+
+    await expect(service.listQuarantinedAgents()).rejects.toThrow(
+      'Quarantine record could not be read',
+    );
+  });
+
+  it('restoreQuarantinedAgent(slug) sends exactly { slug } and returns every outcome as data', async () => {
+    const outcome = {
+      outcome: 'conflict',
+      path: '/ws/.claude/agents/reviewer.md',
+      reason: 'a different file already exists',
+      agentSync: 'enabled',
+    };
+    rpcCall.mockResolvedValue(okResult(outcome));
+
+    const result = await service.restoreQuarantinedAgent('reviewer');
+
+    expect(rpcCall).toHaveBeenCalledWith(
+      'skillSynthesis:restoreQuarantinedAgent',
+      { slug: 'reviewer' },
+      expect.objectContaining({ timeout: expect.any(Number) }),
+    );
+    expect(result).toBe(outcome);
+  });
+
+  it('restoreQuarantinedAgent() throws on INVALID_PARAMS (no open folder) instead of reporting success', async () => {
+    rpcCall.mockResolvedValue({
+      ...errResult('Open a workspace folder to restore a quarantined agent.'),
+      errorCode: 'INVALID_PARAMS',
+    });
+
+    await expect(service.restoreQuarantinedAgent('reviewer')).rejects.toThrow(
+      'Open a workspace folder to restore a quarantined agent.',
+    );
+  });
+
+  it('restoreQuarantinedAgent() falls back to its own message when the error carries no text', async () => {
+    rpcCall.mockResolvedValue({
+      success: false,
+      isSuccess: () => false,
+      errorCode: 'PERSISTENCE_UNAVAILABLE',
+    });
+
+    await expect(service.restoreQuarantinedAgent('reviewer')).rejects.toThrow(
+      'Failed to restore quarantined agent',
+    );
+  });
+
+  it('getAgentModels() sends {} and returns the result untouched', async () => {
+    const payload = { workspaceRoot: '/ws', machine: null, workspace: null };
+    rpcCall.mockResolvedValue(okResult(payload));
+
+    const result = await service.getAgentModels();
+
+    expect(rpcCall).toHaveBeenCalledWith(
+      'skillSynthesis:getAgentModels',
+      {},
+      expect.objectContaining({ timeout: expect.any(Number) }),
+    );
+    expect(result).toBe(payload);
+  });
+
+  it('getAgentModels() throws the RPC error', async () => {
+    rpcCall.mockResolvedValue(errResult('no agent model settings'));
+
+    await expect(service.getAgentModels()).rejects.toThrow(
+      'no agent model settings',
+    );
+  });
+
+  it('setAgentModel() sends the params verbatim and wraps the result', async () => {
+    const data = { classification: 'listed', machine: null, workspace: {} };
+    rpcCall.mockResolvedValue(okResult(data));
+    const params = {
+      workspaceRoot: '/ws',
+      slug: 'reviewer',
+      provider: 'codex' as const,
+      scope: 'workspace' as const,
+      value: 'o3',
+      confirmUnlisted: true,
+    };
+
+    const outcome = await service.setAgentModel(params);
+
+    expect(rpcCall).toHaveBeenCalledWith(
+      'skillSynthesis:setAgentModel',
+      params,
+      expect.objectContaining({ timeout: expect.any(Number) }),
+    );
+    expect(outcome).toEqual({ ok: true, result: data });
+  });
+
+  it('setAgentModel() returns a refusal with its code instead of throwing', async () => {
+    rpcCall.mockResolvedValue({
+      ...errResult('needs confirmation'),
+      errorCode: 'MODEL_NOT_AVAILABLE',
+    });
+
+    const outcome = await service.setAgentModel({
+      workspaceRoot: '/ws',
+      slug: 'reviewer',
+      provider: 'codex',
+      scope: 'workspace',
+      value: 'gpt-6',
+    });
+
+    expect(outcome).toEqual({
+      ok: false,
+      code: 'MODEL_NOT_AVAILABLE',
+      message: 'needs confirmation',
+    });
+  });
+
+  it('setAgentModel() reports a code-less failure with code null and its own message', async () => {
+    rpcCall.mockResolvedValue({ success: false, isSuccess: () => false });
+
+    const outcome = await service.setAgentModel({
+      workspaceRoot: '/ws',
+      slug: '*',
+      provider: 'opencode',
+      scope: 'machine',
+      value: null,
+    });
+
+    expect(outcome).toEqual({
+      ok: false,
+      code: null,
+      message: 'Failed to save the agent model',
+    });
+  });
+
+  it('listCliModels() and getAgentLaneConfig() call the agent methods with no params', async () => {
+    rpcCall.mockResolvedValue(okResult({ codex: [] }));
+    await service.listCliModels();
+    expect(rpcCall).toHaveBeenLastCalledWith(
+      'agent:listCliModels',
+      undefined,
+      expect.objectContaining({ timeout: expect.any(Number) }),
+    );
+
+    rpcCall.mockResolvedValue(okResult({ codexModel: '' }));
+    await service.getAgentLaneConfig();
+    expect(rpcCall).toHaveBeenLastCalledWith(
+      'agent:getConfig',
+      undefined,
+      expect.objectContaining({ timeout: expect.any(Number) }),
+    );
+  });
+
   it('throws with the RPC error string when listModels fails', async () => {
     rpcCall.mockResolvedValue(errResult('no-provider-configured'));
 

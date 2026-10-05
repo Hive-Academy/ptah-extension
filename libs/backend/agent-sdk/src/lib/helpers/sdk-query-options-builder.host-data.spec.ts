@@ -52,6 +52,7 @@ function makeBuilder(): SdkQueryOptionsBuilder {
     undefined,
     undefined,
     undefined,
+    undefined,
     'electron',
   );
 }

@@ -2,7 +2,8 @@
  * Agent Card Header Component
  *
  * Displays the expand/collapse toggle, CLI badge, status badge,
- * stop/resume buttons, elapsed time, and session ID badge.
+ * prompt-cache reporting, stop/resume buttons, elapsed time, and session ID
+ * badge.
  */
 
 import {
@@ -65,6 +66,18 @@ import type { MonitoredAgent } from '@ptah-extension/chat-streaming';
           [title]="'Model: ' + agent().model"
         >
           {{ agent().model }}
+        </span>
+      }
+
+      <!-- Prompt cache: CLI lanes report no cache tokens and no context size,
+           so they show "not reported" and never a warm/cold badge. -->
+      @if (agent().cacheReported === false) {
+        <span
+          class="badge badge-sm badge-ghost text-[9px] text-base-content-muted flex-shrink-0"
+          data-testid="lane-cache-not-reported"
+          title="This provider does not report prompt-cache tokens"
+        >
+          cache not reported
         </span>
       }
 

@@ -363,11 +363,16 @@ describe('interactive path — compaction settings on the real SDK argv', () => 
    * key, so the value only survives because `buildFlagSettingsArg` serializes
    * the whole tier and the SDK passes a non-object `settings` through to
    * `--settings` untouched.
+   *
+   * `subagentPromptCacheTtl: '1h'` is the N1 `auto` default for a session
+   * that can spawn subagents (TASK_2026_597); it is a typed `Settings` key and
+   * reaching the real argv shows the SDK forwards it.
    */
   const ALWAYS = {
     autoMemoryEnabled: false,
     autoDreamEnabled: false,
     crossSessionInbound: 'accept',
+    subagentPromptCacheTtl: '1h',
   } as const;
 
   it('runs against the pinned SDK version', () => {

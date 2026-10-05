@@ -13,11 +13,15 @@ export {
   MIN_CONCURRENT_AGENTS,
   MAX_CONCURRENT_AGENTS,
   DEFAULT_CONCURRENT_AGENTS,
+  MAX_AGENT_WAIT_MS,
 } from './agent-process-manager.service';
 export type {
   AgentContinueErrorCode,
   AgentReleaseReason,
   AgentRoleStamp,
+  AgentWaitEntry,
+  AgentWaitMode,
+  AgentWaitResult,
 } from './agent-process-manager.service';
 export {
   AgentMessageError,

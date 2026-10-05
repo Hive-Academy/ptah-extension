@@ -50,6 +50,7 @@ import { SessionDisplayUtils } from '../../services/session-display-utils.servic
 import { SessionFilterBarComponent } from '../molecules/session-filter-bar/session-filter-bar.component';
 import { SessionOrganizationEditorComponent } from '../molecules/session-organization-editor/session-organization-editor.component';
 import { SessionOrganizationChipsComponent } from '../atoms/session-organization-chips/session-organization-chips.component';
+import { SessionLivePhaseIndicatorComponent } from '../atoms/session-organization-chips/session-live-phase-indicator.component';
 
 const SHELL_TEMPLATE = join(
   process.cwd(),
@@ -194,6 +195,7 @@ function configure(store: StoreStub): ComponentFixture<AppShellComponent> {
         SkeletonBlockComponent,
         SessionFilterBarComponent,
         SessionOrganizationChipsComponent,
+        SessionLivePhaseIndicatorComponent,
         SessionOrganizationEditorComponent,
       ],
       providers: [],

@@ -58,7 +58,7 @@ export interface StdioMcpServerConfig {
   transport: IMcpServer;
   serverInfo: StdioMcpServerInfo;
   /**
-   * Optional override of the tool catalog. Defaults to the full 8-tool MVP
+   * Optional override of the tool catalog. Defaults to the full 10-tool MVP
    * list — the `--allow-tools` flag narrows this in `mcp-serve.ts`.
    */
   allowedTools?: readonly string[];
@@ -142,14 +142,13 @@ export class StdioMcpServerService {
 
   /**
    * Dispatch a `tools/call` invocation through the agent-wrapper dispatcher
-   * (seven tools) or the session-submit handler (one tool). Falls back to an
+   * (nine tools) or the session-submit handler (one tool). Falls back to an
    * `isError: true` envelope when the tool name is not in the MVP catalog or
    * when the session-submit handler has not yet been registered.
    */
   async handleToolsCall(request: MCPRequest): Promise<MCPResponse> {
     const params = request.params as
-      | { name?: unknown; arguments?: Record<string, unknown> }
-      | undefined;
+      { name?: unknown; arguments?: Record<string, unknown> } | undefined;
     const name = params?.name;
     if (typeof name !== 'string' || name.length === 0) {
       return {

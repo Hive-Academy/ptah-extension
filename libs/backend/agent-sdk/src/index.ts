@@ -76,6 +76,12 @@ export type {
   SessionStatsScopeSelection,
 } from './lib/session-stats';
 
+// Session budget (TASK_2026_597 N7): resolved by rpc-handlers through
+// `SDK_TOKENS.SDK_SESSION_BUDGET` for the send gate and the banner actions.
+export { SessionBudgetService } from './lib/helpers/session-budget/session-budget.service';
+export type { SessionBudgetSendCheck } from './lib/helpers/session-budget/session-budget.service';
+export type { SessionBudgetState } from '@ptah-extension/shared';
+
 export { SdkTranscriptReaderAdapter } from './lib/sdk-transcript-reader.adapter';
 export { JsonlReaderService } from './lib/helpers/history/jsonl-reader.service';
 export type {

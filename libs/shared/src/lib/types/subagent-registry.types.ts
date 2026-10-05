@@ -6,6 +6,8 @@
  * uses these types to maintain in-memory state of all subagents.
  */
 
+import type { SubagentPromptCacheTtl } from './rpc/rpc-agents.types';
+
 /**
  * Subagent lifecycle status
  *
@@ -50,6 +52,16 @@ export interface SubagentRecord {
    * Set when SubagentStart hook fires.
    */
   readonly startedAt: number;
+
+  /**
+   * Timestamp (Unix epoch ms) of the last activity the registry saw for this
+   * subagent: set on registration and on every registry update.
+   *
+   * Absent when no activity was observed in this process (a record replayed
+   * from history, or restored without a carried value); such a record is
+   * treated as having a cold prompt cache.
+   */
+  lastActivityAt?: number;
 
   /**
    * Timestamp (Unix epoch ms) when the subagent was interrupted.
@@ -135,6 +147,23 @@ export interface SubagentRecord {
 }
 
 /**
+ * Prompt-cache state of a subagent, derived from its last activity and the
+ * effective subagent prompt-cache TTL.
+ */
+export interface SubagentCacheInfo {
+  /** `'warm'` while the idle time is below the TTL; otherwise `'cold'`. */
+  readonly cacheState: 'warm' | 'cold';
+  /** TTL the SDK uses for subagent prompt caching. */
+  readonly effectiveTtl: SubagentPromptCacheTtl;
+  /**
+   * Milliseconds since the last recorded activity. `0` when the activity
+   * timestamp is in the future, and also when no activity was recorded (the
+   * state is then `'cold'` because the idle time is unknown).
+   */
+  readonly idleMs: number;
+}
+
+/**
  * Parameters for the subagent:query RPC method
  */
 export interface SubagentQueryParams {
@@ -155,8 +184,14 @@ export interface SubagentQueryParams {
  * Result of the subagent:query RPC method
  */
 export interface SubagentQueryResult {
-  /** Array of subagent records matching the query */
-  readonly subagents: SubagentRecord[];
+  /**
+   * Array of subagent records matching the query. Each record carries its
+   * prompt-cache state; `cacheInfo` is optional so a webview built before the
+   * field existed still parses the result.
+   */
+  readonly subagents: Array<
+    SubagentRecord & { readonly cacheInfo?: SubagentCacheInfo }
+  >;
 }
 
 /**

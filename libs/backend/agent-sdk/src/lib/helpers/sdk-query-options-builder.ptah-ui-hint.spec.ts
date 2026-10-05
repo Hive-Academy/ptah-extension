@@ -52,6 +52,7 @@ function makeBuilder(hostKind?: HostKind): BuilderWithSystemPrompt {
     undefined,
     undefined,
     undefined,
+    undefined,
     hostKind,
   );
   return builder as unknown as BuilderWithSystemPrompt;

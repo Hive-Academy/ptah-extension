@@ -70,6 +70,18 @@ function buildSmokeContainer(): DependencyContainer {
       get: jest.fn(),
     },
   });
+  // Every host registers it (platform-vscode/-electron/-cli registration);
+  // the manager's resume gate logs through it (TASK_2026_597, R9.1).
+  c.register(PLATFORM_TOKENS.OUTPUT_CHANNEL, {
+    useValue: {
+      name: 'Ptah',
+      appendLine: jest.fn(),
+      append: jest.fn(),
+      clear: jest.fn(),
+      show: jest.fn(),
+      dispose: jest.fn(),
+    },
+  });
   c.register(TOKENS.GIT_INFO_SERVICE, { useValue: {} });
   c.register(Symbol.for('WorkspaceScopeResolver'), {
     useValue: { read: jest.fn(() => undefined) },

@@ -13,16 +13,25 @@
  */
 
 import { mkdtempSync, rmSync } from 'fs';
-import { tmpdir } from 'os';
+import { homedir, tmpdir } from 'os';
 import { join } from 'path';
-import { CAPABILITY_POLICY_UNKNOWN_ERROR_NAME } from '@ptah-extension/shared';
+import {
+  CAPABILITY_POLICY_UNKNOWN_ERROR_NAME,
+  type AgentModelLayers,
+} from '@ptah-extension/shared';
 import type { HarnessSourceLayout } from './harness-source.port';
 import { McpIntentStore } from './mcp-intent-store';
 import {
   PluginConfigSourceResolver,
+  createPluginConfigSourceResolver,
   type HarnessEffectivePluginConfig,
   type HarnessPluginConfigReader,
 } from './plugin-config-source-resolver';
+
+jest.mock('os', () => ({
+  ...jest.requireActual<typeof import('os')>('os'),
+  homedir: jest.fn(),
+}));
 
 /** Structurally what agent-sdk's `CapabilityPolicyUnknownError` looks like. */
 function policyUnknownError(): Error {
@@ -37,6 +46,7 @@ describe('PluginConfigSourceResolver — layered policy', () => {
 
   beforeEach(() => {
     home = mkdtempSync(join(tmpdir(), 'harness-source-resolver-'));
+    jest.mocked(homedir).mockReturnValue(home);
     layout = {
       skillsRoot: join(home, 'skills'),
       commandsRoot: join(home, 'commands'),
@@ -163,4 +173,82 @@ describe('PluginConfigSourceResolver — layered policy', () => {
       }),
     );
   });
+
+  it.each(['sync', 'effective', 'unavailable'] as const)(
+    'reads fresh model layers for the exact reconcile root on the %s path',
+    async (mode) => {
+      const reader =
+        mode === 'unavailable'
+          ? null
+          : {
+              ...syncMembersThatMustNotRun(),
+              ...(mode === 'effective'
+                ? { getEffectivePluginConfig: async () => effective }
+                : {}),
+            };
+      let layers: AgentModelLayers = {
+        workspace: { reviewer: { codex: 'first' } },
+      };
+      const layersForPath = jest.fn(() => layers);
+      const getter = jest.fn(() => ({ layersForPath }));
+      const resolver = createPluginConfigSourceResolver(
+        () => reader,
+        undefined,
+        undefined,
+        getter,
+      );
+      expect(getter).not.toHaveBeenCalled();
+      expect((await resolver.resolve('/ws/a')).agentModels).toBe(layers);
+      layers = { machine: { '*': { codex: 'second' } } };
+      expect((await resolver.resolve('/ws/b')).agentModels).toBe(layers);
+      expect(layersForPath.mock.calls).toEqual([['/ws/a'], ['/ws/b']]);
+      expect(getter).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  it.each(['absent', 'null', 'getter throws', 'layers throws'] as const)(
+    '%s model getter leaves the entire source state unchanged',
+    async (mode) => {
+      const reader = syncMembersThatMustNotRun();
+      const getter =
+        mode === 'absent'
+          ? undefined
+          : () => {
+              if (mode === 'null') return null;
+              if (mode === 'getter throws') throw new Error('not initialized');
+              return {
+                layersForPath: () => {
+                  throw new Error('unreadable');
+                },
+              };
+            };
+      const baseline = await createPluginConfigSourceResolver(
+        () => reader,
+      ).resolve('/ws/a');
+      const actual = await createPluginConfigSourceResolver(
+        () => reader,
+        undefined,
+        undefined,
+        getter,
+      ).resolve('/ws/a');
+      expect(actual.agentModels).toBeUndefined();
+      expect(actual).not.toHaveProperty('agentModels');
+      expect(JSON.stringify(actual)).toBe(JSON.stringify(baseline));
+    },
+  );
+
+  it.each([undefined, ''])(
+    'does not read model settings without a workspace root (%s)',
+    async (root) => {
+      const getter = jest.fn(() => ({ layersForPath: jest.fn(() => ({})) }));
+      const state = await new PluginConfigSourceResolver(
+        () => null,
+        undefined,
+        undefined,
+        getter,
+      ).resolve(root);
+      expect(getter).not.toHaveBeenCalled();
+      expect(state.agentModels).toBeUndefined();
+    },
+  );
 });

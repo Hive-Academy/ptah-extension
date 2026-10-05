@@ -134,6 +134,8 @@ describe('agent panel lanes', () => {
             activeSessionSubagents: signal([]),
             sessionSubagentsForSession: jest.fn(() => []),
             getSubagent: jest.fn(() => undefined),
+            tick: signal(0),
+            loadSubagentCacheInfo: jest.fn().mockResolvedValue(undefined),
             pendingPermissions,
             panelOpen: signal(true),
             toggleAgentExpanded: jest.fn(),

@@ -9,6 +9,8 @@ import type {
   SavedAnalysisMetadata,
   WizardGetResumableRunResponse,
   WizardInstallPackAgentsResult,
+  WizardPreviewGenerationParams,
+  WizardPreviewGenerationResponse,
 } from '@ptah-extension/shared';
 import { AgentSelection } from './setup-wizard-state.service';
 
@@ -81,6 +83,22 @@ export class WizardRpcService {
     if (!result.success) {
       throw new Error(result.error || 'Failed to launch wizard');
     }
+  }
+
+  /** Read-only target preview; failure must not prevent generation. */
+  public async previewGeneration(
+    selectedAgentIds: string[],
+  ): Promise<WizardPreviewGenerationResponse> {
+    const params: WizardPreviewGenerationParams = { selectedAgentIds };
+    const result = await this.rpcService.call(
+      'wizard:preview-generation',
+      params,
+      { timeout: WIZARD_RPC_TIMEOUTS.LIST_MS },
+    );
+    if (result.isSuccess() && result.data) {
+      return result.data as WizardPreviewGenerationResponse;
+    }
+    throw new Error(result.error || 'Failed to preview generation');
   }
 
   /**

@@ -64,6 +64,12 @@ import type { SendMessageOptions } from '@ptah-extension/chat-types';
 export interface SendOutcome {
   success: boolean;
   error?: string;
+  /**
+   * Set only for `SESSION_BUDGET_REACHED`: the session is at its budget limit.
+   * The prompt was not sent and its bubble was removed, so callers keep the
+   * draft and show no generic failure; the budget banner explains the block.
+   */
+  errorCode?: 'SESSION_BUDGET_REACHED';
 }
 
 /**
@@ -108,6 +114,20 @@ export class MessageSenderService {
       result.data?.error ?? result.error ?? 'Authentication required.',
     );
     return true;
+  }
+
+  /**
+   * Whether `chat:continue` was refused because the session reached its
+   * budget limit. Like {@link handleAuthRequired}, the code may sit on the
+   * envelope or on `data`. The refusal's `budget` state is installed on the
+   * tab by the caller, so the banner shows even when no stats broadcast
+   * delivered one (a refusal is never silent).
+   */
+  private isSessionBudgetReached(
+    result: RpcResult<{ errorCode?: string }>,
+  ): boolean {
+    const code = result.errorCode ?? result.data?.errorCode;
+    return code === 'SESSION_BUDGET_REACHED';
   }
 
   /**
@@ -710,15 +730,22 @@ export class MessageSenderService {
       );
 
       const authFailed = this.handleAuthRequired(result);
+      const budgetReached = this.isSessionBudgetReached(result);
+      const refusalBudget = budgetReached ? result.data?.budget : undefined;
+      if (refusalBudget) {
+        this.tabManager.installSessionBudget(activeTabId, refusalBudget);
+      }
       if (!result.success || authFailed || result.data?.success === false) {
         console.error(
           '[MessageSender] Failed to continue chat:',
           result.data?.error ?? result.error,
         );
+        // At the budget limit the prompt goes back to the composer, so its
+        // bubble goes too; showing it would claim a message that was refused.
         this.rollBackUnsentPrompt(
           activeTabId,
           userMessage.id,
-          dropBubbleOnFailure,
+          dropBubbleOnFailure || budgetReached,
         );
         this.tabManager.markLoaded(activeTabId);
         this.tabManager.markTabIdle(activeTabId);
@@ -727,6 +754,9 @@ export class MessageSenderService {
           success: false,
           error:
             result.data?.error ?? result.error ?? 'Failed to continue chat',
+          ...(budgetReached && {
+            errorCode: 'SESSION_BUDGET_REACHED' as const,
+          }),
         };
       }
       this.sessionManager.setStatus('streaming');

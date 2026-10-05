@@ -122,8 +122,8 @@ function compactionComplete(
 
 /**
  * Mock harness for `TabManagerService`. The router only reads `tabs()`
- * (constructor migration) and `closedTab()` (effect cleanup), so the mock
- * exposes both as signals plus a `_emitClosedTab` test helper.
+ * (constructor migration) and the synchronous close subscription, so the mock
+ * exposes both compatibility surfaces plus a `_emitClosedTab` test helper.
  */
 function makeTabManagerMock(
   initialTabs: {
@@ -137,6 +137,7 @@ function makeTabManagerMock(
       { id: string; claudeSessionId: string | null; lastActivityAt?: number }[]
     >(initialTabs);
   const closedTabSignal = signal<ClosedTabEvent | null>(null);
+  const listeners = new Set<(event: ClosedTabEvent) => void>();
   // Router reads activeTabId() as a last-resort fallback in
   // pickMostRecentlyActiveTab. Default null (no active tab) — tests opt in
   // via _setActiveTabId.
@@ -144,6 +145,10 @@ function makeTabManagerMock(
   return {
     tabs: tabsSignal.asReadonly(),
     closedTab: closedTabSignal.asReadonly(),
+    onTabClosed: (listener: (event: ClosedTabEvent) => void) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
     activeTabId: activeTabIdSignal.asReadonly(),
     _setTabs: (
       next: {
@@ -152,7 +157,10 @@ function makeTabManagerMock(
         lastActivityAt?: number;
       }[],
     ) => tabsSignal.set(next),
-    _emitClosedTab: (evt: ClosedTabEvent) => closedTabSignal.set(evt),
+    _emitClosedTab: (evt: ClosedTabEvent) => {
+      closedTabSignal.set(evt);
+      for (const listener of listeners) listener(evt);
+    },
     _setActiveTabId: (id: string | null) => activeTabIdSignal.set(id),
   };
 }
@@ -185,6 +193,7 @@ function makeBatchedUpdateMock() {
 function makeTreeBuilderMock() {
   return {
     clearForTab: jest.fn(),
+    clearForClosedTab: jest.fn(),
     clearForSession: jest.fn(),
     clearCache: jest.fn(),
   };
@@ -1096,7 +1105,7 @@ describe('StreamRouter (authoritative — closedTab effect)', () => {
     );
     expect(backgroundAgentStore.clearSession).toHaveBeenCalledWith(SESSION_A);
     expect(treeBuilder.clearForSession).toHaveBeenCalledWith(SESSION_A);
-    expect(treeBuilder.clearForTab).toHaveBeenCalledWith(
+    expect(treeBuilder.clearForClosedTab).toHaveBeenCalledWith(
       tab as unknown as string,
     );
     expect(batchedUpdate.clearPendingUpdates).toHaveBeenCalledWith(
@@ -1105,7 +1114,7 @@ describe('StreamRouter (authoritative — closedTab effect)', () => {
     expect(binding.conversationFor(tab)).toBeNull();
   });
 
-  it('forceClose event with sessionId triggers cleanupSessionDeduplication ONLY (agents survive pop-out)', () => {
+  it('forceClose releases caches when no other tab shows the session', () => {
     const router = bootRouter();
     const tab = newTabId();
     router.onTabCreated(tab, SESSION_A);
@@ -1121,11 +1130,25 @@ describe('StreamRouter (authoritative — closedTab effect)', () => {
       SESSION_A,
     );
     expect(agentMonitorStore.forceClearSessionAgents).not.toHaveBeenCalled();
-    expect(agentMonitorStore.clearSessionAgents).not.toHaveBeenCalled();
     expect(backgroundAgentStore.clearSession).not.toHaveBeenCalled();
     expect(treeBuilder.clearForSession).not.toHaveBeenCalled();
-    expect(treeBuilder.clearForTab).not.toHaveBeenCalled();
+    expect(treeBuilder.clearForClosedTab).toHaveBeenCalledWith(tab as unknown as string);
     expect(binding.conversationFor(tab)).toBeNull();
+  });
+
+  it('handles two closes emitted in the same tick exactly once each', () => {
+    const router = bootRouter();
+    const tabA = newTabId();
+    const tabB = newTabId();
+    router.onTabCreated(tabA, SESSION_A);
+    router.onTabCreated(tabB, SESSION_B);
+
+    tabManager._emitClosedTab({ tabId: tabA, sessionId: SESSION_A, kind: 'close' });
+    tabManager._emitClosedTab({ tabId: tabB, sessionId: SESSION_B, kind: 'close' });
+
+    expect(streamingHandler.cleanupSessionDeduplication).toHaveBeenCalledTimes(2);
+    expect(streamingHandler.cleanupSessionDeduplication).toHaveBeenNthCalledWith(1, SESSION_A);
+    expect(streamingHandler.cleanupSessionDeduplication).toHaveBeenNthCalledWith(2, SESSION_B);
   });
 
   it('close event with null sessionId still unbinds but does not call streaming cleanup', () => {
@@ -1144,10 +1167,60 @@ describe('StreamRouter (authoritative — closedTab effect)', () => {
     expect(agentMonitorStore.forceClearSessionAgents).not.toHaveBeenCalled();
     expect(backgroundAgentStore.clearSession).not.toHaveBeenCalled();
     expect(treeBuilder.clearForSession).not.toHaveBeenCalled();
-    expect(treeBuilder.clearForTab).toHaveBeenCalledWith(
+    expect(treeBuilder.clearForClosedTab).toHaveBeenCalledWith(
       tab as unknown as string,
     );
     expect(binding.conversationFor(tab)).toBeNull();
+  });
+
+  it('forceClose clears closed-tab caches but keeps session caches while another tab shows the session', () => {
+    const router = bootRouter();
+    const tabA = newTabId();
+    const tabB = newTabId();
+    router.onTabCreated(tabA, SESSION_A);
+    router.onTabCreated(tabB, SESSION_A);
+    tabManager._setTabs([
+      { id: tabB as unknown as string, claudeSessionId: SESSION_A },
+    ]);
+
+    tabManager._emitClosedTab({
+      tabId: tabA,
+      sessionId: SESSION_A,
+      kind: 'forceClose',
+    });
+    TestBed.tick();
+
+    expect(agentMonitorStore.forceClearSessionAgents).not.toHaveBeenCalled();
+    expect(backgroundAgentStore.clearSession).not.toHaveBeenCalled();
+    expect(treeBuilder.clearForSession).not.toHaveBeenCalled();
+    expect(treeBuilder.clearForClosedTab).toHaveBeenCalledWith(
+      tabA as unknown as string,
+    );
+    expect(batchedUpdate.clearPendingUpdates).toHaveBeenCalledWith(
+      tabA as unknown as string,
+    );
+  });
+
+  it('does not re-run the close teardown when tab state changes later', () => {
+    const router = bootRouter();
+    const tab = newTabId();
+    router.onTabCreated(tab, SESSION_A);
+
+    tabManager._emitClosedTab({
+      tabId: tab,
+      sessionId: SESSION_A,
+      kind: 'reset',
+    });
+    TestBed.tick();
+    expect(treeBuilder.clearForClosedTab).toHaveBeenCalledTimes(1);
+
+    tabManager._setTabs([
+      { id: tab as unknown as string, claudeSessionId: SESSION_A },
+    ]);
+    TestBed.tick();
+
+    expect(treeBuilder.clearForClosedTab).toHaveBeenCalledTimes(1);
+    expect(agentMonitorStore.forceClearSessionAgents).toHaveBeenCalledTimes(1);
   });
 
   it('close event keeps conversation alive when other tabs still reference it', () => {

@@ -72,9 +72,17 @@ export class TaskPromptBridgeService {
       // adopts a newly-created tab — this bridge closes that gap. The canvas
       // effect's `adoptTab` dedups, so a double-adopt on a fresh mount is safe;
       // single layout has no canvas mounted, so we skip the request there.
+      // The request carries the workspace the fresh tab lives in (the active
+      // one at creation time), so a canvas that mounts only later — after a
+      // workspace switch — drops it instead of tiling this tab into another
+      // workspace's grid.
       const gridLayout = this.appState.layoutMode() === 'grid';
       if (gridLayout) {
-        this.appState.requestCanvasTab(tabId, name);
+        this.appState.requestCanvasTab(
+          tabId,
+          this.tabManager.activeWorkspacePath,
+          name,
+        );
       }
       // Only canvas tiles have SESSION_CONTEXT. In single layout, null scopes
       // the request to the main panel, which is already showing this active tab.

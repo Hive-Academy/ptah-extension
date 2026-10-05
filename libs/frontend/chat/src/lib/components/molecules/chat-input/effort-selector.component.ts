@@ -121,7 +121,9 @@ const EFFORT_OPTIONS: readonly EffortOption[] = [
         [attr.aria-expanded]="isOpen()"
         [title]="'Reasoning effort: ' + selectedLabel()"
       >
-        <!-- Level bars indicator (w-3.5 h-3.5 icon box) -->
+        <!-- Level bars indicator (w-3.5 h-3.5 icon box). Only the fill color
+             changes, so transition colors only: transition-all also started
+             non-composited scrollbar-color transitions. -->
         <div
           class="flex items-end justify-center gap-px w-3.5 h-3.5 flex-shrink-0"
           aria-hidden="true"
@@ -129,7 +131,7 @@ const EFFORT_OPTIONS: readonly EffortOption[] = [
           @for (bar of barSlots; track bar) {
             <div
               [class]="
-                'w-[2px] rounded-[1px] transition-all ' +
+                'w-[2px] rounded-[1px] transition-colors ' +
                 (bar < selectedOption().bars
                   ? selectedOption().dotColor
                   : 'bg-base-content/20')

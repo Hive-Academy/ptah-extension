@@ -39,13 +39,22 @@ jest.mock('ngx-markdown', () => {
 });
 
 import { TestBed } from '@angular/core/testing';
-import { signal } from '@angular/core';
+import { inject, signal } from '@angular/core';
+import { SurfaceMarkdownPipe } from '@ptah-extension/markdown';
 import { CanvasTileComponent } from './canvas-tile.component';
 import {
   SendToMessagingComponent,
   TabManagerService,
+  SESSION_FOCUSED,
 } from '@ptah-extension/chat';
-import { EffortStateService, ModelStateService } from '@ptah-extension/core';
+import {
+  EffortStateService,
+  ModelStateService,
+  SURFACE_ACTIVE,
+} from '@ptah-extension/core';
+
+/** Canvas surface activity seen through the tile's element chain. */
+const canvasActive = signal(true);
 import { TileAgentIndicatorComponent } from './tile-agent-indicator.component';
 import { TileAgentMiniPanelComponent } from './tile-agent-mini-panel.component';
 
@@ -100,6 +109,7 @@ describe('CanvasTileComponent freeze-at-creation effort', () => {
   };
 
   const mockTabManager = {
+    onTabClosed: jest.fn(() => () => undefined),
     tabs: signal<
       Array<{
         id: string;
@@ -125,6 +135,7 @@ describe('CanvasTileComponent freeze-at-creation effort', () => {
         { provide: EffortStateService, useValue: mockEffortState },
         { provide: ModelStateService, useValue: mockModelState },
         { provide: TabManagerService, useValue: mockTabManager },
+        { provide: SURFACE_ACTIVE, useValue: canvasActive },
       ],
     });
     TestBed.overrideComponent(CanvasTileComponent, {
@@ -231,6 +242,7 @@ describe('CanvasTileComponent freeze-at-creation model', () => {
   };
 
   const mockTabManager = {
+    onTabClosed: jest.fn(() => () => undefined),
     tabs: signal<
       Array<{
         id: string;
@@ -256,6 +268,7 @@ describe('CanvasTileComponent freeze-at-creation model', () => {
         { provide: EffortStateService, useValue: mockEffortState },
         { provide: ModelStateService, useValue: mockModelState },
         { provide: TabManagerService, useValue: mockTabManager },
+        { provide: SURFACE_ACTIVE, useValue: canvasActive },
       ],
     });
     TestBed.overrideComponent(CanvasTileComponent, {
@@ -365,6 +378,7 @@ describe('CanvasTileComponent visibility-driven streaming registration', () => {
   };
 
   const mockTabManager = {
+    onTabClosed: jest.fn(() => () => undefined),
     tabs: signal<Array<{ id: string; claudeSessionId: string | null }>>([]),
     setOverrideEffort: jest.fn(),
     setOverrideModel: jest.fn(),
@@ -383,6 +397,7 @@ describe('CanvasTileComponent visibility-driven streaming registration', () => {
         { provide: EffortStateService, useValue: mockEffortState },
         { provide: ModelStateService, useValue: mockModelState },
         { provide: TabManagerService, useValue: mockTabManager },
+        { provide: SURFACE_ACTIVE, useValue: canvasActive },
       ],
     });
     TestBed.overrideComponent(CanvasTileComponent, {
@@ -439,6 +454,7 @@ describe('CanvasTileComponent visibility-driven streaming registration', () => {
 
 describe('CanvasTileComponent layout menu contract', () => {
   const tabManager = {
+    onTabClosed: jest.fn(() => () => undefined),
     tabs: signal([{ id: 'tile-1', title: 'Alpha', name: 'Alpha' }]),
     setOverrideEffort: jest.fn(),
     setOverrideModel: jest.fn(),
@@ -475,6 +491,7 @@ describe('CanvasTileComponent layout menu contract', () => {
       imports: [CanvasTileComponent],
       providers: [
         { provide: TabManagerService, useValue: tabManager },
+        { provide: SURFACE_ACTIVE, useValue: canvasActive },
         { provide: EffortStateService, useValue: effort },
         { provide: ModelStateService, useValue: model },
       ],
@@ -991,5 +1008,253 @@ describe('CanvasTileComponent layout menu contract', () => {
     expect(spans.every((button) => button.disabled)).toBe(true);
     // The hint line itself is not a focusable menu item.
     expect(hint?.matches('[data-layout-item]')).toBe(false);
+  });
+});
+
+describe('CanvasTileComponent SURFACE_ACTIVE for tile content', () => {
+  /** Stream content the tile's store keeps ingesting while hidden. */
+  const content = signal('v1');
+
+  /** Stands in for ChatViewComponent: a SURFACE_ACTIVE consumer. */
+  @Component({
+    selector: 'ptah-test-surface-probe',
+    standalone: true,
+    imports: [SurfaceMarkdownPipe],
+    changeDetection: ChangeDetectionStrategy.OnPush,
+    template: `<span data-test="probe">{{
+      content() | surfaceMarkdown: active()
+    }}</span>`,
+  })
+  class SurfaceProbe {
+    readonly active = inject(SURFACE_ACTIVE);
+    readonly content = content;
+  }
+
+  const tabManager = {
+    onTabClosed: jest.fn(() => () => undefined),
+    tabs: signal<Array<{ id: string; claudeSessionId: string | null }>>([]),
+    setOverrideEffort: jest.fn(),
+    setOverrideModel: jest.fn(),
+    getTabViewMode: jest.fn().mockReturnValue('full'),
+    getTabCompactHeightUnits: jest.fn().mockReturnValue(undefined),
+    registerVisibleTab: jest.fn(),
+    unregisterVisibleTab: jest.fn(),
+  };
+
+  afterEach(() => {
+    canvasActive.set(true);
+    content.set('v1');
+  });
+
+  function mount(visible: boolean) {
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      imports: [CanvasTileComponent],
+      providers: [
+        { provide: TabManagerService, useValue: tabManager },
+        { provide: SURFACE_ACTIVE, useValue: canvasActive },
+        {
+          provide: EffortStateService,
+          useValue: { currentEffort: signal(null), isLoaded: signal(false) },
+        },
+        {
+          provide: ModelStateService,
+          useValue: { currentModel: signal(''), isLoaded: signal(false) },
+        },
+      ],
+    });
+    TestBed.overrideComponent(CanvasTileComponent, {
+      remove: {
+        imports: [
+          TileAgentIndicatorComponent,
+          TileAgentMiniPanelComponent,
+          SendToMessagingComponent,
+        ],
+      },
+      add: {
+        imports: [
+          TileAgentIndicatorStub,
+          TileAgentMiniPanelStub,
+          SendToMessagingStub,
+        ],
+      },
+    });
+    const fixture = TestBed.createComponent(CanvasTileComponent);
+    (
+      fixture.componentInstance as unknown as {
+        chatViewComponent: typeof SurfaceProbe;
+      }
+    ).chatViewComponent = SurfaceProbe;
+    fixture.componentRef.setInput('tabId', 'tile-1');
+    fixture.componentRef.setInput('visible', visible);
+    fixture.detectChanges();
+    return fixture;
+  }
+
+  const rendered = (
+    fixture: ReturnType<typeof TestBed.createComponent<CanvasTileComponent>>,
+  ): string =>
+    (
+      fixture.nativeElement.querySelector('[data-test="probe"]') as HTMLElement
+    ).textContent?.trim() ?? '';
+
+  const tileSurfaceActive = (
+    fixture: ReturnType<typeof TestBed.createComponent<CanvasTileComponent>>,
+  ): boolean => fixture.componentInstance.childInjector()!.get(SURFACE_ACTIVE)();
+
+  it('provides canvas activity AND tile visibility to the tile content', () => {
+    const fixture = mount(true);
+    expect(tileSurfaceActive(fixture)).toBe(true);
+
+    fixture.componentRef.setInput('visible', false);
+    fixture.detectChanges();
+    expect(tileSurfaceActive(fixture)).toBe(false);
+
+    fixture.componentRef.setInput('visible', true);
+    canvasActive.set(false);
+    fixture.detectChanges();
+    expect(tileSurfaceActive(fixture)).toBe(false);
+
+    canvasActive.set(true);
+    fixture.detectChanges();
+    expect(tileSurfaceActive(fixture)).toBe(true);
+  });
+
+  it('pauses rendering while the workspace is hidden and catches up with the latest content when shown', () => {
+    const fixture = mount(true);
+    expect(rendered(fixture)).toBe('v1');
+
+    fixture.componentRef.setInput('visible', false);
+    content.set('v2');
+    fixture.detectChanges();
+    expect(rendered(fixture)).toBe('v1');
+
+    content.set('v3');
+    fixture.componentRef.setInput('visible', true);
+    fixture.detectChanges();
+    expect(rendered(fixture)).toBe('v3');
+  });
+
+  it('pauses while navigated away from the canvas and catches up on return', () => {
+    const fixture = mount(true);
+
+    canvasActive.set(false);
+    content.set('streamed while on settings');
+    fixture.detectChanges();
+    expect(rendered(fixture)).toBe('v1');
+
+    canvasActive.set(true);
+    fixture.detectChanges();
+    expect(rendered(fixture)).toBe('streamed while on settings');
+  });
+});
+
+describe('CanvasTileComponent SESSION_FOCUSED for tile content', () => {
+  /** Stands in for ChatViewComponent: a SESSION_FOCUSED consumer. */
+  @Component({
+    selector: 'ptah-test-focus-probe',
+    standalone: true,
+    changeDetection: ChangeDetectionStrategy.OnPush,
+    template: '<span data-test="focus-probe">{{ focused() }}</span>',
+  })
+  class FocusProbe {
+    readonly focused = inject(SESSION_FOCUSED);
+  }
+
+  const tabManager = {
+    tabs: signal<Array<{ id: string; claudeSessionId: string | null }>>([]),
+    setOverrideEffort: jest.fn(),
+    setOverrideModel: jest.fn(),
+    getTabViewMode: jest.fn().mockReturnValue('full'),
+    getTabCompactHeightUnits: jest.fn().mockReturnValue(undefined),
+    registerVisibleTab: jest.fn(),
+    unregisterVisibleTab: jest.fn(),
+  };
+
+  function mountFocused(focused: boolean | undefined) {
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      imports: [CanvasTileComponent],
+      providers: [
+        { provide: TabManagerService, useValue: tabManager },
+        { provide: SURFACE_ACTIVE, useValue: canvasActive },
+        {
+          provide: EffortStateService,
+          useValue: { currentEffort: signal(null), isLoaded: signal(false) },
+        },
+        {
+          provide: ModelStateService,
+          useValue: { currentModel: signal(''), isLoaded: signal(false) },
+        },
+      ],
+    });
+    TestBed.overrideComponent(CanvasTileComponent, {
+      remove: {
+        imports: [
+          TileAgentIndicatorComponent,
+          TileAgentMiniPanelComponent,
+          SendToMessagingComponent,
+        ],
+      },
+      add: {
+        imports: [
+          TileAgentIndicatorStub,
+          TileAgentMiniPanelStub,
+          SendToMessagingStub,
+        ],
+      },
+    });
+    const fixture = TestBed.createComponent(CanvasTileComponent);
+    (
+      fixture.componentInstance as unknown as {
+        chatViewComponent: typeof FocusProbe;
+      }
+    ).chatViewComponent = FocusProbe;
+    fixture.componentRef.setInput('tabId', 'tile-1');
+    fixture.componentRef.setInput('visible', true);
+    // Undefined → the host does not bind `focused` at all.
+    if (focused !== undefined) {
+      fixture.componentRef.setInput('focused', focused);
+    }
+    fixture.detectChanges();
+    return fixture;
+  }
+
+  it('provides the focused input to the tile content and marks unfocused tiles', () => {
+    const fixture = mountFocused(false);
+    const host = fixture.nativeElement as HTMLElement;
+    const tileFocused = () =>
+      fixture.componentInstance.childInjector()!.get(SESSION_FOCUSED)();
+
+    expect(
+      fixture.nativeElement.querySelector('[data-test="focus-probe"]')
+        ?.textContent?.trim(),
+    ).toBe('false');
+    expect(tileFocused()).toBe(false);
+    // Host marker for the scoped animation-pause CSS.
+    expect(host.classList.contains('tile-unfocused')).toBe(true);
+
+    fixture.componentRef.setInput('focused', true);
+    fixture.detectChanges();
+    expect(tileFocused()).toBe(true);
+    expect(
+      fixture.nativeElement.querySelector('[data-test="focus-probe"]')
+        ?.textContent?.trim(),
+    ).toBe('true');
+    expect(host.classList.contains('tile-unfocused')).toBe(false);
+  });
+
+  it('treats a tile that does not bind focused as focused', () => {
+    const fixture = mountFocused(undefined);
+    const host = fixture.nativeElement as HTMLElement;
+
+    expect(
+      fixture.nativeElement.querySelector('[data-test="focus-probe"]')
+        ?.textContent?.trim(),
+    ).toBe('true');
+    expect(fixture.componentInstance.childInjector()!.get(SESSION_FOCUSED)()).toBe(
+      true,
+    );
+    expect(host.classList.contains('tile-unfocused')).toBe(false);
   });
 });

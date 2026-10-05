@@ -51,8 +51,12 @@ import { join } from 'path';
 import { throwIfPassAborted, yieldToEventLoop } from '../abort/pass-abort';
 import { QUARANTINE_DIR_NAME } from '../quarantine/quarantine';
 
-/** Guards against symlink loops and pathological nesting, mirroring the copy engine. */
-const MAX_DEPTH = 20;
+/**
+ * Guards against symlink loops and pathological nesting, mirroring the copy
+ * engine. Exported so retirement can tell when a tree is deeper than the hash
+ * can see (`targets/artifact-retirement.ts`).
+ */
+export const MAX_DEPTH = 20;
 
 /**
  * Files read concurrently, and therefore also the interval between yields.

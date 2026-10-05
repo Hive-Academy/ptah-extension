@@ -41,7 +41,10 @@ import {
   SDK_TOKENS,
   HARNESS_PREFLIGHT_TOKEN,
 } from '@ptah-extension/agent-sdk';
-import { VscodeEditorLauncher } from '@ptah-extension/platform-vscode';
+import {
+  VscodeEditorLauncher,
+  createAgentModelSettingsGetter,
+} from '@ptah-extension/platform-vscode';
 import {
   registerAuthProvidersServices,
   AUTH_PROVIDERS_TOKENS,
@@ -170,12 +173,16 @@ export function registerPhase2Libraries(
           )
         : null,
     ),
-    sourceResolver: createPluginConfigSourceResolver(() =>
-      container.isRegistered(SDK_TOKENS.SDK_PLUGIN_LOADER)
-        ? container.resolve<HarnessPluginConfigReader>(
-            SDK_TOKENS.SDK_PLUGIN_LOADER,
-          )
-        : null,
+    sourceResolver: createPluginConfigSourceResolver(
+      () =>
+        container.isRegistered(SDK_TOKENS.SDK_PLUGIN_LOADER)
+          ? container.resolve<HarnessPluginConfigReader>(
+              SDK_TOKENS.SDK_PLUGIN_LOADER,
+            )
+          : null,
+      undefined,
+      undefined,
+      createAgentModelSettingsGetter(container),
     ),
     // Batch 3. `HarnessPropagationService` runs this before each reconcile it
     // performs, so an RPC that changed an upstream source (harness-builder

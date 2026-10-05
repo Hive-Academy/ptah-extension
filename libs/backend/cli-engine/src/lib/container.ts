@@ -52,6 +52,7 @@ import type {
 } from '@ptah-extension/platform-core';
 import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
 import type {
+  AgentModelSettings,
   CustomProviderStore,
   IActiveWorkspaceSource,
 } from '@ptah-extension/settings-core';
@@ -667,12 +668,21 @@ export class CliDIContainer {
     // owns `CLI_DETECTION_SERVICE`) runs below.
     registerHarnessSyncServices(container, logger, {
       cliDetector: createContainerHarnessCliDetector(container),
-      sourceResolver: createPluginConfigSourceResolver(() =>
-        container.isRegistered(SDK_TOKENS.SDK_PLUGIN_LOADER)
-          ? container.resolve<HarnessPluginConfigReader>(
-              SDK_TOKENS.SDK_PLUGIN_LOADER,
-            )
-          : null,
+      sourceResolver: createPluginConfigSourceResolver(
+        () =>
+          container.isRegistered(SDK_TOKENS.SDK_PLUGIN_LOADER)
+            ? container.resolve<HarnessPluginConfigReader>(
+                SDK_TOKENS.SDK_PLUGIN_LOADER,
+              )
+            : null,
+        undefined,
+        undefined,
+        () =>
+          container.isRegistered(SETTINGS_TOKENS.AGENT_MODEL_SETTINGS)
+            ? container.resolve<AgentModelSettings>(
+                SETTINGS_TOKENS.AGENT_MODEL_SETTINGS,
+              )
+            : null,
       ),
       // Batch 3. Without this the CLI reconciled an EMPTY user layer forever:
       // `UserLayerMirrorService` was registered here and had no caller, so a

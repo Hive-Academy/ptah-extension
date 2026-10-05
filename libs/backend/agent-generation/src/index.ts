@@ -122,6 +122,11 @@ export type {
   OrphanedClone,
   ReapResult,
   UpstreamLiveness,
+  QuarantinedAgentItem,
+  QuarantinedAgentState,
+  QuarantinedAgentsListing,
+  QuarantineRestoreOutcome,
+  QuarantineRestoreResult,
 } from './lib/services/user-layer/user-layer-mirror.service';
 export type {
   OriginSidecar,

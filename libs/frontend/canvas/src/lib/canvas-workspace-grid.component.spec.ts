@@ -82,6 +82,7 @@ import { join } from 'node:path';
 import { TestBed } from '@angular/core/testing';
 import { ApplicationRef, signal } from '@angular/core';
 import { By } from '@angular/platform-browser';
+import { provideSurfaceActiveTesting } from '@ptah-extension/core/testing';
 
 import { CanvasWorkspaceGridComponent } from './canvas-workspace-grid.component';
 import { CanvasTileComponent } from './canvas-tile.component';
@@ -203,6 +204,7 @@ function createFakeGrid(): FakeGrid {
 type ObserverCallback = (entries: ResizeObserverEntry[]) => void;
 
 describe('CanvasWorkspaceGridComponent', () => {
+  const surfaceActive = signal(true);
   let capturedObserver: ObserverCallback | null;
   let originalResizeObserver: typeof ResizeObserver | undefined;
   let originalRaf: typeof requestAnimationFrame;
@@ -246,6 +248,7 @@ describe('CanvasWorkspaceGridComponent', () => {
   } => fixture.debugElement.query(By.css('gridstack')).componentInstance;
 
   beforeEach(() => {
+    surfaceActive.set(true);
     capturedObserver = null;
     originalResizeObserver = globalThis.ResizeObserver;
     originalRaf = globalThis.requestAnimationFrame;
@@ -285,6 +288,7 @@ describe('CanvasWorkspaceGridComponent', () => {
     }) as typeof cancelAnimationFrame;
 
     const tabManagerMock = {
+      onTabClosed: jest.fn(() => () => undefined),
       tabs: tabsSignal,
       activeTabId: signal<string | null>(null),
       activeWorkspacePath$: signal<string | null>(WORKSPACE),
@@ -302,6 +306,7 @@ describe('CanvasWorkspaceGridComponent', () => {
         CanvasStore,
         CanvasLayoutService,
         CanvasRenderMetricsService,
+        provideSurfaceActiveTesting(surfaceActive),
         {
           provide: CanvasLayoutPersistenceService,
           useValue: {
@@ -694,6 +699,104 @@ describe('CanvasWorkspaceGridComponent', () => {
       expect(grid.engine.nodes.map((node) => node.y)).toEqual([0, 0, 6]);
     });
 
+    it('commits a stopped drag after a deferred geometry pass before change', () => {
+      mount(['t1', 't2', 't3']);
+      const metrics = TestBed.inject(CanvasRenderMetricsService);
+      const before = metrics.snapshot();
+      gridStub().dragStartCB.emit({
+        event: new Event('dragstart'),
+        el: nodeOf('t3').el,
+      });
+      Object.assign(nodeOf('t1'), { x: 0 });
+      Object.assign(nodeOf('t2'), { x: 6 });
+      Object.assign(nodeOf('t3'), { x: 0, y: 6 });
+      gridStub().dragStopCB.emit({
+        event: new Event('dragstop'),
+        el: nodeOf('t3').el,
+      });
+      grid.load.mockClear();
+
+      measure(THREE_COLUMN_WIDTH + 100);
+      flush();
+
+      expect(grid.load).not.toHaveBeenCalled();
+      grid.emitChange();
+      expect(metrics.snapshot().acceptedGestures).toBe(
+        before.acceptedGestures + 1,
+      );
+      expect(metrics.snapshot().rejectedGestures).toBe(before.rejectedGestures);
+      expect(store.tiles().map((tile) => tile.rowBreakBefore)).toEqual([
+        false,
+        false,
+        true,
+      ]);
+    });
+
+    it('commits a drag after a deferred geometry pass before stop and change', () => {
+      mount(['t1', 't2', 't3']);
+      const metrics = TestBed.inject(CanvasRenderMetricsService);
+      const before = metrics.snapshot();
+      gridStub().dragStartCB.emit({
+        event: new Event('dragstart'),
+        el: nodeOf('t3').el,
+      });
+      Object.assign(nodeOf('t1'), { x: 0 });
+      Object.assign(nodeOf('t2'), { x: 6 });
+      Object.assign(nodeOf('t3'), { x: 0, y: 6 });
+      grid.load.mockClear();
+
+      measure(THREE_COLUMN_WIDTH + 100);
+      flush();
+
+      expect(grid.load).not.toHaveBeenCalled();
+      gridStub().dragStopCB.emit({
+        event: new Event('dragstop'),
+        el: nodeOf('t3').el,
+      });
+      grid.emitChange();
+      expect(metrics.snapshot().acceptedGestures).toBe(
+        before.acceptedGestures + 1,
+      );
+      expect(metrics.snapshot().rejectedGestures).toBe(before.rejectedGestures);
+      expect(store.tiles().map((tile) => tile.rowBreakBefore)).toEqual([
+        false,
+        false,
+        true,
+      ]);
+    });
+
+    it('retries an activation remeasure after a committed drag', () => {
+      mount(['t1', 't2', 't3']);
+      const metrics = TestBed.inject(CanvasRenderMetricsService);
+      const before = metrics.snapshot();
+      surfaceActive.set(false);
+      flush();
+      grid.onResize.mockClear();
+
+      surfaceActive.set(true);
+      gridStub().dragStartCB.emit({
+        event: new Event('dragstart'),
+        el: nodeOf('t3').el,
+      });
+      flush();
+      expect(grid.onResize).not.toHaveBeenCalled();
+
+      Object.assign(nodeOf('t1'), { x: 0 });
+      Object.assign(nodeOf('t2'), { x: 6 });
+      Object.assign(nodeOf('t3'), { x: 0, y: 6 });
+      gridStub().dragStopCB.emit({
+        event: new Event('dragstop'),
+        el: nodeOf('t3').el,
+      });
+      grid.emitChange();
+
+      expect(metrics.snapshot().acceptedGestures).toBe(
+        before.acceptedGestures + 1,
+      );
+      expect(metrics.snapshot().rejectedGestures).toBe(before.rejectedGestures);
+      expect(grid.onResize).toHaveBeenCalledTimes(1);
+    });
+
     it('rejects a gesture whose workspace revision changes before commit', () => {
       mount(['t1', 't2']);
       gridStub().dragStartCB.emit({
@@ -729,6 +832,12 @@ describe('CanvasWorkspaceGridComponent', () => {
       });
       Object.assign(grid.engine.nodes[0], { x: 6, y: 6, w: 6 });
       fixture.componentRef.setInput('visible', false);
+      flush();
+      expect(engineGeometry()).toEqual([
+        ['t1', 6, 6, 6, 6],
+        ['t2', 6, 0, 6, 6],
+      ]);
+      fixture.componentRef.setInput('visible', true);
       flush();
       expect(engineGeometry()).toEqual([
         ['t1', 0, 0, 6, 6],
@@ -1340,6 +1449,64 @@ describe('CanvasWorkspaceGridComponent', () => {
   });
 
   describe('feedback loop', () => {
+    it('renders live change-callback and rejected-gesture metrics', () => {
+      mount(['t1', 't2']);
+      const host = fixture.nativeElement as HTMLElement;
+      const changesBefore = Number(
+        host.getAttribute('data-canvas-change-callbacks'),
+      );
+      const rejectedBefore = Number(
+        host.getAttribute('data-canvas-rejected-gestures'),
+      );
+
+      grid.emitChange();
+      flush();
+      expect(Number(host.getAttribute('data-canvas-change-callbacks'))).toBe(
+        changesBefore + 1,
+      );
+
+      gridStub().dragStartCB.emit({
+        event: new Event('dragstart'),
+        el: document.createElement('div'),
+      });
+      flush();
+      expect(Number(host.getAttribute('data-canvas-rejected-gestures'))).toBe(
+        rejectedBefore + 1,
+      );
+    });
+
+    it('pauses geometry and gestures while inactive, then remeasures and applies', () => {
+      mount(['t1', 't2', 't3']);
+      const metrics = TestBed.inject(CanvasRenderMetricsService);
+      surfaceActive.set(false);
+      flush();
+      grid.load.mockClear();
+      grid.onResize.mockClear();
+      const before = metrics.snapshot();
+
+      store.setTileSpan(WORKSPACE, 't1', 'full');
+      flush();
+      gridStub().dragStartCB.emit({
+        event: new Event('dragstart'),
+        el: nodeOf('t1').el,
+      });
+
+      expect(grid.load).not.toHaveBeenCalled();
+      expect(grid.onResize).not.toHaveBeenCalled();
+      expect(metrics.snapshot().applyChecks).toBe(before.applyChecks);
+      expect(
+        (fixture.componentInstance as unknown as { _gesture: unknown })
+          ._gesture,
+      ).toBeNull();
+
+      surfaceActive.set(true);
+      flush();
+
+      expect(grid.onResize).toHaveBeenCalledTimes(1);
+      expect(grid.load).toHaveBeenCalledTimes(1);
+      expect(nodeOf('t1').w).toBe(12);
+    });
+
     it('counts actual layout recomputation separately from apply checks', () => {
       mount(['t1', 't2', 't3']);
       const metrics = TestBed.inject(CanvasRenderMetricsService);

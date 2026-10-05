@@ -16,6 +16,7 @@ import {
 import {
   ExecutionChatMessage,
   SessionId,
+  type SessionBudgetState,
   type SessionStatsEntry,
   type SessionTurnPhase,
   type SessionTurnState,
@@ -45,6 +46,28 @@ function sessionSnapshot(
     pricingCoverage: 'full',
     scope: 'session',
     revision,
+  };
+}
+
+/** A session budget state computed from the snapshot at `revision`. */
+function budgetState(
+  sessionId: string,
+  revision: number,
+  used: number,
+): SessionBudgetState {
+  return {
+    sessionId,
+    stage: 'normal',
+    unit: 'tokens',
+    measure: 'tokens',
+    used,
+    limit: 1000,
+    percent: used / 10,
+    lowerBound: false,
+    revision,
+    compactions: 0,
+    extensions: 0,
+    blocked: false,
   };
 }
 
@@ -1116,6 +1139,168 @@ describe('TabManagerService — intent-named mutators', () => {
       const tab = service.tabs().find((t) => t.id === id);
       expect(tab?.sessionStats).toBe(snapshot);
       expect(tab?.sessionModel).toBe('claude-3-5-sonnet');
+    });
+
+    // TASK_2026_597 N7: the budget rides with the snapshot it was computed from.
+    describe('session budget', () => {
+      const budgetOf = (id: string): SessionBudgetState | null | undefined =>
+        service.tabs().find((t) => t.id === id)?.sessionBudget;
+
+      it('installs the budget in the same update as the snapshot', () => {
+        const id = service.createTab('budget live');
+        service.attachSession(id, SESS_X);
+        const snapshot = sessionSnapshot(SESS_X, 3, 3);
+        const budget = budgetState(SESS_X, 3, 300);
+
+        service.installSessionStats(id, snapshot, budget);
+
+        const tab = service.tabs().find((t) => t.id === id);
+        expect(tab?.sessionStats).toBe(snapshot);
+        expect(tab?.sessionBudget).toBe(budget);
+      });
+
+      it('drops the budget with a snapshot of a lower revision', () => {
+        const id = service.createTab('budget stale');
+        service.attachSession(id, SESS_X);
+        const current = budgetState(SESS_X, 10, 500);
+        service.installSessionStats(
+          id,
+          sessionSnapshot(SESS_X, 10, 10),
+          current,
+        );
+
+        service.installSessionStats(
+          id,
+          sessionSnapshot(SESS_X, 9, 9),
+          budgetState(SESS_X, 9, 400),
+        );
+
+        expect(budgetOf(id)).toBe(current);
+      });
+
+      it('drops the budget with a snapshot for another session', () => {
+        const id = service.createTab('budget other session');
+        service.attachSession(id, SESS_X);
+        const current = budgetState(SESS_X, 1, 100);
+        service.installSessionStats(id, sessionSnapshot(SESS_X, 1, 1), current);
+
+        service.installSessionStats(
+          id,
+          sessionSnapshot('other-session', 99, 99),
+          budgetState('other-session', 99, 900),
+        );
+
+        expect(budgetOf(id)).toBe(current);
+      });
+
+      it('keeps the last budget when an accepted snapshot carries none', () => {
+        const id = service.createTab('budget absent');
+        service.attachSession(id, SESS_X);
+        const current = budgetState(SESS_X, 1, 100);
+        service.installSessionStats(id, sessionSnapshot(SESS_X, 1, 1), current);
+
+        const next = sessionSnapshot(SESS_X, 2, 2);
+        service.installSessionStats(id, next);
+
+        const tab = service.tabs().find((t) => t.id === id);
+        expect(tab?.sessionStats).toBe(next);
+        expect(tab?.sessionBudget).toBe(current);
+      });
+
+      it('ignores a budget keyed to another session than its snapshot', () => {
+        const id = service.createTab('budget mismatch');
+        service.attachSession(id, SESS_X);
+        const next = sessionSnapshot(SESS_X, 1, 1);
+
+        service.installSessionStats(
+          id,
+          next,
+          budgetState('other-session', 1, 100),
+        );
+
+        expect(service.tabs().find((t) => t.id === id)?.sessionStats).toBe(
+          next,
+        );
+        expect(budgetOf(id) ?? null).toBeNull();
+      });
+
+      it('applyLoadedSessionStats installs the resume budget with its snapshot', () => {
+        const id = service.createTab('budget resume');
+        const budget = budgetState(SESS_X, 4, 200);
+
+        service.applyLoadedSessionStats(
+          id,
+          sessionSnapshot(SESS_X, 4, 4),
+          'claude-opus-4-7',
+          budget,
+        );
+
+        expect(budgetOf(id)).toBe(budget);
+      });
+
+      it('a delayed resume reply cannot replace the budget of a newer live snapshot', () => {
+        const id = service.createTab('budget resume race');
+        service.attachSession(id, SESS_X);
+        const live = budgetState(SESS_X, 15, 900);
+        service.installSessionStats(id, sessionSnapshot(SESS_X, 15, 15), live);
+
+        service.applyLoadedSessionStats(
+          id,
+          sessionSnapshot(SESS_X, 12, 12),
+          'claude-opus-4-7',
+          budgetState(SESS_X, 12, 700),
+        );
+
+        expect(budgetOf(id)).toBe(live);
+      });
+
+      // PR 3 review S-3: a SESSION_BUDGET_REACHED refusal carries its state.
+      it('installSessionBudget installs a refusal state for the bound session only', () => {
+        const id = service.createTab('budget refusal');
+        service.attachSession(id, SESS_X);
+        const refused = budgetState(SESS_X, 6, 600);
+
+        service.installSessionBudget(id, budgetState('other-session', 9, 900));
+        expect(budgetOf(id) ?? null).toBeNull();
+
+        service.installSessionBudget(id, refused);
+        expect(budgetOf(id)).toBe(refused);
+        expect(
+          service.tabs().find((t) => t.id === id)?.sessionStats ?? null,
+        ).toBeNull();
+      });
+
+      it('resetTabToFresh clears the budget with the snapshot', () => {
+        const id = service.createTab('budget reset');
+        service.attachSession(id, SESS_X);
+        service.installSessionStats(
+          id,
+          sessionSnapshot(SESS_X, 1, 1),
+          budgetState(SESS_X, 1, 100),
+        );
+
+        service.resetTabToFresh(id);
+
+        const tab = service.tabs().find((t) => t.id === id);
+        expect(tab?.sessionStats).toBeNull();
+        expect(tab?.sessionBudget).toBeNull();
+      });
+
+      it('rebindTabSession clears the budget with the snapshot', () => {
+        const id = service.createTab('budget rebind');
+        service.attachSession(id, SESS_X);
+        service.installSessionStats(
+          id,
+          sessionSnapshot(SESS_X, 1, 1),
+          budgetState(SESS_X, 1, 100),
+        );
+
+        service.rebindTabSession(id, SESS_R, 'forked');
+
+        const tab = service.tabs().find((t) => t.id === id);
+        expect(tab?.sessionStats).toBeNull();
+        expect(tab?.sessionBudget).toBeNull();
+      });
     });
 
     it('N6 - resumes a model badge with unknown context until a main frame arrives', () => {

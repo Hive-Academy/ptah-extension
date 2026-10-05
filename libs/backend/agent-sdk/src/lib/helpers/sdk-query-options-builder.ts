@@ -15,7 +15,11 @@
 import { injectable, inject } from 'tsyringe';
 import { randomUUID } from 'node:crypto';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
-import { PLATFORM_TOKENS, type HostKind } from '@ptah-extension/platform-core';
+import {
+  PLATFORM_TOKENS,
+  type HostKind,
+  type IWorkspaceProvider,
+} from '@ptah-extension/platform-core';
 import { MemoryPromptInjector } from './memory-prompt-injector';
 import { CodeSymbolPromptInjector } from './code-symbol-prompt-injector';
 import { redactMcpUrl, redactMcpOverrideMap } from './redact-mcp-url';
@@ -31,6 +35,8 @@ import {
   SessionId,
   TabId,
   PTAH_MCP_SERVER_NAME,
+  resolveSubagentPromptCacheTtl,
+  type SubagentPromptCacheTtl,
   type EffectiveCapabilitySet,
   type ICapabilityResolver,
   type McpHttpServerOverride,
@@ -382,11 +388,16 @@ export function assertSingleOutputStylePath(
  * `resolveAutoCompactControl`, which yields `{}` when Ptah has no opinion, and
  * only its present keys are merged. With neither a style nor an auto-compact
  * key, the shared constant is still returned untouched.
+ *
+ * `subagentPromptCacheTtl` follows the same rule: only the main-session
+ * `build()` passes it (the `sdkValue` of `resolveSubagentPromptCacheTtl`), and
+ * an undefined value emits no key, so every other caller's output is unchanged.
  */
 export function buildFlagSettings(
   sessionConfig?: OutputStyleActivationFields,
   autoCompact?: AutoCompactSettings,
   capabilityFlags?: Partial<SessionCapabilityFlags>,
+  subagentPromptCacheTtl?: SubagentPromptCacheTtl,
 ): Settings {
   assertSingleOutputStylePath(sessionConfig);
   const styleName = sessionConfig?.outputStyleName?.trim();
@@ -402,7 +413,8 @@ export function buildFlagSettings(
   if (
     !styleName &&
     Object.keys(autoCompactKeys).length === 0 &&
-    Object.keys(capabilityKeys).length === 0
+    Object.keys(capabilityKeys).length === 0 &&
+    subagentPromptCacheTtl === undefined
   ) {
     return PTAH_DISABLE_SDK_AUTO_MEMORY;
   }
@@ -411,7 +423,27 @@ export function buildFlagSettings(
     ...(styleName ? { outputStyle: styleName } : {}),
     ...autoCompactKeys,
     ...capabilityKeys,
+    ...(subagentPromptCacheTtl !== undefined ? { subagentPromptCacheTtl } : {}),
   };
+}
+
+/** Tools that spawn a subagent; the SDK has shipped it under both names. */
+const SUBAGENT_SPAWN_TOOLS: readonly string[] = ['Task', 'Agent'];
+
+/**
+ * Whether a session built with these tool options can spawn subagents: no
+ * subagent tool is disallowed, and an explicit tool list (rather than a
+ * preset) still contains one. This is the `'auto'` gate of
+ * `resolveSubagentPromptCacheTtl`.
+ */
+export function canSpawnSubagents(
+  options: Pick<Options, 'tools' | 'disallowedTools'>,
+): boolean {
+  const isSubagentTool = (name: string) => SUBAGENT_SPAWN_TOOLS.includes(name);
+  if (options.disallowedTools?.some(isSubagentTool)) return false;
+  return Array.isArray(options.tools)
+    ? options.tools.some(isSubagentTool)
+    : true;
 }
 
 /**
@@ -670,11 +702,13 @@ export function buildFlagSettingsArg(
   logger?: Pick<Logger, 'warn'>,
   autoCompact?: AutoCompactSettings,
   capabilityFlags?: Partial<SessionCapabilityFlags>,
+  subagentPromptCacheTtl?: SubagentPromptCacheTtl,
 ): string {
   const settings = buildFlagSettings(
     sessionConfig,
     autoCompact,
     capabilityFlags,
+    subagentPromptCacheTtl,
   );
   if (crossSessionInbound === undefined) {
     return JSON.stringify(settings);
@@ -955,6 +989,13 @@ export class SdkQueryOptionsBuilder {
       isOptional: true,
     })
     private readonly mcpBackoffService?: McpServerBackoffService,
+    /**
+     * Reads `agentOrchestration.subagentPromptCacheTtl` from the store
+     * `agent:setConfig` writes. Last and optional for the reason given on
+     * `mcpStatus`; without it the setting reads as `'auto'`.
+     */
+    @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER, { isOptional: true })
+    private readonly workspace?: IWorkspaceProvider,
     @inject(PLATFORM_TOKENS.HOST_KIND, { isOptional: true })
     private readonly hostKind?: HostKind,
   ) {}
@@ -1126,6 +1167,24 @@ export class SdkQueryOptionsBuilder {
       source: autoCompact.source,
       modelClass,
     });
+    const sessionTools = {
+      type: 'preset' as const,
+      preset: 'claude_code' as const,
+    };
+    // The host env var wins inside the SDK (it inherits `process.env` below);
+    // `sdkValue` still follows the setting so clearing the env restores it.
+    const subagentTtl = resolveSubagentPromptCacheTtl({
+      setting: this.workspace?.getConfiguration<unknown>(
+        'ptah',
+        'agentOrchestration.subagentPromptCacheTtl',
+        'auto',
+      ),
+      envValue: process.env['CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL'],
+      canSpawnSubagents: canSpawnSubagents({ tools: sessionTools }),
+    });
+    this.logger.info(
+      `[SdkQueryOptionsBuilder] subagentPromptCacheTtl effective=${subagentTtl.effective} source=${subagentTtl.source} sdkOption=${subagentTtl.sdkValue ?? 'unset'}`,
+    );
     const extraArgs = this.buildExtraArgs(
       enableFileCheckpointing ?? true,
       cwd,
@@ -1222,18 +1281,17 @@ export class SdkQueryOptionsBuilder {
         //
         // The capability flags ride the same tier, which is what makes a
         // direct and a proxied session enforce the same lists: a custom base
-        // URL drops the `user` setting source, never the flag tier.
+        // URL drops the `user` setting source, never the flag tier. The
+        // subagent prompt-cache TTL is set here only (main session).
         settings: buildFlagSettingsArg(
           sessionConfig,
           'accept',
           this.logger,
           autoCompact,
           capabilityFlags,
+          subagentTtl.sdkValue,
         ),
-        tools: {
-          type: 'preset' as const,
-          preset: 'claude_code' as const,
-        },
+        tools: sessionTools,
         mcpServers: configuredMcpServers,
         ...capabilityIsolationOptions(policy),
         permissionMode,

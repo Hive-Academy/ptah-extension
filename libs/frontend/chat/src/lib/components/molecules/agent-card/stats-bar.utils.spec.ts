@@ -1,4 +1,25 @@
-import { extractCliAgentStats, isUsageSegment } from './stats-bar.utils';
+import {
+  NOT_REPORTED,
+  extractCliAgentStats,
+  formatEstimatedCost,
+  formatOptionalTokens,
+  isUsageSegment,
+} from './stats-bar.utils';
+
+describe('per-agent usage formatters (N6)', () => {
+  it('renders a missing token count as not reported, never 0', () => {
+    expect(formatOptionalTokens(undefined)).toBe(NOT_REPORTED);
+    expect(formatOptionalTokens(0)).toBe('0');
+    expect(formatOptionalTokens(12_345)).toBe('12.3k');
+  });
+
+  it('formats an estimate as "~$x.xx est." and a missing or unpriced one as not reported', () => {
+    expect(formatEstimatedCost(1.234)).toBe('~$1.23 est.');
+    expect(formatEstimatedCost(0)).toBe('~$0.00 est.');
+    expect(formatEstimatedCost(null)).toBe(NOT_REPORTED);
+    expect(formatEstimatedCost(undefined)).toBe(NOT_REPORTED);
+  });
+});
 
 describe('typed CLI usage statistics', () => {
   it.each(['text', 'tool-result', 'command'] as const)(

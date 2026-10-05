@@ -53,6 +53,7 @@ export {
   IndexingRpcHandlers,
   TasksRpcHandlers,
   SessionOrganizationRpcHandlers,
+  SessionBudgetRpcHandlers,
   asAuthCommandRunner,
   ElectronFileOpenRpcHandlers,
   EditorRpcHandlers,

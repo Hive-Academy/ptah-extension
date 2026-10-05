@@ -58,7 +58,10 @@ describe('raw stdout disclosure', () => {
       providers: [
         provideSurfaceActiveTesting(),
         provideMarkdown(),
-        { provide: AgentMonitorStore, useValue: { tick: signal(0) } },
+        {
+          provide: AgentMonitorStore,
+          useValue: { tick: signal(0), agentsById: signal(new Map()) },
+        },
         { provide: ClaudeRpcService, useValue: createMockRpcService() },
         {
           provide: VSCodeService,

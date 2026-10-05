@@ -253,3 +253,55 @@ All four are real decisions.
 
 - Resolve F1-F4.
 - Address F5-F12, or record each as an accepted risk with its reason.
+
+## Review round 2
+
+Artifact revision 2 (`implementation-plan-addendum-n7-n8.md`). Re-review of the plan only; scope limited to F1-F15 plus
+the five checks the coordinator listed. Verdict: **APPROVED** (0 Blocking, 0 Serious new; 2 Moderate residuals noted).
+
+### F1-F15
+
+| Finding                      | Status   | Note                                                                                                                                                                                                                                                                                                                                          |
+| ---------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| F1 key by wrapper id         | RESOLVED | Keyed by `snapshot.sessionId`; AS-1 plus an adapter parity spec with tracking id different from the real id (Comp. 3, 6).                                                                                                                                                                                                                     |
+| F2 resume path               | RESOLVED | `observeLoaded` at the resume read (Comp. 8) and `canSend` falls back to `statsOwner.snapshot` (Comp. 3). The fallback does not name the stats reader aggregate for a session with no owner and no resume call, but `chat:resume` always runs `observeLoaded` first, so the gap is theoretical.                                               |
+| F3 `/compact` not native     | RESOLVED | Explicit `/compact` and `/clear` allowlist, checked before the slash/resume branch; custom commands blocked and specced (Comp. 8).                                                                                                                                                                                                            |
+| F4 RPC manifest              | RESOLVED | Cut to one new method; the method map and the handler, manifest, allowlist and three surface specs are one unit; settings use existing `settings:get/set` (Comp. 1, 8, handoff).                                                                                                                                                              |
+| F5 absent snapshot           | RESOLVED | Absent keeps state; lower revision ignored; `unknown` only before the first figure (Comp. 3).                                                                                                                                                                                                                                                 |
+| F6 cost fallback             | RESOLVED | `knownCost` lower bound at `partial`; weighted only at `none`; sticky measure; `used` and `measure` in the state and chip input; label by measure (Comp. 3, 9).                                                                                                                                                                               |
+| F7 held follow-up            | RESOLVED | Accepted and specced as a bounded overshoot (crossing turn plus one held follow-up) and stated in the limit text.                                                                                                                                                                                                                             |
+| F8 compaction source         | RESOLVED | `compact_boundary`, main loop, reset on restart documented, tighten-to-handoff interaction in the text; AS-2 carries the subagent check.                                                                                                                                                                                                      |
+| F9 info total                | RESOLVED | Decision 2 reworded ("second, approximate figure"), optional labelled share offered, TOKENS recorded as the information total.                                                                                                                                                                                                                |
+| F10 batch dependencies       | PARTIAL  | Replaced by component-level ordering and a same-unit typecheck rule, which covers the A6 payload widening. The shared-file overlap with the deferred Batch 39 (`orchestration-settings.component.ts`, `providers-settings-state`) is not named; the team-leader must add it when building the batch table. Moderate, not blocking for Gate 2. |
+| F11 two context figures      | RESOLVED | Backend figure is the one source, Batch 46.2's frontend field replaced, event delivery chosen over poll (Comp. 10).                                                                                                                                                                                                                           |
+| F12 id in path               | RESOLVED | `UUID_REGEX` check and confined resolve (Comp. 5, 8).                                                                                                                                                                                                                                                                                         |
+| F13 reported-cost preference | RESOLVED | Stated as the reason in Decision 1, including the subscription "API-equivalent" caveat.                                                                                                                                                                                                                                                       |
+| F14 tighten/restore          | RESOLVED | Text says the next request compacts when above target; restore sends the configured value or `null`, never a guessed class default (Comp. 4).                                                                                                                                                                                                 |
+| F15 retention/location       | RESOLVED | Newest 50 files, location is Decision 3 option 2.                                                                                                                                                                                                                                                                                             |
+
+### Additional checks
+
+- **Same snapshot as the chat UI.** Spot-checked 5 contracts on HEAD `5bb19f9fb`: `NATIVE_COMMANDS = new Set(['clear'])`
+  (`slash-command-interceptor.ts:37`); `wrapResultStatsForActivity` at `sdk-agent-adapter.ts:1581-1591` passes `stats`
+  through, so the `{...stats, budget}` wrap is a small additive change; broadcast forwards `sessionStats` unchanged and
+  absent keeps the panel's last (`sdk-callbacks.ts:409-418`); the knownCost subtotal shows only at `partial`
+  (`session-stats-summary.component.ts:765-776`); the resume snapshot is `statsOwner.snapshot(...) ?? prefix`
+  (`session-history-reader.service.ts:1008-1016`); `compact_boundary` branch at `stream-transformer.ts:795`. All hold. The
+  numerator is `tokenCount` / `totalCost` of the same object and is never recomputed. PASS.
+- **A1 and E2.** A1 defaults stay `null` and untouched (stated in Quality and Verification). The tighten is off by default
+  (`tightenWindowTokens = null`); when enabled it verifies by `getContextUsage()` read-back and reverts to `null` on a
+  miss, so nothing assumes `autoCompactWindow` is honoured. PASS.
+- **TASK_2026_609 files.** No agent-generation, `.claude/agents` or system-prompt changes. Component 4 touches
+  `session-control.service.ts`, `session-lifecycle-manager.ts` and `session-registry.service.ts`, not
+  `sdk-query-options-builder.ts`. The shared `file-settings-keys.ts` is flagged append-only. PASS.
+- **Gate 2 decisions.** Four clear decisions, each with a recommended first option and a stated trade-off. PASS.
+
+### New findings
+
+None Blocking or Serious. One Moderate residual (F10 above) and one note: `sessionBudget.enabled` only takes effect "on
+the next figure" (Failure and rollback), so toggling it off while a session is already at `limit` still blocks until a
+result or a resume arrives; the team-leader should make `canSend` read the setting directly.
+
+### Verdict
+
+APPROVED for Gate 2. 15 findings: 14 RESOLVED, 1 PARTIAL (F10), 0 OPEN; 0 new Blocking, 0 new Serious.

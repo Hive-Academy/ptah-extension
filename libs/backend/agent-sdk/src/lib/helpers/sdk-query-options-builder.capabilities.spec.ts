@@ -209,10 +209,13 @@ describe('SdkQueryOptionsBuilder — capability policy (TASK_2026_560, C5)', () 
     it('emits no capability key and no notice when nothing is off', async () => {
       const built = await build({ capabilityPolicy: policy() });
 
+      // `subagentPromptCacheTtl` is the N1 `auto` default (TASK_2026_597),
+      // not a capability key.
       expect(built.settings).toEqual({
         autoMemoryEnabled: false,
         autoDreamEnabled: false,
         crossSessionInbound: 'accept',
+        subagentPromptCacheTtl: '1h',
       });
       expect(built.events).toEqual([]);
     });

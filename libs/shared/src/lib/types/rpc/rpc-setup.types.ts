@@ -5,6 +5,7 @@
  */
 
 import type { ProjectAnalysisResult, AgentRecommendation } from '../wizard';
+import type { HarnessTargetId } from '../harness-sync.types';
 
 /** Parameters for setup-status:get-status RPC method */
 export type SetupStatusGetParams = Record<string, never>;
@@ -36,11 +37,7 @@ export interface WizardDeepAnalyzeParams {
 
 /** All valid status values for a v3 multi-phase analysis step. */
 export type MultiPhaseAnalysisPhaseStatus =
-  | 'pending'
-  | 'running'
-  | 'completed'
-  | 'failed'
-  | 'skipped';
+  'pending' | 'running' | 'completed' | 'failed' | 'skipped';
 
 /**
  * Multi-phase analysis response from wizard:deep-analyze RPC method.
@@ -176,6 +173,57 @@ export interface WizardSubmitSelectionResponse {
   success: boolean;
   /** Error message if selection failed */
   error?: string;
+}
+
+/** Parameters for wizard:preview-generation RPC method */
+export interface WizardPreviewGenerationParams {
+  /** Agent ids the user is about to generate (same rule as submit-selection). */
+  selectedAgentIds: string[];
+}
+
+/**
+ * How sure the preview is that, after generation, a file holds the generated
+ * content.
+ *
+ * - `definite`: after generation the file holds the generated content, either
+ *   because generation writes it or because it already holds that content and
+ *   is left as is; a failed write is reported by the generation result.
+ * - `conditional`: written only if {@link GenerationPreviewFile.condition}
+ *   holds after generation.
+ */
+export type GenerationPreviewCertainty = 'definite' | 'conditional';
+
+/** One file a generation run is expected to write for one agent. */
+export interface GenerationPreviewFile {
+  /** Workspace-relative POSIX path. */
+  relPath: string;
+  /** `claude` for the source file, otherwise the rival CLI it is synced to. */
+  target: HarnessTargetId;
+  certainty: GenerationPreviewCertainty;
+  /** Present exactly when `certainty` is `conditional`. */
+  condition?: string;
+  /** Something already exists at this path and will be replaced. */
+  willOverwrite: boolean;
+}
+
+/** Every file the preview expects for one selected agent. */
+export interface GenerationPreviewAgent {
+  agentId: string;
+  files: GenerationPreviewFile[];
+}
+
+/**
+ * Response from wizard:preview-generation RPC method. Read-only: building it
+ * writes nothing and records no consent.
+ */
+export interface WizardPreviewGenerationResponse {
+  /** One entry per selected agent, in request order. */
+  agents: GenerationPreviewAgent[];
+  /**
+   * Set when the rival CLI paths could not be worked out. `agents` then lists
+   * the Claude paths only and promises nothing about other CLIs.
+   */
+  warning?: string;
 }
 
 /** Parameters for wizard:cancel RPC method */

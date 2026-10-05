@@ -88,7 +88,6 @@ export function tailPath(path: string, segments = 2): string {
       <div
         #tabContainer
         class="flex items-center h-full px-1 gap-1.5 overflow-x-auto tab-scroll-container"
-        (scroll)="onScroll()"
       >
         @for (tab of tabs(); track tab.id) {
           <ptah-tab-item
@@ -245,6 +244,8 @@ export class TabBarComponent {
 
   /** Timer ID for debouncing scroll-into-view on tab changes */
   private scrollTimerId: ReturnType<typeof setTimeout> | null = null;
+  private scrollElement: HTMLElement | null = null;
+  private readonly scrollHandler = (): void => this.onScroll();
 
   /** ResizeObserver for detecting container size changes */
   private resizeObserver: ResizeObserver | null = null;
@@ -273,6 +274,7 @@ export class TabBarComponent {
     afterNextRender(
       () => {
         this.setupWheelListener();
+        this.setupScrollListener();
         this.setupResizeObserver();
       },
       { injector: this.injector },
@@ -396,6 +398,15 @@ export class TabBarComponent {
     el.addEventListener('wheel', this.wheelHandler, { passive: false });
   }
 
+  private setupScrollListener(): void {
+    const el = this.tabContainerRef()?.nativeElement;
+    if (!el) return;
+    this.ngZone.runOutsideAngular(() => {
+      el.addEventListener('scroll', this.scrollHandler, { passive: true });
+    });
+    this.scrollElement = el;
+  }
+
   /** Watch for container resizes to keep scroll arrows in sync */
   private setupResizeObserver(): void {
     const el = this.tabContainerRef()?.nativeElement;
@@ -458,5 +469,7 @@ export class TabBarComponent {
       if (el) el.removeEventListener('wheel', this.wheelHandler);
       this.wheelHandler = null;
     }
+    this.scrollElement?.removeEventListener('scroll', this.scrollHandler);
+    this.scrollElement = null;
   }
 }

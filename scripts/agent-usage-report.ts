@@ -50,6 +50,17 @@
  *   --opencode-config  MCP servers and plugins declared in the OpenCode config
  *                      directory, and their tool calls inside Ptah lanes
  *   --date=YYYY-MM-DD  only sessions started on that local date (overrides days)
+ *   --subagents        per Claude subagent: agent type (from the transcript's
+ *                      `.meta.json`), start prefix (first request's input +
+ *                      cache read + cache write), requests, cache read/write,
+ *                      output, and every request sent more than 5 min after the
+ *                      previous request of the same subagent, with its cache
+ *                      write. Summary: prefix min/median/max per agent type and
+ *                      the "resume after > 5 min" count, cache-write sum, median
+ *   --since=<iso>      with --subagents: subagents started at or after this
+ *                      instant (also replaces `days` as the read window)
+ *   --until=<iso>      with --subagents: subagents started before this instant
+ *   --session=<id,..>  with --subagents: parent session ids (prefix match)
  * Without a mode flag it prints the aggregate views.
  */
 
@@ -89,6 +100,14 @@ import {
   serverToolCalls,
   type OpencodeDbReport,
 } from './agent-usage/opencode-db.reader';
+import {
+  formatSubagentRow,
+  formatSubagentSummary,
+  selectSubagents,
+  SUBAGENT_TABLE_HEADER,
+  summariseSubagents,
+  type SubagentFilter,
+} from './agent-usage/subagent-metrics';
 
 export interface ReportOptions {
   readonly days: number;
@@ -98,12 +117,39 @@ export interface ReportOptions {
   readonly all: boolean;
   readonly resumed: boolean;
   readonly opencodeConfig: boolean;
+  readonly subagents: boolean;
+  /** `--since` as epoch-ms, or null. */
+  readonly sinceMs: number | null;
+  /** `--until` as epoch-ms, or null. */
+  readonly untilMs: number | null;
+  /** `--session` ids, or null for every session. */
+  readonly sessions: readonly string[] | null;
+}
+
+const MODE_FLAGS = [
+  '--lanes',
+  '--all',
+  '--resumed',
+  '--opencode-config',
+  '--subagents',
+];
+
+/** Epoch-ms of an ISO-8601 flag value; throws on anything `Date` rejects. */
+function isoFlag(name: string, value: string): number {
+  const ms = Date.parse(value);
+  if (!/^\d{4}-\d{2}-\d{2}/.test(value) || Number.isNaN(ms)) {
+    throw new Error(`${name} expects an ISO-8601 instant, got "${value}"`);
+  }
+  return ms;
 }
 
 /** Positional `[days] [top]` plus the flags in the header. */
 export function parseArgs(argv: readonly string[]): ReportOptions {
   const positional: string[] = [];
   let date: string | null = null;
+  let sinceMs: number | null = null;
+  let untilMs: number | null = null;
+  let sessions: string[] | null = null;
   const flags = new Set<string>();
   for (const arg of argv) {
     if (arg.startsWith('--date=')) {
@@ -112,16 +158,37 @@ export function parseArgs(argv: readonly string[]): ReportOptions {
         throw new Error(`--date expects YYYY-MM-DD, got "${value}"`);
       }
       date = value;
+    } else if (arg.startsWith('--since=')) {
+      sinceMs = isoFlag('--since', arg.slice('--since='.length));
+    } else if (arg.startsWith('--until=')) {
+      untilMs = isoFlag('--until', arg.slice('--until='.length));
+    } else if (arg.startsWith('--session=')) {
+      sessions = arg
+        .slice('--session='.length)
+        .split(',')
+        .map((s) => s.trim())
+        .filter((s) => s !== '');
+      if (sessions.length === 0) {
+        throw new Error('--session expects one or more session ids');
+      }
     } else if (arg.startsWith('--')) {
-      if (
-        !['--lanes', '--all', '--resumed', '--opencode-config'].includes(arg)
-      ) {
+      if (!MODE_FLAGS.includes(arg)) {
         throw new Error(`unknown flag ${arg}`);
       }
       flags.add(arg);
     } else {
       positional.push(arg);
     }
+  }
+  const subagents = flags.has('--subagents');
+  if (
+    !subagents &&
+    (sinceMs !== null || untilMs !== null || sessions !== null)
+  ) {
+    throw new Error('--since, --until and --session need --subagents');
+  }
+  if (sinceMs !== null && date !== null) {
+    throw new Error('--since and --date are exclusive');
   }
   const number = (raw: string | undefined, fallback: number, name: string) => {
     if (raw === undefined) return fallback;
@@ -139,6 +206,10 @@ export function parseArgs(argv: readonly string[]): ReportOptions {
     all: flags.has('--all'),
     resumed: flags.has('--resumed'),
     opencodeConfig: flags.has('--opencode-config'),
+    subagents,
+    sinceMs,
+    untilMs,
+    sessions,
   };
 }
 
@@ -509,6 +580,32 @@ function printOpencodeConfig(
   return config.skipped;
 }
 
+function printSubagents(
+  claude: ClaudeStoreReport,
+  filter: SubagentFilter,
+): void {
+  const rows = selectSubagents(claude.transcripts, filter);
+  console.log(`\n=== Claude subagents: ${rows.length}`);
+  console.log(SUBAGENT_TABLE_HEADER);
+  for (const row of rows) console.log(formatSubagentRow(row));
+  console.log('\n-- requests after > 5 min (same subagent)');
+  console.log(
+    `${'sent (UTC)'.padEnd(16)} ${'subagent'.padEnd(24)} ${'type'.padEnd(24)} ${'gap s'.padStart(7)} ${'cache_write'.padStart(11)} ${'cache_read'.padStart(11)}`,
+  );
+  for (const row of rows) {
+    for (const late of row.lateRequests) {
+      const sent = late.at ? late.at.slice(0, 16).replace('T', ' ') : '-';
+      console.log(
+        `${sent.padEnd(16)} ${row.id.padEnd(24).slice(0, 24)} ${row.agentType.padEnd(24).slice(0, 24)} ${String(late.gapSeconds).padStart(7)} ${String(late.cacheCreation).padStart(11)} ${String(late.cacheRead).padStart(11)}`,
+      );
+    }
+  }
+  console.log('\n-- summary');
+  for (const line of formatSubagentSummary(summariseSubagents(rows))) {
+    console.log(line);
+  }
+}
+
 function printSkipped(skipped: readonly SkippedSource[]): void {
   if (skipped.length === 0) return;
   console.log('\n-- skipped sources');
@@ -518,10 +615,12 @@ function printSkipped(skipped: readonly SkippedSource[]): void {
 
 export function main(argv: readonly string[]): void {
   const options = parseArgs(argv);
-  const sinceMs = Date.now() - options.days * 864e5;
+  const sinceMs = options.sinceMs ?? Date.now() - options.days * 864e5;
   const window = options.date
     ? `on ${options.date}`
-    : `over the last ${options.days} days`;
+    : options.sinceMs !== null
+      ? `since ${new Date(options.sinceMs).toISOString()}`
+      : `over the last ${options.days} days`;
 
   const codex = readCodexStore(
     codexSessionsDir(),
@@ -555,7 +654,11 @@ export function main(argv: readonly string[]): void {
   ];
   console.log(`Agent usage ${window}`);
 
-  const anyMode = options.lanes || options.resumed || options.opencodeConfig;
+  const anyMode =
+    options.lanes ||
+    options.resumed ||
+    options.opencodeConfig ||
+    options.subagents;
   if (!anyMode) {
     console.log(
       'Every tool call resends the thread: cost tracks requests x context, not session count.',
@@ -566,6 +669,13 @@ export function main(argv: readonly string[]): void {
   if (options.resumed) printResumed(codex);
   if (options.opencodeConfig)
     skipped.push(...printOpencodeConfig(opencodeConfigDir(), opencode));
+  if (options.subagents) {
+    printSubagents(claude, {
+      sinceMs: options.sinceMs ?? undefined,
+      untilMs: options.untilMs ?? undefined,
+      sessions: options.sessions ?? undefined,
+    });
+  }
   printSkipped(skipped);
 }
 

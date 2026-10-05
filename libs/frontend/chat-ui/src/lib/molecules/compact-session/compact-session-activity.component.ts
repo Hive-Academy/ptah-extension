@@ -9,6 +9,7 @@ import {
   signal,
   viewChild,
   afterRenderEffect,
+  NgZone,
   type ElementRef,
 } from '@angular/core';
 import { LucideAngularModule, CheckCircle, XCircle } from 'lucide-angular';
@@ -563,7 +564,6 @@ const FALLBACK_RECAP_HEIGHT = 180;
 
             <ul
               #feedList
-              (scroll)="onFeedScroll($event)"
               class="min-h-0 flex-1 overflow-y-auto"
               role="list"
               aria-label="Session activity feed"
@@ -881,21 +881,31 @@ export class CompactSessionActivityComponent {
   );
 
   private readonly destroyRef = inject(DestroyRef);
+  private readonly ngZone = inject(NgZone);
   private resizeObserver: ResizeObserver | null = null;
   private resizeObserverStarted = false;
+  private feedScrollElement: HTMLElement | null = null;
+  private readonly feedScrollHandler = (event: Event): void =>
+    this.onFeedScroll(event);
 
   constructor() {
     this.destroyRef.onDestroy(() => {
       this.resizeObserver?.disconnect();
       this.resizeObserver = null;
+      this.feedScrollElement?.removeEventListener(
+        'scroll',
+        this.feedScrollHandler,
+      );
+      this.feedScrollElement = null;
     });
 
     afterRenderEffect(() => {
       this.filteredMarks();
+      const el = this.feedListRef()?.nativeElement;
+      this.setupFeedScrollListener(el);
       // Never auto-scroll while an expanded row is on screen: the user is
       // reading it. A row hidden by the filter must not hold the feed.
       if (this.activeExpandedMarkId() !== null) return;
-      const el = this.feedListRef()?.nativeElement;
       if (el && !this.isUserScrolledUp) {
         el.scrollTop = el.scrollHeight;
       }
@@ -933,6 +943,15 @@ export class CompactSessionActivityComponent {
       observer.observe(pane);
       this.resizeObserver = observer;
     });
+  }
+
+  private setupFeedScrollListener(element: HTMLElement | undefined): void {
+    if (!element || element === this.feedScrollElement) return;
+    this.feedScrollElement?.removeEventListener('scroll', this.feedScrollHandler);
+    this.ngZone.runOutsideAngular(() => {
+      element.addEventListener('scroll', this.feedScrollHandler, { passive: true });
+    });
+    this.feedScrollElement = element;
   }
 
   protected onFeedScroll(event: Event): void {

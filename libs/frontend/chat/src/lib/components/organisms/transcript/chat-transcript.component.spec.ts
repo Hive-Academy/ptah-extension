@@ -48,14 +48,19 @@ jest.mock('ngx-markdown', () => {
   };
 });
 
+import { By } from '@angular/platform-browser';
 import { TestBed, ComponentFixture } from '@angular/core/testing';
 import { ChatTranscriptComponent } from './chat-transcript.component';
 import { SURFACE_ACTIVE } from '@ptah-extension/core';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import {
   ALWAYS_MOUNTED_TAIL,
+  RENDER_WINDOW_MARGIN_PX,
+  UNFOCUSED_RENDER_WINDOW_MARGIN_PX,
   TranscriptRenderWindow,
 } from './transcript-render-window';
+import { TranscriptPrependAnchorDirective } from './transcript-prepend-anchor.directive';
+import { SESSION_FOCUSED } from '../../../tokens/session-context.token';
 import type {
   ExecutionChatMessage,
   ExecutionNode,
@@ -81,7 +86,10 @@ interface Harness {
   placeholders: () => HTMLElement[];
 }
 
-function makeHarness(surfaceActive?: WritableSignal<boolean>): Harness {
+function makeHarness(
+  surfaceActive?: WritableSignal<boolean>,
+  sessionFocused?: WritableSignal<boolean>,
+): Harness {
   const messagesSig = signal<readonly ExecutionChatMessage[]>([]);
   const streamingStateSig = signal<unknown>(null);
   const buildTreeMock = jest.fn(() => [] as ExecutionNode[]);
@@ -110,6 +118,10 @@ function makeHarness(surfaceActive?: WritableSignal<boolean>): Harness {
   if (surfaceActive)
     TestBed.configureTestingModule({
       providers: [{ provide: SURFACE_ACTIVE, useValue: surfaceActive }],
+    });
+  if (sessionFocused)
+    TestBed.configureTestingModule({
+      providers: [{ provide: SESSION_FOCUSED, useValue: sessionFocused }],
     });
   const fixture = TestBed.createComponent(ChatTranscriptComponent);
   fixture.componentRef.setInput('tabId', 'tab-1');
@@ -207,13 +219,13 @@ describe('ChatTranscriptComponent — hidden-transcript reactivity pause', () =>
     Object.defineProperty(container, 'scrollHeight', { value: 1000 });
     Object.defineProperty(container, 'clientHeight', { value: 200 });
     container.scrollTop = 800;
-    h.component.onScroll(new Event('scroll'));
+    h.component.onScroll();
     container.scrollTop = 300;
-    h.component.onScroll(new Event('scroll'));
+    h.component.onScroll();
     surfaceActive.set(false);
     h.fixture.detectChanges();
     container.scrollTop = 0;
-    h.component.onScroll(new Event('scroll'));
+    h.component.onScroll();
     surfaceActive.set(true);
     h.fixture.detectChanges();
     expect(container.scrollTop).toBe(300);
@@ -266,8 +278,9 @@ describe('ChatTranscriptComponent — hidden-transcript reactivity pause', () =>
 
     // Simulate a prior scroll offset that display:none would have reset.
     (h.component as unknown as { savedScrollTop: number }).savedScrollTop = 42;
-    (h.component as unknown as { pinnedToBottom: boolean }).pinnedToBottom =
-      false;
+    (
+      h.component as unknown as { pinnedToBottom: WritableSignal<boolean> }
+    ).pinnedToBottom.set(false);
 
     h.fixture.componentRef.setInput('active', true);
     h.fixture.detectChanges();
@@ -283,17 +296,19 @@ describe('ChatTranscriptComponent — hidden-transcript reactivity pause', () =>
     );
     Object.defineProperty(container, 'scrollHeight', { value: 5000 });
     Object.defineProperty(container, 'clientHeight', { value: 500 });
-    const state = h.component as unknown as { pinnedToBottom: boolean };
+    const pin = (
+      h.component as unknown as { pinnedToBottom: WritableSignal<boolean> }
+    ).pinnedToBottom;
 
     // Pinned at the bottom.
     container.scrollTop = 4500;
-    h.component.onScroll(new Event('scroll'));
-    expect(state.pinnedToBottom).toBe(true);
+    h.component.onScroll();
+    expect(pin()).toBe(true);
 
     // One wheel tick up — still inside NEAR_BOTTOM_PX, but it is the user.
     container.scrollTop = 4440;
-    h.component.onScroll(new Event('scroll'));
-    expect(state.pinnedToBottom).toBe(false);
+    h.component.onScroll();
+    expect(pin()).toBe(false);
 
     // Streaming content arrives: the transcript must not re-stick.
     h.messagesSig.set([makeMessage('m1')]);
@@ -302,8 +317,44 @@ describe('ChatTranscriptComponent — hidden-transcript reactivity pause', () =>
 
     // Scrolling back down near the bottom re-pins.
     container.scrollTop = 4450;
-    h.component.onScroll(new Event('scroll'));
-    expect(state.pinnedToBottom).toBe(true);
+    h.component.onScroll();
+    expect(pin()).toBe(true);
+  });
+
+  it('listens to native scroll events, refreshes the pin binding, and detaches on destroy', () => {
+    const h = makeHarness();
+    h.fixture.detectChanges();
+    const container = h.fixture.nativeElement.querySelector(
+      '.chat-scroll-container',
+    ) as HTMLElement;
+    Object.defineProperty(container, 'scrollHeight', { value: 5000 });
+    Object.defineProperty(container, 'clientHeight', { value: 500 });
+    // The real prepend-anchor directive: its input is what a pin flip must
+    // refresh. Asserted on the child, not on a mock of the handler.
+    const anchorPin = (): boolean =>
+      h.fixture.debugElement
+        .query(By.directive(TranscriptPrependAnchorDirective))
+        ?.injector.get(TranscriptPrependAnchorDirective)
+        .pinnedToBottom() ?? false;
+
+    // The listener is bound in afterNextRender; a dispatched event reaches it.
+    container.scrollTop = 4500;
+    container.dispatchEvent(new Event('scroll'));
+    h.fixture.detectChanges();
+    expect(anchorPin()).toBe(true);
+
+    // One wheel tick up: the signal flip refreshes the child input even
+    // though the listener runs outside the zone.
+    container.scrollTop = 4400;
+    container.dispatchEvent(new Event('scroll'));
+    h.fixture.detectChanges();
+    expect(anchorPin()).toBe(false);
+
+    // Destroy removes the listener from the CAPTURED element, not a viewChild.
+    const removeSpy = jest.spyOn(container, 'removeEventListener');
+    h.fixture.destroy();
+    expect(removeSpy).toHaveBeenCalledWith('scroll', expect.any(Function));
+    removeSpy.mockRestore();
   });
 });
 
@@ -392,6 +443,45 @@ describe('ChatTranscriptComponent — render window', () => {
     expect(h.placeholders()).toHaveLength(MESSAGE_COUNT - ALWAYS_MOUNTED_TAIL);
     // Every slot is registered with the observer, including the unmounted ones.
     expect(h.observer.observed.size).toBe(MESSAGE_COUNT);
+  });
+
+  it('defaults to the focused margin without a SESSION_FOCUSED provider', () => {
+    const h = makeWindowedHarness();
+
+    expect(
+      FakeIntersectionObserver.instances.at(-1)?.options?.rootMargin,
+    ).toBe(`${RENDER_WINDOW_MARGIN_PX}px 0px`);
+  });
+
+  it('shrinks the render margin for an unfocused tile and widens it on refocus', () => {
+    const focused = signal(false);
+    const h = makeHarness(undefined, focused);
+    h.messagesSig.set(
+      Array.from({ length: MESSAGE_COUNT }, (_, i) => makeMessage(`m${i}`)),
+    );
+    h.streamingStateSig.set({ pendingStats: null });
+    h.buildTreeMock.mockReturnValue([]);
+    h.fixture.detectChanges();
+    const renderWindow = h.fixture.debugElement.injector.get(
+      TranscriptRenderWindow,
+    );
+    renderWindow.attach(
+      h.fixture.nativeElement.querySelector(
+        '.chat-scroll-container',
+      ) as HTMLElement,
+    );
+    h.fixture.detectChanges();
+
+    expect(
+      FakeIntersectionObserver.instances.at(-1)?.options?.rootMargin,
+    ).toBe(`${UNFOCUSED_RENDER_WINDOW_MARGIN_PX}px 0px`);
+
+    focused.set(true);
+    h.fixture.detectChanges();
+
+    expect(
+      FakeIntersectionObserver.instances.at(-1)?.options?.rootMargin,
+    ).toBe(`${RENDER_WINDOW_MARGIN_PX}px 0px`);
   });
 
   it('mounts a bubble for a message the observer brings into the window', () => {

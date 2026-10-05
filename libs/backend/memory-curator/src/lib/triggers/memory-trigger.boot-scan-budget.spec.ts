@@ -151,6 +151,7 @@ function buildHarness(opts: {
     }),
     recentEvents: jest.fn(() => []),
     lastRunInfo: jest.fn(() => ({ at: null, stats: null })),
+    forgetSession: jest.fn(),
     rekeySession: jest.fn(),
   } as unknown as MemoryCuratorService;
 
