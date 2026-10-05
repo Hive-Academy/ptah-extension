@@ -1,6 +1,6 @@
 # Batches - TASK_2026_594_31ff
 
-Total tasks: 34 | Batches: 12 | Waves: 4 | Complete: 4/12
+Total tasks: 34 | Batches: 12 | Waves: 4 | Complete: 5/12
 
 Worktree root (W): `D:/projects/ptah-extension/.claude-worktrees/task-594-status-kinds`, branch
 `feat/task-594-status-kinds`. All paths below are absolute. Source: implementation-plan.md
@@ -142,7 +142,7 @@ Wave 1 commit:
 trailer `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`. The same SHA is recorded on
 Batches 1-4.
 
-## Batch 1: Contract (catalog, types, schemas) + v2 StatusNode projection — COMPLETE
+## Batch 1: Contract (catalog, types, schemas) + v2 StatusNode projection — COMPLETE (commit 2d18e0215)
 
 - Recommended executor: CLI lane `Glm` (one lane, tasks in order)
 - Fallback executor: backend-developer subagent
@@ -262,7 +262,7 @@ Batches 1-4.
   `npx jest --config libs/frontend/declarative-dashboard/jest.config.ts surface-view-model`
 - The acceptance gate is the Wave 1 verification above.
 
-## Batch 2: Literal sweep — declarative-dashboard specs + Apps literals II — COMPLETE
+## Batch 2: Literal sweep — declarative-dashboard specs + Apps literals II — COMPLETE (commit 2d18e0215)
 
 - Recommended executor: CLI lane `opencode`
 - Fallback executor: frontend-developer subagent
@@ -305,7 +305,7 @@ Batches 1-4.
 - Each of the 11 files has no `dashboard-catalog/2` left, and imports the constant.
 - Acceptance gate: Wave 1 verification.
 
-## Batch 3: Literal sweep — Apps literals I, hosts, shared fixture + converter spec — COMPLETE
+## Batch 3: Literal sweep — Apps literals I, hosts, shared fixture + converter spec — COMPLETE (commit 2d18e0215)
 
 - Recommended executor: CLI lane `opencode`
 - Fallback executor: backend-developer subagent
@@ -356,7 +356,7 @@ Batches 1-4.
 
 - 12 files swept. Acceptance gate: Wave 1 verification.
 
-## Batch 4: Literal sweep — vscode-lm-tools — COMPLETE
+## Batch 4: Literal sweep — vscode-lm-tools — COMPLETE (commit 2d18e0215)
 
 - Recommended executor: CLI lane `opencode` (start when a Wave 1 slot frees)
 - Fallback executor: backend-developer subagent
@@ -398,7 +398,7 @@ Batches 1-4.
 
 Starts after the Wave 1 commit. The four batches are file-disjoint; run at most 3 at once.
 
-## Batch 5: Text fallback and badge selection (plan A2) — PENDING
+## Batch 5: Text fallback and badge selection (plan A2) — COMPLETE
 
 - Recommended executor: CLI lane `Glm`
 - Fallback executor: backend-developer subagent
@@ -409,7 +409,7 @@ Starts after the Wave 1 commit. The four batches are file-disjoint; run at most 
 - AC: 1, 4, 6
 - Phase: status-kinds
 
-### Task 5.1: Fallback lines for the six kinds — PENDING
+### Task 5.1: Fallback lines for the six kinds — COMPLETE
 
 - Files: MODIFY
   `D:/projects/ptah-extension/.claude-worktrees/task-594-status-kinds/libs/shared/src/mcp-apps-contracts/surface-text-fallback.ts`;
@@ -428,7 +428,7 @@ Starts after the Wave 1 commit. The four batches are file-disjoint; run at most 
   The value is `${value}%`, never rounded. The spec asserts each exact line, including the
   textless divider and a decimal such as 42.5.
 
-### Task 5.2: Badge selection target cases — PENDING
+### Task 5.2: Badge selection target cases — COMPLETE
 
 - Files: MODIFY
   `D:/projects/ptah-extension/.claude-worktrees/task-594-status-kinds/libs/shared/src/mcp-apps-contracts/surface-patch.ts`;
@@ -457,7 +457,11 @@ npx jest --config libs/shared/jest.config.ts --testPathIgnorePatterns "/node_mod
 Commit: `feat(shared): add status-kind text fallback and badge selection target`, plus the
 trailer.
 
-## Batch 6: MCP tool description and v1 regression (plan E) — PENDING
+Batch 5 result (2026-10-05, team-leader): PASSED. Lane touched only the six listed files
+(+176 lines, verified by `git diff --stat`). typecheck + lint `shared`: green. jest shared
+(narrowed): 102/102 suites, 2789 tests (+5 over Wave 1). Report: `batch-5-report.md`.
+
+## Batch 6: MCP tool description and v1 regression (plan E) — IN_PROGRESS
 
 - Recommended executor: CLI lane `Glm`
 - Fallback executor: backend-developer subagent
@@ -468,7 +472,7 @@ trailer.
 - AC: 8, 11
 - Phase: status-kinds
 
-### Task 6.1: Tool prose for the six kinds — PENDING
+### Task 6.1: Tool prose for the six kinds — IN_PROGRESS
 
 - File: MODIFY `D:/projects/ptah-extension/.claude-worktrees/task-594-status-kinds/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/surface-tools.ts`
 - Plan reference: implementation-plan.md:313-320
@@ -480,7 +484,7 @@ trailer.
   - No independent kind tuple.
   - Keep the prose terse because of the size guard.
 
-### Task 6.2: Completeness case and growth-guard decision — PENDING
+### Task 6.2: Completeness case and growth-guard decision — IN_PROGRESS
 
 - File: MODIFY `D:/projects/ptah-extension/.claude-worktrees/task-594-status-kinds/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/surface-tools.spec.ts`
 - Plan reference: implementation-plan.md:316-320
@@ -496,7 +500,7 @@ trailer.
   - Report both numbers.
   - Do not delete or weaken the guard.
 
-### Task 6.3: v1 propose-spec regression — PENDING
+### Task 6.3: v1 propose-spec regression — IN_PROGRESS
 
 - File: MODIFY `D:/projects/ptah-extension/.claude-worktrees/task-594-status-kinds/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/dashboard-propose-spec.tool.spec.ts`
 - Plan reference: implementation-plan.md:321-324
@@ -517,7 +521,7 @@ This is the full suite: Wave 1 swept every vscode-lm-tools literal, and this bat
 Commit: `feat(vscode-lm-tools): describe status and text kinds in ptah_surface_update`, plus the
 trailer.
 
-## Batch 7: Alert, badge, divider renderers (plan C1) — PENDING
+## Batch 7: Alert, badge, divider renderers (plan C1) — IN_PROGRESS
 
 - Recommended executor: CLI lane `Glm`
 - Fallback executor: frontend-developer subagent
@@ -537,7 +541,7 @@ trailer.
 - Pattern to follow: `D:/projects/ptah-extension/.claude-worktrees/task-594-status-kinds/libs/frontend/declarative-dashboard/src/lib/components/dashboard-stat.component.ts:9-44`
 - Plan reference: implementation-plan.md:231-293
 
-### Task 7.1: DashboardAlertComponent — PENDING
+### Task 7.1: DashboardAlertComponent — IN_PROGRESS
 
 - Files: CREATE
   `D:/projects/ptah-extension/.claude-worktrees/task-594-status-kinds/libs/frontend/declarative-dashboard/src/lib/components/dashboard-alert.component.ts`
@@ -550,7 +554,7 @@ trailer.
     same element.
   - Reads well as a short inline note.
 
-### Task 7.2: DashboardBadgeComponent — PENDING
+### Task 7.2: DashboardBadgeComponent — IN_PROGRESS
 
 - Files: CREATE
   `D:/projects/ptah-extension/.claude-worktrees/task-594-status-kinds/libs/frontend/declarative-dashboard/src/lib/components/dashboard-badge.component.ts`
@@ -562,7 +566,7 @@ trailer.
     `{kind:'badge'}` on the existing selection output, and sets `aria-pressed` from the current
     selection. Mirror the stat component's selection handling.
 
-### Task 7.3: DashboardDividerComponent — PENDING
+### Task 7.3: DashboardDividerComponent — IN_PROGRESS
 
 - Files: CREATE
   `D:/projects/ptah-extension/.claude-worktrees/task-594-status-kinds/libs/frontend/declarative-dashboard/src/lib/components/dashboard-divider.component.ts`
@@ -581,7 +585,7 @@ npx jest --config libs/frontend/declarative-dashboard/jest.config.ts "dashboard-
 
 Commit: `feat(declarative-dashboard): add alert, badge and divider renderers`, plus the trailer.
 
-## Batch 8: Progress, radial-progress, text-block renderers (plan C2) — PENDING
+## Batch 8: Progress, radial-progress, text-block renderers (plan C2) — IN_PROGRESS
 
 - Recommended executor: CLI lane `Glm`
 - Fallback executor: frontend-developer subagent
@@ -593,7 +597,7 @@ Commit: `feat(declarative-dashboard): add alert, badge and divider renderers`, p
 - Phase: status-kinds
 - Shared requirements: as Batch 7.
 
-### Task 8.1: DashboardProgressComponent — PENDING
+### Task 8.1: DashboardProgressComponent — IN_PROGRESS
 
 - Files: CREATE
   `D:/projects/ptah-extension/.claude-worktrees/task-594-status-kinds/libs/frontend/declarative-dashboard/src/lib/components/dashboard-progress.component.ts`
@@ -604,7 +608,7 @@ Commit: `feat(declarative-dashboard): add alert, badge and divider renderers`, p
   - `role="progressbar"`, `aria-valuemin="0"`, `aria-valuemax="100"`, exact `aria-valuenow`.
   - The accessible label comes from `label`, and the visible label stays as text.
 
-### Task 8.2: DashboardRadialProgressComponent — PENDING
+### Task 8.2: DashboardRadialProgressComponent — IN_PROGRESS
 
 - Files: CREATE
   `D:/projects/ptah-extension/.claude-worktrees/task-594-status-kinds/libs/frontend/declarative-dashboard/src/lib/components/dashboard-radial-progress.component.ts`
@@ -615,7 +619,7 @@ Commit: `feat(declarative-dashboard): add alert, badge and divider renderers`, p
   - Only `[style.--value]="node().value"` is allowed. The spec asserts the custom-property value.
   - The visible percentage is shown.
 
-### Task 8.3: DashboardTextBlockComponent — PENDING
+### Task 8.3: DashboardTextBlockComponent — IN_PROGRESS
 
 - Files: CREATE
   `D:/projects/ptah-extension/.claude-worktrees/task-594-status-kinds/libs/frontend/declarative-dashboard/src/lib/components/dashboard-text-block.component.ts`

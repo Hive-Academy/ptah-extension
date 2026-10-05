@@ -155,6 +155,70 @@ describe('surface text fallback', () => {
     expect(text).toContain('list (list): 1 item(s)\n  - Docs');
   });
 
+  it('renders exactly one fallback line for each status and text kind', () => {
+    const lines = renderSurfaceText(
+      view(
+        makeSurfaceEnvelope({
+          components: [
+            {
+              kind: 'alert',
+              id: 'alert',
+              tone: 'warning',
+              text: { text: 'Build unstable' },
+            },
+            {
+              kind: 'badge',
+              id: 'badge',
+              tone: 'success',
+              text: { text: 'Passing' },
+            },
+            {
+              kind: 'progress',
+              id: 'progress',
+              value: 42.5,
+              tone: 'info',
+              label: { text: 'Coverage' },
+            },
+            {
+              kind: 'radial-progress',
+              id: 'radial',
+              value: 100,
+              tone: 'primary',
+              label: { text: 'Done' },
+            },
+            {
+              kind: 'divider',
+              id: 'divider-text',
+              direction: 'horizontal',
+              text: { text: 'Later' },
+            },
+            { kind: 'divider', id: 'divider-bare', direction: 'vertical' },
+            {
+              kind: 'text-block',
+              id: 'heading',
+              role: 'heading',
+              text: { text: 'Section title' },
+            },
+            {
+              kind: 'text-block',
+              id: 'body',
+              role: 'body',
+              text: { text: 'Plain paragraph' },
+            },
+          ],
+        }),
+      ),
+    ).split('\n');
+    expect(lines).toContain('Alert (warning): Build unstable');
+    expect(lines).toContain('Badge: Passing');
+    expect(lines).toContain('Progress: Coverage — 42.5%');
+    expect(lines).toContain('Radial progress: Done — 100%');
+    expect(lines).toContain('Divider: Later');
+    expect(lines).toContain('Divider');
+    expect(lines).toContain('Heading: Section title');
+    expect(lines).toContain('Text: Plain paragraph');
+  });
+
   it('renders referenced display data without inventing inline values', () => {
     const text = renderSurfaceText(
       view(

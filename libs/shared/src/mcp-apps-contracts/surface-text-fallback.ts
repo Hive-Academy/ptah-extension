@@ -26,6 +26,20 @@ function renderDisplay(component: SurfaceComponent): string {
     case 'line-chart':
     case 'bar-chart':
       return renderChart(component);
+    case 'alert':
+      return `Alert (${component.tone}): ${component.text.text}`;
+    case 'badge':
+      return `Badge: ${component.text.text}`;
+    case 'progress':
+      return `Progress: ${component.label.text} — ${component.value}%`;
+    case 'radial-progress':
+      return `Radial progress: ${component.label.text} — ${component.value}%`;
+    case 'divider':
+      return component.text ? `Divider: ${component.text.text}` : 'Divider';
+    case 'text-block': {
+      const label = component.role === 'heading' ? 'Heading' : 'Text';
+      return `${label}: ${component.text.text}`;
+    }
     default:
       return '';
   }

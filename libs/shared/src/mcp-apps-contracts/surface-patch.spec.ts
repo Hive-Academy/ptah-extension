@@ -523,6 +523,37 @@ describe('checkSurfaceSelection', () => {
       ).ok,
     ).toBe(false);
   });
+
+  it('accepts a badge target only on a badge component', () => {
+    const { dataModel: _unused, ...surface } = makeSurfaceEnvelope({
+      components: [
+        {
+          kind: 'badge',
+          id: 'badge',
+          tone: 'primary',
+          text: { text: 'New' },
+        },
+        { kind: 'stat', id: 'stat', value: 1 },
+      ],
+    });
+    const host: SurfaceContent = {
+      contract: 'dashboard-spec/2',
+      surface,
+      dataModel: {},
+    };
+    expect(
+      checkSurfaceSelection(host, {
+        componentId: 'badge',
+        target: { kind: 'badge' },
+      }).ok,
+    ).toBe(true);
+    expect(
+      checkSurfaceSelection(host, {
+        componentId: 'stat',
+        target: { kind: 'badge' },
+      }).ok,
+    ).toBe(false);
+  });
 });
 
 describe('standalone revalidation compares targets by field (review finding 6)', () => {
@@ -571,6 +602,34 @@ describe('standalone revalidation compares targets by field (review finding 6)',
             componentId: 'stat',
             target: { kind: 'list-item', itemIndex: 0 },
           },
+        },
+        [],
+      ),
+    ).toBeNull();
+  });
+
+  it('treats two badge targets as equal and clears a changed badge target', () => {
+    const { dataModel, ...surface } = makeSurfaceEnvelope({
+      components: [
+        { kind: 'badge', id: 'badge', tone: 'info', text: { text: 'Beta' } },
+      ],
+    });
+    const prev: SurfacePatchState = {
+      content: {
+        contract: 'dashboard-spec/2',
+        surface,
+        dataModel: dataModel ?? {},
+      },
+      selection: { componentId: 'badge', target: { kind: 'badge' } },
+      lastSubmit: null,
+    };
+    expect(revalidateSelection(prev, prev, [])).toBe(prev.selection);
+    expect(
+      revalidateSelection(
+        prev,
+        {
+          ...prev,
+          selection: { componentId: 'badge', target: { kind: 'stat' } },
         },
         [],
       ),
