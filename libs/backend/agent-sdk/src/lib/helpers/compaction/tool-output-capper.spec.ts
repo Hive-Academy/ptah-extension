@@ -198,6 +198,34 @@ describe('ToolOutputCapper', () => {
     expect(await spoolFiles()).toHaveLength(0);
   });
 
+  it('does not count an outline terminal newline as a file line', async () => {
+    type CapperInternals = {
+      outlineWholeFile(
+        content: string,
+        filePath: string,
+        budget: unknown,
+      ): Promise<string>;
+    };
+    const { capper } = makeCapper();
+    jest
+      .spyOn(capper as unknown as CapperInternals, 'outlineWholeFile')
+      .mockResolvedValue('first\nsecond\n\n\n[outline: /big.ts; read with offset/limit]');
+    const filePath = path.join(cwd, 'big.ts');
+    const response = {
+      type: 'text',
+      file: { filePath, content: bigSource(), numLines: 300 },
+    };
+
+    const result = (await capper.cap(
+      'Read',
+      { file_path: filePath },
+      response,
+      cwd,
+    )) as typeof response;
+
+    expect(result.file.numLines).toBe(2);
+  });
+
   it('does not invent line metadata a whole-file Read response lacked', async () => {
     const { capper } = makeCapper();
     const filePath = path.join(cwd, 'src', 'big.ts');

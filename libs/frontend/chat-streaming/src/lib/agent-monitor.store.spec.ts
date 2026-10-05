@@ -2204,6 +2204,16 @@ describe('AgentMonitorStore', () => {
       return subagentUsageView(record, 20).usage;
     }
 
+    it('stamps early usage with a session id supplied by a later message', () => {
+      complete('tool-late-session', 'm1', '');
+      complete('tool-late-session', 'm2', 'sess-late');
+
+      store.clearSessionAgents('sess-late');
+      start('tool-late-session');
+
+      expect(store.getSubagent('tool-late-session')?.usage).toBeUndefined();
+    });
+
     it('clearSessionAgents drops early usage and pending identities of that session only', () => {
       complete('tool-closed', 'm1', 'sess-closed');
       bgStarted('tool-closed', 'sess-closed');

@@ -335,10 +335,19 @@ export class SubagentStateStore {
     return this.heldUnboundStarts.size > 0;
   }
 
-  /** Drop every held start naming this agentId; returns how many went. */
-  discardHeldUnboundStarts(agentId: string): number {
-    const count = this.heldUnboundStarts.get(agentId)?.length ?? 0;
-    this.heldUnboundStarts.delete(agentId);
+  /** Drop held starts for an agent, optionally limited to one parent session. */
+  discardHeldUnboundStarts(agentId: string, parentSessionId?: string): number {
+    const held = this.heldUnboundStarts.get(agentId) ?? [];
+    if (parentSessionId === undefined) {
+      this.heldUnboundStarts.delete(agentId);
+      return held.length;
+    }
+    const retained = held.filter(
+      (start) => start.parentSessionId !== parentSessionId,
+    );
+    const count = held.length - retained.length;
+    if (retained.length === 0) this.heldUnboundStarts.delete(agentId);
+    else this.heldUnboundStarts.set(agentId, retained);
     return count;
   }
 

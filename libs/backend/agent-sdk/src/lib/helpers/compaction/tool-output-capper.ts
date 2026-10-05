@@ -319,7 +319,9 @@ export class ToolOutputCapper {
             : next.startsWith('[outline: ')
               ? ''
               : next;
-        nextFile['numLines'] = outline === '' ? 0 : outline.split('\n').length;
+        const lines = outline.split('\n');
+        if (outline.endsWith('\n')) lines.pop();
+        nextFile['numLines'] = outline === '' ? 0 : lines.length;
       }
     }
     return { ...toolResponse, file: nextFile };

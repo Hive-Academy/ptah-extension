@@ -2116,6 +2116,8 @@ export class AgentMonitorStore implements OnDestroy {
         };
         this._subagentRequestUsage.set(key, entry);
         this.evictUnmatchedUsage();
+      } else if (entry.parentSessionId === undefined) {
+        entry.parentSessionId = knownSessionId(event.sessionId);
       }
       entry.requests.set(event.messageId, request);
     }

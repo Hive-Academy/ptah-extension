@@ -850,7 +850,7 @@ export class SubagentRegistryService {
     const existing = this.store.getRaw(toolCallId);
     if (existing) {
       if (existing.agentId === agentId) {
-        this.store.discardHeldUnboundStarts(agentId);
+        this.store.discardHeldUnboundStarts(agentId, existing.parentSessionId);
       }
       return 'already-registered';
     }
@@ -872,7 +872,7 @@ export class SubagentRegistryService {
     }
 
     const start = held[0];
-    this.store.discardHeldUnboundStarts(agentId);
+    this.store.discardHeldUnboundStarts(agentId, start.parentSessionId);
     this.register({
       toolCallId,
       agentType: start.agentType,
@@ -891,12 +891,12 @@ export class SubagentRegistryService {
    * Drop any held SubagentStart for this agent — its SubagentStop arrived
    * first, so there is no running agent left to bind.
    */
-  discardHeldUnboundStarts(agentId: string): void {
-    const count = this.store.discardHeldUnboundStarts(agentId);
+  discardHeldUnboundStarts(agentId: string, parentSessionId?: string): void {
+    const count = this.store.discardHeldUnboundStarts(agentId, parentSessionId);
     if (count > 0) {
       this.logger.debug(
         '[SubagentRegistryService.discardHeldUnboundStarts] Held SubagentStart dropped on stop',
-        { agentId, count },
+        { agentId, parentSessionId, count },
       );
     }
   }

@@ -221,6 +221,23 @@ export class StdioMcpServerService {
           },
         };
       }
+      if (
+        this.inFlightSubmits.has(request.id) ||
+        this.inFlightCalls.has(request.id)
+      ) {
+        this.logger.warn('[StdioMcpServer] tools/call id already in flight', {
+          id: request.id,
+          tool: name,
+        });
+        return {
+          jsonrpc: '2.0',
+          id: request.id,
+          error: {
+            code: -32600,
+            message: `Invalid Request: id ${String(request.id)} is already in use by a tools/call in flight`,
+          },
+        };
+      }
       const submit = { cancelledByPeer: false };
       this.inFlightSubmits.set(request.id, submit);
       let submitResp: MCPResponse;

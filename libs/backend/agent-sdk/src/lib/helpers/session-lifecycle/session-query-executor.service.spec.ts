@@ -1095,6 +1095,21 @@ describe('SessionQueryExecutor — compaction coordinator wiring (TASK_2026_597 
       expect(release).toHaveBeenCalledTimes(1);
       expect(release).toHaveBeenCalledWith(REAL);
     });
+
+    it('does not reclaim a rekeyed id that a newer run bound first', async () => {
+      const coordinator = new CompactionCoordinator(noTimers);
+      const { executor } = makeHarness('ask', {} as AuthEnv, { coordinator });
+      const older = await executor.executeQuery(makeConfig('tab_rekey_owner'));
+      feed(older, init());
+      const newer = await executor.executeQuery(makeConfig('tab_newer'));
+      feed(newer, { ...init(), session_id: NEW } as SDKMessage);
+
+      feed(older, { ...init(), session_id: NEW } as SDKMessage);
+      older.onStreamEnd();
+
+      expect(coordinator.getState(NEW)).toBeDefined();
+      newer.abortController.abort();
+    });
   });
 
   describe('stream callbacks through a real StreamTransformer (TASK_2026_614 D.11)', () => {

@@ -202,11 +202,12 @@ class CompactionSessionTap {
     private readonly sessionClass: CompactionSessionClass,
     /** Unique per query run, so a resumed run never reuses a cached turn read. */
     private readonly runToken: string,
+    private readonly runOrder: number,
     /**
-     * Session id → token of the run that bound it last, shared by every run of
-     * the executor. `release` skips an id a newer run has bound (FM-9).
+     * Session id → creation order of the run that bound it last, shared by
+     * every run of the executor. `release` skips an id a newer run has bound.
      */
-    private readonly runOwners: Map<string, string>,
+    private readonly runOwners: Map<string, number>,
     private readonly subagentMonitor: SubagentBudgetSink | null = null,
   ) {}
 
@@ -323,7 +324,7 @@ class CompactionSessionTap {
     this.subagentIds.clear();
     for (const id of ids) {
       const owner = this.runOwners.get(id);
-      if (owner !== undefined && owner !== this.runToken) continue;
+      if (owner !== undefined && owner !== this.runOrder) continue;
       this.runOwners.delete(id);
       try {
         this.subagentMonitor?.release(id);
@@ -368,7 +369,10 @@ class CompactionSessionTap {
   private bind(id: string): void {
     this.sessionId = id;
     this.trackedIds.add(id);
-    this.runOwners.set(id, this.runToken);
+    const owner = this.runOwners.get(id);
+    if (owner === undefined || owner <= this.runOrder) {
+      this.runOwners.set(id, this.runOrder);
+    }
     this.guard('register', (c) => {
       if (c.getState(id) !== undefined) return;
       const state = c.register(id, this.sessionClass);
@@ -424,8 +428,9 @@ class CompactionSessionTap {
 }
 
 export class SessionQueryExecutor {
-  /** Which run bound each real session id last; see `CompactionSessionTap.release`. */
-  private readonly runOwners = new Map<string, string>();
+  /** Latest run order for each real session id; see `CompactionSessionTap.release`. */
+  private readonly runOwners = new Map<string, number>();
+  private nextRunOrder = 0;
 
   constructor(
     private readonly logger: Logger,
@@ -571,6 +576,7 @@ export class SessionQueryExecutor {
         e2Passed: null,
       },
       rec.token,
+      ++this.nextRunOrder,
       this.runOwners,
       this.subagentBudgetMonitor,
     );

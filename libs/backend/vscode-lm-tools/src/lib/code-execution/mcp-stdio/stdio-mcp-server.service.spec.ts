@@ -814,6 +814,31 @@ describe('StdioMcpServerService', () => {
   });
 
   describe('session_submit dispatch', () => {
+    it('refuses a duplicate id while the first session_submit is in flight', async () => {
+      const { svc } = makeService();
+      let finish: (response: MCPResponse) => void = () => undefined;
+      const handler = {
+        dispatch: jest.fn(
+          (_request: MCPRequest, _args: unknown) =>
+            new Promise<MCPResponse>((resolve) => {
+              finish = resolve;
+            }),
+        ),
+        cancel: jest.fn().mockResolvedValue(undefined),
+      };
+      svc.setSessionSubmitHandler(handler);
+      const request = makeRequest({
+        id: 'duplicate-submit',
+        params: { name: 'session_submit', arguments: { task: 'go' } },
+      });
+      const first = svc.handleToolsCall(request);
+      const duplicate = await svc.handleToolsCall(request);
+
+      expect(duplicate.error?.code).toBe(-32600);
+      expect(handler.dispatch).toHaveBeenCalledTimes(1);
+      finish({ jsonrpc: '2.0', id: 'duplicate-submit', result: { content: [] } });
+      await first;
+    });
     it('returns sdk_init_failed when no handler is registered', async () => {
       const { svc } = makeService();
       const resp = await svc.handleToolsCall(

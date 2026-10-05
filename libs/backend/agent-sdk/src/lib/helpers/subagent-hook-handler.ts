@@ -246,7 +246,7 @@ export class SubagentHookHandler {
       // the registration silently, which is what kills subagent:send-message,
       // subagent:stop, background listing and interrupted-agent resumption for
       // every subagent of such a query (TASK_2026_295).
-      const resolvedParentSessionId = resolveHookSessionId(
+      const resolvedParentSessionId = this.resolveParentSessionId(
         input.session_id,
         parentSessionId,
       );
@@ -426,7 +426,7 @@ export class SubagentHookHandler {
       // A stop confirms membership (an agent whose start hook was missed still
       // counts); it never removes it.
       this.recordSubagentIdentity(
-        resolveHookSessionId(input.session_id, parentSessionId),
+        this.resolveParentSessionId(input.session_id, parentSessionId),
         parentSessionId,
         input.agent_id,
       );
@@ -458,7 +458,11 @@ export class SubagentHookHandler {
       if (!record && input.agent_id) {
         // A start held for its Task result (F-F) has finished before any
         // result bound it; binding it later would leave a running zombie.
-        this.subagentRegistry.discardHeldUnboundStarts(input.agent_id);
+        this.subagentRegistry.discardHeldUnboundStarts(
+          input.agent_id,
+          this.resolveParentSessionId(input.session_id, parentSessionId) ??
+            undefined,
+        );
       }
 
       const isBackground = record?.isBackground === true;
@@ -501,7 +505,7 @@ export class SubagentHookHandler {
         // payload first, closure second, `''` from either means absent. This
         // used to fan the raw payload id out unvalidated, so subscribers could
         // receive `parentSessionId: ''` for the same event the bus rejected.
-        const resolvedParentSessionId = resolveHookSessionId(
+        const resolvedParentSessionId = this.resolveParentSessionId(
           input.session_id,
           parentSessionId,
         );
@@ -561,6 +565,14 @@ export class SubagentHookHandler {
       );
     }
     return { continue: true };
+  }
+
+  /** Resolve the payload-first parent id used for held starts and their cleanup. */
+  private resolveParentSessionId(
+    payloadSessionId: string | undefined,
+    capturedParentSessionId: string | undefined,
+  ): string | null {
+    return resolveHookSessionId(payloadSessionId, capturedParentSessionId);
   }
 
   private deriveSubagentSessionId(agentTranscriptPath: string): string | null {

@@ -341,18 +341,35 @@ function runGuardedCallback(
   logger: Logger,
   failureMessage: string,
   context: Record<string, unknown>,
-  callback: () => void,
+  callback: () => unknown,
 ): void {
-  try {
-    callback();
-  } catch (callbackError: unknown) {
+  const logCallbackFailure = (callbackError: unknown): void => {
     logger.warn(failureMessage, {
       ...context,
       error:
-        callbackError instanceof Error
-          ? callbackError.name
-          : typeof callbackError,
+        callbackError instanceof Error ? callbackError.name : typeof callbackError,
     });
+  };
+  try {
+    const result = callback();
+    if (
+      result !== null &&
+      typeof result === 'object' &&
+      'then' in result &&
+      typeof result.then === 'function'
+    ) {
+      void Promise.resolve(result).catch((callbackError: unknown) => {
+        logger.warn(failureMessage, {
+          ...context,
+          error:
+            callbackError instanceof Error
+              ? callbackError.name
+              : typeof callbackError,
+        });
+      });
+    }
+  } catch (callbackError: unknown) {
+    logCallbackFailure(callbackError);
   }
 }
 

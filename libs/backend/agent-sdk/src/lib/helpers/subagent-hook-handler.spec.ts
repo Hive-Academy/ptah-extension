@@ -624,6 +624,95 @@ describe('SubagentHookHandler — SubagentStop parentSessionId rigour (TASK_2026
     } as unknown as HookInput;
   }
 
+  it('scopes an unbound shared agent stop to its payload parent session', async () => {
+    const logger = makeLogger();
+    const registry = makeRegistry(null);
+    const heldStarts = new Set([
+      'shared-agent:payload-parent-sess',
+      'shared-agent:parent-b',
+    ]);
+    registry.discardHeldUnboundStarts.mockImplementation(
+      (agentId, parentSessionId) => {
+        if (parentSessionId) {
+          heldStarts.delete(`${agentId}:${parentSessionId}`);
+        }
+      },
+    );
+    const handler = new SubagentHookHandler(
+      logger,
+      registry,
+      new SubagentStopCallbackRegistry(logger),
+      new SessionStatsOwnerService(),
+    );
+    const fn = getStopCallback(handler, '/workspace', 'parent-a');
+
+    await fn(stopInput({ agent_id: 'shared-agent' }), undefined, {
+      signal: new AbortController().signal,
+    });
+
+    // The state-store regression keeps parent-b's start; this pins the
+    // payload-first scope forwarded by the hook for two sessions sharing one
+    // agent id.
+    expect(registry.discardHeldUnboundStarts).toHaveBeenCalledWith(
+      'shared-agent',
+      'payload-parent-sess',
+    );
+    expect(heldStarts.has('shared-agent:payload-parent-sess')).toBe(false);
+    expect(heldStarts.has('shared-agent:parent-b')).toBe(true);
+  });
+
+  it.each([
+    ['a new-session closure', ''],
+    ['a one-shot query closure', undefined],
+  ])(
+    'drops a held start under the payload session after stop from %s',
+    async (_description, closureParentSessionId) => {
+      const logger = makeLogger();
+      const registry = makeRegistry(null);
+      const heldStarts = new Set<string>();
+      registry.holdUnboundStart.mockImplementation((start) => {
+        heldStarts.add(`${start.agentId}:${start.parentSessionId}`);
+      });
+      registry.discardHeldUnboundStarts.mockImplementation(
+        (agentId, parentSessionId) => {
+          if (parentSessionId) {
+            heldStarts.delete(`${agentId}:${parentSessionId}`);
+          }
+        },
+      );
+      const handler = new SubagentHookHandler(
+        logger,
+        registry,
+        new SubagentStopCallbackRegistry(logger),
+        new SessionStatsOwnerService(),
+      );
+      const start = getStartCallback(
+        handler,
+        '/workspace',
+        closureParentSessionId,
+      );
+      const stop = getStopCallback(
+        handler,
+        '/workspace',
+        closureParentSessionId,
+      );
+      const signal = { signal: new AbortController().signal };
+
+      await start(startInput({ agent_id: 'held-agent' }), undefined, signal);
+      expect(heldStarts.has('held-agent:payload-parent-sess')).toBe(true);
+
+      await stop(stopInput({ agent_id: 'held-agent' }), undefined, signal);
+
+      expect(registry.discardHeldUnboundStarts).toHaveBeenCalledWith(
+        'held-agent',
+        'payload-parent-sess',
+      );
+      expect(heldStarts.has('held-agent:payload-parent-sess')).toBe(false);
+      // A later Task result naming this agent has no held start to bind.
+      expect(heldStarts.has('held-agent:payload-parent-sess')).toBe(false);
+    },
+  );
+
   it('falls back to the closure id when the payload session_id is empty', async () => {
     const logger = makeLogger();
     const registry = makeRegistry({ toolCallId: 'tu-1' });

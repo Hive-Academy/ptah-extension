@@ -38,6 +38,20 @@ describe('SubagentStateStore', () => {
     store = new SubagentStateStore(logger);
   });
 
+  it('discards held starts only for the requested parent session', () => {
+    store.holdUnboundStart({
+      agentId: 'shared-agent', parentSessionId: 'parent-a', agentType: 'a', startedAt: 1,
+    });
+    store.holdUnboundStart({
+      agentId: 'shared-agent', parentSessionId: 'parent-b', agentType: 'b', startedAt: 2,
+    });
+
+    expect(store.discardHeldUnboundStarts('shared-agent', 'parent-a')).toBe(1);
+    expect(store.getHeldUnboundStarts('shared-agent')).toEqual([
+      expect.objectContaining({ parentSessionId: 'parent-b' }),
+    ]);
+  });
+
   describe('activity clock', () => {
     it('now() reads the injected clock on every call', () => {
       let t = 1_000;
