@@ -23,7 +23,7 @@ import type {
   SurfaceEnvelope,
   SurfaceUpdatedPayload,
 } from '@ptah-extension/shared';
-import { SURFACE_ACTIONS } from '@ptah-extension/shared/mcp-apps-contracts/surface';
+import { SURFACE_ACTIONS, SURFACE_CATALOG_VERSION } from '@ptah-extension/shared/mcp-apps-contracts/surface';
 
 import { SurfaceSubmitTurnService } from '../lib/chat/session/surface-submit-turn.service';
 import type { ChatStreamBroadcaster } from '../lib/chat/streaming/chat-stream-broadcaster.service';
@@ -108,7 +108,7 @@ export function surfaceRpcEnvelope(
 ): SurfaceEnvelope {
   return {
     schemaVersion: 'dashboard-spec/2',
-    catalogVersion: 'dashboard-catalog/2',
+    catalogVersion: SURFACE_CATALOG_VERSION,
     surfaceId: 'profile',
     title: { text: 'Profile' },
     components,

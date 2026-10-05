@@ -6,7 +6,7 @@ import {
   type SurfaceInteractionState,
   type SurfaceViewState,
 } from '@ptah-extension/declarative-dashboard';
-import { renderDashboardSpecText } from '@ptah-extension/shared/mcp-apps-contracts';
+import { renderDashboardSpecText, SURFACE_CATALOG_VERSION } from '@ptah-extension/shared/mcp-apps-contracts';
 import type {
   SurfaceComponent,
   SurfaceContent,
@@ -35,7 +35,7 @@ function v2(surfaceId: string, title: string): SurfaceContent {
     contract: 'dashboard-spec/2',
     surface: {
       schemaVersion: 'dashboard-spec/2',
-      catalogVersion: 'dashboard-catalog/2',
+      catalogVersion: SURFACE_CATALOG_VERSION,
       surfaceId,
       title: { text: title },
       components: [makeTable(3, 2) as SurfaceComponent],

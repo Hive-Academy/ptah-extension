@@ -46,6 +46,7 @@ import {
   type DashboardSpecEnvelope,
 } from '@ptah-extension/shared/mcp-apps-contracts';
 import {
+  SURFACE_CATALOG_VERSION,
   SURFACE_LIMITS,
   validateSurfaceDocument,
   type SurfaceComponent,
@@ -90,7 +91,7 @@ function envelope(
 ): SurfaceEnvelope {
   return {
     schemaVersion: 'dashboard-spec/2',
-    catalogVersion: 'dashboard-catalog/2',
+    catalogVersion: SURFACE_CATALOG_VERSION,
     surfaceId,
     title: { text: 'Budget case' },
     components,

@@ -1,6 +1,6 @@
 import { Component, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import type { SurfaceDataModel, SurfaceDataValue } from '@ptah-extension/shared/mcp-apps-contracts/surface';
+import { SURFACE_CATALOG_VERSION, type SurfaceDataModel, type SurfaceDataValue } from '@ptah-extension/shared/mcp-apps-contracts/surface';
 import type { SurfaceInputCommit } from '../surface-interaction';
 import { buildSurfaceViewModel } from '../view-model/surface-view-model';
 import { type CheckboxInputNode, SurfaceCheckboxInputComponent } from './surface-checkbox-input.component';
@@ -11,7 +11,7 @@ const markup = '<img src=x onerror=alert(1)>';
 function checkboxNode(extra: { readonly label?: string; readonly required?: boolean } = {},
   dataModel: SurfaceDataModel = {}): CheckboxInputNode {
   const result = buildSurfaceViewModel({ contract: 'dashboard-spec/2', dataModel, surface: {
-    schemaVersion: 'dashboard-spec/2', catalogVersion: 'dashboard-catalog/2', surfaceId: 's', title: { text: 'T' },
+    schemaVersion: 'dashboard-spec/2', catalogVersion: SURFACE_CATALOG_VERSION, surfaceId: 's', title: { text: 'T' },
     components: [{ id: 'notify', kind: 'checkbox', label: extra.label ?? 'Notify on-call channel', path: 'form.notify',
       ...(extra.required ? { hints: { required: true } } : {}) }] } });
   if (result.renderFailed) throw new Error(result.reason);

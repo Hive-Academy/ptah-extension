@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_594_31ff
-status: backlog
+status: in_progress
 type: FEATURE
 title: Add daisyUI status kinds to the surface catalog and a surface-authoring skill
 depends_on:

@@ -1,4 +1,5 @@
 import { RpcResult, type RpcCallOptions } from '@ptah-extension/core';
+import { SURFACE_CATALOG_VERSION } from '@ptah-extension/shared/mcp-apps-contracts/surface';
 import type {
   SurfaceComponent,
   SurfaceContent,
@@ -28,7 +29,7 @@ function content(surfaceId: string, name = 'Ada'): SurfaceContent {
     contract: 'dashboard-spec/2',
     surface: {
       schemaVersion: 'dashboard-spec/2',
-      catalogVersion: 'dashboard-catalog/2',
+      catalogVersion: SURFACE_CATALOG_VERSION,
       surfaceId,
       title: { text: 'Profile' },
       components: [makeTable(3, 2) as SurfaceComponent, nameInput],

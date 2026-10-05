@@ -98,6 +98,50 @@ export type SurfaceBarChartComponent =
   SurfaceDisplay<DashboardBarChartComponent>;
 export type SurfaceTableComponent = SurfaceDisplay<DashboardTableComponent>;
 export type SurfaceListComponent = SurfaceDisplay<DashboardListComponent>;
+export interface SurfaceAlertComponent {
+  readonly id: string;
+  readonly kind: 'alert';
+  readonly tone: 'info' | 'success' | 'warning' | 'error';
+  readonly text: SurfaceRichText;
+  readonly title?: SurfaceRichText;
+}
+/**
+ * A narrow badge action: `dashboard.select` only. It omits `url`, which is
+ * legal only on `dashboard.open-url`.
+ */
+export type SurfaceBadgeAction = Omit<SurfaceAction, 'action' | 'url'> & {
+  readonly action: 'dashboard.select';
+};
+export interface SurfaceBadgeComponent {
+  readonly id: string;
+  readonly kind: 'badge';
+  readonly tone: 'neutral' | 'primary' | 'info' | 'success' | 'warning' | 'error';
+  readonly text: SurfaceRichText;
+  readonly actions?: readonly SurfaceBadgeAction[];
+}
+export interface SurfaceProgressComponent {
+  readonly id: string;
+  readonly kind: 'progress';
+  readonly value: number;
+  readonly tone: 'neutral' | 'primary' | 'info' | 'success' | 'warning' | 'error';
+  readonly label: SurfaceRichText;
+}
+export interface SurfaceRadialProgressComponent
+  extends Omit<SurfaceProgressComponent, 'kind'> {
+  readonly kind: 'radial-progress';
+}
+export interface SurfaceDividerComponent {
+  readonly id: string;
+  readonly kind: 'divider';
+  readonly direction: 'horizontal' | 'vertical';
+  readonly text?: SurfaceRichText;
+}
+export interface SurfaceTextBlockComponent {
+  readonly id: string;
+  readonly kind: 'text-block';
+  readonly text: SurfaceRichText;
+  readonly role: 'heading' | 'body';
+}
 export type SurfaceComponent =
   | SurfaceSectionComponent
   | SurfaceStackComponent
@@ -108,7 +152,13 @@ export type SurfaceComponent =
   | SurfaceLineChartComponent
   | SurfaceBarChartComponent
   | SurfaceTableComponent
-  | SurfaceListComponent;
+  | SurfaceListComponent
+  | SurfaceAlertComponent
+  | SurfaceBadgeComponent
+  | SurfaceProgressComponent
+  | SurfaceRadialProgressComponent
+  | SurfaceDividerComponent
+  | SurfaceTextBlockComponent;
 
 /** JSON only. The schema enforces finite numbers and bounded nesting/width. */
 export type SurfaceDataValue =
@@ -121,7 +171,7 @@ export type SurfaceDataValue =
 export type SurfaceDataModel = Readonly<Record<string, SurfaceDataValue>>;
 export interface SurfaceEnvelope {
   readonly schemaVersion: 'dashboard-spec/2';
-  readonly catalogVersion: 'dashboard-catalog/2';
+  readonly catalogVersion: 'dashboard-catalog/3';
   readonly surfaceId: string;
   readonly title: SurfaceRichText;
   readonly description?: SurfaceRichText;
@@ -173,6 +223,7 @@ export interface SurfaceGetStateInput {
 }
 export type SurfaceSelectionTarget =
   | { readonly kind: 'stat' }
+  | { readonly kind: 'badge' }
   | { readonly kind: 'table-row'; readonly rowIndex: number }
   | { readonly kind: 'list-item'; readonly itemIndex: number }
   | {

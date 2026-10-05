@@ -68,6 +68,7 @@ import {
 } from '@ptah-extension/shared';
 import {
   renderSurfaceText,
+  SURFACE_CATALOG_VERSION,
   type SurfaceComponent,
   type SurfaceContent,
 } from '@ptah-extension/shared/mcp-apps-contracts/surface';
@@ -131,7 +132,7 @@ function v2(
     contract: 'dashboard-spec/2',
     surface: {
       schemaVersion: 'dashboard-spec/2',
-      catalogVersion: 'dashboard-catalog/2',
+      catalogVersion: SURFACE_CATALOG_VERSION,
       surfaceId,
       title: { text: `App ${surfaceId}` },
       components,

@@ -45,6 +45,7 @@ import {
 } from '@ptah-extension/vscode-lm-tools';
 import { resolveRpcHandlerPlan } from '@ptah-extension/rpc-handlers';
 import type { SurfaceEnvelope } from '@ptah-extension/shared';
+import { SURFACE_CATALOG_VERSION } from '@ptah-extension/shared/mcp-apps-contracts/surface';
 
 import { createMainWindowHandleGetter } from '../activation/bootstrap';
 import { IpcBridge } from '../ipc/ipc-bridge';
@@ -103,7 +104,7 @@ function makeWindow() {
 function surface(id: string): SurfaceEnvelope {
   return {
     schemaVersion: 'dashboard-spec/2',
-    catalogVersion: 'dashboard-catalog/2',
+    catalogVersion: SURFACE_CATALOG_VERSION,
     surfaceId: id,
     title: { text: id },
     components: [{ kind: 'stat', id: 'count', value: 1 }],
@@ -114,7 +115,7 @@ function surface(id: string): SurfaceEnvelope {
 function formSurface(id: string): SurfaceEnvelope {
   return {
     schemaVersion: 'dashboard-spec/2',
-    catalogVersion: 'dashboard-catalog/2',
+    catalogVersion: SURFACE_CATALOG_VERSION,
     surfaceId: id,
     title: { text: id },
     components: [{ kind: 'text', id: 'name', label: 'Name', path: 'form.name' }],
