@@ -40,6 +40,7 @@ import type {
   SessionBudgetActionResult,
   SessionBudgetConfig,
   SessionBudgetHandoff,
+  SessionBudgetHandoffReadStatus,
   SessionBudgetRotation,
   SessionBudgetStage,
   SessionBudgetState,
@@ -579,7 +580,7 @@ export class SessionBudgetService {
   ): Promise<HandoffCopy> {
     // Stamped before the build: usage observed while it runs makes it stale.
     const builtAtSeq = entry?.usageSeq ?? 0;
-    const document = await this.buildHandoff(sessionId, entry);
+    const { document, readStatus } = await this.buildHandoff(sessionId, entry);
     const written = await this.handoffWriter.write(sessionId, document.content);
     const copy: HandoffCopy = {
       content: document.content,
@@ -597,6 +598,7 @@ export class SessionBudgetService {
         ...(written.writeError !== undefined
           ? { writeError: written.writeError }
           : {}),
+        ...(readStatus !== undefined ? { readStatus } : {}),
       };
     }
     if (written.writeError !== undefined) {
@@ -610,10 +612,18 @@ export class SessionBudgetService {
     return copy;
   }
 
+  /**
+   * Build the handoff document. `readStatus` is set when the transcript was
+   * not read (unknown workspace or a read error), so the published handoff
+   * says it may be incomplete; the read error itself stays in the WARN.
+   */
   private async buildHandoff(
     sessionId: string,
     entry: BudgetEntry | undefined,
-  ): Promise<SessionHandoffDocument> {
+  ): Promise<{
+    document: SessionHandoffDocument;
+    readStatus?: SessionBudgetHandoffReadStatus;
+  }> {
     const budget = entry?.figure
       ? this.composeState(entry, entry.figure)
       : undefined;
@@ -627,26 +637,30 @@ export class SessionBudgetService {
           'session workspace unknown; handoff built without the transcript',
         ),
       );
-      return assembleSessionHandoff([], {
-        sessionId,
-        builtAt: Date.now(),
-        ...(budget ? { budget } : {}),
-      });
+      return {
+        document: assembleSessionHandoff([], {
+          sessionId,
+          builtAt: Date.now(),
+          ...(budget ? { budget } : {}),
+        }),
+        readStatus: 'workspace-unknown',
+      };
     }
     const result = await this.handoffBuilder.build({
       sessionId,
       workspacePath,
       ...(budget ? { budget } : {}),
     });
-    if (result.readError !== undefined) {
-      this.warnOnce(
-        entry,
-        sessionId,
-        'handoff-read',
-        new Error(result.readError),
-      );
+    if (result.readError === undefined) {
+      return { document: result.document };
     }
-    return result.document;
+    this.warnOnce(
+      entry,
+      sessionId,
+      'handoff-read',
+      new Error(result.readError),
+    );
+    return { document: result.document, readStatus: 'read-failed' };
   }
 
   // ---------------------------------------------------------------------------
@@ -711,7 +725,7 @@ export class SessionBudgetService {
     if (!this.isCurrent(entry) || !entry.figure) return this.noState();
     entry.window = window;
     const state = this.composeState(entry, entry.figure);
-    if (window?.reason === 'failed') {
+    if (window?.reason === 'restore-failed') {
       return {
         success: false,
         state,
@@ -750,7 +764,7 @@ export class SessionBudgetService {
         handoff: entry.handoffCopy,
       };
     }
-    const document = await this.buildHandoff(sessionId, entry);
+    const { document } = await this.buildHandoff(sessionId, entry);
     const built: HandoffCopy = {
       content: document.content,
       seed: document.seed,

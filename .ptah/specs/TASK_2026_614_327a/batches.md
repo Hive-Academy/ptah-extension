@@ -1173,7 +1173,7 @@ real code, a regression test per item).
 
 - Scoped checks for agent-sdk.
 
-## Batch 28: Restore shape and handoff read status (F.1 M1, M3 backend) — PENDING (decision recorded in context.md: F-A)
+## Batch 28: Restore shape and handoff read status (F.1 M1, M3 backend) — COMPLETE (decision F-A; 61 tool calls, slight R1 overrun)
 
 - Recommended executor: backend-developer | Fallback: backend-developer (fresh run) | Execution mode: Sequential subagent
 - Model: Opus | Tasks: 2 | Depends on: Batch 16, Decision F-A | Phase: F
@@ -1232,7 +1232,7 @@ real code, a regression test per item).
 
 - `subagent-hook-handler.ts:259, 278-292`. Spec: no toolUseId and a match → bound; no match or ambiguous → WARN, unbound.
 
-## Batch 32: Cost estimate per request model (F.5 M3) — COMPLETE (commit ed5194c15; decision F-E)
+## Batch 32: Cost estimate per request model (F.5 M3) — COMPLETE (commit e8114e024; decision F-E)
 
 - Phase F review notes: (1) a request with no model is priced with the subagent's latest named model; (2) hand-built usage totals are priced as one request; (3) `calculateMessageCost` (backend totals) still bills a missing cache price at 0, only the monitor follows F-E.
 

@@ -37,19 +37,38 @@ export type SessionBudgetMeasure =
  * - `already-lower`: the runtime threshold is already at or below the target.
  * - `not-honoured`: the read-back showed the runtime ignored the window.
  * - `failed`: the apply or the read-back threw or timed out.
+ * - `restore-failed`: putting the configured window back failed; the lowered
+ *   window is still in force (`applied: true`).
  */
 export type SessionBudgetWindowReason =
-  'disabled' | 'env-override' | 'already-lower' | 'not-honoured' | 'failed';
+  | 'disabled'
+  | 'env-override'
+  | 'already-lower'
+  | 'not-honoured'
+  | 'failed'
+  | 'restore-failed';
 
 /** The per-session auto-compact window override entered at `tighten`. */
 export interface SessionBudgetWindow {
   /** Requested window in tokens. */
   readonly target: number;
-  /** True when the runtime confirmed the window on read-back. */
+  /** True when the window is in force in the runtime. */
   readonly applied: boolean;
-  /** Present when `applied` is false. */
+  /**
+   * Present when `applied` is false, and with `applied: true` only as
+   * `restore-failed` (the lowered window could not be put back).
+   */
   readonly reason?: SessionBudgetWindowReason;
 }
+
+/**
+ * Why a handoff was built without the session transcript.
+ * - `workspace-unknown`: the session's workspace is not known, so no
+ *   transcript could be located.
+ * - `read-failed`: the transcript could not be read.
+ */
+export type SessionBudgetHandoffReadStatus =
+  'workspace-unknown' | 'read-failed';
 
 /** The latest deterministic handoff written for the session. */
 export interface SessionBudgetHandoff {
@@ -63,6 +82,11 @@ export interface SessionBudgetHandoff {
   readonly writtenAt: number;
   /** Write failure message; the content is still kept in memory. */
   readonly writeError?: string;
+  /**
+   * Present when the transcript was not read; the handoff then carries no
+   * transcript content and may be incomplete. Absent when the read succeeded.
+   */
+  readonly readStatus?: SessionBudgetHandoffReadStatus;
 }
 
 /**

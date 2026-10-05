@@ -383,6 +383,36 @@ describe('SessionBudgetService — handoff and limit', () => {
     await flush();
     expect(h.build).not.toHaveBeenCalled();
     expect(h.write).toHaveBeenCalledWith(SID, expect.stringContaining(SID));
+    const state = h.service.observe(at(86, 2));
+    expect(state?.handoff?.readStatus).toBe('workspace-unknown');
+  });
+
+  it('a transcript read error marks the handoff read-failed and keeps the error out of the state', async () => {
+    const h = harness();
+    // Not a literal: the builder mock is typed from its default (no readError).
+    const unreadable = {
+      document: document(),
+      readError: 'EACCES: /home/u/.claude/projects/x.jsonl',
+    };
+    h.build.mockResolvedValue(unreadable);
+    h.service.observe(at(85, 1));
+    await flush();
+    const state = h.service.observe(at(86, 2));
+    expect(state?.handoff?.readStatus).toBe('read-failed');
+    expect(JSON.stringify(state)).not.toContain('EACCES');
+    const warns = h.logger.warn.mock.calls.filter(([m]) =>
+      String(m).includes('handoff-read'),
+    );
+    expect(warns).toHaveLength(1);
+  });
+
+  it('a transcript that was read leaves readStatus unset', async () => {
+    const h = harness();
+    h.service.observe(at(85, 1));
+    await flush();
+    const state = h.service.observe(at(86, 2));
+    expect(state?.handoff).toBeDefined();
+    expect(state?.handoff).not.toHaveProperty('readStatus');
   });
 });
 
@@ -667,15 +697,29 @@ describe('SessionBudgetService.act', () => {
     h.applyWindow.mockResolvedValueOnce({
       target: 200_000,
       applied: true,
-      reason: 'failed',
+      reason: 'restore-failed',
     });
     const failed = await h.service.act(SID, 'restore-window');
     expect(failed.success).toBe(false);
+    expect(failed.error).toBe('Could not restore the auto-compact window');
     expect(failed.state?.window).toEqual({
       target: 200_000,
       applied: true,
+      reason: 'restore-failed',
+    });
+  });
+
+  it('restore-window succeeds when the window left in place is not a restore failure', async () => {
+    const h = harness({ tightenWindowTokens: 200_000 });
+    h.service.observe(at(60, 1));
+    // A lowering failure (`applied: false, failed`) is not a restore failure.
+    h.applyWindow.mockResolvedValueOnce({
+      target: 200_000,
+      applied: false,
       reason: 'failed',
     });
+    const result = await h.service.act(SID, 'restore-window');
+    expect(result.success).toBe(true);
   });
 
   it('write-handoff builds, writes and returns the content and seed', async () => {
@@ -772,7 +816,10 @@ describe('SessionBudgetService.act', () => {
     expect((await h.service.act(SID, 'extend')).success).toBe(true);
     h.build.mockResolvedValue({ document: document('# Extended') });
     const preview = await h.service.act(SID, 'preview-handoff');
-    expect(preview.handoff).toMatchObject({ content: '# Extended', path: null });
+    expect(preview.handoff).toMatchObject({
+      content: '# Extended',
+      path: null,
+    });
   });
 
   it('actions needing a state fail without one', async () => {

@@ -18,9 +18,15 @@ import { SessionRotationKeepService } from '../../../services/session-rotation-k
 /** Stages that show a banner. `unknown` and `normal` show none. */
 type BannerStage = 'rotation' | 'tighten' | 'handoff' | 'limit';
 
-/** Why the tighten step did not lower auto-compact, in the user's words. */
+/**
+ * Why the tighten step did not lower auto-compact, in the user's words.
+ * `restore-failed` comes with `applied: true` and never reaches this lookup.
+ */
 const WINDOW_REASON_TEXT: Readonly<
-  Record<Exclude<SessionBudgetWindowReason, 'disabled'>, string>
+  Record<
+    Exclude<SessionBudgetWindowReason, 'disabled' | 'restore-failed'>,
+    string
+  >
 > = {
   'env-override': 'CLAUDE_CODE_AUTO_COMPACT_WINDOW is set',
   'already-lower': 'it is already at or below <target>',
@@ -302,10 +308,12 @@ export class SessionBudgetBannerComponent {
     if (window.applied) {
       return `${amount}. Ptah lowered auto-compact to ${target} tokens for this session. If the context is already above that, the next request compacts first. More compactions bring the handoff step sooner.`;
     }
-    const reason = WINDOW_REASON_TEXT[window.reason ?? 'failed'].replace(
-      '<target>',
-      target,
-    );
+    // `restore-failed` is only sent with `applied: true` (handled above).
+    const reasonKey =
+      window.reason === undefined || window.reason === 'restore-failed'
+        ? 'failed'
+        : window.reason;
+    const reason = WINDOW_REASON_TEXT[reasonKey].replace('<target>', target);
     return `${amount}. Ptah could not lower auto-compact here (${reason}). Use /compact or start a fresh session to slow the spend.`;
   }
 
