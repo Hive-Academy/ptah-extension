@@ -7,6 +7,7 @@ import {
   signal,
 } from '@angular/core';
 import { VSCodeService, rpcCall } from '@ptah-extension/core';
+import { TabManagerService } from '@ptah-extension/chat-state';
 import {
   SESSION_BUDGET_SETTINGS,
   isSessionBudgetPercentOrderValid,
@@ -324,6 +325,7 @@ function storedNumberIsValid(
 })
 export class SessionBudgetSettingsComponent implements OnInit {
   private readonly vscode = inject(VSCodeService);
+  private readonly tabManager = inject(TabManagerService);
 
   protected readonly focusRing = FOCUS;
   protected readonly settings = SESSION_BUDGET_SETTINGS;
@@ -549,6 +551,10 @@ export class SessionBudgetSettingsComponent implements OnInit {
     }
     if (confirmed) {
       this.saved.update((saved) => ({ ...saved, [key]: value }));
+      // Sends already go through once the budget is off; drop the stale banners now (F-D).
+      if (key === 'enabled' && value === false) {
+        this.tabManager.clearSessionBudgets();
+      }
       this.status.set(`Saved ${label}.`);
     } else {
       // A timed-out write may still land on the host, so it cannot claim the setting is unchanged.

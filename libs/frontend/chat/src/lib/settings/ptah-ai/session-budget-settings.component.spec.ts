@@ -1,5 +1,6 @@
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { VSCodeService } from '@ptah-extension/core';
+import { TabManagerService } from '@ptah-extension/chat-state';
 import {
   SESSION_BUDGET_SETTINGS,
   type SessionBudgetConfig,
@@ -37,6 +38,7 @@ describe('SessionBudgetSettingsComponent', () => {
   let stored: Record<string, unknown>;
   let readFails: boolean;
   let writeReply: () => Promise<RpcReply>;
+  const tabManager = { clearSessionBudgets: jest.fn() };
 
   const host = (): HTMLElement => fixture.nativeElement as HTMLElement;
   const byTestId = <T extends HTMLElement = HTMLElement>(
@@ -97,7 +99,10 @@ describe('SessionBudgetSettingsComponent', () => {
     );
     TestBed.configureTestingModule({
       imports: [SessionBudgetSettingsComponent],
-      providers: [{ provide: VSCodeService, useValue: {} }],
+      providers: [
+        { provide: VSCodeService, useValue: {} },
+        { provide: TabManagerService, useValue: tabManager },
+      ],
     });
   });
 
@@ -400,6 +405,27 @@ describe('SessionBudgetSettingsComponent', () => {
       ]);
       expect(box.checked).toBe(false);
       expect(byTestId('session-budget-status')?.textContent).toContain('Saved');
+      expect(tabManager.clearSessionBudgets).not.toHaveBeenCalled();
+    });
+
+    // TASK_2026_614 F.4 / F-D: turning the budget off clears every tab's banner.
+    it('clears the budget on every tab once "enabled" is saved off', async () => {
+      await create();
+      const box = field('enabled');
+      box.checked = false;
+      box.dispatchEvent(new Event('change'));
+      await settle();
+      expect(tabManager.clearSessionBudgets).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps the tab budgets when turning the budget off is not saved', async () => {
+      writeReply = async () => ({ success: true, data: { success: false } });
+      await create();
+      const box = field('enabled');
+      box.checked = false;
+      box.dispatchEvent(new Event('change'));
+      await settle();
+      expect(tabManager.clearSessionBudgets).not.toHaveBeenCalled();
     });
 
     it('writes the unit', async () => {

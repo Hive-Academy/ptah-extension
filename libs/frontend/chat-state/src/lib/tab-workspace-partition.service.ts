@@ -348,6 +348,19 @@ export class TabWorkspacePartitionService {
     return null;
   }
 
+  /** Ids of the tabs in background (non-active) workspaces that match `predicate`. */
+  findBackgroundTabIds(predicate: (tab: TabState) => boolean): string[] {
+    const activePath = this._activeWorkspacePath();
+    const ids: string[] = [];
+    for (const [wsPath, tabSet] of this._workspaceTabSets) {
+      if (wsPath === activePath) continue;
+      for (const tab of tabSet.tabs) {
+        if (predicate(tab)) ids.push(tab.id);
+      }
+    }
+    return ids;
+  }
+
   /**
    * Update a tab in a background workspace (streaming in non-active workspace).
    * Mutates the tab directly in _workspaceTabSets without touching signals.

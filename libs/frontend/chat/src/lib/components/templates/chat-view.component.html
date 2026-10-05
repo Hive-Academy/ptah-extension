@@ -139,6 +139,7 @@
         <ptah-session-budget-banner
           [budget]="budget"
           [preview]="budgetPreviewText()"
+          [previewFailed]="budgetPreviewFailed()"
           [contextTokens]="budgetContextTokens()"
           [busy]="budgetActionBusy()"
           (dismiss)="onBudgetAction('dismiss')"

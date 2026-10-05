@@ -1629,9 +1629,7 @@ describe('ChatViewComponent — plan limits wiring (TASK_2026_596)', () => {
       .sort();
     expect(statuses).toEqual(['not-recorded', 'same']);
     // The session's backend-resolved scope (`opus`) shows its window tile.
-    expect(limits?.planTiles.some((tile) => tile.kind === 'window')).toBe(
-      true,
-    );
+    expect(limits?.planTiles.some((tile) => tile.kind === 'window')).toBe(true);
     // A run carries no resolved scope, so model-scoped limits are not applied.
     const sameGroup = limits?.laneTiles
       .flatMap((tile) => tile.subgroups)
@@ -1713,8 +1711,9 @@ describe('ChatViewComponent — plan limits wiring (TASK_2026_596)', () => {
   describe('toStatsLimitLaneRun', () => {
     it('marks a run restored only by the restore flag, not by its status', () => {
       expect(
-        toStatsLimitLaneRun(run('r', 's', { restored: true, status: 'running' }))
-          .restored,
+        toStatsLimitLaneRun(
+          run('r', 's', { restored: true, status: 'running' }),
+        ).restored,
       ).toBe(true);
       expect(
         toStatsLimitLaneRun(run('l', 's', { status: 'completed' })).restored,
@@ -2327,6 +2326,89 @@ describe('ChatViewComponent — session budget banner wiring (TASK_2026_597 N7)'
     await view.onBudgetAction('dismiss');
 
     expect(view.resolvedSessionBudget()?.revision).toBe(12);
+  });
+
+  // TASK_2026_614 F.1 M6: revision-less states and clearing.
+  function setupLive(budget: SessionBudgetState) {
+    const h = makeHarness();
+    const tab = signal({
+      id: 'tab-abc',
+      claudeSessionId: SESSION,
+      sessionBudget: budget,
+    });
+    h.activeTabMock.mockImplementation(() => tab());
+    const view = h.component as unknown as BudgetView;
+    return { h, view, tab };
+  }
+
+  it('the action state wins while the tab holds the revision-less budget it acted on', async () => {
+    const { h, view } = setupLive({ ...BUDGET, revision: null });
+    const extended = { ...BUDGET, revision: null, stage: 'normal' as const };
+    h.rpcCallMock.mockResolvedValue(rpcOk({ success: true, state: extended }));
+
+    await view.onBudgetAction('extend');
+
+    expect(view.resolvedSessionBudget()).toBe(extended);
+  });
+
+  it('a later snapshot without a revision replaces the action state', async () => {
+    const { h, view, tab } = setupLive({ ...BUDGET, revision: null });
+    h.rpcCallMock.mockResolvedValue(
+      rpcOk({
+        success: true,
+        state: { ...BUDGET, revision: null, stage: 'normal' },
+      }),
+    );
+    await view.onBudgetAction('extend');
+
+    const next = { ...BUDGET, revision: null, stage: 'handoff' as const };
+    tab.update((t) => ({ ...t, sessionBudget: next }));
+
+    expect(view.resolvedSessionBudget()).toBe(next);
+  });
+
+  it('a tab switch clears the action state and the preview', async () => {
+    const { h, view } = setupLive(BUDGET);
+    const extended = { ...BUDGET, stage: 'normal' as const };
+    h.rpcCallMock.mockResolvedValue(
+      rpcOk({
+        success: true,
+        state: extended,
+        handoff: { content: '# Handoff', path: null, seed: 'seed' },
+      }),
+    );
+    await view.onBudgetAction('extend');
+    await view.onBudgetPreview();
+    expect(view.resolvedSessionBudget()).toBe(extended);
+    expect(view.budgetPreviewText()).toBe('# Handoff');
+
+    h.activeTabIdSig.set('tab-other');
+
+    expect(view.resolvedSessionBudget()).toBe(BUDGET);
+    expect(view.budgetPreviewText()).toBeNull();
+  });
+
+  // TASK_2026_614 F.6: a failed preview is an error, and a retry clears it.
+  it('a failed preview is reported as failed, then a retry loads it', async () => {
+    const { h, view } = setup();
+    const failedView = view as unknown as { budgetPreviewFailed(): boolean };
+    h.rpcCallMock.mockResolvedValueOnce(rpcFail('timeout'));
+
+    await view.onBudgetPreview();
+
+    expect(view.budgetPreviewText()).toBeNull();
+    expect(failedView.budgetPreviewFailed()).toBe(true);
+
+    h.rpcCallMock.mockResolvedValueOnce(
+      rpcOk({
+        success: true,
+        handoff: { content: '# Handoff', path: null, seed: 'seed' },
+      }),
+    );
+    await view.onBudgetPreview();
+
+    expect(failedView.budgetPreviewFailed()).toBe(false);
+    expect(view.budgetPreviewText()).toBe('# Handoff');
   });
 
   it('reports an unavailable host and a failed action', async () => {

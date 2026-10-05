@@ -136,7 +136,9 @@ describe('SubagentUsageSummaryComponent', () => {
     const cost = fixture.nativeElement.querySelector(
       '[data-testid="subagent-cost"]',
     ) as HTMLElement;
-    expect(cost.title).toBe('No price is known for this model');
+    expect(cost.title).toBe(
+      'No price is known for this model or its cache tokens',
+    );
   });
 
   it('shows a warm badge with the TTL and idle time in its tooltip', () => {

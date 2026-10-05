@@ -2,6 +2,7 @@ import {
   Component,
   inject,
   signal,
+  linkedSignal,
   computed,
   viewChild,
   ChangeDetectionStrategy,
@@ -922,31 +923,67 @@ export class ChatViewComponent implements OnDestroy {
     });
   });
 
-  /** Latest `session:budgetAction` state; newer stats replace it. */
-  private readonly _budgetActionState = signal<SessionBudgetState | null>(null);
-  private readonly _budgetPreview = signal<{
-    sessionId: string;
-    content: string;
-  } | null>(null);
+  /** Tab and session the budget action state and preview belong to (M6). */
+  private readonly budgetScope = computed(
+    () => `${this.resolvedTabId()}|${this.resolvedSessionId()}`,
+  );
+
+  /**
+   * Latest `session:budgetAction` state, with the tab budget object it was
+   * acted on (`base`); a newer snapshot replaces it. Reset to `null` on a tab
+   * or session change.
+   */
+  private readonly _budgetActionState = linkedSignal<
+    string,
+    { state: SessionBudgetState; base: SessionBudgetState | null } | null
+  >({ source: this.budgetScope, computation: () => null });
+  /**
+   * The last handoff preview; `content: null` means the load failed. Reset
+   * to `null` on a tab or session change.
+   */
+  private readonly _budgetPreview = linkedSignal<
+    string,
+    { sessionId: string; content: string | null } | null
+  >({ source: this.budgetScope, computation: () => null });
   protected readonly budgetActionBusy = signal(false);
 
   /**
    * The tab's budget (installed with its stats snapshot), or the state a
-   * budget action returned for the same session when it is not older.
+   * budget action returned for the same session. With both revisions known
+   * the newer one wins (ties go to the action). Without them the action
+   * state wins only while the tab still holds the budget it acted on, so a
+   * later snapshot without a revision always replaces it (M6).
    */
   readonly resolvedSessionBudget = computed(() => {
     const fromTab = this.resolvedActiveTab()?.sessionBudget ?? null;
     const acted = this._budgetActionState();
-    if (!fromTab || acted?.sessionId !== fromTab.sessionId) return fromTab;
-    return (acted.revision ?? -1) >= (fromTab.revision ?? -1) ? acted : fromTab;
+    if (!fromTab || acted?.state.sessionId !== fromTab.sessionId) {
+      return fromTab;
+    }
+    const actedRevision = acted.state.revision;
+    const tabRevision = fromTab.revision;
+    if (actedRevision !== null && tabRevision !== null) {
+      return actedRevision >= tabRevision ? acted.state : fromTab;
+    }
+    return acted.base === fromTab ? acted.state : fromTab;
   });
 
-  protected readonly budgetPreviewText = computed(() => {
+  private readonly currentBudgetPreview = computed(() => {
     const preview = this._budgetPreview();
     return preview &&
       preview.sessionId === this.resolvedSessionBudget()?.sessionId
-      ? preview.content
+      ? preview
       : null;
+  });
+
+  protected readonly budgetPreviewText = computed(
+    () => this.currentBudgetPreview()?.content ?? null,
+  );
+
+  /** True when the last preview load for this session failed (F.6). */
+  protected readonly budgetPreviewFailed = computed(() => {
+    const preview = this.currentBudgetPreview();
+    return preview !== null && preview.content === null;
   });
 
   /** Main-context tokens for the banner's limit comparison, when known. */
@@ -1277,10 +1314,14 @@ export class ChatViewComponent implements OnDestroy {
 
   protected async onBudgetPreview(): Promise<void> {
     const sessionId = this.resolvedSessionBudget()?.sessionId;
+    if (!sessionId || this.budgetActionBusy()) return;
+    // A retry after a failure shows "Loading…" again; loaded text stays until replaced.
+    if (this._budgetPreview()?.content === null) this._budgetPreview.set(null);
     const result = await this.runBudgetAction('preview-handoff');
-    if (sessionId && result?.handoff) {
-      this._budgetPreview.set({ sessionId, content: result.handoff.content });
-    }
+    this._budgetPreview.set({
+      sessionId,
+      content: result?.handoff?.content ?? null,
+    });
   }
 
   /**
@@ -1347,6 +1388,7 @@ export class ChatViewComponent implements OnDestroy {
   ): Promise<SessionBudgetActionResult | null> {
     const budget = this.resolvedSessionBudget();
     if (!budget || this.budgetActionBusy()) return null;
+    const base = this.resolvedActiveTab()?.sessionBudget ?? null;
     this.budgetActionBusy.set(true);
     try {
       const result = await this._claudeRpc.call('session:budgetAction', {
@@ -1354,7 +1396,7 @@ export class ChatViewComponent implements OnDestroy {
         action,
       });
       const data = result.isSuccess() ? result.data : null;
-      if (data?.state) this._budgetActionState.set(data.state);
+      if (data?.state) this._budgetActionState.set({ state: data.state, base });
       if (data?.success) return data;
       const error = data?.error ?? result.error ?? 'Unknown error';
       this.showActionError(

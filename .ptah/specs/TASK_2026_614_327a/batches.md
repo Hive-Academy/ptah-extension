@@ -1246,7 +1246,7 @@ real code, a regression test per item).
 
 ### Task 32.2: Price each request with its own model (`sumRequestUsage` 196-225, cost 287-295) — COMPLETE (decision recorded in context.md)
 
-## Batch 33: Budget UI follow-ups (F.1 M6, M3 UI, M8; F.4 residual; F.6 UI Minors) — PENDING (decision recorded in context.md: F-B, F-C, F-D)
+## Batch 33: Budget UI follow-ups (F.1 M6, M3 UI, M8; F.4 residual; F.6 UI Minors) — COMPLETE (commit: SHA_PLACEHOLDER) (decision recorded in context.md: F-B, F-C, F-D)
 
 - Recommended executor: frontend-developer | Fallback: frontend-developer (fresh run) | Execution mode: Sequential subagent
 - Model: Opus | Tasks: 6 | Depends on: Batches 19, 28; Decisions F-B, F-C, F-D | Phase: F
@@ -1255,22 +1255,22 @@ real code, a regression test per item).
   `<R>\libs\frontend\chat\src\lib\components\molecules\notifications\session-budget-banner.component.ts` (+ spec),
   `<R>\libs\frontend\chat-ui\src\lib\molecules\session\session-stats-summary.component.ts` (+ spec)
 
-### Task 33.1: `resolvedSessionBudget` ordering and clearing (M6) — PENDING (decision recorded in context.md: batch-level)
+### Task 33.1: `resolvedSessionBudget` ordering and clearing (M6) — COMPLETE (decision recorded in context.md: batch-level)
 
 - `chat-view.component.ts:937-942`: with null revisions the snapshot wins; clear `_budgetActionState` on a tab or
   session change. Spec.
 
-### Task 33.2: Banner warns on a failed transcript read (M3 UI, F-B) — PENDING (decision recorded in context.md)
+### Task 33.2: Banner warns on a failed transcript read (M3 UI, F-B) — COMPLETE (decision recorded in context.md)
 
-### Task 33.3: `/compact` copy (M8; F-B, F-C; banner 298-309, 331-334) — PENDING (decision recorded in context.md)
+### Task 33.3: `/compact` copy (M8; F-B, F-C; banner 298-309, 331-334) — COMPLETE (decision recorded in context.md)
 
-### Task 33.4: Clear the limit banner when the budget is disabled (F.4, F-D) — PENDING (decision recorded in context.md)
+### Task 33.4: Clear the limit banner when the budget is disabled (F.4, F-D) — COMPLETE (decision recorded in context.md)
 
-### Task 33.5: A failed preview shows an error, not "Loading…" (chat-view 1278-1284, banner 162; F-B) — PENDING (decision recorded in context.md)
+### Task 33.5: A failed preview shows an error, not "Loading…" (chat-view 1278-1284, banner 162; F-B) — COMPLETE (decision recorded in context.md)
 
-### Task 33.6: Tooltip from the configured percents (`session-stats-summary.component.ts:974-992`; A2; F-B) — PENDING (decision recorded in context.md)
+### Task 33.6: Tooltip from the configured percents (`session-stats-summary.component.ts:974-992`; A2; F-B) — DEFERRED (orchestrator: A2 false; named later task NL-F1)
 
-### Task 33.7: Tooltip covers the missing cache price (from Batch 32) — PENDING
+### Task 33.7: Tooltip covers the missing cache price (from Batch 32) — COMPLETE
 
 - The chat-lib tooltip "No price is known for this model" must also cover the missing-cache-price case (F-E). Wording per F-B style; keep it short. Spec.
 
@@ -1315,12 +1315,31 @@ the `humanize-library` skill; every existing spec passes unchanged except for mo
 ## Batch 36: Split the stats chip budget formatting (F.2) — PENDING
 
 - Recommended executor: frontend-developer | Fallback: frontend-developer (fresh run) | Execution mode: Sequential subagent
-- Model: Opus | Tasks: 1 | Depends on: Batch 33 | May run beside Batch 35 (file-disjoint) | Phase: F.2
+- Model: Opus | Tasks: 1 | Depends on: Batch 33 (committed; does NOT depend on deferred Task 33.6 — keep the hard-coded 50/80/100 tooltip as is) | Phase: F.2
+- Orchestrator note: Batch 35 runs alone; start Batch 36 only after Batch 35 commits.
 - Projects: `@ptah-extension/chat-ui`
 - Files: `<R>\libs\frontend\chat-ui\src\lib\molecules\session\session-stats-summary.component.ts` (+ spec), new pure
   helper `session-budget-format.ts` (+ spec) beside it
 
 ### Task 36.1: Extract `tokensBudgetSuffix`, `costBudgetText`, `costBudgetSuffix`, `costTooltip`, `budgetTooltip` — PENDING
+
+### Batch 33 record
+
+- Verified by team-leader on disk; out-of-list files for 33.4 accepted (F-D only): `session-budget-settings.component.ts`,
+  `tab-manager.service.ts` (new intent mutator `clearSessionBudgets()`), `tab-workspace-partition.service.ts`
+  (new `findBackgroundTabIds`), each with spec. Task 33.6 DEFERRED (see NL-F1).
+- R1 breach: the executor used 117 tool calls (limit 60).
+- Phase F review must judge: (1) turning the budget off clears `sessionBudget` on every tab, which also hides an active
+  rotation advisory until the next stats snapshot brings it back; (2) 33.5 added a real "Try again" button (re-emits
+  `previewRequested`) beyond the F-B text; (3) the new banner strings listed in `batch-33-report.md`.
+
+### Named later tasks (Stage F + G)
+
+- NL-F1 (from Task 33.6, F.6 Minor): the stats-chip budget tooltip
+  (`libs/frontend/chat-ui/src/lib/molecules/session/session-stats-summary.component.ts`, ~991) still hard-codes
+  50/80/100. Needs `tightenPercent` / `handoffPercent` on `SessionBudgetState`
+  (`libs/shared/src/lib/types/session-budget.types.ts:110-137`) populated by the backend; assumption A2 was false.
+- G-C: `stopped` subagent status (dropped Batch 34).
 
 ## Stage F + G next action
 
