@@ -233,6 +233,8 @@ interface SessionState {
   readonly taskTexts: Map<string, string>;
   noUsageLogged: boolean;
   stopDisabledLogged: boolean;
+  /** Set when a rekey merged this record into another; a stop in flight follows it. */
+  mergedInto?: SessionState;
 }
 
 /** The dispatcher operations the monitor uses. */
@@ -349,8 +351,9 @@ export class SubagentBudgetMonitor {
   /**
    * Move what the monitor knows about `fromSessionId` to `toSessionId` (a
    * PostCompact that reports a new session id). Subagents already seen under
-   * `toSessionId` are kept unless `fromSessionId` holds the same one. A stop
-   * in flight hands off to the new id.
+   * `toSessionId` are kept unless `fromSessionId` holds the same one; then the
+   * state with a stop in flight or done is kept. A stop in flight on either
+   * record finishes on the merged record and hands off to the new id.
    */
   rekey(fromSessionId: string, toSessionId: string): void {
     if (!toSessionId || fromSessionId === toSessionId) {
@@ -364,7 +367,8 @@ export class SubagentBudgetMonitor {
     const existing = this.sessions.get(toSessionId);
     if (existing) {
       for (const [toolCallId, state] of existing.subagents) {
-        if (!session.subagents.has(toolCallId)) {
+        const kept = session.subagents.get(toolCallId);
+        if (!kept || (!hasStopStarted(kept) && hasStopStarted(state))) {
           session.subagents.set(toolCallId, state);
         }
       }
@@ -373,6 +377,7 @@ export class SubagentBudgetMonitor {
           session.taskTexts.set(toolUseId, text);
         }
       }
+      existing.mergedInto = session;
     }
     session.sessionId = toSessionId;
     this.sessions.set(toSessionId, session);
@@ -398,9 +403,18 @@ export class SubagentBudgetMonitor {
     return session;
   }
 
-  /** True while `session` is still the monitor's record (not released). */
-  private isCurrent(session: SessionState): boolean {
-    return this.sessions.get(session.sessionId) === session;
+  /**
+   * The record `session` lives on as: itself, or the record a rekey merged it
+   * into. `undefined` once that record was released.
+   */
+  private liveSession(session: SessionState): SessionState | undefined {
+    let current = session;
+    while (current.mergedInto) {
+      current = current.mergedInto;
+    }
+    return this.sessions.get(current.sessionId) === current
+      ? current
+      : undefined;
   }
 
   private subagentState(
@@ -506,16 +520,23 @@ export class SubagentBudgetMonitor {
       state.stopInFlight = false;
     }
     // Released while the stop ran: the session is over, so no retry and no handoff.
-    if (!this.isCurrent(session)) {
+    const live = this.liveSession(session);
+    if (!live) {
       return;
     }
-    const sessionId = session.sessionId;
+    // A rekey merge may have replaced this subagent's state; finish on the kept one.
+    const liveState = live.subagents.get(toolCallId) ?? state;
+    if (liveState.stopFired) {
+      // Another stop of this subagent already finished its bookkeeping.
+      return;
+    }
+    const sessionId = live.sessionId;
     if (stopFailure) {
-      this.onStopFailed(sessionId, toolCallId, state, reason, stopFailure);
+      this.onStopFailed(sessionId, toolCallId, liveState, reason, stopFailure);
       return;
     }
-    state.stopFired = true;
-    state.stopped = true;
+    liveState.stopFired = true;
+    liveState.stopped = true;
     // A completed record is dropped from the registry, so it is never offered for resume.
     this.registry.update(toolCallId, {
       status: 'completed',
@@ -537,7 +558,7 @@ export class SubagentBudgetMonitor {
           state,
           reason,
           limits,
-          session.taskTexts.get(toolCallId),
+          live.taskTexts.get(toolCallId),
         ),
       );
     } catch (error: unknown) {
@@ -580,6 +601,11 @@ export class SubagentBudgetMonitor {
       },
     );
   }
+}
+
+/** A stop of this subagent is running or has finished. */
+function hasStopStarted(state: SubagentState): boolean {
+  return state.stopInFlight || state.stopFired;
 }
 
 function handoffMessage(

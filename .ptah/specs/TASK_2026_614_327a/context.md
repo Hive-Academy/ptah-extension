@@ -140,6 +140,25 @@ tasks"; review files `pr3-phase-end-code-logic-review.md`, `pr3-phase-end-code-s
 - F.6 The PR 2 / PR 3 Minors in their review files (tooltip hard-codes 50/80/100%, failed preview keeps "Loading…",
   `.tmp` orphan, `keepPreviousFigure`).
 
+### Stage G — follow-ups from the D + E phase review
+
+Files: `reviews/de-code-logic-review-a.md`, `de-code-logic-review-b.md`, `de-code-style-review.md` (this folder). FM-3 was
+fixed in the D + E fix round. These Moderates are named later tasks (they cannot break a lane config or lose data):
+
+- G.1 A FM-1: threshold and env-window warns still fire on every `getConfig()` (A-m7 partial).
+- G.2 A FM-2: monitor rekey loses ordering against buffered old-id subagent messages (stop fires late).
+- G.3 B-1: a failed tree kill still replies "the process tree was killed" and drops the pid after 10 s
+  (`run-check.tool.ts:468, 489-495`).
+- G.4 B-2/B-3 + style 1: one shutdown contract for `killRunningChecks` — VS Code awaits it before reaping agents (up to
+  5 s), Electron fires it without a wait (`shutdown.ts:194-198`); drop the redundant catch or the "never rejects" doc.
+- G.5 B-4: pin tests for `mcp-serve` passing the peer JSON-RPC id and the drain calling `dispose()`.
+- G.6 B-5: the RPC reply and log do not say when a UI resume became a fresh lane (`agent-rpc.handlers.ts:1068-1074`).
+- G.7 style 2: rename `SubagentStopPort` (it now also pushes parent messages).
+- G.8 The Minors in the three review files; Task 8.3 gap (`execute_code` has no cancel hook, so `ptah.agent.waitFor`
+  ends only at its timer); review-A m5 (`stopped` subagent status, libs/shared change); CLI default-model blocked check;
+  the vscode-lm-tools dispatcher does not log the spool `gitignoreFailure`; Batch 13 before/after screenshots (dark +
+  light) of the session budget banner go to the Stage C QA session.
+
 ## Suggested order
 
 1. Stage D + Stage E (small, file-local fixes; can share the first PR).

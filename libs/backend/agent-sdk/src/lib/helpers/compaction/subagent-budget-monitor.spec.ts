@@ -442,6 +442,62 @@ describe('SubagentBudgetMonitor', () => {
     ).toBe(20);
   });
 
+  it('a stop in flight on the merged-into session finishes once after a rekey', async () => {
+    const h = makeHarness();
+    let settle: () => void = () => undefined;
+    h.dispatcher.stopSubagent.mockReturnValueOnce(
+      new Promise<void>((resolve) => (settle = resolve)),
+    );
+    const pending = h.monitor.observe(
+      'session-2',
+      assistant({ input: 200_000 }, { id: 'm1' }),
+    );
+    await h.monitor.observe(SESSION, assistant({ input: 10 }, { id: 'm0' }));
+    h.monitor.rekey(SESSION, 'session-2');
+    settle();
+    await pending;
+
+    expect(h.dispatcher.pushParentMessage).toHaveBeenCalledTimes(1);
+    expect(h.dispatcher.pushParentMessage).toHaveBeenCalledWith(
+      'session-2',
+      expect.any(String),
+    );
+    expect(h.registry.update).toHaveBeenCalledTimes(1);
+    expect(h.registry.update).toHaveBeenCalledWith(
+      TOOL_CALL,
+      expect.objectContaining({ status: 'completed' }),
+    );
+    expect(h.monitor.getSnapshot('session-2', TOOL_CALL)?.stopped).toBe(true);
+
+    await h.monitor.observe(
+      'session-2',
+      assistant({ input: 300_000 }, { id: 'm2' }),
+    );
+    expect(h.dispatcher.stopSubagent).toHaveBeenCalledTimes(1);
+    expect(h.dispatcher.pushParentMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it('a stop in flight across a rekey merge sends no handoff once released', async () => {
+    const h = makeHarness();
+    let settle: () => void = () => undefined;
+    h.dispatcher.stopSubagent.mockReturnValueOnce(
+      new Promise<void>((resolve) => (settle = resolve)),
+    );
+    const pending = h.monitor.observe(
+      'session-2',
+      assistant({ input: 200_000 }, { id: 'm1' }),
+    );
+    await h.monitor.observe(SESSION, assistant({ input: 10 }, { id: 'm0' }));
+    h.monitor.rekey(SESSION, 'session-2');
+    h.monitor.release('session-2');
+    settle();
+    await pending;
+
+    expect(h.dispatcher.pushParentMessage).not.toHaveBeenCalled();
+    expect(h.registry.update).not.toHaveBeenCalled();
+    expect(h.monitor.getSnapshot('session-2', TOOL_CALL)).toBeUndefined();
+  });
+
   it('without usage is observe-only and logs once per session', async () => {
     const h = makeHarness();
     await h.monitor.observe(SESSION, assistant(null));
