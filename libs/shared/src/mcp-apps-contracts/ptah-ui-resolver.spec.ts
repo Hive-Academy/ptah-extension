@@ -2,6 +2,7 @@ import { convertPtahUi } from './ptah-ui-converter';
 import { renderPtahUiBlock } from './ptah-ui-pipeline';
 import { resolvePtahUi } from './ptah-ui-resolver';
 import type { TurnSourceSnapshot } from '../lib/utils/turn-sources.utils';
+import { SURFACE_LIMITS } from './surface-catalog';
 import type { SurfaceContent } from './surface.types';
 
 const snapshot: TurnSourceSnapshot = {
@@ -155,6 +156,63 @@ describe('resolvePtahUi', () => {
       pending,
     );
     expect(surfaceOf(result).components[0]).toMatchObject({ value: 'pending' });
+  });
+
+  it('truncates an over-limit host test command without rejecting the block', () => {
+    const command = 'c'.repeat(SURFACE_LIMITS.maxStringLength + 1);
+    const result = renderPtahUiBlock('table $tests\n', {
+      surfaceId: 'surface',
+      snapshot: {
+        ...snapshot,
+        tests: {
+          kind: 'available',
+          runs: [{ command, outcome: 'passed' }],
+          summary: { total: 1, passed: 1, failed: 0, unknown: 0 },
+        },
+      },
+      countBytes: bytes,
+    });
+    expect(result).toMatchObject({ ok: true });
+    expect(JSON.stringify(result)).toContain(
+      `${'c'.repeat(SURFACE_LIMITS.maxStringLength - 1)}…`,
+    );
+  });
+
+  it('truncates an over-limit host path without rejecting the block', () => {
+    const path = 'p'.repeat(SURFACE_LIMITS.maxStringLength + 1);
+    const result = renderPtahUiBlock('table $diff\n', {
+      surfaceId: 'surface',
+      snapshot: {
+        ...snapshot,
+        diff: {
+          kind: 'available',
+          changeSet: {
+            sessionId: 's',
+            workspaceRoot: 'w',
+            turnStartedAt: 0,
+            turnEndedAt: 1,
+            files: [
+              {
+                path,
+                status: 'M',
+                additions: 1,
+                deletions: 0,
+                binary: false,
+              },
+            ],
+            truncatedCount: 0,
+            totals: { files: 1, additions: 1, deletions: 0 },
+            countsUnavailable: false,
+            baselineMissing: false,
+          },
+        },
+      },
+      countBytes: bytes,
+    });
+    expect(result).toMatchObject({ ok: true });
+    expect(JSON.stringify(result)).toContain(
+      `${'p'.repeat(SURFACE_LIMITS.maxStringLength - 1)}…`,
+    );
   });
 
   it.each([

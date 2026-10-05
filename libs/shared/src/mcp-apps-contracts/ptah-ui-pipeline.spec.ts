@@ -133,7 +133,7 @@ describe('renderPtahUiBlock', () => {
     ).toMatchObject({ ok: false, reason: 'unknown element `gauge` (line 1)' });
   });
 
-  it('returns the validator reason unchanged', () => {
+  it('maps validator failures to a short user-facing reason', () => {
     const body = `title ${'x'.repeat(2001)}\nstats\n  Literal | value\n`;
     expect(
       renderPtahUiBlock(body, {
@@ -141,7 +141,7 @@ describe('renderPtahUiBlock', () => {
         snapshot: null,
         countBytes,
       }),
-    ).toMatchObject({ ok: false, reason: expect.stringContaining('title') });
+    ).toEqual({ ok: false, reason: 'invalid display content' });
   });
 
   it('maps a byte-counter exception to internal error', () => {
@@ -202,7 +202,7 @@ describe('renderPtahUiBlock', () => {
     });
     expect(result).toMatchObject({
       ok: false,
-      reason: expect.stringContaining('maxSurfaceBytes'),
+      reason: 'block exceeds a display limit',
     });
   });
 
@@ -214,6 +214,24 @@ describe('renderPtahUiBlock', () => {
         countBytes,
       }),
     ).toMatchObject({ ok: true });
+  });
+
+  it('renders an over-limit host test command through the full pipeline', () => {
+    const command = 'c'.repeat(2_001);
+    const result = renderPtahUiBlock('table $tests\n', {
+      surfaceId: 'surface',
+      snapshot: {
+        ...populated,
+        tests: {
+          kind: 'available',
+          runs: [{ command, outcome: 'passed' }],
+          summary: { total: 1, passed: 1, failed: 0, unknown: 0 },
+        },
+      },
+      countBytes,
+    });
+    expect(result).toMatchObject({ ok: true });
+    expect(JSON.stringify(result)).toContain(`${'c'.repeat(1_999)}…`);
   });
 });
 

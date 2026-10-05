@@ -9,6 +9,7 @@ import type {
   SurfaceContent,
   SurfaceEnvelope,
 } from './surface.types';
+import { SURFACE_LIMITS } from './surface-catalog';
 import type { PtahUiBinding, PtahUiConversion } from './ptah-ui-converter';
 import type { PtahUiSourceName } from './ptah-ui.types';
 
@@ -42,7 +43,10 @@ function resolveComponent(
   );
   if (binding === undefined) return component;
   if (binding.kind === 'scalar' && component.kind === 'stat') {
-    return { ...component, value: scalarValue(binding, snapshot) };
+    return {
+      ...component,
+      value: clampHostValue(scalarValue(binding, snapshot)),
+    };
   }
   if (binding.kind === 'rows') return resolveRows(component, binding, snapshot);
   return component;
@@ -147,7 +151,7 @@ function resolveRows(
     description:
       rows.length === 0
         ? { text: emptyMessage(binding.source) }
-        : sourceDescription(binding.source, source),
+        : sourceDescription(binding.source, source, rows.length),
   };
 }
 
@@ -200,41 +204,61 @@ function rowValues(
   columns: readonly string[],
 ): readonly (readonly (string | number | null)[])[] {
   if (source === 'diff' && isDiffRowsSource(value))
-    return value.changeSet.files.map((file) =>
-      columns.map((column) => {
-        if (column === 'path') return file.path;
-        if (column === 'status') return file.status;
-        if (column === 'additions')
-          return file.binary ? 'binary' : (file.additions ?? 'unknown');
-        if (column === 'deletions')
-          return file.binary ? 'binary' : (file.deletions ?? 'unknown');
-        return 'unavailable';
-      }),
-    );
+    return value.changeSet.files
+      .slice(0, SURFACE_LIMITS.maxTableRows)
+      .map((file) =>
+        columns.map((column) => {
+          if (column === 'path') return clampHostValue(file.path);
+          if (column === 'status') return clampHostValue(file.status);
+          if (column === 'additions')
+            return file.binary ? 'binary' : (file.additions ?? 'unknown');
+          if (column === 'deletions')
+            return file.binary ? 'binary' : (file.deletions ?? 'unknown');
+          return 'unavailable';
+        }),
+      );
   if (source === 'tests' && isTestRowsSource(value))
-    return value.runs.map((run) =>
-      columns.map((column) =>
-        column === 'command'
-          ? run.command
-          : column === 'outcome'
-            ? run.outcome
-            : 'unavailable',
-      ),
-    );
+    return value.runs
+      .slice(0, SURFACE_LIMITS.maxTableRows)
+      .map((run) =>
+        columns.map((column) =>
+          column === 'command'
+            ? clampHostValue(run.command)
+            : column === 'outcome'
+              ? clampHostValue(run.outcome)
+              : 'unavailable',
+        ),
+      );
   return [];
 }
 
 function sourceDescription(
   source: PtahUiSourceName,
   value: Exclude<ReturnType<typeof rowsSource>, 'pending' | 'unavailable'>,
+  displayedRows: number,
 ): { readonly text: string } | undefined {
-  if (source !== 'diff' || !isDiffRowsSource(value)) return undefined;
   const notes: string[] = [];
-  if (value.changeSet.truncatedCount > 0)
-    notes.push(`+${value.changeSet.truncatedCount} more`);
-  if (value.changeSet.baselineMissing)
-    notes.push('may include earlier changes');
+  if (source === 'diff' && isDiffRowsSource(value)) {
+    const omittedRows = value.changeSet.files.length - displayedRows;
+    const moreRows = value.changeSet.truncatedCount + omittedRows;
+    if (moreRows > 0) notes.push(`+${moreRows} more`);
+    if (value.changeSet.baselineMissing)
+      notes.push('may include earlier changes');
+  }
+  if (source === 'tests' && isTestRowsSource(value)) {
+    const omittedRows = value.runs.length - displayedRows;
+    if (omittedRows > 0) notes.push(`+${omittedRows} more`);
+  }
   return notes.length === 0 ? undefined : { text: notes.join('; ') };
+}
+
+function clampHostValue(value: string | number): string | number {
+  if (
+    typeof value !== 'string' ||
+    value.length <= SURFACE_LIMITS.maxStringLength
+  )
+    return value;
+  return `${value.slice(0, SURFACE_LIMITS.maxStringLength - 1)}…`;
 }
 
 function emptyMessage(source: PtahUiSourceName): string {

@@ -3,6 +3,7 @@ import {
   SURFACE_CATALOG_VERSION,
   SURFACE_SCHEMA_VERSION,
 } from './surface-catalog';
+import { PTAH_UI_SOURCES } from './ptah-ui-parser';
 import type {
   PtahUiDocument,
   PtahUiElement,
@@ -150,12 +151,5 @@ function table(
 }
 
 function sourceColumns(source: PtahUiSourceName): readonly string[] {
-  switch (source) {
-    case 'diff':
-      return ['path', 'status', 'additions', 'deletions'];
-    case 'tests':
-      return ['command', 'outcome'];
-    case 'usage':
-      return [];
-  }
+  return PTAH_UI_SOURCES[source].columns;
 }

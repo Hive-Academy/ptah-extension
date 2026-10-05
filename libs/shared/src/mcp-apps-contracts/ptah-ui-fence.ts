@@ -124,9 +124,7 @@ function isClosingFence(line: string, opening: Fence): boolean {
 }
 
 function isTargetClosingFence(line: string, opening: Fence): boolean {
-  let length = 0;
-  while (line[length] === opening.marker) length += 1;
-  return length >= opening.length && line.slice(length).trim() === '';
+  return isClosingFence(line, opening);
 }
 
 function withoutCommonMarkIndent(line: string): string | undefined {

@@ -35,9 +35,7 @@ export function renderPtahUiBlock(
     if (!validated.ok) {
       return {
         ok: false,
-        reason: validated.reason.startsWith('surface could not be validated:')
-          ? 'internal error'
-          : validated.reason,
+        reason: validationFailureReason(validated.reason),
       };
     }
     return {
@@ -51,4 +49,13 @@ export function renderPtahUiBlock(
   } catch {
     return { ok: false, reason: 'internal error' };
   }
+}
+
+function validationFailureReason(reason: string): string {
+  if (reason.startsWith('surface could not be validated:'))
+    return 'internal error';
+  if (/\b(?:max|limit|budget)\b/i.test(reason))
+    return 'block exceeds a display limit';
+  if (/\brow\b/i.test(reason)) return 'invalid table row';
+  return 'invalid display content';
 }

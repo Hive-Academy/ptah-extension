@@ -20,6 +20,28 @@ describe('segmentPtahUi', () => {
     expect(segment).toMatchObject({ kind: 'fence', body: 'title Hi\r\n' });
   });
 
+  it('accepts a CommonMark-indented target closer without swallowing prose', () => {
+    expect(segmentPtahUi('```ptah-ui\nstats\n  A | 1\n  ```\nafter\n')).toEqual(
+      [
+        {
+          kind: 'fence',
+          key: 'fence-0',
+          ordinal: 0,
+          raw: '```ptah-ui\nstats\n  A | 1\n  ```\n',
+          body: 'stats\n  A | 1\n',
+        },
+        { kind: 'markdown', key: 'markdown-1', text: 'after\n' },
+      ],
+    );
+  });
+
+  it('does not accept a four-space-indented target closer', () => {
+    const text = '```ptah-ui\nstats\n  A | 1\n    ```\nafter\n';
+    expect(segmentPtahUi(text)).toEqual([
+      { kind: 'markdown', key: 'markdown-0', text },
+    ]);
+  });
+
   it('does not treat a target fence inside a backtick outer fence as a block', () => {
     const text = '````markdown\n```ptah-ui\ntitle Hi\n```\n````\n';
     expect(segmentPtahUi(text)).toEqual([
