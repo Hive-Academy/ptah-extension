@@ -1,6 +1,6 @@
 # Batches - TASK_2026_594_31ff
 
-Total tasks: 34 | Batches: 12 | Waves: 4 | Complete: 8/12
+Total tasks: 34 | Batches: 12 | Waves: 4 | Complete: 10/12
 
 Worktree root (W): `D:/projects/ptah-extension/.claude-worktrees/task-594-status-kinds`, branch
 `feat/task-594-status-kinds`. All paths below are absolute. Source: implementation-plan.md
@@ -668,7 +668,7 @@ plus the trailer.
 Batch 9 needs Batch 5. Batch 10 needs Batches 7 and 8. Batch 11 needs Batch 6. All three are
 file-disjoint and can run together once Wave 2 is committed.
 
-## Batch 9: Shared contract, validator and budget regressions (plan B) — IN_PROGRESS
+## Batch 9: Shared contract, validator and budget regressions (plan B) — COMPLETE
 
 - Recommended executor: CLI lane `Glm`
 - Fallback executor: backend-developer subagent
@@ -679,7 +679,7 @@ file-disjoint and can run together once Wave 2 is committed.
 - AC: 1-10
 - Phase: status-kinds
 
-### Task 9.1: Contract spec — IN_PROGRESS
+### Task 9.1: Contract spec — COMPLETE
 
 - File: MODIFY `D:/projects/ptah-extension/.claude-worktrees/task-594-status-kinds/libs/shared/src/mcp-apps-contracts/surface-contract.spec.ts`
 - Plan reference: implementation-plan.md:360, 421
@@ -689,7 +689,7 @@ file-disjoint and can run together once Wave 2 is committed.
     `DASHBOARD_COMPONENT_KINDS`; `SURFACE_COMPONENT_KINDS` has length 19.
   - Change the literal at `:63` to the imported constant.
 
-### Task 9.2: Validator spec — IN_PROGRESS
+### Task 9.2: Validator spec — COMPLETE
 
 - File: MODIFY `D:/projects/ptah-extension/.claude-worktrees/task-594-status-kinds/libs/shared/src/mcp-apps-contracts/surface-validator.spec.ts`
 - Plan reference: implementation-plan.md:84-96, 172-181, 194-199, 362
@@ -705,7 +705,7 @@ file-disjoint and can run together once Wave 2 is committed.
   - A v1 document naming each new kind is rejected.
   - `spec/1` + `/1` is unchanged.
 
-### Task 9.3: Budget spec — IN_PROGRESS
+### Task 9.3: Budget spec — COMPLETE
 
 - File: MODIFY `D:/projects/ptah-extension/.claude-worktrees/task-594-status-kinds/libs/shared/src/mcp-apps-contracts/surface-budgets.spec.ts`
 - Plan reference: implementation-plan.md:179-181, 361
@@ -727,7 +727,20 @@ This is the full suite.
 Commit: `test(shared): cover status and text kinds in contract, validator and budget specs`, plus
 the trailer.
 
-## Batch 10: surface-node dispatch and badge pressed state (plan D) — COMPLETE
+Batch 9 result (2026-10-05, team-leader): PASSED. Lane touched only the three spec files.
+`npx nx run-many -t typecheck,test,lint -p shared --skip-nx-cache`: all 3 targets green, with no
+exclusions. Run directly, the three specs give 3/3 suites and 176/176 tests, with nothing skipped
+and no `testPathIgnorePatterns` in the shared jest config. Coverage was checked on disk: the 6 new
+kinds are accepted on the document and create paths, and so are alert title, divider text,
+value 0/100 and select-only badge actions. These are rejected: unknown tone, direction and role;
+`class`/`style`/`html`/`path`/`data`/extra key on each kind; value -1, 101, NaN, Infinity and
+`'50'`; badge `open-url`, `surface.submit` and select-with-`url`; empty and over-length
+text-block. A v1 document with any new kind is rejected. `spec/2`+`catalog/2` is rejected
+(`catalogVersion`, names `/3`), and `spec/1`+`catalog/3` gives "does not pair". Budget at-limit
+and over-limit cases read `SURFACE_LIMITS`, and no limit was widened. Exactly one `/2` literal
+remains, and it is the deliberate negative case. Report: `batch-9-report.md`.
+
+## Batch 10: surface-node dispatch and badge pressed state (plan D) — COMPLETE (commit 8e457b495)
 
 - Recommended executor: CLI lane `Glm`
 - Fallback executor: frontend-developer subagent
