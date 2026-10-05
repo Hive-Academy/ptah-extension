@@ -6,9 +6,7 @@
  */
 const fs = require('fs');
 const path = require('path');
-const {
-  assertEagerClosureKept,
-} = require('./electron-only-chunks');
+const { assertEagerClosureKept } = require('./electron-only-chunks');
 
 const FORBIDDEN_EAGER_INPUTS = [
   /libs\/frontend\/declarative-dashboard\//,
@@ -26,10 +24,16 @@ const ALLOWED_EAGER_GROWTH_INPUTS = [
   /libs\/shared\/src\/lib\/utils\/(?:test-command-matcher|turn-tests\.utils|turn-sources\.utils|usage-format\.utils)\.ts$/,
 ];
 
+function compareCodeUnits(a, b) {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
 function matchesAny(input, patterns) {
   const normalized = input.replaceAll('\\', '/');
   return patterns.some((pattern) =>
-    typeof pattern === 'string' ? normalized.includes(pattern) : pattern.test(normalized),
+    typeof pattern === 'string'
+      ? normalized.includes(pattern)
+      : pattern.test(normalized),
   );
 }
 
@@ -51,17 +55,20 @@ function staticClosure(stats) {
 function forbiddenOutputs(stats, patterns = FORBIDDEN_EAGER_INPUTS) {
   return Object.entries(stats.outputs ?? {})
     .filter(([, output]) =>
-      Object.keys(output.inputs ?? {}).some((input) => matchesAny(input, patterns)),
+      Object.keys(output.inputs ?? {}).some((input) =>
+        matchesAny(input, patterns),
+      ),
     )
     .map(([file]) => file)
-    .sort();
+    .sort(compareCodeUnits);
 }
 
 function eagerInputs(stats) {
   const outputs = stats.outputs ?? {};
   const inputs = new Set();
   for (const file of staticClosure(stats)) {
-    for (const input of Object.keys(outputs[file].inputs ?? {})) inputs.add(input);
+    for (const input of Object.keys(outputs[file].inputs ?? {}))
+      inputs.add(input);
   }
   return inputs;
 }
@@ -78,7 +85,7 @@ function assertNoForbiddenEager(stats, patterns = FORBIDDEN_EAGER_INPUTS) {
   } catch (error) {
     const forbiddenInputs = [...eagerInputs(stats)]
       .filter((input) => matchesAny(input, patterns))
-      .sort();
+      .sort(compareCodeUnits);
     throw new Error(
       `[eager-closure-gate] main.js statically reaches forbidden eager input(s): ${forbiddenInputs.join(', ')}`,
       { cause: error },
@@ -94,10 +101,9 @@ function assertNoUnlistedEagerGrowth(
   const baseInputs = eagerInputs(base);
   const unlisted = [...eagerInputs(head)]
     .filter(
-      (input) =>
-        !baseInputs.has(input) && !matchesAny(input, allowPatterns),
+      (input) => !baseInputs.has(input) && !matchesAny(input, allowPatterns),
     )
-    .sort();
+    .sort(compareCodeUnits);
   if (unlisted.length > 0) {
     throw new Error(
       `[eager-closure-gate] unlisted eager input growth: ${unlisted.join(', ')}`,
@@ -126,7 +132,11 @@ function run(args) {
   const [headPath, ...rest] = args;
   const baseIndex = rest.indexOf('--base');
   const basePath = baseIndex >= 0 ? rest[baseIndex + 1] : undefined;
-  if (!headPath || (baseIndex >= 0 && !basePath) || (baseIndex < 0 && rest.length > 0)) {
+  if (
+    !headPath ||
+    (baseIndex >= 0 && !basePath) ||
+    (baseIndex < 0 && rest.length > 0)
+  ) {
     throw new Error(
       'Usage: node scripts/eager-closure-gate.js <head-stats.json> [--base <base-stats.json>]',
     );
@@ -134,7 +144,8 @@ function run(args) {
 
   const head = readStats(path.resolve(headPath));
   assertNoForbiddenEager(head);
-  if (basePath) assertNoUnlistedEagerGrowth(head, readStats(path.resolve(basePath)));
+  if (basePath)
+    assertNoUnlistedEagerGrowth(head, readStats(path.resolve(basePath)));
 
   return {
     eagerInputCount: eagerInputs(head).size,

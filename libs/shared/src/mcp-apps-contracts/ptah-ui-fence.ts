@@ -20,18 +20,23 @@ export function segmentPtahUi(text: string): PtahUiSegment[] {
   let outer: Fence | undefined;
   let ordinal = 0;
 
-  for (let index = 0; index < lines.length; index += 1) {
+  let index = 0;
+  while (index < lines.length) {
     const line = lines[index];
     const trimmed = removeTrailingSpaces(line.text);
 
     if (outer !== undefined) {
       if (isClosingFence(trimmed, outer)) outer = undefined;
+      index += 1;
       continue;
     }
 
     if (trimmed === '```ptah-ui') {
       const closeIndex = findPtahUiClose(lines, index + 1);
-      if (closeIndex === undefined) continue;
+      if (closeIndex === undefined) {
+        index += 1;
+        continue;
+      }
 
       if (markdownStart < line.start) {
         segments.push({
@@ -50,12 +55,13 @@ export function segmentPtahUi(text: string): PtahUiSegment[] {
       });
       ordinal += 1;
       markdownStart = closing.next;
-      index = closeIndex;
+      index = closeIndex + 1;
       continue;
     }
 
     const opening = readOpeningFence(trimmed);
     if (opening !== undefined) outer = opening;
+    index += 1;
   }
 
   if (markdownStart < text.length || segments.length === 0) {

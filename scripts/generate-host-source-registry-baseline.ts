@@ -8,8 +8,10 @@ const baselinePath = resolve(
   import.meta.dirname,
   '../libs/shared/src/lib/types/rpc/host-source-registry.baseline.ts',
 );
-const rpcMethodNames = [...RPC_METHOD_NAMES].sort();
-const messageTypes = Object.values(MESSAGE_TYPES).sort();
+const compareCodeUnits = (a: string, b: string): number =>
+  a < b ? -1 : a > b ? 1 : 0;
+const rpcMethodNames = [...RPC_METHOD_NAMES].sort(compareCodeUnits);
+const messageTypes = Object.values(MESSAGE_TYPES).sort(compareCodeUnits);
 const content = [
   '/**',
   ' * Generated from the f314a4f8a host-source registries.',

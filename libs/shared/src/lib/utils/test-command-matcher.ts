@@ -242,27 +242,19 @@ function matchesSegment(segment: string): boolean {
 
 /** Returns whether a shell command contains at least one test-running segment. */
 export function classifyTestCommand(command: string): boolean {
-  try {
-    if (typeof command !== 'string') return false;
-    return splitSegments(command).some((segment) =>
-      matchesSegment(segment.value),
-    );
-  } catch {
-    return false;
-  }
+  if (typeof command !== 'string') return false;
+  return splitSegments(command).some((segment) =>
+    matchesSegment(segment.value),
+  );
 }
 
 /** Returns whether a test command's shell status is masked by a pipe or `||` tail. */
 export function hasMaskedTestCommandOutcome(command: string): boolean {
-  try {
-    if (typeof command !== 'string') return false;
-    return splitSegments(command).some(
-      (segment) =>
-        matchesSegment(segment.value) &&
-        (segment.followingSeparator === '|' ||
-          segment.followingSeparator === '||'),
-    );
-  } catch {
-    return false;
-  }
+  if (typeof command !== 'string') return false;
+  return splitSegments(command).some(
+    (segment) =>
+      matchesSegment(segment.value) &&
+      (segment.followingSeparator === '|' ||
+        segment.followingSeparator === '||'),
+  );
 }
