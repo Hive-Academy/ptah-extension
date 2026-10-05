@@ -52,6 +52,7 @@ import type {
   AgentListCliModelsResult,
   AgentPermissionDecision,
   AgentContinueErrorCode,
+  AgentResumeOutcome,
   CliDetectionResult,
   CliType,
   SpawnAgentResult,
@@ -261,6 +262,9 @@ export class AgentRpcHandlers {
     'agent:resumeCliSession',
   ] as const;
 
+  /** Tail of the `agent:setConfig` chain; settles, never rejects. */
+  private setConfigQueue: Promise<void> = Promise.resolve();
+
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
@@ -429,189 +433,205 @@ export class AgentRpcHandlers {
     this.rpcHandler.registerMethod<
       AgentSetConfigParams,
       { success: boolean; error?: string }
-    >('agent:setConfig', async (params) => {
-      try {
-        // Field names only: params can carry credentials such as cursorApiKey.
-        this.logger.debug('RPC: agent:setConfig called', {
-          fields: Object.keys(params ?? {}),
-        });
-        // Validate before ANY write so a rejected request changes nothing.
-        if (
-          params.cursorApiKey !== undefined &&
-          typeof params.cursorApiKey !== 'string'
-        ) {
-          return { success: false, error: 'Unsupported cursorApiKey value' };
-        }
-        const invalidEffort = invalidReasoningEffort(params);
-        if (invalidEffort) {
-          return {
-            success: false,
-            error: `Unsupported ${invalidEffort} value`,
-          };
-        }
-        const invalidBudget = invalidCodexBudget(params);
-        if (invalidBudget) {
-          return {
-            success: false,
-            error: `Unsupported ${invalidBudget} value`,
-          };
-        }
-        const invalidGuard = invalidLaneGuard(params, (field) =>
-          this.getLaneGuard(field),
-        );
-        if (invalidGuard) {
-          return {
-            success: false,
-            error: `Unsupported ${invalidGuard} value`,
-          };
-        }
-        if (
-          params.subagentPromptCacheTtl !== undefined &&
-          !isSubagentPromptCacheTtlSetting(params.subagentPromptCacheTtl)
-        ) {
-          return {
-            success: false,
-            error: 'Unsupported subagentPromptCacheTtl value',
-          };
-        }
-        if (params.preferredAgentOrder !== undefined) {
-          await this.setAgentCfg(
-            'preferredAgentOrder',
-            params.preferredAgentOrder,
-          );
-        }
-        if (params.maxConcurrentAgents !== undefined) {
-          await this.setAgentCfg(
-            'maxConcurrentAgents',
-            Math.max(
-              MIN_CONCURRENT_AGENTS,
-              Math.min(MAX_CONCURRENT_AGENTS, params.maxConcurrentAgents),
-            ),
-          );
-        }
-        if (params.codexModel !== undefined) {
-          await this.setAgentCfg('codexModel', params.codexModel);
-        }
-        if (params.copilotModel !== undefined) {
-          await this.setAgentCfg('copilotModel', params.copilotModel);
-        }
-        if (params.cursorModel !== undefined) {
-          await this.setAgentCfg('cursorModel', params.cursorModel);
-        }
-        if (params.antigravityModel !== undefined) {
-          await this.setAgentCfg('antigravityModel', params.antigravityModel);
-        }
-        if (params.opencodeModel !== undefined) {
-          await this.setAgentCfg('opencodeModel', params.opencodeModel);
-        }
-        if (params.piModel !== undefined) {
-          await this.setAgentCfg('piModel', params.piModel);
-        }
-        if (params.cursorApiKey !== undefined) {
-          const failure = await this.writeCursorApiKey(
-            params.cursorApiKey.trim(),
-          );
-          if (failure) return { success: false, error: failure };
-        }
-        if (params.copilotAutoApprove !== undefined) {
-          await this.setAgentCfg(
-            'copilotAutoApprove',
-            params.copilotAutoApprove,
-          );
-          const copilotAdapter = this.cliDetection.getAdapter('copilot');
-          if (copilotAdapter && 'permissionBridge' in copilotAdapter) {
-            const bridge = (
-              copilotAdapter as { permissionBridge: CopilotPermissionBridge }
-            ).permissionBridge;
-            bridge.setAutoApprove(params.copilotAutoApprove);
-          }
-        }
-        if (params.codexReasoningEffort !== undefined) {
-          await this.setAgentCfg(
-            'codexReasoningEffort',
-            params.codexReasoningEffort,
-          );
-        }
-        for (const field of CODEX_BUDGET_TOKEN_FIELDS) {
-          const value = params[field];
-          if (value !== undefined) {
-            await this.setAgentCfg(field, withoutNegativeZero(value));
-          }
-        }
-        const guardOrder = laneGuardWriteOrder(params, (field) =>
-          this.getLaneGuard(field),
-        );
-        for (const field of guardOrder) {
-          const value = params[field];
-          if (value !== undefined) {
-            await this.setAgentCfg(field, value);
-          }
-        }
-        if (params.codexWebSearch !== undefined) {
-          await this.setAgentCfg('codexWebSearch', params.codexWebSearch);
-        }
-        if (params.subagentPromptCacheTtl !== undefined) {
-          await this.setAgentCfg(
-            'subagentPromptCacheTtl',
-            params.subagentPromptCacheTtl,
-          );
-        }
-        if (params.copilotReasoningEffort !== undefined) {
-          await this.setAgentCfg(
-            'copilotReasoningEffort',
-            params.copilotReasoningEffort,
-          );
-        }
-        if (params.piReasoningEffort !== undefined) {
-          await this.setAgentCfg('piReasoningEffort', params.piReasoningEffort);
-        }
-        if (params.mcpPort !== undefined) {
-          await this.stateStorage.update(
-            'agentOrchestration.mcpPort',
-            Math.max(1024, Math.min(65535, params.mcpPort)),
-          );
-        }
-        if (params.disabledClis !== undefined) {
-          await this.setAgentCfg('disabledClis', params.disabledClis);
-        }
-        if (params.disabledMcpNamespaces !== undefined) {
-          await this.setAgentCfg(
-            'disabledMcpNamespaces',
-            params.disabledMcpNamespaces,
-          );
-        }
-        if (params.browserAllowLocalhost !== undefined) {
-          await this.workspace.setConfiguration(
-            'ptah',
-            'browser.allowLocalhost',
-            params.browserAllowLocalhost,
-          );
-        }
-        if (params.workflowsDisabled !== undefined) {
-          await this.workspace.setConfiguration(
-            'ptah',
-            'workflows.disabled',
-            params.workflowsDisabled,
-          );
-        }
-        this.logger.debug('RPC: agent:setConfig success');
-        return { success: true };
-      } catch (error: unknown) {
-        // Raw errors can carry paths or credentials (params may hold
-        // cursorApiKey), so the log gets the error type and the client gets
-        // fixed text. SettingsPersistError's message is fixed by construction.
-        this.logger.error('RPC: agent:setConfig failed', {
-          errorType: error instanceof Error ? error.name : 'unknown',
-        });
+    >('agent:setConfig', (params) => {
+      // One call at a time: validation reads stored values and the writes
+      // await one key after another, so two overlapping calls could leave a
+      // stop <= steer pair. Each call waits for the previous one to settle.
+      const run = this.setConfigQueue.then(() => this.applySetConfig(params));
+      this.setConfigQueue = run.then(
+        () => undefined,
+        () => undefined,
+      );
+      return run;
+    });
+  }
+
+  /**
+   * Validate and write one `agent:setConfig` request. Never rejects: every
+   * failure becomes `{ success: false, error }`. Run only through
+   * {@link setConfigQueue}.
+   */
+  private async applySetConfig(
+    params: AgentSetConfigParams,
+  ): Promise<{ success: boolean; error?: string }> {
+    try {
+      // Field names only: params can carry credentials such as cursorApiKey.
+      this.logger.debug('RPC: agent:setConfig called', {
+        fields: Object.keys(params ?? {}),
+      });
+      // Validate before ANY write so a rejected request changes nothing.
+      if (
+        params.cursorApiKey !== undefined &&
+        typeof params.cursorApiKey !== 'string'
+      ) {
+        return { success: false, error: 'Unsupported cursorApiKey value' };
+      }
+      const invalidEffort = invalidReasoningEffort(params);
+      if (invalidEffort) {
         return {
           success: false,
-          error:
-            error instanceof SettingsPersistError
-              ? error.message
-              : 'Could not save the orchestration settings.',
+          error: `Unsupported ${invalidEffort} value`,
         };
       }
-    });
+      const invalidBudget = invalidCodexBudget(params);
+      if (invalidBudget) {
+        return {
+          success: false,
+          error: `Unsupported ${invalidBudget} value`,
+        };
+      }
+      const invalidGuard = invalidLaneGuard(params, (field) =>
+        this.getLaneGuard(field),
+      );
+      if (invalidGuard) {
+        return {
+          success: false,
+          error: `Unsupported ${invalidGuard} value`,
+        };
+      }
+      if (
+        params.subagentPromptCacheTtl !== undefined &&
+        !isSubagentPromptCacheTtlSetting(params.subagentPromptCacheTtl)
+      ) {
+        return {
+          success: false,
+          error: 'Unsupported subagentPromptCacheTtl value',
+        };
+      }
+      if (params.preferredAgentOrder !== undefined) {
+        await this.setAgentCfg(
+          'preferredAgentOrder',
+          params.preferredAgentOrder,
+        );
+      }
+      if (params.maxConcurrentAgents !== undefined) {
+        await this.setAgentCfg(
+          'maxConcurrentAgents',
+          Math.max(
+            MIN_CONCURRENT_AGENTS,
+            Math.min(MAX_CONCURRENT_AGENTS, params.maxConcurrentAgents),
+          ),
+        );
+      }
+      if (params.codexModel !== undefined) {
+        await this.setAgentCfg('codexModel', params.codexModel);
+      }
+      if (params.copilotModel !== undefined) {
+        await this.setAgentCfg('copilotModel', params.copilotModel);
+      }
+      if (params.cursorModel !== undefined) {
+        await this.setAgentCfg('cursorModel', params.cursorModel);
+      }
+      if (params.antigravityModel !== undefined) {
+        await this.setAgentCfg('antigravityModel', params.antigravityModel);
+      }
+      if (params.opencodeModel !== undefined) {
+        await this.setAgentCfg('opencodeModel', params.opencodeModel);
+      }
+      if (params.piModel !== undefined) {
+        await this.setAgentCfg('piModel', params.piModel);
+      }
+      if (params.cursorApiKey !== undefined) {
+        const failure = await this.writeCursorApiKey(
+          params.cursorApiKey.trim(),
+        );
+        if (failure) return { success: false, error: failure };
+      }
+      if (params.copilotAutoApprove !== undefined) {
+        await this.setAgentCfg('copilotAutoApprove', params.copilotAutoApprove);
+        const copilotAdapter = this.cliDetection.getAdapter('copilot');
+        if (copilotAdapter && 'permissionBridge' in copilotAdapter) {
+          const bridge = (
+            copilotAdapter as { permissionBridge: CopilotPermissionBridge }
+          ).permissionBridge;
+          bridge.setAutoApprove(params.copilotAutoApprove);
+        }
+      }
+      if (params.codexReasoningEffort !== undefined) {
+        await this.setAgentCfg(
+          'codexReasoningEffort',
+          params.codexReasoningEffort,
+        );
+      }
+      for (const field of CODEX_BUDGET_TOKEN_FIELDS) {
+        const value = params[field];
+        if (value !== undefined) {
+          await this.setAgentCfg(field, withoutNegativeZero(value));
+        }
+      }
+      const guardOrder = laneGuardWriteOrder(params, (field) =>
+        this.getLaneGuard(field),
+      );
+      for (const field of guardOrder) {
+        const value = params[field];
+        if (value !== undefined) {
+          await this.setAgentCfg(field, value);
+        }
+      }
+      if (params.codexWebSearch !== undefined) {
+        await this.setAgentCfg('codexWebSearch', params.codexWebSearch);
+      }
+      if (params.subagentPromptCacheTtl !== undefined) {
+        await this.setAgentCfg(
+          'subagentPromptCacheTtl',
+          params.subagentPromptCacheTtl,
+        );
+      }
+      if (params.copilotReasoningEffort !== undefined) {
+        await this.setAgentCfg(
+          'copilotReasoningEffort',
+          params.copilotReasoningEffort,
+        );
+      }
+      if (params.piReasoningEffort !== undefined) {
+        await this.setAgentCfg('piReasoningEffort', params.piReasoningEffort);
+      }
+      if (params.mcpPort !== undefined) {
+        await this.stateStorage.update(
+          'agentOrchestration.mcpPort',
+          Math.max(1024, Math.min(65535, params.mcpPort)),
+        );
+      }
+      if (params.disabledClis !== undefined) {
+        await this.setAgentCfg('disabledClis', params.disabledClis);
+      }
+      if (params.disabledMcpNamespaces !== undefined) {
+        await this.setAgentCfg(
+          'disabledMcpNamespaces',
+          params.disabledMcpNamespaces,
+        );
+      }
+      if (params.browserAllowLocalhost !== undefined) {
+        await this.workspace.setConfiguration(
+          'ptah',
+          'browser.allowLocalhost',
+          params.browserAllowLocalhost,
+        );
+      }
+      if (params.workflowsDisabled !== undefined) {
+        await this.workspace.setConfiguration(
+          'ptah',
+          'workflows.disabled',
+          params.workflowsDisabled,
+        );
+      }
+      this.logger.debug('RPC: agent:setConfig success');
+      return { success: true };
+    } catch (error: unknown) {
+      // Raw errors can carry paths or credentials (params may hold
+      // cursorApiKey), so the log gets the error type and the client gets
+      // fixed text. SettingsPersistError's message is fixed by construction.
+      this.logger.error('RPC: agent:setConfig failed', {
+        errorType: error instanceof Error ? error.name : 'unknown',
+      });
+      return {
+        success: false,
+        error:
+          error instanceof SettingsPersistError
+            ? error.message
+            : 'Could not save the orchestration settings.',
+      };
+    }
   }
 
   /**
@@ -1014,7 +1034,12 @@ export class AgentRpcHandlers {
         ptahCliId?: string;
         previousAgentId?: string;
       },
-      { success: boolean; agentId?: string; error?: string }
+      {
+        success: boolean;
+        agentId?: string;
+        error?: string;
+        resumeDecision?: AgentResumeOutcome;
+      }
     >('agent:resumeCliSession', async (params) => {
       try {
         // Validate BEFORE anything reads the params. The static type above
@@ -1065,13 +1090,22 @@ export class AgentRpcHandlers {
           });
         }
 
+        // G.6: the resume gate's decision goes to the caller and the log, so
+        // a lane started fresh (with a handoff brief) is not mistaken for a
+        // resumed one.
+        const { resumeDecision } = result;
         this.logger.info('RPC: agent:resumeCliSession success', {
           agentId: result.agentId,
           cli: params.cli,
           resumedFrom: params.cliSessionId,
+          ...(resumeDecision ? { resumeDecision } : {}),
         });
 
-        return { success: true, agentId: result.agentId };
+        return {
+          success: true,
+          agentId: result.agentId,
+          ...(resumeDecision ? { resumeDecision } : {}),
+        };
       } catch (error) {
         const errorMessage =
           error instanceof Error ? error.message : String(error);

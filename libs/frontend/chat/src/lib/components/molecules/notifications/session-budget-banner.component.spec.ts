@@ -1,4 +1,6 @@
+import { signal } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
+import { TabManagerService } from '@ptah-extension/chat-state';
 import type { SessionBudgetState } from '@ptah-extension/shared';
 import { SessionBudgetBannerComponent } from './session-budget-banner.component';
 import { SessionRotationKeepService } from '../../../services/session-rotation-keep.service';
@@ -34,6 +36,13 @@ describe('SessionBudgetBannerComponent', () => {
   ): HTMLElement {
     TestBed.configureTestingModule({
       imports: [SessionBudgetBannerComponent],
+      providers: [
+        // The kept-key store prunes on tab close; no tab closes in these specs.
+        {
+          provide: TabManagerService,
+          useValue: { tabs: signal([]), onTabClosed: () => () => undefined },
+        },
+      ],
     });
     fixture = TestBed.createComponent(SessionBudgetBannerComponent);
     fixture.componentRef.setInput('budget', budget);
@@ -184,9 +193,23 @@ describe('SessionBudgetBannerComponent', () => {
         "Half of this session's budget is used",
       );
       expect(text(root, 'session-budget-body')).toBe(
-        '25.0M of 50.0M tokens. Run /compact or start a fresh session for unrelated work to slow the spend.',
+        "25.0M of 50.0M tokens. Run /compact or start a fresh session for unrelated work to slow the spend. /compact frees context but does not reset this session's budget.",
       );
       expect(buttons(root)).toEqual(['OK']);
+    });
+
+    // TASK_2026_614 F-A / Batch 28: a failed restore keeps the lowered window.
+    it('restore-failed: says the lowered window stays and keeps Restore', () => {
+      const root = render({
+        ...BASE,
+        stage: 'tighten',
+        window: { target: 200_000, applied: true, reason: 'restore-failed' },
+      });
+
+      expect(text(root, 'session-budget-body')).toBe(
+        '25.0M of 50.0M tokens. Ptah could not restore auto-compact; it stays at 200.0k tokens for this session. Try Restore auto-compact again.',
+      );
+      expect(buttons(root)).toEqual(['OK', 'Restore auto-compact']);
     });
 
     it('advisory when the window reason is disabled', () => {
@@ -227,7 +250,7 @@ describe('SessionBudgetBannerComponent', () => {
       });
 
       expect(text(root, 'session-budget-body')).toBe(
-        `25.0M of 50.0M tokens. Ptah could not lower auto-compact here (${reasonText}). Use /compact or start a fresh session to slow the spend.`,
+        `25.0M of 50.0M tokens. Ptah could not lower auto-compact here (${reasonText}). Use /compact or start a fresh session to slow the spend. /compact frees context but does not reset this session's budget.`,
       );
       expect(buttons(root)).toEqual(['OK']);
     });
@@ -311,6 +334,31 @@ describe('SessionBudgetBannerComponent', () => {
       );
     });
 
+    // TASK_2026_614 F.1 M3: a handoff built without the transcript says so.
+    it.each([
+      [
+        'read-failed',
+        'The transcript could not be read; the handoff may be incomplete.',
+      ],
+      [
+        'workspace-unknown',
+        "This session's workspace is not known, so the transcript was not read; the handoff may be incomplete.",
+      ],
+    ] as const)(
+      'warns when the transcript was not read (%s)',
+      (readStatus, line) => {
+        const root = render({ ...STATE, handoff: { ...HANDOFF, readStatus } });
+        expect(text(root, 'session-budget-read-status')).toBe(line);
+      },
+    );
+
+    it('no transcript warning when the read succeeded', () => {
+      const root = render(STATE);
+      expect(
+        root.querySelector('[data-testid="session-budget-read-status"]'),
+      ).toBeNull();
+    });
+
     it('buttons emit continue and dismiss', () => {
       const root = render(STATE);
       const cont = jest.fn();
@@ -344,7 +392,7 @@ describe('SessionBudgetBannerComponent', () => {
         'This session reached its budget',
       );
       expect(text(root, 'session-budget-body')).toBe(
-        '50.1M of 50.0M tokens. New messages here are paused after the current turn (one queued message may still run). /compact and /clear still work. Continue in a new session that starts with only the handoff (about 1.5k tokens instead of 180.0k).',
+        "50.1M of 50.0M tokens. New messages here are paused after the current turn (one queued message may still run). /clear still works. /compact frees context but does not reset this session's budget; at the limit only a bare /compact is allowed. Continue in a new session that starts with only the handoff (about 1.5k tokens instead of 180.0k).",
       );
       expect(buttons(root)).toEqual([
         'Continue in new session',
@@ -439,6 +487,25 @@ describe('SessionBudgetBannerComponent', () => {
       expect(pre?.textContent).toBe(hostile);
       expect(pre?.querySelector('img')).toBeNull();
       expect(pre?.querySelector('b')).toBeNull();
+    });
+
+    // TASK_2026_614 F.6: a failed load is an error with a retry, not "Loading…".
+    it('a failed load shows the error and Try again re-requests', () => {
+      const root = render(STATE);
+      fixture.componentRef.setInput('previewFailed', true);
+      const requested = jest.fn();
+      fixture.componentInstance.previewRequested.subscribe(requested);
+      button(root, 'Preview handoff').click();
+      fixture.detectChanges();
+
+      expect(
+        root.querySelector('[data-testid="session-budget-preview"]'),
+      ).toBeNull();
+      expect(text(root, 'session-budget-preview-error')).toBe(
+        'Could not load the handoff. Try again',
+      );
+      button(root, 'Try again').click();
+      expect(requested).toHaveBeenCalledTimes(2);
     });
   });
 });

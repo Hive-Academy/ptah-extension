@@ -93,7 +93,13 @@ describe('buildAgentWaitTool', () => {
 
 describe('runAgentWait', () => {
   it('passes ids, mode and the timeout in ms to the manager', async () => {
-    const d = deps({ mode: 'any', timedOut: false, waitedMs: 5, entries: [] });
+    const d = deps({
+      mode: 'any',
+      timedOut: false,
+      cancelled: false,
+      waitedMs: 5,
+      entries: [],
+    });
     await runAgentWait(
       AgentWaitArgsSchema.parse({
         agentIds: ['a', 'b'],
@@ -166,6 +172,7 @@ describe('runAgentWait', () => {
       {
         mode: 'all',
         timedOut: false,
+        cancelled: false,
         waitedMs: 90_000,
         entries: [
           {
@@ -214,6 +221,7 @@ describe('runAgentWait', () => {
         deps({
           mode: 'all',
           timedOut: false,
+          cancelled: false,
           waitedMs: 1,
           entries: [lane(stopReason)],
         }),
@@ -232,6 +240,7 @@ describe('runAgentWait', () => {
     const d = deps({
       mode: 'all',
       timedOut: true,
+      cancelled: false,
       waitedMs: 30_000,
       entries: [
         {
@@ -271,6 +280,7 @@ describe('runAgentWait', () => {
       {
         mode: 'any',
         timedOut: false,
+        cancelled: false,
         waitedMs: 1,
         entries: [
           { agentId: 'a', state: 'exited', info: info('a') },
@@ -302,6 +312,7 @@ describe('runAgentWait', () => {
       {
         mode: 'all',
         timedOut: true,
+        cancelled: false,
         waitedMs: 900_000,
         entries: ids.map((agentId) => ({
           agentId,
@@ -341,6 +352,7 @@ describe('runAgentWait', () => {
       {
         mode: 'all',
         timedOut: false,
+        cancelled: false,
         waitedMs: 1,
         entries: [{ agentId: 'a', state: 'exited', info: info('a') }],
       },

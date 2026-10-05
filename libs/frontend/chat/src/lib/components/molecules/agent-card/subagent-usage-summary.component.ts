@@ -141,7 +141,7 @@ export class SubagentUsageSummaryComponent {
 
   protected readonly costTitle = computed(() =>
     this.view().estimatedCostUsd === null
-      ? 'No price is known for this model'
+      ? 'No price is known for this model or its cache tokens'
       : 'Estimated from the reported tokens and the model price table',
   );
 

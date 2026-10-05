@@ -52,6 +52,7 @@ import {
 } from './tool-description.builder';
 import { buildServerInstructions } from './server-instructions';
 import { APPS_ONLY_TOOL_NAMES } from './mcp-tool-profile';
+import { getExecutionAbortSignal } from './code-execution.engine';
 import { buildHelpMethod } from '../namespace-builders/system-namespace.builders';
 import {
   getCallerToolProfile,
@@ -7759,6 +7760,39 @@ describe('MCP tool profile listing, eager loading and dispatch', () => {
       expect(result.text).toContain('TASKS:');
     },
   );
+
+  // TASK_2026_614 Batch 23: the request signal reaches the code's ptah calls.
+  it('execute_code hands the request abort signal to the ptah methods it calls', async () => {
+    const controller = new AbortController();
+    let seen: AbortSignal | undefined;
+    const deps = buildDeps({
+      ptahAPI: buildPtahAPIStub({
+        agent: {
+          waitFor: jest.fn(async () => {
+            seen = getExecutionAbortSignal();
+            return { agentId: 'x', status: 'completed' };
+          }),
+        },
+      }),
+    });
+
+    const result = agentToolResult(
+      await handleMCPRequest(
+        makeRequest({
+          method: 'tools/call',
+          _abortSignal: controller.signal,
+          params: {
+            name: 'execute_code',
+            arguments: { code: "return await ptah.agent.waitFor('x')" },
+          },
+        }),
+        deps,
+      ),
+    );
+
+    expect(result.isError).not.toBe(true);
+    expect(seen).toBe(controller.signal);
+  });
 });
 
 // ---------------------------------------------------------------------------

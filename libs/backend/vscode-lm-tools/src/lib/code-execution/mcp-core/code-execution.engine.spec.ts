@@ -11,7 +11,9 @@ import 'reflect-metadata';
 
 import type { Logger } from '@ptah-extension/vscode-core';
 import {
+  EXECUTION_CANCELLED_MESSAGE,
   executeCode,
+  getExecutionAbortSignal,
   serializeResult,
   wrapCodeForExecution,
   type CodeExecutionDependencies,
@@ -251,6 +253,72 @@ describe('executeCode', () => {
       'CodeExecutionMCP',
       expect.objectContaining({ resultType: 'string' }),
     );
+  });
+});
+
+/**
+ * TASK_2026_614 Batch 23: the request signal reaches the run and the
+ * `ptah.*` methods it calls.
+ */
+describe('executeCode — abort signal', () => {
+  it('exposes the signal to a ptah method through getExecutionAbortSignal', async () => {
+    const controller = new AbortController();
+    let seen: AbortSignal | undefined;
+    const ptahAPI = {
+      probe: {
+        signal: jest.fn(async () => {
+          seen = getExecutionAbortSignal();
+          return seen === controller.signal;
+        }),
+      },
+    } as unknown as PtahAPI;
+
+    const result = await executeCode('ptah.probe.signal()', 5000, {
+      ptahAPI,
+      logger: createMockLogger(),
+      signal: controller.signal,
+    });
+
+    expect(result).toBe(true);
+    expect(seen).toBe(controller.signal);
+    expect(getExecutionAbortSignal()).toBeUndefined();
+  });
+
+  it('ends the run with a cancellation error when the signal aborts', async () => {
+    const controller = new AbortController();
+    const ptahAPI = {
+      probe: {
+        hang: jest.fn(
+          async () =>
+            new Promise<void>(() => {
+              controller.abort();
+            }),
+        ),
+      },
+    } as unknown as PtahAPI;
+
+    await expect(
+      executeCode('ptah.probe.hang()', 5000, {
+        ptahAPI,
+        logger: createMockLogger(),
+        signal: controller.signal,
+      }),
+    ).rejects.toThrow(EXECUTION_CANCELLED_MESSAGE);
+  });
+
+  it('does not start a run whose signal is already aborted', async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const ptahAPI = createMinimalPtahAPI();
+
+    await expect(
+      executeCode('ptah.workspace.getProjectType()', 5000, {
+        ptahAPI,
+        logger: createMockLogger(),
+        signal: controller.signal,
+      }),
+    ).rejects.toThrow(EXECUTION_CANCELLED_MESSAGE);
+    expect(ptahAPI.workspace.getProjectType).not.toHaveBeenCalled();
   });
 });
 

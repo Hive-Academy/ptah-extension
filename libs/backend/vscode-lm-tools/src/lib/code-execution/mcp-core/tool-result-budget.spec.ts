@@ -602,6 +602,40 @@ describe('applyToolResultBudget', () => {
     expect(lines[0]).not.toContain('/private/path');
     expect(fsSync.existsSync(spoolDir())).toBe(false);
   });
+
+  it('logs an unwritable spool .gitignore once per directory, not per call', async () => {
+    const lines: string[] = [];
+    const output = {
+      name: 'test',
+      appendLine: (line: string) => lines.push(line),
+      append: () => undefined,
+      clear: () => undefined,
+      show: () => undefined,
+      dispose: () => undefined,
+    };
+    fsSync.mkdirSync(path.join(spoolDir(), '.gitignore'), { recursive: true });
+    const eacces = Object.assign(new Error('EACCES /private/path'), {
+      code: 'EACCES',
+    });
+    const real = fsSync.promises.writeFile.bind(fsSync.promises);
+    jest.spyOn(fsSync.promises, 'writeFile').mockImplementation(((
+      file: unknown,
+      ...rest: unknown[]
+    ) =>
+      String(file).endsWith('.gitignore')
+        ? Promise.reject(eacces)
+        : (real as (...a: unknown[]) => Promise<void>)(
+            file,
+            ...rest,
+          )) as never);
+    const raw = 'word '.repeat(4000);
+    await call(raw, { output, requestId: 11 });
+    await call(raw, { output, requestId: 12 });
+    const gitignoreLines = lines.filter((l) => l.includes('.gitignore'));
+    expect(gitignoreLines).toHaveLength(1);
+    expect(gitignoreLines[0]).toContain('EACCES');
+    expect(gitignoreLines[0]).not.toContain('/private/path');
+  });
 });
 
 describe('review 2e r1 regressions', () => {

@@ -8,8 +8,11 @@ import {
   SESSION_BUDGET_SETTINGS,
   isSessionBudgetPercentOrderValid,
   type SessionBudgetConfig,
+  type SessionBudgetHandoff,
+  type SessionBudgetHandoffReadStatus,
   type SessionBudgetRotation,
   type SessionBudgetState,
+  type SessionBudgetWindow,
 } from './session-budget.types';
 
 const entries = Object.entries(SESSION_BUDGET_SETTINGS) as Array<
@@ -114,7 +117,9 @@ describe('SessionBudgetState.rotation', () => {
     };
     const state: SessionBudgetState = { ...base, rotation };
     // The state rides the result-stats broadcast as JSON.
-    const roundTripped = JSON.parse(JSON.stringify(state)) as SessionBudgetState;
+    const roundTripped = JSON.parse(
+      JSON.stringify(state),
+    ) as SessionBudgetState;
     expect(roundTripped.rotation).toEqual({
       contextTokens: 312_000,
       threshold: 300_000,
@@ -124,6 +129,47 @@ describe('SessionBudgetState.rotation', () => {
       'threshold',
     ]);
   });
+});
+
+describe('SessionBudgetWindow restore failure (F-A)', () => {
+  it('carries `restore-failed` with `applied: true` and survives JSON', () => {
+    const window: SessionBudgetWindow = {
+      target: 200_000,
+      applied: true,
+      reason: 'restore-failed',
+    };
+    const roundTripped = JSON.parse(
+      JSON.stringify(window),
+    ) as SessionBudgetWindow;
+    expect(roundTripped).toEqual({
+      target: 200_000,
+      applied: true,
+      reason: 'restore-failed',
+    });
+  });
+});
+
+describe('SessionBudgetHandoff.readStatus', () => {
+  const base: SessionBudgetHandoff = {
+    path: '/home/u/.ptah/handoffs/s1.md',
+    chars: 1_200,
+    truncated: false,
+    writtenAt: 1_700_000_000_000,
+  };
+
+  it('is optional: a handoff built from a read transcript omits it', () => {
+    expect(base.readStatus).toBeUndefined();
+  });
+
+  it.each<SessionBudgetHandoffReadStatus>(['workspace-unknown', 'read-failed'])(
+    'carries `%s` through JSON',
+    (readStatus) => {
+      const roundTripped = JSON.parse(
+        JSON.stringify({ ...base, readStatus }),
+      ) as SessionBudgetHandoff;
+      expect(roundTripped.readStatus).toBe(readStatus);
+    },
+  );
 });
 
 describe('isSessionBudgetPercentOrderValid', () => {

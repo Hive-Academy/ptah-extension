@@ -1,5 +1,6 @@
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { VSCodeService } from '@ptah-extension/core';
+import { TabManagerService } from '@ptah-extension/chat-state';
 import {
   SESSION_BUDGET_SETTINGS,
   type SessionBudgetConfig,
@@ -37,6 +38,7 @@ describe('SessionBudgetSettingsComponent', () => {
   let stored: Record<string, unknown>;
   let readFails: boolean;
   let writeReply: () => Promise<RpcReply>;
+  const tabManager = { clearSessionBudgets: jest.fn() };
 
   const host = (): HTMLElement => fixture.nativeElement as HTMLElement;
   const byTestId = <T extends HTMLElement = HTMLElement>(
@@ -97,7 +99,10 @@ describe('SessionBudgetSettingsComponent', () => {
     );
     TestBed.configureTestingModule({
       imports: [SessionBudgetSettingsComponent],
-      providers: [{ provide: VSCodeService, useValue: {} }],
+      providers: [
+        { provide: VSCodeService, useValue: {} },
+        { provide: TabManagerService, useValue: tabManager },
+      ],
     });
   });
 
@@ -271,6 +276,79 @@ describe('SessionBudgetSettingsComponent', () => {
         { key: 'sessionBudget.tightenPercent', value: 85 },
       ]);
     });
+
+    it('does not save a partner draft the user is still typing in (focused), only re-validates it', async () => {
+      await create();
+      await enter('tightenPercent', '85');
+      expect(byTestId('session-budget-tightenPercent-error')).not.toBeNull();
+
+      // Handoff commits while focus has already moved into the tighten field.
+      const handoff = field('handoffPercent');
+      handoff.value = '95';
+      handoff.dispatchEvent(new Event('input'));
+      fixture.detectChanges();
+      handoff.dispatchEvent(new Event('change'));
+      handoff.dispatchEvent(new FocusEvent('blur'));
+      field('tightenPercent').dispatchEvent(new FocusEvent('focus'));
+      await settle();
+
+      expect(writes()).toEqual([
+        { key: 'sessionBudget.handoffPercent', value: 95 },
+      ]);
+      expect(byTestId('session-budget-tightenPercent-error')).toBeNull();
+      expect(field('tightenPercent').value).toBe('85');
+
+      // Its own blur / Enter then saves it.
+      field('tightenPercent').dispatchEvent(new Event('change'));
+      await settle();
+      expect(writes()).toEqual([
+        { key: 'sessionBudget.handoffPercent', value: 95 },
+        { key: 'sessionBudget.tightenPercent', value: 85 },
+      ]);
+    });
+
+    it('Tab after editing both: leaving the focused partner without typing saves its now-valid draft', async () => {
+      await create();
+      await enter('tightenPercent', '85');
+      expect(byTestId('session-budget-tightenPercent-error')).not.toBeNull();
+
+      // Handoff is edited, then Tab moves focus into tighten while the handoff write is in flight.
+      const handoff = field('handoffPercent');
+      handoff.value = '95';
+      handoff.dispatchEvent(new Event('input'));
+      fixture.detectChanges();
+      handoff.dispatchEvent(new Event('change'));
+      handoff.dispatchEvent(new FocusEvent('blur'));
+      const tighten = field('tightenPercent');
+      tighten.dispatchEvent(new FocusEvent('focus'));
+      await settle();
+      expect(writes()).toEqual([
+        { key: 'sessionBudget.handoffPercent', value: 95 },
+      ]);
+
+      // Tab again with no keystroke: no `change` fires, only `blur`.
+      tighten.dispatchEvent(new FocusEvent('blur'));
+      await settle();
+
+      expect(writes()).toEqual([
+        { key: 'sessionBudget.handoffPercent', value: 95 },
+        { key: 'sessionBudget.tightenPercent', value: 85 },
+      ]);
+      expect(byTestId('session-budget-tightenPercent-error')).toBeNull();
+      expect(field('tightenPercent').value).toBe('85');
+    });
+
+    it('leaving a field whose `change` already saved it does not write it twice', async () => {
+      await create();
+      const tokens = field('tokens');
+      tokens.dispatchEvent(new FocusEvent('focus'));
+      await enter('tokens', '2000000');
+      tokens.dispatchEvent(new FocusEvent('blur'));
+      await settle();
+      expect(writes()).toEqual([
+        { key: 'sessionBudget.tokens', value: 2_000_000 },
+      ]);
+    });
   });
 
   describe('tightenWindowTokens', () => {
@@ -306,6 +384,38 @@ describe('SessionBudgetSettingsComponent', () => {
       expect(stored['sessionBudget.tokens']).toBe(50_000_000);
     });
 
+    it('bounds each settings write with a timeout', async () => {
+      await create();
+      await enter('tokens', '2000000');
+      const writeTimeouts = mockRpcCall.mock.calls
+        .filter((call) => call[1] === 'settings:set')
+        .map((call) => call[3]);
+      expect(writeTimeouts).toEqual([5_000]);
+    });
+
+    it('a timed-out write frees the card and says the save is unconfirmed', async () => {
+      writeReply = async () => ({
+        success: false,
+        error: 'RPC timeout: settings:set',
+      });
+      await create();
+      await enter('tokens', '2000000');
+      expect(byTestId('session-budget-tokens-error')?.textContent).toContain(
+        'Could not confirm saving Token budget',
+      );
+      expect(field('tokens').getAttribute('aria-disabled')).toBeNull();
+      expect(field('tokens').value).toBe('2000000');
+
+      // Not busy: the next edit is written.
+      writeReply = async () => ({ success: true, data: { success: true } });
+      await enter('tokens', '3000000');
+      expect(writes()).toEqual([
+        { key: 'sessionBudget.tokens', value: 2_000_000 },
+        { key: 'sessionBudget.tokens', value: 3_000_000 },
+      ]);
+      expect(byTestId('session-budget-tokens-error')).toBeNull();
+    });
+
     it('a transport failure on a toggle leaves the box at the saved value', async () => {
       writeReply = async () => {
         throw new Error('timeout');
@@ -338,6 +448,27 @@ describe('SessionBudgetSettingsComponent', () => {
       ]);
       expect(box.checked).toBe(false);
       expect(byTestId('session-budget-status')?.textContent).toContain('Saved');
+      expect(tabManager.clearSessionBudgets).not.toHaveBeenCalled();
+    });
+
+    // TASK_2026_614 F.4 / F-D: turning the budget off clears every tab's banner.
+    it('clears the budget on every tab once "enabled" is saved off', async () => {
+      await create();
+      const box = field('enabled');
+      box.checked = false;
+      box.dispatchEvent(new Event('change'));
+      await settle();
+      expect(tabManager.clearSessionBudgets).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps the tab budgets when turning the budget off is not saved', async () => {
+      writeReply = async () => ({ success: true, data: { success: false } });
+      await create();
+      const box = field('enabled');
+      box.checked = false;
+      box.dispatchEvent(new Event('change'));
+      await settle();
+      expect(tabManager.clearSessionBudgets).not.toHaveBeenCalled();
     });
 
     it('writes the unit', async () => {

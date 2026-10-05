@@ -22,6 +22,7 @@
 
 import type { Logger } from '../../logging';
 import type { SubagentRecord } from '@ptah-extension/shared';
+import { blankToUndefined } from '@ptah-extension/shared';
 
 /**
  * TTL for subagent records: 24 hours.
@@ -33,6 +34,24 @@ export const TTL_MS = 24 * 60 * 60 * 1000;
  * Cleanup runs at most once per this interval.
  */
 export const CLEANUP_INTERVAL_MS = 60 * 60 * 1000;
+
+/**
+ * A SubagentStart that arrived without a `toolUseId` and that no registry
+ * record could claim, held until the Task tool result names its agentId.
+ */
+export interface HeldUnboundStart {
+  readonly agentId: string;
+  readonly agentType: string;
+  /**
+   * Parent session the start arrived under; `undefined` when it could not
+   * be resolved. An unresolved id is the start's OWN parent-session key —
+   * a discard carrying one matches only these starts — never a wildcard
+   * over every session's held starts (PR #655).
+   */
+  readonly parentSessionId?: string;
+  /** Unix epoch ms the start arrived; becomes the record's `startedAt`. */
+  readonly startedAt: number;
+}
 
 /**
  * In-memory registry of subagent lifecycle records with lazy TTL cleanup.
@@ -80,6 +99,15 @@ export class SubagentStateStore {
     string,
     { taskId: string; at: number }
   >();
+
+  /**
+   * SubagentStart hooks that arrived without a `toolUseId` and with no
+   * registry record naming their `agentId` (F-F). Keyed by agentId; a list so
+   * two starts naming the same id stay visible as ambiguous instead of one
+   * silently replacing the other. Bound when the Task tool result names the
+   * id, discarded on SubagentStop, evicted after TTL_MS by cleanupExpired().
+   */
+  private readonly heldUnboundStarts = new Map<string, HeldUnboundStart[]>();
 
   /**
    * Parent session IDs currently inside endSession()/disposeAllSessions()
@@ -164,6 +192,7 @@ export class SubagentStateStore {
     this.pendingBackgroundToolCallIds.clear();
     this.pendingTeammateNames.clear();
     this.pendingTaskIds.clear();
+    this.heldUnboundStarts.clear();
     this.teardownSessionIds.clear();
     this.injectionAttempts.clear();
   }
@@ -294,6 +323,53 @@ export class SubagentStateStore {
     return undefined;
   }
 
+  /**
+   * Hold a SubagentStart that no record could claim (see heldUnboundStarts).
+   *
+   * A blank parent session is absent, not a session: it is normalised to
+   * the unresolved key, so `''` and a missing id hold and discard as one.
+   */
+  holdUnboundStart(start: HeldUnboundStart): void {
+    const parentSessionId = blankToUndefined(start.parentSessionId);
+    const held = this.heldUnboundStarts.get(start.agentId) ?? [];
+    this.heldUnboundStarts.set(start.agentId, [
+      ...held.filter((h) => h.parentSessionId !== parentSessionId),
+      { ...start, parentSessionId },
+    ]);
+  }
+
+  /** Every held start naming this agentId (empty when none). */
+  getHeldUnboundStarts(agentId: string): readonly HeldUnboundStart[] {
+    return this.heldUnboundStarts.get(agentId) ?? [];
+  }
+
+  /** Whether any start is held — lets callers skip parsing tool results. */
+  get hasHeldUnboundStarts(): boolean {
+    return this.heldUnboundStarts.size > 0;
+  }
+
+  /**
+   * Drop held starts for an agent, scoped to one exact parent-session key.
+   *
+   * The key is exact, never a wildcard. An unresolved parent session
+   * (`undefined`, or a blank id normalised to it) drops only starts that
+   * were themselves held without a resolved session; a resolved id drops
+   * only that session's. `undefined` used to mean "every session", which let
+   * a stop that could not attribute itself to a session lose another
+   * session's held start before its Task result bound it (PR #655).
+   *
+   * @returns How many held starts were dropped.
+   */
+  discardHeldUnboundStarts(agentId: string, parentSessionId?: string): number {
+    const held = this.heldUnboundStarts.get(agentId) ?? [];
+    const key = blankToUndefined(parentSessionId);
+    const retained = held.filter((start) => start.parentSessionId !== key);
+    const count = held.length - retained.length;
+    if (retained.length === 0) this.heldUnboundStarts.delete(agentId);
+    else this.heldUnboundStarts.set(agentId, retained);
+    return count;
+  }
+
   /** Remember that a toolCallId was injected into context and removed. */
   markInjected(toolCallId: string): void {
     this.clearedToolCallIds.set(toolCallId, Date.now());
@@ -376,8 +452,22 @@ export class SubagentStateStore {
       this.pendingTaskIds.delete(toolCallId);
     }
 
+    let heldStartsRemoved = 0;
+    for (const [agentId, held] of Array.from(this.heldUnboundStarts)) {
+      const fresh = held.filter((h) => now - h.startedAt <= TTL_MS);
+      heldStartsRemoved += held.length - fresh.length;
+      if (fresh.length === 0) {
+        this.heldUnboundStarts.delete(agentId);
+      } else if (fresh.length !== held.length) {
+        this.heldUnboundStarts.set(agentId, fresh);
+      }
+    }
+
     const totalRemoved =
-      toRemove.length + clearedToRemove.length + pendingIdsToRemove.length;
+      toRemove.length +
+      clearedToRemove.length +
+      pendingIdsToRemove.length +
+      heldStartsRemoved;
     if (totalRemoved === 0) {
       return;
     }
@@ -388,6 +478,7 @@ export class SubagentStateStore {
         registryRemoved: toRemove.length,
         clearedIdsRemoved: clearedToRemove.length,
         pendingIdsRemoved: pendingIdsToRemove.length,
+        heldStartsRemoved,
         remainingRegistry: this.registry.size,
         remainingClearedIds: this.clearedToolCallIds.size,
         remainingPendingIds: this.pendingTaskIds.size,

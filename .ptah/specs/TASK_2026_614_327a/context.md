@@ -159,6 +159,42 @@ fixed in the D + E fix round. These Moderates are named later tasks (they cannot
   the vscode-lm-tools dispatcher does not log the spool `gitignoreFailure`; Batch 13 before/after screenshots (dark +
   light) of the session budget banner go to the Stage C QA session.
 
+### Stage H — follow-ups from the F + G phase review (PR for F + G)
+
+Files: `reviews/fg-code-logic-review-a.md`, `-b.md`, `-c.md`, `fg-code-style-review.md`, `fg-code-logic-rereview.md`
+(this folder); `batches.md` § "Named later tasks (Stage F + G)". Fixed in the F + G fix round: A-S1 (partial), A-M5,
+B-M1, B-M2, C-S1, style-S1. These Moderates are named later tasks (they cannot break a lane config or lose data):
+
+- H.1 NL-F2 (needs a user decision): A-S1 rest. With F-F exact `agentId:` matching, a foreground Task returns its
+  `agentId:` line only after the subagent stops, so a running foreground subagent whose start has no `toolUseId` cannot
+  be stopped or steered. Option: bind when exactly one candidate Task call is in flight (revisit F-F).
+- H.2 A-M1: after `release`, an old-id message creates a fresh monitor record that is never released
+  (`subagent-budget-monitor.ts:~421-456`; the spec does not check the old id).
+- H.3 A-M2: an exact `agentId` match on a `completed` record is logged "bound" but stays `completed`
+  (`subagent-hook-handler.ts:~352-375`).
+- H.4 A-M3: the preview and rotation-seed handoff drop `readStatus` (`session-budget.service.ts:~767`).
+- H.5 A-M4: a failed child interrupt lets a late figure recreate a budget entry that is never released.
+- H.6 B-M3: after an `execute_code` cancel or timeout, later `ptah.*` bridge calls still run (no abort check); a
+  timeout does not end `waitFor`.
+- H.7 B-M4: a check that starts after the shutdown kill snapshot is not killed (`shutdown.ts:~426-446`, `main.ts`).
+- H.8 C-M1: a stale stats snapshot after F-D can re-show the paused limit banner (`tab-manager.service.ts:~2280-2292`).
+- H.9 Style M1 (naming drift after the `SubagentBudgetDispatcherPort` rename) and style M2 (`clearSessionBudgets()`
+  reaches into `workspacePartition.findBackgroundTabIds` with an inline predicate).
+- H.10 NL-F1 (Task 33.6): the stats-chip tooltip hard-codes 50/80/100%; using the configured percents needs a
+  `SessionBudgetState` field (libs/shared) and backend data.
+- H.11 G-C: the `stopped` subagent status (libs/shared union, saved history, frontend badges) — a feature, deferred by
+  the user.
+- H.12 The Minors in the four review files and the re-review: review A m1-m5, review B five Minors (late-`close` kill
+  text, duplicate-id reply, `.gitignore` suppression reset, unbounded `setConfigQueue` write, Electron kill before the
+  final flush), review C m1-m8, the style Minors, and the 4 re-review Minors (e.g. the held-start binding check runs on every tool
+  result, not only Task results).
+- H.14 PR 655 CodeRabbit fix 2, review M1 (`reviews/pr655-coderabbit-fix-2-review.md`): held-start discard now uses an
+  exact parent-session key, so a stop whose session is unresolved cannot discard a start that was held WITH a session;
+  that start can later bind as a running zombie. Option: when the stop's session is unresolved, discard only if exactly
+  one held start exists for that agentId. Two new specs also pass on the old code (strengthen them).
+- H.13 Process note: R1 breaches in this stage (Batch 16: 94, 22: 84, 33: 117, 25: 71, 29: 64, 28: 61, fix A: 77 tool
+  calls); briefs for Stage A must split work smaller (about 4 files, at most 4 tasks per batch).
+
 ## Suggested order
 
 1. Stage D + Stage E (small, file-local fixes; can share the first PR).
@@ -166,7 +202,23 @@ fixed in the D + E fix round. These Moderates are named later tasks (they cannot
 3. Stage A, then Stage B.
 4. Stage C last (QA with live proof), then close TASK_2026_597_ab22 and this task.
 
+## User Decisions (Stage F + G, 2026-10-05)
+
+All recommended options from `batches.md` § "Stage F + G batches" › "Decisions for the user":
+
+- F-A: new `restore-failed` reason. F-B: proposed UI wording accepted. F-C: `/compact` at the limit is a copy change
+  only. F-D: clear the limit banner state on every tab when `sessionBudget.enabled` is saved off. F-E: price each
+  request with its own model, "unknown" (not 0) when the cache price is missing. F-F: exact `agentId:` match only.
+- G-A (G.4): `killRunningChecks` is awaited with a timeout (up to 5 s) on both hosts. G-B (G.7): rename
+  `SubagentStopPort` to `SubagentBudgetDispatcherPort`. G-C (G.8 m5): the `stopped` subagent status is deferred as a
+  named later task (Batch 34 dropped). G-D (G.6): RPC result and log only. G-E (FM-7): accept and document (Task 18.4
+  becomes a doc note).
+- CLI lanes stay disabled (Gate 0.1). Push and open the F + G PR without asking.
+
 ## Conversation Summary
 
 - 2026-10-05: created at the end of the fifth TASK_2026_597 orchestration session, committed with PR #647. The user will
   start it in a new session after PR #647 merges.
+- 2026-10-05: Stage D + E merged as PR #650. Stage F + G done on `fix/task-614-stage-f-g` (Batches 16-33, 35, 36;
+  Batch 34 dropped by G-C), one phase review (logic A/B/C + style), one fix round, one re-review. Deferred items are
+  Stage H. Next: Stage A, then B, then C (Stage H items can join Stage A batches that touch the same files).

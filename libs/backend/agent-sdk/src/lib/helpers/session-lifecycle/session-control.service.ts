@@ -622,10 +622,13 @@ export class SessionControl {
    * Restoring clears the override and sends what
    * {@link resolveAutoCompactControl} gives for the current config, or `null`
    * (the runtime decides) — never a guessed class default. With no override
-   * recorded there is nothing to restore and nothing is sent.
+   * recorded there is nothing to restore and nothing is sent. A restore that
+   * cannot reach the runtime, throws or times out keeps the override and gives
+   * `{ applied: true, reason: 'restore-failed' }`: the lowered window is still
+   * in force.
    *
-   * Any throw or timeout gives `failed`. Before the target was sent the record
-   * keeps the override it had. After it was sent (a read-back or the
+   * Any throw or timeout while lowering gives `failed`. Before the target was
+   * sent the record keeps the override it had. After it was sent (a read-back or the
    * not-honoured revert failed) the previous window is put back once; when
    * that fails too the target stays recorded, because the runtime holds it.
    * Never throws.
@@ -825,7 +828,7 @@ export class SessionControl {
     const failed: SessionBudgetWindow = {
       target: override,
       applied: true,
-      reason: 'failed',
+      reason: 'restore-failed',
     };
     const query = rec.query;
     if (!query) {

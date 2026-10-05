@@ -8,7 +8,7 @@
 import { PassThrough } from 'node:stream';
 
 import { decodeMessage } from './encoder.js';
-import { InvalidParamsError, JsonRpcServer } from './server.js';
+import { InvalidParamsError, JsonRpcServer, NO_RESPONSE } from './server.js';
 import {
   JsonRpcErrorCode,
   isJsonRpcErrorResponse,
@@ -175,6 +175,27 @@ describe('JsonRpcServer', () => {
         expect(decoded.message.error.message).toContain('kaboom');
       } else {
         throw new Error('expected error response');
+      }
+      h.server.stop();
+    });
+
+    it('sends nothing for a request whose handler returns NO_RESPONSE', async () => {
+      const h = makeHarness();
+      h.server.register('silent', () => NO_RESPONSE);
+      h.server.register('echo', (params) => ({ echoed: params }));
+
+      send(h.stdinIn, { jsonrpc: '2.0', id: 6, method: 'silent' });
+      send(h.stdinIn, { jsonrpc: '2.0', id: 7, method: 'echo', params: 1 });
+      // Wait for the echo reply, then give the silent request time to land.
+      await h.waitForLines(1);
+      await new Promise((resolve) => setTimeout(resolve, 30));
+
+      expect(h.outLines).toHaveLength(1);
+      const decoded = decodeMessage(h.outLines[0]);
+      if (decoded.ok && isJsonRpcSuccessResponse(decoded.message)) {
+        expect(decoded.message.id).toBe(7);
+      } else {
+        throw new Error('expected success response');
       }
       h.server.stop();
     });

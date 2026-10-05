@@ -47,6 +47,13 @@ function budgetDefault(key: string): number {
   return value;
 }
 
+const BUDGET_KEYS = [
+  'compaction.toolOutputBudgetTokens',
+  'compaction.subagentHandoffTokens',
+  'compaction.rotationSuggestTokens',
+  'compaction.subagentStopWeightedTokens',
+] as const;
+
 /**
  * Compaction configuration settings
  */
@@ -85,10 +92,24 @@ export class CompactionConfigProvider {
   /** Invalid budget values already warned about (`key:type:value`). */
   private readonly warnedBudgets = new Set<string>();
 
+  /** Budget defaults, resolved once at construction (key to platform-core default). */
+  private readonly budgetDefaults: ReadonlyMap<string, number>;
+
   constructor(
     @inject(TOKENS.CONFIG_MANAGER) private readonly config: ConfigManager,
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
-  ) {}
+  ) {
+    this.budgetDefaults = new Map(
+      BUDGET_KEYS.map((key) => [key, budgetDefault(key)] as const),
+    );
+  }
+
+  /** Warns once per distinct key+value; `getConfig()` runs per tool call. */
+  private warnOnce(warnKey: string, message: string, data: object): void {
+    if (this.warnedBudgets.has(warnKey)) return;
+    this.warnedBudgets.add(warnKey);
+    this.logger.warn(message, data);
+  }
 
   /**
    * Get compaction configuration from settings
@@ -114,7 +135,8 @@ export class CompactionConfigProvider {
       if (isValidAutoCompactWindow(rawThreshold)) {
         contextTokenThreshold = rawThreshold;
       } else {
-        this.logger.warn(
+        this.warnOnce(
+          `threshold:${typeof rawThreshold}:${String(rawThreshold)}`,
           '[CompactionConfigProvider] Invalid compaction threshold, treating it as unset so the runtime decides',
           {
             providedValue:
@@ -169,21 +191,18 @@ export class CompactionConfigProvider {
   private readBudget(key: string): number {
     // One edit site: the default comes from platform-core, which also supplies
     // it when the key is absent; an invalid hand-edited value falls back to it.
-    const defaultValue = budgetDefault(key);
+    const defaultValue = this.budgetDefaults.get(key) ?? budgetDefault(key);
     const raw = this.config.get<unknown>(key);
     if (raw === undefined || raw === null) return defaultValue;
     if (isPositiveSafeInteger(raw)) {
       return raw;
     }
     // Called per tool call and per subagent message: warn once per key+value.
-    const warnKey = `${key}:${typeof raw}:${String(raw)}`;
-    if (!this.warnedBudgets.has(warnKey)) {
-      this.warnedBudgets.add(warnKey);
-      this.logger.warn(
-        `[CompactionConfigProvider] Invalid ${key}, using the default`,
-        { providedType: typeof raw, defaultValue },
-      );
-    }
+    this.warnOnce(
+      `${key}:${typeof raw}:${String(raw)}`,
+      `[CompactionConfigProvider] Invalid ${key}, using the default`,
+      { providedType: typeof raw, defaultValue },
+    );
     return defaultValue;
   }
 
@@ -198,14 +217,16 @@ export class CompactionConfigProvider {
     if (raw === undefined || raw.trim() === '') return null;
     const envWindow = parseAutoCompactWindowEnv(raw);
     if (envWindow === null) {
-      this.logger.warn(
+      this.warnOnce(
+        `env:ignored:${raw}`,
         `[CompactionConfigProvider] ${AUTO_COMPACT_WINDOW_ENV} is not a positive integer; the runtime ignores it`,
         { rawLength: raw.length },
       );
       return null;
     }
     if (envWindow !== Number.parseInt(raw.trim(), 10)) {
-      this.logger.warn(
+      this.warnOnce(
+        `env:clamped:${raw}`,
         `[CompactionConfigProvider] ${AUTO_COMPACT_WINDOW_ENV} is outside the accepted range; the runtime clamps it`,
         {
           effectiveWindow: envWindow,

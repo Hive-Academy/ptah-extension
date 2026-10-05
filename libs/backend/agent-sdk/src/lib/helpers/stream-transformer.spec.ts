@@ -3332,6 +3332,25 @@ describe('StreamTransformer — onMessage / onStreamEnd (TASK_2026_614 D.11)', (
     );
   });
 
+  it('logs a rejected async onMessage and keeps the stream going', async () => {
+    const { transformer, logger } = makeHarness();
+    await expect(
+      drain(
+        transformer.transform({
+          sdkQuery: asAsyncIterable([compactingStatus()]),
+          sessionId: 'sess-1' as SessionId,
+          initialModel: MODEL,
+          onMessage: () => Promise.reject(new TypeError('async tap broke')),
+        }),
+      ),
+    ).resolves.toBeUndefined();
+    await Promise.resolve();
+    expect(logger.warn).toHaveBeenCalledWith(
+      '[StreamTransformer] onMessage callback failed; the stream continues',
+      expect.objectContaining({ error: 'TypeError' }),
+    );
+  });
+
   it('a throwing onStreamEnd is logged and replaces neither a clean end nor the stream error', async () => {
     const { transformer, logger } = makeHarness();
     const onStreamEnd = jest.fn(() => {

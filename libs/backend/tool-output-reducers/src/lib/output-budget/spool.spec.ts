@@ -122,6 +122,10 @@ describe('spool .gitignore', () => {
     expect(JSON.stringify(outcome)).not.toContain('/private/path');
     expect(fsSync.readFileSync(outcome.path, 'utf8')).toBe('d');
     expect(write).toHaveBeenCalledTimes(2);
+
+    const again = await writeSpoolFile('e', spoolDir(), 5);
+    expect('path' in again).toBe(true);
+    expect(again).not.toHaveProperty('gitignoreFailure');
   });
 });
 

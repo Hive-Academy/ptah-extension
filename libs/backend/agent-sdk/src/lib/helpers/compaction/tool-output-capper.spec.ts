@@ -178,7 +178,15 @@ describe('ToolOutputCapper', () => {
 
     expect(result.type).toBe('text');
     expect(result.file.filePath).toBe(filePath);
-    expect(result.file.numLines).toBe(result.file.content.split('\n').length);
+    // Outline lines only: the "\n\n[outline: ...]" trailer is not counted.
+    const outlineBody = result.file.content.slice(
+      0,
+      result.file.content.lastIndexOf('\n\n[outline: '),
+    );
+    expect(result.file.numLines).toBe(outlineBody.split('\n').length);
+    expect(result.file.numLines).toBe(
+      result.file.content.split('\n').length - 2,
+    );
     expect(result.file.numLines).toBeLessThan(300);
     expect(result.file.startLine).toBe(1);
     expect(result.file.totalLines).toBe(300);
@@ -188,6 +196,34 @@ describe('ToolOutputCapper', () => {
     expect(result.file.content).toContain('[outline: ');
     expect(withinBudget(result.file.content)).toBe(true);
     expect(await spoolFiles()).toHaveLength(0);
+  });
+
+  it('does not count an outline terminal newline as a file line', async () => {
+    type CapperInternals = {
+      outlineWholeFile(
+        content: string,
+        filePath: string,
+        budget: unknown,
+      ): Promise<string>;
+    };
+    const { capper } = makeCapper();
+    jest
+      .spyOn(capper as unknown as CapperInternals, 'outlineWholeFile')
+      .mockResolvedValue('first\nsecond\n\n\n[outline: /big.ts; read with offset/limit]');
+    const filePath = path.join(cwd, 'big.ts');
+    const response = {
+      type: 'text',
+      file: { filePath, content: bigSource(), numLines: 300 },
+    };
+
+    const result = (await capper.cap(
+      'Read',
+      { file_path: filePath },
+      response,
+      cwd,
+    )) as typeof response;
+
+    expect(result.file.numLines).toBe(2);
   });
 
   it('does not invent line metadata a whole-file Read response lacked', async () => {

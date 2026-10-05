@@ -39,6 +39,7 @@ function createLiveTransformer(): SdkMessageTransformer {
     pruneSession: jest.fn(),
     markPendingBackground: jest.fn(),
     setTaskId: jest.fn(),
+    hasHeldUnboundStarts: jest.fn(() => false),
   } as unknown as SubagentRegistryService;
   const modelResolver = {
     resolveForPricing: jest.fn((model: string) => model),

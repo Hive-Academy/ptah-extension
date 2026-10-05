@@ -235,6 +235,8 @@ function keepPreviousFigure(
   measured: SessionBudgetMeasurement,
   previous: SessionBudgetState | null,
   resetMeasure: boolean,
+  config: SessionBudgetConfig,
+  extensions: number,
 ): SessionBudgetMeasurement {
   if (measured.used !== null || previous === null || previous.used === null) {
     return measured;
@@ -247,10 +249,18 @@ function keepPreviousFigure(
       lowerBound: previous.lowerBound,
     };
   }
+  // The kept measure's limit is rebuilt from the current settings and
+  // extensions: `previous.limit` predates any extension granted since.
+  const base =
+    previous.measure === 'tokens'
+      ? config.tokens
+      : previous.measure === 'weighted-fallback'
+        ? config.fallbackWeightedTokens
+        : config.usd;
   return {
     measure: previous.measure,
     used: previous.used,
-    limit: previous.limit,
+    limit: effectiveSessionBudgetLimit(base, extensions),
     lowerBound: previous.lowerBound,
   };
 }
@@ -269,7 +279,13 @@ export function evaluateSessionBudget(
     stickyWeightedFallback:
       !input.resetMeasure && previous?.measure === 'weighted-fallback',
   });
-  const figure = keepPreviousFigure(measured, previous, input.resetMeasure);
+  const figure = keepPreviousFigure(
+    measured,
+    previous,
+    input.resetMeasure,
+    config,
+    input.extensions,
+  );
 
   const stage = nextSessionBudgetStage({
     band: sessionBudgetPercentBand(figure.used, figure.limit, config),

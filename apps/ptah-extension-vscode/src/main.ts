@@ -158,27 +158,28 @@ export async function deactivate(): Promise<void> {
   }
 
   // A `ptah_run_check` in flight owns an Nx process tree in its own process
-  // group, which would outlive the extension host. `killRunningChecks` never
-  // rejects; the guard keeps one failure from skipping the reap below.
-  try {
-    await killRunningChecks();
-  } catch (error: unknown) {
-    // degradation-audit: reported - logged at warn; the agent reap still runs.
-    logger.warn('Running check kill failed (non-fatal)', {
-      reason: error instanceof Error ? error.message : String(error),
-    });
-  }
-
-  try {
-    const agentProcessManager = DIContainer.resolve<AgentProcessManager>(
-      TOKENS.AGENT_PROCESS_MANAGER,
-    );
-    await agentProcessManager.disposeAll();
-  } catch (error: unknown) {
-    logger.warn('Agent process disposal failed (non-fatal)', {
-      reason: error instanceof Error ? error.message : String(error),
-    });
-  }
+  // group, which would outlive the extension host. The check kill and the
+  // agent reap are independent, so they start together; the metadata flush
+  // depends on the reap only, so it runs as soon as the reap settles and the
+  // bounded kill (up to 5 s, decision G-A) is awaited after it. A slow
+  // `taskkill` must not hold back the flush of the references the reap produced.
+  const checksKilled = killRunningChecksWithin(
+    RUN_CHECK_KILL_BUDGET_MS,
+    logger,
+  );
+  const agentsReaped = (async (): Promise<void> => {
+    try {
+      const agentProcessManager = DIContainer.resolve<AgentProcessManager>(
+        TOKENS.AGENT_PROCESS_MANAGER,
+      );
+      await agentProcessManager.disposeAll();
+    } catch (error: unknown) {
+      logger.warn('Agent process disposal failed (non-fatal)', {
+        reason: error instanceof Error ? error.message : String(error),
+      });
+    }
+  })();
+  await agentsReaped;
 
   try {
     const ptahCliRegistry = DIContainer.resolve<PtahCliRegistry>(
@@ -197,6 +198,10 @@ export async function deactivate(): Promise<void> {
   // awaited by VS Code, so this host can genuinely wait for the write to land
   // instead of merely starting it (TASK_2026_324 finding 3).
   await flushSessionMetadataStores();
+
+  // The run-check tree kill started beside the reap; it is bounded by its own
+  // budget and never rejects, so awaiting it last costs only what remains of it.
+  await checksKilled;
 
   ptahExtension?.dispose();
   ptahExtension = undefined;
@@ -219,4 +224,39 @@ export async function deactivate(): Promise<void> {
   diagnostics = undefined;
 
   DIContainer.clear();
+}
+
+/**
+ * How long deactivate waits for the run-check tree kills. Matches the
+ * tree-kill grace period (`PROCESS_TREE_KILL_GRACE_MS`, 5 s), after which a
+ * POSIX kill has escalated to SIGKILL and a Windows `taskkill` has been spawned.
+ */
+const RUN_CHECK_KILL_BUDGET_MS = 5_000;
+
+/**
+ * Await {@link killRunningChecks}, giving up after `budgetMs`. The kill never
+ * rejects, so there is no catch; an overrun is logged and deactivate moves on
+ * while the kill keeps running.
+ */
+async function killRunningChecksWithin(
+  budgetMs: number,
+  logger: Logger,
+): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const expired = new Promise<'expired'>((resolve) => {
+    timer = setTimeout(() => resolve('expired'), budgetMs);
+  });
+  try {
+    const outcome = await Promise.race([
+      killRunningChecks().then(() => 'killed' as const),
+      expired,
+    ]);
+    if (outcome === 'expired') {
+      logger.warn('Running check kill exceeded its budget; continuing', {
+        budgetMs,
+      });
+    }
+  } finally {
+    clearTimeout(timer);
+  }
 }

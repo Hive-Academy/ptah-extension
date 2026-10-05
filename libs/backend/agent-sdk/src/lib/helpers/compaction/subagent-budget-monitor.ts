@@ -31,9 +31,15 @@
  *
  * Failure: a subagent message without usage leaves the monitor observe-only
  * for it (one log line per session). A stop that fails is retried on the next
- * subagent message, at most {@link MAX_STOP_ATTEMPTS} attempts in all, then
- * given up with one log line; no handoff message is sent for it. A stop still
- * in flight when the session is released is neither retried nor handed off.
+ * subagent request (a new API message id; the content-block messages of the
+ * request that failed do not retry), at most {@link MAX_STOP_ATTEMPTS}
+ * attempts in all, then given up with one log line; no handoff message is
+ * sent for it. A stop still in flight when the session is released is neither
+ * retried nor handed off.
+ *
+ * Rekey: after a PostCompact rekey the old id stays an alias of the new one
+ * until either is released, so subagent messages still queued under the old
+ * id add to the same state.
  */
 import type {
   Logger,
@@ -220,6 +226,8 @@ interface SubagentState {
   stopInFlight: boolean;
   /** `stopSubagent` calls that rejected. */
   stopFailures: number;
+  /** API message id of the request whose stop attempt last rejected; its other blocks do not retry. */
+  failedStopMessageId?: string;
   stopped: boolean;
   /** A stop could not start (no record or task id yet); logged once. */
   stopDeferredLogged: boolean;
@@ -238,7 +246,7 @@ interface SessionState {
 }
 
 /** The dispatcher operations the monitor uses. */
-export type SubagentStopPort = Pick<
+export type SubagentBudgetDispatcherPort = Pick<
   SubagentMessageDispatcher,
   'stopSubagent' | 'pushParentMessage'
 >;
@@ -251,11 +259,13 @@ export type SubagentStopPort = Pick<
  */
 export class SubagentBudgetMonitor {
   private readonly sessions = new Map<string, SessionState>();
+  /** Old id → new id, one entry per PostCompact rekey; cleared on release. */
+  private readonly aliases = new Map<string, string>();
 
   constructor(
     private readonly logger: Logger,
     private readonly config: CompactionConfigProvider,
-    private readonly dispatcher: SubagentStopPort,
+    private readonly dispatcher: SubagentBudgetDispatcherPort,
     private readonly registry: SubagentRegistryService,
   ) {}
 
@@ -299,6 +309,13 @@ export class SubagentBudgetMonitor {
     const state = this.subagentState(session, toolCallId);
     this.count(state, msg, usage, cacheTtl);
     if (state.stopFired || state.stopInFlight) {
+      return;
+    }
+    if (
+      state.failedStopMessageId !== undefined &&
+      state.failedStopMessageId === state.lastMessageId
+    ) {
+      // Another content block of the request whose stop rejected: retry on the next request.
       return;
     }
 
@@ -359,6 +376,10 @@ export class SubagentBudgetMonitor {
     if (!toSessionId || fromSessionId === toSessionId) {
       return;
     }
+    // Messages still queued under the old id resolve to the new one. The new
+    // id is current again, so an alias it had is dropped (no alias cycle).
+    this.aliases.delete(toSessionId);
+    this.aliases.set(fromSessionId, toSessionId);
     const session = this.sessions.get(fromSessionId);
     if (!session) {
       return;
@@ -383,12 +404,44 @@ export class SubagentBudgetMonitor {
     this.sessions.set(toSessionId, session);
   }
 
-  /** Forget everything about `sessionId` (session end). */
+  /**
+   * The id `sessionId` lives on as after the rekeys seen so far: itself when
+   * no rekey moved it, else the id at the end of its alias chain.
+   */
+  currentSessionId(sessionId: string): string {
+    const chain = this.aliasChain(sessionId);
+    return chain[chain.length - 1];
+  }
+
+  /**
+   * Forget everything about `sessionId` (session end), including every alias
+   * that resolves through it, so a later message under an old id starts no
+   * state on the released record.
+   */
   release(sessionId: string): void {
+    const stale = [...this.aliases.keys()].filter((from) =>
+      this.aliasChain(from).includes(sessionId),
+    );
+    for (const from of stale) {
+      this.aliases.delete(from);
+    }
     this.sessions.delete(sessionId);
   }
 
-  private sessionState(sessionId: string): SessionState {
+  /** `sessionId` followed by each id a rekey moved it to, in order. */
+  private aliasChain(sessionId: string): string[] {
+    const chain = [sessionId];
+    let next = this.aliases.get(sessionId);
+    // rekey() never forms a cycle; the bound only guards against one.
+    while (next !== undefined && chain.length <= this.aliases.size) {
+      chain.push(next);
+      next = this.aliases.get(next);
+    }
+    return chain;
+  }
+
+  private sessionState(rawSessionId: string): SessionState {
+    const sessionId = this.currentSessionId(rawSessionId);
     let session = this.sessions.get(sessionId);
     if (!session) {
       session = {
@@ -509,6 +562,7 @@ export class SubagentBudgetMonitor {
     }
 
     state.stopInFlight = true;
+    const attemptMessageId = state.lastMessageId;
     let stopFailure: { readonly errorType: string } | undefined;
     try {
       await this.dispatcher.stopSubagent(session.sessionId, record.taskId);
@@ -532,7 +586,14 @@ export class SubagentBudgetMonitor {
     }
     const sessionId = live.sessionId;
     if (stopFailure) {
-      this.onStopFailed(sessionId, toolCallId, liveState, reason, stopFailure);
+      this.onStopFailed(
+        sessionId,
+        toolCallId,
+        liveState,
+        reason,
+        stopFailure,
+        attemptMessageId,
+      );
       return;
     }
     liveState.stopFired = true;
@@ -573,15 +634,25 @@ export class SubagentBudgetMonitor {
     }
   }
 
-  /** Count a rejected stop; the next subagent message retries until the attempts run out. */
+  /**
+   * Count a rejected stop; the next subagent request retries until the
+   * attempts run out. Not counted while another stop of the same subagent is
+   * in flight on `state` (two records merged by a rekey): that stop decides,
+   * so a failure here cannot give up on a stop that then succeeds.
+   */
   private onStopFailed(
     sessionId: string,
     toolCallId: string,
     state: SubagentState,
     reason: StopReason,
     failure: { readonly errorType: string },
+    attemptMessageId: string | undefined,
   ): void {
+    if (state.stopInFlight) {
+      return;
+    }
     state.stopFailures += 1;
+    state.failedStopMessageId = attemptMessageId;
     if (state.stopFailures < MAX_STOP_ATTEMPTS) {
       this.logger.debug(
         '[SubagentBudgetMonitor] Stopping the subagent failed; retrying on its next message',

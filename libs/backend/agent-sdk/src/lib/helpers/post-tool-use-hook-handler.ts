@@ -77,7 +77,7 @@ export class PostToolUseHookHandler {
             async (
               input: HookInput,
               _toolUseId: string | undefined,
-              options: { signal: AbortSignal },
+              options?: { signal?: AbortSignal },
             ): Promise<HookJSONOutput> => {
               if (!isPostToolUseHook(input)) {
                 return { continue: true };
@@ -85,7 +85,7 @@ export class PostToolUseHookHandler {
               const cappedOutput = await this.capToolOutput(
                 input,
                 cwd,
-                options.signal,
+                options?.signal,
               );
               this.fanOut(input, sessionId, cwd);
               if (cappedOutput === input.tool_response) {
@@ -114,13 +114,13 @@ export class PostToolUseHookHandler {
   private async capToolOutput(
     input: PostToolUseHookInput,
     cwd: string,
-    signal: AbortSignal,
+    signal: AbortSignal | undefined,
   ): Promise<unknown> {
     const capper = this.capper;
     if (!capper) {
       return input.tool_response;
     }
-    if (signal.aborted) {
+    if (signal?.aborted) {
       this.logInterruption('aborted', input.tool_name);
       return input.tool_response;
     }
@@ -130,11 +130,15 @@ export class PostToolUseHookHandler {
       timer = setTimeout(() => resolve('timeout'), POST_TOOL_USE_CAP_TIMEOUT_MS);
       timer.unref?.();
       onAbort = () => resolve('aborted');
-      signal.addEventListener('abort', onAbort, { once: true });
+      signal?.addEventListener('abort', onAbort, { once: true });
     });
     try {
-      // The capper keeps running after an interruption; its late result (or
-      // rejection) is ignored — the race has already settled.
+      // The capper keeps running after a timeout or abort: it is not handed
+      // the signal, so it may still finish, and may still write a spool file
+      // that nothing references. Its late result (or rejection) is discarded
+      // because the race has already settled. This is accepted (TASK_2026_614
+      // G-E, FM-7): the original output was returned, and an orphan spool
+      // file costs only disk.
       const outcome = await Promise.race([
         capper
           .cap(input.tool_name, input.tool_input, input.tool_response, cwd)
@@ -158,7 +162,7 @@ export class PostToolUseHookHandler {
     } finally {
       clearTimeout(timer);
       if (onAbort) {
-        signal.removeEventListener('abort', onAbort);
+        signal?.removeEventListener('abort', onAbort);
       }
     }
   }

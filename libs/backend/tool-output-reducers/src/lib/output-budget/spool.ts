@@ -68,6 +68,13 @@ const REPORTED_ERROR_NAMES: ReadonlySet<string> = new Set([
 const lastPruneByDir = new Map<string, number>();
 
 /**
+ * Spool directories whose `.gitignore` failure was already reported, so a
+ * directory that can never take the file is reported once, not per call. A
+ * success is not cached: a directory deleted and recreated is retried.
+ */
+const reportedGitignoreFailureDirs = new Set<string>();
+
+/**
  * The spool directory under an absolute `spoolRoot`, else under
  * `os.tmpdir()`, and which of the two a relative locator names.
  */
@@ -179,7 +186,8 @@ export async function writeSpoolFile(
  * The exclusive-create flag leaves an existing file alone (`EEXIST`, the
  * normal case, is not a failure). Fail-open: any other failure is returned as
  * its errno code or error name, so the caller can report it, and the spool
- * proceeds.
+ * proceeds. The failure is returned once per directory; later calls for the
+ * same directory return `undefined` so it is logged once.
  */
 async function ensureSpoolGitignore(dir: string): Promise<string | undefined> {
   try {
@@ -190,8 +198,23 @@ async function ensureSpoolGitignore(dir: string): Promise<string | undefined> {
     return undefined;
   } catch (error) {
     const code = errorCode(error);
-    return code === 'EEXIST' ? undefined : (code ?? errorName(error));
+    return code === 'EEXIST' || !markGitignoreFailureReported(dir)
+      ? undefined
+      : (code ?? errorName(error));
   }
+}
+
+/** True the first time a directory's `.gitignore` failure is seen, false after. */
+function markGitignoreFailureReported(dir: string): boolean {
+  if (reportedGitignoreFailureDirs.has(dir)) {
+    return false;
+  }
+  if (reportedGitignoreFailureDirs.size >= MAX_PRUNE_ENTRIES) {
+    // Forgetting only costs one repeated report for some directory.
+    reportedGitignoreFailureDirs.clear();
+  }
+  reportedGitignoreFailureDirs.add(dir);
+  return true;
 }
 
 /**

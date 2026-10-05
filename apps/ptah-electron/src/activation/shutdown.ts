@@ -1,4 +1,7 @@
-import { killRunningChecks } from '@ptah-extension/vscode-lm-tools';
+import {
+  killRunningChecks,
+  runningCheckPids,
+} from '@ptah-extension/vscode-lm-tools';
 import type { BootRefs } from './boot-coordinator';
 
 /**
@@ -98,6 +101,18 @@ export const AGENT_REAP_BUDGET_MS = 2000;
  */
 export const METADATA_FLUSH_BUDGET_MS = 2000;
 
+/**
+ * How long the chain may wait for the run-check tree kills.
+ *
+ * A live `ptah_run_check` owns an Nx process group (POSIX) or tree (Windows)
+ * that outlives the app unless killed, and the kill is not instant: on win32
+ * `taskkill` is spawned only after a dynamic import, and on POSIX the SIGKILL
+ * escalation comes after the tree-kill grace period. Five seconds matches that
+ * grace period (`PROCESS_TREE_KILL_GRACE_MS`). It runs beside the gateway stop,
+ * so it adds to the quit only when the kill is the slower of the two.
+ */
+export const RUN_CHECK_KILL_BUDGET_MS = 5000;
+
 export interface QuitSequenceDeps {
   /** The coordinator's stable refs object — read, never copied. */
   refs: BootRefs;
@@ -133,6 +148,8 @@ export interface QuitSequenceDeps {
   agentReapBudgetMs?: number;
   /** Override for tests. Defaults to {@link METADATA_FLUSH_BUDGET_MS}. */
   metadataFlushBudgetMs?: number;
+  /** Override for tests. Defaults to {@link RUN_CHECK_KILL_BUDGET_MS}. */
+  runCheckKillBudgetMs?: number;
 }
 
 /** The subset of {@link QuitSequenceDeps} the disposal chain reads. */
@@ -145,6 +162,7 @@ export type DisposalDeps = Pick<
   | 'gatewayStopBudgetMs'
   | 'agentReapBudgetMs'
   | 'metadataFlushBudgetMs'
+  | 'runCheckKillBudgetMs'
 >;
 
 /** Run `fn`, log and continue on failure. Every disposal is non-fatal. */
@@ -176,8 +194,13 @@ function nonFatal(label: string, fn: () => void): void {
  * The chat bridge is the last entry, immediately before the gateway it feeds:
  * `GatewayChatBridge.stop()` is synchronous (it unsubscribes), so it needs no
  * wait of its own.
+ *
+ * Returns the run-check kill, started at its LIFO position. The deferred path
+ * awaits it (bounded) in {@link disposeBootRefs}; the synchronous path only
+ * runs when {@link requiresDeferredDisposal} saw no running check, so there is
+ * nothing for it to wait on.
  */
-function disposeBeforePersistence(deps: DisposalDeps): void {
+function disposeBeforePersistence(deps: DisposalDeps): Promise<void> {
   const { refs } = deps;
 
   nonFatal('ProviderProxyPool disposeAll', () => {
@@ -192,10 +215,9 @@ function disposeBeforePersistence(deps: DisposalDeps): void {
   // synchronous (it kills the worker), so nothing here has to be awaited.
   nonFatal('Integrity check abort', () => refs.integrityService?.dispose());
   // A live run_check owns an Nx process group that outlives the app unless
-  // killed; each stop starts its tree kill at once and never throws.
-  nonFatal('Run-check kill', () => {
-    void killRunningChecks();
-  });
+  // killed. `killRunningChecks` never rejects; the kill is started here and
+  // awaited by the caller.
+  const checksKilled = killRunningChecks();
   nonFatal('Git watcher stop', () => refs.gitWatcher?.stop());
   nonFatal('Symbol watcher close', () => refs.symbolWatcher?.close());
   nonFatal('Status bridge dispose', () =>
@@ -207,6 +229,7 @@ function disposeBeforePersistence(deps: DisposalDeps): void {
   nonFatal('Memory trigger stop', () => refs.memoryTrigger?.stop());
   nonFatal('Memory curator stop', () => refs.memoryCurator?.stop());
   nonFatal('Gateway chat bridge stop', () => refs.chatBridge?.stop());
+  return checksKilled;
 }
 
 /**
@@ -375,9 +398,19 @@ async function withBudget(
  * being true the moment a flush was placed after it (TASK_2026_334). An
  * undeferred quit gives that flush no window, and Electron tears the process
  * down with the reference still staged.
+ *
+ * A **running check** qualifies too, for a different reason: no write, but a
+ * kill that is not done when its call returns. On win32 `taskkill` is spawned
+ * only after an `await import`, and on POSIX the SIGKILL escalation is a timer;
+ * an undeferred quit gives neither a chance to run, and the Nx tree outlives
+ * the app.
  */
 export function requiresDeferredDisposal(refs: BootRefs): boolean {
-  return refs.messagingGateway !== null || refs.agentProcessManager !== null;
+  return (
+    refs.messagingGateway !== null ||
+    refs.agentProcessManager !== null ||
+    runningCheckPids().length > 0
+  );
 }
 
 /**
@@ -390,7 +423,16 @@ export function requiresDeferredDisposal(refs: BootRefs): boolean {
  * listener.
  */
 export async function disposeBootRefs(deps: DisposalDeps): Promise<void> {
-  disposeBeforePersistence(deps);
+  const killStarted = disposeBeforePersistence(deps);
+  // The check kill gates nothing in the chain, only the re-issued quit, so its
+  // budget starts now and it is awaited after the rest of the teardown: the
+  // gateway drain, SQLite close and the agent reap do not queue behind it.
+  const checksKilled = withBudget(
+    'Run-check kill',
+    () => killStarted,
+    deps.runCheckKillBudgetMs ?? RUN_CHECK_KILL_BUDGET_MS,
+    'quitting with the check trees possibly still alive.',
+  );
 
   const gateway = deps.refs.messagingGateway;
   if (gateway !== null) {
@@ -401,6 +443,7 @@ export async function disposeBootRefs(deps: DisposalDeps): Promise<void> {
   }
 
   await disposeAfterPersistence(deps);
+  await checksKilled;
 
   // LAST, and AWAITED. The early flush in `handleWillQuit` drained what was
   // staged when the quit arrived; this one drains what the TEARDOWN ITSELF
@@ -506,7 +549,10 @@ export function handleWillQuit(deps: QuitSequenceDeps): boolean {
     // exactly the statement that there is no agent manager to reap. So the body
     // runs to completion synchronously before the promise is returned, and the
     // `void` discards a promise that is already settled.
-    disposeBeforePersistence(deps);
+    //
+    // The run-check kill is discarded for the same reason: false also means no
+    // check was running, so it has no tree to kill.
+    void disposeBeforePersistence(deps);
     void disposeAfterPersistence(deps);
     return true;
   }

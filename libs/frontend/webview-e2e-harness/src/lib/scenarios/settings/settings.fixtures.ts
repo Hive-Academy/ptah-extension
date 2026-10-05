@@ -245,7 +245,7 @@ function settingsGetResolver(params: unknown): {
   value: unknown;
 } {
   const key = (params as { key?: unknown }).key;
-  if (typeof key === 'string' && key in SESSION_BUDGET_SETTINGS_FIXTURE) {
+  if (typeof key === 'string' && Object.hasOwn(SESSION_BUDGET_SETTINGS_FIXTURE, key)) {
     return { success: true, value: SESSION_BUDGET_SETTINGS_FIXTURE[key] };
   }
   return PTAH_CLI_AGENTS_SETTING_FIXTURE;

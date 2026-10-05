@@ -25,6 +25,7 @@ import {
 import { generateEventId } from './message-transform-helpers';
 import { toTurnStateEvent } from '../helpers/session-turn-state.registry';
 import { buildBackgroundAgentStartedEvent } from './background-started-event';
+import { bindTaskResultToHeldStart } from './task-result-agent-binding';
 import type {
   TransformerState,
   TransformerSessionId,
@@ -285,6 +286,7 @@ export class AssistantMessageTransformer {
         // substring match against the SDK's placeholder wording; when that
         // missed, the agent card showed `completed` while the agent kept
         // working. Do not reorder these two pushes.
+        bindTaskResultToHeldStart(block.tool_use_id, block.content, helpers);
         if (state.hasBackgroundTaskToolUseId(block.tool_use_id)) {
           const bgEvent = buildBackgroundAgentStartedEvent({
             toolCallId: block.tool_use_id,

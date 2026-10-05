@@ -2272,6 +2272,26 @@ export class TabManagerService {
   }
 
   /**
+   * Drop the budget state from every open tab in every workspace. Called when
+   * the user saves `sessionBudget.enabled = false`: sends already go through,
+   * so a limit banner must not wait for the next stats snapshot to go away.
+   * A rotation advisory, if any, comes back with that snapshot.
+   */
+  clearSessionBudgets(): void {
+    const tabIds = [
+      ...this._tabs()
+        .filter((tab) => tab.sessionBudget)
+        .map((tab) => tab.id),
+      ...this.workspacePartition.findBackgroundTabIds(
+        (tab) => !!tab.sessionBudget,
+      ),
+    ];
+    for (const tabId of tabIds) {
+      this.updateTabInternal(tabId, { sessionBudget: null });
+    }
+  }
+
+  /**
    * Apply a loaded session's resume payload: install the backend snapshot and
    * the originating sessionModel together so future `chat:continue` calls use
    * the original session model. `budget` follows the snapshot exactly as in

@@ -41,6 +41,9 @@ function makeRegistry(
     get: jest.fn().mockReturnValue(resolved),
     update: jest.fn(),
     getToolCallIdByAgentId: jest.fn(),
+    getToolCallIdsByAgentId: jest.fn().mockReturnValue([]),
+    holdUnboundStart: jest.fn(),
+    discardHeldUnboundStarts: jest.fn(),
   } as unknown as jest.Mocked<SubagentRegistryService>;
 }
 
@@ -458,7 +461,7 @@ describe('SubagentHookHandler — SubagentStart registration identity (TASK_2026
     );
   });
 
-  it('drops the registration and names the missing toolUseId when it is absent', async () => {
+  it('holds a start without toolUseId that no record names, for the Task result to bind (F-F)', async () => {
     const logger = makeLogger();
     const registry = makeRegistry(null);
     const stopRegistry = new SubagentStopCallbackRegistry(logger);
@@ -475,9 +478,130 @@ describe('SubagentHookHandler — SubagentStart registration identity (TASK_2026
     });
 
     expect(registry.register).not.toHaveBeenCalled();
+    expect(registry.getToolCallIdsByAgentId).toHaveBeenCalledWith(
+      'agent-xyz',
+      'payload-parent-sess',
+    );
+    expect(registry.holdUnboundStart).toHaveBeenCalledWith({
+      agentId: 'agent-xyz',
+      agentType: 'backend-developer',
+      parentSessionId: 'payload-parent-sess',
+    });
+    expect(logger.warn).not.toHaveBeenCalled();
+    expect(logger.info).toHaveBeenCalledWith(
+      expect.stringContaining('held until the Task result names its agentId'),
+      expect.objectContaining({ agentId: 'agent-xyz' }),
+    );
+  });
+});
+
+/**
+ * TASK_2026_614 F-F — a SubagentStart without a `toolUseId` binds only on an
+ * exact `agentId` match in the same parent session; none or several stay
+ * unbound with a WARN.
+ */
+describe('SubagentHookHandler — SubagentStart without toolUseId binds by exact agentId (F-F)', () => {
+  function setup(
+    matches: string[],
+    record: Partial<SubagentRecord> | null,
+  ): {
+    logger: jest.Mocked<Logger>;
+    registry: jest.Mocked<SubagentRegistryService>;
+    fn: ReturnType<typeof getStartCallback>;
+  } {
+    const logger = makeLogger();
+    const registry = makeRegistry(record);
+    (registry.getToolCallIdsByAgentId as jest.Mock).mockReturnValue(matches);
+    const handler = new SubagentHookHandler(
+      logger,
+      registry,
+      new SubagentStopCallbackRegistry(logger),
+      new SessionStatsOwnerService(),
+    );
+    return {
+      logger,
+      registry,
+      fn: getStartCallback(handler, '/workspace', 'closure-parent-sess'),
+    };
+  }
+
+  const signal = new AbortController().signal;
+
+  it('re-registers the single interrupted match as running under its own toolCallId', async () => {
+    const { logger, registry, fn } = setup(['tu-old'], {
+      toolCallId: 'tu-old',
+      status: 'interrupted',
+      teammateName: 'scout',
+      taskId: 'task-7',
+    });
+
+    const result = await fn(startInput(), undefined, { signal });
+
+    expect(result).toEqual({ continue: true });
+    expect(registry.get).toHaveBeenCalledWith('tu-old');
+    expect(registry.register).toHaveBeenCalledTimes(1);
+    expect(registry.register).toHaveBeenCalledWith(
+      expect.objectContaining({
+        toolCallId: 'tu-old',
+        agentId: 'agent-xyz',
+        agentType: 'backend-developer',
+        parentSessionId: 'payload-parent-sess',
+        teammateName: 'scout',
+        taskId: 'task-7',
+      }),
+    );
+    expect(logger.warn).not.toHaveBeenCalled();
+    expect(logger.info).toHaveBeenCalledWith(
+      expect.stringContaining('bound by exact agentId'),
+      expect.objectContaining({
+        toolCallId: 'tu-old',
+        priorStatus: 'interrupted',
+      }),
+    );
+  });
+
+  it('keeps a single live match and only counts the start as activity', async () => {
+    const { logger, registry, fn } = setup(['tu-live'], {
+      toolCallId: 'tu-live',
+      status: 'running',
+    });
+
+    await fn(startInput(), undefined, { signal });
+
+    expect(registry.register).not.toHaveBeenCalled();
+    expect(registry.update).toHaveBeenCalledWith('tu-live', {});
+    expect(logger.warn).not.toHaveBeenCalled();
+  });
+
+  it('stays unbound and WARNS when several records name the agentId', async () => {
+    const { logger, registry, fn } = setup(['tu-a', 'tu-b'], {
+      status: 'interrupted',
+    });
+
+    await fn(startInput(), undefined, { signal });
+
+    expect(registry.get).not.toHaveBeenCalled();
+    expect(registry.register).not.toHaveBeenCalled();
+    expect(registry.update).not.toHaveBeenCalled();
     expect(logger.warn).toHaveBeenCalledWith(
       expect.stringContaining('Subagent NOT registered'),
-      expect.objectContaining({ reason: expect.stringContaining('toolUseId') }),
+      expect.objectContaining({
+        reason: expect.stringContaining('several registry records'),
+        matchCount: 2,
+      }),
+    );
+  });
+
+  it('stays unbound and WARNS when the single match vanished before it was read', async () => {
+    const { logger, registry, fn } = setup(['tu-gone'], null);
+
+    await fn(startInput(), undefined, { signal });
+
+    expect(registry.register).not.toHaveBeenCalled();
+    expect(registry.update).not.toHaveBeenCalled();
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('Subagent NOT registered'),
+      expect.objectContaining({ matchCount: 1 }),
     );
   });
 });
@@ -499,6 +623,145 @@ describe('SubagentHookHandler — SubagentStop parentSessionId rigour (TASK_2026
       ...over,
     } as unknown as HookInput;
   }
+
+  it('scopes an unbound shared agent stop to its payload parent session', async () => {
+    const logger = makeLogger();
+    const registry = makeRegistry(null);
+    const heldStarts = new Set([
+      'shared-agent:payload-parent-sess',
+      'shared-agent:parent-b',
+    ]);
+    registry.discardHeldUnboundStarts.mockImplementation(
+      (agentId, parentSessionId) => {
+        if (parentSessionId) {
+          heldStarts.delete(`${agentId}:${parentSessionId}`);
+        }
+      },
+    );
+    const handler = new SubagentHookHandler(
+      logger,
+      registry,
+      new SubagentStopCallbackRegistry(logger),
+      new SessionStatsOwnerService(),
+    );
+    const fn = getStopCallback(handler, '/workspace', 'parent-a');
+
+    await fn(stopInput({ agent_id: 'shared-agent' }), undefined, {
+      signal: new AbortController().signal,
+    });
+
+    // The state-store regression keeps parent-b's start; this pins the
+    // payload-first scope forwarded by the hook for two sessions sharing one
+    // agent id.
+    expect(registry.discardHeldUnboundStarts).toHaveBeenCalledWith(
+      'shared-agent',
+      'payload-parent-sess',
+    );
+    expect(heldStarts.has('shared-agent:payload-parent-sess')).toBe(false);
+    expect(heldStarts.has('shared-agent:parent-b')).toBe(true);
+  });
+
+  it.each([
+    ['a new-session closure', ''],
+    ['a one-shot query closure', undefined],
+  ])(
+    'drops a held start under the payload session after stop from %s',
+    async (_description, closureParentSessionId) => {
+      const logger = makeLogger();
+      const registry = makeRegistry(null);
+      const heldStarts = new Set<string>();
+      registry.holdUnboundStart.mockImplementation((start) => {
+        heldStarts.add(`${start.agentId}:${start.parentSessionId}`);
+      });
+      registry.discardHeldUnboundStarts.mockImplementation(
+        (agentId, parentSessionId) => {
+          if (parentSessionId) {
+            heldStarts.delete(`${agentId}:${parentSessionId}`);
+          }
+        },
+      );
+      const handler = new SubagentHookHandler(
+        logger,
+        registry,
+        new SubagentStopCallbackRegistry(logger),
+        new SessionStatsOwnerService(),
+      );
+      const start = getStartCallback(
+        handler,
+        '/workspace',
+        closureParentSessionId,
+      );
+      const stop = getStopCallback(
+        handler,
+        '/workspace',
+        closureParentSessionId,
+      );
+      const signal = { signal: new AbortController().signal };
+
+      await start(startInput({ agent_id: 'held-agent' }), undefined, signal);
+      expect(heldStarts.has('held-agent:payload-parent-sess')).toBe(true);
+
+      await stop(stopInput({ agent_id: 'held-agent' }), undefined, signal);
+
+      expect(registry.discardHeldUnboundStarts).toHaveBeenCalledWith(
+        'held-agent',
+        'payload-parent-sess',
+      );
+      expect(heldStarts.has('held-agent:payload-parent-sess')).toBe(false);
+      // A later Task result naming this agent has no held start to bind.
+      expect(heldStarts.has('held-agent:payload-parent-sess')).toBe(false);
+    },
+  );
+
+  it.each([
+    ['a new-session closure', ''],
+    ['a one-shot query closure', undefined],
+  ])(
+    'drops only the held start without a session when a stop from %s resolves no parent session',
+    async (_description, closureParentSessionId) => {
+      const logger = makeLogger();
+      const registry = makeRegistry(null);
+      // State-store semantics: `undefined` is the no-session key, never
+      // "every session"; a resolved id is that session's exact key.
+      const heldStarts = new Set(['shared-agent:parent-a', 'shared-agent:']);
+      registry.discardHeldUnboundStarts.mockImplementation(
+        (agentId, parentSessionId) => {
+          heldStarts.delete(
+            parentSessionId
+              ? `${agentId}:${parentSessionId}`
+              : `${agentId}:`,
+          );
+        },
+      );
+      const handler = new SubagentHookHandler(
+        logger,
+        registry,
+        new SubagentStopCallbackRegistry(logger),
+        new SessionStatsOwnerService(),
+      );
+      // Neither the payload nor the closure carries a session id.
+      const fn = getStopCallback(handler, '/workspace', closureParentSessionId);
+
+      await fn(
+        stopInput({ agent_id: 'shared-agent', session_id: '' }),
+        undefined,
+        { signal: new AbortController().signal },
+      );
+
+      // The discard must still run — a held start left behind would bind
+      // later as a running zombie — but unresolved stays `undefined`, its
+      // own exact key: another session's held start survives until its own
+      // Task result binds it (PR #655).
+      expect(registry.discardHeldUnboundStarts).toHaveBeenCalledWith(
+        'shared-agent',
+        undefined,
+      );
+      expect(heldStarts.has('shared-agent:parent-a')).toBe(true);
+      // The start held without a session is gone: a later Task result naming
+      // this agent has no held start left to bind.
+      expect(heldStarts.has('shared-agent:')).toBe(false);
+    },
+  );
 
   it('falls back to the closure id when the payload session_id is empty', async () => {
     const logger = makeLogger();

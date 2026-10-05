@@ -396,6 +396,10 @@ function lookupPricingEntry(
  * });
  * // Returns: 0
  * ```
+ *
+ * A cache token kind the pricing does not price counts as 0 here. A caller
+ * that must show "unknown" instead of that underestimate checks
+ * {@link pricesCacheTokens} first.
  */
 export function calculateMessageCost(
   modelId: string,
@@ -414,6 +418,21 @@ export function calculateMessageCost(
 
   const totalCost = inputCost + outputCost + cacheReadCost + cacheCreationCost;
   return Math.round(totalCost * 1000000) / 1000000;
+}
+
+/**
+ * Whether `pricing` has a price for every cache token kind `tokens` uses. A
+ * kind with no tokens (0 or not reported) needs no price.
+ */
+export function pricesCacheTokens(
+  pricing: ModelPricing,
+  tokens: TokenBreakdown,
+): boolean {
+  const readPriced =
+    !tokens.cacheHit || pricing.cacheReadCostPerToken !== undefined;
+  const writePriced =
+    !tokens.cacheCreation || pricing.cacheCreationCostPerToken !== undefined;
+  return readPriced && writePriced;
 }
 
 /** Non-secret identity of the effective query route, captured at creation. */

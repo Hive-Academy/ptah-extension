@@ -40,6 +40,7 @@ import type {
   SessionBudgetActionResult,
   SessionBudgetConfig,
   SessionBudgetHandoff,
+  SessionBudgetHandoffReadStatus,
   SessionBudgetRotation,
   SessionBudgetStage,
   SessionBudgetState,
@@ -74,7 +75,7 @@ export type SessionBudgetSessionControl = Pick<
 /** Stats surface the budget reads when it has no state yet. */
 export type SessionBudgetStatsSource = Pick<
   SessionStatsOwnerService,
-  'snapshot'
+  'snapshot' | 'leaseOf'
 >;
 
 export type SessionBudgetConfigSource = Pick<
@@ -103,6 +104,12 @@ export type SessionBudgetSendCheck =
 export const SESSION_BUDGET_NO_WINDOW_TARGET = 0;
 
 const SEND_OK: SessionBudgetSendCheck = Object.freeze({ ok: true });
+
+/**
+ * Released ids remembered so a late result or compaction cannot recreate
+ * their entry; the oldest is forgotten past this many.
+ */
+const RELEASED_IDS_CAP = 1024;
 
 const TIGHTEN_RANK = sessionBudgetStageRank('tighten');
 const HANDOFF_RANK = sessionBudgetStageRank('handoff');
@@ -157,6 +164,12 @@ function errorMessage(error: unknown): string {
 @injectable()
 export class SessionBudgetService {
   private readonly entries = new Map<string, BudgetEntry>();
+  /**
+   * Ids released in this process (insertion order, capped). A figure or
+   * compaction for one of them is dropped until a new run owns the session
+   * again (its stats owner exists) or the user loads it.
+   */
+  private readonly released = new Set<string>();
 
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
@@ -202,7 +215,8 @@ export class SessionBudgetService {
    * `handoffAfterCompactions` trigger; in memory only.
    */
   recordCompaction(sessionId: string): void {
-    const entry = this.entryFor(sessionId);
+    const entry = this.trackedEntry(sessionId, 'live');
+    if (!entry) return;
     entry.compactions += 1;
     if (!entry.snapshot || !entry.figure) return;
     this.reevaluate(entry, { resetStage: false, runActions: true });
@@ -266,10 +280,19 @@ export class SessionBudgetService {
     }
   }
 
-  /** Session end: drop its state, rotation advisory included. */
+  /**
+   * Session end: drop its state, rotation advisory included, and remember the
+   * id so a late result or compaction does not bring the entry back.
+   */
   release(sessionId: string): void {
     this.entries.delete(sessionId);
     this.rotationAdvisor.release(sessionId);
+    this.released.delete(sessionId);
+    this.released.add(sessionId);
+    if (this.released.size > RELEASED_IDS_CAP) {
+      const oldest = this.released.values().next();
+      if (!oldest.done) this.released.delete(oldest.value);
+    }
   }
 
   /** Disposal: drop every session's state. */
@@ -278,6 +301,7 @@ export class SessionBudgetService {
       this.rotationAdvisor.release(sessionId);
     }
     this.entries.clear();
+    this.released.clear();
   }
 
   // ---------------------------------------------------------------------------
@@ -294,7 +318,7 @@ export class SessionBudgetService {
       // degradation-audit: reported - an observe failure must never break the
       // result-stats broadcast; the consumer keeps its last state (F5).
       this.warnOnce(
-        this.entryFor(snapshot.sessionId),
+        this.entries.get(snapshot.sessionId),
         snapshot.sessionId,
         'observe',
         error,
@@ -307,8 +331,11 @@ export class SessionBudgetService {
     snapshot: SessionStatsEntry,
     source: ObserveSource,
   ): SessionBudgetState | undefined {
+    // The entry first: a throwing config read below is then WARNed once per
+    // session (the catch in `accept` finds the entry).
+    const entry = this.trackedEntry(snapshot.sessionId, source);
+    if (!entry) return undefined;
     const config = this.configSource.getConfig();
-    const entry = this.entryFor(snapshot.sessionId);
 
     if (!config.enabled) {
       // Disabled: no stage, no block, no budget banner on this figure (the
@@ -553,7 +580,7 @@ export class SessionBudgetService {
   ): Promise<HandoffCopy> {
     // Stamped before the build: usage observed while it runs makes it stale.
     const builtAtSeq = entry?.usageSeq ?? 0;
-    const document = await this.buildHandoff(sessionId, entry);
+    const { document, readStatus } = await this.buildHandoff(sessionId, entry);
     const written = await this.handoffWriter.write(sessionId, document.content);
     const copy: HandoffCopy = {
       content: document.content,
@@ -571,6 +598,7 @@ export class SessionBudgetService {
         ...(written.writeError !== undefined
           ? { writeError: written.writeError }
           : {}),
+        ...(readStatus !== undefined ? { readStatus } : {}),
       };
     }
     if (written.writeError !== undefined) {
@@ -584,10 +612,18 @@ export class SessionBudgetService {
     return copy;
   }
 
+  /**
+   * Build the handoff document. `readStatus` is set when the transcript was
+   * not read (unknown workspace or a read error), so the published handoff
+   * says it may be incomplete; the read error itself stays in the WARN.
+   */
   private async buildHandoff(
     sessionId: string,
     entry: BudgetEntry | undefined,
-  ): Promise<SessionHandoffDocument> {
+  ): Promise<{
+    document: SessionHandoffDocument;
+    readStatus?: SessionBudgetHandoffReadStatus;
+  }> {
     const budget = entry?.figure
       ? this.composeState(entry, entry.figure)
       : undefined;
@@ -601,26 +637,30 @@ export class SessionBudgetService {
           'session workspace unknown; handoff built without the transcript',
         ),
       );
-      return assembleSessionHandoff([], {
-        sessionId,
-        builtAt: Date.now(),
-        ...(budget ? { budget } : {}),
-      });
+      return {
+        document: assembleSessionHandoff([], {
+          sessionId,
+          builtAt: Date.now(),
+          ...(budget ? { budget } : {}),
+        }),
+        readStatus: 'workspace-unknown',
+      };
     }
     const result = await this.handoffBuilder.build({
       sessionId,
       workspacePath,
       ...(budget ? { budget } : {}),
     });
-    if (result.readError !== undefined) {
-      this.warnOnce(
-        entry,
-        sessionId,
-        'handoff-read',
-        new Error(result.readError),
-      );
+    if (result.readError === undefined) {
+      return { document: result.document };
     }
-    return result.document;
+    this.warnOnce(
+      entry,
+      sessionId,
+      'handoff-read',
+      new Error(result.readError),
+    );
+    return { document: result.document, readStatus: 'read-failed' };
   }
 
   // ---------------------------------------------------------------------------
@@ -685,7 +725,7 @@ export class SessionBudgetService {
     if (!this.isCurrent(entry) || !entry.figure) return this.noState();
     entry.window = window;
     const state = this.composeState(entry, entry.figure);
-    if (window?.reason === 'failed') {
+    if (window?.reason === 'restore-failed') {
       return {
         success: false,
         state,
@@ -699,6 +739,9 @@ export class SessionBudgetService {
     sessionId: string,
     entry: BudgetEntry | undefined,
   ): Promise<SessionBudgetActionResult> {
+    // No entry: an unknown or released session. Nothing is written, so a
+    // stray id never creates a handoff file (or runs its prune).
+    if (!entry) return this.noState();
     const copy = await this.writeHandoff(sessionId, entry);
     return { success: true, ...this.stateField(entry), handoff: copy };
   }
@@ -712,14 +755,16 @@ export class SessionBudgetService {
     sessionId: string,
     entry: BudgetEntry | undefined,
   ): Promise<SessionBudgetActionResult> {
-    if (entry?.handoffCopy && entry.handoffCopySeq === entry.usageSeq) {
+    // No entry: an unknown or released session; no transcript is read.
+    if (!entry) return this.noState();
+    if (entry.handoffCopy && entry.handoffCopySeq === entry.usageSeq) {
       return {
         success: true,
         ...this.stateField(entry),
         handoff: entry.handoffCopy,
       };
     }
-    const document = await this.buildHandoff(sessionId, entry);
+    const { document } = await this.buildHandoff(sessionId, entry);
     const built: HandoffCopy = {
       content: document.content,
       seed: document.seed,
@@ -747,6 +792,31 @@ export class SessionBudgetService {
     if (!snapshot) return undefined;
     this.installFigure(sessionId, snapshot, config);
     return this.entries.get(sessionId);
+  }
+
+  /**
+   * The entry an observed figure or compaction updates, created on first use.
+   * `undefined` for an id released in this process that no new run owns yet:
+   * a result or compaction arriving after `release` is late and must not
+   * bring the entry back. A new run (its stats owner exists) or a user load
+   * tracks the id again.
+   */
+  private trackedEntry(
+    sessionId: string,
+    source: ObserveSource,
+  ): BudgetEntry | undefined {
+    const existing = this.entries.get(sessionId);
+    if (existing) return existing;
+    if (this.released.has(sessionId)) {
+      if (source === 'live' && this.statsOwner.leaseOf(sessionId) === null) {
+        this.logger.debug(
+          `[SessionBudget] Ignored a late figure for released session ${sessionId}`,
+        );
+        return undefined;
+      }
+      this.released.delete(sessionId);
+    }
+    return this.entryFor(sessionId);
   }
 
   private entryFor(sessionId: string): BudgetEntry {

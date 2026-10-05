@@ -130,6 +130,24 @@ describe('TabWorkspacePartitionService', () => {
     });
   });
 
+  describe('findBackgroundTabIds', () => {
+    it('lists matching tabs of background workspaces only', () => {
+      svc.switchWorkspace('/ws/a', [], null);
+      svc.switchWorkspace(
+        '/ws/b',
+        [makeTab('a-1', 'sess-a'), makeTab('a-2')],
+        'a-1',
+      );
+      expect(svc.findBackgroundTabIds((tab) => tab.id === 'a-2')).toEqual([
+        'a-2',
+      ]);
+      expect(svc.findBackgroundTabIds(() => true).sort()).toEqual([
+        'a-1',
+        'a-2',
+      ]);
+    });
+  });
+
   describe('removeWorkspaceState', () => {
     it('clears in-memory state and reports active==true when removing the active ws', () => {
       svc.switchWorkspace('/ws/a', [], null);

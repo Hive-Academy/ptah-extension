@@ -653,6 +653,9 @@ export class SubagentRegistryService {
    */
   markAllInterrupted(parentSessionId: string): void {
     const interruptedAt = Date.now();
+    // An interrupt is activity, as every update() is: an aborted foreground
+    // subagent that ran past the TTL must not read cold while its cache is warm.
+    const lastActivityAt = this.store.now();
     let interruptedCount = 0;
 
     for (const record of this.store.values()) {
@@ -664,6 +667,7 @@ export class SubagentRegistryService {
       ) {
         record.status = 'interrupted';
         record.interruptedAt = interruptedAt;
+        record.lastActivityAt = lastActivityAt;
         interruptedCount++;
 
         this.logger.debug(
@@ -757,6 +761,150 @@ export class SubagentRegistryService {
     }
 
     return fallback;
+  }
+
+  /**
+   * Every live (non-expired) record in one parent session whose `agentId` is
+   * exactly the given id, as toolCallIds.
+   *
+   * Unlike {@link getToolCallIdByAgentId} this neither prefers a status nor
+   * picks a winner: a caller binding a SubagentStart hook that arrived without
+   * a `toolUseId` needs to tell "exactly one record names this agent" from
+   * "none" and "several", and must not guess between several. The session
+   * filter is required because `agentId` is only unique within a session.
+   *
+   * @param agentId - The SDK short-hex agent id, matched exactly
+   * @param parentSessionId - The parent session the record must belong to
+   * @returns Matching toolCallIds (empty for a blank id or session)
+   */
+  getToolCallIdsByAgentId(agentId: string, parentSessionId: string): string[] {
+    if (
+      blankToUndefined(agentId) === undefined ||
+      blankToUndefined(parentSessionId) === undefined
+    ) {
+      return [];
+    }
+    this.store.lazyCleanup();
+
+    const matches: string[] = [];
+    for (const [toolCallId, record] of this.store.entries()) {
+      if (
+        record.agentId === agentId &&
+        record.parentSessionId === parentSessionId &&
+        !this.store.isExpired(record)
+      ) {
+        matches.push(toolCallId);
+      }
+    }
+    return matches;
+  }
+
+  /**
+   * Hold a SubagentStart that arrived without a `toolUseId` and that no
+   * registry record names yet (F-F). The Task tool result's `agentId:` line is
+   * the first place that ties this agent to its Task tool_use id;
+   * {@link bindHeldStartToToolCall} completes the registration then.
+   */
+  holdUnboundStart(start: {
+    readonly agentId: string;
+    readonly agentType: string;
+    readonly parentSessionId: string;
+  }): void {
+    if (
+      blankToUndefined(start.agentId) === undefined ||
+      blankToUndefined(start.parentSessionId) === undefined
+    ) {
+      return;
+    }
+    this.store.lazyCleanup();
+    this.store.holdUnboundStart({ ...start, startedAt: Date.now() });
+  }
+
+  /** Whether any unbound SubagentStart is waiting for its Task tool result. */
+  hasHeldUnboundStarts(): boolean {
+    return this.store.hasHeldUnboundStarts;
+  }
+
+  /**
+   * Bind a held SubagentStart to the Task tool call whose result named its
+   * `agentId` (exact match only).
+   *
+   * - `bound`: exactly one held start names the id; it is registered under the
+   *   Task's toolCallId, so stop, steer and the budget stop can reach it.
+   * - `already-registered`: the toolCallId already has a record; held starts
+   *   of that record's own parent-session key are dropped.
+   * - `ambiguous`: several held starts (different parent sessions) name the
+   *   id; guessing would route stop to the wrong agent, so it stays unbound.
+   * - `no-held-start`: nothing held names the id.
+   */
+  bindHeldStartToToolCall(
+    toolCallId: string,
+    agentId: string,
+  ): 'bound' | 'already-registered' | 'ambiguous' | 'no-held-start' {
+    if (
+      blankToUndefined(toolCallId) === undefined ||
+      blankToUndefined(agentId) === undefined
+    ) {
+      return 'no-held-start';
+    }
+    const existing = this.store.getRaw(toolCallId);
+    if (existing) {
+      if (existing.agentId === agentId) {
+        this.store.discardHeldUnboundStarts(agentId, existing.parentSessionId);
+      }
+      return 'already-registered';
+    }
+    const held = this.store.getHeldUnboundStarts(agentId);
+    if (held.length === 0) {
+      return 'no-held-start';
+    }
+    if (held.length > 1) {
+      this.logger.warn(
+        '[SubagentRegistryService.bindHeldStartToToolCall] Subagent NOT bound — several held SubagentStarts name this agentId',
+        {
+          toolCallId,
+          agentId,
+          candidateCount: held.length,
+          parentSessionIds: held.map((h) => h.parentSessionId),
+        },
+      );
+      return 'ambiguous';
+    }
+
+    const start = held[0];
+    this.store.discardHeldUnboundStarts(agentId, start.parentSessionId);
+    this.register({
+      toolCallId,
+      agentType: start.agentType,
+      startedAt: start.startedAt,
+      parentSessionId: start.parentSessionId,
+      agentId,
+    });
+    this.logger.info(
+      '[SubagentRegistryService.bindHeldStartToToolCall] Held SubagentStart bound by the Task result agentId',
+      { toolCallId, agentId, parentSessionId: start.parentSessionId },
+    );
+    return 'bound';
+  }
+
+  /**
+   * Drop held SubagentStarts for this agent — its SubagentStop arrived
+   * first, so there is no running agent left to bind.
+   *
+   * The scope is one exact parent-session key, never "every session": an
+   * unresolved parent session drops only starts that were themselves held
+   * without a resolved session; a resolved id drops only that session's. A
+   * held start of another session survives until its own Task result binds
+   * it (PR #655).
+   */
+  discardHeldUnboundStarts(agentId: string, parentSessionId?: string): void {
+    const count = this.store.discardHeldUnboundStarts(agentId, parentSessionId);
+    if (count > 0) {
+      this.logger.debug(
+        '[SubagentRegistryService.discardHeldUnboundStarts] Held SubagentStart dropped on stop',
+        { agentId, parentSessionId, count },
+      );
+    }
   }
 
   /**
