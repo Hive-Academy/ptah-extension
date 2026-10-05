@@ -19,6 +19,7 @@ import { TOKENS } from '@ptah-extension/vscode-core';
 import type {
   BackgroundWorkGovernor,
   Logger,
+  SubagentRegistryService,
 } from '@ptah-extension/vscode-core';
 import { MEMORY_CONTRACT_TOKENS } from '@ptah-extension/memory-contracts';
 import type { CodeOutliner } from '@ptah-extension/tool-output-reducers';
@@ -442,11 +443,38 @@ export function registerSdkServices(
     { lifecycle: Lifecycle.Singleton },
   );
 
-  container.register(
-    SDK_TOKENS.SDK_SUBAGENT_BUDGET_MONITOR,
-    { useClass: SubagentBudgetMonitor },
-    { lifecycle: Lifecycle.Singleton },
-  );
+  // A factory rather than `useClass`: `SessionLifecycleManager` injects the
+  // monitor, and the monitor needs the dispatcher (which injects the manager)
+  // and the manager itself. Both are resolved on first use, after the manager
+  // exists, so constructing the manager does not recurse.
+  container.register(SDK_TOKENS.SDK_SUBAGENT_BUDGET_MONITOR, {
+    useFactory: instanceCachingFactory(
+      (c) =>
+        new SubagentBudgetMonitor(
+          c.resolve<Logger>(TOKENS.LOGGER),
+          c.resolve<CompactionConfigProvider>(
+            SDK_TOKENS.SDK_COMPACTION_CONFIG_PROVIDER,
+          ),
+          {
+            stopSubagent: (sessionId, taskId) =>
+              c
+                .resolve<SubagentMessageDispatcher>(
+                  SDK_TOKENS.SDK_SUBAGENT_MESSAGE_DISPATCHER,
+                )
+                .stopSubagent(sessionId, taskId),
+          },
+          c.resolve<SubagentRegistryService>(TOKENS.SUBAGENT_REGISTRY_SERVICE),
+          {
+            find: (idOrTabId) =>
+              c
+                .resolve<SessionLifecycleManager>(
+                  SDK_TOKENS.SDK_SESSION_LIFECYCLE_MANAGER,
+                )
+                .find(idOrTabId),
+          },
+        ),
+    ),
+  });
 
   container.register(
     SDK_TOKENS.SDK_COMPACTION_CALLBACK_REGISTRY,

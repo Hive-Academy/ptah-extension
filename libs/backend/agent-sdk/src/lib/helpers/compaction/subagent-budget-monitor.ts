@@ -28,18 +28,15 @@
  * retried; no handoff message is sent for it.
  */
 import { randomUUID } from 'crypto';
-import { inject, injectable } from 'tsyringe';
-import {
+import type {
   Logger,
-  TOKENS,
-  type SubagentRegistryService,
+  SubagentRegistryService,
 } from '@ptah-extension/vscode-core';
 import type {
   SubagentPromptCacheTtl,
   SubagentRecord,
 } from '@ptah-extension/shared';
-import { SDK_TOKENS } from '../../di/tokens';
-import { CompactionConfigProvider } from '../compaction-config-provider';
+import type { CompactionConfigProvider } from '../compaction-config-provider';
 import type {
   SDKUserMessage,
   SessionLifecycleManager,
@@ -201,20 +198,22 @@ interface SessionState {
   noUsageLogged: boolean;
 }
 
-@injectable()
+/**
+ * A plain class built by a factory in `registerSdkServices`, not `useClass`:
+ * `SessionLifecycleManager` injects this monitor, and both the dispatcher and
+ * the lifecycle manager depend back on `SessionLifecycleManager`. The factory
+ * hands in the two narrow ports below resolving them on first use, which
+ * breaks that construction cycle.
+ */
 export class SubagentBudgetMonitor {
   private readonly sessions = new Map<string, SessionState>();
 
   constructor(
-    @inject(TOKENS.LOGGER) private readonly logger: Logger,
-    @inject(SDK_TOKENS.SDK_COMPACTION_CONFIG_PROVIDER)
+    private readonly logger: Logger,
     private readonly config: CompactionConfigProvider,
-    @inject(SDK_TOKENS.SDK_SUBAGENT_MESSAGE_DISPATCHER)
-    private readonly dispatcher: SubagentMessageDispatcher,
-    @inject(TOKENS.SUBAGENT_REGISTRY_SERVICE)
+    private readonly dispatcher: Pick<SubagentMessageDispatcher, 'stopSubagent'>,
     private readonly registry: SubagentRegistryService,
-    @inject(SDK_TOKENS.SDK_SESSION_LIFECYCLE_MANAGER)
-    private readonly sessionLifecycle: SessionLifecycleManager,
+    private readonly sessionLifecycle: Pick<SessionLifecycleManager, 'find'>,
   ) {}
 
   /**
