@@ -250,4 +250,57 @@ describe('PostToolUseHookHandler', () => {
 
     expect(captured).toEqual([{ exitCode: null, success: false }]);
   });
+
+  describe('tool output capper', () => {
+    const input = {
+      hook_event_name: 'PostToolUse',
+      tool_name: 'Bash',
+      tool_input: { command: 'ls' },
+      tool_response: { stdout: 'big output' },
+      tool_use_id: 'tu-1',
+    } as unknown as HookInput;
+    const run = (cap: jest.Mock | undefined, logger: jest.Mocked<Logger>) => {
+      const registry = new PostToolUseCallbackRegistry(logger);
+      const handler = new PostToolUseHookHandler(
+        logger,
+        registry,
+        cap ? ({ cap } as never) : undefined,
+      );
+      return getHookCallback(handler, 'sess-1', '/ws')(input, undefined, {
+        signal: new AbortController().signal,
+      }) as Promise<unknown>;
+    };
+
+    it('returns updatedToolOutput when the capper changed the response', async () => {
+      const cap = jest.fn().mockResolvedValue({ stdout: 'capped' });
+      const result = await run(cap, makeLogger());
+      expect(cap).toHaveBeenCalledWith(
+        'Bash',
+        { command: 'ls' },
+        { stdout: 'big output' },
+        '/ws',
+      );
+      expect(result).toEqual({
+        continue: true,
+        hookSpecificOutput: {
+          hookEventName: 'PostToolUse',
+          updatedToolOutput: { stdout: 'capped' },
+        },
+      });
+    });
+
+    it('omits hookSpecificOutput when the capper returns the same object', async () => {
+      const cap = jest
+        .fn()
+        .mockImplementation(async (_n: string, _i: unknown, r: unknown) => r);
+      expect(await run(cap, makeLogger())).toEqual({ continue: true });
+    });
+
+    it('fails open when the capper throws', async () => {
+      const logger = makeLogger();
+      const cap = jest.fn().mockRejectedValue(new Error('boom'));
+      expect(await run(cap, logger)).toEqual({ continue: true });
+      expect(logger.warn).toHaveBeenCalled();
+    });
+  });
 });

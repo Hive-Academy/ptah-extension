@@ -16,6 +16,7 @@ import type {
 import type {
   AgentReportDelivery,
   AgentReportInput,
+  LaneLimitResult,
   AgentWaitMode,
   AgentWaitResult,
 } from '@ptah-extension/cli-agent-runtime';
@@ -309,6 +310,11 @@ export interface AgentNamespace {
    * @returns Spawn result with agentId
    */
   spawn: (request: SpawnAgentRequest) => Promise<SpawnAgentResult>;
+
+  /** Optional plan-limit enrichment for agent tool transports. */
+  limits?: (
+    rows: readonly CliDetectionResult[],
+  ) => Promise<readonly LaneLimitResult<CliDetectionResult>[] | undefined>;
 
   /**
    * Get status of a specific agent or all agents

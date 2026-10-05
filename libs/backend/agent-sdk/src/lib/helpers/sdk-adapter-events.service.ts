@@ -1,6 +1,9 @@
 import { injectable, inject } from 'tsyringe';
 import EventEmitter from 'eventemitter3';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
+import { SDK_TOKENS } from '../di/tokens';
+import type { CompactionCoordinator } from './compaction/compaction-coordinator';
+import type { CompactionStateChange } from './compaction/compaction-state.types';
 import type {
   BackgroundTaskSummary,
   SessionCronSummary,
@@ -92,6 +95,15 @@ export interface SdkAdapterTeammateIdleEvent {
   readonly timestamp: number;
 }
 
+/**
+ * One A8 compaction coordinator transition (TASK_2026_597): from, to, the
+ * trigger, and the pre/post token counts on the `compact-boundary` change.
+ */
+export interface SdkAdapterCompactionStateChangedEvent
+  extends CompactionStateChange {
+  readonly timestamp: number;
+}
+
 interface SdkAdapterEventMap {
   initialized: (event: SdkAdapterInitializedEvent) => void;
   disposed: (event: SdkAdapterDisposedEvent) => void;
@@ -102,6 +114,9 @@ interface SdkAdapterEventMap {
   turnFailed: (event: SdkAdapterTurnFailedEvent) => void;
   subagentEnded: (event: SdkAdapterSubagentEndedEvent) => void;
   teammateIdle: (event: SdkAdapterTeammateIdleEvent) => void;
+  compactionStateChanged: (
+    event: SdkAdapterCompactionStateChangedEvent,
+  ) => void;
 }
 
 export type SdkAdapterEventName = keyof SdkAdapterEventMap;
@@ -110,7 +125,21 @@ export type SdkAdapterEventName = keyof SdkAdapterEventMap;
 export class SdkAdapterEvents {
   private readonly emitter = new EventEmitter<SdkAdapterEventMap>();
 
-  constructor(@inject(TOKENS.LOGGER) private readonly logger: Logger) {}
+  constructor(
+    @inject(TOKENS.LOGGER) private readonly logger: Logger,
+    /**
+     * The A8 coordinator whose transitions are published as
+     * `compactionStateChanged`. Optional so a container without it still
+     * constructs. Both are container singletons; `CompactionCoordinator.dispose`
+     * drops this subscription with every other one.
+     */
+    @inject(SDK_TOKENS.SDK_COMPACTION_COORDINATOR, { isOptional: true })
+    compactionCoordinator?: Pick<CompactionCoordinator, 'subscribe'>,
+  ) {
+    compactionCoordinator?.subscribe((change) =>
+      this.emitCompactionStateChanged({ ...change, timestamp: Date.now() }),
+    );
+  }
 
   emitInitialized(event: SdkAdapterInitializedEvent): void {
     this.safeEmit('initialized', event);
@@ -134,6 +163,20 @@ export class SdkAdapterEvents {
       trigger: event.trigger,
     });
     this.safeEmit('compactionComplete', event);
+  }
+
+  emitCompactionStateChanged(
+    event: SdkAdapterCompactionStateChangedEvent,
+  ): void {
+    this.logger.info('[SdkAdapterEvents] Compaction state changed', {
+      sessionId: event.sessionId,
+      from: event.from,
+      to: event.to,
+      trigger: event.trigger,
+      preTokens: event.preTokens,
+      postTokens: event.postTokens,
+    });
+    this.safeEmit('compactionStateChanged', event);
   }
 
   emitTurnEnded(event: SdkAdapterTurnEndedEvent): void {
@@ -211,6 +254,13 @@ export class SdkAdapterEvents {
     return () => this.emitter.off('teammateIdle', listener);
   }
 
+  onCompactionStateChanged(
+    listener: (event: SdkAdapterCompactionStateChangedEvent) => void,
+  ): () => void {
+    this.emitter.on('compactionStateChanged', listener);
+    return () => this.emitter.off('compactionStateChanged', listener);
+  }
+
   removeAllListeners(): void {
     this.emitter.removeAllListeners();
   }
@@ -234,7 +284,8 @@ export class SdkAdapterEvents {
           SdkAdapterTurnEndedEvent &
           SdkAdapterTurnFailedEvent &
           SdkAdapterSubagentEndedEvent &
-          SdkAdapterTeammateIdleEvent,
+          SdkAdapterTeammateIdleEvent &
+          SdkAdapterCompactionStateChangedEvent,
       );
     } catch (err) {
       this.logger.warn(

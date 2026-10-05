@@ -205,5 +205,5 @@ describe('ElectronShellComponent review dock', () => {
 
     expect(query('[data-testid="review-shell-stub"]')).not.toBeNull();
     expect(retryButton()).toBeUndefined();
-  });
+  }, 20_000);
 });

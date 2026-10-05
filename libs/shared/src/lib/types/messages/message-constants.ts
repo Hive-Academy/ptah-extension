@@ -154,6 +154,14 @@ export const MESSAGE_TYPES = {
    */
   SESSION_MCP_STATUS: 'session:mcpStatus',
   /**
+   * Backend → Frontend: the full `PlanLimitsSnapshot` after plan-limit
+   * evidence changed (TASK_2026_596). Debounced to at most one per 500 ms.
+   *
+   * NOT turn state, for the same structural reason as `SESSION_MCP_STATUS`:
+   * nothing in the chunk stream depends on its arrival order.
+   */
+  PLAN_LIMITS_CHANGED: 'planLimits:changed',
+  /**
    * Backend → Frontend: organization data (priority, status, pin, archive,
    * task links, PR links) changed for one or more sessions of a workspace.
    * The payload carries ids only; the webview re-reads rows via `session:list`.

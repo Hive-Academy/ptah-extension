@@ -19,8 +19,11 @@ import {
   LlmRpcHandlers,
   SessionLifecycleNotifier,
   GitChangeSetRpcHandlers,
+  PlanLimitsBroadcaster,
 } from './handlers';
+import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import { CliModelListService } from './services/cli-model-list.service';
+import { PlanLimitsSnapshotService } from './services/plan-limits-snapshot.service';
 import { ConnectionCheckRecorder } from './utils/connection-check-recorder';
 import { TurnChangeSetRecorder } from './chat/change-set/turn-change-set-recorder.service';
 import { TurnChangeSetStore } from './chat/change-set/turn-change-set.store';
@@ -62,18 +65,44 @@ export function registerSharedRpcHandlers(
   container.registerSingleton(TurnChangeSetStore);
   container.registerSingleton(TurnChangeSetRecorder);
   container.registerSingleton(GitChangeSetRpcHandlers);
+  // Plan limits (TASK_2026_596): one snapshot assembler, shared by
+  // `provider:getPlanLimits` (whose last scope it remembers) and the push.
+  container.registerSingleton(PlanLimitsSnapshotService);
+  container.registerSingleton(PlanLimitsBroadcaster);
 }
 
 /**
- * Eagerly resolve {@link SessionLifecycleNotifier} and
- * {@link TurnChangeSetRecorder} so their constructors subscribe to turn
- * events immediately. Call exactly once per container, after both
- * {@link registerSharedRpcHandlers} and the host's `TOKENS.WEBVIEW_MANAGER`
- * and `TOKENS.GIT_INFO_SERVICE` registrations have run.
+ * Eagerly resolve {@link SessionLifecycleNotifier},
+ * {@link TurnChangeSetRecorder} and {@link PlanLimitsBroadcaster} so their
+ * constructors subscribe immediately. Call exactly once per container, after
+ * both {@link registerSharedRpcHandlers} and the host's
+ * `TOKENS.WEBVIEW_MANAGER` and `TOKENS.GIT_INFO_SERVICE` registrations have
+ * run.
+ *
+ * Resolving the broadcaster creates the plan-limit ledger
+ * (`AUTH_PROVIDERS_TOKENS.PLAN_LIMIT_LEDGER`), which subscribes to the native
+ * stream signals and the proxy quota store in its constructor. This function
+ * is the shared startup hook on every host, and it runs after the library
+ * registrations the ledger needs, so evidence is recorded from startup rather
+ * than from the first lazy reader.
+ *
+ * Plan limits are not needed to run a session, so a failure to create them is
+ * logged at error level and startup continues; the turn listeners above are
+ * resolved first and still fail loudly.
  */
 export function activateSessionLifecycleNotifier(
   container: DependencyContainer,
 ): void {
   container.resolve(SessionLifecycleNotifier);
   container.resolve(TurnChangeSetRecorder);
+  try {
+    container.resolve(PlanLimitsBroadcaster);
+  } catch (error: unknown) {
+    container
+      .resolve<Logger>(TOKENS.LOGGER)
+      .error(
+        '[registerSharedRpcHandlers] plan-limit push not activated; limits update only on reload',
+        error instanceof Error ? error : new Error(String(error)),
+      );
+  }
 }

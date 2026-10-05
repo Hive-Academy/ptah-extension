@@ -19,8 +19,10 @@ import { TOKENS } from '@ptah-extension/vscode-core';
 import type {
   BackgroundWorkGovernor,
   Logger,
+  SubagentRegistryService,
 } from '@ptah-extension/vscode-core';
 import { MEMORY_CONTRACT_TOKENS } from '@ptah-extension/memory-contracts';
+import type { CodeOutliner } from '@ptah-extension/tool-output-reducers';
 import { SdkAgentAdapter } from '../sdk-agent-adapter';
 import { SdkTranscriptReaderAdapter } from '../sdk-transcript-reader.adapter';
 import { SessionMetadataStore } from '../session-metadata-store';
@@ -95,12 +97,19 @@ import { PeerSessionDirectory, PeerSessionMessenger } from '../peer-sessions';
 import { PluginLoaderService } from '../helpers/plugin-loader.service';
 import { HarnessPolicySync } from '../harness/harness-policy-sync';
 import { TurnStateForegroundSource } from '../helpers/turn-state-foreground-source';
+import { SessionPlanLimitCallbackRegistry } from '../helpers/plan-limits/session-plan-limit-callback-registry';
+import { SessionQuotaProbeService } from '../helpers/plan-limits/session-quota-probe.service';
 import { SettingsExportService } from '../settings-export.service';
 import { SettingsImportService } from '../settings-import.service';
 import { SessionBudgetConfigProvider } from '../helpers/session-budget/session-budget-config.provider';
 import { SessionHandoffBuilder } from '../helpers/session-budget/session-handoff-builder';
 import { SessionHandoffWriter } from '../helpers/session-budget/session-handoff-writer';
 import { SessionBudgetService } from '../helpers/session-budget/session-budget.service';
+import { SessionRotationAdvisor } from '../helpers/compaction/session-rotation-advisor';
+import { ToolOutputCapper } from '../helpers/compaction/tool-output-capper';
+import { CompactionCoordinator } from '../helpers/compaction/compaction-coordinator';
+import { ContextUsagePort } from '../helpers/compaction/context-usage.port';
+import { SubagentBudgetMonitor } from '../helpers/compaction/subagent-budget-monitor';
 import { SDK_TOKENS } from './tokens';
 
 /**
@@ -404,6 +413,71 @@ export function registerSdkServices(
     { lifecycle: Lifecycle.Singleton },
   );
 
+  // A factory rather than `useClass`: `SDK_CODE_OUTLINER` is optional and is
+  // bound by the hosts, not here. It is looked up when the capper is first
+  // resolved; when no host bound it, the capper gets none and Read reduction
+  // takes the log reducer plus the file path pointer.
+  container.register(SDK_TOKENS.SDK_TOOL_OUTPUT_CAPPER, {
+    useFactory: instanceCachingFactory(
+      (c) =>
+        new ToolOutputCapper(
+          c.resolve<Logger>(TOKENS.LOGGER),
+          c.resolve<CompactionConfigProvider>(
+            SDK_TOKENS.SDK_COMPACTION_CONFIG_PROVIDER,
+          ),
+          c.isRegistered(SDK_TOKENS.SDK_CODE_OUTLINER, true)
+            ? c.resolve<CodeOutliner>(SDK_TOKENS.SDK_CODE_OUTLINER)
+            : undefined,
+        ),
+    ),
+  });
+
+  // A factory rather than `useClass`: the coordinator is a plain class (no
+  // tsyringe decorator) whose optional `timers` seam is for specs only; the
+  // container builds it with the default unref'd Node timers.
+  container.register(SDK_TOKENS.SDK_COMPACTION_COORDINATOR, {
+    useFactory: instanceCachingFactory(() => new CompactionCoordinator()),
+  });
+
+  container.register(
+    SDK_TOKENS.SDK_CONTEXT_USAGE_PORT,
+    { useClass: ContextUsagePort },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  // A factory rather than `useClass`: `SessionLifecycleManager` injects the
+  // monitor, and the monitor needs the dispatcher (which injects the manager)
+  // and the manager itself. Both are resolved on first use, after the manager
+  // exists, so constructing the manager does not recurse.
+  container.register(SDK_TOKENS.SDK_SUBAGENT_BUDGET_MONITOR, {
+    useFactory: instanceCachingFactory(
+      (c) =>
+        new SubagentBudgetMonitor(
+          c.resolve<Logger>(TOKENS.LOGGER),
+          c.resolve<CompactionConfigProvider>(
+            SDK_TOKENS.SDK_COMPACTION_CONFIG_PROVIDER,
+          ),
+          {
+            stopSubagent: (sessionId, taskId) =>
+              c
+                .resolve<SubagentMessageDispatcher>(
+                  SDK_TOKENS.SDK_SUBAGENT_MESSAGE_DISPATCHER,
+                )
+                .stopSubagent(sessionId, taskId),
+          },
+          c.resolve<SubagentRegistryService>(TOKENS.SUBAGENT_REGISTRY_SERVICE),
+          {
+            find: (idOrTabId) =>
+              c
+                .resolve<SessionLifecycleManager>(
+                  SDK_TOKENS.SDK_SESSION_LIFECYCLE_MANAGER,
+                )
+                .find(idOrTabId),
+          },
+        ),
+    ),
+  });
+
   container.register(
     SDK_TOKENS.SDK_COMPACTION_CALLBACK_REGISTRY,
     { useClass: CompactionCallbackRegistry },
@@ -438,6 +512,21 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_SESSION_MCP_STATUS_CALLBACK_REGISTRY,
     { useClass: SessionMcpStatusCallbackRegistry },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  // Required by StreamTransformer; the plan-limit ledger subscribes.
+  container.register(
+    SDK_TOKENS.SDK_SESSION_PLAN_LIMIT_REGISTRY,
+    { useClass: SessionPlanLimitCallbackRegistry },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  // Resolved lazily by its consumers; it subscribes to the plan-limit registry
+  // and `turnFailed` when first constructed, before which it holds no cache.
+  container.register(
+    SDK_TOKENS.SDK_SESSION_QUOTA_PROBE,
+    { useClass: SessionQuotaProbeService },
     { lifecycle: Lifecycle.Singleton },
   );
 
@@ -642,6 +731,7 @@ export function registerSdkServices(
   // injects the service.
   container.registerSingleton(SessionBudgetConfigProvider);
   container.registerSingleton(SessionHandoffBuilder);
+  container.registerSingleton(SessionRotationAdvisor);
   container.register(SessionHandoffWriter, {
     useFactory: instanceCachingFactory(
       (c) => new SessionHandoffWriter(c.resolve<Logger>(TOKENS.LOGGER)),

@@ -32,6 +32,7 @@ import {
   registerWorkspaceIntelligenceServices,
   registerTypeScriptDiagnosticsProvider,
 } from '@ptah-extension/workspace-intelligence';
+import { TreeSitterCodeOutliner } from '@ptah-extension/vscode-lm-tools';
 import {
   registerSdkServices,
   wireAgentAdapterAliases,
@@ -198,6 +199,13 @@ export function registerPhase2Libraries(
   // consent store as its allowlist source. Its late `initialize()` runs from
   // plugin activation, next to `pluginLoader.initialize()`.
   registerPluginMarketplaceServices(container, logger);
+  // Code outliner for the tool-output capper: must be bound BEFORE
+  // registerSdkServices' capper is first resolved (it looks the token up then).
+  // The parser is resolved lazily; workspace-intelligence registered it above.
+  container.register(SDK_TOKENS.SDK_CODE_OUTLINER, {
+    useFactory: (c) =>
+      new TreeSitterCodeOutliner(c.resolve(TOKENS.TREE_SITTER_PARSER_SERVICE)),
+  });
   registerSdkServices(container, logger);
   container.register(PLATFORM_TOKENS.EDITOR_LAUNCHER, {
     useValue: new ElectronEditorLauncher(

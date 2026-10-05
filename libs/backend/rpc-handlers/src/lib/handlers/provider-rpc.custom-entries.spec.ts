@@ -18,6 +18,13 @@
  *   libs/backend/rpc-handlers/src/lib/handlers/provider-rpc.handlers.ts
  */
 
+// The cli-agent-runtime barrel (plan-limit discovery tokens) reaches the
+// workspace-intelligence tree-sitter loader, whose `wasm-bundle-dir` reads
+// `import.meta.url` (unparseable under CommonJS ts-jest). Nothing here parses.
+jest.mock('../../../../workspace-intelligence/src/ast/wasm-bundle-dir', () => ({
+  BUNDLE_DIR: '',
+  resolveWasmPath: (filename: string) => filename,
+}));
 import 'reflect-metadata';
 
 import type {
@@ -120,6 +127,10 @@ function buildSuite(activeProviderId = 'anthropic'): Suite {
     { captureException: jest.fn() } as unknown as SentryService,
     store as unknown as CustomProviderStore,
     recorder,
+    {
+      snapshot: jest.fn(),
+      ownerSnapshotForProvider: jest.fn(async () => undefined),
+    },
   );
   handlers.register();
 

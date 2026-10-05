@@ -48,6 +48,7 @@ import type {
 } from '../types';
 import type {
   SpawnAgentResult,
+  AgentId,
   AgentProcessInfo,
   CliDetectionResult,
 } from '@ptah-extension/shared';
@@ -1799,6 +1800,60 @@ describe('mcp-response-formatter › agent namespace', () => {
     expect(out).toMatch(/not installed/);
   });
 
+  // F52: the expected strings were produced by the pre-plan-limits formatter
+  // (same json2md structure, before TASK_2026_596) and are stored verbatim, so
+  // any byte change to the no-`limits` output fails here.
+  it('F52 keeps the list output byte-identical to the pre-change text when limits are absent', () => {
+    const agents: CliDetectionResult[] = [
+      {
+        cli: 'codex',
+        installed: true,
+        messagingMode: 'steer',
+        roleDelivery: 'preamble',
+        roleChannel: 'developer-instructions',
+      },
+      {
+        cli: 'copilot',
+        installed: true,
+        disabled: true,
+        messagingMode: 'queue',
+      },
+      {
+        cli: 'ptah-cli',
+        installed: true,
+        messagingMode: 'queue',
+        ptahCliId: 'glm-1',
+        ptahCliName: 'Glm',
+        providerName: 'Cloud provider',
+        providerId: 'ollama-cloud',
+      },
+    ];
+    expect(formatAgentList(agents, ['reviewer', 'implementer'])).toBe(
+      '## Available Agents\n\n\n**Total:** 3\n\n' +
+        '| Agent | Type | Status | Capabilities |\n' +
+        '| ----- | ---- | ------ | ------------ |\n' +
+        '| codex | cli | installed | messaging: steer, role delivery: preamble/developer-instructions |\n' +
+        '| copilot | cli | disabled (installed) | messaging: queue |\n' +
+        '| Glm | ptah-cli | available | provider: Cloud provider, ptahCliId: glm-1, messaging: queue |\n' +
+        '\n\nRoles in this workspace: reviewer, implementer\n',
+    );
+  });
+
+  it('F52 keeps the spawn output byte-identical to the pre-change text when limits are absent', () => {
+    const result: SpawnAgentResult = {
+      agentId: 'a-1' as AgentId,
+      cli: 'codex',
+      status: 'running',
+      startedAt: '2026-10-03T12:00:00.000Z',
+      cliSessionId: 'sess-1',
+    };
+    expect(formatAgentSpawn(result)).toBe(
+      '## Agent Spawned\n\n\n**Agent ID:** a-1  \n\n**CLI:** codex  \n\n' +
+        '**Status:** running  \n\n**Started:** 2026-10-03T12:00:00.000Z  \n\n' +
+        '**CLI Session ID:** sess-1\n',
+    );
+  });
+
   it('formatAgentList renders the messaging capability for a system CLI', () => {
     const agents = [
       { cli: 'cursor', installed: true, messagingMode: 'interrupt' },
@@ -1848,6 +1903,25 @@ describe('mcp-response-formatter › agent namespace', () => {
   it('formatAgentList renders helpful empty-state message for zero agents', () => {
     const out = formatAgentList([]);
     expect(out).toMatch(/No agents found/);
+  });
+
+  it('formatAgentList keeps an empty roster to the design §5.1 text, with and without limits', () => {
+    const roles = ['reviewer'];
+    const withoutLimits = formatAgentList([], roles);
+    expect(withoutLimits).toMatch(/No agents found/);
+    expect(withoutLimits).not.toContain('### Plan limits');
+    expect(withoutLimits).not.toContain('### Alternatives by limit state');
+
+    expect(formatAgentList([], roles, [])).toBe(
+      [
+        withoutLimits,
+        '### Alternatives by limit state\nNo lanes are available to list. This does not mean any lane is at its limit.',
+        '**Confirmed room:** none',
+        '**Near limit:** none',
+        '**Unknown:** none',
+        '**At limit:** none',
+      ].join('\n\n'),
+    );
   });
 
   it('formatAgentSpawn includes model tier when provided', () => {

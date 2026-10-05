@@ -64,6 +64,7 @@ import {
   CODEX_PROXY_TOKEN_PLACEHOLDER,
   type ICodexAuthService,
 } from '../providers/codex';
+import type { ICodexOwnerKeySource } from '../providers/codex/codex-provider.types';
 import {
   OpenRouterTranslationProxy,
   OPENROUTER_PROXY_TOKEN_PLACEHOLDER,
@@ -133,6 +134,8 @@ export class ProviderProxyPool {
     private readonly codexAuth: ICodexAuthService,
     @inject(AUTH_PROVIDERS_TOKENS.SDK_OPENROUTER_AUTH)
     private readonly openRouterAuth: IOpenRouterAuthService,
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_CODEX_ACCOUNT_USAGE)
+    private readonly codexOwnerKeys: ICodexOwnerKeySource,
   ) {}
 
   private key(workspacePath: string, providerId: string): string {
@@ -267,7 +270,11 @@ export class ProviderProxyPool {
       case 'openai-codex': {
         await this.ensureCodexReady();
         return {
-          proxy: new CodexTranslationProxy(this.logger, this.codexAuth),
+          proxy: new CodexTranslationProxy(
+            this.logger,
+            this.codexAuth,
+            this.codexOwnerKeys,
+          ),
           authToken: CODEX_PROXY_TOKEN_PLACEHOLDER,
         };
       }

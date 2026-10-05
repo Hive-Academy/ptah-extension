@@ -345,6 +345,38 @@ describe('AgentMonitorStore — empty-string session ids', () => {
     });
   });
 
+  describe('agentsOwnedBySession (quota and lane tiles)', () => {
+    const ids = (sessionId: string) =>
+      store.agentsOwnedBySession(sessionId).map((a) => a.agentId);
+
+    it('lists an unresolved lane in no session, then only in the one it resolves to', () => {
+      store.onAgentSpawned(processInfo({ agentId: 'lane', parentSessionId: '' }));
+
+      expect(ids(ACTIVE_SESSION)).toEqual([]);
+      expect(ids(OTHER_SESSION)).toEqual([]);
+      // The monitor UI keeps showing it everywhere until it resolves.
+      expect(
+        store.agentsForSession(OTHER_SESSION).map((a) => a.agentId),
+      ).toEqual(['lane']);
+
+      store.onAgentExited(
+        processInfo({
+          agentId: 'lane',
+          parentSessionId: OTHER_SESSION,
+          status: 'completed',
+        }),
+      );
+
+      expect(ids(OTHER_SESSION)).toEqual(['lane']);
+      expect(ids(ACTIVE_SESSION)).toEqual([]);
+    });
+
+    it('returns nothing for an unresolved session id', () => {
+      store.onAgentSpawned(processInfo({ agentId: 'lane', parentSessionId: '' }));
+      expect(store.agentsOwnedBySession('')).toEqual([]);
+    });
+  });
+
   describe('the resumed-agent badge is session-scoped', () => {
     it('does not badge another session`s identically described agent as Resumed', () => {
       store.onAgentSpawned(

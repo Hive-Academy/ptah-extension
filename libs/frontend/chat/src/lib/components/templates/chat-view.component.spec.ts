@@ -26,6 +26,7 @@ import {
   NgModule,
   NO_ERRORS_SCHEMA,
   ChangeDetectionStrategy,
+  LOCALE_ID,
   signal,
 } from '@angular/core';
 
@@ -64,6 +65,7 @@ import { TestBed } from '@angular/core/testing';
 import {
   ChatViewComponent,
   AGENT_PANEL_OVERLAY_BREAKPOINT,
+  toStatsLimitLaneRun,
 } from './chat-view.component';
 import { ChatStore } from '../../services/chat.store';
 import { ActionBannerService } from '../../services/action-banner.service';
@@ -74,7 +76,14 @@ import {
   ClaudeRpcService,
   AppStateManager,
   AuthStateService,
+  PlanLimitsStore,
+  type PlanLimitsSurfaceScope,
 } from '@ptah-extension/core';
+import type {
+  PlanLimitOwnerSnapshot,
+  PlanLimitsSnapshot,
+  QuotaOwnerRef,
+} from '@ptah-extension/shared';
 import {
   TabManagerService,
   ConversationRegistry,
@@ -336,9 +345,39 @@ function makeHarness(
     ? realActionBanner
     : actionBannerStub;
 
+  const agentsForSessionMock = jest.fn(
+    (_sessionId: string): MonitoredAgent[] => [],
+  );
+  const planLimitsScopeUpdateMock = jest.fn(
+    async (_scope: PlanLimitsSurfaceScope): Promise<void> => undefined,
+  );
+  const planLimitsScopeReleaseMock = jest.fn();
+  const planLimitsSnapshotSig = signal<PlanLimitsSnapshot | null>(null);
+  const planLimitsNowSig = signal<number>(Date.UTC(2026, 9, 5, 12, 0, 0));
+  const planLimitsLoadErrorSig = signal(false);
+  const planLimitsRegisterScopeMock = jest.fn((_destroyRef: unknown) => ({
+    id: 1,
+    update: planLimitsScopeUpdateMock,
+    release: planLimitsScopeReleaseMock,
+  }));
+  const planLimitsStub = {
+    registerScope: planLimitsRegisterScopeMock,
+    snapshot: planLimitsSnapshotSig.asReadonly(),
+    now: planLimitsNowSig.asReadonly(),
+    loading: signal(false).asReadonly(),
+    loadError: planLimitsLoadErrorSig.asReadonly(),
+    sessionOwner: (sessionId: string) =>
+      planLimitsSnapshotSig()?.sessionOwners[sessionId] ?? null,
+  } as unknown as PlanLimitsStore;
+
   const agentMonitorStoreStub = {
     agents: agentsSig.asReadonly(),
-    agentsForSession: jest.fn(() => []),
+    agentsForSession: agentsForSessionMock,
+    // Exact-parent rule of the real store: an unresolved parent matches none.
+    agentsOwnedBySession: (sessionId: string): MonitoredAgent[] =>
+      sessionId
+        ? agentsSig().filter((a) => a.parentSessionId === sessionId)
+        : [],
     activeTabAgents: signal([]).asReadonly(),
     activeWorkflowSubagents: signal([]).asReadonly(),
     pendingPermissions: signal([]).asReadonly(),
@@ -372,6 +411,7 @@ function makeHarness(
     .fn<Promise<boolean>, [string, string?]>()
     .mockResolvedValue(true);
   const requestCanvasTabMock = jest.fn();
+  const requestComposerPrefillMock = jest.fn();
   const appStateStub = {
     currentView: signal('chat'),
     layoutMode: layoutModeSig.asReadonly(),
@@ -382,6 +422,7 @@ function makeHarness(
     }).asReadonly(),
     requestCanvasSession: requestCanvasSessionMock,
     requestCanvasTab: requestCanvasTabMock,
+    requestComposerPrefill: requestComposerPrefillMock,
   } as unknown as AppStateManager;
 
   const treeBuilderStub = {
@@ -436,6 +477,7 @@ function makeHarness(
       { provide: ConversationRegistry, useValue: conversationRegistryStub },
       { provide: TabSessionBinding, useValue: tabSessionBindingStub },
       { provide: AuthStateService, useValue: authStateStub },
+      { provide: PlanLimitsStore, useValue: planLimitsStub },
       {
         provide: SESSION_CONTEXT,
         useValue:
@@ -507,10 +549,16 @@ function makeHarness(
     loadOlderMock,
     olderHistoryLoadingTabIds,
     agentsSig,
+    agentsForSessionMock,
+    planLimitsScopeUpdateMock,
+    planLimitsRegisterScopeMock,
+    planLimitsSnapshotSig,
+    planLimitsLoadErrorSig,
     activeTabMock,
     createTabMock,
     sendOrQueueMessageMock,
     requestCanvasTabMock,
+    requestComposerPrefillMock,
   };
 }
 
@@ -1414,6 +1462,299 @@ describe('ChatViewComponent — showBackgroundStrip() / traySessionId()', () => 
 });
 
 // -----------------------------------------------------------------------------
+// TASK_2026_596 Batch 20 — plan-limit wiring of the stats strip.
+// -----------------------------------------------------------------------------
+describe('ChatViewComponent — plan limits wiring (TASK_2026_596)', () => {
+  const OWNER_A: QuotaOwnerRef = {
+    key: 'openai-codex#account:aaa',
+    providerId: 'openai-codex',
+    identityKind: 'account',
+    label: 'Codex account',
+  };
+  const OWNER_B: QuotaOwnerRef = {
+    key: 'openai-codex#account:bbb',
+    providerId: 'openai-codex',
+    identityKind: 'account',
+    label: 'Codex account',
+  };
+  const STARTED = Date.UTC(2026, 9, 5, 11, 0, 0);
+
+  function run(
+    agentId: string,
+    parentSessionId: string,
+    extra: Partial<MonitoredAgent> = {},
+  ): MonitoredAgent {
+    return {
+      agentId,
+      cli: 'codex',
+      task: `task ${agentId}`,
+      status: 'completed',
+      startedAt: STARTED,
+      stdout: '',
+      stderr: '',
+      expanded: false,
+      segments: [],
+      streamEvents: [],
+      streamRevision: 0,
+      permissionQueue: [],
+      parentSessionId,
+      ...extra,
+    } as MonitoredAgent;
+  }
+
+  function ownerSnapshot(owner: QuotaOwnerRef): PlanLimitOwnerSnapshot {
+    return {
+      owner,
+      status: 'available',
+      windowSetEstablished: true,
+      windows: [
+        {
+          key: 'weekly_model:opus',
+          kind: 'weekly_model',
+          label: 'Weekly · Opus',
+          modelScope: 'opus',
+          used: { kind: 'percent', percent: 10 },
+          usedSource: 'provider-api',
+          usedObservedAt: STARTED,
+          observedAt: STARTED,
+        },
+      ],
+      ownerEvidence: [],
+    };
+  }
+
+  function harness() {
+    // Children are swapped out (NO_ERRORS_SCHEMA) so `TestBed.tick()` can run
+    // the effects without wiring every child component's DI graph.
+    const h = makeHarness({ renderCompactTemplate: true });
+    // The monitor's TOLERANT rule (unresolved parent visible everywhere). The
+    // quota and lane tiles must not read it; they use the exact accessor.
+    h.agentsForSessionMock.mockImplementation((sessionId: string) =>
+      h
+        .agentsSig()
+        .filter((a) => !a.parentSessionId || a.parentSessionId === sessionId),
+    );
+    return h;
+  }
+
+  afterEach(() => {
+    TestBed.resetTestingModule();
+    jest.restoreAllMocks();
+    jest.clearAllMocks();
+  });
+
+  it('registers ONE plan-limits scope per surface, bound to its DestroyRef', () => {
+    const h = harness();
+    TestBed.tick();
+
+    expect(h.planLimitsRegisterScopeMock).toHaveBeenCalledTimes(1);
+    expect(h.planLimitsRegisterScopeMock).toHaveBeenCalledWith(
+      expect.objectContaining({ onDestroy: expect.any(Function) }),
+    );
+  });
+
+  it('scopes the session with its recorded owner keys, and names [] for both once no session is open', () => {
+    const h = harness();
+    h.agentsSig.set([
+      run('a1', h.sessionId, { quotaOwner: OWNER_A }),
+      // No recorded owner: contributes no key, never the current owner's.
+      run('a2', h.sessionId),
+      run('b1', 'session-other', { quotaOwner: OWNER_B }),
+    ]);
+    TestBed.tick();
+
+    expect(h.planLimitsScopeUpdateMock).toHaveBeenLastCalledWith({
+      sessionIds: [h.sessionId],
+      ownerKeys: [OWNER_A.key],
+    });
+
+    h.sessionIdSig.set(null);
+    TestBed.tick();
+
+    expect(h.planLimitsScopeUpdateMock).toHaveBeenLastCalledWith({
+      sessionIds: [],
+      ownerKeys: [],
+    });
+    expect(h.component.resolvedStatsLimits()).toBeNull();
+  });
+
+  it('reloads when the recorded owner set changes, not on a usage-only update', () => {
+    const h = harness();
+    h.agentsSig.set([run('a1', h.sessionId, { quotaOwner: OWNER_A })]);
+    TestBed.tick();
+    const calls = h.planLimitsScopeUpdateMock.mock.calls.length;
+
+    h.agentsSig.set([
+      run('a1', h.sessionId, {
+        quotaOwner: OWNER_A,
+        usageTotals: { inputTokens: 5 },
+      }),
+    ]);
+    TestBed.tick();
+    expect(h.planLimitsScopeUpdateMock.mock.calls.length).toBe(calls);
+
+    h.agentsSig.update((list) => [
+      ...list,
+      run('a3', h.sessionId, { quotaOwner: OWNER_B }),
+    ]);
+    TestBed.tick();
+    expect(h.planLimitsScopeUpdateMock).toHaveBeenLastCalledWith({
+      sessionIds: [h.sessionId],
+      ownerKeys: [OWNER_A.key, OWNER_B.key],
+    });
+  });
+
+  it('builds limits from this session`s runs only (F58), and only once a snapshot exists', () => {
+    const h = harness();
+    h.agentsSig.set([
+      run('a1', h.sessionId, { quotaOwner: OWNER_A }),
+      run('a2', h.sessionId),
+      run('b1', 'session-other', { quotaOwner: OWNER_A }),
+    ]);
+    expect(h.component.resolvedStatsLimits()).toBeNull();
+
+    h.planLimitsSnapshotSig.set({
+      generatedAt: STARTED,
+      owners: [ownerSnapshot(OWNER_A)],
+      sessionOwners: {
+        [h.sessionId]: { ownerKey: OWNER_A.key, modelScope: 'opus' },
+      },
+    });
+
+    const limits = h.component.resolvedStatsLimits();
+    expect(limits?.lanesCount).toBe(2);
+    const statuses = limits?.laneTiles
+      .flatMap((tile) => tile.subgroups)
+      .map((group) => group.ownerStatus)
+      .sort();
+    expect(statuses).toEqual(['not-recorded', 'same']);
+    // The session's backend-resolved scope (`opus`) shows its window tile.
+    expect(limits?.planTiles.some((tile) => tile.kind === 'window')).toBe(
+      true,
+    );
+    // A run carries no resolved scope, so model-scoped limits are not applied.
+    const sameGroup = limits?.laneTiles
+      .flatMap((tile) => tile.subgroups)
+      .find((group) => group.ownerStatus === 'same');
+    expect(sameGroup?.notes).toContainEqual({
+      tone: 'info',
+      text: 'Model unknown · model-specific limits are not applied',
+    });
+  });
+
+  it('passes a failed refresh to the strip while data is held, and clears it on the next good read', () => {
+    const h = harness();
+    h.planLimitsSnapshotSig.set({
+      generatedAt: STARTED,
+      owners: [ownerSnapshot(OWNER_A)],
+      sessionOwners: {
+        [h.sessionId]: { ownerKey: OWNER_A.key, modelScope: 'opus' },
+      },
+    });
+    expect(h.component.resolvedStatsLimits()?.refreshNotice).toBeUndefined();
+
+    h.planLimitsLoadErrorSig.set(true);
+    expect(h.component.resolvedStatsLimits()?.refreshNotice).toMatch(
+      /^Refresh failed — showing last observed data/,
+    );
+
+    h.planLimitsLoadErrorSig.set(false);
+    expect(h.component.resolvedStatsLimits()?.refreshNotice).toBeUndefined();
+  });
+
+  it('shows a lane in no session`s tiles until its parent resolves, then only in that session`s', () => {
+    // One surface viewed under two sessions (TestBed mounts one ChatView per
+    // test); the store-level spec covers both sessions side by side.
+    const OTHER = 'session-other';
+    const h = harness();
+    h.planLimitsSnapshotSig.set({
+      generatedAt: STARTED,
+      owners: [ownerSnapshot(OWNER_A)],
+      sessionOwners: {
+        [h.sessionId]: { ownerKey: OWNER_A.key, modelScope: null },
+        [OTHER]: { ownerKey: OWNER_A.key, modelScope: null },
+      },
+    });
+    const lanes = () => h.component.resolvedStatsLimits()?.lanesCount;
+
+    // Unresolved parent: the lane is in neither session's tiles, even though
+    // the monitor's tolerant accessor would list it in both.
+    const lane = run('lane', h.sessionId, { quotaOwner: OWNER_A });
+    delete (lane as { parentSessionId?: string }).parentSessionId;
+    h.agentsSig.set([lane]);
+    expect(lanes()).toBe(0);
+    h.sessionIdSig.set(OTHER);
+    expect(lanes()).toBe(0);
+
+    // Resolved to OTHER: only OTHER's tiles count it.
+    h.agentsSig.set([run('lane', OTHER, { quotaOwner: OWNER_A })]);
+    expect(lanes()).toBe(1);
+    h.sessionIdSig.set(h.sessionId);
+    expect(lanes()).toBe(0);
+  });
+
+  it('formats times in the host zone and app locale, never a fixed UTC', () => {
+    const real = Intl.DateTimeFormat.prototype.resolvedOptions;
+    jest
+      .spyOn(Intl.DateTimeFormat.prototype, 'resolvedOptions')
+      .mockImplementation(function (this: Intl.DateTimeFormat) {
+        return { ...real.call(this), timeZone: 'Europe/Berlin' };
+      });
+    const h = harness();
+
+    expect(
+      (h.component as unknown as { _limitTime: unknown })._limitTime,
+    ).toEqual({
+      timeZone: 'Europe/Berlin',
+      zoneNameLocale: TestBed.inject(LOCALE_ID),
+    });
+  });
+
+  describe('toStatsLimitLaneRun', () => {
+    it('marks a run restored only by the restore flag, not by its status', () => {
+      expect(
+        toStatsLimitLaneRun(run('r', 's', { restored: true, status: 'running' }))
+          .restored,
+      ).toBe(true);
+      expect(
+        toStatsLimitLaneRun(run('l', 's', { status: 'completed' })).restored,
+      ).toBe(false);
+    });
+
+    it.each([
+      ['null', null],
+      ['absent', undefined],
+    ])('passes %s usageTotals through as unknown, never 0', (_label, usage) => {
+      const lane = toStatsLimitLaneRun(
+        run('u', 's', usage === null ? { usageTotals: null } : {}),
+      );
+      expect(lane.usageTotals ?? null).toBeNull();
+    });
+
+    it('uses the card display name, no model scope, and keeps an absent owner absent', () => {
+      const named = toStatsLimitLaneRun(
+        run('n', 's', { displayName: 'Codex', model: 'gpt-5-codex' }),
+      );
+      expect(named.cliLabel).toBe('Codex');
+      expect(named.model).toBe('gpt-5-codex');
+      expect(named.modelScope).toBeNull();
+      expect(named.quotaOwner).toBeUndefined();
+
+      const bare = toStatsLimitLaneRun(run('b', 's'));
+      expect(bare.cliLabel).toBe('Codex');
+      expect(bare.model).toBeNull();
+    });
+
+    it('labels a restored Ptah CLI run without a display name by product name, never the raw id', () => {
+      const restored = toStatsLimitLaneRun(
+        run('r', 's', { cli: 'ptah-cli', restored: true }),
+      );
+      expect(restored.cliLabel).toBe('Ptah CLI');
+    });
+  });
+});
+
+// -----------------------------------------------------------------------------
 // TASK_2026_176 — panel resize coalescing + blur/Escape teardown
 //
 // The pointer-move listener used to run inside the Angular zone and called
@@ -1928,6 +2269,7 @@ describe('ChatViewComponent — session budget banner wiring (TASK_2026_597 N7)'
     onBudgetAction(a: 'dismiss' | 'extend' | 'restore-window'): Promise<void>;
     onBudgetPreview(): Promise<void>;
     onBudgetContinue(): Promise<void>;
+    onBudgetRotate(): Promise<void>;
   };
 
   function setup(budget: SessionBudgetState | null = BUDGET) {
@@ -2082,6 +2424,55 @@ describe('ChatViewComponent — session budget banner wiring (TASK_2026_597 N7)'
 
     expect(h.createTabMock).not.toHaveBeenCalled();
     expect(h.sendOrQueueMessageMock).not.toHaveBeenCalled();
+  });
+
+  it('rotate previews the handoff and only prefills the new tab composer', async () => {
+    const { h, view } = setup();
+    h.rpcCallMock.mockResolvedValue(
+      rpcOk({
+        success: true,
+        handoff: { content: '# H', path: null, seed: 'ROTATE SEED' },
+      }),
+    );
+
+    await view.onBudgetRotate();
+
+    expect(h.rpcCallMock).toHaveBeenCalledWith('session:budgetAction', {
+      sessionId: SESSION,
+      action: 'preview-handoff',
+    });
+    expect(h.createTabMock).toHaveBeenCalledTimes(1);
+    expect(h.requestComposerPrefillMock).toHaveBeenCalledWith(
+      'ROTATE SEED',
+      null,
+    );
+    expect(h.sendOrQueueMessageMock).not.toHaveBeenCalled();
+  });
+
+  it('rotate in grid layout targets the new tab composer', async () => {
+    const { h, view } = setup();
+    h.layoutModeSig.set('grid');
+    h.rpcCallMock.mockResolvedValue(
+      rpcOk({
+        success: true,
+        handoff: { content: 'c', path: null, seed: 'S' },
+      }),
+    );
+
+    await view.onBudgetRotate();
+
+    expect(h.requestCanvasTabMock).toHaveBeenCalledWith('tab-new', '/ws');
+    expect(h.requestComposerPrefillMock).toHaveBeenCalledWith('S', 'tab-new');
+  });
+
+  it('rotate opens no tab when the handoff has no seed', async () => {
+    const { h, view } = setup();
+    h.rpcCallMock.mockResolvedValue(rpcOk({ success: true }));
+
+    await view.onBudgetRotate();
+
+    expect(h.createTabMock).not.toHaveBeenCalled();
+    expect(h.requestComposerPrefillMock).not.toHaveBeenCalled();
   });
 
   it('does nothing without a budget', async () => {

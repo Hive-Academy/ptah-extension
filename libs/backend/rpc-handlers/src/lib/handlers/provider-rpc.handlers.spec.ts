@@ -47,6 +47,13 @@
  *   `libs/backend/rpc-handlers/src/lib/handlers/provider-rpc.handlers.ts`
  */
 
+// The cli-agent-runtime barrel (plan-limit discovery tokens) reaches the
+// workspace-intelligence tree-sitter loader, whose `wasm-bundle-dir` reads
+// `import.meta.url` (unparseable under CommonJS ts-jest). Nothing here parses.
+jest.mock('../../../../workspace-intelligence/src/ast/wasm-bundle-dir', () => ({
+  BUNDLE_DIR: '',
+  resolveWasmPath: (filename: string) => filename,
+}));
 import 'reflect-metadata';
 
 import type {
@@ -75,19 +82,102 @@ import type {
   CodexAuthService,
 } from '@ptah-extension/auth-providers';
 import type { CliDetectionService } from '@ptah-extension/cli-agent-runtime';
-import type { AuthEnv } from '@ptah-extension/shared';
+import type {
+  DiscoveredPlanOwner,
+  PlanOwnerDiscoveryRequest,
+} from '@ptah-extension/cli-agent-runtime';
+import type { PlanOwnerTarget } from '@ptah-extension/auth-providers';
+import type {
+  AuthEnv,
+  PlanLimitOwnerSnapshot,
+  PlanLimitsSnapshot,
+  ProviderGetAccountUsageResult,
+  QuotaOwnerRef,
+} from '@ptah-extension/shared';
 import {
   createMockLogger,
   type MockLogger,
 } from '@ptah-extension/shared/testing';
 
 import { ConnectionCheckRecorder } from '../utils/connection-check-recorder';
+import { PlanLimitsSnapshotService } from '../services/plan-limits-snapshot.service';
 import { ProviderRpcHandlers } from './provider-rpc.handlers';
 
 // A thrown error whose text carries a credential and a user path; neither may
 // reach the RPC result (TASK_2026_555 Batch 12c).
 const FAKE_KEY = 'sk-test-FAKEKEY123';
 const LEAKY_MESSAGE = `write failed for ${FAKE_KEY} at C:\\Users\\someone\\.ptah\\settings.json`;
+
+// ---------------------------------------------------------------------------
+// Plan-limit fixtures (TASK_2026_596). Owner keys are opaque hashes; labels
+// are generic. The three fake secrets stand for what the backend resolves
+// while reading (F71) and must never be serialized.
+// ---------------------------------------------------------------------------
+
+const FAKE_PROVIDER_KEY = 'ollama-FAKE-provider-key-7f3a';
+const FAKE_PTAH_CLI_KEY = 'ptahcli-FAKE-lane-key-91c2';
+const FAKE_CSRF_TOKEN = 'csrf-FAKE-token-d04e';
+
+function owner(
+  providerId: string,
+  identityKind: QuotaOwnerRef['identityKind'],
+  fingerprint: string,
+  label: string,
+): QuotaOwnerRef {
+  return {
+    key: `${providerId}#${identityKind}:${fingerprint}`,
+    providerId,
+    identityKind,
+    label,
+  };
+}
+
+const CODEX_OWNER = owner('openai-codex', 'cli-store', 'a1', 'Codex account');
+const OLLAMA_OWNER = owner(
+  'ollama-cloud',
+  'credential',
+  'b2',
+  'Ollama Cloud key',
+);
+const PTAH_CLI_OWNER = owner(
+  'ollama-cloud',
+  'credential',
+  'c3',
+  'Ollama Cloud key',
+);
+const ANTIGRAVITY_OWNER = owner(
+  'antigravity',
+  'cli-store',
+  'd4',
+  'Antigravity',
+);
+const CLAUDE_OWNER = owner('anthropic', 'account', 'e5', 'Claude account');
+const COPILOT_OWNER = owner('github-copilot', 'unknown', 'f6', 'Unknown owner');
+
+const FIVE_HOUR_WINDOW = {
+  key: 'five_hour' as const,
+  kind: 'five_hour' as const,
+  label: '5-hour',
+  used: { kind: 'percent' as const, percent: 40 },
+  usedSource: 'provider-api' as const,
+  observedAt: 1_000,
+};
+
+function ownerSnapshot(
+  ownerRef: QuotaOwnerRef,
+  status: PlanLimitOwnerSnapshot['status'],
+  windows: PlanLimitOwnerSnapshot['windows'],
+  extra: Partial<PlanLimitOwnerSnapshot> = {},
+): PlanLimitOwnerSnapshot {
+  return {
+    owner: ownerRef,
+    status,
+    windowSetEstablished: status === 'available',
+    windows,
+    ownerEvidence: [],
+    ...extra,
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Narrow mock surfaces
@@ -203,6 +293,30 @@ interface Harness {
     close: jest.Mock;
   };
   sentry: MockSentryService;
+  planLimits: PlanLimitsFakes;
+}
+
+/** Fakes behind the REAL PlanLimitsSnapshotService the handler uses. */
+interface PlanLimitsFakes {
+  discoverTargets: jest.Mock<
+    Promise<DiscoveredPlanOwner[]>,
+    [PlanOwnerDiscoveryRequest?]
+  >;
+  getOwnerSnapshot: jest.Mock<
+    Promise<PlanLimitOwnerSnapshot>,
+    [PlanOwnerTarget, { refresh?: boolean; signal?: AbortSignal }?]
+  >;
+  snapshotFor: jest.Mock;
+  sessionOwners: jest.Mock;
+}
+
+function createPlanLimitsFakes(): PlanLimitsFakes {
+  return {
+    discoverTargets: jest.fn(async () => []),
+    getOwnerSnapshot: jest.fn(),
+    snapshotFor: jest.fn(() => undefined),
+    sessionOwners: jest.fn(() => ({})),
+  };
 }
 
 function makeHarness(
@@ -236,6 +350,16 @@ function makeHarness(
     close: jest.fn(),
   };
   const sentry = createMockSentryService();
+  const planLimits = createPlanLimitsFakes();
+  const planLimitsService = new PlanLimitsSnapshotService(
+    logger as unknown as Logger,
+    { discoverTargets: planLimits.discoverTargets },
+    { getOwnerSnapshot: planLimits.getOwnerSnapshot },
+    {
+      snapshotFor: planLimits.snapshotFor,
+      sessionOwners: planLimits.sessionOwners,
+    },
+  );
 
   const handlers = new ProviderRpcHandlers(
     logger as unknown as Logger,
@@ -267,9 +391,11 @@ function makeHarness(
       remove: async () => false,
     } as unknown as import('@ptah-extension/settings-core').CustomProviderStore,
     new ConnectionCheckRecorder(),
+    planLimitsService,
   );
 
   return {
+    planLimits,
     handlers,
     logger,
     rpcHandler,
@@ -310,27 +436,412 @@ async function call<TResult>(
 
 describe('ProviderRpcHandlers', () => {
   describe('provider:getAccountUsage', () => {
-    it('routes Codex and returns unsupported for other providers without service work', async () => {
+    it('reads the Codex owner through PlanUsageService and keeps every legacy field', async () => {
       const h = makeHarness();
-      h.handlers.register();
-      await expect(
-        call(h, 'provider:getAccountUsage', {
-          providerId: 'openai-codex',
-          refresh: true,
-        }),
-      ).resolves.toMatchObject({ status: 'available' });
-      expect(h.codexAccountUsage.getAccountUsage).toHaveBeenCalledWith({
-        refresh: true,
+      const target: PlanOwnerTarget = {
+        providerId: 'openai-codex',
+        ownerRef: CODEX_OWNER,
+      };
+      h.planLimits.discoverTargets.mockResolvedValue([
+        { kind: 'read', origin: 'selected-provider', target },
+      ]);
+      h.planLimits.getOwnerSnapshot.mockResolvedValue(
+        ownerSnapshot(CODEX_OWNER, 'available', [FIVE_HOUR_WINDOW]),
+      );
+      h.codexAccountUsage.getAccountUsage.mockResolvedValue({
+        status: 'available',
+        providerId: 'openai-codex',
+        fetchedAt: 10,
+        account: { planType: 'plus' },
+        quota: {
+          primary: { usedPercent: 40, windowDurationMins: 300, resetsAt: 99 },
+          secondary: { usedPercent: 7, windowDurationMins: 10080 },
+        },
+        activity: { dailyUsage: [] },
       });
+      h.handlers.register();
+
+      const result = await call<ProviderGetAccountUsageResult>(
+        h,
+        'provider:getAccountUsage',
+        { providerId: 'openai-codex', refresh: true },
+      );
+
+      expect(h.planLimits.discoverTargets).toHaveBeenCalledWith({
+        selectedProviderId: 'openai-codex',
+      });
+      expect(h.planLimits.getOwnerSnapshot).toHaveBeenCalledWith(
+        target,
+        expect.objectContaining({ refresh: true }),
+      );
+      // The reader just filled the Codex cache; the legacy call never refetches.
+      expect(h.codexAccountUsage.getAccountUsage).toHaveBeenCalledWith({
+        refresh: false,
+      });
+      expect(result).toMatchObject({
+        status: 'available',
+        providerId: 'openai-codex',
+        fetchedAt: 10,
+        account: { planType: 'plus' },
+        quota: {
+          primary: { usedPercent: 40, windowDurationMins: 300, resetsAt: 99 },
+          secondary: { usedPercent: 7, windowDurationMins: 10080 },
+        },
+        activity: { dailyUsage: [] },
+        owner: CODEX_OWNER,
+        windows: [FIVE_HOUR_WINDOW],
+        ownerEvidence: [],
+        windowSetEstablished: true,
+      });
+    });
+
+    it('waits out a Codex cold start longer than the 3 s plan-limits deadline', async () => {
+      jest.useFakeTimers();
+      try {
+        const h = makeHarness();
+        const target: PlanOwnerTarget = {
+          providerId: 'openai-codex',
+          ownerRef: CODEX_OWNER,
+        };
+        h.planLimits.discoverTargets.mockResolvedValue([
+          { kind: 'read', origin: 'selected-provider', target },
+        ]);
+        // A cold start: the read answers after 5 s, and aborts if signalled.
+        h.planLimits.getOwnerSnapshot.mockImplementation(
+          (_target, options) =>
+            new Promise((resolve, reject) => {
+              const timer = setTimeout(
+                () =>
+                  resolve(
+                    ownerSnapshot(CODEX_OWNER, 'available', [FIVE_HOUR_WINDOW]),
+                  ),
+                5_000,
+              );
+              options?.signal?.addEventListener('abort', () => {
+                clearTimeout(timer);
+                const error = new Error('aborted');
+                error.name = 'AbortError';
+                reject(error);
+              });
+            }),
+        );
+        h.codexAccountUsage.getAccountUsage.mockResolvedValue({
+          status: 'available',
+          providerId: 'openai-codex',
+          fetchedAt: 10,
+          account: { planType: 'plus' },
+          quota: {
+            primary: { usedPercent: 40, windowDurationMins: 300 },
+            secondary: { usedPercent: 7, windowDurationMins: 10080 },
+          },
+          activity: { dailyUsage: [] },
+        });
+        h.handlers.register();
+
+        let settled: ProviderGetAccountUsageResult | undefined;
+        const pending = call<ProviderGetAccountUsageResult>(
+          h,
+          'provider:getAccountUsage',
+          { providerId: 'openai-codex' },
+        ).then((value) => (settled = value));
+        await jest.advanceTimersByTimeAsync(3_500);
+        expect(settled).toBeUndefined();
+        await jest.advanceTimersByTimeAsync(1_500);
+        await pending;
+
+        expect(
+          h.planLimits.getOwnerSnapshot.mock.calls[0][1]?.signal,
+        ).toBeUndefined();
+        expect(settled).toMatchObject({
+          status: 'available',
+          account: { planType: 'plus' },
+          quota: {
+            primary: { usedPercent: 40, windowDurationMins: 300 },
+            secondary: { usedPercent: 7, windowDurationMins: 10080 },
+          },
+          activity: { dailyUsage: [] },
+          windows: [FIVE_HOUR_WINDOW],
+        });
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('answers a non-Codex provider with a reader instead of provider-unsupported', async () => {
+      const h = makeHarness();
+      h.planLimits.discoverTargets.mockResolvedValue([
+        {
+          kind: 'read',
+          origin: 'selected-provider',
+          target: {
+            providerId: 'ollama-cloud',
+            ownerRef: OLLAMA_OWNER,
+            credentialRef: { kind: 'provider-key', providerId: 'ollama-cloud' },
+          },
+        },
+      ]);
+      h.planLimits.getOwnerSnapshot.mockResolvedValue(
+        ownerSnapshot(OLLAMA_OWNER, 'available', [FIVE_HOUR_WINDOW]),
+      );
+      h.handlers.register();
+
+      const result = await call<ProviderGetAccountUsageResult>(
+        h,
+        'provider:getAccountUsage',
+        { providerId: 'ollama-cloud' },
+      );
+
+      expect(result.status).toBe('available');
+      expect(result.owner).toEqual(OLLAMA_OWNER);
+      expect(result.windows).toEqual([FIVE_HOUR_WINDOW]);
+      expect(result).not.toHaveProperty('credentialRef');
+      expect(h.codexAccountUsage.getAccountUsage).not.toHaveBeenCalled();
+    });
+
+    it('passes a known selected owner through unread and keeps its status', async () => {
+      const h = makeHarness();
+      const known = ownerSnapshot(COPILOT_OWNER, 'provider-unsupported', []);
+      h.planLimits.discoverTargets.mockResolvedValue([
+        { kind: 'known', origin: 'selected-provider', snapshot: known },
+      ]);
+      h.handlers.register();
+
       await expect(
-        call(h, 'provider:getAccountUsage', {
-          providerId: 'github-copilot',
-        }),
+        call(h, 'provider:getAccountUsage', { providerId: 'github-copilot' }),
       ).resolves.toEqual({
         status: 'provider-unsupported',
         providerId: 'github-copilot',
+        owner: COPILOT_OWNER,
+        windows: [],
+        ownerEvidence: [],
+        windowSetEstablished: false,
       });
-      expect(h.codexAccountUsage.getAccountUsage).toHaveBeenCalledTimes(1);
+      expect(h.planLimits.getOwnerSnapshot).not.toHaveBeenCalled();
+      expect(h.codexAccountUsage.getAccountUsage).not.toHaveBeenCalled();
+    });
+
+    it('returns provider-unsupported when the route names no owner', async () => {
+      const h = makeHarness();
+      h.handlers.register();
+
+      await expect(
+        call(h, 'provider:getAccountUsage', { providerId: 'z-ai' }),
+      ).resolves.toEqual({
+        status: 'provider-unsupported',
+        providerId: 'z-ai',
+      });
+    });
+  });
+
+  describe('provider:getPlanLimits', () => {
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    it('reads only `read` owners and passes `known` snapshots through unread', async () => {
+      const h = makeHarness();
+      const readTarget: PlanOwnerTarget = {
+        providerId: 'openai-codex',
+        ownerRef: CODEX_OWNER,
+      };
+      const known = ownerSnapshot(CLAUDE_OWNER, 'service-unavailable', [], {
+        unavailableReason: 'no-open-session',
+      });
+      const read = ownerSnapshot(CODEX_OWNER, 'available', [FIVE_HOUR_WINDOW]);
+      h.planLimits.discoverTargets.mockResolvedValue([
+        { kind: 'known', origin: 'selected-provider', snapshot: known },
+        { kind: 'read', origin: 'lane', target: readTarget },
+      ]);
+      h.planLimits.getOwnerSnapshot.mockResolvedValue(read);
+      h.handlers.register();
+
+      const result = await call<PlanLimitsSnapshot>(
+        h,
+        'provider:getPlanLimits',
+        { providerId: 'claude-cli', sessionIds: ['s-1'], ownerKeys: ['k'] },
+      );
+
+      expect(h.planLimits.discoverTargets).toHaveBeenCalledWith({
+        selectedProviderId: 'claude-cli',
+        sessionIds: ['s-1'],
+        ownerKeys: ['k'],
+      });
+      // One reader call, for the `read` entry only — never for the known owner.
+      expect(h.planLimits.getOwnerSnapshot).toHaveBeenCalledTimes(1);
+      expect(h.planLimits.getOwnerSnapshot).toHaveBeenCalledWith(
+        readTarget,
+        expect.objectContaining({ refresh: false }),
+      );
+      expect(result.owners).toEqual([known, read]);
+      expect(typeof result.generatedAt).toBe('number');
+    });
+
+    it('reads owners in parallel, each bounded by its own 3 s deadline', async () => {
+      jest.useFakeTimers();
+      const h = makeHarness();
+      const evidence = {
+        owner: CODEX_OWNER,
+        windows: [FIVE_HOUR_WINDOW],
+        ownerEvidence: [],
+      };
+      h.planLimits.snapshotFor.mockImplementation((key: string) =>
+        key === CODEX_OWNER.key ? evidence : undefined,
+      );
+      h.planLimits.discoverTargets.mockResolvedValue([
+        {
+          kind: 'read',
+          origin: 'lane',
+          target: { providerId: 'openai-codex', ownerRef: CODEX_OWNER },
+        },
+        {
+          kind: 'read',
+          origin: 'lane',
+          target: { providerId: 'ollama-cloud', ownerRef: OLLAMA_OWNER },
+        },
+      ]);
+      // A read that never answers: it settles only when its signal aborts.
+      h.planLimits.getOwnerSnapshot.mockImplementation(
+        (_target, options) =>
+          new Promise((_resolve, reject) => {
+            options?.signal?.addEventListener('abort', () => {
+              const error = new Error('aborted');
+              error.name = 'AbortError';
+              reject(error);
+            });
+          }),
+      );
+      h.handlers.register();
+
+      let settled: PlanLimitsSnapshot | undefined;
+      const pending = call<PlanLimitsSnapshot>(
+        h,
+        'provider:getPlanLimits',
+      ).then((value) => (settled = value));
+      await jest.advanceTimersByTimeAsync(2_999);
+      expect(h.planLimits.getOwnerSnapshot).toHaveBeenCalledTimes(2);
+      expect(settled).toBeUndefined();
+
+      // One deadline releases both owners: the reads ran side by side.
+      await jest.advanceTimersByTimeAsync(1);
+      await pending;
+
+      expect(settled?.owners).toEqual([
+        {
+          owner: CODEX_OWNER,
+          status: 'service-unavailable',
+          windowSetEstablished: false,
+          windows: [FIVE_HOUR_WINDOW],
+          ownerEvidence: [],
+        },
+        {
+          owner: OLLAMA_OWNER,
+          status: 'service-unavailable',
+          windowSetEstablished: false,
+          windows: [],
+          ownerEvidence: [],
+        },
+      ]);
+    });
+
+    it('lists every ledger session and each requested session it has not seen', async () => {
+      const h = makeHarness();
+      h.planLimits.sessionOwners.mockReturnValue({
+        's-1': { ownerKey: CLAUDE_OWNER.key, modelScope: 'opus' },
+      });
+      h.handlers.register();
+
+      const result = await call<PlanLimitsSnapshot>(
+        h,
+        'provider:getPlanLimits',
+        { sessionIds: ['s-1', 's-2'] },
+      );
+
+      expect(result.sessionOwners).toEqual({
+        's-1': { ownerKey: CLAUDE_OWNER.key, modelScope: 'opus' },
+        's-2': { ownerKey: null, modelScope: null },
+      });
+    });
+
+    it('rejects unknown fields and malformed ids at the boundary', async () => {
+      const h = makeHarness();
+      h.handlers.register();
+
+      await expect(
+        call(h, 'provider:getPlanLimits', { apiKey: 'sk-nope' }),
+      ).rejects.toThrow();
+      await expect(
+        call(h, 'provider:getPlanLimits', { sessionIds: [''] }),
+      ).rejects.toThrow();
+      expect(h.planLimits.discoverTargets).not.toHaveBeenCalled();
+    });
+
+    it('F71: the serialized result carries no secret, credential reference or email', async () => {
+      const h = makeHarness();
+      const secrets = [FAKE_PROVIDER_KEY, FAKE_PTAH_CLI_KEY, FAKE_CSRF_TOKEN];
+      h.planLimits.discoverTargets.mockResolvedValue([
+        {
+          kind: 'read',
+          origin: 'selected-provider',
+          target: {
+            providerId: 'ollama-cloud',
+            ownerRef: OLLAMA_OWNER,
+            credentialRef: { kind: 'provider-key', providerId: 'ollama-cloud' },
+          },
+        },
+        {
+          kind: 'read',
+          origin: 'lane',
+          target: {
+            providerId: 'ollama-cloud',
+            ownerRef: PTAH_CLI_OWNER,
+            credentialRef: { kind: 'ptah-cli-key', ptahCliId: 'glm-lane' },
+          },
+        },
+        {
+          kind: 'read',
+          origin: 'cli-store',
+          target: { providerId: 'antigravity', ownerRef: ANTIGRAVITY_OWNER },
+        },
+      ]);
+      // The backend holds the secrets while reading; a failing reader even
+      // quotes them in its error. None of it may reach the wire.
+      const resolvedSecret = (target: PlanOwnerTarget): string | undefined =>
+        target.credentialRef?.kind === 'provider-key'
+          ? FAKE_PROVIDER_KEY
+          : target.credentialRef?.kind === 'ptah-cli-key'
+            ? FAKE_PTAH_CLI_KEY
+            : undefined;
+      h.planLimits.getOwnerSnapshot.mockImplementation(async (target) => {
+        const secret = resolvedSecret(target);
+        if (target.ownerRef === ANTIGRAVITY_OWNER) {
+          throw new Error(
+            `language server rejected csrf ${FAKE_CSRF_TOKEN} for user@example.com`,
+          );
+        }
+        if (target.ownerRef === PTAH_CLI_OWNER) {
+          throw new Error(
+            `401 for key ${secret} (fallback ${FAKE_PROVIDER_KEY})`,
+          );
+        }
+        return ownerSnapshot(target.ownerRef, 'available', [FIVE_HOUR_WINDOW]);
+      });
+      h.handlers.register();
+
+      const result = await call<PlanLimitsSnapshot>(
+        h,
+        'provider:getPlanLimits',
+        { providerId: 'ollama-cloud' },
+      );
+      const json = JSON.stringify(result);
+
+      expect(result.owners).toHaveLength(3);
+      for (const secret of secrets) expect(json).not.toContain(secret);
+      expect(json).not.toContain('credentialRef');
+      expect(json).not.toContain('ptah-cli-key');
+      expect(json).not.toMatch(/[^\s"@]+@[^\s"@]+\.[a-z]{2,}/i);
+      // Nor in what was logged about the failure.
+      const logged = JSON.stringify(h.logger.debug.mock.calls);
+      for (const secret of secrets) expect(logged).not.toContain(secret);
     });
   });
   describe('register()', () => {
@@ -355,6 +866,10 @@ describe('ProviderRpcHandlers', () => {
           'provider:updateCustomEntry',
           'provider:removeCustomEntry',
           'provider:testCustomEntry',
+          'provider:getAccountUsage',
+          // In RpcMethodRegistry since Batch 1; registering it here closes the
+          // verifyAndReportRpcRegistration drift on every host (TASK_2026_596).
+          'provider:getPlanLimits',
         ]),
       );
     });

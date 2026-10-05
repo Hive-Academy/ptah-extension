@@ -1434,7 +1434,7 @@ function spoolDirPath(): string {
 /** Portable spool discovery (r1 defect 8): a directory snapshot, never a regex over a printed path. */
 function snapshotSpoolFiles(): Set<string> {
   const dir = spoolDirPath();
-  return new Set(fs.existsSync(dir) ? fs.readdirSync(dir) : []);
+  return new Set(fs.existsSync(dir) ? fs.readdirSync(dir).filter((n) => n !== '.gitignore') : []);
 }
 
 function newSpoolFiles(before: ReadonlySet<string>): string[] {

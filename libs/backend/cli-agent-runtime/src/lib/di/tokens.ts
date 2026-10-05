@@ -27,6 +27,14 @@ export const CLI_AGENT_RUNTIME_TOKENS = {
    * process manager.
    */
   LANE_RESUME_GATE: Symbol.for('LaneResumeGate'),
+
+  // Plan limits (TASK_2026_596). See `cli-agents/limits/`.
+  /** Names the quota owner a lane runs on (`LaneOwnerResolver`). */
+  LANE_OWNER_RESOLVER: Symbol.for('LaneOwnerResolver'),
+  /** Per-lane limit state for the agent tools, bounded by a deadline. */
+  LANE_LIMIT_LOOKUP: Symbol.for('LaneLimitLookup'),
+  /** Which quota owners the dashboard and a session view show. */
+  PLAN_LIMIT_OWNER_DISCOVERY: Symbol.for('PlanLimitOwnerDiscovery'),
 } as const;
 
 export type CliAgentRuntimeDIToken = keyof typeof CLI_AGENT_RUNTIME_TOKENS;

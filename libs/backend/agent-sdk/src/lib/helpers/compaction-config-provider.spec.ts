@@ -47,6 +47,10 @@ describe('CompactionConfigProvider.getConfig', () => {
       enabled: true,
       contextTokenThreshold: null,
       envWindow: null,
+      toolOutputBudgetTokens: 2500,
+      subagentHandoffTokens: 150_000,
+      rotationSuggestTokens: 300_000,
+      subagentStopWeightedTokens: 3_000_000,
     });
     expect(warn).not.toHaveBeenCalled();
   });
@@ -96,6 +100,61 @@ describe('CompactionConfigProvider.getConfig', () => {
         .enabled,
     ).toBe(false);
     expect(makeProvider({}).provider.getConfig().enabled).toBe(true);
+  });
+});
+
+describe('CompactionConfigProvider.getConfig — budget keys', () => {
+  const BUDGETS = [
+    ['compaction.toolOutputBudgetTokens', 'toolOutputBudgetTokens', 2500],
+    ['compaction.subagentHandoffTokens', 'subagentHandoffTokens', 150_000],
+    ['compaction.rotationSuggestTokens', 'rotationSuggestTokens', 300_000],
+    [
+      'compaction.subagentStopWeightedTokens',
+      'subagentStopWeightedTokens',
+      3_000_000,
+    ],
+  ] as const;
+
+  it.each(BUDGETS)('%s: a valid value is read', (key, field) => {
+    const { provider, warn } = makeProvider({ [key]: 4321 });
+    expect(provider.getConfig()[field]).toBe(4321);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it.each(BUDGETS)(
+    '%s: unset or null → default, no warning',
+    (key, field, d) => {
+      expect(makeProvider({}).provider.getConfig()[field]).toBe(d);
+      const { provider, warn } = makeProvider({ [key]: null });
+      expect(provider.getConfig()[field]).toBe(d);
+      expect(warn).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    ['a non-integer', 12.5],
+    ['zero', 0],
+    ['negative', -5],
+    ['a string', '2500'],
+    ['NaN', Number.NaN],
+    ['a boolean', true],
+  ])('invalid hand-edited value (%s) → default + warn', (_label, value) => {
+    for (const [key, field, d] of BUDGETS) {
+      const { provider, warn } = makeProvider({ [key]: value });
+      expect(provider.getConfig()[field]).toBe(d);
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining(`Invalid ${key}`),
+        expect.objectContaining({ defaultValue: d }),
+      );
+    }
+  });
+
+  it('does not change how compaction.threshold is read', () => {
+    const { provider } = makeProvider({
+      'compaction.threshold': 120_000,
+      'compaction.toolOutputBudgetTokens': -1,
+    });
+    expect(provider.getConfig().contextTokenThreshold).toBe(120_000);
   });
 });
 

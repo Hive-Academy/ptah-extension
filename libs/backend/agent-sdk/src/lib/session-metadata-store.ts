@@ -48,6 +48,7 @@ import {
   type StateStorageValueProjection,
 } from '@ptah-extension/platform-core';
 import { SdkError } from './errors';
+import { parseQuotaOwnerRef } from './helpers/plan-limits/quota-owner-ref.schema';
 import type {
   CliOutputSegment,
   CliSessionReference,
@@ -303,6 +304,25 @@ function countReferencesWithBulk(metadata: SessionMetadata): number {
   return (metadata.cliSessions ?? []).filter((ref) =>
     REFERENCE_BULK_FIELDS.some((field) => isNonEmptyBulk(ref[field])),
   ).length;
+}
+
+/**
+ * A restored reference carries its `quotaOwner` only when it validates. A
+ * malformed or legacy value — including an older build's bare `quotaOwnerKey`,
+ * which is dropped too — restores with no owner, which renders as "Unknown
+ * owner". It is never replaced by the session's current owner.
+ *
+ * A non-object entry (persisted `null`, a string, a number) passes through
+ * unchanged, as the restore path returned it before this seam existed: the `in`
+ * checks below would throw on it, and restore must never throw.
+ */
+function restoreQuotaOwner(ref: CliSessionReference): CliSessionReference {
+  if (typeof ref !== 'object' || ref === null) return ref;
+  const stored = ref as CliSessionReference & { quotaOwnerKey?: unknown };
+  if (!('quotaOwner' in stored) && !('quotaOwnerKey' in stored)) return ref;
+  const { quotaOwner, quotaOwnerKey: _legacy, ...rest } = stored;
+  const owner = parseQuotaOwnerRef(quotaOwner);
+  return owner ? { ...rest, quotaOwner: owner } : rest;
 }
 
 /**
@@ -865,12 +885,15 @@ export class SessionMetadataStore {
   /**
    * Lean CLI references for startup and resume. Historical output remains in
    * per-agent sequences and is requested through bounded pages.
+   *
+   * The single restore seam for both resume paths, so each run's persisted
+   * `quotaOwner` is validated here (TASK_2026_596 G3).
    */
   async getCliSessionsForRestore(
     sessionId: string,
   ): Promise<CliSessionReference[]> {
     const metadata = await this.get(sessionId);
-    return [...(metadata?.cliSessions ?? [])];
+    return (metadata?.cliSessions ?? []).map(restoreQuotaOwner);
   }
 
   /**

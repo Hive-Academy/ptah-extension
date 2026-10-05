@@ -68,6 +68,7 @@ export {
   SessionLifecycleNotifier,
   type WebviewBroadcaster as SessionLifecycleWebviewBroadcaster,
 } from './session-lifecycle-notifier';
+export { PlanLimitsBroadcaster } from './plan-limits-broadcaster';
 export type {
   DbHealthResult,
   DbHealthParams,

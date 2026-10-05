@@ -142,6 +142,11 @@ function realBudget(): SessionBudgetService {
       })),
     } as never,
     { write: jest.fn(async () => ({ path: null })) } as never,
+    {
+      evaluate: jest.fn(() => undefined),
+      current: jest.fn(() => undefined),
+      release: jest.fn(),
+    } as never,
   );
 }
 

@@ -37,6 +37,7 @@ import type { LiveUsageTracker } from './live-usage-tracker';
 import type { CompactionCallbackRegistry } from './compaction-callback-registry';
 import type { SdkAdapterEvents } from './sdk-adapter-events.service';
 import type { CompactionBoundaryGenerationRegistry } from './compaction-boundary-generation-registry';
+import type { CompactionCoordinator } from './compaction/compaction-coordinator';
 
 /**
  * Callback type for notifying when compaction starts
@@ -136,7 +137,34 @@ export class CompactionHookHandler {
      */
     @inject(SDK_TOKENS.SDK_COMPACTION_BOUNDARY_GENERATION_REGISTRY)
     private readonly boundaryRegistry?: CompactionBoundaryGenerationRegistry,
+    /**
+     * A8 compaction state machine. PreCompact opens a compaction there and
+     * PostCompact rebinds it to the post-compaction `session_id`. Fail-open:
+     * a coordinator error is logged and never reaches the SDK hook path.
+     */
+    @inject(SDK_TOKENS.SDK_COMPACTION_COORDINATOR)
+    private readonly compactionCoordinator?: CompactionCoordinator,
   ) {}
+
+  /** Forward a hook event to the coordinator; one warn line on failure. */
+  private notifyCoordinator(
+    event: 'PreCompact' | 'PostCompact',
+    notify: (coordinator: CompactionCoordinator) => void,
+  ): void {
+    const coordinator = this.compactionCoordinator;
+    if (!coordinator) return;
+    try {
+      notify(coordinator);
+    } catch (error: unknown) {
+      this.logger.warn(
+        '[CompactionHookHandler] Compaction coordinator failed on hook event',
+        {
+          event,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      );
+    }
+  }
 
   /**
    * Create hooks configuration for SDK query options
@@ -333,6 +361,11 @@ export class CompactionHookHandler {
                     );
                   }
                 }
+                // The coordinator ignores an id it does not track and a
+                // PreCompact that arrives while a compaction is already open.
+                this.notifyCoordinator('PreCompact', (coordinator) =>
+                  coordinator.onPreCompact(resolvedSessionId, trigger),
+                );
                 this.logger.info(
                   '[CompactionHookHandler] PreCompact hook triggered',
                   {
@@ -443,6 +476,21 @@ export class CompactionHookHandler {
 
                 const postFallbackSessionId = preCompactSessionId ?? sessionId;
                 preCompactSessionId = null;
+                // Rebind the coordinator record from the id this compaction was
+                // opened under to the PostCompact payload id when they differ
+                // (the coordinator no-ops on an equal or untracked id).
+                const postPayloadSessionId = resolveHookSessionId(
+                  input.session_id,
+                  null,
+                );
+                if (postFallbackSessionId && postPayloadSessionId) {
+                  this.notifyCoordinator('PostCompact', (coordinator) =>
+                    coordinator.onPostCompact(
+                      postFallbackSessionId,
+                      postPayloadSessionId,
+                    ),
+                  );
+                }
                 if (sdkAdapterEvents) {
                   // Payload first (hook identity rule); the PreCompact-resolved
                   // id of this same compaction before the captured closure id.

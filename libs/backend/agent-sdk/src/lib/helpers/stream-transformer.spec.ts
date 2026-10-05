@@ -54,6 +54,7 @@ import type {
   SessionMcpStatusEvent,
 } from './session-mcp-status-callback-registry';
 import type { IPricingProvider } from '../pricing.port';
+import type { SessionPlanLimitCallbackRegistry } from './plan-limits/session-plan-limit-callback-registry';
 import type { SDKMessage } from '../types/sdk-types/claude-sdk.types';
 
 import {
@@ -190,6 +191,7 @@ function makeHarness(authEnv: AuthEnv = makeAuthEnv()): Harness {
     pricingProvider,
     mcpStatus,
     statsOwner,
+    { notifyAll: jest.fn() } as unknown as SessionPlanLimitCallbackRegistry,
   );
   const routeAuthority = classifyUsageCostSource(authEnv);
   return {
@@ -2540,6 +2542,7 @@ describe('StreamTransformer — session stats authority (TASK_2026_533)', () => 
         makePricingProvider(),
         { notifyAll: jest.fn() } as unknown as SessionMcpStatusCallbackRegistry,
         owner,
+        { notifyAll: jest.fn() } as unknown as SessionPlanLimitCallbackRegistry,
       );
       return { transformer, owner };
     }

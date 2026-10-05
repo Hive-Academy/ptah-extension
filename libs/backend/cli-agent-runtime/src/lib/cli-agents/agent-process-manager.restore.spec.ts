@@ -92,6 +92,13 @@ function makeManager(options: {
     } as unknown as Args[7],
     // Never consulted: these tests make no resume spawn.
     { evaluate: jest.fn() } as unknown as Args[8],
+    // No quota owner and no ledger: plan limits are pinned by the manager spec.
+    { ownerForLane: jest.fn(() => undefined) } as unknown as Args[9],
+    {
+      recordWindowEvidence: jest.fn(),
+      recordOwnerEvidence: jest.fn(),
+      recordSuccess: jest.fn(),
+    } as unknown as Args[10],
   );
 }
 
@@ -246,6 +253,33 @@ describe('AgentProcessManager.restoreAgents', () => {
     expect(() => manager.getStatus(OUT_OF_SCOPE_ID)).toThrow(
       /belongs to another workspace/,
     );
+  });
+
+  it('carries the quota owner the run recorded, and none when it recorded none (G3)', () => {
+    const manager = makeManager({ providerRoot: ROOT_A });
+    const owner = {
+      providerId: 'openai-codex',
+      identityKind: 'account' as const,
+      key: 'openai-codex#account:0123456789abcdef',
+      label: 'Codex account',
+    };
+
+    manager.restoreAgents(
+      [
+        makeRef({ quotaOwner: owner }),
+        makeRef({ agentId: IN_SCOPE_ID as AgentId }),
+      ],
+      ROOT_A,
+    );
+
+    expect(manager.findAgentInfo(RESTORED_ID)?.quotaOwner).toEqual(owner);
+    expect(manager.findAgentInfo(IN_SCOPE_ID)).not.toHaveProperty(
+      'quotaOwner',
+    );
+    // A restored record is read-only: a later owner never replaces it.
+    expect(
+      manager.recordQuotaOwner(RESTORED_ID, { ...owner, key: 'other' }),
+    ).toBe(false);
   });
 
   it('refuses sendToAgent on a restored record, naming the real condition', async () => {

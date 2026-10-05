@@ -152,6 +152,32 @@ describe('runAgentWait', () => {
     expect(text).toContain('ptah_agent_read');
   });
 
+  it('names the lane budget guard stop reason instead of "on request"', async () => {
+    const lane = (stopReason?: 'tool-call-budget' | 'repeat-call') => ({
+      agentId: 'lane-1',
+      state: 'exited' as const,
+      info: info('lane-1', { status: 'stopped', exitCode: 1, stopReason }),
+    });
+    const run = (stopReason?: 'tool-call-budget' | 'repeat-call') =>
+      runAgentWait(
+        AgentWaitArgsSchema.parse({ agentIds: ['lane-1'], timeoutSec: 30 }),
+        deps({
+          mode: 'all',
+          timedOut: false,
+          waitedMs: 1,
+          entries: [lane(stopReason)],
+        }),
+      );
+
+    expect(await run('tool-call-budget')).toContain(
+      'stopped by the lane budget guard: tool-call budget reached',
+    );
+    expect(await run('repeat-call')).toContain(
+      'stopped by the lane budget guard: repeated identical call',
+    );
+    expect(await run()).toContain('stopped on request');
+  });
+
   it('reports a timeout as a partial result with running lanes and per-id unknowns', async () => {
     const d = deps({
       mode: 'all',

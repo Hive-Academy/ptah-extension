@@ -34,8 +34,15 @@ import type {
   CliOutputSegment,
   CliSessionReference,
   FlatStreamEventUnion,
+  QuotaOwnerRef,
+  LaneStopReason,
 } from '@ptah-extension/shared';
 import { killProcessTree } from '@ptah-extension/platform-core';
+import {
+  AUTH_PROVIDERS_TOKENS,
+  type PlanLimitBilling,
+  type PlanLimitLedgerService,
+} from '@ptah-extension/auth-providers';
 import { CliDetectionService } from './cli-detection.service';
 import {
   AgentMessageError,
@@ -64,10 +71,46 @@ import {
   collectHandoffCarryOver,
   type LaneResumeGate,
 } from './lane-resume-gate';
+import { LaneBudgetGuard } from './lane-budget-guard';
+import { findBlockedLaneModel } from './lane-spawn-policy';
 import { CLI_AGENT_RUNTIME_TOKENS } from '../di/tokens';
 import type { TrackedAgent } from './tracked-agent';
+import {
+  classifyLaneLimit,
+  laneLimitEvidence,
+  laneLimitWording,
+  type LaneLimitClassification,
+} from './limits/lane-limit-classifier';
+import {
+  upgradeQuotaOwner,
+  type LaneOwnerResolver,
+} from './limits/lane-owner.resolver';
 
 const DEFAULT_AGENT_READ_TAIL_LINES = 200;
+
+/** How much of a failed lane's output tail the limit classifier reads. */
+const LIMIT_CLASSIFIER_TAIL_CHARS = 16 * 1024;
+/** Error segments the classifier reads, newest first, and each one's cap. */
+const LIMIT_CLASSIFIER_ERROR_SEGMENTS = 8;
+const LIMIT_CLASSIFIER_SEGMENT_CHARS = 4 * 1024;
+
+/**
+ * How a completed system CLI lane was billed (Decision 4, S3). Only `plan`
+ * clears unknown-reset exhaustion. Codex can bill credits after a limit and
+ * OpenCode Go can fall back to Zen balance, so a success there proves
+ * nothing about the plan. ptah-cli is absent: its stream reports S2.
+ */
+const LANE_SUCCESS_BILLING: Partial<Record<CliType, PlanLimitBilling>> = {
+  antigravity: 'plan',
+  codex: 'unknown',
+  opencode: 'unknown',
+};
+
+/** The ledger writes a lane makes. */
+type LanePlanLimitLedger = Pick<
+  PlanLimitLedgerService,
+  'recordWindowEvidence' | 'recordOwnerEvidence' | 'recordSuccess'
+>;
 
 export {
   MIN_CONCURRENT_AGENTS,
@@ -192,9 +235,29 @@ export class AgentContinueError extends Error {
   }
 }
 
+/**
+ * Thrown by a spawn whose resolved model is on the lane block list
+ * (TASK_2026_597, R9.5). Raised before the adapter's `runSdk`, so nothing is
+ * started. Extends `Error` directly, like every other error in this lib.
+ */
+export class LaneModelBlockedError extends Error {
+  constructor(readonly model: string) {
+    super(
+      `Model \`${model}\` is blocked for lanes because it is known to loop. Choose another model.`,
+    );
+    this.name = 'LaneModelBlockedError';
+  }
+}
+
 @injectable()
 export class AgentProcessManager {
   private readonly agents = new Map<string, TrackedAgent>();
+  /**
+   * One tool-call budget guard per running lane (TASK_2026_597, component 16),
+   * keyed by agent id. Added in {@link trackSdkHandle}, dropped by
+   * {@link releaseLaneGuard} on whichever path ends the lane.
+   */
+  private readonly laneGuards = new Map<string, LaneBudgetGuard>();
   /** Counter for in-flight spawn operations (not yet in agents map) */
   private spawning = 0;
   /** Promise-based mutex to serialize spawn operations and prevent TOCTOU race in concurrent limit check */
@@ -237,6 +300,15 @@ export class AgentProcessManager {
      */
     @inject(CLI_AGENT_RUNTIME_TOKENS.LANE_RESUME_GATE)
     private readonly resumeGate: LaneResumeGate,
+    /** Names the quota owner each run is recorded against (TASK_2026_596). */
+    @inject(CLI_AGENT_RUNTIME_TOKENS.LANE_OWNER_RESOLVER)
+    private readonly laneOwners: LaneOwnerResolver,
+    /**
+     * Receives a lane's quota failures and S3 successes. A write failure is
+     * logged and never changes how the exit is handled.
+     */
+    @inject(AUTH_PROVIDERS_TOKENS.PLAN_LIMIT_LEDGER)
+    private readonly planLimits: LanePlanLimitLedger,
   ) {
     this.logger.info('[AgentProcessManager] Initialized');
   }
@@ -464,6 +536,17 @@ export class AgentProcessManager {
     const startedAt = new Date().toISOString();
     const laneModel = this.spawnEnvironment.resolveModel(cli, request.model);
     const resolvedModel = laneModel.model;
+    // R9.5: refuse a model known to loop before anything is started — no
+    // record, no event, no adapter call.
+    const blockedModel = findBlockedLaneModel(resolvedModel);
+    if (blockedModel !== undefined) {
+      this.logger.warn('[AgentProcessManager] Lane model blocked', {
+        cli,
+        model: resolvedModel,
+        blockedModel,
+      });
+      throw new LaneModelBlockedError(resolvedModel ?? blockedModel);
+    }
     const roleDefinition = request.roleDefinition;
     const laneEffort = this.spawnEnvironment.resolveReasoningEffort(cli, {
       effort: request.effort,
@@ -506,6 +589,10 @@ export class AgentProcessManager {
     // R2.5: one line per spawn naming the model and effort and what produced
     // each. Codex lanes add the binary version and the state of the lane's
     // config prefix; the line is re-emitted if Codex rejects that prefix.
+    // Logged BEFORE `runSdk` on purpose, so a spawn that fails still leaves
+    // its policy in the log: `prefixKeys: 'applied'` therefore means "the
+    // prefix keys are passed to the adapter", not "Codex accepted them". A
+    // rejection is reported afterwards by the `dropped (config rejected)` line.
     const lanePolicy = {
       agentId,
       cli,
@@ -515,8 +602,10 @@ export class AgentProcessManager {
       effortStep: laneEffort.step,
       ...(laneEffort.ignored.length > 0
         ? {
+            // Bounded: an ignored value is unvalidated setting or request text.
             ignoredEfforts: laneEffort.ignored.map(
-              (entry) => `step ${entry.step}: ${entry.value}`,
+              (entry) =>
+                `step ${entry.step}: ${String(entry.value).slice(0, 32)}`,
             ),
           }
         : {}),
@@ -693,9 +782,17 @@ export class AgentProcessManager {
             }, inactivityTimeoutMs),
           );
     const supportsContinuation = sdkHandle.supportsContinuation?.() === true;
-    const trackedInfo: AgentProcessInfo = supportsContinuation
-      ? { ...info, supportsContinuation: true }
-      : info;
+    // Recorded at spawn so the `agent:spawned` reference already carries it.
+    const quotaOwner =
+      upgradeQuotaOwner(
+        info.quotaOwner,
+        this.laneOwners.ownerForLane(info.cli),
+      ) ?? info.quotaOwner;
+    const trackedInfo: AgentProcessInfo = {
+      ...info,
+      ...(supportsContinuation ? { supportsContinuation: true } : {}),
+      ...(quotaOwner ? { quotaOwner } : {}),
+    };
     const tracked: TrackedAgent = {
       info: trackedInfo,
       process: null,
@@ -734,6 +831,12 @@ export class AgentProcessManager {
       );
     });
     if (sdkHandle.onSegment) {
+      // Only a handle that streams segments can show its tool calls, so only
+      // such a lane gets a budget guard.
+      this.laneGuards.set(
+        agentId,
+        new LaneBudgetGuard(this.spawnEnvironment.resolveLaneGuardThresholds()),
+      );
       sdkHandle.onSegment((segment: CliOutputSegment) => {
         this.outputBuffer.appendSegment(
           agentId,
@@ -742,6 +845,7 @@ export class AgentProcessManager {
           onFlushDue,
         );
         this.recordRequestContext(tracked, segment);
+        this.applyLaneGuard(agentId, segment);
         if (captureSessionId) {
           const sessionId = captureSessionId();
           if (sessionId && sessionId !== tracked.info.cliSessionId) {
@@ -808,6 +912,124 @@ export class AgentProcessManager {
     this.markParentSubagentsAsCliAgent(info.parentSessionId);
 
     return spawnResult;
+  }
+
+  /**
+   * Offer a run its quota owner once it becomes known after spawn (a lane's
+   * own `accountInfo()`, a stored key read). Applied only when it moves the
+   * run from no owner or an unknown one to a known one; a known owner is never
+   * replaced. A change is announced on `agent:quota-owner` so the session
+   * reference is persisted at once rather than at exit (Gate 2 note).
+   *
+   * @returns whether the run's owner changed.
+   */
+  recordQuotaOwner(agentId: string, owner: QuotaOwnerRef): boolean {
+    const tracked = this.agents.get(agentId);
+    if (!tracked || tracked.restored) return false;
+    const upgraded = upgradeQuotaOwner(tracked.info.quotaOwner, owner);
+    if (!upgraded) return false;
+    tracked.info = { ...tracked.info, quotaOwner: upgraded };
+    this.logger.debug('[AgentProcessManager] Lane quota owner recorded', {
+      agentId,
+      providerId: upgraded.providerId,
+      identityKind: upgraded.identityKind,
+    });
+    this.events.emit('agent:quota-owner', tracked.info);
+    return true;
+  }
+
+  /**
+   * Feed one segment to the lane's budget guard and carry out what it asks
+   * for. A lane that is no longer running is left alone: its ending already
+   * happened on another path.
+   */
+  private applyLaneGuard(agentId: string, segment: CliOutputSegment): void {
+    const guard = this.laneGuards.get(agentId);
+    if (!guard) return;
+    if (this.agents.get(agentId)?.info.status !== 'running') return;
+
+    const action = guard.observe(segment);
+    if (action.kind === 'steer') {
+      this.steerLane(agentId, action.message, guard.toolCallCount);
+    } else if (action.kind === 'stop') {
+      void this.stopLaneForBudget(
+        agentId,
+        action.stopReason,
+        guard.toolCallCount,
+      );
+    }
+  }
+
+  /**
+   * Deliver the guard's one steer message as a mid-turn steer, and only that.
+   * It never goes through {@link sendToAgent}: a queued turn would run after
+   * the lane finished (overwriting its report), and interrupt-resume would
+   * discard the running turn's work. A handle without `steer` is logged once
+   * (the guard asks once per turn) and the stop threshold still ends the lane.
+   */
+  private steerLane(agentId: string, message: string, toolCalls: number): void {
+    const handle = this.agents.get(agentId)?.sdkHandle;
+    if (!handle?.steer) {
+      this.logger.warn(
+        '[AgentProcessManager] Lane budget steer not delivered (no mid-turn steer); the stop threshold still applies',
+        { agentId, toolCalls },
+      );
+      return;
+    }
+    try {
+      handle.steer(message);
+      this.logger.info('[AgentProcessManager] Lane budget steer sent', {
+        agentId,
+        toolCalls,
+      });
+    } catch (error: unknown) {
+      this.logger.warn(
+        '[AgentProcessManager] Lane budget steer failed; the stop threshold still applies',
+        {
+          agentId,
+          toolCalls,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      );
+    }
+  }
+
+  /**
+   * Stop a lane the guard gave up on, through the ordinary {@link stop} path,
+   * with `stopReason` stamped on the record.
+   */
+  private async stopLaneForBudget(
+    agentId: string,
+    stopReason: LaneStopReason,
+    toolCalls: number,
+  ): Promise<void> {
+    const tracked = this.agents.get(agentId);
+    if (!tracked || tracked.info.status !== 'running') return;
+
+    this.logger.warn('[AgentProcessManager] Lane budget exceeded; stopping', {
+      agentId,
+      stopReason,
+      toolCalls,
+    });
+    // Stamped before `stop`, which spreads `tracked.info` into the terminal
+    // record, the completion signal and `agent:exited`.
+    tracked.info = { ...tracked.info, stopReason };
+    // A queued caller message must not start a new turn once the lane is stopped.
+    this.messageRouter.discardPending(agentId, tracked);
+    try {
+      await this.stop(agentId);
+    } catch (error: unknown) {
+      this.logger.error('[AgentProcessManager] Lane budget stop failed', {
+        agentId,
+        stopReason,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  /** Drop a lane's budget guard. Idempotent; every lane-ending path calls it. */
+  private releaseLaneGuard(agentId: string): void {
+    this.laneGuards.delete(agentId);
   }
 
   /**
@@ -920,6 +1142,10 @@ export class AgentProcessManager {
         startedAt: ref.startedAt,
         ...(ref.cliSessionId ? { cliSessionId: ref.cliSessionId } : {}),
         ...(ref.ptahCliId ? { ptahCliId: ref.ptahCliId } : {}),
+        // The owner the run recorded (Gate 2 G3). `getCliSessionsForRestore`
+        // already dropped a malformed or legacy value, so a run without one
+        // stays "Unknown owner" and is never given the current owner.
+        ...(ref.quotaOwner ? { quotaOwner: ref.quotaOwner } : {}),
       };
 
       this.agents.set(agentId, {
@@ -1499,6 +1725,10 @@ export class AgentProcessManager {
       completedAt: undefined,
       exitCode: undefined,
     };
+    // Every turn started here carries a caller's message (the guard's steer is
+    // mid-turn only and never starts a turn), so the new task gets a fresh
+    // budget and its own steer.
+    this.laneGuards.get(agentId)?.reset();
     this.armInactivityWatchdog(agentId, tracked);
 
     this.events.emit('agent:spawned', tracked.info);
@@ -1588,6 +1818,7 @@ export class AgentProcessManager {
       status: 'stopped',
       completedAt: new Date().toISOString(),
     };
+    this.releaseLaneGuard(agentId);
     this.signalLaneCompletion(tracked);
     await this.killProcess(tracked);
     tracked.subprocessReleased = true;
@@ -1668,6 +1899,7 @@ export class AgentProcessManager {
     }
 
     this.agents.clear();
+    this.laneGuards.clear();
     this.logger.info(`[AgentProcessManager] ${entries.length} agents disposed`);
   }
 
@@ -1826,6 +2058,7 @@ export class AgentProcessManager {
       status: 'timeout',
       completedAt: new Date().toISOString(),
     };
+    this.releaseLaneGuard(agentId);
     // BEFORE the kill, not after: on the SDK path the kill is an abort whose
     // `done` promise is what reaches `handleExit`, and an adapter that never
     // settles it would leave the timeout unsignalled — the exact silence this
@@ -1917,6 +2150,7 @@ export class AgentProcessManager {
     // Set BEFORE the await: killProcess yields, and a second caller arriving in
     // that window would issue a duplicate abort and a duplicate tree-kill.
     tracked.subprocessReleased = true;
+    this.releaseLaneGuard(agentId);
     // Nothing can deliver a queued message once the process is gone. Say so in
     // the log rather than leaving entries that look pending forever.
     this.messageRouter.discardPending(agentId, tracked);
@@ -1961,14 +2195,30 @@ export class AgentProcessManager {
     tracked.hasExited = true;
 
     clearTimeout(tracked.timeoutHandle);
+    // A continuation-capable lane can start another caller turn on this
+    // record, so its guard is kept (and reset by `continueConversation`) until
+    // the subprocess is released, stopped or timed out.
+    if (tracked.sdkHandle?.supportsContinuation?.() !== true) {
+      this.releaseLaneGuard(agentId);
+    }
     if (tracked.info.status === 'running') {
       const status: AgentStatus = code === 0 ? 'completed' : 'failed';
+      const observedAt = Date.now();
+      // Classified here, BEFORE `outputBuffer.discard` below, while the output
+      // is still held. A timeout or a stop never reaches this branch: its
+      // status is no longer `running`, so it is never read as a quota failure.
+      const limit =
+        status === 'failed'
+          ? this.classifyLaneFailure(tracked, observedAt)
+          : null;
       tracked.info = {
         ...tracked.info,
         status,
         exitCode: code ?? undefined,
-        completedAt: new Date().toISOString(),
+        completedAt: new Date(observedAt).toISOString(),
+        failureKind: limit ? limit.failureKind : undefined,
       };
+      this.recordLaneLimits(tracked, limit, observedAt);
     } else if (!tracked.info.completedAt) {
       tracked.info = {
         ...tracked.info,
@@ -1990,7 +2240,14 @@ export class AgentProcessManager {
         if (current && !current.hasExited) {
           return;
         }
-        this.events.emit('agent:exited', exitInfo);
+        // The owner may have been upgraded during the grace delay
+        // (`recordQuotaOwner`); the exit reference must not persist the older,
+        // unknown one over it. Owners only ever upgrade, so the newer wins.
+        const quotaOwner = tracked.info.quotaOwner;
+        this.events.emit(
+          'agent:exited',
+          quotaOwner ? { ...exitInfo, quotaOwner } : exitInfo,
+        );
 
         this.logger.info('[AgentProcessManager] Agent exited', {
           agentId,
@@ -2006,6 +2263,105 @@ export class AgentProcessManager {
     // will not refuse it as `busy`. One entry per settle — the turn this
     // starts settles again and drains the next.
     void this.messageRouter.flushPending(agentId, tracked, this);
+  }
+
+  /**
+   * Whether a failed run hit its plan quota, read from its newest error
+   * segments and the last 16 KB of its output. Runs once per failed exit.
+   * A Ptah CLI lane is read with its owner provider's wordings when the owner
+   * names one, never with the Ollama wording while the provider is unknown.
+   */
+  private classifyLaneFailure(
+    tracked: TrackedAgent,
+    observedAt: number,
+  ): LaneLimitClassification | null {
+    const errors = tracked.accumulatedSegments
+      .filter((segment) => segment.type === 'error')
+      .slice(-LIMIT_CLASSIFIER_ERROR_SEGMENTS)
+      .reverse()
+      .map((segment) => segment.content.slice(-LIMIT_CLASSIFIER_SEGMENT_CHARS));
+    const limit = classifyLaneLimit({
+      cliOrProvider: laneLimitWording(
+        tracked.info.cli,
+        tracked.info.quotaOwner?.providerId,
+      ),
+      texts: [
+        ...errors,
+        tracked.stdoutBuffer.slice(-LIMIT_CLASSIFIER_TAIL_CHARS),
+      ],
+      observedAt,
+    });
+    if (limit) {
+      this.logger.debug(
+        '[AgentProcessManager] Lane failure matched a quota wording',
+        {
+          agentId: tracked.info.agentId,
+          cli: tracked.info.cli,
+          pattern: limit.pattern,
+          windowKey: limit.windowKey ?? null,
+          resetKnown: limit.resetsAt !== undefined,
+        },
+      );
+    }
+    return limit;
+  }
+
+  /**
+   * File what this exit says about the run's quota owner: the quota failure
+   * as window or owner evidence, or a completed system CLI lane as an S3
+   * success. An owner still unknown is looked up once more first, since the
+   * Codex account may have been read while the lane ran. Nothing here can
+   * change how the exit itself is handled: a ledger failure is only logged.
+   */
+  private recordLaneLimits(
+    tracked: TrackedAgent,
+    limit: LaneLimitClassification | null,
+    observedAt: number,
+  ): void {
+    const current = tracked.info.quotaOwner;
+    if (!current || current.identityKind === 'unknown') {
+      const upgraded = upgradeQuotaOwner(
+        current,
+        this.laneOwners.ownerForLane(tracked.info.cli),
+      );
+      if (upgraded) tracked.info = { ...tracked.info, quotaOwner: upgraded };
+    }
+    const { agentId, cli, model, status, quotaOwner: owner } = tracked.info;
+    if (!owner) return;
+    try {
+      if (limit) {
+        const evidence = laneLimitEvidence(limit, observedAt);
+        if (evidence.kind === 'window') {
+          this.planLimits.recordWindowEvidence(owner, evidence.window);
+        } else {
+          this.planLimits.recordOwnerEvidence(owner, evidence.evidence);
+        }
+        return;
+      }
+      const billing = LANE_SUCCESS_BILLING[cli];
+      // An unknown owner is never shared with anyone, so a success on it
+      // proves nothing about any allowance (F65).
+      if (
+        status !== 'completed' ||
+        !billing ||
+        owner.identityKind === 'unknown'
+      ) {
+        return;
+      }
+      const scope = model?.trim().toLowerCase();
+      this.planLimits.recordSuccess({
+        ownerKey: owner.key,
+        modelScopes: scope ? [scope] : [],
+        billing,
+        observedAt,
+      });
+    } catch (error: unknown) {
+      this.logger.warn('[AgentProcessManager] Plan-limit ledger write failed', {
+        agentId,
+        cli,
+        errorName: error instanceof Error ? error.name : typeof error,
+      });
+    }
   }
 
   /**

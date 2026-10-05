@@ -66,6 +66,20 @@ export interface SessionBudgetHandoff {
 }
 
 /**
+ * The session-rotation advisory (TASK_2026_597 A6): the session's context has
+ * reached `compaction.rotationSuggestTokens`. Present from the upward crossing
+ * until the context drops below the threshold again (for example after a
+ * compaction). It is independent of the budget stage and is published even
+ * while `sessionBudget.enabled` is off.
+ */
+export interface SessionBudgetRotation {
+  /** The context size the advisory was raised on, in tokens. */
+  readonly contextTokens: number;
+  /** The `compaction.rotationSuggestTokens` value that was crossed. */
+  readonly threshold: number;
+}
+
+/**
  * One session's budget state, published beside its stats snapshot.
  * Keyed by the real SDK session id, never a tab or tracking id.
  */
@@ -94,6 +108,8 @@ export interface SessionBudgetState {
   readonly blocked: boolean;
   /** The stage whose banner the user dismissed; it reappears on a higher stage. */
   readonly dismissedStage?: SessionBudgetStage;
+  /** Present while the session-rotation advisory is in force. */
+  readonly rotation?: SessionBudgetRotation;
 }
 
 /** The validated settings the backend reader returns. */

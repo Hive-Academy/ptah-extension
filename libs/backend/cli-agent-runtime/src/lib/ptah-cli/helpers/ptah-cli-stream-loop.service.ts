@@ -34,7 +34,13 @@ import {
   isTextDelta,
   isInputJsonDelta,
   isThinkingDelta,
+  isMessageStart,
+  claudeModelFamily,
+  mapClaudePlanLimitMessage,
+  type ClaudeTurnBilling,
   type SDKMessage,
+  type SDKResultSuccess,
+  type SessionPlanLimitSignal,
 } from '@ptah-extension/agent-sdk';
 import {
   summarizeToolInput,
@@ -162,6 +168,16 @@ function peerMessageBody(msg: SDKMessage): string {
 }
 
 /**
+ * A plan-limit signal from a lane's own stream (TASK_2026_596, Component 10;
+ * Decision 4 S2). The same `evidence` and `success` shapes a native session
+ * reports; a lane has no `turn-start`, because its owner is fixed per run.
+ */
+export type PtahCliPlanLimitSignal = Exclude<
+  SessionPlanLimitSignal,
+  { readonly kind: 'turn-start' }
+>;
+
+/**
  * Configuration for PtahCliStreamLoop.
  * Provides all callbacks and dependencies the loop needs.
  */
@@ -175,6 +191,20 @@ export interface PtahCliStreamLoopConfig {
   /** Called when the real SDK session ID is resolved from the system init message. */
   readonly onSessionResolved?: (sessionId: string) => void;
   readonly onTurnComplete?: (exitCode: number) => void;
+  /**
+   * Receives the lane's plan-limit evidence (`rate_limit_event`, rate-limit
+   * `api_retry`, assistant `rate_limit` error) and one `success` per
+   * successful turn. Called synchronously on the stream path; it must not
+   * block, and a throw is logged and ignored.
+   */
+  readonly onPlanLimitSignal?: (signal: PtahCliPlanLimitSignal) => void;
+  /**
+   * Every successful turn is plan-billed, whatever the stream reported. True
+   * for an Ollama Cloud lane: Ollama documents no overage, credit or fallback
+   * billing. Otherwise a turn's billing follows its own `rate_limit_event`s,
+   * as for a native session (Decision 4 S1).
+   */
+  readonly planBilledSuccess?: boolean;
 }
 
 /**
@@ -198,6 +228,18 @@ export class PtahCliStreamLoop {
   private readonly emittedMessageIds = new Set<string>();
   /** Track toolCallIds already emitted via stream_event to avoid duplicate tool_start from assistant */
   private readonly emittedToolCallIds = new Set<string>();
+  /** Model the system init reported; the usage segment's fallback model. */
+  private sessionModel: string | undefined;
+  /**
+   * Per-turn plan-limit state (Decision 4 S1/S2), reset on every `result`.
+   * Scopes and model come only from this turn's main-loop `message_start`s —
+   * subagent partials and the cumulative `result.modelUsage` are never read.
+   * Billing is the latest in-turn `rate_limit_event`'s; none leaves it
+   * `unknown`, which clears nothing.
+   */
+  private readonly turnScopes = new Set<string>();
+  private turnModel: string | undefined;
+  private turnBilling: ClaudeTurnBilling = 'unknown';
 
   constructor(private readonly config: PtahCliStreamLoopConfig) {
     this.streamTransformer = config.messageTransformer.createIsolated();
@@ -245,6 +287,9 @@ export class PtahCliStreamLoop {
             });
             continue;
           }
+          // Plan limits (TASK_2026_596). Observes only; nothing below changes
+          // what is forwarded.
+          this.observePlanLimits(msg);
           if (isStreamEvent(msg) || isUserMessage(msg)) {
             try {
               const flatEvents = this.streamTransformer.transform(
@@ -326,6 +371,7 @@ export class PtahCliStreamLoop {
             if (msg.session_id) {
               this.effectiveSessionId = SessionId.from(msg.session_id);
             }
+            if (msg.model) this.sessionModel = msg.model;
             const model = msg.model ?? 'unknown';
             emitOutput(`[PtahCli] Session started (model: ${model})\n`);
             emitSegment({
@@ -487,7 +533,15 @@ export class PtahCliStreamLoop {
               parts.push(`${msg.num_turns} turns`);
               const usageStr = `Completed: ${parts.join(', ')}`;
               emitOutput(`\n[${usageStr}]\n`);
-              emitSegment({ type: 'info', content: usageStr });
+              // The same line, with the turn's usage attached for the agent
+              // card's token and cost tiles (Decision 8).
+              const usage = this.turnUsage(msg);
+              emitSegment({
+                type: 'info',
+                content: usageStr,
+                ...(usage && { usage }),
+              });
+              if (!msg.is_error) this.reportTurnSuccess();
             } else if (isErrorResult(msg)) {
               turnExitCode = 1;
               const errorMsg =
@@ -501,6 +555,7 @@ export class PtahCliStreamLoop {
             });
             this.turnIndex++;
             this.turnEventCount = 0;
+            this.resetTurnPlanLimits();
             this.config.onTurnComplete?.(turnExitCode);
             continue;
           }
@@ -540,5 +595,90 @@ export class PtahCliStreamLoop {
       this.emittedMessageIds.clear();
       this.emittedToolCallIds.clear();
     }
+  }
+
+  /**
+   * Track this turn's main-loop models and forward any limit evidence the
+   * message carries, through the same mapper a native session uses. A mapping
+   * failure is logged without the payload (provider account data) and the
+   * stream continues.
+   */
+  private observePlanLimits(msg: SDKMessage): void {
+    if (
+      isStreamEvent(msg) &&
+      !msg.parent_tool_use_id &&
+      isMessageStart(msg.event)
+    ) {
+      const model = msg.event.message.model;
+      if (model) this.turnModel = model;
+      const family = claudeModelFamily(model);
+      if (family) this.turnScopes.add(family);
+      return;
+    }
+    try {
+      const mapped = mapClaudePlanLimitMessage(msg, Date.now());
+      if (!mapped) return;
+      if (mapped.billing) this.turnBilling = mapped.billing;
+      if (mapped.evidence) {
+        this.config.onPlanLimitSignal?.({
+          kind: 'evidence',
+          evidence: mapped.evidence,
+        });
+      }
+    } catch (error: unknown) {
+      this.config.logger.debug(
+        '[PtahCliStreamLoop] Plan-limit signal dropped; stream continues',
+        {
+          agentName: this.config.agentName,
+          messageType: msg.type,
+          error: error instanceof Error ? error.name : 'unknown',
+        },
+      );
+    }
+  }
+
+  /** The S2 success (Decision 4) for the turn that just succeeded. */
+  private reportTurnSuccess(): void {
+    const { onPlanLimitSignal, planBilledSuccess, logger } = this.config;
+    if (!onPlanLimitSignal) return;
+    try {
+      onPlanLimitSignal({
+        kind: 'success',
+        turnScopes: [...this.turnScopes],
+        billing: planBilledSuccess === true ? 'plan' : this.turnBilling,
+        observedAt: Date.now(),
+      });
+    } catch (error: unknown) {
+      logger.debug('[PtahCliStreamLoop] Plan-limit success signal dropped', {
+        agentName: this.config.agentName,
+        error: error instanceof Error ? error.name : 'unknown',
+      });
+    }
+  }
+
+  private resetTurnPlanLimits(): void {
+    this.turnScopes.clear();
+    this.turnModel = undefined;
+    this.turnBilling = 'unknown';
+  }
+
+  /**
+   * The turn's usage as reported by its `result`, or `undefined` when it
+   * reported none. A value the result did not carry is left out rather than
+   * shown as 0.
+   */
+  private turnUsage(msg: SDKResultSuccess): CliOutputSegment['usage'] {
+    const model = this.turnModel ?? this.sessionModel;
+    const usage: NonNullable<CliOutputSegment['usage']> = {
+      ...(model && { model }),
+      ...(msg.usage && {
+        inputTokens: msg.usage.input_tokens,
+        outputTokens: msg.usage.output_tokens,
+      }),
+      ...(msg.total_cost_usd !== undefined && {
+        costUsd: msg.total_cost_usd,
+      }),
+    };
+    return Object.keys(usage).length > 0 ? usage : undefined;
   }
 }

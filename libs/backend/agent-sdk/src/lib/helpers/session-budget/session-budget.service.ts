@@ -40,6 +40,7 @@ import type {
   SessionBudgetActionResult,
   SessionBudgetConfig,
   SessionBudgetHandoff,
+  SessionBudgetRotation,
   SessionBudgetStage,
   SessionBudgetState,
   SessionBudgetWindow,
@@ -56,6 +57,7 @@ import {
   type SessionHandoffDocument,
 } from './session-handoff-builder';
 import { SessionHandoffWriter } from './session-handoff-writer';
+import { SessionRotationAdvisor } from '../compaction/session-rotation-advisor';
 import {
   acceptsSessionBudgetSnapshot,
   evaluateSessionBudget,
@@ -83,6 +85,11 @@ export type SessionBudgetConfigSource = Pick<
 export type SessionBudgetHandoffBuilder = Pick<SessionHandoffBuilder, 'build'>;
 
 export type SessionBudgetHandoffWriter = Pick<SessionHandoffWriter, 'write'>;
+
+export type SessionBudgetRotationAdvisor = Pick<
+  SessionRotationAdvisor,
+  'evaluate' | 'current' | 'release'
+>;
 
 /** `canSend` verdict; a refusal carries the state that refused it. */
 export type SessionBudgetSendCheck =
@@ -156,6 +163,8 @@ export class SessionBudgetService {
     private readonly handoffBuilder: SessionBudgetHandoffBuilder,
     @inject(SessionHandoffWriter)
     private readonly handoffWriter: SessionBudgetHandoffWriter,
+    @inject(SessionRotationAdvisor)
+    private readonly rotationAdvisor: SessionBudgetRotationAdvisor,
   ) {}
 
   /**
@@ -250,13 +259,17 @@ export class SessionBudgetService {
     }
   }
 
-  /** Session end: drop its state. */
+  /** Session end: drop its state, rotation advisory included. */
   release(sessionId: string): void {
     this.entries.delete(sessionId);
+    this.rotationAdvisor.release(sessionId);
   }
 
   /** Disposal: drop every session's state. */
   clearAll(): void {
+    for (const sessionId of this.entries.keys()) {
+      this.rotationAdvisor.release(sessionId);
+    }
     this.entries.clear();
   }
 
@@ -291,8 +304,10 @@ export class SessionBudgetService {
     const entry = this.entryFor(snapshot.sessionId);
 
     if (!config.enabled) {
-      // Disabled: no stage, no block, no banner on this figure. The next
-      // enabled figure starts the stage over (the settings changed).
+      // Disabled: no stage, no block, no budget banner on this figure (the
+      // rotation advisory still rides it). The next enabled figure starts the
+      // stage over (the settings changed).
+      this.evaluateRotation(snapshot);
       entry.snapshot = snapshot;
       entry.figure = null;
       entry.configKey = null;
@@ -305,6 +320,7 @@ export class SessionBudgetService {
       return entry.figure ? this.composeState(entry, entry.figure) : undefined;
     }
 
+    this.evaluateRotation(snapshot);
     entry.snapshot = snapshot;
     return this.applyEvaluation(entry, config, {
       resetStage: false,
@@ -750,7 +766,26 @@ export class SessionBudgetService {
       ...(entry.window ? { window: entry.window } : {}),
       ...(entry.handoff ? { handoff: entry.handoff } : {}),
       ...(entry.dismissedStage ? { dismissedStage: entry.dismissedStage } : {}),
+      ...this.rotationField(entry.sessionId),
     };
+  }
+
+  /**
+   * Re-read the rotation advisory for an accepted snapshot: the port's last
+   * context reading, else the snapshot's last-turn context.
+   */
+  private evaluateRotation(snapshot: SessionStatsEntry): void {
+    this.rotationAdvisor.evaluate(
+      snapshot.sessionId,
+      snapshot.contextSnapshot?.contextTokens,
+    );
+  }
+
+  private rotationField(sessionId: string): {
+    readonly rotation?: SessionBudgetRotation;
+  } {
+    const rotation = this.rotationAdvisor.current(sessionId);
+    return rotation ? { rotation } : {};
   }
 
   /** The state published while `sessionBudget.enabled` is off. */
@@ -773,6 +808,7 @@ export class SessionBudgetService {
       compactions: entry.compactions,
       extensions: entry.extensions,
       blocked: false,
+      ...this.rotationField(snapshot.sessionId),
     };
   }
 

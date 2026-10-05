@@ -134,10 +134,16 @@ export interface AgentOrchestrationConfig {
   piReasoningEffort?: string;
   /** @deprecated Codex always runs in full-auto headless mode. Kept for backward compat. */
   codexAutoApprove: boolean;
-  /** Codex lane `model_auto_compact_token_limit` (integer >= 0, default 120000; 0 = Codex runtime default). */
+  /** Codex lane `model_auto_compact_token_limit` (integer >= 0; 0 = Codex runtime default). Default: `FILE_BASED_SETTINGS_DEFAULTS`. */
   codexAutoCompactTokens?: number;
-  /** Codex lane `tool_output_token_limit` (integer >= 0, default 2500; 0 = Codex runtime default). */
+  /** Codex lane `tool_output_token_limit` (integer >= 0; 0 = Codex runtime default). Default: `FILE_BASED_SETTINGS_DEFAULTS`. */
   codexToolOutputTokenLimit?: number;
+  /** Lane tool-call count at which the lane is steered. Default: `FILE_BASED_SETTINGS_DEFAULTS`. */
+  laneToolCallSteerAt?: number;
+  /** Lane tool-call count at which the lane is stopped. Default: `FILE_BASED_SETTINGS_DEFAULTS`. */
+  laneToolCallStopAt?: number;
+  /** Count of identical lane tool calls at which the lane is stopped. Default: `FILE_BASED_SETTINGS_DEFAULTS`. */
+  laneRepeatCallStopAt?: number;
   /** Codex lane web search (`web_search` "live" when true, "disabled" when false; default true). */
   codexWebSearch?: boolean;
   /** Subagent prompt-cache TTL setting (default 'auto'). */
@@ -178,7 +184,7 @@ export interface AgentListCliModelsResult {
 
 /**
  * Reasoning-effort values `agent:setConfig` accepts for Codex / Copilot
- * (`AgentSpawnEnvironment.mapEffortToCli` allowlist). `''` = CLI default.
+ * (`mapEffortToCli` allowlist in `lane-spawn-policy.ts`). `''` = CLI default.
  * `'inherit'` = use the chat session's effort for the lane.
  */
 export const CLI_REASONING_EFFORT_VALUES = [
@@ -239,6 +245,12 @@ export interface AgentSetConfigParams {
   codexAutoCompactTokens?: number;
   /** Codex lane `tool_output_token_limit` (integer >= 0; 0 = Codex runtime default). Rejected, never clamped, when invalid. */
   codexToolOutputTokenLimit?: number;
+  /** Lane tool-call count at which the lane is steered. Rejected, never clamped, when invalid. */
+  laneToolCallSteerAt?: number;
+  /** Lane tool-call count at which the lane is stopped. Rejected, never clamped, when invalid. */
+  laneToolCallStopAt?: number;
+  /** Count of identical lane tool calls at which the lane is stopped. Rejected, never clamped, when invalid. */
+  laneRepeatCallStopAt?: number;
   /** Codex lane web search on/off. */
   codexWebSearch?: boolean;
   /** Subagent prompt-cache TTL setting. Rejected when outside `SUBAGENT_PROMPT_CACHE_TTL_SETTINGS`. */

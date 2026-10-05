@@ -15,6 +15,12 @@ import {
 } from '@ptah-extension/shared';
 import { ModelStateService } from '@ptah-extension/core';
 import { CostBadgeComponent } from '../../atoms/cost-badge.component';
+import { LaneSubtotalTileComponent } from './plan-limits/lane-subtotal-tile.component';
+import { LaneUsageTileComponent } from './plan-limits/lane-usage-tile.component';
+import { LimitsAlertComponent } from './plan-limits/limits-alert.component';
+import { PlanLimitTileComponent } from './plan-limits/plan-limit-tile.component';
+import type { StatsLimitViewModel } from './plan-limits/stats-limit-view-model.types';
+import { StatsTileExpansionState } from './plan-limits/stats-tile-expansion.state';
 
 /**
  * Live model stats from current session
@@ -54,11 +60,32 @@ type ModelUsageRow = NonNullable<SessionStatsEntry['modelUsageList']>[number];
 @Component({
   selector: 'ptah-session-stats-summary',
   standalone: true,
-  imports: [CostBadgeComponent, NgTemplateOutlet],
+  imports: [
+    CostBadgeComponent,
+    NgTemplateOutlet,
+    LimitsAlertComponent,
+    PlanLimitTileComponent,
+    LaneUsageTileComponent,
+    LaneSubtotalTileComponent,
+  ],
   template: `
     <div class="stats-grid" style="container-type: inline-size">
+      <!-- Failed refresh while limit data is held: neutral, both layouts -->
+      @if (limits()?.refreshNotice; as notice) {
+        <p
+          role="status"
+          class="mb-1 border-l-2 border-info pl-2 text-[11px] text-base-content-muted"
+          data-testid="limits-refresh-failed"
+        >
+          {{ notice }}
+        </p>
+      }
       <!-- Collapsed: compact summary bar -->
       @if (isStatsCollapsed()) {
+        <!-- Limits alert (P4 variant A): above the strip, never clipped -->
+        @if (limits()?.indicator; as indicator) {
+          <ptah-limits-alert [indicator]="indicator" />
+        }
         <div
           class="flex items-center gap-2 bg-base-200/50 rounded px-2 py-1 border border-base-content/10"
         >
@@ -84,7 +111,7 @@ type ModelUsageRow = NonNullable<SessionStatsEntry['modelUsageList']>[number];
                 [title]="contextTooltip()"
               >
                 <span class="text-[10px] uppercase text-base-content-muted"
-                  >Main context</span
+                  >Context</span
                 >
                 <span class="text-cyan-400" data-testid="stats-context">{{
                   contextPercentLabel()
@@ -141,6 +168,19 @@ type ModelUsageRow = NonNullable<SessionStatsEntry['modelUsageList']>[number];
                 }
               }
             </span>
+            @if (lanesCount(); as lanes) {
+              <span
+                class="inline-flex items-center gap-1 bg-base-content/5 border border-dashed border-base-content/30 rounded px-1.5 py-0.5 whitespace-nowrap"
+                [title]="lanesTooltip"
+              >
+                <span class="text-[10px] uppercase text-base-content-muted"
+                  >Lanes</span
+                >
+                <span class="tabular-nums" data-testid="stats-lanes">{{
+                  lanes
+                }}</span>
+              </span>
+            }
             @if (durationMs(); as duration) {
               <span
                 class="inline-flex items-center gap-1 bg-base-content/5 border border-base-content/10 rounded px-1.5 py-0.5 whitespace-nowrap"
@@ -262,7 +302,7 @@ type ModelUsageRow = NonNullable<SessionStatsEntry['modelUsageList']>[number];
               <div
                 class="text-[10px] uppercase tracking-wider text-base-content-muted leading-tight"
               >
-                Main context
+                Context
               </div>
               <div
                 class="text-sm font-semibold text-cyan-400 leading-tight mt-0.5"
@@ -430,6 +470,28 @@ type ModelUsageRow = NonNullable<SessionStatsEntry['modelUsageList']>[number];
                 }}</span>
               </div>
             </button>
+          }
+
+          <!-- Plan-limit and lane tiles: after the session cards, in DOM order
+               (no dense packing). Lanes stay outside the session totals. -->
+          @if (limits(); as vm) {
+            @for (tile of vm.planTiles; track tile.id) {
+              <ptah-plan-limit-tile
+                [tile]="tile"
+                [open]="isTileOpen(tile.id)"
+                (toggled)="toggleTile(tile.id)"
+              />
+            }
+            @for (tile of vm.laneTiles; track tile.id) {
+              <ptah-lane-usage-tile
+                [tile]="tile"
+                [open]="isTileOpen(tile.id)"
+                (toggled)="toggleTile(tile.id)"
+              />
+            }
+            @if (vm.subtotal; as subtotal) {
+              <ptah-lane-subtotal-tile [tile]="subtotal" />
+            }
           }
 
           <!-- Collapse button card -->
@@ -725,6 +787,33 @@ export class SessionStatsSummaryComponent {
   readonly compactionCount = input<number>(0);
 
   /**
+   * Plan-limit and lane tiles (TASK_2026_596). `null` renders exactly the
+   * pre-limits output, so a host that passes nothing is unaffected.
+   */
+  readonly limits = input<StatsLimitViewModel | null>(null);
+
+  /** Session the tiles belong to; part of every expansion key (A3). */
+  readonly sessionId = input<string | null>(null);
+
+  /**
+   * Tile open/closed state. The chat view provides one per view so a choice
+   * survives re-renders and pushes; a host without it (the harness builder)
+   * gets a component-local instance.
+   */
+  private readonly expansion =
+    inject(StatsTileExpansionState, { optional: true }) ??
+    new StatsTileExpansionState();
+
+  /** "LANES n" pill; hidden when there are no lane runs. */
+  readonly lanesCount = computed(() => {
+    const count = this.limits()?.lanesCount ?? 0;
+    return count > 0 ? count : null;
+  });
+
+  protected readonly lanesTooltip =
+    'Lane runs are counted separately from session totals';
+
+  /**
    * The session budget computed from the same snapshot (TASK_2026_597 N7).
    * It adds the limit beside the TOKENS or COST figure; the numerator for
    * `tokens` and `cost` stays the snapshot's own figure. Only the two cost
@@ -939,14 +1028,22 @@ export class SessionStatsSummaryComponent {
     const stats = this.liveModelStats();
     if (!stats) return '';
     if (!this.hasKnownContextWindow()) {
-      return 'Main context unknown: the latest main request or its verified capacity is unavailable.';
+      return 'Context unknown: the latest main request or its verified capacity is unavailable.';
     }
     return [
-      `Main context used (latest main request): ${stats.contextUsed.toLocaleString()} tokens`,
+      `Context used (latest main request): ${stats.contextUsed.toLocaleString()} tokens`,
       `Context Window: ${stats.contextWindow.toLocaleString()} tokens`,
       `Usage: ${stats.contextPercent}%`,
     ].join('\n');
   });
+
+  protected isTileOpen(tileId: string): boolean {
+    return this.expansion.isOpen(this.sessionId() ?? '', tileId);
+  }
+
+  protected toggleTile(tileId: string): void {
+    this.expansion.toggle(this.sessionId() ?? '', tileId);
+  }
 
   /** Format cost for display */
   protected formatCost(cost: number | null): string {
