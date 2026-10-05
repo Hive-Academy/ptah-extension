@@ -2,6 +2,7 @@ import type {
   OwnerLimitEvidence,
   PlanLimitOwnerSnapshot,
   PlanLimitWindow,
+  ProviderAccountUsageStatus,
   QuotaOwnerIdentityKind,
   QuotaOwnerRef,
 } from '@ptah-extension/shared';
@@ -772,6 +773,34 @@ describe('buildStatsLimitViewModel', () => {
         {
           tone: 'neutral',
           text: 'Plan usage is not reported for this sign-in method',
+        },
+      ]);
+      expect(noteTexts(group).join(' ')).not.toContain('last-known');
+    });
+
+    it('(iv) an unknown status from a newer backend is a neutral note, never a throw', () => {
+      // Version skew: 'telemetry-outage' is no member this build knows, so
+      // the double cast stands in for a cached or desynced client. The
+      // switch's default must answer with the generic note instead of
+      // throwing and blanking the whole stats view model (review M2).
+      const unknownStatus =
+        'telemetry-outage' as unknown as ProviderAccountUsageStatus;
+      const keyOwner = snapshot(ANTHROPIC_KEY, {
+        status: unknownStatus,
+        windowSetEstablished: false,
+        windows: [],
+      });
+      const vm = buildStatsLimitViewModel(
+        input({
+          owners: [snapshot(CLAUDE_A), keyOwner],
+          laneRuns: [run({ quotaOwner: ANTHROPIC_KEY })],
+        }),
+      );
+      const group = onlySubgroup(vm);
+      expect(group.notes).toEqual([
+        {
+          tone: 'neutral',
+          text: 'Usage unavailable · telemetry-outage',
         },
       ]);
       expect(noteTexts(group).join(' ')).not.toContain('last-known');

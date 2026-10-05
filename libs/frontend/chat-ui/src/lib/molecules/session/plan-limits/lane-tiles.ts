@@ -439,10 +439,16 @@ function ownerStatusNote(
         text: `Usage unavailable · ${snapshot.status}`,
       };
     default: {
-      const exhaustive: never = snapshot.status;
-      throw new Error(
-        `Unhandled provider account usage status: ${exhaustive}`,
-      );
+      // Compile-time exhaustiveness only: a new ProviderAccountUsageStatus
+      // member without a case fails this assignment. At runtime a newer
+      // backend may still send a status this build does not know (cached or
+      // desynced client); it gets the generic note, never a thrown error
+      // that would blank the whole stats view model (review M2).
+      const unhandled: never = snapshot.status;
+      return {
+        tone: 'neutral',
+        text: `Usage unavailable · ${unhandled}`,
+      };
     }
   }
 }

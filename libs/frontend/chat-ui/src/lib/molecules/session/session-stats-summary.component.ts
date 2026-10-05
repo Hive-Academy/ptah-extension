@@ -171,8 +171,12 @@ export interface LiveModelStats {
               }
             </span>
             @if (lanesCount(); as lanes) {
+              <!-- role="img": aria-label is ignored on a generic span (ARIA
+                   1.2 does not name generic elements), so the pill takes a
+                   nameable role; its children become presentational (M3). -->
               <span
                 class="inline-flex items-center gap-1 bg-base-content/5 border border-dashed border-base-content/30 rounded px-1.5 py-0.5 whitespace-nowrap"
+                role="img"
                 [title]="lanesTooltip"
                 [attr.aria-label]="lanesAriaLabel()"
               >
