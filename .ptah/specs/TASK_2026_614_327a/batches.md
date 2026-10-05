@@ -1191,7 +1191,7 @@ real code, a regression test per item).
 - Add an optional read-status field (55-66); `buildHandoff` (587-624) sets it on an unknown workspace or a `readError`.
   Spec. The task needs no decision itself; it waits so the shared type changes land in one commit.
 
-## Batch 29: One shutdown contract for `killRunningChecks` (G.4) — COMPLETE (decision recorded in context.md: G-A)
+## Batch 29: One shutdown contract for `killRunningChecks` (G.4) — COMPLETE `ba443e8f4` (decision recorded in context.md: G-A)
 
 - Recommended executor: backend-developer | Fallback: backend-developer (fresh run) | Execution mode: Sequential subagent
 - Model: Opus | Tasks: 2 | Depends on: Batch 21, Decision G-A | Phase: G
