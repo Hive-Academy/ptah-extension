@@ -1132,6 +1132,80 @@ describe('AgentProcessManager - SDK Execution Path', () => {
       expect(resumeGate.evaluate).not.toHaveBeenCalled();
     });
 
+    describe('Ptah CLI resumes (TASK_2026_614, E.4)', () => {
+      it('gates the resume before the handle is built and surfaces `fresh` over 60k', async () => {
+        restorePreviousLane();
+        resumeGate.evaluate.mockResolvedValueOnce({
+          decision: 'fresh',
+          reason: 'last request 61000 tokens exceeds 60000',
+          contextTokens: 61_000,
+          source: 'stream',
+          idleMs: 1_000,
+        });
+
+        const prepared = await manager.prepareSdkHandleSpawn({
+          cli: 'ptah-cli',
+          task: 'Fix the lexer tests',
+          resumeSessionId: SESSION,
+        });
+
+        expect(resumeGate.evaluate).toHaveBeenCalledWith({
+          cli: 'ptah-cli',
+          cliSessionId: SESSION,
+          lastActivityAt: Date.parse('2026-10-04T08:00:00.000Z'),
+        });
+        expect(prepared.resumeSessionId).toBeUndefined();
+        expect(prepared.task).toContain('Original task:\nImplement the parser');
+        expect(
+          prepared.task.endsWith('New instruction:\nFix the lexer tests'),
+        ).toBe(true);
+
+        const result = await manager.spawnFromSdkHandle(sdkControls.handle, {
+          task: 'Fix the lexer tests',
+          cli: 'ptah-cli',
+          workingDirectory: '/workspace/root',
+          resumeSessionId: prepared.resumeSessionId,
+          resumeDecision: prepared.resumeDecision,
+          originalTask: prepared.originalTask,
+        });
+
+        expect(result.resumeDecision).toEqual({
+          decision: 'fresh',
+          reason: 'last request 61000 tokens exceeds 60000',
+          sessionKnown: true,
+        });
+        const info = manager.getStatus(result.agentId) as AgentProcessInfo;
+        expect(info.originalTask).toBe('Implement the parser');
+      });
+
+      it('keeps the resume id and the task on `resume`', async () => {
+        restorePreviousLane();
+
+        const prepared = await manager.prepareSdkHandleSpawn({
+          cli: 'ptah-cli',
+          task: 'Fix the lexer tests',
+          resumeSessionId: SESSION,
+        });
+
+        expect(prepared).toEqual({
+          task: 'Fix the lexer tests',
+          resumeSessionId: SESSION,
+          resumeDecision: {
+            decision: 'resumed',
+            reason: expect.any(String),
+            sessionKnown: true,
+          },
+        });
+      });
+
+      it('does not consult the gate without a resume id', async () => {
+        await expect(
+          manager.prepareSdkHandleSpawn({ cli: 'ptah-cli', task: 'New work' }),
+        ).resolves.toEqual({ task: 'New work' });
+        expect(resumeGate.evaluate).not.toHaveBeenCalled();
+      });
+    });
+
     it('records the last streamed input figure as an estimate and hands it to the gate', async () => {
       const segmentCallbacks: Array<(segment: CliOutputSegment) => void> = [];
       Object.assign(sdkControls.handle, {

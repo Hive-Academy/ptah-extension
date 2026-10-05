@@ -127,13 +127,27 @@ interface SdkSpawnOptions {
   readonly originalTask?: string;
 }
 
-/** A spawn request after the resume gate, with what the gate decided. */
-interface GatedSpawn {
-  readonly request: SpawnAgentRequest;
+/**
+ * What the resume gate made of a `resumeSessionId` spawn: the task to hand
+ * the lane, the session to resume (absent when the gate chose a fresh lane)
+ * and the decision to report to the caller.
+ */
+export interface GatedResume {
   readonly task: string;
-  readonly resumeDecision?: AgentResumeOutcome;
+  readonly resumeSessionId?: string;
+  readonly resumeDecision: AgentResumeOutcome;
+  /** First task of the lane chain, kept on a fresh lane's record. */
   readonly originalTask?: string;
 }
+
+/**
+ * A spawn through {@link AgentProcessManager.spawnFromSdkHandle}, checked
+ * before its handle is built. Without a resume id the task passes through
+ * and no decision is reported.
+ */
+export type PreparedSdkHandleSpawn = Omit<GatedResume, 'resumeDecision'> & {
+  readonly resumeDecision?: AgentResumeOutcome;
+};
 
 function roleStampOf(
   record: Partial<AgentRoleStamp>,
@@ -355,15 +369,17 @@ export class AgentProcessManager {
       adapter.supportsMcp !== false
         ? await this.spawnEnvironment.mcpPort()
         : undefined;
-    const gated: GatedSpawn = request.resumeSessionId
-      ? await this.gateResume(request, request.resumeSessionId, cli)
-      : { request, task: request.task };
+    const gated = request.resumeSessionId
+      ? await this.gateResume(request.task, request.resumeSessionId, cli)
+      : undefined;
     return this.doSpawnSdk({
-      resumeDecision: gated.resumeDecision,
-      originalTask: gated.originalTask,
+      resumeDecision: gated?.resumeDecision,
+      originalTask: gated?.originalTask,
       runSdk: adapter.runSdk.bind(adapter),
-      request: gated.request,
-      task: gated.task,
+      request: gated
+        ? { ...request, resumeSessionId: gated.resumeSessionId }
+        : request,
+      task: gated?.task ?? request.task,
       workingDirectory,
       cli,
       displayName: adapter.displayName,
@@ -385,10 +401,10 @@ export class AgentProcessManager {
    * task, the previous final text and the files it changed. No git process.
    */
   private async gateResume(
-    request: SpawnAgentRequest,
+    task: string,
     resumeSessionId: string,
     cli: CliType,
-  ): Promise<GatedSpawn> {
+  ): Promise<GatedResume> {
     const lane = this.laneRecordsForSession(resumeSessionId);
     const latest = lane[lane.length - 1];
     const lastActivityAt = latest
@@ -418,8 +434,8 @@ export class AgentProcessManager {
     const sessionKnown = lane.length > 0;
     if (gate.decision === 'resume') {
       return {
-        request,
-        task: request.task,
+        task,
+        resumeSessionId,
         resumeDecision: {
           decision: 'resumed',
           reason: gate.reason,
@@ -439,9 +455,8 @@ export class AgentProcessManager {
     const first = lane[0]?.info;
     const originalTask = first ? (first.originalTask ?? first.task) : undefined;
     return {
-      request: { ...request, resumeSessionId: undefined },
       task: buildLaneHandoffTask({
-        message: request.task,
+        message: task,
         reason: gate.reason,
         sessionKnown,
         originalTask,
@@ -455,6 +470,47 @@ export class AgentProcessManager {
       },
       ...(originalTask?.trim() ? { originalTask } : {}),
     };
+  }
+
+  /**
+   * The checks a {@link spawnFromSdkHandle} spawn needs BEFORE its handle is
+   * built (TASK_2026_614, E.4 and B-m2). The Ptah CLI path builds and starts
+   * its SDK handle in the registry, so by the time `spawnFromSdkHandle` runs
+   * the query is already under way; both checks must therefore run here,
+   * ahead of `registry.spawnAgent`.
+   *
+   * - R9.5: a blocked model throws {@link LaneModelBlockedError}. Only an
+   *   explicit `model` can be checked: a model left to the agent's configured
+   *   default or tier is resolved inside the registry and stays unchecked.
+   * - R9.1: a `resumeSessionId` goes through the same resume gate as
+   *   {@link spawn}. On `fresh` the returned task is the handoff and no resume
+   *   id is returned; hand both to the registry, and pass `resumeDecision` and
+   *   `originalTask` on to `spawnFromSdkHandle`.
+   */
+  async prepareSdkHandleSpawn(input: {
+    readonly cli: CliType;
+    readonly task: string;
+    readonly model?: string;
+    readonly resumeSessionId?: string;
+  }): Promise<PreparedSdkHandleSpawn> {
+    this.assertLaneModelAllowed(input.cli, input.model);
+    if (!input.resumeSessionId) return { task: input.task };
+    return this.gateResume(input.task, input.resumeSessionId, input.cli);
+  }
+
+  /** R9.5: throw {@link LaneModelBlockedError} for a model known to loop. */
+  private assertLaneModelAllowed(
+    cli: CliType,
+    model: string | undefined,
+  ): void {
+    const blockedModel = findBlockedLaneModel(model);
+    if (blockedModel === undefined) return;
+    this.logger.warn('[AgentProcessManager] Lane model blocked', {
+      cli,
+      model,
+      blockedModel,
+    });
+    throw new LaneModelBlockedError(model ?? blockedModel);
   }
 
   /**
@@ -495,15 +551,7 @@ export class AgentProcessManager {
     const resolvedModel = laneModel.model;
     // R9.5: refuse a model known to loop before anything is started — no
     // record, no event, no adapter call.
-    const blockedModel = findBlockedLaneModel(resolvedModel);
-    if (blockedModel !== undefined) {
-      this.logger.warn('[AgentProcessManager] Lane model blocked', {
-        cli,
-        model: resolvedModel,
-        blockedModel,
-      });
-      throw new LaneModelBlockedError(resolvedModel ?? blockedModel);
-    }
+    this.assertLaneModelAllowed(cli, resolvedModel);
     const roleDefinition = request.roleDefinition;
     const laneEffort = this.spawnEnvironment.resolveReasoningEffort(cli, {
       effort: request.effort,
@@ -659,6 +707,10 @@ export class AgentProcessManager {
        */
       agentId?: AgentId;
       roleStamp?: AgentRoleStamp;
+      /** The gate's outcome from {@link prepareSdkHandleSpawn}, reported on the result. */
+      resumeDecision?: AgentResumeOutcome;
+      /** First task of the lane chain, from {@link prepareSdkHandleSpawn} on a fresh lane. */
+      originalTask?: string;
     },
   ): Promise<SpawnAgentResult> {
     await this.reserveSpawnSlot();
@@ -685,6 +737,9 @@ export class AgentProcessManager {
         ptahCliId: meta.ptahCliId,
         resumedFromAgentId: meta.resumedFromAgentId,
         ...(meta.resumeSessionId ? { cliSessionId: meta.resumeSessionId } : {}),
+        ...(meta.originalTask !== undefined
+          ? { originalTask: meta.originalTask }
+          : {}),
         ...meta.roleStamp,
       };
       const initialCliSessionId = sdkHandle.getSessionId?.();
@@ -699,9 +754,15 @@ export class AgentProcessManager {
         ptahCliId: meta.ptahCliId,
       });
 
-      return this.trackSdkHandle(sdkHandle, infoWithSession, meta.timeout, () =>
-        sdkHandle.getSessionId?.(),
+      const spawned = this.trackSdkHandle(
+        sdkHandle,
+        infoWithSession,
+        meta.timeout,
+        () => sdkHandle.getSessionId?.(),
       );
+      return meta.resumeDecision
+        ? { ...spawned, resumeDecision: meta.resumeDecision }
+        : spawned;
     } finally {
       this.spawning--;
     }
@@ -1598,6 +1659,19 @@ export class AgentProcessManager {
     );
   }
 
+  /**
+   * Hand a new turn to a lane whose subprocess is still alive.
+   *
+   * Deliberately NOT passed through the resume gate (TASK_2026_614, E.4,
+   * Decision 4): a live continuation keeps its context in the running
+   * process, so nothing is re-sent the way a resume re-sends the thread. The
+   * idle rule cannot apply either: the subprocess is released after
+   * `SDK_IDLE_RELEASE_MS` (5 min), below the gate's 10 min idle limit, so a
+   * lane idle long enough to be cold is no longer continuable and comes back
+   * through `spawn` with a resume id, where the gate runs. Only the 60k rule
+   * could apply here, and swapping a live lane for a fresh handoff mid
+   * conversation would cost the caller its context for a token saving.
+   */
   async continueConversation(agentId: string, message: string): Promise<void> {
     const tracked = this.agents.get(agentId);
     if (!tracked) {

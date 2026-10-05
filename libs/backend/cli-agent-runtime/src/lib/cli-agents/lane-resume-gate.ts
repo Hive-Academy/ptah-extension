@@ -107,16 +107,20 @@ export class LaneResumeGate {
     modifiedAtMs?: number;
     note?: string;
   }> {
-    const streamed = {
-      tokens: input.lastRequestContext?.tokens ?? null,
-      source: input.lastRequestContext?.source ?? ('estimate' as const),
-    };
-    if (input.cli !== 'codex') return streamed;
+    if (input.cli !== 'codex') {
+      return {
+        tokens: input.lastRequestContext?.tokens ?? null,
+        source: input.lastRequestContext?.source ?? 'estimate',
+      };
+    }
 
+    // Codex streams only the `turn.completed` sum, which counts every request
+    // of the turn and so overstates the last request (R9.1: never used). With
+    // no rollout figure the size is unknown and the gate decides on idle time.
     try {
       const usage = await this.readRolloutUsage(input.cliSessionId);
       if (usage === null) {
-        return { ...streamed, source: 'estimate', note: 'no rollout figure' };
+        return { tokens: null, source: 'estimate', note: 'no rollout figure' };
       }
       return {
         tokens: usage.lastRequestInputTokens,
@@ -126,7 +130,7 @@ export class LaneResumeGate {
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
       return {
-        ...streamed,
+        tokens: null,
         source: 'estimate',
         note: `rollout unreadable: ${message}`,
       };

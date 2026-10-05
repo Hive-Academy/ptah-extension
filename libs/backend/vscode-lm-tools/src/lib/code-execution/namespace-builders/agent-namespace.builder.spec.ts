@@ -53,6 +53,7 @@ import {
 interface ProcessManagerMock {
   spawn: jest.Mock;
   spawnFromSdkHandle: jest.Mock;
+  prepareSdkHandleSpawn: jest.Mock;
   reserveAgentId: jest.Mock;
   getStatus: jest.Mock;
   readOutput: jest.Mock;
@@ -74,6 +75,15 @@ function createProcessManager(): ProcessManagerMock {
   return {
     spawn: jest.fn(),
     spawnFromSdkHandle: jest.fn(),
+    // Pass-through by default: no resume id, nothing to gate or refuse.
+    prepareSdkHandleSpawn: jest.fn(
+      async (input: { task: string; resumeSessionId?: string }) => ({
+        task: input.task,
+        ...(input.resumeSessionId
+          ? { resumeSessionId: input.resumeSessionId }
+          : {}),
+      }),
+    ),
     // One id per spawn, minted BEFORE the handle exists (TASK_2026_402), so
     // the handle's MCP URL can carry it.
     reserveAgentId: jest.fn().mockReturnValue('reserved-1'),
@@ -394,6 +404,81 @@ describe('buildAgentNamespace — spawn (ptahCliId)', () => {
         modelTier: 'opus',
       }),
     );
+  });
+
+  it('gates a resume before the handle is built and surfaces a `fresh` decision (E.4)', async () => {
+    const { deps, mocks } = makeDeps();
+    const fresh = {
+      decision: 'fresh' as const,
+      reason: 'last request 61000 tokens exceeds 60000',
+      sessionKnown: true,
+    };
+    mocks.processManager.prepareSdkHandleSpawn.mockResolvedValueOnce({
+      task: '[LANE HANDOFF]\n...\nNew instruction:\nnext step',
+      resumeDecision: fresh,
+      originalTask: 'first task',
+    });
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    mocks.registry!.spawnAgent.mockResolvedValue({
+      handle: { id: 'h' } as unknown as SdkHandle,
+      agentName: 'MyAgent',
+      setAgentId: jest.fn(),
+    });
+    mocks.processManager.spawnFromSdkHandle.mockImplementation(
+      async (_handle: unknown, meta: { resumeDecision?: unknown }) => ({
+        agentId: 'spawned-3',
+        resumeDecision: meta.resumeDecision,
+      }),
+    );
+
+    const out = await buildAgentNamespace(deps).spawn({
+      task: 'next step',
+      ptahCliId: 'agent-a',
+      model: 'some-model',
+      resumeSessionId: 'sess-1',
+    } as SpawnAgentRequest);
+
+    expect(mocks.processManager.prepareSdkHandleSpawn).toHaveBeenCalledWith({
+      cli: 'ptah-cli',
+      task: 'next step',
+      model: 'some-model',
+      resumeSessionId: 'sess-1',
+    });
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    const [, prompt, options] = mocks.registry!.spawnAgent.mock.calls[0];
+    expect(prompt).toBe(
+      '[LANE HANDOFF]\n...\nNew instruction:\nnext step\n\nLANE_COMPLETION_CONTRACT',
+    );
+    expect(options.resumeSessionId).toBeUndefined();
+    const meta = mocks.processManager.spawnFromSdkHandle.mock.calls[0][1];
+    expect(meta).toEqual(
+      expect.objectContaining({
+        task: 'next step',
+        resumeDecision: fresh,
+        originalTask: 'first task',
+      }),
+    );
+    expect(meta.resumeSessionId).toBeUndefined();
+    expect(out.resumeDecision).toEqual(fresh);
+  });
+
+  it('refuses a blocked model before the registry builds a handle (B-m2)', async () => {
+    const { deps, mocks } = makeDeps();
+    mocks.processManager.prepareSdkHandleSpawn.mockRejectedValueOnce(
+      new Error('Model `mimo-v2.6-flash-free` is blocked for lanes'),
+    );
+
+    await expect(
+      buildAgentNamespace(deps).spawn({
+        task: 't',
+        ptahCliId: 'agent-a',
+        model: 'mimo-v2.6-flash-free',
+      } as SpawnAgentRequest),
+    ).rejects.toThrow(/blocked for lanes/);
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    expect(mocks.registry!.spawnAgent).not.toHaveBeenCalled();
+    expect(mocks.processManager.reserveAgentId).not.toHaveBeenCalled();
+    expect(mocks.processManager.spawnFromSdkHandle).not.toHaveBeenCalled();
   });
 
   it('throws with helpful message when registry returns a failure status', async () => {

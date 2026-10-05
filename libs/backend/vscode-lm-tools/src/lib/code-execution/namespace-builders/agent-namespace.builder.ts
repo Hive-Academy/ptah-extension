@@ -261,6 +261,17 @@ export function buildAgentNamespace(
           );
         }
 
+        // The registry builds AND starts the handle, so the blocked-model check
+        // (R9.5) and the resume gate (R9.1) run here, before it does
+        // (TASK_2026_614, E.4 and B-m2). On `fresh` the lane gets the handoff
+        // task and no resume id; the record keeps the caller's message.
+        const prepared = await agentProcessManager.prepareSdkHandleSpawn({
+          cli: 'ptah-cli',
+          task: request.task,
+          model: request.model,
+          resumeSessionId: request.resumeSessionId,
+        });
+
         // ONE id, minted once, before the handle exists (TASK_2026_402).
         // `spawnFromSdkHandle` would otherwise mint it AFTER the handle — and
         // therefore after the MCP URL baked into that handle — so the URL could
@@ -273,7 +284,7 @@ export function buildAgentNamespace(
         // rendered here from the SAME function the rival-CLI adapters use
         // (TASK_2026_515). Two call sites, one text.
         const ptahCliTask =
-          `${request.task}\n\n` +
+          `${prepared.task}\n\n` +
           renderLaneCompletionContract({
             taskFolder: request.taskFolder,
             deliverables: request.deliverables,
@@ -284,7 +295,7 @@ export function buildAgentNamespace(
           ptahCliTask,
           {
             workingDirectory,
-            resumeSessionId: request.resumeSessionId,
+            resumeSessionId: prepared.resumeSessionId,
             parentSessionId: activeSessionId,
             modelTier: request.modelTier,
             model: request.model,
@@ -315,7 +326,13 @@ export function buildAgentNamespace(
             ptahCliName: result.agentName,
             ptahCliId: request.ptahCliId,
             timeout: request.timeout,
-            resumeSessionId: request.resumeSessionId,
+            resumeSessionId: prepared.resumeSessionId,
+            ...(prepared.resumeDecision
+              ? { resumeDecision: prepared.resumeDecision }
+              : {}),
+            ...(prepared.originalTask !== undefined
+              ? { originalTask: prepared.originalTask }
+              : {}),
             agentId,
             ...(roleDefinition
               ? {
