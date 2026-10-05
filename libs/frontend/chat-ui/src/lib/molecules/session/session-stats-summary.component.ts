@@ -6,7 +6,6 @@ import {
   signal,
   inject,
 } from '@angular/core';
-import { NgTemplateOutlet } from '@angular/common';
 import {
   resolveModelDisplayName,
   type SessionBudgetState,
@@ -21,6 +20,7 @@ import { LimitsAlertComponent } from './plan-limits/limits-alert.component';
 import { PlanLimitTileComponent } from './plan-limits/plan-limit-tile.component';
 import type { StatsLimitViewModel } from './plan-limits/stats-limit-view-model.types';
 import { StatsTileExpansionState } from './plan-limits/stats-tile-expansion.state';
+import { SessionModelBreakdownComponent } from './session-model-breakdown.component';
 
 /**
  * Live model stats from current session
@@ -38,9 +38,6 @@ export interface LiveModelStats {
   /** Context usage as percentage (0-100) */
   contextPercent: number;
 }
-
-/** One per-model row of the backend snapshot. */
-type ModelUsageRow = NonNullable<SessionStatsEntry['modelUsageList']>[number];
 
 /**
  * SessionStatsSummaryComponent - Compact inline session stats display
@@ -62,12 +59,13 @@ type ModelUsageRow = NonNullable<SessionStatsEntry['modelUsageList']>[number];
   standalone: true,
   imports: [
     CostBadgeComponent,
-    NgTemplateOutlet,
     LimitsAlertComponent,
     PlanLimitTileComponent,
     LaneUsageTileComponent,
     LaneSubtotalTileComponent,
+    SessionModelBreakdownComponent,
   ],
+  // prettier-ignore
   template: `
     <div class="stats-grid" style="container-type: inline-size">
       <!-- Failed refresh while limit data is held: neutral, both layouts -->
@@ -226,29 +224,8 @@ type ModelUsageRow = NonNullable<SessionStatsEntry['modelUsageList']>[number];
               </span>
             }
             @if (hasMultipleModels()) {
-              <button
-                class="inline-flex items-center gap-1 bg-purple-600/15 border border-purple-600/25 rounded px-1.5 py-0.5 whitespace-nowrap cursor-pointer hover:bg-purple-600/25 transition-colors"
-                data-testid="stats-models-toggle"
-                (click)="
-                  isExpanded.set(!isExpanded()); $event.stopPropagation()
-                "
-                type="button"
-                [attr.aria-expanded]="isExpanded()"
-                [title]="
-                  isExpanded()
-                    ? 'Hide per-model breakdown'
-                    : 'Show per-model breakdown'
-                "
-              >
-                <span class="text-[10px] uppercase text-base-content-muted"
-                  >Models</span
-                >
-                <span class="text-base-content font-semibold"
-                  >{{ modelRows().length }}
-                  <span class="text-[10px] font-normal" aria-hidden="true">{{
-                    isExpanded() ? '▲' : '▼'
-                  }}</span></span
-                >
+              <button class="inline-flex items-center gap-1 bg-purple-600/15 border border-purple-600/25 rounded px-1.5 py-0.5 whitespace-nowrap cursor-pointer hover:bg-purple-600/25 transition-colors" data-testid="stats-models-toggle" (click)="isExpanded.set(!isExpanded()); $event.stopPropagation()" type="button" [attr.aria-expanded]="isExpanded()" [title]="isExpanded() ? 'Hide per-model breakdown' : 'Show per-model breakdown'">
+                <span class="text-[10px] uppercase text-base-content-muted">Models</span><span class="text-base-content font-semibold">{{ modelRows().length }} <span class="text-[10px] font-normal" aria-hidden="true">{{ isExpanded() ? '▲' : '▼' }}</span></span>
               </button>
             }
           </div>
@@ -449,30 +426,10 @@ type ModelUsageRow = NonNullable<SessionStatsEntry['modelUsageList']>[number];
 
           <!-- Multi-model Toggle Card (conditional) -->
           @if (hasMultipleModels()) {
-            <button
-              class="bg-base-200/50 rounded px-2 py-1.5 border border-purple-600/20 cursor-pointer hover:bg-base-200/80 text-left transition-colors"
-              data-testid="stats-models-toggle"
-              (click)="isExpanded.set(!isExpanded())"
-              type="button"
-              [attr.aria-expanded]="isExpanded()"
-              [title]="
-                isExpanded()
-                  ? 'Hide per-model breakdown'
-                  : 'Show per-model breakdown'
-              "
-            >
-              <div
-                class="text-[10px] uppercase tracking-wider text-base-content-muted leading-tight"
-              >
-                Models
-              </div>
-              <div
-                class="text-sm font-semibold text-base-content leading-tight mt-0.5"
-              >
-                {{ modelRows().length }}
-                <span class="text-[10px] font-normal" aria-hidden="true">{{
-                  isExpanded() ? '▲' : '▼'
-                }}</span>
+            <button class="bg-base-200/50 rounded px-2 py-1.5 border border-purple-600/20 cursor-pointer hover:bg-base-200/80 text-left transition-colors" data-testid="stats-models-toggle" (click)="isExpanded.set(!isExpanded())" type="button" [attr.aria-expanded]="isExpanded()" [title]="isExpanded() ? 'Hide per-model breakdown' : 'Show per-model breakdown'">
+              <div class="text-[10px] uppercase tracking-wider text-base-content-muted leading-tight">Models</div>
+              <div class="text-sm font-semibold text-base-content leading-tight mt-0.5">
+                {{ modelRows().length }} <span class="text-[10px] font-normal" aria-hidden="true">{{ isExpanded() ? '▲' : '▼' }}</span>
               </div>
             </button>
           }
@@ -529,7 +486,7 @@ type ModelUsageRow = NonNullable<SessionStatsEntry['modelUsageList']>[number];
 
       <!-- Per-model breakdown: one table, shown under either layout -->
       @if (isExpanded() && hasMultipleModels()) {
-        <ng-container [ngTemplateOutlet]="modelUsageTable" />
+        <ptah-session-model-breakdown [snapshot]="snapshot()" />
       }
 
       <!-- Context usage progress bar — always visible when context data
@@ -551,224 +508,8 @@ type ModelUsageRow = NonNullable<SessionStatsEntry['modelUsageList']>[number];
         }
       }
     </div>
-
-    <ng-template #modelUsageTable>
-      @if (snapshot(); as stats) {
-        <div
-          class="mt-1.5 bg-base-200/50 rounded border border-purple-600/20 overflow-hidden"
-          role="table"
-          aria-label="Per-model usage"
-          data-testid="model-usage-table"
-        >
-          <div
-            class="model-usage-row px-2 py-1 border-b border-base-content/10"
-            role="row"
-            data-testid="model-usage-header"
-          >
-            <div
-              class="text-[10px] leading-tight uppercase tracking-wider text-base-content-muted"
-              role="columnheader"
-            >
-              Model
-            </div>
-            <div
-              class="text-[10px] leading-tight uppercase tracking-wider text-base-content-muted text-right"
-              role="columnheader"
-              title="Uncached input tokens"
-            >
-              In
-            </div>
-            <div
-              class="text-[10px] leading-tight uppercase tracking-wider text-base-content-muted text-right"
-              role="columnheader"
-              title="Output tokens"
-            >
-              Out
-            </div>
-            <div
-              class="text-[10px] leading-tight uppercase tracking-wider text-base-content-muted text-right"
-              role="columnheader"
-              title="Cache read tokens"
-            >
-              Cache Read
-            </div>
-            <div
-              class="text-[10px] leading-tight uppercase tracking-wider text-base-content-muted text-right"
-              role="columnheader"
-              title="Cache creation tokens"
-            >
-              Cache Creation
-            </div>
-            <div
-              class="text-[10px] leading-tight uppercase tracking-wider text-base-content-muted text-right"
-              role="columnheader"
-            >
-              Cost
-            </div>
-          </div>
-          @for (usage of modelRows(); track usage.model) {
-            <div
-              class="model-usage-row px-2 py-1.5 border-b border-base-content/5 last:border-b-0"
-              role="row"
-              data-testid="model-usage-row"
-            >
-              <div
-                class="text-xs font-semibold text-base-content truncate"
-                role="cell"
-                [title]="usage.model"
-              >
-                {{ formatModelName(usage.model) }}
-              </div>
-              <div
-                class="text-xs text-right tabular-nums text-base-content-muted"
-                role="cell"
-              >
-                {{ formatTokens(usage.inputTokens) }}
-              </div>
-              <div
-                class="text-xs text-right tabular-nums text-base-content-muted"
-                role="cell"
-              >
-                {{ formatTokens(usage.outputTokens) }}
-              </div>
-              <div
-                class="text-xs text-right tabular-nums text-base-content-muted"
-                role="cell"
-              >
-                {{ formatOptionalTokens(usage.cacheRead) }}
-              </div>
-              <div
-                class="text-xs text-right tabular-nums text-base-content-muted"
-                role="cell"
-              >
-                {{ formatOptionalTokens(usage.cacheCreation) }}
-              </div>
-              <div
-                class="text-xs text-right tabular-nums text-success"
-                role="cell"
-              >
-                {{ formatCost(usage.costUSD) }}
-              </div>
-            </div>
-          }
-          <!-- Totals row: the snapshot's own totals, never a sum of rows -->
-          <div
-            class="model-usage-row px-2 py-1.5 border-t border-base-content/10 bg-base-300/30"
-            role="row"
-            data-testid="model-usage-total"
-          >
-            <div class="text-xs font-semibold" role="cell">Total</div>
-            <div
-              class="text-xs text-right tabular-nums font-semibold"
-              role="cell"
-            >
-              {{ formatTokens(stats.tokens.input) }}
-            </div>
-            <div
-              class="text-xs text-right tabular-nums font-semibold"
-              role="cell"
-            >
-              {{ formatTokens(stats.tokens.output) }}
-            </div>
-            <div
-              class="text-xs text-right tabular-nums font-semibold"
-              role="cell"
-            >
-              {{ formatTokens(stats.tokens.cacheRead) }}
-            </div>
-            <div
-              class="text-xs text-right tabular-nums font-semibold"
-              role="cell"
-            >
-              {{ formatTokens(stats.tokens.cacheCreation) }}
-            </div>
-            <div
-              class="text-xs text-right tabular-nums font-semibold text-success"
-              role="cell"
-            >
-              {{ formatCost(stats.totalCost) }}
-            </div>
-          </div>
-        </div>
-      }
-    </ng-template>
   `,
-  styles: [
-    `
-      :host {
-        display: block;
-      }
-      @container (min-width: 380px) {
-        .stats-grid .stats-cards {
-          grid-template-columns: repeat(3, minmax(0, 1fr));
-        }
-      }
-      @container (min-width: 500px) {
-        .stats-grid .stats-cards {
-          grid-template-columns: repeat(4, minmax(0, 1fr));
-        }
-      }
-
-      .model-usage-row {
-        display: grid;
-        grid-template-columns: minmax(0, 1.4fr) repeat(5, minmax(0, 1fr));
-        gap: 0.25rem;
-        align-items: end;
-      }
-
-      .context-bar-track {
-        height: 4px;
-        border-radius: 2px;
-        background: oklch(0.3 0 0 / 0.4);
-        overflow: hidden;
-      }
-
-      .context-bar-fill {
-        height: 100%;
-        border-radius: 2px;
-        background: oklch(0.72 0.15 200 / 0.5);
-        transition: width 0.6s cubic-bezier(0.22, 1, 0.36, 1);
-      }
-
-      .context-bar-fill.context-bar-warning {
-        background: linear-gradient(
-          90deg,
-          oklch(0.795 0.184 86.047 / 0.7),
-          oklch(0.795 0.184 86.047 / 0.9)
-        );
-        animation: context-bar-pulse 3s ease-in-out infinite;
-      }
-
-      .context-bar-fill.context-bar-critical {
-        background: linear-gradient(
-          90deg,
-          oklch(0.637 0.237 25.331 / 0.7),
-          oklch(0.637 0.237 25.331 / 0.95)
-        );
-        animation: context-bar-pulse-critical 1.5s ease-in-out infinite;
-      }
-
-      @keyframes context-bar-pulse {
-        0%,
-        100% {
-          opacity: 0.75;
-        }
-        50% {
-          opacity: 1;
-        }
-      }
-
-      @keyframes context-bar-pulse-critical {
-        0%,
-        100% {
-          opacity: 0.65;
-        }
-        50% {
-          opacity: 1;
-        }
-      }
-    `,
-  ],
+  styleUrl: './session-stats-summary.component.css',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class SessionStatsSummaryComponent {
@@ -897,9 +638,7 @@ export class SessionStatsSummaryComponent {
   });
 
   /** The snapshot's per-model rows, as the backend sent them. */
-  readonly modelRows = computed<readonly ModelUsageRow[]>(
-    () => this.snapshot()?.modelUsageList ?? [],
-  );
+  readonly modelRows = computed(() => this.snapshot()?.modelUsageList ?? []);
 
   /** Whether there are multiple models to display */
   readonly hasMultipleModels = computed(() => this.modelRows().length >= 2);
