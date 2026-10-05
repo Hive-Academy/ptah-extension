@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_614_327a
-status: backlog
+status: in_progress
 type: BUGFIX
 title: Finish the TASK_2026_597 token-burn work and close its review follow-ups
 description: >-
