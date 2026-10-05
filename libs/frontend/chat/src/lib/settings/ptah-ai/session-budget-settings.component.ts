@@ -430,8 +430,14 @@ export class SessionBudgetSettingsComponent implements OnInit {
     this.setError(key, this.validate(key, text));
   }
 
+  /**
+   * Leaving a field commits its pending draft even when nothing was typed since focus: `change` only fires for a
+   * new keystroke, so a draft a partner save made valid while this field had focus would otherwise be lost.
+   * `commit` returns early for an invalid, unchanged or busy draft, so a `change` that already wrote it is not repeated.
+   */
   protected blurred(key: NumberKey): void {
     if (this.focusedKey === key) this.focusedKey = null;
+    if (this.drafts()[key] !== undefined) void this.commit(key);
   }
 
   /** On commit (blur / Enter): a valid, changed value is written; an invalid one stays on screen with its message. */
@@ -459,7 +465,7 @@ export class SessionBudgetSettingsComponent implements OnInit {
 
   /**
    * After one percent is saved, the other's pending draft is checked against it. A blurred draft is committed; a
-   * focused one is still being typed, so it is only re-validated and waits for its own blur / Enter.
+   * focused one is still being typed, so it is only re-validated and is committed by its own blur / Enter.
    */
   private async commitPartner(
     key: 'tightenPercent' | 'handoffPercent',

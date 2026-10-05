@@ -306,6 +306,49 @@ describe('SessionBudgetSettingsComponent', () => {
         { key: 'sessionBudget.tightenPercent', value: 85 },
       ]);
     });
+
+    it('Tab after editing both: leaving the focused partner without typing saves its now-valid draft', async () => {
+      await create();
+      await enter('tightenPercent', '85');
+      expect(byTestId('session-budget-tightenPercent-error')).not.toBeNull();
+
+      // Handoff is edited, then Tab moves focus into tighten while the handoff write is in flight.
+      const handoff = field('handoffPercent');
+      handoff.value = '95';
+      handoff.dispatchEvent(new Event('input'));
+      fixture.detectChanges();
+      handoff.dispatchEvent(new Event('change'));
+      handoff.dispatchEvent(new FocusEvent('blur'));
+      const tighten = field('tightenPercent');
+      tighten.dispatchEvent(new FocusEvent('focus'));
+      await settle();
+      expect(writes()).toEqual([
+        { key: 'sessionBudget.handoffPercent', value: 95 },
+      ]);
+
+      // Tab again with no keystroke: no `change` fires, only `blur`.
+      tighten.dispatchEvent(new FocusEvent('blur'));
+      await settle();
+
+      expect(writes()).toEqual([
+        { key: 'sessionBudget.handoffPercent', value: 95 },
+        { key: 'sessionBudget.tightenPercent', value: 85 },
+      ]);
+      expect(byTestId('session-budget-tightenPercent-error')).toBeNull();
+      expect(field('tightenPercent').value).toBe('85');
+    });
+
+    it('leaving a field whose `change` already saved it does not write it twice', async () => {
+      await create();
+      const tokens = field('tokens');
+      tokens.dispatchEvent(new FocusEvent('focus'));
+      await enter('tokens', '2000000');
+      tokens.dispatchEvent(new FocusEvent('blur'));
+      await settle();
+      expect(writes()).toEqual([
+        { key: 'sessionBudget.tokens', value: 2_000_000 },
+      ]);
+    });
   });
 
   describe('tightenWindowTokens', () => {

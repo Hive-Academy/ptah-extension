@@ -1339,11 +1339,17 @@ fix C (`libs/frontend/**`) runs separately and is committed on its own.
   when it points at the evicted record.
 - R1 breach: the executor used 77 tool calls (limit 60).
 
-### Fix B: M1 and M2 (review B) — COMPLETE (commit: the fix B commit after 2b066cb08; see git log)
+### Fix B: M1 and M2 (review B) — COMPLETE (commit: 5d96127c9)
 
 - Report: `fg-fix-round-b-report.md`. Projects: ptah-extension-vscode, vscode-lm-tools.
 - M1 — fixed: `deactivate()` awaits the reap, disposes, flushes metadata, then awaits the bounded check kill (G-A kept).
 - M2 — fixed: on win32 the run-check retry is dropped once the root pid exits; POSIX keeps the group retry.
+
+### Fix C: percent draft and template extraction (review C, style) — COMPLETE (commit: this fix C commit; see git log)
+
+- Report: `fg-fix-round-c-report.md`. Projects: chat, chat-ui.
+- Review C Serious: percent draft no longer lost on blur (`session-budget-settings.component.ts` + spec).
+- Style Serious: `session-stats-summary.component.ts` template moved to `session-stats-summary.component.html`.
 
 ### Batch 33 record
 
