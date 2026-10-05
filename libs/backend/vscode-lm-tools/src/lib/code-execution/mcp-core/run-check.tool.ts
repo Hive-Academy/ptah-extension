@@ -15,6 +15,11 @@
  * failing run, and the log path — is at most {@link WAIT_SUMMARY_MAX_CHARS}
  * chars. On timeout the whole process tree is killed and the reply says so.
  *
+ * A run is also stopped, tree and all, when the caller's `signal` aborts
+ * (the MCP request was cancelled) or when the host calls
+ * {@link killRunningChecks} on dispose: a check never outlives the host that
+ * started it, on Windows (`taskkill /T`) or POSIX (process group).
+ *
  * Served as `ptah_run_check` (HTTP, `protocol-dispatcher.ts`) and
  * `run_check` (stdio, `agent-tool.dispatcher.ts`).
  */
@@ -94,8 +99,14 @@ export interface RunCheckDependencies {
   readonly spawnProcess?: SpawnCheckProcess;
   /** Existence check for the Nx entry. Default `fs.access`. */
   readonly fileExists?: (path: string) => Promise<boolean>;
-  /** Tree kill on timeout. Default `killProcessTree` from platform-core. */
+  /** Tree kill on timeout, cancel or dispose. Default `killProcessTree` from platform-core. */
   readonly killTree?: (pid: number) => Promise<void>;
+  /**
+   * Aborts when the caller no longer wants the result (the MCP request was
+   * cancelled). The run's process tree is killed and the verdict is
+   * `cancelled`. Other running checks are untouched.
+   */
+  readonly signal?: AbortSignal;
   /** Directory for full logs. Default `<workspaceRoot>/.ptah/tmp/checks`. */
   readonly logDirectory?: string;
   /** Clock (epoch ms). Default `Date.now`. */
@@ -117,7 +128,7 @@ export interface RunCheckStructuredResult {
   readonly cwd: string;
   readonly project: string;
   readonly targets: readonly RunCheckTarget[];
-  readonly verdict: 'passed' | 'failed' | 'timed_out' | 'not_run';
+  readonly verdict: 'passed' | 'failed' | 'timed_out' | 'cancelled' | 'not_run';
   readonly exitCode: number | null;
   readonly logPath?: string;
 }
@@ -129,11 +140,11 @@ export function buildRunCheckTool(): MCPToolDefinition {
     name: RUN_CHECK_TOOL_NAME,
     description:
       `Run Nx targets (${RUN_CHECK_TARGETS.join(', ')}) for ONE project in your declared workspace ` +
-      '(worktrees too) and ' +
-      'block until they finish. Runs `nx run-many -t <targets> -p <project> --outputStyle=static` ' +
+      '(worktrees inside an open workspace folder too) and ' +
+      'block until done. Runs `nx run-many -t <targets> -p <project> --outputStyle=static` ' +
       'with the workspace-local Nx, no shell. Returns exit code, duration, per-target result and ' +
       `the last lines of a failing run in at most ${WAIT_SUMMARY_MAX_CHARS} chars; the full log is ` +
-      'written under .ptah/tmp/checks/ and its path is in the reply. ' +
+      'written under .ptah/tmp/checks/ (path in the reply). ' +
       `timeoutSec (1-${MAX_WAIT_TIMEOUT_SEC}, default ${DEFAULT_RUN_CHECK_TIMEOUT_SEC}): on timeout ` +
       'the process tree is killed and the reply says so.',
     inputSchema: {
@@ -160,7 +171,7 @@ export function buildRunCheckTool(): MCPToolDefinition {
       required: ['project', 'targets'],
       additionalProperties: false,
     },
-    annotations: { destructiveHint: false, openWorldHint: false },
+    annotations: { destructiveHint: false },
   };
 }
 
@@ -190,7 +201,7 @@ export async function runCheck(
       isError: true,
       text:
         `ptah_run_check: Nx was not found in this workspace (${root}). Looked for ${candidates.join(' and ')}. ` +
-        'Install the workspace dependencies first.',
+        'Install the workspace dependencies first; a worktree needs its own install or a node_modules link.',
       structured: notRun(),
     };
   }
@@ -229,7 +240,7 @@ export async function runCheck(
   const durationMs = now() - startedAt;
   log.write(
     `\n[ptah_run_check] ${run.spawnError ? `spawn error: ${run.spawnError}` : `exit ${run.code ?? 'none'}${run.signal ? ` (${run.signal})` : ''}`}` +
-      `${run.timedOut ? ', timed out' : ''}, ${durationMs} ms\n`,
+      `${run.timedOut ? ', timed out' : ''}${run.cancelled ? `, cancelled ${run.cancelled.replace('_', ' ')}` : ''}, ${durationMs} ms\n`,
   );
   await log.close();
 
@@ -247,6 +258,7 @@ export async function runCheck(
 
   let verdict: RunCheckStructuredResult['verdict'] = 'failed';
   if (run.timedOut) verdict = 'timed_out';
+  else if (run.cancelled) verdict = 'cancelled';
   else if (run.code === 0) verdict = 'passed';
   return {
     isError: false,
@@ -257,8 +269,13 @@ export async function runCheck(
       timeoutSec: args.timeoutSec,
       code: run.code,
       timedOut: run.timedOut,
+      ...(run.cancelled ? { cancelled: run.cancelled } : {}),
       durationMs,
-      results: collector.results(args.targets, run.code, run.timedOut),
+      results: collector.results(
+        args.targets,
+        run.code,
+        run.timedOut || run.cancelled !== undefined,
+      ),
       lastLines: collector.lastTaskLines(),
       logPath: log.path,
       logError: log.error,
@@ -283,6 +300,8 @@ export interface RunCheckSummaryInput {
   readonly timeoutSec: number;
   readonly code: number | null;
   readonly timedOut: boolean;
+  /** Set when the run was cancelled (request abort or host dispose). */
+  readonly cancelled?: CancelPoint;
   readonly durationMs: number;
   readonly results: ReadonlyMap<RunCheckTarget, TargetResult>;
   readonly lastLines: readonly string[];
@@ -300,6 +319,10 @@ export function formatRunCheckSummary(input: RunCheckSummaryInput): string {
   let verdict: string;
   if (input.timedOut) {
     verdict = `TIMED OUT after ${input.timeoutSec}s; the process tree was killed`;
+  } else if (input.cancelled === 'before_start') {
+    verdict = 'CANCELLED before Nx started';
+  } else if (input.cancelled === 'while_running') {
+    verdict = 'CANCELLED; the process tree was killed';
   } else if (input.code === 0) {
     verdict = 'PASSED (exit 0)';
   } else {
@@ -313,7 +336,8 @@ export function formatRunCheckSummary(input: RunCheckSummaryInput): string {
     logLine(input),
   ].join('\n');
 
-  const passed = !input.timedOut && input.code === 0;
+  const passed =
+    !input.timedOut && input.cancelled === undefined && input.code === 0;
   if (passed || input.lastLines.length === 0) return clamp(fixed);
 
   const heading = '\nLast output lines:';
@@ -343,16 +367,42 @@ function clamp(text: string): string {
     : `${text.slice(0, WAIT_SUMMARY_MAX_CHARS - 1)}…`;
 }
 
+/** Where a cancel caught the run: before the process existed, or while it ran. */
+type CancelPoint = 'before_start' | 'while_running';
+
 interface RunResult {
   readonly code: number | null;
   readonly signal: NodeJS.Signals | null;
   readonly timedOut: boolean;
+  readonly cancelled?: CancelPoint;
   readonly spawnError?: string;
 }
 
 /**
+ * Every check whose process is alive, by pid, with the call that stops it
+ * (tree kill, `cancelled` verdict). An entry leaves when its run settles.
+ */
+const liveChecks = new Map<number, () => Promise<void>>();
+
+/**
+ * Kill the process tree of every running check, each through its own run's
+ * stop path (so each reply says `cancelled`). For host dispose: a detached
+ * POSIX process group, or a Windows tree, would otherwise outlive the host.
+ * Resolves once every tree kill has finished; it does not throw.
+ */
+export async function killRunningChecks(): Promise<void> {
+  await Promise.all([...liveChecks.values()].map((stop) => stop()));
+}
+
+/** The pids of the checks running now. */
+export function runningCheckPids(): readonly number[] {
+  return [...liveChecks.keys()];
+}
+
+/**
  * Launch the process and settle on `close`, a spawn error, or — after a
- * timeout's tree kill — {@link KILL_SETTLE_MS} without a `close`.
+ * timeout's, cancel's or dispose's tree kill — {@link KILL_SETTLE_MS}
+ * without a `close`.
  */
 async function execute(
   command: string,
@@ -362,6 +412,14 @@ async function execute(
   deps: RunCheckDependencies,
   onChunk: (chunk: string) => void,
 ): Promise<RunResult> {
+  if (deps.signal?.aborted) {
+    return {
+      code: null,
+      signal: null,
+      timedOut: false,
+      cancelled: 'before_start',
+    };
+  }
   const launch = deps.spawnProcess ?? spawnWithoutShell;
   const killTree = deps.killTree ?? ((pid: number) => killProcessTree(pid));
   let child: CheckProcess;
@@ -383,15 +441,61 @@ async function execute(
   }
 
   return new Promise<RunResult>((resolve) => {
-    let timedOut = false;
+    const pid = child.pid;
+    const signal = deps.signal;
+    /** Why the run was stopped; unset while it is left to finish. */
+    let stopReason: 'timeout' | 'cancel' | undefined;
+    let stopping: Promise<void> | undefined;
     let settled = false;
     let settleTimer: NodeJS.Timeout | undefined;
+    const ended = (
+      code: number | null,
+      exitSignal: NodeJS.Signals | null,
+    ): RunResult => ({
+      code,
+      signal: exitSignal,
+      timedOut: stopReason === 'timeout',
+      ...(stopReason === 'cancel'
+        ? { cancelled: 'while_running' as const }
+        : {}),
+    });
     const settle = (result: RunResult): void => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
       clearTimeout(settleTimer);
+      signal?.removeEventListener('abort', onAbort);
+      if (pid !== undefined) liveChecks.delete(pid);
       resolve(result);
+    };
+
+    /**
+     * Kill this run's tree once, whatever asked first; a later request (a
+     * cancel after the timeout fired) joins the kill already under way and
+     * does not change the reason. After the kill, wait up to
+     * {@link KILL_SETTLE_MS} for `close` before reporting without it.
+     */
+    const stop = (reason: 'timeout' | 'cancel'): Promise<void> => {
+      if (settled) return Promise.resolve();
+      if (stopping) return stopping;
+      stopReason = reason;
+      clearTimeout(timer);
+      const stopWaiting = (): void => {
+        if (settled) return;
+        settleTimer = unref(
+          setTimeout(() => settle(ended(null, null)), KILL_SETTLE_MS),
+        );
+      };
+      // A kill failure is not reported separately: the close (or the settle
+      // backstop) still ends the run, and the reply names the reason.
+      stopping = (pid === undefined ? Promise.resolve() : killTree(pid)).then(
+        stopWaiting,
+        stopWaiting,
+      );
+      return stopping;
+    };
+    const onAbort = (): void => {
+      void stop('cancel');
     };
 
     child.stdout?.setEncoding('utf8');
@@ -400,10 +504,10 @@ async function execute(
     child.stderr?.on('data', (chunk: string) => onChunk(chunk));
 
     child.on('error', (error: Error) => {
-      // After a timeout the only errors left are kill-related; the close (or
+      // After a stop the only errors left are kill-related; the close (or
       // the settle backstop) reports the run. Before it, an error with no
       // pid is a failed launch.
-      if (!timedOut && child.pid === undefined) {
+      if (stopReason === undefined && child.pid === undefined) {
         settle({
           code: null,
           signal: null,
@@ -412,29 +516,21 @@ async function execute(
         });
       }
     });
-    child.on('close', (code, signal) => settle({ code, signal, timedOut }));
+    child.on('close', (code, exitSignal) => settle(ended(code, exitSignal)));
 
-    // `settle` closes over `timer`; every caller is an event or a timer,
-    // all of which fire after this assignment.
+    // `settle` and `stop` close over `timer`; nothing calls them before this
+    // assignment (the abort wiring below comes after it).
     const timer = unref(
       setTimeout(() => {
-        timedOut = true;
-        const pid = child.pid;
-        const stopWaiting = (): void => {
-          settleTimer = unref(
-            setTimeout(
-              () => settle({ code: null, signal: null, timedOut: true }),
-              KILL_SETTLE_MS,
-            ),
-          );
-        };
-        if (pid === undefined) {
-          stopWaiting();
-          return;
-        }
-        void killTree(pid).then(stopWaiting, stopWaiting);
+        void stop('timeout');
       }, timeoutMs),
     );
+
+    if (pid !== undefined) liveChecks.set(pid, () => stop('cancel'));
+    signal?.addEventListener('abort', onAbort, { once: true });
+    // Aborted while the process was launching: the listener above will
+    // never fire, so stop now.
+    if (signal?.aborted) onAbort();
   });
 }
 
@@ -494,14 +590,15 @@ class OutputCollector {
   results(
     targets: readonly RunCheckTarget[],
     code: number | null,
-    timedOut: boolean,
+    /** The run was stopped by a timeout or a cancel, not left to finish. */
+    stopped: boolean,
   ): Map<RunCheckTarget, TargetResult> {
     const out = new Map<RunCheckTarget, TargetResult>();
     for (const target of targets) {
       const started = this.started.has(target);
       let result: TargetResult;
       if (this.failed.has(target)) result = 'failed';
-      else if (timedOut) result = started ? 'incomplete' : 'not run';
+      else if (stopped) result = started ? 'incomplete' : 'not run';
       else if (code === 0) result = 'passed';
       else if (!started) result = 'not run';
       else result = this.sawFailedList ? 'passed' : 'unknown';

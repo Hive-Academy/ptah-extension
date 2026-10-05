@@ -23,6 +23,7 @@ import {
   ElectronLayoutService,
   BootStatusService,
   BackOfficeActivityService,
+  PlanLimitsStore,
   MemoryPlatformLocation,
   SESSION_DATA_PROVIDER,
   WORKSPACE_COORDINATOR,
@@ -325,6 +326,10 @@ export const appConfig: ApplicationConfig = {
       useExisting: BackOfficeActivityService,
       multi: true,
     },
+    // Plan limits (TASK_2026_596): `planLimits:changed` carries a full
+    // snapshot. Registered eagerly so evidence pushed before the stats strip or
+    // the dashboard card first renders is not lost.
+    { provide: MESSAGE_HANDLERS, useExisting: PlanLimitsStore, multi: true },
     provideMarkdownRendering({ extensions: 'full' }),
     // Installs the document-level file-link listener. It acts only inside a
     // container carrying `data-ptah-file-links`, so non-agent markdown (task

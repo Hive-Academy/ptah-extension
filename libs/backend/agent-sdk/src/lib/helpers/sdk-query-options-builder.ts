@@ -911,6 +911,12 @@ export interface QueryConfig {
   prompt: AsyncIterable<SDKUserMessage>;
   /** SDK query options (typed directly as SDK's Options) */
   options: Options;
+  /**
+   * The session's effective subagent prompt-cache TTL (host env, else the
+   * setting, else the SDK default). The subagent budget monitor prices cache
+   * writes with it when a message does not report its TTL split.
+   */
+  subagentPromptCacheTtl?: SubagentPromptCacheTtl;
 }
 
 /**
@@ -1397,6 +1403,7 @@ export class SdkQueryOptionsBuilder {
           : {}),
         forkSession: resumeSessionId ? forkSession : undefined,
       },
+      subagentPromptCacheTtl: subagentTtl.effective,
     };
   }
 

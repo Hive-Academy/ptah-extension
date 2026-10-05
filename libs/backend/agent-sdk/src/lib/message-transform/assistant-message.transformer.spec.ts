@@ -181,6 +181,95 @@ describe('AssistantMessageTransformer', () => {
     );
   });
 
+  describe('subagent contextTokens (F11)', () => {
+    function completeFor(
+      usage: Record<string, number>,
+      parentToolUseId: string | null,
+    ): { tokenUsage?: Record<string, number>; parentToolUseId?: string } {
+      const msg = {
+        uuid: 'u-ctx',
+        parent_tool_use_id: parentToolUseId,
+        message: {
+          id: 'm-ctx',
+          model: 'claude-opus',
+          content: [{ type: 'text', text: 'working' }],
+          usage,
+          stop_reason: 'end_turn',
+        },
+      } as never;
+      const events = transformer.transform(
+        msg,
+        state,
+        helpers,
+        'sess-ctx' as never,
+      );
+      const complete = events.find((e) => e.eventType === 'message_complete');
+      return complete as {
+        tokenUsage?: Record<string, number>;
+        parentToolUseId?: string;
+      };
+    }
+
+    it('adds contextTokens = input + cacheRead + cacheCreation on a subagent message', () => {
+      const complete = completeFor(
+        {
+          input_tokens: 100,
+          output_tokens: 50,
+          cache_read_input_tokens: 1000,
+          cache_creation_input_tokens: 400,
+        },
+        'toolu-agent-1',
+      );
+
+      expect(complete.parentToolUseId).toBe('toolu-agent-1');
+      expect(complete.tokenUsage).toEqual({
+        input: 100,
+        output: 50,
+        cacheRead: 1000,
+        cacheCreation: 400,
+        contextTokens: 1500,
+      });
+    });
+
+    it('omits contextTokens when the provider reports no cache fields (B-m7)', () => {
+      const complete = completeFor(
+        { input_tokens: 120, output_tokens: 7 },
+        'toolu-agent-2',
+      );
+
+      expect(complete.tokenUsage).toEqual({ input: 120, output: 7 });
+      expect(complete.tokenUsage).not.toHaveProperty('contextTokens');
+    });
+
+    it('omits contextTokens when only one cache field is reported (B-m7)', () => {
+      const complete = completeFor(
+        { input_tokens: 120, output_tokens: 7, cache_read_input_tokens: 30 },
+        'toolu-agent-3',
+      );
+
+      expect(complete.tokenUsage).toEqual({
+        input: 120,
+        output: 7,
+        cacheRead: 30,
+      });
+    });
+
+    it('leaves main-session messages without contextTokens', () => {
+      const complete = completeFor(
+        {
+          input_tokens: 100,
+          output_tokens: 50,
+          cache_read_input_tokens: 1000,
+          cache_creation_input_tokens: 400,
+        },
+        null,
+      );
+
+      expect(complete.parentToolUseId).toBeUndefined();
+      expect(complete.tokenUsage).not.toHaveProperty('contextTokens');
+    });
+  });
+
   it('skips a message whose only content is the SDK interrupt sentinel', () => {
     const msg = {
       uuid: 'u-int',

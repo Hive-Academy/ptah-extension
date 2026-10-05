@@ -29,6 +29,7 @@ import type {
   AuthEnv,
   ISdkPermissionHandler,
   PermissionLevel,
+  SubagentPromptCacheTtl,
 } from '@ptah-extension/shared';
 
 import { SessionControl } from './session-control.service';
@@ -39,7 +40,21 @@ import {
   SessionQueryExecutor,
   classifyUsageCostSource,
   resolveCapacityRoute,
+  type CompactionCoordinatorSink,
 } from './session-query-executor.service';
+import type { SubagentBudgetSink } from './session-query-executor.service';
+import { CompactionCoordinator } from '../compaction/compaction-coordinator';
+import { SubagentBudgetMonitor } from '../compaction/subagent-budget-monitor';
+import type { CompactionConfigProvider } from '../compaction-config-provider';
+import {
+  COMPACTION_MAX_DWELL_MS,
+  type CompactionTimers,
+} from '../compaction/compaction-state.types';
+import type {
+  ContextUsageReading,
+  IContextUsagePort,
+} from '../compaction/context-usage.port';
+import type { SDKMessage } from '../../types/sdk-types/claude-sdk.types';
 import { NO_ACTIVITY_TIMEOUT_MS } from '../no-activity-watchdog';
 import { SessionRegistry } from './session-registry.service';
 import { SessionStreamPump } from './session-stream-pump.service';
@@ -49,9 +64,15 @@ import type { SdkMessageFactory } from '../sdk-message-factory';
 import type { SdkQueryRunner } from '../sdk-query-runner.service';
 import type {
   ExecuteQueryConfig,
+  ExecuteQueryResult,
   Query,
   SDKUserMessage,
 } from '../session-lifecycle-manager';
+import { StreamTransformer } from '../stream-transformer';
+import { SessionStatsOwnerService } from '../../session-stats/session-stats-owner.service';
+import type { SdkMessageTransformer } from '../../sdk-message-transformer';
+import type { IPricingProvider } from '../../pricing.port';
+import type { SessionMcpStatusCallbackRegistry } from '../session-mcp-status-callback-registry';
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -102,8 +123,16 @@ interface Harness {
 function makeHarness(
   globalPermissionLevel: PermissionLevel,
   authEnv: AuthEnv = {} as AuthEnv,
+  compaction: {
+    coordinator?: CompactionCoordinatorSink;
+    port?: IContextUsagePort;
+    subagentMonitor?: SubagentBudgetSink;
+    logger?: Logger;
+    /** What the options build reports as the effective subagent cache TTL. */
+    subagentCacheTtl?: SubagentPromptCacheTtl;
+  } = {},
 ): Harness {
-  const logger = makeLogger();
+  const logger = compaction.logger ?? makeLogger();
   const registry = new SessionRegistry(logger);
 
   const streamPump = new SessionStreamPump(
@@ -138,6 +167,9 @@ function makeHarness(
           permissionMode: input.permissionMode,
         },
         prompt: emptyAsyncIterable<SDKUserMessage>(),
+        ...(compaction.subagentCacheTtl
+          ? { subagentPromptCacheTtl: compaction.subagentCacheTtl }
+          : {}),
       }) as const,
   );
   const queryOptionsBuilder = {
@@ -168,6 +200,11 @@ function makeHarness(
     messageFactory,
     authEnv,
     queryRunner,
+    null,
+    null,
+    compaction.coordinator ?? null,
+    compaction.port ?? null,
+    compaction.subagentMonitor ?? null,
   );
 
   return {
@@ -191,6 +228,18 @@ function startFirstTurn(registry: SessionRegistry, tabId: string): void {
   if (rec) {
     registry.markTurnStarted(rec);
   }
+}
+
+/**
+ * One stream message, as `StreamTransformer` delivers it: the watchdog
+ * observes it, then the run's `onMessage` (TASK_2026_614 D.11).
+ */
+function feed(
+  run: Pick<ExecuteQueryResult, 'activityWatchdog' | 'onMessage'>,
+  message: SDKMessage,
+): void {
+  run.activityWatchdog.observe(message);
+  run.onMessage(message);
 }
 
 function makeConfig(
@@ -658,4 +707,733 @@ describe('real watchdog query ownership regressions', () => {
       expect(b.abortController.signal.aborted).toBe(true);
     },
   );
+});
+
+// ---------------------------------------------------------------------------
+// A8 compaction coordinator + context-usage port wiring (TASK_2026_597, 27b)
+// ---------------------------------------------------------------------------
+
+describe('SessionQueryExecutor — compaction coordinator wiring (TASK_2026_597 A8)', () => {
+  const noTimers: CompactionTimers = {
+    setTimeout: () => undefined,
+    clearTimeout: () => undefined,
+  };
+  const REAL = 'sdk-real-uuid';
+
+  function msg(value: Record<string, unknown>): SDKMessage {
+    return value as unknown as SDKMessage;
+  }
+  const init = () => msg({ type: 'system', subtype: 'init', session_id: REAL });
+  const result = () =>
+    msg({
+      type: 'result',
+      subtype: 'success',
+      session_id: REAL,
+      parent_tool_use_id: null,
+    });
+  const compacting = () =>
+    msg({
+      type: 'system',
+      subtype: 'status',
+      status: 'compacting',
+      session_id: REAL,
+    });
+  const boundary = (pre = 170_000, post = 30_000) =>
+    msg({
+      type: 'system',
+      subtype: 'compact_boundary',
+      session_id: REAL,
+      compact_metadata: { trigger: 'auto', pre_tokens: pre, post_tokens: post },
+    });
+
+  function makePort(reading?: ContextUsageReading): {
+    port: IContextUsagePort;
+    readAtTurnEnd: jest.Mock;
+    release: jest.Mock;
+  } {
+    const readAtTurnEnd = jest.fn().mockResolvedValue(reading);
+    const release = jest.fn();
+    return {
+      port: { readAtTurnEnd, release, getLast: jest.fn(), rekey: jest.fn() },
+      readAtTurnEnd,
+      release,
+    };
+  }
+
+  /** A coordinator whose class decision is forced to "may act" for the spec. */
+  function actingCoordinator(): CompactionCoordinator {
+    const coordinator = new CompactionCoordinator(noTimers);
+    const register = coordinator.register.bind(coordinator);
+    jest
+      .spyOn(coordinator, 'register')
+      .mockImplementation((id) =>
+        register(id, { codexProxy: false, e2Passed: true }),
+      );
+    return coordinator;
+  }
+
+  const flush = () => new Promise((resolve) => setImmediate(resolve));
+
+  it('registers under the real SDK session id from the stream, not the tab id', async () => {
+    const coordinator = new CompactionCoordinator(noTimers);
+    const registerSpy = jest.spyOn(coordinator, 'register');
+    const { executor } = makeHarness('ask', {} as AuthEnv, { coordinator });
+
+    const run = await executor.executeQuery(
+      makeConfig('tab_1', {
+        sessionConfig: { tabId: 'tab_1', model: 'm' } as AISessionConfig,
+      }),
+    );
+    feed(run, init());
+    feed(run, init());
+
+    expect(registerSpy).toHaveBeenCalledTimes(1);
+    expect(registerSpy).toHaveBeenCalledWith(REAL, {
+      codexProxy: false,
+      e2Passed: null,
+    });
+    // No E2 has passed yet, so the session only observes.
+    expect(coordinator.getState(REAL)).toBe('OBSERVE_ONLY');
+    expect(coordinator.getState('tab_1')).toBeUndefined();
+    run.abortController.abort();
+  });
+
+  it('classes the Codex proxy route as codexProxy', async () => {
+    const coordinator = new CompactionCoordinator(noTimers);
+    const registerSpy = jest.spyOn(coordinator, 'register');
+    const { executor } = makeHarness(
+      'ask',
+      {
+        ANTHROPIC_BASE_URL: 'http://127.0.0.1:418',
+        ANTHROPIC_AUTH_TOKEN: 'codex-proxy-managed',
+      } as AuthEnv,
+      { coordinator },
+    );
+
+    const run = await executor.executeQuery(makeConfig('codex-tab'));
+    feed(run, init());
+
+    expect(registerSpy).toHaveBeenCalledWith(REAL, {
+      codexProxy: true,
+      e2Passed: null,
+    });
+    run.abortController.abort();
+  });
+
+  it('feeds status:compacting and compact_boundary to the coordinator', async () => {
+    const coordinator = actingCoordinator();
+    const { executor } = makeHarness('ask', {} as AuthEnv, { coordinator });
+    const run = await executor.executeQuery(makeConfig('tab_2'));
+    feed(run, init());
+    coordinator.onPreCompact(REAL, 'auto'); // as the PreCompact hook does
+
+    feed(run, compacting());
+    expect(coordinator.getState(REAL)).toBe('COMPACTING');
+
+    const boundarySpy = jest.spyOn(coordinator, 'onCompactBoundary');
+    feed(run, boundary(170_000, 30_000));
+    expect(boundarySpy).toHaveBeenCalledWith(REAL, {
+      preTokens: 170_000,
+      postTokens: 30_000,
+    });
+    expect(coordinator.getState(REAL)).toBe('COOLDOWN');
+    run.abortController.abort();
+  });
+
+  it('ignores subagent messages', async () => {
+    const coordinator = actingCoordinator();
+    const { executor } = makeHarness('ask', {} as AuthEnv, { coordinator });
+    const run = await executor.executeQuery(makeConfig('tab_3'));
+    feed(run, init());
+    coordinator.onPreCompact(REAL, 'auto');
+
+    feed(
+      run,
+      msg({
+        type: 'system',
+        subtype: 'status',
+        status: 'compacting',
+        session_id: REAL,
+        parent_tool_use_id: 'toolu_child',
+      }),
+    );
+
+    expect(coordinator.getState(REAL)).toBe('TRIGGERED');
+    run.abortController.abort();
+  });
+
+  it('calls the port exactly once per turn end, keyed on the real id, and feeds the reading', async () => {
+    const coordinator = actingCoordinator();
+    const reading: ContextUsageReading = {
+      totalTokens: 170_000,
+      maxTokens: 200_000,
+      source: 'sdk-getContextUsage',
+    };
+    const { port, readAtTurnEnd } = makePort(reading);
+    const { executor, sdkQuery } = makeHarness('ask', {} as AuthEnv, {
+      coordinator,
+      port,
+    });
+    const run = await executor.executeQuery(makeConfig('tab_4'));
+    feed(run, init());
+    feed(
+      run,
+      msg({ type: 'assistant', session_id: REAL, parent_tool_use_id: null }),
+    );
+    expect(readAtTurnEnd).not.toHaveBeenCalled();
+
+    feed(run, result());
+    await flush();
+
+    expect(readAtTurnEnd).toHaveBeenCalledTimes(1);
+    expect(readAtTurnEnd).toHaveBeenCalledWith(
+      REAL,
+      expect.any(String),
+      sdkQuery,
+    );
+    expect(coordinator.getState(REAL)).toBe('ARMED');
+
+    feed(run, result());
+    await flush();
+    expect(readAtTurnEnd).toHaveBeenCalledTimes(2);
+    // Each turn end gets its own turn id.
+    expect(readAtTurnEnd.mock.calls[0][1]).not.toBe(
+      readAtTurnEnd.mock.calls[1][1],
+    );
+    run.abortController.abort();
+  });
+
+  it('releases the coordinator and the port on session end, idempotently', async () => {
+    const coordinator = new CompactionCoordinator(noTimers);
+    const { port, release, readAtTurnEnd } = makePort();
+    const { executor } = makeHarness('ask', {} as AuthEnv, {
+      coordinator,
+      port,
+    });
+    const run = await executor.executeQuery(makeConfig('tab_5'));
+    feed(run, init());
+    expect(coordinator.getState(REAL)).toBeDefined();
+
+    run.abortController.abort();
+    run.abortController.abort();
+
+    expect(coordinator.getState(REAL)).toBeUndefined();
+    expect(release).toHaveBeenCalledTimes(1);
+    expect(release).toHaveBeenCalledWith(REAL);
+
+    // Nothing is fed after release.
+    feed(run, init());
+    feed(run, result());
+    expect(coordinator.getState(REAL)).toBeUndefined();
+    expect(readAtTurnEnd).not.toHaveBeenCalled();
+  });
+
+  it('releases on a normal stream end with no abort, and a resumed run registers afresh (TASK_2026_614 D.2)', async () => {
+    const coordinator = new CompactionCoordinator(noTimers);
+    const registerSpy = jest.spyOn(coordinator, 'register');
+    const { port, release } = makePort();
+    const monitorRelease = jest.fn();
+    const monitor = {
+      observe: jest.fn().mockResolvedValue(undefined),
+      release: monitorRelease,
+    } as unknown as SubagentBudgetSink;
+    const { executor } = makeHarness('ask', {} as AuthEnv, {
+      coordinator,
+      port,
+      subagentMonitor: monitor,
+    });
+    const run = await executor.executeQuery(makeConfig('tab_end'));
+    feed(run, init());
+    feed(
+      run,
+      msg({ type: 'assistant', session_id: REAL, parent_tool_use_id: 'tu_1' }),
+    );
+    expect(coordinator.getState(REAL)).toBeDefined();
+
+    // What StreamTransformer's `finally` does when the stream simply ends; the
+    // real transformer drives it in the "stream callbacks" block below.
+    run.onStreamEnd();
+    run.onStreamEnd();
+
+    expect(run.abortController.signal.aborted).toBe(false);
+    expect(coordinator.getState(REAL)).toBeUndefined();
+    expect(release).toHaveBeenCalledTimes(1);
+    expect(release).toHaveBeenCalledWith(REAL);
+    expect(monitorRelease).toHaveBeenCalledTimes(1);
+    expect(monitorRelease).toHaveBeenCalledWith(REAL);
+
+    // A later abort of the ended run releases nothing twice.
+    run.abortController.abort();
+    expect(release).toHaveBeenCalledTimes(1);
+    expect(monitorRelease).toHaveBeenCalledTimes(1);
+
+    // The resumed run of the same SDK session finds no stale record.
+    const resumed = await executor.executeQuery(
+      makeConfig(REAL, { resumeSessionId: REAL }),
+    );
+    feed(resumed, init());
+    expect(registerSpy).toHaveBeenCalledTimes(2);
+    expect(coordinator.getState(REAL)).toBe('OBSERVE_ONLY');
+    resumed.abortController.abort();
+  });
+
+  describe('stream callbacks through a real StreamTransformer (TASK_2026_614 D.11)', () => {
+    function makeStreamTransformer(logger: Logger): StreamTransformer {
+      const messageTransformer = {
+        transform: jest.fn().mockReturnValue([]),
+        createIsolated: jest.fn(),
+      };
+      messageTransformer.createIsolated.mockReturnValue(messageTransformer);
+      const pricingProvider: IPricingProvider = {
+        getPricing: jest.fn().mockResolvedValue(null),
+        ensureHydrated: jest.fn().mockResolvedValue(true),
+      };
+      return new StreamTransformer(
+        logger,
+        messageTransformer as unknown as SdkMessageTransformer,
+        {} as AuthEnv,
+        {
+          resolveForPricing: (m: string) => m,
+          isSubscriptionCovered: () => false,
+          resolveForCost: (m: string) => ({
+            modelId: m,
+            pricing: undefined,
+            subscriptionCovered: false,
+          }),
+        } as unknown as IModelResolver,
+        pricingProvider,
+        { notifyAll: jest.fn() } as unknown as SessionMcpStatusCallbackRegistry,
+        new SessionStatsOwnerService(),
+      );
+    }
+
+    function stream(
+      messages: SDKMessage[],
+      failWith?: Error,
+    ): AsyncIterable<SDKMessage> {
+      return {
+        async *[Symbol.asyncIterator]() {
+          for (const m of messages) yield m;
+          if (failWith) throw failWith;
+        },
+      };
+    }
+
+    /** The transformer reads the init message's tool list. */
+    const streamInit = () =>
+      msg({ type: 'system', subtype: 'init', session_id: REAL, tools: [] });
+    /** ... and the result message's usage. */
+    const streamResult = () =>
+      msg({
+        type: 'result',
+        subtype: 'success',
+        session_id: REAL,
+        parent_tool_use_id: null,
+        usage: { input_tokens: 1, output_tokens: 1 },
+      });
+
+    /** Drive the run the way the adapter does: watchdog plus both callbacks. */
+    async function drive(
+      run: ExecuteQueryResult,
+      messages: SDKMessage[],
+      options: { failWith?: Error; logger?: Logger } = {},
+    ): Promise<void> {
+      const transformer = makeStreamTransformer(options.logger ?? makeLogger());
+      const events = transformer.transform({
+        sdkQuery: stream(messages, options.failWith),
+        sessionId: 'tab' as SessionId,
+        initialModel: 'test-model',
+        runToken: run.sessionToken,
+        usageCostSource: run.usageCostSource,
+        accountingAuthEnv: run.accountingAuthEnv,
+        statsGeneration: null,
+        activityWatchdog: run.activityWatchdog,
+        onMessage: run.onMessage,
+        onStreamEnd: run.onStreamEnd,
+      });
+      for await (const event of events) {
+        expect(event).toBeDefined();
+      }
+    }
+
+    it('delivers result, status:compacting and compact_boundary to the tap, then releases on a normal end', async () => {
+      const coordinator = actingCoordinator();
+      const statusSpy = jest.spyOn(coordinator, 'onStatusCompacting');
+      const boundarySpy = jest.spyOn(coordinator, 'onCompactBoundary');
+      const turnEndSpy = jest.spyOn(coordinator, 'onTurnEnd');
+      const { port, readAtTurnEnd, release } = makePort();
+      const { executor } = makeHarness('ask', {} as AuthEnv, {
+        coordinator,
+        port,
+      });
+      const run = await executor.executeQuery(makeConfig('tab_stream_ok'));
+      const onStreamEnd = jest.spyOn(run, 'onStreamEnd');
+      // Registration happens on the first id the tap sees.
+      const registerSpy = jest.spyOn(coordinator, 'register');
+
+      await drive(run, [
+        streamInit(),
+        compacting(),
+        boundary(170_000, 30_000),
+        streamResult(),
+      ]);
+      await flush();
+
+      expect(registerSpy).toHaveBeenCalledWith(REAL, {
+        codexProxy: false,
+        e2Passed: null,
+      });
+      expect(statusSpy).toHaveBeenCalledWith(REAL);
+      expect(boundarySpy).toHaveBeenCalledWith(REAL, {
+        preTokens: 170_000,
+        postTokens: 30_000,
+      });
+      expect(turnEndSpy).toHaveBeenCalledWith(REAL);
+      expect(readAtTurnEnd).toHaveBeenCalledTimes(1);
+      // Normal end: no abort, released exactly once.
+      expect(run.abortController.signal.aborted).toBe(false);
+      expect(onStreamEnd).toHaveBeenCalledTimes(1);
+      expect(coordinator.getState(REAL)).toBeUndefined();
+      expect(release).toHaveBeenCalledTimes(1);
+      expect(release).toHaveBeenCalledWith(REAL);
+      run.abortController.abort();
+      expect(release).toHaveBeenCalledTimes(1);
+    });
+
+    it('releases once when the stream fails, and the error still reaches the consumer', async () => {
+      const coordinator = new CompactionCoordinator(noTimers);
+      const { port, release } = makePort();
+      const { executor } = makeHarness('ask', {} as AuthEnv, {
+        coordinator,
+        port,
+      });
+      const run = await executor.executeQuery(makeConfig('tab_stream_err'));
+      const onStreamEnd = jest.spyOn(run, 'onStreamEnd');
+
+      await expect(
+        drive(run, [streamInit()], {
+          failWith: new Error('provider exploded'),
+        }),
+      ).rejects.toThrow('provider exploded');
+
+      expect(onStreamEnd).toHaveBeenCalledTimes(1);
+      expect(coordinator.getState(REAL)).toBeUndefined();
+      expect(release).toHaveBeenCalledTimes(1);
+      expect(release).toHaveBeenCalledWith(REAL);
+      run.abortController.abort();
+    });
+
+    it('the plain watchdog no longer feeds the tap: only onMessage does', async () => {
+      const coordinator = new CompactionCoordinator(noTimers);
+      const registerSpy = jest.spyOn(coordinator, 'register');
+      const { executor } = makeHarness('ask', {} as AuthEnv, { coordinator });
+      const run = await executor.executeQuery(makeConfig('tab_plain_wd'));
+
+      run.activityWatchdog.observe(init());
+      expect(registerSpy).not.toHaveBeenCalled();
+
+      run.onMessage(init());
+      expect(registerSpy).toHaveBeenCalledTimes(1);
+      run.abortController.abort();
+    });
+  });
+
+  describe('compaction dwell bound scope (TASK_2026_597 S1)', () => {
+    /** Starts the watchdog under fake timers and opens a root compaction. */
+    async function openCompaction(
+      coordinator: CompactionCoordinator,
+      tabId: string,
+    ) {
+      const { executor, registry } = makeHarness('ask', {} as AuthEnv, {
+        coordinator,
+      });
+      const run = await executor.executeQuery(makeConfig(tabId));
+      startFirstTurn(registry, tabId);
+      jest.useFakeTimers();
+      run.activityWatchdog.start();
+      feed(run, init());
+      feed(run, compacting());
+      return run;
+    }
+
+    afterEach(() => {
+      jest.clearAllTimers();
+      jest.useRealTimers();
+    });
+
+    it('an OBSERVE_ONLY session survives a 400 s compaction (B8 behaviour)', async () => {
+      const coordinator = new CompactionCoordinator(noTimers);
+      const run = await openCompaction(coordinator, 'tab_dwell_observe');
+      expect(coordinator.getState(REAL)).toBe('OBSERVE_ONLY');
+
+      jest.advanceTimersByTime(400_000);
+      expect(run.abortController.signal.aborted).toBe(false);
+
+      feed(run, boundary());
+      jest.advanceTimersByTime(NO_ACTIVITY_TIMEOUT_MS - 1);
+      expect(run.abortController.signal.aborted).toBe(false);
+      run.activityWatchdog.stop();
+      run.abortController.abort();
+    });
+
+    it('a controlled session times out at the 300 s bound with its own message', async () => {
+      const coordinator = actingCoordinator();
+      const run = await openCompaction(coordinator, 'tab_dwell_acting');
+      expect(coordinator.getState(REAL)).not.toBe('OBSERVE_ONLY');
+
+      jest.advanceTimersByTime(COMPACTION_MAX_DWELL_MS - 1);
+      expect(run.abortController.signal.aborted).toBe(false);
+      jest.advanceTimersByTime(1);
+
+      expect(run.abortController.signal.aborted).toBe(true);
+      const message = (run.abortController.signal.reason as Error).message;
+      expect(message).toContain(
+        `Compaction did not finish within ${COMPACTION_MAX_DWELL_MS / 1000}s`,
+      );
+      expect(message.toLowerCase()).not.toContain('no stream activity');
+      expect(message.toLowerCase()).not.toContain('abort');
+    });
+
+    it('a controlled session still completes a 216 s compaction (B8 measurement)', async () => {
+      const coordinator = actingCoordinator();
+      const run = await openCompaction(coordinator, 'tab_dwell_b8');
+
+      jest.advanceTimersByTime(216_000);
+      feed(run, boundary());
+      jest.advanceTimersByTime(NO_ACTIVITY_TIMEOUT_MS - 1);
+
+      expect(run.abortController.signal.aborted).toBe(false);
+      run.activityWatchdog.stop();
+      run.abortController.abort();
+    });
+  });
+
+  it('is fail-open: a throwing coordinator or a rejecting port never breaks the turn', async () => {
+    const logger = makeLogger();
+    const boom = () => {
+      throw new Error('coordinator boom');
+    };
+    const coordinator: CompactionCoordinatorSink = {
+      register: jest.fn(boom),
+      unregister: jest.fn(boom),
+      getState: jest.fn(() => undefined),
+      onStatusCompacting: jest.fn(boom),
+      onCompactBoundary: jest.fn(boom),
+      onTurnEnd: jest.fn(boom),
+      onContextUsage: jest.fn(boom),
+    };
+    const readAtTurnEnd = jest.fn().mockRejectedValue(new Error('port boom'));
+    const port: IContextUsagePort = {
+      readAtTurnEnd,
+      getLast: jest.fn(),
+      release: jest.fn(),
+      rekey: jest.fn(),
+    };
+    const { executor } = makeHarness('ask', {} as AuthEnv, {
+      coordinator,
+      port,
+      logger,
+    });
+    const run = await executor.executeQuery(makeConfig('tab_6'));
+
+    expect(() => {
+      feed(run, init());
+      feed(run, compacting());
+      feed(run, boundary());
+      feed(run, result());
+    }).not.toThrow();
+    await flush();
+
+    const warnTexts = (logger.warn as jest.Mock).mock.calls.map(
+      (call) => call[0] as string,
+    );
+    // One line per failed event: register, status, boundary, turn end, port.
+    expect(
+      warnTexts.filter((t) => t.includes('the turn continues')),
+    ).toHaveLength(5);
+    expect(logger.error).not.toHaveBeenCalled();
+    expect(readAtTurnEnd).toHaveBeenCalledTimes(1);
+    expect(() => run.abortController.abort()).not.toThrow();
+  });
+
+  it('keeps no compaction bookkeeping without a coordinator or port', async () => {
+    const { executor } = makeHarness('ask');
+    const run = await executor.executeQuery(makeConfig('tab_7'));
+    expect(() => {
+      feed(run, init());
+      feed(run, result());
+    }).not.toThrow();
+    run.abortController.abort();
+  });
+});
+
+describe('SessionQueryExecutor — subagent budget monitor wiring (TASK_2026_597 28b)', () => {
+  const REAL = 'sdk-real-uuid';
+  const msg = (value: Record<string, unknown>) =>
+    value as unknown as SDKMessage;
+  const init = () => msg({ type: 'system', subtype: 'init', session_id: REAL });
+  const mainAssistant = () =>
+    msg({ type: 'assistant', session_id: REAL, parent_tool_use_id: null });
+  const subAssistant = () =>
+    msg({ type: 'assistant', session_id: REAL, parent_tool_use_id: 'toolu_1' });
+  const flush = () => new Promise((resolve) => setImmediate(resolve));
+
+  function makeMonitor(observe = jest.fn().mockResolvedValue(undefined)) {
+    const release = jest.fn();
+    const monitor = { observe, release } as unknown as SubagentBudgetSink;
+    return { monitor, observe, release };
+  }
+
+  it('forwards a subagent message to the monitor and ignores a main-session one', async () => {
+    const { monitor, observe } = makeMonitor();
+    const { executor } = makeHarness('ask', {} as AuthEnv, {
+      subagentMonitor: monitor,
+    });
+    const run = await executor.executeQuery(makeConfig('tab_m1'));
+    feed(run, init());
+    feed(run, mainAssistant());
+    expect(observe).not.toHaveBeenCalled();
+    const sub = subAssistant();
+    feed(run, sub);
+    expect(observe).toHaveBeenCalledTimes(1);
+    // The build reported no TTL, so the monitor's own default applies.
+    expect(observe).toHaveBeenCalledWith(REAL, sub, undefined);
+    run.abortController.abort();
+  });
+
+  it('forwards a main-session message with a tool_use so the monitor can read the task (D.8)', async () => {
+    const { monitor, observe } = makeMonitor();
+    const { executor } = makeHarness('ask', {} as AuthEnv, {
+      subagentMonitor: monitor,
+    });
+    const run = await executor.executeQuery(makeConfig('tab_m2'));
+    feed(run, init());
+    const spawning = msg({
+      type: 'assistant',
+      session_id: REAL,
+      parent_tool_use_id: null,
+      message: {
+        role: 'assistant',
+        content: [
+          {
+            type: 'tool_use',
+            id: 'toolu_1',
+            name: 'Agent',
+            input: { description: 'Map auth', prompt: 'List entry points' },
+          },
+        ],
+      },
+    });
+    feed(run, spawning);
+    expect(observe).toHaveBeenCalledTimes(1);
+    expect(observe).toHaveBeenCalledWith(REAL, spawning, undefined);
+    run.abortController.abort();
+  });
+
+  describe('effective subagent prompt-cache TTL (TASK_2026_614 D.7)', () => {
+    /** A real monitor whose limits are never reached, so no stop fires. */
+    function realMonitor(): SubagentBudgetMonitor {
+      const config = {
+        getConfig: () => ({
+          subagentHandoffTokens: Number.MAX_SAFE_INTEGER,
+          subagentStopWeightedTokens: Number.MAX_SAFE_INTEGER,
+        }),
+      } as unknown as CompactionConfigProvider;
+      return new SubagentBudgetMonitor(
+        makeLogger(),
+        config,
+        { stopSubagent: jest.fn(), pushParentMessage: jest.fn() },
+        {} as SubagentRegistryService,
+      );
+    }
+    /** 1000 cache-write tokens and no `cache_creation` TTL split. */
+    const unsplitWrite = () =>
+      msg({
+        type: 'assistant',
+        session_id: REAL,
+        parent_tool_use_id: 'toolu_ttl',
+        message: {
+          id: 'msg_ttl',
+          usage: {
+            input_tokens: 0,
+            output_tokens: 0,
+            cache_read_input_tokens: 0,
+            cache_creation_input_tokens: 1000,
+          },
+        },
+      });
+
+    async function weightedFor(
+      ttl: SubagentPromptCacheTtl | undefined,
+      tabId: string,
+    ): Promise<number | undefined> {
+      const monitor = realMonitor();
+      const { executor } = makeHarness('ask', {} as AuthEnv, {
+        subagentMonitor: monitor,
+        subagentCacheTtl: ttl,
+      });
+      const run = await executor.executeQuery(makeConfig(tabId));
+      feed(run, init());
+      feed(run, unsplitWrite());
+      await flush();
+      const weighted = monitor.getSnapshot(REAL, 'toolu_ttl')?.weightedUsed;
+      run.abortController.abort();
+      return weighted;
+    }
+
+    it('a 1h-effective session prices an unsplit cache write at weight 2', async () => {
+      expect(await weightedFor('1h', 'tab_ttl_1h')).toBe(2000);
+    });
+
+    it('stays on the 5m default (weight 1.25) when the build reports no TTL', async () => {
+      expect(await weightedFor(undefined, 'tab_ttl_none')).toBe(1250);
+    });
+  });
+
+  it('releases the monitor once on session end', async () => {
+    const { monitor, release } = makeMonitor();
+    const { executor } = makeHarness('ask', {} as AuthEnv, {
+      subagentMonitor: monitor,
+    });
+    const run = await executor.executeQuery(makeConfig('tab_m2'));
+    feed(run, init());
+    feed(run, subAssistant());
+    run.abortController.abort();
+    run.abortController.abort();
+    expect(release).toHaveBeenCalledTimes(1);
+    expect(release).toHaveBeenCalledWith(REAL);
+  });
+
+  it('a throwing or rejecting monitor does not break the turn', async () => {
+    const logger = makeLogger();
+    const throwing = makeMonitor(
+      jest.fn(() => {
+        throw new Error('sync boom');
+      }),
+    );
+    const { executor } = makeHarness('ask', {} as AuthEnv, {
+      subagentMonitor: throwing.monitor,
+      logger,
+    });
+    const run = await executor.executeQuery(makeConfig('tab_m3'));
+    feed(run, init());
+    expect(() => feed(run, subAssistant())).not.toThrow();
+
+    const rejecting = makeMonitor(jest.fn().mockRejectedValue(new Error('x')));
+    const h2 = makeHarness('ask', {} as AuthEnv, {
+      subagentMonitor: rejecting.monitor,
+      logger,
+    });
+    const run2 = await h2.executor.executeQuery(makeConfig('tab_m4'));
+    feed(run2, init());
+    feed(run2, subAssistant());
+    await flush();
+    const lines = (logger.warn as jest.Mock).mock.calls.filter((c) =>
+      (c[0] as string).includes('Subagent budget monitor failed'),
+    );
+    expect(lines).toHaveLength(2);
+    expect(logger.error).not.toHaveBeenCalled();
+    run.abortController.abort();
+    run2.abortController.abort();
+  });
 });

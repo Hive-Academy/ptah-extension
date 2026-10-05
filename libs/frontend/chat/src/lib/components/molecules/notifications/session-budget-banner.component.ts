@@ -2,17 +2,21 @@ import {
   ChangeDetectionStrategy,
   Component,
   computed,
+  effect,
+  inject,
   input,
   output,
   signal,
+  untracked,
 } from '@angular/core';
 import type {
   SessionBudgetState,
   SessionBudgetWindowReason,
 } from '@ptah-extension/shared';
+import { SessionRotationKeepService } from '../../../services/session-rotation-keep.service';
 
 /** Stages that show a banner. `unknown` and `normal` show none. */
-type BannerStage = 'tighten' | 'handoff' | 'limit';
+type BannerStage = 'rotation' | 'tighten' | 'handoff' | 'limit';
 
 /** Why the tighten step did not lower auto-compact, in the user's words. */
 const WINDOW_REASON_TEXT: Readonly<
@@ -41,7 +45,7 @@ const WINDOW_REASON_TEXT: Readonly<
     @if (stage(); as current) {
       <div
         class="mx-2 my-1 rounded border bg-base-300/30 text-xs"
-        [class.border-info]="current === 'tighten'"
+        [class.border-info]="current === 'tighten' || current === 'rotation'"
         [class.border-warning]="current === 'handoff'"
         [class.border-error]="current === 'limit'"
         [attr.role]="current === 'limit' ? 'alert' : 'status'"
@@ -68,7 +72,25 @@ const WINDOW_REASON_TEXT: Readonly<
         </div>
 
         <div class="flex flex-wrap items-center gap-1 px-2 pb-1.5">
-          @if (current === 'tighten') {
+          @if (current === 'rotation') {
+            <button
+              type="button"
+              class="btn btn-xs btn-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
+              aria-label="Rotate session: start a new session from a handoff"
+              [disabled]="busy()"
+              (click)="rotate.emit()"
+            >
+              Rotate session
+            </button>
+            <button
+              type="button"
+              class="btn btn-xs btn-ghost"
+              aria-label="Keep this session and hide this suggestion"
+              (click)="keepSession()"
+            >
+              Keep this session
+            </button>
+          } @else if (current === 'tighten') {
             <button
               type="button"
               class="btn btn-xs btn-ghost"
@@ -90,7 +112,7 @@ const WINDOW_REASON_TEXT: Readonly<
           } @else {
             <button
               type="button"
-              class="btn btn-xs btn-primary"
+              class="btn btn-xs btn-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
               [disabled]="busy()"
               (click)="continueInNewSession.emit()"
             >
@@ -131,7 +153,7 @@ const WINDOW_REASON_TEXT: Readonly<
           }
         </div>
 
-        @if (previewOpen() && current !== 'tighten') {
+        @if (previewOpen() && (current === 'handoff' || current === 'limit')) {
           <pre
             class="mx-2 mb-1.5 max-h-64 overflow-auto whitespace-pre-wrap break-words rounded bg-base-200 p-2 font-mono text-[11px]"
             tabindex="0"
@@ -167,14 +189,37 @@ export class SessionBudgetBannerComponent {
   readonly previewRequested = output<void>();
   /** "Continue in new session" / "Start new session from handoff". */
   readonly continueInNewSession = output<void>();
+  /** "Rotate session" (rotation advisory). */
+  readonly rotate = output<void>();
 
   protected readonly previewOpen = signal(false);
+
+  /** Kept rotation keys live in a root store; this banner is rebuilt on tab switches. */
+  private readonly rotationKeep = inject(SessionRotationKeepService);
+
+  constructor() {
+    // Forget a session's kept keys once its rotation advisory is gone, so a
+    // later crossing shows the banner again.
+    effect(() => {
+      const budget = this.budget();
+      if (!budget || budget.rotation) return;
+      untracked(() => this.rotationKeep.forgetSession(budget.sessionId));
+    });
+  }
 
   /** The stage to show, or `null` for none. */
   protected readonly stage = computed<BannerStage | null>(() => {
     const budget = this.budget();
     if (!budget) return null;
     const { stage } = budget;
+    if (
+      budget.rotation &&
+      stage !== 'handoff' &&
+      stage !== 'limit' &&
+      !this.rotationKeep.isKept(budget.sessionId, budget.rotation.threshold)
+    ) {
+      return 'rotation';
+    }
     if (stage !== 'tighten' && stage !== 'handoff' && stage !== 'limit') {
       return null;
     }
@@ -188,6 +233,8 @@ export class SessionBudgetBannerComponent {
 
   protected readonly title = computed(() => {
     switch (this.stage()) {
+      case 'rotation':
+        return 'This session is getting large';
       case 'tighten':
         return "Half of this session's budget is used";
       case 'handoff':
@@ -203,6 +250,9 @@ export class SessionBudgetBannerComponent {
     const budget = this.budget();
     const stage = this.stage();
     if (!budget || !stage) return '';
+    if (stage === 'rotation' && budget.rotation) {
+      return `The context is about ${this.tokens(budget.rotation.contextTokens)} tokens. A new session that starts from a handoff keeps the goal and decisions and answers faster. Rotate to start a new session from the handoff, or keep this one.`;
+    }
     const amount = this.amount(budget);
     if (stage === 'tighten') return this.tightenBody(budget, amount);
     if (stage === 'handoff') return this.handoffBody(budget, amount);
@@ -216,6 +266,12 @@ export class SessionBudgetBannerComponent {
     if (!error || (stage !== 'handoff' && stage !== 'limit')) return null;
     return `Ptah could not save the handoff file (${error}). You can still start a new session; the handoff text is kept until this session closes.`;
   });
+
+  protected keepSession(): void {
+    const budget = this.budget();
+    if (!budget?.rotation) return;
+    this.rotationKeep.keep(budget.sessionId, budget.rotation.threshold);
+  }
 
   protected togglePreview(): void {
     const open = !this.previewOpen();

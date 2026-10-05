@@ -13,6 +13,7 @@ import {
   codexTokenUsageResponseSchema,
 } from './codex-account.schemas';
 import { CodexHomeResolver } from './codex-home-resolver';
+import { accountOwnerKey } from '../../quota/provider-owner.resolver';
 import type { ICodexAuthService } from './codex-provider.types';
 
 interface Scenario {
@@ -25,6 +26,9 @@ interface Scenario {
   deferVersionKillClose?: boolean;
   activityResultRaw?: string;
   initializedHome?: string;
+  /** `account/read` answer; `null` is a signed-out home. Defaults to a ChatGPT account. */
+  account?: Record<string, unknown> | null;
+  rateLimitReachedType?: string;
 }
 
 function handle(
@@ -64,7 +68,7 @@ function harness(scenario: Scenario = {}) {
         );
         handles.push(child);
         if (!scenario.versionSilent) queueMicrotask(() => {
-          stdout.write(`codex-cli ${scenario.version ?? '0.147.0'}\n`);
+          stdout.write(`codex-cli ${scenario.version ?? '0.155.1'}\n`);
           child.emit('close', 0, null);
         });
         return child;
@@ -91,9 +95,17 @@ function harness(scenario: Scenario = {}) {
               ? { userAgent: 'codex', codexHome: scenario.initializedHome ?? syntheticHome,
                 platformFamily: 'windows', platformOs: 'windows' }
               : method === 'account/read'
-                ? { account: { type: 'chatgpt', email: 'private@example.test', planType: 'plus' }, requiresOpenaiAuth: true }
+                ? {
+                  account: scenario.account === undefined
+                    ? { type: 'chatgpt', email: 'private@example.test', planType: 'plus' }
+                    : scenario.account,
+                  requiresOpenaiAuth: true,
+                }
                 : method === 'account/rateLimits/read'
-                  ? { rateLimits: { primary: { usedPercent: 25, windowDurationMins: 300, resetsAt: 99 } } }
+                  ? { rateLimits: {
+                    primary: { usedPercent: 25, windowDurationMins: 300, resetsAt: 99 },
+                    ...(scenario.rateLimitReachedType ? { rateLimitReachedType: scenario.rateLimitReachedType } : {}),
+                  } }
                   : { summary: { lifetimeTokens: 1234 }, dailyUsageBuckets: [{ startDate: '2026-09-11', tokens: 55 }] };
             const respond = () => stdout.write(`${JSON.stringify({ id, result })}\n`);
             if (method === 'initialize' && scenario.deferInitialize) releaseInitialize = respond;
@@ -117,7 +129,7 @@ function harness(scenario: Scenario = {}) {
     service, requests, messages, handles, auth,
     releaseInitialize: () => releaseInitialize?.(),
     authChanged: () => authListener?.({ providerId: 'openai-codex' }),
-    logger, syntheticHome,
+    logger, syntheticHome, scenario,
   };
 }
 
@@ -290,5 +302,100 @@ describe('CodexAccountUsageService', () => {
   it('does not match genuinely different Windows Codex home paths', async () => {
     const h = harness({ initializedHome: resolve('different-synthetic-codex-home') });
     await expect(h.service.getAccountUsage()).resolves.toMatchObject({ status: 'service-unavailable' });
+  });
+
+  it('passes rateLimitReachedType through as window evidence', async () => {
+    const h = harness({ rateLimitReachedType: 'rate_limit_reached' });
+    await expect(h.service.getAccountUsage()).resolves.toMatchObject({
+      quota: { rateLimitReachedType: 'rate_limit_reached' },
+    });
+  });
+
+  describe('owner key (F30)', () => {
+    const ownerOf = (home: string, email: string) => accountOwnerKey('openai-codex', `${home}\0${email}`);
+
+    it('is null before the first read, the hashed home+email after it, and null after clearCache', async () => {
+      const h = harness();
+      expect(h.service.currentOwnerKey()).toBeNull();
+      const result = await h.service.getAccountUsage();
+      const key = h.service.currentOwnerKey();
+      expect(key).toBe(ownerOf(h.syntheticHome, 'private@example.test'));
+      expect(key).toMatch(/^openai-codex#account:[0-9a-f]{16}$/);
+      expect(result).not.toHaveProperty('ownerKey');
+      expect(JSON.stringify(h.logger)).not.toContain('private@example.test');
+      h.authChanged();
+      expect(h.service.currentOwnerKey()).toBeNull();
+    });
+
+    it('account A then B: the auth change drops A, and the next read is B, not stale A', async () => {
+      const h = harness();
+      await h.service.getAccountUsage();
+      const keyA = h.service.currentOwnerKey();
+      h.scenario.account = { type: 'chatgpt', email: 'other@example.test', planType: 'pro' };
+      h.authChanged();
+      await expect(h.service.getAccountUsage()).resolves.toMatchObject({
+        status: 'available', account: { planType: 'pro' },
+      });
+      expect(h.service.currentOwnerKey()).toBe(ownerOf(h.syntheticHome, 'other@example.test'));
+      expect(h.service.currentOwnerKey()).not.toBe(keyA);
+    });
+
+    it('account A then sign-out: no owner and no stale A data', async () => {
+      const h = harness();
+      await h.service.getAccountUsage();
+      h.scenario.account = null;
+      h.authChanged();
+      await expect(h.service.getAccountUsage()).resolves.toEqual({
+        status: 'service-unavailable', providerId: 'openai-codex',
+      });
+      expect(h.service.currentOwnerKey()).toBeNull();
+    });
+
+    it('same-account transient failure serves stale data and keeps the owner', async () => {
+      const h = harness();
+      await h.service.getAccountUsage();
+      const keyA = h.service.currentOwnerKey();
+      h.scenario.spawnThrows = true;
+      await expect(h.service.getAccountUsage({ refresh: true })).resolves.toMatchObject({
+        status: 'stale', staleSince: expect.any(Number),
+        quota: { primary: { usedPercent: 25 } },
+      });
+      expect(h.service.currentOwnerKey()).toBe(keyA);
+    });
+
+    it('a transient failure with no cache has no owner and no data', async () => {
+      const h = harness({ spawnThrows: true });
+      await expect(h.service.getAccountUsage()).resolves.toEqual({
+        status: 'cli-unavailable', providerId: 'openai-codex',
+      });
+      expect(h.service.currentOwnerKey()).toBeNull();
+    });
+
+    it('an API-key home has no account owner', async () => {
+      const h = harness({ account: { type: 'apiKey' } });
+      await expect(h.service.getAccountUsage()).resolves.toMatchObject({ status: 'unsupported-auth' });
+      expect(h.service.currentOwnerKey()).toBeNull();
+    });
+
+    it('a ChatGPT account without an email has no owner key', async () => {
+      const h = harness({ account: { type: 'chatgpt', email: null, planType: 'plus' } });
+      await expect(h.service.getAccountUsage()).resolves.toMatchObject({ status: 'available' });
+      expect(h.service.currentOwnerKey()).toBeNull();
+    });
+
+    it('a read in flight across an auth change answers its caller but is not cached', async () => {
+      const h = harness({ deferInitialize: true });
+      const pending = h.service.getAccountUsage();
+      await new Promise((resolvePromise) => setImmediate(resolvePromise));
+      h.authChanged();
+      h.releaseInitialize();
+      await expect(pending).resolves.toMatchObject({ status: 'available' });
+      expect(h.service.currentOwnerKey()).toBeNull();
+      const before = h.requests.length;
+      h.scenario.deferInitialize = false;
+      await h.service.getAccountUsage();
+      expect(h.requests.length).toBe(before + 2);
+      expect(h.service.currentOwnerKey()).toBe(ownerOf(h.syntheticHome, 'private@example.test'));
+    });
   });
 });

@@ -104,10 +104,44 @@ export type ProviderClearModelTierInput = z.infer<
   typeof ProviderClearModelTierSchema
 >;
 
-export const ProviderGetAccountUsageSchema = z.object({
-  providerId: z.string().min(1),
-  refresh: z.boolean().optional(),
-}).strict();
+export const ProviderGetAccountUsageSchema = z
+  .object({
+    providerId: z.string().min(1),
+    refresh: z.boolean().optional(),
+  })
+  .strict();
+
+/**
+ * Upper bound on the ids one `provider:getPlanLimits` call may name. A view
+ * shows one session and the runs of its lanes; the bound only stops a
+ * runaway caller from fanning out unbounded owner lookups.
+ */
+export const PLAN_LIMITS_MAX_IDS = 200;
+
+/**
+ * Validated shape for `provider:getPlanLimits` (TASK_2026_596).
+ *
+ * Fields (all optional; the params object itself may be omitted):
+ *   - `providerId` — the dashboard's selected provider, a UI provider id.
+ *   - `sessionIds` — sessions whose owner and model scope the view shows.
+ *   - `ownerKeys`  — opaque owner keys recorded on runs the view shows.
+ *                    Non-canonical keys are dropped by discovery.
+ *   - `refresh`    — bypass the per-owner reading cache.
+ *
+ * No field carries or names a credential.
+ */
+export const ProviderGetPlanLimitsSchema = z
+  .object({
+    providerId: z.string().min(1).optional(),
+    sessionIds: z.array(z.string().min(1)).max(PLAN_LIMITS_MAX_IDS).optional(),
+    ownerKeys: z.array(z.string().min(1)).max(PLAN_LIMITS_MAX_IDS).optional(),
+    refresh: z.boolean().optional(),
+  })
+  .strict();
+
+export type ProviderGetPlanLimitsInput = z.infer<
+  typeof ProviderGetPlanLimitsSchema
+>;
 
 // ---------------------------------------------------------------------------
 // User-defined provider entries (TASK_2026_236)

@@ -11,7 +11,10 @@
  *   - `backgroundTask` — call Query.backgroundTasks(toolUseId) to move an
  *     in-flight foreground task to the background.
  *
- * All four surface typed errors when the session is not active, ensuring
+ * `pushParentMessage` streams a host-authored user turn (the subagent budget
+ * monitor's handoff) through the same ordering lock as `sendToSubagent`.
+ *
+ * All of them surface typed errors when the session is not active, ensuring
  * the RPC boundary receives a clear, handleable error rather than an
  * untyped throw.
  *
@@ -28,8 +31,11 @@ import {
 } from '@ptah-extension/vscode-core';
 import type { SubagentTranscriptMessage } from '@ptah-extension/shared';
 import { SDK_TOKENS } from '../di/tokens';
-import type { SessionLifecycleManager } from './session-lifecycle-manager';
-import type { SDKUserMessage } from './session-lifecycle-manager';
+import type {
+  Query,
+  SDKUserMessage,
+  SessionLifecycleManager,
+} from './session-lifecycle-manager';
 import {
   findWorkflowAgentTranscript,
   readWorkflowAgentTranscript,
@@ -188,16 +194,50 @@ export class SubagentMessageDispatcher {
       ? `The user wants to steer ${humanRef}. Use the SendMessage tool with to: '${agentId}' to deliver this to it verbatim: ${text}`
       : `Regarding the running subagent (toolUseId=${parentToolUseId}): ${text}`;
 
+    this.logger.debug('[SubagentMessageDispatcher] sendToSubagent', {
+      sessionId,
+      parentToolUseId,
+      agentType,
+      agentId,
+      teammateName,
+      mode: agentId ? 'sendmessage-instruction' : 'generic-nudge',
+      textLength: text.length,
+    });
+    await this.pushUserMessage(sessionId, query, content);
+  }
+
+  /**
+   * Push one host-authored user turn to the parent session (the subagent
+   * budget monitor's handoff). It goes through the same per-session ordering
+   * lock, `origin` and send timeout as {@link sendToSubagent}, so a steer and
+   * a handoff pushed in the same tick reach the CLI in call order.
+   *
+   * @throws RpcUserError `SESSION_NOT_FOUND` when the session or its query is
+   *   not active, `SEND_TIMEOUT` when the session does not read its input in
+   *   time, `SESSION_ENDED` when the push fails.
+   */
+  async pushParentMessage(sessionId: string, content: string): Promise<void> {
+    const session = this.sessionLifecycle.find(sessionId);
+    if (!session?.query) {
+      throw new RpcUserError(
+        `Session '${sessionId}' is not active — cannot deliver message`,
+        'SESSION_NOT_FOUND',
+      );
+    }
+    this.logger.debug('[SubagentMessageDispatcher] pushParentMessage', {
+      sessionId,
+      contentLength: content.length,
+    });
+    await this.pushUserMessage(sessionId, session.query, content);
+  }
+
+  /** Stream one user turn to `query` inside the session's ordering lock, bounded by the send timeout. */
+  private async pushUserMessage(
+    sessionId: string,
+    query: Pick<Query, 'streamInput'>,
+    content: string,
+  ): Promise<void> {
     await serialisedPush(sessionId, async () => {
-      this.logger.debug('[SubagentMessageDispatcher] sendToSubagent', {
-        sessionId,
-        parentToolUseId,
-        agentType,
-        agentId,
-        teammateName,
-        mode: agentId ? 'sendmessage-instruction' : 'generic-nudge',
-        textLength: text.length,
-      });
       const msg: SDKUserMessage = {
         type: 'user',
         message: { role: 'user', content },

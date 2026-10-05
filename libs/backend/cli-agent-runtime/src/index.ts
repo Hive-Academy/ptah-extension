@@ -21,6 +21,21 @@ export type {
   McpDeclarationInventory,
   McpDeclarationSourceStatus,
 } from './lib/mcp-directory/mcp-install.service';
+// Plan limits (TASK_2026_596): lane lookup for the agent tools, owner
+// discovery for the plan-limits RPC.
+export {
+  LaneLimitLookupService,
+  type LaneLimitLookupOptions,
+  type LaneLimitLookupRow,
+  type LaneLimitLookupStatus,
+  type LaneLimitResult,
+} from './lib/cli-agents/limits/lane-limit-lookup.service';
+export {
+  PlanLimitOwnerDiscoveryService,
+  type DiscoveredPlanOwner,
+  type PlanOwnerDiscoveryRequest,
+  type PlanOwnerOrigin,
+} from './lib/cli-agents/limits/plan-limit-owner-discovery.service';
 export { CLI_AGENT_RUNTIME_TOKENS } from './lib/di/tokens';
 export type { CliAgentRuntimeDIToken } from './lib/di/tokens';
 export { registerCliAgentRuntimeServices } from './lib/di/register';

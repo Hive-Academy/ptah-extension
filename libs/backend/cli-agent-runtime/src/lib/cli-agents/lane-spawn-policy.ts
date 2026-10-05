@@ -16,6 +16,21 @@ import type { LaneModelSource } from './cli-adapters/cli-adapter.interface';
  */
 export const CODEX_LANE_DEFAULT_MODEL = 'gpt-6-sol';
 
+/** Models known to loop when run as a lane; a spawn naming one is refused. */
+export const BLOCKED_LANE_MODELS: readonly string[] = ['mimo-v2.6-flash-free'];
+
+/**
+ * The blocked entry matching `model`, or `undefined`. The comparison uses the
+ * id after the last `/` (a provider prefix is ignored), case-insensitively.
+ */
+export function findBlockedLaneModel(
+  model: string | undefined,
+): string | undefined {
+  if (!model) return undefined;
+  const id = model.slice(model.lastIndexOf('/') + 1).toLowerCase();
+  return BLOCKED_LANE_MODELS.find((blocked) => blocked.toLowerCase() === id);
+}
+
 /** The setting value that means "use the in-chat effort" (R2.3 step 3). */
 const INHERIT = 'inherit';
 

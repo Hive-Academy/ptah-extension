@@ -98,6 +98,8 @@ export interface CodexAccountUsageResult {
   readonly quota?: {
     readonly primary?: { readonly usedPercent: number; readonly windowDurationMins?: number | null; readonly resetsAt?: number | null };
     readonly secondary?: { readonly usedPercent: number; readonly windowDurationMins?: number | null; readonly resetsAt?: number | null };
+    /** Which limit the backend reports as reached (e.g. `rate_limit_reached`), when it says so. */
+    readonly rateLimitReachedType?: string;
   };
   readonly activity?: {
     readonly lifetimeTokens?: string | null;
@@ -109,4 +111,18 @@ export interface ICodexAccountUsageService {
   getAccountUsage(options?: { refresh?: boolean; signal?: AbortSignal }): Promise<CodexAccountUsageResult>;
   clearCache(): void;
   close(): Promise<void>;
+}
+
+/**
+ * The quota owner of the Codex account home, for the owner resolver and the
+ * Codex proxy boundary. Backend-only: the key is never part of
+ * `CodexAccountUsageResult`, which is sent over RPC.
+ */
+export interface ICodexOwnerKeySource {
+  /**
+   * Owner key of the account behind the last successful read
+   * (`openai-codex#account:<fp>`), or `null` before the first read, after
+   * `clearCache`, and when that read found no ChatGPT account.
+   */
+  currentOwnerKey(): string | null;
 }

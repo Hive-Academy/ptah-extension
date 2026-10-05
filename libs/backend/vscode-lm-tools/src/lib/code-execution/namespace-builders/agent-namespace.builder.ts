@@ -20,12 +20,18 @@ import {
   type AgentReportDelivery,
   type AgentReportInput,
   type CliDetectionService,
+  type LaneLimitLookupService,
   type SdkHandle,
 } from '@ptah-extension/cli-agent-runtime';
 import type {
   AgentRoleDefinition,
   CliDetectionResult,
   SpawnAgentRequest,
+} from '@ptah-extension/shared';
+import {
+  FRESHNESS_MS,
+  NEAR_LIMIT_PERCENT,
+  classifyLaneState,
 } from '@ptah-extension/shared';
 
 /**
@@ -40,6 +46,7 @@ interface PtahCliListEntry {
   id: string;
   name: string;
   providerName: string;
+  providerId?: string;
   hasApiKey: boolean;
   enabled: boolean;
 }
@@ -143,6 +150,8 @@ export interface AgentNamespaceDependencies {
   ) => Promise<AgentRoleDefinition>;
   /** List the role names defined for a workspace. */
   listAgentRoles?: (workspaceRoot: string) => Promise<string[]>;
+  /** Optional plan-limit enrichment supplied by cli-agent-runtime. */
+  getLaneLimits?: Pick<LaneLimitLookupService, 'lookup'>['lookup'];
   /** Receives the one-line WARN for a spawn field this layer drops or a lane ignores. */
   logger: {
     warn(message: string, metadata?: Record<string, unknown>): void;
@@ -203,6 +212,7 @@ export function buildAgentNamespace(
     deliverAgentReport,
     resolveAgentRole,
     listAgentRoles,
+    getLaneLimits,
     logger,
   } = deps;
 
@@ -261,6 +271,17 @@ export function buildAgentNamespace(
           );
         }
 
+        // The registry builds AND starts the handle, so the blocked-model check
+        // (R9.5) and the resume gate (R9.1) run here, before it does
+        // (TASK_2026_614, E.4 and B-m2). On `fresh` the lane gets the handoff
+        // task and no resume id; the record keeps the caller's message.
+        const prepared = await agentProcessManager.prepareSdkHandleSpawn({
+          cli: 'ptah-cli',
+          task: request.task,
+          model: request.model,
+          resumeSessionId: request.resumeSessionId,
+        });
+
         // ONE id, minted once, before the handle exists (TASK_2026_402).
         // `spawnFromSdkHandle` would otherwise mint it AFTER the handle — and
         // therefore after the MCP URL baked into that handle — so the URL could
@@ -273,7 +294,7 @@ export function buildAgentNamespace(
         // rendered here from the SAME function the rival-CLI adapters use
         // (TASK_2026_515). Two call sites, one text.
         const ptahCliTask =
-          `${request.task}\n\n` +
+          `${prepared.task}\n\n` +
           renderLaneCompletionContract({
             taskFolder: request.taskFolder,
             deliverables: request.deliverables,
@@ -284,7 +305,7 @@ export function buildAgentNamespace(
           ptahCliTask,
           {
             workingDirectory,
-            resumeSessionId: request.resumeSessionId,
+            resumeSessionId: prepared.resumeSessionId,
             parentSessionId: activeSessionId,
             modelTier: request.modelTier,
             model: request.model,
@@ -315,7 +336,13 @@ export function buildAgentNamespace(
             ptahCliName: result.agentName,
             ptahCliId: request.ptahCliId,
             timeout: request.timeout,
-            resumeSessionId: request.resumeSessionId,
+            resumeSessionId: prepared.resumeSessionId,
+            ...(prepared.resumeDecision
+              ? { resumeDecision: prepared.resumeDecision }
+              : {}),
+            ...(prepared.originalTask !== undefined
+              ? { originalTask: prepared.originalTask }
+              : {}),
             agentId,
             ...(roleDefinition
               ? {
@@ -438,6 +465,7 @@ export function buildAgentNamespace(
               ptahCliId: a.id,
               ptahCliName: a.name,
               providerName: a.providerName,
+              providerId: a.providerId,
               ...PTAH_CLI_ROLE_DELIVERY,
             }));
 
@@ -465,6 +493,27 @@ export function buildAgentNamespace(
         }));
       }
       return merged.map((r) => ({ ...r, preferredRank: 0 }));
+    },
+
+    limits: async (rows) => {
+      if (!getLaneLimits) return undefined;
+      try {
+        return await getLaneLimits(rows);
+      } catch {
+        // Limit lookup is enrichment only. Preserve each lane's ownership
+        // boundary and make a failed lookup explicitly unknown.
+        const now = Date.now();
+        return rows.map((row) => ({
+          row,
+          lookup: 'failed' as const,
+          state: classifyLaneState(undefined, {
+            now,
+            nearLimitPercent: NEAR_LIMIT_PERCENT,
+            freshnessMs: FRESHNESS_MS,
+            lookupFailure: 'failed' as const,
+          }),
+        }));
+      }
     },
 
     listRoles: async () => {
@@ -504,7 +553,7 @@ export function buildAgentNamespace(
       throw new Error(`Agent not found: ${agentId}`);
     },
 
-    waitForAgents: async (agentIds, mode, timeoutMs) =>
-      agentProcessManager.waitForAgents(agentIds, mode, timeoutMs),
+    waitForAgents: async (agentIds, mode, timeoutMs, signal) =>
+      agentProcessManager.waitForAgents(agentIds, mode, timeoutMs, signal),
   };
 }

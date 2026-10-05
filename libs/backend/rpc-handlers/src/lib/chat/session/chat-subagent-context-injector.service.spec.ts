@@ -392,4 +392,112 @@ describe('ChatSubagentContextInjectorService', () => {
       expect(prompt).not.toContain('Resume agent hist999');
     });
   });
+
+  // -------------------------------------------------------------------------
+  // Component 10.2 — resume/fresh advice from the subagent budget monitor
+  // -------------------------------------------------------------------------
+
+  describe('resume advice', () => {
+    const MIN = 60_000;
+    const HANDOFF = 100_000;
+
+    function withMonitor(
+      snapshot:
+        | {
+            contextTokens: number;
+            weightedUsed: number;
+            stopped: boolean;
+            budgetReached: boolean;
+          }
+        | undefined,
+    ): ChatSubagentContextInjectorService {
+      return new ChatSubagentContextInjectorService(
+        makeLogger(),
+        registry,
+        ptahCli as unknown as ChatPtahCliService,
+        workspace as unknown as IWorkspaceProvider,
+        { getSnapshot: jest.fn().mockReturnValue(snapshot) } as never,
+        {
+          getConfig: jest.fn().mockReturnValue({
+            subagentHandoffTokens: HANDOFF,
+          }),
+        } as never,
+      );
+    }
+
+    const snap = (
+      over: Partial<{
+        contextTokens: number;
+        stopped: boolean;
+        budgetReached: boolean;
+      }> = {},
+    ) => ({
+      contextTokens: 10_000,
+      weightedUsed: 1_000,
+      stopped: false,
+      budgetReached: false,
+      ...over,
+    });
+
+    it('leaves the text unchanged when no monitor is registered', async () => {
+      registerInterrupted('tc-1', 'abc1234');
+      const { prompt } = await injector.injectInterruptedAgentsContext(
+        'msg',
+        SESSION,
+        WORKSPACE,
+      );
+      expect(prompt).not.toContain('advice:');
+    });
+
+    it('advises resume for a warm agent within budget', async () => {
+      registerInterrupted('tc-1', 'abc1234');
+      const { prompt } = await withMonitor(
+        snap(),
+      ).injectInterruptedAgentsContext('msg', SESSION, WORKSPACE);
+      expect(prompt).toContain('advice: resume (cache warm, context within');
+      expect(prompt).toContain('1. Your FIRST action should be to resume');
+    });
+
+    it('B-m3: no "advice: fresh" instruction when no agent is advised fresh', async () => {
+      registerInterrupted('tc-1', 'abc1234');
+      const { prompt } = await withMonitor(
+        snap(),
+      ).injectInterruptedAgentsContext('msg', SESSION, WORKSPACE);
+      expect(prompt).toContain('advice: resume');
+      expect(prompt).not.toContain('Where an agent is marked "advice: fresh"');
+    });
+
+    it('advises fresh with the cold reason for a cold agent', async () => {
+      workspace.getConfiguration.mockReturnValue('5m');
+      registerInterrupted('tc-1', 'abc1234');
+      jest.spyOn(Date, 'now').mockReturnValue(Date.now() + 10 * MIN);
+      const { prompt } = await withMonitor(
+        snap(),
+      ).injectInterruptedAgentsContext('msg', SESSION, WORKSPACE);
+      expect(prompt).toContain('advice: fresh (cold)');
+    });
+
+    it('advises fresh when the context reached the handoff size, even if warm', async () => {
+      registerInterrupted('tc-1', 'abc1234');
+      const { prompt } = await withMonitor(
+        snap({ contextTokens: HANDOFF }),
+      ).injectInterruptedAgentsContext('msg', SESSION, WORKSPACE);
+      expect(prompt).toContain('advice: fresh (context at handoff size)');
+      expect(prompt).not.toContain('Your FIRST action');
+      expect(prompt).toContain('Where an agent is marked "advice: fresh"');
+    });
+
+    it('advises fresh for a stopped agent and for a reached budget', async () => {
+      registerInterrupted('tc-1', 'abc1234');
+      const stopped = await withMonitor(
+        snap({ stopped: true }),
+      ).injectInterruptedAgentsContext('msg', SESSION, WORKSPACE);
+      expect(stopped.prompt).toContain('advice: fresh (stopped)');
+
+      const budget = await withMonitor(
+        snap({ budgetReached: true }),
+      ).injectInterruptedAgentsContext('msg', SESSION, WORKSPACE);
+      expect(budget.prompt).toContain('advice: fresh (budget reached)');
+    });
+  });
 });

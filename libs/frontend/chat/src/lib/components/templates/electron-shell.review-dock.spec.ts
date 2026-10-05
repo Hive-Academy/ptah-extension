@@ -205,5 +205,7 @@ describe('ElectronShellComponent review dock', () => {
 
     expect(query('[data-testid="review-shell-stub"]')).not.toBeNull();
     expect(retryButton()).toBeUndefined();
-  });
+    // The first JIT compile of the shell exceeds the 5 s default on a loaded
+    // CI runner (PR 648 run 37326679393); it is not a hang.
+  }, 20_000);
 });

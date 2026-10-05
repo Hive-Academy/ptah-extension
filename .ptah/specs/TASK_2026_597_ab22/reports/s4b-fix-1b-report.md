@@ -1,0 +1,5 @@
+# S4-b fix 1b report
+- B-S2 FIXED: agent-wait.tool.ts stopReasonOf reports "stopped by the lane budget guard: tool-call budget reached" / "...: repeated identical call" from info.stopReason, else "stopped on request". Spec case added in agent-wait.tool.spec.ts. ptah_agent_status formatter (mcp-response-formatter.ts formatAgentStatus) now adds a "**Stop Reason:**" line (4th file).
+- Style Moderate FIXED: LaneModelBlockedError exported from cli-agents/index.ts. Lib barrel does not export AgentContinueError, so not added there.
+- Files: agent-wait.tool.ts, agent-wait.tool.spec.ts, mcp-response-formatter.ts, cli-agents/index.ts.
+- Checks: typecheck vscode-lm-tools + cli-agent-runtime exit 0; 6 importers typecheck exit 0; di-lint 0; degradation-audit 0; lint passed in the first run. agent-wait + formatter specs pass (228/229). Full test target failed early only because spool.ts (other dev, in-progress) was unparseable; spool-related specs (tool-result-budget, protocol-dispatcher, formatter-extra spool case, dispatcher budget) and run-check (node timing/args) were failing in that run - not touched by me; formatter-extra spool test still failing on re-run.

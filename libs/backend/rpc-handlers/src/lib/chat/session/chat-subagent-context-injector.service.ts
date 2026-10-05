@@ -30,6 +30,15 @@ import {
 } from '@ptah-extension/shared';
 import type { SessionId, SubagentCacheInfo } from '@ptah-extension/shared';
 
+import {
+  SDK_TOKENS,
+  adviseSubagentResume,
+  type CompactionConfigProvider,
+  type SubagentBudgetMonitor,
+  type SubagentResumeAdvice,
+  type SubagentResumeAdviceInput,
+} from '@ptah-extension/agent-sdk';
+
 import { CHAT_TOKENS } from '../tokens';
 import type { ChatPtahCliService } from '../ptah-cli/chat-ptah-cli.service';
 
@@ -63,6 +72,10 @@ export class ChatSubagentContextInjectorService {
     private readonly ptahCli: ChatPtahCliService,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
     private readonly workspace: IWorkspaceProvider,
+    @inject(SDK_TOKENS.SDK_SUBAGENT_BUDGET_MONITOR, { isOptional: true })
+    private readonly budgetMonitor?: SubagentBudgetMonitor,
+    @inject(SDK_TOKENS.SDK_COMPACTION_CONFIG_PROVIDER, { isOptional: true })
+    private readonly compactionConfig?: CompactionConfigProvider,
   ) {}
 
   /**
@@ -163,21 +176,34 @@ export class ChatSubagentContextInjectorService {
     }
     const effectiveTtl = this.resolveEffectiveTtl();
     const now = Date.now();
-    const agents = resumableSubagents.map((s) => ({
-      record: s,
-      cache: computeSubagentCacheState(s.lastActivityAt, effectiveTtl, now),
-    }));
+    const agents = resumableSubagents.map((s) => {
+      const cache = computeSubagentCacheState(
+        s.lastActivityAt,
+        effectiveTtl,
+        now,
+      );
+      return {
+        record: s,
+        cache,
+        advice: this.adviseResume(sessionId, s.toolCallId, cache.cacheState),
+      };
+    });
+    const hasFreshAdvice = agents.some((a) => a.advice?.advice === 'fresh');
     const agentDetails = agents
-      .map(({ record: s, cache }) => {
+      .map(({ record: s, cache, advice }) => {
         const interruptedAgo = s.interruptedAt
           ? Math.round((now - s.interruptedAt) / 1000 / 60)
           : 0;
         return `  - ${s.agentType} agent (agentId: ${s.agentId})${
           interruptedAgo > 0 ? ` - interrupted ${interruptedAgo} min ago` : ''
-        } - ${formatCacheState(cache, hasActivity(s.lastActivityAt))}`;
+        } - ${formatCacheState(cache, hasActivity(s.lastActivityAt))}${
+          advice ? ` - advice: ${advice.advice} (${advice.reason})` : ''
+        }`;
       })
       .join('\n');
-    const firstWarm = agents.find((a) => a.cache.cacheState === 'warm');
+    const firstWarm = agents.find(
+      (a) => a.cache.cacheState === 'warm' && a.advice?.advice !== 'fresh',
+    );
     const hasCold = agents.some((a) => a.cache.cacheState === 'cold');
     const instructions: string[] = [];
     if (firstWarm) {
@@ -188,6 +214,11 @@ export class ChatSubagentContextInjectorService {
     if (hasCold) {
       instructions.push(
         `Do NOT resume the agents marked "cache: cold". For each of them, start a fresh subagent of the same type with a short brief of the work that remains.`,
+      );
+    }
+    if (hasFreshAdvice) {
+      instructions.push(
+        'Where an agent is marked "advice: fresh", start a fresh subagent of the same type with a short brief instead of resuming it, even if its cache is warm.',
       );
     }
     instructions.push(
@@ -226,6 +257,42 @@ ${instructions.map((line, i) => `${i + 1}. ${line}`).join('\n')}
     }
 
     return { prompt: enhancedPrompt, injected: true };
+  }
+
+  /**
+   * Resume-or-fresh advice for one subagent from the budget monitor's
+   * snapshot. `undefined` when the monitor (or its config) is not registered,
+   * which leaves the prompt text as it was before the monitor existed.
+   */
+  private adviseResume(
+    sessionId: SessionId,
+    toolCallId: string,
+    cacheState: SubagentCacheInfo['cacheState'],
+  ): { advice: SubagentResumeAdvice; reason: string } | undefined {
+    if (!this.budgetMonitor || !this.compactionConfig) {
+      return undefined;
+    }
+    const snapshot = this.budgetMonitor.getSnapshot(sessionId, toolCallId);
+    const input: SubagentResumeAdviceInput = {
+      stopped: snapshot?.stopped ?? false,
+      cacheState,
+      contextTokens: snapshot?.contextTokens,
+      handoffTokens: this.compactionConfig.getConfig().subagentHandoffTokens,
+      budgetReached: snapshot?.budgetReached ?? false,
+    };
+    const advice = adviseSubagentResume(input);
+    if (advice === 'resume') {
+      return { advice, reason: 'cache warm, context within budget' };
+    }
+    // Same precedence as adviseSubagentResume.
+    const reason = input.stopped
+      ? 'stopped'
+      : input.budgetReached
+        ? 'budget reached'
+        : input.cacheState === 'cold'
+          ? 'cold'
+          : 'context at handoff size';
+    return { advice, reason };
   }
 
   /**

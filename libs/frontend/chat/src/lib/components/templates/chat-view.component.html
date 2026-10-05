@@ -28,6 +28,8 @@
             [snapshot]="resolvedSessionStats()"
             [liveModelStats]="resolvedLiveModelStats()"
             [compactionCount]="resolvedCompactionCount()"
+            [limits]="resolvedStatsLimits()"
+            [sessionId]="resolvedSessionId()"
             [budget]="resolvedSessionBudget()"
           />
         </div>
@@ -144,6 +146,7 @@
           (restoreWindow)="onBudgetAction('restore-window')"
           (previewRequested)="onBudgetPreview()"
           (continueInNewSession)="onBudgetContinue()"
+          (rotate)="onBudgetRotate()"
         />
       }
 

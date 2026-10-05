@@ -1,3 +1,7 @@
+// `./wait-tools-args.schema` takes its wait ceiling from
+// `@ptah-extension/cli-agent-runtime`, whose barrel reaches tsyringe
+// decorators on import.
+import 'reflect-metadata';
 import { EventEmitter } from 'node:events';
 import {
   mkdirSync,
@@ -14,7 +18,9 @@ import {
   RUN_CHECK_TOOL_NAME,
   buildRunCheckTool,
   formatRunCheckSummary,
+  killRunningChecks,
   runCheck,
+  runningCheckPids,
   type CheckProcess,
   type RunCheckDependencies,
   type SpawnCheckProcess,
@@ -101,6 +107,15 @@ describe('buildRunCheckTool', () => {
       items: { enum: ['test', 'lint', 'typecheck', 'build'] },
     });
   });
+
+  it('limits worktrees to open workspace folders and makes no openWorldHint claim', () => {
+    const tool = buildRunCheckTool();
+    expect(tool.description).toContain(
+      'worktrees inside an open workspace folder',
+    );
+    expect(tool.description).not.toContain('(worktrees too)');
+    expect(tool.annotations).toEqual({ destructiveHint: false });
+  });
 });
 
 describe('runCheck', () => {
@@ -116,6 +131,9 @@ describe('runCheck', () => {
     for (const parts of NX_ENTRY_CANDIDATES) {
       expect(outcome.text).toContain(join(root, ...parts));
     }
+    expect(outcome.text).toContain(
+      'a worktree needs its own install or a node_modules link',
+    );
     expect(d.spawnProcess).not.toHaveBeenCalled();
     expect(outcome.structured).toMatchObject({
       cwd: root,
@@ -228,6 +246,124 @@ describe('runCheck', () => {
       );
       expect(outcome.text).toContain('- test: incomplete');
       expect(outcome.text).toContain('still going');
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('kills only the tree of the cancelled run on abort and reports it as cancelled', async () => {
+    installNx('');
+    const child = new FakeProcess(5150);
+    const other = new FakeProcess(6160);
+    const killTree = jest.fn(async (pid: number) => {
+      if (pid === 5150) child.finish(null, 'SIGTERM');
+    });
+    const controller = new AbortController();
+    const d = fakeDeps(child, { killTree, signal: controller.signal });
+    const otherDeps = fakeDeps(other, { killTree });
+    const pending = runCheck(args({ project: 'app', targets: ['test'] }), d);
+    const otherPending = runCheck(
+      args({ project: 'app', targets: ['lint'] }),
+      otherDeps,
+    );
+    await untilSpawned(d.spawnProcess);
+    await untilSpawned(otherDeps.spawnProcess);
+    expect(runningCheckPids()).toEqual(expect.arrayContaining([5150, 6160]));
+    child.stdout.write('> nx run app:test\nhalfway\n');
+
+    controller.abort();
+    const outcome = await pending;
+
+    expect(killTree).toHaveBeenCalledTimes(1);
+    expect(killTree).toHaveBeenCalledWith(5150);
+    expect(outcome.isError).toBe(false);
+    expect(outcome.structured.verdict).toBe('cancelled');
+    expect(outcome.text).toContain('CANCELLED; the process tree was killed');
+    expect(outcome.text).toContain('- test: incomplete');
+    expect(runningCheckPids()).not.toContain(5150);
+    expect(runningCheckPids()).toContain(6160);
+
+    other.finish(0);
+    expect((await otherPending).structured.verdict).toBe('passed');
+    expect(runningCheckPids()).not.toContain(6160);
+  });
+
+  it('spawns nothing when the signal is already aborted', async () => {
+    installNx('');
+    const child = new FakeProcess();
+    const controller = new AbortController();
+    controller.abort();
+    const d = fakeDeps(child, { signal: controller.signal });
+    const outcome = await runCheck(
+      args({ project: 'app', targets: ['test'] }),
+      d,
+    );
+
+    expect(d.spawnProcess).not.toHaveBeenCalled();
+    expect(d.killTree).not.toHaveBeenCalled();
+    expect(outcome.structured.verdict).toBe('cancelled');
+    expect(outcome.text).toContain('CANCELLED before Nx started');
+    expect(outcome.text).toContain('- test: not run');
+  });
+
+  it('killRunningChecks kills every live check tree and each reply says cancelled', async () => {
+    installNx('');
+    const first = new FakeProcess(7001);
+    const second = new FakeProcess(7002);
+    const killTree = jest.fn(async (pid: number) => {
+      (pid === 7001 ? first : second).finish(null, 'SIGTERM');
+    });
+    const firstDeps = fakeDeps(first, { killTree });
+    const secondDeps = fakeDeps(second, { killTree });
+    const pendingFirst = runCheck(
+      args({ project: 'app', targets: ['test'] }),
+      firstDeps,
+    );
+    const pendingSecond = runCheck(
+      args({ project: 'app', targets: ['lint'] }),
+      secondDeps,
+    );
+    await untilSpawned(firstDeps.spawnProcess);
+    await untilSpawned(secondDeps.spawnProcess);
+
+    await killRunningChecks();
+    const outcomes = await Promise.all([pendingFirst, pendingSecond]);
+
+    expect(killTree).toHaveBeenCalledWith(7001);
+    expect(killTree).toHaveBeenCalledWith(7002);
+    expect(killTree).toHaveBeenCalledTimes(2);
+    expect(outcomes.map((o) => o.structured.verdict)).toEqual([
+      'cancelled',
+      'cancelled',
+    ]);
+    expect(runningCheckPids()).toEqual([]);
+    // Nothing left: a second dispose is a no-op.
+    await killRunningChecks();
+    expect(killTree).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps the timeout reason when a cancel arrives during the timeout kill', async () => {
+    jest.useFakeTimers({ doNotFake: ['setImmediate', 'nextTick'] });
+    try {
+      installNx('');
+      const child = new FakeProcess(8080);
+      const killTree = jest.fn(async () => {
+        child.finish(null, 'SIGTERM');
+      });
+      const controller = new AbortController();
+      const d = fakeDeps(child, { killTree, signal: controller.signal });
+      const pending = runCheck(
+        args({ project: 'app', targets: ['test'], timeoutSec: 2 }),
+        d,
+      );
+      await untilSpawned(d.spawnProcess);
+      await jest.advanceTimersByTimeAsync(2_000);
+      controller.abort();
+      jest.useRealTimers();
+      const outcome = await pending;
+
+      expect(killTree).toHaveBeenCalledTimes(1);
+      expect(outcome.structured.verdict).toBe('timed_out');
     } finally {
       jest.useRealTimers();
     }

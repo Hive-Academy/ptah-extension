@@ -348,14 +348,24 @@ export async function execute(
 
       server.register(
         'tools/call',
-        async (params: unknown): Promise<unknown> => {
+        async (
+          params: unknown,
+          envelope?: { readonly id: string | number },
+        ): Promise<unknown> => {
           // No bootstrap guard here. This registration runs AFTER the stdio
           // service exists, so a call that reaches this handler is past the
           // bootstrap window by construction. A call made DURING that window
           // finds no `tools/call` handler at all and gets the JSON-RPC
           // method-not-found answer, which is the truthful one. The flag that
           // used to be read here could never be false at this point.
-          const req = buildMcpRequest(randomId(), 'tools/call', params);
+          //
+          // The peer's own id, not a fresh one: `notifications/cancelled`
+          // names the call by it, so only that id lets a cancel find it.
+          const req = buildMcpRequest(
+            envelope?.id ?? randomId(),
+            'tools/call',
+            params,
+          );
           const resp = await stdioServer.handleToolsCall(req);
           if (resp.error !== undefined) {
             if (resp.error.code === -32602) {
@@ -448,6 +458,9 @@ export async function execute(
             );
           }
         }
+        // Before the transport stops: aborts the tool calls still in flight
+        // and kills every live `run_check` Nx tree. Never rejects.
+        await stdioServer.dispose();
         if (transport !== null) {
           await transport.stop();
         }

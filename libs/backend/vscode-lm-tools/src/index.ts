@@ -13,10 +13,12 @@ export {
   type McpRegistrationFailure,
   type McpSubagentRegistration,
 } from './lib/code-execution/mcp-http/http-mcp-server.service';
+export { TreeSitterCodeOutliner } from './lib/code-execution/mcp-core/code-outliner.adapter';
 export { McpCallerWorkspaceResolver } from './lib/code-execution/mcp-caller-workspace-resolver';
 // The per-call MCP caller context (session, workspace, tool profile). Hosts
 // and composition tests use it to run `ptah.*` calls as a given caller.
 export { runWithMcpRequestContext } from './lib/code-execution/mcp-core/mcp-request-context';
+export { killRunningChecks } from './lib/code-execution/mcp-core/run-check.tool';
 export {
   DiagnosticsCacheInvalidator,
   DIAGNOSTICS_CACHE_INVALIDATOR,

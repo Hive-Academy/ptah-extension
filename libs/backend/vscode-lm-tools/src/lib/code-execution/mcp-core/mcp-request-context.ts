@@ -40,6 +40,12 @@ export interface McpRequestContext {
   readonly callerAgentId?: string;
   /** Effective tool profile resolved from the transport-owned URL field. */
   readonly callerToolProfile?: McpToolProfile;
+  /**
+   * Aborted when the caller stops waiting for this call (the HTTP connection
+   * closed before the reply). Copied from the transport-owned
+   * `request._abortSignal`; long-running tools stop on it.
+   */
+  readonly signal?: AbortSignal;
 }
 
 const storage = new AsyncLocalStorage<McpRequestContext>();
@@ -85,6 +91,14 @@ export function getCallerWorkspaceRoot(): string | undefined {
  */
 export function getCallerAgentId(): string | undefined {
   return storage.getStore()?.callerAgentId;
+}
+
+/**
+ * The abort signal of the in-flight MCP tool call, or `undefined` when the
+ * transport supplied none or when not running inside `runWithMcpRequestContext`.
+ */
+export function getRequestAbortSignal(): AbortSignal | undefined {
+  return storage.getStore()?.signal;
 }
 
 /**

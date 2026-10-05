@@ -5,6 +5,7 @@
  */
 import { v4 as uuidv4 } from 'uuid';
 import type { FlatStreamEventUnion } from './execution';
+import type { QuotaOwnerRef } from './plan-limit.types';
 
 /**
  * Branded AgentId type - prevents mixing with other string IDs
@@ -41,6 +42,17 @@ export const AgentId = {
 
 export type AgentStatus =
   'running' | 'completed' | 'failed' | 'timeout' | 'stopped';
+
+/**
+ * Why an agent run failed or was stopped, beyond its `AgentStatus`.
+ *
+ * THE single failure/stop-kind union for agent runs. A new reason (a budget,
+ * repeat or blocked-model stop) joins here as a new member; never declare a
+ * parallel `stopReason`. `'quota'` means the run hit a provider plan limit
+ * and maps one-to-one to TASK_2026_535 `failure_kind: quota`; the run's
+ * `status` stays `failed`.
+ */
+export type AgentFailureKind = 'quota';
 
 /**
  * Every CLI backed by a first-party adapter that spawns a real binary.
@@ -146,6 +158,14 @@ export interface AgentProcessInfo {
    * after the process is gone and the request object is not reachable there.
    */
   readonly deliverables?: readonly string[];
+  /** Set when the run failed for a classified reason (see `AgentFailureKind`). */
+  failureKind?: AgentFailureKind;
+  /**
+   * Quota owner this run used, recorded at spawn or when it first becomes
+   * known. May only be upgraded from an `unknown` identity kind to a known
+   * one; never overwritten by a later owner.
+   */
+  quotaOwner?: QuotaOwnerRef;
   /**
    * The input size of the lane's most recent model request, as far as it is
    * known (TASK_2026_597, R9.1). The resume gate reads it to decide between
@@ -162,7 +182,22 @@ export interface AgentProcessInfo {
    * fresh handoff from this lane still carries it.
    */
   readonly originalTask?: string;
+  /**
+   * Why the host stopped the lane, when it was not the caller
+   * (TASK_2026_597, R9.4). Stamped on the record before the stop, so it is
+   * present on the terminal record and the `agent:exited` payload. Unset when
+   * the lane ended on its own or the caller stopped it.
+   */
+  stopReason?: LaneStopReason;
 }
+
+/**
+ * Why the host's lane budget guard stopped a lane (TASK_2026_597, R9.4):
+ * `tool-call-budget` — the lane reached its tool-call stop threshold;
+ * `repeat-call` — it repeated one identical tool call up to the repeat
+ * threshold.
+ */
+export type LaneStopReason = 'tool-call-budget' | 'repeat-call';
 
 /**
  * What the resume gate did with a `resumeSessionId` spawn (TASK_2026_597):
@@ -439,6 +474,11 @@ export interface CliSessionReference {
   /** Real SDK session UUID. Enables the SessionImporterService to cross-reference
    *  JSONL files against known child sessions and skip re-importing them. */
   readonly sdkSessionId?: string;
+  /**
+   * Quota owner recorded for this run. Absent in older sessions; a missing or
+   * malformed value restores as "Unknown owner", never as the current owner.
+   */
+  readonly quotaOwner?: QuotaOwnerRef;
 }
 
 /* ---------------------------------------------------------------------------

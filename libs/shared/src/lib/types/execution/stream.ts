@@ -219,7 +219,16 @@ export interface AgentStartEvent extends FlatStreamEvent {
 export interface MessageCompleteEvent extends FlatStreamEvent {
   readonly eventType: 'message_complete';
   readonly stopReason?: string;
-  readonly tokenUsage?: { input: number; output: number };
+  readonly tokenUsage?: {
+    input: number;
+    output: number;
+    /**
+     * Subagent messages only (`parentToolUseId` set): the subagent's context
+     * size for this request = input + cache read + cache write. Absent on
+     * main-session messages.
+     */
+    contextTokens?: number;
+  };
   readonly cost?: number | null;
   readonly duration?: number;
   readonly model?: string;

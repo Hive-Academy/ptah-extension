@@ -148,7 +148,7 @@ describe('agent:setConfig reasoning-effort boundary', () => {
     },
   );
 
-  it('refuses Pi-only values for Codex and Copilot (mapEffortToCli allowlist)', async () => {
+  it('refuses Pi-only values for Codex and Copilot (CLI_REASONING_EFFORT_VALUES, the lane-spawn-policy mapEffortToCli allowlist)', async () => {
     const h = makeHarness();
     expect(await h.setConfig({ codexReasoningEffort: 'off' })).toMatchObject({
       success: false,
@@ -224,6 +224,8 @@ describe('Codex lane budget settings (TASK_2026_597)', () => {
     ['codexAutoCompactTokens', '120000'],
     ['codexAutoCompactTokens', null],
     ['codexAutoCompactTokens', Number.NaN],
+    ['codexAutoCompactTokens', Number.MAX_SAFE_INTEGER + 1],
+    ['codexToolOutputTokenLimit', Number.MAX_SAFE_INTEGER + 2],
     ['codexToolOutputTokenLimit', Number.POSITIVE_INFINITY],
     ['codexToolOutputTokenLimit', -2500],
     ['codexToolOutputTokenLimit', true],
@@ -250,6 +252,17 @@ describe('Codex lane budget settings (TASK_2026_597)', () => {
     },
   );
 
+  it.each(['codexAutoCompactTokens', 'codexToolOutputTokenLimit'] as const)(
+    'accepts %s = -0 and stores it as 0',
+    async (field) => {
+      const h = makeHarness();
+      expect(await h.setConfig({ [field]: -0 })).toEqual({ success: true });
+      // toBe uses Object.is, so -0 would fail here.
+      expect(h.settings.get(`ptah.agentOrchestration.${field}`)).toBe(0);
+      expect((await h.getConfig())[field]).toBe(0);
+    },
+  );
+
   it('a rejected budget field is not masked by the generic catch even when writes would throw', async () => {
     const h = makeHarness();
     h.workspace.setConfiguration.mockRejectedValue(new Error('disk full'));
@@ -273,6 +286,177 @@ describe('Codex lane budget settings (TASK_2026_597)', () => {
     expect(result.codexAutoCompactTokens).toBe(120000);
     expect(result.codexToolOutputTokenLimit).toBe(2500);
     expect(result.codexWebSearch).toBe(true);
+  });
+});
+
+describe('lane tool-call guard settings (TASK_2026_597 Wave D)', () => {
+  const guardKeys = [
+    'laneToolCallSteerAt',
+    'laneToolCallStopAt',
+    'laneRepeatCallStopAt',
+  ] as const;
+
+  it('getConfig returns the file-settings defaults when nothing is stored', async () => {
+    const h = makeHarness();
+    const result = await h.getConfig();
+    for (const key of guardKeys) {
+      expect(result[key]).toBe(
+        FILE_BASED_SETTINGS_DEFAULTS[`agentOrchestration.${key}`],
+      );
+    }
+    expect(result.laneToolCallSteerAt).toBe(40);
+    expect(result.laneToolCallStopAt).toBe(60);
+    expect(result.laneRepeatCallStopAt).toBe(20);
+  });
+
+  it('round-trips valid values at their minimums', async () => {
+    const h = makeHarness();
+    expect(
+      await h.setConfig({
+        laneToolCallSteerAt: 1,
+        laneToolCallStopAt: 2,
+        laneRepeatCallStopAt: 2,
+      }),
+    ).toEqual({ success: true });
+    const result = await h.getConfig();
+    expect(result.laneToolCallSteerAt).toBe(1);
+    expect(result.laneToolCallStopAt).toBe(2);
+    expect(result.laneRepeatCallStopAt).toBe(2);
+  });
+
+  it.each([
+    ['laneToolCallSteerAt', 0],
+    ['laneToolCallSteerAt', -0],
+    ['laneToolCallSteerAt', -1],
+    ['laneToolCallSteerAt', 1.5],
+    ['laneToolCallSteerAt', '40'],
+    ['laneToolCallSteerAt', null],
+    ['laneToolCallSteerAt', Number.NaN],
+    ['laneToolCallSteerAt', Number.MAX_SAFE_INTEGER + 1],
+    ['laneToolCallStopAt', 1],
+    ['laneToolCallStopAt', -0],
+    ['laneToolCallStopAt', Number.POSITIVE_INFINITY],
+    ['laneToolCallStopAt', Number.MAX_SAFE_INTEGER + 2],
+    ['laneToolCallStopAt', true],
+    ['laneRepeatCallStopAt', 1],
+    ['laneRepeatCallStopAt', 0],
+    ['laneRepeatCallStopAt', -0],
+    ['laneRepeatCallStopAt', 2.5],
+    ['laneRepeatCallStopAt', Number.MAX_SAFE_INTEGER + 1],
+  ])(
+    'rejects %s = %p with its own message and writes nothing (never clamped)',
+    async (field, value) => {
+      const h = makeHarness();
+      const result = await h.setConfig({
+        [field]: value,
+        piModel: 'openai/gpt-4o',
+      });
+      expect(result).toEqual({
+        success: false,
+        error: `Unsupported ${field} value`,
+      });
+      expect(h.workspace.setConfiguration).not.toHaveBeenCalled();
+      expect(h.settings.size).toBe(0);
+    },
+  );
+
+  it('rejects stop <= steer in one write, naming the stop field', async () => {
+    const h = makeHarness();
+    for (const stop of [30, 31]) {
+      expect(
+        await h.setConfig({ laneToolCallSteerAt: 31, laneToolCallStopAt: stop }),
+      ).toEqual({
+        success: false,
+        error: 'Unsupported laneToolCallStopAt value',
+      });
+    }
+    expect(h.workspace.setConfiguration).not.toHaveBeenCalled();
+  });
+
+  it('checks a steer-only write against the stored stop', async () => {
+    const h = makeHarness();
+    h.settings.set('ptah.agentOrchestration.laneToolCallStopAt', 50);
+    expect(await h.setConfig({ laneToolCallSteerAt: 50 })).toEqual({
+      success: false,
+      error: 'Unsupported laneToolCallSteerAt value',
+    });
+    expect(h.workspace.setConfiguration).not.toHaveBeenCalled();
+    expect(await h.setConfig({ laneToolCallSteerAt: 49 })).toEqual({
+      success: true,
+    });
+    expect(h.settings.get('ptah.agentOrchestration.laneToolCallSteerAt')).toBe(
+      49,
+    );
+  });
+
+  it('checks a stop-only write against the stored steer, or the default when none is stored', async () => {
+    const h = makeHarness();
+    // Default steer is 40.
+    expect(await h.setConfig({ laneToolCallStopAt: 40 })).toEqual({
+      success: false,
+      error: 'Unsupported laneToolCallStopAt value',
+    });
+    h.settings.set('ptah.agentOrchestration.laneToolCallSteerAt', 10);
+    expect(await h.setConfig({ laneToolCallStopAt: 11 })).toEqual({
+      success: true,
+    });
+    expect(h.settings.get('ptah.agentOrchestration.laneToolCallStopAt')).toBe(
+      11,
+    );
+  });
+
+  it.each([
+    ['raising', { laneToolCallSteerAt: 70, laneToolCallStopAt: 90 }],
+    ['lowering', { laneToolCallSteerAt: 5, laneToolCallStopAt: 10 }],
+  ])(
+    'B-m6: %s both never stores stop <= steer between the two writes',
+    async (_label, pair) => {
+      const h = makeHarness();
+      h.settings.set('ptah.agentOrchestration.laneToolCallSteerAt', 40);
+      h.settings.set('ptah.agentOrchestration.laneToolCallStopAt', 60);
+      const storedPairs: Array<[unknown, unknown]> = [];
+      const write = h.workspace.setConfiguration.getMockImplementation();
+      h.workspace.setConfiguration.mockImplementation(
+        async (section: string, key: string, value: unknown) => {
+          await write?.(section, key, value);
+          storedPairs.push([
+            h.settings.get('ptah.agentOrchestration.laneToolCallSteerAt'),
+            h.settings.get('ptah.agentOrchestration.laneToolCallStopAt'),
+          ]);
+        },
+      );
+
+      expect(await h.setConfig(pair)).toEqual({ success: true });
+
+      expect(storedPairs).toHaveLength(2);
+      for (const [steer, stop] of storedPairs) {
+        expect(stop as number).toBeGreaterThan(steer as number);
+      }
+      expect(storedPairs[1]).toEqual([
+        pair.laneToolCallSteerAt,
+        pair.laneToolCallStopAt,
+      ]);
+    },
+  );
+
+  it('a repeat-only write is not checked against steer or stop', async () => {
+    const h = makeHarness();
+    h.settings.set('ptah.agentOrchestration.laneToolCallSteerAt', 50);
+    h.settings.set('ptah.agentOrchestration.laneToolCallStopAt', 40);
+    expect(await h.setConfig({ laneRepeatCallStopAt: 100 })).toEqual({
+      success: true,
+    });
+  });
+
+  it('getConfig reports hand-edited invalid file values as the defaults', async () => {
+    const h = makeHarness();
+    h.settings.set('ptah.agentOrchestration.laneToolCallSteerAt', 0);
+    h.settings.set('ptah.agentOrchestration.laneToolCallStopAt', 'many');
+    h.settings.set('ptah.agentOrchestration.laneRepeatCallStopAt', 1);
+    const result = await h.getConfig();
+    expect(result.laneToolCallSteerAt).toBe(40);
+    expect(result.laneToolCallStopAt).toBe(60);
+    expect(result.laneRepeatCallStopAt).toBe(20);
   });
 });
 

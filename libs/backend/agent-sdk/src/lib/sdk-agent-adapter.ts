@@ -744,6 +744,8 @@ export class SdkAgentAdapter implements IAgentAdapter {
       sdkQuery,
       initialModel,
       activityWatchdog,
+      onMessage,
+      onStreamEnd,
       sessionToken,
       usageCostSource,
       accountingAuthEnv,
@@ -817,6 +819,8 @@ export class SdkAgentAdapter implements IAgentAdapter {
       onCompactBoundary: this.recordBudgetCompaction,
       tabId: config?.tabId,
       activityWatchdog,
+      onMessage,
+      onStreamEnd,
     });
   }
 
@@ -1022,6 +1026,8 @@ export class SdkAgentAdapter implements IAgentAdapter {
       sdkQuery,
       initialModel,
       activityWatchdog,
+      onMessage,
+      onStreamEnd,
       sessionToken,
       usageCostSource,
       accountingAuthEnv,
@@ -1104,6 +1110,8 @@ export class SdkAgentAdapter implements IAgentAdapter {
       onCompactBoundary: this.recordBudgetCompaction,
       tabId: config?.tabId,
       activityWatchdog,
+      onMessage,
+      onStreamEnd,
     });
   }
 
@@ -1369,6 +1377,8 @@ export class SdkAgentAdapter implements IAgentAdapter {
       sdkQuery,
       initialModel,
       activityWatchdog,
+      onMessage,
+      onStreamEnd,
       sessionToken,
       usageCostSource,
       accountingAuthEnv,
@@ -1423,6 +1433,8 @@ export class SdkAgentAdapter implements IAgentAdapter {
       onCompactBoundary: this.recordBudgetCompaction,
       tabId: config.tabId,
       activityWatchdog,
+      onMessage,
+      onStreamEnd,
     });
   }
 

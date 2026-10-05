@@ -40,6 +40,7 @@ import type {
   SessionBudgetActionResult,
   SessionBudgetConfig,
   SessionBudgetHandoff,
+  SessionBudgetRotation,
   SessionBudgetStage,
   SessionBudgetState,
   SessionBudgetWindow,
@@ -56,6 +57,7 @@ import {
   type SessionHandoffDocument,
 } from './session-handoff-builder';
 import { SessionHandoffWriter } from './session-handoff-writer';
+import { SessionRotationAdvisor } from '../compaction/session-rotation-advisor';
 import {
   acceptsSessionBudgetSnapshot,
   evaluateSessionBudget,
@@ -83,6 +85,11 @@ export type SessionBudgetConfigSource = Pick<
 export type SessionBudgetHandoffBuilder = Pick<SessionHandoffBuilder, 'build'>;
 
 export type SessionBudgetHandoffWriter = Pick<SessionHandoffWriter, 'write'>;
+
+export type SessionBudgetRotationAdvisor = Pick<
+  SessionRotationAdvisor,
+  'evaluate' | 'current' | 'release'
+>;
 
 /** `canSend` verdict; a refusal carries the state that refused it. */
 export type SessionBudgetSendCheck =
@@ -112,6 +119,11 @@ interface BudgetEntry {
   readonly sessionId: string;
   /** Last accepted snapshot; re-evaluated on compaction and extend. */
   snapshot: SessionStatsEntry | null;
+  /**
+   * Bumped whenever a different snapshot is stored or the limit is extended:
+   * the usage the handoff's budget section describes changed.
+   */
+  usageSeq: number;
   /** Figure and stage; `null` before the first figure or while disabled. */
   figure: SessionBudgetFigure | null;
   /** Settings the figure was computed with (a change resets the stage). */
@@ -123,6 +135,8 @@ interface BudgetEntry {
   window?: SessionBudgetWindow;
   handoff?: SessionBudgetHandoff;
   handoffCopy: HandoffCopy | null;
+  /** `usageSeq` the kept `handoffCopy` was built at. */
+  handoffCopySeq: number;
   dismissedStage?: SessionBudgetStage;
   /** Failure kinds already WARNed for this session. */
   readonly warned: Set<string>;
@@ -156,6 +170,8 @@ export class SessionBudgetService {
     private readonly handoffBuilder: SessionBudgetHandoffBuilder,
     @inject(SessionHandoffWriter)
     private readonly handoffWriter: SessionBudgetHandoffWriter,
+    @inject(SessionRotationAdvisor)
+    private readonly rotationAdvisor: SessionBudgetRotationAdvisor,
   ) {}
 
   /**
@@ -250,13 +266,17 @@ export class SessionBudgetService {
     }
   }
 
-  /** Session end: drop its state. */
+  /** Session end: drop its state, rotation advisory included. */
   release(sessionId: string): void {
     this.entries.delete(sessionId);
+    this.rotationAdvisor.release(sessionId);
   }
 
   /** Disposal: drop every session's state. */
   clearAll(): void {
+    for (const sessionId of this.entries.keys()) {
+      this.rotationAdvisor.release(sessionId);
+    }
     this.entries.clear();
   }
 
@@ -291,9 +311,11 @@ export class SessionBudgetService {
     const entry = this.entryFor(snapshot.sessionId);
 
     if (!config.enabled) {
-      // Disabled: no stage, no block, no banner on this figure. The next
-      // enabled figure starts the stage over (the settings changed).
-      entry.snapshot = snapshot;
+      // Disabled: no stage, no block, no budget banner on this figure (the
+      // rotation advisory still rides it). The next enabled figure starts the
+      // stage over (the settings changed).
+      this.evaluateRotation(snapshot);
+      this.storeSnapshot(entry, snapshot);
       entry.figure = null;
       entry.configKey = null;
       return this.disabledState(snapshot, config, entry);
@@ -305,7 +327,8 @@ export class SessionBudgetService {
       return entry.figure ? this.composeState(entry, entry.figure) : undefined;
     }
 
-    entry.snapshot = snapshot;
+    this.evaluateRotation(snapshot);
+    this.storeSnapshot(entry, snapshot);
     return this.applyEvaluation(entry, config, {
       resetStage: false,
       runActions: source === 'live',
@@ -428,7 +451,7 @@ export class SessionBudgetService {
     config: SessionBudgetConfig,
   ): SessionBudgetState | undefined {
     const entry = this.entryFor(sessionId);
-    entry.snapshot = snapshot;
+    this.storeSnapshot(entry, snapshot);
     return this.applyEvaluation(entry, config, {
       resetStage: false,
       runActions: true,
@@ -528,6 +551,8 @@ export class SessionBudgetService {
     sessionId: string,
     entry: BudgetEntry | undefined,
   ): Promise<HandoffCopy> {
+    // Stamped before the build: usage observed while it runs makes it stale.
+    const builtAtSeq = entry?.usageSeq ?? 0;
     const document = await this.buildHandoff(sessionId, entry);
     const written = await this.handoffWriter.write(sessionId, document.content);
     const copy: HandoffCopy = {
@@ -537,6 +562,7 @@ export class SessionBudgetService {
     };
     if (entry && this.isCurrent(entry)) {
       entry.handoffCopy = copy;
+      entry.handoffCopySeq = builtAtSeq;
       entry.handoff = {
         path: written.path,
         chars: document.chars,
@@ -629,6 +655,7 @@ export class SessionBudgetService {
       };
     }
     entry.extensions += 1;
+    entry.usageSeq += 1;
     const state = this.reevaluate(entry, {
       resetStage: true,
       runActions: true,
@@ -676,14 +703,21 @@ export class SessionBudgetService {
     return { success: true, ...this.stateField(entry), handoff: copy };
   }
 
-  /** The latest handoff in memory, else one built now (not written). */
+  /**
+   * The kept handoff when no newer usage (snapshot or extend) was observed
+   * since it was built, else one built now (not written). Rotation seeds the
+   * new session from this, so a copy older than the usage is never reused.
+   */
   private async previewHandoff(
     sessionId: string,
     entry: BudgetEntry | undefined,
   ): Promise<SessionBudgetActionResult> {
-    const kept = entry?.handoffCopy;
-    if (kept) {
-      return { success: true, ...this.stateField(entry), handoff: kept };
+    if (entry?.handoffCopy && entry.handoffCopySeq === entry.usageSeq) {
+      return {
+        success: true,
+        ...this.stateField(entry),
+        handoff: entry.handoffCopy,
+      };
     }
     const document = await this.buildHandoff(sessionId, entry);
     const built: HandoffCopy = {
@@ -721,18 +755,26 @@ export class SessionBudgetService {
       entry = {
         sessionId,
         snapshot: null,
+        usageSeq: 0,
         figure: null,
         configKey: null,
         compactions: 0,
         extensions: 0,
         actedRank: sessionBudgetStageRank('unknown'),
         handoffCopy: null,
+        handoffCopySeq: 0,
         warned: new Set<string>(),
         actions: Promise.resolve(),
       };
       this.entries.set(sessionId, entry);
     }
     return entry;
+  }
+
+  /** Store `snapshot`; a different snapshot is newer usage (`usageSeq`). */
+  private storeSnapshot(entry: BudgetEntry, snapshot: SessionStatsEntry): void {
+    if (entry.snapshot !== snapshot) entry.usageSeq += 1;
+    entry.snapshot = snapshot;
   }
 
   /** False once the session was released (or released and re-created). */
@@ -750,7 +792,26 @@ export class SessionBudgetService {
       ...(entry.window ? { window: entry.window } : {}),
       ...(entry.handoff ? { handoff: entry.handoff } : {}),
       ...(entry.dismissedStage ? { dismissedStage: entry.dismissedStage } : {}),
+      ...this.rotationField(entry.sessionId),
     };
+  }
+
+  /**
+   * Re-read the rotation advisory for an accepted snapshot: the port's last
+   * context reading, else the snapshot's last-turn context.
+   */
+  private evaluateRotation(snapshot: SessionStatsEntry): void {
+    this.rotationAdvisor.evaluate(
+      snapshot.sessionId,
+      snapshot.contextSnapshot?.contextTokens,
+    );
+  }
+
+  private rotationField(sessionId: string): {
+    readonly rotation?: SessionBudgetRotation;
+  } {
+    const rotation = this.rotationAdvisor.current(sessionId);
+    return rotation ? { rotation } : {};
   }
 
   /** The state published while `sessionBudget.enabled` is off. */
@@ -773,6 +834,7 @@ export class SessionBudgetService {
       compactions: entry.compactions,
       extensions: entry.extensions,
       blocked: false,
+      ...this.rotationField(snapshot.sessionId),
     };
   }
 

@@ -126,25 +126,44 @@ describe('LaneResumeGate', () => {
       });
     });
 
-    it('Codex: a missing rollout falls back to the estimate', async () => {
+    it('Codex: no rollout ignores the streamed turn sum and resumes on a short idle', async () => {
       const { gate, output } = gateWith(jest.fn(async () => null));
 
       const result = await gate.evaluate({
         cli: 'codex',
         cliSessionId: 'thread',
-        lastActivityAt: NOW,
-        lastRequestContext: { tokens: 70_000, source: 'estimate' },
+        lastActivityAt: NOW - 2 * 60_000,
+        // The `turn.completed` sum: never a per-request figure (R9.1).
+        lastRequestContext: { tokens: 120_000, source: 'estimate' },
       });
 
       expect(result).toMatchObject({
-        decision: 'fresh',
-        contextTokens: 70_000,
+        decision: 'resume',
+        contextTokens: null,
         source: 'estimate',
+        idleMs: 120_000,
       });
       expect(output.appendLine.mock.calls[0][0]).toContain('no rollout figure');
     });
 
-    it('Codex: an unreadable rollout falls back to the estimate and logs why', async () => {
+    it('Codex: no rollout decides on idle time only, fresh past 10 minutes', async () => {
+      const { gate } = gateWith(jest.fn(async () => null));
+
+      const result = await gate.evaluate({
+        cli: 'codex',
+        cliSessionId: 'thread',
+        lastActivityAt: NOW - 11 * 60_000,
+        lastRequestContext: { tokens: 120_000, source: 'estimate' },
+      });
+
+      expect(result).toMatchObject({
+        decision: 'fresh',
+        reason: 'idle 660s exceeds 600s',
+        contextTokens: null,
+      });
+    });
+
+    it('Codex: an unreadable rollout ignores the streamed sum and logs why', async () => {
       const { gate, output } = gateWith(
         jest.fn(async () => {
           throw new Error('EACCES: permission denied');
@@ -155,6 +174,7 @@ describe('LaneResumeGate', () => {
         cli: 'codex',
         cliSessionId: 'thread',
         lastActivityAt: NOW,
+        lastRequestContext: { tokens: 120_000, source: 'estimate' },
       });
 
       expect(result).toMatchObject({

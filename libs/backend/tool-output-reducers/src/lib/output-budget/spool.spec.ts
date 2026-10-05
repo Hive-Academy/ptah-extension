@@ -75,10 +75,53 @@ describe('spoolToolText', () => {
     const exists = Object.assign(new Error('exists'), { code: 'EEXIST' });
     const write = jest
       .spyOn(fsSync.promises, 'writeFile')
-      .mockRejectedValueOnce(exists);
+      .mockRejectedValueOnce(exists) // the .gitignore write
+      .mockRejectedValueOnce(exists); // the first spool file name
     const outcome = await spoolToolText('second', root, 7);
-    expect(write).toHaveBeenCalledTimes(2);
+    expect(write).toHaveBeenCalledTimes(3);
     expect('path' in outcome).toBe(true);
+  });
+});
+
+describe('spool .gitignore', () => {
+  it('writes a catch-all .gitignore once and never overwrites one', async () => {
+    const dir = spoolDir();
+    await writeSpoolFile('a', dir, 1);
+    const ignore = path.join(dir, '.gitignore');
+    expect(fsSync.readFileSync(ignore, 'utf8')).toBe('*\n');
+    fsSync.writeFileSync(ignore, 'custom\n');
+    await writeSpoolFile('b', dir, 2);
+    expect(fsSync.readFileSync(ignore, 'utf8')).toBe('custom\n');
+  });
+
+  it('still spools when the .gitignore cannot be written', async () => {
+    const dir = spoolDir();
+    fsSync.mkdirSync(path.join(dir, '.gitignore'), { recursive: true });
+    const outcome = await writeSpoolFile('c', dir, 3);
+    expect('path' in outcome).toBe(true);
+    expect(outcome).not.toHaveProperty('gitignoreFailure');
+  });
+
+  it('reports a non-EEXIST .gitignore failure once and still writes the spool file', async () => {
+    const eacces = Object.assign(new Error('EACCES /private/path'), {
+      code: 'EACCES',
+    });
+    const real = fsSync.promises.writeFile.bind(fsSync.promises);
+    const write = jest
+      .spyOn(fsSync.promises, 'writeFile')
+      .mockImplementation(((file: unknown, ...rest: unknown[]) =>
+        String(file).endsWith('.gitignore')
+          ? Promise.reject(eacces)
+          : (real as (...a: unknown[]) => Promise<void>)(
+              file,
+              ...rest,
+            )) as never);
+    const outcome = await writeSpoolFile('d', spoolDir(), 4);
+    if (!('path' in outcome)) throw new Error(outcome.failure);
+    expect(outcome.gitignoreFailure).toBe('EACCES');
+    expect(JSON.stringify(outcome)).not.toContain('/private/path');
+    expect(fsSync.readFileSync(outcome.path, 'utf8')).toBe('d');
+    expect(write).toHaveBeenCalledTimes(2);
   });
 });
 

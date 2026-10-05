@@ -21,7 +21,12 @@ export type SpoolRequestId = string | number | null | undefined;
 
 /** Where {@link spoolToolText} saved the text, or why it could not (an errno code or error name). */
 export type SpoolOutcome =
-  { readonly path: string } | { readonly failure: string };
+  | {
+      readonly path: string;
+      /** Errno code or error name when the `.gitignore` could not be written (EEXIST is not one); the file was still spooled. */
+      readonly gitignoreFailure?: string;
+    }
+  | { readonly failure: string };
 
 /** Where spool files go, and how a relative locator names the root. */
 export interface SpoolLocation {
@@ -143,6 +148,7 @@ export async function writeSpoolFile(
 ): Promise<SpoolOutcome> {
   try {
     await fs.mkdir(dir, { recursive: true });
+    const gitignoreFailure = await ensureSpoolGitignore(dir);
     for (let attempt = 0; attempt < SPOOL_NAME_ATTEMPTS; attempt++) {
       const file = path.join(dir, spoolFileName(requestId));
       try {
@@ -157,11 +163,34 @@ export async function writeSpoolFile(
         throw error;
       }
       await pruneSpoolDirectory(dir);
-      return { path: file };
+      return gitignoreFailure === undefined
+        ? { path: file }
+        : { path: file, gitignoreFailure };
     }
     return { failure: 'no free spool file name' };
   } catch (error) {
     return { failure: errorCode(error) ?? errorName(error) };
+  }
+}
+
+/**
+ * Writes `<dir>/.gitignore` containing `*` when none exists, so spooled raw
+ * tool output (which may hold secrets) is never committed from a user repo.
+ * The exclusive-create flag leaves an existing file alone (`EEXIST`, the
+ * normal case, is not a failure). Fail-open: any other failure is returned as
+ * its errno code or error name, so the caller can report it, and the spool
+ * proceeds.
+ */
+async function ensureSpoolGitignore(dir: string): Promise<string | undefined> {
+  try {
+    await fs.writeFile(path.join(dir, '.gitignore'), '*\n', {
+      encoding: 'utf8',
+      flag: 'wx',
+    });
+    return undefined;
+  } catch (error) {
+    const code = errorCode(error);
+    return code === 'EEXIST' ? undefined : (code ?? errorName(error));
   }
 }
 

@@ -69,6 +69,21 @@ describe('KNOWN_CONFIG_KEYS', () => {
       );
     });
 
+    it('exports the compaction budget and lane guard keys, and keeps compaction.threshold (TASK_2026_597 Wave D)', () => {
+      expect(KNOWN_CONFIG_KEYS).toEqual(
+        expect.arrayContaining([
+          'compaction.threshold',
+          'compaction.toolOutputBudgetTokens',
+          'compaction.subagentHandoffTokens',
+          'compaction.rotationSuggestTokens',
+          'compaction.subagentStopWeightedTokens',
+          'agentOrchestration.laneToolCallSteerAt',
+          'agentOrchestration.laneToolCallStopAt',
+          'agentOrchestration.laneRepeatCallStopAt',
+        ]),
+      );
+    });
+
     it('exports the subagent prompt-cache TTL key (TASK_2026_597 N1)', () => {
       expect(KNOWN_CONFIG_KEYS).toContain(
         'agentOrchestration.subagentPromptCacheTtl',

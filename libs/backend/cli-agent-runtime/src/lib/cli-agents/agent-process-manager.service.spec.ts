@@ -131,6 +131,7 @@ import type {
   CliDetectionResult,
   CliOutputSegment,
   CliSessionReference,
+  QuotaOwnerRef,
 } from '@ptah-extension/shared';
 
 // ---- Test Helpers ----
@@ -343,6 +344,18 @@ function createMockSentryService(): Record<string, jest.Mock> {
   };
 }
 
+/** Lane owner stub: no owner unless a test sets one (TASK_2026_596). */
+interface LaneOwnersStub {
+  ownerForLane: jest.Mock<QuotaOwnerRef | undefined, [string]>;
+}
+
+/** Plan-limit ledger stub (TASK_2026_596). */
+interface PlanLimitsStub {
+  recordWindowEvidence: jest.Mock;
+  recordOwnerEvidence: jest.Mock;
+  recordSuccess: jest.Mock;
+}
+
 interface ManagerHarness {
   manager: AgentProcessManager;
   outputBuffer: AgentOutputBuffer;
@@ -350,6 +363,8 @@ interface ManagerHarness {
   laneCompletion: { signal: jest.Mock };
   /** The stubbed resume gate (TASK_2026_597, R9.1); resumes by default. */
   resumeGate: { evaluate: jest.Mock };
+  laneOwners: LaneOwnersStub;
+  planLimits: PlanLimitsStub;
 }
 
 function createManager(deps: {
@@ -388,6 +403,14 @@ function createManager(deps: {
       idleMs: null,
     })),
   };
+  const laneOwners: LaneOwnersStub = {
+    ownerForLane: jest.fn<QuotaOwnerRef | undefined, [string]>(() => undefined),
+  };
+  const planLimits: PlanLimitsStub = {
+    recordWindowEvidence: jest.fn(),
+    recordOwnerEvidence: jest.fn(),
+    recordSuccess: jest.fn(),
+  };
   const manager = new AgentProcessManager(
     deps.logger,
     deps.cliDetection,
@@ -403,8 +426,10 @@ function createManager(deps: {
     // Stubbed: the decision itself is pinned by `lane-resume-gate.spec.ts`.
     // What these tests own is what the manager does with each decision.
     resumeGate as unknown as ManagerArgs[8],
+    laneOwners as unknown as ManagerArgs[9],
+    planLimits as unknown as ManagerArgs[10],
   );
-  return { manager, outputBuffer, laneCompletion, resumeGate };
+  return { manager, outputBuffer, laneCompletion, resumeGate, laneOwners, planLimits };
 }
 
 describe('AgentProcessManager - SDK Execution Path', () => {
@@ -412,6 +437,8 @@ describe('AgentProcessManager - SDK Execution Path', () => {
   let outputBuffer: AgentOutputBuffer;
   let laneCompletion: { signal: jest.Mock };
   let resumeGate: { evaluate: jest.Mock };
+  let laneOwners: LaneOwnersStub;
+  let planLimits: PlanLimitsStub;
   let logger: jest.Mocked<Logger>;
   let sdkControls: MockSdkHandleControls;
   let sdkAdapter: jest.Mocked<CliAdapter>;
@@ -432,14 +459,15 @@ describe('AgentProcessManager - SDK Execution Path', () => {
 
     reasoningEffortGet = jest.fn(() => '');
     getMcpPort = jest.fn<number | null, []>(() => null);
-    ({ manager, outputBuffer, laneCompletion, resumeGate } = createManager({
-      logger,
-      cliDetection,
-      workspaceProvider: createMockWorkspaceProvider(),
-      reasoningSettings: { effort: { get: reasoningEffortGet } },
-      harnessPreflight: null,
-      mcpServerStatus: { getPort: getMcpPort },
-    }));
+    ({ manager, outputBuffer, laneCompletion, laneOwners, planLimits, resumeGate } =
+      createManager({
+        logger,
+        cliDetection,
+        workspaceProvider: createMockWorkspaceProvider(),
+        reasoningSettings: { effort: { get: reasoningEffortGet } },
+        harnessPreflight: null,
+        mcpServerStatus: { getPort: getMcpPort },
+      }));
   });
 
   afterEach(() => {
@@ -1132,6 +1160,80 @@ describe('AgentProcessManager - SDK Execution Path', () => {
       expect(resumeGate.evaluate).not.toHaveBeenCalled();
     });
 
+    describe('Ptah CLI resumes (TASK_2026_614, E.4)', () => {
+      it('gates the resume before the handle is built and surfaces `fresh` over 60k', async () => {
+        restorePreviousLane();
+        resumeGate.evaluate.mockResolvedValueOnce({
+          decision: 'fresh',
+          reason: 'last request 61000 tokens exceeds 60000',
+          contextTokens: 61_000,
+          source: 'stream',
+          idleMs: 1_000,
+        });
+
+        const prepared = await manager.prepareSdkHandleSpawn({
+          cli: 'ptah-cli',
+          task: 'Fix the lexer tests',
+          resumeSessionId: SESSION,
+        });
+
+        expect(resumeGate.evaluate).toHaveBeenCalledWith({
+          cli: 'ptah-cli',
+          cliSessionId: SESSION,
+          lastActivityAt: Date.parse('2026-10-04T08:00:00.000Z'),
+        });
+        expect(prepared.resumeSessionId).toBeUndefined();
+        expect(prepared.task).toContain('Original task:\nImplement the parser');
+        expect(
+          prepared.task.endsWith('New instruction:\nFix the lexer tests'),
+        ).toBe(true);
+
+        const result = await manager.spawnFromSdkHandle(sdkControls.handle, {
+          task: 'Fix the lexer tests',
+          cli: 'ptah-cli',
+          workingDirectory: '/workspace/root',
+          resumeSessionId: prepared.resumeSessionId,
+          resumeDecision: prepared.resumeDecision,
+          originalTask: prepared.originalTask,
+        });
+
+        expect(result.resumeDecision).toEqual({
+          decision: 'fresh',
+          reason: 'last request 61000 tokens exceeds 60000',
+          sessionKnown: true,
+        });
+        const info = manager.getStatus(result.agentId) as AgentProcessInfo;
+        expect(info.originalTask).toBe('Implement the parser');
+      });
+
+      it('keeps the resume id and the task on `resume`', async () => {
+        restorePreviousLane();
+
+        const prepared = await manager.prepareSdkHandleSpawn({
+          cli: 'ptah-cli',
+          task: 'Fix the lexer tests',
+          resumeSessionId: SESSION,
+        });
+
+        expect(prepared).toEqual({
+          task: 'Fix the lexer tests',
+          resumeSessionId: SESSION,
+          resumeDecision: {
+            decision: 'resumed',
+            reason: expect.any(String),
+            sessionKnown: true,
+          },
+        });
+      });
+
+      it('does not consult the gate without a resume id', async () => {
+        await expect(
+          manager.prepareSdkHandleSpawn({ cli: 'ptah-cli', task: 'New work' }),
+        ).resolves.toEqual({ task: 'New work' });
+        expect(resumeGate.evaluate).not.toHaveBeenCalled();
+      });
+    });
+
     it('records the last streamed input figure as an estimate and hands it to the gate', async () => {
       const segmentCallbacks: Array<(segment: CliOutputSegment) => void> = [];
       Object.assign(sdkControls.handle, {
@@ -1706,6 +1808,404 @@ describe('AgentProcessManager - SDK Execution Path', () => {
       // Status should still be 'completed', not overridden by timeout
       const statusAfterTimeout = manager.getStatus(result.agentId);
       expect(statusAfterTimeout).toHaveProperty('status', 'completed');
+    });
+  });
+
+  // TASK_2026_596 (Component 10; Decision 4 S3; Gate 2 G3).
+  describe('plan limits at spawn and exit', () => {
+    const owner = (
+      providerId: string,
+      identityKind: QuotaOwnerRef['identityKind'],
+    ): QuotaOwnerRef => ({
+      key: `${providerId}#${identityKind}:0123456789abcdef`,
+      providerId,
+      identityKind,
+      label: 'Provider account',
+    });
+    const codexAccount = owner('openai-codex', 'account');
+    const codexUnknown = owner('openai-codex', 'unknown');
+    const antigravityStore = owner('antigravity', 'cli-store');
+
+    const spawnLane = async (
+      cli: 'codex' | 'antigravity' | 'opencode',
+      model?: string,
+    ): Promise<string> =>
+      (
+        await manager.spawn({
+          task: 'Task',
+          cli,
+          model,
+          workingDirectory: '/workspace/root',
+        })
+      ).agentId;
+
+    const settle = async (): Promise<void> => {
+      for (let i = 0; i < 3; i++) await Promise.resolve();
+    };
+
+    it('records the lane owner at spawn and announces it on agent:spawned', async () => {
+      laneOwners.ownerForLane.mockReturnValue(codexAccount);
+      const spawned = jest.fn();
+      manager.events.on('agent:spawned', spawned);
+
+      const agentId = await spawnLane('codex');
+
+      expect(laneOwners.ownerForLane).toHaveBeenCalledWith('codex');
+      expect(manager.getStatus(agentId)).toHaveProperty(
+        'quotaOwner',
+        codexAccount,
+      );
+      expect(spawned.mock.calls[0][0]).toMatchObject({
+        quotaOwner: codexAccount,
+      });
+    });
+
+    it('classifies a quota failure from the output tail and files owner evidence (F35)', async () => {
+      laneOwners.ownerForLane.mockReturnValue(codexAccount);
+      const agentId = await spawnLane('codex');
+
+      sdkControls.emitOutput(
+        "You've hit your usage limit. Upgrade to Pro or try again at 5:05 PM.\n",
+      );
+      sdkControls.resolve(1);
+      await settle();
+
+      expect(manager.getStatus(agentId)).toMatchObject({
+        status: 'failed',
+        failureKind: 'quota',
+      });
+      expect(planLimits.recordOwnerEvidence).toHaveBeenCalledWith(
+        codexAccount,
+        expect.objectContaining({
+          source: 'error-derived',
+          resetSource: 'error-derived',
+          resetsAt: expect.any(Number),
+        }),
+      );
+      expect(planLimits.recordWindowEvidence).not.toHaveBeenCalled();
+      expect(laneCompletion.signal.mock.calls[0][0]).toMatchObject({
+        failureKind: 'quota',
+      });
+    });
+
+    it('classifies from an error segment the adapter emitted', async () => {
+      laneOwners.ownerForLane.mockReturnValue(codexAccount);
+      const segmentCallbacks: Array<(segment: CliOutputSegment) => void> = [];
+      Object.assign(sdkControls.handle, {
+        onSegment: (cb: (segment: CliOutputSegment) => void) => {
+          segmentCallbacks.push(cb);
+        },
+      });
+      const agentId = await spawnLane('codex');
+
+      for (const cb of segmentCallbacks) {
+        cb({ type: 'error', content: 'Codex usage limit reached.' });
+      }
+      sdkControls.resolve(1);
+      await settle();
+
+      expect(manager.getStatus(agentId)).toHaveProperty('failureKind', 'quota');
+      expect(planLimits.recordOwnerEvidence).toHaveBeenCalledTimes(1);
+    });
+
+    it('leaves a non-quota failure a plain failure with no ledger write', async () => {
+      laneOwners.ownerForLane.mockReturnValue(codexAccount);
+      const agentId = await spawnLane('codex');
+
+      sdkControls.emitOutput('Error: request timed out after 60000ms\n');
+      sdkControls.resolve(1);
+      await settle();
+
+      const status = manager.getStatus(agentId) as AgentProcessInfo;
+      expect(status.status).toBe('failed');
+      expect(status.failureKind).toBeUndefined();
+      expect(planLimits.recordOwnerEvidence).not.toHaveBeenCalled();
+      expect(planLimits.recordWindowEvidence).not.toHaveBeenCalled();
+      expect(planLimits.recordSuccess).not.toHaveBeenCalled();
+    });
+
+    it('never classifies a timeout, even with quota wording in the output', async () => {
+      laneOwners.ownerForLane.mockReturnValue(codexAccount);
+      const agentId = (
+        await manager.spawn({
+          task: 'Slow task',
+          cli: 'codex',
+          workingDirectory: '/workspace/root',
+          timeout: 5000,
+        })
+      ).agentId;
+      sdkControls.emitOutput('usage limit reached, try again at 5:05 PM\n');
+      jest.advanceTimersByTime(OUTPUT_FLUSH_INTERVAL);
+
+      jest.advanceTimersByTime(6000);
+      sdkControls.resolve(1);
+      await settle();
+
+      const status = manager.getStatus(agentId) as AgentProcessInfo;
+      expect(status.status).toBe('timeout');
+      expect(status.failureKind).toBeUndefined();
+      expect(planLimits.recordOwnerEvidence).not.toHaveBeenCalled();
+    });
+
+    it('keeps the exit handling intact when the ledger write throws', async () => {
+      laneOwners.ownerForLane.mockReturnValue(codexAccount);
+      planLimits.recordOwnerEvidence.mockImplementation(() => {
+        throw new Error('storage down');
+      });
+      const exited = jest.fn();
+      manager.events.on('agent:exited', exited);
+      const agentId = await spawnLane('codex');
+
+      sdkControls.emitOutput('usage limit reached\n');
+      sdkControls.resolve(1);
+      await settle();
+      jest.advanceTimersByTime(5000);
+
+      expect(manager.getStatus(agentId)).toMatchObject({
+        status: 'failed',
+        failureKind: 'quota',
+      });
+      expect(laneCompletion.signal).toHaveBeenCalledTimes(1);
+      expect(exited).toHaveBeenCalledTimes(1);
+      expect(logger.warn).toHaveBeenCalledWith(
+        '[AgentProcessManager] Plan-limit ledger write failed',
+        expect.objectContaining({ agentId, errorName: 'Error' }),
+      );
+    });
+
+    it('records an antigravity completion as a plan-billed success on its model (F65)', async () => {
+      laneOwners.ownerForLane.mockReturnValue(antigravityStore);
+      await spawnLane('antigravity', 'Gemini-3-Pro');
+
+      sdkControls.resolve(0);
+      await settle();
+
+      expect(planLimits.recordSuccess).toHaveBeenCalledWith({
+        ownerKey: antigravityStore.key,
+        modelScopes: ['gemini-3-pro'],
+        billing: 'plan',
+        observedAt: expect.any(Number),
+      });
+    });
+
+    it.each([
+      ['codex', codexAccount],
+      ['opencode', owner('opencode', 'cli-store')],
+    ] as const)(
+      'records a %s completion with unknown billing, which clears nothing (F65)',
+      async (cli, laneOwner) => {
+        laneOwners.ownerForLane.mockReturnValue(laneOwner);
+        await spawnLane(cli);
+
+        sdkControls.resolve(0);
+        await settle();
+
+        expect(planLimits.recordSuccess).toHaveBeenCalledWith(
+          expect.objectContaining({
+            ownerKey: laneOwner.key,
+            billing: 'unknown',
+          }),
+        );
+      },
+    );
+
+    it('skips the S3 success for an unknown owner (F65)', async () => {
+      laneOwners.ownerForLane.mockReturnValue(owner('antigravity', 'unknown'));
+      await spawnLane('antigravity');
+
+      sdkControls.resolve(0);
+      await settle();
+
+      expect(planLimits.recordSuccess).not.toHaveBeenCalled();
+    });
+
+    it('skips every ledger write for a lane with no owner', async () => {
+      await spawnLane('codex');
+
+      sdkControls.emitOutput('usage limit reached\n');
+      sdkControls.resolve(1);
+      await settle();
+
+      expect(planLimits.recordOwnerEvidence).not.toHaveBeenCalled();
+      expect(planLimits.recordSuccess).not.toHaveBeenCalled();
+    });
+
+    it('upgrades an unknown owner at exit and files the evidence under the known one', async () => {
+      laneOwners.ownerForLane
+        .mockReturnValueOnce(codexUnknown)
+        .mockReturnValueOnce(codexAccount);
+      const agentId = await spawnLane('codex');
+
+      sdkControls.emitOutput('usage limit reached\n');
+      sdkControls.resolve(1);
+      await settle();
+
+      expect(manager.getStatus(agentId)).toHaveProperty(
+        'quotaOwner',
+        codexAccount,
+      );
+      expect(planLimits.recordOwnerEvidence).toHaveBeenCalledWith(
+        codexAccount,
+        expect.anything(),
+      );
+    });
+
+    describe('ptah-cli lanes are classified by their owner provider', () => {
+      const spawnPtahCliLane = async (
+        laneOwner?: QuotaOwnerRef,
+      ): Promise<string> => {
+        const { agentId } = await manager.spawnFromSdkHandle(
+          sdkControls.handle,
+          {
+            task: 'Task',
+            cli: 'ptah-cli',
+            workingDirectory: '/workspace/root',
+            ptahCliName: 'Lane',
+            ptahCliId: 'ptah-cli-1',
+          },
+        );
+        if (laneOwner) manager.recordQuotaOwner(agentId, laneOwner);
+        return agentId;
+      };
+      const RATE_LIMIT_429 =
+        'API Error: 429 Too Many Requests {"type":"rate_limit_error"}\n';
+
+      it('does not read an Anthropic lane 429 as quota', async () => {
+        const anthropic = owner('anthropic', 'account');
+        const agentId = await spawnPtahCliLane(anthropic);
+
+        sdkControls.emitOutput(RATE_LIMIT_429);
+        sdkControls.resolve(1);
+        await settle();
+
+        const status = manager.getStatus(agentId) as AgentProcessInfo;
+        expect(status.status).toBe('failed');
+        expect(status.failureKind).toBeUndefined();
+        expect(planLimits.recordOwnerEvidence).not.toHaveBeenCalled();
+      });
+
+      it('does not read a 429 as quota while the provider is unknown', async () => {
+        const agentId = await spawnPtahCliLane();
+
+        sdkControls.emitOutput(RATE_LIMIT_429);
+        sdkControls.resolve(1);
+        await settle();
+
+        expect(manager.getStatus(agentId)).not.toHaveProperty(
+          'failureKind',
+          'quota',
+        );
+      });
+
+      it('still reads the Ollama 429 wording on an ollama-cloud lane (F38)', async () => {
+        const ollama = owner('ollama-cloud', 'credential');
+        const agentId = await spawnPtahCliLane(ollama);
+
+        sdkControls.emitOutput('status 429: Too Many Requests\n');
+        sdkControls.resolve(1);
+        await settle();
+
+        expect(manager.getStatus(agentId)).toMatchObject({
+          status: 'failed',
+          failureKind: 'quota',
+        });
+        expect(planLimits.recordOwnerEvidence).toHaveBeenCalledWith(
+          ollama,
+          expect.objectContaining({ source: 'error-derived' }),
+        );
+      });
+
+      it('reads the Claude wording on an Anthropic lane', async () => {
+        const anthropic = owner('anthropic', 'account');
+        const agentId = await spawnPtahCliLane(anthropic);
+
+        sdkControls.emitOutput('5-hour limit reached ∙ resets 2am\n');
+        sdkControls.resolve(1);
+        await settle();
+
+        expect(manager.getStatus(agentId)).toHaveProperty(
+          'failureKind',
+          'quota',
+        );
+        expect(planLimits.recordWindowEvidence).toHaveBeenCalledWith(
+          anthropic,
+          expect.objectContaining({ key: 'five_hour' }),
+        );
+      });
+    });
+
+    describe('recordQuotaOwner()', () => {
+      it('upgrades unknown to known and announces it for immediate persistence', async () => {
+        laneOwners.ownerForLane.mockReturnValue(codexUnknown);
+        const announced = jest.fn();
+        manager.events.on('agent:quota-owner', announced);
+        const agentId = await spawnLane('codex');
+
+        expect(manager.recordQuotaOwner(agentId, codexAccount)).toBe(true);
+
+        expect(manager.getStatus(agentId)).toHaveProperty(
+          'quotaOwner',
+          codexAccount,
+        );
+        expect(announced).toHaveBeenCalledTimes(1);
+        expect(announced.mock.calls[0][0]).toMatchObject({
+          agentId,
+          status: 'running',
+          quotaOwner: codexAccount,
+        });
+      });
+
+      it('never overwrites a known owner', async () => {
+        laneOwners.ownerForLane.mockReturnValue(codexAccount);
+        const announced = jest.fn();
+        manager.events.on('agent:quota-owner', announced);
+        const agentId = await spawnLane('codex');
+        const other = {
+          ...codexAccount,
+          key: 'openai-codex#account:ffffffffffffffff',
+        };
+
+        expect(manager.recordQuotaOwner(agentId, other)).toBe(false);
+
+        expect(manager.getStatus(agentId)).toHaveProperty(
+          'quotaOwner',
+          codexAccount,
+        );
+        expect(announced).not.toHaveBeenCalled();
+      });
+
+      it('does not replace an unknown owner with another unknown one', async () => {
+        laneOwners.ownerForLane.mockReturnValue(codexUnknown);
+        const agentId = await spawnLane('codex');
+
+        expect(
+          manager.recordQuotaOwner(agentId, {
+            ...codexUnknown,
+            key: 'openai-codex#unknown:ffffffffffffffff',
+          }),
+        ).toBe(false);
+      });
+
+      it('returns false for an id it does not track', () => {
+        expect(manager.recordQuotaOwner('missing', codexAccount)).toBe(false);
+      });
+
+      it('carries an owner recorded during the exit grace delay onto agent:exited', async () => {
+        laneOwners.ownerForLane.mockReturnValue(codexUnknown);
+        const exited = jest.fn();
+        manager.events.on('agent:exited', exited);
+        const agentId = await spawnLane('codex');
+
+        sdkControls.resolve(0);
+        await settle();
+        // At exit the lookup still answered unknown; the account arrives late.
+        manager.recordQuotaOwner(agentId, codexAccount);
+        jest.advanceTimersByTime(5000);
+
+        expect(exited.mock.calls[0][0]).toMatchObject({
+          quotaOwner: codexAccount,
+        });
+      });
     });
   });
 

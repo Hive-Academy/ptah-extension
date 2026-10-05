@@ -54,6 +54,34 @@ export const SDK_TOKENS = {
   SDK_SUBAGENT_HOOK_HANDLER: Symbol.for('SdkSubagentHookHandler'),
   SDK_COMPACTION_CONFIG_PROVIDER: Symbol.for('SdkCompactionConfigProvider'),
   SDK_COMPACTION_HOOK_HANDLER: Symbol.for('SdkCompactionHookHandler'),
+  /**
+   * `ToolOutputCapper`: caps Bash, PowerShell, Grep, Read and non-Ptah MCP
+   * tool output at `compaction.toolOutputBudgetTokens` (TASK_2026_597 A3).
+   */
+  SDK_TOOL_OUTPUT_CAPPER: Symbol.for('SdkToolOutputCapper'),
+  /**
+   * Optional `CodeOutliner` (`@ptah-extension/tool-output-reducers`) the
+   * capper outlines over-budget source files with. Bound by the hosts (the
+   * tree-sitter outliner); when absent, Read reduction takes the log reducer
+   * plus the file path pointer.
+   */
+  SDK_CODE_OUTLINER: Symbol.for('SdkCodeOutliner'),
+  /**
+   * `CompactionCoordinator`: the per-session compaction state machine
+   * (TASK_2026_597 A8). Singleton — one record per live session.
+   */
+  SDK_COMPACTION_COORDINATOR: Symbol.for('SdkCompactionCoordinator'),
+  /**
+   * `ContextUsagePort`: the single per-turn `getContextUsage` reader, cached
+   * per session and turn for the coordinator and the rotation advisor.
+   */
+  SDK_CONTEXT_USAGE_PORT: Symbol.for('SdkContextUsagePort'),
+  /**
+   * `SubagentBudgetMonitor`: per-subagent context and weighted-token budget
+   * watcher fed by the executor's forwarded subagent messages
+   * (TASK_2026_597 A8). Singleton.
+   */
+  SDK_SUBAGENT_BUDGET_MONITOR: Symbol.for('SdkSubagentBudgetMonitor'),
 
   SDK_COMPACTION_CALLBACK_REGISTRY: Symbol.for('SdkCompactionCallbackRegistry'),
   SDK_COMPACTION_BOUNDARY_GENERATION_REGISTRY: Symbol.for(
@@ -169,6 +197,18 @@ export const SDK_TOKENS = {
   SDK_SESSION_MCP_STATUS_CALLBACK_REGISTRY: Symbol.for(
     'SdkSessionMcpStatusCallbackRegistry',
   ),
+  /**
+   * Fan-out for a native Claude session's plan-limit signals (`turn-start`,
+   * `evidence`, `success`) from `StreamTransformer` (TASK_2026_596). The
+   * plan-limit ledger in `auth-providers` subscribes.
+   */
+  SDK_SESSION_PLAN_LIMIT_REGISTRY: Symbol.for('SdkSessionPlanLimitRegistry'),
+  /**
+   * `SessionQuotaProbe`: a live native session's `accountInfo()` (re-read
+   * once per turn), on-demand `/usage` and route kind (TASK_2026_596). The
+   * owner resolver and the Claude plan reader in `auth-providers` inject it.
+   */
+  SDK_SESSION_QUOTA_PROBE: Symbol.for('SdkSessionQuotaProbe'),
   /**
    * Tracks failed stdio/HTTP MCP servers and manages exponential back-off to prevent
    * repeated subprocess leaks on consecutive sessions (TASK_2026_479).

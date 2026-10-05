@@ -1,3 +1,7 @@
+// `./wait-tools-args.schema` takes its wait ceiling from
+// `@ptah-extension/cli-agent-runtime`, whose barrel reaches tsyringe
+// decorators on import.
+import 'reflect-metadata';
 import { resolve } from 'node:path';
 import type { AgentWaitResult } from '@ptah-extension/cli-agent-runtime';
 import type {
@@ -98,7 +102,53 @@ describe('runAgentWait', () => {
       }),
       d,
     );
-    expect(d.waitForAgents).toHaveBeenCalledWith(['a', 'b'], 'any', 30_000);
+    expect(d.waitForAgents).toHaveBeenCalledWith(
+      ['a', 'b'],
+      'any',
+      30_000,
+      undefined,
+    );
+  });
+
+  it('forwards the signal and reports a fired one as a cancelled partial result (E.3)', async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const d = deps(
+      {
+        mode: 'all',
+        timedOut: false,
+        cancelled: true,
+        waitedMs: 2_000,
+        entries: [
+          {
+            agentId: 'lane-1',
+            state: 'running',
+            info: info('lane-1', {
+              status: 'running',
+              exitCode: undefined,
+              completedAt: undefined,
+            }),
+          },
+        ],
+      },
+      { signal: controller.signal },
+    );
+
+    const text = await runAgentWait(
+      AgentWaitArgsSchema.parse({ agentIds: ['lane-1'], timeoutSec: 30 }),
+      d,
+    );
+
+    expect(d.waitForAgents).toHaveBeenCalledWith(
+      ['lane-1'],
+      'all',
+      30_000,
+      controller.signal,
+    );
+    expect(text).toContain('WAIT CANCELLED after 2s waiting for all');
+    expect(text).toContain('0 of 1 known lane(s) ended, 1 still running');
+    expect(text).not.toContain('TIMED OUT');
+    expect(d.readOutput).not.toHaveBeenCalled();
   });
 
   it('reports status, exit code, duration, stop reason, deliverables and last lines', async () => {
@@ -150,6 +200,32 @@ describe('runAgentWait', () => {
     expect(text).toContain('gone.md: MISSING');
     expect(text).toContain('Last lines:\n    line one\n    line two');
     expect(text).toContain('ptah_agent_read');
+  });
+
+  it('names the lane budget guard stop reason instead of "on request"', async () => {
+    const lane = (stopReason?: 'tool-call-budget' | 'repeat-call') => ({
+      agentId: 'lane-1',
+      state: 'exited' as const,
+      info: info('lane-1', { status: 'stopped', exitCode: 1, stopReason }),
+    });
+    const run = (stopReason?: 'tool-call-budget' | 'repeat-call') =>
+      runAgentWait(
+        AgentWaitArgsSchema.parse({ agentIds: ['lane-1'], timeoutSec: 30 }),
+        deps({
+          mode: 'all',
+          timedOut: false,
+          waitedMs: 1,
+          entries: [lane(stopReason)],
+        }),
+      );
+
+    expect(await run('tool-call-budget')).toContain(
+      'stopped by the lane budget guard: tool-call budget reached',
+    );
+    expect(await run('repeat-call')).toContain(
+      'stopped by the lane budget guard: repeated identical call',
+    );
+    expect(await run()).toContain('stopped on request');
   });
 
   it('reports a timeout as a partial result with running lanes and per-id unknowns', async () => {

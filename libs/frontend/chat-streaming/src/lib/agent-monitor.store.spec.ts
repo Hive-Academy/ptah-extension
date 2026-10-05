@@ -25,10 +25,12 @@ import type {
   AgentStatusEvent,
   AgentCompletedEvent,
   AgentStartEvent,
+  AgentOutputDelta,
   BackgroundAgentStartedEvent,
   CliSessionReference,
   FlatStreamEventUnion,
   MessageCompleteEvent,
+  QuotaOwnerRef,
 } from '@ptah-extension/shared';
 import { calculateMessageCost } from '@ptah-extension/shared';
 
@@ -1332,6 +1334,183 @@ describe('AgentMonitorStore', () => {
     });
   });
 
+  describe('lane run accounting (TASK_2026_596)', () => {
+    const OWNER_A: QuotaOwnerRef = {
+      key: 'anthropic#account:fp-a',
+      providerId: 'anthropic',
+      identityKind: 'account',
+      label: 'Claude account',
+    };
+    const OWNER_UNKNOWN: QuotaOwnerRef = {
+      key: 'codex#unknown:fp-u',
+      providerId: 'codex',
+      identityKind: 'unknown',
+      label: 'Codex account',
+    };
+    const OWNER_KNOWN: QuotaOwnerRef = {
+      key: 'codex#account:fp-k',
+      providerId: 'codex',
+      identityKind: 'account',
+      label: 'Codex account',
+    };
+
+    const card = (agentId: string) =>
+      store.agents().find((a) => a.agentId === agentId);
+
+    function spawnLane(agentId: string, extra: Record<string, unknown>): void {
+      store.onAgentSpawned({
+        agentId,
+        cli: 'codex',
+        task: `Task for ${agentId}`,
+        status: 'running',
+        startedAt: new Date().toISOString(),
+        ...extra,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any);
+    }
+
+    function exitLane(agentId: string, extra: Record<string, unknown>): void {
+      store.onAgentExited({
+        agentId,
+        cli: 'codex',
+        task: `Task for ${agentId}`,
+        status: 'failed',
+        startedAt: new Date().toISOString(),
+        exitCode: 1,
+        ...extra,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any);
+    }
+
+    it('starts a live lane with unknown usage (null) and copies role and owner', () => {
+      spawnLane('lane-1', { role: 'reviewer', quotaOwner: OWNER_A });
+
+      expect(card('lane-1')?.usageTotals).toBeNull();
+      expect(card('lane-1')?.role).toBe('reviewer');
+      // The full G3 reference is carried, not a key string.
+      expect(card('lane-1')?.quotaOwner).toEqual(OWNER_A);
+      expect(card('lane-1')?.failureKind).toBeUndefined();
+    });
+
+    it('folds every usage-bearing segment of a delta into usageTotals', () => {
+      spawnLane('lane-2', {});
+      store.onAgentOutput({
+        agentId: 'lane-2',
+        segments: [
+          { type: 'text', content: 'a', usage: { inputTokens: 10 } },
+          {
+            type: 'info',
+            content: 'done',
+            usage: { model: 'gpt-5', outputTokens: 4, costUsd: 0.25 },
+          },
+        ],
+      } as AgentOutputDelta);
+      store.onAgentOutput({
+        agentId: 'lane-2',
+        segments: [{ type: 'text', content: 'b' }],
+      } as AgentOutputDelta);
+
+      expect(card('lane-2')?.usageTotals).toEqual({
+        model: 'gpt-5',
+        inputTokens: 10,
+        outputTokens: 4,
+        totalTokens: undefined,
+        costUsd: 0.25,
+        durationMs: undefined,
+      });
+    });
+
+    it('copies failureKind on exit and upgrades an unknown owner to the known one', () => {
+      spawnLane('lane-3', { quotaOwner: OWNER_UNKNOWN });
+      exitLane('lane-3', { failureKind: 'quota', quotaOwner: OWNER_KNOWN });
+
+      expect(card('lane-3')?.failureKind).toBe('quota');
+      expect(card('lane-3')?.quotaOwner).toEqual(OWNER_KNOWN);
+    });
+
+    it('keeps the spawn-time owner and role when the exit payload omits them', () => {
+      spawnLane('lane-4', { role: 'tester', quotaOwner: OWNER_A });
+      exitLane('lane-4', {});
+
+      expect(card('lane-4')?.quotaOwner).toEqual(OWNER_A);
+      expect(card('lane-4')?.role).toBe('tester');
+      expect(card('lane-4')?.failureKind).toBeUndefined();
+    });
+
+    it('clears a previous failure on re-open but keeps the folded usage', () => {
+      spawnLane('lane-5', { quotaOwner: OWNER_A });
+      store.onAgentOutput({
+        agentId: 'lane-5',
+        segments: [{ type: 'info', content: 'r', usage: { inputTokens: 7 } }],
+      } as AgentOutputDelta);
+      exitLane('lane-5', { failureKind: 'quota' });
+
+      spawnLane('lane-5', {});
+
+      expect(card('lane-5')?.failureKind).toBeUndefined();
+      expect(card('lane-5')?.quotaOwner).toEqual(OWNER_A);
+      expect(card('lane-5')?.usageTotals?.inputTokens).toBe(7);
+    });
+
+    it('restores runs with usageTotals null and the recorded quotaOwner', () => {
+      store.loadCliSessions(
+        [
+          {
+            agentId: 'restored-a',
+            cli: 'codex',
+            task: 'restored with owner',
+            startedAt: '2026-09-01T00:00:00.000Z',
+            status: 'completed',
+            quotaOwner: OWNER_A,
+            segments: [
+              {
+                type: 'info',
+                content: 'persisted result',
+                usage: { inputTokens: 100, outputTokens: 50 },
+              },
+            ],
+          } as unknown as CliSessionReference,
+          {
+            agentId: 'restored-legacy',
+            cli: 'codex',
+            task: 'restored without owner',
+            startedAt: '2026-09-01T00:00:00.000Z',
+            status: 'completed',
+          } as unknown as CliSessionReference,
+        ],
+        'sess-restore',
+      );
+
+      // Persisted usage segments are NOT folded: restored tokens and cost
+      // read "unknown", never a total and never 0.
+      expect(card('restored-a')?.usageTotals).toBeNull();
+      expect(card('restored-a')?.quotaOwner).toEqual(OWNER_A);
+      expect(card('restored-legacy')?.usageTotals).toBeNull();
+      expect(card('restored-legacy')?.quotaOwner).toBeUndefined();
+    });
+
+    it('marks only cards rebuilt by loadCliSessions as restored, whatever their status', () => {
+      spawnLane('live-done', {});
+      exitLane('live-done', {});
+      store.loadCliSessions(
+        [
+          {
+            agentId: 'restored-running',
+            cli: 'codex',
+            task: 'restored while the backend still runs it',
+            startedAt: '2026-09-01T00:00:00.000Z',
+            status: 'running',
+          } as unknown as CliSessionReference,
+        ],
+        'sess-restore-flag',
+      );
+
+      // A finished live card is not restored; a running restored card is.
+      expect(card('live-done')?.restored).toBeUndefined();
+      expect(card('restored-running')?.restored).toBe(true);
+    });
+  });
+
   describe('resumeAgentWithMessage', () => {
     const expired = {
       agentId: 'agent-x',
@@ -1494,6 +1673,53 @@ describe('AgentMonitorStore', () => {
         }),
       );
       expect(typeof v.estimatedCostUsd).toBe('number');
+    });
+
+    it('uses the backend contextTokens when present, ignoring the local sum', () => {
+      start();
+      store.onSubagentMessageComplete(
+        complete('m1', {
+          input: 3,
+          output: 30,
+          cacheRead: 40_000,
+          cacheCreation: 500,
+          contextTokens: 12_345,
+        }),
+      );
+
+      expect(view().contextTokens).toBe(12_345);
+    });
+
+    it('uses the backend contextTokens even when cache fields are absent', () => {
+      start();
+      store.onSubagentMessageComplete(
+        complete('m1', { input: 3, output: 30, contextTokens: 777 }),
+      );
+
+      expect(view().contextTokens).toBe(777);
+    });
+
+    it('falls back to the local sum when a later event lacks contextTokens', () => {
+      start();
+      store.onSubagentMessageComplete(
+        complete('m1', {
+          input: 1,
+          output: 1,
+          cacheRead: 1,
+          cacheCreation: 1,
+          contextTokens: 9_999,
+        }),
+      );
+      store.onSubagentMessageComplete(
+        complete('m2', {
+          input: 3,
+          output: 30,
+          cacheRead: 40_000,
+          cacheCreation: 500,
+        }),
+      );
+
+      expect(view().contextTokens).toBe(3 + 40_000 + 500);
     });
 
     it('replaces a repeated report of the same message instead of adding it again', () => {

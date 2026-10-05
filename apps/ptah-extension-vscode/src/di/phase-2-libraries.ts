@@ -33,6 +33,7 @@ import {
   BROWSER_CAPABILITIES_TOKEN,
   ChromeLauncherBrowserCapabilities,
   McpCallerWorkspaceResolver,
+  TreeSitterCodeOutliner,
 } from '@ptah-extension/vscode-lm-tools';
 import { VscodeIDECapabilities } from '@ptah-extension/vscode-lm-tools/vscode';
 import {
@@ -149,6 +150,13 @@ export function registerPhase2Libraries(
     });
   }
   registerAuthProvidersServices(container, logger);
+  // Code outliner for the tool-output capper: must be bound BEFORE
+  // registerSdkServices' capper is first resolved (it looks the token up then).
+  // The parser is resolved lazily; workspace-intelligence registered it above.
+  container.register(SDK_TOKENS.SDK_CODE_OUTLINER, {
+    useFactory: (c) =>
+      new TreeSitterCodeOutliner(c.resolve(TOKENS.TREE_SITTER_PARSER_SERVICE)),
+  });
   registerSdkServices(container, logger);
   container.register(PLATFORM_TOKENS.EDITOR_LAUNCHER, {
     useValue: new VscodeEditorLauncher(

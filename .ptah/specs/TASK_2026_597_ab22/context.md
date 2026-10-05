@@ -188,17 +188,56 @@ OUT:
    Lesson: a limit in the prompt is advice only. Two developers ignored it (Batch 34: 165 calls, 310k context; S4-a
    fix round: 141 calls, 178k). TASK_2026_613 adds a hard `maxTurns`; until then the orchestrator states the limit
    and splits work small enough to fit it.
+9. Wave D (2026-10-04, fifth session, one AskUserQuestion):
+   - Setting keys: PULL S3 Batch 16 + Tasks 17.3-17.5 into Wave D, ahead of Batch 25. Task 17.1 (read-only AS14
+     host check) runs too, because 17.3 depends on it. Tasks 16.1 and 17.2 (compaction RPC + migration) are part of
+     Batch 16 / 17 as the team-leader decides; the user chose "Batch 16 + Tasks 17.3-17.5".
+   - A6: REBUILD on the N8 pieces from #639. Batch 29 `seedPrompt` uses `session-handoff-builder`; Batch 31 builds
+     on `session-budget-banner` (no second banner); Task 26.2 reuses the N8 `getContextUsage` read.
+   - PR #642 CI fix `a806e6e17` (`requestCanvasTab` workspace path after the main merge) pushed with user approval.
+10. Push/PR authorization (2026-10-04, fifth session, user): "push once the agent finishes and whenever we finish the
+    task push and open a PR as well don't wait for my input on that". The orchestrator pushes the PR #642 review
+    fixes when they are committed, and pushes + opens the Wave D PR at the end without asking.
 
 ## Workspace
 
 - S4 worktree: `D:\projects\ptah-extension\.claude-worktrees\task-597-s4` (node_modules is a junction to the main
   checkout). Branch `fix/task-597-s4-lane-guards`, PR #642 (S4-a). Reuse this worktree and branch for S4 Wave D
   only if PR #642 is still open; once #642 merges, start Wave D on a NEW branch from the latest `origin/main`.
+- 2026-10-04: PR #642 MERGED (`0a0438384`, includes the review fixes `50eb14bce`, `ccd8a8a9c`). Wave D continues in
+  the same worktree on NEW branch `fix/task-597-s4-wave-d` (its base `ccd8a8a9c` is the parent of the #642 merge, so
+  the PR diff is only the Wave D commits). The worktree was kept because Wave D agents were editing in it.
 - PR 3 (merged as #639): branch `fix/task-597-session-budget`. PR 2 (merged as #637) and PR 1 (merged as #634):
   do not reuse them. The worktrees `.claude-worktrees/task-597-session-budget` and `task-597-followups` can be
   removed.
 - Avoid the files of TASK_2026_609_c495: agent-generation services/templates, `.claude/agents`, the system-prompt
   parts of `sdk-query-options-builder.ts`.
+
+## Handoff 5 (2026-10-05, end of fifth orchestration session)
+
+- PR #642 (S4-a) MERGED (`0a0438384`) with the CI fix `a806e6e17` and the 8 CodeRabbit fixes (`50eb14bce` curator,
+  `ccd8a8a9c` waits/run_check/waitFor).
+- S4 Wave D COMPLETE on `fix/task-597-s4-wave-d` (same worktree): Batch 16 (16.2, 16.3), 17a (17.1, 17.3), 17b (17.4,
+  17.5), 25a, 25b, 26a, 26b, 27a, 27b, 28a-28e (Component 10.1-10.3), 29a, 29b, 31, 35a-35c; 29.3 and 30.1 NO-OP (D-2).
+  Decisions: D-1..D-5 accepted; D-6 dwell 300 s; CLI host does not bind `SDK_CODE_OUTLINER` (reducer fallback).
+- Phase S4-b review: code-logic A REVISE (1 S), code-logic B REVISE (2 S), style REVISE (2 S), visual APPROVED (1 S).
+  One fix round `73f882d8c` (A-S1, B-S1/S2/M1/M2/M4, style S1/S2 + barrels, A-M3 spool `.gitignore`, visual S1), then
+  the re-review `reviews/s4b-code-logic-rereview.md` APPROVED (14/14 resolved; new Minors N1 fallback warn logs the
+  defaults not the invalid values, N2 unchecked `as number` on the defaults lookup, N3 spool `.gitignore` catch logs
+  nothing — named later tasks).
+- Named later tasks from S4-b: A-M1 (outline keeps original Read line numbers), A-M2 (tracker/monitor released only
+  on abort), A-M4 (subagent stop has no off switch, ignores `compaction.enabled`), B-M3 (OpenCode `command` segments
+  not counted by the guard), B-M5 ("Keep this session" lost when the banner is rebuilt), B-M6 (Rotate may reuse an
+  older handoff copy), 28b TTL not passed to the monitor (5m weight), 28a handoff message has no task text and no
+  dispatcher ordering lock, CLI outliner binding, all Minors in the three review files. Flakes seen under load:
+  `session-handoff-writer.spec.ts`, `subagent-message-dispatcher.spec.ts`, `markdown.reducer.spec.ts`,
+  `electron-shell.review-dock.spec.ts` (all pass alone).
+- Worktree lesson: `api-*`, `ptah-license-server`, `ptah-landing-page-e2e` fail typecheck here (no Prisma client);
+  exclude them from affected sets. Judge checks by exit code, not by grepping colored output.
+- MOVED (2026-10-05, user): every remaining stage and named later task is now TASK_2026_614_327a (its context.md
+  § Work list). This task closes with PR #647.
+- Former NEXT (now in TASK_2026_614): after the Wave D PR merges: S3 rest (12-15, 16.1, 17.2 with the `compaction.threshold` migration, 18-22, owns
+  PR1-M2), S1b (8-9 + Task 9.3), S2 (11), then the QA session (Handoff 4 list) and the named later tasks.
 
 ## Handoff 4 (2026-10-04, end of fourth orchestration session)
 

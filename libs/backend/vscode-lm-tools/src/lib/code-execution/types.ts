@@ -16,6 +16,7 @@ import type {
 import type {
   AgentReportDelivery,
   AgentReportInput,
+  LaneLimitResult,
   AgentWaitMode,
   AgentWaitResult,
 } from '@ptah-extension/cli-agent-runtime';
@@ -310,6 +311,11 @@ export interface AgentNamespace {
    */
   spawn: (request: SpawnAgentRequest) => Promise<SpawnAgentResult>;
 
+  /** Optional plan-limit enrichment for agent tool transports. */
+  limits?: (
+    rows: readonly CliDetectionResult[],
+  ) => Promise<readonly LaneLimitResult<CliDetectionResult>[] | undefined>;
+
   /**
    * Get status of a specific agent or all agents
    * @param agentId - Optional agent ID. Omit to get all agents.
@@ -398,11 +404,14 @@ export interface AgentNamespace {
    * or until `timeoutMs` (clamped to 0..900000) passes. A timeout is a
    * partial result (`timedOut: true`), never an error; unknown ids and ids
    * from another workspace are reported per id. Backs `ptah_agent_wait`.
+   * An aborted `signal` ends the wait early with `cancelled: true`; the
+   * lanes themselves keep running.
    */
   waitForAgents: (
     agentIds: readonly string[],
     mode: AgentWaitMode,
     timeoutMs: number,
+    signal?: AbortSignal,
   ) => Promise<AgentWaitResult>;
 }
 

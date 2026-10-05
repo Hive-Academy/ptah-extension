@@ -25,7 +25,15 @@ import {
   NO_ACTIVITY_TIMEOUT_MS,
 } from './no-activity-watchdog';
 import { CompactionBoundaryGenerationRegistry } from './compaction-boundary-generation-registry';
+import { CompactionCoordinator } from './compaction/compaction-coordinator';
+import {
+  COMPACTION_MAX_DWELL_MS,
+  CompactionState,
+} from './compaction/compaction-state.types';
 import type { CompactionCallbackRegistry } from './compaction-callback-registry';
+import { ContextUsagePort } from './compaction/context-usage.port';
+import type { SubagentBudgetMonitor } from './compaction/subagent-budget-monitor';
+import type { SessionEndCallbackRegistry } from './session-end-callback-registry';
 import type {
   SdkAdapterEvents,
   SdkAdapterCompactionCompleteEvent,
@@ -249,11 +257,11 @@ describe('CompactionHookHandler — PreCompact sessionId resolution (TASK_2026_2
 });
 
 /**
- * TASK_2026_411 B8 — metadata-only attempt timing, and the proof that a slow
- * compaction is not killed. Upstream summarization was measured at 213-216 s,
- * longer than the 180 s no-activity window, so the watchdog must report the
- * compaction as overdue and keep waiting, and the late PostCompact must still
- * reach the completion bus and release the compaction from the watchdog.
+ * TASK_2026_411 B8 — metadata-only attempt timing. Upstream summarization was
+ * measured at 213-216 s, longer than the 180 s no-activity window, so the
+ * watchdog reports the compaction as overdue and keeps waiting until the
+ * TASK_2026_597 A8 bound, COMPACTION_MAX_DWELL_MS (300 s); only past that bound
+ * does it take its timeout path.
  */
 describe('CompactionHookHandler — PreCompact → PostCompact correlation (TASK_2026_414 Gap 2)', () => {
   const signal = new AbortController().signal;
@@ -439,7 +447,7 @@ describe('CompactionHookHandler — PreCompact → PostCompact correlation (TASK
   });
 });
 
-describe('CompactionHookHandler — attempt timing and the 180 s watchdog (TASK_2026_411 B8)', () => {
+describe('CompactionHookHandler — attempt timing and the bounded watchdog (TASK_2026_411 B8, TASK_2026_597 A8)', () => {
   const SECRET_SUMMARY = 'SECRET-SUMMARY-TEXT-must-not-be-logged';
   const SECRET_INSTRUCTIONS = 'SECRET-INSTRUCTIONS-must-not-be-logged';
 
@@ -524,7 +532,7 @@ describe('CompactionHookHandler — attempt timing and the 180 s watchdog (TASK_
     await fire('PreCompact', preCompact());
     jest.advanceTimersByTime(180_000);
 
-    // Overdue, reported, and NOT aborted.
+    // Overdue, reported, and NOT aborted: 216 s is inside the 300 s bound.
     expect(onOverdue).toHaveBeenCalledWith(['compaction']);
     expect(onTimeout).not.toHaveBeenCalled();
 
@@ -558,6 +566,39 @@ describe('CompactionHookHandler — attempt timing and the 180 s watchdog (TASK_
     // window is a real no-activity timeout again.
     jest.advanceTimersByTime(NO_ACTIVITY_TIMEOUT_MS);
     expect(onTimeout).toHaveBeenCalledTimes(1);
+    watchdog.stop();
+  });
+
+  it('a compaction still open at COMPACTION_MAX_DWELL_MS (300 s) takes the watchdog timeout path where the coordinator controls the session', async () => {
+    jest.useFakeTimers();
+    const handler = new CompactionHookHandler(
+      makeLogger(),
+      makeUsageTracker(0) as unknown as LiveUsageTracker,
+      undefined,
+      makeEvents().stub,
+    );
+    const onTimeout = jest.fn();
+    const watchdog = new NoActivityWatchdog(
+      NO_ACTIVITY_TIMEOUT_MS,
+      onTimeout,
+      jest.fn(),
+      () => true,
+    );
+    const handlerHooks = handler.createHooks('sess-slow', '/repo', jest.fn());
+    const watchdogHooks = watchdog.lifecycleHooks();
+    const signal = new AbortController().signal;
+    watchdog.start();
+    for (const hooks of [watchdogHooks, handlerHooks]) {
+      await hooks.PreCompact?.[0]?.hooks?.[0]?.(preCompact(), undefined, {
+        signal,
+      });
+    }
+
+    jest.advanceTimersByTime(COMPACTION_MAX_DWELL_MS - 1);
+    expect(onTimeout).not.toHaveBeenCalled();
+    jest.advanceTimersByTime(1);
+    expect(onTimeout).toHaveBeenCalledTimes(1);
+    expect(onTimeout).toHaveBeenCalledWith('compaction-dwell');
     watchdog.stop();
   });
 
@@ -880,5 +921,305 @@ describe('CompactionHookHandler — PostCompact hook (TASK_2026_137 Phase 1)', (
       expect.stringContaining('missing sessionId or cwd'),
       expect.objectContaining({ hasSessionId: true, hasCwd: false }),
     );
+  });
+});
+
+describe('CompactionHookHandler — compaction coordinator wiring (TASK_2026_597 A8)', () => {
+  const signal = new AbortController().signal;
+  let coordinator: CompactionCoordinator;
+
+  beforeEach(() => {
+    coordinator = new CompactionCoordinator();
+    coordinator.register('REAL-sdk-id', { codexProxy: false, e2Passed: true });
+  });
+
+  afterEach(() => {
+    coordinator.dispose();
+  });
+
+  function makeEventsStub(): {
+    stub: SdkAdapterEvents;
+    emitted: SdkAdapterCompactionCompleteEvent[];
+  } {
+    const emitted: SdkAdapterCompactionCompleteEvent[] = [];
+    const stub = {
+      emitCompactionComplete: jest.fn(
+        (event: SdkAdapterCompactionCompleteEvent) => {
+          emitted.push(event);
+        },
+      ),
+    } as unknown as SdkAdapterEvents;
+    return { stub, emitted };
+  }
+
+  function makeHandler(target: CompactionCoordinator): {
+    handler: CompactionHookHandler;
+    logger: jest.Mocked<Logger>;
+    emitted: SdkAdapterCompactionCompleteEvent[];
+  } {
+    const logger = makeLogger();
+    const { stub, emitted } = makeEventsStub();
+    const handler = new CompactionHookHandler(
+      logger,
+      makeUsageTracker(0) as unknown as LiveUsageTracker,
+      undefined,
+      stub,
+      new CompactionBoundaryGenerationRegistry(),
+      target,
+    );
+    return { handler, logger, emitted };
+  }
+
+  function pre(sessionIdOnPayload?: string): HookInput {
+    return {
+      hook_event_name: 'PreCompact',
+      trigger: 'manual',
+      cwd: '/repo',
+      custom_instructions: null,
+      ...(sessionIdOnPayload ? { session_id: sessionIdOnPayload } : {}),
+    } as unknown as HookInput;
+  }
+
+  function post(sessionIdOnPayload?: string): HookInput {
+    return {
+      hook_event_name: 'PostCompact',
+      trigger: 'manual',
+      cwd: '/repo',
+      compact_summary: 'summary',
+      ...(sessionIdOnPayload ? { session_id: sessionIdOnPayload } : {}),
+    } as unknown as HookInput;
+  }
+
+  it('PreCompact reaches the coordinator under the resolved session id and opens the compaction', async () => {
+    const onPreCompact = jest.spyOn(coordinator, 'onPreCompact');
+    const { handler } = makeHandler(coordinator);
+    const hooks = handler.createHooks('TAB-closure-id', '/repo', jest.fn());
+
+    await hooks.PreCompact?.[0]?.hooks?.[0]?.(pre('REAL-sdk-id'), undefined, {
+      signal,
+    });
+
+    expect(onPreCompact).toHaveBeenCalledWith('REAL-sdk-id', 'manual');
+    expect(coordinator.getState('REAL-sdk-id')).toBe(
+      CompactionState.TRIGGERED,
+    );
+  });
+
+  it('PostCompact rebinds the coordinator record to the post-compaction session_id', async () => {
+    const { handler, emitted } = makeHandler(coordinator);
+    const hooks = handler.createHooks('TAB-closure-id', '/repo', jest.fn());
+
+    await hooks.PreCompact?.[0]?.hooks?.[0]?.(pre('REAL-sdk-id'), undefined, {
+      signal,
+    });
+    await hooks.PostCompact?.[0]?.hooks?.[0]?.(post('NEW-sdk-id'), undefined, {
+      signal,
+    });
+
+    expect(coordinator.getState('REAL-sdk-id')).toBeUndefined();
+    expect(coordinator.getState('NEW-sdk-id')).toBe(CompactionState.TRIGGERED);
+    // The existing completion emit is unchanged.
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0].sessionId).toBe('NEW-sdk-id');
+  });
+
+  it('PostCompact without a payload session_id does not rebind', async () => {
+    const onPostCompact = jest.spyOn(coordinator, 'onPostCompact');
+    const { handler, emitted } = makeHandler(coordinator);
+    const hooks = handler.createHooks('TAB-closure-id', '/repo', jest.fn());
+
+    await hooks.PreCompact?.[0]?.hooks?.[0]?.(pre('REAL-sdk-id'), undefined, {
+      signal,
+    });
+    await hooks.PostCompact?.[0]?.hooks?.[0]?.(post(), undefined, { signal });
+
+    expect(onPostCompact).not.toHaveBeenCalled();
+    expect(coordinator.getState('REAL-sdk-id')).toBe(
+      CompactionState.TRIGGERED,
+    );
+    expect(emitted[0].sessionId).toBe('REAL-sdk-id');
+  });
+
+  it('a throwing coordinator never breaks either hook: one warn line each, callback and emit still run', async () => {
+    const failing = {
+      onPreCompact: jest.fn(() => {
+        throw new Error('pre boom');
+      }),
+      onPostCompact: jest.fn(() => {
+        throw new Error('post boom');
+      }),
+    } as unknown as CompactionCoordinator;
+    const { handler, logger, emitted } = makeHandler(failing);
+    const onStart = jest.fn();
+    const hooks = handler.createHooks('TAB-closure-id', '/repo', onStart);
+
+    const preResult = await hooks.PreCompact?.[0]?.hooks?.[0]?.(
+      pre('REAL-sdk-id'),
+      undefined,
+      { signal },
+    );
+    const postResult = await hooks.PostCompact?.[0]?.hooks?.[0]?.(
+      post('NEW-sdk-id'),
+      undefined,
+      { signal },
+    );
+
+    expect(preResult).toEqual({ continue: true });
+    expect(postResult).toEqual({ continue: true });
+    expect(onStart).toHaveBeenCalledTimes(1);
+    expect(emitted).toHaveLength(1);
+    expect(logger.error).not.toHaveBeenCalled();
+    const coordinatorWarns = logger.warn.mock.calls.filter(
+      ([message]) =>
+        message ===
+        '[CompactionHookHandler] Compaction coordinator failed on hook event',
+    );
+    expect(coordinatorWarns).toEqual([
+      [expect.any(String), { event: 'PreCompact', error: 'pre boom' }],
+      [expect.any(String), { event: 'PostCompact', error: 'post boom' }],
+    ]);
+  });
+});
+
+// TASK_2026_614 D.12 A-m6: PostCompact rekeys the context-usage port and the
+// subagent budget monitor next to the coordinator.
+describe('CompactionHookHandler — PostCompact rekeys the port and the monitor (TASK_2026_614 A-m6)', () => {
+  const signal = new AbortController().signal;
+  const USAGE = {
+    totalTokens: 120_000,
+    maxTokens: 200_000,
+    autoCompactThreshold: 160_000,
+    isAutoCompactEnabled: true,
+  };
+
+  function makePort(): ContextUsagePort {
+    const registry = {
+      register: jest.fn(() => () => undefined),
+    } as unknown as SessionEndCallbackRegistry;
+    return new ContextUsagePort(makeLogger(), registry);
+  }
+
+  function makeHandler(
+    port: Pick<ContextUsagePort, 'rekey'> | undefined,
+    monitor: Pick<SubagentBudgetMonitor, 'rekey'> | undefined,
+  ): { handler: CompactionHookHandler; logger: jest.Mocked<Logger> } {
+    const logger = makeLogger();
+    const handler = new CompactionHookHandler(
+      logger,
+      makeUsageTracker(0) as unknown as LiveUsageTracker,
+      undefined,
+      undefined,
+      new CompactionBoundaryGenerationRegistry(),
+      undefined,
+      port as ContextUsagePort | undefined,
+      monitor as SubagentBudgetMonitor | undefined,
+    );
+    return { handler, logger };
+  }
+
+  async function compact(
+    handler: CompactionHookHandler,
+    preId: string,
+    postId?: string,
+  ): Promise<unknown> {
+    const hooks = handler.createHooks('TAB-closure-id', '/repo', jest.fn());
+    await hooks.PreCompact?.[0]?.hooks?.[0]?.(
+      {
+        hook_event_name: 'PreCompact',
+        trigger: 'auto',
+        cwd: '/repo',
+        custom_instructions: null,
+        session_id: preId,
+      } as unknown as HookInput,
+      undefined,
+      { signal },
+    );
+    return hooks.PostCompact?.[0]?.hooks?.[0]?.(
+      {
+        hook_event_name: 'PostCompact',
+        trigger: 'auto',
+        cwd: '/repo',
+        compact_summary: 'summary',
+        ...(postId ? { session_id: postId } : {}),
+      } as unknown as HookInput,
+      undefined,
+      { signal },
+    );
+  }
+
+  it('after PostCompact, getLast(newId) returns the last reading and the old id has none', async () => {
+    const port = makePort();
+    const reading = await port.readAtTurnEnd('OLD-sdk-id', 't1', {
+      getContextUsage: jest.fn(async () => USAGE),
+    } as never);
+    const { handler } = makeHandler(port, undefined);
+
+    await compact(handler, 'OLD-sdk-id', 'NEW-sdk-id');
+
+    expect(port.getLast('NEW-sdk-id')).toEqual(reading);
+    expect(port.getLast('OLD-sdk-id')).toBeUndefined();
+  });
+
+  it('a read in flight for the old id does not resurrect it after PostCompact', async () => {
+    const port = makePort();
+    let resolve!: (value: typeof USAGE) => void;
+    const pending = port.readAtTurnEnd('OLD-sdk-id', 't1', {
+      getContextUsage: jest.fn(
+        () => new Promise<typeof USAGE>((r) => (resolve = r)),
+      ),
+    } as never);
+    const { handler } = makeHandler(port, undefined);
+
+    await compact(handler, 'OLD-sdk-id', 'NEW-sdk-id');
+    resolve(USAGE);
+    const reading = await pending;
+
+    expect(port.getLast('OLD-sdk-id')).toBeUndefined();
+    expect(port.getLast('NEW-sdk-id')).toEqual(reading);
+  });
+
+  it('rekeys the monitor from the PreCompact id to the PostCompact id', async () => {
+    const monitor = { rekey: jest.fn() };
+    const { handler } = makeHandler(undefined, monitor);
+
+    await compact(handler, 'OLD-sdk-id', 'NEW-sdk-id');
+
+    expect(monitor.rekey).toHaveBeenCalledWith('OLD-sdk-id', 'NEW-sdk-id');
+  });
+
+  it('does not rekey when PostCompact carries no session_id', async () => {
+    const port = { rekey: jest.fn() };
+    const monitor = { rekey: jest.fn() };
+    const { handler } = makeHandler(port, monitor);
+
+    await compact(handler, 'OLD-sdk-id');
+
+    expect(port.rekey).not.toHaveBeenCalled();
+    expect(monitor.rekey).not.toHaveBeenCalled();
+  });
+
+  it('a throwing port is logged once and the monitor is still rekeyed; the hook continues', async () => {
+    const port = {
+      rekey: jest.fn(() => {
+        throw new Error('port boom');
+      }),
+    };
+    const monitor = { rekey: jest.fn() };
+    const { handler, logger } = makeHandler(port, monitor);
+
+    const result = await compact(handler, 'OLD-sdk-id', 'NEW-sdk-id');
+
+    expect(result).toEqual({ continue: true });
+    expect(monitor.rekey).toHaveBeenCalledWith('OLD-sdk-id', 'NEW-sdk-id');
+    expect(logger.error).not.toHaveBeenCalled();
+    const rekeyWarns = logger.warn.mock.calls.filter(([message]) =>
+      String(message).includes('PostCompact rekey failed'),
+    );
+    expect(rekeyWarns).toEqual([
+      [
+        expect.any(String),
+        { target: 'context-usage-port', error: 'port boom' },
+      ],
+    ]);
   });
 });

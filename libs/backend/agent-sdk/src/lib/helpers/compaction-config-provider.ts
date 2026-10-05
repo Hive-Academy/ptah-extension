@@ -10,6 +10,7 @@
  */
 
 import { injectable, inject } from 'tsyringe';
+import { FILE_BASED_SETTINGS_DEFAULTS } from '@ptah-extension/platform-core';
 import { Logger, ConfigManager, TOKENS } from '@ptah-extension/vscode-core';
 import {
   isValidAutoCompactWindow,
@@ -24,6 +25,27 @@ import {
  * setting.
  */
 const AUTO_COMPACT_WINDOW_ENV = 'CLAUDE_CODE_AUTO_COMPACT_WINDOW';
+
+function isPositiveSafeInteger(value: unknown): value is number {
+  return (
+    typeof value === 'number' && Number.isSafeInteger(value) && value > 0
+  );
+}
+
+/**
+ * The platform-core default of a budget key. A missing or non-positive default
+ * is a programming error (it would otherwise reach callers as `undefined`),
+ * so it throws rather than being cast.
+ */
+function budgetDefault(key: string): number {
+  const value: unknown = FILE_BASED_SETTINGS_DEFAULTS[key];
+  if (!isPositiveSafeInteger(value)) {
+    throw new Error(
+      `FILE_BASED_SETTINGS_DEFAULTS has no positive integer default for ${key}`,
+    );
+  }
+  return value;
+}
 
 /**
  * Compaction configuration settings
@@ -42,6 +64,14 @@ export interface CompactionConfig {
    * runtime would ignore it. Read for the log only; Ptah never forwards it.
    */
   readonly envWindow: number | null;
+  /** Per-tool-output cap in tokens (`compaction.toolOutputBudgetTokens`). */
+  readonly toolOutputBudgetTokens: number;
+  /** Subagent handoff size in tokens (`compaction.subagentHandoffTokens`). */
+  readonly subagentHandoffTokens: number;
+  /** Session size at which rotation is suggested (`compaction.rotationSuggestTokens`). */
+  readonly rotationSuggestTokens: number;
+  /** Weighted-token total at which a subagent is stopped (`compaction.subagentStopWeightedTokens`). */
+  readonly subagentStopWeightedTokens: number;
 }
 
 /**
@@ -52,6 +82,9 @@ export interface CompactionConfig {
  */
 @injectable()
 export class CompactionConfigProvider {
+  /** Invalid budget values already warned about (`key:type:value`). */
+  private readonly warnedBudgets = new Set<string>();
+
   constructor(
     @inject(TOKENS.CONFIG_MANAGER) private readonly config: ConfigManager,
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
@@ -102,6 +135,18 @@ export class CompactionConfigProvider {
       enabled,
       contextTokenThreshold,
       envWindow,
+      toolOutputBudgetTokens: this.readBudget(
+        'compaction.toolOutputBudgetTokens',
+      ),
+      subagentHandoffTokens: this.readBudget(
+        'compaction.subagentHandoffTokens',
+      ),
+      rotationSuggestTokens: this.readBudget(
+        'compaction.rotationSuggestTokens',
+      ),
+      subagentStopWeightedTokens: this.readBudget(
+        'compaction.subagentStopWeightedTokens',
+      ),
     };
 
     this.logger.debug(
@@ -114,6 +159,32 @@ export class CompactionConfigProvider {
     );
 
     return compactionConfig;
+  }
+
+  /**
+   * Reads one positive-integer budget. Unset is the default; a hand-edited
+   * value that is not a positive integer (non-number, non-integer, zero or
+   * negative) is warned about and treated as unset.
+   */
+  private readBudget(key: string): number {
+    // One edit site: the default comes from platform-core, which also supplies
+    // it when the key is absent; an invalid hand-edited value falls back to it.
+    const defaultValue = budgetDefault(key);
+    const raw = this.config.get<unknown>(key);
+    if (raw === undefined || raw === null) return defaultValue;
+    if (isPositiveSafeInteger(raw)) {
+      return raw;
+    }
+    // Called per tool call and per subagent message: warn once per key+value.
+    const warnKey = `${key}:${typeof raw}:${String(raw)}`;
+    if (!this.warnedBudgets.has(warnKey)) {
+      this.warnedBudgets.add(warnKey);
+      this.logger.warn(
+        `[CompactionConfigProvider] Invalid ${key}, using the default`,
+        { providedType: typeof raw, defaultValue },
+      );
+    }
+    return defaultValue;
   }
 
   /**

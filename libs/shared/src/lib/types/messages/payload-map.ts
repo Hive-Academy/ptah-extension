@@ -108,6 +108,7 @@ import type {
   SdkTurnFailedPayload,
 } from '../sdk-hook.types';
 import type { SessionMcpStatusPayload } from './session-mcp-status';
+import type { PlanLimitsSnapshot } from '../plan-limit.types';
 import type { AgentSessionOpenedPayload } from './agent-session';
 import type {
   IndexingProgressEvent,
@@ -383,6 +384,7 @@ export interface MessagePayloadMap {
   'session:turnFailed': SdkTurnFailedPayload;
   'session:subagentEnded': SdkSubagentEndedPayload;
   'session:mcpStatus': SessionMcpStatusPayload;
+  'planLimits:changed': PlanLimitsSnapshot;
   'session:organizationChanged': SessionOrganizationChangedPayload;
   'agentSession:opened': AgentSessionOpenedPayload;
   'indexing:progress': IndexingProgressEvent;

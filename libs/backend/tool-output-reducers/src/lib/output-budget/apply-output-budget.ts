@@ -187,6 +187,12 @@ async function budgetText(
       : reducedOutput;
 
   const spool = await writeSpoolFile(raw, location.dir, input.requestId);
+  if ('path' in spool && spool.gitignoreFailure !== undefined) {
+    logLine(
+      input.output,
+      `${input.logLabel} spool .gitignore not written (${spool.gitignoreFailure}); the spool file was saved`,
+    );
+  }
   const where = describeSpool(spool, location, locator);
   const { text, tokens, cut } = fitWithTrailer(
     result.text,

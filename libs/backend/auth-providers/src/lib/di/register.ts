@@ -6,6 +6,7 @@ import {
 import { createEmptyAuthEnv } from '@ptah-extension/shared';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
+import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import { AUTH_PROVIDERS_TOKENS } from './tokens';
 import { ProviderModelsService } from '../provider-models.service';
 import { AuthManager } from '../auth/auth-manager';
@@ -30,6 +31,10 @@ import { CuratorProxyManager } from '../auth/curator-proxy-manager';
 import { ProviderAuthResolver } from '../auth/provider-auth-resolver';
 import { DraftVerificationService } from '../auth/draft-verification.service';
 import { providerQuotaStore } from '../auth/provider-quota.store';
+import { ProviderOwnerResolver } from '../quota/provider-owner.resolver';
+import { PlanLimitLedgerService } from '../quota/plan-limit-ledger.service';
+import { PlanCredentialSource } from '../quota/plan-credential.source';
+import { PlanUsageService } from '../quota/plan-usage.service';
 
 export function registerAuthProvidersServices(
   container: DependencyContainer,
@@ -113,6 +118,7 @@ export function registerAuthProvidersServices(
   // never registers the memory curator. Register the resolver's complete proxy
   // graph here; none of these lazy registrations starts a proxy server.
   registerCuratorAuthServices(container, logger);
+  registerPlanLimitServices(container);
 
   container.register(SDK_TOKENS.PRICING_PROVIDER, {
     useFactory: instanceCachingFactory((c) =>
@@ -185,6 +191,52 @@ export function registerCuratorAuthServices(
   );
 
   logger.info('[auth-providers] Curator auth services registered');
+}
+
+/**
+ * Plan-limit services (TASK_2026_596). All four resolve lazily: on every host
+ * `registerSdkServices` runs AFTER this function, and it registers the
+ * agent-sdk tokens they depend on (`SDK_SESSION_QUOTA_PROBE`,
+ * `SDK_SESSION_PLAN_LIMIT_REGISTRY`). Nothing here resolves anything.
+ */
+function registerPlanLimitServices(container: DependencyContainer): void {
+  container.register(
+    AUTH_PROVIDERS_TOKENS.PROVIDER_OWNER_RESOLVER,
+    { useClass: ProviderOwnerResolver },
+    { lifecycle: Lifecycle.Singleton },
+  );
+  container.register(
+    AUTH_PROVIDERS_TOKENS.PLAN_CREDENTIAL_SOURCE,
+    { useClass: PlanCredentialSource },
+    { lifecycle: Lifecycle.Singleton },
+  );
+  // A factory for the same reason as the curator proxy manager: the trailing
+  // clock parameter is a test seam, not a DI dependency.
+  container.register(AUTH_PROVIDERS_TOKENS.PLAN_LIMIT_LEDGER, {
+    useFactory: instanceCachingFactory(
+      (c) =>
+        new PlanLimitLedgerService(
+          c.resolve(TOKENS.LOGGER),
+          c.resolve(PLATFORM_TOKENS.STATE_STORAGE),
+          c.resolve(SDK_TOKENS.SDK_SESSION_PLAN_LIMIT_REGISTRY),
+          c.resolve(AUTH_PROVIDERS_TOKENS.PROVIDER_OWNER_RESOLVER),
+          c.resolve(AUTH_PROVIDERS_TOKENS.SDK_PROVIDER_QUOTA_STORE),
+        ),
+    ),
+  });
+  // A factory for the same reason: the trailing clock is a test seam.
+  container.register(AUTH_PROVIDERS_TOKENS.PLAN_USAGE_SERVICE, {
+    useFactory: instanceCachingFactory(
+      (c) =>
+        new PlanUsageService(
+          c.resolve(TOKENS.LOGGER),
+          c.resolve(AUTH_PROVIDERS_TOKENS.PLAN_LIMIT_LEDGER),
+          c.resolve(AUTH_PROVIDERS_TOKENS.PLAN_CREDENTIAL_SOURCE),
+          c.resolve(SDK_TOKENS.SDK_SESSION_QUOTA_PROBE),
+          c.resolve(AUTH_PROVIDERS_TOKENS.SDK_CODEX_ACCOUNT_USAGE),
+        ),
+    ),
+  });
 }
 
 function warmupPricing(container: DependencyContainer, logger: Logger): void {

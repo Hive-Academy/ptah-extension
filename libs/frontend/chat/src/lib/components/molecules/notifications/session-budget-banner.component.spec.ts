@@ -1,6 +1,7 @@
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import type { SessionBudgetState } from '@ptah-extension/shared';
 import { SessionBudgetBannerComponent } from './session-budget-banner.component';
+import { SessionRotationKeepService } from '../../../services/session-rotation-keep.service';
 
 const BASE: SessionBudgetState = {
   sessionId: '11111111-1111-4111-8111-111111111111',
@@ -78,6 +79,100 @@ describe('SessionBudgetBannerComponent', () => {
     expect(banner(render({ ...BASE, stage: 'unknown' }))).toBeNull();
     TestBed.resetTestingModule();
     expect(banner(render(BASE))).toBeNull();
+  });
+
+  describe('rotation', () => {
+    const ROTATION = { contextTokens: 210_000, threshold: 200_000 };
+
+    it('renders status role, context size and both buttons', () => {
+      const root = render({ ...BASE, rotation: ROTATION });
+
+      expect(banner(root)?.getAttribute('role')).toBe('status');
+      expect(text(root, 'session-budget-body')).toContain('210.0k');
+      expect(buttons(root)).toEqual(['Rotate session', 'Keep this session']);
+    });
+
+    it('Rotate emits rotate', () => {
+      const root = render({ ...BASE, rotation: ROTATION });
+      const spy = jest.fn();
+      fixture.componentInstance.rotate.subscribe(spy);
+
+      button(root, 'Rotate session').click();
+
+      expect(spy).toHaveBeenCalledTimes(1);
+    });
+
+    it('Keep dismisses for the same key and reappears after rotation clears', () => {
+      const root = render({ ...BASE, rotation: ROTATION });
+
+      button(root, 'Keep this session').click();
+      fixture.detectChanges();
+      expect(banner(root)).toBeNull();
+
+      // Same key, newer revision: still dismissed.
+      fixture.componentRef.setInput('budget', {
+        ...BASE,
+        revision: 8,
+        rotation: ROTATION,
+      });
+      fixture.detectChanges();
+      expect(banner(root)).toBeNull();
+
+      // Rotation clears, then a later crossing shows it again.
+      fixture.componentRef.setInput('budget', BASE);
+      fixture.detectChanges();
+      fixture.componentRef.setInput('budget', {
+        ...BASE,
+        rotation: ROTATION,
+      });
+      fixture.detectChanges();
+      expect(banner(root)).not.toBeNull();
+    });
+
+    it('Keep survives destroying and recreating the banner; clearing drops the keys', () => {
+      const root = render({ ...BASE, rotation: ROTATION });
+      button(root, 'Keep this session').click();
+      fixture.detectChanges();
+      expect(banner(root)).toBeNull();
+
+      // A tab switch rebuilds the banner; the same TestBed keeps the root store.
+      fixture.destroy();
+      fixture = TestBed.createComponent(SessionBudgetBannerComponent);
+      fixture.componentRef.setInput('budget', { ...BASE, rotation: ROTATION });
+      fixture.detectChanges();
+      const rebuilt = fixture.nativeElement as HTMLElement;
+      expect(banner(rebuilt)).toBeNull();
+
+      // Advisory cleared: keys are dropped, so a later crossing shows it again.
+      fixture.componentRef.setInput('budget', BASE);
+      fixture.detectChanges();
+      expect(
+        TestBed.inject(SessionRotationKeepService).isKept(
+          BASE.sessionId,
+          ROTATION.threshold,
+        ),
+      ).toBe(false);
+      fixture.componentRef.setInput('budget', { ...BASE, rotation: ROTATION });
+      fixture.detectChanges();
+      expect(banner(rebuilt)).not.toBeNull();
+    });
+
+    it.each(['handoff', 'limit'] as const)(
+      'is hidden under the %s stage (N8 banner wins)',
+      (stage) => {
+        const root = render({
+          ...BASE,
+          stage,
+          handoff: HANDOFF,
+          rotation: ROTATION,
+        });
+
+        expect(text(root, 'session-budget-title')).not.toBe(
+          'This session is getting large',
+        );
+        expect(buttons(root)).not.toContain('Rotate session');
+      },
+    );
   });
 
   describe('tighten', () => {

@@ -1,3 +1,4 @@
+import { killRunningChecks } from '@ptah-extension/vscode-lm-tools';
 import type { BootRefs } from './boot-coordinator';
 
 /**
@@ -190,6 +191,11 @@ function disposeBeforePersistence(deps: DisposalDeps): void {
   // the connection `disposeAfterPersistence` is about to close. The abort is
   // synchronous (it kills the worker), so nothing here has to be awaited.
   nonFatal('Integrity check abort', () => refs.integrityService?.dispose());
+  // A live run_check owns an Nx process group that outlives the app unless
+  // killed; each stop starts its tree kill at once and never throws.
+  nonFatal('Run-check kill', () => {
+    void killRunningChecks();
+  });
   nonFatal('Git watcher stop', () => refs.gitWatcher?.stop());
   nonFatal('Symbol watcher close', () => refs.symbolWatcher?.close());
   nonFatal('Status bridge dispose', () =>

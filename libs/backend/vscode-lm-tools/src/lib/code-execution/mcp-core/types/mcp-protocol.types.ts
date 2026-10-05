@@ -52,6 +52,15 @@ export interface MCPRequest {
 
   /** Decoded URL profile, transport-owned; resolved by resolveMcpToolProfile. */
   _callerToolProfile?: string;
+
+  /**
+   * Aborted when the caller stops waiting for this request: the HTTP
+   * connection closed before the reply, or the stdio peer sent
+   * `notifications/cancelled` for it or ended the stream. Transport-owned like
+   * the `_caller*` fields — never read from a request body. Long-running
+   * tools (`run_check`, `agent_wait`) stop on it.
+   */
+  _abortSignal?: AbortSignal;
 }
 
 /**

@@ -38,6 +38,7 @@ import { type IIDECapabilities } from '../namespace-builders';
 import { PermissionPromptService } from '../../permission/permission-prompt.service';
 import { PtahAPI } from '../types';
 import { handleMCPRequest, type ToolResultCallback } from '../mcp-core';
+import { killRunningChecks } from '../mcp-core/run-check.tool';
 import {
   TreeSitterCodeOutliner,
   type OutlineQueryRunner,
@@ -716,6 +717,16 @@ export class CodeExecutionMCP
    */
   async disposeAsync(): Promise<void> {
     this.workspaceFoldersSubscription.dispose();
+    // A `run_check` in flight owns an Nx process tree that would outlive the
+    // host. Fail-open: a kill failure must not stop the server teardown.
+    try {
+      await killRunningChecks();
+    } catch (error: unknown) {
+      // degradation-audit: reported - logged at warn; teardown continues.
+      this.logger.warn('[CodeExecutionMCP] Killing running checks failed', {
+        reason: error instanceof Error ? error.message : String(error),
+      });
+    }
     await this.stop();
   }
 

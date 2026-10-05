@@ -144,6 +144,7 @@ jest.mock('../providers/custom', () => {
   };
 });
 
+import * as http from 'http';
 import type { Logger, ConfigManager } from '@ptah-extension/vscode-core';
 import type { IAuthSecretsService } from '@ptah-extension/vscode-core';
 import type {
@@ -168,6 +169,11 @@ import {
 import { ProviderProxyPool } from './provider-proxy-pool';
 import type { ICopilotAuthService } from '../providers/copilot';
 import type { ICodexAuthService } from '../providers/codex';
+import type { ICodexOwnerKeySource } from '../providers/codex/codex-provider.types';
+import {
+  providerQuotaStore,
+  type ProviderQuotaObservation,
+} from './provider-quota.store';
 import type { IOpenRouterAuthService } from '../providers/openrouter';
 import * as localModule from '../providers/local';
 import * as customModule from '../providers/custom';
@@ -263,7 +269,11 @@ interface Harness {
   config: MockConfigManager;
 }
 
-function makePool(): Harness {
+const CODEX_ACCOUNT_OWNER = 'openai-codex#account:0123456789abcdef';
+
+function makePool(
+  codexAuth: ICodexAuthService = {} as unknown as ICodexAuthService,
+): Harness {
   const logger = createMockLogger();
   const config = createMockConfigManager();
   const configManager = config as unknown as ConfigManager;
@@ -271,8 +281,10 @@ function makePool(): Harness {
     getProviderKey: jest.fn<Promise<string | undefined>, [string]>(),
   };
   const copilotAuth = {} as unknown as ICopilotAuthService;
-  const codexAuth = {} as unknown as ICodexAuthService;
   const openRouterAuth = {} as unknown as IOpenRouterAuthService;
+  const codexOwnerKeys: ICodexOwnerKeySource = {
+    currentOwnerKey: () => CODEX_ACCOUNT_OWNER,
+  };
 
   const pool = new ProviderProxyPool(
     asLogger(logger),
@@ -281,6 +293,7 @@ function makePool(): Harness {
     copilotAuth,
     codexAuth,
     openRouterAuth,
+    codexOwnerKeys,
   );
 
   return { pool, authSecrets, logger, config };
@@ -618,4 +631,96 @@ describe('ProviderProxyPool OpenCode isolation', () => {
       await pool.disposeAll();
     },
   );
+});
+
+describe('ProviderProxyPool Codex quota owner (TASK_2026_596 Task 7.2)', () => {
+  let upstream: http.Server;
+  let origin: string;
+  let rateLimits: ProviderQuotaObservation[];
+  let stopObserving: () => void;
+
+  beforeEach(async () => {
+    providerQuotaStore.clear();
+    rateLimits = [];
+    stopObserving = providerQuotaStore.onRateLimit((o) => rateLimits.push(o));
+    upstream = http.createServer((_req, res) => {
+      res.writeHead(429);
+      res.end('{}');
+    });
+    await new Promise<void>((resolve) =>
+      upstream.listen(0, '127.0.0.1', resolve),
+    );
+    const address = upstream.address();
+    if (!address || typeof address === 'string') throw new Error('no address');
+    origin = `http://127.0.0.1:${address.port}`;
+  });
+
+  afterEach(async () => {
+    stopObserving();
+    providerQuotaStore.clear();
+    await new Promise<void>((resolve) => upstream.close(() => resolve()));
+  });
+
+  /** The OAuth bearer rotates, so it must never become the owner. */
+  function codexAuth(): ICodexAuthService {
+    return {
+      getAccountUsageEligibility: async () => 'supported',
+      getApiEndpoint: () => origin,
+      getHeaders: async () => ({
+        authorization: 'Bearer rotating-oauth-token',
+        'content-type': 'application/json',
+      }),
+      ensureTokensFresh: async () => false,
+      isAuthenticated: async () => true,
+      listModels: async () => [],
+      clearCache: () => undefined,
+      getTokenStatus: async () => ({ authenticated: true, stale: false }),
+      startWatchingAuthFile: () => undefined,
+      stopWatchingAuthFile: () => undefined,
+    };
+  }
+
+  function postMessage(baseUrl: string): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      const req = http.request(
+        `${baseUrl}/v1/messages?beta=true`,
+        { method: 'POST' },
+        (res) => {
+          res.resume();
+          res.on('end', () => resolve());
+          res.on('error', reject);
+        },
+      );
+      req.on('error', reject);
+      req.end(
+        JSON.stringify({
+          model: 'gpt-test',
+          messages: [{ role: 'user', content: 'hi' }],
+          max_tokens: 50,
+          stream: false,
+        }),
+      );
+    });
+  }
+
+  it('a pool-built Codex proxy records a 429 against the injected account owner', async () => {
+    const codex = getAnthropicProvider('openai-codex');
+    if (!codex) throw new Error('openai-codex provider entry missing');
+    expect(codex.requiresProxy).toBe(true);
+
+    const { pool } = makePool(codexAuth());
+    try {
+      const acquired = await pool.acquire('/ws/codex', 'openai-codex', codex);
+      if (!acquired) throw new Error('pool declined the Codex proxy');
+      await postMessage(acquired.baseUrl);
+    } finally {
+      await pool.disposeAll();
+    }
+
+    expect(rateLimits).toHaveLength(1);
+    expect(rateLimits[0]).toMatchObject({
+      providerId: 'openai-codex',
+      ownerKey: CODEX_ACCOUNT_OWNER,
+    });
+  });
 });

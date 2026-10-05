@@ -8,6 +8,7 @@
  * listener is removed on every exit path.
  */
 import 'reflect-metadata';
+import { getEventListeners } from 'node:events';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import type { AgentId, AgentProcessInfo } from '@ptah-extension/shared';
 import {
@@ -70,6 +71,13 @@ function makeManager(): AgentProcessManager {
     new AgentOutputBuffer(logger as unknown as Args[0]),
     { signal: jest.fn() } as unknown as Args[7],
     { evaluate: jest.fn() } as unknown as Args[8],
+    // No quota owner and no ledger: plan limits are pinned by the manager spec.
+    { ownerForLane: jest.fn(() => undefined) } as unknown as Args[9],
+    {
+      recordWindowEvidence: jest.fn(),
+      recordOwnerEvidence: jest.fn(),
+      recordSuccess: jest.fn(),
+    } as unknown as Args[10],
   );
 }
 
@@ -285,6 +293,78 @@ describe('AgentProcessManager.waitForAgents', () => {
     expect(result.entries).toEqual([
       expect.objectContaining({ agentId: ID_A, state: 'running' }),
     ]);
+  });
+
+  it('ends promptly on abort with a cancelled partial result and leaves no listener (E.3)', async () => {
+    jest.useFakeTimers();
+    const manager = makeManager();
+    seed(manager, infoOf(ID_A));
+    seed(manager, infoOf(ID_B));
+    const controller = new AbortController();
+    const baseline = exitListeners(manager);
+
+    const wait = manager.waitForAgents(
+      [ID_A, ID_B],
+      'all',
+      MAX_AGENT_WAIT_MS,
+      controller.signal,
+    );
+    manager.events.emit('agent:exited', infoOf(ID_A, { status: 'completed' }));
+    expect(exitListeners(manager)).toBe(baseline + 1);
+    expect(getEventListeners(controller.signal, 'abort')).toHaveLength(1);
+
+    // No timer turn: the abort alone settles the wait.
+    controller.abort();
+    const result = await wait;
+
+    expect(result.cancelled).toBe(true);
+    expect(result.timedOut).toBe(false);
+    expect(result.entries).toEqual([
+      expect.objectContaining({ agentId: ID_A, state: 'exited' }),
+      expect.objectContaining({ agentId: ID_B, state: 'running' }),
+    ]);
+    expect(exitListeners(manager)).toBe(baseline);
+    expect(getEventListeners(controller.signal, 'abort')).toHaveLength(0);
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
+  it('returns at once for a signal already aborted on entry', async () => {
+    const manager = makeManager();
+    seed(manager, infoOf(ID_A));
+    const controller = new AbortController();
+    controller.abort();
+
+    const result = await manager.waitForAgents(
+      [ID_A],
+      'all',
+      60_000,
+      controller.signal,
+    );
+
+    expect(result.cancelled).toBe(true);
+    expect(result.timedOut).toBe(false);
+    expect(result.entries).toEqual([
+      expect.objectContaining({ agentId: ID_A, state: 'running' }),
+    ]);
+    expect(exitListeners(manager)).toBe(0);
+  });
+
+  it('removes the abort listener when the lanes end first', async () => {
+    const manager = makeManager();
+    seed(manager, infoOf(ID_A));
+    const controller = new AbortController();
+
+    const wait = manager.waitForAgents(
+      [ID_A],
+      'all',
+      60_000,
+      controller.signal,
+    );
+    manager.events.emit('agent:exited', infoOf(ID_A, { status: 'completed' }));
+    const result = await wait;
+
+    expect(result.cancelled).toBe(false);
+    expect(getEventListeners(controller.signal, 'abort')).toHaveLength(0);
   });
 
   it('clamps the timeout to 0..MAX_AGENT_WAIT_MS', async () => {

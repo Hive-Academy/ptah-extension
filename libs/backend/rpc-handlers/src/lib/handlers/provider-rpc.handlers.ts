@@ -6,6 +6,8 @@
  * - provider:setModelTier - Set model for a tier (Sonnet/Opus/Haiku)
  * - provider:getModelTiers - Get current tier mappings
  * - provider:clearModelTier - Clear a tier override (reset to default)
+ * - provider:getAccountUsage - The selected provider's plan usage
+ * - provider:getPlanLimits - Every in-scope quota owner's plan limits
  *
  * Supports all Anthropic-compatible providers (OpenRouter, Moonshot, Z.AI).
  */
@@ -29,7 +31,12 @@ import {
   ProviderRemoveCustomEntrySchema,
   ProviderTestCustomEntrySchema,
   ProviderGetAccountUsageSchema,
+  ProviderGetPlanLimitsSchema,
 } from './provider-rpc.schema';
+import {
+  PlanLimitsSnapshotService,
+  type PlanLimitsSnapshotRequest,
+} from '../services/plan-limits-snapshot.service';
 import {
   SETTINGS_TOKENS,
   CustomProviderStore,
@@ -82,6 +89,8 @@ import {
   ProviderTestCustomEntryResult,
   ProviderGetAccountUsageParams,
   ProviderGetAccountUsageResult,
+  ProviderGetPlanLimitsParams,
+  ProviderGetPlanLimitsResult,
   getModelPricingDescription,
   getModelContextWindow,
 } from '@ptah-extension/shared';
@@ -113,6 +122,7 @@ export class ProviderRpcHandlers {
     'provider:removeCustomEntry',
     'provider:testCustomEntry',
     'provider:getAccountUsage',
+    'provider:getPlanLimits',
   ] as const satisfies readonly RpcMethodName[];
 
   constructor(
@@ -146,6 +156,11 @@ export class ProviderRpcHandlers {
     private readonly customProviders: CustomProviderStore,
     @inject(ConnectionCheckRecorder)
     private readonly connectionChecks: ConnectionCheckRecorder,
+    @inject(PlanLimitsSnapshotService)
+    private readonly planLimits: Pick<
+      PlanLimitsSnapshotService,
+      'snapshot' | 'ownerSnapshotForProvider'
+    >,
   ) {}
 
   /**
@@ -162,27 +177,82 @@ export class ProviderRpcHandlers {
     this.registerClearModelTier();
     this.registerCustomEntryMethods();
     this.registerAccountUsage();
+    this.registerPlanLimits();
 
     this.logger.debug('Provider RPC handlers registered', {
       methods: ProviderRpcHandlers.METHODS,
     });
   }
 
+  /**
+   * provider:getAccountUsage — the selected provider's owner, read through
+   * `PlanUsageService` (TASK_2026_596), in the existing result shape plus the
+   * additive plan-limit fields.
+   *
+   * Codex keeps its legacy fields exactly: once the owner read has completed
+   * (`available` or `stale`), the Codex account service's own result is
+   * spread first. The reader just went through that service, so this second
+   * call is answered from its cache and never starts another read.
+   */
   private registerAccountUsage(): void {
     this.rpcHandler.registerMethod<
       ProviderGetAccountUsageParams,
       ProviderGetAccountUsageResult
     >('provider:getAccountUsage', async (params) => {
       const validated = ProviderGetAccountUsageSchema.parse(params);
-      if (validated.providerId !== CODEX_PROVIDER_ENTRY.id) {
-        return {
-          status: 'provider-unsupported',
-          providerId: validated.providerId,
-        };
+      const { providerId } = validated;
+      const snapshot = await this.planLimits.ownerSnapshotForProvider(
+        providerId,
+        validated.refresh === true,
+      );
+      if (!snapshot) return { status: 'provider-unsupported', providerId };
+
+      const planFields = {
+        owner: snapshot.owner,
+        windows: snapshot.windows,
+        ownerEvidence: snapshot.ownerEvidence,
+        windowSetEstablished: snapshot.windowSetEstablished,
+        ...(snapshot.cooldown && { cooldown: snapshot.cooldown }),
+      };
+      if (
+        providerId === CODEX_PROVIDER_ENTRY.id &&
+        (snapshot.status === 'available' || snapshot.status === 'stale')
+      ) {
+        const legacy = await this.codexAccountUsage.getAccountUsage({
+          refresh: false,
+        });
+        return { ...legacy, ...planFields };
       }
-      return this.codexAccountUsage.getAccountUsage({
-        refresh: validated.refresh,
-      });
+      return {
+        status: snapshot.status,
+        providerId,
+        ...(snapshot.fetchedAt !== undefined && {
+          fetchedAt: snapshot.fetchedAt,
+        }),
+        ...(snapshot.staleSince !== undefined && {
+          staleSince: snapshot.staleSince,
+        }),
+        ...(snapshot.account && { account: snapshot.account }),
+        ...(snapshot.activity && { activity: snapshot.activity }),
+        ...planFields,
+      };
+    });
+  }
+
+  /**
+   * provider:getPlanLimits — every in-scope owner's snapshot (TASK_2026_596).
+   * Discovery names the owners; `read` owners are read in parallel under a
+   * per-owner deadline, `known` owners pass through unread. Credentials are
+   * resolved inside the backend and never serialized.
+   */
+  private registerPlanLimits(): void {
+    this.rpcHandler.registerMethod<
+      ProviderGetPlanLimitsParams,
+      ProviderGetPlanLimitsResult
+    >('provider:getPlanLimits', async (params) => {
+      const validated = ProviderGetPlanLimitsSchema.parse(params ?? {});
+      const request: PlanLimitsSnapshotRequest = validated;
+      return this.planLimits.snapshot(request);
     });
   }
 
