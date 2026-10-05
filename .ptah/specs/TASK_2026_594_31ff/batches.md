@@ -461,7 +461,7 @@ Batch 5 result (2026-10-05, team-leader): PASSED. Lane touched only the six list
 (+176 lines, verified by `git diff --stat`). typecheck + lint `shared`: green. jest shared
 (narrowed): 102/102 suites, 2789 tests (+5 over Wave 1). Report: `batch-5-report.md`.
 
-## Batch 6: MCP tool description and v1 regression (plan E) — COMPLETE
+## Batch 6: MCP tool description and v1 regression (plan E) — COMPLETE (commit e46a4acc0)
 
 - Recommended executor: CLI lane `Glm`
 - Fallback executor: backend-developer subagent
@@ -727,7 +727,7 @@ This is the full suite.
 Commit: `test(shared): cover status and text kinds in contract, validator and budget specs`, plus
 the trailer.
 
-## Batch 10: surface-node dispatch and badge pressed state (plan D) — IN_PROGRESS
+## Batch 10: surface-node dispatch and badge pressed state (plan D) — COMPLETE
 
 - Recommended executor: CLI lane `Glm`
 - Fallback executor: frontend-developer subagent
@@ -738,7 +738,7 @@ the trailer.
 - AC: 1-5, 15
 - Phase: status-kinds
 
-### Task 10.1: Dispatch wiring — IN_PROGRESS
+### Task 10.1: Dispatch wiring — COMPLETE
 
 - File: MODIFY `D:/projects/ptah-extension/.claude-worktrees/task-594-status-kinds/libs/frontend/declarative-dashboard/src/lib/components/surface-node.component.ts`
 - Conditional file: MODIFY
@@ -754,7 +754,7 @@ the trailer.
   - Add six `@case` branches, forwarding the badge `selectionChange` and the current selection.
   - No new eager imports anywhere else.
 
-### Task 10.2: surface-node spec — IN_PROGRESS
+### Task 10.2: surface-node spec — COMPLETE
 
 - File: MODIFY `D:/projects/ptah-extension/.claude-worktrees/task-594-status-kinds/libs/frontend/declarative-dashboard/src/lib/components/surface-node.component.spec.ts`
 - Quality requirements:
@@ -775,7 +775,17 @@ This is the full suite: it lifts the last dashboard exclusion.
 Commit: `feat(declarative-dashboard): dispatch status and text kinds in surface-node`, plus the
 trailer.
 
-## Batch 11: Skill catalog reference, prompt pointer, catalog-reference spec (plan F) — PENDING
+Batch 10 result (2026-10-05, team-leader): PASSED. Lane touched only `surface-node.component.ts`
+and its spec; `surface-renderer.component.ts` untouched (no typecheck need). Six `@case`
+branches verified; badge forwards `[surfaceId]`, `[selection]="interaction().selection"` and
+`(selectionChange)`, matching the stat case; `aria-pressed` test covers false, true and the emitted
+`{ kind: 'badge' }` target. The six renderers are static imports in `surface-node.component.ts`,
+the same way the existing kind components (stat, table, list, chart) are imported, so the
+existing eager/lazy boundary is unchanged by construction; the eager-closure gate proof stays
+with Task 12.2. `npx nx run-many -t typecheck,test,lint -p declarative-dashboard
+--skip-nx-cache`: green, no exclusions. Report: `batch-10-report.md`.
+
+## Batch 11: Skill catalog reference, prompt pointer, catalog-reference spec (plan F) — IN_PROGRESS
 
 - Recommended executor: CLI lane `Glm`
 - Fallback executor: backend-developer subagent
@@ -786,7 +796,7 @@ trailer.
 - AC: 12, 14
 - Phase: status-kinds
 
-### Task 11.1: Apps prompt pointer — PENDING
+### Task 11.1: Apps prompt pointer — IN_PROGRESS
 
 - Files: MODIFY
   `D:/projects/ptah-extension/.claude-worktrees/task-594-status-kinds/libs/frontend/mcp-apps-page/src/lib/apps-system-prompt.ts`;
@@ -800,7 +810,7 @@ trailer.
   - The spec parses that one line into exact tokens and asserts set equality with
     `SURFACE_COMPONENT_KINDS`.
 
-### Task 11.2: Skill link and `references/catalog.md` — PENDING
+### Task 11.2: Skill link and `references/catalog.md` — IN_PROGRESS
 
 - Files: MODIFY
   `D:/projects/ptah-extension/.claude-worktrees/task-594-status-kinds/apps/ptah-extension-vscode/assets/plugins/ptah-core/skills/ptah-surface-authoring/SKILL.md`;
@@ -816,7 +826,7 @@ trailer.
   - No daisyUI class names.
 - Validation notes: do NOT create `.claude/skills/ptah-surface-authoring/`.
 
-### Task 11.3: Catalog-reference spec — PENDING
+### Task 11.3: Catalog-reference spec — IN_PROGRESS
 
 - File: CREATE `D:/projects/ptah-extension/.claude-worktrees/task-594-status-kinds/libs/backend/vscode-lm-tools/src/lib/code-execution/surface-catalog-reference.spec.ts`
 - Plan reference: implementation-plan.md:328-335
