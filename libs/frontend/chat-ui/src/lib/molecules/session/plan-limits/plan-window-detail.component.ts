@@ -15,9 +15,12 @@ import type { PlanWindowDetailModel } from './stats-limit-view-model.types';
  * per-field source chips.
  *
  * Used by the plan-limit tile panel and by a lane subgroup that shows a
- * window in full. Unknown is never 0: without a percent no meter is drawn and
- * the row reads "Used: unknown". The meter fill is neutral and the percentage
- * is always printed; the stripes on a hot window are decoration.
+ * window in full. The plan tile passes `showSummary="false"` because its own
+ * face already shows the label, chip, used value and source chips; a lane
+ * subgroup keeps the default and shows everything. Unknown is never 0:
+ * without a percent no meter is drawn and the row reads "Used: unknown". The
+ * meter fill is neutral and the percentage is always printed; the stripes on
+ * a hot window are decoration.
  */
 @Component({
   selector: 'ptah-plan-window-detail',
@@ -25,46 +28,49 @@ import type { PlanWindowDetailModel } from './stats-limit-view-model.types';
   template: `
     @let w = window();
     <div class="py-1" data-testid="plan-window-detail">
-      <div class="flex flex-wrap items-center justify-between gap-1.5">
-        <span class="font-semibold text-xs">{{ w.label }}</span>
-        @if (w.chip; as chip) {
-          <span [class]="chipClass(chip.tone)">
-            @if (chip.glyph) {
-              <span aria-hidden="true">{{ chip.glyph }}</span>
-            }
-            {{ chip.text }}
-          </span>
-        }
-      </div>
-      @if (percent() !== null) {
-        <div class="flex items-center gap-2 mt-1">
-          <div
-            class="relative flex-1 h-1.5 rounded bg-base-content/10 overflow-hidden"
-            role="meter"
-            aria-valuemin="0"
-            aria-valuemax="100"
-            [attr.aria-valuenow]="percent()"
-            [attr.aria-valuetext]="w.usedText"
-            [attr.aria-label]="w.label + ' used'"
-          >
-            <div
-              class="h-full rounded bg-base-content/70"
-              [class.stripes-error]="w.chip?.tone === 'error'"
-              [class.stripes-warning]="w.chip?.tone === 'warning'"
-              [style.width.%]="percent()"
-            ></div>
-            <div
-              class="absolute top-0 h-full w-px bg-base-content"
-              [style.left.%]="nearLimitPercent"
-              aria-hidden="true"
-            ></div>
-          </div>
-          <span class="text-xs font-semibold tabular-nums whitespace-nowrap">{{
-            w.usedText
-          }}</span>
+      @if (showSummary()) {
+        <div class="flex flex-wrap items-center justify-between gap-1.5">
+          <span class="font-semibold text-xs">{{ w.label }}</span>
+          @if (w.chip; as chip) {
+            <span [class]="chipClass(chip.tone)">
+              @if (chip.glyph) {
+                <span aria-hidden="true">{{ chip.glyph }}</span>
+              }
+              {{ chip.text }}
+            </span>
+          }
         </div>
-      } @else {
-        <div class="text-xs mt-1 font-semibold">Used: {{ w.usedText }}</div>
+        @if (percent() !== null) {
+          <div class="flex items-center gap-2 mt-1">
+            <div
+              class="relative flex-1 h-1.5 rounded bg-base-content/10 overflow-hidden"
+              role="meter"
+              aria-valuemin="0"
+              aria-valuemax="100"
+              [attr.aria-valuenow]="percent()"
+              [attr.aria-valuetext]="w.usedText"
+              [attr.aria-label]="w.label + ' used'"
+            >
+              <div
+                class="h-full rounded bg-base-content/70"
+                [class.stripes-error]="w.chip?.tone === 'error'"
+                [class.stripes-warning]="w.chip?.tone === 'warning'"
+                [style.width.%]="percent()"
+              ></div>
+              <div
+                class="absolute top-0 h-full w-px bg-base-content"
+                [style.left.%]="nearLimitPercent"
+                aria-hidden="true"
+              ></div>
+            </div>
+            <span
+              class="text-xs font-semibold tabular-nums whitespace-nowrap"
+              >{{ w.usedText }}</span
+            >
+          </div>
+        } @else {
+          <div class="text-xs mt-1 font-semibold">Used: {{ w.usedText }}</div>
+        }
       }
       @for (fact of w.resetFacts; track $index) {
         <div class="text-[11px] text-base-content-muted mt-0.5">{{ fact }}</div>
@@ -74,12 +80,14 @@ import type { PlanWindowDetailModel } from './stats-limit-view-model.types';
           {{ w.note }}
         </div>
       }
-      @if (w.sourceChips.length > 0) {
-        <div class="flex flex-wrap gap-1 mt-1">
-          @for (source of w.sourceChips; track source) {
-            <span [class]="sourceChipClass(source)">{{ source }}</span>
-          }
-        </div>
+      @if (showSummary()) {
+        @if (w.sourceChips.length > 0) {
+          <div class="flex flex-wrap gap-1 mt-1">
+            @for (source of w.sourceChips; track source) {
+              <span [class]="sourceChipClass(source)">{{ source }}</span>
+            }
+          </div>
+        }
       }
     </div>
   `,
@@ -105,6 +113,12 @@ import type { PlanWindowDetailModel } from './stats-limit-view-model.types';
 })
 export class PlanWindowDetailComponent {
   readonly window = input.required<PlanWindowDetailModel>();
+  /**
+   * False from the plan tile panel, whose face already shows the label,
+   * chip, used value and source chips; true (default) from a lane subgroup,
+   * which shows the window in full.
+   */
+  readonly showSummary = input<boolean>(true);
 
   protected readonly nearLimitPercent = NEAR_LIMIT_PERCENT;
   protected readonly chipClass = chipClass;

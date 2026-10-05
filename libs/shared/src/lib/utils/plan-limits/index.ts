@@ -50,6 +50,8 @@ export {
   type OwnerRelation,
   type PlanWindowBlockingState,
 } from './lane-state';
+// Owner display labels (TASK_2026_615, FU-PHASE6)
+export { ownerDisplayLabel, ownerKeySuffix } from './owner-display';
 // Time and source formatting (design §0.4, §1)
 export {
   formatLocalAbsolute,

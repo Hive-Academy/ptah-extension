@@ -16,6 +16,7 @@ import {
   formatSourceChips,
   formatUsed,
   isActiveLimitEvidence,
+  ownerDisplayLabel,
   PLAN_LIMIT_SOURCE_LABELS,
   resetPassage,
   usedPercent,
@@ -87,7 +88,9 @@ export function sessionPlan(
   }
   const limits = applicableLimits(snapshot, input.sessionModelScope);
   const result = classifyLaneState(limits, ctx.lane);
-  const caption = `${snapshot.owner.label} plan limit`;
+  // The suffixed owner label ("Claude account · a1b2") so two owners of one
+  // provider are told apart in the tile captions.
+  const caption = `${ownerDisplayLabel(snapshot.owner)} plan limit`;
   const tiles: PlanLimitTileModel[] = [
     ...statusTiles(snapshot, result.windows.length, caption, ctx),
     ...result.windows.map((entry) => windowTile(snapshot, entry, caption, ctx)),
@@ -154,7 +157,7 @@ function statusTiles(
         tone: 'neutral',
         sourceChips: [],
         detailLines: [
-          `${snapshot.owner.label} does not report plan usage, so no percentage is shown.`,
+          `${ownerDisplayLabel(snapshot.owner)} does not report plan usage, so no percentage is shown.`,
         ],
       },
     ];

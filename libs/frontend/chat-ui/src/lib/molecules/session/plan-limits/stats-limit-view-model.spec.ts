@@ -34,9 +34,11 @@ function owner(
   };
 }
 
-const CLAUDE_A = owner('claude-cli', 'account', 'aaa', 'Claude account');
-const CLAUDE_B = owner('claude-cli', 'account', 'bbb', 'Claude account');
-const CODEX = owner('openai-codex', 'cli-store', 'ccc', 'Codex account');
+// 16-hex fingerprints, so the display labels carry their key suffix
+// ("Claude account · aaaa") the way real hashed keys do.
+const CLAUDE_A = owner('claude-cli', 'account', 'aaaaaaaaaaaaaaaa', 'Claude account');
+const CLAUDE_B = owner('claude-cli', 'account', 'bbbbbbbbbbbbbbbb', 'Claude account');
+const CODEX = owner('openai-codex', 'cli-store', 'cccccccccccccccc', 'Codex account');
 const ANTHROPIC_KEY = owner(
   'anthropic',
   'credential',
@@ -767,7 +769,7 @@ describe('buildStatsLimitViewModel', () => {
           id: `plan-status:${CLAUDE_A.key}`,
           value: 'Unavailable',
           resetLine: 'no open session',
-          caption: 'Claude account plan limit',
+          caption: 'Claude account · aaaa plan limit',
         }),
       ]);
     });
