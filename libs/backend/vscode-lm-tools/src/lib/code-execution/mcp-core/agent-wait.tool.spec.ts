@@ -1,3 +1,7 @@
+// `./wait-tools-args.schema` takes its wait ceiling from
+// `@ptah-extension/cli-agent-runtime`, whose barrel reaches tsyringe
+// decorators on import.
+import 'reflect-metadata';
 import { resolve } from 'node:path';
 import type { AgentWaitResult } from '@ptah-extension/cli-agent-runtime';
 import type {

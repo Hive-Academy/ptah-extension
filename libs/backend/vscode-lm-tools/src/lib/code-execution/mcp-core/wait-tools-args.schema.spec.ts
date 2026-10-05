@@ -1,3 +1,7 @@
+// `@ptah-extension/cli-agent-runtime`'s barrel (the source of the wait
+// ceiling) reaches tsyringe decorators on import.
+import 'reflect-metadata';
+import { MAX_AGENT_WAIT_MS } from '@ptah-extension/cli-agent-runtime';
 import {
   AgentWaitArgsSchema,
   DEFAULT_AGENT_WAIT_TIMEOUT_SEC,
@@ -12,6 +16,11 @@ describe('wait tool constants', () => {
   it('keeps the reply bound at half the 8,000-char result budget', () => {
     expect(WAIT_SUMMARY_MAX_CHARS).toBe(4_000);
     expect(MAX_WAIT_TIMEOUT_SEC).toBe(900);
+  });
+
+  it('takes the wait ceiling from the runtime clamp, so the two cannot drift', () => {
+    expect(MAX_WAIT_TIMEOUT_SEC * 1000).toBe(MAX_AGENT_WAIT_MS);
+    expect(Number.isInteger(MAX_WAIT_TIMEOUT_SEC)).toBe(true);
   });
 });
 
