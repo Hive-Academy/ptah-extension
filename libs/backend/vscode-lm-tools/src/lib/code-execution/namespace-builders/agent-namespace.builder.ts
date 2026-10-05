@@ -12,6 +12,7 @@
 
 import type { AgentNamespace } from '../types';
 import { MAX_EFFORT_LENGTH } from '../mcp-core/agent-spawn-args.schema';
+import { getExecutionAbortSignal } from '../mcp-core/code-execution.engine';
 import {
   MAX_AGENT_WAIT_MS,
   PTAH_CLI_ROLE_DELIVERY,
@@ -530,12 +531,21 @@ export function buildAgentNamespace(
         typeof requested === 'number' && requested > 0
           ? Math.min(Math.floor(requested), MAX_AGENT_WAIT_MS)
           : 0;
+      // The `execute_code` run's signal: a caller that stops waiting ends
+      // this wait now instead of at its timer.
       const result = await agentProcessManager.waitForAgents(
         [agentId],
         'all',
         timeoutMs,
+        getExecutionAbortSignal(),
       );
       const entry = result.entries[0];
+      if (result.cancelled && entry?.state !== 'exited') {
+        throw new Error(
+          `waitFor cancelled for agent ${agentId}: the caller stopped ` +
+            'waiting. The agent keeps running.',
+        );
+      }
       if (entry?.state === 'exited') {
         return entry.info;
       }

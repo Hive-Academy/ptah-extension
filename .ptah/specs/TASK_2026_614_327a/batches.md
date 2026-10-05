@@ -1037,7 +1037,7 @@ real code, a regression test per item).
 
 - Scoped checks for agent-sdk; the agent-sdk test target exits 0 (Task 22.6 removes the last allowed failure).
 
-## Batch 23: `execute_code` cancel reaches `ptah.agent.waitFor` (G.8, Task 8.3 gap) — PENDING
+## Batch 23: `execute_code` cancel reaches `ptah.agent.waitFor` (G.8, Task 8.3 gap) — COMPLETE (d02a06685)
 
 - Recommended executor: backend-developer | Fallback: backend-developer (fresh run) | Execution mode: Sequential subagent
 - Model: Opus | Tasks: 2 | Depends on: Batch 21 (same lib) | Group: P3 | Phase: G
@@ -1047,11 +1047,11 @@ real code, a regression test per item).
   `<R>\libs\backend\vscode-lm-tools\src\lib\code-execution\namespace-builders\agent-namespace.builder.ts` (+ spec), one
   dispatcher spec
 
-### Task 23.1: Request signal into `executeCode` — PENDING
+### Task 23.1: Request signal into `executeCode` — COMPLETE
 
 - `protocol-dispatcher.ts:3703` passes `getRequestAbortSignal()` into the engine; the engine exposes it to namespaces.
 
-### Task 23.2: `ptah.agent.waitFor` honours it — PENDING
+### Task 23.2: `ptah.agent.waitFor` honours it — COMPLETE
 
 - `agent-namespace.builder.ts:525-537` forwards the signal to `waitForAgents` (accepts one at 556-557). Spec: abort →
   the wait returns cancelled.
@@ -1144,6 +1144,12 @@ real code, a regression test per item).
 ### Batch 26 verification
 
 - Scoped checks for tool-output-reducers and vscode-lm-tools.
+
+### Task 26.3: Doc `waitFor` cancellation throw in `code-execution/types.ts` (from Batch 23) — PENDING
+
+- `libs/backend/vscode-lm-tools/src/lib/code-execution/types.ts` (~389-396): the `waitFor` JSDoc must list the new throw
+  `waitFor cancelled for agent <id>: the caller stopped waiting. The agent keeps running.` Doc only.
+
 
 ## Batch 27: Stream-transformer callback helper and tap doc (G.8 style) — PENDING
 

@@ -33,6 +33,7 @@
  * next step; see `.ptah/specs/TASK_2026_193/findings.md`.
  */
 
+import { AsyncLocalStorage } from 'node:async_hooks';
 import * as vm from 'node:vm';
 
 import { Logger } from '@ptah-extension/vscode-core';
@@ -44,7 +45,33 @@ import { PtahAPI } from '../types';
 export interface CodeExecutionDependencies {
   ptahAPI: PtahAPI;
   logger: Logger;
+  /**
+   * Aborted when the caller stops waiting for the `execute_code` call. The
+   * execution then ends with a cancellation error, and every `ptah.*` method
+   * the code calls can read it through `getExecutionAbortSignal()`.
+   */
+  signal?: AbortSignal;
 }
+
+/**
+ * The abort signal of the `execute_code` run that called the current `ptah.*`
+ * method. The bridge binds it around each host method call, so it does not
+ * depend on async context surviving the vm realm.
+ */
+const executionSignal = new AsyncLocalStorage<AbortSignal | undefined>();
+
+/**
+ * The abort signal of the in-flight `execute_code` run, or `undefined` outside
+ * one (or when its caller supplied none). Long-running `ptah.*` methods stop on
+ * it (TASK_2026_614 Batch 23).
+ */
+export function getExecutionAbortSignal(): AbortSignal | undefined {
+  return executionSignal.getStore();
+}
+
+/** Error message when the caller's abort signal ends an execution. */
+export const EXECUTION_CANCELLED_MESSAGE =
+  'Execution cancelled: the caller stopped waiting';
 
 /** Max depth walked when describing the ptah API surface for the sandbox mirror. */
 const MAX_API_SHAPE_DEPTH = 6;
@@ -216,6 +243,7 @@ function resolvePtahMethod(
  */
 function createBridge(
   ptahAPI: PtahAPI,
+  signal: AbortSignal | undefined,
 ): (dottedPath: string, argsJson: string) => Promise<string> {
   const bridge = async (
     dottedPath: string,
@@ -236,7 +264,9 @@ function createBridge(
       } catch {
         args = [];
       }
-      const value = await method.apply(receiver, args);
+      const value = await executionSignal.run(signal, () =>
+        method.apply(receiver, args),
+      );
       try {
         return JSON.stringify({
           ok: true,
@@ -268,7 +298,11 @@ export async function executeCode(
   timeout: number,
   deps: CodeExecutionDependencies,
 ): Promise<unknown> {
-  const { ptahAPI, logger } = deps;
+  const { ptahAPI, logger, signal } = deps;
+
+  if (signal?.aborted) {
+    throw new Error(EXECUTION_CANCELLED_MESSAGE);
+  }
 
   logger.info(`Executing code (timeout: ${timeout}ms)`, 'CodeExecutionMCP', {
     codePreview: code.substring(0, 100),
@@ -281,7 +315,7 @@ export async function executeCode(
     wrapped: wrappedCode.substring(0, 150),
   });
 
-  const bridge = createBridge(ptahAPI);
+  const bridge = createBridge(ptahAPI, signal);
   const logConsole = (level: string, message: string): void => {
     try {
       logger.debug(`[sandbox console.${level}] ${message}`, 'CodeExecutionMCP');
@@ -376,30 +410,47 @@ export async function executeCode(
 
   const run = makeRunner(bridge, logConsole, hostTimers, shapeJson);
 
-  let executionPromise = Promise.resolve(run(wrappedCode));
-  executionPromise = executionPromise.then(async (result: unknown) => {
-    let unwrapped = result;
-    for (
-      let i = 0;
-      i < 3 &&
-      unwrapped &&
-      typeof (unwrapped as Record<string, unknown>)['then'] === 'function';
-      i++
-    ) {
-      unwrapped = await (unwrapped as Promise<unknown>);
-    }
-    return unwrapped;
-  });
-
-  const timeoutPromise = new Promise((_, reject) => {
-    setTimeout(
+  let timeoutHandle: NodeJS.Timeout | undefined;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutHandle = setTimeout(
       () => reject(new Error(`Execution timeout (${timeout}ms)`)),
       timeout,
     );
   });
 
+  // A caller that stops waiting ends the run now rather than at the timer.
+  // Listening starts before the code runs: its synchronous part can already
+  // reach a ptah method, and an abort there must not be missed.
+  let onAbort: (() => void) | undefined;
+  const cancelPromise = new Promise<never>((_, reject) => {
+    if (signal) {
+      onAbort = () => reject(new Error(EXECUTION_CANCELLED_MESSAGE));
+      signal.addEventListener('abort', onAbort, { once: true });
+    }
+  });
+
   try {
-    const result = await Promise.race([executionPromise, timeoutPromise]);
+    const executionPromise = Promise.resolve(run(wrappedCode)).then(
+      async (result: unknown) => {
+        let unwrapped = result;
+        for (
+          let i = 0;
+          i < 3 &&
+          unwrapped &&
+          typeof (unwrapped as Record<string, unknown>)['then'] === 'function';
+          i++
+        ) {
+          unwrapped = await (unwrapped as Promise<unknown>);
+        }
+        return unwrapped;
+      },
+    );
+
+    const result = await Promise.race([
+      executionPromise,
+      timeoutPromise,
+      cancelPromise,
+    ]);
 
     logger.info('Code execution successful', 'CodeExecutionMCP', {
       resultType: typeof result,
@@ -413,6 +464,10 @@ export async function executeCode(
     );
     throw error;
   } finally {
+    clearTimeout(timeoutHandle);
+    if (signal && onAbort) {
+      signal.removeEventListener('abort', onAbort);
+    }
     // Force-clear any timers the sandbox left pending so they cannot fire (and
     // run sandbox code) after the call has settled or timed out.
     for (const handle of pendingTimers) {

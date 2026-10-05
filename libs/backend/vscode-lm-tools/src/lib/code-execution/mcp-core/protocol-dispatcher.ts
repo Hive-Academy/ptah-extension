@@ -3700,7 +3700,13 @@ async function handleExecuteCodeCall(
   let textResult: string;
   let returnedSource = false;
   try {
-    const result = await executeCode(code, actualTimeout, { ptahAPI, logger });
+    // The request signal ends the run, and `ptah.agent.waitFor`, when the
+    // caller stops waiting (TASK_2026_614 Batch 23).
+    const result = await executeCode(code, actualTimeout, {
+      ptahAPI,
+      logger,
+      signal: getRequestAbortSignal(),
+    });
     textResult = serializeResult(result);
     // Only a string result can be the source text the caller declared; an
     // object is serialised JSON, whatever the caller said.

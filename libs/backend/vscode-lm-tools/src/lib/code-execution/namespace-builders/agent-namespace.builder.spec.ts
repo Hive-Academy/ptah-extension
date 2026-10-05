@@ -41,6 +41,12 @@ import type {
   SpawnAgentRequest,
   SpawnAgentResult,
 } from '@ptah-extension/shared';
+import type { Logger } from '@ptah-extension/vscode-core';
+import type { PtahAPI } from '../types';
+import {
+  EXECUTION_CANCELLED_MESSAGE,
+  executeCode,
+} from '../mcp-core/code-execution.engine';
 import {
   buildAgentNamespace,
   type AgentNamespaceDependencies,
@@ -1097,10 +1103,12 @@ describe('buildAgentNamespace — waitFor', () => {
 
     expect(result).toBe(info);
     expect(mocks.processManager.waitForAgents).toHaveBeenCalledTimes(1);
+    // No `execute_code` run in flight, so no signal rides along.
     expect(mocks.processManager.waitForAgents).toHaveBeenCalledWith(
       ['x'],
       'all',
       5000,
+      undefined,
     );
     expect(mocks.processManager.getStatus).not.toHaveBeenCalled();
     expect(setTimeoutSpy).not.toHaveBeenCalled();
@@ -1173,9 +1181,92 @@ describe('buildAgentNamespace — waitFor', () => {
         ['x'],
         'all',
         expected,
+        undefined,
       );
     },
   );
+
+  // TASK_2026_614 Batch 23: `execute_code` cancel reaches `waitFor`.
+  it('rejects with a cancellation error when the wait was cancelled', async () => {
+    const { deps, mocks } = makeDeps();
+    mocks.processManager.waitForAgents.mockResolvedValue({
+      mode: 'all',
+      timedOut: false,
+      cancelled: true,
+      waitedMs: 5,
+      entries: [
+        { agentId: 'x', state: 'running', info: { ...info, status: 'running' } },
+      ],
+    });
+
+    await expect(buildAgentNamespace(deps).waitFor('x')).rejects.toThrow(
+      /waitFor cancelled for agent x: the caller stopped waiting/,
+    );
+    expect(mocks.processManager.getStatus).not.toHaveBeenCalled();
+  });
+
+  it('returns the record when the lane exited as the wait was cancelled', async () => {
+    const { deps, mocks } = makeDeps();
+    mocks.processManager.waitForAgents.mockResolvedValue({
+      mode: 'all',
+      timedOut: false,
+      cancelled: true,
+      waitedMs: 5,
+      entries: [{ agentId: 'x', state: 'exited', info }],
+    });
+
+    await expect(buildAgentNamespace(deps).waitFor('x')).resolves.toBe(info);
+  });
+
+  it('receives the execute_code signal and ends the wait when it aborts', async () => {
+    const { deps, mocks } = makeDeps();
+    const controller = new AbortController();
+    let waitSignal: AbortSignal | undefined;
+    let waitSettled: Promise<unknown> = Promise.resolve();
+    mocks.processManager.waitForAgents.mockImplementation(
+      (_ids: string[], mode: string, _timeout: number, signal?: AbortSignal) => {
+        waitSignal = signal;
+        const settled = new Promise((resolve) => {
+          signal?.addEventListener('abort', () =>
+            resolve({
+              mode,
+              timedOut: false,
+              cancelled: true,
+              waitedMs: 1,
+              entries: [
+                {
+                  agentId: 'x',
+                  state: 'running',
+                  info: { ...info, status: 'running' },
+                },
+              ],
+            }),
+          );
+        });
+        waitSettled = settled;
+        // The caller goes away while the wait is pending.
+        queueMicrotask(() => controller.abort());
+        return settled;
+      },
+    );
+    const ptahAPI = { agent: buildAgentNamespace(deps) } as unknown as PtahAPI;
+    const logger = {
+      info: jest.fn(),
+      debug: jest.fn(),
+      warn: jest.fn(),
+      error: jest.fn(),
+    } as unknown as Logger;
+
+    await expect(
+      executeCode("ptah.agent.waitFor('x')", 5000, {
+        ptahAPI,
+        logger,
+        signal: controller.signal,
+      }),
+    ).rejects.toThrow(EXECUTION_CANCELLED_MESSAGE);
+    expect(waitSignal).toBe(controller.signal);
+    await expect(waitSettled).resolves.toMatchObject({ cancelled: true });
+  });
 
   it.each([
     ['not_found', 'Agent not found: x. This host holds no record'],
