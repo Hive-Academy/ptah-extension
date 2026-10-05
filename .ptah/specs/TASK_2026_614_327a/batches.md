@@ -1090,7 +1090,7 @@ real code, a regression test per item).
   (null or `isCancelled(id)`). Update the existing "aborts the agent_wait whose id the peer cancels" spec (it currently
   expects a `WAIT CANCELLED` result). Impact today is cosmetic (review B, FM6). Scoped checks for both projects.
 
-## Batch 25: Resume decision in the RPC reply; setConfig, default model, barrels (G.6, G.8) — COMPLETE
+## Batch 25: Resume decision in the RPC reply; setConfig, default model, barrels (G.6, G.8) — COMPLETE (08e51a353)
 
 - Recommended executor: backend-developer | Fallback: backend-developer (fresh run) | Execution mode: Sequential subagent
 - Model: Opus | Tasks: 4 | Depends on: Batch 23 | Group: P4 | Phase: G
@@ -1295,7 +1295,7 @@ Hard dependency: Batches 35-36 start only after Batches 19 and 33 have committed
 or `libs/frontend/chat-ui` has committed. No other batch runs while they run. Behaviour-preserving: the executor loads
 the `humanize-library` skill; every existing spec passes unchanged except for moved tests.
 
-## Batch 35: Move the budget flows out of chat-view (F.2 / PR3-S1, style M1 + M2) — PENDING
+## Batch 35: Move the budget flows out of chat-view (F.2 / PR3-S1, style M1 + M2) — COMPLETE (568a1411e)
 
 - Recommended executor: frontend-developer | Fallback: frontend-developer (fresh run) | Execution mode: Sequential subagent
 - Model: Opus | Tasks: 2 | Depends on: Batches 19, 33 (and every chat-view batch) | Phase: F.2

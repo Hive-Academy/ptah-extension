@@ -21,6 +21,20 @@ import { LimitsAlertComponent } from './plan-limits/limits-alert.component';
 import { PlanLimitTileComponent } from './plan-limits/plan-limit-tile.component';
 import type { StatsLimitViewModel } from './plan-limits/stats-limit-view-model.types';
 import { StatsTileExpansionState } from './plan-limits/stats-tile-expansion.state';
+import {
+  budgetTooltip,
+  costBudgetSuffix,
+  costBudgetText,
+  costTooltip,
+  tokensBudgetSuffix,
+  tokensTooltip,
+} from './session-budget-format';
+import {
+  formatCost,
+  formatDuration,
+  formatOptionalTokens,
+  formatTokens,
+} from './session-stats-format';
 
 /**
  * Live model stats from current session
@@ -934,75 +948,32 @@ export class SessionStatsSummaryComponent {
   /** Tokens chip: the backend's all-four-class `tokenCount`, or "—". */
   readonly tokensLabel = computed(() => {
     const count = this.snapshot()?.tokenCount;
-    return typeof count === 'number' ? this.formatTokens(count) : '—';
+    return typeof count === 'number' ? formatTokens(count) : '—';
   });
 
-  /** `/ 50.0M` beside TOKENS when the budget is counted in tokens. */
-  readonly tokensBudgetSuffix = computed(() => {
-    const budget = this.budget();
-    return budget?.measure === 'tokens'
-      ? `/ ${this.formatTokens(budget.limit)}`
-      : null;
-  });
-
-  /** `/ $30` beside the COST badge when the budget is counted in dollars. */
-  readonly costBudgetSuffix = computed(() => {
-    const budget = this.budget();
-    return budget?.measure === 'cost'
-      ? `/ ${this.formatBudgetUsd(budget.limit)}`
-      : null;
-  });
-
-  /**
-   * Replaces the COST value for the two fallbacks the snapshot cannot show:
-   * a lower bound when some models are unpriced, and a weighted token
-   * estimate when none is. `null` keeps the badge.
-   */
-  readonly costBudgetText = computed(() => {
-    const budget = this.budget();
-    if (!budget || budget.used === null) return null;
-    if (budget.measure === 'cost-lower-bound') {
-      return `≥ ${this.formatCost(budget.used)} / ${this.formatBudgetUsd(budget.limit)} (some models have no price)`;
-    }
-    if (budget.measure === 'weighted-fallback') {
-      return `est. ${this.formatTokens(budget.used)} / ${this.formatTokens(budget.limit)} weighted tokens (no price for this model)`;
-    }
-    return null;
-  });
-
-  /** "Session budget: …" line, with the chip's own numerator. */
-  private readonly budgetTooltip = computed(() => {
-    const budget = this.budget();
-    if (!budget || budget.percent === null) return null;
-    let used: string;
-    let limit: string;
-    if (budget.measure === 'tokens') {
-      used = this.tokensLabel();
-      limit = this.formatTokens(budget.limit);
-    } else if (budget.measure === 'weighted-fallback') {
-      used = this.formatOptionalTokens(budget.used ?? undefined);
-      limit = this.formatTokens(budget.limit);
-    } else {
-      const cost =
-        budget.measure === 'cost' ? this.totalCost() : (budget.used ?? null);
-      used = `${budget.measure === 'cost-lower-bound' ? '≥ ' : ''}${this.formatCost(cost)}`;
-      limit = this.formatBudgetUsd(budget.limit);
-    }
-    return `Session budget: ${Math.floor(budget.percent)}% used (${used} of ${limit}). At 50% Ptah lowers auto-compact; at 80% it prepares a handoff; at 100% new messages pause.`;
-  });
-
-  /** COST chip tooltip: the budget line when the budget is counted in cost. */
-  readonly costTooltip = computed(() =>
-    this.budget()?.measure === 'tokens' ? null : this.budgetTooltip(),
+  readonly tokensBudgetSuffix = computed(() =>
+    tokensBudgetSuffix(this.budget()),
   );
 
-  /** Tooltip with the backend's token breakdown. */
-  readonly tokenTooltip = computed(() => {
-    const budgetLine =
-      this.budget()?.measure === 'tokens' ? this.budgetTooltip() : null;
-    const breakdown = this.tokenBreakdown();
-    return budgetLine ? `${breakdown}\n\n${budgetLine}` : breakdown;
-  });
+  readonly costBudgetSuffix = computed(() => costBudgetSuffix(this.budget()));
+
+  readonly costBudgetText = computed(() => costBudgetText(this.budget()));
+
+  private readonly budgetTooltip = computed(() =>
+    budgetTooltip(this.budget(), {
+      tokensLabel: this.tokensLabel(),
+      totalCost: this.totalCost(),
+    }),
+  );
+
+  readonly costTooltip = computed(() =>
+    costTooltip(this.budget(), this.budgetTooltip()),
+  );
+
+  /** Tooltip with the backend's token breakdown, plus any budget line. */
+  readonly tokenTooltip = computed(() =>
+    tokensTooltip(this.budget(), this.budgetTooltip(), this.tokenBreakdown()),
+  );
 
   private readonly tokenBreakdown = computed(() => {
     const stats = this.snapshot();
@@ -1045,51 +1016,10 @@ export class SessionStatsSummaryComponent {
     this.expansion.toggle(this.sessionId() ?? '', tileId);
   }
 
-  /** Format cost for display */
-  protected formatCost(cost: number | null): string {
-    if (cost === null) {
-      return '—';
-    }
-    if (cost < 0.01) {
-      return `$${cost.toFixed(4)}`;
-    }
-    return `$${cost.toFixed(2)}`;
-  }
-
-  /** A configured dollar limit: `$30`, or `$12.50` when it has cents. */
-  protected formatBudgetUsd(limit: number): string {
-    return Number.isInteger(limit) ? `$${limit}` : `$${limit.toFixed(2)}`;
-  }
-
-  /** Format tokens for display */
-  protected formatTokens(count: number): string {
-    if (count >= 1_000_000) {
-      return `${(count / 1_000_000).toFixed(1)}M`;
-    }
-    if (count >= 1_000) {
-      return `${(count / 1_000).toFixed(1)}k`;
-    }
-    return count.toString();
-  }
-
-  /** A row field an older producer may omit: absent is "—", never 0. */
-  protected formatOptionalTokens(count: number | undefined): string {
-    return typeof count === 'number' ? this.formatTokens(count) : '—';
-  }
-
-  /** Format duration for display */
-  protected formatDuration(ms: number): string {
-    if (ms < 1000) {
-      return `${ms}ms`;
-    }
-    const seconds = ms / 1000;
-    if (seconds < 60) {
-      return `${seconds.toFixed(1)}s`;
-    }
-    const minutes = Math.floor(seconds / 60);
-    const remainingSeconds = Math.floor(seconds % 60);
-    return `${minutes}m ${remainingSeconds}s`;
-  }
+  protected readonly formatCost = formatCost;
+  protected readonly formatTokens = formatTokens;
+  protected readonly formatOptionalTokens = formatOptionalTokens;
+  protected readonly formatDuration = formatDuration;
 
   protected formatModelName(modelId: string): string {
     return resolveModelDisplayName(modelId, this.modelState.availableModels());
