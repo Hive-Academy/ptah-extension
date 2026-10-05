@@ -48,7 +48,10 @@ import {
   CompactionState,
   type CompactionSessionClass,
 } from '../compaction/compaction-state.types';
-import type { IContextUsagePort } from '../compaction/context-usage.port';
+import type {
+  ContextUsageReading,
+  IContextUsagePort,
+} from '../compaction/context-usage.port';
 import type { SubagentBudgetMonitor } from '../compaction/subagent-budget-monitor';
 import type { SdkModuleLoader } from '../sdk-module-loader';
 import {
@@ -244,15 +247,10 @@ class CompactionSessionTap {
         : this.sessionId;
     if (!id) return;
     this.subagentIds.add(id);
-    try {
-      monitor
-        .observe(id, message)
-        .catch((error: unknown) =>
-          this.warn('Subagent budget monitor failed', 'subagent-budget', error),
-        );
-    } catch (error: unknown) {
-      this.warn('Subagent budget monitor failed', 'subagent-budget', error);
-    }
+    // The executor runs observe() now; a synchronous throw becomes a rejection.
+    new Promise<void>((resolve) => resolve(monitor.observe(id, message))).catch((error: unknown) =>
+        this.warn('Subagent budget monitor failed', 'subagent-budget', error),
+      );
   }
 
   /**
@@ -320,21 +318,19 @@ class CompactionSessionTap {
     if (!port || !query) return;
     this.turn += 1;
     const turnId = `${this.runToken}:${this.turn}`;
-    try {
-      port
-        .readAtTurnEnd(sessionId, turnId, query)
-        .then((reading) => {
-          if (!reading || this.released) return;
-          this.guard('context-usage', (c) =>
-            c.onContextUsage(sessionId, reading),
-          );
-        })
-        .catch((error: unknown) =>
-          this.warn('Context-usage port failed at turn end', 'turn-end', error),
+    // The executor reads now; a synchronous throw becomes a rejection.
+    new Promise<ContextUsageReading | undefined>((resolve) =>
+      resolve(port.readAtTurnEnd(sessionId, turnId, query)),
+    )
+      .then((reading) => {
+        if (!reading || this.released) return;
+        this.guard('context-usage', (c) =>
+          c.onContextUsage(sessionId, reading),
         );
-    } catch (error: unknown) {
-      this.warn('Context-usage port failed at turn end', 'turn-end', error);
-    }
+      })
+      .catch((error: unknown) =>
+        this.warn('Context-usage port failed at turn end', 'turn-end', error),
+      );
   }
 
   private guard(

@@ -138,7 +138,7 @@ function normalisedJson(value: unknown): string {
     }
     const record = inner as Record<string, unknown>;
     const sorted: Record<string, unknown> = {};
-    for (const k of Object.keys(record).sort()) sorted[k] = record[k];
+    for (const k of Object.keys(record).sort((a, b) => a.localeCompare(b))) sorted[k] = record[k];
     return sorted;
   });
 }
