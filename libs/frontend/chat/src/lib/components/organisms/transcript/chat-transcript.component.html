@@ -49,6 +49,8 @@
           <ptah-message-bubble
             class="block px-2 pb-3"
             [message]="msg"
+            [ptahUiOrderKey]="ptahUiOrderKeys().get(msg.id) ?? 0"
+            [ptahUiSnapshot]="ptahUiSnapshots().get(msg.id) ?? null"
             [messageIndex]="i"
             [totalMessages]="vm().totalCount"
             [isStreaming]="i >= vm().streamingBoundary"
@@ -100,6 +102,19 @@
               }
             </div>
           }
+        }
+      }
+      <!-- Tests row of the turn this message ends: one row per finalized turn
+           that ran test commands, Electron only (see `turnTestsAnchors`).
+           `when` adds no per-item observer and keeps the row chunk lazy. -->
+      @if (turnTestsAnchors().get(msg.id); as tests) {
+        @defer (when tests.runs.length > 0) {
+          <div class="px-2 pb-3" data-testid="chat-turn-tests">
+            <ptah-turn-tests-row
+              [runs]="tests.runs"
+              [incomplete]="tests.incomplete"
+            />
+          </div>
         }
       }
     }

@@ -24,7 +24,11 @@ import {
   Undo2,
   Users,
 } from 'lucide-angular';
-import { ExecutionNodeComponent } from './execution/execution-node.component';
+import {
+  ExecutionNodeComponent,
+  samePtahUiContext,
+  type PtahUiNodeContext,
+} from './execution/execution-node.component';
 import {
   TypingCursorComponent,
   StreamingQuotesComponent,
@@ -37,6 +41,7 @@ import type {
   ExecutionChatMessage,
   PermissionRequest,
   PermissionResponse,
+  TurnSourceSnapshot,
 } from '@ptah-extension/shared';
 import { VSCodeService } from '@ptah-extension/core';
 import { ChatStore } from '../../services/chat.store';
@@ -125,6 +130,22 @@ export class MessageBubbleComponent {
    * unrelated views) keep current behaviour.
    */
   readonly isSessionActive = input<boolean>(true);
+
+  /**
+   * Transcript order of this message for the tab's `ptah-ui` live window
+   * (higher is newer). Supplied by the transcript; the default only ranks
+   * blocks by registration order.
+   */
+  readonly ptahUiOrderKey = input<number>(0);
+
+  /**
+   * The turn's host data (TASK_2026_610 PR C): the transcript's per-turn
+   * `TurnSourceSnapshot`, threaded into the `ptah-ui` context so the block's
+   * `$diff`/`$tests`/`$usage` bindings resolve. `null` — the default, and
+   * always in VS Code, where the transcript computes no map — resolves every
+   * binding to `unavailable`.
+   */
+  readonly ptahUiSnapshot = input<TurnSourceSnapshot | null>(null);
   readonly UserIcon = User;
   readonly FileTextIcon = FileText;
   readonly ImageIcon = Image;
@@ -156,6 +177,27 @@ export class MessageBubbleComponent {
     if (msg.role !== 'assistant') return null;
     return extractMessageSummary(msg.streamingState, msg.cost, msg.duration);
   });
+
+  /**
+   * `ptah-ui` fence rendering context for the execution tree: built only for
+   * an assistant message on Electron (the same `isElectron` source of truth
+   * as `electronOnlySurface`). `null` in VS Code and for every other role, so
+   * the tree renders fences as ordinary code blocks. Carries the turn's
+   * source snapshot (PR C) for the block's `$diff`/`$tests`/`$usage` sources.
+   */
+  protected readonly ptahUiContext = computed(
+    (): PtahUiNodeContext | null => {
+      if (!this.vscode.isElectron) return null;
+      const msg = this.message();
+      if (msg.role !== 'assistant') return null;
+      return {
+        messageId: msg.id,
+        orderKey: this.ptahUiOrderKey(),
+        snapshot: this.ptahUiSnapshot(),
+      };
+    },
+    { equal: samePtahUiContext },
+  );
 
   /** Whether this message should auto-collapse on load */
   readonly shouldAutoCollapse = computed((): boolean => {

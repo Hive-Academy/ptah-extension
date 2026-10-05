@@ -59,6 +59,7 @@ export const ChatStartParamsSchema = z
     tabId: uuidString('tabId'),
     surfaceMode: z.boolean().optional(),
     mcpToolProfile: z.enum(MCP_TOOL_PROFILES).optional(),
+    ptahUiFence: z.boolean().optional(),
   })
   .passthrough();
 
@@ -73,6 +74,7 @@ export const ChatContinueParamsSchema = z
     sessionId: uuidString('sessionId'),
     surfaceMode: z.boolean().optional(),
     mcpToolProfile: z.enum(MCP_TOOL_PROFILES).optional(),
+    ptahUiFence: z.boolean().optional(),
   })
   .passthrough();
 
@@ -83,6 +85,7 @@ export const ChatResumeParamsSchema = z
   .object({
     tabId: uuidString('tabId'),
     sessionId: uuidString('sessionId'),
+    ptahUiFence: z.boolean().optional(),
     historyPage: z
       .object({ maxEvents: HistoryPageSizeSchema })
       .strict()

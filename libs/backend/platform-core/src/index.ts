@@ -9,6 +9,7 @@ export type {
   QuickPickItem,
   QuickPickOptions,
   InputBoxOptions,
+  HostKind,
   IPlatformInfo,
   ConfigurationChangeEvent,
   SecretChangeEvent,

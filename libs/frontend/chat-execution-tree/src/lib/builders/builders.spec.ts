@@ -299,6 +299,44 @@ describe('builder fns (integration)', () => {
       expect(node.toolOutput).toBe('file contents');
     });
 
+    it('preserves a failing tool_result error flag without changing complete status', () => {
+      const state = createEmptyStreamingState();
+      const sessionId = 'session_tool_error';
+      const messageId = 'msg_tool_error';
+      const toolCallId = 'toolu_bash_error';
+      const toolStart: ToolStartEvent = {
+        id: 'evt_tool_start_error',
+        eventType: 'tool_start',
+        timestamp: 110,
+        sessionId,
+        messageId,
+        toolCallId,
+        toolName: 'Bash',
+        isTaskTool: false,
+        toolInput: { command: 'npm test' },
+      };
+      setEvent(state, toolStart);
+      setEvent(state, {
+        id: 'evt_tool_result_error',
+        eventType: 'tool_result',
+        timestamp: 200,
+        sessionId,
+        messageId,
+        toolCallId,
+        output: 'tests failed',
+        isError: true,
+      } as ToolResultEvent);
+
+      const node = buildToolNode(
+        makeDeps(agentStats, makeBackgroundAgentStub()),
+        toolStart,
+        state,
+      );
+
+      expect(node.isError).toBe(true);
+      expect(node.status).toBe('complete');
+    });
+
     it('falls back to toolStart.toolInput when accumulator parse fails but toolInput is provided', () => {
       const state = createEmptyStreamingState();
       const sessionId = 'session_tool3';

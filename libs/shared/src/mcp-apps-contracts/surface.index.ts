@@ -116,3 +116,24 @@ export { formatSurfaceSubmitMessage } from './surface-submit.format';
 
 // Selection description
 export { describeSurfaceSelection } from './surface-selection';
+
+// Display-only ptah-ui fence pipeline
+export { segmentPtahUi } from './ptah-ui-fence';
+export { parsePtahUi } from './ptah-ui-parser';
+export { convertPtahUi } from './ptah-ui-converter';
+export type { PtahUiBinding, PtahUiConversion } from './ptah-ui-converter';
+export { resolvePtahUi } from './ptah-ui-resolver';
+export type { ResolvedPtahUiContent } from './ptah-ui-resolver';
+export { renderPtahUiBlock } from './ptah-ui-pipeline';
+export type {
+  RenderPtahUiBlockInput,
+  RenderPtahUiBlockResult,
+} from './ptah-ui-pipeline';
+export type {
+  PtahUiDocument,
+  PtahUiElement,
+  PtahUiParseFailure,
+  PtahUiParseResult,
+  PtahUiSegment,
+  PtahUiSourceName,
+} from './ptah-ui.types';

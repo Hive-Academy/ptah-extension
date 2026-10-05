@@ -47,6 +47,9 @@ export const PLATFORM_TOKENS = {
   /** IPlatformInfo — platform type, extension path, storage paths */
   PLATFORM_INFO: Symbol.for('PlatformInfo'),
 
+  /** HostKind — the host process providing the current platform services */
+  HOST_KIND: Symbol.for('HostKind'),
+
   /** ITokenCounter — platform-agnostic token counting */
   TOKEN_COUNTER: Symbol.for('PlatformTokenCounter'),
 

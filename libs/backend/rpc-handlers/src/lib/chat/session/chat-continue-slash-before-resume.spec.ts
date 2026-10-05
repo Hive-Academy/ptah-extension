@@ -278,6 +278,24 @@ describe('chat:continue — inactive session + slash command', () => {
     );
   });
 
+  it('forwards ptahUiFence to the slash-command path before any resume decision', async () => {
+    const h = makeHarness(NO_RECORD);
+
+    await h.service.continueSession({
+      ...params(SLASH_PROMPT),
+      ptahUiFence: false,
+    });
+
+    expect(h.resumeSession).not.toHaveBeenCalled();
+    expect(h.routeFollowUpSlashCommand).toHaveBeenCalledWith(
+      SLASH_PROMPT,
+      SESSION_ID,
+      TAB_ID,
+      OPEN_FOLDER,
+      expect.objectContaining({ ptahUiFence: false }),
+    );
+  });
+
   it('performs no teardown of its own — nothing for the 5s interrupt to wait on', async () => {
     const h = makeHarness(NO_RECORD);
 

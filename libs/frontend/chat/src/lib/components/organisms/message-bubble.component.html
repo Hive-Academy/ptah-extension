@@ -106,6 +106,7 @@
               [isStreaming]="isStreaming()"
               [isFinalizing]="isFinalizing()"
               [getPermissionForTool]="getPermissionForTool"
+              [ptahUi]="ptahUiContext()"
               (permissionResponded)="onPermissionResponse($event)"
             />
           } @else {

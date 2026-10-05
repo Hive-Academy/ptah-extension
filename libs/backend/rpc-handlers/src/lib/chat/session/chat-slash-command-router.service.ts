@@ -127,6 +127,9 @@ export class ChatSlashCommandRouterService {
               ...(params.mcpToolProfile
                 ? { mcpToolProfile: params.mcpToolProfile }
                 : {}),
+              ...(params.ptahUiFence !== undefined
+                ? { ptahUiFence: params.ptahUiFence }
+                : {}),
             } as AISessionConfig,
             mcpServerRunning,
             enhancedPromptsContent,

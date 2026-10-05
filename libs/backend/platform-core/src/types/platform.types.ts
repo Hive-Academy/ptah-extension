@@ -130,7 +130,7 @@ export interface InputBoxOptions {
   readonly password?: boolean;
   readonly ignoreFocusOut?: boolean;
   readonly validateInput?: (
-    value: string
+    value: string,
   ) => string | undefined | Promise<string | undefined>;
 }
 
@@ -143,6 +143,9 @@ export enum PlatformType {
   CLI = 'cli',
   Web = 'web',
 }
+
+/** Host process kinds supported by the shared backend. */
+export type HostKind = 'vscode' | 'electron' | 'cli' | 'tui';
 
 /**
  * Platform information.
