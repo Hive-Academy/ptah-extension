@@ -856,7 +856,7 @@ export class AgentProcessManager {
         info.quotaOwner,
         this.laneOwners.ownerForLane(info.cli),
       ) ?? info.quotaOwner;
-    const modelScope = resolveModelScope(info.model);
+    const modelScope = resolveModelScope(info.cli, info.model);
     const trackedInfo: AgentProcessInfo = {
       ...info,
       ...(supportsContinuation ? { supportsContinuation: true } : {}),
@@ -987,9 +987,11 @@ export class AgentProcessManager {
   /**
    * Offer a run its quota owner once it becomes known after spawn (a lane's
    * own `accountInfo()`, a stored key read). Applied only when it moves the
-   * run from no owner or an unknown one to a known one; a known owner is never
-   * replaced. A change is announced on `agent:quota-owner` so the session
-   * reference is persisted at once rather than at exit (Gate 2 note).
+   * run from no owner or an unknown one to a known one, or from a cli-store
+   * owner to the account of the same provider; any other known owner is
+   * never replaced. A change is announced on `agent:quota-owner` so the
+   * session reference is persisted at once rather than at exit (Gate 2
+   * note).
    *
    * @returns whether the run's owner changed.
    */
@@ -2414,9 +2416,10 @@ export class AgentProcessManager {
   /**
    * File what this exit says about the run's quota owner: the quota failure
    * as window or owner evidence, or a completed system CLI lane as an S3
-   * success. An owner still unknown is looked up once more first, since the
-   * Codex account may have been read while the lane ran. Nothing here can
-   * change how the exit itself is handled: a ledger failure is only logged.
+   * success. An owner still unknown, or still only a cli-store, is looked up
+   * once more first, since the account it serves may have been read while
+   * the lane ran. Nothing here can change how the exit itself is handled: a
+   * ledger failure is only logged.
    */
   private recordLaneLimits(
     tracked: TrackedAgent,
@@ -2424,7 +2427,14 @@ export class AgentProcessManager {
     observedAt: number,
   ): void {
     const current = tracked.info.quotaOwner;
-    if (!current || current.identityKind === 'unknown') {
+    // A cli-store owner is re-resolved too: the account it serves may have
+    // been read while the lane ran, and `upgradeQuotaOwner` moves the run to
+    // it only for the same provider (D2).
+    if (
+      !current ||
+      current.identityKind === 'unknown' ||
+      current.identityKind === 'cli-store'
+    ) {
       const upgraded = upgradeQuotaOwner(
         current,
         this.laneOwners.ownerForLane(tracked.info.cli),
@@ -2651,7 +2661,31 @@ export class AgentProcessManager {
   }
 }
 
-function resolveModelScope(model: string | null | undefined): string | null {
-  // Claude uses rate-limit families; all other providers retain their normalised model id.
-  return (claudeModelFamily(model) ?? model?.trim().toLowerCase()) || null;
+/**
+ * The model scope a lane's runs are keyed by (TASK_2026_616, D3).
+ *
+ * Only a ptah-cli lane narrows a Claude model id to its rate-limit family:
+ * that is the scope the ptah-cli stream loop itself reports
+ * (`ptah-cli-stream-loop.service.ts`, `claudeModelFamily`), so a lane and
+ * its own stream agree. Every other CLI keeps the trimmed, lowercased full
+ * model id — the pre-TASK_2026_615 behaviour: a codex or antigravity id
+ * that happens to contain `sonnet` is another provider's model and must
+ * not fold onto a Claude family window.
+ *
+ * A scope reaches the ledger only through `recordSuccess({modelScopes})`
+ * in `recordLaneLimits`, which clears unknown-reset evidence and creates
+ * no rows; the only other `recordSuccess` callers are the ptah-cli stream
+ * loop itself and the proxy-success path with `modelScopes: []`, and
+ * `LANE_SUCCESS_BILLING` has no ptah-cli entry. So no ledger row is keyed
+ * by a lane scope and nothing is migrated (A6, re-verified by grep).
+ * Session references persisted before this fix may carry a family scope
+ * for a non-Claude lane; they are display-only and are replaced on the
+ * lane's next run.
+ */
+function resolveModelScope(
+  cli: CliType,
+  model: string | null | undefined,
+): string | null {
+  const id = model?.trim().toLowerCase() || null;
+  return cli === 'ptah-cli' ? (claudeModelFamily(id) ?? id) : id;
 }

@@ -162,4 +162,45 @@ describe('upgradeQuotaOwner', () => {
   it('ignores an absent candidate', () => {
     expect(upgradeQuotaOwner(unknown, undefined)).toBeUndefined();
   });
+
+  // TASK_2026_616, D2: a cli-store owner may move to the account of the same
+  // provider; any other known owner is still never replaced.
+  it('upgrades a cli-store owner to the account of the same provider', () => {
+    const store = ref('antigravity', 'cli-store');
+    const account = ref('antigravity', 'account');
+
+    expect(upgradeQuotaOwner(store, account)).toBe(account);
+  });
+
+  it('never upgrades a cli-store owner to an account of another provider', () => {
+    expect(
+      upgradeQuotaOwner(
+        ref('antigravity', 'cli-store'),
+        ref('openai-codex', 'account'),
+      ),
+    ).toBeUndefined();
+  });
+
+  it('never upgrades a cli-store owner to a credential or another cli-store', () => {
+    const store = ref('antigravity', 'cli-store');
+
+    expect(upgradeQuotaOwner(store, ref('antigravity', 'credential'))).toBe(
+      undefined,
+    );
+    expect(
+      upgradeQuotaOwner(
+        store,
+        ref('antigravity', 'cli-store', 'ffffffffffffffff'),
+      ),
+    ).toBeUndefined();
+  });
+
+  it('never overwrites one account with another', () => {
+    expect(
+      upgradeQuotaOwner(
+        ref('antigravity', 'account'),
+        ref('antigravity', 'account', 'ffffffffffffffff'),
+      ),
+    ).toBeUndefined();
+  });
 });

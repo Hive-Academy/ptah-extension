@@ -15,7 +15,8 @@
  * - anything else — no owner; it reads as "Unknown owner".
  *
  * A run's owner is recorded at spawn and may then only move from unknown to
- * known ({@link upgradeQuotaOwner}); it is never overwritten afterwards.
+ * known, or from a cli-store owner to the account of the same provider
+ * ({@link upgradeQuotaOwner}); it is never overwritten otherwise.
  */
 import { inject, injectable } from 'tsyringe';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
@@ -42,7 +43,13 @@ export type LaneOwnerSource = Pick<
  * Returns the new owner when it changes, `undefined` when it does not:
  * - no owner yet → `candidate`, whatever its kind;
  * - an unknown owner → `candidate` only when it is known;
- * - a known owner → never replaced.
+ * - a cli-store owner → `candidate` only when it is the `account` of the
+ *   same provider. The account a CLI's credential store serves may become
+ *   known only while the lane runs, and the account is what the provider
+ *   bills, so the run is re-attributed to it (D2). The old cli-store ledger
+ *   owner the run already wrote under remains until it ages out; nothing is
+ *   lost (R6);
+ * - any other known owner (`account`, `credential`) → never replaced.
  */
 export function upgradeQuotaOwner(
   current: QuotaOwnerRef | undefined,
@@ -50,8 +57,17 @@ export function upgradeQuotaOwner(
 ): QuotaOwnerRef | undefined {
   if (!candidate) return undefined;
   if (!current) return candidate;
-  if (current.identityKind !== 'unknown') return undefined;
-  return candidate.identityKind !== 'unknown' ? candidate : undefined;
+  if (current.identityKind === 'unknown') {
+    return candidate.identityKind !== 'unknown' ? candidate : undefined;
+  }
+  if (
+    current.identityKind === 'cli-store' &&
+    candidate.identityKind === 'account' &&
+    candidate.providerId === current.providerId
+  ) {
+    return candidate;
+  }
+  return undefined;
 }
 
 @injectable()

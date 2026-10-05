@@ -1838,9 +1838,10 @@ describe('AgentProcessManager - SDK Execution Path', () => {
     const codexAccount = owner('openai-codex', 'account');
     const codexUnknown = owner('openai-codex', 'unknown');
     const antigravityStore = owner('antigravity', 'cli-store');
+    const antigravityAccount = owner('antigravity', 'account');
 
     const spawnLane = async (
-      cli: 'codex' | 'antigravity' | 'opencode',
+      cli: 'codex' | 'antigravity' | 'opencode' | 'ptah-cli',
       model?: string,
     ): Promise<string> =>
       (
@@ -1868,22 +1869,43 @@ describe('AgentProcessManager - SDK Execution Path', () => {
         'quotaOwner',
         codexAccount,
       );
+      // D3: a Claude id on a non-ptah-cli CLI keeps its full model id.
       expect(spawned.mock.calls[0][0]).toMatchObject({
         quotaOwner: codexAccount,
-        modelScope: 'sonnet',
+        modelScope: 'claude-sonnet-4-5',
       });
     });
 
-    it('retains a normalised non-Claude model scope and null for no model', async () => {
+    it('scopes each CLI: ptah-cli keeps Claude families, others keep the full id (D3)', async () => {
+      // Six lanes live at once here; the default cap of the mock config is 3.
+      setupVscodeConfig({ maxConcurrentAgents: 10 });
       laneOwners.ownerForLane.mockReturnValue(codexAccount);
-      const codexId = await spawnLane('codex', ' GPT-5-Codex ');
+      const codexGpt = await spawnLane('codex', 'gpt-5-sonnet-x');
+      const antigravityClaude = await spawnLane(
+        'antigravity',
+        'Claude-Sonnet-4.5 ',
+      );
+      const ptahCliClaude = await spawnLane('ptah-cli', 'claude-sonnet-4-5');
+      const ptahCliOther = await spawnLane('ptah-cli', 'Qwen3-Coder ');
       // No model on a codex lane resolves to the Ptah default model.
       const defaultId = await spawnLane('codex');
       const emptyId = await spawnLane('opencode');
 
-      expect(manager.getStatus(codexId)).toHaveProperty(
+      expect(manager.getStatus(codexGpt)).toHaveProperty(
         'modelScope',
-        'gpt-5-codex',
+        'gpt-5-sonnet-x',
+      );
+      expect(manager.getStatus(antigravityClaude)).toHaveProperty(
+        'modelScope',
+        'claude-sonnet-4.5',
+      );
+      expect(manager.getStatus(ptahCliClaude)).toHaveProperty(
+        'modelScope',
+        'sonnet',
+      );
+      expect(manager.getStatus(ptahCliOther)).toHaveProperty(
+        'modelScope',
+        'qwen3-coder',
       );
       expect(manager.getStatus(defaultId)).toHaveProperty(
         'modelScope',
@@ -2007,14 +2029,16 @@ describe('AgentProcessManager - SDK Execution Path', () => {
 
     it('records an antigravity completion as a plan-billed success on its model (F65)', async () => {
       laneOwners.ownerForLane.mockReturnValue(antigravityStore);
-      await spawnLane('antigravity', 'Gemini-3-Pro');
+      // A Claude-family word must not fold an antigravity lane onto a Claude
+      // family scope: the success is keyed by the full model id (D3).
+      await spawnLane('antigravity', 'Claude-Sonnet-4.5');
 
       sdkControls.resolve(0);
       await settle();
 
       expect(planLimits.recordSuccess).toHaveBeenCalledWith({
         ownerKey: antigravityStore.key,
-        modelScopes: ['gemini-3-pro'],
+        modelScopes: ['claude-sonnet-4.5'],
         billing: 'plan',
         observedAt: expect.any(Number),
       });
@@ -2080,6 +2104,29 @@ describe('AgentProcessManager - SDK Execution Path', () => {
         codexAccount,
         expect.anything(),
       );
+    });
+
+    it('upgrades a cli-store owner to the account at exit; the exit payload and success use the account key (D2)', async () => {
+      laneOwners.ownerForLane
+        .mockReturnValueOnce(antigravityStore)
+        .mockReturnValueOnce(antigravityAccount);
+      const exited = jest.fn();
+      manager.events.on('agent:exited', exited);
+      await spawnLane('antigravity');
+
+      sdkControls.resolve(0);
+      await settle();
+      jest.advanceTimersByTime(5000);
+
+      expect(planLimits.recordSuccess).toHaveBeenCalledWith(
+        expect.objectContaining({
+          ownerKey: antigravityAccount.key,
+          billing: 'plan',
+        }),
+      );
+      expect(exited.mock.calls[0][0]).toMatchObject({
+        quotaOwner: antigravityAccount,
+      });
     });
 
     describe('ptah-cli lanes are classified by their owner provider', () => {
