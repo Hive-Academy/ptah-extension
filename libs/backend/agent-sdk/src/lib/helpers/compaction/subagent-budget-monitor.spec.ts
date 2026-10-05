@@ -16,7 +16,7 @@ import {
   requestContextTokens,
   weightedRequestTokens,
   type SubagentResumeAdviceInput,
-  type SubagentStopPort,
+  type SubagentBudgetDispatcherPort,
 } from './subagent-budget-monitor';
 
 const SESSION = 'session-1';
@@ -109,7 +109,7 @@ function makeHarness(
   const monitor = new SubagentBudgetMonitor(
     logger as unknown as Logger,
     config as unknown as CompactionConfigProvider,
-    dispatcher as unknown as SubagentStopPort,
+    dispatcher as unknown as SubagentBudgetDispatcherPort,
     registry as unknown as SubagentRegistryService,
   );
   return { monitor, logger, dispatcher, registry, streamed };

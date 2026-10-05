@@ -246,7 +246,7 @@ interface SessionState {
 }
 
 /** The dispatcher operations the monitor uses. */
-export type SubagentStopPort = Pick<
+export type SubagentBudgetDispatcherPort = Pick<
   SubagentMessageDispatcher,
   'stopSubagent' | 'pushParentMessage'
 >;
@@ -265,7 +265,7 @@ export class SubagentBudgetMonitor {
   constructor(
     private readonly logger: Logger,
     private readonly config: CompactionConfigProvider,
-    private readonly dispatcher: SubagentStopPort,
+    private readonly dispatcher: SubagentBudgetDispatcherPort,
     private readonly registry: SubagentRegistryService,
   ) {}
 

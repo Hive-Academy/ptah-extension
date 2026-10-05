@@ -1207,14 +1207,14 @@ real code, a regression test per item).
 
 ### Task 29.2: Doc and specs for the chosen contract — PENDING (decision recorded in context.md)
 
-## Batch 30: Rename `SubagentStopPort` (G.7) — PENDING (decision recorded in context.md: G-B)
+## Batch 30: Rename `SubagentStopPort` (G.7) — COMPLETE (decision recorded in context.md: G-B)
 
 - Recommended executor: backend-developer | Fallback: backend-developer (Opus) | Execution mode: Sequential subagent
 - Model: Sonnet (rename) | Tasks: 1 | Depends on: Batch 22, Decision G-B | Phase: G
 - Projects: `@ptah-extension/agent-sdk`
 - Files: `<R>\libs\backend\agent-sdk\src\lib\helpers\compaction\subagent-budget-monitor.ts` (+ spec, refs :19, :112)
 
-### Task 30.1: Rename at 240-244 and 258 (run `ptah_lsp_references` first) — PENDING (decision recorded in context.md)
+### Task 30.1: Rename at 240-244 and 258 (run `ptah_lsp_references` first) — COMPLETE (decision recorded in context.md)
 
 ## Batch 31: Interrupt stamps activity; agentId binding without toolUseId (F.5 M1, B1) — COMPLETE `013f17376` (decision recorded in context.md: F-F)
 
