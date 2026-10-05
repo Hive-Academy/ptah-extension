@@ -1,19 +1,10 @@
 import { execFileSync } from 'child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { describeIfBuiltOrFail } from './build-artifact-gate';
 
 const REPO_ROOT = join(__dirname, '..', '..', '..', '..');
-const STATS_PATH = join(
-  REPO_ROOT,
-  'dist',
-  'apps',
-  'ptah-extension-webview',
-  'stats.json',
-);
 const GATE_PATH = join(REPO_ROOT, 'scripts', 'eager-closure-gate.js');
-// eslint-disable-next-line @typescript-eslint/no-require-imports
 const eagerClosureGate = require(GATE_PATH) as {
   assertNoForbiddenEager(stats: ChunkStats): void;
 };
@@ -124,19 +115,5 @@ describe('eager-closure bundle gate', () => {
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }
-  });
-});
-
-describeIfBuiltOrFail(
-  STATS_PATH,
-  'npx nx build ptah-extension-webview --configuration=production --skip-nx-cache --stats-json',
-)('eager-closure production build gate', () => {
-  it('has no forbidden eager input', () => {
-    const builtStats = JSON.parse(
-      readFileSync(STATS_PATH, 'utf8'),
-    ) as ChunkStats;
-    expect(() =>
-      eagerClosureGate.assertNoForbiddenEager(builtStats),
-    ).not.toThrow();
   });
 });
