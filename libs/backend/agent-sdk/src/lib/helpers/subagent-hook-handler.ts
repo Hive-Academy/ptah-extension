@@ -275,13 +275,14 @@ export class SubagentHookHandler {
             parentSessionId: resolvedParentSessionId,
           },
         );
+      } else if (resolvedParentSessionId) {
+        this.bindStartByAgentId(input, resolvedParentSessionId);
       } else {
         this.logger.warn(
           '[SubagentHookHandler] Subagent NOT registered — it will be unreachable for steering, stop and resumption',
           {
-            reason: !toolUseId
-              ? 'no toolUseId on the SubagentStart hook'
-              : 'no parent sessionId in either the hook payload or the captured closure',
+            reason:
+              'no parent sessionId in either the hook payload or the captured closure',
             hasToolUseId: !!toolUseId,
             payloadSessionId: input.session_id,
             closureParentSessionId: parentSessionId,
@@ -304,6 +305,73 @@ export class SubagentHookHandler {
       );
     }
     return { continue: true };
+  }
+
+  /**
+   * Bind a SubagentStart that arrived without a `toolUseId` (F-F).
+   *
+   * The only binding allowed is an exact `agentId` match: a registry record of
+   * the same parent session that already names this agent — its id came from
+   * the Task tool result's `agentId:` line (history replay, a restored
+   * snapshot, or an earlier start of the same agent). Exactly one match binds;
+   * none or several leave the start unbound with a WARN, because guessing a
+   * Task tool_use would route steer and stop to the wrong subagent.
+   *
+   * An interrupted match is being resumed, so it is registered again as
+   * running under its own toolCallId (keeping its teammate name and task id).
+   * A live match is already reachable; the start only counts as activity.
+   */
+  private bindStartByAgentId(
+    input: SubagentStartHookInput,
+    parentSessionId: string,
+  ): void {
+    const matches = this.subagentRegistry.getToolCallIdsByAgentId(
+      input.agent_id,
+      parentSessionId,
+    );
+    const record =
+      matches.length === 1 ? this.subagentRegistry.get(matches[0]) : null;
+    if (!record) {
+      this.logger.warn(
+        '[SubagentHookHandler] Subagent NOT registered — it will be unreachable for steering, stop and resumption',
+        {
+          reason:
+            matches.length > 1
+              ? 'no toolUseId on the SubagentStart hook and several registry records name this agentId'
+              : 'no toolUseId on the SubagentStart hook and no registry record names this agentId',
+          hasToolUseId: false,
+          matchCount: matches.length,
+          parentSessionId,
+          agentId: input.agent_id,
+          agentType: input.agent_type,
+        },
+      );
+      return;
+    }
+
+    if (record.status === 'interrupted') {
+      this.subagentRegistry.register({
+        toolCallId: record.toolCallId,
+        agentType: input.agent_type,
+        startedAt: Date.now(),
+        parentSessionId,
+        agentId: input.agent_id,
+        ...(record.teammateName ? { teammateName: record.teammateName } : {}),
+        ...(record.taskId ? { taskId: record.taskId } : {}),
+      });
+    } else {
+      this.subagentRegistry.update(record.toolCallId, {});
+    }
+
+    this.logger.info(
+      '[SubagentHookHandler] Subagent bound by exact agentId (no toolUseId on SubagentStart)',
+      {
+        toolCallId: record.toolCallId,
+        agentId: input.agent_id,
+        priorStatus: record.status,
+        parentSessionId,
+      },
+    );
   }
 
   /**

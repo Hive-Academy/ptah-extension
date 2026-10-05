@@ -41,6 +41,7 @@ function makeRegistry(
     get: jest.fn().mockReturnValue(resolved),
     update: jest.fn(),
     getToolCallIdByAgentId: jest.fn(),
+    getToolCallIdsByAgentId: jest.fn().mockReturnValue([]),
   } as unknown as jest.Mocked<SubagentRegistryService>;
 }
 
@@ -475,9 +476,129 @@ describe('SubagentHookHandler — SubagentStart registration identity (TASK_2026
     });
 
     expect(registry.register).not.toHaveBeenCalled();
+    expect(registry.getToolCallIdsByAgentId).toHaveBeenCalledWith(
+      'agent-xyz',
+      'payload-parent-sess',
+    );
     expect(logger.warn).toHaveBeenCalledWith(
       expect.stringContaining('Subagent NOT registered'),
-      expect.objectContaining({ reason: expect.stringContaining('toolUseId') }),
+      expect.objectContaining({
+        reason: expect.stringContaining(
+          'no registry record names this agentId',
+        ),
+        matchCount: 0,
+      }),
+    );
+  });
+});
+
+/**
+ * TASK_2026_614 F-F — a SubagentStart without a `toolUseId` binds only on an
+ * exact `agentId` match in the same parent session; none or several stay
+ * unbound with a WARN.
+ */
+describe('SubagentHookHandler — SubagentStart without toolUseId binds by exact agentId (F-F)', () => {
+  function setup(
+    matches: string[],
+    record: Partial<SubagentRecord> | null,
+  ): {
+    logger: jest.Mocked<Logger>;
+    registry: jest.Mocked<SubagentRegistryService>;
+    fn: ReturnType<typeof getStartCallback>;
+  } {
+    const logger = makeLogger();
+    const registry = makeRegistry(record);
+    (registry.getToolCallIdsByAgentId as jest.Mock).mockReturnValue(matches);
+    const handler = new SubagentHookHandler(
+      logger,
+      registry,
+      new SubagentStopCallbackRegistry(logger),
+      new SessionStatsOwnerService(),
+    );
+    return {
+      logger,
+      registry,
+      fn: getStartCallback(handler, '/workspace', 'closure-parent-sess'),
+    };
+  }
+
+  const signal = new AbortController().signal;
+
+  it('re-registers the single interrupted match as running under its own toolCallId', async () => {
+    const { logger, registry, fn } = setup(['tu-old'], {
+      toolCallId: 'tu-old',
+      status: 'interrupted',
+      teammateName: 'scout',
+      taskId: 'task-7',
+    });
+
+    const result = await fn(startInput(), undefined, { signal });
+
+    expect(result).toEqual({ continue: true });
+    expect(registry.get).toHaveBeenCalledWith('tu-old');
+    expect(registry.register).toHaveBeenCalledTimes(1);
+    expect(registry.register).toHaveBeenCalledWith(
+      expect.objectContaining({
+        toolCallId: 'tu-old',
+        agentId: 'agent-xyz',
+        agentType: 'backend-developer',
+        parentSessionId: 'payload-parent-sess',
+        teammateName: 'scout',
+        taskId: 'task-7',
+      }),
+    );
+    expect(logger.warn).not.toHaveBeenCalled();
+    expect(logger.info).toHaveBeenCalledWith(
+      expect.stringContaining('bound by exact agentId'),
+      expect.objectContaining({
+        toolCallId: 'tu-old',
+        priorStatus: 'interrupted',
+      }),
+    );
+  });
+
+  it('keeps a single live match and only counts the start as activity', async () => {
+    const { logger, registry, fn } = setup(['tu-live'], {
+      toolCallId: 'tu-live',
+      status: 'running',
+    });
+
+    await fn(startInput(), undefined, { signal });
+
+    expect(registry.register).not.toHaveBeenCalled();
+    expect(registry.update).toHaveBeenCalledWith('tu-live', {});
+    expect(logger.warn).not.toHaveBeenCalled();
+  });
+
+  it('stays unbound and WARNS when several records name the agentId', async () => {
+    const { logger, registry, fn } = setup(['tu-a', 'tu-b'], {
+      status: 'interrupted',
+    });
+
+    await fn(startInput(), undefined, { signal });
+
+    expect(registry.get).not.toHaveBeenCalled();
+    expect(registry.register).not.toHaveBeenCalled();
+    expect(registry.update).not.toHaveBeenCalled();
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('Subagent NOT registered'),
+      expect.objectContaining({
+        reason: expect.stringContaining('several registry records'),
+        matchCount: 2,
+      }),
+    );
+  });
+
+  it('stays unbound and WARNS when the single match vanished before it was read', async () => {
+    const { logger, registry, fn } = setup(['tu-gone'], null);
+
+    await fn(startInput(), undefined, { signal });
+
+    expect(registry.register).not.toHaveBeenCalled();
+    expect(registry.update).not.toHaveBeenCalled();
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('Subagent NOT registered'),
+      expect.objectContaining({ matchCount: 1 }),
     );
   });
 });

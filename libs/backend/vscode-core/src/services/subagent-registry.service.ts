@@ -653,6 +653,9 @@ export class SubagentRegistryService {
    */
   markAllInterrupted(parentSessionId: string): void {
     const interruptedAt = Date.now();
+    // An interrupt is activity, as every update() is: an aborted foreground
+    // subagent that ran past the TTL must not read cold while its cache is warm.
+    const lastActivityAt = this.store.now();
     let interruptedCount = 0;
 
     for (const record of this.store.values()) {
@@ -664,6 +667,7 @@ export class SubagentRegistryService {
       ) {
         record.status = 'interrupted';
         record.interruptedAt = interruptedAt;
+        record.lastActivityAt = lastActivityAt;
         interruptedCount++;
 
         this.logger.debug(
@@ -757,6 +761,42 @@ export class SubagentRegistryService {
     }
 
     return fallback;
+  }
+
+  /**
+   * Every live (non-expired) record in one parent session whose `agentId` is
+   * exactly the given id, as toolCallIds.
+   *
+   * Unlike {@link getToolCallIdByAgentId} this neither prefers a status nor
+   * picks a winner: a caller binding a SubagentStart hook that arrived without
+   * a `toolUseId` needs to tell "exactly one record names this agent" from
+   * "none" and "several", and must not guess between several. The session
+   * filter is required because `agentId` is only unique within a session.
+   *
+   * @param agentId - The SDK short-hex agent id, matched exactly
+   * @param parentSessionId - The parent session the record must belong to
+   * @returns Matching toolCallIds (empty for a blank id or session)
+   */
+  getToolCallIdsByAgentId(agentId: string, parentSessionId: string): string[] {
+    if (
+      blankToUndefined(agentId) === undefined ||
+      blankToUndefined(parentSessionId) === undefined
+    ) {
+      return [];
+    }
+    this.store.lazyCleanup();
+
+    const matches: string[] = [];
+    for (const [toolCallId, record] of this.store.entries()) {
+      if (
+        record.agentId === agentId &&
+        record.parentSessionId === parentSessionId &&
+        !this.store.isExpired(record)
+      ) {
+        matches.push(toolCallId);
+      }
+    }
+    return matches;
   }
 
   /**

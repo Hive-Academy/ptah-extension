@@ -1076,7 +1076,7 @@ real code, a regression test per item).
 
 - Scoped checks for ptah-cli.
 
-## Batch 24A: Do not answer a cancelled stdio request (G.8, moved from Task 21.2) — PENDING
+## Batch 24A: Do not answer a cancelled stdio request (G.8, moved from Task 21.2) — COMPLETE (cd403ac64)
 
 - Recommended executor: backend-developer | Execution mode: Sequential subagent | Depends on: 21, 24 | Phase: G
 - Projects: `ptah-cli`, `@ptah-extension/vscode-lm-tools`
@@ -1216,7 +1216,7 @@ real code, a regression test per item).
 
 ### Task 30.1: Rename at 240-244 and 258 (run `ptah_lsp_references` first) — PENDING (decision recorded in context.md)
 
-## Batch 31: Interrupt stamps activity; agentId binding without toolUseId (F.5 M1, B1) — PENDING (decision recorded in context.md: F-F)
+## Batch 31: Interrupt stamps activity; agentId binding without toolUseId (F.5 M1, B1) — COMPLETE (decision recorded in context.md: F-F)
 
 - Recommended executor: backend-developer | Fallback: backend-developer (fresh run) | Execution mode: Sequential subagent
 - Model: Opus | Tasks: 2 | Depends on: Decision F-F | Phase: F
@@ -1224,11 +1224,11 @@ real code, a regression test per item).
 - Files: `<R>\libs\backend\vscode-core\src\services\subagent-registry.service.ts` (+ spec),
   `<R>\libs\backend\agent-sdk\src\lib\helpers\subagent-hook-handler.ts` (+ spec)
 
-### Task 31.1: `markAllInterrupted` stamps `lastActivityAt` (M1) — PENDING (decision recorded in context.md: batch-level)
+### Task 31.1: `markAllInterrupted` stamps `lastActivityAt` (M1) — COMPLETE (decision recorded in context.md: batch-level)
 
 - `subagent-registry.service.ts:654-668`, as `update` does (309). Spec. No decision of its own.
 
-### Task 31.2: Bind per F-F — PENDING (decision recorded in context.md)
+### Task 31.2: Bind per F-F — COMPLETE (decision recorded in context.md)
 
 - `subagent-hook-handler.ts:259, 278-292`. Spec: no toolUseId and a match → bound; no match or ambiguous → WARN, unbound.
 
