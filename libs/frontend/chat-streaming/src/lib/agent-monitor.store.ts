@@ -85,6 +85,15 @@ const MAX_COMPLETED_AGENTS = 20;
 const MAX_RESUMED_NODE_IDS = 500;
 
 /**
+ * Cap on the entries kept for a subagent that has no record yet: pending
+ * `background_agent_started` identities and the request usage of messages
+ * that arrived first. Each set is otherwise dropped when its record is created
+ * or its session is cleared; the cap bounds the ones whose `agent_start`
+ * never arrives, oldest first.
+ */
+const MAX_UNMATCHED_SUBAGENT_ENTRIES = 100;
+
+/**
  * Prompt-cache state shown for an agent. `'unknown'` means there is no basis
  * for warm or cold (no effective TTL known, or a CLI lane that reports none)
  * and the UI shows no badge.
@@ -536,6 +545,16 @@ type BackgroundIdentity = Pick<
 >;
 
 /**
+ * One subagent's request usage keyed by `messageId`, with the session its
+ * messages named. The session is only read while the subagent has no record,
+ * to drop or rekey the entry with that session.
+ */
+interface SubagentUsageEntry {
+  parentSessionId?: string;
+  readonly requests: Map<string, SubagentRequestUsage>;
+}
+
+/**
  * Error surfaced from subagent RPC calls. Lives in a dedicated channel so
  * components can show a transient toast / inline message without polluting
  * the per-record state — the SDK is still the source of truth for status.
@@ -613,19 +632,22 @@ export class AgentMonitorStore implements OnDestroy {
    * Per-subagent request usage keyed by `messageId` — the source of
    * `SubagentRecord.usage`. Keying by message makes a replayed or repeated
    * `message_complete` replace its earlier report instead of counting twice.
-   * Kept outside the signal (the record's totals are the reactive copy); it
-   * lives as long as the records, which are never removed, and is cleared on
-   * destroy.
+   * Kept outside the signal (the record's totals are the reactive copy); an
+   * entry with a record lives as long as the record. An entry without one is
+   * dropped with its session's clear and bounded by
+   * MAX_UNMATCHED_SUBAGENT_ENTRIES. Cleared on destroy.
    */
   private readonly _subagentRequestUsage = new Map<
     string,
-    Map<string, SubagentRequestUsage>
+    SubagentUsageEntry
   >();
 
   /**
    * Identity fields from a `background_agent_started` that arrived before its
    * subagent had a record, keyed by parentToolUseId. The lifecycle reducer
-   * that creates the record applies and removes the entry. Cleared on destroy.
+   * that creates the record applies and removes the entry; a session clear
+   * drops the session's entries and MAX_UNMATCHED_SUBAGENT_ENTRIES bounds the
+   * rest. Cleared on destroy.
    */
   private readonly _pendingBackgroundIdentity = new Map<
     string,
@@ -1628,6 +1650,7 @@ export class AgentMonitorStore implements OnDestroy {
       );
       return next.length === list.length ? list : next;
     });
+    this.dropUnmatchedSubagentEntries(sessionId);
   }
 
   /**
@@ -1652,12 +1675,51 @@ export class AgentMonitorStore implements OnDestroy {
       }
       return next ?? map;
     });
+    this.dropUnmatchedSubagentEntries(sessionId);
+    this.syncTick();
+  }
+
+  /**
+   * Drop the entries a session left for subagents that never got a record:
+   * pending identities and request usage stamped with `sessionId`. Entries of
+   * a subagent that has a record go with the record, not here.
+   */
+  private dropUnmatchedSubagentEntries(sessionId: string): void {
     for (const [key, identity] of this._pendingBackgroundIdentity) {
       if (identity.parentSessionId === sessionId) {
         this._pendingBackgroundIdentity.delete(key);
       }
     }
-    this.syncTick();
+    const records = this._subagents();
+    for (const [key, entry] of this._subagentRequestUsage) {
+      if (entry.parentSessionId === sessionId && !records.has(key)) {
+        this._subagentRequestUsage.delete(key);
+      }
+    }
+  }
+
+  /**
+   * Move the entries of subagents without a record from the placeholder tab
+   * id to the resolved session id, so a later clear of that session finds
+   * them and the record they fill is owned by the real session.
+   */
+  private rekeyUnmatchedSubagentEntries(
+    tabId: string,
+    realSessionId: string,
+  ): void {
+    for (const [key, identity] of this._pendingBackgroundIdentity) {
+      if (identity.parentSessionId === tabId) {
+        this._pendingBackgroundIdentity.set(key, {
+          ...identity,
+          parentSessionId: realSessionId,
+        });
+      }
+    }
+    for (const entry of this._subagentRequestUsage.values()) {
+      if (entry.parentSessionId === tabId) {
+        entry.parentSessionId = realSessionId;
+      }
+    }
   }
 
   removeAgent(agentId: string): void {
@@ -1706,6 +1768,7 @@ export class AgentMonitorStore implements OnDestroy {
       }
       return changed ? next : map;
     });
+    this.rekeyUnmatchedSubagentEntries(tabId, realSessionId);
   }
 
   clearCompleted(): void {
@@ -1802,7 +1865,17 @@ export class AgentMonitorStore implements OnDestroy {
       parentSessionId: knownSessionId(event.sessionId),
     };
     if (!this._subagents().has(key)) {
+      // Delete first so a repeated event moves the key to the newest slot.
+      this._pendingBackgroundIdentity.delete(key);
       this._pendingBackgroundIdentity.set(key, identity);
+      for (const oldest of this._pendingBackgroundIdentity.keys()) {
+        if (
+          this._pendingBackgroundIdentity.size <= MAX_UNMATCHED_SUBAGENT_ENTRIES
+        ) {
+          break;
+        }
+        this._pendingBackgroundIdentity.delete(oldest);
+      }
       return;
     }
     this._subagents.update((map) => {
@@ -1948,7 +2021,7 @@ export class AgentMonitorStore implements OnDestroy {
       lastEventAt: latestTimestamp(existing?.lastEventAt, eventAt),
       usage: existing
         ? existing.usage
-        : sumRequestUsage(this._subagentRequestUsage.get(key)),
+        : sumRequestUsage(this._subagentRequestUsage.get(key)?.requests),
       cacheTtl: existing?.cacheTtl,
     };
   }
@@ -1965,18 +2038,22 @@ export class AgentMonitorStore implements OnDestroy {
     if (!key) return;
     const request = readRequestUsage(event);
     if (request) {
-      let requests = this._subagentRequestUsage.get(key);
-      if (!requests) {
-        requests = new Map();
-        this._subagentRequestUsage.set(key, requests);
+      let entry = this._subagentRequestUsage.get(key);
+      if (!entry) {
+        entry = {
+          parentSessionId: knownSessionId(event.sessionId),
+          requests: new Map(),
+        };
+        this._subagentRequestUsage.set(key, entry);
+        this.evictUnmatchedUsage();
       }
-      requests.set(event.messageId, request);
+      entry.requests.set(event.messageId, request);
     }
     this._subagents.update((map) => {
       const existing = map.get(key);
       if (!existing) return map;
       const usage = request
-        ? sumRequestUsage(this._subagentRequestUsage.get(key))
+        ? sumRequestUsage(this._subagentRequestUsage.get(key)?.requests)
         : existing.usage;
       const lastEventAt = latestTimestamp(
         existing.lastEventAt,
@@ -1989,6 +2066,23 @@ export class AgentMonitorStore implements OnDestroy {
       next.set(key, { ...existing, usage, lastEventAt });
       return next;
     });
+  }
+
+  /**
+   * Keep at most MAX_UNMATCHED_SUBAGENT_ENTRIES usage entries whose subagent
+   * has no record, dropping the oldest. Entries with a record are never
+   * dropped here: the record's totals are re-summed from them.
+   */
+  private evictUnmatchedUsage(): void {
+    const records = this._subagents();
+    const unmatched: string[] = [];
+    for (const key of this._subagentRequestUsage.keys()) {
+      if (!records.has(key)) unmatched.push(key);
+    }
+    const excess = unmatched.length - MAX_UNMATCHED_SUBAGENT_ENTRIES;
+    for (let i = 0; i < excess; i++) {
+      this._subagentRequestUsage.delete(unmatched[i]);
+    }
   }
 
   /**

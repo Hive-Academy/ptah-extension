@@ -2001,4 +2001,158 @@ describe('AgentMonitorStore', () => {
       expect(store.getSubagent('tool-open')).toBeDefined();
     });
   });
+
+  describe('entries for subagents without a record (F.5 M2, M4, M5)', () => {
+    function start(toolCallId: string, sessionId = ''): void {
+      store.onAgentStart({
+        eventType: 'agent_start',
+        id: `start-${toolCallId}`,
+        timestamp: 10,
+        toolCallId,
+        sessionId,
+        source: 'hook',
+      } as AgentStartEvent);
+    }
+
+    function complete(
+      toolCallId: string,
+      messageId: string,
+      sessionId: string,
+      input = 5,
+    ): void {
+      store.onSubagentMessageComplete({
+        id: `mc-${toolCallId}-${messageId}`,
+        eventType: 'message_complete',
+        timestamp: 5,
+        sessionId,
+        messageId,
+        source: 'complete',
+        parentToolUseId: toolCallId,
+        model: 'gpt-4o',
+        tokenUsage: { input, output: 1 },
+      } as MessageCompleteEvent);
+    }
+
+    function bgStarted(toolCallId: string, sessionId: string): void {
+      store.onBackgroundAgentStarted({
+        eventType: 'background_agent_started',
+        id: `bg-${toolCallId}`,
+        timestamp: 2,
+        sessionId,
+        toolCallId,
+        agentType: 'reviewer',
+        agentId: `agent-${toolCallId}`,
+        teammateName: `name-${toolCallId}`,
+        source: 'hook',
+      } as BackgroundAgentStartedEvent);
+    }
+
+    function viewUsage(toolCallId: string) {
+      const record = store.getSubagent(toolCallId);
+      if (!record) throw new Error(`record ${toolCallId} missing`);
+      return subagentUsageView(record, 20).usage;
+    }
+
+    it('clearSessionAgents drops early usage and pending identities of that session only', () => {
+      complete('tool-closed', 'm1', 'sess-closed');
+      bgStarted('tool-closed', 'sess-closed');
+      complete('tool-open', 'm1', 'sess-open');
+      bgStarted('tool-open', 'sess-open');
+
+      store.clearSessionAgents('sess-closed');
+      start('tool-closed');
+      start('tool-open');
+
+      const closed = store.getSubagent('tool-closed');
+      expect(closed?.usage).toBeUndefined();
+      expect(closed?.agentId).toBeUndefined();
+      const open = store.getSubagent('tool-open');
+      expect(open?.usage).toBeDefined();
+      expect(open?.agentId).toBe('agent-tool-open');
+    });
+
+    it('forceClearSessionAgents drops early usage of that session', () => {
+      complete('tool-closed', 'm1', 'sess-closed');
+
+      store.forceClearSessionAgents('sess-closed');
+      start('tool-closed');
+
+      expect(store.getSubagent('tool-closed')?.usage).toBeUndefined();
+    });
+
+    it('keeps usage of a subagent that has a record when its session tab closes', () => {
+      start('tool-live', 'sess-live');
+      complete('tool-live', 'm1', 'sess-live', 5);
+
+      store.clearSessionAgents('sess-live');
+      complete('tool-live', 'm2', 'sess-live', 7);
+
+      expect(viewUsage('tool-live')).toEqual(
+        expect.objectContaining({ output: 2 }),
+      );
+    });
+
+    it('caps early usage at 100 subagents, dropping the oldest, and never a recorded one', () => {
+      start('tool-recorded', 'sess-cap');
+      complete('tool-recorded', 'm1', 'sess-cap');
+      for (let i = 0; i <= 100; i++) {
+        complete(`tool-early-${i}`, 'm1', 'sess-cap');
+      }
+
+      start('tool-early-0');
+      start('tool-early-1');
+      start('tool-early-100');
+      complete('tool-recorded', 'm2', 'sess-cap');
+
+      expect(store.getSubagent('tool-early-0')?.usage).toBeUndefined();
+      expect(store.getSubagent('tool-early-1')?.usage).toBeDefined();
+      expect(store.getSubagent('tool-early-100')?.usage).toBeDefined();
+      expect(viewUsage('tool-recorded')).toEqual(
+        expect.objectContaining({ output: 2 }),
+      );
+    });
+
+    it('caps pending identities at 100, dropping the oldest', () => {
+      for (let i = 0; i <= 100; i++) {
+        bgStarted(`tool-pending-${i}`, 'sess-cap');
+      }
+
+      start('tool-pending-0');
+      start('tool-pending-1');
+      start('tool-pending-100');
+
+      expect(store.getSubagent('tool-pending-0')?.agentId).toBeUndefined();
+      expect(store.getSubagent('tool-pending-1')?.agentId).toBe(
+        'agent-tool-pending-1',
+      );
+      expect(store.getSubagent('tool-pending-100')?.agentId).toBe(
+        'agent-tool-pending-100',
+      );
+    });
+
+    it('resolveParentSessionId rekeys pending identities and early usage from the tab id', () => {
+      bgStarted('tool-tab', 'tab_abc');
+      complete('tool-tab', 'm1', 'tab_abc');
+
+      store.resolveParentSessionId('tab_abc', 'real-uuid-xyz');
+      start('tool-tab');
+
+      const rec = store.getSubagent('tool-tab');
+      expect(rec?.parentSessionId).toBe('real-uuid-xyz');
+      expect(rec?.usage).toBeDefined();
+    });
+
+    it('a clear of the resolved session drops entries that held the tab id', () => {
+      bgStarted('tool-tab', 'tab_abc');
+      complete('tool-tab', 'm1', 'tab_abc');
+
+      store.resolveParentSessionId('tab_abc', 'real-uuid-xyz');
+      store.clearSessionAgents('real-uuid-xyz');
+      start('tool-tab');
+
+      const rec = store.getSubagent('tool-tab');
+      expect(rec?.agentId).toBeUndefined();
+      expect(rec?.usage).toBeUndefined();
+    });
+  });
 });
