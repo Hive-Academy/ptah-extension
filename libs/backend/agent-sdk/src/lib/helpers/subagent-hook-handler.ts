@@ -329,6 +329,25 @@ export class SubagentHookHandler {
       input.agent_id,
       parentSessionId,
     );
+    if (matches.length === 0) {
+      // A brand-new foreground subagent: no record can name it until the Task
+      // tool result's `agentId:` line arrives. Hold the start; the message
+      // transformer binds it to that Task tool call (exact id only).
+      this.subagentRegistry.holdUnboundStart({
+        agentId: input.agent_id,
+        agentType: input.agent_type,
+        parentSessionId,
+      });
+      this.logger.info(
+        '[SubagentHookHandler] SubagentStart held until the Task result names its agentId (no toolUseId, no record yet)',
+        {
+          parentSessionId,
+          agentId: input.agent_id,
+          agentType: input.agent_type,
+        },
+      );
+      return;
+    }
     const record =
       matches.length === 1 ? this.subagentRegistry.get(matches[0]) : null;
     if (!record) {
@@ -338,7 +357,7 @@ export class SubagentHookHandler {
           reason:
             matches.length > 1
               ? 'no toolUseId on the SubagentStart hook and several registry records name this agentId'
-              : 'no toolUseId on the SubagentStart hook and no registry record names this agentId',
+              : 'no toolUseId on the SubagentStart hook and the single registry record naming this agentId is gone',
           hasToolUseId: false,
           matchCount: matches.length,
           parentSessionId,
@@ -434,6 +453,12 @@ export class SubagentHookHandler {
             resolvedToolCallId = fallbackId;
           }
         }
+      }
+
+      if (!record && input.agent_id) {
+        // A start held for its Task result (F-F) has finished before any
+        // result bound it; binding it later would leave a running zombie.
+        this.subagentRegistry.discardHeldUnboundStarts(input.agent_id);
       }
 
       const isBackground = record?.isBackground === true;

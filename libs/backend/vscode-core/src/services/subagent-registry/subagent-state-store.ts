@@ -35,6 +35,18 @@ export const TTL_MS = 24 * 60 * 60 * 1000;
 export const CLEANUP_INTERVAL_MS = 60 * 60 * 1000;
 
 /**
+ * A SubagentStart that arrived without a `toolUseId` and that no registry
+ * record could claim, held until the Task tool result names its agentId.
+ */
+export interface HeldUnboundStart {
+  readonly agentId: string;
+  readonly agentType: string;
+  readonly parentSessionId: string;
+  /** Unix epoch ms the start arrived; becomes the record's `startedAt`. */
+  readonly startedAt: number;
+}
+
+/**
  * In-memory registry of subagent lifecycle records with lazy TTL cleanup.
  *
  * Preserves the exact read/write ordering of the original
@@ -80,6 +92,15 @@ export class SubagentStateStore {
     string,
     { taskId: string; at: number }
   >();
+
+  /**
+   * SubagentStart hooks that arrived without a `toolUseId` and with no
+   * registry record naming their `agentId` (F-F). Keyed by agentId; a list so
+   * two starts naming the same id stay visible as ambiguous instead of one
+   * silently replacing the other. Bound when the Task tool result names the
+   * id, discarded on SubagentStop, evicted after TTL_MS by cleanupExpired().
+   */
+  private readonly heldUnboundStarts = new Map<string, HeldUnboundStart[]>();
 
   /**
    * Parent session IDs currently inside endSession()/disposeAllSessions()
@@ -164,6 +185,7 @@ export class SubagentStateStore {
     this.pendingBackgroundToolCallIds.clear();
     this.pendingTeammateNames.clear();
     this.pendingTaskIds.clear();
+    this.heldUnboundStarts.clear();
     this.teardownSessionIds.clear();
     this.injectionAttempts.clear();
   }
@@ -294,6 +316,32 @@ export class SubagentStateStore {
     return undefined;
   }
 
+  /** Hold a SubagentStart that no record could claim (see heldUnboundStarts). */
+  holdUnboundStart(start: HeldUnboundStart): void {
+    const held = this.heldUnboundStarts.get(start.agentId) ?? [];
+    this.heldUnboundStarts.set(start.agentId, [
+      ...held.filter((h) => h.parentSessionId !== start.parentSessionId),
+      start,
+    ]);
+  }
+
+  /** Every held start naming this agentId (empty when none). */
+  getHeldUnboundStarts(agentId: string): readonly HeldUnboundStart[] {
+    return this.heldUnboundStarts.get(agentId) ?? [];
+  }
+
+  /** Whether any start is held — lets callers skip parsing tool results. */
+  get hasHeldUnboundStarts(): boolean {
+    return this.heldUnboundStarts.size > 0;
+  }
+
+  /** Drop every held start naming this agentId; returns how many went. */
+  discardHeldUnboundStarts(agentId: string): number {
+    const count = this.heldUnboundStarts.get(agentId)?.length ?? 0;
+    this.heldUnboundStarts.delete(agentId);
+    return count;
+  }
+
   /** Remember that a toolCallId was injected into context and removed. */
   markInjected(toolCallId: string): void {
     this.clearedToolCallIds.set(toolCallId, Date.now());
@@ -376,8 +424,22 @@ export class SubagentStateStore {
       this.pendingTaskIds.delete(toolCallId);
     }
 
+    let heldStartsRemoved = 0;
+    for (const [agentId, held] of Array.from(this.heldUnboundStarts)) {
+      const fresh = held.filter((h) => now - h.startedAt <= TTL_MS);
+      heldStartsRemoved += held.length - fresh.length;
+      if (fresh.length === 0) {
+        this.heldUnboundStarts.delete(agentId);
+      } else if (fresh.length !== held.length) {
+        this.heldUnboundStarts.set(agentId, fresh);
+      }
+    }
+
     const totalRemoved =
-      toRemove.length + clearedToRemove.length + pendingIdsToRemove.length;
+      toRemove.length +
+      clearedToRemove.length +
+      pendingIdsToRemove.length +
+      heldStartsRemoved;
     if (totalRemoved === 0) {
       return;
     }
@@ -388,6 +450,7 @@ export class SubagentStateStore {
         registryRemoved: toRemove.length,
         clearedIdsRemoved: clearedToRemove.length,
         pendingIdsRemoved: pendingIdsToRemove.length,
+        heldStartsRemoved,
         remainingRegistry: this.registry.size,
         remainingClearedIds: this.clearedToolCallIds.size,
         remainingPendingIds: this.pendingTaskIds.size,

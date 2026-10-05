@@ -800,6 +800,108 @@ export class SubagentRegistryService {
   }
 
   /**
+   * Hold a SubagentStart that arrived without a `toolUseId` and that no
+   * registry record names yet (F-F). The Task tool result's `agentId:` line is
+   * the first place that ties this agent to its Task tool_use id;
+   * {@link bindHeldStartToToolCall} completes the registration then.
+   */
+  holdUnboundStart(start: {
+    readonly agentId: string;
+    readonly agentType: string;
+    readonly parentSessionId: string;
+  }): void {
+    if (
+      blankToUndefined(start.agentId) === undefined ||
+      blankToUndefined(start.parentSessionId) === undefined
+    ) {
+      return;
+    }
+    this.store.lazyCleanup();
+    this.store.holdUnboundStart({ ...start, startedAt: Date.now() });
+  }
+
+  /** Whether any unbound SubagentStart is waiting for its Task tool result. */
+  hasHeldUnboundStarts(): boolean {
+    return this.store.hasHeldUnboundStarts;
+  }
+
+  /**
+   * Bind a held SubagentStart to the Task tool call whose result named its
+   * `agentId` (exact match only).
+   *
+   * - `bound`: exactly one held start names the id; it is registered under the
+   *   Task's toolCallId, so stop, steer and the budget stop can reach it.
+   * - `already-registered`: the toolCallId already has a record; nothing held
+   *   for the same agent is kept.
+   * - `ambiguous`: several held starts (different parent sessions) name the
+   *   id; guessing would route stop to the wrong agent, so it stays unbound.
+   * - `no-held-start`: nothing held names the id.
+   */
+  bindHeldStartToToolCall(
+    toolCallId: string,
+    agentId: string,
+  ): 'bound' | 'already-registered' | 'ambiguous' | 'no-held-start' {
+    if (
+      blankToUndefined(toolCallId) === undefined ||
+      blankToUndefined(agentId) === undefined
+    ) {
+      return 'no-held-start';
+    }
+    const existing = this.store.getRaw(toolCallId);
+    if (existing) {
+      if (existing.agentId === agentId) {
+        this.store.discardHeldUnboundStarts(agentId);
+      }
+      return 'already-registered';
+    }
+    const held = this.store.getHeldUnboundStarts(agentId);
+    if (held.length === 0) {
+      return 'no-held-start';
+    }
+    if (held.length > 1) {
+      this.logger.warn(
+        '[SubagentRegistryService.bindHeldStartToToolCall] Subagent NOT bound — several held SubagentStarts name this agentId',
+        {
+          toolCallId,
+          agentId,
+          candidateCount: held.length,
+          parentSessionIds: held.map((h) => h.parentSessionId),
+        },
+      );
+      return 'ambiguous';
+    }
+
+    const start = held[0];
+    this.store.discardHeldUnboundStarts(agentId);
+    this.register({
+      toolCallId,
+      agentType: start.agentType,
+      startedAt: start.startedAt,
+      parentSessionId: start.parentSessionId,
+      agentId,
+    });
+    this.logger.info(
+      '[SubagentRegistryService.bindHeldStartToToolCall] Held SubagentStart bound by the Task result agentId',
+      { toolCallId, agentId, parentSessionId: start.parentSessionId },
+    );
+    return 'bound';
+  }
+
+  /**
+   * Drop any held SubagentStart for this agent — its SubagentStop arrived
+   * first, so there is no running agent left to bind.
+   */
+  discardHeldUnboundStarts(agentId: string): void {
+    const count = this.store.discardHeldUnboundStarts(agentId);
+    if (count > 0) {
+      this.logger.debug(
+        '[SubagentRegistryService.discardHeldUnboundStarts] Held SubagentStart dropped on stop',
+        { agentId, count },
+      );
+    }
+  }
+
+  /**
    * Remove a specific subagent from the registry.
    *
    * Called when a subagent is successfully resumed (to prevent double-resume)

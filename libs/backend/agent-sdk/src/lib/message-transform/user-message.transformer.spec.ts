@@ -54,6 +54,8 @@ function makeHelpers(): jest.Mocked<TransformerHelpers> {
     },
     subagentRegistry: {
       get: jest.fn().mockReturnValue(undefined),
+      hasHeldUnboundStarts: jest.fn().mockReturnValue(false),
+      bindHeldStartToToolCall: jest.fn().mockReturnValue('no-held-start'),
       markPendingBackground: jest.fn(),
       setTaskId: jest.fn(),
       pruneSession: jest.fn(),

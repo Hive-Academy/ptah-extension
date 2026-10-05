@@ -28,6 +28,7 @@ import type {
   TransformerSessionId,
 } from './transformer-state';
 import type { TransformerHelpers } from './transformer-helpers';
+import { readTaskResultAgentIds } from './task-result-agent-binding';
 
 export interface BackgroundStartedEventParams {
   readonly toolCallId: string;
@@ -53,7 +54,7 @@ export function buildBackgroundAgentStartedEvent(
   // This event fires on the SDK's placeholder tool_result, which usually lands
   // before the SubagentStart hook registers the record — but the placeholder
   // text already carries the id, so read it from there.
-  const agentIdMatch = outputText?.match(/agentId:\s*([0-9a-f]+)/i);
+  const [placeholderAgentId] = readTaskResultAgentIds(content);
 
   return {
     id: generateEventId(),
@@ -65,7 +66,7 @@ export function buildBackgroundAgentStartedEvent(
     toolCallId,
     agentType: record?.agentType || spawn?.agentType || 'unknown',
     agentDescription: spawn?.agentDescription,
-    agentId: record?.agentId ?? agentIdMatch?.[1],
+    agentId: record?.agentId ?? placeholderAgentId,
     teammateName: record?.teammateName,
     outputFilePath: outputFileMatch?.[1]?.trim(),
     parentToolUseId,

@@ -538,6 +538,57 @@ describe('SessionRegistry', () => {
       expect(registry.find('tab_fresh')).toBeDefined();
     });
 
+    it('keeps the real SDK id out of the release while a live record still holds it (M5)', () => {
+      const { registry } = makeRegistry();
+      registry.setClockForTesting(() => 0);
+      registry.register(
+        'tab_stale',
+        makeConfig(),
+        new AbortController(),
+        'real-shared',
+      );
+      registry.setClockForTesting(() => TTL - 1);
+      const live = registry.register(
+        'tab_live',
+        makeConfig(),
+        new AbortController(),
+        'real-shared',
+      );
+      const listener = jest.fn();
+      registry.onEvicted(listener);
+
+      expect(registry.evictStale(TTL, TTL)).toBe(1);
+
+      expect(listener).toHaveBeenCalledTimes(1);
+      expect(listener).toHaveBeenCalledWith(['tab_stale']);
+      expect(registry.find('real-shared')).toBe(live);
+    });
+
+    it('keeps the real SDK id when the evicted record owns the index but another record still uses the id (M5)', () => {
+      const { registry } = makeRegistry();
+      registry.setClockForTesting(() => TTL - 1);
+      const live = registry.register(
+        'tab_live',
+        makeConfig(),
+        new AbortController(),
+        'real-shared',
+      );
+      registry.setClockForTesting(() => 0);
+      registry.register(
+        'tab_stale',
+        makeConfig(),
+        new AbortController(),
+        'real-shared',
+      );
+      const listener = jest.fn();
+      registry.onEvicted(listener);
+
+      expect(registry.evictStale(TTL, TTL)).toBe(1);
+
+      expect(listener).toHaveBeenCalledWith(['tab_stale']);
+      expect(registry.find('tab_live')).toBe(live);
+    });
+
     it('a disposed listener is not called', () => {
       const { registry } = makeRegistry();
       registry.setClockForTesting(() => 0);

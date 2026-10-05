@@ -42,6 +42,8 @@ function makeRegistry(
     update: jest.fn(),
     getToolCallIdByAgentId: jest.fn(),
     getToolCallIdsByAgentId: jest.fn().mockReturnValue([]),
+    holdUnboundStart: jest.fn(),
+    discardHeldUnboundStarts: jest.fn(),
   } as unknown as jest.Mocked<SubagentRegistryService>;
 }
 
@@ -459,7 +461,7 @@ describe('SubagentHookHandler — SubagentStart registration identity (TASK_2026
     );
   });
 
-  it('drops the registration and names the missing toolUseId when it is absent', async () => {
+  it('holds a start without toolUseId that no record names, for the Task result to bind (F-F)', async () => {
     const logger = makeLogger();
     const registry = makeRegistry(null);
     const stopRegistry = new SubagentStopCallbackRegistry(logger);
@@ -480,14 +482,15 @@ describe('SubagentHookHandler — SubagentStart registration identity (TASK_2026
       'agent-xyz',
       'payload-parent-sess',
     );
-    expect(logger.warn).toHaveBeenCalledWith(
-      expect.stringContaining('Subagent NOT registered'),
-      expect.objectContaining({
-        reason: expect.stringContaining(
-          'no registry record names this agentId',
-        ),
-        matchCount: 0,
-      }),
+    expect(registry.holdUnboundStart).toHaveBeenCalledWith({
+      agentId: 'agent-xyz',
+      agentType: 'backend-developer',
+      parentSessionId: 'payload-parent-sess',
+    });
+    expect(logger.warn).not.toHaveBeenCalled();
+    expect(logger.info).toHaveBeenCalledWith(
+      expect.stringContaining('held until the Task result names its agentId'),
+      expect.objectContaining({ agentId: 'agent-xyz' }),
     );
   });
 });
