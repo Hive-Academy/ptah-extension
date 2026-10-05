@@ -1124,7 +1124,7 @@ real code, a regression test per item).
 
 - Scoped checks for rpc-handlers, cli-agent-runtime, shared, plus `nx affected -t typecheck`.
 
-## Batch 26: Spool `.gitignore` failure logged once and by the dispatcher (G.8) — PENDING
+## Batch 26: Spool `.gitignore` failure logged once and by the dispatcher (G.8) — COMPLETE
 
 - Recommended executor: backend-developer | Fallback: backend-developer (Opus) | Execution mode: Sequential subagent
 - Model: Sonnet (log text) | Tasks: 2 | Depends on: Batch 23 | Group: P4 | Phase: G

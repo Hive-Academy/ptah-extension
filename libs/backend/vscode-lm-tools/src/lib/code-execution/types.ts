@@ -391,8 +391,9 @@ export interface AgentNamespace {
    * @param agentId - Agent ID
    * @param options - timeout in ms (default and maximum: 900000, 15 minutes)
    * @returns The agent's terminal status
-   * @throws When the agent is unknown or belongs to another workspace, or
-   *   when it is still running at the timeout
+   * @throws When the agent is unknown or belongs to another workspace, when
+   *   it is still running at the timeout, or when the caller is cancelled:
+   *   `waitFor cancelled for agent <id>: the caller stopped waiting. The agent keeps running.`
    */
   waitFor: (
     agentId: string,
