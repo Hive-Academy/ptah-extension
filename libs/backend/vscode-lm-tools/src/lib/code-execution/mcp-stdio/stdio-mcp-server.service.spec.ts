@@ -38,7 +38,10 @@ import type { Logger } from '@ptah-extension/vscode-core';
 import { StdioMcpServerService } from './stdio-mcp-server.service';
 import { StdioTransport, type McpStdioNotifier } from './stdio-transport';
 import { MCP_MVP_TOOL_NAMES } from './tool-builders';
-import type { MCPRequest } from '../mcp-core/types/mcp-protocol.types';
+import type {
+  MCPRequest,
+  MCPResponse,
+} from '../mcp-core/types/mcp-protocol.types';
 import type { PtahAPIBuilder } from '../ptah-api-builder.service';
 import type { PtahAPI } from '../types';
 import { countTokensPiecewise } from '@ptah-extension/tool-output-reducers';
@@ -1206,12 +1209,8 @@ describe('StdioMcpServerService request abort and dispose', () => {
 
     expect(wait.seen()?.aborted).toBe(true);
     expect(handler.cancel).not.toHaveBeenCalled();
-    const result = resp.result as {
-      content: Array<{ text: string }>;
-      structuredContent: { cancelled: boolean };
-    };
-    expect(result.content[0].text).toContain('WAIT CANCELLED');
-    expect(result.structuredContent.cancelled).toBe(true);
+    // The reply exists but is flagged: the transport must not send it.
+    expect(svc.wasCancelledByPeer(resp)).toBe(true);
   });
 
   it('leaves a call alone when the cancel names another id', async () => {
@@ -1224,8 +1223,60 @@ describe('StdioMcpServerService request abort and dispose', () => {
     expect(wait.seen()?.aborted).toBe(false);
 
     await svc.dispose();
-    await pending;
+    const resp = await pending;
     expect(wait.seen()?.aborted).toBe(true);
+    // Aborted by shutdown, not by the peer: not a peer-cancelled reply.
+    expect(svc.wasCancelledByPeer(resp)).toBe(false);
+  });
+
+  it('does not flag a call that settled before the cancel arrived', async () => {
+    const { svc } = makeService();
+    const resp = await svc.handleToolsCall(
+      makeRequest({
+        id: 'done-1',
+        params: { name: 'agent_list', arguments: {} },
+      }),
+    );
+    await svc.handleCancelled({ requestId: 'done-1' });
+    expect(svc.wasCancelledByPeer(resp)).toBe(false);
+  });
+
+  it('flags a session_submit reply the peer cancelled while it ran, and still forwards the cancel', async () => {
+    const { svc } = makeService();
+    let finish: (value: MCPResponse) => void = () => undefined;
+    const handler: jest.Mocked<ISessionSubmitHandler> = {
+      dispatch: jest.fn(
+        (request: MCPRequest, _args: unknown) =>
+          new Promise<MCPResponse>((resolve) => {
+            finish = (value) => resolve({ ...value, id: request.id });
+          }),
+      ),
+      cancel: jest.fn().mockResolvedValue(undefined),
+    };
+    svc.setSessionSubmitHandler(handler);
+
+    const submitCall = (id: string): MCPRequest =>
+      makeRequest({
+        id,
+        params: { name: 'session_submit', arguments: { prompt: 'x' } },
+      });
+    const reply: MCPResponse = {
+      jsonrpc: '2.0',
+      id: 0,
+      result: { content: [{ type: 'text', text: 'cancelled' }] },
+    };
+
+    const pending = svc.handleToolsCall(submitCall('s-1'));
+    await new Promise((r) => setImmediate(r));
+    await svc.handleCancelled({ requestId: 's-1' });
+    expect(handler.cancel).toHaveBeenCalledWith({ requestId: 's-1' });
+    finish(reply);
+    expect(svc.wasCancelledByPeer(await pending)).toBe(true);
+
+    const uncancelled = svc.handleToolsCall(submitCall('s-2'));
+    await new Promise((r) => setImmediate(r));
+    finish(reply);
+    expect(svc.wasCancelledByPeer(await uncancelled)).toBe(false);
   });
 
   it('refuses a second call that reuses an id in flight, and the cancel still reaches the first', async () => {

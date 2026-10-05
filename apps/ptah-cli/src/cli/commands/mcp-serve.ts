@@ -36,7 +36,11 @@ import { ulid } from 'ulid';
 
 import { withEngine } from '@ptah-extension/cli-engine';
 import { buildFormatter, type Formatter } from '../output/formatter.js';
-import { JsonRpcServer, InvalidParamsError } from '../jsonrpc/server.js';
+import {
+  JsonRpcServer,
+  InvalidParamsError,
+  NO_RESPONSE,
+} from '../jsonrpc/server.js';
 import { StdinReader } from '../io/stdin-reader.js';
 import { StdoutWriter } from '../io/stdout-writer.js';
 import { ExitCode, JSONRPC_SCHEMA_VERSION } from '../jsonrpc/types.js';
@@ -367,6 +371,9 @@ export async function execute(
             params,
           );
           const resp = await stdioServer.handleToolsCall(req);
+          // The peer cancelled this call while it ran: MCP says a cancelled
+          // request SHOULD NOT be answered, so no reply goes on the wire.
+          if (stdioServer.wasCancelledByPeer(resp)) return NO_RESPONSE;
           if (resp.error !== undefined) {
             if (resp.error.code === -32602) {
               throw new InvalidParamsError(resp.error.message, resp.error.data);
