@@ -791,7 +791,7 @@ batch's projects>`, `npx nx run di-lint:lint`, `npx nx run degradation-audit:lin
 "Batch rules for every executor" above apply unchanged (R1 limit, subagents only, no git, no TASK_2026_609_c495 files,
 real code, a regression test per item).
 
-## Batch 16: Session budget entry lifetime and action guards (F.1 M5, M7) — COMPLETE
+## Batch 16: Session budget entry lifetime and action guards (F.1 M5, M7) — COMPLETE (commit 0df5b0b14)
 
 - Verified by team-leader (Mode 2, 2026-10-05). Deviation accepted: the eviction release also touched
   `session-lifecycle-manager.ts` (`onSessionEvicted` pass-through), `sdk-agent-adapter.ts` (subscription + dispose) and
@@ -830,7 +830,7 @@ real code, a regression test per item).
 
 - Specs above pass; scoped checks for agent-sdk and cli-agent-runtime.
 
-## Batch 17: Session budget backend Minors and UUID check (F.6, F.1 M4) — COMPLETE
+## Batch 17: Session budget backend Minors and UUID check (F.6, F.1 M4) — COMPLETE (commit 2eb51a4c7)
 
 - Verified by team-leader (Mode 2, 2026-10-05). Task 17.4: the SDK mints session ids with `crypto.randomUUID()` (v4),
   so `UUID_REGEX` is unchanged; `branded.types.ts` gets a comment only, so importers' types cannot change. Task 17.3: no
@@ -873,7 +873,7 @@ real code, a regression test per item).
 
 - Scoped checks for agent-sdk, shared, webview-e2e-harness; `nx affected` only if Task 17.4 relaxed the regex.
 
-## Batch 18: Config warn-once, capper line count, PostToolUse guards (G.1, G.8) — COMPLETE
+## Batch 18: Config warn-once, capper line count, PostToolUse guards (G.1, G.8) — COMPLETE (commit b02b99766)
 
 - Verified by team-leader (Mode 2, 2026-10-05). Tasks 18.1-18.3 committed; Task 18.4 (G-E doc note) was not written
   and moves to Task 22.7.
