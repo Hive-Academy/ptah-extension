@@ -1134,6 +1134,33 @@ describe('buildAgentNamespace — waitForAgents', () => {
       ['a', 'b'],
       'any',
       30_000,
+      undefined,
+    );
+  });
+
+  it('forwards the abort signal to the manager (TASK_2026_614 Task 10.1)', async () => {
+    const { deps, mocks } = makeDeps();
+    mocks.processManager.waitForAgents.mockResolvedValue({
+      mode: 'all',
+      timedOut: false,
+      cancelled: true,
+      waitedMs: 1,
+      entries: [],
+    });
+    const controller = new AbortController();
+
+    await buildAgentNamespace(deps).waitForAgents(
+      ['a'],
+      'all',
+      1_000,
+      controller.signal,
+    );
+
+    expect(mocks.processManager.waitForAgents).toHaveBeenCalledWith(
+      ['a'],
+      'all',
+      1_000,
+      controller.signal,
     );
   });
 });

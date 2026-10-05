@@ -169,6 +169,7 @@ import {
   getCallerAgentId,
   getCallerSessionId,
   getCallerWorkspaceRoot,
+  getRequestAbortSignal,
   isMcpRequestInFlight,
   runWithMcpRequestContext,
 } from './mcp-request-context';
@@ -305,6 +306,7 @@ export async function handleMCPRequest(
             callerWorkspaceRoot: request._callerWorkspaceRoot,
             callerAgentId: caller.agentId,
             callerToolProfile: resolveMcpToolProfile(request),
+            signal: request._abortSignal,
           },
           () => handleToolsCall(request, deps, caller.kind),
         );
@@ -1338,10 +1340,12 @@ async function handleIndividualTool(
         }
         // The reply is self-bounded (WAIT_SUMMARY_MAX_CHARS, half the default
         // budget), so the budget step returns it unchanged.
+        // A closed connection ends the wait (the lanes keep running).
         const text = await runAgentWait(parsed.data, {
-          waitForAgents: (ids, mode, timeoutMs) =>
-            ptahAPI.agent.waitForAgents(ids, mode, timeoutMs),
+          waitForAgents: (ids, mode, timeoutMs, signal) =>
+            ptahAPI.agent.waitForAgents(ids, mode, timeoutMs, signal),
           readOutput: (agentId, tail) => ptahAPI.agent.read(agentId, tail),
+          signal: getRequestAbortSignal(),
         });
         return await createToolSuccessResponse(request, text, deps);
       }
@@ -1366,8 +1370,10 @@ async function handleIndividualTool(
         if ('error' in root) {
           return toolErrorResponse(request, root.error);
         }
+        // A closed connection kills the Nx tree instead of leaving it running.
         const outcome = await runCheck(parsed.data, {
           workspaceRoot: root.root,
+          signal: getRequestAbortSignal(),
         });
         const response = outcome.isError
           ? toolErrorResponse(request, outcome.text)

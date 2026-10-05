@@ -48,6 +48,16 @@ import {
   getToolResultBudget,
 } from '../mcp-core/tool-result-budget';
 import type { ISessionSubmitHandler } from './session-submit.port';
+import { EventEmitter } from 'node:events';
+import { PassThrough } from 'node:stream';
+import {
+  NX_ENTRY_CANDIDATES,
+  runCheck,
+  runningCheckPids,
+  type CheckProcess,
+  type SpawnCheckProcess,
+} from '../mcp-core/run-check.tool';
+import { RunCheckArgsSchema } from '../mcp-core/wait-tools-args.schema';
 
 function makeLogger(): Logger {
   return {
@@ -1109,5 +1119,154 @@ describe('StdioTransport', () => {
     expect(transport.isStarted()).toBe(true);
     await transport.stop();
     expect(transport.isStarted()).toBe(false);
+  });
+});
+
+/**
+ * Batch 10 regressions: a peer `notifications/cancelled` aborts the matching
+ * wrapper-tool call (Task 10.1), and `dispose()` at stream end aborts every
+ * call in flight and kills every live `run_check` tree (Task 10.2).
+ */
+describe('StdioMcpServerService request abort and dispose', () => {
+  /** An `agent_wait` whose manager only returns when its signal fires. */
+  function waitUntilAborted(): {
+    agentApi: Partial<PtahAPI['agent']>;
+    seen: () => AbortSignal | undefined;
+  } {
+    let seen: AbortSignal | undefined;
+    const waitForAgents = jest.fn(
+      (
+        ids: readonly string[],
+        mode: 'all' | 'any',
+        _timeoutMs: number,
+        signal?: AbortSignal,
+      ) =>
+        new Promise((resolve) => {
+          seen = signal;
+          signal?.addEventListener(
+            'abort',
+            () =>
+              resolve({
+                mode,
+                timedOut: false,
+                cancelled: true,
+                waitedMs: 1,
+                entries: ids.map((agentId) => ({
+                  agentId,
+                  state: 'running',
+                  info: {
+                    agentId,
+                    cli: 'codex',
+                    status: 'running',
+                    task: 't',
+                    startedAt: '2026-05-24T00:00:00Z',
+                  },
+                })),
+              }),
+            { once: true },
+          );
+        }),
+    );
+    return {
+      agentApi: { waitForAgents } as unknown as Partial<PtahAPI['agent']>,
+      seen: () => seen,
+    };
+  }
+
+  function waitCall(id: string | number): MCPRequest {
+    return makeRequest({
+      id,
+      params: { name: 'agent_wait', arguments: { agentIds: ['a-1'] } },
+    });
+  }
+
+  async function untilSeen(seen: () => AbortSignal | undefined): Promise<void> {
+    const deadline = Date.now() + 5_000;
+    while (seen() === undefined && Date.now() < deadline) {
+      await new Promise((r) => setImmediate(r));
+    }
+    expect(seen()).toBeInstanceOf(AbortSignal);
+  }
+
+  it('aborts the agent_wait whose id the peer cancels, not the session-submit handler', async () => {
+    const wait = waitUntilAborted();
+    const { svc } = makeService(wait.agentApi);
+    const handler: jest.Mocked<ISessionSubmitHandler> = {
+      dispatch: jest.fn(),
+      cancel: jest.fn().mockResolvedValue(undefined),
+    };
+    svc.setSessionSubmitHandler(handler);
+
+    const pending = svc.handleToolsCall(waitCall('r-7'));
+    await untilSeen(wait.seen);
+    expect(wait.seen()?.aborted).toBe(false);
+
+    await svc.handleCancelled({ requestId: 'r-7' });
+    const resp = await pending;
+
+    expect(wait.seen()?.aborted).toBe(true);
+    expect(handler.cancel).not.toHaveBeenCalled();
+    const result = resp.result as {
+      content: Array<{ text: string }>;
+      structuredContent: { cancelled: boolean };
+    };
+    expect(result.content[0].text).toContain('WAIT CANCELLED');
+    expect(result.structuredContent.cancelled).toBe(true);
+  });
+
+  it('leaves a call alone when the cancel names another id', async () => {
+    const wait = waitUntilAborted();
+    const { svc } = makeService(wait.agentApi);
+    const pending = svc.handleToolsCall(waitCall(8));
+    await untilSeen(wait.seen);
+
+    await svc.handleCancelled({ requestId: 9 });
+    expect(wait.seen()?.aborted).toBe(false);
+
+    await svc.dispose();
+    await pending;
+    expect(wait.seen()?.aborted).toBe(true);
+  });
+
+  it('dispose() kills a live run_check tree by its pid', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ptah-stdio-dispose-'));
+    try {
+      const entry = path.join(root, ...NX_ENTRY_CANDIDATES[0]);
+      fs.mkdirSync(path.dirname(entry), { recursive: true });
+      fs.writeFileSync(entry, '');
+      const child = Object.assign(new EventEmitter(), {
+        stdout: new PassThrough(),
+        stderr: new PassThrough(),
+        pid: 6161,
+      });
+      const spawnProcess = jest.fn(() => child as unknown as CheckProcess);
+      const killTree = jest.fn(async () => {
+        child.stdout.end();
+        child.stderr.end();
+        setImmediate(() => child.emit('close', null, 'SIGTERM'));
+      });
+      const run = runCheck(
+        RunCheckArgsSchema.parse({ project: 'app', targets: ['test'] }),
+        {
+          workspaceRoot: root,
+          spawnProcess: spawnProcess as unknown as SpawnCheckProcess,
+          killTree,
+        },
+      );
+      const deadline = Date.now() + 5_000;
+      while (!runningCheckPids().includes(6161) && Date.now() < deadline) {
+        await new Promise((r) => setImmediate(r));
+      }
+      expect(runningCheckPids()).toContain(6161);
+
+      const { svc } = makeService();
+      await svc.dispose();
+
+      expect(killTree).toHaveBeenCalledWith(6161);
+      expect((await run).structured.verdict).toBe('cancelled');
+      expect(runningCheckPids()).not.toContain(6161);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 });

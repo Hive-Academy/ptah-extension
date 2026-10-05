@@ -67,6 +67,14 @@ jest.mock('../ptah-api-builder.service', () => ({
   PtahAPIBuilder: class PtahAPIBuilderStub {},
 }));
 
+// Dispose must kill the live `run_check` trees (TASK_2026_614 Task 10.2). The
+// kill itself is pinned in run-check.tool.spec and stdio-mcp-server.service
+// .spec; here only the call and its fail-open handling are observed.
+jest.mock('../mcp-core/run-check.tool', () => ({
+  ...jest.requireActual('../mcp-core/run-check.tool'),
+  killRunningChecks: jest.fn(async () => undefined),
+}));
+
 // Replace the permission-prompt service for the same reason: it transitively
 // pulls in webview/agent-sdk types we don't want to load here.
 jest.mock('../../permission/permission-prompt.service', () => ({
@@ -144,6 +152,7 @@ import type { PtahAPIBuilder } from '../ptah-api-builder.service';
 import type { PermissionPromptService } from '../../permission/permission-prompt.service';
 import type { PtahAPI, MCPRequest, MCPResponse } from '../types';
 import { handleMCPRequest as handleMCPRequestMock } from '../mcp-core';
+import { killRunningChecks } from '../mcp-core/run-check.tool';
 import {
   FileLockTimeoutError,
   withMcpConfigLock as withMcpConfigLockMock,
@@ -853,6 +862,46 @@ describe('CodeExecutionMCP — error propagation', () => {
     const { service } = build();
     await expect(service.start()).rejects.toThrow('port taken');
     expect(service.getPort()).toBeNull();
+  });
+
+  it('disposeAsync() kills the live checks before the server stops', async () => {
+    const { service } = build();
+    await service.start();
+    const kill = jest.mocked(killRunningChecks);
+    kill.mockClear();
+    stopHttpServer.mockClear();
+    stopHttpServer.mockResolvedValue(undefined);
+
+    await service.disposeAsync();
+
+    expect(kill).toHaveBeenCalledTimes(1);
+    expect(stopHttpServer).toHaveBeenCalledTimes(1);
+    expect(kill.mock.invocationCallOrder[0]).toBeLessThan(
+      stopHttpServer.mock.invocationCallOrder[0],
+    );
+  });
+
+  it('disposeAsync() warns once and still stops when the check kill fails', async () => {
+    const { service, logger } = build();
+    await service.start();
+    jest
+      .mocked(killRunningChecks)
+      .mockRejectedValueOnce(new Error('taskkill missing'));
+    stopHttpServer.mockClear();
+    stopHttpServer.mockResolvedValue(undefined);
+
+    await expect(service.disposeAsync()).resolves.toBeUndefined();
+
+    const warns = logger.warn.mock.calls.filter(
+      ([message]) => message === '[CodeExecutionMCP] Killing running checks failed',
+    );
+    expect(warns).toEqual([
+      [
+        '[CodeExecutionMCP] Killing running checks failed',
+        { reason: 'taskkill missing' },
+      ],
+    ]);
+    expect(stopHttpServer).toHaveBeenCalledTimes(1);
   });
 
   it('disposeAsync() propagates stop() failures to the caller', async () => {

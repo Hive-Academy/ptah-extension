@@ -32,6 +32,7 @@ import {
   type ISessionSpawner,
 } from '@ptah-extension/cli-agent-runtime';
 import { flushSessionMetadataStores } from '@ptah-extension/agent-sdk';
+import { killRunningChecks } from '@ptah-extension/vscode-lm-tools';
 import { DIContainer } from './di/container';
 import { PtahExtension } from './core/ptah-extension';
 import { bootstrapVscode } from './activation/bootstrap';
@@ -152,6 +153,18 @@ export async function deactivate(): Promise<void> {
     // degradation-audit: reported - logged at warn; shutdown continues and
     // the agent reap below still runs.
     logger.warn('Session spawner dispose failed (non-fatal)', {
+      reason: error instanceof Error ? error.message : String(error),
+    });
+  }
+
+  // A `ptah_run_check` in flight owns an Nx process tree in its own process
+  // group, which would outlive the extension host. `killRunningChecks` never
+  // rejects; the guard keeps one failure from skipping the reap below.
+  try {
+    await killRunningChecks();
+  } catch (error: unknown) {
+    // degradation-audit: reported - logged at warn; the agent reap still runs.
+    logger.warn('Running check kill failed (non-fatal)', {
       reason: error instanceof Error ? error.message : String(error),
     });
   }

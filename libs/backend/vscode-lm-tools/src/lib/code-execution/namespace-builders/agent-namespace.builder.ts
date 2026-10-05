@@ -504,7 +504,7 @@ export function buildAgentNamespace(
       throw new Error(`Agent not found: ${agentId}`);
     },
 
-    waitForAgents: async (agentIds, mode, timeoutMs) =>
-      agentProcessManager.waitForAgents(agentIds, mode, timeoutMs),
+    waitForAgents: async (agentIds, mode, timeoutMs, signal) =>
+      agentProcessManager.waitForAgents(agentIds, mode, timeoutMs, signal),
   };
 }
