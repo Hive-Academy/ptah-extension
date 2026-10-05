@@ -436,6 +436,7 @@ export function persistCliSessionReference(
       // The full non-secret owner reference, so a restored run still names the
       // owner it ran on even when the ledger holds nothing for it (Gate 2 G3).
       ...(info.quotaOwner ? { quotaOwner: info.quotaOwner } : {}),
+      ...(info.modelScope !== undefined ? { modelScope: info.modelScope } : {}),
     };
 
     // Bulk FIRST, reference SECOND, both inside ONE retry.

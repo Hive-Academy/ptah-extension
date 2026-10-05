@@ -1629,9 +1629,7 @@ describe('ChatViewComponent — plan limits wiring (TASK_2026_596)', () => {
       .sort();
     expect(statuses).toEqual(['not-recorded', 'same']);
     // The session's backend-resolved scope (`opus`) shows its window tile.
-    expect(limits?.planTiles.some((tile) => tile.kind === 'window')).toBe(
-      true,
-    );
+    expect(limits?.planTiles.some((tile) => tile.kind === 'window')).toBe(true);
     // A run carries no resolved scope, so model-scoped limits are not applied.
     const sameGroup = limits?.laneTiles
       .flatMap((tile) => tile.subgroups)
@@ -1713,8 +1711,9 @@ describe('ChatViewComponent — plan limits wiring (TASK_2026_596)', () => {
   describe('toStatsLimitLaneRun', () => {
     it('marks a run restored only by the restore flag, not by its status', () => {
       expect(
-        toStatsLimitLaneRun(run('r', 's', { restored: true, status: 'running' }))
-          .restored,
+        toStatsLimitLaneRun(
+          run('r', 's', { restored: true, status: 'running' }),
+        ).restored,
       ).toBe(true);
       expect(
         toStatsLimitLaneRun(run('l', 's', { status: 'completed' })).restored,
@@ -1731,13 +1730,17 @@ describe('ChatViewComponent — plan limits wiring (TASK_2026_596)', () => {
       expect(lane.usageTotals ?? null).toBeNull();
     });
 
-    it('uses the card display name, no model scope, and keeps an absent owner absent', () => {
+    it('uses the card display name, persisted model scope, and keeps an absent owner absent', () => {
       const named = toStatsLimitLaneRun(
-        run('n', 's', { displayName: 'Codex', model: 'gpt-5-codex' }),
+        run('n', 's', {
+          displayName: 'Codex',
+          model: 'gpt-5-codex',
+          modelScope: 'gpt-5-codex',
+        }),
       );
       expect(named.cliLabel).toBe('Codex');
       expect(named.model).toBe('gpt-5-codex');
-      expect(named.modelScope).toBeNull();
+      expect(named.modelScope).toBe('gpt-5-codex');
       expect(named.quotaOwner).toBeUndefined();
 
       const bare = toStatsLimitLaneRun(run('b', 's'));

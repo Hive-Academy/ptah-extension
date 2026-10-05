@@ -307,7 +307,8 @@ function countReferencesWithBulk(metadata: SessionMetadata): number {
 }
 
 /**
- * A restored reference carries its `quotaOwner` only when it validates. A
+ * A restored reference carries its `quotaOwner` and `modelScope` only when
+ * they validate. A
  * malformed or legacy value — including an older build's bare `quotaOwnerKey`,
  * which is dropped too — restores with no owner, which renders as "Unknown
  * owner". It is never replaced by the session's current owner.
@@ -319,10 +320,20 @@ function countReferencesWithBulk(metadata: SessionMetadata): number {
 function restoreQuotaOwner(ref: CliSessionReference): CliSessionReference {
   if (typeof ref !== 'object' || ref === null) return ref;
   const stored = ref as CliSessionReference & { quotaOwnerKey?: unknown };
-  if (!('quotaOwner' in stored) && !('quotaOwnerKey' in stored)) return ref;
-  const { quotaOwner, quotaOwnerKey: _legacy, ...rest } = stored;
+  if (
+    !('quotaOwner' in stored) &&
+    !('quotaOwnerKey' in stored) &&
+    !('modelScope' in stored)
+  ) {
+    return ref;
+  }
+  const { quotaOwner, quotaOwnerKey: _legacy, modelScope, ...rest } = stored;
   const owner = parseQuotaOwnerRef(quotaOwner);
-  return owner ? { ...rest, quotaOwner: owner } : rest;
+  const scope =
+    modelScope === null || typeof modelScope === 'string' ? { modelScope } : {};
+  return owner
+    ? { ...rest, quotaOwner: owner, ...scope }
+    : { ...rest, ...scope };
 }
 
 /**
