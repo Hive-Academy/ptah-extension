@@ -1,15 +1,23 @@
 import 'reflect-metadata';
 import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { container } from 'tsyringe';
 import { createMockLogger } from '@ptah-extension/shared/testing';
-import type { IAuthSecretsService, Logger } from '@ptah-extension/vscode-core';
 import {
+  TOKENS,
+  type IAuthSecretsService,
+  type Logger,
+} from '@ptah-extension/vscode-core';
+import {
+  SDK_TOKENS,
   parseQuotaOwnerRef,
   type SessionQuotaProbe,
   type SessionQuotaRoute,
 } from '@ptah-extension/agent-sdk';
 import type { QuotaOwnerRef } from '@ptah-extension/shared';
 import { CodexHomeResolver } from '../providers/codex/codex-home-resolver';
+import { AUTH_PROVIDERS_TOKENS } from '../di/tokens';
 import { CODEX_PROXY_TOKEN_PLACEHOLDER } from '../providers/codex/codex-provider.types';
 import { OLLAMA_AUTH_TOKEN_PLACEHOLDER } from '../providers/local/local-provider.types';
 import {
@@ -25,6 +33,8 @@ import {
   type ClaudeAccountInfo,
 } from './provider-owner.resolver';
 
+jest.mock('node:fs', () => ({ readFileSync: jest.fn() }));
+
 const SECRET = 'sk-private-credential-123';
 const EMAIL = 'private-user@example.test';
 
@@ -35,6 +45,8 @@ function harness(
     route?: SessionQuotaRoute | null;
     account?: ClaudeAccountInfo;
     codexOwnerKey?: string | null;
+    fileContent?: string;
+    fileReadFails?: boolean;
   } = {},
 ) {
   const logger = createMockLogger();
@@ -50,6 +62,11 @@ function harness(
     ),
   } satisfies SessionQuotaProbe;
   const codexHome = new CodexHomeResolver(resolve('synthetic-codex-home'));
+  const readFile = readFileSync as jest.MockedFunction<typeof readFileSync>;
+  readFile.mockImplementation(() => {
+    if (options.fileReadFails) throw new Error('account file unavailable');
+    return options.fileContent ?? '';
+  });
   const resolver = new ProviderOwnerResolver(
     logger as unknown as Logger,
     { getProviderKey } as unknown as IAuthSecretsService,
@@ -57,7 +74,7 @@ function harness(
     { currentOwnerKey: () => options.codexOwnerKey ?? null },
     codexHome,
   );
-  return { resolver, logger, getProviderKey, probe, codexHome };
+  return { resolver, logger, getProviderKey, probe, codexHome, readFile };
 }
 
 function expectRestorable(ref: QuotaOwnerRef): void {
@@ -311,6 +328,101 @@ describe('ProviderOwnerResolver', () => {
       if (previous === undefined) delete process.env['XDG_DATA_HOME'];
       else process.env['XDG_DATA_HOME'] = previous;
     }
+  });
+
+  describe('ownerForAntigravity', () => {
+    it('keys different active accounts on one root separately and stably', () => {
+      const first = harness({
+        fileContent: JSON.stringify({ active: 'first@example.test', old: [] }),
+      }).resolver.ownerForAntigravity();
+      const second = harness({
+        fileContent: JSON.stringify({ active: 'second@example.test', old: [] }),
+      }).resolver.ownerForAntigravity();
+      const repeated = harness({
+        fileContent: JSON.stringify({ active: 'first@example.test', old: [] }),
+      }).resolver.ownerForAntigravity();
+
+      expect(first.identityKind).toBe('account');
+      expect(second.identityKind).toBe('account');
+      expect(first.key).not.toBe(second.key);
+      expect(repeated.key).toBe(first.key);
+      expectRestorable(first);
+      expectRestorable(second);
+    });
+
+    it('keys one account the same regardless of letter case or a missing old list', () => {
+      const lower = harness({
+        fileContent: JSON.stringify({ active: 'first@example.test', old: [] }),
+      }).resolver.ownerForAntigravity();
+      const mixed = harness({
+        fileContent: JSON.stringify({ active: ' First@Example.TEST ' }),
+      }).resolver.ownerForAntigravity();
+
+      expect(mixed.identityKind).toBe('account');
+      expect(mixed.key).toBe(lower.key);
+    });
+
+    it('constructs through tsyringe with all injected dependencies registered', () => {
+      const child = container.createChildContainer();
+      const logger = createMockLogger();
+      const probe = {
+        readAccount: jest.fn(async () => null),
+        readPlanUsage: jest.fn(async () => null),
+        sessionRoute: jest.fn(() => null),
+      } satisfies SessionQuotaProbe;
+      child.registerInstance(TOKENS.LOGGER, logger as unknown as Logger);
+      child.registerInstance(TOKENS.AUTH_SECRETS_SERVICE, {
+        getProviderKey: jest.fn(async () => undefined),
+      } as unknown as IAuthSecretsService);
+      child.registerInstance(SDK_TOKENS.SDK_SESSION_QUOTA_PROBE, probe);
+      child.registerInstance(AUTH_PROVIDERS_TOKENS.SDK_CODEX_ACCOUNT_USAGE, {
+        currentOwnerKey: () => null,
+      });
+      child.registerInstance(
+        AUTH_PROVIDERS_TOKENS.SDK_CODEX_HOME_RESOLVER,
+        new CodexHomeResolver(resolve('synthetic-codex-home')),
+      );
+
+      expect(child.resolve(ProviderOwnerResolver)).toBeInstanceOf(
+        ProviderOwnerResolver,
+      );
+    });
+
+    it.each([
+      ['missing', { fileReadFails: true }],
+      ['invalid', { fileContent: '{not json' }],
+      [
+        'empty active',
+        { fileContent: JSON.stringify({ active: '', old: [] }) },
+      ],
+    ])(
+      'falls back to the CLI store when the account file is %s',
+      (_case, options) => {
+        const { resolver } = harness(options);
+
+        expect(resolver.ownerForAntigravity()).toEqual(
+          resolver.ownerForCliStore('antigravity'),
+        );
+      },
+    );
+
+    it('never serializes or logs the active account email', () => {
+      const email = 'antigravity-private@example.test';
+      const { resolver, logger } = harness({
+        fileContent: JSON.stringify({ active: email, old: [] }),
+      });
+      const owner = resolver.ownerForAntigravity();
+
+      expect(JSON.stringify(owner)).not.toContain(email);
+      expect(
+        JSON.stringify([
+          (logger.debug as jest.Mock).mock.calls,
+          (logger.info as jest.Mock).mock.calls,
+          (logger.warn as jest.Mock).mock.calls,
+          (logger.error as jest.Mock).mock.calls,
+        ]),
+      ).not.toContain(email);
+    });
   });
 
   describe('ownerForSession', () => {

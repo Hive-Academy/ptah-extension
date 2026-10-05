@@ -55,6 +55,8 @@ import type { LaneUsageTileModel } from './stats-limit-view-model.types';
       >
       <span
         class="block text-[10px] text-base-content-muted leading-tight"
+        [class.truncate]="!open()"
+        [attr.title]="t.caption"
         data-testid="lane-caption"
         >{{ t.caption }}</span
       >

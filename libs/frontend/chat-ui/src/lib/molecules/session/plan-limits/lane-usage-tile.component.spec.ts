@@ -12,14 +12,14 @@ import {
 const NOW = Date.UTC(2026, 9, 5, 12, 0);
 const UTC = { timeZone: 'UTC', zoneNameLocale: 'en-GB' } as const;
 const CLAUDE_A: QuotaOwnerRef = {
-  key: 'claude-cli#account:aaa',
+  key: 'claude-cli#account:aaaaaaaaaaaaaaaa',
   providerId: 'claude-cli',
   identityKind: 'account',
   label: 'Claude account',
 };
 
 const SAME_SUBGROUP: LaneSubgroupModel = {
-  key: 'claude-cli#account:aaa|sonnet',
+  key: 'claude-cli#account:aaaaaaaaaaaaaaaa|sonnet',
   heading: 'sonnet',
   ownerStatus: 'same',
   ownerLabel: 'Same account',
@@ -38,7 +38,7 @@ const SAME_SUBGROUP: LaneSubgroupModel = {
   ],
   planTileChips: [
     {
-      planTileId: 'plan:claude-cli#account:aaa:five_hour',
+      planTileId: 'plan:claude-cli#account:aaaaaaaaaaaaaaaa:five_hour',
       chip: { tone: 'warning', glyph: '▲', text: '5-hour · Near limit' },
     },
   ],
@@ -54,11 +54,11 @@ const SAME_SUBGROUP: LaneSubgroupModel = {
 
 const DIFFERENT_SUBGROUP: LaneSubgroupModel = {
   ...SAME_SUBGROUP,
-  key: 'openai-codex#cli-store:ccc|',
+  key: 'openai-codex#cli-store:cccccccccccccccc|',
   heading: 'gpt-5',
   ownerStatus: 'different',
   ownerLabel: 'Different owner',
-  ownerText: 'Different owner · Codex account',
+  ownerText: 'Different owner · Codex account · cccc',
   state: 'unknown',
   stateChip: { tone: 'neutral', glyph: '?', text: 'Limit unknown' },
   planTileChips: [],
@@ -132,10 +132,19 @@ describe('LaneUsageTileComponent', () => {
 
   it('reads as outside the session totals: caption, dashed border, own fill', () => {
     const root = render(laneTile());
+    const caption = root.querySelector('[data-testid="lane-caption"]');
 
     expect(text(root, 'lane-caption')).toBe('lane · not in totals');
     expect(face(root).className).toContain('border-dashed');
     expect(face(root).className).toContain('bg-base-300/40');
+
+    // The closed caption is one line with the full text in its title.
+    expect(caption?.classList.contains('truncate')).toBe(true);
+    expect(caption?.getAttribute('title')).toBe('lane · not in totals');
+
+    fixture.componentRef.setInput('open', true);
+    fixture.detectChanges();
+    expect(caption?.classList.contains('truncate')).toBe(false);
   });
 
   it('is a closed disclosure button wired to its sibling panel', () => {
@@ -196,7 +205,9 @@ describe('LaneUsageTileComponent', () => {
     ).toContain('5-hour · Near limit');
     expect(groups[0].querySelector('[role="meter"]')).toBeNull();
     // Different owner: the full window detail with its meter.
-    expect(groups[1].textContent).toContain('Different owner · Codex account');
+    expect(groups[1].textContent).toContain(
+      'Different owner · Codex account · cccc',
+    );
     expect(
       groups[1].querySelector('[role="meter"]')?.getAttribute('aria-valuenow'),
     ).toBe('12');
@@ -255,7 +266,7 @@ describe('LaneUsageTileComponent', () => {
   });
 
   it('a restored lane of a last-known owner: the face agrees with its panel', () => {
-    const CLAUDE_B: QuotaOwnerRef = { ...CLAUDE_A, key: 'claude-cli#account:bbb' };
+    const CLAUDE_B: QuotaOwnerRef = { ...CLAUDE_A, key: 'claude-cli#account:bbbbbbbbbbbbbbbb' };
     const vm = buildStatsLimitViewModel({
       sessionId: 'session-1',
       sessionOwnerKey: CLAUDE_A.key,
@@ -313,7 +324,9 @@ describe('LaneUsageTileComponent', () => {
       'Last known · Weekly 60% used',
     );
     expect(face(root).textContent).not.toContain('Limit unknown');
-    expect(root.textContent).toContain('Different owner · Claude account');
+    expect(root.textContent).toContain(
+      'Different owner · Claude account · bbbb',
+    );
     expect(root.textContent).toContain('showing its last-known evidence');
   });
 

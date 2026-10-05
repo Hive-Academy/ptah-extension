@@ -151,6 +151,7 @@ function buildHarness(accountInfo: jest.Mock): Harness {
         ownerForPtahCli: jest.fn(),
         ownerForCodexHome: jest.fn(),
         ownerForCliStore: jest.fn(),
+        ownerForAntigravity: jest.fn(),
       }),
     ],
     [

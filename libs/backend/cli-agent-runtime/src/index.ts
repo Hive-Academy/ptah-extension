@@ -35,6 +35,7 @@ export {
   type DiscoveredPlanOwner,
   type PlanOwnerDiscoveryRequest,
   type PlanOwnerOrigin,
+  type SelectedProviderDiscovery,
 } from './lib/cli-agents/limits/plan-limit-owner-discovery.service';
 export { CLI_AGENT_RUNTIME_TOKENS } from './lib/di/tokens';
 export type { CliAgentRuntimeDIToken } from './lib/di/tokens';

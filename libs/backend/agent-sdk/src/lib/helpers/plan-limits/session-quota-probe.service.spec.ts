@@ -193,6 +193,23 @@ describe('SessionQuotaProbeService', () => {
       expect(query.accountInfo).toHaveBeenCalledTimes(1);
     });
 
+    it('turn-start reports a rejected account read without an unhandled rejection', async () => {
+      const { logger, sessions, turnStart } = setup();
+      const query = fakeQuery(ACCOUNT_A);
+      sessions.add(fakeRecord({ query }));
+      logger.debug.mockImplementationOnce(() => {
+        throw new Error('logger failure during account read');
+      });
+
+      turnStart('tab-1');
+      await flush();
+
+      expect(logger.debug).toHaveBeenCalledWith(
+        '[SessionQuotaProbe] turn-start account read failed',
+        { sessionId: 'tab-1' },
+      );
+    });
+
     it('turn-start on a proxy route drops the cache but does not prefetch', async () => {
       const { sessions, probe, turnStart } = setup();
       const query = fakeQuery(ACCOUNT_A, ACCOUNT_B);
@@ -227,6 +244,7 @@ describe('SessionQuotaProbeService', () => {
       'authentication_failed',
       'oauth_org_not_allowed',
       'account_on_hold',
+      'cloud_credential_error',
     ] as const)(
       'F77: an assistant %s error drops the cached account',
       async (error) => {

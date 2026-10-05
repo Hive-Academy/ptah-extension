@@ -106,8 +106,8 @@ const CLI_LABELS: Readonly<Record<CliType, string>> = {
  * - `restored` is the flag `loadCliSessions` sets, never inferred from status.
  * - `cliLabel` is the agent card's own display name; a run without one (a
  *   restored run) gets the CLI's product name, never the raw id.
- * - `modelScope` is `null`: a run record carries no backend-resolved scope,
- *   and the UI never derives one from the model id string.
+ * - `modelScope` is the backend-resolved value; the UI never derives one from
+ *   a model id string.
  * - `quotaOwner` and `usageTotals` pass through; absent or `null` reads
  *   unknown, never the current owner and never 0.
  */
@@ -118,7 +118,7 @@ export function toStatsLimitLaneRun(agent: MonitoredAgent): StatsLimitLaneRun {
     cliLabel: agent.displayName || CLI_LABELS[agent.cli],
     role: agent.role ?? null,
     model: agent.usageTotals?.model ?? agent.model ?? null,
-    modelScope: null,
+    modelScope: agent.modelScope ?? null,
     status: agent.status,
     restored: agent.restored === true,
     startedAt: agent.startedAt,

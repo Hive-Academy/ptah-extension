@@ -114,6 +114,11 @@ export interface PlanOwnerDiscoveryRequest {
   readonly ownerKeys?: readonly string[];
 }
 
+/** Outcome of resolving the account owner for one selected provider route. */
+export type SelectedProviderDiscovery =
+  | { readonly kind: 'owner'; readonly entry: DiscoveredPlanOwner | undefined }
+  | { readonly kind: 'unavailable' };
+
 export type DiscoveryOwnerSource = Pick<
   ProviderOwnerResolver,
   | 'ownerForProviderKey'
@@ -121,6 +126,7 @@ export type DiscoveryOwnerSource = Pick<
   | 'ownerForClaudeAccount'
   | 'ownerForCodexHome'
   | 'ownerForCliStore'
+  | 'ownerForAntigravity'
   | 'ownerForSession'
 >;
 export type DiscoveryLedger = Pick<
@@ -217,6 +223,43 @@ export class PlanLimitOwnerDiscoveryService {
     return [...listed.values()];
   }
 
+  /**
+   * Resolves only the selected-provider source. Unlike the aggregate lookup,
+   * this preserves a source failure so the account RPC can remain retryable.
+   */
+  async discoverSelectedProvider(
+    providerId: string,
+  ): Promise<SelectedProviderDiscovery> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const deadline = new Promise<typeof TIMED_OUT>((resolve) => {
+      timer = setTimeout(() => resolve(TIMED_OUT), LIMIT_LOOKUP_DEADLINE_MS);
+      timer.unref?.();
+    });
+    try {
+      const entry = await Promise.race([
+        this.selectedProvider(providerId, []),
+        deadline,
+      ]);
+      if (entry === TIMED_OUT) {
+        this.logger.debug('[PlanLimitOwnerDiscovery] source timed out', {
+          source: 'selected-provider',
+        });
+        return { kind: 'unavailable' };
+      }
+      return { kind: 'owner', entry };
+    } catch (error: unknown) {
+      // degradation-audit: reported - selected-provider failure is logged and
+      // surfaced to the RPC as retryable service-unavailable.
+      this.logger.debug('[PlanLimitOwnerDiscovery] source dropped', {
+        source: 'selected-provider',
+        errorName: error instanceof Error ? error.name : typeof error,
+      });
+      return { kind: 'unavailable' };
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
+    }
+  }
+
   // ------------------------------------------------------------ sources
 
   private async selectedProvider(
@@ -224,7 +267,10 @@ export class PlanLimitOwnerDiscoveryService {
     sessionIds: readonly string[],
   ): Promise<DiscoveredPlanOwner | undefined> {
     const { config, providers } = this.routeInput(selectedProviderId);
-    const driver = resolveEffectiveAuthRoute(config, providers).driverProviderId;
+    const driver = resolveEffectiveAuthRoute(
+      config,
+      providers,
+    ).driverProviderId;
     if (driver === null) return undefined;
     const origin: PlanOwnerOrigin = 'selected-provider';
 
@@ -232,8 +278,14 @@ export class PlanLimitOwnerDiscoveryService {
       const sessionId = this.nativeSession(sessionIds);
       if (sessionId === undefined) {
         return this.known(
-          this.owners.ownerForClaudeAccount(null, 'selected-provider:claude-cli'),
-          { status: 'service-unavailable', unavailableReason: 'no-open-session' },
+          this.owners.ownerForClaudeAccount(
+            null,
+            'selected-provider:claude-cli',
+          ),
+          {
+            status: 'service-unavailable',
+            unavailableReason: 'no-open-session',
+          },
           origin,
         );
       }
@@ -261,7 +313,9 @@ export class PlanLimitOwnerDiscoveryService {
       );
     }
     return this.known(
-      quotaOwnerRefFromKey(unknownOwnerKey(driver, `selected-provider:${driver}`)),
+      quotaOwnerRefFromKey(
+        unknownOwnerKey(driver, `selected-provider:${driver}`),
+      ),
       { status: 'provider-unsupported' },
       origin,
     );
@@ -271,7 +325,13 @@ export class PlanLimitOwnerDiscoveryService {
     detected: readonly CliDetectionResult[],
   ): Array<DiscoveredPlanOwner | undefined> {
     return CLI_STORE_CLIS.filter((cli) => isInstalled(detected, cli)).map(
-      (cli) => this.entryFor(this.owners.ownerForCliStore(cli), 'cli-store'),
+      (cli) =>
+        this.entryFor(
+          cli === 'antigravity'
+            ? this.owners.ownerForAntigravity()
+            : this.owners.ownerForCliStore(cli),
+          'cli-store',
+        ),
     );
   }
 
@@ -300,7 +360,9 @@ export class PlanLimitOwnerDiscoveryService {
    * CLI Claude lane has no owner until its run reads its own account, so it
    * is listed through that run's `ownerKeys` entry instead.
    */
-  private async ptahCliLanes(): Promise<Array<DiscoveredPlanOwner | undefined>> {
+  private async ptahCliLanes(): Promise<
+    Array<DiscoveredPlanOwner | undefined>
+  > {
     const agents = (await this.ptahCliAgents.listAgents()).filter(
       (agent) => agent.enabled && agent.providerId === 'ollama-cloud',
     );
@@ -383,13 +445,11 @@ export class PlanLimitOwnerDiscoveryService {
           };
     const providers: EffectiveRouteProvider[] = [
       { id: ANTHROPIC_DIRECT_PROVIDER_ID, type: 'apiKey', status: 'unknown' },
-      ...getAllAnthropicProviders().map(
-        (provider): EffectiveRouteProvider => ({
-          id: provider.id,
-          type: routeProviderType(provider),
-          status: 'unknown',
-        }),
-      ),
+      ...getAllAnthropicProviders().map((provider): EffectiveRouteProvider => ({
+        id: provider.id,
+        type: routeProviderType(provider),
+        status: 'unknown',
+      })),
     ];
     return { config, providers };
   }

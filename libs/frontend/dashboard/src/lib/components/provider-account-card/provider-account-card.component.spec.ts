@@ -39,9 +39,10 @@ function owner(
   providerId: string,
   label: string,
   overrides: Partial<PlanLimitOwnerSnapshot> = {},
+  fingerprint = '0123456789abcdef',
 ): PlanLimitOwnerSnapshot {
   return {
-    owner: { key: `${providerId}#account:${label}`, providerId, identityKind: 'account', label },
+    owner: { key: `${providerId}#account:${fingerprint}`, providerId, identityKind: 'account', label },
     status: 'available',
     windowSetEstablished: true,
     windows: [],
@@ -160,7 +161,7 @@ describe('ProviderAccountCardComponent', () => {
     expect(textOf(el)).toContain('Lifetime tokens: 9007199254740993');
     expect(textOf(el)).toContain('Activity is not remaining messages, credits, or billing.');
     expect(textOf(el)).toContain('Plan: plus');
-    expect(el.querySelector('section')?.getAttribute('aria-label')).toBe('Codex account usage');
+    expect(el.querySelector('section')?.getAttribute('aria-label')).toBe('Codex account · cdef usage');
   });
 
   it('4. Antigravity: not confirmed with unofficial and estimated sources; weekly usage unknown', () => {
@@ -366,10 +367,20 @@ describe('ProviderAccountCardComponent', () => {
       owner('openai-codex', 'Codex account'),
       owner('anthropic', 'Claude account'),
     ));
-    expect(sections(el).map((s) => s.getAttribute('aria-label'))).toEqual(['Claude account usage', 'Codex account usage']);
+    expect(sections(el).map((s) => s.getAttribute('aria-label'))).toEqual(['Claude account · cdef usage', 'Codex account · cdef usage']);
     providerId.set('openai-codex');
     fixture.detectChanges();
-    expect(sections(el).map((s) => s.getAttribute('aria-label'))).toEqual(['Codex account usage', 'Claude account usage']);
+    expect(sections(el).map((s) => s.getAttribute('aria-label'))).toEqual(['Codex account · cdef usage', 'Claude account · cdef usage']);
+  });
+
+  it('suffixes two owners that share the generic label, so their headings are told apart', () => {
+    const el = render(snapshotOf(
+      owner('anthropic', 'Claude account'),
+      owner('anthropic', 'Claude account', {}, 'fedcba9876543210'),
+    ));
+    const headings = Array.from(el.querySelectorAll('h4')).map(textOf);
+    expect(headings).toEqual(['Claude account · cdef', 'Claude account · 3210']);
+    expect(textOf(el)).not.toContain('anthropic#account');
   });
 
   it('loads exactly {providerId} on start and on every change, and stops after destroy', () => {

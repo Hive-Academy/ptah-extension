@@ -93,6 +93,8 @@ export {
   LIMIT_LOOKUP_DEADLINE_MS,
   NEAR_LIMIT_PERCENT,
   normaliseInstant,
+  ownerDisplayLabel,
+  ownerKeySuffix,
   ownerRelation,
   parseRetryAfterDeadline,
   PLAN_LIMIT_SOURCE_LABELS,

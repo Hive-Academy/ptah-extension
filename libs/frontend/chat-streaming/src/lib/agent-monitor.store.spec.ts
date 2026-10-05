@@ -1005,7 +1005,10 @@ describe('AgentMonitorStore', () => {
         }
       }
 
-      function markTaskBackgrounded(toolCallId: string, sessionId?: string): void {
+      function markTaskBackgrounded(
+        toolCallId: string,
+        sessionId?: string,
+      ): void {
         backgroundAgentStore.onStarted({
           toolCallId,
           agentId: `background-${toolCallId}`,
@@ -1034,18 +1037,17 @@ describe('AgentMonitorStore', () => {
         expect(ids).toEqual(['toolu_background']);
       });
 
-      it.each<SubagentRecord['status']>([
-        'running',
-        'pending',
-        'paused',
-      ])('excludes foreground status: %s', (status) => {
-        startPlainSubagent(`toolu_foreground_${status}`, status);
-        mockActiveTab.set(null);
-        const ids = store
-          .activeSessionSubagents()
-          .map((r) => r.parentToolUseId);
-        expect(ids).not.toContain(`toolu_foreground_${status}`);
-      });
+      it.each<SubagentRecord['status']>(['running', 'pending', 'paused'])(
+        'excludes foreground status: %s',
+        (status) => {
+          startPlainSubagent(`toolu_foreground_${status}`, status);
+          mockActiveTab.set(null);
+          const ids = store
+            .activeSessionSubagents()
+            .map((r) => r.parentToolUseId);
+          expect(ids).not.toContain(`toolu_foreground_${status}`);
+        },
+      );
 
       it('includes a running record once its Task tool call is backgrounded reactively', () => {
         startPlainSubagent('toolu_backgrounded', 'running');
@@ -1053,9 +1055,9 @@ describe('AgentMonitorStore', () => {
 
         markTaskBackgrounded('toolu_backgrounded', 'sess-A');
 
-        expect(store.activeSessionSubagents().map((r) => r.parentToolUseId)).toEqual([
-          'toolu_backgrounded',
-        ]);
+        expect(
+          store.activeSessionSubagents().map((r) => r.parentToolUseId),
+        ).toEqual(['toolu_backgrounded']);
       });
 
       it('excludes a completed record even while its Task tool call remains backgrounded', () => {
@@ -1382,13 +1384,18 @@ describe('AgentMonitorStore', () => {
       } as any);
     }
 
-    it('starts a live lane with unknown usage (null) and copies role and owner', () => {
-      spawnLane('lane-1', { role: 'reviewer', quotaOwner: OWNER_A });
+    it('starts a live lane with unknown usage (null) and copies role, owner, and model scope', () => {
+      spawnLane('lane-1', {
+        role: 'reviewer',
+        quotaOwner: OWNER_A,
+        modelScope: 'sonnet',
+      });
 
       expect(card('lane-1')?.usageTotals).toBeNull();
       expect(card('lane-1')?.role).toBe('reviewer');
       // The full G3 reference is carried, not a key string.
       expect(card('lane-1')?.quotaOwner).toEqual(OWNER_A);
+      expect(card('lane-1')?.modelScope).toBe('sonnet');
       expect(card('lane-1')?.failureKind).toBeUndefined();
     });
 
@@ -1462,6 +1469,7 @@ describe('AgentMonitorStore', () => {
             startedAt: '2026-09-01T00:00:00.000Z',
             status: 'completed',
             quotaOwner: OWNER_A,
+            modelScope: 'opus',
             segments: [
               {
                 type: 'info',
@@ -1485,6 +1493,7 @@ describe('AgentMonitorStore', () => {
       // read "unknown", never a total and never 0.
       expect(card('restored-a')?.usageTotals).toBeNull();
       expect(card('restored-a')?.quotaOwner).toEqual(OWNER_A);
+      expect(card('restored-a')?.modelScope).toBe('opus');
       expect(card('restored-legacy')?.usageTotals).toBeNull();
       expect(card('restored-legacy')?.quotaOwner).toBeUndefined();
     });
