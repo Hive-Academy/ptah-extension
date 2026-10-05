@@ -32,8 +32,11 @@ has no separate account file. The plan uses this file as the account source:
   value and returns `accountOwnerKey('antigravity', <root>\0<active>)` with kind `account`. When the file is
   missing, unreadable, invalid or `active` is empty, it returns the existing `cli-store` owner.
 - The value is hashed and never logged, returned or stored in clear text.
-- Lane owner resolution reads at spawn and again at exit, so no `recordQuotaOwner` upgrade path is needed.
-  `upgradeQuotaOwner` keeps its rule (a known owner is never replaced).
+- Lane owner resolution reads at spawn, so a lane started with a readable account file gets the account key
+  from the start. `upgradeQuotaOwner` keeps its rule (only `unknown` is replaced), so a lane that spawned as
+  `cli-store` before the file existed stays `cli-store` (review finding 2, a follow-up).
+- Assumption (review finding 1, Major, accepted): Antigravity is signed in to the same Google account as the
+  Gemini CLI on this root. If they differ, Antigravity windows are attributed to the Gemini CLI account.
 - Two accounts on one root (different `active` values) give distinct owner keys. A spec proves it.
 
 ## Lane split (file-disjoint)
@@ -53,3 +56,30 @@ to `ownerForAntigravity()` (it belongs to lane B's file).
 - `npx ts-node --transpile-only tools/degradation-audit/check-degradation.ts` (baseline may not go up).
 - Code review: in-process `code-logic-reviewer` (cross-side for CLI authors) → `code-logic-review.md`.
 - UI (lane C): before/after screenshots of the plan tile and the dashboard card in dark and light themes.
+
+## Outcome (2026-10-05)
+
+- Lanes: A (codex, 1 revise round: tsyringe constructor seam removed), B (codex, 1 revise round: shim
+  removed, non-Claude scopes restored, specs added), C (opencode, no revise). Orchestrator fixed lane spec
+  defects (missing import, sync mock returning a promise, wrong expectations) and switched the discovery
+  Antigravity call to `ownerForAntigravity()`.
+- Also fixed on main: `session-query-executor.service.spec.ts` D.11 `StreamTransformer` arity (PR #648 + #650).
+- Review: `code-logic-review.md`, APPROVED WITH MINORS (0 Blocking, 1 Major, 9 Minor). Bounded correction:
+  findings 3 (schema `old` optional, email lowercased) and the `lane-tiles.ts` raw label.
+- Evidence: `screenshots/` (after), compare with `TASK_2026_596_0a19/screenshots/` (before). E2E fixtures now
+  use 16-hex fingerprints so the suffix renders.
+
+## Follow-ups (open)
+
+1. Major: read the Antigravity account from the language server `GetUserStatus` once its payload is confirmed.
+2. Let a `cli-store` lane owner upgrade to `account` for the same provider at exit.
+3. Cache the account-file read (mtime or short TTL); it runs on every discovery.
+4. Broadcaster: bound `currentSnapshot` / `broadcastMessage` so a never-settling promise cannot stall pushes.
+5. `resolveModelScope` applies the Claude family rule to every CLI; restrict it to Claude-backed lanes and
+   decide what to do with ledger rows keyed by the old full model id.
+6. Frontend `modelScope` merge: a backend `null` never clears a known scope; document or change.
+7. The opened plan tile no longer shows the percentage meter; consider keeping the meter without the text.
+8. At 280 px the tile caption truncation hides the owner suffix (still in the tooltip, the opened tile and the
+   dashboard card). The LANES subtotal caption still wraps.
+9. Earlier FU items not in this task: FU-PHASE2 #4, FU-PHASE3 A4-A6/B1/B7/B8, FU-PHASE4 #2-#3, FU-PHASE5 #1,
+   FU-PHASE6 contrast and Batch 17-20 Minors.
