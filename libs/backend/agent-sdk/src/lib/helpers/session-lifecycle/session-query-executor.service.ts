@@ -160,6 +160,20 @@ export type SubagentBudgetSink = Pick<
   'observe' | 'release'
 >;
 
+/** True when an assistant message carries at least one `tool_use` block. */
+function hasToolUse(message: SDKMessage & { type: 'assistant' }): boolean {
+  const content: unknown = message.message?.content;
+  return (
+    Array.isArray(content) &&
+    content.some(
+      (block: unknown) =>
+        typeof block === 'object' &&
+        block !== null &&
+        (block as { type?: unknown }).type === 'tool_use',
+    )
+  );
+}
+
 /**
  * Compaction bookkeeping for one query run (TASK_2026_597 A8).
  *
@@ -240,13 +254,18 @@ class CompactionSessionTap {
       }
     } else if (message.type === 'result') {
       this.onTurnEnd(sessionId);
+    } else if (message.type === 'assistant' && hasToolUse(message)) {
+      // The monitor reads the task of each subagent from the `Agent`/`Task`
+      // tool_use that spawns it, for the handoff it sends on a stop.
+      this.feedSubagentMonitor(message);
     }
   }
 
   /**
-   * A subagent message goes to the budget monitor under the session id the
-   * dispatcher and registry use, priced with the session's effective subagent
-   * prompt-cache TTL (the monitor's default while the build has not set one).
+   * A subagent message (or a main-loop message that may spawn one) goes to
+   * the budget monitor under the session id the dispatcher and registry use,
+   * priced with the session's effective subagent prompt-cache TTL (the
+   * monitor's default while the build has not set one).
    */
   private feedSubagentMonitor(message: SDKMessage): void {
     const monitor = this.subagentMonitor;

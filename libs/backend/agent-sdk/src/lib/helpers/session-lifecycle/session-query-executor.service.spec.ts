@@ -1300,6 +1300,35 @@ describe('SessionQueryExecutor — subagent budget monitor wiring (TASK_2026_597
     run.abortController.abort();
   });
 
+  it('forwards a main-session message with a tool_use so the monitor can read the task (D.8)', async () => {
+    const { monitor, observe } = makeMonitor();
+    const { executor } = makeHarness('ask', {} as AuthEnv, {
+      subagentMonitor: monitor,
+    });
+    const run = await executor.executeQuery(makeConfig('tab_m2'));
+    feed(run, init());
+    const spawning = msg({
+      type: 'assistant',
+      session_id: REAL,
+      parent_tool_use_id: null,
+      message: {
+        role: 'assistant',
+        content: [
+          {
+            type: 'tool_use',
+            id: 'toolu_1',
+            name: 'Agent',
+            input: { description: 'Map auth', prompt: 'List entry points' },
+          },
+        ],
+      },
+    });
+    feed(run, spawning);
+    expect(observe).toHaveBeenCalledTimes(1);
+    expect(observe).toHaveBeenCalledWith(REAL, spawning, undefined);
+    run.abortController.abort();
+  });
+
   describe('effective subagent prompt-cache TTL (TASK_2026_614 D.7)', () => {
     /** A real monitor whose limits are never reached, so no stop fires. */
     function realMonitor(): SubagentBudgetMonitor {
@@ -1312,9 +1341,8 @@ describe('SessionQueryExecutor — subagent budget monitor wiring (TASK_2026_597
       return new SubagentBudgetMonitor(
         makeLogger(),
         config,
-        { stopSubagent: jest.fn() },
+        { stopSubagent: jest.fn(), pushParentMessage: jest.fn() },
         {} as SubagentRegistryService,
-        { find: jest.fn() },
       );
     }
     /** 1000 cache-write tokens and no `cache_creation` TTL split. */

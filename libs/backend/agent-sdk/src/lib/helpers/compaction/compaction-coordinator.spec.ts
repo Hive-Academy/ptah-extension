@@ -352,26 +352,68 @@ describe('CompactionCoordinator', () => {
   });
 
   describe('subscribers', () => {
-    it('keeps the transition and later subscribers when one throws', () => {
-      const microtasks: Array<() => void> = [];
-      const spy = jest
-        .spyOn(globalThis, 'queueMicrotask')
-        .mockImplementation((cb) => microtasks.push(cb));
+    it('keeps the transition and later subscribers when one throws, reporting the error to the handler', async () => {
+      const onListenerError = jest.fn();
+      const reporting = new CompactionCoordinator(timers, onListenerError);
+      const uncaught = jest.fn();
+      process.on('uncaughtException', uncaught);
+      const microtaskSpy = jest.spyOn(globalThis, 'queueMicrotask');
       try {
         const later = jest.fn();
-        coordinator.subscribe(() => {
-          throw new Error('boom');
+        const boom = new Error('boom');
+        reporting.subscribe(() => {
+          throw boom;
         });
-        coordinator.subscribe(later);
-        coordinator.register(SID, ACTIVE);
-        arm();
-        expect(coordinator.getState(SID)).toBe(CompactionState.ARMED);
+        reporting.subscribe(later);
+        reporting.register(SID, ACTIVE);
+        reporting.onContextUsage(SID, { totalTokens: 160_000, maxTokens: 200_000 });
+        await new Promise((resolve) => setImmediate(resolve));
+
+        expect(reporting.getState(SID)).toBe(CompactionState.ARMED);
         expect(later).toHaveBeenCalledTimes(1);
-        expect(microtasks).toHaveLength(1);
-        expect(() => microtasks[0]()).toThrow('boom');
+        expect(onListenerError).toHaveBeenCalledTimes(1);
+        expect(onListenerError).toHaveBeenCalledWith(
+          boom,
+          expect.objectContaining({
+            sessionId: SID,
+            from: CompactionState.IDLE,
+            to: CompactionState.ARMED,
+          }),
+        );
+        expect(microtaskSpy).not.toHaveBeenCalled();
+        expect(uncaught).not.toHaveBeenCalled();
       } finally {
-        spy.mockRestore();
+        microtaskSpy.mockRestore();
+        process.off('uncaughtException', uncaught);
+        reporting.dispose();
       }
+    });
+
+    it('survives a throwing error handler and a missing one', () => {
+      const throwingHandler = new CompactionCoordinator(timers, () => {
+        throw new Error('handler broke');
+      });
+      const later = jest.fn();
+      throwingHandler.subscribe(() => {
+        throw new Error('boom');
+      });
+      throwingHandler.subscribe(later);
+      throwingHandler.register(SID, ACTIVE);
+      expect(() =>
+        throwingHandler.onContextUsage(SID, {
+          totalTokens: 160_000,
+          maxTokens: 200_000,
+        }),
+      ).not.toThrow();
+      expect(later).toHaveBeenCalledTimes(1);
+      throwingHandler.dispose();
+
+      coordinator.subscribe(() => {
+        throw new Error('boom');
+      });
+      coordinator.register(SID, ACTIVE);
+      expect(() => arm()).not.toThrow();
+      expect(coordinator.getState(SID)).toBe(CompactionState.ARMED);
     });
 
     it('stops notifying after unsubscribe', () => {

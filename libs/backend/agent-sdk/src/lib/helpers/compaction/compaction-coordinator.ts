@@ -24,7 +24,8 @@
  *
  * Every state change is emitted to subscribers after it is committed. A
  * subscriber that throws does not undo the change or stop the other
- * subscribers; its error is rethrown on a microtask so it still surfaces.
+ * subscribers; its error goes to the `onListenerError` callback (the SDK
+ * logger in production) and never escapes as an uncaught exception.
  *
  * Lifetime: one timer at most per session, cleared on leaving the open
  * states, on `unregister` and on `dispose`. `dispose` is synchronous and
@@ -76,14 +77,30 @@ function isOpen(state: CompactionState): boolean {
   );
 }
 
+/** Receives the error of a subscriber that threw, with the change it was handling. */
+export type CompactionListenerErrorHandler = (
+  error: unknown,
+  change: CompactionStateChange,
+) => void;
+
 export class CompactionCoordinator {
   private readonly timers: CompactionTimers;
+  private readonly onListenerError: CompactionListenerErrorHandler;
   private readonly sessions = new Map<string, SessionRecord>();
   private readonly listeners = new Set<CompactionStateListener>();
   private disposed = false;
 
-  constructor(timers?: CompactionTimers) {
+  /**
+   * @param timers - Timer seam for specs; unref'd Node timers by default.
+   * @param onListenerError - Where a throwing subscriber's error goes. Without
+   *   it the error is dropped: a subscriber owns its own failure handling.
+   */
+  constructor(
+    timers?: CompactionTimers,
+    onListenerError?: CompactionListenerErrorHandler,
+  ) {
     this.timers = timers ?? NODE_TIMERS;
+    this.onListenerError = onListenerError ?? (() => undefined);
   }
 
   /**
@@ -246,6 +263,18 @@ export class CompactionCoordinator {
     this.listeners.clear();
   }
 
+  private reportListenerError(
+    error: unknown,
+    change: CompactionStateChange,
+  ): void {
+    try {
+      this.onListenerError(error, change);
+    } catch {
+      // The handler is the last stop for a subscriber error; a handler that
+      // throws itself must still not break the transition loop.
+    }
+  }
+
   private startDwell(record: SessionRecord): void {
     this.clearDwell(record);
     record.dwellTimer = this.timers.setTimeout(() => {
@@ -283,12 +312,11 @@ export class CompactionCoordinator {
     for (const listener of [...this.listeners]) {
       try {
         listener(change);
-      } catch (error) {
+      } catch (error: unknown) {
         // A subscriber failure must not undo a committed transition or skip
-        // the other subscribers; rethrow it outside the machine instead.
-        queueMicrotask(() => {
-          throw error;
-        });
+        // the other subscribers, and must not reach the host as an uncaught
+        // exception; it is reported to the error handler instead.
+        this.reportListenerError(error, change);
       }
     }
   }

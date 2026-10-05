@@ -19,15 +19,22 @@
  * - Safety: `weightedUsed` at or above `compaction.subagentStopWeightedTokens`.
  *
  * Either one stops the subagent through `SubagentMessageDispatcher.stopSubagent`,
- * marks it not resumable in the registry, and streams one parent message with
- * a ready handoff. Starting the fresh subagent is left to the parent model:
- * the SDK gives the host no API to spawn a Task subagent itself.
+ * marks it not resumable in the registry, and pushes one parent message with
+ * a ready handoff through `SubagentMessageDispatcher.pushParentMessage` (the
+ * same per-session ordering lock and `origin` as a user steer). The handoff
+ * restates the subagent's task, read from the `Agent`/`Task` `tool_use` input
+ * of the message that spawned it. Starting the fresh subagent is left to the
+ * parent model: the SDK gives the host no API to spawn a Task subagent itself.
+ *
+ * Off switch: with `compaction.enabled` false the monitor keeps counting (the
+ * snapshot and the resume advice still work) but never stops a subagent.
  *
  * Failure: a subagent message without usage leaves the monitor observe-only
- * for it (one log line per session). A stop that fails is logged and not
- * retried; no handoff message is sent for it.
+ * for it (one log line per session). A stop that fails is retried on the next
+ * subagent message, at most {@link MAX_STOP_ATTEMPTS} attempts in all, then
+ * given up with one log line; no handoff message is sent for it. A stop still
+ * in flight when the session is released is neither retried nor handed off.
  */
-import { randomUUID } from 'crypto';
 import type {
   Logger,
   SubagentRegistryService,
@@ -37,14 +44,7 @@ import type {
   SubagentRecord,
 } from '@ptah-extension/shared';
 import type { CompactionConfigProvider } from '../compaction-config-provider';
-import type {
-  SDKUserMessage,
-  SessionLifecycleManager,
-} from '../session-lifecycle-manager';
-import {
-  SUBAGENT_SEND_TIMEOUT_MS,
-  type SubagentMessageDispatcher,
-} from '../subagent-message-dispatcher';
+import type { SubagentMessageDispatcher } from '../subagent-message-dispatcher';
 
 /** Token usage of one model request, as the subagent message reports it. */
 export interface SubagentRequestUsage {
@@ -107,6 +107,12 @@ const CACHE_WRITE_WEIGHT: Readonly<Record<SubagentPromptCacheTtl, number>> = {
 };
 /** TTL the SDK uses when nothing sets one (as `subagent-prompt-cache-ttl.ts`). */
 const SDK_DEFAULT_TTL: SubagentPromptCacheTtl = '5m';
+/** `stopSubagent` calls per subagent: the first one and two retries. */
+export const MAX_STOP_ATTEMPTS = 3;
+/** Tools that spawn a subagent (`Task` is the SDK's earlier name for `Agent`). */
+const SUBAGENT_TOOL_NAMES: ReadonlySet<string> = new Set(['Agent', 'Task']);
+/** Prompt characters the handoff restates; the full prompt is in the transcript. */
+const TASK_PROMPT_EXCERPT_CHARS = 300;
 
 type JsonObject = Record<string, unknown>;
 
@@ -178,6 +184,28 @@ export function weightedRequestTokens(
   );
 }
 
+/**
+ * The task a spawning `Agent`/`Task` `tool_use` input describes: its
+ * `description`, then the first {@link TASK_PROMPT_EXCERPT_CHARS} characters
+ * of its `prompt`. `undefined` when the input carries neither.
+ */
+export function readSubagentTaskText(input: unknown): string | undefined {
+  const fields = asObject(input);
+  const rawDescription = fields?.['description'];
+  const rawPrompt = fields?.['prompt'];
+  const description =
+    typeof rawDescription === 'string' ? rawDescription.trim() : '';
+  const prompt = typeof rawPrompt === 'string' ? rawPrompt.trim() : '';
+  const excerpt =
+    prompt.length > TASK_PROMPT_EXCERPT_CHARS
+      ? `${prompt.slice(0, TASK_PROMPT_EXCERPT_CHARS)}...`
+      : prompt;
+  if (description && excerpt) {
+    return `${description}: ${excerpt}`;
+  }
+  return description || excerpt || undefined;
+}
+
 type StopReason = 'handoff' | 'safety';
 
 interface SubagentState {
@@ -186,24 +214,38 @@ interface SubagentState {
   /** API message id of the last request counted, and its weighted share. */
   lastMessageId?: string;
   lastWeighted: number;
-  /** Set when a stop was attempted, so each subagent is stopped at most once. */
+  /** Set when the stop succeeded or its attempts ran out: no further stop. */
   stopFired: boolean;
+  /** A `stopSubagent` call is running; an overlapping message starts no other. */
+  stopInFlight: boolean;
+  /** `stopSubagent` calls that rejected. */
+  stopFailures: number;
   stopped: boolean;
   /** A stop could not start (no record or task id yet); logged once. */
   stopDeferredLogged: boolean;
 }
 
 interface SessionState {
+  /** Current id of the session; moves on {@link SubagentBudgetMonitor.rekey}. */
+  sessionId: string;
   readonly subagents: Map<string, SubagentState>;
+  /** Task text per spawning `Agent`/`Task` tool_use id. */
+  readonly taskTexts: Map<string, string>;
   noUsageLogged: boolean;
+  stopDisabledLogged: boolean;
 }
+
+/** The dispatcher operations the monitor uses. */
+export type SubagentStopPort = Pick<
+  SubagentMessageDispatcher,
+  'stopSubagent' | 'pushParentMessage'
+>;
 
 /**
  * A plain class built by a factory in `registerSdkServices`, not `useClass`:
- * `SessionLifecycleManager` injects this monitor, and both the dispatcher and
- * the lifecycle manager depend back on `SessionLifecycleManager`. The factory
- * hands in the two narrow ports below resolving them on first use, which
- * breaks that construction cycle.
+ * `SessionLifecycleManager` injects this monitor, and the dispatcher depends
+ * back on `SessionLifecycleManager`. The factory hands in a narrow dispatcher
+ * port resolved on first use, which breaks that construction cycle.
  */
 export class SubagentBudgetMonitor {
   private readonly sessions = new Map<string, SessionState>();
@@ -211,15 +253,16 @@ export class SubagentBudgetMonitor {
   constructor(
     private readonly logger: Logger,
     private readonly config: CompactionConfigProvider,
-    private readonly dispatcher: Pick<SubagentMessageDispatcher, 'stopSubagent'>,
+    private readonly dispatcher: SubagentStopPort,
     private readonly registry: SubagentRegistryService,
-    private readonly sessionLifecycle: Pick<SessionLifecycleManager, 'find'>,
   ) {}
 
   /**
-   * Observe one forwarded stream message of `sessionId`. Only subagent
-   * assistant messages (a string `parent_tool_use_id`) are counted. Resolves
-   * once any stop it triggered has finished; never rejects.
+   * Observe one forwarded stream message of `sessionId`. An assistant message
+   * that spawns a subagent (an `Agent`/`Task` `tool_use`) records the task
+   * text for the handoff. Only subagent assistant messages (a string
+   * `parent_tool_use_id`) are counted. Resolves once any stop it triggered
+   * has finished; never rejects.
    *
    * @param cacheTtl - The session's effective subagent prompt-cache TTL, used
    *   to price cache writes whose TTL split the message does not report.
@@ -230,8 +273,12 @@ export class SubagentBudgetMonitor {
     cacheTtl: SubagentPromptCacheTtl = SDK_DEFAULT_TTL,
   ): Promise<void> {
     const msg = asObject(message);
-    const toolCallId = msg?.['parent_tool_use_id'];
-    if (msg?.['type'] !== 'assistant' || typeof toolCallId !== 'string') {
+    if (msg?.['type'] !== 'assistant') {
+      return;
+    }
+    this.recordTaskTexts(sessionId, msg);
+    const toolCallId = msg['parent_tool_use_id'];
+    if (typeof toolCallId !== 'string') {
       return;
     }
     const session = this.sessionState(sessionId);
@@ -249,11 +296,11 @@ export class SubagentBudgetMonitor {
 
     const state = this.subagentState(session, toolCallId);
     this.count(state, msg, usage, cacheTtl);
-    if (state.stopFired) {
+    if (state.stopFired || state.stopInFlight) {
       return;
     }
 
-    const { subagentHandoffTokens, subagentStopWeightedTokens } =
+    const { enabled, subagentHandoffTokens, subagentStopWeightedTokens } =
       this.config.getConfig();
     const reason: StopReason | undefined =
       state.contextTokens >= subagentHandoffTokens
@@ -261,12 +308,23 @@ export class SubagentBudgetMonitor {
         : state.weightedUsed >= subagentStopWeightedTokens
           ? 'safety'
           : undefined;
-    if (reason) {
-      await this.stop(sessionId, toolCallId, state, reason, {
-        handoffTokens: subagentHandoffTokens,
-        stopWeightedTokens: subagentStopWeightedTokens,
-      });
+    if (!reason) {
+      return;
     }
+    if (!enabled) {
+      if (!session.stopDisabledLogged) {
+        session.stopDisabledLogged = true;
+        this.logger.info(
+          '[SubagentBudgetMonitor] Subagent over budget; not stopped because compaction.enabled is false',
+          { sessionId, toolCallId, reason },
+        );
+      }
+      return;
+    }
+    await this.stop(session, toolCallId, state, reason, {
+      handoffTokens: subagentHandoffTokens,
+      stopWeightedTokens: subagentStopWeightedTokens,
+    });
   }
 
   /** What the monitor knows about a subagent, or `undefined` when it saw none of its usage. */
@@ -288,6 +346,38 @@ export class SubagentBudgetMonitor {
     };
   }
 
+  /**
+   * Move what the monitor knows about `fromSessionId` to `toSessionId` (a
+   * PostCompact that reports a new session id). Subagents already seen under
+   * `toSessionId` are kept unless `fromSessionId` holds the same one. A stop
+   * in flight hands off to the new id.
+   */
+  rekey(fromSessionId: string, toSessionId: string): void {
+    if (!toSessionId || fromSessionId === toSessionId) {
+      return;
+    }
+    const session = this.sessions.get(fromSessionId);
+    if (!session) {
+      return;
+    }
+    this.sessions.delete(fromSessionId);
+    const existing = this.sessions.get(toSessionId);
+    if (existing) {
+      for (const [toolCallId, state] of existing.subagents) {
+        if (!session.subagents.has(toolCallId)) {
+          session.subagents.set(toolCallId, state);
+        }
+      }
+      for (const [toolUseId, text] of existing.taskTexts) {
+        if (!session.taskTexts.has(toolUseId)) {
+          session.taskTexts.set(toolUseId, text);
+        }
+      }
+    }
+    session.sessionId = toSessionId;
+    this.sessions.set(toSessionId, session);
+  }
+
   /** Forget everything about `sessionId` (session end). */
   release(sessionId: string): void {
     this.sessions.delete(sessionId);
@@ -296,10 +386,21 @@ export class SubagentBudgetMonitor {
   private sessionState(sessionId: string): SessionState {
     let session = this.sessions.get(sessionId);
     if (!session) {
-      session = { subagents: new Map(), noUsageLogged: false };
+      session = {
+        sessionId,
+        subagents: new Map(),
+        taskTexts: new Map(),
+        noUsageLogged: false,
+        stopDisabledLogged: false,
+      };
       this.sessions.set(sessionId, session);
     }
     return session;
+  }
+
+  /** True while `session` is still the monitor's record (not released). */
+  private isCurrent(session: SessionState): boolean {
+    return this.sessions.get(session.sessionId) === session;
   }
 
   private subagentState(
@@ -313,12 +414,39 @@ export class SubagentBudgetMonitor {
         weightedUsed: 0,
         lastWeighted: 0,
         stopFired: false,
+        stopInFlight: false,
+        stopFailures: 0,
         stopped: false,
         stopDeferredLogged: false,
       };
       session.subagents.set(toolCallId, state);
     }
     return state;
+  }
+
+  /** Remember the task of every subagent this assistant message spawns. */
+  private recordTaskTexts(sessionId: string, msg: JsonObject): void {
+    const content = asObject(msg['message'])?.['content'];
+    if (!Array.isArray(content)) {
+      return;
+    }
+    for (const item of content) {
+      const block = asObject(item);
+      const id = block?.['id'];
+      const name = block?.['name'];
+      if (
+        block?.['type'] !== 'tool_use' ||
+        typeof id !== 'string' ||
+        typeof name !== 'string' ||
+        !SUBAGENT_TOOL_NAMES.has(name)
+      ) {
+        continue;
+      }
+      const text = readSubagentTaskText(block['input']);
+      if (text) {
+        this.sessionState(sessionId).taskTexts.set(id, text);
+      }
+    }
   }
 
   /**
@@ -343,7 +471,7 @@ export class SubagentBudgetMonitor {
   }
 
   private async stop(
-    sessionId: string,
+    session: SessionState,
     toolCallId: string,
     state: SubagentState,
     reason: StopReason,
@@ -360,28 +488,33 @@ export class SubagentBudgetMonitor {
         state.stopDeferredLogged = true;
         this.logger.warn(
           '[SubagentBudgetMonitor] Subagent over budget but no task id yet; stop deferred',
-          { sessionId, toolCallId, reason },
+          { sessionId: session.sessionId, toolCallId, reason },
         );
       }
       return;
     }
 
-    state.stopFired = true;
+    state.stopInFlight = true;
     let stopFailure: { readonly errorType: string } | undefined;
     try {
-      await this.dispatcher.stopSubagent(sessionId, record.taskId);
+      await this.dispatcher.stopSubagent(session.sessionId, record.taskId);
     } catch (error: unknown) {
       stopFailure = {
         errorType: error instanceof Error ? error.name : typeof error,
       };
+    } finally {
+      state.stopInFlight = false;
     }
-    if (stopFailure) {
-      this.logger.warn(
-        '[SubagentBudgetMonitor] Stopping the subagent failed; no handoff sent',
-        { sessionId, toolCallId, reason, ...stopFailure },
-      );
+    // Released while the stop ran: the session is over, so no retry and no handoff.
+    if (!this.isCurrent(session)) {
       return;
     }
+    const sessionId = session.sessionId;
+    if (stopFailure) {
+      this.onStopFailed(sessionId, toolCallId, state, reason, stopFailure);
+      return;
+    }
+    state.stopFired = true;
     state.stopped = true;
     // A completed record is dropped from the registry, so it is never offered for resume.
     this.registry.update(toolCallId, {
@@ -397,9 +530,15 @@ export class SubagentBudgetMonitor {
     });
 
     try {
-      await this.streamParentMessage(
+      await this.dispatcher.pushParentMessage(
         sessionId,
-        handoffMessage(record, state, reason, limits),
+        handoffMessage(
+          record,
+          state,
+          reason,
+          limits,
+          session.taskTexts.get(toolCallId),
+        ),
       );
     } catch (error: unknown) {
       this.logger.warn(
@@ -413,43 +552,33 @@ export class SubagentBudgetMonitor {
     }
   }
 
-  /** Push one user-turn message to the parent session, bounded by the dispatcher's send timeout. */
-  private async streamParentMessage(
+  /** Count a rejected stop; the next subagent message retries until the attempts run out. */
+  private onStopFailed(
     sessionId: string,
-    content: string,
-  ): Promise<void> {
-    const query = this.sessionLifecycle.find(sessionId)?.query;
-    if (!query) {
-      throw new Error('Parent session is not active');
+    toolCallId: string,
+    state: SubagentState,
+    reason: StopReason,
+    failure: { readonly errorType: string },
+  ): void {
+    state.stopFailures += 1;
+    if (state.stopFailures < MAX_STOP_ATTEMPTS) {
+      this.logger.debug(
+        '[SubagentBudgetMonitor] Stopping the subagent failed; retrying on its next message',
+        { sessionId, toolCallId, reason, attempt: state.stopFailures },
+      );
+      return;
     }
-    const msg = {
-      type: 'user',
-      message: { role: 'user', content },
-      parent_tool_use_id: null,
-      shouldQuery: true,
-      uuid: randomUUID(),
-      session_id: sessionId,
-      timestamp: new Date().toISOString(),
-    } as SDKUserMessage;
-    async function* single(): AsyncGenerator<SDKUserMessage> {
-      yield msg;
-    }
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    try {
-      await Promise.race([
-        query.streamInput(single()),
-        new Promise<never>((_resolve, reject) => {
-          timer = setTimeout(
-            () => reject(new Error('Parent session did not read its input')),
-            SUBAGENT_SEND_TIMEOUT_MS,
-          );
-        }),
-      ]);
-    } finally {
-      if (timer !== undefined) {
-        clearTimeout(timer);
-      }
-    }
+    state.stopFired = true;
+    this.logger.warn(
+      '[SubagentBudgetMonitor] Stopping the subagent failed; giving up, no handoff sent',
+      {
+        sessionId,
+        toolCallId,
+        reason,
+        attempts: state.stopFailures,
+        ...failure,
+      },
+    );
   }
 }
 
@@ -461,6 +590,7 @@ function handoffMessage(
     readonly handoffTokens: number;
     readonly stopWeightedTokens: number;
   },
+  taskText: string | undefined,
 ): string {
   const name = record.teammateName
     ? `\`${record.agentType}\` ('${record.teammateName}')`
@@ -469,8 +599,9 @@ function handoffMessage(
     reason === 'handoff'
       ? `at ${state.contextTokens} context tokens (handoff size ${limits.handoffTokens})`
       : `after ${Math.round(state.weightedUsed)} weighted tokens (safety limit ${limits.stopWeightedTokens})`;
+  const task = taskText ? ` Its task was: ${taskText}` : '';
   return (
-    `Subagent ${name} was stopped ${why}. It cannot be resumed. ` +
+    `Subagent ${name} was stopped ${why}. It cannot be resumed.${task} ` +
     `If its task is not finished, start a fresh \`${record.agentType}\` subagent with a handoff: ` +
     `restate its task and what remains; its output so far is in the session transcript.`
   );
