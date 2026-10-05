@@ -309,13 +309,17 @@ export interface ExecuteQueryResult {
    */
   activityWatchdog: NoActivityWatchdog;
   /**
-   * The run's compaction tap. Pass both to `StreamTransformer.transform` as
-   * its `onMessage` / `onStreamEnd`: every stream message must reach
-   * `onMessage` (the coordinator, context-usage port and subagent budget
-   * monitor are fed from it), and `onStreamEnd` releases what the run tracked
-   * on any teardown (TASK_2026_614 D.11). Both never throw.
+   * The run's compaction tap, message half. Pass it to
+   * `StreamTransformer.transform` as `onMessage`: every stream message must
+   * reach it (the coordinator, context-usage port and subagent budget monitor
+   * are fed from it). Never throws.
    */
   onMessage: (message: SDKMessage) => void;
+  /**
+   * The run's compaction tap, teardown half. Pass it to
+   * `StreamTransformer.transform` as `onStreamEnd`: it releases what the run
+   * tracked on any teardown (TASK_2026_614 D.11). Never throws.
+   */
   onStreamEnd: () => void;
   /**
    * `token` of the registry record this query owns.

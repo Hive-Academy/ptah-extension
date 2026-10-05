@@ -1124,7 +1124,7 @@ real code, a regression test per item).
 
 - Scoped checks for rpc-handlers, cli-agent-runtime, shared, plus `nx affected -t typecheck`.
 
-## Batch 26: Spool `.gitignore` failure logged once and by the dispatcher (G.8) — COMPLETE
+## Batch 26: Spool `.gitignore` failure logged once and by the dispatcher (G.8) — COMPLETE (0a622909d)
 
 - Recommended executor: backend-developer | Fallback: backend-developer (Opus) | Execution mode: Sequential subagent
 - Model: Sonnet (log text) | Tasks: 2 | Depends on: Batch 23 | Group: P4 | Phase: G
@@ -1151,7 +1151,7 @@ real code, a regression test per item).
   `waitFor cancelled for agent <id>: the caller stopped waiting. The agent keeps running.` Doc only.
 
 
-## Batch 27: Stream-transformer callback helper and tap doc (G.8 style) — PENDING
+## Batch 27: Stream-transformer callback helper and tap doc (G.8 style) — COMPLETE (commit pending)
 
 - Recommended executor: backend-developer | Fallback: backend-developer (Opus) | Execution mode: Sequential subagent
 - Model: Sonnet (mechanical) | Tasks: 2 | Depends on: Batch 22 | Group: P4 | Phase: G
@@ -1159,12 +1159,12 @@ real code, a regression test per item).
 - Files: `<R>\libs\backend\agent-sdk\src\lib\helpers\stream-transformer.ts` (+ spec),
   `<R>\libs\backend\agent-sdk\src\lib\helpers\session-lifecycle-manager.ts`
 
-### Task 27.1: One guarded-callback helper — PENDING
+### Task 27.1: One guarded-callback helper — COMPLETE
 
 - Replace the twin try/catch at `stream-transformer.ts:465-481` and `:1002-1018` with one private helper; behaviour and
   log shape unchanged; existing specs pass.
 
-### Task 27.2: Own doc for `onStreamEnd` — PENDING
+### Task 27.2: Own doc for `onStreamEnd` — COMPLETE
 
 - `session-lifecycle-manager.ts:310-318`: one doc per property. Bundling into one `compactionTap` object is recorded,
   not done (reviewer: tolerable). Takes Task 18.4 if Batch 18 skipped it.

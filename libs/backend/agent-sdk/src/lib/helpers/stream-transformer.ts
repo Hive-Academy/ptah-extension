@@ -333,6 +333,30 @@ function validateStats(
 }
 
 /**
+ * Run an observer callback so that it can never break the caller. A throw is
+ * logged as a warning (error name only, never the message, which may carry
+ * session content) and swallowed.
+ */
+function runGuardedCallback(
+  logger: Logger,
+  failureMessage: string,
+  context: Record<string, unknown>,
+  callback: () => void,
+): void {
+  try {
+    callback();
+  } catch (callbackError: unknown) {
+    logger.warn(failureMessage, {
+      ...context,
+      error:
+        callbackError instanceof Error
+          ? callbackError.name
+          : typeof callbackError,
+    });
+  }
+}
+
+/**
  * StreamTransformer - Transforms SDK messages to flat stream events
  *
  * Responsibilities:
@@ -462,23 +486,14 @@ export class StreamTransformer {
             // Any stream activity — message, partial/streaming delta, tool_use,
             // tool_result, thinking — resets the inactivity window.
             activityWatchdog?.observe(sdkMessage);
+            // An observer must never break the stream it observes.
             if (onMessage) {
-              try {
-                onMessage(sdkMessage);
-              } catch (callbackError: unknown) {
-                // An observer must never break the stream it observes.
-                logger.warn(
-                  '[StreamTransformer] onMessage callback failed; the stream continues',
-                  {
-                    sessionId,
-                    messageType: sdkMessage.type,
-                    error:
-                      callbackError instanceof Error
-                        ? callbackError.name
-                        : typeof callbackError,
-                  },
-                );
-              }
+              runGuardedCallback(
+                logger,
+                '[StreamTransformer] onMessage callback failed; the stream continues',
+                { sessionId, messageType: sdkMessage.type },
+                () => onMessage(sdkMessage),
+              );
             }
             sdkMessageCount++;
 
@@ -999,23 +1014,15 @@ export class StreamTransformer {
           // Stop the watchdog on every teardown path (end-of-stream, error,
           // abort) so it can neither leak nor fire after the turn ends.
           activityWatchdog?.stop();
+          // Thrown from a finally it would replace the stream's own outcome
+          // (a clean end or the original error).
           if (onStreamEnd) {
-            try {
-              onStreamEnd();
-            } catch (callbackError: unknown) {
-              // Thrown from a finally it would replace the stream's own
-              // outcome (a clean end or the original error).
-              logger.warn(
-                '[StreamTransformer] onStreamEnd callback failed; teardown continues',
-                {
-                  sessionId,
-                  error:
-                    callbackError instanceof Error
-                      ? callbackError.name
-                      : typeof callbackError,
-                },
-              );
-            }
+            runGuardedCallback(
+              logger,
+              '[StreamTransformer] onStreamEnd callback failed; teardown continues',
+              { sessionId },
+              onStreamEnd,
+            );
           }
           logger.debug(`[StreamTransformer] Session ${sessionId} stream ended`);
         }
