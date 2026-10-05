@@ -99,7 +99,11 @@ export interface RunCheckDependencies {
   readonly spawnProcess?: SpawnCheckProcess;
   /** Existence check for the Nx entry. Default `fs.access`. */
   readonly fileExists?: (path: string) => Promise<boolean>;
-  /** Tree kill on timeout, cancel or dispose. Default `killProcessTree` from platform-core. */
+  /**
+   * Tree kill on timeout, cancel or dispose. Rejects when the kill failed.
+   * Default `killProcessTree` from platform-core, its `onError` turned into a
+   * rejection.
+   */
   readonly killTree?: (pid: number) => Promise<void>;
   /**
    * Aborts when the caller no longer wants the result (the MCP request was
@@ -240,7 +244,8 @@ export async function runCheck(
   const durationMs = now() - startedAt;
   log.write(
     `\n[ptah_run_check] ${run.spawnError ? `spawn error: ${run.spawnError}` : `exit ${run.code ?? 'none'}${run.signal ? ` (${run.signal})` : ''}`}` +
-      `${run.timedOut ? ', timed out' : ''}${run.cancelled ? `, cancelled ${run.cancelled.replace('_', ' ')}` : ''}, ${durationMs} ms\n`,
+      `${run.timedOut ? ', timed out' : ''}${run.cancelled ? `, cancelled ${run.cancelled.replace('_', ' ')}` : ''}` +
+      `${run.killFailed ? `, tree kill of pid ${run.killFailed.pid} failed: ${run.killFailed.reason}` : ''}, ${durationMs} ms\n`,
   );
   await log.close();
 
@@ -270,6 +275,7 @@ export async function runCheck(
       code: run.code,
       timedOut: run.timedOut,
       ...(run.cancelled ? { cancelled: run.cancelled } : {}),
+      ...(run.killFailed ? { killFailedPid: run.killFailed.pid } : {}),
       durationMs,
       results: collector.results(
         args.targets,
@@ -302,6 +308,8 @@ export interface RunCheckSummaryInput {
   readonly timedOut: boolean;
   /** Set when the run was cancelled (request abort or host dispose). */
   readonly cancelled?: CancelPoint;
+  /** Set when the tree kill of a timed-out or cancelled run failed: the pid it named. */
+  readonly killFailedPid?: number;
   readonly durationMs: number;
   readonly results: ReadonlyMap<RunCheckTarget, TargetResult>;
   readonly lastLines: readonly string[];
@@ -316,13 +324,17 @@ export interface RunCheckSummaryInput {
  */
 export function formatRunCheckSummary(input: RunCheckSummaryInput): string {
   const seconds = (input.durationMs / 1000).toFixed(1);
+  const killed =
+    input.killFailedPid === undefined
+      ? 'the process tree was killed'
+      : `kill failed (pid ${input.killFailedPid} may still be running)`;
   let verdict: string;
   if (input.timedOut) {
-    verdict = `TIMED OUT after ${input.timeoutSec}s; the process tree was killed`;
+    verdict = `TIMED OUT after ${input.timeoutSec}s; ${killed}`;
   } else if (input.cancelled === 'before_start') {
     verdict = 'CANCELLED before Nx started';
   } else if (input.cancelled === 'while_running') {
-    verdict = 'CANCELLED; the process tree was killed';
+    verdict = `CANCELLED; ${killed}`;
   } else if (input.code === 0) {
     verdict = 'PASSED (exit 0)';
   } else {
@@ -375,19 +387,24 @@ interface RunResult {
   readonly signal: NodeJS.Signals | null;
   readonly timedOut: boolean;
   readonly cancelled?: CancelPoint;
+  /** Set when the tree kill (timeout or cancel) failed. */
+  readonly killFailed?: { readonly pid: number; readonly reason: string };
   readonly spawnError?: string;
 }
 
 /**
- * Every check whose process is alive, by pid, with the call that stops it
- * (tree kill, `cancelled` verdict). An entry leaves when its run settles.
+ * Every check whose process may be alive, by pid, with the call that stops it
+ * (tree kill, `cancelled` verdict). An entry leaves when its run settles —
+ * unless the tree kill failed and the process never closed: then the entry
+ * stays, as a bare tree-kill retry, until a `close` or a successful retry.
  */
 const liveChecks = new Map<number, () => Promise<void>>();
 
 /**
  * Kill the process tree of every running check, each through its own run's
- * stop path (so each reply says `cancelled`). For host dispose: a detached
- * POSIX process group, or a Windows tree, would otherwise outlive the host.
+ * stop path (so each reply says `cancelled`), and retry the tree kill of
+ * every settled run whose kill failed. For host dispose: a detached POSIX
+ * process group, or a Windows tree, would otherwise outlive the host.
  * Resolves once every tree kill has finished; it does not throw.
  */
 export async function killRunningChecks(): Promise<void> {
@@ -421,7 +438,7 @@ async function execute(
     };
   }
   const launch = deps.spawnProcess ?? spawnWithoutShell;
-  const killTree = deps.killTree ?? ((pid: number) => killProcessTree(pid));
+  const killTree = deps.killTree ?? killTreeOrThrow;
   let child: CheckProcess;
   try {
     child = await launch(command, argv, {
@@ -447,7 +464,12 @@ async function execute(
     let stopReason: 'timeout' | 'cancel' | undefined;
     let stopping: Promise<void> | undefined;
     let settled = false;
+    let closed = false;
     let settleTimer: NodeJS.Timeout | undefined;
+    /** Why the tree kill failed; unset while no kill failed. */
+    let killFailure: string | undefined;
+    /** This run's `liveChecks` entry, so a reused pid's entry is never touched. */
+    let entry: (() => Promise<void>) | undefined;
     const ended = (
       code: number | null,
       exitSignal: NodeJS.Signals | null,
@@ -458,14 +480,40 @@ async function execute(
       ...(stopReason === 'cancel'
         ? { cancelled: 'while_running' as const }
         : {}),
+      ...(killFailure !== undefined && pid !== undefined
+        ? { killFailed: { pid, reason: killFailure } }
+        : {}),
     });
+    const register = (next: () => Promise<void>): void => {
+      if (pid === undefined) return;
+      entry = next;
+      liveChecks.set(pid, next);
+    };
+    const unregister = (): void => {
+      if (pid !== undefined && entry && liveChecks.get(pid) === entry) {
+        liveChecks.delete(pid);
+      }
+      entry = undefined;
+    };
+    /**
+     * Dispose's retry for a settled run whose kill failed and which never
+     * closed. A successful kill unlists the pid; a failed one leaves it for
+     * the next dispose.
+     */
+    const retryKill = (): Promise<void> =>
+      pid === undefined
+        ? Promise.resolve()
+        : killTree(pid).then(unregister, (error: unknown) => {
+            killFailure = errorText(error);
+          });
     const settle = (result: RunResult): void => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
       clearTimeout(settleTimer);
       signal?.removeEventListener('abort', onAbort);
-      if (pid !== undefined) liveChecks.delete(pid);
+      if (killFailure !== undefined && !closed) register(retryKill);
+      else unregister();
       resolve(result);
     };
 
@@ -486,11 +534,14 @@ async function execute(
           setTimeout(() => settle(ended(null, null)), KILL_SETTLE_MS),
         );
       };
-      // A kill failure is not reported separately: the close (or the settle
-      // backstop) still ends the run, and the reply names the reason.
+      // A failed kill is recorded: the reply says the tree may still run, and
+      // the pid stays listed for dispose's retry until the process closes.
       stopping = (pid === undefined ? Promise.resolve() : killTree(pid)).then(
         stopWaiting,
-        stopWaiting,
+        (error: unknown) => {
+          killFailure = errorText(error);
+          stopWaiting();
+        },
       );
       return stopping;
     };
@@ -516,7 +567,13 @@ async function execute(
         });
       }
     });
-    child.on('close', (code, exitSignal) => settle(ended(code, exitSignal)));
+    child.on('close', (code, exitSignal) => {
+      // The process is gone: unlist it even when the run settled earlier on
+      // the backstop after a failed kill.
+      closed = true;
+      unregister();
+      settle(ended(code, exitSignal));
+    });
 
     // `settle` and `stop` close over `timer`; nothing calls them before this
     // assignment (the abort wiring below comes after it).
@@ -526,12 +583,29 @@ async function execute(
       }, timeoutMs),
     );
 
-    if (pid !== undefined) liveChecks.set(pid, () => stop('cancel'));
+    register(() => stop('cancel'));
     signal?.addEventListener('abort', onAbort, { once: true });
     // Aborted while the process was launching: the listener above will
     // never fire, so stop now.
     if (signal?.aborted) onAbort();
   });
+}
+
+/**
+ * The default tree kill: `killProcessTree` reports a failure only through
+ * `onError` and always resolves, so the first reported error becomes this
+ * promise's rejection.
+ */
+async function killTreeOrThrow(pid: number): Promise<void> {
+  let failure: { readonly error: unknown } | undefined;
+  await killProcessTree(pid, 'SIGTERM', (error: unknown) => {
+    failure ??= { error };
+  });
+  if (failure !== undefined) throw failure.error;
+}
+
+function errorText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 /**

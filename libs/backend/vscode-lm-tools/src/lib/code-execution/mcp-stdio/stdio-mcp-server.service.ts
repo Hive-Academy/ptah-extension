@@ -219,7 +219,23 @@ export class StdioMcpServerService {
       return this.buildSdkInitFailedResponse(request, name, err);
     }
     // One controller per call, keyed by the JSON-RPC id the peer names in
-    // `notifications/cancelled`. Removed when the call settles.
+    // `notifications/cancelled`. Removed when the call settles. JSON-RPC ids
+    // are unique among calls in flight: a second call reusing one is refused,
+    // so the first keeps its controller and a cancel still reaches it.
+    if (this.inFlightCalls.has(request.id)) {
+      this.logger.warn('[StdioMcpServer] tools/call id already in flight', {
+        id: request.id,
+        tool: name,
+      });
+      return {
+        jsonrpc: '2.0',
+        id: request.id,
+        error: {
+          code: -32600,
+          message: `Invalid Request: id ${String(request.id)} is already in use by a tools/call in flight`,
+        },
+      };
+    }
     const controller = new AbortController();
     this.inFlightCalls.set(request.id, controller);
     let resp: MCPResponse | null;

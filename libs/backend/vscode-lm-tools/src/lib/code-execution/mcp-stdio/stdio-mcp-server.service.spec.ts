@@ -1228,6 +1228,45 @@ describe('StdioMcpServerService request abort and dispose', () => {
     expect(wait.seen()?.aborted).toBe(true);
   });
 
+  it('refuses a second call that reuses an id in flight, and the cancel still reaches the first', async () => {
+    const wait = waitUntilAborted();
+    const { svc } = makeService(wait.agentApi);
+    const first = svc.handleToolsCall(waitCall('dup-1'));
+    await untilSeen(wait.seen);
+    const firstSignal = wait.seen();
+
+    const second = await svc.handleToolsCall(waitCall('dup-1'));
+    expect(second.error?.code).toBe(-32600);
+    expect(second.error?.message).toContain('dup-1');
+    expect(second.result).toBeUndefined();
+
+    await svc.handleCancelled({ requestId: 'dup-1' });
+    expect(firstSignal?.aborted).toBe(true);
+    const resp = await first;
+    expect(
+      (resp.result as { structuredContent: { cancelled: boolean } })
+        .structuredContent.cancelled,
+    ).toBe(true);
+  });
+
+  it('accepts an id again once the call that used it has settled', async () => {
+    const wait = waitUntilAborted();
+    const { svc } = makeService(wait.agentApi);
+    const first = svc.handleToolsCall(waitCall(11));
+    await untilSeen(wait.seen);
+    await svc.handleCancelled({ requestId: 11 });
+    await first;
+
+    const again = svc.handleToolsCall(waitCall(11));
+    const deadline = Date.now() + 5_000;
+    while (wait.seen()?.aborted !== false && Date.now() < deadline) {
+      await new Promise((r) => setImmediate(r));
+    }
+    expect(wait.seen()?.aborted).toBe(false);
+    await svc.dispose();
+    expect((await again).error).toBeUndefined();
+  });
+
   it('dispose() kills a live run_check tree by its pid', async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ptah-stdio-dispose-'));
     try {
