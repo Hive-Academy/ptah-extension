@@ -23,6 +23,8 @@ export type {
   AgentWaitEntry,
   AgentWaitMode,
   AgentWaitResult,
+  GatedResume,
+  PreparedSdkHandleSpawn,
 } from './agent-process-manager.service';
 export {
   AgentMessageError,

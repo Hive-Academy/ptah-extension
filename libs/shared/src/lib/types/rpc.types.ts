@@ -1340,7 +1340,13 @@ export interface RpcMethodRegistry {
       /** Previous agent ID (for in-place card replacement on resume) */
       previousAgentId?: string;
     };
-    result: { success: boolean; agentId?: string; error?: string };
+    result: {
+      success: boolean;
+      agentId?: string;
+      error?: string;
+      /** What the resume gate did: the session was resumed, or a fresh lane got a handoff brief, and why. */
+      resumeDecision?: import('./agent-process.types').AgentResumeOutcome;
+    };
   };
   /** List background agents for a session */
   'agent:backgroundList': {

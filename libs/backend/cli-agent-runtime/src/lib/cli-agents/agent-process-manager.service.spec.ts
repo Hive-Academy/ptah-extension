@@ -103,6 +103,7 @@ jest.mock('uuid', () => ({
 import {
   AgentProcessManager,
   AgentContinueError,
+  LaneModelBlockedError,
   type AgentRoleStamp,
 } from './agent-process-manager.service';
 import { PTAH_CLI_ROLE_DELIVERY } from '../ptah-cli/helpers/ptah-cli-registry.utils';
@@ -429,7 +430,14 @@ function createManager(deps: {
     laneOwners as unknown as ManagerArgs[9],
     planLimits as unknown as ManagerArgs[10],
   );
-  return { manager, outputBuffer, laneCompletion, resumeGate, laneOwners, planLimits };
+  return {
+    manager,
+    outputBuffer,
+    laneCompletion,
+    resumeGate,
+    laneOwners,
+    planLimits,
+  };
 }
 
 describe('AgentProcessManager - SDK Execution Path', () => {
@@ -459,15 +467,21 @@ describe('AgentProcessManager - SDK Execution Path', () => {
 
     reasoningEffortGet = jest.fn(() => '');
     getMcpPort = jest.fn<number | null, []>(() => null);
-    ({ manager, outputBuffer, laneCompletion, laneOwners, planLimits, resumeGate } =
-      createManager({
-        logger,
-        cliDetection,
-        workspaceProvider: createMockWorkspaceProvider(),
-        reasoningSettings: { effort: { get: reasoningEffortGet } },
-        harnessPreflight: null,
-        mcpServerStatus: { getPort: getMcpPort },
-      }));
+    ({
+      manager,
+      outputBuffer,
+      laneCompletion,
+      laneOwners,
+      planLimits,
+      resumeGate,
+    } = createManager({
+      logger,
+      cliDetection,
+      workspaceProvider: createMockWorkspaceProvider(),
+      reasoningSettings: { effort: { get: reasoningEffortGet } },
+      harnessPreflight: null,
+      mcpServerStatus: { getPort: getMcpPort },
+    }));
   });
 
   afterEach(() => {
@@ -1231,6 +1245,37 @@ describe('AgentProcessManager - SDK Execution Path', () => {
           manager.prepareSdkHandleSpawn({ cli: 'ptah-cli', task: 'New work' }),
         ).resolves.toEqual({ task: 'New work' });
         expect(resumeGate.evaluate).not.toHaveBeenCalled();
+      });
+
+      it('checks the lane default model when no model is given (G.8)', async () => {
+        setupVscodeConfig({ opencodeModel: 'opencode/mimo-v2.6-flash-free' });
+
+        await expect(
+          manager.prepareSdkHandleSpawn({ cli: 'opencode', task: 'New work' }),
+        ).rejects.toBeInstanceOf(LaneModelBlockedError);
+        expect(resumeGate.evaluate).not.toHaveBeenCalled();
+      });
+
+      it('lets an explicit allowed model override a blocked default', async () => {
+        setupVscodeConfig({ opencodeModel: 'mimo-v2.6-flash-free' });
+
+        await expect(
+          manager.prepareSdkHandleSpawn({
+            cli: 'opencode',
+            task: 'New work',
+            model: 'opencode/gpt-5',
+          }),
+        ).resolves.toEqual({ task: 'New work' });
+      });
+
+      it('still refuses an explicit blocked model', async () => {
+        await expect(
+          manager.prepareSdkHandleSpawn({
+            cli: 'ptah-cli',
+            task: 'New work',
+            model: 'mimo-v2.6-flash-free',
+          }),
+        ).rejects.toBeInstanceOf(LaneModelBlockedError);
       });
     });
 

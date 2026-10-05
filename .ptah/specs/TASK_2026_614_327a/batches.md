@@ -1090,7 +1090,7 @@ real code, a regression test per item).
   (null or `isCancelled(id)`). Update the existing "aborts the agent_wait whose id the peer cancels" spec (it currently
   expects a `WAIT CANCELLED` result). Impact today is cosmetic (review B, FM6). Scoped checks for both projects.
 
-## Batch 25: Resume decision in the RPC reply; setConfig, default model, barrels (G.6, G.8) — PENDING
+## Batch 25: Resume decision in the RPC reply; setConfig, default model, barrels (G.6, G.8) — COMPLETE
 
 - Recommended executor: backend-developer | Fallback: backend-developer (fresh run) | Execution mode: Sequential subagent
 - Model: Opus | Tasks: 4 | Depends on: Batch 23 | Group: P4 | Phase: G
@@ -1101,21 +1101,21 @@ real code, a regression test per item).
   `<R>\libs\backend\cli-agent-runtime\src\lib\cli-agents\agent-process-manager.service.ts` (+ spec),
   `<R>\libs\backend\cli-agent-runtime\src\lib\cli-agents\index.ts`
 
-### Task 25.1: `resumeDecision` in the result and the log (G.6, G-D option a) — PENDING
+### Task 25.1: `resumeDecision` in the result and the log (G.6, G-D option a) — COMPLETE
 
 - `rpc.types.ts:1343` result gains optional `resumeDecision?: AgentResumeOutcome`; both handler paths (1068-1074,
   1189-1191) return and log it. Spec.
 
-### Task 25.2: Serialise `agent:setConfig` writes — PENDING
+### Task 25.2: Serialise `agent:setConfig` writes — COMPLETE
 
 - `agent-rpc.handlers.ts:432-597`: one in-handler promise chain so two calls cannot interleave into stop ≤ steer. Spec.
 
-### Task 25.3: Blocked-model check on the default model — PENDING
+### Task 25.3: Blocked-model check on the default model — COMPLETE
 
 - `agent-process-manager.service.ts:531-548`: resolve the lane's default model before `findBlockedLaneModel`, as the
   `spawn` path does (603). Spec.
 
-### Task 25.4: Barrel exports and a required `cancelled` (style Minors) — PENDING
+### Task 25.4: Barrel exports and a required `cancelled` (style Minors) — COMPLETE
 
 - Export `GatedResume` (175) and `PreparedSdkHandleSpawn` (188) from `cli-agents/index.ts`; make
   `AgentWaitResult.cancelled` (241) required and update its construction sites.
