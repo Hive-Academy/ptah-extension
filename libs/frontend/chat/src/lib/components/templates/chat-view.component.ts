@@ -2,7 +2,6 @@ import {
   Component,
   inject,
   signal,
-  linkedSignal,
   computed,
   viewChild,
   ChangeDetectionStrategy,
@@ -47,6 +46,7 @@ import { CompactSessionCardComponent } from '../molecules/compact-session/compac
 import { AgentOriginBannerComponent } from '../molecules/agent-origin-banner/agent-origin-banner.component';
 import { ChatStore } from '../../services/chat.store';
 import { ActionBannerService } from '../../services/action-banner.service';
+import { SessionBudgetActionsService } from '../../services/session-budget-actions.service';
 import { TranscriptRetentionService } from '../../services/transcript-retention.service';
 import { SessionLoaderService } from '../../services/chat-store/session-loader.service';
 import { SessionHistoryReplayer } from '../../services/chat-store/session-history-replayer.service';
@@ -85,9 +85,6 @@ import type {
   LocalTimeOptions,
   SubagentRecord,
   MessageAnchorHint,
-  SessionBudgetAction,
-  SessionBudgetActionResult,
-  SessionBudgetState,
 } from '@ptah-extension/shared';
 
 /** Product names of the lane CLIs, for runs that carry no display name. */
@@ -208,6 +205,8 @@ export const AGENT_PANEL_OVERLAY_BREAKPOINT = 600;
     PanelResizeService,
     // One tile-expansion map per session view, released with the view (A3).
     StatsTileExpansionState,
+    // Budget banner state belongs to this view's tab and session.
+    SessionBudgetActionsService,
   ],
 })
 export class ChatViewComponent implements OnDestroy {
@@ -923,68 +922,15 @@ export class ChatViewComponent implements OnDestroy {
     });
   });
 
-  /** Tab and session the budget action state and preview belong to (M6). */
-  private readonly budgetScope = computed(
-    () => `${this.resolvedTabId()}|${this.resolvedSessionId()}`,
-  );
+  /** Budget banner state and flows, scoped to this view's tab and session. */
+  private readonly _budgetActions = inject(SessionBudgetActionsService);
 
-  /**
-   * Latest `session:budgetAction` state, with the tab budget object it was
-   * acted on (`base`); a newer snapshot replaces it. Reset to `null` on a tab
-   * or session change.
-   */
-  private readonly _budgetActionState = linkedSignal<
-    string,
-    { state: SessionBudgetState; base: SessionBudgetState | null } | null
-  >({ source: this.budgetScope, computation: () => null });
-  /**
-   * The last handoff preview; `content: null` means the load failed. Reset
-   * to `null` on a tab or session change.
-   */
-  private readonly _budgetPreview = linkedSignal<
-    string,
-    { sessionId: string; content: string | null } | null
-  >({ source: this.budgetScope, computation: () => null });
-  protected readonly budgetActionBusy = signal(false);
-
-  /**
-   * The tab's budget (installed with its stats snapshot), or the state a
-   * budget action returned for the same session. With both revisions known
-   * the newer one wins (ties go to the action). Without them the action
-   * state wins only while the tab still holds the budget it acted on, so a
-   * later snapshot without a revision always replaces it (M6).
-   */
-  readonly resolvedSessionBudget = computed(() => {
-    const fromTab = this.resolvedActiveTab()?.sessionBudget ?? null;
-    const acted = this._budgetActionState();
-    if (!fromTab || acted?.state.sessionId !== fromTab.sessionId) {
-      return fromTab;
-    }
-    const actedRevision = acted.state.revision;
-    const tabRevision = fromTab.revision;
-    if (actedRevision !== null && tabRevision !== null) {
-      return actedRevision >= tabRevision ? acted.state : fromTab;
-    }
-    return acted.base === fromTab ? acted.state : fromTab;
-  });
-
-  private readonly currentBudgetPreview = computed(() => {
-    const preview = this._budgetPreview();
-    return preview &&
-      preview.sessionId === this.resolvedSessionBudget()?.sessionId
-      ? preview
-      : null;
-  });
-
-  protected readonly budgetPreviewText = computed(
-    () => this.currentBudgetPreview()?.content ?? null,
-  );
-
+  /** The tab's budget, or the newer state a budget action returned (M6). */
+  readonly resolvedSessionBudget = this._budgetActions.budget;
+  protected readonly budgetActionBusy = this._budgetActions.busy;
+  protected readonly budgetPreviewText = this._budgetActions.previewText;
   /** True when the last preview load for this session failed (F.6). */
-  protected readonly budgetPreviewFailed = computed(() => {
-    const preview = this.currentBudgetPreview();
-    return preview !== null && preview.content === null;
-  });
+  protected readonly budgetPreviewFailed = this._budgetActions.previewFailed;
 
   /** Main-context tokens for the banner's limit comparison, when known. */
   protected readonly budgetContextTokens = computed(() => {
@@ -1115,6 +1061,11 @@ export class ChatViewComponent implements OnDestroy {
   });
 
   constructor() {
+    this._budgetActions.connect({
+      activeTab: this.resolvedActiveTab,
+      tabId: this.resolvedTabId,
+      sessionId: this.resolvedSessionId,
+    });
     this.observeHostWidth();
 
     afterRenderEffect(() => {
@@ -1309,112 +1260,19 @@ export class ChatViewComponent implements OnDestroy {
   protected async onBudgetAction(
     action: 'dismiss' | 'extend' | 'restore-window',
   ): Promise<void> {
-    await this.runBudgetAction(action);
+    return this._budgetActions.runStateAction(action);
   }
 
-  protected async onBudgetPreview(): Promise<void> {
-    const sessionId = this.resolvedSessionBudget()?.sessionId;
-    if (!sessionId || this.budgetActionBusy()) return;
-    // A retry after a failure shows "Loading…" again; loaded text stays until replaced.
-    if (this._budgetPreview()?.content === null) this._budgetPreview.set(null);
-    const result = await this.runBudgetAction('preview-handoff');
-    this._budgetPreview.set({
-      sessionId,
-      content: result?.handoff?.content ?? null,
-    });
+  protected onBudgetPreview(): Promise<void> {
+    return this._budgetActions.loadPreview();
   }
 
-  /**
-   * "Continue in new session": write a fresh handoff, then open a new tab
-   * whose first prompt is exactly the seed the backend returned (AS-N7b).
-   */
-  protected async onBudgetContinue(): Promise<void> {
-    const result = await this.runBudgetAction('write-handoff');
-    if (!result) return;
-    const seed = result.handoff?.seed;
-    if (!seed) {
-      this.showActionError(
-        'The handoff is not ready yet. Please try again.',
-        this.resolvedTabId(),
-      );
-      return;
-    }
-    const tabId = this._tabManager.createTab();
-    if (this._appState.layoutMode() === 'grid') {
-      this._appState.requestCanvasTab(
-        tabId,
-        this._tabManager.activeWorkspacePath,
-      );
-    }
-    const outcome = await this.chatStore.sendOrQueueMessage(seed, { tabId });
-    if (!outcome.success) {
-      this.showActionError(
-        `Could not start the new session: ${outcome.error ?? 'Unknown error'}`,
-        tabId,
-      );
-    }
+  protected onBudgetContinue(): Promise<void> {
+    return this._budgetActions.continueInNewSession();
   }
 
-  /**
-   * "Rotate session": same handoff as "Continue in new session", but the seed
-   * is only placed in the new tab's composer; the user sends it.
-   */
-  protected async onBudgetRotate(): Promise<void> {
-    const result = await this.runBudgetAction('preview-handoff');
-    if (!result) return;
-    const seed = result.handoff?.seed;
-    if (!seed) {
-      this.showActionError(
-        'The handoff is not ready yet. Please try again.',
-        this.resolvedTabId(),
-      );
-      return;
-    }
-    const tabId = this._tabManager.createTab();
-    const grid = this._appState.layoutMode() === 'grid';
-    if (grid) {
-      this._appState.requestCanvasTab(
-        tabId,
-        this._tabManager.activeWorkspacePath,
-      );
-    }
-    // Only canvas tiles have SESSION_CONTEXT; null targets the main panel.
-    this._appState.requestComposerPrefill(seed, grid ? tabId : null);
-  }
-
-  /** One `session:budgetAction` call; returns the result only on success. */
-  private async runBudgetAction(
-    action: SessionBudgetAction,
-  ): Promise<SessionBudgetActionResult | null> {
-    const budget = this.resolvedSessionBudget();
-    if (!budget || this.budgetActionBusy()) return null;
-    const base = this.resolvedActiveTab()?.sessionBudget ?? null;
-    this.budgetActionBusy.set(true);
-    try {
-      const result = await this._claudeRpc.call('session:budgetAction', {
-        sessionId: budget.sessionId,
-        action,
-      });
-      const data = result.isSuccess() ? result.data : null;
-      if (data?.state) this._budgetActionState.set({ state: data.state, base });
-      if (data?.success) return data;
-      const error = data?.error ?? result.error ?? 'Unknown error';
-      this.showActionError(
-        error === 'unavailable'
-          ? 'Session budget actions are not available in this window.'
-          : `Budget action failed: ${error}`,
-        this.resolvedTabId(),
-      );
-      return null;
-    } catch (error: unknown) {
-      this.showActionError(
-        `Budget action failed: ${error instanceof Error ? error.message : String(error)}`,
-        this.resolvedTabId(),
-      );
-      return null;
-    } finally {
-      this.budgetActionBusy.set(false);
-    }
+  protected onBudgetRotate(): Promise<void> {
+    return this._budgetActions.rotateSession();
   }
 
   /**
