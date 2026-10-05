@@ -75,6 +75,21 @@ function blockSurfaceId(nodeId: string, ordinal: number): string {
 }
 
 /**
+ * Whether a snapshot's sources are final: no snapshot at all (no host data,
+ * every source `unavailable`), or a terminal turn none of whose sources is
+ * still `pending`. A block frozen before this point re-resolves once on it.
+ */
+function isSettled(snapshot: TurnSourceSnapshot | null): boolean {
+  return (
+    snapshot === null ||
+    (snapshot.state === 'terminal' &&
+      snapshot.diff.kind !== 'pending' &&
+      snapshot.tests.kind !== 'pending' &&
+      snapshot.usage.kind !== 'pending')
+  );
+}
+
+/**
  * PtahUiBlockComponent - one closed ```` ```ptah-ui ```` fence of an assistant
  * message (TASK_2026_610, component 9, decision 10).
  *
@@ -90,6 +105,9 @@ function blockSurfaceId(nodeId: string, ordinal: number): string {
  *   for the rest of its life: the result is frozen (no source reads), the
  *   renderer sits in an `inert` subtree, a visually hidden text alternative
  *   renders beside it, and change detection is detached after that render.
+ *   A block frozen while its snapshot is not yet settled (an open turn, or a
+ *   `$diff` awaiting its late push) stays attached and re-resolves exactly
+ *   once when the snapshot settles, then detaches; no further source reads.
  */
 @Component({
   selector: 'ptah-ui-block',
@@ -161,6 +179,8 @@ export class PtahUiBlockComponent implements OnInit {
   protected readonly snapshotMode = signal(false);
   /** The result captured when the block became a snapshot. */
   private readonly frozen = signal<RenderPtahUiBlockResult | null>(null);
+  /** Frozen on an unsettled snapshot: re-resolve once when it settles. */
+  private readonly awaitingSettle = signal(false);
   private readonly live = signal<Signal<boolean> | null>(null);
 
   private readonly surfaceId = computed(() =>
@@ -172,9 +192,12 @@ export class PtahUiBlockComponent implements OnInit {
    * One pipeline run per input change while live; none once frozen, because
    * the frozen branch reads no input at all.
    */
-  private readonly result = computed((): RenderPtahUiBlockResult => {
-    const frozen = this.frozen();
-    if (frozen !== null) return frozen;
+  private readonly result = computed(
+    (): RenderPtahUiBlockResult => this.frozen() ?? this.resolve(),
+  );
+
+  /** One pipeline run over the current inputs. */
+  private resolve(): RenderPtahUiBlockResult {
     const body = this.body();
     const options = {
       surfaceId: this.surfaceId(),
@@ -188,7 +211,7 @@ export class PtahUiBlockComponent implements OnInit {
       // the message renders and this block falls back (Req 2.4).
       return { ok: false, reason: 'internal error' };
     }
-  });
+  }
 
   /** Set when the renderer reports a build failure for a validated surface. */
   private readonly rendererFailed = signal(false);
@@ -227,6 +250,16 @@ export class PtahUiBlockComponent implements OnInit {
       if (live === null || live() || untracked(this.snapshotMode)) return;
       this.freeze();
     });
+    // Reads the snapshot only while a frozen block awaits it; once refreshed,
+    // `awaitingSettle` stays false and this effect has nothing left to track.
+    effect(() => {
+      if (!this.awaitingSettle() || !isSettled(this.snapshot())) return;
+      untracked(() => {
+        this.awaitingSettle.set(false);
+        this.frozen.set(this.resolve());
+        this.detachAfterRender();
+      });
+    });
   }
 
   ngOnInit(): void {
@@ -249,8 +282,15 @@ export class PtahUiBlockComponent implements OnInit {
   private freeze(): void {
     this.frozen.set(untracked(this.result));
     this.snapshotMode.set(true);
-    // Detach only after the snapshot markup (inert wrapper, text alternative)
-    // has rendered once; nothing reattaches it.
+    if (isSettled(untracked(this.snapshot))) this.detachAfterRender();
+    else this.awaitingSettle.set(true);
+  }
+
+  /**
+   * Detach only after the snapshot markup (inert wrapper, text alternative)
+   * has rendered once; nothing reattaches it.
+   */
+  private detachAfterRender(): void {
     afterNextRender(() => this.cdr.detach(), { injector: this.injector });
   }
 }

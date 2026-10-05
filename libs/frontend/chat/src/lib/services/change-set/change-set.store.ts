@@ -28,6 +28,13 @@ const LOG_PREFIX = '[ChangeSetStore]';
 export const RECONCILE_FRESHNESS_MS = 5_000;
 /** Reconcile triggers for one session coalesce into one run after this delay. */
 export const RECONCILE_DEBOUNCE_MS = 1_000;
+/**
+ * How long after `session:turnEnded` a turn's change set may still arrive. The
+ * recorder snapshots git status and reads numstat before it pushes
+ * (`turn-change-set-recorder.service.ts` `recordTurn`), and a turn that changed
+ * no files pushes nothing at all, so silence past this window means "none".
+ */
+export const TURN_CHANGE_SET_GRACE_MS = 5_000;
 /** Matches the backend's per-session bound. */
 const MAX_CHANGE_SETS_PER_SESSION = 100;
 /** Sessions whose change sets stay in memory; the oldest non-active is dropped. */
@@ -236,6 +243,17 @@ function recordedMarks(changeSet: TurnChangeSet): ChangeSetMarks {
  * A failed or untrustworthy read drops the marks: cards then show their
  * recorded counts with no reconciled rows. Counts are never rewritten, so a
  * failure can never show zeros.
+ *
+ * ## Settled through
+ *
+ * The backend pushes nothing for a turn that changed no files, so "no set yet"
+ * and "no set ever" look the same. {@link settledThrough} tells them apart: a
+ * backend timestamp at or before which every ended turn's set is already in
+ * {@link changeSetsFor} or will never come. The first read of a session
+ * settles through the moment it started; `session:turnEnded` and
+ * `session:turnFailed` settle through the payload's `timestamp` (the value the
+ * recorder stamps as `turnEndedAt`) once a pushed set reaches it or
+ * {@link TURN_CHANGE_SET_GRACE_MS} passes. One grace timer per session.
  */
 @Injectable({ providedIn: 'root' })
 export class ChangeSetStore implements MessageHandler {
@@ -245,6 +263,7 @@ export class ChangeSetStore implements MessageHandler {
   readonly handledMessageTypes = [
     MESSAGE_TYPES.GIT_TURN_CHANGE_SET,
     MESSAGE_TYPES.SESSION_TURN_ENDED,
+    MESSAGE_TYPES.SESSION_TURN_FAILED,
     MESSAGE_TYPES.GIT_STATUS_UPDATE,
   ] as const;
 
@@ -252,6 +271,9 @@ export class ChangeSetStore implements MessageHandler {
     ReadonlyMap<string, readonly TurnChangeSet[]>
   >(new Map());
   private readonly _snapshots = signal<ReadonlyMap<string, StatusSnapshot>>(
+    new Map(),
+  );
+  private readonly _settledThrough = signal<ReadonlyMap<string, number>>(
     new Map(),
   );
 
@@ -283,6 +305,11 @@ export class ChangeSetStore implements MessageHandler {
    * push; a read whose start generation is no longer current is discarded.
    */
   private readonly generations = new Map<string, number>();
+  /** Per session: the ended turn awaiting its set, and its grace timer. */
+  private readonly graces = new Map<
+    string,
+    { readonly endedAt: number; readonly timer: ReturnType<typeof setTimeout> }
+  >();
 
   constructor() {
     effect(() => {
@@ -292,6 +319,8 @@ export class ChangeSetStore implements MessageHandler {
     inject(DestroyRef).onDestroy(() => {
       for (const timer of this.timers.values()) clearTimeout(timer);
       this.timers.clear();
+      for (const grace of this.graces.values()) clearTimeout(grace.timer);
+      this.graces.clear();
     });
   }
 
@@ -301,6 +330,17 @@ export class ChangeSetStore implements MessageHandler {
   ): readonly TurnChangeSet[] {
     if (!sessionId) return NO_CHANGE_SETS;
     return this._changeSets().get(sessionId) ?? NO_CHANGE_SETS;
+  }
+
+  /**
+   * Backend time (ms) through which the session's change sets are final: a
+   * turn that ended at or before it and has no set in {@link changeSetsFor}
+   * never will. `-Infinity` until the first read or turn end settles it.
+   * Reactive when read in a computed.
+   */
+  settledThrough(sessionId: string | null | undefined): number {
+    if (!sessionId) return -Infinity;
+    return this._settledThrough().get(sessionId) ?? -Infinity;
   }
 
   /**
@@ -342,6 +382,10 @@ export class ChangeSetStore implements MessageHandler {
       case MESSAGE_TYPES.SESSION_TURN_ENDED:
         this.onTurnEnded(message.payload);
         return;
+      case MESSAGE_TYPES.SESSION_TURN_FAILED:
+        // The recorder records a failed turn too; only the settle applies.
+        this.startGrace(message.payload);
+        return;
       case MESSAGE_TYPES.GIT_STATUS_UPDATE:
         this.onStatusUpdate(message.payload);
         return;
@@ -349,6 +393,19 @@ export class ChangeSetStore implements MessageHandler {
   }
 
   private async load(sessionId: string): Promise<void> {
+    const startedAt = Date.now();
+    try {
+      await this.read(sessionId);
+    } finally {
+      // Only the first read settles: a later one (a re-shown tab) may start
+      // while a turn streams, and must not mark that turn's set as final.
+      if (!this._settledThrough().has(sessionId)) {
+        this.settle(sessionId, startedAt);
+      }
+    }
+  }
+
+  private async read(sessionId: string): Promise<void> {
     try {
       const result = await rpcCall<GitTurnChangeSetsResult>(
         this.vscode,
@@ -391,6 +448,12 @@ export class ChangeSetStore implements MessageHandler {
     }
     this.merge(sessionId, [changeSet]);
     this.requestReconcile(sessionId, false);
+    const grace = this.graces.get(sessionId);
+    if (grace && changeSet.turnEndedAt >= grace.endedAt) {
+      clearTimeout(grace.timer);
+      this.graces.delete(sessionId);
+    }
+    this.settle(sessionId, changeSet.turnEndedAt);
   }
 
   private onTurnEnded(payload: unknown): void {
@@ -398,6 +461,51 @@ export class ChangeSetStore implements MessageHandler {
     if (typeof sessionId !== 'string') return;
     // The turn may have committed or reverted files an older card lists.
     this.requestReconcile(sessionId, true);
+    this.startGrace(payload);
+  }
+
+  /**
+   * Wait {@link TURN_CHANGE_SET_GRACE_MS} for the ended turn's set, then
+   * settle through its end. Only for a session already read or active, the
+   * same rule as a push; a newer turn end restarts the one timer.
+   */
+  private startGrace(payload: unknown): void {
+    if (!isRecord(payload)) return;
+    const sessionId = payload['sessionId'];
+    const endedAt = payload['timestamp'];
+    if (
+      typeof sessionId !== 'string' ||
+      sessionId === '' ||
+      typeof endedAt !== 'number' ||
+      !Number.isFinite(endedAt)
+    ) {
+      return;
+    }
+    if (
+      !this._changeSets().has(sessionId) &&
+      this.tabManager.activeTabSessionId() !== sessionId
+    ) {
+      return;
+    }
+    if (endedAt <= this.settledThrough(sessionId)) return;
+    const previous = this.graces.get(sessionId);
+    if (previous) clearTimeout(previous.timer);
+    const through = Math.max(endedAt, previous?.endedAt ?? endedAt);
+    const timer = setTimeout(() => {
+      this.graces.delete(sessionId);
+      this.settle(sessionId, through);
+    }, TURN_CHANGE_SET_GRACE_MS);
+    this.graces.set(sessionId, { endedAt: through, timer });
+  }
+
+  /** Advance the session's settled-through mark; it never moves back. */
+  private settle(sessionId: string, through: number): void {
+    this._settledThrough.update((current) => {
+      if ((current.get(sessionId) ?? -Infinity) >= through) return current;
+      const next = new Map(current);
+      next.set(sessionId, through);
+      return next;
+    });
   }
 
   /**
@@ -463,6 +571,15 @@ export class ChangeSetStore implements MessageHandler {
     this.rerun.delete(sessionId);
     this.setSnapshot(sessionId, null);
     this.generations.delete(sessionId);
+    const grace = this.graces.get(sessionId);
+    if (grace) clearTimeout(grace.timer);
+    this.graces.delete(sessionId);
+    this._settledThrough.update((current) => {
+      if (!current.has(sessionId)) return current;
+      const next = new Map(current);
+      next.delete(sessionId);
+      return next;
+    });
   }
 
   /** The tree the newest change set ran in; marks apply to sets in that tree. */

@@ -62,6 +62,8 @@ export interface TranscriptTestBedOptions {
   readonly sessionContext?: unknown;
   /** Change sets the store stub returns for every session; none by default. */
   readonly changeSets?: Signal<readonly TurnChangeSet[]>;
+  /** The store stub's `settledThrough` for every session; unsettled by default. */
+  readonly settledThrough?: Signal<number>;
   /** Stands in for `ChangeSetActionsService`; every action resolves by default. */
   readonly changeSetActions?: Partial<
     Record<keyof ChangeSetActionsService, jest.Mock>
@@ -72,6 +74,7 @@ export function configureTranscriptTestBed(
   options: TranscriptTestBedOptions,
 ): void {
   const changeSets = options.changeSets ?? signal<readonly TurnChangeSet[]>([]);
+  const settledThrough = options.settledThrough ?? signal(-Infinity);
   TestBed.configureTestingModule({
     imports: [ChatTranscriptComponent],
     providers: [
@@ -87,6 +90,7 @@ export function configureTranscriptTestBed(
         provide: ChangeSetStore,
         useValue: {
           changeSetsFor: () => changeSets(),
+          settledThrough: () => settledThrough(),
           marksFor: () => ({ reconciled: new Set(), conflicted: new Set() }),
           ensureLoaded: jest.fn(() => Promise.resolve()),
         } as unknown as ChangeSetStore,

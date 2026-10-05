@@ -409,6 +409,56 @@ describe('PtahUiBlockComponent', () => {
       expect(native().textContent).not.toContain('No files changed this turn');
     });
 
+    it('re-resolves a frozen block exactly once when its pending snapshot settles', async () => {
+      create();
+      // Eight newer blocks already hold the window: this one mounts as a
+      // snapshot while its turn is still open.
+      const window = fixture.debugElement.injector.get(PtahUiLiveWindow);
+      for (let index = 0; index < 8; index += 1)
+        window.register(`newer-${index}`, 100 + index);
+      useBody(SOURCE_BODY);
+      fixture.componentInstance.snapshot.set(PENDING);
+      await settle(fixture);
+
+      const block = fixture.debugElement.query(
+        By.directive(PtahUiBlockComponent),
+      ).componentInstance as PtahUiBlockComponent;
+      const detach = jest.spyOn(block['cdr'], 'detach');
+      const surfaceId = 'ptah-ui-node-1-0';
+      const mode = (): string | null | undefined =>
+        native()
+          .querySelector('[data-testid="ptah-ui-block"]')
+          ?.getAttribute('data-ptah-ui-mode');
+      expect(mode()).toBe('snapshot');
+      expect(native().textContent).toContain('pending');
+      expect(pipelineCalls.get(surfaceId)).toBe(1);
+
+      // Terminal, but `$diff` still awaits its late push: not settled yet.
+      fixture.componentInstance.snapshot.set({
+        ...EMPTY,
+        diff: { kind: 'pending' },
+      });
+      await settle(fixture);
+      expect(pipelineCalls.get(surfaceId)).toBe(1);
+      expect(detach).not.toHaveBeenCalled();
+
+      // Settled: one pipeline run, in place, still a snapshot, then detached.
+      fixture.componentInstance.snapshot.set(EMPTY);
+      await settle(fixture);
+      expect(pipelineCalls.get(surfaceId)).toBe(2);
+      expect(mode()).toBe('snapshot');
+      expect(native().textContent).toContain('No files changed this turn');
+      expect(native().textContent).not.toContain('pending');
+      expect(detach).toHaveBeenCalledTimes(1);
+
+      // Frozen again: a later snapshot change does no work at all.
+      fixture.componentInstance.snapshot.set(PENDING);
+      await settle(fixture);
+      expect(pipelineCalls.get(surfaceId)).toBe(2);
+      expect(native().textContent).toContain('No files changed this turn');
+      expect(detach).toHaveBeenCalledTimes(1);
+    });
+
     it('renders "unavailable" for sources while the snapshot is null', async () => {
       create();
       useBody(SOURCE_BODY);

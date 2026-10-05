@@ -341,6 +341,8 @@ describe('ChatTranscriptComponent ptah-ui source snapshots', () => {
     readonly changeSets?: readonly TurnChangeSet[];
     /** Host gate; the harness default is Electron (`true`). */
     readonly isElectron?: boolean;
+    /** Store stand-in's settled-through mark; unsettled by default. */
+    readonly settledThrough?: ReturnType<typeof signal<number>>;
   }
 
   async function render(
@@ -358,6 +360,7 @@ describe('ChatTranscriptComponent ptah-ui source snapshots', () => {
       ]),
       buildTree: jest.fn(() => []),
       changeSets: signal(options.changeSets ?? []),
+      settledThrough: options.settledThrough,
     });
     if (options.isElectron === false) {
       TestBed.overrideProvider(VSCodeService, {
@@ -419,7 +422,7 @@ describe('ChatTranscriptComponent ptah-ui source snapshots', () => {
     });
   });
 
-  it("binds $usage to the turn-ending message's tokens and cost, one snapshot per turn", async () => {
+  it("binds $usage to the block's own message (L-11), $diff and $tests to the turn", async () => {
     const fixture = await render({
       messages: [
         makeTranscriptMessage('u1', 'user', 100),
@@ -431,14 +434,12 @@ describe('ChatTranscriptComponent ptah-ui source snapshots', () => {
           duration: 4100,
         }),
       ],
+      changeSets: [CHANGE_SET],
     });
 
     const snapshots = snapshotsByMessageId(fixture);
     const midTurn = snapshots.get('a1');
     const endTurn = snapshots.get('a2');
-    // Every assistant message of the turn gets the turn's ONE snapshot, and
-    // its usage is the turn-ENDING message's, not the block's own message's.
-    expect(midTurn).toBe(endTurn);
     expect(endTurn?.usage).toEqual({
       kind: 'available',
       input: 11,
@@ -446,12 +447,33 @@ describe('ChatTranscriptComponent ptah-ui source snapshots', () => {
       cost: 0.031,
       durationMs: 4100,
     });
-    expect(midTurn?.usage).toEqual({
-      kind: 'available',
-      input: 11,
-      output: 7,
-      cost: 0.031,
-      durationMs: 4100,
+    // The mid-turn message reported no usage of its own: unavailable, never
+    // the turn-ending message's figures.
+    expect(midTurn?.usage).toEqual({ kind: 'unavailable' });
+    expect(midTurn?.diff).toBe(endTurn?.diff);
+    expect(midTurn?.tests).toBe(endTurn?.tests);
+  });
+
+  it('settles the newest no-op turn from pending to unavailable once the store settles past it', async () => {
+    const settledThrough = signal(-Infinity);
+    const fixture = await render({
+      messages: [
+        makeTranscriptMessage('u1', 'user', 100),
+        assistantMessage('a1', messageTree('a1-tree', 110)),
+      ],
+      settledThrough,
+    });
+    // Finalized, nothing pushed, store not settled past the turn: pending.
+    expect(snapshotsByMessageId(fixture).get('a1')?.diff).toEqual({
+      kind: 'pending',
+    });
+
+    // The backend pushed nothing for the turn (it changed no files) and the
+    // store's grace passed its end: no set means none (Req 3.4).
+    settledThrough.set(150);
+    fixture.detectChanges();
+    expect(snapshotsByMessageId(fixture).get('a1')?.diff).toEqual({
+      kind: 'unavailable',
     });
   });
 
@@ -504,12 +526,24 @@ describe('ChatTranscriptComponent ptah-ui source snapshots', () => {
   const FENCE = '```ptah-ui\ntitle Diff\nstats\n  Files | $diff.files\n```\n';
 
   /**
+   * A live turn: it starts after the store's first read, which settles the
+   * session through the moment that read began, so only this turn's own
+   * `session:turnEnded` (or its push) can settle it.
+   */
+  const LIVE_AT = Date.now() + 60_000;
+  const LIVE_CHANGE_SET: TurnChangeSet = {
+    ...CHANGE_SET,
+    turnStartedAt: LIVE_AT - 5,
+    turnEndedAt: LIVE_AT + 40,
+  };
+
+  /**
    * Real bubble (and so real execution node, `ptah-ui` host and block) plus
    * the REAL root-provided `ChangeSetStore`; only the RPC transport and the
    * empty state are stood down. The tab's session is the active one, so the
    * store accepts its late push.
    */
-  function configureRealChain(): void {
+  function configureRealChain(turnStartedAt = LIVE_AT): void {
     TestBed.configureTestingModule({
       imports: [ChatTranscriptComponent],
       providers: [
@@ -539,12 +573,12 @@ describe('ChatTranscriptComponent ptah-ui source snapshots', () => {
                 claudeSessionId: 'session-1',
                 status: 'loaded',
                 messages: [
-                  makeTranscriptMessage('u1', 'user', 100),
+                  makeTranscriptMessage('u1', 'user', turnStartedAt - 10),
                   createExecutionChatMessage({
                     id: 'a1',
                     role: 'assistant',
                     rawContent: FENCE,
-                    streamingState: messageTree('a1-tree', 110, [
+                    streamingState: messageTree('a1-tree', turnStartedAt, [
                       textNode('a1-text', FENCE),
                     ]),
                   }),
@@ -608,7 +642,7 @@ describe('ChatTranscriptComponent ptah-ui source snapshots', () => {
 
     TestBed.inject(ChangeSetStore).handleMessage({
       type: MESSAGE_TYPES.GIT_TURN_CHANGE_SET,
-      payload: { changeSet: CHANGE_SET },
+      payload: { changeSet: LIVE_CHANGE_SET },
     });
     await settleRealChain(fixture);
 
@@ -620,5 +654,20 @@ describe('ChatTranscriptComponent ptah-ui source snapshots', () => {
     const text = fixture.nativeElement.textContent ?? '';
     expect(text).not.toContain('pending');
     expect(text).toContain('2');
+  });
+
+  it('shows unavailable for a reloaded newest turn that recorded no change set', async () => {
+    // The turn ended before the store's first read: that read settles it, so
+    // its missing set is final (the backend records nothing for a no-op turn).
+    mockRpcCall.mockResolvedValue({ success: true, data: { changeSets: [] } });
+    configureRealChain(110);
+    const fixture = TestBed.createComponent(ChatTranscriptComponent);
+    fixture.componentRef.setInput('tabId', 'tab-1');
+    fixture.componentRef.setInput('active', true);
+    await settleRealChain(fixture);
+
+    const text = fixture.nativeElement.textContent ?? '';
+    expect(text).not.toContain('pending');
+    expect(text).toContain('unavailable');
   });
 });

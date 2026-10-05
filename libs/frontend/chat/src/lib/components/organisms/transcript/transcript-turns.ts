@@ -23,6 +23,11 @@ export interface TranscriptTurn {
    */
   readonly endMessageId: string;
   /**
+   * The turn's assistant messages in transcript order; the last one is the
+   * turn-ending message ({@link endMessageId}).
+   */
+  readonly assistants: readonly ExecutionChatMessage[];
+  /**
    * Root execution nodes of the turn's assistant messages, in transcript
    * order. A legacy assistant message with `streamingState: null` contributes
    * none — see the A-4 note on {@link groupTurns}.
@@ -82,6 +87,7 @@ export function groupTurns(
   streamingBoundary: number,
 ): readonly TranscriptTurn[] {
   const turns: TranscriptTurn[] = [];
+  let assistants: ExecutionChatMessage[] = [];
   let roots: ExecutionNode[] = [];
   let endMessageId: string | null = null;
   let endIndex = -1;
@@ -92,10 +98,12 @@ export function groupTurns(
     const finalized = endIndex < streamingBoundary;
     turns.push({
       endMessageId,
+      assistants,
       roots,
       finalized,
       incomplete: finalized && turnEndedIncomplete(roots),
     });
+    assistants = [];
     roots = [];
     endMessageId = null;
     endIndex = -1;
@@ -107,6 +115,7 @@ export function groupTurns(
       closeTurn();
       turnStarted = true;
     } else if (message.role === 'assistant' && turnStarted) {
+      assistants.push(message);
       if (message.streamingState !== null) roots.push(message.streamingState);
       endMessageId = message.id;
       endIndex = index;
