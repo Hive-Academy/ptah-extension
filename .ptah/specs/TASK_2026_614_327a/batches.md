@@ -1151,7 +1151,7 @@ real code, a regression test per item).
   `waitFor cancelled for agent <id>: the caller stopped waiting. The agent keeps running.` Doc only.
 
 
-## Batch 27: Stream-transformer callback helper and tap doc (G.8 style) — COMPLETE (commit pending)
+## Batch 27: Stream-transformer callback helper and tap doc (G.8 style) — COMPLETE (709d96b24)
 
 - Recommended executor: backend-developer | Fallback: backend-developer (Opus) | Execution mode: Sequential subagent
 - Model: Sonnet (mechanical) | Tasks: 2 | Depends on: Batch 22 | Group: P4 | Phase: G
