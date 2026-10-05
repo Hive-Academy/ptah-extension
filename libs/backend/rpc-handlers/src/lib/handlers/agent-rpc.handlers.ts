@@ -138,6 +138,78 @@ function invalidCodexBudget(params: AgentSetConfigParams): string | null {
   return null;
 }
 
+/** `-0` passes the integer check; it is persisted as `0`. */
+function withoutNegativeZero(value: number): number {
+  return Object.is(value, -0) ? 0 : value;
+}
+
+/** Lane tool-call guards: steer at N calls, stop at N calls, stop at N identical calls. */
+const LANE_GUARD_FIELDS = [
+  'laneToolCallSteerAt',
+  'laneToolCallStopAt',
+  'laneRepeatCallStopAt',
+] as const;
+
+type LaneGuardField = (typeof LANE_GUARD_FIELDS)[number];
+
+/**
+ * Read-side defaults for the lane guard keys. Mirrors
+ * `FILE_BASED_SETTINGS_DEFAULTS` in `platform-core`; the set-config spec pins
+ * the two against each other.
+ */
+const LANE_GUARD_DEFAULTS: Readonly<Record<LaneGuardField, number>> = {
+  laneToolCallSteerAt: 40,
+  laneToolCallStopAt: 60,
+  laneRepeatCallStopAt: 20,
+};
+
+/**
+ * Smallest value each guard accepts on its own: steer >= 1, repeat >= 2, and
+ * stop >= 2 because it must also exceed steer (checked as a pair below).
+ */
+const LANE_GUARD_MINIMUMS: Readonly<Record<LaneGuardField, number>> = {
+  laneToolCallSteerAt: 1,
+  laneToolCallStopAt: 2,
+  laneRepeatCallStopAt: 2,
+};
+
+function isLaneGuardValue(
+  field: LaneGuardField,
+  value: unknown,
+): value is number {
+  return (
+    typeof value === 'number' &&
+    Number.isSafeInteger(value) &&
+    value >= LANE_GUARD_MINIMUMS[field]
+  );
+}
+
+/**
+ * Host-boundary check for the lane guard writes, rejected with the field name
+ * and never clamped. Stop must exceed steer; a write that changes only one of
+ * the pair is checked against the stored value of the other (`readStored`).
+ * Returns the first invalid field, or null.
+ */
+function invalidLaneGuard(
+  params: AgentSetConfigParams,
+  readStored: (field: LaneGuardField) => number,
+): string | null {
+  for (const field of LANE_GUARD_FIELDS) {
+    const value: unknown = params[field];
+    if (value !== undefined && !isLaneGuardValue(field, value)) {
+      return field;
+    }
+  }
+  const { laneToolCallSteerAt: steer, laneToolCallStopAt: stop } = params;
+  if (steer === undefined && stop === undefined) return null;
+  const effectiveSteer = steer ?? readStored('laneToolCallSteerAt');
+  const effectiveStop = stop ?? readStored('laneToolCallStopAt');
+  if (effectiveStop <= effectiveSteer) {
+    return stop === undefined ? 'laneToolCallSteerAt' : 'laneToolCallStopAt';
+  }
+  return null;
+}
+
 /** Host env var that overrides the subagent prompt-cache TTL inside the SDK. */
 const SUBAGENT_PROMPT_CACHE_TTL_ENV = 'CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL';
 
@@ -278,6 +350,9 @@ export class AgentRpcHandlers {
               'codexToolOutputTokenLimit',
             ),
             codexWebSearch: this.getCodexWebSearch(),
+            laneToolCallSteerAt: this.getLaneGuard('laneToolCallSteerAt'),
+            laneToolCallStopAt: this.getLaneGuard('laneToolCallStopAt'),
+            laneRepeatCallStopAt: this.getLaneGuard('laneRepeatCallStopAt'),
             ...this.getSubagentPromptCacheTtl(),
             copilotReasoningEffort: this.getAgentCfg<string>(
               'copilotReasoningEffort',
@@ -359,6 +434,15 @@ export class AgentRpcHandlers {
             error: `Unsupported ${invalidBudget} value`,
           };
         }
+        const invalidGuard = invalidLaneGuard(params, (field) =>
+          this.getLaneGuard(field),
+        );
+        if (invalidGuard) {
+          return {
+            success: false,
+            error: `Unsupported ${invalidGuard} value`,
+          };
+        }
         if (
           params.subagentPromptCacheTtl !== undefined &&
           !isSubagentPromptCacheTtlSetting(params.subagentPromptCacheTtl)
@@ -427,6 +511,12 @@ export class AgentRpcHandlers {
           );
         }
         for (const field of CODEX_BUDGET_TOKEN_FIELDS) {
+          const value = params[field];
+          if (value !== undefined) {
+            await this.setAgentCfg(field, withoutNegativeZero(value));
+          }
+        }
+        for (const field of LANE_GUARD_FIELDS) {
           const value = params[field];
           if (value !== undefined) {
             await this.setAgentCfg(field, value);
@@ -1110,6 +1200,16 @@ export class AgentRpcHandlers {
     const fallback = CODEX_BUDGET_DEFAULTS[field];
     const value = this.getAgentCfg<unknown>(field, fallback);
     return isNonNegativeInteger(value) ? value : fallback;
+  }
+
+  /**
+   * Read a lane guard. A hand-edited value below the field's minimum or not an
+   * integer is reported as the default.
+   */
+  private getLaneGuard(field: LaneGuardField): number {
+    const fallback = LANE_GUARD_DEFAULTS[field];
+    const value = this.getAgentCfg<unknown>(field, fallback);
+    return isLaneGuardValue(field, value) ? value : fallback;
   }
 
   /** Read the Codex lane web-search switch; a non-boolean reads as the default. */

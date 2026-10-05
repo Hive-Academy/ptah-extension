@@ -422,6 +422,18 @@ export const SCOPED_SETTING_KEYS: Record<
     appScopable: false,
     supportedTargets: ['global'],
   },
+  'agentOrchestration.laneToolCallSteerAt': {
+    appScopable: false,
+    supportedTargets: ['global'],
+  },
+  'agentOrchestration.laneToolCallStopAt': {
+    appScopable: false,
+    supportedTargets: ['global'],
+  },
+  'agentOrchestration.laneRepeatCallStopAt': {
+    appScopable: false,
+    supportedTargets: ['global'],
+  },
   'agentOrchestration.codexWebSearch': {
     appScopable: false,
     supportedTargets: ['global'],

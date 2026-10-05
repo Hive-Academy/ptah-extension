@@ -40,7 +40,19 @@ import type { UsageCostSource } from '../../session-stats/session-stats-owner.se
 import {
   SDKUserMessage,
   Options,
+  type SDKMessage,
 } from '../../types/sdk-types/claude-sdk.types';
+import type { CompactionCoordinator } from '../compaction/compaction-coordinator';
+import {
+  COMPACTION_MAX_DWELL_MS,
+  CompactionState,
+  type CompactionSessionClass,
+} from '../compaction/compaction-state.types';
+import type {
+  ContextUsageReading,
+  IContextUsagePort,
+} from '../compaction/context-usage.port';
+import type { SubagentBudgetMonitor } from '../compaction/subagent-budget-monitor';
 import type { SdkModuleLoader } from '../sdk-module-loader';
 import {
   resolveSessionCapabilityPolicy,
@@ -59,6 +71,7 @@ import type { SdkQueryRunner } from '../sdk-query-runner.service';
 import {
   NoActivityWatchdog,
   NO_ACTIVITY_TIMEOUT_MS,
+  type WatchdogTimeoutCause,
 } from '../no-activity-watchdog';
 import type { HarnessPolicySync } from '../../harness/harness-policy-sync';
 
@@ -129,6 +142,237 @@ export function resolveCapacityRoute(authEnv: AuthEnv): ContextCapacityRoute {
   return Object.freeze({ kind: 'proxy', providerId });
 }
 
+/** The coordinator surface the executor drives (TASK_2026_597 A8). */
+export type CompactionCoordinatorSink = Pick<
+  CompactionCoordinator,
+  | 'register'
+  | 'unregister'
+  | 'getState'
+  | 'onStatusCompacting'
+  | 'onCompactBoundary'
+  | 'onTurnEnd'
+  | 'onContextUsage'
+>;
+
+/** The subagent budget monitor surface the executor drives (TASK_2026_597 28b). */
+export type SubagentBudgetSink = Pick<
+  SubagentBudgetMonitor,
+  'observe' | 'release'
+>;
+
+/**
+ * Compaction bookkeeping for one query run (TASK_2026_597 A8).
+ *
+ * Keyed on the real SDK session id, read from the main-loop messages: that is
+ * the id the PreCompact/PostCompact hooks forward to the coordinator and the
+ * id `endSession` hands to the session-end registry. It registers the session
+ * on the first id it sees, feeds `status:'compacting'` and `compact_boundary`
+ * to the coordinator, and at each main-loop `result` closes the turn and asks
+ * the context-usage port for one reading. Every call is fail-open: a
+ * coordinator or port failure writes one warn line and the turn goes on.
+ */
+class CompactionSessionTap {
+  private sessionId: string | null = null;
+  private readonly trackedIds = new Set<string>();
+  private query: Query | null = null;
+  private turn = 0;
+  private readonly subagentIds = new Set<string>();
+  private released = false;
+
+  constructor(
+    private readonly logger: Logger,
+    private readonly coordinator: CompactionCoordinatorSink | null,
+    private readonly port: IContextUsagePort | null,
+    private readonly sessionClass: CompactionSessionClass,
+    /** Unique per query run, so a resumed run never reuses a cached turn read. */
+    private readonly runToken: string,
+    private readonly subagentMonitor: SubagentBudgetSink | null = null,
+  ) {}
+
+  attachQuery(query: Query): void {
+    this.query = query;
+  }
+
+  observe(message: SDKMessage): void {
+    if (this.released) return;
+    try {
+      this.handle(message);
+    } catch (error: unknown) {
+      // A malformed message must not break the stream loop that called us.
+      this.warn('Compaction tap failed on a stream message', 'observe', error);
+    }
+  }
+
+  private handle(message: SDKMessage): void {
+    if ('parent_tool_use_id' in message && message.parent_tool_use_id) {
+      this.feedSubagentMonitor(message);
+      return;
+    }
+    const id =
+      'session_id' in message && typeof message.session_id === 'string'
+        ? message.session_id
+        : '';
+    if (id && id !== this.sessionId) this.bind(id);
+    const sessionId = this.sessionId;
+    if (sessionId === null) return;
+    if (message.type === 'system') {
+      if (message.subtype === 'status' && message.status === 'compacting') {
+        this.guard('status-compacting', (c) => c.onStatusCompacting(sessionId));
+      } else if (message.subtype === 'compact_boundary') {
+        const { pre_tokens, post_tokens } = message.compact_metadata;
+        this.guard('compact-boundary', (c) =>
+          c.onCompactBoundary(sessionId, {
+            preTokens: pre_tokens,
+            postTokens: post_tokens,
+          }),
+        );
+      }
+    } else if (message.type === 'result') {
+      this.onTurnEnd(sessionId);
+    }
+  }
+
+  /**
+   * A subagent message goes to the budget monitor under the session id the
+   * dispatcher and registry use. The effective subagent prompt-cache TTL is not
+   * visible to the executor (the options builder resolves it internally), so
+   * the monitor's default applies; real SDK messages carry the cache split.
+   */
+  private feedSubagentMonitor(message: SDKMessage): void {
+    const monitor = this.subagentMonitor;
+    if (!monitor) return;
+    const id =
+      'session_id' in message && typeof message.session_id === 'string'
+        ? message.session_id
+        : this.sessionId;
+    if (!id) return;
+    this.subagentIds.add(id);
+    // The executor runs observe() now; a synchronous throw becomes a rejection.
+    new Promise<void>((resolve) => resolve(monitor.observe(id, message))).catch((error: unknown) =>
+        this.warn('Subagent budget monitor failed', 'subagent-budget', error),
+      );
+  }
+
+  /**
+   * Whether the coordinator acts on this run's session (any state but
+   * OBSERVE_ONLY). Gates the watchdog's compaction dwell bound; an unknown
+   * session counts as observe-only, which never cuts a compaction.
+   */
+  controlsSession(): boolean {
+    const sessionId = this.sessionId;
+    if (this.released || !this.coordinator || sessionId === null) return false;
+    const state = this.coordinator.getState(sessionId);
+    return state !== undefined && state !== CompactionState.OBSERVE_ONLY;
+  }
+
+  /** Session end: drop every id this run tracked. Idempotent. */
+  release(): void {
+    if (this.released) return;
+    this.released = true;
+    for (const id of this.subagentIds) {
+      try {
+        this.subagentMonitor?.release(id);
+      } catch (error: unknown) {
+        this.warn(
+          'Subagent budget monitor failed on release',
+          'release',
+          error,
+        );
+      }
+    }
+    this.subagentIds.clear();
+    for (const id of this.trackedIds) {
+      this.guard('release', (c) => c.unregister(id));
+      try {
+        this.port?.release(id);
+      } catch (error: unknown) {
+        this.warn('Context-usage port failed on release', 'release', error);
+      }
+    }
+    this.trackedIds.clear();
+  }
+
+  /**
+   * A new id (first `init`, a fork, or a PostCompact rebind). When the hook
+   * already moved the record to this id the coordinator knows it and the tap
+   * only follows. The previous id stays tracked until release, so a rebind
+   * that lands after this message still finds its source record.
+   */
+  private bind(id: string): void {
+    this.sessionId = id;
+    this.trackedIds.add(id);
+    this.guard('register', (c) => {
+      if (c.getState(id) !== undefined) return;
+      const state = c.register(id, this.sessionClass);
+      this.logger.info(
+        '[SessionLifecycle] Compaction coordinator tracking session',
+        { sessionId: id, state, codexProxy: this.sessionClass.codexProxy },
+      );
+    });
+  }
+
+  private onTurnEnd(sessionId: string): void {
+    this.guard('turn-end', (c) => c.onTurnEnd(sessionId));
+    const port = this.port;
+    const query = this.query;
+    if (!port || !query) return;
+    this.turn += 1;
+    const turnId = `${this.runToken}:${this.turn}`;
+    // The executor reads now; a synchronous throw becomes a rejection.
+    new Promise<ContextUsageReading | undefined>((resolve) =>
+      resolve(port.readAtTurnEnd(sessionId, turnId, query)),
+    )
+      .then((reading) => {
+        if (!reading || this.released) return;
+        this.guard('context-usage', (c) =>
+          c.onContextUsage(sessionId, reading),
+        );
+      })
+      .catch((error: unknown) =>
+        this.warn('Context-usage port failed at turn end', 'turn-end', error),
+      );
+  }
+
+  private guard(
+    event: string,
+    fn: (coordinator: CompactionCoordinatorSink) => unknown,
+  ): void {
+    if (!this.coordinator) return;
+    try {
+      fn(this.coordinator);
+    } catch (error: unknown) {
+      this.warn('Compaction coordinator failed', event, error);
+    }
+  }
+
+  private warn(text: string, event: string, error: unknown): void {
+    this.logger.warn(`[SessionLifecycle] ${text}; the turn continues`, {
+      event,
+      sessionId: this.sessionId,
+      error: error instanceof Error ? error.name : typeof error,
+    });
+  }
+}
+
+/** The run's watchdog, also feeding every stream message to the compaction tap. */
+class CompactionObservingWatchdog extends NoActivityWatchdog {
+  constructor(
+    private readonly tap: CompactionSessionTap,
+    timeoutMs: number,
+    onTimeout: (cause: WatchdogTimeoutCause) => void,
+    onOverdue: (operations: readonly string[]) => void,
+  ) {
+    // The dwell bound applies only where the coordinator acts (TASK_2026_597
+    // S1); an OBSERVE_ONLY session keeps B8's "report overdue, keep waiting".
+    super(timeoutMs, onTimeout, onOverdue, () => tap.controlsSession());
+  }
+
+  override observe(message: SDKMessage): void {
+    super.observe(message);
+    this.tap.observe(message);
+  }
+}
+
 export class SessionQueryExecutor {
   constructor(
     private readonly logger: Logger,
@@ -154,6 +398,13 @@ export class SessionQueryExecutor {
       HarnessPolicySync,
       'apply'
     > | null = null,
+    /**
+     * A8 compaction coordinator and per-turn context reader (TASK_2026_597).
+     * Optional: without them the run keeps no compaction bookkeeping.
+     */
+    private readonly compactionCoordinator: CompactionCoordinatorSink | null = null,
+    private readonly contextUsagePort: IContextUsagePort | null = null,
+    private readonly subagentBudgetMonitor: SubagentBudgetSink | null = null,
   ) {}
 
   /**
@@ -256,16 +507,39 @@ export class SessionQueryExecutor {
     const providerBaseUrl =
       effectiveAuthEnv.ANTHROPIC_BASE_URL?.trim() || 'default';
     const providerModel = sessionConfig?.model ?? 'unknown';
-    const activityWatchdog = new NoActivityWatchdog(
+    // The Codex proxy path and every class whose E2 has not passed (all of
+    // them today: `e2Passed` is null) register OBSERVE_ONLY.
+    const compactionTap = new CompactionSessionTap(
+      this.logger,
+      this.compactionCoordinator,
+      this.contextUsagePort,
+      {
+        codexProxy: rec.capacityRoute?.providerId === 'openai-codex',
+        e2Passed: null,
+      },
+      rec.token,
+      this.subagentBudgetMonitor,
+    );
+    abortController.signal.addEventListener(
+      'abort',
+      () => compactionTap.release(),
+      { once: true },
+    );
+    const activityWatchdog = new CompactionObservingWatchdog(
+      compactionTap,
       NO_ACTIVITY_TIMEOUT_MS,
-      () => {
+      (cause) => {
         if (abortController.signal.aborted) {
           return;
         }
         const seconds = Math.round(NO_ACTIVITY_TIMEOUT_MS / 1000);
+        const dwellSeconds = Math.round(COMPACTION_MAX_DWELL_MS / 1000);
         this.logger.error(
-          `[SessionLifecycle] Session ${sessionId} produced no stream activity for ${seconds}s — ` +
-            `recovering unaccounted silence; liveness unknown (requestedModel=${providerModel}, resolvedModel=${rec.currentModel})`,
+          cause === 'compaction-dwell'
+            ? `[SessionLifecycle] Session ${sessionId} compaction did not finish within ${dwellSeconds}s — ` +
+                `stopping for recovery (requestedModel=${providerModel}, resolvedModel=${rec.currentModel})`
+            : `[SessionLifecycle] Session ${sessionId} produced no stream activity for ${seconds}s — ` +
+                `recovering unaccounted silence; liveness unknown (requestedModel=${providerModel}, resolvedModel=${rec.currentModel})`,
         );
         // Invariant (session-lifecycle-abort / stream-closed-abort): resolve
         // pending permissions BEFORE the abort tears down the CLI stream, so
@@ -289,10 +563,14 @@ export class SessionQueryExecutor {
         try {
           abortController.abort(
             new Error(
-              `No stream activity for ${seconds}s — no response from provider ` +
-                `(baseUrl="${providerBaseUrl}", model="${providerModel}"). ` +
-                `Unaccounted root inactivity; liveness is unknown. Stopping for recovery. The provider may be ` +
-                `unreachable or overloaded — check configuration or retry.`,
+              cause === 'compaction-dwell'
+                ? `Compaction did not finish within ${dwellSeconds}s ` +
+                  `(baseUrl="${providerBaseUrl}", model="${providerModel}"). ` +
+                  `Stopping for recovery; retry the turn.`
+                : `No stream activity for ${seconds}s — no response from provider ` +
+                  `(baseUrl="${providerBaseUrl}", model="${providerModel}"). ` +
+                  `Unaccounted root inactivity; liveness is unknown. Stopping for recovery. The provider may be ` +
+                  `unreachable or overloaded — check configuration or retry.`,
             ),
           );
         } catch (abortErr) {
@@ -443,6 +721,7 @@ export class SessionQueryExecutor {
         queryOptions.options as Options,
       );
       const sdkQuery: Query = runResult.sdkQuery;
+      compactionTap.attachQuery(sdkQuery);
       const initialModel = queryOptions.options.model ?? '';
       rec.currentModel = initialModel;
       if (isResume) {

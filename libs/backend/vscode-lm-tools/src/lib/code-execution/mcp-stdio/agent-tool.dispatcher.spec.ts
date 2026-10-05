@@ -574,7 +574,7 @@ describe('AgentToolDispatcher — result budget', () => {
   function spoolFiles(): string[] {
     const dir = path.join(spoolRoot, '.ptah', 'tmp', 'mcp-out');
     return fs.existsSync(dir)
-      ? fs.readdirSync(dir).map((name) => path.join(dir, name))
+      ? fs.readdirSync(dir).filter((n) => n !== '.gitignore').map((name) => path.join(dir, name))
       : [];
   }
 

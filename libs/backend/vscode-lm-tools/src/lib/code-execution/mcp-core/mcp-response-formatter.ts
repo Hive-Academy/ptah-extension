@@ -1930,6 +1930,9 @@ export function formatAgentStatus(
         `**Task:** ${task}`,
         `**Started:** ${a.startedAt}`,
       ];
+      if (a.stopReason) {
+        lines.push(`**Stop Reason:** ${a.stopReason}`);
+      }
       const roleLine = formatRoleLine(a);
       if (roleLine) {
         lines.push(roleLine);

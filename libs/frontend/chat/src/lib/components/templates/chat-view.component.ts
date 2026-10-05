@@ -1314,6 +1314,33 @@ export class ChatViewComponent implements OnDestroy {
     }
   }
 
+  /**
+   * "Rotate session": same handoff as "Continue in new session", but the seed
+   * is only placed in the new tab's composer; the user sends it.
+   */
+  protected async onBudgetRotate(): Promise<void> {
+    const result = await this.runBudgetAction('preview-handoff');
+    if (!result) return;
+    const seed = result.handoff?.seed;
+    if (!seed) {
+      this.showActionError(
+        'The handoff is not ready yet. Please try again.',
+        this.resolvedTabId(),
+      );
+      return;
+    }
+    const tabId = this._tabManager.createTab();
+    const grid = this._appState.layoutMode() === 'grid';
+    if (grid) {
+      this._appState.requestCanvasTab(
+        tabId,
+        this._tabManager.activeWorkspacePath,
+      );
+    }
+    // Only canvas tiles have SESSION_CONTEXT; null targets the main panel.
+    this._appState.requestComposerPrefill(seed, grid ? tabId : null);
+  }
+
   /** One `session:budgetAction` call; returns the result only on success. */
   private async runBudgetAction(
     action: SessionBudgetAction,

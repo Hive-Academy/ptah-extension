@@ -1675,6 +1675,53 @@ describe('AgentMonitorStore', () => {
       expect(typeof v.estimatedCostUsd).toBe('number');
     });
 
+    it('uses the backend contextTokens when present, ignoring the local sum', () => {
+      start();
+      store.onSubagentMessageComplete(
+        complete('m1', {
+          input: 3,
+          output: 30,
+          cacheRead: 40_000,
+          cacheCreation: 500,
+          contextTokens: 12_345,
+        }),
+      );
+
+      expect(view().contextTokens).toBe(12_345);
+    });
+
+    it('uses the backend contextTokens even when cache fields are absent', () => {
+      start();
+      store.onSubagentMessageComplete(
+        complete('m1', { input: 3, output: 30, contextTokens: 777 }),
+      );
+
+      expect(view().contextTokens).toBe(777);
+    });
+
+    it('falls back to the local sum when a later event lacks contextTokens', () => {
+      start();
+      store.onSubagentMessageComplete(
+        complete('m1', {
+          input: 1,
+          output: 1,
+          cacheRead: 1,
+          cacheCreation: 1,
+          contextTokens: 9_999,
+        }),
+      );
+      store.onSubagentMessageComplete(
+        complete('m2', {
+          input: 3,
+          output: 30,
+          cacheRead: 40_000,
+          cacheCreation: 500,
+        }),
+      );
+
+      expect(view().contextTokens).toBe(3 + 40_000 + 500);
+    });
+
     it('replaces a repeated report of the same message instead of adding it again', () => {
       start();
       store.onSubagentMessageComplete(

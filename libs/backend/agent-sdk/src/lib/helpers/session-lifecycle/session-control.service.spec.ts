@@ -356,6 +356,10 @@ describe('SessionControl.applyAutoCompactConfig — live compaction.threshold ch
       enabled: true,
       contextTokenThreshold: 300_000,
       envWindow: null,
+      toolOutputBudgetTokens: 2500,
+      subagentHandoffTokens: 150_000,
+      rotationSuggestTokens: 300_000,
+      subagentStopWeightedTokens: 3_000_000,
     });
 
     expect(first).toHaveBeenCalledWith({ autoCompactWindow: 300_000 });
@@ -371,6 +375,10 @@ describe('SessionControl.applyAutoCompactConfig — live compaction.threshold ch
       enabled: true,
       contextTokenThreshold: null,
       envWindow: null,
+      toolOutputBudgetTokens: 2500,
+      subagentHandoffTokens: 150_000,
+      rotationSuggestTokens: 300_000,
+      subagentStopWeightedTokens: 3_000_000,
     });
 
     expect(apply).toHaveBeenCalledWith({ autoCompactWindow: null });
@@ -385,6 +393,10 @@ describe('SessionControl.applyAutoCompactConfig — live compaction.threshold ch
       enabled: false,
       contextTokenThreshold: 300_000,
       envWindow: null,
+      toolOutputBudgetTokens: 2500,
+      subagentHandoffTokens: 150_000,
+      rotationSuggestTokens: 300_000,
+      subagentStopWeightedTokens: 3_000_000,
     });
 
     expect(apply).not.toHaveBeenCalled();
@@ -400,6 +412,10 @@ describe('SessionControl.applyAutoCompactConfig — live compaction.threshold ch
       enabled: true,
       contextTokenThreshold: 200_000,
       envWindow: null,
+      toolOutputBudgetTokens: 2500,
+      subagentHandoffTokens: 150_000,
+      rotationSuggestTokens: 300_000,
+      subagentStopWeightedTokens: 3_000_000,
     });
 
     expect(apply).toHaveBeenCalledTimes(1);
@@ -417,6 +433,10 @@ describe('SessionControl.applyAutoCompactConfig — live compaction.threshold ch
         enabled: true,
         contextTokenThreshold: 200_000,
         envWindow: null,
+        toolOutputBudgetTokens: 2500,
+        subagentHandoffTokens: 150_000,
+        rotationSuggestTokens: 300_000,
+        subagentStopWeightedTokens: 3_000_000,
       }),
     ).resolves.toBeUndefined();
 
@@ -442,6 +462,10 @@ describe('SessionControl.applyAutoCompactConfig — live compaction.threshold ch
         enabled: true,
         contextTokenThreshold: 200_000,
         envWindow: null,
+        toolOutputBudgetTokens: 2500,
+        subagentHandoffTokens: 150_000,
+        rotationSuggestTokens: 300_000,
+        subagentStopWeightedTokens: 3_000_000,
       });
       await jest.advanceTimersByTimeAsync(5000);
       await done;
@@ -474,6 +498,10 @@ describe('SessionControl.applySessionAutoCompactWindow — E2-gated tighten (TAS
       enabled: true,
       contextTokenThreshold: null,
       envWindow: null,
+      toolOutputBudgetTokens: 2500,
+      subagentHandoffTokens: 150_000,
+      rotationSuggestTokens: 300_000,
+      subagentStopWeightedTokens: 3_000_000,
       ...over,
     };
   }

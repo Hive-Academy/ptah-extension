@@ -227,6 +227,12 @@ export type {
   ClaudePlanUsage,
 } from './lib/helpers/plan-limits/session-quota-probe.service';
 export { parseQuotaOwnerRef } from './lib/helpers/plan-limits/quota-owner-ref.schema';
+export {
+  adviseSubagentResume,
+  type SubagentBudgetMonitor,
+  type SubagentResumeAdvice,
+  type SubagentResumeAdviceInput,
+} from './lib/helpers';
 export { SdkModuleLoader, SubagentHookHandler } from './lib/helpers';
 export {
   SdkAdapterEvents,

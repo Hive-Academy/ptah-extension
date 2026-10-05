@@ -97,6 +97,8 @@ interface SubagentRequestUsage {
   readonly output: number;
   readonly cacheRead?: number;
   readonly cacheWrite?: number;
+  /** Backend-computed context of this request; wins over the local sum. */
+  readonly contextTokens?: number;
   readonly model?: string;
 }
 
@@ -164,6 +166,7 @@ function readRequestUsage(
         readonly output?: unknown;
         readonly cacheRead?: unknown;
         readonly cacheCreation?: unknown;
+        readonly contextTokens?: unknown;
       }
     | undefined;
   if (!raw || !isTokenCount(raw.input) || !isTokenCount(raw.output)) {
@@ -174,6 +177,9 @@ function readRequestUsage(
     output: raw.output,
     cacheRead: isTokenCount(raw.cacheRead) ? raw.cacheRead : undefined,
     cacheWrite: isTokenCount(raw.cacheCreation) ? raw.cacheCreation : undefined,
+    contextTokens: isTokenCount(raw.contextTokens)
+      ? raw.contextTokens
+      : undefined,
     model: event.model || undefined,
   };
 }
@@ -205,10 +211,13 @@ function sumRequestUsage(
     model = request.model ?? model;
     last = request;
   }
+  // The backend figure is the only one when present; the local sum is the
+  // fallback for events from an older host.
   const lastRequestContextTokens =
-    last && last.cacheRead !== undefined && last.cacheWrite !== undefined
+    last?.contextTokens ??
+    (last && last.cacheRead !== undefined && last.cacheWrite !== undefined
       ? last.input + last.cacheRead + last.cacheWrite
-      : undefined;
+      : undefined);
   return {
     input,
     output,

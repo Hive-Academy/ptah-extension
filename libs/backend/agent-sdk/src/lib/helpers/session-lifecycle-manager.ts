@@ -56,7 +56,12 @@ import {
   type BindRealSessionIdOutcome,
 } from './session-lifecycle/session-registry.service';
 import { SessionStreamPump } from './session-lifecycle/session-stream-pump.service';
-import { SessionQueryExecutor } from './session-lifecycle/session-query-executor.service';
+import {
+  SessionQueryExecutor,
+  type CompactionCoordinatorSink,
+  type SubagentBudgetSink,
+} from './session-lifecycle/session-query-executor.service';
+import type { IContextUsagePort } from './compaction/context-usage.port';
 import { SessionControl } from './session-lifecycle/session-control.service';
 import type { SessionEndCallbackRegistry } from './session-end-callback-registry';
 import type { SdkQueryRunner } from './sdk-query-runner.service';
@@ -72,9 +77,12 @@ export type {
 
 /**
  * The part of the SDK's `SDKControlGetContextUsageResponse` Ptah reads.
- * `autoCompactThreshold` is optional in the SDK type as well.
+ * `autoCompactThreshold` is optional in the SDK type as well. `totalTokens`
+ * and `maxTokens` feed the per-turn `ContextUsagePort`.
  */
 export interface ContextUsageReadBack {
+  readonly totalTokens: number;
+  readonly maxTokens: number;
   readonly autoCompactThreshold?: number;
   readonly isAutoCompactEnabled: boolean;
 }
@@ -114,7 +122,9 @@ export interface Query {
    * OPTIONAL so query fakes without it keep compiling; a caller treats a
    * query without it as unable to verify.
    */
-  getContextUsage?(): Promise<ContextUsageReadBack>;
+  getContextUsage?(opts?: {
+    detail?: 'summary' | 'full';
+  }): Promise<ContextUsageReadBack>;
   /** Stream input messages to the query */
   streamInput(stream: AsyncIterable<SDKUserMessage>): Promise<void>;
   /**
@@ -379,6 +389,13 @@ export class SessionLifecycleManager {
     private readonly configManager: ConfigManager | null = null,
     @inject(SDK_TOKENS.SDK_COMPACTION_CONFIG_PROVIDER, { isOptional: true })
     private readonly compactionConfigProvider: CompactionConfigProvider | null = null,
+    /** A8 coordinator and per-turn context reader, handed to the executor. */
+    @inject(SDK_TOKENS.SDK_COMPACTION_COORDINATOR, { isOptional: true })
+    private readonly compactionCoordinator: CompactionCoordinatorSink | null = null,
+    @inject(SDK_TOKENS.SDK_CONTEXT_USAGE_PORT, { isOptional: true })
+    private readonly contextUsagePort: IContextUsagePort | null = null,
+    @inject(SDK_TOKENS.SDK_SUBAGENT_BUDGET_MONITOR, { isOptional: true })
+    private readonly subagentBudgetMonitor: SubagentBudgetSink | null = null,
   ) {
     this._registry = new SessionRegistry(this.logger);
     this._streamPump = new SessionStreamPump(
@@ -398,6 +415,9 @@ export class SessionLifecycleManager {
       this.queryRunner,
       this.capabilityResolver,
       this.harnessPolicySync,
+      this.compactionCoordinator,
+      this.contextUsagePort,
+      this.subagentBudgetMonitor,
     );
     const compactionProvider = this.compactionConfigProvider;
     this._control = new SessionControl(

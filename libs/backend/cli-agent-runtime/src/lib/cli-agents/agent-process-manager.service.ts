@@ -35,6 +35,7 @@ import type {
   CliSessionReference,
   FlatStreamEventUnion,
   QuotaOwnerRef,
+  LaneStopReason,
 } from '@ptah-extension/shared';
 import { killProcessTree } from '@ptah-extension/platform-core';
 import {
@@ -70,6 +71,8 @@ import {
   collectHandoffCarryOver,
   type LaneResumeGate,
 } from './lane-resume-gate';
+import { LaneBudgetGuard } from './lane-budget-guard';
+import { findBlockedLaneModel } from './lane-spawn-policy';
 import { CLI_AGENT_RUNTIME_TOKENS } from '../di/tokens';
 import type { TrackedAgent } from './tracked-agent';
 import {
@@ -232,9 +235,29 @@ export class AgentContinueError extends Error {
   }
 }
 
+/**
+ * Thrown by a spawn whose resolved model is on the lane block list
+ * (TASK_2026_597, R9.5). Raised before the adapter's `runSdk`, so nothing is
+ * started. Extends `Error` directly, like every other error in this lib.
+ */
+export class LaneModelBlockedError extends Error {
+  constructor(readonly model: string) {
+    super(
+      `Model \`${model}\` is blocked for lanes because it is known to loop. Choose another model.`,
+    );
+    this.name = 'LaneModelBlockedError';
+  }
+}
+
 @injectable()
 export class AgentProcessManager {
   private readonly agents = new Map<string, TrackedAgent>();
+  /**
+   * One tool-call budget guard per running lane (TASK_2026_597, component 16),
+   * keyed by agent id. Added in {@link trackSdkHandle}, dropped by
+   * {@link releaseLaneGuard} on whichever path ends the lane.
+   */
+  private readonly laneGuards = new Map<string, LaneBudgetGuard>();
   /** Counter for in-flight spawn operations (not yet in agents map) */
   private spawning = 0;
   /** Promise-based mutex to serialize spawn operations and prevent TOCTOU race in concurrent limit check */
@@ -513,6 +536,17 @@ export class AgentProcessManager {
     const startedAt = new Date().toISOString();
     const laneModel = this.spawnEnvironment.resolveModel(cli, request.model);
     const resolvedModel = laneModel.model;
+    // R9.5: refuse a model known to loop before anything is started — no
+    // record, no event, no adapter call.
+    const blockedModel = findBlockedLaneModel(resolvedModel);
+    if (blockedModel !== undefined) {
+      this.logger.warn('[AgentProcessManager] Lane model blocked', {
+        cli,
+        model: resolvedModel,
+        blockedModel,
+      });
+      throw new LaneModelBlockedError(resolvedModel ?? blockedModel);
+    }
     const roleDefinition = request.roleDefinition;
     const laneEffort = this.spawnEnvironment.resolveReasoningEffort(cli, {
       effort: request.effort,
@@ -555,6 +589,10 @@ export class AgentProcessManager {
     // R2.5: one line per spawn naming the model and effort and what produced
     // each. Codex lanes add the binary version and the state of the lane's
     // config prefix; the line is re-emitted if Codex rejects that prefix.
+    // Logged BEFORE `runSdk` on purpose, so a spawn that fails still leaves
+    // its policy in the log: `prefixKeys: 'applied'` therefore means "the
+    // prefix keys are passed to the adapter", not "Codex accepted them". A
+    // rejection is reported afterwards by the `dropped (config rejected)` line.
     const lanePolicy = {
       agentId,
       cli,
@@ -564,8 +602,10 @@ export class AgentProcessManager {
       effortStep: laneEffort.step,
       ...(laneEffort.ignored.length > 0
         ? {
+            // Bounded: an ignored value is unvalidated setting or request text.
             ignoredEfforts: laneEffort.ignored.map(
-              (entry) => `step ${entry.step}: ${entry.value}`,
+              (entry) =>
+                `step ${entry.step}: ${String(entry.value).slice(0, 32)}`,
             ),
           }
         : {}),
@@ -791,6 +831,12 @@ export class AgentProcessManager {
       );
     });
     if (sdkHandle.onSegment) {
+      // Only a handle that streams segments can show its tool calls, so only
+      // such a lane gets a budget guard.
+      this.laneGuards.set(
+        agentId,
+        new LaneBudgetGuard(this.spawnEnvironment.resolveLaneGuardThresholds()),
+      );
       sdkHandle.onSegment((segment: CliOutputSegment) => {
         this.outputBuffer.appendSegment(
           agentId,
@@ -799,6 +845,7 @@ export class AgentProcessManager {
           onFlushDue,
         );
         this.recordRequestContext(tracked, segment);
+        this.applyLaneGuard(agentId, segment);
         if (captureSessionId) {
           const sessionId = captureSessionId();
           if (sessionId && sessionId !== tracked.info.cliSessionId) {
@@ -889,6 +936,100 @@ export class AgentProcessManager {
     });
     this.events.emit('agent:quota-owner', tracked.info);
     return true;
+  }
+
+  /**
+   * Feed one segment to the lane's budget guard and carry out what it asks
+   * for. A lane that is no longer running is left alone: its ending already
+   * happened on another path.
+   */
+  private applyLaneGuard(agentId: string, segment: CliOutputSegment): void {
+    const guard = this.laneGuards.get(agentId);
+    if (!guard) return;
+    if (this.agents.get(agentId)?.info.status !== 'running') return;
+
+    const action = guard.observe(segment);
+    if (action.kind === 'steer') {
+      this.steerLane(agentId, action.message, guard.toolCallCount);
+    } else if (action.kind === 'stop') {
+      void this.stopLaneForBudget(
+        agentId,
+        action.stopReason,
+        guard.toolCallCount,
+      );
+    }
+  }
+
+  /**
+   * Deliver the guard's one steer message as a mid-turn steer, and only that.
+   * It never goes through {@link sendToAgent}: a queued turn would run after
+   * the lane finished (overwriting its report), and interrupt-resume would
+   * discard the running turn's work. A handle without `steer` is logged once
+   * (the guard asks once per turn) and the stop threshold still ends the lane.
+   */
+  private steerLane(agentId: string, message: string, toolCalls: number): void {
+    const handle = this.agents.get(agentId)?.sdkHandle;
+    if (!handle?.steer) {
+      this.logger.warn(
+        '[AgentProcessManager] Lane budget steer not delivered (no mid-turn steer); the stop threshold still applies',
+        { agentId, toolCalls },
+      );
+      return;
+    }
+    try {
+      handle.steer(message);
+      this.logger.info('[AgentProcessManager] Lane budget steer sent', {
+        agentId,
+        toolCalls,
+      });
+    } catch (error: unknown) {
+      this.logger.warn(
+        '[AgentProcessManager] Lane budget steer failed; the stop threshold still applies',
+        {
+          agentId,
+          toolCalls,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      );
+    }
+  }
+
+  /**
+   * Stop a lane the guard gave up on, through the ordinary {@link stop} path,
+   * with `stopReason` stamped on the record.
+   */
+  private async stopLaneForBudget(
+    agentId: string,
+    stopReason: LaneStopReason,
+    toolCalls: number,
+  ): Promise<void> {
+    const tracked = this.agents.get(agentId);
+    if (!tracked || tracked.info.status !== 'running') return;
+
+    this.logger.warn('[AgentProcessManager] Lane budget exceeded; stopping', {
+      agentId,
+      stopReason,
+      toolCalls,
+    });
+    // Stamped before `stop`, which spreads `tracked.info` into the terminal
+    // record, the completion signal and `agent:exited`.
+    tracked.info = { ...tracked.info, stopReason };
+    // A queued caller message must not start a new turn once the lane is stopped.
+    this.messageRouter.discardPending(agentId, tracked);
+    try {
+      await this.stop(agentId);
+    } catch (error: unknown) {
+      this.logger.error('[AgentProcessManager] Lane budget stop failed', {
+        agentId,
+        stopReason,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  /** Drop a lane's budget guard. Idempotent; every lane-ending path calls it. */
+  private releaseLaneGuard(agentId: string): void {
+    this.laneGuards.delete(agentId);
   }
 
   /**
@@ -1584,6 +1725,10 @@ export class AgentProcessManager {
       completedAt: undefined,
       exitCode: undefined,
     };
+    // Every turn started here carries a caller's message (the guard's steer is
+    // mid-turn only and never starts a turn), so the new task gets a fresh
+    // budget and its own steer.
+    this.laneGuards.get(agentId)?.reset();
     this.armInactivityWatchdog(agentId, tracked);
 
     this.events.emit('agent:spawned', tracked.info);
@@ -1673,6 +1818,7 @@ export class AgentProcessManager {
       status: 'stopped',
       completedAt: new Date().toISOString(),
     };
+    this.releaseLaneGuard(agentId);
     this.signalLaneCompletion(tracked);
     await this.killProcess(tracked);
     tracked.subprocessReleased = true;
@@ -1753,6 +1899,7 @@ export class AgentProcessManager {
     }
 
     this.agents.clear();
+    this.laneGuards.clear();
     this.logger.info(`[AgentProcessManager] ${entries.length} agents disposed`);
   }
 
@@ -1911,6 +2058,7 @@ export class AgentProcessManager {
       status: 'timeout',
       completedAt: new Date().toISOString(),
     };
+    this.releaseLaneGuard(agentId);
     // BEFORE the kill, not after: on the SDK path the kill is an abort whose
     // `done` promise is what reaches `handleExit`, and an adapter that never
     // settles it would leave the timeout unsignalled — the exact silence this
@@ -2002,6 +2150,7 @@ export class AgentProcessManager {
     // Set BEFORE the await: killProcess yields, and a second caller arriving in
     // that window would issue a duplicate abort and a duplicate tree-kill.
     tracked.subprocessReleased = true;
+    this.releaseLaneGuard(agentId);
     // Nothing can deliver a queued message once the process is gone. Say so in
     // the log rather than leaving entries that look pending forever.
     this.messageRouter.discardPending(agentId, tracked);
@@ -2046,6 +2195,12 @@ export class AgentProcessManager {
     tracked.hasExited = true;
 
     clearTimeout(tracked.timeoutHandle);
+    // A continuation-capable lane can start another caller turn on this
+    // record, so its guard is kept (and reset by `continueConversation`) until
+    // the subprocess is released, stopped or timed out.
+    if (tracked.sdkHandle?.supportsContinuation?.() !== true) {
+      this.releaseLaneGuard(agentId);
+    }
     if (tracked.info.status === 'running') {
       const status: AgentStatus = code === 0 ? 'completed' : 'failed';
       const observedAt = Date.now();
