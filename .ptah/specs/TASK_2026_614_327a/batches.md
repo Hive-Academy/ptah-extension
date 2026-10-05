@@ -984,7 +984,7 @@ real code, a regression test per item).
 
 - Scoped checks for vscode-lm-tools.
 
-## Batch 22: Monitor rekey ordering, stop retry gate, executor rekey gaps (G.2, G.8) — PENDING
+## Batch 22: Monitor rekey ordering, stop retry gate, executor rekey gaps (G.2, G.8) — COMPLETE (8fb476857)
 
 - Recommended executor: backend-developer | Fallback: backend-developer (fresh run) | Execution mode: Sequential subagent
 - Model: Opus | Tasks: 7 | Depends on: Batch 16 | Group: P3 | Phase: G
@@ -996,38 +996,38 @@ real code, a regression test per item).
 - Note (team-leader, 2026-10-05): 7 files, one over the 6-file cap; accepted because the seventh is a comment-only
   edit. Rebase onto Batch 16's adapter changes (`onSessionEvicted` subscription, `stopEvictionRelease`).
 
-### Task 22.1: Alias the old id to the new id after `rekey` (G.2 / FM-2) — PENDING
+### Task 22.1: Alias the old id to the new id after `rekey` (G.2 / FM-2) — COMPLETE
 
 - `rekey` (358-384) records `from → to`; `sessionState` (391-404) resolves an aliased id; `release` clears aliases of
   both ids. Spec: an old-id message after rekey adds to the same state; after release no state is created.
 
-### Task 22.2: Retry a failed stop only on a new API message (FM-6) — PENDING
+### Task 22.2: Retry a failed stop only on a new API message (FM-6) — COMPLETE
 
 - Gate the retry at 326 on a new message id (or a minimum interval). Spec: three content blocks of one request → one
   attempt.
 
-### Task 22.3: Failure count respects a stop in flight (rereview m1, m3) — PENDING
+### Task 22.3: Failure count respects a stop in flight (rereview m1, m3) — COMPLETE
 
 - `onStopFailed` (534-535, 577-603) counts only when `liveState.stopInFlight` is false. Add the four specs rereview m3
   lists (reject across a merge, both in flight, fired-target preference, merged task text).
 
-### Task 22.4: Executor reads the current id; release covers the rekeyed id (FM-4, FM-5, FM-9) — PENDING
+### Task 22.4: Executor reads the current id; release covers the rekeyed id (FM-4, FM-5, FM-9) — COMPLETE
 
 - `session-query-executor.service.ts:354-366` uses the tap's current `sessionId` in the `.then`; release (303-328)
   covers the id learned from PostCompact and checks the run token (FM-9). Specs.
 
-### Task 22.5: The "already active" resume path passes the tap — PENDING
+### Task 22.5: The "already active" resume path passes the tap — COMPLETE
 
 - `sdk-agent-adapter.ts:945-971`: pass `onMessage`/`onStreamEnd` as the other three call sites do. Spec.
 
-### Task 22.6: Fix the pre-existing `session-query-executor.service.spec.ts` compile error — PENDING
+### Task 22.6: Fix the pre-existing `session-query-executor.service.spec.ts` compile error — COMPLETE
 
 - `session-query-executor.service.spec.ts:991`: TS2554, `new StreamTransformer(...)` passes 7 args, the constructor
   takes 8 (`planLimits`, `stream-transformer.ts:375`). Fails on clean main 55f245619 too; it was the only allowed
   agent-sdk test failure for Batches 16-18. Pass the missing argument as the other specs do; the suite must compile
   and pass, so the agent-sdk test target exits 0 again.
 
-### Task 22.7: Document the late capper work after the timeout (FM-7, moved from Task 18.4) — PENDING
+### Task 22.7: Document the late capper work after the timeout (FM-7, moved from Task 18.4) — COMPLETE
 
 - User decision G-E, option (a) only: a comment at `post-tool-use-hook-handler.ts:136-148` (the race in
   `capToolOutput`) saying the capper keeps running after a timeout or abort, its late result is discarded, and this is
@@ -1328,3 +1328,15 @@ until they are answered. G.8's Batch 13 screenshots go to Stage C.
 - Batch 19 adds a new UI string for a settings write timeout ("Could not confirm saving <label>. Reopen settings to see the saved value.") not covered by decision F-B; phase review must judge it.
 - Batch 19 touched out-of-list test stub session-budget-banner.component.spec.ts (test-only, accepted).
 - Batch 24 verified by direct jest + eslint (19 passed); nx ptah-cli check blocked by Batch 22 in-flight agent-sdk edits; rerun full ptah-cli check at phase end.
+- Batch 22 (8fb476857): executor used 84 tool calls (R1 breach; it reported ~50). Checks re-run by team-leader:
+  agent-sdk typecheck/lint/test exit 0 (146 suites, 3131 tests; the pre-existing TS2554 suite now passes), di-lint
+  exit 0. degradation-audit exit 1, but only from `libs/backend/tool-output-reducers/src/lib/output-budget/spool.ts:199`
+  (catch-return-sentinel), which is Batch 26's uncommitted in-flight edit; agent-sdk is at its baseline (4 of 4).
+  Batch 26 must clear it before its commit.
+- Deferred ptah-cli check from Batch 24 re-run after Batch 22: `nx run-many -t typecheck,lint,test -p ptah-cli` exit 0
+  (68 suites, 1124 tests).
+- Phase G review must judge two Batch 22 decisions: (1) Task 22.4 / FM-5 adds a public `currentSessionId` lookup on
+  `SubagentBudgetMonitor` (and on `SubagentBudgetSink`), so the executor tap learns the PostCompact id from the
+  monitor's alias map; a host without a monitor falls back to the old behaviour. (2) Task 22.1: once an id is
+  released, a message still arriving under the old id starts a fresh record under its own id, rather than a tombstone
+  blocking the id (a resumed run may reuse it).
