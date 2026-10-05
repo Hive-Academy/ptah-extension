@@ -3,6 +3,7 @@ import {
   Component,
   computed,
   effect,
+  inject,
   input,
   output,
   signal,
@@ -12,6 +13,7 @@ import type {
   SessionBudgetState,
   SessionBudgetWindowReason,
 } from '@ptah-extension/shared';
+import { SessionRotationKeepService } from '../../../services/session-rotation-keep.service';
 
 /** Stages that show a banner. `unknown` and `normal` show none. */
 type BannerStage = 'rotation' | 'tighten' | 'handoff' | 'limit';
@@ -192,8 +194,8 @@ export class SessionBudgetBannerComponent {
 
   protected readonly previewOpen = signal(false);
 
-  /** `sessionId:threshold` keys the user chose to keep; local, no RPC. */
-  private readonly keptKeys = signal<ReadonlySet<string>>(new Set());
+  /** Kept rotation keys live in a root store; this banner is rebuilt on tab switches. */
+  private readonly rotationKeep = inject(SessionRotationKeepService);
 
   constructor() {
     // Forget a session's kept keys once its rotation advisory is gone, so a
@@ -201,14 +203,7 @@ export class SessionBudgetBannerComponent {
     effect(() => {
       const budget = this.budget();
       if (!budget || budget.rotation) return;
-      const prefix = `${budget.sessionId}:`;
-      untracked(() => {
-        const kept = this.keptKeys();
-        if (![...kept].some((key) => key.startsWith(prefix))) return;
-        this.keptKeys.set(
-          new Set([...kept].filter((key) => !key.startsWith(prefix))),
-        );
-      });
+      untracked(() => this.rotationKeep.forgetSession(budget.sessionId));
     });
   }
 
@@ -221,7 +216,7 @@ export class SessionBudgetBannerComponent {
       budget.rotation &&
       stage !== 'handoff' &&
       stage !== 'limit' &&
-      !this.keptKeys().has(this.rotationKey(budget))
+      !this.rotationKeep.isKept(budget.sessionId, budget.rotation.threshold)
     ) {
       return 'rotation';
     }
@@ -275,12 +270,7 @@ export class SessionBudgetBannerComponent {
   protected keepSession(): void {
     const budget = this.budget();
     if (!budget?.rotation) return;
-    const key = this.rotationKey(budget);
-    this.keptKeys.update((kept) => new Set(kept).add(key));
-  }
-
-  private rotationKey(budget: SessionBudgetState): string {
-    return `${budget.sessionId}:${budget.rotation?.threshold ?? 0}`;
+    this.rotationKeep.keep(budget.sessionId, budget.rotation.threshold);
   }
 
   protected togglePreview(): void {
