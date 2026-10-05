@@ -831,8 +831,8 @@ export class SubagentRegistryService {
    *
    * - `bound`: exactly one held start names the id; it is registered under the
    *   Task's toolCallId, so stop, steer and the budget stop can reach it.
-   * - `already-registered`: the toolCallId already has a record; nothing held
-   *   for the same agent is kept.
+   * - `already-registered`: the toolCallId already has a record; held starts
+   *   of that record's own parent-session key are dropped.
    * - `ambiguous`: several held starts (different parent sessions) name the
    *   id; guessing would route stop to the wrong agent, so it stays unbound.
    * - `no-held-start`: nothing held names the id.
@@ -888,8 +888,14 @@ export class SubagentRegistryService {
   }
 
   /**
-   * Drop any held SubagentStart for this agent — its SubagentStop arrived
+   * Drop held SubagentStarts for this agent — its SubagentStop arrived
    * first, so there is no running agent left to bind.
+   *
+   * The scope is one exact parent-session key, never "every session": an
+   * unresolved parent session drops only starts that were themselves held
+   * without a resolved session; a resolved id drops only that session's. A
+   * held start of another session survives until its own Task result binds
+   * it (PR #655).
    */
   discardHeldUnboundStarts(agentId: string, parentSessionId?: string): void {
     const count = this.store.discardHeldUnboundStarts(agentId, parentSessionId);

@@ -22,6 +22,7 @@
 
 import type { Logger } from '../../logging';
 import type { SubagentRecord } from '@ptah-extension/shared';
+import { blankToUndefined } from '@ptah-extension/shared';
 
 /**
  * TTL for subagent records: 24 hours.
@@ -41,7 +42,13 @@ export const CLEANUP_INTERVAL_MS = 60 * 60 * 1000;
 export interface HeldUnboundStart {
   readonly agentId: string;
   readonly agentType: string;
-  readonly parentSessionId: string;
+  /**
+   * Parent session the start arrived under; `undefined` when it could not
+   * be resolved. An unresolved id is the start's OWN parent-session key —
+   * a discard carrying one matches only these starts — never a wildcard
+   * over every session's held starts (PR #655).
+   */
+  readonly parentSessionId?: string;
   /** Unix epoch ms the start arrived; becomes the record's `startedAt`. */
   readonly startedAt: number;
 }
@@ -316,12 +323,18 @@ export class SubagentStateStore {
     return undefined;
   }
 
-  /** Hold a SubagentStart that no record could claim (see heldUnboundStarts). */
+  /**
+   * Hold a SubagentStart that no record could claim (see heldUnboundStarts).
+   *
+   * A blank parent session is absent, not a session: it is normalised to
+   * the unresolved key, so `''` and a missing id hold and discard as one.
+   */
   holdUnboundStart(start: HeldUnboundStart): void {
+    const parentSessionId = blankToUndefined(start.parentSessionId);
     const held = this.heldUnboundStarts.get(start.agentId) ?? [];
     this.heldUnboundStarts.set(start.agentId, [
-      ...held.filter((h) => h.parentSessionId !== start.parentSessionId),
-      start,
+      ...held.filter((h) => h.parentSessionId !== parentSessionId),
+      { ...start, parentSessionId },
     ]);
   }
 
@@ -335,16 +348,22 @@ export class SubagentStateStore {
     return this.heldUnboundStarts.size > 0;
   }
 
-  /** Drop held starts for an agent, optionally limited to one parent session. */
+  /**
+   * Drop held starts for an agent, scoped to one exact parent-session key.
+   *
+   * The key is exact, never a wildcard. An unresolved parent session
+   * (`undefined`, or a blank id normalised to it) drops only starts that
+   * were themselves held without a resolved session; a resolved id drops
+   * only that session's. `undefined` used to mean "every session", which let
+   * a stop that could not attribute itself to a session lose another
+   * session's held start before its Task result bound it (PR #655).
+   *
+   * @returns How many held starts were dropped.
+   */
   discardHeldUnboundStarts(agentId: string, parentSessionId?: string): number {
     const held = this.heldUnboundStarts.get(agentId) ?? [];
-    if (parentSessionId === undefined) {
-      this.heldUnboundStarts.delete(agentId);
-      return held.length;
-    }
-    const retained = held.filter(
-      (start) => start.parentSessionId !== parentSessionId,
-    );
+    const key = blankToUndefined(parentSessionId);
+    const retained = held.filter((start) => start.parentSessionId !== key);
     const count = held.length - retained.length;
     if (retained.length === 0) this.heldUnboundStarts.delete(agentId);
     else this.heldUnboundStarts.set(agentId, retained);

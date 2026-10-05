@@ -52,6 +52,41 @@ describe('SubagentStateStore', () => {
     ]);
   });
 
+  it('treats an unresolved parent session as its own key, never every session', () => {
+    store.holdUnboundStart({
+      agentId: 'shared-agent', parentSessionId: 'parent-a', agentType: 'a', startedAt: 1,
+    });
+    store.holdUnboundStart({
+      agentId: 'shared-agent', agentType: 'held-without-a-session', startedAt: 2,
+    });
+
+    // PR #655: `undefined` used to drop every session's held start for the
+    // agent; it now drops only the one held without a resolved session, so
+    // parent-a's start survives until its own Task result binds it.
+    expect(store.discardHeldUnboundStarts('shared-agent', undefined)).toBe(1);
+    expect(store.getHeldUnboundStarts('shared-agent')).toEqual([
+      expect.objectContaining({ parentSessionId: 'parent-a' }),
+    ]);
+
+    // A resolved key still drops only that session's start.
+    store.holdUnboundStart({
+      agentId: 'shared-agent', agentType: 'held-without-a-session', startedAt: 3,
+    });
+    expect(store.discardHeldUnboundStarts('shared-agent', 'parent-a')).toBe(1);
+    expect(store.getHeldUnboundStarts('shared-agent')).toEqual([
+      expect.objectContaining({ agentType: 'held-without-a-session' }),
+    ]);
+  });
+
+  it('holds a blank parent session under the unresolved key', () => {
+    store.holdUnboundStart({
+      agentId: 'blank-agent', parentSessionId: '', agentType: 'a', startedAt: 1,
+    });
+
+    expect(store.discardHeldUnboundStarts('blank-agent')).toBe(1);
+    expect(store.getHeldUnboundStarts('blank-agent')).toEqual([]);
+  });
+
   describe('activity clock', () => {
     it('now() reads the injected clock on every call', () => {
       let t = 1_000;

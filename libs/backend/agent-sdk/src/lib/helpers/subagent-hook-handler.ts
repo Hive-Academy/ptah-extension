@@ -457,7 +457,13 @@ export class SubagentHookHandler {
 
       if (!record && input.agent_id) {
         // A start held for its Task result (F-F) has finished before any
-        // result bound it; binding it later would leave a running zombie.
+        // result bound it; binding it later would leave a running zombie,
+        // so the discard must run even when the parent session is
+        // unresolved. The id stays payload-first exactly like the hold, and
+        // unresolved stays `undefined` — its own exact key in the registry
+        // (starts held without a session), never "every session": another
+        // session's held start survives until its own Task result binds it
+        // (PR #655).
         this.subagentRegistry.discardHeldUnboundStarts(
           input.agent_id,
           this.resolveParentSessionId(input.session_id, parentSessionId) ??

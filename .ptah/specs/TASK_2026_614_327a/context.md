@@ -188,6 +188,10 @@ B-M1, B-M2, C-S1, style-S1. These Moderates are named later tasks (they cannot b
   text, duplicate-id reply, `.gitignore` suppression reset, unbounded `setConfigQueue` write, Electron kill before the
   final flush), review C m1-m8, the style Minors, and the 4 re-review Minors (e.g. the held-start binding check runs on every tool
   result, not only Task results).
+- H.14 PR 655 CodeRabbit fix 2, review M1 (`reviews/pr655-coderabbit-fix-2-review.md`): held-start discard now uses an
+  exact parent-session key, so a stop whose session is unresolved cannot discard a start that was held WITH a session;
+  that start can later bind as a running zombie. Option: when the stop's session is unresolved, discard only if exactly
+  one held start exists for that agentId. Two new specs also pass on the old code (strengthen them).
 - H.13 Process note: R1 breaches in this stage (Batch 16: 94, 22: 84, 33: 117, 25: 71, 29: 64, 28: 61, fix A: 77 tool
   calls); briefs for Stage A must split work smaller (about 4 files, at most 4 tasks per batch).
 

@@ -713,6 +713,56 @@ describe('SubagentHookHandler — SubagentStop parentSessionId rigour (TASK_2026
     },
   );
 
+  it.each([
+    ['a new-session closure', ''],
+    ['a one-shot query closure', undefined],
+  ])(
+    'drops only the held start without a session when a stop from %s resolves no parent session',
+    async (_description, closureParentSessionId) => {
+      const logger = makeLogger();
+      const registry = makeRegistry(null);
+      // State-store semantics: `undefined` is the no-session key, never
+      // "every session"; a resolved id is that session's exact key.
+      const heldStarts = new Set(['shared-agent:parent-a', 'shared-agent:']);
+      registry.discardHeldUnboundStarts.mockImplementation(
+        (agentId, parentSessionId) => {
+          heldStarts.delete(
+            parentSessionId
+              ? `${agentId}:${parentSessionId}`
+              : `${agentId}:`,
+          );
+        },
+      );
+      const handler = new SubagentHookHandler(
+        logger,
+        registry,
+        new SubagentStopCallbackRegistry(logger),
+        new SessionStatsOwnerService(),
+      );
+      // Neither the payload nor the closure carries a session id.
+      const fn = getStopCallback(handler, '/workspace', closureParentSessionId);
+
+      await fn(
+        stopInput({ agent_id: 'shared-agent', session_id: '' }),
+        undefined,
+        { signal: new AbortController().signal },
+      );
+
+      // The discard must still run — a held start left behind would bind
+      // later as a running zombie — but unresolved stays `undefined`, its
+      // own exact key: another session's held start survives until its own
+      // Task result binds it (PR #655).
+      expect(registry.discardHeldUnboundStarts).toHaveBeenCalledWith(
+        'shared-agent',
+        undefined,
+      );
+      expect(heldStarts.has('shared-agent:parent-a')).toBe(true);
+      // The start held without a session is gone: a later Task result naming
+      // this agent has no held start left to bind.
+      expect(heldStarts.has('shared-agent:')).toBe(false);
+    },
+  );
+
   it('falls back to the closure id when the payload session_id is empty', async () => {
     const logger = makeLogger();
     const registry = makeRegistry({ toolCallId: 'tu-1' });
