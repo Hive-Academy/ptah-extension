@@ -306,6 +306,17 @@ describe('ProviderAccountCardComponent', () => {
     expect(textOf(el)).toContain('cli-version-unsupported · Usage cannot be read');
   });
 
+  it('16c. unsupported-config, provider-unsupported and cli-unavailable each name themselves with their sentence', () => {
+    const el = render(snapshotOf(
+      owner('ollama-cloud', 'Ollama Cloud', { status: 'unsupported-config' }),
+      owner('some-provider', 'Some provider', { status: 'provider-unsupported' }),
+      owner('codex-y', 'Codex CLI', { status: 'cli-unavailable' }),
+    ));
+    expect(chipsIn(el, 'status-chip')).toEqual(['unsupported-config', 'provider-unsupported', 'cli-unavailable']);
+    expect(textOf(el)).toContain('cli-unavailable · Usage cannot be read: the provider CLI was not found.');
+    expect(rows(el)).toHaveLength(0);
+  });
+
   it('16b. the header wraps at narrow width: the status chip never truncates or overlaps the title', () => {
     const el = render(snapshotOf(owner('antigravity', 'Claude account', { status: 'service-unavailable' })));
     const header = el.querySelector('[data-testid="section-header"]') as HTMLElement;

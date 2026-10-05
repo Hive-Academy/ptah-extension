@@ -118,6 +118,54 @@ const SPAWNED: SpawnAgentResult = {
 const CODEX_STATE = '**Limit state:** near limit (5-hour session 94%)';
 const GLM_STATE = '**Limit state:** unknown (limit lookup timed out)';
 
+/** A Codex lane built from a snapshot, as `LaneLimitLookupService` would. */
+function codexLane(
+  overrides: Partial<{
+    windows: PlanLimitWindow[];
+    cooldown: { until: number; observedAt: number };
+  }>,
+): AgentLimit {
+  const owner = {
+    key: 'provider#account:c0de',
+    providerId: 'provider',
+    identityKind: 'account' as const,
+    label: 'Account',
+  };
+  const snapshot = {
+    owner,
+    status: 'available' as const,
+    windowSetEstablished: true,
+    windows: overrides.windows ?? [],
+    ownerEvidence: [],
+    ...(overrides.cooldown ? { cooldown: overrides.cooldown } : {}),
+  };
+  return {
+    row: CODEX_ROW,
+    lookup: 'ok',
+    owner,
+    snapshot,
+    state: classifyLaneState(applicableLimits(snapshot, null), {
+      now: NOW,
+      nearLimitPercent: NEAR_LIMIT_PERCENT,
+      freshnessMs: FRESHNESS_MS,
+    }),
+  };
+}
+
+const CODEX_COOLDOWN = codexLane({
+  windows: [{ ...NEAR_WINDOW, used: { kind: 'percent', percent: 40 } }],
+  cooldown: { until: NOW + 10 * MIN, observedAt: NOW - MIN },
+});
+const CODEX_EXHAUSTED = codexLane({
+  windows: [
+    {
+      ...NEAR_WINDOW,
+      used: { kind: 'percent', percent: 100 },
+      exhaustion: { observedAt: NOW - MIN, source: 'error-derived' },
+    },
+  ],
+});
+
 type AgentStub = Pick<AgentNamespace, 'spawn' | 'list' | 'limits'>;
 
 interface Harness {
@@ -284,6 +332,41 @@ describe.each([
     expect(isError).toBe(true);
     expect(text).toMatch(/role unknown_role: no role named x$/);
     expect(text).not.toContain('Limit state');
+  });
+
+  it('F52: a spawn under an active cooldown still runs and the text says so', async () => {
+    const h = harness(SPAWNED);
+    h.limits.mockResolvedValue([CODEX_COOLDOWN, GLM_TIMED_OUT]);
+    const { text, isError } = await call(h, { task: 'Review', cli: 'codex' });
+
+    expect(h.spawn).toHaveBeenCalledTimes(1);
+    expect(isError).toBe(false);
+    expect(text).toContain('## Agent Spawned');
+    expect(text).toContain('**Cooldown:** retrying after');
+    expect(text).toContain('This is a retry delay, not a plan reset.');
+  });
+
+  it('F52: a spawn under exhaustion still runs and the text says so', async () => {
+    const h = harness(SPAWNED);
+    h.limits.mockResolvedValue([CODEX_EXHAUSTED, GLM_TIMED_OUT]);
+    const { text, isError } = await call(h, { task: 'Review', cli: 'codex' });
+
+    expect(h.spawn).toHaveBeenCalledTimes(1);
+    expect(isError).toBe(false);
+    expect(text).toContain('## Agent Spawned');
+    expect(text).toContain('**Limit state:** AT LIMIT');
+    expect(text).toContain('> WARNING:');
+    expect(text).toContain('The spawn was still started.');
+  });
+
+  it('F52: a failed lookup never blocks the spawn', async () => {
+    const h = harness(SPAWNED);
+    h.limits.mockRejectedValue(new Error('lookup down'));
+    const { text, isError } = await call(h, { task: 'Review', cli: 'codex' });
+
+    expect(h.spawn).toHaveBeenCalledTimes(1);
+    expect(isError).toBe(false);
+    expect(text).toBe(formatAgentSpawn(SPAWNED));
   });
 
   it('keeps the success text unchanged when the lookup throws', async () => {

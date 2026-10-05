@@ -8,6 +8,12 @@ import {
   type SessionPlanLimitSignal,
   type SessionQuotaProbe,
 } from '@ptah-extension/agent-sdk';
+import {
+  classifyWindow,
+  FRESHNESS_MS,
+  NEAR_LIMIT_PERCENT,
+  ownerRelation,
+} from '@ptah-extension/shared';
 import type {
   OwnerLimitEvidence,
   PlanLimitWindow,
@@ -674,6 +680,46 @@ describe('PlanLimitLedgerService — proxy observers (F66-F68)', () => {
       ].sort(),
     );
     expect(owners.filter((o) => o.identityKind === 'unknown')).toHaveLength(2);
+  });
+
+  it("F67: each owner keeps its own cooldown; A's snapshot never carries B's", () => {
+    const { ledger, quotaStore } = harness();
+    const other = quotaOwnerRefFromKey(credentialOwnerKey(PROVIDER, 'key-b'));
+    quotaStore.recordRateLimit(PROVIDER, '120', T0, {
+      ownerKey: KEYED.key,
+      statusCode: 429,
+      sourceId: 'p1',
+    });
+    quotaStore.recordRateLimit(PROVIDER, '3600', T0, {
+      ownerKey: other.key,
+      statusCode: 429,
+      sourceId: 'p2',
+    });
+
+    const forA = ledger.snapshotFor(KEYED.key);
+    const forB = ledger.snapshotFor(other.key);
+    expect(forA?.owner.key).toBe(KEYED.key);
+    expect(forB?.owner.key).toBe(other.key);
+    expect(forA?.cooldown?.rawUntil).toBe(T0 + 120_000);
+    expect(forB?.cooldown?.rawUntil).toBe(T0 + 3600_000);
+    expect(ownerRelation(KEYED, other)).toBe('different');
+  });
+
+  it('F68: an unattributed cooldown sits under an unknown owner that no known lane owner relates to', () => {
+    const { ledger, quotaStore } = harness();
+    const codex = quotaOwnerRefFromKey(accountOwnerKey('openai-codex', 'acct'));
+    quotaStore.recordRateLimit('openai-codex', '120', T0, {
+      ownerKey: null,
+      statusCode: 429,
+      sourceId: 'p1',
+    });
+
+    const unknownKey = unknownOwnerKey('openai-codex', 'proxy:p1');
+    expect(ledger.snapshotFor(unknownKey)?.cooldown).toBeDefined();
+    expect(ledger.snapshotFor(codex.key)).toBeUndefined();
+    const unknownRef = quotaOwnerRefFromKey(unknownKey);
+    expect(ownerRelation(codex, unknownRef)).toBe('unknown');
+    expect(ownerRelation(unknownRef, unknownRef)).toBe('unknown');
   });
 
   it('Req 3.6: a seven-day Retry-After stays seven days on the cooldown', () => {

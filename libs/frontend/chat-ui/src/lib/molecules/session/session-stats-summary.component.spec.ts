@@ -527,6 +527,9 @@ describe('SessionStatsSummaryComponent limits', () => {
     expect(
       root.querySelector('[data-testid="stats-tokens"]')?.textContent?.trim(),
     ).toBe('14.9M');
+    expect(
+      root.querySelector('[data-testid="stats-cost"]')?.textContent?.trim(),
+    ).toBe('$38.18');
   });
 
   it('appends plan, lane and subtotal tiles after the session cards in DOM order', () => {

@@ -330,6 +330,16 @@ describe('agent limit formatter (TASK_2026_596 Batch 14)', () => {
     );
   });
 
+  it('F47: the list variant (no target) prints the no-confirmed-room sentence verbatim', () => {
+    const text = formatAlternatives([nearLane, notConfirmedLane], {
+      now: NOW,
+    });
+    expect(text).toContain(
+      'No lane has confirmed room. Near-limit and unknown lanes may still work; every known reset is listed below.',
+    );
+    expect(text).not.toContain('every lane is at its limit');
+  });
+
   it('prints the every-lane-at-limit and single-lane sentences', () => {
     expect(
       formatAlternatives([atLimitLane, ownerLevelLane], { now: NOW }),
@@ -465,5 +475,69 @@ describe('agent limit formatter (TASK_2026_596 Batch 14)', () => {
     expect(
       formatSpawnLimitBlock([expired], { cli: 'codex' }, false, NOW),
     ).not.toContain('**Cooldown:**');
+  });
+});
+
+describe('limit column and spawn block: unknown and at-limit variants', () => {
+  it('F42: an empty window set is unknown, never room', () => {
+    const empty = lane(cliRow('codex'), snapshot({ windows: [] }));
+    expect(empty.state.state).toBe('unknown');
+    const column = formatLimitColumn(empty, NOW);
+    expect(column).toBe('unknown (no windows reported)');
+    expect(column).not.toMatch(/\b0%/);
+  });
+
+  it('F43: a single partial Claude event (window set not established) is unknown', () => {
+    const partial = lane(
+      cliRow('copilot'),
+      snapshot({ windowSetEstablished: false, windows: [FIVE_HOUR_ROOM] }),
+    );
+    expect(partial.state.state).toBe('unknown');
+    const column = formatLimitColumn(partial, NOW);
+    expect(column).toBe('unknown (window set not established, partial data)');
+  });
+
+  it('F44: an aged snapshot observed after the last reset reads aged, not room', () => {
+    const aged = lane(
+      cliRow('codex'),
+      snapshot({
+        windows: [
+          {
+            ...FIVE_HOUR_ROOM,
+            observedAt: NOW - FRESHNESS_MS - MIN,
+            lastResetAt: NOW - FRESHNESS_MS - 30 * MIN,
+          },
+        ],
+      }),
+    );
+    expect(aged.state.state).not.toBe('confirmed-room');
+    const column = formatLimitColumn(aged, NOW);
+    expect(column).toBe('unknown (5-hour session: aged value)');
+  });
+
+  it('F51: at-limit with a known-reset window prints the reset and the warning', () => {
+    const block = formatSpawnLimitBlock(
+      [atLimitLane],
+      { cli: 'copilot' },
+      false,
+      NOW,
+    );
+    expect(block).toContain(
+      '**Limit state:** AT LIMIT (Weekly · Opus, resets 2026-10-05 09:00 UTC)',
+    );
+    expect(block).toContain('> WARNING:');
+    expect(block).toContain('The spawn was still started.');
+  });
+
+  it('F51: a failed spawn at the limit keeps the warning and lists alternatives', () => {
+    const block = formatSpawnLimitBlock(
+      [atLimitLane, roomLane],
+      { cli: 'copilot' },
+      true,
+      NOW,
+    );
+    expect(block).toContain('The spawn was still attempted.');
+    expect(block).toContain('### Alternatives by limit state');
+    expect(block).toContain('**Confirmed room:**\n- codex:');
   });
 });

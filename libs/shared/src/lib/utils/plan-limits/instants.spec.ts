@@ -113,6 +113,9 @@ describe('parseRetryAfterDeadline', () => {
     // A cooldown deadline only: classifying it as a window would need a
     // declared duration, and the deadline carries none.
     expect(typeof deadline).toBe('number');
+    // F10: no duration means no window kind; the deadline is never weekly.
+    expect(windowKindFromDuration(undefined, 1).kind).toBe('other');
+    expect(windowKindFromDuration(null, 1).kind).not.toBe('weekly');
   });
 
   it('F10: a far-future HTTP-date is not clamped either', () => {
