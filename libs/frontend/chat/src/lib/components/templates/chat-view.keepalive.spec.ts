@@ -85,6 +85,9 @@ class MessageBubbleStub {
   @Input() isStreaming = false;
   @Input() isFinalizing = false;
   @Input() isSessionActive = false;
+  // Mirrors MessageBubbleComponent's ptah-ui inputs (TASK_2026_610 B7/C2a).
+  @Input() ptahUiOrderKey = 0;
+  @Input() ptahUiSnapshot: unknown = null;
   @Output() branchRequested = new EventEmitter<string>();
   @Output() rewindRequested = new EventEmitter<string>();
 }

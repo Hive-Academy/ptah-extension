@@ -60,6 +60,7 @@ export const ExecutionNodeSchema: z.ZodType<ExecutionNode> = z.lazy(() =>
     toolName: z.string().optional(),
     toolInput: z.record(z.string(), z.unknown()).optional(),
     toolOutput: z.unknown().optional(),
+    isError: z.boolean().optional(),
     toolCallId: z.string().optional(),
     isPermissionRequest: z.boolean().optional(),
     agentType: z.string().optional(),

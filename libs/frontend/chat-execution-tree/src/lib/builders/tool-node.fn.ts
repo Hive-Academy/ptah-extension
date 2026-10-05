@@ -224,6 +224,7 @@ export function buildToolNode(
     toolName: toolStart.toolName,
     toolCallId: toolStart.toolCallId,
     toolOutput: resultEvent?.output,
+    isError: resultEvent?.isError,
     isPermissionRequest: resultEvent?.isPermissionRequest,
   });
 }

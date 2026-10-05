@@ -39,6 +39,20 @@ jest.mock('ngx-markdown', () => {
   };
 });
 
+// ElectronShellComponent's transitive execution-node import references this
+// deferred entry, but the review dock assertions never render execution nodes.
+jest.mock('@ptah-extension/chat-ui/ptah-ui', () => {
+  @Component({
+    selector: 'ptah-ui-message-text',
+    standalone: true,
+    changeDetection: ChangeDetectionStrategy.OnPush,
+    template: '',
+  })
+  class PtahUiMessageTextStubComponent {}
+
+  return { PtahUiMessageTextComponent: PtahUiMessageTextStubComponent };
+});
+
 /**
  * The dock body is git-ui's `ReviewShellComponent`, loaded by dynamic import
  * when the dock opens (TASK_2026_576 Batch 58). git-ui is mocked at the module
@@ -112,7 +126,7 @@ describe('ElectronShellComponent review dock', () => {
     ).find((button) => button.textContent?.trim() === 'Retry');
   }
 
-  beforeEach(async () => {
+  async function createFixture(): Promise<void> {
     mockChunkFails = false;
     layoutStub.editorPanelVisible.set(false);
     error = jest.spyOn(console, 'error').mockImplementation(() => undefined);
@@ -152,9 +166,7 @@ describe('ElectronShellComponent review dock', () => {
       .compileComponents();
     fixture = TestBed.createComponent(ElectronShellComponent);
     await settle();
-    // The first JIT compile of the shell exceeds the 5 s default on a loaded
-    // CI runner (PR 648 run 37326679393); it is not a hang.
-  }, 20_000);
+  }
 
   afterEach(() => {
     fixture.destroy();
@@ -162,6 +174,7 @@ describe('ElectronShellComponent review dock', () => {
   });
 
   it('loads nothing until the dock opens, then mounts ReviewShellComponent', async () => {
+    await createFixture();
     expect(query('[data-testid="review-shell-stub"]')).toBeNull();
 
     layoutStub.editorPanelVisible.set(true);
@@ -169,9 +182,10 @@ describe('ElectronShellComponent review dock', () => {
 
     expect(query('[data-testid="review-shell-stub"]')).not.toBeNull();
     expect(retryButton()).toBeUndefined();
-  });
+  }, 20_000); // Cold shell compilation resolves execution-node's deferred import wiring even with the ptah-ui stub.
 
   it('shows Retry when the chunk fails, and Retry loads the shell', async () => {
+    await createFixture();
     mockChunkFails = true;
     layoutStub.editorPanelVisible.set(true);
     await settle();
@@ -191,5 +205,7 @@ describe('ElectronShellComponent review dock', () => {
 
     expect(query('[data-testid="review-shell-stub"]')).not.toBeNull();
     expect(retryButton()).toBeUndefined();
-  });
+    // The first JIT compile of the shell exceeds the 5 s default on a loaded
+    // CI runner (PR 648 run 37326679393); it is not a hang.
+  }, 20_000);
 });

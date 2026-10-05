@@ -121,6 +121,7 @@ interface AutoResumePreflight {
   effort?: ChatContinueParams['effort'];
   surfaceMode?: ChatContinueParams['surfaceMode'];
   mcpToolProfile?: ChatContinueParams['mcpToolProfile'];
+  ptahUiFence?: ChatContinueParams['ptahUiFence'];
 }
 
 /** Input of {@link ChatSessionService.startAgentChildSession} (TASK_2026_584). */
@@ -156,6 +157,7 @@ interface SdkSessionLaunch {
   readonly surfaceMode: ChatStartParams['surfaceMode'];
   /** Only the Apps page sets `apps`; absent means the coding tool profile. */
   readonly mcpToolProfile?: ChatStartParams['mcpToolProfile'];
+  readonly ptahUiFence?: ChatStartParams['ptahUiFence'];
 }
 
 /** What `chat:continue` and `chat:resume` need from the session budget (N7). */
@@ -619,6 +621,7 @@ export class ChatSessionService {
         mcpServersOverride: params.mcpServersOverride,
         surfaceMode: params.surfaceMode,
         mcpToolProfile: params.mcpToolProfile,
+        ptahUiFence: params.ptahUiFence,
       });
 
       return { success: true };
@@ -797,6 +800,9 @@ export class ChatSessionService {
         : {}),
       ...outputStyle,
       ...(input.mcpToolProfile ? { mcpToolProfile: input.mcpToolProfile } : {}),
+      ...(input.ptahUiFence !== undefined
+        ? { ptahUiFence: input.ptahUiFence }
+        : {}),
     });
     this.streamBroadcaster.streamEventsToWebview(
       tabId as SessionId,
@@ -1122,6 +1128,7 @@ export class ChatSessionService {
               sessionId,
               tabId: params.tabId,
               workspacePath: resolvedWorkspacePath,
+              ptahUiFence: params.ptahUiFence,
             },
           );
           if ('justResumed' in activateResult) {
@@ -1487,6 +1494,9 @@ export class ChatSessionService {
         ...outputStyle,
         ...(params.mcpToolProfile
           ? { mcpToolProfile: params.mcpToolProfile }
+          : {}),
+        ...(params.ptahUiFence !== undefined
+          ? { ptahUiFence: params.ptahUiFence }
           : {}),
       });
       this.streamBroadcaster.streamEventsToWebview(

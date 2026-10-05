@@ -222,3 +222,41 @@ describe.each([ChatStartParamsSchema, ChatContinueParamsSchema])(
     });
   },
 );
+
+describe.each([
+  [
+    'start',
+    ChatStartParamsSchema,
+    { tabId: VALID_TAB_UUID },
+    ['tabId', 'surfaceMode', 'mcpToolProfile', 'ptahUiFence'],
+  ],
+  [
+    'continue',
+    ChatContinueParamsSchema,
+    { tabId: VALID_TAB_UUID, sessionId: VALID_SESSION_UUID },
+    ['tabId', 'sessionId', 'surfaceMode', 'mcpToolProfile', 'ptahUiFence'],
+  ],
+] as const)(
+  'ptahUiFence validation for %s',
+  (_method, schema, required, expectedKeys) => {
+    it.each([true, false])('accepts %s', (ptahUiFence) => {
+      expect(schema.parse({ ...required, ptahUiFence }).ptahUiFence).toBe(
+        ptahUiFence,
+      );
+    });
+
+    it('keeps an absent flag absent', () => {
+      expect(schema.parse(required)).not.toHaveProperty('ptahUiFence');
+    });
+
+    it.each(['yes', 1])('rejects %s', (ptahUiFence) => {
+      expect(() => schema.parse({ ...required, ptahUiFence })).toThrow(
+        ZodError,
+      );
+    });
+
+    it('declares only the base keys plus ptahUiFence', () => {
+      expect(Object.keys(schema.shape)).toEqual(expectedKeys);
+    });
+  },
+);

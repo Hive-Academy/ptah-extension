@@ -65,6 +65,8 @@ export interface ChatStartParams {
   surfaceMode?: boolean;
   /** Ptah MCP tool profile for this session. Absent means `coding`. */
   mcpToolProfile?: McpToolProfile;
+  /** Whether the Electron chat client can render `ptah-ui` blocks. */
+  ptahUiFence?: boolean;
   /** Additional options */
   options?: {
     model?: string;
@@ -157,6 +159,8 @@ export interface ChatContinueParams {
    * Absent means `coding`.
    */
   mcpToolProfile?: McpToolProfile;
+  /** Whether the Electron chat client can render `ptah-ui` blocks. */
+  ptahUiFence?: boolean;
 }
 
 /** Response from chat:continue RPC method */
@@ -264,6 +268,8 @@ export interface ChatResumeParams {
    * Required for the resume-and-retry rewind path.
    */
   activate?: boolean;
+  /** Whether the Electron chat client can render `ptah-ui` blocks. */
+  ptahUiFence?: boolean;
   /**
    * Requests a whole-turn tail page instead of the full transcript.
    * Omit this field to preserve the legacy full-history response.

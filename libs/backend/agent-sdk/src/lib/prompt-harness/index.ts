@@ -12,3 +12,4 @@ export {
   PTAH_MCP_MANDATE_PROMPT,
   PTAH_MCP_SUBSTITUTION_SECTION,
 } from './ptah-core-prompt';
+export { PTAH_UI_HINT } from './ptah-ui-hint';

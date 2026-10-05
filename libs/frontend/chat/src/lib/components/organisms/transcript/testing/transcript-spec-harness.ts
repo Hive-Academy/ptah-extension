@@ -15,6 +15,7 @@ import type {
   ExecutionChatMessage,
   ExecutionNode,
   TurnChangeSet,
+  TurnSourceSnapshot,
 } from '@ptah-extension/shared';
 import { ChangeSetStore } from '../../../../services/change-set/change-set.store';
 import { ChangeSetActionsService } from '../../../../services/change-set/change-set-actions.service';
@@ -31,6 +32,10 @@ import { ChatTranscriptComponent } from '../chat-transcript.component';
 })
 export class TranscriptMessageBubbleStub {
   @Input() message!: ExecutionChatMessage;
+  // Mirrors MessageBubbleComponent's ptah-ui input (TASK_2026_610 B7): the
+  // transcript template binds it, so the stub must accept it.
+  @Input() ptahUiOrderKey = 0;
+  @Input() ptahUiSnapshot: TurnSourceSnapshot | null = null;
   @Input() messageIndex = 0;
   @Input() totalMessages = 0;
   @Input() isStreaming = false;
@@ -57,6 +62,8 @@ export interface TranscriptTestBedOptions {
   readonly sessionContext?: unknown;
   /** Change sets the store stub returns for every session; none by default. */
   readonly changeSets?: Signal<readonly TurnChangeSet[]>;
+  /** The store stub's `settledThrough` for every session; unsettled by default. */
+  readonly settledThrough?: Signal<number>;
   /** Stands in for `ChangeSetActionsService`; every action resolves by default. */
   readonly changeSetActions?: Partial<
     Record<keyof ChangeSetActionsService, jest.Mock>
@@ -67,6 +74,7 @@ export function configureTranscriptTestBed(
   options: TranscriptTestBedOptions,
 ): void {
   const changeSets = options.changeSets ?? signal<readonly TurnChangeSet[]>([]);
+  const settledThrough = options.settledThrough ?? signal(-Infinity);
   TestBed.configureTestingModule({
     imports: [ChatTranscriptComponent],
     providers: [
@@ -82,6 +90,7 @@ export function configureTranscriptTestBed(
         provide: ChangeSetStore,
         useValue: {
           changeSetsFor: () => changeSets(),
+          settledThrough: () => settledThrough(),
           marksFor: () => ({ reconciled: new Set(), conflicted: new Set() }),
           ensureLoaded: jest.fn(() => Promise.resolve()),
         } as unknown as ChangeSetStore,

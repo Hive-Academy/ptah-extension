@@ -89,6 +89,7 @@ export function registerPhase1Infra(
   logger: Logger,
 ): void {
   logger.info('[Electron DI] Starting service registration...');
+  container.register(PLATFORM_TOKENS.HOST_KIND, { useValue: 'electron' });
   registerVsCodeCorePlatformAgnostic(container, logger);
   try {
     const fileSystemProvider = container.resolve(

@@ -19,6 +19,7 @@ import {
   ChangeSetStore,
   RECONCILE_DEBOUNCE_MS,
   RECONCILE_FRESHNESS_MS,
+  TURN_CHANGE_SET_GRACE_MS,
 } from './change-set.store';
 
 const mockRpcCall = jest.fn();
@@ -544,6 +545,119 @@ describe('ChangeSetStore', () => {
     it('clears its pending timer when destroyed', async () => {
       createStore();
       await openSession('s1');
+      expect(jest.getTimerCount()).toBe(1);
+
+      TestBed.resetTestingModule();
+
+      expect(jest.getTimerCount()).toBe(0);
+    });
+  });
+
+  describe('settled through', () => {
+    function turnEnded(
+      store: ChangeSetStore,
+      timestamp: number,
+      type: string = MESSAGE_TYPES.SESSION_TURN_ENDED,
+    ): void {
+      store.handleMessage({ type, payload: { sessionId: 's1', timestamp } });
+    }
+
+    it('is unsettled before any read, then settles through the first read start', async () => {
+      const store = createStore();
+      expect(store.settledThrough('s1')).toBe(-Infinity);
+      expect(store.settledThrough(null)).toBe(-Infinity);
+
+      const readStartedAt = Date.now();
+      await openSession('s1');
+
+      expect(store.settledThrough('s1')).toBe(readStartedAt);
+    });
+
+    it('does not move on a later read, which may start while a turn streams', async () => {
+      const store = createStore();
+      await openSession('s1');
+      const first = store.settledThrough('s1');
+
+      jest.advanceTimersByTime(60_000);
+      await store.ensureLoaded('s1');
+
+      expect(store.settledThrough('s1')).toBe(first);
+    });
+
+    it('settles a turn that pushed nothing once the grace passes', async () => {
+      persisted = [];
+      const store = createStore();
+      await openSession('s1');
+      const endedAt = Date.now() + 1_000;
+
+      turnEnded(store, endedAt);
+      await jest.advanceTimersByTimeAsync(TURN_CHANGE_SET_GRACE_MS - 1);
+      expect(store.settledThrough('s1')).toBeLessThan(endedAt);
+
+      await jest.advanceTimersByTimeAsync(1);
+      expect(store.settledThrough('s1')).toBe(endedAt);
+      expect(store.changeSetsFor('s1')).toEqual([]);
+    });
+
+    it('settles at once when the ended turn’s set is pushed, and drops the grace timer', async () => {
+      persisted = [];
+      const store = createStore();
+      await openSession('s1');
+      const endedAt = Date.now() + 1_000;
+      turnEnded(store, endedAt);
+
+      store.handleMessage({
+        type: MESSAGE_TYPES.GIT_TURN_CHANGE_SET,
+        payload: {
+          changeSet: changeSet({
+            turnStartedAt: endedAt - 500,
+            turnEndedAt: endedAt,
+          }),
+        },
+      });
+
+      expect(store.settledThrough('s1')).toBe(endedAt);
+      await passDebounce();
+      expect(jest.getTimerCount()).toBe(0);
+    });
+
+    it('settles a failed turn the same way', async () => {
+      persisted = [];
+      const store = createStore();
+      await openSession('s1');
+      const endedAt = Date.now() + 1_000;
+
+      turnEnded(store, endedAt, MESSAGE_TYPES.SESSION_TURN_FAILED);
+      await jest.advanceTimersByTimeAsync(TURN_CHANGE_SET_GRACE_MS);
+
+      expect(store.settledThrough('s1')).toBe(endedAt);
+    });
+
+    it('ignores a turn end without a timestamp or for a session nobody opened', async () => {
+      persisted = [];
+      const store = createStore();
+      await openSession('s1');
+      const settled = store.settledThrough('s1');
+
+      store.handleMessage({
+        type: MESSAGE_TYPES.SESSION_TURN_ENDED,
+        payload: { sessionId: 's1' },
+      });
+      store.handleMessage({
+        type: MESSAGE_TYPES.SESSION_TURN_ENDED,
+        payload: { sessionId: 'other', timestamp: Date.now() + 1_000 },
+      });
+      await jest.advanceTimersByTimeAsync(TURN_CHANGE_SET_GRACE_MS);
+
+      expect(store.settledThrough('s1')).toBe(settled);
+      expect(store.settledThrough('other')).toBe(-Infinity);
+    });
+
+    it('clears a pending grace timer when destroyed', async () => {
+      persisted = [];
+      const store = createStore();
+      await openSession('s1');
+      turnEnded(store, Date.now() + 1_000);
       expect(jest.getTimerCount()).toBe(1);
 
       TestBed.resetTestingModule();

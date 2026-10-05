@@ -18,6 +18,10 @@ import {
   AgentSummaryComponent,
   ThinkingBlockComponent,
 } from '@ptah-extension/chat-ui';
+// Used only inside `@defer`, so the compiler loads the `ptah-ui` entry (the
+// fence pipeline, zod and the declarative renderer) as a lazy chunk. Same
+// contract as `@ptah-extension/chat-ui/change-set-card` in the transcript.
+import { PtahUiMessageTextComponent } from '@ptah-extension/chat-ui/ptah-ui';
 import { ToolCallItemComponent } from '../../molecules/tool-execution/tool-call-item.component';
 import { WorkflowCardComponent } from './workflow-card.component';
 import { TaskCardComponent } from './task-card.component';
@@ -35,7 +39,44 @@ import type {
   ExecutionNode,
   PermissionRequest,
   PermissionResponse,
+  TurnSourceSnapshot,
 } from '@ptah-extension/shared';
+import { hasPtahUiFenceLine } from './ptah-ui-fence-line';
+
+/**
+ * What a top-level assistant text node needs to render `ptah-ui` fences
+ * (TASK_2026_610, component 10). The message bubble builds it on Electron
+ * only; everywhere else it is `null` and the text renders exactly as before.
+ */
+export interface PtahUiNodeContext {
+  readonly messageId: string;
+  /** Transcript order of the message; higher is newer. */
+  readonly orderKey: number;
+  /**
+   * The turn's host data (PR C), threaded from the transcript's
+   * `ptahUiSnapshots` map: what `$diff`/`$tests`/`$usage` resolve from.
+   * Optional so pre-PR-C context literals keep compiling; production always
+   * sets it, and `null` (the VS Code / absent case) resolves every binding to
+   * `unavailable`. Compared by identity — the transcript keeps an unchanged
+   * turn's snapshot object stable, so only a real source change re-renders.
+   */
+  readonly snapshot?: TurnSourceSnapshot | null;
+}
+
+/** Context equality by value, so a new message object does not re-render the host. */
+export function samePtahUiContext(
+  left: PtahUiNodeContext | null,
+  right: PtahUiNodeContext | null,
+): boolean {
+  return (
+    left === right ||
+    (left !== null &&
+      right !== null &&
+      left.messageId === right.messageId &&
+      left.orderKey === right.orderKey &&
+      (left.snapshot ?? null) === (right.snapshot ?? null))
+  );
+}
 
 /**
  * Which dedicated SDK-tool card a `tool` node should render instead of the
@@ -109,6 +150,8 @@ function scheduleFrame(cb: () => void): FrameHandle {
     MonitorCardComponent,
     SendMessageChipComponent,
     ScheduleWakeupChipComponent,
+    // Used only inside `@defer` (see the import above).
+    PtahUiMessageTextComponent,
   ],
   template: `
     @switch (node().type) {
@@ -122,6 +165,35 @@ function scheduleFrame(cb: () => void): FrameHandle {
                (animate.enter is a static dir). -->
           <div class="exec-text-branch" [class.exec-fade-in]="!isFinalizing()">
             <ptah-agent-summary [content]="node().content || ''" />
+          </div>
+        } @else if (ptahUiHost(); as host) {
+          <!-- ptah-ui: Electron top-level assistant text with a fence line.
+               Mounting is decided here, from raw text, by control flow; no
+               marker ever enters the HTML, so agent HTML cannot forge a block.
+               No fade class: this branch is entered mid-stream when the
+               opener arrives, and a replayed fade would flash the text. The
+               placeholder and a chunk-load error render today's markdown. -->
+          <div
+            class="prose prose-sm prose-invert max-w-none my-2 exec-text-branch"
+          >
+            @defer (on immediate) {
+              <ptah-ui-message-text
+                [text]="renderedContent()"
+                [messageId]="host.messageId"
+                [nodeId]="node().id"
+                [orderKey]="host.orderKey"
+                [active]="surfaceActive()"
+                [snapshot]="host.snapshot ?? null"
+              />
+            } @placeholder {
+              <markdown
+                [data]="renderedContent() | surfaceMarkdown: surfaceActive()"
+              />
+            } @error {
+              <markdown
+                [data]="renderedContent() | surfaceMarkdown: surfaceActive()"
+              />
+            }
           </div>
         } @else {
           <div
@@ -247,7 +319,11 @@ function scheduleFrame(cb: () => void): FrameHandle {
         </ng-template>
       }
       @case ('message') {
-        <!-- Message node unwraps to its children -->
+        <!-- Message node unwraps to its children. The ptah-ui context is
+             forwarded HERE ONLY: agent, tool and SendMessage recursions above
+             never pass it, so subagent, tool and nested text stay code. The
+             turn-source snapshot rides INSIDE the context (PR C), so it
+             reaches this message's assistant text only — never a subagent's. -->
         <div class="exec-children">
           @for (child of node().children; track child.id) {
             <ptah-execution-node
@@ -255,6 +331,7 @@ function scheduleFrame(cb: () => void): FrameHandle {
               [isStreaming]="isStreaming()"
               [isFinalizing]="isFinalizing()"
               [getPermissionForTool]="getPermissionForTool()"
+              [ptahUi]="ptahUi()"
               (permissionResponded)="permissionResponded.emit($event)"
             />
           }
@@ -338,6 +415,13 @@ export class ExecutionNodeComponent {
    * Bubbles up from tool-call-item through component tree
    */
   readonly permissionResponded = output<PermissionResponse>();
+
+  /**
+   * `ptah-ui` fence rendering for top-level assistant text. Set by the message
+   * bubble on Electron only and forwarded only through `message` nodes; `null`
+   * (the default, and always in VS Code) keeps today's markdown path.
+   */
+  readonly ptahUi = input<PtahUiNodeContext | null>(null);
   readonly InfoIcon = Info;
 
   private readonly destroyRef = inject(DestroyRef);
@@ -427,6 +511,20 @@ export class ExecutionNodeComponent {
     this.pendingContent = null;
     this._renderedContent.set(content);
   }
+
+  /**
+   * The context to render this text through the `ptah-ui` host, or `null` for
+   * today's markdown. The fence scan runs only when a context exists, so in
+   * VS Code the text is never scanned and the lazy chunk is never requested.
+   */
+  protected readonly ptahUiHost = computed(
+    (): PtahUiNodeContext | null => {
+      const context = this.ptahUi();
+      if (context === null) return null;
+      return hasPtahUiFenceLine(this.renderedContent()) ? context : null;
+    },
+    { equal: samePtahUiContext },
+  );
 
   /**
    * Detect if text content contains Claude's XML-like agent summary format.

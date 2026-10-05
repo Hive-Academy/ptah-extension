@@ -32,6 +32,11 @@ const submit = { id: 'send', action: 'surface.submit' as const, label: { text: '
 const form = (children: readonly SurfaceComponent[] = [reason]) =>
   surface([{ id: 'form', kind: 'section', title: { text: 'Form' }, actions: [submit], children }]);
 const TOO_LONG = 'x'.repeat(SURFACE_LIMITS.maxStringLength + 1);
+/** The default form surface with its root title text replaced. */
+const withTitle = (text: string): SurfaceRenderable => {
+  const v2 = form() as Extract<SurfaceRenderable, { contract: 'dashboard-spec/2' }>;
+  return { ...v2, surface: { ...v2.surface, title: { text } } };
+};
 
 const HOST_TEMPLATE = `
   <ptah-surface-renderer [renderable]="renderable()" [viewState]="viewState()" [interaction]="interaction()"
@@ -88,6 +93,22 @@ describe('SurfaceRendererComponent', () => {
     expect(element.querySelector('header p')?.textContent).toBe('Roll back the last deploy.');
     expect(element.querySelector('section h3')?.textContent).toBe('Form');
     expect(element.querySelector('[data-apps-focus-key="surface:reason:input"]')).not.toBeNull();
+    expect(host.failures).toBe(0);
+  });
+
+  it('renders no title heading when the title text is empty', () => {
+    const { element, host } = setup(withTitle(''));
+    expect(element.querySelector('h2')).toBeNull();
+    expect(element.querySelector('header p')?.textContent).toBe('Roll back the last deploy.');
+    expect(element.querySelector('section h3')?.textContent).toBe('Form');
+    expect(host.failures).toBe(0);
+  });
+
+  it('renders no title heading when the title text is spaces only', () => {
+    const { element, host } = setup(withTitle('   '));
+    expect(element.querySelector('h2')).toBeNull();
+    expect(element.querySelector('header p')?.textContent).toBe('Roll back the last deploy.');
+    expect(element.querySelector('section h3')?.textContent).toBe('Form');
     expect(host.failures).toBe(0);
   });
 

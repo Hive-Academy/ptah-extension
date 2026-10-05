@@ -1000,6 +1000,69 @@ describe('MessageSenderService', () => {
     });
   });
 
+  // TASK_2026_610 comp. 11 — the Electron webview renders `ptah-ui` fences as
+  // live surfaces, so its sends carry the fence flag. VS Code omits the key
+  // entirely: an absent optional reads as "no surfaces", and `false` would
+  // carry the same meaning only by luck of the default.
+  describe('ptahUiFence hint flag (chat:start / chat:continue params)', () => {
+    /** Sets the host gate the sender reads (`vscodeService.isElectron`). */
+    function setHost(host: 'electron' | 'vscode'): void {
+      const vscodeStub = TestBed.inject(VSCodeService) as {
+        isElectron?: boolean;
+      };
+      vscodeStub.isElectron = host === 'electron';
+    }
+
+    function payloadOf(
+      method: 'chat:start' | 'chat:continue',
+    ): Record<string, unknown> {
+      const call = rpcCall.mock.calls.find((c) => c[0] === method);
+      if (!call) throw new Error(`No ${method} RPC was sent.`);
+      return call[1] as Record<string, unknown>;
+    }
+
+    /** Session-bound tab + session:validate mock so `send` reaches chat:continue. */
+    function bindSession(): void {
+      tabsSignal.set([makeTab({ id: 'tab-1', claudeSessionId: 'sess-X' })]);
+      rpcCall.mockImplementation(
+        (method: string): Promise<{ success: boolean; data?: unknown }> =>
+          Promise.resolve(
+            method === 'session:validate'
+              ? { success: true, data: { exists: true } }
+              : { success: true },
+          ),
+      );
+    }
+
+    it('sends ptahUiFence: true on chat:start when the host is Electron', async () => {
+      setHost('electron');
+      rpcCall.mockResolvedValue({ success: true });
+      await service.send('hello');
+      expect(payloadOf('chat:start').ptahUiFence).toBe(true);
+    });
+
+    it('omits the ptahUiFence key on chat:start when the host is VS Code (absent, not false)', async () => {
+      setHost('vscode');
+      rpcCall.mockResolvedValue({ success: true });
+      await service.send('hello');
+      expect('ptahUiFence' in payloadOf('chat:start')).toBe(false);
+    });
+
+    it('sends ptahUiFence: true on chat:continue when the host is Electron', async () => {
+      setHost('electron');
+      bindSession();
+      await service.send('hello again');
+      expect(payloadOf('chat:continue').ptahUiFence).toBe(true);
+    });
+
+    it('omits the ptahUiFence key on chat:continue when the host is VS Code', async () => {
+      setHost('vscode');
+      bindSession();
+      await service.send('hello again');
+      expect('ptahUiFence' in payloadOf('chat:continue')).toBe(false);
+    });
+  });
+
   describe('continueConversation bootstrap-restore race recovery', () => {
     // Scenario: stale tab is restored across a workspace wipe AND the user
     // clicks Send during the bootstrap-restore race. The local

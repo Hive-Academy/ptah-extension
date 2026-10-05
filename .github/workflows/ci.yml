@@ -193,6 +193,10 @@ jobs:
 
       - run: npx nx affected -t build
 
+      - name: Enforce eager-closure bundle gate
+        if: hashFiles('dist/apps/ptah-extension-webview/stats.json') != ''
+        run: npm run gate:eager-closure
+
   # Batch 8 (TASK_2026_576_e16a, Component 9 / R3): the real-git suites for
   # RC5 (git-watcher) and RC4/RC7 (git-info.service paths + diff-config) are
   # evidenced on Windows only in Batches 3 and 4 -- POSIX-only fixture names
