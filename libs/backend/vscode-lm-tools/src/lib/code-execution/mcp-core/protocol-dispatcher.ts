@@ -238,6 +238,9 @@ async function lookupAgentLimits(
   try {
     return await ptahAPI.agent.limits?.(rows ?? (await ptahAPI.agent.list()));
   } catch {
+    // degradation-audit: optional-capability - limit fields only enrich the
+    // tool result; LaneLimitLookupService logs its own lane failures, and the
+    // result goes out without limits.
     return undefined;
   }
 }

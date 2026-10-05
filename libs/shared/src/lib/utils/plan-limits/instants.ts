@@ -252,6 +252,8 @@ export function resolveClockTimeReset(
       timeZone,
     );
   } catch {
+    // degradation-audit: optional-capability - an unknown IANA zone means the
+    // reset time is unknown, which callers show as unknown.
     // Intl rejects an unknown IANA zone with a RangeError: the reset is unknown.
     return undefined;
   }

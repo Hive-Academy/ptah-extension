@@ -118,6 +118,8 @@ function resolveTimeZone(timeZone: string | undefined): string {
     new Intl.DateTimeFormat('en-US', { timeZone: zone });
     return zone;
   } catch {
+    // degradation-audit: optional-capability - an unknown IANA zone falls back
+    // to UTC so the render does not fail.
     // Intl rejects an unknown IANA zone with a RangeError; fall back to UTC
     // rather than fail the render.
     return 'UTC';

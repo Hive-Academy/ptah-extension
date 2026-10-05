@@ -298,6 +298,8 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
     try {
       return await this.resolveQuotaOwnerKey(headers);
     } catch (error: unknown) {
+      // degradation-audit: reported - logged at debug; the owner key is unknown
+      // (null) and the request still goes through.
       this.logger.debug(
         `${this.logPrefix} Could not resolve the quota owner: ${
           error instanceof Error ? error.name : typeof error

@@ -559,14 +559,18 @@ export class PlanLimitLedgerService {
     const serialized = JSON.stringify(payload);
     if (serialized === this.lastPersisted) return;
     this.lastPersisted = serialized;
+    // Memory stays authoritative when the write fails, whether the storage
+    // throws synchronously or rejects.
+    let write: Promise<void>;
     try {
-      // Memory stays authoritative when the write fails.
-      void this.storage
-        .update(PLAN_LIMIT_LEDGER_STORAGE_KEY, payload)
-        .catch((error: unknown) => this.logPersistFailure(error));
+      write = this.storage.update(PLAN_LIMIT_LEDGER_STORAGE_KEY, payload);
     } catch (error: unknown) {
+      // degradation-audit: reported - logged at debug by logPersistFailure;
+      // the next change retries the write.
       this.logPersistFailure(error);
+      return;
     }
+    void write.catch((error: unknown) => this.logPersistFailure(error));
   }
 
   private logPersistFailure(error: unknown): void {
@@ -582,6 +586,8 @@ export class PlanLimitLedgerService {
     try {
       raw = this.storage.get<unknown>(PLAN_LIMIT_LEDGER_STORAGE_KEY);
     } catch (error: unknown) {
+      // degradation-audit: reported - unreadable persisted state is logged at
+      // debug and the ledger starts empty.
       this.logger.debug('[PlanLimitLedger] persisted state unreadable', {
         reason: errorKind(error),
       });
@@ -631,6 +637,8 @@ function ownerRefOrUndefined(key: string): QuotaOwnerRef | undefined {
   try {
     return quotaOwnerRefFromKey(key);
   } catch {
+    // degradation-audit: optional-capability - a malformed persisted owner key
+    // is dropped; restore skips that owner.
     return undefined;
   }
 }

@@ -135,7 +135,7 @@ function recordedOwnerKeys(agents: readonly MonitoredAgent[]): string[] {
     const key = agent.quotaOwner?.key;
     if (key) keys.add(key);
   }
-  return [...keys].sort();
+  return [...keys].sort((a, b) => a.localeCompare(b));
 }
 
 function sameStrings(a: readonly string[], b: readonly string[]): boolean {

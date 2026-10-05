@@ -401,6 +401,8 @@ export class ProviderOwnerResolver {
     try {
       return realCredential(await this.authSecrets.getProviderKey(slot));
     } catch {
+      // degradation-audit: reported - logged at warn with the provider id only;
+      // the owner falls back to unknown.
       // The secret store's error text may quote the slot's contents; only the
       // provider id is kept, and the owner falls back to unknown.
       this.logger.warn('[ProviderOwnerResolver] provider key read failed', {

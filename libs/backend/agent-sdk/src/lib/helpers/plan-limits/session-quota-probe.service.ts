@@ -283,6 +283,9 @@ export class SessionQuotaProbeService implements SessionQuotaProbe {
         }),
       ]);
     } catch (error: unknown) {
+      // degradation-audit: reported - the failure kind is logged at debug (the
+      // error text may echo account details) and the caller gets no quota
+      // reading.
       const failure: ProbeFailure =
         error instanceof ProbeTimeoutError ? 'timeout' : 'rejected';
       // The error text is not logged: a control-request failure may echo
@@ -304,6 +307,8 @@ function hostFromBaseUrl(value: string | undefined): string | undefined {
   try {
     return new URL(value).hostname.toLowerCase();
   } catch {
+    // degradation-audit: optional-capability - a base URL that does not parse
+    // has no host; callers treat that as no host.
     return undefined;
   }
 }

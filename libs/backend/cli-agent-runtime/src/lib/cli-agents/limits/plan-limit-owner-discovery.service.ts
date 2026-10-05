@@ -449,6 +449,8 @@ export class PlanLimitOwnerDiscoveryService {
       }
       return result;
     } catch (error: unknown) {
+      // degradation-audit: reported - logged at debug; this source is dropped
+      // and the other sources still count.
       // Only the failure kind: a detection, registry or secret-store error
       // may quote a path or a stored value.
       this.logger.debug('[PlanLimitOwnerDiscovery] source dropped', {

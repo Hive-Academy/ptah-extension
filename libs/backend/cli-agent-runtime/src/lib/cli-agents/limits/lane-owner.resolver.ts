@@ -79,6 +79,8 @@ export class LaneOwnerResolver {
           return undefined;
       }
     } catch (error: unknown) {
+      // degradation-audit: reported - logged at warn; the lane runs with no
+      // recorded owner.
       this.logger.warn('[LaneOwnerResolver] lane owner lookup failed', {
         cli,
         errorName: error instanceof Error ? error.name : typeof error,

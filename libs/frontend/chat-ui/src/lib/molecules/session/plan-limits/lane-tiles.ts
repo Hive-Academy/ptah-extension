@@ -350,8 +350,10 @@ function lastKnownFace(
 ): { chip: StatsChip; sources: readonly string[] } | undefined {
   const known = windows.filter((window) => window.percent !== undefined);
   if (known.length > 0) {
-    const top = known.reduce((max, window) =>
-      (window.percent ?? 0) > (max.percent ?? 0) ? window : max,
+    const top = known.reduce(
+      (max, window) =>
+        (window.percent ?? 0) > (max.percent ?? 0) ? window : max,
+      known[0],
     );
     return {
       chip: {

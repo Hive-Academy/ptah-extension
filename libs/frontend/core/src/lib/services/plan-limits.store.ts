@@ -186,6 +186,8 @@ export class PlanLimitsStore implements MessageHandler {
       }
       this.applyLoadFailure();
     } catch (error) {
+      // degradation-audit: reported - logged with console.warn, and
+      // applyLoadFailure() marks the load as failed; the last snapshot stays.
       if (generation !== this.loadGeneration) return;
       console.warn(
         '[PlanLimitsStore] provider:getPlanLimits failed; keeping the last snapshot',
