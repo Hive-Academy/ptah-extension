@@ -271,6 +271,9 @@ test.describe('agent file links', () => {
     // for that navigation to settle and times out; a raw mouse click is the
     // same real user input without the wait.
     const httpLink = bubble.getByRole('link', { name: 'c', exact: true });
+    // A raw mouse click does not scroll; with the Review dock open the chat
+    // tile is narrow enough that the link can sit below its visible area.
+    await httpLink.scrollIntoViewIfNeeded();
     const httpBox = await httpLink.boundingBox();
     if (!httpBox) throw new Error('The http link has no bounding box.');
     await mainWindow.mouse.click(

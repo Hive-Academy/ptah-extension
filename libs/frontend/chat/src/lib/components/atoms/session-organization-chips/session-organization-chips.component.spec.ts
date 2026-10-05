@@ -2,11 +2,11 @@
  * SessionOrganizationChipsComponent specs (TASK_2026_580 C1.1.1).
  *
  * Coverage: a deleted task folder reads "missing" (AC6), the agent badge,
- * every chip's aria label, defaults that draw nothing, and the live-phase
- * precedence (the liveness registry wins over the row snapshot).
+ * every chip's aria label, and defaults that draw nothing. The live-phase
+ * coverage moved with the marker to
+ * `session-live-phase-indicator.component.spec.ts`.
  */
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { SessionLivenessRegistry } from '@ptah-extension/chat-state';
 import {
   SESSION_ORGANIZATION_DEFAULTS,
   type ChatSessionSummary,
@@ -49,7 +49,6 @@ function row(overrides: Partial<ChatSessionSummary> = {}): ChatSessionSummary {
 describe('SessionOrganizationChipsComponent', () => {
   let fixture: ComponentFixture<SessionOrganizationChipsComponent>;
   let host: HTMLElement;
-  let registry: SessionLivenessRegistry;
 
   const render = (session: ChatSessionSummary): void => {
     fixture.componentRef.setInput('session', session);
@@ -62,7 +61,6 @@ describe('SessionOrganizationChipsComponent', () => {
     TestBed.configureTestingModule({
       imports: [SessionOrganizationChipsComponent],
     });
-    registry = TestBed.inject(SessionLivenessRegistry);
     fixture = TestBed.createComponent(SessionOrganizationChipsComponent);
     host = fixture.nativeElement as HTMLElement;
   });
@@ -156,28 +154,5 @@ describe('SessionOrganizationChipsComponent', () => {
     expect(chip('session-chip-pr-count')?.getAttribute('aria-label')).toBe(
       '1 pull request',
     );
-  });
-
-  it('uses the row livePhase when the registry does not track the session', () => {
-    render(row({ livePhase: 'generating' }));
-    const live = chip('session-chip-live');
-    expect(live?.getAttribute('data-live-phase')).toBe('running');
-    expect(live?.getAttribute('aria-label')).toBe('Live: Running');
-
-    render(row({ livePhase: 'idle' }));
-    expect(chip('session-chip-live')).toBeNull();
-  });
-
-  it('lets the liveness registry win over the row livePhase', () => {
-    render(row({ livePhase: 'generating' }));
-    registry.markFailed(SESSION_ID);
-    fixture.detectChanges();
-    expect(chip('session-chip-live')?.getAttribute('data-live-phase')).toBe(
-      'failed',
-    );
-
-    registry.markIdle(SESSION_ID);
-    fixture.detectChanges();
-    expect(chip('session-chip-live')).toBeNull();
   });
 });

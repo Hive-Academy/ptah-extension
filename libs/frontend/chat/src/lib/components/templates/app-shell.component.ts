@@ -39,7 +39,17 @@ import { ConfirmationDialogComponent } from '../molecules/confirmation-dialog.co
 import { SessionFilterBarComponent } from '../molecules/session-filter-bar/session-filter-bar.component';
 import { SessionOrganizationEditorComponent } from '../molecules/session-organization-editor/session-organization-editor.component';
 import { SessionOrganizationChipsComponent } from '../atoms/session-organization-chips/session-organization-chips.component';
+import { SessionLivePhaseIndicatorComponent } from '../atoms/session-organization-chips/session-live-phase-indicator.component';
 import { groupSessionRows, type SessionRowGroup } from './session-row-groups';
+import {
+  SESSION_SIDEBAR_DEFAULT_WIDTH,
+  SESSION_SIDEBAR_MIN_WIDTH,
+  SESSION_SIDEBAR_WIDTH_STEP,
+  SESSION_SIDEBAR_WIDTH_STORAGE_KEY,
+  nextChosenSessionSidebarWidth,
+  parseStoredSessionSidebarWidth,
+  sessionSidebarWidthCap,
+} from './session-sidebar-width';
 import { SubagentTranscriptOverlayComponent } from '../organisms/subagent-transcript-overlay.component';
 import {
   SidebarTabComponent,
@@ -107,6 +117,7 @@ import type { TitleOrigin } from '@ptah-extension/chat-types';
  * @see AppStateManager
  * @see ChatViewComponent
  */
+
 @Component({
   selector: 'ptah-app-shell',
   standalone: true,
@@ -129,6 +140,7 @@ import type { TitleOrigin } from '@ptah-extension/chat-types';
     NotificationCenterComponent,
     SessionFilterBarComponent,
     SessionOrganizationChipsComponent,
+    SessionLivePhaseIndicatorComponent,
     SessionOrganizationEditorComponent,
   ],
   providers: [
@@ -208,6 +220,37 @@ export class AppShellComponent {
 
   private readonly _sidebarOpen = signal(this.vscodeService.isElectron);
   readonly sidebarOpen = this._sidebarOpen.asReadonly();
+
+  /**
+   * The user's chosen open-sidebar width in px, set by the right-edge resize
+   * handle (pointer drag, ArrowLeft/ArrowRight, double-click reset) and
+   * persisted in localStorage. The rendered width is {@link sidebarWidth}.
+   */
+  private readonly chosenSidebarWidth = signal<number>(
+    this.readStoredSidebarWidth(),
+  );
+  /** Width of the shell row (sidebar + tab + main); 0 until measured. */
+  private readonly shellRowWidth = signal(0);
+  /** The widest the sidebar may render now; see session-sidebar-width.ts. */
+  readonly sidebarMaxWidth = computed(() =>
+    sessionSidebarWidthCap(this.shellRowWidth()),
+  );
+  /** The rendered open-sidebar width: the choice, capped by the room left. */
+  readonly sidebarWidth = computed(() =>
+    Math.min(this.chosenSidebarWidth(), this.sidebarMaxWidth()),
+  );
+  /**
+   * True while a handle drag is active. The template swaps the width
+   * `transition-all` for `transition-none` while this is set, so the drag
+   * tracks the pointer 1:1 instead of lagging behind the animation.
+   */
+  private readonly _sidebarResizing = signal(false);
+  readonly sidebarResizing = this._sidebarResizing.asReadonly();
+  /** Lower bound, read by the handle's aria-valuemin binding. */
+  readonly sidebarMinWidth = SESSION_SIDEBAR_MIN_WIDTH;
+  /** Pointer position and width where the current drag started. */
+  private sidebarResizeStartX = 0;
+  private sidebarResizeStartWidth = SESSION_SIDEBAR_DEFAULT_WIDTH;
   readonly CalendarDaysIcon = CalendarDays;
   readonly CheckIcon = Check;
   readonly ChevronDownIcon = ChevronDown;
@@ -367,6 +410,10 @@ export class AppShellComponent {
   );
   readonly editSessionInput =
     viewChild<ElementRef<HTMLInputElement>>('editSessionInput');
+  /** The sidebar resize handle: the pointer-capture target while dragging. */
+  private readonly sidebarResizeHandle =
+    viewChild<ElementRef<HTMLElement>>('sidebarResizeHandle');
+  private readonly shellRow = viewChild<ElementRef<HTMLElement>>('shellRow');
 
   /**
    * Flag to ensure auth redirect check runs only once.
@@ -375,6 +422,10 @@ export class AppShellComponent {
   private authCheckDone = false;
 
   constructor() {
+    effect((onCleanup) => {
+      const row = this.shellRow()?.nativeElement;
+      if (row) onCleanup(this.observeShellRowWidth(row));
+    });
     effect(() => {
       if (this.sessionNamePopoverOpen()) {
         setTimeout(() => {
@@ -421,6 +472,129 @@ export class AppShellComponent {
    */
   toggleSidebar(): void {
     this._sidebarOpen.update((open) => !open);
+  }
+
+  /**
+   * Pointer-down on the sidebar resize handle: capture the pointer on the
+   * handle and remember where the drag started. Only the primary button
+   * starts a drag; the capture keeps the move/up events flowing to the
+   * handle while the pointer is anywhere over the window.
+   */
+  onSidebarResizeStart(event: PointerEvent): void {
+    if (event.button !== 0) {
+      return;
+    }
+    event.preventDefault();
+    this._sidebarResizing.set(true);
+    this.sidebarResizeStartX = event.clientX;
+    this.sidebarResizeStartWidth = this.sidebarWidth();
+    this.sidebarResizeHandle()?.nativeElement.setPointerCapture(
+      event.pointerId,
+    );
+  }
+
+  /**
+   * Pointer-move while the handle holds the capture: the width follows the
+   * pointer, clamped to the bounds. Not persisted yet — the drag end writes
+   * the settled width once.
+   */
+  onSidebarResizeMove(event: PointerEvent): void {
+    if (!this._sidebarResizing()) {
+      return;
+    }
+    this.applySidebarWidth(
+      this.sidebarResizeStartWidth +
+        (event.clientX - this.sidebarResizeStartX),
+    );
+  }
+
+  /**
+   * Drag end (pointerup or pointercancel; the browser releases the capture
+   * on both): stop resizing and persist the settled width.
+   */
+  onSidebarResizeEnd(): void {
+    if (!this._sidebarResizing()) {
+      return;
+    }
+    this._sidebarResizing.set(false);
+    this.persistSidebarWidth();
+  }
+
+  /**
+   * Keyboard resize on the focused handle: ArrowLeft/ArrowRight step the
+   * width by 16 px, clamped and persisted. Other keys pass through.
+   */
+  onSidebarResizeKeydown(event: KeyboardEvent): void {
+    let next: number | null = null;
+    if (event.key === 'ArrowLeft') {
+      next = this.sidebarWidth() - SESSION_SIDEBAR_WIDTH_STEP;
+    } else if (event.key === 'ArrowRight') {
+      next = this.sidebarWidth() + SESSION_SIDEBAR_WIDTH_STEP;
+    }
+    if (next === null) {
+      return;
+    }
+    event.preventDefault();
+    this.applySidebarWidth(next);
+    this.persistSidebarWidth();
+  }
+
+  /**
+   * Double-click on the handle: back to the 272 px default. Stored uncapped,
+   * so a narrow shell still widens to it once there is room.
+   */
+  resetSidebarWidth(): void {
+    this.chosenSidebarWidth.set(SESSION_SIDEBAR_DEFAULT_WIDTH);
+    this.persistSidebarWidth();
+  }
+
+  /**
+   * Track the shell row's width so the open sidebar leaves room for the main
+   * area. A hidden row (standalone view) reports 0 and keeps the last width.
+   */
+  private observeShellRowWidth(row: HTMLElement): () => void {
+    if (typeof ResizeObserver === 'undefined') return () => undefined;
+    const observer = new ResizeObserver((entries) => {
+      const width = entries.at(-1)?.contentRect.width ?? 0;
+      if (width > 0) this.shellRowWidth.set(width);
+    });
+    observer.observe(row);
+    return () => observer.disconnect();
+  }
+
+  /** Store a drag or keyboard request; see nextChosenSessionSidebarWidth. */
+  private applySidebarWidth(width: number): void {
+    this.chosenSidebarWidth.set(
+      nextChosenSessionSidebarWidth(
+        width,
+        this.chosenSidebarWidth(),
+        this.sidebarMaxWidth(),
+      ),
+    );
+  }
+
+  /** Read the persisted sidebar width; see parseStoredSessionSidebarWidth. */
+  private readStoredSidebarWidth(): number {
+    try {
+      return parseStoredSessionSidebarWidth(
+        localStorage.getItem(SESSION_SIDEBAR_WIDTH_STORAGE_KEY),
+      );
+    } catch {
+      // Storage unavailable (sandboxed webview, blocked storage): default.
+      return SESSION_SIDEBAR_DEFAULT_WIDTH;
+    }
+  }
+
+  /** Persist the current width; storage failures keep it session-only. */
+  private persistSidebarWidth(): void {
+    try {
+      localStorage.setItem(
+        SESSION_SIDEBAR_WIDTH_STORAGE_KEY,
+        String(this.chosenSidebarWidth()),
+      );
+    } catch {
+      // Storage unavailable: the width still applies to this session.
+    }
   }
 
   /**
