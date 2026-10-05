@@ -14,7 +14,8 @@
 
 import { injectable, inject } from 'tsyringe';
 import { randomUUID } from 'node:crypto';
-import { Logger, TOKENS, type HostKind } from '@ptah-extension/vscode-core';
+import { Logger, TOKENS } from '@ptah-extension/vscode-core';
+import { PLATFORM_TOKENS, type HostKind } from '@ptah-extension/platform-core';
 import { MemoryPromptInjector } from './memory-prompt-injector';
 import { CodeSymbolPromptInjector } from './code-symbol-prompt-injector';
 import { redactMcpUrl, redactMcpOverrideMap } from './redact-mcp-url';
@@ -954,7 +955,7 @@ export class SdkQueryOptionsBuilder {
       isOptional: true,
     })
     private readonly mcpBackoffService?: McpServerBackoffService,
-    @inject(TOKENS.HOST_KIND, { isOptional: true })
+    @inject(PLATFORM_TOKENS.HOST_KIND, { isOptional: true })
     private readonly hostKind?: HostKind,
   ) {}
 

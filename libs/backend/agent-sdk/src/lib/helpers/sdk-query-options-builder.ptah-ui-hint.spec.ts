@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 
 import type { AISessionConfig } from '@ptah-extension/shared';
-import type { HostKind } from '@ptah-extension/vscode-core';
+import type { HostKind } from '@ptah-extension/platform-core';
 import { PTAH_CORE_SYSTEM_PROMPT, PTAH_UI_HINT } from '../prompt-harness';
 import {
   assembleSystemPrompt,

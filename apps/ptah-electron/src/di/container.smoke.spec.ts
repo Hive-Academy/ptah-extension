@@ -273,7 +273,7 @@ describe('Electron DI — trusted host kind', () => {
         logger,
       );
 
-      expect(c.resolve(TOKENS.HOST_KIND)).toBe('electron');
+      expect(c.resolve(PLATFORM_TOKENS.HOST_KIND)).toBe('electron');
     } finally {
       fs.rmSync(userDataPath, { recursive: true, force: true });
     }
