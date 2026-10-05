@@ -112,7 +112,7 @@ const STATUS_ARGS = [...STATUS_Z, '--branch', '--untracked-files=all'];
  * timeouts, an immediate retry only queues more git children behind the
  * same stall; a user-driven read always runs and a success clears the window.
  */
-const GIT_STATUS_TIMEOUT_BACKOFF_MS = 30_000;
+export const GIT_STATUS_TIMEOUT_BACKOFF_MS = 30_000;
 
 /**
  * Wall clock the status-timeout backoff window reads. A module-level seam
@@ -723,27 +723,47 @@ export class GitInfoService {
    * spawns its git children at background OS priority. A `getGitInfo` caller
    * that joins such a run shares its priority.
    *
-   * Skipped entirely while the status-timeout backoff for `workspacePath` is
-   * open: after a timeout, an immediate retry only queues more git children
-   * behind the same stalled host, so this returns
-   * `statusUnavailable('timeout')` (the UI keeps the last good list) without
-   * invalidating anything or spawning anything. A user-driven `getGitInfo`
-   * never skips, and a successful read closes the window.
+   * Skipped while the status-timeout backoff for `workspacePath` is open:
+   * after a timeout, an immediate retry only queues more git children behind
+   * the same stalled host, so this returns `statusUnavailable('timeout')`
+   * (the UI keeps the last good list) without spawning anything. The read
+   * caches are still invalidated — a change did happen — and the git watcher,
+   * the only background caller, asks {@link statusBackoffRemainingMs} to
+   * schedule its own follow-up push for when the window closes, so the
+   * skipped change is still broadcast then. A user-driven `getGitInfo` never
+   * skips, and a successful read closes the window.
    */
   refreshGitInfo(workspacePath: string): Promise<GitInfoResult> {
-    const backoffUntil = this.statusTimeoutBackoffUntil.get(workspacePath);
-    if (backoffUntil !== undefined && gitInfoNowMs() < backoffUntil) {
+    if (this.statusBackoffRemainingMs(workspacePath) > 0) {
       this.logger.debug(
         `[GitInfoService] skipping background refresh for ` +
           `${workspacePath}: git status timed out within the last ` +
           `${GIT_STATUS_TIMEOUT_BACKOFF_MS / 1000} s`,
       );
+      // The read caches drop exactly as on the non-skipped path: a change did
+      // happen, and the watcher's follow-up push reads them fresh.
+      this.invalidateReadCache(workspacePath);
       return Promise.resolve(statusUnavailable('timeout'));
     }
     this.invalidateReadCache(workspacePath);
     return this.singleFlight(`info|${workspacePath}|`, workspacePath, () =>
       this.computeGitInfo(workspacePath, 'background'),
     );
+  }
+
+  /**
+   * How much longer the status-timeout backoff for `workspacePath` stays open,
+   * in ms; 0 when no backoff is open (or it has already expired).
+   *
+   * The git watcher asks this after a skipped refresh so IT can schedule the
+   * follow-up push for when the window closes: the follow-up belongs to the
+   * pusher, not to this service, because only the pusher can drain its
+   * causes and broadcast the fresh status to the renderer.
+   */
+  statusBackoffRemainingMs(workspacePath: string): number {
+    const backoffUntil = this.statusTimeoutBackoffUntil.get(workspacePath);
+    if (backoffUntil === undefined) return 0;
+    return Math.max(backoffUntil - gitInfoNowMs(), 0);
   }
 
   /** The newest invalidation counter that covers `workspacePath`. */

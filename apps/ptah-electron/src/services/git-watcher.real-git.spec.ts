@@ -101,6 +101,7 @@ class WatchedWorkspace {
     const gitInfo = {
       refreshGitInfo: async (): Promise<GitInfoResult> =>
         ({ isGitRepo: true, files: [] }) as unknown as GitInfoResult,
+      statusBackoffRemainingMs: (): number => 0,
       getWorktrees: this.getWorktrees,
     } as unknown as GitInfoService;
     this.svc = new GitWatcherService(gitInfo, logger, watcher);

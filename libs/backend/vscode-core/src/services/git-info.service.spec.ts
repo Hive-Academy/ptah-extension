@@ -58,6 +58,8 @@
  *   getGitInfo     — a non-repository is classified from the status exit, no probe
  *   refreshGitInfo — a timeout backs off background refreshes for 30 s; a user
  *                    read runs anyway and a success closes the window
+ *   statusBackoffRemainingMs — the open window as a countdown (0 when closed);
+ *                    the service itself creates no follow-up timer
  *
  * `crossSpawn` is mocked at the module boundary so no git binary is required.
  *
@@ -92,6 +94,7 @@ import {
   isMutatingGitCommand,
   setGitInfoClockForTests,
   resetGitInfoClockForTests,
+  GIT_STATUS_TIMEOUT_BACKOFF_MS,
 } from './git-info.service';
 import {
   GitCancelledError,
@@ -2644,11 +2647,45 @@ describe('GitInfoService — status timeout budget and backoff (TASK_2026_616)',
     });
   }
 
+  /**
+   * A service whose first status read rejects with a git timeout (opening
+   * the backoff window); every later call runs the real pipeline.
+   */
+  function makeBackedOffService() {
+    const spawnProcess = makePipelineSpawner();
+    const service = new GitInfoService(
+      makeLogger() as never,
+      {
+        spawnProcess,
+      } as never,
+    );
+    const seam = service as unknown as {
+      execGit: (
+        args: string[],
+        cwd: string,
+        options?: unknown,
+      ) => Promise<unknown>;
+    };
+    const realExecGit = seam.execGit.bind(service);
+    jest
+      .spyOn(seam, 'execGit')
+      .mockImplementationOnce((args: string[], cwd: string) =>
+        args[0] === 'status'
+          ? Promise.reject(new GitTimeoutError('status', GIT_STATUS_TIMEOUT_MS))
+          : realExecGit(args, cwd),
+      )
+      .mockImplementation((args, cwd, options) =>
+        realExecGit(args, cwd, options),
+      );
+    return { spawnProcess, service };
+  }
+
   beforeEach(() => {
     jest.clearAllMocks();
   });
 
   afterEach(() => {
+    jest.useRealTimers();
     resetGitInfoClockForTests();
   });
 
@@ -2797,6 +2834,60 @@ describe('GitInfoService — status timeout budget and backoff (TASK_2026_616)',
     const refreshed = await service.refreshGitInfo(WS);
     expect(refreshed.isGitRepo).toBe(true);
     expect(spawnProcess).toHaveBeenCalledTimes(7);
+  });
+
+  it('reports the open backoff window, and creates no timer of its own', async () => {
+    jest.useFakeTimers({
+      doNotFake: ['queueMicrotask', 'nextTick', 'setImmediate'],
+    });
+    const { spawnProcess, service } = makeBackedOffService();
+    expect(service.statusBackoffRemainingMs('/no/backoff/here')).toBe(0);
+
+    // The first status read times out, so the backoff window opens.
+    await expect(service.getGitInfo(WS)).resolves.toMatchObject({
+      statusUnavailable: 'timeout',
+    });
+    expect(service.statusBackoffRemainingMs(WS)).toBe(
+      GIT_STATUS_TIMEOUT_BACKOFF_MS,
+    );
+
+    // A skipped watcher refresh creates no timer — the follow-up push belongs
+    // to the pusher (the git watcher), not to this service.
+    await expect(service.refreshGitInfo(WS)).resolves.toMatchObject({
+      statusUnavailable: 'timeout',
+    });
+    expect(jest.getTimerCount()).toBe(0);
+    expect(service.statusBackoffRemainingMs(WS)).toBe(
+      GIT_STATUS_TIMEOUT_BACKOFF_MS,
+    );
+    expect(spawnProcess).not.toHaveBeenCalled();
+
+    // The window is a countdown: 0 once it has closed, with nothing run.
+    await jest.advanceTimersByTimeAsync(GIT_STATUS_TIMEOUT_BACKOFF_MS);
+    expect(service.statusBackoffRemainingMs(WS)).toBe(0);
+    expect(spawnProcess).not.toHaveBeenCalled();
+  });
+
+  it('a skipped refresh still invalidates the read cache for that root', async () => {
+    const { spawnProcess, service } = makeBackedOffService();
+    const forEachRefSpawns = () =>
+      spawnProcess.mock.calls.filter(
+        (call) => call[0].args[0] === 'for-each-ref',
+      );
+
+    // A status read times out, so the backoff window opens.
+    await expect(service.getGitInfo(WS)).resolves.toMatchObject({
+      statusUnavailable: 'timeout',
+    });
+    // A branches read settles into the read cache and is served from it.
+    await service.getBranches(WS, false);
+    await service.getBranches(WS, false);
+    expect(forEachRefSpawns()).toHaveLength(1);
+
+    // The skipped watcher refresh still drops the cached reads for the root.
+    await service.refreshGitInfo(WS);
+    await service.getBranches(WS, false);
+    expect(forEachRefSpawns()).toHaveLength(2);
   });
 });
 
