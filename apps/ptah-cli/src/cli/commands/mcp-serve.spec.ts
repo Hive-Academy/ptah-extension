@@ -57,6 +57,7 @@ import {
   type JsonRpcMessage,
 } from '../jsonrpc/types.js';
 import type { GlobalOptions } from '../router.js';
+import { StdioTransport } from '@ptah-extension/vscode-lm-tools';
 import type {
   MCPRequest,
   MCPResponse,
@@ -767,6 +768,57 @@ describe('ptah mcp-serve', () => {
       expect(h.engineOpts[0]).toEqual({ mode: 'full', requireSdk: false });
       h.stdin.end();
       await promise;
+    });
+  });
+
+  describe('request id pass-through and drain', () => {
+    it("hands the peer's own tools/call id to handleToolsCall (not a generated one)", async () => {
+      const h = makeHarness();
+      const promise = execute(NO_OPTS, baseGlobals, h.hooks);
+      await flushAsync();
+
+      h.send({
+        jsonrpc: '2.0',
+        id: 42,
+        method: 'tools/call',
+        params: { name: 'agent_list', arguments: {} },
+      });
+      await h.findLine(
+        (m) =>
+          isJsonRpcSuccessResponse(m) &&
+          (m as { id: string | number }).id === 42,
+      );
+      expect(h.fakeStdioServer.handleToolsCall).toHaveBeenCalledTimes(1);
+      const req = h.fakeStdioServer.handleToolsCall.mock.calls[0][0];
+      expect(req.id).toBe(42);
+
+      h.stdin.end();
+      await promise;
+    });
+
+    it('disposes the stdio server before the transport stops on stdin end', async () => {
+      const order: string[] = [];
+      const stopSpy = jest
+        .spyOn(StdioTransport.prototype, 'stop')
+        .mockImplementation(async () => {
+          order.push('transport.stop');
+        });
+      try {
+        const h = makeHarness();
+        h.fakeStdioServer.dispose.mockImplementation(async () => {
+          order.push('dispose');
+        });
+        const promise = execute(NO_OPTS, baseGlobals, h.hooks);
+        await flushAsync();
+
+        h.stdin.end();
+        await promise;
+
+        expect(h.fakeStdioServer.dispose).toHaveBeenCalledTimes(1);
+        expect(order).toEqual(['dispose', 'transport.stop']);
+      } finally {
+        stopSpy.mockRestore();
+      }
     });
   });
 });
