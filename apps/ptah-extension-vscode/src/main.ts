@@ -159,9 +159,10 @@ export async function deactivate(): Promise<void> {
 
   // A `ptah_run_check` in flight owns an Nx process tree in its own process
   // group, which would outlive the extension host. The check kill and the
-  // agent reap are independent, so they run together and both are awaited: a
-  // slow `taskkill` must not spend the deactivate budget the reap and the
-  // metadata flush below need.
+  // agent reap are independent, so they start together; the metadata flush
+  // depends on the reap only, so it runs as soon as the reap settles and the
+  // bounded kill (up to 5 s, decision G-A) is awaited after it. A slow
+  // `taskkill` must not hold back the flush of the references the reap produced.
   const checksKilled = killRunningChecksWithin(
     RUN_CHECK_KILL_BUDGET_MS,
     logger,
@@ -178,7 +179,7 @@ export async function deactivate(): Promise<void> {
       });
     }
   })();
-  await Promise.all([checksKilled, agentsReaped]);
+  await agentsReaped;
 
   try {
     const ptahCliRegistry = DIContainer.resolve<PtahCliRegistry>(
@@ -197,6 +198,10 @@ export async function deactivate(): Promise<void> {
   // awaited by VS Code, so this host can genuinely wait for the write to land
   // instead of merely starting it (TASK_2026_324 finding 3).
   await flushSessionMetadataStores();
+
+  // The run-check tree kill started beside the reap; it is bounded by its own
+  // budget and never rejects, so awaiting it last costs only what remains of it.
+  await checksKilled;
 
   ptahExtension?.dispose();
   ptahExtension = undefined;

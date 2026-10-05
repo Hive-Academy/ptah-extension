@@ -74,6 +74,11 @@ export interface CheckProcess {
   readonly stdout: Readable | null;
   readonly stderr: Readable | null;
   on(event: 'error', listener: (error: Error) => void): this;
+  /** The root process ended; its stdio (and so `close`) may still be open. */
+  on(
+    event: 'exit',
+    listener: (code: number | null, signal: NodeJS.Signals | null) => void,
+  ): this;
   on(
     event: 'close',
     listener: (code: number | null, signal: NodeJS.Signals | null) => void,
@@ -397,6 +402,9 @@ interface RunResult {
  * (tree kill, `cancelled` verdict). An entry leaves when its run settles —
  * unless the tree kill failed and the process never closed: then the entry
  * stays, as a bare tree-kill retry, until a `close` or a successful retry.
+ * On Windows the retry also ends when the root process exits: `taskkill /T`
+ * finds the tree by the root's pid, so after the root is gone it cannot reach
+ * the orphans, and the pid may be reused by an unrelated process.
  */
 const liveChecks = new Map<number, () => Promise<void>>();
 
@@ -471,6 +479,12 @@ async function execute(
     let stopping: Promise<void> | undefined;
     let settled = false;
     let closed = false;
+    /**
+     * Windows only: the root process has exited, so its pid no longer names
+     * this tree and a retry by pid could reach whichever process reuses it.
+     * On POSIX the kill targets the process group, which outlives its leader.
+     */
+    let rootPidReleased = false;
     let settleTimer: NodeJS.Timeout | undefined;
     /** Why the tree kill failed; unset while no kill failed. */
     let killFailure: string | undefined;
@@ -503,8 +517,9 @@ async function execute(
     };
     /**
      * Dispose's retry for a settled run whose kill failed and which never
-     * closed. A successful kill unlists the pid; a failed one leaves it for
-     * the next dispose.
+     * closed and whose root is still alive. A successful kill unlists the
+     * pid; a failed one leaves it for the next dispose, until the process
+     * closes or (Windows) its root exits.
      */
     const retryKill = (): Promise<void> =>
       pid === undefined
@@ -518,8 +533,9 @@ async function execute(
       clearTimeout(timer);
       clearTimeout(settleTimer);
       signal?.removeEventListener('abort', onAbort);
-      if (killFailure !== undefined && !closed) register(retryKill);
-      else unregister();
+      if (killFailure !== undefined && !closed && !rootPidReleased) {
+        register(retryKill);
+      } else unregister();
       resolve(result);
     };
 
@@ -572,6 +588,14 @@ async function execute(
           spawnError: error.message,
         });
       }
+    });
+    child.on('exit', () => {
+      if (process.platform !== 'win32') return;
+      rootPidReleased = true;
+      // A settled run's entry is only the retry: drop it now. A run still
+      // going keeps its stop entry until it settles, and `settle` then sees
+      // the root is gone and lists no retry.
+      if (settled) unregister();
     });
     child.on('close', (code, exitSignal) => {
       // The process is gone: unlist it even when the run settled earlier on

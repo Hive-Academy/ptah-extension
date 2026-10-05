@@ -59,20 +59,26 @@ describe('deactivate() teardown order', () => {
     expect(deactivateBody).toContain(`await ${AGENT_DISPOSE}`);
   });
 
-  it('runs the run-check kill beside the agent reap, bounded, and awaits both', () => {
-    // TASK_2026_614 G-A: a slow tree kill must not spend the budget the reap
-    // and the metadata flush need, so the kill is started (with its 5 s
-    // budget) before the reap and both are awaited together, ahead of the
-    // proxy dispose.
+  it('starts the bounded run-check kill beside the agent reap and awaits it after the metadata flush', () => {
+    // TASK_2026_614 G-A: the kill is started (with its 5 s budget) before the
+    // reap so both run together, and it is awaited. M1 (fix round B): the
+    // flush depends on the reap only, so the reap is awaited first, then the
+    // flush, and only then the kill — a slow tree kill must not hold the flush
+    // back inside the host's deactivate window.
     const killIndex = deactivateBody.indexOf('killRunningChecksWithin(');
-    const awaitBoth = deactivateBody.indexOf(
-      'await Promise.all([checksKilled, agentsReaped])',
-    );
+    const awaitReap = deactivateBody.indexOf('await agentsReaped;');
+    const flushIndex = deactivateBody.indexOf(`await ${METADATA_FLUSH}`);
+    const awaitKill = deactivateBody.indexOf('await checksKilled;');
 
     expect(killIndex).toBeGreaterThan(-1);
     expect(killIndex).toBeLessThan(deactivateBody.indexOf(AGENT_DISPOSE));
-    expect(awaitBoth).toBeGreaterThan(deactivateBody.indexOf(AGENT_DISPOSE));
-    expect(awaitBoth).toBeLessThan(deactivateBody.indexOf(PROXY_DISPOSE));
+    expect(awaitReap).toBeGreaterThan(deactivateBody.indexOf(AGENT_DISPOSE));
+    expect(awaitReap).toBeLessThan(deactivateBody.indexOf(PROXY_DISPOSE));
+    expect(flushIndex).toBeGreaterThan(awaitReap);
+    expect(awaitKill).toBeGreaterThan(flushIndex);
+    // The kill is awaited exactly once, and never ahead of the flush.
+    expect(deactivateBody.split('await checksKilled')).toHaveLength(2);
+    expect(deactivateBody).not.toContain('Promise.all([checksKilled');
     expect(deactivateBody).not.toContain('await killRunningChecks()');
   });
 });

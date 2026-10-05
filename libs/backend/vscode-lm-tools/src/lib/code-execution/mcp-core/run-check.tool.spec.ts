@@ -443,6 +443,89 @@ describe('runCheck', () => {
     }
   });
 
+  describe('a failed kill whose root process exits (TASK_2026_614 M2)', () => {
+    const realPlatform = process.platform;
+    const setPlatform = (platform: NodeJS.Platform): void => {
+      Object.defineProperty(process, 'platform', {
+        value: platform,
+        configurable: true,
+      });
+    };
+    afterEach(() => setPlatform(realPlatform));
+
+    /** Time a run out with a kill that always fails; the process never closes. */
+    async function timedOutWithFailedKill(
+      child: FakeProcess,
+      beforeSettle?: () => void,
+    ): Promise<jest.Mock<Promise<void>, [number]>> {
+      jest.useFakeTimers({ doNotFake: ['setImmediate', 'nextTick'] });
+      try {
+        installNx('');
+        const killTree = jest
+          .fn<Promise<void>, [number]>()
+          .mockRejectedValue(new Error('The process "1" not found.'));
+        const d = fakeDeps(child, { killTree });
+        const pending = runCheck(
+          args({ project: 'app', targets: ['test'], timeoutSec: 1 }),
+          d,
+        );
+        await untilSpawned(d.spawnProcess);
+        await jest.advanceTimersByTimeAsync(1_000);
+        beforeSettle?.();
+        await jest.advanceTimersByTimeAsync(10_000);
+        jest.useRealTimers();
+        const outcome = await pending;
+        expect(outcome.structured.verdict).toBe('timed_out');
+        expect(killTree).toHaveBeenCalledTimes(1);
+        return killTree;
+      } finally {
+        jest.useRealTimers();
+      }
+    }
+
+    it('win32: drops the listed retry once the root exits, so dispose never kills a reused pid', async () => {
+      setPlatform('win32');
+      const child = new FakeProcess(9292);
+      const killTree = await timedOutWithFailedKill(child);
+      expect(runningCheckPids()).toContain(9292);
+
+      child.emit('exit', 1, null);
+      expect(runningCheckPids()).not.toContain(9292);
+
+      await killRunningChecks();
+      expect(killTree).toHaveBeenCalledTimes(1);
+    });
+
+    it('win32: lists no retry when the root exited before the run settled', async () => {
+      setPlatform('win32');
+      const child = new FakeProcess(9393);
+      const killTree = await timedOutWithFailedKill(child, () =>
+        child.emit('exit', 1, null),
+      );
+      expect(runningCheckPids()).not.toContain(9393);
+
+      await killRunningChecks();
+      expect(killTree).toHaveBeenCalledTimes(1);
+    });
+
+    it('POSIX: keeps the retry after the root exits — the group kill still reaches the tree', async () => {
+      setPlatform('linux');
+      const child = new FakeProcess(9494);
+      const killTree = await timedOutWithFailedKill(child);
+
+      child.emit('exit', null, 'SIGTERM');
+      expect(runningCheckPids()).toContain(9494);
+
+      await killRunningChecks();
+      expect(killTree).toHaveBeenCalledTimes(2);
+      expect(killTree).toHaveBeenLastCalledWith(9494);
+
+      child.finish(null, 'SIGKILL');
+      await new Promise((r) => setImmediate(r));
+      expect(runningCheckPids()).not.toContain(9494);
+    });
+  });
+
   it('reports a launch failure as an error result', async () => {
     installNx('');
     const child = new FakeProcess(null);

@@ -1312,7 +1312,7 @@ the `humanize-library` skill; every existing spec passes unchanged except for mo
 
 ### Task 35.2: Move their specs — PENDING
 
-## Batch 36: Split the stats chip budget formatting (F.2) — PENDING
+## Batch 36: Split the stats chip budget formatting (F.2) — COMPLETE (49fba1097)
 
 - Recommended executor: frontend-developer | Fallback: frontend-developer (fresh run) | Execution mode: Sequential subagent
 - Model: Opus | Tasks: 1 | Depends on: Batch 33 (committed; does NOT depend on deferred Task 33.6 — keep the hard-coded 50/80/100 tooltip as is) | Phase: F.2
@@ -1321,7 +1321,29 @@ the `humanize-library` skill; every existing spec passes unchanged except for mo
 - Files: `<R>\libs\frontend\chat-ui\src\lib\molecules\session\session-stats-summary.component.ts` (+ spec), new pure
   helper `session-budget-format.ts` (+ spec) beside it
 
-### Task 36.1: Extract `tokensBudgetSuffix`, `costBudgetText`, `costBudgetSuffix`, `costTooltip`, `budgetTooltip` — PENDING
+### Task 36.1: Extract `tokensBudgetSuffix`, `costBudgetText`, `costBudgetSuffix`, `costTooltip`, `budgetTooltip` — COMPLETE
+
+## Stage F + G phase review fix round
+
+Reviews: `reviews/fg-code-logic-review-a.md`, `-b.md`, `-c.md`, `reviews/fg-code-style-review.md`. Three fix batches;
+fix C (`libs/frontend/**`) runs separately and is committed on its own.
+
+### Fix A: S1 (partial) and M5 (review A) — COMPLETE (commit: 2b066cb08)
+
+- Report: `fg-fix-round-a-report.md`. Projects: agent-sdk, vscode-core.
+- S1 — PARTIAL. A SubagentStart without `toolUseId` and with no matching record is now held, and a Task tool_result
+  naming exactly one `agentId:` binds it under the Task's toolCallId. Under F-F (exact match only) a foreground Task
+  returns its `agentId:` line only after the subagent stops, so a running foreground subagent whose start lacked
+  `toolUseId` still cannot be stopped or steered. Named later task NL-F2 (needs a user decision).
+- M5 — fixed: eviction keeps a `realSessionId` another record still holds; `evictStale` deletes the index entry only
+  when it points at the evicted record.
+- R1 breach: the executor used 77 tool calls (limit 60).
+
+### Fix B: M1 and M2 (review B) — COMPLETE (commit: the fix B commit after 2b066cb08; see git log)
+
+- Report: `fg-fix-round-b-report.md`. Projects: ptah-extension-vscode, vscode-lm-tools.
+- M1 — fixed: `deactivate()` awaits the reap, disposes, flushes metadata, then awaits the bounded check kill (G-A kept).
+- M2 — fixed: on win32 the run-check retry is dropped once the root pid exits; POSIX keeps the group retry.
 
 ### Batch 33 record
 
@@ -1340,6 +1362,9 @@ the `humanize-library` skill; every existing spec passes unchanged except for mo
   50/80/100. Needs `tightenPercent` / `handoffPercent` on `SessionBudgetState`
   (`libs/shared/src/lib/types/session-budget.types.ts:110-137`) populated by the backend; assumption A2 was false.
 - G-C: `stopped` subagent status (dropped Batch 34).
+- NL-F2 (from fix A, S1 residual; needs a user decision): a running foreground subagent whose SubagentStart lacks
+  `toolUseId` cannot be stopped or steered, because under F-F exact-match binding its Task result (the only `agentId:`
+  link) arrives after SubagentStop. Revisit F-F, e.g. bind when exactly one candidate Task tool_use is in flight.
 
 ## Stage F + G next action
 
