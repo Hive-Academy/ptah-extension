@@ -163,6 +163,15 @@ function callKey(segment: CliOutputSegment): string {
   return name;
 }
 
+/**
+ * Code-unit order: deterministic for any two distinct keys, unlike
+ * `localeCompare`, which can rank canonically equivalent keys as equal.
+ */
+function byCodeUnit(a: string, b: string): number {
+  if (a < b) return -1;
+  return a > b ? 1 : 0;
+}
+
 /** JSON with object keys sorted at every level, so key order does not matter. */
 function normalisedJson(value: unknown): string {
   return JSON.stringify(value, (_key, inner: unknown) => {
@@ -171,7 +180,7 @@ function normalisedJson(value: unknown): string {
     }
     const record = inner as Record<string, unknown>;
     const sorted: Record<string, unknown> = {};
-    for (const k of Object.keys(record).sort((a, b) => a.localeCompare(b))) sorted[k] = record[k];
+    for (const k of Object.keys(record).sort(byCodeUnit)) sorted[k] = record[k];
     return sorted;
   });
 }
