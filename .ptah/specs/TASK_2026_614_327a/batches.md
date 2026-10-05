@@ -1050,8 +1050,8 @@ real code, a regression test per item).
 
 - Recommended executor: backend-developer | Execution mode: Sequential subagent | Depends on: 21, 24 | Phase: G
 - Projects: `ptah-cli`, `@ptah-extension/vscode-lm-tools`
-- Files: `<R>pps\ptah-cli\src\cli\jsonrpc\server.ts` (+ spec), `<R>pps\ptah-cli\src\cli\commands\mcp-serve.ts`
-  (+ spec; Batch 24 owns the spec first), `<R>\libsackendscode-lm-tools\src\lib\code-execution\mcp-stdio\stdio-mcp-server.service.ts` (+ spec)
+- Files: `<R>\apps\ptah-cli\src\cli\jsonrpc\server.ts` (+ spec), `<R>\apps\ptah-cli\src\cli\commands\mcp-serve.ts`
+  (+ spec; Batch 24 owns the spec first), `<R>\libs\backend\vscode-lm-tools\src\lib\code-execution\mcp-stdio\stdio-mcp-server.service.ts` (+ spec)
 
 ### Task 24A.1: A handler can say "send no response" — PENDING
 
