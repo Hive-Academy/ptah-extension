@@ -608,12 +608,12 @@ export interface PlanLimitsRpcControl {
 
 export function planLimitsFixtures(
   snapshot: PlanLimitsSnapshot,
-  control: PlanLimitsRpcControl = { failPulls: false },
+  control?: PlanLimitsRpcControl,
 ): Record<string, unknown> {
   return {
     ...baseMarketplaceFixtures([WORKSPACE_ROOT]),
     'provider:getPlanLimits': () =>
-      control.failPulls ? rpcError('usage read failed') : snapshot,
+      control?.failPulls ? rpcError('usage read failed') : snapshot,
     'session:list': {
       sessions: [
         {

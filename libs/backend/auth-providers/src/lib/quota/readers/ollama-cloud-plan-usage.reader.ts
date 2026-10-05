@@ -89,7 +89,7 @@ function window(
   value: { percentage: number; resets_at?: string | null },
   observedAt: number,
 ): PlanLimitWindow {
-  const reset = value.resets_at ? Date.parse(value.resets_at) : NaN;
+  const reset = value.resets_at ? Date.parse(value.resets_at) : Number.NaN;
   return {
     key: key === 'session' ? 'other:ollama-session' : 'weekly',
     kind: key === 'session' ? 'other' : 'weekly',

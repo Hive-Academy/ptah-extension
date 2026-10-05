@@ -62,10 +62,10 @@ export class CodexTranslationProxy extends TranslationProxyBase {
    * on refresh and identifies nobody. `null` until the account has been read
    * (identity unavailable), so a 429 then is recorded unattributed.
    */
-  protected override async resolveQuotaOwnerKey(
+  protected override resolveQuotaOwnerKey(
     _headers: Record<string, string>,
   ): Promise<string | null> {
-    return this.codexOwnerKeys?.currentOwnerKey() ?? null;
+    return Promise.resolve(this.codexOwnerKeys?.currentOwnerKey() ?? null);
   }
 
   /**

@@ -279,13 +279,15 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
    * resolver functions (no parsing or hashing here). A subclass whose bearer
    * is not an identity (an OAuth token that rotates) overrides this.
    */
-  protected async resolveQuotaOwnerKey(
+  protected resolveQuotaOwnerKey(
     headers: Record<string, string>,
   ): Promise<string | null> {
     const credential = credentialFromHeaders(headers);
-    return credential === null
-      ? null
-      : credentialOwnerKey(this.getProviderId(), credential);
+    return Promise.resolve(
+      credential === null
+        ? null
+        : credentialOwnerKey(this.getProviderId(), credential),
+    );
   }
 
   /**

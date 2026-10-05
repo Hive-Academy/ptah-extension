@@ -216,7 +216,7 @@ function toWindow(
   const name = model.slice(0, ANTIGRAVITY_MAX_MODEL_LENGTH);
   // The payload states no period: a positional, neutral descriptor.
   const descriptor = windowKindFromDuration(undefined, position);
-  const reset = value.resetTime ? Date.parse(value.resetTime) : NaN;
+  const reset = value.resetTime ? Date.parse(value.resetTime) : Number.NaN;
   return {
     key: `other:model-${name}`,
     kind: descriptor.kind,

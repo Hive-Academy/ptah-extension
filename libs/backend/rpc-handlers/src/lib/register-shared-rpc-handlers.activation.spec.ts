@@ -128,6 +128,15 @@ function composeHost(): Host {
   c.register(AGENT_GENERATION_TOKENS.ENHANCED_PROMPTS_SERVICE, {
     useValue: { setAnalysisReader: jest.fn(), getStatus: jest.fn() },
   });
+  // Phase 0 registers it on every host; the lane resume gate resolves it.
+  c.register(PLATFORM_TOKENS.OUTPUT_CHANNEL, {
+    useValue: {
+      appendLine: jest.fn(),
+      append: jest.fn(),
+      clear: jest.fn(),
+      show: jest.fn(),
+    },
+  });
   c.register(PLATFORM_TOKENS.PLATFORM_INFO, {
     useValue: {
       platform: process.platform,

@@ -559,18 +559,20 @@ export class PlanLimitLedgerService {
     const serialized = JSON.stringify(payload);
     if (serialized === this.lastPersisted) return;
     this.lastPersisted = serialized;
-    // Memory stays authoritative when the write fails, whether the storage
-    // throws synchronously or rejects.
-    let write: Promise<void>;
-    try {
-      write = this.storage.update(PLAN_LIMIT_LEDGER_STORAGE_KEY, payload);
-    } catch (error: unknown) {
-      // degradation-audit: reported - logged at debug by logPersistFailure;
-      // the next change retries the write.
-      this.logPersistFailure(error);
-      return;
-    }
-    void write.catch((error: unknown) => this.logPersistFailure(error));
+    // Memory stays authoritative when the write fails. The next change
+    // retries it, because logPersistFailure clears lastPersisted.
+    void this.write(payload).catch((error: unknown) =>
+      this.logPersistFailure(error),
+    );
+  }
+
+  /**
+   * Starts the storage write synchronously, as a direct call would; being
+   * `async`, it turns a synchronous throw into a rejection, so the one
+   * `.catch()` in {@link persist} handles both.
+   */
+  private async write(payload: unknown): Promise<void> {
+    await this.storage.update(PLAN_LIMIT_LEDGER_STORAGE_KEY, payload);
   }
 
   private logPersistFailure(error: unknown): void {

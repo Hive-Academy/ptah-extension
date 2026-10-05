@@ -202,11 +202,15 @@ export class PlanLimitOwnerDiscoveryService {
         this.detectedLanes((await detected) ?? []),
       ),
       this.fromSource('ptah-cli', () => this.ptahCliLanes()),
-      this.fromSource('owner-key', async () =>
-        this.ledgerOnly(parseOwnerKeys(request.ownerKeys ?? []), 'owner-key'),
+      this.fromSource('owner-key', () =>
+        Promise.resolve(
+          this.ledgerOnly(parseOwnerKeys(request.ownerKeys ?? []), 'owner-key'),
+        ),
       ),
-      this.fromSource('active-evidence', async () =>
-        this.ledgerOnly(this.ledger.knownOwners(), 'active-evidence'),
+      this.fromSource('active-evidence', () =>
+        Promise.resolve(
+          this.ledgerOnly(this.ledger.knownOwners(), 'active-evidence'),
+        ),
       ),
     ];
     for (const entries of await Promise.all(sources)) add(entries ?? []);
