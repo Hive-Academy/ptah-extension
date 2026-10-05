@@ -405,7 +405,13 @@ const liveChecks = new Map<number, () => Promise<void>>();
  * stop path (so each reply says `cancelled`), and retry the tree kill of
  * every settled run whose kill failed. For host dispose: a detached POSIX
  * process group, or a Windows tree, would otherwise outlive the host.
- * Resolves once every tree kill has finished; it does not throw.
+ *
+ * Never rejects: every stop and retry records its own kill failure. Resolves
+ * once every tree kill has finished, which can take up to the tree-kill grace
+ * period (`PROCESS_TREE_KILL_GRACE_MS`, 5 s). Hosts therefore await it with
+ * a bounded budget and no catch: VS Code `deactivate` runs it beside the agent
+ * reap, Electron `will-quit` defers the quit while {@link runningCheckPids} is
+ * non-empty and awaits it inside the disposal chain.
  */
 export async function killRunningChecks(): Promise<void> {
   await Promise.all([...liveChecks.values()].map((stop) => stop()));

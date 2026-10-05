@@ -58,6 +58,23 @@ describe('deactivate() teardown order', () => {
     // out from under the release.
     expect(deactivateBody).toContain(`await ${AGENT_DISPOSE}`);
   });
+
+  it('runs the run-check kill beside the agent reap, bounded, and awaits both', () => {
+    // TASK_2026_614 G-A: a slow tree kill must not spend the budget the reap
+    // and the metadata flush need, so the kill is started (with its 5 s
+    // budget) before the reap and both are awaited together, ahead of the
+    // proxy dispose.
+    const killIndex = deactivateBody.indexOf('killRunningChecksWithin(');
+    const awaitBoth = deactivateBody.indexOf(
+      'await Promise.all([checksKilled, agentsReaped])',
+    );
+
+    expect(killIndex).toBeGreaterThan(-1);
+    expect(killIndex).toBeLessThan(deactivateBody.indexOf(AGENT_DISPOSE));
+    expect(awaitBoth).toBeGreaterThan(deactivateBody.indexOf(AGENT_DISPOSE));
+    expect(awaitBoth).toBeLessThan(deactivateBody.indexOf(PROXY_DISPOSE));
+    expect(deactivateBody).not.toContain('await killRunningChecks()');
+  });
 });
 
 /**

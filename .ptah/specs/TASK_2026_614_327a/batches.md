@@ -1191,7 +1191,7 @@ real code, a regression test per item).
 - Add an optional read-status field (55-66); `buildHandoff` (587-624) sets it on an unknown workspace or a `readError`.
   Spec. The task needs no decision itself; it waits so the shared type changes land in one commit.
 
-## Batch 29: One shutdown contract for `killRunningChecks` (G.4) — PENDING (decision recorded in context.md: G-A)
+## Batch 29: One shutdown contract for `killRunningChecks` (G.4) — COMPLETE (decision recorded in context.md: G-A)
 
 - Recommended executor: backend-developer | Fallback: backend-developer (fresh run) | Execution mode: Sequential subagent
 - Model: Opus | Tasks: 2 | Depends on: Batch 21, Decision G-A | Phase: G
@@ -1216,7 +1216,7 @@ real code, a regression test per item).
 
 ### Task 30.1: Rename at 240-244 and 258 (run `ptah_lsp_references` first) — PENDING (decision recorded in context.md)
 
-## Batch 31: Interrupt stamps activity; agentId binding without toolUseId (F.5 M1, B1) — COMPLETE (decision recorded in context.md: F-F)
+## Batch 31: Interrupt stamps activity; agentId binding without toolUseId (F.5 M1, B1) — COMPLETE `013f17376` (decision recorded in context.md: F-F)
 
 - Recommended executor: backend-developer | Fallback: backend-developer (fresh run) | Execution mode: Sequential subagent
 - Model: Opus | Tasks: 2 | Depends on: Decision F-F | Phase: F
