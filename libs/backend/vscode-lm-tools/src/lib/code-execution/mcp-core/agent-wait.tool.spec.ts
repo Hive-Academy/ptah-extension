@@ -98,7 +98,53 @@ describe('runAgentWait', () => {
       }),
       d,
     );
-    expect(d.waitForAgents).toHaveBeenCalledWith(['a', 'b'], 'any', 30_000);
+    expect(d.waitForAgents).toHaveBeenCalledWith(
+      ['a', 'b'],
+      'any',
+      30_000,
+      undefined,
+    );
+  });
+
+  it('forwards the signal and reports a fired one as a cancelled partial result (E.3)', async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const d = deps(
+      {
+        mode: 'all',
+        timedOut: false,
+        cancelled: true,
+        waitedMs: 2_000,
+        entries: [
+          {
+            agentId: 'lane-1',
+            state: 'running',
+            info: info('lane-1', {
+              status: 'running',
+              exitCode: undefined,
+              completedAt: undefined,
+            }),
+          },
+        ],
+      },
+      { signal: controller.signal },
+    );
+
+    const text = await runAgentWait(
+      AgentWaitArgsSchema.parse({ agentIds: ['lane-1'], timeoutSec: 30 }),
+      d,
+    );
+
+    expect(d.waitForAgents).toHaveBeenCalledWith(
+      ['lane-1'],
+      'all',
+      30_000,
+      controller.signal,
+    );
+    expect(text).toContain('WAIT CANCELLED after 2s waiting for all');
+    expect(text).toContain('0 of 1 known lane(s) ended, 1 still running');
+    expect(text).not.toContain('TIMED OUT');
+    expect(d.readOutput).not.toHaveBeenCalled();
   });
 
   it('reports status, exit code, duration, stop reason, deliverables and last lines', async () => {

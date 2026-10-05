@@ -179,6 +179,12 @@ export interface AgentWaitResult {
   readonly mode: AgentWaitMode;
   /** True when the wait ended on its timer rather than on the lanes. */
   readonly timedOut: boolean;
+  /**
+   * True when the caller's `AbortSignal` ended the wait before the lanes or
+   * the timer did. Entries are then reported as on a timeout. Absent means
+   * false (results built outside `waitForAgents`).
+   */
+  readonly cancelled?: boolean;
   /** Wall-clock time the call waited, in ms. */
   readonly waitedMs: number;
   /** One entry per distinct requested id, in request order. */
@@ -1173,11 +1179,17 @@ export class AgentProcessManager {
    * lane is reported in its current state, so the call is safe to repeat.
    * The timeout is clamped to `0..`{@link MAX_AGENT_WAIT_MS}. The listener and
    * the timer are removed on every exit path.
+   *
+   * `signal` (TASK_2026_614, E.3) lets the caller end the wait early: an abort
+   * settles it at once with the same partial result a timeout gives, marked
+   * `cancelled` instead of `timedOut`. A signal already aborted on entry never
+   * starts the wait. The abort listener is removed on every exit path too.
    */
   async waitForAgents(
     agentIds: readonly string[],
     mode: AgentWaitMode,
     timeoutMs: number,
+    signal?: AbortSignal,
   ): Promise<AgentWaitResult> {
     const startedAt = Date.now();
     const limit = Number.isNaN(timeoutMs)
@@ -1213,15 +1225,19 @@ export class AgentProcessManager {
       pending.size === 0 || (mode === 'any' && ended.size > 0);
 
     let timedOut = false;
+    let cancelled = false;
     if (!satisfied()) {
-      if (limit === 0) {
+      if (signal?.aborted) {
+        cancelled = true;
+      } else if (limit === 0) {
         timedOut = true;
       } else {
         await new Promise<void>((resolve) => {
-          // `finish` closes over `timer`; it can only run from the listener
-          // or the timer itself, both after the assignment below.
+          // `finish` closes over `timer`; it can only run from the listeners
+          // or the timer itself, all after the assignment below.
           const finish = (): void => {
             this.events.off('agent:exited', onExit);
+            signal?.removeEventListener('abort', onAbort);
             clearTimeout(timer);
             resolve();
           };
@@ -1231,7 +1247,12 @@ export class AgentProcessManager {
             ended.set(id, { ...info });
             if (satisfied()) finish();
           };
+          const onAbort = (): void => {
+            cancelled = true;
+            finish();
+          };
           this.events.on('agent:exited', onExit);
+          signal?.addEventListener('abort', onAbort, { once: true });
           const timer = this.unrefTimer(
             setTimeout(() => {
               timedOut = true;
@@ -1260,7 +1281,13 @@ export class AgentProcessManager {
       };
     });
 
-    return { mode, timedOut, waitedMs: Date.now() - startedAt, entries };
+    return {
+      mode,
+      timedOut,
+      cancelled,
+      waitedMs: Date.now() - startedAt,
+      entries,
+    };
   }
 
   /**
