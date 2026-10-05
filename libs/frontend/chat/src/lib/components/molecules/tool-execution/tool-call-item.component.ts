@@ -100,10 +100,10 @@ import type {
     </div>
 
     <!-- Separator between tool cards -->
-    <div class="flex items-center gap-2 my-1.5 px-1">
-      <div class="flex-1 border-t border-base-300/40"></div>
+    <div
+      class="flex items-center gap-2 my-1.5 px-1 before:flex-1 before:border-t before:border-base-300/40 after:flex-1 after:border-t after:border-base-300/40"
+    >
       <div class="w-1 h-1 rounded-full bg-base-300/60"></div>
-      <div class="flex-1 border-t border-base-300/40"></div>
     </div>
   `,
   // `.ptah-gold-border` is defined once globally in

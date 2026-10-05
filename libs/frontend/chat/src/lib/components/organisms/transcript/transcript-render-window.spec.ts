@@ -11,6 +11,7 @@ import {
   ALWAYS_MOUNTED_TAIL,
   PLACEHOLDER_FALLBACK_PX,
   RENDER_WINDOW_MARGIN_PX,
+  UNFOCUSED_RENDER_WINDOW_MARGIN_PX,
   TranscriptRenderWindow,
 } from './transcript-render-window';
 import {
@@ -108,6 +109,65 @@ describe('TranscriptRenderWindow', () => {
       expect(FakeIntersectionObserver.instances[0].observed.has(early)).toBe(
         true,
       );
+    });
+
+    it('re-creates the observer with the unfocused margin on setFocused(false), and back', () => {
+      const list = ids(20);
+      const { win, observer, elements } = makeAttached(list, list.length);
+      const first = elements.get('m0') as HTMLElement;
+      const second = elements.get('m1') as HTMLElement;
+      observer.emit([entry(first, true, 400)]);
+      expect(win.isMounted('m0')).toBe(true);
+
+      win.setFocused(false);
+
+      const unfocused = FakeIntersectionObserver.instances[1];
+      expect(unfocused.options?.rootMargin).toBe(
+        `${UNFOCUSED_RENDER_WINDOW_MARGIN_PX}px 0px`,
+      );
+      // Every registered slot moved to the fresh observer.
+      expect(unfocused.observed.has(first)).toBe(true);
+      // Entries queued by the stale observer are dropped by the identity guard.
+      observer.emit([entry(second, true, 300)]);
+      expect(win.isMounted('m1')).toBe(false);
+      expect(win.isMounted('m0')).toBe(true);
+
+      win.setFocused(true);
+
+      const refocused = FakeIntersectionObserver.instances[2];
+      expect(refocused.options?.rootMargin).toBe(
+        `${RENDER_WINDOW_MARGIN_PX}px 0px`,
+      );
+      expect(refocused.observed.has(first)).toBe(true);
+    });
+
+    it('applies a focus change made while hidden on the next activation', () => {
+      const { win } = makeAttached(ids(20), 20);
+
+      win.setActive(false);
+      win.setFocused(false);
+      win.setActive(true);
+
+      const resumed = FakeIntersectionObserver.instances.at(-1);
+      expect(resumed?.options?.rootMargin).toBe(
+        `${UNFOCUSED_RENDER_WINDOW_MARGIN_PX}px 0px`,
+      );
+    });
+
+    it('keeps measured heights when the unfocused margin unmounts a bubble', () => {
+      const list = ids(20);
+      const { win, observer, elements } = makeAttached(list, list.length);
+      const first = elements.get('m0') as Element;
+      observer.emit([entry(first, true, 640)]);
+      expect(win.isMounted('m0')).toBe(true);
+
+      win.setFocused(false);
+      FakeIntersectionObserver.instances[1].emit([entry(first, false, 640)]);
+
+      // Unmounted, but the placeholder reserves the measured height — no
+      // scroll jump when the margin shrinks.
+      expect(win.isMounted('m0')).toBe(false);
+      expect(win.placeholderHeight('m0')).toBe(640);
     });
 
     it('mounts only the trailing tail before the observer has reported', () => {

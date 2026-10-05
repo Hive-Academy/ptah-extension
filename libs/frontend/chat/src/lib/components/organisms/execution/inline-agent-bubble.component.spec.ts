@@ -238,6 +238,33 @@ describe('InlineAgentBubbleComponent — Phase 3', () => {
       expect(cmp.canSendMessage()).toBe(true);
     });
 
+    it('uses CSS field sizing and leaves textarea height untouched on input', () => {
+      build(makeNode());
+      const fixture = TestBed.createComponent(InlineAgentBubbleComponent);
+      fixture.componentRef.setInput('node', makeNode());
+      setRecord({ parentToolUseId: 'toolu_parent_abc', status: 'running' });
+      fixture.componentInstance.sendInputExpanded.set(true);
+      fixture.detectChanges();
+      const textarea = (
+        fixture.nativeElement as HTMLElement
+      ).querySelector<HTMLTextAreaElement>('[data-testid="subagent-send-textarea"]');
+      expect(textarea).not.toBeNull();
+      expect(textarea?.getAttribute('style')).toBe('field-sizing: content;');
+
+      const target = {
+        value: 'draft',
+        style: { height: '37px' },
+      } as HTMLTextAreaElement;
+      (
+        fixture.componentInstance as unknown as {
+          onSendDraftInput(event: Event): void;
+        }
+      ).onSendDraftInput({ target } as unknown as Event);
+
+      expect(fixture.componentInstance.sendDraft()).toBe('draft');
+      expect(target.style.height).toBe('37px');
+    });
+
     it('onSendSubmit dispatches sendMessageToAgent and clears draft', async () => {
       const cmp = build(makeNode());
       setRecord({
@@ -400,5 +427,30 @@ describe('InlineAgentBubbleComponent — Phase 3', () => {
         'toolu_parent_abc',
       );
     });
+  });
+
+  it('handles one rendered scroll event once through the native listener', () => {
+    TestBed.configureTestingModule({
+      providers: [
+        { provide: AgentMonitorStore, useValue: storeMock },
+        { provide: BackgroundAgentStore, useValue: bgStoreMock },
+      ],
+    });
+    const fixture = TestBed.createComponent(InlineAgentBubbleComponent);
+    fixture.componentRef.setInput('node', makeNode());
+    fixture.detectChanges();
+    const component = fixture.componentInstance as unknown as {
+      onAgentScroll(): void;
+    };
+    const onAgentScroll = jest.spyOn(component, 'onAgentScroll');
+    const container = (fixture.nativeElement as HTMLElement).querySelector<HTMLElement>(
+      '.agent-collapse-inner > div',
+    );
+
+    expect(container).not.toBeNull();
+    container?.dispatchEvent(new Event('scroll'));
+
+    expect(onAgentScroll).toHaveBeenCalledTimes(1);
+    fixture.destroy();
   });
 });

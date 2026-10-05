@@ -4,23 +4,31 @@ import {
   Directive,
   ElementRef,
   inject,
+  NgZone,
 } from '@angular/core';
 
 /** Each lane follows its own content until its reader scrolls away from the end. */
 @Directive({
   selector: '[ptahAgentLaneScroll]',
   standalone: true,
-  host: { '(scroll)': 'onScroll()' },
 })
 export class AgentLaneScrollDirective {
   private readonly element = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly ngZone = inject(NgZone);
   private pinned = true;
   private measureFrame: number | null = null;
+  private readonly scrollHandler = (): void => this.onScroll();
 
   constructor() {
+    const container = this.element.nativeElement;
+    this.ngZone.runOutsideAngular(() => {
+      container.addEventListener('scroll', this.scrollHandler, { passive: true });
+    });
+    this.destroyRef.onDestroy(() =>
+      container.removeEventListener('scroll', this.scrollHandler),
+    );
     afterNextRender(() => {
-      const container = this.element.nativeElement;
       const content = container.firstElementChild;
       if (!content || typeof ResizeObserver === 'undefined') return;
       const observer = new ResizeObserver(() => {

@@ -31,3 +31,14 @@ export const HIDE_AGENT_SIDEBAR = new InjectionToken<boolean>(
 export const SESSION_VISIBLE = new InjectionToken<Signal<boolean>>(
   'SESSION_VISIBLE',
 );
+
+/**
+ * Optional injection token carrying whether the surface hosting a
+ * ChatViewComponent is the FOCUSED tile. Canvas tiles provide their
+ * `focused` signal so an unfocused tile's transcript shrinks its render
+ * window and pauses decorative animations. Absent → treated as focused
+ * (single chat view, tests).
+ */
+export const SESSION_FOCUSED = new InjectionToken<Signal<boolean>>(
+  'SESSION_FOCUSED',
+);
