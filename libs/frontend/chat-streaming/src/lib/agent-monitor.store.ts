@@ -480,6 +480,8 @@ export interface MonitoredAgent {
    * unknown owner, never as the current owner.
    */
   quotaOwner?: QuotaOwnerRef;
+  /** Backend-resolved model scope for plan-limit windows; null when unknown. */
+  readonly modelScope?: string | null;
   /**
    * `true` only on a card rebuilt by `loadCliSessions` from persisted history;
    * absent on a live-spawned card. Set where the card is created, never
@@ -908,8 +910,8 @@ export class AgentMonitorStore implements OnDestroy {
    */
   readonly activeSessionSubagents = computed<SubagentRecord[]>(() => {
     this.backgroundAgentStore.revision();
-    const sessionSubs = [...this._subagents().values()].filter(
-      (r) => this.isBackgroundSessionSubagent(r),
+    const sessionSubs = [...this._subagents().values()].filter((r) =>
+      this.isBackgroundSessionSubagent(r),
     );
     const activeSessionId = this.tabManager.activeTabSessionId();
     if (!activeSessionId) return sessionSubs;
@@ -1152,6 +1154,7 @@ export class AgentMonitorStore implements OnDestroy {
           role: info.role ?? existing.role,
           failureKind: info.failureKind,
           quotaOwner: info.quotaOwner ?? existing.quotaOwner,
+          modelScope: info.modelScope ?? existing.modelScope,
         };
         const next = [...list];
         next[existingIndex] = reopened;
@@ -1196,6 +1199,7 @@ export class AgentMonitorStore implements OnDestroy {
           role: info.role,
           failureKind: info.failureKind,
           quotaOwner: info.quotaOwner,
+          modelScope: info.modelScope ?? null,
           ...CLI_LANE_CACHE_FIELDS,
         };
         return insertAgentSorted(
@@ -1229,6 +1233,7 @@ export class AgentMonitorStore implements OnDestroy {
         role: info.role,
         failureKind: info.failureKind,
         quotaOwner: info.quotaOwner,
+        modelScope: info.modelScope ?? null,
         ...CLI_LANE_CACHE_FIELDS,
       };
       return insertAgentSorted(list, fresh);
@@ -1368,6 +1373,7 @@ export class AgentMonitorStore implements OnDestroy {
         // The backend may only upgrade an unknown owner to a known one, so
         // the exit payload's owner wins; keep the spawn-time one if absent.
         quotaOwner: info.quotaOwner ?? agent.quotaOwner,
+        modelScope: info.modelScope ?? agent.modelScope,
       };
       return this.evictOldCompletedAgents(next);
     });
@@ -1603,6 +1609,7 @@ export class AgentMonitorStore implements OnDestroy {
           // segments are not folded. The recorded owner may be absent.
           usageTotals: null,
           quotaOwner: ref.quotaOwner,
+          modelScope: ref.modelScope ?? null,
           restored: true,
           ...CLI_LANE_CACHE_FIELDS,
         });

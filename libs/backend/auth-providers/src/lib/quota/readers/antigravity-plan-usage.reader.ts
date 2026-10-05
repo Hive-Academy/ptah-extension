@@ -245,6 +245,10 @@ function unavailable(): PlanUsageReading {
 }
 
 const execFileAsync = promisify(execFile);
+const LOOPBACK_AGENT = new Agent({
+  keepAlive: false,
+  rejectUnauthorized: false,
+});
 function defaultRun(
   command: string,
   args: readonly string[],
@@ -269,7 +273,7 @@ function defaultRequest(
         path: ANTIGRAVITY_STATUS_PATH,
         method: 'POST',
         headers: { [ANTIGRAVITY_CSRF_HEADER]: csrfToken },
-        agent: new Agent({ rejectUnauthorized: false }),
+        agent: LOOPBACK_AGENT,
         signal,
       },
       onResponse,

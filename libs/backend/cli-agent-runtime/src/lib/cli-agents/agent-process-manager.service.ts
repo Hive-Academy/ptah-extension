@@ -38,6 +38,7 @@ import type {
   LaneStopReason,
 } from '@ptah-extension/shared';
 import { killProcessTree } from '@ptah-extension/platform-core';
+import { claudeModelFamily } from '@ptah-extension/agent-sdk';
 import {
   AUTH_PROVIDERS_TOKENS,
   type PlanLimitBilling,
@@ -860,10 +861,12 @@ export class AgentProcessManager {
         info.quotaOwner,
         this.laneOwners.ownerForLane(info.cli),
       ) ?? info.quotaOwner;
+    const modelScope = resolveModelScope(info.model);
     const trackedInfo: AgentProcessInfo = {
       ...info,
       ...(supportsContinuation ? { supportsContinuation: true } : {}),
       ...(quotaOwner ? { quotaOwner } : {}),
+      modelScope,
     };
     const tracked: TrackedAgent = {
       info: trackedInfo,
@@ -1218,6 +1221,7 @@ export class AgentProcessManager {
         // already dropped a malformed or legacy value, so a run without one
         // stays "Unknown owner" and is never given the current owner.
         ...(ref.quotaOwner ? { quotaOwner: ref.quotaOwner } : {}),
+        modelScope: ref.modelScope ?? null,
       };
 
       this.agents.set(agentId, {
@@ -2432,7 +2436,13 @@ export class AgentProcessManager {
       );
       if (upgraded) tracked.info = { ...tracked.info, quotaOwner: upgraded };
     }
-    const { agentId, cli, model, status, quotaOwner: owner } = tracked.info;
+    const {
+      agentId,
+      cli,
+      status,
+      quotaOwner: owner,
+      modelScope,
+    } = tracked.info;
     if (!owner) return;
     try {
       if (limit) {
@@ -2454,10 +2464,9 @@ export class AgentProcessManager {
       ) {
         return;
       }
-      const scope = model?.trim().toLowerCase();
       this.planLimits.recordSuccess({
         ownerKey: owner.key,
-        modelScopes: scope ? [scope] : [],
+        modelScopes: modelScope ? [modelScope] : [],
         billing,
         observedAt,
       });
@@ -2645,4 +2654,9 @@ export class AgentProcessManager {
       );
     }
   }
+}
+
+function resolveModelScope(model: string | null | undefined): string | null {
+  // Claude uses rate-limit families; all other providers retain their normalised model id.
+  return (claudeModelFamily(model) ?? model?.trim().toLowerCase()) || null;
 }

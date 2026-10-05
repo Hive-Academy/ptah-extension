@@ -1893,7 +1893,7 @@ describe('AgentProcessManager - SDK Execution Path', () => {
       const spawned = jest.fn();
       manager.events.on('agent:spawned', spawned);
 
-      const agentId = await spawnLane('codex');
+      const agentId = await spawnLane('codex', 'claude-sonnet-4-5');
 
       expect(laneOwners.ownerForLane).toHaveBeenCalledWith('codex');
       expect(manager.getStatus(agentId)).toHaveProperty(
@@ -1902,7 +1902,26 @@ describe('AgentProcessManager - SDK Execution Path', () => {
       );
       expect(spawned.mock.calls[0][0]).toMatchObject({
         quotaOwner: codexAccount,
+        modelScope: 'sonnet',
       });
+    });
+
+    it('retains a normalised non-Claude model scope and null for no model', async () => {
+      laneOwners.ownerForLane.mockReturnValue(codexAccount);
+      const codexId = await spawnLane('codex', ' GPT-5-Codex ');
+      // No model on a codex lane resolves to the Ptah default model.
+      const defaultId = await spawnLane('codex');
+      const emptyId = await spawnLane('opencode');
+
+      expect(manager.getStatus(codexId)).toHaveProperty(
+        'modelScope',
+        'gpt-5-codex',
+      );
+      expect(manager.getStatus(defaultId)).toHaveProperty(
+        'modelScope',
+        'gpt-6-sol',
+      );
+      expect(manager.getStatus(emptyId)).toHaveProperty('modelScope', null);
     });
 
     it('classifies a quota failure from the output tail and files owner evidence (F35)', async () => {

@@ -166,6 +166,8 @@ export interface AgentProcessInfo {
    * one; never overwritten by a later owner.
    */
   quotaOwner?: QuotaOwnerRef;
+  /** Backend-resolved model scope for plan-limit windows; null when unknown. */
+  readonly modelScope?: string | null;
   /**
    * The input size of the lane's most recent model request, as far as it is
    * known (TASK_2026_597, R9.1). The resume gate reads it to decide between
@@ -479,6 +481,8 @@ export interface CliSessionReference {
    * malformed value restores as "Unknown owner", never as the current owner.
    */
   readonly quotaOwner?: QuotaOwnerRef;
+  /** Backend-resolved model scope for plan-limit windows; null when unknown. */
+  readonly modelScope?: string | null;
 }
 
 /* ---------------------------------------------------------------------------

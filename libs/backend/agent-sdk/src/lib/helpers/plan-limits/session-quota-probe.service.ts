@@ -25,12 +25,13 @@
  *   on a native route, starts the next read without awaiting it. One read per
  *   turn, never per message, and nothing on the stream path waits for it.
  * - A `turnFailed` whose error is `authentication_failed`,
- *   `oauth_org_not_allowed` or `account_on_hold` drops the entry. That event is
- *   the `StopFailure` hook carrying the assistant message's error field.
+ *   `oauth_org_not_allowed`, `account_on_hold` or `cloud_credential_error`
+ *   drops the entry. That event is the `StopFailure` hook carrying the
+ *   assistant message's error field.
  *
- * Signals carry the tabId until the SDK reports the real session id. The
- * lookup goes through `SessionLifecycleManager.find`, which resolves both ids
- * to the same record and therefore the same `Query`, so no re-keying on
+ * Signals carry the SDK's real session id. The lookup still goes through
+ * `SessionLifecycleManager.find`, which accepts either id for the same record
+ * and therefore the same `Query`, so no re-keying on
  * `SessionIdResolvedCallbackRegistry` is needed.
  *
  * Every SDK call is bounded by a 3 s timeout and yields `null` on timeout,
@@ -112,6 +113,7 @@ const ACCOUNT_INVALIDATING_ERRORS: ReadonlySet<SDKAssistantMessageError> =
     'authentication_failed',
     'oauth_org_not_allowed',
     'account_on_hold',
+    'cloud_credential_error',
   ]);
 
 type ProbeFailure = 'timeout' | 'rejected';
@@ -227,8 +229,15 @@ export class SessionQuotaProbeService implements SessionQuotaProbe {
     if (signal.kind !== 'turn-start') return;
     this.dropAccount(sessionId);
     if (this.sessionRoute(sessionId)?.routeKind === 'native') {
-      // Fire and forget: readAccount never rejects, and the stream must not wait.
-      void this.readAccount(sessionId);
+      // The stream must not wait; report an unexpected read failure instead.
+      void this.readAccount(sessionId).catch(() => {
+        this.logger.debug(
+          '[SessionQuotaProbe] turn-start account read failed',
+          {
+            sessionId,
+          },
+        );
+      });
     }
   }
 

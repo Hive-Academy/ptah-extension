@@ -51,9 +51,13 @@ import type { PlanLimitTileModel } from './stats-limit-view-model.types';
         class="block text-[10px] uppercase tracking-wider text-base-content-muted leading-tight"
         >{{ t.label }}</span
       >
-      <span class="block text-[10px] text-base-content-muted leading-tight">{{
-        t.caption
-      }}</span>
+      <span
+        class="block text-[10px] text-base-content-muted leading-tight"
+        [class.truncate]="!open()"
+        [attr.title]="t.caption"
+        data-testid="plan-limit-caption"
+        >{{ t.caption }}</span
+      >
       <span
         class="block text-sm font-semibold leading-tight mt-0.5"
         data-testid="plan-limit-tile-value"
@@ -96,7 +100,7 @@ import type { PlanLimitTileModel } from './stats-limit-view-model.types';
     >
       @if (open()) {
         @if (t.window; as window) {
-          <ptah-plan-window-detail [window]="window" />
+          <ptah-plan-window-detail [window]="window" [showSummary]="false" />
         }
         @for (line of t.detailLines; track $index) {
           <p class="text-[11px] text-base-content-muted mt-0.5">{{ line }}</p>

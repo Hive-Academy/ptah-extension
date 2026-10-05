@@ -1730,13 +1730,17 @@ describe('ChatViewComponent — plan limits wiring (TASK_2026_596)', () => {
       expect(lane.usageTotals ?? null).toBeNull();
     });
 
-    it('uses the card display name, no model scope, and keeps an absent owner absent', () => {
+    it('uses the card display name, persisted model scope, and keeps an absent owner absent', () => {
       const named = toStatsLimitLaneRun(
-        run('n', 's', { displayName: 'Codex', model: 'gpt-5-codex' }),
+        run('n', 's', {
+          displayName: 'Codex',
+          model: 'gpt-5-codex',
+          modelScope: 'gpt-5-codex',
+        }),
       );
       expect(named.cliLabel).toBe('Codex');
       expect(named.model).toBe('gpt-5-codex');
-      expect(named.modelScope).toBeNull();
+      expect(named.modelScope).toBe('gpt-5-codex');
       expect(named.quotaOwner).toBeUndefined();
 
       const bare = toStatsLimitLaneRun(run('b', 's'));

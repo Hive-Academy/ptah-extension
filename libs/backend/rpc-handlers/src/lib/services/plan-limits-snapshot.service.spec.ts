@@ -18,7 +18,10 @@ import 'reflect-metadata';
 
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { PlanOwnerTarget } from '@ptah-extension/auth-providers';
-import type { DiscoveredPlanOwner } from '@ptah-extension/cli-agent-runtime';
+import type {
+  DiscoveredPlanOwner,
+  SelectedProviderDiscovery,
+} from '@ptah-extension/cli-agent-runtime';
 import type {
   PlanLimitOwnerSnapshot,
   QuotaOwnerRef,
@@ -58,20 +61,34 @@ function build() {
   const discoverTargets = jest.fn<Promise<DiscoveredPlanOwner[]>, [unknown]>(
     async () => [],
   );
+  const discoverSelectedProvider = jest.fn(
+    async (providerId: string): Promise<SelectedProviderDiscovery> => ({
+      kind: 'owner',
+      entry: (await discoverTargets({ selectedProviderId: providerId })).find(
+        (entry) => entry.origin === 'selected-provider',
+      ),
+    }),
+  );
   const getOwnerSnapshot = jest.fn<
     Promise<PlanLimitOwnerSnapshot>,
     [PlanOwnerTarget, unknown]
   >(async (target) => available(target.ownerRef));
   const service = new PlanLimitsSnapshotService(
     logger as unknown as Logger,
-    { discoverTargets },
+    { discoverTargets, discoverSelectedProvider },
     { getOwnerSnapshot },
     {
       snapshotFor: jest.fn(() => undefined),
       sessionOwners: jest.fn(() => ({})),
     },
   );
-  return { service, discoverTargets, getOwnerSnapshot, logger };
+  return {
+    service,
+    discoverTargets,
+    discoverSelectedProvider,
+    getOwnerSnapshot,
+    logger,
+  };
 }
 
 describe('PlanLimitsSnapshotService', () => {
@@ -133,7 +150,10 @@ describe('PlanLimitsSnapshotService', () => {
       false,
     );
 
-    expect(result?.owner).toBe(OLLAMA);
+    expect(result).toMatchObject({
+      kind: 'snapshot',
+      snapshot: { owner: OLLAMA },
+    });
     expect(s.getOwnerSnapshot).toHaveBeenCalledTimes(1);
     await s.service.currentSnapshot();
     expect(s.discoverTargets).toHaveBeenLastCalledWith({
@@ -180,7 +200,10 @@ describe('PlanLimitsSnapshotService', () => {
       const pending = s.service.ownerSnapshotForProvider('openai-codex', true);
       await jest.advanceTimersByTimeAsync(5_000);
 
-      await expect(pending).resolves.toEqual(available(CODEX));
+      await expect(pending).resolves.toEqual({
+        kind: 'snapshot',
+        snapshot: available(CODEX),
+      });
       expect(s.getOwnerSnapshot).toHaveBeenCalledWith(
         { providerId: 'openai-codex', ownerRef: CODEX },
         { refresh: true },
@@ -228,11 +251,20 @@ describe('PlanLimitsSnapshotService', () => {
     });
   });
 
-  it('a provider lookup with no selected-provider owner answers undefined', async () => {
+  it('a provider lookup with no selected-provider owner reports no-owner', async () => {
     const s = build();
     await expect(
       s.service.ownerSnapshotForProvider('z-ai', false),
-    ).resolves.toBeUndefined();
+    ).resolves.toEqual({ kind: 'no-owner' });
+  });
+
+  it('preserves an unavailable selected-provider discovery', async () => {
+    const s = build();
+    s.discoverSelectedProvider.mockResolvedValue({ kind: 'unavailable' });
+
+    await expect(
+      s.service.ownerSnapshotForProvider('openai-codex', false),
+    ).resolves.toEqual({ kind: 'unavailable' });
   });
 
   it('a failed read still lists the owner and logs only the error name', async () => {
