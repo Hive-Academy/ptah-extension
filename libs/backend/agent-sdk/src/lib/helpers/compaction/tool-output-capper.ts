@@ -287,8 +287,10 @@ export class ToolOutputCapper {
           ? file['filePath']
           : '';
     let next: string | null;
+    let describesReturnedText = false;
     if (wholeFile && filePath !== '') {
       next = await this.outlineWholeFile(content, filePath, budget);
+      describesReturnedText = true;
     } else {
       const capped = await this.capSlots(
         'Read',
@@ -301,7 +303,16 @@ export class ToolOutputCapper {
     if (next === null || next === content) {
       return toolResponse;
     }
-    return { ...toolResponse, file: { ...file, content: next } };
+    const nextFile: JsonObject = { ...file, content: next };
+    if (describesReturnedText) {
+      // The outline replaces the file text, so the metadata must describe the
+      // returned text, not the file: it starts at 1 and has its own line
+      // count. `totalLines` stays the real file length. Only keys the response
+      // already had are touched.
+      if ('startLine' in file) nextFile['startLine'] = 1;
+      if ('numLines' in file) nextFile['numLines'] = next.split('\n').length;
+    }
+    return { ...toolResponse, file: nextFile };
   }
 
   /**
@@ -331,7 +342,8 @@ export class ToolOutputCapper {
       total: number,
     ): string =>
       `[outline: ${reducer} — showing ${shown} of ${total} tokens — full file: ` +
-      `${shownPath} — read with offset/limit for the omitted lines]`;
+      `${shownPath} — line positions in this outline are not file line numbers; ` +
+      `read with offset/limit for exact lines]`;
 
     const widest =
       TRAILER_SEPARATOR +

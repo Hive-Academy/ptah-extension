@@ -26,6 +26,27 @@ import {
  */
 const AUTO_COMPACT_WINDOW_ENV = 'CLAUDE_CODE_AUTO_COMPACT_WINDOW';
 
+function isPositiveSafeInteger(value: unknown): value is number {
+  return (
+    typeof value === 'number' && Number.isSafeInteger(value) && value > 0
+  );
+}
+
+/**
+ * The platform-core default of a budget key. A missing or non-positive default
+ * is a programming error (it would otherwise reach callers as `undefined`),
+ * so it throws rather than being cast.
+ */
+function budgetDefault(key: string): number {
+  const value: unknown = FILE_BASED_SETTINGS_DEFAULTS[key];
+  if (!isPositiveSafeInteger(value)) {
+    throw new Error(
+      `FILE_BASED_SETTINGS_DEFAULTS has no positive integer default for ${key}`,
+    );
+  }
+  return value;
+}
+
 /**
  * Compaction configuration settings
  */
@@ -61,6 +82,9 @@ export interface CompactionConfig {
  */
 @injectable()
 export class CompactionConfigProvider {
+  /** Invalid budget values already warned about (`key:type:value`). */
+  private readonly warnedBudgets = new Set<string>();
+
   constructor(
     @inject(TOKENS.CONFIG_MANAGER) private readonly config: ConfigManager,
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
@@ -145,16 +169,21 @@ export class CompactionConfigProvider {
   private readBudget(key: string): number {
     // One edit site: the default comes from platform-core, which also supplies
     // it when the key is absent; an invalid hand-edited value falls back to it.
-    const defaultValue = FILE_BASED_SETTINGS_DEFAULTS[key] as number;
+    const defaultValue = budgetDefault(key);
     const raw = this.config.get<unknown>(key);
     if (raw === undefined || raw === null) return defaultValue;
-    if (typeof raw === 'number' && Number.isSafeInteger(raw) && raw > 0) {
+    if (isPositiveSafeInteger(raw)) {
       return raw;
     }
-    this.logger.warn(
-      `[CompactionConfigProvider] Invalid ${key}, using the default`,
-      { providedType: typeof raw, defaultValue },
-    );
+    // Called per tool call and per subagent message: warn once per key+value.
+    const warnKey = `${key}:${typeof raw}:${String(raw)}`;
+    if (!this.warnedBudgets.has(warnKey)) {
+      this.warnedBudgets.add(warnKey);
+      this.logger.warn(
+        `[CompactionConfigProvider] Invalid ${key}, using the default`,
+        { providedType: typeof raw, defaultValue },
+      );
+    }
     return defaultValue;
   }
 

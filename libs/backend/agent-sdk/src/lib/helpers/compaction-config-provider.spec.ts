@@ -7,6 +7,7 @@
 
 import 'reflect-metadata';
 
+import { FILE_BASED_SETTINGS_DEFAULTS } from '@ptah-extension/platform-core';
 import type { ConfigManager, Logger } from '@ptah-extension/vscode-core';
 import { CompactionConfigProvider } from './compaction-config-provider';
 
@@ -147,6 +148,23 @@ describe('CompactionConfigProvider.getConfig — budget keys', () => {
         expect.objectContaining({ defaultValue: d }),
       );
     }
+  });
+
+  it('pins every budget key as a positive safe integer in the platform-core defaults', () => {
+    for (const [key] of BUDGETS) {
+      const value: unknown = FILE_BASED_SETTINGS_DEFAULTS[key];
+      expect(Number.isSafeInteger(value) && (value as number) > 0).toBe(true);
+    }
+  });
+
+  it('warns once per key+value across repeated getConfig() calls', () => {
+    const { provider, warn } = makeProvider({
+      'compaction.toolOutputBudgetTokens': -5,
+    });
+    provider.getConfig();
+    provider.getConfig();
+    provider.getConfig();
+    expect(warn).toHaveBeenCalledTimes(1);
   });
 
   it('does not change how compaction.threshold is read', () => {

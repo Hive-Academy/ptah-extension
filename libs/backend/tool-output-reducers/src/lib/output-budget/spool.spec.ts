@@ -99,6 +99,29 @@ describe('spool .gitignore', () => {
     fsSync.mkdirSync(path.join(dir, '.gitignore'), { recursive: true });
     const outcome = await writeSpoolFile('c', dir, 3);
     expect('path' in outcome).toBe(true);
+    expect(outcome).not.toHaveProperty('gitignoreFailure');
+  });
+
+  it('reports a non-EEXIST .gitignore failure once and still writes the spool file', async () => {
+    const eacces = Object.assign(new Error('EACCES /private/path'), {
+      code: 'EACCES',
+    });
+    const real = fsSync.promises.writeFile.bind(fsSync.promises);
+    const write = jest
+      .spyOn(fsSync.promises, 'writeFile')
+      .mockImplementation(((file: unknown, ...rest: unknown[]) =>
+        String(file).endsWith('.gitignore')
+          ? Promise.reject(eacces)
+          : (real as (...a: unknown[]) => Promise<void>)(
+              file,
+              ...rest,
+            )) as never);
+    const outcome = await writeSpoolFile('d', spoolDir(), 4);
+    if (!('path' in outcome)) throw new Error(outcome.failure);
+    expect(outcome.gitignoreFailure).toBe('EACCES');
+    expect(JSON.stringify(outcome)).not.toContain('/private/path');
+    expect(fsSync.readFileSync(outcome.path, 'utf8')).toBe('d');
+    expect(write).toHaveBeenCalledTimes(2);
   });
 });
 
