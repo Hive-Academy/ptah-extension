@@ -426,11 +426,24 @@ function ownerStatusNote(
             ? 'Showing cached account data; refresh failed'
             : `Showing cached account data; refresh failed at ${formatLocalAbsolute(snapshot.staleSince, ctx.now, ctx.time)}`,
       };
-    default:
+    // The failure statuses share one wording; `service-unavailable` is
+    // already handled above (`showsLastKnownEvidence` / same-owner) but is
+    // listed so the switch stays exhaustive over ProviderAccountUsageStatus.
+    case 'unsupported-config':
+    case 'provider-unsupported':
+    case 'cli-unavailable':
+    case 'cli-version-unsupported':
+    case 'service-unavailable':
       return {
         tone: 'neutral',
         text: `Usage unavailable · ${snapshot.status}`,
       };
+    default: {
+      const exhaustive: never = snapshot.status;
+      throw new Error(
+        `Unhandled provider account usage status: ${exhaustive}`,
+      );
+    }
   }
 }
 

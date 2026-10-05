@@ -93,6 +93,10 @@ type ModelUsageRow = NonNullable<SessionStatsEntry['modelUsageList']>[number];
             class="flex items-center gap-1.5 flex-1 min-w-0 overflow-x-auto text-xs"
           >
             @if (!hasMultipleModels() && primaryModelName(); as modelName) {
+              <!-- Model/Context values print base-content ink (stats design
+                   §8): purple/cyan stay chip tint and border, never text
+                   colour, because the 400 shades measure 1.4-2.4:1 on the
+                   light chip (FU-PHASE6). -->
               <span
                 class="inline-flex items-center gap-1 bg-purple-600/15 border border-purple-600/25 rounded px-1.5 py-0.5 whitespace-nowrap"
                 [title]="modelName"
@@ -100,7 +104,7 @@ type ModelUsageRow = NonNullable<SessionStatsEntry['modelUsageList']>[number];
                 <span class="text-[10px] uppercase text-base-content-muted"
                   >Model</span
                 >
-                <span class="text-purple-400 font-semibold">{{
+                <span class="text-base-content font-semibold">{{
                   formatModelName(modelName)
                 }}</span>
               </span>
@@ -113,7 +117,7 @@ type ModelUsageRow = NonNullable<SessionStatsEntry['modelUsageList']>[number];
                 <span class="text-[10px] uppercase text-base-content-muted"
                   >Context</span
                 >
-                <span class="text-cyan-400" data-testid="stats-context">{{
+                <span class="text-base-content" data-testid="stats-context">{{
                   contextPercentLabel()
                 }}</span>
               </span>
@@ -172,6 +176,7 @@ type ModelUsageRow = NonNullable<SessionStatsEntry['modelUsageList']>[number];
               <span
                 class="inline-flex items-center gap-1 bg-base-content/5 border border-dashed border-base-content/30 rounded px-1.5 py-0.5 whitespace-nowrap"
                 [title]="lanesTooltip"
+                [attr.aria-label]="lanesAriaLabel()"
               >
                 <span class="text-[10px] uppercase text-base-content-muted"
                   >Lanes</span
@@ -238,7 +243,7 @@ type ModelUsageRow = NonNullable<SessionStatsEntry['modelUsageList']>[number];
                 <span class="text-[10px] uppercase text-base-content-muted"
                   >Models</span
                 >
-                <span class="text-purple-400 font-semibold"
+                <span class="text-base-content font-semibold"
                   >{{ modelRows().length }}
                   <span class="text-[10px] font-normal" aria-hidden="true">{{
                     isExpanded() ? '▲' : '▼'
@@ -286,7 +291,7 @@ type ModelUsageRow = NonNullable<SessionStatsEntry['modelUsageList']>[number];
                 Model
               </div>
               <div
-                class="text-sm font-semibold text-purple-400 truncate leading-tight mt-0.5"
+                class="text-sm font-semibold text-base-content truncate leading-tight mt-0.5"
               >
                 {{ formatModelName(modelName) }}
               </div>
@@ -305,7 +310,7 @@ type ModelUsageRow = NonNullable<SessionStatsEntry['modelUsageList']>[number];
                 Context
               </div>
               <div
-                class="text-sm font-semibold text-cyan-400 leading-tight mt-0.5"
+                class="text-sm font-semibold text-base-content leading-tight mt-0.5"
               >
                 <span data-testid="stats-context">{{
                   contextPercentLabel()
@@ -462,7 +467,7 @@ type ModelUsageRow = NonNullable<SessionStatsEntry['modelUsageList']>[number];
                 Models
               </div>
               <div
-                class="text-sm font-semibold text-purple-400 leading-tight mt-0.5"
+                class="text-sm font-semibold text-base-content leading-tight mt-0.5"
               >
                 {{ modelRows().length }}
                 <span class="text-[10px] font-normal" aria-hidden="true">{{
@@ -608,7 +613,7 @@ type ModelUsageRow = NonNullable<SessionStatsEntry['modelUsageList']>[number];
               data-testid="model-usage-row"
             >
               <div
-                class="text-xs font-semibold text-purple-400 truncate"
+                class="text-xs font-semibold text-base-content truncate"
                 role="cell"
                 [title]="usage.model"
               >
@@ -812,6 +817,16 @@ export class SessionStatsSummaryComponent {
 
   protected readonly lanesTooltip =
     'Lane runs are counted separately from session totals';
+
+  /**
+   * Accessible name of the LANES pill ("<n> lane runs, not in session
+   * totals"), from the same count source as `lanesTooltip`; the visible face
+   * is just the number, so the pill needs its own label for screen readers.
+   */
+  protected readonly lanesAriaLabel = computed(() => {
+    const count = this.lanesCount() ?? 0;
+    return `${count} lane run${count === 1 ? '' : 's'}, not in session totals`;
+  });
 
   /**
    * The session budget computed from the same snapshot (TASK_2026_597 N7).
