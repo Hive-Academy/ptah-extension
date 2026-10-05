@@ -83,6 +83,8 @@ interface Harness {
   setConfig(overrides: Partial<SessionBudgetConfig>): void;
   getConfig: jest.Mock;
   ownerSnapshot: jest.Mock;
+  /** The stats owner's `leaseOf`: `null` = no run owns the session. */
+  ownerLease: jest.Mock;
   applyWindow: jest.Mock;
   getWorkspace: jest.Mock;
   build: jest.Mock;
@@ -101,6 +103,9 @@ function harness(initial: Partial<SessionBudgetConfig> = {}): Harness {
   const logger = createMockLogger();
   const getConfig = jest.fn(() => config);
   const ownerSnapshot = jest.fn((): SessionStatsEntry | null => null);
+  const ownerLease = jest.fn(
+    (): { generation: number; epoch: number } | null => null,
+  );
   const applyWindow = jest.fn(
     async (
       _id: string,
@@ -128,7 +133,10 @@ function harness(initial: Partial<SessionBudgetConfig> = {}): Harness {
   const service = new SessionBudgetService(
     logger as unknown as Logger,
     { getConfig } as SessionBudgetConfigSource,
-    { snapshot: ownerSnapshot } as unknown as SessionBudgetStatsSource,
+    {
+      snapshot: ownerSnapshot,
+      leaseOf: ownerLease,
+    } as unknown as SessionBudgetStatsSource,
     {
       applySessionAutoCompactWindow: applyWindow,
       getSessionWorkspace: getWorkspace,
@@ -145,6 +153,7 @@ function harness(initial: Partial<SessionBudgetConfig> = {}): Harness {
     },
     getConfig,
     ownerSnapshot,
+    ownerLease,
     applyWindow,
     getWorkspace,
     build,
@@ -690,10 +699,36 @@ describe('SessionBudgetService.act', () => {
 
   it('preview-handoff without a kept copy builds one and does not write it', async () => {
     const h = harness();
+    h.service.observe(at(10, 1));
     const result = await h.service.act(SID, 'preview-handoff');
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       success: true,
       handoff: { content: '# Handoff', seed: 'seed:# Handoff', path: null },
+    });
+    expect(h.write).not.toHaveBeenCalled();
+  });
+
+  it('M5: write-handoff and preview-handoff for an unknown session fail and touch nothing', async () => {
+    const h = harness();
+    for (const action of ['write-handoff', 'preview-handoff'] as const) {
+      expect(await h.service.act(OTHER, action)).toEqual({
+        success: false,
+        error: 'No budget state for this session',
+      });
+    }
+    // No transcript read, no file written (so the writer's prune never ran).
+    expect(h.build).not.toHaveBeenCalled();
+    expect(h.getWorkspace).not.toHaveBeenCalled();
+    expect(h.write).not.toHaveBeenCalled();
+  });
+
+  it('M5: write-handoff for a released session fails and writes nothing', async () => {
+    const h = harness();
+    h.service.observe(at(10, 1));
+    h.service.release(SID);
+    expect(await h.service.act(SID, 'write-handoff')).toEqual({
+      success: false,
+      error: 'No budget state for this session',
     });
     expect(h.write).not.toHaveBeenCalled();
   });
@@ -752,9 +787,10 @@ describe('SessionBudgetService.act', () => {
 
   it('a throwing collaborator gives success false and logs an error', async () => {
     const h = harness();
+    h.service.observe(at(10, 1));
     h.build.mockRejectedValue(new Error('disk'));
     const result = await h.service.act(SID, 'write-handoff');
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       success: false,
       error: 'The write-handoff action failed',
     });
@@ -778,6 +814,63 @@ describe('SessionBudgetService.release / clearAll', () => {
     expect(h.service.canSend(SID)).toEqual({ ok: true });
     expect(h.service.canSend(OTHER)).toEqual({ ok: true });
     expect((await h.service.act(SID, 'dismiss')).success).toBe(false);
+  });
+
+  it('M7: release, then a late result, creates no entry', async () => {
+    const h = harness();
+    h.service.observe(at(120, 1));
+    h.service.release(SID);
+
+    // The run is over: its stats owner was released with it.
+    expect(h.service.observe(at(130, 2))).toBeUndefined();
+    expect(h.service.canSend(SID)).toEqual({ ok: true });
+    expect(await h.service.act(SID, 'dismiss')).toEqual({
+      success: false,
+      error: 'No budget state for this session',
+    });
+    await flush();
+    expect(h.write).toHaveBeenCalledTimes(1);
+  });
+
+  it('M7: release, then a late compaction, creates no entry', async () => {
+    const h = harness();
+    h.service.observe(at(10, 1));
+    h.service.release(SID);
+    h.service.recordCompaction(SID);
+    h.service.recordCompaction(SID);
+    h.service.recordCompaction(SID);
+
+    // A new run starts the count from zero: the late compactions were dropped.
+    h.ownerLease.mockReturnValue({ generation: 2, epoch: 1 });
+    expect(h.service.observe(at(10, 2))?.compactions).toBe(0);
+  });
+
+  it('M7: a new run on a released id (its stats owner exists) is tracked again', () => {
+    const h = harness();
+    h.service.observe(at(120, 1));
+    h.service.release(SID);
+    h.ownerLease.mockReturnValue({ generation: 2, epoch: 1 });
+
+    expect(h.service.observe(at(120, 2))).toMatchObject({
+      stage: 'limit',
+      blocked: true,
+    });
+    // Tracked again: a later lookup no longer needs the owner.
+    h.ownerLease.mockReturnValue(null);
+    expect(h.service.observe(at(121, 3))?.stage).toBe('limit');
+  });
+
+  it('M7: loading a released session tracks it again', () => {
+    const h = harness();
+    h.service.observe(at(10, 1));
+    h.service.release(SID);
+    expect(h.service.observeLoaded(at(60, 2))?.stage).toBe('tighten');
+  });
+
+  it('M7: a compaction before the first result still counts for a never-released id', () => {
+    const h = harness();
+    h.service.recordCompaction(SID);
+    expect(h.service.observe(at(10, 1))?.compactions).toBe(1);
   });
 });
 

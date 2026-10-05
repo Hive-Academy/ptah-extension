@@ -516,6 +516,61 @@ describe('SessionRegistry', () => {
   // Additional: entries() and getActiveSessionCount()
   // -------------------------------------------------------------------------
 
+  describe('evictStale() eviction listeners (F.1 M7)', () => {
+    const TTL = 1_000;
+
+    it('tells each listener every key of an evicted record, and only of evicted ones', () => {
+      const { registry } = makeRegistry();
+      registry.setClockForTesting(() => 0);
+      registry.register('tab_idle', makeConfig(), new AbortController());
+      registry.bindRealSessionId('tab_idle', 'real-idle');
+      registry.register('tab_unbound', makeConfig(), new AbortController());
+      registry.setClockForTesting(() => TTL - 1);
+      registry.register('tab_fresh', makeConfig(), new AbortController());
+      const listener = jest.fn();
+      registry.onEvicted(listener);
+
+      expect(registry.evictStale(TTL, TTL)).toBe(2);
+
+      expect(listener).toHaveBeenCalledTimes(2);
+      expect(listener).toHaveBeenCalledWith(['tab_idle', 'real-idle']);
+      expect(listener).toHaveBeenCalledWith(['tab_unbound']);
+      expect(registry.find('tab_fresh')).toBeDefined();
+    });
+
+    it('a disposed listener is not called', () => {
+      const { registry } = makeRegistry();
+      registry.setClockForTesting(() => 0);
+      registry.register('tab_idle', makeConfig(), new AbortController());
+      const listener = jest.fn();
+      registry.onEvicted(listener)();
+
+      registry.evictStale(TTL, TTL);
+
+      expect(listener).not.toHaveBeenCalled();
+    });
+
+    it('a throwing listener is WARNed and does not stop the sweep or the others', () => {
+      const { registry, logger } = makeRegistry();
+      registry.setClockForTesting(() => 0);
+      registry.register('tab_a', makeConfig(), new AbortController());
+      registry.register('tab_b', makeConfig(), new AbortController());
+      const thrower = jest.fn(() => {
+        throw new Error('boom');
+      });
+      const listener = jest.fn();
+      registry.onEvicted(thrower);
+      registry.onEvicted(listener);
+
+      expect(registry.evictStale(TTL, TTL)).toBe(2);
+
+      expect(listener).toHaveBeenCalledTimes(2);
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('eviction listener threw'),
+      );
+    });
+  });
+
   describe('entries() and getActiveSessionCount()', () => {
     it('entries() iterates byTabId entries', () => {
       const { registry } = makeRegistry();

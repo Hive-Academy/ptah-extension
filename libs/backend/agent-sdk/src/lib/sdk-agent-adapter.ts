@@ -175,6 +175,9 @@ export class SdkAgentAdapter implements IAgentAdapter {
   /** An `observe` throw is WARNed once per adapter, never per result. */
   private budgetObserveWarned = false;
 
+  /** Disposer of the idle-eviction budget release; called in `dispose()`. */
+  private readonly stopEvictionRelease: () => void;
+
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.CONFIG_MANAGER) private readonly config: ConfigManager,
@@ -239,6 +242,11 @@ export class SdkAgentAdapter implements IAgentAdapter {
     >,
   ) {
     this.callbacks = new SdkAdapterCallbackRegistry();
+    // An idle-evicted record never reaches `endSession`; its budget entry is
+    // released here so it does not outlive the record.
+    this.stopEvictionRelease = this.sessionLifecycle.onSessionEvicted((keys) =>
+      this.releaseBudget(keys),
+    );
     this.workspaceProvider.onDidChangeWorkspaceFolders(() => {
       this.handleWorkspaceChanged();
     });
@@ -577,6 +585,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
     this.modelService.clearCache();
     // Backend disposal ends every session; nothing may outlive it.
     this.statsOwner.clearAll();
+    this.stopEvictionRelease();
     this.sessionBudget.clearAll();
     this.initialized = false;
     this.runtimeState.reset();

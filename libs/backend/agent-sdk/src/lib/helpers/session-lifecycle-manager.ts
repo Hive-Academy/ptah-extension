@@ -54,6 +54,7 @@ import {
   SessionRegistry,
   type SessionRecord,
   type BindRealSessionIdOutcome,
+  type SessionEvictionListener,
 } from './session-lifecycle/session-registry.service';
 import { SessionStreamPump } from './session-lifecycle/session-stream-pump.service';
 import {
@@ -440,6 +441,14 @@ export class SessionLifecycleManager {
     );
     this._registry.startEvictionSweep();
     this.watchCompactionThreshold();
+  }
+
+  /**
+   * Subscribe to the idle sweep's evictions: each evicted record's keys (tab
+   * id, real SDK id once bound). Returns the disposer.
+   */
+  onSessionEvicted(listener: SessionEvictionListener): () => void {
+    return this._registry.onEvicted(listener);
   }
 
   dispose(): void {

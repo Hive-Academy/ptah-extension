@@ -182,6 +182,13 @@ function tokenFingerprint(token: string): string {
 export const DEFAULT_SWEEP_INTERVAL_MS = 5 * 60 * 1000;
 export const DEFAULT_SWEEP_TTL_MS = 30 * 60 * 1000;
 
+/**
+ * Told about each record the idle sweep evicted, with every key the session
+ * was held under (its tab id and, once bound, its real SDK id), so per-session
+ * state kept outside the registry is released with it.
+ */
+export type SessionEvictionListener = (keys: readonly string[]) => void;
+
 export class SessionRegistry {
   /**
    * Primary index: tabId → SessionRecord. Always populated at register().
@@ -208,8 +215,20 @@ export class SessionRegistry {
   private _sweepTimer: ReturnType<typeof setInterval> | null = null;
   private _sweepTtlMs = DEFAULT_SWEEP_TTL_MS;
   private _now: () => number = () => Date.now();
+  private readonly evictionListeners = new Set<SessionEvictionListener>();
 
   constructor(private readonly logger: Logger) {}
+
+  /**
+   * Subscribe to idle evictions (`evictStale`). Returns the disposer that
+   * removes the listener.
+   */
+  onEvicted(listener: SessionEvictionListener): () => void {
+    this.evictionListeners.add(listener);
+    return () => {
+      this.evictionListeners.delete(listener);
+    };
+  }
 
   /**
    * Register a new session into the registry.
@@ -595,8 +614,29 @@ export class SessionRegistry {
         `[SessionRegistry] Evicted stale session record: ${rec.tabId} ` +
           `(idleMs=${now - rec.lastActivityAt}, realSessionId=${rec.realSessionId ?? 'null'})`,
       );
+      this.notifyEvicted(rec);
     }
     return evicted;
+  }
+
+  /**
+   * Tell every eviction listener; one that throws is WARNed and never stops
+   * the sweep or the other listeners.
+   */
+  private notifyEvicted(rec: SessionRecord): void {
+    const keys = [rec.tabId, rec.realSessionId].filter(
+      (key): key is string => typeof key === 'string' && key.length > 0,
+    );
+    for (const listener of this.evictionListeners) {
+      try {
+        listener(keys);
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        this.logger.warn(
+          `[SessionRegistry] eviction listener threw for ${rec.tabId}: ${message}`,
+        );
+      }
+    }
   }
 
   setClockForTesting(now: () => number): void {

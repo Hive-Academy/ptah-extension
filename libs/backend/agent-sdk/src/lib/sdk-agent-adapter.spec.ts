@@ -203,9 +203,11 @@ function createMockSessionLifecycle(): jest.Mocked<
     | 'setSessionModel'
     | 'getSessionToken'
     | 'endSessionIfTokenMatches'
+    | 'onSessionEvicted'
   >
 > {
   return {
+    onSessionEvicted: jest.fn().mockReturnValue(jest.fn()),
     executeQuery: jest.fn(),
     executeSlashCommandQuery: jest.fn(),
     disposeAllSessions: jest.fn().mockResolvedValue(undefined),
@@ -2163,6 +2165,22 @@ describe('SdkAgentAdapter', () => {
       h.adapter.dispose();
 
       expect(h.sessionBudget.clearAll).toHaveBeenCalledTimes(1);
+    });
+
+    it('releases the budget of every key of an idle-evicted record, and unsubscribes on dispose', () => {
+      const h = makeAdapter();
+      expect(h.sessionLifecycle.onSessionEvicted).toHaveBeenCalledTimes(1);
+      const [listener] = h.sessionLifecycle.onSessionEvicted.mock.calls[0];
+      const unsubscribe =
+        h.sessionLifecycle.onSessionEvicted.mock.results[0].value;
+
+      listener(['tab_1', REAL_ID]);
+
+      expect(h.sessionBudget.release).toHaveBeenCalledWith('tab_1');
+      expect(h.sessionBudget.release).toHaveBeenCalledWith(REAL_ID);
+
+      h.adapter.dispose();
+      expect(unsubscribe).toHaveBeenCalledTimes(1);
     });
   });
 

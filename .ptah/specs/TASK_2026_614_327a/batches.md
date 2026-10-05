@@ -791,7 +791,14 @@ batch's projects>`, `npx nx run di-lint:lint`, `npx nx run degradation-audit:lin
 "Batch rules for every executor" above apply unchanged (R1 limit, subagents only, no git, no TASK_2026_609_c495 files,
 real code, a regression test per item).
 
-## Batch 16: Session budget entry lifetime and action guards (F.1 M5, M7) — IN_PROGRESS
+## Batch 16: Session budget entry lifetime and action guards (F.1 M5, M7) — COMPLETE
+
+- Verified by team-leader (Mode 2, 2026-10-05). Deviation accepted: the eviction release also touched
+  `session-lifecycle-manager.ts` (`onSessionEvicted` pass-through), `sdk-agent-adapter.ts` (subscription + dispose) and
+  `sdk-agent-adapter.spec.ts`; Batch 22 (adapter) and Batch 27 (lifecycle manager docs) build on these. A3 holds: the
+  spawner already imported `@ptah-extension/agent-sdk`; no new lib edge. R1 breach recorded: the executor used 94 tool
+  calls (limit 60). Allowed failure: the pre-existing `session-query-executor.service.spec.ts:991` TS2554 (also on clean
+  55f245619), now Task 22.6.
 
 - Recommended executor: backend-developer | Fallback: backend-developer (fresh run) | Execution mode: Sequential subagent
 - Model: Opus (logic) | Tasks: 3 | Depends on: none | Group: P1 | Phase: F
@@ -800,19 +807,19 @@ real code, a regression test per item).
   `<R>\libs\backend\agent-sdk\src\lib\helpers\session-lifecycle\session-registry.service.ts` (+ `.spec.ts`),
   `<R>\libs\backend\cli-agent-runtime\src\lib\session-children\session-spawner.service.ts` (+ `.spec.ts`)
 
-### Task 16.1: `write-handoff` and `preview-handoff` need an entry (M5) — IN_PROGRESS
+### Task 16.1: `write-handoff` and `preview-handoff` need an entry (M5) — COMPLETE
 
 - `act` (`session-budget.service.ts:237-267`) returns `{ success: false }` with a clear error when no entry exists for
   `write-handoff` / `preview-handoff` (`writeHandoffAction` 698-704, `previewHandoff` 711-729). Spec: unknown id → no
   file written, prune not run.
 
-### Task 16.2: No entry resurrection after `release` (M7) — IN_PROGRESS
+### Task 16.2: No entry resurrection after `release` (M7) — COMPLETE
 
 - `recordCompaction` (204-209), the `accept` catch (287-305) and `acceptOrThrow` (311) must not create an entry for an
   id released in this process unless a new run registers it (for example `entries.get` instead of `entryFor` on these
   paths, or a released-id mark cleared on the next explicit start). Spec: release → late result → no entry.
 
-### Task 16.3: Release on idle eviction and headless child end (M7) — IN_PROGRESS
+### Task 16.3: Release on idle eviction and headless child end (M7) — COMPLETE
 
 - `evictStale` (`session-registry.service.ts:583-599`) releases the budget entry of each evicted session through the
   existing release seam (`sdk-agent-adapter.ts:876-880` helper). Headless children (`session-spawner.service.ts:717-731,
@@ -823,7 +830,11 @@ real code, a regression test per item).
 
 - Specs above pass; scoped checks for agent-sdk and cli-agent-runtime.
 
-## Batch 17: Session budget backend Minors and UUID check (F.6, F.1 M4) — IN_PROGRESS
+## Batch 17: Session budget backend Minors and UUID check (F.6, F.1 M4) — COMPLETE
+
+- Verified by team-leader (Mode 2, 2026-10-05). Task 17.4: the SDK mints session ids with `crypto.randomUUID()` (v4),
+  so `UUID_REGEX` is unchanged; `branded.types.ts` gets a comment only, so importers' types cannot change. Task 17.3: no
+  importer of `SessionBudgetState` from `@ptah-extension/agent-sdk` (multiline grep over apps and libs).
 
 - Recommended executor: backend-developer | Fallback: backend-developer (Opus) | Execution mode: Sequential subagent
 - Model: Sonnet (mechanical) | Tasks: 5 | Depends on: none | Group: P1 | Phase: F
@@ -834,27 +845,27 @@ real code, a regression test per item).
   `<R>\libs\backend\agent-sdk\src\index.ts`, `<R>\libs\shared\src\lib\types\branded.types.ts` (+ spec),
   `<R>\libs\frontend\webview-e2e-harness\src\lib\scenarios\settings\settings.fixtures.ts`
 
-### Task 17.1: `keepPreviousFigure` uses the current limit — IN_PROGRESS
+### Task 17.1: `keepPreviousFigure` uses the current limit — COMPLETE
 
 - `session-budget-stage.ts:234-256`: when the previous figure is kept, use the current limit (a new extension counts).
   Spec.
 
-### Task 17.2: Prune orphaned `.tmp` handoff files — IN_PROGRESS
+### Task 17.2: Prune orphaned `.tmp` handoff files — COMPLETE
 
 - `session-handoff-writer.ts:119-122` vs `isHandoffFileName` 76-81: prune also removes `.<uuid>.<uuid>.tmp` files older
   than a short age (never one being written now). Spec.
 
-### Task 17.3: Drop the `SessionBudgetState` re-export — IN_PROGRESS
+### Task 17.3: Drop the `SessionBudgetState` re-export — COMPLETE
 
 - `agent-sdk/src/index.ts:83`: remove after a grep shows no importer uses that path.
 
-### Task 17.4: Verify the SDK session id version (M4, A1) — IN_PROGRESS
+### Task 17.4: Verify the SDK session id version (M4, A1) — COMPLETE
 
 - Check the Claude Agent SDK source in `node_modules` for how session ids are made. v4 confirmed → comment at
   `branded.types.ts:39-40` naming the source, plus a spec with an SDK-shaped id. Not v4 → relax `UUID_REGEX` to any
   RFC 4122 version, run `nx affected -t typecheck` (exclusions above), and say so in the report.
 
-### Task 17.5: Fixture own-key check — IN_PROGRESS
+### Task 17.5: Fixture own-key check — COMPLETE
 
 - `settings.fixtures.ts:248`: `Object.hasOwn(SESSION_BUDGET_SETTINGS_FIXTURE, key)` (same file uses it at 407).
 
@@ -862,7 +873,10 @@ real code, a regression test per item).
 
 - Scoped checks for agent-sdk, shared, webview-e2e-harness; `nx affected` only if Task 17.4 relaxed the regex.
 
-## Batch 18: Config warn-once, capper line count, PostToolUse guards (G.1, G.8) — IN_PROGRESS
+## Batch 18: Config warn-once, capper line count, PostToolUse guards (G.1, G.8) — COMPLETE
+
+- Verified by team-leader (Mode 2, 2026-10-05). Tasks 18.1-18.3 committed; Task 18.4 (G-E doc note) was not written
+  and moves to Task 22.7.
 
 - Recommended executor: backend-developer | Fallback: backend-developer (Opus) | Execution mode: Sequential subagent
 - Model: Sonnet (mechanical) | Tasks: 4 | Depends on: none | Group: P1 | Phase: G
@@ -871,21 +885,21 @@ real code, a regression test per item).
   `<R>\libs\backend\agent-sdk\src\lib\helpers\compaction\tool-output-capper.ts` (+ spec),
   `<R>\libs\backend\agent-sdk\src\lib\helpers\post-tool-use-hook-handler.ts` (+ spec)
 
-### Task 18.1: Threshold and env-window warns fire once (G.1 / FM-1) — IN_PROGRESS
+### Task 18.1: Threshold and env-window warns fire once (G.1 / FM-1) — COMPLETE
 
 - Route the warns at `compaction-config-provider.ts:113-130` and `:196-220` through the `warnedBudgets`-style set (key
   + value). Compute `budgetDefault` (40-48) once at construction. Spec: two `getConfig()` calls → one warn each.
 
-### Task 18.2: `numLines` excludes the trailer — IN_PROGRESS
+### Task 18.2: `numLines` excludes the trailer — COMPLETE
 
 - `tool-output-capper.ts:313`: count outline lines only. Spec.
 
-### Task 18.3: Missing `options` fails open (FM-8) — IN_PROGRESS
+### Task 18.3: Missing `options` fails open (FM-8) — COMPLETE
 
 - `post-tool-use-hook-handler.ts:88, 123`: `options?.signal`; a missing signal is never aborted. Spec: hook without
   options returns the fail-open result.
 
-### Task 18.4: Late capper work after the timeout (FM-7) — PENDING (user decision G-E: accept and document, option (a) only)
+### Task 18.4: Late capper work after the timeout (FM-7) — MOVED to Task 22.7 (doc note not written in Batch 18)
 
 - (a) document the accepted behaviour at `post-tool-use-hook-handler.ts:136-148`; (b) pass the signal into
   `ToolOutputCapper.cap`. User decided: accept and document; do not pass the signal into the capper.
@@ -973,11 +987,14 @@ real code, a regression test per item).
 ## Batch 22: Monitor rekey ordering, stop retry gate, executor rekey gaps (G.2, G.8) — PENDING
 
 - Recommended executor: backend-developer | Fallback: backend-developer (fresh run) | Execution mode: Sequential subagent
-- Model: Opus | Tasks: 5 | Depends on: Batch 16 | Group: P3 | Phase: G
+- Model: Opus | Tasks: 7 | Depends on: Batch 16 | Group: P3 | Phase: G
 - Projects: `@ptah-extension/agent-sdk`
 - Files: `<R>\libs\backend\agent-sdk\src\lib\helpers\compaction\subagent-budget-monitor.ts` (+ spec),
   `<R>\libs\backend\agent-sdk\src\lib\helpers\session-lifecycle\session-query-executor.service.ts` (+ spec),
-  `<R>\libs\backend\agent-sdk\src\lib\sdk-agent-adapter.ts` (+ spec)
+  `<R>\libs\backend\agent-sdk\src\lib\sdk-agent-adapter.ts` (+ spec),
+  `<R>\libs\backend\agent-sdk\src\lib\helpers\post-tool-use-hook-handler.ts` (Task 22.7, comment only)
+- Note (team-leader, 2026-10-05): 7 files, one over the 6-file cap; accepted because the seventh is a comment-only
+  edit. Rebase onto Batch 16's adapter changes (`onSessionEvicted` subscription, `stopEvictionRelease`).
 
 ### Task 22.1: Alias the old id to the new id after `rekey` (G.2 / FM-2) — PENDING
 
@@ -1003,9 +1020,22 @@ real code, a regression test per item).
 
 - `sdk-agent-adapter.ts:945-971`: pass `onMessage`/`onStreamEnd` as the other three call sites do. Spec.
 
+### Task 22.6: Fix the pre-existing `session-query-executor.service.spec.ts` compile error — PENDING
+
+- `session-query-executor.service.spec.ts:991`: TS2554, `new StreamTransformer(...)` passes 7 args, the constructor
+  takes 8 (`planLimits`, `stream-transformer.ts:375`). Fails on clean main 55f245619 too; it was the only allowed
+  agent-sdk test failure for Batches 16-18. Pass the missing argument as the other specs do; the suite must compile
+  and pass, so the agent-sdk test target exits 0 again.
+
+### Task 22.7: Document the late capper work after the timeout (FM-7, moved from Task 18.4) — PENDING
+
+- User decision G-E, option (a) only: a comment at `post-tool-use-hook-handler.ts:136-148` (the race in
+  `capToolOutput`) saying the capper keeps running after a timeout or abort, its late result is discarded, and this is
+  accepted. Do not pass the signal into `ToolOutputCapper.cap`.
+
 ### Batch 22 verification
 
-- Scoped checks for agent-sdk.
+- Scoped checks for agent-sdk; the agent-sdk test target exits 0 (Task 22.6 removes the last allowed failure).
 
 ## Batch 23: `execute_code` cancel reaches `ptah.agent.waitFor` (G.8, Task 8.3 gap) — PENDING
 
