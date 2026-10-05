@@ -166,6 +166,19 @@ fixed in the D + E fix round. These Moderates are named later tasks (they cannot
 3. Stage A, then Stage B.
 4. Stage C last (QA with live proof), then close TASK_2026_597_ab22 and this task.
 
+## User Decisions (Stage F + G, 2026-10-05)
+
+All recommended options from `batches.md` § "Stage F + G batches" › "Decisions for the user":
+
+- F-A: new `restore-failed` reason. F-B: proposed UI wording accepted. F-C: `/compact` at the limit is a copy change
+  only. F-D: clear the limit banner state on every tab when `sessionBudget.enabled` is saved off. F-E: price each
+  request with its own model, "unknown" (not 0) when the cache price is missing. F-F: exact `agentId:` match only.
+- G-A (G.4): `killRunningChecks` is awaited with a timeout (up to 5 s) on both hosts. G-B (G.7): rename
+  `SubagentStopPort` to `SubagentBudgetDispatcherPort`. G-C (G.8 m5): the `stopped` subagent status is deferred as a
+  named later task (Batch 34 dropped). G-D (G.6): RPC result and log only. G-E (FM-7): accept and document (Task 18.4
+  becomes a doc note).
+- CLI lanes stay disabled (Gate 0.1). Push and open the F + G PR without asking.
+
 ## Conversation Summary
 
 - 2026-10-05: created at the end of the fifth TASK_2026_597 orchestration session, committed with PR #647. The user will

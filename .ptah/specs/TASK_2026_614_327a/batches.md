@@ -908,7 +908,7 @@ real code, a regression test per item).
 
 - Scoped checks for agent-sdk.
 
-## Batch 19: Settings card sibling draft and write timeout; keep-key pruning (F.3, G.8) — PENDING
+## Batch 19: Settings card sibling draft and write timeout; keep-key pruning (F.3, G.8) — COMPLETE (6083556d4)
 
 - Recommended executor: frontend-developer | Fallback: frontend-developer (fresh run) | Execution mode: Sequential subagent
 - Model: Opus (race) | Tasks: 3 | Depends on: none | Group: P2 | Phase: F
@@ -935,7 +935,7 @@ real code, a regression test per item).
 
 - Scoped checks for chat.
 
-## Batch 20: Agent monitor store eviction and rekey (F.5 M2, M4, M5) — PENDING
+## Batch 20: Agent monitor store eviction and rekey (F.5 M2, M4, M5) — COMPLETE (e3b8e6e08)
 
 - Recommended executor: frontend-developer | Fallback: frontend-developer (fresh run) | Execution mode: Sequential subagent
 - Model: Opus | Tasks: 3 | Depends on: none | Group: P2 | Phase: F
@@ -1060,7 +1060,7 @@ real code, a regression test per item).
 
 - Scoped checks for vscode-lm-tools.
 
-## Batch 24: Pin `mcp-serve` id pass-through and drain dispose (G.5) — PENDING
+## Batch 24: Pin `mcp-serve` id pass-through and drain dispose (G.5) — COMPLETE (837f93ff9)
 
 - Recommended executor: senior-tester | Fallback: backend-developer (Sonnet) | Execution mode: Sequential subagent
 - Model: Sonnet (test pins) | Tasks: 1 | Depends on: none | Group: P3 | Phase: G
@@ -1316,3 +1316,9 @@ Orchestrator: run parallel group P1 now. That is Batch 16 (backend-developer, Op
 Sonnet) and Batch 18 (backend-developer, Sonnet). Run each as a sequential subagent with the batch executor prompt and
 the R1 limit. Put decisions F-A to F-F and G-A to G-E to the user; Batches 28-34 and Task 18.4 stay PENDING DECISION
 until they are answered. G.8's Batch 13 screenshots go to Stage C.
+
+## Notes for phase review (team-leader)
+
+- Batch 19 adds a new UI string for a settings write timeout ("Could not confirm saving <label>. Reopen settings to see the saved value.") not covered by decision F-B; phase review must judge it.
+- Batch 19 touched out-of-list test stub session-budget-banner.component.spec.ts (test-only, accepted).
+- Batch 24 verified by direct jest + eslint (19 passed); nx ptah-cli check blocked by Batch 22 in-flight agent-sdk edits; rerun full ptah-cli check at phase end.
