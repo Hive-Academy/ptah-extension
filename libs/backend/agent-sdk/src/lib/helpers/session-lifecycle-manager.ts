@@ -308,6 +308,15 @@ export interface ExecuteQueryResult {
    */
   activityWatchdog: NoActivityWatchdog;
   /**
+   * The run's compaction tap. Pass both to `StreamTransformer.transform` as
+   * its `onMessage` / `onStreamEnd`: every stream message must reach
+   * `onMessage` (the coordinator, context-usage port and subagent budget
+   * monitor are fed from it), and `onStreamEnd` releases what the run tracked
+   * on any teardown (TASK_2026_614 D.11). Both never throw.
+   */
+  onMessage: (message: SDKMessage) => void;
+  onStreamEnd: () => void;
+  /**
    * `token` of the registry record this query owns.
    *
    * Hand it back to `bindRealSessionId` so the registry can tell the record's

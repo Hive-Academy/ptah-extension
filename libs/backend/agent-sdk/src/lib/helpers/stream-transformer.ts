@@ -234,6 +234,19 @@ export interface StreamTransformConfig {
    * hanging forever; a long-but-alive turn keeps kicking it and never trips it.
    */
   activityWatchdog?: NoActivityWatchdog;
+  /**
+   * Fired with every SDK message this stream yields, main loop and subagent
+   * alike, before any transformation (TASK_2026_614 D.11). The query run's
+   * compaction tap reads `result`, `status: 'compacting'` and
+   * `compact_boundary` here. A throw is logged and the stream continues.
+   */
+  onMessage?: (message: SDKMessage) => void;
+  /**
+   * Fired once when this stream tears down: normal end, error or abort. The
+   * query run releases what its compaction tap tracked here (TASK_2026_614
+   * D.2, D.11). A throw is logged and does not mask the stream's own outcome.
+   */
+  onStreamEnd?: () => void;
 }
 
 /**
@@ -362,6 +375,8 @@ export class StreamTransformer {
       onCompactBoundary,
       tabId,
       activityWatchdog,
+      onMessage,
+      onStreamEnd,
       runToken,
       usageCostSource,
       accountingAuthEnv,
@@ -421,6 +436,24 @@ export class StreamTransformer {
             // Any stream activity — message, partial/streaming delta, tool_use,
             // tool_result, thinking — resets the inactivity window.
             activityWatchdog?.observe(sdkMessage);
+            if (onMessage) {
+              try {
+                onMessage(sdkMessage);
+              } catch (callbackError: unknown) {
+                // An observer must never break the stream it observes.
+                logger.warn(
+                  '[StreamTransformer] onMessage callback failed; the stream continues',
+                  {
+                    sessionId,
+                    messageType: sdkMessage.type,
+                    error:
+                      callbackError instanceof Error
+                        ? callbackError.name
+                        : typeof callbackError,
+                  },
+                );
+              }
+            }
             sdkMessageCount++;
 
             // The gauge measures the MAIN loop's prompt, so a partial event
@@ -882,6 +915,24 @@ export class StreamTransformer {
           // Stop the watchdog on every teardown path (end-of-stream, error,
           // abort) so it can neither leak nor fire after the turn ends.
           activityWatchdog?.stop();
+          if (onStreamEnd) {
+            try {
+              onStreamEnd();
+            } catch (callbackError: unknown) {
+              // Thrown from a finally it would replace the stream's own
+              // outcome (a clean end or the original error).
+              logger.warn(
+                '[StreamTransformer] onStreamEnd callback failed; teardown continues',
+                {
+                  sessionId,
+                  error:
+                    callbackError instanceof Error
+                      ? callbackError.name
+                      : typeof callbackError,
+                },
+              );
+            }
+          }
           logger.debug(`[StreamTransformer] Session ${sessionId} stream ended`);
         }
       },

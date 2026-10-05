@@ -1204,11 +1204,15 @@ describe('SdkAgentAdapter', () => {
       const sdkQuery = createFakeQuery();
       const abortController = new AbortController();
       const activityWatchdog = new NoActivityWatchdog(100000, () => undefined);
+      const onMessage: ExecuteQueryResult['onMessage'] = jest.fn();
+      const onStreamEnd: ExecuteQueryResult['onStreamEnd'] = jest.fn();
       h.sessionLifecycle.executeQuery.mockResolvedValueOnce({
         sdkQuery,
         initialModel: 'claude-sonnet-4-20250514',
         abortController,
         activityWatchdog,
+        onMessage,
+        onStreamEnd,
       } as ExecuteQueryResult);
 
       await h.adapter.startChatSession(makeSessionConfig());
@@ -1216,6 +1220,9 @@ describe('SdkAgentAdapter', () => {
       expect(h.streamTransformer.transform).toHaveBeenCalledTimes(1);
       const transformArg = h.streamTransformer.transform.mock.calls[0][0];
       expect(transformArg.activityWatchdog).toBe(activityWatchdog);
+      // The compaction tap's callbacks reach the stream (TASK_2026_614 D.11).
+      expect(transformArg.onMessage).toBe(onMessage);
+      expect(transformArg.onStreamEnd).toBe(onStreamEnd);
       expect(transformArg.sdkQuery).toBe(sdkQuery);
       expect(transformArg.sessionId).toBe('tab_1');
       expect(transformArg.initialModel).toBe('claude-sonnet-4-20250514');
@@ -1360,11 +1367,15 @@ describe('SdkAgentAdapter', () => {
       const sdkQuery = createFakeQuery();
       const abortController = new AbortController();
       const activityWatchdog = new NoActivityWatchdog(100000, () => undefined);
+      const onMessage: ExecuteQueryResult['onMessage'] = jest.fn();
+      const onStreamEnd: ExecuteQueryResult['onStreamEnd'] = jest.fn();
       h.sessionLifecycle.executeQuery.mockResolvedValueOnce({
         sdkQuery,
         initialModel: 'claude-sonnet-4-20250514',
         abortController,
         activityWatchdog,
+        onMessage,
+        onStreamEnd,
       } as ExecuteQueryResult);
 
       await h.adapter.resumeSession('sess-1' as SessionId);
@@ -1377,6 +1388,9 @@ describe('SdkAgentAdapter', () => {
       );
       const transformArg = h.streamTransformer.transform.mock.calls[0][0];
       expect(transformArg.activityWatchdog).toBe(activityWatchdog);
+      // The compaction tap's callbacks reach the stream (TASK_2026_614 D.11).
+      expect(transformArg.onMessage).toBe(onMessage);
+      expect(transformArg.onStreamEnd).toBe(onStreamEnd);
       expect(transformArg.sdkQuery).toBe(sdkQuery);
     });
   });
@@ -1431,6 +1445,8 @@ describe('SdkAgentAdapter', () => {
         initialModel: 'claude-sonnet-4-20250514',
         abortController: new AbortController(),
         activityWatchdog: new NoActivityWatchdog(100000, () => undefined),
+        onMessage: () => undefined,
+        onStreamEnd: () => undefined,
         sessionToken: token,
         usageCostSource: 'reported',
         accountingAuthEnv: {} as AuthEnv,
@@ -1875,11 +1891,15 @@ describe('SdkAgentAdapter', () => {
       const sdkQuery = createFakeQuery();
       const abortController = new AbortController();
       const activityWatchdog = new NoActivityWatchdog(100000, () => undefined);
+      const onMessage: ExecuteQueryResult['onMessage'] = jest.fn();
+      const onStreamEnd: ExecuteQueryResult['onStreamEnd'] = jest.fn();
       h.sessionLifecycle.executeSlashCommandQuery.mockResolvedValueOnce({
         sdkQuery,
         initialModel: 'claude-sonnet-4-20250514',
         abortController,
         activityWatchdog,
+        onMessage,
+        onStreamEnd,
       } as ExecuteQueryResult);
 
       await h.adapter.executeSlashCommand('sess-1' as SessionId, '/help', {
@@ -1893,6 +1913,9 @@ describe('SdkAgentAdapter', () => {
       );
       const transformArg = h.streamTransformer.transform.mock.calls[0][0];
       expect(transformArg.activityWatchdog).toBe(activityWatchdog);
+      // The compaction tap's callbacks reach the stream (TASK_2026_614 D.11).
+      expect(transformArg.onMessage).toBe(onMessage);
+      expect(transformArg.onStreamEnd).toBe(onStreamEnd);
       expect(transformArg.sdkQuery).toBe(sdkQuery);
       expect(transformArg.tabId).toBe('tab-1');
     });

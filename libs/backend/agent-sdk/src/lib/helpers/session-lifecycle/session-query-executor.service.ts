@@ -72,7 +72,6 @@ import type { SdkQueryRunner } from '../sdk-query-runner.service';
 import {
   NoActivityWatchdog,
   NO_ACTIVITY_TIMEOUT_MS,
-  type WatchdogTimeoutCause,
 } from '../no-activity-watchdog';
 import type { HarnessPolicySync } from '../../harness/harness-policy-sync';
 
@@ -281,7 +280,8 @@ class CompactionSessionTap {
 
   /**
    * Session end: drop every id this run tracked. Idempotent: the abort
-   * listener and the watchdog's `stop()` (every stream teardown) both call it.
+   * listener and the stream's `onStreamEnd` (every stream teardown, normal end
+   * included — TASK_2026_614 D.2) both call it.
    */
   release(): void {
     if (this.released) return;
@@ -368,36 +368,6 @@ class CompactionSessionTap {
       sessionId: this.sessionId,
       error: error instanceof Error ? error.name : typeof error,
     });
-  }
-}
-
-/** The run's watchdog, also feeding every stream message to the compaction tap. */
-class CompactionObservingWatchdog extends NoActivityWatchdog {
-  constructor(
-    private readonly tap: CompactionSessionTap,
-    timeoutMs: number,
-    onTimeout: (cause: WatchdogTimeoutCause) => void,
-    onOverdue: (operations: readonly string[]) => void,
-  ) {
-    // The dwell bound applies only where the coordinator acts (TASK_2026_597
-    // S1); an OBSERVE_ONLY session keeps B8's "report overdue, keep waiting".
-    super(timeoutMs, onTimeout, onOverdue, () => tap.controlsSession());
-  }
-
-  override observe(message: SDKMessage): void {
-    super.observe(message);
-    this.tap.observe(message);
-  }
-
-  /**
-   * `StreamTransformer` stops the watchdog on every stream teardown, including
-   * a normal end with no abort, so this is where the tap releases what the run
-   * tracked (TASK_2026_614 D.2). The abort listener stays for a run whose
-   * stream never reached the transformer.
-   */
-  override stop(): void {
-    super.stop();
-    this.tap.release();
   }
 }
 
@@ -553,8 +523,7 @@ export class SessionQueryExecutor {
       () => compactionTap.release(),
       { once: true },
     );
-    const activityWatchdog = new CompactionObservingWatchdog(
-      compactionTap,
+    const activityWatchdog = new NoActivityWatchdog(
       NO_ACTIVITY_TIMEOUT_MS,
       (cause) => {
         if (abortController.signal.aborted) {
@@ -618,6 +587,9 @@ export class SessionQueryExecutor {
             resolvedModel: rec.currentModel,
           },
         ),
+      // The dwell bound applies only where the coordinator acts (TASK_2026_597
+      // S1); an OBSERVE_ONLY session keeps B8's "report overdue, keep waiting".
+      () => compactionTap.controlsSession(),
     );
     abortController.signal.addEventListener(
       'abort',
@@ -777,6 +749,11 @@ export class SessionQueryExecutor {
         initialModel,
         abortController,
         activityWatchdog,
+        // The stream feeds the tap explicitly (TASK_2026_614 D.11). The abort
+        // listener above stays for a run whose stream never reached the
+        // transformer; release() is idempotent, so both paths are safe.
+        onMessage: (message: SDKMessage) => compactionTap.observe(message),
+        onStreamEnd: () => compactionTap.release(),
         sessionToken: rec.token,
         usageCostSource: rec.usageCostSource,
         accountingAuthEnv: rec.accountingAuthEnv,
