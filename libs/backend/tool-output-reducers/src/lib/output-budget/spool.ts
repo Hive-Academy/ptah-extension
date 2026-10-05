@@ -143,6 +143,7 @@ export async function writeSpoolFile(
 ): Promise<SpoolOutcome> {
   try {
     await fs.mkdir(dir, { recursive: true });
+    await ensureSpoolGitignore(dir);
     for (let attempt = 0; attempt < SPOOL_NAME_ATTEMPTS; attempt++) {
       const file = path.join(dir, spoolFileName(requestId));
       try {
@@ -162,6 +163,24 @@ export async function writeSpoolFile(
     return { failure: 'no free spool file name' };
   } catch (error) {
     return { failure: errorCode(error) ?? errorName(error) };
+  }
+}
+
+/**
+ * Writes `<dir>/.gitignore` containing `*` when none exists, so spooled raw
+ * tool output (which may hold secrets) is never committed from a user repo.
+ * The exclusive-create flag leaves an existing file alone. Fail-open: any
+ * failure is ignored and the spool proceeds.
+ */
+async function ensureSpoolGitignore(dir: string): Promise<void> {
+  try {
+    await fs.writeFile(path.join(dir, '.gitignore'), '*\n', {
+      encoding: 'utf8',
+      flag: 'wx',
+    });
+  } catch {
+    // degradation-audit: reported — EEXIST is the normal case; any other
+    // failure only loses the ignore file, never the spool.
   }
 }
 

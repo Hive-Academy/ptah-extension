@@ -58,7 +58,7 @@ function spoolDir(base = root): string {
 
 function spooledFiles(base = root): string[] {
   const dir = spoolDir(base);
-  return fsSync.existsSync(dir) ? fsSync.readdirSync(dir).sort() : [];
+  return fsSync.existsSync(dir) ? fsSync.readdirSync(dir).filter((n) => n !== '.gitignore').sort() : [];
 }
 
 function call(

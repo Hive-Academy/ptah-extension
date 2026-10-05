@@ -194,6 +194,16 @@ export const FILE_BASED_SETTINGS_KEYS = new Set<string>([
   'agentOrchestration.opencodeModel',
   'agentOrchestration.piModel',
   'agentOrchestration.subagentPromptCacheTtl',
+  // Lane tool-call guards (TASK_2026_597 Wave D).
+  'agentOrchestration.laneToolCallSteerAt',
+  'agentOrchestration.laneToolCallStopAt',
+  'agentOrchestration.laneRepeatCallStopAt',
+  // Compaction budgets (TASK_2026_597 Wave D). `compaction.threshold` is NOT
+  // here: it is still VS Code-contributed and moves with its migration.
+  'compaction.toolOutputBudgetTokens',
+  'compaction.subagentHandoffTokens',
+  'compaction.rotationSuggestTokens',
+  'compaction.subagentStopWeightedTokens',
   // Machine scope: { "<agent-slug>" | "*": { claude?, codex?, copilot?, cursor?, opencode?: string } }.
   // Workspace override: workspace.<hash>.agentGeneration.models,
   // already routed by SCOPED_SETTING_PREFIX_PATTERN.
@@ -505,6 +515,16 @@ export const FILE_BASED_SETTINGS_DEFAULTS: Record<string, unknown> = {
   'agentOrchestration.piModel': '',
   // Subagent prompt-cache TTL: 'auto' | '5m' | '1h'. 'auto' asks for 1h only when the session can spawn subagents.
   'agentOrchestration.subagentPromptCacheTtl': 'auto',
+  // Lane tool-call guards: steer at N calls, stop at N calls, stop at N identical calls.
+  'agentOrchestration.laneToolCallSteerAt': 40,
+  'agentOrchestration.laneToolCallStopAt': 60,
+  'agentOrchestration.laneRepeatCallStopAt': 20,
+  // Compaction budgets, in tokens.
+  'compaction.toolOutputBudgetTokens': 2500,
+  'compaction.subagentHandoffTokens': 150000,
+  'compaction.rotationSuggestTokens': 300000,
+  // Provisional: the final value comes from the Batch 36 p95.
+  'compaction.subagentStopWeightedTokens': 3000000,
   'agentOrchestration.disabledClis': [],
   'agentOrchestration.disabledMcpNamespaces': [],
   'provider.cursor.apiKey': '',

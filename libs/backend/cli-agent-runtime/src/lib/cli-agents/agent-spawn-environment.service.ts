@@ -36,6 +36,15 @@ import {
   MIN_SDK_IDLE_RELEASE_MS,
 } from './agent-process-manager-helpers';
 
+import type { LaneBudgetThresholds } from './lane-budget-guard';
+
+/** Mirrors the `FILE_BASED_SETTINGS_DEFAULTS` lane-guard values. */
+const DEFAULT_LANE_GUARD_THRESHOLDS: LaneBudgetThresholds = {
+  steerAt: 40,
+  stopAt: 60,
+  repeatAt: 20,
+};
+
 export const MIN_CONCURRENT_AGENTS = 1;
 export const MAX_CONCURRENT_AGENTS = 20;
 export const DEFAULT_CONCURRENT_AGENTS = 5;
@@ -179,6 +188,54 @@ export class AgentSpawnEnvironment {
           'agentOrchestration.codexWebSearch',
           defaults.webSearch,
         ) ?? defaults.webSearch,
+    };
+  }
+
+  /**
+   * The lane tool-call guard thresholds. Each file value must be an integer
+   * >= 1; `repeatAt` must be >= 2 and `stopAt` must exceed `steerAt`. A value
+   * that breaks its rule falls back to the default (for the steer/stop pair,
+   * both fall back, since the pair is only meaningful together).
+   */
+  resolveLaneGuardThresholds(): LaneBudgetThresholds {
+    const d = DEFAULT_LANE_GUARD_THRESHOLDS;
+    const read = (key: string, dflt: number): unknown =>
+      this.workspace.getConfiguration<number>(
+        'ptah',
+        `agentOrchestration.${key}`,
+        dflt,
+      );
+    const isInt = (v: unknown, min: number): v is number =>
+      typeof v === 'number' && Number.isInteger(v) && v >= min;
+
+    const steer = read('laneToolCallSteerAt', d.steerAt);
+    const stop = read('laneToolCallStopAt', d.stopAt);
+    const repeat = read('laneRepeatCallStopAt', d.repeatAt);
+    const pairOk = isInt(steer, 1) && isInt(stop, 1) && stop > steer;
+    const repeatOk = isInt(repeat, 2);
+    if (!pairOk) {
+      this.logger.warn(
+        '[AgentSpawnEnvironment] Invalid lane tool-call guard value, using the default',
+        {
+          key: 'agentOrchestration.laneToolCallSteerAt/laneToolCallStopAt',
+          steerAt: d.steerAt,
+          stopAt: d.stopAt,
+        },
+      );
+    }
+    if (!repeatOk) {
+      this.logger.warn(
+        '[AgentSpawnEnvironment] Invalid lane tool-call guard value, using the default',
+        {
+          key: 'agentOrchestration.laneRepeatCallStopAt',
+          repeatAt: d.repeatAt,
+        },
+      );
+    }
+    return {
+      steerAt: pairOk ? steer : d.steerAt,
+      stopAt: pairOk ? stop : d.stopAt,
+      repeatAt: repeatOk ? repeat : d.repeatAt,
     };
   }
 

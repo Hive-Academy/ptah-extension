@@ -207,6 +207,12 @@ export {
   isPostCompactHook,
 } from './lib/helpers';
 export { CompactionConfigProvider } from './lib/helpers';
+export {
+  adviseSubagentResume,
+  type SubagentBudgetMonitor,
+  type SubagentResumeAdvice,
+  type SubagentResumeAdviceInput,
+} from './lib/helpers';
 export { SdkModuleLoader, SubagentHookHandler } from './lib/helpers';
 export {
   SdkAdapterEvents,

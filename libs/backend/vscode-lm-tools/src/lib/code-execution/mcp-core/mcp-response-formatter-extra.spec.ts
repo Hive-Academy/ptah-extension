@@ -681,7 +681,7 @@ describe('mcp-response-formatter › formatBrowserEvaluate budget cut', () => {
       expect(outcome.text).not.toContain('TAIL-MARKER');
 
       const dir = path.join(root, '.ptah', 'tmp', 'mcp-out');
-      const files = fs.readdirSync(dir);
+      const files = fs.readdirSync(dir).filter((n) => n !== '.gitignore');
       expect(files).toHaveLength(1);
       const spoolFile = path.join(dir, files[0]);
       expect(

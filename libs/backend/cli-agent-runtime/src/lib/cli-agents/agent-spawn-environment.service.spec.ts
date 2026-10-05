@@ -123,6 +123,52 @@ describe('AgentSpawnEnvironment', () => {
     mockedRealpath.mockImplementation(async (p) => String(p));
   });
 
+  describe('resolveLaneGuardThresholds()', () => {
+    const defaults = { steerAt: 40, stopAt: 60, repeatAt: 20 };
+
+    it('defaults to 40/60/20 when nothing is set', () => {
+      expect(makeEnvironment().environment.resolveLaneGuardThresholds()).toEqual(
+        defaults,
+      );
+    });
+
+    it('uses valid file values', () => {
+      const { environment } = makeEnvironment({
+        config: {
+          laneToolCallSteerAt: 10,
+          laneToolCallStopAt: 30,
+          laneRepeatCallStopAt: 5,
+        },
+      });
+      expect(environment.resolveLaneGuardThresholds()).toEqual({
+        steerAt: 10,
+        stopAt: 30,
+        repeatAt: 5,
+      });
+    });
+
+    it.each([
+      ['non-integer', { laneToolCallSteerAt: 1.5 }],
+      ['string', { laneToolCallStopAt: '60' }],
+      ['below 1', { laneToolCallSteerAt: 0 }],
+      ['stop <= steer', { laneToolCallSteerAt: 50, laneToolCallStopAt: 50 }],
+    ])('falls back to the steer/stop defaults for %s', (_label, config) => {
+      expect(
+        makeEnvironment({ config }).environment.resolveLaneGuardThresholds(),
+      ).toEqual(defaults);
+    });
+
+    it('falls back to the repeat default when it is below 2 or not an integer', () => {
+      for (const bad of [1, 0, 2.5, 'x']) {
+        expect(
+          makeEnvironment({
+            config: { laneRepeatCallStopAt: bad },
+          }).environment.resolveLaneGuardThresholds().repeatAt,
+        ).toBe(20);
+      }
+    });
+  });
+
   describe('resolveReasoningEffort()', () => {
     it('lets the UI effort selection drive codex and copilot when no setting is set', () => {
       const { environment } = makeEnvironment({ effort: 'high' });

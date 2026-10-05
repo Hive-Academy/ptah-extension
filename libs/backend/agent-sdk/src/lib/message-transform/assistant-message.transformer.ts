@@ -373,6 +373,16 @@ export class AssistantMessageTransformer {
             ...(message.usage.cache_creation_input_tokens !== undefined
               ? { cacheCreation: message.usage.cache_creation_input_tokens }
               : {}),
+            // Per-subagent context figure (same definition as the agent
+            // monitor): this request's input + cache read + cache write.
+            ...(parent_tool_use_id
+              ? {
+                  contextTokens:
+                    message.usage.input_tokens +
+                    (message.usage.cache_read_input_tokens ?? 0) +
+                    (message.usage.cache_creation_input_tokens ?? 0),
+                }
+              : {}),
           }
         : undefined;
 

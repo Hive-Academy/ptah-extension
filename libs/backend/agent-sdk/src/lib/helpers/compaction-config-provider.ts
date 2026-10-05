@@ -10,6 +10,7 @@
  */
 
 import { injectable, inject } from 'tsyringe';
+import { FILE_BASED_SETTINGS_DEFAULTS } from '@ptah-extension/platform-core';
 import { Logger, ConfigManager, TOKENS } from '@ptah-extension/vscode-core';
 import {
   isValidAutoCompactWindow,
@@ -42,6 +43,14 @@ export interface CompactionConfig {
    * runtime would ignore it. Read for the log only; Ptah never forwards it.
    */
   readonly envWindow: number | null;
+  /** Per-tool-output cap in tokens (`compaction.toolOutputBudgetTokens`). */
+  readonly toolOutputBudgetTokens: number;
+  /** Subagent handoff size in tokens (`compaction.subagentHandoffTokens`). */
+  readonly subagentHandoffTokens: number;
+  /** Session size at which rotation is suggested (`compaction.rotationSuggestTokens`). */
+  readonly rotationSuggestTokens: number;
+  /** Weighted-token total at which a subagent is stopped (`compaction.subagentStopWeightedTokens`). */
+  readonly subagentStopWeightedTokens: number;
 }
 
 /**
@@ -102,6 +111,18 @@ export class CompactionConfigProvider {
       enabled,
       contextTokenThreshold,
       envWindow,
+      toolOutputBudgetTokens: this.readBudget(
+        'compaction.toolOutputBudgetTokens',
+      ),
+      subagentHandoffTokens: this.readBudget(
+        'compaction.subagentHandoffTokens',
+      ),
+      rotationSuggestTokens: this.readBudget(
+        'compaction.rotationSuggestTokens',
+      ),
+      subagentStopWeightedTokens: this.readBudget(
+        'compaction.subagentStopWeightedTokens',
+      ),
     };
 
     this.logger.debug(
@@ -114,6 +135,27 @@ export class CompactionConfigProvider {
     );
 
     return compactionConfig;
+  }
+
+  /**
+   * Reads one positive-integer budget. Unset is the default; a hand-edited
+   * value that is not a positive integer (non-number, non-integer, zero or
+   * negative) is warned about and treated as unset.
+   */
+  private readBudget(key: string): number {
+    // One edit site: the default comes from platform-core, which also supplies
+    // it when the key is absent; an invalid hand-edited value falls back to it.
+    const defaultValue = FILE_BASED_SETTINGS_DEFAULTS[key] as number;
+    const raw = this.config.get<unknown>(key);
+    if (raw === undefined || raw === null) return defaultValue;
+    if (typeof raw === 'number' && Number.isSafeInteger(raw) && raw > 0) {
+      return raw;
+    }
+    this.logger.warn(
+      `[CompactionConfigProvider] Invalid ${key}, using the default`,
+      { providedType: typeof raw, defaultValue },
+    );
+    return defaultValue;
   }
 
   /**
