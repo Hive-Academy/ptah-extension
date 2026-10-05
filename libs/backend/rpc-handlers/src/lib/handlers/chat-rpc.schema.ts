@@ -85,6 +85,7 @@ export const ChatResumeParamsSchema = z
   .object({
     tabId: uuidString('tabId'),
     sessionId: uuidString('sessionId'),
+    ptahUiFence: z.boolean().optional(),
     historyPage: z
       .object({ maxEvents: HistoryPageSizeSchema })
       .strict()

@@ -33,6 +33,7 @@ import type {
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import type {
   ChatContinueParams,
+  ChatResumeParams,
   ChatStartParams,
   IAgentAdapter,
   SessionId,
@@ -145,7 +146,9 @@ function makeHarness(): Harness {
   return { service, startChatSession, resumeSession };
 }
 
-function flagParams<T extends ChatStartParams | ChatContinueParams>(
+function flagParams<
+  T extends ChatStartParams | ChatContinueParams | ChatResumeParams,
+>(
   params: T,
   ptahUiFence: boolean | undefined,
 ): T {
@@ -190,6 +193,26 @@ describe('ChatSessionService ptahUiFence forwarding', () => {
             sessionId: SESSION_ID,
             prompt: 'continue',
             workspacePath: WORKSPACE,
+          },
+          ptahUiFence,
+        ),
+      );
+
+      expectFlag(h.resumeSession.mock.calls[0][1], ptahUiFence);
+    },
+  );
+
+  it.each([true, false, undefined])(
+    'forwards %p unchanged on chat:resume activation',
+    async (ptahUiFence) => {
+      const h = makeHarness();
+      await h.service.resumeSession(
+        flagParams(
+          {
+            tabId: TAB_ID,
+            sessionId: SESSION_ID,
+            workspacePath: WORKSPACE,
+            activate: true,
           },
           ptahUiFence,
         ),

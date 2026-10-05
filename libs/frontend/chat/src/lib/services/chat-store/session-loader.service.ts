@@ -862,6 +862,7 @@ export class SessionLoaderService {
           ...(opts?.activate === true && !targetTabId
             ? { activate: true }
             : {}),
+          ...(this.vscodeService.isElectron ? { ptahUiFence: true } : {}),
         },
         { timeout: SessionLoaderService.RESUME_TIMEOUT_MS },
       );
