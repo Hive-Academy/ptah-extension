@@ -1207,7 +1207,7 @@ real code, a regression test per item).
 
 ### Task 29.2: Doc and specs for the chosen contract — PENDING (decision recorded in context.md)
 
-## Batch 30: Rename `SubagentStopPort` (G.7) — COMPLETE (decision recorded in context.md: G-B)
+## Batch 30: Rename `SubagentStopPort` (G.7) — COMPLETE `5d8cf3d95` (decision recorded in context.md: G-B)
 
 - Recommended executor: backend-developer | Fallback: backend-developer (Opus) | Execution mode: Sequential subagent
 - Model: Sonnet (rename) | Tasks: 1 | Depends on: Batch 22, Decision G-B | Phase: G
