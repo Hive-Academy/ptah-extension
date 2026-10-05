@@ -398,7 +398,7 @@ Batches 1-4.
 
 Starts after the Wave 1 commit. The four batches are file-disjoint; run at most 3 at once.
 
-## Batch 5: Text fallback and badge selection (plan A2) — COMPLETE
+## Batch 5: Text fallback and badge selection (plan A2) — COMPLETE (commit 58d0214f3)
 
 - Recommended executor: CLI lane `Glm`
 - Fallback executor: backend-developer subagent
@@ -521,7 +521,7 @@ This is the full suite: Wave 1 swept every vscode-lm-tools literal, and this bat
 Commit: `feat(vscode-lm-tools): describe status and text kinds in ptah_surface_update`, plus the
 trailer.
 
-## Batch 7: Alert, badge, divider renderers (plan C1) — IN_PROGRESS
+## Batch 7: Alert, badge, divider renderers (plan C1) — COMPLETE
 
 - Recommended executor: CLI lane `Glm`
 - Fallback executor: frontend-developer subagent
@@ -541,7 +541,7 @@ trailer.
 - Pattern to follow: `D:/projects/ptah-extension/.claude-worktrees/task-594-status-kinds/libs/frontend/declarative-dashboard/src/lib/components/dashboard-stat.component.ts:9-44`
 - Plan reference: implementation-plan.md:231-293
 
-### Task 7.1: DashboardAlertComponent — IN_PROGRESS
+### Task 7.1: DashboardAlertComponent — COMPLETE
 
 - Files: CREATE
   `D:/projects/ptah-extension/.claude-worktrees/task-594-status-kinds/libs/frontend/declarative-dashboard/src/lib/components/dashboard-alert.component.ts`
@@ -554,7 +554,7 @@ trailer.
     same element.
   - Reads well as a short inline note.
 
-### Task 7.2: DashboardBadgeComponent — IN_PROGRESS
+### Task 7.2: DashboardBadgeComponent — COMPLETE
 
 - Files: CREATE
   `D:/projects/ptah-extension/.claude-worktrees/task-594-status-kinds/libs/frontend/declarative-dashboard/src/lib/components/dashboard-badge.component.ts`
@@ -566,7 +566,7 @@ trailer.
     `{kind:'badge'}` on the existing selection output, and sets `aria-pressed` from the current
     selection. Mirror the stat component's selection handling.
 
-### Task 7.3: DashboardDividerComponent — IN_PROGRESS
+### Task 7.3: DashboardDividerComponent — COMPLETE
 
 - Files: CREATE
   `D:/projects/ptah-extension/.claude-worktrees/task-594-status-kinds/libs/frontend/declarative-dashboard/src/lib/components/dashboard-divider.component.ts`
@@ -584,6 +584,15 @@ npx jest --config libs/frontend/declarative-dashboard/jest.config.ts "dashboard-
 ```
 
 Commit: `feat(declarative-dashboard): add alert, badge and divider renderers`, plus the trailer.
+
+Verified by team-leader: scoped typecheck+lint PASS; jest 3 suites / 9 tests PASS; literal tone and
+direction maps, role by tone, no title node without title, badge selectable only via
+`dashboard.select` with target `{kind:'badge'}`, divider inversion mapped, no `innerHTML`, no
+hard-coded colours. Report: `batch-7-report.md`.
+
+Carried to the phase review (not a commit blocker): `dashboard-alert.component.ts:25` conveys tone
+only through an `sr-only` word; the NFR asks for tone in text, not colour alone, for sighted users
+as well.
 
 ## Batch 8: Progress, radial-progress, text-block renderers (plan C2) — IN_PROGRESS
 
