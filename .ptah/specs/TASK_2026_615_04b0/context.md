@@ -66,8 +66,8 @@ to `ownerForAntigravity()` (it belongs to lane B's file).
 - Also fixed on main: `session-query-executor.service.spec.ts` D.11 `StreamTransformer` arity (PR #648 + #650).
 - Review: `code-logic-review.md`, APPROVED WITH MINORS (0 Blocking, 1 Major, 9 Minor). Bounded correction:
   findings 3 (schema `old` optional, email lowercased) and the `lane-tiles.ts` raw label.
-- Evidence: `screenshots/` (after), compare with `TASK_2026_596_0a19/screenshots/` (before). E2E fixtures now
-  use 16-hex fingerprints so the suffix renders.
+- Evidence: the after screenshots (`plan-limits-visual.e2e.spec.ts`, 12 runs) and the lane reports are kept in
+  the local worktree only, not committed. E2E fixtures now use 16-hex fingerprints so the suffix renders.
 
 ## Follow-ups (open)
 
