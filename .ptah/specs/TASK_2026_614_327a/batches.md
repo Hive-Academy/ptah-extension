@@ -1246,7 +1246,7 @@ real code, a regression test per item).
 
 ### Task 32.2: Price each request with its own model (`sumRequestUsage` 196-225, cost 287-295) — COMPLETE (decision recorded in context.md)
 
-## Batch 33: Budget UI follow-ups (F.1 M6, M3 UI, M8; F.4 residual; F.6 UI Minors) — COMPLETE (commit: SHA_PLACEHOLDER) (decision recorded in context.md: F-B, F-C, F-D)
+## Batch 33: Budget UI follow-ups (F.1 M6, M3 UI, M8; F.4 residual; F.6 UI Minors) — COMPLETE (commit: 439e338f2) (decision recorded in context.md: F-B, F-C, F-D)
 
 - Recommended executor: frontend-developer | Fallback: frontend-developer (fresh run) | Execution mode: Sequential subagent
 - Model: Opus | Tasks: 6 | Depends on: Batches 19, 28; Decisions F-B, F-C, F-D | Phase: F
