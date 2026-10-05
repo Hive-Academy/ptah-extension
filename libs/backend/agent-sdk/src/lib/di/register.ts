@@ -434,9 +434,22 @@ export function registerSdkServices(
 
   // A factory rather than `useClass`: the coordinator is a plain class (no
   // tsyringe decorator) whose optional `timers` seam is for specs only; the
-  // container builds it with the default unref'd Node timers.
+  // container builds it with the default unref'd Node timers and routes a
+  // throwing state subscriber to the SDK logger.
   container.register(SDK_TOKENS.SDK_COMPACTION_COORDINATOR, {
-    useFactory: instanceCachingFactory(() => new CompactionCoordinator()),
+    useFactory: instanceCachingFactory((c) => {
+      const logger = c.resolve<Logger>(TOKENS.LOGGER);
+      return new CompactionCoordinator(undefined, (error, change) =>
+        logger.warn('[CompactionCoordinator] State subscriber failed', {
+          sessionId: change.sessionId,
+          from: change.from,
+          to: change.to,
+          trigger: change.trigger,
+          errorType: error instanceof Error ? error.name : typeof error,
+          error: error instanceof Error ? error.message : String(error),
+        }),
+      );
+    }),
   });
 
   container.register(
@@ -446,36 +459,29 @@ export function registerSdkServices(
   );
 
   // A factory rather than `useClass`: `SessionLifecycleManager` injects the
-  // monitor, and the monitor needs the dispatcher (which injects the manager)
-  // and the manager itself. Both are resolved on first use, after the manager
-  // exists, so constructing the manager does not recurse.
+  // monitor, and the monitor needs the dispatcher, which injects the manager.
+  // The dispatcher is resolved on first use, after the manager exists, so
+  // constructing the manager does not recurse.
   container.register(SDK_TOKENS.SDK_SUBAGENT_BUDGET_MONITOR, {
-    useFactory: instanceCachingFactory(
-      (c) =>
-        new SubagentBudgetMonitor(
-          c.resolve<Logger>(TOKENS.LOGGER),
-          c.resolve<CompactionConfigProvider>(
-            SDK_TOKENS.SDK_COMPACTION_CONFIG_PROVIDER,
-          ),
-          {
-            stopSubagent: (sessionId, taskId) =>
-              c
-                .resolve<SubagentMessageDispatcher>(
-                  SDK_TOKENS.SDK_SUBAGENT_MESSAGE_DISPATCHER,
-                )
-                .stopSubagent(sessionId, taskId),
-          },
-          c.resolve<SubagentRegistryService>(TOKENS.SUBAGENT_REGISTRY_SERVICE),
-          {
-            find: (idOrTabId) =>
-              c
-                .resolve<SessionLifecycleManager>(
-                  SDK_TOKENS.SDK_SESSION_LIFECYCLE_MANAGER,
-                )
-                .find(idOrTabId),
-          },
+    useFactory: instanceCachingFactory((c) => {
+      const dispatcher = () =>
+        c.resolve<SubagentMessageDispatcher>(
+          SDK_TOKENS.SDK_SUBAGENT_MESSAGE_DISPATCHER,
+        );
+      return new SubagentBudgetMonitor(
+        c.resolve<Logger>(TOKENS.LOGGER),
+        c.resolve<CompactionConfigProvider>(
+          SDK_TOKENS.SDK_COMPACTION_CONFIG_PROVIDER,
         ),
-    ),
+        {
+          stopSubagent: (sessionId, taskId) =>
+            dispatcher().stopSubagent(sessionId, taskId),
+          pushParentMessage: (sessionId, content) =>
+            dispatcher().pushParentMessage(sessionId, content),
+        },
+        c.resolve<SubagentRegistryService>(TOKENS.SUBAGENT_REGISTRY_SERVICE),
+      );
+    }),
   });
 
   container.register(

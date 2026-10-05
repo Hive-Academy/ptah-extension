@@ -88,6 +88,7 @@ interface Harness {
     spawnFromSdkHandle: jest.Mock;
     spawn: jest.Mock;
     reserveAgentId: jest.Mock;
+    prepareSdkHandleSpawn: jest.Mock;
   };
   metadataStore: { createChild: jest.Mock };
 }
@@ -110,6 +111,14 @@ function makeHarness(): Harness {
     // The resume path reserves the record's id BEFORE the handle is built, so
     // the MCP URL the resumed agent calls back on can name it (TASK_2026_402).
     reserveAgentId: jest.fn().mockReturnValue('reserved-agent-id'),
+    // Resume gate + blocked-model check (TASK_2026_614 E.4 / B-m2); the
+    // default lets the resume through unchanged.
+    prepareSdkHandleSpawn: jest.fn(
+      async (input: { task: string; resumeSessionId?: string }) => ({
+        task: input.task,
+        resumeSessionId: input.resumeSessionId,
+      }),
+    ),
   };
 
   const workspace = {
@@ -287,6 +296,71 @@ describe('AgentRpcHandlers — agent:resumeCliSession parent session', () => {
     expect(
       h.registry.spawnAgent.mock.calls[0][2].parentSessionId,
     ).toBeUndefined();
+  });
+});
+
+describe('AgentRpcHandlers — agent:resumeCliSession resume gate (TASK_2026_614 E.4, B-m2)', () => {
+  beforeEach(() => {
+    mockReaddir.mockReset();
+    mockAccess.mockReset();
+  });
+
+  it('runs the gate before the handle is built, with the resume id and task', async () => {
+    const h = makeHarness();
+
+    await resume(h, 'chat-session-uuid');
+
+    expect(h.processManager.prepareSdkHandleSpawn).toHaveBeenCalledWith({
+      cli: 'ptah-cli',
+      task: 'continue the work',
+      resumeSessionId: CLI_SESSION_ID,
+    });
+    expect(
+      h.processManager.prepareSdkHandleSpawn.mock.invocationCallOrder[0],
+    ).toBeLessThan(h.registry.spawnAgent.mock.invocationCallOrder[0]);
+  });
+
+  it('on a fresh decision hands the lane the handoff task with no resume id; the record keeps the caller task', async () => {
+    const h = makeHarness();
+    const resumeDecision = {
+      decision: 'fresh' as const,
+      reason: 'cache cold',
+      sessionKnown: true,
+    };
+    h.processManager.prepareSdkHandleSpawn.mockResolvedValueOnce({
+      task: 'HANDOFF BRIEF',
+      resumeDecision,
+      originalTask: 'the first task',
+    });
+
+    const result = await resume(h, 'chat-session-uuid');
+
+    expect(result.success).toBe(true);
+    expect(h.registry.spawnAgent.mock.calls[0][1]).toBe('HANDOFF BRIEF');
+    expect(
+      h.registry.spawnAgent.mock.calls[0][2].resumeSessionId,
+    ).toBeUndefined();
+    const meta = h.processManager.spawnFromSdkHandle.mock.calls[0][1];
+    expect(meta.task).toBe('continue the work');
+    expect(meta.resumeSessionId).toBeUndefined();
+    expect(meta.resumeDecision).toEqual(resumeDecision);
+    expect(meta.originalTask).toBe('the first task');
+  });
+
+  it('a refused (blocked-model) spawn builds no handle and reports the error', async () => {
+    const h = makeHarness();
+    h.processManager.prepareSdkHandleSpawn.mockRejectedValueOnce(
+      new Error('Model blocked for ptah-cli lanes'),
+    );
+
+    const result = await resume(h, 'chat-session-uuid');
+
+    expect(result).toEqual({
+      success: false,
+      error: 'Model blocked for ptah-cli lanes',
+    });
+    expect(h.registry.spawnAgent).not.toHaveBeenCalled();
+    expect(h.processManager.spawnFromSdkHandle).not.toHaveBeenCalled();
   });
 });
 

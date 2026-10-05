@@ -178,12 +178,31 @@ describe('ToolOutputCapper', () => {
 
     expect(result.type).toBe('text');
     expect(result.file.filePath).toBe(filePath);
-    expect(result.file.numLines).toBe(300);
+    expect(result.file.numLines).toBe(result.file.content.split('\n').length);
+    expect(result.file.numLines).toBeLessThan(300);
+    expect(result.file.startLine).toBe(1);
+    expect(result.file.totalLines).toBe(300);
     expect(result.file.content).toContain(filePath);
     expect(result.file.content).toContain('read with offset/limit');
+    expect(result.file.content).toContain('not file line numbers');
     expect(result.file.content).toContain('[outline: ');
     expect(withinBudget(result.file.content)).toBe(true);
     expect(await spoolFiles()).toHaveLength(0);
+  });
+
+  it('does not invent line metadata a whole-file Read response lacked', async () => {
+    const { capper } = makeCapper();
+    const filePath = path.join(cwd, 'src', 'big.ts');
+    const response = { type: 'text', file: { filePath, content: bigSource() } };
+    const result = (await capper.cap(
+      'Read',
+      { file_path: filePath },
+      response,
+      cwd,
+    )) as { file: Record<string, unknown> };
+
+    expect(result.file['content']).toContain('[outline: ');
+    expect(Object.keys(result.file).sort()).toEqual(['content', 'filePath']);
   });
 
   it('passes a bound outliner the file extension for a whole-file Read', async () => {

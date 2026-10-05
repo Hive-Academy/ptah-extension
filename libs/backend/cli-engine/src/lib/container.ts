@@ -118,6 +118,7 @@ import type {
 import {
   registerVsCodeLmToolsServices,
   BROWSER_CAPABILITIES_TOKEN,
+  TreeSitterCodeOutliner,
 } from '@ptah-extension/vscode-lm-tools';
 import {
   SessionRpcHandlers,
@@ -261,6 +262,19 @@ export function registerGitInfoService(container: DependencyContainer): void {
     useFactory: instanceCachingFactory(
       (c) => new GitInfoService(c.resolve(TOKENS.LOGGER)),
     ),
+  });
+}
+
+/**
+ * Binds the code outliner the tool-output capper looks up (optional token), as
+ * the VS Code and Electron hosts do. The parser is resolved lazily:
+ * workspace-intelligence registers it, and nothing is built until the capper
+ * first outlines a file. Exported for its spec only.
+ */
+export function registerCodeOutliner(container: DependencyContainer): void {
+  container.register(SDK_TOKENS.SDK_CODE_OUTLINER, {
+    useFactory: (c) =>
+      new TreeSitterCodeOutliner(c.resolve(TOKENS.TREE_SITTER_PARSER_SERVICE)),
   });
 }
 
@@ -652,6 +666,8 @@ export class CliDIContainer {
     // MUST precede registerSdkServices: PluginLoaderService injects the
     // external consent store as its allowlist source.
     registerPluginMarketplaceServices(container, logger);
+    // Must be bound BEFORE registerSdkServices' capper is first resolved.
+    registerCodeOutliner(container);
     registerSdkServices(container, logger);
     container.register(PLATFORM_TOKENS.EDITOR_LAUNCHER, {
       useValue: new CliEditorLauncher(

@@ -221,6 +221,86 @@ describe('SubagentMessageDispatcher.sendToSubagent — send timeout', () => {
 });
 
 // ---------------------------------------------------------------------------
+// pushParentMessage — the budget monitor's handoff shares the steer's lock,
+// origin and send timeout (TASK_2026_614 D.8, A-m2)
+// ---------------------------------------------------------------------------
+
+describe('SubagentMessageDispatcher.pushParentMessage', () => {
+  type Pushed = {
+    message: { content: string };
+    origin?: unknown;
+    parent_tool_use_id: unknown;
+  };
+
+  function recordingQuery(firstPushDelay: Promise<void>) {
+    const consumed: Pushed[] = [];
+    let calls = 0;
+    const streamInput = jest.fn(async (iter: AsyncIterable<Pushed>) => {
+      calls += 1;
+      // The first push is slow to be read; a push that skipped the lock
+      // would overtake it.
+      if (calls === 1) await firstPushDelay;
+      for await (const m of iter) consumed.push(m);
+    });
+    return { streamInput, consumed };
+  }
+
+  it('a steer and a handoff pushed in the same tick reach streamInput in call order', async () => {
+    let releaseFirst: () => void = () => undefined;
+    const { streamInput, consumed } = recordingQuery(
+      new Promise<void>((resolve) => (releaseFirst = resolve)),
+    );
+    const dispatcher = buildDispatcher(
+      makeLifecycleWithQuery({ streamInput }),
+      makeRegistry({ agentType: 'Explore', agentId: 'a1' }),
+    );
+
+    const steer = dispatcher.sendToSubagent('sess-order', 'toolu_1', 'steer');
+    const handoff = dispatcher.pushParentMessage('sess-order', 'handoff text');
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(streamInput).toHaveBeenCalledTimes(1);
+    releaseFirst();
+    await Promise.all([steer, handoff]);
+
+    expect(consumed.map((m) => m.message.content)).toEqual([
+      expect.stringContaining('steer'),
+      'handoff text',
+    ]);
+    expect(consumed[1].origin).toEqual(consumed[0].origin);
+    expect(consumed[1].parent_tool_use_id).toBeNull();
+  });
+
+  it('throws SESSION_NOT_FOUND when the session is not active', async () => {
+    const dispatcher = buildDispatcher({
+      find: jest.fn().mockReturnValue(undefined),
+    } as unknown as SessionLifecycleManager);
+
+    await expect(
+      dispatcher.pushParentMessage('sess-gone', 'handoff'),
+    ).rejects.toMatchObject({ errorCode: 'SESSION_NOT_FOUND' });
+  });
+
+  it('is bounded by the send timeout', async () => {
+    jest.useFakeTimers();
+    try {
+      const streamInput = jest.fn(() => new Promise<void>(() => undefined));
+      const dispatcher = buildDispatcher(
+        makeLifecycleWithQuery({ streamInput }),
+      );
+      const pending = dispatcher
+        .pushParentMessage('sess-stall', 'handoff')
+        .catch((e: unknown) => e);
+      await jest.advanceTimersByTimeAsync(SUBAGENT_SEND_TIMEOUT_MS);
+
+      expect(await pending).toMatchObject({ errorCode: 'SEND_TIMEOUT' });
+      expect(jest.getTimerCount()).toBe(0);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
 // sendToSubagent — coordinator-nudge payload shape
 //
 // There is NO direct parent→subagent input channel: the CLI ignores

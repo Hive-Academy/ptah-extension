@@ -50,7 +50,14 @@ export interface AgentWaitDependencies {
     agentIds: readonly string[],
     mode: AgentWaitMode,
     timeoutMs: number,
+    signal?: AbortSignal,
   ): Promise<AgentWaitResult>;
+  /**
+   * Ends the wait early when it fires (TASK_2026_614, E.3): the reply is then
+   * the partial result, headed "WAIT CANCELLED". Omit it for a wait that ends
+   * only on the lanes or the timeout.
+   */
+  signal?: AbortSignal;
   /** `ptah.agent.read`: the parsed tail of one lane's output. */
   readOutput(agentId: string, tail: number): Promise<AgentOutput>;
   /** File check for deliverables. Default: `fs.stat`, `undefined` on any failure. */
@@ -114,6 +121,7 @@ export async function runAgentWait(
     args.agentIds,
     args.mode,
     args.timeoutSec * 1000,
+    deps.signal,
   );
   const statFile = deps.statFile ?? statOrUndefined;
   const now = (deps.now ?? Date.now)();
@@ -168,6 +176,13 @@ function headerOf(result: AgentWaitResult, timeoutSec: number): string {
   );
   const running = known.filter((e) => e.state === 'running').length;
   const ended = known.length - running;
+  if (result.cancelled) {
+    return (
+      `WAIT CANCELLED after ${formatDuration(result.waitedMs)} waiting for ${result.mode}: ` +
+      `${ended} of ${known.length} known lane(s) ended, ${running} still running. ` +
+      'Partial result; the lanes themselves were not stopped.'
+    );
+  }
   if (result.timedOut) {
     return (
       `TIMED OUT after ${timeoutSec}s waiting for ${result.mode}: ${ended} of ${known.length} ` +

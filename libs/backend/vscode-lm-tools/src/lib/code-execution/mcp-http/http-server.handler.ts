@@ -319,6 +319,20 @@ function extractCallerToolProfile(url: string | undefined): string | undefined {
 }
 
 /**
+ * A signal aborted when the response closes before its reply finished — the
+ * caller dropped the connection (a client-side timeout, a cancelled tool call,
+ * a killed agent). A normal reply finishes the response first, so it never
+ * aborts. The `close` listener fires once and goes with the response.
+ */
+function abortOnEarlyClose(res: http.ServerResponse): AbortSignal {
+  const controller = new AbortController();
+  res.once('close', () => {
+    if (!res.writableFinished) controller.abort();
+  });
+  return controller.signal;
+}
+
+/**
  * Handle incoming HTTP request with CORS support
  */
 async function handleHttpRequest(
@@ -386,6 +400,7 @@ async function handleHttpRequest(
         _callerAgentId: _ignoredBodyAgent,
         _callerWorkspaceRoot: _ignoredBodyWorkspace,
         _callerToolProfile: _ignoredBodyProfile,
+        _abortSignal: _ignoredBodySignal,
         ...envelope
       } = parsed;
       const mcpRequest = envelope as unknown as MCPRequest;
@@ -393,8 +408,11 @@ async function handleHttpRequest(
       mcpRequest._callerAgentId = extractCallerAgentId(req.url);
       mcpRequest._callerWorkspaceRoot = extractCallerWorkspaceRoot(req.url);
       mcpRequest._callerToolProfile = extractCallerToolProfile(req.url);
+      mcpRequest._abortSignal = abortOnEarlyClose(res);
 
       const mcpResponse = await onMCPRequest(mcpRequest);
+      // The caller is gone: there is no one to write the reply to.
+      if (res.destroyed) return;
 
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(mcpResponse));

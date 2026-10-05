@@ -3231,3 +3231,145 @@ describe('StreamTransformer — onCompactBoundary (TASK_2026_597 N7)', () => {
     ).resolves.toBeUndefined();
   });
 });
+
+describe('StreamTransformer — onMessage / onStreamEnd (TASK_2026_614 D.11)', () => {
+  const compactingStatus = (): SDKMessage =>
+    ({
+      type: 'system',
+      subtype: 'status',
+      status: 'compacting',
+      session_id: 'sess-1',
+    }) as unknown as SDKMessage;
+
+  it('hands every SDK message to onMessage in order, after the watchdog sees it', async () => {
+    const { transformer } = makeHarness();
+    const watchdog = makeFakeWatchdog();
+    const onMessage = jest.fn();
+    const onStreamEnd = jest.fn();
+    const messages: SDKMessage[] = [
+      compactingStatus(),
+      compactBoundary(),
+      resultMessage(MODEL, { inputTokens: 10, outputTokens: 20 }),
+    ];
+
+    await drain(
+      transformer.transform({
+        sdkQuery: asAsyncIterable(messages),
+        sessionId: 'sess-1' as SessionId,
+        initialModel: MODEL,
+        activityWatchdog: watchdog as unknown as NoActivityWatchdog,
+        onMessage,
+        onStreamEnd,
+      }),
+    );
+
+    expect(onMessage.mock.calls.map(([m]) => m)).toEqual(messages);
+    expect(watchdog.observe.mock.invocationCallOrder[0]).toBeLessThan(
+      onMessage.mock.invocationCallOrder[0],
+    );
+    expect(onStreamEnd).toHaveBeenCalledTimes(1);
+    // The end callback runs after the watchdog is stopped.
+    expect(watchdog.stop.mock.invocationCallOrder[0]).toBeLessThan(
+      onStreamEnd.mock.invocationCallOrder[0],
+    );
+  });
+
+  it('fires onStreamEnd once when the stream throws, and the error is unchanged', async () => {
+    const { transformer } = makeHarness();
+    const onStreamEnd = jest.fn();
+    const boom = new Error('stream exploded');
+
+    await expect(
+      drain(
+        transformer.transform({
+          sdkQuery: {
+            async *[Symbol.asyncIterator]() {
+              yield compactingStatus();
+              throw boom;
+            },
+          },
+          sessionId: 'sess-1' as SessionId,
+          initialModel: MODEL,
+          onStreamEnd,
+        }),
+      ),
+    ).rejects.toBe(boom);
+
+    expect(onStreamEnd).toHaveBeenCalledTimes(1);
+  });
+
+  it('a throwing onMessage is logged and the stream keeps going', async () => {
+    const { transformer, logger } = makeHarness();
+    const onMessage = jest.fn(() => {
+      throw new TypeError('tap broke');
+    });
+    const onTurnEnd = jest.fn();
+    const onStreamEnd = jest.fn();
+
+    await expect(
+      drain(
+        transformer.transform({
+          sdkQuery: asAsyncIterable([
+            compactingStatus(),
+            compactBoundary(),
+            resultMessage(MODEL, { inputTokens: 1, outputTokens: 1 }),
+          ]),
+          sessionId: 'sess-1' as SessionId,
+          initialModel: MODEL,
+          onMessage,
+          onTurnEnd,
+          onStreamEnd,
+        }),
+      ),
+    ).resolves.toBeUndefined();
+
+    expect(onMessage).toHaveBeenCalledTimes(3);
+    expect(onTurnEnd).toHaveBeenCalledTimes(1);
+    expect(onStreamEnd).toHaveBeenCalledTimes(1);
+    expect(logger.warn).toHaveBeenCalledWith(
+      '[StreamTransformer] onMessage callback failed; the stream continues',
+      expect.objectContaining({ error: 'TypeError' }),
+    );
+  });
+
+  it('a throwing onStreamEnd is logged and replaces neither a clean end nor the stream error', async () => {
+    const { transformer, logger } = makeHarness();
+    const onStreamEnd = jest.fn(() => {
+      throw new Error('release broke');
+    });
+
+    await expect(
+      drain(
+        transformer.transform({
+          sdkQuery: asAsyncIterable([compactingStatus()]),
+          sessionId: 'sess-1' as SessionId,
+          initialModel: MODEL,
+          onStreamEnd,
+        }),
+      ),
+    ).resolves.toBeUndefined();
+
+    const boom = new Error('stream exploded');
+    await expect(
+      drain(
+        transformer.transform({
+          sdkQuery: {
+            async *[Symbol.asyncIterator]() {
+              yield compactingStatus();
+              throw boom;
+            },
+          },
+          sessionId: 'sess-1' as SessionId,
+          initialModel: MODEL,
+          onStreamEnd,
+        }),
+      ),
+    ).rejects.toBe(boom);
+
+    expect(onStreamEnd).toHaveBeenCalledTimes(2);
+    expect(logger.warn).toHaveBeenCalledWith(
+      '[StreamTransformer] onStreamEnd callback failed; teardown continues',
+      expect.objectContaining({ error: 'Error' }),
+    );
+  });
+});

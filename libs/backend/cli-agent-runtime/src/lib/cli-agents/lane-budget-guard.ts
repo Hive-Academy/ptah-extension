@@ -31,6 +31,9 @@ const FILE_EDIT_TOOLS: ReadonlySet<string> = new Set([
   'apply_patch',
 ]);
 
+/** Bound on remembered call ids; the oldest id is dropped past this. */
+const MAX_COUNTED_IDS = 512;
+
 export interface LaneBudgetThresholds {
   /** Tool calls after which ONE steer message is sent. */
   readonly steerAt: number;
@@ -62,6 +65,8 @@ export class LaneBudgetGuard {
   private steered = false;
   private stopped = false;
   private readonly repeats = new Map<string, number>();
+  /** Call ids already counted, so start + completion segments count once. */
+  private readonly countedIds = new Set<string>();
 
   constructor(private readonly thresholds: LaneBudgetThresholds) {}
 
@@ -71,11 +76,11 @@ export class LaneBudgetGuard {
   }
 
   /**
-   * Count one segment. Non-`tool-call` segments are ignored. After a stop has
+   * Count one segment. Only `tool-call` and id-carrying `command` segments count. After a stop has
    * been asked for, every later segment returns `none`.
    */
   observe(segment: CliOutputSegment): LaneBudgetAction {
-    if (this.stopped || segment.type !== 'tool-call') return NONE;
+    if (this.stopped || !this.isNewCall(segment)) return NONE;
 
     this.toolCalls += 1;
     if (!isFileEdit(segment)) {
@@ -106,6 +111,34 @@ export class LaneBudgetGuard {
     this.toolCalls = 0;
     this.steered = false;
     this.repeats.clear();
+    this.countedIds.clear();
+  }
+
+  /**
+   * A `tool-call` always counts and remembers its id. A `command` segment
+   * counts only when it carries a `toolCallId` not seen yet: OpenCode reports
+   * shell calls only as `command`, while Codex emits a `tool-call` on start
+   * and a `command` on completion with the same id.
+   */
+  private isNewCall(segment: CliOutputSegment): boolean {
+    const id = segment.toolCallId;
+    if (segment.type === 'tool-call') {
+      if (id) this.rememberId(id);
+      return true;
+    }
+    if (segment.type !== 'command' || !id || this.countedIds.has(id)) {
+      return false;
+    }
+    this.rememberId(id);
+    return true;
+  }
+
+  private rememberId(id: string): void {
+    if (this.countedIds.size >= MAX_COUNTED_IDS) {
+      const oldest = this.countedIds.values().next();
+      if (!oldest.done) this.countedIds.delete(oldest.value);
+    }
+    this.countedIds.add(id);
   }
 
   private stop(stopReason: LaneStopReason): LaneBudgetAction {
@@ -130,6 +163,15 @@ function callKey(segment: CliOutputSegment): string {
   return name;
 }
 
+/**
+ * Code-unit order: deterministic for any two distinct keys, unlike
+ * `localeCompare`, which can rank canonically equivalent keys as equal.
+ */
+function byCodeUnit(a: string, b: string): number {
+  if (a < b) return -1;
+  return a > b ? 1 : 0;
+}
+
 /** JSON with object keys sorted at every level, so key order does not matter. */
 function normalisedJson(value: unknown): string {
   return JSON.stringify(value, (_key, inner: unknown) => {
@@ -138,7 +180,7 @@ function normalisedJson(value: unknown): string {
     }
     const record = inner as Record<string, unknown>;
     const sorted: Record<string, unknown> = {};
-    for (const k of Object.keys(record).sort((a, b) => a.localeCompare(b))) sorted[k] = record[k];
+    for (const k of Object.keys(record).sort(byCodeUnit)) sorted[k] = record[k];
     return sorted;
   });
 }

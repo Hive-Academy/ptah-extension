@@ -7,6 +7,7 @@
  * outlines of the same rules.
  */
 import { z } from 'zod';
+import { MAX_AGENT_WAIT_MS } from '@ptah-extension/cli-agent-runtime';
 
 /**
  * Every reply either tool returns is at most this many chars: half the
@@ -15,8 +16,12 @@ import { z } from 'zod';
  */
 export const WAIT_SUMMARY_MAX_CHARS = 4_000;
 
-/** Longest wait either tool accepts, in seconds (Codex's tool timeout is 960 s). */
-export const MAX_WAIT_TIMEOUT_SEC = 900;
+/**
+ * Longest wait either tool accepts, in seconds (Codex's tool timeout is 960 s).
+ * Derived from the runtime's own clamp in `AgentProcessManager.waitForAgents`,
+ * so the advertised ceiling and the enforced one cannot drift apart.
+ */
+export const MAX_WAIT_TIMEOUT_SEC = MAX_AGENT_WAIT_MS / 1000;
 
 /** Default `ptah_agent_wait` timeout when the caller gives none. */
 export const DEFAULT_AGENT_WAIT_TIMEOUT_SEC = 600;

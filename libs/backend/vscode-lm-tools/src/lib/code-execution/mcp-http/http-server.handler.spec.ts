@@ -9,8 +9,25 @@ import 'reflect-metadata';
 
 import * as http from 'http';
 import type { AddressInfo } from 'net';
+import { EventEmitter, getEventListeners } from 'node:events';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { PassThrough } from 'node:stream';
 
+import type { AgentWaitResult } from '@ptah-extension/cli-agent-runtime';
 import type { Logger } from '@ptah-extension/vscode-core';
+import {
+  NX_ENTRY_CANDIDATES,
+  runCheck,
+  type CheckProcess,
+  type SpawnCheckProcess,
+} from '../mcp-core/run-check.tool';
+import { runAgentWait } from '../mcp-core/agent-wait.tool';
+import {
+  AgentWaitArgsSchema,
+  RunCheckArgsSchema,
+} from '../mcp-core/wait-tools-args.schema';
 import type {
   IStateStorage,
   IWorkspaceProvider,
@@ -669,5 +686,197 @@ describe('HTTP request handling', () => {
     expect(call._callerAgentId).toBe('agent-abc');
     expect(call._callerSessionId).toBeUndefined();
     expect(call._callerWorkspaceRoot).toBeUndefined();
+  });
+});
+
+/**
+ * Task 10.1 regression: a caller that drops the connection before the reply
+ * aborts `request._abortSignal`, which stops `run_check` (tree kill) and
+ * `agent_wait` (listener removed). A completed reply never aborts.
+ */
+describe('request abort on early close', () => {
+  class FakeProcess extends EventEmitter {
+    readonly stdout = new PassThrough();
+    readonly stderr = new PassThrough();
+    readonly pid = 5150;
+  }
+
+  let server: http.Server | null = null;
+  let root: string;
+  const logger = createLogger();
+  const state = createStateStorage();
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), 'ptah-http-abort-'));
+  });
+
+  afterEach(async () => {
+    await stopHttpServer(server, state, logger);
+    server = null;
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  async function serve(
+    onMCPRequest: (request: MCPRequest) => Promise<MCPResponse>,
+  ): Promise<number> {
+    const result = await startHttpServer({
+      port: 0,
+      logger,
+      workspaceState: state,
+      onMCPRequest,
+    });
+    server = result.server;
+    return (server.address() as AddressInfo).port;
+  }
+
+  /** POST a tools/call and destroy the socket once `ready` resolves. */
+  function postThenDrop(port: number, ready: Promise<void>): void {
+    const req = http.request({
+      host: 'localhost',
+      port,
+      method: 'POST',
+      path: '/',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    req.on('error', () => undefined);
+    req.end(
+      JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'tools/call',
+        params: {},
+      }),
+    );
+    void ready.then(() => req.destroy());
+  }
+
+  async function until(check: () => boolean): Promise<void> {
+    const deadline = Date.now() + 5_000;
+    while (!check() && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 5));
+    }
+    expect(check()).toBe(true);
+  }
+
+  it('kills the run_check tree when the connection closes mid-run', async () => {
+    const entry = join(root, ...NX_ENTRY_CANDIDATES[0]);
+    mkdirSync(join(entry, '..'), { recursive: true });
+    writeFileSync(entry, '');
+    const child = new FakeProcess();
+    let spawned!: () => void;
+    const spawnedPromise = new Promise<void>((r) => (spawned = r));
+    const killTree = jest.fn(async () => {
+      child.stdout.end();
+      child.stderr.end();
+      setImmediate(() => child.emit('close', null, 'SIGTERM'));
+    });
+    let verdict: string | undefined;
+
+    const port = await serve(async (request) => {
+      const outcome = await runCheck(
+        RunCheckArgsSchema.parse({ project: 'app', targets: ['test'] }),
+        {
+          workspaceRoot: root,
+          spawnProcess: (() => {
+            setImmediate(spawned);
+            return child as unknown as CheckProcess;
+          }) as unknown as SpawnCheckProcess,
+          killTree,
+          signal: request._abortSignal,
+        },
+      );
+      verdict = outcome.structured.verdict;
+      return { jsonrpc: '2.0', id: request.id, result: {} };
+    });
+    postThenDrop(port, spawnedPromise);
+
+    await until(() => verdict !== undefined);
+    expect(killTree).toHaveBeenCalledWith(5150);
+    expect(verdict).toBe('cancelled');
+  });
+
+  it('ends agent_wait and removes its abort listener when the connection closes', async () => {
+    let waiting!: () => void;
+    const waitingPromise = new Promise<void>((r) => (waiting = r));
+    let signalSeen: AbortSignal | undefined;
+    let text: string | undefined;
+
+    const port = await serve(async (request) => {
+      text = await runAgentWait(
+        AgentWaitArgsSchema.parse({ agentIds: ['a1'] }),
+        {
+          waitForAgents: (ids, mode, _timeoutMs, signal) =>
+            new Promise<AgentWaitResult>((resolve) => {
+              signalSeen = signal;
+              const onAbort = (): void => {
+                signal?.removeEventListener('abort', onAbort);
+                resolve({
+                  mode,
+                  timedOut: false,
+                  cancelled: true,
+                  waitedMs: 1,
+                  entries: ids.map((agentId) => ({
+                    agentId,
+                    state: 'running' as const,
+                    info: { agentId, status: 'running' } as never,
+                  })),
+                } as unknown as AgentWaitResult);
+              };
+              signal?.addEventListener('abort', onAbort, { once: true });
+              waiting();
+            }),
+          readOutput: async () => ({ stdout: '', stderr: '' }) as never,
+          signal: request._abortSignal,
+        },
+      );
+      return { jsonrpc: '2.0', id: request.id, result: {} };
+    });
+    postThenDrop(port, waitingPromise);
+
+    await until(() => text !== undefined);
+    expect(signalSeen?.aborted).toBe(true);
+    expect(getEventListeners(signalSeen as AbortSignal, 'abort')).toHaveLength(
+      0,
+    );
+    expect(text).toContain('WAIT CANCELLED');
+  });
+
+  it('does not abort a request whose reply was written', async () => {
+    let seen: AbortSignal | undefined;
+    const port = await serve(async (request) => {
+      seen = request._abortSignal;
+      return { jsonrpc: '2.0', id: request.id, result: {} };
+    });
+    const res = await fetchPath(
+      port,
+      'POST',
+      '/',
+      JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list' }),
+    );
+    expect(res.status).toBe(200);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(seen).toBeInstanceOf(AbortSignal);
+    expect(seen?.aborted).toBe(false);
+  });
+
+  it('never takes the signal from the request body', async () => {
+    let seen: unknown;
+    const port = await serve(async (request) => {
+      seen = request._abortSignal;
+      return { jsonrpc: '2.0', id: request.id, result: {} };
+    });
+    await fetchPath(
+      port,
+      'POST',
+      '/',
+      JSON.stringify({
+        jsonrpc: '2.0',
+        id: 3,
+        method: 'tools/list',
+        _abortSignal: { aborted: true },
+      }),
+    );
+    expect(seen).toBeInstanceOf(AbortSignal);
+    expect((seen as AbortSignal).aborted).toBe(false);
   });
 });

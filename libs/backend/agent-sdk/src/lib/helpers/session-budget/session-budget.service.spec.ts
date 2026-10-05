@@ -698,6 +698,48 @@ describe('SessionBudgetService.act', () => {
     expect(h.write).not.toHaveBeenCalled();
   });
 
+  it('D.6: preview-handoff reuses the kept copy while no newer snapshot was observed', async () => {
+    const h = harness();
+    h.service.observe(at(10, 1));
+    await h.service.act(SID, 'write-handoff');
+    h.build.mockResolvedValue({ document: document('# Newer') });
+    const preview = await h.service.act(SID, 'preview-handoff');
+    expect(preview.handoff).toEqual({
+      content: '# Handoff',
+      seed: 'seed:# Handoff',
+      path: `/home/.ptah/handoffs/${SID}.md`,
+    });
+    expect(h.build).toHaveBeenCalledTimes(1);
+  });
+
+  it('D.6: preview-handoff builds afresh (not written) once a newer snapshot was observed', async () => {
+    const h = harness();
+    h.service.observe(at(10, 1));
+    await h.service.act(SID, 'write-handoff');
+    h.service.observe(at(20, 2));
+    h.build.mockResolvedValue({ document: document('# Newer') });
+    const preview = await h.service.act(SID, 'preview-handoff');
+    expect(preview.handoff).toEqual({
+      content: '# Newer',
+      seed: 'seed:# Newer',
+      path: null,
+    });
+    expect(h.write).toHaveBeenCalledTimes(1);
+  });
+
+  it('D.6: preview-handoff builds afresh after the limit was extended', async () => {
+    const h = harness();
+    h.service.observe(at(85, 1));
+    await flush();
+    h.service.observe(at(100, 2));
+    await flush();
+    expect(h.write).toHaveBeenCalledTimes(2);
+    expect((await h.service.act(SID, 'extend')).success).toBe(true);
+    h.build.mockResolvedValue({ document: document('# Extended') });
+    const preview = await h.service.act(SID, 'preview-handoff');
+    expect(preview.handoff).toMatchObject({ content: '# Extended', path: null });
+  });
+
   it('actions needing a state fail without one', async () => {
     const h = harness();
     for (const action of ['dismiss', 'extend', 'restore-window'] as const) {

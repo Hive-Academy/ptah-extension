@@ -158,6 +158,30 @@ describe('AgentSpawnEnvironment', () => {
       ).toEqual(defaults);
     });
 
+    it('logs the provided values (numbers as-is, others as typeof) next to the defaults', () => {
+      const { environment, logger } = makeEnvironment({
+        config: { laneToolCallSteerAt: 50, laneToolCallStopAt: '60' },
+      });
+      environment.resolveLaneGuardThresholds();
+      expect(logger.warn).toHaveBeenCalledTimes(1);
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('Invalid lane tool-call guard value'),
+        expect.objectContaining({
+          provided: { steer: 50, stop: 'string' },
+          defaults: { steerAt: 40, stopAt: 60 },
+        }),
+      );
+    });
+
+    it('warns once for repeated spawns with the same invalid values', () => {
+      const { environment, logger } = makeEnvironment({
+        config: { laneRepeatCallStopAt: 1 },
+      });
+      environment.resolveLaneGuardThresholds();
+      environment.resolveLaneGuardThresholds();
+      expect(logger.warn).toHaveBeenCalledTimes(1);
+    });
+
     it('falls back to the repeat default when it is below 2 or not an integer', () => {
       for (const bad of [1, 0, 2.5, 'x']) {
         expect(

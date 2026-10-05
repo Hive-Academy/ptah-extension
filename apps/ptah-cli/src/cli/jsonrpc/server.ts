@@ -41,8 +41,15 @@ import {
   isJsonRpcSuccessResponse,
 } from './types.js';
 
-/** A registered inbound handler. May return any JSON-serializable value. */
-export type RpcHandler = (params: unknown) => Promise<unknown> | unknown;
+/**
+ * A registered inbound handler. May return any JSON-serializable value.
+ * `request.id` is the peer's JSON-RPC id for a request (absent for a
+ * notification) — the id a later `notifications/cancelled` names.
+ */
+export type RpcHandler = (
+  params: unknown,
+  request?: { readonly id: RequestId },
+) => Promise<unknown> | unknown;
 
 /**
  * Throw inside a handler to surface a `-32602 Invalid params` error to the
@@ -195,7 +202,7 @@ export class JsonRpcServer {
     }
 
     try {
-      const result = await handler(request.params);
+      const result = await handler(request.params, { id: request.id });
       await this.send(encodeResponse(request.id, result ?? null));
     } catch (error) {
       if (error instanceof InvalidParamsError) {

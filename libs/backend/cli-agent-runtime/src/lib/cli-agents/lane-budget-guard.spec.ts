@@ -187,6 +187,45 @@ describe('LaneBudgetGuard', () => {
     });
   });
 
+  describe('command segments (OpenCode shell calls)', () => {
+    const command = (id: string | undefined, line = `ls ${id}`) =>
+      ({
+        type: 'command',
+        content: '',
+        toolName: line,
+        ...(id !== undefined ? { toolCallId: id } : {}),
+      }) as CliOutputSegment;
+
+    it('OpenCode-style command segments trip stopAt', () => {
+      const guard = new LaneBudgetGuard(DEFAULTS);
+      const segments = Array.from({ length: 80 }, (_, i) => command(`c${i}`));
+      expect(run(guard, segments).map((a) => a.at)).toEqual([40, 60]);
+    });
+
+    it('a tool-call plus a command with the same id counts once', () => {
+      const guard = new LaneBudgetGuard(DEFAULTS);
+      guard.observe(call('shell', { toolCallId: 'x1' }));
+      guard.observe(command('x1'));
+      expect(guard.toolCallCount).toBe(1);
+    });
+
+    it('ignores a command without a toolCallId and a repeated id', () => {
+      const guard = new LaneBudgetGuard(DEFAULTS);
+      guard.observe(command(undefined));
+      guard.observe(command('y1'));
+      guard.observe(command('y1'));
+      expect(guard.toolCallCount).toBe(1);
+    });
+
+    it('reset() clears the counted ids', () => {
+      const guard = new LaneBudgetGuard(DEFAULTS);
+      guard.observe(command('z1'));
+      guard.reset();
+      guard.observe(command('z1'));
+      expect(guard.toolCallCount).toBe(1);
+    });
+  });
+
   describe('glob loops (Batch 10 finding b)', () => {
     it('a long run of identical glob calls stops at the repeat threshold', () => {
       const guard = new LaneBudgetGuard(DEFAULTS);

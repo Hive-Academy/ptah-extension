@@ -382,10 +382,13 @@ describe('blocking wait surface parity', () => {
 
     expect(isError(http)).toBe(false);
     expect(isError(stdio)).toBe(false);
+    // The 4th argument is the request's abort signal. Both harnesses call
+    // the dispatchers without a transport, so neither carries one.
     expect(httpApi.agent.waitForAgents).toHaveBeenCalledWith(
       ['a-1', 'ghost'],
       'all',
       30_000,
+      undefined,
     );
     expect(stdioApi.agent.waitForAgents.mock.calls).toEqual(
       httpApi.agent.waitForAgents.mock.calls,
@@ -398,6 +401,7 @@ describe('blocking wait surface parity', () => {
       (stdio?.result as { structuredContent?: unknown }).structuredContent,
     ).toEqual({
       timedOut: false,
+      cancelled: false,
       lanes: [
         { agentId: 'a-1', state: 'exited', status: 'completed', exitCode: 0 },
         { agentId: 'ghost', state: 'not_found' },

@@ -208,4 +208,91 @@ describe('ContextUsagePort', () => {
 
     expect(port.getLast('s1')).toBeUndefined();
   });
+
+  // TASK_2026_614 D.12 A-m6: PostCompact reports a new session id; the cached
+  // readings follow it.
+  describe('rekey', () => {
+    it('moves the last reading to the new id', async () => {
+      const reading = await port.readAtTurnEnd(
+        'old',
+        't1',
+        queryReturning(async () => USAGE),
+      );
+
+      port.rekey('old', 'new');
+
+      expect(port.getLast('new')).toEqual(reading);
+      expect(port.getLast('old')).toBeUndefined();
+    });
+
+    it('a read in flight under the old id lands under the new id and does not resurrect the old one', async () => {
+      let resolve!: (value: ContextUsageReadBack) => void;
+      const query = queryReturning(
+        () => new Promise<ContextUsageReadBack>((r) => (resolve = r)),
+      );
+
+      const pending = port.readAtTurnEnd('old', 't1', query);
+      port.rekey('old', 'new');
+      resolve(USAGE);
+      const reading = await pending;
+
+      expect(port.getLast('old')).toBeUndefined();
+      expect(port.getLast('new')).toEqual(reading);
+      // The same turn under the new id reuses the moved read.
+      expect(await port.readAtTurnEnd('new', 't1', query)).toEqual(reading);
+      expect(query.getContextUsage).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps a reading already held under the new id and drops the old copy', async () => {
+      await port.readAtTurnEnd(
+        'old',
+        't1',
+        queryReturning(async () => USAGE),
+      );
+      const newer = await port.readAtTurnEnd(
+        'new',
+        't2',
+        queryReturning(async () => ({ ...USAGE, totalTokens: 9_000 })),
+      );
+
+      port.rekey('old', 'new');
+
+      expect(port.getLast('new')).toEqual(newer);
+      expect(port.getLast('old')).toBeUndefined();
+    });
+
+    it('an in-flight old read does not overwrite the new id when the new id has its own read', async () => {
+      let resolveOld!: (value: ContextUsageReadBack) => void;
+      const oldQuery = queryReturning(
+        () => new Promise<ContextUsageReadBack>((r) => (resolveOld = r)),
+      );
+      const pendingOld = port.readAtTurnEnd('old', 't1', oldQuery);
+      const newer = await port.readAtTurnEnd(
+        'new',
+        't2',
+        queryReturning(async () => ({ ...USAGE, totalTokens: 9_000 })),
+      );
+
+      port.rekey('old', 'new');
+      resolveOld(USAGE);
+      await pendingOld;
+
+      expect(port.getLast('new')).toEqual(newer);
+      expect(port.getLast('old')).toBeUndefined();
+    });
+
+    it('an equal, empty or unknown id is a no-op', async () => {
+      const reading = await port.readAtTurnEnd(
+        's1',
+        't1',
+        queryReturning(async () => USAGE),
+      );
+
+      port.rekey('s1', 's1');
+      port.rekey('s1', '');
+      port.rekey('unknown', 's1');
+
+      expect(port.getLast('s1')).toEqual(reading);
+    });
+  });
 });

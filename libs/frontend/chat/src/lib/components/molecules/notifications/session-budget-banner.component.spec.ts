@@ -1,6 +1,7 @@
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import type { SessionBudgetState } from '@ptah-extension/shared';
 import { SessionBudgetBannerComponent } from './session-budget-banner.component';
+import { SessionRotationKeepService } from '../../../services/session-rotation-keep.service';
 
 const BASE: SessionBudgetState = {
   sessionId: '11111111-1111-4111-8111-111111111111',
@@ -126,6 +127,34 @@ describe('SessionBudgetBannerComponent', () => {
       });
       fixture.detectChanges();
       expect(banner(root)).not.toBeNull();
+    });
+
+    it('Keep survives destroying and recreating the banner; clearing drops the keys', () => {
+      const root = render({ ...BASE, rotation: ROTATION });
+      button(root, 'Keep this session').click();
+      fixture.detectChanges();
+      expect(banner(root)).toBeNull();
+
+      // A tab switch rebuilds the banner; the same TestBed keeps the root store.
+      fixture.destroy();
+      fixture = TestBed.createComponent(SessionBudgetBannerComponent);
+      fixture.componentRef.setInput('budget', { ...BASE, rotation: ROTATION });
+      fixture.detectChanges();
+      const rebuilt = fixture.nativeElement as HTMLElement;
+      expect(banner(rebuilt)).toBeNull();
+
+      // Advisory cleared: keys are dropped, so a later crossing shows it again.
+      fixture.componentRef.setInput('budget', BASE);
+      fixture.detectChanges();
+      expect(
+        TestBed.inject(SessionRotationKeepService).isKept(
+          BASE.sessionId,
+          ROTATION.threshold,
+        ),
+      ).toBe(false);
+      fixture.componentRef.setInput('budget', { ...BASE, rotation: ROTATION });
+      fixture.detectChanges();
+      expect(banner(rebuilt)).not.toBeNull();
     });
 
     it.each(['handoff', 'limit'] as const)(

@@ -31,6 +31,9 @@ import {
   CompactionState,
 } from './compaction/compaction-state.types';
 import type { CompactionCallbackRegistry } from './compaction-callback-registry';
+import { ContextUsagePort } from './compaction/context-usage.port';
+import type { SubagentBudgetMonitor } from './compaction/subagent-budget-monitor';
+import type { SessionEndCallbackRegistry } from './session-end-callback-registry';
 import type {
   SdkAdapterEvents,
   SdkAdapterCompactionCompleteEvent,
@@ -1074,6 +1077,149 @@ describe('CompactionHookHandler — compaction coordinator wiring (TASK_2026_597
     expect(coordinatorWarns).toEqual([
       [expect.any(String), { event: 'PreCompact', error: 'pre boom' }],
       [expect.any(String), { event: 'PostCompact', error: 'post boom' }],
+    ]);
+  });
+});
+
+// TASK_2026_614 D.12 A-m6: PostCompact rekeys the context-usage port and the
+// subagent budget monitor next to the coordinator.
+describe('CompactionHookHandler — PostCompact rekeys the port and the monitor (TASK_2026_614 A-m6)', () => {
+  const signal = new AbortController().signal;
+  const USAGE = {
+    totalTokens: 120_000,
+    maxTokens: 200_000,
+    autoCompactThreshold: 160_000,
+    isAutoCompactEnabled: true,
+  };
+
+  function makePort(): ContextUsagePort {
+    const registry = {
+      register: jest.fn(() => () => undefined),
+    } as unknown as SessionEndCallbackRegistry;
+    return new ContextUsagePort(makeLogger(), registry);
+  }
+
+  function makeHandler(
+    port: Pick<ContextUsagePort, 'rekey'> | undefined,
+    monitor: Pick<SubagentBudgetMonitor, 'rekey'> | undefined,
+  ): { handler: CompactionHookHandler; logger: jest.Mocked<Logger> } {
+    const logger = makeLogger();
+    const handler = new CompactionHookHandler(
+      logger,
+      makeUsageTracker(0) as unknown as LiveUsageTracker,
+      undefined,
+      undefined,
+      new CompactionBoundaryGenerationRegistry(),
+      undefined,
+      port as ContextUsagePort | undefined,
+      monitor as SubagentBudgetMonitor | undefined,
+    );
+    return { handler, logger };
+  }
+
+  async function compact(
+    handler: CompactionHookHandler,
+    preId: string,
+    postId?: string,
+  ): Promise<unknown> {
+    const hooks = handler.createHooks('TAB-closure-id', '/repo', jest.fn());
+    await hooks.PreCompact?.[0]?.hooks?.[0]?.(
+      {
+        hook_event_name: 'PreCompact',
+        trigger: 'auto',
+        cwd: '/repo',
+        custom_instructions: null,
+        session_id: preId,
+      } as unknown as HookInput,
+      undefined,
+      { signal },
+    );
+    return hooks.PostCompact?.[0]?.hooks?.[0]?.(
+      {
+        hook_event_name: 'PostCompact',
+        trigger: 'auto',
+        cwd: '/repo',
+        compact_summary: 'summary',
+        ...(postId ? { session_id: postId } : {}),
+      } as unknown as HookInput,
+      undefined,
+      { signal },
+    );
+  }
+
+  it('after PostCompact, getLast(newId) returns the last reading and the old id has none', async () => {
+    const port = makePort();
+    const reading = await port.readAtTurnEnd('OLD-sdk-id', 't1', {
+      getContextUsage: jest.fn(async () => USAGE),
+    } as never);
+    const { handler } = makeHandler(port, undefined);
+
+    await compact(handler, 'OLD-sdk-id', 'NEW-sdk-id');
+
+    expect(port.getLast('NEW-sdk-id')).toEqual(reading);
+    expect(port.getLast('OLD-sdk-id')).toBeUndefined();
+  });
+
+  it('a read in flight for the old id does not resurrect it after PostCompact', async () => {
+    const port = makePort();
+    let resolve!: (value: typeof USAGE) => void;
+    const pending = port.readAtTurnEnd('OLD-sdk-id', 't1', {
+      getContextUsage: jest.fn(
+        () => new Promise<typeof USAGE>((r) => (resolve = r)),
+      ),
+    } as never);
+    const { handler } = makeHandler(port, undefined);
+
+    await compact(handler, 'OLD-sdk-id', 'NEW-sdk-id');
+    resolve(USAGE);
+    const reading = await pending;
+
+    expect(port.getLast('OLD-sdk-id')).toBeUndefined();
+    expect(port.getLast('NEW-sdk-id')).toEqual(reading);
+  });
+
+  it('rekeys the monitor from the PreCompact id to the PostCompact id', async () => {
+    const monitor = { rekey: jest.fn() };
+    const { handler } = makeHandler(undefined, monitor);
+
+    await compact(handler, 'OLD-sdk-id', 'NEW-sdk-id');
+
+    expect(monitor.rekey).toHaveBeenCalledWith('OLD-sdk-id', 'NEW-sdk-id');
+  });
+
+  it('does not rekey when PostCompact carries no session_id', async () => {
+    const port = { rekey: jest.fn() };
+    const monitor = { rekey: jest.fn() };
+    const { handler } = makeHandler(port, monitor);
+
+    await compact(handler, 'OLD-sdk-id');
+
+    expect(port.rekey).not.toHaveBeenCalled();
+    expect(monitor.rekey).not.toHaveBeenCalled();
+  });
+
+  it('a throwing port is logged once and the monitor is still rekeyed; the hook continues', async () => {
+    const port = {
+      rekey: jest.fn(() => {
+        throw new Error('port boom');
+      }),
+    };
+    const monitor = { rekey: jest.fn() };
+    const { handler, logger } = makeHandler(port, monitor);
+
+    const result = await compact(handler, 'OLD-sdk-id', 'NEW-sdk-id');
+
+    expect(result).toEqual({ continue: true });
+    expect(monitor.rekey).toHaveBeenCalledWith('OLD-sdk-id', 'NEW-sdk-id');
+    expect(logger.error).not.toHaveBeenCalled();
+    const rekeyWarns = logger.warn.mock.calls.filter(([message]) =>
+      String(message).includes('PostCompact rekey failed'),
+    );
+    expect(rekeyWarns).toEqual([
+      [
+        expect.any(String),
+        { target: 'context-usage-port', error: 'port boom' },
+      ],
     ]);
   });
 });

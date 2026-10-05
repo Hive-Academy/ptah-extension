@@ -14,6 +14,7 @@ import {
   getCallerSessionId,
   getCallerWorkspaceRoot,
   isMcpRequestInFlight,
+  getRequestAbortSignal,
 } from './mcp-request-context';
 
 describe('mcp-request-context', () => {
@@ -213,5 +214,30 @@ describe('getCallerToolProfile', () => {
     ]);
     expect(seen).toEqual(['apps', 'coding']);
     expect(getCallerToolProfile()).toBe('coding');
+  });
+});
+
+describe('getRequestAbortSignal (TASK_2026_614 Task 10.1)', () => {
+  it('returns the signal bound for the call, isolated per concurrent call', async () => {
+    const a = new AbortController();
+    const b = new AbortController();
+    const seen = await Promise.all([
+      runWithMcpRequestContext({ signal: a.signal }, async () => {
+        await new Promise((r) => setImmediate(r));
+        return getRequestAbortSignal();
+      }),
+      runWithMcpRequestContext({ signal: b.signal }, async () =>
+        getRequestAbortSignal(),
+      ),
+    ]);
+    expect(seen[0]).toBe(a.signal);
+    expect(seen[1]).toBe(b.signal);
+  });
+
+  it('is undefined outside a call and when the transport gave none', () => {
+    expect(getRequestAbortSignal()).toBeUndefined();
+    expect(
+      runWithMcpRequestContext({}, () => getRequestAbortSignal()),
+    ).toBeUndefined();
   });
 });

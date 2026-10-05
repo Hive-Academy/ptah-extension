@@ -404,11 +404,14 @@ export interface AgentNamespace {
    * or until `timeoutMs` (clamped to 0..900000) passes. A timeout is a
    * partial result (`timedOut: true`), never an error; unknown ids and ids
    * from another workspace are reported per id. Backs `ptah_agent_wait`.
+   * An aborted `signal` ends the wait early with `cancelled: true`; the
+   * lanes themselves keep running.
    */
   waitForAgents: (
     agentIds: readonly string[],
     mode: AgentWaitMode,
     timeoutMs: number,
+    signal?: AbortSignal,
   ) => Promise<AgentWaitResult>;
 }
 

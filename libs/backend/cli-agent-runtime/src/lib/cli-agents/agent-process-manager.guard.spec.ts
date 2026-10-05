@@ -365,4 +365,28 @@ describe('AgentProcessManager blocked lane models', () => {
     expect(manager.getStatus()).toEqual([]);
     expect(guardCount(manager)).toBe(0);
   });
+
+  it('refuses a blocked model on the Ptah CLI path before any handle is built', async () => {
+    const { manager } = makeHarness();
+    const spawned = jest.fn();
+    manager.events.on('agent:spawned', spawned);
+
+    const attempt = manager.prepareSdkHandleSpawn({
+      cli: 'ptah-cli',
+      task: 'build the thing',
+      model: 'mimo-v2.6-flash-free',
+    });
+
+    await expect(attempt).rejects.toBeInstanceOf(LaneModelBlockedError);
+    expect(spawned).not.toHaveBeenCalled();
+    expect(manager.getStatus()).toEqual([]);
+  });
+
+  it('leaves a Ptah CLI model left to the agent default unchecked', async () => {
+    const { manager } = makeHarness();
+
+    await expect(
+      manager.prepareSdkHandleSpawn({ cli: 'ptah-cli', task: 'build' }),
+    ).resolves.toEqual({ task: 'build' });
+  });
 });

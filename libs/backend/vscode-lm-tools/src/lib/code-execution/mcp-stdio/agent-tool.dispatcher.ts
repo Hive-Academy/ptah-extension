@@ -771,15 +771,23 @@ export class AgentToolDispatcher {
     }
     try {
       let waited: AgentWaitResult | undefined;
+      // A peer cancel or the stdio stream ending ends the wait early.
       const text = await runAgentWait(parsed.data, {
-        waitForAgents: async (ids, mode, timeoutMs) => {
-          waited = await this.ptahAPI.agent.waitForAgents(ids, mode, timeoutMs);
+        waitForAgents: async (ids, mode, timeoutMs, signal) => {
+          waited = await this.ptahAPI.agent.waitForAgents(
+            ids,
+            mode,
+            timeoutMs,
+            signal,
+          );
           return waited;
         },
         readOutput: (agentId, tail) => this.ptahAPI.agent.read(agentId, tail),
+        signal: request._abortSignal,
       });
       return await this.toolSuccess(request, 'agent_wait', text, {
         timedOut: waited?.timedOut ?? false,
+        cancelled: waited?.cancelled ?? false,
         lanes: (waited?.entries ?? []).map((entry) => ({
           agentId: entry.agentId,
           state: entry.state,
@@ -822,8 +830,10 @@ export class AgentToolDispatcher {
       );
     }
     try {
+      // A peer cancel or the stdio stream ending kills the Nx tree.
       const outcome = await runCheck(parsed.data, {
         workspaceRoot: this.spoolRoot(),
+        signal: request._abortSignal,
       });
       if (outcome.isError) {
         return toolError(request, outcome.text, 'mcp_tool_failed', {

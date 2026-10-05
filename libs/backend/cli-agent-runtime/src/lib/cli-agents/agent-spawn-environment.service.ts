@@ -51,6 +51,9 @@ export const DEFAULT_CONCURRENT_AGENTS = 5;
 
 @injectable()
 export class AgentSpawnEnvironment {
+  /** Invalid lane-guard values already warned about (key plus values). */
+  private readonly warnedLaneGuard = new Set<string>();
+
   private static readonly MODEL_CONFIG_KEYS: Partial<Record<CliType, string>> =
     {
       codex: 'codexModel',
@@ -213,30 +216,44 @@ export class AgentSpawnEnvironment {
     const repeat = read('laneRepeatCallStopAt', d.repeatAt);
     const pairOk = isInt(steer, 1) && isInt(stop, 1) && stop > steer;
     const repeatOk = isInt(repeat, 2);
+    // Numbers are logged as-is, anything else as its typeof (a hand-edited
+    // value may be a string or object; never log it verbatim).
+    const shown = (v: unknown): number | string =>
+      typeof v === 'number' ? v : typeof v;
     if (!pairOk) {
-      this.logger.warn(
-        '[AgentSpawnEnvironment] Invalid lane tool-call guard value, using the default',
+      this.warnLaneGuardOnce(
+        'agentOrchestration.laneToolCallSteerAt/laneToolCallStopAt',
         {
-          key: 'agentOrchestration.laneToolCallSteerAt/laneToolCallStopAt',
-          steerAt: d.steerAt,
-          stopAt: d.stopAt,
+          provided: { steer: shown(steer), stop: shown(stop) },
+          defaults: { steerAt: d.steerAt, stopAt: d.stopAt },
         },
       );
     }
     if (!repeatOk) {
-      this.logger.warn(
-        '[AgentSpawnEnvironment] Invalid lane tool-call guard value, using the default',
-        {
-          key: 'agentOrchestration.laneRepeatCallStopAt',
-          repeatAt: d.repeatAt,
-        },
-      );
+      this.warnLaneGuardOnce('agentOrchestration.laneRepeatCallStopAt', {
+        provided: { repeat: shown(repeat) },
+        defaults: { repeatAt: d.repeatAt },
+      });
     }
     return {
       steerAt: pairOk ? steer : d.steerAt,
       stopAt: pairOk ? stop : d.stopAt,
       repeatAt: repeatOk ? repeat : d.repeatAt,
     };
+  }
+
+  /** Warn once per distinct key and rejected values, not on every spawn. */
+  private warnLaneGuardOnce(
+    key: string,
+    detail: Record<string, Record<string, number | string>>,
+  ): void {
+    const signature = `${key}\u0000${JSON.stringify(detail['provided'])}`;
+    if (this.warnedLaneGuard.has(signature)) return;
+    this.warnedLaneGuard.add(signature);
+    this.logger.warn(
+      '[AgentSpawnEnvironment] Invalid lane tool-call guard value, using the default',
+      { key, ...detail },
+    );
   }
 
   /**

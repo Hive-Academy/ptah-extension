@@ -26,6 +26,7 @@ import type {
   AuthEnv,
   EffectiveCapabilitySet,
   ICapabilityResolver,
+  SubagentPromptCacheTtl,
 } from '@ptah-extension/shared';
 import {
   isDirectAnthropic,
@@ -71,7 +72,6 @@ import type { SdkQueryRunner } from '../sdk-query-runner.service';
 import {
   NoActivityWatchdog,
   NO_ACTIVITY_TIMEOUT_MS,
-  type WatchdogTimeoutCause,
 } from '../no-activity-watchdog';
 import type { HarnessPolicySync } from '../../harness/harness-policy-sync';
 
@@ -160,6 +160,20 @@ export type SubagentBudgetSink = Pick<
   'observe' | 'release'
 >;
 
+/** True when an assistant message carries at least one `tool_use` block. */
+function hasToolUse(message: SDKMessage & { type: 'assistant' }): boolean {
+  const content: unknown = message.message?.content;
+  return (
+    Array.isArray(content) &&
+    content.some(
+      (block: unknown) =>
+        typeof block === 'object' &&
+        block !== null &&
+        (block as { type?: unknown }).type === 'tool_use',
+    )
+  );
+}
+
 /**
  * Compaction bookkeeping for one query run (TASK_2026_597 A8).
  *
@@ -178,6 +192,8 @@ class CompactionSessionTap {
   private turn = 0;
   private readonly subagentIds = new Set<string>();
   private released = false;
+  /** Unset until the options build resolves it; the monitor default applies. */
+  private subagentCacheTtl: SubagentPromptCacheTtl | undefined;
 
   constructor(
     private readonly logger: Logger,
@@ -191,6 +207,15 @@ class CompactionSessionTap {
 
   attachQuery(query: Query): void {
     this.query = query;
+  }
+
+  /**
+   * The session's effective subagent prompt-cache TTL, known only once the
+   * options builder has run (the tap exists before it). The monitor prices
+   * cache writes with it when a message does not report its TTL split.
+   */
+  setSubagentCacheTtl(ttl: SubagentPromptCacheTtl | undefined): void {
+    this.subagentCacheTtl = ttl;
   }
 
   observe(message: SDKMessage): void {
@@ -229,14 +254,18 @@ class CompactionSessionTap {
       }
     } else if (message.type === 'result') {
       this.onTurnEnd(sessionId);
+    } else if (message.type === 'assistant' && hasToolUse(message)) {
+      // The monitor reads the task of each subagent from the `Agent`/`Task`
+      // tool_use that spawns it, for the handoff it sends on a stop.
+      this.feedSubagentMonitor(message);
     }
   }
 
   /**
-   * A subagent message goes to the budget monitor under the session id the
-   * dispatcher and registry use. The effective subagent prompt-cache TTL is not
-   * visible to the executor (the options builder resolves it internally), so
-   * the monitor's default applies; real SDK messages carry the cache split.
+   * A subagent message (or a main-loop message that may spawn one) goes to
+   * the budget monitor under the session id the dispatcher and registry use,
+   * priced with the session's effective subagent prompt-cache TTL (the
+   * monitor's default while the build has not set one).
    */
   private feedSubagentMonitor(message: SDKMessage): void {
     const monitor = this.subagentMonitor;
@@ -247,10 +276,13 @@ class CompactionSessionTap {
         : this.sessionId;
     if (!id) return;
     this.subagentIds.add(id);
+    const cacheTtl = this.subagentCacheTtl;
     // The executor runs observe() now; a synchronous throw becomes a rejection.
-    new Promise<void>((resolve) => resolve(monitor.observe(id, message))).catch((error: unknown) =>
-        this.warn('Subagent budget monitor failed', 'subagent-budget', error),
-      );
+    new Promise<void>((resolve) =>
+      resolve(monitor.observe(id, message, cacheTtl)),
+    ).catch((error: unknown) =>
+      this.warn('Subagent budget monitor failed', 'subagent-budget', error),
+    );
   }
 
   /**
@@ -265,7 +297,11 @@ class CompactionSessionTap {
     return state !== undefined && state !== CompactionState.OBSERVE_ONLY;
   }
 
-  /** Session end: drop every id this run tracked. Idempotent. */
+  /**
+   * Session end: drop every id this run tracked. Idempotent: the abort
+   * listener and the stream's `onStreamEnd` (every stream teardown, normal end
+   * included — TASK_2026_614 D.2) both call it.
+   */
   release(): void {
     if (this.released) return;
     this.released = true;
@@ -351,25 +387,6 @@ class CompactionSessionTap {
       sessionId: this.sessionId,
       error: error instanceof Error ? error.name : typeof error,
     });
-  }
-}
-
-/** The run's watchdog, also feeding every stream message to the compaction tap. */
-class CompactionObservingWatchdog extends NoActivityWatchdog {
-  constructor(
-    private readonly tap: CompactionSessionTap,
-    timeoutMs: number,
-    onTimeout: (cause: WatchdogTimeoutCause) => void,
-    onOverdue: (operations: readonly string[]) => void,
-  ) {
-    // The dwell bound applies only where the coordinator acts (TASK_2026_597
-    // S1); an OBSERVE_ONLY session keeps B8's "report overdue, keep waiting".
-    super(timeoutMs, onTimeout, onOverdue, () => tap.controlsSession());
-  }
-
-  override observe(message: SDKMessage): void {
-    super.observe(message);
-    this.tap.observe(message);
   }
 }
 
@@ -525,8 +542,7 @@ export class SessionQueryExecutor {
       () => compactionTap.release(),
       { once: true },
     );
-    const activityWatchdog = new CompactionObservingWatchdog(
-      compactionTap,
+    const activityWatchdog = new NoActivityWatchdog(
       NO_ACTIVITY_TIMEOUT_MS,
       (cause) => {
         if (abortController.signal.aborted) {
@@ -565,12 +581,12 @@ export class SessionQueryExecutor {
             new Error(
               cause === 'compaction-dwell'
                 ? `Compaction did not finish within ${dwellSeconds}s ` +
-                  `(baseUrl="${providerBaseUrl}", model="${providerModel}"). ` +
-                  `Stopping for recovery; retry the turn.`
+                    `(baseUrl="${providerBaseUrl}", model="${providerModel}"). ` +
+                    `Stopping for recovery; retry the turn.`
                 : `No stream activity for ${seconds}s — no response from provider ` +
-                  `(baseUrl="${providerBaseUrl}", model="${providerModel}"). ` +
-                  `Unaccounted root inactivity; liveness is unknown. Stopping for recovery. The provider may be ` +
-                  `unreachable or overloaded — check configuration or retry.`,
+                    `(baseUrl="${providerBaseUrl}", model="${providerModel}"). ` +
+                    `Unaccounted root inactivity; liveness is unknown. Stopping for recovery. The provider may be ` +
+                    `unreachable or overloaded — check configuration or retry.`,
             ),
           );
         } catch (abortErr) {
@@ -590,6 +606,9 @@ export class SessionQueryExecutor {
             resolvedModel: rec.currentModel,
           },
         ),
+      // The dwell bound applies only where the coordinator acts (TASK_2026_597
+      // S1); an OBSERVE_ONLY session keeps B8's "report overdue, keep waiting".
+      () => compactionTap.controlsSession(),
     );
     abortController.signal.addEventListener(
       'abort',
@@ -698,6 +717,7 @@ export class SessionQueryExecutor {
         sessionIdResolver: () => rec.realSessionId ?? undefined,
         capabilityPolicy,
       });
+      compactionTap.setSubagentCacheTtl(queryOptions.subagentPromptCacheTtl);
       const isResume = !!resumeSessionId;
       // Never a raw string. A string prompt is what sets the SDK's
       // `isSingleUserTurn`, and that flag closes the transport input on the
@@ -748,6 +768,11 @@ export class SessionQueryExecutor {
         initialModel,
         abortController,
         activityWatchdog,
+        // The stream feeds the tap explicitly (TASK_2026_614 D.11). The abort
+        // listener above stays for a run whose stream never reached the
+        // transformer; release() is idempotent, so both paths are safe.
+        onMessage: (message: SDKMessage) => compactionTap.observe(message),
+        onStreamEnd: () => compactionTap.release(),
         sessionToken: rec.token,
         usageCostSource: rec.usageCostSource,
         accountingAuthEnv: rec.accountingAuthEnv,

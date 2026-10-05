@@ -458,6 +458,15 @@ describe('ChatSubagentContextInjectorService', () => {
       expect(prompt).toContain('1. Your FIRST action should be to resume');
     });
 
+    it('B-m3: no "advice: fresh" instruction when no agent is advised fresh', async () => {
+      registerInterrupted('tc-1', 'abc1234');
+      const { prompt } = await withMonitor(
+        snap(),
+      ).injectInterruptedAgentsContext('msg', SESSION, WORKSPACE);
+      expect(prompt).toContain('advice: resume');
+      expect(prompt).not.toContain('Where an agent is marked "advice: fresh"');
+    });
+
     it('advises fresh with the cold reason for a cold agent', async () => {
       workspace.getConfiguration.mockReturnValue('5m');
       registerInterrupted('tc-1', 'abc1234');

@@ -63,10 +63,19 @@ export interface IContextUsagePort {
   getLast(sessionId: string): ContextUsageReading | undefined;
   /** Drop every cached value of the session. */
   release(sessionId: string): void;
+  /**
+   * Move the session's cached values from `fromSessionId` to `toSessionId`
+   * (PostCompact reports a new `session_id`). A value already held under
+   * `toSessionId` is newer and is kept; the old id's copy is dropped. A read
+   * in flight under the old id lands under the new id, never the old one.
+   */
+  rekey(fromSessionId: string, toSessionId: string): void;
 }
 
 interface TurnRead {
   readonly turnId: string;
+  /** The session id the read belongs to now; `rekey` moves it. */
+  sessionId: string;
   readonly result: Promise<ContextUsageReading | undefined>;
 }
 
@@ -97,10 +106,12 @@ export class ContextUsagePort implements IContextUsagePort {
     }
     const read: TurnRead = {
       turnId,
+      sessionId,
       result: this.read(sessionId, query).then((reading) => {
-        // A release (or a newer turn) while in flight must not be undone.
-        if (reading && this.turnReads.get(sessionId) === read) {
-          this.lastReadings.set(sessionId, reading);
+        // A release, a newer turn or a rekey while in flight must not be
+        // undone: the reading lands under the id the read is held under now.
+        if (reading && this.turnReads.get(read.sessionId) === read) {
+          this.lastReadings.set(read.sessionId, reading);
         }
         return reading;
       }),
@@ -116,6 +127,23 @@ export class ContextUsagePort implements IContextUsagePort {
   release(sessionId: string): void {
     this.turnReads.delete(sessionId);
     this.lastReadings.delete(sessionId);
+  }
+
+  rekey(fromSessionId: string, toSessionId: string): void {
+    if (!toSessionId || fromSessionId === toSessionId) {
+      return;
+    }
+    const turnRead = this.turnReads.get(fromSessionId);
+    this.turnReads.delete(fromSessionId);
+    if (turnRead && !this.turnReads.has(toSessionId)) {
+      turnRead.sessionId = toSessionId;
+      this.turnReads.set(toSessionId, turnRead);
+    }
+    const reading = this.lastReadings.get(fromSessionId);
+    this.lastReadings.delete(fromSessionId);
+    if (reading && !this.lastReadings.has(toSessionId)) {
+      this.lastReadings.set(toSessionId, reading);
+    }
   }
 
   private async read(

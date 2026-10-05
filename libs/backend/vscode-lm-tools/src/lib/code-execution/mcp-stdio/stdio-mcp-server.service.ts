@@ -32,6 +32,7 @@ import type { IMcpServer } from '../mcp-core/types/mcp-transport.types';
 import type { PtahAPI } from '../types';
 import { PtahAPIBuilder } from '../ptah-api-builder.service';
 import { AgentToolDispatcher } from './agent-tool.dispatcher';
+import { killRunningChecks } from '../mcp-core/run-check.tool';
 import type {
   ISessionSubmitHandler,
   SessionSubmitCancellation,
@@ -76,6 +77,8 @@ export class StdioMcpServerService {
    * builder. `null` means no failure has been observed yet.
    */
   private sdkInitError: Error | null = null;
+  /** Abort controllers of the wrapper-tool calls in flight, by JSON-RPC id. */
+  private readonly inFlightCalls = new Map<string | number, AbortController>();
 
   constructor(
     @inject(TOKENS.LOGGER)
@@ -215,7 +218,22 @@ export class StdioMcpServerService {
     } catch (err) {
       return this.buildSdkInitFailedResponse(request, name, err);
     }
-    const resp = await dispatcher.dispatch(name, request, args);
+    // One controller per call, keyed by the JSON-RPC id the peer names in
+    // `notifications/cancelled`. Removed when the call settles.
+    const controller = new AbortController();
+    this.inFlightCalls.set(request.id, controller);
+    let resp: MCPResponse | null;
+    try {
+      resp = await dispatcher.dispatch(
+        name,
+        { ...request, _abortSignal: controller.signal },
+        args,
+      );
+    } finally {
+      if (this.inFlightCalls.get(request.id) === controller) {
+        this.inFlightCalls.delete(request.id);
+      }
+    }
     if (resp !== null) return resp;
 
     // Should never happen given the `known` check above + the MVP_TOOL_NAMES
@@ -238,10 +256,29 @@ export class StdioMcpServerService {
   }
 
   /**
-   * Handle MCP `notifications/cancelled` from the peer. The session-submit
-   * handler tracks in-flight composite calls by their MCP `requestId`; the
-   * seven wrapper tools execute synchronously against the in-process agent
-   * surface, so no cancellation surface is needed for them.
+   * End every wrapper-tool call still in flight and kill every live
+   * `run_check` tree. Called when the stdio stream ends: nobody is left to
+   * read the replies, and an Nx tree must not outlive `ptah mcp-serve`.
+   * Never rejects; a kill failure is logged once.
+   */
+  async dispose(): Promise<void> {
+    for (const controller of this.inFlightCalls.values()) controller.abort();
+    this.inFlightCalls.clear();
+    try {
+      await killRunningChecks();
+    } catch (err: unknown) {
+      // degradation-audit: reported - logged at warn; shutdown continues.
+      this.logger.warn('[StdioMcpServer] killing running checks failed', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  /**
+   * Handle MCP `notifications/cancelled` from the peer. A wrapper-tool call
+   * with that `requestId` is aborted (`run_check` kills its Nx tree,
+   * `agent_wait` stops waiting). The session-submit handler tracks its own
+   * composite calls by the same id.
    */
   async handleCancelled(params: unknown): Promise<void> {
     const requestId =
@@ -256,6 +293,12 @@ export class StdioMcpServerService {
       requestId,
     });
     if (requestId === null) return;
+    const toolCall = this.inFlightCalls.get(requestId);
+    if (toolCall !== undefined) {
+      this.inFlightCalls.delete(requestId);
+      toolCall.abort();
+      return;
+    }
     if (this.sessionSubmitHandler === null) return;
     const cancellation: SessionSubmitCancellation = { requestId };
     try {

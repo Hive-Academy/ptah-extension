@@ -119,6 +119,11 @@ interface BudgetEntry {
   readonly sessionId: string;
   /** Last accepted snapshot; re-evaluated on compaction and extend. */
   snapshot: SessionStatsEntry | null;
+  /**
+   * Bumped whenever a different snapshot is stored or the limit is extended:
+   * the usage the handoff's budget section describes changed.
+   */
+  usageSeq: number;
   /** Figure and stage; `null` before the first figure or while disabled. */
   figure: SessionBudgetFigure | null;
   /** Settings the figure was computed with (a change resets the stage). */
@@ -130,6 +135,8 @@ interface BudgetEntry {
   window?: SessionBudgetWindow;
   handoff?: SessionBudgetHandoff;
   handoffCopy: HandoffCopy | null;
+  /** `usageSeq` the kept `handoffCopy` was built at. */
+  handoffCopySeq: number;
   dismissedStage?: SessionBudgetStage;
   /** Failure kinds already WARNed for this session. */
   readonly warned: Set<string>;
@@ -308,7 +315,7 @@ export class SessionBudgetService {
       // rotation advisory still rides it). The next enabled figure starts the
       // stage over (the settings changed).
       this.evaluateRotation(snapshot);
-      entry.snapshot = snapshot;
+      this.storeSnapshot(entry, snapshot);
       entry.figure = null;
       entry.configKey = null;
       return this.disabledState(snapshot, config, entry);
@@ -321,7 +328,7 @@ export class SessionBudgetService {
     }
 
     this.evaluateRotation(snapshot);
-    entry.snapshot = snapshot;
+    this.storeSnapshot(entry, snapshot);
     return this.applyEvaluation(entry, config, {
       resetStage: false,
       runActions: source === 'live',
@@ -444,7 +451,7 @@ export class SessionBudgetService {
     config: SessionBudgetConfig,
   ): SessionBudgetState | undefined {
     const entry = this.entryFor(sessionId);
-    entry.snapshot = snapshot;
+    this.storeSnapshot(entry, snapshot);
     return this.applyEvaluation(entry, config, {
       resetStage: false,
       runActions: true,
@@ -544,6 +551,8 @@ export class SessionBudgetService {
     sessionId: string,
     entry: BudgetEntry | undefined,
   ): Promise<HandoffCopy> {
+    // Stamped before the build: usage observed while it runs makes it stale.
+    const builtAtSeq = entry?.usageSeq ?? 0;
     const document = await this.buildHandoff(sessionId, entry);
     const written = await this.handoffWriter.write(sessionId, document.content);
     const copy: HandoffCopy = {
@@ -553,6 +562,7 @@ export class SessionBudgetService {
     };
     if (entry && this.isCurrent(entry)) {
       entry.handoffCopy = copy;
+      entry.handoffCopySeq = builtAtSeq;
       entry.handoff = {
         path: written.path,
         chars: document.chars,
@@ -645,6 +655,7 @@ export class SessionBudgetService {
       };
     }
     entry.extensions += 1;
+    entry.usageSeq += 1;
     const state = this.reevaluate(entry, {
       resetStage: true,
       runActions: true,
@@ -692,14 +703,21 @@ export class SessionBudgetService {
     return { success: true, ...this.stateField(entry), handoff: copy };
   }
 
-  /** The latest handoff in memory, else one built now (not written). */
+  /**
+   * The kept handoff when no newer usage (snapshot or extend) was observed
+   * since it was built, else one built now (not written). Rotation seeds the
+   * new session from this, so a copy older than the usage is never reused.
+   */
   private async previewHandoff(
     sessionId: string,
     entry: BudgetEntry | undefined,
   ): Promise<SessionBudgetActionResult> {
-    const kept = entry?.handoffCopy;
-    if (kept) {
-      return { success: true, ...this.stateField(entry), handoff: kept };
+    if (entry?.handoffCopy && entry.handoffCopySeq === entry.usageSeq) {
+      return {
+        success: true,
+        ...this.stateField(entry),
+        handoff: entry.handoffCopy,
+      };
     }
     const document = await this.buildHandoff(sessionId, entry);
     const built: HandoffCopy = {
@@ -737,18 +755,26 @@ export class SessionBudgetService {
       entry = {
         sessionId,
         snapshot: null,
+        usageSeq: 0,
         figure: null,
         configKey: null,
         compactions: 0,
         extensions: 0,
         actedRank: sessionBudgetStageRank('unknown'),
         handoffCopy: null,
+        handoffCopySeq: 0,
         warned: new Set<string>(),
         actions: Promise.resolve(),
       };
       this.entries.set(sessionId, entry);
     }
     return entry;
+  }
+
+  /** Store `snapshot`; a different snapshot is newer usage (`usageSeq`). */
+  private storeSnapshot(entry: BudgetEntry, snapshot: SessionStatsEntry): void {
+    if (entry.snapshot !== snapshot) entry.usageSeq += 1;
+    entry.snapshot = snapshot;
   }
 
   /** False once the session was released (or released and re-created). */
