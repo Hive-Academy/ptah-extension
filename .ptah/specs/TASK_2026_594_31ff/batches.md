@@ -1,6 +1,6 @@
 # Batches - TASK_2026_594_31ff
 
-Total tasks: 34 | Batches: 12 | Waves: 4 | Complete: 11/12
+Total tasks: 34 | Batches: 12 | Waves: 4 | Complete: 12/12
 
 Worktree root (W): `D:/projects/ptah-extension/.claude-worktrees/task-594-status-kinds`, branch
 `feat/task-594-status-kinds`. All paths below are absolute. Source: implementation-plan.md
@@ -798,7 +798,7 @@ existing eager/lazy boundary is unchanged by construction; the eager-closure gat
 with Task 12.2. `npx nx run-many -t typecheck,test,lint -p declarative-dashboard
 --skip-nx-cache`: green, no exclusions. Report: `batch-10-report.md`.
 
-## Batch 11: Skill catalog reference, prompt pointer, catalog-reference spec (plan F) — COMPLETE
+## Batch 11: Skill catalog reference, prompt pointer, catalog-reference spec (plan F) — COMPLETE (commit d46f7b0e2)
 
 - Recommended executor: CLI lane `Glm`
 - Fallback executor: backend-developer subagent
@@ -888,7 +888,7 @@ Batch 11 result (2026-10-05, team-leader): PASSED.
 
 ## WAVE 4 — integration (Batch 12)
 
-## Batch 12: Manifest regeneration, eight-project run, webview build, eager-closure gate (plan H) — PENDING
+## Batch 12: Manifest regeneration, eight-project run, webview build, eager-closure gate (plan H) — COMPLETE (gate re-run by orchestrator; see batch-12-report.md)
 
 - Recommended executor: backend-developer subagent. These are commands plus one generated file,
   and the subagent needs shell and long timeouts.
@@ -899,7 +899,7 @@ Batch 11 result (2026-10-05, team-leader): PASSED.
 - AC: 13, 15
 - Phase: status-kinds (last batch; the phase review is due after its commit)
 
-### Task 12.1: Regenerate the content manifest — PENDING
+### Task 12.1: Regenerate the content manifest — COMPLETE
 
 - File: MODIFY (generated only)
   `D:/projects/ptah-extension/.claude-worktrees/task-594-status-kinds/content-manifest.json`
@@ -911,7 +911,7 @@ Batch 11 result (2026-10-05, team-leader): PASSED.
     generator owns.
   - No hand edits.
 
-### Task 12.2: Full verification and eager-closure gate — PENDING
+### Task 12.2: Full verification and eager-closure gate — COMPLETE
 
 - Commands (worktree root, in order, output tailed):
   1. `npx nx run-many -t typecheck,test,lint -p shared,declarative-dashboard,mcp-apps-page,vscode-lm-tools,rpc-handlers,cli-engine,ptah-extension-vscode,ptah-electron`
