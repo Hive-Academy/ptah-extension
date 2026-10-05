@@ -10,6 +10,7 @@ import {
   classifyLaneState,
   formatLocalAbsolute,
   formatSourceChips,
+  ownerDisplayLabel,
   ownerRelation,
   PLAN_LIMIT_SOURCE_LABELS,
   windowModelScope,
@@ -257,14 +258,15 @@ function laneSubgroup(
   const chip = lastKnown?.chip ?? LANE_STATE_CHIPS[result.state];
   const cooldown =
     limits && !same ? activeCooldown(limits, ctx.now) : undefined;
+  // The suffixed owner label so two owners of one provider are told apart.
   const ownerText =
     relation === 'same'
       ? 'Same account as this session · see plan tiles'
       : relation === 'different'
-        ? `Different owner · ${owner.label}`
+        ? `Different owner · ${ownerDisplayLabel(owner)}`
         : session.owner
-          ? `Unknown owner · cannot be compared with this session's account; showing ${owner.label} only`
-          : `Unknown owner · this session's account is not resolved; showing ${owner.label} only`;
+          ? `Unknown owner · cannot be compared with this session's account; showing ${ownerDisplayLabel(owner)} only`
+          : `Unknown owner · this session's account is not resolved; showing ${ownerDisplayLabel(owner)} only`;
   return {
     state: result.state,
     chip,
@@ -414,7 +416,7 @@ function ownerStatusNote(
     case 'no-usage-source':
       return {
         tone: 'neutral',
-        text: `No usage source · ${snapshot.owner.label} does not report plan usage`,
+        text: `No usage source · ${ownerDisplayLabel(snapshot.owner)} does not report plan usage`,
       };
     case 'stale':
       return {

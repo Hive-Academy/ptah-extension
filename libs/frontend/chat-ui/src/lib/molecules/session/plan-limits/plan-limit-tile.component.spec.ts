@@ -20,10 +20,10 @@ function windowTile(
   overrides: Partial<PlanLimitTileModel> = {},
 ): PlanLimitTileModel {
   return {
-    id: 'plan:claude-cli#account:aaa:five_hour',
+    id: 'plan:claude-cli#account:0123456789abcdef:five_hour',
     kind: 'window',
     label: '5-hour',
-    caption: 'Claude plan limit',
+    caption: 'Claude account · cdef plan limit',
     value: '94% used',
     resetLine: 'resets 15:10 · in 3h 10m',
     chip: NEAR_WINDOW.chip,
@@ -92,12 +92,33 @@ describe('PlanLimitTileComponent', () => {
     const face = button(root).textContent ?? '';
 
     expect(face).toContain('5-hour');
-    expect(face).toContain('Claude plan limit');
+    expect(face).toContain('Claude account · cdef plan limit');
     expect(face).toContain('94% used');
     expect(face).toContain('resets 15:10 · in 3h 10m');
     expect(face).toContain('Near limit');
     expect(face).toContain('used · reset Provider API');
     expect(face).toContain('limit From error');
+  });
+
+  it('truncates the closed caption to one line and titles the full text', () => {
+    const root = render(windowTile());
+    const caption = button(root).querySelector(
+      '[data-testid="plan-limit-caption"]',
+    );
+
+    expect(caption?.classList.contains('truncate')).toBe(true);
+    expect(caption?.getAttribute('title')).toBe(
+      'Claude account · cdef plan limit',
+    );
+
+    // An open tile spans both columns, so its caption may keep wrapping.
+    fixture.componentRef.setInput('open', true);
+    fixture.detectChanges();
+
+    expect(caption?.classList.contains('truncate')).toBe(false);
+    expect(caption?.getAttribute('title')).toBe(
+      'Claude account · cdef plan limit',
+    );
   });
 
   it('hides the chip glyph and the chevron from assistive technology', () => {
@@ -123,18 +144,28 @@ describe('PlanLimitTileComponent', () => {
     expect(button(root).getAttribute('aria-expanded')).toBe('false');
   });
 
-  it('when open, spans the grid and shows the meter with the printed value', () => {
+  it('when open, spans the grid and shows the facts the face does not have', () => {
     const root = render(windowTile(), true);
-    const meter = root.querySelector('[role="meter"]');
+    const text = panel(root).textContent ?? '';
 
     expect(button(root).getAttribute('aria-expanded')).toBe('true');
     expect(panel(root).hidden).toBe(false);
     expect(root.classList.contains('col-span-full')).toBe(true);
-    expect(meter?.getAttribute('aria-valuenow')).toBe('94');
-    expect(meter?.getAttribute('aria-label')).toBe('5-hour used');
-    expect(panel(root).textContent).toContain(
-      'Resets today 15:10 UTC · in 3h 10m',
-    );
+    expect(text).toContain('Resets today 15:10 UTC · in 3h 10m');
+  });
+
+  it('when open, the panel never repeats the face summary', () => {
+    const root = render(windowTile(), true);
+    const text = panel(root).textContent ?? '';
+
+    // The face already shows the label, value, chip and source chips, so the
+    // panel shows only the reset facts (previous test).
+    expect(text).not.toContain('5-hour');
+    expect(text).not.toContain('94% used');
+    expect(text).not.toContain('Near limit');
+    expect(text).not.toContain('used · reset Provider API');
+    expect(text).not.toContain('limit From error');
+    expect(root.querySelector('[role="meter"]')).toBeNull();
   });
 
   it('never draws a meter for an unknown used value (unknown is never 0)', () => {
@@ -151,7 +182,6 @@ describe('PlanLimitTileComponent', () => {
     );
 
     expect(root.querySelector('[role="meter"]')).toBeNull();
-    expect(panel(root).textContent).toContain('Used: unknown');
     expect(panel(root).textContent).not.toMatch(/\b0%/);
   });
 

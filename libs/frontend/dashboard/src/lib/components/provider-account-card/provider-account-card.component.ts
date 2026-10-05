@@ -35,6 +35,7 @@ import {
   FRESHNESS_MS,
   isActiveLimitEvidence,
   NEAR_LIMIT_PERCENT,
+  ownerDisplayLabel,
   PLAN_LIMIT_SOURCE_LABELS,
   resetPassage,
   usedPercent,
@@ -508,7 +509,9 @@ function buildOwnerSection(
   const hasData = owner.windows.length > 0 || owner.ownerEvidence.length > 0;
   return {
     key: owner.owner.key,
-    label: owner.owner.label,
+    // The generic label plus the key suffix ("Claude account · a1b2") so two
+    // owners of one provider are told apart; never the full key.
+    label: ownerDisplayLabel(owner.owner),
     subtitle: subtitleFor(owner),
     statusChip:
       owner.status === 'available' || owner.status === 'no-usage-source'

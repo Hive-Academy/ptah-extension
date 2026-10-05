@@ -129,13 +129,13 @@ function ownerRef(
 }
 
 /** The session's own account. */
-export const CLAUDE_A = ownerRef('claude-cli', 'account', 'aaa', 'Claude account');
+export const CLAUDE_A = ownerRef('claude-cli', 'account', '5e0c4f1a9b2da1b2', 'Claude account');
 /** Same provider, another account: a restored run recorded before an account switch. */
-export const CLAUDE_B = ownerRef('claude-cli', 'account', 'bbb', 'Claude account');
+export const CLAUDE_B = ownerRef('claude-cli', 'account', 'c7d3e8a40f6b9e47', 'Claude account');
 /** Another provider's account. */
-export const CODEX = ownerRef('openai-codex', 'cli-store', 'ccc', 'Codex account');
+export const CODEX = ownerRef('openai-codex', 'cli-store', '08f2b6d1c3a5c0de', 'Codex account');
 /** Identity could not be determined (a proxy route). */
-export const PROXY = ownerRef('unknown', 'unknown', 'ppp', 'Unknown owner');
+export const PROXY = ownerRef('unknown', 'unknown', '9a1b7c2e4d6f0e31', 'Unknown owner');
 
 // ---------------------------------------------------------------------------
 // Windows
@@ -568,7 +568,7 @@ export const EXPECTED_LANE_TILES = 5;
  * changes the chat surface's owner-key scope, which is the chat view's only
  * trigger for a new `provider:getPlanLimits` pull (it has no Refresh button).
  */
-const CODEX_SECOND = ownerRef('openai-codex', 'cli-store', 'ddd', 'Codex account');
+const CODEX_SECOND = ownerRef('openai-codex', 'cli-store', '3b8e0a6f2c9d4f19', 'Codex account');
 
 /** Spawn that makes the chat surface pull once more (the refresh-failed state). */
 export const PULL_TRIGGER_MESSAGE: HostMessage = {
