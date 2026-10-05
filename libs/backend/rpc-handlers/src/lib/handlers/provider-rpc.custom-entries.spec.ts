@@ -129,7 +129,9 @@ function buildSuite(activeProviderId = 'anthropic'): Suite {
     recorder,
     {
       snapshot: jest.fn(),
-      ownerSnapshotForProvider: jest.fn(async () => undefined),
+      ownerSnapshotForProvider: jest.fn(async () => ({
+        kind: 'no-owner' as const,
+      })),
     },
   );
   handlers.register();

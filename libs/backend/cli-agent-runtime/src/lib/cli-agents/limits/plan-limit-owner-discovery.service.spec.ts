@@ -83,9 +83,8 @@ function createHarness(active: ActiveAuth): Harness {
     ownerForPtahCli: jest.fn(async () => GLM_LANE),
     ownerForClaudeAccount: jest.fn(() => CLAUDE_UNKNOWN),
     ownerForCodexHome: jest.fn(() => CODEX_A),
-    ownerForCliStore: jest.fn((cli: string) =>
-      cli === 'opencode' ? OPENCODE : ANTIGRAVITY,
-    ),
+    ownerForCliStore: jest.fn(() => OPENCODE),
+    ownerForAntigravity: jest.fn(() => ANTIGRAVITY),
     ownerForSession: jest.fn(async () => CLAUDE_A),
   } as unknown as jest.Mocked<DiscoveryOwnerSource>;
   const ledger = {
@@ -130,7 +129,10 @@ const providerOf = (entry: DiscoveredPlanOwner): string =>
     ? entry.target.ownerRef.providerId
     : entry.snapshot.owner.providerId;
 
-const CLAUDE_CLI: ActiveAuth = { authMethod: 'claudeCli', providerId: 'anthropic' };
+const CLAUDE_CLI: ActiveAuth = {
+  authMethod: 'claudeCli',
+  providerId: 'anthropic',
+};
 const THIRD_PARTY = (providerId: string): ActiveAuth => ({
   authMethod: 'thirdParty',
   providerId,
@@ -159,6 +161,9 @@ describe('PlanLimitOwnerDiscoveryService', () => {
     expect(entries[0]).toEqual(
       expect.objectContaining({ origin: 'selected-provider' }),
     );
+    expect(h.owners.ownerForAntigravity).toHaveBeenCalledTimes(1);
+    expect(h.owners.ownerForCliStore).toHaveBeenCalledWith('opencode');
+    expect(h.owners.ownerForCliStore).not.toHaveBeenCalledWith('antigravity');
   });
 
   it('F81: selected claude-cli is a Claude subscription read through the probe handle, with no credential', async () => {
@@ -423,6 +428,47 @@ describe('PlanLimitOwnerDiscoveryService', () => {
     }
   });
 
+  it('reports selected-provider timeout as unavailable and releases its timer', async () => {
+    jest.useFakeTimers();
+    try {
+      const h = createHarness(THIRD_PARTY('ollama-cloud'));
+      h.owners.ownerForProviderKey.mockImplementation(
+        () => new Promise<QuotaOwnerRef>(() => undefined),
+      );
+      const pending = h.service.discoverSelectedProvider('ollama-cloud');
+      await jest.advanceTimersByTimeAsync(LIMIT_LOOKUP_DEADLINE_MS);
+      await expect(pending).resolves.toEqual({ kind: 'unavailable' });
+      expect(jest.getTimerCount()).toBe(0);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('reports selected-provider throw as unavailable', async () => {
+    const h = createHarness(THIRD_PARTY('ollama-cloud'));
+    h.owners.ownerForProviderKey.mockRejectedValue(
+      new Error('store unavailable'),
+    );
+
+    await expect(
+      h.service.discoverSelectedProvider('ollama-cloud'),
+    ).resolves.toEqual({
+      kind: 'unavailable',
+    });
+  });
+
+  it('reports an unsupported selected route as an owner outcome, never as unavailable', async () => {
+    const h = createHarness(THIRD_PARTY('openrouter'));
+
+    await expect(h.service.discoverSelectedProvider('z-ai')).resolves.toEqual({
+      kind: 'owner',
+      entry: expect.objectContaining({
+        origin: 'selected-provider',
+        snapshot: expect.objectContaining({ status: 'provider-unsupported' }),
+      }),
+    });
+  });
+
   it('a source that never settles is dropped alone at the lookup deadline, timers released', async () => {
     jest.useFakeTimers();
     try {
@@ -548,14 +594,12 @@ describe('PlanLimitOwnerDiscoveryService', () => {
 
     expect(entries.map(ownerKeyOf)).toEqual([CODEX_A.key, GLM_LANE.key]);
     const dropped = h.logger.debug.mock.calls
-      .filter(([message]) => message === '[PlanLimitOwnerDiscovery] source dropped')
+      .filter(
+        ([message]) => message === '[PlanLimitOwnerDiscovery] source dropped',
+      )
       .map(([, meta]) => (meta as { source: string }).source);
-    expect(dropped).toEqual(
-      expect.arrayContaining(['detection', 'session']),
-    );
-    expect(JSON.stringify(h.logger.debug.mock.calls)).not.toContain(
-      '/home/x',
-    );
+    expect(dropped).toEqual(expect.arrayContaining(['detection', 'session']));
+    expect(JSON.stringify(h.logger.debug.mock.calls)).not.toContain('/home/x');
   });
 
   it('a throwing selected-provider resolution still lists the other sources', async () => {
@@ -584,8 +628,16 @@ describe('PlanLimitOwnerDiscoveryService', () => {
     }
 
     it.each<[string, PlanCredentialResolution, string]>([
-      ['missing', { kind: 'unavailable', status: 'unsupported-config' }, 'unsupported-config'],
-      ['placeholder', { kind: 'unavailable', status: 'unsupported-auth' }, 'unsupported-auth'],
+      [
+        'missing',
+        { kind: 'unavailable', status: 'unsupported-config' },
+        'unsupported-config',
+      ],
+      [
+        'placeholder',
+        { kind: 'unavailable', status: 'unsupported-auth' },
+        'unsupported-auth',
+      ],
     ])(
       'a %s Glm key is still listed and reads %s',
       async (_name, resolution, status) => {

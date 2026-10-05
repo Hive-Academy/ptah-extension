@@ -18,9 +18,11 @@
  * the `ProviderOwnerResolver` class wraps them for DI callers.
  */
 import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { inject, injectable } from 'tsyringe';
+import { z } from 'zod';
 import { OLLAMA_CLOUD_DIRECT_BASE_URL } from '@ptah-extension/shared';
 import {
   Logger,
@@ -107,6 +109,33 @@ export type ClaudeAccountInfo = Awaited<
 
 /** CLIs whose quota owner is the CLI's own credential store. */
 export type CliStoreOwner = 'opencode' | 'antigravity';
+
+const GeminiAccountsSchema = z.object({ active: z.string() });
+
+type FileReader = (path: string, encoding: BufferEncoding) => string;
+
+/**
+ * The active Gemini account email, lowercased (Google treats addresses
+ * case-insensitively), if the local account file is usable.
+ */
+export function readActiveGeminiAccount(
+  root: string,
+  read: FileReader = readFileSync,
+): string | null {
+  try {
+    const parsed = GeminiAccountsSchema.safeParse(
+      JSON.parse(read(join(root, 'google_accounts.json'), 'utf8')),
+    );
+    const active = parsed.success
+      ? parsed.data.active.trim().toLowerCase()
+      : '';
+    return active || null;
+  } catch {
+    // degradation-audit: optional-capability - no readable active-account
+    // file means the CLI credential store remains the owner.
+    return null;
+  }
+}
 
 /**
  * `fp`: the first 16 lowercase hex characters of SHA-256 over the domain tag
@@ -345,6 +374,23 @@ export class ProviderOwnerResolver {
   /** A CLI whose quota follows its own on-disk credential store. */
   ownerForCliStore(cli: CliStoreOwner): QuotaOwnerRef {
     return quotaOwnerRefFromKey(cliStoreOwnerKey(cli, cliStorePath(cli)));
+  }
+
+  /**
+   * The active Gemini account, or its credential-store owner when unavailable.
+   * Assumes Antigravity is signed in to the same Google account as the Gemini
+   * CLI on this root; the language server's own account field (`GetUserStatus`)
+   * replaces this once its payload is confirmed (TASK_2026_615 follow-up).
+   */
+  ownerForAntigravity(): QuotaOwnerRef {
+    const root = cliStorePath('antigravity');
+    const active = readActiveGeminiAccount(root);
+    if (active) {
+      return quotaOwnerRefFromKey(
+        accountOwnerKey('antigravity', `${root}\0${active}`),
+      );
+    }
+    return this.ownerForCliStore('antigravity');
   }
 
   /**
