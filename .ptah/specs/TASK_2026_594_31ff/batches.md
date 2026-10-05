@@ -1,6 +1,6 @@
 # Batches - TASK_2026_594_31ff
 
-Total tasks: 34 | Batches: 12 | Waves: 4 | Complete: 10/12
+Total tasks: 34 | Batches: 12 | Waves: 4 | Complete: 11/12
 
 Worktree root (W): `D:/projects/ptah-extension/.claude-worktrees/task-594-status-kinds`, branch
 `feat/task-594-status-kinds`. All paths below are absolute. Source: implementation-plan.md
@@ -668,7 +668,7 @@ plus the trailer.
 Batch 9 needs Batch 5. Batch 10 needs Batches 7 and 8. Batch 11 needs Batch 6. All three are
 file-disjoint and can run together once Wave 2 is committed.
 
-## Batch 9: Shared contract, validator and budget regressions (plan B) — COMPLETE
+## Batch 9: Shared contract, validator and budget regressions (plan B) — COMPLETE (commit 180e2038b)
 
 - Recommended executor: CLI lane `Glm`
 - Fallback executor: backend-developer subagent
@@ -798,7 +798,7 @@ existing eager/lazy boundary is unchanged by construction; the eager-closure gat
 with Task 12.2. `npx nx run-many -t typecheck,test,lint -p declarative-dashboard
 --skip-nx-cache`: green, no exclusions. Report: `batch-10-report.md`.
 
-## Batch 11: Skill catalog reference, prompt pointer, catalog-reference spec (plan F) — IN_PROGRESS
+## Batch 11: Skill catalog reference, prompt pointer, catalog-reference spec (plan F) — COMPLETE
 
 - Recommended executor: CLI lane `Glm`
 - Fallback executor: backend-developer subagent
@@ -809,7 +809,7 @@ with Task 12.2. `npx nx run-many -t typecheck,test,lint -p declarative-dashboard
 - AC: 12, 14
 - Phase: status-kinds
 
-### Task 11.1: Apps prompt pointer — IN_PROGRESS
+### Task 11.1: Apps prompt pointer — COMPLETE
 
 - Files: MODIFY
   `D:/projects/ptah-extension/.claude-worktrees/task-594-status-kinds/libs/frontend/mcp-apps-page/src/lib/apps-system-prompt.ts`;
@@ -823,7 +823,7 @@ with Task 12.2. `npx nx run-many -t typecheck,test,lint -p declarative-dashboard
   - The spec parses that one line into exact tokens and asserts set equality with
     `SURFACE_COMPONENT_KINDS`.
 
-### Task 11.2: Skill link and `references/catalog.md` — IN_PROGRESS
+### Task 11.2: Skill link and `references/catalog.md` — COMPLETE
 
 - Files: MODIFY
   `D:/projects/ptah-extension/.claude-worktrees/task-594-status-kinds/apps/ptah-extension-vscode/assets/plugins/ptah-core/skills/ptah-surface-authoring/SKILL.md`;
@@ -839,7 +839,7 @@ with Task 12.2. `npx nx run-many -t typecheck,test,lint -p declarative-dashboard
   - No daisyUI class names.
 - Validation notes: do NOT create `.claude/skills/ptah-surface-authoring/`.
 
-### Task 11.3: Catalog-reference spec — IN_PROGRESS
+### Task 11.3: Catalog-reference spec — COMPLETE
 
 - File: CREATE `D:/projects/ptah-extension/.claude-worktrees/task-594-status-kinds/libs/backend/vscode-lm-tools/src/lib/code-execution/surface-catalog-reference.spec.ts`
 - Plan reference: implementation-plan.md:328-335
@@ -861,6 +861,28 @@ npx nx run-many -t typecheck,test,lint -p mcp-apps-page,vscode-lm-tools
 
 Commit: `feat(mcp-apps-page): point Apps agents to the ptah-surface-authoring catalog reference`,
 plus the trailer.
+
+Batch 11 result (2026-10-05, team-leader): PASSED.
+
+- Provenance: the Glm CLI lane wrote all five files. The lane ended before it verified them, and
+  a resume failed (0 turns), so the lane was dropped per agent-lanes §5. A frontend-developer
+  subagent then verified the files without changing them and wrote `batch-11-report.md`.
+- Verified on disk:
+  - `apps-system-prompt.ts`: one pointer line builds its kind list from
+    `SURFACE_COMPONENT_KINDS.join(', ')`, and the selectable-items line includes badges.
+  - `apps-system-prompt.spec.ts`: the kind list is checked as exact tokens with set equality.
+  - `catalog.md`: 19 `###` kind headings, each with one `json` fence.
+  - `SKILL.md`: one link added; the frontmatter is unchanged.
+  - `surface-catalog-reference.spec.ts`: examples are keyed by exact heading, with a count check
+    and set equality against `SURFACE_COMPONENT_KINDS`. Each example's `kind` must match its
+    heading, and each example must pass `validateSurfaceDocument` inside a `dashboard-spec/2` +
+    `dashboard-catalog/3` envelope.
+  - Only these five files changed outside the task folder.
+- Checks:
+  - `npx nx run-many -t typecheck,test,lint -p mcp-apps-page vscode-lm-tools`: green (4 of 6
+    targets came from the cache on unchanged inputs).
+  - Both test suites were also re-run with `--skip-nx-cache`: vscode-lm-tools 2848/2848 passed
+    and mcp-apps-page 291/291 passed.
 
 ---
 
