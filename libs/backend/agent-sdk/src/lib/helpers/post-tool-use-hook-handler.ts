@@ -14,6 +14,16 @@ import { resolveHookSessionId } from './hook-session-resolver';
 import type { ToolOutputCapper } from './compaction/tool-output-capper';
 import { PostToolUseCallbackRegistry } from './post-tool-use-callback-registry';
 
+/**
+ * Upper bound for one output cap. The SDK's hook timeout defaults to 60 s; a
+ * slow outline must give the tool result back long before that, so past this
+ * bound the hook returns the original output (fail-open).
+ */
+export const POST_TOOL_USE_CAP_TIMEOUT_MS = 10_000;
+
+/** Why the cap did not finish: the bound passed or the SDK aborted the hook. */
+type CapInterruption = 'timeout' | 'aborted';
+
 function extractExitCode(toolResponse: unknown): number | null {
   if (toolResponse === null || typeof toolResponse !== 'object') {
     return null;
@@ -67,12 +77,16 @@ export class PostToolUseHookHandler {
             async (
               input: HookInput,
               _toolUseId: string | undefined,
-              _options: { signal: AbortSignal },
+              options: { signal: AbortSignal },
             ): Promise<HookJSONOutput> => {
               if (!isPostToolUseHook(input)) {
                 return { continue: true };
               }
-              const cappedOutput = await this.capToolOutput(input, cwd);
+              const cappedOutput = await this.capToolOutput(
+                input,
+                cwd,
+                options.signal,
+              );
               this.fanOut(input, sessionId, cwd);
               if (cappedOutput === input.tool_response) {
                 return { continue: true };
@@ -93,22 +107,45 @@ export class PostToolUseHookHandler {
 
   /**
    * Runs the output capper. Returns the original `tool_response` object when
-   * nothing changed; fail-open — a capper error never breaks the hook.
+   * nothing changed; fail-open — a capper error, a cap that outlives
+   * `POST_TOOL_USE_CAP_TIMEOUT_MS` or an aborted hook never breaks the hook
+   * and never holds the tool result.
    */
   private async capToolOutput(
     input: PostToolUseHookInput,
     cwd: string,
+    signal: AbortSignal,
   ): Promise<unknown> {
-    if (!this.capper) {
+    const capper = this.capper;
+    if (!capper) {
       return input.tool_response;
     }
+    if (signal.aborted) {
+      this.logInterruption('aborted', input.tool_name);
+      return input.tool_response;
+    }
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let onAbort: (() => void) | undefined;
+    const interruption = new Promise<CapInterruption>((resolve) => {
+      timer = setTimeout(() => resolve('timeout'), POST_TOOL_USE_CAP_TIMEOUT_MS);
+      timer.unref?.();
+      onAbort = () => resolve('aborted');
+      signal.addEventListener('abort', onAbort, { once: true });
+    });
     try {
-      return await this.capper.cap(
-        input.tool_name,
-        input.tool_input,
-        input.tool_response,
-        cwd,
-      );
+      // The capper keeps running after an interruption; its late result (or
+      // rejection) is ignored — the race has already settled.
+      const outcome = await Promise.race([
+        capper
+          .cap(input.tool_name, input.tool_input, input.tool_response, cwd)
+          .then((output) => ({ output })),
+        interruption,
+      ]);
+      if (typeof outcome === 'string') {
+        this.logInterruption(outcome, input.tool_name);
+        return input.tool_response;
+      }
+      return outcome.output;
     } catch (error: unknown) {
       this.logger.warn(
         '[PostToolUseHookHandler] output capper threw, ignoring',
@@ -118,7 +155,26 @@ export class PostToolUseHookHandler {
         },
       );
       return input.tool_response;
+    } finally {
+      clearTimeout(timer);
+      if (onAbort) {
+        signal.removeEventListener('abort', onAbort);
+      }
     }
+  }
+
+  private logInterruption(reason: CapInterruption, toolName: string): void {
+    if (reason === 'timeout') {
+      this.logger.warn(
+        '[PostToolUseHookHandler] output capper exceeded its time bound, keeping the original output',
+        { toolName, timeoutMs: POST_TOOL_USE_CAP_TIMEOUT_MS },
+      );
+      return;
+    }
+    this.logger.debug(
+      '[PostToolUseHookHandler] hook aborted before the output cap finished, keeping the original output',
+      { toolName },
+    );
   }
 
   private fanOut(

@@ -3,7 +3,10 @@ import 'reflect-metadata';
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { HookInput } from '../types/sdk-types/claude-sdk.types';
 import { PostToolUseCallbackRegistry } from './post-tool-use-callback-registry';
-import { PostToolUseHookHandler } from './post-tool-use-hook-handler';
+import {
+  POST_TOOL_USE_CAP_TIMEOUT_MS,
+  PostToolUseHookHandler,
+} from './post-tool-use-hook-handler';
 
 function makeLogger(): jest.Mocked<Logger> {
   return {
@@ -301,6 +304,105 @@ describe('PostToolUseHookHandler', () => {
       const cap = jest.fn().mockRejectedValue(new Error('boom'));
       expect(await run(cap, logger)).toEqual({ continue: true });
       expect(logger.warn).toHaveBeenCalled();
+    });
+
+    // TASK_2026_614 D.12 A-m8: the cap is bounded in time and honours the
+    // hook's abort signal, so a stalled outline never holds the tool result.
+    describe('time bound and abort signal', () => {
+      const callWith = (
+        cap: jest.Mock,
+        logger: jest.Mocked<Logger>,
+        signal: AbortSignal,
+      ) => {
+        const registry = new PostToolUseCallbackRegistry(logger);
+        const handler = new PostToolUseHookHandler(logger, registry, {
+          cap,
+        } as never);
+        return getHookCallback(handler, 'sess-1', '/ws')(input, undefined, {
+          signal,
+        }) as Promise<unknown>;
+      };
+
+      afterEach(() => {
+        jest.useRealTimers();
+      });
+
+      it('a capper that never resolves yields the original output after the bound, with one warn', async () => {
+        jest.useFakeTimers();
+        const logger = makeLogger();
+        const cap = jest.fn(() => new Promise<unknown>(() => undefined));
+        let settled: unknown = 'pending';
+        const pending = callWith(
+          cap,
+          logger,
+          new AbortController().signal,
+        ).then((result) => {
+          settled = result;
+        });
+
+        await jest.advanceTimersByTimeAsync(POST_TOOL_USE_CAP_TIMEOUT_MS - 1);
+        expect(settled).toBe('pending');
+
+        await jest.advanceTimersByTimeAsync(1);
+        await pending;
+        expect(settled).toEqual({ continue: true });
+        expect(logger.warn).toHaveBeenCalledTimes(1);
+        expect(logger.warn).toHaveBeenCalledWith(
+          expect.stringContaining('exceeded its time bound'),
+          { toolName: 'Bash', timeoutMs: POST_TOOL_USE_CAP_TIMEOUT_MS },
+        );
+        expect(jest.getTimerCount()).toBe(0);
+      });
+
+      it('an already aborted signal returns the original output at once without calling the capper', async () => {
+        const logger = makeLogger();
+        const cap = jest.fn().mockResolvedValue({ stdout: 'capped' });
+        const controller = new AbortController();
+        controller.abort();
+
+        expect(await callWith(cap, logger, controller.signal)).toEqual({
+          continue: true,
+        });
+        expect(cap).not.toHaveBeenCalled();
+        expect(logger.debug).toHaveBeenCalledTimes(1);
+      });
+
+      it('an abort while the capper runs returns the original output at once and releases the listener', async () => {
+        jest.useFakeTimers();
+        const logger = makeLogger();
+        const cap = jest.fn(() => new Promise<unknown>(() => undefined));
+        const controller = new AbortController();
+        const removeSpy = jest.spyOn(controller.signal, 'removeEventListener');
+        const pending = callWith(cap, logger, controller.signal);
+
+        controller.abort();
+
+        expect(await pending).toEqual({ continue: true });
+        expect(cap).toHaveBeenCalledTimes(1);
+        expect(removeSpy).toHaveBeenCalledWith('abort', expect.any(Function));
+        expect(jest.getTimerCount()).toBe(0);
+        expect(logger.warn).not.toHaveBeenCalled();
+      });
+
+      it('a capper that finishes inside the bound clears its timer', async () => {
+        jest.useFakeTimers();
+        const cap = jest.fn().mockResolvedValue({ stdout: 'capped' });
+
+        const result = await callWith(
+          cap,
+          makeLogger(),
+          new AbortController().signal,
+        );
+
+        expect(result).toEqual({
+          continue: true,
+          hookSpecificOutput: {
+            hookEventName: 'PostToolUse',
+            updatedToolOutput: { stdout: 'capped' },
+          },
+        });
+        expect(jest.getTimerCount()).toBe(0);
+      });
     });
   });
 });

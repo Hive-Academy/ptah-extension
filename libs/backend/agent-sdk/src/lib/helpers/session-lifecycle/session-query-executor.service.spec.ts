@@ -754,7 +754,7 @@ describe('SessionQueryExecutor — compaction coordinator wiring (TASK_2026_597 
     const readAtTurnEnd = jest.fn().mockResolvedValue(reading);
     const release = jest.fn();
     return {
-      port: { readAtTurnEnd, release, getLast: jest.fn() },
+      port: { readAtTurnEnd, release, getLast: jest.fn(), rekey: jest.fn() },
       readAtTurnEnd,
       release,
     };
@@ -1227,6 +1227,7 @@ describe('SessionQueryExecutor — compaction coordinator wiring (TASK_2026_597 
       readAtTurnEnd,
       getLast: jest.fn(),
       release: jest.fn(),
+      rekey: jest.fn(),
     };
     const { executor } = makeHarness('ask', {} as AuthEnv, {
       coordinator,

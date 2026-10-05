@@ -38,6 +38,11 @@ import type { CompactionCallbackRegistry } from './compaction-callback-registry'
 import type { SdkAdapterEvents } from './sdk-adapter-events.service';
 import type { CompactionBoundaryGenerationRegistry } from './compaction-boundary-generation-registry';
 import type { CompactionCoordinator } from './compaction/compaction-coordinator';
+import type { IContextUsagePort } from './compaction/context-usage.port';
+import type { SubagentBudgetMonitor } from './compaction/subagent-budget-monitor';
+
+/** The session-keyed per-session state PostCompact moves to the new id. */
+type PostCompactRekeyTarget = Pick<IContextUsagePort, 'rekey'>;
 
 /**
  * Callback type for notifying when compaction starts
@@ -144,7 +149,45 @@ export class CompactionHookHandler {
      */
     @inject(SDK_TOKENS.SDK_COMPACTION_COORDINATOR)
     private readonly compactionCoordinator?: CompactionCoordinator,
+    /**
+     * The per-turn context reader and the subagent budget monitor key their
+     * state by session id; PostCompact moves it to the new id next to the
+     * coordinator rebind. Fail-open with one warn each. The monitor factory
+     * resolves the dispatcher lazily, so constructing it here adds no cycle.
+     */
+    @inject(SDK_TOKENS.SDK_CONTEXT_USAGE_PORT)
+    private readonly contextUsagePort?: IContextUsagePort,
+    @inject(SDK_TOKENS.SDK_SUBAGENT_BUDGET_MONITOR)
+    private readonly subagentBudgetMonitor?: SubagentBudgetMonitor,
   ) {}
+
+  /**
+   * Move the port's and the monitor's session state from the id this
+   * compaction was opened under to the PostCompact id. Each target is
+   * independent: one that throws is logged once and never stops the other.
+   */
+  private rekeySessionState(fromSessionId: string, toSessionId: string): void {
+    const targets: ReadonlyArray<
+      readonly [string, PostCompactRekeyTarget | undefined]
+    > = [
+      ['context-usage-port', this.contextUsagePort],
+      ['subagent-budget-monitor', this.subagentBudgetMonitor],
+    ];
+    for (const [name, target] of targets) {
+      if (!target) continue;
+      try {
+        target.rekey(fromSessionId, toSessionId);
+      } catch (error: unknown) {
+        this.logger.warn(
+          '[CompactionHookHandler] PostCompact rekey failed, keeping the old session id',
+          {
+            target: name,
+            error: error instanceof Error ? error.message : String(error),
+          },
+        );
+      }
+    }
+  }
 
   /** Forward a hook event to the coordinator; one warn line on failure. */
   private notifyCoordinator(
@@ -489,6 +532,10 @@ export class CompactionHookHandler {
                       postFallbackSessionId,
                       postPayloadSessionId,
                     ),
+                  );
+                  this.rekeySessionState(
+                    postFallbackSessionId,
+                    postPayloadSessionId,
                   );
                 }
                 if (sdkAdapterEvents) {
