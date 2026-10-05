@@ -1,73 +1,60 @@
-/**
- * Conservative reader for the provisional local Antigravity LS endpoint.
- *
- * - One deadline ({@link ANTIGRAVITY_USAGE_TIMEOUT_MS}) covers process
- *   discovery and the local request together, and the caller's signal ends
- *   either step at once.
- * - The server is the process whose executable (first argv element) is an
- *   Antigravity language server. Several different (port, token) pairs are
- *   ambiguous and answer `service-unavailable` rather than pick one.
- * - The payload does not say a window's period, so each model's window is
- *   labelled by position (`windowKindFromDuration` with no duration), never
- *   asserted to be weekly.
- */
 import { execFile } from 'node:child_process';
-import type { ClientRequest, IncomingMessage } from 'node:http';
-import { request as httpsRequest, Agent } from 'node:https';
+import {
+  request as httpRequest,
+  Agent as HttpAgent,
+  type ClientRequest,
+  type IncomingMessage,
+} from 'node:http';
+import { request as httpsRequest, Agent as HttpsAgent } from 'node:https';
 import { promisify } from 'node:util';
-import { z } from 'zod';
 import type { Logger } from '@ptah-extension/vscode-core';
 import {
   windowKindFromDuration,
   type PlanLimitWindow,
+  type QuotaOwnerRef,
 } from '@ptah-extension/shared';
+import { observeAntigravityAccount } from '../provider-owner.resolver';
 import {
+  ANTIGRAVITY_CONNECT_PROTOCOL_VERSION,
   ANTIGRAVITY_CSRF_ARGUMENT,
   ANTIGRAVITY_CSRF_HEADER,
-  ANTIGRAVITY_PORT_ARGUMENT,
+  ANTIGRAVITY_EXTENSION_CSRF_ARGUMENT,
+  ANTIGRAVITY_EXTENSION_PORT_ARGUMENT,
   ANTIGRAVITY_POSIX_PROCESS_ARGS,
   ANTIGRAVITY_PROCESS_MARKER,
   ANTIGRAVITY_PRODUCT_MARKER,
+  ANTIGRAVITY_REQUEST_BODY,
   ANTIGRAVITY_STATUS_PATH,
   ANTIGRAVITY_WINDOWS_PROCESS_ARGS,
+  AntigravityStatusSchema,
 } from './antigravity-ls.provisional';
 import type {
   PlanUsageReader,
   PlanUsageReading,
 } from './plan-usage-reader.types';
 
-/** Deadline for discovery plus the local request, together. */
 export const ANTIGRAVITY_USAGE_TIMEOUT_MS = 3_000;
-/** Upper bound on the local status body. */
 export const ANTIGRAVITY_MAX_BODY_BYTES = 1_048_576;
-/** Upper bound on a remote-supplied model name in a window key and label. */
 export const ANTIGRAVITY_MAX_MODEL_LENGTH = 64;
-
-const StatusSchema = z.object({
-  models: z.record(
-    z.string(),
-    z.object({
-      remainingFraction: z.number().min(0).max(1),
-      resetTime: z.string().nullable().optional(),
-    }),
-  ),
-});
+const MAX_ATTEMPTS = 8;
+type Scheme = 'http' | 'https';
 type StatusRequest = (
+  scheme: Scheme,
   port: number,
   csrfToken: string,
   signal: AbortSignal,
 ) => Promise<unknown>;
-
-/** Local command seam: no agent-sdk barrel dependency is needed here. */
 type ProbeCommandRunner = (
   command: string,
   args: readonly string[],
   signal: AbortSignal,
 ) => Promise<string>;
-
-interface ServerCandidate {
-  readonly port: number;
-  readonly csrfToken: string;
+interface Server {
+  pid: string;
+  csrfToken: string;
+  extensionPort: number | null;
+  extensionCsrfToken: string | null;
+  ports: readonly number[];
 }
 
 export function createAntigravityPlanUsageReader(
@@ -75,55 +62,83 @@ export function createAntigravityPlanUsageReader(
   now: () => number = Date.now,
   run: ProbeCommandRunner = defaultRun,
   requestStatus: StatusRequest = defaultRequest,
+  observeAccount: (email: string | null) => string = observeAntigravityAccount,
 ): PlanUsageReader {
-  return async ({ signal }) => {
+  return async ({ signal, target }) => {
     if (signal?.aborted) return unavailable();
     const controller = new AbortController();
     const abort = () => controller.abort();
     signal?.addEventListener('abort', abort, { once: true });
     const timeout = setTimeout(abort, ANTIGRAVITY_USAGE_TIMEOUT_MS);
     try {
-      const command = process.platform === 'win32' ? 'powershell.exe' : 'ps';
-      const args =
-        process.platform === 'win32'
-          ? ANTIGRAVITY_WINDOWS_PROCESS_ARGS
-          : ANTIGRAVITY_POSIX_PROCESS_ARGS;
-      const candidate = findServer(
-        await untilAborted(
-          run(command, args, controller.signal),
-          controller.signal,
-        ),
-      );
-      if (!candidate) return unavailable();
-      const parsed = StatusSchema.safeParse(
-        await untilAborted(
-          requestStatus(candidate.port, candidate.csrfToken, controller.signal),
-          controller.signal,
-        ),
-      );
-      if (!parsed.success) {
-        const issue = parsed.error.issues[0];
-        logger.warn('[PlanUsage] provisional usage response rejected', {
-          providerId: 'antigravity',
-          fieldPath: issue?.path.map(String).join('.') ?? '',
-          reason: issue?.code ?? 'invalid',
-        });
-        return unavailable();
-      }
-      const observedAt = now();
-      const windows = Object.entries(parsed.data.models).map(
-        ([model, value], index) =>
-          toWindow(model, value, observedAt, index + 1),
-      );
-      return windows.length
-        ? {
-            status: 'available',
-            fetchedAt: observedAt,
-            windowSetEstablished: true,
-            windows,
+      const server = await discoverServer(run, controller.signal);
+      if (!server) return unavailable();
+      for (const candidate of candidates(server)) {
+        try {
+          const parsed = AntigravityStatusSchema.safeParse(
+            await untilAborted(
+              requestStatus(
+                candidate.scheme,
+                candidate.port,
+                candidate.csrfToken,
+                controller.signal,
+              ),
+              controller.signal,
+            ),
+          );
+          if (!parsed.success) {
+            const issue = parsed.error.issues[0];
+            logger.warn('[PlanUsage] provisional usage response rejected', {
+              providerId: 'antigravity',
+              fieldPath: issue?.path.map(String).join('.') ?? '',
+              reason: issue?.code ?? 'invalid',
+            });
+            continue;
           }
-        : unavailable();
+          if (
+            observeAccount(parsed.data.userStatus.email ?? null) !==
+            (target as { ownerRef?: QuotaOwnerRef }).ownerRef?.key
+          ) {
+            logger.debug(
+              '[PlanUsage] antigravity account changed; owner re-resolves',
+              { providerId: 'antigravity' },
+            );
+            return unavailable();
+          }
+          const observedAt = now();
+          const windows =
+            parsed.data.userStatus.cascadeModelConfigData.clientModelConfigs.flatMap(
+              (config, index) => {
+                if (!config.quotaInfo) return [];
+                const model = config.modelOrAlias?.model ?? config.label;
+                return model
+                  ? [
+                      toWindow(
+                        model,
+                        config.label ?? model,
+                        config.quotaInfo,
+                        observedAt,
+                        index + 1,
+                      ),
+                    ]
+                  : [];
+              },
+            );
+          return windows.length
+            ? {
+                status: 'available',
+                fetchedAt: observedAt,
+                windowSetEstablished: true,
+                windows,
+              }
+            : unavailable();
+        } catch {
+          // degradation-audit: optional-capability - another local protocol candidate may answer.
+        }
+      }
+      return unavailable();
     } catch {
+      // degradation-audit: optional-capability - local server discovery is unavailable.
       return unavailable();
     } finally {
       clearTimeout(timeout);
@@ -132,40 +147,105 @@ export function createAntigravityPlanUsageReader(
   };
 }
 
-/** `work`, or a rejection as soon as `signal` aborts, whichever comes first. */
-function untilAborted<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
-  if (signal.aborted) return Promise.reject(new Error('aborted'));
-  return new Promise<T>((resolve, reject) => {
-    const onAbort = () => reject(new Error('aborted'));
-    signal.addEventListener('abort', onAbort, { once: true });
-    work
-      .then(resolve, reject)
-      .finally(() => signal.removeEventListener('abort', onAbort));
-  });
-}
-
-/**
- * The one Antigravity language server in the process list. Each line is
- * `<pid> <command line>`; only the executable token is matched against the
- * markers, so a process that merely mentions them in its arguments is never
- * taken. Several different (port, token) pairs answer `null` (ambiguous).
- */
-function findServer(stdout: string): ServerCandidate | null {
-  const found = new Map<string, ServerCandidate>();
-  for (const line of stdout.split(/\r?\n/)) {
-    const { executable, rest } = splitExecutable(
-      line.replace(/^\s*\d+\s+/, ''),
-    );
-    if (!isAntigravityServer(executable)) continue;
-    const candidate = serverArguments(rest);
-    if (candidate) {
-      found.set(`${candidate.port}\0${candidate.csrfToken}`, candidate);
-    }
+async function discoverServer(
+  run: ProbeCommandRunner,
+  signal: AbortSignal,
+): Promise<Server | null> {
+  const processOutput = await untilAborted(
+    run(
+      process.platform === 'win32' ? 'powershell.exe' : 'ps',
+      process.platform === 'win32'
+        ? ANTIGRAVITY_WINDOWS_PROCESS_ARGS
+        : ANTIGRAVITY_POSIX_PROCESS_ARGS,
+      signal,
+    ),
+    signal,
+  );
+  const servers = parseServers(processOutput);
+  if (servers.length !== 1) return null;
+  const server = servers[0];
+  if (process.platform === 'win32') return server;
+  try {
+    return {
+      ...server,
+      ports: parseLsofPorts(
+        await untilAborted(
+          run(
+            'lsof',
+            ['-nP', '-a', '-iTCP', '-sTCP:LISTEN', '-p', server.pid, '-Fn'],
+            signal,
+          ),
+          signal,
+        ),
+      ),
+    };
+  } catch {
+    // degradation-audit: optional-capability - no local listening-port command.
+    return server;
   }
-  return found.size === 1 ? [...found.values()][0] : null;
 }
 
-/** The first argv element (quoted or not) and the arguments after it. */
+function parseServers(stdout: string): Server[] {
+  const processes = new Map<string, Server>();
+  const ports = new Map<string, number[]>();
+  for (const line of stdout.split(/\r?\n/)) {
+    const listener = /^L\s+(\d+)\s+(\d+)$/.exec(line);
+    if (listener) {
+      const port = Number(listener[2]);
+      if (validPort(port)) {
+        const values = ports.get(listener[1]) ?? [];
+        values.push(port);
+        ports.set(listener[1], values);
+      }
+      continue;
+    }
+    const match = /^\s*(?:P\s+)?(\d+)\s+(.+)$/.exec(line);
+    if (!match) continue;
+    const [pid, commandLine] = [match[1], match[2]];
+    const executable = splitExecutable(commandLine);
+    if (!isServer(executable.executable)) continue;
+    const csrfToken = argument(commandLine, ANTIGRAVITY_CSRF_ARGUMENT);
+    if (!csrfToken) continue;
+    processes.set(pid, {
+      pid,
+      csrfToken,
+      extensionPort: numericArgument(
+        commandLine,
+        ANTIGRAVITY_EXTENSION_PORT_ARGUMENT,
+      ),
+      extensionCsrfToken: argument(
+        commandLine,
+        ANTIGRAVITY_EXTENSION_CSRF_ARGUMENT,
+      ),
+      ports: [],
+    });
+  }
+  return [...processes.values()].map((server) => ({
+    ...server,
+    ports: ports.get(server.pid) ?? [],
+  }));
+}
+
+function candidates(
+  server: Server,
+): Array<{ scheme: Scheme; port: number; csrfToken: string }> {
+  const results: Array<{ scheme: Scheme; port: number; csrfToken: string }> =
+    [];
+  for (const port of server.ports) {
+    results.push(
+      { scheme: 'https', port, csrfToken: server.csrfToken },
+      { scheme: 'http', port, csrfToken: server.csrfToken },
+    );
+  }
+  if (server.extensionPort) {
+    const csrfToken = server.extensionCsrfToken ?? server.csrfToken;
+    results.push(
+      { scheme: 'http', port: server.extensionPort, csrfToken },
+      { scheme: 'https', port: server.extensionPort, csrfToken },
+    );
+  }
+  return results.slice(0, MAX_ATTEMPTS);
+}
 function splitExecutable(commandLine: string): {
   executable: string;
   rest: string;
@@ -182,49 +262,52 @@ function splitExecutable(commandLine: string): {
     ? { executable: trimmed, rest: '' }
     : { executable: trimmed.slice(0, end), rest: trimmed.slice(end) };
 }
-
-function isAntigravityServer(executable: string): boolean {
+function isServer(executable: string): boolean {
   const path = executable.toLowerCase();
-  const basename = path.split(/[\\/]/).pop() ?? '';
   return (
-    basename.includes(ANTIGRAVITY_PROCESS_MARKER) &&
+    (path.split(/[\\/]/).pop() ?? '').includes(ANTIGRAVITY_PROCESS_MARKER) &&
     path.includes(ANTIGRAVITY_PRODUCT_MARKER)
   );
 }
-
-function serverArguments(args: string): ServerCandidate | null {
-  const token = new RegExp(
-    `(?:^|\\s)${ANTIGRAVITY_CSRF_ARGUMENT}(?:=|\\s+)(?:"([^"]*)"|'([^']*)'|(\\S+))`,
+function argument(args: string, name: string): string | null {
+  const match = new RegExp(
+    '(?:^|\\s)' + name + '(?:=|\\s+)(?:"([^"]*)"|\\x27([^\\x27]*)\\x27|(\\S+))',
   ).exec(args);
-  const csrfToken = token?.[1] ?? token?.[2] ?? token?.[3];
-  const port = Number(
-    new RegExp(
-      `(?:^|\\s)${ANTIGRAVITY_PORT_ARGUMENT}(?:=|\\s+)["']?(\\d+)["']?(?=\\s|$)`,
-    ).exec(args)?.[1],
-  );
-  return csrfToken && Number.isInteger(port) && port > 0 && port < 65536
-    ? { port, csrfToken }
-    : null;
+  return match?.[1] ?? match?.[2] ?? match?.[3] ?? null;
 }
-
+function numericArgument(args: string, name: string): number | null {
+  const result = Number(argument(args, name));
+  return validPort(result) ? result : null;
+}
+function validPort(value: number): boolean {
+  return Number.isInteger(value) && value > 0 && value < 65536;
+}
+function parseLsofPorts(output: string): number[] {
+  return output.split(/\r?\n/).flatMap((line) => {
+    const port = Number(/^n.*:(\d+)$/.exec(line)?.[1]);
+    return validPort(port) ? [port] : [];
+  });
+}
 function toWindow(
   model: string,
-  value: { remainingFraction: number; resetTime?: string | null },
+  label: string,
+  quotaInfo: { remainingFraction?: number; resetTime?: string },
   observedAt: number,
   position: number,
 ): PlanLimitWindow {
   const name = model.slice(0, ANTIGRAVITY_MAX_MODEL_LENGTH);
-  // The payload states no period: a positional, neutral descriptor.
   const descriptor = windowKindFromDuration(undefined, position);
-  const reset = value.resetTime ? Date.parse(value.resetTime) : Number.NaN;
+  const reset = quotaInfo.resetTime
+    ? Date.parse(quotaInfo.resetTime)
+    : Number.NaN;
   return {
-    key: `other:model-${name}`,
+    key: ('other:model-' + name) as PlanLimitWindow['key'],
     kind: descriptor.kind,
-    label: `${descriptor.label} · ${name}`,
+    label: descriptor.label + ' · ' + label,
     modelScope: name,
     used: {
       kind: 'percent',
-      percent: Math.round((1 - value.remainingFraction) * 1000) / 10,
+      percent: Math.round((1 - (quotaInfo.remainingFraction ?? 0)) * 1000) / 10,
     },
     usedSource: 'provider-unofficial',
     usedObservedAt: observedAt,
@@ -235,7 +318,6 @@ function toWindow(
     observedAt,
   };
 }
-
 function unavailable(): PlanUsageReading {
   return {
     status: 'service-unavailable',
@@ -243,51 +325,59 @@ function unavailable(): PlanUsageReading {
     windows: [],
   };
 }
-
+function untilAborted<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) return Promise.reject(new Error('aborted'));
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(new Error('aborted'));
+    signal.addEventListener('abort', onAbort, { once: true });
+    work
+      .then(resolve, reject)
+      .finally(() => signal.removeEventListener('abort', onAbort));
+  });
+}
 const execFileAsync = promisify(execFile);
-const LOOPBACK_AGENT = new Agent({
+const HTTPS_AGENT = new HttpsAgent({
   keepAlive: false,
   rejectUnauthorized: false,
 });
+const HTTP_AGENT = new HttpAgent({ keepAlive: false });
 function defaultRun(
   command: string,
   args: readonly string[],
   signal: AbortSignal,
 ): Promise<string> {
-  return execFileAsync(command, [...args], {
-    signal,
-    windowsHide: true,
-  }).then(({ stdout }) => stdout);
+  return execFileAsync(command, [...args], { signal, windowsHide: true }).then(
+    ({ stdout }) => stdout,
+  );
 }
-
-function defaultRequest(
+export function defaultRequest(
+  scheme: Scheme,
   port: number,
   csrfToken: string,
   signal: AbortSignal,
 ): Promise<unknown> {
-  return readJsonResponse((onResponse) =>
-    httpsRequest(
+  const request = scheme === 'https' ? httpsRequest : httpRequest;
+  return readJsonResponse((onResponse) => {
+    const client = request(
       {
         hostname: '127.0.0.1',
         port,
         path: ANTIGRAVITY_STATUS_PATH,
         method: 'POST',
-        headers: { [ANTIGRAVITY_CSRF_HEADER]: csrfToken },
-        agent: LOOPBACK_AGENT,
+        headers: {
+          [ANTIGRAVITY_CSRF_HEADER]: csrfToken,
+          'Content-Type': 'application/json',
+          'Connect-Protocol-Version': ANTIGRAVITY_CONNECT_PROTOCOL_VERSION,
+        },
+        agent: scheme === 'https' ? HTTPS_AGENT : HTTP_AGENT,
         signal,
       },
       onResponse,
-    ),
-  );
+    );
+    client.write(JSON.stringify(ANTIGRAVITY_REQUEST_BODY));
+    return client;
+  });
 }
-
-/**
- * Send the request `open` creates and parse a 2xx JSON body of at most
- * `maxBytes`. Settles exactly once: on the body's end, or on any error, a
- * non-2xx status, an oversized body, or the request or response closing
- * first (a mid-body stall ended by an abort lands here). Exported for the
- * loopback spec; the transport is the caller's.
- */
 export function readJsonResponse(
   open: (onResponse: (response: IncomingMessage) => void) => ClientRequest,
   maxBytes: number = ANTIGRAVITY_MAX_BODY_BYTES,
@@ -298,7 +388,6 @@ export function readJsonResponse(
     const fail = (error: Error) => {
       if (settled) return;
       settled = true;
-      // Called only from listeners, after `request` is assigned.
       request.destroy();
       reject(error);
     };
@@ -306,18 +395,15 @@ export function readJsonResponse(
       responded = true;
       const status = response.statusCode ?? 0;
       if (status < 200 || status >= 300) {
-        fail(new Error(`status ${status}`));
+        fail(new Error('status ' + status));
         return;
       }
       const chunks: Buffer[] = [];
       let size = 0;
       response.on('data', (chunk: Buffer) => {
         size += chunk.length;
-        if (size > maxBytes) {
-          fail(new Error('response body too large'));
-          return;
-        }
-        chunks.push(chunk);
+        if (size > maxBytes) fail(new Error('response body too large'));
+        else chunks.push(chunk);
       });
       response.on('end', () => {
         if (settled) return;

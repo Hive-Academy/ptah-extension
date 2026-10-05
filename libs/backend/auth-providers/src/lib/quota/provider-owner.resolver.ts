@@ -18,7 +18,7 @@
  * the `ProviderOwnerResolver` class wraps them for DI callers.
  */
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { inject, injectable } from 'tsyringe';
@@ -63,6 +63,7 @@ const UNROUTED_PROVIDER_ID = 'unknown';
  * `PTAH_CLI_KEY_PREFIX` in cli-agent-runtime, which auth-providers cannot import.
  */
 const PTAH_CLI_KEY_PREFIX = 'ptahCli';
+const OLLAMA_CLOUD_DIRECT_HOST = new URL(OLLAMA_CLOUD_DIRECT_BASE_URL).hostname;
 
 /**
  * Values Ptah hands to the SDK in place of a real key while a local proxy or
@@ -113,6 +114,19 @@ export type CliStoreOwner = 'opencode' | 'antigravity';
 const GeminiAccountsSchema = z.object({ active: z.string() });
 
 type FileReader = (path: string, encoding: BufferEncoding) => string;
+type FileStat = (path: string) => { mtimeMs: number; size: number };
+
+const GEMINI_ACCOUNT_CACHE_TTL_MS = 5_000;
+const geminiAccountCache = new Map<
+  string,
+  {
+    checkedAt: number;
+    mtimeMs: number | null;
+    size: number | null;
+    active: string | null;
+  }
+>();
+let observedAntigravityAccount: { root: string; key: string } | undefined;
 
 /**
  * The active Gemini account email, lowercased (Google treats addresses
@@ -121,20 +135,69 @@ type FileReader = (path: string, encoding: BufferEncoding) => string;
 export function readActiveGeminiAccount(
   root: string,
   read: FileReader = readFileSync,
+  stat: FileStat = statSync,
+  now: () => number = Date.now,
 ): string | null {
+  const path = join(root, 'google_accounts.json');
+  const checkedAt = now();
+  const cached = geminiAccountCache.get(path);
+  if (cached && checkedAt - cached.checkedAt < GEMINI_ACCOUNT_CACHE_TTL_MS) {
+    return cached.active;
+  }
   try {
+    const metadata = stat(path);
+    if (
+      cached &&
+      cached.mtimeMs === metadata.mtimeMs &&
+      cached.size === metadata.size
+    ) {
+      cached.checkedAt = checkedAt;
+      return cached.active;
+    }
     const parsed = GeminiAccountsSchema.safeParse(
-      JSON.parse(read(join(root, 'google_accounts.json'), 'utf8')),
+      JSON.parse(read(path, 'utf8')),
     );
     const active = parsed.success
       ? parsed.data.active.trim().toLowerCase()
       : '';
-    return active || null;
+    const account = active || null;
+    geminiAccountCache.set(path, {
+      checkedAt,
+      mtimeMs: metadata.mtimeMs,
+      size: metadata.size,
+      active: account,
+    });
+    return account;
   } catch {
     // degradation-audit: optional-capability - no readable active-account
     // file means the CLI credential store remains the owner.
+    geminiAccountCache.set(path, {
+      checkedAt,
+      mtimeMs: null,
+      size: null,
+      active: null,
+    });
     return null;
   }
+}
+
+/**
+ * Observe the account reported by Antigravity's language server. The email is
+ * immediately converted to an opaque owner key and never leaves this module.
+ */
+export function observeAntigravityAccount(email: string | null): string {
+  const root = cliStorePath('antigravity');
+  const active = email?.trim().toLowerCase() ?? '';
+  observedAntigravityAccount = active
+    ? { root, key: accountOwnerKey('antigravity', `${root}\0${active}`) }
+    : undefined;
+  return antigravityOwnerRef().key;
+}
+
+/** Test seam for module-local account observation and account-file cache. */
+export function resetAntigravityOwnerStateForTests(): void {
+  observedAntigravityAccount = undefined;
+  geminiAccountCache.clear();
 }
 
 /**
@@ -162,13 +225,15 @@ export function credentialFromHeaders(
   headers: OwnerRequestHeaders,
 ): string | null {
   const apiKey = headerValue(headers, 'x-api-key');
-  if (apiKey) return apiKey;
+  if (apiKey) return isPlaceholderCredential(apiKey) ? null : apiKey;
   const authorization = headerValue(headers, 'authorization');
   if (!authorization) return null;
   const credential = authorization
     .replace(/^(?:bearer|basic)(?:\s+|$)/i, '')
     .trim();
-  return credential.length > 0 ? credential : null;
+  return credential.length > 0 && !isPlaceholderCredential(credential)
+    ? credential
+    : null;
 }
 
 /** `<providerId>#credential:<fp>` over the trimmed raw credential. */
@@ -279,6 +344,17 @@ export function isPlaceholderCredential(value: string): boolean {
   return PLACEHOLDER_CREDENTIALS.has(value.trim());
 }
 
+function antigravityOwnerRef(): QuotaOwnerRef {
+  const root = cliStorePath('antigravity');
+  if (observedAntigravityAccount?.root === root) {
+    return quotaOwnerRefFromKey(observedAntigravityAccount.key);
+  }
+  const active = readActiveGeminiAccount(root);
+  return active
+    ? quotaOwnerRefFromKey(accountOwnerKey('antigravity', `${root}\0${active}`))
+    : quotaOwnerRefFromKey(cliStoreOwnerKey('antigravity', root));
+}
+
 /** Secret-store slot of a Ptah CLI agent's own key (`ptahCli.<id>`). */
 export function ptahCliKeySlot(ptahCliId: string): string {
   return `${PTAH_CLI_KEY_PREFIX}.${ptahCliId}`;
@@ -377,20 +453,12 @@ export class ProviderOwnerResolver {
   }
 
   /**
-   * The active Gemini account, or its credential-store owner when unavailable.
-   * Assumes Antigravity is signed in to the same Google account as the Gemini
-   * CLI on this root; the language server's own account field (`GetUserStatus`)
-   * replaces this once its payload is confirmed (TASK_2026_615 follow-up).
+   * The Antigravity account billed by its language server when observed; then
+   * the active Gemini account file; then its credential-store owner. The
+   * language-server reply shape remains provisional.
    */
   ownerForAntigravity(): QuotaOwnerRef {
-    const root = cliStorePath('antigravity');
-    const active = readActiveGeminiAccount(root);
-    if (active) {
-      return quotaOwnerRefFromKey(
-        accountOwnerKey('antigravity', `${root}\0${active}`),
-      );
-    }
-    return this.ownerForCliStore('antigravity');
+    return antigravityOwnerRef();
   }
 
   /**
@@ -409,7 +477,7 @@ export class ProviderOwnerResolver {
     if (
       route?.routeKind === 'proxy' &&
       !route.providerId &&
-      route.baseUrlHost === new URL(OLLAMA_CLOUD_DIRECT_BASE_URL).hostname
+      route.baseUrlHost === OLLAMA_CLOUD_DIRECT_HOST
     ) {
       return this.ownerForProviderKey('ollama-cloud');
     }
