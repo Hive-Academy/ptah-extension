@@ -33,12 +33,16 @@ import type {
   SubagentTranscriptMessage,
   AgentFailureKind,
   CliUsageTotals,
+  ModelPricing,
   QuotaOwnerRef,
+  TokenBreakdown,
 } from '@ptah-extension/shared';
 import {
   addCliUsage,
   calculateMessageCost,
   computeSubagentCacheState,
+  findModelPricing,
+  pricesCacheTokens,
 } from '@ptah-extension/shared';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import { ClaudeRpcService, VSCodeService } from '@ptah-extension/core';
@@ -128,6 +132,13 @@ export interface SubagentUsageTotals {
   readonly lastRequestContextTokens?: number;
   /** Latest model the subagent's messages named. */
   readonly model?: string;
+  /**
+   * Sum of each request priced with its own model (a request that named no
+   * model is priced with {@link model}). `null` when any request is unpriced
+   * or uses cache tokens its model has no cache price for; `undefined` when
+   * no request named a model.
+   */
+  readonly estimatedCostUsd?: number | null;
 }
 
 /**
@@ -150,8 +161,9 @@ export interface AgentUsageView {
     readonly output: number;
   };
   /**
-   * Estimate from the shared pricing table. `null` when the model has no
-   * price, `undefined` when no usage or no model was reported.
+   * Estimate from the shared pricing table, each request priced with its own
+   * model. `null` when a model has no price or no price for the cache tokens
+   * it used, `undefined` when no usage or no model was reported.
    */
   readonly estimatedCostUsd?: number | null;
 }
@@ -201,6 +213,55 @@ function addOptional(
   return (total ?? 0) + value;
 }
 
+/**
+ * Estimate for `tokens` priced with `pricing`. A missing cache price makes the
+ * estimate unknown (`null`), not an underestimate that bills those tokens at 0.
+ */
+function estimateCost(
+  model: string,
+  tokens: TokenBreakdown,
+  pricing: ModelPricing | null,
+): number | null {
+  if (!pricing || !pricesCacheTokens(pricing, tokens)) return null;
+  return calculateMessageCost(model, tokens, pricing);
+}
+
+function requestTokens(usage: {
+  readonly input: number;
+  readonly output: number;
+  readonly cacheRead?: number;
+  readonly cacheWrite?: number;
+}): TokenBreakdown {
+  return {
+    input: usage.input,
+    output: usage.output,
+    cacheHit: usage.cacheRead,
+    cacheCreation: usage.cacheWrite,
+  };
+}
+
+/** Each request priced with its own model, falling back to `fallbackModel`. */
+function sumRequestCost(
+  requests: Iterable<SubagentRequestUsage>,
+  fallbackModel: string,
+): number | null {
+  // One pricing lookup per distinct model per sum.
+  const pricingByModel = new Map<string, ModelPricing | null>();
+  let total = 0;
+  for (const request of requests) {
+    const model = request.model ?? fallbackModel;
+    let pricing = pricingByModel.get(model);
+    if (pricing === undefined) {
+      pricing = findModelPricing(model);
+      pricingByModel.set(model, pricing);
+    }
+    const cost = estimateCost(model, requestTokens(request), pricing);
+    if (cost === null) return null;
+    total += cost;
+  }
+  return Math.round(total * 1_000_000) / 1_000_000;
+}
+
 /** Sum per-message usage; the last entry in insertion order is the latest request. */
 function sumRequestUsage(
   requests: ReadonlyMap<string, SubagentRequestUsage> | undefined,
@@ -220,6 +281,8 @@ function sumRequestUsage(
     model = request.model ?? model;
     last = request;
   }
+  const estimatedCostUsd =
+    model === undefined ? undefined : sumRequestCost(requests.values(), model);
   // The backend figure is the only one when present; the local sum is the
   // fallback for events from an older host.
   const lastRequestContextTokens =
@@ -234,7 +297,22 @@ function sumRequestUsage(
     cacheWrite,
     lastRequestContextTokens,
     model,
+    estimatedCostUsd,
   };
+}
+
+/**
+ * The totals' per-request estimate. Totals built without one (not by this
+ * store) are priced as a single request on their model.
+ */
+function totalsCost(usage: SubagentUsageTotals): number | null | undefined {
+  if (usage.estimatedCostUsd !== undefined) return usage.estimatedCostUsd;
+  if (usage.model === undefined) return undefined;
+  return estimateCost(
+    usage.model,
+    requestTokens(usage),
+    findModelPricing(usage.model),
+  );
 }
 
 /** Latest of two activity timestamps, ignoring missing or non-finite ones. */
@@ -293,15 +371,7 @@ export function subagentUsageView(
           output: usage.output,
         }
       : undefined,
-    estimatedCostUsd:
-      usage?.model !== undefined
-        ? calculateMessageCost(usage.model, {
-            input: usage.input,
-            output: usage.output,
-            cacheHit: usage.cacheRead,
-            cacheCreation: usage.cacheWrite,
-          })
-        : undefined,
+    estimatedCostUsd: usage ? totalsCost(usage) : undefined,
   };
 }
 

@@ -1232,7 +1232,9 @@ real code, a regression test per item).
 
 - `subagent-hook-handler.ts:259, 278-292`. Spec: no toolUseId and a match → bound; no match or ambiguous → WARN, unbound.
 
-## Batch 32: Cost estimate per request model (F.5 M3) — PENDING (decision recorded in context.md: F-E)
+## Batch 32: Cost estimate per request model (F.5 M3) — COMPLETE (commit ed5194c15; decision F-E)
+
+- Phase F review notes: (1) a request with no model is priced with the subagent's latest named model; (2) hand-built usage totals are priced as one request; (3) `calculateMessageCost` (backend totals) still bills a missing cache price at 0, only the monitor follows F-E.
 
 - Recommended executor: frontend-developer | Fallback: frontend-developer (fresh run) | Execution mode: Sequential subagent
 - Model: Opus | Tasks: 2 | Depends on: Batch 20, Decision F-E | Phase: F
@@ -1240,9 +1242,9 @@ real code, a regression test per item).
 - Files: `<R>\libs\shared\src\lib\utils\pricing.utils.ts` (+ spec),
   `<R>\libs\frontend\chat-streaming\src\lib\agent-monitor.store.ts` (+ spec)
 
-### Task 32.1: Missing cache price per F-E (`pricing.utils.ts:400-416`) — PENDING (decision recorded in context.md)
+### Task 32.1: Missing cache price per F-E (`pricing.utils.ts:400-416`) — COMPLETE (decision recorded in context.md)
 
-### Task 32.2: Price each request with its own model (`sumRequestUsage` 196-225, cost 287-295) — PENDING (decision recorded in context.md)
+### Task 32.2: Price each request with its own model (`sumRequestUsage` 196-225, cost 287-295) — COMPLETE (decision recorded in context.md)
 
 ## Batch 33: Budget UI follow-ups (F.1 M6, M3 UI, M8; F.4 residual; F.6 UI Minors) — PENDING (decision recorded in context.md: F-B, F-C, F-D)
 
@@ -1267,6 +1269,10 @@ real code, a regression test per item).
 ### Task 33.5: A failed preview shows an error, not "Loading…" (chat-view 1278-1284, banner 162; F-B) — PENDING (decision recorded in context.md)
 
 ### Task 33.6: Tooltip from the configured percents (`session-stats-summary.component.ts:974-992`; A2; F-B) — PENDING (decision recorded in context.md)
+
+### Task 33.7: Tooltip covers the missing cache price (from Batch 32) — PENDING
+
+- The chat-lib tooltip "No price is known for this model" must also cover the missing-cache-price case (F-E). Wording per F-B style; keep it short. Spec.
 
 ## Batch 34: `stopped` subagent status (G.8 review-A m5) — DROPPED (user decision G-C: deferred as a named later task)
 

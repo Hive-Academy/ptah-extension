@@ -32,7 +32,11 @@ import type {
   MessageCompleteEvent,
   QuotaOwnerRef,
 } from '@ptah-extension/shared';
-import { calculateMessageCost } from '@ptah-extension/shared';
+import {
+  calculateMessageCost,
+  resetPricingMapForTesting,
+  updatePricingMap,
+} from '@ptah-extension/shared';
 
 // Mock TabManagerService with signal-based activeTab
 const mockActiveTab = signal<{ claudeSessionId?: string } | null>(null);
@@ -1567,6 +1571,28 @@ describe('AgentMonitorStore', () => {
   describe('N6 per-agent usage, context and cache data', () => {
     const PARENT = 'toolu_usage_1';
     const NOW = 1_000_000_000;
+    /** Test models with cache prices; `gpt-4o` (the default) has none. */
+    const CACHED_A = 'test-cached-model-a';
+    const CACHED_B = 'test-cached-model-b';
+
+    beforeEach(() =>
+      updatePricingMap({
+        [CACHED_A]: {
+          inputCostPerToken: 1e-6,
+          outputCostPerToken: 1e-5,
+          cacheReadCostPerToken: 1e-7,
+          cacheCreationCostPerToken: 2e-6,
+        },
+        [CACHED_B]: {
+          inputCostPerToken: 4e-6,
+          outputCostPerToken: 3e-5,
+          cacheReadCostPerToken: 5e-7,
+          cacheCreationCostPerToken: 6e-6,
+        },
+      }),
+    );
+
+    afterEach(() => resetPricingMapForTesting());
 
     function start(timestamp = NOW - 10_000): void {
       store.onAgentStart({
@@ -1640,20 +1666,18 @@ describe('AgentMonitorStore', () => {
     it('sums usage per message and sizes the context from the last request', () => {
       start();
       store.onSubagentMessageComplete(
-        complete('m1', {
-          input: 2,
-          output: 20,
-          cacheRead: 0,
-          cacheCreation: 40_000,
-        }),
+        complete(
+          'm1',
+          { input: 2, output: 20, cacheRead: 0, cacheCreation: 40_000 },
+          { model: CACHED_A },
+        ),
       );
       store.onSubagentMessageComplete(
-        complete('m2', {
-          input: 3,
-          output: 30,
-          cacheRead: 40_000,
-          cacheCreation: 500,
-        }),
+        complete(
+          'm2',
+          { input: 3, output: 30, cacheRead: 40_000, cacheCreation: 500 },
+          { model: CACHED_A },
+        ),
       );
 
       const v = view();
@@ -1665,7 +1689,7 @@ describe('AgentMonitorStore', () => {
         output: 50,
       });
       expect(v.estimatedCostUsd).toBe(
-        calculateMessageCost('gpt-4o', {
+        calculateMessageCost(CACHED_A, {
           input: 5,
           output: 50,
           cacheHit: 40_000,
@@ -1673,6 +1697,133 @@ describe('AgentMonitorStore', () => {
         }),
       );
       expect(typeof v.estimatedCostUsd).toBe('number');
+    });
+
+    describe('cost estimate per request model (F-E)', () => {
+      it('prices each request with its own model after a mid-run model change', () => {
+        start();
+        const first = { input: 1_000, output: 100, cacheRead: 5_000 };
+        const second = { input: 2_000, output: 200, cacheRead: 7_000 };
+        store.onSubagentMessageComplete(
+          complete('m1', first, { model: CACHED_A }),
+        );
+        store.onSubagentMessageComplete(
+          complete('m2', second, { model: CACHED_B }),
+        );
+
+        const perRequest =
+          (calculateMessageCost(CACHED_A, {
+            input: 1_000,
+            output: 100,
+            cacheHit: 5_000,
+          }) ?? NaN) +
+          (calculateMessageCost(CACHED_B, {
+            input: 2_000,
+            output: 200,
+            cacheHit: 7_000,
+          }) ?? NaN);
+        const allOnLatest = calculateMessageCost(CACHED_B, {
+          input: 3_000,
+          output: 300,
+          cacheHit: 12_000,
+        });
+
+        expect(view().estimatedCostUsd).toBeCloseTo(perRequest, 6);
+        expect(view().estimatedCostUsd).not.toBeCloseTo(allOnLatest ?? 0, 6);
+      });
+
+      it('prices a request that named no model with the latest named model', () => {
+        start();
+        store.onSubagentMessageComplete(
+          complete('m1', { input: 1_000, output: 100 }, { model: undefined }),
+        );
+        store.onSubagentMessageComplete(
+          complete('m2', { input: 2_000, output: 200 }, { model: CACHED_B }),
+        );
+
+        expect(view().estimatedCostUsd).toBe(
+          calculateMessageCost(CACHED_B, { input: 3_000, output: 300 }),
+        );
+      });
+
+      it('is unknown (null), not 0-priced, when cache tokens have no cache price', () => {
+        start();
+        store.onSubagentMessageComplete(
+          complete('m1', { input: 10, output: 5, cacheRead: 40_000 }),
+        );
+
+        expect(view().estimatedCostUsd).toBeNull();
+      });
+
+      it('is unknown when one request of several lacks a cache price', () => {
+        start();
+        store.onSubagentMessageComplete(
+          complete('m1', { input: 10, output: 5 }, { model: CACHED_A }),
+        );
+        store.onSubagentMessageComplete(
+          complete('m2', { input: 10, output: 5, cacheCreation: 300 }),
+        );
+
+        expect(view().estimatedCostUsd).toBeNull();
+      });
+
+      it('still prices a model without cache prices when no cache tokens were used', () => {
+        start();
+        store.onSubagentMessageComplete(
+          complete('m1', { input: 1_000, output: 500, cacheRead: 0 }),
+        );
+
+        expect(view().estimatedCostUsd).toBe(
+          calculateMessageCost('gpt-4o', { input: 1_000, output: 500 }),
+        );
+      });
+
+      it('is null when a request model has no price at all', () => {
+        start();
+        store.onSubagentMessageComplete(
+          complete('m1', { input: 10, output: 5 }, { model: CACHED_A }),
+        );
+        store.onSubagentMessageComplete(
+          complete(
+            'm2',
+            { input: 10, output: 5 },
+            { model: 'no-such-model-for-pricing' },
+          ),
+        );
+
+        expect(view().estimatedCostUsd).toBeNull();
+      });
+
+      it('prices hand-built totals as one request on their model, with the same cache rule', () => {
+        start();
+        const record = store.getSubagent(PARENT);
+        if (!record) throw new Error('record missing');
+
+        expect(
+          subagentUsageView(
+            {
+              ...record,
+              usage: { input: 1_000, output: 10, cacheRead: 50, model: CACHED_A },
+            },
+            NOW,
+          ).estimatedCostUsd,
+        ).toBe(
+          calculateMessageCost(CACHED_A, {
+            input: 1_000,
+            output: 10,
+            cacheHit: 50,
+          }),
+        );
+        expect(
+          subagentUsageView(
+            {
+              ...record,
+              usage: { input: 1_000, output: 10, cacheRead: 50, model: 'gpt-4o' },
+            },
+            NOW,
+          ).estimatedCostUsd,
+        ).toBeNull();
+      });
     });
 
     it('uses the backend contextTokens when present, ignoring the local sum', () => {
