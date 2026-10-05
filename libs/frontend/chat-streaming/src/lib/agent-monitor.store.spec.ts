@@ -1498,6 +1498,67 @@ describe('AgentMonitorStore', () => {
       expect(card('restored-legacy')?.quotaOwner).toBeUndefined();
     });
 
+    it('lets a backend null modelScope clear a known scope, while an absent value keeps it', () => {
+      spawnLane('lane-scope', { modelScope: 'sonnet' });
+
+      // Re-open: the backend's null is authoritative; an absent key is a
+      // legacy payload and keeps the known scope (Decision 4).
+      spawnLane('lane-scope', { modelScope: null });
+      expect(card('lane-scope')?.modelScope).toBeNull();
+
+      exitLane('lane-scope', { modelScope: 'opus' });
+      expect(card('lane-scope')?.modelScope).toBe('opus');
+
+      exitLane('lane-scope', { modelScope: null });
+      expect(card('lane-scope')?.modelScope).toBeNull();
+
+      spawnLane('lane-scope', {});
+      expect(card('lane-scope')?.modelScope).toBeNull();
+
+      spawnLane('lane-scope', { modelScope: 'haiku' });
+      exitLane('lane-scope', {});
+      expect(card('lane-scope')?.modelScope).toBe('haiku');
+    });
+
+    it('keeps a restored card usage-unknown when its re-opened run reports usage segments', () => {
+      store.loadCliSessions(
+        [
+          {
+            agentId: 'restored-re',
+            cli: 'codex',
+            task: 'restored then re-opened',
+            startedAt: '2026-09-01T00:00:00.000Z',
+            status: 'completed',
+          } as unknown as CliSessionReference,
+        ],
+        'sess-restored-re',
+      );
+
+      // Same-id re-open: the merge keeps `restored` (spread), so the rebuilt
+      // card must stay "unknown" when the new run starts reporting usage
+      // (Req 8.4) — a partial run total is not a known total.
+      spawnLane('restored-re', {});
+      store.onAgentOutput({
+        agentId: 'restored-re',
+        segments: [
+          { type: 'info', content: 'live', usage: { inputTokens: 5 } },
+        ],
+      } as unknown as AgentOutputDelta);
+
+      expect(card('restored-re')?.restored).toBe(true);
+      expect(card('restored-re')?.usageTotals).toBeNull();
+
+      // A fresh (never restored) card still folds.
+      spawnLane('fresh-re', {});
+      store.onAgentOutput({
+        agentId: 'fresh-re',
+        segments: [
+          { type: 'info', content: 'live', usage: { inputTokens: 3 } },
+        ],
+      } as unknown as AgentOutputDelta);
+      expect(card('fresh-re')?.usageTotals?.inputTokens).toBe(3);
+    });
+
     it('marks only cards rebuilt by loadCliSessions as restored, whatever their status', () => {
       spawnLane('live-done', {});
       exitLane('live-done', {});
