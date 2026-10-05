@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_594_31ff
-status: in_progress
+status: in_review
 type: FEATURE
 title: Add daisyUI status kinds to the surface catalog and a surface-authoring skill
 depends_on:
@@ -19,7 +19,7 @@ relates_to:
   - TASK_2026_494_ca38
 ---
 
-<!-- Ptah carrier: machine-owned metadata. Ptah rewrites the frontmatter above. Do NOT write prose here — prose belongs in ./context.md. -->
+<!-- Ptah carrier: machine-owned metadata. Ptah rewrites the frontmatter above. Do NOT write prose here â€” prose belongs in ./context.md. -->
 
 dashboard-catalog/3 adds alert, badge, progress, radial-progress, divider (semantic tone enums mapped to daisy classes by the renderer); new ptah-surface-authoring skill; Apps system prompt points to it
 

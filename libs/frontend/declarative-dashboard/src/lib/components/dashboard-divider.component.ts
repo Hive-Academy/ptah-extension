@@ -5,18 +5,22 @@ export type DividerNode = Extract<StatusNode, { kind: 'divider' }>;
 
 /**
  * Complete literal class strings, never concatenated, so Tailwind's content
- * scan keeps both variants. daisyUI 4 inverts its naming relative to the
- * contract: `divider-horizontal` draws a VERTICAL rule, so the contract's
- * `vertical` maps to `divider divider-horizontal` and `horizontal` to the
- * bare `divider`. The vertical rule's ::before grows inside a column flex
- * box, so it needs a definite height: `h-full` fills a stretched host, and
- * `min-h-12` keeps the rule visible when the host sits inside a wrapper that
- * does not stretch (visual review S1).
+ * scan keeps every variant. Horizontal keeps daisyUI's own `divider` with its
+ * rule and text slot. Vertical no longer relies on daisyUI's ::before/::after:
+ * with text those pseudo-elements measured 0px tall and no rule was drawn
+ * (visual review round 3), so the vertical rule is two explicit segments in a
+ * column flex box instead.
  */
-const DIVIDER_DIRECTION_CLASSES = {
+const DIVIDER_CONTAINER_CLASSES = {
   horizontal: 'divider',
-  vertical: 'divider divider-horizontal h-full min-h-12',
+  vertical: 'flex flex-col items-center self-stretch min-h-12 gap-1 mx-2 text-sm',
 } as const;
+
+/**
+ * One half of the vertical rule. `bg-base-content/10` is a theme token with
+ * the same 10% content fill daisyUI's own divider rule uses, in both themes.
+ */
+const VERTICAL_RULE_SEGMENT_CLASS = 'w-0.5 min-h-4 flex-1 bg-base-content/10';
 
 @Component({
   selector: 'ptah-dashboard-divider',
@@ -29,17 +33,30 @@ const DIVIDER_DIRECTION_CLASSES = {
     '[class.flex]': 'isVertical()',
   },
   template: `
-    <div role="separator" [attr.aria-orientation]="node().direction" [class]="directionClasses()">
-      @if (node().text; as text) {
-        {{ text.text }}
-      }
-    </div>
+    @if (isVertical()) {
+      <div role="separator" [attr.aria-orientation]="node().direction" [class]="containerClasses()">
+        <span aria-hidden="true" [class]="ruleClass"></span>
+        @if (node().text; as text) {
+          <span>{{ text.text }}</span>
+        }
+        <span aria-hidden="true" [class]="ruleClass"></span>
+      </div>
+    } @else {
+      <div role="separator" [attr.aria-orientation]="node().direction" [class]="containerClasses()">
+        @if (node().text; as text) {
+          {{ text.text }}
+        }
+      </div>
+    }
   `,
 })
 export class DashboardDividerComponent {
   public readonly node: InputSignal<DividerNode> = input.required<DividerNode>();
 
-  public readonly directionClasses = computed(() => DIVIDER_DIRECTION_CLASSES[this.node().direction]);
+  public readonly containerClasses = computed(() => DIVIDER_CONTAINER_CLASSES[this.node().direction]);
+
+  /** Decorative rule segments; the text alone is never the separator. */
+  public readonly ruleClass = VERTICAL_RULE_SEGMENT_CLASS;
 
   public readonly isVertical = computed(() => this.node().direction === 'vertical');
 }

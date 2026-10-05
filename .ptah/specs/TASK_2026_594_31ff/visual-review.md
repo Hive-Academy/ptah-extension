@@ -114,3 +114,21 @@ Harness: `visual/status-kinds-r3.e2e.spec.ts` (copy of the R2 spec, adds ::befor
 Round 3 verdict: ISSUES
 
 Remaining defect: a vertical divider with text still draws no rule, because its ::before height is 0. Suggested fix (frontend-developer to apply): give the text variant a taller definite height, for example min-h-24 or more when text is present, or drop the daisyUI text slot for the vertical orientation. The textless variant is fixed.
+
+## Round 4 re-check (vertical divider segments)
+
+Harness: `visual/status-kinds-r4.e2e.spec.ts` (copy of the R3 spec; probes changed to read the two `aria-hidden` segments, the text span and the composited rule colour). Raw data: `visual/measurements-r4.json`. Themes anubis and anubis-light at 1440 and 400. Screenshots in `visual/screenshots/`: `status-kinds-{anubis,anubis-light}-{1440,400}-r4.png`, `page-*-r4.png`, `badge-focus-*-1440-r4.png`. Measurements were identical across all 4 theme/width combinations except where a theme value is stated.
+
+| Check | Result | Measurement | Screenshot |
+| --- | --- | --- | --- |
+| Vertical divider WITHOUT text: segments drawn | PASS | 2 segments, each 2px wide x 22px high (total element 48px, 4px gap between the segments from `gap-1`); a rule is visible between "Left side" and "Right side" | status-kinds-anubis-1440-r4.png |
+| Vertical divider WITH text ("or"): rule on both sides | PASS | Top segment 2x16px (y 1590-1606), text span y 1610-1630, bottom segment 2x16px (y 1634-1650). Both are > 0 and sit on opposite sides of the text. Element 13x60px (fixes the R3 0px defect) | status-kinds-anubis-1440-r4.png ("or" cell), status-kinds-anubis-light-400-r4.png |
+| Segment width is 2px | PASS | 2px for all segments in all 4 configs | n/a |
+| Rule visibility vs background, parity with horizontal | PASS (parity) | Vertical segments: `bg-base-content/10`, which is exactly the same colour as the daisyUI horizontal `::before` (`oklch(0.925 .007 88.6 / 0.1)` dark, `oklch(0.236 .066 313 / 0.1)` light). Composited ratio vs page: 1.27:1 dark and 1.23:1 light for BOTH vertical segments and horizontal rules. Identical, so parity holds. Note: the rule is faint in absolute terms by design, and the vertical rule is visible in the screenshot but low in prominence | status-kinds-anubis-1440-r4.png, status-kinds-anubis-light-1440-r4.png |
+| Horizontal dividers unchanged | PASS | 7 per config, each 16px high, `::before` 2px high, same colour and ratio as before (R3 values) | same |
+| No row overflow | PASS | Vertical rows (18px / 29px wide, 60px high) have scrollWidth == clientWidth; surface body scrollW == clientW (784 at 1440, 400 at 400). Document scrollW 593 at 400px is the same harness-shell value as R2/R3, not caused by the surface | page-*-400-r4.png |
+| No regression in other kinds | PASS | alerts 8, badges 7, progress 7, radial 6 (counts as before); stat renders normally; no layout changes in screenshots | status-kinds-*-r4.png |
+
+Observations (not failures): the untitled vertical divider shows a 4px break between its two segments (gap-1), so it reads as a slightly broken line rather than one continuous rule; the vertical row's height grew from 53px to 60px with text. Both are cosmetic.
+
+Round 4 verdict: PASS
