@@ -37,6 +37,10 @@ const BUDGET_KEYS = Object.keys(SESSION_BUDGET_SETTINGS) as BudgetKey[];
 const NUMBER_FORMAT = new Intl.NumberFormat('en-US');
 /** A missing host response must reveal Retry instead of leaving the settings card busy. */
 const SETTINGS_READ_TIMEOUT_MS = 5_000;
+/** A missing write response must free the card (busy) and say the save is unconfirmed. */
+const SETTINGS_WRITE_TIMEOUT_MS = 5_000;
+/** The prefix `rpcCall` puts on the error of a request that got no response in time. */
+const RPC_TIMEOUT_PREFIX = 'RPC timeout';
 const UNIT_LABELS: Readonly<Record<SessionBudgetUnit, string>> = {
   tokens: 'Tokens',
   cost: 'Cost (USD)',
@@ -270,6 +274,8 @@ function storedNumberIsValid(
                   [ptahBusyDisabled]="busy()"
                   (input)="edit(field.key, $event)"
                   (change)="commit(field.key)"
+                  (focus)="focusedKey = field.key"
+                  (blur)="blurred(field.key)"
                   [attr.data-testid]="'session-budget-' + field.key"
                 />
                 <p
@@ -340,6 +346,8 @@ export class SessionBudgetSettingsComponent implements OnInit {
   private readonly savingKey = signal<BudgetKey | null>(null);
   protected readonly busy = computed(() => this.savingKey() !== null);
   protected readonly status = signal('');
+  /** The number field that has focus: its draft is still being typed, so a partner save must not commit it. */
+  protected focusedKey: NumberKey | null = null;
 
   protected readonly unitValue = computed<SessionBudgetUnit>(() => {
     const value = this.saved()['unit'];
@@ -420,6 +428,10 @@ export class SessionBudgetSettingsComponent implements OnInit {
     this.setError(key, this.validate(key, text));
   }
 
+  protected blurred(key: NumberKey): void {
+    if (this.focusedKey === key) this.focusedKey = null;
+  }
+
   /** On commit (blur / Enter): a valid, changed value is written; an invalid one stays on screen with its message. */
   async commit(key: NumberKey): Promise<void> {
     const text = this.drafts()[key];
@@ -436,11 +448,26 @@ export class SessionBudgetSettingsComponent implements OnInit {
     if (await this.write(key, parsed.value)) {
       this.clearDraft(key);
       if (key === 'tightenPercent' || key === 'handoffPercent') {
-        await this.commit(
+        await this.commitPartner(
           key === 'tightenPercent' ? 'handoffPercent' : 'tightenPercent',
         );
       }
     }
+  }
+
+  /**
+   * After one percent is saved, the other's pending draft is checked against it. A blurred draft is committed; a
+   * focused one is still being typed, so it is only re-validated and waits for its own blur / Enter.
+   */
+  private async commitPartner(
+    key: 'tightenPercent' | 'handoffPercent',
+  ): Promise<void> {
+    if (this.focusedKey !== key) {
+      await this.commit(key);
+      return;
+    }
+    const text = this.drafts()[key];
+    if (text !== undefined) this.setError(key, this.validate(key, text));
   }
 
   async toggle(key: BooleanKey, event: Event): Promise<void> {
@@ -504,13 +531,18 @@ export class SessionBudgetSettingsComponent implements OnInit {
     this.savingKey.set(key);
     this.setError(key, null);
     let confirmed = false;
+    let timedOut = false;
     try {
       const result = await rpcCall<{ success: boolean }>(
         this.vscode,
         'settings:set',
         { key: SESSION_BUDGET_SETTINGS[key].key, value },
+        SETTINGS_WRITE_TIMEOUT_MS,
       );
       confirmed = result.success && result.data?.success === true;
+      timedOut =
+        !result.success &&
+        (result.error?.startsWith(RPC_TIMEOUT_PREFIX) ?? false);
     } catch (error: unknown) {
       // Reported inline below (the field's message and the status line), like a refused write.
       console.warn('[SessionBudgetSettings] settings:set failed', error);
@@ -519,7 +551,10 @@ export class SessionBudgetSettingsComponent implements OnInit {
       this.saved.update((saved) => ({ ...saved, [key]: value }));
       this.status.set(`Saved ${label}.`);
     } else {
-      const message = `Could not save ${label}. The saved setting is unchanged.`;
+      // A timed-out write may still land on the host, so it cannot claim the setting is unchanged.
+      const message = timedOut
+        ? `Could not confirm saving ${label}. Reopen settings to see the saved value.`
+        : `Could not save ${label}. The saved setting is unchanged.`;
       this.setError(key, message);
       this.status.set(message);
     }

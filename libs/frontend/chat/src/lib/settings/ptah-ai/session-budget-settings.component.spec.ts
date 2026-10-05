@@ -271,6 +271,36 @@ describe('SessionBudgetSettingsComponent', () => {
         { key: 'sessionBudget.tightenPercent', value: 85 },
       ]);
     });
+
+    it('does not save a partner draft the user is still typing in (focused), only re-validates it', async () => {
+      await create();
+      await enter('tightenPercent', '85');
+      expect(byTestId('session-budget-tightenPercent-error')).not.toBeNull();
+
+      // Handoff commits while focus has already moved into the tighten field.
+      const handoff = field('handoffPercent');
+      handoff.value = '95';
+      handoff.dispatchEvent(new Event('input'));
+      fixture.detectChanges();
+      handoff.dispatchEvent(new Event('change'));
+      handoff.dispatchEvent(new FocusEvent('blur'));
+      field('tightenPercent').dispatchEvent(new FocusEvent('focus'));
+      await settle();
+
+      expect(writes()).toEqual([
+        { key: 'sessionBudget.handoffPercent', value: 95 },
+      ]);
+      expect(byTestId('session-budget-tightenPercent-error')).toBeNull();
+      expect(field('tightenPercent').value).toBe('85');
+
+      // Its own blur / Enter then saves it.
+      field('tightenPercent').dispatchEvent(new Event('change'));
+      await settle();
+      expect(writes()).toEqual([
+        { key: 'sessionBudget.handoffPercent', value: 95 },
+        { key: 'sessionBudget.tightenPercent', value: 85 },
+      ]);
+    });
   });
 
   describe('tightenWindowTokens', () => {
@@ -304,6 +334,38 @@ describe('SessionBudgetSettingsComponent', () => {
       );
       expect(field('tokens').value).toBe('2000000');
       expect(stored['sessionBudget.tokens']).toBe(50_000_000);
+    });
+
+    it('bounds each settings write with a timeout', async () => {
+      await create();
+      await enter('tokens', '2000000');
+      const writeTimeouts = mockRpcCall.mock.calls
+        .filter((call) => call[1] === 'settings:set')
+        .map((call) => call[3]);
+      expect(writeTimeouts).toEqual([5_000]);
+    });
+
+    it('a timed-out write frees the card and says the save is unconfirmed', async () => {
+      writeReply = async () => ({
+        success: false,
+        error: 'RPC timeout: settings:set',
+      });
+      await create();
+      await enter('tokens', '2000000');
+      expect(byTestId('session-budget-tokens-error')?.textContent).toContain(
+        'Could not confirm saving Token budget',
+      );
+      expect(field('tokens').getAttribute('aria-disabled')).toBeNull();
+      expect(field('tokens').value).toBe('2000000');
+
+      // Not busy: the next edit is written.
+      writeReply = async () => ({ success: true, data: { success: true } });
+      await enter('tokens', '3000000');
+      expect(writes()).toEqual([
+        { key: 'sessionBudget.tokens', value: 2_000_000 },
+        { key: 'sessionBudget.tokens', value: 3_000_000 },
+      ]);
+      expect(byTestId('session-budget-tokens-error')).toBeNull();
     });
 
     it('a transport failure on a toggle leaves the box at the saved value', async () => {

@@ -1,4 +1,6 @@
+import { signal } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
+import { TabManagerService } from '@ptah-extension/chat-state';
 import type { SessionBudgetState } from '@ptah-extension/shared';
 import { SessionBudgetBannerComponent } from './session-budget-banner.component';
 import { SessionRotationKeepService } from '../../../services/session-rotation-keep.service';
@@ -34,6 +36,13 @@ describe('SessionBudgetBannerComponent', () => {
   ): HTMLElement {
     TestBed.configureTestingModule({
       imports: [SessionBudgetBannerComponent],
+      providers: [
+        // The kept-key store prunes on tab close; no tab closes in these specs.
+        {
+          provide: TabManagerService,
+          useValue: { tabs: signal([]), onTabClosed: () => () => undefined },
+        },
+      ],
     });
     fixture = TestBed.createComponent(SessionBudgetBannerComponent);
     fixture.componentRef.setInput('budget', budget);
