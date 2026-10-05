@@ -117,6 +117,8 @@ type FileReader = (path: string, encoding: BufferEncoding) => string;
 type FileStat = (path: string) => { mtimeMs: number; size: number };
 
 const GEMINI_ACCOUNT_CACHE_TTL_MS = 5_000;
+/** Maximum time a language-server account observation remains authoritative. */
+export const ANTIGRAVITY_OBSERVED_ACCOUNT_MAX_AGE_MS = 5 * 60_000;
 const geminiAccountCache = new Map<
   string,
   {
@@ -126,7 +128,9 @@ const geminiAccountCache = new Map<
     active: string | null;
   }
 >();
-let observedAntigravityAccount: { root: string; key: string } | undefined;
+let observedAntigravityAccount:
+  { root: string; key: string; observedAt: number } | undefined;
+let antigravityOwnerNow: () => number = Date.now;
 
 /**
  * The active Gemini account email, lowercased (Google treats addresses
@@ -189,7 +193,11 @@ export function observeAntigravityAccount(email: string | null): string {
   const root = cliStorePath('antigravity');
   const active = email?.trim().toLowerCase() ?? '';
   observedAntigravityAccount = active
-    ? { root, key: accountOwnerKey('antigravity', `${root}\0${active}`) }
+    ? {
+        root,
+        key: accountOwnerKey('antigravity', `${root}\0${active}`),
+        observedAt: antigravityOwnerNow(),
+      }
     : undefined;
   return antigravityOwnerRef().key;
 }
@@ -198,6 +206,12 @@ export function observeAntigravityAccount(email: string | null): string {
 export function resetAntigravityOwnerStateForTests(): void {
   observedAntigravityAccount = undefined;
   geminiAccountCache.clear();
+  antigravityOwnerNow = Date.now;
+}
+
+/** Test seam for the bounded language-server observation lifetime. */
+export function setAntigravityOwnerClockForTests(now: () => number): void {
+  antigravityOwnerNow = now;
 }
 
 /**
@@ -346,7 +360,11 @@ export function isPlaceholderCredential(value: string): boolean {
 
 function antigravityOwnerRef(): QuotaOwnerRef {
   const root = cliStorePath('antigravity');
-  if (observedAntigravityAccount?.root === root) {
+  if (
+    observedAntigravityAccount?.root === root &&
+    antigravityOwnerNow() - observedAntigravityAccount.observedAt <=
+      ANTIGRAVITY_OBSERVED_ACCOUNT_MAX_AGE_MS
+  ) {
     return quotaOwnerRefFromKey(observedAntigravityAccount.key);
   }
   const active = readActiveGeminiAccount(root);

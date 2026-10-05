@@ -22,6 +22,7 @@ import { CODEX_PROXY_TOKEN_PLACEHOLDER } from '../providers/codex/codex-provider
 import { OLLAMA_AUTH_TOKEN_PLACEHOLDER } from '../providers/local/local-provider.types';
 import {
   ProviderOwnerResolver,
+  ANTIGRAVITY_OBSERVED_ACCOUNT_MAX_AGE_MS,
   accountOwnerKey,
   cliStoreOwnerKey,
   credentialFromHeaders,
@@ -32,6 +33,7 @@ import {
   quotaOwnerRefFromKey,
   readActiveGeminiAccount,
   resetAntigravityOwnerStateForTests,
+  setAntigravityOwnerClockForTests,
   unknownOwnerKey,
   type ClaudeAccountInfo,
 } from './provider-owner.resolver';
@@ -107,6 +109,22 @@ describe('ownerFingerprint', () => {
 });
 
 describe('Antigravity account observation and cache', () => {
+  it('expires an observation and falls back to the account file', () => {
+    let now = 0;
+    setAntigravityOwnerClockForTests(() => now);
+    observeAntigravityAccount('observed@example.test');
+    now = ANTIGRAVITY_OBSERVED_ACCOUNT_MAX_AGE_MS + 1;
+    const { resolver } = harness({
+      fileContent: JSON.stringify({ active: 'file@example.test' }),
+    });
+    expect(resolver.ownerForAntigravity().key).toBe(
+      accountOwnerKey(
+        'antigravity',
+        `${join(require('node:os').homedir(), '.gemini')}\0file@example.test`,
+      ),
+    );
+  });
+
   it('prefers the observed account and hashes equivalent emails to one owner', () => {
     const { resolver } = harness({
       fileContent: JSON.stringify({ active: 'fallback@example.test' }),

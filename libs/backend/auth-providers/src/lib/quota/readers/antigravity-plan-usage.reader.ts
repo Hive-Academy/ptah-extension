@@ -72,7 +72,10 @@ export function createAntigravityPlanUsageReader(
     const timeout = setTimeout(abort, ANTIGRAVITY_USAGE_TIMEOUT_MS);
     try {
       const server = await discoverServer(run, controller.signal);
-      if (!server) return unavailable();
+      if (!server) {
+        observeAccount(null);
+        return unavailable();
+      }
       for (const candidate of candidates(server)) {
         try {
           const parsed = AntigravityStatusSchema.safeParse(
@@ -109,7 +112,12 @@ export function createAntigravityPlanUsageReader(
           const windows =
             parsed.data.userStatus.cascadeModelConfigData.clientModelConfigs.flatMap(
               (config, index) => {
-                if (!config.quotaInfo) return [];
+                if (
+                  !config.quotaInfo ||
+                  config.quotaInfo.remainingFraction === undefined
+                ) {
+                  return [];
+                }
                 const model = config.modelOrAlias?.model ?? config.label;
                 return model
                   ? [
@@ -136,9 +144,11 @@ export function createAntigravityPlanUsageReader(
           // degradation-audit: optional-capability - another local protocol candidate may answer.
         }
       }
+      observeAccount(null);
       return unavailable();
     } catch {
       // degradation-audit: optional-capability - local server discovery is unavailable.
+      observeAccount(null);
       return unavailable();
     } finally {
       clearTimeout(timeout);

@@ -78,10 +78,7 @@ describe('Antigravity plan-usage reader', () => {
     expect(JSON.stringify(result)).not.toContain(EMAIL);
     expect(result).toMatchObject({
       status: 'available',
-      windows: [
-        { modelScope: 'gemini-3', used: { percent: 60 } },
-        { modelScope: 'empty', used: { percent: 100 } },
-      ],
+      windows: [{ modelScope: 'gemini-3', used: { percent: 60 } }],
     });
   });
   it('uses the extension port when no listener can be discovered', async () => {
@@ -299,6 +296,35 @@ describe('Antigravity plan-usage reader', () => {
       () => 'antigravity#account:different',
     )({ target: { ownerRef: { key: owner } } as never, refresh: true });
     expect(result.status).toBe('service-unavailable');
+  });
+  it('clears a stale observation when the server disappears', async () => {
+    const observe = jest.fn(() => owner);
+    const gone = createAntigravityPlanUsageReader(
+      createMockLogger() as unknown as Logger,
+      () => 1,
+      async () => '',
+      async () => response,
+      observe,
+    );
+    await gone({
+      target: { ownerRef: { key: owner } } as never,
+      refresh: true,
+    });
+    expect(observe).toHaveBeenCalledWith(null);
+  });
+  it('omits a model with no remaining fraction and is unavailable when none remain', async () => {
+    const result = await reader(async () => ({
+      userStatus: {
+        email: EMAIL,
+        cascadeModelConfigData: {
+          clientModelConfigs: [{ label: 'unknown', quotaInfo: {} }],
+        },
+      },
+    }))({ target: { ownerRef: { key: owner } } as never, refresh: true });
+    expect(result).toMatchObject({
+      status: 'service-unavailable',
+      windows: [],
+    });
   });
   it('keeps the confirmed transport constants exact', () => {
     expect(ANTIGRAVITY_CSRF_HEADER).toBe('X-Codeium-Csrf-Token');
