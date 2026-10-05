@@ -114,17 +114,15 @@ function makeFakeStdioServer(): jest.Mocked<StdioMcpServerService> {
   };
 
   return {
-    handleInitialize: jest.fn(
-      (request: MCPRequest, info): MCPResponse => ({
-        jsonrpc: '2.0',
-        id: request.id,
-        result: {
-          protocolVersion: '2024-11-05',
-          capabilities: { tools: {} },
-          serverInfo: info,
-        },
-      }),
-    ),
+    handleInitialize: jest.fn((request: MCPRequest, info): MCPResponse => ({
+      jsonrpc: '2.0',
+      id: request.id,
+      result: {
+        protocolVersion: '2024-11-05',
+        capabilities: { tools: {} },
+        serverInfo: info,
+      },
+    })),
     handleToolsList: jest.fn(
       (request: MCPRequest, allowed?: readonly string[]): MCPResponse => ({
         jsonrpc: '2.0',
@@ -580,7 +578,7 @@ describe('ptah mcp-serve', () => {
   });
 
   describe('session.describe / session.methods introspection (Phase 5)', () => {
-    it('returns mode=mcp-serve with 7 MCP tool entries and capability=mcp', async () => {
+    it('returns mode=mcp-serve with 10 MCP tool entries and capability=mcp', async () => {
       const h = makeHarness();
       const promise = execute(NO_OPTS, baseGlobals, h.hooks);
       await flushAsync();
@@ -609,7 +607,7 @@ describe('ptah mcp-serve', () => {
       expect(result.mode).toBe('mcp-serve');
       expect(result.schemaVersion).toBe(JSONRPC_SCHEMA_VERSION);
       expect(result.version).toBe('0.2.32');
-      expect(result.catalog.tools).toHaveLength(8);
+      expect(result.catalog.tools).toHaveLength(10);
       expect(result.catalog.tools.map((t) => t.name)).toEqual([
         'agent_spawn',
         'agent_status',
@@ -618,6 +616,8 @@ describe('ptah mcp-serve', () => {
         'agent_report',
         'agent_stop',
         'agent_list',
+        'agent_wait',
+        'run_check',
         'session_submit',
       ]);
       expect(result.catalog.methods).toEqual(

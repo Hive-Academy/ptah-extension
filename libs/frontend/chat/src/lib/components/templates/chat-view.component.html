@@ -30,6 +30,7 @@
             [compactionCount]="resolvedCompactionCount()"
             [limits]="resolvedStatsLimits()"
             [sessionId]="resolvedSessionId()"
+            [budget]="resolvedSessionBudget()"
           />
         </div>
       }
@@ -132,6 +133,21 @@
           (resumeAllRequested)="handleResumeAllAgents($event)"
         />
       </div>
+
+      <!-- Session budget banner (TASK_2026_597 N7): tighten, handoff, limit -->
+      @if (resolvedSessionBudget(); as budget) {
+        <ptah-session-budget-banner
+          [budget]="budget"
+          [preview]="budgetPreviewText()"
+          [contextTokens]="budgetContextTokens()"
+          [busy]="budgetActionBusy()"
+          (dismiss)="onBudgetAction('dismiss')"
+          (extend)="onBudgetAction('extend')"
+          (restoreWindow)="onBudgetAction('restore-window')"
+          (previewRequested)="onBudgetPreview()"
+          (continueInNewSession)="onBudgetContinue()"
+        />
+      }
 
       <!-- Auth Required Banner (e.g. expired Codex token) -->
       @if (authRequiredBanner(); as authBanner) {

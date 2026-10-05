@@ -4,6 +4,7 @@ import { ModelStateService } from '@ptah-extension/core';
 import type {
   PlanLimitWindow,
   QuotaOwnerRef,
+  SessionBudgetState,
   SessionStatsEntry,
 } from '@ptah-extension/shared';
 import { buildStatsLimitViewModel } from './plan-limits/stats-limit-view-model';
@@ -333,6 +334,145 @@ describe('SessionStatsSummaryComponent', () => {
     expect(text(root, 'stats-duration')).toBe('2m 5s');
     click(root, '[data-testid="stats-expand"]');
     expect(text(root, 'stats-duration')).toBe('2m 5s');
+  });
+
+  describe('session budget (TASK_2026_597 N7)', () => {
+    const BUDGET: SessionBudgetState = {
+      sessionId: 'session-1',
+      stage: 'normal',
+      unit: 'tokens',
+      measure: 'tokens',
+      used: 14_900_000,
+      limit: 50_000_000,
+      percent: 29.8,
+      lowerBound: false,
+      revision: 4,
+      compactions: 0,
+      extensions: 0,
+      blocked: false,
+    };
+
+    function renderWithBudget(
+      snapshot: SessionStatsEntry | null,
+      budget: SessionBudgetState | null,
+    ): HTMLElement {
+      const root = render(snapshot);
+      fixture.componentRef.setInput('budget', budget);
+      fixture.detectChanges();
+      return root;
+    }
+
+    function tokensTitle(root: HTMLElement): string {
+      return (
+        root
+          .querySelector('[data-testid="stats-tokens"]')
+          ?.parentElement?.getAttribute('title') ?? ''
+      );
+    }
+
+    it('changes nothing without a budget', () => {
+      const root = renderWithBudget(SNAPSHOT, null);
+
+      expect(text(root, 'stats-tokens')).toBe('14.9M');
+      expect(text(root, 'stats-cost')).toBe('$38.18');
+      expect(
+        root.querySelector('[data-testid="stats-tokens-budget"]'),
+      ).toBeNull();
+      expect(root.querySelector('[data-testid="stats-cost-limit"]')).toBeNull();
+      expect(
+        root.querySelector('[data-testid="stats-cost-budget"]'),
+      ).toBeNull();
+      expect(tokensTitle(root)).not.toContain('Session budget');
+      const costChip = root.querySelector('[data-testid="stats-cost"]')
+        ?.parentElement as HTMLElement;
+      expect(costChip.hasAttribute('title')).toBe(false);
+    });
+
+    it('tokens: keeps the snapshot numerator and adds the limit in both layouts', () => {
+      // The budget's own `used` differs on purpose: the chip must not read it.
+      const root = renderWithBudget(SNAPSHOT, { ...BUDGET, used: 1 });
+
+      expect(text(root, 'stats-tokens')).toBe('14.9M');
+      expect(text(root, 'stats-tokens-budget')).toBe('/ 50.0M');
+      expect(tokensTitle(root)).toContain(
+        'Session budget: 29% used (14.9M of 50.0M).',
+      );
+      expect(root.querySelector('[data-testid="stats-cost-limit"]')).toBeNull();
+
+      click(root, '[data-testid="stats-expand"]');
+      expect(text(root, 'stats-tokens')).toBe('14.9M');
+      expect(text(root, 'stats-tokens-budget')).toBe('/ 50.0M');
+    });
+
+    it('cost: keeps the snapshot total and adds the dollar limit', () => {
+      const root = renderWithBudget(SNAPSHOT, {
+        ...BUDGET,
+        unit: 'cost',
+        measure: 'cost',
+        used: 1,
+        limit: 30,
+      });
+
+      expect(text(root, 'stats-cost')).toBe('$38.18');
+      expect(text(root, 'stats-cost-limit')).toBe('/ $30');
+      expect(
+        root.querySelector('[data-testid="stats-tokens-budget"]'),
+      ).toBeNull();
+    });
+
+    it('cost-lower-bound: shows the budget lower bound against the limit', () => {
+      const root = renderWithBudget(
+        {
+          ...SNAPSHOT,
+          totalCost: null,
+          knownCost: 8.96,
+          pricingCoverage: 'partial',
+        },
+        {
+          ...BUDGET,
+          unit: 'cost',
+          measure: 'cost-lower-bound',
+          used: 8.96,
+          limit: 30,
+          lowerBound: true,
+        },
+      );
+
+      expect(text(root, 'stats-cost-budget')).toBe(
+        '≥ $8.96 / $30 (some models have no price)',
+      );
+      expect(root.querySelector('[data-testid="stats-cost"]')).toBeNull();
+      expect(
+        root.querySelector('[data-testid="stats-known-subtotal"]'),
+      ).toBeNull();
+      click(root, '[data-testid="stats-expand"]');
+      expect(text(root, 'stats-cost-budget')).toBe(
+        '≥ $8.96 / $30 (some models have no price)',
+      );
+    });
+
+    it('weighted-fallback: shows the weighted estimate against its own limit', () => {
+      const root = renderWithBudget(
+        {
+          ...SNAPSHOT,
+          totalCost: null,
+          knownCost: null,
+          pricingCoverage: 'none',
+        },
+        {
+          ...BUDGET,
+          unit: 'cost',
+          measure: 'weighted-fallback',
+          used: 6_200_000,
+          limit: 9_000_000,
+        },
+      );
+
+      expect(text(root, 'stats-cost-budget')).toBe(
+        'est. 6.2M / 9.0M weighted tokens (no price for this model)',
+      );
+      expect(root.querySelector('[data-testid="stats-cost"]')).toBeNull();
+    });
   });
 });
 

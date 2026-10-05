@@ -2048,6 +2048,66 @@ describe('mcp-response-formatter › agent namespace', () => {
     } as unknown as SpawnAgentResult;
 
     expect(formatAgentSpawn(result)).not.toMatch(/Role:/);
+    expect(formatAgentSpawn(result)).not.toMatch(/Resume:/);
+  });
+
+  // S4-a review S2: the resume gate's decision is shown to the caller (the
+  // same formatter serves the HTTP and stdio ptah_agent_spawn replies).
+  it('formatAgentSpawn shows a fresh lane started in place of a resume, and why', () => {
+    const result = {
+      agentId: 'agent-9',
+      cli: 'codex',
+      status: 'running',
+      startedAt: '2026-04-24T00:00:00Z',
+      resumeDecision: {
+        decision: 'fresh',
+        reason: 'idle 900s exceeds 600s',
+        sessionKnown: true,
+      },
+    } as unknown as SpawnAgentResult;
+
+    const out = formatAgentSpawn(result);
+    expect(out).toMatch(
+      /\*\*Resume:\*\* NOT resumed — a fresh lane was started with a handoff brief \(idle 900s exceeds 600s\)/,
+    );
+    expect(out).toMatch(/does not have the previous conversation/);
+    expect(out).not.toMatch(/holds no record/);
+  });
+
+  it('formatAgentSpawn says plainly when this host holds no record of the session', () => {
+    const result = {
+      agentId: 'agent-10',
+      cli: 'codex',
+      status: 'running',
+      startedAt: '2026-04-24T00:00:00Z',
+      resumeDecision: {
+        decision: 'fresh',
+        reason: 'idle 900s exceeds 600s',
+        sessionKnown: false,
+      },
+    } as unknown as SpawnAgentResult;
+
+    expect(formatAgentSpawn(result)).toMatch(
+      /This host holds no record of that session, so the brief has no original task, changed files or final text\./,
+    );
+  });
+
+  it('formatAgentSpawn shows a resumed session', () => {
+    const result = {
+      agentId: 'agent-11',
+      cli: 'codex',
+      status: 'running',
+      startedAt: '2026-04-24T00:00:00Z',
+      resumeDecision: {
+        decision: 'resumed',
+        reason: 'within the context and idle limits',
+        sessionKnown: true,
+      },
+    } as unknown as SpawnAgentResult;
+
+    expect(formatAgentSpawn(result)).toMatch(
+      /\*\*Resume:\*\* resumed \(within the context and idle limits\)/,
+    );
   });
 
   it('formatAgentStatus shows the role an agent was spawned as', () => {

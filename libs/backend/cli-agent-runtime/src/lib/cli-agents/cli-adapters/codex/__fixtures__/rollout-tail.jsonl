@@ -1,0 +1,9 @@
+{"type":"session_meta","payload":{"originator":"codex_sdk_ts","source":"exec","cwd":"D:\\projects\\demo"}}
+{"type":"turn_context","payload":{"model":"gpt-5.5","effort":"medium"}}
+{"type":"event_msg","payload":{"type":"task_started"}}
+{"type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":27464,"cached_input_tokens":0,"output_tokens":207,"reasoning_output_tokens":0,"total_tokens":27671},"last_token_usage":{"input_tokens":27464,"cached_input_tokens":0,"output_tokens":207,"reasoning_output_tokens":0,"total_tokens":27671},"model_context_window":258400}}}
+{"type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":65550,"cached_input_tokens":27264,"output_tokens":310,"reasoning_output_tokens":12,"total_tokens":65860},"last_token_usage":{"input_tokens":38086,"cached_input_tokens":27264,"output_tokens":103,"reasoning_output_tokens":12,"total_tokens":38189},"model_context_window":258400}}}
+{"type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":114523,"cached_input_tokens":65152,"output_tokens":469,"reasoning_output_tokens":12,"total_tokens":114992},"last_token_usage":{"input_tokens":48973,"cached_input_tokens":37888,"output_tokens":159,"reasoning_output_tokens":0,"total_tokens":49132},"model_context_window":258400}}}
+{"type":"event_msg","payload":{"type":"token_count","info":null,"rate_limits":{"primary":{"used_percent":12.5}}}}
+{"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Done."}]}}
+{"type":"event_msg","payload":{"type":"task_complete"}}

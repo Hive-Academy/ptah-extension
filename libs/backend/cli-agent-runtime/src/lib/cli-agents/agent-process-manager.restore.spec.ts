@@ -90,13 +90,15 @@ function makeManager(options: {
         reason: 'chat-runtime-unavailable',
       })),
     } as unknown as Args[7],
+    // Never consulted: these tests make no resume spawn.
+    { evaluate: jest.fn() } as unknown as Args[8],
     // No quota owner and no ledger: plan limits are pinned by the manager spec.
-    { ownerForLane: jest.fn(() => undefined) } as unknown as Args[8],
+    { ownerForLane: jest.fn(() => undefined) } as unknown as Args[9],
     {
       recordWindowEvidence: jest.fn(),
       recordOwnerEvidence: jest.fn(),
       recordSuccess: jest.fn(),
-    } as unknown as Args[9],
+    } as unknown as Args[10],
   );
 }
 

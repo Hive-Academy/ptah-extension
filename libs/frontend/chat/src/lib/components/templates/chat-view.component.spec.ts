@@ -105,6 +105,7 @@ import {
 import { RpcResult } from '@ptah-extension/core';
 import { SidebarTabComponent } from '@ptah-extension/chat-ui';
 import { AgentMonitorPanelComponent } from '../organisms/agent-monitor-panel.component';
+import type { SessionBudgetState } from '@ptah-extension/shared';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -209,6 +210,7 @@ function makeHarness(
   // Interrupted subagents the "N interrupted agents — Resume" banner reads.
   const resumableSubagentsSig = signal<SubagentRecord[]>([]);
   const switchSessionMock = jest.fn().mockResolvedValue(undefined);
+  const sendOrQueueMessageMock = jest.fn().mockResolvedValue({ success: true });
   const upsertSessionSummaryMock = jest.fn();
   const removeSessionFromListMock = jest.fn();
   const isCompactingForTabMock = jest.fn(
@@ -233,6 +235,7 @@ function makeHarness(
     handlePermissionResponse: jest.fn(),
     handleQuestionResponse: jest.fn(),
     switchSession: switchSessionMock,
+    sendOrQueueMessage: sendOrQueueMessageMock,
     upsertSessionSummary: upsertSessionSummaryMock,
     removeSessionFromList: removeSessionFromListMock,
   } as unknown as ChatStore;
@@ -255,6 +258,7 @@ function makeHarness(
     },
   ]);
   const openSessionTabMock = jest.fn();
+  const createTabMock = jest.fn().mockReturnValue('tab-new');
   const findTabsBySessionIdMock = jest.fn().mockReturnValue([]);
   const findTabByIdAcrossWorkspacesMock = jest.fn();
   const closeTabMock = jest.fn().mockResolvedValue(undefined);
@@ -276,7 +280,8 @@ function makeHarness(
     pendingSessionLoad: signal<string | null>(null).asReadonly(),
     visibleTabIds: signal<ReadonlySet<string>>(new Set()).asReadonly(),
     tabs: tabsSig.asReadonly(),
-    createTab: jest.fn(),
+    createTab: createTabMock,
+    activeWorkspacePath: '/ws',
     toggleTabViewMode: jest.fn(),
     streamingTabIds: signal<Set<string>>(new Set()).asReadonly(),
     openSessionTab: openSessionTabMock,
@@ -286,6 +291,7 @@ function makeHarness(
     closeTab: closeTabMock,
     // Consumed by the component-scoped TranscriptRetentionService effects.
     closedTab: signal(null).asReadonly(),
+    onTabClosed: jest.fn(() => () => undefined),
     removedWorkspace$: signal(null).asReadonly(),
     findTabByIdAcrossWorkspaces: findTabByIdAcrossWorkspacesMock,
     clearRemovedWorkspace: jest.fn(),
@@ -404,6 +410,7 @@ function makeHarness(
   const requestCanvasSessionMock = jest
     .fn<Promise<boolean>, [string, string?]>()
     .mockResolvedValue(true);
+  const requestCanvasTabMock = jest.fn();
   const appStateStub = {
     currentView: signal('chat'),
     layoutMode: layoutModeSig.asReadonly(),
@@ -413,6 +420,7 @@ function makeHarness(
       tabId: null,
     }).asReadonly(),
     requestCanvasSession: requestCanvasSessionMock,
+    requestCanvasTab: requestCanvasTabMock,
   } as unknown as AppStateManager;
 
   const treeBuilderStub = {
@@ -544,6 +552,10 @@ function makeHarness(
     planLimitsRegisterScopeMock,
     planLimitsSnapshotSig,
     planLimitsLoadErrorSig,
+    activeTabMock,
+    createTabMock,
+    sendOrQueueMessageMock,
+    requestCanvasTabMock,
   };
 }
 
@@ -2227,5 +2239,192 @@ describe('ChatViewComponent — compact card gate (isCompactViewMode)', () => {
     expect(
       fixture.nativeElement.querySelector('ptah-compact-session-card'),
     ).toBeNull();
+  });
+});
+
+describe('ChatViewComponent — session budget banner wiring (TASK_2026_597 N7)', () => {
+  const SESSION = '11111111-1111-4111-8111-111111111111';
+  const BUDGET: SessionBudgetState = {
+    sessionId: SESSION,
+    stage: 'limit',
+    unit: 'tokens',
+    measure: 'tokens',
+    used: 50_100_000,
+    limit: 50_000_000,
+    percent: 100.2,
+    lowerBound: false,
+    revision: 9,
+    compactions: 0,
+    extensions: 0,
+    blocked: true,
+  };
+
+  type BudgetView = {
+    resolvedSessionBudget(): SessionBudgetState | null;
+    budgetPreviewText(): string | null;
+    budgetActionBusy(): boolean;
+    onBudgetAction(a: 'dismiss' | 'extend' | 'restore-window'): Promise<void>;
+    onBudgetPreview(): Promise<void>;
+    onBudgetContinue(): Promise<void>;
+  };
+
+  function setup(budget: SessionBudgetState | null = BUDGET) {
+    const h = makeHarness();
+    h.activeTabMock.mockReturnValue({
+      id: 'tab-abc',
+      claudeSessionId: SESSION,
+      sessionBudget: budget,
+    });
+    return { h, view: h.component as unknown as BudgetView };
+  }
+
+  afterEach(() => {
+    TestBed.resetTestingModule();
+    jest.clearAllMocks();
+  });
+
+  it('passes the tab budget through', () => {
+    const { view } = setup();
+    expect(view.resolvedSessionBudget()).toBe(BUDGET);
+  });
+
+  it.each(['dismiss', 'extend', 'restore-window'] as const)(
+    '%s calls session:budgetAction with the budget session id',
+    async (action) => {
+      const { h, view } = setup();
+      h.rpcCallMock.mockResolvedValue(rpcOk({ success: true }));
+
+      await view.onBudgetAction(action);
+
+      expect(h.rpcCallMock).toHaveBeenCalledWith('session:budgetAction', {
+        sessionId: SESSION,
+        action,
+      });
+      expect(view.budgetActionBusy()).toBe(false);
+    },
+  );
+
+  it('shows the returned state until a newer snapshot arrives', async () => {
+    const { h, view } = setup();
+    const extended = { ...BUDGET, stage: 'normal' as const, extensions: 1 };
+    h.rpcCallMock.mockResolvedValue(rpcOk({ success: true, state: extended }));
+
+    await view.onBudgetAction('extend');
+
+    expect(view.resolvedSessionBudget()).toBe(extended);
+  });
+
+  it('keeps the tab budget when it is newer than the action state', async () => {
+    const { h, view } = setup({ ...BUDGET, revision: 12 });
+    h.rpcCallMock.mockResolvedValue(
+      rpcOk({ success: true, state: { ...BUDGET, revision: 11 } }),
+    );
+
+    await view.onBudgetAction('dismiss');
+
+    expect(view.resolvedSessionBudget()?.revision).toBe(12);
+  });
+
+  it('reports an unavailable host and a failed action', async () => {
+    const { h, view } = setup();
+    h.rpcCallMock.mockResolvedValueOnce(
+      rpcOk({ success: false, error: 'unavailable' }),
+    );
+    await view.onBudgetAction('dismiss');
+    expect(h.showErrorMock).toHaveBeenLastCalledWith(
+      'Session budget actions are not available in this window.',
+      'tab-abc',
+    );
+
+    h.rpcCallMock.mockResolvedValueOnce(rpcFail('timeout'));
+    await view.onBudgetAction('extend');
+    expect(h.showErrorMock).toHaveBeenLastCalledWith(
+      'Budget action failed: timeout',
+      'tab-abc',
+    );
+  });
+
+  it('reports a rejected budget action without leaving the action busy', async () => {
+    const { h, view } = setup();
+    h.rpcCallMock.mockRejectedValueOnce(new Error('connection lost'));
+
+    await view.onBudgetAction('extend');
+
+    expect(h.showErrorMock).toHaveBeenLastCalledWith(
+      'Budget action failed: connection lost',
+      'tab-abc',
+    );
+    expect(view.budgetActionBusy()).toBe(false);
+  });
+
+  it('preview loads the handoff text for this session', async () => {
+    const { h, view } = setup();
+    h.rpcCallMock.mockResolvedValue(
+      rpcOk({
+        success: true,
+        handoff: { content: '# Handoff', path: null, seed: 'seed' },
+      }),
+    );
+
+    await view.onBudgetPreview();
+
+    expect(h.rpcCallMock).toHaveBeenCalledWith('session:budgetAction', {
+      sessionId: SESSION,
+      action: 'preview-handoff',
+    });
+    expect(view.budgetPreviewText()).toBe('# Handoff');
+  });
+
+  it('continue writes the handoff and starts a new tab with only the seed', async () => {
+    const { h, view } = setup();
+    h.rpcCallMock.mockResolvedValue(
+      rpcOk({
+        success: true,
+        handoff: { content: '# Handoff', path: '/h.md', seed: 'SEED TEXT' },
+      }),
+    );
+
+    await view.onBudgetContinue();
+
+    expect(h.rpcCallMock).toHaveBeenCalledWith('session:budgetAction', {
+      sessionId: SESSION,
+      action: 'write-handoff',
+    });
+    expect(h.createTabMock).toHaveBeenCalledTimes(1);
+    expect(h.sendOrQueueMessageMock).toHaveBeenCalledWith('SEED TEXT', {
+      tabId: 'tab-new',
+    });
+    expect(h.requestCanvasTabMock).not.toHaveBeenCalled();
+  });
+
+  it('continue in grid layout asks the canvas to adopt the new tab', async () => {
+    const { h, view } = setup();
+    h.layoutModeSig.set('grid');
+    h.rpcCallMock.mockResolvedValue(
+      rpcOk({
+        success: true,
+        handoff: { content: 'c', path: null, seed: 'SEED' },
+      }),
+    );
+
+    await view.onBudgetContinue();
+
+    expect(h.requestCanvasTabMock).toHaveBeenCalledWith('tab-new', '/ws');
+  });
+
+  it('continue opens no tab when the action fails', async () => {
+    const { h, view } = setup();
+    h.rpcCallMock.mockResolvedValue(rpcOk({ success: false, error: 'nope' }));
+
+    await view.onBudgetContinue();
+
+    expect(h.createTabMock).not.toHaveBeenCalled();
+    expect(h.sendOrQueueMessageMock).not.toHaveBeenCalled();
+  });
+
+  it('does nothing without a budget', async () => {
+    const { h, view } = setup(null);
+    await view.onBudgetAction('dismiss');
+    expect(h.rpcCallMock).not.toHaveBeenCalled();
   });
 });

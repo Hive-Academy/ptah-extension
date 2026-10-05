@@ -92,7 +92,7 @@ interface PastedImage {
  * - Shift+Enter for newlines, Enter to send
  * - Clear input after send
  * - Disable during streaming
- * - Auto-resize textarea
+ * - Auto-resize textarea via CSS `field-sizing: content` (no JS height writes)
  *
  * MIGRATION NOTE:
  * - Removed CdkOverlayOrigin - now using native ElementRef for overlay positioning
@@ -206,9 +206,13 @@ interface PastedImage {
 
         <!-- Textarea + Suggestions Dropdown -->
         <div class="relative">
+          <!-- Auto-resize is pure CSS (field-sizing: content), so typing never
+               forces a document layout. The min-height keeps the old rows="2"
+               resting height, which field-sizing ignores. -->
           <textarea
             #inputElement
-            class="block w-full min-h-[2.5rem] max-h-[10rem] resize-none bg-transparent border-0 px-3.5 pt-3 pb-1 text-sm leading-relaxed text-base-content placeholder:text-base-content-muted outline-none focus:outline-none focus:ring-0"
+            style="field-sizing: content"
+            class="block w-full min-h-[calc(2lh+1rem)] max-h-[10rem] overflow-y-auto resize-none bg-transparent border-0 px-3.5 pt-3 pb-1 text-sm leading-relaxed text-base-content placeholder:text-base-content-muted outline-none focus:outline-none focus:ring-0"
             [placeholder]="
               attachedReadOnly()
                 ? 'Session is attached to messaging — read-only'
@@ -745,15 +749,12 @@ export class ChatInputComponent implements OnInit {
   });
 
   /**
-   * Handle input change (auto-resize only, trigger detection delegated to directives)
+   * Handle input change (value sync only — the textarea sizes itself via
+   * `field-sizing: content`, so no layout reads or height writes happen here;
+   * trigger detection is delegated to directives)
    */
   handleInput(event: Event): void {
-    const target = event.target as HTMLTextAreaElement;
-    const value = target.value;
-
-    this._currentMessage.set(value);
-    target.style.height = 'auto';
-    target.style.height = `${Math.min(target.scrollHeight, 160)}px`;
+    this._currentMessage.set((event.target as HTMLTextAreaElement).value);
   }
 
   /**
@@ -985,8 +986,6 @@ export class ChatInputComponent implements OnInit {
     const newCursorPos = cursorStart + insertion.length;
     textarea.focus();
     textarea.setSelectionRange(newCursorPos, newCursorPos);
-    textarea.style.height = 'auto';
-    textarea.style.height = `${Math.min(textarea.scrollHeight, 160)}px`;
   }
 
   /**
@@ -1357,7 +1356,7 @@ export class ChatInputComponent implements OnInit {
         data: img.data,
         mediaType: img.mediaType,
       }));
-      await this.chatStore.sendOrQueueMessage(
+      const outcome = await this.chatStore.sendOrQueueMessage(
         normalizedContent || 'What is in this image?',
         {
           files: filePaths.length > 0 ? filePaths : undefined,
@@ -1365,13 +1364,14 @@ export class ChatInputComponent implements OnInit {
           tabId: this._sessionContext?.() ?? undefined,
         },
       );
+      // Refused at the session budget limit: keep the draft and attachments
+      // so the user can send them after acting on the budget banner.
+      if (outcome?.errorCode === 'SESSION_BUDGET_REACHED') return;
       this._currentMessage.set('');
       this._selectedFiles.set([]);
       this._pastedImages.set([]);
-      const textarea = this.textareaRef()?.nativeElement;
-      if (textarea) {
-        textarea.style.height = 'auto';
-      }
+      // The emptied `[value]` binding plus `field-sizing: content` shrink the
+      // textarea back to its resting height — no manual height reset.
     } catch (error) {
       console.error('[ChatInputComponent] Failed to send message:', error);
     }
@@ -1401,12 +1401,8 @@ export class ChatInputComponent implements OnInit {
     }
 
     this._currentMessage.set(content);
-    const textarea = this.textareaRef()?.nativeElement;
-    if (textarea) {
-      textarea.focus();
-      textarea.style.height = 'auto';
-      textarea.style.height = `${Math.min(textarea.scrollHeight, 160)}px`;
-    }
+    // `field-sizing: content` sizes the box to the restored value.
+    this.textareaRef()?.nativeElement.focus();
   }
 
   constructor() {

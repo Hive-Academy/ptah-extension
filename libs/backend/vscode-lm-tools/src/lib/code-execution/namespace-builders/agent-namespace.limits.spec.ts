@@ -99,6 +99,7 @@ function deps(
     getWorkspaceRoot: () => 'D:/ws',
     getPtahCliRegistry: () => registry as Registry,
     getLaneLimits,
+    logger: { warn: jest.fn() },
   };
 }
 

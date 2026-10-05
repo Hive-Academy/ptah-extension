@@ -139,7 +139,7 @@ export const appConfig: ApplicationConfig = {
     // the two element boundaries provide their narrower surface signals.
     { provide: SURFACE_ACTIVE, useFactory: surfaceActiveFor('chat') },
     provideBrowserGlobalErrorListeners(),
-    provideZoneChangeDetection({ eventCoalescing: true }),
+    provideZoneChangeDetection({ eventCoalescing: true, runCoalescing: true }),
     { provide: ErrorHandler, useClass: WebviewErrorHandler },
     // THE ROUTER'S HOST SEAM — this provider is what makes routing possible in
     // both hosts, and it is load-bearing.

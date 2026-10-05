@@ -237,4 +237,29 @@ describe('SessionHistoryReplayer older pages', () => {
       replayer.replayOlderPage(events(1), TAB, SESSION, 'cursor-1', null, []),
     ).resolves.toBe('prepended');
   });
+
+  it('does not rebuild a history-page cache after its tab closes during replay', async () => {
+    holdMacrotasks = true;
+    const tabManager = TestBed.inject(TabManagerService);
+    const pending = replayer.replayOlderPage(
+      events(251),
+      TAB,
+      SESSION,
+      'cursor-1',
+      null,
+      [],
+    );
+    await until(() => heldMacrotasks.length === 1);
+
+    // The tab closes while the chunked replay is parked on its yield.
+    jest
+      .mocked(tabManager.findTabByIdAcrossWorkspaces)
+      .mockImplementation(() => null);
+    heldMacrotasks.shift()?.();
+
+    await expect(pending).resolves.toBe('superseded');
+    expect(TestBed.inject(HistoryMessageBuilder).build).not.toHaveBeenCalled();
+    expect(prependHistoryMessages).not.toHaveBeenCalled();
+    expect(clearCache).toHaveBeenCalledWith(`history-page-${TAB}`);
+  });
 });

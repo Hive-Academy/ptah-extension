@@ -46,6 +46,7 @@ import {
   SessionTurnStateRegistry,
   InternalQueryService,
   McpServerBackoffService,
+  SessionBudgetService,
   // Relative, not `@ptah-extension/agent-sdk`: a project may not import itself
   // by alias (`@nx/enforce-module-boundaries`). This is still the public
   // barrel, so the smoke test proves the same surface.
@@ -300,5 +301,28 @@ describe('registerSdkServices — background-work governor foreground source', (
 
   it('registers without a governor (no foreground source, no throw)', () => {
     expect(() => buildSmokeContainer()).not.toThrow();
+  });
+});
+
+/**
+ * TASK_2026_597 N7 — `SessionBudgetService` injects its config provider,
+ * handoff builder and handoff writer by class token. The writer is a plain
+ * class (no decorators), so it resolves only through its factory
+ * registration; an unregistered writer fails at the first resolve.
+ */
+describe('registerSdkServices — session budget DI smoke', () => {
+  it('resolves SDK_TOKENS.SDK_SESSION_BUDGET as a singleton', () => {
+    const container = buildSmokeContainer();
+
+    const service = container.resolve<SessionBudgetService>(
+      SDK_TOKENS.SDK_SESSION_BUDGET,
+    );
+
+    expect(service).toBeInstanceOf(SessionBudgetService);
+    expect(container.resolve(SDK_TOKENS.SDK_SESSION_BUDGET)).toBe(service);
+    // Fail-open with no state and no stats owner entry.
+    expect(service.canSend('6f1c2a5e-4b7d-4c1e-9a3f-2d8e5b0c7a91')).toEqual({
+      ok: true,
+    });
   });
 });

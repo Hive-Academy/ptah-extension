@@ -3172,3 +3172,62 @@ describe('StreamTransformer — session stats authority (TASK_2026_533)', () => 
     });
   });
 });
+
+describe('StreamTransformer — onCompactBoundary (TASK_2026_597 N7)', () => {
+  it('fires once per compact_boundary message, with the real id once init resolved it', async () => {
+    const { transformer } = makeHarness();
+    const onCompactBoundary = jest.fn();
+
+    const iter = transformer.transform({
+      sdkQuery: asAsyncIterable([
+        systemInit([], 'real-uuid'),
+        compactBoundary(),
+        messageStart(MODEL, { input_tokens: 10 }),
+        compactBoundary(),
+      ]),
+      // A new session streams under its tracking id until init.
+      sessionId: 'tab_1' as SessionId,
+      initialModel: MODEL,
+      onCompactBoundary,
+    });
+
+    await drain(iter);
+
+    expect(onCompactBoundary).toHaveBeenCalledTimes(2);
+    expect(onCompactBoundary).toHaveBeenNthCalledWith(1, 'real-uuid');
+    expect(onCompactBoundary).toHaveBeenNthCalledWith(2, 'real-uuid');
+  });
+
+  it('is not called for a stream without a compact_boundary', async () => {
+    const { transformer } = makeHarness();
+    const onCompactBoundary = jest.fn();
+
+    await drain(
+      transformer.transform({
+        sdkQuery: asAsyncIterable([
+          messageStart(MODEL, { input_tokens: 10 }),
+          resultMessage(MODEL, { inputTokens: 10, outputTokens: 20 }),
+        ]),
+        sessionId: 'sess-1' as SessionId,
+        initialModel: MODEL,
+        onCompactBoundary,
+      }),
+    );
+
+    expect(onCompactBoundary).not.toHaveBeenCalled();
+  });
+
+  it('streams a compact_boundary normally when no callback is set', async () => {
+    const { transformer } = makeHarness();
+
+    await expect(
+      drain(
+        transformer.transform({
+          sdkQuery: asAsyncIterable([compactBoundary()]),
+          sessionId: 'sess-1' as SessionId,
+          initialModel: MODEL,
+        }),
+      ),
+    ).resolves.toBeUndefined();
+  });
+});

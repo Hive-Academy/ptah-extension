@@ -45,7 +45,10 @@ describe('unified CLI agent output', () => {
       providers: [
         provideSurfaceActiveTesting(),
         provideMarkdown(),
-        { provide: AgentMonitorStore, useValue: { tick: signal(0) } },
+        {
+          provide: AgentMonitorStore,
+          useValue: { tick: signal(0), agentsById: signal(new Map()) },
+        },
         { provide: ClaudeRpcService, useValue: createMockRpcService() },
         {
           provide: VSCodeService,

@@ -23,6 +23,7 @@ import { AgentProcessManager } from '../cli-agents/agent-process-manager.service
 import { AgentSpawnEnvironment } from '../cli-agents/agent-spawn-environment.service';
 import { AgentOutputBuffer } from '../cli-agents/agent-output-buffer.service';
 import { LaneCompletionNotifier } from '../cli-agents/lane-completion-notifier.service';
+import { LaneResumeGate } from '../cli-agents/lane-resume-gate';
 import { AgentReportRouter } from '../cli-agents/agent-report-router.service';
 import { LaneOwnerResolver } from '../cli-agents/limits/lane-owner.resolver';
 import { LaneLimitLookupService } from '../cli-agents/limits/lane-limit-lookup.service';
@@ -88,6 +89,17 @@ export function registerCliAgentRuntimeServices(
   // `libs/backend/cli-engine/src/lib/container.ts:629`), so nothing can
   // construct the notifier while the adapter is still absent (TASK_2026_515).
   container.registerSingleton(LaneCompletionNotifier);
+  // A cached factory, not a class: the gate's constructor takes the output
+  // channel plus spec-only seams the container cannot resolve by type. The
+  // process manager below injects it.
+  container.register(CLI_AGENT_RUNTIME_TOKENS.LANE_RESUME_GATE, {
+    useFactory: instanceCachingFactory(
+      (c) =>
+        new LaneResumeGate(
+          c.resolve<IOutputChannel>(PLATFORM_TOKENS.OUTPUT_CHANNEL),
+        ),
+    ),
+  });
   // Plan limits (TASK_2026_596). The owner resolver is registered BEFORE the
   // manager that injects it. All three read the auth-providers plan-limit
   // services, which every host registers before this function.

@@ -1,0 +1,63 @@
+{
+  "commit": "c179f3eb5",
+  "sessionId": "7d2c1f0e-5b3a-4c8d-9e1f-2a3b4c5d6e7f",
+  "tabId": "bab69004-ad78-4b84-be26-a4781b056dcd",
+  "injected": {
+    "foreground": {
+      "toolCallId": "toolu_fg_0001",
+      "via": "chat:chunk tool_start + agent_start"
+    },
+    "background": {
+      "toolCallId": "toolu_bg_0002",
+      "via": "chat:chunk tool_start + agent_start + background_agent_started"
+    },
+    "cliLane": {
+      "agentId": "cli-lane-0001",
+      "via": "agent-monitor:spawned"
+    }
+  },
+  "observed": {
+    "dark": {
+      "panelPresent": true,
+      "panelVisible": true,
+      "panelText": "Agents\n3\nCodex\nfg-reviewer\nbg-watcher\nCodex\nrunning\ncache not reported\n17s\nTask\nParent: 7d2c1f0e…",
+      "listedChips": [
+        "Codex",
+        "fg-reviewer",
+        "bg-watcher",
+        "Codex\nrunning\ncache not reported\n17s"
+      ],
+      "totalCountBadge": "3",
+      "badges": [
+        "3",
+        "Codex",
+        "running",
+        "cache not reported"
+      ],
+      "canvasTiles": 1,
+      "chatTextHasFgDesc": true,
+      "chatTextHasBgDesc": true
+    },
+    "light": {
+      "panelPresent": true,
+      "panelVisible": true,
+      "panelText": "Agents\n3\nCodex\nfg-reviewer\nbg-watcher\nCodex\nrunning\ncache not reported\n18s\nTask\nParent: 7d2c1f0e…",
+      "listedChips": [
+        "Codex",
+        "fg-reviewer",
+        "bg-watcher",
+        "Codex\nrunning\ncache not reported\n18s"
+      ],
+      "totalCountBadge": "3",
+      "badges": [
+        "3",
+        "Codex",
+        "running",
+        "cache not reported"
+      ],
+      "canvasTiles": 1,
+      "chatTextHasFgDesc": true,
+      "chatTextHasBgDesc": true
+    }
+  }
+}

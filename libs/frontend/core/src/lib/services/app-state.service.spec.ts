@@ -1669,22 +1669,38 @@ describe('AppStateManager', () => {
       expect(service.newCanvasSessionRequest()).toBeNull();
     });
 
-    it('requestCanvasTab sets the tab-adoption request and clearCanvasTabRequest nulls it (F-D3)', () => {
+    it('requestCanvasTab queues tab-adoption requests in FIFO order and takeCanvasTabRequests empties the queue (F-D3)', () => {
       const service = createService();
-      service.requestCanvasTab('tab-7', 'TASK_2026_200');
-      expect(service.canvasTabRequest()).toEqual({
-        tabId: 'tab-7',
-        name: 'TASK_2026_200',
-      });
+      service.requestCanvasTab('tab-7', '/ws/a', 'TASK_2026_200');
+      service.requestCanvasTab('tab-8', null);
 
-      service.clearCanvasTabRequest();
-      expect(service.canvasTabRequest()).toBeNull();
+      expect(service.canvasTabRequests()).toEqual([
+        { tabId: 'tab-7', workspacePath: '/ws/a', name: 'TASK_2026_200' },
+        { tabId: 'tab-8', workspacePath: null },
+      ]);
+
+      expect(service.takeCanvasTabRequests()).toEqual([
+        { tabId: 'tab-7', workspacePath: '/ws/a', name: 'TASK_2026_200' },
+        { tabId: 'tab-8', workspacePath: null },
+      ]);
+      expect(service.canvasTabRequests()).toEqual([]);
+      expect(service.takeCanvasTabRequests()).toEqual([]);
     });
 
-    it('requestCanvasTab omits name when not supplied', () => {
+    it('requestCanvasTab records focus: false only when asked (agent-child adoption)', () => {
       const service = createService();
-      service.requestCanvasTab('tab-8');
-      expect(service.canvasTabRequest()).toEqual({ tabId: 'tab-8' });
+      service.requestCanvasTab('tab-9', '/ws/a', 'Child', false);
+      service.requestCanvasTab('tab-10', '/ws/a', 'Launch');
+
+      expect(service.canvasTabRequests()).toEqual([
+        {
+          tabId: 'tab-9',
+          workspacePath: '/ws/a',
+          name: 'Child',
+          focus: false,
+        },
+        { tabId: 'tab-10', workspacePath: '/ws/a', name: 'Launch' },
+      ]);
     });
 
     it('requestChatPrompt sets the request and clearChatPromptRequest nulls it (D.1)', () => {

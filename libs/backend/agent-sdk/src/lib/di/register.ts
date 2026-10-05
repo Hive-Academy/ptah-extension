@@ -99,6 +99,10 @@ import { SessionPlanLimitCallbackRegistry } from '../helpers/plan-limits/session
 import { SessionQuotaProbeService } from '../helpers/plan-limits/session-quota-probe.service';
 import { SettingsExportService } from '../settings-export.service';
 import { SettingsImportService } from '../settings-import.service';
+import { SessionBudgetConfigProvider } from '../helpers/session-budget/session-budget-config.provider';
+import { SessionHandoffBuilder } from '../helpers/session-budget/session-handoff-builder';
+import { SessionHandoffWriter } from '../helpers/session-budget/session-handoff-writer';
+import { SessionBudgetService } from '../helpers/session-budget/session-budget.service';
 import { SDK_TOKENS } from './tokens';
 
 /**
@@ -645,6 +649,24 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_SESSION_TITLE_SERVICE,
     { useClass: SessionTitleService },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  // Session budget (TASK_2026_597 N7). The service injects its provider,
+  // builder and writer by class token. The writer is a plain class (logger
+  // plus an options bag, no decorators), so tsyringe cannot auto-wire it: a
+  // factory builds it with the real home directory. Before the adapter, which
+  // injects the service.
+  container.registerSingleton(SessionBudgetConfigProvider);
+  container.registerSingleton(SessionHandoffBuilder);
+  container.register(SessionHandoffWriter, {
+    useFactory: instanceCachingFactory(
+      (c) => new SessionHandoffWriter(c.resolve<Logger>(TOKENS.LOGGER)),
+    ),
+  });
+  container.register(
+    SDK_TOKENS.SDK_SESSION_BUDGET,
+    { useClass: SessionBudgetService },
     { lifecycle: Lifecycle.Singleton },
   );
 

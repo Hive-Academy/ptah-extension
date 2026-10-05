@@ -361,6 +361,8 @@ interface ManagerHarness {
   outputBuffer: AgentOutputBuffer;
   /** The stubbed lane completion notifier (TASK_2026_515). */
   laneCompletion: { signal: jest.Mock };
+  /** The stubbed resume gate (TASK_2026_597, R9.1); resumes by default. */
+  resumeGate: { evaluate: jest.Mock };
   laneOwners: LaneOwnersStub;
   planLimits: PlanLimitsStub;
 }
@@ -392,6 +394,15 @@ function createManager(deps: {
       reason: 'chat-runtime-unavailable',
     })),
   };
+  const resumeGate = {
+    evaluate: jest.fn(async () => ({
+      decision: 'resume',
+      reason: 'within the context and idle limits',
+      contextTokens: null,
+      source: 'estimate',
+      idleMs: null,
+    })),
+  };
   const laneOwners: LaneOwnersStub = {
     ownerForLane: jest.fn<QuotaOwnerRef | undefined, [string]>(() => undefined),
   };
@@ -412,16 +423,20 @@ function createManager(deps: {
     // `lane-completion-notifier.service.spec.ts`. What these tests own is that
     // every terminal path calls it (TASK_2026_515).
     laneCompletion as unknown as ManagerArgs[7],
-    laneOwners as unknown as ManagerArgs[8],
-    planLimits as unknown as ManagerArgs[9],
+    // Stubbed: the decision itself is pinned by `lane-resume-gate.spec.ts`.
+    // What these tests own is what the manager does with each decision.
+    resumeGate as unknown as ManagerArgs[8],
+    laneOwners as unknown as ManagerArgs[9],
+    planLimits as unknown as ManagerArgs[10],
   );
-  return { manager, outputBuffer, laneCompletion, laneOwners, planLimits };
+  return { manager, outputBuffer, laneCompletion, resumeGate, laneOwners, planLimits };
 }
 
 describe('AgentProcessManager - SDK Execution Path', () => {
   let manager: AgentProcessManager;
   let outputBuffer: AgentOutputBuffer;
   let laneCompletion: { signal: jest.Mock };
+  let resumeGate: { evaluate: jest.Mock };
   let laneOwners: LaneOwnersStub;
   let planLimits: PlanLimitsStub;
   let logger: jest.Mocked<Logger>;
@@ -444,7 +459,7 @@ describe('AgentProcessManager - SDK Execution Path', () => {
 
     reasoningEffortGet = jest.fn(() => '');
     getMcpPort = jest.fn<number | null, []>(() => null);
-    ({ manager, outputBuffer, laneCompletion, laneOwners, planLimits } =
+    ({ manager, outputBuffer, laneCompletion, laneOwners, planLimits, resumeGate } =
       createManager({
         logger,
         cliDetection,
@@ -941,6 +956,250 @@ describe('AgentProcessManager - SDK Execution Path', () => {
       expect(runSdkCall.modelSource).toBe('cli-default');
       expect(lanePolicyLines()[0][1]).not.toHaveProperty('detectedCliVersion');
       expect(lanePolicyLines()[0][1]).not.toHaveProperty('prefixKeys');
+    });
+  });
+
+  describe('resume gate (TASK_2026_597, R9.1)', () => {
+    const SESSION = 'thread-1';
+
+    function restorePreviousLane(): void {
+      const ref: CliSessionReference = {
+        cliSessionId: SESSION,
+        cli: 'codex',
+        agentId: 'agent-previous' as CliSessionReference['agentId'],
+        task: 'Implement the parser',
+        startedAt: '2026-10-04T08:00:00.000Z',
+        status: 'completed',
+        segments: [
+          { type: 'text', content: 'Started on the parser. ' },
+          {
+            type: 'file-change',
+            content: 'src/parser.ts',
+            changeKind: 'added',
+          },
+          {
+            type: 'file-change',
+            content: 'src/parser.ts',
+            changeKind: 'modified',
+          },
+          {
+            type: 'file-change',
+            content: 'src/lexer.ts',
+            changeKind: 'modified',
+          },
+          { type: 'text', content: 'Parser done; lexer tests still fail.' },
+        ],
+      };
+      manager.restoreAgents([ref], '/workspace/root');
+    }
+
+    it('passes the previous lane figures to the gate and resumes on `resume`', async () => {
+      restorePreviousLane();
+
+      await manager.spawn({
+        task: 'Fix the lexer tests',
+        cli: 'codex',
+        workingDirectory: '/workspace/root',
+        resumeSessionId: SESSION,
+      });
+
+      expect(resumeGate.evaluate).toHaveBeenCalledWith({
+        cli: 'codex',
+        cliSessionId: SESSION,
+        lastActivityAt: Date.parse('2026-10-04T08:00:00.000Z'),
+      });
+      const runSdkCall = (sdkAdapter.runSdk as jest.Mock).mock.calls[0][0];
+      expect(runSdkCall.task).toBe('Fix the lexer tests');
+      expect(runSdkCall.resumeSessionId).toBe(SESSION);
+    });
+
+    it('reports a `resumed` decision on the spawn result', async () => {
+      restorePreviousLane();
+
+      const result = await manager.spawn({
+        task: 'Fix the lexer tests',
+        cli: 'codex',
+        workingDirectory: '/workspace/root',
+        resumeSessionId: SESSION,
+      });
+
+      expect(result.resumeDecision).toEqual({
+        decision: 'resumed',
+        reason: expect.any(String),
+        sessionKnown: true,
+      });
+    });
+
+    it('spawns a fresh lane with the handoff fields on `fresh`', async () => {
+      restorePreviousLane();
+      resumeGate.evaluate.mockResolvedValueOnce({
+        decision: 'fresh',
+        reason: 'last request 61000 tokens exceeds 60000',
+        contextTokens: 61_000,
+        source: 'rollout',
+        idleMs: 1_000,
+      });
+
+      const result = await manager.spawn({
+        task: 'Fix the lexer tests',
+        cli: 'codex',
+        workingDirectory: '/workspace/root',
+        resumeSessionId: SESSION,
+      });
+
+      const runSdkCall = (sdkAdapter.runSdk as jest.Mock).mock.calls[0][0];
+      expect(runSdkCall.resumeSessionId).toBeUndefined();
+      const task: string = runSdkCall.task;
+      expect(task).toContain('last request 61000 tokens exceeds 60000');
+      expect(task).toContain('Original task:\nImplement the parser');
+      expect(task).toContain('- src/parser.ts\n- src/lexer.ts');
+      expect(task.match(/src\/parser\.ts/g)).toHaveLength(1);
+      expect(task).toContain(
+        'Started on the parser. Parser done; lexer tests still fail.',
+      );
+      expect(task.endsWith('New instruction:\nFix the lexer tests')).toBe(true);
+      // The record keeps the caller's message as its task, and is a new lane:
+      // it does not claim the old session.
+      const info = manager.getStatus(result.agentId) as AgentProcessInfo;
+      expect(info.task).toBe('Fix the lexer tests');
+      expect(info.cliSessionId).toBeUndefined();
+      // S2: the caller is told the lane was not resumed, and why.
+      expect(result.resumeDecision).toEqual({
+        decision: 'fresh',
+        reason: 'last request 61000 tokens exceeds 60000',
+        sessionKnown: true,
+      });
+      // M1: the fresh record keeps the chain's first task.
+      expect(info.originalTask).toBe('Implement the parser');
+    });
+
+    it('keeps the original task across two successive fresh lanes (M1)', async () => {
+      restorePreviousLane();
+      const fresh = {
+        decision: 'fresh' as const,
+        reason: 'idle 900s exceeds 600s',
+        contextTokens: null,
+        source: 'estimate' as const,
+        idleMs: 900_000,
+      };
+      resumeGate.evaluate
+        .mockResolvedValueOnce(fresh)
+        .mockResolvedValueOnce(fresh);
+      // The first fresh lane reports a new CLI session id.
+      (
+        sdkControls.handle as unknown as { getSessionId: () => string }
+      ).getSessionId = () => 'thread-2';
+
+      const first = await manager.spawn({
+        task: 'Fix the lexer tests',
+        cli: 'codex',
+        workingDirectory: '/workspace/root',
+        resumeSessionId: SESSION,
+      });
+      expect(
+        (manager.getStatus(first.agentId) as AgentProcessInfo).cliSessionId,
+      ).toBe('thread-2');
+
+      const second = await manager.spawn({
+        task: 'Now the docs',
+        cli: 'codex',
+        workingDirectory: '/workspace/root',
+        resumeSessionId: 'thread-2',
+      });
+
+      const secondTask: string = (sdkAdapter.runSdk as jest.Mock).mock
+        .calls[1][0].task;
+      expect(secondTask).toContain('Original task:\nImplement the parser');
+      expect(secondTask.endsWith('New instruction:\nNow the docs')).toBe(true);
+      expect(
+        (manager.getStatus(second.agentId) as AgentProcessInfo).originalTask,
+      ).toBe('Implement the parser');
+    });
+
+    it('still consults the gate when this host holds no record of the session', async () => {
+      resumeGate.evaluate.mockResolvedValueOnce({
+        decision: 'fresh',
+        reason: 'idle 900s exceeds 600s',
+        contextTokens: null,
+        source: 'estimate',
+        idleMs: 900_000,
+      });
+
+      const result = await manager.spawn({
+        task: 'Carry on',
+        cli: 'codex',
+        workingDirectory: '/workspace/root',
+        resumeSessionId: 'unknown-thread',
+      });
+
+      expect(resumeGate.evaluate).toHaveBeenCalledWith({
+        cli: 'codex',
+        cliSessionId: 'unknown-thread',
+      });
+      const task: string = (sdkAdapter.runSdk as jest.Mock).mock.calls[0][0]
+        .task;
+      expect(task).toContain('This host holds no record of the previous lane');
+      expect(task).toContain('Original task:\n(unknown');
+      expect(result.resumeDecision).toEqual({
+        decision: 'fresh',
+        reason: 'idle 900s exceeds 600s',
+        sessionKnown: false,
+      });
+      expect(task).toContain(
+        'Files the previous lane changed:\n(none recorded)',
+      );
+    });
+
+    it('does not consult the gate for a spawn without a resume id', async () => {
+      await manager.spawn({
+        task: 'New work',
+        cli: 'codex',
+        workingDirectory: '/workspace/root',
+      });
+
+      expect(resumeGate.evaluate).not.toHaveBeenCalled();
+    });
+
+    it('records the last streamed input figure as an estimate and hands it to the gate', async () => {
+      const segmentCallbacks: Array<(segment: CliOutputSegment) => void> = [];
+      Object.assign(sdkControls.handle, {
+        onSegment: (cb: (segment: CliOutputSegment) => void) => {
+          segmentCallbacks.push(cb);
+        },
+        getSessionId: () => SESSION,
+      });
+      const first = await manager.spawn({
+        task: 'Implement the parser',
+        cli: 'codex',
+        workingDirectory: '/workspace/root',
+      });
+      const emit = (segment: CliOutputSegment): void => {
+        for (const cb of segmentCallbacks) cb(segment);
+      };
+      emit({ type: 'info', content: 'Usage', usage: { inputTokens: 12_000 } });
+      emit({ type: 'info', content: 'Usage', usage: { inputTokens: 0 } });
+      emit({ type: 'info', content: 'Usage', usage: { inputTokens: 18_500 } });
+
+      const info = manager.getStatus(first.agentId) as AgentProcessInfo;
+      expect(info.lastRequestContext).toEqual({
+        tokens: 18_500,
+        source: 'estimate',
+      });
+
+      sdkControls.resolve(0);
+      await Promise.resolve();
+      await manager.spawn({
+        task: 'Next step',
+        cli: 'codex',
+        workingDirectory: '/workspace/root',
+        resumeSessionId: SESSION,
+      });
+
+      expect(resumeGate.evaluate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          lastRequestContext: { tokens: 18_500, source: 'estimate' },
+        }),
+      );
     });
   });
 

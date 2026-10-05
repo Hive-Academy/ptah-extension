@@ -13,7 +13,7 @@ import type {
   SubagentRecord,
 } from '@ptah-extension/chat-streaming';
 import { signal } from '@angular/core';
-import { TestBed } from '@angular/core/testing';
+import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideSurfaceActiveTesting } from '@ptah-extension/core/testing';
 import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
 import { TabManagerService } from '@ptah-extension/chat-state';
@@ -316,6 +316,180 @@ describe('AgentMonitorPanelComponent — overlay focus', () => {
   });
 });
 
+describe('AgentMonitorPanelComponent — sticky-to-bottom scrolling', () => {
+  const originalResizeObserver = globalThis.ResizeObserver;
+  const originalRaf = globalThis.requestAnimationFrame;
+  const originalCancelRaf = globalThis.cancelAnimationFrame;
+  let resizeCallbacks: (() => void)[];
+  let scheduledFrames: Map<number, FrameRequestCallback>;
+  let cancelCalls: number[];
+  let nextHandle: number;
+
+  beforeEach(() => {
+    resizeCallbacks = [];
+    scheduledFrames = new Map();
+    cancelCalls = [];
+    nextHandle = 1;
+    globalThis.ResizeObserver = class {
+      observe = jest.fn();
+      unobserve = jest.fn();
+      disconnect = jest.fn();
+      constructor(callback: ResizeObserverCallback) {
+        resizeCallbacks.push(() => callback([], this));
+      }
+    };
+    globalThis.requestAnimationFrame = (cb: FrameRequestCallback): number => {
+      const handle = nextHandle++;
+      scheduledFrames.set(handle, cb);
+      return handle;
+    };
+    globalThis.cancelAnimationFrame = (handle: number): void => {
+      cancelCalls.push(handle);
+      scheduledFrames.delete(handle);
+    };
+
+    TestBed.configureTestingModule({
+      imports: [AgentMonitorPanelComponent],
+      providers: [
+        {
+          provide: AgentMonitorStore,
+          useValue: {
+            activeWorkflowSubagents: signal([]),
+            workflowSubagentsForSession: jest.fn(() => []),
+            activeSessionSubagents: signal([]),
+            sessionSubagentsForSession: jest.fn(() => []),
+            activeTabAgents: signal([]),
+            pendingPermissions: signal([]),
+            panelOpen: signal(false),
+            closePanel: jest.fn(),
+            clearCompleted: jest.fn(),
+            clearCompletedInSession: jest.fn(),
+            getSubagent: jest.fn(),
+          },
+        },
+        {
+          provide: VSCodeService,
+          useValue: {
+            config: signal({ panelId: '', workspaceRoot: '/tmp' }),
+            postMessage: jest.fn(),
+          },
+        },
+        {
+          provide: TabManagerService,
+          useValue: {
+            findTabBySessionIdAcrossWorkspaces: jest.fn(() => null),
+            activeTabSessionId: signal(null),
+          },
+        },
+        {
+          provide: PanelResizeService,
+          useValue: {
+            customWidth: signal<number | null>(320),
+            dragging: signal(false),
+          },
+        },
+      ],
+    });
+  });
+
+  afterEach(() => {
+    TestBed.resetTestingModule();
+    globalThis.ResizeObserver = originalResizeObserver;
+    globalThis.requestAnimationFrame = originalRaf;
+    globalThis.cancelAnimationFrame = originalCancelRaf;
+  });
+
+  function createPanel(): ComponentFixture<AgentMonitorPanelComponent> {
+    const fixture = TestBed.createComponent(AgentMonitorPanelComponent);
+    fixture.componentRef.setInput('embeddedAgents', []);
+    fixture.componentRef.setInput('embeddedOpen', true);
+    fixture.componentRef.setInput('sessionId', 'session-1');
+    fixture.detectChanges();
+    // Drop any framework-internal rAF scheduled during setup so the
+    // per-frame scheduling assertions below count only the pin measurement.
+    scheduledFrames.clear();
+    return fixture;
+  }
+
+  /**
+   * The `#agentScroll` viewChild (private) — the panel's detail scroll
+   * container. `viewChild()` returns a signal, so it is invoked to resolve
+   * the ElementRef. Read through a structural cast, the same way the
+   * chat-input spec reaches `_currentMessage`; there is no DOM marker on the
+   * container.
+   */
+  function scrollContainerOf(
+    fixture: ComponentFixture<AgentMonitorPanelComponent>,
+  ): HTMLElement {
+    const panel = fixture.componentInstance as unknown as {
+      _scroll: () => { nativeElement: HTMLElement } | undefined;
+    };
+    const container = panel._scroll()?.nativeElement;
+    if (!container) {
+      throw new Error('#agentScroll container did not render');
+    }
+    return container;
+  }
+
+  /** Run the coalesced pin measurement for the frames scheduled so far. */
+  function flushFrames(): void {
+    const pending = [...scheduledFrames.values()];
+    scheduledFrames.clear();
+    for (const callback of pending) callback(0);
+  }
+
+  it('follows while pinned, stops when the reader scrolls up, and re-pins at the bottom', () => {
+    const fixture = createPanel();
+    const container = scrollContainerOf(fixture);
+    Object.defineProperty(container, 'scrollHeight', {
+      value: 1000,
+      configurable: true,
+    });
+    Object.defineProperty(container, 'clientHeight', { value: 200 });
+
+    // Content grows while pinned: the ResizeObserver writes the follow.
+    resizeCallbacks.forEach((callback) => callback());
+    expect(container.scrollTop).toBe(1000);
+
+    // Reader scrolls 700px up. The pin state updates in the next animation
+    // frame, not synchronously in the scroll handler (a synchronous read
+    // forces a full-document reflow while a turn streams).
+    container.scrollTop = 100;
+    container.dispatchEvent(new Event('scroll'));
+    flushFrames();
+    Object.defineProperty(container, 'scrollHeight', {
+      value: 1500,
+      configurable: true,
+    });
+    resizeCallbacks.forEach((callback) => callback());
+    expect(container.scrollTop).toBe(100);
+
+    // Reader returns to within NEAR_BOTTOM_PX of the end: follow resumes.
+    container.scrollTop = 1300;
+    container.dispatchEvent(new Event('scroll'));
+    flushFrames();
+    resizeCallbacks.forEach((callback) => callback());
+    expect(container.scrollTop).toBe(1500);
+  });
+
+  it('coalesces a burst of scroll events into one measurement and cancels it on destroy', () => {
+    const fixture = createPanel();
+    const container = scrollContainerOf(fixture);
+
+    container.scrollTop = 100;
+    container.dispatchEvent(new Event('scroll'));
+    container.dispatchEvent(new Event('scroll'));
+    expect(scheduledFrames.size).toBe(1);
+
+    const pendingHandle = [...scheduledFrames.keys()][0];
+    fixture.destroy();
+    // The pending pin measurement is canceled through its own handle. The
+    // framework may schedule its own rAFs during teardown — those are not
+    // this test's concern.
+    expect(cancelCalls).toContain(pendingHandle);
+  });
+});
+
 describe('AgentMonitorPanelComponent — session subagents', () => {
   let activeWorkflowSubagentsSig: ReturnType<typeof signal<SubagentRecord[]>>;
   let activeSessionSubagentsSig: ReturnType<typeof signal<SubagentRecord[]>>;
@@ -325,8 +499,10 @@ describe('AgentMonitorPanelComponent — session subagents', () => {
   let getSubagentTranscriptMock: jest.Mock;
   let allSubagentsMap: Map<string, SubagentRecord>;
   let getSubagentMock: jest.Mock;
+  let loadSubagentCacheInfoMock: jest.Mock;
 
   beforeEach(() => {
+    loadSubagentCacheInfoMock = jest.fn().mockResolvedValue(undefined);
     activeWorkflowSubagentsSig = signal<SubagentRecord[]>([]);
     activeSessionSubagentsSig = signal<SubagentRecord[]>([]);
     activeTabAgentsSig = signal<MonitoredAgent[]>([]);
@@ -363,6 +539,7 @@ describe('AgentMonitorPanelComponent — session subagents', () => {
             tick: signal(0),
             getSubagent: getSubagentMock,
             getSubagentTranscript: getSubagentTranscriptMock,
+            loadSubagentCacheInfo: loadSubagentCacheInfoMock,
           },
         },
         {
@@ -408,7 +585,7 @@ describe('AgentMonitorPanelComponent — session subagents', () => {
       subagent({
         parentToolUseId: 'toolu_task_1',
         teammateName: 'Worker 1',
-        status: 'running',
+        status: 'background',
       }),
     ]);
     const fixture = createPanel(null);
@@ -425,12 +602,32 @@ describe('AgentMonitorPanelComponent — session subagents', () => {
       subagent({
         parentToolUseId: 'toolu_task_1',
         teammateName: 'Worker 1',
-        status: 'running',
+        status: 'background',
       }),
     ]);
     const fixture = createPanel(null);
 
     expect(fixture.nativeElement.textContent).not.toContain('No agents');
+  });
+
+  it('reflects selector-provided session subagents in the panel list and count', () => {
+    activeTabAgentsSig.set([agent({ agentId: 'cli_1', displayName: 'CLI Agent' })]);
+    activeSessionSubagentsSig.set([
+      subagent({
+        parentToolUseId: 'toolu_background',
+        teammateName: 'Background worker',
+        status: 'running',
+      }),
+    ]);
+
+    const fixture = createPanel(null);
+
+    expect(fixture.componentInstance.sessionSubagents()).toEqual([
+      expect.objectContaining({ parentToolUseId: 'toolu_background' }),
+    ]);
+    expect(fixture.componentInstance.standaloneAgents()).toHaveLength(1);
+    expect(fixture.componentInstance.workflowGroups()).toHaveLength(0);
+    expect(fixture.componentInstance.totalCount()).toBe(2);
   });
 
   it('shows empty state when no agents or subagents exist', () => {
@@ -476,6 +673,33 @@ describe('AgentMonitorPanelComponent — session subagents', () => {
       'ptah-subagent-transcript-viewer',
     );
     expect(transcriptViewer).toBeTruthy();
+  });
+
+  it('shows the usage summary only once a subagent row is opened, and loads its cache info then', () => {
+    activeSessionSubagentsSig.set([
+      subagent({
+        parentToolUseId: 'toolu_task_1',
+        teammateName: 'Worker 1',
+        status: 'running',
+      }),
+    ]);
+    const fixture = createPanel(null);
+    expect(
+      fixture.nativeElement.querySelector('ptah-subagent-usage-summary'),
+    ).toBeNull();
+    expect(loadSubagentCacheInfoMock).not.toHaveBeenCalled();
+
+    (
+      fixture.nativeElement.querySelector(
+        'button[title="Worker 1"]',
+      ) as HTMLButtonElement
+    ).click();
+    fixture.detectChanges();
+
+    expect(
+      fixture.nativeElement.querySelector('ptah-subagent-usage-summary'),
+    ).toBeTruthy();
+    expect(loadSubagentCacheInfoMock).toHaveBeenCalledWith('toolu_task_1');
   });
 
   it('does not auto-select session subagents when a CLI agent is selected', () => {
@@ -569,6 +793,72 @@ describe('AgentMonitorPanelComponent — session subagents', () => {
     ).toBeNull();
     expect(fixture.nativeElement.textContent).toContain(
       'Transcript is not available yet',
+    );
+  });
+
+  function selectTile(
+    fixture: ReturnType<typeof createPanel>,
+    title: string,
+  ): void {
+    (
+      fixture.nativeElement.querySelector(
+        `button[title="${title}"]`,
+      ) as HTMLButtonElement
+    ).click();
+    fixture.detectChanges();
+  }
+
+  it('renders the transcript viewer and loads the transcript once for a background subagent whose agentId came from background_agent_started', () => {
+    activeSessionSubagentsSig.set([
+      subagent({
+        parentToolUseId: 'toolu_bg_named',
+        teammateName: 'reviewer-pr2',
+        status: 'running',
+        agentId: 'a1b2c3',
+        parentSessionId: 'sess_bg',
+      }),
+    ]);
+    const fixture = createPanel(null);
+
+    selectTile(fixture, 'reviewer-pr2');
+    fixture.detectChanges();
+
+    expect(
+      fixture.nativeElement.querySelector('ptah-subagent-transcript-viewer'),
+    ).toBeTruthy();
+    expect(fixture.nativeElement.textContent).not.toContain(
+      'Transcript is not available yet',
+    );
+    expect(getSubagentTranscriptMock).toHaveBeenCalledTimes(1);
+    expect(getSubagentTranscriptMock).toHaveBeenCalledWith('sess_bg', 'a1b2c3');
+  });
+
+  it('falls back to the active tab session when the record has no parentSessionId', () => {
+    (
+      TestBed.inject(TabManagerService).activeTabSessionId as ReturnType<
+        typeof signal<string | null>
+      >
+    ).set('sess_active');
+    activeSessionSubagentsSig.set([
+      subagent({
+        parentToolUseId: 'toolu_bg_no_session',
+        teammateName: 'No Session',
+        status: 'running',
+        agentId: 'd4e5f6',
+        parentSessionId: undefined,
+      }),
+    ]);
+    const fixture = createPanel(null);
+
+    selectTile(fixture, 'No Session');
+
+    expect(
+      fixture.nativeElement.querySelector('ptah-subagent-transcript-viewer'),
+    ).toBeTruthy();
+    expect(getSubagentTranscriptMock).toHaveBeenCalledTimes(1);
+    expect(getSubagentTranscriptMock).toHaveBeenCalledWith(
+      'sess_active',
+      'd4e5f6',
     );
   });
 

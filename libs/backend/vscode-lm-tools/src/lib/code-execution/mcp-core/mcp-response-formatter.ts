@@ -1867,6 +1867,9 @@ export function formatAgentSpawn(
           ...(result.cliSessionId
             ? [`**CLI Session ID:** ${result.cliSessionId}`]
             : []),
+          ...(result.resumeDecision
+            ? [formatResumeDecisionLine(result.resumeDecision)]
+            : []),
         ].join('  \n'),
       },
     ]);
@@ -1880,6 +1883,26 @@ export function formatAgentSpawn(
   } catch {
     return fallbackJson(result);
   }
+}
+
+/**
+ * The resume line of a spawn reply. A `fresh` decision is spelled out: the
+ * new lane does not have the previous conversation, and the caller must not
+ * write follow-ups as if it did.
+ */
+function formatResumeDecisionLine(
+  outcome: NonNullable<SpawnAgentResult['resumeDecision']>,
+): string {
+  if (outcome.decision === 'resumed') {
+    return `**Resume:** resumed (${outcome.reason})`;
+  }
+  return (
+    `**Resume:** NOT resumed — a fresh lane was started with a handoff brief (${outcome.reason}). ` +
+    'It does not have the previous conversation; give it complete instructions.' +
+    (outcome.sessionKnown
+      ? ''
+      : ' This host holds no record of that session, so the brief has no original task, changed files or final text.')
+  );
 }
 
 /**

@@ -188,6 +188,37 @@ describe('MessageDispatchService', () => {
     );
   });
 
+  // TASK_2026_597 N7: the budget banner explains a refusal at the limit.
+  it('adds no failure notice when a direct send is refused at the budget limit', async () => {
+    const refused = {
+      success: false,
+      error: 'Session budget reached',
+      errorCode: 'SESSION_BUDGET_REACHED',
+    };
+    sendMock.mockResolvedValue(refused);
+
+    const outcome = await service.sendOrQueueMessage('over budget');
+
+    expect(outcome).toBe(refused);
+    expect(setMessagesMock).not.toHaveBeenCalled();
+    expect(sendMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('re-queues a flush refused at the budget limit without a notice or a retry', async () => {
+    tabs = [makeTab({ queuedContent: 'queued' })];
+    continueExistingSessionForQueueFlushMock.mockResolvedValue({
+      success: false,
+      error: 'Session budget reached',
+      errorCode: 'SESSION_BUDGET_REACHED',
+    });
+
+    await service.sendQueuedMessage('tab-1', 'queued');
+
+    expect(tabs[0].queuedContent).toBe('queued');
+    expect(setMessagesMock).not.toHaveBeenCalled();
+    expect(continueExistingSessionForQueueFlushMock).toHaveBeenCalledTimes(1);
+  });
+
   it('restores resolved queue failure with attachments without overwriting newer arrivals', async () => {
     tabs = [
       makeTab({
@@ -263,7 +294,11 @@ new`);
     it("when streaming, denies only the target tab's prompts and leaves other sessions' prompts pending", async () => {
       tabs = [
         makeTab({ id: 'tab-1', claudeSessionId: 'sess-1' }),
-        makeTab({ id: 'tab-2', claudeSessionId: 'sess-2', status: 'streaming' }),
+        makeTab({
+          id: 'tab-2',
+          claudeSessionId: 'sess-2',
+          status: 'streaming',
+        }),
       ];
       permissionRequests.set([
         { id: 'own-by-tab', tabId: 'tab-2' },
@@ -295,7 +330,10 @@ new`);
 
     it('when streaming the active tab, an unrouted (globally shown) prompt is still denied', async () => {
       activeTabStatus.set('streaming');
-      permissionRequests.set([{ id: 'unrouted' }, { id: 'routed-away', tabId: 'tab-9' }]);
+      permissionRequests.set([
+        { id: 'unrouted' },
+        { id: 'routed-away', tabId: 'tab-9' },
+      ]);
       await service.sendOrQueueMessage('hello');
       const denied = handlePermissionResponseMock.mock.calls.map(
         (c) => (c[0] as { id: string }).id,

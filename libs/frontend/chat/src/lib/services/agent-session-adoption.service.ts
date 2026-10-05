@@ -1,5 +1,5 @@
 import { Injectable, Injector, computed, effect, inject } from '@angular/core';
-import { ClaudeRpcService } from '@ptah-extension/core';
+import { AppStateManager, ClaudeRpcService } from '@ptah-extension/core';
 import {
   SessionId,
   type AgentSessionOpenedPayload,
@@ -108,6 +108,7 @@ export function parseAgentSessionOpenedPayload(
 @Injectable({ providedIn: 'root' })
 export class AgentSessionAdoptionService {
   private readonly rpc = inject(ClaudeRpcService);
+  private readonly appState = inject(AppStateManager);
   private readonly tabManager = inject(TabManagerService);
   private readonly injector = inject(Injector);
 
@@ -249,6 +250,7 @@ export class AgentSessionAdoptionService {
       // be loaded yet, and the next workspace switch must try again.
       if (outcome === 'adopted' || outcome === 'exists') {
         this.settled.add(descriptor.tabId);
+        this.requestCanvasTile(descriptor);
       }
     } catch (error: unknown) {
       // degradation-audit: optional-capability - one child's adoption fault
@@ -256,5 +258,50 @@ export class AgentSessionAdoptionService {
       // child stays reachable from the sidebar.
       console.error('[AgentSessionAdoption] adoption failed:', error);
     }
+  }
+
+  /**
+   * While the Orchestra Canvas layout is active, ask it to adopt the child tab
+   * as a tile (TASK_2026_612). Same signal bridge the Tasks-board launch uses
+   * (F-D3): the canvas is already mounted and hydrated, so nothing else would
+   * tile a tab that appears after first-visit hydration. The canvas's
+   * `adoptTab` dedups, so re-adoption (e.g. `chat:agent-sessions` on webview
+   * bootstrap) never doubles a tile a fresh mount already restored. Requested
+   * with `focus: false` — a child opening must not steal the active tab, on
+   * the canvas exactly like in the tab bar. In single layout the queue is
+   * never consumed, so the tab-bar behavior is unchanged.
+   *
+   * Only the partition the canvas is showing can host the tile:
+   * `adoptTab` appends to the canvas's ACTIVE workspace grid, so a child is
+   * requested only when it landed in the ACTIVE partition — or in the single
+   * tab set when no workspace is active (VS Code panel, `null === null`). A
+   * child adopted into a BACKGROUND partition (its parent lives in another
+   * workspace) must not be tiled into the wrong grid; its tile comes from
+   * first-visit hydration when the user switches to that workspace. The
+   * request carries that workspace, so a canvas that only mounts later —
+   * after a workspace switch — drops it rather than tiling a foreign
+   * workspace's child into the now-active grid.
+   */
+  private requestCanvasTile(descriptor: AgentSessionOpenedPayload): void {
+    if (this.appState.layoutMode() !== 'grid') return;
+    const landed = this.tabManager.findTabByIdAcrossWorkspaces(
+      descriptor.tabId,
+    );
+    // `findTabByIdAcrossWorkspaces` reports the ACTIVE partition's path for a
+    // tab in the active set (non-null whenever a workspace is active), so
+    // comparing with the active workspace path keeps the Electron host
+    // working, and `null === null` the VS Code panel.
+    if (
+      !landed ||
+      landed.workspacePath !== this.tabManager.activeWorkspacePath
+    ) {
+      return;
+    }
+    this.appState.requestCanvasTab(
+      descriptor.tabId,
+      landed.workspacePath,
+      descriptor.label,
+      false,
+    );
   }
 }

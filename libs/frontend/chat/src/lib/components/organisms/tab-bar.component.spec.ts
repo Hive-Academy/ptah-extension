@@ -493,4 +493,21 @@ describe('TabBarComponent', () => {
       expect(tailPath(input)).toBe(expected);
     });
   });
+
+  it('removes the native scroll listener from the registered element on destroy', async () => {
+    fixture.detectChanges();
+    await fixture.whenStable();
+    const container = (fixture.nativeElement as HTMLElement).querySelector<HTMLElement>(
+      '.tab-scroll-container',
+    );
+    expect(container).not.toBeNull();
+    const removeEventListener = jest.spyOn(container!, 'removeEventListener');
+
+    fixture.destroy();
+
+    expect(removeEventListener).toHaveBeenCalledWith(
+      'scroll',
+      expect.any(Function),
+    );
+  });
 });

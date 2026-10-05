@@ -37,6 +37,8 @@ const MVP_TOOL_NAMES = [
   'agent_report',
   'agent_stop',
   'agent_list',
+  'agent_wait',
+  'run_check',
   'session_submit',
 ] as const;
 
@@ -152,7 +154,7 @@ describe('ptah mcp-serve e2e (Phase 6)', () => {
     expect(resp.error).toBeUndefined();
     expect(resp.result?.tools).toBeDefined();
     const tools = resp.result!.tools;
-    expect(tools).toHaveLength(8);
+    expect(tools).toHaveLength(MVP_TOOL_NAMES.length);
     const names = tools.map((t) => t.name);
     for (const expected of MVP_TOOL_NAMES) {
       expect(names).toContain(expected);
@@ -549,7 +551,7 @@ describe('ptah mcp-serve e2e (Phase 6)', () => {
     const result = resp.result!;
     expect(result.mode).toBe('mcp-serve');
     expect(result.capabilities).toEqual(expect.arrayContaining(['mcp']));
-    expect(result.catalog.tools).toHaveLength(8);
+    expect(result.catalog.tools).toHaveLength(MVP_TOOL_NAMES.length);
     const names = result.catalog.tools.map((t) => t.name);
     for (const expected of MVP_TOOL_NAMES) {
       expect(names).toContain(expected);

@@ -139,8 +139,9 @@ describe('OrchestraCanvasComponent workspace effects', () => {
   let canvasSessionRequests$: WritableSignal<readonly CanvasSessionRequest[]>;
   let takeCanvasSessionRequestsMock: jest.Mock;
   let canvasFocusRequests$: WritableSignal<readonly CanvasFocusRequest[]>;
-  let canvasTabRequest$: ReturnType<typeof signal<CanvasTabRequest | null>>;
-  let clearCanvasTabRequestMock: jest.Mock;
+  let canvasTabRequests$: WritableSignal<readonly CanvasTabRequest[]>;
+  let takeCanvasTabRequestsMock: jest.Mock;
+  let onTabClosedMock: jest.Mock;
   let switchSessionMock: jest.Mock;
   let canvasStoreMock: CanvasStore;
 
@@ -181,8 +182,15 @@ describe('OrchestraCanvasComponent workspace effects', () => {
       }
       return requests;
     });
-    canvasTabRequest$ = signal<CanvasTabRequest | null>(null);
-    clearCanvasTabRequestMock = jest.fn(() => canvasTabRequest$.set(null));
+    canvasTabRequests$ = signal<readonly CanvasTabRequest[]>([]);
+    takeCanvasTabRequestsMock = jest.fn(() => {
+      const requests = canvasTabRequests$();
+      if (requests.length > 0) {
+        canvasTabRequests$.set([]);
+      }
+      return requests;
+    });
+    onTabClosedMock = jest.fn(() => jest.fn());
 
     const tabManagerMock = {
       tabs: tabsSignal,
@@ -190,6 +198,7 @@ describe('OrchestraCanvasComponent workspace effects', () => {
       activeWorkspacePath$,
       removedWorkspace$,
       closedTab: closedTab$,
+      onTabClosed: onTabClosedMock,
       forceCloseTab: forceCloseTabMock,
       findTabByIdAcrossWorkspaces: jest.fn((tabId: string) => {
         const tab = tabsSignal().find((candidate) => candidate.id === tabId);
@@ -265,9 +274,9 @@ describe('OrchestraCanvasComponent workspace effects', () => {
         return matching;
       }),
       newCanvasSessionRequest: signal<string | null>(null),
-      canvasTabRequest: canvasTabRequest$,
+      canvasTabRequests: canvasTabRequests$,
+      takeCanvasTabRequests: takeCanvasTabRequestsMock,
       clearNewCanvasSessionRequest: jest.fn(),
-      clearCanvasTabRequest: clearCanvasTabRequestMock,
     } as unknown as AppStateManager;
 
     TestBed.configureTestingModule({
@@ -309,6 +318,15 @@ describe('OrchestraCanvasComponent workspace effects', () => {
     fixture.detectChanges();
 
     expect(switchWorkspaceTilesMock).toHaveBeenCalledWith('/ws/a', tabs);
+  });
+
+  it('tears down its tab-close subscription on destroy', () => {
+    const fixture = mount();
+    const unsubscribe = onTabClosedMock.mock.results[0].value as jest.Mock;
+
+    fixture.destroy();
+
+    expect(unsubscribe).toHaveBeenCalledTimes(1);
   });
 
   it('removed-workspace effect calls removeWorkspaceTileState once per append-only emission', () => {
@@ -354,9 +372,13 @@ describe('OrchestraCanvasComponent workspace effects', () => {
 
   it('closed-tab effect removes the tile from any workspace on a real close', () => {
     const fixture = mount();
+    const listener = onTabClosedMock.mock.calls[0][0] as (event: {
+      tabId: string;
+      sessionId: string | null;
+      kind: string;
+    }) => void;
 
-    closedTab$.set({ tabId: 'tab-9', sessionId: 'sess-9', kind: 'close' });
-    flush();
+    listener({ tabId: 'tab-9', sessionId: 'sess-9', kind: 'close' });
     fixture.detectChanges();
 
     expect(removeTileFromAnyWorkspaceMock).toHaveBeenCalledWith('tab-9');
@@ -364,39 +386,109 @@ describe('OrchestraCanvasComponent workspace effects', () => {
 
   it('closed-tab effect ignores reset events (tab survives in place)', () => {
     const fixture = mount();
+    const listener = onTabClosedMock.mock.calls[0][0] as (event: {
+      tabId: string;
+      sessionId: string | null;
+      kind: string;
+    }) => void;
 
-    closedTab$.set({ tabId: 'tab-9', sessionId: 'sess-9', kind: 'reset' });
-    flush();
+    listener({ tabId: 'tab-9', sessionId: 'sess-9', kind: 'reset' });
     fixture.detectChanges();
 
     expect(removeTileFromAnyWorkspaceMock).not.toHaveBeenCalled();
   });
 
-  it('canvasTabRequest effect adopts the tab as a tile, focuses it, and acks (F-D3)', () => {
+  it('canvasTabRequests effect adopts the tab as a tile, focuses it, and drains the queue (F-D3)', () => {
     (canvasStoreMock.adoptTab as jest.Mock).mockReturnValue('tab-77');
     const fixture = mount();
 
-    canvasTabRequest$.set({ tabId: 'tab-77', name: 'TASK_2026_300' });
+    canvasTabRequests$.set([
+      { tabId: 'tab-77', workspacePath: null, name: 'TASK_2026_300' },
+    ]);
     flush();
     fixture.detectChanges();
 
     expect(canvasStoreMock.adoptTab).toHaveBeenCalledWith('tab-77');
     expect(canvasStoreMock.focusTile).toHaveBeenCalledWith('tab-77');
-    expect(clearCanvasTabRequestMock).toHaveBeenCalled();
+    expect(canvasTabRequests$()).toEqual([]);
   });
 
-  it('canvasTabRequest effect does NOT focus when adoptTab returns null (tile cap hit)', () => {
+  it('canvasTabRequests effect does NOT focus when adoptTab returns null (tile cap hit)', () => {
     (canvasStoreMock.adoptTab as jest.Mock).mockReturnValue(null);
     const fixture = mount();
 
-    canvasTabRequest$.set({ tabId: 'tab-88' });
+    canvasTabRequests$.set([{ tabId: 'tab-88', workspacePath: null }]);
     flush();
     fixture.detectChanges();
 
     expect(canvasStoreMock.adoptTab).toHaveBeenCalledWith('tab-88');
     expect(canvasStoreMock.focusTile).not.toHaveBeenCalled();
-    // Still acked so a stale request never re-fires.
-    expect(clearCanvasTabRequestMock).toHaveBeenCalled();
+    // Still drained so a stale request never re-fires.
+    expect(canvasTabRequests$()).toEqual([]);
+  });
+
+  // TASK_2026_612: agent-child adoption while the canvas layout is active.
+  // A burst — late adoption of several children in one chat:agent-sessions
+  // result — must tile every child in one drain, and `focus: false` must
+  // append without stealing the active tab.
+  it('drains a burst of tab-adoption requests in FIFO order without focusing (agent children)', () => {
+    (canvasStoreMock.adoptTab as jest.Mock)
+      .mockReturnValueOnce('child-1')
+      .mockReturnValueOnce('child-2');
+    const fixture = mount();
+
+    canvasTabRequests$.set([
+      { tabId: 'child-1', workspacePath: null, name: 'Child 1', focus: false },
+      { tabId: 'child-2', workspacePath: null, name: 'Child 2', focus: false },
+    ]);
+    flush();
+    fixture.detectChanges();
+
+    expect(canvasStoreMock.adoptTab).toHaveBeenCalledTimes(2);
+    expect(canvasStoreMock.adoptTab).toHaveBeenNthCalledWith(1, 'child-1');
+    expect(canvasStoreMock.adoptTab).toHaveBeenNthCalledWith(2, 'child-2');
+    expect(canvasStoreMock.focusTile).not.toHaveBeenCalled();
+    expect(canvasTabRequests$()).toEqual([]);
+  });
+
+  // A request queued while the canvas wasn't mounted (another view) carries
+  // the workspace that was active at REQUEST time; if the user switched
+  // workspace before the canvas drains it, the request is DROPPED, never
+  // tiled into the now-active grid.
+  it('drops a tab-adoption request for a workspace the canvas is not showing', () => {
+    (canvasStoreMock.adoptTab as jest.Mock).mockReturnValue('tab-a');
+    (
+      canvasStoreMock.activeWorkspacePath as WritableSignal<string | null>
+    ).set('/ws/b');
+    const fixture = mount();
+
+    canvasTabRequests$.set([{ tabId: 'tab-a', workspacePath: '/ws/a' }]);
+    flush();
+    fixture.detectChanges();
+
+    expect(canvasStoreMock.adoptTab).not.toHaveBeenCalled();
+    expect(canvasStoreMock.focusTile).not.toHaveBeenCalled();
+    // Dropped, not kept: the queue is still fully drained.
+    expect(canvasTabRequests$()).toEqual([]);
+  });
+
+  it('adopts exactly one tile for a same-workspace request', () => {
+    (canvasStoreMock.adoptTab as jest.Mock).mockReturnValue('tab-a');
+    (
+      canvasStoreMock.activeWorkspacePath as WritableSignal<string | null>
+    ).set('/ws/a');
+    const fixture = mount();
+
+    canvasTabRequests$.set([
+      { tabId: 'tab-a', workspacePath: '/ws/a', focus: false },
+    ]);
+    flush();
+    fixture.detectChanges();
+
+    expect(canvasStoreMock.adoptTab).toHaveBeenCalledTimes(1);
+    expect(canvasStoreMock.adoptTab).toHaveBeenCalledWith('tab-a');
+    expect(canvasStoreMock.focusTile).not.toHaveBeenCalled();
+    expect(canvasTabRequests$()).toEqual([]);
   });
 
   it('drains two queued canvas session requests in FIFO order in one tick', async () => {
@@ -620,6 +712,7 @@ describe('OrchestraCanvasComponent per-workspace grid keep-alive', () => {
       activeWorkspacePath$,
       removedWorkspace$: signal<{ path: string; seq: number } | null>(null),
       closedTab: signal<unknown>(null),
+      onTabClosed: jest.fn(() => () => undefined),
       forceCloseTab: jest.fn(),
       switchTab: jest.fn(),
       openSessionTab: jest.fn(),
@@ -655,9 +748,9 @@ describe('OrchestraCanvasComponent per-workspace grid keep-alive', () => {
       canvasFocusRequests: signal<readonly CanvasFocusRequest[]>([]),
       takeCanvasFocusRequests: jest.fn(() => []),
       newCanvasSessionRequest: signal<string | null>(null),
-      canvasTabRequest: signal<CanvasTabRequest | null>(null),
+      canvasTabRequests: signal<readonly CanvasTabRequest[]>([]),
+      takeCanvasTabRequests: jest.fn(() => []),
       clearNewCanvasSessionRequest: jest.fn(),
-      clearCanvasTabRequest: jest.fn(),
     } as unknown as AppStateManager;
 
     TestBed.configureTestingModule({
@@ -813,6 +906,7 @@ describe('OrchestraCanvasComponent dock and viewport allocation', () => {
       activeWorkspacePath$: signal<string | null>('/ws/a'),
       removedWorkspace$: signal<null>(null),
       closedTab: signal<null>(null),
+      onTabClosed: jest.fn(() => () => undefined),
       forceCloseTab: jest.fn(),
       switchTab: jest.fn(),
       openSessionTab: jest.fn(),
@@ -842,9 +936,9 @@ describe('OrchestraCanvasComponent dock and viewport allocation', () => {
       canvasFocusRequests: signal<readonly CanvasFocusRequest[]>([]),
       takeCanvasFocusRequests: jest.fn(() => []),
       newCanvasSessionRequest: signal(null),
-      canvasTabRequest: signal(null),
+      canvasTabRequests: signal<readonly CanvasTabRequest[]>([]),
+      takeCanvasTabRequests: jest.fn(() => []),
       clearNewCanvasSessionRequest: jest.fn(),
-      clearCanvasTabRequest: jest.fn(),
       thothFirstRunDismissed: () => true,
       dismissThothFirstRun: jest.fn(),
       setCurrentView: setCurrentViewMock,

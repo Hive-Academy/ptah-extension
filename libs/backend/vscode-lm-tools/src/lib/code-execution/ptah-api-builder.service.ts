@@ -766,6 +766,7 @@ export class PtahAPIBuilder {
               ) ?? []
             );
           },
+          logger: this.logger,
         }),
       ),
       git: this.buildNamespaceSafe('git', () =>

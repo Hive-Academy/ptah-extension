@@ -187,3 +187,52 @@ describe('EffortSelectorComponent.selectEffort', () => {
     });
   });
 });
+
+describe('EffortSelectorComponent — level bar transitions', () => {
+  beforeEach(() => {
+    TestBed.configureTestingModule({
+      imports: [EffortSelectorComponent],
+      providers: [
+        {
+          provide: EffortStateService,
+          useValue: {
+            currentEffort: signal('medium'),
+            isLoaded: signal(true),
+            setEffort: jest.fn().mockResolvedValue(undefined),
+          },
+        },
+        {
+          provide: TabManagerService,
+          useValue: { tabs: signal([]), setOverrideEffort: jest.fn() },
+        },
+        { provide: ChatStore, useValue: { currentSessionId: signal(null) } },
+      ],
+    });
+  });
+
+  afterEach(() => {
+    TestBed.resetTestingModule();
+  });
+
+  it('animates only the fill color on the toolbar bars (no transition-all)', () => {
+    const fixture = TestBed.createComponent(EffortSelectorComponent);
+    fixture.detectChanges();
+
+    const trigger = fixture.nativeElement.querySelector(
+      'button[trigger]',
+    ) as HTMLButtonElement;
+    const bars = Array.from(
+      trigger.querySelectorAll<HTMLElement>('div'),
+    ).filter((div) => div.className.includes('rounded-[1px]'));
+
+    // Only the fill color changes between efforts (each bar's height is fixed
+    // by its slot), so `transition-all` must not come back: it also animated
+    // inherited animatable properties like scrollbar-color and started
+    // non-composited transitions on every scroll recalculation.
+    expect(bars).toHaveLength(5);
+    for (const bar of bars) {
+      expect(bar.className).toContain('transition-colors');
+      expect(bar.className).not.toContain('transition-all');
+    }
+  });
+});

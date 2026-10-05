@@ -147,6 +147,8 @@ function createManager(
         reason: 'chat-runtime-unavailable',
       })),
     } as unknown as Args[7],
+    // Never consulted: these tests make no resume spawn.
+    { evaluate: jest.fn() } as unknown as Args[8],
     laneOwners,
     ledger,
   );

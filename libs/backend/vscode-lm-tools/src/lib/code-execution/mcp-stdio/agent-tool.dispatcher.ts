@@ -4,7 +4,9 @@
  * Routes the seven 1:1 wrapper MCP tools (`agent_spawn`, `agent_status`,
  * `agent_read`, `agent_message`, `agent_report`, `agent_stop`, `agent_list`)
  * to the underlying
- * `PtahAPI.agent` namespace. Each route:
+ * `PtahAPI.agent` namespace, plus the two blocking waits (TASK_2026_597):
+ * `agent_wait` (`PtahAPI.agent.waitForAgents`) and `run_check` (an Nx run in
+ * the host's working directory). Each route:
  *
  *   1. Parses the inbound `tools/call` arguments through a Zod schema.
  *   2. Delegates to the corresponding `PtahAPI.agent.*` method.
@@ -66,10 +68,17 @@ import {
 import { agentToolBudgetName } from './tool-builders';
 import { AgentSpawnArgsSchema } from '../mcp-core/agent-spawn-args.schema';
 import {
+  AgentWaitArgsSchema,
+  RunCheckArgsSchema,
+} from '../mcp-core/wait-tools-args.schema';
+import { runAgentWait } from '../mcp-core/agent-wait.tool';
+import { runCheck } from '../mcp-core/run-check.tool';
+import {
   AgentMessageError,
   AgentRoleError,
   CliCommandLineTooLongError,
   MAX_AGENT_REPORT_LENGTH,
+  type AgentWaitResult,
 } from '@ptah-extension/cli-agent-runtime';
 
 const AgentStatusSchema = z
@@ -228,6 +237,8 @@ export class AgentToolDispatcher {
     'agent_report',
     'agent_stop',
     'agent_list',
+    'agent_wait',
+    'run_check',
   ];
 
   handles(name: string): boolean {
@@ -270,6 +281,10 @@ export class AgentToolDispatcher {
         return this.handleStop(request, args);
       case 'agent_list':
         return this.handleList(request, args);
+      case 'agent_wait':
+        return this.handleWait(request, args);
+      case 'run_check':
+        return this.handleRunCheck(request, args);
       default:
         return null;
     }
@@ -729,6 +744,100 @@ export class AgentToolDispatcher {
         `agent_list failed: ${errorMessage(err)}`,
         'mcp_tool_failed',
         { tool: 'agent_list' },
+      );
+    }
+  }
+
+  /**
+   * `agent_wait`: the HTTP `ptah_agent_wait` handler on this surface. The
+   * reply is self-bounded (`WAIT_SUMMARY_MAX_CHARS`), so the budget step
+   * returns it unchanged.
+   */
+  private async handleWait(
+    request: MCPRequest,
+    args: unknown,
+  ): Promise<MCPResponse> {
+    const parsed = parseArgs(AgentWaitArgsSchema, args);
+    if (!parsed.ok) {
+      return toolError(
+        request,
+        `Invalid arguments for agent_wait: ${describeIssues(parsed.issues)}`,
+        'mcp_invalid_tool_args',
+        { tool: 'agent_wait', issues: parsed.issues },
+      );
+    }
+    try {
+      let waited: AgentWaitResult | undefined;
+      const text = await runAgentWait(parsed.data, {
+        waitForAgents: async (ids, mode, timeoutMs) => {
+          waited = await this.ptahAPI.agent.waitForAgents(ids, mode, timeoutMs);
+          return waited;
+        },
+        readOutput: (agentId, tail) => this.ptahAPI.agent.read(agentId, tail),
+      });
+      return await this.toolSuccess(request, 'agent_wait', text, {
+        timedOut: waited?.timedOut ?? false,
+        lanes: (waited?.entries ?? []).map((entry) => ({
+          agentId: entry.agentId,
+          state: entry.state,
+          ...('info' in entry
+            ? {
+                status: entry.info.status,
+                ...(entry.info.exitCode !== undefined
+                  ? { exitCode: entry.info.exitCode }
+                  : {}),
+              }
+            : {}),
+        })),
+      });
+    } catch (err: unknown) {
+      return toolError(
+        request,
+        `agent_wait failed: ${errorMessage(err)}`,
+        'mcp_tool_failed',
+        { tool: 'agent_wait' },
+      );
+    }
+  }
+
+  /**
+   * `run_check`: the HTTP `ptah_run_check` handler on this surface. The
+   * workspace root is {@link spoolRoot} — the directory the launching
+   * process set — never an argument.
+   */
+  private async handleRunCheck(
+    request: MCPRequest,
+    args: unknown,
+  ): Promise<MCPResponse> {
+    const parsed = parseArgs(RunCheckArgsSchema, args);
+    if (!parsed.ok) {
+      return toolError(
+        request,
+        `Invalid arguments for run_check: ${describeIssues(parsed.issues)}`,
+        'mcp_invalid_tool_args',
+        { tool: 'run_check', issues: parsed.issues },
+      );
+    }
+    try {
+      const outcome = await runCheck(parsed.data, {
+        workspaceRoot: this.spoolRoot(),
+      });
+      if (outcome.isError) {
+        return toolError(request, outcome.text, 'mcp_tool_failed', {
+          tool: 'run_check',
+          cwd: outcome.structured.cwd,
+        });
+      }
+      // `structured.cwd` names the folder the check ran in (S4-a review S1).
+      return await this.toolSuccess(request, 'run_check', outcome.text, {
+        ...outcome.structured,
+      });
+    } catch (err: unknown) {
+      return toolError(
+        request,
+        `run_check failed: ${errorMessage(err)}`,
+        'mcp_tool_failed',
+        { tool: 'run_check' },
       );
     }
   }

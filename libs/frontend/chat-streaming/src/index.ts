@@ -48,8 +48,12 @@ export {
 } from './lib/background-agent.store';
 export {
   AgentMonitorStore,
+  subagentUsageView,
+  type AgentCacheState,
+  type AgentUsageView,
   type MonitoredAgent,
   type SubagentRecord,
+  type SubagentUsageTotals,
 } from './lib/agent-monitor.store';
 export { agentVisibleInSession, knownSessionId } from './lib/session-scope';
 /**

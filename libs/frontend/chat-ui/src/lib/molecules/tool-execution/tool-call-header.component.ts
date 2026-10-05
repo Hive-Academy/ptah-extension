@@ -94,20 +94,18 @@ import {
       }
 
       <!-- Description (file path or generic) - HIDDEN during streaming to avoid redundancy -->
-      @if (node().status !== 'streaming') {
-        @if (hasClickableFilePath()) {
-          <ptah-file-path-link
-            [fullPath]="getFilePath()"
-            (clicked)="onFilePathClick($event)"
-          />
-        } @else {
-          <span
-            class="text-base-content-muted truncate flex-1 min-w-0 font-mono text-[10px]"
-            [title]="getFullDescription()"
-          >
-            {{ getToolDescription() }}
-          </span>
-        }
+      @if (node().status !== 'streaming' && hasClickableFilePath()) {
+        <ptah-file-path-link
+          [fullPath]="getFilePath()"
+          (clicked)="onFilePathClick($event)"
+        />
+      } @else if (node().status !== 'streaming') {
+        <span
+          class="text-base-content-muted truncate flex-1 min-w-0 font-mono text-[10px]"
+          [title]="getFullDescription()"
+        >
+          {{ getToolDescription() }}
+        </span>
       }
 
       <!-- Parse Error Warning -->

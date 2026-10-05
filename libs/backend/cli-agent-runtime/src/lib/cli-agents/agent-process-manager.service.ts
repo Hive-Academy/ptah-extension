@@ -20,6 +20,7 @@ import {
   AgentId,
   AgentStatus,
   AgentProcessInfo,
+  AgentResumeOutcome,
   SpawnAgentRequest,
   SpawnAgentResult,
   AgentOutput,
@@ -64,6 +65,12 @@ import {
 import { AgentSpawnEnvironment } from './agent-spawn-environment.service';
 import { LaneCompletionNotifier } from './lane-completion-notifier.service';
 import { AgentOutputBuffer } from './agent-output-buffer.service';
+import {
+  buildLaneHandoffTask,
+  collectHandoffCarryOver,
+  type LaneResumeGate,
+} from './lane-resume-gate';
+import { CLI_AGENT_RUNTIME_TOKENS } from '../di/tokens';
 import type { TrackedAgent } from './tracked-agent';
 import {
   classifyLaneLimit,
@@ -75,7 +82,6 @@ import {
   upgradeQuotaOwner,
   type LaneOwnerResolver,
 } from './limits/lane-owner.resolver';
-import { CLI_AGENT_RUNTIME_TOKENS } from '../di/tokens';
 
 const DEFAULT_AGENT_READ_TAIL_LINES = 200;
 
@@ -152,6 +158,18 @@ interface SdkSpawnOptions {
   readonly mcpPort?: number;
   /** Detected CLI version, for the `Lane policy` log line only (never passed to the adapter, F2). */
   readonly cliVersion?: string;
+  /** The resume gate's outcome, for a spawn that asked to resume. */
+  readonly resumeDecision?: AgentResumeOutcome;
+  /** First task of the lane chain, kept on a fresh lane's record. */
+  readonly originalTask?: string;
+}
+
+/** A spawn request after the resume gate, with what the gate decided. */
+interface GatedSpawn {
+  readonly request: SpawnAgentRequest;
+  readonly task: string;
+  readonly resumeDecision?: AgentResumeOutcome;
+  readonly originalTask?: string;
 }
 
 function roleStampOf(
@@ -163,6 +181,45 @@ function roleStampOf(
     roleChannel !== undefined
     ? { role, roleDelivery, roleChannel }
     : undefined;
+}
+
+/** `any`: return when one lane ends. `all`: return when every lane has ended. */
+export type AgentWaitMode = 'any' | 'all';
+
+/** Longest {@link AgentProcessManager.waitForAgents} wait: 15 minutes (TASK_2026_597, D13). */
+export const MAX_AGENT_WAIT_MS = 900_000;
+
+/**
+ * One requested id in a {@link AgentWaitResult}.
+ *
+ * - `exited`: the lane is no longer running; `info` is its terminal record.
+ * - `running`: the wait timed out before this lane ended; `info` is current.
+ * - `not_found`: this host holds no record under the id.
+ * - `other_workspace`: the record exists but belongs to another workspace, so
+ *   this caller may not see it (the same scope rule as `getStatus`).
+ */
+export type AgentWaitEntry =
+  | {
+      readonly agentId: string;
+      readonly state: 'exited';
+      readonly info: AgentProcessInfo;
+    }
+  | {
+      readonly agentId: string;
+      readonly state: 'running';
+      readonly info: AgentProcessInfo;
+    }
+  | { readonly agentId: string; readonly state: 'not_found' }
+  | { readonly agentId: string; readonly state: 'other_workspace' };
+
+export interface AgentWaitResult {
+  readonly mode: AgentWaitMode;
+  /** True when the wait ended on its timer rather than on the lanes. */
+  readonly timedOut: boolean;
+  /** Wall-clock time the call waited, in ms. */
+  readonly waitedMs: number;
+  /** One entry per distinct requested id, in request order. */
+  readonly entries: readonly AgentWaitEntry[];
 }
 
 export class AgentContinueError extends Error {
@@ -214,6 +271,12 @@ export class AgentProcessManager {
      */
     @inject(LaneCompletionNotifier)
     private readonly laneCompletion: LaneCompletionNotifier,
+    /**
+     * Decides, on a `resumeSessionId` spawn, whether to resume the lane or
+     * start a fresh one with a handoff (TASK_2026_597, R9.1).
+     */
+    @inject(CLI_AGENT_RUNTIME_TOKENS.LANE_RESUME_GATE)
+    private readonly resumeGate: LaneResumeGate,
     /** Names the quota owner each run is recorded against (TASK_2026_596). */
     @inject(CLI_AGENT_RUNTIME_TOKENS.LANE_OWNER_RESOLVER)
     private readonly laneOwners: LaneOwnerResolver,
@@ -312,10 +375,15 @@ export class AgentProcessManager {
       adapter.supportsMcp !== false
         ? await this.spawnEnvironment.mcpPort()
         : undefined;
+    const gated: GatedSpawn = request.resumeSessionId
+      ? await this.gateResume(request, request.resumeSessionId, cli)
+      : { request, task: request.task };
     return this.doSpawnSdk({
+      resumeDecision: gated.resumeDecision,
+      originalTask: gated.originalTask,
       runSdk: adapter.runSdk.bind(adapter),
-      request,
-      task: request.task,
+      request: gated.request,
+      task: gated.task,
       workingDirectory,
       cli,
       displayName: adapter.displayName,
@@ -324,6 +392,100 @@ export class AgentProcessManager {
       mcpPort,
       cliVersion: detection.version,
     });
+  }
+
+  /**
+   * Consult the resume gate for a `resumeSessionId` spawn (TASK_2026_597,
+   * R9.1). Every adapter `doSpawn` reaches accepts a resume id, so the only
+   * question left is whether resuming is worth its cost.
+   *
+   * On `resume` the request goes through unchanged. On `fresh` the resume id
+   * is dropped and the lane is started with a handoff task built from the
+   * records this host holds for that session: the new message, the original
+   * task, the previous final text and the files it changed. No git process.
+   */
+  private async gateResume(
+    request: SpawnAgentRequest,
+    resumeSessionId: string,
+    cli: CliType,
+  ): Promise<GatedSpawn> {
+    const lane = this.laneRecordsForSession(resumeSessionId);
+    const latest = lane[lane.length - 1];
+    const lastActivityAt = latest
+      ? Date.parse(latest.info.completedAt ?? latest.info.startedAt)
+      : Number.NaN;
+    const lastRequestContext = [...lane]
+      .reverse()
+      .find((tracked) => tracked.info.lastRequestContext !== undefined)
+      ?.info.lastRequestContext;
+
+    const gate = await this.resumeGate.evaluate({
+      cli,
+      cliSessionId: resumeSessionId,
+      ...(Number.isFinite(lastActivityAt) ? { lastActivityAt } : {}),
+      ...(lastRequestContext ? { lastRequestContext } : {}),
+    });
+    this.logger.info('[AgentProcessManager] Resume gate', {
+      cli,
+      resumeSessionId,
+      decision: gate.decision,
+      reason: gate.reason,
+      contextTokens: gate.contextTokens,
+      source: gate.source,
+      idleMs: gate.idleMs,
+      recordsHeld: lane.length,
+    });
+    const sessionKnown = lane.length > 0;
+    if (gate.decision === 'resume') {
+      return {
+        request,
+        task: request.task,
+        resumeDecision: {
+          decision: 'resumed',
+          reason: gate.reason,
+          sessionKnown,
+        },
+      };
+    }
+
+    const carryOver = collectHandoffCarryOver(
+      lane.flatMap((tracked) => tracked.accumulatedSegments),
+    );
+    const finalText =
+      carryOver.finalText || (latest?.stdoutBuffer.trim() ?? '');
+    // The chain's first task: a lane that was itself started fresh records
+    // it as `originalTask` (its own `task` is the follow-up message), so a
+    // second fresh handoff still carries the task the chain began with.
+    const first = lane[0]?.info;
+    const originalTask = first ? (first.originalTask ?? first.task) : undefined;
+    return {
+      request: { ...request, resumeSessionId: undefined },
+      task: buildLaneHandoffTask({
+        message: request.task,
+        reason: gate.reason,
+        sessionKnown,
+        originalTask,
+        finalText,
+        changedFiles: carryOver.changedFiles,
+      }),
+      resumeDecision: {
+        decision: 'fresh',
+        reason: gate.reason,
+        sessionKnown,
+      },
+      ...(originalTask?.trim() ? { originalTask } : {}),
+    };
+  }
+
+  /**
+   * Every record this host holds for one CLI session, oldest first. A resumed
+   * lane keeps its session id, so a lane resumed twice has three records; the
+   * first holds the original task and the last the latest activity.
+   */
+  private laneRecordsForSession(cliSessionId: string): TrackedAgent[] {
+    return Array.from(this.agents.values())
+      .filter((tracked) => tracked.info.cliSessionId === cliSessionId)
+      .sort((a, b) => a.info.startedAt.localeCompare(b.info.startedAt));
   }
 
   /**
@@ -344,6 +506,8 @@ export class AgentProcessManager {
       binaryPath,
       mcpPort,
       cliVersion,
+      resumeDecision,
+      originalTask,
     } = options;
     const agentId = AgentId.create();
     const startedAt = new Date().toISOString();
@@ -375,6 +539,7 @@ export class AgentProcessManager {
       ...(request.resumeSessionId
         ? { cliSessionId: request.resumeSessionId }
         : {}),
+      ...(originalTask !== undefined ? { originalTask } : {}),
       ...roleStamp,
     };
 
@@ -386,12 +551,6 @@ export class AgentProcessManager {
       role: roleStamp?.role,
       roleChannel: roleStamp?.roleChannel,
     });
-
-    if (request.resumeSessionId && request.cli !== 'copilot') {
-      this.logger.warn(
-        `[AgentProcessManager] resume_session_id provided for ${request.cli} which does not support session resume`,
-      );
-    }
 
     // R2.5: one line per spawn naming the model and effort and what produced
     // each. Codex lanes add the binary version and the state of the lane's
@@ -452,12 +611,13 @@ export class AgentProcessManager {
       ? { ...info, cliSessionId: initialCliSessionId }
       : info;
 
-    return this.trackSdkHandle(
+    const spawned = this.trackSdkHandle(
       sdkHandle,
       infoWithSession,
       request.timeout,
       () => sdkHandle.getSessionId?.(),
     );
+    return resumeDecision ? { ...spawned, resumeDecision } : spawned;
   }
 
   /**
@@ -638,6 +798,7 @@ export class AgentProcessManager {
           segment,
           onFlushDue,
         );
+        this.recordRequestContext(tracked, segment);
         if (captureSessionId) {
           const sessionId = captureSessionId();
           if (sessionId && sessionId !== tracked.info.cliSessionId) {
@@ -728,6 +889,30 @@ export class AgentProcessManager {
     });
     this.events.emit('agent:quota-owner', tracked.info);
     return true;
+  }
+
+  /**
+   * Keep the latest input figure a segment reports as the lane's
+   * `lastRequestContext`, for the resume gate.
+   *
+   * Labelled `estimate` for every CLI: what the adapters stream today is a
+   * per-turn figure (Codex's `turn.completed` sum, OpenCode's final
+   * `step_finish`), not the size of one request. The gate replaces it with the
+   * rollout figure for Codex. An adapter that reports a true per-request
+   * figure (Batch 13, OpenCode) is the point to record `stream` instead.
+   */
+  private recordRequestContext(
+    tracked: TrackedAgent,
+    segment: CliOutputSegment,
+  ): void {
+    const tokens = segment.usage?.inputTokens;
+    if (typeof tokens !== 'number' || !Number.isFinite(tokens) || tokens <= 0) {
+      return;
+    }
+    tracked.info = {
+      ...tracked.info,
+      lastRequestContext: { tokens, source: 'estimate' },
+    };
   }
 
   /**
@@ -915,6 +1100,111 @@ export class AgentProcessManager {
       .map((t) => ({
         ...t.info,
       }));
+  }
+
+  /**
+   * Block until the given lanes end, or until `timeoutMs` passes
+   * (TASK_2026_597, D13).
+   *
+   * Event-driven, never polled: it listens for `agent:exited` and settles in
+   * the listener itself, so the caller resumes within one tick of the event.
+   * A lane that is already terminal when the call starts counts as ended at
+   * once. `any` returns when one known lane has ended; `all` when every known
+   * lane has. Unknown ids and ids from another workspace are reported per id
+   * and never waited on, so a wait with no known lane returns immediately.
+   *
+   * On timeout the result is partial, not an error: `timedOut` is set and each
+   * lane is reported in its current state, so the call is safe to repeat.
+   * The timeout is clamped to `0..`{@link MAX_AGENT_WAIT_MS}. The listener and
+   * the timer are removed on every exit path.
+   */
+  async waitForAgents(
+    agentIds: readonly string[],
+    mode: AgentWaitMode,
+    timeoutMs: number,
+  ): Promise<AgentWaitResult> {
+    const startedAt = Date.now();
+    const limit = Number.isNaN(timeoutMs)
+      ? 0
+      : Math.min(Math.max(0, Math.floor(timeoutMs)), MAX_AGENT_WAIT_MS);
+    const ids = [...new Set(agentIds)];
+    const scopeRoot = this.spawnEnvironment.scopedWorkspaceRoot();
+    const scopeKey =
+      scopeRoot === undefined ? undefined : normalizeWorkspaceRoot(scopeRoot);
+
+    const unseen = new Map<string, 'not_found' | 'other_workspace'>();
+    const ended = new Map<string, AgentProcessInfo>();
+    const pending = new Set<string>();
+    for (const id of ids) {
+      const tracked = this.agents.get(id);
+      if (!tracked) {
+        unseen.set(id, 'not_found');
+      } else if (
+        !this.spawnEnvironment.isWithinScope(
+          tracked.info.workingDirectory,
+          scopeKey,
+        )
+      ) {
+        unseen.set(id, 'other_workspace');
+      } else if (tracked.info.status === 'running') {
+        pending.add(id);
+      } else {
+        ended.set(id, { ...tracked.info });
+      }
+    }
+
+    const satisfied = (): boolean =>
+      pending.size === 0 || (mode === 'any' && ended.size > 0);
+
+    let timedOut = false;
+    if (!satisfied()) {
+      if (limit === 0) {
+        timedOut = true;
+      } else {
+        await new Promise<void>((resolve) => {
+          // `finish` closes over `timer`; it can only run from the listener
+          // or the timer itself, both after the assignment below.
+          const finish = (): void => {
+            this.events.off('agent:exited', onExit);
+            clearTimeout(timer);
+            resolve();
+          };
+          const onExit = (info: AgentProcessInfo): void => {
+            const id = String(info.agentId);
+            if (!pending.delete(id)) return;
+            ended.set(id, { ...info });
+            if (satisfied()) finish();
+          };
+          this.events.on('agent:exited', onExit);
+          const timer = this.unrefTimer(
+            setTimeout(() => {
+              timedOut = true;
+              finish();
+            }, limit),
+          );
+        });
+      }
+    }
+
+    const entries = ids.map((agentId): AgentWaitEntry => {
+      const missing = unseen.get(agentId);
+      if (missing) return { agentId, state: missing };
+      const done = ended.get(agentId);
+      if (done) return { agentId, state: 'exited', info: done };
+      // Still pending: report the record as it is now. A lane whose status
+      // turned terminal without an `agent:exited` (a timed-out lane whose
+      // adapter never settled its abort) is reported as ended all the same.
+      const current = this.agents.get(agentId);
+      if (!current) return { agentId, state: 'not_found' };
+      const info = { ...current.info };
+      return {
+        agentId,
+        state: info.status === 'running' ? 'running' : 'exited',
+        info,
+      };
+    });
+
+    return { mode, timedOut, waitedMs: Date.now() - startedAt, entries };
   }
 
   /**
@@ -1627,9 +1917,17 @@ export class AgentProcessManager {
     // signal exists to end. `handleExit` stamps the same `completedAt`, so the
     // notifier's duplicate guard collapses the two into one signal.
     this.signalLaneCompletion(tracked);
+    // Also before the kill, for the same reason: `agent:exited` is what
+    // `waitForAgents` settles on, and an abort that never settles would never
+    // reach `handleExit`. Marking the lane exited makes a later real exit take
+    // `handleExit`'s early return, so this ending is emitted exactly once.
+    tracked.hasExited = true;
+    this.events.emit('agent:exited', tracked.info);
     await this.killProcess(tracked);
     tracked.subprocessReleased = true;
     this.clearIdleRelease(tracked);
+    this.flushDelta(agentId);
+    this.outputBuffer.discard(agentId);
     this.scheduleCleanup(agentId);
   }
 

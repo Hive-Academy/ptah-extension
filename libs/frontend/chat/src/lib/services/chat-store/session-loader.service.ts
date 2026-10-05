@@ -919,6 +919,7 @@ export class SessionLoaderService {
       this.applyCliSessions(cliSessions, sessionId);
       if (stats) {
         this.applyResumeStats(resolvedTabId, sessionId, stats, {
+          budget: resumeResult.data?.budget,
           preserveCompactionContextSeed:
             opts?.reason === 'compaction' && targetTabId != null,
         });
@@ -1004,12 +1005,16 @@ export class SessionLoaderService {
    * Install the resume reply's backend snapshot as-is (TASK_2026_533) and
    * derive the context badge from its separate `contextSnapshot`. Lifetime
    * totals are never treated as context fill, and rows are never rebuilt.
+   * The reply's `budget` is installed together with that snapshot.
    */
   private applyResumeStats(
     tabId: TabId,
     sessionId: string,
     stats: NonNullable<ChatResumeResult['stats']>,
-    options?: { preserveCompactionContextSeed?: boolean },
+    options?: {
+      budget?: ChatResumeResult['budget'];
+      preserveCompactionContextSeed?: boolean;
+    },
   ): void {
     // The reply crosses the RPC boundary: its declared type is not a runtime
     // guarantee. A malformed snapshot is rejected whole (accounting, model and
@@ -1030,7 +1035,12 @@ export class SessionLoaderService {
             .liveModelStats ?? null)
         : null;
 
-    this.tabManager.applyLoadedSessionStats(tabId, stats, stats.model ?? null);
+    this.tabManager.applyLoadedSessionStats(
+      tabId,
+      stats,
+      stats.model ?? null,
+      options?.budget,
+    );
 
     // A targeted compaction reload reads immutable history, which may still
     // describe the pre-compaction generation. Its context snapshot must never
@@ -1474,7 +1484,9 @@ export class SessionLoaderService {
 
       const stats = result.data?.stats;
       if (stats) {
-        this.applyResumeStats(tabId, sessionId, stats);
+        this.applyResumeStats(tabId, sessionId, stats, {
+          budget: result.data?.budget,
+        });
       } else {
         // Keep the tab's snapshot; only the context badge is cleared.
         this.tabManager.setLiveModelStats(tabId, null);

@@ -532,6 +532,11 @@ export class StreamingAccumulatorCore {
         this.indexEventByMessage(state, event);
 
         state.currentTokenUsage = event.tokenUsage || null;
+        // A subagent's own message: its usage and activity time feed the
+        // agent monitor's per-subagent usage and cache state.
+        if (event.parentToolUseId) {
+          agentMonitorStore.onSubagentMessageComplete(event);
+        }
 
         ctx.onStateChanged?.(state);
         return this.mutated(event.eventType);
@@ -585,6 +590,9 @@ export class StreamingAccumulatorCore {
 
       case 'background_agent_started':
         backgroundAgentStore.onStarted(event);
+        // The only event that carries the agentId parsed from the background
+        // placeholder; the monitor's record needs it to load the transcript.
+        agentMonitorStore.onBackgroundAgentStarted(event);
         return this.mutated(event.eventType);
       case 'background_agent_completed':
         backgroundAgentStore.onCompleted(event);

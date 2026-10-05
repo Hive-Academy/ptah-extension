@@ -58,11 +58,14 @@ import type {
   ISdkPermissionHandler,
   PermissionResponse,
   SessionId,
+  SubagentPromptCacheTtlSetting,
   TabId,
 } from '@ptah-extension/shared';
 import {
   CLI_REASONING_EFFORT_VALUES,
   PI_REASONING_EFFORT_VALUES,
+  SUBAGENT_PROMPT_CACHE_TTL_SETTINGS,
+  resolveSubagentPromptCacheTtl,
 } from '@ptah-extension/shared';
 import { AgentResumeCliSessionParamsSchema } from './agent-rpc.schema';
 import { CliModelListService } from '../services/cli-model-list.service';
@@ -133,6 +136,17 @@ function invalidCodexBudget(params: AgentSetConfigParams): string | null {
     return 'codexWebSearch';
   }
   return null;
+}
+
+/** Host env var that overrides the subagent prompt-cache TTL inside the SDK. */
+const SUBAGENT_PROMPT_CACHE_TTL_ENV = 'CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL';
+
+function isSubagentPromptCacheTtlSetting(
+  value: unknown,
+): value is SubagentPromptCacheTtlSetting {
+  return (SUBAGENT_PROMPT_CACHE_TTL_SETTINGS as readonly unknown[]).includes(
+    value,
+  );
 }
 
 @injectable()
@@ -264,6 +278,7 @@ export class AgentRpcHandlers {
               'codexToolOutputTokenLimit',
             ),
             codexWebSearch: this.getCodexWebSearch(),
+            ...this.getSubagentPromptCacheTtl(),
             copilotReasoningEffort: this.getAgentCfg<string>(
               'copilotReasoningEffort',
               '',
@@ -344,6 +359,15 @@ export class AgentRpcHandlers {
             error: `Unsupported ${invalidBudget} value`,
           };
         }
+        if (
+          params.subagentPromptCacheTtl !== undefined &&
+          !isSubagentPromptCacheTtlSetting(params.subagentPromptCacheTtl)
+        ) {
+          return {
+            success: false,
+            error: 'Unsupported subagentPromptCacheTtl value',
+          };
+        }
         if (params.preferredAgentOrder !== undefined) {
           await this.setAgentCfg(
             'preferredAgentOrder',
@@ -410,6 +434,12 @@ export class AgentRpcHandlers {
         }
         if (params.codexWebSearch !== undefined) {
           await this.setAgentCfg('codexWebSearch', params.codexWebSearch);
+        }
+        if (params.subagentPromptCacheTtl !== undefined) {
+          await this.setAgentCfg(
+            'subagentPromptCacheTtl',
+            params.subagentPromptCacheTtl,
+          );
         }
         if (params.copilotReasoningEffort !== undefined) {
           await this.setAgentCfg(
@@ -1087,6 +1117,32 @@ export class AgentRpcHandlers {
     const fallback = CODEX_BUDGET_DEFAULTS.codexWebSearch;
     const value = this.getAgentCfg<unknown>('codexWebSearch', fallback);
     return typeof value === 'boolean' ? value : fallback;
+  }
+
+  /**
+   * Read the subagent prompt-cache TTL setting (a hand-edited invalid value
+   * reads as `'auto'`, as the options builder treats it) and report the host
+   * env override, `'invalid'` included, when the env var is set.
+   */
+  private getSubagentPromptCacheTtl(): Pick<
+    AgentOrchestrationConfig,
+    'subagentPromptCacheTtl' | 'subagentPromptCacheTtlEnvOverride'
+  > {
+    const value = this.getAgentCfg<unknown>('subagentPromptCacheTtl', 'auto');
+    const subagentPromptCacheTtl = isSubagentPromptCacheTtlSetting(value)
+      ? value
+      : 'auto';
+    const { envOverride } = resolveSubagentPromptCacheTtl({
+      setting: subagentPromptCacheTtl,
+      envValue: process.env[SUBAGENT_PROMPT_CACHE_TTL_ENV],
+      canSpawnSubagents: true,
+    });
+    return envOverride === undefined
+      ? { subagentPromptCacheTtl }
+      : {
+          subagentPromptCacheTtl,
+          subagentPromptCacheTtlEnvOverride: envOverride,
+        };
   }
 
   /**
