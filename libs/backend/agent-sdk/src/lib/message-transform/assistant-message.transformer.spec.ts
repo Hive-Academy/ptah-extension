@@ -231,16 +231,26 @@ describe('AssistantMessageTransformer', () => {
       });
     });
 
-    it('counts missing cache fields as 0', () => {
+    it('omits contextTokens when the provider reports no cache fields (B-m7)', () => {
       const complete = completeFor(
         { input_tokens: 120, output_tokens: 7 },
         'toolu-agent-2',
       );
 
+      expect(complete.tokenUsage).toEqual({ input: 120, output: 7 });
+      expect(complete.tokenUsage).not.toHaveProperty('contextTokens');
+    });
+
+    it('omits contextTokens when only one cache field is reported (B-m7)', () => {
+      const complete = completeFor(
+        { input_tokens: 120, output_tokens: 7, cache_read_input_tokens: 30 },
+        'toolu-agent-3',
+      );
+
       expect(complete.tokenUsage).toEqual({
         input: 120,
         output: 7,
-        contextTokens: 120,
+        cacheRead: 30,
       });
     });
 

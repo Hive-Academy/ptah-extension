@@ -26,6 +26,8 @@ const TTL_LOG_PREFIX = '[SdkQueryOptionsBuilder] subagentPromptCacheTtl ';
 
 interface Built {
   settings: Record<string, unknown>;
+  /** The effective TTL the build result hands to the subagent monitor (D.7). */
+  effective: unknown;
   info: jest.Mock;
   getConfiguration: jest.Mock;
 }
@@ -99,6 +101,7 @@ async function build(setting?: unknown, withWorkspace = true): Promise<Built> {
       string,
       unknown
     >,
+    effective: cfg.subagentPromptCacheTtl,
     info,
     getConfiguration,
   };
@@ -174,6 +177,15 @@ describe('SdkQueryOptionsBuilder.build — subagent prompt-cache TTL (N1)', () =
     expect(ttlLogLines(built.info)).toEqual([
       `${TTL_LOG_PREFIX}effective=1h source=auto sdkOption=1h`,
     ]);
+  });
+
+  it('the build result carries the effective TTL, not the SDK option (D.7)', async () => {
+    expect((await build('auto')).effective).toBe('1h');
+    expect((await build('5m')).effective).toBe('5m');
+    process.env[ENV] = '5m';
+    const envWins = await build('1h');
+    expect(envWins.settings['subagentPromptCacheTtl']).toBe('1h');
+    expect(envWins.effective).toBe('5m');
   });
 });
 

@@ -29,6 +29,7 @@ import type {
   AuthEnv,
   ISdkPermissionHandler,
   PermissionLevel,
+  SubagentPromptCacheTtl,
 } from '@ptah-extension/shared';
 
 import { SessionControl } from './session-control.service';
@@ -43,6 +44,8 @@ import {
 } from './session-query-executor.service';
 import type { SubagentBudgetSink } from './session-query-executor.service';
 import { CompactionCoordinator } from '../compaction/compaction-coordinator';
+import { SubagentBudgetMonitor } from '../compaction/subagent-budget-monitor';
+import type { CompactionConfigProvider } from '../compaction-config-provider';
 import {
   COMPACTION_MAX_DWELL_MS,
   type CompactionTimers,
@@ -119,6 +122,8 @@ function makeHarness(
     port?: IContextUsagePort;
     subagentMonitor?: SubagentBudgetSink;
     logger?: Logger;
+    /** What the options build reports as the effective subagent cache TTL. */
+    subagentCacheTtl?: SubagentPromptCacheTtl;
   } = {},
 ): Harness {
   const logger = compaction.logger ?? makeLogger();
@@ -156,6 +161,9 @@ function makeHarness(
           permissionMode: input.permissionMode,
         },
         prompt: emptyAsyncIterable<SDKUserMessage>(),
+        ...(compaction.subagentCacheTtl
+          ? { subagentPromptCacheTtl: compaction.subagentCacheTtl }
+          : {}),
       }) as const,
   );
   const queryOptionsBuilder = {
@@ -900,6 +908,53 @@ describe('SessionQueryExecutor — compaction coordinator wiring (TASK_2026_597 
     expect(readAtTurnEnd).not.toHaveBeenCalled();
   });
 
+  it('releases on a normal stream end with no abort, and a resumed run registers afresh (TASK_2026_614 D.2)', async () => {
+    const coordinator = new CompactionCoordinator(noTimers);
+    const registerSpy = jest.spyOn(coordinator, 'register');
+    const { port, release } = makePort();
+    const monitorRelease = jest.fn();
+    const monitor = {
+      observe: jest.fn().mockResolvedValue(undefined),
+      release: monitorRelease,
+    } as unknown as SubagentBudgetSink;
+    const { executor } = makeHarness('ask', {} as AuthEnv, {
+      coordinator,
+      port,
+      subagentMonitor: monitor,
+    });
+    const run = await executor.executeQuery(makeConfig('tab_end'));
+    run.activityWatchdog.observe(init());
+    run.activityWatchdog.observe(
+      msg({ type: 'assistant', session_id: REAL, parent_tool_use_id: 'tu_1' }),
+    );
+    expect(coordinator.getState(REAL)).toBeDefined();
+
+    // What StreamTransformer's `finally` does when the stream simply ends.
+    run.activityWatchdog.stop();
+    run.activityWatchdog.stop();
+
+    expect(run.abortController.signal.aborted).toBe(false);
+    expect(coordinator.getState(REAL)).toBeUndefined();
+    expect(release).toHaveBeenCalledTimes(1);
+    expect(release).toHaveBeenCalledWith(REAL);
+    expect(monitorRelease).toHaveBeenCalledTimes(1);
+    expect(monitorRelease).toHaveBeenCalledWith(REAL);
+
+    // A later abort of the ended run releases nothing twice.
+    run.abortController.abort();
+    expect(release).toHaveBeenCalledTimes(1);
+    expect(monitorRelease).toHaveBeenCalledTimes(1);
+
+    // The resumed run of the same SDK session finds no stale record.
+    const resumed = await executor.executeQuery(
+      makeConfig(REAL, { resumeSessionId: REAL }),
+    );
+    resumed.activityWatchdog.observe(init());
+    expect(registerSpy).toHaveBeenCalledTimes(2);
+    expect(coordinator.getState(REAL)).toBe('OBSERVE_ONLY');
+    resumed.abortController.abort();
+  });
+
   describe('compaction dwell bound scope (TASK_2026_597 S1)', () => {
     /** Starts the watchdog under fake timers and opens a root compaction. */
     async function openCompaction(
@@ -1057,8 +1112,70 @@ describe('SessionQueryExecutor — subagent budget monitor wiring (TASK_2026_597
     const sub = subAssistant();
     run.activityWatchdog.observe(sub);
     expect(observe).toHaveBeenCalledTimes(1);
-    expect(observe).toHaveBeenCalledWith(REAL, sub);
+    // The build reported no TTL, so the monitor's own default applies.
+    expect(observe).toHaveBeenCalledWith(REAL, sub, undefined);
     run.abortController.abort();
+  });
+
+  describe('effective subagent prompt-cache TTL (TASK_2026_614 D.7)', () => {
+    /** A real monitor whose limits are never reached, so no stop fires. */
+    function realMonitor(): SubagentBudgetMonitor {
+      const config = {
+        getConfig: () => ({
+          subagentHandoffTokens: Number.MAX_SAFE_INTEGER,
+          subagentStopWeightedTokens: Number.MAX_SAFE_INTEGER,
+        }),
+      } as unknown as CompactionConfigProvider;
+      return new SubagentBudgetMonitor(
+        makeLogger(),
+        config,
+        { stopSubagent: jest.fn() },
+        {} as SubagentRegistryService,
+        { find: jest.fn() },
+      );
+    }
+    /** 1000 cache-write tokens and no `cache_creation` TTL split. */
+    const unsplitWrite = () =>
+      msg({
+        type: 'assistant',
+        session_id: REAL,
+        parent_tool_use_id: 'toolu_ttl',
+        message: {
+          id: 'msg_ttl',
+          usage: {
+            input_tokens: 0,
+            output_tokens: 0,
+            cache_read_input_tokens: 0,
+            cache_creation_input_tokens: 1000,
+          },
+        },
+      });
+
+    async function weightedFor(
+      ttl: SubagentPromptCacheTtl | undefined,
+      tabId: string,
+    ): Promise<number | undefined> {
+      const monitor = realMonitor();
+      const { executor } = makeHarness('ask', {} as AuthEnv, {
+        subagentMonitor: monitor,
+        subagentCacheTtl: ttl,
+      });
+      const run = await executor.executeQuery(makeConfig(tabId));
+      run.activityWatchdog.observe(init());
+      run.activityWatchdog.observe(unsplitWrite());
+      await flush();
+      const weighted = monitor.getSnapshot(REAL, 'toolu_ttl')?.weightedUsed;
+      run.abortController.abort();
+      return weighted;
+    }
+
+    it('a 1h-effective session prices an unsplit cache write at weight 2', async () => {
+      expect(await weightedFor('1h', 'tab_ttl_1h')).toBe(2000);
+    });
+
+    it('stays on the 5m default (weight 1.25) when the build reports no TTL', async () => {
+      expect(await weightedFor(undefined, 'tab_ttl_none')).toBe(1250);
+    });
   });
 
   it('releases the monitor once on session end', async () => {

@@ -374,13 +374,18 @@ export class AssistantMessageTransformer {
               ? { cacheCreation: message.usage.cache_creation_input_tokens }
               : {}),
             // Per-subagent context figure (same definition as the agent
-            // monitor): this request's input + cache read + cache write.
-            ...(parent_tool_use_id
+            // monitor): this request's input + cache read + cache write. Only
+            // when the provider reports both cache figures: a missing one is
+            // unknown, not zero, so the field is omitted and the frontend's
+            // own fallback applies (TASK_2026_614 D.12 B-m7).
+            ...(parent_tool_use_id &&
+            typeof message.usage.cache_read_input_tokens === 'number' &&
+            typeof message.usage.cache_creation_input_tokens === 'number'
               ? {
                   contextTokens:
                     message.usage.input_tokens +
-                    (message.usage.cache_read_input_tokens ?? 0) +
-                    (message.usage.cache_creation_input_tokens ?? 0),
+                    message.usage.cache_read_input_tokens +
+                    message.usage.cache_creation_input_tokens,
                 }
               : {}),
           }

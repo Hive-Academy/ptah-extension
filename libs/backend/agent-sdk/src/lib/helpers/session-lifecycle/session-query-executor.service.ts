@@ -26,6 +26,7 @@ import type {
   AuthEnv,
   EffectiveCapabilitySet,
   ICapabilityResolver,
+  SubagentPromptCacheTtl,
 } from '@ptah-extension/shared';
 import {
   isDirectAnthropic,
@@ -178,6 +179,8 @@ class CompactionSessionTap {
   private turn = 0;
   private readonly subagentIds = new Set<string>();
   private released = false;
+  /** Unset until the options build resolves it; the monitor default applies. */
+  private subagentCacheTtl: SubagentPromptCacheTtl | undefined;
 
   constructor(
     private readonly logger: Logger,
@@ -191,6 +194,15 @@ class CompactionSessionTap {
 
   attachQuery(query: Query): void {
     this.query = query;
+  }
+
+  /**
+   * The session's effective subagent prompt-cache TTL, known only once the
+   * options builder has run (the tap exists before it). The monitor prices
+   * cache writes with it when a message does not report its TTL split.
+   */
+  setSubagentCacheTtl(ttl: SubagentPromptCacheTtl | undefined): void {
+    this.subagentCacheTtl = ttl;
   }
 
   observe(message: SDKMessage): void {
@@ -234,9 +246,8 @@ class CompactionSessionTap {
 
   /**
    * A subagent message goes to the budget monitor under the session id the
-   * dispatcher and registry use. The effective subagent prompt-cache TTL is not
-   * visible to the executor (the options builder resolves it internally), so
-   * the monitor's default applies; real SDK messages carry the cache split.
+   * dispatcher and registry use, priced with the session's effective subagent
+   * prompt-cache TTL (the monitor's default while the build has not set one).
    */
   private feedSubagentMonitor(message: SDKMessage): void {
     const monitor = this.subagentMonitor;
@@ -247,10 +258,13 @@ class CompactionSessionTap {
         : this.sessionId;
     if (!id) return;
     this.subagentIds.add(id);
+    const cacheTtl = this.subagentCacheTtl;
     // The executor runs observe() now; a synchronous throw becomes a rejection.
-    new Promise<void>((resolve) => resolve(monitor.observe(id, message))).catch((error: unknown) =>
-        this.warn('Subagent budget monitor failed', 'subagent-budget', error),
-      );
+    new Promise<void>((resolve) =>
+      resolve(monitor.observe(id, message, cacheTtl)),
+    ).catch((error: unknown) =>
+      this.warn('Subagent budget monitor failed', 'subagent-budget', error),
+    );
   }
 
   /**
@@ -265,7 +279,10 @@ class CompactionSessionTap {
     return state !== undefined && state !== CompactionState.OBSERVE_ONLY;
   }
 
-  /** Session end: drop every id this run tracked. Idempotent. */
+  /**
+   * Session end: drop every id this run tracked. Idempotent: the abort
+   * listener and the watchdog's `stop()` (every stream teardown) both call it.
+   */
   release(): void {
     if (this.released) return;
     this.released = true;
@@ -370,6 +387,17 @@ class CompactionObservingWatchdog extends NoActivityWatchdog {
   override observe(message: SDKMessage): void {
     super.observe(message);
     this.tap.observe(message);
+  }
+
+  /**
+   * `StreamTransformer` stops the watchdog on every stream teardown, including
+   * a normal end with no abort, so this is where the tap releases what the run
+   * tracked (TASK_2026_614 D.2). The abort listener stays for a run whose
+   * stream never reached the transformer.
+   */
+  override stop(): void {
+    super.stop();
+    this.tap.release();
   }
 }
 
@@ -565,12 +593,12 @@ export class SessionQueryExecutor {
             new Error(
               cause === 'compaction-dwell'
                 ? `Compaction did not finish within ${dwellSeconds}s ` +
-                  `(baseUrl="${providerBaseUrl}", model="${providerModel}"). ` +
-                  `Stopping for recovery; retry the turn.`
+                    `(baseUrl="${providerBaseUrl}", model="${providerModel}"). ` +
+                    `Stopping for recovery; retry the turn.`
                 : `No stream activity for ${seconds}s — no response from provider ` +
-                  `(baseUrl="${providerBaseUrl}", model="${providerModel}"). ` +
-                  `Unaccounted root inactivity; liveness is unknown. Stopping for recovery. The provider may be ` +
-                  `unreachable or overloaded — check configuration or retry.`,
+                    `(baseUrl="${providerBaseUrl}", model="${providerModel}"). ` +
+                    `Unaccounted root inactivity; liveness is unknown. Stopping for recovery. The provider may be ` +
+                    `unreachable or overloaded — check configuration or retry.`,
             ),
           );
         } catch (abortErr) {
@@ -698,6 +726,7 @@ export class SessionQueryExecutor {
         sessionIdResolver: () => rec.realSessionId ?? undefined,
         capabilityPolicy,
       });
+      compactionTap.setSubagentCacheTtl(queryOptions.subagentPromptCacheTtl);
       const isResume = !!resumeSessionId;
       // Never a raw string. A string prompt is what sets the SDK's
       // `isSingleUserTurn`, and that flag closes the transport input on the
