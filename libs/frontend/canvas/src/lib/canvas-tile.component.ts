@@ -23,7 +23,11 @@ import {
   SESSION_VISIBLE,
   SendToMessagingComponent,
 } from '@ptah-extension/chat';
-import { EffortStateService, ModelStateService } from '@ptah-extension/core';
+import {
+  EffortStateService,
+  ModelStateService,
+  SURFACE_ACTIVE,
+} from '@ptah-extension/core';
 import { NativePopoverComponent } from '@ptah-extension/ui';
 import {
   isCompactViewMode,
@@ -388,7 +392,7 @@ const NEXT_VIEW_MODE_LABEL: Readonly<Record<TabViewMode, string>> = {
 
       <!-- Chat view — only rendered after child injector is ready -->
       @if (childInjector()) {
-        <div class="flex-1 min-h-0 overflow-hidden">
+        <div class="tile-content flex-1 min-h-0 overflow-hidden">
           <ng-container
             [ngComponentOutlet]="chatViewComponent"
             [ngComponentOutletInjector]="childInjector()!"
@@ -468,6 +472,27 @@ export class CanvasTileComponent implements OnInit, OnDestroy {
   private readonly effortState = inject(EffortStateService);
   private readonly modelState = inject(ModelStateService);
   private readonly parentEnvInjector = inject(EnvironmentInjector);
+
+  /**
+   * The canvas surface's activity, resolved through this tile's ELEMENT chain
+   * (`ptahSurfaceActive="canvas"`: chat route addressed && grid layout). The
+   * tile's content cannot see that provider itself — NgComponentOutlet uses
+   * the child EnvironmentInjector below in place of the element chain, so it
+   * would fall through to the app-level chat-surface value and keep rendering
+   * while this tile's workspace is hidden or the canvas is not on screen.
+   */
+  private readonly canvasSurfaceActive = inject(SURFACE_ACTIVE);
+
+  /**
+   * SURFACE_ACTIVE for this tile's content: render work (markdown, execution
+   * node frames, transcript) runs only while the canvas is active AND this
+   * tile's workspace grid is on-screen. Ingest is unaffected — stores keep
+   * receiving stream data — and every consumer re-renders the latest content
+   * when this flips back to true.
+   */
+  private readonly tileSurfaceActive = computed(
+    () => this.canvasSurfaceActive() && this.visible(),
+  );
 
   private readonly _freezeEffort = effect(() => {
     if (!this.effortState.isLoaded()) return;
@@ -570,6 +595,7 @@ export class CanvasTileComponent implements OnInit, OnDestroy {
         [
           { provide: SESSION_CONTEXT, useValue: tabIdSignal },
           { provide: SESSION_VISIBLE, useValue: this.visible },
+          { provide: SURFACE_ACTIVE, useValue: this.tileSurfaceActive },
         ],
         this.parentEnvInjector,
       ),

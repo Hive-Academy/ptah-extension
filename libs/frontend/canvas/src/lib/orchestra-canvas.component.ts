@@ -287,6 +287,7 @@ export class OrchestraCanvasComponent implements OnDestroy {
   private readonly layoutService = inject(CanvasLayoutService);
   private readonly layoutPersistence = inject(CanvasLayoutPersistenceService);
   private readonly injector = inject(Injector);
+  private unsubscribeTabClosed: (() => void) | null = null;
   private focusRequestChain = Promise.resolve();
 
   protected readonly PlusIcon = Plus;
@@ -465,8 +466,7 @@ export class OrchestraCanvasComponent implements OnDestroy {
     // appears in the active `tabs()` signal, so the effect above can't see it.
     // React to the structured close event and drop the tile from whichever
     // workspace partition holds it.
-    effect(() => {
-      const closed = this.tabManager.closedTab();
+    this.unsubscribeTabClosed = this.tabManager.onTabClosed((closed) => {
       // `reset` (/clear) re-empties the tab in place — it survives, so its tile
       // must stay. Only real removals (`close`, pop-out `forceClose`) drop it.
       if (!closed || closed.kind === 'reset') return;
@@ -598,6 +598,8 @@ export class OrchestraCanvasComponent implements OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.unsubscribeTabClosed?.();
+    this.unsubscribeTabClosed = null;
     this.layoutPersistence.flush();
   }
 }

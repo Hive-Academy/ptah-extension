@@ -1122,4 +1122,41 @@ describe('ChatInputComponent', () => {
       expect(component.isActiveTabStreaming()).toBe(false);
     });
   });
+
+  // ============================================================================
+  // AUTO-RESIZE — CSS `field-sizing: content` replaced the JS height writes
+  // (each keystroke used to force a full-document layout via scrollHeight)
+  // ============================================================================
+
+  describe('handleInput (CSS-sized textarea)', () => {
+    it('updates the message signal without touching the textarea style', () => {
+      const styleWrites: string[] = [];
+      const target = {
+        value: 'hello world',
+        get style(): Record<string, string> {
+          return new Proxy(
+            {},
+            {
+              set: (_obj, prop): boolean => {
+                styleWrites.push(String(prop));
+                return true;
+              },
+            },
+          );
+        },
+      };
+
+      component.handleInput({ target } as unknown as Event);
+
+      expect(component.currentMessage()).toBe('hello world');
+      expect(styleWrites).toEqual([]);
+    });
+
+    it('still updates the message signal on every input event', () => {
+      component.handleInput({ target: { value: 'a' } } as unknown as Event);
+      expect(component.currentMessage()).toBe('a');
+      component.handleInput({ target: { value: 'ab' } } as unknown as Event);
+      expect(component.currentMessage()).toBe('ab');
+    });
+  });
 });

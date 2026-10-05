@@ -56,6 +56,7 @@ describe('CanvasStore', () => {
       CanvasStore,
       { provide: CanvasLayoutPersistenceService, useValue: persistence },
       { provide: TabManagerService, useValue: {
+        onTabClosed: jest.fn(() => () => undefined),
         tabs,
         activeTabId: signal<string | null>(null),
         activeWorkspacePath$: signal<string | null>(null),

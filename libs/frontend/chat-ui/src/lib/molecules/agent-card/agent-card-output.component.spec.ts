@@ -40,4 +40,38 @@ describe('AgentCardOutputComponent', () => {
     const host = fixture.nativeElement as HTMLElement;
     expect(host.querySelector('strong')?.textContent).toBe('Model prose');
   });
+
+  it('retains nodes across reparsed, trimmed, and growing streamed output', async () => {
+    fixture.componentRef.setInput('segments', [
+      { type: 'info', content: 'trimmed from the stream' },
+      { type: 'info', content: 'retained after trimming' },
+      { type: 'info', content: 'identical segment' },
+      { type: 'info', content: 'identical segment' },
+      { type: 'text', content: 'partial tail' },
+    ]);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    const output = fixture.nativeElement.querySelector('.p-2') as HTMLElement;
+    const existingNodes = Array.from(output.children);
+
+    expect(() => {
+      fixture.componentRef.setInput('segments', [
+        { type: 'info', content: 'retained after trimming' },
+        { type: 'info', content: 'identical segment' },
+        { type: 'info', content: 'identical segment' },
+        { type: 'text', content: 'partial tail, now grown' },
+      ]);
+      fixture.detectChanges();
+    }).not.toThrow();
+    await fixture.whenStable();
+
+    const rerenderedNodes = output.children;
+
+    expect(rerenderedNodes[0]).toBe(existingNodes[1]);
+    expect(rerenderedNodes[1]).toBe(existingNodes[2]);
+    expect(rerenderedNodes[2]).toBe(existingNodes[3]);
+    expect(rerenderedNodes[3]).toBe(existingNodes[4]);
+    expect(rerenderedNodes[3].textContent).toContain('partial tail, now grown');
+  });
+
 });

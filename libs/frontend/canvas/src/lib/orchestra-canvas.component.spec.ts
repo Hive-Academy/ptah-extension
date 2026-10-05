@@ -141,6 +141,7 @@ describe('OrchestraCanvasComponent workspace effects', () => {
   let canvasFocusRequests$: WritableSignal<readonly CanvasFocusRequest[]>;
   let canvasTabRequests$: WritableSignal<readonly CanvasTabRequest[]>;
   let takeCanvasTabRequestsMock: jest.Mock;
+  let onTabClosedMock: jest.Mock;
   let switchSessionMock: jest.Mock;
   let canvasStoreMock: CanvasStore;
 
@@ -189,6 +190,7 @@ describe('OrchestraCanvasComponent workspace effects', () => {
       }
       return requests;
     });
+    onTabClosedMock = jest.fn(() => jest.fn());
 
     const tabManagerMock = {
       tabs: tabsSignal,
@@ -196,6 +198,7 @@ describe('OrchestraCanvasComponent workspace effects', () => {
       activeWorkspacePath$,
       removedWorkspace$,
       closedTab: closedTab$,
+      onTabClosed: onTabClosedMock,
       forceCloseTab: forceCloseTabMock,
       findTabByIdAcrossWorkspaces: jest.fn((tabId: string) => {
         const tab = tabsSignal().find((candidate) => candidate.id === tabId);
@@ -317,6 +320,15 @@ describe('OrchestraCanvasComponent workspace effects', () => {
     expect(switchWorkspaceTilesMock).toHaveBeenCalledWith('/ws/a', tabs);
   });
 
+  it('tears down its tab-close subscription on destroy', () => {
+    const fixture = mount();
+    const unsubscribe = onTabClosedMock.mock.results[0].value as jest.Mock;
+
+    fixture.destroy();
+
+    expect(unsubscribe).toHaveBeenCalledTimes(1);
+  });
+
   it('removed-workspace effect calls removeWorkspaceTileState once per append-only emission', () => {
     const fixture = mount();
 
@@ -360,9 +372,13 @@ describe('OrchestraCanvasComponent workspace effects', () => {
 
   it('closed-tab effect removes the tile from any workspace on a real close', () => {
     const fixture = mount();
+    const listener = onTabClosedMock.mock.calls[0][0] as (event: {
+      tabId: string;
+      sessionId: string | null;
+      kind: string;
+    }) => void;
 
-    closedTab$.set({ tabId: 'tab-9', sessionId: 'sess-9', kind: 'close' });
-    flush();
+    listener({ tabId: 'tab-9', sessionId: 'sess-9', kind: 'close' });
     fixture.detectChanges();
 
     expect(removeTileFromAnyWorkspaceMock).toHaveBeenCalledWith('tab-9');
@@ -370,9 +386,13 @@ describe('OrchestraCanvasComponent workspace effects', () => {
 
   it('closed-tab effect ignores reset events (tab survives in place)', () => {
     const fixture = mount();
+    const listener = onTabClosedMock.mock.calls[0][0] as (event: {
+      tabId: string;
+      sessionId: string | null;
+      kind: string;
+    }) => void;
 
-    closedTab$.set({ tabId: 'tab-9', sessionId: 'sess-9', kind: 'reset' });
-    flush();
+    listener({ tabId: 'tab-9', sessionId: 'sess-9', kind: 'reset' });
     fixture.detectChanges();
 
     expect(removeTileFromAnyWorkspaceMock).not.toHaveBeenCalled();
@@ -692,6 +712,7 @@ describe('OrchestraCanvasComponent per-workspace grid keep-alive', () => {
       activeWorkspacePath$,
       removedWorkspace$: signal<{ path: string; seq: number } | null>(null),
       closedTab: signal<unknown>(null),
+      onTabClosed: jest.fn(() => () => undefined),
       forceCloseTab: jest.fn(),
       switchTab: jest.fn(),
       openSessionTab: jest.fn(),
@@ -885,6 +906,7 @@ describe('OrchestraCanvasComponent dock and viewport allocation', () => {
       activeWorkspacePath$: signal<string | null>('/ws/a'),
       removedWorkspace$: signal<null>(null),
       closedTab: signal<null>(null),
+      onTabClosed: jest.fn(() => () => undefined),
       forceCloseTab: jest.fn(),
       switchTab: jest.fn(),
       openSessionTab: jest.fn(),

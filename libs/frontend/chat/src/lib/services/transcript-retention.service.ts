@@ -1,6 +1,7 @@
 import {
   Injectable,
   Signal,
+  DestroyRef,
   effect,
   inject,
   signal,
@@ -35,6 +36,7 @@ export const RETAINED_TRANSCRIPT_CAP = 8;
 export class TranscriptRetentionService {
   private readonly _tabManager = inject(TabManagerService);
   private readonly _treeBuilder = inject(ExecutionTreeBuilderService);
+  private readonly _destroyRef = inject(DestroyRef);
   /**
    * Present only when this instance is rendered inside a canvas tile (the tile
    * provides the tab id). Tile-mode `ChatViewComponent`s never read
@@ -79,11 +81,12 @@ export class TranscriptRetentionService {
     // Tab closed → drop the retained transcript and its tree-memo cache. A
     // `reset` (/clear) close re-empties the tab in place — it survives, so it
     // must keep its retained slot (mirrors `orchestra-canvas.component.ts`).
-    effect(() => {
-      const closed = this._tabManager.closedTab();
-      if (!closed || closed.kind === 'reset') return;
-      untracked(() => this.dispose(closed.tabId));
-    });
+    this._destroyRef.onDestroy(
+      this._tabManager.onTabClosed((closed) => {
+        if (closed.kind === 'reset') return;
+        untracked(() => this.dispose(closed.tabId));
+      }),
+    );
 
     // Workspace removed → prune every retained id that no longer resolves in
     // any partition. `removedWorkspace$` is append-only (never cleared), so we

@@ -2,7 +2,7 @@
  * TranscriptRetentionService — component-scoped LRU registry (TASK_2026_155
  * Batch 2). Verifies insertion-order stability, cap-8 eviction, active-tab
  * protection, and disposal (with tree-cache clearing) driven by both direct
- * calls and the constructor effects (`activeTabId`, `closedTab`,
+ * calls and the constructor effects (`activeTabId`, close listener,
  * `removedWorkspace$`).
  */
 
@@ -22,7 +22,7 @@ import { SESSION_CONTEXT } from '../tokens/session-context.token';
 interface Harness {
   service: TranscriptRetentionService;
   activeTabId: ReturnType<typeof signal<string | null>>;
-  closedTab: ReturnType<typeof signal<ClosedTabEvent | null>>;
+  emitClosedTab: (event: ClosedTabEvent) => void;
   removedWorkspace$: ReturnType<
     typeof signal<{ path: string; seq: number } | null>
   >;
@@ -41,9 +41,14 @@ function makeHarness(opts: { tileMode?: boolean } = {}): Harness {
   }));
   const clearForTabMock = jest.fn();
 
+  const listeners = new Set<(event: ClosedTabEvent) => void>();
   const tabManagerStub = {
     activeTabId: activeTabId.asReadonly(),
     closedTab: closedTab.asReadonly(),
+    onTabClosed: jest.fn((listener: (event: ClosedTabEvent) => void) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    }),
     removedWorkspace$: removedWorkspace$.asReadonly(),
     findTabByIdAcrossWorkspaces: findMock,
   } as unknown as TabManagerService;
@@ -69,7 +74,10 @@ function makeHarness(opts: { tileMode?: boolean } = {}): Harness {
   return {
     service,
     activeTabId,
-    closedTab,
+    emitClosedTab: (event) => {
+      closedTab.set(event);
+      for (const listener of [...listeners]) listener(event);
+    },
     removedWorkspace$,
     findMock,
     clearForTabMock,
@@ -156,25 +164,36 @@ describe('TranscriptRetentionService', () => {
     expect(h.service.retainedTabIds()).toEqual(['tab-1', 'tab-2']);
   });
 
-  it('closedTab effect disposes the closed tab and clears its cache', () => {
+  it('close listener disposes the closed tab and clears its cache', () => {
     const h = makeHarness();
     h.service.touch('tab-1');
     h.service.touch('tab-2');
 
-    h.closedTab.set({ tabId: 'tab-1', sessionId: null, kind: 'close' });
-    TestBed.tick();
+    h.emitClosedTab({ tabId: 'tab-1', sessionId: null, kind: 'close' });
 
     expect(h.service.retainedTabIds()).toEqual(['tab-2']);
     expect(h.clearForTabMock).toHaveBeenCalledWith('tab-1');
   });
 
-  it('closedTab effect does NOT dispose a reset (/clear) tab — it survives in place', () => {
+  it('processes two closes emitted in the same tick', () => {
     const h = makeHarness();
     h.service.touch('tab-1');
     h.service.touch('tab-2');
 
-    h.closedTab.set({ tabId: 'tab-1', sessionId: null, kind: 'reset' });
-    TestBed.tick();
+    h.emitClosedTab({ tabId: 'tab-1', sessionId: null, kind: 'close' });
+    h.emitClosedTab({ tabId: 'tab-2', sessionId: null, kind: 'forceClose' });
+
+    expect(h.service.retainedTabIds()).toEqual([]);
+    expect(h.clearForTabMock).toHaveBeenNthCalledWith(1, 'tab-1');
+    expect(h.clearForTabMock).toHaveBeenNthCalledWith(2, 'tab-2');
+  });
+
+  it('close listener does NOT dispose a reset (/clear) tab — it survives in place', () => {
+    const h = makeHarness();
+    h.service.touch('tab-1');
+    h.service.touch('tab-2');
+
+    h.emitClosedTab({ tabId: 'tab-1', sessionId: null, kind: 'reset' });
 
     expect(h.service.retainedTabIds()).toEqual(['tab-1', 'tab-2']);
     expect(h.clearForTabMock).not.toHaveBeenCalled();
@@ -223,7 +242,7 @@ describe('TranscriptRetentionService', () => {
     // would normally touch/dispose leave the retained set empty and never clear
     // any tree cache.
     h.activeTabId.set('tab-1');
-    h.closedTab.set({ tabId: 'tab-1', sessionId: null, kind: 'close' });
+    h.emitClosedTab({ tabId: 'tab-1', sessionId: null, kind: 'close' });
     h.findMock.mockImplementation(() => null);
     h.removedWorkspace$.set({ path: '/ws/removed', seq: 1 });
     TestBed.tick();

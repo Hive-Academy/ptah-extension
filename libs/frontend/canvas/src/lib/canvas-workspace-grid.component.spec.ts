@@ -288,6 +288,7 @@ describe('CanvasWorkspaceGridComponent', () => {
     }) as typeof cancelAnimationFrame;
 
     const tabManagerMock = {
+      onTabClosed: jest.fn(() => () => undefined),
       tabs: tabsSignal,
       activeTabId: signal<string | null>(null),
       activeWorkspacePath$: signal<string | null>(WORKSPACE),
