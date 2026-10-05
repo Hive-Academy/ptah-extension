@@ -73,6 +73,7 @@ import { SessionStatsOwnerService } from '../../session-stats/session-stats-owne
 import type { SdkMessageTransformer } from '../../sdk-message-transformer';
 import type { IPricingProvider } from '../../pricing.port';
 import type { SessionMcpStatusCallbackRegistry } from '../session-mcp-status-callback-registry';
+import type { SessionPlanLimitCallbackRegistry } from '../plan-limits/session-plan-limit-callback-registry';
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -1004,6 +1005,7 @@ describe('SessionQueryExecutor — compaction coordinator wiring (TASK_2026_597 
         pricingProvider,
         { notifyAll: jest.fn() } as unknown as SessionMcpStatusCallbackRegistry,
         new SessionStatsOwnerService(),
+        { notifyAll: jest.fn() } as unknown as SessionPlanLimitCallbackRegistry,
       );
     }
 
