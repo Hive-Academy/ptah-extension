@@ -32,6 +32,7 @@
 import { z } from 'zod';
 import type { IOutputChannel } from '@ptah-extension/platform-core';
 import type { Logger } from '@ptah-extension/vscode-core';
+import type { CliDetectionResult } from '@ptah-extension/shared';
 import type {
   MCPRequest,
   MCPResponse,
@@ -45,6 +46,10 @@ import {
   formatAgentStop,
   formatAgentList,
 } from '../mcp-core/mcp-response-formatter';
+import {
+  formatSpawnLimitBlock,
+  spawnRequestTarget,
+} from '../mcp-core/agent-limit.formatter';
 import { renderAgentRead } from '../mcp-core/agent-read.view';
 import {
   AGENT_STATUS_REPEAT_WINDOW_MS,
@@ -240,6 +245,25 @@ export class AgentToolDispatcher {
     return AgentToolDispatcher.TOOL_NAMES.includes(name);
   }
 
+  /**
+   * Lane limits for the agent tool text: for `rows` when given (the list
+   * tool), else for a fresh roster (the spawn tool, after `agent.spawn`
+   * settled). Enrichment only: any failure yields `undefined`, never a
+   * changed outcome.
+   */
+  private async lookupAgentLimits(rows?: readonly CliDetectionResult[]) {
+    try {
+      return await this.ptahAPI.agent.limits?.(
+        rows ?? (await this.ptahAPI.agent.list()),
+      );
+    } catch {
+      // degradation-audit: optional-capability - limit fields only enrich the
+      // tool result; LaneLimitLookupService logs its own lane failures, and the
+      // result goes out without limits.
+      return undefined;
+    }
+  }
+
   async dispatch(
     name: string,
     request: MCPRequest,
@@ -379,12 +403,15 @@ export class AgentToolDispatcher {
         role: p.role,
         effort: p.effort,
       });
+      const limits = await this.lookupAgentLimits();
       return await this.toolSuccess(
         request,
         'agent_spawn',
-        formatAgentSpawn(result, {
-          modelTier: p.ptahCliId ? (p.modelTier ?? 'sonnet') : undefined,
-        }),
+        formatAgentSpawn(
+          result,
+          { modelTier: p.ptahCliId ? (p.modelTier ?? 'sonnet') : undefined },
+          limits,
+        ),
         {
           agentId: result.agentId,
           cli: result.cli,
@@ -399,13 +426,19 @@ export class AgentToolDispatcher {
         },
       );
     } catch (err: unknown) {
+      // The lane the request named, so a failed spawn shows the same
+      // `Limit state` a successful spawn on that lane would (design §5.2).
+      const limits = await this.lookupAgentLimits();
+      const limitBlock = limits
+        ? `\n\n${formatSpawnLimitBlock(limits, spawnRequestTarget(p), true)}`
+        : '';
       this.logger.error('[McpStdio] agent_spawn failed', {
         error: errorMessage(err),
       });
       if (err instanceof AgentRoleError) {
         return toolError(
           request,
-          `agent_spawn role ${err.code}: ${err.message}`,
+          `agent_spawn role ${err.code}: ${err.message}${limitBlock}`,
           'mcp_tool_failed',
           {
             tool: 'agent_spawn',
@@ -417,7 +450,7 @@ export class AgentToolDispatcher {
       if (err instanceof CliCommandLineTooLongError) {
         return toolError(
           request,
-          `agent_spawn command line too long (${err.measured} against a limit of ${err.limit}): ${err.message}`,
+          `agent_spawn command line too long (${err.measured} against a limit of ${err.limit}): ${err.message}${limitBlock}`,
           'mcp_tool_failed',
           {
             tool: 'agent_spawn',
@@ -429,7 +462,7 @@ export class AgentToolDispatcher {
       }
       return toolError(
         request,
-        `agent_spawn failed: ${errorMessage(err)}`,
+        `agent_spawn failed: ${errorMessage(err)}${limitBlock}`,
         'mcp_tool_failed',
         { tool: 'agent_spawn' },
       );
@@ -700,11 +733,12 @@ export class AgentToolDispatcher {
     }
     try {
       const agents = await this.ptahAPI.agent.list();
+      const limits = await this.lookupAgentLimits(agents);
       const roles = await this.listRolesOrEmpty();
       return await this.toolSuccess(
         request,
         'agent_list',
-        formatAgentList(agents, roles),
+        formatAgentList(agents, roles, limits),
         { agents, total: agents.length, roles },
       );
     } catch (err) {

@@ -25,6 +25,9 @@ import { AgentRoleResolver } from '../roles';
 import { AgentProcessManager } from '../cli-agents/agent-process-manager.service';
 import { AgentSpawnEnvironment } from '../cli-agents/agent-spawn-environment.service';
 import { AgentOutputBuffer } from '../cli-agents/agent-output-buffer.service';
+import { LaneOwnerResolver } from '../cli-agents/limits/lane-owner.resolver';
+import { LaneLimitLookupService } from '../cli-agents/limits/lane-limit-lookup.service';
+import { PlanLimitOwnerDiscoveryService } from '../cli-agents/limits/plan-limit-owner-discovery.service';
 
 function createMockLogger(): Logger {
   return {
@@ -133,6 +136,16 @@ function buildSmokeContainer(): DependencyContainer {
       exists: jest.fn(async () => false),
     },
   });
+  // Global state: the plan-limit ledger the manager files lane evidence in
+  // persists through it (TASK_2026_596). Every host's platform registration
+  // provides it.
+  c.register(PLATFORM_TOKENS.STATE_STORAGE, {
+    useValue: {
+      get: jest.fn(() => undefined),
+      update: jest.fn(async () => undefined),
+      keys: jest.fn(() => []),
+    },
+  });
   c.register(PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE, {
     useValue: {
       get: jest.fn(() => undefined),
@@ -210,6 +223,39 @@ describe('registerCliAgentRuntimeServices — AgentProcessManager DI smoke', () 
     expect(
       (manager as unknown as { outputBuffer: AgentOutputBuffer }).outputBuffer,
     ).toBe(outputBuffer);
+  });
+
+  it('injects the registered plan-limit ledger and a lane owner resolver (TASK_2026_596)', () => {
+    const ledger = container.resolve(AUTH_PROVIDERS_TOKENS.PLAN_LIMIT_LEDGER);
+    const manager = container.resolve<AgentProcessManager>(
+      TOKENS.AGENT_PROCESS_MANAGER,
+    );
+    const internals = manager as unknown as {
+      planLimits: unknown;
+      laneOwners: unknown;
+    };
+
+    expect(internals.planLimits).toBe(ledger);
+    expect(internals.laneOwners).toBeInstanceOf(LaneOwnerResolver);
+    expect(internals.laneOwners).toBe(
+      container.resolve(CLI_AGENT_RUNTIME_TOKENS.LANE_OWNER_RESOLVER),
+    );
+  });
+
+  it('resolves the plan-limit lane lookup and owner discovery as singletons (TASK_2026_596)', () => {
+    const lookup = container.resolve(CLI_AGENT_RUNTIME_TOKENS.LANE_LIMIT_LOOKUP);
+    const discovery = container.resolve(
+      CLI_AGENT_RUNTIME_TOKENS.PLAN_LIMIT_OWNER_DISCOVERY,
+    );
+
+    expect(lookup).toBeInstanceOf(LaneLimitLookupService);
+    expect(discovery).toBeInstanceOf(PlanLimitOwnerDiscoveryService);
+    expect(container.resolve(CLI_AGENT_RUNTIME_TOKENS.LANE_LIMIT_LOOKUP)).toBe(
+      lookup,
+    );
+    expect(
+      container.resolve(CLI_AGENT_RUNTIME_TOKENS.PLAN_LIMIT_OWNER_DISCOVERY),
+    ).toBe(discovery);
   });
 
   it('resolves CLI_AGENT_RUNTIME_TOKENS.AGENT_ROLE_RESOLVER as a singleton', () => {

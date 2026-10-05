@@ -30,6 +30,7 @@
 
 import * as http from 'http';
 import * as https from 'https';
+import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { Logger } from '@ptah-extension/vscode-core';
 import type {
@@ -67,7 +68,14 @@ import {
   safeJsonParse,
   translateResponsesUsage,
 } from './translation-proxy-helpers';
-import { providerQuotaStore } from '../auth/provider-quota.store';
+import {
+  providerQuotaStore,
+  type ProviderQuotaContext,
+} from '../auth/provider-quota.store';
+import {
+  credentialFromHeaders,
+  credentialOwnerKey,
+} from '../quota/provider-owner.resolver';
 
 /** Configuration for a translation proxy instance */
 export interface TranslationProxyConfig {
@@ -200,6 +208,9 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
   /** Log prefix derived from config name, e.g. '[CopilotProxy]' */
   private readonly logPrefix: string;
 
+  /** Opaque per-instance id for quota observations (`ProviderQuotaContext.sourceId`). */
+  private readonly quotaSourceId = randomUUID();
+
   constructor(
     protected readonly logger: Logger,
     protected readonly config: TranslationProxyConfig,
@@ -261,6 +272,46 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
   protected abstract getProviderId(): string;
 
   /**
+   * The quota owner whose credential serves this request, given the headers
+   * `getHeaders()` returned for it; `null` when the identity is unavailable.
+   *
+   * The default owns the credential the request carries, through the shared
+   * resolver functions (no parsing or hashing here). A subclass whose bearer
+   * is not an identity (an OAuth token that rotates) overrides this.
+   */
+  protected resolveQuotaOwnerKey(
+    headers: Record<string, string>,
+  ): Promise<string | null> {
+    const credential = credentialFromHeaders(headers);
+    return Promise.resolve(
+      credential === null
+        ? null
+        : credentialOwnerKey(this.getProviderId(), credential),
+    );
+  }
+
+  /**
+   * {@link resolveQuotaOwnerKey} for the response path: a throw or rejection
+   * becomes `null`, so the evidence is unattributed and the response unchanged.
+   */
+  private async quotaOwnerKeyFor(
+    headers: Record<string, string>,
+  ): Promise<string | null> {
+    try {
+      return await this.resolveQuotaOwnerKey(headers);
+    } catch (error: unknown) {
+      // degradation-audit: reported - logged at debug; the owner key is unknown
+      // (null) and the request still goes through.
+      this.logger.debug(
+        `${this.logPrefix} Could not resolve the quota owner: ${
+          error instanceof Error ? error.name : typeof error
+        }`,
+      );
+      return null;
+    }
+  }
+
+  /**
    * Record the upstream's verdict against {@link providerQuotaStore}.
    *
    * Wrapped because it is a pure SIDE EFFECT on the response path: a subclass
@@ -271,14 +322,20 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
   private noteUpstreamQuota(
     rateLimited: boolean,
     retryAfter?: string | string[],
+    ctx?: ProviderQuotaContext,
   ): void {
     try {
       const providerId = this.getProviderId();
       if (!providerId) return;
       if (rateLimited) {
-        providerQuotaStore.recordRateLimit(providerId, retryAfter);
+        providerQuotaStore.recordRateLimit(
+          providerId,
+          retryAfter,
+          undefined,
+          ctx,
+        );
       } else {
-        providerQuotaStore.recordSuccess(providerId);
+        providerQuotaStore.recordSuccess(providerId, ctx);
       }
     } catch (error: unknown) {
       this.logger.debug(
@@ -989,6 +1046,8 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
       );
       return;
     }
+    // Resolved once per attempt from the headers actually sent; never throws.
+    const quotaOwnerKey = await this.quotaOwnerKeyFor(headers);
     let apiEndpoint: string;
     try {
       apiEndpoint = params.endpoint ?? (await this.getApiEndpoint());
@@ -1121,7 +1180,12 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
             // resolver gates on. The response below is untouched: status,
             // headers, body and message are byte-identical to before this call
             // existed — this is a side effect and nothing else.
-            this.noteUpstreamQuota(true, retryAfter);
+            this.noteUpstreamQuota(true, retryAfter, {
+              ownerKey: quotaOwnerKey,
+              model: originalRequest.model,
+              statusCode,
+              sourceId: this.quotaSourceId,
+            });
             const headers: Record<string, string> = {};
             if (retryAfter) {
               headers['retry-after'] = retryAfter;
@@ -1176,7 +1240,12 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
           // this provider is stale. Clearing HERE rather than only on expiry is
           // what lets a subscription that refilled early be used immediately;
           // waiting out the full cooldown would gate a provider that works.
-          this.noteUpstreamQuota(false);
+          this.noteUpstreamQuota(false, undefined, {
+            ownerKey: quotaOwnerKey,
+            model: originalRequest.model,
+            statusCode,
+            sourceId: this.quotaSourceId,
+          });
           let translationFailed = false;
           const complete = () => {
             clearHeaderDeadline();

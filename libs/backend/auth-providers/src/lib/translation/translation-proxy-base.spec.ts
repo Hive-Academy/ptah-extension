@@ -49,7 +49,12 @@ import type { AnthropicMessagesRequest } from './openai-translation.types';
 import {
   providerQuotaStore,
   PROVIDER_QUOTA_DEFAULT_COOLDOWN_MS,
+  type ProviderQuotaObservation,
 } from '../auth/provider-quota.store';
+import {
+  credentialOwnerKey,
+  ProviderOwnerResolver,
+} from '../quota/provider-owner.resolver';
 
 // ---------------------------------------------------------------------------
 // Concrete subclass â€” stubs the 4 abstract hooks.
@@ -94,7 +99,9 @@ class FakeTranslationProxy extends TranslationProxyBase {
   public readonly getApiEndpointMock = jest.fn(
     async () => 'http://127.0.0.1:1', // intentionally-unreachable port for forwarding tests
   );
-  public readonly getHeadersMock = jest.fn(async () => ({
+  public readonly getHeadersMock = jest.fn(async (): Promise<
+    Record<string, string>
+  > => ({
     authorization: 'Bearer fake',
     'content-type': 'application/json',
   }));
@@ -121,6 +128,15 @@ class FakeTranslationProxy extends TranslationProxyBase {
   }
   protected override getProviderId(): string {
     return this.providerId;
+  }
+  /** When set, replaces the default owner hook (failure-path tests). */
+  public ownerKeyOverride?: () => Promise<string | null>;
+  protected override resolveQuotaOwnerKey(
+    headers: Record<string, string>,
+  ): Promise<string | null> {
+    return this.ownerKeyOverride
+      ? this.ownerKeyOverride()
+      : super.resolveQuotaOwnerKey(headers);
   }
 }
 
@@ -950,6 +966,201 @@ describe('TranslationProxyBase â€” 429 records a provider cooldown', () => 
 
     expect(res.status).toBe(500);
     expect(providerQuotaStore.cooldownFor('fake-provider')).not.toBeNull();
+  });
+});
+
+describe('TranslationProxyBase — quota owner key at the response boundary (TASK_2026_596)', () => {
+  const CHAT_COMPLETION = JSON.stringify({
+    id: 'chatcmpl-1',
+    object: 'chat.completion',
+    created: 0,
+    model: 'fake-model-a',
+    choices: [
+      {
+        index: 0,
+        message: { role: 'assistant', content: 'ok' },
+        finish_reason: 'stop',
+      },
+    ],
+  });
+  const rateLimited: http.RequestListener = (_req, upRes) => {
+    upRes.writeHead(429);
+    upRes.end('{}');
+  };
+  const answered =
+    (status: number): http.RequestListener =>
+    (_req, upRes) => {
+      upRes.writeHead(status, { 'Content-Type': 'application/json' });
+      upRes.end(CHAT_COMPLETION);
+    };
+
+  let rateLimits: ProviderQuotaObservation[];
+  let successes: ProviderQuotaObservation[];
+  let unsubscribe: Array<() => void>;
+  beforeEach(() => {
+    providerQuotaStore.clear();
+    rateLimits = [];
+    successes = [];
+    unsubscribe = [
+      providerQuotaStore.onRateLimit((o) => rateLimits.push(o)),
+      providerQuotaStore.onSuccess((o) => successes.push(o)),
+    ];
+  });
+  afterEach(() => {
+    unsubscribe.forEach((stop) => stop());
+    providerQuotaStore.clear();
+  });
+
+  async function run(
+    handler: http.RequestListener,
+    configure: (proxy: FakeTranslationProxy) => void = () => undefined,
+  ): Promise<HttpResult> {
+    const upstream = await startUpstream(handler);
+    const h = await startProxy();
+    h.proxy.getApiEndpointMock.mockResolvedValue(upstream.origin);
+    configure(h.proxy);
+    try {
+      return await request(`${h.url}/v1/messages`, {
+        method: 'POST',
+        body: MESSAGES_BODY,
+      });
+    } finally {
+      await h.stop();
+      await upstream.close();
+    }
+  }
+
+  const withHeaders =
+    (headers: Record<string, string>) => (proxy: FakeTranslationProxy) =>
+      proxy.getHeadersMock.mockResolvedValue(headers);
+
+  it('a 429 carries the owner key computed from the request headers, the model and the status', async () => {
+    const res = await run(rateLimited);
+
+    expect(res.status).toBe(429);
+    expect(rateLimits).toHaveLength(1);
+    expect(rateLimits[0]).toMatchObject({
+      providerId: 'fake-provider',
+      ownerKey: credentialOwnerKey('fake-provider', 'fake'),
+      model: 'fake-model-a',
+    });
+    expect(successes).toHaveLength(0);
+  });
+
+  it('F80: a 2xx emits a ledger success carrying the same owner key', async () => {
+    const res = await run(answered(200));
+
+    expect(res.status).toBe(200);
+    expect(successes).toHaveLength(1);
+    expect(successes[0]).toMatchObject({
+      providerId: 'fake-provider',
+      ownerKey: credentialOwnerKey('fake-provider', 'fake'),
+      model: 'fake-model-a',
+      gateUntil: null,
+    });
+  });
+
+  it('F68: each proxy instance tags its observations with its own source id', async () => {
+    await run(rateLimited);
+    await run(answered(200));
+
+    expect(rateLimits).toHaveLength(1);
+    expect(successes).toHaveLength(1);
+    const first = rateLimits[0].sourceId;
+    const second = successes[0].sourceId;
+    expect(typeof first).toBe('string');
+    expect(first).not.toHaveLength(0);
+    expect(typeof second).toBe('string');
+    // `run` starts a fresh proxy each time: two instances, two ids.
+    expect(second).not.toBe(first);
+  });
+
+  it('F80: a 3xx clears the gate but emits no ledger success', async () => {
+    providerQuotaStore.recordRateLimit('fake-provider');
+
+    await run(answered(302));
+
+    expect(providerQuotaStore.cooldownFor('fake-provider')).toBeNull();
+    expect(successes).toHaveLength(0);
+  });
+
+  it('F67: two same-provider proxies with keys A and B record two distinct owners', async () => {
+    await run(rateLimited, withHeaders({ authorization: 'Bearer key-A' }));
+    await run(rateLimited, withHeaders({ authorization: 'Bearer key-B' }));
+
+    const owners = rateLimits.map((o) => o.ownerKey);
+    expect(owners).toEqual([
+      credentialOwnerKey('fake-provider', 'key-A'),
+      credentialOwnerKey('fake-provider', 'key-B'),
+    ]);
+    expect(owners[0]).not.toBe(owners[1]);
+    // The provider gate itself stays keyed by provider id (unchanged).
+    expect(providerQuotaStore.cooldownFor('fake-provider')).not.toBeNull();
+  });
+
+  it.each([
+    ['Authorization: Bearer K', { Authorization: 'Bearer K' }],
+    ['X-Api-Key: K (mixed-case name)', { 'X-Api-Key': 'K' }],
+  ])(
+    'F67b: %s gives the owner the resolver derives from a stored K',
+    async (_label, headers) => {
+      const resolver = new ProviderOwnerResolver(
+        createMockLogger() as unknown as Logger,
+        { getProviderKey: async () => 'K' } as never,
+        {} as never,
+        { currentOwnerKey: () => null },
+        { path: '/codex-home' } as never,
+      );
+      const expected = await resolver.ownerForProviderKey('fake-provider');
+
+      await run(rateLimited, withHeaders(headers));
+
+      expect(rateLimits[0].ownerKey).toBe(expected.key);
+    },
+  );
+
+  it('headers without a credential give a null (unattributed) owner', async () => {
+    await run(
+      rateLimited,
+      withHeaders({ 'content-type': 'application/json' }),
+    );
+
+    expect(rateLimits).toHaveLength(1);
+    expect(rateLimits[0].ownerKey).toBeNull();
+  });
+
+  it('a throwing owner hook leaves the 429 response unchanged and the evidence unattributed', async () => {
+    const res = await run(rateLimited, (proxy) => {
+      proxy.ownerKeyOverride = async () => {
+        throw new Error('hook broke');
+      };
+    });
+
+    expect(res.status).toBe(429);
+    expect(JSON.parse(res.body)).toEqual({
+      type: 'error',
+      error: {
+        type: 'rate_limit_error',
+        message: 'Fake API rate limit exceeded. Please wait and try again.',
+      },
+    });
+    expect(rateLimits[0].ownerKey).toBeNull();
+    expect(providerQuotaStore.cooldownFor('fake-provider')).not.toBeNull();
+  });
+
+  it('a throwing store observer never affects the 2xx response', async () => {
+    const stop = providerQuotaStore.onSuccess(() => {
+      throw new Error('observer broke');
+    });
+    try {
+      const res = await run(answered(200));
+      expect(res.status).toBe(200);
+      expect(JSON.parse(res.body)).toMatchObject({
+        content: [{ type: 'text', text: 'ok' }],
+      });
+    } finally {
+      stop();
+    }
   });
 });
 

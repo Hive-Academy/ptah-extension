@@ -85,6 +85,13 @@ function makeHarness(): Harness {
     new AgentOutputBuffer(logger as unknown as Args[0]),
     { signal: jest.fn() } as unknown as Args[7],
     { evaluate: jest.fn() } as unknown as Args[8],
+    // No quota owner and no ledger: plan limits are pinned by the manager spec.
+    { ownerForLane: jest.fn(() => undefined) } as unknown as Args[9],
+    {
+      recordWindowEvidence: jest.fn(),
+      recordOwnerEvidence: jest.fn(),
+      recordSuccess: jest.fn(),
+    } as unknown as Args[10],
   );
   return { manager, logger };
 }

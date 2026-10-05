@@ -17,6 +17,16 @@ export const AUTH_PROVIDERS_TOKENS = {
    */
   SDK_DRAFT_VERIFICATION: Symbol.for('SdkDraftVerification'),
 
+  // Plan limits (TASK_2026_596). See `quota/`.
+  /** The single quota-owner key and credential canonicalisation site. */
+  PROVIDER_OWNER_RESOLVER: Symbol.for('ProviderOwnerResolver'),
+  /** Per-owner limit evidence (429 cooldowns, allowances, successes). */
+  PLAN_LIMIT_LEDGER: Symbol.for('PlanLimitLedger'),
+  /** One plan-limit snapshot per quota owner, merged with ledger evidence. */
+  PLAN_USAGE_SERVICE: Symbol.for('PlanUsageService'),
+  /** Reads a reader's credential at read time; never stores or returns it. */
+  PLAN_CREDENTIAL_SOURCE: Symbol.for('PlanCredentialSource'),
+
   SDK_API_KEY_STRATEGY: Symbol.for('SdkApiKeyStrategy'),
   SDK_OAUTH_PROXY_STRATEGY: Symbol.for('SdkOAuthProxyStrategy'),
   SDK_LOCAL_NATIVE_STRATEGY: Symbol.for('SdkLocalNativeStrategy'),

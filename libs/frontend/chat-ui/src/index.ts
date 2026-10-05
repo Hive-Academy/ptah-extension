@@ -69,6 +69,13 @@ export {
   SessionStatsSummaryComponent,
   type LiveModelStats,
 } from './lib/molecules/session/session-stats-summary.component';
+export { buildStatsLimitViewModel } from './lib/molecules/session/plan-limits/stats-limit-view-model';
+export type {
+  StatsLimitLaneRun,
+  StatsLimitViewModel,
+  StatsLimitViewModelInput,
+} from './lib/molecules/session/plan-limits/stats-limit-view-model.types';
+export { StatsTileExpansionState } from './lib/molecules/session/plan-limits/stats-tile-expansion.state';
 export { TabItemComponent } from './lib/molecules/session/tab-item.component';
 export { McpDirectoryBrowserComponent } from './lib/molecules/setup-plugins/mcp-directory-browser.component';
 export {

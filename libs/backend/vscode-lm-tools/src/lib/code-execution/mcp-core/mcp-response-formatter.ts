@@ -19,6 +19,14 @@ import type {
   CliDetectionResult,
   GitWorktreeInfo,
 } from '@ptah-extension/shared';
+import {
+  findAgentLimit,
+  formatAlternatives,
+  formatLimitColumn,
+  formatPlanLimitsSection,
+  formatSpawnLimitBlock,
+  type AgentLimit,
+} from './agent-limit.formatter';
 import type {
   BrowserNavigateResult,
   BrowserScreenshotResult,
@@ -1728,84 +1736,123 @@ function formatWorkspaceRoles(roles: readonly string[]): string {
     : 'No agent roles generated for this workspace';
 }
 
+const NO_AGENTS_TEXT =
+  'No agents found. Install one of the supported CLI agents, or configure a Ptah CLI agent (an Anthropic-compatible provider) in Ptah settings.';
+
+function agentListRow(agent: CliDetectionResult): Record<string, string> {
+  if (agent.cli === 'ptah-cli') {
+    return {
+      Agent: agent.ptahCliName ?? 'Unknown',
+      Type: 'ptah-cli',
+      Status: 'available',
+      // `messagingMode` is read from the SAME declaration the message
+      // router reads (Req 5.2) — never hardcoded here, or the cell would
+      // promise a mechanism the router does not use.
+      Capabilities: `provider: ${
+        agent.providerName ?? 'Unknown'
+      }, ptahCliId: ${agent.ptahCliId ?? 'N/A'}, messaging: ${
+        agent.messagingMode
+      }${formatRoleDeliveryCapability(agent)}`,
+    };
+  }
+
+  // `disabled` outranks `installed`: the binary is present but spawning it
+  // is rejected, and that is the fact the caller needs before choosing.
+  const status = agent.disabled
+    ? agent.installed
+      ? 'disabled (installed)'
+      : 'disabled'
+    : agent.installed
+      ? 'installed'
+      : 'not installed';
+
+  return {
+    Agent: agent.cli,
+    Type: 'cli',
+    Status: status,
+    Capabilities: `messaging: ${agent.messagingMode}${formatRoleDeliveryCapability(agent)}`,
+  };
+}
+
 /**
- * Format ptah_agent_list result as a markdown table
+ * Format ptah_agent_list result as a markdown table.
+ *
+ * Without `limits` the output is the pre-plan-limits text, byte for byte.
+ * With `limits` a `Limit state` column is appended last, and the
+ * `### Plan limits` and `### Alternatives by limit state` sections follow the
+ * workspace roles line (design §5.1); an empty roster gets only the
+ * alternatives section.
  */
 export function formatAgentList(
   agents: CliDetectionResult[],
   roles?: readonly string[],
+  limits?: readonly AgentLimit[],
 ): string {
   try {
     const rolesBlock =
       roles !== undefined ? [{ p: formatWorkspaceRoles(roles) }] : [];
+    let listed: string;
     if (agents.length === 0) {
-      return json2md([
+      listed = json2md([
         { h2: 'Available Agents' },
+        { p: NO_AGENTS_TEXT },
+        ...rolesBlock,
+      ]);
+    } else {
+      const headers = ['Agent', 'Type', 'Status', 'Capabilities'];
+      const rows = agents.map((agent) => {
+        const row = agentListRow(agent);
+        if (limits === undefined) return row;
+        const limit = findAgentLimit(limits, agent);
+        return {
+          ...row,
+          'Limit state': limit
+            ? formatLimitColumn(limit)
+            : 'unknown (limit lookup failed)',
+        };
+      });
+      listed = json2md([
+        { h2: 'Available Agents' },
+        { p: `**Total:** ${agents.length}` },
         {
-          p: 'No agents found. Install one of the supported CLI agents, or configure a Ptah CLI agent (an Anthropic-compatible provider) in Ptah settings.',
+          table: {
+            headers:
+              limits === undefined ? headers : [...headers, 'Limit state'],
+            rows,
+          },
         },
         ...rolesBlock,
       ]);
     }
-
-    const rows = agents.map((agent) => {
-      if (agent.cli === 'ptah-cli') {
-        return {
-          Agent: agent.ptahCliName ?? 'Unknown',
-          Type: 'ptah-cli',
-          Status: 'available',
-          // `messagingMode` is read from the SAME declaration the message
-          // router reads (Req 5.2) — never hardcoded here, or the cell would
-          // promise a mechanism the router does not use.
-          Capabilities: `provider: ${
-            agent.providerName ?? 'Unknown'
-          }, ptahCliId: ${agent.ptahCliId ?? 'N/A'}, messaging: ${
-            agent.messagingMode
-          }${formatRoleDeliveryCapability(agent)}`,
-        };
-      }
-
-      // `disabled` outranks `installed`: the binary is present but spawning it
-      // is rejected, and that is the fact the caller needs before choosing.
-      const status = agent.disabled
-        ? agent.installed
-          ? 'disabled (installed)'
-          : 'disabled'
-        : agent.installed
-          ? 'installed'
-          : 'not installed';
-
-      return {
-        Agent: agent.cli,
-        Type: 'cli',
-        Status: status,
-        Capabilities: `messaging: ${agent.messagingMode}${formatRoleDeliveryCapability(agent)}`,
-      };
-    });
-
-    return json2md([
-      { h2: 'Available Agents' },
-      { p: `**Total:** ${agents.length}` },
-      { table: { headers: ['Agent', 'Type', 'Status', 'Capabilities'], rows } },
-      ...rolesBlock,
-    ]);
+    if (limits === undefined) return listed;
+    // An empty roster has no lanes to tabulate: §5.1 lists only the
+    // alternatives section after the roles line.
+    if (agents.length === 0) {
+      return `${listed}\n\n${formatAlternatives(limits)}`;
+    }
+    return `${listed}\n\n${formatPlanLimitsSection(limits)}\n\n${formatAlternatives(limits)}`;
   } catch {
     return fallbackJson(agents);
   }
 }
 
 /**
- * Format ptah_agent_spawn result
+ * Format ptah_agent_spawn result.
+ *
+ * Without `limits` the output is the pre-plan-limits text, byte for byte.
+ * With `limits` the limit block for the lane the spawn ran on follows the
+ * existing fields (design §5.2).
  */
 export function formatAgentSpawn(
   result: SpawnAgentResult,
   options?: { modelTier?: string },
+  limits?: readonly AgentLimit[],
 ): string {
   try {
     const cliLabel = formatCliLabel(result.cli, result.ptahCliName);
     const roleLine = formatRoleLine(result);
 
-    return json2md([
+    const formatted = json2md([
       { h2: 'Agent Spawned' },
       {
         p: [
@@ -1826,6 +1873,13 @@ export function formatAgentSpawn(
         ].join('  \n'),
       },
     ]);
+    if (limits === undefined) return formatted;
+    const block = formatSpawnLimitBlock(
+      limits,
+      { cli: result.cli, ptahCliId: result.ptahCliId },
+      false,
+    );
+    return `${formatted}\n\n${block}`;
   } catch {
     return fallbackJson(result);
   }

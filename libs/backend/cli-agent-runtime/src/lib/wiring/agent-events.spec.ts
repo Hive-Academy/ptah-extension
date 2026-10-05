@@ -486,6 +486,160 @@ describe('persistCliSessionReference — bulk write gates the reference', () => 
   });
 });
 
+/**
+ * TASK_2026_596 Gate 2 G3 — a run persists its full owner reference, and an
+ * owner that becomes known while the run is live is persisted at once.
+ */
+describe('quota owner persistence (TASK_2026_596 G3)', () => {
+  const owner = {
+    key: 'openai-codex#account:0123456789abcdef',
+    providerId: 'openai-codex',
+    identityKind: 'account' as const,
+    label: 'Codex account',
+  };
+
+  function wire(addCliSession: jest.Mock): EventEmitter {
+    const events = new EventEmitter();
+    const container = buildContainer([
+      [
+        TOKENS.AGENT_PROCESS_MANAGER,
+        { events, readOutputForPersistence: jest.fn().mockReturnValue({}) },
+      ],
+      [
+        TOKENS.WEBVIEW_MANAGER,
+        { broadcastMessage: jest.fn().mockResolvedValue(undefined) },
+      ],
+      [
+        SDK_TOKENS.SDK_SESSION_METADATA_STORE,
+        {
+          addCliSession,
+          markChildSession: jest.fn().mockResolvedValue(undefined),
+        },
+      ],
+    ]);
+    wireAgentEventListeners(container, {
+      logger: createMockLogger() as unknown as Logger,
+      platform: 'electron',
+      options: { persistCliSession: true },
+    });
+    return events;
+  }
+
+  it('copies the full owner reference onto the persisted reference', () => {
+    const addCliSession = jest.fn().mockResolvedValue(undefined);
+
+    persistCliSessionReference(
+      buildContainer([
+        [
+          SDK_TOKENS.SDK_SESSION_METADATA_STORE,
+          { addCliSession, markChildSession: jest.fn() },
+        ],
+      ]),
+      createMockLogger() as unknown as Logger,
+      '[test]',
+      buildInfo({
+        cli: 'codex',
+        status: 'running',
+        parentSessionId: PARENT_SESSION,
+        cliSessionId: 'cli-sess-1',
+        quotaOwner: owner,
+      }),
+      undefined,
+    );
+
+    const ref = addCliSession.mock.calls[0][1];
+    expect(ref.quotaOwner).toEqual(owner);
+    expect(ref).not.toHaveProperty('quotaOwnerKey');
+  });
+
+  it('omits the owner when the run has none', () => {
+    const addCliSession = jest.fn().mockResolvedValue(undefined);
+
+    persistCliSessionReference(
+      buildContainer([
+        [
+          SDK_TOKENS.SDK_SESSION_METADATA_STORE,
+          { addCliSession, markChildSession: jest.fn() },
+        ],
+      ]),
+      createMockLogger() as unknown as Logger,
+      '[test]',
+      buildInfo({
+        status: 'running',
+        parentSessionId: PARENT_SESSION,
+        cliSessionId: 'cli-sess-1',
+      }),
+      undefined,
+    );
+
+    expect(addCliSession.mock.calls[0][1]).not.toHaveProperty('quotaOwner');
+  });
+
+  it("persists immediately when a running lane's owner becomes known", () => {
+    const addCliSession = jest.fn().mockResolvedValue(undefined);
+    const events = wire(addCliSession);
+
+    events.emit(
+      'agent:quota-owner',
+      buildInfo({
+        cli: 'codex',
+        status: 'running',
+        parentSessionId: PARENT_SESSION,
+        cliSessionId: 'cli-sess-1',
+        quotaOwner: owner,
+      }),
+    );
+
+    expect(addCliSession).toHaveBeenCalledWith(
+      PARENT_SESSION,
+      expect.objectContaining({
+        cliSessionId: 'cli-sess-1',
+        status: 'running',
+        quotaOwner: owner,
+      }),
+    );
+  });
+
+  it('waits for the exit persist when a running lane has no CLI session id yet', () => {
+    const addCliSession = jest.fn().mockResolvedValue(undefined);
+    const events = wire(addCliSession);
+
+    events.emit(
+      'agent:quota-owner',
+      buildInfo({
+        cli: 'codex',
+        status: 'running',
+        parentSessionId: PARENT_SESSION,
+        quotaOwner: owner,
+      }),
+    );
+
+    expect(addCliSession).not.toHaveBeenCalled();
+  });
+
+  it('persists an owner that arrives after the run finished', async () => {
+    const addCliSession = jest.fn().mockResolvedValue(undefined);
+    const events = wire(addCliSession);
+
+    events.emit(
+      'agent:quota-owner',
+      buildInfo({
+        cli: 'codex',
+        status: 'completed',
+        parentSessionId: PARENT_SESSION,
+        quotaOwner: owner,
+      }),
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(addCliSession).toHaveBeenCalledWith(
+      PARENT_SESSION,
+      expect.objectContaining({ quotaOwner: owner }),
+    );
+  });
+});
+
 describe('wireAgentEventListeners — the drop reaches the log', () => {
   it('warns when an exited agent has no parent session', () => {
     const logger = createMockLogger();

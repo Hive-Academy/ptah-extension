@@ -3,10 +3,16 @@ import * as http from 'http';
 import https from 'https';
 import { PassThrough } from 'stream';
 import { EventEmitter } from 'events';
+import { container } from 'tsyringe';
 import { createMockLogger } from '@ptah-extension/shared/testing';
-import type { Logger } from '@ptah-extension/vscode-core';
+import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import { CodexTranslationProxy } from './codex-translation-proxy';
 import type { ICodexAuthService } from './codex-provider.types';
+import { AUTH_PROVIDERS_TOKENS } from '../../di/tokens';
+import {
+  providerQuotaStore,
+  type ProviderQuotaObservation,
+} from '../../auth/provider-quota.store';
 
 const response = {
   status: 'completed',
@@ -267,4 +273,98 @@ describe('Codex upstream transport selection', () => {
       }
     },
   );
+});
+
+describe('Codex quota owner hook (TASK_2026_596 Component 9)', () => {
+  const ACCOUNT_OWNER = 'openai-codex#account:0123456789abcdef';
+  let upstream: http.Server;
+  let origin: string;
+  let rateLimits: ProviderQuotaObservation[];
+  let stopObserving: () => void;
+
+  beforeEach(async () => {
+    providerQuotaStore.clear();
+    rateLimits = [];
+    stopObserving = providerQuotaStore.onRateLimit((o) => rateLimits.push(o));
+    upstream = http.createServer((_req, res) => {
+      res.writeHead(429);
+      res.end('{}');
+    });
+    await new Promise<void>((resolve) =>
+      upstream.listen(0, '127.0.0.1', resolve),
+    );
+    const address = upstream.address();
+    if (!address || typeof address === 'string') throw new Error('no address');
+    origin = `http://127.0.0.1:${address.port}`;
+  });
+
+  afterEach(async () => {
+    stopObserving();
+    providerQuotaStore.clear();
+    await new Promise<void>((resolve) => upstream.close(() => resolve()));
+  });
+
+  /** The OAuth bearer rotates, so it must never become the owner. */
+  function bearerAuth(): ICodexAuthService {
+    return {
+      ...createAuth(origin),
+      getHeaders: async () => ({
+        authorization: 'Bearer rotating-oauth-token',
+        'content-type': 'application/json',
+      }),
+    };
+  }
+
+  async function send429(proxy: CodexTranslationProxy): Promise<void> {
+    try {
+      const { url } = await proxy.start();
+      await post(url, false);
+    } finally {
+      await proxy.stop();
+    }
+  }
+
+  it('records a 429 against the Codex account owner, not the request bearer', async () => {
+    await send429(
+      new CodexTranslationProxy(
+        createMockLogger() as unknown as Logger,
+        bearerAuth(),
+        { currentOwnerKey: () => ACCOUNT_OWNER },
+      ),
+    );
+
+    expect(rateLimits).toHaveLength(1);
+    expect(rateLimits[0]).toMatchObject({
+      providerId: 'openai-codex',
+      ownerKey: ACCOUNT_OWNER,
+    });
+  });
+
+  it('F68: a null currentOwnerKey() gives an unattributed (null) owner', async () => {
+    await send429(
+      new CodexTranslationProxy(
+        createMockLogger() as unknown as Logger,
+        bearerAuth(),
+        { currentOwnerKey: () => null },
+      ),
+    );
+
+    expect(rateLimits).toHaveLength(1);
+    expect(rateLimits[0].ownerKey).toBeNull();
+    // The provider gate still arms exactly as before.
+    expect(providerQuotaStore.cooldownFor('openai-codex')).not.toBeNull();
+  });
+
+  it('is injected from SDK_CODEX_ACCOUNT_USAGE when container-built', async () => {
+    const child = container.createChildContainer();
+    child.registerInstance(TOKENS.LOGGER, createMockLogger());
+    child.registerInstance(AUTH_PROVIDERS_TOKENS.SDK_CODEX_AUTH, bearerAuth());
+    child.registerInstance(AUTH_PROVIDERS_TOKENS.SDK_CODEX_ACCOUNT_USAGE, {
+      currentOwnerKey: () => ACCOUNT_OWNER,
+    });
+
+    await send429(child.resolve(CodexTranslationProxy));
+
+    expect(rateLimits[0].ownerKey).toBe(ACCOUNT_OWNER);
+  });
 });

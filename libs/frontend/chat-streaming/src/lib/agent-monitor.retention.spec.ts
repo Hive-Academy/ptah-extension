@@ -311,6 +311,81 @@ describe('AgentMonitorStore — retention bounds', () => {
   });
 
   // ==========================================================================
+  // Usage totals survive the segment cap (TASK_2026_596, Decision 8)
+  //
+  // `usageTotals` is folded from each incoming segment BEFORE `capSegments`
+  // runs, so a long lane whose early usage segments were trimmed off the card
+  // still reports the exact sum of everything it streamed.
+  // ==========================================================================
+
+  it('keeps exact usage totals for a lane past 600 segments', () => {
+    spawn('usage-long');
+    const pairs = 400; // 800 segments, past the 500 + 100 cap
+    let input = 0;
+    let output = 0;
+    for (let i = 0; i < pairs; i++) {
+      store.onAgentOutput({
+        agentId: 'usage-long',
+        segments: [
+          { type: 'text', content: `t-${i} `, usage: { inputTokens: 3 } },
+        ],
+      } as AgentOutputDelta);
+      // This text delta merges into the previous text segment, and the merge
+      // keeps only the earlier segment's fields — so its usage must already
+      // be folded by the time the merge happens.
+      store.onAgentOutput({
+        agentId: 'usage-long',
+        segments: [
+          { type: 'text', content: `u-${i} `, usage: { outputTokens: 1 } },
+        ],
+      } as AgentOutputDelta);
+      input += 3;
+      output += 1;
+      store.onAgentOutput({
+        agentId: 'usage-long',
+        segments: [
+          {
+            type: 'tool-call',
+            content: '',
+            toolName: `tool-${i}`,
+            usage: {
+              model: `model-${i}`,
+              inputTokens: i + 1,
+              outputTokens: 2,
+              costUsd: i / 100,
+            },
+          },
+        ] as CliOutputSegment[],
+      } as AgentOutputDelta);
+      input += i + 1;
+      output += 2;
+    }
+
+    const agent = agentOf('usage-long');
+    // The cap really did drop segments — otherwise this proves nothing.
+    expect(markerOf(agent.segments)).toBeTruthy();
+    expect(agent.segments.length).toBeLessThanOrEqual(
+      MAX_AGENT_SEGMENTS + AGENT_SEGMENTS_CAP_SLACK,
+    );
+
+    expect(agent.usageTotals).toEqual({
+      model: `model-${pairs - 1}`,
+      inputTokens: input,
+      outputTokens: output,
+      totalTokens: undefined,
+      costUsd: (pairs - 1) / 100,
+      durationMs: undefined,
+    });
+  });
+
+  it('leaves usageTotals null when no segment carried usage — unknown, never 0', () => {
+    spawn('usage-none');
+    pushInterleaved('usage-none', 400);
+
+    expect(agentOf('usage-none').usageTotals).toBeNull();
+  });
+
+  // ==========================================================================
   // The stdout/stderr byte cap (TASK_2026_335 / defect 3)
   // ==========================================================================
 

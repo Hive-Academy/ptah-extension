@@ -47,11 +47,22 @@ import {
   isTaskProgress,
   isTaskUpdated,
   isTaskNotification,
+  isSuccessResult,
+  isRateLimitEvent,
+  isAPIRetryMessage,
+  isAssistantMessage,
 } from '../types/sdk-types/claude-sdk.types';
 import type { IModelResolver } from '../auth-env.port';
 import type { IPricingProvider } from '../pricing.port';
 import type { NoActivityWatchdog } from './no-activity-watchdog';
 import type { SessionMcpStatusCallbackRegistry } from './session-mcp-status-callback-registry';
+import type { SessionPlanLimitCallbackRegistry } from './plan-limits/session-plan-limit-callback-registry';
+import {
+  claudeModelFamily,
+  mapClaudePlanLimitMessage,
+  opensClaudeTurn,
+  type ClaudeTurnBilling,
+} from './plan-limits/claude-rate-limit.mapper';
 
 /**
  * Callback type for notifying when real session ID is received from SDK.
@@ -344,6 +355,12 @@ export class StreamTransformer {
     /** The single authority every accepted result is published to. */
     @inject(SDK_TOKENS.SDK_SESSION_STATS_OWNER)
     private readonly statsOwner: SessionStatsOwnerService,
+    /**
+     * Fan-out for plan-limit signals (TASK_2026_596). A registry for the same
+     * cross-library reason as `mcpStatus`; see the registry's file header.
+     */
+    @inject(SDK_TOKENS.SDK_SESSION_PLAN_LIMIT_REGISTRY)
+    private readonly planLimits: SessionPlanLimitCallbackRegistry,
   ) {}
 
   /**
@@ -393,6 +410,7 @@ export class StreamTransformer {
     const modelResolver = this.modelResolver;
     const pricingProvider = this.pricingProvider;
     const mcpStatus = this.mcpStatus;
+    const planLimits = this.planLimits;
 
     return {
       async *[Symbol.asyncIterator]() {
@@ -410,6 +428,14 @@ export class StreamTransformer {
         // of the message_start it belongs to.
         let currentStreamModel: string | null = null;
         let loggedEagerMcpTools = false;
+        // Per-turn plan-limit state (TASK_2026_596, Decision 4 S1), reset on
+        // every `result`. Scopes come only from main-loop `message_start`
+        // models of this turn — never from `result.modelUsage`, which is
+        // cumulative per query. Billing is the latest in-turn
+        // `rate_limit_event`'s; no event in the turn leaves it `unknown`.
+        const turnScopes = new Set<string>();
+        let turnBilling: ClaudeTurnBilling = 'unknown';
+        let turnStartPending = true;
 
         // Arm the no-activity watchdog before consuming the stream. It fires
         // only if NO SDK message arrives for the full inactivity window; every
@@ -435,6 +461,8 @@ export class StreamTransformer {
                 const model = event.message.model;
                 const turnUsage = event.message.usage;
                 currentStreamModel = model ?? null;
+                const family = claudeModelFamily(model);
+                if (family) turnScopes.add(family);
                 if (model && turnUsage) {
                   lastTurnContextByModel.set(model, {
                     input: turnUsage.input_tokens ?? 0,
@@ -518,10 +546,66 @@ export class StreamTransformer {
                 });
               }
             }
+            // Plan limits (TASK_2026_596). Placed after `init` so signals carry
+            // the real session id. Nothing here changes what is forwarded: the
+            // limit messages are not forwarded below, and a rate-limited
+            // assistant message still is.
+            if (turnStartPending && opensClaudeTurn(sdkMessage)) {
+              turnStartPending = false;
+              planLimits.notifyAll({
+                sessionId: effectiveSessionId,
+                signal: { kind: 'turn-start', observedAt: Date.now() },
+              });
+            }
+            if (
+              isRateLimitEvent(sdkMessage) ||
+              isAPIRetryMessage(sdkMessage) ||
+              (isAssistantMessage(sdkMessage) &&
+                sdkMessage.error === 'rate_limit')
+            ) {
+              try {
+                const mapped = mapClaudePlanLimitMessage(
+                  sdkMessage,
+                  Date.now(),
+                );
+                if (mapped?.billing) turnBilling = mapped.billing;
+                if (mapped?.evidence) {
+                  planLimits.notifyAll({
+                    sessionId: effectiveSessionId,
+                    signal: { kind: 'evidence', evidence: mapped.evidence },
+                  });
+                }
+              } catch (error) {
+                // The payload is not logged: it is provider account data.
+                logger.debug(
+                  '[StreamTransformer] Plan-limit signal mapping failed; stream continues',
+                  {
+                    sessionId: effectiveSessionId,
+                    messageType: sdkMessage.type,
+                    error: error instanceof Error ? error.name : 'unknown',
+                  },
+                );
+              }
+            }
             if (isResultMessage(sdkMessage)) {
               // Turn boundary first — see `onTurnEnd`'s contract. Nothing below
               // may gate it.
               onTurnEnd?.();
+              // S1 success (Decision 4), then reset the per-turn state.
+              if (isSuccessResult(sdkMessage) && !sdkMessage.is_error) {
+                planLimits.notifyAll({
+                  sessionId: effectiveSessionId,
+                  signal: {
+                    kind: 'success',
+                    turnScopes: [...turnScopes],
+                    billing: turnBilling,
+                    observedAt: Date.now(),
+                  },
+                });
+              }
+              turnScopes.clear();
+              turnBilling = 'unknown';
+              turnStartPending = true;
               const reported = usageCostSource === 'reported';
               // Footer/context rows, labelled by the resolved pricing id as
               // they always were.

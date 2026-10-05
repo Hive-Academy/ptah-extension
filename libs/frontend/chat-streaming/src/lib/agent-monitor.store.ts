@@ -31,8 +31,12 @@ import type {
   MessageCompleteEvent,
   SubagentPromptCacheTtl,
   SubagentTranscriptMessage,
+  AgentFailureKind,
+  CliUsageTotals,
+  QuotaOwnerRef,
 } from '@ptah-extension/shared';
 import {
+  addCliUsage,
   calculateMessageCost,
   computeSubagentCacheState,
 } from '@ptah-extension/shared';
@@ -379,6 +383,30 @@ export interface MonitoredAgent {
    * reports it, so consumers must tolerate a missing name for a known run.
    */
   workflowName?: string;
+  /**
+   * Usage of this run, folded with `addCliUsage` from every incoming segment
+   * BEFORE `capSegments` drops old ones, so long lanes keep exact totals.
+   * `null` (or absent) means no usage is known — never read it as 0. A card
+   * rebuilt by `loadCliSessions` is always `null`: restored tokens and cost
+   * are unknown (Decision 8, Req 8.4).
+   */
+  usageTotals?: CliUsageTotals | null;
+  /** Workspace role name the lane was spawned as. */
+  role?: string;
+  /** Classified failure reason of the run, from `AgentProcessInfo`. */
+  failureKind?: AgentFailureKind;
+  /**
+   * Quota owner this run used (full G3 reference, not a key string). Absent
+   * when the backend never recorded one — consumers render that as an
+   * unknown owner, never as the current owner.
+   */
+  quotaOwner?: QuotaOwnerRef;
+  /**
+   * `true` only on a card rebuilt by `loadCliSessions` from persisted history;
+   * absent on a live-spawned card. Set where the card is created, never
+   * inferred from status.
+   */
+  restored?: boolean;
   /**
    * Size of the agent's last request context. Always `undefined` for CLI lanes
    * today: no lane adapter reports a per-request context.
@@ -732,6 +760,18 @@ export class AgentMonitorStore implements OnDestroy {
   }
 
   /**
+   * Agents whose RESOLVED parent is exactly this session. Unlike
+   * {@link agentsForSession}, an agent with no resolved parent belongs to no
+   * session yet: per-session quota and lane tiles attribute usage to a
+   * session, so an unresolved lane must not appear in every session's tiles.
+   * The monitor UI keeps the tolerant rule above.
+   */
+  agentsOwnedBySession(sessionId: string): MonitoredAgent[] {
+    if (!sessionId) return [];
+    return this.agents().filter((a) => a.parentSessionId === sessionId);
+  }
+
+  /**
    * Workflow subagents — SubagentRecords carrying a `workflowRunId` — scoped to
    * the active tab's session. Mirrors {@link activeTabAgents} scoping: when no
    * tab is active all workflow subagents are returned; records without a
@@ -1015,6 +1055,11 @@ export class AgentMonitorStore implements OnDestroy {
           continuationExpired: false,
           workflowRunId: wf.workflowRunId ?? existing.workflowRunId,
           workflowName: wf.workflowName ?? existing.workflowName,
+          // Same card, same run output: the folded usage carries over. A
+          // re-open is a new attempt, so a previous failure no longer applies.
+          role: info.role ?? existing.role,
+          failureKind: info.failureKind,
+          quotaOwner: info.quotaOwner ?? existing.quotaOwner,
         };
         const next = [...list];
         next[existingIndex] = reopened;
@@ -1055,6 +1100,10 @@ export class AgentMonitorStore implements OnDestroy {
           supportsContinuation: info.supportsContinuation,
           workflowRunId: wf.workflowRunId,
           workflowName: wf.workflowName,
+          usageTotals: null,
+          role: info.role,
+          failureKind: info.failureKind,
+          quotaOwner: info.quotaOwner,
           ...CLI_LANE_CACHE_FIELDS,
         };
         return insertAgentSorted(
@@ -1084,6 +1133,10 @@ export class AgentMonitorStore implements OnDestroy {
         supportsContinuation: info.supportsContinuation,
         workflowRunId: wf.workflowRunId,
         workflowName: wf.workflowName,
+        usageTotals: null,
+        role: info.role,
+        failureKind: info.failureKind,
+        quotaOwner: info.quotaOwner,
         ...CLI_LANE_CACHE_FIELDS,
       };
       return insertAgentSorted(list, fresh);
@@ -1134,6 +1187,14 @@ export class AgentMonitorStore implements OnDestroy {
         );
       }
       if (delta.segments && delta.segments.length > 0) {
+        // Fold usage from the raw incoming segments first: the text merge
+        // below keeps only the earlier segment's fields, and `capSegments`
+        // may drop usage-bearing segments, so neither may see usage first.
+        let usageTotals = agent.usageTotals ?? null;
+        for (const segment of delta.segments) {
+          usageTotals = addCliUsage(usageTotals, segment.usage);
+        }
+        updated.usageTotals = usageTotals;
         const existing = updated.segments;
         const incoming = delta.segments;
         const lastIdx = existing.length - 1;
@@ -1210,6 +1271,11 @@ export class AgentMonitorStore implements OnDestroy {
         permissionQueue: [],
         supportsContinuation:
           info.supportsContinuation ?? agent.supportsContinuation,
+        role: info.role ?? agent.role,
+        failureKind: info.failureKind,
+        // The backend may only upgrade an unknown owner to a known one, so
+        // the exit payload's owner wins; keep the spawn-time one if absent.
+        quotaOwner: info.quotaOwner ?? agent.quotaOwner,
       };
       return this.evictOldCompletedAgents(next);
     });
@@ -1441,6 +1507,11 @@ export class AgentMonitorStore implements OnDestroy {
           parentSessionId,
           ptahCliId: ref.ptahCliId,
           permissionQueue: [],
+          // Restored tokens and cost are unknown, not 0 (Req 8.4); persisted
+          // segments are not folded. The recorded owner may be absent.
+          usageTotals: null,
+          quotaOwner: ref.quotaOwner,
+          restored: true,
           ...CLI_LANE_CACHE_FIELDS,
         });
         existingIds.add(ref.agentId);
