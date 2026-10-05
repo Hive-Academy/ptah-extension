@@ -1037,7 +1037,7 @@ real code, a regression test per item).
 
 - Scoped checks for agent-sdk; the agent-sdk test target exits 0 (Task 22.6 removes the last allowed failure).
 
-## Batch 23: `execute_code` cancel reaches `ptah.agent.waitFor` (G.8, Task 8.3 gap) — COMPLETE (d02a06685)
+## Batch 23: `execute_code` cancel reaches `ptah.agent.waitFor` (G.8, Task 8.3 gap) — COMPLETE (3fe7a030e)
 
 - Recommended executor: backend-developer | Fallback: backend-developer (fresh run) | Execution mode: Sequential subagent
 - Model: Opus | Tasks: 2 | Depends on: Batch 21 (same lib) | Group: P3 | Phase: G
