@@ -247,7 +247,7 @@ export class AgentSpawnEnvironment {
     key: string,
     detail: Record<string, Record<string, number | string>>,
   ): void {
-    const signature = `${key}\u0000${JSON.stringify(detail.provided)}`;
+    const signature = `${key}\u0000${JSON.stringify(detail['provided'])}`;
     if (this.warnedLaneGuard.has(signature)) return;
     this.warnedLaneGuard.add(signature);
     this.logger.warn(
