@@ -456,7 +456,12 @@ describe('buildStatsLimitViewModel', () => {
       });
       const vm = buildStatsLimitViewModel(input({ owners: [noSource] }));
       expect(vm.indicator).toBeUndefined();
-      expect(vm.planTiles[0]).toMatchObject({ value: 'No usage source' });
+      expect(vm.planTiles[0]).toMatchObject({
+        value: 'No usage source',
+        detailLines: [
+          'Claude account · aaaa does not report plan usage, so no percentage is shown.',
+        ],
+      });
     });
 
     it('shows near limit with window, value and reset', () => {
@@ -589,6 +594,27 @@ describe('buildStatsLimitViewModel', () => {
       );
       expect(vm.planTiles[1].chip?.text).toBe('Aged');
       expect(vm.planTiles[2].resetLine).toBe('retry delay, not a plan reset');
+      expect(vm.planTiles[2].sourceChips).toEqual(['From error']);
+    });
+
+    it('keeps the owner suffix separate from the truncating caption lead', () => {
+      const canonical = buildStatsLimitViewModel(input()).planTiles[0];
+      const nonCanonicalOwner = { ...CLAUDE_A, key: 'claude-cli#account:short' };
+      const nonCanonical = buildStatsLimitViewModel(
+        input({
+          sessionOwnerKey: nonCanonicalOwner.key,
+          owners: [snapshot(nonCanonicalOwner)],
+        }),
+      ).planTiles[0];
+
+      expect(canonical).toMatchObject({
+        captionLead: 'Claude account plan limit',
+        captionTail: '· aaaa',
+        caption: 'Claude account plan limit · aaaa',
+      });
+      expect(nonCanonical.captionLead).toBe('Claude account plan limit');
+      expect(nonCanonical.captionTail).toBeUndefined();
+      expect(nonCanonical.caption).toBe('Claude account plan limit');
     });
 
     it('renders absolute times in the zone it is given', () => {
@@ -769,7 +795,9 @@ describe('buildStatsLimitViewModel', () => {
           id: `plan-status:${CLAUDE_A.key}`,
           value: 'Unavailable',
           resetLine: 'no open session',
-          caption: 'Claude account · aaaa plan limit',
+          caption: 'Claude account plan limit · aaaa',
+          captionLead: 'Claude account plan limit',
+          captionTail: '· aaaa',
         }),
       ]);
     });
