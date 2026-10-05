@@ -20,6 +20,21 @@ export const DEFAULT_GIT_MAX_OUTPUT_BYTES = 64 * 1024 * 1024;
  */
 export const GIT_STATUS_MAX_OUTPUT_BYTES = 32 * 1024 * 1024;
 
+/**
+ * Per-call budget for the three reads of one status refresh — `git status`
+ * plus the two `diff --numstat` calls `GitInfoService.computeGitInfo` makes.
+ *
+ * git answers these in well under a second even on a large repository
+ * (measured ~180 ms on the main checkout), so the default
+ * {@link DEFAULT_GIT_TIMEOUT_MS} of 10 s was never meant to bind. But under
+ * host contention (many agents spawning processes in the same repository)
+ * process creation and event-loop lag stretch even a trivial `git rev-parse`
+ * past 10 s, and every refresh then reports "unavailable (timeout)".
+ * 30 s rides out those stalls while staying below `LONG_GIT_CALL_MS`, so the
+ * reads keep the gate's interactive lane.
+ */
+export const GIT_STATUS_TIMEOUT_MS = 30_000;
+
 /** Git children allowed to run at once across the whole process. */
 export const DEFAULT_GIT_MAX_CONCURRENT = 4;
 

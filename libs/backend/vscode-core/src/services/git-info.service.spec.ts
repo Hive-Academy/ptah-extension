@@ -53,6 +53,12 @@
  *                     the operation id is freed on settle; a running id is refused
  *   readStagedPatch — patch flags; none / failed; 48 KiB cap stops git
  *
+ * TASK_2026_616 Batch G additions (git status timeout):
+ *   getGitInfo     — the status and both numstat reads carry GIT_STATUS_TIMEOUT_MS
+ *   getGitInfo     — a non-repository is classified from the status exit, no probe
+ *   refreshGitInfo — a timeout backs off background refreshes for 30 s; a user
+ *                    read runs anyway and a success closes the window
+ *
  * `crossSpawn` is mocked at the module boundary so no git binary is required.
  *
  * Source-under-test:
@@ -81,8 +87,18 @@ jest.mock('os', () => ({
   setPriority: (...args: unknown[]) => mockSetPriority(...args),
 }));
 
-import { GitInfoService, isMutatingGitCommand } from './git-info.service';
-import { GitCancelledError, GitOutputLimitError } from '../utils/exec-git';
+import {
+  GitInfoService,
+  isMutatingGitCommand,
+  setGitInfoClockForTests,
+  resetGitInfoClockForTests,
+} from './git-info.service';
+import {
+  GitCancelledError,
+  GitOutputLimitError,
+  GitTimeoutError,
+  GIT_STATUS_TIMEOUT_MS,
+} from '../utils/exec-git';
 import { STAGED_PATCH_TRUNCATED_NOTE } from './git/git-staged-patch.reader';
 import { GIT_DIFF_MAX_SIDE_BYTES } from '@ptah-extension/shared';
 
@@ -695,14 +711,14 @@ describe('GitInfoService — new git methods (TASK_2026_111)', () => {
       );
 
       await Promise.all([service.getGitInfo(WS), service.getGitInfo(WS)]);
-      // rev-parse + status + staged/worktree numstat + the operation markers'
+      // status + staged/worktree numstat + the operation markers'
       // `rev-parse --git-path`, once — not twice.
-      expect(mockSpawn).toHaveBeenCalledTimes(5);
+      expect(mockSpawn).toHaveBeenCalledTimes(4);
 
       await service.getGitInfo(WS);
 
-      // A fresh run; the marker paths are already resolved, so no fifth spawn.
-      expect(mockSpawn).toHaveBeenCalledTimes(9);
+      // A fresh run; the marker paths are already resolved, so one spawn fewer.
+      expect(mockSpawn).toHaveBeenCalledTimes(7);
     });
   });
 
@@ -1557,10 +1573,9 @@ describe('GitInfoService.getGitInfo() — -z status parsing, origPath (N3)', () 
       '',
     ].join('\0');
 
-    queueSpawn([
-      { stdout: 'true\n', exitCode: 0 }, // isGitRepo
-      { stdout: status, exitCode: 0 }, // status --porcelain=v2
-    ]);
+    // The status run doubles as the repository probe (TASK_2026_616 G.2):
+    // it is the first spawn, and the queued answers start there.
+    queueSpawn([{ stdout: status, exitCode: 0 }]);
 
     const info = await service.getGitInfo(WS);
 
@@ -1580,10 +1595,7 @@ describe('GitInfoService.getGitInfo() — -z status parsing, origPath (N3)', () 
       '',
     ].join('\0');
 
-    queueSpawn([
-      { stdout: 'true\n', exitCode: 0 },
-      { stdout: status, exitCode: 0 },
-    ]);
+    queueSpawn([{ stdout: status, exitCode: 0 }]);
 
     const info = await service.getGitInfo(WS);
 
@@ -1598,14 +1610,11 @@ describe('GitInfoService.getGitInfo() — -z status parsing, origPath (N3)', () 
       '',
     ].join('\0');
 
-    queueSpawn([
-      { stdout: 'true\n', exitCode: 0 },
-      { stdout: status, exitCode: 0 },
-    ]);
+    queueSpawn([{ stdout: status, exitCode: 0 }]);
 
     const info = await service.getGitInfo(WS);
 
-    expect(mockSpawn.mock.calls[1][1]).toEqual([
+    expect(mockSpawn.mock.calls[0][1]).toEqual([
       'status',
       '--porcelain=v2',
       '-z',
@@ -1639,11 +1648,7 @@ describe('GitInfoService.getGitInfo() — -z status parsing, origPath (N3)', () 
       '! build/out.js',
       '',
     ].join('\0');
-    queueSpawn([
-      { stdout: 'true\n', exitCode: 0 },
-      { stdout: status, exitCode: 0 },
-    ]);
-
+    queueSpawn([{ stdout: status, exitCode: 0 }]);
     const info = await service.getGitInfo(WS);
 
     expect(info.files.map((file) => file.path)).toEqual([
@@ -1661,7 +1666,6 @@ describe('GitInfoService.getGitInfo() — -z status parsing, origPath (N3)', () 
     );
     const run = () => {
       queueSpawn([
-        { stdout: 'true\n', exitCode: 0 },
         { stdout: status, exitCode: 0 },
         { stdout: '', exitCode: 0 }, // both numstat reads
       ]);
@@ -1822,14 +1826,10 @@ describe('GitInfoService.getGitInfo() — failure logging', () => {
     const logger = makeLogger();
     const service = new GitInfoService(logger as never);
 
-    let call = 0;
     mockSpawn.mockImplementation(() => {
-      call++;
-      // 1: `rev-parse --is-inside-work-tree` succeeds — it IS a repo.
-      if (call === 1) {
-        return makeSpawnResult({ stdout: 'true\n', exitCode: 0 });
-      }
-      // 2: `git status` never starts. This is the shape `execGit` rejects with.
+      // `git status` — the pipeline's first and only pre-flight read
+      // (TASK_2026_616 G.2) — never starts. This is the shape `execGit`
+      // rejects with.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const listeners: Record<string, ((...args: any[]) => void)[]> = {};
       return {
@@ -2222,9 +2222,10 @@ describe('GitInfoService — single-flight read runs (TASK_2026_437)', () => {
     await drain();
     expect(spawner.state.spawns).toBe(1);
 
-    // The first status child never exits; exec-git's 10 s timeout rejects,
-    // `computeGitInfo` maps that to an empty result, and the flight settles.
-    await jest.advanceTimersByTimeAsync(10_000);
+    // The first status child never exits; the status read's own budget
+    // (GIT_STATUS_TIMEOUT_MS, TASK_2026_616 G.1) rejects, `computeGitInfo`
+    // maps that to an empty result, and the flight settles.
+    await jest.advanceTimersByTimeAsync(GIT_STATUS_TIMEOUT_MS);
     const firstInfo = await first;
     expect(firstInfo.branch.branch).toBe('');
     expect(logger.error).toHaveBeenCalledWith(
@@ -2307,10 +2308,10 @@ describe('GitInfoService — status pipeline bounds (TASK_2026_437 C11)', () => 
 
     await service.refreshGitInfo(WS);
 
-    // rev-parse, status, the staged + worktree numstat reads, and the
-    // operation markers' `rev-parse --git-path`.
-    expect(spawnProcess).toHaveBeenCalledTimes(5);
-    expect(mockSetPriority).toHaveBeenCalledTimes(5);
+    // status, the staged + worktree numstat reads, and the operation markers'
+    // `rev-parse --git-path` — no repository probe spawn (TASK_2026_616 G.2).
+    expect(spawnProcess).toHaveBeenCalledTimes(4);
+    expect(mockSetPriority).toHaveBeenCalledTimes(4);
     for (const call of mockSetPriority.mock.calls) {
       expect(call).toEqual([
         31337,
@@ -2328,7 +2329,7 @@ describe('GitInfoService — status pipeline bounds (TASK_2026_437 C11)', () => 
 
     await service.getGitInfo(WS);
 
-    expect(spawnProcess).toHaveBeenCalledTimes(5);
+    expect(spawnProcess).toHaveBeenCalledTimes(4);
     expect(mockSetPriority).not.toHaveBeenCalled();
   });
 
@@ -2579,6 +2580,223 @@ describe('GitInfoService — status pipeline bounds (TASK_2026_437 C11)', () => 
       expect(fetchCall[2]?.env?.GIT_TERMINAL_PROMPT).toBe('0');
       expect(fetchCall[2]?.env?.GIT_ASKPASS).toBe('');
     });
+  });
+});
+
+// ===========================================================================
+// TASK_2026_616 Batch G: git status timeout.
+//
+// One status refresh is three git children, and the fixed 10 s budget each
+// starves under host contention (git.exe launch stalls while many agents
+// run in the same repository), so the status read and its two numstat reads
+// carry a 30 s budget — still below the 60 s `LONG_GIT_CALL_MS` that moves a
+// call to the gate's background lane. `git status` doubles as the repository
+// probe (one spawn fewer per refresh), and after a timeout the watcher's
+// refreshes back off for 30 s instead of piling onto the same stall.
+// ===========================================================================
+describe('GitInfoService — status timeout budget and backoff (TASK_2026_616)', () => {
+  const WS = '/fake/workspace';
+
+  /** A `SpawnedProcessHandle` double that emits its output, then closes. */
+  function makeHandle(opts: {
+    stdout: string;
+    stderr?: string;
+    exitCode?: number;
+  }) {
+    const stderr = opts.stderr ?? '';
+    return {
+      stdin: { on: jest.fn(), end: jest.fn(), write: jest.fn() },
+      stdout: {
+        on: jest.fn((event: string, cb: (chunk: Buffer) => void) => {
+          if (event === 'data') {
+            setTimeout(() => cb(Buffer.from(opts.stdout)), 0);
+          }
+        }),
+      },
+      stderr: {
+        on: jest.fn((event: string, cb: (chunk: Buffer) => void) => {
+          if (event === 'data' && stderr) {
+            setTimeout(() => cb(Buffer.from(stderr)), 0);
+          }
+        }),
+      },
+      whenSpawned: Promise.resolve(31337),
+      pid: 31337,
+      killed: false,
+      kill: jest.fn(),
+      on: jest.fn((event: string, cb: (code: number) => void) => {
+        if (event === 'close') setTimeout(() => cb(opts.exitCode ?? 0), 0);
+      }),
+    };
+  }
+
+  /** A spawner that answers a full status pipeline per git verb. */
+  function makePipelineSpawner() {
+    return jest.fn((opts: { args: string[] }) => {
+      const verb = opts.args[0];
+      const stdout =
+        verb === 'status'
+          ? '# branch.head main\0'
+          : verb === 'rev-parse' && opts.args.includes('--git-path')
+            ? '.git/MERGE_HEAD\n.git/CHERRY_PICK_HEAD\n.git/rebase-merge\n.git/rebase-apply\n'
+            : '';
+      return makeHandle({ stdout });
+    });
+  }
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  afterEach(() => {
+    resetGitInfoClockForTests();
+  });
+
+  it('passes the status budget to the status and both numstat reads', async () => {
+    const spawnProcess = makePipelineSpawner();
+    const service = new GitInfoService(
+      makeLogger() as never,
+      { spawnProcess } as never,
+    );
+    const calls: Array<{
+      verb: string;
+      numstat: boolean;
+      timeoutMs?: number;
+    }> = [];
+    const seam = service as unknown as {
+      execGit: (
+        args: string[],
+        cwd: string,
+        options?: { timeoutMs?: number },
+      ) => Promise<unknown>;
+    };
+    const realExecGit = seam.execGit.bind(service);
+    jest.spyOn(seam, 'execGit').mockImplementation((args, cwd, options) => {
+      calls.push({
+        verb: args[0],
+        numstat: args[0] === 'diff' && args.includes('--numstat'),
+        timeoutMs: options?.timeoutMs,
+      });
+      return realExecGit(args, cwd, options);
+    });
+
+    await service.refreshGitInfo(WS);
+
+    const statusCalls = calls.filter(({ verb }) => verb === 'status');
+    const numstatCalls = calls.filter(({ numstat }) => numstat);
+    expect(statusCalls).toHaveLength(1);
+    expect(numstatCalls).toHaveLength(2);
+    for (const call of [...statusCalls, ...numstatCalls]) {
+      expect(call.timeoutMs).toBe(GIT_STATUS_TIMEOUT_MS);
+    }
+    // 30 s, and still under the 60 s that moves a call to the gate's
+    // background lane, so a user-driven read keeps the interactive lane.
+    expect(GIT_STATUS_TIMEOUT_MS).toBe(30_000);
+    expect(GIT_STATUS_TIMEOUT_MS).toBeLessThan(60_000);
+    // The operation markers' read keeps the default budget.
+    const markerCalls = calls.filter(({ verb }) => verb === 'rev-parse');
+    expect(markerCalls).toHaveLength(1);
+    expect(markerCalls[0].timeoutMs).toBeUndefined();
+  });
+
+  it('classifies a non-repository from the status exit, without a probe spawn', async () => {
+    const spawnProcess = jest.fn((_opts: { args: string[] }) =>
+      makeHandle({
+        stdout: '',
+        stderr:
+          'fatal: not a git repository (or any of the parent directories): .git\n',
+        exitCode: 128,
+      }),
+    );
+    const service = new GitInfoService(
+      makeLogger() as never,
+      { spawnProcess } as never,
+    );
+
+    const info = await service.getGitInfo(WS);
+
+    expect(info).toEqual({
+      isGitRepo: false,
+      branch: { branch: '', upstream: null, ahead: 0, behind: 0 },
+      files: [],
+    });
+    // The status run itself refused the directory; no probe spawn ran first
+    // and no numstat read ran after.
+    expect(spawnProcess).toHaveBeenCalledTimes(1);
+    expect(spawnProcess.mock.calls[0][0].args[0]).toBe('status');
+  });
+
+  it('backs off watcher refreshes for 30 s after a timeout; a user read runs and a success closes the window', async () => {
+    let nowMs = 1_000_000;
+    setGitInfoClockForTests(() => nowMs);
+    const logger = makeLogger();
+    const spawnProcess = makePipelineSpawner();
+    const service = new GitInfoService(
+      logger as never,
+      {
+        spawnProcess,
+      } as never,
+    );
+    const seam = service as unknown as {
+      execGit: (
+        args: string[],
+        cwd: string,
+        options?: unknown,
+      ) => Promise<unknown>;
+    };
+    const realExecGit = seam.execGit.bind(service);
+    jest
+      .spyOn(seam, 'execGit')
+      .mockImplementationOnce((args: string[], cwd: string) =>
+        args[0] === 'status'
+          ? Promise.reject(new GitTimeoutError('status', GIT_STATUS_TIMEOUT_MS))
+          : realExecGit(args, cwd),
+      )
+      .mockImplementation((args, cwd, options) =>
+        realExecGit(args, cwd, options),
+      );
+
+    // A status read times out: the usual unavailable result, no spawn at all
+    // (the rejection happens before the pipeline's other children).
+    const timedOut = await service.getGitInfo(WS);
+    expect(timedOut).toEqual({
+      isGitRepo: true,
+      branch: { branch: '', upstream: null, ahead: 0, behind: 0 },
+      files: [],
+      statusUnavailable: 'timeout',
+    });
+    expect(spawnProcess).not.toHaveBeenCalled();
+
+    // 5 s inside the 30 s window: a watcher-driven refresh is skipped — no
+    // spawn, nothing invalidated — and says "timeout" so the UI keeps the
+    // last good list.
+    nowMs += 5_000;
+    const skipped = await service.refreshGitInfo(WS);
+    expect(skipped).toEqual({
+      isGitRepo: true,
+      branch: { branch: '', upstream: null, ahead: 0, behind: 0 },
+      files: [],
+      statusUnavailable: 'timeout',
+    });
+    expect(spawnProcess).not.toHaveBeenCalled();
+    expect(logger.debug).toHaveBeenCalledTimes(1);
+    expect(logger.debug).toHaveBeenCalledWith(
+      expect.stringContaining('skipping background refresh'),
+    );
+
+    // An explicit user/RPC read still runs inside the window — and its
+    // success closes the window.
+    const userRead = await service.getGitInfo(WS);
+    expect(userRead.isGitRepo).toBe(true);
+    expect(userRead.statusUnavailable).toBeUndefined();
+    expect(spawnProcess).toHaveBeenCalledTimes(4);
+
+    // The watcher's refresh runs again: status + both numstat reads; the
+    // operation markers' `rev-parse --git-path` is cached from the run above.
+    nowMs += 1_000;
+    const refreshed = await service.refreshGitInfo(WS);
+    expect(refreshed.isGitRepo).toBe(true);
+    expect(spawnProcess).toHaveBeenCalledTimes(7);
   });
 });
 
