@@ -1361,6 +1361,51 @@ describe('SdkAgentAdapter', () => {
       expect(transformArg.tabId).toBe('tab-resume');
     });
 
+    it('the already-active path passes the run tap the starting stream passed (TASK_2026_614 G.8)', async () => {
+      const h = makeAdapter();
+      await h.adapter.initialize();
+
+      h.sessionLifecycle.find.mockReturnValueOnce(undefined);
+      const sdkQuery = createFakeQuery();
+      const onMessage: ExecuteQueryResult['onMessage'] = jest.fn();
+      const onStreamEnd: ExecuteQueryResult['onStreamEnd'] = jest.fn();
+      h.sessionLifecycle.executeQuery.mockResolvedValueOnce({
+        sdkQuery,
+        initialModel: 'claude-sonnet-4-20250514',
+        abortController: new AbortController(),
+        activityWatchdog: new NoActivityWatchdog(100000, () => undefined),
+        onMessage,
+        onStreamEnd,
+      } as ExecuteQueryResult);
+      await h.adapter.resumeSession('sess-1' as SessionId);
+
+      h.sessionLifecycle.find.mockReturnValue({
+        token: 'record-token-1',
+        tabId: 'sess-1',
+        realSessionId: null,
+        query: sdkQuery,
+        config: {} as AISessionConfig,
+        abortController: new AbortController(),
+        messageQueue: [],
+        resolveNext: null,
+        turnInFlight: false,
+        activityHold: null,
+        currentModel: 'claude-sonnet-4-20250514',
+        permissionLevel: 'ask',
+        lastActivityAt: 0,
+        usageCostSource: 'reported',
+        accountingAuthEnv: {} as AuthEnv,
+      });
+      await h.adapter.resumeSession('sess-1' as SessionId);
+
+      expect(h.sessionLifecycle.executeQuery).toHaveBeenCalledTimes(1);
+      expect(h.streamTransformer.transform).toHaveBeenCalledTimes(2);
+      const reused = h.streamTransformer.transform.mock.calls[1][0];
+      expect(reused.sdkQuery).toBe(sdkQuery);
+      expect(reused.onMessage).toBe(onMessage);
+      expect(reused.onStreamEnd).toBe(onStreamEnd);
+    });
+
     it('dispatches a new executeQuery() when no active session exists, threading the watchdog through', async () => {
       const h = makeAdapter();
       await h.adapter.initialize();

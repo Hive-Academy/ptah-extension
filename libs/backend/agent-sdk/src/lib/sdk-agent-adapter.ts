@@ -65,6 +65,7 @@ import {
   type WorktreeCreatedCallback,
   type WorktreeRemovedCallback,
   type SlashCommandConfig,
+  type ExecuteQueryResult,
 } from './helpers';
 import {
   ClaudeCliDetector,
@@ -78,6 +79,9 @@ export type {
   WorktreeCreatedCallback,
   WorktreeRemovedCallback,
 } from './helpers';
+
+/** The stream callbacks of one run's compaction tap. */
+type StreamTap = Pick<ExecuteQueryResult, 'onMessage' | 'onStreamEnd'>;
 
 const SDK_CAPABILITIES: ProviderCapabilities = {
   streaming: true,
@@ -177,6 +181,16 @@ export class SdkAgentAdapter implements IAgentAdapter {
 
   /** Disposer of the idle-eviction budget release; called in `dispose()`. */
   private readonly stopEvictionRelease: () => void;
+
+  /**
+   * Each run's stream-tap callbacks, keyed by its SDK query, so the "already
+   * active" resume path passes the same tap as the stream that started the
+   * run (TASK_2026_614 G.8). Weak: an ended query drops its entry.
+   */
+  private readonly streamTaps = new WeakMap<
+    ExecuteQueryResult['sdkQuery'],
+    StreamTap
+  >();
 
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
@@ -828,8 +842,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
       onCompactBoundary: this.recordBudgetCompaction,
       tabId: config?.tabId,
       activityWatchdog,
-      onMessage,
-      onStreamEnd,
+      ...this.rememberStreamTap(sdkQuery, { onMessage, onStreamEnd }),
     });
   }
 
@@ -936,6 +949,15 @@ export class SdkAgentAdapter implements IAgentAdapter {
     });
   }
 
+  /** Remember `tap` for `sdkQuery` (see {@link streamTaps}) and return it. */
+  private rememberStreamTap(
+    sdkQuery: ExecuteQueryResult['sdkQuery'],
+    tap: StreamTap,
+  ): StreamTap {
+    this.streamTaps.set(sdkQuery, tap);
+    return tap;
+  }
+
   async resumeSession(
     sessionId: SessionId,
     config?: AISessionConfig & {
@@ -977,6 +999,8 @@ export class SdkAgentAdapter implements IAgentAdapter {
         onTurnEnd: this.releaseTurnOnResult(sessionId),
         onCompactBoundary: this.recordBudgetCompaction,
         tabId: config?.tabId,
+        // The run's compaction tap, as the stream that started it passes it.
+        ...this.streamTaps.get(existingSession.query),
       });
     }
 
@@ -1119,8 +1143,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
       onCompactBoundary: this.recordBudgetCompaction,
       tabId: config?.tabId,
       activityWatchdog,
-      onMessage,
-      onStreamEnd,
+      ...this.rememberStreamTap(sdkQuery, { onMessage, onStreamEnd }),
     });
   }
 
@@ -1442,8 +1465,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
       onCompactBoundary: this.recordBudgetCompaction,
       tabId: config.tabId,
       activityWatchdog,
-      onMessage,
-      onStreamEnd,
+      ...this.rememberStreamTap(sdkQuery, { onMessage, onStreamEnd }),
     });
   }
 

@@ -73,6 +73,7 @@ import { SessionStatsOwnerService } from '../../session-stats/session-stats-owne
 import type { SdkMessageTransformer } from '../../sdk-message-transformer';
 import type { IPricingProvider } from '../../pricing.port';
 import type { SessionMcpStatusCallbackRegistry } from '../session-mcp-status-callback-registry';
+import type { SessionPlanLimitCallbackRegistry } from '../plan-limits/session-plan-limit-callback-registry';
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -936,6 +937,7 @@ describe('SessionQueryExecutor — compaction coordinator wiring (TASK_2026_597 
     const monitor = {
       observe: jest.fn().mockResolvedValue(undefined),
       release: monitorRelease,
+      currentSessionId: jest.fn((id: string) => id),
     } as unknown as SubagentBudgetSink;
     const { executor } = makeHarness('ask', {} as AuthEnv, {
       coordinator,
@@ -977,6 +979,124 @@ describe('SessionQueryExecutor — compaction coordinator wiring (TASK_2026_597 
     resumed.abortController.abort();
   });
 
+  describe('PostCompact rekey and run ownership (TASK_2026_614 G.2 FM-4, FM-5, FM-9)', () => {
+    const NEW = 'sdk-post-compact-uuid';
+
+    function realMonitor(): SubagentBudgetMonitor {
+      const config = {
+        getConfig: () => ({
+          enabled: true,
+          subagentHandoffTokens: Number.MAX_SAFE_INTEGER,
+          subagentStopWeightedTokens: Number.MAX_SAFE_INTEGER,
+        }),
+      } as unknown as CompactionConfigProvider;
+      return new SubagentBudgetMonitor(
+        makeLogger(),
+        config,
+        { stopSubagent: jest.fn(), pushParentMessage: jest.fn() },
+        {} as SubagentRegistryService,
+      );
+    }
+
+    /** What the PostCompact hook does for coordinator, port and monitor. */
+    function postCompact(
+      coordinator: CompactionCoordinator,
+      monitor: SubagentBudgetMonitor,
+    ): void {
+      coordinator.onPostCompact(REAL, NEW);
+      monitor.rekey(REAL, NEW);
+    }
+
+    it('feeds a turn-end reading taken across a PostCompact to the new id (FM-4)', async () => {
+      const coordinator = actingCoordinator();
+      const monitor = realMonitor();
+      const { port, readAtTurnEnd } = makePort();
+      let deliver: (reading: ContextUsageReading) => void = () => undefined;
+      readAtTurnEnd.mockReturnValueOnce(
+        new Promise<ContextUsageReading>((resolve) => (deliver = resolve)),
+      );
+      const { executor } = makeHarness('ask', {} as AuthEnv, {
+        coordinator,
+        port,
+        subagentMonitor: monitor,
+      });
+      const run = await executor.executeQuery(makeConfig('tab_fm4'));
+      feed(run, init());
+      feed(run, result());
+      expect(readAtTurnEnd).toHaveBeenCalledTimes(1);
+
+      postCompact(coordinator, monitor);
+      deliver({
+        totalTokens: 170_000,
+        maxTokens: 200_000,
+        source: 'sdk-getContextUsage',
+      });
+      await flush();
+
+      expect(coordinator.getState(REAL)).toBeUndefined();
+      expect(coordinator.getState(NEW)).toBe('ARMED');
+      run.abortController.abort();
+    });
+
+    it('releases the id a PostCompact moved the session to when the stream ends first (FM-5)', async () => {
+      const coordinator = new CompactionCoordinator(noTimers);
+      const monitor = realMonitor();
+      const { port, release } = makePort();
+      const { executor } = makeHarness('ask', {} as AuthEnv, {
+        coordinator,
+        port,
+        subagentMonitor: monitor,
+      });
+      const run = await executor.executeQuery(makeConfig('tab_fm5'));
+      feed(run, init());
+      feed(
+        run,
+        msg({
+          type: 'assistant',
+          session_id: REAL,
+          parent_tool_use_id: 'toolu_fm5',
+          message: { id: 'msg_1', usage: { input_tokens: 10, output_tokens: 1 } },
+        }),
+      );
+      await flush();
+      postCompact(coordinator, monitor);
+      expect(coordinator.getState(NEW)).toBeDefined();
+      expect(monitor.getSnapshot(NEW, 'toolu_fm5')).toBeDefined();
+
+      run.onStreamEnd();
+
+      expect(coordinator.getState(NEW)).toBeUndefined();
+      expect(release).toHaveBeenCalledWith(REAL);
+      expect(release).toHaveBeenCalledWith(NEW);
+      expect(monitor.getSnapshot(NEW, 'toolu_fm5')).toBeUndefined();
+      expect(monitor.currentSessionId(REAL)).toBe(REAL);
+    });
+
+    it('an ended run leaves the id a newer run of the same session has bound (FM-9)', async () => {
+      const coordinator = new CompactionCoordinator(noTimers);
+      const { port, release } = makePort();
+      const { executor } = makeHarness('ask', {} as AuthEnv, {
+        coordinator,
+        port,
+      });
+      const older = await executor.executeQuery(makeConfig('tab_fm9'));
+      feed(older, init());
+      const newer = await executor.executeQuery(
+        makeConfig(REAL, { resumeSessionId: REAL }),
+      );
+      feed(newer, init());
+
+      older.onStreamEnd();
+      expect(coordinator.getState(REAL)).toBeDefined();
+      expect(release).not.toHaveBeenCalled();
+
+      newer.abortController.abort();
+      expect(coordinator.getState(REAL)).toBeUndefined();
+      expect(release).toHaveBeenCalledTimes(1);
+      expect(release).toHaveBeenCalledWith(REAL);
+    });
+  });
+
   describe('stream callbacks through a real StreamTransformer (TASK_2026_614 D.11)', () => {
     function makeStreamTransformer(logger: Logger): StreamTransformer {
       const messageTransformer = {
@@ -1004,6 +1124,7 @@ describe('SessionQueryExecutor — compaction coordinator wiring (TASK_2026_597 
         pricingProvider,
         { notifyAll: jest.fn() } as unknown as SessionMcpStatusCallbackRegistry,
         new SessionStatsOwnerService(),
+        { notifyAll: jest.fn() } as unknown as SessionPlanLimitCallbackRegistry,
       );
     }
 
@@ -1280,7 +1401,11 @@ describe('SessionQueryExecutor — subagent budget monitor wiring (TASK_2026_597
 
   function makeMonitor(observe = jest.fn().mockResolvedValue(undefined)) {
     const release = jest.fn();
-    const monitor = { observe, release } as unknown as SubagentBudgetSink;
+    const monitor = {
+      observe,
+      release,
+      currentSessionId: jest.fn((id: string) => id),
+    } as unknown as SubagentBudgetSink;
     return { monitor, observe, release };
   }
 

@@ -498,6 +498,196 @@ describe('SubagentBudgetMonitor', () => {
     expect(h.monitor.getSnapshot('session-2', TOOL_CALL)).toBeUndefined();
   });
 
+  it('an old-id message after a rekey adds to the same state (G.2 FM-2)', async () => {
+    const h = makeHarness();
+    await h.monitor.observe(SESSION, assistant({ input: 1_000 }, { id: 'm1' }));
+    h.monitor.rekey(SESSION, 'session-2');
+    // Still queued under the old id when the PostCompact hook ran.
+    await h.monitor.observe(SESSION, assistant({ input: 2_000 }, { id: 'm2' }));
+
+    expect(h.monitor.currentSessionId(SESSION)).toBe('session-2');
+    expect(h.monitor.getSnapshot(SESSION, TOOL_CALL)).toBeUndefined();
+    expect(h.monitor.getSnapshot('session-2', TOOL_CALL)).toEqual(
+      expect.objectContaining({ contextTokens: 2_000, weightedUsed: 3_000 }),
+    );
+
+    await h.monitor.observe(
+      SESSION,
+      assistant({ input: 200_000 }, { id: 'm3' }),
+    );
+    expect(h.dispatcher.stopSubagent).toHaveBeenCalledTimes(1);
+    expect(h.dispatcher.stopSubagent).toHaveBeenCalledWith(
+      'session-2',
+      'task-1',
+    );
+    expect(h.dispatcher.pushParentMessage).toHaveBeenCalledWith(
+      'session-2',
+      expect.any(String),
+    );
+  });
+
+  it('release drops the aliases of the released id: no state lands on it afterwards', async () => {
+    const h = makeHarness();
+    await h.monitor.observe(SESSION, assistant({ input: 1_000 }, { id: 'm1' }));
+    h.monitor.rekey(SESSION, 'session-2');
+    h.monitor.rekey('session-2', 'session-3');
+    expect(h.monitor.currentSessionId(SESSION)).toBe('session-3');
+
+    h.monitor.release('session-3');
+    expect(h.monitor.currentSessionId(SESSION)).toBe(SESSION);
+    expect(h.monitor.currentSessionId('session-2')).toBe('session-2');
+
+    await h.monitor.observe(SESSION, assistant({ input: 5 }, { id: 'm2' }));
+    expect(h.monitor.getSnapshot('session-3', TOOL_CALL)).toBeUndefined();
+    expect(h.monitor.getSnapshot('session-2', TOOL_CALL)).toBeUndefined();
+  });
+
+  it('a rekey back to an earlier id forms no alias loop', () => {
+    const h = makeHarness();
+    h.monitor.rekey(SESSION, 'session-2');
+    h.monitor.rekey('session-2', SESSION);
+
+    expect(h.monitor.currentSessionId(SESSION)).toBe(SESSION);
+    expect(h.monitor.currentSessionId('session-2')).toBe(SESSION);
+  });
+
+  it('a rejected stop retries on the next request, not on the other blocks of the same one (FM-6)', async () => {
+    const h = makeHarness();
+    h.dispatcher.stopSubagent.mockRejectedValue(new Error('busy'));
+    // One request streamed as three content-block messages.
+    for (let i = 0; i < 3; i++) {
+      await h.monitor.observe(
+        SESSION,
+        assistant({ input: 200_000 }, { id: 'm1' }),
+      );
+    }
+    expect(h.dispatcher.stopSubagent).toHaveBeenCalledTimes(1);
+
+    await h.monitor.observe(
+      SESSION,
+      assistant({ input: 200_000 }, { id: 'm2' }),
+    );
+    expect(h.dispatcher.stopSubagent).toHaveBeenCalledTimes(2);
+    expect(h.logger.warn).not.toHaveBeenCalled();
+  });
+
+  it('a stop rejecting across a rekey merge counts once and retries on the next request (rereview m3)', async () => {
+    const h = makeHarness();
+    let fail: (error: Error) => void = () => undefined;
+    h.dispatcher.stopSubagent.mockReturnValueOnce(
+      new Promise<void>((_resolve, reject) => (fail = reject)),
+    );
+    const pending = h.monitor.observe(
+      'session-2',
+      assistant({ input: 200_000 }, { id: 'm1' }),
+    );
+    await h.monitor.observe(SESSION, assistant({ input: 10 }, { id: 'm0' }));
+    h.monitor.rekey(SESSION, 'session-2');
+    fail(new Error('busy'));
+    await pending;
+
+    expect(h.logger.debug).toHaveBeenCalledWith(
+      expect.stringContaining('retrying'),
+      expect.objectContaining({ sessionId: 'session-2', attempt: 1 }),
+    );
+    expect(h.dispatcher.pushParentMessage).not.toHaveBeenCalled();
+
+    await h.monitor.observe(
+      'session-2',
+      assistant({ input: 200_000 }, { id: 'm2' }),
+    );
+    expect(h.dispatcher.stopSubagent).toHaveBeenCalledTimes(2);
+    expect(h.dispatcher.pushParentMessage).toHaveBeenCalledTimes(1);
+    expect(h.monitor.getSnapshot('session-2', TOOL_CALL)?.stopped).toBe(true);
+  });
+
+  it('with stops in flight on both merged records, a failure on the last attempt does not hide the other success (rereview m1, m3)', async () => {
+    const h = makeHarness();
+    // Source record: two attempts rejected, the third (F) left in flight.
+    h.dispatcher.stopSubagent
+      .mockRejectedValueOnce(new Error('busy'))
+      .mockRejectedValueOnce(new Error('busy'));
+    await h.monitor.observe(
+      SESSION,
+      assistant({ input: 200_000 }, { id: 'a1' }),
+    );
+    await h.monitor.observe(
+      SESSION,
+      assistant({ input: 200_000 }, { id: 'a2' }),
+    );
+    let settleF: () => void = () => undefined;
+    h.dispatcher.stopSubagent.mockReturnValueOnce(
+      new Promise<void>((resolve) => (settleF = resolve)),
+    );
+    const pendingF = h.monitor.observe(
+      SESSION,
+      assistant({ input: 200_000 }, { id: 'a3' }),
+    );
+    // Target record: its own stop (E) in flight.
+    let failE: (error: Error) => void = () => undefined;
+    h.dispatcher.stopSubagent.mockReturnValueOnce(
+      new Promise<void>((_resolve, reject) => (failE = reject)),
+    );
+    const pendingE = h.monitor.observe(
+      'session-2',
+      assistant({ input: 200_000 }, { id: 'b1' }),
+    );
+
+    h.monitor.rekey(SESSION, 'session-2');
+    failE(new Error('busy'));
+    await pendingE;
+    settleF();
+    await pendingF;
+
+    expect(h.dispatcher.stopSubagent).toHaveBeenCalledTimes(4);
+    expect(h.logger.warn).not.toHaveBeenCalledWith(
+      expect.stringContaining('giving up'),
+      expect.anything(),
+    );
+    expect(h.registry.update).toHaveBeenCalledTimes(1);
+    expect(h.dispatcher.pushParentMessage).toHaveBeenCalledTimes(1);
+    expect(h.dispatcher.pushParentMessage).toHaveBeenCalledWith(
+      'session-2',
+      expect.any(String),
+    );
+    expect(h.monitor.getSnapshot('session-2', TOOL_CALL)?.stopped).toBe(true);
+  });
+
+  it('a rekey keeps the fired target state over a fresh source one: no second stop or handoff (rereview m3)', async () => {
+    const h = makeHarness();
+    await h.monitor.observe(
+      'session-2',
+      assistant({ input: 200_000 }, { id: 'm1' }),
+    );
+    expect(h.dispatcher.pushParentMessage).toHaveBeenCalledTimes(1);
+    await h.monitor.observe(SESSION, assistant({ input: 10 }, { id: 'm0' }));
+    h.monitor.rekey(SESSION, 'session-2');
+
+    expect(h.monitor.getSnapshot('session-2', TOOL_CALL)?.stopped).toBe(true);
+    await h.monitor.observe(
+      'session-2',
+      assistant({ input: 300_000 }, { id: 'm2' }),
+    );
+    expect(h.dispatcher.stopSubagent).toHaveBeenCalledTimes(1);
+    expect(h.dispatcher.pushParentMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it('the handoff after a rekey restates the task recorded on the merged-away record (rereview m3)', async () => {
+    const h = makeHarness();
+    await h.monitor.observe('session-2', spawn({ description: 'Trace the bug' }));
+    await h.monitor.observe(SESSION, assistant({ input: 10 }, { id: 'm0' }));
+    h.monitor.rekey(SESSION, 'session-2');
+    await h.monitor.observe(
+      'session-2',
+      assistant({ input: 200_000 }, { id: 'm1' }),
+    );
+
+    expect(h.dispatcher.pushParentMessage).toHaveBeenCalledWith(
+      'session-2',
+      expect.stringContaining('Its task was: Trace the bug'),
+    );
+  });
+
   it('without usage is observe-only and logs once per session', async () => {
     const h = makeHarness();
     await h.monitor.observe(SESSION, assistant(null));

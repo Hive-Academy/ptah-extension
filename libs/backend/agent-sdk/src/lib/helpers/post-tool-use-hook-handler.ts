@@ -133,8 +133,12 @@ export class PostToolUseHookHandler {
       signal?.addEventListener('abort', onAbort, { once: true });
     });
     try {
-      // The capper keeps running after an interruption; its late result (or
-      // rejection) is ignored — the race has already settled.
+      // The capper keeps running after a timeout or abort: it is not handed
+      // the signal, so it may still finish, and may still write a spool file
+      // that nothing references. Its late result (or rejection) is discarded
+      // because the race has already settled. This is accepted (TASK_2026_614
+      // G-E, FM-7): the original output was returned, and an orphan spool
+      // file costs only disk.
       const outcome = await Promise.race([
         capper
           .cap(input.tool_name, input.tool_input, input.tool_response, cwd)
