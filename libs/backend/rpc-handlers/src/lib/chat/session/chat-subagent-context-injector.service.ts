@@ -188,7 +188,7 @@ export class ChatSubagentContextInjectorService {
         advice: this.adviseResume(sessionId, s.toolCallId, cache.cacheState),
       };
     });
-    const hasAdvice = agents.some((a) => a.advice !== undefined);
+    const hasFreshAdvice = agents.some((a) => a.advice?.advice === 'fresh');
     const agentDetails = agents
       .map(({ record: s, cache, advice }) => {
         const interruptedAgo = s.interruptedAt
@@ -216,7 +216,7 @@ export class ChatSubagentContextInjectorService {
         `Do NOT resume the agents marked "cache: cold". For each of them, start a fresh subagent of the same type with a short brief of the work that remains.`,
       );
     }
-    if (hasAdvice) {
+    if (hasFreshAdvice) {
       instructions.push(
         'Where an agent is marked "advice: fresh", start a fresh subagent of the same type with a short brief instead of resuming it, even if its cache is warm.',
       );

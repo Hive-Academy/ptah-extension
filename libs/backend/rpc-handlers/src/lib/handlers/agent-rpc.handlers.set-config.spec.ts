@@ -405,6 +405,40 @@ describe('lane tool-call guard settings (TASK_2026_597 Wave D)', () => {
     );
   });
 
+  it.each([
+    ['raising', { laneToolCallSteerAt: 70, laneToolCallStopAt: 90 }],
+    ['lowering', { laneToolCallSteerAt: 5, laneToolCallStopAt: 10 }],
+  ])(
+    'B-m6: %s both never stores stop <= steer between the two writes',
+    async (_label, pair) => {
+      const h = makeHarness();
+      h.settings.set('ptah.agentOrchestration.laneToolCallSteerAt', 40);
+      h.settings.set('ptah.agentOrchestration.laneToolCallStopAt', 60);
+      const storedPairs: Array<[unknown, unknown]> = [];
+      const write = h.workspace.setConfiguration.getMockImplementation();
+      h.workspace.setConfiguration.mockImplementation(
+        async (section: string, key: string, value: unknown) => {
+          await write?.(section, key, value);
+          storedPairs.push([
+            h.settings.get('ptah.agentOrchestration.laneToolCallSteerAt'),
+            h.settings.get('ptah.agentOrchestration.laneToolCallStopAt'),
+          ]);
+        },
+      );
+
+      expect(await h.setConfig(pair)).toEqual({ success: true });
+
+      expect(storedPairs).toHaveLength(2);
+      for (const [steer, stop] of storedPairs) {
+        expect(stop as number).toBeGreaterThan(steer as number);
+      }
+      expect(storedPairs[1]).toEqual([
+        pair.laneToolCallSteerAt,
+        pair.laneToolCallStopAt,
+      ]);
+    },
+  );
+
   it('a repeat-only write is not checked against steer or stop', async () => {
     const h = makeHarness();
     h.settings.set('ptah.agentOrchestration.laneToolCallSteerAt', 50);
