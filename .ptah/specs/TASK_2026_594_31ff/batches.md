@@ -521,7 +521,7 @@ This is the full suite: Wave 1 swept every vscode-lm-tools literal, and this bat
 Commit: `feat(vscode-lm-tools): describe status and text kinds in ptah_surface_update`, plus the
 trailer.
 
-## Batch 7: Alert, badge, divider renderers (plan C1) — COMPLETE
+## Batch 7: Alert, badge, divider renderers (plan C1) — COMPLETE (commit 911588cbf)
 
 - Recommended executor: CLI lane `Glm`
 - Fallback executor: frontend-developer subagent
@@ -594,7 +594,7 @@ Carried to the phase review (not a commit blocker): `dashboard-alert.component.t
 only through an `sr-only` word; the NFR asks for tone in text, not colour alone, for sighted users
 as well.
 
-## Batch 8: Progress, radial-progress, text-block renderers (plan C2) — IN_PROGRESS
+## Batch 8: Progress, radial-progress, text-block renderers (plan C2) — COMPLETE
 
 - Recommended executor: CLI lane `Glm`
 - Fallback executor: frontend-developer subagent
@@ -606,7 +606,7 @@ as well.
 - Phase: status-kinds
 - Shared requirements: as Batch 7.
 
-### Task 8.1: DashboardProgressComponent — IN_PROGRESS
+### Task 8.1: DashboardProgressComponent — COMPLETE
 
 - Files: CREATE
   `D:/projects/ptah-extension/.claude-worktrees/task-594-status-kinds/libs/frontend/declarative-dashboard/src/lib/components/dashboard-progress.component.ts`
@@ -617,7 +617,7 @@ as well.
   - `role="progressbar"`, `aria-valuemin="0"`, `aria-valuemax="100"`, exact `aria-valuenow`.
   - The accessible label comes from `label`, and the visible label stays as text.
 
-### Task 8.2: DashboardRadialProgressComponent — IN_PROGRESS
+### Task 8.2: DashboardRadialProgressComponent — COMPLETE
 
 - Files: CREATE
   `D:/projects/ptah-extension/.claude-worktrees/task-594-status-kinds/libs/frontend/declarative-dashboard/src/lib/components/dashboard-radial-progress.component.ts`
@@ -628,7 +628,7 @@ as well.
   - Only `[style.--value]="node().value"` is allowed. The spec asserts the custom-property value.
   - The visible percentage is shown.
 
-### Task 8.3: DashboardTextBlockComponent — IN_PROGRESS
+### Task 8.3: DashboardTextBlockComponent — COMPLETE
 
 - Files: CREATE
   `D:/projects/ptah-extension/.claude-worktrees/task-594-status-kinds/libs/frontend/declarative-dashboard/src/lib/components/dashboard-text-block.component.ts`
@@ -654,7 +654,7 @@ plus the trailer.
 Batch 9 needs Batch 5. Batch 10 needs Batches 7 and 8. Batch 11 needs Batch 6. All three are
 file-disjoint and can run together once Wave 2 is committed.
 
-## Batch 9: Shared contract, validator and budget regressions (plan B) — PENDING
+## Batch 9: Shared contract, validator and budget regressions (plan B) — IN_PROGRESS
 
 - Recommended executor: CLI lane `Glm`
 - Fallback executor: backend-developer subagent
@@ -665,7 +665,7 @@ file-disjoint and can run together once Wave 2 is committed.
 - AC: 1-10
 - Phase: status-kinds
 
-### Task 9.1: Contract spec — PENDING
+### Task 9.1: Contract spec — IN_PROGRESS
 
 - File: MODIFY `D:/projects/ptah-extension/.claude-worktrees/task-594-status-kinds/libs/shared/src/mcp-apps-contracts/surface-contract.spec.ts`
 - Plan reference: implementation-plan.md:360, 421
@@ -675,7 +675,7 @@ file-disjoint and can run together once Wave 2 is committed.
     `DASHBOARD_COMPONENT_KINDS`; `SURFACE_COMPONENT_KINDS` has length 19.
   - Change the literal at `:63` to the imported constant.
 
-### Task 9.2: Validator spec — PENDING
+### Task 9.2: Validator spec — IN_PROGRESS
 
 - File: MODIFY `D:/projects/ptah-extension/.claude-worktrees/task-594-status-kinds/libs/shared/src/mcp-apps-contracts/surface-validator.spec.ts`
 - Plan reference: implementation-plan.md:84-96, 172-181, 194-199, 362
@@ -691,7 +691,7 @@ file-disjoint and can run together once Wave 2 is committed.
   - A v1 document naming each new kind is rejected.
   - `spec/1` + `/1` is unchanged.
 
-### Task 9.3: Budget spec — PENDING
+### Task 9.3: Budget spec — IN_PROGRESS
 
 - File: MODIFY `D:/projects/ptah-extension/.claude-worktrees/task-594-status-kinds/libs/shared/src/mcp-apps-contracts/surface-budgets.spec.ts`
 - Plan reference: implementation-plan.md:179-181, 361
