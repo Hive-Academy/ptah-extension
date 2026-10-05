@@ -29,6 +29,10 @@ import { UUID_REGEX } from '@ptah-extension/shared';
 export const SESSION_HANDOFF_RETENTION = 50;
 
 const HANDOFF_EXTENSION = '.md';
+const TEMP_EXTENSION = '.tmp';
+
+/** A temp file younger than this may be a write in progress; it is kept. */
+const ORPHAN_TEMP_MIN_AGE_MS = 10 * 60 * 1000;
 
 export interface SessionHandoffWriteResult {
   /** Absolute path of the written file; `null` when nothing was written. */
@@ -77,6 +81,17 @@ function isHandoffFileName(name: string): boolean {
   return (
     name.endsWith(HANDOFF_EXTENSION) &&
     UUID_REGEX.test(name.slice(0, -HANDOFF_EXTENSION.length))
+  );
+}
+
+/** `.<sessionId>.<uuid>.tmp`, the name `write` gives its temp file. */
+function isTempFileName(name: string): boolean {
+  if (!name.startsWith('.') || !name.endsWith(TEMP_EXTENSION)) return false;
+  const parts = name.slice(1, -TEMP_EXTENSION.length).split('.');
+  return (
+    parts.length === 2 &&
+    UUID_REGEX.test(parts[0]) &&
+    UUID_REGEX.test(parts[1])
   );
 }
 
@@ -145,9 +160,9 @@ export class SessionHandoffWriter {
    */
   private async prune(justWritten: string): Promise<void> {
     try {
-      const names = (await fs.readdir(this.handoffsDir)).filter(
-        isHandoffFileName,
-      );
+      const entries = await fs.readdir(this.handoffsDir);
+      await this.removeOrphanTemps(entries);
+      const names = entries.filter(isHandoffFileName);
       if (names.length <= SESSION_HANDOFF_RETENTION) return;
 
       const files = await Promise.all(
@@ -184,6 +199,28 @@ export class SessionHandoffWriter {
         '[SessionHandoffWriter] Could not prune old handoff files',
         { code },
       );
+    }
+  }
+
+  /**
+   * Delete `.<uuid>.<uuid>.tmp` files older than {@link ORPHAN_TEMP_MIN_AGE_MS}:
+   * a crash between write and rename leaves one behind. A younger file may be
+   * a write in progress and is kept.
+   */
+  private async removeOrphanTemps(entries: readonly string[]): Promise<void> {
+    const now = Date.now();
+    for (const name of entries.filter(isTempFileName)) {
+      const filePath = path.join(this.handoffsDir, name);
+      try {
+        const { mtimeMs } = await fs.stat(filePath);
+        if (now - mtimeMs >= ORPHAN_TEMP_MIN_AGE_MS) {
+          await fs.rm(filePath, { force: true });
+        }
+      } catch {
+        // degradation-audit: optional-capability - a temp file renamed or
+        // removed between readdir and stat needs no pruning; a leftover is
+        // retried on the next write.
+      }
     }
   }
 

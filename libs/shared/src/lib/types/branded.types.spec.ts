@@ -9,7 +9,9 @@
  *   - Cross-format rejection: UUID types reject ULIDs; ULID types reject UUIDs
  */
 
+import { randomUUID } from 'node:crypto';
 import {
+  UUID_REGEX,
   SessionId,
   MessageId,
   CorrelationId,
@@ -25,6 +27,13 @@ import {
   CorrelationIdSchema,
   BrandedTypeValidator,
 } from './branded.schemas';
+
+// SDK-shaped session id: the Claude Agent SDK mints ids with crypto.randomUUID().
+describe('UUID_REGEX with an SDK-shaped id', () => {
+  it('accepts a crypto.randomUUID() id', () => {
+    expect(UUID_REGEX.test(randomUUID())).toBe(true);
+  });
+});
 
 // Fixed fixtures so tests are deterministic
 const VALID_UUID = '550e8400-e29b-41d4-a716-446655440000';

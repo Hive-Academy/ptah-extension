@@ -352,6 +352,23 @@ describe('evaluateSessionBudget', () => {
     expect(next.revision).toBe(2);
   });
 
+  it('a kept figure from another measure uses the current extended limit', () => {
+    const priced = evaluate(
+      snapshot({ totalCost: 1, pricingCoverage: 'full', revision: 1 }),
+      null,
+      { config: COST },
+    );
+    expect(priced.measure).toBe('cost');
+    const next = evaluate(
+      snapshot({ pricingCoverage: 'partial', revision: 2 }),
+      priced,
+      { config: COST, extensions: 1 },
+    );
+    expect(next.measure).toBe('cost');
+    expect(next.used).toBe(1);
+    expect(next.limit).toBeCloseTo(COST.usd * 1.2, 6);
+  });
+
   it('at 100% with blockAtLimit the state is blocked; without it, not', () => {
     expect(evaluate(snapshot({ tokenCount: 50_000_000 }), null).blocked).toBe(
       true,
