@@ -244,34 +244,17 @@ describe('resolvePtahUi', () => {
     },
   );
 
-  it.each([
-    [
-      'pending',
-      {
-        ...snapshot,
-        state: 'pending' as const,
-        usage: { kind: 'pending' as const },
-      },
-      'pending',
-    ],
-    [
-      'unavailable',
-      { ...snapshot, usage: { kind: 'unavailable' as const } },
-      'unavailable',
-    ],
-    ['empty', snapshot, 'No rows available'],
-  ] as const)(
-    'keeps a rowless usage %s state surface-valid',
-    (_state, sourceSnapshot, expected) => {
-      const result = renderPtahUiBlock('table $usage\n', {
-        surfaceId: 'surface',
-        snapshot: sourceSnapshot,
-        countBytes: bytes,
-      });
-      expect(result).toMatchObject({ ok: true });
-      expect(JSON.stringify(result)).toContain(expected);
-    },
-  );
+  it('rejects a rowless usage table instead of resolving it as a list', () => {
+    const result = renderPtahUiBlock('table $usage\n', {
+      surfaceId: 'surface',
+      snapshot,
+      countBytes: bytes,
+    });
+    expect(result).toMatchObject({
+      ok: false,
+      reason: 'source `usage` has no columns (line 1)',
+    });
+  });
 });
 
 function surfaceOf(content: SurfaceContent) {

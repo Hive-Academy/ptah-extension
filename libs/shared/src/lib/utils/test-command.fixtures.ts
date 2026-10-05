@@ -4,6 +4,12 @@ export interface TestCommandFixture {
   readonly matches: boolean;
 }
 
+export interface MaskedTestCommandFixture {
+  readonly rule: string;
+  readonly command: string;
+  readonly masked: boolean;
+}
+
 /** Normative Req 1.2 positive and negative command examples. */
 export const TEST_COMMAND_FIXTURES: readonly TestCommandFixture[] = [
   { rule: 'Quoting', command: 'echo "npm test"', matches: false },
@@ -42,4 +48,11 @@ export const TEST_COMMAND_FIXTURES: readonly TestCommandFixture[] = [
   { rule: 'R5', command: 'bun run build', matches: false },
   { rule: 'R6', command: 'jest --version', matches: false },
   { rule: 'R6', command: 'pnpm vitest --help', matches: false },
+];
+
+export const MASKED_TEST_COMMAND_FIXTURES: readonly MaskedTestCommandFixture[] = [
+  { rule: 'Pipe', command: 'npm test | tail -20', masked: true },
+  { rule: 'Or tail', command: 'npm test || true', masked: true },
+  { rule: 'Semicolon tail', command: 'npm test; true', masked: true },
+  { rule: 'No tail', command: 'npm test; ', masked: false },
 ];

@@ -12,7 +12,7 @@ Trailing spaces at the end of any line are removed before parsing.
 fence      = "```ptah-ui" NL body "```" ;          (* info string exactly "ptah-ui"; closing line exactly "```" *)
 body       = { blank } element { { blank } element } { blank } ;
 blank      = NL ;                                   (* a line that is empty after trailing-space removal *)
-element    = title | stats | table | list | chart | note ;
+element    = title | stats | table | list | chart ;
 
 title      = "title" SPS text NL ;                  (* at most one; must be the first element *)
 stats      = "stats" NL statline { statline } ;     (* 1..8 statlines *)
@@ -28,8 +28,6 @@ list       = "list" NL item { item }
 item       = IND "- " text NL ;
 chart      = "chart" SPS ( "line" | "bar" ) SPS text NL point { point } ;
 point      = IND cell BAR number NL ;               (* label cell non-empty *)
-note       = "note" SPS ( "info" | "ok" | "warn" | "error" ) SPS text NL ;   (* no body; PR D *)
-
 rowsource  = "$" name ;                             (* source with no field *)
 scalar     = "$" name "." name ;                    (* source plus field *)
 name       = lower { lower } ;
@@ -52,10 +50,10 @@ char       = any Unicode scalar value - ( U+0000..U+001F | U+007F ) ;   (* exclu
 
 | Item | Rule |
 | ---- | ---- |
-| Keywords and tokens | `title stats table list chart note cols line bar info ok warn error` are lowercase and exact. Any other header word makes the block invalid. |
+| Keywords and tokens | `title stats table list chart cols line bar` are lowercase and exact. Any other header word makes the block invalid. |
 | Header lines | Start at column 0. Body lines start with exactly two spaces then a non-space character. Three or more spaces, or one, is invalid. |
 | Tab, other control characters | Invalid anywhere in the body (excluded from `char`). |
-| Escaped pipe (backslash, pipe) | Decodes to a literal pipe inside a cell or text. An unescaped pipe is a cell separator in cell lines (`statline`, `tablerow`, `colsline`, `point`). In `text` positions (title, chart title, note, list item) an unescaped pipe is a literal character. |
+| Escaped pipe (backslash, pipe) | Decodes to a literal pipe inside a cell or text. An unescaped pipe is a cell separator in cell lines (`statline`, `tablerow`, `colsline`, `point`). In `text` positions (title, chart title, list item) an unescaped pipe is a literal character. |
 | Escaped backslash (backslash, backslash) | Decodes to a literal backslash, in cells and in text. |
 | Escaped dollar (backslash, dollar) | Decodes to a literal `$`. It is needed only where a `$` would otherwise start a source reference: the start of a `value` cell, or a `table`/`list` argument. A `$` anywhere else (inside text, inside a table row cell, or mid-cell) is literal and needs no escape. |
 | Any other `\` sequence | Invalid, including a trailing lone `\`. |

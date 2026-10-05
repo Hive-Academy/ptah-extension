@@ -67,6 +67,17 @@ describe('parsePtahUi', () => {
   it('rejects an empty chart label', () =>
     invalid('chart line Trend\n   | 1\n'));
   it('accepts a grammar number', () => valid('chart line Trend\n  A | -1.5\n'));
+  it('requires whole header keywords', () => {
+    invalid('titlecase Heading\n');
+    invalid('charts line Trend\n  A | 1\n');
+    invalid('tabletop $diff\n');
+    invalid('listing $tests\n');
+  });
+  it('accepts repeated chart header spacing without collapsing title spacing', () =>
+    expect(parse('chart  bar   Deployment  trend\n  main | 1\n')).toMatchObject({
+      ok: true,
+      doc: { elements: [{ chart: 'bar', title: 'Deployment  trend' }] },
+    }));
   it.each(['1e3', '1,000', '+1'])(
     'rejects non-grammar chart number %s',
     (number) => invalid(`chart bar Trend\n  A | ${number}\n`),
@@ -114,6 +125,14 @@ describe('parsePtahUi', () => {
     invalid('stats\n  Diff | $diff\n'));
   it('accepts a known table and list row source', () =>
     valid('table $diff\nlist $tests\n'));
+  it.each(['table $usage\n', 'list $usage\n'])(
+    'rejects row sources without columns: %s',
+    (body) =>
+      expect(parse(body)).toMatchObject({
+        ok: false,
+        failure: { message: 'source `usage` has no columns (line 1)' },
+      }),
+  );
   it('rejects a scalar as a table argument', () =>
     invalid('table $diff.files\n'));
   it.each(['table $constructor\n', 'table $constructor\n  cols path\n'])(

@@ -75,7 +75,7 @@ type ValueResult<T> = { readonly ok: true; readonly value: T } | ParseFailure;
 
 function parseElement(state: State): Step {
   const line = state.lines[state.index];
-  if (line.startsWith('title')) {
+  if (line === 'title' || line.startsWith('title ')) {
     if (state.title !== undefined || state.elements.length !== 0)
       return failureAt(
         'syntax',
@@ -91,10 +91,10 @@ function parseElement(state: State): Step {
   }
   if (line === 'stats') return parseStats(state);
   if (line === 'table') return parseLiteralTable(state);
-  if (line.startsWith('table')) return parseSourceTable(state);
+  if (line.startsWith('table ')) return parseSourceTable(state);
   if (line === 'list') return parseLiteralList(state);
-  if (line.startsWith('list')) return parseSourceList(state);
-  if (line.startsWith('chart')) return parseChart(state);
+  if (line.startsWith('list ')) return parseSourceList(state);
+  if (line === 'chart' || line.startsWith('chart ')) return parseChart(state);
   return failureAt(
     'syntax',
     `unknown element \`${line.split(' ')[0]}\``,
@@ -178,6 +178,12 @@ function parseSourceTable(state: State): Step {
     state.index + 1,
   );
   if (!source.ok) return source;
+  if (PTAH_UI_SOURCES[source.value].columns.length === 0)
+    return failureAt(
+      'syntax',
+      `source \`${source.value}\` has no columns`,
+      state.index + 1,
+    );
   state.index += 1;
   let columns: string[] | undefined;
   if (
@@ -248,20 +254,26 @@ function parseSourceList(state: State): Step {
     state.index + 1,
   );
   if (!source.ok) return source;
+  if (PTAH_UI_SOURCES[source.value].columns.length === 0)
+    return failureAt(
+      'syntax',
+      `source \`${source.value}\` has no columns`,
+      state.index + 1,
+    );
   state.index += 1;
   state.elements.push({ kind: 'list', source: source.value });
   return { ok: true };
 }
 
 function parseChart(state: State): Step {
-  const words = state.lines[state.index].split(' ');
-  if (words.length < 3 || (words[1] !== 'line' && words[1] !== 'bar'))
+  const header = state.lines[state.index].match(/^chart +(\S+)(?: +(.*))?$/);
+  if (!header || (header[1] !== 'line' && header[1] !== 'bar'))
     return failureAt(
       'syntax',
       'chart kind must be line or bar',
       state.index + 1,
     );
-  const title = decodeText(words.slice(2).join(' ').trim());
+  const title = decodeText(header[2]?.trim() ?? '');
   if (title === undefined || title === '')
     return failureAt('syntax', 'chart title is required', state.index + 1);
   const points: { label: string; value: number }[] = [];
@@ -293,7 +305,7 @@ function parseChart(state: State): Step {
     );
   const chart: PtahUiChartElement = {
     kind: 'chart',
-    chart: words[1],
+    chart: header[1],
     title,
     points,
   };

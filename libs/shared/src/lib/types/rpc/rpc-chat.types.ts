@@ -268,6 +268,8 @@ export interface ChatResumeParams {
    * Required for the resume-and-retry rewind path.
    */
   activate?: boolean;
+  /** Whether the Electron chat client can render `ptah-ui` blocks. */
+  ptahUiFence?: boolean;
   /**
    * Requests a whole-turn tail page instead of the full transcript.
    * Omit this field to preserve the legacy full-history response.

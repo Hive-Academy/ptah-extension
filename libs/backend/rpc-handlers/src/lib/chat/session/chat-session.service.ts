@@ -1128,6 +1128,7 @@ export class ChatSessionService {
               sessionId,
               tabId: params.tabId,
               workspacePath: resolvedWorkspacePath,
+              ptahUiFence: params.ptahUiFence,
             },
           );
           if ('justResumed' in activateResult) {

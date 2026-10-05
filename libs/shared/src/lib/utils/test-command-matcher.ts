@@ -248,13 +248,16 @@ export function classifyTestCommand(command: string): boolean {
   );
 }
 
-/** Returns whether a test command's shell status is masked by a pipe or `||` tail. */
+/** Returns whether a test command's shell status is masked by a succeeding command. */
 export function hasMaskedTestCommandOutcome(command: string): boolean {
   if (typeof command !== 'string') return false;
-  return splitSegments(command).some(
-    (segment) =>
+  const segments = splitSegments(command);
+  return segments.some(
+    (segment, index) =>
       matchesSegment(segment.value) &&
       (segment.followingSeparator === '|' ||
-        segment.followingSeparator === '||'),
+        segment.followingSeparator === '||' ||
+        (segment.followingSeparator === ';' &&
+          segments[index + 1]?.value.trim().length > 0)),
   );
 }
