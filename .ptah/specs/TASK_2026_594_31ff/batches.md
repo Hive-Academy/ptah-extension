@@ -1,6 +1,6 @@
 # Batches - TASK_2026_594_31ff
 
-Total tasks: 34 | Batches: 12 | Waves: 4 | Complete: 5/12
+Total tasks: 34 | Batches: 12 | Waves: 4 | Complete: 8/12
 
 Worktree root (W): `D:/projects/ptah-extension/.claude-worktrees/task-594-status-kinds`, branch
 `feat/task-594-status-kinds`. All paths below are absolute. Source: implementation-plan.md
@@ -461,7 +461,7 @@ Batch 5 result (2026-10-05, team-leader): PASSED. Lane touched only the six list
 (+176 lines, verified by `git diff --stat`). typecheck + lint `shared`: green. jest shared
 (narrowed): 102/102 suites, 2789 tests (+5 over Wave 1). Report: `batch-5-report.md`.
 
-## Batch 6: MCP tool description and v1 regression (plan E) — IN_PROGRESS
+## Batch 6: MCP tool description and v1 regression (plan E) — COMPLETE
 
 - Recommended executor: CLI lane `Glm`
 - Fallback executor: backend-developer subagent
@@ -472,7 +472,7 @@ Batch 5 result (2026-10-05, team-leader): PASSED. Lane touched only the six list
 - AC: 8, 11
 - Phase: status-kinds
 
-### Task 6.1: Tool prose for the six kinds — IN_PROGRESS
+### Task 6.1: Tool prose for the six kinds — COMPLETE
 
 - File: MODIFY `D:/projects/ptah-extension/.claude-worktrees/task-594-status-kinds/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/surface-tools.ts`
 - Plan reference: implementation-plan.md:313-320
@@ -484,7 +484,7 @@ Batch 5 result (2026-10-05, team-leader): PASSED. Lane touched only the six list
   - No independent kind tuple.
   - Keep the prose terse because of the size guard.
 
-### Task 6.2: Completeness case and growth-guard decision — IN_PROGRESS
+### Task 6.2: Completeness case and growth-guard decision — COMPLETE
 
 - File: MODIFY `D:/projects/ptah-extension/.claude-worktrees/task-594-status-kinds/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/surface-tools.spec.ts`
 - Plan reference: implementation-plan.md:316-320
@@ -500,7 +500,7 @@ Batch 5 result (2026-10-05, team-leader): PASSED. Lane touched only the six list
   - Report both numbers.
   - Do not delete or weaken the guard.
 
-### Task 6.3: v1 propose-spec regression — IN_PROGRESS
+### Task 6.3: v1 propose-spec regression — COMPLETE
 
 - File: MODIFY `D:/projects/ptah-extension/.claude-worktrees/task-594-status-kinds/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/dashboard-propose-spec.tool.spec.ts`
 - Plan reference: implementation-plan.md:321-324
@@ -520,6 +520,20 @@ This is the full suite: Wave 1 swept every vscode-lm-tools literal, and this bat
 
 Commit: `feat(vscode-lm-tools): describe status and text kinds in ptah_surface_update`, plus the
 trailer.
+
+Batch 6 result (2026-10-05, team-leader): PASSED. Lane touched only the three listed files
+(+87/-3, `git diff --stat`). `npx nx run-many -t typecheck,test,lint -p vscode-lm-tools`
+(--skip-nx-cache): green, no code-outliner flake this run. Verified on disk: prose at
+`surface-tools.ts:174-178` derives kinds from `SURFACE_*_KINDS`, the cap from `SURFACE_LIMITS`;
+the completeness case splits the three comma lists into exact tokens (array + set equality +
+uniqueness, no substring checks) and pins `'dashboard-catalog/3'`; the v1 case pins the five
+kinds in constant, schema enum and prose and asserts none of the six new kinds; the v1 tool
+source is unchanged. Growth guard: measured 69,204 after the Wave 1 schemas alone (already over
+the old 68,449 ceiling), 69,600 final; re-baselined with the dated `2026-10-05 TASK_2026_594`
+comment, ceiling pinned at 73,080. Headroom 3,480 chars (5%) is the guard's standard rule and
+no later batch edits `surface-tools.ts`; recorded as reasonable for the phase review. Side note
+for the phase review: the description sits at 4,952 of the 4,956-char per-tool budget in
+`mcp-contract.sweep.spec.ts` (4 chars spare). Report: `batch-6-report.md`.
 
 ## Batch 7: Alert, badge, divider renderers (plan C1) — COMPLETE (commit 911588cbf)
 
@@ -594,7 +608,7 @@ Carried to the phase review (not a commit blocker): `dashboard-alert.component.t
 only through an `sr-only` word; the NFR asks for tone in text, not colour alone, for sighted users
 as well.
 
-## Batch 8: Progress, radial-progress, text-block renderers (plan C2) — COMPLETE
+## Batch 8: Progress, radial-progress, text-block renderers (plan C2) — COMPLETE (commit 11124dc0a)
 
 - Recommended executor: CLI lane `Glm`
 - Fallback executor: frontend-developer subagent
@@ -713,7 +727,7 @@ This is the full suite.
 Commit: `test(shared): cover status and text kinds in contract, validator and budget specs`, plus
 the trailer.
 
-## Batch 10: surface-node dispatch and badge pressed state (plan D) — PENDING
+## Batch 10: surface-node dispatch and badge pressed state (plan D) — IN_PROGRESS
 
 - Recommended executor: CLI lane `Glm`
 - Fallback executor: frontend-developer subagent
@@ -724,7 +738,7 @@ the trailer.
 - AC: 1-5, 15
 - Phase: status-kinds
 
-### Task 10.1: Dispatch wiring — PENDING
+### Task 10.1: Dispatch wiring — IN_PROGRESS
 
 - File: MODIFY `D:/projects/ptah-extension/.claude-worktrees/task-594-status-kinds/libs/frontend/declarative-dashboard/src/lib/components/surface-node.component.ts`
 - Conditional file: MODIFY
@@ -740,7 +754,7 @@ the trailer.
   - Add six `@case` branches, forwarding the badge `selectionChange` and the current selection.
   - No new eager imports anywhere else.
 
-### Task 10.2: surface-node spec — PENDING
+### Task 10.2: surface-node spec — IN_PROGRESS
 
 - File: MODIFY `D:/projects/ptah-extension/.claude-worktrees/task-594-status-kinds/libs/frontend/declarative-dashboard/src/lib/components/surface-node.component.spec.ts`
 - Quality requirements:
