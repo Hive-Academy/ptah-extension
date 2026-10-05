@@ -8,7 +8,7 @@ describe('DashboardDividerComponent', () => {
   const themeRoots = ['anubis', 'anubis-light'] as const;
   const directionClasses = {
     horizontal: 'divider',
-    vertical: 'divider divider-horizontal',
+    vertical: 'divider divider-horizontal h-full min-h-12',
   } as const;
   function setup(value: DividerNode = node) {
     const fixture = TestBed.createComponent(DashboardDividerComponent);
@@ -29,6 +29,18 @@ describe('DashboardDividerComponent', () => {
         expect(divider.getAttribute('aria-orientation')).toBe(direction); // contract direction, not the daisyUI class name
       }
     }
+  });
+  it('stretches the host and fills the inner height only for the vertical divider, so the rule is drawn (S1)', () => {
+    const vertical = setup({ ...node, direction: 'vertical' }).element;
+    expect(vertical.classList.contains('flex')).toBe(true);
+    expect(vertical.classList.contains('self-stretch')).toBe(true);
+    const inner = vertical.querySelector('[role="separator"]')!;
+    expect(inner.classList.contains('h-full')).toBe(true); // gives ::before a real height
+    expect(inner.classList.contains('divider-horizontal')).toBe(true);
+    const horizontal = setup().element;
+    expect(horizontal.classList.contains('flex')).toBe(false); // horizontal host unchanged
+    expect(horizontal.classList.contains('self-stretch')).toBe(false);
+    expect(horizontal.querySelector('[role="separator"]')!.classList.contains('h-full')).toBe(false);
   });
   it('renders no text node without text, plain text with text, and never agent markup', () => {
     const { element } = setup();

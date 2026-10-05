@@ -8,7 +8,7 @@ describe('DashboardRadialProgressComponent', () => {
   /** Both theme roots the webview ships: dark anubis and light anubis-light. */
   const themeRoots = ['anubis', 'anubis-light'] as const;
   const toneClasses = {
-    neutral: 'radial-progress text-neutral',
+    neutral: 'radial-progress text-base-content',
     primary: 'radial-progress text-primary',
     info: 'radial-progress text-info',
     success: 'radial-progress text-success',

@@ -6,11 +6,13 @@ export type RadialProgressNode = Extract<StatusNode, { kind: 'radial-progress' }
 /**
  * Complete literal class strings, never concatenated, so Tailwind's content
  * scan keeps every tone variant. daisyUI's radial ring takes its fill colour
- * from the `text-<tone>` classes. The colours resolve from the active theme
- * tokens (anubis / anubis-light); no hard-coded colour utilities.
+ * from the `text-<tone>` classes. The neutral tone uses `text-base-content`
+ * (not `text-neutral`), which keeps a high contrast against the page in both
+ * themes (visual review S4: `text-neutral` was 1.12:1 in the dark theme).
+ * The colours resolve from the active theme tokens; no hard-coded colours.
  */
 const RADIAL_TONE_CLASSES = {
-  neutral: 'radial-progress text-neutral',
+  neutral: 'radial-progress text-base-content',
   primary: 'radial-progress text-primary',
   info: 'radial-progress text-info',
   success: 'radial-progress text-success',
