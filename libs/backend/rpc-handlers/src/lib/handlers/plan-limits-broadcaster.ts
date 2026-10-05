@@ -43,8 +43,8 @@ export type PlanLimitsCurrentSnapshot = Pick<
 export class PlanLimitsBroadcaster {
   private timer: ReturnType<typeof setTimeout> | undefined;
   private unsubscribe: (() => void) | undefined;
-  /** Incremented per push; a push sends only while it is still the newest. */
-  private generation = 0;
+  private pushing = false;
+  private dirty = false;
   private disposed = false;
 
   constructor(
@@ -73,7 +73,12 @@ export class PlanLimitsBroadcaster {
   }
 
   private schedule(): void {
-    if (this.disposed || this.timer !== undefined) return;
+    if (this.disposed) return;
+    if (this.pushing) {
+      this.dirty = true;
+      return;
+    }
+    if (this.timer !== undefined) return;
     this.timer = setTimeout(() => {
       this.timer = undefined;
       void this.push();
@@ -82,10 +87,11 @@ export class PlanLimitsBroadcaster {
   }
 
   private async push(): Promise<void> {
-    const generation = ++this.generation;
+    if (this.disposed || this.pushing) return;
+    this.pushing = true;
     try {
       const snapshot = await this.snapshots.currentSnapshot();
-      if (this.disposed || generation !== this.generation) return;
+      if (this.disposed) return;
       await this.webviewManager.broadcastMessage(
         MESSAGE_TYPES.PLAN_LIMITS_CHANGED,
         snapshot,
@@ -96,6 +102,12 @@ export class PlanLimitsBroadcaster {
       this.logger.debug('[PlanLimitsBroadcaster] push failed', {
         errorName: error instanceof Error ? error.name : typeof error,
       });
+    } finally {
+      this.pushing = false;
+      if (this.dirty && !this.disposed) {
+        this.dirty = false;
+        void this.push();
+      }
     }
   }
 }

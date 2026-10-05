@@ -124,7 +124,7 @@ describe('PlanLimitsBroadcaster', () => {
     expect(jest.getTimerCount()).toBeLessThanOrEqual(1);
   });
 
-  it('sends only the newest of two overlapping pushes', async () => {
+  it('runs one trailing assemble after changes arrive during an in-flight push', async () => {
     const s = buildSuite();
     let releaseFirst!: (value: PlanLimitsSnapshot) => void;
     s.currentSnapshot
@@ -137,14 +137,17 @@ describe('PlanLimitsBroadcaster', () => {
       .mockResolvedValueOnce(snapshotAt(2));
 
     s.emit();
+    s.emit();
+    s.emit();
     await jest.advanceTimersByTimeAsync(PLAN_LIMITS_PUSH_DELAY_MS);
     s.emit();
     await jest.advanceTimersByTimeAsync(PLAN_LIMITS_PUSH_DELAY_MS);
     releaseFirst(snapshotAt(1));
     await jest.advanceTimersByTimeAsync(0);
 
-    expect(s.broadcastMessage).toHaveBeenCalledTimes(1);
-    expect(s.broadcastMessage).toHaveBeenCalledWith(
+    expect(s.broadcastMessage).toHaveBeenCalledTimes(2);
+    expect(s.currentSnapshot).toHaveBeenCalledTimes(2);
+    expect(s.broadcastMessage).toHaveBeenLastCalledWith(
       MESSAGE_TYPES.PLAN_LIMITS_CHANGED,
       snapshotAt(2),
     );
@@ -210,5 +213,24 @@ describe('PlanLimitsBroadcaster', () => {
     await jest.advanceTimersByTimeAsync(0);
 
     expect(s.broadcastMessage).not.toHaveBeenCalled();
+  });
+
+  it('does not run a dirty trailing push after dispose during an assemble', async () => {
+    const s = buildSuite();
+    let release!: (value: PlanLimitsSnapshot) => void;
+    s.currentSnapshot.mockImplementationOnce(
+      () =>
+        new Promise<PlanLimitsSnapshot>((resolve) => {
+          release = resolve;
+        }),
+    );
+    s.emit();
+    await jest.advanceTimersByTimeAsync(PLAN_LIMITS_PUSH_DELAY_MS);
+    s.emit();
+    s.broadcaster.dispose();
+    release(snapshotAt(1));
+    await jest.advanceTimersByTimeAsync(0);
+
+    expect(s.currentSnapshot).toHaveBeenCalledTimes(1);
   });
 });

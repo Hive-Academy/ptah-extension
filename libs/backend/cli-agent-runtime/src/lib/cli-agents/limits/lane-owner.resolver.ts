@@ -31,6 +31,7 @@ export type LaneOwnerSource = Pick<
   ProviderOwnerResolver,
   | 'ownerForCodexHome'
   | 'ownerForCliStore'
+  | 'ownerForAntigravity'
   | 'ownerForClaudeAccount'
   | 'ownerForPtahCli'
 >;
@@ -73,8 +74,9 @@ export class LaneOwnerResolver {
         case 'codex':
           return this.owners.ownerForCodexHome();
         case 'opencode':
-        case 'antigravity':
           return this.owners.ownerForCliStore(cli);
+        case 'antigravity':
+          return this.owners.ownerForAntigravity();
         default:
           return undefined;
       }

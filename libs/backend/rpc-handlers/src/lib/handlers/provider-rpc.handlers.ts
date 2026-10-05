@@ -201,11 +201,17 @@ export class ProviderRpcHandlers {
     >('provider:getAccountUsage', async (params) => {
       const validated = ProviderGetAccountUsageSchema.parse(params);
       const { providerId } = validated;
-      const snapshot = await this.planLimits.ownerSnapshotForProvider(
+      const ownerResult = await this.planLimits.ownerSnapshotForProvider(
         providerId,
         validated.refresh === true,
       );
-      if (!snapshot) return { status: 'provider-unsupported', providerId };
+      if (ownerResult.kind === 'unavailable') {
+        return { status: 'service-unavailable', providerId };
+      }
+      if (ownerResult.kind === 'no-owner') {
+        return { status: 'provider-unsupported', providerId };
+      }
+      const snapshot = ownerResult.snapshot;
 
       const planFields = {
         owner: snapshot.owner,

@@ -58,9 +58,8 @@ export type SessionPlanLimitSignal =
 
 export interface SessionPlanLimitEvent {
   /**
-   * The id the session is streaming under. Before the SDK reports the real
-   * UUID this is the tabId; consumers re-key on
-   * `SessionIdResolvedCallbackRegistry`.
+   * The id the session is streaming under. Signals are emitted after session
+   * initialization and carry the SDK's real session id.
    */
   readonly sessionId: string;
   readonly signal: SessionPlanLimitSignal;

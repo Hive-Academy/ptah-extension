@@ -33,6 +33,7 @@ function createResolver(): {
   const owners = {
     ownerForCodexHome: jest.fn(() => ref('openai-codex', 'account')),
     ownerForCliStore: jest.fn((cli: string) => ref(cli, 'cli-store')),
+    ownerForAntigravity: jest.fn(() => ref('antigravity', 'account')),
     ownerForClaudeAccount: jest.fn(() => ref('anthropic', 'account')),
     ownerForPtahCli: jest.fn(async () => ref('ollama-cloud', 'credential')),
   } as unknown as jest.Mocked<LaneOwnerSource>;
@@ -55,15 +56,24 @@ describe('LaneOwnerResolver', () => {
     expect(owners.ownerForCodexHome).toHaveBeenCalledTimes(1);
   });
 
-  it.each(['opencode', 'antigravity'] as const)(
-    'gives a %s lane its CLI credential store',
-    (cli) => {
-      const { resolver, owners } = createResolver();
+  it('gives an opencode lane its CLI credential store', () => {
+    const { resolver, owners } = createResolver();
 
-      expect(resolver.ownerForLane(cli)).toEqual(ref(cli, 'cli-store'));
-      expect(owners.ownerForCliStore).toHaveBeenCalledWith(cli);
-    },
-  );
+    expect(resolver.ownerForLane('opencode')).toEqual(
+      ref('opencode', 'cli-store'),
+    );
+    expect(owners.ownerForCliStore).toHaveBeenCalledWith('opencode');
+  });
+
+  it('gives an antigravity lane its active account owner', () => {
+    const { resolver, owners } = createResolver();
+
+    expect(resolver.ownerForLane('antigravity')).toEqual(
+      ref('antigravity', 'account'),
+    );
+    expect(owners.ownerForAntigravity).toHaveBeenCalledTimes(1);
+    expect(owners.ownerForCliStore).not.toHaveBeenCalled();
+  });
 
   it.each(['ptah-cli', 'copilot', 'cursor', 'pi'] as const)(
     'gives a %s lane no owner at spawn',

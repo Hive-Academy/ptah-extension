@@ -49,6 +49,7 @@ import {
   type DiscoveredPlanOwner,
   type PlanLimitOwnerDiscoveryService,
   type PlanOwnerDiscoveryRequest,
+  type SelectedProviderDiscovery,
 } from '@ptah-extension/cli-agent-runtime';
 import {
   LIMIT_LOOKUP_DEADLINE_MS,
@@ -68,8 +69,12 @@ export interface PlanLimitsSnapshotRequest {
 
 export type PlanLimitsDiscovery = Pick<
   PlanLimitOwnerDiscoveryService,
-  'discoverTargets'
+  'discoverTargets' | 'discoverSelectedProvider'
 >;
+export type ProviderOwnerSnapshot =
+  | { readonly kind: 'snapshot'; readonly snapshot: PlanLimitOwnerSnapshot }
+  | { readonly kind: 'no-owner' }
+  | { readonly kind: 'unavailable' };
 export type PlanLimitsUsage = Pick<PlanUsageService, 'getOwnerSnapshot'>;
 export type PlanLimitsLedgerReader = Pick<
   PlanLimitLedgerService,
@@ -120,14 +125,15 @@ export class PlanLimitsSnapshotService {
   async ownerSnapshotForProvider(
     providerId: string,
     refresh: boolean,
-  ): Promise<PlanLimitOwnerSnapshot | undefined> {
-    const entries = await this.discovery.discoverTargets({
-      selectedProviderId: providerId,
-    });
-    const selected = entries.find(
-      (entry) => entry.origin === 'selected-provider',
-    );
-    return selected ? this.ownerSnapshot(selected, refresh, false) : undefined;
+  ): Promise<ProviderOwnerSnapshot> {
+    const result: SelectedProviderDiscovery =
+      await this.discovery.discoverSelectedProvider(providerId);
+    if (result.kind === 'unavailable') return result;
+    if (!result.entry) return { kind: 'no-owner' };
+    return {
+      kind: 'snapshot',
+      snapshot: await this.ownerSnapshot(result.entry, refresh, false),
+    };
   }
 
   // ---------------------------------------------------------------- helpers

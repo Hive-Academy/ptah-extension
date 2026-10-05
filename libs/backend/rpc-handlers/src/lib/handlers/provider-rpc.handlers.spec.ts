@@ -302,6 +302,7 @@ interface PlanLimitsFakes {
     Promise<DiscoveredPlanOwner[]>,
     [PlanOwnerDiscoveryRequest?]
   >;
+  discoverSelectedProvider: jest.Mock;
   getOwnerSnapshot: jest.Mock<
     Promise<PlanLimitOwnerSnapshot>,
     [PlanOwnerTarget, { refresh?: boolean; signal?: AbortSignal }?]
@@ -311,8 +312,18 @@ interface PlanLimitsFakes {
 }
 
 function createPlanLimitsFakes(): PlanLimitsFakes {
+  const discoverTargets = jest.fn<
+    Promise<DiscoveredPlanOwner[]>,
+    [PlanOwnerDiscoveryRequest?]
+  >(async () => []);
   return {
-    discoverTargets: jest.fn(async () => []),
+    discoverTargets,
+    discoverSelectedProvider: jest.fn(async (providerId: string) => ({
+      kind: 'owner',
+      entry: (await discoverTargets({ selectedProviderId: providerId })).find(
+        (entry) => entry.origin === 'selected-provider',
+      ),
+    })),
     getOwnerSnapshot: jest.fn(),
     snapshotFor: jest.fn(() => undefined),
     sessionOwners: jest.fn(() => ({})),
@@ -353,7 +364,10 @@ function makeHarness(
   const planLimits = createPlanLimitsFakes();
   const planLimitsService = new PlanLimitsSnapshotService(
     logger as unknown as Logger,
-    { discoverTargets: planLimits.discoverTargets },
+    {
+      discoverTargets: planLimits.discoverTargets,
+      discoverSelectedProvider: planLimits.discoverSelectedProvider,
+    },
     { getOwnerSnapshot: planLimits.getOwnerSnapshot },
     {
       snapshotFor: planLimits.snapshotFor,
@@ -630,6 +644,18 @@ describe('ProviderRpcHandlers', () => {
         status: 'provider-unsupported',
         providerId: 'z-ai',
       });
+    });
+
+    it('returns service-unavailable when selected-provider discovery failed', async () => {
+      const h = makeHarness();
+      h.planLimits.discoverSelectedProvider.mockResolvedValue({
+        kind: 'unavailable',
+      });
+      h.handlers.register();
+
+      await expect(
+        call(h, 'provider:getAccountUsage', { providerId: 'z-ai' }),
+      ).resolves.toEqual({ status: 'service-unavailable', providerId: 'z-ai' });
     });
   });
 
