@@ -518,7 +518,10 @@ export class AuthRpcHandlers {
                     ? 'local-proxy'
                     : 'local-native'
                   : 'unknown',
-                status: 'skipped',
+                // A key-optional provider with a stored key (Ollama Cloud
+                // direct) is keyed like an apiKey route; without one the host
+                // still cannot check it.
+                status: provider.hasApiKey ? 'connected' : 'skipped',
               };
             });
           if (!providers.some((provider) => provider.id === 'claude-cli')) {
@@ -1141,73 +1144,74 @@ export class AuthRpcHandlers {
    * Returns as soon as the SDK reports 'available', avoiding unnecessary waits.
    */
   private registerTestConnection(): void {
-    this.rpcHandler.registerMethod<
-      void,
-      AuthTestConnectionResponse
-    >('auth:testConnection', async () => {
-      try {
-        this.logger.debug('RPC: auth:testConnection called');
-        const MAX_RETRIES = 5;
-        const BASE_DELAY_MS = 200;
+    this.rpcHandler.registerMethod<void, AuthTestConnectionResponse>(
+      'auth:testConnection',
+      async () => {
+        try {
+          this.logger.debug('RPC: auth:testConnection called');
+          const MAX_RETRIES = 5;
+          const BASE_DELAY_MS = 200;
 
-        for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
-          const delay = BASE_DELAY_MS * Math.pow(2, attempt);
-          await new Promise((resolve) => setTimeout(resolve, delay));
+          for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+            const delay = BASE_DELAY_MS * Math.pow(2, attempt);
+            await new Promise((resolve) => setTimeout(resolve, delay));
 
-          const health = this.sdkAdapter.getHealth();
-          if (health.status === 'available') {
-            const result = {
-              success: true,
-              health: { ...health, errorMessage: undefined },
-              errorMessage: undefined,
-            };
-            this.logger.info('RPC: auth:testConnection completed', {
-              result,
-              attempt: attempt + 1,
-            });
-            return result;
+            const health = this.sdkAdapter.getHealth();
+            if (health.status === 'available') {
+              const result = {
+                success: true,
+                health: { ...health, errorMessage: undefined },
+                errorMessage: undefined,
+              };
+              this.logger.info('RPC: auth:testConnection completed', {
+                result,
+                attempt: attempt + 1,
+              });
+              return result;
+            }
+
+            this.logger.debug(
+              `RPC: auth:testConnection attempt ${attempt + 1}/${MAX_RETRIES}`,
+              { status: health.status, delay },
+            );
           }
+          const finalHealth = this.sdkAdapter.getHealth();
+          const result = {
+            success: finalHealth.status === 'available',
+            health: {
+              ...finalHealth,
+              errorMessage: finalHealth.errorMessage
+                ? 'Could not test the connection.'
+                : undefined,
+            },
+            errorMessage:
+              finalHealth.status === 'available'
+                ? undefined
+                : finalHealth.status === 'error'
+                  ? 'Could not test the connection.'
+                  : 'Connection test timed out',
+          };
 
-          this.logger.debug(
-            `RPC: auth:testConnection attempt ${attempt + 1}/${MAX_RETRIES}`,
-            { status: health.status, delay },
+          this.logger.info(
+            'RPC: auth:testConnection completed (exhausted retries)',
+            { result },
           );
+          return result;
+        } catch (error: unknown) {
+          const errorType = error instanceof Error ? error.name : 'unknown';
+          this.logger.error('RPC: auth:testConnection failed', { errorType });
+          this.sentryService.captureException(
+            new Error(`auth:testConnection failed (${errorType})`),
+            { errorSource: 'AuthRpcHandlers.registerTestConnection' },
+          );
+          return {
+            success: false,
+            health: null,
+            errorMessage: 'Could not test the connection.',
+          };
         }
-        const finalHealth = this.sdkAdapter.getHealth();
-        const result = {
-          success: finalHealth.status === 'available',
-          health: {
-            ...finalHealth,
-            errorMessage: finalHealth.errorMessage
-              ? 'Could not test the connection.'
-              : undefined,
-          },
-          errorMessage: finalHealth.status === 'available'
-            ? undefined
-            : finalHealth.status === 'error'
-              ? 'Could not test the connection.'
-              : 'Connection test timed out',
-        };
-
-        this.logger.info(
-          'RPC: auth:testConnection completed (exhausted retries)',
-          { result },
-        );
-        return result;
-      } catch (error: unknown) {
-        const errorType = error instanceof Error ? error.name : 'unknown';
-        this.logger.error('RPC: auth:testConnection failed', { errorType });
-        this.sentryService.captureException(
-          new Error(`auth:testConnection failed (${errorType})`),
-          { errorSource: 'AuthRpcHandlers.registerTestConnection' },
-        );
-        return {
-          success: false,
-          health: null,
-          errorMessage: 'Could not test the connection.',
-        };
-      }
-    });
+      },
+    );
   }
 
   /**

@@ -2275,4 +2275,37 @@ describe('AuthRpcHandlers', () => {
       expect(route.driverProviderId).toBe('openrouter');
     });
   });
+
+  describe('auth:getEffectiveRoute key-optional providers', () => {
+    it('reports a key-optional provider with a stored key as connected, and one without as skipped', async () => {
+      const h = makeHarness({ configSeed: { authMethod: 'apiKey' } });
+      h.handlers.register();
+      h.rpcHandler.registerMethod('llm:getProviderStatus', async () => ({
+        defaultProvider: 'anthropic',
+        providers: [
+          {
+            name: 'ollama-cloud',
+            authType: 'none',
+            hasApiKey: true,
+            isLocal: false,
+            requiresProxy: false,
+          },
+          {
+            name: 'lm-studio',
+            authType: 'none',
+            hasApiKey: false,
+            isLocal: true,
+            requiresProxy: true,
+          },
+        ],
+      }));
+      const route = await call<{
+        providers: Array<{ id: string; status: string }>;
+      }>(h, 'auth:getEffectiveRoute', { refresh: true });
+      const status = (id: string) =>
+        route.providers.find((p) => p.id === id)?.status;
+      expect(status('ollama-cloud')).toBe('connected');
+      expect(status('lm-studio')).toBe('skipped');
+    });
+  });
 });

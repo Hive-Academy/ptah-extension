@@ -109,7 +109,7 @@ export const OLLAMA_PROVIDER_ENTRY: AnthropicProvider = {
  *   ollama.com/api/tags + /api/usage.
  * - `requiresProxy: false` -- Anthropic-native API on both routes
  * - `isLocal: false` -- inference runs in the cloud (free tier ~30K req/mo)
- * - Cloud models use `:cloud` suffix (e.g., `kimi-k2.5:cloud`, `glm-5:cloud`)
+ * - Cloud models use `:cloud` suffix (e.g., `kimi-k2.6:cloud`, `glm-5.3:cloud`)
  */
 export const OLLAMA_CLOUD_PROVIDER_ENTRY: AnthropicProvider = {
   id: 'ollama-cloud',
@@ -131,9 +131,9 @@ export const OLLAMA_CLOUD_PROVIDER_ENTRY: AnthropicProvider = {
     'Optional — paste ollama.com API key for direct cloud access, live models & pricing',
   maskedKeyDisplay: 'Cloud (direct API key or ollama signin)',
   defaultTiers: {
-    haiku: 'ministral-3:cloud',
-    sonnet: 'kimi-k2.5:cloud',
-    opus: 'deepseek-v3.2:cloud',
+    haiku: 'gpt-oss:20b-cloud',
+    sonnet: 'kimi-k2.6:cloud',
+    opus: 'glm-5.3:cloud',
   },
 };
 

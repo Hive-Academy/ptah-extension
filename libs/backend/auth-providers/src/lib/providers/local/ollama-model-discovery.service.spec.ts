@@ -5,6 +5,7 @@ import type {
   IAuthSecretsService,
   SentryService,
 } from '@ptah-extension/vscode-core';
+import { getAnthropicProvider } from '@ptah-extension/shared';
 import { createMockLogger } from '@ptah-extension/shared/testing';
 import { OllamaModelDiscoveryService } from './ollama-model-discovery.service';
 import type { OllamaCloudMetadataService } from './ollama-cloud-metadata.service';
@@ -102,5 +103,19 @@ describe('Ollama capacity evidence', () => {
     expect(cloud.length).toBeGreaterThan(0);
     for (const model of cloud)
       expect(model).not.toHaveProperty('contextLengthSource');
+  });
+
+  it('offers every Ollama Cloud default tier without live tags, and no retired model', async () => {
+    const { service } = harness();
+    const ids = (await service.listCloudModels()).map((model) => model.id);
+    const tiers = getAnthropicProvider('ollama-cloud')?.defaultTiers ?? {};
+    expect(Object.values(tiers)).toHaveLength(3);
+    for (const tier of Object.values(tiers)) expect(ids).toContain(tier);
+    for (const retired of [
+      'kimi-k2.5:cloud',
+      'deepseek-v3.2:cloud',
+      'ministral-3:cloud',
+    ])
+      expect(ids).not.toContain(retired);
   });
 });
