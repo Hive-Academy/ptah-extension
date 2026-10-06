@@ -1,6 +1,6 @@
 # Batches - TASK_2026_617
 
-Total tasks: 27 | Batches: 9 | Complete: 3/9
+Total tasks: 27 | Batches: 9 | Complete: 4/9
 
 Worktree: `D:\projects\ptah-extension\.claude-worktrees\task-617-grok-acp` (branch `feat/task-617-grok-acp`).
 Every path below is absolute inside this worktree. Never touch the main checkout.
@@ -278,7 +278,7 @@ may never emit (plan: "every listener removed on exit"). Also noted: the opencod
 transcript has no `session/request_permission`, while P2 shows `ptah__ptah_agent_list` gated. This does not change
 the policy.
 
-## Batch 4: vendor profile contract, session runner, fake ACP peer — IN_PROGRESS
+## Batch 4: vendor profile contract, session runner, fake ACP peer — COMPLETE (commit eff0a4292; Phase 1 review pending)
 
 - Recommended executor: backend-developer (sub-agent)
 - Fallback executor: backend-developer, fresh run with this section and the Batch 3 files
@@ -289,7 +289,7 @@ the policy.
 - Tasks: 4 | Depends on: Batches 1 and 3
 - Phase: 1 (last batch) | Phase review: code-logic plus style (a new extension seam, `AcpVendorProfile`)
 
-### Task 4.1: AcpVendorProfile contract — IN_PROGRESS
+### Task 4.1: AcpVendorProfile contract — COMPLETE
 
 - File: `ADP\acp\acp-vendor-profile.ts`
 - Plan reference: implementation-plan.md:303-315; amendments 3, 4
@@ -297,7 +297,7 @@ the policy.
 'resume-then-load' | 'none'`; add `sessionConfig?(options) → Array<{configId, value}>`; `buildSpawn` returns
   argv only.
 
-### Task 4.2: fake ACP agent (test helper) — IN_PROGRESS
+### Task 4.2: fake ACP agent (test helper) — COMPLETE
 
 - Depends on: Task 4.1
 - File: `ADP\acp\__fixtures__\fake-acp-agent.ts`
@@ -308,7 +308,7 @@ the policy.
 - Validation notes: R8. No jest globals and no SDK runtime import. The Batch 1 boundary check walks this file;
   use `import type { X }` only (see "Batch 1 results").
 
-### Task 4.3: createAcpSessionHandle (the runner) — IN_PROGRESS
+### Task 4.3: createAcpSessionHandle (the runner) — COMPLETE
 
 - Depends on: Tasks 4.1 and 4.2
 - File: `ADP\acp\acp-session-handle.ts`, `ADP\acp\acp-session-handle.spec.ts`
@@ -324,7 +324,7 @@ the policy.
   the named error; `set_config_option -32602` → 1 before any prompt; `-32003` with string and object data;
   `-32000` on `session/new`; resume carries `mcpServers`; load drops `isReplay` updates.
 
-### Task 4.4: ACP folder barrel — IN_PROGRESS
+### Task 4.4: ACP folder barrel — COMPLETE
 
 - Depends on: Task 4.3
 - File: `ADP\acp\index.ts`
@@ -335,6 +335,32 @@ the policy.
 
 - `npx nx run-many -t typecheck,test,lint -p @ptah-extension/cli-agent-runtime` passes.
 - After the commit: return NEEDS REVIEW for Phase 1 (Batches 1-4, code-logic plus style).
+
+### Batch 4 results
+
+Executor: backend-developer (sub-agent). One NOT ACCEPTED round: the scoped `typecheck,test,lint` passed, but the
+pre-commit `nx affected -t lint` failed on `degradation-audit:lint`. The audit's `cli-agent-runtime` baseline is 0,
+and the batch added 5 `promise-catch-sentinel` sites (`fake-acp-agent.ts:118,202,268`,
+`acp-session-handle.ts:224,498`). A fresh backend-developer fixed all 5 by restructuring the code: no suppression
+marker, no baseline edit. After the fix: the audit is clean, the scoped `typecheck,test,lint` passes, and the ACP
+specs pass 84/84 (`acp-session-handle.spec.ts` 35) under `--detectOpenHandles`. Rule for later batches: run
+`npx ts-node --transpile-only tools/degradation-audit/check-degradation.ts --max-warnings=-1` before handing back; the
+scoped lint does not include it.
+
+Deviations from the plan, accepted for now and listed for the Phase 1 review:
+
+1. `buildSpawn(options)` returns argv only (`readonly string[]`, per this batch's own spec). The binary is passed
+   separately as `AcpSessionHandleConfig.command`. **No `env` reaches the transport**, so the child inherits
+   `process.env`. Batch 9 must confirm that Grok needs no per-lane env (`XAI_API_KEY` is inherited).
+2. `describeError(failure: AcpRequestFailure)` gets `method`, `code`, `message`, `data`, `configId`,
+   `configValue`, `advertisedValues` and `options`; `readAcpErrorDetail(data)` is exported for profiles.
+3. A rejected model lists the advertised select values from `configOptions`, not
+   `session/new.models.availableModels` (they match in the Grok fixture).
+4. There is no `extMethod` handler. The SDK answers an unhandled agent request with `-32601` itself, and throwing a
+   `RequestError` would need an SDK runtime import.
+5. Every first-turn setup failure kills the child. A failed prompt (for example `-32003`) keeps the session open
+   for the next message.
+6. The runner kills the child when the ACP connection closes while the process is still alive.
 
 ## Batch 5: grokModel setting, part 1 — shared contract and file key — PENDING
 
