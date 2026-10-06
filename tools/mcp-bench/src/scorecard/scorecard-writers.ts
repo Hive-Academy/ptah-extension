@@ -1,21 +1,30 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
-import { Scorecard, scorecardSchema } from './scorecard.types';
+import {
+  createScorecardSchema,
+  Scorecard,
+  ScorecardSuite,
+} from './scorecard.types';
+import { defaultSuiteKindRegistry, SuiteKindRegistry } from './suite-kinds';
 
-export async function readScorecard(filePath: string): Promise<Scorecard> {
-  return scorecardSchema.parse(
+export async function readScorecard(
+  filePath: string,
+  registry: SuiteKindRegistry = defaultSuiteKindRegistry,
+): Promise<Scorecard> {
+  return createScorecardSchema(registry).parse(
     JSON.parse(await readFile(filePath, 'utf8')) as unknown,
-  ) as Scorecard;
+  );
 }
 export async function writeScorecardJson(
   scorecard: Scorecard,
   outputDirectory: string,
+  registry: SuiteKindRegistry = defaultSuiteKindRegistry,
 ): Promise<string> {
   await mkdir(outputDirectory, { recursive: true });
   const path = join(outputDirectory, 'scorecard.json');
   await writeFile(
     path,
-    `${JSON.stringify(scorecardSchema.parse(scorecard), null, 2)}\n`,
+    `${JSON.stringify(createScorecardSchema(registry).parse(scorecard), null, 2)}\n`,
     'utf8',
   );
   return path;
@@ -23,14 +32,11 @@ export async function writeScorecardJson(
 export async function writeScorecardMarkdown(
   scorecard: Scorecard,
   outputDirectory: string,
+  registry: SuiteKindRegistry = defaultSuiteKindRegistry,
 ): Promise<string> {
   await mkdir(outputDirectory, { recursive: true });
   const path = join(outputDirectory, 'scorecard.md');
-  await writeFile(
-    path,
-    renderScorecardMarkdown(scorecardSchema.parse(scorecard) as Scorecard),
-    'utf8',
-  );
+  await writeFile(path, renderScorecardMarkdown(scorecard, registry), 'utf8');
   return path;
 }
 export function scorecardOutputDirectory(
@@ -42,34 +48,42 @@ export function scorecardOutputDirectory(
 export function scorecardBaselineDirectory(projectRoot: string): string {
   return join(projectRoot, 'baseline');
 }
-export function renderScorecardMarkdown(scorecard: Scorecard): string {
+export function renderScorecardMarkdown(
+  scorecard: Scorecard,
+  registry: SuiteKindRegistry = defaultSuiteKindRegistry,
+): string {
   return renderValidatedScorecardMarkdown(
-    scorecardSchema.parse(scorecard) as Scorecard,
+    createScorecardSchema(registry).parse(scorecard),
+    registry,
   );
 }
-function renderValidatedScorecardMarkdown(scorecard: Scorecard): string {
+function renderValidatedScorecardMarkdown(
+  scorecard: Scorecard,
+  registry: SuiteKindRegistry,
+): string {
+  const unprobed =
+    scorecard.run.guard.unprobed
+      .map((item) => `${item.pid}/${item.name}`)
+      .join(', ') || 'none';
   const lines = [
     `# MCP benchmark scorecard: ${scorecard.run.id}`,
     '',
     `Host: ${scorecard.run.host}`,
+    `Guard mode: ${scorecard.run.guardMode}`,
+    `Guard partial: ${scorecard.run.guard.partial ? `yes (${unprobed})` : 'no'}`,
+    `Host exit: ${scorecard.run.hostExit.kind}`,
     '',
   ];
   for (const suite of scorecard.suites) {
     lines.push(
-      `## ${suite.tool}`,
+      `Claim: ${suite.claim.source} — ${suite.claim.ref}`,
+      `Ground truth: ${suite.groundTruth.id} (${suite.groundTruth.method})`,
+      ...(suite.arm === undefined ? [] : [`Arm: ${suite.arm}`]),
       '',
-      `Claim: ${suite.claim}`,
-      '',
-      '| Metric | Tool | Native | Delta |',
-      '| --- | ---: | ---: | ---: |',
     );
-    for (const row of metricRows(suite))
-      lines.push(
-        `| ${row.name} | ${row.tool} | ${row.native} | ${row.delta} |`,
-      );
+    const renderer = registry.getSuiteKind(suite.kind)?.renderMarkdown;
     lines.push(
-      `| Verdict | ${suite.verdict} | ${suite.naReason ?? ''} | |`,
-      '',
+      ...(renderer === undefined ? renderGenericSuite(suite) : renderer(suite)),
     );
   }
   lines.push(
@@ -94,66 +108,31 @@ function renderValidatedScorecardMarkdown(scorecard: Scorecard): string {
   );
   return `${lines.join('\n')}\n`;
 }
-interface MetricRow {
-  name: string;
-  tool: string;
-  native: string;
-  delta: string;
-}
-function metricRows(suite: Scorecard['suites'][number]): MetricRow[] {
-  const rows: MetricRow[] = [];
-  for (const [name, tool] of Object.entries(suite.tool_metrics)) {
-    if (name === 'latency_ms') {
-      const value = tool as { p50: number | null; p95: number | null };
-      const native = suite.native_metrics.latency_ms;
-      const nativeLatency =
-        typeof native === 'object' && native !== null
-          ? (native as { p50: number | null; p95: number | null })
-          : undefined;
-      rows.push(
-        metricRow(
-          'latency_ms.p50',
-          value.p50,
-          nativeLatency?.p50,
-          suite.delta.latency_ms_p50,
-        ),
-        metricRow('latency_ms.p95', value.p95, nativeLatency?.p95, undefined),
+function renderGenericSuite(suite: ScorecardSuite): string[] {
+  const lines = [
+    `## ${suite.kind}`,
+    '',
+    '| Baseline | Metric | Value | Delta |',
+    '| --- | --- | ---: | ---: |',
+    `| Suite | claim (${suite.claim.source}) | ${suite.claim.ref} | |`,
+    `| Suite | ground truth (${suite.groundTruth.method}) | ${suite.groundTruth.id} | |`,
+  ];
+  for (const baseline of suite.baselines)
+    for (const [metric, value] of Object.entries(baseline.metrics))
+      lines.push(
+        `| ${baseline.label} | ${metric} | ${formatMetric(value)} | ${formatMetric(suite.deltas[baseline.id]?.[metric])} |`,
       );
-    } else
-      rows.push(
-        metricRow(
-          name,
-          tool,
-          suite.native_metrics[name],
-          deltaForMetric(name, suite),
-        ),
-      );
-  }
-  return rows;
+  lines.push(
+    `| Cost | calls | ${suite.cost.calls} | |`,
+    `| Cost | source | ${suite.cost.source} | |`,
+    `| Cost | latency_ms.p50 | ${formatMetric(suite.cost.latency_ms.p50)} | |`,
+    `| Cost | latency_ms.p95 | ${formatMetric(suite.cost.latency_ms.p95)} | |`,
+    `| Cost | error_rate | ${formatMetric(suite.cost.error_rate)} | |`,
+    `| Verdict | ${suite.verdict} | ${suite.naReason ?? ''} | |`,
+    '',
+  );
+  return lines;
 }
-function metricRow(
-  name: string,
-  tool: unknown,
-  native: unknown,
-  delta: number | null | undefined,
-): MetricRow {
-  return {
-    name,
-    tool: formatMetric(tool),
-    native: formatMetric(native),
-    delta: formatMetric(delta),
-  };
-}
-function deltaForMetric(
-  metric: string,
-  suite: Scorecard['suites'][number],
-): number | null | undefined {
-  if (metric === 'tokens_p50') return suite.delta.tokens;
-  if (metric === 'calls_per_answer') return suite.delta.calls;
-  if (['hit@1', 'hit@5', 'mrr', 'recall@10'].includes(metric))
-    return suite.delta.quality;
-  return undefined;
-}
-function formatMetric(value: unknown): string {
-  return value === undefined || value === null ? 'na' : String(value);
+function formatMetric(value: number | null | undefined): string {
+  return value === null || value === undefined ? 'na' : String(value);
 }

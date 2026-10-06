@@ -126,6 +126,13 @@ Request from the TASK_2026_620 session (memory + skills benchmark). Decision: 61
 7. `run.guardMode: 'hash' | 'process-watch'`.
 619 is the only writer of `scorecard.types.ts` and `scorecard-writers.ts`; 620 registers its own kinds (curation, rubric/agreement) in its own files and branches from the SHA of that batch. Also: `-shm` added to the hash guard (Task 4.2).
 
+### Addendum (2026-10-06) — second round of TASK_2026_620 requests
+
+- Batch 4b revision 1 also adds `cost.source: 'live' | 'cassette' | 'none'` (required) and an optional `suite.projectionSha256` (64 hex) with a core helper `computeProjectionSha256(projection)` (SHA-256 over canonical JSON).
+- Batch 4c adds: a helper module next to `bench-host.entry.ts` exporting `assertIsolatedEnvironment()` and `bootCodeExecutionHost({ workspace, beforeEngineBoot?, afterContainerReady? })`, which the entry itself uses; and `tools/mcp-bench/src/bench-data.ts` with `resolveBenchDataDir()` for `PTAH_MCP_BENCH_DATA_DIR` (default `%LOCALAPPDATA%\ptah-mcp-bench`, `~/.cache/ptah-mcp-bench` elsewhere), rejecting a path under the real `~/.ptah` or inside the repository.
+- 620 code lives in `tools/mcp-bench/src/memory-skills/`; 620 may add only the targets `build-host-memory-skills` and `bench-memory-skills` to `tools/mcp-bench/project.json`. Committed fixtures in `tools/mcp-bench/fixtures/memory-skills/` must hold no user data; private snapshots stay in the bench data folder.
+- Pure offline computation in the runner parent is allowed if it reads only committed repo files and the bench data folder, never the real `~/.ptah`.
+
 ## Conversation Summary
 
 - 2026-10-06: the user opened a second session (`ptah-ptah-extension-skills-trajectory-an-10a89600005aw2q23htdi0c`) to apply the same benchmark-first method to memory curation and the skills trajectory. Boundary: this task owns `ptah_memory_search` as a retrieval tool (scope, isolation, worktree scope, spill root, recall@k via MCP). That session owns curation/extraction quality and the skills trajectory. `tools/mcp-bench` metrics and the scorecard schema are shared; that session must ask before it changes them.
