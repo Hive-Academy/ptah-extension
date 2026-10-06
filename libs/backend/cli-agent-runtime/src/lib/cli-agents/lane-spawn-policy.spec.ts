@@ -256,6 +256,15 @@ describe('lane spawn policy (TASK_2026_597, D4)', () => {
         ).toBe('xhigh');
       });
 
+      it.each(['codex', 'copilot'] as const)(
+        "maps 'minimal' to 'low' for %s (newer models reject 'minimal')",
+        (cli) => {
+          expect(resolveLaneEffort({ cli, spawnEffort: 'minimal' }).effort).toBe(
+            'low',
+          );
+        },
+      );
+
       it.each([
         ['minimal', 'low'],
         ['medium', 'medium'],
