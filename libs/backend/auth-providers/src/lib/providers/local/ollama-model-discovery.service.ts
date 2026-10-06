@@ -107,6 +107,8 @@ interface CloudModelMeta {
   supportsVision: boolean;
   /** Human-readable description for the model selector */
   description?: string;
+  /** Full tag when it is not `<key>:cloud` (e.g. `gpt-oss:20b-cloud`) */
+  tag?: string;
 }
 
 /**
@@ -118,22 +120,30 @@ interface CloudModelMeta {
  * model selector. It's merged with /api/tags results to pick up any models
  * the user has run that aren't in this list.
  *
- * Key is the base model name (without `:cloud` suffix).
+ * Key is the base model name (without the `:cloud` / `-cloud` suffix).
  */
 const KNOWN_CLOUD_MODELS: Record<string, CloudModelMeta> = {
-  'kimi-k2.5': {
+  'kimi-k2.6': {
     contextLength: 256000,
     supportsToolUse: true,
     supportsThinking: true,
     supportsVision: true,
     description: '256K context \u2022 vision, tools, thinking',
   },
-  'deepseek-v3.2': {
+  'glm-5.3': {
+    contextLength: 1000000,
+    supportsToolUse: true,
+    supportsThinking: true,
+    supportsVision: false,
+    description: '1M context \u2022 tools, thinking',
+  },
+  'gpt-oss:20b': {
+    tag: 'gpt-oss:20b-cloud',
     contextLength: 128000,
     supportsToolUse: true,
     supportsThinking: true,
     supportsVision: false,
-    description: '128K context \u2022 tools, thinking',
+    description: '20B \u2022 128K context \u2022 tools, thinking',
   },
   'devstral-2': {
     contextLength: 128000,
@@ -241,13 +251,6 @@ const KNOWN_CLOUD_MODELS: Record<string, CloudModelMeta> = {
     supportsThinking: false,
     supportsVision: true,
     description: '24B \u2022 128K context \u2022 vision, tools',
-  },
-  'ministral-3': {
-    contextLength: 128000,
-    supportsToolUse: true,
-    supportsThinking: false,
-    supportsVision: true,
-    description: '3B/8B/14B \u2022 128K context \u2022 vision, tools',
   },
   'nemotron-3-nano': {
     contextLength: 8192,
@@ -367,8 +370,8 @@ export class OllamaModelDiscoveryService {
     const staticModels: ProviderModelInfo[] = Object.entries(
       KNOWN_CLOUD_MODELS,
     ).map(([baseName, meta]) => ({
-      id: `${baseName}:cloud`,
-      name: this.formatModelName(`${baseName}:cloud`),
+      id: meta.tag ?? `${baseName}:cloud`,
+      name: this.formatModelName(meta.tag ?? `${baseName}:cloud`),
       description: meta.description ?? this.buildCloudDescription(meta),
       contextLength: meta.contextLength,
       supportsToolUse: meta.supportsToolUse,

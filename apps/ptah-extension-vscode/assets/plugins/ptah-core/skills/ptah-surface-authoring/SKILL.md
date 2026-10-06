@@ -9,4 +9,4 @@ Prefer host-backed sources over repeating information the host already owns. The
 
 Blocks render only in the Ptah Electron app. An invalid block remains a code block with a short reason line, so keep the grammar exact.
 
-Read [the ptah-ui reference](references/ptah-ui.md) before authoring a block.
+Read [the ptah-ui reference](references/ptah-ui.md) before authoring a block. For the interactive surface contract read [the surface catalog reference](references/catalog.md): it documents every component kind with one validated JSON example per kind.

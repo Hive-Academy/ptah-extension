@@ -1,6 +1,6 @@
 import { Component, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { SURFACE_ACTIONS, type SurfaceAction, type SurfaceComponent } from '@ptah-extension/shared/mcp-apps-contracts/surface';
+import { SURFACE_ACTIONS, SURFACE_CATALOG_VERSION, type SurfaceAction, type SurfaceComponent } from '@ptah-extension/shared/mcp-apps-contracts/surface';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import type { SurfaceActionInvoke, SurfaceActionUiState } from '../surface-interaction';
@@ -14,7 +14,7 @@ const submit: SurfaceAction = { id: 'send', action: 'surface.submit', label: { t
 /** Builds through the real v2 view model so the layout sees what the renderer will pass it. */
 function layout(component: SurfaceComponent): LayoutNode {
   const result = buildSurfaceViewModel({ contract: 'dashboard-spec/2', dataModel: {}, surface: {
-    schemaVersion: 'dashboard-spec/2', catalogVersion: 'dashboard-catalog/2', surfaceId: 's', title: { text: 'T' },
+    schemaVersion: 'dashboard-spec/2', catalogVersion: SURFACE_CATALOG_VERSION, surfaceId: 's', title: { text: 'T' },
     components: [component] } });
   if (result.renderFailed) throw new Error(result.reason);
   return result.viewModel.components[0] as LayoutNode;

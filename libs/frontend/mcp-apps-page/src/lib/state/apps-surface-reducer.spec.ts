@@ -1,4 +1,4 @@
-import { SURFACE_STORE_LIMITS } from '@ptah-extension/shared/mcp-apps-contracts/surface';
+import { SURFACE_CATALOG_VERSION, SURFACE_STORE_LIMITS } from '@ptah-extension/shared/mcp-apps-contracts/surface';
 import type {
   SurfaceComponent,
   SurfaceContent,
@@ -46,7 +46,7 @@ function content(
     contract: 'dashboard-spec/2',
     surface: {
       schemaVersion: 'dashboard-spec/2',
-      catalogVersion: 'dashboard-catalog/2',
+      catalogVersion: SURFACE_CATALOG_VERSION,
       surfaceId,
       title: { text: title },
       components: [makeTable(3, 2) as SurfaceComponent, nameInput],

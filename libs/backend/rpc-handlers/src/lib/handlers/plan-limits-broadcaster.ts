@@ -17,6 +17,11 @@
  * - When two pushes overlap, only the newest one is sent.
  * - A failed snapshot or broadcast is logged at debug level and not retried;
  *   the next change, or the view's own 30 s load, recovers.
+ * - One push is bounded by {@link PLAN_LIMITS_PUSH_BOUND_MS}: a snapshot or
+ *   broadcast that never settles clears `pushing` after the bound instead of
+ *   wedging the pipeline, logs a debug line, and the next change pushes again.
+ *   A snapshot that settles after its push gave up is not broadcast; a
+ *   broadcast already handed to the transport cannot be recalled.
  * - `dispose()` is synchronous and idempotent: it clears the timer and
  *   unsubscribes.
  */
@@ -33,6 +38,50 @@ import type { WebviewBroadcaster } from './session-lifecycle-notifier';
 /** Window over which ledger changes are folded into one push. */
 export const PLAN_LIMITS_PUSH_DELAY_MS = 500;
 
+/**
+ * Upper bound on one push's snapshot and broadcast (Decision 5). A push that
+ * exceeds it gives up, so `pushing` can never stay wedged; it stays below the
+ * ledger's own slowest recovery paths (the next change re-pushes).
+ */
+export const PLAN_LIMITS_PUSH_BOUND_MS = 10_000;
+
+/** Error name reported for a push leg that exceeded {@link PLAN_LIMITS_PUSH_BOUND_MS}. */
+const PLAN_LIMITS_PUSH_TIMEOUT = 'PlanLimitsPushTimeout';
+
+/** Rejection {@link withinBound} uses when its bound expires. */
+class PlanLimitsPushTimeoutError extends Error {
+  constructor() {
+    super('plan limits push exceeded its bound');
+    this.name = PLAN_LIMITS_PUSH_TIMEOUT;
+  }
+}
+
+/**
+ * Resolve with `work`'s result, or reject when `ms` elapses first. The timer is
+ * cleared on settle (so a normally fast push leaves no live timer) and
+ * `unref`'d (so a hung work never holds the host open). A late settlement
+ * after expiry is a no-op: the derived promise has already rejected.
+ */
+function withinBound<T>(work: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new PlanLimitsPushTimeoutError()),
+      ms,
+    );
+    timer.unref?.();
+    work.then(
+      (value: T) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error: unknown) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
+
 export type PlanLimitsChangeSource = Pick<PlanLimitLedgerService, 'onChange'>;
 export type PlanLimitsCurrentSnapshot = Pick<
   PlanLimitsSnapshotService,
@@ -46,6 +95,8 @@ export class PlanLimitsBroadcaster {
   private pushing = false;
   private dirty = false;
   private disposed = false;
+  /** Bumped per push, so a push that gave up can tell its result is stale. */
+  private pushGeneration = 0;
 
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
@@ -89,19 +140,35 @@ export class PlanLimitsBroadcaster {
   private async push(): Promise<void> {
     if (this.disposed || this.pushing) return;
     this.pushing = true;
+    const generation = ++this.pushGeneration;
     try {
-      const snapshot = await this.snapshots.currentSnapshot();
-      if (this.disposed) return;
-      await this.webviewManager.broadcastMessage(
-        MESSAGE_TYPES.PLAN_LIMITS_CHANGED,
-        snapshot,
+      const snapshot = await withinBound(
+        this.snapshots.currentSnapshot(),
+        PLAN_LIMITS_PUSH_BOUND_MS,
+      );
+      // A newer push owns the next broadcast (this one timed out and a dirty
+      // re-arm started, or the store re-opened); a snapshot handed on from a
+      // stale push must not overwrite the newer one (Decision 5).
+      if (this.disposed || generation !== this.pushGeneration) return;
+      await withinBound(
+        this.webviewManager.broadcastMessage(
+          MESSAGE_TYPES.PLAN_LIMITS_CHANGED,
+          snapshot,
+        ),
+        PLAN_LIMITS_PUSH_BOUND_MS,
       );
     } catch (error: unknown) {
       // Only the failure kind: a snapshot or transport error may quote a
       // response body. The next ledger change pushes again.
-      this.logger.debug('[PlanLimitsBroadcaster] push failed', {
-        errorName: error instanceof Error ? error.name : typeof error,
-      });
+      if (error instanceof PlanLimitsPushTimeoutError) {
+        this.logger.debug('[PlanLimitsBroadcaster] push timed out', {
+          errorName: error.name,
+        });
+      } else {
+        this.logger.debug('[PlanLimitsBroadcaster] push failed', {
+          errorName: error instanceof Error ? error.name : typeof error,
+        });
+      }
     } finally {
       this.pushing = false;
       if (this.dirty && !this.disposed) {

@@ -28,12 +28,16 @@ import {
 } from './surface-catalog';
 import type {
   SurfaceAction,
+  SurfaceAlertComponent,
+  SurfaceBadgeAction,
+  SurfaceBadgeComponent,
   SurfaceBarChartComponent,
   SurfaceCardComponent,
   SurfaceCheckboxInput,
   SurfaceComponent,
   SurfaceDataModel,
   SurfaceDataValue,
+  SurfaceDividerComponent,
   SurfaceEnvelope,
   SurfaceGetStateInput,
   SurfaceGridComponent,
@@ -41,7 +45,9 @@ import type {
   SurfaceLineChartComponent,
   SurfaceListComponent,
   SurfacePatchOp,
+  SurfaceProgressComponent,
   SurfaceRadioGroupInput,
+  SurfaceRadialProgressComponent,
   SurfaceRequiredHints,
   SurfaceSectionComponent,
   SurfaceSelectInput,
@@ -50,6 +56,7 @@ import type {
   SurfaceStackComponent,
   SurfaceStatComponent,
   SurfaceTableComponent,
+  SurfaceTextBlockComponent,
   SurfaceTextHints,
   SurfaceTextInput,
   SurfaceUpdateInput,
@@ -131,28 +138,31 @@ export const SurfacePathSchema = z
     }
   }) satisfies z.ZodType<string>;
 
+/** Shared by every action shape; extracted so badge actions reuse it unchanged. */
+const actionParams = () =>
+  z
+    .preprocess(
+      checkRawObjectKeys,
+      z.record(
+        SurfacePathSegmentSchema,
+        z.union([boundedString(), z.number(), z.boolean()]),
+      ),
+    )
+    .refine(
+      (params) =>
+        Object.keys(params).length <= SURFACE_LIMITS.maxDataModelObjectKeys,
+      {
+        message: `Action params exceed maxDataModelObjectKeys ${SURFACE_LIMITS.maxDataModelObjectKeys}.`,
+      },
+    );
+
 export const SurfaceActionSchema = z
   .object({
     id: componentId(),
     action: z.enum(SURFACE_ACTIONS),
     label: DashboardRichTextSchema,
     url: DashboardUrlSchema.optional(),
-    params: z
-      .preprocess(
-        checkRawObjectKeys,
-        z.record(
-          SurfacePathSegmentSchema,
-          z.union([boundedString(), z.number(), z.boolean()]),
-        ),
-      )
-      .refine(
-        (params) =>
-          Object.keys(params).length <= SURFACE_LIMITS.maxDataModelObjectKeys,
-        {
-          message: `Action params exceed maxDataModelObjectKeys ${SURFACE_LIMITS.maxDataModelObjectKeys}.`,
-        },
-      )
-      .optional(),
+    params: actionParams().optional(),
   })
   .strict()
   .superRefine((action, ctx) => {
@@ -178,6 +188,16 @@ export const SurfaceActionSchema = z
       });
     }
   }) satisfies z.ZodType<SurfaceAction>;
+
+/** A badge may only carry `dashboard.select`; `url` belongs to `dashboard.open-url` alone. */
+export const SurfaceBadgeActionSchema = z
+  .object({
+    id: componentId(),
+    action: z.literal('dashboard.select'),
+    label: DashboardRichTextSchema,
+    params: actionParams().optional(),
+  })
+  .strict() satisfies z.ZodType<SurfaceBadgeAction>;
 
 const actions = () =>
   z
@@ -399,6 +419,79 @@ export const SurfaceListComponentSchema = z
     requireOneDataSource(ctx, list.items, list.data, 'items'),
   ) satisfies z.ZodType<SurfaceListComponent>;
 
+const statusTones = [
+  'neutral',
+  'primary',
+  'info',
+  'success',
+  'warning',
+  'error',
+] as const;
+const progressValue = () => z.number().finite().min(0).max(100);
+/**
+ * Non-empty component text, derived from the shared RichText schema. The
+ * shared schema alone permits an empty string; non-emptiness is a component
+ * rule of `text-block`, not of every RichText field.
+ */
+const textBlockRichText = DashboardRichTextSchema.extend({
+  text: z.string().min(1).max(SURFACE_LIMITS.maxStringLength),
+});
+export const SurfaceAlertComponentSchema = z
+  .object({
+    id: componentId(),
+    kind: z.literal('alert'),
+    tone: z.enum(['info', 'success', 'warning', 'error']),
+    text: DashboardRichTextSchema,
+    title: DashboardRichTextSchema.optional(),
+  })
+  .strict() satisfies z.ZodType<SurfaceAlertComponent>;
+export const SurfaceBadgeComponentSchema = z
+  .object({
+    id: componentId(),
+    kind: z.literal('badge'),
+    tone: z.enum(statusTones),
+    text: DashboardRichTextSchema,
+    actions: z
+      .array(SurfaceBadgeActionSchema)
+      .max(SURFACE_LIMITS.maxActionsPerComponent)
+      .optional(),
+  })
+  .strict() satisfies z.ZodType<SurfaceBadgeComponent>;
+export const SurfaceProgressComponentSchema = z
+  .object({
+    id: componentId(),
+    kind: z.literal('progress'),
+    value: progressValue(),
+    tone: z.enum(statusTones),
+    label: DashboardRichTextSchema,
+  })
+  .strict() satisfies z.ZodType<SurfaceProgressComponent>;
+export const SurfaceRadialProgressComponentSchema = z
+  .object({
+    id: componentId(),
+    kind: z.literal('radial-progress'),
+    value: progressValue(),
+    tone: z.enum(statusTones),
+    label: DashboardRichTextSchema,
+  })
+  .strict() satisfies z.ZodType<SurfaceRadialProgressComponent>;
+export const SurfaceDividerComponentSchema = z
+  .object({
+    id: componentId(),
+    kind: z.literal('divider'),
+    direction: z.enum(['horizontal', 'vertical']),
+    text: DashboardRichTextSchema.optional(),
+  })
+  .strict() satisfies z.ZodType<SurfaceDividerComponent>;
+export const SurfaceTextBlockComponentSchema = z
+  .object({
+    id: componentId(),
+    kind: z.literal('text-block'),
+    text: textBlockRichText,
+    role: z.enum(['heading', 'body']),
+  })
+  .strict() satisfies z.ZodType<SurfaceTextBlockComponent>;
+
 /** Explicit annotation breaks the recursive children/type inference cycle. */
 export const SurfaceComponentSchema: z.ZodType<SurfaceComponent> = z
   .discriminatedUnion('kind', [
@@ -415,6 +508,12 @@ export const SurfaceComponentSchema: z.ZodType<SurfaceComponent> = z
     SurfaceBarChartComponentSchema,
     SurfaceTableComponentSchema,
     SurfaceListComponentSchema,
+    SurfaceAlertComponentSchema,
+    SurfaceBadgeComponentSchema,
+    SurfaceProgressComponentSchema,
+    SurfaceRadialProgressComponentSchema,
+    SurfaceDividerComponentSchema,
+    SurfaceTextBlockComponentSchema,
   ])
   .meta({ id: 'SurfaceComponent' }) satisfies z.ZodType<SurfaceComponent>;
 
@@ -577,6 +676,7 @@ export const SurfaceGetStateInputSchema = z
   }) satisfies z.ZodType<SurfaceGetStateInput>;
 export const SurfaceSelectionTargetSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('stat') }).strict(),
+  z.object({ kind: z.literal('badge') }).strict(),
   z
     .object({
       kind: z.literal('table-row'),

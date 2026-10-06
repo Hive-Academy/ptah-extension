@@ -253,6 +253,17 @@ describe('ProvidersSettingsComponent', () => {
         expect(statusText()).toBe('Connected & verified (92ms)');
       });
 
+      it('an Ollama Cloud card reads Connected with a stored key and Check unavailable without one', async () => {
+        state.connections.set(ready([connection('first'), { ...connection('ollama-cloud'), authMode: 'local-native' }]));
+        const label = () => element.querySelector('[data-connection-id="ollama-cloud"] [data-testid="status-copy"]')?.textContent?.trim();
+        const withStatus = (status: 'connected' | 'skipped') =>
+          ready({ ...route, providers: [route.providers[0], { id: 'ollama-cloud', type: 'local-native' as const, status }] });
+        state.route.set(withStatus('connected')); await render();
+        expect(label()).toBe('Connected');
+        state.route.set(withStatus('skipped')); await render();
+        expect(label()).toBe('Check unavailable');
+      });
+
       it('Overview "Credential storage" shows the stored key\'s masked hint', async () => {
         state.connections.set(ready([connection('first'), { ...connection('second'), keyHint: '•••• 8f21' }]));
         state.route.set(ready(route)); await render();

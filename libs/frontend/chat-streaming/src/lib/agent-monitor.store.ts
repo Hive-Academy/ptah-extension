@@ -1154,7 +1154,14 @@ export class AgentMonitorStore implements OnDestroy {
           role: info.role ?? existing.role,
           failureKind: info.failureKind,
           quotaOwner: info.quotaOwner ?? existing.quotaOwner,
-          modelScope: info.modelScope ?? existing.modelScope,
+          // The backend always sends the run's resolved model scope (spawn and
+          // exit share the same tracked.info), so `null` is authoritative and
+          // clears a known scope; only an absent value (a legacy payload or
+          // reference) keeps the card's scope (Decision 4).
+          modelScope:
+            info.modelScope !== undefined
+              ? info.modelScope
+              : existing.modelScope,
         };
         const next = [...list];
         next[existingIndex] = reopened;
@@ -1288,8 +1295,14 @@ export class AgentMonitorStore implements OnDestroy {
         // below keeps only the earlier segment's fields, and `capSegments`
         // may drop usage-bearing segments, so neither may see usage first.
         let usageTotals = agent.usageTotals ?? null;
-        for (const segment of delta.segments) {
-          usageTotals = addCliUsage(usageTotals, segment.usage);
+        // A restored card's usage reads "unknown" (null) by design (Req 8.4):
+        // folding the first live segment of a re-opened run would publish a
+        // partial run total as known. Stay null while the card is restored and
+        // nothing is known yet; a card that somehow holds a total still folds.
+        if (!(agent.restored === true && agent.usageTotals === null)) {
+          for (const segment of delta.segments) {
+            usageTotals = addCliUsage(usageTotals, segment.usage);
+          }
         }
         updated.usageTotals = usageTotals;
         const existing = updated.segments;
@@ -1370,10 +1383,15 @@ export class AgentMonitorStore implements OnDestroy {
           info.supportsContinuation ?? agent.supportsContinuation,
         role: info.role ?? agent.role,
         failureKind: info.failureKind,
-        // The backend may only upgrade an unknown owner to a known one, so
-        // the exit payload's owner wins; keep the spawn-time one if absent.
+        // The backend may only upgrade an unknown owner to a known one, or a
+        // cli-store owner to an account of the same provider, so the exit
+        // payload's owner wins; keep the spawn-time one if absent.
         quotaOwner: info.quotaOwner ?? agent.quotaOwner,
-        modelScope: info.modelScope ?? agent.modelScope,
+        // Same rule as the re-open merge: the backend's null is authoritative
+        // and clears a known scope; an absent value is a legacy payload and
+        // keeps the card's scope (Decision 4).
+        modelScope:
+          info.modelScope !== undefined ? info.modelScope : agent.modelScope,
       };
       return this.evictOldCompletedAgents(next);
     });

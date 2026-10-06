@@ -22,6 +22,12 @@ import { formatUsdCost } from '@ptah-extension/shared';
  * provider with no configured pricing simply has no rate to compute from
  * (TASK_2026_236). Collapsing the second into the first tells the user their
  * paid gateway is free, which is a lie the UI has no business telling.
+ *
+ * INK: the solid `badge-success` fill carries the measured `.ok-solid-text`
+ * ink, not daisyUI's `text-success-content` — that stock pairing measures
+ * 2.64:1 on this theme's success fill in `anubis` (FU-PHASE6). The override is
+ * dark-theme-only; `anubis-light` keeps the stock pairing (6.01:1). Same
+ * pattern as the git badges (task-pr-panel).
  */
 @Component({
   selector: 'ptah-cost-badge',
@@ -29,7 +35,7 @@ import { formatUsdCost } from '@ptah-extension/shared';
   template: `
     @if (knownCost(); as cost) {
       <span
-        class="badge badge-sm badge-success text-success-content"
+        class="badge badge-sm badge-success ok-solid-text"
         [title]="'$' + cost.value.toFixed(4) + ' USD'"
       >
         {{ formatUsdCost(cost.value) }}

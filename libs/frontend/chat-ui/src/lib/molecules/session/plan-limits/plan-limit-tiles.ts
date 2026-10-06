@@ -17,6 +17,7 @@ import {
   formatUsed,
   isActiveLimitEvidence,
   ownerDisplayLabel,
+  ownerKeySuffix,
   PLAN_LIMIT_SOURCE_LABELS,
   resetPassage,
   usedPercent,
@@ -50,6 +51,12 @@ export interface SessionPlan {
   /** Windows a plan tile renders (A2), keyed by window key. */
   readonly renderedWindows: ReadonlyMap<PlanWindowKey, ClassifiedWindow>;
   readonly renderedEvidence: ReadonlySet<OwnerLimitEvidence>;
+}
+
+interface TileCaption {
+  readonly caption: string;
+  readonly captionLead: string;
+  readonly captionTail?: string;
 }
 
 export function sessionPlan(
@@ -90,7 +97,14 @@ export function sessionPlan(
   const result = classifyLaneState(limits, ctx.lane);
   // The suffixed owner label ("Claude account · a1b2") so two owners of one
   // provider are told apart in the tile captions.
-  const caption = `${ownerDisplayLabel(snapshot.owner)} plan limit`;
+  const suffix = ownerKeySuffix(snapshot.owner.key);
+  const captionLead = `${snapshot.owner.label} plan limit`;
+  const captionTail = suffix === null ? undefined : `· ${suffix}`;
+  const caption: TileCaption = {
+    caption: captionTail ? `${captionLead} ${captionTail}` : captionLead,
+    captionLead,
+    ...(captionTail && { captionTail }),
+  };
   const tiles: PlanLimitTileModel[] = [
     ...statusTiles(snapshot, result.windows.length, caption, ctx),
     ...result.windows.map((entry) => windowTile(snapshot, entry, caption, ctx)),
@@ -116,7 +130,7 @@ export function sessionPlan(
 function statusTiles(
   snapshot: PlanLimitOwnerSnapshot,
   windowCount: number,
-  caption: string,
+  caption: TileCaption,
   ctx: Ctx,
 ): PlanLimitTileModel[] {
   const id = `plan-status:${snapshot.owner.key}`;
@@ -130,7 +144,7 @@ function statusTiles(
         id,
         kind: 'status',
         label: 'Usage',
-        caption,
+        ...caption,
         value: 'Stale',
         resetLine: since
           ? `cached data · refresh failed ${since}`
@@ -151,7 +165,7 @@ function statusTiles(
         id,
         kind: 'status',
         label: 'Usage',
-        caption,
+        ...caption,
         value: 'No usage source',
         resetLine: 'plan usage is not reported',
         tone: 'neutral',
@@ -172,7 +186,7 @@ function statusTiles(
       ...unavailableTile(id, 'Usage', reason, [
         `Plan usage could not be read (${reason}).`,
       ]),
-      caption,
+      ...caption,
     },
   ];
 }
@@ -187,6 +201,7 @@ function unavailableTile(
     id,
     kind: 'status',
     label,
+    captionLead: 'plan limit',
     caption: 'plan limit',
     value: 'Unavailable',
     resetLine,
@@ -199,7 +214,7 @@ function unavailableTile(
 function windowTile(
   snapshot: PlanLimitOwnerSnapshot,
   entry: ClassifiedWindow,
-  caption: string,
+  caption: TileCaption,
   ctx: Ctx,
 ): PlanLimitTileModel {
   const detail = windowDetail(entry, snapshot, ctx);
@@ -208,7 +223,7 @@ function windowTile(
     id: `plan:${snapshot.owner.key}:${entry.window.key}`,
     kind: 'window',
     label: entry.window.label,
-    caption,
+    ...caption,
     value: detail.usedText,
     resetLine: windowResetLine(entry, ctx),
     ...(chip && { chip }),
@@ -222,7 +237,7 @@ function windowTile(
 function evidenceTile(
   owner: QuotaOwnerRef,
   evidence: OwnerLimitEvidence,
-  caption: string,
+  caption: TileCaption,
   ctx: Ctx,
 ): PlanLimitTileModel {
   const scope = evidence.modelScope?.trim().toLowerCase();
@@ -238,7 +253,7 @@ function evidenceTile(
     id: `plan-evidence:${owner.key}${scope ? `:${scope}` : ''}`,
     kind: 'evidence',
     label: scope ? `Limit hit · ${scope}` : 'Limit hit',
-    caption,
+    ...caption,
     value: active
       ? 'At limit'
       : expired
@@ -255,19 +270,20 @@ function evidenceTile(
 function cooldownTile(
   owner: QuotaOwnerRef,
   cooldown: PlanLimitCooldown,
-  caption: string,
+  caption: TileCaption,
   ctx: Ctx,
 ): PlanLimitTileModel {
   return {
     id: `plan-cooldown:${owner.key}`,
     kind: 'cooldown',
     label: 'Cooldown',
-    caption,
+    ...caption,
     value: `until ${formatLocalAbsolute(cooldown.until, ctx.now, ctx.time)}`,
     resetLine: 'retry delay, not a plan reset',
     chip: { tone: 'info', text: 'Cooldown' },
     tone: 'info',
-    sourceChips: [],
+    // A5: cooldown writers are provider errors or retry-after paths.
+    sourceChips: [PLAN_LIMIT_SOURCE_LABELS['error-derived']],
     detailLines: [cooldownLine(cooldown, ctx)],
   };
 }

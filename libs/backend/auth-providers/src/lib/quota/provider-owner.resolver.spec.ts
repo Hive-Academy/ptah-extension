@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { readFileSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { container } from 'tsyringe';
 import { createMockLogger } from '@ptah-extension/shared/testing';
@@ -22,21 +22,30 @@ import { CODEX_PROXY_TOKEN_PLACEHOLDER } from '../providers/codex/codex-provider
 import { OLLAMA_AUTH_TOKEN_PLACEHOLDER } from '../providers/local/local-provider.types';
 import {
   ProviderOwnerResolver,
+  ANTIGRAVITY_OBSERVED_ACCOUNT_MAX_AGE_MS,
   accountOwnerKey,
   cliStoreOwnerKey,
   credentialFromHeaders,
   credentialOwnerKey,
   normaliseOwnerProviderId,
   ownerFingerprint,
+  observeAntigravityAccount,
   quotaOwnerRefFromKey,
+  readActiveGeminiAccount,
+  resetAntigravityOwnerStateForTests,
+  setAntigravityOwnerClockForTests,
   unknownOwnerKey,
   type ClaudeAccountInfo,
 } from './provider-owner.resolver';
 
-jest.mock('node:fs', () => ({ readFileSync: jest.fn() }));
+jest.mock('node:fs', () => ({ readFileSync: jest.fn(), statSync: jest.fn() }));
 
 const SECRET = 'sk-private-credential-123';
 const EMAIL = 'private-user@example.test';
+
+beforeEach(() => {
+  resetAntigravityOwnerStateForTests();
+});
 
 function harness(
   options: {
@@ -63,6 +72,8 @@ function harness(
   } satisfies SessionQuotaProbe;
   const codexHome = new CodexHomeResolver(resolve('synthetic-codex-home'));
   const readFile = readFileSync as jest.MockedFunction<typeof readFileSync>;
+  const stat = statSync as jest.MockedFunction<typeof statSync>;
+  stat.mockReturnValue({ mtimeMs: 1, size: 1 } as ReturnType<typeof statSync>);
   readFile.mockImplementation(() => {
     if (options.fileReadFails) throw new Error('account file unavailable');
     return options.fileContent ?? '';
@@ -97,7 +108,118 @@ describe('ownerFingerprint', () => {
   });
 });
 
+describe('Antigravity account observation and cache', () => {
+  it('expires an observation and falls back to the account file', () => {
+    let now = 0;
+    setAntigravityOwnerClockForTests(() => now);
+    observeAntigravityAccount('observed@example.test');
+    now = ANTIGRAVITY_OBSERVED_ACCOUNT_MAX_AGE_MS + 1;
+    const { resolver } = harness({
+      fileContent: JSON.stringify({ active: 'file@example.test' }),
+    });
+    expect(resolver.ownerForAntigravity().key).toBe(
+      accountOwnerKey(
+        'antigravity',
+        `${join(require('node:os').homedir(), '.gemini')}\0file@example.test`,
+      ),
+    );
+  });
+
+  it('prefers the observed account and hashes equivalent emails to one owner', () => {
+    const { resolver } = harness({
+      fileContent: JSON.stringify({ active: 'fallback@example.test' }),
+    });
+    const first = observeAntigravityAccount('A@x.com');
+    const second = observeAntigravityAccount(' a@x.com ');
+    expect(first).toBe(second);
+    expect(resolver.ownerForAntigravity().key).toBe(second);
+  });
+
+  it('uses the same key for matching observed and account-file emails', () => {
+    const { resolver } = harness({
+      fileContent: JSON.stringify({ active: 'same@example.test' }),
+    });
+    const fileKey = resolver.ownerForAntigravity().key;
+    expect(observeAntigravityAccount(' SAME@example.test ')).toBe(fileKey);
+  });
+
+  it('clears an observation and falls back to account file then CLI store', () => {
+    const withFile = harness({
+      fileContent: JSON.stringify({ active: 'fallback@example.test' }),
+    }).resolver;
+    observeAntigravityAccount('observed@example.test');
+    observeAntigravityAccount(null);
+    expect(withFile.ownerForAntigravity().key).toBe(
+      accountOwnerKey(
+        'antigravity',
+        `${join(require('node:os').homedir(), '.gemini')}\0fallback@example.test`,
+      ),
+    );
+    resetAntigravityOwnerStateForTests();
+    expect(
+      harness({ fileReadFails: true }).resolver.ownerForAntigravity(),
+    ).toEqual(
+      harness({ fileReadFails: true }).resolver.ownerForCliStore('antigravity'),
+    );
+  });
+
+  it('uses file metadata after TTL and caches a missing file within it', () => {
+    const root = resolve('cache-root');
+    const read = jest.fn(() => JSON.stringify({ active: 'one@example.test' }));
+    const stat = jest.fn(() => ({ mtimeMs: 1, size: 1 }));
+    expect(readActiveGeminiAccount(root, read, stat, () => 0)).toBe(
+      'one@example.test',
+    );
+    expect(readActiveGeminiAccount(root, read, stat, () => 5_001)).toBe(
+      'one@example.test',
+    );
+    expect(read).toHaveBeenCalledTimes(1);
+    stat.mockReturnValue({ mtimeMs: 2, size: 1 });
+    read.mockReturnValue(JSON.stringify({ active: 'two@example.test' }));
+    expect(readActiveGeminiAccount(root, read, stat, () => 10_002)).toBe(
+      'two@example.test',
+    );
+    expect(read).toHaveBeenCalledTimes(2);
+    resetAntigravityOwnerStateForTests();
+    const missing = jest.fn(() => {
+      throw new Error('ENOENT');
+    });
+    expect(readActiveGeminiAccount(root, read, missing, () => 0)).toBeNull();
+    expect(readActiveGeminiAccount(root, read, missing, () => 1)).toBeNull();
+    expect(missing).toHaveBeenCalledTimes(1);
+  });
+  it('hashes observed account material immediately and falls back when cleared', () => {
+    const { observeAntigravityAccount, readActiveGeminiAccount } =
+      require('./provider-owner.resolver') as typeof import('./provider-owner.resolver');
+    const root = resolve('gemini-root');
+    const read = jest.fn(() =>
+      JSON.stringify({ active: 'fallback@example.test' }),
+    );
+    const stat = jest.fn(() => ({ mtimeMs: 1, size: 1 }));
+    const key = observeAntigravityAccount(' Fixture@Example.test ');
+    expect(key).toMatch(/^antigravity#account:/);
+    expect(key).not.toContain('fixture@example.test');
+    expect(readActiveGeminiAccount(root, read, stat, () => 0)).toBe(
+      'fallback@example.test',
+    );
+    expect(readActiveGeminiAccount(root, read, stat, () => 1)).toBe(
+      'fallback@example.test',
+    );
+    expect(read).toHaveBeenCalledTimes(1);
+    observeAntigravityAccount(null);
+  });
+});
+
 describe('credentialFromHeaders (F78)', () => {
+  it.each([CODEX_PROXY_TOKEN_PLACEHOLDER, OLLAMA_AUTH_TOKEN_PLACEHOLDER])(
+    'rejects placeholder credentials from both supported headers',
+    (placeholder) => {
+      expect(
+        credentialFromHeaders({ authorization: `Bearer ${placeholder}` }),
+      ).toBeNull();
+      expect(credentialFromHeaders({ 'x-api-key': placeholder })).toBeNull();
+    },
+  );
   it.each([
     ['lower-case bearer', { authorization: 'bearer K' }, 'K'],
     ['Bearer with two spaces', { Authorization: 'Bearer  K' }, 'K'],
@@ -335,9 +457,11 @@ describe('ProviderOwnerResolver', () => {
       const first = harness({
         fileContent: JSON.stringify({ active: 'first@example.test', old: [] }),
       }).resolver.ownerForAntigravity();
+      resetAntigravityOwnerStateForTests();
       const second = harness({
         fileContent: JSON.stringify({ active: 'second@example.test', old: [] }),
       }).resolver.ownerForAntigravity();
+      resetAntigravityOwnerStateForTests();
       const repeated = harness({
         fileContent: JSON.stringify({ active: 'first@example.test', old: [] }),
       }).resolver.ownerForAntigravity();

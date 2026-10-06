@@ -1,389 +1,350 @@
-import {
-  createServer,
-  request as httpRequest,
-  type RequestListener,
-  type Server,
-} from 'node:http';
-import type { AddressInfo } from 'node:net';
 import { createMockLogger } from '@ptah-extension/shared/testing';
 import type { Logger } from '@ptah-extension/vscode-core';
+import { createServer } from 'node:http';
+import { accountOwnerKey } from '../provider-owner.resolver';
 import {
-  ANTIGRAVITY_STATUS_PATH,
-  ANTIGRAVITY_WINDOWS_PROCESS_ARGS,
+  ANTIGRAVITY_CSRF_HEADER,
+  ANTIGRAVITY_REQUEST_BODY,
 } from './antigravity-ls.provisional';
 import {
-  ANTIGRAVITY_MAX_MODEL_LENGTH,
-  ANTIGRAVITY_USAGE_TIMEOUT_MS,
   createAntigravityPlanUsageReader,
+  defaultRequest,
   readJsonResponse,
 } from './antigravity-plan-usage.reader';
 
-const CSRF_TOKEN = 'csrf-private-token';
-const SERVER_EXE =
-  '/home/u/.antigravity/extensions/antigravity/bin/language_server_linux_x64';
-const PROCESS = `123 ${SERVER_EXE} --csrf_token ${CSRF_TOKEN} --port 4444`;
-const UNAVAILABLE = {
-  status: 'service-unavailable',
-  windowSetEstablished: false,
-  windows: [],
+const TOKEN = 'csrf-token';
+const EMAIL = 'fixture-user@example.test';
+const PROCESS =
+  'P 123 /opt/antigravity/language_server --csrf_token ' +
+  TOKEN +
+  ' --extension_server_port 4444\nL 123 5555';
+const response = {
+  userStatus: {
+    email: EMAIL,
+    cascadeModelConfigData: {
+      clientModelConfigs: [
+        {
+          label: 'Gemini',
+          modelOrAlias: { model: 'gemini-3' },
+          quotaInfo: {
+            remainingFraction: 0.4,
+            resetTime: '2030-01-01T00:00:00Z',
+          },
+        },
+        { label: 'empty', quotaInfo: {} },
+        { label: 'skip' },
+      ],
+    },
+  },
 };
-
-function loggerCalls(logger: Record<string, unknown>): string {
-  return JSON.stringify(
-    Object.values(logger)
-      .filter(jest.isMockFunction)
-      .flatMap((method) => method.mock.calls),
-  );
-}
-
-function readerFor(
-  processList: string,
-  request: jest.Mock = jest.fn(async () => ({
-    models: { gemini: { remainingFraction: 0.5 } },
-  })),
+const owner = accountOwnerKey(
+  'antigravity',
+  require('node:path').join(require('node:os').homedir(), '.gemini') +
+    '\0' +
+    EMAIL,
+);
+function reader(
+  request: (
+    scheme: 'http' | 'https',
+    port: number,
+    token: string,
+    signal: AbortSignal,
+  ) => Promise<unknown>,
+  observe = () => owner,
 ) {
-  const reader = createAntigravityPlanUsageReader(
+  return createAntigravityPlanUsageReader(
     createMockLogger() as unknown as Logger,
     () => 1,
-    async () => processList,
+    async (command) => (command === 'lsof' ? 'n127.0.0.1:5555' : PROCESS),
     request,
+    observe,
   );
-  return { reader, request };
 }
-
 describe('Antigravity plan-usage reader', () => {
-  it('F33: maps provisional data without exposing the CSRF token in logger calls', async () => {
-    const rawLogger = createMockLogger() as unknown as Record<string, unknown>;
-    const request = jest.fn(async () => ({
-      models: { gemini: { remainingFraction: 0.25, resetTime: null } },
-    }));
-    const reader = createAntigravityPlanUsageReader(
-      rawLogger as unknown as Logger,
-      () => 1,
-      async () => PROCESS,
-      request,
+  it('tries HTTPS then HTTP and maps the provisional response without exposing its email', async () => {
+    const request = jest.fn(async (scheme: 'http' | 'https') =>
+      scheme === 'https' ? Promise.reject(new Error('tls')) : response,
     );
-    const reading = await reader({ target: {} as never, refresh: true });
-    expect(reading.windows[0]).toMatchObject({
-      key: 'other:model-gemini',
-      kind: 'other',
-      label: 'Window 1 · gemini',
-      modelScope: 'gemini',
-      used: { kind: 'percent', percent: 75 },
-      usedSource: 'provider-unofficial',
+    const observe = jest.fn(() => owner);
+    const result = await reader(
+      request,
+      observe,
+    )({ target: { ownerRef: { key: owner } } as never, refresh: true });
+    expect(request.mock.calls.map((call) => call[0])).toEqual([
+      'https',
+      'http',
+    ]);
+    expect(observe).toHaveBeenCalledWith(EMAIL);
+    expect(JSON.stringify(result)).not.toContain(EMAIL);
+    expect(result).toMatchObject({
+      status: 'available',
+      windows: [{ modelScope: 'gemini-3', used: { percent: 60 } }],
+    });
+  });
+  it('uses the extension port when no listener can be discovered', async () => {
+    const request = jest.fn(async () => response);
+    const instance = createAntigravityPlanUsageReader(
+      createMockLogger() as unknown as Logger,
+      () => 1,
+      async (command) =>
+        command === 'lsof' ? '' : PROCESS.replace('L 123 5555', ''),
+      request,
+      () => owner,
+    );
+    await instance({
+      target: { ownerRef: { key: owner } } as never,
+      refresh: true,
     });
     expect(request).toHaveBeenCalledWith(
+      'http',
       4444,
-      CSRF_TOKEN,
+      TOKEN,
       expect.any(AbortSignal),
     );
-    expect(loggerCalls(rawLogger)).not.toContain(CSRF_TOKEN);
   });
-
-  it('never asserts a period, rounds the percent and caps the model name', async () => {
-    const longModel = 'm'.repeat(500);
-    const { reader } = readerFor(
-      PROCESS,
-      jest.fn(async () => ({
-        models: {
-          gemini: { remainingFraction: 0.7 },
-          [longModel]: { remainingFraction: 0.123456 },
+  it('accepts padded POSIX pids, rejects ambiguous servers, and rejects no ports', async () => {
+    const request = jest.fn(async () => response);
+    const padded = createAntigravityPlanUsageReader(
+      createMockLogger() as unknown as Logger,
+      () => 1,
+      async (command) =>
+        command === 'lsof'
+          ? 'n127.0.0.1:5555'
+          : PROCESS.replace('P 123', '  123'),
+      request,
+      () => owner,
+    );
+    await padded({
+      target: { ownerRef: { key: owner } } as never,
+      refresh: true,
+    });
+    expect(request).toHaveBeenCalled();
+    const unavailable = createAntigravityPlanUsageReader(
+      createMockLogger() as unknown as Logger,
+      () => 1,
+      async () =>
+        `${PROCESS}\nP 456 /opt/antigravity/language_server --csrf_token other --extension_server_port 9999`,
+      request,
+      () => owner,
+    );
+    await expect(
+      unavailable({
+        target: { ownerRef: { key: owner } } as never,
+        refresh: true,
+      }),
+    ).resolves.toMatchObject({ status: 'service-unavailable' });
+    const noPorts = createAntigravityPlanUsageReader(
+      createMockLogger() as unknown as Logger,
+      () => 1,
+      async () => ' 812 /opt/antigravity/language_server --csrf_token token',
+      request,
+      () => owner,
+    );
+    await expect(
+      noPorts({ target: { ownerRef: { key: owner } } as never, refresh: true }),
+    ).resolves.toMatchObject({ status: 'service-unavailable' });
+  });
+  it('caps long model names, parses reset time, and keeps logger output private', async () => {
+    const logger = createMockLogger() as unknown as Logger;
+    const long = 'x'.repeat(100);
+    const instance = createAntigravityPlanUsageReader(
+      logger,
+      () => 2,
+      async (command) => (command === 'lsof' ? 'n127.0.0.1:5555' : PROCESS),
+      async () => ({
+        userStatus: {
+          email: EMAIL,
+          cascadeModelConfigData: {
+            clientModelConfigs: [
+              {
+                label: long,
+                quotaInfo: {
+                  remainingFraction: 1,
+                  resetTime: '2030-01-01T00:00:00Z',
+                },
+              },
+            ],
+          },
         },
-      })),
+      }),
+      () => owner,
     );
-    const reading = await reader({ target: {} as never, refresh: true });
-    expect(reading.windows.map((w) => w.kind)).toEqual(['other', 'other']);
-    expect(reading.windows.some((w) => /weekly/i.test(w.label))).toBe(false);
-    expect(reading.windows[0].used).toEqual({ kind: 'percent', percent: 30 });
-    expect(reading.windows[1].used).toEqual({
-      kind: 'percent',
-      percent: 87.7,
+    const result = await instance({
+      target: { ownerRef: { key: owner } } as never,
+      refresh: true,
     });
-    const capped = 'm'.repeat(ANTIGRAVITY_MAX_MODEL_LENGTH);
-    expect(reading.windows[1]).toMatchObject({
-      key: `other:model-${capped}`,
-      label: `Window 2 · ${capped}`,
-      modelScope: capped,
+    expect(result.windows[0]).toMatchObject({
+      modelScope: long.slice(0, 64),
+      resetsAt: Date.parse('2030-01-01T00:00:00Z'),
     });
+    expect(JSON.stringify(logger)).not.toContain(EMAIL);
+    expect(JSON.stringify(logger)).not.toContain(TOKEN);
   });
-
-  it('preserves a long Windows command line so arguments at its end are parsed', async () => {
-    const { reader, request } = readerFor(
-      `99 C:\\Users\\u\\AppData\\Local\\Programs\\Antigravity\\bin\\language_server_windows_x64.exe ${'x'.repeat(12_000)} --csrf_token ${CSRF_TOKEN} --port 4444`,
-    );
-    await reader({ target: {} as never, refresh: true });
-    expect(ANTIGRAVITY_WINDOWS_PROCESS_ARGS[2]).toContain('ForEach-Object');
-    expect(request).toHaveBeenCalledWith(
-      4444,
-      CSRF_TOKEN,
-      expect.any(AbortSignal),
-    );
+  it('sends confirmed headers and JSON body over a real loopback request', async () => {
+    const seen = await new Promise<{
+      headers: Record<string, string | string[] | undefined>;
+      body: string;
+    }>((resolve) => {
+      const server = createServer((request, reply) => {
+        const chunks: Buffer[] = [];
+        request.on('data', (chunk) => chunks.push(chunk));
+        request.on('end', () => {
+          resolve({
+            headers: request.headers,
+            body: Buffer.concat(chunks).toString(),
+          });
+          reply.end('{}');
+          server.close();
+        });
+      });
+      server.listen(0, '127.0.0.1', async () => {
+        const address = server.address();
+        if (address && typeof address !== 'string')
+          await defaultRequest(
+            'http',
+            address.port,
+            TOKEN,
+            new AbortController().signal,
+          );
+      });
+    });
+    expect(seen.headers[ANTIGRAVITY_CSRF_HEADER.toLowerCase()]).toBe(TOKEN);
+    expect(seen.headers['content-type']).toBe('application/json');
+    expect(seen.headers['connect-protocol-version']).toBe('1');
+    expect(JSON.parse(seen.body)).toEqual(ANTIGRAVITY_REQUEST_BODY);
   });
-
-  it('does not attribute a non-Antigravity language server', async () => {
-    const { reader, request } = readerFor(
-      '123 /opt/codeium/bin/language_server_linux_x64 --csrf_token other --port 4444',
-    );
-    await expect(
-      reader({ target: {} as never, refresh: true }),
-    ).resolves.toEqual(UNAVAILABLE);
-    expect(request).not.toHaveBeenCalled();
-  });
-
-  it('anchors the markers to the executable, not to an argument naming them', async () => {
-    const { reader, request } = readerFor(
-      [
-        '77 /usr/bin/vim /src/antigravity/language_server.go --csrf_token stolen --port 5555',
-        '78 C:\\Tools\\editor.exe C:\\antigravity\\language_server.ts --csrf_token=stolen --port=5555',
-      ].join('\n'),
-    );
-    await expect(
-      reader({ target: {} as never, refresh: true }),
-    ).resolves.toEqual(UNAVAILABLE);
-    expect(request).not.toHaveBeenCalled();
-  });
-
-  it('treats several different (port, token) pairs as ambiguous', async () => {
-    const { reader, request } = readerFor(
-      [PROCESS, `456 ${SERVER_EXE} --csrf_token other-token --port 5555`].join(
-        '\n',
-      ),
-    );
-    await expect(
-      reader({ target: {} as never, refresh: true }),
-    ).resolves.toEqual(UNAVAILABLE);
-    expect(request).not.toHaveBeenCalled();
-  });
-
-  it('accepts the same (port, token) pair listed twice', async () => {
-    const { reader, request } = readerFor(`${PROCESS}\n${PROCESS}`);
-    await reader({ target: {} as never, refresh: true });
-    expect(request).toHaveBeenCalledWith(
-      4444,
-      CSRF_TOKEN,
-      expect.any(AbortSignal),
-    );
-  });
-
-  it('strips the quotes of a quoted Windows executable and token', async () => {
-    const { reader, request } = readerFor(
-      `321 "C:\\Program Files\\Antigravity\\resources\\bin\\language_server_windows_x64.exe" --csrf_token "${CSRF_TOKEN}" --port 4444`,
-    );
-    await reader({ target: {} as never, refresh: true });
-    expect(request).toHaveBeenCalledWith(
-      4444,
-      CSRF_TOKEN,
-      expect.any(AbortSignal),
-    );
-  });
-
-  it('returns service-unavailable for a rejected local request without logging the CSRF token', async () => {
-    const rawLogger = createMockLogger() as unknown as Record<string, unknown>;
-    const reader = createAntigravityPlanUsageReader(
-      rawLogger as unknown as Logger,
-      () => 1,
-      async () => PROCESS,
-      async () => Promise.reject(new Error('request failed')),
-    );
-    await expect(
-      reader({ target: {} as never, refresh: true }),
-    ).resolves.toEqual(UNAVAILABLE);
-    expect(loggerCalls(rawLogger)).not.toContain(CSRF_TOKEN);
-  });
-
-  it('honours an already-aborted caller signal before process discovery', async () => {
-    const run = jest.fn(async () => PROCESS);
+  it('removes caller abort listener after settling', async () => {
     const controller = new AbortController();
-    controller.abort();
-    const reader = createAntigravityPlanUsageReader(
+    const remove = jest.spyOn(controller.signal, 'removeEventListener');
+    await reader(async () => response)({
+      target: { ownerRef: { key: owner } } as never,
+      refresh: true,
+      signal: controller.signal,
+    });
+    expect(remove).toHaveBeenCalledWith('abort', expect.any(Function));
+  });
+  it('handles quoted arguments, aborts discovery, and rejects a real closed-port request', async () => {
+    const quoted =
+      ' 812 "/opt/antigravity/language_server" --csrf_token="' +
+      TOKEN +
+      '" --extension_server_port=4444';
+    const request = jest.fn(async () => response);
+    const quotedReader = createAntigravityPlanUsageReader(
       createMockLogger() as unknown as Logger,
       () => 1,
-      run,
-      async () => ({ models: {} }),
-    );
-    await expect(
-      reader({ target: {} as never, refresh: true, signal: controller.signal }),
-    ).resolves.toEqual(UNAVAILABLE);
-    expect(run).not.toHaveBeenCalled();
-  });
-
-  it('passes a caller abort through to the local request', async () => {
-    const controller = new AbortController();
-    const request = jest.fn(
-      (_port: number, _csrf: string, signal: AbortSignal) =>
-        new Promise<unknown>((_resolve, reject) =>
-          signal.addEventListener('abort', () => reject(new Error('aborted'))),
-        ),
-    );
-    const reader = createAntigravityPlanUsageReader(
-      createMockLogger() as unknown as Logger,
-      () => 1,
-      async () => PROCESS,
+      async () => quoted,
       request,
+      () => owner,
     );
-    const pending = reader({
-      target: {} as never,
+    await quotedReader({
+      target: { ownerRef: { key: owner } } as never,
+      refresh: true,
+    });
+    expect(request).toHaveBeenCalledWith(
+      'http',
+      4444,
+      TOKEN,
+      expect.any(AbortSignal),
+    );
+    const controller = new AbortController();
+    const pending = createAntigravityPlanUsageReader(
+      createMockLogger() as unknown as Logger,
+      () => 1,
+      async () => new Promise<string>(() => undefined),
+      request,
+    )({
+      target: { ownerRef: { key: owner } } as never,
       refresh: true,
       signal: controller.signal,
     });
     controller.abort();
-    await expect(pending).resolves.toEqual(UNAVAILABLE);
-  });
-
-  it('observes a caller abort during process discovery', async () => {
-    const controller = new AbortController();
-    let discoverySignal: AbortSignal | undefined;
-    const run = jest.fn(
-      (_command: string, _args: readonly string[], signal: AbortSignal) => {
-        discoverySignal = signal;
-        return new Promise<string>(() => undefined);
-      },
-    );
-    const request = jest.fn();
-    const reader = createAntigravityPlanUsageReader(
-      createMockLogger() as unknown as Logger,
-      () => 1,
-      run,
-      request,
-    );
-    const pending = reader({
-      target: {} as never,
-      refresh: true,
-      signal: controller.signal,
+    await expect(pending).resolves.toMatchObject({
+      status: 'service-unavailable',
     });
-    controller.abort();
-    await expect(pending).resolves.toEqual(UNAVAILABLE);
-    expect(discoverySignal?.aborted).toBe(true);
-    expect(request).not.toHaveBeenCalled();
+    const port = await new Promise<number>((resolve) => {
+      const server = createServer();
+      server.listen(0, '127.0.0.1', () => {
+        const address = server.address();
+        server.close(() =>
+          resolve((address as import('node:net').AddressInfo).port),
+        );
+      });
+    });
+    await expect(
+      defaultRequest('http', port, TOKEN, new AbortController().signal),
+    ).rejects.toBeDefined();
   });
-
-  it('one deadline covers discovery and the request together', async () => {
+  it('applies one deadline to an unsettled discovery command', async () => {
     jest.useFakeTimers();
     try {
-      const run = jest.fn(
-        () =>
-          new Promise<string>((resolve) =>
-            setTimeout(
-              () => resolve(PROCESS),
-              ANTIGRAVITY_USAGE_TIMEOUT_MS - 500,
-            ),
-          ),
-      );
-      // A request that ignores its signal entirely still cannot outlive it.
-      const request = jest.fn(() => new Promise<unknown>(() => undefined));
-      const reader = createAntigravityPlanUsageReader(
+      const pending = createAntigravityPlanUsageReader(
         createMockLogger() as unknown as Logger,
         () => 1,
-        run,
-        request,
-      );
-      let settled = false;
-      const pending = reader({ target: {} as never, refresh: true }).then(
-        (reading) => {
-          settled = true;
-          return reading;
-        },
-      );
-      await jest.advanceTimersByTimeAsync(ANTIGRAVITY_USAGE_TIMEOUT_MS - 1);
-      expect(request).toHaveBeenCalledTimes(1);
-      expect(settled).toBe(false);
-      await jest.advanceTimersByTimeAsync(1);
-      await expect(pending).resolves.toEqual(UNAVAILABLE);
-      expect(jest.getTimerCount()).toBe(0);
+        async () => new Promise<string>(() => undefined),
+      )({ target: { ownerRef: { key: owner } } as never, refresh: true });
+      await jest.advanceTimersByTimeAsync(3_000);
+      await expect(pending).resolves.toMatchObject({
+        status: 'service-unavailable',
+      });
     } finally {
       jest.useRealTimers();
     }
   });
-
-  it('returns service-unavailable for a mismatch without logging the CSRF token', async () => {
-    const rawLogger = createMockLogger() as unknown as Record<string, unknown>;
-    const reader = createAntigravityPlanUsageReader(
-      rawLogger as unknown as Logger,
+  it('returns unavailable when the parsed account belongs to another owner', async () => {
+    const result = await reader(
+      async () => response,
+      () => 'antigravity#account:different',
+    )({ target: { ownerRef: { key: owner } } as never, refresh: true });
+    expect(result.status).toBe('service-unavailable');
+  });
+  it('clears a stale observation when the server disappears', async () => {
+    const observe = jest.fn(() => owner);
+    const gone = createAntigravityPlanUsageReader(
+      createMockLogger() as unknown as Logger,
       () => 1,
-      async () => PROCESS,
-      async () => ({ models: { gemini: { remainingFraction: 2 } } }),
+      async () => '',
+      async () => response,
+      observe,
     );
-    await expect(
-      reader({ target: {} as never, refresh: true }),
-    ).resolves.toEqual(UNAVAILABLE);
-    expect(loggerCalls(rawLogger)).not.toContain(CSRF_TOKEN);
+    await gone({
+      target: { ownerRef: { key: owner } } as never,
+      refresh: true,
+    });
+    expect(observe).toHaveBeenCalledWith(null);
   });
-});
-
-describe('Antigravity readJsonResponse (loopback server, in-process)', () => {
-  let server: Server;
-  let port: number;
-  let handler: RequestListener;
-
-  beforeAll(async () => {
-    server = createServer((req, res) => handler(req, res));
-    await new Promise<void>((done) => server.listen(0, '127.0.0.1', done));
-    port = (server.address() as AddressInfo).port;
+  it('omits a model with no remaining fraction and is unavailable when none remain', async () => {
+    const result = await reader(async () => ({
+      userStatus: {
+        email: EMAIL,
+        cascadeModelConfigData: {
+          clientModelConfigs: [{ label: 'unknown', quotaInfo: {} }],
+        },
+      },
+    }))({ target: { ownerRef: { key: owner } } as never, refresh: true });
+    expect(result).toMatchObject({
+      status: 'service-unavailable',
+      windows: [],
+    });
   });
-
-  afterAll(async () => {
-    server.closeAllConnections();
-    await new Promise<void>((done) => server.close(() => done()));
+  it('keeps the confirmed transport constants exact', () => {
+    expect(ANTIGRAVITY_CSRF_HEADER).toBe('X-Codeium-Csrf-Token');
+    expect(ANTIGRAVITY_REQUEST_BODY).toEqual({
+      metadata: {
+        ideName: 'antigravity',
+        extensionName: 'antigravity',
+        ideVersion: 'unknown',
+        locale: 'en',
+      },
+    });
   });
-
-  const call = (signal?: AbortSignal, maxBytes?: number) =>
-    readJsonResponse(
-      (onResponse) =>
-        httpRequest(
-          {
-            hostname: '127.0.0.1',
-            port,
-            path: ANTIGRAVITY_STATUS_PATH,
-            method: 'POST',
-            ...(signal && { signal }),
-          },
-          onResponse,
-        ),
-      maxBytes,
-    );
-
-  it('parses a 2xx JSON body', async () => {
-    handler = (_req, res) => {
-      res.writeHead(200, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ models: {} }));
-    };
-    await expect(call()).resolves.toEqual({ models: {} });
-  });
-
-  it('settles within the deadline when the body stalls after the headers', async () => {
-    handler = (_req, res) => {
-      res.writeHead(200, { 'content-type': 'application/json' });
-      res.write('{"models":');
-      // Never ends: the client's deadline must settle the read.
-    };
-    const started = Date.now();
-    await expect(call(AbortSignal.timeout(200))).rejects.toBeDefined();
-    expect(Date.now() - started).toBeLessThan(ANTIGRAVITY_USAGE_TIMEOUT_MS);
-  });
-
-  it('rejects when the server drops the connection mid-body', async () => {
-    handler = (_req, res) => {
-      res.writeHead(200, { 'content-type': 'application/json' });
-      res.write('{"models":', () => res.socket?.destroy());
-    };
-    await expect(call()).rejects.toBeDefined();
-  });
-
-  it('rejects a non-2xx status without parsing the body', async () => {
-    handler = (_req, res) => {
-      res.writeHead(500, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ models: {} }));
-    };
-    await expect(call()).rejects.toThrow('status 500');
-  });
-
-  it('rejects a body over the size cap', async () => {
-    handler = (_req, res) => {
-      res.writeHead(200, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ models: {}, padding: 'x'.repeat(4_096) }));
-    };
-    await expect(call(undefined, 1_024)).rejects.toThrow(
-      'response body too large',
+  it('settles once on a request error', async () => {
+    const request = { on: jest.fn(), end: jest.fn(), destroy: jest.fn() };
+    (request.on as jest.Mock).mockImplementation((event, listener) => {
+      if (event === 'error') listener(new Error('ECONNREFUSED'));
+      return request;
+    });
+    await expect(readJsonResponse(() => request as never)).rejects.toThrow(
+      'ECONNREFUSED',
     );
   });
 });

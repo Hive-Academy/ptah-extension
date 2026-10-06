@@ -51,6 +51,7 @@ jest.mock('../permission/permission-prompt.service', () => ({
 import { container, type DependencyContainer } from 'tsyringe';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import { SURFACE_CATALOG_VERSION } from '@ptah-extension/shared/mcp-apps-contracts/surface';
 import { registerVsCodeLmToolsServices } from './register';
 import { VSCODE_LM_TOOLS_TOKENS } from './tokens';
 import { SurfaceStateService, type SurfacePushHostProvider } from '../surface';
@@ -339,7 +340,7 @@ describe('registerVsCodeLmToolsServices - surface state (TASK_2026_538)', () => 
         operation: 'create',
         surface: {
           schemaVersion: 'dashboard-spec/2',
-          catalogVersion: 'dashboard-catalog/2',
+          catalogVersion: SURFACE_CATALOG_VERSION,
           surfaceId: 'summary',
           title: { text: 'Summary' },
           components: [{ kind: 'stat', id: 'users', value: 1 }],

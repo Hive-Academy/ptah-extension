@@ -2,9 +2,10 @@ import { Component, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import type { DashboardComponent } from '@ptah-extension/shared';
 import type { SurfaceComponent, SurfaceDataModel, SurfaceSelection } from '@ptah-extension/shared/mcp-apps-contracts/surface';
+import { SURFACE_CATALOG_VERSION } from '@ptah-extension/shared/mcp-apps-contracts/surface';
 import { readFileSync } from 'fs';
 import { join } from 'path';
-import type { SurfaceActionInvoke, SurfaceInputCommit } from '../surface-interaction';
+import type { SurfaceActionInvoke, SurfaceInputCommit, SurfaceInteractionState } from '../surface-interaction';
 import { buildSurfaceViewModel } from '../view-model/surface-view-model';
 import type { SurfaceNode } from '../view-model/view-model.types';
 import { SURFACE_NODE_KINDS, SurfaceNodeComponent, type SurfaceComponentViewStateWrite } from './surface-node.component';
@@ -12,7 +13,7 @@ import type { SurfaceDraftWrite } from './surface-text-input.component';
 
 function v2Nodes(components: readonly SurfaceComponent[], dataModel: SurfaceDataModel = {}): readonly SurfaceNode[] {
   const result = buildSurfaceViewModel({ contract: 'dashboard-spec/2', dataModel, surface: {
-    schemaVersion: 'dashboard-spec/2', catalogVersion: 'dashboard-catalog/2', surfaceId: 's', title: { text: 'T' },
+    schemaVersion: 'dashboard-spec/2', catalogVersion: SURFACE_CATALOG_VERSION, surfaceId: 's', title: { text: 'T' },
     components } });
   if (result.renderFailed) throw new Error(result.reason);
   return result.viewModel.components;
@@ -27,7 +28,7 @@ function v1Nodes(components: readonly DashboardComponent[]): readonly SurfaceNod
 }
 
 const series = [{ name: 'Cost', points: [{ x: 'Mon', y: 1 }, { x: 'Tue', y: 2 }] }];
-/** One component of each of the 13 kinds, and the element each must render. */
+/** One component of each of the 19 kinds, and the element each must render. */
 const EVERY_KIND: readonly (readonly [SurfaceComponent, string])[] = [
   [{ id: 'k-section', kind: 'section', title: { text: 'S' }, children: [] }, 'ptah-surface-layout section'],
   [{ id: 'k-stack', kind: 'stack', children: [] }, 'ptah-surface-layout'],
@@ -42,13 +43,29 @@ const EVERY_KIND: readonly (readonly [SurfaceComponent, string])[] = [
   [{ id: 'k-list', kind: 'list', items: [] }, 'ptah-dashboard-list'],
   [{ id: 'k-line', kind: 'line-chart', series }, 'ptah-dashboard-chart polyline'],
   [{ id: 'k-bar', kind: 'bar-chart', series }, 'ptah-dashboard-chart rect'],
+  [{ id: 'k-alert', kind: 'alert', tone: 'info', text: { text: 'Watch' } }, 'ptah-dashboard-alert'],
+  [{ id: 'k-badge', kind: 'badge', tone: 'primary', text: { text: 'B' },
+    actions: [{ id: 'pick', action: 'dashboard.select', label: { text: 'Pick' } }] }, 'ptah-dashboard-badge button'],
+  [{ id: 'k-progress', kind: 'progress', value: 42.5, tone: 'primary', label: { text: 'L' } }, 'ptah-dashboard-progress progress'],
+  [{ id: 'k-radial', kind: 'radial-progress', value: 70, tone: 'info', label: { text: 'L' } }, 'ptah-dashboard-radial-progress'],
+  [{ id: 'k-divider', kind: 'divider', direction: 'horizontal' }, 'ptah-dashboard-divider'],
+  [{ id: 'k-text-block', kind: 'text-block', role: 'heading', text: { text: 'H' } }, 'ptah-dashboard-text-block h3'],
 ];
+
+const NO_INTERACTION: SurfaceInteractionState = {
+  selection: null,
+  selectionUnsynced: false,
+  pendingValues: new Map(),
+  issues: new Map(),
+  actions: new Map(),
+  submitDisabled: false,
+};
 
 @Component({
   standalone: true,
   imports: [SurfaceNodeComponent],
   template: `
-    <ptah-surface-node [node]="node()" surfaceId="surface"
+    <ptah-surface-node [node]="node()" [interaction]="interaction()" surfaceId="surface"
       (componentViewStateChange)="events.push(['state', $event])" (selectionChange)="events.push(['select', $event])"
       (inputCommit)="events.push(['commit', $event])" (draftChange)="events.push(['draft', $event])"
       (actionInvoke)="events.push(['action', $event])" (renderFailed)="failures = failures + 1" />
@@ -56,6 +73,7 @@ const EVERY_KIND: readonly (readonly [SurfaceComponent, string])[] = [
 })
 class NodeHostComponent {
   public readonly node = signal<SurfaceNode>(v2Nodes([{ id: 'stat', kind: 'stat', value: 1 }])[0]);
+  public readonly interaction = signal<SurfaceInteractionState>(NO_INTERACTION);
   public readonly events: [string, SurfaceComponentViewStateWrite | SurfaceSelection | SurfaceInputCommit
     | SurfaceDraftWrite | SurfaceActionInvoke][] = [];
   public failures = 0;
@@ -70,14 +88,28 @@ describe('SurfaceNodeComponent', () => {
     return { fixture, host: fixture.componentInstance, element, rerender: () => fixture.detectChanges() };
   }
 
-  it('switches over all 13 catalog kinds, each to its own component', () => {
-    expect(SURFACE_NODE_KINDS.size).toBe(13);
+  it('switches over all 19 catalog kinds, each to its own component', () => {
+    expect(SURFACE_NODE_KINDS.size).toBe(19);
     expect(new Set(EVERY_KIND.map(([component]) => component.kind))).toEqual(SURFACE_NODE_KINDS);
     for (const [component, selector] of EVERY_KIND) {
       const { element, host } = setup(v2Nodes([component])[0]);
       expect(element.querySelector(selector)).not.toBeNull();
       expect(host.failures).toBe(0);
     }
+  });
+
+  it('marks a selectable badge pressed from the current selection and emits the badge target', () => {
+    const [badge] = v2Nodes([{ id: 'k-badge', kind: 'badge', tone: 'primary', text: { text: 'Pick me' },
+      actions: [{ id: 'pick', action: 'dashboard.select', label: { text: 'Pick' } }] }]);
+    const { element, host, rerender } = setup(badge);
+    const button = element.querySelector<HTMLButtonElement>('ptah-dashboard-badge button')!;
+    expect(button.getAttribute('aria-pressed')).toBe('false');
+    button.click();
+    expect(host.events).toEqual([['select', { componentId: 'k-badge', target: { kind: 'badge' } }]]);
+    host.interaction.set({ ...NO_INTERACTION, selection: { componentId: 'k-badge', target: { kind: 'badge' } } });
+    rerender();
+    expect(element.querySelector<HTMLButtonElement>('ptah-dashboard-badge button')!
+      .getAttribute('aria-pressed')).toBe('true');
   });
 
   it('renders nothing for an unknown kind and emits renderFailed', () => {

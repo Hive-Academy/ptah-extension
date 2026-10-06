@@ -16,7 +16,7 @@ import {
 } from '@ptah-extension/chat-state';
 import { StreamRouter, SurfaceUpdateInbox } from '@ptah-extension/chat-routing';
 import { MESSAGE_TYPES } from '@ptah-extension/shared';
-import { SURFACE_OPERATION_ID_PATTERN } from '@ptah-extension/shared/mcp-apps-contracts/surface';
+import { SURFACE_CATALOG_VERSION, SURFACE_OPERATION_ID_PATTERN } from '@ptah-extension/shared/mcp-apps-contracts/surface';
 import type {
   SurfaceComponent,
   SurfaceStateView,
@@ -62,7 +62,7 @@ function view(revision: number, name = 'Ada'): SurfaceStateView {
       contract: 'dashboard-spec/2',
       surface: {
         schemaVersion: 'dashboard-spec/2',
-        catalogVersion: 'dashboard-catalog/2',
+        catalogVersion: SURFACE_CATALOG_VERSION,
         surfaceId: SURFACE,
         title: { text: 'Profile' },
         components: COMPONENTS,

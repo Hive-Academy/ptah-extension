@@ -11,6 +11,7 @@ import type {
   SurfacePatchOp,
   SurfaceUpdatedPayload,
 } from '@ptah-extension/shared';
+import { SURFACE_CATALOG_VERSION } from '@ptah-extension/shared/mcp-apps-contracts/surface';
 import type { DashboardSurfaceHost } from '../code-execution/namespace-builders/dashboard-namespace.builder';
 import {
   SurfaceStateService,
@@ -82,7 +83,7 @@ function envelope(
 ): SurfaceEnvelope {
   return {
     schemaVersion: 'dashboard-spec/2',
-    catalogVersion: 'dashboard-catalog/2',
+    catalogVersion: SURFACE_CATALOG_VERSION,
     surfaceId,
     title: { text: `Surface ${surfaceId}` },
     components,

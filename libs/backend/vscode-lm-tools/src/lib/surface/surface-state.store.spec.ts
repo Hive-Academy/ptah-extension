@@ -4,6 +4,7 @@ import type {
   SurfaceSubmitRecord,
 } from '@ptah-extension/shared';
 import {
+  SURFACE_CATALOG_VERSION,
   SURFACE_STORE_LIMITS,
   appendWrite,
 } from '@ptah-extension/shared/mcp-apps-contracts/surface';
@@ -20,7 +21,7 @@ function content(surfaceId: string, pad = 8): SurfaceContent {
     contract: 'dashboard-spec/2',
     surface: {
       schemaVersion: 'dashboard-spec/2',
-      catalogVersion: 'dashboard-catalog/2',
+      catalogVersion: SURFACE_CATALOG_VERSION,
       surfaceId,
       title: { text: `Surface ${surfaceId}` },
       components: [

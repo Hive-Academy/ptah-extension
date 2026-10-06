@@ -16,6 +16,7 @@ import {
 } from './plan-credential.source';
 import {
   PLAN_USAGE_CACHE_TTL_MS,
+  PLAN_USAGE_MAX_OWNERS,
   PlanUsageService,
 } from './plan-usage.service';
 import {
@@ -49,6 +50,12 @@ function claudeTarget(sessionId = 's-1'): PlanOwnerTarget {
 
 function codexTarget(ownerRef = CODEX_A): PlanOwnerTarget {
   return { providerId: 'openai-codex', ownerRef };
+}
+
+function codexOwner(index: number) {
+  return quotaOwnerRefFromKey(
+    accountOwnerKey('openai-codex', `home\0owner-${index}@example.test`),
+  );
 }
 
 function claudeUsage(fiveHourPercent = 42): ClaudePlanUsage {
@@ -324,6 +331,53 @@ describe('PlanUsageService', () => {
   });
 
   describe('cache and single flight', () => {
+    it('FU A6: evicts the oldest owner and its failure timestamp above the owner cap', async () => {
+      const h = harness();
+      const oldest = codexOwner(0);
+      await h.service.getOwnerSnapshot(codexTarget(oldest));
+      h.advance(PLAN_USAGE_CACHE_TTL_MS + 1);
+      h.getAccountUsage.mockRejectedValueOnce(new Error('timeout'));
+      await h.service.getOwnerSnapshot(codexTarget(oldest));
+
+      for (let index = 1; index <= PLAN_USAGE_MAX_OWNERS; index += 1) {
+        h.advance(1);
+        await h.service.getOwnerSnapshot(codexTarget(codexOwner(index)));
+      }
+
+      const state = h.service as unknown as {
+        cache: Map<string, unknown>;
+        failingSince: Map<string, number>;
+      };
+      expect(state.cache.size).toBe(PLAN_USAGE_MAX_OWNERS);
+      expect(state.cache.has(oldest.key)).toBe(false);
+      expect(state.failingSince.has(oldest.key)).toBe(false);
+    });
+
+    it('FU A6: retains an owner with an in-flight refresh during eviction', async () => {
+      const h = harness();
+      for (let index = 0; index < PLAN_USAGE_MAX_OWNERS; index += 1) {
+        h.advance(1);
+        await h.service.getOwnerSnapshot(codexTarget(codexOwner(index)));
+      }
+      const protectedOwner = codexOwner(0);
+      const gate = deferred<CodexAccountUsageResult>();
+      h.getAccountUsage.mockReturnValueOnce(gate.promise);
+      const pending = h.service.getOwnerSnapshot(codexTarget(protectedOwner), {
+        refresh: true,
+      });
+
+      h.advance(1);
+      await h.service.getOwnerSnapshot(
+        codexTarget(codexOwner(PLAN_USAGE_MAX_OWNERS)),
+      );
+
+      const state = h.service as unknown as { cache: Map<string, unknown> };
+      expect(state.cache.has(protectedOwner.key)).toBe(true);
+      expect(state.cache.size).toBe(PLAN_USAGE_MAX_OWNERS);
+      gate.resolve(codexAvailable(h.time()));
+      await expect(pending).resolves.toMatchObject({ status: 'available' });
+    });
+
     it('serves one owner from a 30 s cache keyed by owner key; refresh bypasses it', async () => {
       const h = harness();
 

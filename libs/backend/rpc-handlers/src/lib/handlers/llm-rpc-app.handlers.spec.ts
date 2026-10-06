@@ -318,6 +318,28 @@ describe('LlmRpcHandlers', () => {
       expect(openrouter?.hasApiKey).toBe(true);
     });
 
+    it('reports a stored key for key-optional Ollama Cloud, which stays authType none', async () => {
+      const h = makeHarness({
+        authProviderKeys: { 'ollama-cloud': 'ollama-key' },
+      });
+      h.handlers.register();
+
+      const result = await call<{
+        providers: Array<{
+          name: string;
+          hasApiKey: boolean;
+          authType: string;
+        }>;
+      }>(h, 'llm:getProviderStatus');
+
+      const cloud = result.providers.find((p) => p.name === 'ollama-cloud');
+      expect(cloud?.authType).toBe('none');
+      expect(cloud?.hasApiKey).toBe(true);
+      expect(result.providers.find((p) => p.name === 'ollama')?.hasApiKey).toBe(
+        false,
+      );
+    });
+
     it('defaults to anthropic when config has no defaultProvider set', async () => {
       const h = makeHarness();
       h.handlers.register();

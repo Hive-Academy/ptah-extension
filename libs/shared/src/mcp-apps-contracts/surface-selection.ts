@@ -76,6 +76,11 @@ export function describeSurfaceSelection(
     lines.push(`Text: ${quoted(item.text.text)}`);
     if (item.detail !== undefined)
       lines.push(`Detail: ${quoted(item.detail.text)}`);
+  } else if (component.kind === 'badge' && target.kind === 'badge') {
+    lines.push(
+      `Text: ${quoted(component.text.text)}`,
+      `Tone: ${quoted(component.tone)}`,
+    );
   } else if (
     (component.kind === 'line-chart' || component.kind === 'bar-chart') &&
     target.kind === 'chart-point'

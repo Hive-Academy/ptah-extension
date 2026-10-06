@@ -1,9 +1,10 @@
 import { Component, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import type {
-  SurfaceDataModel,
-  SurfaceDataValue,
-  SurfaceInputOption,
+import {
+  SURFACE_CATALOG_VERSION,
+  type SurfaceDataModel,
+  type SurfaceDataValue,
+  type SurfaceInputOption,
 } from '@ptah-extension/shared/mcp-apps-contracts/surface';
 import type { SurfaceInputCommit } from '../surface-interaction';
 import { buildSurfaceViewModel } from '../view-model/surface-view-model';
@@ -20,7 +21,7 @@ const OPTIONS: readonly SurfaceInputOption[] = [
 function choiceNode(kind: 'select' | 'radio-group', extra: { readonly label?: string; readonly required?: boolean;
   readonly options?: readonly SurfaceInputOption[] } = {}, dataModel: SurfaceDataModel = {}): ChoiceInputNode {
   const result = buildSurfaceViewModel({ contract: 'dashboard-spec/2', dataModel, surface: {
-    schemaVersion: 'dashboard-spec/2', catalogVersion: 'dashboard-catalog/2', surfaceId: 's', title: { text: 'T' },
+    schemaVersion: 'dashboard-spec/2', catalogVersion: SURFACE_CATALOG_VERSION, surfaceId: 's', title: { text: 'T' },
     components: [{ id: 'env', kind, label: extra.label ?? 'Target environment', path: 'form.env',
       options: extra.options ?? OPTIONS, ...(extra.required ? { hints: { required: true } } : {}) }] } });
   if (result.renderFailed) throw new Error(result.reason);

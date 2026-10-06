@@ -2,13 +2,12 @@
 import {
   DASHBOARD_ACTIONS,
   DASHBOARD_CATALOG_VERSION,
-  DASHBOARD_COMPONENT_KINDS,
   DASHBOARD_LIMITS,
   DASHBOARD_SCHEMA_VERSION,
 } from './dashboard-catalog';
 
 export const SURFACE_SCHEMA_VERSION = 'dashboard-spec/2';
-export const SURFACE_CATALOG_VERSION = 'dashboard-catalog/2';
+export const SURFACE_CATALOG_VERSION = 'dashboard-catalog/3';
 export const SURFACE_SUPPORTED_SCHEMA_VERSIONS = [
   SURFACE_SCHEMA_VERSION,
 ] as const;
@@ -32,7 +31,20 @@ export const SURFACE_INPUT_KINDS = [
   'radio-group',
   'checkbox',
 ] as const;
-export const SURFACE_DISPLAY_KINDS = DASHBOARD_COMPONENT_KINDS;
+/** dashboard-catalog/3 display vocabulary: the five v1 kinds first, then the six status kinds. */
+export const SURFACE_DISPLAY_KINDS = [
+  'stat',
+  'line-chart',
+  'bar-chart',
+  'table',
+  'list',
+  'alert',
+  'badge',
+  'progress',
+  'radial-progress',
+  'divider',
+  'text-block',
+] as const;
 export const SURFACE_COMPONENT_KINDS = [
   ...SURFACE_LAYOUT_KINDS,
   ...SURFACE_INPUT_KINDS,

@@ -4,8 +4,10 @@
  *
  * Contracts: subscribes to the ledger on construction; one 500 ms timer folds
  * a burst of changes into one push of the full snapshot; an overlapping
- * older push is dropped; failures are debug-logged and not retried;
- * `dispose()` is synchronous, idempotent, clears the timer and unsubscribes.
+ * older push is dropped; failures are debug-logged and not retried; one push
+ * is bounded by 10 s, after which `pushing` clears and the next change pushes
+ * again; `dispose()` is synchronous, idempotent, clears the timer and
+ * unsubscribes.
  */
 
 // The cli-agent-runtime barrel (plan-limit discovery tokens) reaches the
@@ -25,6 +27,7 @@ import {
 import { MESSAGE_TYPES, type PlanLimitsSnapshot } from '@ptah-extension/shared';
 
 import {
+  PLAN_LIMITS_PUSH_BOUND_MS,
   PLAN_LIMITS_PUSH_DELAY_MS,
   PlanLimitsBroadcaster,
 } from './plan-limits-broadcaster';
@@ -179,6 +182,99 @@ describe('PlanLimitsBroadcaster', () => {
       '[PlanLimitsBroadcaster] push failed',
       { errorName: 'TypeError' },
     );
+  });
+
+  it('clears pushing after the bound when the snapshot never settles, so the next change pushes', async () => {
+    const s = buildSuite();
+    s.currentSnapshot
+      .mockImplementationOnce(
+        () => new Promise<PlanLimitsSnapshot>(() => undefined),
+      )
+      .mockResolvedValueOnce(snapshotAt(9));
+
+    s.emit();
+    await jest.advanceTimersByTimeAsync(PLAN_LIMITS_PUSH_DELAY_MS);
+    expect(s.currentSnapshot).toHaveBeenCalledTimes(1);
+
+    s.emit();
+    await jest.advanceTimersByTimeAsync(PLAN_LIMITS_PUSH_BOUND_MS);
+
+    expect(s.logger.debug).toHaveBeenCalledWith(
+      '[PlanLimitsBroadcaster] push timed out',
+      { errorName: 'PlanLimitsPushTimeout' },
+    );
+    expect(s.currentSnapshot).toHaveBeenCalledTimes(2);
+    expect(s.broadcastMessage).toHaveBeenCalledTimes(1);
+    expect(s.broadcastMessage).toHaveBeenCalledWith(
+      MESSAGE_TYPES.PLAN_LIMITS_CHANGED,
+      snapshotAt(9),
+    );
+  });
+
+  it('clears pushing after the bound when the broadcast never settles, so the next change pushes', async () => {
+    const s = buildSuite();
+    s.currentSnapshot.mockResolvedValue(snapshotAt(7));
+    s.broadcastMessage
+      .mockImplementationOnce(() => new Promise<void>(() => undefined))
+      .mockResolvedValueOnce(undefined);
+
+    s.emit();
+    await jest.advanceTimersByTimeAsync(PLAN_LIMITS_PUSH_DELAY_MS);
+    s.emit();
+    await jest.advanceTimersByTimeAsync(PLAN_LIMITS_PUSH_BOUND_MS);
+
+    expect(s.logger.debug).toHaveBeenCalledWith(
+      '[PlanLimitsBroadcaster] push timed out',
+      { errorName: 'PlanLimitsPushTimeout' },
+    );
+    expect(s.broadcastMessage).toHaveBeenCalledTimes(2);
+    expect(s.broadcastMessage).toHaveBeenLastCalledWith(
+      MESSAGE_TYPES.PLAN_LIMITS_CHANGED,
+      snapshotAt(7),
+    );
+  });
+
+  it('does not broadcast a late snapshot from a push that timed out', async () => {
+    const s = buildSuite();
+    let releaseFirst!: (value: PlanLimitsSnapshot) => void;
+    s.currentSnapshot
+      .mockImplementationOnce(
+        () =>
+          new Promise<PlanLimitsSnapshot>((resolve) => {
+            releaseFirst = resolve;
+          }),
+      )
+      .mockResolvedValueOnce(snapshotAt(2));
+
+    s.emit();
+    await jest.advanceTimersByTimeAsync(PLAN_LIMITS_PUSH_DELAY_MS);
+    s.emit();
+    await jest.advanceTimersByTimeAsync(PLAN_LIMITS_PUSH_BOUND_MS);
+
+    expect(s.broadcastMessage).toHaveBeenCalledTimes(1);
+    expect(s.broadcastMessage).toHaveBeenCalledWith(
+      MESSAGE_TYPES.PLAN_LIMITS_CHANGED,
+      snapshotAt(2),
+    );
+
+    releaseFirst(snapshotAt(1));
+    await jest.advanceTimersByTimeAsync(0);
+
+    expect(s.broadcastMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it('sends nothing when dispose() happens during a bounded wait', async () => {
+    const s = buildSuite();
+    s.currentSnapshot.mockImplementationOnce(
+      () => new Promise<PlanLimitsSnapshot>(() => undefined),
+    );
+
+    s.emit();
+    await jest.advanceTimersByTimeAsync(PLAN_LIMITS_PUSH_DELAY_MS);
+    s.broadcaster.dispose();
+    await jest.advanceTimersByTimeAsync(PLAN_LIMITS_PUSH_BOUND_MS);
+
+    expect(s.broadcastMessage).not.toHaveBeenCalled();
   });
 
   it('dispose() clears the pending timer and unsubscribes, idempotently', async () => {

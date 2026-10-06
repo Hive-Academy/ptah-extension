@@ -978,21 +978,69 @@ describe('ProviderAuthResolver.resolve — the quota gate', () => {
 });
 
 describe('ProviderAuthResolver draft endpoints', () => {
-  it.each(['local-native', 'local-proxy'] as const)('uses the proposed %s URL without resolving the persisted endpoint', async (authMode) => {
-    const { resolver, ensureProxy } = createHarness({ activeProviderId: 'anthropic', configValues: { 'provider.lm-studio.baseUrl': 'http://old.example:1234' } });
-    const result = await resolver.buildDraftOverride({ providerId: 'lm-studio', authMode, baseUrl: 'http://new.example:4567' });
-    expect(result.baseUrl).toBe('http://new.example:4567');
-    expect(result.env.ANTHROPIC_BASE_URL).toBe('http://new.example:4567');
-    expect(ensureProxy).not.toHaveBeenCalled();
-  });
+  it.each(['local-native', 'local-proxy'] as const)(
+    'uses the proposed %s URL without resolving the persisted endpoint',
+    async (authMode) => {
+      const { resolver, ensureProxy } = createHarness({
+        activeProviderId: 'anthropic',
+        configValues: {
+          'provider.lm-studio.baseUrl': 'http://old.example:1234',
+        },
+      });
+      const result = await resolver.buildDraftOverride({
+        providerId: 'lm-studio',
+        authMode,
+        baseUrl: 'http://new.example:4567',
+      });
+      expect(result.baseUrl).toBe('http://new.example:4567');
+      expect(result.env.ANTHROPIC_BASE_URL).toBe('http://new.example:4567');
+      expect(ensureProxy).not.toHaveBeenCalled();
+    },
+  );
   it('falls back to persisted native resolution when no draft URL is supplied', async () => {
-    const { resolver } = createHarness({ activeProviderId: 'anthropic', configValues: { 'provider.ollama.baseUrl': 'http://saved.example:11434' } });
-    const result = await resolver.buildDraftOverride({ providerId: 'ollama', authMode: 'local-native' });
+    const { resolver } = createHarness({
+      activeProviderId: 'anthropic',
+      configValues: { 'provider.ollama.baseUrl': 'http://saved.example:11434' },
+    });
+    const result = await resolver.buildDraftOverride({
+      providerId: 'ollama',
+      authMode: 'local-native',
+    });
+    expect(result.baseUrl).toBe('http://saved.example:11434');
+  });
+  it('sends an Ollama Cloud apiKey draft straight to ollama.com, not the local daemon', async () => {
+    const { resolver } = createHarness({ activeProviderId: 'anthropic' });
+    const result = await resolver.buildDraftOverride({
+      providerId: 'ollama-cloud',
+      authMode: 'apiKey',
+      credential: { kind: 'apiKey', value: 'ollama-key' },
+    });
+    expect(result.baseUrl).toBe('https://ollama.com');
+    expect(result.env.ANTHROPIC_BASE_URL).toBe('https://ollama.com');
+    expect(result.env.ANTHROPIC_AUTH_TOKEN).toBe('ollama-key');
+  });
+  it('keeps a saved Ollama Cloud URL override for an apiKey draft', async () => {
+    const { resolver } = createHarness({
+      activeProviderId: 'anthropic',
+      configValues: {
+        'provider.ollama-cloud.baseUrl': 'http://saved.example:11434',
+      },
+    });
+    const result = await resolver.buildDraftOverride({
+      providerId: 'ollama-cloud',
+      authMode: 'apiKey',
+      credential: { kind: 'apiKey', value: 'ollama-key' },
+    });
     expect(result.baseUrl).toBe('http://saved.example:11434');
   });
   it('falls back to the existing local proxy when no draft URL is supplied', async () => {
-    const { resolver, ensureProxy } = createHarness({ activeProviderId: 'anthropic' });
-    const result = await resolver.buildDraftOverride({ providerId: 'lm-studio', authMode: 'local-proxy' });
+    const { resolver, ensureProxy } = createHarness({
+      activeProviderId: 'anthropic',
+    });
+    const result = await resolver.buildDraftOverride({
+      providerId: 'lm-studio',
+      authMode: 'local-proxy',
+    });
     expect(ensureProxy).toHaveBeenCalledWith('lm-studio');
     expect(result.baseUrl).toBe('http://127.0.0.1:51234');
   });
@@ -1000,7 +1048,9 @@ describe('ProviderAuthResolver draft endpoints', () => {
     // The draft UI lets the user type a base URL for every mode, but an oauth
     // provider's credential lives behind the curator proxy — a draft URL
     // would pair saved tokens with an endpoint that never issued them.
-    const { resolver, ensureProxy } = createHarness({ activeProviderId: 'anthropic' });
+    const { resolver, ensureProxy } = createHarness({
+      activeProviderId: 'anthropic',
+    });
     const result = await resolver.buildDraftOverride({
       providerId: 'github-copilot',
       authMode: 'oauth',
@@ -1010,6 +1060,8 @@ describe('ProviderAuthResolver draft endpoints', () => {
     expect(result.baseUrl).toBe('http://127.0.0.1:51234');
     expect(result.env.ANTHROPIC_BASE_URL).toBe('http://127.0.0.1:51234');
     expect(result.env.ANTHROPIC_BASE_URL).not.toBe('http://draft.example:9999');
-    expect(result.env.ANTHROPIC_AUTH_TOKEN).toBe(COPILOT_PROXY_TOKEN_PLACEHOLDER);
+    expect(result.env.ANTHROPIC_AUTH_TOKEN).toBe(
+      COPILOT_PROXY_TOKEN_PLACEHOLDER,
+    );
   });
 });

@@ -102,6 +102,11 @@ export interface PlanLimitTileModel {
   readonly id: string;
   readonly kind: PlanLimitTileKind;
   readonly label: string;
+  /** Caption text that may truncate on a closed tile. */
+  readonly captionLead: string;
+  /** Distinguishing suffix that remains visible when the lead truncates. */
+  readonly captionTail?: string;
+  /** Full caption for the tooltip. */
   readonly caption: string;
   readonly value: string;
   readonly resetLine: string;

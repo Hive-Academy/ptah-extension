@@ -23,6 +23,8 @@
  *
  * - 30 s per owner, keyed by owner key. A changed account or key is a new
  *   owner key, so an old owner's data is never served for a new one (Req 4.3).
+ *   The cache keeps at most 64 owners, evicting the least recently read entry
+ *   after a write while preserving owners with an in-flight read.
  * - One read per owner at a time; concurrent callers join it. Each caller's
  *   `AbortSignal` ends only that caller's wait. The read itself is cancelled
  *   once every caller that could cancel it has, and no caller without a
@@ -74,6 +76,8 @@ import type {
 
 /** Per-owner reading cache lifetime; the same as the Codex account cache. */
 export const PLAN_USAGE_CACHE_TTL_MS = 30_000;
+/** Maximum number of owner readings retained in the bounded cache. */
+export const PLAN_USAGE_MAX_OWNERS = 64;
 
 /** Providers that have an owner but no source reporting its limits. */
 const NO_USAGE_SOURCE_PROVIDERS: ReadonlySet<string> = new Set([
@@ -303,6 +307,7 @@ export class PlanUsageService {
     // No open session says nothing about the owner; the next read retries.
     if (reading.unavailableReason !== 'no-open-session') {
       this.cache.set(key, { reading, readAt: this.now() });
+      this.evictCache();
     }
     if (reading.status === 'available') {
       for (const window of reading.windows) {
@@ -310,6 +315,19 @@ export class PlanUsageService {
       }
     }
     return this.assemble(owner, reading);
+  }
+
+  /** Evict least-recently-read settled owners; active reads retain their data. */
+  private evictCache(): void {
+    while (this.cache.size > PLAN_USAGE_MAX_OWNERS) {
+      const eviction = [...this.cache.entries()]
+        .filter(([key]) => !this.flights.has(key))
+        .sort(([, left], [, right]) => left.readAt - right.readAt)[0];
+      if (!eviction) return;
+      const [key] = eviction;
+      this.cache.delete(key);
+      this.failingSince.delete(key);
+    }
   }
 
   /**

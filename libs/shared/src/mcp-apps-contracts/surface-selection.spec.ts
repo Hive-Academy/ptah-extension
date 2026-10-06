@@ -103,6 +103,34 @@ describe('surface selection description', () => {
     ]);
   });
 
+  it('describes a badge selection with its text and tone', () => {
+    expect(
+      describeSurfaceSelection(
+        content([
+          {
+            kind: 'badge',
+            id: 'badge',
+            tone: 'warning',
+            text: { text: 'Slow build' },
+          },
+        ]),
+        { componentId: 'badge', target: { kind: 'badge' } },
+      ),
+    ).toBe(
+      'Component: "badge"\nKind: "badge"\nTitle: "badge"\nText: "Slow build"\nTone: "warning"',
+    );
+  });
+
+  it('returns null for a badge target on a non-badge component', () => {
+    for (const componentId of ['card', 'table', 'stat'])
+      expect(
+        describeSurfaceSelection(content(components), {
+          componentId,
+          target: { kind: 'badge' },
+        }),
+      ).toBeNull();
+  });
+
   it('resolves all v1 kinds, including v1 display children', () => {
     const host: SurfaceContent = {
       contract: 'dashboard-spec/1',
