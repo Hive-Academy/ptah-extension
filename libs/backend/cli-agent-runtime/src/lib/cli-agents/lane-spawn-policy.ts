@@ -165,8 +165,10 @@ function effortMapperFor(
   cli: CliType,
 ): ((effort: string) => string | undefined) | null {
   switch (cli) {
+    // Grok's `reasoning_effort` config option takes the same low..xhigh scale.
     case 'codex':
     case 'copilot':
+    case 'grok':
       return mapEffortToCli;
     case 'antigravity':
       return mapEffortToAgy;
@@ -178,7 +180,7 @@ function effortMapperFor(
 }
 
 /**
- * Allowlist an effort value to what Codex/Copilot accept (`max` → `xhigh`).
+ * Allowlist an effort value to what Codex, Copilot and Grok accept (`max` → `xhigh`).
  * `minimal` → `low`: newer OpenAI models reject `minimal` with a 400.
  */
 function mapEffortToCli(effort: string): string | undefined {

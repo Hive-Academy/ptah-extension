@@ -90,6 +90,7 @@
   },
   "private": true,
   "dependencies": {
+    "@agentclientprotocol/sdk": "1.7.0",
     "@angular/cdk-experimental": "22.1.7",
     "@angular/common": "22.1.7",
     "@angular/compiler": "22.1.7",

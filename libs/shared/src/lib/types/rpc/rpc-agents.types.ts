@@ -116,6 +116,8 @@ export interface AgentOrchestrationConfig {
   cursorModel: string;
   /** Per-CLI model: Antigravity model (empty string = SDK default). No reasoning-effort control — effort is baked into agy's model labels. */
   antigravityModel?: string;
+  /** Per-CLI model: Grok model (empty string = CLI default). No per-CLI reasoning-effort setting. */
+  grokModel?: string;
   /** Per-CLI model: opencode model (empty string = CLI default). Format is `provider/model`, e.g. `anthropic/claude-sonnet-4-5`. */
   opencodeModel?: string;
   /** Per-CLI model: Pi model (empty string = CLI default). Format is `provider/model`, e.g. `openai/gpt-4o`. */
@@ -180,6 +182,7 @@ export interface AgentListCliModelsResult {
   antigravity: CliModelOption[];
   opencode: CliModelOption[];
   pi: CliModelOption[];
+  grok: CliModelOption[];
 }
 
 /**
@@ -229,6 +232,8 @@ export interface AgentSetConfigParams {
   cursorModel?: string;
   /** Antigravity model override (empty string = SDK default). No reasoning-effort control — effort is baked into agy's model labels. */
   antigravityModel?: string;
+  /** Grok model override (empty string = CLI default). No per-CLI reasoning-effort setting. */
+  grokModel?: string;
   /** opencode model override (empty string = CLI default). Format is `provider/model`. */
   opencodeModel?: string;
   /** Pi model override (empty string = CLI default). Format is `provider/model`. */

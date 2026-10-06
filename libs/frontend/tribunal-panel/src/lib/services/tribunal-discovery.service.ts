@@ -64,6 +64,7 @@ const CLI_FAMILIES: readonly {
   },
   { cli: 'opencode', displayName: 'opencode', cliModelKey: 'opencode' },
   { cli: 'pi', displayName: 'Pi', cliModelKey: 'pi' },
+  { cli: 'grok', displayName: 'Grok', cliModelKey: 'grok' },
 ];
 
 const CLI_FAMILY_PROVIDER_IDS: ReadonlySet<string> = new Set([

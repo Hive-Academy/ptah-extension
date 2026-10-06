@@ -95,6 +95,7 @@ const CLI_LABELS: Readonly<Record<CliType, string>> = {
   antigravity: 'Antigravity',
   opencode: 'OpenCode',
   pi: 'Pi',
+  grok: 'Grok',
   'ptah-cli': 'Ptah CLI',
 };
 

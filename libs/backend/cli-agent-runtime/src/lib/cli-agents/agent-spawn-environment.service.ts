@@ -62,6 +62,7 @@ export class AgentSpawnEnvironment {
       antigravity: 'antigravityModel',
       opencode: 'opencodeModel',
       pi: 'piModel',
+      grok: 'grokModel',
     };
 
   constructor(
@@ -102,8 +103,8 @@ export class AgentSpawnEnvironment {
   ) {}
 
   /**
-   * Per-CLI effort setting keys. Antigravity has none (its settings pane is
-   * model-only), so R2.3 step 2 never matches for it.
+   * Per-CLI effort setting keys. Antigravity and Grok have none (their
+   * settings panes are model-only), so R2.3 step 2 never matches for them.
    */
   private static readonly EFFORT_CONFIG_KEYS: Partial<Record<CliType, string>> =
     {
@@ -153,16 +154,20 @@ export class AgentSpawnEnvironment {
     cli: CliType,
     requestModel: string | undefined,
   ): LaneModelResolution {
+    // A whitespace-only value means "unset", never a model id to send.
+    const request = requestModel?.trim() || undefined;
     const configKey = AgentSpawnEnvironment.MODEL_CONFIG_KEYS[cli];
     const configuredModel =
-      !requestModel && configKey
-        ? (this.workspace.getConfiguration<string>(
-            'ptah',
-            `agentOrchestration.${configKey}`,
-            '',
-          ) ?? '')
+      !request && configKey
+        ? (
+            this.workspace.getConfiguration<string>(
+              'ptah',
+              `agentOrchestration.${configKey}`,
+              '',
+            ) ?? ''
+          ).trim()
         : undefined;
-    return resolveLaneModel(cli, requestModel, configuredModel);
+    return resolveLaneModel(cli, request, configuredModel);
   }
 
   /**

@@ -1,5 +1,5 @@
 ---
-description: 'Decompose an implementation plan into file-disjoint batches (Mode 1: write batches.md + mark first batch IN_PROGRESS), then verify each batch on return and commit (Mode 2: read batches.md, request review or commit + assign next), or finalize when all are COMPLETE (Mode 3). Recommend an executor per batch. Use between architect and developers, and after each batch completes. Do not design or code.'
+description: "Decompose an implementation plan into file-disjoint batches (Mode 1: write batches.md + mark first batch IN_PROGRESS), then verify each batch on return and commit (Mode 2: read batches.md, request review or commit + assign next), or finalize when all are COMPLETE (Mode 3). Recommend an executor per batch. Use between architect and developers, and after each batch completes. Do not design or code."
 mode: subagent
 source: ptah
 target-cli: opencode
@@ -20,7 +20,6 @@ Quality gate between a plan and implementation. Decompose into batches one execu
 ## Mode 1 — Decomposition only
 
 ### Input discovery
-
 - Check `.ptah/specs/<TASK_ID>/` exists; if not, clarify which folder.
 - Read `implementation-plan.md` (required unless BUGFIX). For BUGFIX: read `task.md`, `context.md`, `research-report.md` if present.
 - Scan disk for each file the plan names: a file that exists turns "create X" into "extend X".
@@ -29,7 +28,6 @@ Quality gate between a plan and implementation. Decompose into batches one execu
 ### Stress-test (BLOCKER-only)
 
 For each major data contract and error boundary:
-
 - Do producer and consumer field names, types, nullability actually match? (Check code, not assumptions.)
 - If a dependency fails, what is left for the user?
 - Does a required file or library exist on disk?
@@ -39,7 +37,6 @@ Return numbered BLOCKERS with evidence. Stop. Ask for architect revision or rese
 ### Write `batches.md`
 
 For each batch:
-
 - **name**: one-line scope (file names or component names, not prose).
 - **executor**: recommended agent type (backend-developer, frontend-developer, senior-tester, etc.) or CLI agent name.
 - **status**: `IN_PROGRESS` for the first batch; rest `PENDING`.
@@ -52,7 +49,6 @@ Record execution defaults: tool restrictions, branch rules, worktree usage, revi
 ## Mode 2 — Verify and Commit only
 
 ### Check mode
-
 Read `batches.md` first. Identify the IN_PROGRESS batch. Stop here if no executor report yet; tell the user you are waiting.
 
 ### On executor return

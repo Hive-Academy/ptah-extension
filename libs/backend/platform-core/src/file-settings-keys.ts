@@ -191,6 +191,7 @@ export const FILE_BASED_SETTINGS_KEYS = new Set<string>([
   'agentOrchestration.piReasoningEffort',
   'agentOrchestration.cursorModel',
   'agentOrchestration.antigravityModel',
+  'agentOrchestration.grokModel',
   'agentOrchestration.opencodeModel',
   'agentOrchestration.piModel',
   'agentOrchestration.subagentPromptCacheTtl',
@@ -511,6 +512,7 @@ export const FILE_BASED_SETTINGS_DEFAULTS: Record<string, unknown> = {
   'agentOrchestration.piReasoningEffort': '',
   'agentOrchestration.cursorModel': '',
   'agentOrchestration.antigravityModel': '',
+  'agentOrchestration.grokModel': '',
   'agentOrchestration.opencodeModel': '',
   'agentOrchestration.piModel': '',
   // Subagent prompt-cache TTL: 'auto' | '5m' | '1h'. 'auto' asks for 1h only when the session can spawn subagents.

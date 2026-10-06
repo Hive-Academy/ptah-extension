@@ -1,5 +1,6 @@
 import { Injectable, inject, signal } from '@angular/core';
 import { ClaudeRpcService } from '@ptah-extension/core';
+import type { CliType } from '@ptah-extension/shared';
 import type { TaskAgentTarget } from '../types/task-agent.types';
 
 const ORCHESTRATOR_TARGET: TaskAgentTarget = {
@@ -9,13 +10,14 @@ const ORCHESTRATOR_TARGET: TaskAgentTarget = {
   description: 'Run the full task orchestration pipeline.',
 };
 
-const CLI_DISPLAY_NAMES: Readonly<Record<string, string>> = {
+const CLI_DISPLAY_NAMES: Readonly<Record<CliType, string>> = {
   codex: 'Codex',
   copilot: 'Copilot',
   cursor: 'Cursor',
   antigravity: 'Antigravity',
   opencode: 'OpenCode',
   pi: 'Pi',
+  grok: 'Grok',
   'ptah-cli': 'Ptah CLI',
 };
 
@@ -46,32 +48,27 @@ export class TaskAgentDiscoveryService {
 
       const specialists =
         agentsResult.success && agentsResult.data !== undefined
-          ? (agentsResult.data.agents ?? []).map(
-              (agent): TaskAgentTarget => ({
-                id: `specialist:${agent.name}`,
-                name: agent.name,
-                category: 'specialist',
-                description: agent.description,
-                role: agent.name,
-              }),
-            )
+          ? (agentsResult.data.agents ?? []).map((agent): TaskAgentTarget => ({
+              id: `specialist:${agent.name}`,
+              name: agent.name,
+              category: 'specialist',
+              description: agent.description,
+              role: agent.name,
+            }))
           : [];
       const lanes =
         clisResult.success && clisResult.data !== undefined
           ? (clisResult.data.clis ?? [])
               .filter((cli) => cli.installed && cli.disabled !== true)
-              .map(
-                (cli): TaskAgentTarget => ({
-                  id: `lane:${cli.ptahCliId ?? cli.cli}`,
-                  name:
-                    cli.ptahCliName ?? CLI_DISPLAY_NAMES[cli.cli] ?? cli.cli,
-                  category: 'lane',
-                  description: cli.version
-                    ? `Run through ${cli.cli} ${cli.version}.`
-                    : `Run through the ${cli.cli} CLI lane.`,
-                  cli: cli.cli,
-                }),
-              )
+              .map((cli): TaskAgentTarget => ({
+                id: `lane:${cli.ptahCliId ?? cli.cli}`,
+                name: cli.ptahCliName ?? CLI_DISPLAY_NAMES[cli.cli] ?? cli.cli,
+                category: 'lane',
+                description: cli.version
+                  ? `Run through ${cli.cli} ${cli.version}.`
+                  : `Run through the ${cli.cli} CLI lane.`,
+                cli: cli.cli,
+              }))
           : [];
 
       this._availableAgents.set([

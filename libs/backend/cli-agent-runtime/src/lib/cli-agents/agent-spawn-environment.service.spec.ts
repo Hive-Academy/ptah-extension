@@ -127,9 +127,9 @@ describe('AgentSpawnEnvironment', () => {
     const defaults = { steerAt: 40, stopAt: 60, repeatAt: 20 };
 
     it('defaults to 40/60/20 when nothing is set', () => {
-      expect(makeEnvironment().environment.resolveLaneGuardThresholds()).toEqual(
-        defaults,
-      );
+      expect(
+        makeEnvironment().environment.resolveLaneGuardThresholds(),
+      ).toEqual(defaults);
     });
 
     it('uses valid file values', () => {
@@ -335,6 +335,29 @@ describe('AgentSpawnEnvironment', () => {
       expect(environment.resolveModel('codex', undefined)).toEqual({
         model: 'gpt-6-sol',
         source: 'ptah-default',
+      });
+    });
+
+    it('treats a whitespace-only grok setting as the CLI default and trims a real one', () => {
+      expect(
+        makeEnvironment({
+          config: { grokModel: '   ' },
+        }).environment.resolveModel('grok', undefined),
+      ).toEqual({ model: undefined, source: 'cli-default' });
+      expect(
+        makeEnvironment({
+          config: { grokModel: ' grok-4.7 ' },
+        }).environment.resolveModel('grok', undefined),
+      ).toEqual({ model: 'grok-4.7', source: 'setting' });
+    });
+
+    it('ignores a whitespace-only requested model and falls back to the setting', () => {
+      const { environment } = makeEnvironment({
+        config: { grokModel: 'grok-4.7' },
+      });
+      expect(environment.resolveModel('grok', '  ')).toEqual({
+        model: 'grok-4.7',
+        source: 'setting',
       });
     });
 

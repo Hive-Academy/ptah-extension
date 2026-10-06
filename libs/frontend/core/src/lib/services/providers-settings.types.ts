@@ -66,6 +66,7 @@ export type ProvidersOrchestrationField =
   | 'copilotModel'
   | 'cursorModel'
   | 'antigravityModel'
+  | 'grokModel'
   | 'opencodeModel'
   | 'piModel'
   | 'codexReasoningEffort'

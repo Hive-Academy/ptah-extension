@@ -433,6 +433,8 @@ export class TribunalRunService {
         return `cli: "opencode"${modelArg}`;
       case 'pi':
         return `cli: "pi"${modelArg}`;
+      case 'grok':
+        return `cli: "grok"${modelArg}`;
       case 'ptah-cli':
         return `ptahCliId: "${lane.ptahCliId ?? ''}"${modelArg}`;
     }

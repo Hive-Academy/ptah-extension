@@ -183,6 +183,73 @@ describe('agent:setConfig inherit effort (TASK_2026_597)', () => {
   });
 });
 
+describe('grokModel setting (TASK_2026_617)', () => {
+  it('defaults to the empty string (CLI default) when unset', async () => {
+    const h = makeHarness();
+    expect((await h.getConfig()).grokModel).toBe('');
+  });
+
+  it('persists to agentOrchestration.grokModel and reads back the same key', async () => {
+    const h = makeHarness();
+    expect(await h.setConfig({ grokModel: 'grok-4' })).toEqual({
+      success: true,
+    });
+    expect(h.settings.get('ptah.agentOrchestration.grokModel')).toBe('grok-4');
+    expect((await h.getConfig()).grokModel).toBe('grok-4');
+  });
+
+  it('persists an explicit empty string to reset to the CLI default', async () => {
+    const h = makeHarness();
+    await h.setConfig({ grokModel: 'grok-4' });
+    expect(await h.setConfig({ grokModel: '' })).toEqual({ success: true });
+    expect(h.settings.get('ptah.agentOrchestration.grokModel')).toBe('');
+    expect((await h.getConfig()).grokModel).toBe('');
+  });
+
+  it('stores the model trimmed, so whitespace alone resets to the CLI default', async () => {
+    const h = makeHarness();
+    await h.setConfig({ grokModel: '  grok-4.7  ' });
+    expect(h.settings.get('ptah.agentOrchestration.grokModel')).toBe(
+      'grok-4.7',
+    );
+    await h.setConfig({ grokModel: '   ' });
+    expect(h.settings.get('ptah.agentOrchestration.grokModel')).toBe('');
+  });
+
+  it('rejects a non-string grokModel before any write', async () => {
+    const h = makeHarness();
+    await h.setConfig({ grokModel: 'grok-4' });
+    expect(await h.setConfig({ grokModel: 42 })).toEqual({
+      success: false,
+      error: 'Unsupported grokModel value',
+    });
+    expect(h.settings.get('ptah.agentOrchestration.grokModel')).toBe('grok-4');
+  });
+});
+
+describe('CLI model settings share the string check and trim', () => {
+  it('stores the codexModel trimmed', async () => {
+    const h = makeHarness();
+    expect(await h.setConfig({ codexModel: '  gpt-5.5  ' })).toEqual({
+      success: true,
+    });
+    expect(h.settings.get('ptah.agentOrchestration.codexModel')).toBe(
+      'gpt-5.5',
+    );
+  });
+
+  it('rejects a non-string piModel before any write', async () => {
+    const h = makeHarness();
+    expect(await h.setConfig({ codexModel: 'gpt-5.5', piModel: 7 })).toEqual({
+      success: false,
+      error: 'Unsupported piModel value',
+    });
+    expect(h.settings.get('ptah.agentOrchestration.codexModel')).not.toBe(
+      'gpt-5.5',
+    );
+  });
+});
+
 describe('Codex lane budget settings (TASK_2026_597)', () => {
   const budgetKeys = [
     'codexAutoCompactTokens',
@@ -367,7 +434,10 @@ describe('lane tool-call guard settings (TASK_2026_597 Wave D)', () => {
     const h = makeHarness();
     for (const stop of [30, 31]) {
       expect(
-        await h.setConfig({ laneToolCallSteerAt: 31, laneToolCallStopAt: stop }),
+        await h.setConfig({
+          laneToolCallSteerAt: 31,
+          laneToolCallStopAt: stop,
+        }),
       ).toEqual({
         success: false,
         error: 'Unsupported laneToolCallStopAt value',

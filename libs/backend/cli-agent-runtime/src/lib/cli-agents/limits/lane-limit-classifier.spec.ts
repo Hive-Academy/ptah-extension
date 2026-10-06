@@ -128,6 +128,46 @@ describe('classifyLaneLimit', () => {
     });
   });
 
+  describe('Grok free-usage exhaustion (rolling 24 h, no reset instant)', () => {
+    /** `-32003` data from `acp-batch0-fixtures/grok-p3-rate-limited-429.ndjson`. */
+    const ACP_DATA =
+      "API error (status 429 Too Many Requests): subscription:free-usage-exhausted: You've used all the included free usage for model grok-4.7 for now. Usage resets over a rolling 24-hour window — tokens (actual/limit): 611385/600000. Upgrade to a Grok subscription for higher limits: https://grok.com/supergrok";
+    /** `body_preview` object form from the same fixture. */
+    const BODY_PREVIEW = JSON.stringify({
+      code: 'subscription:free-usage-exhausted',
+      error:
+        "You've used all the included free usage for model grok-4.7 for now.",
+    });
+    /** `grok -p` wording observed live 2026-10-06 (curly apostrophe U+2019). */
+    const HEADLESS =
+      'You’ve reached your free Grok Build usage limit for now. Get SuperGrok for much higher limits, or try again later: https://grok.com/supergrok?referrer=grok-build';
+
+    it.each([
+      ['ACP -32003 data', ACP_DATA],
+      ['body_preview object', BODY_PREVIEW],
+      ['grok -p wording', HEADLESS],
+    ])('classifies the %s as owner quota', (_label, text) => {
+      expect(classify('grok', text)).toEqual({
+        failureKind: 'quota',
+        resetSource: 'error-derived',
+        pattern: 'grok-free-usage',
+      });
+    });
+
+    it('matches the headless wording with a straight apostrophe too', () => {
+      expect(
+        classify('grok', "You've reached your free Grok Build usage limit"),
+      ).toMatchObject({ pattern: 'grok-free-usage' });
+    });
+
+    it('does not classify a plain Grok rate limit or another lane', () => {
+      expect(
+        classify('grok', 'Rate limited: 429 Too Many Requests'),
+      ).toBeNull();
+      expect(classify('opencode', ACP_DATA)).toBeNull();
+    });
+  });
+
   describe('F38 — Ollama 429 (provisional)', () => {
     it('classifies a 429 with a limit wording', () => {
       expect(
