@@ -15,9 +15,16 @@ export type BootScanPipeline = 'memory' | 'skills';
  * and a session that was never handled must not be recorded as one that was
  * (TASK_2026_306 Batch 10, F1).
  *
+ * `'failed'` means the callback dispatched work that failed and consumed
+ * nothing (TASK_2026_621). It stops the scan without moving the watermark past
+ * the item, like `'stalled'`, but only while the session is younger than
+ * {@link COLD_START_LOOKBACK_MS}: older than that, even a cold scan would not
+ * reach it again, so holding the watermark for it would block every later
+ * session for nothing. Such a session is let past with a warning.
+ *
  * Required rather than optional so a new pipeline has to answer the question.
  */
-export type BootScanItemOutcome = 'ran' | 'stalled';
+export type BootScanItemOutcome = 'ran' | 'stalled' | 'failed';
 
 export interface BootScanResult {
   readonly scanned: number;
@@ -25,6 +32,8 @@ export interface BootScanResult {
   readonly skipped: number;
   /** Items the gate stopped. Non-zero means the scan ended early, on purpose. */
   readonly stalled: number;
+  /** Items whose pass failed, held or let past (see `BootScanItemOutcome`). */
+  readonly failed: number;
 }
 
 export interface BootScanRunnerOptions {
@@ -95,7 +104,7 @@ export class BootScanRunner {
         '[memory-curator] boot-scan skipped — sessions directory missing',
         { pipeline: options.pipeline },
       );
-      return { scanned: 0, succeeded: 0, skipped: 0, stalled: 0 };
+      return { scanned: 0, succeeded: 0, skipped: 0, stalled: 0, failed: 0 };
     }
 
     const persisted = this.readWatermark(
@@ -127,7 +136,7 @@ export class BootScanRunner {
         sessionsDir,
         error: message,
       });
-      return { scanned: 0, succeeded: 0, skipped: 0, stalled: 0 };
+      return { scanned: 0, succeeded: 0, skipped: 0, stalled: 0, failed: 0 };
     }
 
     const jsonlFiles = entries.filter((e) => e.endsWith('.jsonl'));
@@ -156,6 +165,7 @@ export class BootScanRunner {
     let succeeded = 0;
     let skipped = 0;
     let stalled = 0;
+    let failed = 0;
     let maxMtime = watermark;
 
     for (let i = 0; i < eligible.length; i++) {
@@ -195,8 +205,30 @@ export class BootScanRunner {
           );
           break;
         }
-        succeeded++;
-        if (item.mtime > maxMtime) maxMtime = item.mtime;
+        if (outcome === 'failed') {
+          failed++;
+          if (now - item.mtime < COLD_START_LOOKBACK_MS) {
+            // Same two halves as a stall: stop, and leave the watermark below
+            // this item so the next boot retries it.
+            options.logger.warn(
+              '[memory-curator] boot-scan stopped early — a pass failed; the session is retried next boot',
+              {
+                pipeline: options.pipeline,
+                sessionId: item.sessionId,
+                remaining: eligible.length - i,
+              },
+            );
+            break;
+          }
+          options.logger.warn(
+            '[memory-curator] boot-scan pass failed for a session past the retry window; moving on',
+            { pipeline: options.pipeline, sessionId: item.sessionId },
+          );
+          if (item.mtime > maxMtime) maxMtime = item.mtime;
+        } else {
+          succeeded++;
+          if (item.mtime > maxMtime) maxMtime = item.mtime;
+        }
       } catch (err: unknown) {
         skipped++;
         const message = err instanceof Error ? err.message : String(err);
@@ -225,7 +257,7 @@ export class BootScanRunner {
       );
     }
 
-    return { scanned: eligible.length, succeeded, skipped, stalled };
+    return { scanned: eligible.length, succeeded, skipped, stalled, failed };
   }
 
   /**

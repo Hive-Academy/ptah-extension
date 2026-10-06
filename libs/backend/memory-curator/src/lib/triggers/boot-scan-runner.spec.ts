@@ -123,6 +123,7 @@ describe('BootScanRunner', () => {
       succeeded: 0,
       skipped: 0,
       stalled: 0,
+      failed: 0,
     });
   });
 

@@ -390,3 +390,107 @@ describe('MemoryTriggerService boot scan — the hourly curate budget (TASK_2026
     h.service.stop();
   });
 });
+
+/**
+ * TASK_2026_621. A boot-scan pass whose extract/resolve call failed curated
+ * nothing. Reported as `'ran'`, it advanced the watermark and the next boot's
+ * `mtime > watermark` filter skipped the session for good.
+ */
+describe('MemoryTriggerService boot scan — a failed pass does not advance the watermark (TASK_2026_621)', () => {
+  const now = Date.now();
+  const FAILED = {
+    outcome: 'failed',
+    extracted: 0,
+    merged: 0,
+    created: 0,
+    skipped: 0,
+  };
+
+  it('stops at a failed session inside the retry window and writes no watermark', async () => {
+    const dir = await makeSessionsDir([
+      { name: 'older.jsonl', mtime: now - 3 * DAY_MS },
+      { name: 'newer.jsonl', mtime: now - 1 * DAY_MS },
+    ]);
+    const state: WatermarkState = { value: null };
+    const h = buildHarness({
+      sessionsDir: dir,
+      sqlite: makeSqlite(state),
+      rateLimiter: new CuratorRateLimitService(makeLogger()),
+      maxCuratesPerHour: 20,
+      curateResult: FAILED,
+    });
+
+    h.service.start();
+    await h.bootScanDone;
+
+    expect(h.curate).toHaveBeenCalledTimes(1);
+    expect(h.curate.mock.calls[0][0].sessionId).toBe('older');
+    const bootScan = h.events.find((e) => e.kind === 'boot-scan');
+    expect(bootScan?.stats?.failed).toBe(1);
+    expect(bootScan?.stats?.succeeded).toBe(0);
+    expect(state.value).toBeNull();
+    h.service.stop();
+  });
+
+  it('holds a persisted watermark below the failed session, so the next boot retries it', async () => {
+    const before = now - 5 * DAY_MS;
+    const dir = await makeSessionsDir([
+      { name: 'failing.jsonl', mtime: now - 2 * DAY_MS },
+    ]);
+    const state: WatermarkState = { value: before };
+    const sqlite = makeSqlite(state);
+    const first = buildHarness({
+      sessionsDir: dir,
+      sqlite,
+      rateLimiter: new CuratorRateLimitService(makeLogger()),
+      maxCuratesPerHour: 20,
+      curateResult: FAILED,
+    });
+    first.service.start();
+    await first.bootScanDone;
+    first.service.stop();
+    expect(state.value).toBe(before);
+
+    const second = buildHarness({
+      sessionsDir: dir,
+      sqlite,
+      rateLimiter: new CuratorRateLimitService(makeLogger()),
+      maxCuratesPerHour: 20,
+    });
+    second.service.start();
+    await second.bootScanDone;
+    expect(second.curate).toHaveBeenCalledTimes(1);
+    expect(second.curate.mock.calls[0][0].sessionId).toBe('failing');
+    expect(Math.floor(state.value as number)).toBeGreaterThanOrEqual(
+      now - 2 * DAY_MS - 1,
+    );
+    second.service.stop();
+  });
+
+  it('bound: a failed session older than the 7-day retry window is let past so it cannot block the scan', async () => {
+    const dir = await makeSessionsDir([
+      { name: 'stale.jsonl', mtime: now - 9 * DAY_MS },
+      { name: 'fresh.jsonl', mtime: now - 1 * DAY_MS },
+    ]);
+    const state: WatermarkState = { value: now - 10 * DAY_MS };
+    const h = buildHarness({
+      sessionsDir: dir,
+      sqlite: makeSqlite(state),
+      rateLimiter: new CuratorRateLimitService(makeLogger()),
+      maxCuratesPerHour: 20,
+    });
+    h.curate.mockResolvedValueOnce(FAILED);
+
+    h.service.start();
+    await h.bootScanDone;
+
+    expect(h.curate).toHaveBeenCalledTimes(2);
+    const bootScan = h.events.find((e) => e.kind === 'boot-scan');
+    expect(bootScan?.stats?.failed).toBe(1);
+    expect(bootScan?.stats?.succeeded).toBe(1);
+    expect(Math.floor(state.value as number)).toBeGreaterThanOrEqual(
+      now - 1 * DAY_MS - 1,
+    );
+    h.service.stop();
+  });
+});

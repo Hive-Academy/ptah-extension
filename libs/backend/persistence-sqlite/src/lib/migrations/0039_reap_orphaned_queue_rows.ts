@@ -77,12 +77,21 @@
  * gone; `SqliteBackupService.pre-migration` is the canonical recovery path.
  * Re-running is prevented by the runner's `schema_migrations` ledger, and would
  * in any case only reap a further 30-day-old cohort.
+ *
+ * ## TASK_2026_621: `observation_queue` is no longer reaped
+ *
+ * The original text also deleted unprocessed `observation_queue` rows older
+ * than 30 days. That contradicts the rule that nothing deletes an observation
+ * extraction never processed (memory retention now keeps and counts them), so
+ * the statement was removed. The runner keys applied migrations by version
+ * only (`schema_migrations`, no checksum — `migration-runner.ts`), so an
+ * install already past 0039 is unaffected and an install still before it no
+ * longer loses those rows. Rows a past run of 0039 deleted are not recoverable
+ * by this change. The `skill_synthesis_queue` reap below is unchanged; the
+ * "Deletes, in `observation_queue`" paragraph above describes the original
+ * statement only.
  */
 export const sql = `
-DELETE FROM observation_queue
- WHERE processed_at IS NULL
-   AND captured_at < (CAST(strftime('%s', 'now', '-30 days') AS INTEGER) * 1000);
-
 DELETE FROM skill_synthesis_queue
  WHERE status = 'queued'
    AND attempt_count = 0

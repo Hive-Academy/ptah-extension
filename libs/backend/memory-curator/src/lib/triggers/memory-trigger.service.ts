@@ -1060,7 +1060,9 @@ export class MemoryTriggerService {
             this.refundIfNetworkDeferred(stats);
             return 'stalled';
           }
-          return 'ran';
+          // A failed pass curated nothing either; the runner holds the
+          // watermark for it within a bounded window (TASK_2026_621).
+          return stats.outcome;
         },
       });
       this.curator.pushEvent({
@@ -1071,6 +1073,7 @@ export class MemoryTriggerService {
           succeeded: result.succeeded,
           skipped: result.skipped,
           stalled: result.stalled,
+          failed: result.failed,
         },
       });
     } catch (err: unknown) {
