@@ -131,11 +131,11 @@ const KNOWN_CLOUD_MODELS: Record<string, CloudModelMeta> = {
     description: '256K context \u2022 vision, tools, thinking',
   },
   'glm-5.3': {
-    contextLength: 200000,
+    contextLength: 1000000,
     supportsToolUse: true,
     supportsThinking: true,
     supportsVision: false,
-    description: '200K context \u2022 tools, thinking',
+    description: '1M context \u2022 tools, thinking',
   },
   'gpt-oss:20b': {
     tag: 'gpt-oss:20b-cloud',
