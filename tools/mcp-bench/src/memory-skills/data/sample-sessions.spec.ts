@@ -5,6 +5,7 @@ import {
   readdir,
   rm,
   stat,
+  utimes,
   writeFile,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -17,6 +18,11 @@ import {
   type SessionScan,
 } from './sample-sessions';
 import { sha256 } from './verify-candidate-manifest';
+
+/** A clock reading after the eval window closed. */
+const AFTER_WINDOW = Date.parse('2026-10-08T00:00:00Z');
+/** An mtime inside the eval window. */
+const IN_WINDOW_MTIME = new Date('2026-10-04T00:00:00Z');
 
 const CWD = 'D:\\work\\synthetic-repo';
 
@@ -53,6 +59,7 @@ describe('classifySession', () => {
     bytes: MIN_BYTES + 1,
     lines: 3,
     unparseableLines: 0,
+    modifiedAt: '2026-10-03T00:00:00.000Z',
     firstTimestamp: '2026-10-02T10:00:00.000Z',
     lastTimestamp: '2026-10-02T11:00:00.000Z',
     cwds: [CWD],
@@ -116,6 +123,37 @@ describe('classifySession', () => {
     ).toBe('no-timestamps');
   });
 
+  it('excludes a session with any unparseable line (captured mid-write)', () => {
+    expect(classifySession(scan({ unparseableLines: 1 }), []).exclusion).toBe(
+      'unparseable-lines',
+    );
+    expect(
+      classifySession(scan({ unparseableLines: 1 }), []).unparseableLines,
+    ).toBe(1);
+  });
+
+  it('excludes a session still written after the eval window closed', () => {
+    expect(
+      classifySession(scan({ modifiedAt: '2026-10-07T00:00:00.000Z' }), [])
+        .exclusion,
+    ).toBe('modified-after-window');
+    expect(
+      classifySession(scan({ modifiedAt: '2026-10-06T23:59:59.000Z' }), [])
+        .exclusion,
+    ).toBeNull();
+  });
+
+  it('matches task-619 worktrees only, not task-6190 and the like', () => {
+    const exclusion = (cwd: string): string | null =>
+      classifySession(scan({ cwds: [cwd] }), []).exclusion;
+    expect(exclusion('/r/.claude-worktrees/task-619')).toBe('worktree-619-cwd');
+    expect(exclusion('/r/.claude-worktrees/task-619-tool-benchmark')).toBe(
+      'worktree-619-cwd',
+    );
+    expect(exclusion('/r/.claude-worktrees/task-6195-other')).toBeNull();
+    expect(exclusion('/r/.claude-worktrees/task-6190')).toBeNull();
+  });
+
   it('orders by sha256(prefix + filename)', () => {
     expect(classifySession(scan({ file: 'f.jsonl' }), []).orderKey).toBe(
       sha256(`${SAMPLE_ORDER_PREFIX}f.jsonl`),
@@ -159,7 +197,15 @@ describe('sampleSessions', () => {
       ),
       'utf8',
     );
+    await writeFile(
+      join(sourceDir, 'partial.jsonl'),
+      `${transcript(['2026-10-02T10:00:00Z', '2026-10-03T10:00:00Z'])}{"type":"assistant","timestamp":"2026-10-03T11:00:00Z","mess`,
+      'utf8',
+    );
     await writeFile(join(sourceDir, 'notes.txt'), 'not a transcript', 'utf8');
+    for (const file of await readdir(sourceDir)) {
+      await utimes(join(sourceDir, file), IN_WINDOW_MTIME, IN_WINDOW_MTIME);
+    }
   });
   afterEach(async () => {
     await rm(root, { recursive: true, force: true });
@@ -183,6 +229,7 @@ describe('sampleSessions', () => {
       sourceDir,
       sampleSize: 4,
       tempRoots: [],
+      now: AFTER_WINDOW,
     });
 
     const expected = [0, 1, 2, 3, 4, 5]
@@ -199,16 +246,24 @@ describe('sampleSessions', () => {
         join(result.outputDir, 'transcripts', s.file),
       );
       expect(sha256(copy)).toBe(s.sha256);
+      expect(s.bytes).toBe(copy.length);
+      expect(s.lines).toBe(3);
       expect(s.opaqueId).toMatch(/^RS-[0-9A-F]{12}$/);
     }
     expect(result.manifest.counts).toMatchObject({
-      files: 9,
+      files: 10,
       'window:eval': 6,
       'window:seed': 1,
       'excluded:size-out-of-range': 1,
       'excluded:worktree-619-cwd': 1,
+      'excluded:unparseable-lines': 1,
       eligibleEval: 6,
+      rejectedAtCopy: 0,
     });
+    expect(result.manifest.sessions.map((s) => s.file)).not.toContain(
+      'partial.jsonl',
+    );
+    expect(result.manifest.rejectedAtCopy).toEqual([]);
 
     // Nothing outside the bench dir changed and nothing was written beside the source.
     const sourceAfter = await Promise.all(
@@ -234,15 +289,62 @@ describe('sampleSessions', () => {
     expect(written).toHaveLength(5);
   });
 
+  it('excludes a session whose file was written after the window closed', async () => {
+    const late = new Date('2026-10-07T09:00:00Z');
+    await utimes(join(sourceDir, 'eval-0.jsonl'), late, late);
+    const result = await sampleSessions({
+      benchDataDir,
+      sourceDir,
+      sampleSize: 5,
+      tempRoots: [],
+      now: AFTER_WINDOW,
+    });
+    expect(result.manifest.counts['excluded:modified-after-window']).toBe(1);
+    expect(result.manifest.sessions.map((s) => s.file)).not.toContain(
+      'eval-0.jsonl',
+    );
+    expect(result.manifest.provisional).toBe(false);
+  });
+
+  it('refuses to sample while the eval window is open unless asked, then marks it provisional', async () => {
+    const open = Date.parse('2026-10-06T12:00:00Z');
+    await expect(
+      sampleSessions({
+        benchDataDir,
+        sourceDir,
+        sampleSize: 2,
+        tempRoots: [],
+        now: open,
+      }),
+    ).rejects.toThrow('still open');
+    expect(await listAll(benchDataDir)).toEqual([]);
+    const result = await sampleSessions({
+      benchDataDir,
+      sourceDir,
+      sampleSize: 2,
+      tempRoots: [],
+      now: open,
+      allowOpenWindow: true,
+    });
+    expect(result.manifest.provisional).toBe(true);
+  });
+
   it('refuses to replace an existing sample without overwrite', async () => {
     await sampleSessions({
       benchDataDir,
       sourceDir,
       sampleSize: 2,
       tempRoots: [],
+      now: AFTER_WINDOW,
     });
     await expect(
-      sampleSessions({ benchDataDir, sourceDir, sampleSize: 2, tempRoots: [] }),
+      sampleSessions({
+        benchDataDir,
+        sourceDir,
+        sampleSize: 2,
+        tempRoots: [],
+        now: AFTER_WINDOW,
+      }),
     ).rejects.toThrow('already exists');
   });
 
@@ -253,6 +355,7 @@ describe('sampleSessions', () => {
         sourceDir,
         sampleSize: 20,
         tempRoots: [],
+        now: AFTER_WINDOW,
       }),
     ).rejects.toThrow('Only 6 eligible');
     expect(await listAll(benchDataDir)).toEqual([]);
@@ -265,6 +368,7 @@ describe('sampleSessions', () => {
         sourceDir,
         sampleSize: 1,
         tempRoots: [],
+        now: AFTER_WINDOW,
       }),
     ).rejects.toThrow('must not contain each other');
   });

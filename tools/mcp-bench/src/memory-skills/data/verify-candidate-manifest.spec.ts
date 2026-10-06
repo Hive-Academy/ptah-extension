@@ -1,8 +1,7 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
-import { homedir, tmpdir } from 'node:os';
+import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
-  assertSafeBenchDataDir,
   computeManifestSha256,
   sha256,
   verifyCandidateManifest,
@@ -128,45 +127,84 @@ describe('verifyCandidateManifest', () => {
   });
 });
 
-describe('assertSafeBenchDataDir', () => {
-  it('refuses ~/.ptah and anything under it, case-folded on Windows', () => {
+describe('verifyCandidateManifest copy walk', () => {
+  let benchDataDir: string;
+  beforeEach(async () => {
+    benchDataDir = await mkdtemp(join(tmpdir(), 'ptah-620-walk-'));
+  });
+  afterEach(async () => {
+    await rm(benchDataDir, { recursive: true, force: true });
+  });
+
+  it('reports an empty dir as a problem and counts it as a top-level dir', async () => {
+    await writeCopy(benchDataDir, { 'alpha-skill/SKILL.md': 'a' });
+    await mkdir(
+      join(benchDataDir, 'snapshots', 'cands', 'hollow-skill', 'references'),
+      {
+        recursive: true,
+      },
+    );
+    const report = await verifyCandidateManifest({
+      benchDataDir,
+      snapshotName: 'cands',
+      expectedManifestSha256: null,
+    });
+    expect(report.ok).toBe(false);
+    expect(report.dirsOnDisk).toBe(2);
+    expect(report.emptyDirs).toEqual([
+      'hollow-skill',
+      'hollow-skill/references',
+    ]);
+    expect(report.problems.join(' ')).toContain('hold no file');
+    expect(report.filesVerified).toBe(1);
+  });
+
+  it('reports a link or junction instead of aborting or following it', async () => {
+    await writeCopy(benchDataDir, { 'alpha-skill/SKILL.md': 'a' });
+    const outside = join(benchDataDir, 'outside');
+    await mkdir(outside);
+    await writeFile(join(outside, 'SKILL.md'), 'x', 'utf8');
+    await symlink(
+      outside,
+      join(benchDataDir, 'snapshots', 'cands', 'linked-skill'),
+      process.platform === 'win32' ? 'junction' : 'dir',
+    );
+    const report = await verifyCandidateManifest({
+      benchDataDir,
+      snapshotName: 'cands',
+      expectedManifestSha256: null,
+    });
+    expect(report.ok).toBe(false);
+    expect(report.nonRegular).toEqual(['linked-skill']);
+    expect(report.extra).toEqual([]);
+    expect(report.problems.join(' ')).toContain('non-regular');
+  });
+});
+
+describe('bench data dir rules (619 resolveBenchDataDir)', () => {
+  it('refuses a dir under the real ~/.ptah', async () => {
     const home = join(tmpdir(), 'ptah-620-fake-home');
-    const guard = { homeDir: home, repoRoot: null };
-    expect(() => assertSafeBenchDataDir(join(home, '.ptah'), guard)).toThrow(
-      'real ~/.ptah',
-    );
-    expect(() =>
-      assertSafeBenchDataDir(join(home, '.ptah', 'bench-snapshots'), guard),
-    ).toThrow('real ~/.ptah');
-    if (process.platform === 'win32') {
-      expect(() =>
-        assertSafeBenchDataDir(join(home, '.PTAH', 'x'), guard),
-      ).toThrow('real ~/.ptah');
-    }
-    expect(assertSafeBenchDataDir(join(home, '.ptah-bench'), guard)).toContain(
-      '.ptah-bench',
-    );
-  });
-
-  it('defaults to the user home', () => {
-    expect(() =>
-      assertSafeBenchDataDir(join(homedir(), '.ptah', 'x'), { repoRoot: null }),
-    ).toThrow('real ~/.ptah');
-  });
-
-  it('refuses a dir inside the repository', () => {
-    expect(() =>
-      assertSafeBenchDataDir(join(process.cwd(), 'tmp-bench'), {
-        repoRoot: process.cwd(),
+    await expect(
+      verifyCandidateManifest({
+        benchDataDir: join(home, '.ptah', 'bench'),
+        benchDataRules: { realHome: home },
       }),
-    ).toThrow('inside the repository');
+    ).rejects.toThrow('real Ptah state directory');
   });
 
-  it('refuses relative and empty paths and accepts a temp dir', () => {
-    expect(() => assertSafeBenchDataDir('relative/bench')).toThrow('absolute');
-    expect(() => assertSafeBenchDataDir(' ')).toThrow('empty');
-    expect(
-      assertSafeBenchDataDir(join(tmpdir(), 'ptah-620-ok'), { repoRoot: null }),
-    ).toContain('ptah-620-ok');
+  it('refuses a dir inside the repository root it is given', async () => {
+    const repo = join(tmpdir(), 'ptah-620-fake-repo');
+    await expect(
+      verifyCandidateManifest({
+        benchDataDir: join(repo, 'bench'),
+        benchDataRules: { repoRoot: repo },
+      }),
+    ).rejects.toThrow('inside it');
+  });
+
+  it('refuses a relative dir', async () => {
+    await expect(
+      verifyCandidateManifest({ benchDataDir: 'relative/bench' }),
+    ).rejects.toThrow('absolute');
   });
 });

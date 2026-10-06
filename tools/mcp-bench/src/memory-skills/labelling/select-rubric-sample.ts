@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { readFile, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
+import { BENCH_DATA_DIR_ENV, resolveBenchDataDir } from '../../bench-data';
 import {
   FROZEN_SNAPSHOT_FILE,
   FROZEN_SNAPSHOT_SHA256,
@@ -10,10 +11,9 @@ import {
 } from '../data/candidate-row-diff';
 import {
   FROZEN_CANDIDATES_NAME,
-  assertSafeBenchDataDir,
   compareCodePoints,
   sha256,
-  type BenchDataDirGuardOptions,
+  type BenchDataRules,
 } from '../data/verify-candidate-manifest';
 
 /** Strata of `gt-skill-rubric@v1` (benchmark-design.md §4.1). */
@@ -587,9 +587,7 @@ function medianOf(values: readonly number[]): number {
     : ((sorted[mid - 1] ?? 0) + (sorted[mid] ?? 0)) / 2;
 }
 
-// ---------------------------------------------------------------------------
 // Inputs from the repository (pinned commit) and the bench data dir.
-// ---------------------------------------------------------------------------
 
 /** Read-only view of the repository at a commit. */
 export interface GitTreeReader {
@@ -669,7 +667,8 @@ export interface LoadRubricInputsOptions {
   snapshotFile?: string;
   candidatesName?: string;
   expectedSnapshotSha256?: string | null;
-  guard?: BenchDataDirGuardOptions;
+  /** Overrides for 619's bench-data rules (specs only). */
+  benchDataRules?: BenchDataRules;
 }
 
 export const SKILLS_PREFIX = '.claude/skills/';
@@ -677,10 +676,10 @@ export const SKILLS_PREFIX = '.claude/skills/';
 export async function loadRubricSampleInputs(
   options: LoadRubricInputsOptions,
 ): Promise<LoadedRubricInputs> {
-  const benchDataDir = assertSafeBenchDataDir(
-    options.benchDataDir,
-    options.guard,
-  );
+  const benchDataDir = resolveBenchDataDir({
+    ...options.benchDataRules,
+    env: { [BENCH_DATA_DIR_ENV]: options.benchDataDir },
+  });
   const commit = await options.git.resolveCommit(options.commitRef);
   const trackedSkillSlugs = (await options.git.listFiles(commit, SKILLS_PREFIX))
     .map((p) => /^\.claude\/skills\/([^/]+)\/SKILL\.md$/.exec(p)?.[1])

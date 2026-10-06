@@ -8,11 +8,11 @@ import {
   writeFile,
 } from 'node:fs/promises';
 import { dirname, join, posix } from 'node:path';
+import { BENCH_DATA_DIR_ENV, resolveBenchDataDir } from '../../bench-data';
 import {
-  assertSafeBenchDataDir,
   compareCodePoints,
   sha256,
-  type BenchDataDirGuardOptions,
+  type BenchDataRules,
 } from '../data/verify-candidate-manifest';
 import {
   SKILLS_PREFIX,
@@ -77,7 +77,8 @@ export interface BuildPacketOptions {
   provenance: Record<string, string | number | null>;
   /** Replace an existing packet; refused when any rater CSV already holds scores. */
   overwrite?: boolean;
-  guard?: BenchDataDirGuardOptions;
+  /** Overrides for 619's bench-data rules (specs only). */
+  benchDataRules?: BenchDataRules;
 }
 
 export interface IdMapEntry {
@@ -115,10 +116,10 @@ export interface PacketResult {
 export async function buildLabellingPacket(
   options: BuildPacketOptions,
 ): Promise<PacketResult> {
-  const benchDataDir = assertSafeBenchDataDir(
-    options.benchDataDir,
-    options.guard,
-  );
+  const benchDataDir = resolveBenchDataDir({
+    ...options.benchDataRules,
+    env: { [BENCH_DATA_DIR_ENV]: options.benchDataDir },
+  });
   const raterIds = [...(options.raterIds ?? ['r1', 'r2'])];
   if (raterIds.length < 2)
     throw new Error('A blind packet needs at least two raters');
@@ -168,7 +169,7 @@ export async function buildLabellingPacket(
   for (const raterId of raterIds)
     orders[raterId] = shuffleForRater(sample.seed, raterId, ids);
   const orderKeys = new Set(Object.values(orders).map((o) => o.join(',')));
-  if (ids.length > 2 && orderKeys.size !== raterIds.length) {
+  if (ids.length >= 2 && orderKeys.size !== raterIds.length) {
     throw new Error('Two raters received the same document order');
   }
 

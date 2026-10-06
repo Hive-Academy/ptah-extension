@@ -1,9 +1,12 @@
 import { createHash } from 'node:crypto';
-import { existsSync, realpathSync } from 'node:fs';
 import { readFile, readdir } from 'node:fs/promises';
-import { homedir } from 'node:os';
-import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
+import { join } from 'node:path';
 import { z } from 'zod';
+import {
+  BENCH_DATA_DIR_ENV,
+  resolveBenchDataDir,
+  type ResolveBenchDataDirOptions,
+} from '../../bench-data';
 
 /** Frozen candidate copy taken on 2026-10-06 (context.md, Status). */
 export const FROZEN_CANDIDATES_NAME = 'skill-candidates-20261006';
@@ -47,59 +50,29 @@ export interface CandidateManifestReport {
   missing: string[];
   extra: string[];
   changed: ChangedFile[];
+  /** Dirs (at any depth) whose subtree holds no regular file. */
+  emptyDirs: string[];
+  /** Entries that are neither a regular file nor a directory; reported, not followed. */
+  nonRegular: string[];
   problems: string[];
 }
 
 export interface VerifyCandidateManifestOptions {
-  /** Bench data root (`PTAH_MCP_BENCH_DATA_DIR`); explicit until 619's `resolveBenchDataDir()` lands. */
+  /** Bench data root; validated by 619's `resolveBenchDataDir` rules. */
   benchDataDir: string;
   /** Folder under `<benchDataDir>/snapshots/`; the manifest is `<name>.manifest.json` beside it. */
   snapshotName?: string;
   /** Expected `manifestSha256`; `null` skips the pin (synthetic specs pass their own). */
   expectedManifestSha256?: string | null;
-  /** Guard overrides (specs only). */
-  guard?: BenchDataDirGuardOptions;
+  /** Overrides for the bench-data rules (specs only). */
+  benchDataRules?: BenchDataRules;
 }
 
-export interface BenchDataDirGuardOptions {
-  /** Home directory whose `.ptah` is the real product state. Defaults to `os.homedir()`. */
-  homeDir?: string;
-  /** Repository root. Defaults to the nearest ancestor of `process.cwd()` holding `.git`. */
-  repoRoot?: string | null;
-}
-
-/**
- * Returns the absolute bench data dir, or throws when it sits under the real
- * `~/.ptah` or inside the repository (benchmarks never touch product state and
- * private data is never written where git can pick it up). Replaced by 619's
- * `resolveBenchDataDir()` in Batch 16.
- */
-export function assertSafeBenchDataDir(
-  dir: string,
-  options: BenchDataDirGuardOptions = {},
-): string {
-  if (dir.trim() === '') throw new Error('Bench data dir is empty');
-  if (!isAbsolute(dir)) {
-    throw new Error(`Bench data dir must be an absolute path: ${dir}`);
-  }
-  const target = canonicalPath(dir);
-  const realPtah = canonicalPath(join(options.homeDir ?? homedir(), '.ptah'));
-  if (isWithin(target, realPtah)) {
-    throw new Error(
-      `Refusing bench data dir under the real ~/.ptah: ${target} (${realPtah})`,
-    );
-  }
-  const repoRoot =
-    options.repoRoot === undefined
-      ? findRepoRoot(process.cwd())
-      : options.repoRoot;
-  if (repoRoot !== null && isWithin(target, canonicalPath(repoRoot))) {
-    throw new Error(
-      `Refusing bench data dir inside the repository: ${target} (${repoRoot})`,
-    );
-  }
-  return target;
-}
+/** The `resolveBenchDataDir` inputs a caller may override; the dir itself is explicit. */
+export type BenchDataRules = Pick<
+  ResolveBenchDataDirOptions,
+  'realHome' | 'repoRoot' | 'platform'
+>;
 
 /**
  * `manifestSha256` as the freeze script computed it: sha256 of Python's
@@ -123,10 +96,10 @@ export function computeManifestSha256(
 export async function verifyCandidateManifest(
   options: VerifyCandidateManifestOptions,
 ): Promise<CandidateManifestReport> {
-  const benchDataDir = assertSafeBenchDataDir(
-    options.benchDataDir,
-    options.guard,
-  );
+  const benchDataDir = resolveBenchDataDir({
+    ...options.benchDataRules,
+    env: { [BENCH_DATA_DIR_ENV]: options.benchDataDir },
+  });
   const name = options.snapshotName ?? FROZEN_CANDIDATES_NAME;
   const snapshotsDir = join(benchDataDir, 'snapshots');
   const copyDir = join(snapshotsDir, name);
@@ -159,8 +132,19 @@ export async function verifyCandidateManifest(
     );
   }
 
-  const onDisk = await listFiles(copyDir);
-  const dirsOnDisk = new Set(onDisk.map((p) => p.split('/')[0])).size;
+  const walked = await walkCopy(copyDir);
+  const onDisk = walked.files;
+  const dirsOnDisk = walked.topLevelDirs.length;
+  if (walked.emptyDirs.length > 0) {
+    problems.push(
+      `${walked.emptyDirs.length} dir(s) hold no file: ${walked.emptyDirs.slice(0, 5).join(', ')}`,
+    );
+  }
+  if (walked.nonRegular.length > 0) {
+    problems.push(
+      `${walked.nonRegular.length} non-regular entr(y/ies) (link, junction, device): ${walked.nonRegular.slice(0, 5).join(', ')}`,
+    );
+  }
   if (dirsOnDisk !== manifest.dirs) {
     problems.push(
       `copy has ${dirsOnDisk} top-level dirs, manifest declares ${manifest.dirs}`,
@@ -205,6 +189,8 @@ export async function verifyCandidateManifest(
     missing,
     extra,
     changed,
+    emptyDirs: walked.emptyDirs,
+    nonRegular: walked.nonRegular,
     problems,
   };
 }
@@ -227,60 +213,63 @@ export function compareCodePoints(a: string, b: string): number {
   return left.length - right.length;
 }
 
-/** Every regular file under `root`, as `/`-separated paths relative to it. */
-async function listFiles(root: string): Promise<string[]> {
-  const out: string[] = [];
-  const walk = async (dir: string, prefix: string): Promise<void> => {
+interface CopyWalk {
+  files: string[];
+  topLevelDirs: string[];
+  emptyDirs: string[];
+  nonRegular: string[];
+}
+
+/**
+ * Walks the copy: regular files as `/`-separated relative paths, every
+ * top-level dir (including empty ones), dirs whose subtree holds no file, and
+ * non-regular entries, which are reported instead of followed.
+ */
+async function walkCopy(root: string): Promise<CopyWalk> {
+  const result: CopyWalk = {
+    files: [],
+    topLevelDirs: [],
+    emptyDirs: [],
+    nonRegular: [],
+  };
+  const walk = async (dir: string, prefix: string): Promise<number> => {
+    let filesBelow = 0;
     const entries = await readdir(dir, { withFileTypes: true });
     for (const entry of entries) {
       const rel = prefix === '' ? entry.name : `${prefix}/${entry.name}`;
-      if (entry.isDirectory()) await walk(join(dir, entry.name), rel);
-      else if (entry.isFile()) out.push(rel);
-      else throw new Error(`Unexpected non-regular entry in copy: ${rel}`);
+      if (entry.isDirectory()) {
+        if (prefix === '') result.topLevelDirs.push(rel);
+        const below = await walk(join(dir, entry.name), rel);
+        if (below === 0) result.emptyDirs.push(rel);
+        filesBelow += below;
+      } else if (entry.isFile()) {
+        result.files.push(rel);
+        filesBelow += 1;
+      } else {
+        result.nonRegular.push(rel);
+      }
     }
+    return filesBelow;
   };
   await walk(root, '');
-  return out;
+  result.emptyDirs.sort(compareCodePoints);
+  result.nonRegular.sort(compareCodePoints);
+  return result;
 }
+
+const BACKSLASH = String.fromCharCode(0x5c);
 
 function pythonJsonString(value: string): string {
   // JSON.stringify escapes quotes, backslashes and control characters as
-  // Python does; Python additionally escapes every non-ASCII code unit.
-  return JSON.stringify(value).replace(
-    /[\u0080-￿]/g,
-    (ch) => `\\u${ch.charCodeAt(0).toString(16).padStart(4, '0')}`,
-  );
-}
-
-function canonicalPath(path: string): string {
-  let resolved = resolve(path);
-  // Resolve the deepest existing ancestor so a junction or symlink cannot hide
-  // a path under ~/.ptah or the repository.
-  let probe = resolved;
-  const tail: string[] = [];
-  while (!existsSync(probe)) {
-    const parent = dirname(probe);
-    if (parent === probe) break;
-    tail.unshift(probe.slice(parent.length).replace(/^[\\/]/, ''));
-    probe = parent;
+  // Python does; Python additionally escapes every non-ASCII UTF-16 code unit.
+  const json = JSON.stringify(value);
+  let out = '';
+  for (let i = 0; i < json.length; i += 1) {
+    const code = json.charCodeAt(i);
+    out +=
+      code > 0x7f
+        ? BACKSLASH + 'u' + code.toString(16).padStart(4, '0')
+        : json.charAt(i);
   }
-  if (existsSync(probe)) resolved = join(realpathSync.native(probe), ...tail);
-  return resolved;
-}
-
-function isWithin(target: string, root: string): boolean {
-  const fold = (p: string): string =>
-    process.platform === 'win32' ? p.toLowerCase() : p;
-  const rel = relative(fold(root), fold(target));
-  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
-}
-
-function findRepoRoot(start: string): string | null {
-  let dir = resolve(start);
-  for (;;) {
-    if (existsSync(join(dir, '.git'))) return dir;
-    const parent = dirname(dir);
-    if (parent === dir) return null;
-    dir = parent;
-  }
+  return out;
 }

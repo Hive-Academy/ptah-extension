@@ -2,11 +2,11 @@ import { createHash } from 'node:crypto';
 import { createReadStream, existsSync } from 'node:fs';
 import { mkdir, readdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { BENCH_DATA_DIR_ENV, resolveBenchDataDir } from '../../bench-data';
 import {
   FROZEN_CANDIDATES_NAME,
-  assertSafeBenchDataDir,
   compareCodePoints,
-  type BenchDataDirGuardOptions,
+  type BenchDataRules,
 } from './verify-candidate-manifest';
 
 /** Snapshot taken on 2026-10-06 (context.md, Status). */
@@ -123,7 +123,8 @@ export interface CandidateRowDiffOptions {
   candidatesName?: string;
   /** `null` skips the frozen-hash pin (specs pass synthetic snapshots). */
   expectedSnapshotSha256?: string | null;
-  guard?: BenchDataDirGuardOptions;
+  /** Overrides for 619's bench-data rules (specs only). */
+  benchDataRules?: BenchDataRules;
 }
 
 export interface CandidateRowDiffResult {
@@ -202,10 +203,10 @@ export function diffCandidateRows(
 export async function runCandidateRowDiff(
   options: CandidateRowDiffOptions,
 ): Promise<CandidateRowDiffResult> {
-  const benchDataDir = assertSafeBenchDataDir(
-    options.benchDataDir,
-    options.guard,
-  );
+  const benchDataDir = resolveBenchDataDir({
+    ...options.benchDataRules,
+    env: { [BENCH_DATA_DIR_ENV]: options.benchDataDir },
+  });
   const snapshotFile = options.snapshotFile ?? FROZEN_SNAPSHOT_FILE;
   const candidatesName = options.candidatesName ?? FROZEN_CANDIDATES_NAME;
   const snapshotPath = join(benchDataDir, 'snapshots', snapshotFile);

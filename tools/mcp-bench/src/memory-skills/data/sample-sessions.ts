@@ -11,12 +11,12 @@ import {
 import { tmpdir } from 'node:os';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
+import { BENCH_DATA_DIR_ENV, resolveBenchDataDir } from '../../bench-data';
 import { sha256File } from './candidate-row-diff';
 import {
-  assertSafeBenchDataDir,
   compareCodePoints,
   sha256,
-  type BenchDataDirGuardOptions,
+  type BenchDataRules,
 } from './verify-candidate-manifest';
 
 /** Split of `gt-memory-real@v1` (benchmark-design.md §10.2). Bounds are UTC, end exclusive. */
@@ -36,11 +36,18 @@ export const SESSIONS_RELATIVE_DIR = join('sessions', 'gt-memory-real-v1');
 
 export type SessionWindow = 'seed' | 'eval' | 'straddling' | 'outside';
 export type ExclusionReason =
-  'no-timestamps' | 'worktree-619-cwd' | 'bench-temp-cwd' | 'size-out-of-range';
+  | 'no-timestamps'
+  | 'worktree-619-cwd'
+  | 'bench-temp-cwd'
+  | 'unparseable-lines'
+  | 'modified-after-window'
+  | 'size-out-of-range';
 
 export interface SessionScan {
   file: string;
   bytes: number;
+  /** File mtime (ISO); a write after the eval window closed means the session ran past the freeze. */
+  modifiedAt: string;
   lines: number;
   unparseableLines: number;
   firstTimestamp: string | null;
@@ -51,6 +58,7 @@ export interface SessionScan {
 export interface ClassifiedSession {
   file: string;
   bytes: number;
+  unparseableLines: number;
   window: SessionWindow | null;
   exclusion: ExclusionReason | null;
   orderKey: string;
@@ -59,8 +67,10 @@ export interface ClassifiedSession {
 export interface SampledSession {
   opaqueId: string;
   file: string;
+  /** Size and hash of the copied file, both measured on the same copy. */
   bytes: number;
   sha256: string;
+  lines: number;
   firstTimestamp: string | null;
   lastTimestamp: string | null;
 }
@@ -73,6 +83,13 @@ export interface SessionSampleManifest {
   order: string;
   sizeRange: { minBytes: number; maxBytes: number };
   counts: Record<string, number>;
+  /**
+   * Sessions dropped after copying because the copy (re-read) no longer
+   * qualified, e.g. a transcript still being written; replaced by the next pick.
+   */
+  rejectedAtCopy: { file: string; reason: string }[];
+  /** True when sampled before the eval window closed; re-sample before labelling. */
+  provisional: boolean;
   /** Files whose window is `seed`, kept for the memory seed; not copied. */
   seedWindowFiles: number;
   sessions: SampledSession[];
@@ -86,7 +103,15 @@ export interface SampleSessionsOptions {
   /** Directories whose sessions came from a bench temp home. Defaults to `[os.tmpdir()]`. */
   tempRoots?: readonly string[];
   overwrite?: boolean;
-  guard?: BenchDataDirGuardOptions;
+  /**
+   * Sample before the eval window has closed. The result is marked
+   * `provisional`: sessions may still be growing. Default `false` (refuse).
+   */
+  allowOpenWindow?: boolean;
+  /** Current time in ms (specs only). Default `Date.now()`. */
+  now?: number;
+  /** Overrides for 619's bench-data rules (specs only). */
+  benchDataRules?: BenchDataRules;
 }
 
 export interface SampleSessionsResult {
@@ -100,7 +125,8 @@ export async function scanSession(
   path: string,
   file: string,
 ): Promise<SessionScan> {
-  const bytes = (await stat(path)).size;
+  const info = await stat(path);
+  const bytes = info.size;
   let first: number | null = null;
   let last: number | null = null;
   let lines = 0;
@@ -135,6 +161,7 @@ export async function scanSession(
   return {
     file,
     bytes,
+    modifiedAt: new Date(info.mtimeMs).toISOString(),
     lines,
     unparseableLines: unparseable,
     firstTimestamp: first === null ? null : new Date(first).toISOString(),
@@ -151,6 +178,7 @@ export function classifySession(
   const base = {
     file: scan.file,
     bytes: scan.bytes,
+    unparseableLines: scan.unparseableLines,
     orderKey: sha256(SAMPLE_ORDER_PREFIX + scan.file),
   };
   if (scan.firstTimestamp === null || scan.lastTimestamp === null) {
@@ -166,6 +194,13 @@ export function classifySession(
     scan.cwds.some((cwd) => tempRoots.some((root) => isWithin(cwd, root)))
   )
     exclusion = 'bench-temp-cwd';
+  // A line that does not parse is a transcript captured mid-write (or
+  // corrupted); ground truth drafted from it could be silently wrong.
+  else if (scan.unparseableLines > 0) exclusion = 'unparseable-lines';
+  // Still written after the eval window closed: the session ran past the
+  // freeze, so any copy of it is a partial capture.
+  else if (Date.parse(scan.modifiedAt) >= Date.parse(EVAL_WINDOW.to))
+    exclusion = 'modified-after-window';
   else if (scan.bytes < MIN_BYTES || scan.bytes > MAX_BYTES)
     exclusion = 'size-out-of-range';
   return { ...base, window, exclusion };
@@ -184,7 +219,7 @@ function windowOf(first: number, last: number): SessionWindow {
 }
 
 function isTask619WorktreePath(cwd: string): boolean {
-  return /[\\/]\.claude-worktrees[\\/]task-619/i.test(cwd);
+  return /[\\/]\.claude-worktrees[\\/]task-619(?![0-9])/i.test(cwd);
 }
 
 function isWithin(target: string, root: string): boolean {
@@ -202,14 +237,21 @@ function isWithin(target: string, root: string): boolean {
 export async function sampleSessions(
   options: SampleSessionsOptions,
 ): Promise<SampleSessionsResult> {
-  const benchDataDir = assertSafeBenchDataDir(
-    options.benchDataDir,
-    options.guard,
-  );
+  const benchDataDir = resolveBenchDataDir({
+    ...options.benchDataRules,
+    env: { [BENCH_DATA_DIR_ENV]: options.benchDataDir },
+  });
   const sourceDir = resolve(options.sourceDir);
   if (isWithin(sourceDir, benchDataDir) || isWithin(benchDataDir, sourceDir)) {
     throw new Error(
       'The transcript source dir and the bench data dir must not contain each other',
+    );
+  }
+  const now = options.now ?? Date.now();
+  const provisional = now < Date.parse(EVAL_WINDOW.to);
+  if (provisional && options.allowOpenWindow !== true) {
+    throw new Error(
+      `The eval window is still open until ${EVAL_WINDOW.to}; sessions may still be written. Sample after it closes (or pass allowOpenWindow for a provisional sample)`,
     );
   }
   const sampleSize = options.sampleSize ?? SAMPLE_SIZE;
@@ -226,11 +268,9 @@ export async function sampleSessions(
     .filter((e) => e.isFile() && e.name.endsWith('.jsonl'))
     .map((e) => e.name)
     .sort(compareCodePoints);
-  const scans = new Map<string, SessionScan>();
   const classified: ClassifiedSession[] = [];
   for (const file of files) {
     const scan = await scanSession(join(sourceDir, file), file);
-    scans.set(file, scan);
     classified.push(classifySession(scan, tempRoots));
   }
   const counts: Record<string, number> = { files: files.length };
@@ -255,26 +295,42 @@ export async function sampleSessions(
   const sessions: SampledSession[] = [];
   try {
     await mkdir(join(stagingDir, 'transcripts'), { recursive: true });
-    for (const pick of eligible.slice(0, sampleSize)) {
-      const source = join(sourceDir, pick.file);
-      const sourceHash = await sha256File(source);
+    const rejectedAtCopy: { file: string; reason: string }[] = [];
+    for (const pick of eligible) {
+      if (sessions.length === sampleSize) break;
       const target = join(stagingDir, 'transcripts', pick.file);
-      await copyFile(source, target, constants.COPYFILE_EXCL);
-      const copyHash = await sha256File(target);
-      if (copyHash !== sourceHash) {
-        throw new Error(
-          `Copy of ${pick.file} does not match its source (${sourceHash} vs ${copyHash})`,
-        );
+      await copyFile(
+        join(sourceDir, pick.file),
+        target,
+        constants.COPYFILE_EXCL,
+      );
+      // Everything recorded comes from the copy, so size, hash and content
+      // agree even when the source grew between the scan and the copy.
+      const copyScan = await scanSession(target, pick.file);
+      const copied = classifySession(copyScan, tempRoots);
+      const reason =
+        copied.exclusion ??
+        (copied.window === 'eval' ? null : `window:${copied.window ?? 'none'}`);
+      if (reason !== null) {
+        await rm(target, { force: true });
+        rejectedAtCopy.push({ file: pick.file, reason });
+        continue;
       }
-      const scan = scans.get(pick.file);
       sessions.push({
         opaqueId: `RS-${pick.orderKey.slice(0, 12).toUpperCase()}`,
         file: pick.file,
-        bytes: pick.bytes,
-        sha256: copyHash,
-        firstTimestamp: scan?.firstTimestamp ?? null,
-        lastTimestamp: scan?.lastTimestamp ?? null,
+        bytes: copyScan.bytes,
+        sha256: await sha256File(target),
+        lines: copyScan.lines,
+        firstTimestamp: copyScan.firstTimestamp,
+        lastTimestamp: copyScan.lastTimestamp,
       });
+    }
+    counts['rejectedAtCopy'] = rejectedAtCopy.length;
+    if (sessions.length < sampleSize) {
+      throw new Error(
+        `Only ${sessions.length} sessions still qualified after copying; ${sampleSize} are required`,
+      );
     }
     const manifest: SessionSampleManifest = {
       sample: 'gt-memory-real@v1 held-out sessions',
@@ -284,6 +340,8 @@ export async function sampleSessions(
       order: `sha256("${SAMPLE_ORDER_PREFIX}" + filename), ascending`,
       sizeRange: { minBytes: MIN_BYTES, maxBytes: MAX_BYTES },
       counts,
+      rejectedAtCopy,
+      provisional,
       seedWindowFiles: classified.filter(
         (c) => c.window === 'seed' && c.exclusion === null,
       ).length,

@@ -319,9 +319,48 @@ describe('buildLabellingPacket', () => {
         sample: syntheticSample(),
         read: reader,
         provenance: {},
-        guard: { homeDir: benchDataDir, repoRoot: null },
+        benchDataRules: { realHome: benchDataDir },
       }),
-    ).rejects.toThrow('real ~/.ptah');
+    ).rejects.toThrow('real Ptah state directory');
+  });
+
+  it('refuses a bench data dir inside the repository (619 resolveBenchDataDir)', async () => {
+    await expect(
+      buildLabellingPacket({
+        benchDataDir: join(benchDataDir, 'checkout', 'bench'),
+        sample: syntheticSample(),
+        read: reader,
+        provenance: {},
+        benchDataRules: { repoRoot: join(benchDataDir, 'checkout') },
+      }),
+    ).rejects.toThrow('inside it');
+  });
+
+  it('never hands two raters the same order, even with two documents', async () => {
+    const two = syntheticSample();
+    two.documents = two.documents.slice(0, 2);
+    let collisions = 0;
+    for (let i = 0; i < 16; i += 1) {
+      const sample = { ...two, seed: `two-doc-seed-${i}` };
+      try {
+        const result = await buildLabellingPacket({
+          benchDataDir,
+          sample,
+          read: reader,
+          provenance: {},
+          overwrite: true,
+        });
+        const manifest = JSON.parse(
+          await readFile(result.manifestPath, 'utf8'),
+        ) as { orders: Record<string, string[]> };
+        expect(manifest.orders['r1']).not.toEqual(manifest.orders['r2']);
+      } catch (error) {
+        expect((error as Error).message).toContain('same document order');
+        collisions += 1;
+      }
+    }
+    // With two documents half of all seeds collide; the guard must fire.
+    expect(collisions).toBeGreaterThan(0);
   });
 
   it('cleans up staging and writes nothing when a document cannot be read', async () => {
