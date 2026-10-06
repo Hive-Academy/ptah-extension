@@ -580,7 +580,7 @@ Beyond the plan, accepted:
 - `libs\frontend\tasks-ui\...\task-agent-discovery.service.ts` `CLI_DISPLAY_NAMES` gains `grok: 'Grok'`.
 - `agent-models.store.ts` was left unchanged: it is keyed by `AgentModelProvider`, not `CliType`.
 
-## Batch 9: Grok profile, GrokCliAdapter and registration — COMPLETE (commit ff87f761d; Phase 2 review pending)
+## Batch 9: Grok profile, GrokCliAdapter and registration — COMPLETE (commit ff87f761d; Phase 2 review fixes c66722ee4; reviews: code-logic-rereview-phase2.md APPROVED, code-style-rereview-phase2.md APPROVED)
 
 - Recommended executor: backend-developer (sub-agent)
 - Fallback executor: backend-developer, fresh run
@@ -663,25 +663,82 @@ Binding notes met:
 - The Grok `describeError` rows are tested against the real `grok-p3-*` payloads, using `modelSource` wording.
 - M1 (`onUnexpectedTurnError` as a `const`) is done.
 
-Open, minor: `agent-process-manager.service.spec.ts:2624` `it.each(['antigravity','opencode','pi'])` does not
-include `grok`. Adding it needs the mock detection to report grok installed.
+Open, minor at Batch 9 commit: `agent-process-manager.service.spec.ts:2624` `it.each(['antigravity','opencode','pi'])`
+did not include `grok`. Closed by the Phase 2 fix round (D7): the list is now derived from `SYSTEM_CLI_TYPES`.
+
+### Phase 2 review — COMPLETE
+
+- `code-logic-review-phase2.md`: REVISE, 7/10 (three Majors: D1 unadvertised effort value killed the lane, D2 the
+  "Allow once" note understated authority, D3 the unverified `XAI_API_KEY` claim; plus D4-D12).
+- `code-style-review-phase2.md`: REVISE, 7.5/10 (a third copy of `probeModels`, stale "six / seventh" prose, the
+  profile importing the policy module, and Minors).
+- One fix round, reports `phase2-fix-backend.md` and `phase2-fix-frontend.md`, committed in `c66722ee4`
+  (`fix(cli-agent-runtime): phase 2 review fixes for the Grok lane`).
+- Re-reviews, scoped to `c66722ee4`:
+  - `code-logic-rereview-phase2.md`: APPROVED, 8.5/10, 0 blocking, 0 major. D1, D2, D4-D8, D11, D12 fixed; D3
+    fixed by removal (the live key-only probe is deferred); D9 and D10 deferred. New Minors N1-N4 (N3 and N4
+    accepted).
+  - `code-style-rereview-phase2.md`: APPROVED, 8.5/10, 0 blocking, 0 major. Findings 1-3, 5, 6, 8 fixed; 4
+    (formatter churn) and 7 (router help derivation) declined and accepted. Three new optional Minors.
+- Checks after the fix round, run by the orchestrator: scoped `typecheck,test,lint` pass for
+  `@ptah-extension/cli-agent-runtime`, `@ptah-extension/rpc-handlers`, `ptah-cli`, `@ptah-extension/chat`,
+  `@ptah-extension/tasks-ui` and `@ptah-extension/webview-e2e-harness`; the degradation audit exits 0.
+- Reviewer independence: the author (backend-developer, frontend-developer) and both reviewers (code-logic-reviewer,
+  code-style-reviewer) were in-process sub-agents of the same session, because the user pinned the reviewer types.
+  No CLI lane or other vendor reviewed Phase 2, so the independence evidence is weaker than a cross-vendor review.
+  The same holds for Phase 1.
+- Every deferred item and every new Minor is consolidated in `future-enhancements.md`.
+
+The Phase 2 fix round supersedes these Batch 8 and 9 notes:
+
+- `mapEffortToGrok` is deleted; `lane-spawn-policy.ts` maps Grok through `mapEffortToCli` (identical scale), and the
+  Grok profile no longer imports the policy module. It forwards `options.reasoningEffort` as a hint.
+- In the ACP runner only `configId === 'model'` is binding. A non-model value the agent does not advertise, or
+  rejects, is skipped with an `info` instead of failing the turn.
+- `ensureTokensFresh` requires a non-empty object in `~/.grok/auth.json`. The `XAI_API_KEY` fallback claim is
+  removed from code and docs (the host env is still inherited by the child).
+- `-32000` is described as "not signed in" on any method when `message + detail` matches `/auth/i`.
+- The permission note is badge `Auto-approve`, tone `warning`, naming shell and file edits.
+- `cli-adapters/cli-stdout-probe.ts` (`probeCliStdout`) replaces the inlined Pi and Grok model probes.
+- `acp-process-transport.ts` honours stdin backpressure (`resolveWhenDrained`).
 
 ## Run state (team-leader, 2026-10-06)
 
-The user's PAUSE-before-Batch-8 instruction arrived after the following had already happened: the `origin/main`
-merge (`72b5677d0`), the Batch 8 commit (`9966bd35d`), and Batch 9's implementation and verification. History was
-not rewritten. Batch 9 was committed (`ff87f761d`) so the worktree is left clean. If the user wants the
-pre-Batch-8 state back, the last commit before the merge is `b720f2f18` (Batches 5-7 plus their `batches.md`
-record). Resetting to it is a destructive history change, and only the user can approve it.
+The user's PAUSE-before-Batch-8 instruction arrived after the `origin/main` merge (`72b5677d0`), the Batch 8 commit
+(`9966bd35d`) and Batch 9's implementation. History was not rewritten, and the user has since let the run continue
+through the Phase 2 review. `b720f2f18` remains the last pre-Batch-8 commit; resetting to it needs the user's
+explicit approval.
 
-Next: the Phase 2 review (Batches 5-9, code-logic plus style), or the user's decision on the pause.
+The branch is pushed; draft PR #665 is open. Mode 3 ran on 2026-10-06: every batch is COMPLETE and both phases have
+an accepting review. The task is COMPLETE-PENDING-QA (see below).
 
 ## Completion notes (for Mode 3)
 
-- Parity: N/A (no surface replaced; one adapter added).
-- Visual: before/after screenshots (dark and light) of the Orchestration CLI matrix; the "before" comes from the
-  base commit (R11).
-- Write-path trace: `grokModel` from the providers commit → `agent-rpc` set → `agentOrchestration.grokModel` →
-  `MODEL_CONFIG_KEYS` → `options.model` → `session/set_config_option {configId:"model"}`.
-- Deferred to post-merge QA (quota): live spawn, `ptah_agent_report`, mid-turn message → queued next turn, stop,
-  idle release → `resume_session_id`.
+Mode 3 verification, 2026-10-06:
+
+- Batches: 9/9 COMPLETE, 27/27 tasks COMPLETE. Commits: `d9b964db0`, `0ba619bcc`, `1b2ad5f30`, `eff0a4292` (+
+  `6163b042e`), `cd6ec1f57`, `91554e5ef`, `2c551c7e1`, `9966bd35d`, `ff87f761d` (+ `c66722ee4`). All resolve on
+  `feat/task-617-grok-acp`.
+- Phase reviews: Phase 1 APPROVED (`code-logic-review.md`, `code-style-rereview.md`); Phase 2 APPROVED
+  (`code-logic-rereview-phase2.md`, `code-style-rereview-phase2.md`).
+- Risks R1-R10: resolved as recorded per batch (R1/R3 by the Batch 8/9 split, R2/R4 in Batch 8, R5-R7 in Batches 3,
+  4 and 9, R8 in Batch 4, R10 by the pre-batch gate and the `72b5677d0` merge). R9 (no live Grok) and R11 (visual)
+  stay OPEN below.
+- Parity: N/A. No surface was replaced, consolidated, rebuilt or redesigned; one adapter and one settings matrix row
+  were added.
+- Write-path trace: CONFIRMED by `code-logic-review-phase2.md` check 5. Matrix cell (`modelKey: 'grokModel'`) →
+  `providers-commit.service.ts` → `agent:setConfig` → `agent-rpc.handlers.ts` writes
+  `ptah.agentOrchestration.grokModel` (global scope, file-based key, default `''`) → `MODEL_CONFIG_KEYS.grok` →
+  `resolveLaneModel` (empty → `cli-default`, nothing sent) → `options.model` → profile `sessionConfig` →
+  `session/set_config_option {configId:"model"}` before the first prompt, only when advertised. Gap D5
+  (whitespace) is fixed (trimmed and type-checked in `c66722ee4`); gap D10 (resume keeps the stored model) is
+  deferred. No environment variable or other side effect is written.
+- Visual evidence (R11): OPEN. Needed: before/after screenshots, dark and light, of the Orchestration CLI matrix (the
+  new Grok row, its permission note, and the model popover). The "before" comes from the base commit. Fix N2 first
+  (`CLI_MODELS_FIXTURE` in `settings.fixtures.ts` lacks a `grok` key), or the Grok model picker renders empty in the
+  harness.
+- Live smoke test (R9): OPEN, blocked on the grok.com free quota (rolling 24 h). Spawn the lane, call a Ptah MCP tool
+  and `ptah_agent_report`, send a mid-turn message (queued to the next turn), stop, idle release, then
+  `resume_session_id`.
+- Status: COMPLETE-PENDING-QA. Code and reviews are done; the PR stays draft until the two OPEN items are closed and
+  the user asks to mark it ready.
