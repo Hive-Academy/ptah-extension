@@ -4,6 +4,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { withLifecycleCorpus, withPinnedCorpus } from './corpus';
 
+// Each case runs several real git processes (init, commit, worktree add and
+// remove); on Windows that is about 10 s per case, over Jest's 5 s default.
+jest.setTimeout(60_000);
+
 describe('corpus checkout', () => {
   it('uses a detached pinned worktree and removes it after a disposable lifecycle copy', async () => {
     const repository = await mkdtemp(join(tmpdir(), 'mcp-bench-corpus-repo-'));

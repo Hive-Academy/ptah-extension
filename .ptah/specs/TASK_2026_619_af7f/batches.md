@@ -1,6 +1,6 @@
 # Batches - TASK_2026_619_af7f
 
-Total tasks: 73 | Batches: 40 | Complete: 5/40
+Total tasks: 74 | Batches: 40 | Complete: 6/40
 
 Worktree root (every path below is absolute under it):
 `D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark` (branch `fix/task-619-tool-benchmark`).
@@ -358,7 +358,7 @@ Batch 4 findings recorded at Mode 2 (report:
 - `tools\mcp-bench\project.json` tags are exactly `["type:tool"]`
 - The attach-mode `na` rule is tested
 
-## Batch 4b: Generic scorecard core (shared with TASK_2026_620_a13e) — COMPLETE (commit: see the next line)
+## Batch 4b: Generic scorecard core (shared with TASK_2026_620_a13e) — COMPLETE (commit 1ae06c824)
 
 Batch 4b findings recorded at Mode 2 (report:
 `D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\.ptah\specs\TASK_2026_619_af7f\batch-4b-executor-report.md`,
@@ -475,7 +475,34 @@ Recorded defaults for this batch:
 - `npx nx run-many -t typecheck,lint,test -p mcp-bench` passes (tail the output)
 - The commit SHA is reported to the orchestrator for the TASK_2026_620 session
 
-## Batch 4c: Shared bench-host boot helper and bench data folder (shared with TASK_2026_620_a13e) — IN_PROGRESS
+## Batch 4c: Shared bench-host boot helper and bench data folder (shared with TASK_2026_620_a13e) — COMPLETE (commit: SHA recorded in the following commit; no amend)
+
+Batch 4c findings recorded at Mode 2 (report:
+`D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\.ptah\specs\TASK_2026_619_af7f\batch-4c-executor-report.md`):
+
+- Orchestrator correction (test-only, no logic change), committed with this batch:
+  `jest.setTimeout(60_000)` plus a two-line comment at the top of
+  `tools\mcp-bench\src\corpus\corpus.spec.ts`. The Batch 2 case "removes only registered stale corpus
+  worktrees at startup" exceeded Jest's 5 s default (real git processes, about 10 s per case on
+  Windows) and turned `mcp-bench:test` red.
+- Accepted deviations: the shared path rule (`isPathInside` / `isSamePath`) lives in `bench-data.ts`
+  and `bench-host-boot.ts` imports it (one rule, no engine load in the runner parent);
+  `assertIsolatedEnvironment` takes an optional `{ homedir?, platform? }` probe; boot step `'options'`
+  rejects a relative `workspace`.
+- Intentional behaviour change: a boot failure inside the engine (missing token, null port) now tears
+  the engine down before the entry exits 1, with the same message. Previously it called
+  `process.exit(1)` inside the `withEngine` callback and skipped the teardown.
+- Minor, carried by Task 4d.4: `bench-data.ts` compares resolved paths but does not follow junctions
+  or symlinks (no `realpath`), so a data folder that is a junction into the real `~/.ptah` passes
+  `resolveBenchDataDir()`. The process-watch guard already resolves junctions
+  (`real-state-guard.ts` `realPtahDirs`).
+- Minor, carried by Task 4d.1 (executor observation): `host-launcher.ts` keeps its own `samePath`;
+  import `isSamePath` from `bench-data.ts` when 4d edits the launcher.
+- Mode 2 checks (team-leader): `npx prettier --check tools/mcp-bench/src` clean; grep of
+  `bench-host.entry.ts` finds no `readIsolation`, `withEngine(` or `startCodeExecutionMcp(` call;
+  `npx nx run-many -t typecheck,lint,test -p mcp-bench` passed (3 targets, 0/3 cache hits, 1m 40s).
+  `build-host` and the `launchBenchHost` smoke (58 tools, `ptah_code_search_symbols` listed, clean
+  exit 0, guard `process-watch` passed, same report shape) are from the executor report.
 
 Source: context.md "Addendum (2026-10-06) — second round of TASK_2026_620 requests", bullet 2. Split
 from the former Batch 4c (now 4d) because the combined batch would have reached 10 files against the
@@ -504,7 +531,7 @@ Recorded defaults for this batch:
 - Tasks: 2 | Depends on: 3, 4b
 - Phase: 1 Benchmark | Phase review: code-logic (after Batch 11)
 
-### Task 4c.1: `bench-host-boot.ts` — `assertIsolatedEnvironment()` and `bootCodeExecutionHost()`; the entry uses it — IN_PROGRESS
+### Task 4c.1: `bench-host-boot.ts` — `assertIsolatedEnvironment()` and `bootCodeExecutionHost()`; the entry uses it — COMPLETE
 
 - File: D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\transport\bench-host-boot.ts (new); D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\transport\bench-host-boot.spec.ts (new); D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\transport\bench-host.entry.ts
 - Plan reference: context.md "Addendum (2026-10-06)" bullet 2; this file's Risk table, rows 1 and 2
@@ -538,7 +565,7 @@ Recorded defaults for this batch:
 - Implementation details: `stop()` releases a deferred that the `withEngine` callback awaits, so the
   engine teardown stays inside `withEngine`.
 
-### Task 4c.2: `bench-data.ts` — `resolveBenchDataDir()` for `PTAH_MCP_BENCH_DATA_DIR` — IN_PROGRESS
+### Task 4c.2: `bench-data.ts` — `resolveBenchDataDir()` for `PTAH_MCP_BENCH_DATA_DIR` — COMPLETE
 
 - File: D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\bench-data.ts (new); D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\bench-data.spec.ts (new)
 - Plan reference: context.md "Addendum (2026-10-06)" bullets 2 and 4
@@ -579,8 +606,12 @@ Recorded defaults for this batch:
 - Execution mode: sequential
 - Rationale: native-addon teardown forensics in a child process, plus the guard's process probe.
   Process-lifecycle-sensitive and needs judgement mid-flight (fix here vs product finding).
-- Tasks: 3 | Depends on: 4, 4b (uses the `hostExit` kinds and `run.guard` shape named in Task 4b.1), 4c
-  (the boot and teardown now live in `bench-host-boot.ts`)
+- Tasks: 4 (Task 4d.4 added at Batch 4c Mode 2) | Depends on: 4, 4b (uses the `hostExit` kinds and
+  `run.guard` shape named in Task 4b.1), 4c (the boot and teardown now live in `bench-host-boot.ts`)
+- File-count deviation (recorded at Batch 4c Mode 2): 8 files instead of 6, because Task 4d.4 adds
+  `bench-data.ts` and `bench-data.spec.ts`. No later batch touches `bench-data.ts`, the change is
+  small, and it stays one project (`mcp-bench`) with one scoped verification command (precedent:
+  Batch 4).
 - Must land before Batch 10 (the first recorded scorecard is Batch 11)
 - Phase: 1 Benchmark | Phase review: code-logic (after Batch 11)
 - Note (Batch 4c split): after Batch 4c the boot and teardown live in `bench-host-boot.ts`, so Task
@@ -617,7 +648,10 @@ Recorded defaults for this batch:
     in `detail` rather than calling it a crash.
 - Validation notes: spec cases with a fixture host that exits 0, exits with 3221226505 after stdin
   EOF, ignores EOF (killed), and exits before `stop()`. Keep `host-launcher.ts` under the 700-line
-  `max-lines` ceiling.
+  `max-lines` ceiling. Carried from Batch 4c (Minor): replace the launcher's private `samePath` with
+  `isSamePath` from `tools\mcp-bench\src\bench-data.ts` (one path rule; behaviour unchanged).
+  Since Batch 4c, a boot failure inside the engine tears the engine down before the entry exits 1;
+  classify that as `exited-early` (it ends before `stop()`), not as a crash.
 - Implementation details: the report quotes the bisect table and the final per-variant rates.
 
 ### Task 4d.2: List unprobed processes and mark the guard partial (Moderate) — PENDING
@@ -648,6 +682,27 @@ Recorded defaults for this batch:
 - Validation notes: none.
 - Implementation details: none beyond the above.
 
+### Task 4d.4: Follow junctions and symlinks in `resolveBenchDataDir()` (Minor, from Batch 4c) — PENDING
+
+- File: D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\bench-data.ts; D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\bench-data.spec.ts
+- Depends on: none inside the batch (independent files; run last)
+- Plan reference: Batch 4c findings (Minor, junction); Task 4c.2 quality requirements
+- Pattern to follow: `realPtahDirs` in D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\transport\real-state-guard.ts (how the guard resolves junctions of the real `~/.ptah`)
+- Quality requirements: the forbidden roots (real `~/.ptah`, repository root) and the candidate data
+  dir are compared both lexically (today's rule) and after `realpath`. For a candidate that does not
+  exist yet, resolve its nearest existing ancestor with `realpath` and re-append the missing tail.
+  Reject when either comparison puts the candidate at or under a forbidden root; the error names the
+  path, its real path and the rule. A `realpath` failure other than ENOENT fails closed (reject). The
+  path the function returns stays the lexical resolved path. `isPathInside` / `isSamePath` stay pure
+  (no I/O), because `bench-host-boot.ts` and the launcher use them for lexical checks.
+- Validation notes: spec cases with a real temp directory: a junction (win32, `fs.symlinkSync(..., 'junction')`)
+  or a dir symlink (POSIX) pointing into a fake real home's `.ptah` is rejected; a link pointing into
+  the fake repo root is rejected; a not-yet-existing child of such a link is rejected; a plain
+  directory outside both passes. Skip a link case only when the OS refuses to create the link, and
+  say so in the test name.
+- Implementation details: inject the realpath function (default `fs.realpathSync.native`) next to the
+  existing `env`, `realHome`, `repoRoot` and `platform` options, so the error path can be specced.
+
 ### Batch 4d verification
 
 - `npx prettier --check <every path the batch changed>` passes
@@ -656,6 +711,8 @@ Recorded defaults for this batch:
 - Smoke: 20 graceful shutdowns of the `cli-headless` host, each stop classified; the report quotes the
   count per `exit.kind`. If any `crash-on-shutdown` remains, a product finding with evidence is in the
   report.
+- The junction/symlink cases of Task 4d.4 pass (or are skipped with a stated reason where the OS
+  refuses to create the link)
 
 ## Batch 5: Ground truth A — TS compiler (symbols, references, definitions, dependents) — PENDING
 
