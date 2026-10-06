@@ -58,6 +58,14 @@ const RATE_LIMIT_KEY = 'memory.curate';
 const MAX_CUE_PATTERN_LENGTH = 200;
 const COALESCE_WINDOW_MS = 5000;
 const TOOL_FAILURE_SNIPPET = 140;
+/**
+ * Consecutive `'failed'` passes per session whose drained observations are
+ * kept unprocessed for a retry (TASK_2026_621). The pass after the last retry
+ * marks them processed with a warning: a transcript that fails the same way
+ * every time must not be re-fed forever. Retries are paced by the triggers
+ * themselves (next turn, idle, session end) and the hourly curate limiter.
+ */
+export const MAX_FAILED_PASS_RETRIES = 3;
 
 type CurateSource =
   | 'idle'
@@ -99,6 +107,8 @@ export class MemoryTriggerService {
   private readonly episodes = new EpisodeTracker();
   private readonly inFlightCurates = new Set<string>();
   private readonly lastCurateAt = new Map<string, number>();
+  /** Consecutive failed passes per session; cleared by a pass that ran. */
+  private readonly failedPasses = new Map<string, number>();
   private bootScanController: AbortController | null = null;
   /**
    * The arming gate in front of {@link runBootScan}. Created only on the path
@@ -248,6 +258,7 @@ export class MemoryTriggerService {
     this.episodes.clear();
     this.inFlightCurates.clear();
     this.lastCurateAt.clear();
+    this.failedPasses.clear();
     this.bootScanScheduler?.cancel();
     this.bootScanScheduler = null;
     this.bootScanController?.abort();
@@ -348,6 +359,11 @@ export class MemoryTriggerService {
     this.lastCurateAt.delete(from);
     if (lastCurate !== undefined && !this.lastCurateAt.has(to)) {
       this.lastCurateAt.set(to, lastCurate);
+    }
+    const failed = this.failedPasses.get(from);
+    this.failedPasses.delete(from);
+    if (failed !== undefined && !this.failedPasses.has(to)) {
+      this.failedPasses.set(to, failed);
     }
     this.curator.rekeySession(from, to);
 
@@ -819,6 +835,11 @@ export class MemoryTriggerService {
    * A pass that RAN and found nothing keeps its old behaviour exactly: rows
    * marked, buffer gone. Turning "found nothing" into a retry would be F1
    * inverted — an episode that can never be curated, re-fed forever.
+   *
+   * A pass that FAILED curated nothing, so its rows and episode are kept like a
+   * stall's — but only for {@link MAX_FAILED_PASS_RETRIES} consecutive failures
+   * of the session; the next one marks them processed with a warning, for the
+   * same never-re-fed-forever reason (TASK_2026_621).
    */
   private async invokeCurate(
     sessionId: string,
@@ -863,6 +884,36 @@ export class MemoryTriggerService {
         );
         return;
       }
+      if (stats.outcome === 'failed') {
+        const failures = (this.failedPasses.get(sessionId) ?? 0) + 1;
+        if (failures <= MAX_FAILED_PASS_RETRIES) {
+          this.failedPasses.set(sessionId, failures);
+          if (detachedEpisode) {
+            this.episodes.reattach(sessionId, detachedEpisode);
+          }
+          this.logger.warn(
+            '[memory-curator] curation pass failed; observations kept for a retry',
+            {
+              sessionId,
+              source,
+              observations: drainedRows.length,
+              failures,
+              maxRetries: MAX_FAILED_PASS_RETRIES,
+            },
+          );
+          return;
+        }
+        this.logger.warn(
+          '[memory-curator] curation pass failed after every retry; observations marked processed uncurated',
+          {
+            sessionId,
+            source,
+            observations: drainedRows.length,
+            failures,
+          },
+        );
+      }
+      this.failedPasses.delete(sessionId);
       const ids = drainedRows.map((r) => r.id);
       if (ids.length > 0) this.observationQueue.markProcessed(ids);
     } catch (err: unknown) {

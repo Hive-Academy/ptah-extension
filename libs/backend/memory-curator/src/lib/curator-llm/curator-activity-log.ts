@@ -43,14 +43,17 @@ import type { MemoryCuratorEvent } from '../diagnostics.types';
  * or cancelled at host shutdown while it waited for the governor.
  *
  * Note what is NOT on this list: a pass that dispatched and whose call FAILED
- * with a non-network error still reports `'ran'` (`recordError`). Every
- * `'stalled'` member is a pass whose input was demonstrably never read.
+ * with a non-network error reports `'failed'` (`recordError`). Every
+ * `'stalled'` member is a pass whose input was demonstrably never read; a
+ * `'failed'` pass may have read it but curated nothing, so its input is not
+ * consumed either — `MemoryTriggerService` keeps the observation rows for a
+ * bounded number of retries (TASK_2026_621) instead of marking them processed.
  *
  * Required, not optional, so every construction site has to answer. The zero
- * counts on the two arms are identical, which is precisely why the counts
- * cannot carry this distinction themselves.
+ * counts on the arms are identical, which is precisely why the counts cannot
+ * carry this distinction themselves.
  */
-export type CuratorRunOutcome = 'ran' | 'stalled';
+export type CuratorRunOutcome = 'ran' | 'stalled' | 'failed';
 
 export interface CuratorRunStats {
   readonly outcome: CuratorRunOutcome;
@@ -347,15 +350,16 @@ export class CuratorActivityLog {
       stage === 'extract'
         ? `memory extraction failed: ${detail}`
         : `memory resolution failed (${extractedCount} extracted): ${detail}`;
-    // `'ran'`, not `'stalled'`: the call was dispatched and failed. Whether a
-    // FAILED pass should also preserve its input is a separate question from
-    // F1 (which is about a pass that never ran) and is deliberately left at its
-    // pre-existing behaviour here. The failures that no longer reach this
-    // method are the concurrency-slot timeout — it never dispatched either, so
-    // it belongs with the stalls (TASK_2026_376 F4) — and an unreachable
-    // provider, which the adapter reports as a stall (TASK_2026_437 C14 f).
+    // `'failed'`, not `'ran'`: the call was dispatched and failed, so nothing
+    // was curated. Reporting `'ran'` let the trigger mark the drained
+    // observations processed and lose them (TASK_2026_621). Not `'stalled'`
+    // either: the input may have been read, and a pass that fails the same way
+    // every time must not be retried forever — the trigger bounds the retries.
+    // The failures that never reach this method are the concurrency-slot
+    // timeout (TASK_2026_376 F4) and an unreachable provider (TASK_2026_437
+    // C14 f), both reported as stalls.
     const zeroedStats: CuratorRunStats = {
-      outcome: 'ran',
+      outcome: 'failed',
       extracted: 0,
       merged: 0,
       created: 0,

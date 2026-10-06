@@ -31,7 +31,10 @@ import type {
   SessionIdResolvedPayload,
 } from '@ptah-extension/agent-sdk';
 import { CuratorRateLimitService } from '@ptah-extension/agent-sdk';
-import { MemoryTriggerService } from './memory-trigger.service';
+import {
+  MAX_FAILED_PASS_RETRIES,
+  MemoryTriggerService,
+} from './memory-trigger.service';
 import type { MemoryCuratorService } from '../memory-curator.service';
 import type {
   ObservationQueueInsert,
@@ -338,6 +341,7 @@ function buildService(opts?: {
   rateLimiter?: CuratorRateLimitService;
   transcriptText?: string;
   observationQueue?: FakeQueueStore;
+  logger?: Logger;
 }): {
   service: MemoryTriggerService;
   activity: ActivityHarness;
@@ -366,6 +370,7 @@ function buildService(opts?: {
   rateLimiter: CuratorRateLimitService;
   queue: FakeQueueStore;
   transcriptReader: ITranscriptReader;
+  logger: Logger;
 } {
   const activity = makeActivityRegistry();
   const sessionEnd = makeSessionEndRegistry();
@@ -382,8 +387,9 @@ function buildService(opts?: {
     opts?.rateLimiter ?? new CuratorRateLimitService(makeLogger());
   const queue = opts?.observationQueue ?? makeObservationQueue();
   const transcriptReader = makeTranscriptReader(opts?.transcriptText ?? '');
+  const logger = opts?.logger ?? makeLogger();
   const service = new MemoryTriggerService(
-    makeLogger(),
+    logger,
     curator,
     activity.registry,
     sessionEnd.endRegistry,
@@ -433,6 +439,7 @@ function buildService(opts?: {
     rateLimiter,
     queue,
     transcriptReader,
+    logger,
   };
 }
 
@@ -2645,5 +2652,119 @@ describe('MemoryTriggerService — the network back-off spends no hourly slot (C
     for (let i = 0; i < 16; i++) await Promise.resolve();
 
     expect(rateLimiter.snapshot('memory.curate')?.count).toBe(1);
+  });
+});
+
+/**
+ * TASK_2026_621 silent drop (a). A pass whose extract or resolve call failed
+ * with a non-network error was reported `'ran'`, and `invokeCurate` marked the
+ * drained rows processed — the observations were lost without a memory ever
+ * being written. A `'failed'` pass now keeps them for a bounded number of
+ * consecutive retries per session, then gives up loudly.
+ */
+describe('MemoryTriggerService — a failed curation pass keeps its input, bounded (TASK_2026_621)', () => {
+  const FAILED = {
+    outcome: 'failed',
+    extracted: 0,
+    merged: 0,
+    created: 0,
+    skipped: 0,
+  } as const;
+  const RAN = { ...FAILED, outcome: 'ran' } as const;
+  const GIVE_UP =
+    '[memory-curator] curation pass failed after every retry; observations marked processed uncurated';
+
+  beforeEach(() => {
+    jest.useFakeTimers({ now: FAKE_CLOCK_EPOCH });
+  });
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  function harness() {
+    const curator = makeCurator();
+    const queue = makeObservationQueue();
+    const built = buildService({
+      curator,
+      observationQueue: queue,
+      workspace: makeWorkspace({
+        'memory.triggers.idleMs': 0,
+        'memory.triggers.turnThreshold': 1,
+        'memory.triggers.maxCuratesPerHour': 100,
+      }),
+    });
+    built.service.start();
+    let t = FAKE_CLOCK_EPOCH;
+    /** One Stop-driven pass, past the per-session coalesce window. */
+    const pass = async (): Promise<void> => {
+      t += 5001;
+      jest.setSystemTime(new Date(t));
+      built.stop.fire(stopPayload({ lastAssistantMessage: `turn at ${t}` }));
+      for (let i = 0; i < 16; i++) await Promise.resolve();
+    };
+    return { ...built, curator, queue, pass };
+  }
+
+  it('keeps the drained rows unprocessed and re-drains them on the next pass', async () => {
+    const h = harness();
+    (h.curator.curate as jest.Mock).mockResolvedValue(FAILED);
+
+    await h.pass();
+    expect(h.curator.curate).toHaveBeenCalledTimes(1);
+    expect(h.queue.markProcessed).not.toHaveBeenCalled();
+    const rows = h.queue.rowsBySession.get('s1') ?? [];
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.every((r) => r.processedAt === null)).toBe(true);
+    const firstPassIds = rows.map((r) => r.id);
+    expect(h.logger.warn).toHaveBeenCalledWith(
+      '[memory-curator] curation pass failed; observations kept for a retry',
+      expect.objectContaining({ sessionId: 's1', failures: 1 }),
+    );
+
+    // The retry succeeds: every row from both turns is consumed by it.
+    (h.curator.curate as jest.Mock).mockResolvedValue(RAN);
+    await h.pass();
+    expect(h.curator.curate).toHaveBeenCalledTimes(2);
+    expect(h.queue.markProcessed).toHaveBeenCalledTimes(1);
+    const consumed = h.queue.markProcessed.mock.calls[0][0] as number[];
+    expect(consumed).toEqual(expect.arrayContaining(firstPassIds));
+    expect(consumed.length).toBeGreaterThan(firstPassIds.length);
+  });
+
+  it(`gives up after ${MAX_FAILED_PASS_RETRIES} retries so a failing transcript is not re-fed forever`, async () => {
+    const h = harness();
+    (h.curator.curate as jest.Mock).mockResolvedValue(FAILED);
+
+    for (let i = 0; i < MAX_FAILED_PASS_RETRIES; i++) await h.pass();
+    expect(h.curator.curate).toHaveBeenCalledTimes(MAX_FAILED_PASS_RETRIES);
+    expect(h.queue.markProcessed).not.toHaveBeenCalled();
+
+    await h.pass();
+    expect(h.queue.markProcessed).toHaveBeenCalledTimes(1);
+    const rows = h.queue.rowsBySession.get('s1') ?? [];
+    expect(rows.every((r) => r.processedAt !== null)).toBe(true);
+    expect(h.logger.warn).toHaveBeenCalledWith(
+      GIVE_UP,
+      expect.objectContaining({
+        sessionId: 's1',
+        failures: MAX_FAILED_PASS_RETRIES + 1,
+        observations: rows.length,
+      }),
+    );
+  });
+
+  it('a pass that ran resets the failure count', async () => {
+    const h = harness();
+    const curate = h.curator.curate as jest.Mock;
+    curate.mockResolvedValue(FAILED);
+    for (let i = 0; i < MAX_FAILED_PASS_RETRIES; i++) await h.pass();
+    curate.mockResolvedValueOnce(RAN);
+    await h.pass();
+    expect(h.queue.markProcessed).toHaveBeenCalledTimes(1);
+
+    // A fresh failure after the reset is retried again, not given up on.
+    await h.pass();
+    expect(h.queue.markProcessed).toHaveBeenCalledTimes(1);
+    expect(h.logger.warn).not.toHaveBeenCalledWith(GIVE_UP, expect.anything());
   });
 });
