@@ -766,6 +766,7 @@ export class ProvidersSettingsStateService {
           copilotModel: config.copilotModel,
           cursorModel: config.cursorModel,
           antigravityModel: config.antigravityModel,
+          grokModel: config.grokModel,
           opencodeModel: config.opencodeModel,
           piModel: config.piModel,
           codexReasoningEffort: config.codexReasoningEffort,

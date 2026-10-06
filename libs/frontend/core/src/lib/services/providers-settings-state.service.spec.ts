@@ -2022,6 +2022,7 @@ describe('ProvidersSettingsStateService', () => {
       copilotModel: '',
       cursorModel: '',
       antigravityModel: '',
+      grokModel: '',
       opencodeModel: '',
       piModel: '',
       codexReasoningEffort: 'high',
