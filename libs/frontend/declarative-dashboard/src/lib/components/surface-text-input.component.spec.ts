@@ -1,6 +1,7 @@
 import { Component, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import {
+  SURFACE_CATALOG_VERSION,
   SURFACE_LIMITS,
   type SurfaceComponent,
   type SurfaceDataModel,
@@ -20,7 +21,7 @@ const markup = '<img src=x onerror=alert(1)>';
 /** Builds through the real v2 view model so the input sees what the renderer will pass it. */
 function textNode(component: Partial<Extract<SurfaceComponent, { kind: 'text' }>> = {}, dataModel: SurfaceDataModel = {}): TextInputNode {
   const result = buildSurfaceViewModel({ contract: 'dashboard-spec/2', dataModel, surface: {
-    schemaVersion: 'dashboard-spec/2', catalogVersion: 'dashboard-catalog/2', surfaceId: 's', title: { text: 'T' },
+    schemaVersion: 'dashboard-spec/2', catalogVersion: SURFACE_CATALOG_VERSION, surfaceId: 's', title: { text: 'T' },
     components: [{ id: 'reason', kind: 'text', label: 'Reason', path: 'form.reason', ...component }] } });
   if (result.renderFailed) throw new Error(result.reason);
   return result.viewModel.components[0] as TextInputNode;

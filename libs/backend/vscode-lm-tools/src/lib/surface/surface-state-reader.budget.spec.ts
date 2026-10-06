@@ -18,6 +18,7 @@ import type {
   SurfaceSubmitRecord,
 } from '@ptah-extension/shared';
 import {
+  SURFACE_CATALOG_VERSION,
   SURFACE_LIMITS,
   describeSurfaceSelection,
   formatSurfaceSubmitMessage,
@@ -47,7 +48,7 @@ function v2(
     contract: 'dashboard-spec/2',
     surface: {
       schemaVersion: 'dashboard-spec/2',
-      catalogVersion: 'dashboard-catalog/2',
+      catalogVersion: SURFACE_CATALOG_VERSION,
       surfaceId: 'a',
       title: { text: 'Title' },
       components,

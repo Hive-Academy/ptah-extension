@@ -23,6 +23,12 @@ import type {
   LayoutNode,
   SurfaceNode,
 } from '../view-model/view-model.types';
+import { DashboardAlertComponent, type AlertNode } from './dashboard-alert.component';
+import { DashboardBadgeComponent, type BadgeNode } from './dashboard-badge.component';
+import { DashboardDividerComponent, type DividerNode } from './dashboard-divider.component';
+import { DashboardProgressComponent, type ProgressNode } from './dashboard-progress.component';
+import { DashboardRadialProgressComponent, type RadialProgressNode } from './dashboard-radial-progress.component';
+import { DashboardTextBlockComponent, type TextBlockNode } from './dashboard-text-block.component';
 import { DashboardChartComponent, type ChartNode } from './dashboard-chart.component';
 import { DashboardListComponent, type ListNode } from './dashboard-list.component';
 import { DashboardStatComponent, type StatNode } from './dashboard-stat.component';
@@ -57,11 +63,12 @@ const NO_INTERACTION: SurfaceInteractionState = {
   submitDisabled: false,
 };
 
-/** The 13 catalog kinds this node renders; anything else is `@default`. */
+/** The 19 catalog kinds this node renders; anything else is `@default`. */
 export const SURFACE_NODE_KINDS: ReadonlySet<string> = new Set([
   'section', 'stack', 'grid', 'card',
   'text', 'select', 'radio-group', 'checkbox',
   'stat', 'table', 'list', 'line-chart', 'bar-chart',
+  'alert', 'badge', 'progress', 'radial-progress', 'divider', 'text-block',
 ]);
 
 function ownEntry<T>(record: Readonly<Record<string, T>>, key: string): T | undefined {
@@ -69,7 +76,7 @@ function ownEntry<T>(record: Readonly<Record<string, T>>, key: string): T | unde
 }
 
 /**
- * Recursive node: `@switch` over the 13 kinds. Layouts get their children
+ * Recursive node: `@switch` over the 19 kinds. Layouts get their children
  * through this component's `child` template, so the layout never imports this
  * component (R5). v1 display children are rendered the same way. An unknown
  * kind renders nothing and emits `renderFailed`. Every output is forwarded
@@ -88,6 +95,12 @@ function ownEntry<T>(record: Readonly<Record<string, T>>, key: string): T | unde
     DashboardTableComponent,
     DashboardListComponent,
     DashboardChartComponent,
+    DashboardAlertComponent,
+    DashboardBadgeComponent,
+    DashboardProgressComponent,
+    DashboardRadialProgressComponent,
+    DashboardDividerComponent,
+    DashboardTextBlockComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -181,6 +194,37 @@ function ownEntry<T>(record: Readonly<Record<string, T>>, key: string): T | unde
       }
       @case ('line-chart') { <ng-container [ngTemplateOutlet]="chartView" /> }
       @case ('bar-chart') { <ng-container [ngTemplateOutlet]="chartView" /> }
+      @case ('alert') {
+        @if (alertNode(); as alert) {
+          <ptah-dashboard-alert [node]="alert" />
+        }
+      }
+      @case ('badge') {
+        @if (badgeNode(); as badge) {
+          <ptah-dashboard-badge [node]="badge" [surfaceId]="surfaceId()"
+            [selection]="interaction().selection" (selectionChange)="selectionChange.emit($event)" />
+        }
+      }
+      @case ('progress') {
+        @if (progressNode(); as progress) {
+          <ptah-dashboard-progress [node]="progress" />
+        }
+      }
+      @case ('radial-progress') {
+        @if (radialProgressNode(); as radialProgress) {
+          <ptah-dashboard-radial-progress [node]="radialProgress" />
+        }
+      }
+      @case ('divider') {
+        @if (dividerNode(); as divider) {
+          <ptah-dashboard-divider [node]="divider" />
+        }
+      }
+      @case ('text-block') {
+        @if (textBlockNode(); as textBlock) {
+          <ptah-dashboard-text-block [node]="textBlock" />
+        }
+      }
       @default {}
     }
   `,
@@ -231,6 +275,30 @@ export class SurfaceNodeComponent {
   public readonly chartNode = computed((): ChartNode | null => {
     const node = this.node();
     return node.kind === 'line-chart' || node.kind === 'bar-chart' ? node : null;
+  });
+  public readonly alertNode: Signal<AlertNode | null> = computed((): AlertNode | null => {
+    const node = this.node();
+    return node.kind === 'alert' ? node : null;
+  });
+  public readonly badgeNode: Signal<BadgeNode | null> = computed((): BadgeNode | null => {
+    const node = this.node();
+    return node.kind === 'badge' ? node : null;
+  });
+  public readonly progressNode: Signal<ProgressNode | null> = computed((): ProgressNode | null => {
+    const node = this.node();
+    return node.kind === 'progress' ? node : null;
+  });
+  public readonly radialProgressNode: Signal<RadialProgressNode | null> = computed((): RadialProgressNode | null => {
+    const node = this.node();
+    return node.kind === 'radial-progress' ? node : null;
+  });
+  public readonly dividerNode: Signal<DividerNode | null> = computed((): DividerNode | null => {
+    const node = this.node();
+    return node.kind === 'divider' ? node : null;
+  });
+  public readonly textBlockNode: Signal<TextBlockNode | null> = computed((): TextBlockNode | null => {
+    const node = this.node();
+    return node.kind === 'text-block' ? node : null;
   });
   /** v1 display children only; layouts render theirs through the layout component. */
   public readonly displayChildNodes = computed((): readonly DisplayNode[] => {

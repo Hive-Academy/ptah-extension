@@ -171,6 +171,11 @@ export function buildSurfaceUpdateTool(): MCPToolDefinition {
       'surfaceId, title: {text}, description?: {text}, components: [...], dataModel?: {...} }. ' +
       `Component kinds (exactly these, anything else is rejected): layout ${SURFACE_LAYOUT_KINDS.join(', ')}; ` +
       `input ${SURFACE_INPUT_KINDS.join(', ')}; display ${SURFACE_DISPLAY_KINDS.join(', ')}. ` +
+      'Status kind fields: alert { tone: info|success|warning|error, text, title? }; badge { tone: ' +
+      'neutral|primary|info|success|warning|error, text, actions?: dashboard.select ONLY (no url, ' +
+      `at most ${SURFACE_LIMITS.maxActionsPerComponent}); selecting one sends target { kind: ` +
+      '"badge" } }; progress and radial-progress { value: 0-100, tone, label }; divider { ' +
+      'direction: horizontal|vertical, text? }; text-block { role: heading|body, text }. ' +
       'Layout kinds nest `children`; component ids are unique across the whole surface. An ' +
       'input binds a dataModel `path` (dot-separated segments); a missing binding reads its ' +
       `empty value (${describeEmptyInputValues()}). Select and radio-group are empty only at ` +

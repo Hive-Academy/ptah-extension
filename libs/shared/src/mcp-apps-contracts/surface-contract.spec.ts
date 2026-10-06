@@ -17,6 +17,7 @@ import {
 } from '../testing/fixtures/surface';
 import {
   DASHBOARD_CONTRACT_VERSION_PAIRS,
+  SURFACE_CATALOG_VERSION,
   SURFACE_COMPONENT_KINDS,
   SURFACE_DISPLAY_KINDS,
   SURFACE_HOST_SUPPORTED_ACTIONS,
@@ -41,9 +42,21 @@ import {
 import type { SurfacePatchOp, SurfaceUpdateInput } from './surface.types';
 
 describe('surface catalog and version separation', () => {
-  it('reuses display kinds and inherited budgets without widening the v1 lists', () => {
-    expect(SURFACE_DISPLAY_KINDS).toBe(DASHBOARD_COMPONENT_KINDS);
-    expect(SURFACE_COMPONENT_KINDS).toHaveLength(13);
+  it('extends the display vocabulary and budgets without widening the v1 lists', () => {
+    expect(SURFACE_CATALOG_VERSION).toBe('dashboard-catalog/3');
+    expect(
+      SURFACE_DISPLAY_KINDS.slice(0, DASHBOARD_COMPONENT_KINDS.length),
+    ).toEqual(DASHBOARD_COMPONENT_KINDS);
+    for (const kind of [
+      'alert',
+      'badge',
+      'progress',
+      'radial-progress',
+      'divider',
+      'text-block',
+    ] as const)
+      expect(DASHBOARD_COMPONENT_KINDS).not.toContain(kind);
+    expect(SURFACE_COMPONENT_KINDS).toHaveLength(19);
     for (const key of [
       'maxComponents',
       'maxTreeDepth',
@@ -60,7 +73,7 @@ describe('surface catalog and version separation', () => {
     ]);
     expect(DASHBOARD_CONTRACT_VERSION_PAIRS).toEqual([
       ['dashboard-spec/1', 'dashboard-catalog/1'],
-      ['dashboard-spec/2', 'dashboard-catalog/2'],
+      ['dashboard-spec/2', SURFACE_CATALOG_VERSION],
     ]);
     expect(SURFACE_HOST_SUPPORTED_ACTIONS).toEqual([
       'surface.submit',

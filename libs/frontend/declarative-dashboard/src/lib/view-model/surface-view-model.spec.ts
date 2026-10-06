@@ -3,6 +3,7 @@ import type {
 } from '@ptah-extension/shared';
 import {
   SURFACE_ACTIONS,
+  SURFACE_CATALOG_VERSION,
   type SurfaceAction,
   type SurfaceComponent,
   type SurfaceDataModel,
@@ -18,7 +19,7 @@ function v2(components: readonly SurfaceComponent[], dataModel: SurfaceDataModel
     contract: 'dashboard-spec/2',
     surface: {
       schemaVersion: 'dashboard-spec/2',
-      catalogVersion: 'dashboard-catalog/2',
+      catalogVersion: SURFACE_CATALOG_VERSION,
       surfaceId: 'rollback',
       title: { text: 'Rollback request' },
       components,
@@ -144,6 +145,106 @@ describe('buildSurfaceViewModel', () => {
       { id: 't', kind: 'text', label: markup, path: 'v' }] }], { v: markup }));
     expect((section as LayoutNode & { title: { text: string } }).title.text).toBe(markup);
     expect(input((section as LayoutNode).children[0])).toMatchObject({ label: markup, hostValue: markup });
+  });
+
+  it('projects an alert copying only its declared fields', () => {
+    const [alert] = built(v2([
+      { id: 'alert', kind: 'alert', tone: 'warning', text: { text: 'Careful' }, title: { text: 'Heads up' } },
+    ]));
+    expect(alert).toEqual({ id: 'alert', kind: 'alert', tone: 'warning', text: { text: 'Careful' },
+      title: { text: 'Heads up' }, selectable: false });
+  });
+
+  it('projects a badge copying only its declared fields, selectable only through dashboard.select', () => {
+    const [selectable, plain] = built(v2([
+      { id: 'badge', kind: 'badge', tone: 'primary', text: { text: 'Live' },
+        actions: [{ id: 'pick', action: 'dashboard.select', label: { text: 'Pick' } }] },
+      { id: 'plain', kind: 'badge', tone: 'neutral', text: { text: 'Info' } },
+    ]));
+    expect(selectable).toEqual({ id: 'badge', kind: 'badge', tone: 'primary', text: { text: 'Live' },
+      actions: [{ id: 'pick', action: 'dashboard.select', label: { text: 'Pick' } }], selectable: true });
+    expect(plain).toEqual({ id: 'plain', kind: 'badge', tone: 'neutral', text: { text: 'Info' }, selectable: false });
+  });
+
+  it('projects a progress copying only its declared fields', () => {
+    const [progress] = built(v2([
+      { id: 'progress', kind: 'progress', value: 42.5, tone: 'neutral', label: { text: 'Deploying' } },
+    ]));
+    expect(progress).toEqual({ id: 'progress', kind: 'progress', value: 42.5, tone: 'neutral',
+      label: { text: 'Deploying' }, selectable: false });
+  });
+
+  it('projects a radial-progress copying only its declared fields', () => {
+    const [radial] = built(v2([
+      { id: 'radial', kind: 'radial-progress', value: 100, tone: 'success', label: { text: 'Done' } },
+    ]));
+    expect(radial).toEqual({ id: 'radial', kind: 'radial-progress', value: 100, tone: 'success',
+      label: { text: 'Done' }, selectable: false });
+  });
+
+  it('projects a divider copying only its declared fields', () => {
+    const [withText, textless] = built(v2([
+      { id: 'divider', kind: 'divider', direction: 'vertical', text: { text: 'Or' } },
+      { id: 'rule', kind: 'divider', direction: 'horizontal' },
+    ]));
+    expect(withText).toEqual({ id: 'divider', kind: 'divider', direction: 'vertical', text: { text: 'Or' },
+      selectable: false });
+    expect(textless).toEqual({ id: 'rule', kind: 'divider', direction: 'horizontal', selectable: false });
+  });
+
+  it('projects a text-block copying only its declared fields', () => {
+    const [textBlock] = built(v2([
+      { id: 'text', kind: 'text-block', text: { text: 'A heading' }, role: 'heading' },
+    ]));
+    expect(textBlock).toEqual({ id: 'text', kind: 'text-block', text: { text: 'A heading' }, role: 'heading',
+      selectable: false });
+  });
+
+  it('fails closed on hostile in-process status nodes', () => {
+    const hostile: readonly SurfaceComponent[] = [
+      { id: 'nan', kind: 'progress', value: Number.NaN, tone: 'primary', label: { text: 'L' } },
+      { id: 'tone', kind: 'alert', tone: 'violet', text: { text: 'T' } } as unknown as SurfaceComponent,
+      { id: 'text', kind: 'alert', tone: 'info', text: 'not rich text' } as unknown as SurfaceComponent,
+      { id: 'action', kind: 'badge', tone: 'primary', text: { text: 'B' },
+        actions: [{ id: 'x', action: 'surface.submit', label: { text: 'X' } }] } as unknown as SurfaceComponent,
+    ];
+    for (const component of hostile) {
+      const result = buildSurfaceViewModel(v2([component]));
+      expect(result.renderFailed).toBe(true);
+      expect(result.viewModel).toBeNull();
+    }
+  });
+
+  it('fails closed on out-of-range progress values and accepts the 0..100 bounds', () => {
+    const hostile: readonly SurfaceComponent[] = [
+      { id: 'negative', kind: 'progress', value: -5, tone: 'primary', label: { text: 'L' } },
+      { id: 'overflow', kind: 'progress', value: 250, tone: 'primary', label: { text: 'L' } },
+      { id: 'radial-negative', kind: 'radial-progress', value: -5, tone: 'primary', label: { text: 'L' } },
+      { id: 'radial-overflow', kind: 'radial-progress', value: 250, tone: 'primary', label: { text: 'L' } },
+    ];
+    for (const component of hostile) {
+      const result = buildSurfaceViewModel(v2([component]));
+      expect(result.renderFailed).toBe(true);
+      expect(result.viewModel).toBeNull();
+    }
+    const [zero, full] = built(v2([
+      { id: 'zero', kind: 'progress', value: 0, tone: 'primary', label: { text: 'L' } },
+      { id: 'full', kind: 'radial-progress', value: 100, tone: 'primary', label: { text: 'L' } },
+    ]));
+    expect(zero).toEqual({ id: 'zero', kind: 'progress', value: 0, tone: 'primary',
+      label: { text: 'L' }, selectable: false });
+    expect(full).toEqual({ id: 'full', kind: 'radial-progress', value: 100, tone: 'primary',
+      label: { text: 'L' }, selectable: false });
+  });
+
+  it('rejects a v2 envelope still stamped dashboard-catalog/2', () => {
+    const stale = v2([{ id: 'stat', kind: 'stat', value: 1 }]);
+    const result = buildSurfaceViewModel({
+      ...stale,
+      surface: { ...stale.surface, catalogVersion: 'dashboard-catalog/2' },
+    } as unknown as V2);
+    expect(result.renderFailed).toBe(true);
+    expect(result.viewModel).toBeNull();
   });
 
   it('still builds v1 content', () => {

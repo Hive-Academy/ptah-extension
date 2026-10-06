@@ -2,6 +2,7 @@ import { Component, signal } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
 import {
+  SURFACE_CATALOG_VERSION,
   SURFACE_LIMITS,
   type SurfaceComponent,
   type SurfaceDataModel,
@@ -19,7 +20,7 @@ import {
 
 function surface(components: readonly SurfaceComponent[], dataModel: SurfaceDataModel = {}): SurfaceRenderable {
   return { contract: 'dashboard-spec/2', dataModel, surface: { schemaVersion: 'dashboard-spec/2',
-    catalogVersion: 'dashboard-catalog/2', surfaceId: 'surface', title: { text: 'Rollback request' },
+    catalogVersion: SURFACE_CATALOG_VERSION, surfaceId: 'surface', title: { text: 'Rollback request' },
     description: { text: 'Roll back the last deploy.' }, components } };
 }
 function interactionOf(patch: Partial<SurfaceInteractionState> = {}): SurfaceInteractionState {

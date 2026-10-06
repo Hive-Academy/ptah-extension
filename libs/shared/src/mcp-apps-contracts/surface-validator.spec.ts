@@ -1,10 +1,10 @@
-import { dashboardJsonBytes } from '../testing/fixtures/dashboard-spec';
+import { dashboardJsonBytes, makeDashboardSpec } from '../testing/fixtures/dashboard-spec';
 import {
   makeSurfaceComponents,
   makeSurfaceEnvelope,
   makeSurfaceTextInput,
 } from '../testing/fixtures/surface';
-import { SURFACE_LIMITS } from './surface-catalog';
+import { SURFACE_CATALOG_VERSION, SURFACE_LIMITS } from './surface-catalog';
 import {
   SurfaceEnvelopeSchema,
   SurfaceUpdateInputSchema,
@@ -18,7 +18,10 @@ import {
   validateSurfaceEnvelopeVersions,
   validateSurfaceUpdateInput,
 } from './surface.validator';
-import { formatDashboardSpecIssues } from './dashboard-spec.validator';
+import {
+  formatDashboardSpecIssues,
+  validateDashboardSpec,
+} from './dashboard-spec.validator';
 
 const update = (input: unknown) =>
   validateSurfaceUpdateInput(input, dashboardJsonBytes);
@@ -238,7 +241,7 @@ describe('surface validator — versions (Req 1.3, 1.4)', () => {
       'v2',
       {
         schemaVersion: 'dashboard-spec/2',
-        catalogVersion: 'dashboard-catalog/2',
+        catalogVersion: SURFACE_CATALOG_VERSION,
       },
       { ok: true, contract: 'dashboard-spec/2' },
     ],
@@ -254,13 +257,13 @@ describe('surface validator — versions (Req 1.3, 1.4)', () => {
       'unknown schema',
       {
         schemaVersion: 'dashboard-spec/9',
-        catalogVersion: 'dashboard-catalog/2',
+        catalogVersion: SURFACE_CATALOG_VERSION,
       },
       { ok: false, field: 'schemaVersion' },
     ],
     [
       'missing schema',
-      { catalogVersion: 'dashboard-catalog/2' },
+      { catalogVersion: SURFACE_CATALOG_VERSION },
       { ok: false, field: 'schemaVersion' },
     ],
     [
@@ -280,10 +283,10 @@ describe('surface validator — versions (Req 1.3, 1.4)', () => {
       { ok: false, field: 'catalogVersion' },
     ],
     [
-      'v1 schema with v2 catalog',
+      'v1 schema with the v3 catalog (does not pair)',
       {
         schemaVersion: 'dashboard-spec/1',
-        catalogVersion: 'dashboard-catalog/2',
+        catalogVersion: SURFACE_CATALOG_VERSION,
       },
       { ok: false, field: 'catalogVersion' },
     ],
@@ -292,6 +295,33 @@ describe('surface validator — versions (Req 1.3, 1.4)', () => {
     const result = validateSurfaceEnvelopeVersions(input);
     expect(result).toMatchObject(expected);
     if (!result.ok) expect(result.reason).toContain(result.field);
+  });
+
+  it('rejects spec/2 with the removed catalog/2 through the unknown-catalog branch, naming /3 (Q1)', () => {
+    const result = validateSurfaceEnvelopeVersions({
+      schemaVersion: 'dashboard-spec/2',
+      catalogVersion: 'dashboard-catalog/2',
+    });
+    expectRejected(result, 'catalogVersion', 'dashboard-catalog/3');
+    expectRejected(
+      update({
+        operation: 'create',
+        surface: {
+          ...makeSurfaceEnvelope(),
+          catalogVersion: 'dashboard-catalog/2',
+        },
+      }),
+      'surface.catalogVersion',
+      'dashboard-catalog/3',
+    );
+  });
+
+  it('rejects spec/1 with the v3 catalog through the does-not-pair branch', () => {
+    const result = validateSurfaceEnvelopeVersions({
+      schemaVersion: 'dashboard-spec/1',
+      catalogVersion: SURFACE_CATALOG_VERSION,
+    });
+    expectRejected(result, 'catalogVersion', 'does not pair');
   });
 
   it('names the version field when the v2 tool receives a v1 or mixed envelope', () => {
@@ -424,6 +454,237 @@ describe('surface validator — non-finite numbers (Batch 1 review item 2)', () 
         ]),
       ).ok,
     ).toBe(true);
+  });
+});
+
+describe('surface validator — status and text kinds (TASK_2026_594)', () => {
+  /** A minimal valid instance of each new kind, held as raw input. */
+  const minimal: Record<string, Record<string, unknown>> = {
+    alert: { kind: 'alert', id: 'alert', tone: 'info', text: { text: 'Heads up' } },
+    badge: { kind: 'badge', id: 'badge', tone: 'neutral', text: { text: 'New' } },
+    progress: {
+      kind: 'progress',
+      id: 'progress',
+      value: 42.5,
+      tone: 'primary',
+      label: { text: 'Loading' },
+    },
+    'radial-progress': {
+      kind: 'radial-progress',
+      id: 'radial',
+      value: 0,
+      tone: 'success',
+      label: { text: 'Synced' },
+    },
+    divider: { kind: 'divider', id: 'divider', direction: 'horizontal' },
+    'text-block': {
+      kind: 'text-block',
+      id: 'text',
+      text: { text: 'Static copy' },
+      role: 'body',
+    },
+  };
+  const docOf = (components: unknown[]) =>
+    documentOf({ ...makeSurfaceEnvelope(), components });
+  const createOf = (components: unknown[]) =>
+    update({
+      operation: 'create',
+      surface: { ...makeSurfaceEnvelope(), components },
+    });
+
+  it.each(Object.entries(minimal))('accepts a minimal %s', (_kind, component) => {
+    expect(docOf([component]).ok).toBe(true);
+    expect(createOf([component]).ok).toBe(true);
+  });
+
+  it('accepts an optional alert title and divider text, and the value extremes 0 and 100', () => {
+    expect(
+      docOf([
+        {
+          kind: 'alert',
+          id: 'alert',
+          tone: 'warning',
+          title: { text: 'Warning' },
+          text: { text: 'Careful' },
+        },
+      ]).ok,
+    ).toBe(true);
+    expect(
+      docOf([
+        {
+          kind: 'divider',
+          id: 'divider',
+          direction: 'vertical',
+          text: { text: 'Or' },
+        },
+      ]).ok,
+    ).toBe(true);
+    for (const value of [0, 100]) {
+      expect(
+        docOf([
+          {
+            kind: 'radial-progress',
+            id: 'radial',
+            value,
+            tone: 'neutral',
+            label: { text: 'L' },
+          },
+        ]).ok,
+      ).toBe(true);
+    }
+  });
+
+  it('accepts a badge whose only actions are dashboard.select', () => {
+    expect(
+      docOf([
+        {
+          kind: 'badge',
+          id: 'badge',
+          tone: 'primary',
+          text: { text: 'Run' },
+          actions: [
+            {
+              id: 'run',
+              action: 'dashboard.select',
+              label: { text: 'Run' },
+              params: { mode: 'fast' },
+            },
+          ],
+        },
+      ]).ok,
+    ).toBe(true);
+  });
+
+  it('rejects an unknown tone, direction or role on every new kind', () => {
+    expectRejected(
+      docOf([{ ...minimal['alert'], tone: 'loud' }]),
+      'components.0.tone',
+    );
+    expectRejected(
+      docOf([{ ...minimal['badge'], tone: 'loud' }]),
+      'components.0.tone',
+    );
+    expectRejected(
+      docOf([{ ...minimal['progress'], tone: 'loud' }]),
+      'components.0.tone',
+    );
+    expectRejected(
+      docOf([{ ...minimal['radial-progress'], tone: 'loud' }]),
+      'components.0.tone',
+    );
+    expectRejected(
+      docOf([{ ...minimal['divider'], direction: 'diagonal' }]),
+      'components.0.direction',
+    );
+    expectRejected(
+      docOf([{ ...minimal['text-block'], role: 'aside' }]),
+      'components.0.role',
+    );
+  });
+
+  it.each(Object.entries(minimal))(
+    'rejects class, style, html, path, data and extra keys on %s',
+    (_kind, component) => {
+      for (const key of ['class', 'style', 'html', 'path', 'data', 'extra']) {
+        expectRejected(docOf([{ ...component, [key]: 'x' }]), key);
+        expect(createOf([{ ...component, [key]: 'x' }]).ok).toBe(false);
+      }
+    },
+  );
+
+  it.each([-1, 101, NaN, Infinity, '50'])(
+    'rejects progress and radial-progress value %p',
+    (value) => {
+      for (const kind of ['progress', 'radial-progress'] as const) {
+        const component = {
+          kind,
+          id: 'p',
+          value,
+          tone: 'neutral',
+          label: { text: 'L' },
+        };
+        expectRejected(docOf([component]), 'components.0.value');
+        expect(createOf([component]).ok).toBe(false);
+      }
+    },
+  );
+
+  it('rejects a badge action other than dashboard.select and a badge action with a url', () => {
+    const badge = (actions: unknown[]) => ({
+      kind: 'badge',
+      id: 'badge',
+      tone: 'info',
+      text: { text: 'Open' },
+      actions,
+    });
+    expectRejected(
+      docOf([
+        badge([
+          {
+            id: 'open',
+            action: 'dashboard.open-url',
+            label: { text: 'Open' },
+            url: 'https://example.com',
+          },
+        ]),
+      ]),
+      'components.0.actions',
+    );
+    expectRejected(
+      docOf([
+        badge([{ id: 'save', action: 'surface.submit', label: { text: 'Save' } }]),
+      ]),
+      'components.0.actions',
+    );
+    expectRejected(
+      docOf([
+        badge([
+          {
+            id: 'pick',
+            action: 'dashboard.select',
+            label: { text: 'Pick' },
+            url: 'https://example.com',
+          },
+        ]),
+      ]),
+      'components.0.actions',
+    );
+  });
+
+  it('rejects an empty and an over-length text-block text, and accepts one at the limit', () => {
+    expectRejected(
+      docOf([{ ...minimal['text-block'], text: { text: '' } }]),
+      'components.0.text',
+    );
+    expectRejected(
+      docOf([
+        {
+          ...minimal['text-block'],
+          text: { text: 'x'.repeat(SURFACE_LIMITS.maxStringLength + 1) },
+        },
+      ]),
+      'components.0.text',
+    );
+    expect(
+      docOf([
+        {
+          ...minimal['text-block'],
+          text: { text: 'x'.repeat(SURFACE_LIMITS.maxStringLength) },
+          role: 'heading',
+        },
+      ]).ok,
+    ).toBe(true);
+  });
+
+  it('rejects a v1 document that names any of the new kinds', () => {
+    for (const component of Object.values(minimal)) {
+      const result = validateDashboardSpec(
+        { ...makeDashboardSpec(), components: [component] },
+        dashboardJsonBytes,
+      );
+      expect(result).toMatchObject({ ok: false });
+      if (!result.ok) expect(result.reason).toContain('components.0');
+    }
   });
 });
 

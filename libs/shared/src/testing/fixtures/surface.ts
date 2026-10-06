@@ -1,4 +1,5 @@
 /** Valid v2 fixtures shared by contract, validator and host tests. */
+import { SURFACE_CATALOG_VERSION } from '../../mcp-apps-contracts/surface-catalog';
 import type {
   SurfaceAction,
   SurfaceComponent,
@@ -28,7 +29,7 @@ export function makeSurfaceEnvelope(
 ): SurfaceEnvelope {
   return {
     schemaVersion: 'dashboard-spec/2',
-    catalogVersion: 'dashboard-catalog/2',
+    catalogVersion: SURFACE_CATALOG_VERSION,
     surfaceId: 'profile',
     title: { text: 'Profile', format: 'plain' },
     description: { text: 'Edit your profile' },
