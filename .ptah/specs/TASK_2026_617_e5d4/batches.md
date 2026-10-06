@@ -1,6 +1,6 @@
 # Batches - TASK_2026_617
 
-Total tasks: 27 | Batches: 9 | Complete: 8/9
+Total tasks: 27 | Batches: 9 | Complete: 9/9
 
 Worktree: `D:\projects\ptah-extension\.claude-worktrees\task-617-grok-acp` (branch `feat/task-617-grok-acp`).
 Every path below is absolute inside this worktree. Never touch the main checkout.
@@ -580,7 +580,7 @@ Beyond the plan, accepted:
 - `libs\frontend\tasks-ui\...\task-agent-discovery.service.ts` `CLI_DISPLAY_NAMES` gains `grok: 'Grok'`.
 - `agent-models.store.ts` was left unchanged: it is keyed by `AgentModelProvider`, not `CliType`.
 
-## Batch 9: Grok profile, GrokCliAdapter and registration — IN_PROGRESS
+## Batch 9: Grok profile, GrokCliAdapter and registration — COMPLETE (commit ff87f761d; Phase 2 review pending)
 
 - Recommended executor: backend-developer (sub-agent)
 - Fallback executor: backend-developer, fresh run
@@ -590,7 +590,7 @@ Beyond the plan, accepted:
 - Phase: 2 (last batch) | Phase review: code-logic plus style (a new public adapter export and a new setting).
   The visual evidence for the matrix row is recorded for QA (R11).
 
-### Task 9.1: GrokAcpProfile — IN_PROGRESS
+### Task 9.1: GrokAcpProfile — COMPLETE
 
 - File: `ADP\grok\grok-acp-profile.ts`, `ADP\grok\grok-acp-profile.spec.ts`
 - Plan reference: implementation-plan.md:409-426; amendments 2-5
@@ -601,7 +601,7 @@ Beyond the plan, accepted:
   data), `-32000`, and `-32602` "unknown model id" with the model source.
 - Validation notes: R6. The spec uses fixture error payloads from `grok-p3-*.ndjson`.
 
-### Task 9.2: GrokCliAdapter — IN_PROGRESS
+### Task 9.2: GrokCliAdapter — COMPLETE
 
 - Depends on: Task 9.1
 - File: `ADP\grok-cli.adapter.ts`, `ADP\grok-cli.adapter.spec.ts`
@@ -612,7 +612,7 @@ Beyond the plan, accepted:
   The spec pins argv: `--no-leader` present, `stdio` last, no `--leader`, no `--always-approve`, no `-m`, no
   `--reasoning-effort`. A handle smoke test runs with the fake agent.
 
-### Task 9.3: registration — IN_PROGRESS
+### Task 9.3: registration — COMPLETE
 
 - Depends on: Task 9.2
 - File: `ADP\index.ts`, `...\libs\backend\cli-agent-runtime\src\lib\cli-agents\cli-detection.service.ts` (+ its
@@ -628,6 +628,53 @@ Beyond the plan, accepted:
   `@agentclientprotocol/sdk` as a detected and declared external; `npx nx run ptah-cli:build-esbuild` and
   `npx nx run ptah-tui:build` keep it external.
 - After the commit: return NEEDS REVIEW for Phase 2 (Batches 5-9, code-logic plus style).
+
+### Batch 9 results
+
+Executor: backend-developer (sub-agent). Team-leader verification:
+
+- Scoped checks: `typecheck,test,lint` pass for `cli-agent-runtime`, `rpc-handlers`, `vscode-lm-tools`, `chat` and
+  `ptah-cli`.
+- Typecheck beyond the scope: `nx affected -t typecheck` passes for 19 projects.
+- The degradation audit is clean. The executor first added one `catch-return-sentinel` and removed it by
+  restructuring the code.
+
+A5, bundle half (deferred here from Batch 2), all verified by grep of `dist/apps`:
+
+- `ptah-extension-vscode/main.mjs` inlines the SDK: the `ClientSideConnection:()=>` export map is present and there
+  are 0 `"@agentclientprotocol/sdk"` specifiers.
+- `ptah-cli/main.mjs`, `ptah-cli/tui.mjs` (the TUI writes its output into the CLI folder) and
+  `ptah-electron/main.mjs` each keep exactly 1 external `import("@agentclientprotocol/sdk")`, and none inlines the
+  SDK class.
+- `ptah-electron:validate-deps` lists the SDK as detected and declared.
+
+Deviations, accepted:
+
+1. Bracket access in `acp-permission-policy.ts` (4 sites) and `acp-session-update-mapper.ts` (20 sites). Registering
+   the adapter made `rpc-handlers` and `vscode-lm-tools`, which use `noPropertyAccessFromIndexSignature`, typecheck
+   the ACP files. No logic changed.
+2. `runSdk` does not call `resolveDirectSpawn`; the ACP transport already does.
+3. The adapter constructor is `(spawner?, logger?)`, following the codex precedent.
+
+Binding notes met:
+
+- Argv is exactly `['agent','--no-leader','stdio']`, with no env.
+- Logs carry only `command` and `error.message`.
+- The Grok `describeError` rows are tested against the real `grok-p3-*` payloads, using `modelSource` wording.
+- M1 (`onUnexpectedTurnError` as a `const`) is done.
+
+Open, minor: `agent-process-manager.service.spec.ts:2624` `it.each(['antigravity','opencode','pi'])` does not
+include `grok`. Adding it needs the mock detection to report grok installed.
+
+## Run state (team-leader, 2026-10-06)
+
+The user's PAUSE-before-Batch-8 instruction arrived after the following had already happened: the `origin/main`
+merge (`72b5677d0`), the Batch 8 commit (`9966bd35d`), and Batch 9's implementation and verification. History was
+not rewritten. Batch 9 was committed (`ff87f761d`) so the worktree is left clean. If the user wants the
+pre-Batch-8 state back, the last commit before the merge is `b720f2f18` (Batches 5-7 plus their `batches.md`
+record). Resetting to it is a destructive history change, and only the user can approve it.
+
+Next: the Phase 2 review (Batches 5-9, code-logic plus style), or the user's decision on the pause.
 
 ## Completion notes (for Mode 3)
 
