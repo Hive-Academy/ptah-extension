@@ -134,11 +134,18 @@ describe('ElectronShellComponent Apps tab', () => {
 
   afterEach(() => fixture.destroy());
 
-  it('orders the tab row Chat, Apps, Tasks, Tribunal, Analytics when folders exist', () => {
-    const order = ['Chat', 'Apps', 'Tasks', 'Tribunal', 'Analytics'];
+  it('orders the tab row Chat, Apps, Tasks, Tribunal, Analytics, Setup hub when folders exist', () => {
+    const order = [
+      'Chat',
+      'Apps',
+      'Tasks',
+      'Tribunal',
+      'Analytics',
+      'Setup hub',
+    ];
     expect(tabs().map((tab) => tab.title)).toEqual(order);
     expect(tabs().map((tab) => tab.textContent?.trim())).toEqual(order);
-    expect(shell().querySelectorAll('[role="tab"]')).toHaveLength(5);
+    expect(shell().querySelectorAll('[role="tab"]')).toHaveLength(6);
   });
 
   it('renders the Apps tab with the sibling tab pattern and the AppWindow icon', () => {
@@ -149,8 +156,7 @@ describe('ElectronShellComponent Apps tab', () => {
     expect(Array.from(apps.classList)).toEqual(['tab', 'gap-1.5', 'no-drag']);
     expect(apps.className).not.toMatch(/text-base-content\//);
     const icon = apps.querySelector('lucide-angular') as
-      | (HTMLElement & { img?: unknown })
-      | null;
+      (HTMLElement & { img?: unknown }) | null;
     expect(icon).not.toBeNull();
     expect(icon!.img).toBe(AppWindow);
     expect(icon!.getAttribute('class')).toBe('w-3.5 h-3.5');
@@ -183,6 +189,7 @@ describe('ElectronShellComponent Apps tab', () => {
     expect(tabs().map((tab) => tab.getAttribute('aria-selected'))).toEqual([
       'false',
       'true',
+      'false',
       'false',
       'false',
       'false',

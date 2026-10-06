@@ -48,7 +48,7 @@ import {
   SurfaceRouterService,
   VSCodeService,
 } from '@ptah-extension/core';
-import { GlobalConfigMenuComponent } from '../molecules/global-config-menu.component';
+import { GlobalConfigActionsComponent } from '../molecules/global-config-actions.component';
 import { ElectronShellComponent } from './electron-shell.component';
 import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-ender.service';
 
@@ -158,7 +158,7 @@ describe('ElectronShellComponent configuration gate', () => {
     })
       .overrideComponent(ElectronShellComponent, {
         set: {
-          imports: [RouterOutlet, GlobalConfigMenuComponent],
+          imports: [RouterOutlet, GlobalConfigActionsComponent],
           schemas: [CUSTOM_ELEMENTS_SCHEMA],
         },
       })
@@ -208,7 +208,7 @@ describe('ElectronShellComponent configuration gate', () => {
     ).toBe('Settings route');
   });
 
-  it('shows the workspace app shell and Chat, Apps, Tasks, Tribunal, Analytics tabs in order', () => {
+  it('shows the workspace app shell and Chat, Apps, Tasks, Tribunal, Analytics, Setup hub tabs in order', () => {
     layoutStub.hasWorkspaceFolders.set(true);
     fixture.detectChanges();
     expect(shell().querySelector('ptah-app-shell')).not.toBeNull();
@@ -218,49 +218,86 @@ describe('ElectronShellComponent configuration gate', () => {
         '[role="tablist"].electron-tabs button[role="tab"]',
       ),
     );
-    expect(tabs.map((tab) => tab.title)).toEqual([
+    const names = [
       'Chat',
       'Apps',
       'Tasks',
       'Tribunal',
       'Analytics',
-    ]);
-    expect(tabs.map((tab) => tab.textContent?.trim())).toEqual([
-      'Chat',
-      'Apps',
-      'Tasks',
-      'Tribunal',
-      'Analytics',
-    ]);
+      'Setup hub',
+    ];
+    expect(tabs.map((tab) => tab.title)).toEqual(names);
+    expect(tabs.map((tab) => tab.textContent?.trim())).toEqual(names);
     expect(tabs.map((tab) => tab.getAttribute('aria-selected'))).toEqual([
       'true',
       'false',
       'false',
       'false',
       'false',
+      'false',
     ]);
-    expect(shell().querySelectorAll('[role="tab"]')).toHaveLength(5);
+    expect(shell().querySelectorAll('[role="tab"]')).toHaveLength(6);
   });
 
-  it('keeps the configuration menu and back button in global no-drag actions without a workspace', () => {
-    const trigger = shell().querySelector<HTMLElement>(
-      '[data-test="config-menu-trigger"]',
+  it('opens Setup hub from its tab and marks the tab active once the surface settles', () => {
+    layoutStub.hasWorkspaceFolders.set(true);
+    fixture.detectChanges();
+    const setupHub = shell().querySelector<HTMLButtonElement>(
+      '[role="tab"][data-test="config-menu-item-setup-hub"]',
     )!;
-    expect(trigger).not.toBeNull();
-    expect(trigger.closest('.no-drag')).not.toBeNull();
+    setupHub.click();
+    expect(appStateStub.setCurrentView).toHaveBeenCalledWith('setup-hub');
+    appStateStub.openConfigurationSurface.set('setup-hub');
+    fixture.detectChanges();
+    expect(setupHub.getAttribute('aria-selected')).toBe('true');
+    expect(setupHub.getAttribute('aria-current')).toBe('true');
+    expect(setupHub.classList.contains('tab-active')).toBe(true);
+  });
+
+  it('keeps the configuration icon buttons before the theme toggle in global no-drag actions without a workspace', () => {
+    const thoth = shell().querySelector<HTMLElement>(
+      '[data-test="config-menu-item-thoth"]',
+    )!;
+    expect(thoth).not.toBeNull();
+    expect(
+      shell().querySelector('[data-test="config-menu-trigger"]'),
+    ).toBeNull();
     expect(shell().querySelector('[role="tablist"]')).toBeNull();
     showSettings();
-    const actions = trigger.closest('.no-drag');
+    const actions = thoth.closest('.no-drag');
     expect(actions?.contains(backButton())).toBe(true);
     expect(backButton()?.closest('.no-drag')).toBe(actions);
-    // Resolve the host from the public trigger hook, never a menu tag selector.
-    const menuHost = Array.from(actions?.children ?? []).find((child) =>
-      child.contains(trigger),
+    const hook = (el: Element | null | undefined) =>
+      el?.getAttribute('data-test') ?? el?.tagName.toLowerCase();
+    const settings = shell().querySelector(
+      '[data-test="config-menu-item-settings"]',
     );
-    expect(menuHost?.tagName.toLowerCase()).toBe('ptah-global-config-menu');
-    expect(menuHost?.nextElementSibling?.tagName.toLowerCase()).toBe(
-      'ptah-theme-toggle',
-    );
+    // The actions host uses `display: contents`; the theme toggle follows it.
+    const actionsHost = settings?.parentElement;
+    expect(
+      Array.from(actionsHost?.children ?? []).map((child) => hook(child)),
+    ).toEqual([
+      'config-menu-item-thoth',
+      'config-menu-item-setup-hub',
+      'config-menu-item-marketplace',
+      'config-menu-item-settings',
+    ]);
+    expect(hook(actionsHost?.nextElementSibling)).toBe('ptah-theme-toggle');
+  });
+
+  it('renders exactly one Setup hub entry: an icon button without a workspace, the tab with one', () => {
+    const setupHubEntries = () =>
+      Array.from(
+        shell().querySelectorAll<HTMLElement>(
+          '[data-test="config-menu-item-setup-hub"]',
+        ),
+      );
+    expect(setupHubEntries()).toHaveLength(1);
+    expect(setupHubEntries()[0].getAttribute('role')).toBeNull();
+    layoutStub.hasWorkspaceFolders.set(true);
+    fixture.detectChanges();
+    expect(setupHubEntries()).toHaveLength(1);
+    expect(setupHubEntries()[0].getAttribute('role')).toBe('tab');
   });
 
   it('returns to welcome after Back to welcome requests chat and configuration settles to null', () => {
