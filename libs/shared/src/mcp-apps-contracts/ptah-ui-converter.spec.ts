@@ -129,7 +129,7 @@ describe('convertPtahUi', () => {
     expect(convert(doc)).toEqual({
       envelope: {
         schemaVersion: 'dashboard-spec/2',
-        catalogVersion: 'dashboard-catalog/2',
+        catalogVersion: 'dashboard-catalog/3',
         surfaceId: 'ptah-ui-1',
         title: { text: doc.title ?? '' },
         components: (expected as { components: unknown }).components,

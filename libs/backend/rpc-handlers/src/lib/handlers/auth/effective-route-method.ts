@@ -171,7 +171,10 @@ export class EffectiveRouteMethod {
                     ? 'local-proxy'
                     : 'local-native'
                   : 'unknown',
-                status: 'skipped',
+                // A key-optional provider with a stored key (Ollama Cloud
+                // direct) is keyed like an apiKey route; without one the host
+                // still cannot check it.
+                status: provider.hasApiKey ? 'connected' : 'skipped',
               };
             });
           if (!providers.some((provider) => provider.id === 'claude-cli')) {

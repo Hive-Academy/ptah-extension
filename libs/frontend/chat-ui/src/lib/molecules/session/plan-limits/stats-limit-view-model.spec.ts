@@ -2,6 +2,7 @@ import type {
   OwnerLimitEvidence,
   PlanLimitOwnerSnapshot,
   PlanLimitWindow,
+  ProviderAccountUsageStatus,
   QuotaOwnerIdentityKind,
   QuotaOwnerRef,
 } from '@ptah-extension/shared';
@@ -456,7 +457,12 @@ describe('buildStatsLimitViewModel', () => {
       });
       const vm = buildStatsLimitViewModel(input({ owners: [noSource] }));
       expect(vm.indicator).toBeUndefined();
-      expect(vm.planTiles[0]).toMatchObject({ value: 'No usage source' });
+      expect(vm.planTiles[0]).toMatchObject({
+        value: 'No usage source',
+        detailLines: [
+          'Claude account · aaaa does not report plan usage, so no percentage is shown.',
+        ],
+      });
     });
 
     it('shows near limit with window, value and reset', () => {
@@ -589,6 +595,27 @@ describe('buildStatsLimitViewModel', () => {
       );
       expect(vm.planTiles[1].chip?.text).toBe('Aged');
       expect(vm.planTiles[2].resetLine).toBe('retry delay, not a plan reset');
+      expect(vm.planTiles[2].sourceChips).toEqual(['From error']);
+    });
+
+    it('keeps the owner suffix separate from the truncating caption lead', () => {
+      const canonical = buildStatsLimitViewModel(input()).planTiles[0];
+      const nonCanonicalOwner = { ...CLAUDE_A, key: 'claude-cli#account:short' };
+      const nonCanonical = buildStatsLimitViewModel(
+        input({
+          sessionOwnerKey: nonCanonicalOwner.key,
+          owners: [snapshot(nonCanonicalOwner)],
+        }),
+      ).planTiles[0];
+
+      expect(canonical).toMatchObject({
+        captionLead: 'Claude account plan limit',
+        captionTail: '· aaaa',
+        caption: 'Claude account plan limit · aaaa',
+      });
+      expect(nonCanonical.captionLead).toBe('Claude account plan limit');
+      expect(nonCanonical.captionTail).toBeUndefined();
+      expect(nonCanonical.caption).toBe('Claude account plan limit');
     });
 
     it('renders absolute times in the zone it is given', () => {
@@ -751,6 +778,34 @@ describe('buildStatsLimitViewModel', () => {
       expect(noteTexts(group).join(' ')).not.toContain('last-known');
     });
 
+    it('(iv) an unknown status from a newer backend is a neutral note, never a throw', () => {
+      // Version skew: 'telemetry-outage' is no member this build knows, so
+      // the double cast stands in for a cached or desynced client. The
+      // switch's default must answer with the generic note instead of
+      // throwing and blanking the whole stats view model (review M2).
+      const unknownStatus =
+        'telemetry-outage' as unknown as ProviderAccountUsageStatus;
+      const keyOwner = snapshot(ANTHROPIC_KEY, {
+        status: unknownStatus,
+        windowSetEstablished: false,
+        windows: [],
+      });
+      const vm = buildStatsLimitViewModel(
+        input({
+          owners: [snapshot(CLAUDE_A), keyOwner],
+          laneRuns: [run({ quotaOwner: ANTHROPIC_KEY })],
+        }),
+      );
+      const group = onlySubgroup(vm);
+      expect(group.notes).toEqual([
+        {
+          tone: 'neutral',
+          text: 'Usage unavailable · telemetry-outage',
+        },
+      ]);
+      expect(noteTexts(group).join(' ')).not.toContain('last-known');
+    });
+
     it('the session owner failing its read shows an Unavailable tile', () => {
       const vm = buildStatsLimitViewModel(
         input({
@@ -769,7 +824,9 @@ describe('buildStatsLimitViewModel', () => {
           id: `plan-status:${CLAUDE_A.key}`,
           value: 'Unavailable',
           resetLine: 'no open session',
-          caption: 'Claude account · aaaa plan limit',
+          caption: 'Claude account plan limit · aaaa',
+          captionLead: 'Claude account plan limit',
+          captionTail: '· aaaa',
         }),
       ]);
     });

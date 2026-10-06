@@ -3,6 +3,7 @@ import { TestBed } from '@angular/core/testing';
 import type { DashboardAction, DashboardComponent } from '@ptah-extension/shared';
 import {
   SURFACE_ACTIONS,
+  SURFACE_CATALOG_VERSION,
   type SurfaceAction,
   type SurfaceComponent,
   type SurfaceDataModel,
@@ -27,7 +28,7 @@ const series = [{ name: markup, points: [{ x: markup, y: 1 }, { x: 'b', y: 2 }] 
 
 function v2(components: readonly SurfaceComponent[], dataModel: SurfaceDataModel = {}): SurfaceRenderable {
   return { contract: 'dashboard-spec/2', dataModel, surface: { schemaVersion: 'dashboard-spec/2',
-    catalogVersion: 'dashboard-catalog/2', surfaceId: 'surface', title: text, description: text, components } };
+    catalogVersion: SURFACE_CATALOG_VERSION, surfaceId: 'surface', title: text, description: text, components } };
 }
 function v1(components: readonly DashboardComponent[]): SurfaceRenderable {
   return { contract: 'dashboard-spec/1', spec: { schemaVersion: 'dashboard-spec/1', catalogVersion: 'dashboard-catalog/1',

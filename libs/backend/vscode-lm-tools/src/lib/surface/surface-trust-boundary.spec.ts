@@ -37,6 +37,7 @@
 import 'reflect-metadata';
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { SurfaceEnvelope } from '@ptah-extension/shared';
+import { SURFACE_CATALOG_VERSION } from '@ptah-extension/shared/mcp-apps-contracts/surface';
 import type { DashboardSurfaceHost } from '../code-execution/namespace-builders/dashboard-namespace.builder';
 import { buildSurfaceNamespace } from '../code-execution/namespace-builders/surface-namespace.builder';
 import { SurfaceStateService } from './surface-state.service';
@@ -50,7 +51,7 @@ const MARKUP = '<img src=x onerror=alert(1)><script>alert(document.cookie)</scri
 function markupSurface(surfaceId = 'profile'): SurfaceEnvelope {
   return {
     schemaVersion: 'dashboard-spec/2',
-    catalogVersion: 'dashboard-catalog/2',
+    catalogVersion: SURFACE_CATALOG_VERSION,
     surfaceId,
     title: { text: MARKUP },
     components: [

@@ -434,6 +434,48 @@ describe('the tool definition', () => {
     expect(description).not.toContain('"plain" | "markdown"');
     expect(description).not.toMatch(/format\??\s*:/);
   });
+
+  it('still lists exactly the five v1 kinds — none of the six status/text kinds (TASK_2026_594 Task 6.3)', () => {
+    const tool = buildDashboardProposeSpecTool();
+
+    // The constant itself stays the five v1 kinds.
+    expect([...DASHBOARD_COMPONENT_KINDS]).toEqual([
+      'stat',
+      'line-chart',
+      'bar-chart',
+      'table',
+      'list',
+    ]);
+
+    // The advertised JSON-schema enum lists them exactly, as exact entries.
+    const schema = tool.inputSchema as unknown as JsonSchema;
+    const spec = (schema['properties'] as Record<string, JsonSchema>)['spec'];
+    const components = (spec['properties'] as Record<string, JsonSchema>)[
+      'components'
+    ];
+    const items = components['items'] as JsonSchema;
+    const kind = (items['properties'] as Record<string, JsonSchema>)['kind'];
+    expect(kind['enum']).toEqual([...DASHBOARD_COMPONENT_KINDS]);
+
+    // The prose `(kinds: ...)` list parses into the same exact token set.
+    const prose = tool.description.match(/\(kinds: ([^)]+)\);/);
+    expect(prose).not.toBeNull();
+    const tokens = prose![1].split(',').map((token) => token.trim());
+    expect(new Set(tokens)).toEqual(new Set([...DASHBOARD_COMPONENT_KINDS]));
+    expect(new Set(tokens).size).toBe(tokens.length);
+
+    // None of the six new kinds appears anywhere in the v1 tool.
+    const serialized = JSON.stringify(tool);
+    for (const kind of [
+      'alert',
+      'badge',
+      'progress',
+      'radial-progress',
+      'divider',
+      'text-block',
+    ] as const)
+      expect(serialized).not.toContain(kind);
+  });
 });
 
 /**

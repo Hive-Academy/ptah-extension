@@ -162,8 +162,9 @@ export interface AgentProcessInfo {
   failureKind?: AgentFailureKind;
   /**
    * Quota owner this run used, recorded at spawn or when it first becomes
-   * known. May only be upgraded from an `unknown` identity kind to a known
-   * one; never overwritten by a later owner.
+   * known. May move from an `unknown` identity kind to a known one, or from a
+   * `cli-store` owner to an `account` owner for the same provider; it is never
+   * overwritten otherwise.
    */
   quotaOwner?: QuotaOwnerRef;
   /** Backend-resolved model scope for plan-limit windows; null when unknown. */

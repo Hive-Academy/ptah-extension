@@ -23,7 +23,10 @@ import type { LaneSubtotalTileModel } from './stats-limit-view-model.types';
       >
         Lanes · subtotal
       </div>
-      <div class="text-[10px] text-base-content-muted leading-tight">
+      <div
+        class="text-[10px] text-base-content-muted leading-tight truncate"
+        [attr.title]="t.caption"
+      >
         {{ t.caption }}
       </div>
       <div

@@ -1,5 +1,5 @@
 import { DASHBOARD_LIMITS } from '@ptah-extension/shared/mcp-apps-contracts';
-import { SURFACE_LIMITS } from '@ptah-extension/shared/mcp-apps-contracts/surface';
+import { SURFACE_CATALOG_VERSION, SURFACE_LIMITS } from '@ptah-extension/shared/mcp-apps-contracts/surface';
 import type {
   SurfaceComponent,
   SurfaceContent,
@@ -34,7 +34,7 @@ function envelope(
 ): SurfaceEnvelope {
   return {
     schemaVersion: 'dashboard-spec/2',
-    catalogVersion: 'dashboard-catalog/2',
+    catalogVersion: SURFACE_CATALOG_VERSION,
     surfaceId: 'profile',
     title: { text: 'Profile' },
     components,

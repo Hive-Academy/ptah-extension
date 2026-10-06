@@ -7,6 +7,8 @@ import {
 } from './ollama-cloud-plan-usage.reader';
 import type { PlanOwnerTarget } from './plan-usage-reader.types';
 
+// Placeholder keys are rejected upstream by plan-credential.source.ts before
+// this reader is called, so this fixture always represents a usable secret.
 const API_KEY = 'ollama-private-api-key';
 const TARGET = {
   providerId: 'ollama-cloud',

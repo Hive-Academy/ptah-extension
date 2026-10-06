@@ -384,6 +384,10 @@ export function checkSurfaceSelection(
       return component.kind === 'stat'
         ? { ok: true }
         : fail(`${where} does not match target kind stat.`);
+    case 'badge':
+      return component.kind === 'badge'
+        ? { ok: true }
+        : fail(`${where} does not match target kind badge.`);
     case 'table-row':
       return component.kind === 'table' &&
         component.rows !== undefined &&
@@ -421,6 +425,8 @@ function sameSelection(a: SurfaceSelection, b: SurfaceSelection): boolean {
   switch (left.kind) {
     case 'stat':
       return right.kind === 'stat';
+    case 'badge':
+      return right.kind === 'badge';
     case 'table-row':
       return right.kind === 'table-row' && left.rowIndex === right.rowIndex;
     case 'list-item':

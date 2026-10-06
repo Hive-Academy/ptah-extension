@@ -120,7 +120,8 @@ function validateApiKeyFormat(
  *   - authType: derived from registry (`apiKey` is the default when undefined)
  *               — except `anthropic`, which is `'cli'` when the user picked
  *               authMethod=claudeCli/claude-cli, otherwise `'apiKey'`.
- *   - hasApiKey: secretStorage presence — only meaningful for apiKey providers
+ *   - hasApiKey: secretStorage presence — apiKey providers, plus key-optional
+ *               ones (Ollama Cloud) where a stored key means direct access
  *   - baseUrl: registry default OR per-provider override at
  *              `provider.<id>.baseUrl` in ~/.ptah/settings.json
  *   - baseUrlOverridden: true iff the override is set
@@ -132,6 +133,7 @@ function buildStatusProviderList(): Array<{
   requiresProxy: boolean;
   isLocal: boolean;
   defaultBaseUrl: string | null;
+  supportsOptionalApiKey: boolean;
 }> {
   const entries: Array<{
     id: string;
@@ -140,6 +142,7 @@ function buildStatusProviderList(): Array<{
     requiresProxy: boolean;
     isLocal: boolean;
     defaultBaseUrl: string | null;
+    supportsOptionalApiKey: boolean;
   }> = [
     {
       id: ANTHROPIC_DIRECT_PROVIDER_ID,
@@ -150,6 +153,7 @@ function buildStatusProviderList(): Array<{
       requiresProxy: false,
       isLocal: false,
       defaultBaseUrl: null,
+      supportsOptionalApiKey: false,
     },
   ];
   const registry: readonly AnthropicProvider[] = getAllAnthropicProviders();
@@ -161,6 +165,7 @@ function buildStatusProviderList(): Array<{
       requiresProxy: p.requiresProxy === true,
       isLocal: p.isLocal === true,
       defaultBaseUrl: p.baseUrl,
+      supportsOptionalApiKey: p.supportsOptionalApiKey === true,
     });
   }
   return entries;
@@ -300,7 +305,7 @@ export class LlmRpcHandlers {
                 authType = 'cli';
               }
               let hasApiKey = false;
-              if (authType === 'apiKey') {
+              if (authType === 'apiKey' || entry.supportsOptionalApiKey) {
                 const legacyStored = await secretStorage.get(
                   `${API_KEY_PREFIX}.${entry.id}`,
                 );

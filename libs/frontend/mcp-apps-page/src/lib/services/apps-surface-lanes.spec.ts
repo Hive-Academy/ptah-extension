@@ -6,6 +6,7 @@ import type {
   SurfaceSelection,
   SurfaceStateView,
 } from '@ptah-extension/shared/mcp-apps-contracts/surface';
+import { SURFACE_CATALOG_VERSION } from '@ptah-extension/shared/mcp-apps-contracts/surface';
 import {
   createAppsSurfaceState,
   updateSurfaceOverlays,
@@ -52,7 +53,7 @@ function view(revision: number, name = 'Ada'): SurfaceStateView {
       contract: 'dashboard-spec/2',
       surface: {
         schemaVersion: 'dashboard-spec/2',
-        catalogVersion: 'dashboard-catalog/2',
+        catalogVersion: SURFACE_CATALOG_VERSION,
         surfaceId: SURFACE,
         title: { text: 'Profile' },
         components: COMPONENTS,

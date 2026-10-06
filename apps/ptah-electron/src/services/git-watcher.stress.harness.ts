@@ -205,17 +205,12 @@ class CountingProcessSpawner implements IProcessSpawner {
   }
 
   /**
-   * One per `GitInfoService` status pipeline: each starts with the
-   * `rev-parse --is-inside-work-tree` probe. Counting `status` alone
-   * undercounts on a loaded machine, where the probe can fail and the
-   * pipeline ends before `status` is spawned.
+   * One per `GitInfoService` status pipeline. The pipeline has no separate
+   * repository probe: its first spawn is `git status`, which also tells a
+   * non-repository apart (TASK_2026_616 Batch G).
    */
   refreshCycles(): ReadonlyArray<{ readonly at: number }> {
-    return this.calls.filter(
-      (call) =>
-        call.args[0] === 'rev-parse' &&
-        call.args[1] === '--is-inside-work-tree',
-    );
+    return this.statusSpawns();
   }
 }
 
