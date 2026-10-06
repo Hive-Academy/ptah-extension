@@ -31,33 +31,36 @@
  * - No emitted line starts with `[tool_result` or `[tool_use `, so
  *   `compressToolNoise` (`transcript-windows.ts:148`) rewrites nothing and
  *   the product's window plan equals this generator's arithmetic.
+ * - The long-session placement is checked after generation with the product's
+ *   own `clampTranscript`: a middle-planted fact statement that survives the
+ *   clamp throws `MiddleFactSurvivesClampError`, and a head-planted one the
+ *   clamp drops is a plain generation error.
  */
+
+import {
+  clampTranscript,
+  CURATOR_MAX_WINDOWS,
+  CURATOR_TRANSCRIPT_MAX_CHARS,
+} from '@ptah-extension/memory-curator';
 
 import { z } from 'zod';
 
 /**
- * Characters in one curator window. Kept in step by hand with
- * `CURATOR_TRANSCRIPT_MAX_CHARS` (`clamp-transcript.ts:48`) rather than
- * imported: the product's package entry pulls the whole curator graph, whose
- * `vscode` import this project's Jest run cannot resolve, and
- * `@nx/enforce-module-boundaries` forbids importing a lib by a relative path.
- * The spec mirrors the clamp and window decisions from the pinned commit
- * bf682eab8 and fails when this number drifts from it.
+ * Characters in one curator window — the product's own clamp cap, imported
+ * from the barrel (which loads under Jest with the `vscode` stub the specs
+ * install, `retention-policies.spec.ts:1-8`) so the two figures can never
+ * drift apart.
  */
-export const CURATOR_WINDOW_CHARS = 32 * 1024;
+export const CURATOR_WINDOW_CHARS = CURATOR_TRANSCRIPT_MAX_CHARS;
+
+/** Maximum windows per curation pass — the product's own figure. */
+export const CURATOR_WINDOW_LIMIT = CURATOR_MAX_WINDOWS;
 
 /**
- * Maximum windows per curation pass (`CURATOR_MAX_WINDOWS`,
- * `transcript-windows.ts:55`). Kept in step by hand for the same reason.
- */
-export const CURATOR_WINDOW_LIMIT = 8;
-
-/**
- * Windows a long session is built to plan. The design asks for "more than 8,
- * about 12"; 13 gives the dropped middle a margin: with the product clamp's
- * 25% head / 75% tail split of an 8-window budget, the elided middle of a
- * 13-window transcript runs from ~65 513 to ~229 443 characters, so windows
- * 4 and 5 (98 304..196 608) sit strictly inside it.
+ * Windows of filler text a long session is built with (the design asks for
+ * "more than 8, about 12"). This is the build target, not the reported plan:
+ * `windowPlan.plannedWindows` is computed from the finished transcript, and
+ * the fact turns ride on top of the fill without displacing filler draws.
  */
 export const LONG_SESSION_WINDOWS = 13;
 
@@ -197,6 +200,7 @@ export function parseDistractorBank(text: string): DistractorBankRecord[] {
         `distractors.v1.jsonl line ${index + 1}: ${
           error instanceof Error ? error.message : String(error)
         }`,
+        { cause: error },
       );
     }
   }
@@ -283,7 +287,11 @@ export interface GenerateSessionInput {
 
 export interface GenerateLongSessionInput {
   readonly seed: string;
-  /** 2..6 plantings with distinct fact ids. */
+  /**
+   * At least 2 plantings with distinct fact ids. Middle placements are capped
+   * by `maxMiddlePlantings()` so every fact window sits inside the clamp's
+   * elided middle; head placements have no cap (all facts share window 1).
+   */
   readonly plantings: readonly PlantedStatement[];
   readonly bank: readonly DistractorBankRecord[];
   readonly clock: SeededSessionClock;
@@ -297,6 +305,43 @@ export interface GenerateLongSessionInput {
 
 /** The first window of the design's middle range, 1-based. */
 const MIDDLE_FIRST_WINDOW = 4;
+
+/**
+ * The clamp's head share (`clamp-transcript.ts:54`), kept in step by hand
+ * because the product does not export it. It only sizes the fail-fast
+ * {@link maxMiddlePlantings} message; the authoritative middle-placement
+ * check is the real `clampTranscript` call in `generateLongSeededSession`,
+ * which throws if this figure ever drifts.
+ */
+const CLAMP_HEAD_SHARE = 0.25;
+
+/**
+ * A middle-planted fact statement survived the product's transcript clamp.
+ * A surviving fact would silently score as recalled middle-window recall, so
+ * this is a generation error, never a warning.
+ */
+export class MiddleFactSurvivesClampError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'MiddleFactSurvivesClampError';
+  }
+}
+
+/**
+ * How many facts a long session can plant in the middle so every fact window
+ * sits strictly inside the span the product's clamp elides. Derived from the
+ * clamp, not hard-coded: the clamp budget is {@link CURATOR_WINDOW_LIMIT}
+ * windows, it keeps `ceil(head share × budget)` windows of head and the rest
+ * of the budget as tail, facts may only occupy the windows between those two
+ * kept spans, and the build always fills at least
+ * {@link LONG_SESSION_WINDOWS} windows of filler, so the last
+ * guaranteed-dropped window is `LONG_SESSION_WINDOWS − tail windows`.
+ */
+export function maxMiddlePlantings(): number {
+  const headWindows = Math.ceil(CURATOR_WINDOW_LIMIT * CLAMP_HEAD_SHARE);
+  const tailWindows = CURATOR_WINDOW_LIMIT - headWindows;
+  return LONG_SESSION_WINDOWS - tailWindows - MIDDLE_FIRST_WINDOW + 1;
+}
 
 /**
  * Generates one standard session per planting: an opener, filler turns, the
@@ -313,7 +358,7 @@ export function generateSeededSession(
     `${input.seed}:${input.planting.factId}:${input.planting.date}`,
   );
   const builder = new TurnBuilder(
-    sessionIdOf(input.seed, input.planting),
+    sessionIdOf(input.seed, `${input.planting.factId}:${input.planting.date}`),
     input.clock.sessionStartAt(input.planting),
     MINUTES_PER_TURN_STANDARD,
   );
@@ -352,11 +397,14 @@ export function generateSeededSession(
 }
 
 /**
- * Generates one long session: built to plan {@link LONG_SESSION_WINDOWS}
- * windows, so the product's planner caps at {@link CURATOR_WINDOW_LIMIT} and
- * the clamp elides the middle. Facts are planted at the head of their target
- * windows, a sediment bait rides window 1 and every window is filled with
- * long filler pairs.
+ * Generates one long session: built from {@link LONG_SESSION_WINDOWS} windows
+ * of filler text, so the product's planner caps at
+ * {@link CURATOR_WINDOW_LIMIT} windows and the clamp elides the middle.
+ * Facts are planted at the head of their target windows, a sediment bait
+ * rides window 1 and every window is filled with long filler pairs. The
+ * finished session is checked against the REAL product clamp: a
+ * middle-planted fact that survives it throws
+ * {@link MiddleFactSurvivesClampError}.
  */
 export function generateLongSeededSession(
   input: GenerateLongSessionInput,
@@ -364,13 +412,6 @@ export function generateLongSeededSession(
   if (input.plantings.length < 2) {
     throw new Error(
       'a long session carries at least 2 seeded facts (design 3.1)',
-    );
-  }
-  const maxPlantings = LONG_SESSION_WINDOWS - 2 * MIDDLE_FIRST_WINDOW + 1;
-  if (input.plantings.length > maxPlantings) {
-    throw new Error(
-      `a long session plants at most ${maxPlantings} facts so every fact ` +
-        `window stays inside ${MIDDLE_FIRST_WINDOW}..${LONG_SESSION_WINDOWS - MIDDLE_FIRST_WINDOW}`,
     );
   }
   const seen = new Set<string>();
@@ -388,8 +429,16 @@ export function generateLongSeededSession(
   const earliest = [...input.plantings].sort((left, right) =>
     left.date < right.date ? -1 : left.date > right.date ? 1 : 0,
   )[0];
-  const random = seededRandom(
-    `${input.seed}:long:${earliest.factId}:${earliest.date}:${input.factPlacement}`,
+  // Placement-independent streams (finding 11): the opener, bait, fillers
+  // and closers come from `contentRandom`, the fact templates from
+  // `factRandom`, and neither seed carries the placement, so the head and
+  // middle variants of the same plantings draw the same non-fact turns and
+  // differ only in where the fact turns sit.
+  const contentRandom = seededRandom(
+    `${input.seed}:long:${earliest.factId}:${earliest.date}`,
+  );
+  const factRandom = seededRandom(
+    `${input.seed}:long:${earliest.factId}:${earliest.date}:fact`,
   );
 
   const factWindows = new Map<string, number>();
@@ -402,15 +451,18 @@ export function generateLongSeededSession(
   }
 
   const builder = new TurnBuilder(
-    sessionIdOf(input.seed, earliest),
+    sessionIdOf(
+      input.seed,
+      `long:${earliest.factId}:${earliest.date}:${input.factPlacement}`,
+    ),
     input.clock.sessionStartAt(earliest),
     MINUTES_PER_TURN_LONG,
   );
 
   for (let window = 1; window <= LONG_SESSION_WINDOWS; window += 1) {
     if (window === 1) {
-      builder.turn('user', pick(templates.openers, random).text);
-      const bait = pick(baitsOf(input.bank, 'sediment'), random);
+      builder.turn('user', pick(templates.openers, contentRandom).text);
+      const bait = pick(baitsOf(input.bank, 'sediment'), contentRandom);
       builder.turn(
         'user',
         bait.text,
@@ -422,33 +474,110 @@ export function generateLongSeededSession(
       if (factWindows.get(planting.factId) !== window) continue;
       builder.turn(
         'user',
-        render(pick(templates.factUser, random), planting.statement),
+        render(pick(templates.factUser, factRandom), planting.statement),
         [planting.factId],
       );
       builder.turn(
         'assistant',
-        render(pick(templates.factAssistant, random), planting.statement),
+        render(pick(templates.factAssistant, factRandom), planting.statement),
         [planting.factId],
       );
     }
     if (window === LONG_SESSION_WINDOWS) {
-      builder.turn('user', pick(templates.closers, random).text);
-      builder.turn('assistant', pick(templates.assistantClosers, random).text);
+      builder.turn('user', pick(templates.closers, contentRandom).text);
+      builder.turn(
+        'assistant',
+        pick(templates.assistantClosers, contentRandom).text,
+      );
     }
-    while (builder.currentWindow === window) {
-      builder.turn('user', pick(templates.fillersLong, random).text);
-      if (builder.currentWindow !== window) break;
-      builder.turn('assistant', pick(templates.assistantsLong, random).text);
-    }
+    fillLongWindow(builder, templates, contentRandom);
   }
 
-  return builder.build(
+  const session = builder.build(
     'long',
     input.plantings.map((planting) => ({
       factId: planting.factId,
       window: factWindows.get(planting.factId) as number,
     })),
   );
+  assertClampPlacement(session, input.plantings, input.factPlacement);
+  return session;
+}
+
+/**
+ * Fills one window with long filler pairs until the window's own filler text
+ * reaches a full window budget. The target counts only filler characters —
+ * the opener, bait and fact turns ride on top of the fill — so the head and
+ * middle variants draw the same filler pairs for every window.
+ */
+function fillLongWindow(
+  builder: TurnBuilder,
+  templates: UsableTemplates,
+  random: () => number,
+): void {
+  let fillerChars = 0;
+  while (fillerChars < CURATOR_WINDOW_CHARS) {
+    const user = pick(templates.fillersLong, random).text;
+    const assistant = pick(templates.assistantsLong, random).text;
+    builder.turn('user', user);
+    builder.turn('assistant', assistant);
+    fillerChars +=
+      `USER: ${user}`.length +
+      RECORD_SEPARATOR.length +
+      `ASSISTANT: ${assistant}`.length;
+  }
+}
+
+/**
+ * The authoritative placement check, run on the finished session with the
+ * product's own clamp: every middle-planted statement must fall inside the
+ * span the clamp elides, and every head-planted statement must survive it
+ * (a dropped head fact would silently break the head-recall baseline).
+ */
+function assertClampPlacement(
+  session: SeededSession,
+  plantings: readonly PlantedStatement[],
+  factPlacement: 'middle' | 'head',
+): void {
+  const clamped = clampTranscript(
+    session.transcript,
+    CURATOR_WINDOW_CHARS * CURATOR_WINDOW_LIMIT,
+  );
+  if (factPlacement === 'head') {
+    for (const planting of plantings) {
+      if (!clamped.text.includes(planting.statement)) {
+        throw new Error(
+          `fact ${planting.factId} is planted in window 1 but the curator ` +
+            'clamp dropped it; the head-recall baseline requires it kept',
+        );
+      }
+    }
+    return;
+  }
+  const cap = maxMiddlePlantings();
+  if (plantings.length > cap) {
+    throw new MiddleFactSurvivesClampError(
+      `a long session plants at most ${cap} middle facts (only windows ` +
+        `${MIDDLE_FIRST_WINDOW}..${MIDDLE_FIRST_WINDOW + cap - 1} sit inside ` +
+        `the clamp's elided middle); got ${plantings.length}`,
+    );
+  }
+  for (const planting of plantings) {
+    if (clamped.text.includes(planting.statement)) {
+      throw new MiddleFactSurvivesClampError(
+        `fact ${planting.factId} in window ` +
+          `${windowOfFact(session, planting.factId)} survives the curator ` +
+          'clamp; middle-window recall would silently count it as recalled',
+      );
+    }
+  }
+}
+
+function windowOfFact(session: SeededSession, factId: string): number {
+  const entry = session.windowPlan.factWindows.find(
+    (factWindow) => factWindow.factId === factId,
+  );
+  return entry === undefined ? 0 : entry.window;
 }
 
 /** Throws unless the planting is well-formed. */
@@ -464,10 +593,12 @@ function validatePlanting(planting: PlantedStatement): void {
       `fact ${planting.factId} date must be YYYY-MM-DD, got ${planting.date}`,
     );
   }
-  // A real calendar date, like the fact schema's own `isoDate` refine
-  // (`label-schemas.ts:5-8`): 2026-13-45 matches the shape but is not a day.
-  const day = new Date(`${planting.date}T00:00:00.000Z`);
-  if (Number.isNaN(day.getTime())) {
+  // A real calendar date, round-trip compared like the fact schema's own
+  // `isCalendarDate` (`label-schemas.ts:18-22`): V8 accepts 2026-02-31 and
+  // silently rolls it to March 3, so parseability alone proves nothing.
+  const iso = `${planting.date}T00:00:00.000Z`;
+  const parsed = Date.parse(iso);
+  if (Number.isNaN(parsed) || new Date(parsed).toISOString() !== iso) {
     throw new Error(
       `fact ${planting.factId} date must be a real calendar date, got ` +
         `${planting.date}`,
@@ -600,9 +731,9 @@ function pick<T>(items: readonly T[], random: () => number): T {
 }
 
 /** `gen-` + 8 hex of the identity string: stable, seed-derived session id. */
-function sessionIdOf(seed: string, planting: PlantedStatement): string {
+function sessionIdOf(seed: string, identity: string): string {
   let state = 2166136261;
-  for (const char of `${seed}:${planting.factId}:${planting.date}`) {
+  for (const char of `${seed}:${identity}`) {
     state ^= char.charCodeAt(0);
     state = Math.imul(state, 16777619);
   }
@@ -701,11 +832,14 @@ class TurnBuilder {
         },
       }),
     );
-    this.records.push(`${role.toUpperCase()}: ${text}`);
+    const record = `${role.toUpperCase()}: ${text}`;
+    this.records.push(record);
+    // Window accounting counts the full record — the role prefix included —
+    // so the tracked length equals the joined transcript's length.
     this.chars +=
       this.records.length === 1
-        ? text.length
-        : RECORD_SEPARATOR.length + text.length;
+        ? record.length
+        : RECORD_SEPARATOR.length + record.length;
     this.turns.push({
       role,
       text,
@@ -735,8 +869,12 @@ class TurnBuilder {
     factWindows: readonly { factId: string; window: number }[],
   ): SeededSession {
     const transcript = this.records.join(RECORD_SEPARATOR);
-    const plannedWindows =
-      kind === 'long' ? LONG_SESSION_WINDOWS : this.currentWindowOf(transcript);
+    // Computed from the finished transcript, never a constant: the number of
+    // window budgets its characters span.
+    const plannedWindows = Math.max(
+      1,
+      Math.ceil(transcript.length / CURATOR_WINDOW_CHARS),
+    );
     return {
       sessionId: this.sessionId,
       kind,
@@ -751,12 +889,5 @@ class TurnBuilder {
         factWindows,
       },
     };
-  }
-
-  private currentWindowOf(transcript: string): number {
-    return Math.max(
-      1,
-      Math.floor(transcript.length / CURATOR_WINDOW_CHARS) + 1,
-    );
   }
 }

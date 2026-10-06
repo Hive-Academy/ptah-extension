@@ -34,6 +34,8 @@ import {
   fixedDailyClock,
   generateLongSeededSession,
   generateSeededSession,
+  maxMiddlePlantings,
+  MiddleFactSurvivesClampError,
   parseDistractorBank,
   turnTemplateRecordSchema,
   type DistractorBankRecord,
@@ -297,10 +299,14 @@ describe('long seeded session', () => {
       clock: fixedDailyClock,
       factPlacement: 'middle',
     });
-    expect(session.windowPlan.plannedWindows).toBe(LONG_SESSION_WINDOWS);
     expect(session.windowPlan.plannedWindows).toBeGreaterThanOrEqual(12);
     expect(session.windowPlan.plannedWindows).toBeGreaterThan(
       CURATOR_WINDOW_LIMIT,
+    );
+    // Computed from the finished transcript with the product's own figure,
+    // never a hard-coded window count.
+    expect(session.windowPlan.plannedWindows).toBe(
+      Math.ceil(session.transcript.length / CURATOR_TRANSCRIPT_MAX_CHARS),
     );
     expect(session.windowPlan.exceedsWindowLimit).toBe(true);
     // The transcript really fills the planned windows.
@@ -363,6 +369,71 @@ describe('long seeded session', () => {
     }
   });
 
+  it('drops every middle fact at the clamp-derived maximum', () => {
+    const cap = maxMiddlePlantings();
+    const plantings: PlantedStatement[] = facts
+      .slice(0, cap)
+      .map((fact) => plantingOf(fact));
+    const session = generateLongSeededSession({
+      seed: SEED,
+      plantings,
+      bank,
+      clock: fixedDailyClock,
+      factPlacement: 'middle',
+    });
+    const plan = planCuratorWindows(session.transcript);
+    const clamp = clampTranscript(session.transcript, CLAMP_BUDGET);
+    expect(clamp.clamped).toBe(true);
+    for (const statement of plantings.map((planting) => planting.statement)) {
+      // The real product clamp drops every maximally-planted middle fact.
+      expect(clamp.text).not.toContain(statement);
+      for (const window of plan.windows) {
+        expect(window.text).not.toContain(statement);
+      }
+    }
+  });
+
+  it('separates the head and middle variants by id with identical filler', () => {
+    const variant = (factPlacement: 'middle' | 'head') => ({
+      seed: SEED,
+      plantings: plantings(),
+      bank,
+      clock: fixedDailyClock,
+      factPlacement,
+    });
+    const middle = generateLongSeededSession(variant('middle'));
+    const head = generateLongSeededSession(variant('head'));
+    // The placement rides the session id, and the per-turn uuids derive
+    // from it, so the two variants never collide on the same ids.
+    expect(middle.sessionId).not.toBe(head.sessionId);
+    const uuidOf = (session: SeededSession): string =>
+      (
+        JSON.parse(session.jsonl.split('\n')[0] as string) as Record<
+          string,
+          unknown
+        >
+      )['uuid'] as string;
+    expect(uuidOf(middle)).not.toBe(uuidOf(head));
+    // The variants differ ONLY in fact placement: every non-fact turn —
+    // opener, bait, fillers, closers — is drawn identically.
+    const nonFactTexts = (session: SeededSession): string[] =>
+      session.turns
+        .filter(
+          (turn) => turn.factIds.length === 0 && turn.baitIds.length === 0,
+        )
+        .map((turn) => turn.text);
+    expect(nonFactTexts(middle)).toEqual(nonFactTexts(head));
+    const factTexts = (session: SeededSession): string[] =>
+      session.turns
+        .filter((turn) => turn.factIds.length > 0)
+        .map((turn) => turn.text);
+    expect(factTexts(middle)).toEqual(factTexts(head));
+    // ...and the fact turns sit in different places.
+    expect(
+      middle.turns.findIndex((turn) => turn.factIds.length > 0),
+    ).toBeGreaterThan(head.turns.findIndex((turn) => turn.factIds.length > 0));
+  });
+
   it('is byte-identical across two runs', () => {
     const input = {
       seed: SEED,
@@ -417,9 +488,9 @@ describe('construction errors (edge cases)', () => {
     ).toThrow(/at least 2 seeded facts/);
   });
 
-  it('rejects too many long-session facts to stay inside 4..n-4', () => {
+  it('rejects more middle plantings than the clamp-derived cap', () => {
     const many: PlantedStatement[] = facts
-      .slice(0, 7)
+      .slice(0, maxMiddlePlantings() + 1)
       .map((fact) => plantingOf(fact));
     expect(() =>
       generateLongSeededSession({
@@ -429,7 +500,7 @@ describe('construction errors (edge cases)', () => {
         clock: fixedDailyClock,
         factPlacement: 'middle',
       }),
-    ).toThrow(/at most 6 facts/);
+    ).toThrow(MiddleFactSurvivesClampError);
   });
 
   it('rejects one fact planted twice in a long session', () => {
@@ -453,6 +524,20 @@ describe('construction errors (edge cases)', () => {
           factId: 'F-001',
           statement: 'durable statement',
           date: '2026-13-45',
+        },
+        bank,
+        clock: fixedDailyClock,
+      }),
+    ).toThrow(/date must be a real calendar date/);
+    // Day overflow: V8 parses 2026-02-31 to March 3, so only the round-trip
+    // comparison (like `isCalendarDate`, label-schemas.ts:18-22) rejects it.
+    expect(() =>
+      generateSeededSession({
+        seed: SEED,
+        planting: {
+          factId: 'F-001',
+          statement: 'durable statement',
+          date: '2026-02-31',
         },
         bank,
         clock: fixedDailyClock,
