@@ -61,7 +61,6 @@ import { readCodexUserMcpServerNames } from './codex/codex-user-mcp-servers';
 
 /** Valid reasoning effort values for the Codex SDK. */
 const CODEX_REASONING_EFFORTS = [
-  'minimal',
   'low',
   'medium',
   'high',
