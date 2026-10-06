@@ -1,6 +1,6 @@
 # Batches - TASK_2026_617
 
-Total tasks: 27 | Batches: 9 | Complete: 7/9
+Total tasks: 27 | Batches: 9 | Complete: 8/9
 
 Worktree: `D:\projects\ptah-extension\.claude-worktrees\task-617-grok-acp` (branch `feat/task-617-grok-acp`).
 Every path below is absolute inside this worktree. Never touch the main checkout.
@@ -476,7 +476,7 @@ Carried into Batch 9 (binding):
 
 - `npx nx run-many -t typecheck,test,lint -p @ptah-extension/core @ptah-extension/webview-e2e-harness` passes.
 
-## Batch 8: SYSTEM_CLI_TYPES gains 'grok', with every exhaustive consumer (atomic) — PENDING
+## Batch 8: SYSTEM_CLI_TYPES gains 'grok', with every exhaustive consumer (atomic) — COMPLETE (commit 9966bd35d)
 
 - Recommended executor: backend-developer (sub-agent)
 - Fallback executor: backend-developer plus frontend-developer in sequence inside the same uncommitted batch
@@ -485,14 +485,14 @@ Carried into Batch 9 (binding):
 - Tasks: 6 | Depends on: Batches 5-7 (the `grokModel` key must exist for `MODEL_CONFIG_KEYS` and the matrix row)
 - Phase: 2 | Phase review: at the end of Batch 9
 
-### Task 8.1: shared union and model-list result — PENDING
+### Task 8.1: shared union and model-list result — COMPLETE
 
 - File: `...\libs\shared\src\lib\types\agent-process.types.ts`, `...\libs\shared\src\lib\types\rpc\rpc-agents.types.ts`
 - Plan reference: implementation-plan.md:457, 462-463
 - Implementation details: `'grok'` appended to `SYSTEM_CLI_TYPES`; `grok: CliModelOption[]` added to
   `AgentListCliModelsResult`.
 
-### Task 8.2: runtime spawn policy and model key — PENDING
+### Task 8.2: runtime spawn policy and model key — COMPLETE
 
 - File: `...\libs\backend\cli-agent-runtime\src\lib\cli-agents\lane-spawn-policy.ts` (+ `lane-spawn-policy.spec.ts`),
   `...\libs\backend\cli-agent-runtime\src\lib\cli-agents\agent-spawn-environment.service.ts`
@@ -500,18 +500,18 @@ Carried into Batch 9 (binding):
 - Implementation details: `mapEffortToGrok` (minimal→low, low|medium|high|xhigh kept, max→xhigh, else undefined)
   plus `case 'grok'`; `grok: 'grokModel'` in `MODEL_CONFIG_KEYS`; no effort key.
 
-### Task 8.3: CLI model list — PENDING
+### Task 8.3: CLI model list — COMPLETE
 
 - File: `...\libs\backend\rpc-handlers\src\lib\services\cli-model-list.service.ts` (+ its spec)
 - Pattern to follow: `cli-model-list.service.ts:40-46`, `:74-84`
 
-### Task 8.4: tribunal discovery and run — PENDING
+### Task 8.4: tribunal discovery and run — COMPLETE
 
 - File: `...\libs\frontend\tribunal-panel\src\lib\services\tribunal-discovery.service.ts`,
   `...\libs\frontend\tribunal-panel\src\lib\services\tribunal-run.service.ts` (+ the discovery spec if it enumerates)
 - Pattern to follow: `tribunal-discovery.service.ts:53-67`; `tribunal-run.service.ts:418-439`
 
-### Task 8.5: chat settings rows and labels — PENDING
+### Task 8.5: chat settings rows and labels — COMPLETE
 
 - File: `...\libs\frontend\chat\src\lib\settings\ptah-ai\cli-matrix-rows.ts`,
   `...\libs\frontend\chat\src\lib\settings\ptah-ai\cli-orchestration-matrix.component.ts`,
@@ -524,7 +524,7 @@ Carried into Batch 9 (binding):
   tone 'info', detail "Ptah answers each Grok permission request with allow-once; nothing is persisted.", and
   `'grok'` added to `PENDING_USER_REVIEW_IDS` (new copy, per the file's own convention). `CLI_LABELS` gets 'Grok'.
 
-### Task 8.6: enumerating specs and derived measurements — PENDING
+### Task 8.6: enumerating specs and derived measurements — COMPLETE
 
 - File: the specs that fail on the flip, expected among:
   `chat\...\cli-matrix-rows.spec.ts`, `cli-orchestration-matrix.component.spec.ts`,
@@ -559,7 +559,28 @@ merges `origin/main` before Batch 8 starts (the pre-batch gate).
 - `npx nx run-many -t typecheck,test,lint -p @ptah-extension/shared @ptah-extension/cli-agent-runtime @ptah-extension/rpc-handlers @ptah-extension/tribunal-panel @ptah-extension/chat @ptah-extension/core @ptah-extension/skill-synthesis-ui @ptah-extension/vscode-lm-tools @ptah-extension/agent-sdk ptah-cli` passes (output tailed).
 - R1 check: report any spec requiring a registered adapter for every union member.
 
-## Batch 9: Grok profile, GrokCliAdapter and registration — PENDING
+### Batch 8 results
+
+The team-leader merged `origin/main` before the batch: merge `72b5677d0`, 16 commits, clean, no dependency
+changes. The executor was one backend-developer, sequential, 21 files.
+
+The verify command passed with `@ptah-extension/tasks-ui` added to the list. On the first run,
+`rpc-handlers:test` failed once under `--parallel=3`; it then passed in the full re-run and 3 out of 3 isolated runs
+(4266 passed). This is recorded as a load-timing flake that cannot be attributed to the change. The degradation
+audit is clean. `nx affected -t typecheck` passed 63/63.
+
+- R1: no spec requires an adapter per union member, so Batches 8 and 9 stay separate.
+- R4: no measured value moved. The derived-string specs build from `SYSTEM_CLI_TYPES`.
+
+Beyond the plan, accepted:
+
+- `mapEffortToGrok` is exported from `lane-spawn-policy.ts` for Task 9.1.
+- `apps\ptah-cli\src\cli\commands\agent-cli.ts` unscoped `models list` gains `grok` (otherwise it is silently
+  dropped), and `router.ts` `--cli` help lists `grok`.
+- `libs\frontend\tasks-ui\...\task-agent-discovery.service.ts` `CLI_DISPLAY_NAMES` gains `grok: 'Grok'`.
+- `agent-models.store.ts` was left unchanged: it is keyed by `AgentModelProvider`, not `CliType`.
+
+## Batch 9: Grok profile, GrokCliAdapter and registration — IN_PROGRESS
 
 - Recommended executor: backend-developer (sub-agent)
 - Fallback executor: backend-developer, fresh run
@@ -569,7 +590,7 @@ merges `origin/main` before Batch 8 starts (the pre-batch gate).
 - Phase: 2 (last batch) | Phase review: code-logic plus style (a new public adapter export and a new setting).
   The visual evidence for the matrix row is recorded for QA (R11).
 
-### Task 9.1: GrokAcpProfile — PENDING
+### Task 9.1: GrokAcpProfile — IN_PROGRESS
 
 - File: `ADP\grok\grok-acp-profile.ts`, `ADP\grok\grok-acp-profile.spec.ts`
 - Plan reference: implementation-plan.md:409-426; amendments 2-5
@@ -580,7 +601,7 @@ merges `origin/main` before Batch 8 starts (the pre-batch gate).
   data), `-32000`, and `-32602` "unknown model id" with the model source.
 - Validation notes: R6. The spec uses fixture error payloads from `grok-p3-*.ndjson`.
 
-### Task 9.2: GrokCliAdapter — PENDING
+### Task 9.2: GrokCliAdapter — IN_PROGRESS
 
 - Depends on: Task 9.1
 - File: `ADP\grok-cli.adapter.ts`, `ADP\grok-cli.adapter.spec.ts`
@@ -591,7 +612,7 @@ merges `origin/main` before Batch 8 starts (the pre-batch gate).
   The spec pins argv: `--no-leader` present, `stdio` last, no `--leader`, no `--always-approve`, no `-m`, no
   `--reasoning-effort`. A handle smoke test runs with the fake agent.
 
-### Task 9.3: registration — PENDING
+### Task 9.3: registration — IN_PROGRESS
 
 - Depends on: Task 9.2
 - File: `ADP\index.ts`, `...\libs\backend\cli-agent-runtime\src\lib\cli-agents\cli-detection.service.ts` (+ its
