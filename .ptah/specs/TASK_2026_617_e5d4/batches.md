@@ -1,6 +1,6 @@
 # Batches - TASK_2026_617
 
-Total tasks: 27 | Batches: 9 | Complete: 4/9
+Total tasks: 27 | Batches: 9 | Complete: 7/9
 
 Worktree: `D:\projects\ptah-extension\.claude-worktrees\task-617-grok-acp` (branch `feat/task-617-grok-acp`).
 Every path below is absolute inside this worktree. Never touch the main checkout.
@@ -399,7 +399,7 @@ Carried into Batch 9 (binding):
   (style M1).
 - Deferred to post-merge QA or a later task: stdin backpressure is ignored (logic Minor, `acp-process-transport.ts`).
 
-## Batch 5: grokModel setting, part 1 — shared contract and file key — IN_PROGRESS
+## Batch 5: grokModel setting, part 1 — shared contract and file key — COMPLETE (commit cd6ec1f57)
 
 - Recommended executor: backend-developer (sub-agent)
 - Fallback executor: backend-developer, fresh run
@@ -408,7 +408,7 @@ Carried into Batch 9 (binding):
 - Tasks: 2 | Depends on: none (may run after Batch 4 for a clean phase boundary)
 - Phase: 2 (Grok lane) | Phase review: at the end of Batch 9
 
-### Task 5.1: shared RPC types — IN_PROGRESS
+### Task 5.1: shared RPC types — COMPLETE
 
 - File: `...\libs\shared\src\lib\types\rpc\rpc-auth.types.ts`, `...\libs\shared\src\lib\types\rpc\rpc-agents.types.ts`
 - Plan reference: implementation-plan.md:462-477
@@ -416,7 +416,7 @@ Carried into Batch 9 (binding):
 - Quality requirements: `grokModel?: string` on the config and set-config types; do **not** add `grok` to
   `AgentListCliModelsResult` here (that is Batch 8).
 
-### Task 5.2: file settings key — IN_PROGRESS
+### Task 5.2: file settings key — COMPLETE
 
 - File: `...\libs\backend\platform-core\src\file-settings-keys.ts`
 - Pattern to follow: `file-settings-keys.ts:193`, `:513`
@@ -425,7 +425,7 @@ Carried into Batch 9 (binding):
 
 - `npx nx run-many -t typecheck,test,lint -p @ptah-extension/shared @ptah-extension/platform-core` passes.
 
-## Batch 6: grokModel setting, part 2 — export list and RPC get/set — PENDING
+## Batch 6: grokModel setting, part 2 — export list and RPC get/set — COMPLETE (commit 91554e5ef)
 
 - Recommended executor: backend-developer (sub-agent)
 - Fallback executor: backend-developer, fresh run
@@ -433,12 +433,12 @@ Carried into Batch 9 (binding):
 - Tasks: 2 | Depends on: Batch 5
 - Phase: 2 | Phase review: at the end of Batch 9
 
-### Task 6.1: settings export list — PENDING
+### Task 6.1: settings export list — COMPLETE
 
 - File: `...\libs\backend\agent-sdk\src\lib\types\settings-export.types.ts`
 - Pattern to follow: `settings-export.types.ts:77`
 
-### Task 6.2: agent RPC get/set — PENDING
+### Task 6.2: agent RPC get/set — COMPLETE
 
 - File: `...\libs\backend\rpc-handlers\src\lib\handlers\agent-rpc.handlers.ts`
 - Pattern to follow: `agent-rpc.handlers.ts:354`, `:525-526`
@@ -449,7 +449,7 @@ Carried into Batch 9 (binding):
 
 - `npx nx run-many -t typecheck,test,lint -p @ptah-extension/agent-sdk @ptah-extension/rpc-handlers` passes.
 
-## Batch 7: grokModel setting, part 3 — frontend settings state and fixtures — PENDING
+## Batch 7: grokModel setting, part 3 — frontend settings state and fixtures — COMPLETE (commit 2c551c7e1)
 
 - Recommended executor: frontend-developer (sub-agent)
 - Fallback executor: backend-developer
@@ -457,7 +457,7 @@ Carried into Batch 9 (binding):
 - Tasks: 2 | Depends on: Batch 5
 - Phase: 2 | Phase review: at the end of Batch 9
 
-### Task 7.1: providers settings state — PENDING
+### Task 7.1: providers settings state — COMPLETE
 
 - File: `...\libs\frontend\core\src\lib\services\providers-settings.types.ts`,
   `...\libs\frontend\core\src\lib\services\providers-settings-state.service.ts`,
@@ -467,7 +467,7 @@ Carried into Batch 9 (binding):
 - Validation notes: the persisted-settings write path (Mode 3 trace); the existing state-service spec at `:2024`
   enumerates the model fields, so update it if it fails.
 
-### Task 7.2: e2e harness settings fixture — PENDING
+### Task 7.2: e2e harness settings fixture — COMPLETE
 
 - File: `...\libs\frontend\webview-e2e-harness\src\lib\scenarios\settings\settings.fixtures.ts`
 - Pattern to follow: `settings.fixtures.ts:176`
@@ -535,6 +535,24 @@ Carried into Batch 9 (binding):
   measurement in vscode-lm-tools, agent-sdk or ptah-cli (R4)
 - Quality requirements: add `grok` where a list enumerates CLIs; update measured values to the real new values;
   never weaken an assertion or skip a test.
+
+### Batches 6-7 results → Batch 8 additions
+
+Batches 6 and 7 ran in parallel (disjoint libraries) and were committed separately. Each passed its scoped
+`typecheck,test,lint` and the degradation audit. Write path verified: the state service and commit service send
+`grokModel` in `agent:setConfig` (`providers-commit.service.spec.ts`). `agent-rpc.handlers.ts:529-531` writes
+`ptah.agentOrchestration.grokModel`, and `:355` reads the same key (`agent-rpc.handlers.set-config.spec.ts:183-205`).
+
+Per-CLI lists the executors flagged for Batch 8 (add `grok` where the list is exhaustive):
+
+- `libs\frontend\skill-synthesis-ui\src\lib\components\clones\agent-models.store.ts:45` (`opencode:
+config.opencodeModel ?? ''`) → `grok: config.grokModel ?? ''`, if the map is CliType-keyed or exhaustive.
+- `libs\backend\cli-agent-runtime\src\lib\cli-agents\agent-process-manager.service.spec.ts:1340-1341` (the table
+  that mirrors `MODEL_CONFIG_KEYS`; production side is Task 8.2).
+
+Pre-Batch 8 merge: `origin/main` was 16 commits ahead, and the drift touches `lane-spawn-policy.ts` and its spec,
+`rpc-agents.types.ts`, the `agent-rpc.handlers.set-config.spec.ts` and `opencode-cli.adapter.ts`. The team-leader
+merges `origin/main` before Batch 8 starts (the pre-batch gate).
 
 ### Batch 8 verification
 
