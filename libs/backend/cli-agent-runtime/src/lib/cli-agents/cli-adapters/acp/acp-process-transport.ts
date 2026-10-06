@@ -14,13 +14,19 @@
  * - `kill()` = end stdin (graceful), then `whenSpawned` → `killProcessTree`,
  *   and is idempotent.
  * - `exited` never rejects; a spawn error settles it with
- *   `{ code: null, signal: 'error' }`.
+ *   `{ code: null, signal: 'error' }`. An `error` event on a child that did
+ *   start (e.g. a failed signal) is logged only: the child is still tracked,
+ *   so `getPid()` and `kill()` keep working until it really exits.
+ * - On `exit` the readable closes after {@link EXIT_DRAIN_GRACE_MS} even when
+ *   stdout never reports `close` (a descendant that inherited the pipe keeps
+ *   it open), so the SDK connection and any pending request settle.
  *
  * The factory returns synchronously even though the spawn is not: Windows
  * needs `resolveDirectSpawn` (async) before `spawnCli`, so early stdin writes
  * are queued and flushed once the child exists.
  */
 import { killProcessTree } from '@ptah-extension/platform-core';
+import type { Logger } from '@ptah-extension/vscode-core';
 import type {
   IProcessSpawner,
   ProcessErrorListener,
@@ -58,11 +64,14 @@ export interface AcpSpawnOptions {
   readonly command: string;
   readonly args: readonly string[];
   readonly cwd: string;
-  readonly env?: NodeJS.ProcessEnv;
+  /** Merged over the inherited environment by `spawnCli`. */
+  readonly env?: Readonly<Record<string, string>>;
   /** Creates the child off-thread (TASK_2026_367); inline `cross-spawn` otherwise. */
   readonly spawner?: IProcessSpawner;
   /** Receives each non-empty, ANSI-stripped stderr line. */
   readonly onStderrLine?: (line: string) => void;
+  /** Receives spawn refusals and errors on a live child. */
+  readonly logger?: Logger;
 }
 
 /** Injectable so specs can substitute an in-memory transport. */
@@ -74,6 +83,11 @@ export type AcpTransportFactory = (
 const STDERR_MAX_LINE_CHARS = 64 * 1024;
 /** Appended to a truncated stderr line so the gap is visible in logs. */
 const STDERR_TRUNCATION_MARKER = ' …[truncated]';
+/**
+ * After `exit`, how long stdout may keep draining before the readable is
+ * closed anyway. `close` normally arrives well within this.
+ */
+export const EXIT_DRAIN_GRACE_MS = 500;
 
 /**
  * Start one ACP agent child. Returns synchronously; the child is created once
@@ -84,6 +98,7 @@ export const spawnAcpProcess: AcpTransportFactory = (
   options,
 ): AcpProcessTransport => {
   const onStderrLine = options.onStderrLine;
+  const logger = options.logger;
 
   let child: SpawnedProcessHandle | undefined;
   /** Set once the child exited or errored (or the spawn itself failed). */
@@ -95,7 +110,14 @@ export const spawnAcpProcess: AcpTransportFactory = (
 
   const encoder = new TextEncoder();
   const pendingWrites: Array<{ chunk: Uint8Array; resolve: () => void }> = [];
-  const detachListeners: Array<() => void> = [];
+  /** stdout/stderr data listeners: removed on `close` or on a start failure. */
+  const detachStreamListeners: Array<() => void> = [];
+  /**
+   * `exit`/`close` listeners and the no-op `error` guards on the child and its
+   * pipes. Removed on `close` only: a stream that emits `error` with no
+   * listener crashes the host, and `close` may still follow a start failure.
+   */
+  const detachLifecycleListeners: Array<() => void> = [];
 
   // --- readable: child stdout bytes ---------------------------------------
 
@@ -216,20 +238,57 @@ export const spawnAcpProcess: AcpTransportFactory = (
     settleExited = resolve;
   });
 
+  let drainTimer: ReturnType<typeof setTimeout> | undefined;
+  const clearDrainTimer = (): void => {
+    if (drainTimer !== undefined) clearTimeout(drainTimer);
+    drainTimer = undefined;
+  };
+
   const onChildExit: ProcessExitListener = (code, signal) => {
     processGone = true;
     settleExited({ code, signal: signal ?? null });
+    // 'close' normally follows once stdout drained. A descendant holding the
+    // inherited stdout pipe delays it indefinitely, so stop waiting after a
+    // short grace: the SDK connection then closes and a pending prompt fails.
+    if (!readableClosed && drainTimer === undefined) {
+      drainTimer = setTimeout(() => {
+        drainTimer = undefined;
+        closeReadable();
+      }, EXIT_DRAIN_GRACE_MS);
+    }
   };
-  const onChildError: ProcessErrorListener = () => {
+  const onChildError: ProcessErrorListener = (error) => {
+    if (processGone) return;
+    const pid = child?.pid;
+    if (pid !== undefined && child?.exitCode === null) {
+      // A child that started and has not exited (e.g. a signal that could not
+      // be delivered) is still running: keep its pid and listeners so
+      // 'exit'/'close' settle it and kill() can still reach it.
+      logger?.warn('[AcpProcessTransport] error on a running agent process', {
+        pid,
+        error: error.message,
+      });
+      return;
+    }
+    // The child never started (no pid), or a wrapper reported its start
+    // failure in place of 'exit' (cross-spawn's ENOENT on Windows): no 'exit'
+    // follows, so settle here. 'close' may still come and detaches the rest.
+    logger?.error('[AcpProcessTransport] agent process failed to start', {
+      command: options.command,
+      error: error.message,
+    });
     processGone = true;
     closeReadable();
     settleExited({ code: null, signal: 'error' });
+    for (const detach of detachStreamListeners.splice(0)) detach();
   };
   const onChildClose: ProcessExitListener = () => {
     // 'close' fires after the stdio drained, so every stdout byte is enqueued
-    // before the readable closes. On a failed spawn only 'error' fires.
+    // before the readable closes.
+    clearDrainTimer();
     closeReadable();
-    for (const detach of detachListeners.splice(0)) detach();
+    for (const detach of detachStreamListeners.splice(0)) detach();
+    for (const detach of detachLifecycleListeners.splice(0)) detach();
   };
 
   const endStdin = (): void => {
@@ -323,12 +382,12 @@ export const spawnAcpProcess: AcpTransportFactory = (
       stdout.on('end', onStdoutEnd);
       stdout.on('close', onStdoutEnd);
       stdout.on('error', onStdoutError);
-      detachListeners.push(
+      detachStreamListeners.push(
         () => stdout.off('data', onStdoutData),
         () => stdout.off('end', onStdoutEnd),
         () => stdout.off('close', onStdoutEnd),
-        () => stdout.off('error', onStdoutError),
       );
+      detachLifecycleListeners.push(() => stdout.off('error', onStdoutError));
     }
     const stderr = spawned.stderr;
     if (stderr) {
@@ -339,27 +398,27 @@ export const spawnAcpProcess: AcpTransportFactory = (
       stderr.on('end', onStderrEnd);
       stderr.on('close', onStderrEnd);
       stderr.on('error', onStderrError);
-      detachListeners.push(
+      detachStreamListeners.push(
         () => stderr.off('data', onStderrData),
         () => stderr.off('end', onStderrEnd),
         () => stderr.off('close', onStderrEnd),
-        () => stderr.off('error', onStderrError),
       );
+      detachLifecycleListeners.push(() => stderr.off('error', onStderrError));
     }
     const stdin = spawned.stdin;
     if (stdin) {
       // Defensive no-op (Pi :399): an async EPIPE on a write into a dying
       // child emits 'error' on stdin; without a listener Node rethrows it.
       stdin.on('error', onStdinError);
-      detachListeners.push(() => stdin.off('error', onStdinError));
+      detachLifecycleListeners.push(() => stdin.off('error', onStdinError));
     }
     spawned.on('exit', onChildExit);
     spawned.on('error', onChildError);
     spawned.on('close', onChildClose);
-    detachListeners.push(
+    detachLifecycleListeners.push(
       () => spawned.off('exit', onChildExit),
-      () => spawned.off('error', onChildError),
       () => spawned.off('close', onChildClose),
+      () => spawned.off('error', onChildError),
     );
 
     flushWrites();
@@ -382,9 +441,13 @@ export const spawnAcpProcess: AcpTransportFactory = (
         ),
       );
     })
-    .catch(() => {
+    .catch((error: unknown) => {
       // `spawnCli` refused the command line outright — same contract as a
       // spawn 'error': settle, close, and drop anything queued for stdin.
+      logger?.error('[AcpProcessTransport] agent process was not spawned', {
+        command: options.command,
+        error: error instanceof Error ? error.message : String(error),
+      });
       spawnFailed = true;
       processGone = true;
       closeReadable();

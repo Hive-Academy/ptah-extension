@@ -1,4 +1,7 @@
 import type { CliOutputSegment } from '@ptah-extension/shared';
+import { createMockLogger } from '@ptah-extension/shared/testing';
+import type { MockLogger } from '@ptah-extension/shared/testing';
+import type { Logger } from '@ptah-extension/vscode-core';
 import type { CliCommandOptions, SdkHandle } from '../cli-adapter.interface';
 import {
   createFakeAcpAgent,
@@ -8,8 +11,10 @@ import {
   type FakeAcpMessage,
   type FakeAcpTransport,
 } from './__fixtures__/fake-acp-agent';
+import type { AcpSpawnOptions } from './acp-process-transport';
 import * as loader from './acp-sdk-loader';
 import {
+  ACP_CANCEL_GRACE_MS,
   ACP_HANDSHAKE_TIMEOUT_MS,
   createAcpSessionHandle,
 } from './acp-session-handle';
@@ -62,9 +67,8 @@ function createProfile(
   return {
     vendor: 'opencode',
     displayName: NAME,
-    alwaysApproveFlag: false,
     resumeStrategy: 'resume',
-    buildSpawn: () => ['agent', '--no-leader', 'stdio'],
+    buildSpawn: () => ({ args: ['agent', '--no-leader', 'stdio'] }),
     buildMcpServers: () => [MCP_SERVER],
     isExtensionNotification: (method) => /^_?x\.ai\//.test(method),
     describeError: describeTestError,
@@ -81,7 +85,8 @@ interface Harness {
   readonly errors: () => string[];
   readonly infos: () => string[];
   readonly resolvedIds: string[];
-  readonly spawnArgs: readonly string[];
+  readonly spawn: () => AcpSpawnOptions | undefined;
+  readonly logger: MockLogger;
 }
 
 const live: FakeAcpAgent[] = [];
@@ -98,7 +103,8 @@ function start(
   live.push(agent);
   setup.script?.(agent);
   const transport = createFakeAcpTransport(agent);
-  let spawnArgs: readonly string[] = [];
+  const logger = createMockLogger();
+  let spawn: AcpSpawnOptions | undefined;
   const handle = createAcpSessionHandle({
     profile: createProfile(setup.profile),
     options: {
@@ -108,10 +114,11 @@ function start(
       ...setup.options,
     },
     command: 'test-agent',
-    transportFactory: (spawn) => {
-      spawnArgs = spawn.args;
+    transportFactory: (spawnOptions) => {
+      spawn = spawnOptions;
       return transport;
     },
+    logger: logger as unknown as Logger,
   });
   const segments: CliOutputSegment[] = [];
   const chunks: string[] = [];
@@ -130,7 +137,8 @@ function start(
     infos: () =>
       segments.filter((s) => s.type === 'info').map((s) => s.content),
     resolvedIds,
-    spawnArgs,
+    spawn: () => spawn,
+    logger,
   };
 }
 
@@ -180,7 +188,8 @@ describe('createAcpSessionHandle — first turn', () => {
 
     await expect(h.handle.done).resolves.toBe(0);
 
-    expect(h.spawnArgs).toEqual(['agent', '--no-leader', 'stdio']);
+    expect(h.spawn()?.args).toEqual(['agent', '--no-leader', 'stdio']);
+    expect(h.spawn()?.env).toBeUndefined();
     expect(h.resolvedIds).toEqual([SESSION_ID]);
     expect(h.handle.getSessionId?.()).toBe(SESSION_ID);
     expect(h.output()).toContain('Hello from the agent');
@@ -204,6 +213,21 @@ describe('createAcpSessionHandle — first turn', () => {
     expect(promptText(prompt)).toContain('Summarise the repository');
     expect(promptText(prompt)).toContain('PROJECT-GUIDANCE-MARKER');
     expect(h.handle.supportsContinuation?.()).toBe(true);
+  });
+
+  it('passes the profile spawn env to the transport', async () => {
+    const h = start({
+      profile: {
+        buildSpawn: () => ({
+          args: ['acp'],
+          env: { VENDOR_CONFIG: '{"lane":true}' },
+        }),
+      },
+    });
+
+    await expect(h.handle.done).resolves.toBe(0);
+    expect(h.spawn()?.args).toEqual(['acp']);
+    expect(h.spawn()?.env).toEqual({ VENDOR_CONFIG: '{"lane":true}' });
   });
 
   it('declares no steer, interrupt or supportsInterrupt', async () => {
@@ -441,6 +465,22 @@ describe('createAcpSessionHandle — extension notifications', () => {
       `${NAME} sent an unsupported notification: _other.vendor/ping`,
     ]);
   });
+
+  it('reports every unknown method when the profile names no namespace', async () => {
+    const h = start({
+      profile: { isExtensionNotification: undefined },
+      script: (agent) =>
+        agent.handle('session/prompt', async () => {
+          await agent.notify('_x.ai/session/setup', {});
+          return { result: { stopReason: 'end_turn' } };
+        }),
+    });
+
+    await expect(h.handle.done).resolves.toBe(0);
+    expect(h.infos()).toEqual([
+      `${NAME} sent an unsupported notification: _x.ai/session/setup`,
+    ]);
+  });
 });
 
 describe('createAcpSessionHandle — resume', () => {
@@ -667,6 +707,17 @@ describe('createAcpSessionHandle — error rows', () => {
     await expect(h.handle.done).resolves.toBe(1);
     expect(h.errors()).toEqual([`${NAME} is not signed in`]);
     expect(sent(h.agent, 'session/prompt')).toHaveLength(0);
+    // The segment is the profile's summary; the raw JSON-RPC answer goes to the log.
+    expect(h.logger.warn).toHaveBeenCalledWith(
+      '[AcpSessionHandle] ACP request failed',
+      expect.objectContaining({
+        vendor: 'opencode',
+        method: 'session/new',
+        code: -32000,
+        message: 'Authentication required',
+        detail: 'no auth method id provided',
+      }),
+    );
   });
 
   it('uses a generic message when the profile has none', async () => {
@@ -779,6 +830,51 @@ describe('createAcpSessionHandle — process lifecycle', () => {
     expect(h.errors()).toEqual([]);
     expect(sent(h.agent, 'session/close')).toHaveLength(0);
     expect(h.handle.supportsContinuation?.()).toBe(false);
+  });
+
+  it('waits up to the cancel grace for an agent that ignores the cancel, then kills', async () => {
+    jest.useFakeTimers({
+      doNotFake: ['nextTick', 'queueMicrotask', 'setImmediate'],
+    });
+    const h = start({
+      // A prompt that never answers, not even `cancelled`.
+      script: (agent) =>
+        agent.handle('session/prompt', () => new Promise(() => undefined)),
+    });
+    await h.agent.next(byMethod('session/prompt'));
+
+    h.handle.abort.abort();
+    await h.agent.next(byMethod('session/cancel'));
+    await settle();
+
+    await jest.advanceTimersByTimeAsync(ACP_CANCEL_GRACE_MS - 1);
+    expect(h.transport.killCount).toBe(0);
+
+    await jest.advanceTimersByTimeAsync(1);
+    expect(h.transport.killCount).toBe(1);
+    await expect(h.handle.done).resolves.toBe(1);
+    expect(h.errors()).toEqual([]);
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
+  it('skips the kill when the agent exits within the cancel grace', async () => {
+    jest.useFakeTimers({
+      doNotFake: ['nextTick', 'queueMicrotask', 'setImmediate'],
+    });
+    const h = start({
+      script: (agent) =>
+        agent.handle('session/prompt', () => new Promise(() => undefined)),
+    });
+    await h.agent.next(byMethod('session/prompt'));
+
+    h.handle.abort.abort();
+    await h.agent.next(byMethod('session/cancel'));
+    await h.transport.exit(0);
+
+    await expect(h.handle.done).resolves.toBe(1);
+    await settle();
+    expect(h.transport.killCount).toBe(0);
+    expect(jest.getTimerCount()).toBe(0);
   });
 
   it('abort while idle kills without a cancel', async () => {

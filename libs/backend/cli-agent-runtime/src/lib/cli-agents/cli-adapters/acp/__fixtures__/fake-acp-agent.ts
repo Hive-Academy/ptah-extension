@@ -3,9 +3,10 @@
  * `TransformStream`s, plus an in-memory `AcpProcessTransport` around it.
  *
  * It speaks the wire protocol directly, so a spec drives the real SDK through
- * `connectAcp(...)` against it. This file lives under `src/` and is compiled by
- * the library build, so it uses no jest globals and no SDK runtime value (the
- * SDK boundary check in `acp-sdk-loader.spec.ts` walks it).
+ * `connectAcp(...)` against it. `tsconfig.lib.json` excludes `__fixtures__`,
+ * so this compiles only through the specs that import it. It uses no jest
+ * globals and no SDK runtime value (the SDK boundary check in
+ * `acp-sdk-loader.spec.ts` walks it).
  */
 import type {
   AcpProcessExit,

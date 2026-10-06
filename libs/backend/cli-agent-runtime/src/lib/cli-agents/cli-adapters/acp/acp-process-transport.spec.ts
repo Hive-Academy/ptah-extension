@@ -21,7 +21,74 @@ jest.mock('@ptah-extension/platform-core', () => {
   };
 });
 
+import { spawn } from 'node:child_process';
+import type { ChildProcess } from 'node:child_process';
+import type {
+  IProcessSpawner,
+  ProcessErrorListener,
+  ProcessExitListener,
+  SpawnedProcessHandle,
+} from '@ptah-extension/platform-core';
+import { createMockLogger } from '@ptah-extension/shared/testing';
+import type { Logger } from '@ptah-extension/vscode-core';
 import { spawnAcpProcess } from './acp-process-transport';
+
+/**
+ * A spawner over a plain `child_process.spawn` that keeps the `ChildProcess`,
+ * so a spec can emit events on the real child the transport listens to.
+ */
+function createRecordingSpawner(): {
+  spawner: IProcessSpawner;
+  child: () => ChildProcess | undefined;
+} {
+  let last: ChildProcess | undefined;
+  const spawner: IProcessSpawner = {
+    spawnProcess: (request) => {
+      const real = spawn(request.command, [...request.args], {
+        cwd: request.cwd,
+        env: request.env,
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+      last = real;
+      const handle: SpawnedProcessHandle = {
+        stdin: real.stdin,
+        stdout: real.stdout,
+        stderr: real.stderr,
+        whenSpawned: Promise.resolve(real.pid ?? null),
+        get pid() {
+          return real.pid;
+        },
+        get killed() {
+          return real.killed;
+        },
+        get exitCode() {
+          return real.exitCode;
+        },
+        kill: (signal) => real.kill(signal),
+        on: (
+          event: 'exit' | 'close' | 'error',
+          listener: ProcessExitListener | ProcessErrorListener,
+        ) => {
+          real.on(event, listener);
+        },
+        once: (
+          event: 'exit' | 'close' | 'error',
+          listener: ProcessExitListener | ProcessErrorListener,
+        ) => {
+          real.once(event, listener);
+        },
+        off: (
+          event: 'exit' | 'close' | 'error',
+          listener: ProcessExitListener | ProcessErrorListener,
+        ) => {
+          real.off(event, listener);
+        },
+      };
+      return handle;
+    },
+  };
+  return { spawner, child: () => last };
+}
 
 /** Collects the lines the transport hands to `onStderrLine`, in order. */
 function recordStderr(): {
@@ -162,6 +229,97 @@ describe('spawnAcpProcess', () => {
     expect(mockKillProcessTree).toHaveBeenCalledWith(pid);
     expect(transport.getPid()).toBeUndefined();
   }, 15000);
+
+  it('merges the spawn env over the inherited environment', async () => {
+    process.env['PTAH_ACP_SPEC_INHERITED'] = 'inherited';
+    try {
+      const transport = spawnAcpProcess({
+        command: process.execPath,
+        args: [
+          '-e',
+          'process.stdout.write(JSON.stringify({ lane: process.env.PTAH_ACP_SPEC_LANE, inherited: process.env.PTAH_ACP_SPEC_INHERITED }) + "\\n");',
+        ],
+        cwd: process.cwd(),
+        env: { PTAH_ACP_SPEC_LANE: 'lane-only' },
+      });
+
+      const stdout = await readAll(transport.stream.readable);
+      expect(JSON.parse(stdout)).toEqual({
+        lane: 'lane-only',
+        inherited: 'inherited',
+      });
+      await expect(transport.exited).resolves.toEqual({
+        code: 0,
+        signal: null,
+      });
+    } finally {
+      delete process.env['PTAH_ACP_SPEC_INHERITED'];
+    }
+  }, 15000);
+
+  it('an error on a running child keeps its pid, so kill() still tree-kills it', async () => {
+    const stderr = recordStderr();
+    const logger = createMockLogger();
+    const recording = createRecordingSpawner();
+    const transport = spawnAcpProcess({
+      command: process.execPath,
+      args: ['-e', WAIT_SCRIPT],
+      cwd: process.cwd(),
+      spawner: recording.spawner,
+      onStderrLine: stderr.onLine,
+      logger: logger as unknown as Logger,
+    });
+
+    await stderr.waitFor('ready');
+    const pid = transport.getPid();
+    expect(pid).toBeDefined();
+
+    // What Node emits when, for example, a signal cannot be delivered.
+    recording.child()?.emit('error', new Error('kill EPERM'));
+
+    expect(transport.getPid()).toBe(pid);
+    const pending = Symbol('pending');
+    await expect(
+      Promise.race([transport.exited, Promise.resolve(pending)]),
+    ).resolves.toBe(pending);
+    expect(logger.warn).toHaveBeenCalledWith(
+      '[AcpProcessTransport] error on a running agent process',
+      { pid, error: 'kill EPERM' },
+    );
+
+    transport.kill();
+    await expect(transport.exited).resolves.toEqual({ code: 0, signal: null });
+    expect(mockKillProcessTree).toHaveBeenCalledWith(pid);
+  }, 15000);
+
+  it('closes the readable shortly after exit when a descendant keeps stdout open', async () => {
+    // The child hands its stdout pipe to a long-lived grandchild, prints the
+    // grandchild pid and exits: 'exit' fires, 'close' does not. `detached`
+    // keeps the grandchild out of the child's Windows job object, which would
+    // otherwise kill it together with the child.
+    const script = [
+      "const { spawn } = require('child_process');",
+      "const gc = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 20000)'], { stdio: ['ignore', 'inherit', 'ignore'], detached: true });",
+      "process.stdout.write('gc ' + gc.pid + '\\n', () => process.exit(0));",
+    ].join('\n');
+    const transport = spawnAcpProcess({
+      command: process.execPath,
+      args: ['-e', script],
+      cwd: process.cwd(),
+    });
+
+    // Without the exit grace this read hangs until the grandchild ends (20 s,
+    // past the spec timeout), so the grandchild also cleans itself up.
+    const stdout = await readAll(transport.stream.readable);
+    const grandchildPid = Number(/^gc (\d+)$/m.exec(stdout)?.[1]);
+    expect(grandchildPid).toBeGreaterThan(0);
+    // Still alive and holding the pipe: proves 'close' could not have fired.
+    expect(process.kill(grandchildPid)).toBe(true);
+    await expect(transport.exited).resolves.toEqual({
+      code: 0,
+      signal: null,
+    });
+  }, 10000);
 
   it('a failed spawn settles exited with signal "error", closes the readable, and drops late writes', async () => {
     const stderr = recordStderr();

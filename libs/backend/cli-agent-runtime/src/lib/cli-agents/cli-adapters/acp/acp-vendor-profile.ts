@@ -4,6 +4,12 @@
  * the runner stays vendor-neutral and a further ACP agent is a new profile only.
  *
  * A profile holds no state and performs no I/O.
+ *
+ * Not supported by the runner yet, so a vendor that needs them needs a runner
+ * change, not just a profile: `authenticate` (agents that advertise
+ * `authMethods` must already be signed in), and `session/set_model` /
+ * `session/set_mode` (model and effort travel through
+ * `session/set_config_option` only).
  */
 import type { McpServer } from '@agentclientprotocol/sdk';
 import type { CliType } from '@ptah-extension/shared';
@@ -40,7 +46,7 @@ export type AcpRequestMethod =
 /** A JSON-RPC error answer to one of the runner's requests, with its context. */
 export interface AcpRequestFailure {
   readonly method: AcpRequestMethod;
-  /** JSON-RPC error code, e.g. `-32003` (rate limited) or `-32602` (invalid params). */
+  /** JSON-RPC error code, e.g. `-32602` (invalid params). */
   readonly code: number;
   readonly message: string;
   /** JSON-RPC error data: a string, an object (usually with `message`), or absent. */
@@ -54,35 +60,43 @@ export interface AcpRequestFailure {
   readonly options: CliCommandOptions;
 }
 
+/** How to start the agent: the argv after the binary, plus optional extra environment. */
+export interface AcpSpawnSpec {
+  /** E.g. `['agent', 'stdio']`. */
+  readonly args: readonly string[];
+  /**
+   * Variables merged over the inherited environment (the same merge `spawnCli`
+   * applies for every lane). Omit to inherit the host environment unchanged.
+   */
+  readonly env?: Readonly<Record<string, string>>;
+}
+
 export interface AcpVendorProfile {
   /** The lane type this profile serves. */
   readonly vendor: CliType;
   /** Human name used in every message, e.g. "Grok". */
   readonly displayName: string;
-  /**
-   * Fallback only: the vendor flag that disables its permission prompts. The
-   * runner answers prompts through the permission policy either way; a profile
-   * reads this in {@link buildSpawn}.
-   */
-  readonly alwaysApproveFlag: boolean;
   readonly resumeStrategy: AcpResumeStrategy;
   /**
-   * The argv after the binary, e.g. `['agent', '--no-leader', 'stdio']`. The
-   * model and effort never go here: they are applied through
-   * {@link sessionConfig}, because a vendor may ignore the flags silently.
+   * The argv after the binary and any lane-specific environment. The model and
+   * effort never go here: they are applied through {@link sessionConfig},
+   * because a vendor may ignore the flags silently.
    */
-  buildSpawn(options: CliCommandOptions): readonly string[];
+  buildSpawn(options: CliCommandOptions): AcpSpawnSpec;
   /** The MCP servers attached on `session/new`, `session/resume` and `session/load`. */
-  buildMcpServers(options: CliCommandOptions): McpServer[];
+  buildMcpServers(options: CliCommandOptions): readonly McpServer[];
   /** Optional `_meta` for `session/new`. */
   sessionMeta?(options: CliCommandOptions): Record<string, unknown> | undefined;
   /**
    * Config to apply after session setup and before the first prompt. Entries
    * whose `configId` the session did not advertise are skipped with an `info`.
    */
-  sessionConfig?(options: CliCommandOptions): AcpSessionConfigEntry[];
-  /** Vendor extension notifications to ignore silently (e.g. `_x.ai/*`). */
-  isExtensionNotification(method: string): boolean;
+  sessionConfig?(options: CliCommandOptions): readonly AcpSessionConfigEntry[];
+  /**
+   * Vendor extension notifications to ignore silently (for example a vendor
+   * namespace such as `_vendor/*`). Omit to report every unknown method once.
+   */
+  isExtensionNotification?(method: string): boolean;
   /** Exit code of a completed `execute` tool call, read from its `rawOutput`. */
   extractExitCode?(rawOutput: unknown): number | undefined;
   /**
@@ -94,8 +108,8 @@ export interface AcpVendorProfile {
 
 /**
  * The human-readable detail of a JSON-RPC error `data` field: the string
- * itself, or the `message` of an object. Agents use both shapes for the same
- * error (Grok's `-32003` arrives either way).
+ * itself, or the `message` of an object. An agent may use both shapes for the
+ * same error.
  */
 export function readAcpErrorDetail(data: unknown): string | undefined {
   if (typeof data === 'string') {

@@ -14,6 +14,7 @@ export type {
   AcpRequestMethod,
   AcpResumeStrategy,
   AcpSessionConfigEntry,
+  AcpSpawnSpec,
   AcpVendorProfile,
 } from './acp-vendor-profile';
 
