@@ -655,6 +655,8 @@ describe('ObservationRetentionStore (real SQLite)', () => {
         oldestPendingAt: NOW - 20 * DAY,
         stuckEligibleRows: 1,
         quarantineLedgerRows: 0,
+        bootScanFailuresPending: 0,
+        bootScanFailuresGivenUp: 0,
         readErrors: [],
       });
     });
@@ -742,6 +744,8 @@ describe('ObservationRetentionStore (real SQLite)', () => {
         oldestPendingAt: null,
         stuckEligibleRows: null,
         quarantineLedgerRows: null,
+        bootScanFailuresPending: null,
+        bootScanFailuresGivenUp: null,
         readErrors: ['connection: PERSISTENCE_UNAVAILABLE'],
       });
     });

@@ -2,6 +2,10 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { SqliteConnectionService } from '@ptah-extension/persistence-sqlite';
+import {
+  BOOT_SCAN_RETRIES_PER_BOOT,
+  type BootScanFailureLedger,
+} from './boot-scan-failure-ledger';
 
 export type BootScanPipeline = 'memory' | 'skills';
 
@@ -16,11 +20,11 @@ export type BootScanPipeline = 'memory' | 'skills';
  * (TASK_2026_306 Batch 10, F1).
  *
  * `'failed'` means the callback dispatched work that failed and consumed
- * nothing (TASK_2026_621). It stops the scan without moving the watermark past
- * the item, like `'stalled'`, but only while the session is younger than
- * {@link COLD_START_LOOKBACK_MS}: older than that, even a cold scan would not
- * reach it again, so holding the watermark for it would block every later
- * session for nothing. Such a session is let past with a warning.
+ * nothing (TASK_2026_621). With a {@link BootScanFailureLedger} the session is
+ * recorded there and the scan moves on, so one failing session never blocks
+ * the healthy sessions after it; later boots retry it a bounded number of
+ * times. Without a ledger (or when recording fails) it is handled like
+ * `'stalled'`: the scan stops below it so nothing is lost.
  *
  * Required rather than optional so a new pipeline has to answer the question.
  */
@@ -32,8 +36,32 @@ export interface BootScanResult {
   readonly skipped: number;
   /** Items the gate stopped. Non-zero means the scan ended early, on purpose. */
   readonly stalled: number;
-  /** Items whose pass failed, held or let past (see `BootScanItemOutcome`). */
+  /** Scan items whose pass failed (recorded in the ledger, or held). */
   readonly failed: number;
+  /** Ledger sessions retried this boot. */
+  readonly retried: number;
+  /** Ledger retries that curated the session (row removed). */
+  readonly recovered: number;
+  /** Ledger sessions marked `given_up` this boot. */
+  readonly givenUp: number;
+}
+
+const EMPTY_RESULT: BootScanResult = {
+  scanned: 0,
+  succeeded: 0,
+  skipped: 0,
+  stalled: 0,
+  failed: 0,
+  retried: 0,
+  recovered: 0,
+  givenUp: 0,
+};
+
+interface RetryTally {
+  retried: number;
+  recovered: number;
+  givenUp: number;
+  stalled: boolean;
 }
 
 export interface BootScanRunnerOptions {
@@ -51,10 +79,15 @@ export interface BootScanRunnerOptions {
   readonly signal?: AbortSignal;
   readonly throttleMs?: number;
   /**
-   * Wall clock, injected for tests. The cold-start floor is the only consumer;
-   * a whole clock abstraction would be a port for one subtraction.
+   * Wall clock, injected for tests: the cold-start floor and every timestamp
+   * written to the failure ledger.
    */
   readonly now?: number;
+  /**
+   * Per-session failure ledger (TASK_2026_621). Only the memory pipeline,
+   * whose callback can report `'failed'`, supplies one.
+   */
+  readonly failures?: BootScanFailureLedger;
 }
 
 interface WatermarkRow {
@@ -104,7 +137,7 @@ export class BootScanRunner {
         '[memory-curator] boot-scan skipped — sessions directory missing',
         { pipeline: options.pipeline },
       );
-      return { scanned: 0, succeeded: 0, skipped: 0, stalled: 0, failed: 0 };
+      return EMPTY_RESULT;
     }
 
     const persisted = this.readWatermark(
@@ -136,7 +169,7 @@ export class BootScanRunner {
         sessionsDir,
         error: message,
       });
-      return { scanned: 0, succeeded: 0, skipped: 0, stalled: 0, failed: 0 };
+      return EMPTY_RESULT;
     }
 
     const jsonlFiles = entries.filter((e) => e.endsWith('.jsonl'));
@@ -162,13 +195,22 @@ export class BootScanRunner {
 
     eligible.sort((a, b) => a.mtime - b.mtime);
 
+    // Ledger retries run BEFORE the scan. They only see failures from earlier
+    // boots, so a session that fails in this boot's scan is not re-run in the
+    // same boot; and they are bounded (BOOT_SCAN_RETRIES_PER_BOOT rows, each at
+    // most BOOT_SCAN_MAX_ATTEMPTS times in its life), so they cannot starve the
+    // scan for long. If a gate (budget, back-off) stops them, the scan is not
+    // started: it would hit the same gate, and an unstarted scan leaves the
+    // watermark where it is, so nothing is lost.
+    const retry = await this.retryFailures(options, now, throttleMs);
+
     let succeeded = 0;
     let skipped = 0;
-    let stalled = 0;
+    let stalled = retry.stalled ? 1 : 0;
     let failed = 0;
     let maxMtime = watermark;
 
-    for (let i = 0; i < eligible.length; i++) {
+    for (let i = 0; i < eligible.length && !retry.stalled; i++) {
       if (options.signal?.aborted) {
         options.logger.info('[memory-curator] boot-scan aborted', {
           pipeline: options.pipeline,
@@ -207,11 +249,20 @@ export class BootScanRunner {
         }
         if (outcome === 'failed') {
           failed++;
-          if (now - item.mtime < COLD_START_LOOKBACK_MS) {
-            // Same two halves as a stall: stop, and leave the watermark below
-            // this item so the next boot retries it.
+          const recorded = options.failures?.recordFailure(
+            options.workspaceFingerprint,
+            {
+              sessionId: item.sessionId,
+              workspaceRoot: options.workspaceRoot,
+              sessionPath: path.join(sessionsDir, `${item.sessionId}.jsonl`),
+            },
+            now,
+          );
+          if (!recorded) {
+            // No ledger, or the write failed: the failure would be lost if the
+            // watermark moved past it, so stop below it like a stall.
             options.logger.warn(
-              '[memory-curator] boot-scan stopped early — a pass failed; the session is retried next boot',
+              '[memory-curator] boot-scan stopped early — a pass failed and could not be recorded',
               {
                 pipeline: options.pipeline,
                 sessionId: item.sessionId,
@@ -221,14 +272,18 @@ export class BootScanRunner {
             break;
           }
           options.logger.warn(
-            '[memory-curator] boot-scan pass failed for a session past the retry window; moving on',
-            { pipeline: options.pipeline, sessionId: item.sessionId },
+            '[memory-curator] boot-scan pass failed; session recorded for a retry',
+            {
+              pipeline: options.pipeline,
+              sessionId: item.sessionId,
+              attemptCount: recorded.attemptCount,
+              status: recorded.status,
+            },
           );
-          if (item.mtime > maxMtime) maxMtime = item.mtime;
         } else {
           succeeded++;
-          if (item.mtime > maxMtime) maxMtime = item.mtime;
         }
+        if (item.mtime > maxMtime) maxMtime = item.mtime;
       } catch (err: unknown) {
         skipped++;
         const message = err instanceof Error ? err.message : String(err);
@@ -257,7 +312,111 @@ export class BootScanRunner {
       );
     }
 
-    return { scanned: eligible.length, succeeded, skipped, stalled, failed };
+    return {
+      scanned: eligible.length,
+      succeeded,
+      skipped,
+      stalled,
+      failed,
+      retried: retry.retried,
+      recovered: retry.recovered,
+      givenUp: retry.givenUp,
+    };
+  }
+
+  /**
+   * Retry this workspace's `pending` ledger sessions (TASK_2026_621). A
+   * success removes the row; a failure (reported or thrown) records another
+   * attempt, which marks the row `given_up` at the ledger's maximum; a
+   * session file that no longer exists is `given_up` with that reason; a gate
+   * stop ends the retries and reports `stalled` so the scan does not start.
+   */
+  private async retryFailures(
+    options: BootScanRunnerOptions,
+    now: number,
+    throttleMs: number,
+  ): Promise<RetryTally> {
+    const tally: RetryTally = {
+      retried: 0,
+      recovered: 0,
+      givenUp: 0,
+      stalled: false,
+    };
+    const ledger = options.failures;
+    if (!ledger) return tally;
+    const fp = options.workspaceFingerprint;
+    const pending = ledger.listPending(fp, BOOT_SCAN_RETRIES_PER_BOOT);
+    for (let i = 0; i < pending.length; i++) {
+      if (options.signal?.aborted) break;
+      const entry = pending[i];
+      if (!(await this.fileExists(entry.sessionPath))) {
+        if (ledger.giveUp(fp, entry.sessionId, 'session-file-missing', now)) {
+          tally.givenUp++;
+        }
+        options.logger.warn(
+          '[memory-curator] boot-scan retry given up — session file no longer exists',
+          { pipeline: options.pipeline, sessionId: entry.sessionId },
+        );
+        continue;
+      }
+      tally.retried++;
+      let outcome: BootScanItemOutcome;
+      try {
+        outcome = await options.run(
+          entry.sessionId,
+          entry.workspaceRoot,
+          options.signal,
+        );
+      } catch (err: unknown) {
+        options.logger.warn('[memory-curator] boot-scan retry threw', {
+          pipeline: options.pipeline,
+          sessionId: entry.sessionId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+        outcome = 'failed';
+      }
+      if (outcome === 'stalled') {
+        tally.retried--;
+        tally.stalled = true;
+        options.logger.info(
+          '[memory-curator] boot-scan retries stopped — a gate stalled the pass',
+          { pipeline: options.pipeline, sessionId: entry.sessionId },
+        );
+        break;
+      }
+      if (outcome === 'ran') {
+        if (ledger.remove(fp, entry.sessionId)) tally.recovered++;
+      } else {
+        const recorded = ledger.recordFailure(fp, entry, now);
+        if (recorded?.status === 'given_up') {
+          tally.givenUp++;
+          options.logger.warn(
+            '[memory-curator] boot-scan retry given up — attempts exhausted',
+            {
+              pipeline: options.pipeline,
+              sessionId: entry.sessionId,
+              attemptCount: recorded.attemptCount,
+            },
+          );
+        }
+      }
+      if (i < pending.length - 1 && throttleMs > 0) {
+        await this.delay(throttleMs, options.signal);
+      }
+    }
+    return tally;
+  }
+
+  private async fileExists(file: string): Promise<boolean> {
+    try {
+      await fs.stat(file);
+      return true;
+    } catch (err: unknown) {
+      // Only a definite "not there" gives up; any other stat error retries
+      // the session normally rather than discarding it.
+      const code = (err as { code?: unknown } | null)?.code;
+      return code !== 'ENOENT' && code !== 'ENOTDIR';
+    }
   }
 
   /**

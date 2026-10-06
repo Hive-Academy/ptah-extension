@@ -96,6 +96,7 @@ function formatRelative(deltaMs: number): string {
 function buildOutcome(ev: MemoryCuratorEventWire): string {
   if (ev.error) return ev.error;
   if (ev.kind === 'rate-limited') return formatRateLimited(ev.stats);
+  if (ev.kind === 'boot-scan') return formatBootScan(ev.stats);
   if (ev.kind === 'user-cue-trigger') {
     const cue = ev.stats?.['cue'];
     if (typeof cue === 'string' && cue.length > 0) return `cue=${cue}`;
@@ -122,6 +123,49 @@ function buildOutcome(ev: MemoryCuratorEventWire): string {
   }
   if (ev.sessionId) return `session=${ev.sessionId}`;
   return ev.kind;
+}
+
+function statCount(
+  stats: MemoryCuratorEventWire['stats'],
+  key: string,
+): number {
+  const value = stats?.[key];
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+}
+
+/**
+ * Every boot-scan count that explains a quiet curator is shown, not just the
+ * first three stats (TASK_2026_621): a gate stop, failed passes waiting for a
+ * retry and sessions given up on are the reason later sessions were not read.
+ */
+function formatBootScan(stats: MemoryCuratorEventWire['stats']): string {
+  const parts = [
+    `scanned=${statCount(stats, 'scanned')}`,
+    `succeeded=${statCount(stats, 'succeeded')}`,
+  ];
+  const optional: ReadonlyArray<readonly [string, string]> = [
+    ['skipped', 'skipped'],
+    ['failed', 'failed (queued for retry)'],
+    ['retried', 'retried'],
+    ['recovered', 'recovered'],
+    ['givenUp', 'given up'],
+  ];
+  for (const [key, label] of optional) {
+    const n = statCount(stats, key);
+    if (n > 0) parts.push(`${label}=${n}`);
+  }
+  if (statCount(stats, 'stalled') > 0) parts.push('stopped early by a gate');
+  return parts.join(', ');
+}
+
+function bootScanNeedsAttention(
+  stats: MemoryCuratorEventWire['stats'],
+): boolean {
+  return (
+    statCount(stats, 'stalled') > 0 ||
+    statCount(stats, 'failed') > 0 ||
+    statCount(stats, 'givenUp') > 0
+  );
 }
 
 function formatRateLimited(stats: MemoryCuratorEventWire['stats']): string {
@@ -157,8 +201,9 @@ function toneFor(ev: MemoryCuratorEventWire): FeedRow['tone'] {
     case 'user-cue-trigger':
     case 'commit-detect':
       return 'info';
-    case 'curator-skipped-no-data':
     case 'boot-scan':
+      return bootScanNeedsAttention(ev.stats) ? 'warning' : 'info';
+    case 'curator-skipped-no-data':
     case 'embedder-download':
       return 'info';
     case 'rate-limited':

@@ -85,6 +85,8 @@ interface StorageViewModel {
   readonly pendingRowsText: string;
   readonly pendingBytesText: string;
   readonly oldestPendingText: string;
+  readonly bootScanFailuresPendingText: string;
+  readonly bootScanFailuresGivenUpText: string;
   readonly stuckRowsText: string;
   readonly quarantineLedgerRowsText: string;
   readonly processedRowsText: string;
@@ -170,6 +172,20 @@ const RUN_TONE: Record<MemoryRetentionRunDto['outcome'], NativeCardTone> = {
               <dt class="text-base-content-muted">Oldest pending</dt>
               <dd data-testid="storage-oldest-pending">
                 {{ v.oldestPendingText }}
+              </dd>
+              <dt class="text-base-content-muted">Boot-scan retries</dt>
+              <dd
+                class="tabular-nums"
+                data-testid="storage-boot-scan-failures-pending"
+              >
+                {{ v.bootScanFailuresPendingText }}
+              </dd>
+              <dt class="text-base-content-muted">Boot-scan given up</dt>
+              <dd
+                class="tabular-nums"
+                data-testid="storage-boot-scan-failures-given-up"
+              >
+                {{ v.bootScanFailuresGivenUpText }}
               </dd>
             </dl>
           </ptah-native-card>
@@ -361,6 +377,12 @@ export class StorageHealthPanelComponent {
       oldestPendingText: formatRelativeTime(
         s.observations.oldestPendingAt,
         now,
+      ),
+      bootScanFailuresPendingText: formatCount(
+        s.observations.bootScanFailuresPending,
+      ),
+      bootScanFailuresGivenUpText: formatCount(
+        s.observations.bootScanFailuresGivenUp,
       ),
       stuckRowsText: formatCount(s.observations.stuckEligibleRows),
       quarantineLedgerRowsText: formatCount(

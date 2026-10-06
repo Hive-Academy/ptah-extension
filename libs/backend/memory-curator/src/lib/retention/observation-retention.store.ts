@@ -85,6 +85,13 @@ const STUCK_ELIGIBLE_COUNT_SQL = `SELECT COUNT(*) AS n
 
 const LEDGER_COUNT_SQL = `SELECT COUNT(*) AS n FROM observation_quarantine`;
 
+// The memory boot-scan failure ledger (migration 0052, TASK_2026_621): small,
+// one row per failed session, read through its status index.
+const BOOT_SCAN_FAILURE_COUNTS_SQL = `SELECT
+   COALESCE(SUM(status = 'pending'), 0) AS pending,
+   COALESCE(SUM(status = 'given_up'), 0) AS given_up
+ FROM memory_boot_scan_failures`;
+
 // Deliberately unfiltered and therefore only called at the END of a run, never
 // on a diagnostics poll (measured 72 ms warm, 1.4 s cold on the live file).
 const TOTAL_ROWS_SQL = `SELECT COUNT(*) AS n FROM observation_queue`;
@@ -160,6 +167,7 @@ export const OBSERVATION_RETENTION_SQL = {
   PENDING_BYTES_SQL,
   STUCK_ELIGIBLE_COUNT_SQL,
   LEDGER_COUNT_SQL,
+  BOOT_SCAN_FAILURE_COUNTS_SQL,
   TOTAL_ROWS_SQL,
   READ_STATE_SQL,
   WRITE_RUN_SQL,
@@ -201,6 +209,10 @@ export interface LiveStorageReading {
   readonly oldestPendingAt: number | null;
   readonly stuckEligibleRows: number | null;
   readonly quarantineLedgerRows: number | null;
+  /** Boot-scan sessions whose failed pass is still being retried. */
+  readonly bootScanFailuresPending: number | null;
+  /** Boot-scan sessions whose failed pass was given up on. */
+  readonly bootScanFailuresGivenUp: number | null;
   /** `"<read>: <message>"` per failed read; empty when every read succeeded. */
   readonly readErrors: readonly string[];
 }
@@ -423,6 +435,8 @@ export class ObservationRetentionStore {
         oldestPendingAt: null,
         stuckEligibleRows: null,
         quarantineLedgerRows: null,
+        bootScanFailuresPending: null,
+        bootScanFailuresGivenUp: null,
         readErrors: [`connection: ${errorText(error)}`],
       };
     }
@@ -475,6 +489,14 @@ export class ObservationRetentionStore {
         { n: number } | undefined;
       return Number(row?.n ?? 0);
     });
+    const bootScanFailures = read('bootScanFailures', () => {
+      const row = this.statement(db, BOOT_SCAN_FAILURE_COUNTS_SQL).get() as
+        { pending: number; given_up: number } | undefined;
+      return {
+        pending: Number(row?.pending ?? 0),
+        givenUp: Number(row?.given_up ?? 0),
+      };
+    });
 
     return {
       pendingRows: pending?.rows ?? null,
@@ -482,6 +504,8 @@ export class ObservationRetentionStore {
       oldestPendingAt: pending?.oldest ?? null,
       stuckEligibleRows,
       quarantineLedgerRows,
+      bootScanFailuresPending: bootScanFailures?.pending ?? null,
+      bootScanFailuresGivenUp: bootScanFailures?.givenUp ?? null,
       readErrors,
     };
   }

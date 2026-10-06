@@ -133,6 +133,8 @@ class FakeStore {
       oldestPendingAt: 5,
       stuckEligibleRows: this.stuck,
       quarantineLedgerRows: 4,
+      bootScanFailuresPending: 0,
+      bootScanFailuresGivenUp: 0,
       readErrors: [],
     };
   }
@@ -1382,6 +1384,8 @@ describe('MemoryRetentionService — storageHealth', () => {
         processedBytesEstimate: 6000,
         measuredAt: 2000,
         quarantineLedgerRows: 4,
+        bootScanFailuresPending: 0,
+        bootScanFailuresGivenUp: 0,
       },
       retention: {
         healthVerdict: 'healthy',
@@ -1466,6 +1470,8 @@ describe('MemoryRetentionService — storageHealth', () => {
       oldestPendingAt: null,
       stuckEligibleRows: null,
       quarantineLedgerRows: null,
+      bootScanFailuresPending: null,
+      bootScanFailuresGivenUp: null,
       readErrors: [
         'connection: failed to open C:\\Users\\alice\\.ptah\\state\\db.sqlite - busy',
         'pending: query failed on /home/bob/.ptah/state/db.sqlite',
@@ -1505,6 +1511,8 @@ describe('MemoryRetentionService — storageHealth', () => {
       oldestPendingAt: 5,
       stuckEligibleRows: 0,
       quarantineLedgerRows: 0,
+      bootScanFailuresPending: 0,
+      bootScanFailuresGivenUp: 0,
       readErrors: [
         'pending: query failed on /var/lib/ptah/state.sqlite',
         'quarantineLedger: table missing in /tmp/ptah-x/db.sqlite',

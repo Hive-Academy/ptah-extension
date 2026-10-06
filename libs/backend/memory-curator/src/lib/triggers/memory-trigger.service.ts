@@ -45,6 +45,7 @@ import {
 } from '../observation-queue.store';
 import { deriveWorkspaceFingerprint } from '../workspace-fingerprint';
 import { BootScanRunner } from './boot-scan-runner';
+import { BootScanFailureLedger } from './boot-scan-failure-ledger';
 import { BootScanScheduler } from './boot-scan-scheduler';
 import { EpisodeTracker, type EpisodeBuffer } from './episode-tracker';
 import {
@@ -978,6 +979,7 @@ export class MemoryTriggerService {
         sqlite: this.sqlite,
         logger: this.logger,
         signal,
+        failures: new BootScanFailureLedger(this.sqlite, this.logger),
         run: async (scanSessionId, scanWorkspaceRoot, runSignal) => {
           // The boot scan draws from the SAME hourly budget as the cue path
           // (`onUserPromptSubmit`) and the episode path (`tryEpisodeCurate`).
@@ -1060,8 +1062,8 @@ export class MemoryTriggerService {
             this.refundIfNetworkDeferred(stats);
             return 'stalled';
           }
-          // A failed pass curated nothing either; the runner holds the
-          // watermark for it within a bounded window (TASK_2026_621).
+          // A failed pass curated nothing either; the runner records it in
+          // the failure ledger and retries it on later boots (TASK_2026_621).
           return stats.outcome;
         },
       });
@@ -1074,6 +1076,9 @@ export class MemoryTriggerService {
           skipped: result.skipped,
           stalled: result.stalled,
           failed: result.failed,
+          retried: result.retried,
+          recovered: result.recovered,
+          givenUp: result.givenUp,
         },
       });
     } catch (err: unknown) {

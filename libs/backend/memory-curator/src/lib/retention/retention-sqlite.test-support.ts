@@ -217,8 +217,8 @@ export function openRetentionTestDb(
     loadVec(raw);
   }
   const versions = options.memorySchema
-    ? [2, 7, 10, 15, 16, 17, 18, 19, 43, 44, 47, 48]
-    : [16, 43, 47];
+    ? [2, 7, 10, 15, 16, 17, 18, 19, 43, 44, 47, 48, 52]
+    : [14, 16, 43, 47, 52];
   for (const version of versions) {
     const migration = MIGRATIONS.find((item) => item.version === version);
     if (migration?.sql) raw.exec(migrationSql(version));
@@ -247,6 +247,9 @@ export function openRetentionTestDb(
     get db(): SqliteDatabase {
       if (closed) throw new Error('database closed');
       return db;
+    },
+    get isOpen(): boolean {
+      return !closed;
     },
   } as unknown as SqliteConnectionService;
   return {

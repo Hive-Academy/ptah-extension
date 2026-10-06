@@ -124,7 +124,33 @@ describe('BootScanRunner', () => {
       skipped: 0,
       stalled: 0,
       failed: 0,
+      retried: 0,
+      recovered: 0,
+      givenUp: 0,
     });
+  });
+
+  it('without a failure ledger a failed pass stops the scan below it (TASK_2026_621)', async () => {
+    const now = Date.now();
+    const dir = await makeTempSessionsDir([
+      { name: 'a.jsonl', mtime: now - 5000 },
+      { name: 'b.jsonl', mtime: now - 1000 },
+    ]);
+    const state: WatermarkState = { value: now - 10_000 };
+    const run = jest.fn().mockResolvedValue('failed');
+    const result = await new BootScanRunner().run({
+      pipeline: 'memory',
+      workspaceRoot: '/ws',
+      workspaceFingerprint: 'fp1',
+      sessionsDirectory: dir,
+      sqlite: makeSqlite(state),
+      logger: makeLogger(),
+      run,
+      throttleMs: 0,
+    });
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(result.failed).toBe(1);
+    expect(state.value).toBe(now - 10_000);
   });
 
   it('scans ALL JSONL files when watermark is 0', async () => {

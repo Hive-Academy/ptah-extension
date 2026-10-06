@@ -840,6 +840,8 @@ describe('startThothCron', () => {
           oldestPendingAt: null,
           stuckEligibleRows: 0,
           quarantineLedgerRows: 0,
+          bootScanFailuresPending: 0,
+          bootScanFailuresGivenUp: 0,
           readErrors: [],
         })),
         countTotalRows: jest.fn(() => 0),
