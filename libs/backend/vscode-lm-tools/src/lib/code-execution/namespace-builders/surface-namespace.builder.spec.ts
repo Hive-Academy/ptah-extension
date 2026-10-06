@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { SurfaceComponent, SurfaceEnvelope } from '@ptah-extension/shared';
-import { SURFACE_LIMITS } from '@ptah-extension/shared/mcp-apps-contracts/surface';
+import { SURFACE_CATALOG_VERSION, SURFACE_LIMITS } from '@ptah-extension/shared/mcp-apps-contracts/surface';
 import { SurfaceStateService } from '../../surface';
 import { HELP_DOCS } from './system-namespace.builders';
 import type { DashboardSurfaceHost } from './dashboard-namespace.builder';
@@ -12,7 +12,7 @@ const ANONYMOUS = { toolCallId: 'anonymous' };
 function snapshot(surfaceId = 'profile'): SurfaceEnvelope {
   return {
     schemaVersion: 'dashboard-spec/2',
-    catalogVersion: 'dashboard-catalog/2',
+    catalogVersion: SURFACE_CATALOG_VERSION,
     surfaceId,
     title: { text: 'Profile' },
     components: [{ kind: 'text', id: 'name', label: 'Name', path: 'name' }],

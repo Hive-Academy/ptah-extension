@@ -13,6 +13,9 @@ import {
   SURFACE_ACTIONS,
   SURFACE_CATALOG_VERSION,
   SURFACE_COMPONENT_KINDS,
+  SURFACE_DISPLAY_KINDS,
+  SURFACE_INPUT_KINDS,
+  SURFACE_LAYOUT_KINDS,
   SURFACE_LIMITS,
   SURFACE_SCHEMA_VERSION,
   SURFACE_STORE_LIMITS,
@@ -57,8 +60,12 @@ function withoutDescription(schema: unknown): unknown {
  * every `tools/list`. Sizes are `JSON.stringify(tool).length` measured on
  * 2026-09-26 at HEAD 4cd9a91da; each ceiling is that size + 5%, floored.
  * Raising a ceiling is a deliberate decision, never a drive-by edit.
+ *
+ * Re-baselined 2026-10-05 (TASK_2026_594, Batch 6): the six status/text kind
+ * schemas and their prose grew `ptah_surface_update` past its old ceiling;
+ * see the dated comment on the constant below.
  */
-const SURFACE_UPDATE_MEASURED_CHARS = 65_190; // 2026-09-26
+const SURFACE_UPDATE_MEASURED_CHARS = 69_600; // 2026-10-05 TASK_2026_594: six status/text kinds
 const SURFACE_GET_STATE_MEASURED_CHARS = 2_141; // 2026-09-26
 const growthCeiling = (measured: number): number => Math.floor(measured * 1.05);
 
@@ -84,7 +91,7 @@ describe('surface tool definition growth guard', () => {
   );
 
   it('pins the ceilings to the numbers written above', () => {
-    expect(growthCeiling(SURFACE_UPDATE_MEASURED_CHARS)).toBe(68_449);
+    expect(growthCeiling(SURFACE_UPDATE_MEASURED_CHARS)).toBe(73_080);
     expect(growthCeiling(SURFACE_GET_STATE_MEASURED_CHARS)).toBe(2_248);
   });
 });
@@ -168,6 +175,36 @@ describe('ptah_surface_update definition', () => {
     );
     expect(description).toContain(
       `${SURFACE_STORE_LIMITS.maxStoreBytes} UTF-8 bytes`,
+    );
+  });
+
+  it('names every component kind as exact tokens — set equality with the catalog (TASK_2026_594 Task 6.2)', () => {
+    // Parse the emitted layout/input/display comma lists and compare SETS of
+    // exact tokens. No substring check: `text` cannot be satisfied by
+    // `text-block`, nor `progress` by `radial-progress`.
+    const lists = tool.description.match(
+      /Component kinds \(exactly these, anything else is rejected\): layout ([^;]+); input ([^;]+); display ([^.]+)\./,
+    );
+    expect(lists).not.toBeNull();
+    const tokens = (list: string): string[] =>
+      list.split(',').map((token) => token.trim());
+    const layout = tokens(lists![1]);
+    const input = tokens(lists![2]);
+    const display = tokens(lists![3]);
+    expect(layout).toEqual([...SURFACE_LAYOUT_KINDS]);
+    expect(input).toEqual([...SURFACE_INPUT_KINDS]);
+    expect(display).toEqual([...SURFACE_DISPLAY_KINDS]);
+    const all = [...layout, ...input, ...display];
+    expect(new Set(all)).toEqual(new Set([...SURFACE_COMPONENT_KINDS]));
+    // Every kind exactly once: a duplicated token keeps the set equal but
+    // must not sneak past.
+    expect(new Set(all).size).toBe(all.length);
+  });
+
+  it('quotes the literal v2 catalog version (TASK_2026_594 Task 6.2)', () => {
+    expect(SURFACE_CATALOG_VERSION).toBe('dashboard-catalog/3');
+    expect(tool.description).toContain(
+      'catalogVersion: "dashboard-catalog/3"',
     );
   });
 

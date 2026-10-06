@@ -113,9 +113,7 @@ describe('GitWatcherService — incident stress tests ST-1 / ST-1b (TASK_2026_43
    *   4. At most one refresh cycle starts before the overflow (the leading
    *      non-overflow batch, if any, may trigger one), and exactly one refresh
    *      cycle starts per overflow at-or-after the first. Cycles are counted
-   *      by their first spawn
-   *      (the `rev-parse` probe): under load the probe can fail and end the
-   *      cycle before `git status` is spawned.
+   *      by their first spawn, `git status`.
    *   5. Each overflow produces one truncated content push, without amplification.
    *   6. No NTFS/echo directory-update artifact (`directoryUpdates === 0`).
    */

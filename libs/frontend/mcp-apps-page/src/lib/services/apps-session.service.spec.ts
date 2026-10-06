@@ -28,6 +28,7 @@ import type {
   SurfaceComponent,
   SurfaceContent,
 } from '@ptah-extension/shared/mcp-apps-contracts/surface';
+import { SURFACE_CATALOG_VERSION } from '@ptah-extension/shared/mcp-apps-contracts/surface';
 import { makeTable } from '@ptah-extension/shared/testing';
 import { APPS_SYSTEM_PROMPT } from '../apps-system-prompt';
 import {
@@ -43,7 +44,7 @@ function content(surfaceId: string): SurfaceContent {
     contract: 'dashboard-spec/2',
     surface: {
       schemaVersion: 'dashboard-spec/2',
-      catalogVersion: 'dashboard-catalog/2',
+      catalogVersion: SURFACE_CATALOG_VERSION,
       surfaceId,
       title: { text: 'Profile' },
       components: [makeTable(3, 2) as SurfaceComponent],

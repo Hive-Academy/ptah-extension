@@ -2,6 +2,7 @@ import type { DashboardSeriesPoint } from '@ptah-extension/shared';
 import {
   checkDraftValue,
   readSurfacePath,
+  SURFACE_CATALOG_VERSION,
   SURFACE_INPUT_EMPTY_VALUES,
   SURFACE_LIMITS,
   type SurfaceAction,
@@ -15,6 +16,7 @@ import { buildDashboardViewModel, mapDisplayNode } from './dashboard-view-model'
 import type {
   InputNode,
   LayoutNode,
+  StatusNode,
   SurfaceNode,
   SurfaceViewModel,
 } from './view-model.types';
@@ -26,6 +28,15 @@ export type SurfaceViewModelBuild =
 
 type LayoutComponent = Extract<SurfaceComponent, { kind: LayoutNode['kind'] }>;
 type DisplayComponent = Exclude<SurfaceComponent, LayoutComponent | SurfaceInput>;
+type StatusComponent = Extract<
+  SurfaceComponent,
+  { kind: 'alert' | 'badge' | 'progress' | 'radial-progress' | 'divider' | 'text-block' }
+>;
+
+const STATUS_TONES = ['neutral', 'primary', 'info', 'success', 'warning', 'error'] as const;
+const ALERT_TONES = ['info', 'success', 'warning', 'error'] as const;
+const DIVIDER_DIRECTIONS = ['horizontal', 'vertical'] as const;
+const TEXT_BLOCK_ROLES = ['heading', 'body'] as const;
 
 const BUILD_FAILED = 'Surface content could not be mapped.';
 
@@ -105,12 +116,62 @@ function checkDisplayShape(component: DisplayComponent): void {
   }
 }
 
+/**
+ * v2-only projection of the six status kinds. It copies only declared
+ * contract fields and rejects any hostile in-process shape, so a failure
+ * yields the all-or-nothing `renderFailed`, never a partial node.
+ */
+function mapStatus(component: StatusComponent): StatusNode {
+  switch (component.kind) {
+    case 'alert': {
+      if (!ALERT_TONES.includes(component.tone)) throw new TypeError('Invalid surface alert tone.');
+      if (!isRichText(component.text)) throw new TypeError('Invalid surface alert text.');
+      if (component.title !== undefined && !isRichText(component.title)) throw new TypeError('Invalid surface alert title.');
+      return { id: component.id, kind: component.kind, tone: component.tone, text: component.text,
+        title: component.title, selectable: false };
+    }
+    case 'badge': {
+      if (!STATUS_TONES.includes(component.tone)) throw new TypeError('Invalid surface badge tone.');
+      if (!isRichText(component.text)) throw new TypeError('Invalid surface badge text.');
+      if (component.actions !== undefined && (!Array.isArray(component.actions)
+        || !component.actions.every((action) => isObject(action) && action.action === 'dashboard.select'))) {
+        throw new TypeError('Invalid surface badge actions.');
+      }
+      return { id: component.id, kind: component.kind, tone: component.tone, text: component.text,
+        actions: component.actions, selectable: declaresSelect(component.actions ?? []) };
+    }
+    case 'progress':
+    case 'radial-progress': {
+      if (typeof component.value !== 'number' || !Number.isFinite(component.value)
+        || component.value < 0 || component.value > 100) {
+        throw new TypeError('Invalid surface progress value.');
+      }
+      if (!STATUS_TONES.includes(component.tone)) throw new TypeError('Invalid surface progress tone.');
+      if (!isRichText(component.label)) throw new TypeError('Invalid surface progress label.');
+      return { id: component.id, kind: component.kind, value: component.value, tone: component.tone,
+        label: component.label, selectable: false };
+    }
+    case 'divider': {
+      if (!DIVIDER_DIRECTIONS.includes(component.direction)) throw new TypeError('Invalid surface divider direction.');
+      if (component.text !== undefined && !isRichText(component.text)) throw new TypeError('Invalid surface divider text.');
+      return { id: component.id, kind: component.kind, direction: component.direction,
+        text: component.text, selectable: false };
+    }
+    case 'text-block': {
+      if (!isRichText(component.text)) throw new TypeError('Invalid surface text block text.');
+      if (!TEXT_BLOCK_ROLES.includes(component.role)) throw new TypeError('Invalid surface text block role.');
+      return { id: component.id, kind: component.kind, text: component.text, role: component.role,
+        selectable: false };
+    }
+  }
+}
+
 function buildSurface(content: Extract<SurfaceRenderable, { contract: 'dashboard-spec/2' }>): SurfaceViewModel {
   const { surface, dataModel } = content;
   if (
     !isObject(surface) ||
     surface.schemaVersion !== 'dashboard-spec/2' ||
-    surface.catalogVersion !== 'dashboard-catalog/2' ||
+    surface.catalogVersion !== SURFACE_CATALOG_VERSION ||
     !isRichText(surface.title) ||
     !Array.isArray(surface.components) ||
     !isObject(dataModel)
@@ -137,6 +198,13 @@ function buildSurface(content: Extract<SurfaceRenderable, { contract: 'dashboard
         case 'radio-group':
         case 'checkbox':
           return mapInput(component, dataModel);
+        case 'alert':
+        case 'badge':
+        case 'progress':
+        case 'radial-progress':
+        case 'divider':
+        case 'text-block':
+          return mapStatus(component);
         default:
           checkDisplayShape(component);
           return mapDisplayNode(component);

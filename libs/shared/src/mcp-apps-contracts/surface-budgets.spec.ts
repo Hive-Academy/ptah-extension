@@ -17,7 +17,7 @@ import {
   makeSurfaceTextInput,
 } from '../testing/fixtures/surface';
 import { validateDashboardSpec } from './dashboard-spec.validator';
-import { SURFACE_LIMITS } from './surface-catalog';
+import { SURFACE_CATALOG_VERSION, SURFACE_LIMITS } from './surface-catalog';
 import { applyDataModelOps } from './surface-data-model';
 import type { SurfaceDataModelOp } from './surface-data-model';
 import type {
@@ -47,7 +47,7 @@ function envelope(
 ): SurfaceEnvelope {
   return {
     schemaVersion: 'dashboard-spec/2',
-    catalogVersion: 'dashboard-catalog/2',
+    catalogVersion: SURFACE_CATALOG_VERSION,
     surfaceId,
     title: { text: 'Budgets' },
     components,
@@ -197,6 +197,85 @@ describe('surface budgets — at the limit passes, one above is rejected', () =>
           ]),
         ),
       'components.0.actions',
+    ],
+    [
+      'maxActionsPerComponent (badge select actions)',
+      (at) =>
+        create(
+          envelope([
+            {
+              kind: 'badge',
+              id: 'badge',
+              tone: 'primary',
+              text: { text: 'Pick' },
+              actions: Array.from(
+                {
+                  length: at
+                    ? L.maxActionsPerComponent
+                    : L.maxActionsPerComponent + 1,
+                },
+                (_v, i) => ({
+                  id: `a${i}`,
+                  action: 'dashboard.select' as const,
+                  label: { text: 'Pick' },
+                }),
+              ),
+            },
+          ]),
+        ),
+      'components.0.actions',
+    ],
+    [
+      'maxComponents (alert status kinds)',
+      (at) =>
+        create(
+          envelope(
+            Array.from(
+              { length: at ? L.maxComponents : L.maxComponents + 1 },
+              (_v, i) => ({
+                kind: 'alert' as const,
+                id: `a${i}`,
+                tone: 'info' as const,
+                text: { text: 'Heads up' },
+              }),
+            ),
+          ),
+        ),
+      'maxComponents',
+    ],
+    [
+      'maxComponentIdLength (badge)',
+      (at) =>
+        create(
+          envelope([
+            {
+              kind: 'badge',
+              id: 'b'.repeat(
+                at ? L.maxComponentIdLength : L.maxComponentIdLength + 1,
+              ),
+              tone: 'neutral',
+              text: { text: 'New' },
+            },
+          ]),
+        ),
+      'components.0.id',
+    ],
+    [
+      'maxStringLength (text-block text)',
+      (at) =>
+        create(
+          envelope([
+            {
+              kind: 'text-block',
+              id: 'text',
+              text: {
+                text: 'x'.repeat(at ? L.maxStringLength : L.maxStringLength + 1),
+              },
+              role: 'heading',
+            },
+          ]),
+        ),
+      'components.0.text',
     ],
     [
       'maxInputs',
@@ -498,6 +577,29 @@ describe('surface byte budgets name the budget (Req 4.3)', () => {
       `over the maxSurfaceBytes limit of ${L.maxSurfaceBytes}`,
     );
     expect(result).toMatchObject({ bytes: L.maxSurfaceBytes + 1 });
+    expectRejected(create(over), 'maxSurfaceBytes');
+  });
+
+  it('alert status kinds: exactly maxSurfaceBytes passes, one byte more is rejected', () => {
+    const surfaceOfBytes = (target: number) =>
+      exactBytes(target, 150, (texts) =>
+        envelope(
+          texts.map((text, i) => ({
+            kind: 'alert' as const,
+            id: `a${i}`,
+            tone: 'info' as const,
+            text: { text },
+          })),
+        ),
+      );
+    const at = surfaceOfBytes(L.maxSurfaceBytes);
+    expectAccepted(documentOf(at));
+    expectAccepted(create(at));
+    const over = surfaceOfBytes(L.maxSurfaceBytes + 1);
+    expectRejected(
+      documentOf(over),
+      `over the maxSurfaceBytes limit of ${L.maxSurfaceBytes}`,
+    );
     expectRejected(create(over), 'maxSurfaceBytes');
   });
 

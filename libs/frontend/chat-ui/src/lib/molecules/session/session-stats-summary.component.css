@@ -1,0 +1,67 @@
+:host {
+  display: block;
+}
+
+@container (min-width: 380px) {
+  .stats-grid .stats-cards {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@container (min-width: 500px) {
+  .stats-grid .stats-cards {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+.context-bar-track {
+  height: 4px;
+  border-radius: 2px;
+  background: oklch(0.3 0 0 / 0.4);
+  overflow: hidden;
+}
+
+.context-bar-fill {
+  height: 100%;
+  border-radius: 2px;
+  background: oklch(0.72 0.15 200 / 0.5);
+  transition: width 0.6s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.context-bar-fill.context-bar-warning {
+  background: linear-gradient(
+    90deg,
+    oklch(0.795 0.184 86.047 / 0.7),
+    oklch(0.795 0.184 86.047 / 0.9)
+  );
+  animation: context-bar-pulse 3s ease-in-out infinite;
+}
+
+.context-bar-fill.context-bar-critical {
+  background: linear-gradient(
+    90deg,
+    oklch(0.637 0.237 25.331 / 0.7),
+    oklch(0.637 0.237 25.331 / 0.95)
+  );
+  animation: context-bar-pulse-critical 1.5s ease-in-out infinite;
+}
+
+@keyframes context-bar-pulse {
+  0%,
+  100% {
+    opacity: 0.75;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes context-bar-pulse-critical {
+  0%,
+  100% {
+    opacity: 0.65;
+  }
+  50% {
+    opacity: 1;
+  }
+}

@@ -17,6 +17,7 @@ import {
   GitTimeoutError,
   isIndexLockFailure,
   GIT_STATUS_MAX_OUTPUT_BYTES,
+  GIT_STATUS_TIMEOUT_MS,
   type ExecGitOptions,
   type ExecGitResult,
   type ExecGitBufferResult,
@@ -104,6 +105,40 @@ import {
 /** Working-tree status: NUL-terminated, verbatim paths, no C-quoting. */
 const STATUS_Z = ['status', '--porcelain=v2', '-z'] as const;
 const STATUS_ARGS = [...STATUS_Z, '--branch', '--untracked-files=all'];
+
+/**
+ * After a status read for a root timed out, watcher-driven refreshes for
+ * that root are skipped for this long. On the stalled host that produced the
+ * timeouts, an immediate retry only queues more git children behind the
+ * same stall; a user-driven read always runs and a success clears the window.
+ */
+export const GIT_STATUS_TIMEOUT_BACKOFF_MS = 30_000;
+
+/**
+ * Wall clock the status-timeout backoff window reads. A module-level seam
+ * (never a constructor parameter: tsyringe resolves those), so specs can move
+ * time without fake timers.
+ */
+let gitInfoNowMs: () => number = () => Date.now();
+
+/** Test seam: replace the wall clock the backoff window reads. */
+export function setGitInfoClockForTests(now: () => number): void {
+  gitInfoNowMs = now;
+}
+
+/** Test seam: restore the real wall clock. */
+export function resetGitInfoClockForTests(): void {
+  gitInfoNowMs = () => Date.now();
+}
+
+/**
+ * git's exit-128 refusal that a directory is not a repository. Shared by the
+ * repository probe and the status pipeline, which classifies the same
+ * refusal from `git status` stderr and so needs no probe spawn of its own.
+ */
+function refusedAsNotARepository(exitCode: number, stderr: string): boolean {
+  return exitCode === 128 && /not a git repository/i.test(stderr);
+}
 
 /**
  * Why a status read produced no answer. The watcher and the UI keep the last
@@ -593,6 +628,17 @@ export class GitInfoService {
   private readonly statusWarned = new Set<string>();
 
   /**
+   * Workspace roots whose last status read timed out, and the wall-clock ms
+   * after which a watcher-driven refresh may run again. Retrying such a root
+   * right away only queues more git children behind the same stalled host, so
+   * {@link refreshGitInfo} skips the root for
+   * {@link GIT_STATUS_TIMEOUT_BACKOFF_MS}; a user-driven `getGitInfo` never
+   * skips, and a successful read deletes the entry — so this holds only roots
+   * inside the window, bounded like `invalidatedAt`.
+   */
+  private readonly statusTimeoutBackoffUntil = new Map<string, number>();
+
+  /**
    * Settled results of the cheap-to-invalidate read methods, held until
    * {@link invalidateReadCache} drops them. Keys are
    * `${method}|${workspacePath}|${variant}`, so two workspace folders never
@@ -676,12 +722,48 @@ export class GitInfoService {
    * Nobody is waiting on this run — the watcher calls it — so a run it starts
    * spawns its git children at background OS priority. A `getGitInfo` caller
    * that joins such a run shares its priority.
+   *
+   * Skipped while the status-timeout backoff for `workspacePath` is open:
+   * after a timeout, an immediate retry only queues more git children behind
+   * the same stalled host, so this returns `statusUnavailable('timeout')`
+   * (the UI keeps the last good list) without spawning anything. The read
+   * caches are still invalidated — a change did happen — and the git watcher,
+   * the only background caller, asks {@link statusBackoffRemainingMs} to
+   * schedule its own follow-up push for when the window closes, so the
+   * skipped change is still broadcast then. A user-driven `getGitInfo` never
+   * skips, and a successful read closes the window.
    */
   refreshGitInfo(workspacePath: string): Promise<GitInfoResult> {
+    if (this.statusBackoffRemainingMs(workspacePath) > 0) {
+      this.logger.debug(
+        `[GitInfoService] skipping background refresh for ` +
+          `${workspacePath}: git status timed out within the last ` +
+          `${GIT_STATUS_TIMEOUT_BACKOFF_MS / 1000} s`,
+      );
+      // The read caches drop exactly as on the non-skipped path: a change did
+      // happen, and the watcher's follow-up push reads them fresh.
+      this.invalidateReadCache(workspacePath);
+      return Promise.resolve(statusUnavailable('timeout'));
+    }
     this.invalidateReadCache(workspacePath);
     return this.singleFlight(`info|${workspacePath}|`, workspacePath, () =>
       this.computeGitInfo(workspacePath, 'background'),
     );
+  }
+
+  /**
+   * How much longer the status-timeout backoff for `workspacePath` stays open,
+   * in ms; 0 when no backoff is open (or it has already expired).
+   *
+   * The git watcher asks this after a skipped refresh so IT can schedule the
+   * follow-up push for when the window closes: the follow-up belongs to the
+   * pusher, not to this service, because only the pusher can drain its
+   * causes and broadcast the fresh status to the renderer.
+   */
+  statusBackoffRemainingMs(workspacePath: string): number {
+    const backoffUntil = this.statusTimeoutBackoffUntil.get(workspacePath);
+    if (backoffUntil === undefined) return 0;
+    return Math.max(backoffUntil - gitInfoNowMs(), 0);
   }
 
   /** The newest invalidation counter that covers `workspacePath`. */
@@ -801,33 +883,41 @@ export class GitInfoService {
     );
   }
 
+  /**
+   * One status refresh: `git status` first, then the staged/worktree numstat
+   * reads and the operation markers, all under {@link GIT_STATUS_TIMEOUT_MS}.
+   *
+   * The status run doubles as the repository probe: git's own exit-128
+   * "not a git repository" refusal — the same classification
+   * {@link probeRepo} makes — needs no probe spawn of its own, so one
+   * refresh spawns one git child fewer. Anything else git could not answer
+   * (a timeout, a missing binary) is reported as unavailable, never as
+   * "not a repository".
+   */
   private async computeGitInfo(
     workspacePath: string,
     priority: ExecGitOptions['priority'] = 'normal',
   ): Promise<GitInfoResult> {
-    const probe = await this.probeRepo(workspacePath, priority);
-    if (probe.state === 'no') {
-      return {
-        isGitRepo: false,
-        branch: { branch: '', upstream: null, ahead: 0, behind: 0 },
-        files: [],
-      };
-    }
-    // Git could not say whether this is a repository (slow, missing, broken):
-    // report status as unavailable, never as "not a repository".
-    if (probe.state === 'unknown') {
-      this.logger.warn(
-        `[GitInfoService] repository probe for ${workspacePath} gave no answer (${probe.reason})`,
-      );
-      return statusUnavailable(probe.reason);
-    }
-
     try {
       const { stdout, stderr, exitCode } = await this.execGit(
         [...STATUS_ARGS],
         workspacePath,
-        { priority, maxOutputBytes: GIT_STATUS_MAX_OUTPUT_BYTES },
+        {
+          priority,
+          maxOutputBytes: GIT_STATUS_MAX_OUTPUT_BYTES,
+          timeoutMs: GIT_STATUS_TIMEOUT_MS,
+        },
       );
+
+      if (refusedAsNotARepository(exitCode, stderr)) {
+        // git answered definitively; any timeout backoff on this root is over.
+        this.statusTimeoutBackoffUntil.delete(workspacePath);
+        return {
+          isGitRepo: false,
+          branch: { branch: '', upstream: null, ahead: 0, behind: 0 },
+          files: [],
+        };
+      }
 
       if (exitCode !== 0) {
         this.logger.warn(
@@ -879,6 +969,8 @@ export class GitInfoService {
         }
       }
 
+      // git answered; any timeout backoff on this root is over.
+      this.statusTimeoutBackoffUntil.delete(workspacePath);
       return {
         isGitRepo: true,
         branch,
@@ -897,6 +989,16 @@ export class GitInfoService {
         );
         return statusUnavailable('output-too-large');
       }
+      const reason = unavailableReason(error);
+      if (reason === 'timeout') {
+        // Retrying this root right now would only queue more git children
+        // behind the same stalled host: skip watcher-driven refreshes of
+        // this root for the backoff window.
+        this.statusTimeoutBackoffUntil.set(
+          workspacePath,
+          gitInfoNowMs() + GIT_STATUS_TIMEOUT_BACKOFF_MS,
+        );
+      }
       // INLINE, not context. `Logger.error`'s console transport renders only
       // `context.error` (the slot for a real `Error` instance) and
       // `context.metadata`; a plain object passed as context is dropped whole.
@@ -909,7 +1011,7 @@ export class GitInfoService {
         `[GitInfoService] getGitInfo failed for ${workspacePath}: ${message}`,
         error instanceof Error ? error : undefined,
       );
-      return statusUnavailable(unavailableReason(error));
+      return statusUnavailable(reason);
     }
   }
 
@@ -3519,7 +3621,13 @@ export class GitInfoService {
     const args = ['diff'];
     if (staged) args.push('--cached');
     args.push('--numstat', '-z', '--find-renames', '--find-copies', '--');
-    const result = await this.execGit(args, workspacePath, { priority });
+    // Same budget as the status read it follows: both answer in well under a
+    // second unless the host itself is stalled, which is what the budget
+    // rides out.
+    const result = await this.execGit(args, workspacePath, {
+      priority,
+      timeoutMs: GIT_STATUS_TIMEOUT_MS,
+    });
     return result.exitCode === 0 ? this.parseNumstat(result.stdout) : new Map();
   }
 

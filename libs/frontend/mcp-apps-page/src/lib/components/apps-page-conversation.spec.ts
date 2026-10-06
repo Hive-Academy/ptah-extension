@@ -60,7 +60,7 @@ import {
   type ExecutionNode,
   type PermissionRequest,
 } from '@ptah-extension/shared';
-import type { SurfaceComponent } from '@ptah-extension/shared/mcp-apps-contracts/surface';
+import { SURFACE_CATALOG_VERSION, type SurfaceComponent } from '@ptah-extension/shared/mcp-apps-contracts/surface';
 import {
   APPS_RESET_KEPT_NOTICE,
   AppsSessionService,
@@ -123,7 +123,7 @@ const FORM = {
   contract: 'dashboard-spec/2',
   surface: {
     schemaVersion: 'dashboard-spec/2',
-    catalogVersion: 'dashboard-catalog/2',
+    catalogVersion: SURFACE_CATALOG_VERSION,
     surfaceId: 'form',
     title: { text: 'Profile' },
     components: [

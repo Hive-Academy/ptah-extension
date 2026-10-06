@@ -562,6 +562,38 @@ describe('PlanLimitLedgerService — proxy observers (F66-F68)', () => {
   const PROVIDER = 'opencode-go';
   const KEYED = quotaOwnerRefFromKey(credentialOwnerKey(PROVIDER, 'key-a'));
 
+  it('FU A5: drops sourceless unattributed proxy observations', () => {
+    const { ledger, logger, quotaStore } = harness();
+    quotaStore.recordRateLimit(PROVIDER, '120', T0, {
+      ownerKey: null,
+      statusCode: 429,
+    });
+    quotaStore.recordRateLimit(PROVIDER, '120', T0, {
+      ownerKey: 'invalid-owner-key',
+      statusCode: 429,
+    });
+    quotaStore.recordSuccess(
+      PROVIDER,
+      { ownerKey: null, statusCode: 200 },
+      T0 + 1,
+    );
+
+    expect(ledger.knownOwners()).toEqual([]);
+    expect(logger.debug).toHaveBeenCalledWith(
+      '[PlanLimitLedger] proxy observation unattributed',
+      { providerId: PROVIDER },
+    );
+
+    quotaStore.recordRateLimit(PROVIDER, '120', T0, {
+      ownerKey: null,
+      statusCode: 429,
+      sourceId: 'p1',
+    });
+    expect(
+      ledger.snapshotFor(unknownOwnerKey(PROVIDER, 'proxy:p1'))?.cooldown,
+    ).toBeDefined();
+  });
+
   it("F66: a 2xx with an owner clears only that owner's cooldown, never exhaustion", () => {
     const { ledger, quotaStore } = harness();
     quotaStore.recordRateLimit(PROVIDER, '120', T0, {

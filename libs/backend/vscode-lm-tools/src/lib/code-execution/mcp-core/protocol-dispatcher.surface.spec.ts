@@ -18,6 +18,7 @@ import { performance } from 'node:perf_hooks';
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { IStateStorage } from '@ptah-extension/platform-core';
 import type { SurfaceEnvelope } from '@ptah-extension/shared';
+import { SURFACE_CATALOG_VERSION } from '@ptah-extension/shared/mcp-apps-contracts/surface';
 import { SurfaceStateService } from '../../surface';
 import type { SurfacePushHostProvider } from '../../surface';
 import { buildSurfaceNamespace } from '../namespace-builders/surface-namespace.builder';
@@ -36,7 +37,7 @@ const SECRET = 'private-surface-value';
 function snapshot(value = SECRET): SurfaceEnvelope {
   return {
     schemaVersion: 'dashboard-spec/2',
-    catalogVersion: 'dashboard-catalog/2',
+    catalogVersion: SURFACE_CATALOG_VERSION,
     surfaceId: 'profile',
     title: { text: 'Profile' },
     components: [{ kind: 'text', id: 'name', label: 'Name', path: 'name' }],

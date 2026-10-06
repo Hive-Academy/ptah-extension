@@ -660,6 +660,13 @@ describe('SessionStatsSummaryComponent limits', () => {
     expect(pill.title).toBe(
       'Lane runs are counted separately from session totals',
     );
+    // The pill's face is just the count, so its accessible name states it.
+    // aria-label alone is ignored on a generic span (ARIA 1.2 names no
+    // generic element), so the pill carries a nameable role (review M3).
+    expect(pill.getAttribute('role')).toBe('img');
+    expect(pill.getAttribute('aria-label')).toBe(
+      '1 lane run, not in session totals',
+    );
     expect(
       pill.previousElementSibling?.querySelector('[data-testid="stats-cost"]'),
     ).not.toBeNull();

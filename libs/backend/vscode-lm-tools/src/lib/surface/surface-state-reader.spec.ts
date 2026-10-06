@@ -6,6 +6,7 @@ import type {
 } from '@ptah-extension/shared';
 import { jsonUtf8Bytes } from '@ptah-extension/platform-core';
 import {
+  SURFACE_CATALOG_VERSION,
   SURFACE_LIMITS,
   describeSurfaceSelection,
   validateSurfaceDocument,
@@ -67,7 +68,7 @@ function v2Content(
     contract: 'dashboard-spec/2',
     surface: {
       schemaVersion: 'dashboard-spec/2',
-      catalogVersion: 'dashboard-catalog/2',
+      catalogVersion: SURFACE_CATALOG_VERSION,
       surfaceId,
       title: { text: `Title of ${surfaceId}` },
       components,

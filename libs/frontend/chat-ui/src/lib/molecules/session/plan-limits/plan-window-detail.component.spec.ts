@@ -70,7 +70,7 @@ describe('PlanWindowDetailComponent', () => {
     expect(text).not.toMatch(/\b0%/);
   });
 
-  it('with showSummary false, hides the summary but keeps the facts and note', () => {
+  it('with showSummary false, keeps only the meter from the summary', () => {
     const root = render(NEAR_WINDOW, false);
     const text = detail(root)?.textContent ?? '';
 
@@ -79,8 +79,16 @@ describe('PlanWindowDetailComponent', () => {
     expect(text).not.toContain('94% used');
     expect(text).not.toContain('used · reset Provider API');
     expect(text).not.toContain('limit From error');
-    expect(root.querySelector('[role="meter"]')).toBeNull();
+    expect(root.querySelector('[role="meter"]')).not.toBeNull();
     expect(text).toContain('Resets today 15:10 UTC · in 3h 10m');
     expect(text).toContain('observed 10m ago');
+  });
+
+  it('with showSummary false and unknown usage, omits the meter and used text', () => {
+    const root = render(UNKNOWN_WINDOW, false);
+    const text = detail(root)?.textContent ?? '';
+
+    expect(root.querySelector('[role="meter"]')).toBeNull();
+    expect(text).not.toContain('Used: unknown');
   });
 });

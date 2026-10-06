@@ -61,3 +61,65 @@ any agent-supplied HTML or CSS.
 - Older `dashboard-spec/1` and `/2` specs still render.
 - The skill's catalog reference lists every kind in `SURFACE_COMPONENT_KINDS`.
 - `nx test` passes for `shared`, `declarative-dashboard`, `mcp-apps-page` and `vscode-lm-tools`.
+
+## User Decisions (2026-10-05) — corrections to the sections above
+
+Work starts after PR #649 (TASK_2026_610, ptah-ui blocks) merged into main (`186b1b25d`).
+Worktree `D:/projects/ptah-extension/.claude-worktrees/task-594-status-kinds`, branch `feat/task-594-status-kinds`.
+
+1. The `ptah-surface-authoring` skill ALREADY EXISTS (from TASK_2026_610) at
+   `apps/ptah-extension-vscode/assets/plugins/ptah-core/skills/ptah-surface-authoring/`
+   (`SKILL.md` + `references/ptah-ui.md`, registered in `content-manifest.json`). Do NOT create
+   `.claude/skills/ptah-surface-authoring/`. Extend the existing skill: add `references/catalog.md`
+   (one JSON example per kind) and a spec that fails when a kind in `SURFACE_COMPONENT_KINDS` is
+   missing from that reference. Regenerate `content-manifest.json` with `npm run manifest:generate`.
+2. This task is the single catalog bump: `SURFACE_CATALOG_VERSION` `'dashboard-catalog/2'` → `'/3'`
+   (`libs/shared/src/mcp-apps-contracts/surface-catalog.ts:11`, `surface.types.ts:124`,
+   declarative-dashboard `surface-view-model.ts:113`, test fixtures/harness). TASK_2026_610 depends on
+   `'/3'` existing and will NOT bump it again.
+3. Add the static text kind in the same bump (TASK_2026_610 decision L-10, see
+   `.ptah/specs/TASK_2026_610_6a10/implementation-plan.md` §14 "D1"): display kind `text-block`
+   `{ id, kind: 'text-block', text: RichText, role: 'heading' | 'body' }`, plain text per
+   `DASHBOARD_TEXT_FORMATS`, with schema, budget, text fallback, contract-spec cases (reject unknown
+   role, empty/over-length text, extra fields) and a renderer component.
+4. `alert` must render well as a short inline note: 610's ptah-ui `note` line will map to `alert`
+   (tone + text).
+5. Extra acceptance: `npm run gate:eager-closure` passes (declarative-dashboard is in the webview).
+6. Constraints: lanes never commit; commits end with
+   `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`; no bare `git stash`; nothing pushed to
+   main without the user.
+
+## CLI Lanes
+
+Mode: enabled (user named opencode, codex and glm, 2026-10-05).
+
+| Agent | Type | Status | Capabilities |
+| ----- | ---- | ------ | ------------ |
+| codex | cli | installed | messaging: queue |
+| opencode | cli | installed | messaging: none |
+| Glm | ptah-cli | available | provider: Ollama Cloud, ptahCliId: pc-355b645d-35af-4974-84cf-9cf961ea0164, messaging: queue |
+
+Roster (orchestrator assignment; the user named the lanes, not the phases):
+
+| Phase | Author | Independent review (cross-side) |
+| ----- | ------ | ------------------------------- |
+| Requirements `task-description.md` | codex lane | project-manager subagent |
+| Architecture `implementation-plan.md` | codex lane | software-architect subagent |
+| Implement batches | Glm and opencode lanes (file-disjoint) | code-logic-reviewer subagent (one per phase) |
+| Rendered evidence | — | visual-reviewer subagent (dark + light) |
+
+UI note: the new kinds are renderer components inside the existing surface renderer, not a new or
+redesigned screen. No designer/prototype phase. Completion needs dark + light screenshots of a spec
+that uses every new kind.
+
+## Gate 1 — Requirements (2026-10-05)
+
+User: APPROVED `task-description.md` revision 3 (reviewer verdict APPROVED, round 2 of 2). Open questions resolved with the recommendations:
+
+- Q1: `dashboard-spec/2` + `dashboard-catalog/2` envelopes are rejected after the bump (version-pair error).
+- Q2: badge `actions` are restricted to `dashboard.select`.
+- Q3: `progress` / `radial-progress` take a literal value only; data-model binding is deferred.
+
+## Gate 2 — Architecture (2026-10-05)
+
+User: APPROVED `implementation-plan.md` revision 3 (reviewer verdict APPROVED, round 2 of 2). User instruction: run through to an open PR without stopping (QA choice gate pre-answered: default QA — code-logic review, one fix round, visual review dark + light). Push only the feature branch; never merge to main.
