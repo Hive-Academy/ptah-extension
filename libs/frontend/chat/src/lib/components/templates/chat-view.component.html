@@ -96,6 +96,7 @@
                render it here directly until the first tab exists. -->
           <ptah-chat-empty-state
             class="absolute inset-0 flex items-center justify-center"
+            [showProjectSetup]="true"
             (promptSelected)="handlePromptSelected($event)"
           />
         }
