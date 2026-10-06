@@ -147,6 +147,7 @@ import {
   resolveOpencodeNativeBinary,
 } from './opencode-cli.adapter';
 import type { CliCommandOptions, SdkHandle } from './cli-adapter.interface';
+import { bestMessagingCapability } from './cli-adapter.interface';
 import type {
   AgentRoleDefinition,
   CliOutputSegment,
@@ -197,7 +198,7 @@ describe('OpencodeCliAdapter', () => {
       expect(result.installed).toBe(true);
       expect(result.path).toBe('/usr/local/bin/opencode');
       expect(result.version).toBe('opencode 0.4.2');
-      expect(result.messagingMode).toBe('none');
+      expect(result.messagingMode).toBe('queue');
     });
 
     it('reports NOT installed when resolveCliPath returns null', async () => {
@@ -872,6 +873,348 @@ describe('OpencodeCliAdapter', () => {
     });
   });
 
+  /**
+   * opencode 2.x `run --format json` forwards the session error object as is
+   * (`{ type, message, ... }`, no `data`), and sets `process.exitCode = 1` on
+   * every failed step without clearing it after a retry succeeds — read from
+   * the 2.0.12 bundle. Lanes whose session ended `succeeded` were reported as
+   * "opencode CLI exited with code 1" with no message.
+   */
+  describe('runSdk() — opencode 2.x errors and exit code', () => {
+    const baseOptions = { task: 'Do the thing', workingDirectory: '/proj' };
+    const V2_ERROR = {
+      type: 'error',
+      timestamp: 1,
+      sessionID: 'ses_2x',
+      error: {
+        type: 'provider.invalid-output',
+        message: 'OpenAI Chat stream ended without finish_reason',
+        status: 200,
+      },
+    };
+    const FINAL_STOP = {
+      type: 'step_finish',
+      sessionID: 'ses_2x',
+      part: { type: 'step-finish', reason: 'stop' },
+    };
+    const write = (event: object): void => {
+      currentChild?.stdout.write(JSON.stringify(event) + '\n');
+    };
+
+    it('surfaces the 2.x error message as an error segment', async () => {
+      const handle = await adapter.runSdk(baseOptions);
+      const { segments } = collect(handle);
+
+      write(V2_ERROR);
+      currentChild?.emitClose(1);
+      await handle.done;
+
+      expect(segments).toContainEqual({
+        type: 'error',
+        content: 'OpenAI Chat stream ended without finish_reason',
+      });
+    });
+
+    it('reports a recovered error followed by a final stop as success with a notice', async () => {
+      const handle = await adapter.runSdk(baseOptions);
+      const { segments } = collect(handle);
+
+      write(V2_ERROR);
+      write({ type: 'step_start', sessionID: 'ses_2x' });
+      write({
+        type: 'text',
+        sessionID: 'ses_2x',
+        part: { id: 'prt_1', type: 'text', text: 'done' },
+      });
+      write(FINAL_STOP);
+      currentChild?.emitClose(1);
+      const code = await handle.done;
+
+      expect(code).toBe(0);
+      expect(
+        segments.some(
+          (s) => s.content.includes('exited with code 1') && s.type === 'error',
+        ),
+      ).toBe(false);
+      const notice = segments.find(
+        (s) => s.type === 'info' && s.content.includes('recovered'),
+      );
+      expect(notice?.content).toContain(
+        'OpenAI Chat stream ended without finish_reason',
+      );
+    });
+
+    it('keeps a recovered error as a failure when error stderr arrives after the final stop', async () => {
+      const handle = await adapter.runSdk(baseOptions);
+      const { segments } = collect(handle);
+
+      write(V2_ERROR);
+      write(FINAL_STOP);
+      currentChild?.stderr.write('fatal: provider connection closed');
+      currentChild?.emitClose(1);
+
+      expect(await handle.done).toBe(1);
+      expect(segments).toContainEqual({
+        type: 'error',
+        content:
+          'opencode CLI exited with code 1 after error: OpenAI Chat stream ended without finish_reason; fatal: provider connection closed',
+      });
+    });
+
+    it('still recovers when only info stderr arrives after the final stop', async () => {
+      const handle = await adapter.runSdk(baseOptions);
+      const { segments } = collect(handle);
+
+      write(V2_ERROR);
+      write(FINAL_STOP);
+      currentChild?.stderr.write('warning: retry budget reset');
+      currentChild?.stderr.write('server logs available');
+      currentChild?.emitClose(1);
+
+      expect(await handle.done).toBe(0);
+      expect(
+        segments.some(
+          (s) => s.content.includes('exited with code 1') && s.type === 'error',
+        ),
+      ).toBe(false);
+    });
+
+    it('keeps an unrecovered error with exit 1 a failure, naming the error', async () => {
+      const handle = await adapter.runSdk(baseOptions);
+      const { segments } = collect(handle);
+
+      write(FINAL_STOP);
+      write(V2_ERROR);
+      currentChild?.emitClose(1);
+      const code = await handle.done;
+
+      expect(code).toBe(1);
+      expect(segments).toContainEqual({
+        type: 'error',
+        content:
+          'opencode CLI exited with code 1 after error: OpenAI Chat stream ended without finish_reason',
+      });
+    });
+
+    it('keeps a non-zero exit with a final stop but no error a failure', async () => {
+      const handle = await adapter.runSdk(baseOptions);
+      const { segments } = collect(handle);
+
+      write(FINAL_STOP);
+      currentChild?.emitClose(1);
+
+      expect(await handle.done).toBe(1);
+      expect(segments).toContainEqual({
+        type: 'error',
+        content: 'opencode CLI exited with code 1',
+      });
+    });
+
+    it('reads a top-level message when the error object carries none', async () => {
+      const handle = await adapter.runSdk(baseOptions);
+      const { segments } = collect(handle);
+
+      write({
+        type: 'error',
+        sessionID: 'ses_2x',
+        message: 'Top-level failure',
+      });
+      currentChild?.emitClose(1);
+      await handle.done;
+
+      expect(segments).toContainEqual({
+        type: 'error',
+        content: 'Top-level failure',
+      });
+    });
+  });
+
+  describe('continue() — queue-next-turn on the same session', () => {
+    const options: CliCommandOptions = {
+      task: 'Do the thing',
+      workingDirectory: '/proj',
+      model: 'opencode-go/glm-5.3',
+      mcpPort: 51820,
+    };
+
+    /** Run the first turn to completion, reporting `sessionId` if given. */
+    async function finishedFirstTurn(
+      sessionId: string | undefined,
+      overrides: Partial<CliCommandOptions> = {},
+    ): Promise<{ handle: SdkHandle; segments: CliOutputSegment[] }> {
+      const handle = await adapter.runSdk({ ...options, ...overrides });
+      const { segments } = collect(handle);
+      if (sessionId) {
+        currentChild?.stdout.write(
+          JSON.stringify({ type: 'step_start', sessionID: sessionId }) + '\n',
+        );
+      }
+      currentChild?.emitClose(0);
+      await handle.done;
+      return { handle, segments };
+    }
+
+    function spawnCall(index: number): {
+      args: string[];
+      spawnOptions: {
+        cwd?: string;
+        env?: NodeJS.ProcessEnv;
+        detached?: boolean;
+      };
+    } {
+      const [, args, spawnOptions] = mockSpawnCli.mock.calls[index] as [
+        string,
+        string[],
+        { cwd?: string; env?: NodeJS.ProcessEnv; detached?: boolean },
+      ];
+      return { args, spawnOptions };
+    }
+
+    it('spawns run --session <captured id> with the same flags, env and cwd', async () => {
+      const { handle } = await finishedFirstTurn('ses_abc');
+      expect(handle.supportsContinuation?.()).toBe(true);
+
+      const outcome = await handle.continue?.('Also fix the tests');
+      currentChild?.emitClose(0);
+      expect(await outcome?.done).toBe(0);
+
+      expect(mockSpawnCli).toHaveBeenCalledTimes(2);
+      const first = spawnCall(0);
+      const second = spawnCall(1);
+      expect(second.args).toEqual([
+        ...first.args.slice(0, -1),
+        '--session',
+        'ses_abc',
+        'Also fix the tests',
+      ]);
+      expect(second.args).toEqual(
+        expect.arrayContaining(['--auto', '--standalone', '--model']),
+      );
+      expect(second.spawnOptions.cwd).toBe('/proj');
+      expect(second.spawnOptions.detached).toBe(true);
+      expect(second.spawnOptions.env?.['OPENCODE_CONFIG_CONTENT']).toBe(
+        first.spawnOptions.env?.['OPENCODE_CONFIG_CONTENT'],
+      );
+      expect(second.spawnOptions.env?.['OPENCODE_CONFIG_CONTENT']).toBeTruthy();
+    });
+
+    it('streams the continued turn into the same emitters', async () => {
+      const { handle, segments } = await finishedFirstTurn('ses_abc');
+
+      const outcome = await handle.continue?.('Next');
+      currentChild?.stdout.write(
+        JSON.stringify({
+          type: 'text',
+          sessionID: 'ses_abc',
+          part: { id: 'prt_9', type: 'text', text: 'second turn' },
+        }) + '\n',
+      );
+      currentChild?.emitClose(0);
+      await outcome?.done;
+
+      expect(segments).toContainEqual({ type: 'text', content: 'second turn' });
+      expect(handle.getSessionId?.()).toBe('ses_abc');
+    });
+
+    it('continues the resumed session when the first turn reported no id', async () => {
+      const { handle } = await finishedFirstTurn(undefined, {
+        resumeSessionId: 'ses_resumed',
+      });
+
+      const outcome = await handle.continue?.('Next');
+      currentChild?.emitClose(0);
+      await outcome?.done;
+
+      const { args } = spawnCall(1);
+      expect(args.slice(-3)).toEqual(['--session', 'ses_resumed', 'Next']);
+    });
+
+    it('refuses with a reason and spawns nothing when no session id is known', async () => {
+      const { handle } = await finishedFirstTurn(undefined);
+
+      expect(handle.supportsContinuation?.()).toBe(false);
+      await expect(handle.continue?.('Next')).rejects.toThrow(
+        /no session to continue/,
+      );
+      expect(mockSpawnCli).toHaveBeenCalledTimes(1);
+    });
+
+    it('tree-kills a continued turn on abort and resolves 1', async () => {
+      const { handle } = await finishedFirstTurn('ses_abc');
+      const outcome = await handle.continue?.('Next');
+      const continuedChild = currentChild;
+
+      handle.abort.abort();
+      continuedChild?.emitClose(null, 'SIGTERM');
+
+      expect(await outcome?.done).toBe(1);
+      expect(mockKillProcessTree).toHaveBeenCalledWith(FAKE_PID);
+    });
+
+    /**
+     * The manager tree-kills whatever `getPid()` returns on stop/release. An
+     * exited child's PID can belong to an unrelated process by then.
+     */
+    it('exposes a PID only while a turn child is live', async () => {
+      const handle = await adapter.runSdk(options);
+      collect(handle);
+      expect(handle.getPid?.()).toBe(FAKE_PID);
+      currentChild?.stdout.write(
+        JSON.stringify({ type: 'step_start', sessionID: 'ses_abc' }) + '\n',
+      );
+      currentChild?.emitClose(0);
+      await handle.done;
+      expect(handle.getPid?.()).toBeUndefined();
+
+      const outcome = await handle.continue?.('Next');
+      const continuedChild = currentChild;
+      if (continuedChild) {
+        continuedChild.child.pid = 5151;
+      }
+      expect(handle.getPid?.()).toBe(5151);
+
+      continuedChild?.emitClose(0);
+      await outcome?.done;
+      expect(handle.getPid?.()).toBeUndefined();
+    });
+
+    it('clears the PID when the turn child fails to start', async () => {
+      const handle = await adapter.runSdk(options);
+      collect(handle);
+      currentChild?.emitError(new Error('spawn ENOENT'));
+
+      expect(await handle.done).toBe(1);
+      expect(handle.getPid?.()).toBeUndefined();
+    });
+
+    /**
+     * Without this the manager stores no `cliSessionId` for a resumed lane
+     * whose stream carries no `sessionID`, and release reports `<unknown>`.
+     */
+    it('reports the resumed session id before any output and after a silent turn', async () => {
+      const handle = await adapter.runSdk({
+        ...options,
+        resumeSessionId: 'ses_resumed',
+      });
+      collect(handle);
+      expect(handle.getSessionId?.()).toBe('ses_resumed');
+
+      currentChild?.emitClose(0);
+      await handle.done;
+      expect(handle.getSessionId?.()).toBe('ses_resumed');
+    });
+
+    it('spawns nothing for a continue after the handle was aborted', async () => {
+      const { handle } = await finishedFirstTurn('ses_abc');
+      handle.abort.abort();
+
+      const outcome = await handle.continue?.('Next');
+
+      expect(await outcome?.done).toBe(1);
+      expect(mockSpawnCli).toHaveBeenCalledTimes(1);
+    });
+  });
+
   describe('runSdk() — MCP config', () => {
     /** Read the env passed to spawnCli's options (3rd positional arg). */
     function spawnEnv(): NodeJS.ProcessEnv | undefined {
@@ -1110,12 +1453,13 @@ describe('OpencodeCliAdapter', () => {
   });
 
   describe('capabilities() / parseOutput() / supportsMcp', () => {
-    it('reports no messaging capability and supportsMcp true', () => {
+    it('reports continuation (queue) only, and supportsMcp true', () => {
       expect(adapter.capabilities()).toEqual({
         steer: false,
         interrupt: false,
-        continuation: false,
+        continuation: true,
       });
+      expect(bestMessagingCapability(adapter.capabilities())).toBe('queue');
       expect(adapter.supportsMcp).toBe(true);
     });
 

@@ -29,6 +29,16 @@
  *   `step_finish`, `error`. `tool_use` lines arrive already completed
  *   (`state.status === "completed"`), so each is emitted as call + result in one
  *   shot; `tool: "bash"` becomes a `command` segment with an exit code.
+ * - **Exit 1 does not mean the turn failed (2.x).** In the 2.0.12 bundle the
+ *   `run` command sets `process.exitCode = 1` on every `session.step.failed`
+ *   and never clears it, while `session.execution.succeeded` just returns. A
+ *   provider error that opencode retried past (seen: `provider.invalid-output`,
+ *   "stream ended without finish_reason") therefore exits 1 after a finished
+ *   turn. A non-zero exit whose last `error` event is followed by a final
+ *   `step_finish` (`reason: "stop"`) is reported as success with an `info`
+ *   segment naming the recovered error; anything else stays a failure.
+ * - Messaging is queue-next-turn: `continue(message)` spawns another
+ *   `run --session <id>` with the same flags and env once the turn has ended.
  * - MCP is configured per-process via the `OPENCODE_CONFIG_CONTENT` env var:
  *   an inline JSON string carrying the `mcp.ptah` remote entry, passed to the
  *   child at spawn time. It only reaches the session when that process runs the
@@ -59,6 +69,7 @@ import type {
   CliAdapter,
   CliCommandOptions,
   CliModelInfo,
+  ContinuationOutcome,
   SdkHandle,
 } from './cli-adapter.interface';
 import { bestMessagingCapability } from './cli-adapter.interface';
@@ -128,16 +139,66 @@ interface OpencodePart {
   };
 }
 
-/** A single line of `opencode run --format json` output. */
+/**
+ * A single line of `opencode run --format json` output.
+ *
+ * The `error` payload has two shapes. 1.x sends `{ name, data: { message } }`.
+ * 2.x forwards the session's error object as is — `{ type, message, ... }`,
+ * e.g. `{"type":"provider.invalid-output","message":"OpenAI Chat stream ended
+ * without finish_reason","status":200}` — and its own CLI failures as
+ * `{ type: "unknown", message }` (read from the 2.0.12 bundle).
+ */
 interface OpencodeEvent {
   readonly type?: string;
   readonly sessionID?: string;
   readonly timestamp?: number;
   readonly part?: OpencodePart;
+  readonly message?: string;
   readonly error?: {
     readonly name?: string;
+    readonly type?: string;
+    readonly message?: string;
     readonly data?: { readonly message?: string; readonly statusCode?: number };
   };
+}
+
+/** Parse state for one `opencode run` turn, read again when the child exits. */
+interface OpencodeTurnState {
+  /** Last-seen full text per `part.id`, so repeated `text` lines emit deltas. */
+  readonly textTracker: Map<string, string>;
+  /** Message of the most recent `error` event in this turn. */
+  lastErrorMessage?: string;
+  /** A final `step_finish` (`reason: "stop"`) arrived after that error. */
+  stoppedAfterLastError: boolean;
+  /** Error-classified stderr received after that final `step_finish`. */
+  stderrErrorAfterStop?: string;
+}
+
+/** Everything one `opencode run` spawn needs; see `runTurn`. */
+interface OpencodeTurnLaunch {
+  readonly command: string;
+  readonly args: string[];
+  readonly workingDirectory: string;
+  readonly env: NodeJS.ProcessEnv;
+  readonly signal: AbortSignal;
+  readonly emitOutput: (data: string) => void;
+  readonly emitSegment: (segment: CliOutputSegment) => void;
+  readonly onSpawned: (child: ReturnType<typeof spawnCli>) => void;
+  /** The child closed or failed to start; its PID must no longer be used. */
+  readonly onExited: (child: ReturnType<typeof spawnCli>) => void;
+  readonly onSessionId: (sessionId: string) => void;
+}
+
+/** The readable message of an `error` event, whichever shape it has. */
+function describeOpencodeError(event: OpencodeEvent): string {
+  return (
+    event.error?.message ??
+    event.error?.data?.message ??
+    event.message ??
+    event.error?.name ??
+    event.error?.type ??
+    'Unknown error'
+  );
 }
 
 /** Resolves a module request to its on-disk path (`require.resolve`). */
@@ -282,12 +343,13 @@ export class OpencodeCliAdapter implements CliAdapter {
   }
 
   /**
-   * One-shot `opencode run` per turn with stdin closed immediately, and the
-   * handle carries no `continue`: there is no server session to address between
-   * turns. Nothing can be delivered.
+   * One-shot `opencode run` per turn with stdin closed immediately, so nothing
+   * reaches a turn in flight. A message is delivered as the NEXT turn instead:
+   * the handle's `continue` spawns `run --session <id>` on the same session
+   * (the router queues it until the current turn ends).
    */
   capabilities(): AgentMessagingCapabilities {
-    return { steer: false, interrupt: false, continuation: false };
+    return { steer: false, interrupt: false, continuation: true };
   }
 
   parseOutput(raw: string): string {
@@ -546,18 +608,21 @@ export class OpencodeCliAdapter implements CliAdapter {
   /**
    * Run the task via `opencode run --format json`.
    *
-   * Spawns opencode with the prompt as a trailing positional arg, buffers stdout
-   * by line, JSON.parses each line defensively, and dispatches to structured
-   * `CliOutputSegment`s. The session id is captured from the first parseable
-   * event. stderr and non-zero exit surface as `error` segments.
+   * Spawns opencode with the prompt as a trailing positional arg (see
+   * `runTurn` for the stream handling). The returned handle can `continue` the
+   * same opencode session with a further `run --session <id>` turn, built from
+   * the same flags, env and binary as the first one.
+   *
+   * No session id yet (no event parsed and none to resume): there is nothing
+   * to address, so `supportsContinuation()` answers false — the router then
+   * refuses the message with its reason — and `continue` rejects rather than
+   * starting a fresh session that would lose the conversation (as Pi does).
    */
   async runSdk(options: CliCommandOptions): Promise<SdkHandle> {
     const taskPrompt = buildTaskPrompt(options, this.name);
     const abortController = new AbortController();
     let capturedSessionId: string | undefined;
-    // Tracks last-seen full text per part.id so repeated `text` lines emit only
-    // the newly-appended delta (mirrors Codex's emitTextDelta).
-    const textTracker = new Map<string, string>();
+    let activeChild: ReturnType<typeof spawnCli> | undefined;
 
     // Primary: detected binary path (the `.cmd` shim on Windows). We always
     // attempt native-binary resolution (passing the detected path as a hint) and
@@ -571,24 +636,20 @@ export class OpencodeCliAdapter implements CliAdapter {
       binary = native;
     }
 
-    const args: string[] = ['run', '--format', 'json'];
+    // Flags shared by the first turn and every `continue()` turn.
+    const baseArgs: string[] = ['run', '--format', 'json'];
     if (options.autoApprove !== false) {
-      args.push('--auto');
+      baseArgs.push('--auto');
     }
     if (options.model) {
-      args.push('--model', options.model);
+      baseArgs.push('--model', options.model);
     }
     const standalone = await this.supportsStandalone(binary);
     if (standalone) {
-      args.push('--standalone');
+      baseArgs.push('--standalone');
     }
-    // No working-directory flag: `opencode run` takes it from the spawn's cwd,
-    // which is set below. See the note at the top of this file.
-    if (options.resumeSessionId) {
-      args.push('--session', options.resumeSessionId);
-    }
-    // Prompt is a positional arg; keep it LAST.
-    args.push(taskPrompt);
+    // No working-directory flag: `opencode run` takes it from the spawn's cwd.
+    // See the note at the top of this file.
 
     const output = createBufferedEmitter<string>();
     const segment = createBufferedEmitter<CliOutputSegment>();
@@ -616,16 +677,96 @@ export class OpencodeCliAdapter implements CliAdapter {
     // process taskkill /T should walk from (not the cmd.exe shim). No-op
     // off-Windows / for a resolved `.exe`.
     const spawnDescriptor = await resolveDirectSpawn(binary);
-    const child = spawnCli(
-      spawnDescriptor.command,
-      [...spawnDescriptor.prefixArgs, ...args],
-      {
-        cwd: options.workingDirectory,
+
+    const startTurn = (
+      prompt: string,
+      sessionId: string | undefined,
+    ): Promise<number> => {
+      const args = [...spawnDescriptor.prefixArgs, ...baseArgs];
+      if (sessionId) {
+        args.push('--session', sessionId);
+      }
+      // Prompt is a positional arg; keep it LAST.
+      args.push(prompt);
+      return this.runTurn({
+        command: spawnDescriptor.command,
+        args,
+        workingDirectory: options.workingDirectory,
         env,
-        detached: true,
-        spawner: this.spawner,
+        signal: abortController.signal,
+        emitOutput: output.emit,
+        emitSegment: segment.emit,
+        onSpawned: (child) => {
+          activeChild = child;
+        },
+        onExited: (child) => {
+          // An exited PID can be reused by an unrelated process; the
+          // manager tree-kills whatever `getPid()` returns on stop/release.
+          // Only the newest turn's child clears the slot.
+          if (activeChild === child) {
+            activeChild = undefined;
+          }
+        },
+        onSessionId: (reported) => {
+          if (!capturedSessionId) {
+            capturedSessionId = reported;
+          }
+        },
+      });
+    };
+
+    const resumableSessionId = (): string | undefined =>
+      capturedSessionId ?? options.resumeSessionId;
+
+    const done = startTurn(taskPrompt, options.resumeSessionId);
+
+    return {
+      abort: abortController,
+      done,
+      onOutput: output.subscribe,
+      onSegment: segment.subscribe,
+      // The resumed id counts before (or without) any reported `sessionID`,
+      // so the manager can still record which session the lane ran on.
+      getSessionId: resumableSessionId,
+      getPid: () => activeChild?.pid,
+      supportsContinuation: () => resumableSessionId() !== undefined,
+      continue: (message: string): Promise<ContinuationOutcome> => {
+        const sessionId = resumableSessionId();
+        if (!sessionId) {
+          return Promise.reject(
+            new Error(
+              'opencode has not reported a session id yet, so there is no ' +
+                'session to continue. The message was not delivered.',
+            ),
+          );
+        }
+        // The session already holds the task and its context; the message is
+        // the whole prompt of the new turn.
+        return Promise.resolve({ done: startTurn(message, sessionId) });
       },
-    );
+    };
+  }
+
+  /**
+   * Spawn one `opencode run` turn and stream it into the handle's emitters.
+   *
+   * stdout is buffered by line and each line JSON.parsed defensively; stderr
+   * surfaces as classified segments. The child is tree-killed when the handle
+   * aborts (and never spawned if it already has). Resolves the turn's exit
+   * code, with a recovered error mapped to 0 — see `settleExitCode`.
+   */
+  private runTurn(launch: OpencodeTurnLaunch): Promise<number> {
+    if (launch.signal.aborted) {
+      return Promise.resolve(1);
+    }
+    const { emitOutput, emitSegment, signal } = launch;
+    const child = spawnCli(launch.command, launch.args, {
+      cwd: launch.workingDirectory,
+      env: launch.env,
+      detached: true,
+      spawner: this.spawner,
+    });
+    launch.onSpawned(child);
     child.stdout?.setEncoding('utf8');
     child.stderr?.setEncoding('utf8');
     // Prompt is passed via argv; nothing is written to stdin.
@@ -644,13 +785,18 @@ export class OpencodeCliAdapter implements CliAdapter {
         }
       });
     };
-    abortController.signal.addEventListener('abort', onAbort);
+    signal.addEventListener('abort', onAbort);
 
-    const setSessionId = (event: OpencodeEvent): void => {
-      if (!capturedSessionId && event.sessionID) {
-        capturedSessionId = event.sessionID;
-      }
+    const state: OpencodeTurnState = {
+      textTracker: new Map<string, string>(),
+      stoppedAfterLastError: false,
     };
+    const parseLine = (line: string): void =>
+      this.handleLine(line, emitOutput, emitSegment, state, (event) => {
+        if (event.sessionID) {
+          launch.onSessionId(event.sessionID);
+        }
+      });
 
     let lineBuf = '';
     child.stdout?.on('data', (data: string) => {
@@ -659,72 +805,95 @@ export class OpencodeCliAdapter implements CliAdapter {
       lineBuf = lines.pop() ?? '';
       const LINE_BUF_CAP = 1024 * 1024;
       if (lineBuf.length > LINE_BUF_CAP) {
-        segment.emit({
+        emitSegment({
           type: 'info',
           content: `Line buffer exceeded ${LINE_BUF_CAP} bytes without a newline; resetting.`,
         });
         lineBuf = '';
       }
       for (const line of lines) {
-        this.handleLine(
-          line,
-          output.emit,
-          segment.emit,
-          textTracker,
-          setSessionId,
-        );
+        parseLine(line);
       }
     });
 
     child.stderr?.on('data', (data: string) => {
       const cleaned = stripAnsiCodes(data).trim();
       if (!cleaned) return;
-      output.emit(`[stderr] ${cleaned}\n`);
-      segment.emit({ type: classifyCliStderr(cleaned), content: cleaned });
+      const severity = classifyCliStderr(cleaned);
+      if (severity === 'error' && state.stoppedAfterLastError) {
+        state.stderrErrorAfterStop = cleaned;
+      }
+      emitOutput(`[stderr] ${cleaned}\n`);
+      emitSegment({ type: severity, content: cleaned });
     });
 
-    const done = new Promise<number>((resolve) => {
-      child.on('close', (code, signal) => {
-        abortController.signal.removeEventListener('abort', onAbort);
+    return new Promise<number>((resolve) => {
+      child.on('close', (code, exitSignal) => {
+        signal.removeEventListener('abort', onAbort);
+        launch.onExited(child);
         if (lineBuf.trim()) {
-          this.handleLine(
-            lineBuf,
-            output.emit,
-            segment.emit,
-            textTracker,
-            setSessionId,
-          );
+          parseLine(lineBuf);
           lineBuf = '';
         }
-        const exitCode = code ?? (signal ? 1 : 0);
-        if (exitCode !== 0 && !abortController.signal.aborted) {
-          segment.emit({
-            type: 'error',
-            content: `opencode CLI exited with code ${exitCode}`,
-          });
-        }
-        resolve(exitCode);
+        const exitCode = code ?? (exitSignal ? 1 : 0);
+        resolve(this.settleExitCode(exitCode, state, signal.aborted, launch));
       });
 
       child.on('error', (err) => {
-        abortController.signal.removeEventListener('abort', onAbort);
-        output.emit(`\n[opencode CLI Error] ${err.message}\n`);
-        segment.emit({
+        signal.removeEventListener('abort', onAbort);
+        launch.onExited(child);
+        emitOutput(`\n[opencode CLI Error] ${err.message}\n`);
+        emitSegment({
           type: 'error',
           content: `opencode CLI Error: ${err.message}`,
         });
         resolve(1);
       });
     });
+  }
 
-    return {
-      abort: abortController,
-      done,
-      onOutput: output.subscribe,
-      onSegment: segment.subscribe,
-      getSessionId: () => capturedSessionId,
-      getPid: () => child.pid,
-    };
+  /**
+   * Turn a finished child's exit code into the turn's outcome.
+   *
+   * opencode 2.x exits 1 after ANY failed step, including one it retried past
+   * (see the header). When the last `error` event was followed by a final
+   * `step_finish` with `reason: "stop"`, the turn completed: report 0 and name
+   * the recovered error. A non-zero exit without that stays a failure and
+   * carries the last error's message. An aborted turn keeps its code silently.
+   */
+  private settleExitCode(
+    exitCode: number,
+    state: OpencodeTurnState,
+    aborted: boolean,
+    launch: Pick<OpencodeTurnLaunch, 'emitOutput' | 'emitSegment'>,
+  ): number {
+    if (exitCode === 0 || aborted) {
+      return exitCode;
+    }
+    if (
+      state.lastErrorMessage !== undefined &&
+      state.stoppedAfterLastError &&
+      state.stderrErrorAfterStop === undefined
+    ) {
+      const notice =
+        `opencode recovered from an error and finished the turn, but exited ` +
+        `with code ${exitCode}; the turn is treated as complete. Recovered ` +
+        `error: ${state.lastErrorMessage}`;
+      launch.emitOutput(`[Warning] ${notice}\n`);
+      launch.emitSegment({ type: 'info', content: notice });
+      return 0;
+    }
+    const errorMessages = [
+      state.lastErrorMessage,
+      state.stderrErrorAfterStop,
+    ].filter((message): message is string => message !== undefined);
+    const cause =
+      errorMessages.length > 0 ? ` after error: ${errorMessages.join('; ')}` : '';
+    launch.emitSegment({
+      type: 'error',
+      content: `opencode CLI exited with code ${exitCode}${cause}`,
+    });
+    return exitCode;
   }
 
   /**
@@ -736,7 +905,7 @@ export class OpencodeCliAdapter implements CliAdapter {
     line: string,
     emitOutput: (data: string) => void,
     emitSegment: (segment: CliOutputSegment) => void,
-    textTracker: Map<string, string>,
+    turn: OpencodeTurnState,
     setSessionId: (event: OpencodeEvent) => void,
   ): void {
     const trimmed = line.trim();
@@ -760,17 +929,21 @@ export class OpencodeCliAdapter implements CliAdapter {
         // Structural marker only — no segment.
         break;
       case 'text':
-        this.handleTextEvent(event, emitOutput, emitSegment, textTracker);
+        this.handleTextEvent(event, emitOutput, emitSegment, turn.textTracker);
         break;
       case 'tool_use':
         this.handleToolUse(event, emitOutput, emitSegment);
         break;
       case 'step_finish':
+        if (event.part?.reason === 'stop') {
+          turn.stoppedAfterLastError = true;
+        }
         this.handleStepFinish(event, emitOutput, emitSegment);
         break;
       case 'error': {
-        const message =
-          event.error?.data?.message ?? event.error?.name ?? 'Unknown error';
+        const message = describeOpencodeError(event);
+        turn.lastErrorMessage = message;
+        turn.stoppedAfterLastError = false;
         emitOutput(`[Error] ${message}\n`);
         emitSegment({ type: 'error', content: message });
         break;
