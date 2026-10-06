@@ -1,4 +1,16 @@
 {
   "schemaVersion": 1,
-  "files": {}
+  "files": {
+    "planted-negatives.v1/index.json": "b61e7f52927aedf9d6639b7b566213665b277280db976158c0f14390cbd0fadc",
+    "planted-negatives.v1/pn-01.md": "63358168c187ab8e86908c68a059d2c61bef4cd890d5920332ba6035ad7648da",
+    "planted-negatives.v1/pn-02.md": "f870f7baee3ea3876e82ccedd95cba16fd7b66d0fc0395bf1c489cc10bbda252",
+    "planted-negatives.v1/pn-03.md": "1904708d750f28c10d6007b8c0ed4948986d1d15272cdb737cf648a39a777b03",
+    "planted-negatives.v1/pn-04.md": "ca2e8cef1b288da5e26f54a59879b10896fb8ef90c4c100b6c8955674358404a",
+    "planted-negatives.v1/pn-05.md": "8c2e86f758a37c2efb9a313c86e774ccb02d32a146db8ed782e13116293d3dfa",
+    "planted-negatives.v1/pn-06.md": "2d44ef1b1f9428774ddb32d9242228558370f9f53886dcf88e9fe369c7665b49",
+    "planted-negatives.v1/pn-07.md": "8d0ce86e29b2d012ac384229dc3d679963969a78638ee442596529938d4baebd",
+    "planted-negatives.v1/pn-08.md": "cdbe433bc062553b19d874e8ecdacc8f1f1d869378e0a19c7108976d8cdf6a9f",
+    "planted-negatives.v1/pn-09.md": "f76f82694bb0148655fb542ab17248ad71e4eede46231c159383f1464935b011",
+    "planted-negatives.v1/pn-10.md": "61d8cf258ca63bff87f78f3b8b9bad0b8fc24b1ed9967a2877aef29d92fd0892"
+  }
 }
