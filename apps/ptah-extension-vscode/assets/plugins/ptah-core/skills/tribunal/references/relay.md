@@ -15,5 +15,8 @@ Mapping a Tribunal UI launch onto it:
 | `[tribunal:<laneId>]` | Keep as the literal first line of that lane's task |
 
 The review lane must not be the implement lane. You own every gate: Gate 1 after the plan, Gate 2
-after the architecture, before relaying the next phase. An approving cross-side review passes the gate
-when lanes are installed and enabled; otherwise the user approves (orchestration `checkpoints.md` § Approval mode).
+after the architecture, before relaying the next phase. The recorded approval mode decides each gate
+(orchestration `checkpoints.md` § Approval mode): with `Approval: lane-review` and no escalation, an
+approving cross-side review passes it. With `Approval: user`, or when an escalation applies (REVISE
+after the cap, a review that is not cross-side, a proposed removal or a ban of an existing project
+component, user feedback), the user approves.
