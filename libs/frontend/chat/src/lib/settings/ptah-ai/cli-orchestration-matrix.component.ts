@@ -220,7 +220,7 @@ const SAVE_SCOPE = 'global';
         >
           <thead>
             <tr
-              class="text-[11px] uppercase tracking-wide text-base-content-muted"
+              class="cli-head text-[11px] uppercase tracking-wide text-base-content-muted"
             >
               <th class="w-10">On</th>
               <th>Agent / Instance</th>
@@ -271,6 +271,7 @@ const SAVE_SCOPE = 'global';
                 track row.id
               ) {
                 <tr
+                  class="cli-row"
                   [attr.data-testid]="'cli-matrix-row-' + row.id"
                   [attr.data-kind]="row.kind"
                   [class.bg-primary/5]="
@@ -348,7 +349,7 @@ const SAVE_SCOPE = 'global';
                     </div>
                     @if (row.kind === 'instance') {
                       <div
-                        class="mt-0.5 flex flex-wrap items-center gap-1"
+                        class="cli-instance-subline mt-0.5 flex flex-wrap items-center gap-1"
                         data-testid="cli-matrix-instance-subline"
                       >
                         <span
@@ -948,6 +949,19 @@ const SAVE_SCOPE = 'global';
       }
       .cli-narrow-only {
         display: inline-flex;
+      }
+      /* Electron fold with six installed rows (TASK_2026_617): 2 px instead of table-xs's 4 px above and below each
+         header and row cell. Every control keeps its size. */
+      .cli-head > th,
+      .cli-row > td {
+        padding-block: 0.125rem;
+      }
+    }
+    /* The instance's key and tier badges on one line only where the box is wide enough (Electron's page beside the
+       sidebar); below 36rem they wrap again, so longer badge text never widens the table. */
+    @container (min-width: 36rem) and (max-width: 47.99rem) {
+      .cli-instance-subline {
+        flex-wrap: nowrap;
       }
     }
   `,
