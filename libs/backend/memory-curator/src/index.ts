@@ -110,6 +110,14 @@ export {
   CURATOR_TRANSCRIPT_MAX_CHARS,
 } from './lib/curator-llm/clamp-transcript';
 export type { ClampedTranscript } from './lib/curator-llm/clamp-transcript';
+export {
+  planCuratorWindows,
+  CURATOR_MAX_WINDOWS,
+} from './lib/curator-llm/transcript-windows';
+export type {
+  CuratorWindow,
+  CuratorWindowPlan,
+} from './lib/curator-llm/transcript-windows';
 export { EmbedderWorkerClient } from './lib/embedder/embedder-worker-client';
 export type {
   Disposable,
