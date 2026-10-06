@@ -10,113 +10,28 @@
  * The host reports the home it actually sees on its ready line, and the
  * launcher rejects the run when that is not the temp home.
  *
- * Guard: before the spawn and after the child is gone, the real
- * `<os.homedir()>/.ptah/state/ptah.sqlite` and its `-wal` are stat-ed and
- * SHA-256 hashed (opened read-only). Any change fails the run. The guard
- * cannot tell writers apart: a desktop Ptah running at the same time also
- * changes these files, and the run then fails closed rather than certify an
- * isolation it cannot prove.
+ * Guard: `real-state-guard.ts` picks `hash` (no concurrent writer of the real
+ * database: hash it before and after) or `process-watch` (a desktop Ptah is
+ * writing it: watch the host's process tree for handles under the real
+ * `~/.ptah` instead) before the spawn, and gives its verdict once the child is
+ * gone. The chosen mode is on {@link LaunchedHost.guardMode} and in the stop
+ * report. The isolation above applies unchanged in both modes.
  */
 
 import { spawn, type ChildProcess } from 'node:child_process';
-import { createHash } from 'node:crypto';
-import { createReadStream } from 'node:fs';
 import { mkdir, mkdtemp, rm, stat } from 'node:fs/promises';
-import { homedir, tmpdir } from 'node:os';
+import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 import { killProcessTree } from '@ptah-extension/platform-core';
 
 import { McpHttpClient, workspaceBaseUrl } from './mcp-client';
-
-/** One guarded file, as seen at one moment. */
-export interface GuardedFileState {
-  readonly path: string;
-  readonly exists: boolean;
-  readonly size: number | null;
-  readonly mtimeMs: number | null;
-  readonly sha256: string | null;
-}
-
-export interface RealStateSnapshot {
-  readonly takenAt: string;
-  readonly files: readonly GuardedFileState[];
-}
-
-/** Thrown when the user's real database changed across a bench run. */
-export class RealStateChangedError extends Error {
-  constructor(
-    readonly before: RealStateSnapshot,
-    readonly after: RealStateSnapshot,
-    readonly changed: readonly string[],
-  ) {
-    super(
-      `The real Ptah database changed during the bench run (${changed.join(', ')}). ` +
-        'Isolation is not proven: if a desktop Ptah or VS Code host was running, close it and re-run.',
-    );
-    this.name = 'RealStateChangedError';
-  }
-}
-
-/** The files the guard watches under a home directory. */
-export function guardedStatePaths(home: string): string[] {
-  const db = join(home, '.ptah', 'state', 'ptah.sqlite');
-  return [db, `${db}-wal`];
-}
-
-/** Stat and hash each guarded file. Read-only; a missing file is a state too. */
-export async function snapshotRealState(
-  home: string = homedir(),
-): Promise<RealStateSnapshot> {
-  const files = await Promise.all(
-    guardedStatePaths(home).map(async (path): Promise<GuardedFileState> => {
-      try {
-        const info = await stat(path);
-        return {
-          path,
-          exists: true,
-          size: info.size,
-          mtimeMs: info.mtimeMs,
-          sha256: await hashFile(path),
-        };
-      } catch (error: unknown) {
-        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-        return { path, exists: false, size: null, mtimeMs: null, sha256: null };
-      }
-    }),
-  );
-  return { takenAt: new Date().toISOString(), files };
-}
-
-/** Throws {@link RealStateChangedError} when any guarded file differs. */
-export function assertRealStateUnchanged(
-  before: RealStateSnapshot,
-  after: RealStateSnapshot,
-): void {
-  const changed = before.files.flatMap((was, index) => {
-    const now = after.files[index];
-    return now === undefined ||
-      now.path !== was.path ||
-      now.exists !== was.exists ||
-      now.size !== was.size ||
-      now.mtimeMs !== was.mtimeMs ||
-      now.sha256 !== was.sha256
-      ? [was.path]
-      : [];
-  });
-  if (changed.length > 0)
-    throw new RealStateChangedError(before, after, changed);
-}
-
-function hashFile(path: string): Promise<string> {
-  return new Promise((done, reject) => {
-    const hash = createHash('sha256');
-    createReadStream(path, { flags: 'r' })
-      .on('data', (chunk) => hash.update(chunk))
-      .on('error', reject)
-      .on('end', () => done(hash.digest('hex')));
-  });
-}
+import {
+  armRealStateGuard,
+  type GuardMode,
+  type GuardReport,
+  type RealStateGuardOptions,
+} from './real-state-guard';
 
 /** What the host printed on its ready line. */
 export interface HostReadyLine {
@@ -132,8 +47,10 @@ export interface HostLaunchOptions {
   readonly workspaceRoot: string;
   /** Built host script. Default: `<repo>/dist/tools/mcp-bench/bench-host.mjs`. */
   readonly hostScript?: string;
-  /** Home whose `.ptah/state` the guard watches. Default `os.homedir()`. */
+  /** Home whose `.ptah` the guard watches. Default `os.homedir()`. */
   readonly realHome?: string;
+  /** Guard tuning (CI, pre-sample, sample interval, probe); see `real-state-guard.ts`. */
+  readonly guard?: Omit<RealStateGuardOptions, 'realHome'>;
   /** Spawn to ready line and first `tools/list`. Default 180 s. */
   readonly bootTimeoutMs?: number;
   /** Graceful stop before the tree is killed. Default 15 s. */
@@ -150,8 +67,7 @@ export interface HostStopReport {
   readonly killed: boolean;
   /** The isolated database file existed when the host stopped. */
   readonly isolatedDbCreated: boolean;
-  readonly guardBefore: RealStateSnapshot;
-  readonly guardAfter: RealStateSnapshot;
+  readonly guard: GuardReport;
 }
 
 export interface LaunchedHost {
@@ -164,12 +80,14 @@ export interface LaunchedHost {
   /** Spawn to the first successful `tools/list`. */
   readonly coldStartMs: number;
   readonly client: McpHttpClient;
+  /** How the real state is guarded on this run; for the scorecard run metadata. */
+  readonly guardMode: GuardMode;
   /** Exit code once the host ended on its own; `undefined` while it runs. */
   readonly exitedEarly: () => number | null | undefined;
   /**
    * Stop the host (stdin EOF, then a tree kill after `stopTimeoutMs`), remove
-   * the temp home, and run the guard. Rejects with
-   * {@link RealStateChangedError} when the real database changed.
+   * the temp home, and run the guard. Rejects with `RealStateChangedError`
+   * (hash) or `BenchHeldRealStateError` (process-watch).
    */
   stop(): Promise<HostStopReport>;
 }
@@ -254,11 +172,13 @@ function parseReadyLine(
 export async function launchBenchHost(
   options: HostLaunchOptions,
 ): Promise<LaunchedHost> {
-  const realHome = options.realHome ?? homedir();
   const bootTimeoutMs = options.bootTimeoutMs ?? DEFAULT_BOOT_TIMEOUT_MS;
   const stopTimeoutMs = options.stopTimeoutMs ?? DEFAULT_STOP_TIMEOUT_MS;
 
-  const guardBefore = await snapshotRealState(realHome);
+  const guard = await armRealStateGuard({
+    ...options.guard,
+    realHome: options.realHome,
+  });
   const tempHome = await mkdtemp(join(tmpdir(), 'ptah-mcp-bench-home-'));
   await mkdir(join(tempHome, '.ptah', 'state'), { recursive: true });
   const env = isolatedEnv(tempHome);
@@ -295,6 +215,8 @@ export async function launchBenchHost(
   });
 
   const teardown = async (): Promise<{ killed: boolean }> => {
+    // process-watch takes its last sample while the tree is still alive.
+    await guard.sampleBeforeStop();
     const killed = await stopChild(
       child,
       exited,
@@ -303,12 +225,13 @@ export async function launchBenchHost(
     );
     return { killed };
   };
-  // A failed boot is still a run: the guard runs, and a changed real
-  // database outranks the boot error.
+  if (child.pid !== undefined) guard.watch(child.pid);
+  // A failed boot is still a run: the guard runs, and a guard failure
+  // outranks the boot error.
   const discard = async (bootError: unknown): Promise<never> => {
     await teardown();
     await removeTempHome(tempHome);
-    assertRealStateUnchanged(guardBefore, await snapshotRealState(realHome));
+    await guard.finish();
     throw bootError;
   };
 
@@ -346,14 +269,12 @@ export async function launchBenchHost(
       const { killed } = await teardown();
       const isolatedDbCreated = await fileExists(ready.dbPath);
       await removeTempHome(tempHome);
-      const guardAfter = await snapshotRealState(realHome);
-      assertRealStateUnchanged(guardBefore, guardAfter);
+      const guardReport = await guard.finish();
       return {
         exitCode: exitCode ?? null,
         killed,
         isolatedDbCreated,
-        guardBefore,
-        guardAfter,
+        guard: guardReport,
       };
     })();
     return stopped;
@@ -367,6 +288,7 @@ export async function launchBenchHost(
     tempHome,
     coldStartMs,
     client,
+    guardMode: guard.mode,
     exitedEarly: () => exitCode,
     stop,
   };

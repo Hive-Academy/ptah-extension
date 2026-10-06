@@ -103,6 +103,29 @@ Other observations: the code-search coverage block is all `null` / `census?` (ab
 5. `ptah_memory_search`: workspace scope and recall.
 6. Eager/deferred selection from the scorecard (`protocol-dispatcher.ts:609-628`).
 
+## User Decision — real-DB guard with a running desktop app (2026-10-06)
+
+Problem (Batch 3 report lines 42, 64): the user's running Ptah desktop app writes `~/.ptah/state/ptah.sqlite-wal` about once a minute, so the hash guard fails every overlapping local run even when the bench wrote nothing.
+
+Decision: **watch the bench process.**
+- Before the run, detect a concurrent writer (another process holds the real DB, or the `-wal` changes during a short pre-sample).
+- No concurrent writer → guard mode `hash` (unchanged: SHA-256 + mtime + size before and after).
+- Concurrent writer → guard mode `process-watch`: no hash comparison; during the run and at the end, sample the open file handles of the bench host process tree, and fail if any bench process holds a path under the real `~/.ptah`. Isolation layers 1-4 stay mandatory.
+- CI (`CI=true`) always uses `hash`; a concurrent writer in CI is an environment failure.
+- The guard mode is recorded in the scorecard run metadata.
+
+## Orchestrator Decision — shared scorecard schema with TASK_2026_620_a13e (2026-10-06)
+
+Request from the TASK_2026_620 session (memory + skills benchmark). Decision: 619 adds a generic core to `tools/mcp-bench/src/scorecard/` in ONE small batch inserted right after Batch 4, still `schemaVersion: 1` (no baseline committed yet):
+1. `claim: { source: 'prompt' | 'tool-description' | 'ledger' | 'code'; ref: string; text?: string }`.
+2. `suite.kind: string` + `suite.details`, validated by a registry `registerSuiteKind(kind, zodSchema)`; 619 registers `retrieval`; unknown kinds fail validation; a kind may supply a Markdown renderer.
+3. `groundTruth: { id; version; method: 'generated' | 'labelled' | 'seeded' | 'git-history'; raterCount?; frozenAt? }` and `suite.arm?: string`.
+4. `baselines: Array<{ id; label; metrics }>` and `deltas: Record<baselineId, Record<metric, number | null>>`; `native` is one baseline id.
+5. `cost: { calls; latency_ms: { p50; p95 }; error_rate; tokens: { result_p50?; input?; output?; billed? } }`.
+6. `artifacts: Array<{ kind; path; sha256; schemaId }>`.
+7. `run.guardMode: 'hash' | 'process-watch'`.
+619 is the only writer of `scorecard.types.ts` and `scorecard-writers.ts`; 620 registers its own kinds (curation, rubric/agreement) in its own files and branches from the SHA of that batch. Also: `-shm` added to the hash guard (Task 4.2).
+
 ## Conversation Summary
 
 - 2026-10-06: the user opened a second session (`ptah-ptah-extension-skills-trajectory-an-10a89600005aw2q23htdi0c`) to apply the same benchmark-first method to memory curation and the skills trajectory. Boundary: this task owns `ptah_memory_search` as a retrieval tool (scope, isolation, worktree scope, spill root, recall@k via MCP). That session owns curation/extraction quality and the skills trajectory. `tools/mcp-bench` metrics and the scorecard schema are shared; that session must ask before it changes them.

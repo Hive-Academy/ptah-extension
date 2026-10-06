@@ -1,6 +1,6 @@
 # Batches - TASK_2026_619_af7f
 
-Total tasks: 65 | Batches: 37 | Complete: 2/37
+Total tasks: 71 | Batches: 39 | Complete: 4/39
 
 Worktree root (every path below is absolute under it):
 `D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark` (branch `fix/task-619-tool-benchmark`).
@@ -15,7 +15,7 @@ overrides `research-report.md` where they differ), `research-report.md`.
   eager/deferred selection scorecard-driven (B10).
 - Review phases. Phase 2 is split into review phases 2A-2F, so each code-logic review covers one
   coherent diff instead of about 25 batches:
-  - Phase 1, Benchmark: Batches 1-11.
+  - Phase 1, Benchmark: Batches 1-11, including the inserted Batches 4b and 4c.
   - Phase 2A, Index and coverage: Batches 12-16.
   - Phase 2B, Ranker: Batch 17.
   - Phase 2C, Language-server manager, references, definitions and dependents: Batches 18-28.
@@ -220,7 +220,7 @@ Batch 1 Minor findings (recorded, not fixed in a fix round; each is carried by a
 - `npx nx run-many -t typecheck,lint,test -p mcp-bench` passes (tail the output)
 - The `na`-is-never-pass rule is tested
 
-## Batch 3: MCP transport driver and isolated cli-headless bench host — IN_PROGRESS
+## Batch 3: MCP transport driver and isolated cli-headless bench host — COMPLETE (commit b538e8fb6)
 
 Batch 3 findings recorded at Mode 2 (report:
 `D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\.ptah\specs\TASK_2026_619_af7f\batch-3-executor-report.md`):
@@ -234,6 +234,8 @@ Batch 3 findings recorded at Mode 2 (report:
   will be passed into a later batch; until then no batch changes the guard semantics in
   `host-launcher.ts:46-118`. Local smoke runs in Batches 4-37 either run with the desktop app
   closed, or report a `RealStateChangedError` trip as an environment failure, not a code failure.
+  Resolved at Batch 4: the user decided "watch the bench process" (context.md), implemented by
+  Task 4.2 (`hash` / `process-watch` guard modes).
 - CLI code-intelligence surface (smoke, report line 65). (a) `ptah_lsp_references` and
   `ptah_lsp_definitions` are not listed on `cli-headless`, because the CLI registers no
   `IDE_CAPABILITIES_TOKEN`. (b) `ptah_code_search_symbols` answers `symbolCount:0`,
@@ -248,7 +250,7 @@ Batch 3 findings recorded at Mode 2 (report:
 - Tasks: 3 | Depends on: 2
 - Phase: 1 Benchmark | Phase review: code-logic (after Batch 11)
 
-### Task 3.1: MCP HTTP client and call recorder — IMPLEMENTED
+### Task 3.1: MCP HTTP client and call recorder — COMPLETE
 
 - File: D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\transport\mcp-client.ts; D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\transport\call-recorder.ts
 - Plan reference: research-report.md:175-179 (B5), :183 (error classes)
@@ -257,7 +259,7 @@ Batch 3 findings recorded at Mode 2 (report:
 - Validation notes: retries on `building` follow the tool's own retry hint, capped; every retry counts as a call.
 - Implementation details: use `@modelcontextprotocol/sdk` client if it matches the server protocol, else a minimal JSON-RPC over HTTP POST.
 
-### Task 3.2: Bench host entry (boots the CLI DI container and the code-execution HTTP MCP) — IMPLEMENTED
+### Task 3.2: Bench host entry (boots the CLI DI container and the code-execution HTTP MCP) — COMPLETE
 
 - File: D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\transport\bench-host.entry.ts; D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\project.json (add a `build-host` esbuild target)
 - Depends on: Task 3.1
@@ -267,7 +269,7 @@ Batch 3 findings recorded at Mode 2 (report:
 - Validation notes: verify the assumption that `CODE_EXECUTION_MCP` resolves in the CLI container; if it does not, stop and report (BLOCKER for the transport). Watch for the better-sqlite3 ABI (cli-e2e rebuilds it for Node).
 - Implementation details: imports `@ptah-extension/cli-engine` and `@ptah-extension/vscode-core` only; the host label in the scorecard is `cli-headless`.
 
-### Task 3.3: Host launcher with state isolation guard — IMPLEMENTED
+### Task 3.3: Host launcher with state isolation guard — COMPLETE
 
 - File: D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\transport\host-launcher.ts; D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\transport\host-launcher.spec.ts
 - Depends on: Task 3.2
@@ -284,16 +286,40 @@ Batch 3 findings recorded at Mode 2 (report:
 - `npx nx run-many -t typecheck,lint,test -p mcp-bench` passes, and `npx nx run mcp-bench:build-host` builds
 - Manual smoke: launch the host on the corpus, call `tools/list`, confirm `ptah_code_search_symbols` is listed and the real DB guard is unchanged
 
-## Batch 4: Electron host launcher (launch and attach) — PENDING
+## Batch 4: Electron host launcher (launch and attach) — COMPLETE (commit: see the next line)
+
+Batch 4 findings recorded at Mode 2 (report:
+`D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\.ptah\specs\TASK_2026_619_af7f\batch-4-executor-report.md`):
+
+- File-count deviation accepted: 8 files instead of 6. `real-state-guard.ts` and `open-handle-probe.ts`
+  were split out because two launchers now share the guard and `host-launcher.ts` would otherwise
+  pass the 700-line `max-lines` ceiling. Still one project (`mcp-bench` plus `eslint.config.mjs`) and
+  one scoped verification command.
+- `HostStopReport.guardBefore`/`guardAfter` became `guard: GuardReport`. No consumer read the old
+  fields (verified by grep at Mode 2).
+- Serious, carried by Task 4c.1. The `cli-headless` host exits with `0xC0000409` (fail-fast,
+  `exitCode=3221226505`) on its graceful stdin-EOF shutdown in about 2 of 3 runs, also with tree
+  sampling stubbed out (report line 94). It must be explained, and classified apart from a clean stop
+  and from tool errors, before the first recorded scorecard (Batch 11).
+- Moderate, carried by Tasks 4b.1 (schema) and 4c.2 (guard). In process-watch mode, handles that
+  could not be named are only counted (`real-state-guard.ts:330`, `:368`; the Electron smoke showed
+  `unprobed: 1`). The stop report must list the pid and name of each unprobed process, and the
+  scorecard must mark the guard as partial when `unprobed > 0`.
+- Minor, carried by Task 4c.3. `host-launcher.ts` does not handle the child `'error'` event
+  (report line 95), so an unspawnable `process.execPath` surfaces as an unhandled error.
+  `electron-host.ts` already handles it.
+- `run.guardMode` in the scorecard: the executor proposed Batch 10 or 11. Superseded: the schema field
+  lands in Task 4b.1 (orchestrator decision in context.md), and Task 9.3 populates it from the stop
+  report.
 
 - Recommended executor: backend-developer subagent
 - Fallback executor: devops-engineer subagent
 - Execution mode: sequential
 - Rationale: drives a real Electron app process and its userData. Process-lifecycle-sensitive.
-- Tasks: 2 | Depends on: 3
+- Tasks: 3 (Task 4.2 added by the orchestrator from the context.md user decision) | Depends on: 3
 - Phase: 1 Benchmark | Phase review: code-logic (after Batch 11)
 
-### Task 4.0: `type:tool` module-boundary constraint; drop the `scope:cli` stopgap — PENDING
+### Task 4.0: `type:tool` module-boundary constraint; drop the `scope:cli` stopgap — COMPLETE
 
 - File: D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\eslint.config.mjs; D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\project.json
 - Plan reference: this file's Assumptions (the depConstraints entry, marked FALSE, with its decision)
@@ -308,7 +334,7 @@ Batch 3 findings recorded at Mode 2 (report:
   imports, and with any `scope:electron` lib Task 4.1 imports.
 - Implementation details: do this first, before Task 4.1 adds any Electron-lib import.
 
-### Task 4.1: Electron launch/attach adapter — PENDING
+### Task 4.1: Electron launch/attach adapter — COMPLETE
 
 - File: D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\transport\electron-host.ts; D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\transport\electron-host.spec.ts
 - Plan reference: research-report.md:177-179 (B5)
@@ -317,6 +343,13 @@ Batch 3 findings recorded at Mode 2 (report:
 - Validation notes: if the port cannot be discovered from outside the process, read it from the log line or the `.mcp.json` the app writes, and document which. Guard contract: launch mode runs the Task 3.3 real-DB guard unchanged, because its userData is isolated. In attach mode the real DB changes by definition, so the guard is not applied there. Attach mode instead refuses every suite that writes state (memory seeding, lifecycle), as the `na` rule already requires. Do not change `host-launcher.ts` guard semantics: the local-run behaviour with a running desktop app is a pending user decision (see the Batch 3 findings). Launch mode must not reuse the desktop app's MCP port 51820 or its single-instance lock. Use an isolated userData dir, and report a refusal if the app enforces a single instance.
 - Implementation details: returns the same `{baseUrl, stop()}` shape as Task 3.3; host label `electron`.
 
+### Task 4.2: Real-DB guard modes `hash` / `process-watch` (orchestrator-added) — COMPLETE
+
+- File: D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\transport\real-state-guard.ts; D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\transport\open-handle-probe.ts; D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\transport\host-launcher.ts; D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\transport\host-launcher.spec.ts
+- Plan reference: context.md "User Decision — real-DB guard with a running desktop app"; context.md "Orchestrator Decision — shared scorecard schema" (the `-shm` addition)
+- Quality requirements: detect a concurrent writer before the spawn (holder probe or a `-wal` pre-sample); `hash` when none, `process-watch` otherwise; `CI=true` always `hash`, and a writer in CI is an environment failure; isolation layers 1-4 unchanged; the mode is exposed for the scorecard run metadata; the hash guard also covers `-shm`.
+- Validation notes: a sample that cannot run fails closed; a bench process holding a path under the real `~/.ptah` fails the run.
+
 ### Batch 4 verification
 
 - `npx prettier --check <every path the batch changed>` passes (lanes skipped formatting in Batches 1-2, and the commit hook does not check `tools/`)
@@ -324,6 +357,174 @@ Batch 3 findings recorded at Mode 2 (report:
 - `npx nx run-many -t typecheck,lint,test -p mcp-bench,di-lint,migration,degradation-audit` passes (the `type:tool` constraint change covers all four tool projects)
 - `tools\mcp-bench\project.json` tags are exactly `["type:tool"]`
 - The attach-mode `na` rule is tested
+
+## Batch 4b: Generic scorecard core (shared with TASK_2026_620_a13e) — IN_PROGRESS
+
+Source: context.md "Orchestrator Decision — shared scorecard schema with TASK_2026_620_a13e". The
+TASK_2026_620 session branches from this batch's commit SHA, so this batch runs next. 619 stays the
+only writer of `scorecard.types.ts` and `scorecard-writers.ts`; 620 registers its own suite kinds in
+its own files.
+
+Recorded defaults for this batch:
+
+- `schemaVersion` stays the literal `1`. No baseline is committed yet, so nothing on disk needs a
+  migration. Existing fixtures in the spec are rewritten to the new shape, not kept beside it.
+- Besides the seven decision items, two run fields land here, because they belong to the same schema
+  and 620 should branch from one schema, not two: `run.guard` partial marking (Moderate finding,
+  Batch 4) and `run.hostExit` (Serious finding, Batch 4, classification of a crash on shutdown).
+- `run.guardMode` also allows `'not-applied'`, because Electron attach mode (Batch 4, already
+  committed) applies no guard. The decision text lists `'hash' | 'process-watch'`; a third value is
+  additive and does not affect 620's suite kinds. The batch report must state this.
+
+- Recommended executor: CLI lane x 1
+- Fallback executor: backend-developer subagent
+- Execution mode: sequential
+- Rationale: pure zod types, a registry and writers in one tool project; one self-contained prompt.
+  The two tasks share `scorecard.types.ts`, so not parallel.
+- Tasks: 2 | Depends on: 2, 4
+- Phase: 1 Benchmark | Phase review: code-logic (after Batch 11; the schema is in the combined diff)
+
+### Task 4b.1: Generic core schema and suite-kind registry — IN_PROGRESS
+
+- File: D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\scorecard\scorecard.types.ts; D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\scorecard\suite-kinds.ts (new); D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\scorecard\retrieval-suite-kind.ts (new)
+- Plan reference: context.md "Orchestrator Decision — shared scorecard schema" items 1-7; research-report.md:196-223 (B8 schema, which this generalises)
+- Pattern to follow: the existing zod schema and `superRefine` na rule in D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\scorecard\scorecard.types.ts:1-178
+- Quality requirements, one item per decision point:
+  1. `claim: { source: 'prompt' | 'tool-description' | 'ledger' | 'code'; ref: string; text?: string }`.
+     For `source: 'prompt'` the `ref` must still match `ptah-core-prompt.ts:<line>` (the old regex);
+     for every source `ref` is non-empty.
+  2. Each suite has `kind: string` and `details: unknown`. `suite-kinds.ts` exports
+     `registerSuiteKind(kind, detailsSchema, renderMarkdown?)`, `getSuiteKind(kind)` and the list of
+     registered kinds. Registering the same kind twice throws. The scorecard schema validates
+     `details` against the registered kind's schema; an unregistered kind fails validation with an
+     issue naming the kind. `retrieval-suite-kind.ts` registers `retrieval` (side-effect import from
+     `scorecard.types.ts` or an explicit `registerBuiltinSuiteKinds()`, executor's choice; the
+     registry must be populated before any parse, which a spec proves). Retrieval `details` carries
+     `tool`, `questions`, the quality metrics now in `suiteMetricsSchema` (`hit@1`, `hit@5`, `mrr`,
+     `recall@10`, `recall_all`, `precision`, `acc_at_k`, `ndcg_at_k`, `truncation_rate`) and
+     `failures[]`.
+  3. `groundTruth: { id: string; version: string; method: 'generated' | 'labelled' | 'seeded' | 'git-history'; raterCount?: number; frozenAt?: string }` on each suite (`raterCount` a positive int, `frozenAt` an ISO datetime), and `suite.arm?: string`.
+  4. `baselines: Array<{ id: string; label: string; metrics: Record<string, number | null> }>` with
+     unique ids, and `deltas: Record<baselineId, Record<metric, number | null>>`. Every key of
+     `deltas` must name a baseline in the same suite (validation issue otherwise). `native` is one
+     baseline id, not a special field: `native_metrics` and `delta` are removed.
+  5. `cost: { calls: number; latency_ms: { p50: number | null; p95: number | null }; error_rate: number | null; tokens: { result_p50?: number | null; input?: number | null; output?: number | null; billed?: number | null } }`. Carried from Batch 1: a suite with no latency samples has `p50`/`p95` `null`, never 0; `calls_per_answer` belongs in retrieval details or is computed from `cost.calls` and `questions` — pick one and remove the other from `MetricName` if unused.
+  6. `artifacts: Array<{ kind: string; path: string; sha256: string; schemaId: string }>` at the
+     scorecard top level; `sha256` is 64 lowercase hex.
+  7. `run.guardMode: 'hash' | 'process-watch' | 'not-applied'` (see the recorded default above).
+  - Moderate finding (Batch 4): `run.guard: { partial: boolean; unprobed: Array<{ pid: number; name: string; handles: number }> }`.
+    Validation: `partial` must be true when `unprobed` is non-empty, and `partial` with
+    `guardMode: 'hash'` or `'not-applied'` is invalid.
+  - Serious finding (Batch 4): `run.hostExit: { kind: 'clean' | 'crash-on-shutdown' | 'killed' | 'exited-early'; exitCode: number | null; signal: string | null; detail?: string }`.
+    A `crash-on-shutdown` is never a tool error and never counted in any suite's `cost.error_rate`;
+    it is a run-level fact. Task 4c.1 produces the value; Task 9.3 copies it in.
+  - `verdict: pass | fail | na` and the `naReason` rule stay as today; `na` is never counted as pass
+    (`summarizeVerdicts` unchanged in meaning).
+  - TypeScript types are inferred from the zod schemas (`z.infer`) rather than hand-written twice, so
+    the two cannot drift. If a hand-written interface is kept for readability, a type-level equality
+    check must pin it to the schema.
+- Validation notes: `scorecard.types.ts` today has hand-written interfaces next to the schema
+  (`:95-178`); replace, do not accumulate. No `V2` names and no compatibility shim for the old
+  `native_metrics` shape (no baseline exists). The registry is module-global state: it must expose a
+  test-only way to build an isolated registry, or the spec of 620's kinds cannot run beside 619's.
+- Implementation details: zod is already a dependency of `mcp-bench`; use `z.unknown()` for
+  `details` plus a `superRefine` that dispatches on `kind`.
+
+### Task 4b.2: Writers and specs for the generic core — IN_PROGRESS
+
+- File: D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\scorecard\scorecard-writers.ts; D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\scorecard\scorecard-writers.spec.ts; D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\scorecard\suite-kinds.spec.ts (new)
+- Depends on: Task 4b.1
+- Plan reference: context.md "Orchestrator Decision — shared scorecard schema" item 2 (a kind may supply a Markdown renderer)
+- Pattern to follow: the current `readScorecard` / `writeScorecardJson` / `renderScorecardMarkdown` in scorecard-writers.ts:1-159
+- Quality requirements: JSON write and read validate through the schema (unknown kind rejected on both); the Markdown writer prints the run header including `guardMode`, guard partial (with the unprobed pid/name list) and `hostExit.kind`; then per suite the kind's renderer when it supplied one, else a generic table (claim source and ref, ground-truth id/method, each baseline's metrics and its delta, cost, verdict, naReason); the retrieval kind supplies a renderer equivalent to today's per-tool table; lifecycle and eager tables unchanged.
+- Spec cases (minimum): round trip of a retrieval suite with two baselines; unknown kind rejected; duplicate registration throws; a `deltas` key with no baseline rejected; `partial: true` required when `unprobed` is non-empty; `partial` with `guardMode: 'hash'` rejected; `claim.source: 'prompt'` with a non-matching ref rejected; `na` without `naReason` rejected; a suite with no latency samples renders `na`/null, not 0; a kind without a renderer uses the generic table; `hostExit.kind: 'crash-on-shutdown'` renders in the header and leaves suite error rates untouched.
+- Validation notes: `npx prettier --check` on every changed path (the commit hook does not check `tools/`).
+- Implementation details: none beyond the above.
+
+### Batch 4b verification
+
+- `npx prettier --check <every path the batch changed>` passes
+- Every listed artifact exists; no `native_metrics`, `delta.quality` or hand-written duplicate type remains (grep)
+- `npx nx run-many -t typecheck,lint,test -p mcp-bench` passes (tail the output)
+- The commit SHA is reported to the orchestrator for the TASK_2026_620 session
+
+## Batch 4c: Bench host shutdown classification, guard partial report, spawn errors — PENDING
+
+- Recommended executor: backend-developer subagent
+- Fallback executor: senior-tester subagent
+- Execution mode: sequential
+- Rationale: native-addon teardown forensics in a child process, plus the guard's process probe.
+  Process-lifecycle-sensitive and needs judgement mid-flight (fix here vs product finding).
+- Tasks: 3 | Depends on: 4, 4b (uses the `hostExit` kinds and `run.guard` shape named in Task 4b.1)
+- Must land before Batch 10 (the first recorded scorecard is Batch 11)
+- Phase: 1 Benchmark | Phase review: code-logic (after Batch 11)
+
+### Task 4c.1: Find the `0xC0000409` on graceful shutdown; fix or record; classify every stop — PENDING
+
+- File: D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\transport\bench-host.entry.ts; D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\transport\host-launcher.ts; D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\transport\host-launcher.spec.ts; D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\transport\electron-host.ts (stop-report classification only)
+- Plan reference: batch-4-executor-report.md line 94; this batch's Batch 4 findings (Serious)
+- Pattern to follow: the CLI's own shutdown order in D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\apps\ptah-cli\src\cli\commands\mcp-serve.ts and the `withEngine` teardown it uses; the workspace-watch supervisor's exit handling in D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\libs\backend\platform-core\src\workspace-watch\workspace-watch-supervisor.ts
+- Quality requirements:
+  - Find the cause. Suspects, in this order: better-sqlite3 `close()` racing an open statement or a
+    worker; the sqlite-vec extension unload; the embedder worker's onnxruntime session (a worker
+    thread still alive at `process.exit`); tree-sitter wasm teardown. Bisect by disabling one subsystem
+    at a time in the bench host only (env flags in `bench-host.entry.ts`, never product edits), with at
+    least 10 shutdowns per variant, and quote the crash rate per variant in the report.
+  - If the cause is bench-host shutdown order (for example `process.exit` before the engine's
+    disposers and worker terminations finish), fix it in `bench-host.entry.ts`: await the engine's
+    dispose, terminate workers, close the DB, then exit; prove 0 crashes in 20 shutdowns.
+  - If the cause is in product code, do not edit product code (Phase 1 changes no product behaviour).
+    Record it as a product finding in the batch report with the evidence (variant rates, the
+    subsystem, file:line of the teardown), and the team-leader carries it into a named Phase 2 task.
+  - In every case, classify each stop: `HostStopReport.exit` (and the Electron stop report) carries
+    `{ kind: 'clean' | 'crash-on-shutdown' | 'killed' | 'exited-early'; exitCode; signal; detail? }`
+    with the exact kind names from Task 4b.1. `crash-on-shutdown` = non-zero exit or a fail-fast code
+    (`0xC0000409` = 3221226505, `0xC0000005`, POSIX `SIGSEGV`/`SIGABRT`) after the graceful stop
+    began; `killed` = the tree kill fired; `exited-early` = the host ended before `stop()`. A crash on
+    shutdown never throws from `stop()` and never turns into a tool error; it is reported.
+  - On win32 Electron `killed` is always true today (`taskkill /T /F`); the classification must say so
+    in `detail` rather than calling it a crash.
+- Validation notes: spec cases with a fixture host that exits 0, exits with 3221226505 after stdin
+  EOF, ignores EOF (killed), and exits before `stop()`. Keep `host-launcher.ts` under the 700-line
+  `max-lines` ceiling.
+- Implementation details: the report quotes the bisect table and the final per-variant rates.
+
+### Task 4c.2: List unprobed processes and mark the guard partial (Moderate) — PENDING
+
+- File: D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\transport\real-state-guard.ts; D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\transport\open-handle-probe.ts; D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\transport\host-launcher.spec.ts (shared with Task 4c.1)
+- Depends on: Task 4c.1 (same spec file)
+- Plan reference: this batch's Batch 4 findings (Moderate); real-state-guard.ts:330, :368
+- Pattern to follow: the current `unprobed` max in real-state-guard.ts:368 and the win32 handle walk in open-handle-probe.ts
+- Quality requirements: `TreeOpenPathsResult` reports unprobed handles per pid; the process-watch
+  `GuardReport` carries `partial: boolean` and `unprobedProcesses: Array<{ pid; name; handles }>`
+  (union across samples, max handles per pid), matching `run.guard` in Task 4b.1; `partial` is true
+  exactly when that list is non-empty; the stop report and any error message name each pid and
+  process name. A partial guard does not fail the run (it is reported); a held real path and a failed
+  sample still fail it.
+- Validation notes: the linux `/proc` probe reports an fd whose link cannot be read as unprobed for
+  that pid, so the spec can run on CI.
+- Implementation details: none beyond the above.
+
+### Task 4c.3: Handle the child `'error'` event in the CLI launcher (Minor) — PENDING
+
+- File: D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\transport\host-launcher.ts; D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\transport\host-launcher.spec.ts
+- Depends on: Task 4c.2
+- Plan reference: batch-4-executor-report.md line 95
+- Pattern to follow: the `'error'` handling in D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\transport\electron-host.ts
+- Quality requirements: a spawn failure rejects `launchBenchHost` with a clear error naming the
+  script and `process.execPath`, runs the guard (a guard failure still outranks it), removes the temp
+  home, and leaves no unhandled error; spec case with a nonexistent host script path or executable.
+- Validation notes: none.
+- Implementation details: none beyond the above.
+
+### Batch 4c verification
+
+- `npx prettier --check <every path the batch changed>` passes
+- Every listed artifact exists and contains the required work
+- `npx nx run-many -t typecheck,lint,test -p mcp-bench` passes, and `npx nx run mcp-bench:build-host` builds
+- Smoke: 20 graceful shutdowns of the `cli-headless` host, each stop classified; the report quotes the
+  count per `exit.kind`. If any `crash-on-shutdown` remains, a product finding with evidence is in the
+  report.
 
 ## Batch 5: Ground truth A — TS compiler (symbols, references, definitions, dependents) — PENDING
 
@@ -450,8 +651,12 @@ Batch 3 findings recorded at Mode 2 (report:
 - Fallback executor: senior-tester subagent
 - Execution mode: sequential
 - Rationale: integrates the transport, ground truth and baselines; lifecycle scenarios mutate a corpus copy and restart hosts.
-- Tasks: 3 | Depends on: 3, 4, 7, 8
+- Tasks: 3 | Depends on: 3, 4, 4b, 4c, 7, 8
 - Phase: 1 Benchmark | Phase review: code-logic (after Batch 11)
+- Schema note (Batch 4 Mode 2): every suite is written in the Task 4b.1 generic shape — `kind:
+  'retrieval'`, `claim {source, ref}`, `groundTruth`, `baselines[]` with `native` as one baseline id,
+  `deltas`, `cost`, `details`. The `tool_metrics` / `native_metrics` / `delta` wording in the tasks
+  below predates it and maps onto those fields.
 
 ### Task 9.1: Per-tool suite adapters and runner — PENDING
 
@@ -469,7 +674,7 @@ Batch 3 findings recorded at Mode 2 (report:
 - Plan reference: research-report.md:185-194 (B7); context.md:93
 - Pattern to follow: Task 2.2's corpus copy
 - Quality requirements: cold start, edit then query (5 s and 60 s), add then query, delete then query, large file (3,900 lines and 1.5 MiB), index age beyond 24 h (backdated rows in the isolated DB), two workspaces plus a worktree (memory leak count, spool path under the caller's root, symbol scope), transport (200 calls with 4-8 s idle gaps, one server restart, ECONNRESET count).
-- Validation notes: never mutate the pinned corpus. Scenario 8's reset count feeds Batch 35's go/no-go. Carried from Batch 3: on `cli-headless`, cold start and edit/add-then-query are expected to fail today (no boot-time index, `symbolCount:0`, `reindexInFlight:true`); record them as failures, not `na`. A `RealStateChangedError` from the guard caused by a running desktop Ptah is an environment failure of the run: report it, never retry it silently, and never weaken the guard (the user decision is pending).
+- Validation notes: never mutate the pinned corpus. Scenario 8's reset count feeds Batch 35's go/no-go. Carried from Batch 3: on `cli-headless`, cold start and edit/add-then-query are expected to fail today (no boot-time index, `symbolCount:0`, `reindexInFlight:true`); record them as failures, not `na`. With a running desktop Ptah the guard runs in `process-watch` mode (Task 4.2). A `ConcurrentWriterError` (CI, or no probe) is an environment failure of the run: report it, never retry it silently, and never weaken the guard. A `BenchHeldRealStateError` is an isolation failure: the run is void.
 - Implementation details: each scenario is a scored case in `lifecycle[]`.
 
 ### Task 9.3: Bench CLI entry and targets — PENDING
@@ -480,6 +685,9 @@ Batch 3 findings recorded at Mode 2 (report:
 - Pattern to follow: the `nx:run-commands` targets in D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\di-lint\project.json
 - Quality requirements: flags `--host cli-headless|electron`, `--suite`, `--smoke`, `--out`, `--compare <baseline>`; writes the JSON and Markdown scorecards.
 - Validation notes: a non-zero exit only when the run itself breaks; gate decisions belong to Batch 10.
+  The run metadata is filled from the host's stop report: `run.guardMode` (from `guardMode`),
+  `run.guard` (partial and the unprobed pid/name list, Task 4c.2) and `run.hostExit` (Task 4c.1). A
+  `crash-on-shutdown` is recorded there and never added to a suite's error rate.
 - Implementation details: the run records `product.commit` and `corpus.commit`.
 
 ### Batch 9 verification

@@ -7,18 +7,41 @@ import {
   utimes,
   writeFile,
 } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { CallRecorder, classifyToolResult } from './call-recorder';
+import { spawn, type ChildProcess } from 'node:child_process';
+
+import { launchBenchHost, type LaunchedHost } from './host-launcher';
+import { McpHttpClient } from './mcp-client';
+import { platformHandleProbe, type HandleProbe } from './open-handle-probe';
 import {
   assertRealStateUnchanged,
-  launchBenchHost,
+  BenchHeldRealStateError,
+  ConcurrentWriterError,
   RealStateChangedError,
   snapshotRealState,
-  type LaunchedHost,
-} from './host-launcher';
-import { McpHttpClient } from './mcp-client';
+  type RealStateGuardOptions,
+} from './real-state-guard';
+
+// Every launch runs the guard's open-handle probe (about 1 s on win32).
+jest.setTimeout(60_000);
+
+/** process-watch needs a probe; on a platform without one those cases skip. */
+const itWithProbe = platformHandleProbe() === null ? it.skip : it;
+
+async function waitFor(
+  condition: () => boolean,
+  timeoutMs = 30_000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!condition()) {
+    if (Date.now() > deadline) throw new Error('condition not met in time');
+    await new Promise((done) => setTimeout(done, 25));
+  }
+}
 
 /**
  * A stand-in for the built bench host: same wire contract (ready line on
@@ -77,7 +100,23 @@ const server = http.createServer((req, res) => {
     res.end(JSON.stringify(reply));
   });
 });
+const heldReal = [];
 server.listen(0, 'localhost', () => {
+  // Isolation-breach fixtures: hold a file under the (fake) real ~/.ptah.
+  if (mode === 'hold-real' || mode === 'hold-real-briefly') {
+    const fd = fs.openSync(process.env.FIXTURE_REAL_FILE, 'r');
+    heldReal.push(fd);
+    if (mode === 'hold-real-briefly') {
+      // Release when the spec says so, and confirm the release.
+      const release = process.env.FIXTURE_RELEASE_FILE;
+      const poll = setInterval(() => {
+        if (!fs.existsSync(release)) return;
+        clearInterval(poll);
+        fs.closeSync(fd);
+        fs.writeFileSync(release + '.done', '');
+      }, 20);
+    }
+  }
   const home = mode === 'lie-home' ? process.env.FIXTURE_FAKE_HOME : os.homedir();
   process.stdout.write('some log line that is not the wire\n');
   process.stdout.write(JSON.stringify({ benchHost: 'ready', port: server.address().port, workspaceRoot: workspace,
@@ -112,8 +151,11 @@ describe('launchBenchHost', () => {
   });
 
   afterEach(async () => {
+    stopWriter();
     delete process.env['FIXTURE_MODE'];
     delete process.env['FIXTURE_FAKE_HOME'];
+    delete process.env['FIXTURE_REAL_FILE'];
+    delete process.env['FIXTURE_RELEASE_FILE'];
     for (const host of launched.splice(0)) {
       await host.stop().catch(() => undefined);
     }
@@ -125,16 +167,52 @@ describe('launchBenchHost', () => {
     });
   });
 
-  const launch = async (stopTimeoutMs?: number): Promise<LaunchedHost> => {
+  const launch = async (
+    stopTimeoutMs?: number,
+    guard: Omit<RealStateGuardOptions, 'realHome'> = {},
+  ): Promise<LaunchedHost> => {
     const host = await launchBenchHost({
       workspaceRoot: workspace,
       hostScript,
       realHome,
       bootTimeoutMs: 20_000,
       stopTimeoutMs,
+      guard: { ci: false, preSampleMs: 50, ...guard },
     });
     launched.push(host);
     return host;
+  };
+
+  let walWriter: NodeJS.Timeout | null = null;
+  let dbHolder: ChildProcess | null = null;
+  function stopWriter(): void {
+    if (walWriter !== null) clearInterval(walWriter);
+    walWriter = null;
+    dbHolder?.kill();
+    dbHolder = null;
+  }
+  /** A concurrent writer of the fake real DB, like a running desktop Ptah. */
+  const startWalWriter = (): void => {
+    const wal = join(realHome, '.ptah', 'state', 'ptah.sqlite-wal');
+    let frame = 0;
+    walWriter = setInterval(() => {
+      void appendFile(wal, `frame-${frame++}\n`);
+    }, 20);
+  };
+  /** Another process holding the fake real DB open, and nothing else. */
+  const startDbHolder = async (): Promise<number> => {
+    const child = spawn(
+      process.execPath,
+      [
+        '-e',
+        "require('fs').openSync(process.argv[1], 'r'); console.log('held'); setInterval(() => {}, 1000);",
+        join(realHome, '.ptah', 'state', 'ptah.sqlite'),
+      ],
+      { stdio: ['ignore', 'pipe', 'inherit'] },
+    );
+    dbHolder = child;
+    await new Promise<void>((done) => child.stdout?.once('data', () => done()));
+    return child.pid ?? -1;
   };
 
   it('runs the host in a temp home it reports, never the real one', async () => {
@@ -184,6 +262,19 @@ describe('launchBenchHost', () => {
     await expect(host.stop()).rejects.toBeInstanceOf(RealStateChangedError);
   });
 
+  it('fails a hash-mode run when the real -shm changes during it', async () => {
+    const shm = join(realHome, '.ptah', 'state', 'ptah.sqlite-shm');
+    await writeFile(shm, 'shm-before');
+    const host = await launch();
+    expect(host.guardMode).toBe('hash');
+    await appendFile(shm, '-changed');
+
+    await expect(host.stop()).rejects.toMatchObject({
+      name: 'RealStateChangedError',
+      changed: [shm],
+    });
+  });
+
   it('rejects a host that does not see the isolated home', async () => {
     process.env['FIXTURE_MODE'] = 'lie-home';
     process.env['FIXTURE_FAKE_HOME'] = realHome;
@@ -198,6 +289,141 @@ describe('launchBenchHost', () => {
     const report = await host.stop();
     expect(report.killed).toBe(true);
     expect(report.isolatedDbCreated).toBe(false);
+  });
+
+  describe('guard mode', () => {
+    const realFile = (): string => join(realHome, '.ptah', 'settings.json');
+
+    it('uses hash when nothing else writes the real database', async () => {
+      const host = await launch();
+
+      expect(host.guardMode).toBe('hash');
+      const report = await host.stop();
+      expect(report.guard.mode).toBe('hash');
+    });
+
+    itWithProbe(
+      'switches to process-watch when a writer touches the real -wal, and passes a clean bench',
+      async () => {
+        startWalWriter();
+        const host = await launch(undefined, {
+          preSampleMs: 300,
+          sampleIntervalMs: 200,
+        });
+
+        expect(host.guardMode).toBe('process-watch');
+        // The writer keeps writing; process-watch must not blame the bench.
+        await new Promise((done) => setTimeout(done, 300));
+        const report = await host.stop();
+        if (report.guard.mode !== 'process-watch')
+          throw new Error('expected process-watch');
+        expect(report.guard.writerEvidence.join(' ')).toMatch(
+          /ptah\.sqlite-wal changed during a 300 ms pre-sample/,
+        );
+        expect(report.guard.samples).toBeGreaterThanOrEqual(1);
+        // The sample saw the fixture host and the files it holds (its script at least).
+        expect(report.guard.maxTreeProcesses).toBeGreaterThanOrEqual(1);
+        expect(report.guard.maxOpenPaths).toBeGreaterThanOrEqual(1);
+      },
+    );
+
+    itWithProbe(
+      'switches to process-watch when another process holds the real database',
+      async () => {
+        const holderPid = await startDbHolder();
+        const host = await launch();
+
+        expect(host.guardMode).toBe('process-watch');
+        const report = await host.stop();
+        if (report.guard.mode !== 'process-watch')
+          throw new Error('expected process-watch');
+        expect(report.guard.writerEvidence.join(' ')).toContain(
+          `${holderPid} holds ${join(realHome, '.ptah', 'state', 'ptah.sqlite')}`,
+        );
+      },
+    );
+
+    itWithProbe(
+      'fails process-watch when the bench host holds a path under the real ~/.ptah',
+      async () => {
+        await writeFile(realFile(), '{}');
+        process.env['FIXTURE_MODE'] = 'hold-real';
+        process.env['FIXTURE_REAL_FILE'] = realFile();
+        startWalWriter();
+        const host = await launch(undefined, { preSampleMs: 300 });
+
+        expect(host.guardMode).toBe('process-watch');
+        const stopped = host.stop();
+        await expect(stopped).rejects.toBeInstanceOf(BenchHeldRealStateError);
+        await expect(stopped).rejects.toMatchObject({
+          held: [{ pid: host.pid, path: realFile() }],
+        });
+      },
+    );
+
+    itWithProbe(
+      'catches a real-path handle the bench host released before the stop',
+      async () => {
+        await writeFile(realFile(), '{}');
+        process.env['FIXTURE_MODE'] = 'hold-real-briefly';
+        process.env['FIXTURE_REAL_FILE'] = realFile();
+        const release = join(root, 'release');
+        process.env['FIXTURE_RELEASE_FILE'] = release;
+        // Count completed tree samples, so the release follows one of them.
+        const real = platformHandleProbe();
+        if (real === null) throw new Error('itWithProbe ran without a probe');
+        let treeSamples = 0;
+        const probe: HandleProbe = {
+          platform: real.platform,
+          holders: (paths) => real.holders(paths),
+          treeOpenPaths: async (pid) => {
+            const result = await real.treeOpenPaths(pid);
+            treeSamples += 1;
+            return result;
+          },
+        };
+        startWalWriter();
+        const host = await launch(undefined, {
+          preSampleMs: 300,
+          sampleIntervalMs: 100,
+          probe,
+        });
+
+        await waitFor(() => treeSamples >= 1);
+        await writeFile(release, '');
+        await waitFor(() => existsSync(`${release}.done`));
+        // Released: only a sample taken during the run can have seen it.
+        await expect(host.stop()).rejects.toBeInstanceOf(
+          BenchHeldRealStateError,
+        );
+      },
+    );
+
+    it('keeps hash under CI when there is no writer', async () => {
+      const host = await launch(undefined, { ci: true });
+
+      expect(host.guardMode).toBe('hash');
+      await host.stop();
+    });
+
+    it('fails a CI run with a concurrent writer as an environment error', async () => {
+      startWalWriter();
+
+      await expect(
+        launch(undefined, { ci: true, preSampleMs: 300 }),
+      ).rejects.toBeInstanceOf(ConcurrentWriterError);
+      await expect(
+        launch(undefined, { ci: true, preSampleMs: 300 }),
+      ).rejects.toThrow(/Environment error: .* in CI/);
+    });
+
+    it('fails a writer-detected run where open handles cannot be listed', async () => {
+      startWalWriter();
+
+      await expect(
+        launch(undefined, { preSampleMs: 300, probe: null }),
+      ).rejects.toThrow(/process-watch cannot run/);
+    });
   });
 
   describe('CallRecorder over the fixture transport', () => {

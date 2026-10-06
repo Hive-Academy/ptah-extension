@@ -3,7 +3,7 @@
   "$schema": "../../node_modules/nx/schemas/project-schema.json",
   "sourceRoot": "tools/mcp-bench/src",
   "projectType": "application",
-  "tags": ["type:tool", "scope:cli"],
+  "tags": ["type:tool"],
   "targets": {
     "build-host": {
       "executor": "nx:run-commands",
