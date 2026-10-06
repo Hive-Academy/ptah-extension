@@ -385,6 +385,13 @@ export interface GitUnstageResult {
 export interface GitDiscardParams extends GitWorkspaceScopedParams {
   /** File paths to discard changes for (relative to workspace root) */
   paths: string[];
+  /**
+   * Discard only working-tree changes, never the index (discard all): tracked
+   * edits are restored from the index, untracked files are removed, staged
+   * renames are never expanded and conflicted paths are skipped. Absent, a
+   * staged rename named by its new path is undone in the index too.
+   */
+  worktreeOnly?: boolean;
 }
 
 /** Result from git:discard RPC method */

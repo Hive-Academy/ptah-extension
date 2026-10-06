@@ -35,8 +35,10 @@ import {
 } from '../services/review-diff.service';
 import {
   ReviewNavigationService,
+  scopeWorktreeRoot,
   type ReviewTarget,
 } from '../services/review-navigation.service';
+import { ReviewWorktreeStatusService } from '../services/review-worktree-status.service';
 import type { OpenInRequest } from '../open-in/open-in-button.component';
 import { normalizeDiffPath } from '../types/review-diff.types';
 import {
@@ -92,7 +94,11 @@ export const SPLIT_MIN_WIDTH_PX = 600;
  *   `git status` entry (staged entries as staged diffs, the rest as working
  *   tree diffs) and "Staged" only the staged ones; branch review and a
  *   historical comparison list their review files read-only. A change-set
- *   target narrows the list to that turn's files and owns the drafts.
+ *   target narrows the list to that turn's files and owns the drafts. A
+ *   working-tree scope with a `root` (a turn that ran in another worktree)
+ *   lists that worktree's status (`ReviewWorktreeStatusService`) and reads
+ *   its diffs from it, read-only: no stage, unstage, discard, hunk action or
+ *   Edit; comments still go to the drafts.
  * - Virtualization (A9): ONE `IntersectionObserver` over every section, with a
  *   root margin of one viewport, marks sections near the viewport; only those
  *   read their diff and create a renderer. Off-screen sections hold an
@@ -150,6 +156,7 @@ export const SPLIT_MIN_WIDTH_PX = 600;
         [stacked]="stacked()"
         [editorTargets]="launchers.targets()"
         [workspaceRoot]="workspaceRoot()"
+        [readOnly]="readOnly()"
         (fileSelected)="onFileSelected($event)"
         (collapseFile)="setCollapsed(sectionId($event), true)"
         (openFile)="openInEditor($event)"
@@ -183,6 +190,7 @@ export const SPLIT_MIN_WIDTH_PX = 600;
             [draftOwner]="draftOwner()"
             [editorTargets]="launchers.targets()"
             [workspaceRoot]="workspaceRoot()"
+            [readOnly]="readOnly()"
             [collapsed]="collapsedIds().has(file.id)"
             [themeType]="themeType()"
             (openFile)="openInEditor($event)"
@@ -203,6 +211,7 @@ export const SPLIT_MIN_WIDTH_PX = 600;
 export class ReviewCanvasComponent {
   private readonly navigation = inject(ReviewNavigationService);
   private readonly gitStatus = inject(GitStatusService);
+  private readonly worktreeStatus = inject(ReviewWorktreeStatusService);
   private readonly review = inject(GitReviewService);
   private readonly draftStore = inject(ReviewCommentDraftStore);
   private readonly reviewDiff = inject(ReviewDiffService);
@@ -279,8 +288,33 @@ export class ReviewCanvasComponent {
     () => this.navigation.current().target,
   );
 
+  /**
+   * The worktree the read-only worktree scope views, or `null` for the active
+   * workspace. While set, status and diffs come from it and nothing in the
+   * canvas mutates (no stage, unstage, discard, hunk action or Edit).
+   */
+  protected readonly viewedRoot = computed(() =>
+    scopeWorktreeRoot(this.scope()),
+  );
+  protected readonly readOnly = computed(() => this.viewedRoot() !== null);
+
+  /** The root the listed files belong to: the viewed worktree, else the active workspace. */
   protected readonly workspaceRoot = computed(
-    () => this.gitStatus.activeWorkspacePath() ?? '',
+    () => this.viewedRoot() ?? this.gitStatus.activeWorkspacePath() ?? '',
+  );
+
+  /** The viewed worktree's read, once it is for the scope's root. */
+  private readonly worktreeRead = computed(() => {
+    const root = this.viewedRoot();
+    const status = this.worktreeStatus.status();
+    return root !== null && status?.root === root ? status : null;
+  });
+
+  /** The `git status` entries of the root in view. */
+  private readonly statusSource = computed<readonly GitFileStatus[]>(() =>
+    this.readOnly()
+      ? (this.worktreeRead()?.files ?? [])
+      : this.gitStatus.files(),
   );
 
   protected readonly diffStyle = computed<PierreDiffStyle>(() =>
@@ -329,14 +363,12 @@ export class ReviewCanvasComponent {
       const kind = this.scope().kind;
       if (kind !== 'worktree' && kind !== 'staged') return [];
       const narrow = this.changeSetPaths();
-      return this.gitStatus
-        .files()
-        .filter(
-          (file) =>
-            !narrow ||
-            narrow.has(normalizeDiffPath(file.path)) ||
-            (!!file.origPath && narrow.has(normalizeDiffPath(file.origPath))),
-        );
+      return this.statusSource().filter(
+        (file) =>
+          !narrow ||
+          narrow.has(normalizeDiffPath(file.path)) ||
+          (!!file.origPath && narrow.has(normalizeDiffPath(file.origPath))),
+      );
     },
   );
 
@@ -367,12 +399,13 @@ export class ReviewCanvasComponent {
   private readonly files = computed<readonly ReviewCanvasFile[]>(() => {
     const scope = this.scope();
     if (scope.kind === 'worktree' || scope.kind === 'staged') {
+      const root = this.viewedRoot() ?? undefined;
       return this.treeStatusFiles()
         .filter(
           (file) =>
             !file.isDirectory && (scope.kind === 'worktree' || file.staged),
         )
-        .map(statusCanvasFile);
+        .map((file) => statusCanvasFile(file, root));
     }
     const comparison: ReviewDiffComparison | null =
       scope.kind === 'historical'
@@ -428,6 +461,7 @@ export class ReviewCanvasComponent {
   protected readonly listMessageIsError = computed(() => {
     const kind = this.scope().kind;
     if (kind === 'branch') return this.review.error() !== null;
+    if (this.readOnly()) return !!this.worktreeRead()?.error;
     return (
       (kind === 'worktree' || kind === 'staged') &&
       this.gitStatus.isStatusUnavailable() &&
@@ -443,6 +477,13 @@ export class ReviewCanvasComponent {
       if (error) return error;
       if (this.review.loading() && this.files().length === 0) {
         return 'Loading the branch review…';
+      }
+    }
+    if (this.readOnly()) {
+      const read = this.worktreeRead();
+      if (read?.error) return read.error;
+      if ((!read || read.loading) && this.files().length === 0) {
+        return 'Reading the worktree…';
       }
     }
     if (this.listMessageIsError()) {
@@ -582,8 +623,12 @@ export class ReviewCanvasComponent {
     this.tree().selectAdjacentFile(event.key === 'ArrowDown' ? 1 : -1);
   }
 
-  /** A section's "Edit": the spot editor, editable, in the active workspace. */
+  /**
+   * A section's "Edit": the spot editor, editable, in the active workspace.
+   * Never in the read-only worktree scope (the section hides Edit there).
+   */
   protected onEdit(request: ReviewFileEditRequest): void {
+    if (this.readOnly()) return;
     const root = this.workspaceRoot();
     this.navigation.openFile(request.path, request.line, {
       editable: true,

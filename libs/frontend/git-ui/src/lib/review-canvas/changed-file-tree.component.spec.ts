@@ -107,6 +107,7 @@ describe('ChangedFileTreeComponent', () => {
     stageFile: jest.fn(async () => ok),
     unstageFile: jest.fn(async () => ok),
     discardChanges: jest.fn(async () => ok),
+    discardAll: jest.fn(async (_paths: readonly string[]) => ok),
     stageAll: jest.fn(async () => ok),
     unstageAll: jest.fn(async () => ok),
   };
@@ -512,6 +513,194 @@ describe('ChangedFileTreeComponent', () => {
           .filter((el) => el.getAttribute('aria-level') === '1')[0]
           .getAttribute('aria-expanded'),
       ).toBe('true');
+    });
+
+    describe('Discard all changes (Changes header)', () => {
+      const discardAll = (): HTMLButtonElement =>
+        host().querySelector(
+          '[data-testid="tree-discard-all"]',
+        ) as HTMLButtonElement;
+      const dialogButton = (id: string): HTMLButtonElement =>
+        host().querySelector(`[data-testid="${id}"]`) as HTMLButtonElement;
+
+      it('sits on the Changes header only, with the per-file discard label', () => {
+        render('worktree');
+        const buttons = host().querySelectorAll(
+          '[data-testid="tree-discard-all"]',
+        );
+        expect(buttons).toHaveLength(1);
+        expect(item('Changes').contains(buttons[0])).toBe(true);
+        expect(buttons[0].getAttribute('aria-label')).toBe(
+          'Discard all changes',
+        );
+      });
+
+      it('is absent when Changes is empty', () => {
+        render('worktree', {
+          statusFiles: STATUS.filter((file) => file.staged),
+        });
+        expect(discardAll()).toBeNull();
+      });
+
+      it('asks with the counts first, does nothing on cancel, then discards only the Changes paths', async () => {
+        render('worktree');
+        discardAll().click();
+        fixture.detectChanges();
+        const text = host()
+          .querySelector('[data-testid="git-confirm-dialog"]')
+          ?.textContent?.replace(/\s+/g, ' ');
+        expect(text).toContain('Discard all changes?');
+        expect(text).toContain('All 3 files in Changes will be discarded');
+        expect(text).toContain('changes to 2 tracked files are lost');
+        expect(text).toContain('1 untracked file is deleted from disk');
+        expect(text).toContain('Staged changes are kept');
+        expect(text).toContain('This cannot be undone.');
+        expect(dialogButton('git-confirm-confirm').textContent?.trim()).toBe(
+          'Discard all',
+        );
+
+        dialogButton('git-confirm-cancel').click();
+        await settle();
+        expect(sourceControl.discardAll).not.toHaveBeenCalled();
+
+        discardAll().click();
+        fixture.detectChanges();
+        dialogButton('git-confirm-confirm').click();
+        await settle();
+        expect(sourceControl.discardAll).toHaveBeenCalledTimes(1);
+        expect(sourceControl.discardAll).toHaveBeenCalledWith([
+          'src/util.ts',
+          'notes.md',
+          'logo.bin',
+        ]);
+        expect(sourceControl.discardChanges).not.toHaveBeenCalled();
+        expect(gitStatus.refresh).toHaveBeenCalledTimes(1);
+      });
+
+      it('covers the whole section, not just the rows a filter leaves', async () => {
+        render('worktree', { filter: 'util' });
+        discardAll().click();
+        fixture.detectChanges();
+        dialogButton('git-confirm-confirm').click();
+        await settle();
+        expect(sourceControl.discardAll).toHaveBeenCalledWith([
+          'src/util.ts',
+          'notes.md',
+          'logo.bin',
+        ]);
+      });
+
+      it('shows a failure on the Changes section and re-reads', async () => {
+        sourceControl.discardAll.mockImplementationOnce(
+          async () =>
+            ({
+              success: true,
+              data: {
+                success: false,
+                error: 'Failed to remove untracked files',
+              },
+            }) as never,
+        );
+        render('worktree');
+        discardAll().click();
+        fixture.detectChanges();
+        dialogButton('git-confirm-confirm').click();
+        await settle();
+        expect(
+          item('Changes')
+            .querySelector('[data-testid="tree-row-error"] [role="alert"]')
+            ?.textContent?.trim(),
+        ).toBe('Failed to remove untracked files');
+        expect(gitStatus.refresh).toHaveBeenCalledTimes(1);
+      });
+
+      it('is disabled, with every row action, while it runs', async () => {
+        let finish: (value: unknown) => void = () => undefined;
+        sourceControl.discardAll.mockImplementationOnce(
+          () => new Promise((resolve) => (finish = resolve)) as never,
+        );
+        render('worktree');
+        discardAll().click();
+        fixture.detectChanges();
+        dialogButton('git-confirm-confirm').click();
+        fixture.detectChanges();
+        expect(discardAll().disabled).toBe(true);
+        expect(
+          (
+            host().querySelector(
+              '[data-testid="tree-stage-all"]',
+            ) as HTMLButtonElement
+          ).disabled,
+        ).toBe(true);
+        expect(
+          (
+            item('util.ts').querySelector(
+              '[data-testid="tree-discard"]',
+            ) as HTMLButtonElement
+          ).disabled,
+        ).toBe(true);
+        finish(ok);
+        await settle();
+        expect(discardAll().disabled).toBe(false);
+      });
+
+      it('is disabled while a stage-all runs', async () => {
+        let finish: (value: unknown) => void = () => undefined;
+        sourceControl.stageAll.mockImplementationOnce(
+          () => new Promise((resolve) => (finish = resolve)) as never,
+        );
+        render('worktree');
+        (
+          host().querySelector(
+            '[data-testid="tree-stage-all"]',
+          ) as HTMLButtonElement
+        ).click();
+        fixture.detectChanges();
+        expect(discardAll().disabled).toBe(true);
+        finish(ok);
+        await settle();
+        expect(discardAll().disabled).toBe(false);
+      });
+
+      it('drops a confirmed discard-all when the workspace changed while asking', async () => {
+        render('worktree');
+        discardAll().click();
+        fixture.detectChanges();
+        fixture.componentRef.setInput('workspaceRoot', '/other');
+        fixture.detectChanges();
+        dialogButton('git-confirm-confirm').click();
+        await settle();
+        expect(sourceControl.discardAll).not.toHaveBeenCalled();
+      });
+
+      it('skips conflicted files and says so in the dialog', async () => {
+        render('worktree', {
+          statusFiles: [
+            ...STATUS,
+            {
+              path: 'merge.ts',
+              status: 'U',
+              staged: false,
+              conflict: { kind: 'content' },
+            },
+          ],
+        });
+        discardAll().click();
+        fixture.detectChanges();
+        const text = host()
+          .querySelector('[data-testid="git-confirm-dialog"]')
+          ?.textContent?.replace(/\s+/g, ' ');
+        expect(text).toContain('3 files in Changes will be discarded');
+        expect(text).not.toContain('All 3 files');
+        expect(text).toContain('1 conflicted file is skipped.');
+        dialogButton('git-confirm-confirm').click();
+        await settle();
+        expect(sourceControl.discardAll).toHaveBeenCalledWith([
+          'src/util.ts',
+          'notes.md',
+          'logo.bin',
+        ]);
+      });
     });
 
     describe.each([

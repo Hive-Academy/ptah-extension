@@ -1,5 +1,6 @@
 import { Injectable, inject, signal } from '@angular/core';
 import { VSCodeService, rpcCall } from '@ptah-extension/core';
+import { normalizeWorkspaceRoot } from '@ptah-extension/shared';
 import type {
   GitResolvedReviewRef,
   GitReviewChangesParams,
@@ -19,12 +20,16 @@ export type ReviewComparisonKind = 'worktree' | 'staged' | 'branch';
 /**
  * What the Changes tab compares.
  *
- * `branch` takes its base and head from `GitReviewService`. `historical` is a
- * read-only pair of resolved commits — a past commit against its parent, or a
- * stash entry against its parent — with the file list it was opened with.
+ * `worktree` with a `root` is a read-only view of another worktree's working
+ * tree (an agent turn that ran in a git worktree): status and diffs are read
+ * from `root` while the active workspace stays as it is. `branch` takes its
+ * base and head from `GitReviewService`. `historical` is a read-only pair of
+ * resolved commits — a past commit against its parent, or a stash entry
+ * against its parent — with the file list it was opened with.
  */
 export type ReviewScope =
-  | { kind: ReviewComparisonKind }
+  | { kind: 'worktree'; root?: string }
+  | { kind: Exclude<ReviewComparisonKind, 'worktree'> }
   | {
       kind: 'historical';
       base: GitResolvedReviewRef;
@@ -115,6 +120,11 @@ const NO_WORKSPACE_MESSAGE = 'Open a workspace folder to see its history.';
 const INVALID_COMMIT_MESSAGE = 'That is not a commit id.';
 const HISTORICAL_READ_MESSAGE = 'Could not read this commit.';
 
+/** The read-only worktree root a scope views, or `null` for the active workspace. */
+export function scopeWorktreeRoot(scope: ReviewScope): string | null {
+  return scope.kind === 'worktree' ? (scope.root ?? null) : null;
+}
+
 const INITIAL: ReviewNavigation = {
   seq: 0,
   tab: 'changes',
@@ -179,7 +189,12 @@ export class ReviewNavigationService {
     };
   }
 
-  /** Show the Changes tab, comparing the working tree, narrowed to one turn. */
+  /**
+   * Show the Changes tab, comparing the working tree, narrowed to one turn.
+   * A turn that ran in another worktree than the active workspace opens that
+   * worktree read-only (a `worktree` scope with its `root`); the active
+   * workspace is not switched.
+   */
   openChangeSet(request: {
     workspaceRoot: string;
     files: readonly ReviewChangeSetFile[];
@@ -187,7 +202,9 @@ export class ReviewNavigationService {
   }): void {
     void this.navigate(
       'changes',
-      { kind: 'worktree' },
+      this.isForeignRoot(request.workspaceRoot)
+        ? { kind: 'worktree', root: request.workspaceRoot }
+        : { kind: 'worktree' },
       {
         kind: 'change-set',
         workspaceRoot: request.workspaceRoot,
@@ -206,9 +223,14 @@ export class ReviewNavigationService {
    *
    * `workspaceRoot` and `documentPath` are where a relative path resolves (a
    * chat link's session workspace, or the previewed document it was written
-   * in); the backend re-authorizes the path either way.
+   * in); the backend re-authorizes the path either way. A `workspaceRoot`
+   * other than the active workspace (a turn's worktree) points the
+   * comparison at that worktree, read-only, so "Back to review" shows its
+   * diffs; such a file never opens editable.
    */
   openFile(path: string, line?: number, options?: ReviewOpenFileOptions): void {
+    const root = options?.workspaceRoot;
+    const foreign = this.isForeignRoot(root);
     const request: FileViewOpenRequest = {
       path,
       ...(line === undefined ? {} : { line }),
@@ -218,11 +240,25 @@ export class ReviewNavigationService {
         : {}),
       ...(options?.documentPath ? { documentPath: options.documentPath } : {}),
     };
-    void this.navigate('changes', this._current().scope, {
+    void this.navigate('changes', this.fileScope(root, foreign), {
       kind: 'file',
       request,
-      ...(options?.editable ? { editable: true as const } : {}),
+      ...(options?.editable && !foreign ? { editable: true as const } : {}),
     });
+  }
+
+  /**
+   * Whether `root` names another folder than the active workspace (compared
+   * as root keys: separators, trailing slash and case are ignored). `false`
+   * for no root, or while no workspace is active.
+   */
+  isForeignRoot(root: string | undefined): boolean {
+    const active = this.gitStatus.activeWorkspacePath();
+    return (
+      !!root &&
+      active !== null &&
+      normalizeWorkspaceRoot(root) !== normalizeWorkspaceRoot(active)
+    );
   }
 
   /**
@@ -351,10 +387,10 @@ export class ReviewNavigationService {
 
   /**
    * The active workspace changed (`WorkspaceCoordinatorService`). A commit or
-   * stash comparison, a change set, a diff target or a spot-editor file
-   * opened in another workspace would be read against the new repository, so
-   * they are dropped; the tab and a generic comparison (worktree, staged,
-   * branch) stay. Opens still reading git, and navigations still waiting on
+   * stash comparison, a read-only view of another worktree, a change set, a
+   * diff target or a spot-editor file opened in another workspace would be
+   * read against the new repository, so they are dropped; the tab and a
+   * generic comparison (worktree, staged, branch) stay. Opens still reading git, and navigations still waiting on
    * the leave guard, are superseded.
    */
   switchWorkspace(workspacePath: string): void {
@@ -382,13 +418,34 @@ export class ReviewNavigationService {
   private resetWorkspaceState(): void {
     const { tab, scope, target } = this._current();
     const neutralScope: ReviewScope =
-      scope.kind === 'historical' ? { kind: 'worktree' } : scope;
+      scope.kind === 'historical' || scopeWorktreeRoot(scope) !== null
+        ? { kind: 'worktree' }
+        : scope;
     if (target.kind === 'file') {
-      if (scope.kind === 'historical') this.commit(tab, neutralScope, target);
+      if (neutralScope !== scope) this.commit(tab, neutralScope, target);
       void this.navigate(tab, neutralScope, { kind: 'none' });
       return;
     }
     this.commit(tab, neutralScope, { kind: 'none' });
+  }
+
+  /**
+   * The comparison a file opened from `root` keeps. No root keeps the
+   * current one; a foreign root views that worktree (reusing the scope when it
+   * already does, so its status is not re-read); the active workspace's root
+   * leaves a foreign worktree for the active working tree.
+   */
+  private fileScope(root: string | undefined, foreign: boolean): ReviewScope {
+    const scope = this._current().scope;
+    if (!root) return scope;
+    const viewed = scopeWorktreeRoot(scope);
+    if (foreign) {
+      return viewed !== null &&
+        normalizeWorkspaceRoot(viewed) === normalizeWorkspaceRoot(root)
+        ? scope
+        : { kind: 'worktree', root };
+    }
+    return viewed === null ? scope : { kind: 'worktree' };
   }
 
   /** A newer open, a committed navigation or a workspace switch won. */
@@ -496,7 +553,11 @@ export class ReviewNavigationService {
       target === current.target &&
       (scope === current.scope || target.kind !== 'none');
     let owner: string | null = null;
-    if (scope.kind === 'historical' || target.kind !== 'none') {
+    if (
+      scope.kind === 'historical' ||
+      scopeWorktreeRoot(scope) !== null ||
+      target.kind !== 'none'
+    ) {
       owner = retained ? this.stateWorkspace : opened;
     }
     this._current.set({ seq: current.seq + 1, tab, scope, target });

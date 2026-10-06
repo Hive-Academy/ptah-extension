@@ -91,6 +91,7 @@ jest.mock('os', () => ({
 
 import {
   GitInfoService,
+  chunkPathsByLength,
   isMutatingGitCommand,
   setGitInfoClockForTests,
   resetGitInfoClockForTests,
@@ -1810,6 +1811,108 @@ describe('GitInfoService.discardChanges() — -z classification (RC4)', () => {
       expect(calls.map((args) => args[0])).toEqual(['status', 'status']);
     },
   );
+
+  describe('worktreeOnly (discard all)', () => {
+    it('keeps a staged rename: checks the edited new path out from the index, never restores from HEAD', async () => {
+      const service = new GitInfoService(makeLogger() as never);
+      const { calls } = queueSpawn([
+        {
+          stdout:
+            '2 RM N... 100644 100644 100644 abc123 abc123 R100 new name.txt\0old name.txt\0',
+          exitCode: 0,
+        },
+        { stdout: '', exitCode: 0 },
+      ]);
+
+      const result = await service.discardChanges(WS, ['new name.txt'], {
+        worktreeOnly: true,
+      });
+
+      expect(result).toEqual({ success: true });
+      expect(calls).toEqual([
+        [
+          'status',
+          '--porcelain=v2',
+          '-z',
+          '--untracked-files=all',
+          '--',
+          'new name.txt',
+        ],
+        ['checkout', '--', 'new name.txt'],
+      ]);
+    });
+
+    it('skips unmerged and staged-only paths, cleans untracked ones', async () => {
+      const service = new GitInfoService(makeLogger() as never);
+      const { calls } = queueSpawn([
+        {
+          stdout: [
+            '1 .M N... 100644 100644 100644 abc123 def456 edit.txt',
+            '1 M. N... 100644 100644 100644 abc123 def456 staged.txt',
+            'u UU N... 100644 100644 100644 100644 aaa bbb ccc conflict.txt',
+            '? new.txt',
+            '',
+          ].join('\0'),
+          exitCode: 0,
+        },
+        { stdout: '', exitCode: 0 },
+      ]);
+
+      const result = await service.discardChanges(
+        WS,
+        ['edit.txt', 'staged.txt', 'conflict.txt', 'new.txt'],
+        { worktreeOnly: true },
+      );
+
+      expect(result).toEqual({ success: true });
+      expect(calls.slice(1)).toEqual([
+        ['checkout', '--', 'edit.txt'],
+        ['clean', '-f', '--', 'new.txt'],
+      ]);
+    });
+  });
+
+  it('batches long path lists so no git command line nears the Windows limit', async () => {
+    const service = new GitInfoService(makeLogger() as never);
+    // 300 paths of ~100 chars: ~30K characters in total.
+    const paths = Array.from(
+      { length: 300 },
+      (_, i) => `dir/${'x'.repeat(90)}-${String(i).padStart(3, '0')}.txt`,
+    );
+    const status = paths
+      .map((p) => `1 .M N... 100644 100644 100644 abc123 def456 ${p}`)
+      .join('\0');
+    const { calls } = queueSpawn([{ stdout: `${status}\0`, exitCode: 0 }]);
+
+    const result = await service.discardChanges(WS, paths, {
+      worktreeOnly: true,
+    });
+
+    expect(result).toEqual({ success: true });
+    const statusCalls = calls.filter((args) => args[0] === 'status');
+    const checkoutCalls = calls.filter((args) => args[0] === 'checkout');
+    expect(statusCalls.length).toBeGreaterThan(1);
+    expect(checkoutCalls.length).toBeGreaterThan(1);
+    for (const args of calls) {
+      expect(args.join(' ').length).toBeLessThan(9000);
+    }
+    expect(checkoutCalls.flatMap((args) => args.slice(2))).toEqual(paths);
+  });
+});
+
+describe('chunkPathsByLength', () => {
+  it('keeps order, respects the budget and gives an oversized path its own batch', () => {
+    expect(chunkPathsByLength(['aa', 'bb', 'cc'], 6)).toEqual([
+      ['aa', 'bb'],
+      ['cc'],
+    ]);
+    expect(chunkPathsByLength(['a', 'x'.repeat(20), 'b'], 6)).toEqual([
+      ['a'],
+      ['x'.repeat(20)],
+      ['b'],
+    ]);
+    expect(chunkPathsByLength([], 6)).toEqual([]);
+  });
 });
 
 /**
