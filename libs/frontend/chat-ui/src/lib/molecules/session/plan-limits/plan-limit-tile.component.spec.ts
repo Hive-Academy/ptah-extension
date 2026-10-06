@@ -23,7 +23,9 @@ function windowTile(
     id: 'plan:claude-cli#account:0123456789abcdef:five_hour',
     kind: 'window',
     label: '5-hour',
-    caption: 'Claude account · cdef plan limit',
+    captionLead: 'Claude account plan limit',
+    captionTail: '· cdef',
+    caption: 'Claude account plan limit · cdef',
     value: '94% used',
     resetLine: 'resets 15:10 · in 3h 10m',
     chip: NEAR_WINDOW.chip,
@@ -92,7 +94,10 @@ describe('PlanLimitTileComponent', () => {
     const face = button(root).textContent ?? '';
 
     expect(face).toContain('5-hour');
-    expect(face).toContain('Claude account · cdef plan limit');
+    expect(
+      button(root).querySelector('[data-testid="plan-limit-caption"]')
+        ?.textContent,
+    ).toBe('Claude account plan limit· cdef');
     expect(face).toContain('94% used');
     expect(face).toContain('resets 15:10 · in 3h 10m');
     expect(face).toContain('Near limit');
@@ -106,18 +111,26 @@ describe('PlanLimitTileComponent', () => {
       '[data-testid="plan-limit-caption"]',
     );
 
-    expect(caption?.classList.contains('truncate')).toBe(true);
+    const lead = caption?.firstElementChild;
+    const tail = caption?.lastElementChild;
+
+    expect(caption?.classList.contains('flex')).toBe(true);
+    expect(caption?.classList.contains('gap-1')).toBe(true);
+    expect(lead?.classList.contains('truncate')).toBe(true);
+    expect(tail?.classList.contains('shrink-0')).toBe(true);
+    expect(tail?.textContent?.trim()).toBe('· cdef');
+    expect(tail?.textContent).toBe('· cdef');
     expect(caption?.getAttribute('title')).toBe(
-      'Claude account · cdef plan limit',
+      'Claude account plan limit · cdef',
     );
 
     // An open tile spans both columns, so its caption may keep wrapping.
     fixture.componentRef.setInput('open', true);
     fixture.detectChanges();
 
-    expect(caption?.classList.contains('truncate')).toBe(false);
+    expect(lead?.classList.contains('truncate')).toBe(false);
     expect(caption?.getAttribute('title')).toBe(
-      'Claude account · cdef plan limit',
+      'Claude account plan limit · cdef',
     );
   });
 
@@ -165,7 +178,7 @@ describe('PlanLimitTileComponent', () => {
     expect(text).not.toContain('Near limit');
     expect(text).not.toContain('used · reset Provider API');
     expect(text).not.toContain('limit From error');
-    expect(root.querySelector('[role="meter"]')).toBeNull();
+    expect(root.querySelectorAll('[role="meter"]')).toHaveLength(1);
   });
 
   it('never draws a meter for an unknown used value (unknown is never 0)', () => {

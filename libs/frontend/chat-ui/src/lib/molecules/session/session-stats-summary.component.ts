@@ -6,7 +6,6 @@ import {
   signal,
   inject,
 } from '@angular/core';
-import { NgTemplateOutlet } from '@angular/common';
 import {
   resolveModelDisplayName,
   type SessionBudgetState,
@@ -32,9 +31,9 @@ import {
 import {
   formatCost,
   formatDuration,
-  formatOptionalTokens,
   formatTokens,
 } from './session-stats-format';
+import { SessionModelBreakdownComponent } from './session-model-breakdown.component';
 
 /**
  * Live model stats from current session
@@ -52,9 +51,6 @@ export interface LiveModelStats {
   /** Context usage as percentage (0-100) */
   contextPercent: number;
 }
-
-/** One per-model row of the backend snapshot. */
-type ModelUsageRow = NonNullable<SessionStatsEntry['modelUsageList']>[number];
 
 /**
  * SessionStatsSummaryComponent - Compact inline session stats display
@@ -76,89 +72,14 @@ type ModelUsageRow = NonNullable<SessionStatsEntry['modelUsageList']>[number];
   standalone: true,
   imports: [
     CostBadgeComponent,
-    NgTemplateOutlet,
     LimitsAlertComponent,
     PlanLimitTileComponent,
     LaneUsageTileComponent,
     LaneSubtotalTileComponent,
+    SessionModelBreakdownComponent,
   ],
   templateUrl: './session-stats-summary.component.html',
-  styles: [
-    `
-      :host {
-        display: block;
-      }
-      @container (min-width: 380px) {
-        .stats-grid .stats-cards {
-          grid-template-columns: repeat(3, minmax(0, 1fr));
-        }
-      }
-      @container (min-width: 500px) {
-        .stats-grid .stats-cards {
-          grid-template-columns: repeat(4, minmax(0, 1fr));
-        }
-      }
-
-      .model-usage-row {
-        display: grid;
-        grid-template-columns: minmax(0, 1.4fr) repeat(5, minmax(0, 1fr));
-        gap: 0.25rem;
-        align-items: end;
-      }
-
-      .context-bar-track {
-        height: 4px;
-        border-radius: 2px;
-        background: oklch(0.3 0 0 / 0.4);
-        overflow: hidden;
-      }
-
-      .context-bar-fill {
-        height: 100%;
-        border-radius: 2px;
-        background: oklch(0.72 0.15 200 / 0.5);
-        transition: width 0.6s cubic-bezier(0.22, 1, 0.36, 1);
-      }
-
-      .context-bar-fill.context-bar-warning {
-        background: linear-gradient(
-          90deg,
-          oklch(0.795 0.184 86.047 / 0.7),
-          oklch(0.795 0.184 86.047 / 0.9)
-        );
-        animation: context-bar-pulse 3s ease-in-out infinite;
-      }
-
-      .context-bar-fill.context-bar-critical {
-        background: linear-gradient(
-          90deg,
-          oklch(0.637 0.237 25.331 / 0.7),
-          oklch(0.637 0.237 25.331 / 0.95)
-        );
-        animation: context-bar-pulse-critical 1.5s ease-in-out infinite;
-      }
-
-      @keyframes context-bar-pulse {
-        0%,
-        100% {
-          opacity: 0.75;
-        }
-        50% {
-          opacity: 1;
-        }
-      }
-
-      @keyframes context-bar-pulse-critical {
-        0%,
-        100% {
-          opacity: 0.65;
-        }
-        50% {
-          opacity: 1;
-        }
-      }
-    `,
-  ],
+  styleUrl: './session-stats-summary.component.css',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class SessionStatsSummaryComponent {
@@ -207,6 +128,16 @@ export class SessionStatsSummaryComponent {
 
   protected readonly lanesTooltip =
     'Lane runs are counted separately from session totals';
+
+  /**
+   * Accessible name of the LANES pill ("<n> lane runs, not in session
+   * totals"), from the same count source as `lanesTooltip`; the visible face
+   * is just the number, so the pill needs its own label for screen readers.
+   */
+  protected readonly lanesAriaLabel = computed(() => {
+    const count = this.lanesCount() ?? 0;
+    return `${count} lane run${count === 1 ? '' : 's'}, not in session totals`;
+  });
 
   /**
    * The session budget computed from the same snapshot (TASK_2026_597 N7).
@@ -277,9 +208,7 @@ export class SessionStatsSummaryComponent {
   });
 
   /** The snapshot's per-model rows, as the backend sent them. */
-  readonly modelRows = computed<readonly ModelUsageRow[]>(
-    () => this.snapshot()?.modelUsageList ?? [],
-  );
+  readonly modelRows = computed(() => this.snapshot()?.modelUsageList ?? []);
 
   /** Whether there are multiple models to display */
   readonly hasMultipleModels = computed(() => this.modelRows().length >= 2);
@@ -399,7 +328,6 @@ export class SessionStatsSummaryComponent {
 
   protected readonly formatCost = formatCost;
   protected readonly formatTokens = formatTokens;
-  protected readonly formatOptionalTokens = formatOptionalTokens;
   protected readonly formatDuration = formatDuration;
 
   protected formatModelName(modelId: string): string {

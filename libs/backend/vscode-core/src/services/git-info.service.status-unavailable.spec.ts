@@ -1,13 +1,16 @@
 /**
- * GitInfoService — reasoned `statusUnavailable` and the tri-state repository
- * probe (TASK_2026_576 RC3).
+ * GitInfoService — reasoned `statusUnavailable` and the repository
+ * classification (TASK_2026_576 RC3, TASK_2026_616 Batch G.2).
  *
  * A slow, locked or broken git used to read as "not a repository" (the probe
  * collapsed every failure to `false`) or as a clean tree (a failed status
  * returned an empty list). Both made the UI drop the user's changes. These
  * specs pin the replacement: only git's own "not a git repository" answer is
- * `isGitRepo: false`; every other failure is `isGitRepo: true` with an empty
- * list and a reason the renderer can show next to the last good list.
+ * `isGitRepo: false` — answered by the `git status` run itself, which doubles
+ * as the repository probe; every other failure is `isGitRepo: true` with an
+ * empty list and a reason the renderer can show next to the last good list.
+ * The separate `rev-parse --is-inside-work-tree` probe now backs the public
+ * `isGitRepo()` boolean only.
  *
  * The private `execGit` seam is replaced per spec, so no git binary runs.
  *
@@ -74,10 +77,14 @@ function serviceAnswering(answers: { 'rev-parse': Answer; status?: Answer }): {
   return { service, logger };
 }
 
-describe('GitInfoService — tri-state repository probe (RC3)', () => {
+describe('GitInfoService — repository classification (RC3, G.2)', () => {
   it('reports "not a repository" only for git\'s own exit-128 answer', async () => {
     const { service } = serviceAnswering({
       'rev-parse': fail(
+        128,
+        'fatal: not a git repository (or any of the parent directories): .git\n',
+      ),
+      status: fail(
         128,
         'fatal: not a git repository (or any of the parent directories): .git\n',
       ),
@@ -91,42 +98,39 @@ describe('GitInfoService — tri-state repository probe (RC3)', () => {
     await expect(service.isGitRepo(WS)).resolves.toBe(false);
   });
 
-  it('reports "not a repository" when git answers false (inside .git)', async () => {
-    const { service } = serviceAnswering({ 'rev-parse': ok('false\n') });
+  it('classifies a bare repository from the status refusal, never as "not a repository"', async () => {
+    const { service } = serviceAnswering({
+      'rev-parse': ok('false\n'),
+      status: fail(128, 'fatal: this operation must be run in a work tree\n'),
+    });
 
-    const info = await service.getGitInfo(WS);
-
-    expect(info.isGitRepo).toBe(false);
-    expect(info.statusUnavailable).toBeUndefined();
+    // The probe still classifies for the public boolean: git answered false.
+    await expect(service.isGitRepo(WS)).resolves.toBe(false);
+    // The status pipeline classifies only git's own "not a git repository"
+    // refusal; any other refusal — a bare repository, say — is unavailable,
+    // never isGitRepo:false.
+    await expect(service.getGitInfo(WS)).resolves.toEqual({
+      isGitRepo: true,
+      branch: EMPTY_BRANCH,
+      files: [],
+      statusUnavailable: 'error',
+    });
   });
 
-  it.each<[string, Answer, string]>([
-    ['a probe timeout', new GitTimeoutError('rev-parse', 10_000), 'timeout'],
-    ['a missing git binary', new Error('spawn git ENOENT'), 'error'],
+  it.each<[string, Answer]>([
+    ['a probe timeout', new GitTimeoutError('rev-parse', 10_000)],
+    ['a missing git binary', new Error('spawn git ENOENT')],
     [
       'an exit 128 that is not "not a repository"',
       fail(128, 'fatal: detected dubious ownership in repository\n'),
-      'error',
     ],
-    ['an unexpected exit code', fail(1, 'boom\n'), 'error'],
-    ['a lock failure', fail(128, LOCK_STDERR), 'locked'],
+    ['an unexpected exit code', fail(1, 'boom\n')],
+    ['a lock failure', fail(128, LOCK_STDERR)],
   ])(
-    'never reports isGitRepo:false for %s',
-    async (_label, probeAnswer, reason) => {
-      const { service, logger } = serviceAnswering({
-        'rev-parse': probeAnswer,
-      });
+    'isGitRepo() answers false for %s — only a definite yes is true',
+    async (_label, probeAnswer) => {
+      const { service } = serviceAnswering({ 'rev-parse': probeAnswer });
 
-      await expect(service.getGitInfo(WS)).resolves.toEqual({
-        isGitRepo: true,
-        branch: EMPTY_BRANCH,
-        files: [],
-        statusUnavailable: reason,
-      });
-      expect(logger.warn).toHaveBeenCalledWith(
-        expect.stringContaining(`gave no answer (${reason})`),
-      );
-      // The public boolean keeps its contract: only a definite yes is true.
       await expect(service.isGitRepo(WS)).resolves.toBe(false);
     },
   );

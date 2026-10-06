@@ -442,7 +442,14 @@ export class PlanLimitLedgerService {
     );
     const until = observation.gateUntil ?? rawUntil;
     if (until === undefined) return;
-    this.recordCooldown(proxyOwner(observation), {
+    const owner = proxyOwner(observation);
+    if (!owner) {
+      this.logger.debug('[PlanLimitLedger] proxy observation unattributed', {
+        providerId: observation.providerId,
+      });
+      return;
+    }
+    this.recordCooldown(owner, {
       until,
       observedAt: observation.observedAt,
       ...(rawUntil !== undefined && { rawUntil }),
@@ -454,8 +461,15 @@ export class PlanLimitLedgerService {
     // The same owner the proxy's 429 lands on, so an unattributed proxy's
     // own 2xx clears its own cooldown and no other proxy's. No in-scope proxy
     // provider is provably plan-billed (Decision 4, S4), so exhaustion stays.
+    const owner = proxyOwner(observation);
+    if (!owner) {
+      this.logger.debug('[PlanLimitLedger] proxy observation unattributed', {
+        providerId: observation.providerId,
+      });
+      return;
+    }
     this.recordSuccess({
-      ownerKey: proxyOwner(observation).key,
+      ownerKey: owner.key,
       modelScopes: [],
       billing: 'unknown',
       observedAt: observation.observedAt,
@@ -620,18 +634,19 @@ export class PlanLimitLedgerService {
 
 /**
  * The owner a proxy observation belongs to: the key captured at the response
- * boundary, else an unknown owner of that proxy instance alone.
+ * boundary, else an unknown owner of that proxy instance alone. Sourceless
+ * observations cannot be attributed safely and are dropped.
  */
-function proxyOwner(observation: ProviderQuotaObservation): QuotaOwnerRef {
+function proxyOwner(
+  observation: ProviderQuotaObservation,
+): QuotaOwnerRef | undefined {
   if (observation.ownerKey !== null) {
     const owner = ownerRefOrUndefined(observation.ownerKey);
     if (owner) return owner;
   }
+  if (!observation.sourceId) return undefined;
   return quotaOwnerRefFromKey(
-    unknownOwnerKey(
-      observation.providerId,
-      `proxy:${observation.sourceId ?? 'unidentified'}`,
-    ),
+    unknownOwnerKey(observation.providerId, `proxy:${observation.sourceId}`),
   );
 }
 

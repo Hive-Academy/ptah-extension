@@ -52,12 +52,15 @@ import type { PlanLimitTileModel } from './stats-limit-view-model.types';
         >{{ t.label }}</span
       >
       <span
-        class="block text-[10px] text-base-content-muted leading-tight"
-        [class.truncate]="!open()"
+        class="flex min-w-0 gap-1 text-[10px] text-base-content-muted leading-tight"
         [attr.title]="t.caption"
         data-testid="plan-limit-caption"
-        >{{ t.caption }}</span
       >
+        <span [class.truncate]="!open()">{{ t.captionLead }}</span>
+        @if (t.captionTail; as tail) {
+          <span class="shrink-0 whitespace-nowrap">{{ tail }}</span>
+        }
+      </span>
       <span
         class="block text-sm font-semibold leading-tight mt-0.5"
         data-testid="plan-limit-tile-value"

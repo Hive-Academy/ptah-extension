@@ -426,11 +426,30 @@ function ownerStatusNote(
             ? 'Showing cached account data; refresh failed'
             : `Showing cached account data; refresh failed at ${formatLocalAbsolute(snapshot.staleSince, ctx.now, ctx.time)}`,
       };
-    default:
+    // The failure statuses share one wording; `service-unavailable` is
+    // already handled above (`showsLastKnownEvidence` / same-owner) but is
+    // listed so the switch stays exhaustive over ProviderAccountUsageStatus.
+    case 'unsupported-config':
+    case 'provider-unsupported':
+    case 'cli-unavailable':
+    case 'cli-version-unsupported':
+    case 'service-unavailable':
       return {
         tone: 'neutral',
         text: `Usage unavailable · ${snapshot.status}`,
       };
+    default: {
+      // Compile-time exhaustiveness only: a new ProviderAccountUsageStatus
+      // member without a case fails this assignment. At runtime a newer
+      // backend may still send a status this build does not know (cached or
+      // desynced client); it gets the generic note, never a thrown error
+      // that would blank the whole stats view model (review M2).
+      const unhandled: never = snapshot.status;
+      return {
+        tone: 'neutral',
+        text: `Usage unavailable · ${unhandled}`,
+      };
+    }
   }
 }
 

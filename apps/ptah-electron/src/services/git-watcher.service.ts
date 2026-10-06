@@ -62,6 +62,12 @@
  *   repeats `overflow` every 60 s; each costs one refresh, and a refresh already
  *   running is joined by `GitInfoService`'s single flight, so they never stack.
  *
+ * When a refresh lands inside `GitInfoService`'s status-timeout backoff
+ * (TASK_2026_616 Batch G), the push still happens — it says "unavailable
+ * (timeout)" — and this watcher schedules ONE follow-up push for when the
+ * window closes, carrying the kept causes, so a change that arrived during the
+ * window is still broadcast without waiting for another filesystem event.
+ *
  * The file-tree refresh job (`scheduleTreeRefresh`, `FILE_TREE_CHANGED`) was
  * removed in TASK_2026_385 Batch 4.3 along with the file explorer it fed.
  */
@@ -190,6 +196,14 @@ export class GitWatcherService {
    * pushed onto a later tick so it does not compete with the switch itself.
    */
   private initialFetchTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /**
+   * Deferred follow-up `fetchAndPush` timer after a refresh landed inside
+   * `GitInfoService`'s status-timeout backoff. One per watcher, replaced not
+   * stacked, `unref`'d, cleared by `stop` and inert after a workspace switch
+   * (the armGeneration guard in its callback, like every deferred callback).
+   */
+  private backoffFollowUpTimer: ReturnType<typeof setTimeout> | null = null;
 
   /**
    * Distinct change kinds accumulated across the current debounce window(s).
@@ -358,6 +372,12 @@ export class GitWatcherService {
 
   /** Delay before the initial post-arm git fetch (ms). Keeps the switch itself uncontended by the first `git status`. */
   private static readonly INITIAL_FETCH_DELAY_MS = 50;
+
+  /**
+   * Extra delay past the status-timeout backoff window before the follow-up
+   * push (ms), so the window has closed when the follow-up refresh runs.
+   */
+  private static readonly BACKOFF_FOLLOW_UP_MARGIN_MS = 1_000;
 
   constructor(
     private readonly gitInfo: GitInfoService,
@@ -546,6 +566,11 @@ export class GitWatcherService {
     if (this.initialFetchTimer) {
       clearTimeout(this.initialFetchTimer);
       this.initialFetchTimer = null;
+    }
+
+    if (this.backoffFollowUpTimer) {
+      clearTimeout(this.backoffFollowUpTimer);
+      this.backoffFollowUpTimer = null;
     }
 
     this.clearWorkspaceDebounce();
@@ -1188,6 +1213,19 @@ export class GitWatcherService {
         workspaceRoot,
       };
       this.broadcastFn(GIT_STATUS_UPDATE, payload);
+      // The refresh landed inside GitInfoService's status-timeout backoff:
+      // the broadcast above said "unavailable (timeout)", so the change that
+      // caused this push is not in it. Keep this push's causes for the
+      // follow-up — the renderer then learns which kinds of change it carries
+      // — and schedule exactly ONE follow-up push for when the window closes,
+      // through this same method, so the fresh status is broadcast like any
+      // other.
+      const backoffRemainingMs =
+        this.gitInfo.statusBackoffRemainingMs(workspaceRoot);
+      if (backoffRemainingMs > 0) {
+        for (const cause of causes) this.pendingCauses.add(cause);
+        this.scheduleBackoffFollowUp(workspaceRoot, backoffRemainingMs);
+      }
       // An agent worktree deleted from disk writes nothing a subscription
       // sees, so a status refresh also carries the audit when one is due.
       if (result.isGitRepo && this.claimWorktreeAudit()) {
@@ -1202,6 +1240,35 @@ export class GitWatcherService {
         error: err instanceof Error ? err.message : String(err),
       });
     }
+  }
+
+  /**
+   * Schedule the ONE follow-up push a refresh that landed inside the
+   * status-timeout backoff owes this workspace, for when the window closes
+   * (plus {@link BACKOFF_FOLLOW_UP_MARGIN_MS}, so the window has closed when
+   * the follow-up runs). Replaced, never stacked: one timer per watcher, the
+   * latest backoff wins. `unref`'d so a pending follow-up never holds the host
+   * open; inert after `stop` or a workspace switch (the armGeneration and
+   * workspacePath guards in its callback, like every deferred callback).
+   */
+  private scheduleBackoffFollowUp(
+    workspaceRoot: string,
+    backoffRemainingMs: number,
+  ): void {
+    if (this.isDisposed) return;
+    const generation = this.armGeneration;
+    if (this.backoffFollowUpTimer) {
+      clearTimeout(this.backoffFollowUpTimer);
+      this.backoffFollowUpTimer = null;
+    }
+    const timer = setTimeout(() => {
+      this.backoffFollowUpTimer = null;
+      if (this.isDisposed || generation !== this.armGeneration) return;
+      if (this.workspacePath !== workspaceRoot) return;
+      void this.fetchAndPush();
+    }, backoffRemainingMs + GitWatcherService.BACKOFF_FOLLOW_UP_MARGIN_MS);
+    timer.unref?.();
+    this.backoffFollowUpTimer = timer;
   }
 }
 

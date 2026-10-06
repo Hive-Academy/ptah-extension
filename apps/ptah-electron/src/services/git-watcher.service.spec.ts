@@ -65,6 +65,7 @@ function makeGitInfo(): jest.Mocked<GitInfoService> {
     invalidateReadCache: jest.fn(),
     getGitInfo: jest.fn(result),
     refreshGitInfo: jest.fn(result),
+    statusBackoffRemainingMs: jest.fn((): number => 0),
     getWorktrees: jest.fn(async (): Promise<GitWorktreeInfo[]> => []),
     pruneWorktrees: jest.fn(
       async (): Promise<{ success: boolean; error?: string }> => ({
@@ -534,6 +535,118 @@ describe('GitWatcherService', () => {
       ).toBeNull();
       finish();
       await flush();
+    });
+  });
+
+  // ===========================================================================
+  // STATUS-TIMEOUT BACKOFF FOLLOW-UP (TASK_2026_616 Batch G, fix round 2)
+  //
+  // A refresh that lands inside GitInfoService's status-timeout backoff
+  // still pushes — the payload says "unavailable (timeout)" — and the watcher
+  // owes the workspace ONE follow-up push for when the window closes, so a
+  // change that arrived during the window is broadcast without waiting for
+  // another filesystem event. The follow-up is the watcher's (only it can
+  // drain its causes and broadcast); GitInfoService itself arms no timer.
+  // ===========================================================================
+
+  describe('status-timeout backoff follow-up', () => {
+    const WS = path.join(os.tmpdir(), 'gw-backoff-ws');
+    const UNAVAILABLE: GitInfoResult = {
+      isGitRepo: true,
+      branch: { branch: '', upstream: null, ahead: 0, behind: 0 },
+      files: [],
+      statusUnavailable: 'timeout',
+    };
+    const OK: GitInfoResult = {
+      isGitRepo: true,
+      branch: { branch: 'main', upstream: null, ahead: 0, behind: 0 },
+      files: [],
+    };
+
+    beforeEach(() => {
+      jest.useFakeTimers();
+      (svc as unknown as { workspacePath: string }).workspacePath = WS;
+      svc.start(WS, broadcast);
+      // A non-git root has no initial fetch timer, and the fake timers hold
+      // every other channel anyway.
+      broadcast.mockClear();
+      gitInfo.refreshGitInfo.mockResolvedValue(UNAVAILABLE);
+      gitInfo.statusBackoffRemainingMs.mockReturnValue(30_000);
+    });
+
+    it('a refresh that lands in the backoff schedules one follow-up push after the window', async () => {
+      workspaceWatcher.__state.latest().deliver({
+        changes: changes(WS, 'update', 'src/a.ts'),
+      });
+      jest.advanceTimersByTime(2_000);
+      await flush();
+
+      // The skipped push broadcast the unavailable result...
+      expect(gitInfo.refreshGitInfo).toHaveBeenCalledTimes(1);
+      const skipped = calls('git:status-update');
+      expect(skipped).toHaveLength(1);
+      expect((skipped[0][1] as GitStatusUpdatePayload).causes).toEqual([
+        'workspace',
+      ]);
+
+      // ...and scheduled one follow-up for when the window closes: not
+      // before the window plus its margin (30 s + 1 s after the push)...
+      jest.advanceTimersByTime(29_000);
+      await flush();
+      expect(calls('git:status-update')).toHaveLength(1);
+
+      // ...and exactly one push after, carrying the kept causes.
+      gitInfo.statusBackoffRemainingMs.mockReturnValue(0);
+      gitInfo.refreshGitInfo.mockResolvedValue(OK);
+      jest.advanceTimersByTime(2_000);
+      await flush();
+
+      const after = calls('git:status-update');
+      expect(after).toHaveLength(2);
+      expect(gitInfo.refreshGitInfo).toHaveBeenCalledTimes(2);
+      expect((after[1][1] as GitStatusUpdatePayload).causes).toEqual([
+        'workspace',
+      ]);
+    });
+
+    it('several skipped refreshes in the same window still schedule exactly one follow-up', async () => {
+      for (let i = 0; i < 2; i++) {
+        workspaceWatcher.__state.latest().deliver({
+          changes: changes(WS, 'update', `src/f-${i}.ts`),
+        });
+        jest.advanceTimersByTime(2_000);
+        await flush();
+      }
+
+      // Two pushes landed inside the window and each scheduled a follow-up;
+      // the second replaced the first, so one follow-up runs after them.
+      expect(gitInfo.refreshGitInfo).toHaveBeenCalledTimes(2);
+      expect(calls('git:status-update')).toHaveLength(2);
+
+      gitInfo.statusBackoffRemainingMs.mockReturnValue(0);
+      gitInfo.refreshGitInfo.mockResolvedValue(OK);
+      jest.advanceTimersByTime(31_000);
+      await flush();
+
+      expect(gitInfo.refreshGitInfo).toHaveBeenCalledTimes(3);
+      expect(calls('git:status-update')).toHaveLength(3);
+    });
+
+    it('stop() cancels a pending follow-up push', async () => {
+      workspaceWatcher.__state.latest().deliver({
+        changes: changes(WS, 'update', 'src/a.ts'),
+      });
+      jest.advanceTimersByTime(2_000);
+      await flush();
+      expect(calls('git:status-update')).toHaveLength(1);
+
+      svc.stop();
+      jest.advanceTimersByTime(60_000);
+      await flush();
+
+      // The follow-up was cleared with the disarm: nothing more ran.
+      expect(gitInfo.refreshGitInfo).toHaveBeenCalledTimes(1);
+      expect(calls('git:status-update')).toHaveLength(1);
     });
   });
 
