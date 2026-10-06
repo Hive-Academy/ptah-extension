@@ -142,7 +142,8 @@ function mapStatus(component: StatusComponent): StatusNode {
     }
     case 'progress':
     case 'radial-progress': {
-      if (typeof component.value !== 'number' || !Number.isFinite(component.value)) {
+      if (typeof component.value !== 'number' || !Number.isFinite(component.value)
+        || component.value < 0 || component.value > 100) {
         throw new TypeError('Invalid surface progress value.');
       }
       if (!STATUS_TONES.includes(component.tone)) throw new TypeError('Invalid surface progress tone.');

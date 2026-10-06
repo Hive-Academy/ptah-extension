@@ -31,7 +31,7 @@ export const SURFACE_INPUT_KINDS = [
   'radio-group',
   'checkbox',
 ] as const;
-/** v2 display vocabulary: the five v1 kinds first, then the six status kinds. */
+/** dashboard-catalog/3 display vocabulary: the five v1 kinds first, then the six status kinds. */
 export const SURFACE_DISPLAY_KINDS = [
   'stat',
   'line-chart',

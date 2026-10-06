@@ -215,6 +215,28 @@ describe('buildSurfaceViewModel', () => {
     }
   });
 
+  it('fails closed on out-of-range progress values and accepts the 0..100 bounds', () => {
+    const hostile: readonly SurfaceComponent[] = [
+      { id: 'negative', kind: 'progress', value: -5, tone: 'primary', label: { text: 'L' } },
+      { id: 'overflow', kind: 'progress', value: 250, tone: 'primary', label: { text: 'L' } },
+      { id: 'radial-negative', kind: 'radial-progress', value: -5, tone: 'primary', label: { text: 'L' } },
+      { id: 'radial-overflow', kind: 'radial-progress', value: 250, tone: 'primary', label: { text: 'L' } },
+    ];
+    for (const component of hostile) {
+      const result = buildSurfaceViewModel(v2([component]));
+      expect(result.renderFailed).toBe(true);
+      expect(result.viewModel).toBeNull();
+    }
+    const [zero, full] = built(v2([
+      { id: 'zero', kind: 'progress', value: 0, tone: 'primary', label: { text: 'L' } },
+      { id: 'full', kind: 'radial-progress', value: 100, tone: 'primary', label: { text: 'L' } },
+    ]));
+    expect(zero).toEqual({ id: 'zero', kind: 'progress', value: 0, tone: 'primary',
+      label: { text: 'L' }, selectable: false });
+    expect(full).toEqual({ id: 'full', kind: 'radial-progress', value: 100, tone: 'primary',
+      label: { text: 'L' }, selectable: false });
+  });
+
   it('rejects a v2 envelope still stamped dashboard-catalog/2', () => {
     const stale = v2([{ id: 'stat', kind: 'stat', value: 1 }]);
     const result = buildSurfaceViewModel({
