@@ -51,6 +51,12 @@ import {
 
 import { z } from 'zod';
 
+import {
+  RECORD_SEPARATOR,
+  SESSION_CWD,
+  SessionJsonlWriter,
+} from './session-jsonl-writer';
+
 /**
  * Characters in one curator window — the product's own clamp cap, imported
  * from the barrel (which loads under Jest with the `vscode` stub the specs
@@ -70,15 +76,9 @@ export const CURATOR_WINDOW_LIMIT = CURATOR_MAX_WINDOWS;
  */
 export const LONG_SESSION_WINDOWS = 13;
 
-/** Records are joined on a blank line by both transcript producers. */
-const RECORD_SEPARATOR = '\n\n';
-
 /** Minutes between consecutive turns. Deterministic, so timestamps are too. */
 const MINUTES_PER_TURN_STANDARD = 1;
 const MINUTES_PER_TURN_LONG = 2;
-
-/** Synthetic workspace path for every seeded session. */
-const SESSION_CWD = 'D:/bench/ptah-extension';
 
 /** The three bait classes (design 3.1). */
 export type BaitClass = 'sediment' | 'rejected-hypothesis' | 'corrected-claim';
@@ -363,10 +363,12 @@ export function generateSeededSession(
   const random = seededRandom(
     `${input.seed}:${input.planting.factId}:${input.planting.date}`,
   );
-  const builder = new TurnBuilder(
+  const builder = new SessionJsonlWriter<BaitClass>(
     sessionIdOf(input.seed, `${input.planting.factId}:${input.planting.date}`),
     input.clock.sessionStartAt(input.planting),
     MINUTES_PER_TURN_STANDARD,
+    CURATOR_WINDOW_CHARS,
+    CURATOR_WINDOW_LIMIT,
   );
 
   builder.turn('user', pick(templates.openers, random).text);
@@ -456,13 +458,15 @@ export function generateLongSeededSession(
     for (const planting of input.plantings) factWindows.set(planting.factId, 1);
   }
 
-  const builder = new TurnBuilder(
+  const builder = new SessionJsonlWriter<BaitClass>(
     sessionIdOf(
       input.seed,
       `long:${earliest.factId}:${earliest.date}:${input.factPlacement}`,
     ),
     input.clock.sessionStartAt(earliest),
     MINUTES_PER_TURN_LONG,
+    CURATOR_WINDOW_CHARS,
+    CURATOR_WINDOW_LIMIT,
   );
 
   for (let window = 1; window <= LONG_SESSION_WINDOWS; window += 1) {
@@ -517,7 +521,7 @@ export function generateLongSeededSession(
  * middle variants draw the same filler pairs for every window.
  */
 function fillLongWindow(
-  builder: TurnBuilder,
+  builder: SessionJsonlWriter<BaitClass>,
   templates: UsableTemplates,
   random: () => number,
 ): void {
@@ -704,7 +708,7 @@ function baitsOf(
  * turn — "stated and then rejected in-session" / "a claim the user corrects".
  */
 function emitBait(
-  builder: TurnBuilder,
+  builder: SessionJsonlWriter<BaitClass>,
   bank: readonly DistractorBankRecord[],
   random: () => number,
 ): void {
@@ -775,125 +779,4 @@ function seededRandom(seed: string): () => number {
     value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
     return ((value ^ (value >>> 14)) >>> 0) / 4294967296;
   };
-}
-
-/**
- * Accumulates turns into the three synchronized outputs (turn list, JSONL
- * lines, flattened transcript) while tracking which 1-based window the
- * transcript has filled.
- */
-class TurnBuilder {
-  private readonly turns: SeededTurn[] = [];
-  private readonly jsonlLines: string[] = [];
-  private readonly records: string[] = [];
-  private readonly baits: {
-    id: string;
-    baitClass: BaitClass;
-    turnIndex: number;
-  }[] = [];
-  private readonly startMs: number;
-  /** Running transcript length, so window accounting stays O(1) per turn. */
-  private chars = 0;
-
-  constructor(
-    private readonly sessionId: string,
-    startAt: string,
-    private readonly minutesPerTurn: number,
-  ) {
-    const parsed = Date.parse(startAt);
-    if (Number.isNaN(parsed)) {
-      throw new Error(
-        `the injected clock returned an invalid instant: ${startAt}`,
-      );
-    }
-    this.startMs = parsed;
-  }
-
-  /** The window the NEXT turn will land in, 1-based. */
-  get currentWindow(): number {
-    return Math.floor(this.chars / CURATOR_WINDOW_CHARS) + 1;
-  }
-
-  turn(
-    role: 'user' | 'assistant',
-    text: string,
-    factIds: readonly string[] = [],
-    baits: readonly { id: string; baitClass: BaitClass }[] = [],
-  ): void {
-    const turnIndex = this.turns.length;
-    const window = this.currentWindow;
-    const timestamp = new Date(
-      this.startMs + turnIndex * this.minutesPerTurn * 60_000,
-    ).toISOString();
-    this.jsonlLines.push(
-      JSON.stringify({
-        type: role,
-        uuid: this.uuids(turnIndex),
-        sessionId: this.sessionId,
-        timestamp,
-        cwd: SESSION_CWD,
-        message: {
-          role,
-          content: [{ type: 'text', text }],
-        },
-      }),
-    );
-    const record = `${role.toUpperCase()}: ${text}`;
-    this.records.push(record);
-    // Window accounting counts the full record — the role prefix included —
-    // so the tracked length equals the joined transcript's length.
-    this.chars +=
-      this.records.length === 1
-        ? record.length
-        : RECORD_SEPARATOR.length + record.length;
-    this.turns.push({
-      role,
-      text,
-      turnIndex,
-      window,
-      factIds,
-      baitIds: baits.map((bait) => bait.id),
-    });
-    for (const bait of baits) {
-      if (this.baits.some((recorded) => recorded.id === bait.id)) continue;
-      this.baits.push({
-        id: bait.id,
-        baitClass: bait.baitClass,
-        turnIndex,
-      });
-    }
-  }
-
-  /** Stable per-turn uuid from the session id and turn index. */
-  private uuids(turnIndex: number): string {
-    const random = seededRandom(`${this.sessionId}:${turnIndex}`);
-    return uuidOf(random);
-  }
-
-  build(
-    kind: 'standard' | 'long',
-    factWindows: readonly { factId: string; window: number }[],
-  ): SeededSession {
-    const transcript = this.records.join(RECORD_SEPARATOR);
-    // Computed from the finished transcript, never a constant: the number of
-    // window budgets its characters span.
-    const plannedWindows = Math.max(
-      1,
-      Math.ceil(transcript.length / CURATOR_WINDOW_CHARS),
-    );
-    return {
-      sessionId: this.sessionId,
-      kind,
-      datedAt: new Date(this.startMs).toISOString(),
-      jsonl: `${this.jsonlLines.join('\n')}\n`,
-      transcript,
-      turns: this.turns,
-      baits: this.baits,
-      windowPlan: {
-        plannedWindows,
-        exceedsWindowLimit: plannedWindows > CURATOR_WINDOW_LIMIT,
-        factWindows,
-      },
-    };
-  }
 }
