@@ -160,9 +160,11 @@ export {
 } from './lib/retention/memory-lifecycle-config';
 export type { MemoryLifecycleSettings } from './lib/retention/memory-lifecycle-config';
 export {
+  DAY_MS,
   MEMORY_RETENTION_DEFAULTS,
   MEMORY_RETENTION_KEYS,
   MEMORY_RETENTION_LIMITS,
+  RETENTION_CAP_EVICTION_GRACE_MS,
 } from './lib/retention/memory-retention-config';
 export type {
   MemoryRetentionLimits,
