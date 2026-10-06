@@ -1,0 +1,1214 @@
+{
+  "id": "definitions",
+  "version": "1",
+  "method": "generated",
+  "frozenAt": "2026-10-06T23:31:56.133Z",
+  "corpusCommit": "7910f34cf",
+  "generator": "graph-questions.ts",
+  "seed": 6190502,
+  "counts": {
+    "callSites": 150
+  },
+  "questions": [
+    {
+      "id": "definition-1",
+      "file": "libs/api/identity/src/lib/services/workos/workos-user.service.ts",
+      "line": 261,
+      "column": 20,
+      "query": "sendVerificationEmail",
+      "truth": "libs/api/identity/src/lib/services/workos/workos-user.service.ts:164"
+    },
+    {
+      "id": "definition-2",
+      "file": "libs/backend/memory-curator/src/lib/retention/retention-run-budget.ts",
+      "line": 64,
+      "column": 9,
+      "query": "now",
+      "truth": "libs/backend/memory-curator/src/lib/retention/retention-run-budget.ts:55"
+    },
+    {
+      "id": "definition-3",
+      "file": "libs/frontend/git-ui/src/lib/renderer/text-diff-view.component.ts",
+      "line": 152,
+      "column": 9,
+      "query": "toFile",
+      "truth": "libs/frontend/git-ui/src/lib/renderer/text-diff-view.component.ts:146"
+    },
+    {
+      "id": "definition-4",
+      "file": "libs/backend/platform-electron/src/implementations/electron-editor-provider.ts",
+      "line": 37,
+      "column": 35,
+      "query": "createEvent",
+      "truth": "libs/backend/platform-core/src/utils/event-emitter.ts:18"
+    },
+    {
+      "id": "definition-5",
+      "file": "libs/backend/auth-providers/src/lib/auth/strategies/local-native.strategy.ts",
+      "line": 193,
+      "column": 17,
+      "query": "info",
+      "truth": "libs/backend/vscode-core/src/logging/logger.ts:134"
+    },
+    {
+      "id": "definition-6",
+      "file": "libs/backend/cli-engine/src/lib/transport/cli-webview-manager-adapter.ts",
+      "line": 30,
+      "column": 10,
+      "query": "dispatch",
+      "truth": "libs/backend/cli-engine/src/lib/transport/cli-webview-manager-adapter.ts:71"
+    },
+    {
+      "id": "definition-7",
+      "file": "libs/frontend/chat-ui/src/lib/molecules/setup-plugins/skill-sh-browser.component.ts",
+      "line": 552,
+      "column": 14,
+      "query": "searchQuery",
+      "truth": "libs/frontend/chat-ui/src/lib/molecules/setup-plugins/skill-sh-browser.component.ts:283"
+    },
+    {
+      "id": "definition-8",
+      "file": "libs/backend/voice-providers/src/lib/worker/ffmpeg-decode.ts",
+      "line": 98,
+      "column": 27,
+      "query": "resolve",
+      "truth": "libs/backend/voice-providers/src/lib/worker/ffmpeg-decode.ts:69"
+    },
+    {
+      "id": "definition-9",
+      "file": "libs/web/landing/src/lib/sections/builders/builders-section.component.ts",
+      "line": 472,
+      "column": 14,
+      "query": "buildMarquee",
+      "truth": "libs/web/landing/src/lib/sections/builders/builders-section.component.ts:486"
+    },
+    {
+      "id": "definition-10",
+      "file": "libs/frontend/chat/src/lib/update-dialog/update-dialog.component.ts",
+      "line": 129,
+      "column": 20,
+      "query": "state",
+      "truth": "libs/frontend/chat/src/lib/update-dialog/update-dialog.component.ts:103"
+    },
+    {
+      "id": "definition-11",
+      "file": "libs/backend/platform-electron/src/implementations/electron-state-storage-legacy-split.ts",
+      "line": 303,
+      "column": 26,
+      "query": "migrationFailed",
+      "truth": "libs/backend/platform-electron/src/implementations/electron-state-storage-legacy-split.ts:53"
+    },
+    {
+      "id": "definition-12",
+      "file": "apps/ptah-cli/src/cli/commands/mcp-serve.ts",
+      "line": 200,
+      "column": 40,
+      "query": "handleInitialize",
+      "truth": "libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-stdio/stdio-mcp-server.service.ts:116"
+    },
+    {
+      "id": "definition-13",
+      "file": "libs/backend/agent-sdk/src/lib/detector/claude-cli-path-resolver.ts",
+      "line": 237,
+      "column": 9,
+      "query": "resolve",
+      "truth": "libs/backend/agent-sdk/src/lib/detector/claude-cli-path-resolver.ts:221"
+    },
+    {
+      "id": "definition-14",
+      "file": "libs/frontend/canvas/src/lib/canvas-layout-controls.component.ts",
+      "line": 147,
+      "column": 33,
+      "query": "isSingleton",
+      "truth": "libs/frontend/canvas/src/lib/canvas-layout-controls.component.ts:141"
+    },
+    {
+      "id": "definition-15",
+      "file": "libs/backend/cli-agent-runtime/src/lib/cli-agents/cli-adapters/copilot-permission-bridge.ts",
+      "line": 276,
+      "column": 13,
+      "query": "resolve",
+      "truth": "libs/backend/cli-agent-runtime/src/lib/cli-agents/cli-adapters/copilot-permission-bridge.ts:97"
+    },
+    {
+      "id": "definition-16",
+      "file": "libs/backend/voice-providers/src/lib/local/local-tts-provider.ts",
+      "line": 116,
+      "column": 17,
+      "query": "info",
+      "truth": "libs/backend/vscode-core/src/logging/logger.ts:134"
+    },
+    {
+      "id": "definition-17",
+      "file": "apps/ptah-tui/src/context/EscapeClaimContext.tsx",
+      "line": 81,
+      "column": 18,
+      "query": "release",
+      "truth": "apps/ptah-tui/src/context/EscapeClaimContext.tsx:77"
+    },
+    {
+      "id": "definition-18",
+      "file": "libs/api/marketing/src/lib/waitlist/waitlist.service.ts",
+      "line": 142,
+      "column": 29,
+      "query": "normalizeEmail",
+      "truth": "libs/api/marketing/src/lib/waitlist/waitlist.service.ts:295"
+    },
+    {
+      "id": "definition-19",
+      "file": "libs/backend/persistence-sqlite/src/lib/backup.service.ts",
+      "line": 299,
+      "column": 44,
+      "query": "takeBackup",
+      "truth": "libs/backend/persistence-sqlite/src/lib/backup.service.ts:364"
+    },
+    {
+      "id": "definition-20",
+      "file": "apps/ptah-video-studio/src/remocn/components/remocn/number-wheel/index.tsx",
+      "line": 53,
+      "column": 18,
+      "query": "springEased",
+      "truth": "apps/ptah-video-studio/src/remocn/components/remocn/number-wheel/index.tsx:45"
+    },
+    {
+      "id": "definition-21",
+      "file": "libs/backend/settings-core/src/repositories/gateway-settings.ts",
+      "line": 39,
+      "column": 36,
+      "query": "secretHandleFor",
+      "truth": "libs/backend/settings-core/src/repositories/gateway-settings.ts:50"
+    },
+    {
+      "id": "definition-22",
+      "file": "libs/backend/vscode-core/src/messaging/rpc-handler.ts",
+      "line": 131,
+      "column": 17,
+      "query": "debug",
+      "truth": "libs/backend/vscode-core/src/logging/logger.ts:123"
+    },
+    {
+      "id": "definition-23",
+      "file": "libs/backend/vscode-core/src/di/register-storage-shims.ts",
+      "line": 93,
+      "column": 12,
+      "query": "error",
+      "truth": "libs/backend/vscode-core/src/logging/logger.ts:156"
+    },
+    {
+      "id": "definition-24",
+      "file": "libs/backend/cli-agent-runtime/src/lib/cli-agents/limits/plan-limit-owner-discovery.service.ts",
+      "line": 366,
+      "column": 46,
+      "query": "listAgents",
+      "truth": "libs/backend/cli-agent-runtime/src/lib/cli-agents/limits/plan-limit-owner-discovery.service.ts:145"
+    },
+    {
+      "id": "definition-25",
+      "file": "libs/frontend/markdown/src/lib/markdown-file-links.ts",
+      "line": 135,
+      "column": 29,
+      "query": "handleMarkdownFileLink",
+      "truth": "libs/frontend/markdown/src/lib/markdown-file-links.ts:29"
+    },
+    {
+      "id": "definition-26",
+      "file": "libs/backend/rpc-handlers/src/lib/handlers/chat-rpc.schema.ts",
+      "line": 59,
+      "column": 12,
+      "query": "uuidString",
+      "truth": "libs/backend/rpc-handlers/src/lib/handlers/chat-rpc.schema.ts:46"
+    },
+    {
+      "id": "definition-27",
+      "file": "apps/ptah-extension-vscode/src/providers/angular-webview.provider.ts",
+      "line": 326,
+      "column": 21,
+      "query": "info",
+      "truth": "libs/backend/vscode-core/src/logging/logger.ts:134"
+    },
+    {
+      "id": "definition-28",
+      "file": "libs/shared/src/lib/utils/plan-limits/window-state.ts",
+      "line": 210,
+      "column": 7,
+      "query": "resetPassage",
+      "truth": "libs/shared/src/lib/utils/plan-limits/window-state.ts:171"
+    },
+    {
+      "id": "definition-29",
+      "file": "libs/frontend/chat/src/lib/services/chat-store/history-paging.service.ts",
+      "line": 63,
+      "column": 26,
+      "query": "runLoadOlder",
+      "truth": "libs/frontend/chat/src/lib/services/chat-store/history-paging.service.ts:75"
+    },
+    {
+      "id": "definition-30",
+      "file": "libs/api/learning/src/testing/controller-reflection.ts",
+      "line": 101,
+      "column": 18,
+      "query": "normalize",
+      "truth": "libs/api/learning/src/testing/controller-reflection.ts:117"
+    },
+    {
+      "id": "definition-31",
+      "file": "libs/web/members/src/lib/notifications/notifications-page.ts",
+      "line": 308,
+      "column": 31,
+      "query": "_selected",
+      "truth": "libs/web/members/src/lib/notifications/notifications-page.ts:257"
+    },
+    {
+      "id": "definition-32",
+      "file": "libs/backend/rpc-handlers/src/lib/harness/ai/harness-workflow-prompt.service.ts",
+      "line": 23,
+      "column": 51,
+      "query": "discoverAvailableSkills",
+      "truth": "libs/backend/rpc-handlers/src/lib/harness/workspace/harness-workspace-context.service.ts:348"
+    },
+    {
+      "id": "definition-33",
+      "file": "libs/web/admin/src/lib/groups/components/assign-members-modal/assign-members-modal.ts",
+      "line": 72,
+      "column": 17,
+      "query": "parsedEmails",
+      "truth": "libs/web/admin/src/lib/groups/components/assign-members-modal/assign-members-modal.ts:56"
+    },
+    {
+      "id": "definition-34",
+      "file": "libs/frontend/marketplace/src/lib/external-installed-row.component.ts",
+      "line": 109,
+      "column": 26,
+      "query": "listing",
+      "truth": "libs/frontend/marketplace/src/lib/external-installed-row.component.ts:98"
+    },
+    {
+      "id": "definition-35",
+      "file": "libs/backend/agent-sdk/src/lib/helpers/compaction-hook-handler.ts",
+      "line": 301,
+      "column": 21,
+      "query": "debug",
+      "truth": "libs/backend/vscode-core/src/logging/logger.ts:123"
+    },
+    {
+      "id": "definition-36",
+      "file": "libs/backend/skill-synthesis/src/lib/queue/foreground-activity.tracker.ts",
+      "line": 59,
+      "column": 12,
+      "query": "onActivity",
+      "truth": "libs/backend/skill-synthesis/src/lib/queue/foreground-activity.tracker.ts:83"
+    },
+    {
+      "id": "definition-37",
+      "file": "libs/shared/src/lib/types/task-filter.ts",
+      "line": 378,
+      "column": 8,
+      "query": "matchesExecutors",
+      "truth": "libs/shared/src/lib/types/task-filter.ts:273"
+    },
+    {
+      "id": "definition-38",
+      "file": "libs/backend/agent-generation/src/lib/services/template-storage.service.ts",
+      "line": 483,
+      "column": 23,
+      "query": "err",
+      "truth": "libs/shared/src/lib/utils/result.ts:33"
+    },
+    {
+      "id": "definition-39",
+      "file": "apps/ptah-tui/src/lib/thoth-lifecycle.ts",
+      "line": 88,
+      "column": 29,
+      "query": "ready",
+      "truth": "apps/ptah-tui/src/lib/thoth-lifecycle.ts:53"
+    },
+    {
+      "id": "definition-40",
+      "file": "libs/backend/platform-cli/src/implementations/cli-editor-launcher.ts",
+      "line": 58,
+      "column": 13,
+      "query": "spawnTerminalProcess",
+      "truth": "libs/backend/platform-core/src/utils/terminal-launch.ts:204"
+    },
+    {
+      "id": "definition-41",
+      "file": "libs/api/marketing/src/lib/marketing/services/segment-resolver.service.ts",
+      "line": 86,
+      "column": 22,
+      "query": "getSegmentFilter",
+      "truth": "libs/api/marketing/src/lib/marketing/services/segment-resolver.service.ts:95"
+    },
+    {
+      "id": "definition-42",
+      "file": "libs/backend/memory-curator/src/lib/curator-llm/curator-window-runner.ts",
+      "line": 117,
+      "column": 21,
+      "query": "warn",
+      "truth": "libs/backend/vscode-core/src/logging/logger.ts:145"
+    },
+    {
+      "id": "definition-43",
+      "file": "libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/agent-status-throttle.ts",
+      "line": 79,
+      "column": 21,
+      "query": "callerKeyOf",
+      "truth": "libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/agent-status-throttle.ts:106"
+    },
+    {
+      "id": "definition-44",
+      "file": "libs/frontend/chat/src/lib/services/chat-message-handler.service.ts",
+      "line": 138,
+      "column": 14,
+      "query": "handleChatChunk",
+      "truth": "libs/frontend/chat/src/lib/services/chat-message-handler.service.ts:458"
+    },
+    {
+      "id": "definition-45",
+      "file": "libs/frontend/mcp-apps-page/src/lib/state/apps-surface-reducer.ts",
+      "line": 392,
+      "column": 12,
+      "query": "withTombstone",
+      "truth": "libs/frontend/mcp-apps-page/src/lib/state/apps-surface-reducer.ts:131"
+    },
+    {
+      "id": "definition-46",
+      "file": "libs/backend/task-specs/src/lib/task-doctor.service.ts",
+      "line": 421,
+      "column": 33,
+      "query": "planAdoption",
+      "truth": "libs/backend/task-specs/src/lib/task-doctor.service.ts:796"
+    },
+    {
+      "id": "definition-47",
+      "file": "libs/backend/voice-providers/src/lib/elevenlabs/elevenlabs-tts-provider.ts",
+      "line": 85,
+      "column": 31,
+      "query": "mimeTypeForFormat",
+      "truth": "libs/backend/voice-providers/src/lib/elevenlabs/elevenlabs-tts-provider.ts:34"
+    },
+    {
+      "id": "definition-48",
+      "file": "libs/api/licensing/src/lib/auth-endpoints/auth.controller.ts",
+      "line": 445,
+      "column": 32,
+      "query": "validatePlanKey",
+      "truth": "libs/api/licensing/src/lib/auth-endpoints/auth.controller.ts:189"
+    },
+    {
+      "id": "definition-49",
+      "file": "libs/frontend/chat/src/lib/settings/ptah-ai/web-search-config.component.ts",
+      "line": 353,
+      "column": 23,
+      "query": "clearCancelButton",
+      "truth": "libs/frontend/chat/src/lib/settings/ptah-ai/web-search-config.component.ts:348"
+    },
+    {
+      "id": "definition-50",
+      "file": "libs/backend/platform-core/src/testing/contracts/run-output-channel-contract.ts",
+      "line": 56,
+      "column": 28,
+      "query": "dispose",
+      "truth": "libs/backend/platform-core/src/types/platform.types.ts:13"
+    },
+    {
+      "id": "definition-51",
+      "file": "libs/frontend/marketplace/src/lib/oauth-surface.component.ts",
+      "line": 759,
+      "column": 20,
+      "query": "loadConnected",
+      "truth": "libs/frontend/marketplace/src/lib/oauth-surface.component.ts:787"
+    },
+    {
+      "id": "definition-52",
+      "file": "apps/ptah-tui/src/components/common/PermissionPrompt.tsx",
+      "line": 33,
+      "column": 9,
+      "query": "onDecision",
+      "truth": "apps/ptah-tui/src/components/common/PermissionPrompt.tsx:18"
+    },
+    {
+      "id": "definition-53",
+      "file": "libs/backend/rpc-handlers/src/lib/harness/selection/harness-skill-selection-rpc.service.ts",
+      "line": 130,
+      "column": 18,
+      "query": "summarizeHarnessHealth",
+      "truth": "libs/shared/src/lib/types/harness-sync.types.ts:272"
+    },
+    {
+      "id": "definition-54",
+      "file": "libs/frontend/chat-ui/src/lib/utils/agent-color.utils.ts",
+      "line": 83,
+      "column": 10,
+      "query": "formatOklch",
+      "truth": "libs/frontend/chat-ui/src/lib/utils/agent-color.utils.ts:56"
+    },
+    {
+      "id": "definition-55",
+      "file": "libs/backend/harness-sync/src/lib/targets/skill-transform.ts",
+      "line": 51,
+      "column": 30,
+      "query": "restoreCrlf",
+      "truth": "libs/backend/harness-sync/src/lib/targets/skill-transform.ts:33"
+    },
+    {
+      "id": "definition-56",
+      "file": "libs/frontend/mcp-apps-page/src/lib/components/apps-surface-panel.component.ts",
+      "line": 302,
+      "column": 17,
+      "query": "entries",
+      "truth": "libs/frontend/mcp-apps-page/src/lib/components/apps-surface-panel.component.ts:290"
+    },
+    {
+      "id": "definition-57",
+      "file": "libs/backend/workspace-intelligence/src/ast/tree-sitter-parser.service.ts",
+      "line": 481,
+      "column": 21,
+      "query": "ok",
+      "truth": "libs/shared/src/lib/utils/result.ts:25"
+    },
+    {
+      "id": "definition-58",
+      "file": "libs/backend/platform-core/src/testing/mocks/workspace-lifecycle-provider.mock.ts",
+      "line": 47,
+      "column": 7,
+      "query": "fireFolders",
+      "truth": "libs/backend/platform-core/src/testing/mocks/workspace-lifecycle-provider.mock.ts:36"
+    },
+    {
+      "id": "definition-59",
+      "file": "libs/backend/harness-sync/src/lib/lock/file-lock.ts",
+      "line": 264,
+      "column": 14,
+      "query": "unheldHandle",
+      "truth": "libs/backend/harness-sync/src/lib/lock/file-lock.ts:85"
+    },
+    {
+      "id": "definition-60",
+      "file": "apps/ptah-license-server/src/main.ts",
+      "line": 104,
+      "column": 1,
+      "query": "bootstrap",
+      "truth": "apps/ptah-license-server/src/main.ts:22"
+    },
+    {
+      "id": "definition-61",
+      "file": "libs/backend/skill-synthesis/src/lib/candidate-body.ts",
+      "line": 41,
+      "column": 12,
+      "query": "debug",
+      "truth": "libs/backend/vscode-core/src/logging/logger.ts:123"
+    },
+    {
+      "id": "definition-62",
+      "file": "libs/backend/plugin-marketplace/src/lib/registry/marketplace-registry.service.ts",
+      "line": 118,
+      "column": 33,
+      "query": "findMarketplace",
+      "truth": "libs/backend/plugin-marketplace/src/lib/install/external-plugin-state.store.ts:112"
+    },
+    {
+      "id": "definition-63",
+      "file": "libs/backend/voice-providers/src/lib/worker/kokoro-pipeline.ts",
+      "line": 151,
+      "column": 24,
+      "query": "from_pretrained",
+      "truth": "libs/backend/voice-providers/src/lib/worker/kokoro-pipeline.ts:130"
+    },
+    {
+      "id": "definition-64",
+      "file": "libs/backend/task-specs/src/lib/task-index.store.ts",
+      "line": 278,
+      "column": 39,
+      "query": "metaUpsertSql",
+      "truth": "libs/backend/task-specs/src/lib/task-index.store.ts:373"
+    },
+    {
+      "id": "definition-65",
+      "file": "libs/backend/cli-agent-runtime/src/lib/cli-agents/cli-adapters/codex/codex-user-mcp-servers.ts",
+      "line": 272,
+      "column": 9,
+      "query": "entryExists",
+      "truth": "libs/backend/cli-agent-runtime/src/lib/cli-agents/cli-adapters/codex/codex-user-mcp-servers.ts:307"
+    },
+    {
+      "id": "definition-66",
+      "file": "libs/frontend/marketplace/src/lib/harness/harness-health.store.ts",
+      "line": 89,
+      "column": 49,
+      "query": "_health",
+      "truth": "libs/frontend/marketplace/src/lib/harness/harness-health.store.ts:63"
+    },
+    {
+      "id": "definition-67",
+      "file": "libs/web/core/src/lib/services/subscription-state.service.ts",
+      "line": 135,
+      "column": 17,
+      "query": "_licenseData",
+      "truth": "libs/web/core/src/lib/services/subscription-state.service.ts:28"
+    },
+    {
+      "id": "definition-68",
+      "file": "libs/web/ui/src/lib/navigation.component.ts",
+      "line": 830,
+      "column": 12,
+      "query": "checkAuthState",
+      "truth": "libs/web/ui/src/lib/navigation.component.ts:846"
+    },
+    {
+      "id": "definition-69",
+      "file": "libs/backend/skill-synthesis/src/lib/queue/skill-drain.test-support.ts",
+      "line": 125,
+      "column": 5,
+      "query": "makeWorkspace",
+      "truth": "libs/backend/skill-synthesis/src/lib/queue/skill-drain.test-support.ts:26"
+    },
+    {
+      "id": "definition-70",
+      "file": "libs/frontend/declarative-dashboard/src/lib/components/dashboard-alert.component.ts",
+      "line": 72,
+      "column": 10,
+      "query": "node",
+      "truth": "libs/frontend/declarative-dashboard/src/lib/components/dashboard-alert.component.ts:66"
+    },
+    {
+      "id": "definition-71",
+      "file": "libs/backend/harness-sync/src/lib/reconciler/harness-reconciler.service.ts",
+      "line": 603,
+      "column": 15,
+      "query": "hasDrift",
+      "truth": "libs/backend/harness-sync/src/lib/reconciler/harness-reconciler.service.ts:744"
+    },
+    {
+      "id": "definition-72",
+      "file": "libs/backend/skill-synthesis/src/lib/skill-synthesizer.service.ts",
+      "line": 312,
+      "column": 19,
+      "query": "warn",
+      "truth": "libs/backend/vscode-core/src/logging/logger.ts:145"
+    },
+    {
+      "id": "definition-73",
+      "file": "libs/frontend/chat-ui/src/lib/organisms/ptah-ui/ptah-ui-block.component.ts",
+      "line": 225,
+      "column": 14,
+      "query": "rendererFailed",
+      "truth": "libs/frontend/chat-ui/src/lib/organisms/ptah-ui/ptah-ui-block.component.ts:217"
+    },
+    {
+      "id": "definition-74",
+      "file": "apps/ptah-electron/src/services/diagnostics/process-lifecycle-recorder.ts",
+      "line": 365,
+      "column": 28,
+      "query": "collectDumps",
+      "truth": "apps/ptah-electron/src/services/diagnostics/process-lifecycle-recorder.ts:357"
+    },
+    {
+      "id": "definition-75",
+      "file": "libs/backend/vscode-lm-tools/src/lib/code-execution/namespace-builders/system-namespace.builders.ts",
+      "line": 663,
+      "column": 47,
+      "query": "exists",
+      "truth": "libs/backend/platform-core/src/interfaces/file-system-provider.interface.ts:58"
+    },
+    {
+      "id": "definition-76",
+      "file": "libs/web/core/src/lib/services/auth.service.ts",
+      "line": 95,
+      "column": 14,
+      "query": "clearAuthHint",
+      "truth": "libs/web/core/src/lib/services/auth.service.ts:131"
+    },
+    {
+      "id": "definition-77",
+      "file": "libs/backend/harness-sync/src/lib/repair/blocked-repair.service.ts",
+      "line": 212,
+      "column": 28,
+      "query": "toAbsolute",
+      "truth": "libs/backend/harness-sync/src/lib/repair/blocked-repair.service.ts:361"
+    },
+    {
+      "id": "definition-78",
+      "file": "libs/frontend/core/src/lib/services/llm-provider-state.service.ts",
+      "line": 129,
+      "column": 16,
+      "query": "loadProviderModels",
+      "truth": "libs/frontend/core/src/lib/services/llm-provider-state.service.ts:138"
+    },
+    {
+      "id": "definition-79",
+      "file": "libs/backend/voice-providers/src/lib/voice-secret-store.ts",
+      "line": 84,
+      "column": 17,
+      "query": "info",
+      "truth": "libs/backend/vscode-core/src/logging/logger.ts:134"
+    },
+    {
+      "id": "definition-80",
+      "file": "libs/backend/workspace-intelligence/src/project-analysis/dependency-analyzer.service.ts",
+      "line": 216,
+      "column": 42,
+      "query": "exists",
+      "truth": "libs/backend/workspace-intelligence/src/services/file-system.service.ts:99"
+    },
+    {
+      "id": "definition-81",
+      "file": "libs/frontend/git-ui/src/lib/spot-editor/codemirror-setup.ts",
+      "line": 216,
+      "column": 22,
+      "query": "themeExtension",
+      "truth": "libs/frontend/git-ui/src/lib/spot-editor/codemirror-setup.ts:115"
+    },
+    {
+      "id": "definition-82",
+      "file": "libs/backend/vscode-core/src/services/git/git-write-lock.ts",
+      "line": 153,
+      "column": 18,
+      "query": "sleep",
+      "truth": "libs/backend/vscode-core/src/services/git/git-write-lock.ts:100"
+    },
+    {
+      "id": "definition-83",
+      "file": "apps/ptah-electron-e2e/src/support/real-rpc-fixtures.ts",
+      "line": 304,
+      "column": 11,
+      "query": "use",
+      "truth": "apps/ptah-electron-e2e/src/support/real-rpc-fixtures.ts:298"
+    },
+    {
+      "id": "definition-84",
+      "file": "libs/frontend/git-ui/src/lib/services/git-stash.service.ts",
+      "line": 425,
+      "column": 15,
+      "query": "isSelectionCurrent",
+      "truth": "libs/frontend/git-ui/src/lib/services/git-stash.service.ts:468"
+    },
+    {
+      "id": "definition-85",
+      "file": "apps/ptah-electron/src/windows/permission-policy.ts",
+      "line": 102,
+      "column": 44,
+      "query": "normalizePathname",
+      "truth": "apps/ptah-electron/src/windows/permission-policy.ts:73"
+    },
+    {
+      "id": "definition-86",
+      "file": "apps/ptah-extension-vscode/src/commands/capture-cpu-profile-command.ts",
+      "line": 76,
+      "column": 12,
+      "query": "info",
+      "truth": "libs/backend/vscode-core/src/logging/logger.ts:134"
+    },
+    {
+      "id": "definition-87",
+      "file": "libs/backend/agent-sdk/src/lib/helpers/teammate-lifecycle-hook-handler.ts",
+      "line": 81,
+      "column": 21,
+      "query": "warn",
+      "truth": "libs/backend/vscode-core/src/logging/logger.ts:145"
+    },
+    {
+      "id": "definition-88",
+      "file": "libs/web/admin/src/lib/waitlist/waitlist-pipeline.ts",
+      "line": 477,
+      "column": 36,
+      "query": "rows",
+      "truth": "libs/web/admin/src/lib/waitlist/waitlist-pipeline.ts:269"
+    },
+    {
+      "id": "definition-89",
+      "file": "apps/ptah-tui/src/components/chat/AgentConfigBar.tsx",
+      "line": 31,
+      "column": 17,
+      "query": "useTheme",
+      "truth": "apps/ptah-tui/src/hooks/use-theme.ts:26"
+    },
+    {
+      "id": "definition-90",
+      "file": "libs/frontend/chat/src/lib/components/molecules/agent-continue-input/agent-continue-input.component.ts",
+      "line": 139,
+      "column": 14,
+      "query": "agent",
+      "truth": "libs/frontend/chat/src/lib/components/molecules/agent-continue-input/agent-continue-input.component.ts:80"
+    },
+    {
+      "id": "definition-91",
+      "file": "libs/backend/agent-sdk/src/lib/helpers/history/jsonl-reader.service.ts",
+      "line": 424,
+      "column": 19,
+      "query": "warn",
+      "truth": "libs/backend/vscode-core/src/logging/logger.ts:145"
+    },
+    {
+      "id": "definition-92",
+      "file": "apps/ptah-tui/src/hooks/use-login-progress.ts",
+      "line": 88,
+      "column": 5,
+      "query": "setOutput",
+      "truth": "apps/ptah-tui/src/hooks/use-login-progress.ts:84"
+    },
+    {
+      "id": "definition-93",
+      "file": "libs/web/members/src/lib/services/member-notifications-api.service.ts",
+      "line": 174,
+      "column": 55,
+      "query": "bulkReadIds",
+      "truth": "libs/web/members/src/lib/services/member-notifications-api.service.ts:219"
+    },
+    {
+      "id": "definition-94",
+      "file": "libs/backend/settings-core/src/repositories/tasks-settings.ts",
+      "line": 33,
+      "column": 28,
+      "query": "handleFor",
+      "truth": "libs/backend/settings-core/src/repositories/base-repository.ts:30"
+    },
+    {
+      "id": "definition-95",
+      "file": "apps/ptah-electron-e2e/src/support/spot-editor.ts",
+      "line": 21,
+      "column": 10,
+      "query": "spotEditor",
+      "truth": "apps/ptah-electron-e2e/src/support/spot-editor.ts:15"
+    },
+    {
+      "id": "definition-96",
+      "file": "libs/backend/cli-agent-runtime/src/lib/cli-agents/limits/plan-limit-owner-discovery.service.ts",
+      "line": 343,
+      "column": 41,
+      "query": "ownerForSession",
+      "truth": "libs/backend/auth-providers/src/lib/quota/provider-owner.resolver.ts:492"
+    },
+    {
+      "id": "definition-97",
+      "file": "libs/backend/harness-sync/src/lib/health/harness-health.ts",
+      "line": 77,
+      "column": 16,
+      "query": "localEditPaths",
+      "truth": "libs/backend/harness-sync/src/lib/health/harness-health.ts:140"
+    },
+    {
+      "id": "definition-98",
+      "file": "libs/backend/session-organization/src/lib/utils/pr-url.ts",
+      "line": 127,
+      "column": 16,
+      "query": "ghPrCreateArgs",
+      "truth": "libs/backend/session-organization/src/lib/utils/pr-url.ts:150"
+    },
+    {
+      "id": "definition-99",
+      "file": "libs/frontend/chat-ui/src/lib/molecules/agent-steer-input.component.ts",
+      "line": 95,
+      "column": 35,
+      "query": "pending",
+      "truth": "libs/frontend/chat-ui/src/lib/molecules/agent-steer-input.component.ts:68"
+    },
+    {
+      "id": "definition-100",
+      "file": "libs/frontend/chat/src/lib/settings/providers/setting-scope-row.component.ts",
+      "line": 237,
+      "column": 26,
+      "query": "supportedTargets",
+      "truth": "libs/frontend/chat/src/lib/settings/providers/setting-scope-row.component.ts:175"
+    },
+    {
+      "id": "definition-101",
+      "file": "libs/frontend/marketplace/src/lib/ui/needs-attention.component.ts",
+      "line": 252,
+      "column": 13,
+      "query": "needsAttentionLink",
+      "truth": "libs/frontend/marketplace/src/lib/ui/needs-attention.component.ts:35"
+    },
+    {
+      "id": "definition-102",
+      "file": "libs/api/learning/src/lib/courses/member-courses.controller.ts",
+      "line": 232,
+      "column": 22,
+      "query": "context",
+      "truth": "libs/api/learning/src/lib/courses/member-courses.controller.ts:278"
+    },
+    {
+      "id": "definition-103",
+      "file": "apps/ptah-cli/src/cli/session/chat-bridge.ts",
+      "line": 238,
+      "column": 27,
+      "query": "notify",
+      "truth": "apps/ptah-cli/src/cli/jsonrpc/server.ts:157"
+    },
+    {
+      "id": "definition-104",
+      "file": "libs/backend/task-specs/src/lib/task-index.service.ts",
+      "line": 257,
+      "column": 21,
+      "query": "writeFile",
+      "truth": "libs/backend/platform-core/src/interfaces/file-system-provider.interface.ts:34"
+    },
+    {
+      "id": "definition-105",
+      "file": "apps/ptah-electron/src/di/phase-1-infra.ts",
+      "line": 91,
+      "column": 10,
+      "query": "info",
+      "truth": "libs/backend/vscode-core/src/logging/logger.ts:134"
+    },
+    {
+      "id": "definition-106",
+      "file": "libs/backend/rpc-handlers/src/lib/handlers/session-lifecycle-notifier.ts",
+      "line": 73,
+      "column": 14,
+      "query": "handleSubagentEnded",
+      "truth": "libs/backend/rpc-handlers/src/lib/handlers/session-lifecycle-notifier.ts:168"
+    },
+    {
+      "id": "definition-107",
+      "file": "libs/frontend/ui/src/lib/native/brand-mark/brand-slugs.ts",
+      "line": 200,
+      "column": 19,
+      "query": "slugForKey",
+      "truth": "libs/frontend/ui/src/lib/native/brand-mark/brand-slugs.ts:164"
+    },
+    {
+      "id": "definition-108",
+      "file": "libs/backend/persistence-sqlite/src/lib/migration-runner.ts",
+      "line": 148,
+      "column": 19,
+      "query": "debug",
+      "truth": "libs/backend/vscode-core/src/logging/logger.ts:123"
+    },
+    {
+      "id": "definition-109",
+      "file": "libs/web/panel-ui/src/lib/panel-layout/panel-layout.ts",
+      "line": 83,
+      "column": 24,
+      "query": "title",
+      "truth": "libs/web/panel-ui/src/lib/panel-layout/panel-layout.ts:53"
+    },
+    {
+      "id": "definition-110",
+      "file": "libs/backend/agent-generation/src/lib/services/wizard/webview-lifecycle.service.ts",
+      "line": 149,
+      "column": 45,
+      "query": "generateAngularWebviewContent",
+      "truth": "libs/backend/vscode-core/src/api-wrappers/index.ts:52"
+    },
+    {
+      "id": "definition-111",
+      "file": "libs/backend/task-specs/src/lib/di/start-index.ts",
+      "line": 221,
+      "column": 20,
+      "query": "dispose",
+      "truth": "libs/backend/platform-core/src/types/platform.types.ts:13"
+    },
+    {
+      "id": "definition-112",
+      "file": "libs/frontend/chat/src/lib/components/templates/session-sidebar-width.ts",
+      "line": 45,
+      "column": 10,
+      "query": "clamp",
+      "truth": "libs/frontend/chat/src/lib/components/templates/session-sidebar-width.ts:26"
+    },
+    {
+      "id": "definition-113",
+      "file": "libs/frontend/chat/src/lib/components/organisms/execution/send-message-chip.component.ts",
+      "line": 142,
+      "column": 44,
+      "query": "readString",
+      "truth": "libs/frontend/chat/src/lib/components/organisms/execution/send-message-chip.component.ts:175"
+    },
+    {
+      "id": "definition-114",
+      "file": "libs/backend/rpc-handlers/src/lib/handlers/editor-rpc.handlers.ts",
+      "line": 267,
+      "column": 43,
+      "query": "detect",
+      "truth": "libs/backend/platform-core/src/interfaces/editor-launcher.interface.ts:56"
+    },
+    {
+      "id": "definition-115",
+      "file": "libs/backend/workspace-intelligence/src/testing/mcp-contract/polyglot-fixtures.ts",
+      "line": 623,
+      "column": 22,
+      "query": "planNoGrammar",
+      "truth": "libs/backend/workspace-intelligence/src/testing/mcp-contract/polyglot-fixtures.ts:375"
+    },
+    {
+      "id": "definition-116",
+      "file": "libs/frontend/chat/src/lib/settings/output-style/output-style-config.component.ts",
+      "line": 193,
+      "column": 52,
+      "query": "list",
+      "truth": "libs/frontend/chat/src/lib/settings/output-style/output-style-config.component.ts:139"
+    },
+    {
+      "id": "definition-117",
+      "file": "libs/frontend/chat-ui/src/lib/molecules/tool-execution/tool-input-display.component.ts",
+      "line": 286,
+      "column": 36,
+      "query": "isWriteToolInput",
+      "truth": "libs/shared/src/lib/type-guards/guards/fs.ts:187"
+    },
+    {
+      "id": "definition-118",
+      "file": "apps/ptah-electron-e2e/src/showcase/cron-tour.scene.ts",
+      "line": 147,
+      "column": 25,
+      "query": "firstVisible",
+      "truth": "apps/ptah-electron-e2e/src/showcase/cron-tour.scene.ts:48"
+    },
+    {
+      "id": "definition-119",
+      "file": "libs/backend/cli-agent-runtime/src/lib/mcp-directory/oauth/mcp-oauth-override-resolver.ts",
+      "line": 71,
+      "column": 22,
+      "query": "warn",
+      "truth": "libs/backend/cli-agent-runtime/src/lib/mcp-directory/oauth/mcp-oauth-override-resolver.ts:23"
+    },
+    {
+      "id": "definition-120",
+      "file": "libs/backend/cron-scheduler/src/lib/di/register.ts",
+      "line": 43,
+      "column": 10,
+      "query": "info",
+      "truth": "libs/backend/vscode-core/src/logging/logger.ts:134"
+    },
+    {
+      "id": "definition-121",
+      "file": "libs/backend/skill-synthesis/src/lib/skill-clustering.service.ts",
+      "line": 163,
+      "column": 17,
+      "query": "debug",
+      "truth": "libs/backend/vscode-core/src/logging/logger.ts:123"
+    },
+    {
+      "id": "definition-122",
+      "file": "libs/frontend/chat-ui/src/lib/molecules/boot-progress/boot-progress.component.ts",
+      "line": 194,
+      "column": 53,
+      "query": "startedAt",
+      "truth": "libs/frontend/chat-ui/src/lib/molecules/boot-progress/boot-progress.component.ts:149"
+    },
+    {
+      "id": "definition-123",
+      "file": "libs/backend/agent-sdk/src/lib/helpers/turn-state-foreground-source.ts",
+      "line": 141,
+      "column": 34,
+      "query": "setTimeout",
+      "truth": "libs/backend/agent-sdk/src/lib/helpers/turn-state-foreground-source.ts:49"
+    },
+    {
+      "id": "definition-124",
+      "file": "libs/frontend/chat/src/lib/settings/output-style/output-style-notices.component.ts",
+      "line": 214,
+      "column": 14,
+      "query": "styles",
+      "truth": "libs/frontend/chat/src/lib/settings/output-style/output-style-notices.component.ts:176"
+    },
+    {
+      "id": "definition-125",
+      "file": "libs/backend/agent-sdk/src/lib/helpers/no-activity-watchdog.ts",
+      "line": 163,
+      "column": 41,
+      "query": "endTurn",
+      "truth": "libs/backend/agent-sdk/src/lib/helpers/no-activity-watchdog.ts:78"
+    },
+    {
+      "id": "definition-126",
+      "file": "libs/backend/agent-generation/src/lib/services/file-writer.service.ts",
+      "line": 120,
+      "column": 17,
+      "query": "debug",
+      "truth": "libs/backend/vscode-core/src/logging/logger.ts:123"
+    },
+    {
+      "id": "definition-127",
+      "file": "libs/web/members/src/lib/hub/sections/hub-section-card.ts",
+      "line": 121,
+      "column": 26,
+      "query": "slugify",
+      "truth": "libs/web/members/src/lib/hub/sections/hub-section-card.ts:125"
+    },
+    {
+      "id": "definition-128",
+      "file": "libs/api/community/src/lib/member-groups/member-groups.service.ts",
+      "line": 377,
+      "column": 28,
+      "query": "getDefaultGroup",
+      "truth": "libs/api/community/src/lib/member-groups/member-groups.service.ts:152"
+    },
+    {
+      "id": "definition-129",
+      "file": "libs/frontend/marketplace/src/lib/pages/skills/installed-skill-rows.ts",
+      "line": 184,
+      "column": 13,
+      "query": "pluginSourceLabel",
+      "truth": "libs/frontend/marketplace/src/lib/pages/skills/installed-skill-rows.ts:159"
+    },
+    {
+      "id": "definition-130",
+      "file": "apps/ptah-cli/src/cli/commands/settings.ts",
+      "line": 124,
+      "column": 11,
+      "query": "write",
+      "truth": "apps/ptah-cli/src/cli/commands/settings.ts:58"
+    },
+    {
+      "id": "definition-131",
+      "file": "libs/backend/agent-sdk/src/lib/helpers/compaction/subagent-budget-monitor.ts",
+      "line": 537,
+      "column": 27,
+      "query": "requestContextTokens",
+      "truth": "libs/backend/agent-sdk/src/lib/helpers/compaction/subagent-budget-monitor.ts:172"
+    },
+    {
+      "id": "definition-132",
+      "file": "libs/frontend/git-ui/src/lib/spot-editor/spot-editor.component.ts",
+      "line": 902,
+      "column": 40,
+      "query": "save",
+      "truth": "libs/frontend/git-ui/src/lib/spot-editor/spot-editor.component.ts:714"
+    },
+    {
+      "id": "definition-133",
+      "file": "libs/shared/src/lib/utils/retry.utils.ts",
+      "line": 29,
+      "column": 20,
+      "query": "asyncFn",
+      "truth": "libs/shared/src/lib/utils/retry.utils.ts:23"
+    },
+    {
+      "id": "definition-134",
+      "file": "libs/web/account/src/lib/profile/components/profile-header.component.ts",
+      "line": 283,
+      "column": 14,
+      "query": "isExpired",
+      "truth": "libs/web/account/src/lib/profile/components/profile-header.component.ts:255"
+    },
+    {
+      "id": "definition-135",
+      "file": "libs/backend/vscode-core/src/diagnostics/event-loop-monitor.ts",
+      "line": 272,
+      "column": 9,
+      "query": "listener",
+      "truth": "libs/backend/vscode-core/src/diagnostics/event-loop-monitor.ts:270"
+    },
+    {
+      "id": "definition-136",
+      "file": "libs/backend/agent-sdk/src/lib/helpers/compaction/compaction-coordinator.ts",
+      "line": 236,
+      "column": 10,
+      "query": "unregister",
+      "truth": "libs/backend/agent-sdk/src/lib/helpers/compaction/compaction-coordinator.ts:125"
+    },
+    {
+      "id": "definition-137",
+      "file": "apps/ptah-video-studio/src/concept3d/three-assets.tsx",
+      "line": 117,
+      "column": 15,
+      "query": "luma",
+      "truth": "apps/ptah-video-studio/src/concept3d/three-assets.tsx:82"
+    },
+    {
+      "id": "definition-138",
+      "file": "libs/frontend/chat/src/lib/services/agent-monitor-tree-builder.service.ts",
+      "line": 409,
+      "column": 13,
+      "query": "createExecutionNode",
+      "truth": "libs/shared/src/lib/types/execution/factories.ts:11"
+    },
+    {
+      "id": "definition-139",
+      "file": "libs/backend/platform-vscode/src/settings/vscode-settings-registration.ts",
+      "line": 169,
+      "column": 36,
+      "query": "runV3Migration",
+      "truth": "libs/backend/settings-core/src/migrations/v3-migration.ts:44"
+    },
+    {
+      "id": "definition-140",
+      "file": "libs/frontend/chat/src/lib/settings/ptah-ai/local-tts-panel.component.ts",
+      "line": 362,
+      "column": 17,
+      "query": "source",
+      "truth": "libs/frontend/chat/src/lib/settings/ptah-ai/local-tts-panel.component.ts:347"
+    },
+    {
+      "id": "definition-141",
+      "file": "libs/backend/auth-providers/src/lib/providers/copilot/copilot-auth.service.ts",
+      "line": 277,
+      "column": 18,
+      "query": "surfaceDeviceCodeToUser",
+      "truth": "libs/backend/auth-providers/src/lib/providers/copilot/copilot-auth.service.ts:321"
+    },
+    {
+      "id": "definition-142",
+      "file": "libs/web/admin/src/lib/marketing/marketing-metrics.ts",
+      "line": 55,
+      "column": 19,
+      "query": "percentage",
+      "truth": "libs/web/admin/src/lib/marketing/marketing-metrics.ts:44"
+    },
+    {
+      "id": "definition-143",
+      "file": "apps/ptah-cli/src/cli/wizard/phase-runner.ts",
+      "line": 253,
+      "column": 24,
+      "query": "writeNotification",
+      "truth": "apps/ptah-cli/src/cli/output/formatter.ts:36"
+    },
+    {
+      "id": "definition-144",
+      "file": "libs/shared/src/lib/utils/nested-repo-roots.ts",
+      "line": 81,
+      "column": 22,
+      "query": "relativeKey",
+      "truth": "libs/shared/src/lib/utils/nested-repo-roots.ts:132"
+    },
+    {
+      "id": "definition-145",
+      "file": "libs/backend/session-organization/src/lib/session-organization.service.ts",
+      "line": 451,
+      "column": 9,
+      "query": "invalidMember",
+      "truth": "libs/backend/session-organization/src/lib/session-organization.service.ts:919"
+    },
+    {
+      "id": "definition-146",
+      "file": "libs/backend/platform-electron/src/implementations/electron-state-storage-worker-loop.ts",
+      "line": 138,
+      "column": 30,
+      "query": "undeliveredResponseFailure",
+      "truth": "libs/backend/platform-electron/src/implementations/electron-state-storage-worker-loop.ts:70"
+    },
+    {
+      "id": "definition-147",
+      "file": "libs/frontend/messaging-gateway-ui/src/lib/components/platform-token-form.component.ts",
+      "line": 109,
+      "column": 22,
+      "query": "appToken",
+      "truth": "libs/frontend/messaging-gateway-ui/src/lib/components/platform-token-form.component.ts:85"
+    },
+    {
+      "id": "definition-148",
+      "file": "libs/backend/vscode-core/src/services/subagent-registry/subagent-history-registrar.ts",
+      "line": 163,
+      "column": 19,
+      "query": "debug",
+      "truth": "libs/backend/vscode-core/src/logging/logger.ts:123"
+    },
+    {
+      "id": "definition-149",
+      "file": "libs/frontend/mcp-apps-page/src/lib/services/apps-conversation-claims.ts",
+      "line": 98,
+      "column": 9,
+      "query": "step",
+      "truth": "libs/frontend/mcp-apps-page/src/lib/services/apps-conversation-claims.ts:96"
+    },
+    {
+      "id": "definition-150",
+      "file": "libs/backend/messaging-gateway/src/lib/commands/gateway-command.service.ts",
+      "line": 410,
+      "column": 27,
+      "query": "resolveWorkspace",
+      "truth": "libs/backend/messaging-gateway/src/lib/commands/gateway-command.service.ts:460"
+    }
+  ]
+}
