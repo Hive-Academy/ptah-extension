@@ -4,17 +4,28 @@ import type { Logger } from '@ptah-extension/vscode-core';
 import { probeCliStdout } from './cli-stdout-probe';
 
 const mockSpawnCli = jest.fn();
+const mockKillProcessTree = jest.fn();
 
 jest.mock('./cli-adapter.utils', () => ({
   spawnCli: (...args: unknown[]) => mockSpawnCli(...args),
+  killProcessTree: (...args: unknown[]) => mockKillProcessTree(...args),
 }));
 
-type FakeChild = EventEmitter & { stdout: PassThrough; kill: jest.Mock };
+type FakeChild = EventEmitter & {
+  stdout: PassThrough;
+  kill: jest.Mock;
+  pid: number;
+  killed: boolean;
+  whenSpawned: Promise<number | null>;
+};
 
 function createChild(): FakeChild {
   const child = new EventEmitter() as FakeChild;
   child.stdout = new PassThrough();
   child.kill = jest.fn();
+  child.pid = 8675;
+  child.killed = false;
+  child.whenSpawned = Promise.resolve(child.pid);
   return child;
 }
 
@@ -48,6 +59,7 @@ describe('probeCliStdout', () => {
     await expect(result).resolves.toBe('first\nsecond');
     expect(mockSpawnCli).toHaveBeenCalledWith('tool', ['models'], {
       spawner: undefined,
+      detached: true,
     });
   });
 
@@ -61,7 +73,7 @@ describe('probeCliStdout', () => {
     await expect(result).resolves.toBeUndefined();
   });
 
-  it('kills the child and resolves undefined on timeout', async () => {
+  it('spawns detached and kills the process tree on timeout, not the child', async () => {
     jest.useFakeTimers();
     const child = createChild();
     mockSpawnCli.mockReturnValue(child);
@@ -72,7 +84,10 @@ describe('probeCliStdout', () => {
     jest.advanceTimersByTime(1);
 
     await expect(result).resolves.toBeUndefined();
-    expect(child.kill).toHaveBeenCalledTimes(1);
+    await Promise.resolve();
+    expect(child.kill).not.toHaveBeenCalled();
+    expect(mockKillProcessTree).toHaveBeenCalledTimes(1);
+    expect(mockKillProcessTree).toHaveBeenCalledWith(child.pid);
   });
 
   it('resolves undefined and warns with the command only when spawnCli throws synchronously', async () => {

@@ -88,12 +88,14 @@ describe('cliPermissionNote', () => {
     expect(note.detail).toContain('Autopilot');
   });
 
-  it('warns that Grok auto-approves every request, shell and file edits included', () => {
+  it('warns that Grok auto-approves tool requests, shell and file edits included', () => {
     expect(cliPermissionNote('grok')).toEqual({
       badge: 'Auto-approve',
       tone: 'warning',
       detail:
-        'Ptah approves every Grok tool request, shell commands and file edits included, one request at a time; nothing is remembered between requests.',
+        'Ptah approves Grok tool requests, shell commands and file edits included. ' +
+        'It answers allow-once when Grok offers it; if a request offers only a persistent grant, ' +
+        'Ptah accepts that grant and shows an info line. A request with no allow option is declined.',
     });
   });
 

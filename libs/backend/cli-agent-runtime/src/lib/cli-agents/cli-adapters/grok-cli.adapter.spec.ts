@@ -20,6 +20,7 @@ import type { AcpSessionHandleConfig, AcpSpawnOptions } from './acp';
 const mockSpawnCli = jest.fn();
 const mockResolveCliPath = jest.fn();
 const mockProbeCliVersion = jest.fn();
+const mockKillProcessTree = jest.fn();
 
 jest.mock('./cli-adapter.utils', () => {
   const actual = jest.requireActual<typeof import('./cli-adapter.utils')>(
@@ -30,6 +31,7 @@ jest.mock('./cli-adapter.utils', () => {
     spawnCli: (...args: unknown[]) => mockSpawnCli(...args),
     resolveCliPath: (...args: unknown[]) => mockResolveCliPath(...args),
     probeCliVersion: (...args: unknown[]) => mockProbeCliVersion(...args),
+    killProcessTree: (...args: unknown[]) => mockKillProcessTree(...args),
   };
 });
 
@@ -106,12 +108,18 @@ const GROK_CONFIG_OPTIONS = [
 interface FakeProbeChild extends EventEmitter {
   stdout: PassThrough;
   kill: jest.Mock;
+  pid: number;
+  killed: boolean;
+  whenSpawned: Promise<number | null>;
 }
 
 function createProbeChild(): FakeProbeChild {
   const child = new EventEmitter() as FakeProbeChild;
   child.stdout = new PassThrough();
   child.kill = jest.fn();
+  child.pid = 8675;
+  child.killed = false;
+  child.whenSpawned = Promise.resolve(child.pid);
   return child;
 }
 
@@ -299,7 +307,7 @@ describe('GrokCliAdapter', () => {
       await expect(adapter.listModels()).resolves.toEqual([]);
     });
 
-    it('kills the probe and returns an empty list after 8 s', async () => {
+    it('kills the probe process tree and returns an empty list after 8 s', async () => {
       jest.useFakeTimers();
       mockResolveCliPath.mockResolvedValue('grok');
       const child = createProbeChild();
@@ -313,7 +321,10 @@ describe('GrokCliAdapter', () => {
       jest.advanceTimersByTime(1);
 
       await expect(models).resolves.toEqual([]);
-      expect(child.kill).toHaveBeenCalledTimes(1);
+      await flush();
+      expect(child.kill).not.toHaveBeenCalled();
+      expect(mockKillProcessTree).toHaveBeenCalledTimes(1);
+      expect(mockKillProcessTree).toHaveBeenCalledWith(child.pid);
     });
   });
 

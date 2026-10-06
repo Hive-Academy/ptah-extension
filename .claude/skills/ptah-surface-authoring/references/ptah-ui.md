@@ -18,7 +18,7 @@ title      = "title" SPS text NL ;                  (* at most one; must be the 
 stats      = "stats" NL statline { statline } ;     (* 1..8 statlines *)
 statline   = IND cell BAR value NL ;                (* exactly two cells, both non-empty *)
 value      = scalar | vcell ;                       (* a value that starts with "$" is always a scalar *)
-vcell      = [ ( cchar - "$") { cchar } ] ;        (* a literal value cannot start with a bare "$"; write "\$" *)
+vcell      = ( cchar - "$" ) { cchar } ;           (* a literal value cannot start with a bare "$"; write "\$" *)
 table      = "table" NL tablerow tablerow { tablerow }      (* literal: header row, then 1..N rows *)
            | "table" SPS rowsource NL [ colsline ] ;
 tablerow   = IND cell { BAR cell } NL ;             (* every row has the header's cell count; cells may be empty *)

@@ -64,13 +64,16 @@ const FIXED_NOTES: Readonly<
       'Auto-edit approves file edits only; Plan Mode is read-only; Full Auto approves every action.',
   },
   // NEW copy (TASK_2026_617), pending user review. The ACP permission policy (`acp-permission-policy.ts`)
-  // selects the allow-once option for every `session/request_permission`: every request is approved, but no
-  // grant outlives the request. It is an auto-approve CLI, so it carries the same warning tone as "Full auto".
+  // approves a `session/request_permission` whenever an allow option is offered: it selects the allow-once
+  // option when the request offers one, and otherwise accepts the only allow option offered — a persistent
+  // grant, noted with an info line. A request with no allow option gets reject-once (or is cancelled). It is an auto-approve CLI, so it carries the same warning tone as "Full auto".
   grok: {
     badge: 'Auto-approve',
     tone: 'warning',
     detail:
-      'Ptah approves every Grok tool request, shell commands and file edits included, one request at a time; nothing is remembered between requests.',
+      'Ptah approves Grok tool requests, shell commands and file edits included. ' +
+      'It answers allow-once when Grok offers it; if a request offers only a persistent grant, ' +
+      'Ptah accepts that grant and shows an info line. A request with no allow option is declined.',
   },
 };
 
