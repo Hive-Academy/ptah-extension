@@ -352,6 +352,7 @@ export class AgentRpcHandlers {
             copilotModel: this.getAgentCfg<string>('copilotModel', ''),
             cursorModel: this.getAgentCfg<string>('cursorModel', ''),
             antigravityModel: this.getAgentCfg<string>('antigravityModel', ''),
+            grokModel: this.getAgentCfg<string>('grokModel', ''),
             opencodeModel: this.getAgentCfg<string>('opencodeModel', ''),
             piModel: this.getAgentCfg<string>('piModel', ''),
             cursorApiKeyConfigured: cursorKey.configured,
@@ -524,6 +525,9 @@ export class AgentRpcHandlers {
       }
       if (params.antigravityModel !== undefined) {
         await this.setAgentCfg('antigravityModel', params.antigravityModel);
+      }
+      if (params.grokModel !== undefined) {
+        await this.setAgentCfg('grokModel', params.grokModel);
       }
       if (params.opencodeModel !== undefined) {
         await this.setAgentCfg('opencodeModel', params.opencodeModel);

@@ -180,6 +180,30 @@ describe('agent:setConfig inherit effort (TASK_2026_597)', () => {
   });
 });
 
+describe('grokModel setting (TASK_2026_617)', () => {
+  it('defaults to the empty string (CLI default) when unset', async () => {
+    const h = makeHarness();
+    expect((await h.getConfig()).grokModel).toBe('');
+  });
+
+  it('persists to agentOrchestration.grokModel and reads back the same key', async () => {
+    const h = makeHarness();
+    expect(await h.setConfig({ grokModel: 'grok-4' })).toEqual({
+      success: true,
+    });
+    expect(h.settings.get('ptah.agentOrchestration.grokModel')).toBe('grok-4');
+    expect((await h.getConfig()).grokModel).toBe('grok-4');
+  });
+
+  it('persists an explicit empty string to reset to the CLI default', async () => {
+    const h = makeHarness();
+    await h.setConfig({ grokModel: 'grok-4' });
+    expect(await h.setConfig({ grokModel: '' })).toEqual({ success: true });
+    expect(h.settings.get('ptah.agentOrchestration.grokModel')).toBe('');
+    expect((await h.getConfig()).grokModel).toBe('');
+  });
+});
+
 describe('Codex lane budget settings (TASK_2026_597)', () => {
   const budgetKeys = [
     'codexAutoCompactTokens',
@@ -364,7 +388,10 @@ describe('lane tool-call guard settings (TASK_2026_597 Wave D)', () => {
     const h = makeHarness();
     for (const stop of [30, 31]) {
       expect(
-        await h.setConfig({ laneToolCallSteerAt: 31, laneToolCallStopAt: stop }),
+        await h.setConfig({
+          laneToolCallSteerAt: 31,
+          laneToolCallStopAt: stop,
+        }),
       ).toEqual({
         success: false,
         error: 'Unsupported laneToolCallStopAt value',
