@@ -102,6 +102,22 @@ describe('SourceControlService', () => {
     );
   });
 
+  it("discardAll sends the listed paths worktree-only, never '.', scoped and with MUTATION_RPC_TIMEOUT_MS", async () => {
+    const paths = ['src/app.ts', 'notes.md'] as const;
+    await service.discardAll(paths);
+
+    expect(mockRpcCall).toHaveBeenCalledWith(
+      expect.anything(),
+      'git:discard',
+      {
+        paths: ['src/app.ts', 'notes.md'],
+        worktreeOnly: true,
+        workspaceRoot: '/test/workspace',
+      },
+      EXPECTED_MUTATION_TIMEOUT,
+    );
+  });
+
   it('commit passes MUTATION_RPC_TIMEOUT_MS, commit message, and scoped workspace', async () => {
     await service.commit('feat: new feature');
 

@@ -1,7 +1,10 @@
 import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import type { EditorTarget } from '@ptah-extension/shared';
-import { EditorLauncherService } from '../services/editor-launcher.service';
+import {
+  EditorLauncherService,
+  STATUS_AUTO_CLEAR_MS,
+} from '../services/editor-launcher.service';
 import { GitBranchesService } from '../services/git-branches.service';
 import { GitStatusService } from '../services/git-status.service';
 import { GitDockHeaderComponent } from './git-dock-header.component';
@@ -59,13 +62,15 @@ describe('GitDockHeaderComponent', () => {
     error: signal(null),
     loadList: jest.fn(async () => undefined),
   };
+  const launchStatus = signal<{
+    kind: 'success' | 'error';
+    message: string;
+  } | null>(null);
   const launchers = {
     targets: signal<readonly EditorTarget[]>([kiro]),
-    launchStatus: signal<{
-      kind: 'success' | 'error';
-      message: string;
-    } | null>(null),
+    launchStatus,
     openWorkspace: jest.fn(async () => false),
+    clearStatus: jest.fn((): void => launchStatus.set(null)),
   };
   const reviewMode = signal<'working-tree' | 'branch-review'>('working-tree');
   const railCollapsed = signal(false);
@@ -370,6 +375,84 @@ describe('GitDockHeaderComponent', () => {
       'Kiro could not be started.',
     );
     expect(statusLine()?.classList.contains('text-error')).toBe(true);
+  });
+
+  describe('status line lifetime', () => {
+    afterEach(() => jest.useRealTimers());
+
+    const flush = async (): Promise<void> => {
+      for (let i = 0; i < 10; i++) await Promise.resolve();
+    };
+    const dismiss = (fixture: { nativeElement: HTMLElement }) =>
+      query(fixture, 'git-dock-status-dismiss');
+
+    it('clears a sync success after STATUS_AUTO_CLEAR_MS, with no dismiss button', async () => {
+      jest.useFakeTimers();
+      const fixture = TestBed.createComponent(GitDockHeaderComponent);
+      fixture.detectChanges();
+      query(fixture, 'git-pull-button').click();
+      await flush();
+      fixture.detectChanges();
+      expect(fixture.nativeElement.textContent).toContain('Pull completed.');
+      expect(dismiss(fixture)).toBeNull();
+
+      jest.advanceTimersByTime(STATUS_AUTO_CLEAR_MS);
+      fixture.detectChanges();
+      expect(fixture.nativeElement.textContent).not.toContain(
+        'Pull completed.',
+      );
+      expect(query(fixture, 'git-dock-status-line')).toBeNull();
+    });
+
+    it('keeps a sync error until its X dismisses it', async () => {
+      jest.useFakeTimers();
+      const fixture = TestBed.createComponent(GitDockHeaderComponent);
+      fixture.detectChanges();
+      query(fixture, 'git-push-button').click();
+      await flush();
+      fixture.detectChanges();
+      jest.advanceTimersByTime(STATUS_AUTO_CLEAR_MS * 3);
+      fixture.detectChanges();
+      expect(fixture.nativeElement.textContent).toContain('Push was rejected.');
+
+      const button = dismiss(fixture);
+      expect(button.getAttribute('aria-label')).toBe('Dismiss message');
+      button.click();
+      fixture.detectChanges();
+      expect(query(fixture, 'git-dock-status-line')).toBeNull();
+    });
+
+    it("dismisses a launcher error through the launcher's clearStatus", () => {
+      launchers.launchStatus.set({ kind: 'error', message: 'No such editor.' });
+      const fixture = TestBed.createComponent(GitDockHeaderComponent);
+      fixture.detectChanges();
+      dismiss(fixture).click();
+      fixture.detectChanges();
+      expect(launchers.clearStatus).toHaveBeenCalledTimes(1);
+      expect(query(fixture, 'git-dock-status-line')).toBeNull();
+    });
+
+    it('cancels a pending clear on destroy', async () => {
+      jest.useFakeTimers();
+      const fixture = TestBed.createComponent(GitDockHeaderComponent);
+      fixture.detectChanges();
+      const setSpy = jest.spyOn(globalThis, 'setTimeout');
+      const clearSpy = jest.spyOn(globalThis, 'clearTimeout');
+      query(fixture, 'git-pull-button').click();
+      await flush();
+      const armed =
+        setSpy.mock.results[
+          setSpy.mock.calls.findIndex(
+            ([, delay]) => delay === STATUS_AUTO_CLEAR_MS,
+          )
+        ]?.value;
+      expect(armed).toBeDefined();
+      expect(clearSpy).not.toHaveBeenCalledWith(armed);
+      fixture.destroy();
+      expect(clearSpy).toHaveBeenCalledWith(armed);
+      setSpy.mockRestore();
+      clearSpy.mockRestore();
+    });
   });
 
   it('does not publish or refresh a sync result after the workspace changes', async () => {

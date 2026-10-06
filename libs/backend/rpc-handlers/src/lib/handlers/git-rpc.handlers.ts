@@ -42,13 +42,16 @@ import type {
   RpcHandler,
   WebviewManager,
 } from '@ptah-extension/vscode-core';
-import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import { FileType, PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type {
   IWorkspaceProvider,
   IFileSystemProvider,
 } from '@ptah-extension/platform-core';
 import { GitOperationOutputThrottle } from './git-operation-output.throttle';
-import { findRegisteredWorkspaceFolder } from './git-workspace-root';
+import {
+  findRegisteredWorkspaceFolder,
+  findRegisteredWorktree,
+} from './git-workspace-root';
 import {
   parseGitApplyHunksParams,
   parseGitCommitParams,
@@ -192,15 +195,19 @@ export class GitRpcHandlers {
 
   /**
    * git:info - Returns branch info and changed file list for the workspace
-   * folder named in `params.workspaceRoot`, falling back to the active
-   * workspace when omitted. An unregistered folder, or no workspace at all,
+   * folder (or, read-only, a registered worktree of one) named in
+   * `params.workspaceRoot`, falling back to the active workspace when
+   * omitted. An unregistered folder, or no workspace at all,
    * returns a non-git default.
    */
   private registerGitInfo(): void {
     this.rpcHandler.registerMethod<GitInfoParams, GitInfoResult>(
       'git:info',
       async (params) => {
-        const wsRoot = this.resolveRoot(params?.workspaceRoot, 'git:info');
+        const wsRoot = await this.resolveReadRoot(
+          params?.workspaceRoot,
+          'git:info',
+        );
         if (!wsRoot) {
           return {
             isGitRepo: false,
@@ -306,6 +313,38 @@ export class GitRpcHandlers {
       return undefined;
     }
     return this.workspace.getWorkspaceRoot();
+  }
+
+  /**
+   * {@link resolveRoot} for the read-only methods (`git:info`,
+   * `git:diffFile`), which also accept a registered worktree of an open
+   * folder's repository: the review dock reads a turn that ran in a worktree
+   * without opening it as a workspace folder. Mutating methods never use this.
+   */
+  private async resolveReadRoot(
+    requested: string | undefined,
+    method: string,
+  ): Promise<string | undefined> {
+    if (
+      requested &&
+      !findRegisteredWorkspaceFolder(this.workspace, requested)
+    ) {
+      const worktree = await findRegisteredWorktree(
+        this.workspace,
+        {
+          listWorktrees: (folder) => this.gitInfo.getWorktrees(folder),
+          commonDir: (dir) => this.gitInfo.getCommonDir(dir),
+          directoryExists: (dir) =>
+            this.fileSystem.stat(dir).then(
+              (stat) => (stat.type & FileType.Directory) !== 0,
+              () => false,
+            ),
+        },
+        requested,
+      );
+      if (worktree) return worktree;
+    }
+    return this.resolveRoot(requested, method);
   }
 
   /**
@@ -545,13 +584,22 @@ export class GitRpcHandlers {
         if (!params?.paths || params.paths.length === 0) {
           return { success: false, error: 'paths must be a non-empty array' };
         }
+        if (
+          params.worktreeOnly !== undefined &&
+          typeof params.worktreeOnly !== 'boolean'
+        ) {
+          return { success: false, error: 'worktreeOnly must be a boolean' };
+        }
+        const worktreeOnly = params.worktreeOnly === true;
 
         this.logger.warn(
           '[GitRpc] git:discard called — this is a destructive operation',
-          { paths: params.paths } as unknown as Error,
+          { paths: params.paths, worktreeOnly } as unknown as Error,
         );
 
-        return this.gitInfo.discardChanges(wsRoot, params.paths);
+        return this.gitInfo.discardChanges(wsRoot, params.paths, {
+          worktreeOnly,
+        });
       },
     );
   }
@@ -683,7 +731,10 @@ export class GitRpcHandlers {
         }
 
         const originalPath = params.originalPath ?? params.path;
-        const wsRoot = this.resolveRoot(params.workspaceRoot, 'git:diffFile');
+        const wsRoot = await this.resolveReadRoot(
+          params.workspaceRoot,
+          'git:diffFile',
+        );
         if (!wsRoot) {
           return this.diffFileFailure(
             params.path,

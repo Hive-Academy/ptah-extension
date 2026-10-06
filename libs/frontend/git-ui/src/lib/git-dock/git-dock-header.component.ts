@@ -2,9 +2,11 @@ import {
   ChangeDetectionStrategy,
   Component,
   computed,
+  DestroyRef,
   ElementRef,
   inject,
   input,
+  NgZone,
   signal,
   viewChild,
 } from '@angular/core';
@@ -18,6 +20,7 @@ import {
   PanelLeft,
   PanelLeftClose,
   RefreshCw,
+  X,
 } from 'lucide-angular';
 import { ElectronLayoutService } from '@ptah-extension/core';
 import { BranchPickerDropdownComponent } from '../branch-picker/branch-picker-dropdown.component';
@@ -26,7 +29,11 @@ import {
   OpenInButtonComponent,
   type OpenInRequest,
 } from '../open-in/open-in-button.component';
-import { EditorLauncherService } from '../services/editor-launcher.service';
+import {
+  EditorLauncherService,
+  STATUS_AUTO_CLEAR_MS,
+  type LaunchStatus,
+} from '../services/editor-launcher.service';
 import { GitBranchesService } from '../services/git-branches.service';
 import { GitStatusService } from '../services/git-status.service';
 import { GitReviewService } from '../services/git-review.service';
@@ -224,21 +231,35 @@ const SYNC_COPY: Record<SyncAction, { done: string; failed: string }> = {
         </button>
       </div>
     </div>
-    @if (actionStatus(); as message) {
+    @if (statusLine(); as line) {
+      <!-- A success clears itself after a few seconds; an error stays until
+           dismissed or replaced. -->
       <div
-        role="status"
-        class="border-b border-base-content/10 px-3 py-1 text-xs"
-        [class.text-error]="message.kind === 'error'"
+        class="flex items-center gap-1 border-b border-base-content/10 py-0.5 pl-3 pr-1 text-xs"
+        data-testid="git-dock-status-line"
       >
-        {{ message.message }}
-      </div>
-    } @else if (launchers.launchStatus(); as message) {
-      <div
-        role="status"
-        class="border-b border-base-content/10 px-3 py-1 text-xs"
-        [class.text-error]="message.kind === 'error'"
-      >
-        {{ message.message }}
+        <span
+          role="status"
+          class="min-w-0 flex-1 break-words py-0.5"
+          [class.text-error]="line.status.kind === 'error'"
+          >{{ line.status.message }}</span
+        >
+        @if (line.status.kind === 'error') {
+          <button
+            type="button"
+            class="btn btn-ghost btn-xs btn-square h-6 min-h-6 w-6 shrink-0 p-0"
+            aria-label="Dismiss message"
+            title="Dismiss"
+            data-testid="git-dock-status-dismiss"
+            (click)="dismissStatus(line.source)"
+          >
+            <lucide-angular
+              [img]="DismissIcon"
+              class="h-3 w-3"
+              aria-hidden="true"
+            />
+          </button>
+        }
       </div>
     }
   }`,
@@ -255,6 +276,7 @@ export class GitDockHeaderComponent {
   protected readonly launchers = inject(EditorLauncherService);
   protected readonly review = inject(GitReviewService);
   protected readonly layout = inject(ElectronLayoutService);
+  private readonly zone = inject(NgZone);
   protected readonly BranchIcon = GitBranch;
   protected readonly InfoIcon = Info;
   protected readonly PushIcon = ArrowUpFromLine;
@@ -263,6 +285,7 @@ export class GitDockHeaderComponent {
   protected readonly StashIcon = Archive;
   protected readonly PanelLeftIcon = PanelLeft;
   protected readonly PanelLeftCloseIcon = PanelLeftClose;
+  protected readonly DismissIcon = X;
   /** The full branch name; the trigger truncates it and keeps it in `title`. */
   protected readonly branchLabel = computed(
     () => this.gitBranches.currentBranch() || this.gitStatus.branchName(),
@@ -278,21 +301,37 @@ export class GitDockHeaderComponent {
     viewChild<ElementRef<HTMLButtonElement>>('detailsTrigger');
   private readonly stashTrigger =
     viewChild<ElementRef<HTMLButtonElement>>('stashTrigger');
-  protected readonly actionStatus = signal<{
-    kind: 'success' | 'error';
-    message: string;
-  } | null>(null);
+  /** The last Fetch / Pull / Push outcome; shown before the launcher's. */
+  private readonly actionStatus = signal<LaunchStatus | null>(null);
+  /** Clears a success `actionStatus`; cancelled by a newer one and on destroy. */
+  private actionClearTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /** The one status line under the header: sync outcome first, then launcher. */
+  protected readonly statusLine = computed<{
+    source: 'action' | 'launcher';
+    status: LaunchStatus;
+  } | null>(() => {
+    const action = this.actionStatus();
+    if (action) return { source: 'action', status: action };
+    const launch = this.launchers.launchStatus();
+    return launch ? { source: 'launcher', status: launch } : null;
+  });
+
+  constructor() {
+    inject(DestroyRef).onDestroy(() => this.cancelActionClear());
+  }
+
   protected async sync(action: SyncAction): Promise<void> {
     if (this.syncing()) return;
     const workspace = this.gitStatus.activeWorkspacePath();
     if (!workspace) return;
     this.syncing.set(action);
-    this.actionStatus.set(null);
+    this.setActionStatus(null);
     const copy = SYNC_COPY[action];
     try {
       const result = await this.gitBranches[action]();
       if (this.gitStatus.activeWorkspacePath() !== workspace) return;
-      this.actionStatus.set(
+      this.setActionStatus(
         result.success
           ? { kind: 'success', message: copy.done }
           : { kind: 'error', message: result.error ?? copy.failed },
@@ -301,6 +340,30 @@ export class GitDockHeaderComponent {
     } finally {
       this.syncing.set(null);
     }
+  }
+  protected dismissStatus(source: 'action' | 'launcher'): void {
+    if (source === 'action') this.setActionStatus(null);
+    else this.launchers.clearStatus();
+  }
+  /** A success clears itself after {@link STATUS_AUTO_CLEAR_MS}; an error stays. */
+  private setActionStatus(status: LaunchStatus | null): void {
+    this.cancelActionClear();
+    this.actionStatus.set(status);
+    if (status?.kind !== 'success') return;
+    // Outside the zone, like the Task view's PR timer: a pending timer inside
+    // it keeps the app from reading as stable. The signal write still
+    // schedules change detection.
+    this.actionClearTimer = this.zone.runOutsideAngular(() =>
+      setTimeout(() => {
+        this.actionClearTimer = null;
+        this.actionStatus.set(null);
+      }, STATUS_AUTO_CLEAR_MS),
+    );
+  }
+  private cancelActionClear(): void {
+    if (this.actionClearTimer === null) return;
+    clearTimeout(this.actionClearTimer);
+    this.actionClearTimer = null;
   }
   protected openWorkspace(request: OpenInRequest): void {
     const root = this.gitStatus.activeWorkspacePath();

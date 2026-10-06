@@ -1,4 +1,4 @@
-import { DestroyRef, Injectable, inject, signal } from '@angular/core';
+import { DestroyRef, Injectable, NgZone, inject, signal } from '@angular/core';
 import { rpcCall, VSCodeService } from '@ptah-extension/core';
 import type {
   EditorTarget,
@@ -50,6 +50,15 @@ function readOpenMergeResult(data: unknown): EditorOpenMergeResult {
   return MERGE_LAUNCH_FAILED;
 }
 
+/** How long a success status line stays before it clears itself. */
+export const STATUS_AUTO_CLEAR_MS = 4_000;
+
+/** The last segment of a workspace path, either separator, trailing one ignored. */
+function folderName(root: string): string {
+  const trimmed = root.replace(/[\\/]+$/, '');
+  return trimmed.split(/[\\/]/).pop() || root;
+}
+
 export interface LaunchStatus {
   kind: 'success' | 'error';
   message: string;
@@ -59,12 +68,15 @@ export interface LaunchStatus {
 export class EditorLauncherService {
   private readonly vscode = inject(VSCodeService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly zone = inject(NgZone);
   private readonly _targets = signal<readonly EditorTarget[]>([]);
   private readonly _loading = signal(false);
   private readonly _detectionError = signal<string | null>(null);
   private readonly _launchStatus = signal<LaunchStatus | null>(null);
   private detection: Promise<void> | null = null;
   private alive = true;
+  /** Clears a success status; cancelled by every newer status and on destroy. */
+  private clearTimer: ReturnType<typeof setTimeout> | null = null;
 
   readonly targets = this._targets.asReadonly();
   readonly loading = this._loading.asReadonly();
@@ -72,7 +84,10 @@ export class EditorLauncherService {
   readonly launchStatus = this._launchStatus.asReadonly();
 
   constructor() {
-    this.destroyRef.onDestroy(() => (this.alive = false));
+    this.destroyRef.onDestroy(() => {
+      this.alive = false;
+      this.cancelClearTimer();
+    });
   }
 
   detect(): Promise<void> {
@@ -116,7 +131,7 @@ export class EditorLauncherService {
     return this.launch(
       'editor:openWorkspace',
       { target, root },
-      `Opened workspace in ${target}.`,
+      `Opened ${folderName(root)} in ${this.targetLabel(target)}.`,
     );
   }
 
@@ -129,7 +144,7 @@ export class EditorLauncherService {
     return this.launch(
       'editor:openFile',
       { target, workspaceRoot, path, ...(line ? { line } : {}) },
-      `Opened ${path} in ${target}.`,
+      `Opened ${path} in ${this.targetLabel(target)}.`,
     );
   }
 
@@ -158,19 +173,19 @@ export class EditorLauncherService {
       console.error('[EditorLauncherService] editor:openMerge threw', error);
     }
     if (result.status === 'ok') {
-      this._launchStatus.set({
+      this.setStatus({
         kind: 'success',
         message: `Opened the merge view for ${path}.`,
       });
     } else if (result.status === 'failed') {
-      this._launchStatus.set({ kind: 'error', message: result.error });
+      this.setStatus({ kind: 'error', message: result.error });
     }
     return result;
   }
 
   async openLinkedFile(request: OpenInRequest): Promise<boolean> {
     if (!request.path) {
-      this._launchStatus.set({
+      this.setStatus({
         kind: 'error',
         message: 'No file path was provided.',
       });
@@ -184,12 +199,45 @@ export class EditorLauncherService {
         ...(request.line ? { line: request.line } : {}),
         scope: 'external-link',
       },
-      `Opened ${request.path} in ${request.target}.`,
+      `Opened ${request.path} in ${this.targetLabel(request.target)}.`,
     );
   }
 
+  /** Dismiss the status line (the header's X on an error). */
   clearStatus(): void {
+    this.cancelClearTimer();
     this._launchStatus.set(null);
+  }
+
+  /** The detected target's display name, or its id before detection lands. */
+  private targetLabel(id: EditorTargetId): string {
+    return (
+      this._targets().find((target) => target.id === id)?.displayName ?? id
+    );
+  }
+
+  /**
+   * Publish a status. A success clears itself after
+   * {@link STATUS_AUTO_CLEAR_MS}; an error stays until dismissed or replaced.
+   */
+  private setStatus(status: LaunchStatus): void {
+    this.cancelClearTimer();
+    this._launchStatus.set(status);
+    if (status.kind !== 'success' || !this.alive) return;
+    // Outside the zone so a pending clear never holds the app unstable; the
+    // signal write still schedules change detection.
+    this.clearTimer = this.zone.runOutsideAngular(() =>
+      setTimeout(() => {
+        this.clearTimer = null;
+        this._launchStatus.set(null);
+      }, STATUS_AUTO_CLEAR_MS),
+    );
+  }
+
+  private cancelClearTimer(): void {
+    if (this.clearTimer === null) return;
+    clearTimeout(this.clearTimer);
+    this.clearTimer = null;
   }
 
   private async launch(
@@ -205,18 +253,18 @@ export class EditorLauncherService {
       );
       const result = response.data;
       if (!response.success || !result?.success) {
-        this._launchStatus.set({
+        this.setStatus({
           kind: 'error',
           message: result?.error ?? response.error ?? 'Editor launch failed.',
         });
         return false;
       }
-      this._launchStatus.set({ kind: 'success', message: success });
+      this.setStatus({ kind: 'success', message: success });
       return true;
     } catch (error: unknown) {
       // degradation-audit: reported - the failure is published through
       // launchStatus, which the dock renders as a visible error.
-      this._launchStatus.set({
+      this.setStatus({
         kind: 'error',
         message:
           error instanceof Error ? error.message : 'Editor launch failed.',

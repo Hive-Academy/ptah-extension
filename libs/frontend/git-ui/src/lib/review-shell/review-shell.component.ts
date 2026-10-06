@@ -4,12 +4,15 @@ import {
   Component,
   computed,
   DestroyRef,
+  effect,
   ElementRef,
   inject,
   Injector,
   signal,
+  untracked,
   viewChild,
 } from '@angular/core';
+import { ElectronLayoutService } from '@ptah-extension/core';
 import { NativeTabGroupComponent, type NativeTab } from '@ptah-extension/ui';
 import { CommitComposerComponent } from '../commit/commit-composer.component';
 import { ConflictBannerComponent } from '../conflict/conflict-banner.component';
@@ -22,11 +25,17 @@ import { GitBranchesService } from '../services/git-branches.service';
 import { GitStatusService } from '../services/git-status.service';
 import {
   ReviewNavigationService,
+  scopeWorktreeRoot,
   type ReviewTab,
 } from '../services/review-navigation.service';
+import { ReviewWorktreeStatusService } from '../services/review-worktree-status.service';
 import { statusUnavailableLabel } from '../services/git-status-unavailable-label';
 import { SpotEditorComponent } from '../spot-editor/spot-editor.component';
 import { TaskWorktreeViewComponent } from '../task/task-worktree-view.component';
+import {
+  WorktreeScopeBarComponent,
+  worktreeFolderName,
+} from './worktree-scope-bar.component';
 
 /** Below this shell width the file tree stacks above the diff (design-spec §6.1a). */
 const STACK_BELOW_PX = 520;
@@ -82,6 +91,11 @@ type BodyNotice = 'loading' | 'unavailable' | 'not-a-repo';
  *   targets a file (design-spec §3.3, "Back to review" returns). Both bodies
  *   are `@defer` blocks, so the canvas (and Pierre behind it) and CodeMirror
  *   stay in lazy chunks. The spot editor also opens outside a repository.
+ * - **Read-only worktree scope.** While the Changes tab views another
+ *   worktree (a turn that ran there), a bar above its body says so and offers
+ *   Back (the active working tree) and Open as workspace; the shell reads
+ *   that worktree's status (`ReviewWorktreeStatusService`) once per scope and
+ *   keeps the spot editor read-only for its files.
  * - **Commit tab.** The commit composer, in a `@defer` block that loads the
  *   first time the tab shows.
  * - **Task tab.** The task/worktree view (branch, PR/CI, worktrees), in a
@@ -114,6 +128,7 @@ type BodyNotice = 'loading' | 'unavailable' | 'not-a-repo';
     ReviewCanvasComponent,
     SpotEditorComponent,
     TaskWorktreeViewComponent,
+    WorktreeScopeBarComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'block h-full w-full' },
@@ -208,6 +223,15 @@ type BodyNotice = 'loading' | 'unavailable' | 'not-a-repo';
             [class.flex]="shownTab() === 'changes'"
             [class.hidden]="shownTab() !== 'changes'"
           >
+            @if (viewedRoot(); as root) {
+              <ptah-worktree-scope-bar
+                [root]="root"
+                [branch]="viewedBranch()"
+                [activeLabel]="activeLabel()"
+                (back)="onBackToActive()"
+                (openAsWorkspace)="onOpenAsWorkspace(root)"
+              />
+            }
             @if (fileTarget(); as target) {
               @defer (on immediate) {
                 <ptah-spot-editor
@@ -215,6 +239,7 @@ type BodyNotice = 'loading' | 'unavailable' | 'not-a-repo';
                   class="min-h-0 flex-1"
                   [request]="target.request"
                   [startEditable]="target.editable === true"
+                  [readOnly]="editorReadOnly()"
                   [editorTargets]="launchers.targets()"
                   (backToReview)="onBackToReview()"
                   (openExternal)="launchers.openLinkedFile($event)"
@@ -359,6 +384,8 @@ export class ReviewShellComponent {
   protected readonly gitStatus = inject(GitStatusService);
   private readonly gitBranches = inject(GitBranchesService);
   private readonly navigation = inject(ReviewNavigationService);
+  private readonly worktreeStatus = inject(ReviewWorktreeStatusService);
+  private readonly layout = inject(ElectronLayoutService);
   protected readonly launchers = inject(EditorLauncherService);
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly injector = inject(Injector);
@@ -376,6 +403,34 @@ export class ReviewShellComponent {
     const target = this.navigation.current().target;
     return target.kind === 'file' ? target : null;
   });
+
+  /** Same object while only the tab or target changes. */
+  private readonly scope = computed(() => this.navigation.current().scope);
+
+  /** The worktree the Changes tab views read-only, or `null`. */
+  protected readonly viewedRoot = computed(() =>
+    scopeWorktreeRoot(this.scope()),
+  );
+
+  protected readonly viewedBranch = computed(() => {
+    const status = this.worktreeStatus.status();
+    return status && status.root === this.viewedRoot() ? status.branch : null;
+  });
+
+  /** "Back to <this>": the active branch, else the workspace folder's name. */
+  protected readonly activeLabel = computed(() => {
+    const branch = this.gitStatus.branchName();
+    if (branch) return branch;
+    const active = this.gitStatus.activeWorkspacePath();
+    return active ? worktreeFolderName(active) : 'the workspace';
+  });
+
+  /** A file of another worktree never edits, with or without the scope. */
+  protected readonly editorReadOnly = computed(
+    () =>
+      this.viewedRoot() !== null ||
+      this.navigation.isForeignRoot(this.fileTarget()?.request.workspaceRoot),
+  );
 
   /** The tab whose body shows. */
   protected readonly shownTab = computed<ReviewTab>(
@@ -454,9 +509,21 @@ export class ReviewShellComponent {
       () => this.spotEditor()?.confirmLeave() ?? true,
     );
 
+    // The read-only worktree scope reads that worktree's status once per
+    // scope it opens (a repeated Review opens a new one, so it re-reads).
+    effect(() => {
+      const root = this.viewedRoot();
+      this.scope();
+      untracked(() => {
+        if (root) void this.worktreeStatus.load(root);
+        else this.worktreeStatus.clear();
+      });
+    });
+
     afterNextRender(() => this.observeWidth());
 
     destroyRef.onDestroy(() => {
+      this.worktreeStatus.clear();
       this.gitStatus.stopListening();
       this.gitBranches.stopListening();
       releaseDiskChanges();
@@ -464,6 +531,19 @@ export class ReviewShellComponent {
       this.resizeObserver?.disconnect();
       this.resizeObserver = null;
     });
+  }
+
+  /** The scope bar's Back: the active workspace's working tree. */
+  protected onBackToActive(): void {
+    this.navigation.selectComparison('worktree');
+  }
+
+  /**
+   * The scope bar's Open as workspace, as the Task tab's worktree list does:
+   * the folder is added and becomes active, and that switch resets the scope.
+   */
+  protected onOpenAsWorkspace(root: string): void {
+    void this.layout.addFolderByPath(root);
   }
 
   protected onTabSelected(id: string): void {

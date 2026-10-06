@@ -415,6 +415,102 @@ describe('TurnChangeSetRecorder', () => {
     ]);
   });
 
+  it('reports an untracked file still on disk as added and a modified file as modified, with their counts', async () => {
+    // Regression: one turn that leaves a new untracked file and an edited
+    // tracked file must not report either as deleted or with zero counts.
+    await fs.mkdir(path.join(root, 'skills'));
+    const skill = path.join(root, 'skills', 'SKILL.md');
+    const agent = path.join(root, 'agent.md');
+    await fs.writeFile(agent, 'a\n');
+    gitInfoResult = repo([]);
+    submitPrompt();
+    await waitUntil(() => gitInfo.getGitInfo.mock.calls.length === 1);
+    await settle();
+
+    await fs.writeFile(skill, 'one\ntwo\n');
+    await fs.writeFile(agent, 'b\n');
+    gitInfoResult = repo([
+      {
+        path: 'agent.md',
+        status: 'M',
+        staged: false,
+        additions: 1,
+        deletions: 1,
+      },
+      {
+        path: 'skills/SKILL.md',
+        status: '??',
+        staged: false,
+        additions: 2,
+        deletions: 0,
+      },
+    ]);
+    numstat = (paths) =>
+      new Map(
+        paths.map((p) => [
+          p,
+          p === 'skills/SKILL.md'
+            ? { additions: 2, deletions: 0, binary: false }
+            : { additions: 1, deletions: 1, binary: false },
+        ]),
+      );
+    endTurn();
+    await waitUntil(() => pushes.length === 1);
+
+    expect(pushes[0].changeSet).toMatchObject({
+      files: [
+        { path: 'agent.md', status: 'M', additions: 1, deletions: 1 },
+        { path: 'skills/SKILL.md', status: 'A', additions: 2, deletions: 0 },
+      ],
+      totals: { files: 2, additions: 3, deletions: 1 },
+      countsUnavailable: false,
+    });
+  });
+
+  it('counts the lines of an untracked file the turn deleted, which numstat cannot see', async () => {
+    // Regression: an untracked file (and a staged new one with an unstaged
+    // edit) removed from disk during the turn were recorded `D +0 -0`,
+    // because numstat against HEAD has no record of a file HEAD never had.
+    gitInfoResult = repo([
+      {
+        path: 'notes.md',
+        status: '??',
+        staged: false,
+        additions: 12,
+        deletions: 0,
+      },
+      {
+        path: 'staged.md',
+        status: 'A',
+        staged: true,
+        additions: 10,
+        deletions: 0,
+      },
+      {
+        path: 'staged.md',
+        status: 'M',
+        staged: false,
+        additions: 2,
+        deletions: 3,
+      },
+    ]);
+    submitPrompt();
+    await settle();
+    gitInfoResult = repo([]);
+    endTurn();
+    await waitUntil(() => pushes.length === 1);
+
+    expect(pushes[0].changeSet).toMatchObject({
+      files: [
+        { path: 'notes.md', status: 'D', additions: 0, deletions: 12 },
+        { path: 'staged.md', status: 'D', additions: 0, deletions: 9 },
+      ],
+      totals: { files: 2, additions: 0, deletions: 21 },
+      countsUnavailable: false,
+    });
+    expect(gitInfo.readChangeSetNumstat).not.toHaveBeenCalled();
+  });
+
   it('reports a file the turn added and committed as added, not deleted', async () => {
     await fs.writeFile(path.join(root, 'kept.ts'), 'k\n');
     gitInfoResult = repo([{ path: 'kept.ts', status: '??', staged: false }]);

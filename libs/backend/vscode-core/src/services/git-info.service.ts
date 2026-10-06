@@ -6,7 +6,7 @@
  */
 
 import * as path from 'path';
-import { readFile, stat as readStat } from 'fs/promises';
+import { readFile, realpath, stat as readStat } from 'fs/promises';
 import { createHash } from 'crypto';
 import type { IProcessSpawner } from '@ptah-extension/platform-core';
 import type { Logger } from '../logging';
@@ -170,6 +170,76 @@ function statusUnavailable(reason: GitStatusUnavailableReason): GitInfoResult {
 /** Client-facing discard failure when git status could not be read. */
 const DISCARD_STATUS_FAILED =
   'Could not read file status; nothing was discarded.';
+
+/**
+ * Most path characters one discard command line carries. Windows caps a
+ * command line at 32,767 characters; batches this size leave ample room for
+ * git's own arguments and any quoting the spawn adds.
+ */
+const DISCARD_ARGV_CHUNK_CHARS = 8000;
+
+/**
+ * Split `paths` into consecutive batches whose summed length (plus one
+ * separator each) stays within `maxChars`. A single longer path gets a batch
+ * of its own rather than being dropped.
+ */
+export function chunkPathsByLength(
+  paths: readonly string[],
+  maxChars: number = DISCARD_ARGV_CHUNK_CHARS,
+): string[][] {
+  const chunks: string[][] = [];
+  let current: string[] = [];
+  let size = 0;
+  for (const path of paths) {
+    const cost = path.length + 1;
+    if (current.length > 0 && size + cost > maxChars) {
+      chunks.push(current);
+      current = [];
+      size = 0;
+    }
+    current.push(path);
+    size += cost;
+  }
+  if (current.length > 0) chunks.push(current);
+  return chunks;
+}
+
+/**
+ * Whether `file`, with every symbolic link resolved, still lies inside
+ * `root` (also resolved). A symlink in the worktree must not let a diff read
+ * a file outside it. A file the real disk cannot resolve (a virtual file
+ * system behind the reader port) has no link to follow and passes.
+ */
+async function isInsideRoot(root: string, file: string): Promise<boolean> {
+  let realFile: string;
+  try {
+    realFile = await realpath(file);
+  } catch {
+    // degradation-audit: optional-capability - not on the real disk, so no
+    // symlink can redirect it; the reader port is the only way in.
+    return true;
+  }
+  const realRoot = await realpath(root).catch(() => path.resolve(root));
+  const relative = path.relative(realRoot, realFile);
+  return (
+    relative !== '..' &&
+    !relative.startsWith(`..${path.sep}`) &&
+    !path.isAbsolute(relative)
+  );
+}
+
+/** What a discard runs: checkout, rename-restore and clean path sets. */
+interface DiscardPlan {
+  trackedPaths: string[];
+  renamePaths: string[];
+  untrackedPaths: string[];
+}
+
+/** A discard status read that failed before anything was touched. */
+interface DiscardReadFailure {
+  error: string;
+  code: GitMutationFailureCode;
+}
 
 /** `index.lock` stayed held by another process through every retry. */
 class IndexLockedError extends Error {}
@@ -1047,6 +1117,27 @@ export class GitInfoService {
   }
 
   /**
+   * The repository's common directory as git resolves it from `dir`
+   * (`rev-parse --path-format=absolute --git-common-dir`): the same for a
+   * repository's main worktree and every linked one. Null when `dir` is not
+   * inside a repository or git cannot answer.
+   */
+  async getCommonDir(dir: string): Promise<string | null> {
+    try {
+      const { stdout, exitCode } = await this.execGit(
+        ['rev-parse', '--path-format=absolute', '--git-common-dir'],
+        dir,
+      );
+      const commonDir = stdout.trim();
+      return exitCode === 0 && commonDir.length > 0 ? commonDir : null;
+    } catch {
+      // degradation-audit: optional-capability - no answer authorizes nothing;
+      // the caller treats null as "not the same repository".
+      return null;
+    }
+  }
+
+  /**
    * `git worktree add`. A target under `<workspace>/.claude-worktrees/` also
    * gets that directory excluded in `info/exclude` (once; a failure there is
    * warned and does not fail the add).
@@ -1146,19 +1237,31 @@ export class GitInfoService {
    * - other tracked: `git checkout -- <paths...>`
    * - untracked: `git clean -f -- <paths...>`
    *
+   * With `worktreeOnly` (discard all) the index is never touched: renames are
+   * not expanded, tracked paths with an unstaged change are checked out from
+   * the index, untracked paths are cleaned and unmerged paths are skipped.
+   *
+   * Every status read and write runs in {@link chunkPathsByLength} batches
+   * so no command line nears the Windows length limit.
+   *
    * WARNING: This is a destructive operation that cannot be undone.
    */
   async discardChanges(
     workspacePath: string,
     paths: string[],
+    options: { worktreeOnly?: boolean } = {},
   ): Promise<GitDiscardResult> {
     try {
       this.validatePaths(paths);
-      // One lock scope for the two status reads AND the writes: a write
-      // landing between classification and discard would be discarded blind.
-      return await this.writeLock.run(workspacePath, () =>
-        this.discardClassified(workspacePath, paths),
-      );
+      // One lock scope for the status reads AND the writes: a write landing
+      // between classification and discard would be discarded blind.
+      return await this.writeLock.run(workspacePath, async () => {
+        const plan = options.worktreeOnly
+          ? await this.classifyWorktreeOnly(workspacePath, paths)
+          : await this.classifyForDiscard(workspacePath, paths);
+        if ('error' in plan) return { success: false, ...plan };
+        return this.runDiscard(workspacePath, plan);
+      });
     } catch (error) {
       const outcome = thrownOutcome(error);
       this.logger.error('[GitInfoService] discardChanges failed', {
@@ -1170,15 +1273,11 @@ export class GitInfoService {
     }
   }
 
-  /** `discardChanges`' locked body: classify, then checkout/restore/clean. */
-  private async discardClassified(
+  /** `discardChanges`' locked writes: checkout, restore, clean — in batches. */
+  private async runDiscard(
     workspacePath: string,
-    paths: string[],
+    { trackedPaths, renamePaths, untrackedPaths }: DiscardPlan,
   ): Promise<GitDiscardResult> {
-    const classified = await this.classifyForDiscard(workspacePath, paths);
-    if ('error' in classified) return { success: false, ...classified };
-    const { trackedPaths, renamePaths, untrackedPaths } = classified;
-
     const steps: Array<[string[], string[], string]> = [
       [['checkout'], trackedPaths, 'Failed to discard tracked file changes'],
       [
@@ -1195,17 +1294,94 @@ export class GitInfoService {
       );
     }
     for (const [command, stepPaths, fallback] of steps) {
-      if (stepPaths.length === 0) continue;
-      const outcome = writeOutcome(
-        await this.writeLock.execWrite(
-          [...command, '--', ...stepPaths],
-          workspacePath,
-        ),
-        fallback,
-      );
-      if (!outcome.success) return outcome;
+      for (const chunk of chunkPathsByLength(stepPaths)) {
+        const outcome = writeOutcome(
+          await this.writeLock.execWrite(
+            [...command, '--', ...chunk],
+            workspacePath,
+          ),
+          fallback,
+        );
+        if (!outcome.success) return outcome;
+      }
     }
     return { success: true };
+  }
+
+  /** Logs a failed discard status read and maps it to a typed failure. */
+  private discardReadFailure(
+    workspacePath: string,
+    stderr: string,
+    exitCode: number,
+  ): DiscardReadFailure {
+    this.logger.warn(
+      `[GitInfoService] discard status read failed for ${workspacePath} (exit ${exitCode}): ${stderr.trim()}`,
+    );
+    return isIndexLockFailure(stderr)
+      ? { code: 'LOCKED', error: GIT_LOCKED_MESSAGE }
+      : { code: 'GIT_ERROR', error: DISCARD_STATUS_FAILED };
+  }
+
+  /**
+   * Pathspec-limited `status -z --untracked-files=all` over `paths`, one read
+   * per {@link chunkPathsByLength} batch, parsed and concatenated.
+   */
+  private async readDiscardStatus(
+    workspacePath: string,
+    paths: readonly string[],
+  ): Promise<{ files: GitFileStatus[] } | DiscardReadFailure> {
+    const files: GitFileStatus[] = [];
+    for (const chunk of chunkPathsByLength(paths)) {
+      const status = await this.execGit(
+        [...STATUS_Z, '--untracked-files=all', '--', ...chunk],
+        workspacePath,
+      );
+      if (status.exitCode !== 0) {
+        return this.discardReadFailure(
+          workspacePath,
+          status.stderr,
+          status.exitCode,
+        );
+      }
+      files.push(...parseStatusV2Z(status.stdout).files);
+    }
+    return { files };
+  }
+
+  /**
+   * Discard all's plan: the working tree only. A tracked path qualifies only
+   * through an unstaged side (`checkout --` restores it from the index, so a
+   * staged rename or edit survives); an unmerged path is skipped rather than
+   * failing the batch; nothing is restored from HEAD.
+   */
+  private async classifyWorktreeOnly(
+    workspacePath: string,
+    paths: string[],
+  ): Promise<DiscardPlan | DiscardReadFailure> {
+    const read = await this.readDiscardStatus(workspacePath, paths);
+    if ('error' in read) return read;
+    const unmerged = new Set(
+      read.files.filter((file) => file.status === 'U').map((file) => file.path),
+    );
+    const tracked = new Set<string>();
+    const untracked = new Set<string>();
+    for (const file of read.files) {
+      if (file.status === '!' || file.staged || unmerged.has(file.path)) {
+        continue;
+      }
+      if (file.status === '??') untracked.add(file.path);
+      else tracked.add(file.path);
+    }
+    if (unmerged.size > 0) {
+      this.logger.info(
+        `[GitInfoService] discard all skipped ${unmerged.size} unmerged path(s) in ${workspacePath}`,
+      );
+    }
+    return {
+      trackedPaths: [...tracked],
+      renamePaths: [],
+      untrackedPaths: [...untracked],
+    };
   }
 
   /**
@@ -1219,33 +1395,13 @@ export class GitInfoService {
   private async classifyForDiscard(
     workspacePath: string,
     paths: string[],
-  ): Promise<
-    | {
-        trackedPaths: string[];
-        renamePaths: string[];
-        untrackedPaths: string[];
-      }
-    | { error: string; code: GitMutationFailureCode }
-  > {
-    const readFailure = (stderr: string, exitCode: number) => {
-      this.logger.warn(
-        `[GitInfoService] discard status read failed for ${workspacePath} (exit ${exitCode}): ${stderr.trim()}`,
-      );
-      return isIndexLockFailure(stderr)
-        ? { code: 'LOCKED' as const, error: GIT_LOCKED_MESSAGE }
-        : { code: 'GIT_ERROR' as const, error: DISCARD_STATUS_FAILED };
-    };
-    const status = await this.execGit(
-      [...STATUS_Z, '--untracked-files=all', '--', ...paths],
-      workspacePath,
-    );
-    if (status.exitCode !== 0) {
-      return readFailure(status.stderr, status.exitCode);
-    }
+  ): Promise<DiscardPlan | DiscardReadFailure> {
+    const read = await this.readDiscardStatus(workspacePath, paths);
+    if ('error' in read) return read;
     const tracked = new Set<string>();
     const untracked = new Set<string>();
     const stagedAdds = new Set<string>();
-    for (const file of parseStatusV2Z(status.stdout).files) {
+    for (const file of read.files) {
       if (file.status === '!') continue; // ignored: never a change
       if (file.status === '??') untracked.add(file.path);
       else tracked.add(file.path);
@@ -1260,7 +1416,9 @@ export class GitInfoService {
         workspacePath,
         { maxOutputBytes: GIT_STATUS_MAX_OUTPUT_BYTES },
       );
-      if (all.exitCode !== 0) return readFailure(all.stderr, all.exitCode);
+      if (all.exitCode !== 0) {
+        return this.discardReadFailure(workspacePath, all.stderr, all.exitCode);
+      }
       for (const file of parseStatusV2Z(all.stdout).files) {
         if (
           file.staged &&
@@ -2497,6 +2655,12 @@ export class GitInfoService {
     try {
       if (!(await fileReader.exists(absolutePath))) {
         return { outcome: 'absent' };
+      }
+      if (!(await isInsideRoot(workspacePath, absolutePath))) {
+        this.logger.warn(
+          `[GitInfoService] refused a worktree read that resolves outside ${workspacePath}`,
+        );
+        return this.gitReadError('permission-denied', relativePath);
       }
 
       // Stat first so an oversized file is never read into memory.

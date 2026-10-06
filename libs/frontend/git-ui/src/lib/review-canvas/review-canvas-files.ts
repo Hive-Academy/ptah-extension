@@ -1,3 +1,4 @@
+import { normalizeWorkspaceRoot } from '@ptah-extension/shared';
 import type { GitFileStatus, GitReviewFile } from '@ptah-extension/shared';
 import type { ReviewDiffComparison } from '../services/review-diff.service';
 import type { ReviewScope } from '../services/review-navigation.service';
@@ -29,6 +30,9 @@ export function reviewScopeId(
   if (scope.kind === 'historical') {
     return `historical:${scope.base.sha}..${scope.head.sha}`;
   }
+  if (scope.kind === 'worktree' && scope.root) {
+    return `worktree:${normalizeWorkspaceRoot(scope.root)}`;
+  }
   return scope.kind === 'branch' ? `branch:${branchRange ?? ''}` : scope.kind;
 }
 
@@ -38,8 +42,15 @@ function statusLabel(file: GitFileStatus): ReviewFileLabel | null {
   return file.binary ? 'binary' : null;
 }
 
-/** A `git status` entry as a staged or working-tree section. */
-export function statusCanvasFile(file: GitFileStatus): ReviewCanvasFile {
+/**
+ * A `git status` entry as a staged or working-tree section. `root` is the
+ * read-only worktree the entry was read from; omitted for the active
+ * workspace.
+ */
+export function statusCanvasFile(
+  file: GitFileStatus,
+  root?: string,
+): ReviewCanvasFile {
   const kind = file.staged ? 'staged' : 'worktree';
   return {
     id: reviewFileId(kind, file.path, file.origPath),
@@ -51,7 +62,7 @@ export function statusCanvasFile(file: GitFileStatus): ReviewCanvasFile {
     deletions: file.deletions ?? null,
     comparison: kind,
     request: {
-      comparison: { kind },
+      comparison: root ? { kind, root } : { kind },
       path: file.path,
       ...(file.origPath ? { origPath: file.origPath } : {}),
     },

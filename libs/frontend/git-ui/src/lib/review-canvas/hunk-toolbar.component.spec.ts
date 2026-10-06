@@ -59,6 +59,7 @@ function diffState(
       [hunk]="hunk()"
       [hunkCount]="count()"
       [comparison]="comparison()"
+      [readOnly]="readOnly()"
       [entryKey]="key"
       [snapshotToken]="token()"
       (navigate)="navigated.push($event)"
@@ -69,6 +70,7 @@ class HostComponent {
   readonly hunk = signal(hunk(0));
   readonly count = signal(3);
   readonly comparison = signal<HunkToolbarComparison>('worktree');
+  readonly readOnly = signal(false);
   readonly token = signal('tok-1');
   readonly key = KEY;
   readonly navigated: number[] = [];
@@ -169,6 +171,18 @@ describe('HunkToolbarComponent', () => {
         expect(q('git-confirm-dialog')).toBeNull();
       },
     );
+
+    it('the read-only worktree scope keeps a working-tree hunk inert', () => {
+      host.readOnly.set(true);
+      fixture.detectChanges();
+      const accept = q('hunk-stage') as HTMLButtonElement;
+      expect(accept.getAttribute('aria-disabled')).toBe('true');
+      expect(accept.getAttribute('title')).toBe('This comparison is read-only');
+      accept.click();
+      (q('hunk-revert') as HTMLButtonElement).click();
+      expect(applyHunks).not.toHaveBeenCalled();
+      expect(q('git-confirm-dialog')).toBeNull();
+    });
 
     it('an empty snapshot token offers no action', () => {
       host.token.set('');

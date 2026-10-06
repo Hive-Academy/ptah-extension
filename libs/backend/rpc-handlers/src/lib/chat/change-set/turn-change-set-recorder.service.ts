@@ -15,7 +15,10 @@
  *   baseline entry is removed at once, an after-snapshot is taken the same
  *   way, and a path counts as changed when its status, origPath or numstat
  *   differs, when it appears or disappears, or when its mtime or size differs.
- *   Line counts come from `GitInfoService.readChangeSetNumstat`.
+ *   Line counts come from `GitInfoService.readChangeSetNumstat`, except for a
+ *   file HEAD never had that the turn deleted: numstat cannot see it, so its
+ *   deletion count is its line count at turn start (the baseline) —
+ *   approximate when the turn edited the file before deleting it.
  *
  * A non-empty set is persisted through {@link TurnChangeSetStore} and pushed
  * as `git:turnChangeSet`. An empty set records and pushes nothing; a non-git
@@ -66,6 +69,12 @@ interface PathState {
   readonly origPath?: string;
   /** Status, origPath and numstat of every git row for the path. */
   readonly signature: string;
+  /**
+   * Lines in the file when it is not in HEAD (status `A`: untracked or newly
+   * added), from its status rows' counts. Null for any other status, or when
+   * a row's counts are unknown or binary.
+   */
+  readonly lineCount: number | null;
   /** False when the path was past {@link MAX_STAT_PATHS}. */
   readonly statted: boolean;
   /** Null when the path is absent on disk. */
@@ -112,6 +121,9 @@ interface FileStat {
 }
 
 const ABSENT_ON_DISK: FileStat = { mtimeMs: null, size: null };
+
+/** One path's line counts, as `readChangeSetNumstat` reports them. */
+type LineCounts = Pick<GitFileStatus, 'additions' | 'deletions' | 'binary'>;
 
 @injectable()
 export class TurnChangeSetRecorder {
@@ -276,19 +288,26 @@ export class TurnChangeSetRecorder {
     baselineMissing: boolean;
   }): Promise<TurnChangeSet> {
     const stored = input.changed.slice(0, MAX_FILES_PER_CHANGE_SET);
-    const numstatPaths = stored.flatMap((c) =>
-      c.origPath ? [c.path, c.origPath] : [c.path],
-    );
-    const counts = await this.gitInfo.readChangeSetNumstat(
-      input.workspaceRoot,
-      numstatPaths,
-    );
+    const numstatPaths = stored.flatMap((c) => {
+      if (c.deletedLines !== undefined) return [];
+      return c.origPath ? [c.path, c.origPath] : [c.path];
+    });
+    const counts =
+      numstatPaths.length > 0
+        ? await this.gitInfo.readChangeSetNumstat(
+            input.workspaceRoot,
+            numstatPaths,
+          )
+        : new Map<string, LineCounts>();
 
     let countsUnavailable = false;
     let additions = 0;
     let deletions = 0;
     const files: TurnChangeSetFile[] = stored.map((c) => {
-      const count = counts.get(c.path);
+      const count: LineCounts | undefined =
+        c.deletedLines !== undefined
+          ? { additions: 0, deletions: c.deletedLines }
+          : counts.get(c.path);
       const fileAdditions = count?.additions ?? null;
       const fileDeletions = count?.deletions ?? null;
       if (
@@ -392,6 +411,7 @@ export class TurnChangeSetRecorder {
         status,
         ...(origPath !== undefined && { origPath }),
         signature: signatureOf(entries),
+        lineCount: status === 'A' ? lineCountOf(entries) : null,
         statted: stat !== undefined,
         mtimeMs: stat?.mtimeMs ?? null,
         size: stat?.size ?? null,
@@ -406,6 +426,14 @@ interface ChangedPath {
   readonly path: string;
   readonly origPath?: string;
   readonly status: TurnChangeSetFileStatus;
+  /**
+   * Set when the turn deleted a file HEAD never had (untracked or added at
+   * baseline): its line count at turn start, reported as its deletions.
+   * Approximate when the turn edited the file before deleting it — the lines
+   * it had at deletion are never read. numstat against HEAD sees no such
+   * file and would report 0/0.
+   */
+  readonly deletedLines?: number;
 }
 
 /**
@@ -413,7 +441,8 @@ interface ChangedPath {
  *
  * A path gone from status at turn end is clean against HEAD, so the disk
  * tells what the turn did to it (`goneButOnDisk`):
- * - absent on disk: `D` — deleted, or its deletion committed;
+ * - absent on disk: `D` — deleted, or its deletion committed; a file not in
+ *   HEAD carries its baseline line count as `deletedLines`;
  * - present and untracked or added at baseline: `A` — the turn committed a
  *   new file (git status alone cannot tell this from a delete);
  * - present otherwise: `M` — modified and committed, or put back to HEAD.
@@ -436,14 +465,37 @@ function diffSnapshots(
   }
   for (const [relPath, then] of before) {
     if (after.has(relPath)) continue;
-    const status: TurnChangeSetFileStatus = !goneButOnDisk.has(relPath)
-      ? 'D'
-      : then.status === 'A'
-        ? 'A'
-        : 'M';
-    changed.push({ path: relPath, status });
+    if (!goneButOnDisk.has(relPath)) {
+      changed.push({
+        path: relPath,
+        status: 'D',
+        ...(then.lineCount !== null && { deletedLines: then.lineCount }),
+      });
+      continue;
+    }
+    changed.push({ path: relPath, status: then.status === 'A' ? 'A' : 'M' });
   }
   return changed;
+}
+
+/**
+ * Lines of a file HEAD does not have, from its rows: the staged `A` row
+ * counts the index content, a worktree row counts the change on top of it.
+ * Null when any row's counts are unknown or binary.
+ */
+function lineCountOf(entries: readonly GitFileStatus[]): number | null {
+  let lines = 0;
+  for (const entry of entries) {
+    if (
+      entry.binary === true ||
+      typeof entry.additions !== 'number' ||
+      typeof entry.deletions !== 'number'
+    ) {
+      return null;
+    }
+    lines += entry.additions - entry.deletions;
+  }
+  return lines;
 }
 
 function pathChanged(then: PathState, now: PathState): boolean {

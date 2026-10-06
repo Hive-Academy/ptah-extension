@@ -1103,3 +1103,96 @@ describe('ReviewDiffService workspace lifecycle', () => {
     expect(service.entry(key)?.diff?.modified).toBe('ws2');
   });
 });
+
+describe('ReviewDiffService read-only worktree root', () => {
+  const ROOT = '/ws/.claude-worktrees/feature';
+  const ROOTED: ReviewDiffComparison = { kind: 'worktree', root: ROOT };
+
+  it('reads a rooted comparison from its root, under its own key', async () => {
+    const { service } = makeService();
+    const key = await mountFresh(service, {
+      path: 'src/a.ts',
+      comparison: ROOTED,
+    });
+
+    expect(key).not.toBe(
+      reviewDiffKey({ comparison: WORKTREE, path: 'src/a.ts' }),
+    );
+    expect(service.entry(key)?.diff?.status).toBe('fresh');
+
+    mockRpcCall.mockResolvedValueOnce(ok(makeResult({ path: 'src/a.ts' })));
+    await service.retry(key);
+    expect(mockRpcCall.mock.calls[0][1]).toBe('git:diffFile');
+    expect(mockRpcCall.mock.calls[0][2]).toMatchObject({
+      path: 'src/a.ts',
+      comparison: 'worktree',
+      workspaceRoot: ROOT,
+    });
+  });
+
+  it('never applies a hunk to a rooted comparison', async () => {
+    const { service } = makeService();
+    const key = await mountFresh(
+      service,
+      { path: 'a.ts', comparison: ROOTED },
+      { hunks: [hunk(0, 1)] },
+    );
+
+    const result = await service.applyHunks({
+      key,
+      operation: 'stage',
+      hunkIndices: [0],
+      snapshotToken: 'tok-1',
+    });
+
+    expect(result).toMatchObject({ success: false, code: 'INVALID_OPERATION' });
+    expect(mockRpcCall).not.toHaveBeenCalled();
+  });
+
+  it("is not revalidated by the active workspace's pushes", async () => {
+    const { service } = makeService();
+    await mountFresh(service, { path: 'a.ts', comparison: ROOTED });
+
+    service.onGitStatusUpdate('/ws', ['index'], [fileStatus('a.ts')]);
+    jest.advanceTimersByTime(300);
+    service.onFileContentChanged({ filePaths: ['/ws/a.ts'], truncated: false });
+    await drain();
+
+    expect(mockRpcCall).not.toHaveBeenCalled();
+  });
+
+  it('invalidateRoot re-reads a reopened scope: mounted now, unmounted on remount', async () => {
+    const { service } = makeService();
+    const mounted = await mountFresh(service, {
+      path: 'a.ts',
+      comparison: ROOTED,
+    });
+    const parked = await mountFresh(service, {
+      path: 'b.ts',
+      comparison: ROOTED,
+    });
+    const active = await mountFresh(service, { path: 'c.ts' });
+    service.unmount(parked);
+
+    mockRpcCall.mockResolvedValue(ok(makeResult({ path: 'a.ts' })));
+    service.invalidateRoot(`${ROOT}/`);
+    await drain();
+
+    // Only the mounted rooted entry reads now; the active one is untouched.
+    expect(mockRpcCall).toHaveBeenCalledTimes(1);
+    expect(mockRpcCall.mock.calls[0][2]).toMatchObject({
+      path: 'a.ts',
+      workspaceRoot: ROOT,
+    });
+    expect(service.entry(parked)?.invalidated).toBe(true);
+    expect(service.entry(active)?.invalidated).toBe(false);
+    expect(service.entry(mounted)?.diff?.status).toBe('fresh');
+
+    mockRpcCall.mockReset();
+    mockRpcCall.mockResolvedValue(ok(makeResult({ path: 'b.ts' })));
+    service.mount({ path: 'b.ts', comparison: ROOTED });
+    await drain();
+    expect(mockRpcCall).toHaveBeenCalledTimes(1);
+    expect(mockRpcCall.mock.calls[0][2]).toMatchObject({ path: 'b.ts' });
+  });
+});
