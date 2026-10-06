@@ -7,6 +7,7 @@ This reference documents all user validation checkpoints in the orchestration wo
 > 1. All checkpoints are owned by the orchestrator (main agent). Subagents (PM, Architect, Team-Leader, Developers, Reviewers, etc.) CANNOT call `AskUserQuestion` — it is a UI-coupled tool that only works in the main orchestrator's context. If a subagent needs clarification, it MUST return a `## Clarifications Needed` section to the orchestrator, who then runs `AskUserQuestion` and re-invokes the subagent with the answers.
 > 2. **Document review checkpoints (1, 1.7, 2) use plain text messages, not `AskUserQuestion`.** PM, Designer and Architect deliverables are files on disk that the user must open and read before responding — a modal choice would force a premature decision. Pre-deliverable choice checkpoints (0, 0.1, 1.5, 3) still use `AskUserQuestion` because they ARE structured option-picks.
 > 3. If the `AskUserQuestion` tool is unavailable in this harness, ask the same question in plain text, listing the same options, and wait for the answer before proceeding. The checkpoint itself is never skipped — the presentation may degrade, the question may not.
+> 4. **Who approves Gates 1, 1.7 and 2 depends on the approval mode** ([§ Approval mode](#approval-mode)). With CLI lanes installed and enabled, the cross-side reviewer approves and you post a notice; the user is asked only when no lane is available, lanes are disabled, or an escalation applies.
 
 ---
 
@@ -16,14 +17,47 @@ This reference documents all user validation checkpoints in the orchestration wo
 | ---------- | ----------------------- | ----------------- | ------------------------------- | ----------------- | -------------------------------------------- |
 | **0.1**    | CLI Agent Discovery     | Before any agent  | Discover & enable CLI helpers   | `AskUserQuestion` | yes / no / auto                              |
 | **0**      | Scope Clarification     | Before PM         | Clarify ambiguous requests      | `AskUserQuestion` | Answers or "use your judgment"               |
-| **1**      | Requirements Validation | After PM          | Review task-description.md      | **Plain message** | "APPROVED" or feedback                       |
+| **1**      | Requirements Validation | After PM          | Review task-description.md      | **Plain message** | `lane-review`: notice, no wait · `user`: "APPROVED" or feedback |
 | **1.5**    | Technical Clarification | Before Architect  | Technical preferences           | `AskUserQuestion` | Answers or "use your judgment"               |
-| **1.7**    | Design Validation       | After design + prototype, before Architect | Approve design and rendered states | **Plain message** | "APPROVED" or revisions |
-| **2**      | Architecture Validation | After Architect   | Review implementation-plan.md   | **Plain message** | "APPROVED" or feedback                       |
+| **1.7**    | Design Validation       | After design + prototype, before Architect | Approve design and rendered states | **Plain message** | `lane-review`: notice, no wait · `user`: "APPROVED" or revisions |
+| **2**      | Architecture Validation | After Architect   | Review implementation-plan.md   | **Plain message** | `lane-review`: notice, no wait · `user`: "APPROVED" or feedback |
 | **3**      | QA Choice               | After Development | Select QA agents                | `AskUserQuestion` | tester/style/logic/visual/reviewers/all/skip |
 | **SR**     | Subagent Return Loop    | Any subagent step | Resolve subagent clarifications | `AskUserQuestion` | Answers re-injected into subagent prompt     |
 
 **Why 1, 1.7 and 2 are plain messages**: they ask the user to review a generated document on disk. Forcing an `AskUserQuestion` modal pre-commits the user to "APPROVED" or "revise" before they've had a chance to actually open and read the file. Plain text gives them room to validate the doc first.
+
+---
+
+## Approval mode
+
+Decide it once at Gate 0.1 and record it in `context.md` under `## CLI Lanes` as `Approval: lane-review` or `Approval: user`.
+
+| Mode          | When                                                                                                      | Gates 1, 1.7 and 2                                                                                     |
+| ------------- | --------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `lane-review` | `ptah_agent_list` shows a spawnable lane **and** Gate 0.1 left lanes `enabled` or `auto`                 | The cross-side reviewer's APPROVED is the gate decision. Post the [lane-review notice](#lane-review-notice) and continue — do not wait |
+| `user`        | No spawnable lane, Gate 0.1 `disabled`, or the user asked to approve gates themselves (now or in settings) | Present the gate template and wait for the user's `APPROVED`                                          |
+
+**Escalate to the user** — present the full gate template and wait for `APPROVED`, even in `lane-review` mode — when any of these is true for the reviewed revision:
+
+1. The reviewer still returns REVISE when the revise cap is exhausted.
+2. The review was not cross-side (same-side fallback, for any reason) or no independent reviewer could run.
+3. The artifact proposes a removal (`remove-proposed` in `parity-inventory.md`, `## Proposed Removals`) or bans an existing project component. Removals always need the user.
+4. The reviewer or author returned `## Clarifications Needed` — run Gate SR first, then continue in the current mode.
+5. The user asked to see this gate, or sent feedback on this artifact.
+
+Record each gate decision against the reviewed revision in `context.md`: who approved it (`user`, or `lane-review: <reviewer side + lane/agent>`), and any escalation reason.
+
+User feedback that arrives after a lane-review approval is a user-requested revision: pause work that builds on the artifact, revise, run a fresh review, and present the gate to the user (escalation 5).
+
+### Lane-review notice
+
+```markdown
+**Gate [1 | 1.7 | 2] approved by cross-side review — TASK_[ID]**
+📄 `<taskFolder>/<artifact>` · Written by [side + lane/agent] · Reviewed by [other side + lane/agent]
+Verdict: APPROVED after [0–2] revise rounds — 📄 `<taskFolder>/<artifact-stem>-review.md`
+Lane-introduced constraints the reviewer accepted: [list, or none]
+Continuing to [next phase]. Reply with feedback or "stop" at any time to revise.
+```
 
 ---
 
@@ -40,10 +74,13 @@ Runs before Gates 1, 1.7 and 2, for initial artifacts and for every revision of 
 3. The review file records author, reviewer, both execution sides, the reviewed revision, the
    completed round count, the verdict and unresolved items. Resume these records; continuation alone
    never resets the count. Record the user's gate decision against that revision in `context.md`.
-4. Reviewer APPROVED → present the gate. Still REVISE when the cap is exhausted → stop revising and present the
-   gate with the verdict and every open item. The reviewer's verdict never counts as user approval;
-   nothing is implemented while approval is pending.
-5. A user-requested revision gets a fresh review before the gate is shown again; that review alone
+4. Reviewer APPROVED → in `lane-review` mode with no escalation, post the lane-review notice and
+   continue; otherwise present the gate to the user. Still REVISE when the cap is exhausted → stop
+   revising and present the gate to the user with the verdict and every open item. In `user` mode the
+   reviewer's verdict never counts as user approval. Nothing is implemented while approval is pending.
+5. The reviewer checks every `lane-proposed` constraint and states in the review file whether it
+   accepts it. A constraint it does not accept is a REVISE item, not a silent pass.
+6. A user-requested revision gets a fresh review before the gate is shown again; that review alone
    does not reset the round count. A new automatic budget needs the user's explicit go-ahead or a
    user-requested scope change: keep the prior round history, record the reason, start again at
    round 0. Questions that change nothing need no review.
@@ -58,14 +95,14 @@ At the very start of orchestration, before any sub-agent is invoked.
 
 ### Trigger Conditions
 
-Run `ptah_agent_list` at orchestration start. Present the checkpoint if at least one lane is spawnable (how to read the rows: the [agent-lanes skill](../../agent-lanes/SKILL.md)). Tell the user that required document reviews run before each user gate — one initial review per artifact, at most two author/reviewer revision pairs — and that with lanes disabled, fresh subagents perform disclosed same-side reviews.
+Run `ptah_agent_list` at orchestration start. Present the checkpoint if at least one lane is spawnable (how to read the rows: the [agent-lanes skill](../../agent-lanes/SKILL.md)). Tell the user that required document reviews run before Gates 1, 1.7 and 2 — one initial review per artifact, at most two author/reviewer revision pairs — and that with lanes on, an approving cross-side review passes those gates without waiting for them ([§ Approval mode](#approval-mode)). With lanes disabled, fresh subagents perform disclosed same-side reviews and the user approves each gate.
 
 ### Skip Conditions
 
 Skip this checkpoint if:
 
-- `ptah_agent_list` returns no available CLI agents
-- User previously set CLI agent preference in project-level settings
+- `ptah_agent_list` returns no available CLI agents — record `Approval: user`
+- User previously set CLI agent preference in project-level settings — derive the approval mode from it
 - Task is Minimal pattern (single developer or reviewer)
 
 ### Template
@@ -87,6 +124,10 @@ file reviews), run parallel batches, or run whole phases you assign to them.
 
 **Sub-agents and I retain quality ownership** — lane output is verified before it is used.
 
+With lanes on, an independent reviewer on the other execution side approves the requirements,
+design and architecture, and I continue without waiting. I stop for you only on open review items,
+proposed removals, or questions. Say "gate me" to approve those documents yourself.
+
 ---
 
 ## Would you like to use CLI lanes for this task?
@@ -94,7 +135,7 @@ file reviews), run parallel batches, or run whole phases you assign to them.
 Options:
 
 1. **yes** — Sub-agents delegate focused sub-tasks; batches and phases may run on lanes
-2. **no** — Sub-agents work alone (standard mode)
+2. **no** — Sub-agents work alone (standard mode); you approve every document gate
 3. **auto** — Lanes are used only where they clearly help
 
 ---
@@ -102,13 +143,14 @@ Options:
 
 ### Response Handling
 
-| Response | Mode       |
-| -------- | ---------- |
-| **yes**  | `enabled`  |
-| **no**   | `disabled` |
-| **auto** | `auto`     |
+| Response                 | Mode       | Approval      |
+| ------------------------ | ---------- | ------------- |
+| **yes**                  | `enabled`  | `lane-review` |
+| **no**                   | `disabled` | `user`        |
+| **auto**                 | `auto`     | `lane-review` |
+| any of the above + "gate me" | as chosen | `user`     |
 
-Record the mode and the discovered rows, and brief sub-agents accordingly: [lane-assignment.md § Gate 0.1 outcome](lane-assignment.md#gate-01-outcome).
+Record the mode, the approval mode and the discovered rows, and brief sub-agents accordingly: [lane-assignment.md § Gate 0.1 outcome](lane-assignment.md#gate-01-outcome).
 
 ---
 
@@ -173,6 +215,8 @@ Before I create the requirements, I have a few clarifying questions:
 ### When to Present
 
 After project-manager completes and creates `task-description.md`.
+
+In `lane-review` mode with no [escalation](#approval-mode), post the lane-review notice and continue. Otherwise present as below.
 
 ### How to Present — PLAIN MESSAGE, NOT `AskUserQuestion`
 
@@ -304,6 +348,9 @@ Before I create the architecture, I have a few technical questions:
 After `design-spec.md` and `<taskFolder>/prototype/` are ready, before the next phase of the flow
 (architect, team-leader, or content writer). **Mandatory whenever a designer ran or any UI surface is added/redesigned.**
 
+In `lane-review` mode with no [escalation](#approval-mode), post the lane-review notice with the
+prototype path and screenshot links, and continue. Otherwise present as below.
+
 ### How to Present — PLAIN MESSAGE, NOT `AskUserQuestion`
 
 Show the spec, prototype and screenshots in a regular chat message. Diff the spec's rules against
@@ -374,6 +421,9 @@ When ready, reply:
 ### When to Present
 
 After software-architect completes and creates `implementation-plan.md`.
+
+In `lane-review` mode with no [escalation](#approval-mode), post the lane-review notice and invoke
+team-leader MODE 1. Otherwise present as below.
 
 ### How to Present — PLAIN MESSAGE, NOT `AskUserQuestion`
 
@@ -567,7 +617,7 @@ If detected → run Checkpoint SR. Do NOT proceed to the next workflow phase.
 
 ### Validation Rejection Handling
 
-When user provides feedback instead of "APPROVED":
+When user provides feedback instead of "APPROVED" (in `lane-review` mode, also feedback that arrives after the notice):
 
 ```
 1. Extract specific feedback points from user response
@@ -617,7 +667,7 @@ New Task Start
   Project Manager
      │
      v
-[Checkpoint 1: Requirements Validation]  ←─ Required
+[Checkpoint 1: Requirements Validation]  ←─ Required (lane-review: reviewer approves; user: APPROVED)
      │
      v
 [Checkpoint 1.5: Technical Clarification]  ←─ Optional
@@ -626,13 +676,13 @@ New Task Start
   Designer → design-spec.md + prototype/ (when required)
      │
      v
-[Checkpoint 1.7: Design Validation]  ←─ Required if designer ran or UI added/redesigned
+[Checkpoint 1.7: Design Validation]  ←─ Required if designer ran or UI added/redesigned (approver per approval mode)
      │
      v
   Software Architect
      │
      v
-[Checkpoint 2: Architecture Validation]  ←─ Required
+[Checkpoint 2: Architecture Validation]  ←─ Required (lane-review: reviewer approves; user: APPROVED)
      │
      v
   Team-Leader MODE 1 → Development Loop

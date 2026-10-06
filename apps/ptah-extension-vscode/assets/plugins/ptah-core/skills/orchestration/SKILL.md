@@ -62,18 +62,27 @@ Any flow adding or redesigning a UI surface inserts [designer → prototype → 
 | ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
 | 0.1 CLI lanes    | Start, when `ptah_agent_list` shows a spawnable lane                                                                                                                                            | `AskUserQuestion`                            |
 | 0 Scope          | Before PM, if the request is ambiguous                                                                                                                                                          | `AskUserQuestion`                            |
-| 1 Requirements   | After `task-description.md`                                                                                                                                                                     | **Plain message**, wait for `APPROVED`       |
+| 1 Requirements   | After `task-description.md`                                                                                                                                                                     | Per approval mode (below)                    |
 | 1.5 Technical    | Before architect, if several valid approaches                                                                                                                                                   | `AskUserQuestion`                            |
-| 1.7 Design       | After `design-spec.md` and `prototype/`, before the next phase of the flow (architect, team-leader, or content writer); mandatory whenever a designer ran or any UI surface is added/redesigned | **Plain message**, wait for `APPROVED`       |
-| 2 Architecture   | After `implementation-plan.md`                                                                                                                                                                  | **Plain message**, wait for `APPROVED`       |
+| 1.7 Design       | After `design-spec.md` and `prototype/`, before the next phase of the flow (architect, team-leader, or content writer); mandatory whenever a designer ran or any UI surface is added/redesigned | Per approval mode (below)                    |
+| 2 Architecture   | After `implementation-plan.md`                                                                                                                                                                  | Per approval mode (below)                    |
 | 3 QA choice      | After team-leader completion                                                                                                                                                                    | `AskUserQuestion`                            |
 | SR Clarification | An agent returned `## Clarifications Needed`                                                                                                                                                    | Ask, then re-invoke with `## User Decisions` |
 
 **Cross-side review before Gates 1, 1.7 and 2**: you invoke an independent reviewer on the
 other execution side (routing and disclosed fallback per [agent-lanes §6](../agent-lanes/SKILL.md)),
 then run the bounded revision protocol in [checkpoints.md](references/checkpoints.md#cross-side-review-protocol).
-The gate shows who wrote it, who reviewed it, the verdict and any open items. A reviewer's
-APPROVED never counts as the user's `APPROVED`.
+The gate shows who wrote it, who reviewed it, the verdict and any open items.
+
+**Approval mode** (set at Gate 0.1, recorded in `context.md`;
+[checkpoints.md § Approval mode](references/checkpoints.md#approval-mode)):
+
+- `lane-review` — a spawnable lane exists and lanes are `enabled` or `auto`. The cross-side
+  reviewer's APPROVED passes Gates 1, 1.7 and 2: post a short notice and continue without waiting.
+- `user` — no spawnable lane, lanes `disabled`, or the user asked to approve gates. Present the
+  gate as a **plain message** and wait for the user's `APPROVED`.
+- Escalate to the user in either mode when the reviewer is still at REVISE after the cap, the
+  review was not cross-side, the artifact proposes a removal, or the user asked to see the gate.
 
 Templates, skip conditions and rejection handling: [checkpoints.md](references/checkpoints.md).
 
@@ -90,8 +99,9 @@ Templates, skip conditions and rejection handling: [checkpoints.md](references/c
 
 ## Never
 
-- Never let a lane-authored spec/design/plan reach implementation without the user seeing and
-  approving it (Gate 1.7 or 2).
+- Never let a spec/design/plan reach implementation without its gate decision: an approving
+  cross-side review in `lane-review` mode, or the user's `APPROVED` in `user` mode or on escalation.
+- Never let a reviewer approve a proposed removal — removals always go to the user.
 - Never delete a capability that is not an approved removal in `parity-inventory.md` or the lane preserve list.
 - Never present Gate 1, 1.7 or 2 without the cross-side review; a same-side review states its
   recorded reason (user pin, lanes disabled at Gate 0.1, or opposite side unavailable).

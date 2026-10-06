@@ -122,7 +122,7 @@ design_system:
 The UI/UX designer **owns building an interactive, clickable prototype** for user confirmation before any implementation code is written.
 
 ### Why the Designer Owns the Prototype
-A lane-written design specification must never reach implementation without the user seeing and interacting with it first. The designer creates a self-contained static prototype that becomes the single visual source of truth across design, implementation, and visual review.
+A lane-written design specification must never reach implementation without passing Gate 1.7: an approving cross-side review when CLI lanes are installed and enabled, or the user's `APPROVED` otherwise. The designer creates a self-contained static prototype that becomes the single visual source of truth across design, implementation, and visual review.
 
 ### Prototype Deliverable
 For any screen, landing page, or UI surface, deliver `<taskFolder>/prototype/`:
@@ -139,7 +139,7 @@ For any screen, landing page, or UI surface, deliver `<taskFolder>/prototype/`:
 - **State coverage**: Explicitly provide populated, empty, loading, error, dark theme, light theme, narrow width (actual ≈400px browser viewport), embedded sidebar width (container toggle), and wide width. The embedded-width check does not replace the narrow viewport check.
 
 ### Iteration & Orchestration Gate 1.7
-Iterate and refine the prototype based on user feedback until the user explicitly replies **`APPROVED`** at Gate 1.7. Frontend implementation only begins after this gate passes. See [PROTOTYPING.md](PROTOTYPING.md) for full layout patterns and templates.
+Iterate and refine the prototype until Gate 1.7 passes — the cross-side reviewer's APPROVED in `lane-review` mode, or the user's explicit **`APPROVED`** in `user` mode or on escalation (orchestration `checkpoints.md` § Approval mode). Frontend implementation only begins after this gate passes. See [PROTOTYPING.md](PROTOTYPING.md) for full layout patterns and templates.
 
 ---
 

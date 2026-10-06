@@ -84,8 +84,9 @@ Pick the workflow that matches the request.
   List only `[lane-proposed]` rules under `## Lane-introduced constraints` in
   `prototype/README.md` (or `none`); keep project rules tagged `[project-rule]` with
   their sources where they appear, and cross-reference
-  `parity-inventory.md`. Stop for user confirmation at Gate 1.7; iterate until the user
-  replies APPROVED before any implementation starts.
+  `parity-inventory.md`. Stop at Gate 1.7; iterate until it passes (the cross-side
+  reviewer's APPROVED when CLI lanes are installed and enabled, otherwise the user's APPROVED)
+  before any implementation starts.
 - **Assets.** Write briefs using the skill's prompt formula. Discover image-generation
   tools at runtime from the harness's advertised tool list; if none is available, deliver
   the briefs and tell the user which assets to supply and at what dimensions and format.
@@ -123,5 +124,5 @@ applied and any asset that could not be generated.
   were supplied.
 - Do not ship a specification whose contrast pairs were never measured.
 - Do not omit an interactive prototype under `prototype/` for any UI surface; a visual design without a user-confirmed prototype is incomplete.
-- Do not allow lane-proposed constraints to proceed to implementation without Gate 1.7 user approval.
+- Do not allow lane-proposed constraints to proceed to implementation without passing Gate 1.7 (reviewer acceptance in `lane-review` mode, user approval otherwise).
 - Do not ban existing project components wholesale (e.g. badges, tooltips) without empirical proof and explicit user approval.
