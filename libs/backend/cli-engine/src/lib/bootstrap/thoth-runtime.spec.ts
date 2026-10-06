@@ -135,7 +135,7 @@ function makeRuntimeDoubles(
         status: 'completed',
         reason: null,
         processedPurged: 5,
-        stuckQuarantined: 0,
+        stuckKept: 0,
         ledgerPruned: 0,
         freedBytes: 0,
         pagesReclaimed: 1,
@@ -530,10 +530,6 @@ describe('activateThoth — runtime tier', () => {
           nextCursor: '',
           exhausted: true,
         })),
-        quarantineStuckBatch: jest.fn(() => ({
-          quarantined: 0,
-          payloadBytes: 0,
-        })),
         pruneLedger: jest.fn(() => ({ pruned: 0 })),
         readLiveStorage: jest.fn(() => ({
           pendingRows: 0,
@@ -610,7 +606,7 @@ describe('activateThoth — runtime tier', () => {
       });
       expect(result).toEqual({
         summary:
-          'purged 5 processed, quarantined 0 stuck, archived 0 / deleted 0 / evicted 0 memories, reclaimed 1 pages',
+          'purged 5 processed, kept 0 stuck unprocessed, archived 0 / deleted 0 / evicted 0 memories, reclaimed 1 pages',
       });
     });
 

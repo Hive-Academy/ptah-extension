@@ -833,10 +833,6 @@ describe('startThothCron', () => {
           nextCursor: '',
           exhausted: true,
         })),
-        quarantineStuckBatch: jest.fn(() => ({
-          quarantined: 0,
-          payloadBytes: 0,
-        })),
         pruneLedger: jest.fn(() => ({ pruned: 0 })),
         readLiveStorage: jest.fn(() => ({
           pendingRows: 0,
@@ -887,7 +883,7 @@ describe('startThothCron', () => {
           status: 'completed',
           reason: null,
           processedPurged: 3,
-          stuckQuarantined: 1,
+          stuckKept: 1,
           ledgerPruned: 0,
           freedBytes: 0,
           pagesReclaimed: 2,
@@ -958,7 +954,7 @@ describe('startThothCron', () => {
       });
       expect(result).toEqual({
         summary:
-          'purged 3 processed, quarantined 1 stuck, archived 0 / deleted 0 / evicted 0 memories, reclaimed 2 pages',
+          'purged 3 processed, kept 1 stuck unprocessed, archived 0 / deleted 0 / evicted 0 memories, reclaimed 2 pages',
       });
     });
 

@@ -91,11 +91,9 @@ export function createMemoryRetentionHandler(
       return { outcome: 'skipped' as const, reason: report.reason };
     }
     if (report.status === 'failed') {
-      throw new Error(
-        `memory retention failed: ${report.reason ?? 'unknown'}`,
-      );
+      throw new Error(`memory retention failed: ${report.reason ?? 'unknown'}`);
     }
-    const summary = `purged ${report.processedPurged} processed, quarantined ${report.stuckQuarantined} stuck, archived ${report.memoriesArchived} / deleted ${report.memoriesDeleted} / evicted ${report.memoriesEvicted} memories, reclaimed ${report.pagesReclaimed} pages`;
+    const summary = `purged ${report.processedPurged} processed, kept ${report.stuckKept ?? 'unknown'} stuck unprocessed, archived ${report.memoriesArchived} / deleted ${report.memoriesDeleted} / evicted ${report.memoriesEvicted} memories, reclaimed ${report.pagesReclaimed} pages`;
     return {
       summary:
         report.status === 'partial'

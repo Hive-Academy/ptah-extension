@@ -36,8 +36,8 @@ export const MEMORY_RETENTION_DEFAULTS = {
 /** Inclusive clamp ranges for the numeric settings. */
 export const MEMORY_RETENTION_SETTING_RANGES = {
   processedDays: { min: 1, max: 365 },
-  // Seven days minimum: a stuck row is deleted, so the grace window must stay
-  // longer than any plausible curator outage.
+  // Age at which an unprocessed row counts as stuck and is warned about.
+  // Retention never deletes it (TASK_2026_621).
   stuckDays: { min: 7, max: 365 },
   batchSize: { min: 50, max: 5_000 },
 } as const;
@@ -156,8 +156,7 @@ export const MEMORY_RETENTION_LIMITS: MemoryRetentionLimits = Object.freeze({
   bootDeferralMs: RETENTION_BOOT_DEFERRAL_MS,
   foregroundBackoffMs: RETENTION_FOREGROUND_BACKOFF_MS,
   governorMaxDeferMs: RETENTION_GOVERNOR_MAX_DEFER_MS,
-  foregroundMaxConsecutiveSkips:
-    RETENTION_FOREGROUND_MAX_CONSECUTIVE_SKIPS,
+  foregroundMaxConsecutiveSkips: RETENTION_FOREGROUND_MAX_CONSECUTIVE_SKIPS,
 });
 
 /** Finite number → truncated and clamped; anything else → `fallback`. */
