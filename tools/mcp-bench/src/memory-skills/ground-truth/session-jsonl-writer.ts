@@ -12,6 +12,22 @@ export interface SessionJsonlTurn {
   readonly baitIds: readonly string[];
 }
 
+/** SDK message blocks used by the skill-session ground-truth fixtures. */
+export type SessionJsonlContentBlock =
+  | { readonly type: 'text'; readonly text: string }
+  | {
+      readonly type: 'tool_use';
+      readonly id: string;
+      readonly name: string;
+      readonly input: Readonly<Record<string, unknown>>;
+    }
+  | {
+      readonly type: 'tool_result';
+      readonly tool_use_id: string;
+      readonly content: string;
+      readonly is_error?: boolean;
+    };
+
 export interface SessionJsonlOutput<TBaitClass extends string> {
   readonly sessionId: string;
   readonly kind: 'standard' | 'long';
@@ -69,6 +85,17 @@ export class SessionJsonlWriter<TBaitClass extends string> {
     factIds: readonly string[] = [],
     baits: readonly { id: string; baitClass: TBaitClass }[] = [],
   ): void {
+    this.contentTurn(role, [{ type: 'text', text }], text, factIds, baits);
+  }
+
+  /** Add an SDK-shaped content array while retaining a readable transcript line. */
+  contentTurn(
+    role: 'user' | 'assistant',
+    content: readonly SessionJsonlContentBlock[],
+    text: string,
+    factIds: readonly string[] = [],
+    baits: readonly { id: string; baitClass: TBaitClass }[] = [],
+  ): void {
     const turnIndex = this.turns.length;
     const window = this.currentWindow;
     const timestamp = new Date(
@@ -81,7 +108,7 @@ export class SessionJsonlWriter<TBaitClass extends string> {
         sessionId: this.sessionId,
         timestamp,
         cwd: SESSION_CWD,
-        message: { role, content: [{ type: 'text', text }] },
+        message: { role, content },
       }),
     );
     const record = `${role.toUpperCase()}: ${text}`;

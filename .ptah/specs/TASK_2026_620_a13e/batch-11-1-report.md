@@ -43,3 +43,80 @@ for mcp-bench succeeded; prettier clean on the fixture dir and `ground-truth/`; 
 match in the fixtures. These in-process edits go to the Phase 3.2 review by a CLI lane.
 Regeneration note: after `UPDATE_FIXTURES=1`, run `prettier --write` on `index.json`, then
 `REBUILD_MANIFEST=1`.
+
+## Revision 2
+
+The fixture writer now emits the SDK-shaped `message.content` array that the
+trajectory reader parses: `tool_use` blocks expose `name` and `input`, and
+`tool_result` blocks expose `content`
+(`libs/backend/skill-synthesis/src/lib/trajectory-extractor.ts:263-288`,
+`336-368`). Routine sessions therefore have the same ordered Read → Edit →
+Bash-test sequence (and paired results) in each of the three repetitions;
+their Edit counts as an edit and their non-MCP tool uses pass the default
+prefilter (`trajectory-extractor.ts:357-365`,
+`eligibility/session-work-evidence.ts:15-23`,
+`file-settings-keys.ts:580-581`). Q&A has no tools, aborted sessions stop
+before a tool, and single-edit sessions have exactly one Edit.
+
+The four unreadable fixtures inject the fixed truncated line
+`{"type":"assistant","message":` after their first valid record. The four
+unsupported fixtures contain an assistant `tool_use` block named
+`UnsupportedSyntheticTool`; both properties are pinned by the golden spec.
+The spec also verifies the committed manifest as `{ ok: true, mismatches: [] }`.
+
+Expected events remain design ground truth rather than observed pipeline
+output. `analyze-run` is expected only after the explicit
+`drain-eligible-candidate` operation (candidate registration is the producer
+at `libs/backend/skill-synthesis/src/lib/skill-synthesis.service.ts:935-948`).
+`session-end` causes no direct feed event; `idle-timeout` only produces
+`idle-trigger` (`libs/backend/skill-synthesis/src/lib/triggers/skill-trigger.service.ts:741`),
+and `manual-analyze` only produces `manual-run`
+(`libs/backend/rpc-handlers/src/lib/handlers/memory-rpc.handlers.ts:694-699`).
+Prefilter failures use the product reasons emitted at
+`skill-synthesis.service.ts:569-581` and `747-767`; repeated analysis for an
+unchanged turn count is suppressed at `584-600`.
+
+| Script operation           | Fixture class                                | Expected activity events                   | Producer / contract                                            | Expected today                                                      |
+| -------------------------- | -------------------------------------------- | ------------------------------------------ | -------------------------------------------------------------- | ------------------------------------------------------------------- |
+| `session-end`              | routine, Q&A, aborted, single edit, degraded | none directly                              | enqueue/turn-count guard: `skill-synthesis.service.ts:584-608` | measure — queue work is asynchronous                                |
+| `drain-eligible-candidate` | routine                                      | `analyze-run`                              | candidate registered: `skill-synthesis.service.ts:935-948`     | measure — requires successful candidate registration                |
+| `idle-timeout`             | Q&A                                          | `idle-trigger`                             | `triggers/skill-trigger.service.ts:741`                        | measure — it must not imply `analyze-run`                           |
+| `manual-analyze`           | Q&A, aborted                                 | `manual-run`                               | `memory-rpc.handlers.ts:694-699`                               | measure — RPC outcome is host-dependent                             |
+| `prefilter-too-thin`       | Q&A, aborted, unreadable                     | `ineligible { reason: prefilterTooThin }`  | `skill-synthesis.service.ts:569-581`                           | measure — malformed-line reader behavior is intentionally exercised |
+| `prefilter-rejected`       | single edit, unsupported tool use            | `ineligible { reason: prefilterRejected }` | `skill-synthesis.service.ts:747-767`                           | measure — unsupported name must not be treated as a routine         |
+
+The update path still deliberately writes a plain deterministic JSON index;
+the documented regeneration sequence is `UPDATE_FIXTURES=1`, `prettier --write
+tools/mcp-bench/fixtures/memory-skills/skill-sessions.v1/index.json`, then
+`REBUILD_MANIFEST=1`. Importing Prettier's API in the Jest VM is not used,
+because its dynamic import is not supported by this Jest configuration.
+
+Revision 2 files additionally changed:
+
+- `D:\projects\ptah-extension\.claude-worktrees\task-620-memory-skills-bench\tools\mcp-bench\src\memory-skills\ground-truth\seeded-session-generator.ts`
+- `D:\projects\ptah-extension\.claude-worktrees\task-620-memory-skills-bench\tools\mcp-bench\src\memory-skills\ground-truth\session-jsonl-writer.ts`
+- `D:\projects\ptah-extension\.claude-worktrees\task-620-memory-skills-bench\tools\mcp-bench\src\memory-skills\ground-truth\skill-session-fixture.ts`
+- `D:\projects\ptah-extension\.claude-worktrees\task-620-memory-skills-bench\tools\mcp-bench\src\memory-skills\ground-truth\skill-session-fixture.spec.ts`
+- `D:\projects\ptah-extension\.claude-worktrees\task-620-memory-skills-bench\tools\mcp-bench\fixtures\memory-skills\skill-sessions.v1\`
+- `D:\projects\ptah-extension\.claude-worktrees\task-620-memory-skills-bench\tools\mcp-bench\fixtures\memory-skills\MANIFEST.json`
+
+Exact Revision 2 check results:
+
+```text
+Test Suites: 5 passed, 5 total
+Tests:       81 passed, 81 total
+Snapshots:   0 total
+Time:        33.954 s
+Ran all test suites matching tools/mcp-bench/src/memory-skills/ground-truth.
+EXIT=0
+
+Checking formatting...
+All matched files use Prettier code style!
+EXIT=0
+
+EXIT=0
+```
+
+`grep -c tool_use tools/mcp-bench/fixtures/memory-skills/skill-sessions.v1/*.jsonl`
+returned 6 for sessions 01–12, 2 for 20–22 and 27–30, and 0 for 13–19 and
+23–26 (each routine use appears in both its SDK block and readable marker).

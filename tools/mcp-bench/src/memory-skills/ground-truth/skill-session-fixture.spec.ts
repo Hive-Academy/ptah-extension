@@ -1,7 +1,11 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import { buildManifest, writeManifest } from './fixture-manifest';
+import {
+  buildManifest,
+  verifyManifest,
+  writeManifest,
+} from './fixture-manifest';
 import {
   buildSkillSessionFixtures,
   expectedEventsFromScript,
@@ -58,6 +62,30 @@ describe('gt-skill-sessions@v1', () => {
     }
   });
 
+  it('pins degraded records and the repeated routine tool sequence', () => {
+    const fixtures = buildSkillSessionFixtures();
+    for (const fixture of fixtures.filter((entry) => entry.degraded)) {
+      if (fixture.id <= 'skill-session-26') {
+        expect(fixture.jsonl).toContain('{"type":"assistant","message":');
+      } else {
+        expect(fixture.jsonl).toContain('"type":"tool_use"');
+        expect(fixture.jsonl).toContain('"name":"UnsupportedSyntheticTool"');
+      }
+    }
+    for (const fixture of fixtures.filter((entry) => entry.routine !== null)) {
+      expect(fixture.jsonl).toContain('"name":"Read"');
+      expect(fixture.jsonl).toContain('"name":"Edit"');
+      expect(fixture.jsonl).toContain('"name":"Bash"');
+      expect(fixture.jsonl).toContain('"type":"tool_result"');
+    }
+    expect(
+      fixtures
+        .filter((entry) => entry.routine === null && !entry.degraded)
+        .slice(0, 4)
+        .every((entry) => !entry.jsonl.includes('"type":"tool_use"')),
+    ).toBe(true);
+  });
+
   it('matches the committed golden fixture', async () => {
     if (process.env['UPDATE_FIXTURES'] === '1') {
       await writeSkillSessionFixture(fixtureDir);
@@ -90,5 +118,12 @@ describe('gt-skill-sessions@v1', () => {
     expect(JSON.stringify(buildSkillSessionFixtures())).toBe(
       JSON.stringify(buildSkillSessionFixtures()),
     );
+  });
+
+  it('has a clean committed fixture manifest', async () => {
+    expect(await verifyManifest(memorySkillsFixtureDir)).toEqual({
+      ok: true,
+      mismatches: [],
+    });
   });
 });

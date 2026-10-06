@@ -51,11 +51,7 @@ import {
 
 import { z } from 'zod';
 
-import {
-  RECORD_SEPARATOR,
-  SESSION_CWD,
-  SessionJsonlWriter,
-} from './session-jsonl-writer';
+import { RECORD_SEPARATOR, SessionJsonlWriter } from './session-jsonl-writer';
 
 /**
  * Characters in one curator window — the product's own clamp cap, imported
@@ -748,17 +744,6 @@ function sessionIdOf(seed: string, identity: string): string {
     state = Math.imul(state, 16777619);
   }
   return `gen-${(state >>> 0).toString(16).padStart(8, '0')}`;
-}
-
-/** A UUID-shaped line id: hex from the PRNG, version 4, RFC 4122 variant. */
-function uuidOf(random: () => number): string {
-  let hex = '';
-  while (hex.length < 32) hex += Math.floor(random() * 16).toString(16);
-  const variant = '89ab'[Math.floor(random() * 4)];
-  return (
-    `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}` +
-    `-${variant}${hex.slice(17, 20)}-${hex.slice(20, 32)}`
-  );
 }
 
 /**

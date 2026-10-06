@@ -15,8 +15,9 @@ const SCRIPT_OPERATIONS = [
   'session-end',
   'idle-timeout',
   'manual-analyze',
-  'unreadable-line',
-  'unsupported-tool-use',
+  'drain-eligible-candidate',
+  'prefilter-too-thin',
+  'prefilter-rejected',
 ] as const;
 
 export const skillSessionScriptSchema = z
@@ -24,6 +25,7 @@ export const skillSessionScriptSchema = z
   .min(1);
 export const expectedActivityEventSchema = z.strictObject({
   kind: z.enum(EVENT_KINDS),
+  reason: z.enum(['prefilterTooThin', 'prefilterRejected']).optional(),
   note: z.string().min(1).optional(),
 });
 export const skillSessionFixtureSchema = z.strictObject({
@@ -52,25 +54,24 @@ export function expectedEventsFromScript(
   for (const operation of script) {
     switch (operation) {
       case 'session-end':
-        events.push({ kind: 'analyze-run' });
         break;
       case 'idle-timeout':
-        events.push({ kind: 'idle-trigger' }, { kind: 'analyze-run' });
+        events.push({ kind: 'idle-trigger' });
         break;
       case 'manual-analyze':
-        events.push({ kind: 'manual-run' }, { kind: 'analyze-run' });
+        events.push({ kind: 'manual-run' });
         break;
-      case 'unreadable-line':
+      case 'drain-eligible-candidate':
+        events.push({ kind: 'analyze-run' });
+        break;
+      case 'prefilter-too-thin':
         events.push({
           kind: 'ineligible',
-          note: 'Unreadable input is expected to be rejected before candidate authoring.',
+          reason: 'prefilterTooThin',
         });
         break;
-      case 'unsupported-tool-use':
-        events.push({
-          kind: 'ineligible',
-          note: 'Unsupported tool use is expected to be rejected before candidate authoring.',
-        });
+      case 'prefilter-rejected':
+        events.push({ kind: 'ineligible', reason: 'prefilterRejected' });
         break;
     }
   }
@@ -84,14 +85,22 @@ export function buildSkillSessionFixtures(): readonly SkillSessionFixture[] {
     degraded: boolean;
     script: z.infer<typeof skillSessionScriptSchema>;
     topic: string;
+    shape:
+      | 'routine'
+      | 'question'
+      | 'aborted'
+      | 'single-edit'
+      | 'unreadable'
+      | 'unsupported';
   }[] = [];
   for (const routine of routineIds) {
     for (let occurrence = 1; occurrence <= 3; occurrence += 1) {
       cases.push({
         routine,
         degraded: false,
-        script: ['session-end', 'idle-timeout'],
+        script: ['session-end', 'drain-eligible-candidate'],
         topic: `${routine} repetition ${occurrence}`,
+        shape: 'routine',
       });
     }
   }
@@ -100,26 +109,33 @@ export function buildSkillSessionFixtures(): readonly SkillSessionFixture[] {
       routine: null,
       degraded: false,
       script:
-        index <= 4
-          ? ['session-end']
-          : index <= 7
-            ? ['manual-analyze']
-            : ['session-end', 'idle-timeout'],
+        index === 3
+          ? ['idle-timeout', 'prefilter-too-thin']
+          : index === 4 || (index >= 5 && index <= 7)
+            ? ['manual-analyze', 'prefilter-too-thin']
+            : index <= 7
+              ? ['session-end', 'prefilter-too-thin']
+              : ['session-end', 'prefilter-rejected'],
       topic:
         index <= 4
           ? `question and answer ${index}`
           : index <= 7
             ? `aborted exploration ${index}`
             : `single edit ${index}`,
+      shape: index <= 4 ? 'question' : index <= 7 ? 'aborted' : 'single-edit',
     });
   }
   for (let index = 1; index <= 8; index += 1) {
     cases.push({
       routine: null,
       degraded: true,
-      script: [index <= 4 ? 'unreadable-line' : 'unsupported-tool-use'],
+      script: [
+        'session-end',
+        index <= 4 ? 'prefilter-too-thin' : 'prefilter-rejected',
+      ],
       topic:
         index <= 4 ? `corrupt line ${index}` : `unsupported operation ${index}`,
+      shape: index <= 4 ? 'unreadable' : 'unsupported',
     });
   }
   return cases.map((entry, index) => buildFixture(index + 1, entry));
@@ -154,6 +170,13 @@ function buildFixture(
     degraded: boolean;
     script: z.infer<typeof skillSessionScriptSchema>;
     topic: string;
+    shape:
+      | 'routine'
+      | 'question'
+      | 'aborted'
+      | 'single-edit'
+      | 'unreadable'
+      | 'unsupported';
   },
 ): SkillSessionFixture {
   const id = `skill-session-${String(index).padStart(2, '0')}`;
@@ -164,23 +187,7 @@ function buildFixture(
     4_000,
     8,
   );
-  writer.turn('user', `Synthetic benchmark request: ${entry.topic}.`);
-  writer.turn(
-    'assistant',
-    'I will keep this synthetic session focused on the requested work.',
-  );
-  writer.turn(
-    'user',
-    entry.routine === null
-      ? 'This is an isolated task and should not establish a reusable routine.'
-      : `Repeat the ${entry.routine} routine using the same ordered checks.`,
-  );
-  writer.turn(
-    'assistant',
-    entry.degraded
-      ? 'The synthetic input is intentionally degraded for benchmark coverage.'
-      : 'The routine steps were completed in this synthetic transcript.',
-  );
+  writeFixtureTurns(writer, entry, id);
   const script = skillSessionScriptSchema.parse(entry.script);
   return skillSessionFixtureSchema.parse({
     id,
@@ -188,6 +195,176 @@ function buildFixture(
     degraded: entry.degraded,
     script,
     expectedEvents: expectedEventsFromScript(script),
-    jsonl: writer.build('standard', []).jsonl,
+    jsonl: withDegradation(writer.build('standard', []).jsonl, entry.shape),
   });
+}
+
+function writeFixtureTurns(
+  writer: SessionJsonlWriter<'synthetic'>,
+  entry: { routine: string | null; topic: string; shape: string },
+  id: string,
+): void {
+  writer.turn('user', `Synthetic benchmark request: ${entry.topic}.`);
+  if (entry.shape === 'question') {
+    writer.turn('assistant', 'Synthetic answer: this is a Q&A-only exchange.');
+    return;
+  }
+  if (entry.shape === 'aborted') {
+    writer.turn(
+      'assistant',
+      'I will inspect the synthetic task before making changes.',
+    );
+    writer.turn(
+      'user',
+      'Stop here; the synthetic task was intentionally aborted.',
+    );
+    return;
+  }
+  if (entry.shape === 'single-edit') {
+    writer.contentTurn(
+      'assistant',
+      [
+        {
+          type: 'tool_use',
+          id: `${id}-edit`,
+          name: 'Edit',
+          input: {
+            file_path: 'src/synthetic.ts',
+            old_string: 'old',
+            new_string: 'new',
+          },
+        },
+      ],
+      '[tool:Edit]',
+    );
+    writer.contentTurn(
+      'user',
+      [
+        {
+          type: 'tool_result',
+          tool_use_id: `${id}-edit`,
+          content: 'updated one synthetic line',
+        },
+      ],
+      '[tool_result: updated one synthetic line]',
+    );
+    return;
+  }
+  if (entry.shape === 'unsupported') {
+    writer.contentTurn(
+      'assistant',
+      [
+        {
+          type: 'tool_use',
+          id: `${id}-unsupported`,
+          name: 'UnsupportedSyntheticTool',
+          input: { payload: 'synthetic only' },
+        },
+      ],
+      '[tool:UnsupportedSyntheticTool]',
+    );
+    writer.contentTurn(
+      'user',
+      [
+        {
+          type: 'tool_result',
+          tool_use_id: `${id}-unsupported`,
+          content: 'unsupported tool result',
+        },
+      ],
+      '[tool_result: unsupported tool result]',
+    );
+    return;
+  }
+  if (entry.shape === 'unreadable') {
+    writer.turn(
+      'assistant',
+      'This synthetic session contains a deliberately unreadable JSONL record.',
+    );
+    return;
+  }
+  writer.turn(
+    'assistant',
+    `Repeat the ${entry.routine} routine using the same ordered checks.`,
+  );
+  writer.contentTurn(
+    'assistant',
+    [
+      {
+        type: 'tool_use',
+        id: `${id}-read`,
+        name: 'Read',
+        input: { file_path: 'src/synthetic.ts' },
+      },
+    ],
+    '[tool:Read]',
+  );
+  writer.contentTurn(
+    'user',
+    [
+      {
+        type: 'tool_result',
+        tool_use_id: `${id}-read`,
+        content: 'export const synthetic = true;',
+      },
+    ],
+    '[tool_result: source read]',
+  );
+  writer.contentTurn(
+    'assistant',
+    [
+      {
+        type: 'tool_use',
+        id: `${id}-edit`,
+        name: 'Edit',
+        input: {
+          file_path: 'src/synthetic.ts',
+          old_string: 'true',
+          new_string: 'false',
+        },
+      },
+    ],
+    '[tool:Edit]',
+  );
+  writer.contentTurn(
+    'user',
+    [
+      {
+        type: 'tool_result',
+        tool_use_id: `${id}-edit`,
+        content: 'synthetic edit applied',
+      },
+    ],
+    '[tool_result: edit applied]',
+  );
+  writer.contentTurn(
+    'assistant',
+    [
+      {
+        type: 'tool_use',
+        id: `${id}-test`,
+        name: 'Bash',
+        input: { command: 'npx jest synthetic --runInBand' },
+      },
+    ],
+    '[tool:Bash npx jest synthetic --runInBand]',
+  );
+  writer.contentTurn(
+    'user',
+    [
+      {
+        type: 'tool_result',
+        tool_use_id: `${id}-test`,
+        content: 'Tests: 1 passed, 1 total',
+      },
+    ],
+    '[tool_result: tests passed]',
+  );
+}
+
+function withDegradation(jsonl: string, shape: string): string {
+  if (shape !== 'unreadable') return jsonl;
+  const lines = jsonl.trimEnd().split('\n');
+  lines.splice(1, 0, '{"type":"assistant","message":');
+  return `${lines.join('\n')}\n`;
 }
