@@ -40,7 +40,7 @@ import type { IOpenRouterAuthService } from '../providers/openrouter/openrouter-
  * they are the *chat* provider's mapping. Leaving them in place aims the
  * resolved provider's `haiku` tier at a model only the chat provider can serve
  * — a curator pinned to LM Studio would inherit Ollama Cloud's
- * `ministral-3:cloud`. Every key is cleared unconditionally and then
+ * `gpt-oss:20b-cloud`. Every key is cleared unconditionally and then
  * re-populated by {@link ProviderAuthResolver.buildTierValues} from the
  * resolved provider's own mapping, so absence here is a real "this provider
  * has no haiku tier" signal rather than a leftover.
