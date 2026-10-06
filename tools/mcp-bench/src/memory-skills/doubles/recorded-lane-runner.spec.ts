@@ -11,6 +11,7 @@ import type {
 import {
   CassetteEntry,
   CassetteMissError,
+  CassetteRecordRefusalError,
   CassetteStore,
 } from './cassette-store';
 import {
@@ -86,12 +87,14 @@ describe('RecordedLaneRunner', () => {
     path: string,
     inner: LaneRunnerDouble,
     pause?: () => void | Promise<void>,
+    recordFailures?: boolean,
   ): RecordedLaneRunner {
     return new RecordedLaneRunner({
       store: new CassetteStore({ path, mode: 'record' }),
       model: 'test-model',
       inner,
       pause,
+      recordFailures,
     });
   }
 
@@ -138,12 +141,32 @@ describe('RecordedLaneRunner', () => {
     expect(entry.usage).toEqual({ input: 10, output: 5, costUsd: 0.1 });
   });
 
+  it('refuses to record a non-ok result without recordFailures', async () => {
+    const path = cassette('failed-refused');
+    const run = jest.fn(
+      async (_req: LaneRunRequest): Promise<LaneRunResult> => FAILED,
+    );
+    const recorder = recordInto(path, { run });
+
+    const refusal = recorder.run(request());
+    await expect(refusal).rejects.toBeInstanceOf(CassetteRecordRefusalError);
+    const error = (await rejectionOf(refusal)) as CassetteRecordRefusalError;
+    expect(error.name).toBe('CassetteRecordRefusalError');
+    expect(error.method).toBe('run');
+    expect(error.message).toMatch(/lane result status 'failed'/);
+    expect(error.message).toMatch(/recordFailures/);
+
+    // Nothing was persisted: replay of the same key still misses.
+    const miss = replayFrom(path).run(request());
+    await expect(miss).rejects.toBeInstanceOf(CassetteMissError);
+  });
+
   it('omits usage when the run failed', async () => {
     const path = cassette('failed-run');
     const run = jest.fn(
       async (_req: LaneRunRequest): Promise<LaneRunResult> => FAILED,
     );
-    await recordInto(path, { run }).run(request());
+    await recordInto(path, { run }, undefined, true).run(request());
 
     const [entry] = readEntries(path);
     expect(entry.usage).toBeUndefined();

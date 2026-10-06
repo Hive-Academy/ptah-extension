@@ -29,6 +29,7 @@ import type {
 } from '@ptah-extension/skill-synthesis';
 
 import {
+  CassetteRecordRefusalError,
   CassetteStore,
   CassetteUsage,
   cassetteKey,
@@ -46,6 +47,12 @@ export interface RecordedLaneRunnerOptions {
   readonly inner?: LaneRunnerDouble;
   /** Test seam: awaited once per `run` call, before the double acts. */
   readonly pause?: () => void | Promise<void>;
+  /**
+   * Record-mode opt-in to persist a non-ok result (a transient lane failure
+   * would otherwise replay forever). The double refuses the recording with
+   * {@link CassetteRecordRefusalError} unless this is set.
+   */
+  readonly recordFailures?: boolean;
 }
 
 /** The cassette key of one `run` call. */
@@ -88,6 +95,13 @@ export class RecordedLaneRunner implements LaneRunnerDouble {
       throw new Error('RecordedLaneRunner: record mode requires `inner`');
     }
     const response = await this.inner.run(req);
+    if (response.status !== 'ok' && !this.options.recordFailures) {
+      throw new CassetteRecordRefusalError(
+        'run',
+        key,
+        `lane result status '${response.status}'`,
+      );
+    }
     this.options.store.record({
       key,
       method: 'run',

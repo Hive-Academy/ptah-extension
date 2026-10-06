@@ -1,7 +1,10 @@
 /**
  * Record/replay double for `ICuratorLLM` (benchmark-design.md 6.2, R-M5).
  *
- * Record mode wraps the real adapter and appends one cassette entry per call.
+ * Record mode wraps the real adapter and records one cassette entry per call;
+ * a stalled extraction is refused (CassetteRecordRefusalError) unless
+ * `recordFailures: true` is set, so a transient provider failure never
+ * becomes a permanent replayed response.
  * Replay mode serves entries by key and holds no real adapter at all, so a
  * cassette miss can only surface as `CassetteMissError` — never as a live
  * model call (R-M5: model calls in CI are forbidden).
@@ -29,6 +32,7 @@ import type {
 
 import {
   CassetteMode,
+  CassetteRecordRefusalError,
   CassetteStore,
   canonicalJson,
   cassetteKey,
@@ -46,6 +50,12 @@ export interface RecordedCuratorLlmOptions {
   readonly inner?: ICuratorLLM;
   /** Replay-only fault modes, keyed by cassette key. */
   readonly faults?: Readonly<Record<string, CuratorFaultMode>>;
+  /**
+   * Record-mode opt-in to persist a stalled extraction (a transient provider
+   * failure would otherwise replay forever). The double refuses the recording
+   * with {@link CassetteRecordRefusalError} unless this is set.
+   */
+  readonly recordFailures?: boolean;
 }
 
 /** Calls seen by the double, per method, across its life. */
@@ -87,6 +97,7 @@ function sortByKey(related: readonly RelatedCandidate[]): RelatedCandidate[] {
 export class RecordedCuratorLlm implements ICuratorLLM {
   private readonly inner: ICuratorLLM | undefined;
   private readonly counts = { extract: 0, resolve: 0 };
+  private readonly hitFaults = new Set<string>();
 
   constructor(private readonly options: RecordedCuratorLlmOptions) {
     const store = options.store;
@@ -111,6 +122,22 @@ export class RecordedCuratorLlm implements ICuratorLLM {
     return { ...this.counts };
   }
 
+  /**
+   * Fail when a configured fault key was never hit: a typo'd or drifted key
+   * would otherwise let a liveness test pass vacuously. Replay mode only.
+   */
+  assertAllFaultsHit(): void {
+    const unhit = Object.keys(this.options.faults ?? {}).filter(
+      (key) => !this.hitFaults.has(key),
+    );
+    if (unhit.length > 0) {
+      throw new Error(
+        `RecordedCuratorLlm: configured fault keys were never hit: ` +
+          `${unhit.join(', ')}`,
+      );
+    }
+  }
+
   async extract(
     transcript: string,
     signal?: AbortSignal,
@@ -131,6 +158,13 @@ export class RecordedCuratorLlm implements ICuratorLLM {
       signal,
       options,
     );
+    if (response.status === 'stalled' && !this.options.recordFailures) {
+      throw new CassetteRecordRefusalError(
+        'extract',
+        key,
+        `stalled extraction (${response.reason})`,
+      );
+    }
     this.options.store.record({
       key,
       method: 'extract',
@@ -177,7 +211,11 @@ export class RecordedCuratorLlm implements ICuratorLLM {
 
   private faultFor(key: string): CuratorFault | null {
     const mode = this.options.faults?.[key];
-    return mode ? curatorFault(mode) : null;
+    if (!mode) {
+      return null;
+    }
+    this.hitFaults.add(key);
+    return curatorFault(mode);
   }
 
   private requireInner(): ICuratorLLM {

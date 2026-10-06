@@ -13,6 +13,7 @@ import type {
 import {
   CassetteEntry,
   CassetteMissError,
+  CassetteRecordRefusalError,
   CassetteStore,
 } from './cassette-store';
 import {
@@ -77,11 +78,16 @@ describe('RecordedCuratorLlm', () => {
       .map((line) => JSON.parse(line) as CassetteEntry);
   }
 
-  function recordInto(path: string, inner: ICuratorLLM): RecordedCuratorLlm {
+  function recordInto(
+    path: string,
+    inner: ICuratorLLM,
+    recordFailures?: boolean,
+  ): RecordedCuratorLlm {
     return new RecordedCuratorLlm({
       store: new CassetteStore({ path, mode: 'record' }),
       model: 'test-model',
       inner,
+      recordFailures,
     });
   }
 
@@ -124,6 +130,55 @@ describe('RecordedCuratorLlm', () => {
     );
     expect(entry.response).toEqual(EXTRACTION);
     expect(entry.usage).toBeUndefined();
+  });
+
+  it('refuses to record a stalled extraction without recordFailures', async () => {
+    const path = cassette('stalled-refused');
+    const stalled: CuratorExtraction = {
+      status: 'stalled',
+      reason: 'provider-unreachable',
+      providerId: '',
+    };
+    const recorder = recordInto(path, {
+      extract: jest.fn(async () => stalled),
+      resolve: jest.fn(async () => [RESOLVED]),
+    });
+
+    const refusal = recorder.extract(TRANSCRIPT);
+    await expect(refusal).rejects.toBeInstanceOf(CassetteRecordRefusalError);
+    const error = (await rejectionOf(refusal)) as CassetteRecordRefusalError;
+    expect(error.name).toBe('CassetteRecordRefusalError');
+    expect(error.method).toBe('extract');
+    expect(error.message).toMatch(/stalled extraction/);
+    expect(error.message).toMatch(/recordFailures/);
+
+    // Nothing was persisted: replay of the same key still misses.
+    const miss = replayFrom(path).extract(TRANSCRIPT);
+    await expect(miss).rejects.toBeInstanceOf(CassetteMissError);
+  });
+
+  it('records a stalled extraction when recordFailures is set', async () => {
+    const path = cassette('stalled-recorded');
+    const stalled: CuratorExtraction = {
+      status: 'stalled',
+      reason: 'provider-unreachable',
+      providerId: '',
+    };
+    const recorder = recordInto(
+      path,
+      {
+        extract: jest.fn(async () => stalled),
+        resolve: jest.fn(async () => [RESOLVED]),
+      },
+      true,
+    );
+
+    await expect(recorder.extract(TRANSCRIPT)).resolves.toEqual(stalled);
+    const [entry] = readEntries(path);
+    expect(entry.response).toEqual(stalled);
+    await expect(replayFrom(path).extract(TRANSCRIPT)).resolves.toEqual(
+      stalled,
+    );
   });
 
   it('throws CassetteMissError on an unrecorded key', async () => {
@@ -207,6 +262,32 @@ describe('RecordedCuratorLlm', () => {
         reason: 'provider-unreachable',
         providerId: '',
       });
+      expect(() => replayer.assertAllFaultsHit()).not.toThrow();
+    });
+
+    it('reports a typo’d fault key that was never hit', async () => {
+      const replayer = replayFrom(cassette('fault-typo'), {
+        [key]: 'throw',
+        deadbeef: 'throw',
+      });
+      await expect(replayer.extract(TRANSCRIPT)).rejects.toThrow(
+        /injected fault 'throw'/,
+      );
+      expect(() => replayer.assertAllFaultsHit()).toThrow(/deadbeef/);
+    });
+
+    it('passes assertAllFaultsHit only after every configured key fired', async () => {
+      const resolveKey = curatorResolveKey([DRAFT], []);
+      const replayer = replayFrom(cassette('fault-all-hit'), {
+        [key]: 'zero-drafts',
+        [resolveKey]: 'zero-drafts',
+      });
+      await replayer.extract(TRANSCRIPT);
+      expect(() => replayer.assertAllFaultsHit()).toThrow(
+        new RegExp(resolveKey.slice(0, 8)),
+      );
+      await replayer.resolve([DRAFT], []);
+      expect(() => replayer.assertAllFaultsHit()).not.toThrow();
     });
 
     it('refuses the stalled fault on resolve, which has no stalled arm', async () => {

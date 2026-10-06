@@ -3,8 +3,9 @@
  * R-M5).
  *
  * One cassette is one JSONL file: each line is one entry
- * `{key, method, model, promptSha, response, usage?}`. Record mode appends one
- * line per call; replay mode serves entries by key.
+ * `{key, method, model, promptSha, response, usage?}`. Record mode writes one
+ * line per call and replaces any existing entry for the same key; replay mode
+ * serves entries by key.
  *
  * A replay lookup with no matching entry throws {@link CassetteMissError}.
  * Replay never falls through to a live call: the doubles refuse to hold a real
@@ -18,7 +19,13 @@
  */
 
 import { createHash } from 'node:crypto';
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  writeFileSync,
+} from 'node:fs';
 import { dirname } from 'node:path';
 
 /** Which side of the double the store serves. */
@@ -54,6 +61,43 @@ export class CassetteMissError extends Error {
     this.key = key;
     this.method = method;
     this.path = path;
+  }
+}
+
+/** A cassette that holds two different responses for one key: unusable. */
+export class CassetteDuplicateError extends Error {
+  readonly key: string;
+  /** The cassette file that failed to load, for diagnostics. */
+  readonly path: string;
+
+  constructor(key: string, path: string) {
+    super(
+      `Cassette duplicate for key ${key}: two entries with different ` +
+        `responses in ${path}`,
+    );
+    this.name = 'CassetteDuplicateError';
+    this.key = key;
+    this.path = path;
+  }
+}
+
+/**
+ * A record-mode result the double refuses to persist: a stalled extraction or
+ * a non-ok lane result would replay a transient provider failure forever.
+ * Set `recordFailures: true` on the double to record one deliberately.
+ */
+export class CassetteRecordRefusalError extends Error {
+  readonly method: string;
+  readonly key: string;
+
+  constructor(method: string, key: string, reason: string) {
+    super(
+      `Cassette record refused for ${method} (key ${key}): ${reason}. Set ` +
+        `\`recordFailures: true\` to record it deliberately.`,
+    );
+    this.name = 'CassetteRecordRefusalError';
+    this.method = method;
+    this.key = key;
   }
 }
 
@@ -116,7 +160,12 @@ export class CassetteStore {
     return this.options.path;
   }
 
-  /** Append one entry as a JSONL line. Record mode only. */
+  /**
+   * Write one entry as a JSONL line, replacing any existing entry for the same
+   * key: a re-record must never leave a stale entry that replay serves first.
+   * The file is rewritten atomically (a temp file, then rename) so a crash
+   * cannot leave a half-written cassette. Record mode only.
+   */
   record(entry: CassetteEntry): void {
     if (this.options.mode !== 'record') {
       throw new Error(
@@ -124,12 +173,24 @@ export class CassetteStore {
       );
     }
     mkdirSync(dirname(this.options.path), { recursive: true });
-    appendFileSync(this.options.path, JSON.stringify(entry) + '\n', 'utf8');
+    const lines = existsSync(this.options.path)
+      ? readFileSync(this.options.path, 'utf8')
+          .split('\n')
+          .filter((line) => line.trim())
+      : [];
+    const kept = lines.filter(
+      (line) => (JSON.parse(line) as CassetteEntry).key !== entry.key,
+    );
+    kept.push(JSON.stringify(entry));
+    const temp = `${this.options.path}.${process.pid}.tmp`;
+    writeFileSync(temp, `${kept.join('\n')}\n`, 'utf8');
+    renameSync(temp, this.options.path);
   }
 
   /**
-   * Serve the entry recorded for `key`. Replay mode only. The FIRST entry wins
-   * when a key was recorded more than once, so replay is deterministic.
+   * Serve the entry recorded for `key`. Replay mode only. Duplicate keys are a
+   * cassette corruption: `load` throws {@link CassetteDuplicateError} when one
+   * key carries two different responses, so replay is deterministic.
    */
   lookup(method: string, key: string): CassetteEntry {
     if (this.options.mode !== 'replay') {
@@ -158,9 +219,16 @@ export class CassetteStore {
         continue;
       }
       const entry = JSON.parse(trimmed) as CassetteEntry;
-      if (!byKey.has(entry.key)) {
-        byKey.set(entry.key, entry);
+      const existing = byKey.get(entry.key);
+      if (existing) {
+        if (
+          canonicalJson(existing.response) !== canonicalJson(entry.response)
+        ) {
+          throw new CassetteDuplicateError(entry.key, this.options.path);
+        }
+        continue;
       }
+      byKey.set(entry.key, entry);
     }
     return byKey;
   }
