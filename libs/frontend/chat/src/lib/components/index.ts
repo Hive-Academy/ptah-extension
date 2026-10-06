@@ -128,6 +128,7 @@ export {
 export * from './molecules/compact-session/compact-session-card.component';
 export * from './molecules/mcp-status-chip.component';
 export * from './molecules/peer-session-send';
+export * from './molecules/setup-plugins/project-setup-card.component';
 /**
  * @deprecated Re-exported from @ptah-extension/chat-ui. Import directly from
  * @ptah-extension/chat-ui in new code.

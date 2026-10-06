@@ -71,7 +71,6 @@ test.describe('Global configuration menu — remount on workspace switch', () =>
     ui,
   }) => {
     const page = ui.page;
-    await page.locator('[data-test="config-menu-trigger"]').click();
     await page.locator('[data-test="config-menu-item-thoth"]').click();
 
     await proveRecreated(
@@ -88,7 +87,6 @@ test.describe('Global configuration menu — remount on workspace switch', () =>
     ui,
   }) => {
     const page = ui.page;
-    await page.locator('[data-test="config-menu-trigger"]').click();
     await page.locator('[data-test="config-menu-item-setup-hub"]').click();
 
     await proveRecreated(
@@ -102,7 +100,6 @@ test.describe('Global configuration menu — remount on workspace switch', () =>
     ui,
   }) => {
     const page = ui.page;
-    await page.locator('[data-test="config-menu-trigger"]').click();
     await page.locator('[data-test="config-menu-item-marketplace"]').click();
 
     // `ptah-marketplace-shell` (plan C6) is the top-level routed component
@@ -123,7 +120,6 @@ test.describe('Global configuration menu — remount on workspace switch', () =>
     ui,
   }) => {
     const page = ui.page;
-    await page.locator('[data-test="config-menu-trigger"]').click();
     await page.locator('[data-test="config-menu-item-settings"]').click();
 
     await proveRecreated(

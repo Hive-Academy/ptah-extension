@@ -31,10 +31,9 @@ test.describe('Global configuration menu — welcome gate', () => {
     const page = ui.page;
     await expect(page.locator('ptah-electron-welcome')).toBeVisible();
 
-    const trigger = page.locator('[data-test="config-menu-trigger"]');
-    await expect(trigger).toBeVisible();
-    await trigger.click();
-    await page.locator('[data-test="config-menu-item-settings"]').click();
+    const settings = page.locator('[data-test="config-menu-item-settings"]');
+    await expect(settings).toBeVisible();
+    await settings.click();
 
     await expect(page.locator('ptah-settings')).toBeVisible();
     await expect(page.locator('ptah-electron-welcome')).toHaveCount(0);
@@ -67,7 +66,6 @@ test.describe('Global configuration menu — welcome gate', () => {
     const page = ui.page;
     await expect(page.locator('ptah-electron-welcome')).toBeVisible();
 
-    await page.locator('[data-test="config-menu-trigger"]').click();
     await page.locator('[data-test="config-menu-item-settings"]').click();
     await expect(page.locator('ptah-settings')).toBeVisible();
 
@@ -83,7 +81,6 @@ test.describe('Global configuration menu — welcome gate', () => {
     const page = ui.page;
     await expect(page.locator('ptah-app-shell')).toBeVisible();
 
-    await page.locator('[data-test="config-menu-trigger"]').click();
     await page.locator('[data-test="config-menu-item-settings"]').click();
     await expect(page.locator('ptah-settings')).toBeVisible();
 
@@ -111,7 +108,6 @@ test.describe('Global configuration menu — welcome gate', () => {
     const page = ui.page;
     await expect(page.locator('ptah-electron-welcome')).toBeVisible();
 
-    await page.locator('[data-test="config-menu-trigger"]').click();
     await page.locator('[data-test="config-menu-item-marketplace"]').click();
     await expect(page.locator('ptah-marketplace-shell')).toBeVisible();
     await expect(page.locator('ptah-app-shell')).toHaveCount(0);

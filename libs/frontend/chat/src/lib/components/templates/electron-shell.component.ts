@@ -6,7 +6,8 @@
  * With a workspace, the main app uses the 3-panel layout.
  *
  * 3-panel layout:
- *   - Global navbar: Logo, configuration menu, theme toggle, notifications
+ *   - Global navbar: Logo, tabs (incl. Setup hub), Thoth/Marketplace/Settings
+ *     icon buttons, theme toggle, notifications
  *   - Workspace sidebar (left) — folder list
  *   - Chat panel (center) — reuses AppShellComponent entirely
  *   - Git dock (right, toggleable) — git status, source control, diff view
@@ -37,6 +38,7 @@ import {
   Scale,
   ClipboardList,
   AppWindow,
+  Wrench,
 } from 'lucide-angular';
 import {
   ElectronLayoutService,
@@ -47,7 +49,7 @@ import {
 } from '@ptah-extension/core';
 import { AppShellComponent } from './app-shell.component';
 import { ElectronWelcomeComponent } from './electron-welcome.component';
-import { GlobalConfigMenuComponent } from '../molecules/global-config-menu.component';
+import { GlobalConfigActionsComponent } from '../molecules/global-config-actions.component';
 import { WorkspaceSidebarComponent } from '../organisms/workspace-sidebar.component';
 import {
   SidebarTabComponent,
@@ -69,7 +71,7 @@ import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-
     ElectronResizeHandleComponent,
     NgComponentOutlet,
     RouterOutlet,
-    GlobalConfigMenuComponent,
+    GlobalConfigActionsComponent,
     ThemeToggleComponent,
     LucideAngularModule,
     NotificationCenterComponent,
@@ -179,6 +181,29 @@ import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-
               <lucide-angular [img]="BarChart3Icon" class="w-3.5 h-3.5" />
               Analytics
             </button>
+            <!-- Keeps the former config-menu hook: e2e specs and the showcase
+                 harness address the Setup hub surface by it. -->
+            <button
+              role="tab"
+              class="tab gap-1.5 no-drag"
+              data-test="config-menu-item-setup-hub"
+              [class.tab-active]="
+                appState.openConfigurationSurface() === 'setup-hub'
+              "
+              [attr.aria-selected]="
+                appState.openConfigurationSurface() === 'setup-hub'
+              "
+              [attr.aria-current]="
+                appState.openConfigurationSurface() === 'setup-hub'
+                  ? 'true'
+                  : null
+              "
+              title="Setup hub"
+              (click)="openSetupHub()"
+            >
+              <lucide-angular [img]="WrenchIcon" class="w-3.5 h-3.5" />
+              Setup hub
+            </button>
           </div>
         }
 
@@ -209,7 +234,9 @@ import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-
               />
             </button>
           }
-          <ptah-global-config-menu />
+          <ptah-global-config-actions
+            [showSetupHub]="!layout.hasWorkspaceFolders()"
+          />
           <ptah-theme-toggle />
           <ptah-notification-center />
         </div>
@@ -397,6 +424,7 @@ export class ElectronShellComponent {
   readonly ScaleIcon = Scale;
   readonly ClipboardListIcon = ClipboardList;
   readonly AppWindowIcon = AppWindow;
+  readonly WrenchIcon = Wrench;
   readonly ptahIconUri = this.vscodeService.getPtahIconUri();
   readonly isMac = this.vscodeService.config().platform === 'darwin';
 
@@ -419,5 +447,9 @@ export class ElectronShellComponent {
 
   openApps(): void {
     this.appState.setCurrentView('apps');
+  }
+
+  openSetupHub(): void {
+    this.appState.setCurrentView('setup-hub');
   }
 }
