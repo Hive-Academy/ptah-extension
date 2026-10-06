@@ -59,6 +59,8 @@ function makeHelpers(): jest.Mocked<TransformerHelpers> {
       setTaskId: jest.fn(),
       pruneSession: jest.fn(),
       get: jest.fn().mockReturnValue(undefined),
+      hasHeldUnboundStarts: jest.fn().mockReturnValue(false),
+      bindHeldStartToToolCall: jest.fn().mockReturnValue('no-held-start'),
     },
     modelResolver: {
       resolveForPricing: jest.fn().mockImplementation((m: string) => m),

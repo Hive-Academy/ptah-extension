@@ -1,18 +1,32 @@
-import { Injectable, signal } from '@angular/core';
+import { DestroyRef, Injectable, inject, signal } from '@angular/core';
+import {
+  TabManagerService,
+  type ClosedTabEvent,
+} from '@ptah-extension/chat-state';
 
 /**
  * SessionRotationKeepService - "Keep this session" choices (TASK_2026_614 D.5)
  *
  * The session-budget banner is rebuilt on every tab switch, so the choice
  * cannot live in the banner. This root store keeps `sessionId:threshold` keys
- * for the life of the webview; a reload clears them. Local state, no RPC.
+ * while a tab holds the session; a reload clears them. Local state, no RPC.
+ * Keys of a session no open tab holds any more are dropped when its tab
+ * closes or resets, so the set does not grow for the life of the webview.
  */
 @Injectable({ providedIn: 'root' })
 export class SessionRotationKeepService {
+  private readonly tabManager = inject(TabManagerService);
   private readonly _kept = signal<ReadonlySet<string>>(new Set());
 
   /** Keys the user chose to keep. */
   readonly kept = this._kept.asReadonly();
+
+  constructor() {
+    const stopListening = this.tabManager.onTabClosed((event) =>
+      this.onTabClosed(event),
+    );
+    inject(DestroyRef).onDestroy(stopListening);
+  }
 
   private static key(sessionId: string, threshold: number): string {
     return `${sessionId}:${threshold}`;
@@ -35,5 +49,18 @@ export class SessionRotationKeepService {
     const kept = this._kept();
     if (![...kept].some((key) => key.startsWith(prefix))) return;
     this._kept.set(new Set([...kept].filter((key) => !key.startsWith(prefix))));
+  }
+
+  /** A closed or reset tab releases its session unless another open tab still holds it. */
+  private onTabClosed({ sessionId }: ClosedTabEvent): void {
+    if (sessionId === null) return;
+    const stillHeld = this.tabManager
+      .tabs()
+      .some(
+        (tab) =>
+          tab.claudeSessionId === sessionId ||
+          tab.sessionBudget?.sessionId === sessionId,
+      );
+    if (!stillHeld) this.forgetSession(sessionId);
   }
 }

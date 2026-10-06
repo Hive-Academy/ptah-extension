@@ -161,6 +161,7 @@ function makeHarness(
     'recorder' in options
       ? (options.recorder ?? null)
       : { recordAgentStartedSession: jest.fn() };
+  const sessionBudget = { release: jest.fn() };
 
   /** A real child container holding `hostValue` (none when `null`). */
   const containerWith = (hostValue: unknown): DependencyContainer => {
@@ -203,6 +204,7 @@ function makeHarness(
       ('mcpStatus' in overrides ? overrides.mcpStatus : mcpStatus) as never,
       registrar,
       recorder as never,
+      sessionBudget,
     );
 
   const spawner = build();
@@ -270,6 +272,7 @@ function makeHarness(
     mcpStatus,
     registrar,
     recorder,
+    sessionBudget,
     request,
     startChild,
     turnEnded,
@@ -1139,6 +1142,48 @@ describe('SessionSpawnerService.stop', () => {
     expect(h.adapter.interruptSession).toHaveBeenCalledTimes(1);
   });
 
+  it('F.1 M7: releases the child budget under its tab and SDK ids, after the interrupt', async () => {
+    const h = makeHarness();
+    const child = await h.startChild();
+    h.idResolved.notifyAll({
+      tabId: child.childSessionId,
+      realSessionId: CHILD_SDK,
+      timestamp: 2,
+    });
+    let releasedBeforeInterruptSettled = false;
+    h.adapter.interruptSession.mockImplementationOnce(async () => {
+      releasedBeforeInterruptSettled =
+        h.sessionBudget.release.mock.calls.length > 0;
+    });
+
+    await h.spawner.stop({
+      callerSessionId: PARENT,
+      childSessionId: child.childSessionId,
+    });
+
+    expect(releasedBeforeInterruptSettled).toBe(false);
+    expect(h.sessionBudget.release).toHaveBeenCalledWith(child.childSessionId);
+    expect(h.sessionBudget.release).toHaveBeenCalledWith(CHILD_SDK);
+    expect(h.sessionBudget.release).toHaveBeenCalledTimes(2);
+  });
+
+  it('F.1 M7: an already ended child releases nothing again', async () => {
+    const h = makeHarness();
+    const child = await h.startChild();
+    await h.spawner.stop({
+      callerSessionId: PARENT,
+      childSessionId: child.childSessionId,
+    });
+    h.sessionBudget.release.mockClear();
+
+    await h.spawner.stop({
+      callerSessionId: PARENT,
+      childSessionId: child.childSessionId,
+    });
+
+    expect(h.sessionBudget.release).not.toHaveBeenCalled();
+  });
+
   it('records an interrupt failure in the end reason and still stops', async () => {
     const h = makeHarness();
     const child = await h.startChild();
@@ -1181,6 +1226,21 @@ describe('SessionSpawnerService — child session end grace', () => {
     });
     expect(h.policies.get(child.childSessionId)).toBeUndefined();
     expect(h.registrar.releaseRoot).toHaveBeenCalledWith(WORKTREE);
+    // F.1 M7: a true end (the Stop button's interrupt keeps the budget).
+    expect(h.sessionBudget.release).toHaveBeenCalledWith(child.childSessionId);
+  });
+
+  it('F.1 M7: a session end within the grace releases no budget', async () => {
+    const h = makeHarness();
+    const child = await h.startChild();
+
+    h.sessionEnd.notifyAll({
+      sessionId: child.childSessionId,
+      workspaceRoot: WORKTREE,
+    });
+    jest.advanceTimersByTime(SESSION_CHILD_GRACE_MS);
+
+    expect(h.sessionBudget.release).not.toHaveBeenCalled();
   });
 
   it('pushes failed when the session ended mid-turn', async () => {
@@ -1256,6 +1316,23 @@ describe('SessionSpawnerService — runtime cap', () => {
     expect(h.adapter.interruptSession).toHaveBeenCalledWith(
       child.childSessionId,
     );
+  });
+
+  it('F.1 M7: releases the budget only once the background interrupt settled', async () => {
+    const h = makeHarness({ config: { 'agentSessions.maxRuntimeMinutes': 5 } });
+    const child = await h.startChild();
+    let settle: () => void = () => undefined;
+    h.adapter.interruptSession.mockImplementationOnce(
+      () => new Promise<void>((resolve) => (settle = resolve)),
+    );
+
+    jest.advanceTimersByTime(5 * 60_000);
+    await flush();
+    expect(h.sessionBudget.release).not.toHaveBeenCalled();
+
+    settle();
+    await flush();
+    expect(h.sessionBudget.release).toHaveBeenCalledWith(child.childSessionId);
   });
 });
 

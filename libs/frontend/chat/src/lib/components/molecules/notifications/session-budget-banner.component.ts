@@ -10,6 +10,7 @@ import {
   untracked,
 } from '@angular/core';
 import type {
+  SessionBudgetHandoffReadStatus,
   SessionBudgetState,
   SessionBudgetWindowReason,
 } from '@ptah-extension/shared';
@@ -18,15 +19,35 @@ import { SessionRotationKeepService } from '../../../services/session-rotation-k
 /** Stages that show a banner. `unknown` and `normal` show none. */
 type BannerStage = 'rotation' | 'tighten' | 'handoff' | 'limit';
 
-/** Why the tighten step did not lower auto-compact, in the user's words. */
+/**
+ * Why the tighten step did not lower auto-compact, in the user's words.
+ * `restore-failed` comes with `applied: true` and never reaches this lookup.
+ */
 const WINDOW_REASON_TEXT: Readonly<
-  Record<Exclude<SessionBudgetWindowReason, 'disabled'>, string>
+  Record<
+    Exclude<SessionBudgetWindowReason, 'disabled' | 'restore-failed'>,
+    string
+  >
 > = {
   'env-override': 'CLAUDE_CODE_AUTO_COMPACT_WINDOW is set',
   'already-lower': 'it is already at or below <target>',
   'not-honoured': 'this model ignored the lower auto-compact setting',
   failed: 'the change was rejected',
 };
+
+/** Why the handoff was built without the transcript, in the user's words. */
+const READ_STATUS_TEXT: Readonly<
+  Record<SessionBudgetHandoffReadStatus, string>
+> = {
+  'read-failed':
+    'The transcript could not be read; the handoff may be incomplete.',
+  'workspace-unknown':
+    "This session's workspace is not known, so the transcript was not read; the handoff may be incomplete.",
+};
+
+/** M8: `/compact` lowers the context, never the cumulative budget measure. */
+const COMPACT_NOTE =
+  "/compact frees context but does not reset this session's budget";
 
 /**
  * SessionBudgetBannerComponent - one session's budget stage (TASK_2026_597 N7)
@@ -67,6 +88,14 @@ const WINDOW_REASON_TEXT: Readonly<
               data-testid="session-budget-write-error"
             >
               {{ errorLine }}
+            </p>
+          }
+          @if (readStatusLine(); as readLine) {
+            <p
+              class="mt-0.5 text-warning"
+              data-testid="session-budget-read-status"
+            >
+              {{ readLine }}
             </p>
           }
         </div>
@@ -153,7 +182,28 @@ const WINDOW_REASON_TEXT: Readonly<
           }
         </div>
 
-        @if (previewOpen() && (current === 'handoff' || current === 'limit')) {
+        @if (
+          previewOpen() &&
+          previewFailed() &&
+          (current === 'handoff' || current === 'limit')
+        ) {
+          <div
+            class="mx-2 mb-1.5 flex flex-wrap items-center gap-1 text-warning"
+            data-testid="session-budget-preview-error"
+          >
+            <span>Could not load the handoff.</span>
+            <button
+              type="button"
+              class="btn btn-xs btn-ghost"
+              [disabled]="busy()"
+              (click)="previewRequested.emit()"
+            >
+              Try again
+            </button>
+          </div>
+        } @else if (
+          previewOpen() && (current === 'handoff' || current === 'limit')
+        ) {
           <pre
             class="mx-2 mb-1.5 max-h-64 overflow-auto whitespace-pre-wrap break-words rounded bg-base-200 p-2 font-mono text-[11px]"
             tabindex="0"
@@ -172,6 +222,9 @@ export class SessionBudgetBannerComponent {
 
   /** Handoff text from `preview-handoff`; `null` while it loads. */
   readonly preview = input<string | null>(null);
+
+  /** True when the last `preview-handoff` failed; shows the error with Try again. */
+  readonly previewFailed = input(false);
 
   /** Main-context tokens of the latest request, for the limit comparison. */
   readonly contextTokens = input<number | null>(null);
@@ -267,6 +320,14 @@ export class SessionBudgetBannerComponent {
     return `Ptah could not save the handoff file (${error}). You can still start a new session; the handoff text is kept until this session closes.`;
   });
 
+  /** Shown on handoff and limit when the handoff was built without the transcript. */
+  protected readonly readStatusLine = computed(() => {
+    const readStatus = this.budget()?.handoff?.readStatus;
+    const stage = this.stage();
+    if (!readStatus || (stage !== 'handoff' && stage !== 'limit')) return null;
+    return READ_STATUS_TEXT[readStatus];
+  });
+
   protected keepSession(): void {
     const budget = this.budget();
     if (!budget?.rotation) return;
@@ -296,17 +357,22 @@ export class SessionBudgetBannerComponent {
   private tightenBody(budget: SessionBudgetState, amount: string): string {
     const window = budget.window;
     if (!window || window.reason === 'disabled') {
-      return `${amount}. Run /compact or start a fresh session for unrelated work to slow the spend.`;
+      return `${amount}. Run /compact or start a fresh session for unrelated work to slow the spend. ${COMPACT_NOTE}.`;
     }
     const target = this.tokens(window.target);
+    if (window.applied && window.reason === 'restore-failed') {
+      return `${amount}. Ptah could not restore auto-compact; it stays at ${target} tokens for this session. Try Restore auto-compact again.`;
+    }
     if (window.applied) {
       return `${amount}. Ptah lowered auto-compact to ${target} tokens for this session. If the context is already above that, the next request compacts first. More compactions bring the handoff step sooner.`;
     }
-    const reason = WINDOW_REASON_TEXT[window.reason ?? 'failed'].replace(
-      '<target>',
-      target,
-    );
-    return `${amount}. Ptah could not lower auto-compact here (${reason}). Use /compact or start a fresh session to slow the spend.`;
+    // `restore-failed` is only sent with `applied: true` (handled above).
+    const reasonKey =
+      window.reason === undefined || window.reason === 'restore-failed'
+        ? 'failed'
+        : window.reason;
+    const reason = WINDOW_REASON_TEXT[reasonKey].replace('<target>', target);
+    return `${amount}. Ptah could not lower auto-compact here (${reason}). Use /compact or start a fresh session to slow the spend. ${COMPACT_NOTE}.`;
   }
 
   private handoffBody(budget: SessionBudgetState, amount: string): string {
@@ -331,7 +397,7 @@ export class SessionBudgetBannerComponent {
 
   private limitBody(budget: SessionBudgetState, amount: string): string {
     const pause = budget.blocked
-      ? 'New messages here are paused after the current turn (one queued message may still run). /compact and /clear still work.'
+      ? `New messages here are paused after the current turn (one queued message may still run). /clear still works. ${COMPACT_NOTE}; at the limit only a bare /compact is allowed.`
       : 'New messages are not paused (blocking is off in settings).';
     const handoff = budget.handoff;
     if (!handoff) return `${amount}. ${pause}`;

@@ -246,7 +246,7 @@ export class SubagentHookHandler {
       // the registration silently, which is what kills subagent:send-message,
       // subagent:stop, background listing and interrupted-agent resumption for
       // every subagent of such a query (TASK_2026_295).
-      const resolvedParentSessionId = resolveHookSessionId(
+      const resolvedParentSessionId = this.resolveParentSessionId(
         input.session_id,
         parentSessionId,
       );
@@ -275,13 +275,14 @@ export class SubagentHookHandler {
             parentSessionId: resolvedParentSessionId,
           },
         );
+      } else if (resolvedParentSessionId) {
+        this.bindStartByAgentId(input, resolvedParentSessionId);
       } else {
         this.logger.warn(
           '[SubagentHookHandler] Subagent NOT registered — it will be unreachable for steering, stop and resumption',
           {
-            reason: !toolUseId
-              ? 'no toolUseId on the SubagentStart hook'
-              : 'no parent sessionId in either the hook payload or the captured closure',
+            reason:
+              'no parent sessionId in either the hook payload or the captured closure',
             hasToolUseId: !!toolUseId,
             payloadSessionId: input.session_id,
             closureParentSessionId: parentSessionId,
@@ -304,6 +305,92 @@ export class SubagentHookHandler {
       );
     }
     return { continue: true };
+  }
+
+  /**
+   * Bind a SubagentStart that arrived without a `toolUseId` (F-F).
+   *
+   * The only binding allowed is an exact `agentId` match: a registry record of
+   * the same parent session that already names this agent — its id came from
+   * the Task tool result's `agentId:` line (history replay, a restored
+   * snapshot, or an earlier start of the same agent). Exactly one match binds;
+   * none or several leave the start unbound with a WARN, because guessing a
+   * Task tool_use would route steer and stop to the wrong subagent.
+   *
+   * An interrupted match is being resumed, so it is registered again as
+   * running under its own toolCallId (keeping its teammate name and task id).
+   * A live match is already reachable; the start only counts as activity.
+   */
+  private bindStartByAgentId(
+    input: SubagentStartHookInput,
+    parentSessionId: string,
+  ): void {
+    const matches = this.subagentRegistry.getToolCallIdsByAgentId(
+      input.agent_id,
+      parentSessionId,
+    );
+    if (matches.length === 0) {
+      // A brand-new foreground subagent: no record can name it until the Task
+      // tool result's `agentId:` line arrives. Hold the start; the message
+      // transformer binds it to that Task tool call (exact id only).
+      this.subagentRegistry.holdUnboundStart({
+        agentId: input.agent_id,
+        agentType: input.agent_type,
+        parentSessionId,
+      });
+      this.logger.info(
+        '[SubagentHookHandler] SubagentStart held until the Task result names its agentId (no toolUseId, no record yet)',
+        {
+          parentSessionId,
+          agentId: input.agent_id,
+          agentType: input.agent_type,
+        },
+      );
+      return;
+    }
+    const record =
+      matches.length === 1 ? this.subagentRegistry.get(matches[0]) : null;
+    if (!record) {
+      this.logger.warn(
+        '[SubagentHookHandler] Subagent NOT registered — it will be unreachable for steering, stop and resumption',
+        {
+          reason:
+            matches.length > 1
+              ? 'no toolUseId on the SubagentStart hook and several registry records name this agentId'
+              : 'no toolUseId on the SubagentStart hook and the single registry record naming this agentId is gone',
+          hasToolUseId: false,
+          matchCount: matches.length,
+          parentSessionId,
+          agentId: input.agent_id,
+          agentType: input.agent_type,
+        },
+      );
+      return;
+    }
+
+    if (record.status === 'interrupted') {
+      this.subagentRegistry.register({
+        toolCallId: record.toolCallId,
+        agentType: input.agent_type,
+        startedAt: Date.now(),
+        parentSessionId,
+        agentId: input.agent_id,
+        ...(record.teammateName ? { teammateName: record.teammateName } : {}),
+        ...(record.taskId ? { taskId: record.taskId } : {}),
+      });
+    } else {
+      this.subagentRegistry.update(record.toolCallId, {});
+    }
+
+    this.logger.info(
+      '[SubagentHookHandler] Subagent bound by exact agentId (no toolUseId on SubagentStart)',
+      {
+        toolCallId: record.toolCallId,
+        agentId: input.agent_id,
+        priorStatus: record.status,
+        parentSessionId,
+      },
+    );
   }
 
   /**
@@ -339,7 +426,7 @@ export class SubagentHookHandler {
       // A stop confirms membership (an agent whose start hook was missed still
       // counts); it never removes it.
       this.recordSubagentIdentity(
-        resolveHookSessionId(input.session_id, parentSessionId),
+        this.resolveParentSessionId(input.session_id, parentSessionId),
         parentSessionId,
         input.agent_id,
       );
@@ -366,6 +453,22 @@ export class SubagentHookHandler {
             resolvedToolCallId = fallbackId;
           }
         }
+      }
+
+      if (!record && input.agent_id) {
+        // A start held for its Task result (F-F) has finished before any
+        // result bound it; binding it later would leave a running zombie,
+        // so the discard must run even when the parent session is
+        // unresolved. The id stays payload-first exactly like the hold, and
+        // unresolved stays `undefined` — its own exact key in the registry
+        // (starts held without a session), never "every session": another
+        // session's held start survives until its own Task result binds it
+        // (PR #655).
+        this.subagentRegistry.discardHeldUnboundStarts(
+          input.agent_id,
+          this.resolveParentSessionId(input.session_id, parentSessionId) ??
+            undefined,
+        );
       }
 
       const isBackground = record?.isBackground === true;
@@ -408,7 +511,7 @@ export class SubagentHookHandler {
         // payload first, closure second, `''` from either means absent. This
         // used to fan the raw payload id out unvalidated, so subscribers could
         // receive `parentSessionId: ''` for the same event the bus rejected.
-        const resolvedParentSessionId = resolveHookSessionId(
+        const resolvedParentSessionId = this.resolveParentSessionId(
           input.session_id,
           parentSessionId,
         );
@@ -468,6 +571,14 @@ export class SubagentHookHandler {
       );
     }
     return { continue: true };
+  }
+
+  /** Resolve the payload-first parent id used for held starts and their cleanup. */
+  private resolveParentSessionId(
+    payloadSessionId: string | undefined,
+    capturedParentSessionId: string | undefined,
+  ): string | null {
+    return resolveHookSessionId(payloadSessionId, capturedParentSessionId);
   }
 
   private deriveSubagentSessionId(agentTranscriptPath: string): string | null {

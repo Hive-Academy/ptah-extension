@@ -38,7 +38,10 @@ import type { Logger } from '@ptah-extension/vscode-core';
 import { StdioMcpServerService } from './stdio-mcp-server.service';
 import { StdioTransport, type McpStdioNotifier } from './stdio-transport';
 import { MCP_MVP_TOOL_NAMES } from './tool-builders';
-import type { MCPRequest } from '../mcp-core/types/mcp-protocol.types';
+import type {
+  MCPRequest,
+  MCPResponse,
+} from '../mcp-core/types/mcp-protocol.types';
 import type { PtahAPIBuilder } from '../ptah-api-builder.service';
 import type { PtahAPI } from '../types';
 import { countTokensPiecewise } from '@ptah-extension/tool-output-reducers';
@@ -811,6 +814,31 @@ describe('StdioMcpServerService', () => {
   });
 
   describe('session_submit dispatch', () => {
+    it('refuses a duplicate id while the first session_submit is in flight', async () => {
+      const { svc } = makeService();
+      let finish: (response: MCPResponse) => void = () => undefined;
+      const handler = {
+        dispatch: jest.fn(
+          (_request: MCPRequest, _args: unknown) =>
+            new Promise<MCPResponse>((resolve) => {
+              finish = resolve;
+            }),
+        ),
+        cancel: jest.fn().mockResolvedValue(undefined),
+      };
+      svc.setSessionSubmitHandler(handler);
+      const request = makeRequest({
+        id: 'duplicate-submit',
+        params: { name: 'session_submit', arguments: { task: 'go' } },
+      });
+      const first = svc.handleToolsCall(request);
+      const duplicate = await svc.handleToolsCall(request);
+
+      expect(duplicate.error?.code).toBe(-32600);
+      expect(handler.dispatch).toHaveBeenCalledTimes(1);
+      finish({ jsonrpc: '2.0', id: 'duplicate-submit', result: { content: [] } });
+      await first;
+    });
     it('returns sdk_init_failed when no handler is registered', async () => {
       const { svc } = makeService();
       const resp = await svc.handleToolsCall(
@@ -1206,12 +1234,8 @@ describe('StdioMcpServerService request abort and dispose', () => {
 
     expect(wait.seen()?.aborted).toBe(true);
     expect(handler.cancel).not.toHaveBeenCalled();
-    const result = resp.result as {
-      content: Array<{ text: string }>;
-      structuredContent: { cancelled: boolean };
-    };
-    expect(result.content[0].text).toContain('WAIT CANCELLED');
-    expect(result.structuredContent.cancelled).toBe(true);
+    // The reply exists but is flagged: the transport must not send it.
+    expect(svc.wasCancelledByPeer(resp)).toBe(true);
   });
 
   it('leaves a call alone when the cancel names another id', async () => {
@@ -1224,8 +1248,99 @@ describe('StdioMcpServerService request abort and dispose', () => {
     expect(wait.seen()?.aborted).toBe(false);
 
     await svc.dispose();
-    await pending;
+    const resp = await pending;
     expect(wait.seen()?.aborted).toBe(true);
+    // Aborted by shutdown, not by the peer: not a peer-cancelled reply.
+    expect(svc.wasCancelledByPeer(resp)).toBe(false);
+  });
+
+  it('does not flag a call that settled before the cancel arrived', async () => {
+    const { svc } = makeService();
+    const resp = await svc.handleToolsCall(
+      makeRequest({
+        id: 'done-1',
+        params: { name: 'agent_list', arguments: {} },
+      }),
+    );
+    await svc.handleCancelled({ requestId: 'done-1' });
+    expect(svc.wasCancelledByPeer(resp)).toBe(false);
+  });
+
+  it('flags a session_submit reply the peer cancelled while it ran, and still forwards the cancel', async () => {
+    const { svc } = makeService();
+    let finish: (value: MCPResponse) => void = () => undefined;
+    const handler: jest.Mocked<ISessionSubmitHandler> = {
+      dispatch: jest.fn(
+        (request: MCPRequest, _args: unknown) =>
+          new Promise<MCPResponse>((resolve) => {
+            finish = (value) => resolve({ ...value, id: request.id });
+          }),
+      ),
+      cancel: jest.fn().mockResolvedValue(undefined),
+    };
+    svc.setSessionSubmitHandler(handler);
+
+    const submitCall = (id: string): MCPRequest =>
+      makeRequest({
+        id,
+        params: { name: 'session_submit', arguments: { prompt: 'x' } },
+      });
+    const reply: MCPResponse = {
+      jsonrpc: '2.0',
+      id: 0,
+      result: { content: [{ type: 'text', text: 'cancelled' }] },
+    };
+
+    const pending = svc.handleToolsCall(submitCall('s-1'));
+    await new Promise((r) => setImmediate(r));
+    await svc.handleCancelled({ requestId: 's-1' });
+    expect(handler.cancel).toHaveBeenCalledWith({ requestId: 's-1' });
+    finish(reply);
+    expect(svc.wasCancelledByPeer(await pending)).toBe(true);
+
+    const uncancelled = svc.handleToolsCall(submitCall('s-2'));
+    await new Promise((r) => setImmediate(r));
+    finish(reply);
+    expect(svc.wasCancelledByPeer(await uncancelled)).toBe(false);
+  });
+
+  it('refuses a second call that reuses an id in flight, and the cancel still reaches the first', async () => {
+    const wait = waitUntilAborted();
+    const { svc } = makeService(wait.agentApi);
+    const first = svc.handleToolsCall(waitCall('dup-1'));
+    await untilSeen(wait.seen);
+    const firstSignal = wait.seen();
+
+    const second = await svc.handleToolsCall(waitCall('dup-1'));
+    expect(second.error?.code).toBe(-32600);
+    expect(second.error?.message).toContain('dup-1');
+    expect(second.result).toBeUndefined();
+
+    await svc.handleCancelled({ requestId: 'dup-1' });
+    expect(firstSignal?.aborted).toBe(true);
+    const resp = await first;
+    expect(
+      (resp.result as { structuredContent: { cancelled: boolean } })
+        .structuredContent.cancelled,
+    ).toBe(true);
+  });
+
+  it('accepts an id again once the call that used it has settled', async () => {
+    const wait = waitUntilAborted();
+    const { svc } = makeService(wait.agentApi);
+    const first = svc.handleToolsCall(waitCall(11));
+    await untilSeen(wait.seen);
+    await svc.handleCancelled({ requestId: 11 });
+    await first;
+
+    const again = svc.handleToolsCall(waitCall(11));
+    const deadline = Date.now() + 5_000;
+    while (wait.seen()?.aborted !== false && Date.now() < deadline) {
+      await new Promise((r) => setImmediate(r));
+    }
+    expect(wait.seen()?.aborted).toBe(false);
+    await svc.dispose();
+    expect((await again).error).toBeUndefined();
   });
 
   it('dispose() kills a live run_check tree by its pid', async () => {

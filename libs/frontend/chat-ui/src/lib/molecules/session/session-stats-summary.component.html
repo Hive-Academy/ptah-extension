@@ -1,0 +1,486 @@
+<div class="stats-grid" style="container-type: inline-size">
+  <!-- Failed refresh while limit data is held: neutral, both layouts -->
+  @if (limits()?.refreshNotice; as notice) {
+    <p
+      role="status"
+      class="mb-1 border-l-2 border-info pl-2 text-[11px] text-base-content-muted"
+      data-testid="limits-refresh-failed"
+    >
+      {{ notice }}
+    </p>
+  }
+  <!-- Collapsed: compact summary bar -->
+  @if (isStatsCollapsed()) {
+    <!-- Limits alert (P4 variant A): above the strip, never clipped -->
+    @if (limits()?.indicator; as indicator) {
+      <ptah-limits-alert [indicator]="indicator" />
+    }
+    <div
+      class="flex items-center gap-2 bg-base-200/50 rounded px-2 py-1 border border-base-content/10"
+    >
+      <div
+        class="flex items-center gap-1.5 flex-1 min-w-0 overflow-x-auto text-xs"
+      >
+        @if (!hasMultipleModels() && primaryModelName(); as modelName) {
+          <!-- Model/Context values print base-content ink (stats design
+               §8): purple/cyan stay chip tint and border, never text
+               colour, because the 400 shades measure 1.4-2.4:1 on the
+               light chip (FU-PHASE6). -->
+          <span
+            class="inline-flex items-center gap-1 bg-purple-600/15 border border-purple-600/25 rounded px-1.5 py-0.5 whitespace-nowrap"
+            [title]="modelName"
+          >
+            <span class="text-[10px] uppercase text-base-content-muted"
+              >Model</span
+            >
+            <span class="text-base-content font-semibold">{{
+              formatModelName(modelName)
+            }}</span>
+          </span>
+        }
+        @if (liveModelStats()) {
+          <span
+            class="inline-flex items-center gap-1 bg-cyan-600/15 border border-cyan-600/25 rounded px-1.5 py-0.5 whitespace-nowrap"
+            [title]="contextTooltip()"
+          >
+            <span class="text-[10px] uppercase text-base-content-muted"
+              >Context</span
+            >
+            <span class="text-base-content" data-testid="stats-context">{{
+              contextPercentLabel()
+            }}</span>
+          </span>
+        }
+        <span
+          class="inline-flex items-center gap-1 bg-base-content/5 border border-base-content/10 rounded px-1.5 py-0.5 whitespace-nowrap"
+          [title]="tokenTooltip()"
+        >
+          <span class="text-[10px] uppercase text-base-content-muted"
+            >Tokens</span
+          >
+          <span class="tabular-nums" data-testid="stats-tokens">{{
+            tokensLabel()
+          }}</span>
+          @if (tokensBudgetSuffix(); as suffix) {
+            <span
+              class="tabular-nums text-base-content-muted"
+              data-testid="stats-tokens-budget"
+              >{{ suffix }}</span
+            >
+          }
+        </span>
+        <span
+          class="inline-flex items-center gap-1 bg-success/10 border border-success/20 rounded px-1.5 py-0.5 whitespace-nowrap"
+          [attr.title]="costTooltip()"
+        >
+          <span class="text-[10px] uppercase text-base-content-muted"
+            >Cost</span
+          >
+          @if (costBudgetText(); as budgetText) {
+            <span class="tabular-nums" data-testid="stats-cost-budget">{{
+              budgetText
+            }}</span>
+          } @else {
+            <span data-testid="stats-cost">
+              <ptah-cost-badge [cost]="totalCost()" />
+            </span>
+            @if (costBudgetSuffix(); as suffix) {
+              <span
+                class="tabular-nums text-base-content-muted"
+                data-testid="stats-cost-limit"
+                >{{ suffix }}</span
+              >
+            }
+            @if (knownSubtotal(); as known) {
+              <span
+                class="text-[10px] text-base-content-muted tabular-nums"
+                data-testid="stats-known-subtotal"
+                [title]="knownSubtotalTooltip"
+                >known subtotal {{ formatCost(known.value) }}</span
+              >
+            }
+          }
+        </span>
+        @if (lanesCount(); as lanes) {
+          <!-- role="img": aria-label is ignored on a generic span (ARIA
+               1.2 does not name generic elements), so the pill takes a
+               nameable role; its children become presentational (M3). -->
+          <span
+            class="inline-flex items-center gap-1 bg-base-content/5 border border-dashed border-base-content/30 rounded px-1.5 py-0.5 whitespace-nowrap"
+            role="img"
+            [title]="lanesTooltip"
+            [attr.aria-label]="lanesAriaLabel()"
+          >
+            <span class="text-[10px] uppercase text-base-content-muted"
+              >Lanes</span
+            >
+            <span class="tabular-nums" data-testid="stats-lanes">{{
+              lanes
+            }}</span>
+          </span>
+        }
+        @if (durationMs(); as duration) {
+          <span
+            class="inline-flex items-center gap-1 bg-base-content/5 border border-base-content/10 rounded px-1.5 py-0.5 whitespace-nowrap"
+          >
+            <span class="text-[10px] uppercase text-base-content-muted"
+              >Time</span
+            >
+            <span class="tabular-nums" data-testid="stats-duration">{{
+              formatDuration(duration)
+            }}</span>
+          </span>
+        }
+        @if (agentCount(); as agents) {
+          <span
+            class="inline-flex items-center gap-1 bg-info/10 border border-info/20 rounded px-1.5 py-0.5 whitespace-nowrap"
+            [title]="agentsTooltip"
+          >
+            <span class="text-[10px] uppercase text-base-content-muted"
+              >Agents</span
+            >
+            <span
+              class="text-info tabular-nums"
+              data-testid="stats-agents"
+              >{{ agents }}</span
+            >
+          </span>
+        }
+        @if (compactionCount() > 0) {
+          <span
+            class="inline-flex items-center gap-1 bg-warning/10 border border-warning/20 rounded px-1.5 py-0.5 whitespace-nowrap"
+          >
+            <span class="text-[10px] uppercase text-base-content-muted"
+              >Compactions</span
+            >
+            <span class="text-warning tabular-nums">{{
+              compactionCount()
+            }}</span>
+          </span>
+        }
+        @if (hasMultipleModels()) {
+          <button
+            class="inline-flex items-center gap-1 bg-purple-600/15 border border-purple-600/25 rounded px-1.5 py-0.5 whitespace-nowrap cursor-pointer hover:bg-purple-600/25 transition-colors"
+            data-testid="stats-models-toggle"
+            (click)="
+              isExpanded.set(!isExpanded()); $event.stopPropagation()
+            "
+            type="button"
+            [attr.aria-expanded]="isExpanded()"
+            [title]="
+              isExpanded()
+                ? 'Hide per-model breakdown'
+                : 'Show per-model breakdown'
+            "
+          >
+            <span class="text-[10px] uppercase text-base-content-muted"
+              >Models</span
+            >
+            <span class="text-base-content font-semibold"
+              >{{ modelRows().length }}
+              <span class="text-[10px] font-normal" aria-hidden="true">{{
+                isExpanded() ? '▲' : '▼'
+              }}</span></span
+            >
+          </button>
+        }
+      </div>
+      <button
+        class="text-base-content-muted hover:text-base-content transition-colors flex-shrink-0 p-0.5"
+        data-testid="stats-expand"
+        (click)="isStatsCollapsed.set(false)"
+        type="button"
+        title="Expand stats"
+        aria-label="Expand stats"
+      >
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <polyline points="6 9 12 15 18 9" />
+        </svg>
+      </button>
+    </div>
+  } @else {
+    <!-- Expanded: full card grid with inline collapse button -->
+    <div class="stats-cards grid grid-cols-2 gap-1.5">
+      <!-- Model Card -->
+      @if (!hasMultipleModels() && primaryModelName(); as modelName) {
+        <div
+          class="bg-base-200/50 rounded px-2 py-1.5 border border-purple-600/20"
+          [title]="modelName"
+        >
+          <div
+            class="text-[10px] uppercase tracking-wider text-base-content-muted leading-tight"
+          >
+            Model
+          </div>
+          <div
+            class="text-sm font-semibold text-base-content truncate leading-tight mt-0.5"
+          >
+            {{ formatModelName(modelName) }}
+          </div>
+        </div>
+      }
+
+      <!-- Context Card -->
+      @if (liveModelStats(); as live) {
+        <div
+          class="bg-base-200/50 rounded px-2 py-1.5 border border-cyan-600/20"
+          [title]="contextTooltip()"
+        >
+          <div
+            class="text-[10px] uppercase tracking-wider text-base-content-muted leading-tight"
+          >
+            Context
+          </div>
+          <div
+            class="text-sm font-semibold text-base-content leading-tight mt-0.5"
+          >
+            <span data-testid="stats-context">{{
+              contextPercentLabel()
+            }}</span>
+            @if (hasKnownContextWindow()) {
+              <span class="text-[10px] font-normal text-base-content-muted">
+                ({{ formatTokens(live.contextUsed) }})
+              </span>
+            }
+          </div>
+        </div>
+      }
+
+      <!-- Tokens Card -->
+      <div
+        class="bg-base-200/50 rounded px-2 py-1.5 border border-base-content/10"
+        [title]="tokenTooltip()"
+      >
+        <div
+          class="text-[10px] uppercase tracking-wider text-base-content-muted leading-tight"
+        >
+          Tokens
+        </div>
+        <div
+          class="text-sm font-semibold tabular-nums leading-tight mt-0.5"
+        >
+          <span data-testid="stats-tokens">{{ tokensLabel() }}</span>
+          @if (tokensBudgetSuffix(); as suffix) {
+            <span
+              class="text-[10px] font-normal text-base-content-muted"
+              data-testid="stats-tokens-budget"
+              >{{ suffix }}</span
+            >
+          }
+        </div>
+      </div>
+
+      <!-- Cost Card -->
+      <div
+        class="bg-base-200/50 rounded px-2 py-1.5 border border-success/20"
+        [attr.title]="costTooltip()"
+      >
+        <div
+          class="text-[10px] uppercase tracking-wider text-base-content-muted leading-tight"
+        >
+          Cost
+        </div>
+        @if (costBudgetText(); as budgetText) {
+          <div
+            class="text-xs tabular-nums leading-tight mt-0.5"
+            data-testid="stats-cost-budget"
+          >
+            {{ budgetText }}
+          </div>
+        } @else {
+          <div data-testid="stats-cost">
+            <ptah-cost-badge [cost]="totalCost()" />
+          </div>
+          @if (costBudgetSuffix(); as suffix) {
+            <div
+              class="text-[10px] text-base-content-muted tabular-nums leading-tight"
+              data-testid="stats-cost-limit"
+            >
+              {{ suffix }}
+            </div>
+          }
+          @if (knownSubtotal(); as known) {
+            <div
+              class="text-[10px] text-base-content-muted tabular-nums leading-tight mt-0.5"
+              data-testid="stats-known-subtotal"
+              [title]="knownSubtotalTooltip"
+            >
+              known subtotal {{ formatCost(known.value) }}
+            </div>
+          }
+        }
+      </div>
+
+      <!-- Duration Card (backend-supplied only) -->
+      @if (durationMs(); as duration) {
+        <div
+          class="bg-base-200/50 rounded px-2 py-1.5 border border-base-content/10"
+        >
+          <div
+            class="text-[10px] uppercase tracking-wider text-base-content-muted leading-tight"
+          >
+            Duration
+          </div>
+          <div
+            class="text-sm font-semibold tabular-nums leading-tight mt-0.5"
+            data-testid="stats-duration"
+          >
+            {{ formatDuration(duration) }}
+          </div>
+        </div>
+      }
+
+      <!-- Agents Card (backend lifetime count) -->
+      @if (agentCount(); as agents) {
+        <div
+          class="bg-base-200/50 rounded px-2 py-1.5 border border-info/20"
+          [title]="agentsTooltip"
+        >
+          <div
+            class="text-[10px] uppercase tracking-wider text-base-content-muted leading-tight"
+          >
+            Agents
+          </div>
+          <div
+            class="text-sm font-semibold text-info tabular-nums leading-tight mt-0.5"
+            data-testid="stats-agents"
+          >
+            {{ agents }}
+          </div>
+        </div>
+      }
+
+      <!-- Compactions Card (conditional) -->
+      @if (compactionCount() > 0) {
+        <div
+          class="bg-base-200/50 rounded px-2 py-1.5 border border-warning/20"
+          title="Number of context compactions during this session"
+        >
+          <div
+            class="text-[10px] uppercase tracking-wider text-base-content-muted leading-tight"
+          >
+            Compactions
+          </div>
+          <div
+            class="text-sm font-semibold text-warning tabular-nums leading-tight mt-0.5"
+          >
+            {{ compactionCount() }}
+          </div>
+        </div>
+      }
+
+      <!-- Multi-model Toggle Card (conditional) -->
+      @if (hasMultipleModels()) {
+        <button
+          class="bg-base-200/50 rounded px-2 py-1.5 border border-purple-600/20 cursor-pointer hover:bg-base-200/80 text-left transition-colors"
+          data-testid="stats-models-toggle"
+          (click)="isExpanded.set(!isExpanded())"
+          type="button"
+          [attr.aria-expanded]="isExpanded()"
+          [title]="
+            isExpanded()
+              ? 'Hide per-model breakdown'
+              : 'Show per-model breakdown'
+          "
+        >
+          <div
+            class="text-[10px] uppercase tracking-wider text-base-content-muted leading-tight"
+          >
+            Models
+          </div>
+          <div
+            class="text-sm font-semibold text-base-content leading-tight mt-0.5"
+          >
+            {{ modelRows().length }}
+            <span class="text-[10px] font-normal" aria-hidden="true">{{
+              isExpanded() ? '▲' : '▼'
+            }}</span>
+          </div>
+        </button>
+      }
+
+      <!-- Plan-limit and lane tiles: after the session cards, in DOM order
+           (no dense packing). Lanes stay outside the session totals. -->
+      @if (limits(); as vm) {
+        @for (tile of vm.planTiles; track tile.id) {
+          <ptah-plan-limit-tile
+            [tile]="tile"
+            [open]="isTileOpen(tile.id)"
+            (toggled)="toggleTile(tile.id)"
+          />
+        }
+        @for (tile of vm.laneTiles; track tile.id) {
+          <ptah-lane-usage-tile
+            [tile]="tile"
+            [open]="isTileOpen(tile.id)"
+            (toggled)="toggleTile(tile.id)"
+          />
+        }
+        @if (vm.subtotal; as subtotal) {
+          <ptah-lane-subtotal-tile [tile]="subtotal" />
+        }
+      }
+
+      <!-- Collapse button card -->
+      <button
+        class="bg-base-200/50 rounded px-2 py-1.5 border border-base-content/10 cursor-pointer hover:bg-base-200/80 flex items-center justify-center transition-colors"
+        data-testid="stats-collapse"
+        (click)="isStatsCollapsed.set(true)"
+        type="button"
+        title="Collapse stats"
+        aria-label="Collapse stats"
+      >
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          class="text-base-content-muted"
+          aria-hidden="true"
+        >
+          <polyline points="18 15 12 9 6 15" />
+        </svg>
+      </button>
+    </div>
+  }
+
+  <!-- Per-model breakdown: one table, shown under either layout -->
+  @if (isExpanded() && hasMultipleModels()) {
+    <ptah-session-model-breakdown [snapshot]="snapshot()" />
+  }
+
+  <!-- Context usage progress bar — always visible when context data
+       exists AND the model's context window is known. When the window
+       is unknown (third-party providers) we suppress the bar entirely;
+       a 0%-width track would otherwise look like a stuck zero usage. -->
+  @if (liveModelStats(); as live) {
+    @if (hasKnownContextWindow()) {
+      <div class="mt-1.5" [title]="contextTooltip()">
+        <div class="context-bar-track">
+          <div
+            class="context-bar-fill"
+            [class.context-bar-warning]="showContextWarning()"
+            [class.context-bar-critical]="live.contextPercent >= 90"
+            [style.width.%]="live.contextPercent"
+          ></div>
+        </div>
+      </div>
+    }
+  }
+</div>

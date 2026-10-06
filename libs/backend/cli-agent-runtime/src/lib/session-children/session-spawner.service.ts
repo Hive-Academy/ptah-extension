@@ -29,6 +29,7 @@ import {
   type SdkAdapterTurnEndedEvent,
   type SdkAdapterTurnFailedEvent,
   type SdkPermissionHandler,
+  type SessionBudgetService,
   type SessionEndCallbackRegistry,
   type SessionEndPayload,
   type SessionIdResolvedCallbackRegistry,
@@ -209,6 +210,13 @@ export class SessionSpawnerService implements ISessionSpawner {
      */
     @inject(PLATFORM_TOKENS.SESSION_ORGANIZATION_RECORDER, { isOptional: true })
     private readonly organizationRecorder: ISessionOrganizationRecorder | null = null,
+    /**
+     * The session budget (TASK_2026_597 N7). An interrupt keeps a session's
+     * budget (a Stop is not an end), so the spawner releases a child's entry
+     * itself when the child truly ends. Absent → nothing to release.
+     */
+    @inject(SDK_TOKENS.SDK_SESSION_BUDGET, { isOptional: true })
+    private readonly sessionBudget: Pick<SessionBudgetService, 'release'> | null = null,
   ) {
     this.disposers.push(
       adapterEvents.onTurnEnded((event) => this.onTurnEnded(event)),
@@ -730,6 +738,9 @@ export class SessionSpawnerService implements ISessionSpawner {
     }
     this.registry.markEnded(id, 'stopped', reason);
     this.releaseResources(id);
+    // After the awaited interrupt: the run is over, so no late result can
+    // bring the entry back.
+    this.releaseBudget(id);
     this.log(
       `stopped ${id} (${child.label}): ${reason}; tab, worktree and branch kept`,
     );
@@ -928,8 +939,9 @@ export class SessionSpawnerService implements ISessionSpawner {
       'ended outside the spawner: stop button, error or teardown',
     );
     this.releaseResources(childSessionId);
+    this.releaseBudget(childSessionId);
     this.log(
-      `${childSessionId} ended (grace expired); slot, policy and MCP root released`,
+      `${childSessionId} ended (grace expired); slot, policy, MCP root and budget released`,
     );
   }
 
@@ -1292,12 +1304,48 @@ export class SessionSpawnerService implements ISessionSpawner {
     }
   }
 
+  /**
+   * Interrupt an ended child without awaiting; its budget entry is released
+   * once the interrupt settles, so a result the run emits meanwhile cannot
+   * bring the entry back.
+   */
   private interruptInBackground(childSessionId: string): void {
     const id = SessionId.safeParse(childSessionId);
-    if (!this.adapter || !id) return;
-    this.adapter.interruptSession(id).catch((error: unknown) => {
-      this.log(`interrupt of ${childSessionId} failed: ${errorMessage(error)}`);
-    });
+    if (!this.adapter || !id) {
+      this.releaseBudget(childSessionId);
+      return;
+    }
+    this.adapter
+      .interruptSession(id)
+      .catch((error: unknown) => {
+        this.log(
+          `interrupt of ${childSessionId} failed: ${errorMessage(error)}`,
+        );
+      })
+      .finally(() => this.releaseBudget(childSessionId));
+  }
+
+  /**
+   * Release the session budget entry of a child that truly ended, under each
+   * key it may be held under (its tab id and its SDK id once bound).
+   */
+  private releaseBudget(childSessionId: string): void {
+    const budget = this.sessionBudget;
+    if (!budget) return;
+    const sdkSessionId = this.registry.get(childSessionId)?.sdkSessionId;
+    const keys = new Set([childSessionId]);
+    if (sdkSessionId) keys.add(sdkSessionId);
+    for (const key of keys) {
+      try {
+        budget.release(key);
+      } catch (error: unknown) {
+        // degradation-audit: reported - a budget release failure never blocks
+        // a child's end; it is logged.
+        this.log(
+          `budget release for ${childSessionId} failed: ${errorMessage(error)}`,
+        );
+      }
+    }
   }
 
   private clearTimers(runtime: ChildRuntime): void {

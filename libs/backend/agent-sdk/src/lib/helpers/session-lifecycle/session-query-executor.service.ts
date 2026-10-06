@@ -157,7 +157,7 @@ export type CompactionCoordinatorSink = Pick<
 /** The subagent budget monitor surface the executor drives (TASK_2026_597 28b). */
 export type SubagentBudgetSink = Pick<
   SubagentBudgetMonitor,
-  'observe' | 'release'
+  'observe' | 'release' | 'currentSessionId'
 >;
 
 /** True when an assistant message carries at least one `tool_use` block. */
@@ -202,6 +202,12 @@ class CompactionSessionTap {
     private readonly sessionClass: CompactionSessionClass,
     /** Unique per query run, so a resumed run never reuses a cached turn read. */
     private readonly runToken: string,
+    private readonly runOrder: number,
+    /**
+     * Session id → creation order of the run that bound it last, shared by
+     * every run of the executor. `release` skips an id a newer run has bound.
+     */
+    private readonly runOwners: Map<string, number>,
     private readonly subagentMonitor: SubagentBudgetSink | null = null,
   ) {}
 
@@ -298,14 +304,28 @@ class CompactionSessionTap {
   }
 
   /**
-   * Session end: drop every id this run tracked. Idempotent: the abort
-   * listener and the stream's `onStreamEnd` (every stream teardown, normal end
-   * included — TASK_2026_614 D.2) both call it.
+   * Session end: drop every id this run tracked, plus the id a PostCompact
+   * rekey moved each one to (FM-5: the stream can end before any message
+   * carries the new id). An id a newer run has bound since is left to that
+   * run (FM-9). Idempotent: the abort listener and the stream's `onStreamEnd`
+   * (every stream teardown, normal end included — TASK_2026_614 D.2) both
+   * call it.
    */
   release(): void {
     if (this.released) return;
     this.released = true;
-    for (const id of this.subagentIds) {
+    // Resolve before releasing: the monitor drops its aliases on release.
+    const ids = new Set<string>();
+    for (const id of [...this.trackedIds, ...this.subagentIds]) {
+      ids.add(id);
+      ids.add(this.currentId(id));
+    }
+    this.trackedIds.clear();
+    this.subagentIds.clear();
+    for (const id of ids) {
+      const owner = this.runOwners.get(id);
+      if (owner !== undefined && owner !== this.runOrder) continue;
+      this.runOwners.delete(id);
       try {
         this.subagentMonitor?.release(id);
       } catch (error: unknown) {
@@ -315,9 +335,6 @@ class CompactionSessionTap {
           error,
         );
       }
-    }
-    this.subagentIds.clear();
-    for (const id of this.trackedIds) {
       this.guard('release', (c) => c.unregister(id));
       try {
         this.port?.release(id);
@@ -325,7 +342,22 @@ class CompactionSessionTap {
         this.warn('Context-usage port failed on release', 'release', error);
       }
     }
-    this.trackedIds.clear();
+  }
+
+  /**
+   * The id `id` lives on as after the PostCompact rekeys so far. The monitor
+   * records every rekey the hook handler reports; without a monitor, or when
+   * it fails, the id is taken as current.
+   */
+  private currentId(id: string): string {
+    const monitor = this.subagentMonitor;
+    if (!monitor) return id;
+    try {
+      return monitor.currentSessionId(id);
+    } catch (error: unknown) {
+      this.warn('Subagent budget monitor failed on id lookup', 'rekey', error);
+      return id;
+    }
   }
 
   /**
@@ -337,6 +369,10 @@ class CompactionSessionTap {
   private bind(id: string): void {
     this.sessionId = id;
     this.trackedIds.add(id);
+    const owner = this.runOwners.get(id);
+    if (owner === undefined || owner <= this.runOrder) {
+      this.runOwners.set(id, this.runOrder);
+    }
     this.guard('register', (c) => {
       if (c.getState(id) !== undefined) return;
       const state = c.register(id, this.sessionClass);
@@ -360,9 +396,10 @@ class CompactionSessionTap {
     )
       .then((reading) => {
         if (!reading || this.released) return;
-        this.guard('context-usage', (c) =>
-          c.onContextUsage(sessionId, reading),
-        );
+        // A PostCompact during the read moved the record (and the port's
+        // reading) to a new id: feed the id the session has now (FM-4).
+        const current = this.currentId(this.sessionId ?? sessionId);
+        this.guard('context-usage', (c) => c.onContextUsage(current, reading));
       })
       .catch((error: unknown) =>
         this.warn('Context-usage port failed at turn end', 'turn-end', error),
@@ -391,6 +428,10 @@ class CompactionSessionTap {
 }
 
 export class SessionQueryExecutor {
+  /** Latest run order for each real session id; see `CompactionSessionTap.release`. */
+  private readonly runOwners = new Map<string, number>();
+  private nextRunOrder = 0;
+
   constructor(
     private readonly logger: Logger,
     private readonly registry: SessionRegistry,
@@ -535,6 +576,8 @@ export class SessionQueryExecutor {
         e2Passed: null,
       },
       rec.token,
+      ++this.nextRunOrder,
+      this.runOwners,
       this.subagentBudgetMonitor,
     );
     abortController.signal.addEventListener(

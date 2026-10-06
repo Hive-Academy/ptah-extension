@@ -32,7 +32,11 @@ import type {
   MessageCompleteEvent,
   QuotaOwnerRef,
 } from '@ptah-extension/shared';
-import { calculateMessageCost } from '@ptah-extension/shared';
+import {
+  calculateMessageCost,
+  resetPricingMapForTesting,
+  updatePricingMap,
+} from '@ptah-extension/shared';
 
 // Mock TabManagerService with signal-based activeTab
 const mockActiveTab = signal<{ claudeSessionId?: string } | null>(null);
@@ -1637,6 +1641,28 @@ describe('AgentMonitorStore', () => {
   describe('N6 per-agent usage, context and cache data', () => {
     const PARENT = 'toolu_usage_1';
     const NOW = 1_000_000_000;
+    /** Test models with cache prices; `gpt-4o` (the default) has none. */
+    const CACHED_A = 'test-cached-model-a';
+    const CACHED_B = 'test-cached-model-b';
+
+    beforeEach(() =>
+      updatePricingMap({
+        [CACHED_A]: {
+          inputCostPerToken: 1e-6,
+          outputCostPerToken: 1e-5,
+          cacheReadCostPerToken: 1e-7,
+          cacheCreationCostPerToken: 2e-6,
+        },
+        [CACHED_B]: {
+          inputCostPerToken: 4e-6,
+          outputCostPerToken: 3e-5,
+          cacheReadCostPerToken: 5e-7,
+          cacheCreationCostPerToken: 6e-6,
+        },
+      }),
+    );
+
+    afterEach(() => resetPricingMapForTesting());
 
     function start(timestamp = NOW - 10_000): void {
       store.onAgentStart({
@@ -1710,20 +1736,18 @@ describe('AgentMonitorStore', () => {
     it('sums usage per message and sizes the context from the last request', () => {
       start();
       store.onSubagentMessageComplete(
-        complete('m1', {
-          input: 2,
-          output: 20,
-          cacheRead: 0,
-          cacheCreation: 40_000,
-        }),
+        complete(
+          'm1',
+          { input: 2, output: 20, cacheRead: 0, cacheCreation: 40_000 },
+          { model: CACHED_A },
+        ),
       );
       store.onSubagentMessageComplete(
-        complete('m2', {
-          input: 3,
-          output: 30,
-          cacheRead: 40_000,
-          cacheCreation: 500,
-        }),
+        complete(
+          'm2',
+          { input: 3, output: 30, cacheRead: 40_000, cacheCreation: 500 },
+          { model: CACHED_A },
+        ),
       );
 
       const v = view();
@@ -1735,7 +1759,7 @@ describe('AgentMonitorStore', () => {
         output: 50,
       });
       expect(v.estimatedCostUsd).toBe(
-        calculateMessageCost('gpt-4o', {
+        calculateMessageCost(CACHED_A, {
           input: 5,
           output: 50,
           cacheHit: 40_000,
@@ -1743,6 +1767,133 @@ describe('AgentMonitorStore', () => {
         }),
       );
       expect(typeof v.estimatedCostUsd).toBe('number');
+    });
+
+    describe('cost estimate per request model (F-E)', () => {
+      it('prices each request with its own model after a mid-run model change', () => {
+        start();
+        const first = { input: 1_000, output: 100, cacheRead: 5_000 };
+        const second = { input: 2_000, output: 200, cacheRead: 7_000 };
+        store.onSubagentMessageComplete(
+          complete('m1', first, { model: CACHED_A }),
+        );
+        store.onSubagentMessageComplete(
+          complete('m2', second, { model: CACHED_B }),
+        );
+
+        const perRequest =
+          (calculateMessageCost(CACHED_A, {
+            input: 1_000,
+            output: 100,
+            cacheHit: 5_000,
+          }) ?? NaN) +
+          (calculateMessageCost(CACHED_B, {
+            input: 2_000,
+            output: 200,
+            cacheHit: 7_000,
+          }) ?? NaN);
+        const allOnLatest = calculateMessageCost(CACHED_B, {
+          input: 3_000,
+          output: 300,
+          cacheHit: 12_000,
+        });
+
+        expect(view().estimatedCostUsd).toBeCloseTo(perRequest, 6);
+        expect(view().estimatedCostUsd).not.toBeCloseTo(allOnLatest ?? 0, 6);
+      });
+
+      it('prices a request that named no model with the latest named model', () => {
+        start();
+        store.onSubagentMessageComplete(
+          complete('m1', { input: 1_000, output: 100 }, { model: undefined }),
+        );
+        store.onSubagentMessageComplete(
+          complete('m2', { input: 2_000, output: 200 }, { model: CACHED_B }),
+        );
+
+        expect(view().estimatedCostUsd).toBe(
+          calculateMessageCost(CACHED_B, { input: 3_000, output: 300 }),
+        );
+      });
+
+      it('is unknown (null), not 0-priced, when cache tokens have no cache price', () => {
+        start();
+        store.onSubagentMessageComplete(
+          complete('m1', { input: 10, output: 5, cacheRead: 40_000 }),
+        );
+
+        expect(view().estimatedCostUsd).toBeNull();
+      });
+
+      it('is unknown when one request of several lacks a cache price', () => {
+        start();
+        store.onSubagentMessageComplete(
+          complete('m1', { input: 10, output: 5 }, { model: CACHED_A }),
+        );
+        store.onSubagentMessageComplete(
+          complete('m2', { input: 10, output: 5, cacheCreation: 300 }),
+        );
+
+        expect(view().estimatedCostUsd).toBeNull();
+      });
+
+      it('still prices a model without cache prices when no cache tokens were used', () => {
+        start();
+        store.onSubagentMessageComplete(
+          complete('m1', { input: 1_000, output: 500, cacheRead: 0 }),
+        );
+
+        expect(view().estimatedCostUsd).toBe(
+          calculateMessageCost('gpt-4o', { input: 1_000, output: 500 }),
+        );
+      });
+
+      it('is null when a request model has no price at all', () => {
+        start();
+        store.onSubagentMessageComplete(
+          complete('m1', { input: 10, output: 5 }, { model: CACHED_A }),
+        );
+        store.onSubagentMessageComplete(
+          complete(
+            'm2',
+            { input: 10, output: 5 },
+            { model: 'no-such-model-for-pricing' },
+          ),
+        );
+
+        expect(view().estimatedCostUsd).toBeNull();
+      });
+
+      it('prices hand-built totals as one request on their model, with the same cache rule', () => {
+        start();
+        const record = store.getSubagent(PARENT);
+        if (!record) throw new Error('record missing');
+
+        expect(
+          subagentUsageView(
+            {
+              ...record,
+              usage: { input: 1_000, output: 10, cacheRead: 50, model: CACHED_A },
+            },
+            NOW,
+          ).estimatedCostUsd,
+        ).toBe(
+          calculateMessageCost(CACHED_A, {
+            input: 1_000,
+            output: 10,
+            cacheHit: 50,
+          }),
+        );
+        expect(
+          subagentUsageView(
+            {
+              ...record,
+              usage: { input: 1_000, output: 10, cacheRead: 50, model: 'gpt-4o' },
+            },
+            NOW,
+          ).estimatedCostUsd,
+        ).toBeNull();
+      });
     });
 
     it('uses the backend contextTokens when present, ignoring the local sum', () => {
@@ -2069,6 +2220,170 @@ describe('AgentMonitorStore', () => {
 
       expect(store.getSubagent('tool-closed')).toBeUndefined();
       expect(store.getSubagent('tool-open')).toBeDefined();
+    });
+  });
+
+  describe('entries for subagents without a record (F.5 M2, M4, M5)', () => {
+    function start(toolCallId: string, sessionId = ''): void {
+      store.onAgentStart({
+        eventType: 'agent_start',
+        id: `start-${toolCallId}`,
+        timestamp: 10,
+        toolCallId,
+        sessionId,
+        source: 'hook',
+      } as AgentStartEvent);
+    }
+
+    function complete(
+      toolCallId: string,
+      messageId: string,
+      sessionId: string,
+      input = 5,
+    ): void {
+      store.onSubagentMessageComplete({
+        id: `mc-${toolCallId}-${messageId}`,
+        eventType: 'message_complete',
+        timestamp: 5,
+        sessionId,
+        messageId,
+        source: 'complete',
+        parentToolUseId: toolCallId,
+        model: 'gpt-4o',
+        tokenUsage: { input, output: 1 },
+      } as MessageCompleteEvent);
+    }
+
+    function bgStarted(toolCallId: string, sessionId: string): void {
+      store.onBackgroundAgentStarted({
+        eventType: 'background_agent_started',
+        id: `bg-${toolCallId}`,
+        timestamp: 2,
+        sessionId,
+        toolCallId,
+        agentType: 'reviewer',
+        agentId: `agent-${toolCallId}`,
+        teammateName: `name-${toolCallId}`,
+        source: 'hook',
+      } as BackgroundAgentStartedEvent);
+    }
+
+    function viewUsage(toolCallId: string) {
+      const record = store.getSubagent(toolCallId);
+      if (!record) throw new Error(`record ${toolCallId} missing`);
+      return subagentUsageView(record, 20).usage;
+    }
+
+    it('stamps early usage with a session id supplied by a later message', () => {
+      complete('tool-late-session', 'm1', '');
+      complete('tool-late-session', 'm2', 'sess-late');
+
+      store.clearSessionAgents('sess-late');
+      start('tool-late-session');
+
+      expect(store.getSubagent('tool-late-session')?.usage).toBeUndefined();
+    });
+
+    it('clearSessionAgents drops early usage and pending identities of that session only', () => {
+      complete('tool-closed', 'm1', 'sess-closed');
+      bgStarted('tool-closed', 'sess-closed');
+      complete('tool-open', 'm1', 'sess-open');
+      bgStarted('tool-open', 'sess-open');
+
+      store.clearSessionAgents('sess-closed');
+      start('tool-closed');
+      start('tool-open');
+
+      const closed = store.getSubagent('tool-closed');
+      expect(closed?.usage).toBeUndefined();
+      expect(closed?.agentId).toBeUndefined();
+      const open = store.getSubagent('tool-open');
+      expect(open?.usage).toBeDefined();
+      expect(open?.agentId).toBe('agent-tool-open');
+    });
+
+    it('forceClearSessionAgents drops early usage of that session', () => {
+      complete('tool-closed', 'm1', 'sess-closed');
+
+      store.forceClearSessionAgents('sess-closed');
+      start('tool-closed');
+
+      expect(store.getSubagent('tool-closed')?.usage).toBeUndefined();
+    });
+
+    it('keeps usage of a subagent that has a record when its session tab closes', () => {
+      start('tool-live', 'sess-live');
+      complete('tool-live', 'm1', 'sess-live', 5);
+
+      store.clearSessionAgents('sess-live');
+      complete('tool-live', 'm2', 'sess-live', 7);
+
+      expect(viewUsage('tool-live')).toEqual(
+        expect.objectContaining({ output: 2 }),
+      );
+    });
+
+    it('caps early usage at 100 subagents, dropping the oldest, and never a recorded one', () => {
+      start('tool-recorded', 'sess-cap');
+      complete('tool-recorded', 'm1', 'sess-cap');
+      for (let i = 0; i <= 100; i++) {
+        complete(`tool-early-${i}`, 'm1', 'sess-cap');
+      }
+
+      start('tool-early-0');
+      start('tool-early-1');
+      start('tool-early-100');
+      complete('tool-recorded', 'm2', 'sess-cap');
+
+      expect(store.getSubagent('tool-early-0')?.usage).toBeUndefined();
+      expect(store.getSubagent('tool-early-1')?.usage).toBeDefined();
+      expect(store.getSubagent('tool-early-100')?.usage).toBeDefined();
+      expect(viewUsage('tool-recorded')).toEqual(
+        expect.objectContaining({ output: 2 }),
+      );
+    });
+
+    it('caps pending identities at 100, dropping the oldest', () => {
+      for (let i = 0; i <= 100; i++) {
+        bgStarted(`tool-pending-${i}`, 'sess-cap');
+      }
+
+      start('tool-pending-0');
+      start('tool-pending-1');
+      start('tool-pending-100');
+
+      expect(store.getSubagent('tool-pending-0')?.agentId).toBeUndefined();
+      expect(store.getSubagent('tool-pending-1')?.agentId).toBe(
+        'agent-tool-pending-1',
+      );
+      expect(store.getSubagent('tool-pending-100')?.agentId).toBe(
+        'agent-tool-pending-100',
+      );
+    });
+
+    it('resolveParentSessionId rekeys pending identities and early usage from the tab id', () => {
+      bgStarted('tool-tab', 'tab_abc');
+      complete('tool-tab', 'm1', 'tab_abc');
+
+      store.resolveParentSessionId('tab_abc', 'real-uuid-xyz');
+      start('tool-tab');
+
+      const rec = store.getSubagent('tool-tab');
+      expect(rec?.parentSessionId).toBe('real-uuid-xyz');
+      expect(rec?.usage).toBeDefined();
+    });
+
+    it('a clear of the resolved session drops entries that held the tab id', () => {
+      bgStarted('tool-tab', 'tab_abc');
+      complete('tool-tab', 'm1', 'tab_abc');
+
+      store.resolveParentSessionId('tab_abc', 'real-uuid-xyz');
+      store.clearSessionAgents('real-uuid-xyz');
+      start('tool-tab');
+
+      const rec = store.getSubagent('tool-tab');
+      expect(rec?.agentId).toBeUndefined();
+      expect(rec?.usage).toBeUndefined();
     });
   });
 });

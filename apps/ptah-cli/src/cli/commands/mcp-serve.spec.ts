@@ -57,6 +57,7 @@ import {
   type JsonRpcMessage,
 } from '../jsonrpc/types.js';
 import type { GlobalOptions } from '../router.js';
+import { StdioTransport } from '@ptah-extension/vscode-lm-tools';
 import type {
   MCPRequest,
   MCPResponse,
@@ -194,6 +195,7 @@ function makeFakeStdioServer(): jest.Mocked<StdioMcpServerService> {
       },
     ),
     handleCancelled: jest.fn(async (): Promise<void> => undefined),
+    wasCancelledByPeer: jest.fn((): boolean => false),
     dispose: jest.fn(async (): Promise<void> => undefined),
     setSessionSubmitHandler: jest.fn(),
   } as unknown as jest.Mocked<StdioMcpServerService>;
@@ -767,6 +769,94 @@ describe('ptah mcp-serve', () => {
       expect(h.engineOpts[0]).toEqual({ mode: 'full', requireSdk: false });
       h.stdin.end();
       await promise;
+    });
+  });
+
+  describe('request id pass-through and drain', () => {
+    it("hands the peer's own tools/call id to handleToolsCall (not a generated one)", async () => {
+      const h = makeHarness();
+      const promise = execute(NO_OPTS, baseGlobals, h.hooks);
+      await flushAsync();
+
+      h.send({
+        jsonrpc: '2.0',
+        id: 42,
+        method: 'tools/call',
+        params: { name: 'agent_list', arguments: {} },
+      });
+      await h.findLine(
+        (m) =>
+          isJsonRpcSuccessResponse(m) &&
+          (m as { id: string | number }).id === 42,
+      );
+      expect(h.fakeStdioServer.handleToolsCall).toHaveBeenCalledTimes(1);
+      const req = h.fakeStdioServer.handleToolsCall.mock.calls[0][0];
+      expect(req.id).toBe(42);
+
+      h.stdin.end();
+      await promise;
+    });
+
+    it('sends no reply for a tools/call the peer cancelled', async () => {
+      const h = makeHarness();
+      h.fakeStdioServer.wasCancelledByPeer.mockImplementation(
+        (resp: MCPResponse) => resp.id === 'gone-1',
+      );
+      const promise = execute(NO_OPTS, baseGlobals, h.hooks);
+      await flushAsync();
+
+      h.send({
+        jsonrpc: '2.0',
+        id: 'gone-1',
+        method: 'tools/call',
+        params: { name: 'agent_list', arguments: {} },
+      });
+      h.send({
+        jsonrpc: '2.0',
+        id: 'kept-1',
+        method: 'tools/call',
+        params: { name: 'agent_list', arguments: {} },
+      });
+      await h.findLine(
+        (m) =>
+          isJsonRpcSuccessResponse(m) &&
+          (m as { id: string | number }).id === 'kept-1',
+      );
+      await flushAsync();
+
+      expect(h.fakeStdioServer.handleToolsCall).toHaveBeenCalledTimes(2);
+      const replied = h.outLines
+        .map((line) => JSON.parse(line) as { id?: unknown })
+        .filter((m) => m.id === 'gone-1');
+      expect(replied).toEqual([]);
+
+      h.stdin.end();
+      await promise;
+    });
+
+    it('disposes the stdio server before the transport stops on stdin end', async () => {
+      const order: string[] = [];
+      const stopSpy = jest
+        .spyOn(StdioTransport.prototype, 'stop')
+        .mockImplementation(async () => {
+          order.push('transport.stop');
+        });
+      try {
+        const h = makeHarness();
+        h.fakeStdioServer.dispose.mockImplementation(async () => {
+          order.push('dispose');
+        });
+        const promise = execute(NO_OPTS, baseGlobals, h.hooks);
+        await flushAsync();
+
+        h.stdin.end();
+        await promise;
+
+        expect(h.fakeStdioServer.dispose).toHaveBeenCalledTimes(1);
+        expect(order).toEqual(['dispose', 'transport.stop']);
+      } finally {
+        stopSpy.mockRestore();
+      }
     });
   });
 });

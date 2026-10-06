@@ -125,6 +125,7 @@ describe('TabManagerService — intent-named mutators', () => {
       getWorkspaceTabs: jest.fn().mockReturnValue([]),
       setBackendEncodedPath: jest.fn(),
       updateBackgroundTab: jest.fn(),
+      findBackgroundTabIds: jest.fn().mockReturnValue([]),
     };
     const modelRefreshMock: jest.Mocked<ModelRefreshControl> = {
       refreshModels: jest.fn().mockResolvedValue(undefined),
@@ -1268,6 +1269,38 @@ describe('TabManagerService — intent-named mutators', () => {
         expect(
           service.tabs().find((t) => t.id === id)?.sessionStats ?? null,
         ).toBeNull();
+      });
+
+      // TASK_2026_614 F.4 / F-D: turning the budget off clears every banner.
+      it('clearSessionBudgets drops the budget from every tab and keeps the stats', () => {
+        const first = service.createTab('budget off 1');
+        const second = service.createTab('budget off 2');
+        const plain = service.createTab('no budget');
+        service.attachSession(first, SESS_X);
+        const other = '22222222-2222-4222-8222-222222222222';
+        service.attachSession(second, other);
+        service.installSessionStats(
+          first,
+          sessionSnapshot(SESS_X, 2, 2),
+          budgetState(SESS_X, 2, 200),
+        );
+        service.installSessionBudget(second, budgetState(other, 3, 300));
+        expect(budgetOf(second)).not.toBeNull();
+        const plainBefore = service.tabs().find((t) => t.id === plain);
+        partitionMock.findBackgroundTabIds?.mockReturnValue(['background-tab']);
+
+        service.clearSessionBudgets();
+
+        expect(partitionMock.updateBackgroundTab).toHaveBeenCalledWith(
+          'background-tab',
+          { sessionBudget: null },
+        );
+        expect(budgetOf(first)).toBeNull();
+        expect(budgetOf(second)).toBeNull();
+        expect(
+          service.tabs().find((t) => t.id === first)?.sessionStats,
+        ).toBeTruthy();
+        expect(service.tabs().find((t) => t.id === plain)).toBe(plainBefore);
       });
 
       it('resetTabToFresh clears the budget with the snapshot', () => {

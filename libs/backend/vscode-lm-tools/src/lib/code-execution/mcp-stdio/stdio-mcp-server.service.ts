@@ -79,6 +79,18 @@ export class StdioMcpServerService {
   private sdkInitError: Error | null = null;
   /** Abort controllers of the wrapper-tool calls in flight, by JSON-RPC id. */
   private readonly inFlightCalls = new Map<string | number, AbortController>();
+  /** Controllers in {@link inFlightCalls} that the peer's cancel aborted. */
+  private readonly peerCancelledCalls = new WeakSet<AbortController>();
+  /**
+   * `session_submit` calls in flight, by JSON-RPC id. The handler owns their
+   * cancellation; this only records that the peer asked for it.
+   */
+  private readonly inFlightSubmits = new Map<
+    string | number,
+    { cancelledByPeer: boolean }
+  >();
+  /** Replies to calls the peer cancelled: they must not be sent. */
+  private readonly cancelledResponses = new WeakSet<MCPResponse>();
 
   constructor(
     @inject(TOKENS.LOGGER)
@@ -209,7 +221,34 @@ export class StdioMcpServerService {
           },
         };
       }
-      return this.sessionSubmitHandler.dispatch(request, args);
+      if (
+        this.inFlightSubmits.has(request.id) ||
+        this.inFlightCalls.has(request.id)
+      ) {
+        this.logger.warn('[StdioMcpServer] tools/call id already in flight', {
+          id: request.id,
+          tool: name,
+        });
+        return {
+          jsonrpc: '2.0',
+          id: request.id,
+          error: {
+            code: -32600,
+            message: `Invalid Request: id ${String(request.id)} is already in use by a tools/call in flight`,
+          },
+        };
+      }
+      const submit = { cancelledByPeer: false };
+      this.inFlightSubmits.set(request.id, submit);
+      let submitResp: MCPResponse;
+      try {
+        submitResp = await this.sessionSubmitHandler.dispatch(request, args);
+      } finally {
+        if (this.inFlightSubmits.get(request.id) === submit) {
+          this.inFlightSubmits.delete(request.id);
+        }
+      }
+      return this.settle(submitResp, submit.cancelledByPeer, request.id, name);
     }
 
     let dispatcher: AgentToolDispatcher;
@@ -219,7 +258,23 @@ export class StdioMcpServerService {
       return this.buildSdkInitFailedResponse(request, name, err);
     }
     // One controller per call, keyed by the JSON-RPC id the peer names in
-    // `notifications/cancelled`. Removed when the call settles.
+    // `notifications/cancelled`. Removed when the call settles. JSON-RPC ids
+    // are unique among calls in flight: a second call reusing one is refused,
+    // so the first keeps its controller and a cancel still reaches it.
+    if (this.inFlightCalls.has(request.id)) {
+      this.logger.warn('[StdioMcpServer] tools/call id already in flight', {
+        id: request.id,
+        tool: name,
+      });
+      return {
+        jsonrpc: '2.0',
+        id: request.id,
+        error: {
+          code: -32600,
+          message: `Invalid Request: id ${String(request.id)} is already in use by a tools/call in flight`,
+        },
+      };
+    }
     const controller = new AbortController();
     this.inFlightCalls.set(request.id, controller);
     let resp: MCPResponse | null;
@@ -234,25 +289,60 @@ export class StdioMcpServerService {
         this.inFlightCalls.delete(request.id);
       }
     }
-    if (resp !== null) return resp;
+    const cancelledByPeer = this.peerCancelledCalls.has(controller);
+    if (resp !== null) {
+      return this.settle(resp, cancelledByPeer, request.id, name);
+    }
 
     // Should never happen given the `known` check above + the MVP_TOOL_NAMES
     // table, but kept defensive in case the catalog and the dispatcher drift.
     this.logger.error('[StdioMcpServer] unrouted MVP tool', { tool: name });
-    return {
-      jsonrpc: '2.0',
-      id: request.id,
-      result: {
-        content: [
-          {
-            type: 'text',
-            text: `Tool ${name} is registered in the MVP catalog but has no dispatcher route.`,
-          },
-        ],
-        isError: true,
-        structuredContent: { ptah_code: 'internal_failure', tool: name },
+    return this.settle(
+      {
+        jsonrpc: '2.0',
+        id: request.id,
+        result: {
+          content: [
+            {
+              type: 'text',
+              text: `Tool ${name} is registered in the MVP catalog but has no dispatcher route.`,
+            },
+          ],
+          isError: true,
+          structuredContent: { ptah_code: 'internal_failure', tool: name },
+        },
       },
-    };
+      cancelledByPeer,
+      request.id,
+      name,
+    );
+  }
+
+  /**
+   * True when `response` answers a `tools/call` the peer cancelled with
+   * `notifications/cancelled` while it ran. MCP says the receiver SHOULD NOT
+   * reply to a cancelled request, so the transport must drop it. A call that
+   * settled before the cancel arrived is answered normally.
+   */
+  wasCancelledByPeer(response: MCPResponse): boolean {
+    return this.cancelledResponses.has(response);
+  }
+
+  /** Record a peer-cancelled reply so {@link wasCancelledByPeer} reports it. */
+  private settle(
+    response: MCPResponse,
+    cancelledByPeer: boolean,
+    id: string | number,
+    tool: string,
+  ): MCPResponse {
+    if (cancelledByPeer) {
+      this.cancelledResponses.add(response);
+      this.logger.debug('[StdioMcpServer] tools/call cancelled by peer', {
+        id,
+        tool,
+      });
+    }
+    return response;
   }
 
   /**
@@ -296,9 +386,12 @@ export class StdioMcpServerService {
     const toolCall = this.inFlightCalls.get(requestId);
     if (toolCall !== undefined) {
       this.inFlightCalls.delete(requestId);
+      this.peerCancelledCalls.add(toolCall);
       toolCall.abort();
       return;
     }
+    const submit = this.inFlightSubmits.get(requestId);
+    if (submit !== undefined) submit.cancelledByPeer = true;
     if (this.sessionSubmitHandler === null) return;
     const cancellation: SessionSubmitCancellation = { requestId };
     try {

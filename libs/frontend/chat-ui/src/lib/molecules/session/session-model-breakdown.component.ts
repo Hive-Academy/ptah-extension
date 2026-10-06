@@ -10,6 +10,11 @@ import {
   type SessionStatsEntry,
 } from '@ptah-extension/shared';
 import { ModelStateService } from '@ptah-extension/core';
+import {
+  formatCost,
+  formatOptionalTokens,
+  formatTokens,
+} from './session-stats-format';
 
 /** One per-model row of the backend snapshot. */
 type ModelUsageRow = NonNullable<SessionStatsEntry['modelUsageList']>[number];
@@ -176,20 +181,9 @@ export class SessionModelBreakdownComponent {
     () => this.snapshot()?.modelUsageList ?? [],
   );
 
-  protected formatCost(cost: number | null): string {
-    if (cost === null) return '\u2014';
-    return cost < 0.01 ? `$${cost.toFixed(4)}` : `$${cost.toFixed(2)}`;
-  }
-
-  protected formatTokens(count: number): string {
-    if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1)}M`;
-    if (count >= 1_000) return `${(count / 1_000).toFixed(1)}k`;
-    return count.toString();
-  }
-
-  protected formatOptionalTokens(count: number | undefined): string {
-    return typeof count === 'number' ? this.formatTokens(count) : '\u2014';
-  }
+  protected readonly formatCost = formatCost;
+  protected readonly formatTokens = formatTokens;
+  protected readonly formatOptionalTokens = formatOptionalTokens;
 
   protected formatModelName(modelId: string): string {
     return resolveModelDisplayName(modelId, this.modelState.availableModels());

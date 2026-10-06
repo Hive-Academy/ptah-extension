@@ -36,6 +36,8 @@ export type JobId = string & { readonly __brand: 'JobId' };
  * Also ULID-backed.
  */
 export type RunId = string & { readonly __brand: 'RunId' };
+// Version 4 only: the Claude Agent SDK (@anthropic-ai/claude-agent-sdk 0.3.278,
+// sdk.mjs) mints session ids with Node's crypto.randomUUID(), which is v4.
 export const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 /**

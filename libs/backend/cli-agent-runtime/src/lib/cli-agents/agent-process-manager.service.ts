@@ -236,10 +236,9 @@ export interface AgentWaitResult {
   readonly timedOut: boolean;
   /**
    * True when the caller's `AbortSignal` ended the wait before the lanes or
-   * the timer did. Entries are then reported as on a timeout. Absent means
-   * false (results built outside `waitForAgents`).
+   * the timer did. Entries are then reported as on a timeout.
    */
-  readonly cancelled?: boolean;
+  readonly cancelled: boolean;
   /** Wall-clock time the call waited, in ms. */
   readonly waitedMs: number;
   /** One entry per distinct requested id, in request order. */
@@ -529,9 +528,11 @@ export class AgentProcessManager {
    * the query is already under way; both checks must therefore run here,
    * ahead of `registry.spawnAgent`.
    *
-   * - R9.5: a blocked model throws {@link LaneModelBlockedError}. Only an
-   *   explicit `model` can be checked: a model left to the agent's configured
-   *   default or tier is resolved inside the registry and stays unchecked.
+   * - R9.5: a blocked model throws {@link LaneModelBlockedError}. The model is
+   *   resolved first, as {@link doSpawnSdk} does: an explicit `model`, else
+   *   the lane's configured or Ptah default for this CLI. A model left to a
+   *   Ptah CLI agent's own provider configuration or tier is resolved inside
+   *   the registry and stays unchecked.
    * - R9.1: a `resumeSessionId` goes through the same resume gate as
    *   {@link spawn}. On `fresh` the returned task is the handoff and no resume
    *   id is returned; hand both to the registry, and pass `resumeDecision` and
@@ -543,7 +544,11 @@ export class AgentProcessManager {
     readonly model?: string;
     readonly resumeSessionId?: string;
   }): Promise<PreparedSdkHandleSpawn> {
-    this.assertLaneModelAllowed(input.cli, input.model);
+    const laneModel = this.spawnEnvironment.resolveModel(
+      input.cli,
+      input.model,
+    );
+    this.assertLaneModelAllowed(input.cli, laneModel.model);
     if (!input.resumeSessionId) return { task: input.task };
     return this.gateResume(input.task, input.resumeSessionId, input.cli);
   }

@@ -189,6 +189,20 @@ describe('CompactionConfigProvider.getConfig — CLAUDE_CODE_AUTO_COMPACT_WINDOW
     expect(warn).not.toHaveBeenCalled();
   });
 
+  it('warns once across repeated getConfig() calls for an invalid threshold and an env window', () => {
+    process.env[ENV_KEY] = '50000';
+    const { provider, warn } = makeProvider({ 'compaction.threshold': 5 });
+    provider.getConfig();
+    provider.getConfig();
+    const messages = warn.mock.calls.map((call) => String(call[0]));
+    expect(
+      messages.filter((m) => m.includes('Invalid compaction threshold')),
+    ).toHaveLength(1);
+    expect(
+      messages.filter((m) => m.includes('the runtime clamps it')),
+    ).toHaveLength(1);
+  });
+
   it('an empty env value is unset, with no warning', () => {
     process.env[ENV_KEY] = '  ';
     const { provider, warn } = makeProvider({});

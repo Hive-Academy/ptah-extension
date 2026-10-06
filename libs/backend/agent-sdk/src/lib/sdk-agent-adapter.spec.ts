@@ -203,9 +203,11 @@ function createMockSessionLifecycle(): jest.Mocked<
     | 'setSessionModel'
     | 'getSessionToken'
     | 'endSessionIfTokenMatches'
+    | 'onSessionEvicted'
   >
 > {
   return {
+    onSessionEvicted: jest.fn().mockReturnValue(jest.fn()),
     executeQuery: jest.fn(),
     executeSlashCommandQuery: jest.fn(),
     disposeAllSessions: jest.fn().mockResolvedValue(undefined),
@@ -1359,6 +1361,51 @@ describe('SdkAgentAdapter', () => {
       expect(transformArg.tabId).toBe('tab-resume');
     });
 
+    it('the already-active path passes the run tap the starting stream passed (TASK_2026_614 G.8)', async () => {
+      const h = makeAdapter();
+      await h.adapter.initialize();
+
+      h.sessionLifecycle.find.mockReturnValueOnce(undefined);
+      const sdkQuery = createFakeQuery();
+      const onMessage: ExecuteQueryResult['onMessage'] = jest.fn();
+      const onStreamEnd: ExecuteQueryResult['onStreamEnd'] = jest.fn();
+      h.sessionLifecycle.executeQuery.mockResolvedValueOnce({
+        sdkQuery,
+        initialModel: 'claude-sonnet-4-20250514',
+        abortController: new AbortController(),
+        activityWatchdog: new NoActivityWatchdog(100000, () => undefined),
+        onMessage,
+        onStreamEnd,
+      } as ExecuteQueryResult);
+      await h.adapter.resumeSession('sess-1' as SessionId);
+
+      h.sessionLifecycle.find.mockReturnValue({
+        token: 'record-token-1',
+        tabId: 'sess-1',
+        realSessionId: null,
+        query: sdkQuery,
+        config: {} as AISessionConfig,
+        abortController: new AbortController(),
+        messageQueue: [],
+        resolveNext: null,
+        turnInFlight: false,
+        activityHold: null,
+        currentModel: 'claude-sonnet-4-20250514',
+        permissionLevel: 'ask',
+        lastActivityAt: 0,
+        usageCostSource: 'reported',
+        accountingAuthEnv: {} as AuthEnv,
+      });
+      await h.adapter.resumeSession('sess-1' as SessionId);
+
+      expect(h.sessionLifecycle.executeQuery).toHaveBeenCalledTimes(1);
+      expect(h.streamTransformer.transform).toHaveBeenCalledTimes(2);
+      const reused = h.streamTransformer.transform.mock.calls[1][0];
+      expect(reused.sdkQuery).toBe(sdkQuery);
+      expect(reused.onMessage).toBe(onMessage);
+      expect(reused.onStreamEnd).toBe(onStreamEnd);
+    });
+
     it('dispatches a new executeQuery() when no active session exists, threading the watchdog through', async () => {
       const h = makeAdapter();
       await h.adapter.initialize();
@@ -2163,6 +2210,22 @@ describe('SdkAgentAdapter', () => {
       h.adapter.dispose();
 
       expect(h.sessionBudget.clearAll).toHaveBeenCalledTimes(1);
+    });
+
+    it('releases the budget of every key of an idle-evicted record, and unsubscribes on dispose', () => {
+      const h = makeAdapter();
+      expect(h.sessionLifecycle.onSessionEvicted).toHaveBeenCalledTimes(1);
+      const [listener] = h.sessionLifecycle.onSessionEvicted.mock.calls[0];
+      const unsubscribe =
+        h.sessionLifecycle.onSessionEvicted.mock.results[0].value;
+
+      listener(['tab_1', REAL_ID]);
+
+      expect(h.sessionBudget.release).toHaveBeenCalledWith('tab_1');
+      expect(h.sessionBudget.release).toHaveBeenCalledWith(REAL_ID);
+
+      h.adapter.dispose();
+      expect(unsubscribe).toHaveBeenCalledTimes(1);
     });
   });
 

@@ -20,6 +20,19 @@ import { LimitsAlertComponent } from './plan-limits/limits-alert.component';
 import { PlanLimitTileComponent } from './plan-limits/plan-limit-tile.component';
 import type { StatsLimitViewModel } from './plan-limits/stats-limit-view-model.types';
 import { StatsTileExpansionState } from './plan-limits/stats-tile-expansion.state';
+import {
+  budgetTooltip,
+  costBudgetSuffix,
+  costBudgetText,
+  costTooltip,
+  tokensBudgetSuffix,
+  tokensTooltip,
+} from './session-budget-format';
+import {
+  formatCost,
+  formatDuration,
+  formatTokens,
+} from './session-stats-format';
 import { SessionModelBreakdownComponent } from './session-model-breakdown.component';
 
 /**
@@ -65,454 +78,7 @@ export interface LiveModelStats {
     LaneSubtotalTileComponent,
     SessionModelBreakdownComponent,
   ],
-  // prettier-ignore
-  template: `
-    <div class="stats-grid" style="container-type: inline-size">
-      <!-- Failed refresh while limit data is held: neutral, both layouts -->
-      @if (limits()?.refreshNotice; as notice) {
-        <p
-          role="status"
-          class="mb-1 border-l-2 border-info pl-2 text-[11px] text-base-content-muted"
-          data-testid="limits-refresh-failed"
-        >
-          {{ notice }}
-        </p>
-      }
-      <!-- Collapsed: compact summary bar -->
-      @if (isStatsCollapsed()) {
-        <!-- Limits alert (P4 variant A): above the strip, never clipped -->
-        @if (limits()?.indicator; as indicator) {
-          <ptah-limits-alert [indicator]="indicator" />
-        }
-        <div
-          class="flex items-center gap-2 bg-base-200/50 rounded px-2 py-1 border border-base-content/10"
-        >
-          <div
-            class="flex items-center gap-1.5 flex-1 min-w-0 overflow-x-auto text-xs"
-          >
-            @if (!hasMultipleModels() && primaryModelName(); as modelName) {
-              <!-- Model/Context values print base-content ink (stats design
-                   §8): purple/cyan stay chip tint and border, never text
-                   colour, because the 400 shades measure 1.4-2.4:1 on the
-                   light chip (FU-PHASE6). -->
-              <span
-                class="inline-flex items-center gap-1 bg-purple-600/15 border border-purple-600/25 rounded px-1.5 py-0.5 whitespace-nowrap"
-                [title]="modelName"
-              >
-                <span class="text-[10px] uppercase text-base-content-muted"
-                  >Model</span
-                >
-                <span class="text-base-content font-semibold">{{
-                  formatModelName(modelName)
-                }}</span>
-              </span>
-            }
-            @if (liveModelStats()) {
-              <span
-                class="inline-flex items-center gap-1 bg-cyan-600/15 border border-cyan-600/25 rounded px-1.5 py-0.5 whitespace-nowrap"
-                [title]="contextTooltip()"
-              >
-                <span class="text-[10px] uppercase text-base-content-muted"
-                  >Context</span
-                >
-                <span class="text-base-content" data-testid="stats-context">{{
-                  contextPercentLabel()
-                }}</span>
-              </span>
-            }
-            <span
-              class="inline-flex items-center gap-1 bg-base-content/5 border border-base-content/10 rounded px-1.5 py-0.5 whitespace-nowrap"
-              [title]="tokenTooltip()"
-            >
-              <span class="text-[10px] uppercase text-base-content-muted"
-                >Tokens</span
-              >
-              <span class="tabular-nums" data-testid="stats-tokens">{{
-                tokensLabel()
-              }}</span>
-              @if (tokensBudgetSuffix(); as suffix) {
-                <span
-                  class="tabular-nums text-base-content-muted"
-                  data-testid="stats-tokens-budget"
-                  >{{ suffix }}</span
-                >
-              }
-            </span>
-            <span
-              class="inline-flex items-center gap-1 bg-success/10 border border-success/20 rounded px-1.5 py-0.5 whitespace-nowrap"
-              [attr.title]="costTooltip()"
-            >
-              <span class="text-[10px] uppercase text-base-content-muted"
-                >Cost</span
-              >
-              @if (costBudgetText(); as budgetText) {
-                <span class="tabular-nums" data-testid="stats-cost-budget">{{
-                  budgetText
-                }}</span>
-              } @else {
-                <span data-testid="stats-cost">
-                  <ptah-cost-badge [cost]="totalCost()" />
-                </span>
-                @if (costBudgetSuffix(); as suffix) {
-                  <span
-                    class="tabular-nums text-base-content-muted"
-                    data-testid="stats-cost-limit"
-                    >{{ suffix }}</span
-                  >
-                }
-                @if (knownSubtotal(); as known) {
-                  <span
-                    class="text-[10px] text-base-content-muted tabular-nums"
-                    data-testid="stats-known-subtotal"
-                    [title]="knownSubtotalTooltip"
-                    >known subtotal {{ formatCost(known.value) }}</span
-                  >
-                }
-              }
-            </span>
-            @if (lanesCount(); as lanes) {
-              <!-- role="img": aria-label is ignored on a generic span (ARIA
-                   1.2 does not name generic elements), so the pill takes a
-                   nameable role; its children become presentational (M3). -->
-              <span
-                class="inline-flex items-center gap-1 bg-base-content/5 border border-dashed border-base-content/30 rounded px-1.5 py-0.5 whitespace-nowrap"
-                role="img"
-                [title]="lanesTooltip"
-                [attr.aria-label]="lanesAriaLabel()"
-              >
-                <span class="text-[10px] uppercase text-base-content-muted"
-                  >Lanes</span
-                >
-                <span class="tabular-nums" data-testid="stats-lanes">{{
-                  lanes
-                }}</span>
-              </span>
-            }
-            @if (durationMs(); as duration) {
-              <span
-                class="inline-flex items-center gap-1 bg-base-content/5 border border-base-content/10 rounded px-1.5 py-0.5 whitespace-nowrap"
-              >
-                <span class="text-[10px] uppercase text-base-content-muted"
-                  >Time</span
-                >
-                <span class="tabular-nums" data-testid="stats-duration">{{
-                  formatDuration(duration)
-                }}</span>
-              </span>
-            }
-            @if (agentCount(); as agents) {
-              <span
-                class="inline-flex items-center gap-1 bg-info/10 border border-info/20 rounded px-1.5 py-0.5 whitespace-nowrap"
-                [title]="agentsTooltip"
-              >
-                <span class="text-[10px] uppercase text-base-content-muted"
-                  >Agents</span
-                >
-                <span
-                  class="text-info tabular-nums"
-                  data-testid="stats-agents"
-                  >{{ agents }}</span
-                >
-              </span>
-            }
-            @if (compactionCount() > 0) {
-              <span
-                class="inline-flex items-center gap-1 bg-warning/10 border border-warning/20 rounded px-1.5 py-0.5 whitespace-nowrap"
-              >
-                <span class="text-[10px] uppercase text-base-content-muted"
-                  >Compactions</span
-                >
-                <span class="text-warning tabular-nums">{{
-                  compactionCount()
-                }}</span>
-              </span>
-            }
-            @if (hasMultipleModels()) {
-              <button class="inline-flex items-center gap-1 bg-purple-600/15 border border-purple-600/25 rounded px-1.5 py-0.5 whitespace-nowrap cursor-pointer hover:bg-purple-600/25 transition-colors" data-testid="stats-models-toggle" (click)="isExpanded.set(!isExpanded()); $event.stopPropagation()" type="button" [attr.aria-expanded]="isExpanded()" [title]="isExpanded() ? 'Hide per-model breakdown' : 'Show per-model breakdown'">
-                <span class="text-[10px] uppercase text-base-content-muted">Models</span><span class="text-base-content font-semibold">{{ modelRows().length }} <span class="text-[10px] font-normal" aria-hidden="true">{{ isExpanded() ? '▲' : '▼' }}</span></span>
-              </button>
-            }
-          </div>
-          <button
-            class="text-base-content-muted hover:text-base-content transition-colors flex-shrink-0 p-0.5"
-            data-testid="stats-expand"
-            (click)="isStatsCollapsed.set(false)"
-            type="button"
-            title="Expand stats"
-            aria-label="Expand stats"
-          >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              aria-hidden="true"
-            >
-              <polyline points="6 9 12 15 18 9" />
-            </svg>
-          </button>
-        </div>
-      } @else {
-        <!-- Expanded: full card grid with inline collapse button -->
-        <div class="stats-cards grid grid-cols-2 gap-1.5">
-          <!-- Model Card -->
-          @if (!hasMultipleModels() && primaryModelName(); as modelName) {
-            <div
-              class="bg-base-200/50 rounded px-2 py-1.5 border border-purple-600/20"
-              [title]="modelName"
-            >
-              <div
-                class="text-[10px] uppercase tracking-wider text-base-content-muted leading-tight"
-              >
-                Model
-              </div>
-              <div
-                class="text-sm font-semibold text-base-content truncate leading-tight mt-0.5"
-              >
-                {{ formatModelName(modelName) }}
-              </div>
-            </div>
-          }
-
-          <!-- Context Card -->
-          @if (liveModelStats(); as live) {
-            <div
-              class="bg-base-200/50 rounded px-2 py-1.5 border border-cyan-600/20"
-              [title]="contextTooltip()"
-            >
-              <div
-                class="text-[10px] uppercase tracking-wider text-base-content-muted leading-tight"
-              >
-                Context
-              </div>
-              <div
-                class="text-sm font-semibold text-base-content leading-tight mt-0.5"
-              >
-                <span data-testid="stats-context">{{
-                  contextPercentLabel()
-                }}</span>
-                @if (hasKnownContextWindow()) {
-                  <span class="text-[10px] font-normal text-base-content-muted">
-                    ({{ formatTokens(live.contextUsed) }})
-                  </span>
-                }
-              </div>
-            </div>
-          }
-
-          <!-- Tokens Card -->
-          <div
-            class="bg-base-200/50 rounded px-2 py-1.5 border border-base-content/10"
-            [title]="tokenTooltip()"
-          >
-            <div
-              class="text-[10px] uppercase tracking-wider text-base-content-muted leading-tight"
-            >
-              Tokens
-            </div>
-            <div
-              class="text-sm font-semibold tabular-nums leading-tight mt-0.5"
-            >
-              <span data-testid="stats-tokens">{{ tokensLabel() }}</span>
-              @if (tokensBudgetSuffix(); as suffix) {
-                <span
-                  class="text-[10px] font-normal text-base-content-muted"
-                  data-testid="stats-tokens-budget"
-                  >{{ suffix }}</span
-                >
-              }
-            </div>
-          </div>
-
-          <!-- Cost Card -->
-          <div
-            class="bg-base-200/50 rounded px-2 py-1.5 border border-success/20"
-            [attr.title]="costTooltip()"
-          >
-            <div
-              class="text-[10px] uppercase tracking-wider text-base-content-muted leading-tight"
-            >
-              Cost
-            </div>
-            @if (costBudgetText(); as budgetText) {
-              <div
-                class="text-xs tabular-nums leading-tight mt-0.5"
-                data-testid="stats-cost-budget"
-              >
-                {{ budgetText }}
-              </div>
-            } @else {
-              <div data-testid="stats-cost">
-                <ptah-cost-badge [cost]="totalCost()" />
-              </div>
-              @if (costBudgetSuffix(); as suffix) {
-                <div
-                  class="text-[10px] text-base-content-muted tabular-nums leading-tight"
-                  data-testid="stats-cost-limit"
-                >
-                  {{ suffix }}
-                </div>
-              }
-              @if (knownSubtotal(); as known) {
-                <div
-                  class="text-[10px] text-base-content-muted tabular-nums leading-tight mt-0.5"
-                  data-testid="stats-known-subtotal"
-                  [title]="knownSubtotalTooltip"
-                >
-                  known subtotal {{ formatCost(known.value) }}
-                </div>
-              }
-            }
-          </div>
-
-          <!-- Duration Card (backend-supplied only) -->
-          @if (durationMs(); as duration) {
-            <div
-              class="bg-base-200/50 rounded px-2 py-1.5 border border-base-content/10"
-            >
-              <div
-                class="text-[10px] uppercase tracking-wider text-base-content-muted leading-tight"
-              >
-                Duration
-              </div>
-              <div
-                class="text-sm font-semibold tabular-nums leading-tight mt-0.5"
-                data-testid="stats-duration"
-              >
-                {{ formatDuration(duration) }}
-              </div>
-            </div>
-          }
-
-          <!-- Agents Card (backend lifetime count) -->
-          @if (agentCount(); as agents) {
-            <div
-              class="bg-base-200/50 rounded px-2 py-1.5 border border-info/20"
-              [title]="agentsTooltip"
-            >
-              <div
-                class="text-[10px] uppercase tracking-wider text-base-content-muted leading-tight"
-              >
-                Agents
-              </div>
-              <div
-                class="text-sm font-semibold text-info tabular-nums leading-tight mt-0.5"
-                data-testid="stats-agents"
-              >
-                {{ agents }}
-              </div>
-            </div>
-          }
-
-          <!-- Compactions Card (conditional) -->
-          @if (compactionCount() > 0) {
-            <div
-              class="bg-base-200/50 rounded px-2 py-1.5 border border-warning/20"
-              title="Number of context compactions during this session"
-            >
-              <div
-                class="text-[10px] uppercase tracking-wider text-base-content-muted leading-tight"
-              >
-                Compactions
-              </div>
-              <div
-                class="text-sm font-semibold text-warning tabular-nums leading-tight mt-0.5"
-              >
-                {{ compactionCount() }}
-              </div>
-            </div>
-          }
-
-          <!-- Multi-model Toggle Card (conditional) -->
-          @if (hasMultipleModels()) {
-            <button class="bg-base-200/50 rounded px-2 py-1.5 border border-purple-600/20 cursor-pointer hover:bg-base-200/80 text-left transition-colors" data-testid="stats-models-toggle" (click)="isExpanded.set(!isExpanded())" type="button" [attr.aria-expanded]="isExpanded()" [title]="isExpanded() ? 'Hide per-model breakdown' : 'Show per-model breakdown'">
-              <div class="text-[10px] uppercase tracking-wider text-base-content-muted leading-tight">Models</div>
-              <div class="text-sm font-semibold text-base-content leading-tight mt-0.5">
-                {{ modelRows().length }} <span class="text-[10px] font-normal" aria-hidden="true">{{ isExpanded() ? '▲' : '▼' }}</span>
-              </div>
-            </button>
-          }
-
-          <!-- Plan-limit and lane tiles: after the session cards, in DOM order
-               (no dense packing). Lanes stay outside the session totals. -->
-          @if (limits(); as vm) {
-            @for (tile of vm.planTiles; track tile.id) {
-              <ptah-plan-limit-tile
-                [tile]="tile"
-                [open]="isTileOpen(tile.id)"
-                (toggled)="toggleTile(tile.id)"
-              />
-            }
-            @for (tile of vm.laneTiles; track tile.id) {
-              <ptah-lane-usage-tile
-                [tile]="tile"
-                [open]="isTileOpen(tile.id)"
-                (toggled)="toggleTile(tile.id)"
-              />
-            }
-            @if (vm.subtotal; as subtotal) {
-              <ptah-lane-subtotal-tile [tile]="subtotal" />
-            }
-          }
-
-          <!-- Collapse button card -->
-          <button
-            class="bg-base-200/50 rounded px-2 py-1.5 border border-base-content/10 cursor-pointer hover:bg-base-200/80 flex items-center justify-center transition-colors"
-            data-testid="stats-collapse"
-            (click)="isStatsCollapsed.set(true)"
-            type="button"
-            title="Collapse stats"
-            aria-label="Collapse stats"
-          >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              class="text-base-content-muted"
-              aria-hidden="true"
-            >
-              <polyline points="18 15 12 9 6 15" />
-            </svg>
-          </button>
-        </div>
-      }
-
-      <!-- Per-model breakdown: one table, shown under either layout -->
-      @if (isExpanded() && hasMultipleModels()) {
-        <ptah-session-model-breakdown [snapshot]="snapshot()" />
-      }
-
-      <!-- Context usage progress bar — always visible when context data
-           exists AND the model's context window is known. When the window
-           is unknown (third-party providers) we suppress the bar entirely;
-           a 0%-width track would otherwise look like a stuck zero usage. -->
-      @if (liveModelStats(); as live) {
-        @if (hasKnownContextWindow()) {
-          <div class="mt-1.5" [title]="contextTooltip()">
-            <div class="context-bar-track">
-              <div
-                class="context-bar-fill"
-                [class.context-bar-warning]="showContextWarning()"
-                [class.context-bar-critical]="live.contextPercent >= 90"
-                [style.width.%]="live.contextPercent"
-              ></div>
-            </div>
-          </div>
-        }
-      }
-    </div>
-  `,
+  templateUrl: './session-stats-summary.component.html',
   styleUrl: './session-stats-summary.component.css',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -692,75 +258,32 @@ export class SessionStatsSummaryComponent {
   /** Tokens chip: the backend's all-four-class `tokenCount`, or "—". */
   readonly tokensLabel = computed(() => {
     const count = this.snapshot()?.tokenCount;
-    return typeof count === 'number' ? this.formatTokens(count) : '—';
+    return typeof count === 'number' ? formatTokens(count) : '—';
   });
 
-  /** `/ 50.0M` beside TOKENS when the budget is counted in tokens. */
-  readonly tokensBudgetSuffix = computed(() => {
-    const budget = this.budget();
-    return budget?.measure === 'tokens'
-      ? `/ ${this.formatTokens(budget.limit)}`
-      : null;
-  });
-
-  /** `/ $30` beside the COST badge when the budget is counted in dollars. */
-  readonly costBudgetSuffix = computed(() => {
-    const budget = this.budget();
-    return budget?.measure === 'cost'
-      ? `/ ${this.formatBudgetUsd(budget.limit)}`
-      : null;
-  });
-
-  /**
-   * Replaces the COST value for the two fallbacks the snapshot cannot show:
-   * a lower bound when some models are unpriced, and a weighted token
-   * estimate when none is. `null` keeps the badge.
-   */
-  readonly costBudgetText = computed(() => {
-    const budget = this.budget();
-    if (!budget || budget.used === null) return null;
-    if (budget.measure === 'cost-lower-bound') {
-      return `≥ ${this.formatCost(budget.used)} / ${this.formatBudgetUsd(budget.limit)} (some models have no price)`;
-    }
-    if (budget.measure === 'weighted-fallback') {
-      return `est. ${this.formatTokens(budget.used)} / ${this.formatTokens(budget.limit)} weighted tokens (no price for this model)`;
-    }
-    return null;
-  });
-
-  /** "Session budget: …" line, with the chip's own numerator. */
-  private readonly budgetTooltip = computed(() => {
-    const budget = this.budget();
-    if (!budget || budget.percent === null) return null;
-    let used: string;
-    let limit: string;
-    if (budget.measure === 'tokens') {
-      used = this.tokensLabel();
-      limit = this.formatTokens(budget.limit);
-    } else if (budget.measure === 'weighted-fallback') {
-      used = this.formatOptionalTokens(budget.used ?? undefined);
-      limit = this.formatTokens(budget.limit);
-    } else {
-      const cost =
-        budget.measure === 'cost' ? this.totalCost() : (budget.used ?? null);
-      used = `${budget.measure === 'cost-lower-bound' ? '≥ ' : ''}${this.formatCost(cost)}`;
-      limit = this.formatBudgetUsd(budget.limit);
-    }
-    return `Session budget: ${Math.floor(budget.percent)}% used (${used} of ${limit}). At 50% Ptah lowers auto-compact; at 80% it prepares a handoff; at 100% new messages pause.`;
-  });
-
-  /** COST chip tooltip: the budget line when the budget is counted in cost. */
-  readonly costTooltip = computed(() =>
-    this.budget()?.measure === 'tokens' ? null : this.budgetTooltip(),
+  readonly tokensBudgetSuffix = computed(() =>
+    tokensBudgetSuffix(this.budget()),
   );
 
-  /** Tooltip with the backend's token breakdown. */
-  readonly tokenTooltip = computed(() => {
-    const budgetLine =
-      this.budget()?.measure === 'tokens' ? this.budgetTooltip() : null;
-    const breakdown = this.tokenBreakdown();
-    return budgetLine ? `${breakdown}\n\n${budgetLine}` : breakdown;
-  });
+  readonly costBudgetSuffix = computed(() => costBudgetSuffix(this.budget()));
+
+  readonly costBudgetText = computed(() => costBudgetText(this.budget()));
+
+  private readonly budgetTooltip = computed(() =>
+    budgetTooltip(this.budget(), {
+      tokensLabel: this.tokensLabel(),
+      totalCost: this.totalCost(),
+    }),
+  );
+
+  readonly costTooltip = computed(() =>
+    costTooltip(this.budget(), this.budgetTooltip()),
+  );
+
+  /** Tooltip with the backend's token breakdown, plus any budget line. */
+  readonly tokenTooltip = computed(() =>
+    tokensTooltip(this.budget(), this.budgetTooltip(), this.tokenBreakdown()),
+  );
 
   private readonly tokenBreakdown = computed(() => {
     const stats = this.snapshot();
@@ -803,51 +326,9 @@ export class SessionStatsSummaryComponent {
     this.expansion.toggle(this.sessionId() ?? '', tileId);
   }
 
-  /** Format cost for display */
-  protected formatCost(cost: number | null): string {
-    if (cost === null) {
-      return '—';
-    }
-    if (cost < 0.01) {
-      return `$${cost.toFixed(4)}`;
-    }
-    return `$${cost.toFixed(2)}`;
-  }
-
-  /** A configured dollar limit: `$30`, or `$12.50` when it has cents. */
-  protected formatBudgetUsd(limit: number): string {
-    return Number.isInteger(limit) ? `$${limit}` : `$${limit.toFixed(2)}`;
-  }
-
-  /** Format tokens for display */
-  protected formatTokens(count: number): string {
-    if (count >= 1_000_000) {
-      return `${(count / 1_000_000).toFixed(1)}M`;
-    }
-    if (count >= 1_000) {
-      return `${(count / 1_000).toFixed(1)}k`;
-    }
-    return count.toString();
-  }
-
-  /** A row field an older producer may omit: absent is "—", never 0. */
-  protected formatOptionalTokens(count: number | undefined): string {
-    return typeof count === 'number' ? this.formatTokens(count) : '—';
-  }
-
-  /** Format duration for display */
-  protected formatDuration(ms: number): string {
-    if (ms < 1000) {
-      return `${ms}ms`;
-    }
-    const seconds = ms / 1000;
-    if (seconds < 60) {
-      return `${seconds.toFixed(1)}s`;
-    }
-    const minutes = Math.floor(seconds / 60);
-    const remainingSeconds = Math.floor(seconds % 60);
-    return `${minutes}m ${remainingSeconds}s`;
-  }
+  protected readonly formatCost = formatCost;
+  protected readonly formatTokens = formatTokens;
+  protected readonly formatDuration = formatDuration;
 
   protected formatModelName(modelId: string): string {
     return resolveModelDisplayName(modelId, this.modelState.availableModels());

@@ -847,7 +847,7 @@ describe('SessionControl.applySessionAutoCompactWindow — E2-gated tighten (TAS
     expect(q.applyFlagSettings).not.toHaveBeenCalled();
   });
 
-  it('a failed restore keeps the override and reports failed', async () => {
+  it('a failed restore keeps the override and reports restore-failed (the lowered window is still in force)', async () => {
     const h = makeHarness(() => configOf());
     const q = attachQuery(h);
     await h.control.applySessionAutoCompactWindow(TAB_ID, TARGET);
@@ -855,7 +855,29 @@ describe('SessionControl.applySessionAutoCompactWindow — E2-gated tighten (TAS
 
     const result = await h.control.applySessionAutoCompactWindow(TAB_ID, null);
 
-    expect(result).toEqual({ target: TARGET, applied: true, reason: 'failed' });
+    expect(result).toEqual({
+      target: TARGET,
+      applied: true,
+      reason: 'restore-failed',
+    });
+    expect(q.rec.autoCompactOverride).toBe(TARGET);
+  });
+
+  it('a restore with no live query keeps the override and reports restore-failed without sending', async () => {
+    const h = makeHarness(() => configOf());
+    const q = attachQuery(h);
+    await h.control.applySessionAutoCompactWindow(TAB_ID, TARGET);
+    q.applyFlagSettings.mockClear();
+    q.rec.query = null;
+
+    const result = await h.control.applySessionAutoCompactWindow(TAB_ID, null);
+
+    expect(result).toEqual({
+      target: TARGET,
+      applied: true,
+      reason: 'restore-failed',
+    });
+    expect(q.applyFlagSettings).not.toHaveBeenCalled();
     expect(q.rec.autoCompactOverride).toBe(TARGET);
   });
 

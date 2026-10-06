@@ -81,6 +81,23 @@ describe('SessionHandoffWriter', () => {
     );
   });
 
+  it('prunes an old orphaned temp file and keeps a fresh one', async () => {
+    await fs.mkdir(dir, { recursive: true });
+    const oldTemp = `.${uuid(1)}.${uuid(2)}.tmp`;
+    const freshTemp = `.${uuid(3)}.${uuid(4)}.tmp`;
+    await fs.writeFile(path.join(dir, oldTemp), 'x');
+    await fs.writeFile(path.join(dir, freshTemp), 'x');
+    const old = Date.now() / 1000 - 3600;
+    await fs.utimes(path.join(dir, oldTemp), old, old);
+
+    await writer.write(uuid(9), 'handoff');
+
+    const names = await fs.readdir(dir);
+    expect(names).not.toContain(oldTemp);
+    expect(names).toContain(freshTemp);
+    expect(names).toContain(`${uuid(9)}.md`);
+  });
+
   it('keeps the newest 50 handoffs when the 51st is written', async () => {
     await fs.mkdir(dir, { recursive: true });
     const base = Date.now() / 1000 - 10_000;

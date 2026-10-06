@@ -42,7 +42,16 @@ import {
 } from './types.js';
 
 /**
- * A registered inbound handler. May return any JSON-serializable value.
+ * Return this from a request handler to send NO response for that request.
+ * For a request the peer has cancelled: MCP says the receiver SHOULD NOT
+ * answer one (`notifications/cancelled`). Any other return value is encoded
+ * as the result.
+ */
+export const NO_RESPONSE: unique symbol = Symbol('jsonrpc.NO_RESPONSE');
+
+/**
+ * A registered inbound handler. May return any JSON-serializable value, or
+ * {@link NO_RESPONSE} to leave the request unanswered.
  * `request.id` is the peer's JSON-RPC id for a request (absent for a
  * notification) — the id a later `notifications/cancelled` names.
  */
@@ -203,6 +212,7 @@ export class JsonRpcServer {
 
     try {
       const result = await handler(request.params, { id: request.id });
+      if (result === NO_RESPONSE) return;
       await this.send(encodeResponse(request.id, result ?? null));
     } catch (error) {
       if (error instanceof InvalidParamsError) {

@@ -18,6 +18,7 @@ import {
   getModelPricingDescription,
   getPricingMap,
   normalizeModelKey,
+  pricesCacheTokens,
   registerProviderPricing,
   stripModelVariantTags,
   resetPricingMapForTesting,
@@ -392,6 +393,7 @@ describe('pricing.utils', () => {
       expect(cost).toBeCloseTo(0.00075, 6);
     });
 
+    // Callers that must show "unknown" instead check pricesCacheTokens first.
     it('treats missing cache pricing as zero', () => {
       const cost = calculateMessageCost('gpt-3.5-turbo', {
         input: 1000,
@@ -445,6 +447,63 @@ describe('pricing.utils', () => {
       const cost = calculateMessageCost('gpt-4o', { input: 1000, output: 0 });
       // 1000 * 2.5e-6 = 0.0025
       expect(cost).toBe(0.0025);
+    });
+  });
+
+  describe('pricesCacheTokens', () => {
+    const NO_CACHE = { inputCostPerToken: 1e-6, outputCostPerToken: 1e-5 };
+    const READ_ONLY = { ...NO_CACHE, cacheReadCostPerToken: 1e-7 };
+    const BOTH = { ...READ_ONLY, cacheCreationCostPerToken: 2e-6 };
+
+    it('is true when no cache tokens were used, whatever the pricing', () => {
+      expect(pricesCacheTokens(NO_CACHE, { input: 10, output: 5 })).toBe(true);
+      expect(
+        pricesCacheTokens(NO_CACHE, {
+          input: 10,
+          output: 5,
+          cacheHit: 0,
+          cacheCreation: 0,
+        }),
+      ).toBe(true);
+    });
+
+    it('is false when cache read tokens have no cache read price', () => {
+      expect(
+        pricesCacheTokens(NO_CACHE, { input: 10, output: 5, cacheHit: 1 }),
+      ).toBe(false);
+    });
+
+    it('is false when cache write tokens have no cache creation price', () => {
+      expect(
+        pricesCacheTokens(READ_ONLY, {
+          input: 10,
+          output: 5,
+          cacheHit: 100,
+          cacheCreation: 1,
+        }),
+      ).toBe(false);
+      expect(
+        pricesCacheTokens(READ_ONLY, { input: 10, output: 5, cacheHit: 100 }),
+      ).toBe(true);
+    });
+
+    it('accepts an explicit zero cache price (local models) as a price', () => {
+      expect(
+        pricesCacheTokens(DEFAULT_MODEL_PRICING['local'], {
+          input: 10,
+          output: 5,
+          cacheHit: 100,
+          cacheCreation: 100,
+        }),
+      ).toBe(true);
+      expect(
+        pricesCacheTokens(BOTH, {
+          input: 10,
+          output: 5,
+          cacheHit: 100,
+          cacheCreation: 100,
+        }),
+      ).toBe(true);
     });
   });
 

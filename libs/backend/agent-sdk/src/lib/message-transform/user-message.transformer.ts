@@ -15,6 +15,7 @@ import {
 } from '../types/sdk-types/claude-sdk.types';
 import { generateEventId } from './message-transform-helpers';
 import { buildBackgroundAgentStartedEvent } from './background-started-event';
+import { bindTaskResultToHeldStart } from './task-result-agent-binding';
 import type {
   TransformerState,
   TransformerSessionId,
@@ -48,6 +49,11 @@ export class UserMessageTransformer {
           'tool_use_id' in block
         ) {
           const toolResultBlock = block as ToolResultBlock;
+          bindTaskResultToHeldStart(
+            toolResultBlock.tool_use_id,
+            toolResultBlock.content,
+            helpers,
+          );
           const toolResultEvent: ToolResultEvent = {
             id: generateEventId(),
             eventType: 'tool_result',
