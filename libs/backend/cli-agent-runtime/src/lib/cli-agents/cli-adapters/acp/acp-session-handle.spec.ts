@@ -683,6 +683,46 @@ describe('createAcpSessionHandle — session config (R6)', () => {
     ]);
   });
 
+  it('sends a binding entry the session does not advertise', async () => {
+    const h = start({
+      agent: { configOptions: [] },
+      profile: {
+        sessionConfig: () => [
+          { configId: 'model', value: 'model-b', binding: true },
+        ],
+      },
+    });
+
+    await expect(h.handle.done).resolves.toBe(0);
+
+    expect(sent(h.agent, 'session/set_config_option').map(paramsOf)).toEqual([
+      { sessionId: SESSION_ID, configId: 'model', value: 'model-b' },
+    ]);
+    expect(sent(h.agent, 'session/prompt')).toHaveLength(1);
+    expect(h.infos()).toEqual([]);
+  });
+
+  it('fails the turn when an unadvertised binding entry is rejected', async () => {
+    const h = start({
+      agent: { configOptions: [] },
+      profile: {
+        sessionConfig: () => [
+          { configId: 'model', value: 'model-x', binding: true },
+        ],
+      },
+      script: (agent) =>
+        agent.handle('session/set_config_option', () => ({
+          error: { code: -32602, message: 'Invalid params' },
+        })),
+    });
+
+    await expect(h.handle.done).resolves.toBe(1);
+
+    expect(sent(h.agent, 'session/prompt')).toHaveLength(0);
+    expect(h.errors()).toHaveLength(1);
+    expect(h.transport.killCount).toBe(1);
+  });
+
   const effortOption = (values: readonly string[]) => ({
     id: 'reasoning_effort',
     name: 'Reasoning effort',

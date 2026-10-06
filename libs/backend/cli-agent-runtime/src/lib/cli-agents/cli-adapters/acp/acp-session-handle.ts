@@ -457,11 +457,11 @@ export function createAcpSessionHandle(
   };
 
   /**
-   * Apply the profile's config entries that the session advertises (R6).
-   * An entry the profile marks `binding` (e.g. the model) fails the turn when
-   * rejected. Any other entry (e.g. the reasoning effort, whose allowed values
-   * vary per model) is a hint, skipped with an info when the value is not
-   * advertised or when the agent rejects it.
+   * Apply the profile's config entries (R6). An entry the profile marks
+   * `binding` (e.g. the model) is always sent, advertised or not, and fails
+   * the turn when rejected. Any other entry (e.g. the reasoning effort, whose
+   * allowed values vary per model) is a hint, skipped with an info when the
+   * setting or value is not advertised or when the agent rejects it.
    */
   const applySessionConfig = async (
     conn: AcpConnectionApi,
@@ -474,13 +474,13 @@ export function createAcpSessionHandle(
     for (const entry of entries) {
       const binding = entry.binding === true;
       const option = current.find((item) => item['id'] === entry.configId);
-      if (!option) {
+      if (!option && !binding) {
         emitInfo(
           `${name} does not offer the "${entry.configId}" setting, so ${String(entry.value)} was not applied`,
         );
         continue;
       }
-      const values = advertisedValuesOf(option);
+      const values = option ? advertisedValuesOf(option) : [];
       if (
         !binding &&
         typeof entry.value === 'string' &&
