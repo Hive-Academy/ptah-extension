@@ -462,6 +462,10 @@ export const SCOPED_SETTING_KEYS: Record<
     appScopable: false,
     supportedTargets: ['global'],
   },
+  'agentOrchestration.grokModel': {
+    appScopable: false,
+    supportedTargets: ['global'],
+  },
   'agentOrchestration.opencodeModel': {
     appScopable: false,
     supportedTargets: ['global'],
