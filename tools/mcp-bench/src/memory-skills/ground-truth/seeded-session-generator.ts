@@ -35,6 +35,12 @@
  *   own `clampTranscript`: a middle-planted fact statement that survives the
  *   clamp throws `MiddleFactSurvivesClampError`, and a head-planted one the
  *   clamp drops is a plain generation error.
+ *
+ * ## Host/spec-only
+ *
+ * The `clampTranscript` import loads the memory-curator barrel (tsyringe +
+ * vscode-core) at runtime, so generation runs inside the bench host or a spec,
+ * never in the runner parent. Pinned by `../host-only-imports.spec.ts`.
  */
 
 import {

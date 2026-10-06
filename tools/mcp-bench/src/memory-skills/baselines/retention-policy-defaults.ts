@@ -1,3 +1,6 @@
+// Host/spec-only: value-imports the memory-curator barrel (tsyringe +
+// vscode-core). The runner parent must never import this module; pinned by
+// `../host-only-imports.spec.ts`.
 import {
   MEMORY_LIFECYCLE_DEFAULTS,
   RETENTION_CAP_EVICTION_GRACE_MS,
