@@ -291,7 +291,7 @@ export class ProvidersSettingsStateService {
   }
 
   /**
-   * Model lists for the delegated CLIs (codex, copilot, cursor, antigravity, opencode, pi). These are
+   * Model lists for the delegated CLIs (codex, copilot, cursor, antigravity, opencode, pi, grok). These are
    * CLI names, not provider-registry ids, so they come from agent:listCliModels, never provider:listModels.
    * Loaded on demand: the host may fetch remote catalogues.
    */

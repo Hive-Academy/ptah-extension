@@ -98,12 +98,7 @@ export const CLI_AGENT_SELECTORS = [
 export type CliAgentSelector = (typeof CLI_AGENT_SELECTORS)[number];
 
 export type AgentCliSubcommand =
-  | 'detect'
-  | 'config-get'
-  | 'config-set'
-  | 'models-list'
-  | 'stop'
-  | 'resume';
+  'detect' | 'config-get' | 'config-set' | 'models-list' | 'stop' | 'resume';
 
 export interface AgentCliOptions {
   subcommand: AgentCliSubcommand;
@@ -464,10 +459,10 @@ async function runModelsList(
       undefined,
     );
 
-    // All six system CLIs, not just codex+copilot. The RPC has returned cursor,
-    // antigravity, opencode and pi for as long as `AgentListCliModelsResult`
-    // has had those fields; dropping them here silently hid four CLIs' models
-    // from every CLI consumer.
+    // Every system CLI, not just codex+copilot. The RPC has returned cursor,
+    // antigravity, opencode, pi and grok for as long as
+    // `AgentListCliModelsResult` has had those fields; dropping them here
+    // silently hid those CLIs' models from every CLI consumer.
     await formatter.writeNotification('agent_cli.models', {
       codex: result?.codex ?? [],
       copilot: result?.copilot ?? [],
@@ -475,6 +470,7 @@ async function runModelsList(
       antigravity: result?.antigravity ?? [],
       opencode: result?.opencode ?? [],
       pi: result?.pi ?? [],
+      grok: result?.grok ?? [],
     });
     return ExitCode.Success;
   });
@@ -682,9 +678,7 @@ function buildSetConfigParams(
       const v = rawValue.toLowerCase();
       params[
         key as
-          | 'codexAutoApprove'
-          | 'copilotAutoApprove'
-          | 'browserAllowLocalhost'
+          'codexAutoApprove' | 'copilotAutoApprove' | 'browserAllowLocalhost'
       ] = v === 'true' || v === '1';
       break;
     }

@@ -1323,7 +1323,9 @@ describe('AgentProcessManager - SDK Execution Path', () => {
   });
 
   describe('model resolution', () => {
-    const spawnWith = async (cli: 'pi' | 'opencode' | 'antigravity') => {
+    const spawnWith = async (
+      cli: 'pi' | 'opencode' | 'antigravity' | 'grok',
+    ) => {
       setTimeout(() => sdkControls.resolve(0), 10);
       await manager.spawn({
         task: 'Task',
@@ -1334,11 +1336,12 @@ describe('AgentProcessManager - SDK Execution Path', () => {
     };
 
     // MODEL_CONFIG_KEYS maps each CLI to its `agentOrchestration.*Model` key;
-    // these cases guard the three new CLI entries added for this task.
+    // these cases guard the CLI entries added after codex/copilot/cursor.
     it.each([
       ['pi', 'piModel', 'anthropic/claude-sonnet'],
       ['opencode', 'opencodeModel', 'gpt-5-codex'],
       ['antigravity', 'antigravityModel', 'gemini-2.5-pro'],
+      ['grok', 'grokModel', 'grok-4'],
     ] as const)(
       'reads %s model via MODEL_CONFIG_KEYS (%s)',
       async (cli, configKey, model) => {

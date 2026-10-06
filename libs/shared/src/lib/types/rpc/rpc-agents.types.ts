@@ -182,6 +182,7 @@ export interface AgentListCliModelsResult {
   antigravity: CliModelOption[];
   opencode: CliModelOption[];
   pi: CliModelOption[];
+  grok: CliModelOption[];
 }
 
 /**

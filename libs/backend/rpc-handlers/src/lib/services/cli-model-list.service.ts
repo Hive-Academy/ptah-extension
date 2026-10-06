@@ -73,6 +73,7 @@ export class CliModelListService {
     const antigravity = (modelMap['antigravity'] ?? []) as CliModelOption[];
     const opencode = (modelMap['opencode'] ?? []) as CliModelOption[];
     const pi = (modelMap['pi'] ?? []) as CliModelOption[];
+    const grok = (modelMap['grok'] ?? []) as CliModelOption[];
 
     const result: AgentListCliModelsResult = {
       codex,
@@ -81,6 +82,7 @@ export class CliModelListService {
       antigravity,
       opencode,
       pi,
+      grok,
     };
 
     return { models: result, codexReported, copilotReported };

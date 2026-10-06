@@ -732,7 +732,7 @@ export function buildRouter(): Command {
     )
     .option(
       '--cli <id>',
-      'scope to one CLI target: codex|copilot|cursor|antigravity|opencode|pi|ptah-cli (ptah-cli answers supported:false)',
+      'scope to one CLI target: codex|copilot|cursor|antigravity|opencode|pi|grok|ptah-cli (ptah-cli answers supported:false)',
     )
     .action(async (opts: { cli?: string }) => {
       const exit = await agentCliCmd.execute(
@@ -770,7 +770,7 @@ export function buildRouter(): Command {
     )
     .requiredOption(
       '--cli <id>',
-      'CLI target: codex|copilot|cursor|antigravity|opencode|pi|ptah-cli (glm is a deprecated alias for ptah-cli)',
+      'CLI target: codex|copilot|cursor|antigravity|opencode|pi|grok|ptah-cli (glm is a deprecated alias for ptah-cli)',
     )
     .requiredOption(
       '--task <text>',

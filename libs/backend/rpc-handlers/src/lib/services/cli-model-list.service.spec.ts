@@ -19,6 +19,7 @@ function makeHarness() {
     antigravity: [{ id: 'antigravity-model', name: 'Antigravity model' }],
     opencode: [{ id: 'provider/model', name: 'OpenCode model' }],
     pi: [{ id: 'pi-model', name: 'Pi model' }],
+    grok: [{ id: 'grok-model', name: 'Grok model' }],
   };
   const cliDetection = {
     listModelsForAll: jest.fn().mockResolvedValue(modelMap),
@@ -211,6 +212,7 @@ describe('CliModelListService', () => {
       antigravity: [],
       opencode: [],
       pi: [],
+      grok: [],
     });
   });
 

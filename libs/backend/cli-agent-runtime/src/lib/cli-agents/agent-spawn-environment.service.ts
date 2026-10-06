@@ -62,6 +62,7 @@ export class AgentSpawnEnvironment {
       antigravity: 'antigravityModel',
       opencode: 'opencodeModel',
       pi: 'piModel',
+      grok: 'grokModel',
     };
 
   constructor(
@@ -102,8 +103,8 @@ export class AgentSpawnEnvironment {
   ) {}
 
   /**
-   * Per-CLI effort setting keys. Antigravity has none (its settings pane is
-   * model-only), so R2.3 step 2 never matches for it.
+   * Per-CLI effort setting keys. Antigravity and Grok have none (their
+   * settings panes are model-only), so R2.3 step 2 never matches for them.
    */
   private static readonly EFFORT_CONFIG_KEYS: Partial<Record<CliType, string>> =
     {

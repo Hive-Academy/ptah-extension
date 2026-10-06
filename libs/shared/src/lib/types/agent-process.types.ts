@@ -74,6 +74,7 @@ export const SYSTEM_CLI_TYPES = [
   'antigravity',
   'opencode',
   'pi',
+  'grok',
 ] as const;
 
 export type SystemCliType = (typeof SYSTEM_CLI_TYPES)[number];

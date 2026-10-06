@@ -373,7 +373,7 @@ describe('ptah agent-cli config set', () => {
 // ---------------------------------------------------------------------------
 
 describe('ptah agent-cli models list', () => {
-  it('reports all six system CLIs when --cli omitted', async () => {
+  it('reports all seven system CLIs when --cli omitted', async () => {
     const ft = makeFormatter();
     const engine = makeEngine();
     engine.scripted.set('agent:listCliModels', {
@@ -385,6 +385,7 @@ describe('ptah agent-cli models list', () => {
         antigravity: ['ag1'],
         opencode: ['oc1'],
         pi: ['pi1'],
+        grok: ['gk1'],
       },
     });
 
@@ -404,6 +405,7 @@ describe('ptah agent-cli models list', () => {
         antigravity: ['ag1'],
         opencode: ['oc1'],
         pi: ['pi1'],
+        grok: ['gk1'],
       },
     });
   });
@@ -425,6 +427,7 @@ describe('ptah agent-cli models list', () => {
       antigravity: [],
       opencode: [],
       pi: [],
+      grok: [],
     });
   });
 
@@ -470,6 +473,7 @@ describe('ptah agent-cli models list', () => {
           antigravity: ['antigravity-m'],
           opencode: ['opencode-m'],
           pi: ['pi-m'],
+          grok: ['grok-m'],
         },
       });
 
