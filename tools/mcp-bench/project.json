@@ -3,8 +3,170 @@
   "$schema": "../../node_modules/nx/schemas/project-schema.json",
   "sourceRoot": "tools/mcp-bench/src",
   "projectType": "application",
-  "tags": ["type:tool"],
+  "tags": ["type:tool", "scope:cli"],
   "targets": {
+    "build-host": {
+      "executor": "nx:run-commands",
+      "dependsOn": [
+        "build-host-bundle",
+        "build-host-integrity-worker",
+        "build-host-embedder-worker",
+        "build-host-watch-host"
+      ],
+      "outputs": ["{workspaceRoot}/dist/tools/mcp-bench/wasm"],
+      "options": {
+        "command": "node scripts/copy-wasm.js dist/tools/mcp-bench"
+      }
+    },
+    "build-host-integrity-worker": {
+      "executor": "@nx/esbuild:esbuild",
+      "dependsOn": ["build-host-bundle"],
+      "outputs": ["{options.outputPath}/integrity-worker.mjs"],
+      "options": {
+        "outputPath": "dist/tools/mcp-bench",
+        "main": "libs/backend/persistence-sqlite/src/lib/integrity/integrity-worker.ts",
+        "outputFileName": "integrity-worker.mjs",
+        "tsConfig": "tools/mcp-bench/tsconfig.json",
+        "format": ["esm"],
+        "platform": "node",
+        "target": "node20",
+        "bundle": true,
+        "thirdParty": false,
+        "skipTypeCheck": true,
+        "deleteOutputPath": false,
+        "esbuildOptions": {
+          "outExtension": {
+            ".js": ".mjs"
+          },
+          "banner": {
+            "js": "import { createRequire as __esm_createRequire } from 'node:module'; const require = __esm_createRequire(import.meta.url);"
+          }
+        },
+        "external": ["better-sqlite3"]
+      }
+    },
+    "build-host-embedder-worker": {
+      "executor": "@nx/esbuild:esbuild",
+      "dependsOn": ["build-host-bundle"],
+      "outputs": ["{options.outputPath}/embedder-worker.mjs"],
+      "options": {
+        "outputPath": "dist/tools/mcp-bench",
+        "main": "libs/backend/memory-curator/src/lib/embedder/embedder-worker.ts",
+        "outputFileName": "embedder-worker.mjs",
+        "tsConfig": "tools/mcp-bench/tsconfig.json",
+        "format": ["esm"],
+        "platform": "node",
+        "target": "node20",
+        "bundle": true,
+        "thirdParty": false,
+        "skipTypeCheck": true,
+        "deleteOutputPath": false,
+        "esbuildOptions": {
+          "outExtension": {
+            ".js": ".mjs"
+          }
+        },
+        "external": ["@huggingface/transformers"]
+      }
+    },
+    "build-host-watch-host": {
+      "executor": "@nx/esbuild:esbuild",
+      "dependsOn": ["build-host-bundle"],
+      "outputs": ["{options.outputPath}/workspace-watch-host.mjs"],
+      "options": {
+        "outputPath": "dist/tools/mcp-bench",
+        "main": "libs/backend/platform-cli/src/workspace-watch/workspace-watch-host.entry.ts",
+        "outputFileName": "workspace-watch-host.mjs",
+        "tsConfig": "tools/mcp-bench/tsconfig.json",
+        "format": ["esm"],
+        "platform": "node",
+        "target": "node20",
+        "bundle": true,
+        "thirdParty": false,
+        "skipTypeCheck": true,
+        "deleteOutputPath": false,
+        "esbuildOptions": {
+          "outExtension": {
+            ".js": ".mjs"
+          },
+          "banner": {
+            "js": "import { createRequire as __esm_createRequire } from 'node:module'; const require = __esm_createRequire(import.meta.url);"
+          }
+        },
+        "external": ["@parcel/watcher"]
+      }
+    },
+    "build-host-bundle": {
+      "executor": "@nx/esbuild:esbuild",
+      "outputs": ["{options.outputPath}/bench-host.mjs"],
+      "options": {
+        "outputPath": "dist/tools/mcp-bench",
+        "main": "tools/mcp-bench/src/transport/bench-host.entry.ts",
+        "outputFileName": "bench-host.mjs",
+        "tsConfig": "tools/mcp-bench/tsconfig.json",
+        "format": ["esm"],
+        "platform": "node",
+        "target": "node20",
+        "bundle": true,
+        "thirdParty": false,
+        "skipTypeCheck": true,
+        "deleteOutputPath": true,
+        "sourcemap": true,
+        "esbuildOptions": {
+          "outExtension": {
+            ".js": ".mjs"
+          },
+          "alias": {
+            "vscode": "./libs/backend/cli-engine/src/lib/shims/vscode-shim.ts"
+          },
+          "banner": {
+            "js": "import 'reflect-metadata'; import { createRequire as __esm_createRequire } from 'module'; import { fileURLToPath as __esm_fileURLToPath } from 'url'; import { dirname as __esm_dirname } from 'path'; const require = __esm_createRequire(import.meta.url); const __filename = __esm_fileURLToPath(import.meta.url); const __dirname = __esm_dirname(__filename);"
+          }
+        },
+        "external": [
+          "@anthropic-ai/claude-agent-sdk",
+          "@openai/codex-sdk",
+          "@cursor/sdk",
+          "reflect-metadata",
+          "tsyringe",
+          "async-mutex",
+          "cross-spawn",
+          "eventemitter3",
+          "gray-matter",
+          "json2md",
+          "jsonrepair",
+          "minimatch",
+          "picomatch",
+          "@parcel/watcher",
+          "rxjs",
+          "uuid",
+          "which",
+          "zod",
+          "tslib",
+          "chokidar",
+          "fast-glob",
+          "axios",
+          "exa-js",
+          "gpt-tokenizer",
+          "web-tree-sitter",
+          "@tavily/core",
+          "marked",
+          "commander",
+          "better-sqlite3",
+          "sqlite-vec",
+          "croner",
+          "ulid",
+          "@huggingface/transformers",
+          "grammy",
+          "discord.js",
+          "@slack/bolt",
+          "ffmpeg-static",
+          "nodejs-whisper",
+          "bottleneck",
+          "typescript"
+        ]
+      }
+    },
     "test": {
       "executor": "@nx/jest:jest",
       "outputs": ["{workspaceRoot}/coverage/{projectRoot}"],

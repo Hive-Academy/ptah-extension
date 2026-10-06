@@ -105,6 +105,8 @@ Other observations: the code-search coverage block is all `null` / `census?` (ab
 
 ## Conversation Summary
 
+- 2026-10-06: the user opened a second session (`ptah-ptah-extension-skills-trajectory-an-10a89600005aw2q23htdi0c`) to apply the same benchmark-first method to memory curation and the skills trajectory. Boundary: this task owns `ptah_memory_search` as a retrieval tool (scope, isolation, worktree scope, spill root, recall@k via MCP). That session owns curation/extraction quality and the skills trajectory. `tools/mcp-bench` metrics and the scorecard schema are shared; that session must ask before it changes them.
+
 - The user observed that agents seldom use more than one or two ptah tools despite the prompt rules.
 - A side-by-side test in this session scored native tools 6, ptah 2, equal 1.
 - The user wants fact-based evidence of each important tool's performance, and an intelligent eager/deferred tool split that saves time and context.

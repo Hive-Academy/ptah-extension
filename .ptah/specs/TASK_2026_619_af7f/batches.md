@@ -1,6 +1,6 @@
 # Batches - TASK_2026_619_af7f
 
-Total tasks: 64 | Batches: 37 | Complete: 1/37
+Total tasks: 65 | Batches: 37 | Complete: 2/37
 
 Worktree root (every path below is absolute under it):
 `D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark` (branch `fix/task-619-tool-benchmark`).
@@ -43,10 +43,18 @@ Status: PASSED WITH RISKS
 
 Assumptions:
 
-- The depConstraints have no `type:tool` source tag, so `tools/mcp-bench` (tags `["type:tool"]`, no
-  scope tag) may import libs. Verified against
-  `D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\eslint.config.mjs:256-394`.
-  No lib may import `mcp-bench`. Task 1.1 confirms this with `nx lint`.
+- FALSE (found in Batch 3). The depConstraints have no `type:tool` source tag, and a project whose
+  tags match no constraint cannot import any lib (`projectWithoutTagsCannotHaveDependencies`). Batch 1
+  imported no lib, so it never tripped. Batch 3 added `scope:cli` to `tools\mcp-bench\project.json` as
+  a stopgap. That tag allows `scope:shared | scope:cli | scope:extension` but not `scope:electron`.
+  **Decision (team-leader, Batch 3 Mode 2):** the durable fix is a `type:tool` depConstraint in
+  `eslint.config.mjs` (`{ sourceTag: 'type:tool', onlyDependOnLibsWithTags: ['*'] }`), so a tool may
+  depend on any lib. `scope:cli` is then removed from `mcp-bench`. No lib may depend on a tool: all
+  four `type:tool` projects (`mcp-bench`, `di-lint`, `migration`, `degradation-audit`) are
+  `projectType: application`, and the boundary rule already rejects imports of applications. The
+  bench stays one project; a separate Electron bench project was rejected because it would duplicate
+  the transport, guard and scorecard code. The change is carried by Task 4.0, the first task of
+  Batch 4, and the `nx lint` of all four tool projects verifies it.
 - The CLI DI container registers `vscode-lm-tools`, which includes `CODE_EXECUTION_MCP`. Verified at
   `libs\backend\cli-engine\src\lib\container.ts:119,825`. A bench-owned process can therefore call
   `startCodeExecutionMcp` (`libs\backend\vscode-core\src\services\subsystem-bringup.ts:67`) and serve
@@ -179,7 +187,7 @@ Batch 1 Minor findings (recorded, not fixed in a fix round; each is carried by a
 - No per-batch review; the Phase 1 review covers it
 - The path-normalisation edge case is tested
 
-## Batch 2: Scorecard model, writers and corpus checkout — IN_PROGRESS
+## Batch 2: Scorecard model, writers and corpus checkout — COMPLETE (commit 4fc9d147c)
 
 - Recommended executor: CLI lane x 1
 - Fallback executor: backend-developer subagent
@@ -188,7 +196,7 @@ Batch 1 Minor findings (recorded, not fixed in a fix round; each is carried by a
 - Tasks: 2 | Depends on: 1
 - Phase: 1 Benchmark | Phase review: code-logic (after Batch 11)
 
-### Task 2.1: Scorecard types, JSON writer and Markdown writer — IMPLEMENTED
+### Task 2.1: Scorecard types, JSON writer and Markdown writer — COMPLETE
 
 - File: D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\scorecard\scorecard.types.ts; D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\scorecard\scorecard-writers.ts; D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\scorecard\scorecard-writers.spec.ts
 - Plan reference: research-report.md:196-223 (B8 schema), :173 (delta sign)
@@ -197,7 +205,7 @@ Batch 1 Minor findings (recorded, not fixed in a fix round; each is carried by a
 - Validation notes: `na` is never counted as pass. Validate the schema on read (zod, already a dependency). Carried from Batch 1: compute `callsPerAnswer` (declared at `retrieval-metrics.ts:25`) or remove it from `MetricName`; a suite with no latency samples reports `na`, not the 0 that `cost-metrics.ts:28-33` returns.
 - Implementation details: the output goes to `tools/mcp-bench/out/<runId>/` (gitignored) and, for committed baselines, `tools/mcp-bench/baseline/`.
 
-### Task 2.2: Pinned corpus checkout and lifecycle copy — IMPLEMENTED
+### Task 2.2: Pinned corpus checkout and lifecycle copy — COMPLETE
 
 - File: D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\corpus\corpus.ts; D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\corpus\corpus.spec.ts; D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\corpus.config.json
 - Plan reference: research-report.md:140-143 (B2)
@@ -212,7 +220,26 @@ Batch 1 Minor findings (recorded, not fixed in a fix round; each is carried by a
 - `npx nx run-many -t typecheck,lint,test -p mcp-bench` passes (tail the output)
 - The `na`-is-never-pass rule is tested
 
-## Batch 3: MCP transport driver and isolated cli-headless bench host — PENDING
+## Batch 3: MCP transport driver and isolated cli-headless bench host — IN_PROGRESS
+
+Batch 3 findings recorded at Mode 2 (report:
+`D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\.ptah\specs\TASK_2026_619_af7f\batch-3-executor-report.md`):
+
+- Tag deviation: `scope:cli` was added to `tools\mcp-bench\project.json`. This is a stopgap,
+  replaced by Task 4.0 (see the Assumptions entry on depConstraints).
+- Real-DB guard vs a running desktop Ptah. The user's desktop app writes
+  `~/.ptah/state/ptah.sqlite-wal` on its own (report lines 42 and 64), so the guard fails closed on
+  any local run that overlaps such a write. This is committed as is (fail-closed is safe). How the
+  guard should behave locally is a **user decision pending with the orchestrator**. The decision
+  will be passed into a later batch; until then no batch changes the guard semantics in
+  `host-launcher.ts:46-118`. Local smoke runs in Batches 4-37 either run with the desktop app
+  closed, or report a `RealStateChangedError` trip as an environment failure, not a code failure.
+- CLI code-intelligence surface (smoke, report line 65). (a) `ptah_lsp_references` and
+  `ptah_lsp_definitions` are not listed on `cli-headless`, because the CLI registers no
+  `IDE_CAPABILITIES_TOKEN`. (b) `ptah_code_search_symbols` answers `symbolCount:0`,
+  `reindexInFlight:true` with unknown coverage (no boot-time index). (c) `ptah_get_dependents` with a
+  relative `filePath` returned a tool error. Batches 5-9 and 13 carry these facts (see their
+  validation notes).
 
 - Recommended executor: backend-developer subagent
 - Fallback executor: senior-tester subagent
@@ -221,7 +248,7 @@ Batch 1 Minor findings (recorded, not fixed in a fix round; each is carried by a
 - Tasks: 3 | Depends on: 2
 - Phase: 1 Benchmark | Phase review: code-logic (after Batch 11)
 
-### Task 3.1: MCP HTTP client and call recorder — PENDING
+### Task 3.1: MCP HTTP client and call recorder — IMPLEMENTED
 
 - File: D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\transport\mcp-client.ts; D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\transport\call-recorder.ts
 - Plan reference: research-report.md:175-179 (B5), :183 (error classes)
@@ -230,7 +257,7 @@ Batch 1 Minor findings (recorded, not fixed in a fix round; each is carried by a
 - Validation notes: retries on `building` follow the tool's own retry hint, capped; every retry counts as a call.
 - Implementation details: use `@modelcontextprotocol/sdk` client if it matches the server protocol, else a minimal JSON-RPC over HTTP POST.
 
-### Task 3.2: Bench host entry (boots the CLI DI container and the code-execution HTTP MCP) — PENDING
+### Task 3.2: Bench host entry (boots the CLI DI container and the code-execution HTTP MCP) — IMPLEMENTED
 
 - File: D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\transport\bench-host.entry.ts; D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\project.json (add a `build-host` esbuild target)
 - Depends on: Task 3.1
@@ -240,7 +267,7 @@ Batch 1 Minor findings (recorded, not fixed in a fix round; each is carried by a
 - Validation notes: verify the assumption that `CODE_EXECUTION_MCP` resolves in the CLI container; if it does not, stop and report (BLOCKER for the transport). Watch for the better-sqlite3 ABI (cli-e2e rebuilds it for Node).
 - Implementation details: imports `@ptah-extension/cli-engine` and `@ptah-extension/vscode-core` only; the host label in the scorecard is `cli-headless`.
 
-### Task 3.3: Host launcher with state isolation guard — PENDING
+### Task 3.3: Host launcher with state isolation guard — IMPLEMENTED
 
 - File: D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\transport\host-launcher.ts; D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\transport\host-launcher.spec.ts
 - Depends on: Task 3.2
@@ -263,8 +290,23 @@ Batch 1 Minor findings (recorded, not fixed in a fix round; each is carried by a
 - Fallback executor: devops-engineer subagent
 - Execution mode: sequential
 - Rationale: drives a real Electron app process and its userData. Process-lifecycle-sensitive.
-- Tasks: 1 | Depends on: 3
+- Tasks: 2 | Depends on: 3
 - Phase: 1 Benchmark | Phase review: code-logic (after Batch 11)
+
+### Task 4.0: `type:tool` module-boundary constraint; drop the `scope:cli` stopgap — PENDING
+
+- File: D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\eslint.config.mjs; D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\project.json
+- Plan reference: this file's Assumptions (the depConstraints entry, marked FALSE, with its decision)
+- Pattern to follow: the `scope:e2e` depConstraint and its comment at eslint.config.mjs (around line 330)
+- Quality requirements: add `{ sourceTag: 'type:tool', onlyDependOnLibsWithTags: ['*'] }` with a
+  comment. The comment says tools are applications, may depend on any lib, and cannot be imported by
+  any lib (the rule rejects application imports). Remove `scope:cli` from `mcp-bench` tags, leaving
+  `["type:tool"]`. Change no other constraint.
+- Validation notes: the change relaxes `di-lint`, `migration` and `degradation-audit` too. They have
+  the same tag and no lib imports today, so it cannot introduce an error there. Prove it with lint.
+  Prove that `mcp-bench` still lints clean with its `cli-engine`, `vscode-core` and `platform-core`
+  imports, and with any `scope:electron` lib Task 4.1 imports.
+- Implementation details: do this first, before Task 4.1 adds any Electron-lib import.
 
 ### Task 4.1: Electron launch/attach adapter — PENDING
 
@@ -272,14 +314,15 @@ Batch 1 Minor findings (recorded, not fixed in a fix round; each is carried by a
 - Plan reference: research-report.md:177-179 (B5)
 - Pattern to follow: how D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\apps\ptah-electron-e2e\src\support launches the app; D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\apps\ptah-electron\src\activation\wire-runtime.ts:381-416 (MCP port bring-up)
 - Quality requirements: launch mode starts a built Electron app with an isolated userData dir and discovers the MCP port; attach mode targets `PTAH_BENCH_ELECTRON_URL`; in attach mode the memory and lifecycle suites are marked `na` (reason: "attach mode never writes to a user DB").
-- Validation notes: if the port cannot be discovered from outside the process, read it from the log line or the `.mcp.json` the app writes, and document which.
+- Validation notes: if the port cannot be discovered from outside the process, read it from the log line or the `.mcp.json` the app writes, and document which. Guard contract: launch mode runs the Task 3.3 real-DB guard unchanged, because its userData is isolated. In attach mode the real DB changes by definition, so the guard is not applied there. Attach mode instead refuses every suite that writes state (memory seeding, lifecycle), as the `na` rule already requires. Do not change `host-launcher.ts` guard semantics: the local-run behaviour with a running desktop app is a pending user decision (see the Batch 3 findings). Launch mode must not reuse the desktop app's MCP port 51820 or its single-instance lock. Use an isolated userData dir, and report a refusal if the app enforces a single instance.
 - Implementation details: returns the same `{baseUrl, stop()}` shape as Task 3.3; host label `electron`.
 
 ### Batch 4 verification
 
 - `npx prettier --check <every path the batch changed>` passes (lanes skipped formatting in Batches 1-2, and the commit hook does not check `tools/`)
 - Every listed artifact exists and contains the required work
-- `npx nx run-many -t typecheck,lint,test -p mcp-bench` passes
+- `npx nx run-many -t typecheck,lint,test -p mcp-bench,di-lint,migration,degradation-audit` passes (the `type:tool` constraint change covers all four tool projects)
+- `tools\mcp-bench\project.json` tags are exactly `["type:tool"]`
 - The attach-mode `na` rule is tested
 
 ## Batch 5: Ground truth A — TS compiler (symbols, references, definitions, dependents) — PENDING
@@ -297,7 +340,7 @@ Batch 1 Minor findings (recorded, not fixed in a fix round; each is carried by a
 - Plan reference: research-report.md:147-150, :160 (B3)
 - Pattern to follow: `ts.createLanguageService` with `tsconfig.base.json` paths (research-report.md:32 scratch measurement)
 - Quality requirements: 300 exact questions stratified (100 small files, 100 files over 1,000 lines, 100 from the largest lib) plus 50 negatives; 200 concept questions from the JSDoc first sentence with identifier tokens removed; seeded RNG; output frozen to `tools/mcp-bench/questions/<commit>/*.json`.
-- Validation notes: exclude test files; index.ts and `*.module.ts` are kept in the truth set (the indexer's skip is a finding, not a truth exclusion).
+- Validation notes: exclude test files; index.ts and `*.module.ts` are kept in the truth set (the indexer's skip is a finding, not a truth exclusion). Carried from Batch 3: on `cli-headless`, `ptah_code_search_symbols` answers `symbolCount:0` with unknown coverage today. The truth is host-agnostic and must not be trimmed to what the tool can answer.
 - Implementation details: the program is loaded once per run; memory is reported in the generator log.
 
 ### Task 5.2: References, definitions and dependents questions — PENDING
@@ -307,7 +350,7 @@ Batch 1 Minor findings (recorded, not fixed in a fix round; each is carried by a
 - Plan reference: research-report.md:151-153 (B3)
 - Pattern to follow: Task 5.1's loader
 - Quality requirements: 150 reference identifiers (50 with fewer than 5 refs, 50 with 5-50, 50 with more than 50, of which 25 share a name with another symbol); 150 definition call sites; 100 dependents/dependencies files via `ts.resolveModuleName` (static, `export from`, literal dynamic `import()`).
-- Validation notes: same-name strata are mandatory (the rename-safe claim). The spec runs on a tiny fixture program.
+- Validation notes: same-name strata are mandatory (the rename-safe claim). The spec runs on a tiny fixture program. Carried from Batch 3: `ptah_lsp_references` and `ptah_lsp_definitions` are not listed on `cli-headless` (no `IDE_CAPABILITIES_TOKEN`). Generate the truth anyway, because it is scored on `electron` now and on `cli-headless` after Batch 25. Each dependents/dependencies question records the file both workspace-relative and absolute, because `ptah_get_dependents` returned a tool error for a relative `filePath` in the smoke.
 - Implementation details: truths are `file:line` sets, workspace-relative.
 
 ### Batch 5 verification
@@ -332,7 +375,7 @@ Batch 1 Minor findings (recorded, not fixed in a fix round; each is carried by a
 - Plan reference: research-report.md:154, :156-158, :160 (held-out split)
 - Pattern to follow: `gh pr list --state merged --json title,body,files,mergeCommit`
 - Quality requirements: PRs before the pin, 1-8 changed non-test, non-lockfile source files; the most recent 200 are `test`, earlier ones are `tune`, frozen to JSON so CI needs no `gh`; file-tool questions: 100 ast/enrich files by size stratum, 100 glob patterns, 150 literal plus 50 regex text queries.
-- Validation notes: CI must not call `gh`; the frozen JSON is committed.
+- Validation notes: CI must not call `gh`; the frozen JSON is committed. Carried from Batch 3: the `cli-headless` index is empty at boot (`symbolCount:0`, unknown coverage). Any question whose tool depends on the symbol index is still generated; the empty index is a scored finding, not a reason to drop questions.
 - Implementation details: also adds the 4 TASK_2026_473 track-A memory queries as a labelled hand-graded seed in Task 6.2.
 
 ### Task 6.2: Seeded memory set (verbatim, paraphrase, temporal update, abstention, two workspaces plus worktree) — PENDING
@@ -367,7 +410,7 @@ Batch 1 Minor findings (recorded, not fixed in a fix round; each is carried by a
 - Plan reference: context.md:58-61 (Gate SR decisions 1 and 4: SCIP as benchmark ground truth only); research-report.md:302
 - Pattern to follow: Task 5.2's truth format
 - Quality requirements: when `scip-typescript`, `scip-python` or `scip-go` are on PATH, generate reference, definition and dependents truth and compare the TS truth with Task 5.2 (agreement rate reported); when absent, the suite is `na` with a reason; Python and Go reference/dependents question sets (50 each) come from SCIP truth.
-- Validation notes: SCIP is never a runtime backend. Record the license of each pinned corpus repo.
+- Validation notes: SCIP is never a runtime backend. Record the license of each pinned corpus repo. Carried from Batch 3: the reference/definition truth targets tools that are absent on `cli-headless` (no `ptah_lsp_references`/`ptah_lsp_definitions`). Dependents truth records absolute and workspace-relative paths (a relative `filePath` errored in the smoke).
 - Implementation details: the `@scip-code/scip` reader is ESM-only; use dynamic import or parse the protobuf in the generator.
 
 ### Batch 7 verification
@@ -392,7 +435,7 @@ Batch 1 Minor findings (recorded, not fixed in a fix round; each is carried by a
 - Plan reference: research-report.md:162-173 (B4)
 - Pattern to follow: the B4 command list verbatim
 - Quality requirements: same metrics and tokenizer as the tools; calls per answer = commands needed; references baseline has no cap and reports both recall and precision; `rg` resolved from `RG_PATH` then `PATH`, else the run fails with a clear message.
-- Validation notes: no package.json change in Phase 1. The `rg --json` parse handles Windows paths.
+- Validation notes: no package.json change in Phase 1. The `rg --json` parse handles Windows paths. Carried from Batch 3: native baselines exist for every suite, including references and definitions. On `cli-headless` those suites have no tool, so the native baseline is the only measured side there.
 - Implementation details: memory baseline = `rg` over `.ptah/specs` plus `git log --grep`.
 
 ### Batch 8 verification
@@ -416,7 +459,7 @@ Batch 1 Minor findings (recorded, not fixed in a fix round; each is carried by a
 - Plan reference: research-report.md:147-158, :181-183; prompt claims at research-report.md:46-55
 - Pattern to follow: each tool's input schema in D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\libs\backend\vscode-lm-tools\src\lib\code-execution\mcp-core\tool-description.builder.ts
 - Quality requirements: suites for `ptah_code_search_symbols` (exact and concept), `ptah_relevance_rank_files`, `ptah_lsp_references`, `ptah_lsp_definitions`, `ptah_get_dependents`, `ptah_get_dependencies`, `ptah_get_symbol_index`, `ptah_memory_search`, `ptah_ast_analyze`, `ptah_context_enrich_file` (token ratio per size stratum), `ptah_search_files`, and `ptah_search_text` (`na` until the tool exists); each suite records its `claim` file:line; verdict = fail when the primary quality metric is below native by more than the noise margin, error rate is over 1%, or a lifecycle scenario fails.
-- Validation notes: tool results are parsed tolerantly (text content). Parse failures count as errors, not as zero hits. Carried from Batch 1: on win32, workspace-root relativisation in `normalizePath` (`retrieval-metrics.ts:50-67`) must be case-insensitive beyond the drive letter; add a spec case.
+- Validation notes: tool results are parsed tolerantly (text content). Parse failures count as errors, not as zero hits. Carried from Batch 3 (smoke, report line 65). (a) Read `tools/list` per host. A suite whose tool is not listed (today `ptah_lsp_references` and `ptah_lsp_definitions` on `cli-headless`) is `fail` with `mechanism: none` and the reason "tool not exposed on this host". It is never `na` and never a pass, because the prompt mandates these tools on every host. (b) `ptah_code_search_symbols` answering `symbolCount:0` with unknown coverage is scored through the Task 3.1 `unknown-coverage` class (error), with retries per the claim budget. (c) The `ptah_get_dependents` adapter must use the tool's real input schema from `tool-description.builder.ts`: try the absolute path, and record whether a relative `filePath` is rejected. A rejected relative path is a finding quoted in the report; the adapter may not hide it by always sending absolute paths without recording it. Carried from Batch 1: on win32, workspace-root relativisation in `normalizePath` (`retrieval-metrics.ts:50-67`) must be case-insensitive beyond the drive letter; add a spec case.
 - Implementation details: `--smoke` takes 40 seeded questions per suite.
 
 ### Task 9.2: Lifecycle scenarios 1-8 — PENDING
@@ -426,7 +469,7 @@ Batch 1 Minor findings (recorded, not fixed in a fix round; each is carried by a
 - Plan reference: research-report.md:185-194 (B7); context.md:93
 - Pattern to follow: Task 2.2's corpus copy
 - Quality requirements: cold start, edit then query (5 s and 60 s), add then query, delete then query, large file (3,900 lines and 1.5 MiB), index age beyond 24 h (backdated rows in the isolated DB), two workspaces plus a worktree (memory leak count, spool path under the caller's root, symbol scope), transport (200 calls with 4-8 s idle gaps, one server restart, ECONNRESET count).
-- Validation notes: never mutate the pinned corpus. Scenario 8's reset count feeds Batch 35's go/no-go.
+- Validation notes: never mutate the pinned corpus. Scenario 8's reset count feeds Batch 35's go/no-go. Carried from Batch 3: on `cli-headless`, cold start and edit/add-then-query are expected to fail today (no boot-time index, `symbolCount:0`, `reindexInFlight:true`); record them as failures, not `na`. A `RealStateChangedError` from the guard caused by a running desktop Ptah is an environment failure of the run: report it, never retry it silently, and never weaken the guard (the user decision is pending).
 - Implementation details: each scenario is a scored case in `lifecycle[]`.
 
 ### Task 9.3: Bench CLI entry and targets — PENDING
@@ -568,7 +611,7 @@ Batch 1 Minor findings (recorded, not fixed in a fix round; each is carried by a
 - Plan reference: research-report.md:65, :70, :265
 - Pattern to follow: D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\apps\ptah-extension-vscode\src\activation\wire-runtime.ts:199-251 (activation run, debounced save reindex)
 - Quality requirements: a governed background full run at boot; per-file `reindexFile` on `IWorkspaceWatcher` events with debounce and storm coalescing (a branch switch triggers one full run, not N reindexes); delete events remove rows; idempotent `dispose()`.
-- Validation notes: boot must not wait on the run; failures are non-fatal and logged once. Respect the governor.
+- Validation notes: boot must not wait on the run; failures are non-fatal and logged once. Respect the governor. Carried from Batch 3: the Phase 1 smoke showed `ptah_code_search_symbols` on `cli-headless` answering `symbolCount:0`, `reindexInFlight:true` with unknown coverage, about 11.6 s after a cold boot. The batch report quotes the same call before and after this change. It must show a non-zero `symbolCount` and a coverage state other than `census?` once the boot run completes.
 - Implementation details: depends only on the indexer and the `IWorkspaceWatcher` port (platform-core).
 
 ### Task 13.2: Invoke the lifecycle service from the CLI boot — PENDING
