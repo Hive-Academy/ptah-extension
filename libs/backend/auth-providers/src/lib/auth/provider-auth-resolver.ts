@@ -18,6 +18,7 @@ import {
   getAnthropicProvider,
   getProviderAuthEnvVar,
   getProviderBaseUrl,
+  OLLAMA_CLOUD_DIRECT_BASE_URL,
   resolveStrategy,
 } from '@ptah-extension/shared';
 import { AUTH_PROVIDERS_TOKENS } from '../di/tokens';
@@ -77,12 +78,7 @@ const CHAT_AUTH_KEYS: ReadonlyArray<keyof AuthEnv> = [
 export interface DraftConnectionInput {
   readonly providerId: string;
   readonly authMode:
-    | 'apiKey'
-    | 'oauth'
-    | 'cli'
-    | 'local-native'
-    | 'local-proxy'
-    | 'custom';
+    'apiKey' | 'oauth' | 'cli' | 'local-native' | 'local-proxy' | 'custom';
   /**
    * TRANSIENT: supplied only for key-carrying modes and held solely inside
    * `DraftVerificationService`'s in-memory entry. Never persisted, never
@@ -452,6 +448,21 @@ export class ProviderAuthResolver implements IProviderAuthResolver {
   }
 
   /**
+   * Base URL for an `apiKey` draft. Ollama Cloud's registry URL is the local
+   * daemon, but a key means direct ollama.com access — the same switch
+   * LocalNativeStrategy makes at runtime. A saved URL override still wins.
+   */
+  private resolveDraftApiKeyBaseUrl(providerId: string): string {
+    if (providerId === 'ollama-cloud') {
+      const override = this.config.get<string>(
+        `provider.${providerId}.baseUrl`,
+      );
+      if (!override?.trim()) return OLLAMA_CLOUD_DIRECT_BASE_URL;
+    }
+    return this.resolveProviderBaseUrl(providerId);
+  }
+
+  /**
    * The resolved provider's process env: ambient `process.env` with every
    * {@link CHAT_AUTH_KEYS} entry neutralised, then the resolved provider's own
    * values on top.
@@ -530,13 +541,19 @@ export class ProviderAuthResolver implements IProviderAuthResolver {
 
     // Draft endpoints are per-query snapshots. Never start the persisted local
     // proxy here: that would verify its old upstream instead of the draft.
-    if ((draft.authMode === 'local-native' || draft.authMode === 'local-proxy') && draft.baseUrl?.trim()) {
+    if (
+      (draft.authMode === 'local-native' || draft.authMode === 'local-proxy') &&
+      draft.baseUrl?.trim()
+    ) {
       const baseUrl = draft.baseUrl.trim();
       const values: AuthEnv = {
         ANTHROPIC_BASE_URL: baseUrl,
         ...this.buildTierValues(providerId, 'mainAgent'),
         ...(draft.credential?.value.trim()
-          ? { [getProviderAuthEnvVar(providerId)]: draft.credential.value.trim() }
+          ? {
+              [getProviderAuthEnvVar(providerId)]:
+                draft.credential.value.trim(),
+            }
           : {}),
       };
       return { env: this.buildLaneEnv(values), baseUrl };
@@ -576,7 +593,8 @@ export class ProviderAuthResolver implements IProviderAuthResolver {
       case 'apiKey': {
         const draftKey = draft.credential?.value.trim();
         const isDirectAnthropic =
-          providerId === ANTHROPIC_DIRECT_PROVIDER_ID || providerId === 'apiKey';
+          providerId === ANTHROPIC_DIRECT_PROVIDER_ID ||
+          providerId === 'apiKey';
         if (isDirectAnthropic) {
           if (!draftKey) {
             throw new ProviderAuthError(
@@ -597,7 +615,7 @@ export class ProviderAuthResolver implements IProviderAuthResolver {
           );
         }
         const baseUrl =
-          draft.baseUrl?.trim() || this.resolveProviderBaseUrl(providerId);
+          draft.baseUrl?.trim() || this.resolveDraftApiKeyBaseUrl(providerId);
         const authEnvVar = getProviderAuthEnvVar(providerId);
         const values: AuthEnv = {
           ANTHROPIC_BASE_URL: baseUrl,
