@@ -35,4 +35,25 @@ describe('fact matcher', () => {
       ),
     ).toBe(true);
   });
+
+  it('uses word boundaries for alphanumeric tokens and rejects empty keys', () => {
+    expect(
+      matchesFact(
+        { keyTokens: [['api']], forbiddenTokens: [] },
+        { content: 'capital city' },
+      ),
+    ).toBe(false);
+    expect(
+      matchesFact(
+        { keyTokens: [['version']], forbiddenTokens: ['v1'] },
+        { content: 'version v10' },
+      ),
+    ).toBe(true);
+    expect(
+      matchesFact(
+        { keyTokens: [], forbiddenTokens: [] },
+        { content: 'anything' },
+      ),
+    ).toBe(false);
+  });
 });

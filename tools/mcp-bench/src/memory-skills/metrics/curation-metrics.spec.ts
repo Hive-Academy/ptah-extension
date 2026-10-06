@@ -29,6 +29,8 @@ describe('curation metrics', () => {
       den: 3,
     });
     expect(falseMemoryRate(1, 4)).toEqual({ value: 3 / 4, num: 3, den: 4 });
+    const falseMemory = falseMemoryRate(7, 10);
+    expect(falseMemory.value).toBe(falseMemory.num / falseMemory.den);
     expect(overSuppression(['a', 'b'], ['b'])).toEqual({
       value: 1 / 2,
       num: 1,
@@ -72,6 +74,15 @@ describe('curation metrics', () => {
     expect(mergePrecision(counts)).toEqual({ value: 3 / 4, num: 3, den: 4 });
     expect(mergeRecall(counts)).toEqual({ value: 3 / 5, num: 3, den: 5 });
     expect(mergeF1(counts)).toEqual({ value: 2 / 3, num: 6, den: 9 });
+    const noTruePositives = mergeF1({
+      truePositive: 0,
+      falsePositive: 2,
+      falseNegative: 1,
+    });
+    expect(noTruePositives).toEqual({ value: 0, num: 0, den: 3 });
+    expect(noTruePositives.value).toBe(
+      noTruePositives.num / noTruePositives.den,
+    );
     expect(duplicateClusterRate([1, 2, 3])).toEqual({
       value: 2 / 3,
       num: 2,
@@ -89,12 +100,14 @@ describe('curation metrics', () => {
       { deleted: true, neededAfterDeletion: true },
       { deleted: true, neededAfterDeletion: false },
       { deleted: false, neededAfterDeletion: false },
+      { deleted: false, neededAfterDeletion: true },
+      { deleted: false, archived: true, neededAfterDeletion: true },
     ];
     expect(falseDeleteRate(cases)).toEqual({ value: 1 / 2, num: 1, den: 2 });
     expect(falseRetainRate(cases)).toEqual({ value: 1 / 2, num: 1, den: 2 });
     expect(archivedThenNeededRate(cases)).toEqual({
-      value: 1 / 3,
-      num: 1,
+      value: 2 / 3,
+      num: 2,
       den: 3,
     });
   });

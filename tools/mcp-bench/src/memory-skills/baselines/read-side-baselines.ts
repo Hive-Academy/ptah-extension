@@ -16,7 +16,7 @@ import type { TranscriptMessage } from './write-side-baselines';
 /**
  * One message of a seeded session with its timestamp. The seed sessions are
  * JSONL transcripts (design :95), so every message record carries an ISO-8601
- * timestamp — ISO strings sort chronologically, so no parsing is needed.
+ * timestamp. Baseline ordering normalises it to milliseconds before comparison.
  */
 export interface TimestampedTranscriptMessage extends TranscriptMessage {
   readonly timestamp: string;
@@ -115,11 +115,14 @@ export function rawTranscriptGrepNewest(
   keywords: readonly string[],
 ): GrepHit | null {
   let winner: TimestampedTranscriptMessage | null = null;
+  let winnerTimestampMs = Number.NEGATIVE_INFINITY;
   for (const session of sessions) {
     for (const line of session) {
+      const timestampMs = parseIsoTimestamp(line.timestamp);
       if (keywordHitCount(line, keywords) > 0) {
-        if (winner === null || line.timestamp >= winner.timestamp) {
+        if (winner === null || timestampMs >= winnerTimestampMs) {
           winner = line;
+          winnerTimestampMs = timestampMs;
         }
       }
     }
@@ -146,13 +149,15 @@ export function rawTranscriptGrepTopK(
     line: TimestampedTranscriptMessage;
     index: number;
     keywordHits: number;
+    timestampMs: number;
   }[] = [];
   let index = 0;
   for (const session of sessions) {
     for (const line of session) {
+      const timestampMs = parseIsoTimestamp(line.timestamp);
       const keywordHits = keywordHitCount(line, keywords);
       if (keywordHits > 0) {
-        matches.push({ line, index, keywordHits });
+        matches.push({ line, index, keywordHits, timestampMs });
       }
       index += 1;
     }
@@ -160,14 +165,25 @@ export function rawTranscriptGrepTopK(
   const sorted = matches.sort(
     (left, right) =>
       right.keywordHits - left.keywordHits ||
-      (left.line.timestamp < right.line.timestamp
-        ? 1
-        : left.line.timestamp > right.line.timestamp
-          ? -1
-          : 0) ||
+      right.timestampMs - left.timestampMs ||
       left.index - right.index,
   );
   return sorted.slice(0, k).map((match) => toGrepHit(match.line, keywords));
+}
+
+function parseIsoTimestamp(value: string): number {
+  if (
+    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?(?:Z|[+-]\d{2}:\d{2})$/u.test(
+      value,
+    )
+  ) {
+    throw new RangeError(`Expected an ISO-8601 timestamp, received ${value}.`);
+  }
+  const timestampMs = Date.parse(value);
+  if (Number.isNaN(timestampMs)) {
+    throw new RangeError(`Expected an ISO-8601 timestamp, received ${value}.`);
+  }
+  return timestampMs;
 }
 
 function toGrepHit(

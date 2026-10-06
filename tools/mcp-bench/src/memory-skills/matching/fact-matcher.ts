@@ -33,6 +33,7 @@ export function matchesFact(
   );
   if (fact.forbiddenTokens.some((token) => containsToken(haystack, token)))
     return false;
+  if (fact.keyTokens.length === 0) return false;
   return fact.keyTokens.every((alternates) =>
     alternates.some((token) => containsToken(haystack, token)),
   );
@@ -40,5 +41,9 @@ export function matchesFact(
 
 function containsToken(haystack: string, token: string): boolean {
   const normalized = normalizeFactText(token);
-  return normalized.length > 0 && haystack.includes(normalized);
+  if (normalized.length === 0) return false;
+  if (/^[a-z0-9]+$/iu.test(normalized)) {
+    return new RegExp(`\\b${normalized}\\b`, 'u').test(haystack);
+  }
+  return haystack.includes(normalized);
 }

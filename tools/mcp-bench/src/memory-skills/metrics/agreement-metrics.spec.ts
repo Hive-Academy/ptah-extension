@@ -25,7 +25,8 @@ describe('agreement metrics', () => {
         options,
       ).value,
     ).toBeCloseTo(0.5, 12);
-    // Weighted disagreement observed 1/6, expected 1/3 (uniform marginals).
+    // On the fixed 0..10 scale, observed disagreement is 1/150 and expected
+    // disagreement from the uniform 0/1/2 marginals is 1/75.
     expect(
       quadraticWeightedKappa(
         { a: 0, b: 1, c: 2 },
@@ -33,6 +34,25 @@ describe('agreement metrics', () => {
         options,
       ).value,
     ).toBeCloseTo(0.5, 12);
+  });
+
+  it('uses fixed score distances rather than compressing sparse categories', () => {
+    const compact = quadraticWeightedKappa(
+      { a: 0, b: 1, c: 2 },
+      { a: 0, b: 2, c: 1 },
+      options,
+    );
+    const sparse = quadraticWeightedKappa(
+      { a: 0, b: 1, c: 10 },
+      { a: 0, b: 10, c: 1 },
+      options,
+    );
+    expect(compact.value).not.toBeNull();
+    expect(sparse.value).not.toBeNull();
+    if (compact.value === null || sparse.value === null) {
+      throw new Error('Expected non-constant score vectors to produce kappa.');
+    }
+    expect(sparse.value).not.toBeCloseTo(compact.value, 12);
   });
 
   it('reports constant vectors and n < 2 as undefined', () => {

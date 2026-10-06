@@ -6,10 +6,10 @@ jest.mock('vscode', () => ({}), { virtual: true });
 import {
   DAY_MS,
   MEMORY_LIFECYCLE_DEFAULTS,
+  RETENTION_CAP_EVICTION_GRACE_MS,
 } from '@ptah-extension/memory-curator';
 import {
   ageOnlyPolicy,
-  DEFAULT_RETENTION_POLICY_SETTINGS,
   MemoryFactKind,
   noLifecyclePolicy,
   oracleRetentionPolicy,
@@ -17,6 +17,7 @@ import {
   RetentionDecision,
   RetentionTier,
 } from './retention-policies';
+import { DEFAULT_RETENTION_POLICY_SETTINGS } from './retention-policy-defaults';
 
 const NOW = 1_800_000_000_000;
 
@@ -49,6 +50,7 @@ describe('settings (design 190)', () => {
       archiveAfterDays: 30,
       deleteAfterDays: 60,
       maxPerWorkspace: 25_000,
+      capEvictionGraceMs: RETENTION_CAP_EVICTION_GRACE_MS,
     });
     expect(DEFAULT_RETENTION_POLICY_SETTINGS.archiveAfterDays).toBe(
       MEMORY_LIFECYCLE_DEFAULTS.archiveAfterDays,
@@ -58,6 +60,9 @@ describe('settings (design 190)', () => {
     );
     expect(DEFAULT_RETENTION_POLICY_SETTINGS.maxPerWorkspace).toBe(
       MEMORY_LIFECYCLE_DEFAULTS.maxPerWorkspace,
+    );
+    expect(DEFAULT_RETENTION_POLICY_SETTINGS.capEvictionGraceMs).toBe(
+      RETENTION_CAP_EVICTION_GRACE_MS,
     );
   });
 });
@@ -72,7 +77,9 @@ describe('noLifecyclePolicy (design 190)', () => {
         archivedAtMs: NOW - 400 * DAY_MS,
       }),
     ];
-    expect(noLifecyclePolicy(rows, NOW)).toEqual({
+    expect(
+      noLifecyclePolicy(rows, NOW, DEFAULT_RETENTION_POLICY_SETTINGS),
+    ).toEqual({
       archived: [],
       deleted: [],
       evicted: [],
@@ -87,11 +94,13 @@ describe('ageOnlyPolicy (design 190, the current product policy)', () => {
       row({ id: 'boundary', lastUsedAtMs: NOW - 30 * DAY_MS }),
       row({ id: 'fresh', lastUsedAtMs: NOW - 29 * DAY_MS }),
     ];
-    expect(ageOnlyPolicy(rows, NOW)).toEqual({
-      archived: ['old'],
-      deleted: [],
-      evicted: [],
-    });
+    expect(ageOnlyPolicy(rows, NOW, DEFAULT_RETENTION_POLICY_SETTINGS)).toEqual(
+      {
+        archived: ['old'],
+        deleted: [],
+        evicted: [],
+      },
+    );
   });
 
   it('deletes archival rows archived longer than deleteAfterDays and not at the boundary', () => {
@@ -112,11 +121,13 @@ describe('ageOnlyPolicy (design 190, the current product policy)', () => {
         archivedAtMs: NOW - 59 * DAY_MS,
       }),
     ];
-    expect(ageOnlyPolicy(rows, NOW)).toEqual({
-      archived: [],
-      deleted: ['delete-me'],
-      evicted: [],
-    });
+    expect(ageOnlyPolicy(rows, NOW, DEFAULT_RETENTION_POLICY_SETTINGS)).toEqual(
+      {
+        archived: [],
+        deleted: ['delete-me'],
+        evicted: [],
+      },
+    );
   });
 
   it('never touches pinned rows or core-tier rows, any age', () => {
@@ -134,28 +145,33 @@ describe('ageOnlyPolicy (design 190, the current product policy)', () => {
       }),
       row({ id: 'core', tier: 'core', lastUsedAtMs: NOW - 400 * DAY_MS }),
     ];
-    expect(ageOnlyPolicy(rows, NOW)).toEqual({
-      archived: [],
-      deleted: [],
-      evicted: [],
-    });
+    expect(ageOnlyPolicy(rows, NOW, DEFAULT_RETENTION_POLICY_SETTINGS)).toEqual(
+      {
+        archived: [],
+        deleted: [],
+        evicted: [],
+      },
+    );
   });
 
   it('keeps an archival row without archived_at, like NULL in the product SQL', () => {
     const rows = [
       row({ id: 'no-stamp', tier: 'archival', archivedAtMs: null }),
     ];
-    expect(ageOnlyPolicy(rows, NOW)).toEqual({
-      archived: [],
-      deleted: [],
-      evicted: [],
-    });
+    expect(ageOnlyPolicy(rows, NOW, DEFAULT_RETENTION_POLICY_SETTINGS)).toEqual(
+      {
+        archived: [],
+        deleted: [],
+        evicted: [],
+      },
+    );
   });
 
   it('honours custom settings when the suite varies the thresholds', () => {
     const rows = [row({ id: 'old', lastUsedAtMs: NOW - 40 * DAY_MS })];
     expect(
       ageOnlyPolicy(rows, NOW, {
+        ...DEFAULT_RETENTION_POLICY_SETTINGS,
         archiveAfterDays: 10,
         deleteAfterDays: 20,
         maxPerWorkspace: 25_000,
@@ -163,6 +179,7 @@ describe('ageOnlyPolicy (design 190, the current product policy)', () => {
     ).toEqual(['old']);
     expect(
       ageOnlyPolicy(rows, NOW, {
+        ...DEFAULT_RETENTION_POLICY_SETTINGS,
         archiveAfterDays: 50,
         deleteAfterDays: 100,
         maxPerWorkspace: 25_000,
@@ -191,6 +208,7 @@ describe('ageOnlyPolicy (design 190, the current product policy)', () => {
     // oldest last_used_at first; the recall tier alone is not over the cap
     expect(
       ageOnlyPolicy(rows, NOW, {
+        ...DEFAULT_RETENTION_POLICY_SETTINGS,
         archiveAfterDays: 30,
         deleteAfterDays: 60,
         maxPerWorkspace: 2,
@@ -213,6 +231,7 @@ describe('ageOnlyPolicy (design 190, the current product policy)', () => {
     // does
     expect(
       ageOnlyPolicy(rows, NOW, {
+        ...DEFAULT_RETENTION_POLICY_SETTINGS,
         archiveAfterDays: 30,
         deleteAfterDays: 60,
         maxPerWorkspace: 1,
@@ -234,6 +253,7 @@ describe('ageOnlyPolicy (design 190, the current product policy)', () => {
     // tier (two rows) alone exceeds the cap by one, oldest last_used_at first
     expect(
       ageOnlyPolicy(rows, NOW, {
+        ...DEFAULT_RETENTION_POLICY_SETTINGS,
         archiveAfterDays: 30,
         deleteAfterDays: 60,
         maxPerWorkspace: 1,
@@ -247,6 +267,7 @@ describe('ageOnlyPolicy (design 190, the current product policy)', () => {
       row({ id: 'fresh', lastUsedAtMs: NOW - DAY_MS }),
     ];
     const decision = ageOnlyPolicy(rows, NOW, {
+      ...DEFAULT_RETENTION_POLICY_SETTINGS,
       archiveAfterDays: 30,
       deleteAfterDays: 60,
       maxPerWorkspace: 1,
@@ -285,6 +306,7 @@ describe('ageOnlyPolicy (design 190, the current product policy)', () => {
     // sits alone at its cap
     expect(
       ageOnlyPolicy(rows, NOW, {
+        ...DEFAULT_RETENTION_POLICY_SETTINGS,
         archiveAfterDays: 30,
         deleteAfterDays: 60,
         maxPerWorkspace: 1,
@@ -313,6 +335,7 @@ describe('ageOnlyPolicy (design 190, the current product policy)', () => {
     ];
     expect(
       ageOnlyPolicy(rows, NOW, {
+        ...DEFAULT_RETENTION_POLICY_SETTINGS,
         archiveAfterDays: 30,
         deleteAfterDays: 60,
         maxPerWorkspace: 1,
@@ -323,6 +346,7 @@ describe('ageOnlyPolicy (design 190, the current product policy)', () => {
 
 describe('oracleRetentionPolicy (design 190, the ceiling)', () => {
   const settings = {
+    ...DEFAULT_RETENTION_POLICY_SETTINGS,
     archiveAfterDays: 30,
     deleteAfterDays: 60,
     maxPerWorkspace: 25_000,
@@ -448,8 +472,16 @@ describe('oracleRetentionPolicy (design 190, the ceiling)', () => {
         }),
       ),
     );
-    const first: RetentionDecision = oracleRetentionPolicy(rows, NOW);
-    const second: RetentionDecision = oracleRetentionPolicy(rows, NOW);
+    const first: RetentionDecision = oracleRetentionPolicy(
+      rows,
+      NOW,
+      DEFAULT_RETENTION_POLICY_SETTINGS,
+    );
+    const second: RetentionDecision = oracleRetentionPolicy(
+      rows,
+      NOW,
+      DEFAULT_RETENTION_POLICY_SETTINGS,
+    );
     expect(first).toEqual(second);
   });
 });

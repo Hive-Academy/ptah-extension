@@ -101,7 +101,7 @@ export interface SlottedRow<Row> {
   readonly row: Row;
   /** Whether the row matches the slot, per the R-M4 fact matcher. */
   readonly matchesSlot: boolean;
-  /** ISO-8601 timestamp of the chunk; ISO strings sort chronologically. */
+  /** ISO-8601 timestamp of the chunk. */
   readonly createdAt: string;
 }
 
@@ -116,13 +116,31 @@ export function latestChunkWins<Row>(
   rows: readonly SlottedRow<Row>[],
 ): Row | null {
   let winner: SlottedRow<Row> | null = null;
+  let winnerTimestampMs = Number.NEGATIVE_INFINITY;
   for (const entry of rows) {
+    const timestampMs = parseIsoTimestamp(entry.createdAt);
     if (!entry.matchesSlot) continue;
-    if (winner === null || entry.createdAt >= winner.createdAt) {
+    if (winner === null || timestampMs >= winnerTimestampMs) {
       winner = entry;
+      winnerTimestampMs = timestampMs;
     }
   }
   return winner === null ? null : winner.row;
+}
+
+function parseIsoTimestamp(value: string): number {
+  if (
+    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?(?:Z|[+-]\d{2}:\d{2})$/u.test(
+      value,
+    )
+  ) {
+    throw new RangeError(`Expected an ISO-8601 timestamp, received ${value}.`);
+  }
+  const timestampMs = Date.parse(value);
+  if (Number.isNaN(timestampMs)) {
+    throw new RangeError(`Expected an ISO-8601 timestamp, received ${value}.`);
+  }
+  return timestampMs;
 }
 
 /**

@@ -110,6 +110,24 @@ describe('rawTranscriptGrepNewest (design 156)', () => {
     );
   });
 
+  it('compares parsed timestamps rather than ISO string spellings', () => {
+    const sessions: readonly (readonly TimestampedTranscriptMessage[])[] = [
+      [
+        line('2026-08-17T09:00:00Z', 'user', 'older pnpm line'),
+        line('2026-08-17T09:00:00.001Z', 'user', 'newer pnpm line'),
+      ],
+    ];
+    expect(rawTranscriptGrepNewest(sessions, ['pnpm'])?.text).toBe(
+      'newer pnpm line',
+    );
+  });
+
+  it('rejects non-ISO transcript timestamps', () => {
+    expect(() =>
+      rawTranscriptGrepNewest([[line('not-a-date', 'user', 'pnpm')]], ['pnpm']),
+    ).toThrow(RangeError);
+  });
+
   it('matches case-insensitively through the R-M4 normalisation', () => {
     expect(rawTranscriptGrepNewest(SEED_SESSIONS, ['PNPM'])?.text).toBe(
       'Noted the pnpm decision',
@@ -162,6 +180,18 @@ describe('rawTranscriptGrepTopK (design 164)', () => {
     ]);
     expect(hits[0].keywordHits).toBe(2);
     expect(hits[2].keywordHits).toBe(1);
+  });
+
+  it('orders top-K timestamp ties by parsed time', () => {
+    const sessions: readonly (readonly TimestampedTranscriptMessage[])[] = [
+      [
+        line('2026-08-17T09:00:00Z', 'user', 'older alpha'),
+        line('2026-08-17T09:00:00.001Z', 'user', 'newer alpha'),
+      ],
+    ];
+    expect(
+      rawTranscriptGrepTopK(sessions, ['alpha'], 2).map((hit) => hit.text),
+    ).toEqual(['newer alpha', 'older alpha']);
   });
 
   it('keeps the default top 5', () => {

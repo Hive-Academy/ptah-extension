@@ -130,6 +130,28 @@ describe('latestChunkWins (design 156)', () => {
       ]),
     ).toEqual({ id: 'second' });
   });
+
+  it('compares parsed timestamps and rejects non-ISO timestamps', () => {
+    expect(
+      latestChunkWins([
+        {
+          row: { id: 'older' },
+          matchesSlot: true,
+          createdAt: '2026-08-17T09:00:00Z',
+        },
+        {
+          row: { id: 'newer' },
+          matchesSlot: true,
+          createdAt: '2026-08-17T09:00:00.001Z',
+        },
+      ]),
+    ).toEqual({ id: 'newer' });
+    expect(() =>
+      latestChunkWins([
+        { row: { id: 'bad' }, matchesSlot: true, createdAt: 'not-a-date' },
+      ]),
+    ).toThrow(RangeError);
+  });
 });
 
 describe('appendOnlySeed (design 99)', () => {

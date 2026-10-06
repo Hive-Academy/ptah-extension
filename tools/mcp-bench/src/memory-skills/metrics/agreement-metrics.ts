@@ -132,25 +132,10 @@ export function quadraticWeightedKappa(
     return undefinedKappa('constant-values');
   }
 
-  const categories = [...new Set([...leftValues, ...rightValues])].sort(
-    (a, b) => a - b,
+  const observed = leftValues.map((value, index) =>
+    quadraticDisagreement(value, rightValues[index]),
   );
-  if (categories.length < 2) return undefinedKappa('constant-values');
-  const denominator = (categories.length - 1) ** 2;
-  const leftIndex = new Map(categories.map((value, index) => [value, index]));
-  const rightIndex = new Map(categories.map((value, index) => [value, index]));
-  const observed = leftValues.map(
-    (value, index) =>
-      (leftIndex.get(value)! - rightIndex.get(rightValues[index])!) ** 2 /
-      denominator,
-  );
-  const expected = expectedQuadraticDisagreement(
-    leftValues,
-    rightValues,
-    leftIndex,
-    rightIndex,
-    denominator,
-  );
+  const expected = expectedQuadraticDisagreement(leftValues, rightValues);
   if (expected === 0) return undefinedKappa('constant-values');
   const value = 1 - mean(observed) / expected;
   const contributions = observed.map((item) => 1 - item / expected);
@@ -300,19 +285,18 @@ function averageRanks(values: readonly number[]): number[] {
   return ranks;
 }
 
+function quadraticDisagreement(left: number, right: number): number {
+  return (left - right) ** 2 / 100;
+}
+
 function expectedQuadraticDisagreement(
   left: readonly number[],
   right: readonly number[],
-  leftIndex: ReadonlyMap<number, number>,
-  rightIndex: ReadonlyMap<number, number>,
-  denominator: number,
 ): number {
   let sum = 0;
   for (const leftValue of left) {
     for (const rightValue of right) {
-      sum +=
-        (leftIndex.get(leftValue)! - rightIndex.get(rightValue)!) ** 2 /
-        denominator;
+      sum += quadraticDisagreement(leftValue, rightValue);
     }
   }
   return sum / (left.length * right.length);

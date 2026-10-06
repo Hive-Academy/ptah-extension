@@ -20,6 +20,7 @@ export interface UpdateCase {
 
 export interface RetentionCase {
   deleted: boolean;
+  archived?: boolean;
   neededAfterDeletion: boolean;
 }
 
@@ -58,11 +59,12 @@ export function precision(
 
 /** False-memory rate: one minus the share of bait facts written as memory. */
 export function falseMemoryRate(writtenBaits: number, baitCount: number): Rate {
-  const baitRate = rate(writtenBaits, baitCount);
+  const num = baitCount - writtenBaits;
+  const den = baitCount;
   return {
-    value: baitRate.value === null ? null : 1 - baitRate.value,
-    num: baitCount - writtenBaits,
-    den: baitCount,
+    value: den === 0 ? null : num / den,
+    num,
+    den,
   };
 }
 
@@ -105,11 +107,10 @@ export function mergeRecall(counts: MergeCounts): Rate {
 
 // F1 = 2TP / (2TP + FP + FN), computed from the integer counts so `value`
 // is exactly `num / den` and the scorecard projection hash stays stable.
-// Undefined (null) when there is no true positive, as precision + recall is 0.
 export function mergeF1(counts: MergeCounts): Rate {
   const num = 2 * counts.truePositive;
   const den = num + counts.falsePositive + counts.falseNegative;
-  return { value: counts.truePositive === 0 ? null : num / den, num, den };
+  return { value: den === 0 ? null : num / den, num, den };
 }
 
 export function duplicateClusterRate(
@@ -151,8 +152,14 @@ export function falseRetainRate(cases: readonly RetentionCase[]): Rate {
 }
 
 export function archivedThenNeededRate(cases: readonly RetentionCase[]): Rate {
+  // benchmark-design.md §3.7: "archived-then-needed = useful rows archived
+  // on their question day". The denominator is therefore useful rows.
   return rate(
+    cases.filter(
+      (retentionCase) =>
+        (retentionCase.deleted || retentionCase.archived === true) &&
+        retentionCase.neededAfterDeletion,
+    ).length,
     cases.filter((retentionCase) => retentionCase.neededAfterDeletion).length,
-    cases.length,
   );
 }

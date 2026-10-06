@@ -18,11 +18,7 @@
  * run budgets (a pure policy has no batch limits).
  */
 
-import {
-  DAY_MS,
-  MEMORY_LIFECYCLE_DEFAULTS,
-  RETENTION_CAP_EVICTION_GRACE_MS,
-} from '@ptah-extension/memory-curator';
+const DAY_MS = 24 * 60 * 60 * 1_000;
 
 /** Tiers as the lifecycle store queries them (`memory-lifecycle.store.ts:12-48`). */
 export type RetentionTier = 'core' | 'recall' | 'archival';
@@ -60,13 +56,8 @@ export interface RetentionPolicySettings {
   readonly archiveAfterDays: number;
   readonly deleteAfterDays: number;
   readonly maxPerWorkspace: number;
+  readonly capEvictionGraceMs: number;
 }
-
-export const DEFAULT_RETENTION_POLICY_SETTINGS: RetentionPolicySettings = {
-  archiveAfterDays: MEMORY_LIFECYCLE_DEFAULTS.archiveAfterDays,
-  deleteAfterDays: MEMORY_LIFECYCLE_DEFAULTS.deleteAfterDays,
-  maxPerWorkspace: MEMORY_LIFECYCLE_DEFAULTS.maxPerWorkspace,
-};
 
 /** What one policy run decides about the rows it was given. */
 export interface RetentionDecision {
@@ -82,7 +73,7 @@ export interface RetentionDecision {
 export type RetentionPolicy = (
   rows: readonly RetentionPolicyRow[],
   nowMs: number,
-  settings?: RetentionPolicySettings,
+  settings: RetentionPolicySettings,
 ) => RetentionDecision;
 
 /**
@@ -118,7 +109,7 @@ export const noLifecyclePolicy: RetentionPolicy = () => ({
 export function ageOnlyPolicy(
   rows: readonly RetentionPolicyRow[],
   nowMs: number,
-  settings: RetentionPolicySettings = DEFAULT_RETENTION_POLICY_SETTINGS,
+  settings: RetentionPolicySettings,
 ): RetentionDecision {
   return decideRetention(rows, nowMs, settings, () => false);
 }
@@ -135,7 +126,7 @@ export function ageOnlyPolicy(
 export function oracleRetentionPolicy(
   rows: readonly RetentionPolicyRow[],
   nowMs: number,
-  settings: RetentionPolicySettings = DEFAULT_RETENTION_POLICY_SETTINGS,
+  settings: RetentionPolicySettings,
 ): RetentionDecision {
   return decideRetention(rows, nowMs, settings, (row) => {
     return row.useful || row.hits > 0;
@@ -228,7 +219,7 @@ function evictOverCap(
         (row) =>
           row.tier === 'archival' &&
           row.archivedAtMs !== null &&
-          row.archivedAtMs < nowMs - RETENTION_CAP_EVICTION_GRACE_MS,
+          row.archivedAtMs < nowMs - settings.capEvictionGraceMs,
       )
       .sort(oldestUsedFirst);
     for (const row of archival.slice(0, excess)) evicted.push(row.id);
