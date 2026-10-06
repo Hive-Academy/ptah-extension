@@ -1,6 +1,6 @@
 # Batches - TASK_2026_617
 
-Total tasks: 27 | Batches: 9 | Complete: 1/9
+Total tasks: 27 | Batches: 9 | Complete: 2/9
 
 Worktree: `D:\projects\ptah-extension\.claude-worktrees\task-617-grok-acp` (branch `feat/task-617-grok-acp`).
 Every path below is absolute inside this worktree. Never touch the main checkout.
@@ -143,7 +143,7 @@ Rules that follow for Batch 3 and 4 executors:
   direct schema import.
 - Task 4.4's barrel re-exports the loader's surface listed in D1, with types re-exported as `export type`.
 
-## Batch 2: host bundle externals for the ACP SDK — IN_PROGRESS
+## Batch 2: host bundle externals for the ACP SDK — COMPLETE (commit 0ba619bcc)
 
 - Recommended executor: devops-engineer (sub-agent)
 - Fallback executor: backend-developer
@@ -154,7 +154,7 @@ Rules that follow for Batch 3 and 4 executors:
 - Tasks: 3 | Depends on: Batch 1
 - Phase: 1 | Phase review: at the end of Batch 4
 
-### Task 2.1: Electron external plus dependency — IN_PROGRESS
+### Task 2.1: Electron external plus dependency — COMPLETE
 
 - File: `...\apps\ptah-electron\package.json`, `...\apps\ptah-electron\project.json`
 - Plan reference: implementation-plan.md:169-172, 215-216
@@ -163,13 +163,13 @@ Rules that follow for Batch 3 and 4 executors:
 - Validation notes: TASK_2026_394 (an undeclared external breaks the published app).
 - Implementation details: add it to the esbuild `external` array and to `dependencies`.
 
-### Task 2.2: CLI external plus dependency — IN_PROGRESS
+### Task 2.2: CLI external plus dependency — COMPLETE
 
 - File: `...\apps\ptah-cli\package.json`, `...\apps\ptah-cli\project.json`
 - Pattern to follow: `apps\ptah-cli\project.json:45`, `apps\ptah-cli\package.json:55`
 - Same fields as Task 2.1.
 
-### Task 2.3: TUI external — IN_PROGRESS
+### Task 2.3: TUI external — COMPLETE
 
 - File: `...\apps\ptah-tui\project.json`
 - Pattern to follow: `apps\ptah-tui\project.json:34` (external only; the TUI declares no codex dependency either)
@@ -185,7 +185,14 @@ Rules that follow for Batch 3 and 4 executors:
   in place and every build passes. The inlining and external checks move to Batch 9 verification. Do not add an
   import solely to force the SDK into a bundle.
 
-## Batch 3: process transport, update mapper, permission policy — PENDING
+### Batch 2 results
+
+Verified by the team-leader: the five config edits are on disk as listed; `@agentclientprotocol/sdk` is `1.7.0` in
+the root `package.json`, `libs\backend\cli-agent-runtime\package.json`, both app manifests, `package-lock.json` and
+`node_modules`. The four verify targets passed (`--skip-nx-cache`, then a cached re-run with exit 0 each).
+`validate-deps` lists the SDK under "in package.json but not detected in bundle", as expected until Batch 9.
+
+## Batch 3: process transport, update mapper, permission policy — IN_PROGRESS
 
 - Recommended executor: CLI lanes x 3, one per task
 - Fallback executor: backend-developer (sub-agent), sequential
@@ -197,7 +204,7 @@ Rules that follow for Batch 3 and 4 executors:
 - Tasks: 3 | Depends on: Batch 1
 - Phase: 1 | Phase review: at the end of Batch 4
 
-### Task 3.1: AcpProcessTransport — PENDING
+### Task 3.1: AcpProcessTransport — IN_PROGRESS
 
 - File: `ADP\acp\acp-process-transport.ts`, `ADP\acp\acp-process-transport.spec.ts`
 - Plan reference: implementation-plan.md:221-248
@@ -207,7 +214,7 @@ Rules that follow for Batch 3 and 4 executors:
 - Validation notes: edge cases for oversized stderr and a spawn error (`exited` = `{code:null, signal:'error'}`).
 - Implementation details: the spec uses a real `node -e` echo child; `killProcessTree` is mocked.
 
-### Task 3.2: AcpSessionUpdateMapper plus mapStopReason plus fixtures — PENDING
+### Task 3.2: AcpSessionUpdateMapper plus mapStopReason plus fixtures — IN_PROGRESS
 
 - File: `ADP\acp\acp-session-update-mapper.ts`, `ADP\acp\acp-session-update-mapper.spec.ts`,
   `ADP\acp\__fixtures__\grok-*.ndjson` (11 files copied unchanged from
@@ -224,7 +231,7 @@ Rules that follow for Batch 3 and 4 executors:
   plus 0 SDK "Error handling notification" calls over the six transcripts named in amendment 7, with a negative
   control.
 
-### Task 3.3: AcpPermissionPolicy — PENDING
+### Task 3.3: AcpPermissionPolicy — IN_PROGRESS
 
 - File: `ADP\acp\acp-permission-policy.ts`, `ADP\acp\acp-permission-policy.spec.ts`
 - Plan reference: implementation-plan.md:279-301; amendment 2
