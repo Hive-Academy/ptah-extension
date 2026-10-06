@@ -46,6 +46,14 @@ export const LOWER_IS_BETTER: Readonly<Record<MetricName, boolean>> = {
   truncationRate: true,
 };
 
+export function callsPerAnswer(
+  totalCalls: number,
+  answerCount: number,
+): number {
+  if (answerCount === 0) return 0;
+  return totalCalls / answerCount;
+}
+
 /** Converts paths to a stable, workspace-relative comparison key. */
 export function normalizePath(
   value: string,
@@ -56,7 +64,9 @@ export function normalizePath(
     ? options.workspaceRoot.trim().replaceAll('\\', '/').replace(/\/+/g, '/')
     : undefined;
   const caseNormalized = normalizeDriveLetter(normalized);
-  const rootNormalized = root ? trimTrailingSlash(normalizeDriveLetter(root)) : undefined;
+  const rootNormalized = root
+    ? trimTrailingSlash(normalizeDriveLetter(root))
+    : undefined;
 
   if (!rootNormalized || !isWithinWorkspace(caseNormalized, rootNormalized)) {
     return trimLeadingDotSlash(caseNormalized);
@@ -66,11 +76,19 @@ export function normalizePath(
   return trimLeadingDotSlash(relative.replace(/^\/+/, ''));
 }
 
-export function hitAt1(answer: Answer, truth: Truth, options?: PathNormalizationOptions): number {
+export function hitAt1(
+  answer: Answer,
+  truth: Truth,
+  options?: PathNormalizationOptions,
+): number {
   return hitAtK(answer, truth, 1, options);
 }
 
-export function hitAt5(answer: Answer, truth: Truth, options?: PathNormalizationOptions): number {
+export function hitAt5(
+  answer: Answer,
+  truth: Truth,
+  options?: PathNormalizationOptions,
+): number {
   return hitAtK(answer, truth, 5, options);
 }
 
@@ -83,7 +101,9 @@ export function hitAtK(
   const prepared = prepare(answer, truth, options);
   if (prepared.abstentionScore !== undefined) return prepared.abstentionScore;
   if (prepared.truth.size === 0 || k <= 0) return 0;
-  return prepared.ranked.slice(0, k).some((item) => prepared.truth.has(item)) ? 1 : 0;
+  return prepared.ranked.slice(0, k).some((item) => prepared.truth.has(item))
+    ? 1
+    : 0;
 }
 
 export function meanReciprocalRank(
@@ -93,7 +113,9 @@ export function meanReciprocalRank(
 ): number {
   const prepared = prepare(answer, truth, options);
   if (prepared.abstentionScore !== undefined) return prepared.abstentionScore;
-  const firstMatch = prepared.ranked.findIndex((item) => prepared.truth.has(item));
+  const firstMatch = prepared.ranked.findIndex((item) =>
+    prepared.truth.has(item),
+  );
   return firstMatch === -1 ? 0 : 1 / (firstMatch + 1);
 }
 
@@ -106,14 +128,25 @@ export function recallAtK(
   const prepared = prepare(answer, truth, options);
   if (prepared.abstentionScore !== undefined) return prepared.abstentionScore;
   if (prepared.truth.size === 0 || k <= 0) return 0;
-  return countMatches(prepared.ranked.slice(0, k), prepared.truth) / prepared.truth.size;
+  return (
+    countMatches(prepared.ranked.slice(0, k), prepared.truth) /
+    prepared.truth.size
+  );
 }
 
-export function recallAtAll(answer: Answer, truth: Truth, options?: PathNormalizationOptions): number {
+export function recallAtAll(
+  answer: Answer,
+  truth: Truth,
+  options?: PathNormalizationOptions,
+): number {
   return recallAtK(answer, truth, Number.POSITIVE_INFINITY, options);
 }
 
-export function precision(answer: Answer, truth: Truth, options?: PathNormalizationOptions): number {
+export function precision(
+  answer: Answer,
+  truth: Truth,
+  options?: PathNormalizationOptions,
+): number {
   const prepared = prepare(answer, truth, options);
   if (prepared.abstentionScore !== undefined) return prepared.abstentionScore;
   if (prepared.ranked.length === 0) return 0;
@@ -147,12 +180,14 @@ export function ndcgAtK(
   const limit = Math.min(k, prepared.ranked.length);
   let dcg = 0;
   for (let index = 0; index < limit; index += 1) {
-    if (prepared.truth.has(prepared.ranked[index])) dcg += 1 / Math.log2(index + 2);
+    if (prepared.truth.has(prepared.ranked[index]))
+      dcg += 1 / Math.log2(index + 2);
   }
 
   const idealCount = Math.min(k, prepared.truth.size);
   let idcg = 0;
-  for (let index = 0; index < idealCount; index += 1) idcg += 1 / Math.log2(index + 2);
+  for (let index = 0; index < idealCount; index += 1)
+    idcg += 1 / Math.log2(index + 2);
   return idcg === 0 ? 0 : dcg / idcg;
 }
 
@@ -162,7 +197,11 @@ interface PreparedAnswer {
   abstentionScore?: number;
 }
 
-function prepare(answer: Answer, truth: Truth, options?: PathNormalizationOptions): PreparedAnswer {
+function prepare(
+  answer: Answer,
+  truth: Truth,
+  options?: PathNormalizationOptions,
+): PreparedAnswer {
   const correctAbstention = truth.abstain === true;
   if (answer.abstained || correctAbstention) {
     return {
@@ -173,7 +212,9 @@ function prepare(answer: Answer, truth: Truth, options?: PathNormalizationOption
   }
   return {
     ranked: unique(answer.ranked.map((item) => normalizePath(item, options))),
-    truth: new Set(unique(truth.items.map((item) => normalizePath(item, options)))),
+    truth: new Set(
+      unique(truth.items.map((item) => normalizePath(item, options))),
+    ),
   };
 }
 
@@ -186,7 +227,10 @@ function countMatches(ranked: string[], truth: Set<string>): number {
 }
 
 function normalizeDriveLetter(value: string): string {
-  return value.replace(/^([A-Za-z]):/, (_, drive: string) => `${drive.toLowerCase()}:`);
+  return value.replace(
+    /^([A-Za-z]):/,
+    (_, drive: string) => `${drive.toLowerCase()}:`,
+  );
 }
 
 function trimTrailingSlash(value: string): string {

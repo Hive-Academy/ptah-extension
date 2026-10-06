@@ -1,5 +1,6 @@
 import {
   Answer,
+  callsPerAnswer,
   LOWER_IS_BETTER,
   Truth,
   hitAt1,
@@ -21,7 +22,10 @@ import {
 } from './cost-metrics';
 
 describe('retrieval metrics', () => {
-  const answer: Answer = { ranked: ['miss', 'a', 'b', 'other'], abstained: false };
+  const answer: Answer = {
+    ranked: ['miss', 'a', 'b', 'other'],
+    abstained: false,
+  };
   const truth: Truth = { items: ['a', 'b'] };
 
   it('calculates hand-checked ranking metrics', () => {
@@ -33,7 +37,9 @@ describe('retrieval metrics', () => {
     expect(precision(answer, truth)).toBe(1 / 2);
     expect(strictAccuracyAtK(answer, truth, 2)).toBe(0);
     expect(strictAccuracyAtK(answer, truth, 3)).toBe(1);
-    expect(ndcgAtK(answer, truth, 3)).toBeCloseTo((1 / Math.log2(3) + 1 / 2) / (1 + 1 / Math.log2(3)));
+    expect(ndcgAtK(answer, truth, 3)).toBeCloseTo(
+      (1 / Math.log2(3) + 1 / 2) / (1 + 1 / Math.log2(3)),
+    );
   });
 
   it('returns zero for empty, non-abstention ground truth and empty rankings', () => {
@@ -57,11 +63,16 @@ describe('retrieval metrics', () => {
     expect(hitAt1(wrong, abstainTruth)).toBe(0);
     expect(precision(wrong, abstainTruth)).toBe(0);
     expect(strictAccuracyAtK(wrong, abstainTruth, 5)).toBe(0);
-    expect(hitAt1({ ranked: [], abstained: true }, { items: ['file.ts'] })).toBe(0);
+    expect(
+      hitAt1({ ranked: [], abstained: true }, { items: ['file.ts'] }),
+    ).toBe(0);
   });
 
   it('does not inflate scores for duplicate ranked results', () => {
-    const duplicateAnswer: Answer = { ranked: ['a', 'a', 'miss'], abstained: false };
+    const duplicateAnswer: Answer = {
+      ranked: ['a', 'a', 'miss'],
+      abstained: false,
+    };
     const duplicateTruth: Truth = { items: ['a', 'a'] };
     expect(recallAtAll(duplicateAnswer, duplicateTruth)).toBe(1);
     expect(precision(duplicateAnswer, duplicateTruth)).toBe(1 / 2);
@@ -70,14 +81,20 @@ describe('retrieval metrics', () => {
 
   it('normalizes separators, drive-letter case, and workspace-relative paths', () => {
     const options = { workspaceRoot: 'C:\\Repo\\Workspace' };
-    expect(normalizePath('C:\\Repo\\Workspace\\src\\file.ts', options)).toBe('src/file.ts');
-    expect(normalizePath('c:/Repo/Workspace/src/file.ts', options)).toBe('src/file.ts');
+    expect(normalizePath('C:\\Repo\\Workspace\\src\\file.ts', options)).toBe(
+      'src/file.ts',
+    );
+    expect(normalizePath('c:/Repo/Workspace/src/file.ts', options)).toBe(
+      'src/file.ts',
+    );
     expect(normalizePath('./src/file.ts', options)).toBe('src/file.ts');
-    expect(hitAt1(
-      { ranked: ['C:\\Repo\\Workspace\\src\\file.ts'], abstained: false },
-      { items: ['src/file.ts'] },
-      options,
-    )).toBe(1);
+    expect(
+      hitAt1(
+        { ranked: ['C:\\Repo\\Workspace\\src\\file.ts'], abstained: false },
+        { items: ['src/file.ts'] },
+        options,
+      ),
+    ).toBe(1);
   });
 
   it('exports the scorecard sign convention', () => {
@@ -90,7 +107,10 @@ describe('retrieval metrics', () => {
     expect(resultTokens('hello world')).toBeGreaterThan(0);
     expect(p50Latency([10, 20, 30, 40])).toBe(20);
     expect(p95Latency([10, 20, 30, 40])).toBe(40);
-    expect(p50Latency([])).toBe(0);
+    expect(p50Latency([])).toBeUndefined();
+    expect(p95Latency([])).toBeUndefined();
+    expect(callsPerAnswer(9, 4)).toBe(2.25);
+    expect(callsPerAnswer(0, 0)).toBe(0);
     const outcomes = [
       { errored: false, truncated: false },
       { errored: true, truncated: false },

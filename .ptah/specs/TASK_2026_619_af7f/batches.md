@@ -1,6 +1,6 @@
 # Batches - TASK_2026_619_af7f
 
-Total tasks: 64 | Batches: 37 | Complete: 0/37
+Total tasks: 64 | Batches: 37 | Complete: 1/37
 
 Worktree root (every path below is absolute under it):
 `D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark` (branch `fix/task-619-tool-benchmark`).
@@ -130,7 +130,7 @@ Edge cases:
 
 ---
 
-## Batch 1: mcp-bench scaffold and retrieval metrics — IN_PROGRESS
+## Batch 1: mcp-bench scaffold and retrieval metrics — COMPLETE (commit 122a9dd7b)
 
 Batch 1 Minor findings (recorded, not fixed in a fix round; each is carried by a named later task):
 
@@ -153,7 +153,7 @@ Batch 1 Minor findings (recorded, not fixed in a fix round; each is carried by a
 - Tasks: 2 | Depends on: none
 - Phase: 1 Benchmark | Phase review: code-logic (after Batch 11)
 
-### Task 1.1: Create the `mcp-bench` Nx project — IMPLEMENTED
+### Task 1.1: Create the `mcp-bench` Nx project — COMPLETE
 
 - File: D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\project.json; D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\tsconfig.json; D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\jest.config.ts
 - Plan reference: research-report.md:134-138 (B1); context.md:87-95
@@ -162,7 +162,7 @@ Batch 1 Minor findings (recorded, not fixed in a fix round; each is carried by a
 - Validation notes: confirm `nx lint mcp-bench` passes under the depConstraints. If the boundary rule blocks lib imports, report it (do not edit `eslint.config.mjs` in this batch).
 - Implementation details: the tsconfig extends `tsconfig.base.json` with `module`/`moduleResolution` matching the backend libs; the jest config uses `jest.preset.js`.
 
-### Task 1.2: Retrieval and cost metrics — IMPLEMENTED
+### Task 1.2: Retrieval and cost metrics — COMPLETE
 
 - File: D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\metrics\retrieval-metrics.ts; D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\metrics\retrieval-metrics.spec.ts; D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\metrics\cost-metrics.ts
 - Depends on: Task 1.1
@@ -179,7 +179,7 @@ Batch 1 Minor findings (recorded, not fixed in a fix round; each is carried by a
 - No per-batch review; the Phase 1 review covers it
 - The path-normalisation edge case is tested
 
-## Batch 2: Scorecard model, writers and corpus checkout — PENDING
+## Batch 2: Scorecard model, writers and corpus checkout — IN_PROGRESS
 
 - Recommended executor: CLI lane x 1
 - Fallback executor: backend-developer subagent
@@ -188,7 +188,7 @@ Batch 1 Minor findings (recorded, not fixed in a fix round; each is carried by a
 - Tasks: 2 | Depends on: 1
 - Phase: 1 Benchmark | Phase review: code-logic (after Batch 11)
 
-### Task 2.1: Scorecard types, JSON writer and Markdown writer — PENDING
+### Task 2.1: Scorecard types, JSON writer and Markdown writer — IMPLEMENTED
 
 - File: D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\scorecard\scorecard.types.ts; D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\scorecard\scorecard-writers.ts; D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\scorecard\scorecard-writers.spec.ts
 - Plan reference: research-report.md:196-223 (B8 schema), :173 (delta sign)
@@ -197,7 +197,7 @@ Batch 1 Minor findings (recorded, not fixed in a fix round; each is carried by a
 - Validation notes: `na` is never counted as pass. Validate the schema on read (zod, already a dependency). Carried from Batch 1: compute `callsPerAnswer` (declared at `retrieval-metrics.ts:25`) or remove it from `MetricName`; a suite with no latency samples reports `na`, not the 0 that `cost-metrics.ts:28-33` returns.
 - Implementation details: the output goes to `tools/mcp-bench/out/<runId>/` (gitignored) and, for committed baselines, `tools/mcp-bench/baseline/`.
 
-### Task 2.2: Pinned corpus checkout and lifecycle copy — PENDING
+### Task 2.2: Pinned corpus checkout and lifecycle copy — IMPLEMENTED
 
 - File: D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\corpus\corpus.ts; D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\corpus\corpus.spec.ts; D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\corpus.config.json
 - Plan reference: research-report.md:140-143 (B2)
@@ -252,6 +252,7 @@ Batch 1 Minor findings (recorded, not fixed in a fix round; each is carried by a
 
 ### Batch 3 verification
 
+- `npx prettier --check <every path the batch changed>` passes (lanes skipped formatting in Batches 1-2, and the commit hook does not check `tools/`)
 - Every listed artifact exists and contains the required work
 - `npx nx run-many -t typecheck,lint,test -p mcp-bench` passes, and `npx nx run mcp-bench:build-host` builds
 - Manual smoke: launch the host on the corpus, call `tools/list`, confirm `ptah_code_search_symbols` is listed and the real DB guard is unchanged
@@ -276,6 +277,7 @@ Batch 1 Minor findings (recorded, not fixed in a fix round; each is carried by a
 
 ### Batch 4 verification
 
+- `npx prettier --check <every path the batch changed>` passes (lanes skipped formatting in Batches 1-2, and the commit hook does not check `tools/`)
 - Every listed artifact exists and contains the required work
 - `npx nx run-many -t typecheck,lint,test -p mcp-bench` passes
 - The attach-mode `na` rule is tested
@@ -310,6 +312,7 @@ Batch 1 Minor findings (recorded, not fixed in a fix round; each is carried by a
 
 ### Batch 5 verification
 
+- `npx prettier --check <every path the batch changed>` passes (lanes skipped formatting in Batches 1-2, and the commit hook does not check `tools/`)
 - Every listed artifact exists and contains the required work
 - `npx nx run-many -t typecheck,lint,test -p mcp-bench` passes
 - Question files are generated for the pinned commit (counts quoted in the report)
@@ -344,6 +347,7 @@ Batch 1 Minor findings (recorded, not fixed in a fix round; each is carried by a
 
 ### Batch 6 verification
 
+- `npx prettier --check <every path the batch changed>` passes (lanes skipped formatting in Batches 1-2, and the commit hook does not check `tools/`)
 - Every listed artifact exists and contains the required work
 - `npx nx run-many -t typecheck,lint,test -p mcp-bench` passes
 - The held-out split file is committed and its size quoted
@@ -368,6 +372,7 @@ Batch 1 Minor findings (recorded, not fixed in a fix round; each is carried by a
 
 ### Batch 7 verification
 
+- `npx prettier --check <every path the batch changed>` passes (lanes skipped formatting in Batches 1-2, and the commit hook does not check `tools/`)
 - Every listed artifact exists and contains the required work
 - `npx nx run-many -t typecheck,lint,test -p mcp-bench` passes
 - The `na`-when-absent path is tested
@@ -392,6 +397,7 @@ Batch 1 Minor findings (recorded, not fixed in a fix round; each is carried by a
 
 ### Batch 8 verification
 
+- `npx prettier --check <every path the batch changed>` passes (lanes skipped formatting in Batches 1-2, and the commit hook does not check `tools/`)
 - Every listed artifact exists and contains the required work
 - `npx nx run-many -t typecheck,lint,test -p mcp-bench` passes
 
@@ -435,6 +441,7 @@ Batch 1 Minor findings (recorded, not fixed in a fix round; each is carried by a
 
 ### Batch 9 verification
 
+- `npx prettier --check <every path the batch changed>` passes (lanes skipped formatting in Batches 1-2, and the commit hook does not check `tools/`)
 - Every listed artifact exists and contains the required work
 - `npx nx run-many -t typecheck,lint,test -p mcp-bench` passes
 - `npx nx run mcp-bench:bench --host cli-headless --smoke` completes and writes the scorecard (tail it)
@@ -469,6 +476,7 @@ Batch 1 Minor findings (recorded, not fixed in a fix round; each is carried by a
 
 ### Batch 10 verification
 
+- `npx prettier --check <every path the batch changed>` passes (lanes skipped formatting in Batches 1-2, and the commit hook does not check `tools/`)
 - Every listed artifact exists and contains the required work
 - `npx nx run-many -t typecheck,lint,test -p mcp-bench` passes; `actionlint` (if available) or a YAML parse of the workflow passes
 
@@ -487,7 +495,7 @@ Batch 1 Minor findings (recorded, not fixed in a fix round; each is carried by a
 - Plan reference: research-report.md:256 (expected failures); context.md:21 ("must fail on today's code")
 - Pattern to follow: Task 9.3 output
 - Quality requirements: three full runs per host to set the noise margins; the committed baseline holds verdicts per suite; the report quotes index time, DB size and eligible-file count (research unknowns at research-report.md:329-335), and the scenario 8 reset count.
-- Validation notes: the scorecard must show failures where context.md's evidence table shows losses (symbol search, relevance, references precision, dependents `building`, edit then query, spool path). If any of these passes, report it explicitly: either the benchmark is wrong or the evidence was.
+- Validation notes: the scorecard must show failures where context.md's evidence table shows losses (symbol search, relevance, references precision, dependents `building`, edit then query, spool path). If any of these passes, report it explicitly: either the benchmark is wrong or the evidence was. Carried from Batch 2 (Minor): `countEligibleFiles` (`tools\mcp-bench\src\corpus\corpus.ts:98-115`) counts every `.ts/.tsx/.js/.jsx` file except under `.git` and `node_modules`. It applies no gitignore rules and none of the indexer's skip rules, so its number is not the product's "eligible files" (the research measured 3,860 under the indexer's rules). Before quoting the eligible-file count and the `omittedByCap` reference that Batch 12 must bring to 0, make the count use the indexer's rules: reuse its discovery predicate, or label the raw number as a raw source count and quote the indexer census next to it. Adding `corpus.ts` and its spec raises this batch's file count to 5, still under the cap.
 - Implementation details: Electron is recorded in launch mode if available, else `na` with a reason.
 
 ### Task 11.2: Link each MANDATORY claim to a scorecard suite — PENDING
@@ -502,6 +510,7 @@ Batch 1 Minor findings (recorded, not fixed in a fix round; each is carried by a
 
 ### Batch 11 verification
 
+- `npx prettier --check <every path the batch changed>` passes (lanes skipped formatting in Batches 1-2, and the commit hook does not check `tools/`)
 - Both baseline files exist; their verdicts match the Task 11.1 expectations or deviations are explained
 - `npx nx run-many -t typecheck,lint,test -p mcp-bench,@ptah-extension/vscode-lm-tools` passes
 - `npx nx run mcp-bench:gate` passes in recorded-failure mode against the new baseline
@@ -539,6 +548,7 @@ Batch 1 Minor findings (recorded, not fixed in a fix round; each is carried by a
 
 ### Batch 12 verification
 
+- `npx prettier --check <every path the batch changed>` passes (lanes skipped formatting in Batches 1-2, and the commit hook does not check `tools/`)
 - `npx nx run-many -t typecheck,lint,test -p @ptah-extension/workspace-intelligence,@ptah-extension/memory-curator` passes
 - The symbol suite smoke run shows hit@5 up from baseline; the report quotes index time and DB size
 
@@ -573,6 +583,7 @@ Batch 1 Minor findings (recorded, not fixed in a fix round; each is carried by a
 
 ### Batch 13 verification
 
+- `npx prettier --check <every path the batch changed>` passes (lanes skipped formatting in Batches 1-2, and the commit hook does not check `tools/`)
 - `npx nx run-many -t typecheck,lint,test -p @ptah-extension/thoth-runtime,@ptah-extension/cli-engine` passes
 - Lifecycle smoke: edit-then-query and add-then-query on `cli-headless` pass
 
@@ -597,6 +608,7 @@ Batch 1 Minor findings (recorded, not fixed in a fix round; each is carried by a
 
 ### Batch 14 verification
 
+- `npx prettier --check <every path the batch changed>` passes (lanes skipped formatting in Batches 1-2, and the commit hook does not check `tools/`)
 - `npx nx run-many -t typecheck,lint,test -p ptah-extension-vscode` passes
 - The preserve list is quoted in the report, item by item, with its spec name
 
@@ -631,6 +643,7 @@ Batch 1 Minor findings (recorded, not fixed in a fix round; each is carried by a
 
 ### Batch 15 verification
 
+- `npx prettier --check <every path the batch changed>` passes (lanes skipped formatting in Batches 1-2, and the commit hook does not check `tools/`)
 - `npx nx run-many -t typecheck,lint,test -p @ptah-extension/persistence-sqlite,@ptah-extension/workspace-intelligence` passes
 - Cold-start smoke: coverage is not `unknown`
 
@@ -655,6 +668,7 @@ Batch 1 Minor findings (recorded, not fixed in a fix round; each is carried by a
 
 ### Batch 16 verification
 
+- `npx prettier --check <every path the batch changed>` passes (lanes skipped formatting in Batches 1-2, and the commit hook does not check `tools/`)
 - `npx nx run-many -t typecheck,lint,test -p @ptah-extension/vscode-lm-tools` passes
 - Symbol-suite smoke shows tokens_p50 down
 
@@ -691,6 +705,7 @@ Batch 1 Minor findings (recorded, not fixed in a fix round; each is carried by a
 
 ### Batch 17 verification
 
+- `npx prettier --check <every path the batch changed>` passes (lanes skipped formatting in Batches 1-2, and the commit hook does not check `tools/`)
 - `npx nx run-many -t typecheck,lint,test -p @ptah-extension/workspace-intelligence,@ptah-extension/vscode-lm-tools` passes
 - Relevance smoke on the held-out split: recall@10 and MRR quoted against the baseline and native
 
@@ -727,6 +742,7 @@ Batch 1 Minor findings (recorded, not fixed in a fix round; each is carried by a
 
 ### Batch 18 verification
 
+- `npx prettier --check <every path the batch changed>` passes (lanes skipped formatting in Batches 1-2, and the commit hook does not check `tools/`)
 - `npx nx run-many -t typecheck,lint,test -p @ptah-extension/platform-core` passes
 
 ## Batch 19: Language-server host core and recipes TS/JS, Python, Go (Fix 4b) — PENDING
@@ -760,6 +776,7 @@ Batch 1 Minor findings (recorded, not fixed in a fix round; each is carried by a
 
 ### Batch 19 verification
 
+- `npx prettier --check <every path the batch changed>` passes (lanes skipped formatting in Batches 1-2, and the commit hook does not check `tools/`)
 - `npx nx run-many -t typecheck,lint,test -p @ptah-extension/platform-core` passes
 
 ## Batch 20: Supervisor with warm start, memory ceiling and restart budget (Fix 4c) — PENDING
@@ -783,6 +800,7 @@ Batch 1 Minor findings (recorded, not fixed in a fix round; each is carried by a
 
 ### Batch 20 verification
 
+- `npx prettier --check <every path the batch changed>` passes (lanes skipped formatting in Batches 1-2, and the commit hook does not check `tools/`)
 - `npx nx run-many -t typecheck,lint,test -p @ptah-extension/platform-core` passes
 
 ## Batch 21: Shared contract suite for `ILanguageServerHost` (Fix 4c) — PENDING
@@ -806,6 +824,7 @@ Batch 1 Minor findings (recorded, not fixed in a fix round; each is carried by a
 
 ### Batch 21 verification
 
+- `npx prettier --check <every path the batch changed>` passes (lanes skipped formatting in Batches 1-2, and the commit hook does not check `tools/`)
 - `npx nx run-many -t typecheck,lint,test -p @ptah-extension/platform-core` passes
 
 ## Batch 22: Electron and CLI adapters for the language-server host (Fix 4d) — PENDING
@@ -839,6 +858,7 @@ Batch 1 Minor findings (recorded, not fixed in a fix round; each is carried by a
 
 ### Batch 22 verification
 
+- `npx prettier --check <every path the batch changed>` passes (lanes skipped formatting in Batches 1-2, and the commit hook does not check `tools/`)
 - `npx nx run-many -t typecheck,lint,test -p @ptah-extension/platform-electron,@ptah-extension/platform-cli` passes, including the contract suite against both adapters
 
 ## Batch 23: VS Code adapter and host-entry build targets (Fix 4e) — PENDING
@@ -872,6 +892,7 @@ Batch 1 Minor findings (recorded, not fixed in a fix round; each is carried by a
 
 ### Batch 23 verification
 
+- `npx prettier --check <every path the batch changed>` passes (lanes skipped formatting in Batches 1-2, and the commit hook does not check `tools/`)
 - `npx nx run-many -t typecheck,lint,test -p @ptah-extension/platform-vscode` passes
 - `npx nx run-many -t build-language-server-host -p ptah-electron,ptah-cli,ptah-extension-vscode` builds
 
@@ -906,6 +927,7 @@ Batch 1 Minor findings (recorded, not fixed in a fix round; each is carried by a
 
 ### Batch 24 verification
 
+- `npx prettier --check <every path the batch changed>` passes (lanes skipped formatting in Batches 1-2, and the commit hook does not check `tools/`)
 - `npx nx run-many -t typecheck,lint,test -p @ptah-extension/workspace-intelligence,ptah-electron` passes
 - References/definitions smoke on `electron` (or `cli-headless` after Batch 25) quoted against the baseline
 
@@ -930,6 +952,7 @@ Batch 1 Minor findings (recorded, not fixed in a fix round; each is carried by a
 
 ### Batch 25 verification
 
+- `npx prettier --check <every path the batch changed>` passes (lanes skipped formatting in Batches 1-2, and the commit hook does not check `tools/`)
 - `npx nx run-many -t typecheck,lint,test -p @ptah-extension/cli-engine` passes
 - References smoke on `cli-headless` quoted
 
@@ -954,6 +977,7 @@ Batch 1 Minor findings (recorded, not fixed in a fix round; each is carried by a
 
 ### Batch 26 verification
 
+- `npx prettier --check <every path the batch changed>` passes (lanes skipped formatting in Batches 1-2, and the commit hook does not check `tools/`)
 - `npx nx run-many -t typecheck,lint,test -p @ptah-extension/thoth-runtime` passes
 - The scorecard references p95 on `cli-headless` quoted
 
@@ -988,6 +1012,7 @@ Batch 1 Minor findings (recorded, not fixed in a fix round; each is carried by a
 
 ### Batch 27 verification
 
+- `npx prettier --check <every path the batch changed>` passes (lanes skipped formatting in Batches 1-2, and the commit hook does not check `tools/`)
 - `npx nx run-many -t typecheck,lint,test -p @ptah-extension/persistence-sqlite,@ptah-extension/workspace-intelligence` passes
 - Dependents smoke: recall@all quoted
 
@@ -1022,6 +1047,7 @@ Batch 1 Minor findings (recorded, not fixed in a fix round; each is carried by a
 
 ### Batch 28 verification
 
+- `npx prettier --check <every path the batch changed>` passes (lanes skipped formatting in Batches 1-2, and the commit hook does not check `tools/`)
 - `npx nx run-many -t typecheck,lint,test -p @ptah-extension/vscode-lm-tools,@ptah-extension/thoth-runtime` passes
 - Dependents smoke: `building` rate is 0
 
@@ -1058,6 +1084,7 @@ Batch 1 Minor findings (recorded, not fixed in a fix round; each is carried by a
 
 ### Batch 29 verification
 
+- `npx prettier --check <every path the batch changed>` passes (lanes skipped formatting in Batches 1-2, and the commit hook does not check `tools/`)
 - `npx nx run-many -t typecheck,lint,test -p @ptah-extension/platform-core` passes
 
 ## Batch 30: Shared ripgrep engine and the VS Code adapter (Fix 6b) — PENDING
@@ -1091,6 +1118,7 @@ Batch 1 Minor findings (recorded, not fixed in a fix round; each is carried by a
 
 ### Batch 30 verification
 
+- `npx prettier --check <every path the batch changed>` passes (lanes skipped formatting in Batches 1-2, and the commit hook does not check `tools/`)
 - `npx nx run-many -t typecheck,lint,test -p @ptah-extension/platform-core,@ptah-extension/platform-vscode` passes
 
 ## Batch 31: Electron and CLI text-search adapters (Fix 6b) — PENDING
@@ -1124,6 +1152,7 @@ Batch 1 Minor findings (recorded, not fixed in a fix round; each is carried by a
 
 ### Batch 31 verification
 
+- `npx prettier --check <every path the batch changed>` passes (lanes skipped formatting in Batches 1-2, and the commit hook does not check `tools/`)
 - `npx nx run-many -t typecheck,lint,test -p @ptah-extension/platform-electron,@ptah-extension/platform-cli` passes
 
 ## Batch 32: Ripgrep packaging for Electron and CLI (Fix 6b) — PENDING
@@ -1147,6 +1176,7 @@ Batch 1 Minor findings (recorded, not fixed in a fix round; each is carried by a
 
 ### Batch 32 verification
 
+- `npx prettier --check <every path the batch changed>` passes (lanes skipped formatting in Batches 1-2, and the commit hook does not check `tools/`)
 - `npx nx run-many -t typecheck,lint -p ptah-electron,ptah-cli,ptah-extension-vscode` passes; `npx nx run ptah-electron:validate-deps` passes
 
 ## Batch 33: `ptah_search_text` service and tool (Fix 6c) — PENDING
@@ -1180,6 +1210,7 @@ Batch 1 Minor findings (recorded, not fixed in a fix round; each is carried by a
 
 ### Batch 33 verification
 
+- `npx prettier --check <every path the batch changed>` passes (lanes skipped formatting in Batches 1-2, and the commit hook does not check `tools/`)
 - `npx nx run-many -t typecheck,lint,test -p @ptah-extension/workspace-intelligence,@ptah-extension/vscode-lm-tools` passes
 - Text-suite smoke quoted (all four metrics)
 
@@ -1216,6 +1247,7 @@ Batch 1 Minor findings (recorded, not fixed in a fix round; each is carried by a
 
 ### Batch 34 verification
 
+- `npx prettier --check <every path the batch changed>` passes (lanes skipped formatting in Batches 1-2, and the commit hook does not check `tools/`)
 - `npx nx run-many -t typecheck,lint,test -p @ptah-extension/vscode-lm-tools` passes
 - Two-workspace lifecycle scenario passes
 
@@ -1240,6 +1272,7 @@ Batch 1 Minor findings (recorded, not fixed in a fix round; each is carried by a
 
 ### Batch 35 verification
 
+- `npx prettier --check <every path the batch changed>` passes (lanes skipped formatting in Batches 1-2, and the commit hook does not check `tools/`)
 - `npx nx run-many -t typecheck,lint,test -p @ptah-extension/vscode-lm-tools` passes
 - Scenario 8 reset count quoted
 
@@ -1266,6 +1299,7 @@ Batch 1 Minor findings (recorded, not fixed in a fix round; each is carried by a
 
 ### Batch 36 verification
 
+- `npx prettier --check <every path the batch changed>` passes (lanes skipped formatting in Batches 1-2, and the commit hook does not check `tools/`)
 - `npx nx run mcp-bench:gate` passes in the mixed mode
 - `npx nx run-many -t typecheck,lint,test -p mcp-bench` passes
 
@@ -1300,6 +1334,7 @@ Batch 1 Minor findings (recorded, not fixed in a fix round; each is carried by a
 
 ### Batch 37 verification
 
+- `npx prettier --check <every path the batch changed>` passes (lanes skipped formatting in Batches 1-2, and the commit hook does not check `tools/`)
 - `npx nx run-many -t typecheck,lint,test -p mcp-bench,@ptah-extension/vscode-lm-tools` passes
 - The eager set per host is quoted against the scorecard
 

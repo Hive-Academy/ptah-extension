@@ -1,0 +1,5 @@
+{
+  "repository": "../..",
+  "commit": "7910f34cf",
+  "eligibleExtensions": [".ts", ".tsx", ".js", ".jsx"]
+}
