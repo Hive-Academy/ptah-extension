@@ -16,8 +16,10 @@
  *   option. Documented fallback, deliberately not wired: inserting
  *   `--always-approve` before `--no-leader` makes Grok approve every tool
  *   itself, at the cost of the per-request policy (and of `autoApprove: false`).
- * - No per-lane environment: Grok reads `~/.grok/auth.json` or an inherited
- *   `XAI_API_KEY`, so the host environment is passed through unchanged.
+ * - No per-lane environment: Grok reads the login `grok login` writes to
+ *   `~/.grok/auth.json`, so the host environment is passed through unchanged.
+ * - The effort arrives already mapped by the lane spawn policy and is forwarded
+ *   as-is; the runner skips it when the active model does not advertise it.
  * - `_x.ai/*` (and `x.ai/*`) notifications are vendor extensions, e.g. the
  *   `retry_state` notices before a rate-limit error; they are ignored.
  */
@@ -27,7 +29,6 @@ import type {
   LaneModelSource,
 } from '../cli-adapter.interface';
 import { ptahMcpServerUrl } from '../ptah-mcp-url';
-import { mapEffortToGrok } from '../../lane-spawn-policy';
 import { readAcpErrorDetail } from '../acp';
 import type {
   AcpRequestFailure,
@@ -44,6 +45,9 @@ const JSONRPC_INVALID_PARAMS = -32602;
 const GROK_ARGS: readonly string[] = ['agent', '--no-leader', 'stdio'];
 
 const EXTENSION_NOTIFICATION = /^_?x\.ai\//;
+
+/** Grok's -32000 auth failures say "Authentication required" / "no auth method id provided". */
+const AUTH_WORDING = /auth/i;
 
 /** Where a rejected model came from, worded for the user. */
 function describeModelSource(source: LaneModelSource | undefined): string {
@@ -71,11 +75,13 @@ function describeGrokError(failure: AcpRequestFailure): string | undefined {
     return `Grok is rate limited: ${detail ?? failure.message}`;
   }
 
+  // -32000 is JSON-RPC's generic server error; only an auth wording means a
+  // missing or expired login, on any method (a token can expire mid-lane).
   if (
     failure.code === GROK_AUTH_REQUIRED &&
-    (failure.method === 'session/new' || failure.method === 'session/resume')
+    AUTH_WORDING.test(`${failure.message} ${detail ?? ''}`)
   ) {
-    return 'Grok is not signed in: run `grok login` or set XAI_API_KEY';
+    return 'Grok is not signed in: run `grok login`';
   }
 
   if (
@@ -124,11 +130,11 @@ export const grokAcpProfile: AcpVendorProfile = {
     if (options.model) {
       entries.push({ configId: 'model', value: options.model });
     }
-    const effort = options.reasoningEffort
-      ? mapEffortToGrok(options.reasoningEffort)
-      : undefined;
-    if (effort) {
-      entries.push({ configId: 'reasoning_effort', value: effort });
+    if (options.reasoningEffort) {
+      entries.push({
+        configId: 'reasoning_effort',
+        value: options.reasoningEffort,
+      });
     }
     return entries;
   },

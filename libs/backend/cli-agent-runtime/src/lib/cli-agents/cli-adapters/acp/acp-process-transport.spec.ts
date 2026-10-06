@@ -22,6 +22,7 @@ jest.mock('@ptah-extension/platform-core', () => {
 });
 
 import { spawn } from 'node:child_process';
+import { Writable } from 'node:stream';
 import type { ChildProcess } from 'node:child_process';
 import type {
   IProcessSpawner,
@@ -37,7 +38,7 @@ import { spawnAcpProcess } from './acp-process-transport';
  * A spawner over a plain `child_process.spawn` that keeps the `ChildProcess`,
  * so a spec can emit events on the real child the transport listens to.
  */
-function createRecordingSpawner(): {
+function createRecordingSpawner(stdin?: Writable): {
   spawner: IProcessSpawner;
   child: () => ChildProcess | undefined;
 } {
@@ -51,7 +52,7 @@ function createRecordingSpawner(): {
       });
       last = real;
       const handle: SpawnedProcessHandle = {
-        stdin: real.stdin,
+        stdin: stdin ?? real.stdin,
         stdout: real.stdout,
         stderr: real.stderr,
         whenSpawned: Promise.resolve(real.pid ?? null),
@@ -343,4 +344,72 @@ describe('spawnAcpProcess', () => {
       writer.write(new TextEncoder().encode('{"late":true}\n')),
     ).resolves.toBeUndefined();
   }, 15000);
+
+  describe('stdin backpressure', () => {
+    /** A stdin whose buffer is full after one chunk until `release()` is called. */
+    function createFullStdin(): { stdin: Writable; release: () => void } {
+      let pending: (() => void) | undefined;
+      const stdin = new Writable({
+        highWaterMark: 1,
+        write(_chunk, _encoding, callback) {
+          pending = () => callback();
+        },
+      });
+      return { stdin, release: () => pending?.() };
+    }
+
+    async function startWithFullStdin(full: { stdin: Writable }) {
+      const stderr = recordStderr();
+      const recording = createRecordingSpawner(full.stdin);
+      const transport = spawnAcpProcess({
+        command: process.execPath,
+        args: ['-e', WAIT_SCRIPT],
+        cwd: process.cwd(),
+        spawner: recording.spawner,
+        onStderrLine: stderr.onLine,
+      });
+      await stderr.waitFor('ready');
+      const writer = transport.stream.writable.getWriter();
+      let settled = false;
+      const write = writer
+        .write(new TextEncoder().encode('{"n":1}\n'))
+        .then(() => {
+          settled = true;
+        });
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      const finish = async (): Promise<void> => {
+        // The real child waits for its own stdin to end.
+        recording.child()?.stdin?.end();
+        await transport.exited;
+      };
+      return { write, isSettled: () => settled, finish };
+    }
+
+    it('holds a write until the full stdin drains', async () => {
+      const full = createFullStdin();
+      const run = await startWithFullStdin(full);
+
+      expect(run.isSettled()).toBe(false);
+      full.release();
+      await run.write;
+      expect(run.isSettled()).toBe(true);
+      expect(full.stdin.listenerCount('drain')).toBe(0);
+      expect(full.stdin.listenerCount('close')).toBe(0);
+
+      await run.finish();
+    }, 15000);
+
+    it('drops a held write when the full stdin closes instead of draining', async () => {
+      const full = createFullStdin();
+      const run = await startWithFullStdin(full);
+
+      expect(run.isSettled()).toBe(false);
+      full.stdin.destroy();
+      await run.write;
+      expect(run.isSettled()).toBe(true);
+      expect(full.stdin.listenerCount('drain')).toBe(0);
+
+      await run.finish();
+    }, 15000);
+  });
 });

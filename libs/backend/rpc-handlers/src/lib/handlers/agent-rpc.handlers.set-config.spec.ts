@@ -205,6 +205,26 @@ describe('grokModel setting (TASK_2026_617)', () => {
     expect(h.settings.get('ptah.agentOrchestration.grokModel')).toBe('');
     expect((await h.getConfig()).grokModel).toBe('');
   });
+
+  it('stores the model trimmed, so whitespace alone resets to the CLI default', async () => {
+    const h = makeHarness();
+    await h.setConfig({ grokModel: '  grok-4.7  ' });
+    expect(h.settings.get('ptah.agentOrchestration.grokModel')).toBe(
+      'grok-4.7',
+    );
+    await h.setConfig({ grokModel: '   ' });
+    expect(h.settings.get('ptah.agentOrchestration.grokModel')).toBe('');
+  });
+
+  it('rejects a non-string grokModel before any write', async () => {
+    const h = makeHarness();
+    await h.setConfig({ grokModel: 'grok-4' });
+    expect(await h.setConfig({ grokModel: 42 })).toEqual({
+      success: false,
+      error: 'Unsupported grokModel value',
+    });
+    expect(h.settings.get('ptah.agentOrchestration.grokModel')).toBe('grok-4');
+  });
 });
 
 describe('Codex lane budget settings (TASK_2026_597)', () => {

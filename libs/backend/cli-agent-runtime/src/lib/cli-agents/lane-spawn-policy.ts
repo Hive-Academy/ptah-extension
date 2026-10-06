@@ -165,22 +165,22 @@ function effortMapperFor(
   cli: CliType,
 ): ((effort: string) => string | undefined) | null {
   switch (cli) {
+    // Grok's `reasoning_effort` config option takes the same low..xhigh scale.
     case 'codex':
     case 'copilot':
+    case 'grok':
       return mapEffortToCli;
     case 'antigravity':
       return mapEffortToAgy;
     case 'pi':
       return mapEffortToPi;
-    case 'grok':
-      return mapEffortToGrok;
     default:
       return null;
   }
 }
 
 /**
- * Allowlist an effort value to what Codex/Copilot accept (`max` → `xhigh`).
+ * Allowlist an effort value to what Codex, Copilot and Grok accept (`max` → `xhigh`).
  * `minimal` → `low`: newer OpenAI models reject `minimal` with a 400.
  */
 function mapEffortToCli(effort: string): string | undefined {
@@ -211,28 +211,6 @@ function mapEffortToAgy(effort: string): string | undefined {
     case 'xhigh':
     case 'max':
       return 'high';
-    default:
-      return undefined;
-  }
-}
-
-/**
- * Clamp an effort value onto the `low|medium|high|xhigh` scale Grok advertises
- * for its `reasoning_effort` session config option (`minimal` → `low`,
- * `max` → `xhigh`). Exported for the Grok ACP profile, which applies the value
- * through `session/set_config_option` rather than a spawn flag.
- */
-export function mapEffortToGrok(effort: string): string | undefined {
-  switch (effort) {
-    case 'low':
-    case 'medium':
-    case 'high':
-    case 'xhigh':
-      return effort;
-    case 'minimal':
-      return 'low';
-    case 'max':
-      return 'xhigh';
     default:
       return undefined;
   }

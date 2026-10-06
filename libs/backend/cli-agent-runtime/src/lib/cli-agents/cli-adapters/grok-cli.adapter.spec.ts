@@ -208,6 +208,18 @@ describe('GrokCliAdapter', () => {
       ]);
     });
 
+    it('takes the first token of a row with trailing description text', () => {
+      const raw = [
+        'Available models:',
+        '  * grok-4.7 - frontier model (default)',
+        '    grok-code-fast   fast coding model',
+      ].join('\n');
+      expect(parseGrokModels(raw).map((m) => m.id)).toEqual([
+        'grok-4.7',
+        'grok-code-fast',
+      ]);
+    });
+
     it('falls back to the default model when no rows are listed', () => {
       expect(parseGrokModels('Default model: grok-4.7\n')).toEqual([
         { id: 'grok-4.7', name: 'grok-4.7' },
@@ -302,18 +314,26 @@ describe('GrokCliAdapter', () => {
       expect(path.replace(/\\/g, '/')).toMatch(/\/\.grok\/auth\.json$/);
     });
 
-    it('is true when XAI_API_KEY is set and auth.json is missing', async () => {
+    it('ignores XAI_API_KEY: false when auth.json is missing', async () => {
       mockReadFile.mockRejectedValue(new Error('ENOENT'));
       process.env['XAI_API_KEY'] = 'xai-test';
-      await expect(adapter.ensureTokensFresh()).resolves.toBe(true);
+      await expect(adapter.ensureTokensFresh()).resolves.toBe(false);
     });
 
-    it('is false with a malformed auth.json and no XAI_API_KEY', async () => {
+    it('is false with a malformed auth.json', async () => {
       mockReadFile.mockResolvedValue('{not json');
       await expect(adapter.ensureTokensFresh()).resolves.toBe(false);
     });
 
-    it('is false with neither credential', async () => {
+    it.each(['{}', '[]', '["grok.com"]', 'null', '"token"'])(
+      'is false when auth.json parses to %s (not a non-empty object)',
+      async (content) => {
+        mockReadFile.mockResolvedValue(content);
+        await expect(adapter.ensureTokensFresh()).resolves.toBe(false);
+      },
+    );
+
+    it('is false with no login at all', async () => {
       mockReadFile.mockRejectedValue(new Error('ENOENT'));
       await expect(adapter.ensureTokensFresh()).resolves.toBe(false);
     });
@@ -398,7 +418,8 @@ describe('GrokCliAdapter', () => {
         mcpPort: 51820,
         agentId: 'agent-9',
         model: 'grok-4.7',
-        reasoningEffort: 'max',
+        // Already mapped by the lane spawn policy (`max` → `xhigh`).
+        reasoningEffort: 'xhigh',
       });
       const segments: CliOutputSegment[] = [];
       const output: string[] = [];

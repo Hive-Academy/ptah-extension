@@ -12,8 +12,8 @@
  * steer and no interrupt. A further message is a new `session/prompt` on the
  * same session (continuation).
  *
- * Credentials are Grok's own (`grok login` → `~/.grok/auth.json`, or an
- * inherited `XAI_API_KEY`); Ptah stores none and passes no per-lane env.
+ * Credentials are Grok's own (`grok login` → `~/.grok/auth.json`); Ptah
+ * stores none and passes no per-lane env.
  */
 import { readFile } from 'fs/promises';
 import { homedir } from 'os';
@@ -32,9 +32,9 @@ import { bestMessagingCapability } from './cli-adapter.interface';
 import {
   probeCliVersion,
   resolveCliPath,
-  spawnCli,
   stripAnsiCodes,
 } from './cli-adapter.utils';
+import { probeCliStdout } from './cli-stdout-probe';
 import { createAcpSessionHandle } from './acp';
 import { grokAcpProfile } from './grok/grok-acp-profile';
 
@@ -56,10 +56,12 @@ const MODEL_ID = /^[A-Za-z0-9][\w.:/-]*$/;
  *   * grok-4.7 (default)
  * ```
  *
- * Each indented row under `Available models:` is `<marker> <id>[ (default)]`;
- * the marker of a non-default row was not observed, so any leading `*`/`-`
- * marker is optional. With no model rows, the `Default model:` value alone is
- * returned. Anything unrecognised yields an empty list; this never throws.
+ * Each indented row under `Available models:` is `<marker> <id>[ ...]`; the
+ * id is the first token, and anything after it (` (default)`, a description)
+ * is ignored. The marker of a non-default row was not observed, so any leading
+ * `*`/`-` marker is optional. With no model rows, the `Default model:` value
+ * alone is returned. Anything unrecognised yields an empty list; this never
+ * throws.
  */
 export function parseGrokModels(raw: string): CliModelInfo[] {
   const lines = stripAnsiCodes(raw).split(/\r?\n/);
@@ -84,7 +86,7 @@ export function parseGrokModels(raw: string): CliModelInfo[] {
       inList = false;
       continue;
     }
-    const row = /^(?:[*\->•]\s*)?(\S+)(?:\s+\(default\))?\s*$/.exec(trimmed);
+    const row = /^(?:[*\->•]\s*)?(\S+)/.exec(trimmed);
     if (row && MODEL_ID.test(row[1]) && !ids.includes(row[1])) {
       ids.push(row[1]);
     }
@@ -154,40 +156,10 @@ export class GrokCliAdapter implements CliAdapter {
 
   /** Run `grok models` and capture stdout. Never throws: undefined on timeout, error or no output. */
   private probeModels(binary: string): Promise<string | undefined> {
-    return new Promise((resolve) => {
-      let spawned: ReturnType<typeof spawnCli> | undefined;
-      try {
-        spawned = spawnCli(binary, ['models'], { spawner: this.spawner });
-      } catch (error: unknown) {
-        // spawnCli refuses an over-long command line synchronously.
-        this.logger?.warn('[GrokCliAdapter] grok models could not start', {
-          command: binary,
-          error: error instanceof Error ? error.message : String(error),
-        });
-      }
-      if (!spawned) {
-        resolve(undefined);
-        return;
-      }
-      const child = spawned;
-      let stdout = '';
-      const timer = setTimeout(() => {
-        child.kill();
-        resolve(undefined);
-      }, GROK_MODELS_TIMEOUT_MS);
-
-      child.stdout?.setEncoding('utf8');
-      child.stdout?.on('data', (data: string) => {
-        stdout += data;
-      });
-      child.on('close', () => {
-        clearTimeout(timer);
-        resolve(stdout.trim() || undefined);
-      });
-      child.on('error', () => {
-        clearTimeout(timer);
-        resolve(undefined);
-      });
+    return probeCliStdout(binary, ['models'], {
+      spawner: this.spawner,
+      timeoutMs: GROK_MODELS_TIMEOUT_MS,
+      logger: this.logger,
     });
   }
 
@@ -201,19 +173,29 @@ export class GrokCliAdapter implements CliAdapter {
   }
 
   /**
-   * Whether Grok has usable credentials: `~/.grok/auth.json` exists and parses,
-   * or `XAI_API_KEY` is set. Nothing is refreshed; Grok manages its own login.
+   * Whether Grok has a login: `~/.grok/auth.json` parses to a non-empty object.
+   * Nothing is refreshed; Grok manages its own login. An API key in the
+   * environment is not counted: `grok agent stdio` was never verified to
+   * accept one.
    */
   async ensureTokensFresh(): Promise<boolean> {
+    let signedIn = false;
     try {
       const parsed: unknown = JSON.parse(
         await readFile(GrokCliAdapter.getAuthPath(), 'utf8'),
       );
-      if (typeof parsed === 'object' && parsed !== null) return true;
-    } catch {
-      // Missing or malformed auth.json: fall through to the env-var check.
+      signedIn =
+        typeof parsed === 'object' &&
+        parsed !== null &&
+        !Array.isArray(parsed) &&
+        Object.keys(parsed).length > 0;
+    } catch (error: unknown) {
+      // Missing or malformed auth.json: reported as not signed in.
+      this.logger?.debug('[GrokCliAdapter] no readable Grok login', {
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
-    return !!process.env['XAI_API_KEY'];
+    return signedIn;
   }
 
   /**

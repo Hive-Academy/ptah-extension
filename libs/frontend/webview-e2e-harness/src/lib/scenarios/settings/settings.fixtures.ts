@@ -158,6 +158,7 @@ export const AGENT_CONFIG_FIXTURE = {
       messagingMode: 'none',
     },
     { cli: 'pi', installed: false, messagingMode: 'none' },
+    { cli: 'grok', installed: true, version: '1.0.46', messagingMode: 'queue' },
     {
       cli: 'ptah-cli',
       installed: true,

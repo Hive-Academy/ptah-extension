@@ -2,7 +2,6 @@ import {
   CODEX_LANE_DEFAULT_MODEL,
   findBlockedLaneModel,
   isReviewerOrTester,
-  mapEffortToGrok,
   resolveLaneEffort,
   resolveLaneModel,
 } from './lane-spawn-policy';
@@ -307,13 +306,14 @@ describe('lane spawn policy (TASK_2026_597, D4)', () => {
           step: 1,
           ignored: [],
         });
-        expect(mapEffortToGrok(spawnEffort)).toBe(expected);
       });
 
       it.each(['off', 'inherit', '', 'ultra'])(
         "gives grok no effort for '%s'",
         (value) => {
-          expect(mapEffortToGrok(value)).toBeUndefined();
+          expect(
+            resolveLaneEffort({ cli: 'grok', spawnEffort: value }).effort,
+          ).toBeUndefined();
         },
       );
 

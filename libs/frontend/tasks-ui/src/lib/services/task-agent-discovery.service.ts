@@ -1,5 +1,6 @@
 import { Injectable, inject, signal } from '@angular/core';
 import { ClaudeRpcService } from '@ptah-extension/core';
+import type { CliType } from '@ptah-extension/shared';
 import type { TaskAgentTarget } from '../types/task-agent.types';
 
 const ORCHESTRATOR_TARGET: TaskAgentTarget = {
@@ -9,7 +10,7 @@ const ORCHESTRATOR_TARGET: TaskAgentTarget = {
   description: 'Run the full task orchestration pipeline.',
 };
 
-const CLI_DISPLAY_NAMES: Readonly<Record<string, string>> = {
+const CLI_DISPLAY_NAMES: Readonly<Record<CliType, string>> = {
   codex: 'Codex',
   copilot: 'Copilot',
   cursor: 'Cursor',

@@ -326,6 +326,22 @@ export const spawnAcpProcess: AcpTransportFactory = (
   /** Set once `resolveDirectSpawn`/`spawnCli` refused the spawn outright. */
   let spawnFailed = false;
 
+  /** Resolve on the first of 'drain', 'close' or 'error', then detach all three. */
+  const resolveWhenDrained = (
+    stdin: NodeJS.WritableStream,
+    resolve: () => void,
+  ): void => {
+    const settle = (): void => {
+      stdin.removeListener('drain', settle);
+      stdin.removeListener('close', settle);
+      stdin.removeListener('error', settle);
+      resolve();
+    };
+    stdin.once('drain', settle);
+    stdin.once('close', settle);
+    stdin.once('error', settle);
+  };
+
   const flushWrites = (): void => {
     for (;;) {
       const next = pendingWrites[0];
@@ -342,12 +358,19 @@ export const spawnAcpProcess: AcpTransportFactory = (
       }
       const stdin = child.stdin;
       pendingWrites.shift();
+      let accepted = true;
       if (stdin?.writable) {
         try {
-          stdin.write(next.chunk);
+          accepted = stdin.write(next.chunk);
         } catch {
           // EPIPE mid-write; the no-op stdin 'error' listener owns the event.
         }
+      }
+      if (!accepted && stdin) {
+        // Backpressure: hold the SDK's next write until the pipe drains, or
+        // until stdin closes or fails (then the write is dropped as below).
+        resolveWhenDrained(stdin, next.resolve);
+        continue;
       }
       // A closed stdin (child exiting, or a write after exit) drops the write
       // instead of throwing into the SDK.

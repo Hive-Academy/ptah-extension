@@ -661,6 +661,82 @@ describe('createAcpSessionHandle — session config (R6)', () => {
     expect(h.transport.killCount).toBe(1);
     expect(h.handle.supportsContinuation?.()).toBe(false);
   });
+
+  const effortOption = (values: readonly string[]) => ({
+    id: 'reasoning_effort',
+    name: 'Reasoning effort',
+    type: 'select',
+    currentValue: values[0],
+    options: values.map((value) => ({ value, name: value })),
+  });
+
+  it('skips an effort the session does not advertise with an info and still runs the lane', async () => {
+    const h = start({
+      agent: { configOptions: [MODEL_OPTION, effortOption(['high'])] },
+      profile: {
+        sessionConfig: () => [{ configId: 'reasoning_effort', value: 'xhigh' }],
+      },
+    });
+
+    await expect(h.handle.done).resolves.toBe(0);
+
+    expect(sent(h.agent, 'session/set_config_option')).toHaveLength(0);
+    expect(sent(h.agent, 'session/prompt')).toHaveLength(1);
+    expect(h.infos()).toEqual([
+      `${NAME} does not offer xhigh for "reasoning_effort" (available: high), so it was not applied`,
+    ]);
+    expect(h.errors()).toEqual([]);
+  });
+
+  it('validates the effort against the options returned by the model change', async () => {
+    const h = start({
+      agent: {
+        configOptions: [MODEL_OPTION, effortOption(['high', 'xhigh'])],
+      },
+      profile: {
+        sessionConfig: () => [
+          { configId: 'model', value: 'model-b' },
+          { configId: 'reasoning_effort', value: 'xhigh' },
+        ],
+      },
+      script: (agent) =>
+        agent.handle('session/set_config_option', () => ({
+          result: { configOptions: [MODEL_OPTION, effortOption(['high'])] },
+        })),
+    });
+
+    await expect(h.handle.done).resolves.toBe(0);
+
+    expect(sent(h.agent, 'session/set_config_option').map(paramsOf)).toEqual([
+      { sessionId: SESSION_ID, configId: 'model', value: 'model-b' },
+    ]);
+    expect(h.infos()).toEqual([
+      `${NAME} does not offer xhigh for "reasoning_effort" (available: high), so it was not applied`,
+    ]);
+  });
+
+  it('continues the lane with an info when the agent rejects the effort', async () => {
+    const h = start({
+      agent: { configOptions: [MODEL_OPTION, effortOption(['high'])] },
+      profile: {
+        sessionConfig: () => [{ configId: 'reasoning_effort', value: 'high' }],
+      },
+      script: (agent) =>
+        agent.handle('session/set_config_option', () => ({
+          error: { code: -32602, message: 'Invalid params' },
+        })),
+    });
+
+    await expect(h.handle.done).resolves.toBe(0);
+
+    expect(sent(h.agent, 'session/prompt')).toHaveLength(1);
+    expect(h.errors()).toEqual([]);
+    expect(h.infos()).toEqual([
+      expect.stringContaining(
+        'continuing without the "reasoning_effort" setting',
+      ),
+    ]);
+  });
 });
 
 describe('createAcpSessionHandle — error rows', () => {

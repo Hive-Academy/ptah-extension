@@ -140,26 +140,20 @@ describe('grokAcpProfile', () => {
     const sessionConfig = grokAcpProfile.sessionConfig;
     if (!sessionConfig) throw new Error('grokAcpProfile.sessionConfig missing');
 
-    it('sets the model and the mapped effort', () => {
+    it('sets the model and forwards the already-mapped effort as-is', () => {
       expect(
         sessionConfig({
           ...BASE_OPTIONS,
           model: 'grok-4.7',
-          reasoningEffort: 'max',
+          reasoningEffort: 'xhigh',
         }),
       ).toEqual([
         { configId: 'model', value: 'grok-4.7' },
         { configId: 'reasoning_effort', value: 'xhigh' },
       ]);
-    });
-
-    it('clamps minimal to low and drops an effort Grok has no value for', () => {
       expect(
-        sessionConfig({ ...BASE_OPTIONS, reasoningEffort: 'minimal' }),
+        sessionConfig({ ...BASE_OPTIONS, reasoningEffort: 'low' }),
       ).toEqual([{ configId: 'reasoning_effort', value: 'low' }]);
-      expect(
-        sessionConfig({ ...BASE_OPTIONS, reasoningEffort: 'turbo' }),
-      ).toEqual([]);
     });
 
     it('applies nothing when neither model nor effort is set', () => {
@@ -231,17 +225,40 @@ describe('grokAcpProfile', () => {
       ).toBe('Grok is rate limited: Rate limited');
     });
 
-    it('-32000 on session/new and session/resume asks for a sign-in', () => {
-      const error = fixtureError('grok-p3-signed-out.ndjson', 'session/new');
-      expect(error.code).toBe(-32000);
-      const expected =
-        'Grok is not signed in: run `grok login` or set XAI_API_KEY';
-      expect(describe_(failure({ method: 'session/new', ...error }))).toBe(
-        expected,
-      );
-      expect(describe_(failure({ method: 'session/resume', ...error }))).toBe(
-        expected,
-      );
+    it.each(['session/new', 'session/resume', 'session/prompt'] as const)(
+      '-32000 with the signed-out auth wording on %s asks for `grok login`',
+      (method) => {
+        const error = fixtureError('grok-p3-signed-out.ndjson', 'session/new');
+        expect(error.code).toBe(-32000);
+        expect(describe_(failure({ ...error, method }))).toBe(
+          'Grok is not signed in: run `grok login`',
+        );
+      },
+    );
+
+    it('-32000 matches the auth wording in the message alone', () => {
+      expect(
+        describe_(
+          failure({
+            method: 'session/prompt',
+            code: -32000,
+            message: 'Authentication required',
+          }),
+        ),
+      ).toBe('Grok is not signed in: run `grok login`');
+    });
+
+    it('-32000 without auth wording falls through to the generic text', () => {
+      expect(
+        describe_(
+          failure({
+            method: 'session/new',
+            code: -32000,
+            message: 'Internal server error',
+            data: 'workspace index failed',
+          }),
+        ),
+      ).toBeUndefined();
     });
 
     it('-32602 on the model config names the model, its source and the advertised values', () => {

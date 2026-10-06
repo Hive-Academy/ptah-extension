@@ -456,7 +456,13 @@ export function createAcpSessionHandle(
     return { ok: false, reason };
   };
 
-  /** Apply the profile's config entries that the session advertises (R6). */
+  /**
+   * Apply the profile's config entries that the session advertises (R6).
+   * Only the model is binding: a rejected model fails the turn. Any other
+   * entry (e.g. the reasoning effort, whose allowed values vary per model) is
+   * a hint, skipped with an info when the value is not advertised or when the
+   * agent rejects it.
+   */
   const applySessionConfig = async (
     conn: AcpConnectionApi,
     id: string,
@@ -464,11 +470,25 @@ export function createAcpSessionHandle(
   ): Promise<void> => {
     const entries: readonly AcpSessionConfigEntry[] =
       profile.sessionConfig?.(options) ?? [];
+    let current = advertised;
     for (const entry of entries) {
-      const option = advertised.find((item) => item['id'] === entry.configId);
+      const binding = entry.configId === 'model';
+      const option = current.find((item) => item['id'] === entry.configId);
       if (!option) {
         emitInfo(
           `${name} does not offer the "${entry.configId}" setting, so ${String(entry.value)} was not applied`,
+        );
+        continue;
+      }
+      const values = advertisedValuesOf(option);
+      if (
+        !binding &&
+        typeof entry.value === 'string' &&
+        values.length > 0 &&
+        !values.includes(entry.value)
+      ) {
+        emitInfo(
+          `${name} does not offer ${entry.value} for "${entry.configId}" (available: ${values.join(', ')}), so it was not applied`,
         );
         continue;
       }
@@ -481,15 +501,26 @@ export function createAcpSessionHandle(
               value: entry.value,
             }
           : { sessionId: id, configId: entry.configId, value: entry.value };
-      await call(
-        'session/set_config_option',
-        () => conn.setSessionConfigOption(params),
-        {
-          configId: entry.configId,
-          configValue: entry.value,
-          advertisedValues: advertisedValuesOf(option),
-        },
-      );
+      try {
+        const response = await call(
+          'session/set_config_option',
+          () => conn.setSessionConfigOption(params),
+          {
+            configId: entry.configId,
+            configValue: entry.value,
+            advertisedValues: values,
+          },
+        );
+        // A model change can narrow the other options (e.g. the effort list),
+        // so later entries are validated against the updated set.
+        const updated = readConfigOptions(response);
+        if (updated.length > 0) current = updated;
+      } catch (error: unknown) {
+        if (binding || !(error instanceof AcpTurnFailure)) throw error;
+        emitInfo(
+          `${error.message}; continuing without the "${entry.configId}" setting`,
+        );
+      }
     }
   };
 

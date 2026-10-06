@@ -88,6 +88,15 @@ describe('cliPermissionNote', () => {
     expect(note.detail).toContain('Autopilot');
   });
 
+  it('warns that Grok auto-approves every request, shell and file edits included', () => {
+    expect(cliPermissionNote('grok')).toEqual({
+      badge: 'Auto-approve',
+      tone: 'warning',
+      detail:
+        'Ptah approves every Grok tool request, shell commands and file edits included, one request at a time; nothing is remembered between requests.',
+    });
+  });
+
   it('flags exactly the new copy (Copilot, Ptah instances and Grok) for user review', () => {
     expect([...PENDING_USER_REVIEW_IDS].sort()).toEqual([
       'copilot',

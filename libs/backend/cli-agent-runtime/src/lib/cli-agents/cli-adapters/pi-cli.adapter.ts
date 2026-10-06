@@ -87,6 +87,7 @@ import {
   spawnCli,
   createBufferedEmitter,
 } from './cli-adapter.utils';
+import { probeCliStdout } from './cli-stdout-probe';
 import {
   killProcessTree,
   type IProcessSpawner,
@@ -235,28 +236,9 @@ export class PiCliAdapter implements CliAdapter {
     binary: string,
     timeoutMs = 8000,
   ): Promise<string | undefined> {
-    return new Promise((resolve) => {
-      let stdout = '';
-      const child = spawnCli(binary, ['--list-models'], {
-        spawner: this.spawner,
-      });
-      const timer = setTimeout(() => {
-        child.kill();
-        resolve(undefined);
-      }, timeoutMs);
-
-      child.stdout?.setEncoding('utf8');
-      child.stdout?.on('data', (data: string) => {
-        stdout += data;
-      });
-      child.on('close', () => {
-        clearTimeout(timer);
-        resolve(stdout.trim() || undefined);
-      });
-      child.on('error', () => {
-        clearTimeout(timer);
-        resolve(undefined);
-      });
+    return probeCliStdout(binary, ['--list-models'], {
+      spawner: this.spawner,
+      timeoutMs,
     });
   }
 

@@ -154,16 +154,20 @@ export class AgentSpawnEnvironment {
     cli: CliType,
     requestModel: string | undefined,
   ): LaneModelResolution {
+    // A whitespace-only value means "unset", never a model id to send.
+    const request = requestModel?.trim() || undefined;
     const configKey = AgentSpawnEnvironment.MODEL_CONFIG_KEYS[cli];
     const configuredModel =
-      !requestModel && configKey
-        ? (this.workspace.getConfiguration<string>(
-            'ptah',
-            `agentOrchestration.${configKey}`,
-            '',
-          ) ?? '')
+      !request && configKey
+        ? (
+            this.workspace.getConfiguration<string>(
+              'ptah',
+              `agentOrchestration.${configKey}`,
+              '',
+            ) ?? ''
+          ).trim()
         : undefined;
-    return resolveLaneModel(cli, requestModel, configuredModel);
+    return resolveLaneModel(cli, request, configuredModel);
   }
 
   /**

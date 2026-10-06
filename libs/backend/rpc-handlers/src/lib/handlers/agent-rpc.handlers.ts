@@ -467,6 +467,12 @@ export class AgentRpcHandlers {
       ) {
         return { success: false, error: 'Unsupported cursorApiKey value' };
       }
+      if (
+        params.grokModel !== undefined &&
+        typeof params.grokModel !== 'string'
+      ) {
+        return { success: false, error: 'Unsupported grokModel value' };
+      }
       const invalidEffort = invalidReasoningEffort(params);
       if (invalidEffort) {
         return {
@@ -527,7 +533,8 @@ export class AgentRpcHandlers {
         await this.setAgentCfg('antigravityModel', params.antigravityModel);
       }
       if (params.grokModel !== undefined) {
-        await this.setAgentCfg('grokModel', params.grokModel);
+        // Stored trimmed: a whitespace-only id would be sent to Grok as a model.
+        await this.setAgentCfg('grokModel', params.grokModel.trim());
       }
       if (params.opencodeModel !== undefined) {
         await this.setAgentCfg('opencodeModel', params.opencodeModel);
@@ -745,6 +752,7 @@ export class AgentRpcHandlers {
             antigravityCount: result.antigravity.length,
             opencodeCount: result.opencode.length,
             piCount: result.pi.length,
+            grokCount: result.grok.length,
           });
 
           return result;
