@@ -1,6 +1,6 @@
 # Batches - TASK_2026_619_af7f
 
-Total tasks: 74 | Batches: 40 | Complete: 6/40
+Total tasks: 74 | Batches: 40 | Complete: 7/40
 
 Worktree root (every path below is absolute under it):
 `D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark` (branch `fix/task-619-tool-benchmark`).
@@ -475,7 +475,7 @@ Recorded defaults for this batch:
 - `npx nx run-many -t typecheck,lint,test -p mcp-bench` passes (tail the output)
 - The commit SHA is reported to the orchestrator for the TASK_2026_620 session
 
-## Batch 4c: Shared bench-host boot helper and bench data folder (shared with TASK_2026_620_a13e) — COMPLETE (commit: SHA recorded in the following commit; no amend)
+## Batch 4c: Shared bench-host boot helper and bench data folder (shared with TASK_2026_620_a13e) — COMPLETE (commit d716e0e8f)
 
 Batch 4c findings recorded at Mode 2 (report:
 `D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\.ptah\specs\TASK_2026_619_af7f\batch-4c-executor-report.md`):
@@ -599,7 +599,44 @@ Recorded defaults for this batch:
   batch.
 - The commit SHA is reported to the orchestrator for the TASK_2026_620 session
 
-## Batch 4d: Bench host shutdown classification, guard partial report, spawn errors — PENDING
+## Batch 4d: Bench host shutdown classification, guard partial report, spawn errors — COMPLETE (commit: SHA recorded in the following commit; no amend)
+
+Batch 4d findings recorded at Mode 2 (report:
+`D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\.ptah\specs\TASK_2026_619_af7f\batch-4d-executor-report.md`):
+
+- Task 4d.1 outcome: the cause is a product fault. The bench-host shutdown order is not the cause.
+  `SqliteConnectionService.close()` dies with 0xC0000409 inside `wal_checkpoint(TRUNCATE)`
+  (`libs\backend\persistence-sqlite\src\lib\sqlite-connection.service.ts:526`), and only after vectors
+  were written to `vec0`. Evidence is in the report's bisect table: `no-sqlite-vec` 0/10, corrected
+  `no-embedder` 0/9, baseline 7/10, and the `trace` last marker is `wal_checkpoint(TRUNCATE) begins`.
+  No bench-side fix exists. The refuted worker-join candidate was removed.
+- **The product finding is filed as its own task, TASK_2026_622_2d05** (main checkout `.ptah\specs`,
+  backlog, BUGFIX, with the evidence; filed by the orchestrator). It is a persistence-layer defect,
+  not a tool claim, so it is **not** a 619 Phase 2 task. **No 619 batch depends on it or waits for
+  it.** The 619 bench reports these exits as `run.hostExit.kind: 'crash-on-shutdown'`, a run-level
+  fact that never counts as a tool error (Task 4b.1; Task 9.3 copies it in). The executor's two
+  out-of-scope observations belong with TASK_2026_622 or a later 619 batch, not here: one boot-time
+  0xC0000409 (1/10, before ready, classified `exited-early`), and the embedding model downloaded on
+  every run into the temp home. The second is carried by Task 9.1 (validation note).
+- Smoke (executor): 20 shutdowns through `launchBenchHost` gave crash-on-shutdown 16 and clean 4.
+  Every stop was classified, `stop()` never threw, and the guard was `process-watch` with
+  partial=false and passed every time.
+- Accepted deviations:
+  - (1) `bench-host-boot.spec.ts` was changed, though it is not in the file list (9 files). It is
+    the colocated spec for the new bisect flags, and the change is additive.
+  - (2) `HostStopReport` and `ElectronStopReport` drop `.exitCode`/`.killed` for `.exit: HostExit`.
+    This is internal to `mcp-bench`: grep finds no consumer outside `transport/`, and TASK_2026_620
+    does not use the Electron host.
+  - (3) The `bench-host-boot.ts` API stays additive (`BENCH_BISECT_ENV`, `BenchBisectFlag`,
+    `readBisectFlags()`). An unknown flag rejects at step `'options'`. With the variable unset, the
+    `withEngine` arguments are byte-identical, and the existing spec asserts this.
+  - (4) A failed Electron launch is not wrapped in `HostLaunchError`, which is within the batch
+    limit on `electron-host.ts`.
+- Mapping for Task 9.3: the guard's `unprobedProcesses` maps onto scorecard `run.guard.unprobed`
+  (`scorecard.types.ts:133`, `:191`), and the guard's `partial` maps onto `run.guard.partial`.
+- Mode 2 checks (team-leader): `npx prettier --check tools/mcp-bench/src` is clean. `npx nx run-many -t
+  typecheck,lint,test -p mcp-bench --skip-nx-cache` passed (3 targets, 1m 13s). `git diff -- libs
+  apps` is empty. `build-host` and the 20-shutdown smoke come from the executor report.
 
 - Recommended executor: backend-developer subagent
 - Fallback executor: senior-tester subagent
@@ -620,7 +657,7 @@ Recorded defaults for this batch:
   `host-launcher.spec.ts`, `electron-host.ts`, `real-state-guard.ts`, `open-handle-probe.ts`. If the
   entry itself must change, report it and the team-leader records the deviation.
 
-### Task 4d.1: Find the `0xC0000409` on graceful shutdown; fix or record; classify every stop — PENDING
+### Task 4d.1: Find the `0xC0000409` on graceful shutdown; fix or record; classify every stop — COMPLETE
 
 - File: D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\transport\bench-host-boot.ts (from Batch 4c; replaces `bench-host.entry.ts` in this list); D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\transport\host-launcher.ts; D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\transport\host-launcher.spec.ts; D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\transport\electron-host.ts (stop-report classification only)
 - Plan reference: batch-4-executor-report.md line 94; this batch's Batch 4 findings (Serious)
@@ -654,7 +691,7 @@ Recorded defaults for this batch:
   classify that as `exited-early` (it ends before `stop()`), not as a crash.
 - Implementation details: the report quotes the bisect table and the final per-variant rates.
 
-### Task 4d.2: List unprobed processes and mark the guard partial (Moderate) — PENDING
+### Task 4d.2: List unprobed processes and mark the guard partial (Moderate) — COMPLETE
 
 - File: D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\transport\real-state-guard.ts; D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\transport\open-handle-probe.ts; D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\transport\host-launcher.spec.ts (shared with Task 4d.1)
 - Depends on: Task 4d.1 (same spec file)
@@ -670,7 +707,7 @@ Recorded defaults for this batch:
   that pid, so the spec can run on CI.
 - Implementation details: none beyond the above.
 
-### Task 4d.3: Handle the child `'error'` event in the CLI launcher (Minor) — PENDING
+### Task 4d.3: Handle the child `'error'` event in the CLI launcher (Minor) — COMPLETE
 
 - File: D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\transport\host-launcher.ts; D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\transport\host-launcher.spec.ts
 - Depends on: Task 4d.2
@@ -682,7 +719,7 @@ Recorded defaults for this batch:
 - Validation notes: none.
 - Implementation details: none beyond the above.
 
-### Task 4d.4: Follow junctions and symlinks in `resolveBenchDataDir()` (Minor, from Batch 4c) — PENDING
+### Task 4d.4: Follow junctions and symlinks in `resolveBenchDataDir()` (Minor, from Batch 4c) — COMPLETE
 
 - File: D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\bench-data.ts; D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\bench-data.spec.ts
 - Depends on: none inside the batch (independent files; run last)
@@ -856,6 +893,12 @@ Recorded defaults for this batch:
 - Pattern to follow: each tool's input schema in D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\libs\backend\vscode-lm-tools\src\lib\code-execution\mcp-core\tool-description.builder.ts
 - Quality requirements: suites for `ptah_code_search_symbols` (exact and concept), `ptah_relevance_rank_files`, `ptah_lsp_references`, `ptah_lsp_definitions`, `ptah_get_dependents`, `ptah_get_dependencies`, `ptah_get_symbol_index`, `ptah_memory_search`, `ptah_ast_analyze`, `ptah_context_enrich_file` (token ratio per size stratum), `ptah_search_files`, and `ptah_search_text` (`na` until the tool exists); each suite records its `claim` file:line; verdict = fail when the primary quality metric is below native by more than the noise margin, error rate is over 1%, or a lifecycle scenario fails.
 - Validation notes: tool results are parsed tolerantly (text content). Parse failures count as errors, not as zero hits. Carried from Batch 3 (smoke, report line 65). (a) Read `tools/list` per host. A suite whose tool is not listed (today `ptah_lsp_references` and `ptah_lsp_definitions` on `cli-headless`) is `fail` with `mechanism: none` and the reason "tool not exposed on this host". It is never `na` and never a pass, because the prompt mandates these tools on every host. (b) `ptah_code_search_symbols` answering `symbolCount:0` with unknown coverage is scored through the Task 3.1 `unknown-coverage` class (error), with retries per the claim budget. (c) The `ptah_get_dependents` adapter must use the tool's real input schema from `tool-description.builder.ts`: try the absolute path, and record whether a relative `filePath` is rejected. A rejected relative path is a finding quoted in the report; the adapter may not hide it by always sending absolute paths without recording it. Carried from Batch 1: on win32, workspace-root relativisation in `normalizePath` (`retrieval-metrics.ts:50-67`) must be case-insensitive beyond the drive letter; add a spec case.
+  Carried from Batch 4d: today every run downloads the embedding model again into the per-run temp
+  home (`~/.ptah/models`, `register-thoth-libraries.ts:66`), which makes each cold search take about
+  11.5 s and depend on the network. The runner passes in a shared, pre-seeded model cache under
+  `resolveBenchDataDir()`, read-only to the host and never under the real `~/.ptah`, or it records
+  the download time as a separate cold-start cost. It must not leave the download hidden inside
+  query latency.
 - Implementation details: `--smoke` takes 40 seeded questions per suite.
 
 ### Task 9.2: Lifecycle scenarios 1-8 — PENDING
@@ -879,6 +922,14 @@ Recorded defaults for this batch:
   The run metadata is filled from the host's stop report: `run.guardMode` (from `guardMode`),
   `run.guard` (partial and the unprobed pid/name list, Task 4d.2) and `run.hostExit` (Task 4d.1). A
   `crash-on-shutdown` is recorded there and never added to a suite's error rate.
+  Carried from Batch 5/6 planning (team-leader, MEDIUM): `withPinnedCorpus` force-removes every
+  registered `ptah-mcp-bench-corpus-*` worktree under tmpdir at start (`corpus.ts:30`, `:116-129`),
+  and it does not check whether that worktree is still in use. `git worktree list` is shared by
+  every worktree of the repository, so a concurrent bench run deletes a live corpus. That includes
+  a TASK_2026_620 run from its own worktree, and a second 619 run. The fix: only remove a corpus
+  worktree whose owner is dead. For example, write a `.ptah-mcp-bench-owner` pid file at checkout
+  and skip the worktree when that pid is alive. Add a spec case with two overlapping checkouts.
+  This adds `corpus.ts` and `corpus.spec.ts` to this task (2 files; record the count deviation).
 - Implementation details: the run records `product.commit` and `corpus.commit`.
 
 ### Batch 9 verification

@@ -29,12 +29,29 @@
  * Shutdown: `handle.stop()` disposes the MCP server under a drain timeout and
  * resolves only after the `withEngine` teardown has finished (the teardown
  * stays inside `withEngine`: `stop()` releases the callback it awaits).
+ *
+ * Known shutdown crash (TASK_2026_619 Task 4d.1, a product finding): after a
+ * run that wrote embeddings into the sqlite-vec `vec0` tables, the engine
+ * teardown's `SqliteConnectionService.close()` dies in its
+ * `wal_checkpoint(TRUNCATE)` with the fail-fast status 0xC0000409 in about
+ * half the runs on win32. The teardown order here is not the cause (leaving the
+ * connection open still crashes at exit, in better-sqlite3's own cleanup), so
+ * the launcher classifies it as `crash-on-shutdown` instead.
+ *
+ * Diagnostics: {@link BENCH_BISECT_ENV} turns single subsystems off in this
+ * bench host only, or traces the teardown steps, to attribute a shutdown
+ * crash. The launcher never sets it.
  */
 
 import { homedir } from 'node:os';
 import { isAbsolute, resolve } from 'node:path';
 
-import { withEngine } from '@ptah-extension/cli-engine';
+import {
+  CliDIContainer,
+  withEngine,
+  type CliBootstrapOptions,
+  type CliBootstrapResult,
+} from '@ptah-extension/cli-engine';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import {
   TOKENS,
@@ -165,6 +182,136 @@ export interface IsolationProbe {
 export const ENGINE_DRAIN_TIMEOUT_MS = 10_000;
 
 /**
+ * Comma-separated {@link BenchBisectFlag}s. A diagnostic for this bench host
+ * only, never set by the launcher: each flag turns one subsystem off (or
+ * traces the teardown) so a shutdown crash can be attributed. An unknown flag
+ * refuses the boot (step `options`). With no flag the boot is unchanged.
+ */
+export const BENCH_BISECT_ENV = 'PTAH_BENCH_BISECT';
+
+/**
+ * - `no-embedder`: the embedder worker factory throws, so no onnxruntime
+ *   worker thread starts and no embedding is written (search runs BM25-only).
+ * - `no-sqlite-vec`: the sqlite-vec extension is not loaded (no `vec0`
+ *   tables, so no vector writes either).
+ * - `no-sqlite-close`: the engine's SQLite close is skipped, leaving the
+ *   connection to better-sqlite3's own cleanup at `process.exit`.
+ * - `trace`: stderr markers around the MCP dispose, the embedder dispose, the
+ *   close's WAL checkpoint (run on its own first) and the close itself.
+ */
+export type BenchBisectFlag =
+  'no-embedder' | 'no-sqlite-vec' | 'no-sqlite-close' | 'trace';
+
+const BISECT_FLAGS: readonly BenchBisectFlag[] = [
+  'no-embedder',
+  'no-sqlite-vec',
+  'no-sqlite-close',
+  'trace',
+];
+
+function traceStep(flags: ReadonlySet<BenchBisectFlag>, step: string): void {
+  if (flags.has('trace')) process.stderr.write(`[bench-host] trace ${step}\n`);
+}
+
+// The registration keys `register-thoth-libraries.ts` uses, by `Symbol.for`
+// (as `with-engine.ts` does) so this module stays off those libs' imports.
+const EMBEDDER_WORKER_PROCESS_FACTORY = Symbol.for(
+  'PtahEmbedderWorkerProcessFactory',
+);
+const SQLITE_CONNECTION = Symbol.for('PtahSqliteConnection');
+const EMBEDDER = Symbol.for('PtahEmbedder');
+
+interface EmbedderHandle {
+  dispose(): Promise<void>;
+}
+
+interface EmbedderWorkerFactoryHandle {
+  spawn(): unknown;
+}
+
+interface SqliteConnectionHandle {
+  configure(options: { vecPathResolver?: null }): void;
+  close(): void;
+  readonly isOpen: boolean;
+  readonly db: { pragma(source: string): unknown };
+}
+
+/** Parse {@link BENCH_BISECT_ENV}; throws a step `options` error on an unknown flag. */
+export function readBisectFlags(
+  env: NodeJS.ProcessEnv = process.env,
+): ReadonlySet<BenchBisectFlag> {
+  const raw = env[BENCH_BISECT_ENV] ?? '';
+  const flags = new Set<BenchBisectFlag>();
+  for (const item of raw.split(',')) {
+    const name = item.trim();
+    if (name === '') continue;
+    const flag = BISECT_FLAGS.find((known) => known === name);
+    if (flag === undefined) {
+      throw new BenchHostBootError(
+        `${BENCH_BISECT_ENV}: unknown flag ${name} (known: ${BISECT_FLAGS.join(', ')})`,
+        'options',
+      );
+    }
+    flags.add(flag);
+  }
+  return flags;
+}
+
+/** The CLI bootstrap with the bisect flags applied before Thoth opens the DB. */
+function bisectBootstrap(
+  flags: ReadonlySet<BenchBisectFlag>,
+): (options: CliBootstrapOptions) => CliBootstrapResult {
+  return (options) => {
+    const result = CliDIContainer.setup(options);
+    const container = result.container;
+    if (
+      flags.has('no-embedder') &&
+      container.isRegistered(EMBEDDER_WORKER_PROCESS_FACTORY)
+    ) {
+      // The embedder client is a singleton the bootstrap has already built
+      // around this factory instance, so the instance itself is switched off
+      // (a re-registration would reach no one).
+      const factory = container.resolve<EmbedderWorkerFactoryHandle>(
+        EMBEDDER_WORKER_PROCESS_FACTORY,
+      );
+      factory.spawn = (): never => {
+        throw new Error(`disabled by ${BENCH_BISECT_ENV}=no-embedder`);
+      };
+    }
+    if (flags.has('trace') && container.isRegistered(EMBEDDER)) {
+      const embedder = container.resolve<EmbedderHandle>(EMBEDDER);
+      const dispose = embedder.dispose.bind(embedder);
+      embedder.dispose = async (): Promise<void> => {
+        traceStep(flags, 'embedder dispose begins');
+        await dispose();
+        traceStep(flags, 'embedder dispose done');
+      };
+    }
+    if (container.isRegistered(SQLITE_CONNECTION)) {
+      const connection =
+        container.resolve<SqliteConnectionHandle>(SQLITE_CONNECTION);
+      if (flags.has('no-sqlite-vec')) {
+        connection.configure({ vecPathResolver: null });
+      }
+      const close = connection.close.bind(connection);
+      connection.close = (): void => {
+        if (flags.has('no-sqlite-close')) return;
+        if (flags.has('trace') && connection.isOpen) {
+          // Split the close: its WAL checkpoint first, on its own.
+          traceStep(flags, 'sqlite wal_checkpoint(TRUNCATE) begins');
+          connection.db.pragma('wal_checkpoint(TRUNCATE)');
+          traceStep(flags, 'sqlite wal_checkpoint(TRUNCATE) done');
+        }
+        traceStep(flags, 'sqlite close begins');
+        close();
+        traceStep(flags, 'sqlite close done');
+      };
+    }
+    return result;
+  };
+}
+
+/**
  * Refuse to run unless every state path is inside the launcher's temp home:
  * `PTAH_BENCH_ISOLATED_HOME`, `PTAH_CONFIG_PATH` and `PTAH_DB_PATH` set,
  * `os.homedir()` equal to the isolated home, and the config and DB paths
@@ -249,6 +396,7 @@ export async function bootCodeExecutionHost(
     );
   }
   const workspace = resolve(options.workspace);
+  const bisect = readBisectFlags();
 
   await runStep('beforeEngineBoot', () =>
     options.beforeEngineBoot?.({ workspace, isolation }),
@@ -271,7 +419,12 @@ export async function bootCodeExecutionHost(
     // `oneshot` opens and migrates the (isolated) SQLite file so the symbol
     // and memory layers resolve, without the cron loop, the gateway or the
     // memory triggers a bench run must not start.
-    { mode: 'full', requireSdk: false, thoth: 'oneshot' },
+    {
+      mode: 'full',
+      requireSdk: false,
+      thoth: 'oneshot',
+      ...(bisect.size > 0 ? { bootstrap: bisectBootstrap(bisect) } : {}),
+    },
     async (ctx) => {
       const container = ctx.container;
       if (!container.isRegistered(TOKENS.CODE_EXECUTION_MCP)) {
@@ -318,12 +471,15 @@ export async function bootCodeExecutionHost(
           stopping ??= (async () => {
             released();
             await engine;
+            traceStep(bisect, 'withEngine teardown done');
           })();
           return stopping;
         },
       });
       await stopRequested;
+      traceStep(bisect, 'mcp dispose begins');
       await withTimeout(mcp.disposeAsync(), ENGINE_DRAIN_TIMEOUT_MS);
+      traceStep(bisect, 'mcp dispose done; withEngine teardown begins');
     },
   );
   // Settles `booted` when the engine ends without announcing: the callback

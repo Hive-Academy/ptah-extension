@@ -56,7 +56,7 @@ import { join, resolve } from 'node:path';
 
 import { killProcessTree } from '@ptah-extension/platform-core';
 
-import { isolatedEnv } from './host-launcher';
+import { classifyHostExit, isolatedEnv, type HostExit } from './host-launcher';
 import { McpHttpClient, workspaceBaseUrl } from './mcp-client';
 import {
   armRealStateGuard,
@@ -124,9 +124,12 @@ export type ElectronStopReport =
   | { readonly mode: 'attach' }
   | {
       readonly mode: 'launch';
-      readonly exitCode: number | null;
-      /** The tree was force-killed (always on win32, where no graceful signal exists). */
-      readonly killed: boolean;
+      /**
+       * How the app ended. On win32 it is always `killed`: there is no
+       * graceful quit signal, the tree is ended with `taskkill /T /F`, and
+       * `detail` says so; that is not a crash.
+       */
+      readonly exit: HostExit;
       readonly isolatedDbCreated: boolean;
       readonly guard: GuardReport;
     };
@@ -296,24 +299,39 @@ export async function launchElectronHost(
   child.stderr?.setEncoding('utf8');
   child.stdout?.on('data', onOutput);
   child.stderr?.on('data', onOutput);
-  let exitCode: number | null | undefined;
+  let ended: { code: number | null; signal: string | null } | undefined;
+  let spawnError: string | undefined;
   const exited = new Promise<number | null>((done) => {
-    child.once('exit', (code) => {
-      exitCode = code;
+    child.once('exit', (code, signal) => {
+      ended ??= { code, signal };
       done(code);
     });
     // A binary that cannot be spawned never exits; report it as an exit.
-    child.once('error', (error) => {
-      outputTail += `\nspawn failed: ${error.message}`;
-      exitCode ??= null;
+    // Kept on: a later error (a failed kill) must not go unhandled either.
+    child.on('error', (error) => {
+      outputTail += `\nchild error: ${error.message}`;
+      if (child.pid !== undefined) return;
+      spawnError ??= `${electronBinary}: ${error.message}`;
+      ended ??= { code: null, signal: null };
       done(null);
     });
   });
+  const exitCode = (): number | null | undefined => ended?.code;
   if (child.pid !== undefined) guard.watch(child.pid);
 
-  const teardown = async (): Promise<boolean> => {
+  const teardown = async (): Promise<HostExit> => {
+    const endedBeforeStop = ended !== undefined;
     await guard.sampleBeforeStop();
-    return quitApp(child.pid, exited, () => exitCode, stopTimeoutMs);
+    const quit = await quitApp(child.pid, exited, exitCode, stopTimeoutMs);
+    return classifyHostExit({
+      exitCode: ended?.code ?? null,
+      signal: ended?.signal ?? null,
+      endedBeforeStop,
+      forceKilled: quit === 'forced' || quit === 'taskkill',
+      killReason: quit === 'taskkill' ? WIN32_TASKKILL_REASON : undefined,
+      gracefulSignal: 'SIGTERM',
+      spawnError,
+    });
   };
   const discard = async (bootError: unknown): Promise<never> => {
     await teardown();
@@ -329,7 +347,7 @@ export async function launchElectronHost(
       tempHome,
       timeoutMs: bootTimeoutMs,
       fromOutput: () => portFromOutput,
-      exitCode: () => exitCode,
+      exitCode,
       outputTail: () => outputTail,
     }));
     if (DESKTOP_MCP_PORTS.includes(port)) {
@@ -372,13 +390,12 @@ export async function launchElectronHost(
     stop: () => {
       stopped ??= (async (): Promise<ElectronStopReport> => {
         client.close();
-        const killed = await teardown();
+        const exit = await teardown();
         const isolatedDbCreated = await fileExists(isolatedDb);
         await removeDir(tempHome);
         return {
           mode: 'launch',
-          exitCode: exitCode ?? null,
-          killed,
+          exit,
           isolatedDbCreated,
           guard: await guard.finish(),
         };
@@ -458,18 +475,27 @@ async function logFiles(dir: string, depth: number): Promise<string[]> {
   return found;
 }
 
+const WIN32_TASKKILL_REASON =
+  "win32 has no graceful quit signal for Electron: the launcher always ends the app tree with taskkill /T /F, so the exit code is not the app's own; this is the normal stop on win32, not a crash";
+
+/**
+ * How {@link quitApp} ended the app: `none` (it was already gone), `graceful`
+ * (POSIX: it quit on SIGTERM), `taskkill` (win32's only stop), `forced`
+ * (SIGKILL after the graceful window).
+ */
+type QuitOutcome = 'none' | 'graceful' | 'taskkill' | 'forced';
+
 /**
  * SIGTERM to the tree (POSIX: Electron quits on it; win32: `taskkill /T /F`,
- * there is no graceful signal), then SIGKILL after `timeoutMs`. Returns
- * whether the tree was force-killed.
+ * there is no graceful signal), then SIGKILL after `timeoutMs`.
  */
 async function quitApp(
   pid: number | undefined,
   exited: Promise<number | null>,
   exitCode: () => number | null | undefined,
   timeoutMs: number,
-): Promise<boolean> {
-  if (pid === undefined || exitCode() !== undefined) return false;
+): Promise<QuitOutcome> {
+  if (pid === undefined || exitCode() !== undefined) return 'none';
   await killProcessTree(pid, 'SIGTERM');
   let timer: NodeJS.Timeout | undefined;
   const timedOut = await Promise.race([
@@ -485,8 +511,9 @@ async function quitApp(
       exited,
       new Promise<void>((done) => setTimeout(done, KILL_SETTLE_MS).unref()),
     ]);
+    return 'forced';
   }
-  return timedOut || process.platform === 'win32';
+  return process.platform === 'win32' ? 'taskkill' : 'graceful';
 }
 
 async function fileExists(path: string): Promise<boolean> {

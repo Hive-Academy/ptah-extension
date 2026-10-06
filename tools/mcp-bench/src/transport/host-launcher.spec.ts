@@ -2,6 +2,7 @@ import {
   appendFile,
   mkdir,
   mkdtemp,
+  readdir,
   rm,
   stat,
   utimes,
@@ -14,9 +15,22 @@ import { join } from 'node:path';
 import { CallRecorder, classifyToolResult } from './call-recorder';
 import { spawn, type ChildProcess } from 'node:child_process';
 
-import { launchBenchHost, type LaunchedHost } from './host-launcher';
+import {
+  classifyHostExit,
+  HostLaunchError,
+  launchBenchHost,
+  type HostExitObservation,
+  type LaunchedHost,
+} from './host-launcher';
 import { McpHttpClient } from './mcp-client';
-import { platformHandleProbe, type HandleProbe } from './open-handle-probe';
+import {
+  parseWindowsTreeReply,
+  platformHandleProbe,
+  ProcFsHandleProbe,
+  type HandleProbe,
+  type ProcessEntry,
+  type ProcFs,
+} from './open-handle-probe';
 import {
   assertRealStateUnchanged,
   BenchHeldRealStateError,
@@ -101,6 +115,16 @@ const server = http.createServer((req, res) => {
   });
 });
 const heldReal = [];
+if (mode === 'fatal') {
+  // Optionally break isolation first, so the guard has something to report.
+  if (process.env.FIXTURE_REAL_FILE) fs.appendFileSync(process.env.FIXTURE_REAL_FILE, 'x');
+  process.stdout.write(JSON.stringify({ benchHost: 'fatal', error: 'fixture boot failure' }) + '\n');
+  process.exit(1);
+}
+if (mode === 'exit-after-list') {
+  // Ends on its own once the launcher's first tools/list was answered.
+  server.on('request', (req, res) => res.on('finish', () => setTimeout(() => process.exit(0), 20)));
+}
 server.listen(0, 'localhost', () => {
   // Isolation-breach fixtures: hold a file under the (fake) real ~/.ptah.
   if (mode === 'hold-real' || mode === 'hold-real-briefly') {
@@ -125,6 +149,13 @@ server.listen(0, 'localhost', () => {
     process.stdin.on('end', () => {
       fs.mkdirSync(path.dirname(process.env.PTAH_DB_PATH), { recursive: true });
       fs.writeFileSync(process.env.PTAH_DB_PATH, '');
+      if (mode === 'crash-on-eof') {
+        // What the real host did on shutdown: the win32 fail-fast status; a
+        // fatal signal stands in for it on POSIX.
+        if (process.platform === 'win32') process.exit(3221226505);
+        process.kill(process.pid, 'SIGABRT');
+        return;
+      }
       server.close(() => process.exit(0));
     });
   }
@@ -235,8 +266,7 @@ describe('launchBenchHost', () => {
     }
 
     const report = await host.stop();
-    expect(report.killed).toBe(false);
-    expect(report.exitCode).toBe(0);
+    expect(report.exit).toEqual({ kind: 'clean', exitCode: 0, signal: null });
     expect(report.isolatedDbCreated).toBe(true);
     await expect(stat(host.tempHome)).rejects.toMatchObject({ code: 'ENOENT' });
   });
@@ -287,8 +317,131 @@ describe('launchBenchHost', () => {
     const host = await launch(500);
 
     const report = await host.stop();
-    expect(report.killed).toBe(true);
+    expect(report.exit.kind).toBe('killed');
+    expect(report.exit.detail).toMatch(/graceful stop timed out/);
     expect(report.isolatedDbCreated).toBe(false);
+  });
+
+  describe('exit classification', () => {
+    it('reports a fail-fast exit after stdin EOF as crash-on-shutdown, without rejecting', async () => {
+      process.env['FIXTURE_MODE'] = 'crash-on-eof';
+      const host = await launch();
+
+      const report = await host.stop();
+      expect(report.exit.kind).toBe('crash-on-shutdown');
+      if (process.platform === 'win32') {
+        expect(report.exit.exitCode).toBe(3221226505);
+        expect(report.exit.detail).toMatch(/0xC0000409 .*fail-fast/);
+      } else {
+        expect(report.exit.signal).toBe('SIGABRT');
+        expect(report.exit.detail).toMatch(/fatal signal SIGABRT/);
+      }
+      expect(report.exit.detail).toMatch(/not a tool error/);
+      expect(report.guard.mode).toBe('hash');
+    });
+
+    it('reports a host that ended before stop() as exited-early', async () => {
+      process.env['FIXTURE_MODE'] = 'exit-after-list';
+      const host = await launch();
+      await waitFor(() => host.exitedEarly() !== undefined);
+
+      const report = await host.stop();
+      expect(report.exit).toMatchObject({
+        kind: 'exited-early',
+        exitCode: 0,
+        detail: 'the host ended before stop() (exit code 0)',
+      });
+    });
+
+    it('classifies a boot failure (fatal line, exit 1) as exited-early', async () => {
+      process.env['FIXTURE_MODE'] = 'fatal';
+
+      const failure = await launch().then(
+        () => {
+          throw new Error('expected the launch to fail');
+        },
+        (error: unknown) => error,
+      );
+      expect(failure).toBeInstanceOf(HostLaunchError);
+      expect((failure as HostLaunchError).message).toBe(
+        'bench host fatal: fixture boot failure',
+      );
+      expect((failure as HostLaunchError).exit).toMatchObject({
+        kind: 'exited-early',
+        exitCode: 1,
+      });
+    });
+
+    it('lets a guard failure outrank the boot failure', async () => {
+      process.env['FIXTURE_MODE'] = 'fatal';
+      process.env['FIXTURE_REAL_FILE'] = join(
+        realHome,
+        '.ptah',
+        'state',
+        'ptah.sqlite',
+      );
+
+      await expect(launch()).rejects.toBeInstanceOf(RealStateChangedError);
+    });
+  });
+
+  describe('spawn failures', () => {
+    const tempHomes = async (): Promise<string[]> =>
+      (await readdir(tmpdir())).filter((name) =>
+        name.startsWith('ptah-mcp-bench-home-'),
+      );
+
+    it('rejects an unspawnable executable, naming it and the script, and cleans up', async () => {
+      const before = await tempHomes();
+      const nodePath = join(root, 'no-such-dir', 'node-missing.exe');
+
+      const failure = await launchBenchHost({
+        workspaceRoot: workspace,
+        hostScript,
+        nodePath,
+        realHome,
+        bootTimeoutMs: 20_000,
+        guard: { ci: false, preSampleMs: 50 },
+      }).then(
+        () => {
+          throw new Error('expected the launch to fail');
+        },
+        (error: unknown) => error,
+      );
+      expect(failure).toBeInstanceOf(HostLaunchError);
+      expect((failure as Error).message).toContain(
+        'could not spawn the bench host',
+      );
+      expect((failure as Error).message).toContain(nodePath);
+      expect((failure as Error).message).toContain(hostScript);
+      expect((failure as HostLaunchError).exit.kind).toBe('exited-early');
+      expect((failure as HostLaunchError).exit.detail).toMatch(
+        /could not be spawned/,
+      );
+      expect(await tempHomes()).toEqual(before);
+    });
+
+    it('reports a missing host script as an early exit', async () => {
+      const failure = await launchBenchHost({
+        workspaceRoot: workspace,
+        hostScript: join(root, 'no-such-host.mjs'),
+        realHome,
+        bootTimeoutMs: 20_000,
+        guard: { ci: false, preSampleMs: 50 },
+      }).then(
+        () => {
+          throw new Error('expected the launch to fail');
+        },
+        (error: unknown) => error,
+      );
+      expect((failure as Error).message).toMatch(
+        /bench host exited \(code 1\) before ready/,
+      );
+      expect((failure as HostLaunchError).exit).toMatchObject({
+        kind: 'exited-early',
+        exitCode: 1,
+      });
+    });
   });
 
   describe('guard mode', () => {
@@ -398,6 +551,110 @@ describe('launchBenchHost', () => {
         );
       },
     );
+
+    describe('partial guard (handles the probe could not name)', () => {
+      /** A synthetic probe: a concurrent writer (pid 424242), then scripted tree samples. */
+      const scriptedProbe = (
+        sample: (
+          rootPid: number,
+          index: number,
+        ) => Awaited<ReturnType<HandleProbe['treeOpenPaths']>>,
+      ): { probe: HandleProbe; samples: () => number } => {
+        let count = 0;
+        return {
+          samples: () => count,
+          probe: {
+            platform: process.platform,
+            holders: async (paths) => ({
+              holders: new Map([[paths[0], [424242]]]),
+              processes: [{ pid: 424242, ppid: 1, name: 'Ptah.exe' }],
+            }),
+            treeOpenPaths: async (rootPid) => sample(rootPid, count++),
+          },
+        };
+      };
+      const tree = (rootPid: number): ProcessEntry[] => [
+        { pid: rootPid, ppid: process.pid, name: 'node.exe' },
+      ];
+
+      it('lists each unprobed pid and name (max handles across samples) and passes', async () => {
+        const { probe, samples } = scriptedProbe((rootPid, index) => ({
+          tree: tree(rootPid),
+          open: [],
+          unprobed:
+            index === 0
+              ? [
+                  { pid: rootPid, handles: 2 },
+                  { pid: 999_999, handles: 1 },
+                ]
+              : [{ pid: rootPid, handles: 5 }],
+        }));
+        const host = await launch(undefined, { probe, sampleIntervalMs: 50 });
+        expect(host.guardMode).toBe('process-watch');
+        await waitFor(() => samples() >= 1);
+
+        const report = await host.stop();
+        if (report.guard.mode !== 'process-watch')
+          throw new Error('expected process-watch');
+        expect(report.guard.partial).toBe(true);
+        expect(report.guard.unprobedProcesses).toHaveLength(2);
+        expect(report.guard.unprobedProcesses).toEqual(
+          expect.arrayContaining([
+            { pid: host.pid, name: 'node.exe', handles: 5 },
+            { pid: 999_999, name: 'unknown', handles: 1 },
+          ]),
+        );
+      });
+
+      it('is not partial when every handle was named', async () => {
+        const { probe } = scriptedProbe((rootPid) => ({
+          tree: tree(rootPid),
+          open: [],
+          unprobed: [],
+        }));
+        const host = await launch(undefined, { probe });
+
+        const report = await host.stop();
+        if (report.guard.mode !== 'process-watch')
+          throw new Error('expected process-watch');
+        expect(report.guard).toMatchObject({
+          partial: false,
+          unprobedProcesses: [],
+        });
+      });
+
+      it('still fails on a held real path, naming the unprobed processes', async () => {
+        const { probe } = scriptedProbe((rootPid) => ({
+          tree: tree(rootPid),
+          open: [{ pid: rootPid, path: realFile() }],
+          unprobed: [{ pid: rootPid, handles: 1 }],
+        }));
+        const host = await launch(undefined, { probe });
+
+        await expect(host.stop()).rejects.toThrow(
+          new RegExp(
+            `unprobed \\(guard partial\\): node\\.exe ${host.pid} \\(1 handles\\)`,
+          ),
+        );
+      });
+
+      it('still fails closed on a sample that could not run, naming the unprobed processes', async () => {
+        const { probe, samples } = scriptedProbe((rootPid, index) => {
+          if (index > 0) throw new Error('probe exploded');
+          return {
+            tree: tree(rootPid),
+            open: [],
+            unprobed: [{ pid: rootPid, handles: 3 }],
+          };
+        });
+        const host = await launch(undefined, { probe, sampleIntervalMs: 50 });
+        await waitFor(() => samples() >= 1);
+
+        await expect(host.stop()).rejects.toThrow(
+          /process-watch sample failed: probe exploded; unprobed \(guard partial\): node\.exe \d+ \(3 handles\)/,
+        );
+      });
+    });
 
     it('keeps hash under CI when there is no writer', async () => {
       const host = await launch(undefined, { ci: true });
@@ -591,5 +848,194 @@ describe('assertRealStateUnchanged', () => {
     } finally {
       await rm(home, { recursive: true, force: true });
     }
+  });
+});
+
+describe('classifyHostExit', () => {
+  const stopped: HostExitObservation = {
+    exitCode: 0,
+    signal: null,
+    endedBeforeStop: false,
+    forceKilled: false,
+  };
+
+  it('calls a zero exit after the stop clean', () => {
+    expect(classifyHostExit(stopped)).toEqual({
+      kind: 'clean',
+      exitCode: 0,
+      signal: null,
+    });
+  });
+
+  it.each([
+    [3221226505, /0xC0000409 \(3221226505\): fail-fast/],
+    [3221225477, /0xC0000005 \(3221225477\): access violation/],
+    [1, /^exit code 1 after the graceful stop began/],
+    [2, /host forced its exit after its teardown hung/],
+  ])(
+    'calls exit code %d after the stop a crash-on-shutdown',
+    (code, detail) => {
+      const exit = classifyHostExit({ ...stopped, exitCode: code });
+      expect(exit.kind).toBe('crash-on-shutdown');
+      expect(exit.detail).toMatch(detail);
+    },
+  );
+
+  it.each(['SIGSEGV', 'SIGABRT'])(
+    'calls the fatal signal %s after the stop a crash-on-shutdown',
+    (signal) => {
+      expect(
+        classifyHostExit({ ...stopped, exitCode: null, signal }),
+      ).toMatchObject({
+        kind: 'crash-on-shutdown',
+        detail: expect.stringMatching(new RegExp(`^fatal signal ${signal}`)),
+      });
+    },
+  );
+
+  it('calls an end by the launcher’s own graceful signal clean', () => {
+    expect(
+      classifyHostExit({
+        ...stopped,
+        exitCode: null,
+        signal: 'SIGTERM',
+        gracefulSignal: 'SIGTERM',
+      }).kind,
+    ).toBe('clean');
+  });
+
+  it('calls a fired tree kill killed, with the caller’s reason when given', () => {
+    expect(
+      classifyHostExit({ ...stopped, exitCode: 1, forceKilled: true }),
+    ).toMatchObject({
+      kind: 'killed',
+      detail: expect.stringMatching(/graceful stop timed out/),
+    });
+    expect(
+      classifyHostExit({
+        ...stopped,
+        exitCode: 1,
+        forceKilled: true,
+        killReason: 'win32 taskkill',
+      }).detail,
+    ).toBe('win32 taskkill');
+  });
+
+  it('calls any end before the stop exited-early, a crash code included', () => {
+    expect(
+      classifyHostExit({
+        ...stopped,
+        exitCode: 3221226505,
+        endedBeforeStop: true,
+      }).kind,
+    ).toBe('exited-early');
+    expect(
+      classifyHostExit({
+        ...stopped,
+        exitCode: null,
+        spawnError: 'node: ENOENT',
+      }),
+    ).toEqual({
+      kind: 'exited-early',
+      exitCode: null,
+      signal: null,
+      detail: 'the host could not be spawned: node: ENOENT',
+    });
+  });
+});
+
+describe('open-handle probe: unprobed handles per pid', () => {
+  it('parses the win32 reply, one-element arrays collapsed by ConvertTo-Json included', () => {
+    const processes = [
+      { pid: 10, ppid: 1, name: 'node.exe' },
+      { pid: 11, ppid: 10, name: 'conhost.exe' },
+      { pid: 20, ppid: 1, name: 'other.exe' },
+    ];
+    expect(
+      parseWindowsTreeReply(
+        10,
+        JSON.stringify({
+          processes,
+          open: ['10\t\\\\?\\C:\\work\\a.txt', '11\t\\\\?\\C:\\work\\b.txt'],
+          unprobed: ['10\t3', '11\t1', 'garbage', '12\t0'],
+        }),
+      ),
+    ).toEqual({
+      tree: processes.slice(0, 2),
+      open: [
+        { pid: 10, path: 'C:\\work\\a.txt' },
+        { pid: 11, path: 'C:\\work\\b.txt' },
+      ],
+      unprobed: [
+        { pid: 10, handles: 3 },
+        { pid: 11, handles: 1 },
+      ],
+    });
+    expect(
+      parseWindowsTreeReply(
+        10,
+        JSON.stringify({ processes, open: [], unprobed: '11\t2' }),
+      ).unprobed,
+    ).toEqual([{ pid: 11, handles: 2 }]);
+  });
+
+  describe('linux /proc probe (fake /proc, runs on any OS)', () => {
+    const errno = (code: string): NodeJS.ErrnoException =>
+      Object.assign(new Error(code), { code });
+
+    const fakeProc = (fdTables: Record<number, string[] | Error>): ProcFs => ({
+      readdir: async (path) => {
+        if (path === '/proc') return ['1', '100', '101', 'self'];
+        const pid = Number(path.split('/')[2]);
+        const table = fdTables[pid];
+        if (table instanceof Error) throw table;
+        return Object.keys(table ?? []);
+      },
+      readFile: async (path) => {
+        const pid = Number(path.split('/')[2]);
+        const parents: Record<number, number> = { 1: 0, 100: 1, 101: 100 };
+        return `${pid} (proc ${pid}) S ${parents[pid]} 0 0`;
+      },
+      readlink: async (path) => {
+        const [, , pidText, kind, fd] = path.split('/');
+        const pid = Number(pidText);
+        if (kind === 'cwd') return `/work/${pid}`;
+        const table = fdTables[pid];
+        const target = Array.isArray(table) ? table[Number(fd)] : undefined;
+        if (target === 'EACCES') throw errno('EACCES');
+        if (target === 'ENOENT' || target === undefined) throw errno('ENOENT');
+        return target;
+      },
+    });
+
+    it('counts an fd whose link cannot be read as unprobed for its pid', async () => {
+      const probe = new ProcFsHandleProbe(
+        fakeProc({
+          100: ['/work/db.sqlite', 'EACCES', 'ENOENT', 'socket:[123]'],
+          101: ['EACCES', 'EACCES'],
+        }),
+      );
+
+      const result = await probe.treeOpenPaths(100);
+      expect(result.tree.map((entry) => entry.pid)).toEqual([100, 101]);
+      expect(result.open).toEqual([
+        { pid: 100, path: '/work/100' },
+        { pid: 100, path: '/work/db.sqlite' },
+        { pid: 101, path: '/work/101' },
+      ]);
+      expect(result.unprobed).toEqual([
+        { pid: 100, handles: 1 },
+        { pid: 101, handles: 2 },
+      ]);
+    });
+
+    it('counts an fd table that cannot be listed as unprobed, and one that vanished as nothing', async () => {
+      const probe = new ProcFsHandleProbe(
+        fakeProc({ 100: errno('EACCES'), 101: errno('ENOENT') }),
+      );
+
+      const result = await probe.treeOpenPaths(100);
+      expect(result.unprobed).toEqual([{ pid: 100, handles: 1 }]);
+    });
   });
 });

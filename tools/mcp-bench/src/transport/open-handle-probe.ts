@@ -22,10 +22,14 @@
  *   as this user, so `PROCESS_DUP_HANDLE` is granted) and names disk files with
  *   `GetFinalPathNameByHandleW`. A query on a synchronous pipe can block behind
  *   a pending read, so each handle is named on a worker that is abandoned
- *   after a short timeout, and that handle counts as `unprobed`. The process
- *   table comes from `Win32_Process`.
+ *   after a short timeout, and that handle counts as `unprobed` for its pid;
+ *   so does every handle of a tree process that cannot be opened for
+ *   duplication. The process table comes from `Win32_Process`.
  * - linux: `/proc/<pid>/fd/*` and `/proc/<pid>/cwd` links, for every process
  *   this user can read (the desktop app and the bench both run as this user).
+ *   In a tree sample, an fd whose link cannot be read (other than because it
+ *   closed meanwhile), or a tree process whose fd table cannot be listed,
+ *   counts as `unprobed` for its pid.
  * - any other platform: no probe ({@link platformHandleProbe} returns `null`).
  *   The caller falls back to what it can do without one and says so.
  *
@@ -54,12 +58,19 @@ export interface OpenPath {
   readonly path: string;
 }
 
+/** Handles of one process the probe could not name. */
+export interface UnprobedHandles {
+  readonly pid: number;
+  /** How many of its handles (or fds) went unnamed; at least 1. */
+  readonly handles: number;
+}
+
 export interface TreeOpenPathsResult {
   /** The root and its descendants that were alive at the sample. */
   readonly tree: readonly ProcessEntry[];
   readonly open: readonly OpenPath[];
-  /** Handles (or whole processes) the probe could not name. */
-  readonly unprobed: number;
+  /** Per process, the handles the probe could not name; processes with none are absent. */
+  readonly unprobed: readonly UnprobedHandles[];
 }
 
 export interface HandleProbe {
@@ -166,12 +177,26 @@ public static class PtahBenchProbe {
     } finally { handle.Dispose(); }
   }
 
-  public static int Unprobed;
+  // pid -> handles that could not be named in the last OpenPaths call.
+  public static Dictionary<long, int> Unprobed = new Dictionary<long, int>();
+
+  private static void CountUnprobed(long pid) {
+    int count;
+    Unprobed.TryGetValue(pid, out count);
+    Unprobed[pid] = count + 1;
+  }
+
+  // "pid<TAB>handles" per process with unnamed handles.
+  public static List<string> UnprobedLines() {
+    List<string> lines = new List<string>();
+    foreach (KeyValuePair<long, int> entry in Unprobed) { lines.Add(entry.Key + "\t" + entry.Value); }
+    return lines;
+  }
 
   // Class 64 is SystemExtendedHandleInformation; 0x40 PROCESS_DUP_HANDLE;
   // 2 DUPLICATE_SAME_ACCESS; file type 1 FILE_TYPE_DISK.
   public static List<string> OpenPaths(long[] pids, int perHandleTimeoutMs) {
-    Unprobed = 0;
+    Unprobed = new Dictionary<long, int>();
     HashSet<long> wanted = new HashSet<long>(pids);
     List<string> found = new List<string>();
     int size = 1 << 22;
@@ -197,9 +222,8 @@ public static class PtahBenchProbe {
         if (!processes.TryGetValue(pid, out process)) {
           process = OpenProcess(0x40, false, (int)pid);
           processes[pid] = process;
-          if (process == IntPtr.Zero) { Unprobed++; }
         }
-        if (process == IntPtr.Zero) continue;
+        if (process == IntPtr.Zero) { CountUnprobed(pid); continue; }
         IntPtr dup;
         if (!DuplicateHandle(process, entry.HandleValue, GetCurrentProcess(), out dup, 0, false, 2)) continue;
         string path = null;
@@ -212,7 +236,7 @@ public static class PtahBenchProbe {
         });
         worker.IsBackground = true;
         worker.Start();
-        if (!worker.Join(perHandleTimeoutMs)) { Unprobed++; continue; }
+        if (!worker.Join(perHandleTimeoutMs)) { CountUnprobed(pid); continue; }
         CloseHandle(dup);
         if (path != null) found.Add(pid + "\t" + path);
       }
@@ -249,7 +273,7 @@ if ($request.mode -eq 'holders') {
   }
   $open = [PtahBenchProbe]::OpenPaths([long[]]@($tree), [int]$request.perHandleTimeoutMs)
   $out.open = @($open)
-  $out.unprobed = [PtahBenchProbe]::Unprobed
+  $out.unprobed = @([PtahBenchProbe]::UnprobedLines())
 }
 [Console]::Out.Write((ConvertTo-Json -Compress -Depth 4 -InputObject $out))
 `;
@@ -273,29 +297,53 @@ class WindowsHandleProbe implements HandleProbe {
   }
 
   async treeOpenPaths(rootPid: number): Promise<TreeOpenPathsResult> {
-    const reply = parseReply(
+    return parseWindowsTreeReply(
+      rootPid,
       await runWindowsProbe({
         mode: 'tree',
         rootPid,
         perHandleTimeoutMs: PER_HANDLE_TIMEOUT_MS,
       }),
     );
-    const processes = parseProcesses(reply['processes']);
-    const treePids = processTree(rootPid, processes);
-    const open = asList(reply['open']).flatMap((line): OpenPath[] => {
-      if (typeof line !== 'string') return [];
-      const tab = line.indexOf('\t');
-      const pid = Number(line.slice(0, tab));
-      return tab > 0 && Number.isInteger(pid)
-        ? [{ pid, path: stripWin32DevicePrefix(line.slice(tab + 1)) }]
-        : [];
-    });
-    return {
-      tree: processes.filter((entry) => treePids.has(entry.pid)),
-      open,
-      unprobed: typeof reply['unprobed'] === 'number' ? reply['unprobed'] : 0,
-    };
   }
+}
+
+/** `"<pid>\t<rest>"` → `[pid, rest]`, or `null` for anything else. */
+function splitPidLine(line: unknown): [number, string] | null {
+  if (typeof line !== 'string') return null;
+  const tab = line.indexOf('\t');
+  const pid = Number(line.slice(0, tab));
+  return tab > 0 && Number.isInteger(pid) ? [pid, line.slice(tab + 1)] : null;
+}
+
+/** The win32 probe's tree reply (stdout JSON) as a {@link TreeOpenPathsResult}. */
+export function parseWindowsTreeReply(
+  rootPid: number,
+  stdout: string,
+): TreeOpenPathsResult {
+  const reply = parseReply(stdout);
+  const processes = parseProcesses(reply['processes']);
+  const treePids = processTree(rootPid, processes);
+  const open = asList(reply['open']).flatMap((line): OpenPath[] => {
+    const split = splitPidLine(line);
+    return split === null
+      ? []
+      : [{ pid: split[0], path: stripWin32DevicePrefix(split[1]) }];
+  });
+  const unprobed = asList(reply['unprobed']).flatMap(
+    (line): UnprobedHandles[] => {
+      const split = splitPidLine(line);
+      const handles = split === null ? NaN : Number(split[1]);
+      return split !== null && Number.isInteger(handles) && handles > 0
+        ? [{ pid: split[0], handles }]
+        : [];
+    },
+  );
+  return {
+    tree: processes.filter((entry) => treePids.has(entry.pid)),
+    open,
+    unprobed,
+  };
 }
 
 function runWindowsProbe(request: Record<string, unknown>): Promise<string> {
@@ -349,15 +397,45 @@ function parseProcesses(value: unknown): ProcessEntry[] {
   });
 }
 
-class ProcFsHandleProbe implements HandleProbe {
+/** The `/proc` reads the linux probe makes; injectable so a spec can fake `/proc`. */
+export interface ProcFs {
+  readdir(path: string): Promise<string[]>;
+  readFile(path: string): Promise<string>;
+  readlink(path: string): Promise<string>;
+}
+
+const nodeProcFs: ProcFs = {
+  readdir: (path) => readdir(path),
+  readFile: (path) => readFile(path, 'utf8'),
+  readlink: (path) => readlink(path),
+};
+
+/** What one process's `/proc/<pid>` links resolved to. */
+interface OpenTargets {
+  readonly paths: string[];
+  /** Links (or a whole fd table) that exist but could not be read. */
+  readonly unreadable: number;
+}
+
+function errorCode(error: unknown): string | undefined {
+  return typeof error === 'object' && error !== null && 'code' in error
+    ? String((error as { code: unknown }).code)
+    : undefined;
+}
+
+/** The linux probe over `/proc`; exported for its spec. */
+export class ProcFsHandleProbe implements HandleProbe {
   readonly platform = 'linux' as const;
+
+  constructor(private readonly fs: ProcFs = nodeProcFs) {}
 
   async holders(paths: readonly string[]): Promise<HoldersResult> {
     const wanted = new Set(paths.map((path) => resolve(path)));
-    const processes = await readProcessTable();
+    const processes = await this.readProcessTable();
     const holders = new Map<string, number[]>();
     for (const { pid } of processes) {
-      for (const target of await openTargets(pid)) {
+      // Other users' processes are unreadable; only this user's can write.
+      for (const target of (await this.openTargets(pid)).paths) {
         if (!wanted.has(target)) continue;
         const holding = holders.get(target) ?? [];
         if (!holding.includes(pid)) holding.push(pid);
@@ -368,54 +446,81 @@ class ProcFsHandleProbe implements HandleProbe {
   }
 
   async treeOpenPaths(rootPid: number): Promise<TreeOpenPathsResult> {
-    const processes = await readProcessTable();
+    const processes = await this.readProcessTable();
     const treePids = processTree(rootPid, processes);
     const tree = processes.filter((entry) => treePids.has(entry.pid));
     const open: OpenPath[] = [];
+    const unprobed: UnprobedHandles[] = [];
     for (const { pid } of tree) {
-      for (const path of await openTargets(pid)) open.push({ pid, path });
+      const targets = await this.openTargets(pid);
+      for (const path of targets.paths) open.push({ pid, path });
+      if (targets.unreadable > 0) {
+        unprobed.push({ pid, handles: targets.unreadable });
+      }
     }
-    // An unreadable fd table belongs to another user; the tree is this user's.
-    return { tree, open, unprobed: 0 };
+    return { tree, open, unprobed };
   }
-}
 
-async function readProcessTable(): Promise<ProcessEntry[]> {
-  const pids = (await readdir('/proc'))
-    .filter((name) => /^\d+$/.test(name))
-    .map(Number);
-  const entries = await Promise.all(pids.map(readProcStat));
-  return entries.filter((entry): entry is ProcessEntry => entry !== null);
-}
-
-async function readProcStat(pid: number): Promise<ProcessEntry | null> {
-  try {
-    const stat = await readFile(`/proc/${pid}/stat`, 'utf8');
-    // `pid (comm) state ppid …` — comm may contain spaces and parentheses.
-    const open = stat.indexOf('(');
-    const close = stat.lastIndexOf(')');
-    const fields = stat.slice(close + 2).split(' ');
-    return { pid, ppid: Number(fields[1]), name: stat.slice(open + 1, close) };
-  } catch {
-    return null; // exited between the listing and the read
+  private async readProcessTable(): Promise<ProcessEntry[]> {
+    const pids = (await this.fs.readdir('/proc'))
+      .filter((name) => /^\d+$/.test(name))
+      .map(Number);
+    const entries = await Promise.all(
+      pids.map((pid) => this.readProcStat(pid)),
+    );
+    return entries.filter((entry): entry is ProcessEntry => entry !== null);
   }
-}
 
-async function openTargets(pid: number): Promise<string[]> {
-  const links: string[] = [`/proc/${pid}/cwd`];
-  try {
-    for (const fd of await readdir(`/proc/${pid}/fd`)) {
-      links.push(`/proc/${pid}/fd/${fd}`);
+  private async readProcStat(pid: number): Promise<ProcessEntry | null> {
+    try {
+      const stat = await this.fs.readFile(`/proc/${pid}/stat`);
+      // `pid (comm) state ppid …` — comm may contain spaces and parentheses.
+      const open = stat.indexOf('(');
+      const close = stat.lastIndexOf(')');
+      const fields = stat.slice(close + 2).split(' ');
+      return {
+        pid,
+        ppid: Number(fields[1]),
+        name: stat.slice(open + 1, close),
+      };
+    } catch {
+      return null; // exited between the listing and the read
     }
-  } catch {
-    // Another user's process, or it exited: nothing this user can see.
   }
-  const targets = await Promise.all(
-    links.map((link) => readlink(link).catch(() => null)),
-  );
-  return targets.filter(
-    (target): target is string => target !== null && target.startsWith('/'),
-  );
+
+  /**
+   * The absolute paths behind `/proc/<pid>/cwd` and `/proc/<pid>/fd/*`. A
+   * link that vanished (`ENOENT`: the fd closed, or the process exited) is
+   * nothing; any other read failure is counted as unreadable, and so is an fd
+   * table that exists but cannot be listed.
+   */
+  private async openTargets(pid: number): Promise<OpenTargets> {
+    const links: string[] = [`/proc/${pid}/cwd`];
+    let unreadable = 0;
+    try {
+      for (const fd of await this.fs.readdir(`/proc/${pid}/fd`)) {
+        links.push(`/proc/${pid}/fd/${fd}`);
+      }
+    } catch (error: unknown) {
+      if (errorCode(error) !== 'ENOENT') unreadable += 1;
+    }
+    const targets = await Promise.all(
+      links.map(async (link): Promise<string | null> => {
+        try {
+          return await this.fs.readlink(link);
+        } catch (error: unknown) {
+          if (errorCode(error) !== 'ENOENT') unreadable += 1;
+          return null;
+        }
+      }),
+    );
+    return {
+      paths: targets.filter(
+        (target): target is string => target !== null && target.startsWith('/'),
+      ),
+      unreadable,
+    };
+  }
 }
 
 function runCaptured(

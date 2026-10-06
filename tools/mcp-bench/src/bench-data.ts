@@ -15,10 +15,14 @@
  * example as `PTAH_MCP_BENCH_DATA_DIR` in its env) and uses it as given.
  *
  * The path comparison rule (`isPathInside`, `isSamePath`) is the one the bench
- * host's isolation check uses too: resolve both sides, fold case on win32.
+ * host's isolation check uses too: resolve both sides, fold case on win32. It
+ * is lexical and does no I/O. `resolveBenchDataDir` applies it twice: to the
+ * paths as given, and to their real paths (`realpath`, so a junction or
+ * symlink into a forbidden root is caught). A candidate that does not exist
+ * yet is resolved through its nearest existing ancestor.
  */
 
-import { existsSync, mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, realpathSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { posix, win32 } from 'node:path';
 
@@ -51,6 +55,13 @@ export interface ResolveBenchDataDirOptions {
   readonly platform?: NodeJS.Platform;
   /** Create the folder (recursive mkdir) before returning. Default `false`. */
   readonly create?: boolean;
+  /**
+   * Resolves links in an existing path; throws `ENOENT` for a missing one.
+   * Default `fs.realpathSync.native` when `platform` is this process's
+   * platform; with a simulated foreign `platform` and no resolver, only the
+   * lexical rule applies (the local file system cannot answer for it).
+   */
+  readonly realpath?: (path: string) => string;
 }
 
 function pathApi(platform: NodeJS.Platform): typeof posix {
@@ -152,16 +163,18 @@ export function resolveBenchDataDir(
     }
   }
 
+  const realpath =
+    options.realpath ??
+    (platform === process.platform ? realpathSync.native : null);
+  const realDir =
+    realpath === null ? null : realPathOf(dir, platform, realpath);
+
   const realPtah = api.join(realHome, '.ptah');
-  if (
-    isSamePath(dir, realPtah, platform) ||
-    isPathInside(dir, realPtah, platform)
-  ) {
-    throw new BenchDataDirError(
-      `bench data folder ${dir} is the real Ptah state directory ${realPtah} or lies under it; the bench must never write there`,
-      dir,
-    );
-  }
+  assertOutside(dir, realDir, realPtah, platform, realpath, {
+    lexical: `bench data folder ${dir} is the real Ptah state directory ${realPtah} or lies under it; the bench must never write there`,
+    real: (realRoot) =>
+      `is the real Ptah state directory ${realPtah} (real path ${realRoot}) or lies under it; the bench must never write there`,
+  });
 
   const repoRoot =
     options.repoRoot ?? findRepositoryRoot(process.cwd(), platform);
@@ -171,16 +184,89 @@ export function resolveBenchDataDir(
       dir,
     );
   }
-  if (
-    isSamePath(dir, repoRoot, platform) ||
-    isPathInside(dir, repoRoot, platform)
-  ) {
-    throw new BenchDataDirError(
-      `bench data folder ${dir} is the repository root ${repoRoot} or lies inside it; private bench data must stay out of the repository`,
-      dir,
-    );
-  }
+  assertOutside(dir, realDir, repoRoot, platform, realpath, {
+    lexical: `bench data folder ${dir} is the repository root ${repoRoot} or lies inside it; private bench data must stay out of the repository`,
+    real: (realRoot) =>
+      `is the repository root ${repoRoot} (real path ${realRoot}) or lies inside it; private bench data must stay out of the repository`,
+  });
 
   if (options.create === true) mkdirSync(dir, { recursive: true });
   return dir;
+}
+
+function isAtOrUnder(
+  path: string,
+  root: string,
+  platform: NodeJS.Platform,
+): boolean {
+  return isSamePath(path, root, platform) || isPathInside(path, root, platform);
+}
+
+/**
+ * Reject `dir` when it is at or under `root`, compared lexically and, when a
+ * resolver exists, by real path (the real candidate against both the given
+ * and the real root).
+ */
+function assertOutside(
+  dir: string,
+  realDir: string | null,
+  root: string,
+  platform: NodeJS.Platform,
+  realpath: ((path: string) => string) | null,
+  messages: { lexical: string; real: (realRoot: string) => string },
+): void {
+  if (isAtOrUnder(dir, root, platform)) {
+    throw new BenchDataDirError(messages.lexical, dir);
+  }
+  if (realDir === null || realpath === null) return;
+  const realRoot = realPathOf(root, platform, realpath);
+  if (
+    isAtOrUnder(realDir, realRoot, platform) ||
+    isAtOrUnder(realDir, root, platform)
+  ) {
+    throw new BenchDataDirError(
+      `bench data folder ${dir} (real path ${realDir}) ${messages.real(realRoot)}`,
+      dir,
+    );
+  }
+}
+
+function errorCode(error: unknown): string | undefined {
+  return typeof error === 'object' && error !== null && 'code' in error
+    ? String((error as { code: unknown }).code)
+    : undefined;
+}
+
+/**
+ * `path` with every link resolved. A path that does not exist yet resolves
+ * through its nearest existing ancestor, with the missing tail re-appended.
+ * Any failure other than `ENOENT` fails closed with a {@link BenchDataDirError}.
+ */
+function realPathOf(
+  path: string,
+  platform: NodeJS.Platform,
+  realpath: (path: string) => string,
+): string {
+  const api = pathApi(platform);
+  const missing: string[] = [];
+  let current = api.resolve(path);
+  for (;;) {
+    try {
+      const real = realpath(current);
+      return missing.length === 0 ? real : api.join(real, ...missing.reverse());
+    } catch (error: unknown) {
+      if (errorCode(error) !== 'ENOENT') {
+        throw new BenchDataDirError(
+          `cannot resolve the real path of ${path} (at ${current}): ${
+            error instanceof Error ? error.message : String(error)
+          }; refusing the bench data folder rather than skipping the link check`,
+          path,
+        );
+      }
+      const parent = api.dirname(current);
+      if (parent === current) return api.resolve(path);
+      missing.push(api.basename(current));
+      current = parent;
+    }
+  }
 }

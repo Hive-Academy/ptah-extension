@@ -18,6 +18,10 @@
  *   the run with {@link BenchHeldRealStateError}. A bench process that opens
  *   and closes a real file between two samples is not seen — the isolation
  *   layers, not this guard, are what keep it from opening one at all.
+ *   Handles the probe could not name are listed per process
+ *   (`unprobedProcesses`: pid, name, handles) and mark the guard `partial`.
+ *   A partial guard is reported, not failed; a held real path or a sample
+ *   that could not run still fails the run.
  *
  * A concurrent writer is detected by the open-handle probe (another process
  * holds the real database) or by a short pre-sample (the real `-wal` changes
@@ -75,12 +79,35 @@ export interface HeldRealPath {
   readonly path: string;
 }
 
+/** A bench process with handles the probe could not name (process-watch). */
+export interface UnprobedProcess {
+  readonly pid: number;
+  /** Process name, or `unknown` when the process table did not show it. */
+  readonly name: string;
+  /** Most unnamed handles one sample saw for this pid. */
+  readonly handles: number;
+}
+
+/** `; unprobed (guard partial): node.exe 12 (3 handles), …`, or `` when none. */
+export function describeUnprobed(unprobed: readonly UnprobedProcess[]): string {
+  return unprobed.length === 0
+    ? ''
+    : '; unprobed (guard partial): ' +
+        unprobed
+          .map((p) => `${p.name} ${p.pid} (${p.handles} handles)`)
+          .join(', ');
+}
+
 /** Thrown when a bench process held a path under the real `~/.ptah`. */
 export class BenchHeldRealStateError extends Error {
-  constructor(readonly held: readonly HeldRealPath[]) {
+  constructor(
+    readonly held: readonly HeldRealPath[],
+    readonly unprobed: readonly UnprobedProcess[] = [],
+  ) {
     super(
       'A bench process held a path under the real ~/.ptah: ' +
         held.map((h) => `${h.name || 'pid'} ${h.pid} → ${h.path}`).join('; ') +
+        describeUnprobed(unprobed) +
         '. Isolation is broken; the run is void.',
     );
     this.name = 'BenchHeldRealStateError';
@@ -196,8 +223,14 @@ export type GuardReport =
       readonly maxTreeProcesses: number;
       /** Most open file paths one sample found in the bench tree. */
       readonly maxOpenPaths: number;
-      /** Most handles one sample could not name (see `open-handle-probe.ts`). */
-      readonly unprobed: number;
+      /**
+       * True exactly when `unprobedProcesses` is non-empty: some handles were
+       * never named, so the guard proves less than a full check. Reported,
+       * not a failure (`run.guard.partial` in the scorecard).
+       */
+      readonly partial: boolean;
+      /** Union across samples of the processes with unnamed handles (max per pid). */
+      readonly unprobedProcesses: readonly UnprobedProcess[];
     };
 
 const DEFAULT_PRE_SAMPLE_MS = 2_000;
@@ -272,9 +305,10 @@ export class RealStateGuard {
   private samples = 0;
   private maxTreeProcesses = 0;
   private maxOpenPaths = 0;
-  private unprobed = 0;
+  /** pid → the most unnamed handles one sample saw, with the name it had. */
+  private readonly unprobed = new Map<number, UnprobedProcess>();
   private readonly held: HeldRealPath[] = [];
-  private sampleError: unknown = null;
+  private sampleFailure: string | null = null;
   private stopped = false;
 
   constructor(
@@ -319,15 +353,26 @@ export class RealStateGuard {
       assertRealStateUnchanged(this.before, after);
       return { mode: 'hash', before: this.before, after };
     }
-    if (this.held.length > 0) throw new BenchHeldRealStateError(this.held);
-    if (this.sampleError !== null) throw this.sampleError;
+    const unprobedProcesses = [...this.unprobed.values()].sort(
+      (left, right) => left.pid - right.pid,
+    );
+    if (this.held.length > 0) {
+      throw new BenchHeldRealStateError(this.held, unprobedProcesses);
+    }
+    if (this.sampleFailure !== null) {
+      // A sample that could not run proves nothing: fail closed.
+      throw new Error(
+        `process-watch sample failed: ${this.sampleFailure}${describeUnprobed(unprobedProcesses)}`,
+      );
+    }
     return {
       mode: 'process-watch',
       writerEvidence: this.writerEvidence,
       samples: this.samples,
       maxTreeProcesses: this.maxTreeProcesses,
       maxOpenPaths: this.maxOpenPaths,
-      unprobed: this.unprobed,
+      partial: unprobedProcesses.length > 0,
+      unprobedProcesses,
     };
   }
 
@@ -365,12 +410,18 @@ export class RealStateGuard {
         result.tree.length,
       );
       this.maxOpenPaths = Math.max(this.maxOpenPaths, result.open.length);
-      this.unprobed = Math.max(this.unprobed, result.unprobed);
+      for (const { pid, handles } of result.unprobed) {
+        const seen = this.unprobed.get(pid);
+        this.unprobed.set(pid, {
+          pid,
+          name: names.get(pid) || seen?.name || 'unknown',
+          handles: Math.max(handles, seen?.handles ?? 0),
+        });
+      }
     } catch (error: unknown) {
       // A sample that could not run proves nothing: fail closed at finish().
-      this.sampleError ??= new Error(
-        `process-watch sample failed: ${error instanceof Error ? error.message : String(error)}`,
-      );
+      this.sampleFailure ??=
+        error instanceof Error ? error.message : String(error);
     }
   }
 }

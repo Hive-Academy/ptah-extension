@@ -1,19 +1,24 @@
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
-import { withEngine } from '@ptah-extension/cli-engine';
+import { CliDIContainer, withEngine } from '@ptah-extension/cli-engine';
 import { startCodeExecutionMcp } from '@ptah-extension/vscode-core';
 
 import {
+  BENCH_BISECT_ENV,
   BenchHostBootError,
   BenchIsolationError,
   assertIsolatedEnvironment,
   bootCodeExecutionHost,
+  readBisectFlags,
   type AfterContainerReadyHook,
   type BeforeEngineBootHook,
 } from './bench-host-boot';
 
-jest.mock('@ptah-extension/cli-engine', () => ({ withEngine: jest.fn() }));
+jest.mock('@ptah-extension/cli-engine', () => ({
+  withEngine: jest.fn(),
+  CliDIContainer: { setup: jest.fn() },
+}));
 jest.mock('@ptah-extension/vscode-core', () => ({
   TOKENS: { LOGGER: 'LOGGER', CODE_EXECUTION_MCP: 'CODE_EXECUTION_MCP' },
   startCodeExecutionMcp: jest.fn(),
@@ -314,5 +319,72 @@ describe('bootCodeExecutionHost', () => {
     const { error } = await bootFailure({ workspace: 'relative/dir' });
     expect((error as BenchHostBootError).step).toBe('options');
     expect(withEngineMock).not.toHaveBeenCalled();
+  });
+
+  describe(`shutdown bisect (${BENCH_BISECT_ENV})`, () => {
+    it('refuses an unknown flag before any hook', async () => {
+      process.env[BENCH_BISECT_ENV] = 'no-embedder,no-such-flag';
+      const before = jest.fn();
+      const { error } = await bootFailure({
+        workspace,
+        beforeEngineBoot: before,
+      });
+      expect((error as BenchHostBootError).step).toBe('options');
+      expect((error as Error).message).toMatch(/unknown flag no-such-flag/);
+      expect(before).not.toHaveBeenCalled();
+    });
+
+    it('applies each flag to the bootstrap before the engine opens the DB', async () => {
+      process.env[BENCH_BISECT_ENV] =
+        ' no-embedder , no-sqlite-vec,no-sqlite-close ';
+      const factory = { spawn: jest.fn(() => 'worker') };
+      const realClose = jest.fn();
+      const connection = {
+        configure: jest.fn(),
+        close: realClose,
+        isOpen: true,
+        db: { pragma: jest.fn() },
+      };
+      const booted = {
+        isRegistered: () => true,
+        resolve: (token: symbol) =>
+          token === Symbol.for('PtahEmbedderWorkerProcessFactory')
+            ? factory
+            : token === Symbol.for('PtahSqliteConnection')
+              ? connection
+              : {},
+      };
+      jest
+        .mocked(CliDIContainer.setup)
+        .mockReturnValue({ container: booted } as never);
+
+      const host = await bootCodeExecutionHost({ workspace });
+      const opts = withEngineMock.mock.calls[0][1];
+      expect(opts).toMatchObject({
+        mode: 'full',
+        requireSdk: false,
+        thoth: 'oneshot',
+      });
+      if (opts.bootstrap === undefined) throw new Error('expected a bootstrap');
+      opts.bootstrap({});
+
+      expect(() => factory.spawn()).toThrow(
+        `disabled by ${BENCH_BISECT_ENV}=no-embedder`,
+      );
+      expect(connection.configure).toHaveBeenCalledWith({
+        vecPathResolver: null,
+      });
+      connection.close();
+      expect(realClose).not.toHaveBeenCalled();
+      await host.stop();
+    });
+
+    it('parses an unset or empty variable as no flags', () => {
+      expect(readBisectFlags({}).size).toBe(0);
+      expect(readBisectFlags({ [BENCH_BISECT_ENV]: ' , ' }).size).toBe(0);
+      expect([
+        ...readBisectFlags({ [BENCH_BISECT_ENV]: 'trace,trace' }),
+      ]).toEqual(['trace']);
+    });
   });
 });

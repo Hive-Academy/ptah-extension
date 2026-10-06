@@ -133,6 +133,15 @@ Request from the TASK_2026_620 session (memory + skills benchmark). Decision: 61
 - 620 code lives in `tools/mcp-bench/src/memory-skills/`; 620 may add only the targets `build-host-memory-skills` and `bench-memory-skills` to `tools/mcp-bench/project.json`. Committed fixtures in `tools/mcp-bench/fixtures/memory-skills/` must hold no user data; private snapshots stay in the bench data folder.
 - Pure offline computation in the runner parent is allowed if it reads only committed repo files and the bench data folder, never the real `~/.ptah`.
 
+## User Requests (2026-10-07)
+
+1. **Open a PR when the task finishes** (base `main`, branch `fix/task-619-tool-benchmark`). Never merge it.
+2. **Use the other lanes, not only Codex.** Until Batch 4d every lane batch ran on Codex (the "strongest coding lane" default, with no evidence for it in this repository). From Batch 5 on, the orchestrator assigns lanes by role and records lane evidence (revision rounds, review defects, duration, checks) for a final per-lane table:
+   - Batch 5 → codex; Batch 6 → Glm (ptah-cli), in parallel with 5 if the two are file-disjoint (team-leader confirms; otherwise a separate worktree).
+   - Batch 7 → opencode (self-contained; opencode has no messaging, so no `ptah_agent_report` and no mid-run steering).
+   - Batch 8 → Glm.
+   - Phase 1 code-logic review: subagent reviewers for lane-authored code (1, 2, 4b, 5-8); a lane reviewer (antigravity, which authored nothing) for subagent-authored code (3, 4, 4c, 4d, 9-11).
+
 ## Conversation Summary
 
 - 2026-10-06: the user opened a second session (`ptah-ptah-extension-skills-trajectory-an-10a89600005aw2q23htdi0c`) to apply the same benchmark-first method to memory curation and the skills trajectory. Boundary: this task owns `ptah_memory_search` as a retrieval tool (scope, isolation, worktree scope, spill root, recall@k via MCP). That session owns curation/extraction quality and the skills trajectory. `tools/mcp-bench` metrics and the scorecard schema are shared; that session must ask before it changes them.
