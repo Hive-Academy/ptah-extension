@@ -2,9 +2,10 @@
 
 Detailed workflow diagrams and guidance for all 8 task type workflows. Which phases or batches may run on CLI lanes: [lane-assignment.md](lane-assignment.md).
 
-Every document gate below runs `author → independent document review → bounded revision → user gate`
+Every document gate below runs `author → independent document review → bounded revision → gate`
 ([checkpoints.md § Cross-side review protocol](checkpoints.md#cross-side-review-protocol)), for initial
-artifacts and revisions alike. Include the reviews in the announced agent sequence. Every
+artifacts and revisions alike. The gate passes on the reviewer's APPROVED in `lane-review` mode and on
+the user's `APPROVED` in `user` mode or on escalation ([checkpoints.md § Approval mode](checkpoints.md#approval-mode)). Include the reviews in the announced agent sequence. Every
 implementation also gets the required shipping-code review before batch acceptance, or before
 completion and git in flows without team-leader; Gate 3 `skip` does not waive it.
 
@@ -31,16 +32,16 @@ completion and git in flows without team-leader; Gate 3 `skip` does not waive it
 
 ```
 Phase 0.5: [IF ambiguous request] SCOPE CLARIFICATION
-           Orchestrator asks scope/priority/constraint questions
+           Decision ladder: evidence -> cross-side peer -> user only for scope intent
            |
-           USER ANSWERS (clarifies scope)
+           SCOPE DECISIONS LOGGED (decisions.md)
            |
            v
 Phase 1: project-manager --> Creates task-description.md
          |
          INDEPENDENT DOCUMENT REVIEW (other execution side; bounded revision per agent-lanes §6)
          |
-         USER VALIDATES ("APPROVED" or feedback)
+         GATE PASSES (lane-review: reviewer APPROVED; user: "APPROVED" or feedback)
          |
          v
 Phase 2: [IF technical unknowns] researcher-expert --> Creates research-report.md
@@ -50,28 +51,28 @@ Phase 3: [IF UI/UX work] ui-ux-designer --> Creates design-spec.md + prototype/
          |
          INDEPENDENT DOCUMENT REVIEW (other execution side; bounded revision per agent-lanes §6)
          |
-         GATE 1.7: USER VALIDATES ("APPROVED" or revisions)
+         GATE 1.7 PASSES (lane-review: reviewer APPROVED; user: "APPROVED" or revisions)
          |
          v
 Phase 3.5: [IF multiple valid approaches] TECHNICAL CLARIFICATION
-           Orchestrator asks pattern/integration/tradeoff questions
+           Decision ladder: evidence -> cross-side peer -> user only if user-reserved
            |
-           USER ANSWERS (clarifies technical preferences)
+           TECHNICAL DECISIONS LOGGED (decisions.md)
            |
            v
 Phase 4: software-architect --> Creates implementation-plan.md
          |
          INDEPENDENT DOCUMENT REVIEW (other execution side; bounded revision per agent-lanes §6)
          |
-         USER VALIDATES ("APPROVED" or feedback)
+         GATE PASSES (lane-review: reviewer APPROVED; user: "APPROVED" or feedback)
          |
          v
 Phase 5: team-leader MODE 1 --> MODE 2 (loop) --> MODE 3
          |
-         USER CHOOSES QA (tester/style/logic/visual/reviewers/all/skip)
+         QA SELECTED BY RULE (notice; user may add agents)
          |
          v
-Phase 6: [QA agents as chosen]
+Phase 6: [QA agents as selected]
          |
          v
 Phase 7: User handles git (commits already created)
@@ -104,7 +105,7 @@ revise them until Gate 1.7 is approved, then pass the approved prototype to the 
          v
 team-leader MODE 1 --> MODE 2 (loop) --> MODE 3
          |
-         USER CHOOSES QA
+         QA SELECTED BY RULE
          |
          v
 [QA agents] --> Git --> modernization-detector
@@ -127,12 +128,12 @@ software-architect --> Creates implementation-plan.md
          |
          INDEPENDENT DOCUMENT REVIEW (other execution side; bounded revision per agent-lanes §6)
          |
-         USER VALIDATES ("APPROVED" or feedback)
+         GATE PASSES (lane-review: reviewer APPROVED; user: "APPROVED" or feedback)
          |
          v
 team-leader MODE 1 --> MODE 2 (loop) --> MODE 3
          |
-         USER CHOOSES QA
+         QA SELECTED BY RULE
          |
          v
 [QA agents] --> Git --> modernization-detector
@@ -159,7 +160,7 @@ project-manager --> Creates task-description.md
          |
          INDEPENDENT DOCUMENT REVIEW (other execution side; bounded revision per agent-lanes §6)
          |
-         USER VALIDATES ("APPROVED" or feedback)
+         GATE PASSES (lane-review: reviewer APPROVED; user: "APPROVED" or feedback)
          |
          v
 [appropriate developer] --> Implements documentation
@@ -213,22 +214,22 @@ Phase 1: project-manager --> Creates task-description.md
          |
          INDEPENDENT DOCUMENT REVIEW (other execution side; bounded revision per agent-lanes §6)
          |
-         USER VALIDATES ("APPROVED" or feedback)
+         GATE PASSES (lane-review: reviewer APPROVED; user: "APPROVED" or feedback)
          |
          v
 Phase 2: software-architect --> Creates implementation-plan.md
          |
          INDEPENDENT DOCUMENT REVIEW (other execution side; bounded revision per agent-lanes §6)
          |
-         USER VALIDATES ("APPROVED" or feedback)
+         GATE PASSES (lane-review: reviewer APPROVED; user: "APPROVED" or feedback)
          |
          v
 Phase 3: devops-engineer --> Implements infrastructure
          |
-         USER CHOOSES QA (style/logic/skip)
+         QA SELECTED BY RULE (style/logic)
          |
          v
-Phase 4: [QA agents as chosen]
+Phase 4: [QA agents as selected]
          |
          v
 Phase 5: User handles git (commits already created)
@@ -289,7 +290,7 @@ Phase 1: project-manager + [saas-discovery-prompt]
          |
          INDEPENDENT DOCUMENT REVIEW (other execution side; bounded revision per agent-lanes §6)
          |
-         USER VALIDATES ("APPROVED" or feedback)
+         GATE PASSES (lane-review: reviewer APPROVED; user: "APPROVED" or feedback)
          |
          v
 Phase 2: software-architect + [saas-architecture-skills]
@@ -301,7 +302,7 @@ Phase 2: software-architect + [saas-architecture-skills]
          |
          INDEPENDENT DOCUMENT REVIEW (other execution side; bounded revision per agent-lanes §6)
          |
-         USER VALIDATES ("APPROVED" or feedback)
+         GATE PASSES (lane-review: reviewer APPROVED; user: "APPROVED" or feedback)
          |
          v
 Phase 3: team-leader MODE 1

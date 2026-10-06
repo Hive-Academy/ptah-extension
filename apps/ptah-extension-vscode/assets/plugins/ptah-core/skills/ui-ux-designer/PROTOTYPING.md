@@ -294,7 +294,7 @@ List each applied `[project-rule]` with its source file or doc; write `none` if 
 
 ## Lane-introduced constraints
 List only lane-proposed design rules, boundaries, or constraints; write `none` if there are none.
-- `[lane-proposed]`: Introduced by the agent/lane. **Requires explicit user approval at Gate 1.7.**
+- `[lane-proposed]`: Introduced by the agent/lane. **Requires acceptance at Gate 1.7** — by the cross-side reviewer in `lane-review` mode, by the user otherwise.
 
 | Constraint | Tag | Rationale |
 | --- | --- | --- |
@@ -317,8 +317,8 @@ Cross-reference against `parity-inventory.md` to prove all retained capabilities
 The prototype is not just documentation; it is an active review gate:
 
 1. **Produce prototype & screenshots**: The UI/UX designer creates `prototype/index.html`, `prototype/README.md`, and captures screenshots.
-2. **Present at Gate 1.7**: The orchestrator presents the prototype path, screenshots, `Lane-introduced constraints`, and parity mapping to the user.
+2. **Present at Gate 1.7**: The orchestrator presents the prototype path, screenshots, `Lane-introduced constraints`, and parity mapping to the cross-side reviewer, then to the user in `user` mode or on escalation (orchestration `checkpoints.md` § Approval mode).
 3. **Iterate until approved**:
-   - If the user requests adjustments, the designer modifies the prototype in place.
-   - The loop continues until the user explicitly replies **`APPROVED`**.
+   - If the reviewer or the user requests adjustments, the designer modifies the prototype in place.
+   - The loop continues until Gate 1.7 passes: the reviewer's APPROVED in `lane-review` mode, or the user's explicit **`APPROVED`**.
 4. **Handoff to engineering**: Once approved at Gate 1.7, the prototype becomes the visual contract. Developers and visual reviewers match the running application directly to this approved prototype.
