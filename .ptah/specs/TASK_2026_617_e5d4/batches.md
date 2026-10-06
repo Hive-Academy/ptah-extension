@@ -1,6 +1,6 @@
 # Batches - TASK_2026_617
 
-Total tasks: 27 | Batches: 9 | Complete: 2/9
+Total tasks: 27 | Batches: 9 | Complete: 3/9
 
 Worktree: `D:\projects\ptah-extension\.claude-worktrees\task-617-grok-acp` (branch `feat/task-617-grok-acp`).
 Every path below is absolute inside this worktree. Never touch the main checkout.
@@ -192,7 +192,7 @@ the root `package.json`, `libs\backend\cli-agent-runtime\package.json`, both app
 `node_modules`. The four verify targets passed (`--skip-nx-cache`, then a cached re-run with exit 0 each).
 `validate-deps` lists the SDK under "in package.json but not detected in bundle", as expected until Batch 9.
 
-## Batch 3: process transport, update mapper, permission policy — IN_PROGRESS
+## Batch 3: process transport, update mapper, permission policy — COMPLETE (commit 1b2ad5f30)
 
 - Recommended executor: CLI lanes x 3, one per task
 - Fallback executor: backend-developer (sub-agent), sequential
@@ -204,7 +204,7 @@ the root `package.json`, `libs\backend\cli-agent-runtime\package.json`, both app
 - Tasks: 3 | Depends on: Batch 1
 - Phase: 1 | Phase review: at the end of Batch 4
 
-### Task 3.1: AcpProcessTransport — IN_PROGRESS
+### Task 3.1: AcpProcessTransport — COMPLETE
 
 - File: `ADP\acp\acp-process-transport.ts`, `ADP\acp\acp-process-transport.spec.ts`
 - Plan reference: implementation-plan.md:221-248
@@ -214,7 +214,7 @@ the root `package.json`, `libs\backend\cli-agent-runtime\package.json`, both app
 - Validation notes: edge cases for oversized stderr and a spawn error (`exited` = `{code:null, signal:'error'}`).
 - Implementation details: the spec uses a real `node -e` echo child; `killProcessTree` is mocked.
 
-### Task 3.2: AcpSessionUpdateMapper plus mapStopReason plus fixtures — IN_PROGRESS
+### Task 3.2: AcpSessionUpdateMapper plus mapStopReason plus fixtures — COMPLETE
 
 - File: `ADP\acp\acp-session-update-mapper.ts`, `ADP\acp\acp-session-update-mapper.spec.ts`,
   `ADP\acp\__fixtures__\grok-*.ndjson` (11 files copied unchanged from
@@ -231,7 +231,7 @@ the root `package.json`, `libs\backend\cli-agent-runtime\package.json`, both app
   plus 0 SDK "Error handling notification" calls over the six transcripts named in amendment 7, with a negative
   control.
 
-### Task 3.3: AcpPermissionPolicy — IN_PROGRESS
+### Task 3.3: AcpPermissionPolicy — COMPLETE
 
 - File: `ADP\acp\acp-permission-policy.ts`, `ADP\acp\acp-permission-policy.spec.ts`
 - Plan reference: implementation-plan.md:279-301; amendment 2
@@ -247,7 +247,38 @@ the root `package.json`, `libs\backend\cli-agent-runtime\package.json`, both app
 - `npx nx run-many -t typecheck,test,lint -p @ptah-extension/cli-agent-runtime` passes.
 - Each lane report lists its files; the team-leader confirms the file disjointness.
 
-## Batch 4: vendor profile contract, session runner, fake ACP peer — PENDING
+### Batch 3 results (binding on Batch 4)
+
+Executors: 3.1 the Glm ptah-cli lane, 3.2 a codex lane (effort high), 3.3 an opencode lane. 3.3 first started on
+antigravity; that lane was stopped by user instruction before it wrote anything, and the same prompt was respawned
+on opencode. Later lanes use opencode, never antigravity.
+
+Verified by the team-leader: the files are disjoint, and nothing outside the batch's files changed. All 11 fixtures are
+byte-identical to `acp-batch0-fixtures\` (`cmp`). Fixture scrub: the only `API_KEY` hit is the env-var name
+`XAI_API_KEY` inside a skill description; there is no home path and no token. The scoped `typecheck,test,lint` passed
+(`--skip-nx-cache`). The ACP specs ran 49/49: loader 9, transport 3, mapper 18, policy 19. The lanes' claimed counts
+(12/27/28) were inflated, but the transport spec's 3 tests cover every required assertion.
+
+Exported API that Batch 4 must consume, as shipped:
+
+- `acp-process-transport.ts`: `spawnAcpProcess: AcpTransportFactory`, `AcpSpawnOptions {command, args, cwd, env?,
+spawner?: IProcessSpawner, onStderrLine?}`, `AcpProcessTransport {stream: AcpByteStream, getPid(), exited:
+Promise<AcpProcessExit>, kill()}`, `AcpProcessExit {code, signal}`. The factory returns synchronously, queues
+  stdin writes until the async spawn resolves, and ends stdin when the SDK closes the writable.
+- `acp-session-update-mapper.ts`: `createAcpSessionUpdateMapper({extractExitCode?})` → `{ map(update: SessionUpdate)
+→ {output, segments} }` (keeps a per-instance tool-kind map, so one mapper per session);
+  `mapStopReason({stopReason, aborted, refusedPermissionTitle?, displayName}) → {exitCode: 0|1, segment?}`.
+- `acp-permission-policy.ts`: `decideAcpPermission(request, {autoApprove?}) → {response, refused, info?,
+toolTitle?}`. The runner records `toolTitle` (or a fallback) when `refused` is true and feeds it to
+  `mapStopReason` as `refusedPermissionTitle` for that turn only.
+
+Known item for the Phase 1 review (not a check failure): in `acp-process-transport.ts`, `onChildError` settles `exited`
+and closes the readable but does not run `detachListeners`; teardown relies on a `close` event that a failed spawn
+may never emit (plan: "every listener removed on exit"). Also noted: the opencode lane reports that the P1
+transcript has no `session/request_permission`, while P2 shows `ptah__ptah_agent_list` gated. This does not change
+the policy.
+
+## Batch 4: vendor profile contract, session runner, fake ACP peer — IN_PROGRESS
 
 - Recommended executor: backend-developer (sub-agent)
 - Fallback executor: backend-developer, fresh run with this section and the Batch 3 files
@@ -258,7 +289,7 @@ the root `package.json`, `libs\backend\cli-agent-runtime\package.json`, both app
 - Tasks: 4 | Depends on: Batches 1 and 3
 - Phase: 1 (last batch) | Phase review: code-logic plus style (a new extension seam, `AcpVendorProfile`)
 
-### Task 4.1: AcpVendorProfile contract — PENDING
+### Task 4.1: AcpVendorProfile contract — IN_PROGRESS
 
 - File: `ADP\acp\acp-vendor-profile.ts`
 - Plan reference: implementation-plan.md:303-315; amendments 3, 4
@@ -266,7 +297,7 @@ the root `package.json`, `libs\backend\cli-agent-runtime\package.json`, both app
 'resume-then-load' | 'none'`; add `sessionConfig?(options) → Array<{configId, value}>`; `buildSpawn` returns
   argv only.
 
-### Task 4.2: fake ACP agent (test helper) — PENDING
+### Task 4.2: fake ACP agent (test helper) — IN_PROGRESS
 
 - Depends on: Task 4.1
 - File: `ADP\acp\__fixtures__\fake-acp-agent.ts`
@@ -277,7 +308,7 @@ the root `package.json`, `libs\backend\cli-agent-runtime\package.json`, both app
 - Validation notes: R8. No jest globals and no SDK runtime import. The Batch 1 boundary check walks this file;
   use `import type { X }` only (see "Batch 1 results").
 
-### Task 4.3: createAcpSessionHandle (the runner) — PENDING
+### Task 4.3: createAcpSessionHandle (the runner) — IN_PROGRESS
 
 - Depends on: Tasks 4.1 and 4.2
 - File: `ADP\acp\acp-session-handle.ts`, `ADP\acp\acp-session-handle.spec.ts`
@@ -293,7 +324,7 @@ the root `package.json`, `libs\backend\cli-agent-runtime\package.json`, both app
   the named error; `set_config_option -32602` → 1 before any prompt; `-32003` with string and object data;
   `-32000` on `session/new`; resume carries `mcpServers`; load drops `isReplay` updates.
 
-### Task 4.4: ACP folder barrel — PENDING
+### Task 4.4: ACP folder barrel — IN_PROGRESS
 
 - Depends on: Task 4.3
 - File: `ADP\acp\index.ts`
