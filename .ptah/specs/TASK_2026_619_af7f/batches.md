@@ -1,6 +1,6 @@
 # Batches - TASK_2026_619_af7f
 
-Total tasks: 74 | Batches: 40 | Complete: 7/40
+Total tasks: 76 | Batches: 41 | Complete: 9/41
 
 Worktree root (every path below is absolute under it):
 `D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark` (branch `fix/task-619-tool-benchmark`).
@@ -20,7 +20,7 @@ overrides `research-report.md` where they differ), `research-report.md`.
   - Phase 2B, Ranker: Batch 17.
   - Phase 2C, Language-server manager, references, definitions and dependents: Batches 18-28.
   - Phase 2D, Text search: Batches 29-33.
-  - Phase 2E, Scope and transport: Batches 34-35.
+  - Phase 2E, Scope and transport: Batches 34, 34b and 35 (Batch 34b inserted at Batch 5/6 Mode 2).
   - Phase 2F, Rescore and eager selection: Batches 36-37.
 - Executors are recommended per batch. "CLI lane" means the orchestrator picks a lane from
   `ptah_agent_list` at spawn time. No vendor is named here.
@@ -599,7 +599,7 @@ Recorded defaults for this batch:
   batch.
 - The commit SHA is reported to the orchestrator for the TASK_2026_620 session
 
-## Batch 4d: Bench host shutdown classification, guard partial report, spawn errors — COMPLETE (commit: SHA recorded in the following commit; no amend)
+## Batch 4d: Bench host shutdown classification, guard partial report, spawn errors — COMPLETE (commit f22b604fe)
 
 Batch 4d findings recorded at Mode 2 (report:
 `D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\.ptah\specs\TASK_2026_619_af7f\batch-4d-executor-report.md`):
@@ -751,16 +751,91 @@ Batch 4d findings recorded at Mode 2 (report:
 - The junction/symlink cases of Task 4d.4 pass (or are skipped with a stated reason where the OS
   refuses to create the link)
 
-## Batch 5: Ground truth A — TS compiler (symbols, references, definitions, dependents) — PENDING
+## Batches 5 and 6 run in parallel (recorded at Batch 4d Mode 2)
 
-- Recommended executor: CLI lane x 1
+Source: context.md "User Requests (2026-10-07)" item 2. That item assigns one lane per batch and
+runs the two together if they are file-disjoint. Lane choice is in context.md, not here.
+
+File-disjointness check (team-leader):
+
+- Batch 5 writes these files under `tools\mcp-bench\src\ground-truth\`: `ts-program.ts`,
+  `symbol-questions.ts`, `graph-questions.ts` and `ground-truth.spec.ts`. It also writes
+  `tools\mcp-bench\questions\7910f34cf\` `symbols-exact.json`, `symbols-concept.json`,
+  `references.json`, `definitions.json` and `dependents.json`.
+- Batch 6 writes these files under `tools\mcp-bench\src\ground-truth\`: `relevance-questions.ts`,
+  `file-tool-questions.ts`, `memory-questions.ts` and `relevance-memory.spec.ts`. It also writes
+  `tools\mcp-bench\questions\7910f34cf\` `relevance.json`, `file-tools.json` and `memory.json`.
+- No file is shared. `tools\mcp-bench\src` has no index or barrel file, and neither batch creates
+  one. Neither batch edits `project.json`, because the `generate` target is Task 9.3. Neither
+  edits `jest.config.ts`, `tsconfig.json`, `corpus.config.json`, `package.json` or `.gitignore`.
+  Both may import Batch 1-4d modules (`metrics\`, `corpus\`, `bench-data.ts`) but must not edit
+  them.
+
+Couplings that are not shared files, and the rule for each:
+
+1. **One Nx project.** Each lane's `typecheck`, `lint` and `test` of `mcp-bench` also sees the other
+   lane's unfinished files. While working, each lane checks its own files only (jest on its spec
+   file, eslint on its files). At the end it runs the full scoped command once. A failure that
+   lies only in the other batch's files is reported as foreign; the lane does not fix it and does
+   not edit that file. The team-leader re-runs the full command at Mode 2 on the combined tree,
+   and that run is the gate. Each batch gets its own commit.
+2. **Corpus prune race** (`corpus.ts:30`, `:116-129`; fix carried by Task 9.3). Neither lane calls
+   `withPinnedCorpus` to produce its frozen output. Each lane extracts the pin read-only into its own
+   temp folder: `git archive 7910f34cf | tar -x -C %TEMP%\mcp-bench-b5-corpus` (or `-b6-`). Every
+   generator takes the corpus root as a parameter, so Batch 9 can drive it through
+   `withPinnedCorpus` later.
+3. **Question-file envelope.** Both batches write the same envelope, which mirrors the scorecard's
+   `groundTruth` (Task 4b.1):
+   `{ id, version: '1', method: 'generated' | 'labelled' | 'seeded' | 'git-history', raterCount?, frozenAt, corpusCommit: '7910f34cf', generator, seed: number | null, counts, questions }`.
+   Each batch defines its own zod schema next to its generator. Task 9.1 merges the two envelope
+   schemas into one module when it reads them; this is recorded as an accepted short-lived
+   duplication.
+4. **No shared helper.** Batch 6 does not import `ts-program.ts`. Its ast/enrich truth uses
+   `ts.createSourceFile` per file. Batch 5 owns the seeded RNG. Batch 6 needs none: the split is by
+   merge date, and the memory facts come from fixed templates.
+
+## Batch 5: Ground truth A — TS compiler (symbols, references, definitions, dependents) — COMPLETE (commit 7e1572272)
+
+Batch 5 findings recorded at Mode 2 (report:
+`D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\.ptah\specs\TASK_2026_619_af7f\batch-5-executor-report.md`):
+
+- Lane evidence: codex. Initial run wrote the code and the spec, but every command was killed at
+  30 s, so the corpus extraction and the generator never ran and the five question files were empty
+  envelopes. Revision 1 fixed 7 defects found in the orchestrator review (declaration kinds admitted
+  to truth, overload collapse plus `truthCount`, `export` on variable statements, thin concept
+  queries, reference sampling and same-name strata, definition shuffling and `query`, dependents
+  strata). The orchestrator then made 2 corrections outside the lane: (1) `containsIdentifierToken`
+  did not split camelCase inside backticks (the lane's own spec case failed on it); (2) 22 of 150
+  definition truths pointed at the import line of an unresolved external package, so definitions of
+  kind `alias` are now skipped, with a spec case. Extraction and generation were run by the
+  orchestrator (extract 36 s; load 53-66 s, 6,346 files, heap 3.4 GB, peak RSS 6.5 GB, 963 s total).
+- Frozen counts verified on disk at Mode 2 (`tools\mcp-bench\questions\7910f34cf\`, every envelope
+  `method: 'generated'`, `corpusCommit: '7910f34cf'`): symbols-exact 350 (small 100, large 100,
+  largest-lib 100, negative 50); symbols-concept 200; references 150 (under-5 50, 5-50 50,
+  over-50-same-name 25, over-50-other 25); definitions 150 call sites; dependents 100 (zero 34, 1-10
+  33, over-10 33). Every stratum the Batch 5 spec names is met. The dependents strata (0 / 1-10 /
+  over 10) are the executor's choice; the spec named only the total of 100. Accepted.
+- Accepted deviation: the references over-50 stratum is reported as two count keys
+  (`over-50-same-name`, `over-50-other`) instead of one key with a sub-count. Same 50 questions; Task
+  9.1 reads both keys.
+- Hand-off to Task 9.1: dependents questions declare `pathForms: ['relative', 'absolute']`. The
+  absolute form must be joined to that run's fresh corpus root (not the generation-time temp root).
+- Mode 2 checks (team-leader, combined tree with Batch 6): `npx prettier --check
+  tools/mcp-bench/src/ground-truth tools/mcp-bench/questions` clean; `npx nx run-many -t
+  typecheck,lint,test -p mcp-bench --skip-nx-cache` passed (3 targets, 1m 26s; Nx flagged `lint`
+  as flaky from history, and it passed this run); `git diff -- libs apps` empty; no TODO, FIXME,
+  PLACEHOLDER or STUB markers under `ground-truth\`.
+
+- Recommended executor: CLI lane x 1 (lane per context.md User Requests 2026-10-07)
 - Fallback executor: backend-developer subagent
-- Execution mode: sequential
-- Rationale: pure offline generators over the pinned corpus. One shared program loader means one lane, not parallel.
+- Execution mode: parallel (runs at the same time as Batch 6 on a second lane; the tasks inside the
+  batch stay sequential)
+- Rationale: pure offline generators over the pinned corpus, file-disjoint from Batch 6 (see the
+  check above). The shared program loader keeps Tasks 5.1 and 5.2 in one lane.
 - Tasks: 2 | Depends on: 2
 - Phase: 1 Benchmark | Phase review: code-logic (after Batch 11)
 
-### Task 5.1: Program loader and symbol-search questions (exact, concept, negatives) — PENDING
+### Task 5.1: Program loader and symbol-search questions (exact, concept, negatives) — COMPLETE
 
 - File: D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\ground-truth\ts-program.ts; D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\ground-truth\symbol-questions.ts
 - Plan reference: research-report.md:147-150, :160 (B3)
@@ -769,7 +844,7 @@ Batch 4d findings recorded at Mode 2 (report:
 - Validation notes: exclude test files; index.ts and `*.module.ts` are kept in the truth set (the indexer's skip is a finding, not a truth exclusion). Carried from Batch 3: on `cli-headless`, `ptah_code_search_symbols` answers `symbolCount:0` with unknown coverage today. The truth is host-agnostic and must not be trimmed to what the tool can answer.
 - Implementation details: the program is loaded once per run; memory is reported in the generator log.
 
-### Task 5.2: References, definitions and dependents questions — PENDING
+### Task 5.2: References, definitions and dependents questions — COMPLETE
 
 - File: D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\ground-truth\graph-questions.ts; D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\ground-truth\ground-truth.spec.ts
 - Depends on: Task 5.1
@@ -786,25 +861,80 @@ Batch 4d findings recorded at Mode 2 (report:
 - `npx nx run-many -t typecheck,lint,test -p mcp-bench` passes
 - Question files are generated for the pinned commit (counts quoted in the report)
 
-## Batch 6: Ground truth B — relevance PR split, memory seed set, file-tool questions — PENDING
+## Batch 6: Ground truth B — relevance PR split, memory seed set, file-tool questions — COMPLETE (commit: the `feat: batch 6` commit after 7e1572272; SHA filled in after the commit)
 
-- Recommended executor: CLI lane x 1
+Batch 6 findings recorded at Mode 2 (report:
+`D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\.ptah\specs\TASK_2026_619_af7f\batch-6-executor-report.md`):
+
+- Lane evidence: initial run on Glm (ptah-cli) ended `no-deliverable` after 18 m 47 s ($6.13). It
+  generated `file-tools.json` and `memory.json`, wrote no report, and got stuck waiting on a
+  background `gh` retry after `gh pr list --limit 1000` failed (truncated JSON, then HTTP 502).
+  Revision 1 (relevance source only) ran on opencode per the orchestrator: about 25 min, scoped
+  prettier, eslint and jest (25/25) clean in the lane. Note: the report header names "backend-developer
+  subagent (fallback path)"; the orchestrator's lane record says opencode. This file follows the
+  orchestrator's record; the final per-lane table should resolve it from the lane log.
+- **Relevance source changed by user decision (2026-10-07, context.md "User Decision — relevance
+  ground-truth source"): PRs + commits.** The strict PR-only rule kept 1 PR. Now a PR or a non-merge
+  commit qualifies when it changes 1-8 eligible source files; its other files are ignored and the
+  truth is the eligible files; each question records `source: 'pr' | 'commit'`; method stays
+  `git-history`; the `gh` fetch is paged GraphQL (25 per page, 3 attempts per page); CI reads only the
+  frozen JSON. Regenerated by the orchestrator in 12 m 8 s.
+- Frozen counts verified on disk at Mode 2 (`tools\mcp-bench\questions\7910f34cf\`):
+  relevance 1,627 (`test` 200, `tune` 1,427; pr 62, commit 1,565; no deviation; 192 PRs skipped for
+  more than 100 files; the `test` split holds 8 PRs and 192 commits); file-tools 400 (ast 100 = 34
+  small + 33 medium + 33 large, glob 100 of which 16 zero-match, text literal 150, regex 50);
+  memory 489 (150 facts, 300 seeded rows, verbatim 150, paraphrase 300, worktree 15, abstention 20,
+  labelled 4). All 6,918 file-tool truth paths exist at the pin (orchestrator check).
+- Accepted deviations:
+  - (1) Memory total 489 instead of 474: the 15 extra questions are the worktree-of-A queries that
+    the batch's "worktree of A" leak check needs. The temporal-update pair is two seeded rows per
+    fact (truth = the newer row), not an extra question kind.
+  - (2) `seedMemory(target, set, roots)`: a third `roots: MemoryRoots` argument maps the root
+    placeholders to the real isolated roots at seed time. `target` is still
+    `Pick<MemoryStore, 'insertMemoryWithChunks'>`, as recorded at Batch 4d Mode 2. It opens no DB.
+  - (3) `splitByMergeDate` renamed `splitByDate` (it now orders PRs and commits).
+- Observation for Batch 11 and the user (not a defect): the held-out `test` split is 96% commits
+  (192 of 200), because few PRs change 1-8 source files. Commit subjects are terser than PR titles;
+  quote the split composition next to the relevance score.
+- Hand-off to Task 9.1: score relevance on the `test` split only (Batch 36 scores it once); read the
+  `source` field and report recall@10 per source as well as overall; the two envelope zod schemas
+  (Batch 5 and Batch 6) are merged there, as recorded above.
+- Mode 2 checks: the same combined-tree run as Batch 5 (prettier clean; scoped nx typecheck, lint,
+  test passed, 1m 26s; `git diff -- libs apps` empty; no marker strings).
+
+- Recommended executor: CLI lane x 1 (lane per context.md User Requests 2026-10-07)
 - Fallback executor: backend-developer subagent
-- Execution mode: sequential
-- Rationale: offline generators, file-disjoint from Batch 5.
+- Execution mode: parallel (runs at the same time as Batch 5 on a second lane; the tasks inside the
+  batch stay sequential)
+- Rationale: offline generators, file-disjoint from Batch 5 (see the check above Batch 5).
 - Tasks: 2 | Depends on: 2
+- Recorded default (Batch 4d Mode 2), replacing `seedMemory(dbPath)` in Task 6.2: the signature is
+  `seedMemory(target, set)`, where `target` is
+  `Pick<MemoryStore, 'insertMemoryWithChunks'>` (`libs\backend\memory-curator\src\lib\memory.store.ts:195`).
+  Batch 9 calls it from the `afterContainerReady` hook of `bootCodeExecutionHost`
+  (`bench-host-boot.ts:109`), inside the isolated host. There the real store, embedder and isolated
+  DB are wired, and no call can race the seeding. Opening a DB by path in the runner parent would
+  need the DI container, the embedder and the vec status there. Keeping the seeding inside the
+  isolated host leaves isolation in one place.
 - Phase: 1 Benchmark | Phase review: code-logic (after Batch 11)
 
-### Task 6.1: Relevance questions with a frozen held-out split — PENDING
+### Task 6.1: Relevance questions with a frozen held-out split — COMPLETE
 
 - File: D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\ground-truth\relevance-questions.ts; D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\ground-truth\file-tool-questions.ts
 - Plan reference: research-report.md:154, :156-158, :160 (held-out split)
 - Pattern to follow: `gh pr list --state merged --json title,body,files,mergeCommit`
 - Quality requirements: PRs before the pin, 1-8 changed non-test, non-lockfile source files; the most recent 200 are `test`, earlier ones are `tune`, frozen to JSON so CI needs no `gh`; file-tool questions: 100 ast/enrich files by size stratum, 100 glob patterns, 150 literal plus 50 regex text queries.
+  - **Changed by user decision 2026-10-07** (context.md "User Decision — relevance ground-truth
+    source"; the text above is kept as the original plan): the source is PRs + non-merge commits. A
+    PR or commit qualifies when it changes 1-8 eligible source files; its other changed files (docs,
+    specs, lockfiles, tests) are ignored and the truth is the eligible files. Commits (subject =
+    query) fill the set; the most recent 200 are `test`, the rest `tune`. Each question records
+    `source: 'pr' | 'commit'`; method stays `git-history`; the `gh` fetch is paged (GraphQL, 25 per
+    page). Result: 200 `test` / 1,427 `tune`.
 - Validation notes: CI must not call `gh`; the frozen JSON is committed. Carried from Batch 3: the `cli-headless` index is empty at boot (`symbolCount:0`, unknown coverage). Any question whose tool depends on the symbol index is still generated; the empty index is a scored finding, not a reason to drop questions.
 - Implementation details: also adds the 4 TASK_2026_473 track-A memory queries as a labelled hand-graded seed in Task 6.2.
 
-### Task 6.2: Seeded memory set (verbatim, paraphrase, temporal update, abstention, two workspaces plus worktree) — PENDING
+### Task 6.2: Seeded memory set (verbatim, paraphrase, temporal update, abstention, two workspaces plus worktree) — COMPLETE
 
 - File: D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\ground-truth\memory-questions.ts; D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\ground-truth\relevance-memory.spec.ts
 - Depends on: Task 6.1
@@ -827,6 +957,19 @@ Batch 4d findings recorded at Mode 2 (report:
 - Fallback executor: backend-developer subagent
 - Execution mode: sequential
 - Rationale: offline, optional-tool generator; isolated files.
+- Lane re-check (Batch 5/6 Mode 2; the orchestrator decides): context.md plans opencode. Evidence:
+  opencode finished a pure-code revision (Batch 6 rev 1) in about 25 min with clean scoped checks;
+  it has no messaging, so no mid-run steering. Batch 7 is pure code plus long-running generation:
+  choosing and pinning two MIT-licensed repos (network, license check), running `scip-typescript`
+  over 6,346 files (the TS program load alone took 53-66 s and 3.4 GB heap in Batch 5) and the
+  50+50 Python/Go question sets. **Recommendation: keep opencode for the code and spec
+  (`scip-cross-check.ts`, the spec with a fixture SCIP index and the `na`-when-absent path), with
+  the two corpus pins (repo URL, commit SHA, license) written into the lane prompt by the
+  orchestrator, so the lane makes no choice it cannot be steered on. The orchestrator (or a
+  backend-developer subagent) runs the SCIP indexers, the generation and the nx gate outside the
+  lane with a long timeout, as in Batches 5 and 6.** Do not use codex (30 s command kill). If the
+  SCIP indexers are not installed on this machine, the frozen output is the `na` record and that is
+  an acceptable Batch 7 result, recorded in the report.
 - Tasks: 1 | Depends on: 5
 - Phase: 1 Benchmark | Phase review: code-logic (after Batch 11)
 
@@ -852,6 +995,16 @@ Batch 4d findings recorded at Mode 2 (report:
 - Fallback executor: backend-developer subagent
 - Execution mode: sequential
 - Rationale: scripted `rg`/glob/read baselines; self-contained.
+- Lane re-check (Batch 5/6 Mode 2; the orchestrator decides): context.md plans Glm. Evidence: Glm's
+  one run (Batch 6) ended `no-deliverable` after 18 m 47 s; it stalled on a network retry (`gh`) it
+  had put in the background, and wrote no report. Batch 8 needs no network and no long generation:
+  three files, unit-testable with a fixture corpus, and its gate is the scoped nx command the
+  orchestrator re-runs. **Recommendation: keep Glm, so the per-lane table gets a second, fair data
+  point on a pure-code batch, with guardrails in the prompt: no background commands; no `gh`, no
+  network; write the batch report before running the full nx command; a 30 min time box, after
+  which the orchestrator stops the lane and takes what is on disk. Fallback: opencode (proven on
+  pure code), then backend-developer subagent.** Do not use codex for its verification (30 s
+  command kill); the `rg --json` Windows-path spec cases are short and fit any lane.
 - Tasks: 1 | Depends on: 5, 6
 - Phase: 1 Benchmark | Phase review: code-logic (after Batch 11)
 
@@ -910,6 +1063,14 @@ Batch 4d findings recorded at Mode 2 (report:
 - Quality requirements: cold start, edit then query (5 s and 60 s), add then query, delete then query, large file (3,900 lines and 1.5 MiB), index age beyond 24 h (backdated rows in the isolated DB), two workspaces plus a worktree (memory leak count, spool path under the caller's root, symbol scope), transport (200 calls with 4-8 s idle gaps, one server restart, ECONNRESET count).
 - Validation notes: never mutate the pinned corpus. Scenario 8's reset count feeds Batch 35's go/no-go. Carried from Batch 3: on `cli-headless`, cold start and edit/add-then-query are expected to fail today (no boot-time index, `symbolCount:0`, `reindexInFlight:true`); record them as failures, not `na`. With a running desktop Ptah the guard runs in `process-watch` mode (Task 4.2). A `ConcurrentWriterError` (CI, or no probe) is an environment failure of the run: report it, never retry it silently, and never weaken the guard. A `BenchHeldRealStateError` is an isolation failure: the run is void.
 - Implementation details: each scenario is a scored case in `lifecycle[]`.
+- Added at Batch 5/6 Mode 2 (context.md "Workspace hygiene", user request 2026-10-07), scenario 9,
+  task tools in a worktree: in a temp git repository created for the scenario (`git init`, one
+  commit, `git worktree add`, both under the scenario's temp folder, never the real repository),
+  call `ptah_task_create` with `workspaceRoot` = the worktree path; assert the task folder lands
+  under the worktree's `.ptah/specs` and the main checkout's `.ptah/specs` listing is unchanged; also
+  assert a `workspaceRoot` outside the repository is rejected. Today the tools have no such argument,
+  so the scenario is recorded as a failure (not `na`); Batch 34b must turn it to pass. No file-count
+  change (same two files).
 
 ### Task 9.3: Bench CLI entry and targets — PENDING
 
@@ -1744,6 +1905,67 @@ Batch 4d findings recorded at Mode 2 (report:
 - `npx nx run-many -t typecheck,lint,test -p @ptah-extension/vscode-lm-tools` passes
 - Two-workspace lifecycle scenario passes
 
+## Batch 34b: Worktree-aware task tools (Fix 7 addendum, user request 2026-10-07) — PENDING
+
+Added at Batch 5/6 Mode 2 from context.md "Workspace hygiene". Placement: a separate batch right
+after Batch 34, not a third task inside it. Batch 34 already has 4 files (`protocol-dispatcher.ts`
+and its spec, `memory-namespace.builder.ts` and its spec); this item adds at least 4 more
+(`tasks-namespace.builder.ts` and its spec, `tool-description.builder.ts`, a root validator), which
+breaks the 6-file cap. It also edits `protocol-dispatcher.ts` and its spec after Task 34.1, so it must
+run after Batch 34, not in parallel with it.
+
+- Recommended executor: backend-developer subagent
+- Fallback executor: none (re-run with the same subagent type)
+- Execution mode: sequential
+- Rationale: a boundary check on a path argument that decides where files are written (a path
+  outside the repository must never be accepted), plus a child-process `git` call. Security- and
+  persistence-sensitive, so a subagent per the recorded defaults.
+- Scorecard metric it must move: lifecycle scenario 9 (Task 9.2), task tools in a worktree, from
+  fail to pass; no change in any other suite.
+- Tasks: 2 | Depends on: 34 (same root-resolution area; shares `protocol-dispatcher.ts`)
+- Phase: 2E Scope and transport | Phase review: code-logic (after Batch 35)
+
+### Task 34b.1: Validated `workspaceRoot` in the tasks namespace — PENDING
+
+- File: D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\libs\backend\vscode-lm-tools\src\lib\code-execution\namespace-builders\tasks-namespace.builder.ts; D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\libs\backend\vscode-lm-tools\src\lib\code-execution\namespace-builders\tasks-namespace.builder.spec.ts; D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\libs\backend\vscode-lm-tools\src\lib\code-execution\namespace-builders\task-workspace-root.ts (new: the validator)
+- Plan reference: context.md "Workspace hygiene (2026-10-07)", third bullet
+- Pattern to follow: `deps.getWorkspaceRoot()` at tasks-namespace.builder.ts:677 (today's default);
+  the `git worktree list --porcelain` parse in D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\libs\backend\task-specs\src\lib\git-task-folder-visibility.service.ts:141 and `NestedRepoRoots.fromWorktreeList` in D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\libs\shared\src\lib\utils\nested-repo-roots.ts (reuse an exported parser if one exists; do not write a third one)
+- Quality requirements: the five operations (create, update, get, list, check) accept an optional
+  `workspaceRoot`. Absent → the session root exactly as today (byte-identical behaviour). Present →
+  accepted only when, after resolving and comparing case-insensitively on win32, it equals the main
+  checkout of the session root's repository or one of its registered worktrees from `git worktree
+  list --porcelain` (run with an argument array, `cwd` = the session root, a timeout); otherwise the
+  call fails with a clear error naming the path and the rule, and nothing is written. A `git`
+  failure or timeout rejects a supplied `workspaceRoot` (fail closed) and never affects calls
+  without one.
+- Validation notes: spec cases: absent root (unchanged), the main checkout, a registered worktree, an
+  unregistered sibling folder, a path outside the repository, a relative path, `git` failing. The
+  default resolver chain (`ptah-api-builder.service.ts:992-1018`) is not changed.
+- Implementation details: the validated root replaces `deps.getWorkspaceRoot()` for that call only.
+
+### Task 34b.2: Tool schemas and dispatcher pass `workspaceRoot` through — PENDING
+
+- File: D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\libs\backend\vscode-lm-tools\src\lib\code-execution\mcp-core\tool-description.builder.ts (the five `ptah_task_*` definitions from :94); D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\libs\backend\vscode-lm-tools\src\lib\code-execution\mcp-core\protocol-dispatcher.ts (:2475-2525); D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\libs\backend\vscode-lm-tools\src\lib\code-execution\mcp-core\protocol-dispatcher.spec.ts
+- Depends on: Task 34b.1
+- Plan reference: context.md "Workspace hygiene (2026-10-07)"
+- Pattern to follow: the existing optional-argument shape of the `ptah_task_list` schema
+- Quality requirements: each of the five schemas gains an optional `workspaceRoot` string, described
+  as "absolute path of this repository's main checkout or one of its git worktrees; default: the
+  session's workspace". `ptah_task_check`, which calls `tasks.check()` with no arguments today,
+  forwards it too. No existing description text or claim is removed or weakened (recorded default:
+  the prompt claims are not edited; adding an optional argument is not a claim change).
+- Validation notes: `mcp-contract.sweep.spec.ts` must still pass unchanged; if it pins the schema
+  shape, report it rather than editing it (the batch stays at 6 files).
+- Implementation details: none.
+
+### Batch 34b verification
+
+- `npx prettier --check <every path the batch changed>` passes
+- `npx nx run-many -t typecheck,lint,test -p @ptah-extension/vscode-lm-tools` passes
+- `npx nx run mcp-bench:bench --host cli --suite lifecycle --smoke`: scenario 9 passes (before/after
+  quoted against the baseline)
+
 ## Batch 35: HTTP keep-alive and timeouts (Fix 8, conditional on the Phase 1 scenario 8 evidence) — PENDING
 
 - Recommended executor: CLI lane x 1
@@ -1751,8 +1973,8 @@ Batch 4d findings recorded at Mode 2 (report:
 - Execution mode: sequential
 - Rationale: a small, isolated server-config change with a spec.
 - Scorecard metric it must move: transport error rate (scenario 8 ECONNRESET count reaches 0)
-- Tasks: 1 | Depends on: 34
-- Phase: 2E Scope and transport | Phase review: code-logic (this is the last batch of Phase 2E; review Batches 34-35)
+- Tasks: 1 | Depends on: 34b
+- Phase: 2E Scope and transport | Phase review: code-logic (this is the last batch of Phase 2E; review Batches 34, 34b and 35)
 
 ### Task 35.1: Server keep-alive settings — PENDING
 
@@ -1839,7 +2061,8 @@ Batch 4d findings recorded at Mode 2 (report:
   14.1); the ranker's output shape is preserved (Task 17.2). The eager-set change in Batch 37 is a
   rule outcome, not a removal; deferred tools stay callable via tool search.
 - Write-path trace: migrations `code_index_runs` (Batch 15) and `dependency_edges` (Batch 27); symbol
-  store purge and transactional replace (Batch 12); memory scope is read-only (Batch 34).
+  store purge and transactional replace (Batch 12); memory scope is read-only (Batch 34); task
+  folder writes may target a validated git worktree root (Batch 34b; default unchanged).
 - Rendered visual evidence: N/A (no UI change).
 - Findings to surface to the user:
   - The CLI exposes no code-intelligence MCP surface today (Risk row 1).

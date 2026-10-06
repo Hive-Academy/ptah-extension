@@ -142,6 +142,18 @@ Request from the TASK_2026_620 session (memory + skills benchmark). Decision: 61
    - Batch 8 → Glm.
    - Phase 1 code-logic review: subagent reviewers for lane-authored code (1, 2, 4b, 5-8); a lane reviewer (antigravity, which authored nothing) for subagent-authored code (3, 4, 4c, 4d, 9-11).
 
+## User Decision — relevance ground-truth source (2026-10-07)
+
+Finding (Batch 6 finish): the paged GraphQL fetch returned 643 merged PRs before the pin. 192 change more than 100 files, 195 change no source file, and only 93 change 1-8 eligible source files. The strict rule in `relevance-questions.ts` (every changed file must be eligible source) keeps 1. Non-merge commits reachable from the pin give 1,683 candidates with 1-8 eligible source files.
+
+Decision: **PRs + commits.** A PR qualifies when it changes 1-8 eligible source files; its other changed files (docs, specs, lockfiles) are ignored, and the truth is the eligible files. Non-merge commits (subject = query, same file rule) fill the set to the most recent 200 `test` questions, the rest `tune`. Each question records `source: 'pr' | 'commit'`. Method stays `git-history`. The `gh` fetch is paged (GraphQL, 25 per page); CI still reads only the frozen JSON.
+
+## Workspace hygiene (2026-10-07)
+
+- `ptah_task_create` writes to the Ptah MCP server's workspace root, which is the MAIN checkout, not this worktree. The orchestrator created TASK_2026_622_2d05 that way and then moved it into this worktree at the user's request. Include `.ptah/specs/TASK_2026_622_2d05/` in the next commit on this branch.
+- Rule for the rest of this task: no agent or lane writes anything in `D:\projects\ptah-extension` outside `.claude-worktrees\task-619-tool-benchmark`. After any `ptah_task_create`, move the new folder into this worktree at once.
+- **New Phase 2 item (user request, 2026-10-07): worktree-aware task tools.** `ptah_task_create/update/get/list/check` resolve their root through `deps.getWorkspaceRoot()` (`libs/backend/vscode-lm-tools/src/lib/code-execution/namespace-builders/tasks-namespace.builder.ts:677`), the session-aware resolver (declared URL root → caller session → active session → provider root; `ptah-api-builder.service.ts:992-1018`). The resolver works as designed — this session's root is the main checkout — but no task tool can target a git worktree, so a session that works in a worktree writes its task folders to the main checkout. Fix: an optional `workspaceRoot` argument on the five task tools, validated at the boundary to be the repository's main checkout or one of its registered git worktrees (`git worktree list --porcelain`), else rejected; the default stays the session root. Add a benchmark lifecycle check: create a task with a worktree root, assert the folder lands in the worktree and nothing changes in the main checkout. Place it with Fix 7 (session-aware spool root, Batch 34), which touches the same root-resolution area. The team-leader adds it to batches.md at its next Mode 2.
+
 ## Conversation Summary
 
 - 2026-10-06: the user opened a second session (`ptah-ptah-extension-skills-trajectory-an-10a89600005aw2q23htdi0c`) to apply the same benchmark-first method to memory curation and the skills trajectory. Boundary: this task owns `ptah_memory_search` as a retrieval tool (scope, isolation, worktree scope, spill root, recall@k via MCP). That session owns curation/extraction quality and the skills trajectory. `tools/mcp-bench` metrics and the scorecard schema are shared; that session must ask before it changes them.
