@@ -1,6 +1,6 @@
 # Batches - TASK_2026_617
 
-Total tasks: 27 | Batches: 9 | Complete: 0/9
+Total tasks: 27 | Batches: 9 | Complete: 1/9
 
 Worktree: `D:\projects\ptah-extension\.claude-worktrees\task-617-grok-acp` (branch `feat/task-617-grok-acp`).
 Every path below is absolute inside this worktree. Never touch the main checkout.
@@ -42,19 +42,19 @@ Assumptions:
 - `--reasoning-effort` on `grok agent stdio`: unverified (only `-m` was probed, and it is ignored). Not relied on:
   effort goes through `session/set_config_option {configId:"reasoning_effort"}` (amendment 4, Task 9.1).
 
-| Risk | Severity | Mitigation |
-| --- | --- | --- |
-| R1 `CliAdapter.name` is typed `CliType` (`cli-adapter.interface.ts:190`), so `GrokCliAdapter` cannot compile before `'grok'` joins `SYSTEM_CLI_TYPES`. The plan's suggested order (Component 6 before 7) does not typecheck. | HIGH | Re-ordered: the union flip and its exhaustive consumers land in Batch 8; the adapter and its registration land in Batch 9. Batch 8 leaves `grok` in the union without an adapter for one commit. If an existing spec asserts that every `SYSTEM_CLI_TYPES` member has a registered adapter, Batches 8 and 9 merge into one (the executor reports it, and the team-leader re-scopes). |
-| R2 The plan's Component 7 file list misses exhaustive consumers that break typecheck once `'grok'` joins the union: `cli-orchestration-matrix.component.ts:28` (`Record<SystemCliType>`), `cli-permission-notes.ts:23` (`Record<Exclude<CliType,'copilot'>>`), `chat-view.component.ts:91` (`Record<CliType, string>`). It also misses spec literals of `AgentListCliModelsResult` and per-CLI lists. | HIGH | Added to Task 8.5 (production) and Task 8.6 (specs). |
-| R3 Batch 8 is an atomic exception to the 6-file / 2-lib limit: the union flip breaks every exhaustive site at once. | MEDIUM | Everything movable was moved out: the `grokModel` key goes to Batches 5-7, the adapter and registration to Batch 9. One sequential executor and one multi-project verify. |
-| R4 Derived strings change: the spawn tool description, the system prompts (`ptah-system-prompt.constant.ts:244`, `ptah-core-prompt.ts:283`) and the ptah-cli `--cli` selector all derive from `SYSTEM_CLI_TYPES`. A measured byte or snapshot spec may shift. | MEDIUM | Batch 8 verify includes `@ptah-extension/vscode-lm-tools`, `@ptah-extension/agent-sdk` and `ptah-cli`. Task 8.6 updates the measurements with the real new values, never by loosening assertions. |
-| R5 A reject ends the whole Grok turn (`cancelled` + `PermissionRejected`), not just one tool. | MEDIUM | Task 3.2 `mapStopReason` and Task 4.3 turn-local refusal tracking yield `done` 1 plus "permission refused for <title>". The default policy never rejects (allow-once), and `--always-approve` stays a fallback flag only. |
-| R6 `-m` is ignored by `grok agent stdio`, so a configured model would be silently dropped. | MEDIUM | Tasks 4.3 and 9.1 apply the model via `session/set_config_option`. `-32602` fails the first turn with a named message. Task 9.2 pins that argv has no `-m`. |
-| R7 A resumed session without `mcpServers` loses Ptah MCP. | MEDIUM | Task 4.3 passes the profile's `mcpServers` on `session/resume` too; the spec asserts it. |
-| R8 Test-helper code under `src/` is compiled by `tsconfig.lib.json` (it includes `src/**/*.ts` and excludes only `*.spec.ts`/`*.test.ts`). | LOW | Task 4.2: `fake-acp-agent.ts` uses no jest globals and no SDK runtime import, so the lib typecheck and the dependency-checks lint stay clean. |
-| R9 No live Grok is possible (the quota is exhausted for about 24 h). | LOW | Every batch uses fake peers and fixtures. Live verification (spawn, report, mid-turn message → next turn, stop, idle release → resume) moves to post-merge QA. |
-| R10 The worktree has no `node_modules` and is 38 commits behind main. | LOW | Pre-batch gate above. |
-| R11 The settings matrix renders one more row (Grok), so this is a UI change. | LOW | Mode 3 requires before/after screenshots (dark and light) of the Orchestration matrix; the "before" comes from the base commit. Recorded for QA. |
+| Risk                                                                                                                                                                                                                                                                                                                                                                                                  | Severity | Mitigation                                                                                                                                                                                                                                                                                                                                                                           |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| R1 `CliAdapter.name` is typed `CliType` (`cli-adapter.interface.ts:190`), so `GrokCliAdapter` cannot compile before `'grok'` joins `SYSTEM_CLI_TYPES`. The plan's suggested order (Component 6 before 7) does not typecheck.                                                                                                                                                                          | HIGH     | Re-ordered: the union flip and its exhaustive consumers land in Batch 8; the adapter and its registration land in Batch 9. Batch 8 leaves `grok` in the union without an adapter for one commit. If an existing spec asserts that every `SYSTEM_CLI_TYPES` member has a registered adapter, Batches 8 and 9 merge into one (the executor reports it, and the team-leader re-scopes). |
+| R2 The plan's Component 7 file list misses exhaustive consumers that break typecheck once `'grok'` joins the union: `cli-orchestration-matrix.component.ts:28` (`Record<SystemCliType>`), `cli-permission-notes.ts:23` (`Record<Exclude<CliType,'copilot'>>`), `chat-view.component.ts:91` (`Record<CliType, string>`). It also misses spec literals of `AgentListCliModelsResult` and per-CLI lists. | HIGH     | Added to Task 8.5 (production) and Task 8.6 (specs).                                                                                                                                                                                                                                                                                                                                 |
+| R3 Batch 8 is an atomic exception to the 6-file / 2-lib limit: the union flip breaks every exhaustive site at once.                                                                                                                                                                                                                                                                                   | MEDIUM   | Everything movable was moved out: the `grokModel` key goes to Batches 5-7, the adapter and registration to Batch 9. One sequential executor and one multi-project verify.                                                                                                                                                                                                            |
+| R4 Derived strings change: the spawn tool description, the system prompts (`ptah-system-prompt.constant.ts:244`, `ptah-core-prompt.ts:283`) and the ptah-cli `--cli` selector all derive from `SYSTEM_CLI_TYPES`. A measured byte or snapshot spec may shift.                                                                                                                                         | MEDIUM   | Batch 8 verify includes `@ptah-extension/vscode-lm-tools`, `@ptah-extension/agent-sdk` and `ptah-cli`. Task 8.6 updates the measurements with the real new values, never by loosening assertions.                                                                                                                                                                                    |
+| R5 A reject ends the whole Grok turn (`cancelled` + `PermissionRejected`), not just one tool.                                                                                                                                                                                                                                                                                                         | MEDIUM   | Task 3.2 `mapStopReason` and Task 4.3 turn-local refusal tracking yield `done` 1 plus "permission refused for <title>". The default policy never rejects (allow-once), and `--always-approve` stays a fallback flag only.                                                                                                                                                            |
+| R6 `-m` is ignored by `grok agent stdio`, so a configured model would be silently dropped.                                                                                                                                                                                                                                                                                                            | MEDIUM   | Tasks 4.3 and 9.1 apply the model via `session/set_config_option`. `-32602` fails the first turn with a named message. Task 9.2 pins that argv has no `-m`.                                                                                                                                                                                                                          |
+| R7 A resumed session without `mcpServers` loses Ptah MCP.                                                                                                                                                                                                                                                                                                                                             | MEDIUM   | Task 4.3 passes the profile's `mcpServers` on `session/resume` too; the spec asserts it.                                                                                                                                                                                                                                                                                             |
+| R8 Test-helper code under `src/` is compiled by `tsconfig.lib.json` (it includes `src/**/*.ts` and excludes only `*.spec.ts`/`*.test.ts`).                                                                                                                                                                                                                                                            | LOW      | Task 4.2: `fake-acp-agent.ts` uses no jest globals and no SDK runtime import, so the lib typecheck and the dependency-checks lint stay clean.                                                                                                                                                                                                                                        |
+| R9 No live Grok is possible (the quota is exhausted for about 24 h).                                                                                                                                                                                                                                                                                                                                  | LOW      | Every batch uses fake peers and fixtures. Live verification (spawn, report, mid-turn message → next turn, stop, idle release → resume) moves to post-merge QA.                                                                                                                                                                                                                       |
+| R10 The worktree has no `node_modules` and is 38 commits behind main.                                                                                                                                                                                                                                                                                                                                 | LOW      | Pre-batch gate above.                                                                                                                                                                                                                                                                                                                                                                |
+| R11 The settings matrix renders one more row (Grok), so this is a UI change.                                                                                                                                                                                                                                                                                                                          | LOW      | Mode 3 requires before/after screenshots (dark and light) of the Orchestration matrix; the "before" comes from the base commit. Recorded for QA.                                                                                                                                                                                                                                     |
 
 Edge cases:
 
@@ -71,7 +71,7 @@ Edge cases:
 - Non-JSON stdout or a stderr line over 64 KiB → no crash; truncated with a marker: Task 3.1.
 - `session/update` never produces an `error` segment: Task 3.2.
 
-## Batch 1: ACP SDK loader and library dependency wiring — IN_PROGRESS
+## Batch 1: ACP SDK loader and library dependency wiring — COMPLETE (commit d9b964db0)
 
 - Recommended executor: backend-developer (sub-agent)
 - Fallback executor: a second backend-developer run that applies Decision 1's fallback
@@ -80,7 +80,7 @@ Edge cases:
 - Tasks: 2 | Depends on: pre-batch gate (`npm ci`)
 - Phase: 1 (ACP layer) | Phase review: at the end of Batch 4
 
-### Task 1.1: AcpSdkLoader, AcpConnectionApi and connectAcp — IN_PROGRESS
+### Task 1.1: AcpSdkLoader, AcpConnectionApi and connectAcp — COMPLETE
 
 - File: `ADP\acp\acp-sdk-loader.ts`, `ADP\acp\acp-sdk-loader.spec.ts`
 - Plan reference: implementation-plan.md:165-219 (Decision 1, Component 1); amendment 4 (`setSessionConfigOption`)
@@ -92,7 +92,7 @@ Edge cases:
 - Implementation details: the spec loads the real SDK under Jest, and a second spec walks `ADP\acp\` and fails on
   any non-`import type` reference to `@agentclientprotocol/sdk` outside this file.
 
-### Task 1.2: dependency and Jest wiring — IN_PROGRESS
+### Task 1.2: dependency and Jest wiring — COMPLETE
 
 - Depends on: Task 1.1
 - File: `D:\projects\ptah-extension\.claude-worktrees\task-617-grok-acp\package.json`, `...\package-lock.json`,
@@ -113,7 +113,37 @@ Edge cases:
 - No per-batch review.
 - A5 (Jest half) is proven by the loader spec.
 
-## Batch 2: host bundle externals for the ACP SDK — PENDING
+### Batch 1 results (binding on Batches 3, 4 and 9)
+
+Verified by the team-leader: the scoped `typecheck,test,lint` passed (`--skip-nx-cache`); the loader spec passed 9/9
+on its own; the real ESM SDK loads under Jest through `transformIgnorePatterns` and `allowJs`, with no
+moduleNameMapper fallback. A5 (Jest half) is proven.
+
+Deviations from the plan, accepted:
+
+- D1 `connectAcp(stream, handlers)` is **async** (`Promise<AcpConnectionApi>`) and calls `loadAcpSdk()` itself;
+  it takes no SDK module argument. Callers `await connectAcp(...)` and handle `AcpUnavailableError` from it (the
+  runner reports it as a failed turn, `done` 1). The exported surface is `loadAcpSdk`, `connectAcp`,
+  `AcpConnectionApi` (with `signal: AbortSignal` and `closed: Promise<void>`), `AcpByteStream`
+  (`{readable, writable}` seen from the client), `AcpClientHandlers` (= SDK `Client`), `AcpSdkModule`,
+  `AcpUnavailableError` and `ACP_MAX_MESSAGE_BYTES`.
+- D2 The SDK boundary check is the `SDK runtime import boundary` describe inside `acp-sdk-loader.spec.ts`, not a
+  separate spec file. It walks every `.ts` file under `ADP\acp\` (specs, `__fixtures__` and `fake-acp-agent.ts`
+  included) except the loader and its spec. It flags value imports, value re-exports, `import()`, `require()`,
+  and the inline form `import { type X } from '@agentclientprotocol/sdk'`.
+
+Rules that follow for Batch 3 and 4 executors:
+
+- Reference the SDK only as `import type { X } from '@agentclientprotocol/sdk'` (or `export type { ... }`). Never
+  write `import { type X }`; the boundary check fails on it.
+- Specs and test helpers must not import SDK runtime values (no `ClientSideConnection`, `ndJsonStream`,
+  `RequestError` or schemas). A spec that needs a real SDK connection gets one through `connectAcp(...)` over
+  in-memory `TransformStream`s, as `acp-sdk-loader.spec.ts` does with its raw peer. Task 3.2's negative-control
+  check of SDK zod validation ("Error handling notification") must also run through `connectAcp`, not through a
+  direct schema import.
+- Task 4.4's barrel re-exports the loader's surface listed in D1, with types re-exported as `export type`.
+
+## Batch 2: host bundle externals for the ACP SDK — IN_PROGRESS
 
 - Recommended executor: devops-engineer (sub-agent)
 - Fallback executor: backend-developer
@@ -124,7 +154,7 @@ Edge cases:
 - Tasks: 3 | Depends on: Batch 1
 - Phase: 1 | Phase review: at the end of Batch 4
 
-### Task 2.1: Electron external plus dependency — PENDING
+### Task 2.1: Electron external plus dependency — IN_PROGRESS
 
 - File: `...\apps\ptah-electron\package.json`, `...\apps\ptah-electron\project.json`
 - Plan reference: implementation-plan.md:169-172, 215-216
@@ -133,13 +163,13 @@ Edge cases:
 - Validation notes: TASK_2026_394 (an undeclared external breaks the published app).
 - Implementation details: add it to the esbuild `external` array and to `dependencies`.
 
-### Task 2.2: CLI external plus dependency — PENDING
+### Task 2.2: CLI external plus dependency — IN_PROGRESS
 
 - File: `...\apps\ptah-cli\package.json`, `...\apps\ptah-cli\project.json`
 - Pattern to follow: `apps\ptah-cli\project.json:45`, `apps\ptah-cli\package.json:55`
 - Same fields as Task 2.1.
 
-### Task 2.3: TUI external — PENDING
+### Task 2.3: TUI external — IN_PROGRESS
 
 - File: `...\apps\ptah-tui\project.json`
 - Pattern to follow: `apps\ptah-tui\project.json:34` (external only; the TUI declares no codex dependency either)
@@ -148,8 +178,12 @@ Edge cases:
 
 - `npx nx run ptah-extension-vscode:build-esbuild`, `npx nx run ptah-electron:validate-deps`,
   `npx nx run ptah-cli:build-esbuild`, `npx nx run ptah-tui:build` all pass (output tailed).
-- A5 (bundle half): the VS Code `main.mjs` inlines the SDK (grep for `ClientSideConnection`); Electron and CLI keep
-  it external and declared.
+- The SDK appears in each `external` array and, for Electron and CLI, in `dependencies` at exactly `1.7.0`.
+- Re-scoped by the team-leader after Batch 1: the bundle half of A5 cannot be observed yet. No host entry point
+  reaches `acp-sdk-loader.ts` until the adapter is registered in Batch 9, so esbuild drops it. During the Batch 1
+  commit the pre-commit `ptah-electron:validate-deps` passed without listing the SDK. Batch 2 proves the config is
+  in place and every build passes. The inlining and external checks move to Batch 9 verification. Do not add an
+  import solely to force the SDK into a bundle.
 
 ## Batch 3: process transport, update mapper, permission policy — PENDING
 
@@ -158,6 +192,8 @@ Edge cases:
 - Execution mode: parallel
 - Rationale: three independent pure or leaf modules with disjoint files, no shared barrel (the barrel is Batch 4),
   each describable in one self-contained prompt.
+- Binding constraints: "Batch 1 results" above (D1 async `connectAcp`, D2 boundary check, `import type` only, specs
+  reach the SDK through `connectAcp`). Every lane prompt must copy those rules verbatim.
 - Tasks: 3 | Depends on: Batch 1
 - Phase: 1 | Phase review: at the end of Batch 4
 
@@ -210,6 +246,8 @@ Edge cases:
 - Fallback executor: backend-developer, fresh run with this section and the Batch 3 files
 - Execution mode: sequential
 - Rationale: the one stateful unit; the contract, runner, helper and barrel are tightly coupled.
+- Binding constraints: "Batch 1 results" above. The runner awaits `connectAcp(...)` (D1) and maps
+  `AcpUnavailableError` to a failed turn; the spec drives the fake agent through `connectAcp`, never an SDK import.
 - Tasks: 4 | Depends on: Batches 1 and 3
 - Phase: 1 (last batch) | Phase review: code-logic plus style (a new extension seam, `AcpVendorProfile`)
 
@@ -218,7 +256,7 @@ Edge cases:
 - File: `ADP\acp\acp-vendor-profile.ts`
 - Plan reference: implementation-plan.md:303-315; amendments 3, 4
 - Quality requirements: data plus small functions only; `vendor: CliType`; `resumeStrategy: 'resume' | 'load' |
-  'resume-then-load' | 'none'`; add `sessionConfig?(options) → Array<{configId, value}>`; `buildSpawn` returns
+'resume-then-load' | 'none'`; add `sessionConfig?(options) → Array<{configId, value}>`; `buildSpawn` returns
   argv only.
 
 ### Task 4.2: fake ACP agent (test helper) — PENDING
@@ -229,7 +267,8 @@ Edge cases:
 - Quality requirements: a raw JSON-RPC peer over in-memory `TransformStream`s; scriptable: ext notifications,
   `isReplay` replay on load, permission requests, a held prompt, `cancelled` on cancel, close mid-turn, error
   replies (`-32003` with string and with object data, `-32000`, `-32602`), and an advertised `configOptions` list.
-- Validation notes: R8. No jest globals and no SDK runtime import.
+- Validation notes: R8. No jest globals and no SDK runtime import. The Batch 1 boundary check walks this file;
+  use `import type { X }` only (see "Batch 1 results").
 
 ### Task 4.3: createAcpSessionHandle (the runner) — PENDING
 
@@ -444,6 +483,10 @@ Edge cases:
 ### Batch 9 verification
 
 - `npx nx run-many -t typecheck,test,lint -p @ptah-extension/cli-agent-runtime @ptah-extension/rpc-handlers ptah-cli` passes.
+- A5 (bundle half, moved here from Batch 2): after `npx nx run ptah-extension-vscode:build-esbuild` the VS Code
+  `main.mjs` inlines the SDK (grep for `ClientSideConnection`); `npx nx run ptah-electron:validate-deps` lists
+  `@agentclientprotocol/sdk` as a detected and declared external; `npx nx run ptah-cli:build-esbuild` and
+  `npx nx run ptah-tui:build` keep it external.
 - After the commit: return NEEDS REVIEW for Phase 2 (Batches 5-9, code-logic plus style).
 
 ## Completion notes (for Mode 3)
