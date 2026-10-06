@@ -944,6 +944,41 @@ describe('OpencodeCliAdapter', () => {
       );
     });
 
+    it('keeps a recovered error as a failure when error stderr arrives after the final stop', async () => {
+      const handle = await adapter.runSdk(baseOptions);
+      const { segments } = collect(handle);
+
+      write(V2_ERROR);
+      write(FINAL_STOP);
+      currentChild?.stderr.write('fatal: provider connection closed');
+      currentChild?.emitClose(1);
+
+      expect(await handle.done).toBe(1);
+      expect(segments).toContainEqual({
+        type: 'error',
+        content:
+          'opencode CLI exited with code 1 after error: OpenAI Chat stream ended without finish_reason; fatal: provider connection closed',
+      });
+    });
+
+    it('still recovers when only info stderr arrives after the final stop', async () => {
+      const handle = await adapter.runSdk(baseOptions);
+      const { segments } = collect(handle);
+
+      write(V2_ERROR);
+      write(FINAL_STOP);
+      currentChild?.stderr.write('warning: retry budget reset');
+      currentChild?.stderr.write('server logs available');
+      currentChild?.emitClose(1);
+
+      expect(await handle.done).toBe(0);
+      expect(
+        segments.some(
+          (s) => s.content.includes('exited with code 1') && s.type === 'error',
+        ),
+      ).toBe(false);
+    });
+
     it('keeps an unrecovered error with exit 1 a failure, naming the error', async () => {
       const handle = await adapter.runSdk(baseOptions);
       const { segments } = collect(handle);

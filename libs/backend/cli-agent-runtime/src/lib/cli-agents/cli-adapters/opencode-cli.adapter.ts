@@ -170,6 +170,8 @@ interface OpencodeTurnState {
   lastErrorMessage?: string;
   /** A final `step_finish` (`reason: "stop"`) arrived after that error. */
   stoppedAfterLastError: boolean;
+  /** Error-classified stderr received after that final `step_finish`. */
+  stderrErrorAfterStop?: string;
 }
 
 /** Everything one `opencode run` spawn needs; see `runTurn`. */
@@ -817,8 +819,12 @@ export class OpencodeCliAdapter implements CliAdapter {
     child.stderr?.on('data', (data: string) => {
       const cleaned = stripAnsiCodes(data).trim();
       if (!cleaned) return;
+      const severity = classifyCliStderr(cleaned);
+      if (severity === 'error' && state.stoppedAfterLastError) {
+        state.stderrErrorAfterStop = cleaned;
+      }
       emitOutput(`[stderr] ${cleaned}\n`);
-      emitSegment({ type: classifyCliStderr(cleaned), content: cleaned });
+      emitSegment({ type: severity, content: cleaned });
     });
 
     return new Promise<number>((resolve) => {
@@ -864,7 +870,11 @@ export class OpencodeCliAdapter implements CliAdapter {
     if (exitCode === 0 || aborted) {
       return exitCode;
     }
-    if (state.lastErrorMessage !== undefined && state.stoppedAfterLastError) {
+    if (
+      state.lastErrorMessage !== undefined &&
+      state.stoppedAfterLastError &&
+      state.stderrErrorAfterStop === undefined
+    ) {
       const notice =
         `opencode recovered from an error and finished the turn, but exited ` +
         `with code ${exitCode}; the turn is treated as complete. Recovered ` +
@@ -873,10 +883,12 @@ export class OpencodeCliAdapter implements CliAdapter {
       launch.emitSegment({ type: 'info', content: notice });
       return 0;
     }
+    const errorMessages = [
+      state.lastErrorMessage,
+      state.stderrErrorAfterStop,
+    ].filter((message): message is string => message !== undefined);
     const cause =
-      state.lastErrorMessage !== undefined
-        ? ` after error: ${state.lastErrorMessage}`
-        : '';
+      errorMessages.length > 0 ? ` after error: ${errorMessages.join('; ')}` : '';
     launch.emitSegment({
       type: 'error',
       content: `opencode CLI exited with code ${exitCode}${cause}`,
