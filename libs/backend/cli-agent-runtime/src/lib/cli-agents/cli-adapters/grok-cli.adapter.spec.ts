@@ -220,6 +220,27 @@ describe('GrokCliAdapter', () => {
       ]);
     });
 
+    it('rejects indented footer and prose lines inside the list', () => {
+      const raw = [
+        'Available models:',
+        '  * grok-4.7 (default)',
+        '  Run grok models --help for details',
+        '  Use --model <id> to pick one.',
+        '  Note: more models need a paid plan',
+        '  Default',
+        '  models',
+        '  see https://x.ai/models',
+      ].join('\n');
+      expect(parseGrokModels(raw).map((m) => m.id)).toEqual(['grok-4.7']);
+    });
+
+    it('rejects a bare prose word even when it ends the line', () => {
+      const raw = ['Available models:', '    grok-code-fast', '    Done'].join(
+        '\n',
+      );
+      expect(parseGrokModels(raw).map((m) => m.id)).toEqual(['grok-code-fast']);
+    });
+
     it('falls back to the default model when no rows are listed', () => {
       expect(parseGrokModels('Default model: grok-4.7\n')).toEqual([
         { id: 'grok-4.7', name: 'grok-4.7' },

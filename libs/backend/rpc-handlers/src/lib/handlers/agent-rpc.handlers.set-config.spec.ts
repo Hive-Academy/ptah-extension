@@ -227,6 +227,29 @@ describe('grokModel setting (TASK_2026_617)', () => {
   });
 });
 
+describe('CLI model settings share the string check and trim', () => {
+  it('stores the codexModel trimmed', async () => {
+    const h = makeHarness();
+    expect(await h.setConfig({ codexModel: '  gpt-5.5  ' })).toEqual({
+      success: true,
+    });
+    expect(h.settings.get('ptah.agentOrchestration.codexModel')).toBe(
+      'gpt-5.5',
+    );
+  });
+
+  it('rejects a non-string piModel before any write', async () => {
+    const h = makeHarness();
+    expect(await h.setConfig({ codexModel: 'gpt-5.5', piModel: 7 })).toEqual({
+      success: false,
+      error: 'Unsupported piModel value',
+    });
+    expect(h.settings.get('ptah.agentOrchestration.codexModel')).not.toBe(
+      'gpt-5.5',
+    );
+  });
+});
+
 describe('Codex lane budget settings (TASK_2026_597)', () => {
   const budgetKeys = [
     'codexAutoCompactTokens',

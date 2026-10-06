@@ -71,6 +71,26 @@ import {
 import { AgentResumeCliSessionParamsSchema } from './agent-rpc.schema';
 import { CliModelListService } from '../services/cli-model-list.service';
 
+/** `agent:setConfig` keys that hold one CLI's model id. Written in this order. */
+const CLI_MODEL_KEYS = [
+  'codexModel',
+  'copilotModel',
+  'cursorModel',
+  'antigravityModel',
+  'grokModel',
+  'opencodeModel',
+  'piModel',
+] as const satisfies readonly (keyof AgentSetConfigParams)[];
+
+/** The first CLI model field that is present but not a string, or null. */
+function invalidCliModel(params: AgentSetConfigParams): string | null {
+  return (
+    CLI_MODEL_KEYS.find(
+      (key) => params[key] !== undefined && typeof params[key] !== 'string',
+    ) ?? null
+  );
+}
+
 /**
  * Host-boundary allowlist for reasoning-effort writes. Pi's value reaches
  * `pi --thinking` unchanged, so an unsupported value must never be persisted.
@@ -467,11 +487,9 @@ export class AgentRpcHandlers {
       ) {
         return { success: false, error: 'Unsupported cursorApiKey value' };
       }
-      if (
-        params.grokModel !== undefined &&
-        typeof params.grokModel !== 'string'
-      ) {
-        return { success: false, error: 'Unsupported grokModel value' };
+      const invalidModel = invalidCliModel(params);
+      if (invalidModel) {
+        return { success: false, error: `Unsupported ${invalidModel} value` };
       }
       const invalidEffort = invalidReasoningEffort(params);
       if (invalidEffort) {
@@ -520,27 +538,10 @@ export class AgentRpcHandlers {
           ),
         );
       }
-      if (params.codexModel !== undefined) {
-        await this.setAgentCfg('codexModel', params.codexModel);
-      }
-      if (params.copilotModel !== undefined) {
-        await this.setAgentCfg('copilotModel', params.copilotModel);
-      }
-      if (params.cursorModel !== undefined) {
-        await this.setAgentCfg('cursorModel', params.cursorModel);
-      }
-      if (params.antigravityModel !== undefined) {
-        await this.setAgentCfg('antigravityModel', params.antigravityModel);
-      }
-      if (params.grokModel !== undefined) {
-        // Stored trimmed: a whitespace-only id would be sent to Grok as a model.
-        await this.setAgentCfg('grokModel', params.grokModel.trim());
-      }
-      if (params.opencodeModel !== undefined) {
-        await this.setAgentCfg('opencodeModel', params.opencodeModel);
-      }
-      if (params.piModel !== undefined) {
-        await this.setAgentCfg('piModel', params.piModel);
+      for (const key of CLI_MODEL_KEYS) {
+        const model = params[key];
+        // Stored trimmed: a whitespace-only id would reach the CLI as a model.
+        if (model !== undefined) await this.setAgentCfg(key, model.trim());
       }
       if (params.cursorApiKey !== undefined) {
         const failure = await this.writeCursorApiKey(

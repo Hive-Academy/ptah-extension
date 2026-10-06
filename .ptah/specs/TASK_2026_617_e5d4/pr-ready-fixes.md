@@ -1,0 +1,33 @@
+# PR-readiness fixes — TASK_2026_617 (PR #665)
+
+Paths below are relative to the worktree root `D:\projects\ptah-extension\.claude-worktrees\task-617-grok-acp`. Nothing was committed.
+
+| #   | Item                                               | Files                                                                                                                                                                                                                    | Status |
+| --- | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------ |
+| 1   | N1: `parseGrokModels` too loose                    | `libs/backend/cli-agent-runtime/src/lib/cli-agents/cli-adapters/grok-cli.adapter.ts`, `grok-cli.adapter.spec.ts`                                                                                                         | DONE   |
+| 2   | N2: no `grok` key in `CLI_MODELS_FIXTURE`          | `libs/frontend/webview-e2e-harness/src/lib/scenarios/settings/settings.fixtures.ts`                                                                                                                                      | DONE   |
+| 3   | Binding entry decided by the profile               | `cli-adapters/acp/acp-vendor-profile.ts`, `cli-adapters/acp/acp-session-handle.ts`, `cli-adapters/acp/acp-session-handle.spec.ts`, `cli-adapters/grok/grok-acp-profile.ts`, `cli-adapters/grok/grok-acp-profile.spec.ts` | DONE   |
+| 4   | Same string check and trim for all `*Model` keys   | `libs/backend/rpc-handlers/src/lib/handlers/agent-rpc.handlers.ts`, `agent-rpc.handlers.set-config.spec.ts`                                                                                                              | DONE   |
+| 5   | `AUTH_WORDING` too broad                           | `cli-adapters/grok/grok-acp-profile.ts`, `grok-acp-profile.spec.ts`                                                                                                                                                      | DONE   |
+| 6   | L-D9: Grok free-usage in the lane limit classifier | `libs/backend/cli-agent-runtime/src/lib/cli-agents/limits/lane-limit-classifier.ts`, `lane-limit-classifier.spec.ts`                                                                                                     | DONE   |
+| 7   | Router help hard-codes the CLI ids                 | `apps/ptah-cli/src/cli/router.ts`                                                                                                                                                                                        | DONE   |
+| 8   | L-D10: document that resume keeps the stored model | `cli-adapters/grok/grok-acp-profile.ts` (header)                                                                                                                                                                         | DONE   |
+
+## Details
+
+1. A row now matches `MODEL_ROW` (optional bullet, then the id token, then end of line, ` (`, ` -`, ` :`, ` —`, or a gap of two or more spaces). The token must also pass `isModelIdToken`: it matches `MODEL_ID` (`/^[a-z0-9][a-z0-9._:/-]*$/i`), is not in `LABEL_WORDS`, and contains a digit or an id separator. The `Default model:` value goes through the same check. New spec rows reject `Run grok models --help for details`, `Use --model <id> …`, `Note: …`, `Default`, `models`, `see https://…` and a bare `Done`. The rows `* grok-4.7 (default)`, `grok-4.7 - frontier model` and the column format are still accepted.
+2. Added `grok: [{ id: 'grok-4.7', name: 'grok-4.7' }]`. `grok-4.7` is the only id that `grok-probe.md` §6 observed. The name equals the id because that is what the adapter emits. The harness deliberately does not import `@ptah-extension/shared`, so the fixture stays untyped.
+3. `AcpSessionConfigEntry` now has an optional `binding?: boolean` field. A binding entry is sent even when its value is not advertised, and a rejection fails the turn. Any other entry is a hint. The runner reads `entry.binding === true`. The Grok profile sets `binding: true` on the `model` entry. The specs set `binding: true` on model entries, and a new spec shows that a non-binding `model` entry that gets rejected only produces an info.
+4. Added `CLI_MODEL_KEYS` and `invalidCliModel()`, next to the other validators. Every model key gets the string check before any write and is stored trimmed. The write order is unchanged. Error text keeps the form `Unsupported <key> value`. New specs cover trimming `codexModel` and rejecting a non-string `piModel` before any write.
+5. `AUTH_WORDING = /authenticat|auth method/i`, which matches the fixture's `Authentication required` / `no auth method id provided`. A new spec checks that a -32000 error with `data: 'author field missing …'` falls through.
+6. Added `matchGrok` and the pattern `grok-free-usage`, registered under `grok` in `MATCHERS`. It matches either `subscription:free-usage-exhausted` (the -32003 `data` string or the `body_preview` code) or `reached your free Grok Build usage limit`, the live `grok -p` wording, which works with either apostrophe. It produces owner quota evidence with no reset time, because the window is a rolling 24 hours. The specs use the fixture's `data` string, the `body_preview` JSON, the exact live string with U+2019, a straight-apostrophe variant, and two negatives: a plain 429 on a grok lane, and the Grok text on an opencode lane.
+7. `CLI_TARGET_IDS` is `agentCliCmd.CLI_AGENT_SELECTORS` without `glm`, joined with `|`. Both `--cli` help strings now use it. `SYSTEM_CLI_TYPES` uses the same order, so the help text is byte-identical.
+8. The header now says: with `grokModel` cleared, no `model` entry is sent, so a resumed session stays on its last model and does not reset to Grok's CLI default.
+
+## Verification
+
+- `npx nx run-many -t typecheck,test,lint -p @ptah-extension/cli-agent-runtime @ptah-extension/rpc-handlers ptah-cli webview-e2e-harness chat --parallel=2 --skip-nx-cache` exited 0: "Successfully ran targets typecheck, test, lint for 5 projects and 34 tasks they depend on".
+- Focused jest runs on the changed specs:
+  - cli-agent-runtime (`grok-cli.adapter`, `lane-limit-classifier`, `acp-session-handle`, `grok-acp-profile`): 4 suites, 142/142 passed.
+  - rpc-handlers (`agent-rpc.handlers.set-config`): 1 suite, 95/95 passed.
+- `npx ts-node --transpile-only tools/degradation-audit/check-degradation.ts --max-warnings=-1` exited 0. TOTAL is 294 unsuppressed sites, and every directory is ok against its baseline. No new swallowed errors.

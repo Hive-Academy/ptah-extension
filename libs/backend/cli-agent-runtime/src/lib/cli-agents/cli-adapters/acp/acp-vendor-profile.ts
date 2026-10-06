@@ -29,10 +29,25 @@ import type { CliCommandOptions } from '../cli-adapter.interface';
  */
 export type AcpResumeStrategy = 'resume' | 'load' | 'resume-then-load' | 'none';
 
-/** One `session/set_config_option` call the profile wants before the first prompt. */
+/**
+ * One `session/set_config_option` call the profile wants before the first prompt.
+ *
+ * `binding: true` marks a setting the turn cannot run without (e.g. the
+ * model): it is sent even when its value is not advertised, and a rejection
+ * fails the turn. Any other entry is a hint: an unadvertised value is skipped
+ * and a rejection only emits an info.
+ */
 export type AcpSessionConfigEntry =
-  | { readonly configId: string; readonly value: string }
-  | { readonly configId: string; readonly value: boolean };
+  | {
+      readonly configId: string;
+      readonly value: string;
+      readonly binding?: boolean;
+    }
+  | {
+      readonly configId: string;
+      readonly value: boolean;
+      readonly binding?: boolean;
+    };
 
 /** The ACP request that failed, as seen by {@link AcpVendorProfile.describeError}. */
 export type AcpRequestMethod =

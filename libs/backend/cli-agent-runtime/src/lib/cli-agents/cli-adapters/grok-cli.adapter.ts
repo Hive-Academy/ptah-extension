@@ -42,7 +42,43 @@ import { grokAcpProfile } from './grok/grok-acp-profile';
 const GROK_MODELS_TIMEOUT_MS = 8000;
 
 /** A model id as `grok models` prints it (e.g. `grok-4.7`). */
-const MODEL_ID = /^[A-Za-z0-9][\w.:/-]*$/;
+const MODEL_ID = /^[a-z0-9][a-z0-9._:/-]*$/i;
+
+/**
+ * One row under `Available models:`: an optional bullet, the id token, then
+ * either nothing, or a separated suffix (` (default)`, ` - text`, ` : text`,
+ * ` — text`, or a column gap of two or more spaces). A prose line such as
+ * `Run grok models --help` has a single space and a word after its first
+ * token, so it does not match.
+ */
+const MODEL_ROW = /^(?:[*\->•]\s*)?(\S+)(?:$|\s+[(\-:—]|\s{2,}\S)/;
+
+/** Words a footer or label line can start with; never a model id. */
+const LABEL_WORDS = new Set([
+  'available',
+  'default',
+  'model',
+  'models',
+  'none',
+  'note',
+  'run',
+  'see',
+  'usage',
+  'use',
+]);
+
+/**
+ * Whether a token looks like a model id rather than a prose word: it matches
+ * {@link MODEL_ID}, is not a label word, and carries a digit or an id
+ * separator (`-`, `.`, `_`, `:`, `/`), as every observed Grok id does.
+ */
+function isModelIdToken(token: string): boolean {
+  return (
+    MODEL_ID.test(token) &&
+    !LABEL_WORDS.has(token.toLowerCase()) &&
+    /[\d._:/-]/.test(token)
+  );
+}
 
 /**
  * Parse `grok models` text output (grok 1.0.46 has no `--json`):
@@ -57,9 +93,12 @@ const MODEL_ID = /^[A-Za-z0-9][\w.:/-]*$/;
  * ```
  *
  * Each indented row under `Available models:` is `<marker> <id>[ ...]`; the
- * id is the first token, and anything after it (` (default)`, a description)
- * is ignored. The marker of a non-default row was not observed, so any leading
- * `*`/`-` marker is optional. With no model rows, the `Default model:` value
+ * id is the first token, and a separated suffix after it (` (default)`,
+ * ` - description`, a column gap) is ignored. The marker of a non-default row
+ * was not observed, so any leading `*`/`-` marker is optional. An indented
+ * footer or prose line (`Run grok models --help`) is skipped: its first token
+ * must look like an id (see {@link isModelIdToken}) and be followed by a
+ * separator, not by a single space and a word. With no model rows, the `Default model:` value
  * alone is returned. Anything unrecognised yields an empty list; this never
  * throws.
  */
@@ -72,7 +111,7 @@ export function parseGrokModels(raw: string): CliModelInfo[] {
   for (const line of lines) {
     const trimmed = line.trim();
     const defaultMatch = /^Default model:\s*(\S+)\s*$/i.exec(trimmed);
-    if (defaultMatch && MODEL_ID.test(defaultMatch[1])) {
+    if (defaultMatch && isModelIdToken(defaultMatch[1])) {
       defaultId = defaultMatch[1];
       continue;
     }
@@ -86,8 +125,8 @@ export function parseGrokModels(raw: string): CliModelInfo[] {
       inList = false;
       continue;
     }
-    const row = /^(?:[*\->•]\s*)?(\S+)/.exec(trimmed);
-    if (row && MODEL_ID.test(row[1]) && !ids.includes(row[1])) {
+    const row = MODEL_ROW.exec(trimmed);
+    if (row && isModelIdToken(row[1]) && !ids.includes(row[1])) {
       ids.push(row[1]);
     }
   }

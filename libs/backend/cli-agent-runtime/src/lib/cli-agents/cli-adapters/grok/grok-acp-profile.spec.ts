@@ -148,7 +148,7 @@ describe('grokAcpProfile', () => {
           reasoningEffort: 'xhigh',
         }),
       ).toEqual([
-        { configId: 'model', value: 'grok-4.7' },
+        { configId: 'model', value: 'grok-4.7', binding: true },
         { configId: 'reasoning_effort', value: 'xhigh' },
       ]);
       expect(
@@ -246,6 +246,19 @@ describe('grokAcpProfile', () => {
           }),
         ),
       ).toBe('Grok is not signed in: run `grok login`');
+    });
+
+    it('-32000 with an unrelated message that merely contains "auth" falls through', () => {
+      expect(
+        describe_(
+          failure({
+            method: 'session/prompt',
+            code: -32000,
+            message: 'Internal error',
+            data: 'author field missing in commit metadata',
+          }),
+        ),
+      ).toBeUndefined();
     });
 
     it('-32000 without auth wording falls through to the generic text', () => {

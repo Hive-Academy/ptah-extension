@@ -22,6 +22,10 @@
  *   as-is; the runner skips it when the active model does not advertise it.
  * - `_x.ai/*` (and `x.ai/*`) notifications are vendor extensions, e.g. the
  *   `retry_state` notices before a rate-limit error; they are ignored.
+ * - Resume keeps the stored model: with the `grokModel` setting cleared no
+ *   `model` entry is sent, so a resumed session (`session/resume`) stays on
+ *   the model it last ran on rather than resetting to Grok's CLI default.
+ *   Set the model explicitly to switch a resumed session.
  */
 import type { McpServer } from '@agentclientprotocol/sdk';
 import type {
@@ -47,7 +51,7 @@ const GROK_ARGS: readonly string[] = ['agent', '--no-leader', 'stdio'];
 const EXTENSION_NOTIFICATION = /^_?x\.ai\//;
 
 /** Grok's -32000 auth failures say "Authentication required" / "no auth method id provided". */
-const AUTH_WORDING = /auth/i;
+const AUTH_WORDING = /authenticat|auth method/i;
 
 /** Where a rejected model came from, worded for the user. */
 function describeModelSource(source: LaneModelSource | undefined): string {
@@ -128,7 +132,9 @@ export const grokAcpProfile: AcpVendorProfile = {
   sessionConfig(options: CliCommandOptions): readonly AcpSessionConfigEntry[] {
     const entries: AcpSessionConfigEntry[] = [];
     if (options.model) {
-      entries.push({ configId: 'model', value: options.model });
+      // Binding: a model Grok rejects fails the turn instead of silently
+      // running the lane on another model.
+      entries.push({ configId: 'model', value: options.model, binding: true });
     }
     if (options.reasoningEffort) {
       entries.push({

@@ -600,7 +600,7 @@ describe('createAcpSessionHandle — session config (R6)', () => {
       agent: { configOptions: [MODEL_OPTION] },
       profile: {
         sessionConfig: () => [
-          { configId: 'model', value: 'model-b' },
+          { configId: 'model', value: 'model-b', binding: true },
           { configId: 'reasoning_effort', value: 'high' },
         ],
       },
@@ -628,7 +628,7 @@ describe('createAcpSessionHandle — session config (R6)', () => {
       options: { model: 'model-x', modelSource: 'setting' },
       profile: {
         sessionConfig: (options) => [
-          { configId: 'model', value: options.model ?? '' },
+          { configId: 'model', value: options.model ?? '', binding: true },
         ],
         describeError,
       },
@@ -660,6 +660,27 @@ describe('createAcpSessionHandle — session config (R6)', () => {
     );
     expect(h.transport.killCount).toBe(1);
     expect(h.handle.supportsContinuation?.()).toBe(false);
+  });
+
+  it('reads binding from the entry, not its id: a rejected non-binding model is a hint', async () => {
+    const h = start({
+      agent: { configOptions: [MODEL_OPTION] },
+      profile: {
+        sessionConfig: () => [{ configId: 'model', value: 'model-b' }],
+      },
+      script: (agent) =>
+        agent.handle('session/set_config_option', () => ({
+          error: { code: -32602, message: 'Invalid params' },
+        })),
+    });
+
+    await expect(h.handle.done).resolves.toBe(0);
+
+    expect(sent(h.agent, 'session/prompt')).toHaveLength(1);
+    expect(h.errors()).toEqual([]);
+    expect(h.infos()).toEqual([
+      expect.stringContaining('continuing without the "model" setting'),
+    ]);
   });
 
   const effortOption = (values: readonly string[]) => ({
@@ -695,7 +716,7 @@ describe('createAcpSessionHandle — session config (R6)', () => {
       },
       profile: {
         sessionConfig: () => [
-          { configId: 'model', value: 'model-b' },
+          { configId: 'model', value: 'model-b', binding: true },
           { configId: 'reasoning_effort', value: 'xhigh' },
         ],
       },

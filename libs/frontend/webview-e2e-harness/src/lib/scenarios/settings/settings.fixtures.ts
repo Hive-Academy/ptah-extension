@@ -536,6 +536,9 @@ export const CLI_MODELS_FIXTURE = {
     { id: 'opencode/nemotron-3-ultra-free', name: 'nemotron-3-ultra-free' },
   ],
   pi: [{ id: 'pi-default', name: 'Pi default' }],
+  // The id `grok models` printed on grok 1.0.46 (`grok-probe.md` §6); the
+  // adapter names a model by its id.
+  grok: [{ id: 'grok-4.7', name: 'grok-4.7' }],
 };
 
 // ---------------------------------------------------------------------------
