@@ -36,6 +36,10 @@ import {
   ReviewNavigationService,
   type ReviewNavigation,
 } from '../services/review-navigation.service';
+import {
+  ReviewWorktreeStatusService,
+  type ReviewWorktreeStatus,
+} from '../services/review-worktree-status.service';
 import { SourceControlService } from '../services/source-control.service';
 import type { ReviewCanvasComponent as CanvasType } from './review-canvas.component';
 import type { FileDiffSectionComponent as SectionType } from './file-diff-section.component';
@@ -259,6 +263,8 @@ describe('ReviewCanvasComponent', () => {
     applyHunks: jest.fn(),
   };
 
+  const worktreeStatus = signal<ReviewWorktreeStatus | null>(null);
+
   const launchers = {
     targets: signal([]).asReadonly(),
     detect: jest.fn(async () => undefined),
@@ -349,6 +355,7 @@ describe('ReviewCanvasComponent', () => {
     reviewError.set(null);
     reviewLoading.set(false);
     entries.set(new Map());
+    worktreeStatus.set(null);
     isDarkMode.set(true);
     TestBed.configureTestingModule({
       imports: [Canvas],
@@ -364,6 +371,10 @@ describe('ReviewCanvasComponent', () => {
         },
         { provide: SourceControlService, useValue: {} },
         { provide: ReviewDiffService, useValue: reviewDiff },
+        {
+          provide: ReviewWorktreeStatusService,
+          useValue: { status: worktreeStatus.asReadonly() },
+        },
         { provide: EditorLauncherService, useValue: launchers },
         { provide: ThemeService, useValue: { isDarkMode } },
       ],
@@ -373,6 +384,132 @@ describe('ReviewCanvasComponent', () => {
   afterEach(() => {
     delete (globalThis as { IntersectionObserver?: unknown })
       .IntersectionObserver;
+  });
+
+  describe('read-only worktree scope', () => {
+    const ROOT = '/ws/.claude-worktrees/feature';
+    const WORKTREE_STATUS: GitFileStatus[] = [
+      {
+        path: 'src/agent.ts',
+        status: 'M',
+        staged: false,
+        additions: 2,
+        deletions: 1,
+      },
+      { path: 'src/ready.ts', status: 'A', staged: true, additions: 5 },
+    ];
+
+    function openWorktree(): void {
+      navigate({
+        scope: { kind: 'worktree', root: ROOT },
+        target: {
+          kind: 'change-set',
+          workspaceRoot: ROOT,
+          files: [{ path: 'src/agent.ts' }, { path: 'src/ready.ts' }],
+          ownerSessionId: 'session-9',
+        },
+      });
+    }
+
+    it("lists the worktree's status with diffs read from its root, not the active workspace's", async () => {
+      worktreeStatus.set({
+        root: ROOT,
+        loading: false,
+        branch: 'feature',
+        files: WORKTREE_STATUS,
+        error: null,
+      });
+      openWorktree();
+      await create();
+
+      expect(sectionPaths()).toEqual(['src/agent.ts', 'src/ready.ts']);
+      const files = sectionInstances().map((section) => section.file());
+      expect(files[0].request?.comparison).toEqual({
+        kind: 'worktree',
+        root: ROOT,
+      });
+      expect(files[1].request?.comparison).toEqual({
+        kind: 'staged',
+        root: ROOT,
+      });
+      expect(sectionInstances()[0].workspaceRoot()).toBe(ROOT);
+      expect(sectionInstances()[0].draftOwner()).toEqual({
+        workspaceRoot: ROOT,
+        ownerSessionId: 'session-9',
+      });
+    });
+
+    it('offers no stage, unstage, discard, hunk action or Edit', async () => {
+      worktreeStatus.set({
+        root: ROOT,
+        loading: false,
+        branch: 'feature',
+        files: WORKTREE_STATUS,
+        error: null,
+      });
+      openWorktree();
+      await create();
+
+      expect(byTestId('tree-stage')).toBeNull();
+      expect(byTestId('tree-unstage')).toBeNull();
+      expect(byTestId('tree-discard')).toBeNull();
+      expect(host().querySelector('ptah-changed-file-section-actions')).toBeNull();
+      expect(sectionInstances().every((section) => section.readOnly())).toBe(
+        true,
+      );
+
+      sectionInstances()[0].edit.emit({ path: 'src/agent.ts' });
+      expect(navigationService.openFile).not.toHaveBeenCalled();
+    });
+
+    it("ignores a read of another root and says it is reading the worktree", async () => {
+      worktreeStatus.set({
+        root: '/elsewhere',
+        loading: false,
+        branch: 'x',
+        files: WORKTREE_STATUS,
+        error: null,
+      });
+      openWorktree();
+      await create();
+      expect(sectionPaths()).toEqual([]);
+      expect(byTestId('review-canvas-message')?.textContent).toContain(
+        'Reading the worktree',
+      );
+    });
+
+    it('shows a failed worktree read as an alert', async () => {
+      worktreeStatus.set({
+        root: ROOT,
+        loading: false,
+        branch: null,
+        files: [],
+        error: 'This worktree is not available.',
+      });
+      openWorktree();
+      await create();
+      const message = byTestId('review-canvas-message');
+      expect(message?.textContent).toContain('This worktree is not available.');
+      expect(message?.getAttribute('role')).toBe('alert');
+    });
+
+    it('a change set of the active workspace stays mutable and reads the active status', async () => {
+      navigate({
+        scope: { kind: 'worktree' },
+        target: {
+          kind: 'change-set',
+          workspaceRoot: '/ws',
+          files: [{ path: 'src/util.ts' }],
+        },
+      });
+      await create();
+      expect(sectionPaths()).toEqual(['src/util.ts']);
+      expect(sectionInstances()[0].readOnly()).toBe(false);
+      expect(sectionInstances()[0].file().request?.comparison).toEqual({
+        kind: 'worktree',
+      });
+      expect(byTestId('tree-discard')).not.toBeNull();
+    });
   });
 
   describe('file list', () => {

@@ -85,7 +85,8 @@ interface DialogCopy {
  * - Opens read-only unless the host passes `startEditable` (the canvas "Edit"
  *   action); chat links open read-only by default and the header's Edit
  *   button switches to editing.
- * - UTF-16 files, and hosts without `file:saveContent`, stay read-only.
+ * - UTF-16 files, hosts without `file:saveContent`, and a file of the
+ *   read-only worktree scope (`readOnly`) stay read-only.
  * - CodeMirror is loaded with a dynamic `import()` of `codemirror-setup`, so
  *   it never enters the eager bundle.
  * - A conflict on save asks Overwrite, Reload or Keep editing. Only the two
@@ -355,6 +356,11 @@ export class SpotEditorComponent {
   readonly request = input.required<FileViewOpenRequest>();
   /** The canvas "Edit" action opens editable; chat links leave this false. */
   readonly startEditable = input(false);
+  /**
+   * The file belongs to the read-only worktree scope (another worktree than
+   * the active workspace): no Edit and no Save, whatever `startEditable` says.
+   */
+  readonly readOnly = input(false);
   readonly editorTargets = input<readonly EditorTarget[]>([]);
 
   readonly backToReview = output<void>();
@@ -418,10 +424,14 @@ export class SpotEditorComponent {
     () => this.file()?.isMarkdown ?? false,
   );
 
-  /** Editing needs a fresh UTF-8 read with a hash, on a host that can save. */
+  /**
+   * Editing needs a fresh UTF-8 read with a hash, on a host that can save,
+   * outside the read-only worktree scope.
+   */
   private readonly canEdit = computed(() => {
     const current = this.file();
     return Boolean(
+      !this.readOnly() &&
       current?.status === 'fresh' &&
       current.encoding === 'utf-8' &&
       current.sha256 &&

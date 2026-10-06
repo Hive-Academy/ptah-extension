@@ -36,7 +36,7 @@ const ICON_BUTTON = `btn btn-ghost btn-xs p-0.5 h-auto min-h-0 ${FOCUS_RING}`;
     'data-row-action': '',
   },
   template: `
-    @if (file().staged !== null) {
+    @if (mutable() && file().staged !== null) {
       @if (file().staged) {
         <button
           type="button"
@@ -120,6 +120,8 @@ export class ChangedFileRowActionsComponent {
   readonly controlTabIndex = input(-1);
   /** No call in flight for the row or a bulk action over its workspace. */
   readonly canRun = input(false);
+  /** `false` in the read-only worktree scope: no stage, unstage or discard. */
+  readonly mutable = input(true);
   readonly showViewed = input(false);
   readonly viewed = input(false);
   /** Open-in reads a setting and listens on the document: focused row only. */

@@ -43,7 +43,7 @@ Non-secret Codex settings live in `~/.ptah/settings.json`:
 }
 ```
 
-- `codexReasoningEffort` accepts `"low"`, `"medium"`, or `"high"` (empty string uses the in-chat [effort level](/chat/effort-levels/)).
+- `codexReasoningEffort` accepts `"low"`, `"medium"`, `"high"`, `"xhigh"`, or `"inherit"` (empty string uses the in-chat [effort level](/chat/effort-levels/)).
 - `codexAutoApprove: true` lets the Codex CLI auto-approve sandbox operations; set to `false` to require manual approval.
 
 ## Verifying it works

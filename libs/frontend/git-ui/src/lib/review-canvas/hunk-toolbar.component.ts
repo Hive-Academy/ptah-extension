@@ -278,6 +278,11 @@ export class HunkToolbarComponent {
   /** How many hunks the file has. */
   readonly hunkCount = input.required<number>();
   readonly comparison = input.required<HunkToolbarComparison>();
+  /**
+   * The read-only worktree scope: a working-tree hunk of another worktree,
+   * whose actions stay visible but disabled, as in branch review.
+   */
+  readonly readOnly = input(false);
   /** `ReviewDiffService` entry key of the file. */
   readonly entryKey = input.required<string>();
   /** Token of the diff this hunk was rendered from. */
@@ -314,7 +319,7 @@ export class HunkToolbarComponent {
 
   private readonly mutable = computed(() => {
     const kind = this.comparison();
-    return kind === 'worktree' || kind === 'staged';
+    return !this.readOnly() && (kind === 'worktree' || kind === 'staged');
   });
 
   private readonly entryDiff = computed(

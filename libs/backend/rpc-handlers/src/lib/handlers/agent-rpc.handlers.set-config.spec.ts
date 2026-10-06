@@ -154,6 +154,9 @@ describe('agent:setConfig reasoning-effort boundary', () => {
       success: false,
     });
     expect(
+      await h.setConfig({ codexReasoningEffort: 'minimal' }),
+    ).toMatchObject({ success: false });
+    expect(
       await h.setConfig({ copilotReasoningEffort: 'banana' }),
     ).toMatchObject({ success: false });
     expect(h.settings.size).toBe(0);

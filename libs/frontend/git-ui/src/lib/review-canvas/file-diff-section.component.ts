@@ -453,6 +453,7 @@ function splitLines(text: string): string[] {
                 [hunk]="hunk"
                 [hunkCount]="d.hunks.length"
                 [comparison]="file().comparison"
+                [readOnly]="readOnly()"
                 [entryKey]="entryKey() ?? ''"
                 [snapshotToken]="d.snapshotToken"
                 (navigate)="goToHunk($event)"
@@ -487,6 +488,8 @@ export class FileDiffSectionComponent {
   readonly draftOwner = input<ReviewDraftOwner | null>(null);
   readonly editorTargets = input<readonly EditorTarget[]>([]);
   readonly workspaceRoot = input('');
+  /** The read-only worktree scope: no Edit and no hunk action. */
+  readonly readOnly = input(false);
   /**
    * Header only: the body is not rendered and its read is released. The
    * canvas owns the state (parity rows 39, 40: the closed diff tab).
@@ -663,11 +666,13 @@ export class FileDiffSectionComponent {
   /**
    * Only a file that exists in the working tree can be edited: the two status
    * comparisons, not a deleted file, and not a binary or submodule row.
-   * Historical and branch comparisons are read-only.
+   * Historical and branch comparisons, and the read-only worktree scope, are
+   * read-only.
    */
   protected readonly canEdit = computed(() => {
     const file = this.file();
     return (
+      !this.readOnly() &&
       (file.comparison === 'worktree' || file.comparison === 'staged') &&
       file.status !== 'D' &&
       file.label !== 'binary' &&

@@ -187,18 +187,20 @@ test.describe('hunk revert dialog is answerable by mouse (TASK_2026_227)', () =>
 
     // The condition the bug needed: the canvas really is behind this dialog.
     // Without this the spec could pass in a layout where nothing overlaps and
-    // would stop guarding anything.
-    const canvasHeading = page.getByRole('heading', {
-      name: 'Orchestra Canvas',
-    });
-    await expect(canvasHeading).toBeVisible();
-    const canvasBox = await canvasHeading.boundingBox();
+    // would stop guarding anything. The probe is the whole empty-state panel
+    // (it fills the canvas), not its heading: the heading's position moves
+    // with the panel's content and says nothing about the collision.
+    await expect(
+      page.getByRole('heading', { name: 'Orchestra Canvas' }),
+    ).toBeVisible();
+    const canvasPanel = page.locator('ptah-canvas-empty-state');
+    const canvasBox = await canvasPanel.boundingBox();
     const boxBox = await dialog.locator('.modal-box').boundingBox();
-    expect(canvasBox, 'the canvas heading has no painted box').not.toBeNull();
+    expect(canvasBox, 'the canvas panel has no painted box').not.toBeNull();
     expect(boxBox, 'the modal box has no painted box').not.toBeNull();
     expect(
       overlaps(canvasBox!, boxBox!),
-      'the canvas heading and the modal box do not overlap, so this run is ' +
+      'the canvas panel and the modal box do not overlap, so this run is ' +
         'not exercising the collision the task is about',
     ).toBe(true);
 

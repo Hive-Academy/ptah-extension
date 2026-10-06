@@ -292,6 +292,23 @@ describe('SpotEditorComponent', () => {
       ).toBe(true);
     });
 
+    it('a file of the read-only worktree scope offers no Edit, even when asked to open editable', async () => {
+      routeRpc([viewResult()]);
+      const fixture = TestBed.createComponent(SpotEditorComponent);
+      fixture.componentRef.setInput('request', {
+        path: 'src/a.ts',
+        workspaceRoot: '/ws/.claude-worktrees/feature',
+      });
+      fixture.componentRef.setInput('startEditable', true);
+      fixture.componentRef.setInput('readOnly', true);
+      await settle(fixture);
+
+      expect(byTestId(fixture, 'spot-editor-ro')).not.toBeNull();
+      expect(byTestId(fixture, 'spot-editor-edit')).toBeNull();
+      expect(editorView(fixture).state.readOnly).toBe(true);
+      expect(saveDisabled(fixture)).toBe(true);
+    });
+
     it('Edit switches the same editor to editable', async () => {
       routeRpc([viewResult()]);
       const fixture = await render();

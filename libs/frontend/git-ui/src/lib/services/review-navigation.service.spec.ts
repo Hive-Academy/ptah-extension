@@ -857,3 +857,138 @@ describe('ReviewNavigationService', () => {
     });
   });
 });
+
+describe('ReviewNavigationService read-only worktree scope', () => {
+  const WORKTREE = 'D:\\repo\\.claude-worktrees\\feature';
+
+  function makeWindowsService() {
+    const made = makeService();
+    made.active.path = 'D:/repo';
+    return made;
+  }
+
+  it('a change set from another worktree opens that worktree read-only, without switching workspaces', () => {
+    const { service, active } = makeWindowsService();
+    service.openChangeSet({
+      workspaceRoot: WORKTREE,
+      files: [{ path: 'a.ts' }],
+      ownerSessionId: 's1',
+    });
+    expect(service.current().scope).toEqual({
+      kind: 'worktree',
+      root: WORKTREE,
+    });
+    expect(service.current().target).toMatchObject({
+      kind: 'change-set',
+      workspaceRoot: WORKTREE,
+    });
+    expect(active.path).toBe('D:/repo');
+  });
+
+  it('a change set from the active workspace, spelled differently, behaves as today', () => {
+    const { service } = makeWindowsService();
+    service.openChangeSet({ workspaceRoot: 'd:\\REPO\\', files: [] });
+    expect(service.current().scope).toEqual({ kind: 'worktree' });
+  });
+
+  it('isForeignRoot ignores separators, a trailing slash and case', () => {
+    const { service, active } = makeWindowsService();
+    expect(service.isForeignRoot('d:\\repo\\')).toBe(false);
+    expect(service.isForeignRoot(WORKTREE)).toBe(true);
+    expect(service.isForeignRoot(undefined)).toBe(false);
+    active.path = null;
+    expect(service.isForeignRoot(WORKTREE)).toBe(false);
+  });
+
+  it('openFile from another worktree views it read-only and never opens editable', () => {
+    const { service } = makeWindowsService();
+    service.openFile('src/a.ts', 4, {
+      workspaceRoot: WORKTREE,
+      editable: true,
+    });
+    expect(service.current().scope).toEqual({
+      kind: 'worktree',
+      root: WORKTREE,
+    });
+    expect(service.current().target).toEqual({
+      kind: 'file',
+      request: { path: 'src/a.ts', line: 4, workspaceRoot: WORKTREE },
+    });
+
+    // Back to review shows that worktree's diffs.
+    service.backToReview();
+    expect(service.current().scope).toEqual({
+      kind: 'worktree',
+      root: WORKTREE,
+    });
+  });
+
+  it('openFile in the same worktree keeps the scope object, so its status is not re-read', () => {
+    const { service } = makeWindowsService();
+    service.openChangeSet({ workspaceRoot: WORKTREE, files: [] });
+    const scope = service.current().scope;
+    service.openFile('a.ts', undefined, {
+      workspaceRoot: 'd:/repo/.claude-worktrees/feature/',
+    });
+    expect(service.current().scope).toBe(scope);
+  });
+
+  it('openFile from the active workspace leaves a worktree view for the active working tree', () => {
+    const { service } = makeWindowsService();
+    service.openChangeSet({ workspaceRoot: WORKTREE, files: [] });
+    service.openFile('a.ts', undefined, { workspaceRoot: 'D:/repo' });
+    expect(service.current().scope).toEqual({ kind: 'worktree' });
+  });
+
+  it('Back (the working-tree comparison) returns to the active workspace', () => {
+    const { service } = makeWindowsService();
+    service.openChangeSet({ workspaceRoot: WORKTREE, files: [] });
+    service.selectComparison('worktree');
+    expect(service.current()).toMatchObject({
+      scope: { kind: 'worktree' },
+      target: { kind: 'none' },
+    });
+    expect(service.current().scope).not.toHaveProperty('root');
+  });
+
+  it('Back from a worktree file asks the leave guard first', () => {
+    const { service } = makeWindowsService();
+    service.openFile('a.ts', undefined, { workspaceRoot: WORKTREE });
+    const guard = jest.fn(() => false);
+    service.registerLeaveGuard(guard);
+
+    service.selectComparison('worktree');
+
+    expect(guard).toHaveBeenCalled();
+    expect(service.current().scope).toEqual({
+      kind: 'worktree',
+      root: WORKTREE,
+    });
+  });
+
+  it('a workspace switch resets the scope, even with no target left', () => {
+    const { service, active } = makeWindowsService();
+    service.openFile('a.ts', undefined, { workspaceRoot: WORKTREE });
+    service.backToReview();
+    expect(service.current().target).toEqual({ kind: 'none' });
+    active.path = 'D:/other';
+    service.switchWorkspace('D:/other');
+    expect(service.current()).toMatchObject({
+      scope: { kind: 'worktree' },
+      target: { kind: 'none' },
+    });
+    expect(service.current().scope).not.toHaveProperty('root');
+  });
+
+  it('a workspace switch with a worktree file open drops the scope at once and asks before the editor goes', () => {
+    const { service, active } = makeWindowsService();
+    service.openFile('a.ts', undefined, { workspaceRoot: WORKTREE });
+    service.registerLeaveGuard(() => false);
+
+    active.path = 'D:/other';
+    service.switchWorkspace('D:/other');
+
+    expect(service.current().scope).toEqual({ kind: 'worktree' });
+    expect(service.current().target.kind).toBe('file');
+  });
+});

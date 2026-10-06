@@ -41,10 +41,15 @@ import { toFileContentChange } from './file-content-change';
  * resolved commits (branch review, a past commit, a stash entry against its
  * parent); it is read through `git:reviewFile` and never revalidated, because
  * neither side can change.
+ *
+ * A `worktree` or `staged` comparison with a `root` reads another worktree
+ * than the active workspace (the read-only worktree scope): it is read from
+ * that root, never written to, and not revalidated by the active workspace's
+ * pushes.
  */
 export type ReviewDiffComparison =
-  | { kind: 'worktree' }
-  | { kind: 'staged' }
+  | { kind: 'worktree'; root?: string }
+  | { kind: 'staged'; root?: string }
   | {
       kind: 'historical';
       base: GitResolvedReviewRef;
@@ -123,8 +128,11 @@ export function reviewDiffKey(request: ReviewDiffRequest): string {
 }
 
 function comparisonId(comparison: ReviewDiffComparison): string {
-  return comparison.kind === 'historical'
-    ? `${comparison.base.sha}..${comparison.head.sha}`
+  if (comparison.kind === 'historical') {
+    return `${comparison.base.sha}..${comparison.head.sha}`;
+  }
+  return comparison.root
+    ? `${comparison.kind}@${normalizeWorkspaceRoot(comparison.root)}`
     : comparison.kind;
 }
 
@@ -176,6 +184,13 @@ function isMutable(
   comparison: ReviewDiffComparison,
 ): comparison is MutableComparison {
   return comparison.kind !== 'historical';
+}
+
+/** The active workspace's working tree or index: pushes revalidate it, hunks apply to it. */
+function isActiveMutable(
+  comparison: ReviewDiffComparison,
+): comparison is MutableComparison {
+  return isMutable(comparison) && !comparison.root;
 }
 
 /**
@@ -355,6 +370,25 @@ export class ReviewDiffService implements MessageHandler {
     return this.refresh(key);
   }
 
+  /**
+   * Re-read every cached diff of another worktree's `root` (the read-only
+   * worktree scope). No push revalidates such an entry, so each time the
+   * scope opens its cached diffs are re-read: a mounted entry now, an
+   * unmounted one on its next {@link mount}.
+   */
+  invalidateRoot(root: string): void {
+    const target = normalizeWorkspaceRoot(root);
+    const keys = [...this._entries().values()]
+      .filter(
+        (entry) =>
+          isMutable(entry.comparison) &&
+          !!entry.comparison.root &&
+          normalizeWorkspaceRoot(entry.comparison.root) === target,
+      )
+      .map((entry) => entry.key);
+    for (const key of keys) void this.refresh(key);
+  }
+
   // -------------------------------------------------------------------------
   // Revalidation (A1, RC11)
   // -------------------------------------------------------------------------
@@ -418,7 +452,11 @@ export class ReviewDiffService implements MessageHandler {
       if (relative) changed.add(relative);
     }
     for (const entry of this._entries().values()) {
-      if (entry.comparison.kind === 'worktree' && changed.has(entry.path)) {
+      if (
+        entry.comparison.kind === 'worktree' &&
+        !entry.comparison.root &&
+        changed.has(entry.path)
+      ) {
         void this.refresh(entry.key);
       }
     }
@@ -476,7 +514,7 @@ export class ReviewDiffService implements MessageHandler {
     const keys = [...this._entries().values()]
       .filter(
         (entry) =>
-          isMutable(entry.comparison) &&
+          isActiveMutable(entry.comparison) &&
           (refreshAll ||
             paths.has(entry.path) ||
             paths.has(entry.originalPath)),
@@ -645,7 +683,7 @@ export class ReviewDiffService implements MessageHandler {
         message: SELECTION_SUPERSEDED_MESSAGE,
       };
     }
-    if (!isMutable(entry.comparison)) {
+    if (!isActiveMutable(entry.comparison)) {
       return {
         success: false,
         code: 'INVALID_OPERATION',
@@ -776,8 +814,10 @@ export class ReviewDiffService implements MessageHandler {
     entry: ReviewDiffEntry,
     requestId: number,
   ): Promise<DiffTabState | null> {
-    const workspaceRoot = this.activeWorkspacePath();
     const { comparison, path, originalPath } = entry;
+    const workspaceRoot =
+      (isMutable(comparison) ? comparison.root : undefined) ??
+      this.activeWorkspacePath();
     if (comparison.kind === 'historical') {
       const response = await rpcCall<GitReviewFileResult>(
         this.vscodeService,

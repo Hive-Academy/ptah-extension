@@ -177,15 +177,19 @@ function effortMapperFor(
   }
 }
 
-/** Allowlist an effort value to what Codex/Copilot accept (`max` → `xhigh`). */
+/**
+ * Allowlist an effort value to what Codex/Copilot accept (`max` → `xhigh`).
+ * `minimal` → `low`: newer OpenAI models reject `minimal` with a 400.
+ */
 function mapEffortToCli(effort: string): string | undefined {
   switch (effort) {
     case 'low':
     case 'medium':
     case 'high':
     case 'xhigh':
-    case 'minimal':
       return effort;
+    case 'minimal':
+      return 'low';
     case 'max':
       return 'xhigh';
     default:

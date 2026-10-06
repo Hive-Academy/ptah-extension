@@ -18,8 +18,6 @@ import {
   CircleAlert,
   Folder,
   LucideAngularModule,
-  Minus,
-  Plus,
   X,
 } from 'lucide-angular';
 import { ElectronLayoutService } from '@ptah-extension/core';
@@ -37,14 +35,19 @@ import { GitStatusService } from '../services/git-status.service';
 import { SourceControlService } from '../services/source-control.service';
 import type { ReviewScope } from '../services/review-navigation.service';
 import { ChangedFileRowActionsComponent } from './changed-file-row-actions.component';
+import { ChangedFileSectionActionsComponent } from './changed-file-section-actions.component';
 import {
   buildTreeRows,
-  SECTION_BULK_ACTION,
   type StatusSection,
   type TreeFile,
   type TreeFileRow,
   type TreeRow,
 } from './changed-file-tree-rows';
+import {
+  discardConfirmCopy,
+  pendingDiscardAll,
+  type PendingDiscard,
+} from './pending-discard';
 import { TreeMutationTracker } from './tree-mutation-tracker';
 
 /** The comparison the tree lists files for. */
@@ -62,18 +65,9 @@ export interface ChangedFileSelection {
 const RAIL_MIN_WIDTH = 160;
 const RAIL_MAX_WIDTH = 480;
 
-interface PendingDiscard {
-  readonly workspaceRoot: string;
-  readonly section: StatusSection;
-  readonly path: string;
-  readonly untracked: boolean;
-}
-
 /** Keyboard focus ring shared by every control here (repository pattern). */
 const FOCUS_RING =
   'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[oklch(var(--s))]';
-
-const ICON_BUTTON = `btn btn-ghost btn-xs p-0.5 h-auto min-h-0 ${FOCUS_RING}`;
 
 function selectionOf(file: TreeFile): ChangedFileSelection {
   return {
@@ -89,7 +83,9 @@ function selectionOf(file: TreeFile): ChangedFileSelection {
  *
  * - Working tree and Staged comparisons list the git status in two sections,
  *   Staged and Changes, with stage / unstage and a confirmed discard per row
- *   and stage-all / unstage-all per section. Every result is awaited and
+ *   and stage-all / unstage-all per section, plus a confirmed discard-all on
+ *   Changes (staged changes untouched) — none of them in the read-only
+ *   worktree scope ({@link readOnly}). Every result is awaited and
  *   checked, a failure shows on its row or section, and the status is re-read
  *   after every mutation (RC1, {@link TreeMutationTracker}).
  * - Branch and historical comparisons list the review's files read-only;
@@ -121,6 +117,7 @@ function selectionOf(file: TreeFile): ChangedFileSelection {
     RailResizeHandleComponent,
     GitConfirmDialogComponent,
     ChangedFileRowActionsComponent,
+    ChangedFileSectionActionsComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: {
@@ -189,33 +186,17 @@ function selectionOf(file: TreeFile): ChangedFileSelection {
                           class="min-w-0 flex-1 truncate font-semibold uppercase tracking-wider text-[10px]"
                           >{{ row.label }} ({{ row.count }})</span
                         >
-                        @if (row.count > 0) {
-                          <span class="flex shrink-0" data-row-action>
-                            <button
-                              type="button"
-                              [class]="iconButton"
-                              [title]="bulk[row.section].title"
-                              [attr.aria-label]="bulk[row.section].label"
-                              [attr.data-testid]="bulk[row.section].testId"
-                              [tabIndex]="actionTabIndex(row)"
-                              [disabled]="!canRunBulk()"
-                              [attr.aria-busy]="
-                                mutations.isPending(sectionKey(row.section)) ||
-                                null
-                              "
-                              (click)="onBulk(row.section)"
-                            >
-                              <lucide-angular
-                                [img]="
-                                  row.section === 'staged'
-                                    ? MinusIcon
-                                    : PlusIcon
-                                "
-                                class="h-3.5 w-3.5"
-                                aria-hidden="true"
-                              />
-                            </button>
-                          </span>
+                        @if (row.count > 0 && !readOnly()) {
+                          <ptah-changed-file-section-actions
+                            [section]="row.section"
+                            [controlTabIndex]="actionTabIndex(row)"
+                            [canRun]="canRunBulk()"
+                            [busy]="
+                              mutations.isPending(sectionKey(row.section))
+                            "
+                            (bulkAction)="onBulk(row.section)"
+                            (discardAll)="onDiscardAll($event)"
+                          />
                         }
                       }
                       @case ('folder') {
@@ -276,6 +257,7 @@ function selectionOf(file: TreeFile): ChangedFileSelection {
                           [name]="row.name"
                           [controlTabIndex]="actionTabIndex(row)"
                           [canRun]="canRunRow(row)"
+                          [mutable]="!readOnly()"
                           [showViewed]="comparison() === 'branch'"
                           [viewed]="review.isViewed(row.file.path)"
                           [showOpenIn]="
@@ -349,9 +331,9 @@ function selectionOf(file: TreeFile): ChangedFileSelection {
     }
 
     <ptah-git-confirm-dialog
-      [title]="discardTitle()"
-      [description]="discardDescription()"
-      [confirmLabel]="discardConfirmLabel()"
+      [title]="discardCopy().title"
+      [description]="discardCopy().description"
+      [confirmLabel]="discardCopy().confirmLabel"
       tone="danger"
       (confirmed)="confirmDiscard()"
       (cancelled)="pendingDiscard.set(null)"
@@ -379,6 +361,11 @@ export class ChangedFileTreeComponent {
   readonly stacked = input(false);
   readonly editorTargets = input<readonly EditorTarget[]>([]);
   readonly workspaceRoot = input('');
+  /**
+   * The read-only worktree scope: the status rows list without stage,
+   * unstage, discard or their bulk forms, and no mutation runs.
+   */
+  readonly readOnly = input(false);
 
   /** A file row was activated: scroll the continuous diff to it. */
   readonly fileSelected = output<ChangedFileSelection>();
@@ -388,14 +375,10 @@ export class ChangedFileTreeComponent {
 
   protected readonly ChevronDownIcon = ChevronDown;
   protected readonly ChevronRightIcon = ChevronRight;
-  protected readonly PlusIcon = Plus;
-  protected readonly MinusIcon = Minus;
   protected readonly FolderIcon = Folder;
   protected readonly ErrorIcon = CircleAlert;
   protected readonly DismissIcon = X;
   protected readonly focusRing = FOCUS_RING;
-  protected readonly iconButton = ICON_BUTTON;
-  protected readonly bulk = SECTION_BULK_ACTION;
   protected readonly railMin = RAIL_MIN_WIDTH;
   protected readonly railMax = RAIL_MAX_WIDTH;
 
@@ -484,25 +467,12 @@ export class ChangedFileTreeComponent {
 
   /** A stage-all / unstage-all may start: nothing else runs in this workspace. */
   protected readonly canRunBulk = computed(
-    () => !this.mutations.anyPending(this.workspacePrefix()),
+    () =>
+      !this.readOnly() && !this.mutations.anyPending(this.workspacePrefix()),
   );
 
-  protected readonly discardTitle = computed(() =>
-    this.pendingDiscard()?.untracked
-      ? 'Delete this untracked file?'
-      : 'Discard these changes?',
-  );
-
-  protected readonly discardDescription = computed(() => {
-    const pending = this.pendingDiscard();
-    if (!pending) return '';
-    return pending.untracked
-      ? `${pending.path} is not tracked by git. Deleting it cannot be undone.`
-      : `Your changes to ${pending.path} will be lost. This cannot be undone.`;
-  });
-
-  protected readonly discardConfirmLabel = computed(() =>
-    this.pendingDiscard()?.untracked ? 'Delete file' : 'Discard changes',
+  protected readonly discardCopy = computed(() =>
+    discardConfirmCopy(this.pendingDiscard()),
   );
 
   // ---------------------------------------------------------------------------
@@ -746,6 +716,7 @@ export class ChangedFileTreeComponent {
   /** No call in flight for the key, and no bulk action over its workspace. */
   private canRunKey(key: string): boolean {
     return (
+      !this.readOnly() &&
       !this.mutations.isPending(key) &&
       !this.mutations.isPending(this.sectionKey('staged')) &&
       !this.mutations.isPending(this.sectionKey('unstaged'))
@@ -795,6 +766,7 @@ export class ChangedFileTreeComponent {
       return;
     }
     this.pendingDiscard.set({
+      kind: 'file',
       workspaceRoot: this.workspaceRoot(),
       section: row.file.staged ? 'staged' : 'unstaged',
       path: row.file.path,
@@ -803,15 +775,30 @@ export class ChangedFileTreeComponent {
     this.dialog().open(invoker);
   }
 
+  /** Discard all (Changes header) asks first too ({@link pendingDiscardAll}). */
+  protected onDiscardAll(invoker: HTMLElement): void {
+    const pending = pendingDiscardAll(this.workspaceRoot(), this.statusFiles());
+    if (!this.statusMode() || !this.canRunBulk() || !pending) return;
+    this.pendingDiscard.set(pending);
+    this.dialog().open(invoker);
+  }
+
   /**
    * Discard what the dialog was opened for — unless the workspace changed
-   * underneath it, in which case the path names a different repository.
+   * underneath it (the paths name a different repository). Discard all runs
+   * under the Changes section's key: its failure shows there, rows wait.
    */
   protected confirmDiscard(): Promise<void> {
     const pending = this.pendingDiscard();
     this.pendingDiscard.set(null);
     if (!pending || pending.workspaceRoot !== this.workspaceRoot()) {
       return Promise.resolve();
+    }
+    if (pending.kind === 'all') {
+      if (!this.canRunBulk()) return Promise.resolve();
+      return this.mutations.run(this.sectionKey('unstaged'), () =>
+        this.sourceControl.discardAll(pending.paths),
+      );
     }
     const key = this.rowKey(pending.section, pending.path);
     if (!this.canRunKey(key)) return Promise.resolve();

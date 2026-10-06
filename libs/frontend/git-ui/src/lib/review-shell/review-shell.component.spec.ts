@@ -19,7 +19,7 @@ import {
 } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
-import { VSCodeService } from '@ptah-extension/core';
+import { ElectronLayoutService, VSCodeService } from '@ptah-extension/core';
 import { MESSAGE_TYPES } from '@ptah-extension/shared';
 import type {
   EditorTarget,
@@ -32,6 +32,10 @@ import { GitBranchesService } from '../services/git-branches.service';
 import { GitStashService } from '../services/git-stash.service';
 import { GitStatusService } from '../services/git-status.service';
 import { ReviewNavigationService } from '../services/review-navigation.service';
+import {
+  ReviewWorktreeStatusService,
+  type ReviewWorktreeStatus,
+} from '../services/review-worktree-status.service';
 import type { FileViewOpenRequest } from '../types/file-view.types';
 import type { ReviewShellComponent as ShellType } from './review-shell.component';
 
@@ -67,6 +71,7 @@ class MockReviewCanvas {
 class MockSpotEditor {
   readonly request = input.required<FileViewOpenRequest>();
   readonly startEditable = input(false);
+  readonly readOnly = input(false);
   readonly editorTargets = input<readonly EditorTarget[]>([]);
   readonly backToReview = output<void>();
   readonly openExternal = output<OpenInRequest>();
@@ -173,6 +178,15 @@ function makeGitStatus() {
     staleReason: signal<GitStatusUnavailableReason | null>(null),
     changedFileCount: signal(3),
     stagedCount: signal(2),
+    branchName: signal('main'),
+  };
+}
+
+function makeWorktreeStatus() {
+  return {
+    status: signal<ReviewWorktreeStatus | null>(null),
+    load: jest.fn(async () => undefined),
+    clear: jest.fn(),
   };
 }
 
@@ -193,8 +207,12 @@ describe('ReviewShellComponent', () => {
     openLinkedFile: jest.Mock;
   };
   let navigation: ReviewNavigationService;
+  let worktreeStatus: ReturnType<typeof makeWorktreeStatus>;
+  let layout: { addFolderByPath: jest.Mock };
 
   beforeEach(() => {
+    worktreeStatus = makeWorktreeStatus();
+    layout = { addFolderByPath: jest.fn(async () => undefined) };
     FakeResizeObserver.instances = [];
     (globalThis as { ResizeObserver?: unknown }).ResizeObserver =
       FakeResizeObserver;
@@ -219,6 +237,8 @@ describe('ReviewShellComponent', () => {
         { provide: GitBranchesService, useValue: gitBranches },
         { provide: EditorLauncherService, useValue: launchers },
         { provide: GitStashService, useValue: {} },
+        { provide: ReviewWorktreeStatusService, useValue: worktreeStatus },
+        { provide: ElectronLayoutService, useValue: layout },
       ],
     });
     navigation = TestBed.inject(ReviewNavigationService);
@@ -270,6 +290,104 @@ describe('ReviewShellComponent', () => {
   ): HTMLElement | null {
     return (fixture.nativeElement as HTMLElement).querySelector(selector);
   }
+
+  // -- Read-only worktree scope ---------------------------------------------
+
+  describe('read-only worktree scope', () => {
+    const ROOT = '/ws/.claude-worktrees/feature';
+
+    it('a change set of the active workspace shows no bar and reads no worktree', async () => {
+      const fixture = await render();
+      navigation.openChangeSet({ workspaceRoot: '/ws/a', files: [] });
+      await settle(fixture);
+
+      expect(query(fixture, '[data-testid="worktree-scope-bar"]')).toBeNull();
+      expect(worktreeStatus.load).not.toHaveBeenCalled();
+    });
+
+    it("a change set of another worktree shows the bar and reads that worktree's status", async () => {
+      const fixture = await render();
+      navigation.openChangeSet({ workspaceRoot: ROOT, files: [] });
+      await settle(fixture);
+
+      expect(worktreeStatus.load).toHaveBeenCalledWith(ROOT);
+      // The folder name stands in until the branch is read.
+      expect(text(fixture)).toContain('Viewing feature worktree (read-only)');
+
+      worktreeStatus.status.set({
+        root: ROOT,
+        loading: false,
+        branch: 'agent/task-7',
+        files: [],
+        error: null,
+      });
+      await settle(fixture);
+      expect(text(fixture)).toContain(
+        'Viewing agent/task-7 worktree (read-only)',
+      );
+      expect(text(fixture)).toContain('Back to main');
+      expect(gitStatus.activeWorkspacePath()).toBe('/ws/a');
+    });
+
+    it('a repeated Review re-reads the worktree; a tab switch does not', async () => {
+      const fixture = await render();
+      navigation.openChangeSet({ workspaceRoot: ROOT, files: [] });
+      await settle(fixture);
+      navigation.selectTab('history');
+      navigation.selectTab('changes');
+      await settle(fixture);
+      expect(worktreeStatus.load).toHaveBeenCalledTimes(1);
+
+      navigation.openChangeSet({ workspaceRoot: ROOT, files: [] });
+      await settle(fixture);
+      expect(worktreeStatus.load).toHaveBeenCalledTimes(2);
+    });
+
+    it('Back returns to the active working tree and drops the read', async () => {
+      const fixture = await render();
+      navigation.openChangeSet({ workspaceRoot: ROOT, files: [] });
+      await settle(fixture);
+
+      query(fixture, '[data-testid="worktree-scope-back"]')?.click();
+      await settle(fixture);
+
+      expect(navigation.current().scope).toEqual({ kind: 'worktree' });
+      expect(query(fixture, '[data-testid="worktree-scope-bar"]')).toBeNull();
+      expect(worktreeStatus.clear).toHaveBeenCalled();
+    });
+
+    it('Open as workspace adds the worktree as a folder', async () => {
+      const fixture = await render();
+      navigation.openChangeSet({ workspaceRoot: ROOT, files: [] });
+      await settle(fixture);
+
+      query(fixture, '[data-testid="worktree-scope-open"]')?.click();
+
+      expect(layout.addFolderByPath).toHaveBeenCalledWith(ROOT);
+    });
+
+    it("keeps the spot editor read-only for a worktree's file, under the bar", async () => {
+      const fixture = await render();
+      navigation.openFile('src/a.ts', undefined, { workspaceRoot: ROOT });
+      await settle(fixture);
+
+      expect(spotEditor(fixture)?.readOnly()).toBe(true);
+      expect(
+        query(fixture, '[data-testid="worktree-scope-bar"]'),
+      ).not.toBeNull();
+
+      navigation.openFile('src/a.ts', undefined, { workspaceRoot: '/ws/a' });
+      await settle(fixture);
+      expect(spotEditor(fixture)?.readOnly()).toBe(false);
+    });
+
+    it('drops the read when destroyed', async () => {
+      const fixture = await render();
+      worktreeStatus.clear.mockClear();
+      fixture.destroy();
+      expect(worktreeStatus.clear).toHaveBeenCalled();
+    });
+  });
 
   // -- Arming (ported from git-dock.component.spec.ts) ----------------------
 

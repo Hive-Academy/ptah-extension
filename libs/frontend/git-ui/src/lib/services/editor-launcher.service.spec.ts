@@ -1,6 +1,9 @@
 import { TestBed } from '@angular/core/testing';
 import { VSCodeService } from '@ptah-extension/core';
-import { EditorLauncherService } from './editor-launcher.service';
+import {
+  EditorLauncherService,
+  STATUS_AUTO_CLEAR_MS,
+} from './editor-launcher.service';
 const rpc = jest.fn();
 jest.mock('@ptah-extension/core', () => ({
   ...jest.requireActual('@ptah-extension/core'),
@@ -49,6 +52,87 @@ describe('EditorLauncherService', () => {
       scope: 'external-link',
     });
     expect(service.launchStatus()?.kind).toBe('success');
+  });
+
+  describe('status line lifetime and copy', () => {
+    afterEach(() => jest.useRealTimers());
+
+    async function detected(): Promise<EditorLauncherService> {
+      rpc.mockResolvedValueOnce({
+        success: true,
+        data: { targets: [{ id: 'vscode', displayName: 'VS Code' }] },
+      });
+      const service = TestBed.inject(EditorLauncherService);
+      await service.detect();
+      return service;
+    }
+
+    it('names the folder and the editor by its display name', async () => {
+      const service = await detected();
+      rpc.mockResolvedValue({ success: true, data: { success: true } });
+
+      await service.openWorkspace('vscode', 'D:\\projects\\ptah-extension\\');
+
+      expect(service.launchStatus()).toEqual({
+        kind: 'success',
+        message: 'Opened ptah-extension in VS Code.',
+      });
+    });
+
+    it('falls back to the target id before detection lands', async () => {
+      rpc.mockResolvedValue({ success: true, data: { success: true } });
+      const service = TestBed.inject(EditorLauncherService);
+
+      await service.openWorkspace('zed', '/home/me/repo');
+
+      expect(service.launchStatus()?.message).toBe('Opened repo in zed.');
+    });
+
+    it('clears a success after STATUS_AUTO_CLEAR_MS', async () => {
+      const service = await detected();
+      jest.useFakeTimers();
+      rpc.mockResolvedValue({ success: true, data: { success: true } });
+
+      await service.openWorkspace('vscode', '/ws/a');
+      jest.advanceTimersByTime(STATUS_AUTO_CLEAR_MS - 1);
+      expect(service.launchStatus()?.kind).toBe('success');
+      jest.advanceTimersByTime(1);
+      expect(service.launchStatus()).toBeNull();
+    });
+
+    it('keeps an error, and a newer error cancels a pending success clear', async () => {
+      const service = await detected();
+      jest.useFakeTimers();
+      rpc.mockResolvedValueOnce({ success: true, data: { success: true } });
+      await service.openWorkspace('vscode', '/ws/a');
+      rpc.mockResolvedValueOnce({
+        success: true,
+        data: { success: false, error: 'boom' },
+      });
+      await service.openFile('vscode', '/ws/a', 'a.ts');
+
+      jest.advanceTimersByTime(STATUS_AUTO_CLEAR_MS * 3);
+      expect(service.launchStatus()).toEqual({
+        kind: 'error',
+        message: 'boom',
+      });
+
+      service.clearStatus();
+      expect(service.launchStatus()).toBeNull();
+    });
+
+    it('restarts the clear for a newer success', async () => {
+      const service = await detected();
+      jest.useFakeTimers();
+      rpc.mockResolvedValue({ success: true, data: { success: true } });
+      await service.openWorkspace('vscode', '/ws/a');
+      jest.advanceTimersByTime(STATUS_AUTO_CLEAR_MS - 1000);
+      await service.openFile('vscode', '/ws/a', 'b.ts');
+      jest.advanceTimersByTime(STATUS_AUTO_CLEAR_MS - 1);
+      expect(service.launchStatus()?.message).toBe('Opened b.ts in VS Code.');
+      jest.advanceTimersByTime(1);
+      expect(service.launchStatus()).toBeNull();
+    });
   });
 
   describe('openMerge (TASK_2026_576 Batch 54)', () => {

@@ -187,12 +187,12 @@ export interface AgentListCliModelsResult {
 /**
  * Reasoning-effort values `agent:setConfig` accepts for Codex / Copilot
  * (`mapEffortToCli` allowlist in `lane-spawn-policy.ts`). `''` = CLI default.
- * `'inherit'` = use the chat session's effort for the lane.
+ * `'inherit'` = use the chat session's effort for the lane. No `'minimal'`:
+ * newer OpenAI models reject it (their floor is `'none'`).
  */
 export const CLI_REASONING_EFFORT_VALUES = [
   '',
   'inherit',
-  'minimal',
   'low',
   'medium',
   'high',

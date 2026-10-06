@@ -96,8 +96,11 @@ let instanceCount = 0;
       aria-label="Task"
       data-testid="task-worktree-view"
     >
-      <!-- Branch -->
-      <div class="flex flex-col gap-1" data-testid="task-branch-panel">
+      <!-- Branch (a card, like the add-worktree form) -->
+      <div
+        class="flex flex-col gap-1 rounded border border-base-content/10 bg-base-200 p-2.5"
+        data-testid="task-branch-panel"
+      >
         <div class="flex items-center justify-between gap-2">
           <h3 class="m-0 text-xs font-semibold">Branch</h3>
           <button
@@ -188,7 +191,7 @@ let instanceCount = 0;
       </div>
 
       <ptah-task-pr-panel
-        class="border-t border-base-content/10 pt-2"
+        class="rounded border border-base-content/10 bg-base-200 p-2.5"
         data-testid="task-pr-panel"
         [result]="prResult()"
       />

@@ -115,7 +115,7 @@ next — at most 5 checks per lane, never a loop. Use it and `ptah_agent_read({ 
 - no signal arrived — the signal is refused when the spawning session is no longer live, when the
   lane was spawned with no parent session, or when this host registered no chat runtime;
 - the lane's adapter reports nothing useful, so the output is the only account of what it did
-  (`opencode` has no messaging support at all);
+  (`opencode` takes a message only as a queued next turn, never mid-turn);
 - the verdict is anything other than `delivered` — the signal says WHETHER a file was written, and
   the output says how far the lane got.
 

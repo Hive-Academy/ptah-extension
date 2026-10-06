@@ -7,13 +7,15 @@ import {
 import { NgOptimizedImage } from '@angular/common';
 import { LucideAngularModule, Plus } from 'lucide-angular';
 import { VSCodeService } from '@ptah-extension/core';
+import { ProjectSetupCardComponent } from '@ptah-extension/chat';
 
 /**
  * CanvasEmptyStateComponent - Centered empty state for the Orchestra Canvas.
  *
  * Shown when the canvas has no tiles. Displays a Ptah icon, heading,
- * description, and a prominent "New Session" CTA button. Emits
- * `createSession` when the user clicks the button.
+ * description, a prominent "New Session" CTA button, and the skills warning +
+ * Intelligent Project Setup card. Emits `createSession` when the user clicks
+ * the button.
  *
  * Complexity Level: 1 (Simple - no state, single responsibility)
  * Patterns: Standalone, OnPush, Lucide icons, signal output
@@ -21,33 +23,39 @@ import { VSCodeService } from '@ptah-extension/core';
 @Component({
   selector: 'ptah-canvas-empty-state',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [LucideAngularModule, NgOptimizedImage],
+  imports: [LucideAngularModule, NgOptimizedImage, ProjectSetupCardComponent],
   template: `
     <div
-      class="flex flex-col items-center justify-center h-full p-8 text-center"
+      class="flex flex-col items-center h-full p-8 text-center overflow-y-auto"
     >
-      <img
-        [ngSrc]="ptahIconUri"
-        alt="Ptah"
-        class="w-16 h-16 mb-4 opacity-60"
-        width="64"
-        height="64"
-      />
-      <h2 class="text-lg font-semibold text-base-content-muted mb-2">
-        Orchestra Canvas
-      </h2>
-      <p class="text-sm text-base-content-muted mb-6 max-w-sm">
-        Open multiple AI sessions side by side. Each tile runs independently
-        with its own context.
-      </p>
-      <button
-        class="btn btn-primary gap-2"
-        aria-label="Create new session"
-        (click)="createSession.emit()"
+      <div
+        class="flex flex-col items-center w-full max-w-md lg:max-w-lg my-auto"
       >
-        <lucide-angular [img]="PlusIcon" class="w-4 h-4" />
-        New Session
-      </button>
+        <img
+          [ngSrc]="ptahIconUri"
+          alt="Ptah"
+          class="w-16 h-16 mb-4 opacity-60"
+          width="64"
+          height="64"
+        />
+        <h2 class="text-lg font-semibold text-base-content-muted mb-2">
+          Orchestra Canvas
+        </h2>
+        <p class="text-sm text-base-content-muted mb-6 max-w-sm">
+          Open multiple AI sessions side by side. Each tile runs independently
+          with its own context.
+        </p>
+        <button
+          class="btn btn-primary gap-2"
+          aria-label="Create new session"
+          (click)="createSession.emit()"
+        >
+          <lucide-angular [img]="PlusIcon" class="w-4 h-4" />
+          New Session
+        </button>
+
+        <ptah-project-setup-card class="w-full mt-8" />
+      </div>
     </div>
   `,
   styles: [

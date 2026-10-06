@@ -405,7 +405,7 @@ describe('CliModelEffortPopoverComponent', () => {
         'Reasoning effort for Codex',
       );
       expect(effortButtons().map((button) => button.dataset['effort'])).toEqual(
-        ['default', 'inherit', 'minimal', 'low', 'medium', 'high', 'xhigh'],
+        ['default', 'inherit', 'low', 'medium', 'high', 'xhigh'],
       );
       expect(
         effortButtons()

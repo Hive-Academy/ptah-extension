@@ -217,6 +217,91 @@ describe('GitInfoService paths (real git)', () => {
     expect(git(repo, 'status', '--porcelain')).toBe('');
   });
 
+  it('discard all (worktreeOnly) keeps a staged rename and drops only its worktree edit', async () => {
+    const repo = makeRepo();
+    fs.writeFileSync(path.join(repo, 'old name.txt'), 'hello\nworld\n');
+    git(repo, 'add', '--', 'old name.txt');
+    git(repo, 'commit', '-qm', 'init');
+    git(repo, 'mv', 'old name.txt', 'new café.txt');
+    fs.appendFileSync(path.join(repo, 'new café.txt'), 'extra\n');
+    fs.writeFileSync(path.join(repo, 'scratch.txt'), 'tmp\n');
+
+    await expect(
+      service.discardChanges(repo, ['new café.txt', 'scratch.txt'], {
+        worktreeOnly: true,
+      }),
+    ).resolves.toEqual({ success: true });
+
+    expect(fs.readFileSync(path.join(repo, 'new café.txt'), 'utf8')).toBe(
+      'hello\nworld\n',
+    );
+    expect(fs.existsSync(path.join(repo, 'old name.txt'))).toBe(false);
+    expect(fs.existsSync(path.join(repo, 'scratch.txt'))).toBe(false);
+    // The rename is still staged, with nothing left unstaged.
+    const files = (await service.getGitInfo(repo)).files;
+    expect(files).toEqual([
+      expect.objectContaining({
+        path: 'new café.txt',
+        status: 'R',
+        staged: true,
+        origPath: 'old name.txt',
+      }),
+    ]);
+  });
+
+  it('discard all (worktreeOnly) skips a conflicted path and still discards the rest', async () => {
+    const repo = makeRepo();
+    fs.writeFileSync(path.join(repo, 'c.txt'), 'base\n');
+    fs.writeFileSync(path.join(repo, 'e.txt'), 'base\n');
+    git(repo, 'add', '.');
+    git(repo, 'commit', '-qm', 'init');
+    git(repo, 'checkout', '-qb', 'side');
+    fs.writeFileSync(path.join(repo, 'c.txt'), 'side\n');
+    git(repo, 'commit', '-qam', 'side');
+    git(repo, 'checkout', '-q', 'main');
+    fs.writeFileSync(path.join(repo, 'c.txt'), 'main\n');
+    git(repo, 'commit', '-qam', 'main');
+    try {
+      git(repo, 'merge', '-q', 'side');
+    } catch {
+      // expected: the merge stops on the conflict
+    }
+    fs.writeFileSync(path.join(repo, 'e.txt'), 'edited\n');
+    const conflicted = fs.readFileSync(path.join(repo, 'c.txt'), 'utf8');
+
+    await expect(
+      service.discardChanges(repo, ['c.txt', 'e.txt'], { worktreeOnly: true }),
+    ).resolves.toEqual({ success: true });
+
+    expect(fs.readFileSync(path.join(repo, 'e.txt'), 'utf8')).toBe('base\n');
+    expect(fs.readFileSync(path.join(repo, 'c.txt'), 'utf8')).toBe(conflicted);
+  });
+
+  it('refuses a worktree read through a link that escapes the repository', async () => {
+    const repo = makeRepo();
+    fs.writeFileSync(path.join(repo, 'keep.txt'), 'k\n');
+    git(repo, 'add', 'keep.txt');
+    git(repo, 'commit', '-qm', 'init');
+    const outside = fs.realpathSync(
+      fs.mkdtempSync(path.join(os.tmpdir(), 'ptah-outside-')),
+    );
+    createdRepos.push(outside);
+    fs.writeFileSync(path.join(outside, 'secret.txt'), 'secret\n');
+    // A junction needs no privilege on Windows; elsewhere it is a symlink.
+    fs.symlinkSync(outside, path.join(repo, 'link'), 'junction');
+
+    const diff = await service.diffFile(
+      repo,
+      { path: 'link/secret.txt', comparison: 'worktree' },
+      fileReader,
+    );
+
+    expect(diff.modified).toEqual(
+      expect.objectContaining({ outcome: 'error', code: 'permission-denied' }),
+    );
+    expect(JSON.stringify(diff)).not.toContain('secret\\n');
+  });
+
   it('fails a staged-rename discard, touching nothing, when the rename lookup read fails', async () => {
     const repo = makeRepo();
     fs.writeFileSync(path.join(repo, 'old.txt'), 'hello\n');

@@ -211,6 +211,29 @@ export class SourceControlService {
   }
 
   /**
+   * Discard every listed unstaged change: tracked edits are restored from
+   * the index and untracked files are deleted. Sent `worktreeOnly`, so the
+   * backend never touches the index — a staged rename (or any staged change)
+   * survives, and conflicted paths are skipped.
+   * WARNING: This is a destructive operation that cannot be undone.
+   * @param paths - Relative paths from workspace root (non-empty)
+   */
+  async discardAll(
+    paths: readonly string[],
+  ): Promise<RpcCallResult<GitDiscardResult>> {
+    return rpcCall<GitDiscardResult>(
+      this.vscodeService,
+      'git:discard',
+      {
+        paths: [...paths],
+        worktreeOnly: true,
+        ...this.scopeParams(),
+      },
+      MUTATION_RPC_TIMEOUT_MS,
+    );
+  }
+
+  /**
    * Create a commit with the given message.
    * @param message - Commit message
    * @param operationId - Optional id; the hook output then streams as

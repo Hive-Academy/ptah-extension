@@ -47,6 +47,7 @@ import {
   createMockRpcHandler,
   type MockRpcHandler,
 } from '@ptah-extension/vscode-core/testing';
+import { FileType } from '@ptah-extension/platform-core';
 import type {
   IWorkspaceProvider,
   IFileSystemProvider,
@@ -72,6 +73,7 @@ type MockGitInfo = jest.Mocked<
     GitInfoService,
     | 'getGitInfo'
     | 'stageFiles'
+    | 'discardChanges'
     | 'commit'
     | 'reviewChanges'
     | 'reviewFile'
@@ -91,6 +93,7 @@ type MockGitInfo = jest.Mocked<
     | 'diffFile'
     | 'applyHunks'
     | 'getWorktrees'
+    | 'getCommonDir'
     | 'addWorktree'
     | 'removeWorktree'
   >
@@ -166,10 +169,12 @@ function createMockGitInfo(): MockGitInfo {
       .fn()
       .mockResolvedValue({ success: true, snapshotToken: 'token-2' }),
     getWorktrees: jest.fn().mockResolvedValue([]),
+    getCommonDir: jest.fn().mockResolvedValue('/workspace/.git'),
     addWorktree: jest
       .fn()
       .mockResolvedValue({ success: true, worktreePath: '/wt/feature' }),
     removeWorktree: jest.fn().mockResolvedValue({ success: true }),
+    discardChanges: jest.fn().mockResolvedValue({ success: true }),
   };
 }
 
@@ -388,6 +393,151 @@ describe('git:info handler', () => {
 
     expect(result.isGitRepo).toBe(false);
     expect(gitInfo.getGitInfo).not.toHaveBeenCalled();
+  });
+});
+
+// ===========================================================================
+// Read-only worktree roots (git:info, git:diffFile)
+// ===========================================================================
+
+describe('read-only worktree roots', () => {
+  const WORKTREE = '/workspace/.claude-worktrees/feature';
+
+  function suiteWithWorktree(): Suite {
+    const suite = buildSuite();
+    suite.gitInfo.getWorktrees.mockResolvedValue([
+      {
+        path: '/workspace',
+        branch: 'main',
+        head: 'a',
+        isMain: true,
+        isBare: false,
+      },
+      {
+        path: WORKTREE,
+        branch: 'feature',
+        head: 'b',
+        isMain: false,
+        isBare: false,
+      },
+    ]);
+    suite.fileSystem.stat.mockImplementation(async (dir: string) => {
+      if (dir !== WORKTREE) throw new Error(`ENOENT: ${dir}`);
+      return { type: FileType.Directory, ctime: 0, mtime: 0, size: 0 };
+    });
+    suite.handlers.register();
+    return suite;
+  }
+
+  it('git:info reads a registered worktree of an open folder, as git lists it', async () => {
+    const { rpc, gitInfo } = suiteWithWorktree();
+
+    await getHandler(rpc, 'git:info')({ workspaceRoot: `${WORKTREE}/` });
+
+    expect(gitInfo.getWorktrees).toHaveBeenCalledWith('/workspace');
+    expect(gitInfo.getGitInfo).toHaveBeenCalledWith(WORKTREE);
+  });
+
+  it('git:info refuses a path git does not list as a worktree', async () => {
+    const { rpc, gitInfo } = suiteWithWorktree();
+
+    const result = (await getHandler(rpc, 'git:info')({
+      workspaceRoot: '/workspace/.claude-worktrees/other',
+    })) as { isGitRepo: boolean };
+
+    expect(result.isGitRepo).toBe(false);
+    expect(gitInfo.getGitInfo).not.toHaveBeenCalled();
+  });
+
+  it('git:info refuses every root when the worktree list cannot be read', async () => {
+    const { handlers, rpc, gitInfo } = buildSuite();
+    gitInfo.getWorktrees.mockRejectedValue(new Error('git failed'));
+    handlers.register();
+
+    const result = (await getHandler(rpc, 'git:info')({
+      workspaceRoot: WORKTREE,
+    })) as { isGitRepo: boolean };
+
+    expect(result.isGitRepo).toBe(false);
+    expect(gitInfo.getGitInfo).not.toHaveBeenCalled();
+  });
+
+  it('git:info refuses a listed worktree whose common dir is another repository', async () => {
+    const { rpc, gitInfo } = suiteWithWorktree();
+    gitInfo.getCommonDir.mockImplementation(async (dir: string) =>
+      dir === WORKTREE ? '/elsewhere/.git' : '/workspace/.git',
+    );
+
+    const result = (await getHandler(rpc, 'git:info')({
+      workspaceRoot: WORKTREE,
+    })) as { isGitRepo: boolean };
+
+    expect(result.isGitRepo).toBe(false);
+    expect(gitInfo.getGitInfo).not.toHaveBeenCalled();
+  });
+
+  it('git:info refuses a listed worktree that git marks prunable', async () => {
+    const { rpc, gitInfo } = suiteWithWorktree();
+    gitInfo.getWorktrees.mockResolvedValue([
+      {
+        path: WORKTREE,
+        branch: 'feature',
+        head: 'b',
+        isMain: false,
+        isBare: false,
+        prunable: true,
+      },
+    ]);
+
+    await getHandler(rpc, 'git:info')({ workspaceRoot: WORKTREE });
+
+    expect(gitInfo.getGitInfo).not.toHaveBeenCalled();
+  });
+
+  it('git:info refuses a listed worktree whose directory is gone', async () => {
+    const { rpc, gitInfo, fileSystem } = suiteWithWorktree();
+    fileSystem.stat.mockRejectedValue(new Error('ENOENT'));
+
+    await getHandler(rpc, 'git:info')({ workspaceRoot: WORKTREE });
+
+    expect(gitInfo.getCommonDir).not.toHaveBeenCalled();
+    expect(gitInfo.getGitInfo).not.toHaveBeenCalled();
+  });
+
+  it('git:diffFile reads from a registered worktree', async () => {
+    const { rpc, gitInfo } = suiteWithWorktree();
+
+    await getHandler(rpc, 'git:diffFile')({
+      workspaceRoot: WORKTREE,
+      path: 'src/a.ts',
+      comparison: 'worktree',
+    });
+
+    expect(gitInfo.diffFile).toHaveBeenCalledWith(
+      WORKTREE,
+      expect.objectContaining({ path: 'src/a.ts', comparison: 'worktree' }),
+      expect.anything(),
+    );
+  });
+
+  it('a registered folder resolves without listing worktrees', async () => {
+    const { rpc, gitInfo } = suiteWithWorktree();
+
+    await getHandler(rpc, 'git:info')({ workspaceRoot: '/workspace' });
+
+    expect(gitInfo.getWorktrees).not.toHaveBeenCalled();
+    expect(gitInfo.getGitInfo).toHaveBeenCalledWith('/workspace');
+  });
+
+  it('mutating methods still refuse a worktree that is not an open folder', async () => {
+    const { rpc, gitInfo } = suiteWithWorktree();
+
+    await getHandler(rpc, 'git:stage')({
+      workspaceRoot: WORKTREE,
+      paths: ['src/a.ts'],
+    });
+
+    expect(gitInfo.stageFiles).not.toHaveBeenCalled();
   });
 });
 
@@ -776,6 +926,41 @@ describe('git:discard handler workspace scoping', () => {
 
     expect(result.success).toBe(false);
     expect(result.error).toBeDefined();
+  });
+
+  it('forwards worktreeOnly only when the caller asks for it', async () => {
+    const { handlers, rpc, gitInfo } = buildSuite();
+    handlers.register();
+    const handler = getHandler(rpc, 'git:discard');
+
+    await handler({ paths: ['a.txt'] });
+    await handler({ paths: ['a.txt', 'b.txt'], worktreeOnly: true });
+
+    expect(gitInfo.discardChanges).toHaveBeenNthCalledWith(
+      1,
+      '/workspace',
+      ['a.txt'],
+      { worktreeOnly: false },
+    );
+    expect(gitInfo.discardChanges).toHaveBeenNthCalledWith(
+      2,
+      '/workspace',
+      ['a.txt', 'b.txt'],
+      { worktreeOnly: true },
+    );
+  });
+
+  it('refuses a non-boolean worktreeOnly without discarding', async () => {
+    const { handlers, rpc, gitInfo } = buildSuite();
+    handlers.register();
+
+    const result = (await getHandler(
+      rpc,
+      'git:discard',
+    )({ paths: ['a.txt'], worktreeOnly: 'yes' })) as { success: boolean };
+
+    expect(result.success).toBe(false);
+    expect(gitInfo.discardChanges).not.toHaveBeenCalled();
   });
 });
 

@@ -3,45 +3,26 @@ import type { Director } from './director';
 
 export type ConfigSurfaceId = 'thoth' | 'setup-hub' | 'marketplace' | 'settings';
 
-const TRIGGER = '[data-test="config-menu-trigger"]';
+// Thoth, Marketplace and Settings are navbar icon buttons; Setup hub is a
+// navbar tab with a workspace open and an icon button on the welcome screen.
+// All keep the `config-menu-item-<id>` hook and are visible without opening
+// anything.
 const ITEMS = '[data-test^="config-menu-item-"]';
 const SILENT_TIMEOUT = 2_000;
 
-/** Enter a configuration surface with every required click recorded by the camera. */
+function itemFor(page: Page, id: ConfigSurfaceId) {
+  return page.locator(`[data-test="config-menu-item-${id}"]`);
+}
+
+/** Enter a configuration surface with the click recorded by the camera. */
 export async function openConfigSurface(
   page: Page,
   director: Director,
   id: ConfigSurfaceId,
 ): Promise<void> {
-  const item = page.locator(`[data-test="config-menu-item-${id}"]`);
-  if (!(await item.isVisible())) {
-    await director.click(page.locator(TRIGGER));
-    await item.waitFor({ state: 'visible' });
-  }
+  const item = itemFor(page, id);
+  await item.waitFor({ state: 'visible' });
   await director.click(item);
-}
-
-/** Raw, guarded menu opening; an already open menu is left open. */
-async function openMenuSilently(page: Page): Promise<boolean> {
-  try {
-    const item = page.locator(ITEMS).first();
-    if (await item.isVisible()) return true;
-    const trigger = page.locator(TRIGGER);
-    if (!(await trigger.isVisible())) return false;
-    await trigger.click({ timeout: SILENT_TIMEOUT });
-    await item.waitFor({ state: 'visible', timeout: SILENT_TIMEOUT });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/** Escape from a visible menu item so cleanup also works if focus moved. */
-async function closeMenuSilently(page: Page): Promise<void> {
-  const item = page.locator(ITEMS).first();
-  if (await item.isVisible().catch(() => false)) {
-    await item.press('Escape', { timeout: SILENT_TIMEOUT }).catch(() => undefined);
-  }
 }
 
 /** Navigate only: raw, visibility-guarded actions that never fail pre-warm. */
@@ -50,18 +31,12 @@ export async function openConfigSurfaceSilently(
   id: ConfigSurfaceId,
 ): Promise<boolean> {
   try {
-    const item = page.locator(`[data-test="config-menu-item-${id}"]`);
-    if (!(await item.isVisible())) {
-      if (!(await openMenuSilently(page))) return false;
-      await item.waitFor({ state: 'visible', timeout: SILENT_TIMEOUT });
-    }
+    const item = itemFor(page, id);
     if (!(await item.isVisible())) return false;
     await item.click({ timeout: SILENT_TIMEOUT });
     return true;
   } catch {
     return false;
-  } finally {
-    await closeMenuSilently(page);
   }
 }
 
@@ -74,7 +49,6 @@ export async function activeConfigSurface(
   page: Page,
 ): Promise<ConfigSurfaceId | null> {
   try {
-    if (!(await openMenuSilently(page))) return null;
     const item = page.locator(`${ITEMS}[aria-current="true"]`).first();
     if (!(await item.isVisible())) return null;
     const hook = await item.getAttribute('data-test', { timeout: SILENT_TIMEOUT });
@@ -92,7 +66,5 @@ export async function activeConfigSurface(
     }
   } catch {
     return null;
-  } finally {
-    await closeMenuSilently(page);
   }
 }

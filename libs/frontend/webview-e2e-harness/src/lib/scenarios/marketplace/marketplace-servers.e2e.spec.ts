@@ -204,7 +204,7 @@ test.describe('webview > marketplace > @container catalog grid', () => {
 });
 
 test.describe('webview > marketplace > D2 deep link from chat', () => {
-  test('"Open Marketplace Skills" in the chat empty state navigates to skills/ptah-plugins', async ({
+  test('"Open Marketplace Skills" on the canvas landing screen navigates to skills/ptah-plugins', async ({
     page,
     fixtureServer,
   }) => {
@@ -223,14 +223,8 @@ test.describe('webview > marketplace > D2 deep link from chat', () => {
     });
     await page.goto(fixtureServer.url);
 
-    // The empty state (`ChatEmptyStateComponent`) mounts inside a session
-    // TILE's transcript (`chat-transcript.component.html`), not on the
-    // Orchestra Canvas landing screen — open one the same way a user would.
-    // "Create new session" opens a small "New Session" name popup; confirm
-    // it with its own "Create" button (blank name is fine, it is optional).
-    await page.getByRole('button', { name: 'Create new session' }).click();
-    await page.getByRole('button', { name: 'Create', exact: true }).click();
-
+    // The warning (`ProjectSetupCardComponent`) mounts on the Orchestra Canvas
+    // landing screen (no tiles), not inside an empty session tile.
     const openSkills = page.getByRole('button', { name: 'Open Marketplace Skills' });
     await expect(openSkills).toBeVisible();
     await openSkills.click();
