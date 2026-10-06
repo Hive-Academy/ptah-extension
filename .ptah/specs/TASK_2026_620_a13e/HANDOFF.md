@@ -16,13 +16,13 @@ the resume point only.
 | Bench data (private, never commit) | `C:/Users/abdal/AppData/Local/ptah-mcp-bench/` — `snapshots/ptah-20261006-pre-retention.sqlite` (sha256 `82cd16ac…d575a`), `snapshots/skill-candidates-20261006/` + manifest (`73a184c5…45f3`), `labelling/skill-rubric-v1/raters/rater-r1|r2/`, `drafts/memory-ground-truth/` (B10 drafts) |
 | 619 peer session | `ptah-ptah-extension-compare-grep-and-our-7799a800005aw2q23htdi0b` (owns `tools/mcp-bench/src/scorecard/`, `transport/`, `corpus/`, `bench-data.ts`; message it before any schema change or any real bench run) |
 
-## Uncommitted at handoff (commit these first)
+## State at handoff
 
-- 620 worktree: this task folder (`.ptah/specs/TASK_2026_620_a13e/`, untracked) and the status edits
-  in `.ptah/specs/TASK_2026_{439_1310/context.md,471_b3d1,473_c9f4,563_2939,578_3b00,588_f4f8}/task.md`
-  → one commit `docs(task-specs): …` on the 620 branch.
-- 620 worktree: Batch 15 (`tools/mcp-bench/src/memory-skills/host/`, `tools/mcp-bench/project.json`)
-  — see "Batch 15" below; verify before committing.
+- 620 worktree is clean. Last commits: `179a5bbc6` B15 (bench host), `a3d12d49f` docs (this task
+  folder + the status edits to 439/471/473/563/578/588). Nothing is pushed.
+- **Tell the new 619 session** that `179a5bbc6` added the `build-host-memory-skills` target to
+  `tools/mcp-bench/project.json` (619 asked to be told the commit). `bench-memory-skills` is not added
+  yet (Batch 16).
 - 621 worktree: DONE — `.ptah/specs/TASK_2026_621_3d5c/` committed as `104a55d5d` (local; the
   branch is 1 commit ahead of `origin`). The user has NOT yet approved pushing it to PR #666; ask
   before pushing.
@@ -37,11 +37,11 @@ baselines), `111a97be8` B14, `1ad622066` B12, `9cce01784` B13, `fe0ad8fff` phase
 
 ## Next steps, in order
 
-1. **Batch 15 (bench host)** — was running at handoff (subagent `backend-developer-host`). Read
-   `batch-15-report.md`; verify specs, eslint, `nx run mcp-bench:typecheck`, prettier; check it never
-   edits `scorecard/` or `transport/`, seeds only in `beforeEngineBoot`, overrides doubles in
-   `afterContainerReady`, and adds at most the two allowed `project.json` targets (then tell the 619
-   session the commit). Commit.
+1. **Batch 15 is done** (`179a5bbc6`; 48/48 host specs, eslint/typecheck/prettier clean, no
+   619-owned file changed, smoke run through `launchBenchHost` exited clean with the process-watch
+   guard). Notes for Batch 16 from `batch-15-report.md`: poll `host-completion.json` (the launcher
+   stops reading host stdout after the ready line); `HOST_SUITES` is still empty; no fake-timer
+   library is a declared dependency.
 2. **Phase-1 re-review** (all phase-1 findings are fixed): cross-side again — lane-authored fixes
    (metrics/matcher/baselines `525db5bd5`, doubles `4c0db24f2`, generator `fe0ad8fff`) → a subagent
    reviewer; in-process fixes (data/labelling `22f6cd94b`, orchestrator corrections) → a CLI lane.
