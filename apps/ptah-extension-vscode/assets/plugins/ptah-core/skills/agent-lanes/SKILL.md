@@ -72,8 +72,14 @@ A lane shares none of your context and cannot ask the user anything. Every `task
    own throwaway worktree and says so. Never run git commands that discard working-tree changes
    (`restore`, `checkout -- <path>`, `stash`, `reset`, `clean`); a change the lane did not make
    belongs to another writer — report it, never revert it.
-8. **Blocked**: if it cannot proceed, write the blocking questions under `## Clarifications Needed`
-   in the deliverable and stop.
+8. **Decide, then ask the spawner**: settle open points from the code, the inputs, project docs and
+   web search, and list each under `## Decisions` in the deliverable (decision, options, evidence,
+   reversible). A point still open, or user-reserved (orchestration `checkpoints.md` § User-reserved
+   decisions), goes to you through `ptah_agent_report` with options and a recommendation; the lane
+   continues with the work that does not depend on it. If the report is not delivered, or nothing is
+   left to do without the answer, it writes the questions under `## Clarifications Needed` in the
+   deliverable and stops. You answer with `ptah_agent_message` (branch on `mode`, §7) after running
+   the decision ladder.
 9. **Preserve list**: when replacing, consolidating or deleting an existing surface, list what it
    can do today (or pass `parity-inventory.md` in `files`). Every item stays, moves, or is listed
    under `## Proposed Removals` for user approval — never removed silently.

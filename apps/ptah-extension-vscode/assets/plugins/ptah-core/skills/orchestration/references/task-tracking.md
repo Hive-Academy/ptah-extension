@@ -108,7 +108,8 @@ never track status in any other file.
   registry.md                      GENERATED — never hand-edit
   TASK_[ID]/
     task.md                        carrier (first)
-    context.md                     user intent, strategy, lane roster
+    context.md                     user intent, strategy, lane roster, approval mode
+    decisions.md                   orchestrator — audit log of every agent decision (checkpoints.md § Decision log)
     task-description.md            project-manager
     research-report.md             researcher-expert
     parity-inventory.md            project-manager (no PM: software-architect, inventory-only; see SKILL.md)

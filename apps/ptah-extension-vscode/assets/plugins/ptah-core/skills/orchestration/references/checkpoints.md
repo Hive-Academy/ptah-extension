@@ -4,10 +4,11 @@ This reference documents all user validation checkpoints in the orchestration wo
 
 > **Critical rules**:
 >
-> 1. All checkpoints are owned by the orchestrator (main agent). Subagents (PM, Architect, Team-Leader, Developers, Reviewers, etc.) CANNOT call `AskUserQuestion` — it is a UI-coupled tool that only works in the main orchestrator's context. If a subagent needs clarification, it MUST return a `## Clarifications Needed` section to the orchestrator, who then runs `AskUserQuestion` and re-invokes the subagent with the answers.
-> 2. **Document review checkpoints (1, 1.7, 2) use plain text messages, not `AskUserQuestion`.** PM, Designer and Architect deliverables are files on disk that the user must open and read before responding — a modal choice would force a premature decision. Pre-deliverable choice checkpoints (0, 0.1, 1.5, 3) still use `AskUserQuestion` because they ARE structured option-picks.
-> 3. If the `AskUserQuestion` tool is unavailable in this harness, ask the same question in plain text, listing the same options, and wait for the answer before proceeding. The checkpoint itself is never skipped — the presentation may degrade, the question may not.
-> 4. **Who approves Gates 1, 1.7 and 2 depends on the approval mode** ([§ Approval mode](#approval-mode)). With CLI lanes installed and enabled, the cross-side reviewer approves and you post a notice; the user is asked only when no lane is available, lanes are disabled, or an escalation applies.
+> 1. **Agents decide; the user gets only what is theirs.** Every open decision — yours, a subagent's or a lane's — runs the [decision ladder](#decision-ladder): evidence first, then a cross-side peer, then the user only for a [user-reserved decision](#user-reserved-decisions) or a split the first two steps cannot settle. Every decision the agents take goes in the [decision log](#decision-log) so the user can audit it.
+> 2. Only the orchestrator (main agent) talks to the user. `AskUserQuestion` is a UI-coupled tool that works only in your context. Subagents and lanes send open questions to you through messaging, or return `## Clarifications Needed` when no channel exists ([§ Agent questions](#agent-questions)).
+> 3. **Document review checkpoints (1, 1.7, 2) use plain text messages, not `AskUserQuestion`.** PM, Designer and Architect deliverables are files on disk that the user must open and read before responding — a modal choice would force a premature decision.
+> 4. When you do ask, use one `AskUserQuestion` call with every open user-reserved question bundled, the recommendation first. If the tool is unavailable in this harness, ask the same question in plain text, listing the same options, and wait for the answer.
+> 5. **Who approves Gates 1, 1.7 and 2 depends on the approval mode** ([§ Approval mode](#approval-mode)). With CLI lanes installed and enabled, the cross-side reviewer approves and you post a notice; the user is asked only when no lane is available, lanes are disabled, or an escalation applies.
 
 ---
 
@@ -15,16 +16,78 @@ This reference documents all user validation checkpoints in the orchestration wo
 
 | Checkpoint | Name                    | When              | Purpose                         | Presentation Mode | Response Expected                            |
 | ---------- | ----------------------- | ----------------- | ------------------------------- | ----------------- | -------------------------------------------- |
-| **0.1**    | CLI Agent Discovery     | Before any agent  | Discover & enable CLI helpers   | `AskUserQuestion` | yes / no / auto                              |
-| **0**      | Scope Clarification     | Before PM         | Clarify ambiguous requests      | `AskUserQuestion` | Answers or "use your judgment"               |
+| **0.1**    | CLI Lane Mode           | Before any agent  | Discover & enable CLI lanes     | **Notice**, no wait | User may reply "no lanes" or "gate me"     |
+| **0**      | Scope Clarification     | Before PM         | Settle ambiguous requests       | Decision ladder; `AskUserQuestion` only for user-reserved scope | Answers or "use your judgment" |
 | **1**      | Requirements Validation | After PM          | Review task-description.md      | **Plain message** | `lane-review`: notice, no wait · `user`: "APPROVED" or feedback |
-| **1.5**    | Technical Clarification | Before Architect  | Technical preferences           | `AskUserQuestion` | Answers or "use your judgment"               |
+| **1.5**    | Technical Clarification | Before Architect  | Settle technical choices        | Decision ladder; `AskUserQuestion` only for user-reserved choices | Answers or "use your judgment" |
 | **1.7**    | Design Validation       | After design + prototype, before Architect | Approve design and rendered states | **Plain message** | `lane-review`: notice, no wait · `user`: "APPROVED" or revisions |
 | **2**      | Architecture Validation | After Architect   | Review implementation-plan.md   | **Plain message** | `lane-review`: notice, no wait · `user`: "APPROVED" or feedback |
-| **3**      | QA Choice               | After Development | Select QA agents                | `AskUserQuestion` | tester/style/logic/visual/reviewers/all/skip |
-| **SR**     | Subagent Return Loop    | Any subagent step | Resolve subagent clarifications | `AskUserQuestion` | Answers re-injected into subagent prompt     |
+| **3**      | QA Selection            | After Development | Select QA agents                | **Notice** (rule-based), no wait | User may add agents                |
+| **SR**     | Agent Questions         | Any agent step    | Resolve agent questions         | Decision ladder; `AskUserQuestion` only for user-reserved | Answers sent back to the agent |
 
 **Why 1, 1.7 and 2 are plain messages**: they ask the user to review a generated document on disk. Forcing an `AskUserQuestion` modal pre-commits the user to "APPROVED" or "revise" before they've had a chance to actually open and read the file. Plain text gives them room to validate the doc first.
+
+---
+
+## Decision ladder
+
+Run it for every open decision before anyone asks the user. Stop at the first step that settles it.
+
+1. **Evidence.** Resolve the decision from what exists: the request, `context.md` and the task
+   folder, the code and its conventions, project docs (`CLAUDE.md`, `AGENTS.md`),
+   `ptah_memory_search` for earlier decisions, and `ptah_web_search` for external facts (library
+   versions, API behavior, standards). One defensible answer → decide.
+2. **Peer validation.** Two or more defensible options remain, or the choice is costly to undo →
+   write the proposed decision with its options and evidence, and send it to an independent reviewer
+   on the other execution side (routing per agent-lanes §6; lanes disabled → a fresh subagent).
+   Reviewer agrees → decide. Reviewer disagrees → one evidence exchange; still split → step 3.
+3. **User.** Ask only for a [user-reserved decision](#user-reserved-decisions), or a split that
+   steps 1 and 2 could not settle. Bundle every open question into one `AskUserQuestion` call.
+
+A decision that is settled and not user-reserved is never put to the user. State it and continue.
+
+### User-reserved decisions
+
+These go to the user in every approval mode, even when the evidence and the peer agree:
+
+- Product intent the request leaves open and that changes what is delivered: who it is for, what
+  "done" means, what is in or out of scope.
+- Removal of an existing capability, or a ban on an existing project component.
+- Irreversible or outward-facing actions: commit or merge to `main`, push, publish, release, deploy,
+  delete user data, run a migration on shared data, send a message outside the workspace.
+- Security, privacy, licensing or legal exposure; credentials and secrets.
+- Money: a paid service, a paid plan or a cost increase.
+- A breaking change to a public API, a stored-data format or user-visible behavior that the request
+  did not ask for.
+- An action that contradicts an explicit user instruction.
+- Bypass of a commit hook ([git-standards.md](git-standards.md#hook-failure-protocol)).
+
+### Decision log
+
+Record every decision taken at step 1 or 2 in `<taskFolder>/decisions.md`:
+
+```markdown
+| # | Decision | Options considered | Evidence (file:line, doc, URL) | Decided by | Validated by | Reversible |
+| - | -------- | ------------------ | ------------------------------ | ---------- | ------------ | ---------- |
+```
+
+Agents and lanes list their decisions under `## Decisions` in their deliverable; you copy them into
+the log. Each gate notice and the completion summary link the log and list the decisions taken since
+the last one, so the user can audit them. A user who overturns a decision makes a user-requested
+revision: revise, review again, and record the new row.
+
+### Agent questions
+
+Subagents and lanes never contact the user. At a decision point they run ladder step 1 themselves and
+record what they decide. A question that stays open, or a user-reserved one, goes to you:
+
+1. The agent sends it with options, evidence and a recommendation — `ptah_agent_report` from a CLI
+   lane, `SendMessage` from a Ptah session — and continues with the work that does not depend on it.
+2. You run ladder steps 2 and 3, then send the answer back — `ptah_agent_message` to a lane
+   (branch on its `mode`, agent-lanes §7), `SendMessage` to a session.
+3. No channel (`delivered: false`, `unsupported`, or a subagent without messaging), or nothing is
+   left to do without the answer → the agent stops before its artifact and returns
+   `## Clarifications Needed`. You run [Checkpoint SR](#checkpoint-sr-agent-questions).
 
 ---
 
@@ -56,6 +119,7 @@ User feedback that arrives after a lane-review approval is a user-requested revi
 📄 `<taskFolder>/<artifact>` · Written by [side + lane/agent] · Reviewed by [other side + lane/agent]
 Verdict: APPROVED after [0–2] revise rounds — 📄 `<taskFolder>/<artifact-stem>-review.md`
 Lane-introduced constraints the reviewer accepted: [list, or none]
+Agent decisions since the last gate: [count, one line each, or none] — 📄 `<taskFolder>/decisions.md`
 Continuing to [next phase]. Reply with feedback or "stop" at any time to revise.
 ```
 
@@ -87,68 +151,46 @@ Runs before Gates 1, 1.7 and 2, for initial artifacts and for every revision of 
 
 ---
 
-## Checkpoint 0.1: CLI Agent Discovery
+## Checkpoint 0.1: CLI Lane Mode
 
 ### When to Present
 
-At the very start of orchestration, before any sub-agent is invoked.
+At the very start of orchestration, before any sub-agent is invoked. This is a notice, not a
+question: announce the mode and continue without waiting.
 
 ### Trigger Conditions
 
-Run `ptah_agent_list` at orchestration start. Present the checkpoint if at least one lane is spawnable (how to read the rows: the [agent-lanes skill](../../agent-lanes/SKILL.md)). Tell the user that required document reviews run before Gates 1, 1.7 and 2 — one initial review per artifact, at most two author/reviewer revision pairs — and that with lanes on, an approving cross-side review passes those gates without waiting for them ([§ Approval mode](#approval-mode)). With lanes disabled, fresh subagents perform disclosed same-side reviews and the user approves each gate.
+Run `ptah_agent_list` at orchestration start (how to read the rows: the [agent-lanes skill](../../agent-lanes/SKILL.md)).
 
-### Skip Conditions
+| Situation                                               | Lane mode  | Approval      |
+| ------------------------------------------------------- | ---------- | ------------- |
+| At least one spawnable lane, no recorded preference     | `auto`     | `lane-review` |
+| A preference in project settings or `context.md`        | as recorded | as recorded  |
+| The request pins lanes ("use codex for …")              | `enabled`  | `lane-review` |
+| No spawnable lane                                       | `disabled` | `user`        |
 
-Skip this checkpoint if:
-
-- `ptah_agent_list` returns no available CLI agents — record `Approval: user`
-- User previously set CLI agent preference in project-level settings — derive the approval mode from it
-- Task is Minimal pattern (single developer or reviewer)
+Skip the notice for a Minimal task (single developer or reviewer) — record the mode silently.
 
 ### Template
 
 ```markdown
----
-CLI AGENT DISCOVERY - TASK_[ID]
----
-
-I discovered the following CLI agents available on your system:
-
-| CLI Agent | Status    |
-| --------- | --------- |
-| [agent]   | Available |
-| [agent]   | Available |
-
-These can take focused sub-tasks from sub-agents (codebase analysis, test scaffolding,
-file reviews), run parallel batches, or run whole phases you assign to them.
-
-**Sub-agents and I retain quality ownership** — lane output is verified before it is used.
-
-With lanes on, an independent reviewer on the other execution side approves the requirements,
-design and architecture, and I continue without waiting. I stop for you only on open review items,
-proposed removals, or questions. Say "gate me" to approve those documents yourself.
-
----
-
-## Would you like to use CLI lanes for this task?
-
-Options:
-
-1. **yes** — Sub-agents delegate focused sub-tasks; batches and phases may run on lanes
-2. **no** — Sub-agents work alone (standard mode); you approve every document gate
-3. **auto** — Lanes are used only where they clearly help
-
----
+**CLI lanes — TASK_[ID]**: [N] available ([lane names]). Mode `auto`: lanes take work where they
+clearly help and review across sides. Cross-side reviews approve requirements, design and
+architecture, and agents settle technical choices from evidence and peer review — every decision
+is logged in `decisions.md`. I stop for you only on decisions that are yours (scope intent,
+removals, irreversible or outward actions, security, cost) or open review items.
+Reply "no lanes" to work without lanes, or "gate me" to approve each document yourself.
 ```
 
 ### Response Handling
 
-| Response                 | Mode       | Approval      |
-| ------------------------ | ---------- | ------------- |
-| **yes**                  | `enabled`  | `lane-review` |
-| **no**                   | `disabled` | `user`        |
-| **auto**                 | `auto`     | `lane-review` |
-| any of the above + "gate me" | as chosen | `user`     |
+| Later reply      | Lane mode  | Approval |
+| ---------------- | ---------- | -------- |
+| "no lanes"       | `disabled` | `user`   |
+| "gate me"        | unchanged  | `user`   |
+| "use lanes more" | `enabled`  | unchanged |
+
+A change applies from the next phase on; work already approved stays approved.
 
 Record the mode, the approval mode and the discovered rows, and brief sub-agents accordingly: [lane-assignment.md § Gate 0.1 outcome](lane-assignment.md#gate-01-outcome).
 
@@ -156,11 +198,11 @@ Record the mode, the approval mode and the discovered rows, and brief sub-agents
 
 ## Checkpoint 0: Scope Clarification
 
-**Owner**: Orchestrator only. The project-manager subagent CANNOT ask the user — if you skip this checkpoint when ambiguity exists, PM will return a `## Clarifications Needed` section and you'll have to run it anyway.
+**Owner**: Orchestrator only. The project-manager subagent CANNOT ask the user.
 
 ### Trigger Conditions
 
-**Mandatory** if ANY of these apply (do NOT delegate to PM hoping it will ask):
+Run the [decision ladder](#decision-ladder) on the request when ANY of these apply:
 
 - User request is vague or ambiguous
 - Scope could reasonably be interpreted as small OR large
@@ -168,18 +210,16 @@ Record the mode, the approval mode and the discovered rows, and brief sub-agents
 - Business context or priority is unclear
 - Success criteria are not obvious
 
-### Skip Conditions
-
-Proceed WITHOUT asking if ALL apply:
-
-- User request is extremely specific and unambiguous
-- Task is a continuation of previous work with clear context
-- User explicitly said "use your judgment" or "just do it"
-- Task type is BUGFIX with clear error description
-
 ### How to Run
 
-Use the `AskUserQuestion` tool directly. Ask 1-4 focused questions, each with 2-4 concrete options. Put recommended option first with "(Recommended)" suffix. Embed the answers in the PM invocation prompt under a `## Scope Clarification Answers` heading.
+1. Settle what evidence settles: the code, earlier tasks, project docs and memory often show the
+   intended scope. Record each settled point in `decisions.md` and pass it to PM under
+   `## Scope Decisions`.
+2. Ask the user only about what is still open **and** is product intent (who it is for, what "done"
+   means, what is in or out). One `AskUserQuestion` call, 1-4 questions, 2-4 options each, the
+   recommended option first with "(Recommended)". Embed the answers in the PM prompt under
+   `## Scope Clarification Answers`.
+3. The user said "use your judgment" or "just do it" → no question; decide, log, continue.
 
 ### Template
 
@@ -287,30 +327,32 @@ When ready, reply:
 
 ## Checkpoint 1.5: Technical Clarification
 
-**Owner**: Orchestrator only. The software-architect subagent CANNOT ask the user — if you skip this checkpoint when multiple valid approaches exist, the architect will return a `## Clarifications Needed` section and you'll have to run it anyway.
+**Owner**: Orchestrator only. The software-architect subagent CANNOT ask the user.
+
+Technical choices are agent decisions by default. The architect settles them from evidence, and a
+cross-side peer validates the ones that stay open.
 
 ### Trigger Conditions
 
-**Mandatory** if ANY of these apply:
+Run the [decision ladder](#decision-ladder) when ANY of these apply:
 
 - Multiple valid architectural approaches exist (e.g., REST vs GraphQL)
-- Key technology choices need user preference
 - Integration scope is unclear (standalone vs integrated)
 - Design tradeoffs have significant impact (performance vs simplicity)
 - External service dependencies need confirmation
 
-### Skip Conditions
-
-Proceed WITHOUT asking if ALL apply:
-
-- Codebase investigation shows clear established patterns (architect will follow them)
-- Task is a direct extension of existing architecture
-- User explicitly deferred technical decisions
-- Task type is BUGFIX or simple REFACTORING
+No run is needed when the codebase shows a clear established pattern, the task directly extends
+existing architecture, or the task is a BUGFIX or simple REFACTORING.
 
 ### How to Run
 
-Use the `AskUserQuestion` tool directly. Ask 1-4 focused questions covering architectural approach, integration scope, design tradeoffs. Embed the answers in the Architect invocation prompt under a `## Technical Clarification Answers` heading.
+1. Evidence: the codebase patterns, project docs, memory, and `ptah_web_search` for library and
+   API facts. Settled → log it and pass it to the architect under `## Technical Decisions`.
+2. Peer: still open → send the options and evidence to a cross-side reviewer; agreement settles it.
+3. User: only a user-reserved choice (a paid service, a new external vendor with legal or cost
+   exposure, a breaking public change, a security trade-off), or a split the peer could not settle.
+   One `AskUserQuestion` call, 1-4 questions; embed the answers in the architect prompt under
+   `## Technical Clarification Answers`.
 
 ### Template
 
@@ -499,49 +541,41 @@ When ready, reply:
 
 ---
 
-## Checkpoint 3: QA Choice
+## Checkpoint 3: QA Selection
 
 ### When to Present
 
-After team-leader MODE 3 confirms all development complete. This choice does not waive the
+After team-leader MODE 3 confirms all development complete. This is a notice, not a question: you
+select the QA agents by the rule below, announce them and start them. This selection does not waive the
 required UI evidence against the approved prototype (or — for a UI change with no added/redesigned
 surface and so no prototype — before/after screenshots [dark + light] of the affected screen, the
 "before" taken from the base commit before the fix lands) or parity/write-path completion checks.
 
+### Selection rule
+
+| The change …                                                | Add             |
+| ----------------------------------------------------------- | --------------- |
+| changes rendered UI                                         | visual-reviewer |
+| adds a public API, a new library or a new cross-lib contract | code-style-reviewer |
+| has acceptance criteria that no test proves yet             | senior-tester   |
+| has logic not covered by the required shipping-code review  | code-logic-reviewer |
+| none of the above (types, docs, tests only)                 | nothing extra   |
+
 ### Template
 
 ```markdown
----
-DEVELOPMENT COMPLETE - TASK_[ID]
----
-
-**Tasks Completed**: [N] tasks in [B] batches
-**Git Commits**: [B] commits verified
-**Files Implemented**: [N] files
-
----
-
-QA CHOICE CHECKPOINT
-
-Options:
-
-1. "tester" - senior-tester only (functionality testing)
-2. "style" - code-style-reviewer only (coding standards)
-3. "logic" - code-logic-reviewer only (business logic)
-4. "visual" - visual-reviewer only (UI/UX visual testing, responsive design)
-5. "reviewers" - ALL THREE reviewers in parallel (style + logic + visual)
-6. "all" - tester + ALL THREE reviewers in parallel
-7. "skip" - proceed to completion
-
-## Reply with your choice: tester, style, logic, visual, reviewers, all, or skip
+**Development complete — TASK_[ID]**: [N] tasks in [B] batches, [B] commits verified.
+QA by rule: [agents and the row that selected each, or "none extra"]. Decisions since the last
+gate: [count] — 📄 `<taskFolder>/decisions.md`.
+Reply with "tester", "style", "logic", "visual", "reviewers" or "all" to add agents.
 ```
 
-Parallel invocations for `reviewers` and `all`: [agent-catalog.md § Parallel QA](agent-catalog.md#parallel-qa).
+Parallel invocations: [agent-catalog.md § Parallel QA](agent-catalog.md#parallel-qa).
 
-Gate 3 selects ADDITIONAL QA. `skip` never waives the required shipping-code review (agent-lanes §6),
+Gate 3 selects ADDITIONAL QA. It never waives the required shipping-code review (agent-lanes §6),
 which runs before batch acceptance, or before completion and git in flows without team-leader.
 
-### Response Handling
+### Response Handling (user additions)
 
 | Response    | Action                                      |
 | ----------- | ------------------------------------------- |
@@ -551,40 +585,47 @@ which runs before batch acceptance, or before completion and git in flows withou
 | "visual"    | Invoke visual-reviewer only                 |
 | "reviewers" | Invoke ALL THREE reviewers in parallel      |
 | "all"       | Invoke ALL FOUR QA agents in parallel       |
-| "skip"      | Skip QA, proceed to git operations guidance |
-
 ---
 
-## Checkpoint SR: Subagent Return Loop
+## Checkpoint SR: Agent Questions
 
 ### When to Run
 
-When ANY subagent returns a response containing a `## Clarifications Needed` section instead of its expected deliverable, or a CLI lane writes one into its deliverable file.
+When an agent sends you a question through messaging ([§ Agent questions](#agent-questions)), when
+ANY subagent returns a `## Clarifications Needed` section instead of its expected deliverable, or when
+a CLI lane writes one into its deliverable file.
 
 ### Why This Exists
 
-Subagents run in a headless `Task` context with no UI channel back to the user — they cannot call `AskUserQuestion`. When a subagent encounters ambiguity, it returns structured questions to the orchestrator (you) for resolution.
+Subagents and lanes have no UI channel to the user. Their questions come to you, and you decide who
+answers them: the evidence, a peer, or — only when necessary — the user.
 
 ### Protocol
 
-1. **Detect**: Scan the subagent's response for a `## Clarifications Needed` heading
-2. **Parse**: Extract the questions, options, and recommended markers
-3. **Ask user via `AskUserQuestion`**: Preserve the subagent's question structure (1-4 questions, 2-4 options each, "(Recommended)" markers)
-4. **Re-invoke**: call `Task` again with the same `subagent_type` (for a lane: resume or respawn it per the agent-lanes skill), with a `## User Decisions` section prepended to the prompt:
+1. **Detect**: a messaged question, or a `## Clarifications Needed` heading in a response or deliverable
+2. **Parse**: Extract the questions, options, evidence and recommended markers
+3. **Run the [decision ladder](#decision-ladder)** on each question. Settled by evidence or a peer →
+   log it in `decisions.md`. Only user-reserved or unsettled questions go to the user, in one
+   `AskUserQuestion` call that keeps the agent's structure (1-4 questions, 2-4 options each,
+   "(Recommended)" markers)
+4. **Answer**: an agent still running gets the answers through messaging (`ptah_agent_message` to a
+   lane, `SendMessage` to a session). An agent that returned is re-invoked with the same
+   `subagent_type` (for a lane: resume or respawn it per the agent-lanes skill), with a
+   `## Decisions` section prepended to the prompt — each answer marked with who decided it:
 
 ```typescript
 Task({
   subagent_type: '[same-agent]',
   description: 'Continue [Agent] for TASK_[ID] with clarifications resolved',
-  prompt: `You are [agent-name] for TASK_[ID]. You previously returned clarifications. Here are the user's decisions:
+  prompt: `You are [agent-name] for TASK_[ID]. You previously returned clarifications. Here are the decisions:
 
-## User Decisions
+## Decisions
 
 ### 1. [Question 1 topic]
-**Selected**: [User's chosen option]
+**Selected**: [chosen option] — decided by [evidence | peer: <reviewer> | user]
 
 ### 2. [Question 2 topic]
-**Selected**: [User's chosen option]
+**Selected**: [chosen option] — decided by [evidence | peer: <reviewer> | user]
 
 Now proceed with your primary deliverable. Do not return clarifications again — these decisions are final.
 
@@ -597,7 +638,8 @@ Now proceed with your primary deliverable. Do not return clarifications again �
 ### Anti-Patterns
 
 - **Do NOT** ignore the `## Clarifications Needed` section and re-invoke without resolution — the subagent will loop
-- **Do NOT** invent answers on the user's behalf — the subagent specifically returned because it cannot proceed without user input
+- **Do NOT** answer a user-reserved question yourself, and do NOT mark a guess as "decided by evidence" — cite the evidence in `decisions.md` or send it to a peer
+- **Do NOT** send a question to the user that evidence or a peer settled — that is the friction this ladder removes
 - **Do NOT** call `AskUserQuestion` from inside another subagent — only YOU (the orchestrator) can
 
 ### Detection Snippet
@@ -658,10 +700,10 @@ Present the three-option choice in [git-standards.md § Hook Failure Protocol](g
 New Task Start
      │
      v
-[Checkpoint 0.1: CLI Agent Discovery]  ←─ Auto (if agents available)
+[Checkpoint 0.1: CLI Lane Mode]  ←─ Notice (no wait)
      │
      v
-[Checkpoint 0: Scope Clarification]  ←─ Optional
+[Checkpoint 0: Scope Clarification]  ←─ Decision ladder; user only for scope intent
      │
      v
   Project Manager
@@ -670,7 +712,7 @@ New Task Start
 [Checkpoint 1: Requirements Validation]  ←─ Required (lane-review: reviewer approves; user: APPROVED)
      │
      v
-[Checkpoint 1.5: Technical Clarification]  ←─ Optional
+[Checkpoint 1.5: Technical Clarification]  ←─ Decision ladder; user only if reserved
      │
      v
   Designer → design-spec.md + prototype/ (when required)
@@ -691,7 +733,7 @@ New Task Start
   Team-Leader MODE 3
      │
      v
-[Checkpoint 3: QA Choice]  ←─ Required
+[Checkpoint 3: QA Selection]  ←─ Notice (rule-based)
      │
      v
   QA Agents (if selected)
