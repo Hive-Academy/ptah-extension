@@ -17,8 +17,9 @@ How to run any lane (discovery, addressing, prompts, resume, review, revise cap)
 
 ## Gate 0.1 outcome
 
-Record it in `context.md` under `## CLI Lanes`: the mode (`enabled` / `auto` / `disabled`) and the
-`ptah_agent_list` rows verbatim. Then, for `enabled` or `auto`, add this block to every subagent
+Record it in `context.md` under `## CLI Lanes`: the mode (`enabled` / `auto` / `disabled`), the
+approval mode (`Approval: lane-review` / `Approval: user`, per
+[checkpoints.md § Approval mode](checkpoints.md#approval-mode)) and the `ptah_agent_list` rows verbatim. Then, for `enabled` or `auto`, add this block to every subagent
 prompt except team-leader:
 
 ```markdown
@@ -29,7 +30,8 @@ Run lanes per the agent-lanes skill. You own the synthesis: verify lane output b
 ```
 
 For `disabled`, add nothing and never spawn a lane. Required reviews then use the disclosed same-side
-fallback (agent-lanes §6); in `auto`, required reviews count as useful lane work.
+fallback (agent-lanes §6) and the user approves each document gate; in `auto`, required reviews
+count as useful lane work.
 
 ## Batches on lanes
 
@@ -52,14 +54,15 @@ independent and file-disjoint. You spawn and merge them: [team-leader-modes.md](
 
 ## Never on a lane
 
-- Requirements and plans the user approves (`task-description.md`, `implementation-plan.md`) as a
+- Requirements and plans that pass Gate 1 / Gate 2 (`task-description.md`, `implementation-plan.md`) as a
   subagent's *own* deliverable — lanes may gather inputs, the subagent writes and owns the document.
   A phase assigned wholly to a lane (below) is the exception, and still passes Gate 1 / Gate 2.
 - Git commits, and anything that asks the user.
 - visual-reviewer work — it needs browser tools lanes do not have.
 - ui-ux-designer work — it needs interactive discovery with the user.
-- Final security-critical decisions and cross-cutting architecture approval. A lane may supply
-  advisory document-review findings; you present them at the user gate. A review that needs
+- Final security-critical decisions. A lane document review may approve Gates 1, 1.7 and 2 in
+  `lane-review` mode ([checkpoints.md § Approval mode](checkpoints.md#approval-mode)); in `user`
+  mode its findings are advisory and you present them at the user gate. A review that needs
   evidence or tools the lane lacks states that limit and uses the agent-lanes §6 fallback instead of
   asserting approval. Design document review checks the spec, prototype and supplied evidence; it
   does not replace the browser-based visual review of the built UI.
@@ -108,8 +111,9 @@ work to a subagent reviewer.
 ### Constraints that survive pinning
 
 1. The review lane is never the implement lane — review independence per agent-lanes §6.
-2. Every gate stays with you: Gate 1 after the plan, Gate 2 after the architecture, `APPROVED`
-   before the next phase. A lane returning `## Clarifications Needed` goes through Gate SR.
+2. Every gate stays with you: Gate 1 after the plan, Gate 2 after the architecture, approved before
+   the next phase — by the cross-side reviewer in `lane-review` mode, by the user in `user` mode or on
+   escalation. A lane returning `## Clarifications Needed` goes through Gate SR.
 3. A phase you write in-process, because no suitable lane exists, is labelled as not an outside
    opinion in the summary.
 4. Every plan, design and architecture artifact gets a cross-side document review before its gate
@@ -122,8 +126,8 @@ work to a subagent reviewer.
    prompt says already exists.
 2. Announce the roster, phase count and call count; get the go-ahead — this writes code.
 3. For each phase in order: invoke the author with the prior approved artifact as an absolute input
-   path, run the required independent review, present the user gate, then pass the approved
-   artifact on.
+   path, run the required independent review, pass the gate per the approval mode, then pass the
+   approved artifact on.
 4. Implement runs in place on the active branch. Use a worktree only if you fan one phase out to
    several lanes; say so and the added cost.
 5. When the implement phase is the risky one, run implement + review as the `tribunal` skill's

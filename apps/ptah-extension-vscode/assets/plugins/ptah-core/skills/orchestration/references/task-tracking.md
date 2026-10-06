@@ -108,7 +108,8 @@ never track status in any other file.
   registry.md                      GENERATED — never hand-edit
   TASK_[ID]/
     task.md                        carrier (first)
-    context.md                     user intent, strategy, lane roster
+    context.md                     user intent, strategy, lane roster, approval mode
+    decisions.md                   orchestrator — audit log of every agent decision (checkpoints.md § Decision log)
     task-description.md            project-manager
     research-report.md             researcher-expert
     parity-inventory.md            project-manager (no PM: software-architect, inventory-only; see SKILL.md)
@@ -144,7 +145,7 @@ the QA row. Before the next phase, complete any required inventory and design st
 | --- | --- |
 | no `task.md` | Stop — invalid folder; create the carrier first |
 | `task.md` / `context.md` only | Follow the strategy in `context.md`: BUGFIX → researcher-expert if research is planned, otherwise team-leader Mode 1 (plan-free); REFACTORING → software-architect; other types → their recorded first phase. Complete required inventory/design before implementation planning or decomposition. |
-| `task-description.md` | Resume document review and Gate 1 for the current revision; continue only after recorded user approval |
+| `task-description.md` | Resume document review and Gate 1 for the current revision; continue only after the recorded gate decision (user, or cross-side reviewer in `lane-review` mode) |
 | `research-report.md` (no later artifact) | Follow the strategy in `context.md`: BUGFIX → team-leader Mode 1 (plan-free); FEATURE → software-architect; other types → their recorded next phase. Complete required inventory/design first. |
 | `parity-inventory.md` (no later artifact) | Run any planned research first, then resume required designer → prototype → document review → Gate 1.7, then the next phase recorded in `context.md`; without a design phase, continue the recorded flow (BUGFIX → team-leader Mode 1, plan-free). |
 | `design-spec.md` + `prototype/` | Resume document review and Gate 1.7 for the current revision; after approval, select the next phase from the task type/strategy recorded in `context.md` (CREATIVE → technical-content-writer; BUGFIX → team-leader Mode 1; flows with architecture → software-architect) |
