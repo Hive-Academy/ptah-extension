@@ -1,0 +1,25 @@
+{
+  "name": "mcp-bench",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "tools/mcp-bench/src",
+  "projectType": "application",
+  "tags": ["type:tool"],
+  "targets": {
+    "test": {
+      "executor": "@nx/jest:jest",
+      "outputs": ["{workspaceRoot}/coverage/{projectRoot}"],
+      "options": {
+        "jestConfig": "tools/mcp-bench/jest.config.ts"
+      }
+    },
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "tsc --noEmit --project tools/mcp-bench/tsconfig.json"
+      }
+    },
+    "lint": {
+      "executor": "@nx/eslint:lint"
+    }
+  }
+}
