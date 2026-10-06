@@ -714,6 +714,29 @@ describe('TaskWorktreeViewComponent', () => {
     );
   });
 
+  it('frames Branch and Pull request as cards, not border-separated blocks', async () => {
+    await render();
+
+    for (const id of ['task-branch-panel', 'task-pr-panel']) {
+      const classes = query(`[data-testid="${id}"]`)?.classList;
+      for (const name of [
+        'rounded',
+        'border',
+        'border-base-content/10',
+        'bg-base-200',
+        'p-2.5',
+      ]) {
+        expect(classes?.contains(name)).toBe(true);
+      }
+      expect(classes?.contains('border-t')).toBe(false);
+    }
+    expect(
+      query('[data-testid="task-worktrees-panel"]')?.classList.contains(
+        'border-t',
+      ),
+    ).toBe(true);
+  });
+
   it('routes Open-in to the launcher for the workspace root (parity §2 row 55)', async () => {
     await render();
 
