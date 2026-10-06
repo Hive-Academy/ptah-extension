@@ -2,7 +2,7 @@
  * CLI Detection Service
  *
  * Detects on first call and caches results.
- * Registered adapters: Codex CLI, Copilot SDK, Cursor CLI.
+ * Registered adapters: Codex, Copilot, Cursor, Antigravity, OpenCode, Pi, Grok.
  * Exposes detection results for MCP tools and namespace.
  */
 import { injectable, inject } from 'tsyringe';
@@ -26,6 +26,7 @@ import { CursorCliAdapter } from './cli-adapters/cursor-cli.adapter';
 import { AntigravityCliAdapter } from './cli-adapters/antigravity-cli.adapter';
 import { OpencodeCliAdapter } from './cli-adapters/opencode-cli.adapter';
 import { PiCliAdapter } from './cli-adapters/pi-cli.adapter';
+import { GrokCliAdapter } from './cli-adapters/grok-cli.adapter';
 
 @injectable()
 export class CliDetectionService {
@@ -71,9 +72,10 @@ export class CliDetectionService {
     this.adapters.set('antigravity', new AntigravityCliAdapter(this.spawner));
     this.adapters.set('opencode', new OpencodeCliAdapter(this.spawner));
     this.adapters.set('pi', new PiCliAdapter(this.spawner));
+    this.adapters.set('grok', new GrokCliAdapter(this.spawner, this.logger));
 
     this.logger.info(
-      '[CliDetection] Service initialized with adapters: codex, copilot, cursor, antigravity, opencode, pi',
+      '[CliDetection] Service initialized with adapters: codex, copilot, cursor, antigravity, opencode, pi, grok',
     );
   }
 
@@ -239,7 +241,7 @@ export class CliDetectionService {
    * session (TASK_2026_342). Wording now matches what actually happens.
    */
   async refreshCliTokens(): Promise<void> {
-    for (const cli of ['codex', 'cursor', 'opencode', 'pi'] as const) {
+    for (const cli of ['codex', 'cursor', 'opencode', 'pi', 'grok'] as const) {
       const adapter = this.adapters.get(cli);
       if (adapter?.ensureTokensFresh) {
         const fresh = await adapter.ensureTokensFresh();

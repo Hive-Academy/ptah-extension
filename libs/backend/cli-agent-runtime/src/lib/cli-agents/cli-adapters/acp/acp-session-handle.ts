@@ -695,6 +695,15 @@ export function createAcpSessionHandle(
   const supportsContinuation = (): boolean =>
     setupComplete && !!sessionId && !closed && !abort.signal.aborted;
 
+  /** `done` never rejects: an unexpected throw is logged and becomes exit 1. */
+  const onUnexpectedTurnError = (error: unknown): number => {
+    logger?.error('[AcpSessionHandle] turn threw unexpectedly', {
+      ...logContext,
+      error: errorText(error),
+    });
+    return 1;
+  };
+
   const continueTurn = (message: string): Promise<ContinuationOutcome> => {
     if (closed || abort.signal.aborted) {
       return Promise.reject(
@@ -711,15 +720,6 @@ export function createAcpSessionHandle(
       done: runPrompt(message).catch(onUnexpectedTurnError),
     });
   };
-
-  /** `done` never rejects: an unexpected throw is logged and becomes exit 1. */
-  function onUnexpectedTurnError(error: unknown): number {
-    logger?.error('[AcpSessionHandle] turn threw unexpectedly', {
-      ...logContext,
-      error: errorText(error),
-    });
-    return 1;
-  }
 
   const done = runFirstTurn().catch(onUnexpectedTurnError);
 

@@ -46,15 +46,15 @@ function capOutput(content: string): string {
 
 function textFromContent(content: unknown): string | undefined {
   if (!isRecord(content)) return undefined;
-  const block = content.type === 'content' ? content.content : content;
+  const block = content['type'] === 'content' ? content['content'] : content;
   if (
     !isRecord(block) ||
-    block.type !== 'text' ||
-    typeof block.text !== 'string'
+    block['type'] !== 'text' ||
+    typeof block['text'] !== 'string'
   ) {
     return undefined;
   }
-  return block.text;
+  return block['text'];
 }
 
 function diffSegments(content: unknown): CliOutputSegment[] {
@@ -63,17 +63,17 @@ function diffSegments(content: unknown): CliOutputSegment[] {
   return content.flatMap((item): CliOutputSegment[] => {
     if (
       !isRecord(item) ||
-      item.type !== 'diff' ||
-      typeof item.path !== 'string'
+      item['type'] !== 'diff' ||
+      typeof item['path'] !== 'string'
     ) {
       return [];
     }
     return [
       {
         type: 'file-change',
-        content: item.path,
+        content: item['path'],
         changeKind:
-          item.oldText === undefined || item.oldText === null
+          item['oldText'] === undefined || item['oldText'] === null
             ? 'added'
             : 'modified',
       },
@@ -82,13 +82,13 @@ function diffSegments(content: unknown): CliOutputSegment[] {
 }
 
 function outputFromToolUpdate(update: Record<string, unknown>): string {
-  const content = Array.isArray(update.content)
-    ? update.content
+  const content = Array.isArray(update['content'])
+    ? update['content']
         .map(textFromContent)
         .filter((text): text is string => text !== undefined)
         .join('')
     : '';
-  return capOutput(content || safeStringify(update.rawOutput));
+  return capOutput(content || safeStringify(update['rawOutput']));
 }
 
 function errorSegment(content: string): CliOutputSegment {
@@ -120,10 +120,13 @@ export function createAcpSessionUpdateMapper(
           case 'agent_message_chunk': {
             const content: unknown = update.content;
             if (!isRecord(content)) return { output: '', segments: [] };
-            if (content.type === 'text' && typeof content.text === 'string') {
+            if (
+              content['type'] === 'text' &&
+              typeof content['text'] === 'string'
+            ) {
               return {
-                output: content.text,
-                segments: [{ type: 'text', content: content.text }],
+                output: content['text'],
+                segments: [{ type: 'text', content: content['text'] }],
               };
             }
             return {
@@ -131,7 +134,7 @@ export function createAcpSessionUpdateMapper(
               segments: [
                 {
                   type: 'info',
-                  content: `[${String(content.type ?? 'unknown')} content]`,
+                  content: `[${String(content['type'] ?? 'unknown')} content]`,
                 },
               ],
             };
@@ -139,10 +142,10 @@ export function createAcpSessionUpdateMapper(
 
           case 'agent_thought_chunk': {
             const content: unknown = update.content;
-            return isRecord(content) && typeof content.text === 'string'
+            return isRecord(content) && typeof content['text'] === 'string'
               ? {
                   output: '',
-                  segments: [{ type: 'thinking', content: content.text }],
+                  segments: [{ type: 'thinking', content: content['text'] }],
                 }
               : { output: '', segments: [] };
           }

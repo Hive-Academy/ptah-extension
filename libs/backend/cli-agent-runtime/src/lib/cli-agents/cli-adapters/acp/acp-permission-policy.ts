@@ -53,11 +53,11 @@ function firstOptionIdOfKind(
   for (const option of options) {
     if (
       isRecord(option) &&
-      option.kind === kind &&
-      typeof option.optionId === 'string' &&
-      option.optionId
+      option['kind'] === kind &&
+      typeof option['optionId'] === 'string' &&
+      option['optionId']
     ) {
-      return option.optionId;
+      return option['optionId'];
     }
   }
   return undefined;

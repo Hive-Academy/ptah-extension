@@ -25,3 +25,4 @@ export { CursorCliAdapter } from './cursor-cli.adapter';
 export { AntigravityCliAdapter } from './antigravity-cli.adapter';
 export { OpencodeCliAdapter } from './opencode-cli.adapter';
 export { PiCliAdapter } from './pi-cli.adapter';
+export { GrokCliAdapter } from './grok-cli.adapter';
