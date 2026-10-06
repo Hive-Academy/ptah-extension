@@ -644,3 +644,69 @@ TASK_2026_591 `serve` plan is unaffected.
 1. Add a model-only `grokModel` setting.
 2. If probe P1 fails (Grok cannot use the full Ptah MCP server even with the exact-tool prompt hint), STOP after Batch 0 and redesign. Do not ship with `supportsMcp=false`.
 3. Scope is Grok only; opencode stays on `opencode run` (PR #658).
+
+## Batch 0 results → plan amendments (2026-10-06, team-leader)
+
+Source: `acp-batch0-probe.md` and `acp-batch0-fixtures/` (grok 1.0.46, win32, live Ptah host). These amendments
+override the sections they name. Everything not named here stands.
+
+1. **P1 PASS, so MCP is kept.** `mcpToolCount: 59` and both `ptah__ptah_agent_list` and `ptah__ptah_agent_report`
+   ran through `search_tool`/`use_tool` with no prompt hint. `GrokCliAdapter.supportsMcp = true`. User Decision 2
+   (stop and redesign) is not triggered. No Grok-specific sentence is added to the task prompt:
+   `buildTaskPrompt` must stay vendor-neutral, and `cli-adapter.utils.spec.ts:576-581` asserts that no vendor name
+   appears in it.
+2. **Permission policy (Component 4) stays the user's choice, with allow-once as the default.**
+   - Default and narrowest rule: spawn **without** `--always-approve` and answer every
+     `session/request_permission` by selecting the option whose `kind` is `allow_once`. Select by `kind`, never by
+     the `optionId` string (Grok ids are `allow-once`, `always-allow`, `reject-once`, `reject-always`).
+   - MCP calls through `use_tool` are permission-gated, read-only ones included (kind `other`, title
+     `<server>__<tool>`). `search_tool` is not gated. The policy answers these like any other request; a lane that
+     left them unanswered would stall on `ptah_agent_report`.
+   - A reject ends the whole turn: `stopReason: "cancelled"` on the prompt response, and
+     `_x.ai/session/prompt_complete` carries `cancellationCategory: "PermissionRejected"`. The prompt response
+     itself carries only `stopReason` and `_meta`. So the runner records, vendor-neutrally, that its own policy
+     refused a request in the current turn (the tool title). The stop-reason mapping (a pure function exported by
+     Component 3, `mapStopReason`) then maps `cancelled` + "the policy refused a permission this turn" + not aborted
+     to `done` 1 and one `error` segment: "<displayName> stopped the turn: permission refused for <title>". It must
+     never be treated as a user stop (silent) or as "turn cancelled by the agent". The plan's P2 pass criterion
+     ("reject yields a refused tool and the turn still ends `end_turn`") is withdrawn.
+   - `alwaysApproveFlag: true` (spawn with `--always-approve`) remains only as the documented fallback in the
+     profile. The Grok profile ships with `alwaysApproveFlag: false`.
+3. **Resume (Component 5).** `resumeStrategy` for Grok is `'resume'`: call `session/resume` when
+   `agentCapabilities.sessionCapabilities.resume` is present; it replays nothing. `session/resume` must carry the
+   same `mcpServers` entry as `session/new` (the SDK's `ResumeSessionRequest` has `mcpServers?`), or a resumed lane
+   loses Ptah MCP. If `session/load` is ever used (a profile with `'load'`), drop every `session/update` whose
+   `_meta.isReplay === true`, instead of the "everything before the load response" heuristic. Fallback to
+   `session/new` with an `info` is unchanged.
+4. **Model and effort (Components 5 and 6).** `grok agent stdio` silently ignores `-m`. The model is set through
+   `session/set_config_option {sessionId, configId: "model", value}` after session setup and before the first
+   `session/prompt`. SDK 1.7.0 has `ClientSideConnection.setSessionConfigOption` (`dist/acp.d.ts:1142`), so it joins
+   `AcpConnectionApi`. A bad id returns JSON-RPC `-32602 "Invalid params"` with `data: "unknown model id"`; this
+   fails the first turn (`done` 1) with "Grok rejected model '<m>' (from <modelSource>)", plus the ids from
+   `session/new.models.availableModels` when present. The model comes from the new `grokModel` setting through
+   `MODEL_CONFIG_KEYS` (Component 7). The profile contract gains
+   `sessionConfig?(options) → Array<{configId, value}>`, and the runner applies only the entries whose `configId`
+   appears in the session's advertised `configOptions`. Effort follows the same route: Grok advertises
+   `configId: "reasoning_effort"` with values `low|medium|high|xhigh`. `--reasoning-effort` belongs to the same
+   subcommand as the ignored `-m` and was not probed, so it is not relied on. `buildSpawn` therefore drops both
+   `-m` and `--reasoning-effort`, and argv is `['agent', ...(alwaysApproveFlag ? ['--always-approve'] : []),
+   '--no-leader', 'stdio']`.
+5. **Error rows (Components 5 and 6, `describeError`).** `describeError` reads `code`, `message`, and `data` as
+   either a string or an object (`{message, ...}`).
+   | Where | JSON-RPC error | Result |
+   | --- | --- | --- |
+   | `session/prompt` | `-32003 "Rate limited"` (data includes the 429 text; arrives after up to ~50 s of `_x.ai/session_notification` `retry_state` notifications) | `done` 1, `error` "Grok is rate limited: <data message>" |
+   | `session/new` / `session/resume` | `-32000 "Authentication required"` (`initialize` still succeeds, with `authMethods`) | `done` 1, `error` "Grok is not signed in: run `grok login` or set XAI_API_KEY" |
+   | `session/set_config_option` | `-32602` `data: "unknown model id"` | row 4 above |
+   `retry_state` notifications are `_x.ai/*` extension notifications, so they are ignored and never produce an
+   `error` segment (the rule that no update ever produces an error stands).
+6. **Cancel.** `session/cancel` answers in about 21 ms with `stopReason: "cancelled"`, and Grok reaps its shell
+   child. Abort stays "cancel, then kill"; the manager's tree-kill stays as the backstop for a hard kill.
+7. **Fixtures (Component 3 spec).** Copy the 11 files from `acp-batch0-fixtures/` to
+   `ADP\acp\__fixtures__\grok-*.ndjson` unchanged. Each line is a probe envelope `{ms, dir: in|out|stderr|exit, msg}`,
+   not raw wire NDJSON, so the replay helper unwraps `msg` for `dir: "in"`. The fixture spec asserts zero SDK
+   "Error handling notification" `console.error` calls over the six transcripts named in the probe (`p2-allow`,
+   `p2-reject`, `p2-cancel`, plain, load replay, P1), with a negative-control line proving the detector works.
+8. **No live Grok in any batch.** The local free quota is exhausted for about 24 h. Every batch is verified with
+   specs against the fake ACP peer and the fixtures. The plan's live-verification Batch 6 moves out of the batch
+   list into post-merge QA, once the quota resets.
