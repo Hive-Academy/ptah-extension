@@ -25,22 +25,30 @@ export interface BootScanFailureRecord {
   readonly status: 'pending' | 'given_up';
 }
 
-// A row that is already `given_up` stays that way: the WHERE on the upsert
-// keeps a terminal disposition terminal.
+// A `given_up` row stays terminal while the session file is the same
+// generation (same mtime). A changed file is a new generation: its failure
+// reopens the row as `pending` with a fresh attempt count (migration 0053).
+// In DO UPDATE every right-hand side reads the row as it was before the update.
 const RECORD_FAILURE_SQL = `INSERT INTO memory_boot_scan_failures
   (workspace_fingerprint, session_id, workspace_root, session_path,
-   first_failed_at, last_failed_at, attempt_count, status, give_up_reason)
+   first_failed_at, last_failed_at, attempt_count, status, give_up_reason,
+   session_mtime_ms)
 VALUES (@fp, @sessionId, @workspaceRoot, @sessionPath, @now, @now, 1,
         CASE WHEN @max <= 1 THEN 'given_up' ELSE 'pending' END,
-        CASE WHEN @max <= 1 THEN 'max-attempts' ELSE NULL END)
+        CASE WHEN @max <= 1 THEN 'max-attempts' ELSE NULL END,
+        @mtime)
 ON CONFLICT(workspace_fingerprint, session_id) DO UPDATE SET
-  attempt_count  = attempt_count + 1,
-  last_failed_at = excluded.last_failed_at,
-  workspace_root = excluded.workspace_root,
-  session_path   = excluded.session_path,
-  status         = CASE WHEN attempt_count + 1 >= @max THEN 'given_up' ELSE 'pending' END,
-  give_up_reason = CASE WHEN attempt_count + 1 >= @max THEN 'max-attempts' ELSE NULL END
-WHERE status = 'pending'`;
+  attempt_count   = CASE WHEN status = 'given_up' THEN 1 ELSE attempt_count + 1 END,
+  first_failed_at = CASE WHEN status = 'given_up' THEN excluded.first_failed_at ELSE first_failed_at END,
+  last_failed_at  = excluded.last_failed_at,
+  workspace_root  = excluded.workspace_root,
+  session_path    = excluded.session_path,
+  session_mtime_ms = excluded.session_mtime_ms,
+  status = CASE WHEN (CASE WHEN status = 'given_up' THEN 1 ELSE attempt_count + 1 END) >= @max
+                THEN 'given_up' ELSE 'pending' END,
+  give_up_reason = CASE WHEN (CASE WHEN status = 'given_up' THEN 1 ELSE attempt_count + 1 END) >= @max
+                        THEN 'max-attempts' ELSE NULL END
+WHERE status = 'pending' OR session_mtime_ms IS NOT excluded.session_mtime_ms`;
 
 const READ_ONE_SQL = `SELECT attempt_count, status FROM memory_boot_scan_failures
  WHERE workspace_fingerprint = ? AND session_id = ?`;
@@ -80,10 +88,16 @@ export class BootScanFailureLedger {
     private readonly maxAttempts: number = BOOT_SCAN_MAX_ATTEMPTS,
   ) {}
 
-  /** Record one failed attempt; `null` when the write failed. */
+  /**
+   * Record one failed attempt; `null` when the write failed. `sessionMtimeMs`
+   * is the session file's generation: a `given_up` row reopens only when it
+   * differs from the stored one.
+   */
   recordFailure(
     fp: string,
-    entry: Omit<BootScanFailureEntry, 'attemptCount'>,
+    entry: Omit<BootScanFailureEntry, 'attemptCount'> & {
+      readonly sessionMtimeMs: number | null;
+    },
     nowMs: number,
   ): BootScanFailureRecord | null {
     try {
@@ -95,6 +109,7 @@ export class BootScanFailureLedger {
         sessionPath: entry.sessionPath,
         now: nowMs,
         max: this.maxAttempts,
+        mtime: entry.sessionMtimeMs,
       });
       const row = db.prepare(READ_ONE_SQL).get(fp, entry.sessionId) as
         { attempt_count: number; status: 'pending' | 'given_up' } | undefined;
@@ -144,7 +159,10 @@ export class BootScanFailureLedger {
     }
   }
 
-  /** A retry curated the session: forget its failures. */
+  /**
+   * A pass curated the session — a retry, or the normal scan reaching a newer
+   * generation of it: forget its failures, whatever their status.
+   */
   remove(fp: string, sessionId: string): boolean {
     try {
       this.sqlite.db.prepare(REMOVE_SQL).run(fp, sessionId);

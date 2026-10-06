@@ -149,6 +149,7 @@ function formatBootScan(stats: MemoryCuratorEventWire['stats']): string {
     ['retried', 'retried'],
     ['recovered', 'recovered'],
     ['givenUp', 'given up'],
+    ['retriesDeferred', 'retries deferred'],
   ];
   for (const [key, label] of optional) {
     const n = statCount(stats, key);

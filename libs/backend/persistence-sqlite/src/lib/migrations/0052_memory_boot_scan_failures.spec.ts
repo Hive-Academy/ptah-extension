@@ -59,8 +59,8 @@ describe('migration 0052_memory_boot_scan_failures — registry and static SQL',
     expect(sql).not.toMatch(/\b(DROP|DELETE|UPDATE|INSERT)\b/i);
   });
 
-  it('is the highest bundled version', () => {
-    expect(Math.max(...MIGRATIONS.map((m) => m.version))).toBe(52);
+  it('keeps the bundled-version ratchet current', () => {
+    expect(Math.max(...MIGRATIONS.map((m) => m.version))).toBe(53);
   });
 });
 
@@ -98,7 +98,7 @@ describe('migration 0052_memory_boot_scan_failures — behaviour', () => {
       const result = await new SqliteMigrationRunner(
         db as unknown as SqliteDatabase,
         logger,
-      ).applyAll(MIGRATIONS);
+      ).applyAll(MIGRATIONS.filter((m) => m.version <= 52));
       expect(result.appliedVersions).toEqual([52]);
 
       expect(db.prepare('SELECT * FROM boot_scan_state').all()).toEqual([

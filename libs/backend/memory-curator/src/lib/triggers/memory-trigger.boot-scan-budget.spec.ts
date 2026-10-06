@@ -600,4 +600,107 @@ describe('MemoryTriggerService boot scan — failed sessions go to the failure l
     });
     expect(watermark(t)).toBe(before);
   });
+
+  /** Fail a session on three boots so its ledger row ends `given_up`. */
+  async function giveUp(t: RetentionTestDb, dir: string): Promise<void> {
+    for (let i = 0; i < BOOT_SCAN_MAX_ATTEMPTS; i++) {
+      await boot(t, dir, [FAILED]);
+    }
+    expect(ledgerRows(t)[0]).toMatchObject({ status: 'given_up' });
+  }
+
+  it('reopens a given_up session as pending when a changed session file fails again', async () => {
+    const t = openDb();
+    const dir = await makeSessionsDir([
+      { name: 'failing.jsonl', mtime: now - 3 * DAY_MS },
+    ]);
+    await giveUp(t, dir);
+    // The session continued: a newer generation of the file.
+    const newer = new Date(now - 1 * DAY_MS);
+    await fs.utimes(path.join(dir, 'failing.jsonl'), newer, newer);
+
+    const h = await boot(t, dir, [FAILED]);
+
+    expect(sessionIds(h)).toEqual(['failing']);
+    expect(ledgerRows(t)).toEqual([
+      {
+        session_id: 'failing',
+        attempt_count: 1,
+        status: 'pending',
+        give_up_reason: null,
+      },
+    ]);
+  });
+
+  it('keeps a given_up session given_up when the unchanged file fails again', async () => {
+    const t = openDb();
+    const dir = await makeSessionsDir([
+      { name: 'failing.jsonl', mtime: now - 3 * DAY_MS },
+    ]);
+    await giveUp(t, dir);
+    // Make the same, unchanged file eligible for the normal scan again.
+    t.raw.exec(`DELETE FROM boot_scan_state`);
+
+    const h = await boot(t, dir, [FAILED]);
+
+    expect(sessionIds(h)).toEqual(['failing']);
+    expect(ledgerRows(t)).toEqual([
+      {
+        session_id: 'failing',
+        attempt_count: BOOT_SCAN_MAX_ATTEMPTS,
+        status: 'given_up',
+        give_up_reason: 'max-attempts',
+      },
+    ]);
+  });
+
+  it('a normal-scan success removes a given_up row and the diagnostics count drops', async () => {
+    const t = openDb();
+    const dir = await makeSessionsDir([
+      { name: 'failing.jsonl', mtime: now - 3 * DAY_MS },
+    ]);
+    await giveUp(t, dir);
+    const store = new ObservationRetentionStore(makeLogger(), t.connection);
+    expect(store.readLiveStorage(now).bootScanFailuresGivenUp).toBe(1);
+    const newer = new Date(now - 1 * DAY_MS);
+    await fs.utimes(path.join(dir, 'failing.jsonl'), newer, newer);
+
+    const h = await boot(t, dir, [RAN]);
+
+    expect(sessionIds(h)).toEqual(['failing']);
+    expect(ledgerRows(t)).toEqual([]);
+    expect(store.readLiveStorage(now).bootScanFailuresGivenUp).toBe(0);
+  });
+
+  it('keeps the last curate slot for the normal scan: with maxCuratesPerHour = 1 a new healthy session is still curated', async () => {
+    const t = openDb();
+    const dir = await makeSessionsDir([
+      { name: 'failing.jsonl', mtime: now - 3 * DAY_MS },
+    ]);
+    await boot(t, dir, [FAILED]);
+    expect(ledgerRows(t)).toHaveLength(1);
+    await fs.writeFile(path.join(dir, 'healthy.jsonl'), '{}\n');
+
+    const h = buildHarness({
+      sessionsDir: dir,
+      sqlite: t.connection,
+      rateLimiter: new CuratorRateLimitService(makeLogger()),
+      maxCuratesPerHour: 1,
+    });
+    h.service.start();
+    await h.bootScanDone;
+    h.service.stop();
+
+    expect(sessionIds(h)).toEqual(['healthy']);
+    expect(h.events.find((e) => e.kind === 'boot-scan')?.stats).toMatchObject({
+      succeeded: 1,
+      retried: 0,
+      retriesDeferred: 1,
+    });
+    // The deferred retry spent no attempt; it waits for a later boot.
+    expect(ledgerRows(t)[0]).toMatchObject({
+      attempt_count: 1,
+      status: 'pending',
+    });
+  });
 });

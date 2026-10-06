@@ -127,6 +127,7 @@ describe('BootScanRunner', () => {
       retried: 0,
       recovered: 0,
       givenUp: 0,
+      retriesDeferred: 0,
     });
   });
 

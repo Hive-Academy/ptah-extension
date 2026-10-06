@@ -44,6 +44,11 @@ export interface BootScanResult {
   readonly recovered: number;
   /** Ledger sessions marked `given_up` this boot. */
   readonly givenUp: number;
+  /**
+   * Pending ledger sessions not retried this boot because the last curate
+   * slot was kept for the normal scan (`retryAllowed`).
+   */
+  readonly retriesDeferred: number;
 }
 
 const EMPTY_RESULT: BootScanResult = {
@@ -55,12 +60,14 @@ const EMPTY_RESULT: BootScanResult = {
   retried: 0,
   recovered: 0,
   givenUp: 0,
+  retriesDeferred: 0,
 };
 
 interface RetryTally {
   retried: number;
   recovered: number;
   givenUp: number;
+  deferred: number;
   stalled: boolean;
 }
 
@@ -88,6 +95,13 @@ export interface BootScanRunnerOptions {
    * whose callback can report `'failed'`, supplies one.
    */
   readonly failures?: BootScanFailureLedger;
+  /**
+   * Whether one more ledger retry may spend a curate slot and still leave one
+   * for the normal scan. Asked before each retry, and only when the normal scan
+   * has eligible sessions, so retries can never starve it (TASK_2026_621).
+   * Absent means unlimited.
+   */
+  readonly retryAllowed?: () => boolean;
 }
 
 interface WatermarkRow {
@@ -201,8 +215,14 @@ export class BootScanRunner {
     // most BOOT_SCAN_MAX_ATTEMPTS times in its life), so they cannot starve the
     // scan for long. If a gate (budget, back-off) stops them, the scan is not
     // started: it would hit the same gate, and an unstarted scan leaves the
-    // watermark where it is, so nothing is lost.
-    const retry = await this.retryFailures(options, now, throttleMs);
+    // watermark where it is, so nothing is lost. While the normal scan has
+    // work, `retryAllowed` keeps the last curate slot for it.
+    const retry = await this.retryFailures(
+      options,
+      now,
+      throttleMs,
+      eligible.length > 0,
+    );
 
     let succeeded = 0;
     let skipped = 0;
@@ -255,6 +275,7 @@ export class BootScanRunner {
               sessionId: item.sessionId,
               workspaceRoot: options.workspaceRoot,
               sessionPath: path.join(sessionsDir, `${item.sessionId}.jsonl`),
+              sessionMtimeMs: item.mtime,
             },
             now,
           );
@@ -282,6 +303,12 @@ export class BootScanRunner {
           );
         } else {
           succeeded++;
+          // A newer generation of a session with a ledger row was curated:
+          // the row (pending or given_up) is obsolete.
+          options.failures?.remove(
+            options.workspaceFingerprint,
+            item.sessionId,
+          );
         }
         if (item.mtime > maxMtime) maxMtime = item.mtime;
       } catch (err: unknown) {
@@ -321,6 +348,7 @@ export class BootScanRunner {
       retried: retry.retried,
       recovered: retry.recovered,
       givenUp: retry.givenUp,
+      retriesDeferred: retry.deferred,
     };
   }
 
@@ -330,16 +358,20 @@ export class BootScanRunner {
    * attempt, which marks the row `given_up` at the ledger's maximum; a
    * session file that no longer exists is `given_up` with that reason; a gate
    * stop ends the retries and reports `stalled` so the scan does not start.
+   * When the scan has work and `retryAllowed` refuses, the rest are deferred
+   * to a later boot and the scan runs.
    */
   private async retryFailures(
     options: BootScanRunnerOptions,
     now: number,
     throttleMs: number,
+    scanHasWork: boolean,
   ): Promise<RetryTally> {
     const tally: RetryTally = {
       retried: 0,
       recovered: 0,
       givenUp: 0,
+      deferred: 0,
       stalled: false,
     };
     const ledger = options.failures;
@@ -349,7 +381,8 @@ export class BootScanRunner {
     for (let i = 0; i < pending.length; i++) {
       if (options.signal?.aborted) break;
       const entry = pending[i];
-      if (!(await this.fileExists(entry.sessionPath))) {
+      const mtime = await this.sessionMtime(entry.sessionPath);
+      if (mtime === 'missing') {
         if (ledger.giveUp(fp, entry.sessionId, 'session-file-missing', now)) {
           tally.givenUp++;
         }
@@ -358,6 +391,14 @@ export class BootScanRunner {
           { pipeline: options.pipeline, sessionId: entry.sessionId },
         );
         continue;
+      }
+      if (scanHasWork && options.retryAllowed && !options.retryAllowed()) {
+        tally.deferred = pending.length - i;
+        options.logger.info(
+          '[memory-curator] boot-scan retries deferred — last curate slot kept for the scan',
+          { pipeline: options.pipeline, deferred: tally.deferred },
+        );
+        break;
       }
       tally.retried++;
       let outcome: BootScanItemOutcome;
@@ -387,7 +428,11 @@ export class BootScanRunner {
       if (outcome === 'ran') {
         if (ledger.remove(fp, entry.sessionId)) tally.recovered++;
       } else {
-        const recorded = ledger.recordFailure(fp, entry, now);
+        const recorded = ledger.recordFailure(
+          fp,
+          { ...entry, sessionMtimeMs: mtime },
+          now,
+        );
         if (recorded?.status === 'given_up') {
           tally.givenUp++;
           options.logger.warn(
@@ -407,15 +452,15 @@ export class BootScanRunner {
     return tally;
   }
 
-  private async fileExists(file: string): Promise<boolean> {
+  /** The file's mtime (its generation), `'missing'`, or `null` if unreadable. */
+  private async sessionMtime(file: string): Promise<number | 'missing' | null> {
     try {
-      await fs.stat(file);
-      return true;
+      return (await fs.stat(file)).mtimeMs;
     } catch (err: unknown) {
       // Only a definite "not there" gives up; any other stat error retries
       // the session normally rather than discarding it.
       const code = (err as { code?: unknown } | null)?.code;
-      return code !== 'ENOENT' && code !== 'ENOTDIR';
+      return code === 'ENOENT' || code === 'ENOTDIR' ? 'missing' : null;
     }
   }
 

@@ -58,6 +58,8 @@ const COMMIT_PATTERN = /^\s*git\s+commit(?:\s|$)/;
 const RATE_LIMIT_KEY = 'memory.curate';
 const MAX_CUE_PATTERN_LENGTH = 200;
 const COALESCE_WINDOW_MS = 5000;
+/** The curate rate limiter's window, as `CuratorRateLimitService` buckets it. */
+const HOUR_MS = 60 * 60 * 1000;
 const TOOL_FAILURE_SNIPPET = 140;
 /**
  * Consecutive `'failed'` passes per session whose drained observations are
@@ -799,6 +801,19 @@ export class MemoryTriggerService {
     return true;
   }
 
+  /**
+   * Curate slots left in the current hourly window; `Infinity` when the limit
+   * is off (`maxCuratesPerHour <= 0`, which `tryAcquire` treats as allow-all).
+   */
+  private curateSlotsLeft(): number {
+    const limit = this.readMaxCuratesPerHour();
+    if (!Number.isFinite(limit) || limit <= 0) return Number.POSITIVE_INFINITY;
+    const snap = this.rateLimiter.snapshot(RATE_LIMIT_KEY);
+    const windowStart = Math.floor(Date.now() / HOUR_MS) * HOUR_MS;
+    const used = snap && snap.windowStartMs === windowStart ? snap.count : 0;
+    return Math.max(0, limit - used);
+  }
+
   /** Give back the hourly slot of a pass the network back-off deferred at dispatch. */
   private refundIfNetworkDeferred(stats: CuratorRunStats): void {
     if (stats.deferral === 'network-backoff') {
@@ -980,6 +995,9 @@ export class MemoryTriggerService {
         logger: this.logger,
         signal,
         failures: new BootScanFailureLedger(this.sqlite, this.logger),
+        // A ledger retry may spend a slot only if one is still left for the
+        // normal scan afterwards (TASK_2026_621).
+        retryAllowed: () => this.curateSlotsLeft() >= 2,
         run: async (scanSessionId, scanWorkspaceRoot, runSignal) => {
           // The boot scan draws from the SAME hourly budget as the cue path
           // (`onUserPromptSubmit`) and the episode path (`tryEpisodeCurate`).
@@ -1079,6 +1097,7 @@ export class MemoryTriggerService {
           retried: result.retried,
           recovered: result.recovered,
           givenUp: result.givenUp,
+          retriesDeferred: result.retriesDeferred,
         },
       });
     } catch (err: unknown) {
