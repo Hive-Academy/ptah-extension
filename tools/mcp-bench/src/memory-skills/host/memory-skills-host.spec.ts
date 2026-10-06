@@ -1,0 +1,448 @@
+import 'reflect-metadata';
+
+jest.mock('vscode', () => ({}), { virtual: true });
+
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
+import * as netModule from 'node:net';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import { MEMORY_CONTRACT_TOKENS } from '@ptah-extension/memory-contracts';
+import { container as rootContainer } from 'tsyringe';
+
+import type {
+  BenchHostHandle,
+  BootCodeExecutionHostOptions,
+  IsolatedPaths,
+} from '../../transport/bench-host-boot';
+import type {
+  NetAttempt,
+  NetRecorderHandle,
+  NetRecorderOptions,
+} from '../runner/net-recorder';
+import { RecordedCuratorLlm } from '../doubles/recorded-curator-llm';
+import { startNetRecorder } from '../runner/net-recorder';
+import {
+  HOST_COMPLETION_FILE,
+  runMemorySkillsHost,
+  type HostCompletion,
+  type MemorySkillsHostDeps,
+  type MemorySkillsHostSuite,
+  type MemorySkillsHostSuiteContext,
+} from './memory-skills-host';
+import {
+  MEMORY_SKILLS_PLAN_ENV,
+  MEMORY_SKILLS_PLAN_SCHEMA_ID,
+  MemorySkillsPlanError,
+} from './plan.schema';
+
+interface Deferred<T> {
+  promise: Promise<T>;
+  resolve: (value: T) => void;
+}
+function deferred<T>(): Deferred<T> {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+
+describe('runMemorySkillsHost', () => {
+  let root: string;
+  let bench: string;
+  let runDir: string;
+  let planPath: string;
+  let workspace: string;
+  let isolation: IsolatedPaths;
+  let events: string[];
+  let wire: Record<string, unknown>[];
+  let stop: jest.Mock;
+  let shutdown: Deferred<string>;
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), 'ptah-620-host-'));
+    bench = join(root, 'bench');
+    runDir = join(bench, 'runs', 'r1');
+    mkdirSync(runDir, { recursive: true });
+    planPath = join(runDir, 'plan.json');
+    workspace = join(root, 'workspace');
+    mkdirSync(workspace);
+    const home = join(root, 'iso');
+    mkdirSync(join(home, '.ptah', 'state'), { recursive: true });
+    isolation = {
+      home,
+      userDataPath: join(home, '.ptah'),
+      dbPath: join(home, '.ptah', 'state', 'ptah.sqlite'),
+    };
+    events = [];
+    wire = [];
+    stop = jest.fn(async () => {
+      events.push('stop');
+    });
+    shutdown = deferred<string>();
+  });
+
+  afterEach(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  function writePlan(overrides: Record<string, unknown> = {}): void {
+    writeFileSync(
+      planPath,
+      JSON.stringify({
+        schemaId: MEMORY_SKILLS_PLAN_SCHEMA_ID,
+        runId: 'r1',
+        benchDataDir: bench,
+        runDir,
+        realHome: join(root, 'real-home'),
+        cassetteMode: 'replay',
+        ci: false,
+        cassettes: {
+          curator: { path: join(bench, 'curator.jsonl'), model: 'm' },
+          laneRunner: { path: join(bench, 'lane.jsonl'), model: 'm' },
+        },
+        fixtures: [],
+        suites: [],
+        ...overrides,
+      }),
+    );
+  }
+
+  /** Mirrors bootCodeExecutionHost's hook order without an engine. */
+  function fakeBoot(
+    options: BootCodeExecutionHostOptions,
+  ): Promise<BenchHostHandle> {
+    return (async () => {
+      events.push('boot');
+      await options.beforeEngineBoot?.({
+        workspace: options.workspace,
+        isolation,
+      });
+      events.push('engine');
+      const container = rootContainer.createChildContainer();
+      await options.afterContainerReady?.(container, {
+        workspaceRoot: options.workspace,
+        isolation,
+      });
+      events.push('mcp');
+      return {
+        port: 4321,
+        workspaceRoot: options.workspace,
+        isolation,
+        container,
+        stop,
+      };
+    })();
+  }
+
+  function deps(
+    overrides: Partial<MemorySkillsHostDeps> = {},
+  ): MemorySkillsHostDeps {
+    return {
+      assertIsolated: () => {
+        events.push('isolation');
+        return isolation;
+      },
+      readWorkspace: () => {
+        events.push('workspace');
+        return workspace;
+      },
+      env: { [MEMORY_SKILLS_PLAN_ENV]: planPath },
+      boot: fakeBoot,
+      suites: [],
+      shutdownRequested: shutdown.promise,
+      startNetRecorder: () => {
+        throw new Error('no recorder outside CI');
+      },
+      writeWire: (message) => {
+        wire.push(message);
+        events.push(`wire:${String(message['benchHost'])}`);
+        if (message['benchHost'] === 'complete') {
+          // The completion is on disk before the host waits for EOF.
+          events.push(
+            existsSync(join(runDir, HOST_COMPLETION_FILE))
+              ? 'completion-on-disk'
+              : 'completion-missing',
+          );
+          shutdown.resolve('stdin-eof');
+        }
+      },
+      homedir: () => isolation.home,
+      now: () => 0,
+      ...overrides,
+    };
+  }
+
+  function completion(): HostCompletion {
+    return JSON.parse(
+      readFileSync(join(runDir, HOST_COMPLETION_FILE), 'utf8'),
+    ) as HostCompletion;
+  }
+
+  it('runs an empty plan: isolation first, ready, completion on disk, then stop', async () => {
+    writePlan();
+    const result = await runMemorySkillsHost(deps());
+
+    expect(events).toEqual([
+      'isolation',
+      'workspace',
+      'boot',
+      'engine',
+      'mcp',
+      'wire:ready',
+      'wire:complete',
+      'completion-on-disk',
+      'stop',
+    ]);
+    expect(wire[0]).toEqual({
+      benchHost: 'ready',
+      port: 4321,
+      workspaceRoot: workspace,
+      homedir: isolation.home,
+      userDataPath: isolation.userDataPath,
+      dbPath: isolation.dbPath,
+    });
+    expect(wire[1]).toEqual({
+      benchHost: 'complete',
+      runId: 'r1',
+      status: 'complete',
+      completionFile: join(runDir, HOST_COMPLETION_FILE),
+    });
+    expect(result.shutdownReason).toBe('stdin-eof');
+    expect(completion()).toEqual({
+      schemaId: '620.host-completion.v1',
+      runId: 'r1',
+      cassetteMode: 'replay',
+      ci: false,
+      status: 'complete',
+      seeded: [],
+      suites: [],
+      net: null,
+    });
+    expect(stop).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses before anything else when the isolation check throws', async () => {
+    writePlan();
+    const boot = jest.fn();
+    const readWorkspace = jest.fn();
+    await expect(
+      runMemorySkillsHost(
+        deps({
+          assertIsolated: () => {
+            throw new Error('not isolated');
+          },
+          readWorkspace,
+          boot,
+        }),
+      ),
+    ).rejects.toThrow('not isolated');
+    expect(readWorkspace).not.toHaveBeenCalled();
+    expect(boot).not.toHaveBeenCalled();
+    expect(wire).toEqual([]);
+  });
+
+  it('refuses a plan naming an unregistered suite before boot', async () => {
+    writePlan({ suites: [{ id: 'mem.unknown' }] });
+    const boot = jest.fn();
+    await expect(runMemorySkillsHost(deps({ boot }))).rejects.toThrow(
+      'the plan names suites this host does not have: mem.unknown',
+    );
+    expect(boot).not.toHaveBeenCalled();
+  });
+
+  it('refuses a host with two suites under one id', async () => {
+    writePlan();
+    const suite: MemorySkillsHostSuite = {
+      id: 's',
+      run: async () => undefined,
+    };
+    await expect(
+      runMemorySkillsHost(deps({ suites: [suite, suite] })),
+    ).rejects.toBeInstanceOf(MemorySkillsPlanError);
+  });
+
+  it('seeds fixtures before the engine and installs the doubles before MCP', async () => {
+    mkdirSync(join(bench, 'snapshots'));
+    writeFileSync(join(bench, 'snapshots', 'seed.sqlite'), 'DB');
+    writePlan({
+      fixtures: [
+        { kind: 'database', source: join(bench, 'snapshots', 'seed.sqlite') },
+      ],
+      suites: [{ id: 'probe', options: { n: 1 } }],
+    });
+    let seen: MemorySkillsHostSuiteContext | undefined;
+    const probe: MemorySkillsHostSuite = {
+      id: 'probe',
+      run: async (context) => {
+        seen = context;
+        expect(readFileSync(isolation.dbPath, 'utf8')).toBe('DB');
+      },
+    };
+    await runMemorySkillsHost(deps({ suites: [probe] }));
+
+    expect(seen?.options).toEqual({ n: 1 });
+    expect(seen?.runDir).toBe(runDir);
+    expect(seen?.doubles.curator).toBeInstanceOf(RecordedCuratorLlm);
+    expect(seen?.container.resolve(MEMORY_CONTRACT_TOKENS.CURATOR_LLM)).toBe(
+      seen?.doubles.curator,
+    );
+    expect(completion().seeded).toEqual([
+      expect.objectContaining({
+        kind: 'database',
+        target: isolation.dbPath,
+        files: 1,
+      }),
+    ]);
+  });
+
+  it('records a throwing suite as error and still runs the next one', async () => {
+    writePlan({ suites: [{ id: 'a' }, { id: 'b' }] });
+    const ran: string[] = [];
+    await runMemorySkillsHost(
+      deps({
+        suites: [
+          {
+            id: 'a',
+            run: async () => {
+              ran.push('a');
+              throw new Error('suite a broke');
+            },
+          },
+          { id: 'b', run: async () => void ran.push('b') },
+        ],
+      }),
+    );
+    expect(ran).toEqual(['a', 'b']);
+    expect(completion().suites).toEqual([
+      { id: 'a', status: 'error', durationMs: 0, error: 'suite a broke' },
+      { id: 'b', status: 'completed', durationMs: 0 },
+    ]);
+  });
+
+  it('skips the remaining suites once shutdown is requested', async () => {
+    writePlan({ suites: [{ id: 'a' }, { id: 'b' }] });
+    await runMemorySkillsHost(
+      deps({
+        suites: [
+          {
+            id: 'a',
+            run: async () => {
+              shutdown.resolve('SIGTERM');
+              await Promise.resolve();
+            },
+          },
+          { id: 'b', run: async () => fail('b must not run') },
+        ],
+      }),
+    );
+    expect(completion().suites).toEqual([
+      { id: 'a', status: 'completed', durationMs: 0 },
+      { id: 'b', status: 'skipped', reason: 'shutdown-requested' },
+    ]);
+  });
+
+  it('CI: runs suites under the net recorder and flags recorded attempts', async () => {
+    writePlan({ ci: true, suites: [{ id: 'a' }] });
+    const attempt: NetAttempt = {
+      kind: 'tcp-connect',
+      tag: 'memory-skills-host',
+      detail: '{"host":"api.example.com","port":443}',
+    };
+    const started: NetRecorderOptions[] = [];
+    const recorderStop = jest.fn(() => {
+      events.push('recorder-stop');
+      return [attempt];
+    });
+    const startNetRecorder = (
+      options: NetRecorderOptions,
+    ): NetRecorderHandle => {
+      started.push(options);
+      events.push('recorder-start');
+      return {
+        logFile: options.logFile ?? '',
+        stop: recorderStop,
+      } as unknown as NetRecorderHandle;
+    };
+    await runMemorySkillsHost(
+      deps({
+        startNetRecorder,
+        suites: [{ id: 'a', run: async () => void events.push('suite-a') }],
+      }),
+    );
+    expect(started).toEqual([
+      expect.objectContaining({ logFile: join(runDir, 'net-recorder.log') }),
+    ]);
+    expect(events.indexOf('recorder-start')).toBeLessThan(
+      events.indexOf('suite-a'),
+    );
+    expect(events.indexOf('recorder-stop')).toBeLessThan(
+      events.indexOf('wire:complete'),
+    );
+    expect(completion()).toMatchObject({
+      status: 'net-violation',
+      net: { logFile: join(runDir, 'net-recorder.log'), attempts: [attempt] },
+    });
+    expect(wire[1]).toMatchObject({ status: 'net-violation' });
+  });
+
+  it('CI: the real net recorder installs and restores around the suites', async () => {
+    writePlan({ ci: true, suites: [{ id: 'a' }] });
+    const connect = netModule.Socket.prototype.connect;
+    let patchedDuringSuite = false;
+    await runMemorySkillsHost(
+      deps({
+        startNetRecorder,
+        suites: [
+          {
+            id: 'a',
+            run: async () => {
+              patchedDuringSuite =
+                netModule.Socket.prototype.connect !== connect;
+            },
+          },
+        ],
+      }),
+    );
+    expect(patchedDuringSuite).toBe(true);
+    expect(netModule.Socket.prototype.connect).toBe(connect);
+    expect(completion()).toMatchObject({
+      status: 'complete',
+      suites: [{ id: 'a', status: 'completed' }],
+      net: { logFile: join(runDir, 'net-recorder.log'), attempts: [] },
+    });
+  });
+
+  it('refuses a run directory that already holds a completed run', async () => {
+    writePlan();
+    writeFileSync(join(runDir, HOST_COMPLETION_FILE), '{}');
+    await expect(runMemorySkillsHost(deps())).rejects.toThrow(
+      /already holds a completed run/,
+    );
+    expect(events).not.toContain('engine');
+  });
+
+  it('stops the host and fails when the boot skipped afterContainerReady', async () => {
+    writePlan();
+    const boot = async (): Promise<BenchHostHandle> => ({
+      port: 1,
+      workspaceRoot: workspace,
+      isolation,
+      container: rootContainer.createChildContainer(),
+      stop,
+    });
+    await expect(runMemorySkillsHost(deps({ boot }))).rejects.toThrow(
+      'the record/replay doubles were not installed before MCP started',
+    );
+    expect(stop).toHaveBeenCalledTimes(1);
+    expect(wire).toEqual([]);
+  });
+});
