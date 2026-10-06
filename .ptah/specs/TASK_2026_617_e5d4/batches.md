@@ -278,7 +278,7 @@ may never emit (plan: "every listener removed on exit"). Also noted: the opencod
 transcript has no `session/request_permission`, while P2 shows `ptah__ptah_agent_list` gated. This does not change
 the policy.
 
-## Batch 4: vendor profile contract, session runner, fake ACP peer — COMPLETE (commit eff0a4292; Phase 1 review pending)
+## Batch 4: vendor profile contract, session runner, fake ACP peer — COMPLETE (commit eff0a4292; Phase 1 review fixes 6163b042e; reviews: code-logic-review.md APPROVED, code-style-rereview.md APPROVED)
 
 - Recommended executor: backend-developer (sub-agent)
 - Fallback executor: backend-developer, fresh run with this section and the Batch 3 files
@@ -362,7 +362,44 @@ Deviations from the plan, accepted for now and listed for the Phase 1 review:
    for the next message.
 6. The runner kills the child when the ACP connection closes while the process is still alive.
 
-## Batch 5: grokModel setting, part 1 — shared contract and file key — PENDING
+### Phase 1 review — COMPLETE
+
+- `code-logic-review.md`: APPROVED, 7/10, 0 blocking and 0 serious findings.
+- `code-style-review.md`: REVISE, 7/10. A revise round followed, committed in `6163b042e`; the re-review in
+  `code-style-rereview.md` is APPROVED, 8.5/10.
+- The team-leader verified the revise round:
+  - scoped `typecheck,test,lint` pass (`--skip-nx-cache`);
+  - the degradation audit is clean;
+  - the ACP specs pass 91/91.
+
+The revise round supersedes Batch 4 deviation 1 and part of Task 9.1:
+
+- `buildSpawn(options)` now returns `AcpSpawnSpec { args, env? }`. `spawnSpec.env` reaches the transport, which
+  `spawnCli` merges over `process.env`.
+- `alwaysApproveFlag` is **removed** from `AcpVendorProfile`. Task 9.1 builds argv without it: `['agent',
+'--no-leader', 'stdio']`. The `--always-approve` fallback stays documented in the Grok profile file and is not
+  wired.
+- `isExtensionNotification` is now optional.
+- `buildMcpServers` and `sessionConfig` return readonly arrays.
+- `AcpSessionHandleConfig` and `AcpSpawnOptions` take an optional `logger`. The logger is imported as a type only
+  from `@ptah-extension/vscode-core`, which goes against plan line 189 ("not even as a type"). The style re-review
+  accepted it, with the codex and cursor adapters as precedent; the logic review did not object.
+- New timing constants: `EXIT_DRAIN_GRACE_MS` (500 ms) and `ACP_CANCEL_GRACE_MS` (1.5 s).
+- `tsconfig.lib.json` excludes `src/**/__fixtures__/**`.
+
+Carried into Batch 9 (binding):
+
+- Never log env values or argv; both may carry API keys. Log context stays limited to `command`, `pid` and
+  `error.message` (style M2).
+- The real Grok `describeError` wording for `-32003` (string and object data), `-32000` and `-32602` ("Grok
+  rejected model '<m>' (from <modelSource>)" plus the advertised values) lands in the Grok profile, with a spec
+  that uses the `grok-p3-*` fixture payloads. Phase 1 verified those rows only against a stub (logic review,
+  Moderate).
+- Optional minor: turn `onUnexpectedTurnError` in `acp-session-handle.ts` into a `const` defined above `continue`
+  (style M1).
+- Deferred to post-merge QA or a later task: stdin backpressure is ignored (logic Minor, `acp-process-transport.ts`).
+
+## Batch 5: grokModel setting, part 1 — shared contract and file key — IN_PROGRESS
 
 - Recommended executor: backend-developer (sub-agent)
 - Fallback executor: backend-developer, fresh run
@@ -371,7 +408,7 @@ Deviations from the plan, accepted for now and listed for the Phase 1 review:
 - Tasks: 2 | Depends on: none (may run after Batch 4 for a clean phase boundary)
 - Phase: 2 (Grok lane) | Phase review: at the end of Batch 9
 
-### Task 5.1: shared RPC types — PENDING
+### Task 5.1: shared RPC types — IN_PROGRESS
 
 - File: `...\libs\shared\src\lib\types\rpc\rpc-auth.types.ts`, `...\libs\shared\src\lib\types\rpc\rpc-agents.types.ts`
 - Plan reference: implementation-plan.md:462-477
@@ -379,7 +416,7 @@ Deviations from the plan, accepted for now and listed for the Phase 1 review:
 - Quality requirements: `grokModel?: string` on the config and set-config types; do **not** add `grok` to
   `AgentListCliModelsResult` here (that is Batch 8).
 
-### Task 5.2: file settings key — PENDING
+### Task 5.2: file settings key — IN_PROGRESS
 
 - File: `...\libs\backend\platform-core\src\file-settings-keys.ts`
 - Pattern to follow: `file-settings-keys.ts:193`, `:513`
