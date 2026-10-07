@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   computeManifestSha256,
+  resolveEntryBenchDataDir,
   sha256,
   verifyCandidateManifest,
 } from './verify-candidate-manifest';
@@ -206,5 +207,29 @@ describe('bench data dir rules (619 resolveBenchDataDir)', () => {
     await expect(
       verifyCandidateManifest({ benchDataDir: 'relative/bench' }),
     ).rejects.toThrow('absolute');
+  });
+
+  it('defaults to resolveBenchDataDir() and lets an explicit dir win', () => {
+    const fromEnv = join(tmpdir(), 'ptah-620-env-bench');
+    const explicit = join(tmpdir(), 'ptah-620-explicit-bench');
+    const rules = {
+      env: { PTAH_MCP_BENCH_DATA_DIR: fromEnv },
+      repoRoot: join(tmpdir(), 'ptah-620-fake-repo'),
+      realHome: join(tmpdir(), 'ptah-620-fake-home'),
+    };
+    expect(resolveEntryBenchDataDir(undefined, rules)).toBe(fromEnv);
+    expect(resolveEntryBenchDataDir(explicit, rules)).toBe(explicit);
+  });
+
+  it('applies the default rules when no dir is given (refuses the real ~/.ptah)', async () => {
+    const home = join(tmpdir(), 'ptah-620-fake-home');
+    await expect(
+      verifyCandidateManifest({
+        benchDataRules: {
+          env: { PTAH_MCP_BENCH_DATA_DIR: join(home, '.ptah', 'bench') },
+          realHome: home,
+        },
+      }),
+    ).rejects.toThrow('real Ptah state directory');
   });
 });

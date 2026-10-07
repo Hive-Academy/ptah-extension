@@ -2,10 +2,10 @@ import { createHash } from 'node:crypto';
 import { createReadStream, existsSync } from 'node:fs';
 import { mkdir, readdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { BENCH_DATA_DIR_ENV, resolveBenchDataDir } from '../../bench-data';
 import {
   FROZEN_CANDIDATES_NAME,
   compareCodePoints,
+  resolveEntryBenchDataDir,
   type BenchDataRules,
 } from './verify-candidate-manifest';
 
@@ -118,7 +118,8 @@ export interface CandidateRowDiff {
 }
 
 export interface CandidateRowDiffOptions {
-  benchDataDir: string;
+  /** Bench data root. Default: 619's `resolveBenchDataDir()`. */
+  benchDataDir?: string;
   snapshotFile?: string;
   candidatesName?: string;
   /** `null` skips the frozen-hash pin (specs pass synthetic snapshots). */
@@ -203,10 +204,10 @@ export function diffCandidateRows(
 export async function runCandidateRowDiff(
   options: CandidateRowDiffOptions,
 ): Promise<CandidateRowDiffResult> {
-  const benchDataDir = resolveBenchDataDir({
-    ...options.benchDataRules,
-    env: { [BENCH_DATA_DIR_ENV]: options.benchDataDir },
-  });
+  const benchDataDir = resolveEntryBenchDataDir(
+    options.benchDataDir,
+    options.benchDataRules,
+  );
   const snapshotFile = options.snapshotFile ?? FROZEN_SNAPSHOT_FILE;
   const candidatesName = options.candidatesName ?? FROZEN_CANDIDATES_NAME;
   const snapshotPath = join(benchDataDir, 'snapshots', snapshotFile);

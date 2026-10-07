@@ -58,8 +58,8 @@ export interface CandidateManifestReport {
 }
 
 export interface VerifyCandidateManifestOptions {
-  /** Bench data root; validated by 619's `resolveBenchDataDir` rules. */
-  benchDataDir: string;
+  /** Bench data root. Default: 619's `resolveBenchDataDir()`. */
+  benchDataDir?: string;
   /** Folder under `<benchDataDir>/snapshots/`; the manifest is `<name>.manifest.json` beside it. */
   snapshotName?: string;
   /** Expected `manifestSha256`; `null` skips the pin (synthetic specs pass their own). */
@@ -68,11 +68,30 @@ export interface VerifyCandidateManifestOptions {
   benchDataRules?: BenchDataRules;
 }
 
-/** The `resolveBenchDataDir` inputs a caller may override; the dir itself is explicit. */
+/** The `resolveBenchDataDir` inputs a caller may override (specs). */
 export type BenchDataRules = Pick<
   ResolveBenchDataDirOptions,
-  'realHome' | 'repoRoot' | 'platform'
+  'env' | 'realHome' | 'repoRoot' | 'platform'
 >;
+
+/**
+ * The bench data folder of a data or labelling entry point: 619's
+ * `resolveBenchDataDir()`, from `PTAH_MCP_BENCH_DATA_DIR` or its default. An
+ * explicit `benchDataDir` is passed to it as that variable, so the same rules
+ * apply (absolute, outside the real `~/.ptah` and the repository).
+ */
+export function resolveEntryBenchDataDir(
+  benchDataDir: string | undefined,
+  rules: BenchDataRules = {},
+): string {
+  return resolveBenchDataDir({
+    ...rules,
+    env:
+      benchDataDir === undefined
+        ? rules.env
+        : { [BENCH_DATA_DIR_ENV]: benchDataDir },
+  });
+}
 
 /**
  * `manifestSha256` as the freeze script computed it: sha256 of Python's
@@ -96,10 +115,10 @@ export function computeManifestSha256(
 export async function verifyCandidateManifest(
   options: VerifyCandidateManifestOptions,
 ): Promise<CandidateManifestReport> {
-  const benchDataDir = resolveBenchDataDir({
-    ...options.benchDataRules,
-    env: { [BENCH_DATA_DIR_ENV]: options.benchDataDir },
-  });
+  const benchDataDir = resolveEntryBenchDataDir(
+    options.benchDataDir,
+    options.benchDataRules,
+  );
   const name = options.snapshotName ?? FROZEN_CANDIDATES_NAME;
   const snapshotsDir = join(benchDataDir, 'snapshots');
   const copyDir = join(snapshotsDir, name);

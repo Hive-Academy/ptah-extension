@@ -8,9 +8,9 @@ import {
   writeFile,
 } from 'node:fs/promises';
 import { dirname, join, posix } from 'node:path';
-import { BENCH_DATA_DIR_ENV, resolveBenchDataDir } from '../../bench-data';
 import {
   compareCodePoints,
+  resolveEntryBenchDataDir,
   sha256,
   type BenchDataRules,
 } from '../data/verify-candidate-manifest';
@@ -69,7 +69,8 @@ export type DocumentReader = (
 ) => Promise<PacketDocumentSource>;
 
 export interface BuildPacketOptions {
-  benchDataDir: string;
+  /** Bench data root. Default: 619's `resolveBenchDataDir()`. */
+  benchDataDir?: string;
   sample: RubricSample;
   read: DocumentReader;
   raterIds?: readonly string[];
@@ -116,10 +117,10 @@ export interface PacketResult {
 export async function buildLabellingPacket(
   options: BuildPacketOptions,
 ): Promise<PacketResult> {
-  const benchDataDir = resolveBenchDataDir({
-    ...options.benchDataRules,
-    env: { [BENCH_DATA_DIR_ENV]: options.benchDataDir },
-  });
+  const benchDataDir = resolveEntryBenchDataDir(
+    options.benchDataDir,
+    options.benchDataRules,
+  );
   const raterIds = [...(options.raterIds ?? ['r1', 'r2'])];
   if (raterIds.length < 2)
     throw new Error('A blind packet needs at least two raters');

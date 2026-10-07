@@ -336,6 +336,20 @@
           "typescript"
         ]
       }
+    },
+    "bench-memory-skills": {
+      "executor": "nx:run-commands",
+      "dependsOn": ["build-host-memory-skills"],
+      "options": {
+        "parallel": false,
+        "commands": [
+          {
+            "command": "npx esbuild tools/mcp-bench/src/memory-skills/runner/run-memory-skills.entry.ts --bundle --platform=node --target=node20 --format=esm --tsconfig=tools/mcp-bench/tsconfig.json --packages=external --log-level=warning --outfile=dist/tools/mcp-bench/run-memory-skills.mjs \"--banner:js=import { createRequire as __esm_createRequire } from 'node:module'; const require = __esm_createRequire(import.meta.url);\"",
+            "forwardAllArgs": false
+          },
+          "node dist/tools/mcp-bench/run-memory-skills.mjs"
+        ]
+      }
     }
   }
 }

@@ -2,7 +2,6 @@ import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { readFile, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
-import { BENCH_DATA_DIR_ENV, resolveBenchDataDir } from '../../bench-data';
 import {
   FROZEN_SNAPSHOT_FILE,
   FROZEN_SNAPSHOT_SHA256,
@@ -12,6 +11,7 @@ import {
 import {
   FROZEN_CANDIDATES_NAME,
   compareCodePoints,
+  resolveEntryBenchDataDir,
   sha256,
   type BenchDataRules,
 } from '../data/verify-candidate-manifest';
@@ -659,7 +659,7 @@ export interface LoadedRubricInputs {
 }
 
 export interface LoadRubricInputsOptions {
-  benchDataDir: string;
+  benchDataDir?: string; // default: 619's resolveBenchDataDir()
   git: GitTreeReader;
   /** Commit the authored skills are read at (resolved to a full SHA). */
   commitRef: string;
@@ -676,10 +676,10 @@ export const SKILLS_PREFIX = '.claude/skills/';
 export async function loadRubricSampleInputs(
   options: LoadRubricInputsOptions,
 ): Promise<LoadedRubricInputs> {
-  const benchDataDir = resolveBenchDataDir({
-    ...options.benchDataRules,
-    env: { [BENCH_DATA_DIR_ENV]: options.benchDataDir },
-  });
+  const benchDataDir = resolveEntryBenchDataDir(
+    options.benchDataDir,
+    options.benchDataRules,
+  );
   const commit = await options.git.resolveCommit(options.commitRef);
   const trackedSkillSlugs = (await options.git.listFiles(commit, SKILLS_PREFIX))
     .map((p) => /^\.claude\/skills\/([^/]+)\/SKILL\.md$/.exec(p)?.[1])

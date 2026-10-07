@@ -11,10 +11,10 @@ import {
 import { tmpdir } from 'node:os';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
-import { BENCH_DATA_DIR_ENV, resolveBenchDataDir } from '../../bench-data';
 import { sha256File } from './candidate-row-diff';
 import {
   compareCodePoints,
+  resolveEntryBenchDataDir,
   sha256,
   type BenchDataRules,
 } from './verify-candidate-manifest';
@@ -96,7 +96,8 @@ export interface SessionSampleManifest {
 }
 
 export interface SampleSessionsOptions {
-  benchDataDir: string;
+  /** Bench data root. Default: 619's `resolveBenchDataDir()`. */
+  benchDataDir?: string;
   /** Read-only transcript dir of the main repository (e.g. `~/.claude/projects/<repo>`). */
   sourceDir: string;
   sampleSize?: number;
@@ -237,10 +238,10 @@ function isWithin(target: string, root: string): boolean {
 export async function sampleSessions(
   options: SampleSessionsOptions,
 ): Promise<SampleSessionsResult> {
-  const benchDataDir = resolveBenchDataDir({
-    ...options.benchDataRules,
-    env: { [BENCH_DATA_DIR_ENV]: options.benchDataDir },
-  });
+  const benchDataDir = resolveEntryBenchDataDir(
+    options.benchDataDir,
+    options.benchDataRules,
+  );
   const sourceDir = resolve(options.sourceDir);
   if (isWithin(sourceDir, benchDataDir) || isWithin(benchDataDir, sourceDir)) {
     throw new Error(
