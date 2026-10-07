@@ -218,6 +218,7 @@ describe('runMemorySkills (Batch 16)', () => {
           ? { kind: 'exited-early', exitCode: 1, signal: null, detail: 'died' }
           : (script.exit ?? { kind: 'clean', exitCode: 0, signal: null }),
         isolatedDbCreated: true,
+        tempLeft: null,
         guard: {
           mode: 'hash',
           before: { takenAt: '2026-10-07T00:00:00.000Z', files: [] },
