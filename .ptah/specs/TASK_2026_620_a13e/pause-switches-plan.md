@@ -23,7 +23,9 @@ Every rule below carries one tag:
 2. Delete `memory.curatorEnabled`, `memory.triggers.preCompact`, `skillSynthesis.triggers.sessionEnd`.
    The per-workspace toggle fix and moving host-local trigger keys are follow-ups.
 3. Manual runs `memory:runNow`, `skillSynthesis:runCurator`, `skillSynthesis:analyzeNow`,
-   `skillSynthesis:enhanceNow` are refused by the RPC and greyed out in the UI while paused.
+   `skillSynthesis:enhanceNow` are refused by the RPC and greyed out in the UI while paused. Orchestrator
+   decision under the same rule (`context.md:187-188`): `skillSynthesis:previewEnhancement`, the call the
+   Skills UI actually makes, is refused and greyed out too.
 4. Electron tray: two items "Pause memory" / "Pause skills"; tray always shown; refreshed when the setting
    changes elsewhere; Quit keeps working.
 5. Original request: switches visible on the settings page or the Thoth Memory/Skills settings; stop ALL
@@ -102,7 +104,7 @@ Paths: `memory-curator/…` = `libs/backend/memory-curator/src/lib/…`; `skill-
 | M12 | Lifecycle archive/delete/evict (inside the retention run) | `memory-curator/retention/memory-lifecycle.service.ts`; `memory-lifecycle-config.ts:44-47` | `memory.lifecycle.enabled` | live | runs while paused | **GAP** |
 | M13 | Memory indexing run | `indexing-control.service.ts:304` | per-workspace row or `force` | live | not gated by master | **GAP** |
 | M14 | `memory:runNow` | `libs/backend/rpc-handlers/src/lib/handlers/memory-rpc.handlers.ts:627` | none | — | runs | **GAP** (decision 3) |
-| M15 | **Embedder + reranker warmup** (model load in utility process) | armed `apps/ptah-electron/src/activation/wire-runtime.ts:505`; body `:632-660`; barrier opens once the window has loaded and the curator exists | none | boot (once) | runs at every boot while paused | **GAP** (decision 1) |
+| M15 | **Embedder + reranker warmup** (model load in utility process) | armed `apps/ptah-electron/src/activation/wire-runtime.ts:505`; body `:632-660`; barrier opens once the window has loaded and the curator exists | none | boot (once) | runs at every boot while paused; serves memory **and** skills (3.9) | **GAP** (decision 1); skipped when both switches are paused |
 | M16 | Session-start memory injection | `libs/backend/agent-sdk/src/lib/helpers/memory-prompt-injector.ts:181-187` | `memory.triggers.sessionStart.injectionEnabled` | live | — | read side, stays on [U] |
 | M17 | Code-symbol injection | `agent-sdk/src/lib/helpers/code-symbol-prompt-injector.ts:26` | `memory.symbolInjectionEnabled` | live | — | read side, stays on [U] |
 | M18 | `ptah_memory_search` / `memory:search` (embeds the query; lazy-loads the embedder, `memory-curator/embedder/embedder-worker-client.ts:99, 170, 194`) | `memory-rpc.handlers.ts:236` | none | — | — | read side, stays on [U]; owned by TASK_2026_619 |
@@ -125,7 +127,7 @@ Paths: `memory-curator/…` = `libs/backend/memory-curator/src/lib/…`; `skill-
 | S9 | Curator interval: retirement, umbrella merge, enhancement → promotion/repropagation | `skill-synthesis/skill-curator.service.ts:217-243`; pass `:268-276` | `curatorEnabled` at `start()`; tick uses the start-time snapshot | boot | fires while paused; stale settings | **GAP** |
 | S10 | Curator reconciliation (data repair) | `skill-curator.service.ts:224-225, 505` | none (by design) | at `start()` | runs once per start | OK; preserve |
 | S11 | Backlog cleanup cron `41 * * * *` | `thoth-runtime/src/lib/skill-backlog-cleanup-job.ts`; `skill-synthesis/cleanup/skill-backlog-cleanup.service.ts:136, 584` | `skillSynthesis.enabled` | live | skips | OK |
-| S12 | Manual `skillSynthesis:runCurator` (`skills-synthesis-rpc.handlers.ts:732`), `analyzeNow` (`:834`), `enhanceNow` (`:1100`) | — | none | — | run | **GAP** (decision 3) |
+| S12 | Manual `skillSynthesis:runCurator` (`skills-synthesis-rpc.handlers.ts:732`), `analyzeNow` (`:834`), `enhanceNow` (`:1100`), `previewEnhancement` (`:1150`; UI caller `skill-clones-view.component.ts:751`) | — | none | — | run | **GAP** (decision 3) |
 | S13 | Curator restart in `updateSettings` drops `onPassComplete`/`onEvent` | `skills-synthesis-rpc.handlers.ts:650-672` vs `skill-synthesis.service.ts:426-429` | — | — | passes stop being recorded/emitted after a curator setting change | bug, fixed in P2/P3 |
 | S14 | Electron tray | `apps/ptah-electron/src/services/tray/tray.service.ts:118-131, 221-276`; created only with `trayKeepalive` (`apps/ptah-electron/src/main.ts:320-350`) | writes `skillSynthesis.enabled` only | own click only | no external refresh; no memory item | **GAP** (decision 4) |
 | S15 | Promoted skills exposed to agents (`mirrorUserLayer`, all hosts) | `plugin-activation.ts:89, 107-135` | — | — | — | read side, stays on [U] |
@@ -162,7 +164,7 @@ DaisyUI switch `class="toggle toggle-xs toggle-primary"` (`workspace-indexing.co
 
 | Switch | Key | Pauses | Never pauses |
 |---|---|---|---|
-| **Memory** | `memory.enabled` | M1-M7, M9, M11-M15 | M16-M18 read side [U]; M19 DB maintenance [L] |
+| **Memory** | `memory.enabled` | M1-M7, M9, M11-M14; M15 warmup only when Skills is also paused (3.9) | M16-M18 read side [U]; M19 DB maintenance [L] |
 | **Skills** | `skillSynthesis.enabled` | S1-S4, S6-S9, S12 | S5 telemetry [L]; S10 reconciliation at start [R]; S15 skill files [U] |
 
 - Reuse the two existing file-routed keys (`file-settings-keys.ts:369, 658` and `:255, 571`) [L]; no new
@@ -212,26 +214,42 @@ test doubles, and the lazy paths above already cover external edits.
 All readers, DTOs, UI and specs change in one sub-batch (PD), because removing a DTO field breaks compilation
 across libs:
 
-| Key | Files that change |
-|---|---|
-| `memory.curatorEnabled` | `libs/backend/platform-core/src/file-settings-keys.ts:248, 564` (and reword the comment `:360`) |
-| `memory.triggers.preCompact` | `file-settings-keys.ts:380, 669`; `file-settings-keys.spec.ts:332, 345`; `memory-curator/triggers/memory-trigger-config.ts:19, 76, 126, 141, 175-180, 263` (+ `memory-trigger-config.spec.ts:16, 42, 66, 125, 130, 153`); `memory-curator/diagnostics.types.ts:53` and its builder (+ `diagnostics.service.spec.ts:149`); `memory-trigger.coalesce.spec.ts:106`, `memory-trigger.integration.spec.ts:59`, `memory-trigger.service.spec.ts:200`; `libs/shared/src/lib/types/rpc/rpc-curator-diagnostics.types.ts:68`; `rpc-handlers/…/memory-rpc.schema.ts:45`; `memory-rpc.handlers.ts:596` (+ `memory-rpc.handlers.spec.ts:191, 765, 795, 1013, 1022`); `libs/frontend/memory-curator-ui/…/memory-diagnostics-accordion.component.ts:55, 239` (+ `.spec.ts:298-300, 435, 465, 503, 554`); `memory-diagnostics-rpc.service.spec.ts:87, 132, 184-207, 268`; `memory-diagnostics-state.service.spec.ts:25, 89, 205-212`; `libs/frontend/webview-e2e-harness/src/lib/scenarios/settings/settings.fixtures.ts:257`, `…/thoth/skills-lane-pickers.e2e.spec.ts:215`, `…/thoth/thoth-feed-visual.e2e.spec.ts:180` |
-| `skillSynthesis.triggers.sessionEnd` | `file-settings-keys.ts:389, 686`; `file-settings-keys.spec.ts:339, 349`; `skill-synthesis/triggers/skill-trigger-config.ts:8, 44, 68, 78, 97-102, 146` (+ `skill-trigger-config.spec.ts:16`); `skill-synthesis/diagnostics.service.spec.ts:26, 143, 158, 165` and the diagnostics snapshot type that carries it; shared `SkillTriggersDto.sessionEnd` `rpc-curator-diagnostics.types.ts:95`; `skills-synthesis-rpc.schema.ts:277`; `skills-synthesis-rpc.handlers.ts:803` (+ `skills-synthesis-rpc.handlers.spec.ts:283, 392, 433, 487, 743-822`; `skills-synthesis-rpc.activity-feed.integration.spec.ts:374-377, 483, 493`); `libs/frontend/skill-synthesis-ui/…/diagnostics/skill-trigger-toggle.component.ts:9`, `skill-triggers-settings.component.ts:51-53, 135-136`, `…/services/skill-diagnostics-state.service.ts:66` (+ their specs) |
+Enumeration from three greps over `apps/` and `libs/` (specs, docs and UI included) run for this revision:
+(a) `memory\.curatorEnabled`; (b) `preCompact` minus the hook symbols (`onPreCompact`, `PreCompactTrigger`,
+`preCompact{Unclaimed,Watermarks,Pending}`, `{record,coalesce,reserve,settle}PreCompact`,
+`preCompactHooksCount`, compaction and no-activity-watchdog files); (c) the literal
+`skillSynthesis.triggers.sessionEnd`, plus the `sessionEnd` DTO field in skill-trigger files. Every hit:
 
-Do not touch: `persistence-sqlite/…/0032_skill_synthesis_queue.spec.ts:194` (`'sessionEnd'` there is not this
-key; implementer confirms), and every `onPreCompact`/`PreCompactTrigger`/compaction-coordinator symbol
-(the hook, not the key). Leftover values in users' `~/.ptah/settings.json` become unrouted keys.
+| Key | Files and lines |
+|---|---|
+| `memory.curatorEnabled` | `libs/backend/platform-core/src/file-settings-keys.ts:248, 564` (reword comment `:360`); docs `apps/ptah-docs/src/content/docs/memory/settings.md:17` |
+| `memory.triggers.preCompact` (key and `preCompact` DTO field) | **backend:** `libs/backend/platform-core/src/file-settings-keys.ts:380, 669`; `file-settings-keys.spec.ts:332, 345`; `libs/backend/memory-curator/src/lib/triggers/memory-trigger-config.ts:19, 76, 126, 141, 175-180, 263`; `memory-trigger-config.spec.ts:16, 42, 66, 125, 130, 153`; `memory-trigger.coalesce.spec.ts:106`; `memory-trigger.integration.spec.ts:59`; `memory-trigger.service.spec.ts:200`; `libs/backend/memory-curator/src/lib/diagnostics.types.ts:53` (+ the builder that fills it); `diagnostics.service.spec.ts:149`; `libs/backend/rpc-handlers/src/lib/handlers/memory-rpc.schema.ts:45`; `memory-rpc.handlers.ts:596`; `memory-rpc.handlers.spec.ts:191, 765, 795, 1013, 1022, 1042, 1111, 1129`. **shared:** `libs/shared/src/lib/types/rpc/rpc-curator-diagnostics.types.ts:68`. **frontend:** `libs/frontend/memory-curator-ui/src/lib/components/diagnostics/memory-diagnostics-accordion.component.ts:55, 239`; `memory-diagnostics-accordion.component.spec.ts:50, 87, 296-300, 435, 465, 503, 554`; `libs/frontend/memory-curator-ui/src/lib/services/memory-diagnostics-rpc.service.spec.ts:87, 132, 184, 193, 198, 207, 268`; `memory-diagnostics-state.service.spec.ts:25, 89, 205, 208, 212`; `libs/frontend/core/src/lib/services/providers-settings-state.service.spec.ts:113, 145`; `libs/frontend/webview-e2e-harness/src/lib/scenarios/settings/settings.fixtures.ts:257`; `…/scenarios/thoth/skills-lane-pickers.e2e.spec.ts:215`; `…/scenarios/thoth/thoth-feed-visual.e2e.spec.ts:180`. **docs:** `apps/ptah-docs/src/content/docs/memory/settings.md:51` |
+| `skillSynthesis.triggers.sessionEnd` (key and `SkillTriggersDto.sessionEnd`) | **backend:** `file-settings-keys.ts:389, 686`; `file-settings-keys.spec.ts:339, 349`; `libs/backend/skill-synthesis/src/lib/triggers/skill-trigger-config.ts:8, 44, 68, 78, 97-102, 146`; `skill-trigger-config.spec.ts:16, 36, 48, 126, 131, 139`; `skill-trigger.integration.spec.ts:59`; `skill-trigger.service.spec.ts:277` (key), and inspect `:385, 403, 626, 639, 999, 1003, 1113, 1120, 1684, 1695, 1822` (many are the session-end *registry* mocks, which stay); `libs/backend/skill-synthesis/src/lib/diagnostics.service.spec.ts:26, 143, 158, 165` (+ the diagnostics snapshot type that carries it); `libs/backend/rpc-handlers/src/lib/handlers/skills-synthesis-rpc.schema.ts:277`; `skills-synthesis-rpc.handlers.ts:803`; `skills-synthesis-rpc.handlers.spec.ts:283, 392, 433, 487, 743, 748, 762, 804, 822`; `skills-synthesis-rpc.activity-feed.integration.spec.ts:374-377, 483, 493`. **shared:** `rpc-curator-diagnostics.types.ts:95` (not `:86`, which is memory's `sessionEnd.enabled` and stays). **frontend:** `libs/frontend/skill-synthesis-ui/src/lib/components/diagnostics/skill-trigger-toggle.component.ts:9` (+ `.spec.ts:10`); `skill-triggers-settings.component.ts:51, 53, 135, 136` (+ `.spec.ts:21, 94, 114, 117, 118, 280`); `skill-triggers-settings.parity.spec.ts:28, 56, 57, 60, 115, 129, 269`; `skill-activity-feed.live-poll.integration.spec.ts:85`; `libs/frontend/skill-synthesis-ui/src/lib/components/skill-synthesis-tab.component.spec.ts:87, 1043`; `libs/frontend/skill-synthesis-ui/src/lib/services/skill-diagnostics-state.service.ts:66` (+ `.spec.ts:57`); `skill-diagnostics-rpc.service.spec.ts:49, 88, 102`; `libs/frontend/webview-e2e-harness/src/lib/scenarios/thoth/thoth-feed-visual.e2e.spec.ts:197, 368`. **docs:** `apps/ptah-docs/src/content/docs/skill-synthesis/settings.md:53` |
+
+PD done-check: re-run greps (a)-(c). The only remaining hits may be the "do not touch" items below.
+
+Do not touch:
+- `libs/backend/persistence-sqlite/src/lib/migrations/0032_skill_synthesis_queue.spec.ts:194`: its
+  `'sessionEnd'` is not this key; the implementer confirms.
+- `memory.triggers.sessionEnd.enabled` and its DTO `rpc-curator-diagnostics.types.ts:86`: a live memory
+  trigger.
+- Every PreCompact hook and compaction symbol: these are the hook, not the key. Leftover values in users' `~/.ptah/settings.json` become unrouted keys.
 Assumption: `PtahFileSettingsManager` loads and ignores unknown keys; check `file-settings-manager.ts`
 load/diff and keep a spec that an unknown key does not throw.
 
 ### 3.6 Manual runs while paused [U]
 
-- `memory:runNow`, `skillSynthesis:runCurator`, `analyzeNow`, `enhanceNow` throw
-  `RpcUserError('<feature> is paused', 'PAUSED')` when their master is off. `'PAUSED'` is added to
-  `RpcUserErrorCode` (`libs/shared/src/lib/types/rpc/rpc-error-codes.types.ts:7-23`) [L].
-- The UI greys out Run now (memory accordion `:231`), Run curator (`skill-synthesis-tab.component.ts:1025`)
-  and Analyze now (`skill-activity-feed.component.ts:91`), with the tooltip "Paused — resume Skills/Memory to
-  run". `enhanceNow` has no UI caller; see Open question 1 for `previewEnhancement`.
+- `memory:runNow`, `skillSynthesis:runCurator`, `analyzeNow`, `enhanceNow` and `previewEnhancement`
+  (`skills-synthesis-rpc.handlers.ts:1150`) throw `RpcUserError('<feature> is paused', 'PAUSED')` when their
+  master is off [U]. `'PAUSED'` is added to `RpcUserErrorCode`
+  (`libs/shared/src/lib/types/rpc/rpc-error-codes.types.ts:7-23`) [L].
+- The UI greys out these buttons, with the tooltip "Paused — resume Skills/Memory to run" [U]:
+  - Run now (memory accordion `:231`).
+  - Run curator (`skill-synthesis-tab.component.ts:1025`).
+  - Analyze now (`skill-activity-feed.component.ts:91`).
+  - Enhance, which calls `previewEnhancement` (`libs/frontend/skill-synthesis-ui/src/lib/components/clones/skill-clones-view.component.ts:751`).
+
+  `enhanceNow` has no UI caller (`enhance-preview-drawer.component.ts:4-6`), so it is refused in the RPC only.
 
 ### 3.7 UI [U visible; placement L]
 
@@ -276,10 +294,18 @@ load/diff and keep a spec that an unknown key does not throw.
 
 ### 3.9 Embedder warmup (M15) [U]
 
-`runEmbedderWarmup` (`wire-runtime.ts:632-660`) returns early, with a log line, when `memory.enabled` is
-false. It needs no re-warm on resume, because the embedder lazy-loads on first `embed` (`embedder-worker-client.ts:99, 170, 194`).
-The cost is a cold start on the first search or curate after resume [L]. Skills embedding work is the drain's
-`embedding` stage plus the backfill enqueue in the deferred start, so it is already under the Skills switch.
+Both pipelines use the same embedder (`PERSISTENCE_TOKENS.EMBEDDER`):
+- **Memory:** search, indexing and curate.
+- **Skills:** `SkillSynthesisService` injects it (`skill-synthesis.service.ts:279`) for analyze/dedup
+  (`:692-693`) and the embedding backfill (`:962-986`). `JudgePanelService` uses it (`gates/judge-panel.service.ts:249, 452-464`),
+  and so does `TriggerEvalService` (`gates/trigger-eval.service.ts:354, 392-418`).
+
+The warmup therefore preloads for both. Rule: `runEmbedderWarmup` (`wire-runtime.ts:632-660`) returns early,
+with a log line, only when **both** `memory.enabled` and `skillSynthesis.enabled` are false [U: pause stops
+warmup; L: OR-gate]. Gating on memory alone would make a skills-only user pay a cold model load on the first
+drain embedding. No re-warm is needed on resume, because the embedder lazy-loads on first `embed`
+(`memory-curator/embedder/embedder-worker-client.ts:99, 170, 194`). The cost is one cold start on the first
+embed after a both-paused boot [L].
 
 ---
 
@@ -335,8 +361,8 @@ tests pass for `platform-core`, `memory-curator`, `skill-synthesis`, `shared`, `
 - `rpc-handlers/…/memory-rpc.schema.ts`: `enabled: z.boolean().optional()` on set; `memory-rpc.handlers.ts`:
   write/return `memory.enabled`; `runNow` refuses while paused.
 - `rpc-handlers/…/skills-synthesis-rpc.handlers.ts`: `updateSettings` calls `synthesis.restartCurator()`
-  instead of `curator.stop()/start(newSettings)` (`:661-664`); `runCurator`, `analyzeNow`, `enhanceNow` refuse
-  while paused.
+  instead of `curator.stop()/start(newSettings)` (`:661-664`); `runCurator` (`:732`), `analyzeNow` (`:834`),
+  `enhanceNow` (`:1100`) and `previewEnhancement` (`:1150`) refuse with `PAUSED` while paused.
 - Specs: `memory-rpc.handlers.spec.ts`, `memory-rpc.schema.spec.ts`, `skills-synthesis-rpc.handlers.spec.ts`.
 
 ### P4 — Thoth UI (frontend-developer; after P3)
@@ -347,7 +373,9 @@ tests pass for `platform-core`, `memory-curator`, `skill-synthesis`, `shared`, `
   `memory-diagnostics-accordion.component.ts` (disable Run now while paused).
 - `skill-synthesis-ui`: `skill-synthesis-state.service.ts` (`:343`), `skill-synthesis-tab.component.ts`
   (header switch, `pausedChange`, disable Run curator), `skill-settings-panel.component.ts` (remove `enabled`),
-  `diagnostics/skill-activity-feed.component.ts` (disable Analyze now).
+  `diagnostics/skill-activity-feed.component.ts` (disable Analyze now), `clones/skill-clones-view.component.ts`
+  (disable Enhance, which calls `previewEnhancement` at `:751`, and show `PAUSED` errors as a paused notice,
+  not a failure).
 - `dashboard/…/thoth-status.service.ts` (paused flags) and `thoth-shell.component.ts` (badge; refresh on
   `pausedChange` and focus).
 - Specs for each.
@@ -357,7 +385,14 @@ tests pass for `platform-core`, `memory-curator`, `skill-synthesis`, `shared`, `
 - `src/services/tray/tray.service.ts` (+ `tray.service.spec.ts`): two items, refresh listener plus refresh on
   open, `keepAliveRequested` in `handleWindowAllClosed`, header comment updated.
 - `src/main.ts` (+ `main.quit-path.spec.ts`): always create the tray; pass `keepAliveRequested`.
-- `src/activation/wire-runtime.ts`: warmup gate (3.9).
+- `src/activation/wire-runtime.ts`: warmup gate, skipped only when both switches are paused (3.9).
+- Tray copy (review N4): the `create()` log at `tray.service.ts:186-190` ("Tray keep-alive active — closing
+  all windows will leave Ptah running; use the tray to quit") becomes false once the tray always exists.
+  Replace it with a log that states the actual mode, computed at create time from `trayKeepalive`: "Tray
+  created (pause controls); keep-alive on — closing all windows leaves Ptah running" vs "… keep-alive off —
+  closing all windows quits". The tooltip `TRAY_TOOLTIP = 'Ptah'` (`:78`) gains the pause state, rebuilt
+  with the menu: "Ptah", "Ptah — memory paused", "Ptah — skills paused", or "Ptah — learning paused". Update
+  the file header (`:1-45`) to describe the tray as the pause surface, with keep-alive optional [L].
 
 ---
 
@@ -369,10 +404,10 @@ Unit tests run scoped (`npx nx test <project> --testFile=<file>`); mcp-bench nev
 |---|---|
 | memory-curator | an idle timer armed before pause does not curate after; the pause event clears timers; a paused boot scan returns `'stalled'` and the watermark does not move; **resume by event re-arms exactly once** (two events → one arm); **resume with no event** (value flipped in a fake provider, then one `onActivity`) re-arms once; boot with the master off arms nothing, and the first resume arms; PreCompact no-op while paused; retention `skipped: memory-paused`; listener disposed on `stop()` |
 | skill-synthesis | booted paused → event → subscription, curator interval and backfill exist once; the same via the lazy path with no event; two resumes → one interval; mid-tick pause leaves rows `queued`; prefilter while not started → `unscored`, row survives; curator tick reads live settings and no-ops while paused; `restartCurator()` keeps the callbacks (pass recorded after a settings change); **skill boot scan: paused → `'stalled'`, watermark kept → resume (event and lazy) re-arms once and queues the skipped sessions**; harvest not called while paused; telemetry still recorded |
-| rpc-handlers | `setTriggers {triggers:{}, enabled:false}` writes only `memory.enabled`; get returns it; schema rejects a non-boolean; the four manual RPCs throw `PAUSED` while paused and run when on; `updateSettings` with `curatorIntervalHours` calls `restartCurator` |
+| rpc-handlers | `setTriggers {triggers:{}, enabled:false}` writes only `memory.enabled`; get returns it; schema rejects a non-boolean; the five manual RPCs (`memory:runNow`, `runCurator`, `analyzeNow`, `enhanceNow`, `previewEnhancement`) throw `PAUSED` while their switch is paused and run when it is on; `updateSettings` with `curatorIntervalHours` calls `restartCurator` |
 | platform-core / PD | the three keys are absent from keys and defaults; an unknown key in `settings.json` does not throw |
-| ptah-electron | both items render from settings; a click writes the right key; an external `setConfiguration` refreshes the menu; refresh on open picks up a value changed with no event; listener disposed on destroy; quit matrix: no tray → quit; tray + keepalive false → quit; tray + keepalive true → stay; darwin → stay; warmup skipped when memory is paused |
-| frontend | optimistic toggle and rollback; payload `{triggers:{}, enabled}`; the Skills Save payload has no `enabled`; buttons disabled while paused; badge refresh on `pausedChange`; re-fetch on focus |
+| ptah-electron | both items render from settings; a click writes the right key; an external `setConfiguration` refreshes the menu; refresh on open picks up a value changed with no event; listener disposed on destroy; quit matrix: no tray → quit; tray + keepalive false → quit; tray + keepalive true → stay; darwin → stay; warmup runs when either switch is on and is skipped only when both are paused; the create log and tooltip match the keep-alive mode and pause state |
+| frontend | optimistic toggle and rollback; payload `{triggers:{}, enabled}`; the Skills Save payload has no `enabled`; Run now, Run curator, Analyze now and Enhance (`previewEnhancement`) are disabled while paused, and a `PAUSED` error shows as a paused notice; badge refresh on `pausedChange`; re-fetch on focus |
 
 Integration (existing `skill-synthesis/queue/queue-db.test-support.ts`, `memory-curator/retention/retention-sqlite.test-support.ts`):
 enqueue N → pause → tick → resume → next tick drains all N, none `skipped`, no duplicate claim.
@@ -436,7 +471,8 @@ Choices this plan made that are neither user-requested nor repository rules:
 11. Error code `'PAUSED'`; disabled buttons with a tooltip.
 12. Optimistic toggle with rollback; refresh on focus/visibility; the `pausedChange` output drives the shell badge via `ThothStatusService`.
 13. Window-close keep-alive requires `trayKeepalive` (live) AND a live tray; the menu also refreshes on open.
-14. Embedder warmup is gated on `memory.enabled` only; no re-warm on resume.
+14. Embedder warmup is skipped only when both switches are paused (it serves both pipelines); no re-warm on resume.
+17. The tray log and tooltip state the keep-alive mode and the pause state.
 15. Visual review: 8 screenshots, dark + light, plus the tray.
 16. PD runs alone first; P4 waits for P3.
 
@@ -447,7 +483,7 @@ Choices this plan made that are neither user-requested nor repository rules:
 | 1 | Skills boot scan has no resume path | `bootScanOwed` + event and lazy re-arm in `SkillTriggerService` (3.4, P2); tests in §5 |
 | 2 | M10 fix creates capture-dead boot | M10 change dropped; per-workspace semantics unchanged; F1 (3.2) |
 | 3 | Memory re-arm is event-only | lazy re-arm from `onActivity`/`onSessionStart` (3.4, P1); no-event test |
-| 4 | Embedder warmup missed | row M15; gated under Memory (3.9, P5) |
+| 4 | Embedder warmup missed | row M15; gated (3.9, P5), skipped only when both switches are paused (round 2, N3) |
 | 5 | VS Code reachability | 0.2: nothing runs there, and the handlers are forbidden by `expected-absent.ts`; no VS Code UI, stated explicitly |
 | 6 | `setTriggers` payload stale-write risk | payload fixed to `{triggers:{}, enabled}` (3.7) |
 | 7 | Interval change inert after removing restart | `restartCurator()` keeps period changes live and fixes S13 (3.4) |
@@ -455,11 +491,15 @@ Choices this plan made that are neither user-requested nor repository rules:
 | 9 | Path errors / unverified citations | CLI path corrected to `cli-engine/src/lib/bootstrap/thoth-runtime.ts`; Electron event verified at `platform-electron/src/implementations/electron-workspace-provider.ts:41, 62, 212-226` (0.3); M20/M21 absence re-verified with stated grep |
 | 10 | No provenance tags | tags on every rule + Lane-introduced constraints |
 
+Round 2 (`pause-switches-plan-review-r2.md`):
+
+| # | Finding | Resolution |
+|---|---|---|
+| N1 (blocking) | Open question already decided | `previewEnhancement` is refused with `PAUSED` and greyed out (decisions §3, S12, 3.6, P3, P4, §5); open question deleted |
+| N2 | PD enumeration gaps | 3.5 rebuilt from three fresh greps over `apps/` + `libs/`, including docs, `providers-settings-state.service.spec.ts:113, 145`, `skill-trigger.integration.spec.ts:59`, and every named spec line; done-check re-runs the greps |
+| N3 | Warmup gate memory-only | verified skills use the same embedder (`skill-synthesis.service.ts:279, 692-693, 962-986`; `judge-panel.service.ts:249, 464`; `trigger-eval.service.ts:354, 418`); gate changed to skip only when both switches are paused (3.9) |
+| N4 | Tray keep-alive copy false | P5 replaces the `create()` log (`tray.service.ts:186-190`), adds pause state to the tooltip (`:78`), updates the header |
+
 ## Open questions for the user
 
-1. **`skillSynthesis:previewEnhancement`** is the call the Skills UI actually makes to generate an enhancement
-   (`skill-clones-view.component.ts:751`); `enhanceNow` has no UI caller. Should the preview also be refused
-   while Skills is paused?
-   - (Recommended) Yes: refuse it and grey out the Enhance button, because it is the same LLM work under a
-     different name.
-   - No: refuse only the four RPCs you named.
+None. Every question is answered by the user decisions (`context.md:178-190`).
