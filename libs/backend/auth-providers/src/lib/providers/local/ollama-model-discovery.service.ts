@@ -112,8 +112,10 @@ interface CloudModelMeta {
 }
 
 /**
- * Comprehensive catalog of known Ollama Cloud models.
- * Source: https://ollama.com/search?c=cloud (last updated 2026-04-14)
+ * Catalog of Ollama Cloud models: the IDs live on `ollama.com/api/tags` on
+ * 2026-10-07, with context and capabilities from models.dev `ollama-cloud`.
+ * The model-list drift check (model-lists.live.spec.ts) fails when an ID here
+ * stops being served.
  *
  * The live `ollama.com/api/tags` list (OllamaCloudMetadataService) is the
  * source of which models exist; this catalog only adds metadata (context,
@@ -124,149 +126,120 @@ interface CloudModelMeta {
  *
  * Key is the base model name (without the `:cloud` / `-cloud` suffix).
  */
-const KNOWN_CLOUD_MODELS: Record<string, CloudModelMeta> = {
-  'kimi-k2.6': {
-    contextLength: 256000,
+export const KNOWN_CLOUD_MODELS: Record<string, CloudModelMeta> = {
+  'deepseek-v4-pro:0813': {
+    tag: 'deepseek-v4-pro:0813-cloud',
+    contextLength: 1048576,
+    supportsToolUse: true,
+    supportsThinking: true,
+    supportsVision: false,
+  },
+  'deepseek-v4.1-flash': {
+    contextLength: 1048576,
     supportsToolUse: true,
     supportsThinking: true,
     supportsVision: true,
-    description: '256K context \u2022 vision, tools, thinking',
+  },
+  'gemma4:31b': {
+    tag: 'gemma4:31b-cloud',
+    contextLength: 262144,
+    supportsToolUse: true,
+    supportsThinking: true,
+    supportsVision: true,
+  },
+  'glm-5.2': {
+    contextLength: 976000,
+    supportsToolUse: true,
+    supportsThinking: true,
+    supportsVision: false,
   },
   'glm-5.3': {
+    contextLength: 1048576,
+    supportsToolUse: true,
+    supportsThinking: true,
+    supportsVision: false,
+  },
+  'glm-5.3-flash': {
     contextLength: 1000000,
     supportsToolUse: true,
     supportsThinking: true,
+    supportsVision: true,
+  },
+  'gpt-oss:120b': {
+    tag: 'gpt-oss:120b-cloud',
+    contextLength: 131072,
+    supportsToolUse: true,
+    supportsThinking: true,
     supportsVision: false,
-    description: '1M context \u2022 tools, thinking',
   },
   'gpt-oss:20b': {
     tag: 'gpt-oss:20b-cloud',
-    contextLength: 128000,
+    contextLength: 131072,
     supportsToolUse: true,
     supportsThinking: true,
     supportsVision: false,
-    description: '20B \u2022 128K context \u2022 tools, thinking',
   },
-  'devstral-2': {
-    contextLength: 128000,
-    supportsToolUse: true,
-    supportsThinking: false,
-    supportsVision: false,
-    description: '123B \u2022 128K context \u2022 tools',
-  },
-  'cogito-2.1': {
-    contextLength: 128000,
-    supportsToolUse: false,
-    supportsThinking: false,
-    supportsVision: false,
-    description: '671B \u2022 128K context',
-  },
-  'nemotron-3-super': {
-    contextLength: 128000,
+  'kimi-k2.6': {
+    contextLength: 262144,
     supportsToolUse: true,
     supportsThinking: true,
-    supportsVision: false,
-    description: '120B \u2022 128K context \u2022 tools, thinking',
+    supportsVision: true,
   },
-  'qwen3-next': {
-    contextLength: 128000,
+  'kimi-k2.7-code': {
+    contextLength: 262144,
     supportsToolUse: true,
     supportsThinking: true,
-    supportsVision: false,
-    description: '80B \u2022 128K context \u2022 tools, thinking',
+    supportsVision: true,
   },
-  'glm-5.1': {
-    contextLength: 200000,
+  'kimi-k3': {
+    contextLength: 1048576,
     supportsToolUse: true,
     supportsThinking: true,
-    supportsVision: false,
-    description: '200K context \u2022 tools, thinking',
-  },
-  'glm-5': {
-    contextLength: 200000,
-    supportsToolUse: true,
-    supportsThinking: true,
-    supportsVision: false,
-    description: '200K context \u2022 tools, thinking',
-  },
-  'glm-4.7': {
-    contextLength: 128000,
-    supportsToolUse: true,
-    supportsThinking: true,
-    supportsVision: false,
-    description: '128K context \u2022 tools, thinking',
+    supportsVision: true,
   },
   'minimax-m2.7': {
-    contextLength: 128000,
+    contextLength: 196608,
     supportsToolUse: true,
     supportsThinking: true,
     supportsVision: false,
-    description: '128K context \u2022 tools, thinking',
   },
-  'minimax-m2.5': {
-    contextLength: 128000,
-    supportsToolUse: true,
-    supportsThinking: true,
-    supportsVision: false,
-    description: '128K context \u2022 tools, thinking',
-  },
-  'minimax-m2': {
-    contextLength: 128000,
-    supportsToolUse: true,
-    supportsThinking: true,
-    supportsVision: false,
-    description: '128K context \u2022 tools, thinking',
-  },
-  gemma4: {
-    contextLength: 128000,
+  'minimax-m3': {
+    contextLength: 512000,
     supportsToolUse: true,
     supportsThinking: true,
     supportsVision: true,
-    description:
-      '26B/31B \u2022 128K context \u2022 vision, tools, thinking, audio',
   },
-  'qwen3.5': {
-    contextLength: 128000,
-    supportsToolUse: true,
-    supportsThinking: true,
-    supportsVision: true,
-    description:
-      'Up to 122B \u2022 128K context \u2022 vision, tools, thinking',
-  },
-  'qwen3-coder-next': {
-    contextLength: 128000,
-    supportsToolUse: true,
-    supportsThinking: false,
-    supportsVision: false,
-    description: '128K context \u2022 tools',
-  },
-  'gemini-3-flash-preview': {
-    contextLength: 128000,
-    supportsToolUse: true,
-    supportsThinking: true,
-    supportsVision: true,
-    description: '128K context \u2022 vision, tools, thinking',
-  },
-  'devstral-small-2': {
-    contextLength: 128000,
+  'mistral-large-3:675b': {
+    tag: 'mistral-large-3:675b-cloud',
+    contextLength: 262144,
     supportsToolUse: true,
     supportsThinking: false,
     supportsVision: true,
-    description: '24B \u2022 128K context \u2022 vision, tools',
   },
-  'nemotron-3-nano': {
-    contextLength: 8192,
+  'mistral-large-4': {
+    contextLength: 1048576,
+    supportsToolUse: true,
+    supportsThinking: true,
+    supportsVision: true,
+  },
+  'nemotron-3-nano:30b': {
+    tag: 'nemotron-3-nano:30b-cloud',
+    contextLength: 1048576,
     supportsToolUse: true,
     supportsThinking: true,
     supportsVision: false,
-    description: '4B/30B \u2022 8K context \u2022 tools, thinking',
   },
-  'rnj-1': {
-    contextLength: 32000,
+  'nemotron-3-super': {
+    contextLength: 262144,
     supportsToolUse: true,
-    supportsThinking: false,
+    supportsThinking: true,
     supportsVision: false,
-    description: '8B \u2022 32K context \u2022 tools',
+  },
+  'nemotron-3-ultra': {
+    contextLength: 262144,
+    supportsToolUse: true,
+    supportsThinking: true,
+    supportsVision: false,
   },
 };
 

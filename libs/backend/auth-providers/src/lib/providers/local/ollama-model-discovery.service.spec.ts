@@ -7,7 +7,10 @@ import type {
 } from '@ptah-extension/vscode-core';
 import { getAnthropicProvider } from '@ptah-extension/shared';
 import { createMockLogger } from '@ptah-extension/shared/testing';
-import { OllamaModelDiscoveryService } from './ollama-model-discovery.service';
+import {
+  KNOWN_CLOUD_MODELS,
+  OllamaModelDiscoveryService,
+} from './ollama-model-discovery.service';
 import type { OllamaCloudMetadataService } from './ollama-cloud-metadata.service';
 
 describe('Ollama capacity evidence', () => {
@@ -47,7 +50,9 @@ describe('Ollama capacity evidence', () => {
       'brand-new-model:cloud',
     ]);
     // Catalog metadata still applies to a live model it knows.
-    expect(models[0].contextLength).toBe(1000000);
+    expect(models[0].contextLength).toBe(
+      KNOWN_CLOUD_MODELS['glm-5.3'].contextLength,
+    );
     // Retired catalog entries are not merged back in.
     expect(models.map((m) => m.id)).not.toContain('kimi-k2.5:cloud');
   });
