@@ -31,7 +31,12 @@ import type { RefreshDigestOptions } from '../services/skill-synthesis-state.ser
 import { SkillDiagnosticsStateService } from '../services/skill-diagnostics-state.service';
 import { SkillDiagnosticsRpcService } from '../services/skill-diagnostics-rpc.service';
 import { SkillClonesStateService } from '../services/skill-clones-state.service';
-import { SkillSynthesisRpcService } from '../services/skill-synthesis-rpc.service';
+import {
+  SkillSynthesisRpcService,
+  SkillsPausedError,
+} from '../services/skill-synthesis-rpc.service';
+import { SkillsPauseSwitchComponent } from './skills-pause-switch.component';
+import { By } from '@angular/platform-browser';
 
 interface DiagnosticsStub {
   readonly lastAnalyzeRunAt: ReturnType<typeof signal<number | null>>;
@@ -54,6 +59,7 @@ interface DiagnosticsStub {
   >;
   readonly loading: ReturnType<typeof signal<boolean>>;
   readonly error: ReturnType<typeof signal<string | null>>;
+  readonly pausedNotice: ReturnType<typeof signal<string | null>>;
   readonly sessionsAnalyzedToday: ReturnType<typeof signal<number>>;
   readonly hasActiveSession: ReturnType<typeof signal<boolean>>;
   readonly refresh: jest.Mock<Promise<void>, []>;
@@ -96,6 +102,7 @@ function makeDiagnosticsStub(
     }),
     loading: signal<boolean>(false),
     error: signal<string | null>(null),
+    pausedNotice: signal<string | null>(null),
     sessionsAnalyzedToday: signal<number>(0),
     hasActiveSession: signal<boolean>(false),
     refresh: jest.fn(async () => undefined),
@@ -215,6 +222,15 @@ interface StubState {
    * error and push the money rule out of this spec's reach.
    */
   readonly refreshDigest: jest.Mock<Promise<void>, [RefreshDigestOptions?]>;
+  /** The Skills master switch; writable so a test can pause it. */
+  readonly skillsEnabledCommitted: ReturnType<typeof signal<boolean | null>>;
+  readonly skillsEnabled: ReturnType<typeof computed<boolean | null>>;
+  readonly skillsPaused: ReturnType<typeof computed<boolean>>;
+  readonly skillsSwitchSaving: ReturnType<typeof signal<boolean>>;
+  readonly skillsSwitchError: ReturnType<typeof signal<string | null>>;
+  readonly refreshSkillsEnabled: jest.Mock<Promise<void>, []>;
+  readonly setSkillsEnabled: jest.Mock<Promise<void>, [boolean]>;
+  readonly markSkillsPaused: jest.Mock<void, []>;
 }
 
 function makeStub(
@@ -229,7 +245,17 @@ function makeStub(
   const candidates = signal<SkillSynthesisCandidateSummary[]>(candidatesValue);
   const suggestions = signal<SkillSuggestionSummary[]>([]);
   const queueItems = signal<SkillSynthesisQueueItem[]>(queueValue.items ?? []);
+  const skillsEnabledCommitted = signal<boolean | null>(true);
+  const skillsEnabled = computed(() => skillsEnabledCommitted());
   return {
+    skillsEnabledCommitted,
+    skillsEnabled,
+    skillsPaused: computed(() => skillsEnabled() === false),
+    skillsSwitchSaving: signal<boolean>(false),
+    skillsSwitchError: signal<string | null>(null),
+    refreshSkillsEnabled: jest.fn(async () => undefined),
+    setSkillsEnabled: jest.fn(async (_enabled: boolean) => undefined),
+    markSkillsPaused: jest.fn(() => skillsEnabledCommitted.set(false)),
     drainRuns: signal<SkillSynthesisDrainRun[]>(queueValue.runs ?? []),
     queueItems,
     stageSpend: signal<SkillSynthesisStageSpend[]>(queueValue.stageSpend ?? []),
@@ -872,14 +898,53 @@ describe('skill settings mappers', () => {
     expect('budget' in out).toBe(false);
   });
 
-  it('round-trips form-owned settings and leaves Providers-only fields untouched', () => {
-    const { judgeModel, judgeProvider, enhanceTimeoutMs, ...formOwned } = dto;
+  it('round-trips form-owned settings and leaves Providers-only fields and the master switch untouched', () => {
+    const {
+      judgeModel,
+      judgeProvider,
+      enhanceTimeoutMs,
+      enabled,
+      ...formOwned
+    } = dto;
     expect(judgeModel).toBeDefined();
+    expect(enabled).toBe(true);
     expect(saveThroughForm()).toEqual(formOwned);
     expect(skillSettingsDtoToForm(dto)).toMatchObject({
       judgeProvider,
       enhanceTimeoutMs,
     });
+  });
+
+  it('never sends enabled on Save, so a stale form cannot undo the Skills switch', async () => {
+    // The form was loaded while Skills was on; the user then paused Skills
+    // with the header switch (or the tray). Save must not write `true` back.
+    const rpc = { updateSettings: jest.fn(async () => undefined) };
+    TestBed.configureTestingModule({
+      imports: [SkillSynthesisTabComponent],
+      providers: [
+        { provide: SkillSynthesisStateService, useValue: makeStub() },
+        {
+          provide: SkillDiagnosticsStateService,
+          useValue: makeDiagnosticsStub(),
+        },
+        { provide: VSCodeService, useValue: vscodeServiceStub(true) },
+        { provide: TabManagerService, useValue: tabManagerStub },
+        { provide: SkillSynthesisRpcService, useValue: rpc },
+      ],
+    });
+    const component = TestBed.createComponent(
+      SkillSynthesisTabComponent,
+    ).componentInstance;
+    component.settingsForm.patchValue(skillSettingsDtoToForm(dto));
+
+    expect(component.settingsForm.get('enabled')).toBeNull();
+    await (
+      component as unknown as { onSaveSettings(): Promise<void> }
+    ).onSaveSettings();
+
+    expect(rpc.updateSettings).toHaveBeenCalledTimes(1);
+    const payload = (rpc.updateSettings.mock.calls[0] as unknown[])[0];
+    expect(payload).not.toHaveProperty('enabled');
   });
 });
 
@@ -1267,5 +1332,115 @@ describe('SkillSynthesisTabComponent — diagnostics on the production path', ()
     dss.pushLiveEvent(wireEvent('e-3', 'rate-limited', NOW, 's-3'));
     fixture.detectChanges();
     expect(chip()?.textContent).toContain('rate-limited');
+  });
+});
+
+describe('SkillSynthesisTabComponent — Skills pause switch', () => {
+  function mount(rpc: Record<string, unknown> = {}): {
+    fixture: ComponentFixture<SkillSynthesisTabComponent>;
+    root: HTMLElement;
+    stub: StubState;
+  } {
+    // `loadSettings` resolves quietly so the only toast a test can see is one
+    // the action under test raised.
+    const stub = {
+      ...makeStub(),
+      settings: signal(null),
+      loadSettings: jest.fn(async () => undefined),
+    };
+    TestBed.configureTestingModule({
+      imports: [SkillSynthesisTabComponent],
+      providers: [
+        { provide: SkillSynthesisStateService, useValue: stub },
+        {
+          provide: SkillDiagnosticsStateService,
+          useValue: makeDiagnosticsStub(),
+        },
+        { provide: VSCodeService, useValue: vscodeServiceStub(true) },
+        { provide: TabManagerService, useValue: tabManagerStub },
+        { provide: SkillSynthesisRpcService, useValue: rpc },
+      ],
+    });
+    const fixture = TestBed.createComponent(SkillSynthesisTabComponent);
+    fixture.detectChanges();
+    return { fixture, root: fixture.nativeElement as HTMLElement, stub };
+  }
+
+  function runCuratorButton(root: HTMLElement): HTMLButtonElement {
+    return root.querySelector(
+      '[data-testid="run-curator"]',
+    ) as HTMLButtonElement;
+  }
+
+  it('puts the Skills switch at the top of the tab, right under the header', () => {
+    const { root } = mount();
+
+    const switchEl = root.querySelector('ptah-skills-pause-switch');
+    expect(switchEl).not.toBeNull();
+    expect(switchEl?.previousElementSibling?.tagName).toBe('HEADER');
+    expect(
+      root.querySelector('[data-testid="skills-enabled-toggle"]'),
+    ).not.toBeNull();
+  });
+
+  it('greys out Run Curator with the paused reason while Skills is paused', () => {
+    const { fixture, root, stub } = mount();
+    expect(runCuratorButton(root).disabled).toBe(false);
+    expect(
+      root.querySelector('[data-testid="run-curator-paused-hint"]'),
+    ).toBeNull();
+
+    stub.skillsEnabledCommitted.set(false);
+    fixture.detectChanges();
+
+    const button = runCuratorButton(root);
+    expect(button.disabled).toBe(true);
+    expect(button.getAttribute('title')).toBe('Paused — resume Skills to run');
+    expect(
+      root.querySelector('[data-testid="run-curator-paused-hint"]')
+        ?.textContent,
+    ).toContain('Paused — resume Skills to run');
+  });
+
+  it('turns a PAUSED refusal from runCurator into the paused state, not an error toast', async () => {
+    const runCurator = jest.fn(async () => {
+      throw new SkillsPausedError();
+    });
+    const { fixture, root, stub } = mount({ runCurator });
+
+    runCuratorButton(root).click();
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    fixture.detectChanges();
+
+    expect(runCurator).toHaveBeenCalledTimes(1);
+    expect(stub.markSkillsPaused).toHaveBeenCalledTimes(1);
+    expect(fixture.componentInstance.toast()).toBeNull();
+    expect(runCuratorButton(root).disabled).toBe(true);
+  });
+
+  it('passes the paused state down to Analyze now on the Activity view', () => {
+    const { fixture, root, stub } = mount();
+    stub.skillsEnabledCommitted.set(false);
+    fixture.detectChanges();
+
+    openActivity(fixture);
+    const analyze = root.querySelector(
+      '[data-test="analyze-now"]',
+    ) as HTMLButtonElement;
+    expect(analyze.disabled).toBe(true);
+    expect(analyze.getAttribute('title')).toBe('Paused — resume Skills to run');
+  });
+
+  it('re-emits the switch pausedChange for the Thoth shell', () => {
+    const { fixture } = mount();
+    const emitted: boolean[] = [];
+    fixture.componentInstance.pausedChange.subscribe((p) => emitted.push(p));
+
+    const child = fixture.debugElement.query(
+      By.directive(SkillsPauseSwitchComponent),
+    ).componentInstance as SkillsPauseSwitchComponent;
+    child.pausedChange.emit(true);
+
+    expect(emitted).toEqual([true]);
   });
 });

@@ -5,6 +5,7 @@ import {
   computed,
   effect,
   inject,
+  output,
   signal,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
@@ -27,10 +28,15 @@ import type {
 } from '@ptah-extension/shared';
 
 import {
+  SKILLS_PAUSED_REASON,
   SkillStatusFilter,
   SkillSynthesisStateService,
 } from '../services/skill-synthesis-state.service';
-import { SkillSynthesisRpcService } from '../services/skill-synthesis-rpc.service';
+import {
+  SkillSynthesisRpcService,
+  SkillsPausedError,
+} from '../services/skill-synthesis-rpc.service';
+import { SkillsPauseSwitchComponent } from './skills-pause-switch.component';
 import { SkillDiagnosticsStateService } from '../services/skill-diagnostics-state.service';
 import { SkillSynthesisLiveService } from '../services/skill-synthesis-live.service';
 import { SkillActivityFeedComponent } from './diagnostics/skill-activity-feed.component';
@@ -45,9 +51,7 @@ import {
   type SkillCandidateAction,
 } from './skill-candidates-table.component';
 import { SkillInvocationsPanelComponent } from './skill-invocations-panel.component';
-import {
-  SkillSettingsPanelComponent,
-} from './skill-settings-panel.component';
+import { SkillSettingsPanelComponent } from './skill-settings-panel.component';
 
 type ActionKind = 'promote' | 'reject';
 
@@ -78,6 +82,7 @@ interface ActionDialogState {
     SkillCandidatesTableComponent,
     SkillInvocationsPanelComponent,
     SkillSettingsPanelComponent,
+    SkillsPauseSwitchComponent,
     MarkdownBlockComponent,
   ],
   template: `
@@ -138,11 +143,21 @@ interface ActionDialogState {
                 {{ label }}
               </span>
             }
+            @if (skillsPaused()) {
+              <span
+                class="text-xs text-base-content-muted"
+                data-testid="run-curator-paused-hint"
+              >
+                {{ pausedReason }}
+              </span>
+            }
             <button
               type="button"
               class="btn btn-primary btn-sm transition-colors duration-150"
-              [disabled]="curatorRunning() || loading()"
+              [disabled]="curatorRunning() || loading() || skillsPaused()"
+              [attr.title]="skillsPaused() ? pausedReason : null"
               (click)="onRunCurator()"
+              data-testid="run-curator"
             >
               @if (curatorRunning()) {
                 <span class="loading loading-spinner loading-xs"></span>
@@ -151,6 +166,8 @@ interface ActionDialogState {
             </button>
           </div>
         </header>
+
+        <ptah-skills-pause-switch (pausedChange)="pausedChange.emit($event)" />
 
         <ptah-skill-stats-strip [stats]="stats()" />
 
@@ -485,7 +502,10 @@ interface ActionDialogState {
                 [refreshing]="diagnosticsLoading()"
                 (refresh)="onRefreshDiagnostics()"
               />
-              <ptah-skill-activity-feed />
+              <ptah-skill-activity-feed
+                [paused]="skillsPaused()"
+                (pausedRefusal)="onPausedRefusal()"
+              />
               <ptah-skill-digest-panel
                 [items]="digestItems()"
                 [loading]="digestLoading()"
@@ -582,6 +602,8 @@ interface ActionDialogState {
             <div class="space-y-4">
               <ptah-skill-clones-view
                 [divergedFilterRequest]="clonesDivergedFilter()"
+                [skillsPaused]="skillsPaused()"
+                (pausedRefusal)="onPausedRefusal()"
               />
             </div>
           }
@@ -737,6 +759,16 @@ export class SkillSynthesisTabComponent implements OnInit {
 
   protected readonly SparklesIcon = Sparkles;
 
+  /**
+   * The Skills switch's committed value flipped (`true` = now paused). The
+   * Thoth shell refreshes its sidebar badge on it.
+   */
+  public readonly pausedChange = output<boolean>();
+
+  /** Run curator, Analyze now and Enhance are greyed out while paused. */
+  protected readonly skillsPaused = this.state.skillsPaused;
+  protected readonly pausedReason = SKILLS_PAUSED_REASON;
+
   /** Live background-activity label (curator pass / embedding backfill). */
   protected readonly activity = this.live.activity;
 
@@ -794,8 +826,13 @@ export class SkillSynthesisTabComponent implements OnInit {
     return null;
   });
 
+  /**
+   * No `enabled` control: the Skills switch at the top of the tab owns
+   * `skillSynthesis.enabled` and applies it immediately. A form copy loaded
+   * when the tab opened would go stale the moment the switch or the tray
+   * changed it, and Save would write that stale value back.
+   */
   public readonly settingsForm: FormGroup = this.fb.group({
-    enabled: [true],
     successesToPromote: [3],
     dedupCosineThreshold: [0.85],
     maxActiveSkills: [50],
@@ -842,7 +879,6 @@ export class SkillSynthesisTabComponent implements OnInit {
   });
 
   public readonly settingsLoaded = signal<boolean>(false);
-
 
   public readonly toast = signal<{
     message: string;
@@ -997,6 +1033,8 @@ export class SkillSynthesisTabComponent implements OnInit {
       delete policy.judgeModel;
       delete policy.judgeProvider;
       delete policy.enhanceTimeoutMs;
+      // The header switch owns `enabled` (see settingsForm).
+      delete policy.enabled;
       await this.rpc.updateSettings(policy);
       this.showToast('Settings saved.', 'success');
     } catch (err: unknown) {
@@ -1020,15 +1058,33 @@ export class SkillSynthesisTabComponent implements OnInit {
   }
 
   protected async onRunCurator(): Promise<void> {
+    if (this.skillsPaused()) return;
     this.curatorRunning.set(true);
     try {
       const result = await this.rpc.runCurator();
       this.curatorReport.set(result);
     } catch (err: unknown) {
-      this.showToast(err instanceof Error ? err.message : String(err), 'error');
+      if (err instanceof SkillsPausedError) {
+        // Paused elsewhere: the button greys out with the paused reason.
+        this.onPausedRefusal();
+      } else {
+        this.showToast(
+          err instanceof Error ? err.message : String(err),
+          'error',
+        );
+      }
     } finally {
       this.curatorRunning.set(false);
     }
+  }
+
+  /**
+   * The host refused a manual run with `PAUSED`, so Skills was paused after
+   * this tab last read the switch. Show the paused state at once; the
+   * switch's `pausedChange` then refreshes the shell badge.
+   */
+  protected onPausedRefusal(): void {
+    this.state.markSkillsPaused();
   }
 
   protected onCloseCuratorModal(): void {

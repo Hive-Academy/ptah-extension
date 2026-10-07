@@ -41,6 +41,15 @@ function normalizeSuggestion(
   };
 }
 
+/** Tooltip and hint on a manual run that the Skills switch blocks (plan 3.6). */
+export const SKILLS_PAUSED_REASON = 'Paused — resume Skills to run';
+/** Shown when the host refused a run because Skills was paused elsewhere. */
+export const SKILLS_PAUSED_NOTICE =
+  'Skills is paused, so this did not run. Turn Skills on at the top of this tab to run it.';
+const SKILLS_SWITCH_WRITE_ERROR =
+  'Could not change the Skills switch. It shows the saved setting.';
+const SKILLS_SWITCH_READ_ERROR = 'Could not read whether Skills is paused.';
+
 /** Status filter values for the candidates table. */
 export type SkillStatusFilter = 'all' | 'pending' | 'promoted' | 'rejected';
 
@@ -335,6 +344,95 @@ export class SkillSynthesisStateService {
     } catch (err) {
       this.error.set(this.toMessage(err));
     }
+  }
+
+  // --- Skills master switch (`skillSynthesis.enabled`, plan 3.7) -----------
+  //
+  // The switch owns `enabled`; the Settings form does not carry it, so a Save
+  // can never write a stale value back. The committed value is read here and
+  // nowhere else, guarded by `switchSeq` against out-of-order answers.
+
+  private readonly _skillsEnabled = signal<boolean | null>(null);
+  private readonly _skillsEnabledPending = signal<boolean | null>(null);
+  private readonly _skillsSwitchSaving = signal<boolean>(false);
+  private readonly _skillsSwitchError = signal<string | null>(null);
+  private switchSeq = 0;
+
+  /** The host's committed value; `null` until first read. Drives `pausedChange`. */
+  public readonly skillsEnabledCommitted = this._skillsEnabled.asReadonly();
+  /** What the switch shows: the pending write, else the committed value. */
+  public readonly skillsEnabled = computed<boolean | null>(
+    () => this._skillsEnabledPending() ?? this._skillsEnabled(),
+  );
+  /** Run curator, Analyze now and Enhance are greyed out while this is true. */
+  public readonly skillsPaused = computed<boolean>(
+    () => this.skillsEnabled() === false,
+  );
+  public readonly skillsSwitchSaving = this._skillsSwitchSaving.asReadonly();
+  public readonly skillsSwitchError = this._skillsSwitchError.asReadonly();
+
+  /**
+   * Re-read `skillSynthesis.enabled` (tab shown, window focus, page visible).
+   * Skipped while a write is in flight; a read that a newer read or write
+   * overtook is dropped. Never touches the Settings form, so a focus re-read
+   * cannot discard unsaved form edits.
+   */
+  public async refreshSkillsEnabled(): Promise<void> {
+    if (this._skillsSwitchSaving()) return;
+    const seq = ++this.switchSeq;
+    try {
+      const s = await this.rpc.getSettings();
+      if (seq === this.switchSeq) {
+        this._skillsEnabled.set(
+          typeof s.enabled === 'boolean' ? s.enabled : null,
+        );
+        if (this._skillsSwitchError() === SKILLS_SWITCH_READ_ERROR) {
+          this._skillsSwitchError.set(null);
+        }
+      }
+    } catch {
+      // Shown under the switch, which stays disabled until a read succeeds.
+      if (seq === this.switchSeq) {
+        this._skillsSwitchError.set(SKILLS_SWITCH_READ_ERROR);
+      }
+    }
+  }
+
+  /**
+   * Turn Skills on or off with `updateSettings({ enabled })` alone (no other
+   * key, so the curator is not restarted). Optimistic: the switch moves at
+   * once and rolls back to the committed value on failure, which is then
+   * re-read from the host.
+   */
+  public async setSkillsEnabled(enabled: boolean): Promise<void> {
+    if (this._skillsSwitchSaving()) return;
+    ++this.switchSeq;
+    this._skillsSwitchSaving.set(true);
+    this._skillsEnabledPending.set(enabled);
+    this._skillsSwitchError.set(null);
+    let failed = false;
+    try {
+      await this.rpc.updateSettings({ enabled });
+      ++this.switchSeq;
+      this._skillsEnabled.set(enabled);
+    } catch {
+      // Shown under the switch; the committed value is re-read below.
+      failed = true;
+      this._skillsSwitchError.set(SKILLS_SWITCH_WRITE_ERROR);
+    } finally {
+      this._skillsEnabledPending.set(null);
+      this._skillsSwitchSaving.set(false);
+    }
+    if (failed) await this.refreshSkillsEnabled();
+  }
+
+  /**
+   * The host refused a manual run with `PAUSED`: Skills was paused elsewhere
+   * (tray, settings file) after this tab last read the switch.
+   */
+  public markSkillsPaused(): void {
+    ++this.switchSeq;
+    this._skillsEnabled.set(false);
   }
 
   /** Load settings from the backend into the settings signal. */

@@ -5,6 +5,7 @@ import {
   computed,
   effect,
   inject,
+  output,
   signal,
   untracked,
   viewChild,
@@ -26,6 +27,7 @@ import {
 import { MemoryRpcService } from '../services/memory-rpc.service';
 
 import { MemoryDiagnosticsAccordionComponent } from './diagnostics/memory-diagnostics-accordion.component';
+import { MemoryPauseSwitchComponent } from './memory-pause-switch.component';
 import { TimelineViewComponent } from './timeline-view.component';
 import { CorpusListComponent } from './corpus-list.component';
 import { MemoryIndexingBannerComponent } from './memory-indexing-banner.component';
@@ -39,11 +41,7 @@ import {
 } from './memory-danger-zone.component';
 
 export type MemoryTabView =
-  | 'memories'
-  | 'timeline'
-  | 'corpus'
-  | 'code'
-  | 'maintenance';
+  'memories' | 'timeline' | 'corpus' | 'code' | 'maintenance';
 
 interface ViewChip {
   readonly id: MemoryTabView;
@@ -61,6 +59,7 @@ const SEARCH_DEBOUNCE_MS = 300;
     LucideAngularModule,
     WorkspaceIndexingComponent,
     MemoryDiagnosticsAccordionComponent,
+    MemoryPauseSwitchComponent,
     TimelineViewComponent,
     CorpusListComponent,
     MemoryIndexingBannerComponent,
@@ -146,6 +145,8 @@ const SEARCH_DEBOUNCE_MS = 300;
             </div>
           }
         </header>
+
+        <ptah-memory-pause-switch (pausedChange)="pausedChange.emit($event)" />
 
         <ptah-memory-stats-strip
           [counts]="statCounts()"
@@ -286,6 +287,12 @@ export class MemoryCuratorTabComponent implements OnInit {
   private readonly dangerZone = viewChild(MemoryDangerZoneComponent);
 
   protected readonly BrainIcon = Brain;
+
+  /**
+   * The Memory switch's committed value flipped (`true` = now paused). The
+   * Thoth shell refreshes its sidebar badge on it.
+   */
+  public readonly pausedChange = output<boolean>();
 
   protected readonly indexingUiState = this.indexingService.uiState;
   protected readonly indexingBusy = computed(() => {

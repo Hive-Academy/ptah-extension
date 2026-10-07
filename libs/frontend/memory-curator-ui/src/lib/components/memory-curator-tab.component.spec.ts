@@ -12,9 +12,19 @@ import { MemoryRpcService } from '../services/memory-rpc.service';
 import { MemoryDiagnosticsStateService } from '../services/memory-diagnostics-state.service';
 
 import { MemoryCuratorTabComponent } from './memory-curator-tab.component';
+import { MemoryPauseSwitchComponent } from './memory-pause-switch.component';
+import { By } from '@angular/platform-browser';
 
 function diagnosticsStateStub(): Partial<MemoryDiagnosticsStateService> {
   return {
+    memoryEnabled: signal<boolean | null>(true).asReadonly(),
+    memoryEnabledCommitted: signal<boolean | null>(true).asReadonly(),
+    memoryPaused: signal(false).asReadonly(),
+    memorySwitchSaving: signal(false).asReadonly(),
+    memorySwitchError: signal<string | null>(null).asReadonly(),
+    pausedNotice: signal<string | null>(null).asReadonly(),
+    loadMemoryEnabled: jest.fn(() => Promise.resolve()),
+    setMemoryEnabled: jest.fn(() => Promise.resolve()),
     triggers: signal(null).asReadonly(),
     lastRun: signal(null).asReadonly(),
     recentEvents: signal([]).asReadonly(),
@@ -119,6 +129,10 @@ describe('MemoryCuratorTabComponent', () => {
         { provide: MemoryStateService, useValue: stateMock },
         { provide: VSCodeService, useValue: vscodeServiceStub(true) },
         {
+          provide: MemoryDiagnosticsStateService,
+          useValue: diagnosticsStateStub(),
+        },
+        {
           provide: MemoryRpcService,
           useValue: {
             listCorpora: jest.fn().mockResolvedValue({ corpora: [] }),
@@ -156,6 +170,25 @@ describe('MemoryCuratorTabComponent', () => {
     codeTab.click();
     fixture.detectChanges();
     expect(root.textContent ?? '').toContain('Rebuild index');
+  });
+
+  it('puts the Memory switch at the top of the tab and re-emits its pausedChange', () => {
+    const fixture = TestBed.createComponent(MemoryCuratorTabComponent);
+    fixture.detectChanges();
+
+    const root = fixture.nativeElement as HTMLElement;
+    const switchEl = root.querySelector('ptah-memory-pause-switch');
+    expect(switchEl).not.toBeNull();
+    expect(switchEl?.previousElementSibling?.tagName).toBe('HEADER');
+
+    const emitted: boolean[] = [];
+    fixture.componentInstance.pausedChange.subscribe((p) => emitted.push(p));
+    const child = fixture.debugElement.query(
+      By.directive(MemoryPauseSwitchComponent),
+    ).componentInstance as MemoryPauseSwitchComponent;
+    child.pausedChange.emit(true);
+
+    expect(emitted).toEqual([true]);
   });
 
   it('schedules a debounced search when the input changes', () => {
@@ -657,6 +690,10 @@ describe('MemoryCuratorTabComponent — workspace switch', () => {
         },
         { provide: VSCodeService, useValue: vscodeServiceStub(true) },
         {
+          provide: MemoryDiagnosticsStateService,
+          useValue: diagnosticsStateStub(),
+        },
+        {
           provide: AppStateManager,
           useValue: { workspaceInfo: workspaceInfoSignal },
         },
@@ -801,6 +838,10 @@ describe('MemoryCuratorTabComponent — indexing banner three-state predicate', 
           useValue: { purgeBySubjectPattern: jest.fn() },
         },
         { provide: VSCodeService, useValue: vscodeServiceStub(true) },
+        {
+          provide: MemoryDiagnosticsStateService,
+          useValue: diagnosticsStateStub(),
+        },
         {
           provide: AppStateManager,
           useValue: { workspaceInfo: workspaceInfoSignal },

@@ -13,8 +13,9 @@ interface StubState {
   refresh: jest.Mock<Promise<void>, []>;
   startPolling: jest.Mock<void, []>;
   stopPolling: jest.Mock<void, []>;
-  analyzeNow: jest.Mock<Promise<void>, []>;
+  analyzeNow: jest.Mock<Promise<'paused' | 'done'>, []>;
   setTriggers: jest.Mock;
+  pausedNotice: ReturnType<typeof signal<string | null>>;
 }
 
 function makeStub(): StubState {
@@ -26,17 +27,19 @@ function makeStub(): StubState {
     refresh: jest.fn(async () => undefined),
     startPolling: jest.fn(),
     stopPolling: jest.fn(),
-    analyzeNow: jest.fn(async () => undefined),
+    analyzeNow: jest.fn(async (): Promise<'paused' | 'done'> => 'done'),
     setTriggers: jest.fn(async () => undefined),
+    pausedNotice: signal<string | null>(null),
   };
 }
 
-function createFixture(stub: StubState) {
+function createFixture(stub: StubState, paused = false) {
   TestBed.configureTestingModule({
     imports: [SkillActivityFeedComponent],
     providers: [{ provide: SkillDiagnosticsStateService, useValue: stub }],
   });
   const fixture = TestBed.createComponent(SkillActivityFeedComponent);
+  fixture.componentRef.setInput('paused', paused);
   fixture.detectChanges();
   return { fixture, root: fixture.nativeElement as HTMLElement };
 }
@@ -160,5 +163,55 @@ describe('SkillActivityFeedComponent', () => {
     const stub = makeStub();
     createFixture(stub);
     expect(stub.setTriggers).not.toHaveBeenCalled();
+  });
+
+  describe('while Skills is paused', () => {
+    it('greys out Analyze current session with the paused reason', () => {
+      const stub = makeStub();
+      const { root } = createFixture(stub, true);
+      const btn = root.querySelector<HTMLButtonElement>(
+        '[data-test="analyze-now"]',
+      );
+      expect(btn?.disabled).toBe(true);
+      expect(btn?.getAttribute('title')).toBe('Paused — resume Skills to run');
+      expect(
+        root.querySelector('[data-test="analyze-paused-hint"]')?.textContent,
+      ).toContain('Paused — resume Skills to run');
+      btn?.click();
+      expect(stub.analyzeNow).not.toHaveBeenCalled();
+    });
+
+    it('shows a PAUSED refusal as a paused notice (status), not an alert', () => {
+      const stub = makeStub();
+      stub.pausedNotice.set('Skills is paused, so this did not run.');
+      const { fixture, root } = createFixture(stub, false);
+      // Not shown once Skills is on: a stale refusal must not linger.
+      expect(root.querySelector('[data-test="analyze-paused-notice"]')).toBe(
+        null,
+      );
+
+      fixture.componentRef.setInput('paused', true);
+      fixture.detectChanges();
+      const notice = root.querySelector('[data-test="analyze-paused-notice"]');
+      expect(notice?.getAttribute('role')).toBe('status');
+      expect(notice?.textContent).toContain('Skills is paused');
+      expect(root.querySelector('[role="alert"]')).toBeNull();
+    });
+
+    it('reports a PAUSED refusal through pausedRefusal', async () => {
+      const stub = makeStub();
+      stub.analyzeNow.mockResolvedValue('paused');
+      const { fixture, root } = createFixture(stub);
+      const refused = jest.fn();
+      fixture.componentInstance.pausedRefusal.subscribe(refused);
+
+      root
+        .querySelector<HTMLButtonElement>('[data-test="analyze-now"]')
+        ?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(refused).toHaveBeenCalledTimes(1);
+    });
   });
 });

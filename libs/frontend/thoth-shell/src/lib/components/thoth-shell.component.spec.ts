@@ -7,6 +7,7 @@ import {
   MemoryRpcService,
   MemoryStateService,
 } from '@ptah-extension/memory-curator-ui';
+import { MemoryDiagnosticsRpcService } from '@ptah-extension/memory-curator-ui/services';
 import {
   SkillSynthesisRpcService,
   SkillSynthesisStateService,
@@ -94,7 +95,29 @@ const skillStateStub = {
   rejectByPattern: () => Promise.resolve(0),
   accept: () => Promise.resolve(),
   dismiss: () => Promise.resolve(),
+  // The Skills master switch the tab header renders.
+  skillsEnabled: signal(true),
+  skillsEnabledCommitted: signal(true),
+  skillsPaused: signal(false),
+  skillsSwitchSaving: signal(false),
+  skillsSwitchError: signal(null),
+  refreshSkillsEnabled: () => Promise.resolve(),
+  setSkillsEnabled: () => Promise.resolve(),
+  markSkillsPaused: () => undefined,
 } as unknown as SkillSynthesisStateService;
+
+/**
+ * The Memory tab header renders the Memory master switch, which reads
+ * `memory:getTriggers`; answer "on" so no test depends on a live RPC.
+ */
+function memoryDiagnosticsRpcStub(enabled = true) {
+  return {
+    getTriggers: jest.fn(async () => ({ triggers: {}, enabled })),
+    diagnostics: jest.fn(async () => {
+      throw new Error('not used');
+    }),
+  };
+}
 
 /**
  * Minimal stub for {@link MemoryStateService} so the embedded
@@ -192,6 +215,10 @@ describe('ThothShellComponent', () => {
         { provide: MemoryStateService, useValue: memoryStateStub },
         { provide: SkillSynthesisStateService, useValue: skillStateStub },
         { provide: MODEL_REFRESH_CONTROL, useValue: modelRefreshStub },
+        {
+          provide: MemoryDiagnosticsRpcService,
+          useValue: memoryDiagnosticsRpcStub(),
+        },
       ],
     }).compileComponents();
   });
@@ -348,9 +375,10 @@ describe('ThothShellComponent', () => {
     let backend: FakeSkillsBackend;
     let workspaceInfo: ReturnType<typeof signal<{ path: string } | null>>;
     let listCandidates: jest.Mock;
+    let getSettings: jest.Mock;
+    let memoryDiagnosticsRpc: ReturnType<typeof memoryDiagnosticsRpcStub>;
 
-    const allRows = (): string[] =>
-      Object.values(backend.pendingByRoot).flat();
+    const allRows = (): string[] => Object.values(backend.pendingByRoot).flat();
 
     const flushAsync = (): Promise<void> =>
       new Promise((resolve) => setTimeout(resolve, 0));
@@ -386,10 +414,17 @@ describe('ThothShellComponent', () => {
         },
       );
 
+      getSettings = jest.fn(async () => ({ enabled: true }));
+      memoryDiagnosticsRpc = memoryDiagnosticsRpcStub();
+
       TestBed.configureTestingModule({
         imports: [ThothShellComponent],
         providers: [
           { provide: ErrorHandler, useValue: errorHandler },
+          {
+            provide: MemoryDiagnosticsRpcService,
+            useValue: memoryDiagnosticsRpc,
+          },
           {
             provide: AppStateManager,
             useValue: {
@@ -416,7 +451,10 @@ describe('ThothShellComponent', () => {
               })),
             },
           },
-          { provide: SkillSynthesisRpcService, useValue: { listCandidates } },
+          {
+            provide: SkillSynthesisRpcService,
+            useValue: { listCandidates, getSettings },
+          },
           {
             provide: CronRpcService,
             useValue: { list: jest.fn(async () => ({ jobs: [] })) },
@@ -488,6 +526,78 @@ describe('ThothShellComponent', () => {
       await flushAsync();
 
       expect(listCandidates).toHaveBeenCalledTimes(1);
+    });
+
+    describe('"Paused" badges', () => {
+      const pausedBadge = (el: HTMLElement, pillar: string): Element | null =>
+        el.querySelector(
+          `[data-pillar="${pillar}"] [data-testid="thoth-tab-paused"]`,
+        );
+
+      it('shows a Paused badge on the Memory tile only while Memory is paused', async () => {
+        memoryDiagnosticsRpc.getTriggers.mockResolvedValue({
+          triggers: {},
+          enabled: false,
+        });
+        const fixture = TestBed.createComponent(ThothShellComponent);
+        const el = fixture.nativeElement as HTMLElement;
+        fixture.detectChanges();
+        await flushAsync();
+        fixture.detectChanges();
+
+        expect(pausedBadge(el, 'memory')?.textContent?.trim()).toBe('Paused');
+        expect(pausedBadge(el, 'skills')).toBeNull();
+        // The tab's accessible name carries the state too.
+        expect(
+          el.querySelector('[data-pillar="memory"]')?.textContent,
+        ).toContain('Paused');
+      });
+
+      it('re-reads the pause flags when a tab reports its switch flipped', async () => {
+        const fixture = TestBed.createComponent(ThothShellComponent);
+        const el = fixture.nativeElement as HTMLElement;
+        fixture.detectChanges();
+        await flushAsync();
+        fixture.detectChanges();
+        expect(pausedBadge(el, 'skills')).toBeNull();
+        const statsCalls = listCandidates.mock.calls.length;
+
+        getSettings.mockResolvedValue({ enabled: false });
+        activeTabSignal.set('skills');
+        fixture.detectChanges();
+        const tab = fixture.debugElement.query(
+          (de) => de.name === 'ptah-skill-synthesis-tab',
+        );
+        tab.triggerEventHandler('pausedChange', true);
+        await flushAsync();
+        fixture.detectChanges();
+
+        expect(pausedBadge(el, 'skills')?.textContent?.trim()).toBe('Paused');
+        // Only the flags were re-read, not every pillar.
+        expect(listCandidates.mock.calls.length).toBe(statsCalls);
+      });
+
+      it('re-reads the pause flags when the window regains focus, and stops after destroy', async () => {
+        const fixture = TestBed.createComponent(ThothShellComponent);
+        const el = fixture.nativeElement as HTMLElement;
+        fixture.detectChanges();
+        await flushAsync();
+        fixture.detectChanges();
+        expect(pausedBadge(el, 'skills')).toBeNull();
+
+        // Paused from the tray while the window was in the background.
+        getSettings.mockResolvedValue({ enabled: false });
+        window.dispatchEvent(new Event('focus'));
+        await flushAsync();
+        fixture.detectChanges();
+        expect(pausedBadge(el, 'skills')).not.toBeNull();
+
+        fixture.destroy();
+        const calls = getSettings.mock.calls.length;
+        window.dispatchEvent(new Event('focus'));
+        await flushAsync();
+        expect(getSettings.mock.calls.length).toBe(calls);
+      });
     });
   });
 });

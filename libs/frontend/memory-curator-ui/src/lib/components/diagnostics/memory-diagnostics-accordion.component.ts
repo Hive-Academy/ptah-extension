@@ -12,6 +12,7 @@ import {
 } from '@ptah-extension/core';
 
 import {
+  MEMORY_PAUSED_REASON,
   MemoryDiagnosticsStateService,
   type LastRunSnapshot,
 } from '../../services/memory-diagnostics-state.service';
@@ -168,14 +169,22 @@ import { EventFeedComponent } from './event-feed.component';
         </div>
       }
 
+      @if (pausedNotice(); as notice) {
+        <p
+          class="rounded border border-warning/60 bg-warning/10 px-3 py-2 text-xs text-base-content"
+          role="status"
+          data-testid="memory-paused-notice"
+        >
+          {{ notice }}
+        </p>
+      }
+
       <div class="flex flex-wrap items-center gap-2">
         <button
           type="button"
           class="btn btn-sm btn-primary"
-          [disabled]="loading() || !hasActiveSession()"
-          [title]="
-            !hasActiveSession() ? 'Open a session to run curator manually' : ''
-          "
+          [disabled]="loading() || !hasActiveSession() || paused()"
+          [title]="runNowTitle()"
           (click)="onRunCuratorNow()"
           data-testid="run-curator-now"
         >
@@ -184,7 +193,14 @@ import { EventFeedComponent } from './event-feed.component';
           }
           Run curator now
         </button>
-        @if (!hasActiveSession()) {
+        @if (paused()) {
+          <span
+            class="text-xs text-base-content-muted"
+            data-testid="run-curator-paused-hint"
+          >
+            {{ pausedReason }}
+          </span>
+        } @else if (!hasActiveSession()) {
           <span
             class="text-xs text-base-content-muted"
             data-testid="no-active-session-hint"
@@ -216,6 +232,16 @@ export class MemoryDiagnosticsAccordionComponent implements OnInit, OnDestroy {
   protected readonly loading = this.state.loading;
   protected readonly error = this.state.error;
   protected readonly hasActiveSession = this.state.hasActiveSession;
+  protected readonly paused = this.state.memoryPaused;
+  protected readonly pausedNotice = this.state.pausedNotice;
+  protected readonly pausedReason = MEMORY_PAUSED_REASON;
+
+  protected readonly runNowTitle = computed(() => {
+    if (this.paused()) return MEMORY_PAUSED_REASON;
+    return this.hasActiveSession()
+      ? ''
+      : 'Open a session to run curator manually';
+  });
 
   protected readonly now = computed(() => {
     this.recentEvents();

@@ -1,6 +1,8 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  DestroyRef,
+  DOCUMENT,
   OnInit,
   computed,
   inject,
@@ -126,6 +128,13 @@ interface ThothTabSpec {
                   [class.text-base-content-muted]="!isActive"
                   >{{ tab.label }}</span
                 >
+                @if (status.paused) {
+                  <span
+                    class="badge badge-warning badge-xs ml-auto font-medium"
+                    data-testid="thoth-tab-paused"
+                    >Paused</span
+                  >
+                }
               </div>
 
               @if (status.available) {
@@ -180,10 +189,10 @@ interface ThothTabSpec {
         <div class="mx-auto w-full max-w-5xl px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
           @switch (activeTab()) {
             @case ('memory') {
-              <ptah-memory-curator-tab />
+              <ptah-memory-curator-tab (pausedChange)="onPausedChange()" />
             }
             @case ('skills') {
-              <ptah-skill-synthesis-tab />
+              <ptah-skill-synthesis-tab (pausedChange)="onPausedChange()" />
             }
             @case ('cron') {
               <ptah-cron-scheduler-tab />
@@ -211,8 +220,31 @@ export class ThothShellComponent implements OnInit {
    */
   protected readonly pillars = this.thothStatus.pillars;
 
+  public constructor() {
+    // The Memory / Skills switches can change outside this view (tray menu,
+    // a hand edit of ~/.ptah/settings.json) and nothing pushes that to the
+    // webview, so re-read the two pause flags whenever the window comes back.
+    const doc = inject(DOCUMENT);
+    const view = doc.defaultView;
+    const reread = (): void => void this.thothStatus.refreshPaused();
+    const onVisibility = (): void => {
+      if (doc.visibilityState === 'visible') reread();
+    };
+    view?.addEventListener('focus', reread);
+    doc.addEventListener('visibilitychange', onVisibility);
+    inject(DestroyRef).onDestroy(() => {
+      view?.removeEventListener('focus', reread);
+      doc.removeEventListener('visibilitychange', onVisibility);
+    });
+  }
+
   public ngOnInit(): void {
     void this.thothStatus.refreshIfNeeded();
+  }
+
+  /** A tab's master switch flipped: update the sidebar "Paused" badge. */
+  protected onPausedChange(): void {
+    void this.thothStatus.refreshPaused();
   }
 
   /** daisyUI badge classes for a gateway platform's connection state. */

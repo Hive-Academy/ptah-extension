@@ -1,7 +1,10 @@
 import { TestBed } from '@angular/core/testing';
 import { ClaudeRpcService } from '@ptah-extension/core';
 import type { MemoryDiagnosticsResult } from '@ptah-extension/shared';
-import { MemoryDiagnosticsRpcService } from './memory-diagnostics-rpc.service';
+import {
+  MemoryDiagnosticsRpcService,
+  MemoryPausedError,
+} from './memory-diagnostics-rpc.service';
 
 describe('MemoryDiagnosticsRpcService', () => {
   let service: MemoryDiagnosticsRpcService;
@@ -176,6 +179,39 @@ describe('MemoryDiagnosticsRpcService', () => {
       expect.any(Object),
     );
     expect(result).toEqual(payload);
+  });
+
+  it('runNow() throws MemoryPausedError on a PAUSED refusal and a plain Error otherwise', async () => {
+    rpcCall.mockResolvedValueOnce({
+      ...errResult('Memory is paused'),
+      errorCode: 'PAUSED',
+    });
+    const paused = service.runNow({ sessionId: 's', workspaceRoot: '/ws' });
+    await expect(paused).rejects.toBeInstanceOf(MemoryPausedError);
+    await expect(paused).rejects.toThrow('Memory is paused');
+
+    rpcCall.mockResolvedValueOnce(errResult('boom'));
+    const failed = service.runNow({ sessionId: 's', workspaceRoot: '/ws' });
+    await expect(failed).rejects.not.toBeInstanceOf(MemoryPausedError);
+    await expect(failed).rejects.toThrow('boom');
+  });
+
+  it('setTriggers() forwards the master switch alone as { triggers: {}, enabled }', async () => {
+    rpcCall.mockResolvedValue(
+      okResult({
+        triggers: { idleMs: 600000, turnThreshold: 20, bootScan: true },
+        enabled: false,
+      }),
+    );
+
+    const result = await service.setTriggers({ triggers: {}, enabled: false });
+
+    expect(rpcCall).toHaveBeenCalledWith(
+      'memory:setTriggers',
+      { triggers: {}, enabled: false },
+      expect.any(Object),
+    );
+    expect(result.enabled).toBe(false);
   });
 
   it('setTriggers() forwards partial triggers DTO', async () => {

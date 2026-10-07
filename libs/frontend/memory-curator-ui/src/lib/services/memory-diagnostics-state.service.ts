@@ -8,7 +8,10 @@ import type {
   MemoryTriggersDto,
 } from '@ptah-extension/shared';
 
-import { MemoryDiagnosticsRpcService } from './memory-diagnostics-rpc.service';
+import {
+  MemoryDiagnosticsRpcService,
+  MemoryPausedError,
+} from './memory-diagnostics-rpc.service';
 
 export interface LastRunSnapshot {
   readonly at: number;
@@ -18,6 +21,15 @@ export interface LastRunSnapshot {
 }
 
 export const DIAGNOSTICS_POLL_MS = 30_000;
+
+/** Tooltip and hint on a manual run that the Memory switch blocks (plan 3.6). */
+export const MEMORY_PAUSED_REASON = 'Paused — resume Memory to run';
+/** Shown when the host refused a run because Memory was paused elsewhere. */
+export const MEMORY_PAUSED_NOTICE =
+  'Memory is paused, so the curator did not run. Turn Memory on at the top of this tab to run it.';
+const MEMORY_SWITCH_WRITE_ERROR =
+  'Could not change the Memory switch. It shows the saved setting.';
+const MEMORY_SWITCH_READ_ERROR = 'Could not read whether Memory is paused.';
 
 @Injectable({ providedIn: 'root' })
 export class MemoryDiagnosticsStateService {
@@ -48,8 +60,97 @@ export class MemoryDiagnosticsStateService {
     return tab !== null && tab.claudeSessionId !== null;
   });
 
+  /** `memory.enabled` as the host last reported it; `null` until first read. */
+  private readonly _memoryEnabled = signal<boolean | null>(null);
+  /** The switch position while a write is in flight; `null` otherwise. */
+  private readonly _memoryEnabledPending = signal<boolean | null>(null);
+  private readonly _memorySwitchSaving = signal<boolean>(false);
+  private readonly _memorySwitchError = signal<string | null>(null);
+  private readonly _pausedNotice = signal<string | null>(null);
+
+  /** The host's committed value. Drives `pausedChange`, never the optimistic one. */
+  public readonly memoryEnabledCommitted = this._memoryEnabled.asReadonly();
+  /** What the switch shows: the pending write, else the committed value. */
+  public readonly memoryEnabled = computed<boolean | null>(
+    () => this._memoryEnabledPending() ?? this._memoryEnabled(),
+  );
+  /** Manual runs are greyed out while this is true. */
+  public readonly memoryPaused = computed<boolean>(
+    () => this.memoryEnabled() === false,
+  );
+  public readonly memorySwitchSaving = this._memorySwitchSaving.asReadonly();
+  public readonly memorySwitchError = this._memorySwitchError.asReadonly();
+  public readonly pausedNotice = this._pausedNotice.asReadonly();
+
+  /**
+   * Bumped by every switch read and write. A read applies its answer only if
+   * no newer read or write started meanwhile, so a slow GET can never put back
+   * a value the user has just changed.
+   */
+  private switchSeq = 0;
+
   private subscriberCount = 0;
   private pollTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /**
+   * Re-read `memory.enabled` (tab shown, window focus, page visible). Skipped
+   * while a write is in flight: that write's read-back is the newer answer.
+   */
+  public async loadMemoryEnabled(): Promise<void> {
+    if (this._memorySwitchSaving()) return;
+    const seq = ++this.switchSeq;
+    try {
+      const res = await this.rpc.getTriggers();
+      if (seq === this.switchSeq) {
+        this.applyMemoryEnabled(res.enabled);
+        // A write failure stays until the next toggle; only a read error is
+        // answered by a successful read.
+        if (this._memorySwitchError() === MEMORY_SWITCH_READ_ERROR) {
+          this._memorySwitchError.set(null);
+        }
+      }
+    } catch {
+      // Shown under the switch, which stays disabled until a read succeeds.
+      if (seq === this.switchSeq) {
+        this._memorySwitchError.set(MEMORY_SWITCH_READ_ERROR);
+      }
+    }
+  }
+
+  /**
+   * Turn Memory on or off. Sends `{ triggers: {}, enabled }` only — never the
+   * cached trigger DTO, which could be stale (plan 3.7). Optimistic: the switch
+   * moves at once and rolls back to the committed value on failure, which is
+   * then re-read from the host.
+   */
+  public async setMemoryEnabled(enabled: boolean): Promise<void> {
+    if (this._memorySwitchSaving()) return;
+    ++this.switchSeq;
+    this._memorySwitchSaving.set(true);
+    this._memoryEnabledPending.set(enabled);
+    this._memorySwitchError.set(null);
+    let failed = false;
+    try {
+      const res = await this.rpc.setTriggers({ triggers: {}, enabled });
+      ++this.switchSeq;
+      this.applyMemoryEnabled(res.enabled);
+    } catch {
+      // Shown under the switch; the committed value is re-read below.
+      failed = true;
+      this._memorySwitchError.set(MEMORY_SWITCH_WRITE_ERROR);
+    } finally {
+      this._memoryEnabledPending.set(null);
+      this._memorySwitchSaving.set(false);
+    }
+    if (failed) await this.loadMemoryEnabled();
+  }
+
+  private applyMemoryEnabled(value: unknown): void {
+    // A missing or non-boolean answer is unknown, not "on".
+    const enabled = typeof value === 'boolean' ? value : null;
+    this._memoryEnabled.set(enabled);
+    if (enabled === true) this._pausedNotice.set(null);
+  }
 
   public async refresh(): Promise<void> {
     this._loading.set(true);
@@ -84,8 +185,13 @@ export class MemoryDiagnosticsStateService {
       this._error.set('No active session to curate.');
       return;
     }
+    if (this.memoryPaused()) {
+      this._pausedNotice.set(MEMORY_PAUSED_NOTICE);
+      return;
+    }
     this._loading.set(true);
     this._error.set(null);
+    this._pausedNotice.set(null);
     try {
       await this.rpc.runNow({
         sessionId: String(sessionId),
@@ -93,7 +199,15 @@ export class MemoryDiagnosticsStateService {
       });
       await this.refresh();
     } catch (err) {
-      this._error.set(toErrorMessage(err));
+      if (err instanceof MemoryPausedError) {
+        // Paused elsewhere (tray, settings file) after this tab last read the
+        // switch: show the paused state, not a failure.
+        ++this.switchSeq;
+        this._memoryEnabled.set(false);
+        this._pausedNotice.set(MEMORY_PAUSED_NOTICE);
+      } else {
+        this._error.set(toErrorMessage(err));
+      }
       this._loading.set(false);
     }
   }

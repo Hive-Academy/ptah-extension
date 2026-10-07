@@ -2,6 +2,7 @@ import { TestBed } from '@angular/core/testing';
 import { signal } from '@angular/core';
 import { AppStateManager, VSCodeService } from '@ptah-extension/core';
 import { MemoryRpcService } from '@ptah-extension/memory-curator-ui';
+import { MemoryDiagnosticsRpcService } from '@ptah-extension/memory-curator-ui/services';
 import { SkillSynthesisRpcService } from '@ptah-extension/skill-synthesis-ui';
 import { CronRpcService } from '@ptah-extension/cron-scheduler-ui';
 import { GatewayRpcService } from '@ptah-extension/messaging-gateway-ui';
@@ -43,7 +44,9 @@ function makeJob(over: Partial<ScheduledJobDto>): ScheduledJobDto {
 }
 
 /** Candidate rows reduced to the one field the tile reads: the row count. */
-function candidateRows(ids: readonly string[]): SkillSynthesisCandidateSummary[] {
+function candidateRows(
+  ids: readonly string[],
+): SkillSynthesisCandidateSummary[] {
   return ids.map((id) => ({ id }) as unknown as SkillSynthesisCandidateSummary);
 }
 
@@ -71,6 +74,7 @@ function flushAsync(): Promise<void> {
 
 describe('ThothStatusService', () => {
   let memoryRpc: jest.Mocked<MemoryRpcService>;
+  let memoryDiagnosticsRpc: { getTriggers: jest.Mock };
   let skillsRpc: jest.Mocked<SkillSynthesisRpcService>;
   let cronRpc: jest.Mocked<CronRpcService>;
   let gatewayRpc: jest.Mocked<GatewayRpcService>;
@@ -81,8 +85,12 @@ describe('ThothStatusService', () => {
     memoryRpc = {
       stats: jest.fn(),
     } as unknown as jest.Mocked<MemoryRpcService>;
+    memoryDiagnosticsRpc = {
+      getTriggers: jest.fn(async () => ({ triggers: {}, enabled: true })),
+    };
     skillsRpc = {
       listCandidates: jest.fn(),
+      getSettings: jest.fn(async () => ({ enabled: true })),
     } as unknown as jest.Mocked<SkillSynthesisRpcService>;
     cronRpc = {
       list: jest.fn(),
@@ -100,6 +108,10 @@ describe('ThothStatusService', () => {
         { provide: VSCodeService, useValue: vscode },
         { provide: AppStateManager, useValue: appState },
         { provide: MemoryRpcService, useValue: memoryRpc },
+        {
+          provide: MemoryDiagnosticsRpcService,
+          useValue: memoryDiagnosticsRpc,
+        },
         { provide: SkillSynthesisRpcService, useValue: skillsRpc },
         { provide: CronRpcService, useValue: cronRpc },
         { provide: GatewayRpcService, useValue: gatewayRpc },
@@ -694,5 +706,104 @@ describe('ThothStatusService', () => {
     expect(summary.skills.available).toBe(true);
     expect(summary.cron.available).toBe(true);
     expect(summary.gateway.available).toBe(true);
+  });
+
+  describe('pause flags (sidebar "Paused" badge)', () => {
+    function stubPillars(): void {
+      memoryRpc.stats.mockResolvedValue({
+        core: 0,
+        recall: 0,
+        archival: 0,
+        codeIndex: 0,
+        lastCuratedAt: null,
+      });
+      skillsRpc.listCandidates.mockResolvedValue([]);
+      cronRpc.list.mockResolvedValue({ jobs: [] });
+      gatewayRpc.status.mockResolvedValue({
+        enabled: false,
+        adapters: [],
+      } as unknown as GatewayStatusResult);
+      gatewayRpc.listBindings.mockResolvedValue({
+        bindings: [],
+      } as unknown as GatewayListBindingsResult);
+    }
+
+    it('reads both master switches on refresh and marks the paused pillars', async () => {
+      stubPillars();
+      memoryDiagnosticsRpc.getTriggers.mockResolvedValue({
+        triggers: {},
+        enabled: false,
+      });
+      const service = TestBed.inject(ThothStatusService);
+
+      await service.refresh();
+
+      expect(service.summary().paused).toEqual({ memory: true, skills: false });
+      expect(service.pillars().memory.paused).toBe(true);
+      expect(service.pillars().skills.paused).toBe(false);
+      expect(service.pillars().cron.paused).toBe(false);
+    });
+
+    it('refreshPaused() re-reads only the two flags', async () => {
+      const service = TestBed.inject(ThothStatusService);
+      skillsRpc.getSettings.mockResolvedValue({
+        enabled: false,
+      } as unknown as Awaited<
+        ReturnType<SkillSynthesisRpcService['getSettings']>
+      >);
+
+      await service.refreshPaused();
+
+      expect(service.pillars().skills.paused).toBe(true);
+      expect(memoryRpc.stats).not.toHaveBeenCalled();
+      expect(skillsRpc.listCandidates).not.toHaveBeenCalled();
+      expect(cronRpc.list).not.toHaveBeenCalled();
+    });
+
+    it('keeps the last known flag when a read fails', async () => {
+      const service = TestBed.inject(ThothStatusService);
+      memoryDiagnosticsRpc.getTriggers.mockResolvedValueOnce({
+        triggers: {},
+        enabled: false,
+      });
+      await service.refreshPaused();
+      expect(service.pillars().memory.paused).toBe(true);
+
+      memoryDiagnosticsRpc.getTriggers.mockRejectedValueOnce(new Error('down'));
+      await service.refreshPaused();
+
+      expect(service.pillars().memory.paused).toBe(true);
+    });
+
+    it('drops an older answer that a newer refreshPaused overtook', async () => {
+      const service = TestBed.inject(ThothStatusService);
+      const slow = deferred<{ triggers: object; enabled: boolean }>();
+      memoryDiagnosticsRpc.getTriggers.mockReturnValueOnce(slow.promise);
+
+      const first = service.refreshPaused(); // will answer "paused"
+      memoryDiagnosticsRpc.getTriggers.mockResolvedValueOnce({
+        triggers: {},
+        enabled: true,
+      });
+      await service.refreshPaused();
+      slow.resolve({ triggers: {}, enabled: false });
+      await first;
+
+      expect(service.pillars().memory.paused).toBe(false);
+    });
+
+    it('never reads the switches in VS Code, where neither feature runs', async () => {
+      vscode.config.set({ isElectron: false });
+      const service = TestBed.inject(ThothStatusService);
+
+      await service.refreshPaused();
+
+      expect(memoryDiagnosticsRpc.getTriggers).not.toHaveBeenCalled();
+      expect(skillsRpc.getSettings).not.toHaveBeenCalled();
+      expect(service.summary().paused).toEqual({
+        memory: false,
+        skills: false,
+      });
+    });
   });
 });

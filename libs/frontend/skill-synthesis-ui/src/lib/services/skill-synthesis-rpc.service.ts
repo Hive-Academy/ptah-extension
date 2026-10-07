@@ -68,6 +68,28 @@ export type AgentModelSaveOutcome =
     };
 
 /**
+ * The host refused a manual run because the Skills switch is paused
+ * (`RpcUserErrorCode` `'PAUSED'`). Thrown as its own type so callers can show a
+ * paused notice instead of a failure.
+ */
+export class SkillsPausedError extends Error {
+  public constructor(message = 'Skill synthesis is paused') {
+    super(message);
+    this.name = 'SkillsPausedError';
+  }
+}
+
+/** Throw {@link SkillsPausedError} when a failed result is a `PAUSED` refusal. */
+export function throwIfSkillsPaused(result: {
+  readonly errorCode?: RpcUserErrorCode;
+  readonly error?: string;
+}): void {
+  if (result.errorCode === 'PAUSED') {
+    throw new SkillsPausedError(result.error || undefined);
+  }
+}
+
+/**
  * Per-method RPC timeout budget for the skill-synthesis surface.
  *
  * - LIST_MS: list/get/stats reads — fast directory + DB queries.
@@ -379,6 +401,7 @@ export class SkillSynthesisRpcService {
     if (result.isSuccess() && result.data) {
       return result.data;
     }
+    throwIfSkillsPaused(result);
     throw new Error(result.error || 'Failed to run curator');
   }
 
@@ -424,6 +447,7 @@ export class SkillSynthesisRpcService {
     if (result.isSuccess() && result.data) {
       return result.data;
     }
+    throwIfSkillsPaused(result);
     throw new Error(result.error || 'Failed to enhance clone');
   }
 
@@ -445,6 +469,7 @@ export class SkillSynthesisRpcService {
     if (result.isSuccess() && result.data) {
       return result.data;
     }
+    throwIfSkillsPaused(result);
     throw new Error(result.error || 'Failed to preview enhancement');
   }
 

@@ -3,11 +3,30 @@ import { signal } from '@angular/core';
 import { AppStateManager } from '@ptah-extension/core';
 import { TabManagerService } from '@ptah-extension/chat-state';
 
-import { MemoryDiagnosticsRpcService } from './memory-diagnostics-rpc.service';
+import {
+  MemoryDiagnosticsRpcService,
+  MemoryPausedError,
+} from './memory-diagnostics-rpc.service';
 import {
   DIAGNOSTICS_POLL_MS,
+  MEMORY_PAUSED_NOTICE,
   MemoryDiagnosticsStateService,
 } from './memory-diagnostics-state.service';
+
+/** A promise whose settlement the test controls. */
+function deferred<T>(): {
+  promise: Promise<T>;
+  resolve: (value: T) => void;
+  reject: (err: unknown) => void;
+} {
+  let resolve!: (value: T) => void;
+  let reject!: (err: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
 
 describe('MemoryDiagnosticsStateService', () => {
   let service: MemoryDiagnosticsStateService;
@@ -85,8 +104,12 @@ describe('MemoryDiagnosticsStateService', () => {
       completedAt: 1,
       stats: null,
     });
-    setTriggersMock = jest.fn().mockResolvedValue({ triggers: baseTriggers });
-    getTriggersMock = jest.fn().mockResolvedValue({ triggers: baseTriggers });
+    setTriggersMock = jest
+      .fn()
+      .mockResolvedValue({ triggers: baseTriggers, enabled: true });
+    getTriggersMock = jest
+      .fn()
+      .mockResolvedValue({ triggers: baseTriggers, enabled: true });
 
     activeTabSignal.set({ claudeSessionId: 'sess-real-uuid' });
     workspaceSignal.set({ path: '/ws' });
@@ -243,6 +266,159 @@ describe('MemoryDiagnosticsStateService', () => {
     jest.advanceTimersByTime(DIAGNOSTICS_POLL_MS * 2);
 
     expect(diagnosticsMock.mock.calls.length).toBe(beforeFinal);
+  });
+
+  describe('Memory pause switch', () => {
+    it('loadMemoryEnabled() reads memory.enabled through memory:getTriggers', async () => {
+      getTriggersMock.mockResolvedValue({
+        triggers: baseTriggers,
+        enabled: false,
+      });
+
+      expect(service.memoryEnabled()).toBeNull();
+      await service.loadMemoryEnabled();
+
+      expect(service.memoryEnabled()).toBe(false);
+      expect(service.memoryEnabledCommitted()).toBe(false);
+      expect(service.memoryPaused()).toBe(true);
+    });
+
+    it('treats a missing or non-boolean enabled as unknown, not on', async () => {
+      getTriggersMock.mockResolvedValue({ triggers: baseTriggers });
+
+      await service.loadMemoryEnabled();
+
+      expect(service.memoryEnabled()).toBeNull();
+      expect(service.memoryPaused()).toBe(false);
+    });
+
+    it('setMemoryEnabled() sends only { triggers: {}, enabled }, never the cached triggers', async () => {
+      await service.refresh(); // caches a full trigger DTO
+      setTriggersMock.mockResolvedValue({
+        triggers: baseTriggers,
+        enabled: false,
+      });
+
+      await service.setMemoryEnabled(false);
+
+      expect(setTriggersMock).toHaveBeenCalledTimes(1);
+      expect(setTriggersMock).toHaveBeenCalledWith({
+        triggers: {},
+        enabled: false,
+      });
+      expect(service.memoryEnabledCommitted()).toBe(false);
+      expect(service.memoryPaused()).toBe(true);
+    });
+
+    it('moves the switch at once and disables it until the write lands', async () => {
+      await service.loadMemoryEnabled(); // committed: true
+      const write = deferred<{
+        triggers: typeof baseTriggers;
+        enabled: boolean;
+      }>();
+      setTriggersMock.mockReturnValue(write.promise);
+
+      const pending = service.setMemoryEnabled(false);
+
+      expect(service.memoryEnabled()).toBe(false);
+      expect(service.memoryPaused()).toBe(true);
+      expect(service.memorySwitchSaving()).toBe(true);
+      // The committed value only changes once the host answers.
+      expect(service.memoryEnabledCommitted()).toBe(true);
+
+      write.resolve({ triggers: baseTriggers, enabled: false });
+      await pending;
+
+      expect(service.memorySwitchSaving()).toBe(false);
+      expect(service.memoryEnabledCommitted()).toBe(false);
+    });
+
+    it('rolls back to the committed value and re-reads it when the write fails', async () => {
+      await service.loadMemoryEnabled(); // committed: true
+      getTriggersMock.mockClear();
+      setTriggersMock.mockRejectedValue(new Error('write failed'));
+
+      await service.setMemoryEnabled(false);
+
+      expect(service.memoryEnabled()).toBe(true);
+      expect(service.memoryPaused()).toBe(false);
+      expect(service.memorySwitchError()).toBe(
+        'Could not change the Memory switch. It shows the saved setting.',
+      );
+      expect(getTriggersMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('drops a read that started before a write (stale-GET guard)', async () => {
+      const staleRead = deferred<{
+        triggers: typeof baseTriggers;
+        enabled: boolean;
+      }>();
+      getTriggersMock.mockReturnValueOnce(staleRead.promise);
+
+      const read = service.loadMemoryEnabled(); // will answer "on"
+      setTriggersMock.mockResolvedValue({
+        triggers: baseTriggers,
+        enabled: false,
+      });
+      await service.setMemoryEnabled(false);
+
+      staleRead.resolve({ triggers: baseTriggers, enabled: true });
+      await read;
+
+      expect(service.memoryEnabledCommitted()).toBe(false);
+    });
+
+    it('does not start a read while a write is in flight', async () => {
+      const write = deferred<{
+        triggers: typeof baseTriggers;
+        enabled: boolean;
+      }>();
+      setTriggersMock.mockReturnValue(write.promise);
+
+      const pending = service.setMemoryEnabled(false);
+      await service.loadMemoryEnabled();
+
+      expect(getTriggersMock).not.toHaveBeenCalled();
+      write.resolve({ triggers: baseTriggers, enabled: false });
+      await pending;
+    });
+
+    it('runNow() is not sent while Memory is paused and shows the paused notice', async () => {
+      getTriggersMock.mockResolvedValue({
+        triggers: baseTriggers,
+        enabled: false,
+      });
+      await service.loadMemoryEnabled();
+
+      await service.runNow();
+
+      expect(runNowMock).not.toHaveBeenCalled();
+      expect(service.pausedNotice()).toBe(MEMORY_PAUSED_NOTICE);
+      expect(service.error()).toBeNull();
+    });
+
+    it('runNow() turns a host PAUSED refusal into the paused state, not an error', async () => {
+      await service.loadMemoryEnabled(); // this tab still believes "on"
+      runNowMock.mockRejectedValue(new MemoryPausedError());
+
+      await service.runNow();
+
+      expect(service.error()).toBeNull();
+      expect(service.loading()).toBe(false);
+      expect(service.pausedNotice()).toBe(MEMORY_PAUSED_NOTICE);
+      expect(service.memoryPaused()).toBe(true);
+    });
+
+    it('clears the paused notice once Memory is back on', async () => {
+      runNowMock.mockRejectedValue(new MemoryPausedError());
+      await service.runNow();
+      expect(service.pausedNotice()).not.toBeNull();
+
+      await service.setMemoryEnabled(true);
+
+      expect(service.pausedNotice()).toBeNull();
+      expect(service.memoryPaused()).toBe(false);
+    });
   });
 
   it('refcount: second subscriber does NOT trigger a second initial refresh', async () => {

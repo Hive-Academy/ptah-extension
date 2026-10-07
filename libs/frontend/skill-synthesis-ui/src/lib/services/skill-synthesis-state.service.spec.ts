@@ -196,7 +196,10 @@ describe('SkillSynthesisStateService — suggestions', () => {
 
   it('returns false, reloads the list but not the stats, when the backend declines the accept', async () => {
     const rpc = makeRpc();
-    rpc.acceptSuggestion.mockResolvedValueOnce({ accepted: false, filePath: '' });
+    rpc.acceptSuggestion.mockResolvedValueOnce({
+      accepted: false,
+      filePath: '',
+    });
     // The suggestion is no longer pending; the reload shows its real state.
     rpc.listSuggestions.mockResolvedValueOnce([
       suggestion({ status: 'dismissed' }),
@@ -505,5 +508,122 @@ describe('SkillSynthesisStateService — weekly digest', () => {
     expect(svc.digestItems()).toHaveLength(1);
     expect(svc.error()).toBe('sweep-failed');
     expect(svc.digestLoading()).toBe(false);
+  });
+});
+
+describe('SkillSynthesisStateService — Skills pause switch', () => {
+  function deferred<T>(): {
+    promise: Promise<T>;
+    resolve: (value: T) => void;
+  } {
+    let resolve!: (value: T) => void;
+    const promise = new Promise<T>((res) => {
+      resolve = res;
+    });
+    return { promise, resolve };
+  }
+
+  function setup(enabled = true) {
+    const rpc = {
+      getSettings: jest.fn(async () => ({ enabled })),
+      updateSettings: jest.fn(async () => undefined),
+    };
+    TestBed.configureTestingModule({
+      providers: [{ provide: SkillSynthesisRpcService, useValue: rpc }],
+    });
+    const svc = TestBed.inject(SkillSynthesisStateService);
+    return { svc, rpc };
+  }
+
+  it('reads skillSynthesis.enabled through getSettings; unknown until then', async () => {
+    const { svc } = setup(false);
+    expect(svc.skillsEnabled()).toBeNull();
+    expect(svc.skillsPaused()).toBe(false);
+
+    await svc.refreshSkillsEnabled();
+
+    expect(svc.skillsEnabledCommitted()).toBe(false);
+    expect(svc.skillsPaused()).toBe(true);
+  });
+
+  it('writes only { enabled } so the curator is not restarted', async () => {
+    const { svc, rpc } = setup();
+    await svc.refreshSkillsEnabled();
+
+    await svc.setSkillsEnabled(false);
+
+    expect(rpc.updateSettings).toHaveBeenCalledTimes(1);
+    expect(rpc.updateSettings).toHaveBeenCalledWith({ enabled: false });
+    expect(svc.skillsEnabledCommitted()).toBe(false);
+    expect(svc.skillsPaused()).toBe(true);
+  });
+
+  it('moves the switch at once and keeps the committed value until the write lands', async () => {
+    const { svc, rpc } = setup();
+    await svc.refreshSkillsEnabled();
+    const write = deferred<undefined>();
+    rpc.updateSettings.mockReturnValue(write.promise);
+
+    const pending = svc.setSkillsEnabled(false);
+    expect(svc.skillsEnabled()).toBe(false);
+    expect(svc.skillsSwitchSaving()).toBe(true);
+    expect(svc.skillsEnabledCommitted()).toBe(true);
+
+    write.resolve(undefined);
+    await pending;
+    expect(svc.skillsSwitchSaving()).toBe(false);
+    expect(svc.skillsEnabledCommitted()).toBe(false);
+  });
+
+  it('rolls back and re-reads the host value when the write fails', async () => {
+    const { svc, rpc } = setup();
+    await svc.refreshSkillsEnabled();
+    rpc.getSettings.mockClear();
+    rpc.updateSettings.mockRejectedValue(new Error('disk full'));
+
+    await svc.setSkillsEnabled(false);
+
+    expect(svc.skillsEnabled()).toBe(true);
+    expect(svc.skillsPaused()).toBe(false);
+    expect(svc.skillsSwitchError()).toBe(
+      'Could not change the Skills switch. It shows the saved setting.',
+    );
+    expect(rpc.getSettings).toHaveBeenCalledTimes(1);
+  });
+
+  it('drops a read that a write overtook (stale-GET guard)', async () => {
+    const { svc, rpc } = setup();
+    const staleRead = deferred<{ enabled: boolean }>();
+    rpc.getSettings.mockReturnValueOnce(staleRead.promise);
+
+    const read = svc.refreshSkillsEnabled(); // will answer "on"
+    await svc.setSkillsEnabled(false);
+    staleRead.resolve({ enabled: true });
+    await read;
+
+    expect(svc.skillsEnabledCommitted()).toBe(false);
+  });
+
+  it('does not read while a write is in flight', async () => {
+    const { svc, rpc } = setup();
+    const write = deferred<undefined>();
+    rpc.updateSettings.mockReturnValue(write.promise);
+
+    const pending = svc.setSkillsEnabled(false);
+    await svc.refreshSkillsEnabled();
+    expect(rpc.getSettings).not.toHaveBeenCalled();
+
+    write.resolve(undefined);
+    await pending;
+  });
+
+  it('markSkillsPaused() shows the paused state after a PAUSED refusal', async () => {
+    const { svc } = setup();
+    await svc.refreshSkillsEnabled();
+
+    svc.markSkillsPaused();
+
+    expect(svc.skillsPaused()).toBe(true);
+    expect(svc.skillsEnabledCommitted()).toBe(false);
   });
 });

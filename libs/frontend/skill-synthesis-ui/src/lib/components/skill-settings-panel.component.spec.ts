@@ -5,7 +5,6 @@ import { SkillSettingsPanelComponent } from './skill-settings-panel.component';
 function settingsForm(): FormGroup {
   const fb = new FormBuilder();
   return fb.group({
-    enabled: [true],
     successesToPromote: [3],
     dedupCosineThreshold: [0.85],
     maxActiveSkills: [50],
@@ -43,12 +42,25 @@ function settingsForm(): FormGroup {
 }
 
 describe('SkillSettingsPanelComponent', () => {
-  const navigation = { requestSettingsTab: jest.fn(), setCurrentView: jest.fn() };
+  const navigation = {
+    requestSettingsTab: jest.fn(),
+    setCurrentView: jest.fn(),
+  };
   beforeEach(() => {
     jest.clearAllMocks();
-    TestBed.configureTestingModule({ imports: [SkillSettingsPanelComponent], providers: [{ provide: AppStateManager, useValue: navigation }] });
+    TestBed.configureTestingModule({
+      imports: [SkillSettingsPanelComponent],
+      providers: [{ provide: AppStateManager, useValue: navigation }],
+    });
   });
-  function render(inputs: { form?: FormGroup; loaded?: boolean; saving?: boolean; isElectron?: boolean } = {}) {
+  function render(
+    inputs: {
+      form?: FormGroup;
+      loaded?: boolean;
+      saving?: boolean;
+      isElectron?: boolean;
+    } = {},
+  ) {
     const fixture = TestBed.createComponent(SkillSettingsPanelComponent);
     fixture.componentRef.setInput('form', inputs.form ?? settingsForm());
     fixture.componentRef.setInput('loaded', inputs.loaded ?? true);
@@ -62,9 +74,14 @@ describe('SkillSettingsPanelComponent', () => {
     expect(el.querySelector('ptah-provider-model-picker')).toBeNull();
     expect(el.querySelector('[formControlName="judgeModel"]')).toBeNull();
     for (const target of ['archaeologist', 'synthesis', 'judge', 'replay']) {
-      const button = Array.from(el.querySelectorAll('button')).find((node) => node.textContent?.includes(`Manage ${target} in Providers`));
+      const button = Array.from(el.querySelectorAll('button')).find((node) =>
+        node.textContent?.includes(`Manage ${target} in Providers`),
+      );
       button?.click();
-      expect(navigation.requestSettingsTab).toHaveBeenLastCalledWith({ tab: 'providers', section: target });
+      expect(navigation.requestSettingsTab).toHaveBeenLastCalledWith({
+        tab: 'providers',
+        section: target,
+      });
     }
   });
   describe('Phase-0 background knobs', () => {
@@ -269,6 +286,22 @@ describe('SkillSettingsPanelComponent', () => {
         el.querySelector('[data-testid="skills-background-section"]'),
       ).toBeNull();
       expect(el.querySelector('[aria-busy="true"]')).not.toBeNull();
+    });
+  });
+
+  describe('master switch', () => {
+    it('has no "Enabled" control; it points to the Skills switch at the top of the tab', () => {
+      const { el } = render();
+
+      expect(el.querySelector('[formControlName="enabled"]')).toBeNull();
+      const labels = Array.from(el.querySelectorAll('label span')).map((s) =>
+        (s.textContent ?? '').trim(),
+      );
+      expect(labels).not.toContain('Enabled');
+      expect(
+        el.querySelector('[data-testid="skills-settings-switch-note"]')
+          ?.textContent,
+      ).toContain('Skills switch at the top of this');
     });
   });
 
