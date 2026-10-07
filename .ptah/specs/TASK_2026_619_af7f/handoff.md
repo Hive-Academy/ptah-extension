@@ -8,6 +8,9 @@
 - Ground-truth generators run outside lanes via an esbuild bundle of a throwaway driver kept in `%TEMP%\mcp-bench-drivers` (never in `tools/mcp-bench/out/`: ESLint lints that folder).
 - `batches.md` has one uncommitted edit (Batch 6 SHA in its header) and `batch-6-executor-report.md` an executor-line fix; commit both with the next batch.
 - TASK_2026_620 requests (2026-10-07, accepted by the orchestrator; the next team-leader Mode 2 adds them to Batch 9 as a first small task): (1) export a core per-suite zod schema from `scorecard.types.ts`; (2) an explicit `env` option on `launchBenchHost`, merged after isolation, refusing isolation keys; (4) export the bench-host argument and shutdown helpers. (3) answered: `guard: { ci: true }` is correct for the 620 Linux CI job. 620 commits so far: 179a5bbc6, 44a3329c4 (only project.json targets). Send 620 the Batch 9 SHA.
+- Batch 7 COMPLETE `90de07275` (10/41). Batch 8 in progress on codex (agent 195947f4, then rev 1 agent 3fc64e43, session `01a113cc-3ee1-7163-a357-6deeba9bdd1e`).
+- ripgrep: no `rg` on the Windows PATH (`rg` in Git Bash is a shell function). Local runs set `RG_PATH=D:\projects\ptah-extension\node_modules\@cursor\sdk-win32-x64\bin\rg.exe` (14.1.1, transitive). CI installs ripgrep via apt (Task 10).
+- Lane evidence: opencode Batch 7 (code+spec, 11 tests, report delivered, then process exit code 1 at close after the deliverable = false failure; 1 orchestrator correction: win32 path separators); codex Batch 8 (first pass hid 2 defects behind an rg-absent skip: env fallback, stdin hang).
 - Lane evidence added: codex Batch 5 rev 1 (7 defects, 3 m 17 s, 2 orchestrator corrections after); opencode Batch 6 rev 1 (25 m 21 s, clean scoped checks, report delivered).
 
 The orchestrator session stopped at the user's request after the Batch 5 / Batch 6 step. This file is the entry point for the next session. Read it first, then `context.md` (all user decisions), then `batches.md`.

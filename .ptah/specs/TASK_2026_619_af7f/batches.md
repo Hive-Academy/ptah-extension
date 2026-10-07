@@ -1,6 +1,6 @@
 # Batches - TASK_2026_619_af7f
 
-Total tasks: 77 | Batches: 41 | Complete: 10/41
+Total tasks: 77 | Batches: 41 | Complete: 11/41
 
 Worktree root (every path below is absolute under it):
 `D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark` (branch `fix/task-619-tool-benchmark`).
@@ -951,7 +951,7 @@ Batch 6 findings recorded at Mode 2 (report:
 - `npx nx run-many -t typecheck,lint,test -p mcp-bench` passes
 - The held-out split file is committed and its size quoted
 
-## Batch 7: Polyglot corpus and SCIP cross-check ground truth — COMPLETE (commit: the `feat: batch 7` commit after 629e4f719; SHA filled in after the commit)
+## Batch 7: Polyglot corpus and SCIP cross-check ground truth — COMPLETE (commit 90de07275)
 
 Batch 7 findings recorded at Mode 2 (report:
 `D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\.ptah\specs\TASK_2026_619_af7f\batch-7-executor-report.md`):
@@ -1040,7 +1040,57 @@ Batch 7 findings recorded at Mode 2 (report:
 - `npx nx run-many -t typecheck,lint,test -p mcp-bench` passes
 - The `na`-when-absent path is tested
 
-## Batch 8: Native baselines — PENDING
+## Batch 8: Native baselines — COMPLETE (commit: the `feat: batch 8` commit after 90de07275; SHA filled in after the commit)
+
+Batch 8 findings recorded at Mode 2 (report:
+`D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\.ptah\specs\TASK_2026_619_af7f\batch-8-executor-report.md`):
+
+- Lane evidence: codex CLI lane with the `backend-developer` role, not Glm. The user pinned codex
+  and opencode for this session, which overrides the Glm recommendation above. Initial run agent
+  `195947f4` (9 m 17 s). Revision 1, agent `3fc64e43` (4 m 21 s), fixed 2 defects: an injected env
+  fell back to `process.env`, and rg hung on an open stdin pipe. Both had been hidden because the
+  live-rg tests skip when no `rg` is found. Revision 2, agent `95d2dc31`, fixed 5 defects found by
+  the orchestrator's real-question smoke:
+  - definitions missed class methods;
+  - relevance mixed the git cost into the rg view;
+  - one root served rg and git, so rg searched the repository and leaked the frozen question JSON;
+  - `git log` overflowed `maxBuffer`;
+  - memory's git calls used the wrong root.
+  The revision cap (2 rounds) was reached; no defect is left open.
+- Real-question smoke (orchestrator, pinned extract, `gitRoot` = the worktree): every suite answers.
+  Definitions hit 4 of 5 sampled call sites in the top 10; symbols-exact 3/3; dependents 2/2;
+  text 4/4. Relevance (rg) hit 1 of 3 in the top 10 with about 0.8-1.0 M characters of output per
+  question; the git-log view hit 1 of 3 with 4-6 M characters. These are the honest native costs,
+  not defects.
+- Accepted design points:
+  - (1) Every rg call excludes `tools/mcp-bench/questions/**` and `**/node_modules/**`. At the
+    pin `7910f34cf` the questions folder does not exist, so the corpus is unchanged; the
+    exclusion only guards a run pointed at the live tree.
+  - (2) rg output is capped at 512 MiB streamed, and git uses a 512 MiB `maxBuffer`. An overflow
+    is an error naming the command, never a silent cut.
+  - (3) The baselines return answers, command counts, result text and latency. Recall, precision
+    and tokens are computed in Batch 9 with the same metrics as the tools. The references baseline
+    has no cap.
+- **Carried to Batch 9 (Task 9.1):**
+  - The runner passes `gitRoot` (the repository, for `git log`) separately from `corpusRoot` (the
+    pinned extract, for rg, glob and read). They must never be the same folder when the corpus is
+    an extract.
+  - `relevanceGitLogBaseline` (`view: 'git-log'`) is a second native view of relevance, next to
+    the rg-only `relevanceBaseline`. It is reported as its own baseline id and never merged into
+    the rg cost.
+  - `memoryBaseline` returns `view: 'comparison'` (rg over `.ptah/specs` plus `git log --grep`).
+  - Local runs need `RG_PATH`. This machine has no `rg` on the Windows PATH; use
+    `RG_PATH=D:\projects\ptah-extension\node_modules\@cursor\sdk-win32-x64\bin\rg.exe` (ripgrep
+    14.1.1). A run without rg fails with the resolver's clear message, as Task 8.1 requires.
+- **Carried to Batch 10 (Task 10.2):** CI installs ripgrep (already in the task's apt step). Also
+  (Moderate, from this batch's lane evidence): the 3 live-rg spec cases skip silently when rg is
+  absent, and that skip hid 2 real defects. Under `CI=true` a missing rg must fail the spec, not
+  skip it. This adds `tools\mcp-bench\src\baselines\native-baselines.spec.ts` to Task 10.2 (one
+  file; the batch stays under the cap).
+- Mode 2 checks (team-leader): with `RG_PATH` set, `npx nx run-many -t typecheck,lint,test -p
+  mcp-bench --skip-nx-cache` passed (3 targets, 2m 43s); `npx prettier --check
+  tools/mcp-bench/src/baselines` clean; no TODO, FIXME, PLACEHOLDER or STUB markers; `git diff --
+  libs apps` empty.
 
 - Recommended executor: CLI lane x 1
 - Fallback executor: backend-developer subagent
@@ -1059,7 +1109,7 @@ Batch 7 findings recorded at Mode 2 (report:
 - Tasks: 1 | Depends on: 5, 6
 - Phase: 1 Benchmark | Phase review: code-logic (after Batch 11)
 
-### Task 8.1: rg/Glob/Read and `git log --grep` baselines per suite — PENDING
+### Task 8.1: rg/Glob/Read and `git log --grep` baselines per suite — COMPLETE
 
 - File: D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\baselines\rg-runner.ts; D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\baselines\native-baselines.ts; D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\baselines\native-baselines.spec.ts
 - Plan reference: research-report.md:162-173 (B4)
@@ -1096,6 +1146,10 @@ Batch 7 findings recorded at Mode 2 (report:
   Because TASK_2026_620 waits on these exports, the team-leader may commit Task 9.0 on its own as
   `batch 9 part 1` once its scoped checks pass, and send that SHA to the TASK_2026_620 session
   (handoff.md: send 620 the SHA of any commit that changes `scorecard/` or the bench-host files).
+- Recorded at Batch 8 Mode 2: Phase 1 lane work is complete (lane-authored: Batches 1, 2, 4b, 5,
+  6, 7, 8). Batches 9, 10 and 11 run on subagents as listed. Batch 9 also takes the Batch 8
+  hand-offs (separate `gitRoot` and `corpusRoot`, the `git-log` relevance view, `RG_PATH` for local
+  runs; see Task 9.1).
 - Added at Batch 7 Mode 2: Batch 9 also reads `tools\mcp-bench\questions\scip\*.json` (Batch 7):
   the Python and Go reference and dependents question sets, and `ts-agreement.json`. References
   scoring follows the Batch 7 agreement analysis (see Task 9.1).
@@ -1159,6 +1213,10 @@ Batch 7 findings recorded at Mode 2 (report:
   - Relevance: score the `test` split only; report recall@10 per `source` (pr, commit) and overall;
     quote the split composition (8 PRs, 192 commits).
   - Memory: call `seedMemory(target, set, roots)` from `afterContainerReady` with the isolated roots.
+  - Native baselines (Batch 8): build `NativeContext` with `corpusRoot` = the run's pinned corpus
+    and `gitRoot` = the repository (plus `corpusCommit`), never one folder for both; record
+    `relevanceGitLogBaseline` as a second relevance baseline id (`view: 'git-log'`) and the memory
+    baseline as `view: 'comparison'`; resolve rg once per run via `RG_PATH`, then PATH.
 
 ### Task 9.2: Lifecycle scenarios 1-8 — PENDING
 
@@ -1232,6 +1290,10 @@ Batch 7 findings recorded at Mode 2 (report:
 - Pattern to follow: D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\.github\workflows\cli-e2e.yml (Node 24, npm ci, better-sqlite3 rebuild for the Node ABI, `NX_TUI: 'false'`)
 - Quality requirements: PRs run the smoke subset on `cli-headless`, ubuntu-latest, under 10 minutes; nightly and release run the full set (Windows and Linux; Electron where available) under 45 minutes; apt install ripgrep; optional pyright/gopls/SCIP in nightly; upload the scorecard as an artifact; `ci.yml` untouched.
 - Validation notes: cache the isolated SQLite DB and the graph keyed by corpus commit if indexing exceeds the budget; measure first. Carried from Batch 1: add `mcp-bench` to `scope-enum` in `.commitlintrc.json` (file count for this batch rises by one; still under the cap).
+  Carried from Batch 8 (Moderate): set `RG_PATH` or rely on the apt-installed `rg`, and make the
+  live-rg cases in `tools\mcp-bench\src\baselines\native-baselines.spec.ts` fail instead of skip
+  when `CI=true` and no rg resolves (the silent skip hid 2 defects in Batch 8). File count +1
+  (4 files across the batch, still under the cap).
 - Implementation details: `permissions: contents: read`; concurrency group per ref.
 
 ### Batch 10 verification
