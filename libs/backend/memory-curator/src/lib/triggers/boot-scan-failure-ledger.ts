@@ -67,7 +67,7 @@ const LIST_GIVEN_UP_SQL = `SELECT session_id, workspace_root, session_path, atte
   FROM memory_boot_scan_failures
   WHERE workspace_fingerprint = ? AND status = 'given_up'
   ORDER BY last_failed_at, session_id
-  LIMIT ?`;
+  LIMIT ? OFFSET ?`;
 
 const GIVE_UP_SQL = `UPDATE memory_boot_scan_failures
    SET status = 'given_up', give_up_reason = ?, last_failed_at = ?
@@ -157,11 +157,11 @@ export class BootScanFailureLedger {
   }
 
   /** Terminal rows, used to admit a changed file generation below the watermark. */
-  listGivenUp(fp: string, limit: number): BootScanGivenUpEntry[] {
+  listGivenUp(fp: string, limit: number, offset = 0): BootScanGivenUpEntry[] {
     try {
       const rows = this.sqlite.db
         .prepare(LIST_GIVEN_UP_SQL)
-        .all(fp, limit) as Array<{
+        .all(fp, limit, offset) as Array<{
         session_id: string;
         workspace_root: string;
         session_path: string;

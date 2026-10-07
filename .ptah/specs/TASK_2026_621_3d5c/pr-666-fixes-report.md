@@ -44,3 +44,47 @@ Change: end passes now return their settling promise to `flushSessionEnd`; that 
 
 - `npx prettier --check <changed files>`
   Exact result line: `All matched files use Prettier code style!`
+
+## Revision 1 — independent review fixes
+
+### 1. Terminal-row pagination — valid
+
+Evidence: `listGivenUp` applied `LIMIT 20` before the runner compared stored and current mtime, so unchanged or deleted terminal rows could permanently fill the result. `boot-scan-failure-ledger.ts` now accepts an offset, and `boot-scan-runner.ts` pages terminal rows until it finds at most 20 changed generations. Only changed, present files increment that admission count; unchanged and missing files do not consume it.
+
+Pinning specs: `boot-scan-runner.spec.ts` proves a changed row after 20 missing rows is admitted, proves an unchanged-mtime row is not admitted, and therefore proves missing rows do not consume the changed-generation budget.
+
+### 2. Session-end skipped dispatch — valid
+
+Evidence: the previous `Promise.resolve()` return from `tryEpisodeCurate` made the session-end `.finally` clear `failedPasses` when dispatch was coalesced, rate-limited, held by backoff, or empty. That could reset the retry count owned by a live pass.
+
+Change: `tryEpisodeCurate` now returns `null` for every skipped dispatch and a promise only after it actually starts `invokeCurate`. `flushSessionEnd` clears state only for that actual pass. It uses `then(success, failure)` rather than discarding a derived `finally` promise, and the ending-session token is registered only after a pass starts.
+
+Pinning spec: `memory-trigger.service.spec.ts` starts a pending pass, fires a coalesced session-end event, then verifies the resulting failed-pass count increments from 1 to 2 rather than being reset.
+
+### 3. Failed session-end episode reattachment — valid
+
+Evidence: `invokeCurate` reattached a detached episode after a failed or stalled pass, while `flushSessionEnd` had already reset the ended session. The reattached buffer was then left behind.
+
+Change: session-end passes no longer reattach their detached episode for either failed or stalled outcomes; non-end passes preserve their existing retry behavior.
+
+Pinning spec: `memory-trigger.service.spec.ts` verifies the session episode remains empty after a failed session-end pass.
+
+### 4. Bounded thrown scan runs and hard stops — valid
+
+Evidence: a thrown `options.run` was logged but did not call `recordFailure`, so an admitted terminal row could retry once per boot indefinitely. The runner now records the thrown attempt through the existing ledger cap; no-ledger scans retain their established continue-after-throw behavior. The retention hard-stop behavior is explicitly asserted as unread (`stuckKept: null`) for a time-budget stop.
+
+Pinning specs: `boot-scan-runner.spec.ts` verifies a thrown run calls `recordFailure`; `memory-retention.service.spec.ts` verifies a hard time-budget stop leaves the stuck count unread.
+
+### Revision 1 checks
+
+- `npx nx test memory-curator --skip-nx-cache --maxWorkers=2`
+  Exact result lines: `Test Suites: 47 passed, 47 total`; `Tests:       893 passed, 893 total`; `NX   Successfully ran target test for project @ptah-extension/memory-curator`.
+
+- `npx nx run-many -t typecheck,lint -p memory-curator --parallel=2`
+  Exact result line: `NX   Successfully ran targets typecheck, lint for project @ptah-extension/memory-curator`.
+
+- `npx nx run degradation-audit:lint`
+  Exact result line: `NX   Successfully ran target lint for project degradation-audit`.
+
+- `npx prettier --check <changed files>`
+  Exact result line: `All matched files use Prettier code style!`

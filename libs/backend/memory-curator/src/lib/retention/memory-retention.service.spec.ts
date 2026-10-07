@@ -1103,11 +1103,13 @@ describe('MemoryRetentionService — run', () => {
   it('the wall budget stops the run partial', async () => {
     const h = harness({ limits: { maxRunMs: 1000 } });
     h.store.processed = 5000;
+    h.store.stuck = 50;
     h.store.batchCostMs = 400;
     const report = (await h.service.run(h.options)) as MemoryRetentionRunReport;
     expect(report.status).toBe('partial');
     expect(report.reason).toBe('time-budget');
     expect(report.processedPurged).toBeGreaterThan(0);
+    expect(report.stuckKept).toBeNull();
     expect(h.log).not.toContain('prune');
     expect(h.log).not.toContain('reclaim');
     expect(h.lifecycle.calls).toHaveLength(0);

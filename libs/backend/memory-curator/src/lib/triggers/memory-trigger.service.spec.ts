@@ -1407,6 +1407,84 @@ describe('MemoryTriggerService — episode / failure / session-end', () => {
     expect(internals.failedPasses).toEqual(new Map());
   });
 
+  it('does not clear failure state when session end coalesces with an in-flight pass', async () => {
+    let settle: ((value: Record<string, unknown>) => void) | undefined;
+    const curator = {
+      ...makeCurator(),
+      curate: jest.fn(
+        () =>
+          new Promise<Record<string, unknown>>((resolve) => (settle = resolve)),
+      ),
+    } as unknown as MemoryCuratorService;
+    const { service, stop, sessionEndHook } = buildService({
+      curator,
+      workspace: makeWorkspace({
+        'memory.triggers.idleMs': 0,
+        'memory.triggers.turnThreshold': 1,
+      }),
+    });
+    service.start();
+    stop.fire(stopPayload());
+    for (let i = 0; i < 8; i++) await Promise.resolve();
+    const internals = service as unknown as {
+      failedPasses: Map<string, number>;
+    };
+    internals.failedPasses.set('s1', 1);
+    sessionEndHook.fire({
+      sessionId: 's1',
+      workspaceRoot: '/ws',
+      reason: 'clear',
+      timestamp: 20,
+    });
+    settle?.({
+      outcome: 'failed',
+      extracted: 0,
+      merged: 0,
+      created: 0,
+      skipped: 0,
+    });
+    for (let i = 0; i < 8; i++) await Promise.resolve();
+
+    expect(internals.failedPasses.get('s1')).toBe(2);
+  });
+
+  it('does not reattach an episode after a failed session-end pass', async () => {
+    const curator = {
+      ...makeCurator(),
+      curate: jest.fn().mockResolvedValue({
+        outcome: 'failed',
+        extracted: 0,
+        merged: 0,
+        created: 0,
+        skipped: 0,
+      }),
+    } as unknown as MemoryCuratorService;
+    const { service, stop, sessionEndHook } = buildService({
+      curator,
+      workspace: makeWorkspace({
+        'memory.triggers.idleMs': 0,
+        'memory.triggers.turnThreshold': 0,
+      }),
+    });
+    service.start();
+    stop.fire(stopPayload());
+    sessionEndHook.fire({
+      sessionId: 's1',
+      workspaceRoot: '/ws',
+      reason: 'clear',
+      timestamp: 20,
+    });
+    for (let i = 0; i < 8; i++) await Promise.resolve();
+
+    expect(
+      (
+        service as unknown as {
+          episodes: { snapshot(id: string): { isEmpty: boolean } };
+        }
+      ).episodes.snapshot('s1').isEmpty,
+    ).toBe(true);
+  });
+
   it('SessionEnd hook with empty episode does not curate', async () => {
     const { service, sessionEndHook, curator } = buildService();
     service.start();

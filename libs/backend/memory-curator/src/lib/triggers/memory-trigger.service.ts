@@ -492,19 +492,19 @@ export class MemoryTriggerService {
     // curate is gated.
     if (this.readMemoryEnabled() && this.readSessionEndEnabled()) {
       const ending = { sessionId };
-      this.endingSessions.set(sessionId, ending);
-      void this.tryEpisodeCurate(
+      const pass = this.tryEpisodeCurate(
         sessionId,
         workspaceRoot,
         'session-end',
         'session-end-trigger',
-      ).finally(() => {
-        this.failedPasses.delete(sessionId);
-        this.failedPasses.delete(ending.sessionId);
-        if (this.endingSessions.get(ending.sessionId) === ending) {
-          this.endingSessions.delete(ending.sessionId);
-        }
-      });
+        ending,
+      );
+      if (pass) {
+        void pass.then(
+          () => this.clearEndedSessionFailures(sessionId, ending),
+          () => this.clearEndedSessionFailures(sessionId, ending),
+        );
+      }
     }
     this.episodes.reset(sessionId);
     const state = this.sessions.get(sessionId);
@@ -723,23 +723,24 @@ export class MemoryTriggerService {
       | 'episode-trigger'
       | 'commit-detect'
       | 'session-end-trigger',
-  ): Promise<void> {
+    ending?: { sessionId: string },
+  ): Promise<void> | null {
     if (this.shouldCoalesce(sessionId)) {
       this.logger.debug(
         '[memory-curator] curate trigger coalesced (in-flight or recent)',
         { sessionId, source },
       );
-      return Promise.resolve();
+      return null;
     }
 
     const snap = this.episodes.snapshot(sessionId);
     if (snap.isEmpty) {
       this.episodes.reset(sessionId);
-      return Promise.resolve();
+      return null;
     }
     // Before the slot is spent and before the buffer is detached: the episode
     // stays where it is and the next boundary tries again.
-    if (this.heldByNetworkBackoff(sessionId, source)) return Promise.resolve();
+    if (this.heldByNetworkBackoff(sessionId, source)) return null;
 
     const decision = this.rateLimiter.tryAcquire(
       RATE_LIMIT_KEY,
@@ -757,7 +758,7 @@ export class MemoryTriggerService {
           usedThisWindow: decision.usedThisWindow,
         },
       });
-      return Promise.resolve();
+      return null;
     }
 
     const salienceBoost = this.episodes.salienceBoost(sessionId);
@@ -788,6 +789,7 @@ export class MemoryTriggerService {
     const detached = this.episodes.detach(sessionId);
     this.inFlightCurates.add(sessionId);
     this.lastCurateAt.set(sessionId, Date.now());
+    if (ending) this.endingSessions.set(sessionId, ending);
     return this.invokeCurate(
       sessionId,
       workspaceRoot,
@@ -796,6 +798,17 @@ export class MemoryTriggerService {
       episodeSnap,
       detached,
     );
+  }
+
+  private clearEndedSessionFailures(
+    sessionId: string,
+    ending: { sessionId: string },
+  ): void {
+    this.failedPasses.delete(sessionId);
+    this.failedPasses.delete(ending.sessionId);
+    if (this.endingSessions.get(ending.sessionId) === ending) {
+      this.endingSessions.delete(ending.sessionId);
+    }
   }
 
   /**
@@ -882,7 +895,7 @@ export class MemoryTriggerService {
     detachedEpisode?: EpisodeBuffer | null,
   ): Promise<void> {
     const limit = this.readMaxObservationsPerCurate();
-    let jsonlText = '';
+    let jsonlText: string;
     try {
       jsonlText = await this.transcriptReader.read(sessionId, workspaceRoot, {
         tailBytes: TRANSCRIPT_TAIL_BYTES,
@@ -896,9 +909,12 @@ export class MemoryTriggerService {
       });
       jsonlText = '';
     }
-    const drainedRows = this.observationQueue.drainForSession(sessionId, limit);
-    const transcript = composeTranscript(jsonlText, drainedRows, episodeSnap);
     try {
+      const drainedRows = this.observationQueue.drainForSession(
+        sessionId,
+        limit,
+      );
+      const transcript = composeTranscript(jsonlText, drainedRows, episodeSnap);
       const stats = await this.curator.curate({
         sessionId,
         workspaceRoot,
@@ -907,7 +923,7 @@ export class MemoryTriggerService {
       });
       if (stats.outcome === 'stalled') {
         this.refundIfNetworkDeferred(stats);
-        if (detachedEpisode) {
+        if (detachedEpisode && source !== 'session-end') {
           this.episodes.reattach(sessionId, detachedEpisode);
         }
         this.logger.info(
@@ -920,7 +936,7 @@ export class MemoryTriggerService {
         const failures = (this.failedPasses.get(sessionId) ?? 0) + 1;
         if (failures <= MAX_FAILED_PASS_RETRIES) {
           this.failedPasses.set(sessionId, failures);
-          if (detachedEpisode) {
+          if (detachedEpisode && source !== 'session-end') {
             this.episodes.reattach(sessionId, detachedEpisode);
           }
           this.logger.warn(

@@ -211,18 +211,34 @@ export class BootScanRunner {
     // file changed, even if its mtime is at or below the persisted watermark
     // (for example after a preserved-mtime copy or clock skew).
     const knownEligible = new Set(eligible.map((item) => item.sessionId));
-    for (const entry of options.failures?.listGivenUp(
-      options.workspaceFingerprint,
-      BOOT_SCAN_RETRIES_PER_BOOT,
-    ) ?? []) {
-      const mtime = await this.sessionMtime(entry.sessionPath);
-      if (
-        typeof mtime === 'number' &&
-        mtime !== entry.sessionMtimeMs &&
-        !knownEligible.has(entry.sessionId)
-      ) {
-        eligible.push({ sessionId: entry.sessionId, mtime });
-        knownEligible.add(entry.sessionId);
+    const ledger = options.failures;
+    if (ledger) {
+      let givenUpOffset = 0;
+      let reopened = 0;
+      while (reopened < BOOT_SCAN_RETRIES_PER_BOOT) {
+        const page = ledger.listGivenUp(
+          options.workspaceFingerprint,
+          BOOT_SCAN_RETRIES_PER_BOOT,
+          givenUpOffset,
+        );
+        if (page.length === 0) break;
+        givenUpOffset += page.length;
+        for (const entry of page) {
+          const mtime = await this.sessionMtime(entry.sessionPath);
+          if (
+            typeof mtime === 'number' &&
+            mtime !== entry.sessionMtimeMs &&
+            !knownEligible.has(entry.sessionId)
+          ) {
+            eligible.push({ sessionId: entry.sessionId, mtime });
+            knownEligible.add(entry.sessionId);
+            reopened++;
+            if (reopened >= BOOT_SCAN_RETRIES_PER_BOOT) {
+              break;
+            }
+          }
+        }
+        if (page.length < BOOT_SCAN_RETRIES_PER_BOOT) break;
       }
     }
 
@@ -332,12 +348,24 @@ export class BootScanRunner {
         if (item.mtime > maxMtime) maxMtime = item.mtime;
       } catch (err: unknown) {
         skipped++;
+        failed++;
         const message = err instanceof Error ? err.message : String(err);
         options.logger.warn('[memory-curator] boot-scan run failed', {
           pipeline: options.pipeline,
           sessionId: item.sessionId,
           error: message,
         });
+        const recorded = options.failures?.recordFailure(
+          options.workspaceFingerprint,
+          {
+            sessionId: item.sessionId,
+            workspaceRoot: options.workspaceRoot,
+            sessionPath: path.join(sessionsDir, `${item.sessionId}.jsonl`),
+            sessionMtimeMs: item.mtime,
+          },
+          now,
+        );
+        if (options.failures && !recorded) break;
       }
       if (i < eligible.length - 1 && throttleMs > 0) {
         await this.delay(throttleMs, options.signal);
