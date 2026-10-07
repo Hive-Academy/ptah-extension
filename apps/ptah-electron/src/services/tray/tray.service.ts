@@ -45,12 +45,18 @@
  *
  * ## Freshness
  *
- * The menu is rebuilt when an in-process `setConfiguration` changes either
- * switch (`onDidChangeConfiguration`), and again when the user is about to open
- * it (`mouse-enter`, `click`, `right-click`; Windows and macOS). An edit made by
- * another process fires no event, so the open-time refresh is what keeps it
- * current. Linux AppIndicator emits no tray events; there only in-process
- * changes refresh the menu.
+ * The menu is rebuilt whenever either switch changes in `~/.ptah/settings.json`
+ * — an in-process write OR an edit by another process — through the injected
+ * `watchSetting` port (`PtahFileSettingsManager.watch`, whose cross-process
+ * `fs.watch` diff fires the same listeners). This works on every OS, including
+ * Linux AppIndicator, which emits no tray events. The menu is also rebuilt just
+ * before it opens (`mouse-enter`, `click`, `right-click`; Windows and macOS) as
+ * a backstop for a watcher that `PtahFileSettingsManager` had to give up on.
+ *
+ * Clicks are intent-based: the value written follows the clicked item's NEW
+ * checked state (paused = checked ⇒ enabled = !checked), never a toggle of a
+ * cached value, so a click on a stale menu still writes what the user asked
+ * for. The menu is re-read and rebuilt after every write.
  *
  * ## Platform placement
  *
@@ -110,11 +116,22 @@ export interface TrayLogger {
 /** The configuration operations the tray performs. */
 export type TrayWorkspaceProvider = Pick<
   IWorkspaceProvider,
-  'getConfiguration' | 'setConfiguration' | 'onDidChangeConfiguration'
+  'getConfiguration' | 'setConfiguration'
 >;
+
+/**
+ * Subscribe to one file-routed key. Must fire for in-process writes AND for
+ * external edits of `~/.ptah/settings.json`. `main.ts` adapts
+ * `PtahFileSettingsManager.watch` to it.
+ */
+export type TraySettingWatcher = (
+  key: string,
+  onChange: () => void,
+) => IDisposable;
 
 export interface TrayServiceOptions {
   readonly workspace: TrayWorkspaceProvider;
+  readonly watchSetting: TraySettingWatcher;
   /** Absolute path to the tray icon. Supplied by `main.ts` (see NOTE above). */
   readonly iconPath: string;
   readonly quit: () => void;
@@ -218,7 +235,7 @@ export function assertQuitItemPresent(
  */
 export class PtahTrayService {
   private tray: Tray | null;
-  private configSubscription: IDisposable | null = null;
+  private settingSubscriptions: IDisposable[] = [];
   /** The state the mounted menu was built from; `null` before the first build. */
   private appliedState: TrayPauseState | null = null;
 
@@ -294,8 +311,10 @@ export class PtahTrayService {
 
   /** Not wired into `will-quit`: Electron reclaims the tray on exit anyway. */
   destroy(): void {
-    this.configSubscription?.dispose();
-    this.configSubscription = null;
+    for (const subscription of this.settingSubscriptions) {
+      subscription.dispose();
+    }
+    this.settingSubscriptions = [];
     if (this.tray !== null && !this.tray.isDestroyed()) {
       this.tray.destroy();
     }
@@ -303,23 +322,21 @@ export class PtahTrayService {
   }
 
   private subscribeToChanges(tray: Tray): void {
-    this.configSubscription = this.options.workspace.onDidChangeConfiguration(
-      (event) => {
-        if (
-          event.affectsConfiguration(
-            `${PTAH_CONFIG_SECTION}.${MEMORY_ENABLED_KEY}`,
-          ) ||
-          event.affectsConfiguration(
-            `${PTAH_CONFIG_SECTION}.${SKILL_SYNTHESIS_ENABLED_KEY}`,
-          )
-        ) {
-          this.refreshMenu(false);
-        }
-      },
-    );
-    // Just before the menu can open. Cheap: the rebuild is skipped unless a
-    // switch actually changed since the menu was last built. The listeners go
-    // with the tray in `destroy()`.
+    // In-process writes and external edits of settings.json, on every OS.
+    const pauseKeys: readonly TrayPauseKey[] = [
+      MEMORY_ENABLED_KEY,
+      SKILL_SYNTHESIS_ENABLED_KEY,
+    ];
+    // Pushed one by one so a registration that throws part-way still leaves the
+    // earlier ones reachable by `destroy()` (which `create()` runs on failure).
+    for (const key of pauseKeys) {
+      this.settingSubscriptions.push(
+        this.options.watchSetting(key, () => this.refreshMenu(false)),
+      );
+    }
+    // Backstop just before the menu can open. Cheap: the rebuild is skipped
+    // unless a switch actually changed since the menu was last built. The
+    // listeners go with the tray in `destroy()`.
     const refreshBeforeOpen = (): void => this.refreshMenu(false);
     tray.on('mouse-enter', refreshBeforeOpen);
     tray.on('click', refreshBeforeOpen);
@@ -382,6 +399,11 @@ export class PtahTrayService {
     }
   }
 
+  /**
+   * Write the user's intent. `paused` is the clicked item's NEW checked state,
+   * so the value written never depends on what the (possibly stale) menu or any
+   * cached value believed the setting was.
+   */
   private async togglePause(key: TrayPauseKey, paused: boolean): Promise<void> {
     try {
       await this.options.workspace.setConfiguration(

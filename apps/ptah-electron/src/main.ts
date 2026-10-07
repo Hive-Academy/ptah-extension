@@ -327,6 +327,11 @@ if (!gotLock) {
         );
       trayService = PtahTrayService.create({
         workspace: workspaceProvider,
+        // The file-settings watcher fires for in-process writes AND for
+        // external edits of ~/.ptah/settings.json (its cross-process fs.watch
+        // diff), so the tray stays current on every OS.
+        watchSetting: (key, onChange) =>
+          workspaceProvider.fileSettings.watch(key, onChange),
         iconPath: path.join(__dirname, 'assets', 'icons', 'png', '32x32.png'),
         quit: () => app.quit(),
         logger: boot.container.resolve<Logger>(TOKENS.LOGGER),

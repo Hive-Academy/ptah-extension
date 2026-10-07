@@ -143,3 +143,64 @@ It then spawns the real Electron binary on `src/windows/fixtures/shell-security.
 
 - `apps/ptah-electron-e2e/src/specs/tray-keepalive.spec.ts:41` and `tray-icon-packaging.spec.ts:64` still mention the old "Tray keep-alive active" log in their doc comments. Their assertions (keep-alive false → quit, true → survive, then tray quit) still match the new behaviour.
 - The 7 `effective Electron shell CSP` test failures in the full `ptah-electron` run are not in P5 files.
+
+## Review fixes (revise round 1)
+
+Finding: `code-logic-review-b-p-rpc-ui-electron.md`, serious. On Linux AppIndicator the tray emits no events, and an external edit of `~/.ptah/settings.json` fired no settings-change event. The checkbox and tooltip went stale, so a later click could write the opposite of what the user wanted.
+
+### (a) Clicks follow the user's intent
+
+- The value written comes from the clicked item's new checked state, which Electron flips before `click` fires: `paused = checked ⇒ enabled = !checked`.
+  - Template: `tray.service.ts:185` (memory) and `:193` (skills).
+  - Write: `togglePause()` at `:407`, now with a doc comment that states the contract.
+- No cached value is ever toggled.
+- After every write the menu is re-read and force-rebuilt (`refreshMenu(true)`).
+- This contract already held in 56a03a52a. The round-1 change adds the comment and a spec that clicks a stale menu.
+
+### (b) External edits refresh the tray on every OS
+
+- **Port.**
+  - `TraySettingWatcher = (key, onChange) => IDisposable` (`tray.service.ts:127`) is a required option, `watchSetting` (`:134`).
+  - `subscribeToChanges()` registers it for `memory.enabled` and `skillSynthesis.enabled` (`:334`).
+  - `destroy()` disposes every subscription (`:315`).
+  - The `onDidChangeConfiguration` subscription is replaced, not kept alongside. The file watcher already fires for in-process writes (`file-settings-manager.ts:154`), so one source covers both.
+- **Adapter.**
+  - `main.ts:333` passes `watchSetting: (key, onChange) => workspaceProvider.fileSettings.watch(key, onChange)`.
+  - `main.ts` is the composition root, and it already resolves the concrete `ElectronWorkspaceProvider` and uses `.fileSettings` (its `before-quit` `flushSync()`). The tray itself imports no concrete adapter.
+  - `PtahFileSettingsManager.watch` (`file-settings-manager.ts:175`) fires for in-process `set()` (`:154`) and for the cross-process `fs.watch` diff (`:500`).
+  - The cross-process watch is enabled before the tray exists: `registerElectronSettings` → `enableCrossProcessWatch()` (`electron-settings-registration.ts:80`) runs inside `bootstrapElectron`.
+- **Why not `SETTINGS_TOKENS.SETTINGS_STORE`.** `ReactiveSettingsStore.watchGlobal` (`reactive-settings-store.ts:61-68`) fires only on its own `writeGlobal`, so it would miss exactly the external edits this finding is about.
+- **Backstop.** The open-time refresh (`mouse-enter` / `click` / `right-click`, `tray.service.ts:341-343`) stays. It covers the case where `PtahFileSettingsManager` gives up on `fs.watch` after its retries (`file-settings-manager.ts:441`).
+- **Leak fixed.** Subscriptions are now pushed one at a time. Before, if the second registration threw, the first was never stored, and `destroy()` (which `create()` runs on failure) could not release it.
+
+### Specs (`tray.service.spec.ts`, group `the menu stays current with the persisted switches`)
+
+- `:495` — subscribes to exactly the two pause keys.
+- `:507` — an external edit (watcher callback, no tray event) refreshes the checkbox and tooltip for memory, then for both.
+- `:578` — clicking a stale item writes the clicked intent (memory: stale unchecked → writes `false`; skills: stale checked → writes `true`), then rebuilds.
+- `:611` — both subscriptions are disposed on destroy, and later watcher callbacks rebuild nothing.
+- `:624` — when a later watcher registration throws, the earlier subscription and the tray are both released.
+- Plus the in-process write refresh and the open-time backstop (3 events).
+
+### Checks after the fix (exact lines)
+
+- `npx jest -c apps/ptah-electron/jest.config.ts --maxWorkers=2 <tray.service.spec, main.quit-path.spec>`:
+  `Test Suites: 2 passed, 2 total` / `Tests:       82 passed, 82 total`
+- `npx nx run-many -t test,typecheck,lint -p ptah-electron --parallel=1`:
+  ```
+  Test Suites: 1 skipped, 59 passed, 59 of 60 total
+  Tests:       3 skipped, 1148 passed, 1151 total
+   NX   Successfully ran targets test, typecheck, lint for project ptah-electron and 6 tasks it depends on
+  ```
+  P1/P3 have landed, so `wire-runtime.spec.ts` (including the M15 group) now compiles and passes. The `effective Electron shell CSP` suite also passes in this run with nothing in its code path changed, which fits the earlier diagnosis of a launch failure under machine load.
+- `npx nx run degradation-audit:lint`: `apps/ptah-electron: 4 ok (baseline 4)` / `NX   Successfully ran target lint for project degradation-audit`
+- `npx eslint <tray.service.ts, tray.service.spec.ts, main.ts>`: `✖ 1 problem (0 errors, 1 warning)`. The warning is the existing `main.ts:126 no-useless-assignment`; exit 0.
+- `npx prettier --check <same 3 files>`: `All matched files use Prettier code style!`
+
+Files changed in this round:
+
+- `D:\projects\ptah-extension\.claude-worktrees\task-620-memory-skills-bench\apps\ptah-electron\src\services\tray\tray.service.ts`
+- `D:\projects\ptah-extension\.claude-worktrees\task-620-memory-skills-bench\apps\ptah-electron\src\services\tray\tray.service.spec.ts`
+- `D:\projects\ptah-extension\.claude-worktrees\task-620-memory-skills-bench\apps\ptah-electron\src\main.ts`
+
+No git state was changed, and the Electron app was not launched. The untracked `apps/ptah-electron/src/windows/.shell-security-QReE6X/` is still on disk and was not touched.

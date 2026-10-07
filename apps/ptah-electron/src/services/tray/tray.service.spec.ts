@@ -82,8 +82,6 @@ jest.mock('electron', () => {
 
 import * as electron from 'electron';
 
-import type { ConfigurationChangeEvent } from '@ptah-extension/platform-core';
-
 import {
   PtahTrayService,
   buildTrayMenuTemplate,
@@ -171,13 +169,19 @@ interface Harness {
   readonly store: Map<string, unknown>;
   readonly getConfiguration: jest.Mock;
   readonly setConfiguration: jest.Mock;
+  readonly watchSetting: jest.Mock;
   readonly quit: jest.Mock;
   readonly info: jest.Mock;
   readonly warn: jest.Mock;
   readonly subscriptionDispose: jest.Mock;
-  /** Fire `onDidChangeConfiguration` for a full `ptah.<key>` key. */
-  fireChange(fullKey: string): void;
-  listenerCount(): number;
+  /**
+   * Fire the file-settings watcher for `key`, as `PtahFileSettingsManager`
+   * does after its own `set()` and after a cross-process `fs.watch` diff.
+   */
+  fireChange(key: string): void;
+  /** Another process edited ~/.ptah/settings.json: value lands, watcher fires. */
+  externalEdit(key: string, value: unknown): void;
+  watcherCount(): number;
 }
 
 function makeHarness(
@@ -198,18 +202,11 @@ function makeHarness(
   if (overrides.keepAlive !== undefined) {
     store.set(TRAY_KEEPALIVE_KEY, overrides.keepAlive);
   }
-  const listeners = new Set<(e: ConfigurationChangeEvent) => void>();
+  const watchers = new Map<string, Set<() => void>>();
   const subscriptionDispose = jest.fn();
 
-  const fireChange = (fullKey: string): void => {
-    // The real provider's matcher (`electron-workspace-provider.ts`).
-    const event: ConfigurationChangeEvent = {
-      affectsConfiguration: (s: string) =>
-        fullKey === s ||
-        fullKey.startsWith(s + '.') ||
-        s.startsWith(fullKey + '.'),
-    };
-    for (const listener of [...listeners]) listener(event);
+  const fireChange = (key: string): void => {
+    for (const watcher of [...(watchers.get(key) ?? [])]) watcher();
   };
 
   const getConfiguration = jest.fn(
@@ -219,22 +216,22 @@ function makeHarness(
   const setConfiguration = jest
     .fn()
     .mockImplementation(
-      async (section: string, key: string, value: unknown): Promise<void> => {
+      async (_section: string, key: string, value: unknown): Promise<void> => {
         store.set(key, value);
-        fireChange(`${section}.${key}`);
+        fireChange(key);
       },
     );
-  const onDidChangeConfiguration = jest.fn(
-    (listener: (e: ConfigurationChangeEvent) => void) => {
-      listeners.add(listener);
-      return {
-        dispose: () => {
-          subscriptionDispose();
-          listeners.delete(listener);
-        },
-      };
-    },
-  );
+  const watchSetting = jest.fn((key: string, onChange: () => void) => {
+    const set = watchers.get(key) ?? new Set<() => void>();
+    set.add(onChange);
+    watchers.set(key, set);
+    return {
+      dispose: () => {
+        subscriptionDispose();
+        watchers.get(key)?.delete(onChange);
+      },
+    };
+  });
   const quit = jest.fn();
   const info = jest.fn();
   const warn = jest.fn();
@@ -243,18 +240,21 @@ function makeHarness(
     store,
     getConfiguration,
     setConfiguration,
+    watchSetting,
     quit,
     info,
     warn,
     subscriptionDispose,
     fireChange,
-    listenerCount: () => listeners.size,
+    externalEdit: (key, value) => {
+      store.set(key, value);
+      fireChange(key);
+    },
+    watcherCount: () =>
+      [...watchers.values()].reduce((total, set) => total + set.size, 0),
     options: {
-      workspace: {
-        getConfiguration,
-        setConfiguration,
-        onDidChangeConfiguration,
-      },
+      workspace: { getConfiguration, setConfiguration },
+      watchSetting,
       iconPath: overrides.iconPath ?? WORKING_ICON_PATH,
       quit,
       logger: { info, warn },
@@ -487,40 +487,69 @@ describe('"Pause memory" and "Pause skills" checkboxes', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Freshness — settings-change event, refresh on open, listener disposal
+// Freshness — file-settings watcher (in-process AND external), refresh on
+// open, intent-based clicks on a stale menu, subscription disposal
 // ---------------------------------------------------------------------------
 
 describe('the menu stays current with the persisted switches', () => {
-  it('refreshes when another surface writes a switch in-process', () => {
+  it('subscribes to exactly the two pause keys through the file-settings watcher', () => {
     const harness = makeHarness();
     PtahTrayService.create(harness.options);
 
-    // e.g. the Thoth Memory tab writing through the same provider.
-    harness.store.set(MEMORY_ENABLED_KEY, false);
-    harness.fireChange(`${PTAH_CONFIG_SECTION}.${MEMORY_ENABLED_KEY}`);
+    const watchedKeys = harness.watchSetting.mock.calls.map(
+      (call) => call[0] as string,
+    );
+    expect(watchedKeys.sort()).toEqual(
+      [MEMORY_ENABLED_KEY, SKILL_SYNTHESIS_ENABLED_KEY].sort(),
+    );
+  });
+
+  it('refreshes the checkbox and tooltip on an EXTERNAL edit of settings.json (no tray event needed)', () => {
+    const harness = makeHarness();
+    PtahTrayService.create(harness.options);
+
+    // Another process (a second Ptah, the CLI, a hand edit) paused memory. The
+    // cross-process fs.watch diff fires the watcher; no tray event fires —
+    // which is the Linux AppIndicator case.
+    harness.externalEdit(MEMORY_ENABLED_KEY, false);
 
     expect(
       itemLabelled(mountedTemplate(), PAUSE_MEMORY_ITEM_LABEL).checked,
     ).toBe(true);
     expect(lastTray().tooltip).toBe(`${TRAY_TOOLTIP} — memory paused`);
+
+    harness.externalEdit(SKILL_SYNTHESIS_ENABLED_KEY, false);
+
+    expect(
+      itemLabelled(mountedTemplate(), PAUSE_SKILLS_ITEM_LABEL).checked,
+    ).toBe(true);
+    expect(lastTray().tooltip).toBe(`${TRAY_TOOLTIP} — learning paused`);
   });
 
-  it('ignores a change to an unrelated key', () => {
-    const harness = makeHarness();
+  it('refreshes when another surface writes a switch in-process', async () => {
+    const harness = makeHarness({ skillsEnabled: false });
     PtahTrayService.create(harness.options);
 
-    harness.fireChange(`${PTAH_CONFIG_SECTION}.memory.triggers.idle.enabled`);
+    // e.g. the Thoth Skills tab writing through the same provider.
+    await harness.options.workspace.setConfiguration(
+      PTAH_CONFIG_SECTION,
+      SKILL_SYNTHESIS_ENABLED_KEY,
+      true,
+    );
 
-    expect(electronMock.Menu.buildFromTemplate).toHaveBeenCalledTimes(1);
+    expect(
+      itemLabelled(mountedTemplate(), PAUSE_SKILLS_ITEM_LABEL).checked,
+    ).toBe(false);
+    expect(lastTray().tooltip).toBe(TRAY_TOOLTIP);
   });
 
   it.each(['mouse-enter', 'click', 'right-click'])(
-    'picks up a value changed with no event on "%s"',
+    'backstop: picks up a value changed with no watcher callback on "%s"',
     (event) => {
       const harness = makeHarness();
       PtahTrayService.create(harness.options);
 
-      // Another process edited ~/.ptah/settings.json: no event fires.
+      // The watcher was lost (PtahFileSettingsManager gave up after retries).
       harness.store.set(SKILL_SYNTHESIS_ENABLED_KEY, false);
       lastTray().emit(event);
 
@@ -540,17 +569,72 @@ describe('the menu stays current with the persisted switches', () => {
     expect(electronMock.Menu.buildFromTemplate).toHaveBeenCalledTimes(1);
   });
 
-  it('disposes the settings listener on destroy', () => {
+  it.each<[string, string, boolean]>([
+    // Menu shows "not paused" but the file says paused; the user checks it.
+    [PAUSE_MEMORY_ITEM_LABEL, MEMORY_ENABLED_KEY, true],
+    // Menu shows "paused" but the file says running; the user unchecks it.
+    [PAUSE_SKILLS_ITEM_LABEL, SKILL_SYNTHESIS_ENABLED_KEY, false],
+  ])(
+    'a click on a STALE "%s" writes the clicked intent, not a toggle of the file value',
+    async (label, key, checkedAfterClick) => {
+      // The menu is built from the initial state...
+      const harness = makeHarness({
+        memoryEnabled: true,
+        skillsEnabled: false,
+      });
+      PtahTrayService.create(harness.options);
+      // ...then the file changes with NO watcher callback, so the menu is stale.
+      harness.store.set(MEMORY_ENABLED_KEY, false);
+      harness.store.set(SKILL_SYNTHESIS_ENABLED_KEY, true);
+
+      // Electron flips the stale checkbox and reports the NEW checked state.
+      clickItem(itemLabelled(mountedTemplate(), label), {
+        checked: checkedAfterClick,
+      });
+      await flushMicrotasks();
+
+      // paused = checked ⇒ enabled = !checked. A toggle of the file value would
+      // have written the opposite.
+      expect(harness.setConfiguration).toHaveBeenCalledTimes(1);
+      expect(harness.setConfiguration).toHaveBeenCalledWith(
+        PTAH_CONFIG_SECTION,
+        key,
+        !checkedAfterClick,
+      );
+      // Re-read and rebuilt after the write.
+      expect(itemLabelled(mountedTemplate(), label).checked).toBe(
+        checkedAfterClick,
+      );
+    },
+  );
+
+  it('disposes both watcher subscriptions on destroy', () => {
     const harness = makeHarness();
     const service = PtahTrayService.create(harness.options);
-    expect(harness.listenerCount()).toBe(1);
+    expect(harness.watcherCount()).toBe(2);
 
     service?.destroy();
 
-    expect(harness.subscriptionDispose).toHaveBeenCalledTimes(1);
-    expect(harness.listenerCount()).toBe(0);
-    harness.fireChange(`${PTAH_CONFIG_SECTION}.${MEMORY_ENABLED_KEY}`);
+    expect(harness.subscriptionDispose).toHaveBeenCalledTimes(2);
+    expect(harness.watcherCount()).toBe(0);
+    harness.externalEdit(MEMORY_ENABLED_KEY, false);
     expect(electronMock.Menu.buildFromTemplate).toHaveBeenCalledTimes(1);
+  });
+
+  it('releases an earlier subscription and the tray when a later watcher registration throws', () => {
+    const harness = makeHarness();
+    let calls = 0;
+    harness.watchSetting.mockImplementation(() => {
+      calls += 1;
+      if (calls === 2) throw new Error('watch failed');
+      return { dispose: harness.subscriptionDispose };
+    });
+
+    const service = PtahTrayService.create(harness.options);
+
+    expect(service).toBeNull();
+    expect(harness.subscriptionDispose).toHaveBeenCalledTimes(1);
+    expect(lastTray().isDestroyed()).toBe(true);
   });
 });
 
