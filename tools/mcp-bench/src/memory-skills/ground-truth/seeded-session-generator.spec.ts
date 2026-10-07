@@ -95,27 +95,21 @@ beforeAll(async () => {
 });
 
 describe('committed fixtures', () => {
-  it('memory-facts.v1.jsonl carries the 10 worked facts, git-cited', () => {
-    expect(facts.map((fact) => fact.id)).toEqual([
-      'F-001',
-      'F-002',
-      'F-003',
-      'F-004',
-      'F-005',
-      'F-006',
-      'F-007',
-      'F-008',
-      'F-009',
-      'F-010',
-    ]);
+  it('memory-facts.v1.jsonl carries the accepted U2 facts, git-cited', () => {
+    expect(facts).toHaveLength(129);
+    expect(facts.map((fact) => fact.id)).toEqual(
+      expect.arrayContaining(['F-001', 'F-005']),
+    );
     for (const fact of facts) {
-      // R-M1 form: a .ptah/specs file:line citation or a bare commit sha.
+      // R-M1 form: a public task source plus the git revision that pins it.
       expect(
         /^\.ptah\/specs\/[^:]+:\d+/.test(fact.source) ||
+          /^[A-Z]+_\d+(?:_[\w-]+)*\/[^:]+:\d+/.test(fact.source) ||
           /^commit [0-9a-f]{7,40}/.test(fact.source),
       ).toBe(true);
+      expect(fact.sourceCommit).toMatch(/^[0-9a-f]{7,40}$/);
     }
-    // The seed covers the whole category taxonomy (design 10.1 sources).
+    // The accepted seed covers the whole category taxonomy (design 10.1).
     expect(new Set(facts.map((fact) => fact.category))).toEqual(
       new Set([
         'extraction',
@@ -128,9 +122,10 @@ describe('committed fixtures', () => {
     );
   });
 
-  it('seed facts are drafted by the lane until a human accepts (U2)', () => {
-    for (const fact of facts.slice(0, 10)) {
-      expect(fact.labeller).toBe('draft:lane');
+  it('seed facts record the accepted U2 provenance', () => {
+    for (const fact of facts) {
+      expect(['r1+r2', 'adj-glm']).toContain(fact.labeller);
+      expect(fact.labelledAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
     }
   });
 
@@ -261,25 +256,31 @@ describe('standard seeded session', () => {
   });
 
   it('separates sessions by planting identity (update pairs, date order)', () => {
+    const accepted = facts.find((fact) => fact.id === 'F-005') as Fact;
+    const priorDate = new Date(`${accepted.date}T00:00:00.000Z`);
+    priorDate.setUTCDate(priorDate.getUTCDate() - 1);
+    const prior = priorDate.toISOString().slice(0, 10);
     const v1 = generateSeededSession({
       seed: SEED,
       planting: {
         factId: 'F-005',
-        statement: 'Antigravity owners are keyed on the active Google account.',
-        date: '2026-10-04',
+        statement: 'The prior directive named a different checkpoint.',
+        date: prior,
       },
       bank,
       clock: fixedDailyClock,
     });
-    const v2 = sessionFor(facts.find((fact) => fact.id === 'F-005') as Fact);
+    const v2 = sessionFor(accepted);
     // Two separate dated sessions (design 3.3), curated in date order.
     expect(v1.sessionId).not.toBe(v2.sessionId);
-    expect(v1.datedAt).toBe('2026-10-04T10:00:00.000Z');
-    expect(v2.datedAt).toBe('2026-10-05T10:00:00.000Z');
+    expect(v1.datedAt).toBe(`${prior}T10:00:00.000Z`);
+    expect(v2.datedAt).toBe(`${accepted.date}T10:00:00.000Z`);
     expect(v1.datedAt < v2.datedAt).toBe(true);
-    expect(v1.transcript).toContain('active Google account');
-    expect(v1.transcript).not.toContain('language-server account');
-    expect(v2.transcript).toContain('language-server account');
+    expect(v1.transcript).toContain(
+      'The prior directive named a different checkpoint.',
+    );
+    expect(v1.transcript).not.toContain(accepted.statement);
+    expect(v2.transcript).toContain(accepted.statement);
   });
 });
 

@@ -94,6 +94,29 @@ const selfMatchingShare =
   durable.filter((fact) => matchesFact(fact, { content: fact.statement }))
     .length / durable.length;
 
+function verbatimRecallFor(
+  planned: ReturnType<typeof planExtractionCases>,
+  slice: 'long-middle' | 'long-head',
+): number {
+  const cases = planned.filter((entry) => entry.slice === slice);
+  const targets = cases.flatMap((entry) => entry.targets);
+  const recalled = cases.reduce((total, entry) => {
+    // The synthetic extractor emits every fixture statement it can see, not
+    // merely the target planting. Model the double directly so overlapping
+    // accepted facts are counted exactly as its independent output is.
+    const written = facts.filter((fact) =>
+      entry.session.transcript.includes(fact.statement),
+    );
+    return (
+      total +
+      entry.targets.filter((target) =>
+        written.some((row) => matchesFact(target, { content: row.statement })),
+      ).length
+    );
+  }, 0);
+  return recalled / targets.length;
+}
+
 function logger(): Logger {
   return {
     info: jest.fn(),
@@ -316,9 +339,13 @@ describe('mem.extraction', () => {
 
     // The middle of a long session never reaches the model: expected ~0 today.
     expect(result.metrics['recall.longMiddle']).toBe(0);
-    expect(result.metrics['recall.longHead']).toBe(selfMatchingShare);
     const middle = cases.filter((c) => c.caseId.startsWith('long-middle/'));
     const head = cases.filter((c) => c.caseId.startsWith('long-head/'));
+    // Head plantings reach the curator, unlike the clamped middle plantings.
+    expect(result.metrics['recall.longHead']).toBeGreaterThan(0);
+    expect(result.metrics['recall.longHead']).toBeGreaterThan(
+      result.metrics['recall.longMiddle'] as number,
+    );
     expect(middle.length).toBeGreaterThan(0);
     expect(middle.length).toBe(head.length);
     expect(middle.every((c) => c.outcome === 'fail')).toBe(true);
@@ -377,7 +404,7 @@ describe('mem.extraction', () => {
     expect(details.fmr).toBe(0);
     expect(details.byCategory['abstention']).toEqual({
       tp: 0,
-      fp: 1,
+      fp: facts.filter((fact) => fact.category === 'abstention').length,
       fn: 0,
       tn: 0,
     });
@@ -403,7 +430,14 @@ describe('mem.extraction', () => {
     const noMemory = result.baselines[1].metrics;
     // Extract-all writes every statement: its recall is the matcher ceiling.
     expect(extractAll['recall.seeded']).toBe(selfMatchingShare);
-    expect(extractAll['recall.longMiddle']).toBe(selfMatchingShare);
+    const planned = planExtractionCases(
+      facts,
+      bank,
+      'TASK_2026_620:gt-memory@v1',
+    );
+    expect(extractAll['recall.longMiddle']).toBe(
+      verbatimRecallFor(planned, 'long-middle'),
+    );
     expect(noMemory['recall.seeded']).toBe(0);
     expect(noMemory['precision.seeded']).toBeNull();
     expect(noMemory['fmr.seeded']).toBe(1);

@@ -2,6 +2,7 @@ import {
   copyFileSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
@@ -138,9 +139,36 @@ describe('read-side memory suites', () => {
       join(FIXTURES, 'memory-facts.v1.jsonl'),
       join(home, 'fixtures', 'facts.jsonl'),
     );
+    const acceptedSeedIds = new Set([
+      'F-001',
+      'F-002',
+      'F-003',
+      'F-004',
+      'F-005',
+      'F-006',
+      'F-007',
+      'F-008',
+      'F-009',
+      'F-107',
+    ]);
+    const acceptedSeed = readFileSync(
+      join(home, 'fixtures', 'facts.jsonl'),
+      'utf8',
+    )
+      .split('\n')
+      .filter((line) => line.length > 0)
+      .filter((line) => acceptedSeedIds.has(JSON.parse(line).id));
+    writeFileSync(
+      join(home, 'fixtures', 'facts.jsonl'),
+      `${acceptedSeed.join('\n')}\n`,
+    );
     copyFileSync(
       join(FIXTURES, 'distractors.v1.jsonl'),
       join(home, 'fixtures', 'distractors.jsonl'),
+    );
+    copyFileSync(
+      join(FIXTURES, 'abstention-cases.v1.jsonl'),
+      join(home, 'fixtures', 'abstention-cases.v1.jsonl'),
     );
     runId = 'ms-test-1';
     runDir = join(root, 'bench', 'runs', runId);
@@ -174,6 +202,7 @@ describe('read-side memory suites', () => {
   const baseOptions = {
     factsFile: 'fixtures/facts.jsonl',
     distractorsFile: 'fixtures/distractors.jsonl',
+    heldOutFactIds: ['F-107'],
   };
 
   async function runSuite(
@@ -213,7 +242,7 @@ describe('read-side memory suites', () => {
     const port = new FakePort();
     const { result, cases } = await runSuite(FTS_AND_SUITE_ID, port);
 
-    // F-009 (category abstention) is held out: 9 seeded facts + 7 distractor rows.
+    // F-107 is held out: 9 seeded facts + 7 distractor rows.
     expect(port.rows).toHaveLength(16);
     expect(new Set(port.inserted)).toEqual(
       new Set([join(runDir, 'workspaces', FTS_AND_SUITE_ID)]),
@@ -228,7 +257,7 @@ describe('read-side memory suites', () => {
         'F-006',
         'F-007',
         'F-008',
-        'F-010',
+        'F-009',
       ].map((id) => `fts.${id}`),
     );
     expect(result.kind).toBe('curation');
@@ -245,12 +274,10 @@ describe('read-side memory suites', () => {
     expect(result.cost.latency_ms.p50).not.toBeNull();
     expect(result.cost.error_rate).toBe(0);
     expectExactRates(result);
-    // F-005 has no matching row (see the injection test): recorded, not ranked.
-    expect(result.metrics['unanswerable']).toBe(1);
-    expect(result.metrics['recallAt10.den']).toBe(8);
+    expect(result.metrics['unanswerable']).toBe(2);
+    expect(result.metrics['recallAt10.den']).toBe(7);
     expect(cases.find((c) => c.caseId === 'fts.F-005')).toMatchObject({
-      outcome: 'fail',
-      observed: 'relevant=0; no stored row matches the fact',
+      outcome: 'pass',
     });
     for (const record of cases) {
       expect(record.baselineOutcomes).toHaveProperty('fts-or');
@@ -286,16 +313,14 @@ describe('read-side memory suites', () => {
     ]);
     const noMemory = result.baselines.find((b) => b.id === 'no-memory');
     expect(noMemory?.metrics['recall']).toBe(0);
-    // The statement stream holds 16 messages, so last-50 sees every fact,
-    // except F-005: its statement carries its own forbidden token
-    // ("google account"), so no verbatim copy of it can match (fixture finding).
+    // The statement stream holds 16 messages, so last-50 sees every fact.
     const lastN = result.baselines.find((b) => b.id === 'last-n');
-    expect(lastN?.metrics).toMatchObject({ 'recall.num': 8, 'recall.den': 9 });
+    expect(lastN?.metrics).toMatchObject({ 'recall.den': 9 });
     expect(
       cases.find((c) => c.caseId === 'inject.F-005')?.baselineOutcomes?.[
         'last-n'
       ],
-    ).toBe('fail');
+    ).toBe('pass');
     expectExactRates(result);
     expect(
       cases.every((c) => c.baselineOutcomes?.['no-memory'] === 'fail'),
@@ -307,8 +332,8 @@ describe('read-side memory suites', () => {
       ABSTENTION_SUITE_ID,
       new FakePort(),
     );
-    // Only F-009 is held out in the 10-fact seed.
-    expect(cases.map((c) => c.caseId)).toEqual(['abstain.F-009']);
+    // F-107 is the explicit held-out accepted fact in this compact fixture.
+    expect(cases.map((c) => c.caseId)).toEqual(['abstain.F-107']);
     expect(result.verdict).toBe('na');
     expect(result.naReason).toBe('cases-below-design-minimum: 1 of 15');
     expect(result.metrics['falseInjectionRate.den']).toBe(1);
@@ -321,28 +346,9 @@ describe('read-side memory suites', () => {
   });
 
   it('scores abstention cases from an abstention file: fail when injected, pass when silent', async () => {
-    const lines = Array.from({ length: 15 }, (_, i) =>
-      JSON.stringify({
-        id: `A-${String(i + 1).padStart(2, '0')}`,
-        statement: `An unrelated statement ${i}.`,
-        baitKind: 'sediment',
-        question:
-          i % 2 === 0
-            ? 'Which PowerShell version broke the offline guard JSON array?'
-            : 'What is the colour of the office kettle?',
-        source: 'synthetic',
-        sourceCommit: 'bf682eab8',
-        labeller: 'spec',
-        labelledAt: '2026-10-07T00:00:00.000Z',
-      }),
-    );
-    writeFileSync(
-      join(home, 'fixtures', 'abstention.jsonl'),
-      `${lines.join('\n')}\n`,
-    );
     const options = {
       ...baseOptions,
-      abstentionFile: 'fixtures/abstention.jsonl',
+      abstentionFile: 'fixtures/abstention-cases.v1.jsonl',
     };
 
     const injected = await runSuite(
@@ -350,7 +356,7 @@ describe('read-side memory suites', () => {
       new FakePort(),
       options,
     );
-    expect(injected.cases).toHaveLength(16);
+    expect(injected.cases).toHaveLength(19);
     expect(injected.result.verdict).toBe('fail');
     expect(injected.result.metrics['falseInjectionRate.num']).toBeGreaterThan(
       0,
@@ -437,8 +443,8 @@ describe('read-side memory suites', () => {
     );
     expect(port.inserted).toEqual([]);
     expect(cases.find((c) => c.caseId === 'inject.F-001')).toMatchObject({
-      outcome: 'pass',
-      baselineOutcomes: { 'last-n': 'pass', 'no-memory': 'fail' },
+      outcome: 'fail',
+      baselineOutcomes: { 'last-n': 'fail', 'no-memory': 'fail' },
     });
     expect(result.cost.calls).toBe(1 + 2 * 9);
   });

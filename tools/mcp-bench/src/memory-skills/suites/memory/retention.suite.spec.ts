@@ -19,6 +19,7 @@ import {
   copyFileSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
@@ -378,11 +379,20 @@ describe('retention suites', () => {
     const options = retentionOptionsSchema.parse({});
     const first = loadRetentionSeed(home, options);
     expect(loadRetentionSeed(home, options)).toEqual(first);
-    // 10 facts minus the abstention fact F-009, plus 7 distractors.
-    expect(
-      first.filter((row) => row.useful).map((row) => row.id),
-    ).not.toContain('F-009');
-    expect(first.filter((row) => row.useful)).toHaveLength(9);
+    const acceptedFacts = readFileSync(
+      join(FIXTURES, 'memory-facts.v1.jsonl'),
+      'utf8',
+    )
+      .split('\n')
+      .filter((line) => line.trim())
+      .map((line) => JSON.parse(line) as { id: string; category: string });
+    const durableIds = acceptedFacts
+      .filter((fact) => fact.category !== 'abstention')
+      .map((fact) => fact.id);
+    expect(durableIds).toHaveLength(127);
+    expect(first.filter((row) => row.useful).map((row) => row.id)).toEqual(
+      durableIds,
+    );
     expect(first.filter((row) => !row.useful)).toHaveLength(7);
     for (const row of first) {
       if (row.useful) expect(row.questionDay).toBeGreaterThanOrEqual(1);
@@ -399,13 +409,29 @@ describe('retention suites', () => {
     if (details.operation !== 'retention') throw new Error('not retention');
 
     expect(result.verdict).toBe('fail');
-    // Today's recorded failure on the committed seed: 5 of 9 useful rows are
-    // gone before their question day, 3 more are archived when asked.
-    expect(result.metrics['falseDelete.num']).toBe(5);
-    expect(result.metrics['falseDelete.den']).toBe(9);
-    expect(result.metrics['archivedThenNeeded.num']).toBe(3);
-    expect(result.metrics['falseRetain.num']).toBe(0);
-    expect(result.metrics['falseRetain.den']).toBe(7);
+    const seed = loadRetentionSeed(
+      makeHome(root),
+      retentionOptionsSchema.parse({}),
+    );
+    const ageOnly = summarizeLifecycle(
+      seed,
+      simulatePolicy(
+        seed,
+        ageOnlyPolicy,
+        DEFAULT_RETENTION_POLICY_SETTINGS,
+        180,
+        0,
+      ),
+    );
+    // The double implements the pure age-only decision: calculate the
+    // expected rates independently from the committed U2 seed.
+    expect(result.metrics['falseDelete.num']).toBe(ageOnly.falseDelete.num);
+    expect(result.metrics['falseDelete.den']).toBe(ageOnly.falseDelete.den);
+    expect(result.metrics['archivedThenNeeded.num']).toBe(
+      ageOnly.archivedThenNeeded.num,
+    );
+    expect(result.metrics['falseRetain.num']).toBe(ageOnly.falseRetain.num);
+    expect(result.metrics['falseRetain.den']).toBe(ageOnly.falseRetain.den);
     // The double IS the age-only decision, so product and pure baseline agree on every row.
     expect(result.metrics['ageOnlyAgreement']).toBe(1);
     expect(expectExactRates(result.metrics)).toEqual(
@@ -439,7 +465,7 @@ describe('retention suites', () => {
     );
     expect(details.falseDelete.fp).toBe(result.metrics['falseDelete.num']);
     expect(details.falseRetain.fp).toBe(result.metrics['falseRetain.num']);
-    expect(cases).toHaveLength(16);
+    expect(cases).toHaveLength(seed.length);
     const lost = cases.filter(
       (c) => c.caseId.startsWith('row/F-') && c.outcome === 'fail',
     );
@@ -463,14 +489,24 @@ describe('retention suites', () => {
       seed,
       simulatePolicy(seed, oracleRetentionPolicy, settings, 180, 0),
     );
-    expect(oracle.falseDelete).toEqual({ value: 0, num: 0, den: 9 });
+    expect(oracle.falseDelete).toEqual({
+      value: 0,
+      num: 0,
+      den: seed.filter((row) => row.useful).length,
+    });
     const ageOnly = summarizeLifecycle(
       seed,
       simulatePolicy(seed, ageOnlyPolicy, settings, 180, 0),
     );
     // Nothing disposable survives 180 idle days under age-only.
-    expect(ageOnly.falseRetain).toEqual({ value: 0, num: 0, den: 7 });
-    expect(ageOnly.removedConfusion.tp + ageOnly.removedConfusion.fn).toBe(7);
+    expect(ageOnly.falseRetain).toEqual({
+      value: 0,
+      num: 0,
+      den: seed.filter((row) => !row.useful).length,
+    });
+    expect(ageOnly.removedConfusion.tp + ageOnly.removedConfusion.fn).toBe(
+      seed.filter((row) => !row.useful).length,
+    );
   });
 
   it('marks the lifecycle na when a retention run is skipped or the lifecycle is paused', async () => {
@@ -571,7 +607,12 @@ describe('retention suites', () => {
     expect(details.ndcgAt10).toBeGreaterThanOrEqual(0);
     expect(details.ndcgAt10).toBeLessThanOrEqual(1);
     expect(result.metrics['rosterLength']).toBe(10);
-    expect(cases).toHaveLength(9);
+    expect(cases).toHaveLength(
+      loadRetentionSeed(
+        makeHome(root),
+        retentionOptionsSchema.parse({}),
+      ).filter((row) => row.useful).length,
+    );
     expectExactRates(result.metrics);
     expectExactRates(result.baselines[0].metrics);
     expect(result.metrics['usefulInRoster.num']).toBe(
