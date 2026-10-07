@@ -228,6 +228,24 @@ describe('scorecard writers', () => {
     );
     expect(renderScorecardMarkdown(custom, registry)).toContain('## Custom');
   });
+  it('shows an escaped displayLabel and stays byte-identical without one', () => {
+    const unmarked = renderScorecardMarkdown(scorecard);
+    const labelled = structuredClone(scorecard);
+    labelled.suites[0].displayLabel = 'Search | symbols\npanel';
+    const markdown = renderScorecardMarkdown(labelled);
+    expect(markdown).toContain('## Search \\| symbols panel (retrieval)');
+    expect(markdown).toContain('## ptah_code_search_symbols');
+    const carriageReturn = structuredClone(scorecard);
+    carriageReturn.suites[0].displayLabel = 'safe\r## forged';
+    const forged = renderScorecardMarkdown(carriageReturn);
+    expect(forged).toContain('## safe ## forged (retrieval)');
+    expect(
+      forged.split('\n').some((line) => line.startsWith('## forged')),
+    ).toBe(false);
+    const cleared = structuredClone(labelled);
+    delete cleared.suites[0].displayLabel;
+    expect(renderScorecardMarkdown(cleared)).toBe(unmarked);
+  });
   it('rejects invalid JSON scorecards on read', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'mcp-bench-scorecard-'));
     const path = join(directory, 'scorecard.json');

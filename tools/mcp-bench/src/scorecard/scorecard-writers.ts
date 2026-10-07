@@ -84,6 +84,9 @@ function renderValidatedScorecardMarkdown(
       `Ground truth: ${suite.groundTruth.id} (${suite.groundTruth.method})`,
       ...(suite.arm === undefined ? [] : [`Arm: ${suite.arm}`]),
       '',
+      ...(suite.displayLabel === undefined
+        ? []
+        : [`## ${headingCell(suite.displayLabel)} (${suite.kind})`, '']),
     );
     const renderer = registry.getSuiteKind(suite.kind)?.renderMarkdown;
     lines.push(
@@ -140,6 +143,10 @@ function renderGenericSuite(suite: ScorecardSuite): string[] {
 function formatMetric(value: number | null | undefined): string {
   return value === null || value === undefined ? 'na' : String(value);
 }
+/** ATX heading text: CR/LF would start a new Markdown line, so they become spaces. */
+function headingCell(value: string): string {
+  return cell(value.replaceAll(/\r\n|\r|\n/gu, ' '));
+}
 function cell(value: string): string {
-  return value.replaceAll('|', '\\|').replaceAll(/\r?\n/gu, '<br>');
+  return value.replaceAll('|', '\\|').replaceAll(/\r\n|\r|\n/gu, '<br>');
 }

@@ -9,8 +9,9 @@
  * question shapes were never exported as schemas, so they are declared here.
  *
  * Every file carries its ground-truth identity (`id`, `version`, `method`,
- * `raterCount`, `frozenAt`), which the scorecard's `groundTruth` mirrors, and
- * the SHA-256 of its bytes, which the scorecard lists as an artifact.
+ * `panel` when `method` is `model-panel`, `raterCount`, `frozenAt`), which the
+ * scorecard's `groundTruth` mirrors, and the SHA-256 of its bytes, which the
+ * scorecard lists as an artifact.
  */
 
 import { createHash } from 'node:crypto';
@@ -22,24 +23,34 @@ import { z } from 'zod';
 import { fileToolsQuestionFileSchema } from '../ground-truth/file-tool-questions';
 import { memoryQuestionFileSchema } from '../ground-truth/memory-questions';
 import { relevanceQuestionFileSchema } from '../ground-truth/relevance-questions';
+import {
+  GROUND_TRUTH_METHODS,
+  refineGroundTruthPanel,
+  type GroundTruthMethod,
+} from '../scorecard/suite-kinds';
 
 /** The merged envelope: every frozen question file has these fields. */
-export const questionEnvelopeSchema = z.object({
-  id: z.string().min(1),
-  version: z.literal('1'),
-  method: z.enum(['generated', 'labelled', 'seeded', 'git-history']),
-  raterCount: z.number().int().positive().optional(),
-  frozenAt: z.string().datetime(),
-  corpusCommit: z.string(),
-  generator: z.string().min(1),
-  seed: z.number().nullable(),
-  counts: z.record(z.string(), z.number().int().nonnegative()),
-  questions: z.array(z.unknown()),
-  /** Batch 7 (SCIP): the corpus language. */
-  language: z.string().min(1).optional(),
-  /** Batch 7 (SCIP): present when the indexer was absent; the suite is `na`. */
-  na: z.object({ reason: z.string().min(1) }).optional(),
-});
+export const questionEnvelopeSchema = z
+  .object({
+    id: z.string().min(1),
+    version: z.literal('1'),
+    method: z.enum(GROUND_TRUTH_METHODS),
+    panel: z.string().min(1).optional(),
+    raterCount: z.number().int().positive().optional(),
+    frozenAt: z.string().datetime(),
+    corpusCommit: z.string(),
+    generator: z.string().min(1),
+    seed: z.number().nullable(),
+    counts: z.record(z.string(), z.number().int().nonnegative()),
+    questions: z.array(z.unknown()),
+    /** Batch 7 (SCIP): the corpus language. */
+    language: z.string().min(1).optional(),
+    /** Batch 7 (SCIP): present when the indexer was absent; the suite is `na`. */
+    na: z.object({ reason: z.string().min(1) }).optional(),
+  })
+  .superRefine((envelope, context) => {
+    refineGroundTruthPanel(envelope, context);
+  });
 
 export const symbolQuestionSchema = z.object({
   id: z.string().min(1),
@@ -128,7 +139,9 @@ export type TsAgreement = z.infer<typeof tsAgreementSchema>;
 export interface GroundTruthRef {
   readonly id: string;
   readonly version: string;
-  readonly method: 'generated' | 'labelled' | 'seeded' | 'git-history';
+  readonly method: GroundTruthMethod;
+  /** Required when `method` is `model-panel`; absent for every other method. */
+  readonly panel?: string;
   readonly raterCount?: number;
   readonly frozenAt: string;
 }
@@ -202,7 +215,7 @@ function readEnvelope(projectRoot: string, path: string): RawFile {
   };
 }
 
-function toSet<Q>(
+export function toSet<Q>(
   file: RawFile,
   questions: readonly Q[],
   counts: Readonly<Record<string, number>> = file.envelope.counts,
@@ -213,6 +226,7 @@ function toSet<Q>(
       id: envelope.id,
       version: envelope.version,
       method: envelope.method,
+      ...(envelope.panel === undefined ? {} : { panel: envelope.panel }),
       ...(envelope.raterCount === undefined
         ? {}
         : { raterCount: envelope.raterCount }),

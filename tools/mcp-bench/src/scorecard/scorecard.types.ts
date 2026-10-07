@@ -2,6 +2,8 @@ import { z } from 'zod';
 import { LOWER_IS_BETTER } from '../metrics/retrieval-metrics';
 import {
   defaultSuiteKindRegistry,
+  GROUND_TRUTH_METHODS,
+  refineGroundTruthPanel,
   SuiteKindRegistry,
   SuiteView,
 } from './suite-kinds';
@@ -25,13 +27,18 @@ const claimSchema = z
         path: ['ref'],
       });
   });
-const groundTruthSchema = z.object({
-  id: z.string().min(1),
-  version: z.string().min(1),
-  method: z.enum(['generated', 'labelled', 'seeded', 'git-history']),
-  raterCount: z.number().int().positive().optional(),
-  frozenAt: z.string().datetime().optional(),
-});
+const groundTruthSchema = z
+  .object({
+    id: z.string().min(1),
+    version: z.string().min(1),
+    method: z.enum(GROUND_TRUTH_METHODS),
+    panel: z.string().min(1).optional(),
+    raterCount: z.number().int().positive().optional(),
+    frozenAt: z.string().datetime().optional(),
+  })
+  .superRefine((groundTruth, context) => {
+    refineGroundTruthPanel(groundTruth, context);
+  });
 const costSchema = z.object({
   source: z.enum(['live', 'cassette', 'none']),
   calls: z.number().finite().nonnegative(),
@@ -53,6 +60,7 @@ const costSchema = z.object({
 export const suiteCoreSchema: z.ZodType<SuiteView<unknown>> = z
   .object({
     kind: z.string().min(1),
+    displayLabel: z.string().min(1).max(80).optional(),
     details: z.unknown(),
     claim: claimSchema,
     groundTruth: groundTruthSchema,

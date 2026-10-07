@@ -1,8 +1,39 @@
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
 
+/** Closed set of ground-truth methods. Schemas derive their enum from this. */
+export const GROUND_TRUTH_METHODS = [
+  'generated',
+  'labelled',
+  'seeded',
+  'git-history',
+  'model-panel',
+] as const;
+export type GroundTruthMethod = (typeof GROUND_TRUTH_METHODS)[number];
+
+/** `panel` is required for `model-panel` and rejected for every other method. */
+export function refineGroundTruthPanel(
+  groundTruth: { readonly method: GroundTruthMethod; readonly panel?: string },
+  context: z.RefinementCtx,
+): void {
+  if (groundTruth.method === 'model-panel' && groundTruth.panel === undefined)
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'model-panel ground truth requires panel',
+      path: ['panel'],
+    });
+  if (groundTruth.method !== 'model-panel' && groundTruth.panel !== undefined)
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'panel is only valid for model-panel ground truth',
+      path: ['panel'],
+    });
+}
+
 export interface SuiteView<D> {
   kind: string;
+  /** Short heading shown in the scorecard when present. 1–80 characters. */
+  displayLabel?: string;
   details: D;
   claim: {
     source: 'prompt' | 'tool-description' | 'ledger' | 'code';
@@ -12,7 +43,9 @@ export interface SuiteView<D> {
   groundTruth: {
     id: string;
     version: string;
-    method: 'generated' | 'labelled' | 'seeded' | 'git-history';
+    method: GroundTruthMethod;
+    /** Required when method is `model-panel`; rejected for every other method. */
+    panel?: string;
     raterCount?: number;
     frozenAt?: string;
   };

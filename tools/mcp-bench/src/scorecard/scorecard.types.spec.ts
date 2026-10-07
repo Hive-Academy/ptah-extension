@@ -138,6 +138,58 @@ describe('createSuiteSchema', () => {
     );
   });
 
+  it('accepts model-panel only with a panel, and bounds displayLabel', () => {
+    const panelSuite: SuiteView<unknown> = {
+      ...minimalSuite,
+      displayLabel: 'a'.repeat(80),
+      groundTruth: {
+        id: 'set',
+        version: '1',
+        method: 'model-panel',
+        panel: 'memory-skills-panel',
+      },
+    };
+    expect(suiteCoreSchema.parse(panelSuite)).toEqual(panelSuite);
+    expect(
+      messages(
+        suiteCoreSchema.safeParse({
+          ...minimalSuite,
+          groundTruth: {
+            id: 'set',
+            version: '1',
+            method: 'model-panel',
+          },
+        }),
+      ),
+    ).toEqual(['model-panel ground truth requires panel']);
+    expect(
+      messages(
+        suiteCoreSchema.safeParse({
+          ...minimalSuite,
+          groundTruth: {
+            ...minimalSuite.groundTruth,
+            panel: 'memory-skills-panel',
+          },
+        }),
+      ),
+    ).toEqual(['panel is only valid for model-panel ground truth']);
+    expect(
+      suiteCoreSchema.safeParse({ ...minimalSuite, displayLabel: '' }).success,
+    ).toBe(false);
+    expect(
+      suiteCoreSchema.safeParse({
+        ...minimalSuite,
+        displayLabel: 'a'.repeat(81),
+      }).success,
+    ).toBe(false);
+    expect(
+      suiteCoreSchema.safeParse({
+        ...minimalSuite,
+        displayLabel: 'a'.repeat(80),
+      }).success,
+    ).toBe(true);
+  });
+
   it('parses details with the registered kind of its registry', () => {
     const registry = createSuiteKindRegistry();
     registry.registerSuiteKind(

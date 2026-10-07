@@ -2,8 +2,11 @@ import { z } from 'zod';
 import {
   createSuiteKindRegistry,
   computeProjectionSha256,
+  GROUND_TRUTH_METHODS,
   getRegisteredSuiteKinds,
   getSuiteKind,
+  type GroundTruthMethod,
+  type SuiteView,
 } from './suite-kinds';
 import './scorecard.types';
 describe('suite kind registry', () => {
@@ -44,5 +47,35 @@ describe('suite kind registry', () => {
     expect(() => computeProjectionSha256({ score: Number.NaN })).toThrow(
       'projection cannot contain non-finite numbers',
     );
+  });
+  it('exposes model-panel on the shared method list and the suite view', () => {
+    expect(GROUND_TRUTH_METHODS).toEqual([
+      'generated',
+      'labelled',
+      'seeded',
+      'git-history',
+      'model-panel',
+    ]);
+    const method: GroundTruthMethod = 'model-panel';
+    const view: SuiteView<unknown> = {
+      kind: 'memory-skills',
+      displayLabel: 'a'.repeat(80),
+      details: {},
+      claim: { source: 'code', ref: 'memory.ts:1' },
+      groundTruth: { id: 'set', version: '1', method, panel: 'panel-a' },
+      baselines: [],
+      deltas: {},
+      cost: {
+        source: 'none',
+        calls: 0,
+        latency_ms: { p50: null, p95: null },
+        error_rate: null,
+        tokens: {},
+      },
+      verdict: 'pass',
+    };
+    expect(view.groundTruth.method).toBe('model-panel');
+    expect(view.groundTruth.panel).toBe('panel-a');
+    expect(view.displayLabel).toHaveLength(80);
   });
 });
