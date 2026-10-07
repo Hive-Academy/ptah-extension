@@ -1,4 +1,45 @@
-# Prompts for the two next sessions (2026-10-07)
+# Prompts for the next sessions
+
+## Session 3 (2026-10-08) — continue TASK_2026_620 from B25.1 to the PR
+
+Start it from a top-level session. Prompt:
+
+> Continue TASK_2026_620 (memory and skills benchmark-first quality program) to the end and open
+> the PR. You are the orchestrator; do not implement yourself and do not use in-process subagents
+> for implementation (user: "save your quota"). Work in the worktree
+> D:\projects\ptah-extension\.claude-worktrees\feat-task-620-memory-skills-bench-s2-2be8618bcca9 on
+> branch feat/task-620-memory-skills-bench-s3 (continue on it). Task folder:
+> .ptah/specs/TASK_2026_620_a13e/ inside that worktree; never create task files in
+> D:\projects\ptah-extension\.ptah\specs.
+>
+> Read first: HANDOFF.md section "RESUME HERE (2026-10-08 ...)" — it has the exact state, the B25.1
+> status at stop, the lane facts and the ordered next steps. Then context.md (last section) and
+> recording-plans-review.md.
+>
+> Remaining work, in order: (1) finish B25.1 (it is committed with "review pending": run the Glm
+> code-logic review; a REVISE gets a codex fix, re-run the 11 fixture specs listed in the handoff,
+> commit); (2) the four Codex/terra recordings — the extraction plan now has 255 recording cases:
+> tell me the call volume and get my OK first; message the 619 session and wait for its OK, tell
+> me the bench target runs esbuild builds, and ask me to refresh my Codex login just before the run; (3) B24; (4) U3 then matcher-sample.v1.jsonl; (5) B26; (6) PR per
+> context.md:134-135 — ask me before any push. PR body ends with
+> `🤖 Generated with [Claude Code](https://claude.com/claude-code)`.
+>
+> Lanes: grok has no balance (HTTP 402) unless I say it is topped up — implementor codex, reviewer
+> Glm ptah-cli; antigravity only with `--model gemini-3.1-pro --effort high`, max 2 at once, never
+> with its own subagents. Validate every lane output yourself; re-run every check before a commit;
+> commit per batch with only that batch's files; end commits with
+> `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
+>
+> Standing rules (repeat in every lane prompt): memory-safe checks only per CLAUDE.md (scoped
+> `npx jest -c tools/mcp-bench/jest.config.ts <spec...> --coverage=false --maxWorkers=2`, output
+> redirected to a temp file; `npx tsc -p tools/mcp-bench/tsconfig.json --noEmit`; never nx run-many,
+> never the full mcp-bench test target, never build/serve/e2e/package except the bench target for
+> the recordings); never edit 619-owned `tools/mcp-bench/src/scorecard/`, `transport/`, `corpus/`,
+> `suites/question-sets.ts`, `bench-data.ts`; private bench data under
+> C:\Users\abdal\AppData\Local\ptah-mcp-bench is never committed. Remove the node_modules junction
+> with `cmd /c rmdir` (never a recursive delete) when 620 is finished.
+
+## Earlier prompts (2026-10-07)
 
 Start both from a top-level session (a child session cannot start sessions: `depth-exceeded`).
 

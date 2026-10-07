@@ -1,6 +1,98 @@
 # HANDOFF — TASK_2026_620_a13e (and TASK_2026_621_3d5c)
 
-## RESUME HERE (2026-10-07 ~19:30Z, session on branch `feat/task-620-memory-skills-bench-s2`)
+## RESUME HERE (2026-10-08, session on branch `feat/task-620-memory-skills-bench-s3`)
+
+Worktree `D:\projects\ptah-extension\.claude-worktrees\feat-task-620-memory-skills-bench-s2-2be8618bcca9`,
+branch `feat/task-620-memory-skills-bench-s3` (created from `-s2` tip `9832dc17c`). Nothing pushed.
+The user stopped this session to save time; the next session continues from here.
+
+### Commits this session
+
+- `c46be5c1a` `--codex-auth-source` flag (`runner/run-memory-skills.args.ts` + spec, entry wiring).
+  Codex review APPROVED 9/10 (`code-logic-review-codex-auth-flag.md`).
+- `bae970db0` B25.2: U1 skill labels (numeric), skill-docs (ids, hashes, strata), U4 trigger labels
+  (`skill-triggers.v1.jsonl`), U4 real-session labels (`real-sessions.v1.jsonl`), MANIFEST; real runs
+  load the PRIVATE U1 panel manifest (`suites/skills/rubric-panel-manifest.ts`), missing/invalid →
+  `na` (never `labelled`); rater packet asks for ISO-8601 `ratedAt`. Reviews: codex REVISE 4/10 →
+  Glm r2 APPROVED 8/10 (3 minor: no entry integration test; loader overrides `options.panel`;
+  manifest raterIds not cross-checked with `options.raters`).
+- `fe76f1b3a` recording-plans review (codex REVISE: only B18 blocked, by the B25.1 fixtures).
+- B25.1: see "B25.1 state" below.
+
+### Lane facts that changed
+
+- **grok is OUT: HTTP 402 "Grok Build usage balance exhausted"** (2026-10-07 ~20:41Z). Until the user
+  tops it up: implementor = codex, reviewer = Glm ptah-cli (`pc-355b645d-…`, cross-family). User
+  instruction: "save your quota and assign codex and grok the work" — do not use in-process
+  subagents for implementation; keep the orchestrator's own work to verification and commits.
+- antigravity: never let it use its own subagents (the first U2 part-5 lane timed out at 35 min
+  waiting on them). Split work into ≤34-item halves; ≤2 lanes at once; `--model gemini-3.1-pro --effort high`.
+- `ptah_agent_wait` returns "operation timed out" well before its timeoutSec; rely on the push signal.
+- Codex resume can silently become a fresh lane with a handoff brief when the old context is
+  > 60k tokens — always give complete instructions.
+- Lane "scoped checks passed" claims were false twice more (B25.1 ran 2 of 11 fixture specs).
+  Always re-run every spec that reads the changed fixtures (list below).
+
+### Labelling: DONE (all private, `C:\Users\abdal\AppData\Local\ptah-mcp-bench`)
+
+Merged outputs and manifests (`panelManifestSchema`-valid, panel `xAI+Google; adjudicator=GLM`) in
+`labelling/merged/`: `u1-rubric.*` (105, 37 adjudicated, 0 unresolved), `u2-memory.*` (298, 41
+adjudicated, 0 unresolved), `u4-sessions.*` (20, 0 unresolved), `u4-triggers.*` (23, all
+adjudicated, 0 unresolved). Merge script: `labelling/tools/merge-panels.ts` (bundle with esbuild
+`--tsconfig=tools/mcp-bench/tsconfig.json` to `%TEMP%`, run `node … [triggers|sessions|rubric|memory]`).
+Validators: `labelling/tools/validate-u2.mjs`, `validate-trigger-adj.mjs`; builders
+`build-u2-adj.mjs`, `build-trigger-adj.mjs`.
+
+Disclose in B26 / PR: U2 r2 parts 0, 1 (weak instruction) and 5 (all-accept) were discarded and
+re-run once with `STRICT-ADDENDUM.md`; part 5 re-ran in two halves 5a/5b; 5b is 34/34 accept with
+item-specific evidence (r1 agrees on 32/34); some T- evidence rows have an empty `checked` field.
+U2 adjudicator read each item's own `sourceCommit` (not only `e0ca51e`) and, for
+`worktree-untracked-or-uncommitted` v2 sources, the current spec files (one TASK_2026_621 file only
+in worktree `agent-a0c9cbefc2a09f580-…`). U1 raters wrote date-only `ratedAt`; the merge normalised
+it to midnight UTC (format only). U4 triggers: 5 candidate prompts naming a skill id were excluded
+before adjudication. Prompt hashes in the manifests are hashes of the instruction files the lanes
+read (the inline spawn prompts were not stored).
+
+### B25.1 state (memory ground truth) — IN PROGRESS at handoff
+
+**B25.1 at stop:** committed as `673c7f278`.
+Codex lane wrote it; revise round 1 fixed a UTF-8 BOM in MANIFEST.json and specs pinned to the
+10-fact draft. Orchestrator re-ran all 11 fixture specs: 11 suites / 149 tests pass, `tsc` clean,
+no BOM. Report: `batch-25-1-report.md`. Counts: 129 facts, 98 merge pairs (50/48), 28 update,
+21 temporal, 18 abstention; F-005 fixed; M-094 dropped (F-038 rejected).
+**Still to do first: an independent Glm code-logic review of that commit** (write
+`code-logic-review-batch-25-1.md`; check the spec rewrites keep each test's intent and are not
+re-pinned observed numbers). A REVISE gets a follow-up commit (codex implements).
+
+**Cost warning for the extraction recording:** with 129 facts the extraction plan now runs 255
+recording cases (129 one-fact seeded sessions + 63 long sessions per placement), far more live
+gpt-5.6-terra calls than the 10-fact draft. Tell the user the call volume and get an explicit OK
+before recording (or agree a smaller recording subset).
+
+### Next steps, in order
+
+1. Finish B25.1: Glm review of the committed B25.1 (checks already re-run; repeat them after any fix).
+   Fixture specs: `ground-truth/{committed-u4-labels,fixture-manifest,seeded-session-generator}.spec.ts`,
+   `host/plan.schema.spec.ts`, `runner/{ground-truth-freshness,run-memory-skills,runner-plan}.spec.ts`,
+   `suites/memory/{extraction,read-side,retention}.suite.spec.ts`, `suites/skills/rubric-agreement.suite.spec.ts`
+   (all under `tools/mcp-bench/src/memory-skills/`; extraction takes ~200 s).
+2. Recordings (plans written and reviewed: `<bench>/plans/{extraction.record,b18-record,scope-write.record,funnel-record.plan}.json`;
+   commands in `recording-plans-review.md`). The bench target runs esbuild builds (`build-host-memory-skills`)
+   — tell the user. Message the 619 session (ListAgents; last seen
+   `ptah-ptah-extension-continue-619-follow-0b15390000ktg2q3sqvco0a`) and wait for its OK; ask the user
+   to refresh the Codex login; pass `--codex-auth-source <abs path of ~/.codex/auth.json>`. Desktop Ptah
+   may stay open (619 `process-watch` guard). If B25.1 changed the extraction seed size, re-check
+   the extraction plan first. After recording: copy accepted cassettes into committed fixtures,
+   replay once.
+3. B24 (CI workflow, first recorded run on Windows + Linux/WSL, known failures, ledger) — message 619 first.
+4. U3 (matcher sample from the B24 replay), then `matcher-sample.v1.jsonl`. Panel = two non-OpenAI
+   rater families + a third-family adjudicator. If grok is still out, the panel needs a third
+   eligible family (e.g. an opencode route to Kimi/Qwen); check `ptah_agent_list` and
+   `evaluatePanelEligibility`, and ask the user if fewer than three families exist.
+5. B26 close-out; PR per context.md:134-135 (ask the user before any push).
+6. Remove the `node_modules` junction with `cmd /c rmdir` when 620 is finished.
+
+## Previous resume point (2026-10-07 ~19:30Z, session on branch `feat/task-620-memory-skills-bench-s2`)
 
 Worktree `D:\projects\ptah-extension\.claude-worktrees\feat-task-620-memory-skills-bench-s2-2be8618bcca9`.
 Branch rebased onto 619 `181c657ab` (schema commit; contains probe-fix `285ce9855`). Nothing pushed.
