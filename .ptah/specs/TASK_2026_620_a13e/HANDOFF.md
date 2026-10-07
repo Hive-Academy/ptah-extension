@@ -24,7 +24,8 @@ agreement and answers). This file is the resume point only.
   `c2618c287`(+`ad6461c42`), P3 `752633f44`, P4 `f15e6e3a1`, P5 `56a03a52a`(+`98831dddb`), boot retry
   `49b318425`,`1d4eddd75`,`48572ef5e`,`0c67b707a`,`8e25a6df6`. Reviews: backend r3 APPROVED,
   RPC/UI/Electron r2 APPROVED, boot-retry r5 APPROVED.
-- **NOT DONE for B-P:** dark + light screenshots of the Thoth Memory and Skills tabs (switch, Paused
+- **B-P visual review APPROVED (round 2, 9/10)**: `visual-review.md`, screenshots in `screenshots/b-p/`.
+- **Previously NOT DONE for B-P (now done):** dark + light screenshots of the Thoth Memory and Skills tabs (switch, Paused
   badge, greyed manual actions) by a visual-reviewer — postponed at 619's request while its Batch 10
   noise runs measure latency (no Electron launch until "619 noise runs done"). Manual Linux/macOS
   tray check (the reviewer verified the fs.watch path statically only).
@@ -62,6 +63,8 @@ agreement and answers). This file is the resume point only.
 
 - B-P: idle re-arm hard-codes the 1-hour rate-limit window (`RATE_LIMIT_WINDOW_MS`); per-workspace
   memory toggle fix (F1) and moving host-local trigger keys to `~/.ptah/settings.json` (F2).
+- B-P UI: the Paused badges render at 10 px, not 12 px — an unlayered `.badge { font-size: 10px }` at
+  `apps/ptah-extension-webview/src/styles.css:1737` overrides `text-xs` (visual-review.md Round 2).
 - Runner N1: read-time re-check uses `git status` (a mid-run commit passes); N2 seeder realpath option.
 
 ## Rules learned in this session (keep applying)

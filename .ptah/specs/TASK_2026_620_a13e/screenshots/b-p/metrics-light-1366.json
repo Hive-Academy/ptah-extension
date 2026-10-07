@@ -1,0 +1,367 @@
+{
+  "mem_running_aria": {
+    "role": "switch",
+    "ariaChecked": "true"
+  },
+  "mem_help_text_running": "Pausing stops capture, background processing and manual runs (Run curator now). Saved memories are still used in chats.",
+  "mem_running_contrast": [
+    {
+      "sel": "#memory-pause-label",
+      "text": "Memory",
+      "ratio": 15.27,
+      "fontSize": "14px",
+      "box": [
+        563,
+        143,
+        56,
+        20
+      ]
+    },
+    {
+      "sel": "[data-testid=\"memory-pause-state\"]",
+      "text": "On",
+      "ratio": 15.27,
+      "fontSize": "12px",
+      "box": [
+        627,
+        145,
+        26,
+        16
+      ]
+    },
+    {
+      "sel": "#memory-pause-help",
+      "text": "Pausing stops capture, background processing and manual runs (Run curator now). ",
+      "ratio": 5.79,
+      "fontSize": "12px",
+      "box": [
+        563,
+        165,
+        697,
+        16
+      ]
+    }
+  ],
+  "mem_tab_presses": 6,
+  "mem_focus": {
+    "id": "memory-enabled-toggle",
+    "focusVisible": true,
+    "outline": "solid 2px"
+  },
+  "mem_shift": {
+    "before": {
+      "card": [
+        546,
+        130,
+        756,
+        112
+      ],
+      "toggle": [
+        563,
+        195,
+        32,
+        20
+      ],
+      "tabs": [
+        546,
+        353,
+        459,
+        32
+      ],
+      "hscroll": false
+    },
+    "after": {
+      "card": [
+        546,
+        130,
+        756,
+        112
+      ],
+      "toggle": [
+        563,
+        195,
+        32,
+        20
+      ],
+      "tabs": [
+        546,
+        353,
+        459,
+        32
+      ],
+      "hscroll": false
+    },
+    "dy": 0,
+    "dCardY": 0,
+    "dCardH": 0,
+    "dTabsY": 0
+  },
+  "mem_help_text_paused": "Pausing stops capture, background processing and manual runs (Run curator now). Saved memories are still used in chats.",
+  "mem_paused_aria": "false",
+  "mem_rpc": [
+    {
+      "method": "memory:setTriggers",
+      "params": {
+        "triggers": {},
+        "enabled": false
+      }
+    }
+  ],
+  "mem_paused_contrast": [
+    {
+      "sel": "#memory-pause-label",
+      "text": "Memory",
+      "ratio": 14.5,
+      "fontSize": "14px",
+      "box": [
+        563,
+        143,
+        56,
+        20
+      ]
+    },
+    {
+      "sel": "[data-testid=\"memory-pause-state\"]",
+      "text": "Paused",
+      "ratio": 5.66,
+      "fontSize": "10px",
+      "box": [
+        627,
+        145,
+        46,
+        16
+      ]
+    },
+    {
+      "sel": "#memory-pause-help",
+      "text": "Pausing stops capture, background processing and manual runs (Run curator now). ",
+      "ratio": 5.5,
+      "fontSize": "12px",
+      "box": [
+        563,
+        165,
+        697,
+        16
+      ]
+    },
+    {
+      "sel": "#thoth-tab-memory [data-testid=\"thoth-tab-paused\"]",
+      "text": "Paused",
+      "ratio": 5.66,
+      "fontSize": "10px",
+      "box": [
+        442,
+        115,
+        46,
+        16
+      ]
+    }
+  ],
+  "mem_sidebar_badge": "Memory\nPaused\n57\nfacts\n5 queued for curation",
+  "mem_maint": {
+    "disabled": true,
+    "title": "Paused — resume Memory to run",
+    "hint": "Paused — resume Memory to run"
+  },
+  "mem_resume_dy": 0,
+  "mem_resume_dTabsY": 0,
+  "mem_hscroll": false,
+  "sk_running_aria": {
+    "role": "switch",
+    "ariaChecked": "true"
+  },
+  "sk_help_text_running": "Pausing stops capture, background processing and manual runs (Run Curator, Analyze current session and Enhance now). Saved skills are still used in chats.",
+  "sk_running_contrast": [
+    {
+      "sel": "#skills-pause-label",
+      "text": "Skills",
+      "ratio": 15.27,
+      "fontSize": "14px",
+      "box": [
+        563,
+        143,
+        36,
+        20
+      ]
+    },
+    {
+      "sel": "[data-testid=\"skills-pause-state\"]",
+      "text": "On",
+      "ratio": 15.27,
+      "fontSize": "12px",
+      "box": [
+        607,
+        145,
+        26,
+        16
+      ]
+    },
+    {
+      "sel": "#skills-pause-help",
+      "text": "Pausing stops capture, background processing and manual runs (Run Curator, Analy",
+      "ratio": 5.79,
+      "fontSize": "12px",
+      "box": [
+        563,
+        165,
+        722,
+        32
+      ]
+    }
+  ],
+  "sk_tab_presses": 7,
+  "sk_focus": {
+    "id": "skills-enabled-toggle",
+    "focusVisible": true,
+    "outline": "solid 2px"
+  },
+  "sk_shift": {
+    "before": {
+      "card": [
+        546,
+        130,
+        756,
+        128
+      ],
+      "toggle": [
+        563,
+        211,
+        32,
+        20
+      ],
+      "tabs": [
+        546,
+        369,
+        437,
+        32
+      ],
+      "hscroll": false
+    },
+    "after": {
+      "card": [
+        546,
+        130,
+        756,
+        128
+      ],
+      "toggle": [
+        563,
+        211,
+        32,
+        20
+      ],
+      "tabs": [
+        546,
+        369,
+        437,
+        32
+      ],
+      "hscroll": false
+    },
+    "dy": 0,
+    "dCardY": 0,
+    "dCardH": 0,
+    "dTabsY": 0
+  },
+  "sk_help_text_paused": "Pausing stops capture, background processing and manual runs (Run Curator, Analyze current session and Enhance now). Saved skills are still used in chats.",
+  "sk_paused_aria": "false",
+  "sk_rpc": [
+    {
+      "method": "memory:setTriggers",
+      "params": {
+        "triggers": {},
+        "enabled": false
+      }
+    },
+    {
+      "method": "memory:setTriggers",
+      "params": {
+        "triggers": {},
+        "enabled": true
+      }
+    },
+    {
+      "method": "skillSynthesis:updateSettings",
+      "params": {
+        "settings": {
+          "enabled": false
+        }
+      }
+    }
+  ],
+  "sk_paused_contrast": [
+    {
+      "sel": "#skills-pause-label",
+      "text": "Skills",
+      "ratio": 14.5,
+      "fontSize": "14px",
+      "box": [
+        563,
+        143,
+        36,
+        20
+      ]
+    },
+    {
+      "sel": "[data-testid=\"skills-pause-state\"]",
+      "text": "Paused",
+      "ratio": 5.66,
+      "fontSize": "10px",
+      "box": [
+        607,
+        145,
+        46,
+        16
+      ]
+    },
+    {
+      "sel": "#skills-pause-help",
+      "text": "Pausing stops capture, background processing and manual runs (Run Curator, Analy",
+      "ratio": 5.5,
+      "fontSize": "12px",
+      "box": [
+        563,
+        165,
+        722,
+        32
+      ]
+    },
+    {
+      "sel": "#thoth-tab-skills [data-testid=\"thoth-tab-paused\"]",
+      "text": "Paused",
+      "ratio": 5.66,
+      "fontSize": "10px",
+      "box": [
+        442,
+        215,
+        46,
+        16
+      ]
+    }
+  ],
+  "sk_sidebar_badge": "Skills\nPaused\n0\npending\nNo skills awaiting review",
+  "sk_header": {
+    "disabled": true,
+    "title": "Paused — resume Skills to run",
+    "describedby": "skills-pause-help",
+    "hintEls": 0
+  },
+  "sk_analyze": {
+    "disabled": true,
+    "title": "Paused — resume Skills to run"
+  },
+  "sk_enhance": [
+    {
+      "t": "Enhance now",
+      "d": true
+    },
+    {
+      "t": "Revert",
+      "d": true
+    }
+  ],
+  "sk_resume_dy": 18,
+  "sk_resume_dTabsY": 18,
+  "sk_hscroll": false,
+  "badges_after_resume": 0
+}
