@@ -55,3 +55,20 @@ R2-3. SERIOUS. (b) The `manual-run` citation is incorrect. `memory-rpc.handlers.
 ### Open note
 
 The `session-end` and `drain-eligible-candidate` split is now consistent with the producers (`analyze-run` only after candidate registration, lines 935-948). The Revision 2 table should be corrected for R2-1 to R2-3.
+
+## Round 3
+
+Re-review of 3fbfeabeb. Jest (scoped to `ground-truth`): `Test Suites: 5 passed, 5 total` / `Tests: 82 passed, 82 total`.
+
+Verdict: APPROVED (0 blocking, 0 serious, 1 minor).
+
+### Round 2 findings
+
+- R2-1 closed. `prefilter-too-thin` is removed from the script vocabulary (`skill-session-fixture.ts` `SCRIPT_OPERATIONS`). Q&A, aborted, unreadable and unsupported sessions all expect `ineligible { reason: prefilterRejected }`. This matches the product: each has 2 or more role turns and no work evidence (`skill-synthesis.service.ts:747-767`; the reader skips the malformed line). The new spec test pins the class slices (indexes 12-18 and 22 onward). I checked that those slices select non-routine 1-7 and the 8 degraded sessions.
+- R2-2 closed. Single-edit sessions (indexes 19-21) script only `session-end` and expect `[]`. This is consistent with `editCount` 1 meeting the default `prefilterMinEdits` of 1. The spec pins it.
+- R2-3 closed. `manual-run` stays expected and is marked "fail, no skills producer emits it". The memory-curator citation is explicitly disclaimed. I did not re-verify the `skills-synthesis-rpc.handlers.ts:830-869` claim line by line. Earlier greps found no `manual-run` push anywhere under `libs/backend/skill-synthesis/`.
+- No regression: the golden spec and manifest verification pass, and the seeded-generator specs still pass.
+
+### Remaining
+
+R3-1. MINOR. `batch-11-1-report.md` still contains the superseded "Revision 2" mapping text below "Revision 3" (its `prefilter-too-thin` rows and the `manual-run` citation to `memory-rpc.handlers.ts:694-699`). Someone reading the file top to bottom can take the stale table as current. The file notes it is superseded, so this is documentation only.

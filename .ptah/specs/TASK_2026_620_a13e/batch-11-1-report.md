@@ -99,7 +99,7 @@ EXIT=0
 EXIT=0
 ```
 
-## Revision 2
+## Revision 2 (SUPERSEDED by Revision 3 above — its table has the old `prefilter-too-thin` rows and a wrong `manual-run` citation; kept as history only)
 
 The fixture writer now emits the SDK-shaped `message.content` array that the
 trajectory reader parses: `tool_use` blocks expose `name` and `input`, and
