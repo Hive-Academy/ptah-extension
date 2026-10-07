@@ -566,6 +566,38 @@ describe('SkillSynthesisService — pause and resume (B-P)', () => {
   });
 
   /**
+   * B-P boot-retry review — `stop()` while a start is awaiting the database
+   * must leave nothing behind: no session-end subscription, no curator
+   * interval, no backfill row, no onStarted notification.
+   */
+  it('stop() during an in-flight start abandons the boot work', async () => {
+    jest.useRealTimers();
+    const h = buildHarness({ enabled: true });
+    h.connection.isOpen = false;
+    let openDb: () => void = () => undefined;
+    (h.connection.openAndMigrate as jest.Mock).mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          openDb = resolve;
+        }),
+    );
+    const started = jest.fn();
+    h.svc.onStarted(started);
+
+    const run = h.svc.start();
+    await h.settle();
+    h.svc.stop();
+    openDb();
+    await run;
+    await h.settle();
+
+    expect(h.sessionEndRegistry.register).not.toHaveBeenCalled();
+    expect(h.curator.svc.isScheduled()).toBe(false);
+    expect(h.enqueued.filter((r) => r.stage === 'embedding')).toHaveLength(0);
+    expect(started).not.toHaveBeenCalled();
+  });
+
+  /**
    * B-P review N1 — the host boot subscribes to `onStarted` to bring up the
    * skill TRIGGER service. The boot's own `.then` never sees a start that
    * failed at boot and succeeded later through the listener retry, so the

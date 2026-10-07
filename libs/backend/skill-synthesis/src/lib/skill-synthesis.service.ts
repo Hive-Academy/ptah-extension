@@ -243,6 +243,13 @@ export class SkillSynthesisService {
    */
   private startRun: Promise<void> | null = null;
   /**
+   * Bumped by {@link stop}. A boot run that was awaiting the database when the
+   * host stopped sees a different value afterwards and registers nothing, so a
+   * shutdown during a retried start cannot recreate the session-end
+   * subscription or the curator interval on a disposed host.
+   */
+  private lifecycle = 0;
+  /**
    * Called after every successful `performStart()` (B-P review N1). The host
    * boot subscribes here so the skill TRIGGER service comes up whenever the
    * boot work completes — including a start that failed at boot and later
@@ -417,8 +424,16 @@ export class SkillSynthesisService {
    * `started` / `startRun` guards around it.
    */
   private async performStart(): Promise<void> {
+    const lifecycle = this.lifecycle;
     if (!this.connection.isOpen) {
       await this.connection.openAndMigrate();
+    }
+    // The only await above: `stop()` during it ends this run here.
+    if (lifecycle !== this.lifecycle) {
+      this.logger.info(
+        '[skill-synthesis] stopped while starting; boot work abandoned',
+      );
+      return;
     }
     try {
       const settingsForMigration = this.readSettings();
@@ -545,6 +560,7 @@ export class SkillSynthesisService {
 
   /** Unsubscribes from the session-end registry and resets state. */
   stop(): void {
+    this.lifecycle += 1;
     this._sessionEndDisposer?.();
     this._sessionEndDisposer = undefined;
     this._configDisposer?.dispose();
