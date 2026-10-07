@@ -268,6 +268,68 @@ describe('runCopyScenarios', () => {
     ).toBe(false);
   });
 
+  it('passes edit on a positive hit under unknown coverage and does not pass delete', async () => {
+    const root = await corpusCopy();
+    const handler: Handler = async (callRoot, tool, args) => {
+      if (tool === 'ptah_code_search_symbols') {
+        const hits = await liveIndexSearch(callRoot, String(args['query']));
+        const body = JSON.parse(
+          searchAnswer(
+            hits,
+            '"symbolCount":10,"indexAgeMs":90000000,"reindexStarted":true,"reindexInFlight":false',
+          ),
+        ) as { coverage: unknown };
+        body.coverage = {
+          clean: false,
+          reasons: ['census?', 'unchecked?', 'failed?'],
+          census: 'unknown',
+        };
+        return result(JSON.stringify(body));
+      }
+      if (tool === 'ptah_code_reindex') return result('{"outcome":"indexed"}');
+      return result('## File Search\n\nFound: 1 file\n\n1. package.json\n');
+    };
+    const deps = fakeDeps({
+      launch: async (workspace) => fakeSession(workspace, handler),
+      backdateCodeSymbols: async () => 12,
+    });
+
+    const scored = byScenario(
+      (
+        await runCopyScenarios(root, deps, {
+          smoke: true,
+          probe,
+          tag: 'unk',
+        })
+      ).results,
+    );
+    const phrase = ' (found under unknown coverage)';
+
+    expect(scored['edit-then-query-5s']).toMatchObject({ pass: true });
+    expect(scored['edit-then-query-5s'].detail).toContain(
+      `at 5 s: found${phrase}`,
+    );
+    expect(scored['edit-then-query-60s'].pass).toBe(true);
+    expect(scored['edit-then-query-60s'].detail).toContain(phrase);
+    expect(scored['cold-start'].pass).toBe(true);
+    expect(scored['cold-start'].detail).toContain(phrase);
+    expect(scored['add-then-query'].pass).toBe(true);
+    expect(scored['add-then-query'].detail).toContain(phrase);
+    expect(scored['large-file-3900-lines'].pass).toBe(true);
+    expect(scored['large-file-3900-lines'].detail).toContain(phrase);
+    expect(scored['delete-then-query'].pass).toBe(false);
+    expect(scored['delete-then-query'].detail).toContain('still answered');
+    expect(scored['delete-then-query'].detail).not.toContain(phrase);
+    expect(scored['large-file-1.5mib'].pass).toBe(false);
+    expect(scored['large-file-1.5mib'].detail).toContain(
+      'not found and not reported as too large',
+    );
+    expect(scored['index-age-24h'].pass).toBe(false);
+    expect(scored['index-age-24h'].detail).toContain(
+      'probeSymbol missing (cap or skip)',
+    );
+  });
+
   it('stops the scenario host and rethrows when a scenario throws', async () => {
     const root = await corpusCopy();
     const session = fakeSession(root, () => {

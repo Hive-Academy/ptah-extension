@@ -30,6 +30,11 @@ export interface SymbolProbe {
   readonly state: string;
   readonly text: string;
   readonly hits: number;
+  /**
+   * True only when `errorClass` was `unknown-coverage` and the expected file
+   * was in the hits. A miss under unknown coverage stays false.
+   */
+  readonly underUnknownCoverage: boolean;
 }
 
 /** One `ptah_code_search_symbols` call: is `name` in a hit of `file`? */
@@ -50,20 +55,32 @@ export async function searchSymbol(
       state: describeOutcome(outcome),
       text: '',
       hits: 0,
+      underUnknownCoverage: false,
     };
   const classified = classifyToolResult(outcome.text, outcome.isError, root);
   const index = /"index"\s*:\s*\{([^}]*)\}/.exec(outcome.text)?.[1] ?? '';
   const state = `${classified.errorClass ?? 'ok'}${index ? ` {${index}}` : ''}`;
-  if (classified.errorClass !== null)
-    return { found: false, errored: true, state, text: outcome.text, hits: 0 };
+  const unknown = classified.errorClass === 'unknown-coverage';
+  // Every other error class is unverifiable: do not read hits.
+  if (classified.errorClass !== null && !unknown)
+    return {
+      found: false,
+      errored: true,
+      state,
+      text: outcome.text,
+      hits: 0,
+      underUnknownCoverage: false,
+    };
   try {
     const answer = parseSymbolHits(outcome.text, root, [], true);
+    const found = answer.ranked.includes(file);
     return {
-      found: answer.ranked.includes(file),
-      errored: false,
+      found,
+      errored: unknown,
       state,
       text: outcome.text,
       hits: answer.ranked.length,
+      underUnknownCoverage: unknown && found,
     };
   } catch (error: unknown) {
     if (!(error instanceof ToolResultParseError)) throw error;
@@ -73,6 +90,7 @@ export async function searchSymbol(
       state: `parse: ${error.message}`,
       text: outcome.text,
       hits: 0,
+      underUnknownCoverage: false,
     };
   }
 }
@@ -176,16 +194,14 @@ export async function indexAgeScenario(
   const dbBytes = await stat(session.dbPath)
     .then((file) => file.size)
     .catch(() => null);
+  // A hit accepted only because coverage was unknown is not a settled index.
+  const cleanFound = refresh.last.found && !refresh.last.underUnknownCoverage;
   const pass =
-    changed > 0 &&
-    age > 24 * HOUR_MS &&
-    started &&
-    refresh.ok &&
-    refresh.last.found;
+    changed > 0 && age > 24 * HOUR_MS && started && refresh.ok && cleanFound;
   return {
     scenario: 'index-age-24h',
     tool,
     pass,
-    detail: `index settled after ${settle.elapsedMs} ms (DB ${dbBytes === null ? 'size unknown' : `${(dbBytes / 1_048_576).toFixed(1)} MiB`}, ${/"symbolCount"\s*:\s*(\d+)/.exec(settle.last.text)?.[1] ?? '?'} symbols; coverage ${coverageOf(settle.last.text)}); ${changed} rows backdated 25 h; first answer indexAgeMs ${Number.isNaN(age) ? '?' : age}, refresh ${started ? 'started' : 'not started'}; ${refresh.ok ? `refresh done after ${refresh.elapsedMs} ms, symbolCount ${count}, ${options.probe.name} ${refresh.last.found ? 'found' : 'missing (cap or skip)'}` : `refresh not done within ${refreshMs / 1000} s`}`,
+    detail: `index settled after ${settle.elapsedMs} ms (DB ${dbBytes === null ? 'size unknown' : `${(dbBytes / 1_048_576).toFixed(1)} MiB`}, ${/"symbolCount"\s*:\s*(\d+)/.exec(settle.last.text)?.[1] ?? '?'} symbols; coverage ${coverageOf(settle.last.text)}); ${changed} rows backdated 25 h; first answer indexAgeMs ${Number.isNaN(age) ? '?' : age}, refresh ${started ? 'started' : 'not started'}; ${refresh.ok ? `refresh done after ${refresh.elapsedMs} ms, symbolCount ${count}, ${options.probe.name} ${cleanFound ? 'found' : 'missing (cap or skip)'}` : `refresh not done within ${refreshMs / 1000} s`}`,
   };
 }

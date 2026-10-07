@@ -207,6 +207,13 @@ export function largeTsFile(name: string, lines: number): string {
   ].join('\n');
 }
 
+/** Appended when a positive hit under unknown coverage is what made the case pass. */
+const FOUND_UNDER_UNKNOWN = ' (found under unknown coverage)';
+
+function noteUnknownHit(decided: boolean): string {
+  return decided ? FOUND_UNDER_UNKNOWN : '';
+}
+
 /** A TS file of at least `bytes` bytes ending in `export function <name>`. */
 export function paddedTsFile(name: string, bytes: number): string {
   const line = `// ${'x'.repeat(1_020)}\n`;
@@ -245,7 +252,7 @@ export async function runCopyScenarios(
       scenario: 'cold-start',
       tool,
       pass: cold.ok,
-      detail: `${session.coldStartMs === null ? '' : `boot ${Math.round(session.coldStartMs)} ms; `}${cold.ok ? `first correct answer for ${options.probe.name} after ${cold.elapsedMs} ms` : `no correct answer for ${options.probe.name} within ${limits.coldStartMs / 1000} s`}; reindexInFlight false first seen ${cold.settledAtMs === null ? 'never (within the wait)' : `after ${cold.settledAtMs} ms`}; states: ${states(cold.states)}`,
+      detail: `${session.coldStartMs === null ? '' : `boot ${Math.round(session.coldStartMs)} ms; `}${cold.ok ? `first correct answer for ${options.probe.name} after ${cold.elapsedMs} ms` : `no correct answer for ${options.probe.name} within ${limits.coldStartMs / 1000} s`}; reindexInFlight false first seen ${cold.settledAtMs === null ? 'never (within the wait)' : `after ${cold.settledAtMs} ms`}; states: ${states(cold.states)}${noteUnknownHit(cold.ok && cold.last.underUnknownCoverage)}`,
     });
 
     // 2. Edit then query, within 5 s and within 60 s.
@@ -263,7 +270,7 @@ export async function runCopyScenarios(
       scenario: 'edit-then-query-5s',
       tool,
       pass: at5.found,
-      detail: `${edited} appended to ${probeFile}; at 5 s: ${at5.found ? 'found' : `not found (${at5.state})`}`,
+      detail: `${edited} appended to ${probeFile}; at 5 s: ${at5.found ? 'found' : `not found (${at5.state})`}${noteUnknownHit(at5.underUnknownCoverage)}`,
     });
     await deps.sleep(Math.max(0, limits.settleMs - (deps.now() - editedAt)));
     const at60 = await searchSymbol(
@@ -276,7 +283,7 @@ export async function runCopyScenarios(
       scenario: 'edit-then-query-60s',
       tool,
       pass: at60.found,
-      detail: `at 60 s: ${at60.found ? 'found' : `not found (${at60.state})`}`,
+      detail: `at 60 s: ${at60.found ? 'found' : `not found (${at60.state})`}${noteUnknownHit(at60.underUnknownCoverage)}`,
     });
 
     // 3. Add then query.
@@ -297,7 +304,7 @@ export async function runCopyScenarios(
       scenario: 'add-then-query',
       tool,
       pass: add.ok,
-      detail: `${addedFile}: ${add.ok ? `found after ${add.elapsedMs} ms` : `not found within ${limits.settleMs / 1000} s`}; states: ${states(add.states)}`,
+      detail: `${addedFile}: ${add.ok ? `found after ${add.elapsedMs} ms` : `not found within ${limits.settleMs / 1000} s`}; states: ${states(add.states)}${noteUnknownHit(add.ok && add.last.underUnknownCoverage)}`,
     });
 
     // 4. Delete then query: the symbol must disappear.
@@ -349,9 +356,11 @@ export async function runCopyScenarios(
       scenario: 'large-file-3900-lines',
       tool,
       pass: longProbe.ok,
-      detail: `${longFile}: ${longProbe.ok ? 'found' : 'not found'} (symbol on line 3,898); states: ${states(longProbe.states)}`,
+      detail: `${longFile}: ${longProbe.ok ? 'found' : 'not found'} (symbol on line 3,898); states: ${states(longProbe.states)}${noteUnknownHit(longProbe.ok && longProbe.last.underUnknownCoverage)}`,
     });
     const bigProbe = await searchSymbol(session.client, copyRoot, big, bigFile);
+    // A hit under unknown coverage is not proof the over-cap file was indexed.
+    const bigIndexed = bigProbe.found && !bigProbe.underUnknownCoverage;
     const reindex = await session.client.callTool('ptah_code_reindex', {
       filePath: join(copyRoot, bigFile),
     });
@@ -363,8 +372,8 @@ export async function runCopyScenarios(
     results.push({
       scenario: 'large-file-1.5mib',
       tool,
-      pass: bigProbe.found || honest,
-      detail: `${bigFile}: ${bigProbe.found ? 'found' : honest ? 'not indexed, reported as too large' : 'not found and not reported as too large'}; reindex: ${reindexText.slice(0, 160)}`,
+      pass: bigIndexed || honest,
+      detail: `${bigFile}: ${bigIndexed ? 'found' : honest ? 'not indexed, reported as too large' : 'not found and not reported as too large'}; reindex: ${reindexText.slice(0, 160)}`,
     });
 
     // 6. Index age beyond 24 h: backdate the rows, check the lazy refresh and its cap.
