@@ -589,8 +589,9 @@ export class CodeSymbolIndexer {
    * run began; it never claims to be a snapshot of the SQLite rows.
    *
    * - No run in this session: `census: 'unknown'`, no `state`, counts `null`.
-   * - A run is writing: `state: 'updating'`, counts `null` (the previous
-   *   run's counts were dropped when it began).
+   * - A run is discovering: `state: 'updating'`, counts `null`. Once
+   *   discovery selected its files, a writing run reports its known partial
+   *   counts from that run and concurrent per-file writes.
    * - The last run succeeded: `state: 'current'`; it failed or was aborted:
    *   `state: 'incomplete'`, with its files not yet written in `unchecked`.
    * - `unrecognised`, `nonSource` and `excluded` are `null`: discovery asks
@@ -600,7 +601,11 @@ export class CodeSymbolIndexer {
   getCoverage(workspaceRoot: string): LanguageCoverage {
     const record = this.roots.get(graphPathIdentity(workspaceRoot));
     if (record === undefined) return unknownCoverage();
-    if (record.active !== null) return unknownCoverage('updating');
+    if (record.active !== null) {
+      const { active } = record;
+      if (active.census === null) return unknownCoverage('updating');
+      return this.coverageForRun(record, active, 'updating', active.census);
+    }
     if (record.settled === null) return unknownCoverage();
     const { run } = record.settled;
     // A per-file write or a census still writing: the rows a search reads
@@ -614,6 +619,21 @@ export class CodeSymbolIndexer {
         : record.settled.state;
     if (run.census === null) return unknownCoverage(state);
 
+    return this.coverageForRun(
+      record,
+      run,
+      state,
+      record.perFileTruncated ? 'truncated' : run.census,
+    );
+  }
+
+  /** Builds coverage from one run and the newest completed write per file. */
+  private coverageForRun(
+    record: RootRecord,
+    run: IndexRun,
+    state: CoverageState,
+    census: CoverageCensus,
+  ): LanguageCoverage {
     const latest = new Map(run.writes);
     for (const [identity, write] of record.perFile) {
       const previous = latest.get(identity);
@@ -648,7 +668,7 @@ export class CodeSymbolIndexer {
 
     return withCoverageVerdict({
       supportedLanguages: supportedLanguagesFor('codeIndex'),
-      census: record.perFileTruncated ? 'truncated' : run.census,
+      census,
       ...(run.censusLimit === undefined
         ? {}
         : { censusLimit: run.censusLimit }),

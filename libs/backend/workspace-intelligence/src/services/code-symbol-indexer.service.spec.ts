@@ -686,6 +686,108 @@ describe('CodeSymbolIndexer', () => {
       });
     });
 
+    it('keeps coverage unknown while discovery has not selected files', async () => {
+      const held = holdingGovernor();
+      const { service, discovery } = setup(fakeTsFiles(2), held.governor);
+      let releaseDiscovery!: () => void;
+      discovery.indexWorkspaceStream.mockImplementation(async function* () {
+        await new Promise<void>((resolve) => (releaseDiscovery = resolve));
+        yield {
+          path: '/workspace/src/file0.ts',
+          relativePath: '/workspace/src/file0.ts',
+          type: 'source',
+          size: 100,
+          estimatedTokens: 25,
+        };
+      } as never);
+
+      const run = service.indexWorkspace(ROOT);
+      await settle();
+      expect(service.getCoverage(ROOT)).toMatchObject({
+        census: 'unknown',
+        state: 'updating',
+        analyzed: null,
+      });
+
+      releaseDiscovery();
+      await settle();
+      held.releaseAll();
+      await run;
+    });
+
+    it('reports known partial coverage after discovery while a census writes', async () => {
+      const held = holdingGovernor();
+      const { service } = setup(fakeTsFiles(3), held.governor);
+
+      const run = service.indexWorkspace(ROOT);
+      await settle();
+
+      const coverage = service.getCoverage(ROOT);
+      expect(coverage).toMatchObject({
+        census: 'complete',
+        state: 'updating',
+        analyzed: 0,
+        unchecked: 3,
+        clean: false,
+      });
+      expect(coverage.reasons).toEqual([
+        'updating',
+        'unrecognised?',
+        'unchecked',
+      ]);
+      const questionReasons = coverage.reasons.filter((reason) =>
+        reason.endsWith('?'),
+      );
+
+      held.releaseAll();
+      await run;
+      expect(
+        service
+          .getCoverage(ROOT)
+          .reasons.filter((reason) => reason.endsWith('?')),
+      ).toEqual(questionReasons);
+    });
+
+    it('merges a per-file write into known partial coverage during a census', async () => {
+      const held = holdingGovernor();
+      const files = fakeTsFiles(2);
+      const { service } = setup(files, held.governor);
+
+      const run = service.indexWorkspace(ROOT);
+      await settle();
+      await service.reindexFile(files[0], ROOT);
+
+      expect(service.getCoverage(ROOT)).toMatchObject({
+        census: 'complete',
+        state: 'updating',
+        analyzed: 1,
+        unchecked: 1,
+      });
+
+      held.releaseAll();
+      await run;
+    });
+
+    it('reports a truncated census and its limit while it is writing', async () => {
+      const held = holdingGovernor();
+      const { service } = setup(fakeTsFiles(3), held.governor);
+
+      const run = service.indexWorkspace(ROOT, { maxFilesPerRun: 2 });
+      await settle();
+
+      expect(service.getCoverage(ROOT)).toMatchObject({
+        census: 'truncated',
+        censusLimit: 2,
+        state: 'updating',
+        analyzed: 0,
+        unchecked: 2,
+        omittedByCap: 1,
+      });
+
+      held.releaseAll();
+      await run;
+    });
+
     it('isIndexing is true from the synchronous start of indexWorkspace until it settles', async () => {
       const held = holdingGovernor();
       const { service } = setup(fakeTsFiles(1), held.governor);

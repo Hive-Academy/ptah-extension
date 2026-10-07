@@ -1715,7 +1715,10 @@ by author side, per context.md "User Requests (2026-10-07)" item 2.
 - Open (non-blocking, from the APPROVED review): MODERATE a `userInitiated` join does not wake a governor wait already in progress (`code-symbol-indexer.service.ts:1070,1169-1180`; bypass applies from the next batch); MINOR progress listeners keyed by function identity (`:305,732-750`); MINOR a joined click inherits the starter's cap (no current starter sets one); MINOR a non-abort failure of a joined census is reported without a replacement (unchanged behavior).
 - Smoke diagnosis `batch-13b-smoke-diagnosis.md`: watcher delivery works in the bench host (direct probe: edit and add visible in ~2 s once the census ended). The smoke fails because every answer during a census is `unknown-coverage`, which the lifecycle probe never reads as found. Fixes: Batch 13c (product) and Batch 13d (bench), user decision "Both".
 
-## Batch 13c: Known partial coverage while a census runs (Fix 2a follow-up, product) — PENDING
+## Batch 13c: Known partial coverage while a census runs (Fix 2a follow-up, product) — COMPLETE (codex; in-process review APPROVED 8/10 `code-logic-review-b13c.md`; gate code-symbol-indexer* 65)
+
+- Open (non-blocking): MODERATE active branch ignores `perFileTruncated` (`code-symbol-indexer.service.ts:604-607` vs `:622-627`); MODERATE pre-existing: a file deleted after its write still counts as analyzed (`:1233-1241`); MINOR missing negative tests (second census, aborted census, per-file write outside `selected`); MINOR `omittedByCap` reads `run.census` (`:681`).
+- Finding while gating 13c: every code-index answer has the reason `unrecognised?` (`unrecognised: null` by design, `language-coverage.interface.ts:289-295`), so the bench scored EVERY ptah symbol answer as `unknown-coverage` (b13b scorecard line 40: settled workspace B still unknown). This is why ptah symbols-exact hit@5 was 0. User decision: bench-only fix, Batch 13e.
 
 - Origin: `batch-13b-smoke-diagnosis.md`. User decision 2026-10-07: "Both" (13c + 13d).
 - Recommended executor: grok lane; reviewer: codex lane. Depends on: 13b (same files; starts after 13b is committed).
@@ -1731,6 +1734,15 @@ by author side, per context.md "User Requests (2026-10-07)" item 2.
 - File: tools/mcp-bench/src/lifecycle/lifecycle-probe.ts (+ spec); lifecycle-scenarios.ts only for the case detail text.
 - `searchSymbol`: on `unknown-coverage`, still parse the hits; `found` = the expected file is in the ranked hits; `errored` stays true for that class so a MISS (or the delete "gone" case) under unknown coverage is still a non-pass. Every other error class keeps today's behavior. The case detail says "found under unknown coverage" when that path decided it.
 - Tests: unknown-coverage + expected file in hits -> found; unknown-coverage + no hit -> not found, errored; delete case under unknown coverage -> not passed; other error classes unchanged.
+
+## Batch 13e: Bench ignores `unrecognised?`; lifecycle probe matches the symbol (bench) — PENDING
+
+- Origin: 13c gating finding (above) and the 13d review MODERATE finding 1 (`code-logic-review-b13d.md`: edit-then-query matched by file only). User decision 2026-10-08: "Bench: ignore unrecognised?".
+- Executor: codex lane; reviewer: in-process code-logic-reviewer (grok balance exhausted).
+- Files: tools/mcp-bench/src/transport/call-recorder.ts (+ spec), tools/mcp-bench/src/lifecycle/lifecycle-probe.ts, lifecycle-scenarios.ts (+ specs).
+- 13e.1: `UNKNOWN_REASON` ignores `unrecognised?` only; any other `?` reason and `"census":"unknown"` still give `unknown-coverage`. Scorecard/report text names the rule.
+- 13e.2: `searchSymbol` requires a hit whose `symbolName` equals the queried name in the expected file (not only the file); the 13d wording MINORs (rejected unknown-coverage hit reads as "missing").
+- Tests: settled answer with only `unrecognised?` -> no error class; `census?`/`unchecked?` still unknown; edit case with only the old probe symbol in the file -> not found.
 
 ## Batch 14: VS Code switches to the shared lifecycle service (Fix 2a, VS Code host) — PENDING
 
