@@ -280,7 +280,6 @@ function makeDiagnostics() {
       },
       recentEvents: [],
       triggers: {
-        sessionEnd: true,
         idleMs: 600000,
         bootScan: true,
         subagentStop: { enabled: true },
@@ -389,7 +388,6 @@ describe('SkillsSynthesisRpcHandlers — skillSynthesis:diagnostics', () => {
         { kind: 'analyze-run', timestamp: 1700000000000, sessionId: 's-1' },
       ],
       triggers: {
-        sessionEnd: true,
         idleMs: 300000,
         bootScan: false,
         subagentStop: { enabled: true },
@@ -430,7 +428,7 @@ describe('SkillsSynthesisRpcHandlers — skillSynthesis:diagnostics', () => {
       totalRetired: 5,
       totalDormant: 1,
       eligibilityHistogram: { accepted: 4 },
-      triggers: { sessionEnd: true, idleMs: 300000, bootScan: false },
+      triggers: { idleMs: 300000, bootScan: false },
     });
   });
 
@@ -484,7 +482,6 @@ describe('SkillsSynthesisRpcHandlers — skillSynthesis:diagnostics', () => {
       },
       recentEvents: [newest, sameMs, older],
       triggers: {
-        sessionEnd: true,
         idleMs: 600000,
         bootScan: true,
         subagentStop: { enabled: true },
@@ -740,14 +737,9 @@ describe('SkillsSynthesisRpcHandlers — skillSynthesis:setTriggers', () => {
     const setSpy = jest.spyOn(workspaceProvider, 'setConfiguration');
 
     const result = await rpcHandler.call('skillSynthesis:setTriggers', {
-      triggers: { sessionEnd: false, idleMs: 120000, bootScan: false },
+      triggers: { idleMs: 120000, bootScan: false },
     });
 
-    expect(setSpy).toHaveBeenCalledWith(
-      'ptah',
-      'skillSynthesis.triggers.sessionEnd',
-      false,
-    );
     expect(setSpy).toHaveBeenCalledWith(
       'ptah',
       'skillSynthesis.triggers.idleMs',
@@ -759,7 +751,7 @@ describe('SkillsSynthesisRpcHandlers — skillSynthesis:setTriggers', () => {
       false,
     );
     expect(result).toMatchObject({
-      triggers: { sessionEnd: false, idleMs: 120000, bootScan: false },
+      triggers: { idleMs: 120000, bootScan: false },
     });
   });
 
@@ -801,7 +793,7 @@ describe('SkillsSynthesisRpcHandlers — skillSynthesis:setTriggers', () => {
     let thrown: unknown;
     try {
       await rpcHandler.call('skillSynthesis:setTriggers', {
-        triggers: { sessionEnd: false },
+        triggers: { idleMs: 120000 },
       });
     } catch (err) {
       thrown = err;
@@ -819,7 +811,6 @@ describe('SkillsSynthesisRpcHandlers — skillSynthesis:getTriggers', () => {
     const result = await rpcHandler.call('skillSynthesis:getTriggers', {});
     expect(result).toMatchObject({
       triggers: {
-        sessionEnd: true,
         idleMs: 600000,
         bootScan: true,
         subagentStop: { enabled: true },

@@ -110,7 +110,6 @@ describe('ProvidersSettingsStateService', () => {
     };
   };
   let memoryResponse: {
-    preCompact: boolean;
     idleMs: number;
     turnThreshold: number;
     bootScan: boolean;
@@ -142,7 +141,6 @@ describe('ProvidersSettingsStateService', () => {
       },
     };
     memoryResponse = {
-      preCompact: true,
       idleMs: 1000,
       turnThreshold: 4,
       bootScan: false,

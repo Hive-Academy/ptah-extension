@@ -48,12 +48,6 @@ function numericOrSwitched(value: boolean | number, onDefault: number): number {
       </p>
       <div class="mt-2 flex flex-col gap-2">
         <ptah-skill-trigger-toggle
-          key="sessionEnd"
-          label="Session end"
-          [enabled]="triggers().sessionEnd"
-          (triggerChange)="onTriggerChange($event)"
-        />
-        <ptah-skill-trigger-toggle
           key="idleMs"
           label="Idle (ms)"
           [enabled]="triggers().idleMs > 0"
@@ -132,8 +126,6 @@ export class SkillTriggersSettingsComponent {
   ): Partial<SkillTriggersDto> | null {
     const { key, value } = change;
     switch (key) {
-      case 'sessionEnd':
-        return typeof value === 'boolean' ? { sessionEnd: value } : null;
       case 'idleMs':
         return { idleMs: numericOrSwitched(value, IDLE_ON_DEFAULT_MS) };
       case 'bootScan':

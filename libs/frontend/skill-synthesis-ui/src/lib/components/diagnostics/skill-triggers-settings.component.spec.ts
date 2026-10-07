@@ -18,7 +18,6 @@ interface StubState {
 }
 
 const BASE_TRIGGERS: SkillTriggersDto = {
-  sessionEnd: true,
   idleMs: 600_000,
   bootScan: true,
 };
@@ -81,7 +80,7 @@ function typeNumber(
 }
 
 describe('SkillTriggersSettingsComponent', () => {
-  it('renders the Triggers card with all eight controls and the immediate-save note', () => {
+  it('renders the Triggers card with all seven controls and the immediate-save note', () => {
     const fixture = mountWithStub(makeStub());
     const root = fixture.nativeElement as HTMLElement;
     const panel = root.querySelector('[data-test="panel-triggers"]');
@@ -91,7 +90,6 @@ describe('SkillTriggersSettingsComponent', () => {
       panel?.querySelectorAll('ptah-skill-trigger-toggle') ?? [],
     ).map((el) => el.getAttribute('key'));
     expect(keys).toEqual([
-      'sessionEnd',
       'idleMs',
       'bootScan',
       'subagentStop',
@@ -109,13 +107,6 @@ describe('SkillTriggersSettingsComponent', () => {
     expect(stub.startPolling).not.toHaveBeenCalled();
     expect(stub.stopPolling).not.toHaveBeenCalled();
     expect(stub.refresh).not.toHaveBeenCalled();
-  });
-
-  it('sessionEnd writes the flat flag', () => {
-    const stub = makeStub();
-    const fixture = mountWithStub(stub);
-    toggle(fixture, 'sessionEnd', false);
-    expect(stub.setTriggers).toHaveBeenCalledWith({ sessionEnd: false });
   });
 
   it('idleMs: switching on applies 600000, off writes 0, a typed value is sent as-is', () => {
@@ -277,7 +268,6 @@ describe('SkillTriggersSettingsComponent with the real state service', () => {
   it('renders the default triggers before the diagnostics snapshot resolves', () => {
     const fixture = mountReal();
     expect(diagnostics).not.toHaveBeenCalled();
-    expect(control(fixture, 'sessionEnd', 'checkbox')?.checked).toBe(true);
     expect(control(fixture, 'idleMs', 'checkbox')?.checked).toBe(true);
     expect(control(fixture, 'idleMs', 'number')?.value).toBe('600000');
     expect(control(fixture, 'bootScan', 'checkbox')?.checked).toBe(true);

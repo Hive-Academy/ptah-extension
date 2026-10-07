@@ -329,24 +329,20 @@ describe('isFileBasedSettingKey', () => {
 
   describe('curator/synthesis trigger keys (TASK_2026_126)', () => {
     const memoryTriggerKeys = [
-      'memory.triggers.preCompact',
       'memory.triggers.idleMs',
       'memory.triggers.turnThreshold',
       'memory.triggers.bootScan',
     ] as const;
 
     const skillTriggerKeys = [
-      'skillSynthesis.triggers.sessionEnd',
       'skillSynthesis.triggers.idleMs',
       'skillSynthesis.triggers.bootScan',
     ] as const;
 
     const expectedDefaults: Record<string, boolean | number> = {
-      'memory.triggers.preCompact': true,
       'memory.triggers.idleMs': 600000,
       'memory.triggers.turnThreshold': 20,
       'memory.triggers.bootScan': true,
-      'skillSynthesis.triggers.sessionEnd': true,
       'skillSynthesis.triggers.idleMs': 600000,
       'skillSynthesis.triggers.bootScan': true,
     };

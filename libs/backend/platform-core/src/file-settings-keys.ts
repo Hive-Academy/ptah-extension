@@ -246,7 +246,6 @@ export const FILE_BASED_SETTINGS_KEYS = new Set<string>([
   'workflows.disabled',
   'diff.renderSideBySide',
   'editorLauncher.lastTarget',
-  'memory.curatorEnabled',
   'memory.embeddingModel',
   'memory.curatorModel',
   'memory.curatorProvider',
@@ -358,7 +357,7 @@ export const FILE_BASED_SETTINGS_KEYS = new Set<string>([
   // The master switch above every `memory.triggers.*` toggle below: it gates
   // the observation queue as well as the individual triggers
   // (`MEMORY_TRIGGER_KEYS.enabled`, TASK_2026_323 B2). It sits in this section
-  // rather than beside `memory.curatorEnabled` because it is read by the same
+  // rather than beside the legacy curator switch because it is read by the same
   // trigger config reader as the keys under it.
   //
   // It must be HERE and not only in `MEMORY_TRIGGER_KEYS`, because an unrouted
@@ -378,7 +377,6 @@ export const FILE_BASED_SETTINGS_KEYS = new Set<string>([
   'memory.lifecycle.archiveAfterDays',
   'memory.lifecycle.deleteAfterDays',
   'memory.lifecycle.maxPerWorkspace',
-  'memory.triggers.preCompact',
   'memory.triggers.idleMs',
   'memory.triggers.turnThreshold',
   'memory.triggers.bootScan',
@@ -387,7 +385,6 @@ export const FILE_BASED_SETTINGS_KEYS = new Set<string>([
   'memory.triggers.userPromptSubmit.minPromptLength',
   'memory.triggers.postToolUse.enabled',
   'memory.triggers.maxCuratesPerHour',
-  'skillSynthesis.triggers.sessionEnd',
   'skillSynthesis.triggers.idleMs',
   'skillSynthesis.triggers.bootScan',
   // The boot-scan deferral knobs (TASK_2026_380). Registered in BOTH tables on
@@ -563,7 +560,6 @@ export const FILE_BASED_SETTINGS_DEFAULTS: Record<string, unknown> = {
   'browser.recordingDir': '',
   'workflows.disabled': false,
   'diff.renderSideBySide': true,
-  'memory.curatorEnabled': true,
   'memory.embeddingModel': 'Xenova/bge-small-en-v1.5',
   'memory.curatorModel': '',
   'memory.curatorProvider': '',
@@ -668,7 +664,6 @@ export const FILE_BASED_SETTINGS_DEFAULTS: Record<string, unknown> = {
   'memory.lifecycle.archiveAfterDays': 30,
   'memory.lifecycle.deleteAfterDays': 60,
   'memory.lifecycle.maxPerWorkspace': 25000,
-  'memory.triggers.preCompact': true,
   'memory.triggers.idleMs': 600000,
   'memory.triggers.turnThreshold': 20,
   'memory.triggers.bootScan': true,
@@ -685,7 +680,6 @@ export const FILE_BASED_SETTINGS_DEFAULTS: Record<string, unknown> = {
   'memory.triggers.userPromptSubmit.minPromptLength': 20,
   'memory.triggers.postToolUse.enabled': true,
   'memory.triggers.maxCuratesPerHour': 20,
-  'skillSynthesis.triggers.sessionEnd': true,
   'skillSynthesis.triggers.idleMs': 600000,
   'skillSynthesis.triggers.bootScan': true,
   // Match `SKILL_TRIGGER_DEFAULTS.bootScanDelayMs` /

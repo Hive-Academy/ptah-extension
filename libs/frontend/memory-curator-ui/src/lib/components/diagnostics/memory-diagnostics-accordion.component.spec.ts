@@ -50,7 +50,6 @@ function curatorRoute(
 
 describe('MemoryDiagnosticsAccordionComponent', () => {
   const triggers = signal<MemoryTriggersDto | null>({
-    preCompact: true,
     idleMs: 600000,
     turnThreshold: 20,
     bootScan: true,
@@ -87,7 +86,6 @@ describe('MemoryDiagnosticsAccordionComponent', () => {
 
   beforeEach(async () => {
     triggers.set({
-      preCompact: true,
       idleMs: 600000,
       turnThreshold: 20,
       bootScan: true,
@@ -325,11 +323,11 @@ describe('MemoryDiagnosticsAccordionComponent', () => {
       'input[type="checkbox"]',
     );
     expect(toggles.length).toBeGreaterThan(0);
-    const preCompact = toggles[0] as HTMLInputElement;
-    preCompact.checked = false;
-    preCompact.dispatchEvent(new Event('change'));
+    const idle = toggles[0] as HTMLInputElement;
+    idle.checked = false;
+    idle.dispatchEvent(new Event('change'));
 
-    expect(setTriggersMock).toHaveBeenCalledWith({ preCompact: false });
+    expect(setTriggersMock).toHaveBeenCalledWith({ idleMs: 0 });
   });
 
   it('shows ✗ MISMATCH when DB health is incoherent', () => {
@@ -464,7 +462,6 @@ describe('MemoryDiagnosticsAccordionComponent', () => {
 
   it('toggling PostToolUse persists nested DTO via setTriggers', () => {
     triggers.set({
-      preCompact: true,
       idleMs: 600_000,
       turnThreshold: 20,
       bootScan: true,
@@ -494,7 +491,6 @@ describe('MemoryDiagnosticsAccordionComponent', () => {
 
   it('toggling UserPromptSubmit persists nested DTO with cue list preserved', () => {
     triggers.set({
-      preCompact: true,
       idleMs: 600_000,
       turnThreshold: 20,
       bootScan: true,
@@ -532,7 +528,6 @@ describe('MemoryDiagnosticsAccordionComponent', () => {
 
   it('changing Max curates per hour value persists via setTriggers', () => {
     triggers.set({
-      preCompact: true,
       idleMs: 600_000,
       turnThreshold: 20,
       bootScan: true,
@@ -590,7 +585,6 @@ describe('MemoryDiagnosticsAccordionComponent', () => {
 
   it('renders read-only cue list textarea joined by newlines', () => {
     triggers.set({
-      preCompact: true,
       idleMs: 600_000,
       turnThreshold: 20,
       bootScan: true,

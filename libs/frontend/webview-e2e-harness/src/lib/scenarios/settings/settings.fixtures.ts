@@ -259,7 +259,6 @@ function settingsGetResolver(params: unknown): {
 /** `memory:getTriggers` — memory-curator background role (BRIEF:60-61). */
 export const MEMORY_TRIGGERS_FIXTURE = {
   triggers: {
-    preCompact: true,
     idleMs: 60000,
     turnThreshold: 8,
     bootScan: true,

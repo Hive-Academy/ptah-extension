@@ -50,7 +50,6 @@ Not exposed in the settings panel — edit `~/.ptah/settings.json` directly. The
 
 | Key                                                | Default  | What it does                                                     |
 | -------------------------------------------------- | -------- | ---------------------------------------------------------------- |
-| `skillSynthesis.triggers.sessionEnd`               | `true`   | Queue an analysis pass when a session ends.                      |
 | `skillSynthesis.triggers.idleMs`                   | `600000` | Queue an analysis pass after this many idle milliseconds.        |
 | `skillSynthesis.triggers.bootScan`                 | `true`   | Scan for un-analyzed sessions on host startup.                   |
 | `skillSynthesis.triggers.subagentStop.enabled`     | `true`   | Queue an analysis pass when a subagent run stops.                |

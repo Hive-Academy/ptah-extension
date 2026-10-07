@@ -84,7 +84,6 @@ function makeDiagnosticsStub(
       overrides.recentEvents ?? [],
     ),
     triggers: signal<Record<string, unknown>>({
-      sessionEnd: true,
       idleMs: 600_000,
       bootScan: true,
     }),
@@ -1040,7 +1039,7 @@ describe('SkillSynthesisTabComponent — diagnostics on the production path', ()
         accepted: 0,
       },
       recentEvents,
-      triggers: { sessionEnd: true, idleMs: 600_000, bootScan: true },
+      triggers: { idleMs: 600_000, bootScan: true },
       ...overrides,
     };
   }

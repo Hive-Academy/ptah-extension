@@ -5,7 +5,6 @@ import type { SkillTriggersDto } from '@ptah-extension/shared';
 export const SKILL_TRIGGER_SECTION = 'ptah';
 
 export const SKILL_TRIGGER_KEYS = {
-  sessionEnd: 'skillSynthesis.triggers.sessionEnd',
   idleMs: 'skillSynthesis.triggers.idleMs',
   bootScan: 'skillSynthesis.triggers.bootScan',
   /**
@@ -41,7 +40,6 @@ export const SKILL_TRIGGER_KEYS = {
 } as const;
 
 export const SKILL_TRIGGER_DEFAULTS = {
-  sessionEnd: true,
   idleMs: 600000,
   bootScan: true,
   /** 5 min. Matches `MEMORY_TRIGGER_DEFAULTS.bootScanDelayMs`. */
@@ -65,7 +63,6 @@ export const SKILL_TRIGGER_DEFAULTS = {
 } as const;
 
 export const SKILL_TRIGGER_PREFIXES: Record<keyof SkillTriggersDto, string> = {
-  sessionEnd: SKILL_TRIGGER_KEYS.sessionEnd,
   idleMs: SKILL_TRIGGER_KEYS.idleMs,
   bootScan: SKILL_TRIGGER_KEYS.bootScan,
   subagentStop: 'skillSynthesis.triggers.subagentStop',
@@ -75,7 +72,6 @@ export const SKILL_TRIGGER_PREFIXES: Record<keyof SkillTriggersDto, string> = {
 };
 
 export interface PopulatedSkillTriggers {
-  readonly sessionEnd: boolean;
   readonly idleMs: number;
   readonly bootScan: boolean;
   readonly subagentStop: {
@@ -94,12 +90,6 @@ export interface PopulatedSkillTriggers {
 export function readSkillTriggers(
   ws: IWorkspaceProvider,
 ): PopulatedSkillTriggers {
-  const sessionEnd =
-    ws.getConfiguration<boolean>(
-      SKILL_TRIGGER_SECTION,
-      SKILL_TRIGGER_KEYS.sessionEnd,
-      SKILL_TRIGGER_DEFAULTS.sessionEnd,
-    ) ?? SKILL_TRIGGER_DEFAULTS.sessionEnd;
   const idleMs =
     ws.getConfiguration<number>(
       SKILL_TRIGGER_SECTION,
@@ -143,7 +133,6 @@ export function readSkillTriggers(
       SKILL_TRIGGER_DEFAULTS.maxAnalyzesPerHour,
     ) ?? SKILL_TRIGGER_DEFAULTS.maxAnalyzesPerHour;
   return {
-    sessionEnd,
     idleMs,
     bootScan,
     subagentStop: {

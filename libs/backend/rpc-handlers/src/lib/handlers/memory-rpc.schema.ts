@@ -42,7 +42,6 @@ export const MemoryRunNowParamsSchema = z.object({
 });
 
 export const MemoryTriggersSchema = z.object({
-  preCompact: z.boolean(),
   idleMs: z
     .number()
     .int()

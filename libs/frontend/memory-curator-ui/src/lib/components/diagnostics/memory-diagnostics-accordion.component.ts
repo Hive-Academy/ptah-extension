@@ -6,7 +6,10 @@ import {
   computed,
   inject,
 } from '@angular/core';
-import { AppStateManager, ProvidersSettingsStateService } from '@ptah-extension/core';
+import {
+  AppStateManager,
+  ProvidersSettingsStateService,
+} from '@ptah-extension/core';
 
 import {
   MemoryDiagnosticsStateService,
@@ -50,11 +53,6 @@ import { EventFeedComponent } from './event-feed.component';
         </header>
         @if (triggers(); as t) {
           <div class="grid grid-cols-1 gap-2 p-2 sm:grid-cols-2">
-            <ptah-memory-trigger-toggle
-              label="PreCompact hook"
-              [enabled]="t.preCompact"
-              (triggerChange)="onPreCompactChange($event)"
-            />
             <ptah-memory-trigger-toggle
               label="Idle timer"
               [enabled]="t.idleMs > 0"
@@ -139,8 +137,22 @@ import { EventFeedComponent } from './event-feed.component';
       @if (triggers(); as t) {
         <section aria-label="Curator model" class="p-3 space-y-2">
           <h3>Curator model</h3>
-          <p>{{ t.curatorProvider || 'Follows main agent' }} → {{ t.curatorModel || (t.curatorProvider ? 'Provider haiku tier' : resolvedCuratorModel()) }}</p>
-          <button type="button" class="btn btn-outline min-h-9 focus-visible:outline-2" (click)="manageCurator()">Manage in Providers</button>
+          <p>
+            {{ t.curatorProvider || 'Follows main agent' }} →
+            {{
+              t.curatorModel ||
+                (t.curatorProvider
+                  ? 'Provider haiku tier'
+                  : resolvedCuratorModel())
+            }}
+          </p>
+          <button
+            type="button"
+            class="btn btn-outline min-h-9 focus-visible:outline-2"
+            (click)="manageCurator()"
+          >
+            Manage in Providers
+          </button>
         </section>
       }
 
@@ -235,10 +247,6 @@ export class MemoryDiagnosticsAccordionComponent implements OnInit, OnDestroy {
     void this.state.refresh();
   }
 
-  protected onPreCompactChange(c: TriggerToggleChange): void {
-    void this.state.setTriggers({ preCompact: c.enabled });
-  }
-
   protected onIdleChange(c: TriggerToggleChange): void {
     const idleMs = c.enabled ? (c.value ?? this.triggers()?.idleMs ?? 0) : 0;
     void this.state.setTriggers({ idleMs });
@@ -297,10 +305,17 @@ export class MemoryDiagnosticsAccordionComponent implements OnInit, OnDestroy {
     const route = this.providers.route();
     if (route.status !== 'ready') return 'Main agent route not checked';
     const model = route.data?.resolvedModel;
-    return model?.kind === 'model' ? model.id : model?.kind === 'tier' ? `${model.tier} tier` : 'Model unresolved';
+    return model?.kind === 'model'
+      ? model.id
+      : model?.kind === 'tier'
+        ? `${model.tier} tier`
+        : 'Model unresolved';
   });
   protected manageCurator(): void {
-    this.appState.requestSettingsTab({ tab: 'providers', section: 'memory-curator' });
+    this.appState.requestSettingsTab({
+      tab: 'providers',
+      section: 'memory-curator',
+    });
     this.appState.setCurrentView('settings');
   }
 }

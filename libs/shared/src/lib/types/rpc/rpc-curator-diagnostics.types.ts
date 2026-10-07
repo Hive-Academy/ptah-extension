@@ -62,7 +62,6 @@ export interface SkillSynthesisEventWire {
 }
 
 export interface MemoryTriggersDto {
-  readonly preCompact: boolean;
   readonly idleMs: number;
   readonly turnThreshold: number;
   readonly bootScan: boolean;
@@ -89,7 +88,6 @@ export interface MemoryTriggersDto {
 }
 
 export interface SkillTriggersDto {
-  readonly sessionEnd: boolean;
   readonly idleMs: number;
   readonly bootScan: boolean;
   readonly subagentStop?: {

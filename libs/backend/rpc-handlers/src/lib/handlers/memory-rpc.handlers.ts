@@ -593,7 +593,6 @@ export class MemoryRpcHandlers {
             },
             storage: snapshot.storage,
             triggers: {
-              preCompact: snapshot.triggers.preCompact,
               idleMs: snapshot.triggers.idleMs,
               turnThreshold: snapshot.triggers.turnThreshold,
               bootScan: snapshot.triggers.bootScan,

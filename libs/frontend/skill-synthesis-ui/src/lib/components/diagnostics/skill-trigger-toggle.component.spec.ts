@@ -7,7 +7,6 @@ import {
 } from './skill-trigger-toggle.component';
 
 type HostKey =
-  | 'sessionEnd'
   | 'idleMs'
   | 'bootScan'
   | 'subagentStop'

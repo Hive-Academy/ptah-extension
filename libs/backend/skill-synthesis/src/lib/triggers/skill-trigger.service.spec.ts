@@ -274,7 +274,6 @@ function makeWorkspace(
   overrides: Partial<Record<string, unknown>> = {},
 ): IWorkspaceProvider {
   const cfg: Record<string, unknown> = {
-    'skillSynthesis.triggers.sessionEnd': true,
     'skillSynthesis.triggers.idleMs': 600000,
     'skillSynthesis.triggers.bootScan': false,
     'skillSynthesis.triggers.subagentStop.enabled': true,

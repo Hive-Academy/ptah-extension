@@ -212,7 +212,6 @@ const RPC_FIXTURES: Record<string, unknown> = {
   'skillSynthesis:getLanes': { lanes: LANES_FIXTURE },
   'memory:getTriggers': {
     triggers: {
-      preCompact: true,
       idleMs: 300_000,
       turnThreshold: 20,
       bootScan: true,
@@ -378,9 +377,7 @@ test.describe('webview > settings > providers > background model pickers', () =>
     // remains per lane is the deep-link button into the Providers page —
     // assert the panel no longer mounts a picker and still offers the link.
     const panel = page.locator('ptah-skill-settings-panel');
-    await expect(
-      panel.locator('ptah-provider-model-picker'),
-    ).toHaveCount(0);
+    await expect(panel.locator('ptah-provider-model-picker')).toHaveCount(0);
     const lanesSection = panel.locator('[data-testid="skills-lanes-section"]');
     await expect(lanesSection).toBeVisible();
     const manageSynthesis = lanesSection.getByRole('button', {
@@ -393,7 +390,9 @@ test.describe('webview > settings > providers > background model pickers', () =>
     // default tab. Wait for the Background models section to be LOADED (a
     // row's summary only renders once its section read landed), because
     // `toggleEdit` refuses to open an editor for a not-loaded row.
-    const assignments = page.locator('[data-testid="provider-consumer-assignments"]');
+    const assignments = page.locator(
+      '[data-testid="provider-consumer-assignments"]',
+    );
     await assignments.waitFor({ state: 'visible' });
     for (const rowId of CONSUMER_ROW_IDS) {
       await expect(
@@ -407,7 +406,9 @@ test.describe('webview > settings > providers > background model pickers', () =>
     // The deep-link's auto-open effect is one-shot and races the lanes read
     // (`appliedDeepLinkId` is set even when `toggleEdit` bails), so open the
     // editor explicitly when the deep-link lost that race.
-    const synthesisEditor = page.locator('[data-testid="consumer-editor-synthesis"]');
+    const synthesisEditor = page.locator(
+      '[data-testid="consumer-editor-synthesis"]',
+    );
     if (!(await synthesisEditor.isVisible())) {
       await page.locator('[data-testid="consumer-edit-synthesis"]').click();
     }
@@ -419,7 +420,9 @@ test.describe('webview > settings > providers > background model pickers', () =>
     const synthesisPicker = page.locator(
       '[data-testid="consumer-editor-synthesis"] ptah-provider-model-picker',
     );
-    await expect(synthesisEditor.locator('[data-testid="picker-synthesis"]')).toHaveCount(1);
+    await expect(
+      synthesisEditor.locator('[data-testid="picker-synthesis"]'),
+    ).toHaveCount(1);
     await expect(
       synthesisPicker
         .locator('[data-testid="provider-model-picker-provider"]')

@@ -86,7 +86,6 @@ describe('MemoryDiagnosticsRpcService', () => {
       },
       storage: baseStorage,
       triggers: {
-        preCompact: true,
         idleMs: 600000,
         turnThreshold: 20,
         bootScan: true,
@@ -131,7 +130,6 @@ describe('MemoryDiagnosticsRpcService', () => {
       },
       storage: baseStorage,
       triggers: {
-        preCompact: true,
         idleMs: 0,
         turnThreshold: 0,
         bootScan: true,
@@ -183,7 +181,6 @@ describe('MemoryDiagnosticsRpcService', () => {
   it('setTriggers() forwards partial triggers DTO', async () => {
     const payload = {
       triggers: {
-        preCompact: false,
         idleMs: 600000,
         turnThreshold: 20,
         bootScan: true,
@@ -192,12 +189,12 @@ describe('MemoryDiagnosticsRpcService', () => {
     rpcCall.mockResolvedValue(okResult(payload));
 
     const result = await service.setTriggers({
-      triggers: { preCompact: false },
+      triggers: { idleMs: 0 },
     });
 
     expect(rpcCall).toHaveBeenCalledWith(
       'memory:setTriggers',
-      { triggers: { preCompact: false } },
+      { triggers: { idleMs: 0 } },
       expect.any(Object),
     );
     expect(result).toEqual(payload);
@@ -206,7 +203,6 @@ describe('MemoryDiagnosticsRpcService', () => {
   it('getTriggers() calls memory:getTriggers with empty params', async () => {
     const payload = {
       triggers: {
-        preCompact: true,
         idleMs: 600000,
         turnThreshold: 20,
         bootScan: true,
@@ -267,7 +263,6 @@ describe('MemoryDiagnosticsRpcService', () => {
   it('setTriggers() forwards curatorProvider + curatorModel PATCH', async () => {
     const payload = {
       triggers: {
-        preCompact: true,
         idleMs: 600000,
         turnThreshold: 20,
         bootScan: true,

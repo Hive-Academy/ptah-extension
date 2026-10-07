@@ -103,7 +103,6 @@ function makeWorkspace(
     'memory.triggers.idleMs': 0,
     'memory.triggers.turnThreshold': 1,
     'memory.triggers.bootScan': false,
-    'memory.triggers.preCompact': true,
     'memory.triggers.userPromptSubmit.enabled': false,
     'memory.triggers.postToolUse.enabled': false,
     'memory.triggers.turnComplete.enabled': true,

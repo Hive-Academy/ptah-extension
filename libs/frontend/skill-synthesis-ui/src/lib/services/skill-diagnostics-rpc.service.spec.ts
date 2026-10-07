@@ -46,7 +46,7 @@ describe('SkillDiagnosticsRpcService', () => {
         accepted: 0,
       },
       recentEvents: [],
-      triggers: { sessionEnd: true, idleMs: 600_000, bootScan: true },
+      triggers: { idleMs: 600_000, bootScan: true },
     };
     rpcCall.mockResolvedValue(okResult(payload));
 
@@ -85,7 +85,7 @@ describe('SkillDiagnosticsRpcService', () => {
   });
 
   it('setTriggers() wraps the partial dto', async () => {
-    const triggers = { sessionEnd: true, idleMs: 600_000, bootScan: false };
+    const triggers = { idleMs: 600_000, bootScan: false };
     rpcCall.mockResolvedValue(okResult({ triggers }));
 
     const result = await service.setTriggers({ bootScan: false });
@@ -99,7 +99,7 @@ describe('SkillDiagnosticsRpcService', () => {
   });
 
   it('getTriggers() returns the triggers dto on success', async () => {
-    const triggers = { sessionEnd: true, idleMs: 600_000, bootScan: true };
+    const triggers = { idleMs: 600_000, bootScan: true };
     rpcCall.mockResolvedValue(okResult({ triggers }));
 
     const result = await service.getTriggers();

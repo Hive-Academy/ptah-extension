@@ -50,7 +50,6 @@ export interface MemoryDiagnosticsSnapshot {
   readonly dbHealth: MemoryDbHealth;
   readonly storage: MemoryStorageHealthDto;
   readonly triggers: {
-    readonly preCompact: boolean;
     readonly idleMs: number;
     readonly turnThreshold: number;
     readonly bootScan: boolean;

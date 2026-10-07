@@ -22,7 +22,6 @@ describe('MemoryDiagnosticsStateService', () => {
   });
 
   const baseTriggers = {
-    preCompact: true,
     idleMs: 600000,
     turnThreshold: 20,
     bootScan: true,
@@ -86,9 +85,7 @@ describe('MemoryDiagnosticsStateService', () => {
       completedAt: 1,
       stats: null,
     });
-    setTriggersMock = jest
-      .fn()
-      .mockResolvedValue({ triggers: { ...baseTriggers, preCompact: false } });
+    setTriggersMock = jest.fn().mockResolvedValue({ triggers: baseTriggers });
     getTriggersMock = jest.fn().mockResolvedValue({ triggers: baseTriggers });
 
     activeTabSignal.set({ claudeSessionId: 'sess-real-uuid' });
@@ -204,14 +201,13 @@ describe('MemoryDiagnosticsStateService', () => {
   });
 
   it('setTriggers() updates the triggers signal from RPC response', async () => {
-    await service.setTriggers({ preCompact: false });
+    await service.setTriggers({ idleMs: 0 });
 
     expect(setTriggersMock).toHaveBeenCalledWith({
-      triggers: { preCompact: false },
+      triggers: { idleMs: 0 },
     });
     expect(service.triggers()).toEqual({
       ...baseTriggers,
-      preCompact: false,
     });
   });
 

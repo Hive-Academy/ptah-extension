@@ -16,7 +16,6 @@ export const MEMORY_TRIGGER_KEYS = {
    * resolves from `~/.ptah/settings.json` on every host.
    */
   enabled: 'memory.enabled',
-  preCompact: 'memory.triggers.preCompact',
   idleMs: 'memory.triggers.idleMs',
   turnThreshold: 'memory.triggers.turnThreshold',
   bootScan: 'memory.triggers.bootScan',
@@ -73,7 +72,6 @@ export const DEFAULT_CUE_LIST: readonly string[] = [
 
 export const MEMORY_TRIGGER_DEFAULTS = {
   enabled: true,
-  preCompact: true,
   idleMs: 600000,
   turnThreshold: 20,
   bootScan: true,
@@ -123,7 +121,6 @@ export const MEMORY_TRIGGER_DEFAULTS = {
 
 export const MEMORY_TRIGGER_PREFIXES: Record<keyof MemoryTriggersDto, string> =
   {
-    preCompact: MEMORY_TRIGGER_KEYS.preCompact,
     idleMs: MEMORY_TRIGGER_KEYS.idleMs,
     turnThreshold: MEMORY_TRIGGER_KEYS.turnThreshold,
     bootScan: MEMORY_TRIGGER_KEYS.bootScan,
@@ -138,7 +135,6 @@ export const MEMORY_TRIGGER_PREFIXES: Record<keyof MemoryTriggersDto, string> =
   };
 
 export interface PopulatedMemoryTriggers {
-  readonly preCompact: boolean;
   readonly idleMs: number;
   readonly turnThreshold: number;
   readonly bootScan: boolean;
@@ -172,12 +168,6 @@ export interface PopulatedMemoryTriggers {
 export function readMemoryTriggers(
   ws: IWorkspaceProvider,
 ): PopulatedMemoryTriggers {
-  const preCompact =
-    ws.getConfiguration<boolean>(
-      MEMORY_TRIGGER_SECTION,
-      MEMORY_TRIGGER_KEYS.preCompact,
-      MEMORY_TRIGGER_DEFAULTS.preCompact,
-    ) ?? MEMORY_TRIGGER_DEFAULTS.preCompact;
   const idleMs =
     ws.getConfiguration<number>(
       MEMORY_TRIGGER_SECTION,
@@ -260,7 +250,6 @@ export function readMemoryTriggers(
       MEMORY_TRIGGER_DEFAULTS.curatorModel,
     ) ?? MEMORY_TRIGGER_DEFAULTS.curatorModel;
   return {
-    preCompact,
     idleMs,
     turnThreshold,
     bootScan,

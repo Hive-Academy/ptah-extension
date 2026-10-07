@@ -54,7 +54,7 @@ describe('SkillDiagnosticsStateService', () => {
         sessionId: 'a',
       },
     ],
-    triggers: { sessionEnd: true, idleMs: 60_000, bootScan: false },
+    triggers: { idleMs: 60_000, bootScan: false },
   };
 
   beforeEach(() => {

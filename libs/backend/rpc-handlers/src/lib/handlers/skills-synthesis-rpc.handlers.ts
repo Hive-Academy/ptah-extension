@@ -800,7 +800,6 @@ export class SkillsSynthesisRpcHandlers {
           // SKILL_SYNTHESIS_EVENT push, so an id carries one payload on both paths.
           recentEvents: snapshot.recentEvents.map(toSkillSynthesisEventWire),
           triggers: {
-            sessionEnd: snapshot.triggers.sessionEnd,
             idleMs: snapshot.triggers.idleMs,
             bootScan: snapshot.triggers.bootScan,
             subagentStop: { enabled: snapshot.triggers.subagentStop.enabled },

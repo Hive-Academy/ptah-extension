@@ -13,7 +13,6 @@ describe('memory-trigger-config', () => {
     it('returns DEFAULTS when nothing seeded', () => {
       const ws = createMockWorkspaceProvider();
       const out = readMemoryTriggers(ws);
-      expect(out.preCompact).toBe(MEMORY_TRIGGER_DEFAULTS.preCompact);
       expect(out.idleMs).toBe(MEMORY_TRIGGER_DEFAULTS.idleMs);
       expect(out.turnThreshold).toBe(MEMORY_TRIGGER_DEFAULTS.turnThreshold);
       expect(out.bootScan).toBe(MEMORY_TRIGGER_DEFAULTS.bootScan);
@@ -39,7 +38,6 @@ describe('memory-trigger-config', () => {
     it('reads seeded values across all keys', () => {
       const ws = createMockWorkspaceProvider({
         config: {
-          [`ptah.${MEMORY_TRIGGER_KEYS.preCompact}`]: false,
           [`ptah.${MEMORY_TRIGGER_KEYS.idleMs}`]: 30000,
           [`ptah.${MEMORY_TRIGGER_KEYS.turnThreshold}`]: 4,
           [`ptah.${MEMORY_TRIGGER_KEYS.bootScan}`]: false,
@@ -63,7 +61,6 @@ describe('memory-trigger-config', () => {
       });
       const out = readMemoryTriggers(ws);
       expect(out).toEqual({
-        preCompact: false,
         idleMs: 30000,
         turnThreshold: 4,
         bootScan: false,
@@ -122,12 +119,10 @@ describe('memory-trigger-config', () => {
 
     it('emits leaf keys for scalar fields', () => {
       const out = flattenMemoryTriggers({
-        preCompact: false,
         idleMs: 99,
         maxCuratesPerHour: 50,
       });
       expect(out).toEqual([
-        [MEMORY_TRIGGER_KEYS.preCompact, false],
         [MEMORY_TRIGGER_KEYS.idleMs, 99],
         [MEMORY_TRIGGER_KEYS.maxCuratesPerHour, 50],
       ]);
@@ -150,7 +145,6 @@ describe('memory-trigger-config', () => {
 
     it('skips undefined entries', () => {
       const out = flattenMemoryTriggers({
-        preCompact: undefined,
         idleMs: 42,
       });
       expect(out).toEqual([[MEMORY_TRIGGER_KEYS.idleMs, 42]]);

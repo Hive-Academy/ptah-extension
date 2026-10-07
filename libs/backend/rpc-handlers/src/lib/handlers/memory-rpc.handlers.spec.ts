@@ -190,7 +190,6 @@ function makeMemoryDiagnostics() {
         },
       },
       triggers: {
-        preCompact: true,
         idleMs: 600000,
         turnThreshold: 20,
         bootScan: true,
@@ -766,7 +765,6 @@ describe('MemoryRpcHandlers — memory:diagnostics', () => {
       },
       storage,
       triggers: {
-        preCompact: true,
         idleMs: 600000,
         turnThreshold: 20,
         bootScan: true,
@@ -796,7 +794,7 @@ describe('MemoryRpcHandlers — memory:diagnostics', () => {
       lastRunStats: { extracted: 5, merged: 2, created: 3, skipped: 0 },
       dbHealth: { coherent: true },
       storage,
-      triggers: { preCompact: true, idleMs: 600000 },
+      triggers: { idleMs: 600000 },
     });
     expect((result as { recentEvents: unknown[] }).recentEvents).toHaveLength(
       1,
@@ -1014,18 +1012,12 @@ describe('MemoryRpcHandlers — memory:setTriggers', () => {
 
     const result = await rpcHandler.call('memory:setTriggers', {
       triggers: {
-        preCompact: false,
         idleMs: 300000,
         turnThreshold: 10,
         bootScan: false,
       },
     });
 
-    expect(setSpy).toHaveBeenCalledWith(
-      'ptah',
-      'memory.triggers.preCompact',
-      false,
-    );
     expect(setSpy).toHaveBeenCalledWith(
       'ptah',
       'memory.triggers.idleMs',
@@ -1043,7 +1035,6 @@ describe('MemoryRpcHandlers — memory:setTriggers', () => {
     );
     expect(result).toMatchObject({
       triggers: {
-        preCompact: false,
         idleMs: 300000,
         turnThreshold: 10,
         bootScan: false,
@@ -1112,7 +1103,7 @@ describe('MemoryRpcHandlers — memory:setTriggers', () => {
     let thrown: unknown;
     try {
       await rpcHandler.call('memory:setTriggers', {
-        triggers: { preCompact: false },
+        triggers: { idleMs: 300000 },
       });
     } catch (err) {
       thrown = err;
@@ -1130,7 +1121,6 @@ describe('MemoryRpcHandlers — memory:getTriggers', () => {
     const result = await rpcHandler.call('memory:getTriggers', {});
     expect(result).toMatchObject({
       triggers: {
-        preCompact: true,
         idleMs: 600000,
         turnThreshold: 20,
         bootScan: true,
