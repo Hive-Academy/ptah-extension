@@ -19,10 +19,12 @@ import { parseArgs } from 'node:util';
 
 import { resolveBenchDataDir } from '../../bench-data';
 import { launchBenchHost } from '../../transport/host-launcher';
+import { createRubricAgreementSuite } from '../suites/skills/rubric-agreement.suite';
 import { startNetRecorder } from './net-recorder';
 import type { GitRunner } from './read-path-guard';
 import type { MemorySkillsOfflineSuite } from './offline-suites';
 import { runMemorySkills } from './run-memory-skills';
+import { COMMITTED_FIXTURES_DIR } from './runner-plan';
 
 /**
  * Model-free suites the parent runs inside the launcher window, by plan id.
@@ -106,7 +108,12 @@ async function main(): Promise<number> {
       launch: launchBenchHost,
       startNetRecorder,
       git,
-      offlineSuites: OFFLINE_SUITES,
+      offlineSuites: [
+        ...OFFLINE_SUITES,
+        createRubricAgreementSuite({
+          fixturesDir: resolve(repoRoot, COMMITTED_FIXTURES_DIR),
+        }),
+      ],
       env: process.env,
     },
   );

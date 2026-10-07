@@ -1,5 +1,6 @@
 import { createRetentionSuites } from '../suites/memory/retention.suite';
 import { createScopeWriteSuite } from '../suites/memory/scope-write.suite';
+import { createJudgeAgreementSuites } from '../suites/skills/judge-agreement.suite';
 import {
   HOST_SUITE_PLACEMENTS,
   hostSuitePlacement,
@@ -61,6 +62,11 @@ describe('HOST_SUITE_PLACEMENTS', () => {
       createScopeWriteSuite(),
       ...createRetentionSuites({
         portOf: () => {
+          throw new Error('not run');
+        },
+      }),
+      ...createJudgeAgreementSuites({
+        resolveServices: () => {
           throw new Error('not run');
         },
       }),

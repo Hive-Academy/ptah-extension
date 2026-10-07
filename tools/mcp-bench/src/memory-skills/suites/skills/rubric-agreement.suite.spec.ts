@@ -1,0 +1,319 @@
+/**
+ * Batch 21.1 spec for `skill.rubric.inter-rater`. Every label here is
+ * SYNTHETIC, written into the spec temp dir by `rubric-ground-truth.test-support.ts`;
+ * the one real input read is the committed `fixtures/memory-skills` folder,
+ * which proves the suite reports `na` today (the real labels are U1).
+ */
+
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import { createSuiteKindRegistry } from '../../../scorecard/suite-kinds';
+import {
+  registerMemorySkillsSuiteKinds,
+  rubricDetailsSchema,
+} from '../../memory-skills-suite-kinds';
+import type { OfflineSuiteContext } from '../../runner/offline-suites';
+import type { ReadPathGuard } from '../../runner/read-path-guard';
+import { readSuiteResult, writeSuiteResult } from '../../runner/suite-result';
+import {
+  createRubricAgreementSuite,
+  RUBRIC_AGREEMENT_SUITE_ID,
+  runRubricAgreement,
+} from './rubric-agreement.suite';
+import {
+  RubricGroundTruthError,
+  SKILL_ADJUDICATION_FILE,
+  SKILL_DOCS_FILE,
+  SKILL_LABELS_FILE,
+  type GroundTruthFileReader,
+} from './rubric-ground-truth';
+import {
+  sha256Of,
+  trustedDocs,
+  writeSyntheticGroundTruth,
+  type SyntheticDoc,
+} from './rubric-ground-truth.test-support';
+
+const COMMITTED_FIXTURES = join(
+  __dirname,
+  '..',
+  '..',
+  '..',
+  '..',
+  'fixtures',
+  'memory-skills',
+);
+const OPTIONS = { raters: ['r1', 'r2'] as [string, string] };
+
+let dir: string;
+
+beforeEach(() => {
+  dir = mkdtempSync(join(tmpdir(), 'rubric-agreement-'));
+});
+
+afterEach(() => {
+  rmSync(dir, { recursive: true, force: true });
+});
+
+function readerOf(root: string): GroundTruthFileReader {
+  return (name) => {
+    const path = join(root, name);
+    return existsSync(path) ? readFileSync(path) : null;
+  };
+}
+
+function docs(): SyntheticDoc[] {
+  return trustedDocs((id) => sha256Of(`document ${id}`));
+}
+
+/** Every rate metric triple satisfies value === num / den exactly. */
+function expectExactRates(metrics: Record<string, number | null>): void {
+  for (const key of Object.keys(metrics)) {
+    if (!key.endsWith('.num')) continue;
+    const name = key.slice(0, -'.num'.length);
+    const num = metrics[key];
+    const den = metrics[`${name}.den`];
+    expect(den).not.toBeUndefined();
+    if (num === null || den === null || den === undefined || den === 0) {
+      expect(metrics[name]).toBeNull();
+    } else {
+      expect(metrics[name]).toBe(num / den);
+    }
+  }
+}
+
+describe('skill.rubric.inter-rater', () => {
+  it('reports na (ground-truth-untrusted) on the committed fixtures today: the labels are not committed yet', () => {
+    const { result, cases } = runRubricAgreement(
+      readerOf(COMMITTED_FIXTURES),
+      OPTIONS,
+    );
+    expect(result.verdict).toBe('na');
+    expect(result.naReason).toMatch(/^ground-truth-untrusted: /);
+    expect(result.naReason).toContain(SKILL_LABELS_FILE);
+    expect(cases.map((record) => record.caseId)).toEqual([
+      `file/${SKILL_LABELS_FILE}`,
+      `file/${SKILL_ADJUDICATION_FILE}`,
+      `file/${SKILL_DOCS_FILE}`,
+    ]);
+    expect(cases.every((record) => record.outcome === 'fail')).toBe(true);
+    expect(rubricDetailsSchema.parse(result.details)).toMatchObject({
+      mode: 'inter-rater',
+      items: 0,
+      trusted: false,
+      raters: ['r1', 'r2'],
+    });
+    expect(result.modelCalls).toBe(0);
+  });
+
+  it('passes on trusted synthetic labels and reports full-set and candidates-only figures', () => {
+    writeSyntheticGroundTruth(dir, docs());
+    const { result, cases } = runRubricAgreement(readerOf(dir), OPTIONS);
+
+    expect(result.verdict).toBe('pass');
+    expect(result.naReason).toBeUndefined();
+    const details = rubricDetailsSchema.parse(result.details);
+    expect(details).toMatchObject({
+      mode: 'inter-rater',
+      items: 16,
+      strata: { authored: 2, fallback: 2, random: 2, 'anchor-471': 10 },
+      kappaPassFull: 1,
+      rawAgreement: 1,
+      adjudicated: 0,
+      anchorStability: { items: 10, withinTolerance: 10 },
+      trusted: true,
+      intraRater: false,
+    });
+    expect(
+      details.mode === 'inter-rater' && details.spearmanTotalFull,
+    ).toBeGreaterThan(0.99);
+    expect(result.metrics['candidates.items']).toBe(14);
+    expect(result.metrics['full.rawAgreement.num']).toBe(16);
+    expect(result.metrics['full.rawAgreement.den']).toBe(16);
+    expect(result.metrics['candidates.rawAgreement.den']).toBe(14);
+    expect(result.metrics['candidates.kappaPass']).toBe(1);
+    expect(result.metrics['anchorStability.num']).toBe(10);
+    expectExactRates(result.metrics);
+    expect(result.deltas['chance']['full.kappaPass']).toBe(1);
+    expect(result.deltas['trust-bar']['full.kappaPass']).toBeCloseTo(0.4, 10);
+    expect(result.groundTruth).toEqual({
+      id: 'gt-skill-rubric',
+      version: 'v1',
+      method: 'labelled',
+      raterCount: 2,
+    });
+    expect(cases.every((record) => record.outcome === 'pass')).toBe(true);
+  });
+
+  it('computes kappa by hand on a disagreeing pair', () => {
+    // r1/r2 pass: (P,P) (P,F) (F,F) (F,F) -> po = 3/4, pe = 1/2*1/4 + 1/2*3/4 = 1/2,
+    // kappa = (3/4 - 1/2) / (1 - 1/2) = 1/2. The one split item is adjudicated.
+    const base = docs();
+    base[0] = { ...base[0], totals: [72, 72] };
+    base[1] = { ...base[1], totals: [70, 60], adjudicatedTotal: 66 };
+    for (const index of [2, 3, 4, 5]) {
+      base[index] = { ...base[index], totals: [20, 20] };
+    }
+    const subset = base.slice(0, 4);
+    writeSyntheticGroundTruth(dir, subset);
+    const { result } = runRubricAgreement(readerOf(dir), OPTIONS);
+    const details = rubricDetailsSchema.parse(result.details);
+    expect(details.mode === 'inter-rater' && details.kappaPassFull).toBe(0.5);
+    expect(result.metrics['full.rawAgreement']).toBe(3 / 4);
+    expect(result.metrics['adjudicated']).toBe(1);
+    // Four documents, no anchors: the trust bar cannot hold.
+    expect(result.verdict).toBe('na');
+    expect(result.naReason).toContain('anchor stability 0/0');
+  });
+
+  it('fails when a label file differs from MANIFEST.json', () => {
+    writeSyntheticGroundTruth(dir, docs());
+    const path = join(dir, SKILL_LABELS_FILE);
+    writeFileSync(path, `${readFileSync(path, 'utf8')}\n`, 'utf8');
+    const { result, cases } = runRubricAgreement(readerOf(dir), OPTIONS);
+    expect(result.verdict).toBe('fail');
+    expect(result.naReason).toBeUndefined();
+    expect(
+      cases.find((record) => record.caseId === `file/${SKILL_LABELS_FILE}`),
+    ).toMatchObject({ outcome: 'fail' });
+  });
+
+  it('fails when a label file is committed but not pinned in MANIFEST.json', () => {
+    writeSyntheticGroundTruth(dir, docs(), { pin: false });
+    const { result } = runRubricAgreement(readerOf(dir), OPTIONS);
+    expect(result.verdict).toBe('fail');
+  });
+
+  it('fails when MANIFEST.json pins a label file that is gone', () => {
+    writeSyntheticGroundTruth(dir, docs());
+    rmSync(join(dir, SKILL_ADJUDICATION_FILE));
+    const { result, cases } = runRubricAgreement(readerOf(dir), OPTIONS);
+    expect(result.verdict).toBe('fail');
+    expect(
+      cases.find(
+        (record) => record.caseId === `file/${SKILL_ADJUDICATION_FILE}`,
+      )?.observed,
+    ).toBe('missing: no file');
+  });
+
+  it('is na with the failing condition when the anchors drift past 8/80', () => {
+    const drifted = docs().map((doc, index) =>
+      doc.stratum === 'anchor-471' && index % 3 === 0
+        ? { ...doc, anchor471Total: (doc.anchor471Total ?? 0) + 20 }
+        : doc,
+    );
+    writeSyntheticGroundTruth(dir, drifted);
+    const { result } = runRubricAgreement(readerOf(dir), OPTIONS);
+    expect(result.verdict).toBe('na');
+    expect(result.naReason).toBe(
+      'ground-truth-untrusted: anchor stability 6/10 within 8/80 (needs >= 8 of 10)',
+    );
+    // The measured figures stay reported.
+    expect(result.metrics['full.kappaPass']).toBe(1);
+    expect(result.metrics['anchorStability']).toBe(6 / 10);
+  });
+
+  it('is na while strata are not recorded (R2: strata land after adjudication)', () => {
+    const unlabelled = docs().map((doc) => ({
+      opaqueId: doc.opaqueId,
+      sha256: doc.sha256,
+      totals: doc.totals,
+    }));
+    writeSyntheticGroundTruth(dir, unlabelled);
+    const { result } = runRubricAgreement(readerOf(dir), OPTIONS);
+    expect(result.verdict).toBe('na');
+    expect(result.naReason).toBe(
+      'ground-truth-untrusted: strata not recorded for 16 of 16 documents',
+    );
+    expect(result.metrics['candidates.spearmanTotal']).toBeNull();
+    expectExactRates(result.metrics);
+  });
+
+  it('is na while a disagreement waits for adjudication', () => {
+    const pending = docs();
+    pending[0] = { ...pending[0], totals: [72, 40] };
+    writeSyntheticGroundTruth(dir, pending);
+    const { result } = runRubricAgreement(readerOf(dir), OPTIONS);
+    expect(result.verdict).toBe('na');
+    expect(result.naReason).toContain('adjudication pending for 1 documents');
+  });
+
+  it('throws on a structurally broken label file', () => {
+    writeSyntheticGroundTruth(dir, docs());
+    const path = join(dir, SKILL_LABELS_FILE);
+    const lines = readFileSync(path, 'utf8').split('\n');
+    lines.splice(1, 1);
+    writeFileSync(path, lines.join('\n'), 'utf8');
+    // Re-pin so the hash check passes and the parser sees the missing row.
+    const manifest = JSON.parse(
+      readFileSync(join(dir, 'MANIFEST.json'), 'utf8'),
+    ) as {
+      files: Record<string, string>;
+    };
+    manifest.files[SKILL_LABELS_FILE] = sha256Of(readFileSync(path));
+    writeFileSync(join(dir, 'MANIFEST.json'), JSON.stringify(manifest), 'utf8');
+    expect(() => runRubricAgreement(readerOf(dir), OPTIONS)).toThrow(
+      RubricGroundTruthError,
+    );
+  });
+
+  it('runs as an offline suite through the read guard and writes a valid scorecard suite', async () => {
+    writeSyntheticGroundTruth(dir, docs());
+    const reads: string[] = [];
+    const read: ReadPathGuard = {
+      assertReadable: (path) => path,
+      readText: (path) => readFileSync(path, 'utf8'),
+      readBytes: (path) => {
+        reads.push(path);
+        return readFileSync(path);
+      },
+    };
+    const runDir = join(dir, 'run');
+    const context: OfflineSuiteContext = {
+      runId: 'spec',
+      runDir,
+      options: {},
+      ci: true,
+      read,
+      guardWorkerEntry: (entry) => entry,
+    };
+    const suite = createRubricAgreementSuite({ fixturesDir: dir });
+    const output = await suite.run(context);
+    expect(reads.sort()).toEqual(
+      [
+        'MANIFEST.json',
+        SKILL_ADJUDICATION_FILE,
+        SKILL_DOCS_FILE,
+        SKILL_LABELS_FILE,
+      ]
+        .map((name) => join(dir, name))
+        .sort(),
+    );
+    writeSuiteResult(runDir, output.result, output.cases);
+    const { result } = readSuiteResult(runDir, RUBRIC_AGREEMENT_SUITE_ID);
+    expect(result.verdict).toBe('pass');
+
+    const registry = createSuiteKindRegistry();
+    registerMemorySkillsSuiteKinds(registry);
+    expect(
+      registry
+        .getSuiteKind(result.kind)
+        ?.detailsSchema.safeParse(result.details).success,
+    ).toBe(true);
+  });
+
+  it('refuses one rater named twice', () => {
+    writeSyntheticGroundTruth(dir, docs());
+    expect(() =>
+      runRubricAgreement(readerOf(dir), { raters: ['r1', 'r1'] }),
+    ).toThrow(RubricGroundTruthError);
+  });
+});

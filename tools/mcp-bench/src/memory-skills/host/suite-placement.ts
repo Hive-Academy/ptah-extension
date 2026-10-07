@@ -29,6 +29,8 @@ export const HOST_SUITE_PLACEMENTS: Readonly<
   'mem.retention.lifecycle': 'last',
   'mem.retention.growth': 'last',
   'mem.ranking.roster': 'last',
+  'skill.judge-agreement': 'last',
+  'skill.judge-agreement.panel': 'last',
 };
 
 export function hostSuitePlacement(id: string): SuitePlacement {
