@@ -418,20 +418,33 @@ export class CodexCliAdapter implements CliAdapter {
    * when the catalog cannot be read.
    */
   async listModels(): Promise<CliModelInfo[]> {
+    const live = await this.listCatalogModels();
+    if (live.length > 0) return live;
+    this.logger?.debug(
+      '[CodexCliAdapter] codex debug models unavailable; using the fallback model list',
+    );
+    return CodexCliAdapter.FALLBACK_MODELS.map((model) =>
+      this.markLaneDefault(model),
+    );
+  }
+
+  /**
+   * Only the installed CLI's own catalog, `[]` when it cannot be read. The
+   * lane runs this binary, so a model newer than it accepts must not be
+   * offered even when the account's list has it.
+   */
+  async listCatalogModels(): Promise<CliModelInfo[]> {
     const binaryPath = (await resolveCliPath('codex')) ?? 'codex';
     const raw = await probeCodexModelCatalog(binaryPath);
-    const live = raw ? parseCodexModelCatalog(raw) : [];
-    if (live.length === 0) {
-      this.logger?.debug(
-        '[CodexCliAdapter] codex debug models unavailable; using the fallback model list',
-      );
-    }
-    return (live.length > 0 ? live : CodexCliAdapter.FALLBACK_MODELS).map(
-      (model) =>
-        model.id === CodexCliAdapter.LANE_DEFAULT_MODEL
-          ? { ...model, name: `${model.name} (Ptah lane default)` }
-          : model,
+    return (raw ? parseCodexModelCatalog(raw) : []).map((model) =>
+      this.markLaneDefault(model),
     );
+  }
+
+  private markLaneDefault(model: CliModelInfo): CliModelInfo {
+    return model.id === CodexCliAdapter.LANE_DEFAULT_MODEL
+      ? { ...model, name: `${model.name} (Ptah lane default)` }
+      : model;
   }
 
   /**
