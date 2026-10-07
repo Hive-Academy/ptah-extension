@@ -35,8 +35,11 @@ the Gemini model; `gemini-3.1-pro-high` conflicts with --effort). Adjudicator = 
   Limit to disclose: the adjudicator chooses only among lines a rater cited.
 - **U4 trigger labels IN PROGRESS** `labelling/skill-triggers-v1/`: `skills.jsonl` (23 authored skills,
   descriptions parsed with js-yaml), `INSTRUCTIONS.md`. r2/out.jsonl valid (one tribunal prompt names
-  "tribunal" — tell Glm not to select prompts containing a skill id). r1 lane grok `150c5e06` was still
-  running. Next: validate r1, then Glm adjudication (all 23 differ; choose 5+5 from 10+10).
+  "tribunal" — tell Glm not to select prompts containing a skill id). r1/out.jsonl VALIDATED (23 rows,
+  5+5 each, grok-4.7). Next: Glm adjudication (all 23 differ; choose 5+5 from 10+10, blinded A/B).
+  U2 r2 out-4 landed (5,100 bytes = same size as all-accept out-3; likely 50/50 accept on
+  should-not-merge pairs where r1 edited 5) — validate; if all accept, re-run once with the strict
+  instruction.
 - **U2 IN PROGRESS** `drafts/memory-ground-truth/panel/`: part-0..5.jsonl (298 items), INSTRUCTIONS.md.
   r1/out-0..5 valid (269 accept / 22 edit / 7 reject). r2: first instruction rubber-stamped (88/88
   accept) → kept as `r2/out-{0,1}.weak-instruction.*`, re-run with a strict per-item instruction.
