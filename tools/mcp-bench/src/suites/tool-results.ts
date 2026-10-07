@@ -23,6 +23,17 @@ import {
 
 const BUDGET_TRAILER = /\n?\[reduced: [^\]\n]*\]\s*$/;
 
+/** A symbol-search hit with its normalized file path. */
+export interface SymbolHit {
+  readonly file: string;
+  readonly symbolName: string;
+}
+
+/** A symbol answer plus the file/symbol pairs needed by lifecycle probes. */
+export interface SymbolAnswer extends Answer {
+  readonly symbolHits: readonly SymbolHit[];
+}
+
 /** The JSON body of a result, without the output-budget trailer. */
 export function parseJsonResult(text: string): unknown {
   const body = text.replace(BUDGET_TRAILER, '').trim();
@@ -76,18 +87,24 @@ export function parseSymbolHits(
   root: string,
   truth: readonly string[],
   fileLevel: boolean,
-): Answer {
+): SymbolAnswer {
   const result = asRecord(parseJsonResult(text), 'symbol search result');
   if (!Array.isArray(result['hits']))
     throw new ToolResultParseError('symbol search result has no hits list');
   if (result['hits'].length === 0 && typeof result['error'] === 'string')
     throw new ToolResultParseError(`symbol search error: ${result['error']}`);
   const relative = relativeTo(root);
-  const ranked = result['hits'].map((raw, index) => {
+  const symbolHits = result['hits'].map((raw, index) => {
     const hit = asRecord(raw, `hit ${index}`);
     if (typeof hit['filePath'] !== 'string')
       throw new ToolResultParseError(`hit ${index} has no filePath`);
-    const file = relative(hit['filePath']);
+    if (typeof hit['symbolName'] !== 'string')
+      throw new ToolResultParseError(`hit ${index} has no symbolName`);
+    return { file: relative(hit['filePath']), symbolName: hit['symbolName'] };
+  });
+  const ranked = result['hits'].map((raw, index) => {
+    const hit = asRecord(raw, `hit ${index}`);
+    const file = symbolHits[index].file;
     if (fileLevel) return file;
     const range = /:(\d+)-(\d+)\s*$/.exec(String(hit['text'] ?? ''));
     if (!range) return file;
@@ -99,7 +116,7 @@ export function parseSymbolHits(
     });
     return covered ?? `${file}:${start + 1}`;
   });
-  return answerOf(ranked);
+  return { ...answerOf(ranked), symbolHits };
 }
 
 /**

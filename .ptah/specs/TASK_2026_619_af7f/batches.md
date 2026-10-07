@@ -1735,7 +1735,7 @@ by author side, per context.md "User Requests (2026-10-07)" item 2.
 - `searchSymbol`: on `unknown-coverage`, still parse the hits; `found` = the expected file is in the ranked hits; `errored` stays true for that class so a MISS (or the delete "gone" case) under unknown coverage is still a non-pass. Every other error class keeps today's behavior. The case detail says "found under unknown coverage" when that path decided it.
 - Tests: unknown-coverage + expected file in hits -> found; unknown-coverage + no hit -> not found, errored; delete case under unknown coverage -> not passed; other error classes unchanged.
 
-## Batch 13e: Bench ignores `unrecognised?`; lifecycle probe matches the symbol (bench) — PENDING
+## Batch 13e: Bench ignores `unrecognised?`; lifecycle probe matches the symbol (bench) — COMPLETE (codex + orchestrator classifier fix; in-process review REVISE 5/10 -> revision 1 -> APPROVED 8/10 `code-logic-review-b13e.md`; mcp-bench transport+lifecycle+suites Jest 187, typecheck 0)
 
 - Origin: 13c gating finding (above) and the 13d review MODERATE finding 1 (`code-logic-review-b13d.md`: edit-then-query matched by file only). User decision 2026-10-08: "Bench: ignore unrecognised?".
 - Executor: codex lane; reviewer: in-process code-logic-reviewer (grok balance exhausted).

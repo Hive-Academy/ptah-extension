@@ -369,11 +369,18 @@ export async function runCopyScenarios(
     const honest = /too[- ]large|exceeds/i.test(
       `${bigProbe.text}\n${reindexText}`,
     );
+    const bigDetail = bigIndexed
+      ? 'found'
+      : bigProbe.underUnknownCoverage
+        ? `hit seen under unknown coverage, not counted as settled${honest ? '; reported as too large' : ''}`
+        : honest
+          ? 'not indexed, reported as too large'
+          : 'not found and not reported as too large';
     results.push({
       scenario: 'large-file-1.5mib',
       tool,
       pass: bigIndexed || honest,
-      detail: `${bigFile}: ${bigIndexed ? 'found' : honest ? 'not indexed, reported as too large' : 'not found and not reported as too large'}; reindex: ${reindexText.slice(0, 160)}`,
+      detail: `${bigFile}: ${bigDetail}; reindex: ${reindexText.slice(0, 160)}`,
     });
 
     // 6. Index age beyond 24 h: backdate the rows, check the lazy refresh and its cap.

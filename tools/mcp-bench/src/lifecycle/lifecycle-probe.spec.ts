@@ -19,6 +19,7 @@ function caller(outcome: ToolCallOutcome): McpToolCaller {
 function symbolText(
   filePath: string,
   coverage: Record<string, unknown>,
+  symbolName = 'foo',
 ): string {
   return JSON.stringify({
     index: { symbolCount: 4, reindexInFlight: true },
@@ -28,7 +29,7 @@ function symbolText(
       {
         subject: 'foo',
         filePath,
-        symbolName: 'foo',
+        symbolName,
         kind: 'function',
         text: 'export function foo',
         score: 0.02,
@@ -87,6 +88,51 @@ describe('searchSymbol', () => {
     });
     expect(probe.state.startsWith('ok ')).toBe(true);
   });
+
+  it('does not count a different symbol from the expected file', async () => {
+    const probe = await callerFor(
+      result(symbolText(`${ROOT}/${FILE}`, { clean: true }, 'oldFoo')),
+    );
+    expect(probe).toMatchObject({
+      found: false,
+      errored: false,
+      hits: 1,
+      underUnknownCoverage: false,
+    });
+  });
+
+  it('counts a class-qualified method name in the expected file', async () => {
+    const probe = await searchSymbol(
+      caller(
+        result(
+          symbolText(
+            `${ROOT}/${FILE}`,
+            { clean: true },
+            'ProviderSetupWizardComponent.onKeepEditing',
+          ),
+        ),
+      ),
+      ROOT,
+      'onKeepEditing',
+      FILE,
+    );
+    expect(probe.found).toBe(true);
+  });
+
+  it.each(['Other.onKeepEditingX', 'onKeepEditingX', 'differentSymbol'])(
+    'does not count a non-matching method name: %s',
+    async (symbolName) => {
+      const probe = await searchSymbol(
+        caller(
+          result(symbolText(`${ROOT}/${FILE}`, { clean: true }, symbolName)),
+        ),
+        ROOT,
+        'onKeepEditing',
+        FILE,
+      );
+      expect(probe.found).toBe(false);
+    },
+  );
 
   it('does not read hits for building or tool-error', async () => {
     const building = await callerFor(

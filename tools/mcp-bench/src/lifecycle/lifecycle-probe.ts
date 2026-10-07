@@ -32,9 +32,15 @@ export interface SymbolProbe {
   readonly hits: number;
   /**
    * True only when `errorClass` was `unknown-coverage` and the expected file
-   * was in the hits. A miss under unknown coverage stays false.
+   * contained the expected symbol in the expected file. A miss under unknown
+   * coverage stays false.
    */
   readonly underUnknownCoverage: boolean;
+}
+
+/** A symbol can be a method whose index name is qualified by its class. */
+function matchesSymbolName(symbolName: string, name: string): boolean {
+  return symbolName === name || symbolName.endsWith(`.${name}`);
 }
 
 /** One `ptah_code_search_symbols` call: is `name` in a hit of `file`? */
@@ -73,7 +79,9 @@ export async function searchSymbol(
     };
   try {
     const answer = parseSymbolHits(outcome.text, root, [], true);
-    const found = answer.ranked.includes(file);
+    const found = answer.symbolHits.some(
+      (hit) => hit.file === file && matchesSymbolName(hit.symbolName, name),
+    );
     return {
       found,
       errored: unknown,
@@ -196,12 +204,17 @@ export async function indexAgeScenario(
     .catch(() => null);
   // A hit accepted only because coverage was unknown is not a settled index.
   const cleanFound = refresh.last.found && !refresh.last.underUnknownCoverage;
+  const refreshResult = cleanFound
+    ? 'found'
+    : refresh.last.underUnknownCoverage
+      ? 'hit seen under unknown coverage, not counted as settled'
+      : 'missing (cap or skip)';
   const pass =
     changed > 0 && age > 24 * HOUR_MS && started && refresh.ok && cleanFound;
   return {
     scenario: 'index-age-24h',
     tool,
     pass,
-    detail: `index settled after ${settle.elapsedMs} ms (DB ${dbBytes === null ? 'size unknown' : `${(dbBytes / 1_048_576).toFixed(1)} MiB`}, ${/"symbolCount"\s*:\s*(\d+)/.exec(settle.last.text)?.[1] ?? '?'} symbols; coverage ${coverageOf(settle.last.text)}); ${changed} rows backdated 25 h; first answer indexAgeMs ${Number.isNaN(age) ? '?' : age}, refresh ${started ? 'started' : 'not started'}; ${refresh.ok ? `refresh done after ${refresh.elapsedMs} ms, symbolCount ${count}, ${options.probe.name} ${cleanFound ? 'found' : 'missing (cap or skip)'}` : `refresh not done within ${refreshMs / 1000} s`}`,
+    detail: `index settled after ${settle.elapsedMs} ms (DB ${dbBytes === null ? 'size unknown' : `${(dbBytes / 1_048_576).toFixed(1)} MiB`}, ${/"symbolCount"\s*:\s*(\d+)/.exec(settle.last.text)?.[1] ?? '?'} symbols; coverage ${coverageOf(settle.last.text)}); ${changed} rows backdated 25 h; first answer indexAgeMs ${Number.isNaN(age) ? '?' : age}, refresh ${started ? 'started' : 'not started'}; ${refresh.ok ? `refresh done after ${refresh.elapsedMs} ms, symbolCount ${count}, ${options.probe.name} ${refreshResult}` : `refresh not done within ${refreshMs / 1000} s`}`,
   };
 }

@@ -116,11 +116,20 @@ const RETRY_AFTER = /"retryAfterMs"\s*:\s*(\d+)/;
 const UNAVAILABLE = /"status"\s*:\s*"unavailable"|\bindex unavailable\b/i;
 const UNKNOWN_CENSUS = /"census"\s*:\s*"unknown"/;
 const UNKNOWN_REASON = /"reasons"\s*:\s*\[[^\]]*\?"/;
+const REASONS_START = /"reasons"\s*:\s*\[/g;
+/** A whole reasons array: only JSON strings and commas up to its `]`. */
+const REASONS_ARRAY =
+  /"reasons"\s*:\s*\[(\s*(?:"(?:\\.|[^"\\\n])*"\s*(?:,\s*"(?:\\.|[^"\\\n])*"\s*)*)?)\]/g;
+const JSON_STRING = /"(?:\\.|[^"\\\n])*"/g;
 
 /**
  * Classify one tool result. Regex over the text rather than `JSON.parse`,
  * because a budget-cut body is no longer valid JSON while its leading status
- * fields (which the dispatcher writes first for that reason) survive.
+ * fields (which the dispatcher writes first for that reason) survive. Unknown
+ * coverage means an unknown census or a `?` reason other than `unrecognised?`:
+ * the code index cannot find symbols in files with unrecognised extensions.
+ * If a cut body starts a reasons array that cannot be isolated,
+ * classification stays conservatively unknown.
  */
 export function classifyToolResult(
   text: string,
@@ -135,7 +144,7 @@ export function classifyToolResult(
       ? 'building'
       : UNAVAILABLE.test(text)
         ? 'unavailable'
-        : UNKNOWN_CENSUS.test(text) || UNKNOWN_REASON.test(text)
+        : UNKNOWN_CENSUS.test(text) || hasUnknownReason(text)
           ? 'unknown-coverage'
           : null;
   return {
@@ -144,6 +153,33 @@ export function classifyToolResult(
       errorClass === 'building' && retryHint ? Number(retryHint[1]) : null,
     truncation,
   };
+}
+
+function hasUnknownReason(text: string): boolean {
+  const starts = [...text.matchAll(REASONS_START)];
+  if (starts.length === 0) return UNKNOWN_REASON.test(text);
+  const arrays = [...text.matchAll(REASONS_ARRAY)];
+  // A budget-cut or malformed array must remain unknown, even if a previous
+  // complete array was clean.
+  if (arrays.length !== starts.length) return true;
+  return arrays.some((array) => {
+    const values = [...array[1].matchAll(JSON_STRING)];
+    const reasons = values.map((value) => {
+      try {
+        return JSON.parse(value[0]);
+      } catch {
+        return null;
+      }
+    });
+    return (
+      reasons.some(
+        (reason) =>
+          typeof reason !== 'string' ||
+          (reason.endsWith('?') && reason !== 'unrecognised?'),
+      ) ||
+      (reasons.length >= 3 && reasons.includes('unrecognised?'))
+    );
+  });
 }
 
 function readTruncation(

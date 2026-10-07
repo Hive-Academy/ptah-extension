@@ -70,6 +70,7 @@ describe('result parsers', () => {
     expect(parseSymbolHits('{"hits":[]}', ROOT, [], false)).toEqual({
       ranked: [],
       abstained: true,
+      symbolHits: [],
     });
     expect(() =>
       parseSymbolHits(

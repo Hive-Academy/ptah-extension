@@ -322,12 +322,42 @@ describe('runCopyScenarios', () => {
     expect(scored['delete-then-query'].detail).not.toContain(phrase);
     expect(scored['large-file-1.5mib'].pass).toBe(false);
     expect(scored['large-file-1.5mib'].detail).toContain(
-      'not found and not reported as too large',
+      'hit seen under unknown coverage, not counted as settled',
     );
     expect(scored['index-age-24h'].pass).toBe(false);
     expect(scored['index-age-24h'].detail).toContain(
-      'probeSymbol missing (cap or skip)',
+      'probeSymbol hit seen under unknown coverage, not counted as settled',
     );
+  });
+
+  it('does not pass edit when the index returns only the old probe symbol', async () => {
+    const root = await corpusCopy();
+    const handler: Handler = async (callRoot, tool, args) => {
+      if (tool === 'ptah_code_search_symbols') {
+        const query = String(args['query']);
+        const hits = query.startsWith('benchEdited_')
+          ? [{ filePath: 'libs/a/probe.ts', name: 'probeSymbol' }]
+          : await liveIndexSearch(callRoot, query);
+        return result(searchAnswer(hits));
+      }
+      if (tool === 'ptah_code_reindex') return result('{"outcome":"indexed"}');
+      return result('## File Search\n\nFound: 1 file\n\n1. package.json\n');
+    };
+    const scored = byScenario(
+      (
+        await runCopyScenarios(
+          root,
+          fakeDeps({
+            launch: async (workspace) => fakeSession(workspace, handler),
+          }),
+          { smoke: true, probe, tag: 'stale' },
+        )
+      ).results,
+    );
+
+    expect(scored['edit-then-query-5s'].pass).toBe(false);
+    expect(scored['edit-then-query-60s'].pass).toBe(false);
+    expect(scored['edit-then-query-5s'].detail).toContain('not found');
   });
 
   it('stops the scenario host and rethrows when a scenario throws', async () => {
