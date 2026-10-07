@@ -92,10 +92,10 @@ describe('OpenCode Model Routes', () => {
         'chat/completions',
       );
 
-      expect(getOpenCodeModelProtocol('opencode-zen', 'qwen3.7-max')).toBe(
+      expect(getOpenCodeModelProtocol('opencode-zen', 'qwen3.8-flash')).toBe(
         'messages',
       );
-      expect(getOpenCodeModelProtocol('opencode-go', 'qwen3.7-max')).toBe(
+      expect(getOpenCodeModelProtocol('opencode-go', 'qwen3.8-flash')).toBe(
         'messages',
       );
 
@@ -220,9 +220,9 @@ describe('OpenCode Model Routes', () => {
         expect(
           OPENCODE_ZEN_STATIC_MODELS.some((m) => m.id === excludedId),
         ).toBe(false);
-        expect(
-          OPENCODE_GO_STATIC_MODELS.some((m) => m.id === excludedId),
-        ).toBe(false);
+        expect(OPENCODE_GO_STATIC_MODELS.some((m) => m.id === excludedId)).toBe(
+          false,
+        );
 
         // Not in default tiers
         expect(Object.values(OPENCODE_ZEN_DEFAULT_TIERS)).not.toContain(
@@ -250,31 +250,31 @@ describe('OpenCode Model Routes', () => {
       return counts;
     }
 
-    it('encodes exactly 66 Zen models (16 messages, 22 chat/completions, 28 responses)', () => {
+    it('encodes exactly 76 Zen models (17 messages, 27 chat/completions, 32 responses)', () => {
       const counts = countProtocols('opencode-zen');
-      expect(counts.messages).toBe(16);
-      expect(counts['chat/completions']).toBe(22);
-      expect(counts.responses).toBe(28);
+      expect(counts.messages).toBe(17);
+      expect(counts['chat/completions']).toBe(27);
+      expect(counts.responses).toBe(32);
       expect(Object.keys(OPENCODE_MODEL_ROUTES['opencode-zen'])).toHaveLength(
-        66,
+        76,
       );
     });
 
-    it('encodes exactly 31 Go models (8 messages, 18 chat/completions, 5 responses)', () => {
+    it('encodes exactly 35 Go models (8 messages, 20 chat/completions, 7 responses)', () => {
       const counts = countProtocols('opencode-go');
       expect(counts.messages).toBe(8);
-      expect(counts['chat/completions']).toBe(18);
-      expect(counts.responses).toBe(5);
+      expect(counts['chat/completions']).toBe(20);
+      expect(counts.responses).toBe(7);
       expect(Object.keys(OPENCODE_MODEL_ROUTES['opencode-go'])).toHaveLength(
-        31,
+        35,
       );
     });
 
-    it('encodes exactly 97 total model routes across both subscriptions', () => {
+    it('encodes exactly 111 total model routes across both subscriptions', () => {
       const totalRoutes =
         Object.keys(OPENCODE_MODEL_ROUTES['opencode-zen']).length +
         Object.keys(OPENCODE_MODEL_ROUTES['opencode-go']).length;
-      expect(totalRoutes).toBe(97);
+      expect(totalRoutes).toBe(111);
     });
 
     it('freezes the routing table against mutation', () => {
@@ -347,7 +347,7 @@ describe('OpenCode Provider Entries', () => {
 
   describe('static models', () => {
     it('derives Zen static models strictly from Zen route keys', () => {
-      expect(OPENCODE_ZEN_STATIC_MODELS).toHaveLength(66);
+      expect(OPENCODE_ZEN_STATIC_MODELS).toHaveLength(76);
       for (const model of OPENCODE_ZEN_STATIC_MODELS) {
         expect(
           Object.prototype.hasOwnProperty.call(
@@ -367,7 +367,7 @@ describe('OpenCode Provider Entries', () => {
     });
 
     it('derives Go static models strictly from Go route keys', () => {
-      expect(OPENCODE_GO_STATIC_MODELS).toHaveLength(31);
+      expect(OPENCODE_GO_STATIC_MODELS).toHaveLength(35);
       for (const model of OPENCODE_GO_STATIC_MODELS) {
         expect(
           Object.prototype.hasOwnProperty.call(

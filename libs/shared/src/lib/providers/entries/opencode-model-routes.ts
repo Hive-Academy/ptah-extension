@@ -26,11 +26,18 @@ export type OpenCodeModelRoutes = Readonly<
 /**
  * Reviewed, immutable routing table for OpenCode Zen and OpenCode Go.
  *
- * Excludes the 7 Google generateContent models and 2 Jev systemone models.
+ * Excludes the Google generateContent models and the Jev systemone models.
+ *
+ * Synced with the live `/zen/v1/models` and `/zen/go/v1/models` lists on
+ * 2026-10-07: retired IDs removed, new IDs added. A new ID's protocol comes
+ * from its models.dev `provider.npm` (anthropic → messages, openai →
+ * responses, openai-compatible → chat/completions), which matched every one of
+ * the 64 Zen routes already here. Live IDs with no such source stay out
+ * rather than guess a protocol (Qwen on Zen, where the two disagree on Go).
  */
 export const OPENCODE_MODEL_ROUTES: OpenCodeModelRoutes = Object.freeze({
   'opencode-zen': Object.freeze({
-    // Anthropic Messages (16 models)
+    // Anthropic Messages (17 models)
     'claude-fable-5-1': 'messages',
     'claude-fable-5': 'messages',
     'claude-opus-5': 'messages',
@@ -42,13 +49,14 @@ export const OPENCODE_MODEL_ROUTES: OpenCodeModelRoutes = Object.freeze({
     'claude-sonnet-4-6': 'messages',
     'claude-sonnet-4-5': 'messages',
     'claude-haiku-4-5': 'messages',
+    'claude-opus-5-5': 'messages',
+    'claude-sonnet-5-5': 'messages',
+    'claude-sonnet-4': 'messages',
     'qwen3.8-flash': 'messages',
-    'qwen3.7-max': 'messages',
-    'qwen3.7-plus': 'messages',
     'qwen3.6-plus': 'messages',
     'qwen3.5-plus': 'messages',
 
-    // OpenAI Chat Completions (22 models)
+    // OpenAI Chat Completions (27 models)
     'deepseek-v4.1-flash': 'chat/completions',
     'deepseek-v4-pro': 'chat/completions',
     'deepseek-v4-flash': 'chat/completions',
@@ -67,12 +75,17 @@ export const OPENCODE_MODEL_ROUTES: OpenCodeModelRoutes = Object.freeze({
     'kimi-k3': 'chat/completions',
     'big-pickle': 'chat/completions',
     'mimo-v2.6-flash-free': 'chat/completions',
-    'mimo-v2.5-free': 'chat/completions',
     'ling-3.0-flash-fin-free': 'chat/completions',
     'nemotron-3-ultra-free': 'chat/completions',
     'nemotron-3.5-lightning-free': 'chat/completions',
+    'mistral-large-4': 'chat/completions',
+    'exo-free': 'chat/completions',
+    'space-bunny-free': 'chat/completions',
+    'longcat-2.5-preview-free': 'chat/completions',
+    'fledge-alpha-free': 'chat/completions',
+    'ling-3.1-flash-free': 'chat/completions',
 
-    // OpenAI Responses (28 models)
+    // OpenAI Responses (32 models)
     'gpt-6-astra': 'responses',
     'gpt-5.6-sol': 'responses',
     'gpt-5.6-terra': 'responses',
@@ -101,6 +114,10 @@ export const OPENCODE_MODEL_ROUTES: OpenCodeModelRoutes = Object.freeze({
     'muse-spark-1.3': 'responses',
     'muse-spark-1.2': 'responses',
     'muse-spark-1.3-contributor-free': 'responses',
+    'gpt-6.1-sol': 'responses',
+    'gpt-6-sol': 'responses',
+    'gpt-6-luna': 'responses',
+    'muse-spark-1.2-contributor-free': 'responses',
   }),
   'opencode-go': Object.freeze({
     // Anthropic Messages (8 models)
@@ -113,7 +130,7 @@ export const OPENCODE_MODEL_ROUTES: OpenCodeModelRoutes = Object.freeze({
     'qwen3.7-plus': 'messages',
     'qwen3.6-plus': 'messages',
 
-    // OpenAI Chat Completions (18 models)
+    // OpenAI Chat Completions (20 models)
     'glm-5.3-flash': 'chat/completions',
     'glm-5.3': 'chat/completions',
     'glm-5.2': 'chat/completions',
@@ -131,13 +148,17 @@ export const OPENCODE_MODEL_ROUTES: OpenCodeModelRoutes = Object.freeze({
     'mimo-v2.5': 'chat/completions',
     'mimo-v2.5-pro': 'chat/completions',
     'hy4-preview': 'chat/completions',
-    'hy3': 'chat/completions',
+    hy3: 'chat/completions',
+    'longcat-2.5-preview-free': 'chat/completions',
+    'space-bunny': 'chat/completions',
 
-    // OpenAI Responses (5 models)
+    // OpenAI Responses (7 models)
     'grok-4.7': 'responses',
     'grok-4.6': 'responses',
     'gpt-5.6-luna': 'responses',
     'muse-spark-1.3-contributor': 'responses',
+    'grok-4.5': 'responses',
+    'gpt-6-luna': 'responses',
     'muse-spark-1.2-contributor': 'responses',
   }),
 });
