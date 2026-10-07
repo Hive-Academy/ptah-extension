@@ -46,7 +46,6 @@ import {
   mkdtemp,
   readdir,
   readFile,
-  rm,
   stat,
   writeFile,
 } from 'node:fs/promises';
@@ -56,6 +55,7 @@ import { join, resolve } from 'node:path';
 
 import { killProcessTree } from '@ptah-extension/platform-core';
 
+import { removeTempDir } from './temp-cleanup';
 import { classifyHostExit, isolatedEnv, type HostExit } from './host-launcher';
 import { McpHttpClient, workspaceBaseUrl } from './mcp-client';
 import {
@@ -131,6 +131,8 @@ export type ElectronStopReport =
        */
       readonly exit: HostExit;
       readonly isolatedDbCreated: boolean;
+      /** `temp folder left: <path>: <error>` when the temp home could not be removed. */
+      readonly tempLeft: string | null;
       readonly guard: GuardReport;
     };
 
@@ -342,7 +344,10 @@ export async function launchElectronHost(
   };
   const discard = async (bootError: unknown): Promise<never> => {
     await teardown();
-    await removeDir(tempHome);
+    const left = await removeDir(tempHome);
+    if (left !== null)
+      process.stderr.write(`[host] ${left}
+`);
     await guard.finish();
     throw bootError;
   };
@@ -400,11 +405,12 @@ export async function launchElectronHost(
         client.close();
         const exit = await teardown();
         const isolatedDbCreated = await fileExists(isolatedDb);
-        await removeDir(tempHome);
+        const tempLeft = await removeDir(tempHome);
         return {
           mode: 'launch',
           exit,
           isolatedDbCreated,
+          tempLeft,
           guard: await guard.finish(),
         };
       })();
@@ -533,12 +539,7 @@ async function fileExists(path: string): Promise<boolean> {
   }
 }
 
-async function removeDir(dir: string): Promise<void> {
-  // Windows releases a dead process's file handles a moment after its exit.
-  await rm(dir, {
-    recursive: true,
-    force: true,
-    maxRetries: 10,
-    retryDelay: 200,
-  });
+/** Removes the temp home with retries; the reason it was left, or `null`. Never throws. */
+function removeDir(dir: string): Promise<string | null> {
+  return removeTempDir(dir);
 }

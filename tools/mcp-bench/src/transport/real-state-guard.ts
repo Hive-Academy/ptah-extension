@@ -39,7 +39,11 @@ import { realpath, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join, resolve, sep } from 'node:path';
 
-import { platformHandleProbe, type HandleProbe } from './open-handle-probe';
+import {
+  platformHandleProbe,
+  type HandleProbe,
+  type ProcessEntry,
+} from './open-handle-probe';
 
 /** One guarded file, as seen at one moment. */
 export interface GuardedFileState {
@@ -77,6 +81,12 @@ export interface HeldRealPath {
   readonly pid: number;
   readonly name: string;
   readonly path: string;
+  /** Holder command line, capped at 300 characters when sampled. */
+  readonly commandLine?: string | null;
+  /** Holder creation time as an ISO string, when sampled. */
+  readonly createdAt?: string | null;
+  /** Pids from the holder through its observed ancestors to the host root. */
+  readonly parentPids?: readonly number[];
 }
 
 /** A bench process with handles the probe could not name (process-watch). */
@@ -106,12 +116,23 @@ export class BenchHeldRealStateError extends Error {
   ) {
     super(
       'A bench process held a path under the real ~/.ptah: ' +
-        held.map((h) => `${h.name || 'pid'} ${h.pid} → ${h.path}`).join('; ') +
+        held.map(describeHeld).join('; ') +
         describeUnprobed(unprobed) +
         '. Isolation is broken; the run is void.',
     );
     this.name = 'BenchHeldRealStateError';
   }
+}
+
+function describeHeld(held: HeldRealPath): string {
+  return (
+    `${held.name || 'pid'} ${held.pid} → ${held.path}` +
+    (held.commandLine ? `; command line: ${held.commandLine}` : '') +
+    (held.createdAt ? `; created: ${held.createdAt}` : '') +
+    (held.parentPids && held.parentPids.length > 0
+      ? `; parent chain: ${held.parentPids.join(' → ')}`
+      : '')
+  );
 }
 
 /** The environment cannot give a run a valid guard. Not a code failure. */
@@ -398,11 +419,20 @@ export class RealStateGuard {
     try {
       const realDirs = await realPtahDirs(this.realHome);
       const result = await this.probe.treeOpenPaths(this.rootPid);
+      const processes = new Map(result.tree.map((p) => [p.pid, p]));
       const names = new Map(result.tree.map((p) => [p.pid, p.name]));
       for (const { pid, path } of result.open) {
         if (!realDirs.some((dir) => isUnder(path, dir))) continue;
         if (this.held.some((h) => h.pid === pid && h.path === path)) continue;
-        this.held.push({ pid, name: names.get(pid) ?? '', path });
+        const holder = processes.get(pid);
+        this.held.push({
+          pid,
+          name: names.get(pid) ?? '',
+          path,
+          commandLine: truncateCommandLine(holder?.commandLine),
+          createdAt: createdAt(holder),
+          parentPids: parentChain(pid, this.rootPid, processes),
+        });
       }
       this.samples += 1;
       this.maxTreeProcesses = Math.max(
@@ -424,6 +454,33 @@ export class RealStateGuard {
         error instanceof Error ? error.message : String(error);
     }
   }
+}
+
+function truncateCommandLine(commandLine: string | null | undefined): string | null {
+  return commandLine == null ? null : commandLine.slice(0, 300);
+}
+
+function createdAt(process: ProcessEntry | undefined): string | null {
+  return process?.createdMs == null
+    ? null
+    : new Date(process.createdMs).toISOString();
+}
+
+function parentChain(
+  pid: number,
+  rootPid: number,
+  processes: ReadonlyMap<number, ProcessEntry>,
+): number[] {
+  const chain: number[] = [];
+  const seen = new Set<number>();
+  for (let current: number | undefined = pid; current !== undefined; ) {
+    if (seen.has(current)) break;
+    seen.add(current);
+    chain.push(current);
+    if (current === rootPid) break;
+    current = processes.get(current)?.ppid;
+  }
+  return chain;
 }
 
 /** The real `~/.ptah` as given and as resolved (a junction or symlink names it twice). */

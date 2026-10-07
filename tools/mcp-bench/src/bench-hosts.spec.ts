@@ -51,6 +51,7 @@ function fakeLaunched(): LaunchedHost {
     stop: async () => ({
       exit: CLEAN,
       isolatedDbCreated: true,
+      tempLeft: null,
       guard: { mode: 'hash', before: [], after: [] } as never,
     }),
   };
@@ -187,5 +188,25 @@ describe('startHost', () => {
     ).rejects.toBe(guard);
     expect(guard.cause).toEqual(new Error('bad body'));
     expect(launch).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('runMetadata temp folders', () => {
+  it('records a temp folder that could not be removed in the host exit detail, and the run continues', () => {
+    const record = {
+      label: 'main',
+      workspaceRoot: '/w',
+      exit: { kind: 'killed' as const, exitCode: 1, signal: null },
+      guard: null,
+      guardMode: 'hash' as const,
+      launchFailures: [],
+      started: true,
+      tempLeft: 'temp folder left: /tmp/home: EBUSY',
+    };
+    const meta = runMetadata([record]);
+    expect(meta.hostExit.kind).toBe('killed');
+    expect(meta.hostExit.detail).toContain(
+      'main: temp folder left: /tmp/home: EBUSY',
+    );
   });
 });

@@ -12,6 +12,7 @@ import {
 import { hostname, tmpdir } from 'node:os';
 import { basename, isAbsolute, join, relative, resolve } from 'node:path';
 import { z } from 'zod';
+import { removeTempDir } from '../transport/temp-cleanup';
 const corpusConfigSchema = z.object({
   repository: z.string().min(1),
   commit: z.string().regex(/^[0-9a-f]+$/i),
@@ -254,11 +255,13 @@ export async function withPinnedCorpus<T>(
     }
     throw primaryError;
   }
-  if (cleanupErrors.length > 0) {
-    throw new Error(
-      `Corpus cleanup failed: ${cleanupErrors.map(errorMessage).join('; ')}`,
+  // The run succeeded: a corpus folder left behind is reported and swept by the
+  // next run's stale-worktree pass, it must not discard the scorecard.
+  if (cleanupErrors.length > 0)
+    process.stderr.write(
+      `[corpus] corpus cleanup failed, the run's result is kept: ${cleanupErrors.map(errorMessage).join('; ')}
+`,
     );
-  }
   return value as T;
 }
 export async function withLifecycleCorpus<T>(
@@ -280,7 +283,12 @@ export async function withLifecycleCorpus<T>(
       ),
     });
   } finally {
-    await rm(path, { recursive: true, force: true });
+    // A temp copy that cannot be removed (win32 handles of a killed host) is
+    // reported, never allowed to replace the run's result.
+    const left = await removeTempDir(path);
+    if (left !== null)
+      process.stderr.write(`[corpus] ${left}
+`);
   }
 }
 /** The raw source-file count of {@link CheckedOutCorpus.eligibleFiles}. */
@@ -393,11 +401,8 @@ async function cleanupCorpusPath(
     }
   }
   for (const target of [path, corpusOwnerPath(path)]) {
-    try {
-      await rm(target, { recursive: true, force: true });
-    } catch (error: unknown) {
-      errors.push(error);
-    }
+    const left = await removeTempDir(target);
+    if (left !== null) errors.push(new Error(left));
   }
   return errors;
 }

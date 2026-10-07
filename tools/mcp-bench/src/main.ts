@@ -28,7 +28,7 @@
 
 import { execFile } from 'node:child_process';
 import { readFileSync } from 'node:fs';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
@@ -95,6 +95,7 @@ import {
 } from './suites/tool-suites';
 import { ATTACH_MODE_NA_REASON } from './transport/electron-host';
 import { isGuardError, runThenStop } from './transport/guarded-stop';
+import { removeTempDir } from './transport/temp-cleanup';
 import { HostLaunchError } from './transport/host-launcher';
 import {
   BenchHeldRealStateError,
@@ -612,7 +613,8 @@ async function runBench(options: BenchOptions): Promise<number> {
     for (const problem of problems) log(`[bench] failure recorded: ${problem}`);
     return problems.length > 0 ? 2 : 0;
   } finally {
-    await rm(scratch, { recursive: true, force: true }).catch(() => undefined);
+    const left = await removeTempDir(scratch);
+    if (left !== null) log(`[bench] ${left}`);
   }
 }
 

@@ -44,6 +44,10 @@ export interface ProcessEntry {
   readonly pid: number;
   readonly ppid: number;
   readonly name: string;
+  /** Process creation time as Unix epoch milliseconds, when the platform exposes it. */
+  readonly createdMs?: number | null;
+  /** Command line, when the platform exposes it. */
+  readonly commandLine?: string | null;
 }
 
 export interface HoldersResult {
@@ -93,10 +97,21 @@ export function processTree(
   rootPid: number,
   processes: readonly ProcessEntry[],
 ): Set<number> {
+  const byPid = new Map(processes.map((entry) => [entry.pid, entry]));
+  const root = byPid.get(rootPid);
   const children = new Map<number, number[]>();
   for (const entry of processes) {
     // A pid that names itself as parent (the idle/system entries) is no tree.
     if (entry.pid === entry.ppid) continue;
+    const parent = byPid.get(entry.ppid);
+    // A Windows PID can be reused while an old process still retains it as its
+    // ParentProcessId. Only adopt that child when the timestamps permit it.
+    if (
+      (parent !== undefined && parent.createdMs != null &&
+        entry.createdMs != null && entry.createdMs < parent.createdMs) ||
+      (root !== undefined && root.createdMs != null &&
+        entry.createdMs != null && entry.createdMs < root.createdMs)
+    ) continue;
     const siblings = children.get(entry.ppid) ?? [];
     siblings.push(entry.pid);
     children.set(entry.ppid, siblings);
@@ -250,8 +265,12 @@ public static class PtahBenchProbe {
 '@
 $request = [Console]::In.ReadToEnd() | ConvertFrom-Json
 $processes = New-Object System.Collections.ArrayList
-foreach ($p in Get-CimInstance -ClassName Win32_Process -Property ProcessId, ParentProcessId, Name) {
-  [void]$processes.Add(@{ pid = [long]$p.ProcessId; ppid = [long]$p.ParentProcessId; name = [string]$p.Name })
+foreach ($p in Get-CimInstance -ClassName Win32_Process -Property ProcessId, ParentProcessId, Name, CreationDate, CommandLine) {
+  $createdMs = $null
+  if ($null -ne $p.CreationDate) {
+    $createdMs = [long]([DateTimeOffset]($p.CreationDate.ToUniversalTime())).ToUnixTimeMilliseconds()
+  }
+  [void]$processes.Add(@{ pid = [long]$p.ProcessId; ppid = [long]$p.ParentProcessId; name = [string]$p.Name; createdMs = $createdMs; commandLine = if ($null -eq $p.CommandLine) { $null } else { [string]$p.CommandLine } })
 }
 $out = @{ processes = $processes.ToArray() }
 if ($request.mode -eq 'holders') {
@@ -264,11 +283,17 @@ if ($request.mode -eq 'holders') {
 } else {
   $tree = New-Object 'System.Collections.Generic.HashSet[long]'
   [void]$tree.Add([long]$request.rootPid)
+  $byPid = @{}
+  foreach ($p in $processes) { $byPid[[long]$p.pid] = $p }
+  $root = $byPid[[long]$request.rootPid]
   $grew = $true
   while ($grew) {
     $grew = $false
     foreach ($p in $processes) {
-      if (($p.pid -ne $p.ppid) -and $tree.Contains($p.ppid) -and $tree.Add($p.pid)) { $grew = $true }
+      $parent = $byPid[[long]$p.ppid]
+      $childBeforeParent = ($null -ne $parent) -and ($null -ne $p.createdMs) -and ($null -ne $parent.createdMs) -and ($p.createdMs -lt $parent.createdMs)
+      $childBeforeRoot = ($null -ne $root) -and ($null -ne $p.createdMs) -and ($null -ne $root.createdMs) -and ($p.createdMs -lt $root.createdMs)
+      if (($p.pid -ne $p.ppid) -and $tree.Contains($p.ppid) -and -not $childBeforeParent -and -not $childBeforeRoot -and $tree.Add($p.pid)) { $grew = $true }
     }
   }
   $open = [PtahBenchProbe]::OpenPaths([long[]]@($tree), [int]$request.perHandleTimeoutMs)
@@ -391,6 +416,8 @@ function parseProcesses(value: unknown): ProcessEntry[] {
             pid: entry['pid'],
             ppid: entry['ppid'],
             name: String(entry['name'] ?? ''),
+            createdMs: typeof entry['createdMs'] === 'number' ? entry['createdMs'] : null,
+            commandLine: typeof entry['commandLine'] === 'string' ? entry['commandLine'] : null,
           },
         ]
       : [];

@@ -131,6 +131,8 @@ export interface HostRecord {
   /** Launch attempts that died before ready; one retry is allowed, never silent. */
   readonly launchFailures: LaunchFailure[];
   started: boolean;
+  /** `temp folder left: <path>: <error>`: the host's temp home could not be removed after its stop. */
+  tempLeft: string | null;
 }
 
 /**
@@ -171,6 +173,7 @@ export async function startHost(
     guardMode: 'not-applied',
     launchFailures: [],
     started: false,
+    tempLeft: null,
   };
   records.push(record);
   for (let attempt = 1; ; attempt += 1) {
@@ -253,7 +256,11 @@ async function startHostOnce(
   let dbPath: string | null;
   let client: McpHttpClient;
   let memoryNaReason: string | null = null;
-  let stopHost: () => Promise<{ exit: HostExit; guard: GuardReport | null }>;
+  let stopHost: () => Promise<{
+    exit: HostExit;
+    guard: GuardReport | null;
+    tempLeft: string | null;
+  }>;
   if (target.host === 'cli-headless') {
     const launched = await launchCli({
       workspaceRoot,
@@ -268,7 +275,11 @@ async function startHostOnce(
       memoryNaReason = 'memory roots were not seeded for this host';
     stopHost = async () => {
       const report = await launched.stop();
-      return { exit: report.exit, guard: report.guard };
+      return {
+        exit: report.exit,
+        guard: report.guard,
+        tempLeft: report.tempLeft,
+      };
     };
   } else {
     const electron =
@@ -294,8 +305,13 @@ async function startHostOnce(
                 'attach mode: the bench neither started nor stopped the app',
             },
             guard: null,
+            tempLeft: null,
           }
-        : { exit: report.exit, guard: report.guard };
+        : {
+            exit: report.exit,
+            guard: report.guard,
+            tempLeft: report.tempLeft,
+          };
     };
   }
   // Post-launch discovery: a failure here must not leave the host, its
@@ -349,6 +365,9 @@ async function startHostOnce(
         const report = await stopHost();
         record.exit = report.exit;
         record.guard = report.guard;
+        record.tempLeft = report.tempLeft;
+        if (report.tempLeft !== null)
+          log(`[host] ${label}: ${report.tempLeft}`);
         log(
           `[host] ${label} stopped: ${report.exit.kind}${report.exit.detail ? ` (${report.exit.detail})` : ''}`,
         );
@@ -398,6 +417,9 @@ export function runMetadata(
     ...others.map(
       (record) =>
         `${record.label}: ${record.exit?.kind}${record.exit?.detail ? ` (${record.exit.detail})` : ''}`,
+    ),
+    ...records.flatMap((record) =>
+      record.tempLeft === null ? [] : [`${record.label}: ${record.tempLeft}`],
     ),
     ...records.flatMap((record) =>
       record.launchFailures.map(

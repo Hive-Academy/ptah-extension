@@ -1088,7 +1088,9 @@ describe('open-handle probe: unprobed handles per pid', () => {
         }),
       ),
     ).toEqual({
-      tree: processes.slice(0, 2),
+      tree: processes
+        .slice(0, 2)
+        .map((p) => ({ ...p, createdMs: null, commandLine: null })),
       open: [
         { pid: 10, path: 'C:\\work\\a.txt' },
         { pid: 11, path: 'C:\\work\\b.txt' },

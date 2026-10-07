@@ -26,7 +26,7 @@
  */
 
 import { spawn, type ChildProcess } from 'node:child_process';
-import { mkdir, mkdtemp, rm, stat } from 'node:fs/promises';
+import { mkdir, mkdtemp, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
@@ -34,6 +34,7 @@ import { killProcessTree } from '@ptah-extension/platform-core';
 
 import { isSamePath } from '../bench-data';
 import { McpHttpClient, workspaceBaseUrl } from './mcp-client';
+import { removeTempDir } from './temp-cleanup';
 import {
   armRealStateGuard,
   type GuardMode,
@@ -198,6 +199,8 @@ export interface HostStopReport {
   readonly exit: HostExit;
   /** The isolated database file existed when the host stopped. */
   readonly isolatedDbCreated: boolean;
+  /** `temp folder left: <path>: <error>` when the temp home could not be removed. */
+  readonly tempLeft: string | null;
   readonly guard: GuardReport;
 }
 
@@ -417,7 +420,10 @@ export async function launchBenchHost(
   // outranks the boot error.
   const discard = async (bootError: unknown): Promise<never> => {
     const exit = await teardown();
-    await removeTempHome(tempHome);
+    const left = await removeTempHome(tempHome);
+    if (left !== null)
+      process.stderr.write(`[host] ${left}
+`);
     await guard.finish();
     throw new HostLaunchError(
       bootError instanceof Error ? bootError.message : String(bootError),
@@ -465,9 +471,9 @@ export async function launchBenchHost(
       client.close();
       const exit = await teardown();
       const isolatedDbCreated = await fileExists(ready.dbPath);
-      await removeTempHome(tempHome);
+      const tempLeft = await removeTempHome(tempHome);
       const guardReport = await guard.finish();
-      return { exit, isolatedDbCreated, guard: guardReport };
+      return { exit, isolatedDbCreated, tempLeft, guard: guardReport };
     })();
     return stopped;
   };
@@ -589,12 +595,7 @@ async function fileExists(path: string): Promise<boolean> {
   }
 }
 
-async function removeTempHome(tempHome: string): Promise<void> {
-  // Windows releases a dead process's file handles a moment after its exit.
-  await rm(tempHome, {
-    recursive: true,
-    force: true,
-    maxRetries: 10,
-    retryDelay: 200,
-  });
+/** Removes the temp home with retries; the reason it was left, or `null`. Never throws. */
+function removeTempHome(tempHome: string): Promise<string | null> {
+  return removeTempDir(tempHome);
 }
