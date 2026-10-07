@@ -90,6 +90,15 @@ Task:
 > Consider also how lane-completion and peer-message turns interact with the budget (they should
 > queue behind the handoff, not start new work past the limit).
 >
+> Second defect, same flow: `ptah_session_start` refuses from a child session with `depth-exceeded`
+> ("a child session cannot start child sessions (depth is limited to 1)"). The user moves work to
+> fresh sessions to save context; the old session usually closes right after the new one starts.
+> That is a successor (hand-over), not a nested child, so depth must not block it. Add a
+> successor/hand-over mode: any session (child or not) can start its successor; the successor is
+> top-level (or inherits the closing session's parent), has no parent link to the closing session,
+> and the closing session ends after the successor confirms start. Keep the depth limit only for
+> real nested children that run at the same time as their parent.
+>
 > Rules: follow CLAUDE.md memory-safe verification (only changed projects, jest
 > `--maxWorkers=2`, nx `--parallel=1`, no workspace-wide checks, no build/serve/e2e/package). Present
 > the plan to the user before implementation. Ask before any push.
