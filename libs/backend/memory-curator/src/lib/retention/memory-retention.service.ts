@@ -22,12 +22,14 @@
  * database read: a closed connection cannot answer it.
  * ## Run steps
  *
- * Processed purge → stuck quarantine → ledger prune → page reclaim +
- * passive checkpoint → record. Between committed batches the service checks
- * every hard stop and yields; slow batches and reclaim steps halve their size.
+ * Processed purge → stuck count → ledger prune → page reclaim + passive
+ * checkpoint → record. Between committed batches the service checks every hard
+ * stop and yields; slow batches and reclaim steps halve their size.
  *
  * `run` never rejects and always clears the single-flight flag. Nothing here
- * writes `processed_at`.
+ * writes `processed_at`, and no step deletes a row extraction never processed:
+ * unprocessed rows older than `stuckDays` are counted and warned about, never
+ * removed (TASK_2026_621).
  */
 import { inject, injectable } from 'tsyringe';
 import {
@@ -137,7 +139,8 @@ function purgeFreedBytes(
 /** Mutable tallies of one run. */
 interface RunTally {
   processedPurged: number;
-  stuckQuarantined: number;
+  /** Unprocessed rows older than stuckDays that retention kept; `null` if unread. */
+  stuckKept: number | null;
   ledgerPruned: number;
   freedBytes: number;
   /** Both purge page-stat samples were valid, so `freedBytes` is a measurement. */
@@ -205,7 +208,7 @@ export class MemoryRetentionService {
         status: 'failed',
         reason: 'unexpected-error',
         processedPurged: 0,
-        stuckQuarantined: 0,
+        stuckKept: null,
         ledgerPruned: 0,
         freedBytes: 0,
         pagesReclaimed: 0,
@@ -318,7 +321,7 @@ export class MemoryRetentionService {
     const limits = this.limits;
     const tally: RunTally = {
       processedPurged: 0,
-      stuckQuarantined: 0,
+      stuckKept: null,
       ledgerPruned: 0,
       freedBytes: 0,
       freedBytesMeasured: false,
@@ -391,36 +394,19 @@ export class MemoryRetentionService {
       tally.freedBytes = freed ?? 0;
       tally.freedBytesMeasured = freed !== null;
 
-      // 2. Stuck quarantine — unprocessed and captured before stuckDays.
-      if (!stop) {
-        const stuckCutoff = startedAt - settings.stuckDays * DAY_MS;
-        for (;;) {
-          stop = budget.hardStop();
-          if (stop) break;
-          const rowRoom = budget.queueRowRoom();
-          if (rowRoom <= 0) {
-            stop = 'row-budget';
-            break;
-          }
-          stop = await budget.waitForGovernor('queue');
-          if (stop) break;
-          const t0 = now();
-          const batch = this.store.quarantineStuckBatch(
-            stuckCutoff,
-            Math.min(budget.batchSize('queue'), rowRoom),
-            startedAt,
+      // 2. Stuck count — unprocessed rows captured before stuckDays are KEPT.
+      // Deleting them would silently lose observations extraction never saw;
+      // the count makes a stalled curator visible instead. One index-bounded
+      // read that never throws, so it consumes no row budget.
+      if (stop === null || stop === 'row-budget') {
+        tally.stuckKept = this.store.readLiveStorage(
+          startedAt - settings.stuckDays * DAY_MS,
+        ).stuckEligibleRows;
+        if (tally.stuckKept !== null && tally.stuckKept > 0) {
+          this.logger.warn(
+            '[memory-curator] retention kept unprocessed observations older than stuckDays',
+            { stuckKept: tally.stuckKept, stuckDays: settings.stuckDays },
           );
-          const durationMs = now() - t0;
-          tally.stuckQuarantined += batch.quarantined;
-          budget.consumeQueueRows(batch.quarantined);
-          this.logger.debug('[memory-curator] retention quarantine batch', {
-            quarantined: batch.quarantined,
-            payloadBytes: batch.payloadBytes,
-            durationMs,
-          });
-          budget.observe('queue', durationMs);
-          if (batch.quarantined === 0) break;
-          await budget.yieldToEventLoop();
         }
       }
 
@@ -581,7 +567,7 @@ export class MemoryRetentionService {
       status,
       reason,
       processedPurged: tally.processedPurged,
-      stuckQuarantined: tally.stuckQuarantined,
+      stuckKept: tally.stuckKept,
       ledgerPruned: tally.ledgerPruned,
       freedBytes: tally.freedBytes,
       pagesReclaimed: tally.pagesReclaimed,
@@ -608,14 +594,14 @@ export class MemoryRetentionService {
         reason,
         error,
         processedPurged: report.processedPurged,
-        stuckQuarantined: report.stuckQuarantined,
+        stuckKept: report.stuckKept,
       });
     } else {
       this.logger.info('[memory-curator] memory retention run finished', {
         status,
         reason,
         processedPurged: report.processedPurged,
-        stuckQuarantined: report.stuckQuarantined,
+        stuckKept: report.stuckKept,
         ledgerPruned: report.ledgerPruned,
         freedBytes: report.freedBytes,
         pagesReclaimed: report.pagesReclaimed,
@@ -661,7 +647,8 @@ export class MemoryRetentionService {
         error: report.error,
         durationMs: report.durationMs,
         processedPurged: report.processedPurged,
-        stuckQuarantined: report.stuckQuarantined,
+        // Unprocessed rows are kept, never quarantined (TASK_2026_621).
+        stuckQuarantined: 0,
         ledgerPruned: report.ledgerPruned,
         freedBytes: report.freedBytes,
         pagesReclaimed: report.pagesReclaimed,

@@ -295,11 +295,13 @@ export class MemoryCuratorService {
         });
       })()
         .then(
-          // Stamp only an auto pass that ran. A thrown or stalled/deferred
+          // Stamp an auto pass that dispatched. A thrown or stalled/deferred
           // pass releases its reservation and leaves the watermark alone so
-          // the next PreCompact can retry.
+          // the next PreCompact can retry. A `'failed'` pass stamps, as it did
+          // while it was reported as `'ran'`: TASK_2026_621 bounds failed-pass
+          // retries in the trigger's observation queue, not here.
           (stats) =>
-            this.settlePreCompact(reservation, stats.outcome === 'ran'),
+            this.settlePreCompact(reservation, stats.outcome !== 'stalled'),
           (err: unknown) => {
             this.settlePreCompact(reservation, false);
             throw err;

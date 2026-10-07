@@ -174,6 +174,8 @@ export function readMemoryStorageHealth(input: {
       measuredAt:
         processedRows !== null ? (state?.lastFinishedAt ?? null) : null,
       quarantineLedgerRows: live.quarantineLedgerRows,
+      bootScanFailuresPending: live.bootScanFailuresPending,
+      bootScanFailuresGivenUp: live.bootScanFailuresGivenUp,
     },
     retention: {
       healthVerdict: computeRetentionHealthVerdict(

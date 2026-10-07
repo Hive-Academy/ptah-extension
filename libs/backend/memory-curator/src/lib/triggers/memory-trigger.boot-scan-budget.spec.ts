@@ -17,6 +17,13 @@ import { CuratorRateLimitService } from '@ptah-extension/agent-sdk';
 import { MemoryTriggerService } from './memory-trigger.service';
 import type { MemoryCuratorService } from '../memory-curator.service';
 import type { ObservationQueueStore } from '../observation-queue.store';
+import { ObservationRetentionStore } from '../retention/observation-retention.store';
+import {
+  openRetentionTestDb,
+  removeRetentionTempDirs,
+  type RetentionTestDb,
+} from '../retention/retention-sqlite.test-support';
+import { BOOT_SCAN_MAX_ATTEMPTS } from './boot-scan-failure-ledger';
 
 /**
  * TASK_2026_319, defect 2 — the boot scan draws from the hourly curate budget.
@@ -388,5 +395,312 @@ describe('MemoryTriggerService boot scan — the hourly curate budget (TASK_2026
     expect(rateLimiter.snapshot('memory.curate')?.count).toBe(0);
     expect(state.value).toBeNull();
     h.service.stop();
+  });
+});
+
+/**
+ * TASK_2026_621. A boot-scan pass whose extract/resolve call failed curated
+ * nothing. Reported as `'ran'`, it advanced the watermark and the next boot's
+ * `mtime > watermark` filter skipped the session for good. Now the session is
+ * recorded in the `memory_boot_scan_failures` ledger (migration 0052), the
+ * watermark advances so later healthy sessions are never blocked, and later
+ * boots retry it a bounded number of times.
+ *
+ * Real SQLite (the retention test harness, migrations 0014 + 0052 applied) and
+ * the real `BootScanRunner`, driven through `MemoryTriggerService.start()`.
+ */
+describe('MemoryTriggerService boot scan — failed sessions go to the failure ledger (TASK_2026_621)', () => {
+  const now = Date.now();
+  const FAILED = {
+    outcome: 'failed',
+    extracted: 0,
+    merged: 0,
+    created: 0,
+    skipped: 0,
+  };
+  const RAN = { ...FAILED, outcome: 'ran' };
+  const opened: RetentionTestDb[] = [];
+
+  afterEach(() => {
+    for (const t of opened.splice(0)) t.close();
+  });
+  afterAll(() => removeRetentionTempDirs());
+
+  function openDb(): RetentionTestDb {
+    const t = openRetentionTestDb();
+    opened.push(t);
+    return t;
+  }
+
+  /** One boot: a fresh service over the same database and sessions dir. */
+  async function boot(
+    t: RetentionTestDb,
+    dir: string,
+    results: ReadonlyArray<Record<string, unknown>>,
+  ): Promise<Harness> {
+    const h = buildHarness({
+      sessionsDir: dir,
+      sqlite: t.connection,
+      rateLimiter: new CuratorRateLimitService(makeLogger()),
+      maxCuratesPerHour: 100,
+    });
+    for (const r of results) h.curate.mockResolvedValueOnce(r);
+    h.service.start();
+    await h.bootScanDone;
+    h.service.stop();
+    return h;
+  }
+
+  function ledgerRows(t: RetentionTestDb): Array<Record<string, unknown>> {
+    return t.raw
+      .prepare(
+        'SELECT session_id, attempt_count, status, give_up_reason FROM memory_boot_scan_failures ORDER BY session_id',
+      )
+      .all() as Array<Record<string, unknown>>;
+  }
+
+  function watermark(t: RetentionTestDb): number | null {
+    const row = t.raw
+      .prepare(
+        `SELECT last_scanned_session_mtime AS m FROM boot_scan_state WHERE pipeline = 'memory'`,
+      )
+      .get() as { m: number } | undefined;
+    return row === undefined ? null : Number(row.m);
+  }
+
+  function sessionIds(h: Harness): string[] {
+    return h.curate.mock.calls.map(
+      (c) => (c[0] as { sessionId: string }).sessionId,
+    );
+  }
+
+  it('a failed session does not block a later healthy session, and is recorded pending', async () => {
+    const t = openDb();
+    const dir = await makeSessionsDir([
+      { name: 'failing.jsonl', mtime: now - 3 * DAY_MS },
+      { name: 'healthy.jsonl', mtime: now - 1 * DAY_MS },
+    ]);
+
+    const h = await boot(t, dir, [FAILED, RAN]);
+
+    expect(sessionIds(h)).toEqual(['failing', 'healthy']);
+    const bootScan = h.events.find((e) => e.kind === 'boot-scan');
+    expect(bootScan?.stats).toMatchObject({ failed: 1, succeeded: 1 });
+    expect(watermark(t)).toBeGreaterThanOrEqual(now - 1 * DAY_MS - 1);
+    expect(ledgerRows(t)).toEqual([
+      {
+        session_id: 'failing',
+        attempt_count: 1,
+        status: 'pending',
+        give_up_reason: null,
+      },
+    ]);
+  });
+
+  it('retries the failed session on the next boot even though the watermark is past it; success removes the row', async () => {
+    const t = openDb();
+    const dir = await makeSessionsDir([
+      { name: 'failing.jsonl', mtime: now - 3 * DAY_MS },
+    ]);
+    await boot(t, dir, [FAILED]);
+    expect(ledgerRows(t)).toHaveLength(1);
+
+    const second = await boot(t, dir, [RAN]);
+
+    expect(sessionIds(second)).toEqual(['failing']);
+    expect(
+      second.events.find((e) => e.kind === 'boot-scan')?.stats,
+    ).toMatchObject({ retried: 1, recovered: 1 });
+    expect(ledgerRows(t)).toEqual([]);
+  });
+
+  it('marks the session given_up after the maximum attempts and counts it in diagnostics', async () => {
+    const t = openDb();
+    const dir = await makeSessionsDir([
+      { name: 'failing.jsonl', mtime: now - 3 * DAY_MS },
+    ]);
+    // Attempt 1 in the scan, attempts 2 and 3 as retries on later boots.
+    await boot(t, dir, [FAILED]);
+    await boot(t, dir, [FAILED]);
+    expect(ledgerRows(t)[0]).toMatchObject({
+      attempt_count: 2,
+      status: 'pending',
+    });
+    const third = await boot(t, dir, [FAILED]);
+    expect(
+      third.events.find((e) => e.kind === 'boot-scan')?.stats,
+    ).toMatchObject({ retried: 1, givenUp: 1 });
+    expect(ledgerRows(t)).toEqual([
+      {
+        session_id: 'failing',
+        attempt_count: BOOT_SCAN_MAX_ATTEMPTS,
+        status: 'given_up',
+        give_up_reason: 'max-attempts',
+      },
+    ]);
+
+    // A given-up session is not retried again.
+    const fourth = await boot(t, dir, []);
+    expect(fourth.curate).not.toHaveBeenCalled();
+
+    const live = new ObservationRetentionStore(
+      makeLogger(),
+      t.connection,
+    ).readLiveStorage(now);
+    expect(live.bootScanFailuresPending).toBe(0);
+    expect(live.bootScanFailuresGivenUp).toBe(1);
+  });
+
+  it('gives up on a session whose file no longer exists instead of retrying it forever', async () => {
+    const t = openDb();
+    const dir = await makeSessionsDir([
+      { name: 'gone.jsonl', mtime: now - 3 * DAY_MS },
+    ]);
+    await boot(t, dir, [FAILED]);
+    await fs.rm(path.join(dir, 'gone.jsonl'));
+
+    const second = await boot(t, dir, []);
+
+    expect(second.curate).not.toHaveBeenCalled();
+    expect(ledgerRows(t)).toEqual([
+      {
+        session_id: 'gone',
+        attempt_count: 1,
+        status: 'given_up',
+        give_up_reason: 'session-file-missing',
+      },
+    ]);
+  });
+
+  it('a gate stop during retries spends no attempt and does not start the scan', async () => {
+    const t = openDb();
+    const dir = await makeSessionsDir([
+      { name: 'failing.jsonl', mtime: now - 3 * DAY_MS },
+    ]);
+    await boot(t, dir, [FAILED]);
+    const before = watermark(t);
+    // A later session appears, but the curator's gate stalls every pass.
+    await fs.writeFile(path.join(dir, 'later.jsonl'), '{}\n');
+
+    const h = buildHarness({
+      sessionsDir: dir,
+      sqlite: t.connection,
+      rateLimiter: new CuratorRateLimitService(makeLogger()),
+      maxCuratesPerHour: 100,
+    });
+    h.curate.mockResolvedValue({ ...FAILED, outcome: 'stalled' });
+    h.service.start();
+    await h.bootScanDone;
+    h.service.stop();
+
+    expect(h.curate).toHaveBeenCalledTimes(1);
+    expect(ledgerRows(t)[0]).toMatchObject({
+      attempt_count: 1,
+      status: 'pending',
+    });
+    expect(watermark(t)).toBe(before);
+  });
+
+  /** Fail a session on three boots so its ledger row ends `given_up`. */
+  async function giveUp(t: RetentionTestDb, dir: string): Promise<void> {
+    for (let i = 0; i < BOOT_SCAN_MAX_ATTEMPTS; i++) {
+      await boot(t, dir, [FAILED]);
+    }
+    expect(ledgerRows(t)[0]).toMatchObject({ status: 'given_up' });
+  }
+
+  it('reopens a given_up session as pending when a changed session file fails again', async () => {
+    const t = openDb();
+    const dir = await makeSessionsDir([
+      { name: 'failing.jsonl', mtime: now - 3 * DAY_MS },
+    ]);
+    await giveUp(t, dir);
+    // The session continued: a newer generation of the file.
+    const newer = new Date(now - 1 * DAY_MS);
+    await fs.utimes(path.join(dir, 'failing.jsonl'), newer, newer);
+
+    const h = await boot(t, dir, [FAILED]);
+
+    expect(sessionIds(h)).toEqual(['failing']);
+    expect(ledgerRows(t)).toEqual([
+      {
+        session_id: 'failing',
+        attempt_count: 1,
+        status: 'pending',
+        give_up_reason: null,
+      },
+    ]);
+  });
+
+  it('keeps a given_up session given_up when the unchanged file fails again', async () => {
+    const t = openDb();
+    const dir = await makeSessionsDir([
+      { name: 'failing.jsonl', mtime: now - 3 * DAY_MS },
+    ]);
+    await giveUp(t, dir);
+    // Make the same, unchanged file eligible for the normal scan again.
+    t.raw.exec(`DELETE FROM boot_scan_state`);
+
+    const h = await boot(t, dir, [FAILED]);
+
+    expect(sessionIds(h)).toEqual(['failing']);
+    expect(ledgerRows(t)).toEqual([
+      {
+        session_id: 'failing',
+        attempt_count: BOOT_SCAN_MAX_ATTEMPTS,
+        status: 'given_up',
+        give_up_reason: 'max-attempts',
+      },
+    ]);
+  });
+
+  it('a normal-scan success removes a given_up row and the diagnostics count drops', async () => {
+    const t = openDb();
+    const dir = await makeSessionsDir([
+      { name: 'failing.jsonl', mtime: now - 3 * DAY_MS },
+    ]);
+    await giveUp(t, dir);
+    const store = new ObservationRetentionStore(makeLogger(), t.connection);
+    expect(store.readLiveStorage(now).bootScanFailuresGivenUp).toBe(1);
+    const newer = new Date(now - 1 * DAY_MS);
+    await fs.utimes(path.join(dir, 'failing.jsonl'), newer, newer);
+
+    const h = await boot(t, dir, [RAN]);
+
+    expect(sessionIds(h)).toEqual(['failing']);
+    expect(ledgerRows(t)).toEqual([]);
+    expect(store.readLiveStorage(now).bootScanFailuresGivenUp).toBe(0);
+  });
+
+  it('keeps the last curate slot for the normal scan: with maxCuratesPerHour = 1 a new healthy session is still curated', async () => {
+    const t = openDb();
+    const dir = await makeSessionsDir([
+      { name: 'failing.jsonl', mtime: now - 3 * DAY_MS },
+    ]);
+    await boot(t, dir, [FAILED]);
+    expect(ledgerRows(t)).toHaveLength(1);
+    await fs.writeFile(path.join(dir, 'healthy.jsonl'), '{}\n');
+
+    const h = buildHarness({
+      sessionsDir: dir,
+      sqlite: t.connection,
+      rateLimiter: new CuratorRateLimitService(makeLogger()),
+      maxCuratesPerHour: 1,
+    });
+    h.service.start();
+    await h.bootScanDone;
+    h.service.stop();
+
+    expect(sessionIds(h)).toEqual(['healthy']);
+    expect(h.events.find((e) => e.kind === 'boot-scan')?.stats).toMatchObject({
+      succeeded: 1,
+      retried: 0,
+      retriesDeferred: 1,
+    });
+    // The deferred retry spent no attempt; it waits for a later boot.
+    expect(ledgerRows(t)[0]).toMatchObject({
+      attempt_count: 1,
+      status: 'pending',
+    });
   });
 });

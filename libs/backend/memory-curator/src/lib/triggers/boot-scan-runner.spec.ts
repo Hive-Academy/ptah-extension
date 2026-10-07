@@ -8,6 +8,7 @@ import type {
   SqliteDatabase,
 } from '@ptah-extension/persistence-sqlite';
 import { BootScanRunner } from './boot-scan-runner';
+import type { BootScanFailureLedger } from './boot-scan-failure-ledger';
 
 function makeLogger(): Logger {
   return {
@@ -123,7 +124,35 @@ describe('BootScanRunner', () => {
       succeeded: 0,
       skipped: 0,
       stalled: 0,
+      failed: 0,
+      retried: 0,
+      recovered: 0,
+      givenUp: 0,
+      retriesDeferred: 0,
     });
+  });
+
+  it('without a failure ledger a failed pass stops the scan below it (TASK_2026_621)', async () => {
+    const now = Date.now();
+    const dir = await makeTempSessionsDir([
+      { name: 'a.jsonl', mtime: now - 5000 },
+      { name: 'b.jsonl', mtime: now - 1000 },
+    ]);
+    const state: WatermarkState = { value: now - 10_000 };
+    const run = jest.fn().mockResolvedValue('failed');
+    const result = await new BootScanRunner().run({
+      pipeline: 'memory',
+      workspaceRoot: '/ws',
+      workspaceFingerprint: 'fp1',
+      sessionsDirectory: dir,
+      sqlite: makeSqlite(state),
+      logger: makeLogger(),
+      run,
+      throttleMs: 0,
+    });
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(result.failed).toBe(1);
+    expect(state.value).toBe(now - 10_000);
   });
 
   it('scans ALL JSONL files when watermark is 0', async () => {
@@ -613,6 +642,158 @@ describe('BootScanRunner', () => {
         pipeline: 'memory',
         error: expect.stringContaining('SQLITE_BUSY'),
       }),
+    );
+  });
+
+  it('admits a changed given_up generation even when its mtime remains below the watermark', async () => {
+    const now = Date.now();
+    const changedMtime = now - 5_000;
+    const dir = await makeTempSessionsDir([
+      { name: 'given-up.jsonl', mtime: changedMtime },
+    ]);
+    const run = jest.fn().mockResolvedValue('ran');
+    const ledger = {
+      listPending: jest.fn(() => []),
+      listGivenUp: jest.fn(() => [
+        {
+          sessionId: 'given-up',
+          workspaceRoot: '/ws',
+          sessionPath: path.join(dir, 'given-up.jsonl'),
+          attemptCount: 3,
+          sessionMtimeMs: now - 10_000,
+        },
+      ]),
+      remove: jest.fn(() => true),
+    } as unknown as BootScanFailureLedger;
+
+    await new BootScanRunner().run({
+      pipeline: 'memory',
+      workspaceRoot: '/ws',
+      workspaceFingerprint: 'fp1',
+      sessionsDirectory: dir,
+      sqlite: makeSqliteWithRow(now),
+      logger: makeLogger(),
+      run,
+      failures: ledger,
+      throttleMs: 0,
+      now,
+    });
+
+    expect(run).toHaveBeenCalledWith('given-up', '/ws', undefined);
+    expect(ledger.remove).toHaveBeenCalledWith('fp1', 'given-up');
+  });
+
+  it('pages past unchanged and missing given_up rows to admit a changed generation', async () => {
+    const now = Date.now();
+    const dir = await makeTempSessionsDir([
+      { name: 'changed.jsonl', mtime: now - 5_000 },
+    ]);
+    const terminalRows = Array.from({ length: 20 }, (_, index) => ({
+      sessionId: `missing-${index}`,
+      workspaceRoot: '/ws',
+      sessionPath: path.join(dir, `missing-${index}.jsonl`),
+      attemptCount: 3,
+      sessionMtimeMs: now - 10_000,
+    }));
+    terminalRows.push({
+      sessionId: 'changed',
+      workspaceRoot: '/ws',
+      sessionPath: path.join(dir, 'changed.jsonl'),
+      attemptCount: 3,
+      sessionMtimeMs: now - 10_000,
+    });
+    const run = jest.fn().mockResolvedValue('ran');
+    const ledger = {
+      listPending: jest.fn(() => []),
+      listGivenUp: jest.fn((_fp: string, limit: number, offset: number) =>
+        terminalRows.slice(offset, offset + limit),
+      ),
+      remove: jest.fn(() => true),
+    } as unknown as BootScanFailureLedger;
+
+    await new BootScanRunner().run({
+      pipeline: 'memory',
+      workspaceRoot: '/ws',
+      workspaceFingerprint: 'fp1',
+      sessionsDirectory: dir,
+      sqlite: makeSqliteWithRow(now),
+      logger: makeLogger(),
+      run,
+      failures: ledger,
+      throttleMs: 0,
+      now,
+    });
+
+    expect(run).toHaveBeenCalledWith('changed', '/ws', undefined);
+    expect(ledger.listGivenUp).toHaveBeenLastCalledWith('fp1', 20, 20);
+  });
+
+  it('does not re-admit an unchanged given_up generation', async () => {
+    const now = Date.now();
+    const mtime = now - 5_000;
+    const dir = await makeTempSessionsDir([{ name: 'same.jsonl', mtime }]);
+    const run = jest.fn().mockResolvedValue('ran');
+    const ledger = {
+      listPending: jest.fn(() => []),
+      listGivenUp: jest.fn(() => [
+        {
+          sessionId: 'same',
+          workspaceRoot: '/ws',
+          sessionPath: path.join(dir, 'same.jsonl'),
+          attemptCount: 3,
+          sessionMtimeMs: mtime,
+        },
+      ]),
+    } as unknown as BootScanFailureLedger;
+
+    await new BootScanRunner().run({
+      pipeline: 'memory',
+      workspaceRoot: '/ws',
+      workspaceFingerprint: 'fp1',
+      sessionsDirectory: dir,
+      sqlite: makeSqliteWithRow(now),
+      logger: makeLogger(),
+      run,
+      failures: ledger,
+      throttleMs: 0,
+      now,
+    });
+
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it('records a thrown changed-generation run as a bounded ledger failure', async () => {
+    const now = Date.now();
+    const dir = await makeTempSessionsDir([
+      { name: 'throws.jsonl', mtime: now - 5_000 },
+    ]);
+    const recordFailure = jest.fn(() => ({
+      attemptCount: 1,
+      status: 'pending',
+    }));
+    const ledger = {
+      listPending: jest.fn(() => []),
+      listGivenUp: jest.fn(() => []),
+      recordFailure,
+    } as unknown as BootScanFailureLedger;
+
+    await new BootScanRunner().run({
+      pipeline: 'memory',
+      workspaceRoot: '/ws',
+      workspaceFingerprint: 'fp1',
+      sessionsDirectory: dir,
+      sqlite: makeSqliteWithRow(now - 10_000),
+      logger: makeLogger(),
+      run: jest.fn().mockRejectedValue(new Error('provider failed')),
+      failures: ledger,
+      throttleMs: 0,
+      now,
+    });
+
+    expect(recordFailure).toHaveBeenCalledWith(
+      'fp1',
+      expect.objectContaining({ sessionId: 'throws' }),
+      now,
     );
   });
 });

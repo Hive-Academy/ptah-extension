@@ -24,6 +24,8 @@ function makeStorage(
       processedBytesEstimate: 1_500_000,
       measuredAt: NOW - 3_600_000,
       quarantineLedgerRows: 7,
+      bootScanFailuresPending: 0,
+      bootScanFailuresGivenUp: 0,
     },
     retention: {
       healthVerdict: 'healthy',
@@ -176,6 +178,8 @@ describe('StorageHealthPanelComponent', () => {
           processedBytesEstimate: null,
           measuredAt: null,
           quarantineLedgerRows: null,
+          bootScanFailuresPending: null,
+          bootScanFailuresGivenUp: null,
         },
       }),
     );
@@ -475,6 +479,33 @@ describe('StorageHealthPanelComponent', () => {
     ).toContain('2 KB');
   });
 
+  it('renders the boot-scan failure ledger counts (TASK_2026_621)', () => {
+    const base = makeStorage();
+    const root = render(
+      makeStorage({
+        observations: {
+          ...base.observations,
+          bootScanFailuresPending: 2,
+          bootScanFailuresGivenUp: 5,
+        },
+      }),
+    );
+    expect(
+      normalizedText(
+        root.querySelector(
+          '[data-testid="storage-boot-scan-failures-pending"]',
+        ),
+      ),
+    ).toBe('2');
+    expect(
+      normalizedText(
+        root.querySelector(
+          '[data-testid="storage-boot-scan-failures-given-up"]',
+        ),
+      ),
+    ).toBe('5');
+  });
+
   it('renders "—" for pending size and lists readErrors when the backlog is too large to measure', () => {
     const root = render(
       makeStorage({
@@ -487,6 +518,8 @@ describe('StorageHealthPanelComponent', () => {
           processedBytesEstimate: 1_500_000,
           measuredAt: NOW - 3_600_000,
           quarantineLedgerRows: 7,
+          bootScanFailuresPending: 0,
+          bootScanFailuresGivenUp: 0,
         },
         readErrors: ['pendingBytes: not measured above 5000 pending rows'],
       }),

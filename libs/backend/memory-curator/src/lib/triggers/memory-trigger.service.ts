@@ -45,6 +45,7 @@ import {
 } from '../observation-queue.store';
 import { deriveWorkspaceFingerprint } from '../workspace-fingerprint';
 import { BootScanRunner } from './boot-scan-runner';
+import { BootScanFailureLedger } from './boot-scan-failure-ledger';
 import { BootScanScheduler } from './boot-scan-scheduler';
 import { EpisodeTracker, type EpisodeBuffer } from './episode-tracker';
 import {
@@ -57,7 +58,17 @@ const COMMIT_PATTERN = /^\s*git\s+commit(?:\s|$)/;
 const RATE_LIMIT_KEY = 'memory.curate';
 const MAX_CUE_PATTERN_LENGTH = 200;
 const COALESCE_WINDOW_MS = 5000;
+/** The curate rate limiter's window, as `CuratorRateLimitService` buckets it. */
+const HOUR_MS = 60 * 60 * 1000;
 const TOOL_FAILURE_SNIPPET = 140;
+/**
+ * Consecutive `'failed'` passes per session whose drained observations are
+ * kept unprocessed for a retry (TASK_2026_621). The pass after the last retry
+ * marks them processed with a warning: a transcript that fails the same way
+ * every time must not be re-fed forever. Retries are paced by the triggers
+ * themselves (next turn, idle, session end) and the hourly curate limiter.
+ */
+export const MAX_FAILED_PASS_RETRIES = 3;
 
 type CurateSource =
   | 'idle'
@@ -68,6 +79,14 @@ type CurateSource =
   | 'session-end'
   | 'boot'
   | 'user-cue';
+
+type CurateEventKind =
+  | 'idle-trigger'
+  | 'turn-trigger'
+  | 'turn-complete-trigger'
+  | 'episode-trigger'
+  | 'commit-detect'
+  | 'session-end-trigger';
 
 interface SessionState {
   readonly workspaceRoot: string;
@@ -99,6 +118,10 @@ export class MemoryTriggerService {
   private readonly episodes = new EpisodeTracker();
   private readonly inFlightCurates = new Set<string>();
   private readonly lastCurateAt = new Map<string, number>();
+  /** Consecutive failed passes per session; cleared by a pass that ran. */
+  private readonly failedPasses = new Map<string, number>();
+  /** End-pass identities follow a rekey until their detached pass settles. */
+  private readonly endingSessions = new Map<string, { sessionId: string }>();
   private bootScanController: AbortController | null = null;
   /**
    * The arming gate in front of {@link runBootScan}. Created only on the path
@@ -248,6 +271,7 @@ export class MemoryTriggerService {
     this.episodes.clear();
     this.inFlightCurates.clear();
     this.lastCurateAt.clear();
+    this.failedPasses.clear();
     this.bootScanScheduler?.cancel();
     this.bootScanScheduler = null;
     this.bootScanController?.abort();
@@ -349,6 +373,17 @@ export class MemoryTriggerService {
     if (lastCurate !== undefined && !this.lastCurateAt.has(to)) {
       this.lastCurateAt.set(to, lastCurate);
     }
+    const failed = this.failedPasses.get(from);
+    this.failedPasses.delete(from);
+    if (failed !== undefined && !this.failedPasses.has(to)) {
+      this.failedPasses.set(to, failed);
+    }
+    const ending = this.endingSessions.get(from);
+    if (ending) {
+      this.endingSessions.delete(from);
+      ending.sessionId = to;
+      this.endingSessions.set(to, ending);
+    }
     this.curator.rekeySession(from, to);
 
     // 2 — the episode buffer (refuse-overwrite lives in the tracker).
@@ -410,7 +445,7 @@ export class MemoryTriggerService {
     if (payload.hasBackgroundWork) return;
     const threshold = this.readTurnThreshold();
     if (threshold > 0 && turnCount >= threshold) {
-      this.tryEpisodeCurate(
+      this.dispatchEpisodeCurate(
         payload.sessionId,
         payload.workspaceRoot,
         'turn-complete',
@@ -464,12 +499,20 @@ export class MemoryTriggerService {
     // below must still run for state armed while memory was enabled. Only the
     // curate is gated.
     if (this.readMemoryEnabled() && this.readSessionEndEnabled()) {
-      this.tryEpisodeCurate(
+      const ending = { sessionId };
+      const pass = this.tryEpisodeCurate(
         sessionId,
         workspaceRoot,
         'session-end',
         'session-end-trigger',
+        ending,
       );
+      if (pass) {
+        void pass.then(
+          () => this.clearEndedSessionFailures(sessionId, ending),
+          () => this.clearEndedSessionFailures(sessionId, ending),
+        );
+      }
     }
     this.episodes.reset(sessionId);
     const state = this.sessions.get(sessionId);
@@ -581,7 +624,7 @@ export class MemoryTriggerService {
       if (recovered && this.readEpisodeEnabled()) {
         const snap = this.episodes.snapshot(payload.sessionId);
         if (snap.hasCriticalLearning && snap.turnCount > 0) {
-          this.tryEpisodeCurate(
+          this.dispatchEpisodeCurate(
             payload.sessionId,
             payload.workspaceRoot,
             'episode',
@@ -605,7 +648,7 @@ export class MemoryTriggerService {
       kind: 'commit',
     });
     this.episodes.recordCommit(payload.sessionId);
-    this.tryEpisodeCurate(
+    this.dispatchEpisodeCurate(
       payload.sessionId,
       payload.workspaceRoot,
       'commit-detect',
@@ -663,7 +706,7 @@ export class MemoryTriggerService {
     if (!state) return;
     state.idleTimer = null;
     state.idleDueAt = null;
-    this.tryEpisodeCurate(
+    this.dispatchEpisodeCurate(
       sessionId,
       state.workspaceRoot,
       'idle',
@@ -681,30 +724,25 @@ export class MemoryTriggerService {
     sessionId: string,
     workspaceRoot: string,
     source: CurateSource,
-    eventKind:
-      | 'idle-trigger'
-      | 'turn-trigger'
-      | 'turn-complete-trigger'
-      | 'episode-trigger'
-      | 'commit-detect'
-      | 'session-end-trigger',
-  ): void {
+    eventKind: CurateEventKind,
+    ending?: { sessionId: string },
+  ): Promise<void> | null {
     if (this.shouldCoalesce(sessionId)) {
       this.logger.debug(
         '[memory-curator] curate trigger coalesced (in-flight or recent)',
         { sessionId, source },
       );
-      return;
+      return null;
     }
 
     const snap = this.episodes.snapshot(sessionId);
     if (snap.isEmpty) {
       this.episodes.reset(sessionId);
-      return;
+      return null;
     }
     // Before the slot is spent and before the buffer is detached: the episode
     // stays where it is and the next boundary tries again.
-    if (this.heldByNetworkBackoff(sessionId, source)) return;
+    if (this.heldByNetworkBackoff(sessionId, source)) return null;
 
     const decision = this.rateLimiter.tryAcquire(
       RATE_LIMIT_KEY,
@@ -722,7 +760,7 @@ export class MemoryTriggerService {
           usedThisWindow: decision.usedThisWindow,
         },
       });
-      return;
+      return null;
     }
 
     const salienceBoost = this.episodes.salienceBoost(sessionId);
@@ -753,7 +791,8 @@ export class MemoryTriggerService {
     const detached = this.episodes.detach(sessionId);
     this.inFlightCurates.add(sessionId);
     this.lastCurateAt.set(sessionId, Date.now());
-    void this.invokeCurate(
+    if (ending) this.endingSessions.set(sessionId, ending);
+    return this.invokeCurate(
       sessionId,
       workspaceRoot,
       source,
@@ -761,6 +800,44 @@ export class MemoryTriggerService {
       episodeSnap,
       detached,
     );
+  }
+
+  /**
+   * Start a background pass from an event callback without letting an
+   * unexpected rejection become an unhandled promise rejection. The trigger
+   * must remain synchronous: awaiting here would delay the SDK event path.
+   */
+  private dispatchEpisodeCurate(
+    sessionId: string,
+    workspaceRoot: string,
+    source: CurateSource,
+    eventKind: CurateEventKind,
+  ): void {
+    const pass = this.tryEpisodeCurate(
+      sessionId,
+      workspaceRoot,
+      source,
+      eventKind,
+    );
+    if (!pass) return;
+    void pass.catch((error: unknown): void => {
+      this.logger.error('[memory-curator] asynchronous curate trigger failed', {
+        sessionId,
+        source,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+  }
+
+  private clearEndedSessionFailures(
+    sessionId: string,
+    ending: { sessionId: string },
+  ): void {
+    this.failedPasses.delete(sessionId);
+    this.failedPasses.delete(ending.sessionId);
+    if (this.endingSessions.get(ending.sessionId) === ending) {
+      this.endingSessions.delete(ending.sessionId);
+    }
   }
 
   /**
@@ -780,6 +857,19 @@ export class MemoryTriggerService {
       { sessionId, source, remainingMs },
     );
     return true;
+  }
+
+  /**
+   * Curate slots left in the current hourly window; `Infinity` when the limit
+   * is off (`maxCuratesPerHour <= 0`, which `tryAcquire` treats as allow-all).
+   */
+  private curateSlotsLeft(): number {
+    const limit = this.readMaxCuratesPerHour();
+    if (!Number.isFinite(limit) || limit <= 0) return Number.POSITIVE_INFINITY;
+    const snap = this.rateLimiter.snapshot(RATE_LIMIT_KEY);
+    const windowStart = Math.floor(Date.now() / HOUR_MS) * HOUR_MS;
+    const used = snap?.windowStartMs === windowStart ? snap.count : 0;
+    return Math.max(0, limit - used);
   }
 
   /** Give back the hourly slot of a pass the network back-off deferred at dispatch. */
@@ -819,6 +909,11 @@ export class MemoryTriggerService {
    * A pass that RAN and found nothing keeps its old behaviour exactly: rows
    * marked, buffer gone. Turning "found nothing" into a retry would be F1
    * inverted — an episode that can never be curated, re-fed forever.
+   *
+   * A pass that FAILED curated nothing, so its rows and episode are kept like a
+   * stall's — but only for {@link MAX_FAILED_PASS_RETRIES} consecutive failures
+   * of the session; the next one marks them processed with a warning, for the
+   * same never-re-fed-forever reason (TASK_2026_621).
    */
   private async invokeCurate(
     sessionId: string,
@@ -829,7 +924,7 @@ export class MemoryTriggerService {
     detachedEpisode?: EpisodeBuffer | null,
   ): Promise<void> {
     const limit = this.readMaxObservationsPerCurate();
-    let jsonlText = '';
+    let jsonlText: string;
     try {
       jsonlText = await this.transcriptReader.read(sessionId, workspaceRoot, {
         tailBytes: TRANSCRIPT_TAIL_BYTES,
@@ -843,9 +938,12 @@ export class MemoryTriggerService {
       });
       jsonlText = '';
     }
-    const drainedRows = this.observationQueue.drainForSession(sessionId, limit);
-    const transcript = composeTranscript(jsonlText, drainedRows, episodeSnap);
     try {
+      const drainedRows = this.observationQueue.drainForSession(
+        sessionId,
+        limit,
+      );
+      const transcript = composeTranscript(jsonlText, drainedRows, episodeSnap);
       const stats = await this.curator.curate({
         sessionId,
         workspaceRoot,
@@ -854,7 +952,7 @@ export class MemoryTriggerService {
       });
       if (stats.outcome === 'stalled') {
         this.refundIfNetworkDeferred(stats);
-        if (detachedEpisode) {
+        if (detachedEpisode && source !== 'session-end') {
           this.episodes.reattach(sessionId, detachedEpisode);
         }
         this.logger.info(
@@ -863,6 +961,36 @@ export class MemoryTriggerService {
         );
         return;
       }
+      if (stats.outcome === 'failed') {
+        const failures = (this.failedPasses.get(sessionId) ?? 0) + 1;
+        if (failures <= MAX_FAILED_PASS_RETRIES) {
+          this.failedPasses.set(sessionId, failures);
+          if (detachedEpisode && source !== 'session-end') {
+            this.episodes.reattach(sessionId, detachedEpisode);
+          }
+          this.logger.warn(
+            '[memory-curator] curation pass failed; observations kept for a retry',
+            {
+              sessionId,
+              source,
+              observations: drainedRows.length,
+              failures,
+              maxRetries: MAX_FAILED_PASS_RETRIES,
+            },
+          );
+          return;
+        }
+        this.logger.warn(
+          '[memory-curator] curation pass failed after every retry; observations marked processed uncurated',
+          {
+            sessionId,
+            source,
+            observations: drainedRows.length,
+            failures,
+          },
+        );
+      }
+      this.failedPasses.delete(sessionId);
       const ids = drainedRows.map((r) => r.id);
       if (ids.length > 0) this.observationQueue.markProcessed(ids);
     } catch (err: unknown) {
@@ -927,6 +1055,10 @@ export class MemoryTriggerService {
         sqlite: this.sqlite,
         logger: this.logger,
         signal,
+        failures: new BootScanFailureLedger(this.sqlite, this.logger),
+        // A ledger retry may spend a slot only if one is still left for the
+        // normal scan afterwards (TASK_2026_621).
+        retryAllowed: () => this.curateSlotsLeft() >= 2,
         run: async (scanSessionId, scanWorkspaceRoot, runSignal) => {
           // The boot scan draws from the SAME hourly budget as the cue path
           // (`onUserPromptSubmit`) and the episode path (`tryEpisodeCurate`).
@@ -1009,7 +1141,9 @@ export class MemoryTriggerService {
             this.refundIfNetworkDeferred(stats);
             return 'stalled';
           }
-          return 'ran';
+          // A failed pass curated nothing either; the runner records it in
+          // the failure ledger and retries it on later boots (TASK_2026_621).
+          return stats.outcome;
         },
       });
       this.curator.pushEvent({
@@ -1020,6 +1154,11 @@ export class MemoryTriggerService {
           succeeded: result.succeeded,
           skipped: result.skipped,
           stalled: result.stalled,
+          failed: result.failed,
+          retried: result.retried,
+          recovered: result.recovered,
+          givenUp: result.givenUp,
+          retriesDeferred: result.retriesDeferred,
         },
       });
     } catch (err: unknown) {
