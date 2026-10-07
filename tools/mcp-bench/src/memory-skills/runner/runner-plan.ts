@@ -10,6 +10,10 @@ import { posix } from 'node:path';
 
 import { z } from 'zod';
 
+import {
+  hostSuitePlacement,
+  suitePlacementProblems,
+} from '../host/suite-placement';
 import { suiteIdSchema } from './suite-result';
 
 export const RUNNER_PLAN_SCHEMA_ID = '620.runner-plan.v1';
@@ -84,6 +88,17 @@ export const runnerPlanSchema = z
           });
         }
         ids.add(suite.id);
+      });
+    }
+    // Host suites share one database: order constraints (`suite-placement.ts`).
+    for (const problem of suitePlacementProblems(
+      plan.hostSuites.map((suite) => suite.id),
+      hostSuitePlacement,
+    )) {
+      ctx.addIssue({
+        code: 'custom',
+        message: problem.message,
+        path: ['hostSuites', problem.index, 'id'],
       });
     }
   });

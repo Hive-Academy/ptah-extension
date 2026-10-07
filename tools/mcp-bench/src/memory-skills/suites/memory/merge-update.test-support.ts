@@ -88,6 +88,10 @@ export interface FakeMemoryOptions {
 
 export class FakeMemory implements MergeUpdatePorts {
   readonly rows: FakeRow[] = [];
+  /** Every draft passed to `insertRow`, as persisted (all fields). */
+  readonly inserted: ExtractedMemoryDraft[] = [];
+  /** Every `appendToRow` call: the row and the appended text. */
+  readonly appended: { readonly id: string; readonly text: string }[] = [];
   readonly curator: Pick<ICuratorLLM, 'extract' | 'resolve'>;
   readonly reranker: RerankPort | null;
   private sequence = 0;
@@ -131,6 +135,7 @@ export class FakeMemory implements MergeUpdatePorts {
     workspaceRoot: string;
     draft: ExtractedMemoryDraft;
   }): Promise<string> {
+    this.inserted.push(row.draft);
     return this.add(
       row.workspaceRoot,
       row.draft.subject,
@@ -148,6 +153,7 @@ export class FakeMemory implements MergeUpdatePorts {
       (r) => r.id === id && r.workspaceRoot === workspaceRoot,
     );
     if (row === undefined) return 'ineligible';
+    this.appended.push({ id, text });
     row.chunks.push({ text, createdAt: this.tick() });
     return 'appended';
   }

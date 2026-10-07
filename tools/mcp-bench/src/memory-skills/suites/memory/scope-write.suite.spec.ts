@@ -242,6 +242,23 @@ describe('mem.scope.write', () => {
     expect(result.cassetteVersion).toBe(SCOPE_WRITE_CASSETTE_VERSION);
   });
 
+  it('is na, never pass, on a database another suite already wrote', async () => {
+    const port = fakePort(curator, (_root, sessionId) => `/repo-${sessionId}`);
+    port.rows.push({ sessionId: 'other-suite', root: '/elsewhere' });
+    await createScopeWriteSuite({ portOf: () => port }).run(contextFor());
+    const { result } = readSuiteResult(
+      join(bench, 'runs', runId),
+      SCOPE_WRITE_SUITE_ID,
+    );
+    expect(result.metrics['preexistingRows']).toBe(1);
+    expect(result.verdict).toBe('na');
+    expect(result.naReason).toBe('shared-db-not-fresh: 1 pre-existing rows');
+  });
+
+  it('declares itself the first host suite', () => {
+    expect(createScopeWriteSuite().placement).toBe('first');
+  });
+
   it('creates the scratch repositories and worktree only under <benchData>/git-scope/<runId>', async () => {
     await createScopeWriteSuite({
       portOf: () => fakePort(curator, asToday),

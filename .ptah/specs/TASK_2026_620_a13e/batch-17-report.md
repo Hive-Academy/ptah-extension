@@ -327,3 +327,43 @@ This is not done here. It requires a live model and provider auth inside the iso
 ## Requests to 619
 
 None.
+
+## Phase 3.5 fixes
+
+Source: `code-logic-review-phase3-5.md`, finding 3 (REVISE). Files changed:
+
+- `tools\mcp-bench\src\memory-skills\suites\memory\liveness.suite.ts`
+- `tools\mcp-bench\src\memory-skills\suites\memory\liveness.suite.spec.ts`
+
+Both are under `D:\projects\ptah-extension\.claude-worktrees\task-620-memory-skills-bench\`. `liveness-harness.ts` is unchanged.
+
+**Decision: (b), harness-only.** The real public seam (a) is not available for these suites:
+
+- **The trigger hooks.** These are the callbacks `start()` registers on the SDK registries. To reach `invokeCurate` they need an idle timer or episode boundary, and to reach the boot scan they need the scheduler's configured delay (`memory-trigger.service.ts:661-764, 898-913`). Neither entry point returns the pass outcome.
+- **The plan's cassette double.** Its faults are keyed by cassette key. The observation-path transcript (`composeTranscript`) only exists inside the trigger, so the parent cannot key a fault on it in advance.
+
+So both suites keep the scripted curator and the `triggerInternals` cast, and their verdict is always `na`. The reason is `HARNESS_ONLY_REASON` = `harness-only: scripted curator and private trigger methods`. The more specific harness-failure reasons (`control-failed`, `boot-scan-stalled`, `vacuous-first-scan`) still take precedence.
+
+The measured numbers stay where they were:
+
+- `details` (`faults[]`, `ranPassesWithError`, `rescan{…}`);
+- the gate `metrics`;
+- every case record, with its pass/fail outcome.
+
+The ledger therefore shows the evidence as "not measurable yet".
+
+| Suite | Path | Verdict |
+|---|---|---|
+| `mem.extraction` | real path: container `MemoryCuratorService`, with `CURATOR_LLM` = the plan's `RecordedCuratorLlm` (the sanctioned override) | unchanged (`na: matcher-unvalidated` until U3) |
+| `mem.liveness.fault` | harness-only | always `na` |
+| `mem.liveness.rescan` | harness-only | always `na` |
+
+**What would make the liveness suites real.** A product seam on `MemoryTriggerService`, for example `curateSessionNow(sessionId)` returning the pass outcome and `runBootScanNow()` returning `BootScanResult`. Driven through that seam with the cassette double, the cast and the scripted curator could be deleted and the verdict restored. This is a Phase 4 product change, not done here.
+
+**Gate consequence.** An `na` suite always fails the CI known-failures gate (`known-failures.ts:85-92, 141-147`). Keep both liveness suites out of the CI plan until the seam exists. This replaces the known-failures entries proposed under "Registration".
+
+**Checks:**
+
+- `npx jest -c tools/mcp-bench/jest.config.ts tools/mcp-bench/src/memory-skills/suites/memory/liveness.suite.spec.ts --runInBand` → `Test Suites: 1 passed, 1 total` / `Tests: 10 passed, 10 total`. The spec now asserts `verdict: 'na'` with `HARNESS_ONLY_REASON`, and the same failing case outcomes as before.
+- `npx eslint` on the three liveness files → exit 0.
+- `npx prettier --check --ignore-unknown` on the same files → `All matched files use Prettier code style!`

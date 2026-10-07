@@ -229,6 +229,33 @@ describe('memory-skills plan schema', () => {
     plan['suites'] = [{ id: 'Bad Id' }];
     expect(schema.safeParse(plan).success).toBe(false);
   });
+
+  it('accepts scope-write first and the retention suites last', () => {
+    const plan = basePlan();
+    plan['suites'] = [
+      { id: 'mem.scope.write' },
+      { id: 'mem.liveness.audit' },
+      { id: 'mem.ranking.roster' },
+      { id: 'mem.retention.lifecycle' },
+      { id: 'mem.retention.growth' },
+    ];
+    expect(schema.safeParse(plan).success).toBe(true);
+  });
+
+  it('refuses scope-write anywhere but first, and any suite after a retention suite', () => {
+    const plan = basePlan();
+    plan['suites'] = [{ id: 'mem.liveness.audit' }, { id: 'mem.scope.write' }];
+    expect(messages(plan)).toContain(
+      'suite mem.scope.write must be the first host suite: it measures a database no other suite has written',
+    );
+    plan['suites'] = [
+      { id: 'mem.retention.growth' },
+      { id: 'mem.search.fts-and' },
+    ];
+    expect(messages(plan)).toContain(
+      'suite mem.search.fts-and must run before mem.retention.growth, which archives and deletes every row of the shared database',
+    );
+  });
 });
 
 describe('loadMemorySkillsPlan', () => {

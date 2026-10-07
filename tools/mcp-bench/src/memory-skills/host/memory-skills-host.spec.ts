@@ -259,6 +259,26 @@ describe('runMemorySkillsHost', () => {
     expect(boot).not.toHaveBeenCalled();
   });
 
+  it('refuses before boot a plan that breaks a registered placement', async () => {
+    const run = jest.fn(async () => undefined);
+    const suites: MemorySkillsHostSuite[] = [
+      { id: 'a', run },
+      { id: 'fresh', placement: 'first', run },
+      { id: 'rewrite', placement: 'last', run },
+    ];
+    const boot = jest.fn();
+    writePlan({ suites: [{ id: 'rewrite' }, { id: 'a' }] });
+    await expect(runMemorySkillsHost(deps({ suites, boot }))).rejects.toThrow(
+      'the plan orders host suites unsafely: suite a must run before rewrite',
+    );
+    writePlan({ suites: [{ id: 'a' }, { id: 'fresh' }] });
+    await expect(runMemorySkillsHost(deps({ suites, boot }))).rejects.toThrow(
+      'suite fresh must be the first host suite',
+    );
+    expect(boot).not.toHaveBeenCalled();
+    expect(run).not.toHaveBeenCalled();
+  });
+
   it('refuses a host with two suites under one id', async () => {
     writePlan();
     const suite: MemorySkillsHostSuite = {

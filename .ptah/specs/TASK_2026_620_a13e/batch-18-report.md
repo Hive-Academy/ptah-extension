@@ -34,11 +34,11 @@ This is a finding about the Batch 5 double.
 
 `MemoryCuratorService.curate()` sends the resolver the candidate rows' ULIDs (`memory-curator.service.ts:775-794`). `RecordedCuratorLlm` keys `resolve` on `related` including those ids (`doubles/recorded-curator-llm.ts:85-93`). A ULID is new on every run, so **a recorded resolve entry can never replay**: every pass with a merge candidate would be a CI cassette miss, even right after a local recording.
 
-`merge-update-pass.ts` `commitDrafts` therefore runs the curator's own steps with the real collaborators, and changes only the ids the resolver sees:
+`merge-update-pass.ts` `commitDrafts` therefore runs the curator's steps with the real collaborators. It changes the ids the resolver sees, and it re-implements the commit loop (see Phase 3.5 fixes):
 
 1. **Collect.** It calls the curator's own `MergeCandidateCollector` instance, read from the singleton `MemoryCuratorService.mergeCandidates`. The collector is not exported and has no public seam. The access is checked at runtime and the result is zod-validated, so a refactor fails loudly.
 2. **Resolve.** Each candidate is shown to the resolver under a content-derived id (`cand-<sha16(subject, content)>`), and the answer is mapped back to the real row id. When there are no candidates, nothing is called; the product adapter does the same (`sdk-internal-query.curator-llm.ts:360-362`).
-3. **Commit.** It applies the curator's own rule: the target must be in the candidate set, and `getMergeTarget` must accept it, before `appendChunks`; otherwise the row is inserted as new (`memory-curator.service.ts:818-890`).
+3. **Commit.** This is a field-for-field mirror of the curator's private loop, not a call into it. Each RESOLVED draft is persisted as the resolver returned it. The target must be in the candidate set, and `getMergeTarget` must accept it, before `appendChunks`; otherwise the row is inserted as new. A failed write is skipped (`memory-curator.service.ts:818-898`).
 
 Extraction goes through the product's windows: `planCuratorWindows` makes one `extract` call per window (`:721-766`).
 
@@ -57,10 +57,9 @@ Extraction goes through the product's windows: `planCuratorWindows` makes one `e
 ### `mem.dedup.rerank`
 
 - Every pair's left row goes into one shared scope.
-- For each should-merge pair, the right draft's tier-2 query is run through `searchRich` with top-5. NDCG@5 of the left row is computed twice: on the returned (reranked) order, and on the RRF order of the same hits (RRF score, then BM25 rank, then vector rank).
+- For each should-merge pair, the right draft's tier-2 query is run through `searchRich` with top-5. The suite reports NDCG@5 of the left row in the returned (reranked) order.
 - Reranker score variance is measured per list with the embedder's own `rerank`.
-- **Verdict:** pass when the NDCG delta ≥ 0.05 (ledger `:93`). The result is `na: no-reranker` when the embedder is not the worker client.
-- **Limitation:** this does not separate the effect of which 5 of the top 20 the reranker keeps.
+- **Verdict: always `na`.** The reason is `no-pre-rerank-order`, or `no-reranker` when the embedder is not the worker client. The ledger's no-rerank baseline is reported as `null`. See Phase 3.5 fixes, item 2.
 
 ### `mem.update`
 
@@ -117,13 +116,13 @@ The figures for `mem.dedup`, `mem.update` and `mem.temporal` assume a cassette e
 | Suite | Expected | Why (file:line) |
 |---|---|---|
 | `mem.dedup` | Should-merge pairs whose subjects differ after case folding never reach the resolver. Candidate recall is about the tier-1-only recall. | `merge-candidate-collector.ts:187` |
-| `mem.dedup.rerank` | `fail`: delta 0 and variance 0 on every list | Forensics M3, `embedder-worker.ts:277-295` |
+| `mem.dedup.rerank` | `na: no-pre-rerank-order`. Variance 0 on every list is still measured and reported (`zeroVarianceShare`). | Forensics M3, `embedder-worker.ts:277-295`; no seam, `memory-search.service.ts:369-401` |
 | `mem.update` | `fail`: mostly `stale`. A merge appends v2 to the v1 row and both chunks stay retrievable; there is no supersede marker. | Forensics M6; `memory-curator.service.ts:836-846` |
 | `mem.temporal` | `fail`: date visibility 0 | The block prints `[subject]: chunk` only (`memory-prompt-injector.ts:117-128`), and the transcript carries no dates |
 | `mem.update.seed` | Expected to pass: the adapter deletes the matches before the insert | `memory-writer.adapter.ts:71` |
 | all model suites in CI | `na: cassette-miss`. No cassette is committed, and the ground truth is not frozen. | See "Pending live recording" |
 
-The spec scenarios pin these shapes: an inert reranker gives `fail` with zero variance, stale updates give `fail` against latest-chunk-wins at 1.0, and temporal gives a date visibility of 0.
+The spec scenarios pin these shapes: an inert reranker gives `na` with zero variance on all 40 lists, stale updates give `fail` against latest-chunk-wins at 1.0, and temporal gives a date visibility of 0.
 
 ## Checks
 
@@ -226,3 +225,71 @@ The fixture file names are proposals for Batch 25. The specs use synthetic casse
 
 - Batch 19's `memory-suite-support.ts` and this batch's `merge-update-pass.ts` both hold `inputSha256`, home-relative path resolution, `rateMetrics` and `deltaOf`. Consolidating them is a candidate for after Phase 3.5 (third use).
 - `buildBlock` calls `recordUse`, which bumps salience on the rows it injects. The suites accept this because it is product behaviour, but it makes a row read twice rank differently.
+
+## Phase 3.5 fixes
+
+Source: `code-logic-review-phase3-5.md`, findings 1 and 2. I edited only my own files. I ran no git command, made no commit and did no bench run.
+
+### Finding 1: the commit loop now persists what the resolver returned
+
+**Can it call the product's own commit path?** No. The commit loop lives inside the private `MemoryCuratorService.doCurate` (`memory-curator.service.ts:683-907`). That method always sends the resolver the candidates' ULIDs (`:788-794`), so a recorded resolve cannot replay (see Design). No public method commits drafts that were already resolved. The container offers nothing either: `MemoryStore` and `MemorySearchService` expose single store calls only.
+
+**What changed instead.** `merge-update-pass.ts` `commitDrafts` now mirrors the loop field for field:
+
+- It iterates the resolver's output, not its input. Each `DraftDecision.draft` is the resolved draft minus `mergeTargetId`.
+- A merge appends `resolved.content`.
+- An insert passes the resolved draft to `insertRow`. `insertRow` maps every field the product maps:
+  - `kind`, `subject`, `content`;
+  - salience as `baseSalience(salienceHint)`;
+  - `request`, `investigated`, `learned`, `completed`, `nextSteps`;
+  - `type`, `concepts`, `files`.
+- A write that throws is recorded as `skipped`, with `rowId: null`, and the loop continues (`:891-897`).
+- The resolved-count check was removed, because the product does not make it.
+
+**One remaining difference.** `salienceBoost` is not passed (`merge-update-ports.ts` says so), because the planted sessions model a plain curate.
+
+**Dedup's definition of "merged"** is now: a resolved right-side draft was appended to the left row.
+
+**Pinned by specs** (`dedup.suite.spec.ts`):
+
+- "commits exactly what the resolver returned, as the product does". The resolver rewrites subject, content, `salienceHint`, `type` and `concepts`, and the inserted draft equals the rewritten one. A second case merges with rewritten content, and the appended text is that content.
+- "counts a failed write as skipped and keeps committing".
+
+**Honesty.** `mem.dedup`, `mem.update` and `mem.temporal` measure the product's collector, resolver and store calls through a mirrored commit loop, not through the product's commit code. If `doCurate`'s loop changes, this mirror must change with it. The file:line citations in `commitDrafts` are the check.
+
+### Finding 2: `mem.dedup.rerank` no longer fabricates a no-rerank baseline
+
+The product exposes no pre-rerank candidate order:
+
+- `searchRich` always reranks when the embedder is the worker client and at least 5 rows fused, and it has no option to turn that off. The fused list exists only inside the call (`memory-search.service.ts:369-401`).
+- The collector only receives the reranked hits (`merge-candidate-collector.ts:220-225`).
+- `searchIndex` fuses per memory along its own path (`:636-683`), so its candidate set is different.
+
+Changes:
+
+- The suite deleted `rrfOrder`, the reconstructed order.
+- It now reports the `no-rerank` baseline and its delta as `null`, `details.ndcgAt5NoRerank: null`, and verdict `na` with reason `no-pre-rerank-order` (`RERANK_NA_NO_PRE_RERANK`). The reason is `no-reranker` when the embedder has no reranker.
+- What it still measures for real: NDCG@5 of the target in the product's returned order, and reranker score variance per list (`zeroVarianceLists`, `zeroVarianceShare`).
+- A case passes when the target is ranked first. That is a product observation, not a comparison with a baseline.
+- `RERANK_MIN_EFFECT` was deleted.
+
+Specs: an inert reranker gives `na`, a zero-variance share of 1 and null baselines. A working reranker gives rank 1 and nonzero variance, still `na`.
+
+To make the ledger row measurable, Phase 4 needs a product seam: a rerank-off option on `searchRich`, or a returned pre-rerank order.
+
+### Per-suite honesty after the fixes
+
+| Suite | Product path measured | Verdict basis |
+|---|---|---|
+| `mem.dedup` | Real collector and real store. The resolver comes from the cassette double. The commit loop is a mirrored copy, not the product's code. | F1 vs byte-equal (pure policy); `na` on any cassette miss |
+| `mem.dedup.rerank` | Real `searchRich` and the real embedder `rerank` | Always `na` (`no-pre-rerank-order`) |
+| `mem.update` | Real windows, collector, store, `searchRich` and `buildBlock`; the curator is a cassette double; the commit loop is mirrored | correct vs latest-chunk-wins; `na` on a miss |
+| `mem.temporal` | Same as `mem.update` | accuracy vs raw grep; `na` on a miss |
+| `mem.update.seed` | The real `MemoryWriterAdapter.upsert`, then `searchRich` and `buildBlock`. No mirrored code. | Invariant: correct on every case |
+
+### Checks
+
+- `npx jest -c tools/mcp-bench/jest.config.ts tools/mcp-bench/src/memory-skills/suites/memory/dedup.suite.spec.ts tools/mcp-bench/src/memory-skills/suites/memory/update.suite.spec.ts --runInBand` → `Test Suites: 2 passed, 2 total` / `Tests: 20 passed, 20 total`.
+- `npx eslint` on my 9 files → no output, so 0 problems.
+- `npx prettier --check --ignore-unknown` on the same files → `All matched files use Prettier code style!`
+- `npx tsc --noEmit -p tools/mcp-bench/tsconfig.json` → no `error TS` line in my files.

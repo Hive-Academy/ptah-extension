@@ -303,3 +303,48 @@ Command, not run: `npx nx run mcp-bench:bench-memory-skills -- --plan <benchData
 
 - **Plan composition affects the retention suites.** They mutate global DB state: every row in the isolated DB is archived or deleted on the simulated clock. Their DB-bytes series also depends on what earlier suites left in the DB. The projection is stable for the same plan, but not across different plans. A plan should run them last, or alone.
 - **Two liveness figures cannot be measured from a snapshot.** The extraction-pass error share and the count of `'ran'` passes with an error have no persistent store. The future liveness fix should add a durable pass ledger if these are to be audited per release.
+
+## Phase 3.5 fixes (review `code-logic-review-phase3-5.md`, findings 4 and 5)
+
+Plan ordering is now enforced in code, not only documented. The out-of-scope note above about plan composition is superseded by this section.
+
+**The model.** `MemorySkillsHostSuite` has an optional `placement: 'any' | 'first' | 'last'` (default `any`):
+
+- `first`: the suite must be the first host suite. `mem.scope.write` declares it, because it measures a database no other suite has written.
+- `last`: only other `last` suites may follow it. `mem.retention.lifecycle`, `mem.retention.growth` and `mem.ranking.roster` declare it, because they archive and delete every row.
+
+The rules live in one pure module, `tools/mcp-bench/src/memory-skills/host/suite-placement.ts`:
+
+- `suitePlacementProblems(ids, placementOf)` returns every violation with the offending index.
+- `HOST_SUITE_PLACEMENTS` is the same id-to-placement table for the runner parent, which cannot load the host suites.
+- This is the one file outside the listed set. It is new, and no other agent touches it.
+
+**Where a bad plan is refused, before any suite runs:**
+
+- `runner/runner-plan.ts` (`hostSuites`), as a zod issue at `hostSuites[i].id`;
+- `host/plan.schema.ts` (`suites`), as an issue at `suites[i].id`;
+- `host/memory-skills-host.ts`, before boot, as `MemorySkillsPlanError: the plan orders host suites unsafely: …`. This check uses each registered suite's declared `placement`.
+
+**Defence in depth (finding 4).** `scope-write.suite.ts` now returns `na` with reason `shared-db-not-fresh: <n> pre-existing rows` whenever `preexistingRows > 0`. That covers a seeded `database` fixture too, which the order check cannot see.
+
+**Specs:**
+
+- `host/suite-placement.spec.ts` (new):
+  - the rules: valid order accepted, a second `first` refused, and every non-`last` suite after the first `last` refused;
+  - a drift guard: the placement each registered suite declares equals `HOST_SUITE_PLACEMENTS`.
+- `runner/runner-plan.spec.ts` (new): a valid plan is accepted, scope-write after another suite is refused, a suite after a retention suite is refused, and offline suites are excluded from the ordering.
+- `host/plan.schema.spec.ts`: one valid plan and the two violations.
+- `host/memory-skills-host.spec.ts`: both violations are refused before boot, and no suite runs.
+- `suites/memory/scope-write.suite.spec.ts`: a pre-existing row gives `na` with that reason, and the suite declares `first`.
+
+**Checks:**
+
+- `npx jest -c tools/mcp-bench/jest.config.ts tools/mcp-bench/src/memory-skills/host tools/mcp-bench/src/memory-skills/runner tools/mcp-bench/src/memory-skills/suites/memory/scope-write.suite.spec.ts tools/mcp-bench/src/memory-skills/suites/memory/retention.suite.spec.ts --runInBand` → `Test Suites: 15 passed, 15 total` / `Tests: 150 passed, 150 total`.
+- `npx nx run-many -t typecheck,lint -p mcp-bench` → `Successfully ran targets typecheck, lint for project mcp-bench`.
+- `npx nx run mcp-bench:build-host-memory-skills` → `Successfully ran target build-host-memory-skills for project mcp-bench and 33 tasks it depends on`.
+- `npx eslint <12 touched files>` → exit 0, no output.
+- `npx prettier --check --ignore-unknown <12 touched files>` → `All matched files use Prettier code style!`
+
+**Plan consequence.** The example local plan above is valid only without `mem.scope.write`. If it is added, it must be the first host suite, ahead of the audits.
+
+The snapshot audits stay `any`. They read a snapshot copy, not the shared DB, but the simple rule still requires them to run before the retention suites.

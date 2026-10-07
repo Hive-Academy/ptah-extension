@@ -14,8 +14,10 @@
  *   3. growth: at `T + 1 h` the day's synthetic sessions enqueue their
  *      observations; at `T + 2 h` each session gets one curation pass.
  *
- * Run these suites last in a plan, or alone: their retention runs archive and
- * delete every other row in the isolated DB on the simulated clock.
+ * Their retention runs archive and delete every other row in the isolated DB
+ * on the simulated clock, so each declares `placement: 'last'`: the plan
+ * schemas and the host refuse a plan that runs any other suite after them
+ * (`host/suite-placement.ts`).
  *
  * Imports only Node, zod and modules the runner parent may load.
  */
@@ -59,6 +61,8 @@ function retentionSuite(
 ): MemorySkillsHostSuite {
   return {
     id,
+    // Rewrites the shared database: nothing that reads it may follow.
+    placement: 'last',
     async run(context) {
       const options = retentionOptionsSchema.parse(context.options ?? {});
       const seed = loadRetentionSeed(context.isolation.home, options);

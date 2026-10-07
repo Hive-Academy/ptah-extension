@@ -14,8 +14,13 @@ import {
   DEDUP_RERANK_SUITE_ID,
   DEDUP_SUITE_ID,
   labelledDraft,
+  RERANK_NA_NO_PRE_RERANK,
 } from './dedup.suite';
-import { stableCandidates } from './merge-update-pass';
+import {
+  commitDrafts,
+  ModelCallLog,
+  stableCandidates,
+} from './merge-update-pass';
 import type { RerankPort } from './merge-update-ports';
 import {
   FakeMemory,
@@ -329,7 +334,7 @@ describe('mem.dedup and mem.dedup.rerank', () => {
     },
   };
 
-  it('reports an inert reranker as zero variance and zero NDCG delta (fail today)', async () => {
+  it('reports an inert reranker as zero variance and stays na without a pre-rerank baseline', async () => {
     const { context, rerank, runDir } = setup(pairSet(), { reranker: inert });
     await rerank.run(context);
     const { result, cases } = readSuiteResult(runDir, DEDUP_RERANK_SUITE_ID);
@@ -337,49 +342,157 @@ describe('mem.dedup and mem.dedup.rerank', () => {
       operation: 'rerank',
       lists: 40,
       ndcgAt5: 0,
-      ndcgAt5NoRerank: 0,
+      ndcgAt5NoRerank: null,
       zeroVarianceLists: 40,
     });
-    expect(result.metrics['ndcgAt5Delta']).toBe(0);
     expect(result.metrics['zeroVarianceShare']).toBe(1);
     rateMetricsExact(result.metrics);
-    expect(result.verdict).toBe('fail');
+    // No product seam yields the pre-rerank order, so no verdict is claimed.
+    expect(result.verdict).toBe('na');
+    expect(result.naReason).toBe(RERANK_NA_NO_PRE_RERANK);
+    expect(result.baselines).toEqual([
+      {
+        id: 'no-rerank',
+        label: expect.stringContaining('unavailable'),
+        metrics: { ndcgAt5: null },
+      },
+    ]);
+    expect(result.deltas).toEqual({ 'no-rerank': { ndcgAt5: null } });
     expect(result.modelCalls).toBe(0);
-    expect(cases[0].observed).toBe(
-      'rank=absent; no-rerank=absent; variance=zero',
-    );
+    expect(cases[0].observed).toBe('rank=absent; variance=zero');
+    expect(cases[0].baselineOutcomes).toBeUndefined();
   });
 
-  it('measures a working reranker against the RRF order of the same hits', async () => {
+  it("reports a working reranker's ranks and variance, still na", async () => {
     const { context, rerank, runDir } = setup(pairSet(), {
       reranker: discriminating,
     });
     await rerank.run(context);
     const { result, cases } = readSuiteResult(runDir, DEDUP_RERANK_SUITE_ID);
-    const noRerank = 1 / Math.log2(6);
     expect(result.details).toMatchObject({
       lists: 40,
       ndcgAt5: 1,
+      ndcgAt5NoRerank: null,
       zeroVarianceLists: 0,
     });
-    expect(result.metrics['ndcgAt5NoRerank']).toBeCloseTo(noRerank, 12);
-    expect(result.metrics['ndcgAt5NoRerank']).toBe(
-      (result.metrics['ndcgAt5NoRerank.num'] as number) / 40,
-    );
-    expect(result.deltas['no-rerank']['ndcgAt5']).toBeCloseTo(1 - noRerank, 12);
-    expect(result.verdict).toBe('pass');
+    expect(result.verdict).toBe('na');
+    expect(result.naReason).toBe(RERANK_NA_NO_PRE_RERANK);
     expect(cases[0]).toMatchObject({
-      observed: 'rank=1; no-rerank=5; variance=nonzero',
+      observed: 'rank=1; variance=nonzero',
       outcome: 'pass',
-      baselineOutcomes: { 'no-rerank': 'fail' },
     });
   });
 
-  it('is na when the embedder has no reranker', async () => {
+  it('is na: no-reranker when the embedder has no reranker', async () => {
     const { context, rerank, runDir } = setup(pairSet(), { reranker: null });
     await rerank.run(context);
     const { result } = readSuiteResult(runDir, DEDUP_RERANK_SUITE_ID);
     expect(result.verdict).toBe('na');
     expect(result.naReason).toBe('no-reranker');
+  });
+
+  it('commits exactly what the resolver returned, as the product does', async () => {
+    const pair = pairSet(1, 0)[0];
+    const left = labelledDraft(pair.left);
+    const right = labelledDraft({ ...pair.right, subject: 'Topic-0' });
+    const { related } = stableCandidates([
+      { id: 'x', subject: left.subject, content: left.content },
+    ]);
+    // The resolver rewrites the right draft: new subject, content, salience
+    // and type, and inserts it as new instead of merging.
+    const rewritten = {
+      ...right,
+      subject: 'rewritten-subject',
+      content: 'rewritten content',
+      salienceHint: 0.9,
+      type: 'decision' as const,
+      concepts: ['c1'],
+      mergeTargetId: null,
+    };
+    // And a second pass merges with rewritten content.
+    const merged = {
+      ...right,
+      content: 'merged content',
+      mergeTargetId: related[0].id,
+    };
+    const cassettePath = join(dir, 'commit.jsonl');
+    new SyntheticCassette()
+      .resolve([right], related, [rewritten])
+      .write(cassettePath);
+    const curator = replayCurator(cassettePath);
+    const fake = new FakeMemory({ curator });
+    const log = new ModelCallLog(now);
+    await commitDrafts(
+      fake,
+      { drafts: [left], workspaceRoot: '/w', sessionId: 's' },
+      log,
+    );
+    const pass = await commitDrafts(
+      fake,
+      { drafts: [right], workspaceRoot: '/w', sessionId: 's' },
+      log,
+    );
+    const { mergeTargetId: _dropped, ...persisted } = rewritten;
+    expect(pass.decisions).toEqual([
+      { draft: persisted, outcome: 'created', rowId: expect.any(String) },
+    ]);
+    expect(fake.inserted[1]).toEqual(persisted);
+
+    const mergePath = join(dir, 'merge.jsonl');
+    new SyntheticCassette()
+      .resolve([right], related, [merged])
+      .write(mergePath);
+    const mergeFake = new FakeMemory({ curator: replayCurator(mergePath) });
+    await commitDrafts(
+      mergeFake,
+      { drafts: [left], workspaceRoot: '/w', sessionId: 's' },
+      log,
+    );
+    const mergePass = await commitDrafts(
+      mergeFake,
+      { drafts: [right], workspaceRoot: '/w', sessionId: 's' },
+      log,
+    );
+    expect(mergePass.decisions[0].outcome).toBe('merged');
+    expect(mergeFake.appended).toEqual([
+      { id: mergeFake.rows[0].id, text: 'merged content' },
+    ]);
+  });
+
+  it('counts a failed write as skipped and keeps committing', async () => {
+    const cassettePath = join(dir, 'none.jsonl');
+    new SyntheticCassette().write(cassettePath);
+    const fake = new FakeMemory({ curator: replayCurator(cassettePath) });
+    let calls = 0;
+    const original = fake.insertRow.bind(fake);
+    fake.insertRow = async (row) => {
+      calls += 1;
+      if (calls === 1) throw new Error('disk full');
+      return original(row);
+    };
+    const drafts = [
+      {
+        kind: 'fact' as const,
+        subject: 'a',
+        content: 'one',
+        salienceHint: 0.5,
+      },
+      {
+        kind: 'fact' as const,
+        subject: 'b',
+        content: 'two',
+        salienceHint: 0.5,
+      },
+    ];
+    const pass = await commitDrafts(
+      fake,
+      { drafts, workspaceRoot: '/w', sessionId: 's' },
+      new ModelCallLog(now),
+    );
+    expect(pass.decisions.map((d) => d.outcome)).toEqual([
+      'skipped',
+      'created',
+    ]);
+    expect(pass.decisions[0].rowId).toBeNull();
   });
 });

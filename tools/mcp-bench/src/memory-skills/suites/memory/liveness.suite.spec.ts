@@ -47,6 +47,7 @@ import {
   type LivenessParts,
 } from './liveness-harness';
 import {
+  HARNESS_ONLY_REASON,
   LIVENESS_MTIMES,
   runLivenessFaultSuite,
   runLivenessRescanSuite,
@@ -354,7 +355,9 @@ describe('mem.liveness.fault', () => {
     expect(details.ranPassesWithError).toBe(3);
     expect(details.faults).toHaveLength(4);
     expect(result.metrics['faults.passRate']).toBe(0 / 4);
-    expect(result.verdict).toBe('fail');
+    // Harness-only: the invariants fail as measured, the verdict is na.
+    expect(result.verdict).toBe('na');
+    expect(result.naReason).toBe(HARNESS_ONLY_REASON);
     expect(result.modelCalls).toBe(0);
     expect(result.cost.calls).toBeGreaterThan(0);
     expect(result.baselines[0].id).toBe('recorded-at-freeze');
@@ -439,7 +442,9 @@ describe('mem.liveness.rescan', () => {
       'fail',
       'fail',
     ]);
-    expect(result.verdict).toBe('fail');
+    // Harness-only: the invariants fail as measured, the verdict is na.
+    expect(result.verdict).toBe('na');
+    expect(result.naReason).toBe(HARNESS_ONLY_REASON);
     // The watermark followed the fixed second-scan mtimes.
     expect(parts.watermark.value).toBe(LIVENESS_MTIMES.rescanSecond + 120_000);
     expect(readdirSync(parts.sessionsDir)).toEqual([]);

@@ -34,14 +34,22 @@
  *
  * All left sides are inserted into one shared scope. For each should-merge
  * pair the right draft's tier-2 query (`merge-candidate-collector.ts:204-206`,
- * 5 hits, `:23`) is run through `searchRich`; NDCG@5 of the left row is taken
- * in the returned (reranked) order and in the RRF order of the same hits (the
- * no-rerank baseline: RRF score, then BM25 and vector rank, the order
- * `rrfFuse` builds). The reranker's score variance is computed per list from
- * the embedder's own `rerank`. Expected today (forensics M3): delta 0 and
- * variance 0 on every list. Verdict: NDCG@5 beats no-rerank by MinE 0.05.
- * Limitation: the reranker also chooses which 5 of the top-20 RRF rows
- * survive; that membership effect is not separated here.
+ * 5 hits, `:23`) is run through `searchRich`. NDCG@5 of the left row in the
+ * returned (reranked) order is reported, and the reranker's score variance is
+ * measured per list with the embedder's own `rerank` (forensics M3 expects 0
+ * on every list).
+ *
+ * The ledger's no-rerank baseline (`benchmark-design.md:93`, MinE 0.05) needs
+ * the pre-rerank candidate set and order, and the product exposes neither:
+ * `searchRich` always reranks when the embedder is the worker client and at
+ * least 5 rows fused, with no option to turn it off, and the fused list is
+ * local to the call (`memory-search.service.ts:369-401`); the collector only
+ * receives that reranked output (`merge-candidate-collector.ts:220-225`);
+ * `searchIndex` fuses per memory with its own query path
+ * (`memory-search.service.ts:636-683`), so it is a different candidate set.
+ * The suite therefore reports the baseline as `null` and its verdict as `na`
+ * ({@link RERANK_NA_NO_PRE_RERANK}); it never rebuilds a "no-rerank" order
+ * from the reranked output.
  */
 
 import type { ExtractedMemoryDraft } from '@ptah-extension/memory-contracts';
@@ -84,7 +92,7 @@ import {
   recordCase,
   type CaseStatus,
 } from './merge-update-pass';
-import type { MergeUpdatePorts, PortHit, PortRow } from './merge-update-ports';
+import type { MergeUpdatePorts, PortRow } from './merge-update-ports';
 
 export const DEDUP_SUITE_ID = 'mem.dedup';
 export const DEDUP_RERANK_SUITE_ID = 'mem.dedup.rerank';
@@ -94,8 +102,11 @@ export const MIN_SHOULD_MERGE_PAIRS = 40;
 export const MIN_SHOULD_NOT_MERGE_PAIRS = 40;
 /** Ledger MinE: 10 points of merge F1 over byte-equal subject (`:86`). */
 export const DEDUP_MIN_EFFECT = 0.1;
-/** Ledger MinE: 0.05 NDCG@5 over no-rerank (`:93`). */
-export const RERANK_MIN_EFFECT = 0.05;
+/**
+ * `na` reason of `mem.dedup.rerank`: the product exposes no pre-rerank
+ * candidate order for the ledger's no-rerank baseline (see the header).
+ */
+export const RERANK_NA_NO_PRE_RERANK = 'no-pre-rerank-order';
 
 /** `TIER2_PER_DRAFT_LIMIT` (`merge-candidate-collector.ts:23`). */
 const TIER2_PER_DRAFT_LIMIT = 5;
@@ -315,7 +326,9 @@ async function runDedup(
           },
           log,
         );
-        const leftRowId = left.decisions[0].rowId;
+        const leftRowId =
+          left.decisions.find((decision) => decision.rowId !== null)?.rowId ??
+          null;
         const right = await commitDrafts(
           ports,
           {
@@ -327,10 +340,18 @@ async function runDedup(
           log,
         );
         return {
-          merged: right.decisions[0].merged,
-          targetInCandidates: right.collection.candidates.some(
-            (candidate) => candidate.id === leftRowId,
-          ),
+          // Merged = a resolved right-side draft was appended to the left row.
+          merged:
+            leftRowId !== null &&
+            right.decisions.some(
+              (decision) =>
+                decision.outcome === 'merged' && decision.rowId === leftRowId,
+            ),
+          targetInCandidates:
+            leftRowId !== null &&
+            right.collection.candidates.some(
+              (candidate) => candidate.id === leftRowId,
+            ),
           rows: ports.listRows(workspaceRoot),
           resolveCalls: left.resolveCalls + right.resolveCalls,
         };
@@ -459,20 +480,6 @@ function rankOf(ranked: readonly string[], id: string): number | null {
   return index < 0 ? null : index + 1;
 }
 
-/** Hits in RRF order: fused score, then BM25 rank, then vector rank. */
-function rrfOrder(hits: readonly PortHit[]): string[] {
-  const rank = (value: number | null): number =>
-    value === null ? Number.POSITIVE_INFINITY : value;
-  return [...hits]
-    .sort(
-      (a, b) =>
-        b.score - a.score ||
-        rank(a.bm25Rank) - rank(b.bm25Rank) ||
-        rank(a.vecRank) - rank(b.vecRank),
-    )
-    .map((hit) => hit.memoryId);
-}
-
 function distinct(ids: readonly string[]): string[] {
   return [...new Set(ids)];
 }
@@ -485,9 +492,7 @@ function variance(values: readonly number[]): number {
 
 interface RerankOutcome {
   readonly ndcg: number;
-  readonly ndcgNoRerank: number;
   readonly rank: number | null;
-  readonly rankNoRerank: number | null;
   readonly zeroVariance: boolean | null;
 }
 
@@ -528,7 +533,7 @@ async function runRerank(
   const records: CaseRecord[] = [];
   const statuses: CaseStatus[] = [];
   const completed: RerankOutcome[] = [];
-  const expected = 'reranked-rank<no-rerank-rank or first';
+  const expected = 'target-ranked-first';
   for (const pair of pairs.filter((p) => p.kind === 'should-merge')) {
     const target = leftRowOf.get(pair.id);
     // Unreachable: every pair's left side was inserted above.
@@ -548,7 +553,6 @@ async function runRerank(
           workspaceRoot,
         );
         const reranked = distinct(hits.map((hit) => hit.memoryId));
-        const noRerank = distinct(rrfOrder(hits));
         let zeroVariance: boolean | null = null;
         if (ports.reranker !== null && hits.length > 0) {
           searchCalls += 1;
@@ -562,29 +566,17 @@ async function runRerank(
           );
           zeroVariance = variance(scored.map((s) => s.score)) === 0;
         }
-        const truth = { items: [target] };
         return {
           ndcg: ndcgAtK(
             { ranked: reranked, abstained: false },
-            truth,
-            TIER2_PER_DRAFT_LIMIT,
-          ),
-          ndcgNoRerank: ndcgAtK(
-            { ranked: noRerank, abstained: false },
-            truth,
+            { items: [target] },
             TIER2_PER_DRAFT_LIMIT,
           ),
           rank: rankOf(reranked, target),
-          rankNoRerank: rankOf(noRerank, target),
           zeroVariance,
         };
       },
       (outcome) => {
-        const improved =
-          outcome.rank !== null &&
-          (outcome.rank === 1 ||
-            outcome.rankNoRerank === null ||
-            outcome.rank < outcome.rankNoRerank);
         const spread =
           outcome.zeroVariance === null
             ? 'no-reranker'
@@ -593,11 +585,8 @@ async function runRerank(
               : 'nonzero';
         return {
           expected,
-          observed: `rank=${outcome.rank ?? 'absent'}; no-rerank=${outcome.rankNoRerank ?? 'absent'}; variance=${spread}`,
-          outcome: improved ? 'pass' : 'fail',
-          baselineOutcomes: {
-            'no-rerank': outcome.rankNoRerank === 1 ? 'pass' : 'fail',
-          },
+          observed: `rank=${outcome.rank ?? 'absent'}; variance=${spread}`,
+          outcome: outcome.rank === 1 ? 'pass' : 'fail',
         };
       },
       { now, capMs: deps.capMs },
@@ -608,38 +597,29 @@ async function runRerank(
   }
 
   const lists = completed.length;
-  const sum = (pick: (o: RerankOutcome) => number): number =>
-    completed.reduce((total, outcome) => total + pick(outcome), 0);
   const ndcg = rate(
-    sum((o) => o.ndcg),
-    lists,
-  );
-  const ndcgNoRerank = rate(
-    sum((o) => o.ndcgNoRerank),
+    completed.reduce((total, outcome) => total + outcome.ndcg, 0),
     lists,
   );
   const measured = completed.filter((o) => o.zeroVariance !== null);
   const zeroVarianceLists = measured.filter((o) => o.zeroVariance).length;
   const product = {
     ...rateMetrics('ndcgAt5', ndcg),
-    ...rateMetrics('ndcgAt5NoRerank', ndcgNoRerank),
-    ndcgAt5Delta:
-      ndcg.value === null || ndcgNoRerank.value === null
-        ? null
-        : ndcg.value - ndcgNoRerank.value,
     ...rateMetrics(
       'zeroVarianceShare',
       rate(zeroVarianceLists, measured.length),
     ),
   };
+  // The ledger baseline the product cannot serve: reported as missing, never
+  // reconstructed from the reranked output.
   const baseline = {
     id: 'no-rerank',
-    label: 'No rerank (RRF order of the same hits)',
-    metrics: rateMetrics('ndcgAt5', ndcgNoRerank),
+    label: 'No rerank (unavailable: the product exposes no pre-rerank order)',
+    metrics: { ndcgAt5: null },
   };
   const naReason =
     naReasonOf(statuses, belowMinimum(pairs)) ??
-    (ports.reranker === null ? 'no-reranker' : undefined);
+    (ports.reranker === null ? 'no-reranker' : RERANK_NA_NO_PRE_RERANK);
 
   writeSuiteResult(
     context.runDir,
@@ -651,7 +631,7 @@ async function runRerank(
         operation: 'rerank',
         lists,
         ndcgAt5: ndcg.value,
-        ndcgAt5NoRerank: ndcgNoRerank.value,
+        ndcgAt5NoRerank: null,
         zeroVarianceLists,
       },
       claim: {
@@ -661,9 +641,7 @@ async function runRerank(
       },
       groundTruth: GROUND_TRUTH,
       baselines: [baseline],
-      deltas: {
-        'no-rerank': deltaOf(product, baseline.metrics, ['ndcgAt5']),
-      },
+      deltas: { 'no-rerank': { ndcgAt5: null } },
       cost: {
         calls: searchCalls,
         latency_ms: { p50: null, p95: null },
@@ -671,13 +649,8 @@ async function runRerank(
         tokens: {},
       },
       modelCalls: 0,
-      verdict:
-        naReason !== undefined
-          ? 'na'
-          : meetsMinEffect(ndcg.value, ndcgNoRerank.value, RERANK_MIN_EFFECT)
-            ? 'pass'
-            : 'fail',
-      ...(naReason === undefined ? {} : { naReason }),
+      verdict: 'na',
+      naReason,
       metrics: product,
       cassetteVersion: null,
     },

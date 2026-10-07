@@ -22,6 +22,7 @@ import { z } from 'zod';
 
 import { isPathInside, isSamePath } from '../../bench-data';
 import type { CuratorFaultMode } from '../doubles/recorded-curator-llm';
+import { hostSuitePlacement, suitePlacementProblems } from './suite-placement';
 
 /** Env var naming the absolute path of the plan JSON. */
 export const MEMORY_SKILLS_PLAN_ENV = 'PTAH_BENCH_MEMORY_SKILLS_PLAN';
@@ -251,6 +252,13 @@ export function createMemorySkillsPlanSchema(
         }
         ids.add(suite.id);
       });
+      // The suites share one database: order constraints (`suite-placement.ts`).
+      for (const problem of suitePlacementProblems(
+        plan.suites.map((suite) => suite.id),
+        hostSuitePlacement,
+      )) {
+        issue(problem.message, ['suites', problem.index, 'id']);
+      }
     });
 }
 

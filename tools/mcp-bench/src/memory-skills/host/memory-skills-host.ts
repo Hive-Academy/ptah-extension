@@ -48,6 +48,7 @@ import {
   type InstalledDoubles,
 } from './doubles-override';
 import { seedFixtures, type SeededFixture } from './fixture-seeder';
+import { suitePlacementProblems, type SuitePlacement } from './suite-placement';
 import {
   loadMemorySkillsPlan,
   MemorySkillsPlanError,
@@ -75,6 +76,11 @@ export interface MemorySkillsHostSuiteContext {
 /** A suite the host can run in-process. Registered in the host entry. */
 export interface MemorySkillsHostSuite {
   readonly id: string;
+  /**
+   * Plan-order constraint on the shared database (`suite-placement.ts`);
+   * default `any`. The host refuses a plan that breaks it before boot.
+   */
+  readonly placement?: SuitePlacement;
   /** Writes its own per-case artefacts under `runDir`; throws on a suite error. */
   run(context: MemorySkillsHostSuiteContext): Promise<void>;
 }
@@ -182,6 +188,15 @@ export async function runMemorySkillsHost(
   if (unknown.length > 0) {
     throw new MemorySkillsPlanError(
       `the plan names suites this host does not have: ${unknown.join(', ')}`,
+    );
+  }
+  const misplaced = suitePlacementProblems(
+    plan.suites.map((suite) => suite.id),
+    (id) => registry.get(id)?.placement ?? 'any',
+  );
+  if (misplaced.length > 0) {
+    throw new MemorySkillsPlanError(
+      `the plan orders host suites unsafely: ${misplaced.map((problem) => problem.message).join('; ')}`,
     );
   }
 

@@ -390,6 +390,8 @@ export function createScopeWriteSuite(
   const git = deps.git ?? defaultGit;
   return {
     id: SCOPE_WRITE_SUITE_ID,
+    // It counts every row in the shared database (`suite-placement.ts`).
+    placement: 'first',
     async run(context) {
       const options = scopeWriteOptionsSchema.parse(context.options ?? {});
       const sessionPath = resolveHomeFile(
@@ -509,7 +511,14 @@ export function createScopeWriteSuite(
         nonCanonical.num === 0 &&
         emptyRootRows === 0 &&
         crossWorkspaceLeaks === 0;
-      const naReason = rows.length === 0 ? 'no-rows-written' : undefined;
+      // Defence in depth beside the plan-order check: a database another
+      // suite or a fixture already wrote is not the fresh one this measures.
+      const naReason =
+        preexistingRows > 0
+          ? `shared-db-not-fresh: ${preexistingRows} pre-existing rows`
+          : rows.length === 0
+            ? 'no-rows-written'
+            : undefined;
       writeSuiteResult(
         context.runDir,
         {

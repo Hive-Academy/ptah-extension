@@ -58,7 +58,7 @@ const HOST_SUITES: readonly MemorySkillsHostSuite[] = [
   ...createUpdateSuites({ resolvePorts: resolveMergeUpdatePorts }),
   ...READ_SIDE_SUITES,
   SCOPE_WRITE_SUITE,
-  // Run last in a plan, or alone: their retention runs age every row in the DB.
+  // `placement: 'last'`: they age every row in the DB (`suite-placement.ts`).
   ...createRetentionSuites({ portOf: hostRetentionPort }),
   // Local only (R-M1a): they read a snapshot copy the plan seeds into the home.
   ...SNAPSHOT_AUDIT_SUITES,

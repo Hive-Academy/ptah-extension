@@ -27,7 +27,8 @@
  * where one session throws among two successes: the watermark must stay below
  * the failed session. A `stalled` control (expected to pass today) shows the
  * harness can see a kept observation. (a)-(d) are expected to FAIL today;
- * they are recorded as failures, never skipped.
+ * they are recorded as failing cases, never skipped. The suite verdict is
+ * always `na` ({@link HARNESS_ONLY_REASON}): the cases are harness evidence.
  *
  * Rescan (M2 mode (e)): the same seeded transcripts are boot-scanned twice;
  * before the second scan their mtimes are moved to fixed later values with
@@ -94,6 +95,16 @@ export const LIVENESS_MTIMES = {
 } as const;
 
 const OBSERVATIONS_PER_CASE = 3;
+
+/**
+ * Both suites run the product's trigger code, but through a scripted curator
+ * and two private methods reached by a cast, so a result is evidence about
+ * that harness, not about the product. Every verdict is therefore `na` with
+ * this reason ("not measurable yet" in the ledger) until a public product
+ * seam exists (batch-17-report.md, "Phase 3.5 fixes").
+ */
+export const HARNESS_ONLY_REASON =
+  'harness-only: scripted curator and private trigger methods';
 
 export const livenessOptionsSchema = z
   .strictObject({
@@ -450,17 +461,15 @@ export async function runLivenessFaultSuite(
   const metrics = { 'faults.passRate': passRate.value, ranPassesWithError };
   const records = cases.map((c) => c.record);
   const stalled = cases.some((c) => c.stalledScan);
-  const verdict: SuiteResultInput['verdict'] =
-    !control.pass || stalled
-      ? 'na'
-      : faults.every((f) => f.pass)
-        ? 'pass'
-        : 'fail';
+  // Harness-only (Phase 3.5 review finding 3): the measured numbers stay in
+  // `details`, `metrics` and the case records; the verdict never claims a
+  // product result.
+  const verdict: SuiteResultInput['verdict'] = 'na';
   const naReason = !control.pass
     ? 'control-failed'
     : stalled
       ? 'boot-scan-stalled'
-      : undefined;
+      : HARNESS_ONLY_REASON;
   return finish(input.runDir, {
     suiteId: LIVENESS_FAULT_SUITE_ID,
     details,
@@ -594,17 +603,13 @@ export async function runLivenessRescanSuite(
     'rescan.sessionsRecurated': second.succeeded,
   };
   const stalled = first.stalled > 0 || second.stalled > 0;
-  const verdict: SuiteResultInput['verdict'] =
-    vacuous || stalled
-      ? 'na'
-      : records.every((r) => r.outcome === 'pass')
-        ? 'pass'
-        : 'fail';
+  // Harness-only, as for the fault suite.
+  const verdict: SuiteResultInput['verdict'] = 'na';
   const naReason = vacuous
     ? 'vacuous-first-scan'
     : stalled
       ? 'boot-scan-stalled'
-      : undefined;
+      : HARNESS_ONLY_REASON;
   const outcome = finish(input.runDir, {
     suiteId: LIVENESS_RESCAN_SUITE_ID,
     details,

@@ -184,3 +184,17 @@ None are required. Optional: export `searchScopePredicate` or the BM25 SQL from 
 - **Fixture labelling (`memory-facts.v1.jsonl`).** F-005's statement contains its own forbidden token, "google account" ("…not the active Google account"). No row that holds the statement verbatim can ever match F-005, so it is unanswerable in insert mode, and an extractor that copies the sentence would be scored as missing it. The ground-truth owner should check this.
 - **`suites/memory/merge-update-ports.ts` (Batch 18)** briefly broke `host-only-imports.spec.ts`. Batch 18 resolved it by listing the module as host-only.
 - **Abstention needs labelled questions.** Reaching ≥ 15 abstention cases needs a labelled abstention-question fixture (classes a, b and c in the `abstentionCaseSchema` format). None exists yet.
+
+## Phase 3.5 fixes (review `code-logic-review-phase3-5.md`, finding 4)
+
+Two changes, both made by the Batch 20 executor.
+
+- **Placement.** `mem.scope.write` now declares `placement: 'first'` (`host/suite-placement.ts`). Three places refuse a plan that lists any host suite before it, before any suite runs:
+  - `runner/runner-plan.ts`;
+  - `host/plan.schema.ts`;
+  - the host executor (`host/memory-skills-host.ts`).
+
+  The "put `mem.scope.write` first in the plan, or run it alone" instruction above is therefore enforced in code.
+- **Fresh-DB gate.** The suite now gates on `preexistingRows`. A count above 0 gives verdict `na` with reason `shared-db-not-fresh: <n> pre-existing rows`, never `pass`. This also covers a seeded `database` fixture.
+
+Specs and check lines are in `batch-20-report.md`, section "Phase 3.5 fixes".

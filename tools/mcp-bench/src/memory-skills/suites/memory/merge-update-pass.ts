@@ -18,9 +18,12 @@
  *   2. resolve; with no candidate the product adapter returns every draft
  *      unmerged without a model call (`sdk-internal-query.curator-llm.ts:360-362`),
  *      and so does this pass;
- *   3. commit: a merge target must be one the resolver was shown and an
- *      active row of the scope (`:818-858`, `:945-967`), else the draft is
- *      inserted as new (`:860-890`).
+ *   3. commit, a field-for-field mirror of the curator's private loop: each
+ *      RESOLVED draft (subject, content, salience hint, kind, type, concepts,
+ *      files, request/investigated/learned/completed/nextSteps as the resolver
+ *      returned them) is appended when its target is one the resolver was
+ *      shown and an active row of the scope (`:818-858`, `:945-967`), else
+ *      inserted as new (`:860-890`); a failed write is skipped (`:891-897`).
  *
  * Imports no host-only module; the ports arrive from `merge-update-ports.ts`.
  */
@@ -31,6 +34,7 @@ import { readFileSync } from 'node:fs';
 import type {
   CuratorExtraction,
   ExtractedMemoryDraft,
+  ResolvedMemoryDraft,
 } from '@ptah-extension/memory-contracts';
 import { z } from 'zod';
 
@@ -162,13 +166,22 @@ export async function extractSession(
   return { status: 'extracted', drafts };
 }
 
-/** What happened to one draft in {@link commitDrafts}. */
+/**
+ * What happened to one RESOLVED draft in {@link commitDrafts}. The product
+ * iterates the resolver output, not its input, and persists each resolved
+ * draft as returned (`memory-curator.service.ts:825-889`), so this does too.
+ */
 export interface DraftDecision {
+  /** The resolved draft as persisted (`mergeTargetId` dropped). */
   readonly draft: ExtractedMemoryDraft;
-  /** `true` when the draft was appended to an existing row. */
-  readonly merged: boolean;
-  /** The row the draft now lives in. */
-  readonly rowId: string;
+  /**
+   * `merged`: appended to an existing row; `created`: inserted as new;
+   * `skipped`: the write threw and the product would skip it
+   * (`memory-curator.service.ts:891-897`).
+   */
+  readonly outcome: 'merged' | 'created' | 'skipped';
+  /** The row the draft now lives in; `null` when skipped. */
+  readonly rowId: string | null;
 }
 
 export interface PassCommit {
@@ -178,7 +191,14 @@ export interface PassCommit {
   readonly resolveCalls: number;
 }
 
-/** Collect, resolve and commit one pass's drafts into `workspaceRoot`. */
+/**
+ * Collect, resolve and commit one pass's drafts into `workspaceRoot`.
+ *
+ * The commit loop mirrors `MemoryCuratorService.doCurate` field for field
+ * (`memory-curator.service.ts:818-898`). The product has no public seam that
+ * commits given resolved drafts (`doCurate` is private and always sends the
+ * ULID-keyed resolve), so it cannot be called from the host container.
+ */
 export async function commitDrafts(
   ports: MergeUpdatePorts,
   input: {
@@ -196,21 +216,18 @@ export async function commitDrafts(
     signal,
   );
   let resolveCalls = 0;
-  let resolved: readonly { mergeTargetId: string | null }[];
+  let resolved: readonly ResolvedMemoryDraft[];
   if (collection.candidates.length === 0) {
-    resolved = drafts.map(() => ({ mergeTargetId: null }));
+    // The product adapter's own short-circuit (`sdk-internal-query.curator-llm.ts:359-362`).
+    resolved = drafts.map((draft) => ({ ...draft, mergeTargetId: null }));
   } else {
     const { related, realIdOf } = stableCandidates(collection.candidates);
     resolveCalls = 1;
     const answer = await log.time(() =>
       ports.curator.resolve(drafts, related, signal),
     );
-    if (answer.length !== drafts.length) {
-      throw new Error(
-        `resolve returned ${answer.length} drafts for ${drafts.length}`,
-      );
-    }
     resolved = answer.map((draft) => ({
+      ...draft,
       mergeTargetId:
         draft.mergeTargetId === null
           ? null
@@ -220,21 +237,25 @@ export async function commitDrafts(
 
   const candidateIds = new Set(collection.candidates.map((c) => c.id));
   const decisions: DraftDecision[] = [];
-  for (const [index, draft] of drafts.entries()) {
-    const targetId = resolved[index].mergeTargetId;
-    if (targetId !== null && candidateIds.has(targetId)) {
-      const target = ports.mergeTarget(targetId, workspaceRoot);
-      if (
-        target !== null &&
-        (await ports.appendToRow(target, draft.content, workspaceRoot)) ===
-          'appended'
-      ) {
-        decisions.push({ draft, merged: true, rowId: target });
-        continue;
+  for (const { mergeTargetId, ...draft } of resolved) {
+    try {
+      if (mergeTargetId !== null && candidateIds.has(mergeTargetId)) {
+        const target = ports.mergeTarget(mergeTargetId, workspaceRoot);
+        if (
+          target !== null &&
+          (await ports.appendToRow(target, draft.content, workspaceRoot)) ===
+            'appended'
+        ) {
+          decisions.push({ draft, outcome: 'merged', rowId: target });
+          continue;
+        }
       }
+      const rowId = await ports.insertRow({ sessionId, workspaceRoot, draft });
+      decisions.push({ draft, outcome: 'created', rowId });
+    } catch {
+      // The product counts a failed write as skipped and keeps going.
+      decisions.push({ draft, outcome: 'skipped', rowId: null });
     }
-    const rowId = await ports.insertRow({ sessionId, workspaceRoot, draft });
-    decisions.push({ draft, merged: false, rowId });
   }
   return { collection, decisions, resolveCalls };
 }

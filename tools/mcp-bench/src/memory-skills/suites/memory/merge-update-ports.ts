@@ -100,7 +100,11 @@ export interface RerankPort {
 }
 
 export interface MergeUpdatePorts {
-  /** The commit loop's insert (`memory-curator.service.ts:860-889`). */
+  /**
+   * The commit loop's insert (`memory-curator.service.ts:860-889`), every
+   * field taken from the resolved draft. `salienceBoost` is not passed: the
+   * planted sessions model a plain curate with no boost.
+   */
   insertRow(row: {
     readonly sessionId: string;
     readonly workspaceRoot: string;
