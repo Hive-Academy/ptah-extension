@@ -68,10 +68,25 @@ Four Codex/terra recordings (message 619 first; ask the user to refresh Codex lo
   anyone removes the worktree.
 - 620 runner does not surface 619's new `HostStopReport.tempLeft`.
 - `ptah_agent_report` from this child session always failed `unattributed-caller`.
-- **Product UI issue reported by the user (not 620 work; route to the UI-defects session):** "this pop
-  shows while the agent is working and doesn't send before it shows the continue in new session" —
-  a popup appears while the agent is still working, and the pending message is not sent before the
-  "continue in new session" prompt appears. Get a screenshot / exact popup name from the user.
+- **Product issue reported by the user (not 620 work; open it as its own task / UI-defects session):
+  session-budget "Continue in new session" must be a proper workflow.**
+  - User words: "this pop shows while the agent is working and doesn't send before it shows the
+    continue in new session"; "start when a message turn finishes and compact the session in the
+    background where the agent generates a handoff document, then close the current session and start
+    a new one. The current flow is not correct: lots of notifications stack on each other and the
+    agent keeps working until exceeding the limit."
+  - Wanted flow: (1) trigger only at the END of a message turn, never mid-turn; (2) in the background,
+    the agent compacts the session and writes the handoff document; (3) the current session closes;
+    (4) a new session starts, seeded with the handoff. One flow per session, no stacked prompts.
+  - Observed defects: the budget popup/banner appears while the agent is still working; the queued
+    message is not sent before the prompt appears; budget notifications stack; the agent keeps working
+    past the limit (lane completions and peer messages keep re-invoking it).
+  - Code pointers: `libs/frontend/chat/src/lib/services/session-budget-actions.service.ts:139-194`
+    (preview-handoff / write-handoff / openTabForHandoff), `.../notifications/session-budget-banner.component.ts`,
+    `libs/backend/rpc-handlers/src/lib/handlers/session-budget-rpc.handlers.ts`,
+    `libs/backend/rpc-handlers/src/lib/chat/session/chat-session.service.ts:170-183,460-483`
+    (`refuseIfBudgetReached`, `SESSION_BUDGET_REACHED_MESSAGE`), `libs/backend/agent-sdk/src/lib/helpers/session-budget/session-handoff-builder.ts`,
+    `libs/shared/src/lib/types/session-budget.types.ts` (TASK_2026_597 N7 / F3).
 
 Updated 2026-10-07 ~06:45 by orchestrator session `ptah-ptah-extension-continue-memory-skil-b503dc00005aw2q23htdi0e`.
 Read `context.md` first (user decisions incl. "User decisions 2026-10-07, B-P pause switches", the 619
