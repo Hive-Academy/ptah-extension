@@ -23,6 +23,9 @@ const HOST_ONLY_MODULES = new Set([
   'suites/memory/extraction.suite.ts',
   'suites/memory/liveness.suite.ts',
   'suites/memory/liveness-harness.ts',
+  // Batch 18 host adapter: wired only by the host entry; the suites import
+  // its types only.
+  'suites/memory/merge-update-ports.ts',
 ]);
 
 const IMPORT_PATTERN =

@@ -31,10 +31,13 @@ import {
   bootCodeExecutionHost,
 } from '../../transport/bench-host-boot';
 import { startNetRecorder } from '../runner/net-recorder';
+import { createDedupSuites } from '../suites/memory/dedup.suite';
 import { createExtractionSuite } from '../suites/memory/extraction.suite';
 import { createLivenessSuites } from '../suites/memory/liveness.suite';
+import { resolveMergeUpdatePorts } from '../suites/memory/merge-update-ports';
 import { READ_SIDE_SUITES } from '../suites/memory/read-side.suite';
 import { SCOPE_WRITE_SUITE } from '../suites/memory/scope-write.suite';
+import { createUpdateSuites } from '../suites/memory/update.suite';
 import {
   runMemorySkillsHost,
   type MemorySkillsHostSuite,
@@ -48,6 +51,8 @@ import {
 const HOST_SUITES: readonly MemorySkillsHostSuite[] = [
   createExtractionSuite(),
   ...createLivenessSuites(),
+  ...createDedupSuites({ resolvePorts: resolveMergeUpdatePorts }),
+  ...createUpdateSuites({ resolvePorts: resolveMergeUpdatePorts }),
   ...READ_SIDE_SUITES,
   SCOPE_WRITE_SUITE,
 ];
