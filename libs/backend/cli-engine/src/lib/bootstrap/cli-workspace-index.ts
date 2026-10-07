@@ -6,8 +6,6 @@ import type {
   IWorkspaceProvider,
   IWorkspaceWatcher,
 } from '@ptah-extension/platform-core';
-import { MEMORY_CONTRACT_TOKENS } from '@ptah-extension/memory-contracts';
-import type { ISymbolSink } from '@ptah-extension/memory-contracts';
 import { CODE_SYMBOL_INDEXER } from '@ptah-extension/workspace-intelligence';
 import type { CodeSymbolIndexer } from '@ptah-extension/workspace-intelligence';
 import {
@@ -128,11 +126,8 @@ export function attachWorkspaceIndex(
     const watcher = container.isRegistered(PLATFORM_TOKENS.WORKSPACE_WATCHER)
       ? container.resolve<IWorkspaceWatcher>(PLATFORM_TOKENS.WORKSPACE_WATCHER)
       : undefined;
-    const sink = container.isRegistered(MEMORY_CONTRACT_TOKENS.SYMBOL_SINK)
-      ? container.resolve<ISymbolSink>(MEMORY_CONTRACT_TOKENS.SYMBOL_SINK)
-      : undefined;
     const lifecycle = new WorkspaceIndexLifecycleService({
-      indexer: workspaceSymbolIndexFrom(indexer, sink),
+      indexer: workspaceSymbolIndexFrom(indexer),
       watcher,
       workspaceRoot,
       databasePath: readSymbolDatabasePath(container),

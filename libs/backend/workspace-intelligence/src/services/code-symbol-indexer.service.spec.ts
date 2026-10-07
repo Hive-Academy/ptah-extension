@@ -353,6 +353,28 @@ describe('CodeSymbolIndexer', () => {
       expect(governor.whenClear).not.toHaveBeenCalled();
     });
 
+    it('a user-initiated join skips the governor from the next batch', async () => {
+      const governor = makeGovernor();
+      const { service } = build(governor, fakeTsFiles(2));
+      let joined: Promise<unknown> | undefined;
+      const run = service.indexWorkspace('/workspace', {
+        batchSize: 1,
+        onProgress: () => {
+          joined = service.indexWorkspace('/workspace', {
+            userInitiated: true,
+          });
+        },
+      });
+
+      await flush();
+      expect(governor.whenClear).toHaveBeenCalledTimes(1);
+      governor.release();
+
+      await expect(run).resolves.toMatchObject({ filesScanned: 2 });
+      await expect(joined).resolves.toMatchObject({ filesScanned: 2 });
+      expect(governor.whenClear).toHaveBeenCalledTimes(1);
+    });
+
     it('proceeds when the governor resolves at its starvation ceiling', async () => {
       const governor = makeGovernor();
       const { service } = build(governor, fakeTsFiles(3));
@@ -664,6 +686,26 @@ describe('CodeSymbolIndexer', () => {
       });
     });
 
+    it('isIndexing is true from the synchronous start of indexWorkspace until it settles', async () => {
+      const held = holdingGovernor();
+      const { service } = setup(fakeTsFiles(1), held.governor);
+      expect(service.isIndexing(ROOT)).toBe(false);
+      expect(service.isIndexing('')).toBe(false);
+
+      const run = service.indexWorkspace(`${ROOT}/`);
+      expect(service.isIndexing(ROOT)).toBe(true);
+      expect(service.isIndexing(`${ROOT}/`)).toBe(true);
+
+      const perFile = service.reindexFile('/workspace/src/file0.ts', ROOT);
+      await settle();
+      expect(service.isIndexing(ROOT)).toBe(true);
+
+      held.releaseAll();
+      await run;
+      await perFile;
+      expect(service.isIndexing(ROOT)).toBe(false);
+    });
+
     it('a successful run is current, with analysed, failed-by-reason and unsupported buckets', async () => {
       const { service, fs, ast, discovery } = setup([
         '/workspace/src/a.ts',
@@ -882,6 +924,113 @@ describe('CodeSymbolIndexer', () => {
       });
     });
 
+    /** A sink whose replace, delete and purge keep one set of file paths. */
+    function trackingSink(sink: ReturnType<typeof makeSymbolSink>) {
+      const rows = new Set<string>();
+      sink.replaceFileSymbols.mockImplementation(
+        async (_root: string, file: string, chunks: readonly unknown[]) => {
+          if (chunks.length === 0) rows.delete(file);
+          else rows.add(file);
+        },
+      );
+      sink.deleteSymbolsForFile.mockImplementation((file: string) => {
+        const had = rows.delete(file);
+        return had ? 1 : 0;
+      });
+      sink.purgeMissing.mockImplementation(
+        (_root: string, present: readonly string[]) => {
+          const keep = new Set(present);
+          let deleted = 0;
+          for (const file of [...rows]) {
+            if (!keep.has(file)) {
+              rows.delete(file);
+              deleted++;
+            }
+          }
+          return deleted;
+        },
+      );
+      return rows;
+    }
+
+    it('keeps a file created after discovery when the census purges', async () => {
+      const held = holdingGovernor();
+      const { service, sink } = setup(['/workspace/src/a.ts'], held.governor);
+      const rows = trackingSink(sink);
+      const created = '/workspace/src/new-file.ts';
+
+      const run = service.indexWorkspace(ROOT, { batchSize: 1 });
+      await settle();
+      await service.reindexFile(created, ROOT);
+      expect(rows.has(created)).toBe(true);
+
+      held.releaseAll();
+      await run;
+
+      expect(rows.has(created)).toBe(true);
+      expect(rows.has('/workspace/src/a.ts')).toBe(true);
+      const present = sink.purgeMissing.mock.calls[0]?.[1] as string[];
+      expect(present).toContain(created);
+      expect(present).toContain('/workspace/src/a.ts');
+    });
+
+    it('does not write rows for a file deleted after the census read it', async () => {
+      const { service, fs, ast, sink } = setup(['/workspace/src/x.ts']);
+      const rows = trackingSink(sink);
+      const file = '/workspace/src/x.ts';
+      rows.add(file);
+      let releaseRead!: () => void;
+      fs.readFile.mockImplementation(async (read: string) => {
+        if (read.endsWith('/x.ts')) {
+          await new Promise<void>((resolve) => (releaseRead = resolve));
+        }
+        return 'function f() {}';
+      });
+      ast.analyzeSource.mockImplementation(async () => {
+        await service.deleteFileSymbols(file, ROOT);
+        return {
+          isErr: () => false,
+          value: {
+            functions: [{ name: 'f', startLine: 1, endLine: 1 }],
+            classes: [],
+            parseStatus: 'ok',
+          },
+        } as never;
+      });
+
+      const run = service.indexWorkspace(ROOT, { batchSize: 1 });
+      await settle();
+      expect(typeof releaseRead).toBe('function');
+      releaseRead();
+      await run;
+
+      expect(sink.replaceFileSymbols).not.toHaveBeenCalled();
+      expect(sink.deleteSymbolsForFile).toHaveBeenCalledWith(file, ROOT);
+      expect(rows.has(file)).toBe(false);
+      const present = sink.purgeMissing.mock.calls[0]?.[1] as string[];
+      expect(present).not.toContain(file);
+    });
+
+    it('keeps rows when a file is deleted and then recreated during the run', async () => {
+      const held = holdingGovernor();
+      const { service, sink } = setup(['/workspace/src/x.ts'], held.governor);
+      const rows = trackingSink(sink);
+      const file = '/workspace/src/x.ts';
+
+      const run = service.indexWorkspace(ROOT, { batchSize: 1 });
+      await settle();
+      await service.deleteFileSymbols(file, ROOT);
+      await service.reindexFile(file, ROOT);
+      expect(rows.has(file)).toBe(true);
+
+      held.releaseAll();
+      await run;
+
+      expect(rows.has(file)).toBe(true);
+      const present = sink.purgeMissing.mock.calls[0]?.[1] as string[];
+      expect(present).toContain(file);
+    });
+
     it('the 2,001st distinct per-file update truncates the census instead of growing the record', async () => {
       const { service } = setup(['/workspace/src/seed.ts']);
       await service.indexWorkspace(ROOT);
@@ -916,27 +1065,134 @@ describe('CodeSymbolIndexer', () => {
       });
     });
 
-    it('a run superseded by a newer run never publishes its state', async () => {
+    it('two calls during an active census share that census and the same stats', async () => {
       const held = holdingGovernor();
-      const { service } = setup(fakeTsFiles(2), held.governor);
+      const { service, discovery } = setup(fakeTsFiles(2), held.governor);
+      const onProgress = jest.fn();
 
       const older = service.indexWorkspace(ROOT);
       await settle();
-      const newer = service.indexWorkspace(ROOT, { userInitiated: true });
-      await newer;
-      // r1 S1: the superseded run is still going to write, so not current.
-      expect(service.getCoverage(ROOT)).toMatchObject({
-        state: 'updating',
-        analyzed: 2,
+      const newer = service.indexWorkspace(ROOT, {
+        userInitiated: true,
+        maxFilesPerRun: 1,
+        onProgress,
       });
+      await settle();
+      expect(discovery.indexWorkspaceStream).toHaveBeenCalledTimes(1);
+      expect(service.isIndexing(ROOT)).toBe(true);
+      expect(service.getCoverage(ROOT)).toMatchObject({ state: 'updating' });
 
       held.releaseAll();
-      await older;
+      const [firstStats, joinedStats] = await Promise.all([older, newer]);
+      expect(joinedStats).toBe(firstStats);
+      expect(firstStats.filesScanned).toBe(2);
+      expect(onProgress).toHaveBeenCalledWith(
+        expect.objectContaining({ filesScanned: 2, totalFiles: 2 }),
+      );
+      expect(discovery.indexWorkspaceStream).toHaveBeenCalledTimes(1);
+      expect(service.isIndexing(ROOT)).toBe(false);
       expect(service.getCoverage(ROOT)).toMatchObject({
         state: 'current',
         analyzed: 2,
         unchecked: 0,
       });
+    });
+
+    it('a joiner whose signal aborts mid-run rejects while the starter census completes', async () => {
+      const held = holdingGovernor();
+      const { service, discovery } = setup(fakeTsFiles(1), held.governor);
+      const abort = new AbortController();
+      const onProgress = jest.fn();
+
+      const first = service.indexWorkspace(ROOT);
+      await settle();
+      const waiting = service.indexWorkspace(ROOT, {
+        signal: abort.signal,
+        userInitiated: true,
+        maxFilesPerRun: 0,
+        onProgress,
+      });
+      await settle();
+      expect(discovery.indexWorkspaceStream).toHaveBeenCalledTimes(1);
+
+      abort.abort();
+      await expect(waiting).rejects.toMatchObject({
+        name: 'AbortError',
+        message: 'Aborted',
+      });
+      expect(service.isIndexing(ROOT)).toBe(true);
+
+      held.releaseAll();
+      const stats = await first;
+      expect(stats.filesScanned).toBe(1);
+      expect(onProgress).not.toHaveBeenCalled();
+      expect(discovery.indexWorkspaceStream).toHaveBeenCalledTimes(1);
+      expect(service.isIndexing(ROOT)).toBe(false);
+      expect(service.getCoverage(ROOT)).toMatchObject({
+        state: 'current',
+        analyzed: 1,
+      });
+    });
+
+    it('a joiner with an already-aborted signal rejects immediately and leaves the census running', async () => {
+      const held = holdingGovernor();
+      const { service, discovery } = setup(fakeTsFiles(1), held.governor);
+      const abort = new AbortController();
+      abort.abort();
+
+      const first = service.indexWorkspace(ROOT);
+      await settle();
+      const waiting = service.indexWorkspace(ROOT, { signal: abort.signal });
+
+      await expect(waiting).rejects.toMatchObject({
+        name: 'AbortError',
+        message: 'Aborted',
+      });
+      expect(discovery.indexWorkspaceStream).toHaveBeenCalledTimes(1);
+      expect(service.isIndexing(ROOT)).toBe(true);
+
+      held.releaseAll();
+      await first;
+      expect(service.isIndexing(ROOT)).toBe(false);
+    });
+
+    it('after the census settles, a new call starts a new census', async () => {
+      const held = holdingGovernor();
+      const { service, discovery } = setup(fakeTsFiles(1), held.governor);
+
+      const first = service.indexWorkspace(ROOT);
+      await settle();
+      const joined = service.indexWorkspace(ROOT);
+      expect(discovery.indexWorkspaceStream).toHaveBeenCalledTimes(1);
+
+      held.releaseAll();
+      await Promise.all([first, joined]);
+      expect(discovery.indexWorkspaceStream).toHaveBeenCalledTimes(1);
+      expect(service.isIndexing(ROOT)).toBe(false);
+
+      const again = service.indexWorkspace(ROOT);
+      await settle();
+      expect(discovery.indexWorkspaceStream).toHaveBeenCalledTimes(2);
+      expect(service.isIndexing(ROOT)).toBe(true);
+      held.releaseAll();
+      await again;
+      expect(service.isIndexing(ROOT)).toBe(false);
+    });
+
+    it('isIndexing is false after a rejected census', async () => {
+      const held = holdingGovernor();
+      const { service } = setup(fakeTsFiles(1), held.governor);
+      const abort = new AbortController();
+
+      const run = service.indexWorkspace(ROOT, { signal: abort.signal });
+      await settle();
+      expect(service.isIndexing(ROOT)).toBe(true);
+
+      abort.abort();
+      expect(service.isIndexing(ROOT)).toBe(true);
+      held.releaseAll();
+      await expect(run).rejects.toMatchObject({ name: 'AbortError' });
+      expect(service.isIndexing(ROOT)).toBe(false);
     });
 
     // ---- Revision round 1 (r1 REVISE 4/10) --------------------------------

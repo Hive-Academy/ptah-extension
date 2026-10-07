@@ -3,8 +3,6 @@ import type { DependencyContainer } from 'tsyringe';
 import { MESSAGE_TYPES } from '@ptah-extension/shared';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { IWorkspaceWatcher } from '@ptah-extension/platform-core';
-import { MEMORY_CONTRACT_TOKENS } from '@ptah-extension/memory-contracts';
-import type { ISymbolSink } from '@ptah-extension/memory-contracts';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import type { WebviewManager } from '@ptah-extension/vscode-core';
 import {
@@ -570,11 +568,8 @@ export async function bootThothRuntime(
               PLATFORM_TOKENS.WORKSPACE_WATCHER,
             )
           : undefined;
-        const sink = container.isRegistered(MEMORY_CONTRACT_TOKENS.SYMBOL_SINK)
-          ? container.resolve<ISymbolSink>(MEMORY_CONTRACT_TOKENS.SYMBOL_SINK)
-          : undefined;
         const lifecycle = new WorkspaceIndexLifecycleService({
-          indexer: workspaceSymbolIndexFrom(symbolIndexer, sink),
+          indexer: workspaceSymbolIndexFrom(symbolIndexer),
           watcher,
           workspaceRoot,
           databasePath: readSymbolDatabasePath(container),

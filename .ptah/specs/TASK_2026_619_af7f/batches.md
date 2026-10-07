@@ -1680,7 +1680,7 @@ by author side, per context.md "User Requests (2026-10-07)" item 2.
 - `npx nx run-many -t typecheck,lint,test -p @ptah-extension/thoth-runtime,@ptah-extension/cli-engine` passes
 - Lifecycle smoke: edit-then-query and add-then-query on `cli-headless` pass
 
-## Batch 13b: Edits visible during a full run; one owner for full runs (Fix 2a follow-up) — IN_PROGRESS (uncommitted; cap and bounded correction used; final review REVISE 5/10 — see handoff.md)
+## Batch 13b: Edits visible during a full run; one owner for full runs (Fix 2a follow-up) — COMPLETE (simplified design; review APPROVED 8/10 `code-logic-review-b13b-fix.md`; smoke gap moved to 13c/13d)
 
 - Origin: the Batch 13 cli-headless smoke (`tools/mcp-bench/out/b13-cli-smoke`) still failed cold-start, edit-then-query and add-then-query. Diagnosis: `batch-13-smoke-diagnosis.md` (codex). Orchestrator decision 2026-10-07: Batch 13 code was committed as reviewed; this batch carries the acceptance gap with its own review cycle.
 - Recommended executor: grok lane (implementor); reviewer: codex lane
@@ -1707,6 +1707,30 @@ by author side, per context.md "User Requests (2026-10-07)" item 2.
 
 - Scoped jest/typecheck/lint for thoth-runtime, workspace-intelligence, vscode-lm-tools; prettier on changed files
 - cli-headless smoke `--suite lifecycle,symbols-exact` (coordinate with the 620 session first): edit-then-query and add-then-query pass; the report quotes cold-start and the symbol-suite hit@5 against `b11-cli-smoke`
+
+### Batch 13b — fifth-session update (2026-10-07)
+
+- User decision: replace the shared-follow-up machinery with the simplification in handoff.md (indexer keeps one census per root and joins without a follow-up queue; `ensureIndexFresh` skips when `isIndexing(root)`; the lifecycle owns follow-ups). One grok implementation + one codex review; a REVISE goes to the user. Pre-change backup: `b13b-pre-simplify.patch`.
+- Simplification by grok (`batch-13b-simplify-report.md`) -> codex REVISE 6/10 (`code-logic-review-b13b-simplify.md`: lifecycle swallowed a foreign abort) + orchestrator finding (a user `indexing:start` joining a background census lost progress and governor bypass) -> user-authorized ONE fix by codex (grok balance exhausted, 402) (`batch-13b-fix-report.md`) -> in-process code-logic-reviewer APPROVED 8/10 (`code-logic-review-b13b-fix.md`). Gate: workspace-intelligence code-symbol-indexer* 61, vscode-lm-tools code-namespace.builder 44, thoth-runtime 123, cli-engine bootstrap 125; typecheck/lint 0 errors; prettier clean.
+- Open (non-blocking, from the APPROVED review): MODERATE a `userInitiated` join does not wake a governor wait already in progress (`code-symbol-indexer.service.ts:1070,1169-1180`; bypass applies from the next batch); MINOR progress listeners keyed by function identity (`:305,732-750`); MINOR a joined click inherits the starter's cap (no current starter sets one); MINOR a non-abort failure of a joined census is reported without a replacement (unchanged behavior).
+- Smoke diagnosis `batch-13b-smoke-diagnosis.md`: watcher delivery works in the bench host (direct probe: edit and add visible in ~2 s once the census ended). The smoke fails because every answer during a census is `unknown-coverage`, which the lifecycle probe never reads as found. Fixes: Batch 13c (product) and Batch 13d (bench), user decision "Both".
+
+## Batch 13c: Known partial coverage while a census runs (Fix 2a follow-up, product) — PENDING
+
+- Origin: `batch-13b-smoke-diagnosis.md`. User decision 2026-10-07: "Both" (13c + 13d).
+- Recommended executor: grok lane; reviewer: codex lane. Depends on: 13b (same files; starts after 13b is committed).
+- File: libs/backend/workspace-intelligence/src/services/code-symbol-indexer.service.ts (+ spec); the coverage verdict helper only if its reason rules need it.
+- `getCoverage` while a census is active: before discovery has selected files, keep today's `unknown` answer. After discovery (`run.census` and `run.selected` set), return known counts: `census` = the run's census (`complete`/`truncated`), `state: 'updating'`, `analyzed` = files written so far (census writes + newer per-file writes), `unchecked` = selected files not yet written, `failed`/`failedByReason` as written so far; `clean` stays false. No `null` count and no `?` reason in this state.
+- A per-file write during the census counts as analyzed for that file (same `latest` merge as the settled branch).
+- Tests: active census after discovery -> numeric counts, `state: 'updating'`, `clean: false`, no `?` reason; before discovery -> unchanged unknown; per-file write during the census is counted.
+- Scorecard metric: the lifecycle edit/add cases and the symbols-exact suite read hits during the census (smoke after 13d).
+
+## Batch 13d: Lifecycle probe counts a positive hit under unknown coverage (bench) — PENDING
+
+- Origin and decision: as 13c. Recommended executor: grok lane; reviewer: codex lane. File-disjoint from 13b/13c.
+- File: tools/mcp-bench/src/lifecycle/lifecycle-probe.ts (+ spec); lifecycle-scenarios.ts only for the case detail text.
+- `searchSymbol`: on `unknown-coverage`, still parse the hits; `found` = the expected file is in the ranked hits; `errored` stays true for that class so a MISS (or the delete "gone" case) under unknown coverage is still a non-pass. Every other error class keeps today's behavior. The case detail says "found under unknown coverage" when that path decided it.
+- Tests: unknown-coverage + expected file in hits -> found; unknown-coverage + no hit -> not found, errored; delete case under unknown coverage -> not passed; other error classes unchanged.
 
 ## Batch 14: VS Code switches to the shared lifecycle service (Fix 2a, VS Code host) — PENDING
 

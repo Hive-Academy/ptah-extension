@@ -16,10 +16,9 @@ import {
 /**
  * Narrow indexer surface this lifecycle needs.
  *
- * `CodeSymbolIndexer` supplies the first two methods. It does not publish a
- * per-file delete; {@link workspaceSymbolIndexFrom} fills `deleteSymbolsForFile`
- * from `ISymbolSink.deleteSymbolsForFile`, which is the store API that
- * removes one file's rows.
+ * `deleteFileSymbols` is `CodeSymbolIndexer`'s locked per-file delete. It
+ * tombstones the path on a census that is still running, so the lifecycle
+ * must not call the symbol sink itself.
  */
 export interface WorkspaceSymbolIndex {
   indexWorkspace(
@@ -30,7 +29,10 @@ export interface WorkspaceSymbolIndex {
     absoluteFilePath: string,
     workspaceRoot: string,
   ): Promise<unknown>;
-  deleteSymbolsForFile(filePath: string, workspaceRoot: string): number;
+  deleteFileSymbols(
+    filePath: string,
+    workspaceRoot: string,
+  ): Promise<number> | number;
 }
 
 /** Collaborators. The indexer is the DI instance; the watcher is the port. */
@@ -127,30 +129,22 @@ export function normalizeSymbolPath(filePath: string): string {
 }
 
 /**
- * Adapt the registered indexer plus the symbol sink. The sink is optional:
- * without it a delete is a no-op and the next full run's purge is what
- * drops the rows.
+ * Adapt the registered indexer. A supported-file delete goes through
+ * `indexer.deleteFileSymbols` (the file lock and the census tombstone).
  */
 export function workspaceSymbolIndexFrom(
-  indexer: Pick<WorkspaceSymbolIndex, 'indexWorkspace' | 'reindexFile'>,
-  sink:
-    | {
-        deleteSymbolsForFile(filePath: string, workspaceRoot: string): number;
-      }
-    | undefined,
+  indexer: Pick<
+    WorkspaceSymbolIndex,
+    'indexWorkspace' | 'reindexFile' | 'deleteFileSymbols'
+  >,
 ): WorkspaceSymbolIndex {
   return {
     indexWorkspace: (workspaceRoot, options) =>
       indexer.indexWorkspace(workspaceRoot, options),
     reindexFile: (absoluteFilePath, workspaceRoot) =>
       indexer.reindexFile(normalizeSymbolPath(absoluteFilePath), workspaceRoot),
-    deleteSymbolsForFile: (filePath, workspaceRoot) => {
-      if (!sink) return 0;
-      return sink.deleteSymbolsForFile(
-        normalizeSymbolPath(filePath),
-        workspaceRoot,
-      );
-    },
+    deleteFileSymbols: (filePath, workspaceRoot) =>
+      indexer.deleteFileSymbols(normalizeSymbolPath(filePath), workspaceRoot),
   };
 }
 
@@ -170,13 +164,21 @@ export function defaultSymbolWatchOptions(): WorkspaceWatchOptions {
 }
 
 function isAbort(error: unknown): boolean {
-  return error instanceof Error && error.name === 'AbortError';
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'name' in error &&
+    error.name === 'AbortError'
+  );
 }
 
 /**
  * Governed full index at boot, and a debounced per-file follow-up from
- * `IWorkspaceWatcher`. A storm, an overflow, or a truncated batch is one
- * full run. A run already in flight queues at most one follow-up.
+ * `IWorkspaceWatcher`. A storm, an overflow, a truncated batch, or an
+ * extension-less directory delete is one full run. A full run already in
+ * flight queues at most one follow-up for those. A create, an update, or a
+ * supported-extension delete still applies to that file after the debounce
+ * while the full run is in flight, and does not queue a follow-up.
  *
  * `start` does not wait for `indexWorkspace`. `indexWorkspace` is called
  * without `userInitiated`, so the indexer's own governor still applies.
@@ -319,11 +321,9 @@ export class WorkspaceIndexLifecycleService {
 
   private schedule(change: WorkspaceChange): void {
     if (this.disposed) return;
-    if (this.fullRun) {
-      this.followUp = true;
-      this.clearPending();
-      return;
-    }
+    // A census in flight does not swallow this file. Storms, overflow,
+    // truncation and directory deletes are the only paths that set
+    // `followUp`, and they do it in `requestFullRun`.
     const path = normalizeSymbolPath(change.path);
     const previous = this.pending.get(path);
     if (previous) clearTimeout(previous.timer);
@@ -341,13 +341,15 @@ export class WorkspaceIndexLifecycleService {
 
   private apply(path: string, kind: WorkspaceChange['kind']): void {
     if (this.disposed) return;
-    if (this.fullRun) {
-      this.followUp = true;
-      return;
-    }
     if (kind === 'delete') {
       try {
-        this.indexer.deleteSymbolsForFile(path, this.workspaceRoot);
+        const pending = this.indexer.deleteFileSymbols(
+          path,
+          this.workspaceRoot,
+        );
+        void Promise.resolve(pending).catch((error: unknown) => {
+          this.report(DELETE_FAILURE, error);
+        });
       } catch (error: unknown) {
         this.report(DELETE_FAILURE, error);
       }
@@ -384,10 +386,9 @@ export class WorkspaceIndexLifecycleService {
     this.fullRun = pending
       .then(() => undefined)
       .catch((error: unknown) => {
-        if (this.disposed || controller.signal.aborted || isAbort(error)) {
-          return;
-        }
+        if (this.disposed || controller.signal.aborted) return;
         this.report(FULL_RUN_FAILURE, error);
+        if (isAbort(error)) this.followUp = true;
       })
       .finally(() => {
         if (this.runAbort === controller) this.runAbort = undefined;
