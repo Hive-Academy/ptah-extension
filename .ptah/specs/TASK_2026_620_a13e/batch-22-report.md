@@ -224,3 +224,34 @@ npx prettier --check (same files + skill-sessions.v1/index.json + MANIFEST.json)
 ```
 
 I did not touch `libs/`, the host entry, `suite-placement.ts` or `host-only-imports.spec.ts`. No git state changed.
+
+## Revision 2 (Phase 3.6 review round 2, finding 1)
+
+Revision 1 set sessions 20-22 to expect `analyze-run`. That encoded today's behaviour, so it is reverted here. Following the orchestrator's decision, the ground truth is now what a correct pipeline does under 588:
+
+- The single-edit sessions expect `ineligible { reason: noRoutine }` and no `analyze-run`.
+- The reason is design-required: it lives only in the fixture's expected-reason schema, and no product file was changed.
+- `batch-11-1-report.md` Revision 5 records it and corrects the Revision 4 reasoning.
+
+Feed-parity scoring compares `ineligible:<reason>` keys exactly as the product reports them and exactly as the fixture states them. No code path filters out or remaps an unknown reason. A reason the product never emits is a missing event, and whatever the product emits instead is a phantom.
+
+Spec result: `feed-equals-script` fails on 3 sessions (20-22: expected `ineligible:noRoutine`, observed `analyze-run`; 3 missing and 3 phantom events). `feed-survives-restart` fails on 26.
+
+Addition to the per-stage table:
+
+| Suite id                   | Case                                                                            | Expected today                                                                                                                                                                |
+| -------------------------- | ------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `skill.funnel.feed-parity` | sessions 20-22 expect `ineligible { reason: noRoutine }` (588, design-required) | **fail**: the product drafts the session and emits `analyze-run` (`skill-synthesis.service.ts:1149-1154`), and it has no `noRoutine` reason. Closes with the Phase 4 588 fix. |
+
+Checks (round 2):
+
+```text
+npx jest -c tools/mcp-bench/jest.config.ts tools/mcp-bench/src/memory-skills --runInBand
+Test Suites: 51 passed, 51 total
+Tests:       578 passed, 578 total
+npx tsc --noEmit -p tools/mcp-bench/tsconfig.json   -> exit 0
+eslint (funnel*, skill-session-fixture*.ts)          -> no problems
+prettier --check (same + index.json + MANIFEST.json) -> clean
+```
+
+I did not touch `libs/` or `apps/`. No git state changed.

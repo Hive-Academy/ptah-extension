@@ -234,24 +234,31 @@ describe('skill.funnel stage suites over production DI (synthetic cassette)', ()
     expect(result.verdict).toBe('pass');
   });
 
-  it('feed-parity: the feed matches every scripted session, then is lost on restart', () => {
+  it('feed-parity: single edits fail the 588 expectation, and the feed is lost on restart', () => {
     const { result, cases } = results['feed-parity'];
+    // Sessions 20-22 expect a visible `noRoutine` rejection (588); the product
+    // drafts them and emits `analyze-run`. The unknown reason is compared as is.
     expect(invariant(result, 'feed-equals-script')).toMatchObject({
-      pass: true,
-      violations: 0,
+      pass: false,
+      violations: 3,
     });
     expect(invariant(result, 'feed-survives-restart')).toMatchObject({
       pass: false,
       violations: 26,
     });
-    // Single edits pass the prefilter and are drafted: the fixture expects it.
-    expect(
-      cases.find((c) => c.caseId === 'skill-session-20:feed'),
-    ).toMatchObject({
-      expected: 'analyze-run',
-      observed: 'analyze-run',
-      outcome: 'pass',
-    });
+    for (const id of [
+      'skill-session-20',
+      'skill-session-21',
+      'skill-session-22',
+    ]) {
+      expect(cases.find((c) => c.caseId === `${id}:feed`)).toMatchObject({
+        expected: 'ineligible:noRoutine',
+        observed: 'analyze-run',
+        outcome: 'fail',
+      });
+    }
+    expect(result.metrics['feed.missingEvents']).toBe(3);
+    expect(result.metrics['feed.phantomEvents']).toBe(3);
     for (const id of ROUTINE) {
       expect(cases.find((c) => c.caseId === `${id}:feed`)?.outcome).toBe(
         'pass',

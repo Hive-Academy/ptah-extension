@@ -237,10 +237,11 @@
       "id": "skill-session-20",
       "routine": null,
       "degraded": false,
-      "script": ["session-end", "drain-eligible-candidate"],
+      "script": ["session-end", "archaeology-no-routine"],
       "expectedEvents": [
         {
-          "kind": "analyze-run"
+          "kind": "ineligible",
+          "reason": "noRoutine"
         }
       ]
     },
@@ -248,10 +249,11 @@
       "id": "skill-session-21",
       "routine": null,
       "degraded": false,
-      "script": ["session-end", "drain-eligible-candidate"],
+      "script": ["session-end", "archaeology-no-routine"],
       "expectedEvents": [
         {
-          "kind": "analyze-run"
+          "kind": "ineligible",
+          "reason": "noRoutine"
         }
       ]
     },
@@ -259,10 +261,11 @@
       "id": "skill-session-22",
       "routine": null,
       "degraded": false,
-      "script": ["session-end", "drain-eligible-candidate"],
+      "script": ["session-end", "archaeology-no-routine"],
       "expectedEvents": [
         {
-          "kind": "analyze-run"
+          "kind": "ineligible",
+          "reason": "noRoutine"
         }
       ]
     },

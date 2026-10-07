@@ -17,6 +17,22 @@ const SCRIPT_OPERATIONS = [
   'manual-analyze',
   'drain-eligible-candidate',
   'prefilter-rejected',
+  'archaeology-no-routine',
+] as const;
+
+/**
+ * Reasons an `ineligible` event may carry in this ground truth. The first two
+ * are the product's (`diagnostics.types.ts` `SkillIneligibleReason`).
+ * `noRoutine` is DESIGN-REQUIRED, not shipped: TASK_2026_588 (absorbed by 620,
+ * context.md "Absorbed scope") requires archaeology to run before authoring
+ * and a no-routine verdict to be rejected with a visible reason. The product
+ * has no such reason today, so a session expecting it fails until the Phase 4
+ * 588 fix lands.
+ */
+const INELIGIBLE_REASONS = [
+  'prefilterTooThin',
+  'prefilterRejected',
+  'noRoutine',
 ] as const;
 
 export const skillSessionScriptSchema = z
@@ -24,7 +40,7 @@ export const skillSessionScriptSchema = z
   .min(1);
 export const expectedActivityEventSchema = z.strictObject({
   kind: z.enum(EVENT_KINDS),
-  reason: z.enum(['prefilterTooThin', 'prefilterRejected']).optional(),
+  reason: z.enum(INELIGIBLE_REASONS).optional(),
   note: z.string().min(1).optional(),
 });
 export const skillSessionFixtureSchema = z.strictObject({
@@ -65,6 +81,10 @@ export function expectedEventsFromScript(
         break;
       case 'prefilter-rejected':
         events.push({ kind: 'ineligible', reason: 'prefilterRejected' });
+        break;
+      case 'archaeology-no-routine':
+        // 588: the verdict finds no routine, so no draft and a visible reason.
+        events.push({ kind: 'ineligible', reason: 'noRoutine' });
         break;
     }
   }
@@ -109,11 +129,11 @@ export function buildSkillSessionFixtures(): readonly SkillSessionFixture[] {
             : index <= 7
               ? ['session-end', 'prefilter-rejected']
               : // One Edit passes the default prefilter
-                // (`eligibility/session-work-evidence.ts:15-23`), so the
-                // bench-caused drain drafts it and the product pushes
-                // `analyze-run` on registration (`skill-synthesis.service.ts`
-                // `analyzeSession`). Archaeology pushes no feed event.
-                ['session-end', 'drain-eligible-candidate'],
+                // (`eligibility/session-work-evidence.ts:15-23`); a correct
+                // pipeline (588) then runs archaeology BEFORE authoring, finds
+                // no routine and rejects with a visible reason, so no draft
+                // and no `analyze-run`. Today the product drafts it instead.
+                ['session-end', 'archaeology-no-routine'],
       topic:
         index <= 4
           ? `question and answer ${index}`

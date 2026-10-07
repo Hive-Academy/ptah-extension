@@ -99,7 +99,7 @@ EXIT=0
 EXIT=0
 ```
 
-## Revision 4 (Phase 3.6 review finding 1)
+## Revision 4 (Phase 3.6 review finding 1; SUPERSEDED by Revision 5: its expectation encoded today's behaviour)
 
 Revision 3 gave single-edit sessions (20-22) the script `["session-end"]` and the expectation `[]`, on the grounds that "their later archaeology/cluster decision is intentionally outside this feed fixture". That was wrong. The feed event does not come from archaeology or clustering. It comes from authoring, and authoring happens inside the drain that the bench causes for every queued session:
 
@@ -115,6 +115,16 @@ Regenerated with `UPDATE_FIXTURES=1`, then `npx prettier --write index.json`, th
 | Script operation                          | Fixture class                | Expected skills activity events | Producer / contract                                                                                                        | Expected today                |
 | ----------------------------------------- | ---------------------------- | ------------------------------- | -------------------------------------------------------------------------------------------------------------------------- | ----------------------------- |
 | `session-end`, `drain-eligible-candidate` | single edit (sessions 20-22) | `analyze-run`                   | prefilter pass: `eligibility/session-work-evidence.ts:15-23`; push on registration: `skill-synthesis.service.ts:1149-1154` | measure (the drain drafts it) |
+
+## Revision 5 (Phase 3.6 review round 2: ground truth for a correct pipeline)
+
+Correction to Revision 4. Its product trace was accurate: the drain drafts a single edit and pushes `analyze-run` (`skill-synthesis.service.ts:1149-1154`), and archaeology pushes no event. Its conclusion was wrong. It turned today's behaviour into ground truth. This fixture states what a CORRECT pipeline reports, and 620 absorbed TASK_2026_588 (`context.md` "Absorbed scope"): archaeology runs before authoring, and a no-routine verdict is rejected with a visible reason, so no single-session draft is made.
+
+Sessions 20-22 (single edit, `routine: null`) now use the script `["session-end", "archaeology-no-routine"]`. The expectation is `[ineligible { reason: noRoutine }]`, with no `analyze-run`. `noRoutine` is added to the fixture's own expected-reason schema as a design-required reason, citing 588. The product's event union is unchanged. Regenerated with `UPDATE_FIXTURES=1`, then prettier, then `REBUILD_MANIFEST=1`.
+
+| Script operation                        | Fixture class                | Expected skills activity events    | Producer / contract                                                                                                                 | Expected today                                                                                                                                                                |
+| --------------------------------------- | ---------------------------- | ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `session-end`, `archaeology-no-routine` | single edit (sessions 20-22) | `ineligible { reason: noRoutine }` | design-required by 588 (archaeology before authoring, reject a no-routine verdict with a visible reason); no product producer today | **fail**: the product drafts the session and emits `analyze-run` (`skill-synthesis.service.ts:1149-1154`), and it has no `noRoutine` reason. Closes with the Phase 4 588 fix. |
 
 ## Revision 2 (SUPERSEDED by Revision 3 above — its table has the old `prefilter-too-thin` rows and a wrong `manual-run` citation; kept as history only)
 
