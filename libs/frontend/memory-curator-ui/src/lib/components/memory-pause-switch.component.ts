@@ -42,7 +42,9 @@ import { MemoryDiagnosticsStateService } from '../services/memory-diagnostics-st
       data-testid="memory-pause-switch"
     >
       <div class="min-w-0 space-y-0.5">
-        <div class="flex items-center gap-2">
+        <!-- min-h-5 keeps the row one height whether it shows the dot
+             label or the Paused badge, so nothing below moves on toggle. -->
+        <div class="flex min-h-5 items-center gap-2">
           <label
             id="memory-pause-label"
             for="memory-enabled-toggle"
@@ -52,7 +54,7 @@ import { MemoryDiagnosticsStateService } from '../services/memory-diagnostics-st
           </label>
           @if (paused() && !saving()) {
             <span
-              class="badge badge-warning badge-sm font-medium"
+              class="badge badge-warning badge-sm text-xs font-medium"
               data-testid="memory-pause-state"
               >Paused</span
             >
@@ -72,9 +74,12 @@ import { MemoryDiagnosticsStateService } from '../services/memory-diagnostics-st
             </span>
           }
         </div>
+        <!-- The same text in both states (no layout shift on toggle); it
+             names the manual actions a pause disables, which may sit below
+             the fold. -->
         <p id="memory-pause-help" class="text-xs text-base-content-muted">
-          Pausing stops capture and background processing. Saved memories are
-          still used in chats.
+          Pausing stops capture, background processing and manual runs (Run
+          curator now). Saved memories are still used in chats.
         </p>
       </div>
 

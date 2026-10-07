@@ -143,19 +143,18 @@ interface ActionDialogState {
                 {{ label }}
               </span>
             }
-            @if (skillsPaused()) {
-              <span
-                class="text-xs text-base-content-muted"
-                data-testid="run-curator-paused-hint"
-              >
-                {{ pausedReason }}
-              </span>
-            }
+            <!-- No paused hint here: a hint that appears only while paused
+                 wrapped this header at ~900 px and pushed the switch card
+                 down under the pointer. The reason lives in the title, and
+                 the switch card's fixed help text names Run Curator. -->
             <button
               type="button"
               class="btn btn-primary btn-sm transition-colors duration-150"
               [disabled]="curatorRunning() || loading() || skillsPaused()"
               [attr.title]="skillsPaused() ? pausedReason : null"
+              [attr.aria-describedby]="
+                skillsPaused() ? 'skills-pause-help' : null
+              "
               (click)="onRunCurator()"
               data-testid="run-curator"
             >

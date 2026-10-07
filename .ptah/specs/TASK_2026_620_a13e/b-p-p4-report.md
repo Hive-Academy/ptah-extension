@@ -240,3 +240,59 @@ In the Electron app, open the **Thoth** page.
 
 - Tab to the switch: the focus ring is visible, and Space toggles it.
 - Check both dark and light themes, and the narrow strip layout.
+
+## Visual review fixes (revise round 1)
+
+Source: `visual-review.md`, verdict REVISE.
+
+1. **SERIOUS: the Skills switch card shifted 44 px at 900 px. Fixed.**
+   - Cause: the paused-only hint `run-curator-paused-hint` in the tab header wrapped the header and pushed the card down.
+   - Change: the hint is removed from `skill-synthesis-tab.component.ts`. The header now renders the same elements in both states.
+   - Run Curator keeps its `title` "Paused — resume Skills to run" and gains `aria-describedby="skills-pause-help"` while paused.
+   - The switch card itself cannot shift either:
+     - Its help text is identical in both states.
+     - The label/badge row has `min-h-5`, so the "On" dot label and the "Paused" badge give it the same height.
+   - Memory tab: it never had a header hint (the reviewer measured 0 px shift). It got the same fixed-copy and `min-h-5` treatment.
+   - Pinned by:
+     - `skill-synthesis-tab.component.spec.ts`, "greys out Run Curator with the paused reason, without adding anything to the header": the header element count is unchanged and there is no hint.
+     - Both switch specs, "keeps the help text and badge row identical across states, so toggling shifts nothing".
+2. **MODERATE: the paused effect was not discoverable from the top. Fixed** without moving the Maintenance section.
+   - Each switch card's fixed help text now names what a pause disables:
+     - "Pausing stops capture, background processing and manual runs (Run curator now). Saved memories are still used in chats."
+     - "… manual runs (Run Curator, Analyze current session and Enhance now). Saved skills are still used in chats."
+3. **MODERATE: the badges were too small. Fixed.**
+   - Card badge: `badge badge-warning badge-sm text-xs`, so 12 px text.
+   - Sidebar badge: `badge-xs` changed to `badge badge-warning badge-sm text-xs`.
+   - The colour tokens are unchanged, so the measured AA contrast holds (6.61:1 light, 5.66:1 dark).
+   - Pinned in the switch specs and in `thoth-shell.component.spec.ts`.
+4. **Disabled-button contrast (WCAG-exempt): left as is.**
+   - Minor 4 (the hint wrapping onto its own row) is resolved by fix 1.
+   - Minor 5 (neutral toggle track while paused) is not changed: it is optional polish, and the amber card plus the badge already carry the state.
+
+Not re-measured in a browser: Electron was not launched, per instruction. Re-measure at 900 px and about 700 px in the next visual pass.
+
+### Checks
+
+`npx nx run-many -t test,typecheck,lint -p memory-curator-ui skill-synthesis-ui thoth-shell --parallel=1`:
+
+```
+@ptah-extension/skill-synthesis-ui: Tests:       645 passed, 645 total
+@ptah-extension/memory-curator-ui: Tests:       217 passed, 217 total
+@ptah-extension/thoth-shell: Tests:       10 passed, 10 total
+ NX   Successfully ran targets test, typecheck, lint for 3 projects
+```
+
+- Lint: 0 errors. The one warning printed (`explicit-member-accessibility` on a `get error` accessor) is not in a file changed here.
+
+`npx prettier --check <8 changed files>`:
+
+```
+All matched files use Prettier code style!
+```
+
+### Files changed in this round
+
+- `libs/frontend/skill-synthesis-ui/src/lib/components/skill-synthesis-tab.component.ts`, `.spec.ts`
+- `libs/frontend/skill-synthesis-ui/src/lib/components/skills-pause-switch.component.ts`, `.spec.ts`
+- `libs/frontend/memory-curator-ui/src/lib/components/memory-pause-switch.component.ts`, `.spec.ts`
+- `libs/frontend/thoth-shell/src/lib/components/thoth-shell.component.ts`, `.spec.ts`

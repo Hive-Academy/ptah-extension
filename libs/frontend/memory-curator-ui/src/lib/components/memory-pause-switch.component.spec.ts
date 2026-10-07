@@ -68,7 +68,7 @@ describe('MemoryPauseSwitchComponent', () => {
       root.querySelector('[data-testid="memory-pause-state"]')?.textContent,
     ).toContain('On');
     expect(root.textContent).toContain(
-      'Pausing stops capture and background processing. Saved memories are still used in chats.',
+      'Pausing stops capture, background processing and manual runs (Run curator now). Saved memories are still used in chats.',
     );
     // 24px hit target around the switch.
     expect(
@@ -171,5 +171,22 @@ describe('MemoryPauseSwitchComponent', () => {
     state.committed.set(true);
     fixture.detectChanges();
     expect(emitted).toEqual([true, false]);
+  });
+
+  it('keeps the help text and badge row identical across states, so toggling shifts nothing', () => {
+    const root = render();
+    const help = (): string =>
+      root.querySelector('#memory-pause-help')?.textContent?.trim() ?? '';
+    const running = help();
+    expect(running).toContain('manual runs');
+
+    state.committed.set(false);
+    fixture.detectChanges();
+
+    expect(help()).toBe(running);
+    const badge = root.querySelector('[data-testid="memory-pause-state"]');
+    // Readable size (visual review round 1): 12 px text, not the 10 px default.
+    expect(badge?.classList).toContain('text-xs');
+    expect(badge?.parentElement?.classList).toContain('min-h-5');
   });
 });

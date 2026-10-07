@@ -130,7 +130,7 @@ interface ThothTabSpec {
                 >
                 @if (status.paused) {
                   <span
-                    class="badge badge-warning badge-xs ml-auto font-medium"
+                    class="badge badge-warning badge-sm ml-auto text-xs font-medium"
                     data-testid="thoth-tab-paused"
                     >Paused</span
                   >

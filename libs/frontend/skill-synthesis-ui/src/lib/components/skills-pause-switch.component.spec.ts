@@ -67,7 +67,7 @@ describe('SkillsPauseSwitchComponent', () => {
       root.querySelector('label[for="skills-enabled-toggle"]')?.textContent,
     ).toContain('Skills');
     expect(root.textContent).toContain(
-      'Pausing stops capture and background processing. Saved skills are still used in chats.',
+      'Pausing stops capture, background processing and manual runs (Run Curator, Analyze current session and Enhance now). Saved skills are still used in chats.',
     );
     expect(
       root.querySelector('[data-testid="skills-enabled-toggle-target"]')
@@ -153,5 +153,22 @@ describe('SkillsPauseSwitchComponent', () => {
     state.committed.set(false);
     fixture.detectChanges();
     expect(emitted).toEqual([true]);
+  });
+
+  it('keeps the help text and badge row identical across states, so toggling shifts nothing', () => {
+    const root = render();
+    const help = (): string =>
+      root.querySelector('#skills-pause-help')?.textContent?.trim() ?? '';
+    const running = help();
+    expect(running).toContain('manual runs');
+
+    state.committed.set(false);
+    fixture.detectChanges();
+
+    expect(help()).toBe(running);
+    const badge = root.querySelector('[data-testid="skills-pause-state"]');
+    // Readable size (visual review round 1): 12 px text, not the 10 px default.
+    expect(badge?.classList).toContain('text-xs');
+    expect(badge?.parentElement?.classList).toContain('min-h-5');
   });
 });

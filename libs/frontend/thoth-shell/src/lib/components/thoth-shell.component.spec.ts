@@ -546,6 +546,9 @@ describe('ThothShellComponent', () => {
         fixture.detectChanges();
 
         expect(pausedBadge(el, 'memory')?.textContent?.trim()).toBe('Paused');
+        // Readable size (visual review round 1): badge-sm with 12 px text.
+        expect(pausedBadge(el, 'memory')?.classList).toContain('badge-sm');
+        expect(pausedBadge(el, 'memory')?.classList).toContain('text-xs');
         expect(pausedBadge(el, 'skills')).toBeNull();
         // The tab's accessible name carries the state too.
         expect(

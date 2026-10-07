@@ -1383,12 +1383,11 @@ describe('SkillSynthesisTabComponent — Skills pause switch', () => {
     ).not.toBeNull();
   });
 
-  it('greys out Run Curator with the paused reason while Skills is paused', () => {
+  it('greys out Run Curator with the paused reason, without adding anything to the header', () => {
     const { fixture, root, stub } = mount();
+    const header = root.querySelector('header') as HTMLElement;
+    const headerChildren = header.querySelectorAll('*').length;
     expect(runCuratorButton(root).disabled).toBe(false);
-    expect(
-      root.querySelector('[data-testid="run-curator-paused-hint"]'),
-    ).toBeNull();
 
     stub.skillsEnabledCommitted.set(false);
     fixture.detectChanges();
@@ -1396,10 +1395,14 @@ describe('SkillSynthesisTabComponent — Skills pause switch', () => {
     const button = runCuratorButton(root);
     expect(button.disabled).toBe(true);
     expect(button.getAttribute('title')).toBe('Paused — resume Skills to run');
+    expect(button.getAttribute('aria-describedby')).toBe('skills-pause-help');
+    // Visual review round 1: a paused-only hint in the header wrapped it at
+    // ~900 px and moved the switch card under the pointer. The header must
+    // render the same elements in both states.
+    expect(header.querySelectorAll('*').length).toBe(headerChildren);
     expect(
-      root.querySelector('[data-testid="run-curator-paused-hint"]')
-        ?.textContent,
-    ).toContain('Paused — resume Skills to run');
+      root.querySelector('[data-testid="run-curator-paused-hint"]'),
+    ).toBeNull();
   });
 
   it('turns a PAUSED refusal from runCurator into the paused state, not an error toast', async () => {
