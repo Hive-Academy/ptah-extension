@@ -134,18 +134,23 @@ export interface SkillStageWorkers {
 }
 
 /**
- * The reason token + backoff for a `prefilter` row whose analyzer never
- * started (the host booted paused and is still paused, or the deferred start
- * failed) — TASK_2026_620 B-P, S7.
+ * The reason tokens + backoff for a `prefilter` row the pause machinery
+ * answered instead of the analyzer — TASK_2026_620 B-P, S7 + review finding 3.
  *
- * `unscored`, never `skipped`: a paused row is not a verdict on the session,
- * and a terminal `skipped` would drop work the pause had no opinion about.
- * The backoff keeps the row eligible; fifteen minutes matches the frequent
- * tier's cadence, so a resumed host retries it on the next tick rather than
- * waiting a night for it.
+ * `analyzer-not-started`: the host booted paused and still is, or the deferred
+ * start failed. `analyzer-paused`: the switch flipped off BETWEEN the drain's
+ * per-item gate and `analyzeSession`'s own read, so the analyzer answered
+ * `null` without a verdict on the session.
+ *
+ * Both are `unscored`, never `skipped`: a paused row is not a verdict on the
+ * session, and a terminal `skipped` would drop work the pause had no opinion
+ * about. The backoff keeps the row eligible; fifteen minutes matches the
+ * frequent tier's cadence, so a resumed host retries it on the next tick
+ * rather than waiting a night for it.
  */
 const PREFILTER_NOT_STARTED_REASON = 'analyzer-not-started';
-const PREFILTER_NOT_STARTED_RETRY_MS = 15 * 60_000;
+const PREFILTER_PAUSED_REASON = 'analyzer-paused';
+const PREFILTER_RETRY_MS = 15 * 60_000;
 
 @injectable()
 export class SkillStageHandlersService {
@@ -301,7 +306,7 @@ export class SkillStageHandlersService {
       return {
         outcome: 'unscored',
         reason: PREFILTER_NOT_STARTED_REASON,
-        retryInMs: PREFILTER_NOT_STARTED_RETRY_MS,
+        retryInMs: PREFILTER_RETRY_MS,
       };
     }
     const result = await this.withClaimHeartbeat(ctx, (signal) =>
@@ -313,6 +318,19 @@ export class SkillStageHandlersService {
       }),
     );
     if (!result) {
+      // The pause can land BETWEEN the drain's per-item gate and
+      // `analyzeSession`'s own live read (review finding 3): the analyzer then
+      // answers `null` without ever looking at the session. A null read
+      // THROUGH the current switch is the paused case, and it takes the same
+      // retry path as 'analyzer-not-started' — never the terminal `skipped`
+      // below, which would drop the row the pause had no opinion about.
+      if (!workers.readSettings().enabled) {
+        return {
+          outcome: 'unscored',
+          reason: PREFILTER_PAUSED_REASON,
+          retryInMs: PREFILTER_RETRY_MS,
+        };
+      }
       // Ineligible, prefiltered out, or dominated by an authored skill. All
       // three are "we looked and there is nothing to promote", which is a
       // finished row, not a failure and not a retry.

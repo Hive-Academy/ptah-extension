@@ -157,6 +157,12 @@ function makeCurator() {
 function makeEventfulWorkspace(initial: Record<string, unknown>) {
   const cfg: Record<string, unknown> = { ...initial };
   const listeners: Array<(event: ConfigEvent) => void> = [];
+  const onDidChangeConfiguration = jest.fn(
+    (cb: (event: ConfigEvent) => void) => {
+      listeners.push(cb);
+      return { dispose: () => undefined };
+    },
+  );
   const workspace = {
     getWorkspaceRoot: () => '/ws',
     getWorkspaceFolders: () => ['/ws'],
@@ -164,10 +170,7 @@ function makeEventfulWorkspace(initial: Record<string, unknown>) {
       (_section: string, key: string, def: unknown) => cfg[key] ?? def,
     ),
     setConfiguration: jest.fn().mockResolvedValue(undefined),
-    onDidChangeConfiguration: jest.fn((cb: (event: ConfigEvent) => void) => {
-      listeners.push(cb);
-      return { dispose: () => undefined };
-    }),
+    onDidChangeConfiguration,
     onDidChangeWorkspaceFolders: jest.fn(() => () => undefined),
   } as unknown as IWorkspaceProvider;
   return {
@@ -187,6 +190,10 @@ function makeEventfulWorkspace(initial: Record<string, unknown>) {
     /** The external edit: the map flips with NO event. */
     setMaster(enabled: boolean) {
       cfg['skillSynthesis.enabled'] = enabled;
+    },
+    /** How many config listeners are live — the no-double-listener pin. */
+    listenerRegistrations(): number {
+      return onDidChangeConfiguration.mock.calls.length;
     },
   };
 }
@@ -246,14 +253,21 @@ function buildHarness(opts: { enabled: boolean } = { enabled: true }) {
     extract: jest.fn().mockResolvedValue(null),
   } as unknown as TrajectoryExtractor;
 
+  // Mutable on purpose: a failed-start test flips `isOpen` so
+  // `performStart()` reaches `openAndMigrate` and can reject there.
+  const connection = {
+    isOpen: true,
+    openAndMigrate: jest.fn().mockResolvedValue(undefined),
+  } as unknown as ConstructorParameters<typeof SkillSynthesisService>[1] & {
+    isOpen: boolean;
+    openAndMigrate: jest.Mock;
+  };
+
   const svc = new SkillSynthesisService(
     makeLogger() as unknown as ConstructorParameters<
       typeof SkillSynthesisService
     >[0],
-    {
-      isOpen: true,
-      openAndMigrate: jest.fn().mockResolvedValue(undefined),
-    } as unknown as ConstructorParameters<typeof SkillSynthesisService>[1],
+    connection,
     { available: false } as unknown as ConstructorParameters<
       typeof SkillSynthesisService
     >[2],
@@ -285,6 +299,7 @@ function buildHarness(opts: { enabled: boolean } = { enabled: true }) {
     ws,
     curator,
     extractor,
+    connection,
     sessionEndRegistry,
     enqueued,
     settle,
@@ -461,5 +476,92 @@ describe('SkillSynthesisService — pause and resume (B-P)', () => {
     expect(h.enqueued.filter((r) => r.stage === 'prefilter')).toHaveLength(1);
     await jest.advanceTimersByTimeAsync(3_600_000);
     expect(h.curator.retirement.run).toHaveBeenCalledTimes(1);
+  });
+
+  /**
+   * Review finding 2 — the join promise (`startRun`) must never become an
+   * unhandled rejection.
+   *
+   * When `performStart()` rejects (here: `openAndMigrate` fails), the direct
+   * caller sees the error from `await start()`, but the derived `startRun`
+   * promise had no handler of its own — Node, which the CLI runs without an
+   * `unhandledRejection` handler, terminates the process on it. Real timers
+   * for this test: the unhandled-rejection machinery needs a genuine
+   * macrotask boundary to surface anything.
+   */
+  it('a rejected boot-work run is never an unhandled rejection, and a later start retries (finding 2)', async () => {
+    jest.useRealTimers();
+    const unhandled: unknown[] = [];
+    const onUnhandledRejection = (err: unknown) => {
+      unhandled.push(err);
+    };
+    process.on('unhandledRejection', onUnhandledRejection);
+    try {
+      const h = buildHarness({ enabled: true });
+      h.connection.isOpen = false;
+      (h.connection.openAndMigrate as jest.Mock).mockRejectedValueOnce(
+        new Error('db locked'),
+      );
+
+      // The boot caller's own catch sees the error, exactly as before.
+      await expect(h.svc.start()).rejects.toThrow('db locked');
+
+      // A full microtask + macrotask drain: the join promise's rejection is
+      // observed where it is created, so nothing surfaces here.
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      await h.settle();
+      expect(unhandled).toHaveLength(0);
+
+      // `startRun` was reset by the failed run, so a later start retries the
+      // boot work and succeeds, bringing up everything a normal start does.
+      await h.svc.start();
+      expect(h.sessionEndRegistry.register).toHaveBeenCalledTimes(1);
+      expect(h.curator.svc.isScheduled()).toBe(true);
+      expect(h.enqueued.filter((r) => r.stage === 'embedding')).toHaveLength(1);
+      h.svc.stop();
+    } finally {
+      process.off('unhandledRejection', onUnhandledRejection);
+    }
+  });
+
+  /**
+   * Review finding 4 — a failed start leaves the config listener in place AS
+   * the retry path.
+   *
+   * The boot catch nulls its ref and never calls `stop()` on a failed start,
+   * so nothing else disposes the listener — disposing it here would leave the
+   * failed host with no resume path at all. The listener turns the next
+   * pause→resume cycle into a retry that runs the FULL `performStart()`:
+   * subscription, curator interval, backfill row, and no second listener.
+   */
+  it('a resume event after a failed start retries it and brings up everything a normal start does (finding 4)', async () => {
+    jest.useRealTimers();
+    const h = buildHarness({ enabled: true });
+    h.connection.isOpen = false;
+    (h.connection.openAndMigrate as jest.Mock).mockRejectedValueOnce(
+      new Error('db locked'),
+    );
+
+    // The boot path: the rejection is caught outside, the ref nulled, the
+    // listener left registered.
+    await expect(h.svc.start()).rejects.toThrow('db locked');
+    await h.settle();
+    expect(h.sessionEndRegistry.register).not.toHaveBeenCalled();
+    expect(h.curator.svc.isScheduled()).toBe(false);
+    expect(h.ws.listenerRegistrations()).toBe(1);
+
+    // Pause, then resume by event — the listener retries the failed start.
+    h.ws.fireSkillSynthesisEnabled(false);
+    await h.settle();
+    h.ws.fireSkillSynthesisEnabled(true);
+    await h.settle();
+
+    // Everything a normal start brings up, exactly once each.
+    expect(h.sessionEndRegistry.register).toHaveBeenCalledTimes(1);
+    expect(h.curator.svc.isScheduled()).toBe(true);
+    expect(h.enqueued.filter((r) => r.stage === 'embedding')).toHaveLength(1);
+    // The retry reuses the ONE listener — `registerConfigListener` is guarded.
+    expect(h.ws.listenerRegistrations()).toBe(1);
+    h.svc.stop();
   });
 });

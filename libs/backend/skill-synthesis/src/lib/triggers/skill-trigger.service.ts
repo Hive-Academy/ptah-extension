@@ -118,6 +118,15 @@ export class SkillTriggerService {
    */
   private bootScanArmed = false;
   /**
+   * Which armed scan {@link bootScanArmed} describes (review finding 9).
+   * Bumped by {@link maybeRearmBootScan} on every arm, so a pause→resume that
+   * arms scan B while a CANCELED scan A is still unwinding leaves A's
+   * completion unable to clear B's arm: only the scan whose generation is
+   * still current may reset the flag. Without it, A's `finally` would clear
+   * B's arm and the flag would lie about a live scan.
+   */
+  private bootScanGeneration = 0;
+  /**
    * Disposer of the `skillSynthesis.enabled` config listener, registered in
    * `start()` and disposed in `stop()`.
    */
@@ -852,7 +861,7 @@ export class SkillTriggerService {
    * with window creation and the SDK boot for the main thread. The
    * delay/backoff reasoning lives on the scheduler.
    */
-  private createBootScanScheduler(): BootScanScheduler {
+  private createBootScanScheduler(generation: number): BootScanScheduler {
     return new BootScanScheduler({
       logPrefix: '[skill-synthesis]',
       logger: this.logger,
@@ -864,12 +873,15 @@ export class SkillTriggerService {
       idleBackoffMsDefault: SKILL_TRIGGER_DEFAULTS.bootScanIdleBackoffMs,
       lastActivityAt: () => this.lastActivityAt,
       run: (signal) => {
-        void this.runBootScan(signal);
+        void this.runBootScan(signal, generation);
       },
     });
   }
 
-  private async runBootScan(signal: AbortSignal): Promise<void> {
+  private async runBootScan(
+    signal: AbortSignal,
+    generation: number,
+  ): Promise<void> {
     const root = this.workspace.getWorkspaceRoot();
     if (!root) return;
     try {
@@ -941,12 +953,17 @@ export class SkillTriggerService {
         error: message,
       });
     } finally {
-      // The arm is spent once the run completes, whatever the outcome. A
-      // mid-scan stall on an EXTERNAL pause fires no config event, so
-      // `cancelBootScan` never runs on that path — without this reset,
-      // `maybeRearmBootScan` would see `bootScanArmed` true forever and the
-      // owed sessions could never re-arm.
-      this.bootScanArmed = false;
+      // The arm is spent once the run completes, whatever the outcome — but
+      // only if THIS run is still the armed one (review finding 9). A pause
+      // event cancels a scan whose async body is still unwinding; the resume
+      // arms a NEWER scan while that happens, and the older run's `finally`
+      // must not clear the newer arm. A mid-scan stall on an EXTERNAL pause
+      // fires no config event, so `cancelBootScan` never runs on that path —
+      // without the generational check that path (or a stale one) would leave
+      // `bootScanArmed` true forever, or clear an arm it does not own.
+      if (this.bootScanGeneration === generation) {
+        this.bootScanArmed = false;
+      }
     }
   }
 
@@ -1014,8 +1031,11 @@ export class SkillTriggerService {
       return;
     this.bootScanArmed = true;
     this.bootScanOwed = false;
+    // The generation the armed run carries, so only the CURRENT scan's
+    // completion may clear `bootScanArmed` (review finding 9).
+    const generation = ++this.bootScanGeneration;
     this.bootScanController = new AbortController();
-    this.bootScanScheduler = this.createBootScanScheduler();
+    this.bootScanScheduler = this.createBootScanScheduler(generation);
     this.bootScanScheduler.schedule(this.bootScanController.signal);
   }
 

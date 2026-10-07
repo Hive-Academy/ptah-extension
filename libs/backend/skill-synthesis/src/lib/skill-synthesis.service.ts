@@ -374,13 +374,31 @@ export class SkillSynthesisService {
     if (this.startRun !== null) {
       // A lazy deferred start is already completing the boot work; join it
       // rather than running it — and the session-end subscription — twice.
+      // The join promise never rejects (the failure is observed where it is
+      // created, below), so a joiner learns the outcome from `started`, as
+      // `ensureStarted` does — never from this await.
       await this.startRun;
       return;
     }
     const run = this.performStart();
-    this.startRun = run.finally(() => {
-      this.startRun = null;
-    });
+    // The JOIN promise must never become an unhandled rejection (review
+    // finding 2). It is derived from `run`, and only a caller that arrives
+    // WHILE this run is in flight ever awaits it — when `performStart()`
+    // rejects (say `openAndMigrate` fails) and no second caller arrives, the
+    // derived promise would reject with no handler, and Node — which the CLI
+    // runs without an `unhandledRejection` handler — terminates the process
+    // on it. Observed and logged here; the DIRECT caller still sees the
+    // error from `await run` below, and `startRun` is reset either way so a
+    // later start retries the boot work.
+    this.startRun = run
+      .finally(() => {
+        this.startRun = null;
+      })
+      .catch((err: unknown) => {
+        this.logger.warn('[skill-synthesis] background start failed', {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
     await run;
   }
 
@@ -591,6 +609,16 @@ export class SkillSynthesisService {
    * Register the `skillSynthesis.enabled` config listener once. Called from
    * `start()` above the early returns, so a host that booted paused still
    * hears the resume.
+   *
+   * The listener DELIBERATELY outlives a failed start (review finding 4): it
+   * is the retry path. When `performStart()` rejects, the Electron/CLI boot
+   * catch nulls its ref and never calls `stop()`, so nothing else disposes
+   * this listener — and disposing it here would leave the failed host with
+   * no resume path at all. Kept, it turns the next `skillSynthesis.enabled`
+   * change into a retry through `onMasterSwitchChanged` → `ensureStarted()`,
+   * which re-runs the full `performStart()` and brings up everything a
+   * normal start does (the drain's prefilter stage and `enqueueAnalyze`'s
+   * lazy path retry the same way between events).
    */
   private registerConfigListener(): void {
     if (this._configDisposer) return;
@@ -606,8 +634,9 @@ export class SkillSynthesisService {
    * The event-driven resume path. A pause needs no teardown — every unit
    * re-reads the switch before it starts (the enqueue body, the drain's gates,
    * the curator tick) — so only the resume side does work: complete the boot
-   * work a paused boot skipped, and re-arm a curator interval a
-   * `restartCurator()` during the pause stopped.
+   * work a paused boot skipped, re-arm a curator interval a
+   * `restartCurator()` during the pause stopped, and retry a FAILED start.
+   * `ensureStarted` never rejects, so the fire-and-forget is safe.
    */
   private onMasterSwitchChanged(): void {
     if (!this.readSettings().enabled) return;

@@ -150,3 +150,20 @@ All matched files use Prettier code style!
   shared types.
 - **PD** (dead keys, committed) — verified: no `sessionEnd` key in `skill-trigger-config.ts`.
 - **P5 / tray (S14)** and the mcp-bench harness — untouched by P2; see deviation 1.
+
+## Review fixes (round 1) — orchestrator verification
+
+The opencode lane implemented the four P2 findings of `code-logic-review-b-p-backend.md` (2, 3, 4,
+9) but exited with "Unknown error" at its final prettier step, before it updated this report. The
+orchestrator verified the working tree itself:
+
+- Finding 2: `startRun` is now a `.catch`-observed join that logs, resets `startRun` and rethrows to
+  awaiting callers (`skill-synthesis.service.ts`).
+- Finding 3: a prefilter null while the switch is off becomes `unscored` with reason
+  `analyzer-paused` and a 15-minute retry, never `skipped` (`queue/stage-handlers.service.ts`).
+- Finding 4: the config listener deliberately outlives a failed start and is the retry path through
+  `onMasterSwitchChanged` → `ensureStarted()`.
+- Finding 9: boot-scan arm ownership by `bootScanGeneration` (`triggers/skill-trigger.service.ts`).
+- Checks (orchestrator run): `npx nx run-many -t test,typecheck,lint -p skill-synthesis rpc-handlers
+  --parallel=1` → Successfully ran targets test, typecheck, lint for 2 projects;
+  degradation-audit `libs/backend/skill-synthesis: 5 ok (baseline 5)`; prettier clean.

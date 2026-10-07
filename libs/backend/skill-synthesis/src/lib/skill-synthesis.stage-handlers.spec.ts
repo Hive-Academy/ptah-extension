@@ -261,7 +261,15 @@ function makeService(opts: {
     for (let i = 0; i < 8; i++) await Promise.resolve();
   }
 
-  return { svc, store, md, extractor, embedder, fireSessionEnd };
+  return {
+    svc,
+    store,
+    md,
+    extractor,
+    embedder,
+    workspaceProvider,
+    fireSessionEnd,
+  };
 }
 
 /** A queue double that serves exactly one row to the drain, then nothing. */
@@ -403,6 +411,40 @@ describe('SkillSynthesisService — drain stage handlers (B0.9.1)', () => {
       notBefore: expect.any(Number),
     });
     expect(queue.markSkipped).not.toHaveBeenCalled();
+  });
+
+  it('a pause landing between the per-item gate and the analyzer leaves the row retryable (review finding 3)', async () => {
+    const row = queueRow();
+    const queue = makeOneRowQueue(row);
+    const drain = makeDrainOver(queue);
+    const { svc, workspaceProvider } = makeService({ queue, drain });
+    await svc.start();
+
+    // The pause lands inside the CAS CLAIM — after the drain's per-item gate
+    // has read `enabled` (the DRAIN's own workspace, which stays on) and
+    // before `analyzeSession` re-reads it through THIS service's workspace:
+    // the exact window finding 3 describes. The analyzer then answers `null`
+    // without ever looking at the session.
+    (queue.tryClaim as jest.Mock).mockImplementation(() => {
+      (workspaceProvider.getConfiguration as jest.Mock).mockImplementation(
+        (_s: string, key: string, fallback: unknown) =>
+          key === 'skillSynthesis.enabled' ? false : fallback,
+      );
+      return { ...row, status: 'claimed' as const };
+    });
+
+    const summary = await drain.drain(drainOpts());
+
+    // A paused null is NOT "no candidate from this session": the row takes
+    // the same retry path as 'analyzer-not-started' and stays eligible for
+    // the next tick after a resume.
+    expect(summary).toMatchObject({ claimed: 1, unscored: 1 });
+    expect(queue.markUnscored).toHaveBeenCalledWith('row-1', {
+      reason: 'analyzer-paused',
+      notBefore: expect.any(Number),
+    });
+    expect(queue.markSkipped).not.toHaveBeenCalled();
+    expect(queue.markFailed).not.toHaveBeenCalled();
   });
 
   it('starts cleanly in a host with no drain registered', async () => {

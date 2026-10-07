@@ -538,4 +538,66 @@ describe('SkillTriggerService — boot scan under the master switch (B-P S3)', (
 
     h.service.stop();
   });
+
+  /**
+   * Review finding 9 — only the CURRENT scan's completion may clear the arm.
+   *
+   * A pause event cancels a scan whose async body is still unwinding; the
+   * resume arms a NEWER scan while that happens, and the older run's
+   * `finally` must not clear the newer scan's arm — the generation token on
+   * `runBootScan` is what keeps `bootScanArmed` truthful there. No reachable
+   * double-arm exists today (the reviewer found none), so the observable pin
+   * is the sequence's own behaviour: the canceled older scan unwinds after
+   * the newer one was armed, and the newer scan still fires EXACTLY once —
+   * never a second arm on top of it, never a lost one.
+   */
+  it('an aborted older scan does not clear the newer scan’s arm (review finding 9)', async () => {
+    const settings: Record<string, unknown> = {
+      'skillSynthesis.enabled': true,
+      'skillSynthesis.triggers.bootScanDelayMs': 0,
+    };
+    const h = buildHarness({ sessionsDir: dir, settings });
+
+    // Scan A fires immediately (delay 0) and HANGS mid-scan on a controlled
+    // promise — its body stays in flight across the whole pause→resume cycle.
+    let releaseA!: () => void;
+    const hangA = new Promise<void>((resolve) => {
+      releaseA = resolve;
+    });
+    (h.enqueueAnalyze as jest.Mock).mockImplementationOnce(() => hangA);
+    h.service.start();
+    await advanceUntil(2_000, () => h.enqueueAnalyze.mock.calls.length >= 1);
+
+    // Pause by event: cancels A (its body keeps unwinding on `hangA`) and
+    // keeps the scan owed.
+    writeMaster(h, false);
+    // Resume arms scan B with a REAL delay, so B stays pending while A
+    // unwinds — the exact shape finding 9 describes.
+    settings['skillSynthesis.triggers.bootScanDelayMs'] = 60_000;
+    flipMaster(h, settings, true);
+    writeMaster(h, true);
+    await advance(2_000);
+
+    // A unwinds AFTER B was armed. Its `finally` must not touch B's arm —
+    // and B's own completion (the current generation) is what clears it.
+    releaseA();
+    await advance(2_000);
+    expect(h.enqueueAnalyze).toHaveBeenCalledTimes(1);
+
+    // B — armed while A unwound — fires exactly once at its delay. The wait
+    // polls in WALL time: B's body rides the real filesystem (readdir +
+    // stat off the libuv pool), which a fake-clock advance alone does not
+    // wait for — under a loaded parallel runner that completion needs real
+    // milliseconds.
+    await advanceUntil(60_000, () => h.enqueueAnalyze.mock.calls.length >= 2);
+    await advance(2_000);
+
+    expect(h.enqueueAnalyze).toHaveBeenCalledTimes(2);
+    const scans = (h.synthesis.pushEvent as jest.Mock).mock.calls.filter(
+      ([ev]) => ev?.kind === 'boot-scan',
+    );
+    expect(scans).toHaveLength(2);
+
+    h.service.stop();
+  });
 });
