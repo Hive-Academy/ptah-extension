@@ -20,59 +20,17 @@ import type {
  * `/models` catalog read by `CodexAuthService.listModels` (codex-auth.service.ts),
  * recorded with `contextLengthSource: 'provider'`.
  *
- * `gpt-5.4` must stay first: `staticModels[0]` is the default-model fallback.
- * Append new IDs at the end.
+ * The IDs and their order follow the `visibility: "list"` entries of the live
+ * catalog (`codex debug models`, 2026-10-07). The previous `gpt-5.x-codex`
+ * IDs now fail with "not supported when using Codex with a ChatGPT account".
+ * `staticModels[0]` is the default-model fallback, so the catalog's first
+ * model stays first.
  */
 const CODEX_STATIC_MODELS: ProviderStaticModel[] = [
   {
-    id: 'gpt-5.4',
-    name: 'GPT 5.4',
-    description: 'Latest GPT -- advanced reasoning',
-    contextLength: 0,
-    supportsToolUse: true,
-    inputCostPerToken: 0,
-    outputCostPerToken: 0,
-  },
-  {
-    id: 'gpt-5.3-codex',
-    name: 'GPT 5.3 Codex',
-    description: 'GPT 5.3 optimized for code (current default)',
-    contextLength: 0,
-    supportsToolUse: true,
-    inputCostPerToken: 0,
-    outputCostPerToken: 0,
-  },
-  {
-    id: 'gpt-5.2-codex',
-    name: 'GPT 5.2 Codex',
-    description: 'GPT 5.2 optimized for code',
-    contextLength: 0,
-    supportsToolUse: true,
-    inputCostPerToken: 0,
-    outputCostPerToken: 0,
-  },
-  {
-    id: 'gpt-5.2',
-    name: 'GPT 5.2',
-    description: 'GPT 5.2 -- balanced performance',
-    contextLength: 0,
-    supportsToolUse: true,
-    inputCostPerToken: 0,
-    outputCostPerToken: 0,
-  },
-  {
-    id: 'gpt-5.1-codex-max',
-    name: 'GPT 5.1 Codex Max',
-    description: 'GPT 5.1 Codex -- maximum capability',
-    contextLength: 0,
-    supportsToolUse: true,
-    inputCostPerToken: 0,
-    outputCostPerToken: 0,
-  },
-  {
-    id: 'gpt-5.1-codex-mini',
-    name: 'GPT 5.1 Codex Mini',
-    description: 'GPT 5.1 Codex -- lightweight and fast',
+    id: 'gpt-6.1-sol',
+    name: 'GPT 6.1 Sol',
+    description: 'Latest workhorse model for coding and everyday work',
     contextLength: 0,
     supportsToolUse: true,
     inputCostPerToken: 0,
@@ -88,9 +46,45 @@ const CODEX_STATIC_MODELS: ProviderStaticModel[] = [
     outputCostPerToken: 0,
   },
   {
+    id: 'gpt-6-sol',
+    name: 'GPT 6 Sol',
+    description: 'GPT 6 Sol',
+    contextLength: 0,
+    supportsToolUse: true,
+    inputCostPerToken: 0,
+    outputCostPerToken: 0,
+  },
+  {
+    id: 'gpt-6-luna',
+    name: 'GPT 6 Luna',
+    description: 'GPT 6 Luna',
+    contextLength: 0,
+    supportsToolUse: true,
+    inputCostPerToken: 0,
+    outputCostPerToken: 0,
+  },
+  {
     id: 'gpt-5.6-sol',
     name: 'GPT 5.6 Sol',
     description: 'GPT 5.6 Sol',
+    contextLength: 0,
+    supportsToolUse: true,
+    inputCostPerToken: 0,
+    outputCostPerToken: 0,
+  },
+  {
+    id: 'gpt-5.6-terra',
+    name: 'GPT 5.6 Terra',
+    description: 'GPT 5.6 Terra',
+    contextLength: 0,
+    supportsToolUse: true,
+    inputCostPerToken: 0,
+    outputCostPerToken: 0,
+  },
+  {
+    id: 'gpt-5.6-luna',
+    name: 'GPT 5.6 Luna',
+    description: 'GPT 5.6 Luna',
     contextLength: 0,
     supportsToolUse: true,
     inputCostPerToken: 0,
@@ -103,9 +97,9 @@ const CODEX_STATIC_MODELS: ProviderStaticModel[] = [
  * Auto-applied on first connection so users get the best models mapped immediately.
  */
 export const CODEX_DEFAULT_TIERS = {
-  sonnet: 'gpt-5.3-codex',
-  opus: 'gpt-5.4',
-  haiku: 'gpt-5.1-codex-mini',
+  sonnet: 'gpt-6-sol',
+  opus: 'gpt-6.1-sol',
+  haiku: 'gpt-6-luna',
 } as const;
 
 /**
