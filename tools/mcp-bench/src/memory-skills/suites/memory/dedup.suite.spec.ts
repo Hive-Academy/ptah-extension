@@ -18,6 +18,7 @@ import {
 } from './dedup.suite';
 import {
   commitDrafts,
+  MIRRORED_COMMIT_NA,
   ModelCallLog,
   stableCandidates,
 } from './merge-update-pass';
@@ -201,7 +202,10 @@ describe('mem.dedup and mem.dedup.rerank', () => {
     for (const b of result.baselines) rateMetricsExact(b.metrics);
     expect(result.deltas['byte-equal-subject']['mergeF1']).toBe(40 / 64);
 
-    expect(result.verdict).toBe('pass');
+    // The F1 margin over byte-equal would clear MinE, but the commit step is a
+    // mirror of private product code: numbers reported, verdict na.
+    expect(result.verdict).toBe('na');
+    expect(result.naReason).toBe(MIRRORED_COMMIT_NA);
     expect(result.modelCalls).toBe(60);
     expect(result.cost.calls).toBe(60);
     expect(result.cassetteVersion).toBe('synthetic-v1');

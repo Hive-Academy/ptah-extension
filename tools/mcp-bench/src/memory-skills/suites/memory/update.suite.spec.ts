@@ -12,7 +12,7 @@ import type {
 } from '../../ground-truth/label-schemas';
 import { curationDetailsSchema } from '../../memory-skills-suite-kinds';
 import { readSuiteResult } from '../../runner/suite-result';
-import { stableCandidates } from './merge-update-pass';
+import { MIRRORED_COMMIT_NA, stableCandidates } from './merge-update-pass';
 import {
   FakeMemory,
   replayCurator,
@@ -202,8 +202,10 @@ describe('mem.update, mem.temporal and mem.update.seed', () => {
     expect(baseline('no-memory')['omission']).toBe(1);
     for (const b of result.baselines) rateMetricsExact(b.metrics);
     expect(result.deltas['latest-chunk-wins']['correct']).toBeCloseTo(-0.8, 12);
-    // Today's expected failure: no supersede marker, so v1 stays retrievable.
-    expect(result.verdict).toBe('fail');
+    // Today's expected failure (no supersede marker, v1 stays retrievable) is
+    // in the numbers; the verdict is na because the commit step is mirrored.
+    expect(result.verdict).toBe('na');
+    expect(result.naReason).toBe(MIRRORED_COMMIT_NA);
     // 50 extract calls + 20 resolve calls (cases 0-19 have a candidate).
     expect(result.modelCalls).toBe(70);
     expect(result.cassetteVersion).toBe('synthetic-v1');
@@ -276,7 +278,8 @@ describe('mem.update, mem.temporal and mem.update.seed', () => {
       result.baselines.find((b) => b.id === 'raw-grep')?.metrics ?? {};
     expect(grep['accuracy']).toBe(1);
     expect(grep['dateVisibleShare']).toBe(1);
-    expect(result.verdict).toBe('fail');
+    expect(result.verdict).toBe('na');
+    expect(result.naReason).toBe(MIRRORED_COMMIT_NA);
     expect(result.modelCalls).toBe(15);
     expect(records.find((r) => r.caseId === 'T-0')).toMatchObject({
       outcome: 'pass',

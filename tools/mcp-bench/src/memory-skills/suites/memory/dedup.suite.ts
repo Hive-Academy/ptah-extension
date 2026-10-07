@@ -21,7 +21,9 @@
  * whose left row reached the resolver at all). Baselines are the pure
  * policies of `write-side-baselines.ts`: byte-equal subject (the pre-563
  * path), never merge, tier-1-only (case-folded subject). Verdict: product F1
- * beats byte-equal F1 by the ledger MinE of 10 points.
+ * would need to beat byte-equal F1 by the ledger MinE of 10 points, but the
+ * commit step is a mirror of private product code, so the verdict is always
+ * `na` ({@link MIRRORED_COMMIT_NA}) and the numbers are reported only.
  *
  * Expected today: tier 2 runs only when tier 1 found a row
  * (`merge-candidate-collector.ts:187`), so a should-merge pair whose subjects
@@ -84,7 +86,7 @@ import {
   caseScope,
   commitDrafts,
   deltaOf,
-  meetsMinEffect,
+  MIRRORED_COMMIT_NA,
   ModelCallLog,
   naReasonOf,
   rateMetrics,
@@ -100,8 +102,6 @@ export const DEDUP_RERANK_SUITE_ID = 'mem.dedup.rerank';
 /** Design 3.2: ≥ 40 should-merge and ≥ 40 should-not-merge pairs. */
 export const MIN_SHOULD_MERGE_PAIRS = 40;
 export const MIN_SHOULD_NOT_MERGE_PAIRS = 40;
-/** Ledger MinE: 10 points of merge F1 over byte-equal subject (`:86`). */
-export const DEDUP_MIN_EFFECT = 0.1;
 /**
  * `na` reason of `mem.dedup.rerank`: the product exposes no pre-rerank
  * candidate order for the ledger's no-rerank baseline (see the header).
@@ -418,8 +418,8 @@ async function runDedup(
     label,
     metrics: baselineMetrics(pairs, policy),
   }));
-  const byteEqual = baselines[0].metrics;
-  const naReason = naReasonOf(statuses, belowMinimum(pairs));
+  const naReason =
+    naReasonOf(statuses, belowMinimum(pairs)) ?? MIRRORED_COMMIT_NA;
 
   writeSuiteResult(
     context.runDir,
@@ -456,17 +456,9 @@ async function runDedup(
       ),
       cost: log.cost(),
       modelCalls: log.calls,
-      verdict:
-        naReason !== undefined
-          ? 'na'
-          : meetsMinEffect(
-                product['mergeF1'],
-                byteEqual['mergeF1'],
-                DEDUP_MIN_EFFECT,
-              )
-            ? 'pass'
-            : 'fail',
-      ...(naReason === undefined ? {} : { naReason }),
+      // Always na: the commit step is a mirror of private product code.
+      verdict: 'na',
+      naReason,
       metrics: product,
       cassetteVersion: log.calls === 0 ? null : options.cassetteVersion,
     },

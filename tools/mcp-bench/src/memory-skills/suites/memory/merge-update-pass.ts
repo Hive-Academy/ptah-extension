@@ -467,18 +467,13 @@ export function naReasonOf(
   return undefined;
 }
 
-/** Absorbs float noise in a difference of two exact rates (0.3 - 0.2 < 0.1). */
-const EFFECT_EPSILON = 1e-9;
-
-/** `true` when `product - baseline >= minEffect`; `false` on a missing value. */
-export function meetsMinEffect(
-  product: number | null,
-  baseline: number | null,
-  minEffect: number,
-): boolean {
-  return (
-    product !== null &&
-    baseline !== null &&
-    product - baseline >= minEffect - EFFECT_EPSILON
-  );
-}
+/**
+ * The `na` reason of every suite that commits through {@link commitDrafts}
+ * (`mem.dedup`, `mem.update`, `mem.temporal`). The commit step is a mirror of
+ * the curator's private loop, so it is not the product path and no pass/fail
+ * may come from it; a more specific reason from {@link naReasonOf} wins. Phase 4
+ * seam needed: expose the commit step, or a public curate entry that accepts
+ * pre-resolved drafts.
+ */
+export const MIRRORED_COMMIT_NA =
+  'mirrored-commit-path: product commit step is private (memory-curator.service.ts doCurate)';

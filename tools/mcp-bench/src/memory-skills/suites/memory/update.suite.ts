@@ -36,14 +36,17 @@
  * headline) and `buildBlock` (what the agent sees), and is classified by
  * `classifyUpdate` (correct / stale / omission / hallucination). Baselines:
  * latest-chunk-wins over the same top-10 chunks, raw transcript grep (newest
- * session line naming the slot), no memory. Verdict: correct beats
- * latest-chunk-wins by the ledger MinE of 10 points.
+ * session line naming the slot), no memory. The ledger asks correct to beat
+ * latest-chunk-wins by MinE 10 points; the numbers and deltas are reported,
+ * but the verdict is always `na` (`MIRRORED_COMMIT_NA`): the commit step is a
+ * mirror of the curator's private loop, not the product path.
  *
  * `mem.temporal`: all temporal sessions share one scope. Accuracy = the dated
  * answer is in the top-10; date visibility = share of `buildBlock` lines that
  * show an ISO date. Baselines: raw grep of the session records dated on the
- * case date (they carry timestamps), no memory. Verdict: accuracy beats raw
- * grep by MinE 10 points. Expected today: date visibility 0 (forensics M6).
+ * case date (they carry timestamps), no memory. The ledger asks accuracy to
+ * beat raw grep by MinE 10 points; reported, verdict always `na` for the same
+ * reason. Expected today: date visibility 0 (forensics M6).
  *
  * `mem.update.seed` (`update-seed.suite.ts`): the setup-wizard path (`MemoryWriterAdapter.upsert`,
  * `memory-writer.adapter.ts:53-100`) seeds v1, then reseeds v2 under the same
@@ -74,7 +77,7 @@ import { writeSuiteResult, type CaseRecord } from '../../runner/suite-result';
 import {
   caseScope,
   deltaOf,
-  meetsMinEffect,
+  MIRRORED_COMMIT_NA,
   ModelCallLog,
   naReasonOf,
   rateMetrics,
@@ -113,9 +116,6 @@ export const TEMPORAL_SUITE_ID = 'mem.temporal';
 /** Design 3.3: ≥ 25 update cases, ≥ 15 temporal cases. */
 export const MIN_UPDATE_CASES = 25;
 export const MIN_TEMPORAL_CASES = 15;
-/** Ledger MinE: 10 points (`:94` correct vs latest-chunk-wins, `:95` accuracy vs raw grep). */
-export const UPDATE_MIN_EFFECT = 0.1;
-export const TEMPORAL_MIN_EFFECT = 0.1;
 
 /** An ISO date, also inside a timestamp (`2026-08-01T00:00:00Z`). */
 const ISO_DATE = /(?<!\d)\d{4}-\d{2}-\d{2}(?!\d)/u;
@@ -327,7 +327,8 @@ async function runUpdate(
       ),
     },
   ];
-  const naReason = naReasonOf(statuses, cases.length < MIN_UPDATE_CASES);
+  const naReason =
+    naReasonOf(statuses, cases.length < MIN_UPDATE_CASES) ?? MIRRORED_COMMIT_NA;
   const correct = updateOutcomeRate(
     done.map(({ outcome }) => outcome.read),
     'correct',
@@ -364,17 +365,9 @@ async function runUpdate(
       ),
       cost: log.cost(),
       modelCalls: log.calls,
-      verdict:
-        naReason !== undefined
-          ? 'na'
-          : meetsMinEffect(
-                correct.value,
-                baselines[0].metrics['correct'],
-                UPDATE_MIN_EFFECT,
-              )
-            ? 'pass'
-            : 'fail',
-      ...(naReason === undefined ? {} : { naReason }),
+      // Always na: the commit step is a mirror of private product code.
+      verdict: 'na',
+      naReason,
       metrics: product,
       cassetteVersion: log.calls === 0 ? null : options.cassetteVersion,
     },
@@ -564,7 +557,9 @@ async function runTemporal(
       },
     },
   ];
-  const naReason = naReasonOf(statuses, cases.length < MIN_TEMPORAL_CASES);
+  const naReason =
+    naReasonOf(statuses, cases.length < MIN_TEMPORAL_CASES) ??
+    MIRRORED_COMMIT_NA;
 
   writeSuiteResult(
     context.runDir,
@@ -593,17 +588,9 @@ async function runTemporal(
       ),
       cost: log.cost(),
       modelCalls: log.calls,
-      verdict:
-        naReason !== undefined
-          ? 'na'
-          : meetsMinEffect(
-                accuracy.value,
-                baselines[0].metrics['accuracy'],
-                TEMPORAL_MIN_EFFECT,
-              )
-            ? 'pass'
-            : 'fail',
-      ...(naReason === undefined ? {} : { naReason }),
+      // Always na: the commit step is a mirror of private product code.
+      verdict: 'na',
+      naReason,
       metrics: product,
       cassetteVersion: log.calls === 0 ? null : options.cassetteVersion,
     },

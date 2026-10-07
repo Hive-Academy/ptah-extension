@@ -52,7 +52,7 @@ Extraction goes through the product's windows: `planCuratorWindows` makes one `e
   - `callsPerMerge`;
   - candidate recall.
 - **Baselines** (pure functions from `write-side-baselines.ts`): byte-equal subject, never merge, tier-1-only.
-- **Verdict:** pass when F1 − byte-equal F1 ≥ 0.10 (ledger `:86`).
+- **Verdict: always `na` (`mirrored-commit-path: product commit step is private (memory-curator.service.ts doCurate)`)** unless a more specific reason applies (cassette-miss and the others). F1 − byte-equal F1 (ledger MinE 0.10, `:86`) is reported in `deltas` only. See Phase 3.5 fixes, round 2.
 
 ### `mem.dedup.rerank`
 
@@ -70,7 +70,7 @@ Extraction goes through the product's windows: `planCuratorWindows` makes one `e
   - latest-chunk-wins, over the same top-10 chunks;
   - raw transcript grep, where the newest line naming the slot wins;
   - no memory.
-- **Verdict:** pass when correct − latest-chunk-wins correct ≥ 0.10 (ledger `:94`).
+- **Verdict: always `na` (`mirrored-commit-path: product commit step is private (memory-curator.service.ts doCurate)`)** unless a more specific reason applies. Correct − latest-chunk-wins (MinE 0.10, `:94`) is reported in `deltas` only.
 
 ### `mem.temporal`
 
@@ -78,7 +78,7 @@ Extraction goes through the product's windows: `planCuratorWindows` makes one `e
 - **Accuracy:** the dated answer appears in the top 10.
 - **Date visibility:** the share of `buildBlock` lines that contain an ISO date.
 - **Baselines:** raw grep over the timestamped session records for the case date, and no memory.
-- **Verdict:** pass when accuracy − raw-grep accuracy ≥ 0.10 (ledger `:95`).
+- **Verdict: always `na` (`mirrored-commit-path: product commit step is private (memory-curator.service.ts doCurate)`)** unless a more specific reason applies. Accuracy − raw grep (MinE 0.10, `:95`) is reported in `deltas` only.
 - If a session hits a cassette miss, its question records that miss.
 
 ### `mem.update.seed`
@@ -115,14 +115,14 @@ The figures for `mem.dedup`, `mem.update` and `mem.temporal` assume a cassette e
 
 | Suite | Expected | Why (file:line) |
 |---|---|---|
-| `mem.dedup` | Should-merge pairs whose subjects differ after case folding never reach the resolver. Candidate recall is about the tier-1-only recall. | `merge-candidate-collector.ts:187` |
+| `mem.dedup` | `na: mirrored-commit-path`. In the numbers: should-merge pairs whose subjects differ after case folding never reach the resolver, so candidate recall is about the tier-1-only recall. | `merge-candidate-collector.ts:187` |
 | `mem.dedup.rerank` | `na: no-pre-rerank-order`. Variance 0 on every list is still measured and reported (`zeroVarianceShare`). | Forensics M3, `embedder-worker.ts:277-295`; no seam, `memory-search.service.ts:369-401` |
-| `mem.update` | `fail`: mostly `stale`. A merge appends v2 to the v1 row and both chunks stay retrievable; there is no supersede marker. | Forensics M6; `memory-curator.service.ts:836-846` |
-| `mem.temporal` | `fail`: date visibility 0 | The block prints `[subject]: chunk` only (`memory-prompt-injector.ts:117-128`), and the transcript carries no dates |
+| `mem.update` | `na: mirrored-commit-path`. In the numbers: mostly `stale`. A merge appends v2 to the v1 row and both chunks stay retrievable; there is no supersede marker. | Forensics M6; `memory-curator.service.ts:836-846` |
+| `mem.temporal` | `na: mirrored-commit-path`. In the numbers: date visibility 0. | The block prints `[subject]: chunk` only (`memory-prompt-injector.ts:117-128`), and the transcript carries no dates |
 | `mem.update.seed` | Expected to pass: the adapter deletes the matches before the insert | `memory-writer.adapter.ts:71` |
 | all model suites in CI | `na: cassette-miss`. No cassette is committed, and the ground truth is not frozen. | See "Pending live recording" |
 
-The spec scenarios pin these shapes: an inert reranker gives `na` with zero variance on all 40 lists, stale updates give `fail` against latest-chunk-wins at 1.0, and temporal gives a date visibility of 0.
+The spec scenarios pin these shapes: an inert reranker gives `na` with zero variance on all 40 lists, stale updates score 0.2 correct against 1.0 for latest-chunk-wins, temporal shows a date visibility of 0, and all three mirrored suites give `na: mirrored-commit-path`.
 
 ## Checks
 
@@ -281,10 +281,10 @@ To make the ledger row measurable, Phase 4 needs a product seam: a rerank-off op
 
 | Suite | Product path measured | Verdict basis |
 |---|---|---|
-| `mem.dedup` | Real collector and real store. The resolver comes from the cassette double. The commit loop is a mirrored copy, not the product's code. | F1 vs byte-equal (pure policy); `na` on any cassette miss |
+| `mem.dedup` | Real collector and real store. The resolver comes from the cassette double. The commit loop is a mirrored copy, not the product's code. | Always `na` (`mirrored-commit-path`, or a more specific reason such as `cassette-miss`). F1 vs byte-equal is reported, not judged. |
 | `mem.dedup.rerank` | Real `searchRich` and the real embedder `rerank` | Always `na` (`no-pre-rerank-order`) |
-| `mem.update` | Real windows, collector, store, `searchRich` and `buildBlock`; the curator is a cassette double; the commit loop is mirrored | correct vs latest-chunk-wins; `na` on a miss |
-| `mem.temporal` | Same as `mem.update` | accuracy vs raw grep; `na` on a miss |
+| `mem.update` | Real windows, collector, store, `searchRich` and `buildBlock`; the curator is a cassette double; the commit loop is mirrored | Always `na` (`mirrored-commit-path`, or a more specific reason). Correct vs latest-chunk-wins is reported, not judged. |
+| `mem.temporal` | Same as `mem.update` | Always `na` (`mirrored-commit-path`, or a more specific reason). Accuracy vs raw grep is reported, not judged. |
 | `mem.update.seed` | The real `MemoryWriterAdapter.upsert`, then `searchRich` and `buildBlock`. No mirrored code. | Invariant: correct on every case |
 
 ### Checks
@@ -292,4 +292,31 @@ To make the ledger row measurable, Phase 4 needs a product seam: a rerank-off op
 - `npx jest -c tools/mcp-bench/jest.config.ts tools/mcp-bench/src/memory-skills/suites/memory/dedup.suite.spec.ts tools/mcp-bench/src/memory-skills/suites/memory/update.suite.spec.ts --runInBand` → `Test Suites: 2 passed, 2 total` / `Tests: 20 passed, 20 total`.
 - `npx eslint` on my 9 files → no output, so 0 problems.
 - `npx prettier --check --ignore-unknown` on the same files → `All matched files use Prettier code style!`
+- `npx tsc --noEmit -p tools/mcp-bench/tsconfig.json` → no `error TS` line in my files.
+
+### Round 2 (`code-logic-review-phase3-5-r2.md`)
+
+The new finding: `mem.dedup`, `mem.update` and `mem.temporal` commit through the disclosed mirror of the private `doCurate` loop, yet they could still emit pass/fail. The program rule says a verdict must come from the product path.
+
+**Applied, as the orchestrator decided:**
+
+- `merge-update-pass.ts` exports `MIRRORED_COMMIT_NA` = `mirrored-commit-path: product commit step is private (memory-curator.service.ts doCurate)`.
+- Each of the three suites sets `verdict: 'na'`, with `naReason = naReasonOf(...) ?? MIRRORED_COMMIT_NA`. The more specific reasons still win, in this order: `cassette-miss`, `case-errors`, `ground-truth-below-minimum`.
+- Every measured number stays in `details`, `metrics` (with `.num` and `.den`), `baselines`, `deltas` and the per-case records.
+- `meetsMinEffect` and the three `*_MIN_EFFECT` constants were deleted. The ledger MinE values remain cited in the suite headers.
+- `mem.update.seed` is unchanged. It runs the real `MemoryWriterAdapter.upsert` path and keeps its invariant verdict.
+
+**Pinned by specs:**
+
+- `dedup.suite.spec.ts` "scores the product against the three pure policies…": `na` with `MIRRORED_COMMIT_NA`, even though F1 clears the MinE.
+- `update.suite.spec.ts` "classifies every case…" and "measures dated recall…": `na` with `MIRRORED_COMMIT_NA`.
+- The cassette-miss and below-minimum specs still assert their own reasons.
+
+**Phase 4 seam needed:** expose the curator's commit step, or a public curate entry that accepts pre-resolved drafts (for example `MemoryCuratorService.commitResolved(drafts, candidates, workspaceRoot)`), in `libs/backend/memory-curator/src/lib/memory-curator.service.ts` (`doCurate`, `:818-898`). Once it exists, the three suites call it through the host container, the mirror in `commitDrafts` is deleted, and the MinE verdicts return. `mem.dedup.rerank` separately needs a rerank-off option, or the pre-rerank order, on `searchRich` (`memory-search.service.ts:369-401`).
+
+**Checks (round 2):**
+
+- `npx jest -c tools/mcp-bench/jest.config.ts tools/mcp-bench/src/memory-skills/suites/memory/dedup.suite.spec.ts tools/mcp-bench/src/memory-skills/suites/memory/update.suite.spec.ts --runInBand` → `Test Suites: 2 passed, 2 total` / `Tests: 20 passed, 20 total`.
+- `npx eslint` on my 9 files → 0 problems. An unused `byteEqual` left by the change was removed.
+- `npx prettier --check --ignore-unknown` → `All matched files use Prettier code style!`
 - `npx tsc --noEmit -p tools/mcp-bench/tsconfig.json` → no `error TS` line in my files.
