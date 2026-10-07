@@ -57,15 +57,14 @@ import {
   codexTextExcerpt,
 } from './codex/codex-model-rejection';
 import { resolveCodexNativeBinaryInfo } from './codex/codex-native-binary';
+import {
+  parseCodexModelCatalog,
+  probeCodexModelCatalog,
+} from './codex/codex-model-catalog';
 import { readCodexUserMcpServerNames } from './codex/codex-user-mcp-servers';
 
 /** Valid reasoning effort values for the Codex SDK. */
-const CODEX_REASONING_EFFORTS = [
-  'low',
-  'medium',
-  'high',
-  'xhigh',
-] as const;
+const CODEX_REASONING_EFFORTS = ['low', 'medium', 'high', 'xhigh'] as const;
 /**
  * Minimal local types for the dynamically imported Codex SDK.
  * These mirror the actual SDK exports but avoid importing ESM at module level.
@@ -370,16 +369,24 @@ export class CodexCliAdapter implements CliAdapter {
   }
 
   /**
-   * Codex-supported models matching the Codex CLI `/model` menu.
-   * The chatgpt.com API returns a broader set (including non-Codex models),
-   * so we use this curated list instead of the API response. `gpt-6-sol` is
-   * Ptah's lane default when neither `agentOrchestration.codexModel` nor the
-   * spawn names a model (TASK_2026_597, D3).
+   * `gpt-6-sol` is Ptah's lane default when neither
+   * `agentOrchestration.codexModel` nor the spawn names a model
+   * (TASK_2026_597, D3); its entry carries that note in any list.
    */
-  private static readonly SUPPORTED_MODELS: CliModelInfo[] = [
-    { id: 'gpt-6-sol', name: 'GPT 6 Sol (Ptah lane default)' },
-    { id: 'gpt-6-luna', name: 'GPT 6 Luna' },
-    { id: 'gpt-6-astra', name: 'GPT 6 Astra' },
+  private static readonly LANE_DEFAULT_MODEL = 'gpt-6-sol';
+
+  /**
+   * Fallback only, for when `codex debug models` cannot be read: the listed
+   * catalog of 2026-10-07 in menu order. The live catalog is the source.
+   */
+  private static readonly FALLBACK_MODELS: CliModelInfo[] = [
+    { id: 'gpt-6.1-sol', name: 'GPT-6.1-Sol' },
+    { id: 'gpt-6-astra', name: 'GPT-6-Astra' },
+    { id: 'gpt-6-sol', name: 'GPT-6-Sol' },
+    { id: 'gpt-6-luna', name: 'GPT-6-Luna' },
+    { id: 'gpt-5.6-sol', name: 'GPT-5.6-Sol' },
+    { id: 'gpt-5.6-terra', name: 'GPT-5.6-Terra' },
+    { id: 'gpt-5.6-luna', name: 'GPT-5.6-Luna' },
   ];
 
   /**
@@ -406,12 +413,25 @@ export class CodexCliAdapter implements CliAdapter {
   }
 
   /**
-   * List available models for Codex.
-   * Returns the curated list of Codex-supported models (matching Codex CLI's /model menu)
-   * rather than querying the API, which returns a broader set of non-Codex models.
+   * The models the installed `codex` can run, from its own catalog
+   * (`codex debug models`, see codex-model-catalog.ts), with the fallback list
+   * when the catalog cannot be read.
    */
   async listModels(): Promise<CliModelInfo[]> {
-    return CodexCliAdapter.SUPPORTED_MODELS;
+    const binaryPath = (await resolveCliPath('codex')) ?? 'codex';
+    const raw = await probeCodexModelCatalog(binaryPath);
+    const live = raw ? parseCodexModelCatalog(raw) : [];
+    if (live.length === 0) {
+      this.logger?.debug(
+        '[CodexCliAdapter] codex debug models unavailable; using the fallback model list',
+      );
+    }
+    return (live.length > 0 ? live : CodexCliAdapter.FALLBACK_MODELS).map(
+      (model) =>
+        model.id === CodexCliAdapter.LANE_DEFAULT_MODEL
+          ? { ...model, name: `${model.name} (Ptah lane default)` }
+          : model,
+    );
   }
 
   /**
