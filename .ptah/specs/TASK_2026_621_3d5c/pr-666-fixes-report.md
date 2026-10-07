@@ -45,6 +45,54 @@ Change: end passes now return their settling promise to `flushSessionEnd`; that 
 - `npx prettier --check <changed files>`
   Exact result line: `All matched files use Prettier code style!`
 
+## Revision 2 (SonarCloud)
+
+### Reliability bugs — valid and fixed
+
+The four `typescript:S9383` reports were valid: the turn-complete, episode,
+commit-detect, and idle handlers started the promise returned by
+`tryEpisodeCurate` and did not observe a rejection
+(`memory-trigger.service.ts:448`, `:627`, `:651`, `:709`). Those callbacks
+must remain synchronous so that SDK hook timing is unchanged. They now call
+`dispatchEpisodeCurate` (`:810-831`), which attaches a rejection handler and
+logs the session, source, and error through the injected logger. The derived,
+handled promise is explicitly ignored only after the rejection handler is
+attached. The handler does not return a literal sentinel, so it needs no
+degradation-audit marker; it always logs the failure.
+
+Pinning spec: `memory-trigger.service.spec.ts` test "logs a rejected
+asynchronous turn-complete dispatch" mocks a rejected pass and verifies the
+injected logger receives the error. It fails without the rejection handler.
+
+### Small code-smell fix
+
+`typescript:S6582` was valid at `memory-trigger.service.ts:871`. The
+rate-limiter snapshot condition now uses `snap?.windowStartMs`, with identical
+behavior for an absent snapshot.
+
+### Deferred code smells
+
+- `boot-scan-runner.ts:411` (`S3776`): extracting the retry state machine is
+  not behavior-preserving as a small change: it coordinates ledger mutation,
+  abort handling, slot reservation, throttle timing, and retry tally updates.
+  Deferred to avoid changing boot-scan reliability behavior while closing the
+  gate.
+- `memory-trigger.service.ts:918` (`S3776`): the curate outcome state machine
+  has coupled queue, detached-episode, retry-budget, and rate-limit-refund
+  side effects. A safe split needs a focused refactor beyond this Sonar fix.
+- `boot-scan-runner.ts:496` (`S9382`): the await remains deliberately
+  sequential. It enforces `throttleMs` between retry attempts and preserves
+  the ledger/slot ordering; parallel retries would defeat both constraints.
+
+### Checks
+
+Exact observed result lines:
+
+- `npx nx test memory-curator --skip-nx-cache`: `Test Suites: 47 passed, 47 total`; `Tests:       894 passed, 894 total`; `NX   Successfully ran target test for project @ptah-extension/memory-curator`
+- `npx nx run-many -t typecheck,lint -p memory-curator`: `NX   Successfully ran targets typecheck, lint for project @ptah-extension/memory-curator`
+- `npx nx run degradation-audit:lint`: `degradation-audit: TOTAL 294 unsuppressed site(s)`; `NX   Successfully ran target lint for project degradation-audit` (the memory-curator audit count remains at its baseline of 20 or fewer).
+- `npx prettier --check libs/backend/memory-curator/src/lib/triggers/memory-trigger.service.ts libs/backend/memory-curator/src/lib/triggers/memory-trigger.service.spec.ts`: `All matched files use Prettier code style!`
+
 ## Revision 1 — independent review fixes
 
 ### 1. Terminal-row pagination — valid

@@ -691,6 +691,39 @@ describe('MemoryTriggerService', () => {
     );
   });
 
+  it('logs a rejected asynchronous turn-complete dispatch', async () => {
+    const logger = makeLogger();
+    const { service, stop } = buildService({
+      logger,
+      workspace: makeWorkspace({
+        'memory.triggers.idleMs': 0,
+        'memory.triggers.turnThreshold': 1,
+      }),
+    });
+    jest
+      .spyOn(
+        service as unknown as {
+          tryEpisodeCurate: () => Promise<void> | null;
+        },
+        'tryEpisodeCurate',
+      )
+      .mockReturnValue(Promise.reject(new Error('provider unavailable')));
+
+    service.start();
+    stop.fire(stopPayload());
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(logger.error).toHaveBeenCalledWith(
+      '[memory-curator] asynchronous curate trigger failed',
+      expect.objectContaining({
+        sessionId: 's1',
+        source: 'turn-complete',
+        error: 'provider unavailable',
+      }),
+    );
+  });
+
   it('turn counter resets after firing', async () => {
     const { service, stop, curator } = buildService({
       workspace: makeWorkspace({

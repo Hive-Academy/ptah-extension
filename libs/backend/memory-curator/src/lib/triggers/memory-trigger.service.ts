@@ -80,6 +80,14 @@ type CurateSource =
   | 'boot'
   | 'user-cue';
 
+type CurateEventKind =
+  | 'idle-trigger'
+  | 'turn-trigger'
+  | 'turn-complete-trigger'
+  | 'episode-trigger'
+  | 'commit-detect'
+  | 'session-end-trigger';
+
 interface SessionState {
   readonly workspaceRoot: string;
   idleTimer: ReturnType<typeof setTimeout> | null;
@@ -437,7 +445,7 @@ export class MemoryTriggerService {
     if (payload.hasBackgroundWork) return;
     const threshold = this.readTurnThreshold();
     if (threshold > 0 && turnCount >= threshold) {
-      this.tryEpisodeCurate(
+      this.dispatchEpisodeCurate(
         payload.sessionId,
         payload.workspaceRoot,
         'turn-complete',
@@ -616,7 +624,7 @@ export class MemoryTriggerService {
       if (recovered && this.readEpisodeEnabled()) {
         const snap = this.episodes.snapshot(payload.sessionId);
         if (snap.hasCriticalLearning && snap.turnCount > 0) {
-          this.tryEpisodeCurate(
+          this.dispatchEpisodeCurate(
             payload.sessionId,
             payload.workspaceRoot,
             'episode',
@@ -640,7 +648,7 @@ export class MemoryTriggerService {
       kind: 'commit',
     });
     this.episodes.recordCommit(payload.sessionId);
-    this.tryEpisodeCurate(
+    this.dispatchEpisodeCurate(
       payload.sessionId,
       payload.workspaceRoot,
       'commit-detect',
@@ -698,7 +706,7 @@ export class MemoryTriggerService {
     if (!state) return;
     state.idleTimer = null;
     state.idleDueAt = null;
-    this.tryEpisodeCurate(
+    this.dispatchEpisodeCurate(
       sessionId,
       state.workspaceRoot,
       'idle',
@@ -716,13 +724,7 @@ export class MemoryTriggerService {
     sessionId: string,
     workspaceRoot: string,
     source: CurateSource,
-    eventKind:
-      | 'idle-trigger'
-      | 'turn-trigger'
-      | 'turn-complete-trigger'
-      | 'episode-trigger'
-      | 'commit-detect'
-      | 'session-end-trigger',
+    eventKind: CurateEventKind,
     ending?: { sessionId: string },
   ): Promise<void> | null {
     if (this.shouldCoalesce(sessionId)) {
@@ -800,6 +802,33 @@ export class MemoryTriggerService {
     );
   }
 
+  /**
+   * Start a background pass from an event callback without letting an
+   * unexpected rejection become an unhandled promise rejection. The trigger
+   * must remain synchronous: awaiting here would delay the SDK event path.
+   */
+  private dispatchEpisodeCurate(
+    sessionId: string,
+    workspaceRoot: string,
+    source: CurateSource,
+    eventKind: CurateEventKind,
+  ): void {
+    const pass = this.tryEpisodeCurate(
+      sessionId,
+      workspaceRoot,
+      source,
+      eventKind,
+    );
+    if (!pass) return;
+    void pass.catch((error: unknown): void => {
+      this.logger.error('[memory-curator] asynchronous curate trigger failed', {
+        sessionId,
+        source,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+  }
+
   private clearEndedSessionFailures(
     sessionId: string,
     ending: { sessionId: string },
@@ -839,7 +868,7 @@ export class MemoryTriggerService {
     if (!Number.isFinite(limit) || limit <= 0) return Number.POSITIVE_INFINITY;
     const snap = this.rateLimiter.snapshot(RATE_LIMIT_KEY);
     const windowStart = Math.floor(Date.now() / HOUR_MS) * HOUR_MS;
-    const used = snap && snap.windowStartMs === windowStart ? snap.count : 0;
+    const used = snap?.windowStartMs === windowStart ? snap.count : 0;
     return Math.max(0, limit - used);
   }
 
