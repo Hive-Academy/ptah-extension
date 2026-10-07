@@ -21,6 +21,7 @@ import {
   isOpenCodeProviderId,
 } from '@ptah-extension/shared';
 
+import type { GroundTruthMethod } from '../../scorecard/suite-kinds';
 import {
   abstentionCaseSchema,
   committedTriggerLabelSchema,
@@ -118,7 +119,10 @@ export interface PanelEligibilityInput {
 export type PanelEligibility =
   | {
       readonly ok: true;
-      readonly method: string;
+      /** 619 `GroundTruthMethod` token. The family spelling is `panel`. */
+      readonly method: 'model-panel';
+      /** `<raterA>+<raterB>; adjudicator=<family>`, in verified rater order. */
+      readonly panel: string;
       readonly raterCount: 2;
       readonly families: readonly [string, string];
       readonly adjudicatorFamily: string;
@@ -230,15 +234,16 @@ export type MemoryPanelImport =
 type PanelMemoryLabel = PanelMemoryDecision | PanelMemoryAdjudication;
 
 /**
- * `model-panel:<raterFamilyA>+<raterFamilyB>; adjudicator=<family>`.
+ * `<raterFamilyA>+<raterFamilyB>; adjudicator=<family>`.
  * Families are the spellings the caller verified, in rater order.
+ * This is `groundTruth.panel`, not the method token.
  */
-export function modelPanelMethod(
+export function modelPanelName(
   raterFamilyA: string,
   raterFamilyB: string,
   adjudicatorFamily: string,
 ): string {
-  return `model-panel:${raterFamilyA}+${raterFamilyB}; adjudicator=${adjudicatorFamily}`;
+  return `${raterFamilyA}+${raterFamilyB}; adjudicator=${adjudicatorFamily}`;
 }
 
 type TierName = 'sonnet' | 'opus' | 'haiku';
@@ -427,7 +432,8 @@ export function evaluatePanelEligibility(
   }
   return {
     ok: true,
-    method: modelPanelMethod(families[0], families[1], families[2]),
+    method: 'model-panel' satisfies GroundTruthMethod,
+    panel: modelPanelName(families[0], families[1], families[2]),
     raterCount: 2,
     families: [families[0], families[1]],
     adjudicatorFamily: families[2],
@@ -594,15 +600,23 @@ export function toRealSessionLabel(
   });
 }
 
+/**
+ * Commit one U4 trigger row. `panel` is the verified `PanelEligibility.panel`
+ * (`modelPanelName` spelling) when the import comes from an eligible panel,
+ * and `undefined` otherwise. A free-form family list is not assembled here.
+ * The field is written only when `panel` is defined.
+ */
 export function toCommittedTriggerLabel(
   label: PanelTriggerLabel | PanelTriggerAdjudication,
   description: string,
+  panel: string | undefined,
 ): CommittedTriggerLabel {
   return committedTriggerLabelSchema.parse({
     skillId: label.skillId,
     description,
     shouldTrigger: label.shouldTrigger,
     nearMiss: label.nearMiss,
+    ...(panel === undefined ? {} : { panel }),
   });
 }
 

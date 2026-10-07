@@ -2,7 +2,8 @@
  * `gt-skill-rubric@v1` (benchmark-design.md 4.2): the committed rubric
  * labels, recomputed from the committed files every time a suite needs them.
  * U1 labels come from the model panel (`labelling/model-panel.ts`): pass
- * `panel` to record `groundTruth.method` and the unresolved-share cap.
+ * `panel` to record method `model-panel`, the panel string, and the
+ * unresolved-share cap.
  * Both `skill.rubric.inter-rater` (`rubric-agreement.suite.ts`) and the judge
  * agreement suites (`judge-agreement.suite.ts`) load it here, so the trust bar
  * one of them reports is the trust bar the other one scores against.
@@ -211,8 +212,10 @@ export interface LoadedRubricGroundTruth {
   readonly state: 'loaded';
   readonly files: readonly FileCheck[];
   readonly raters: readonly [string, string];
-  /** `labelled` until `options.panel` supplies a model-panel method. */
-  readonly method: string;
+  /** `labelled` until `options.panel` supplies a model panel. */
+  readonly method: 'labelled' | 'model-panel';
+  /** Family spelling. Present only when `method` is `model-panel`. */
+  readonly panel?: string;
   readonly raterCount: typeof RUBRIC_GROUND_TRUTH_RATER_COUNT;
   /** Frozen population, including unresolved documents. */
   readonly population: number;
@@ -246,8 +249,10 @@ export type RubricGroundTruth =
   | LoadedRubricGroundTruth;
 
 export interface RubricPanelProvenance {
-  /** `modelPanelMethod(...)` for the verified families. */
-  readonly method: string;
+  /** 619 method token. The family spelling is `panel`. */
+  readonly method: 'model-panel';
+  /** `modelPanelName(...)` for the verified families. */
+  readonly panel: string;
   readonly population: number;
   readonly unresolvedCount: number;
 }
@@ -272,24 +277,45 @@ export function panelProvenanceFromManifest(
   }
   return {
     method: eligibility.method,
+    panel: eligibility.panel,
     population: manifest.population,
     unresolvedCount: manifest.unresolvedCount,
   };
 }
 
-/** `id`, `version`, `method` and `raterCount` for a suite ground-truth block. */
-export function rubricGroundTruthMetadata(method: string): {
+/**
+ * `id`, `version`, `method`, `panel` and `raterCount` for a suite
+ * ground-truth block. `panel` is present only when `method` is `model-panel`.
+ */
+export function rubricGroundTruthMetadata(
+  method: 'labelled' | 'model-panel',
+  panel?: string,
+): {
   readonly id: typeof RUBRIC_GROUND_TRUTH_ID;
   readonly version: typeof RUBRIC_GROUND_TRUTH_VERSION;
-  readonly method: string;
+  readonly method: 'labelled' | 'model-panel';
+  readonly panel?: string;
   readonly raterCount: typeof RUBRIC_GROUND_TRUTH_RATER_COUNT;
 } {
-  return {
+  const identity = {
     id: RUBRIC_GROUND_TRUTH_ID,
     version: RUBRIC_GROUND_TRUTH_VERSION,
-    method,
     raterCount: RUBRIC_GROUND_TRUTH_RATER_COUNT,
-  };
+  } as const;
+  if (method === 'model-panel') {
+    if (panel === undefined || panel.length === 0) {
+      throw new RubricGroundTruthError(
+        'model-panel ground truth requires panel',
+      );
+    }
+    return { ...identity, method, panel };
+  }
+  if (panel !== undefined) {
+    throw new RubricGroundTruthError(
+      'panel is only valid for model-panel ground truth',
+    );
+  }
+  return { ...identity, method };
 }
 
 function sha256(bytes: Buffer): string {
@@ -475,7 +501,9 @@ export function loadRubricGroundTruth(
     candidateItems: strataMissing > 0 ? 0 : candidateIds.length,
     anchors,
     trust,
-    method: options.panel?.method ?? 'labelled',
+    ...(options.panel === undefined
+      ? { method: 'labelled' as const }
+      : { method: 'model-panel' as const, panel: options.panel.panel }),
     raterCount: RUBRIC_GROUND_TRUTH_RATER_COUNT,
     population: options.panel?.population ?? documents.length,
     acceptedCount: acceptedDocuments.length,

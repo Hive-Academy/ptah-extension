@@ -8,11 +8,10 @@
  * adjudicator GLM), not a human label. The display label is
  * {@link TRIGGER_EVAL_DISPLAY_LABEL}. The suite id stays
  * `skill.trigger-eval.human`: model-panel labels; id kept for compatibility.
- * `groundTruth.method` stays `labelled`, the closest value 619's closed enum
- * accepts, so `writeSuiteResult` still validates. The honest panel string
- * {@link TRIGGER_EVAL_PANEL_METHOD} is carried on `claim.text`, the free-text
- * field the written result keeps. `funnel` details are a strict schema with
- * no note key, and a top-level `note` is refused.
+ * 619's scorecard accepts `groundTruth.method` `model-panel` with a required
+ * `panel`. A label file that records `panel` on every row uses that method;
+ * a file with no panel stays `labelled` and omits `panel`. `funnel` details
+ * are a strict schema with no note key, and a top-level `note` is refused.
  *
  * Real product path, and why no model is called. `TriggerEvalService.evaluate`
  * makes exactly one lane call, to GENERATE its prompts; everything after it
@@ -69,15 +68,14 @@ import {
   resolveHomeFile,
 } from '../memory/memory-suite-support';
 
-/** Scorecard display label. 619's suite view has no display-label field. */
+/** Scorecard `displayLabel`. 619 shows it in the markdown heading. */
 export const TRIGGER_EVAL_DISPLAY_LABEL = 'skill.trigger-eval.panel';
 
 /**
- * Honest ground-truth method. Not a human label. 619's `groundTruthSchema`
- * does not accept this string yet, so it is stored on `claim.text`.
+ * `groundTruth.panel` for the verified xAI and Google raters and the GLM
+ * adjudicator. 619 stores the method as `model-panel` and this string separately.
  */
-export const TRIGGER_EVAL_PANEL_METHOD =
-  'model-panel:xAI+Google; adjudicator=GLM';
+export const TRIGGER_EVAL_PANEL = 'xAI+Google; adjudicator=GLM';
 
 /** Raters in the panel (xAI and Google). The GLM adjudicator is not a third rater. */
 export const TRIGGER_EVAL_PANEL_RATER_COUNT = 2;
@@ -110,6 +108,11 @@ export const triggerLabelSchema = z.strictObject({
   description: z.string().trim().min(1),
   shouldTrigger: promptsSchema,
   nearMiss: promptsSchema,
+  /**
+   * Panel spelling (`xAI+Google; adjudicator=GLM`). Absent on a row that was
+   * not labelled by the panel; the suite then uses method `labelled`.
+   */
+  panel: z.string().min(1).optional(),
 });
 export type TriggerLabel = z.infer<typeof triggerLabelSchema>;
 
@@ -521,30 +524,65 @@ function naReasonOf(
   return 'report-only: benchmark-design.md:100 sets no threshold';
 }
 
+/** One panel when every row carries it. No panel when none do. */
+function triggerLabelPanel(
+  labels: readonly TriggerLabel[],
+): string | undefined {
+  const named = labels.flatMap((label) =>
+    label.panel === undefined ? [] : [label.panel],
+  );
+  if (named.length === 0) return undefined;
+  if (named.length !== labels.length) {
+    throw new Error('trigger labels mix a panel with unpanelled rows');
+  }
+  const panel = named[0];
+  if (named.some((value) => value !== panel)) {
+    throw new Error('trigger labels name more than one panel');
+  }
+  return panel;
+}
+
+function triggerGroundTruth(
+  version: string,
+  panel: string | undefined,
+): SuiteResultInput['groundTruth'] {
+  return {
+    id: 'gt-skill-triggers',
+    version,
+    ...(panel === undefined
+      ? { method: 'labelled' as const }
+      : { method: 'model-panel' as const, panel }),
+    raterCount: TRIGGER_EVAL_PANEL_RATER_COUNT,
+  };
+}
+
+function triggerClaim(panel: string | undefined): SuiteResultInput['claim'] {
+  const provenance =
+    panel === undefined ? '' : ` Ground truth panel: ${panel}.`;
+  return {
+    source: 'code',
+    ref: 'libs/backend/skill-synthesis/src/lib/gates/trigger-eval.service.ts:13-25',
+    text:
+      'Retrieval on a skill description is measured against prompts it should and should not answer, with no model in the scoring path.' +
+      provenance +
+      ` Display label: ${TRIGGER_EVAL_DISPLAY_LABEL}. ` +
+      'model-panel labels; id kept for compatibility.',
+  };
+}
+
 export async function runTriggerEvalHuman(
   input: TriggerHumanInput,
 ): Promise<{ result: SuiteResultInput; cases: CaseRecord[] }> {
   const options = triggerHumanOptionsSchema.parse(input.options);
   const labelsPath = resolveHomeFile(input.home, options.labelsFile);
-  // `labelled` is the closest closed-enum value (`generated|labelled|seeded|git-history`).
-  // The panel string cannot go here until 619 widens `groundTruthSchema.method`.
-  const groundTruth: SuiteResultInput['groundTruth'] = {
-    id: 'gt-skill-triggers',
-    version: options.groundTruthVersion,
-    method: 'labelled',
-    raterCount: TRIGGER_EVAL_PANEL_RATER_COUNT,
-  };
-  const claim: SuiteResultInput['claim'] = {
-    source: 'code',
-    ref: 'libs/backend/skill-synthesis/src/lib/gates/trigger-eval.service.ts:13-25',
-    text:
-      'Retrieval on a skill description is measured against prompts it should and should not answer, with no model in the scoring path. ' +
-      `Ground truth note: ${TRIGGER_EVAL_PANEL_METHOD}. Display label: ${TRIGGER_EVAL_DISPLAY_LABEL}. ` +
-      'model-panel labels; id kept for compatibility.',
-  };
   const fixtureId = `gt-skill-triggers@${options.groundTruthVersion}`;
 
   if (!existsSync(labelsPath)) {
+    const groundTruth = triggerGroundTruth(
+      options.groundTruthVersion,
+      undefined,
+    );
+    const claim = triggerClaim(undefined);
     const details: FunnelDetails = funnelDetailsSchema.parse({
       fixtureId,
       stages: [],
@@ -556,6 +594,7 @@ export async function runTriggerEvalHuman(
       result: {
         suiteId: TRIGGER_EVAL_HUMAN_SUITE_ID,
         kind: 'funnel',
+        displayLabel: TRIGGER_EVAL_DISPLAY_LABEL,
         details,
         claim,
         groundTruth,
@@ -582,6 +621,9 @@ export async function runTriggerEvalHuman(
   }
 
   const labels = readUnique(labelsPath, triggerLabelSchema);
+  const panel = triggerLabelPanel(labels);
+  const groundTruth = triggerGroundTruth(options.groundTruthVersion, panel);
+  const claim = triggerClaim(panel);
   const humanSets = new Map<string, PromptSet>(
     labels.map((label) => [label.skillId, label]),
   );
@@ -661,6 +703,7 @@ export async function runTriggerEvalHuman(
     result: {
       suiteId: TRIGGER_EVAL_HUMAN_SUITE_ID,
       kind: 'funnel',
+      displayLabel: TRIGGER_EVAL_DISPLAY_LABEL,
       details,
       claim,
       groundTruth,

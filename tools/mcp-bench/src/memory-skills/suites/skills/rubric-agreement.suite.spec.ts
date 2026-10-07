@@ -373,12 +373,12 @@ describe('skill.rubric.inter-rater', () => {
     expect(result.groundTruth).toEqual({
       id: 'gt-skill-rubric',
       version: 'v1',
-      method: 'labelled',
+      method: 'model-panel',
+      panel: 'xAI+Google; adjudicator=GLM',
       raterCount: 2,
     });
-    expect(result.claim.text).toContain(
-      'model-panel:xAI+Google; adjudicator=GLM',
-    );
+    expect(result.claim.text).toContain('xAI+Google; adjudicator=GLM');
+    expect(result.claim.text).not.toContain('model-panel:');
     expect(result.claim.text).toContain('raterCount=2');
     expect(result.metrics['items']).toBe(9);
     expect(result.metrics['population']).toBe(10);

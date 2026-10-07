@@ -198,6 +198,7 @@ export function toScorecardSuite(
 ): ScorecardSuite {
   const {
     kind,
+    displayLabel,
     details,
     claim,
     groundTruth,
@@ -215,6 +216,7 @@ export function toScorecardSuite(
     modelCalls === 0 ? 'none' : cassetteMode === 'replay' ? 'cassette' : 'live';
   const suite: ScorecardSuite = {
     kind,
+    ...(displayLabel === undefined ? {} : { displayLabel }),
     details,
     claim,
     groundTruth,

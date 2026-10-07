@@ -8,6 +8,8 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import type { RunnerHost } from './host-completion-reader';
+import { toScorecardSuite } from './run-scorecard';
 import {
   SUITE_RESULT_SCHEMA_ID,
   suiteResultSchema,
@@ -162,6 +164,48 @@ describe('suite result files', () => {
     };
     const input = { ...full, schemaId: SUITE_RESULT_SCHEMA_ID };
     expect(suiteResultSchema.parse(input)).toEqual(input);
+  });
+
+  it('keeps displayLabel and a model-panel panel, and rejects panel on labelled', () => {
+    const panelResult: SuiteResultInput = {
+      ...RESULT,
+      displayLabel: 'skill.trigger-eval.panel',
+      groundTruth: {
+        id: 'gt-skill-triggers',
+        version: 'v1',
+        method: 'model-panel',
+        panel: 'xAI+Google; adjudicator=GLM',
+        raterCount: 2,
+      },
+    };
+    const parsed = suiteResultSchema.parse({
+      ...panelResult,
+      schemaId: SUITE_RESULT_SCHEMA_ID,
+    });
+    expect(parsed.displayLabel).toBe('skill.trigger-eval.panel');
+    expect(parsed.groundTruth).toEqual(panelResult.groundTruth);
+    expect(() =>
+      suiteResultSchema.parse({
+        ...RESULT,
+        schemaId: SUITE_RESULT_SCHEMA_ID,
+        groundTruth: {
+          ...RESULT.groundTruth,
+          panel: 'xAI+Google; adjudicator=GLM',
+        },
+      }),
+    ).toThrow(/panel is only valid/);
+    const suite = toScorecardSuite(
+      { placement: 'offline', result: parsed, cases: [CASE] },
+      'replay',
+      {
+        runId: 'ms-panel',
+        startedAt: '2026-10-07T00:00:00.000Z',
+        host: { pid: 1, port: 9 } as RunnerHost,
+      },
+    );
+    expect(suite.displayLabel).toBe('skill.trigger-eval.panel');
+    expect(suite.groundTruth.panel).toBe('xAI+Google; adjudicator=GLM');
+    expect(suite.groundTruth.method).toBe('model-panel');
   });
 
   it('rejects a repeated case id, a foreign suite id and a missing result', () => {

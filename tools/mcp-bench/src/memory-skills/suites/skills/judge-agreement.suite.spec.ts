@@ -498,11 +498,11 @@ describe('skill.judge-agreement', () => {
         unresolvedShare: 0,
       },
     });
-    expect(result.groundTruth.method).toBe('labelled');
+    expect(result.groundTruth.method).toBe('model-panel');
+    expect(result.groundTruth.panel).toBe('xAI+Google; adjudicator=GLM');
     expect(result.groundTruth.raterCount).toBe(2);
-    expect(result.claim.text).toContain(
-      'model-panel:xAI+Google; adjudicator=GLM',
-    );
+    expect(result.claim.text).toContain('xAI+Google; adjudicator=GLM');
+    expect(result.claim.text).not.toContain('model-panel:');
     expect(result.claim.text).toContain('raterCount=2');
   });
 

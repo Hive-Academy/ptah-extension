@@ -92,6 +92,7 @@ import {
   groundTruthNaReason,
   loadRubricGroundTruth,
   panelProvenanceFromManifest,
+  rubricGroundTruthMetadata,
   RUBRIC_BOOTSTRAP,
   RUBRIC_GROUND_TRUTH_ID,
   RUBRIC_GROUND_TRUTH_RATER_COUNT,
@@ -762,26 +763,26 @@ export async function runJudgeAgreement(
               source: 'code',
               ref: 'libs/backend/skill-synthesis/src/lib/skill-judge.service.ts:121-132',
               text:
-                loaded !== null && loaded.method !== 'labelled'
-                  ? `The judge gate passes good skills and fails bad ones: its scores track model-panel rubric totals (${loaded.method}; raterCount=${RUBRIC_GROUND_TRUTH_RATER_COUNT}) better than body length does.`
+                loaded !== null && loaded.panel !== undefined
+                  ? `The judge gate passes good skills and fails bad ones: its scores track model-panel rubric totals (${loaded.panel}; raterCount=${RUBRIC_GROUND_TRUTH_RATER_COUNT}) better than body length does.`
                   : 'The judge gate passes good skills and fails bad ones: its scores track human rubric totals better than body length does.',
             }
           : {
               source: 'code',
               ref: 'libs/backend/skill-synthesis/src/lib/gates/judge-panel.service.ts:261-413',
               text:
-                loaded !== null && loaded.method !== 'labelled'
-                  ? `The judge panel passes good skills and fails bad ones: its verdicts track model-panel rubric totals (${loaded.method}; raterCount=${RUBRIC_GROUND_TRUTH_RATER_COUNT}) better than body length does.`
+                loaded !== null && loaded.panel !== undefined
+                  ? `The judge panel passes good skills and fails bad ones: its verdicts track model-panel rubric totals (${loaded.panel}; raterCount=${RUBRIC_GROUND_TRUTH_RATER_COUNT}) better than body length does.`
                   : 'The judge panel passes good skills and fails bad ones: its verdicts track human rubric totals better than body length does.',
             },
-      groundTruth: {
-        id: RUBRIC_GROUND_TRUTH_ID,
-        version: RUBRIC_GROUND_TRUTH_VERSION,
-        method: 'labelled',
-        ...(loaded === null
-          ? {}
-          : { raterCount: RUBRIC_GROUND_TRUTH_RATER_COUNT }),
-      },
+      groundTruth:
+        loaded === null
+          ? {
+              id: RUBRIC_GROUND_TRUTH_ID,
+              version: RUBRIC_GROUND_TRUTH_VERSION,
+              method: 'labelled',
+            }
+          : rubricGroundTruthMetadata(loaded.method, loaded.panel),
       baselines,
       deltas: Object.fromEntries(
         baselines.map((baseline) => [

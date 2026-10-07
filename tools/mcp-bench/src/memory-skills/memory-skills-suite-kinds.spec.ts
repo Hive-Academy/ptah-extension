@@ -447,6 +447,38 @@ describe('memory/skills suite kinds', () => {
       );
     });
 
+    it('accepts model-panel with a panel and displayLabel, and rejects panel on labelled', () => {
+      const registry = isolatedRegistry();
+      const schema = createScorecardSchema(registry);
+      const view: SuiteView<unknown> = {
+        ...suiteView('funnel', FUNNEL, {
+          id: 'gt-skill-triggers',
+          version: 'v1',
+          method: 'model-panel',
+          panel: 'xAI+Google; adjudicator=GLM',
+          raterCount: 2,
+        }),
+        displayLabel: 'skill.trigger-eval.panel',
+      };
+      const parsed = schema.parse(scorecardWith(view));
+      const suite = parsed.suites[0];
+      expect(suite.displayLabel).toBe('skill.trigger-eval.panel');
+      expect(suite.groundTruth.method).toBe('model-panel');
+      expect(suite.groundTruth.panel).toBe('xAI+Google; adjudicator=GLM');
+      const labelled = schema.safeParse(
+        scorecardWith(
+          suiteView('funnel', FUNNEL, {
+            id: 'gt-skill-triggers',
+            version: 'v1',
+            method: 'labelled',
+            panel: 'xAI+Google; adjudicator=GLM',
+            raterCount: 2,
+          }),
+        ),
+      );
+      expect(labelled.success).toBe(false);
+    });
+
     it('rejects a scorecard whose funnel details carry projectionSha256', () => {
       const registry = isolatedRegistry();
       const clean = createScorecardSchema(registry).safeParse(

@@ -48,6 +48,7 @@ import {
   groundTruthNaReason,
   loadRubricGroundTruth,
   panelProvenanceFromManifest,
+  rubricGroundTruthMetadata,
   RUBRIC_GROUND_TRUTH_FILES,
   RUBRIC_GROUND_TRUTH_ID,
   RUBRIC_GROUND_TRUTH_RATER_COUNT,
@@ -350,18 +351,18 @@ export function runRubricAgreement(
         source: 'ledger',
         ref: 'benchmark-design.md 4.2 (trust bar of gt-skill-rubric@v1)',
         text:
-          truth.state === 'loaded' && truth.method !== 'labelled'
-            ? `Model-panel agreement on the 471 exemplar rubric (${truth.method}; raterCount=${RUBRIC_GROUND_TRUTH_RATER_COUNT}).`
+          truth.state === 'loaded' && truth.panel !== undefined
+            ? `Model-panel agreement on the 471 exemplar rubric (${truth.panel}; raterCount=${RUBRIC_GROUND_TRUTH_RATER_COUNT}).`
             : 'Two independent human raters agree on the 471 exemplar rubric well enough for gt-skill-rubric@v1 to be ground truth.',
       },
-      groundTruth: {
-        id: RUBRIC_GROUND_TRUTH_ID,
-        version: RUBRIC_GROUND_TRUTH_VERSION,
-        method: 'labelled',
-        ...(truth.state === 'loaded'
-          ? { raterCount: RUBRIC_GROUND_TRUTH_RATER_COUNT }
-          : {}),
-      },
+      groundTruth:
+        truth.state === 'loaded'
+          ? rubricGroundTruthMetadata(truth.method, truth.panel)
+          : {
+              id: RUBRIC_GROUND_TRUTH_ID,
+              version: RUBRIC_GROUND_TRUTH_VERSION,
+              method: 'labelled',
+            },
       baselines,
       deltas: Object.fromEntries(
         baselines.map((baseline) => [

@@ -181,12 +181,21 @@ export const suiteResultSchema: z.ZodType<SuiteResult> = z
       }
     }
     if (refused) return z.NEVER;
-    const { kind, details, claim, groundTruth, arm, baselines, deltas } =
-      core.data;
+    const {
+      kind,
+      displayLabel,
+      details,
+      claim,
+      groundTruth,
+      arm,
+      baselines,
+      deltas,
+    } = core.data;
     const { calls, latency_ms, error_rate, tokens } = core.data.cost;
     return {
       ...envelope.data,
       kind,
+      ...(displayLabel === undefined ? {} : { displayLabel }),
       details,
       claim,
       groundTruth,

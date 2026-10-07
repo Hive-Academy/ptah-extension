@@ -654,6 +654,24 @@ describe('panel matcher, session and trigger schemas', () => {
         nearMiss: ['close the demo'],
       }).description,
     ).toBe('Serves the demo.');
+    expect(
+      committedTriggerLabelSchema.parse({
+        skillId: 'demo-skill',
+        description: 'Serves the demo.',
+        shouldTrigger: ['open the demo'],
+        nearMiss: ['close the demo'],
+        panel: '  xAI+Google; adjudicator=GLM  ',
+      }).panel,
+    ).toBe('xAI+Google; adjudicator=GLM');
+    expect(() =>
+      committedTriggerLabelSchema.parse({
+        skillId: 'demo-skill',
+        description: 'Serves the demo.',
+        shouldTrigger: ['open the demo'],
+        nearMiss: ['close the demo'],
+        panel: '   ',
+      }),
+    ).toThrow();
     expect(() =>
       panelTriggerLabelSchema.parse({ ...row, skillId: 'Not A Slug' }),
     ).toThrow(/skill id/);

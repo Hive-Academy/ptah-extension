@@ -8,7 +8,7 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { modelPanelMethod } from '../../labelling/model-panel';
+import { modelPanelName } from '../../labelling/model-panel';
 import {
   FIXTURE_MANIFEST_FILE,
   RUBRIC_GROUND_TRUTH_ID,
@@ -28,7 +28,7 @@ import {
   type SyntheticDoc,
 } from './rubric-ground-truth.test-support';
 
-const METHOD = modelPanelMethod('xAI', 'Google', 'GLM');
+const PANEL = modelPanelName('xAI', 'Google', 'GLM');
 
 let dir: string;
 
@@ -86,13 +86,21 @@ function unlabel(opaqueId: string): void {
 }
 
 describe('rubric ground-truth panel metadata', () => {
-  it('records method and raterCount for the verified families', () => {
-    expect(rubricGroundTruthMetadata(METHOD)).toEqual({
+  it('records method, panel and raterCount for the verified families', () => {
+    expect(rubricGroundTruthMetadata('model-panel', PANEL)).toEqual({
       id: RUBRIC_GROUND_TRUTH_ID,
       version: RUBRIC_GROUND_TRUTH_VERSION,
-      method: 'model-panel:xAI+Google; adjudicator=GLM',
+      method: 'model-panel',
+      panel: 'xAI+Google; adjudicator=GLM',
       raterCount: RUBRIC_GROUND_TRUTH_RATER_COUNT,
     });
+    expect(rubricGroundTruthMetadata('labelled')).toEqual({
+      id: RUBRIC_GROUND_TRUTH_ID,
+      version: RUBRIC_GROUND_TRUTH_VERSION,
+      method: 'labelled',
+      raterCount: RUBRIC_GROUND_TRUTH_RATER_COUNT,
+    });
+    expect(rubricGroundTruthMetadata('labelled')).not.toHaveProperty('panel');
     expect(RUBRIC_GROUND_TRUTH_RATER_COUNT).toBe(2);
   });
 
@@ -104,6 +112,7 @@ describe('rubric ground-truth panel metadata', () => {
     expect(truth.state).toBe('loaded');
     if (truth.state !== 'loaded') return;
     expect(truth.method).toBe('labelled');
+    expect(truth.panel).toBeUndefined();
     expect(truth.raterCount).toBe(2);
     expect(truth.population).toBe(1);
     expect(truth.acceptedCount).toBe(1);
@@ -135,11 +144,17 @@ describe('rubric ground-truth panel metadata', () => {
     unlabel(docs[1].opaqueId);
     const truth = loadRubricGroundTruth(readerOf(dir), {
       raters: ['r1', 'r2'],
-      panel: { method: METHOD, population: 10, unresolvedCount: 2 },
+      panel: {
+        method: 'model-panel',
+        panel: PANEL,
+        population: 10,
+        unresolvedCount: 2,
+      },
     });
     expect(truth.state).toBe('loaded');
     if (truth.state !== 'loaded') return;
-    expect(truth.method).toBe(METHOD);
+    expect(truth.method).toBe('model-panel');
+    expect(truth.panel).toBe(PANEL);
     expect(truth.raterCount).toBe(2);
     expect(truth.population).toBe(10);
     expect(truth.acceptedCount).toBe(8);
@@ -157,7 +172,12 @@ describe('rubric ground-truth panel metadata', () => {
     unlabel(docs[9].opaqueId);
     const truth = loadRubricGroundTruth(readerOf(dir), {
       raters: ['r1', 'r2'],
-      panel: { method: METHOD, population: 10, unresolvedCount: 1 },
+      panel: {
+        method: 'model-panel',
+        panel: PANEL,
+        population: 10,
+        unresolvedCount: 1,
+      },
     });
     expect(truth.state).toBe('loaded');
     if (truth.state !== 'loaded') return;

@@ -270,6 +270,22 @@ describe('suite projection', () => {
     expect(projection.calls).toBe(12);
     expect(projection.cassetteVersion).toBe('gt-curation-seeded@v1');
     expect(projection.groundTruth).toEqual(input.suite.groundTruth);
+    const panelled = baseInput();
+    panelled.suite = {
+      ...panelled.suite,
+      displayLabel: 'skill.trigger-eval.panel',
+      groundTruth: {
+        id: 'gt-skill-triggers',
+        version: 'v1',
+        method: 'model-panel',
+        panel: 'xAI+Google; adjudicator=GLM',
+      },
+    };
+    const panelProjection = buildSuiteProjection(panelled);
+    expect(panelProjection.groundTruth.method).toBe('model-panel');
+    expect(panelProjection.groundTruth.panel).toBe(
+      'xAI+Google; adjudicator=GLM',
+    );
     expect(projection.cases).toEqual([
       {
         caseId: 'f-001',

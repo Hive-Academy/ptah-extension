@@ -515,14 +515,18 @@ export type PanelTriggerAdjudication = z.infer<
 
 /**
  * Committed U4 trigger row: `skillId`, `description`, `shouldTrigger`,
- * `nearMiss`. Same shape as `triggerLabelSchema`; that module stays the
- * suite's parser. B2 owns trigger-human-eval.ts.
+ * `nearMiss`, and optional `panel`. `panel` is the verified family string
+ * from `modelPanelName` / `PanelEligibility.panel`
+ * (`<raterA>+<raterB>; adjudicator=<family>`). It is omitted when the row
+ * was not labelled by the panel. `triggerLabelSchema` is the suite parser.
  */
 export const committedTriggerLabelSchema = z.strictObject({
   skillId: panelSkillIdSchema,
   description: z.string().trim().min(1),
   shouldTrigger: panelPromptListSchema,
   nearMiss: panelPromptListSchema,
+  /** Verified panel spelling. Trimmed; blank is rejected. Absent means unpanelled. */
+  panel: z.string().trim().min(1).optional(),
 });
 export type CommittedTriggerLabel = z.infer<typeof committedTriggerLabelSchema>;
 

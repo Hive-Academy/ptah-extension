@@ -17,7 +17,7 @@ import {
   importRubricPanelCsv,
   matcherAdjudicationTriggers,
   memoryAdjudicationTriggers,
-  modelPanelMethod,
+  modelPanelName,
   panelManifestSchema,
   sessionAdjudicationTriggers,
   toCommittedTriggerLabel,
@@ -97,9 +97,9 @@ const ABSTENTION = {
 };
 
 describe('panel eligibility', () => {
-  it('builds the method string from the verified families', () => {
-    expect(modelPanelMethod('xAI', 'Google', 'GLM')).toBe(
-      'model-panel:xAI+Google; adjudicator=GLM',
+  it('builds the panel string from the verified families', () => {
+    expect(modelPanelName('xAI', 'Google', 'GLM')).toBe(
+      'xAI+Google; adjudicator=GLM',
     );
   });
 
@@ -110,7 +110,8 @@ describe('panel eligibility', () => {
     });
     expect(result).toEqual({
       ok: true,
-      method: 'model-panel:xAI+Google; adjudicator=GLM',
+      method: 'model-panel',
+      panel: 'xAI+Google; adjudicator=GLM',
       raterCount: 2,
       families: ['xAI', 'Google'],
       adjudicatorFamily: 'GLM',
@@ -517,7 +518,24 @@ describe('memory, matcher, session and trigger import', () => {
       raterId: 'rater-a',
       ratedAt: AT,
     });
-    expect(toCommittedTriggerLabel(trigger, 'Serves the demo.')).toEqual({
+    const eligibility = evaluatePanelEligibility({
+      raters: [XAI, GOOGLE],
+      adjudicator: GLM,
+    });
+    if (!eligibility.ok) throw new Error(eligibility.reason);
+    expect(eligibility.panel).toBe(modelPanelName('xAI', 'Google', 'GLM'));
+    expect(
+      toCommittedTriggerLabel(trigger, 'Serves the demo.', eligibility.panel),
+    ).toEqual({
+      skillId: 'demo-skill',
+      description: 'Serves the demo.',
+      shouldTrigger: ['open the demo'],
+      nearMiss: ['close the demo'],
+      panel: 'xAI+Google; adjudicator=GLM',
+    });
+    expect(
+      toCommittedTriggerLabel(trigger, 'Serves the demo.', undefined),
+    ).toEqual({
       skillId: 'demo-skill',
       description: 'Serves the demo.',
       shouldTrigger: ['open the demo'],

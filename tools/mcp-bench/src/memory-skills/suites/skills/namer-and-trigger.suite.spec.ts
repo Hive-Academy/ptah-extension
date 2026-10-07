@@ -40,6 +40,12 @@ import {
   sha256,
 } from '../../data/verify-candidate-manifest';
 import type { MemorySkillsHostSuiteContext } from '../../host/memory-skills-host';
+import {
+  evaluatePanelEligibility,
+  modelPanelName,
+  toCommittedTriggerLabel,
+  type PanelLaneIdentity,
+} from '../../labelling/model-panel';
 import { funnelDetailsSchema } from '../../memory-skills-suite-kinds';
 import { readSuiteResult } from '../../runner/suite-result';
 import {
@@ -59,7 +65,6 @@ import {
 } from './namer-collisions';
 import {
   TRIGGER_EVAL_DISPLAY_LABEL,
-  TRIGGER_EVAL_PANEL_METHOD,
   runTriggerEvalHuman,
   scoreWithProductService,
   type TriggerLabel,
@@ -402,6 +407,45 @@ class KeywordEmbedder implements IEmbedder {
   }
 }
 
+function triggerLane(
+  family: string,
+  raterId: string,
+  provider: string,
+  model: string,
+): PanelLaneIdentity {
+  return { family, raterId, provider, model };
+}
+
+/** Verified panel spelling. Callers pass this into `toCommittedTriggerLabel`. */
+function verifiedTriggerPanel(): string {
+  const eligibility = evaluatePanelEligibility({
+    raters: [
+      triggerLane('xAI', 'r-xai', 'xai', 'grok-4'),
+      triggerLane('Google', 'r-google', 'google', 'gemini-2.5'),
+    ],
+    adjudicator: triggerLane('GLM', 'r-glm', 'ollama-cloud', 'glm-4.5'),
+  });
+  if (!eligibility.ok) throw new Error(eligibility.reason);
+  return eligibility.panel;
+}
+
+function committedTrigger(
+  label: TriggerLabel,
+  panel: string | undefined,
+): ReturnType<typeof toCommittedTriggerLabel> {
+  return toCommittedTriggerLabel(
+    {
+      skillId: label.skillId,
+      shouldTrigger: [...label.shouldTrigger],
+      nearMiss: [...label.nearMiss],
+      raterId: 'r-xai',
+      ratedAt: '2026-10-07T00:00:00.000Z',
+    },
+    label.description,
+    panel,
+  );
+}
+
 const LABELS: readonly TriggerLabel[] = [
   {
     skillId: 'git-flow',
@@ -522,8 +566,11 @@ describe('skill.trigger-eval.human', () => {
     readSettings: () => SETTINGS,
   });
 
-  const writeLabels = (): void =>
-    writeJsonl(join(home, 'memory-skills', 'skill-triggers.v1.jsonl'), LABELS);
+  const writeLabels = (panel?: string): void =>
+    writeJsonl(
+      join(home, 'memory-skills', 'skill-triggers.v1.jsonl'),
+      LABELS.map((label) => committedTrigger(label, panel)),
+    );
 
   it('is na: ground-truth-absent while U4 has not labelled, and touches no service', async () => {
     const fixture = triggerContainer();
@@ -549,6 +596,9 @@ describe('skill.trigger-eval.human', () => {
     expect(funnelDetailsSchema.parse(result.details).precision).toBeNull();
     expect(fixture.modelLane).not.toHaveBeenCalled();
     expect(fixture.embedder.embed).not.toHaveBeenCalled();
+    expect(result.displayLabel).toBe('skill.trigger-eval.panel');
+    expect(result.groundTruth.method).toBe('labelled');
+    expect(result.groundTruth).not.toHaveProperty('panel');
   });
 
   it('scores the labels through the real TriggerEvalService without calling a model', async () => {
@@ -601,6 +651,7 @@ describe('skill.trigger-eval.human', () => {
       stages: [],
     });
     expect(result.suiteId).toBe('skill.trigger-eval.human');
+    expect(result.displayLabel).toBe(TRIGGER_EVAL_DISPLAY_LABEL);
     expect(TRIGGER_EVAL_DISPLAY_LABEL).toBe('skill.trigger-eval.panel');
     expect(result.groundTruth).toEqual({
       id: 'gt-skill-triggers',
@@ -608,12 +659,93 @@ describe('skill.trigger-eval.human', () => {
       method: 'labelled',
       raterCount: 2,
     });
-    expect(result.claim.text).toContain(TRIGGER_EVAL_PANEL_METHOD);
+    expect(result.groundTruth).not.toHaveProperty('panel');
     expect(result.claim.text).toContain('skill.trigger-eval.panel');
     expect(result.claim.text).toContain(
       'model-panel labels; id kept for compatibility',
     );
+    expect(result.claim.text).not.toContain('adjudicator=');
     expect(result.claim.text).not.toMatch(/\bhuman\b/i);
+  });
+
+  it('records method model-panel when the U4 import wrote one verified panel', async () => {
+    const panel = verifiedTriggerPanel();
+    expect(panel).toBe(modelPanelName('xAI', 'Google', 'GLM'));
+    writeLabels(panel);
+    const fixture = triggerContainer();
+    const { result } = await runTriggerEvalHuman({
+      home,
+      options: { expectedSkills: 3 },
+      env: env(fixture),
+    });
+    expect(result.suiteId).toBe('skill.trigger-eval.human');
+    expect(result.displayLabel).toBe('skill.trigger-eval.panel');
+    expect(result.groundTruth).toEqual({
+      id: 'gt-skill-triggers',
+      version: 'v1',
+      method: 'model-panel',
+      panel,
+      raterCount: 2,
+    });
+    expect(result.claim.text).toContain(panel);
+    expect(result.claim.text).not.toContain('model-panel:');
+  });
+
+  it('stays labelled when the U4 import wrote no panel', async () => {
+    writeLabels(undefined);
+    const fixture = triggerContainer();
+    const { result } = await runTriggerEvalHuman({
+      home,
+      options: { expectedSkills: 3 },
+      env: env(fixture),
+    });
+    expect(result.groundTruth).toEqual({
+      id: 'gt-skill-triggers',
+      version: 'v1',
+      method: 'labelled',
+      raterCount: 2,
+    });
+    expect(result.groundTruth).not.toHaveProperty('panel');
+  });
+
+  it('refuses a label file that mixes panelled and unpanelled rows', async () => {
+    const panel = verifiedTriggerPanel();
+    writeJsonl(join(home, 'memory-skills', 'skill-triggers.v1.jsonl'), [
+      committedTrigger(LABELS[0], panel),
+      committedTrigger(LABELS[1], undefined),
+    ]);
+    const fixture = triggerContainer();
+    await expect(
+      runTriggerEvalHuman({
+        home,
+        options: { expectedSkills: 2 },
+        env: env(fixture),
+      }),
+    ).rejects.toThrow(/mix a panel/);
+  });
+
+  it('refuses a label file whose committed rows name different panels', async () => {
+    const xaiFirst = verifiedTriggerPanel();
+    const googleFirst = evaluatePanelEligibility({
+      raters: [
+        triggerLane('Google', 'r-google', 'google', 'gemini-2.5'),
+        triggerLane('xAI', 'r-xai', 'xai', 'grok-4'),
+      ],
+      adjudicator: triggerLane('GLM', 'r-glm', 'ollama-cloud', 'glm-4.5'),
+    });
+    if (!googleFirst.ok) throw new Error(googleFirst.reason);
+    writeJsonl(join(home, 'memory-skills', 'skill-triggers.v1.jsonl'), [
+      committedTrigger(LABELS[0], xaiFirst),
+      committedTrigger(LABELS[1], googleFirst.panel),
+    ]);
+    const fixture = triggerContainer();
+    await expect(
+      runTriggerEvalHuman({
+        home,
+        options: { expectedSkills: 2 },
+        env: env(fixture),
+      }),
+    ).rejects.toThrow(/more than one panel/);
   });
 
   it('records exactly the product measurement for each skill', async () => {
