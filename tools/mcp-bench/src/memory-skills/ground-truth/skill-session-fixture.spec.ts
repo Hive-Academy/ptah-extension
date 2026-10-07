@@ -86,6 +86,20 @@ describe('gt-skill-sessions@v1', () => {
     ).toBe(true);
   });
 
+  it('uses the product prefilter buckets for each non-routine shape', () => {
+    const fixtures = buildSkillSessionFixtures();
+    for (const fixture of [...fixtures.slice(12, 19), ...fixtures.slice(22)]) {
+      expect(fixture.expectedEvents).toContainEqual({
+        kind: 'ineligible',
+        reason: 'prefilterRejected',
+      });
+    }
+    for (const fixture of fixtures.slice(19, 22)) {
+      expect(fixture.routine).toBeNull();
+      expect(fixture.expectedEvents).toEqual([]);
+    }
+  });
+
   it('matches the committed golden fixture', async () => {
     if (process.env['UPDATE_FIXTURES'] === '1') {
       await writeSkillSessionFixture(fixtureDir);

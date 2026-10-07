@@ -138,11 +138,11 @@
       "id": "skill-session-13",
       "routine": null,
       "degraded": false,
-      "script": ["session-end", "prefilter-too-thin"],
+      "script": ["session-end", "prefilter-rejected"],
       "expectedEvents": [
         {
           "kind": "ineligible",
-          "reason": "prefilterTooThin"
+          "reason": "prefilterRejected"
         }
       ]
     },
@@ -150,11 +150,11 @@
       "id": "skill-session-14",
       "routine": null,
       "degraded": false,
-      "script": ["session-end", "prefilter-too-thin"],
+      "script": ["session-end", "prefilter-rejected"],
       "expectedEvents": [
         {
           "kind": "ineligible",
-          "reason": "prefilterTooThin"
+          "reason": "prefilterRejected"
         }
       ]
     },
@@ -162,14 +162,14 @@
       "id": "skill-session-15",
       "routine": null,
       "degraded": false,
-      "script": ["idle-timeout", "prefilter-too-thin"],
+      "script": ["idle-timeout", "prefilter-rejected"],
       "expectedEvents": [
         {
           "kind": "idle-trigger"
         },
         {
           "kind": "ineligible",
-          "reason": "prefilterTooThin"
+          "reason": "prefilterRejected"
         }
       ]
     },
@@ -177,14 +177,14 @@
       "id": "skill-session-16",
       "routine": null,
       "degraded": false,
-      "script": ["manual-analyze", "prefilter-too-thin"],
+      "script": ["manual-analyze", "prefilter-rejected"],
       "expectedEvents": [
         {
           "kind": "manual-run"
         },
         {
           "kind": "ineligible",
-          "reason": "prefilterTooThin"
+          "reason": "prefilterRejected"
         }
       ]
     },
@@ -192,14 +192,14 @@
       "id": "skill-session-17",
       "routine": null,
       "degraded": false,
-      "script": ["manual-analyze", "prefilter-too-thin"],
+      "script": ["manual-analyze", "prefilter-rejected"],
       "expectedEvents": [
         {
           "kind": "manual-run"
         },
         {
           "kind": "ineligible",
-          "reason": "prefilterTooThin"
+          "reason": "prefilterRejected"
         }
       ]
     },
@@ -207,14 +207,14 @@
       "id": "skill-session-18",
       "routine": null,
       "degraded": false,
-      "script": ["manual-analyze", "prefilter-too-thin"],
+      "script": ["manual-analyze", "prefilter-rejected"],
       "expectedEvents": [
         {
           "kind": "manual-run"
         },
         {
           "kind": "ineligible",
-          "reason": "prefilterTooThin"
+          "reason": "prefilterRejected"
         }
       ]
     },
@@ -222,14 +222,14 @@
       "id": "skill-session-19",
       "routine": null,
       "degraded": false,
-      "script": ["manual-analyze", "prefilter-too-thin"],
+      "script": ["manual-analyze", "prefilter-rejected"],
       "expectedEvents": [
         {
           "kind": "manual-run"
         },
         {
           "kind": "ineligible",
-          "reason": "prefilterTooThin"
+          "reason": "prefilterRejected"
         }
       ]
     },
@@ -237,47 +237,32 @@
       "id": "skill-session-20",
       "routine": null,
       "degraded": false,
-      "script": ["session-end", "prefilter-rejected"],
-      "expectedEvents": [
-        {
-          "kind": "ineligible",
-          "reason": "prefilterRejected"
-        }
-      ]
+      "script": ["session-end"],
+      "expectedEvents": []
     },
     {
       "id": "skill-session-21",
       "routine": null,
       "degraded": false,
-      "script": ["session-end", "prefilter-rejected"],
-      "expectedEvents": [
-        {
-          "kind": "ineligible",
-          "reason": "prefilterRejected"
-        }
-      ]
+      "script": ["session-end"],
+      "expectedEvents": []
     },
     {
       "id": "skill-session-22",
       "routine": null,
       "degraded": false,
-      "script": ["session-end", "prefilter-rejected"],
-      "expectedEvents": [
-        {
-          "kind": "ineligible",
-          "reason": "prefilterRejected"
-        }
-      ]
+      "script": ["session-end"],
+      "expectedEvents": []
     },
     {
       "id": "skill-session-23",
       "routine": null,
       "degraded": true,
-      "script": ["session-end", "prefilter-too-thin"],
+      "script": ["session-end", "prefilter-rejected"],
       "expectedEvents": [
         {
           "kind": "ineligible",
-          "reason": "prefilterTooThin"
+          "reason": "prefilterRejected"
         }
       ]
     },
@@ -285,11 +270,11 @@
       "id": "skill-session-24",
       "routine": null,
       "degraded": true,
-      "script": ["session-end", "prefilter-too-thin"],
+      "script": ["session-end", "prefilter-rejected"],
       "expectedEvents": [
         {
           "kind": "ineligible",
-          "reason": "prefilterTooThin"
+          "reason": "prefilterRejected"
         }
       ]
     },
@@ -297,11 +282,11 @@
       "id": "skill-session-25",
       "routine": null,
       "degraded": true,
-      "script": ["session-end", "prefilter-too-thin"],
+      "script": ["session-end", "prefilter-rejected"],
       "expectedEvents": [
         {
           "kind": "ineligible",
-          "reason": "prefilterTooThin"
+          "reason": "prefilterRejected"
         }
       ]
     },
@@ -309,11 +294,11 @@
       "id": "skill-session-26",
       "routine": null,
       "degraded": true,
-      "script": ["session-end", "prefilter-too-thin"],
+      "script": ["session-end", "prefilter-rejected"],
       "expectedEvents": [
         {
           "kind": "ineligible",
-          "reason": "prefilterTooThin"
+          "reason": "prefilterRejected"
         }
       ]
     },

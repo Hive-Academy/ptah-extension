@@ -30,3 +30,28 @@ Verdict: REVISE (2 blocking, 2 serious, 2 minor)
 - Counts are real: 12 routine (4 x 3), 10 non-routine, 8 degraded, validated by spec. Labels only for degraded (see finding 1).
 - Expected events are derived by `expectedEventsFromScript`, a pure function of the script. No pipeline output is read.
 - Planted negatives (156371190): 10 documents with sha256 in `index.json`, kinds covering the required list. Documents 07-10 are derived from repo skills (`.claude/skills/...` at a pinned SHA), so they are not user data. A grep of the fixtures found no user paths, emails or usernames. The session `cwd` is the synthetic `D:/bench/ptah-extension`.
+
+## Round 2
+
+Re-review of 9fb394f9e. Jest (scoped to `ground-truth`): `Test Suites: 5 passed, 5 total` / `Tests: 81 passed, 81 total`.
+
+Verdict: REVISE (0 blocking, 3 serious, 0 minor remain). Findings 1, 2 and 6 are closed. Findings 3 and 4 are only partly closed.
+
+### Closed
+
+- Finding 1 (degraded sessions are labels only). Sessions 13-16 carry a truncated line `{"type":"assistant","message":`. Sessions 17-20 carry an `UnsupportedSyntheticTool` tool_use block. The spec pins both. (The spec asserts the truncated record for `id <= 'skill-session-26'`. The classes are 21-26 unreadable and 27-30 unsupported in the fixture ordering, so the pin follows the generator's `shape`, not the report's text. It passes.)
+- Finding 2 (routines carry no signal). Routine sessions repeat Read, Edit, Bash with paired tool_results. With defaults (`file-settings-keys.ts:580-581`: `prefilterMinEdits` 1, `prefilterMinToolUses` 2) they pass `hasSessionWorkEvidence` (editCount 1, nonMcp tools 3). (a) is confirmed for routines.
+- Finding 6 (stale manifest risk). The spec now runs `verifyManifest`. Regeneration steps are documented.
+- (c) Byte identity. `uuidOf` moved into the writer. The seeded-generator specs pass unchanged. The writer has no `memory-curator` import.
+
+### New and remaining defects
+
+R2-1. SERIOUS. The `prefilterTooThin` expectations are wrong for every class that uses them. `prefilterTooThin` is emitted only when `extract()` returns null, which happens only with fewer than 2 role turns (`skill-synthesis.service.ts:569-581`; `trajectory-extractor.ts:203`). `passesPrefilter`'s `tooThin` branch (line 1152) is unreachable after `extract()`, because the same floor applies. Q&A has 2 turns, aborted has 3, and unreadable has 2 (the reader skips the bad line, `jsonl-reader.service.ts:746-750`, so the session is readable). None of them are thin, and none has work evidence, so each yields `ineligible { reason: prefilterRejected }`. The fixture expects `prefilterTooThin` for Q&A, aborted and unreadable (`skill-session-fixture.ts`, `prefilter-too-thin` scripts and the `unreadable` degraded scripts). Fix: use `prefilter-rejected` for these, and add a genuinely 1-turn case if `prefilterTooThin` coverage is wanted.
+
+R2-2. SERIOUS. The single-edit expectation is wrong. A single-edit session has `editCount` 1, which meets the default `prefilterMinEdits` of 1 (`session-work-evidence.ts:19`). It passes the prefilter, so the fixture's `prefilter-rejected` for sessions 8-10 will not occur. The session proceeds toward candidate authoring (a single-session candidate). Fix: make the expected result for single-edit sessions "passes prefilter, no `ineligible`" (the design's "no single-session auto-candidate" invariant then applies at the cluster stage), or change the fixture to a case that really fails (an edit-free session with one tool use). The unsupported-tool sessions are correct: one non-MCP tool use is below `prefilterMinToolUses` 2, so they give `prefilterRejected`.
+
+R2-3. SERIOUS. (b) The `manual-run` citation is incorrect. `memory-rpc.handlers.ts:694-699` calls `this.curator.pushEvent`, which is the memory curator feed (`MemoryCuratorEvent`, `memory-curator/src/lib/diagnostics.types.ts:11`). It is the `memory:runNow` path. No code under `libs/backend/skill-synthesis/` emits `manual-run`, and `analyzeSession('manual')` is rejected (`skill-synthesis.service.ts:704-710`). The skills feed therefore cannot produce the scripted `manual-run`. The report marks it "measure". It must say the expectation is unmeetable today (`fail`/not-producible), and the script should not use a memory-curator event as skills ground truth.
+
+### Open note
+
+The `session-end` and `drain-eligible-candidate` split is now consistent with the producers (`analyze-run` only after candidate registration, lines 935-948). The Revision 2 table should be corrected for R2-1 to R2-3.

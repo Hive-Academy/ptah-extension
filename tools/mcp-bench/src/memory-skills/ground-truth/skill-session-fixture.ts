@@ -16,7 +16,6 @@ const SCRIPT_OPERATIONS = [
   'idle-timeout',
   'manual-analyze',
   'drain-eligible-candidate',
-  'prefilter-too-thin',
   'prefilter-rejected',
 ] as const;
 
@@ -64,12 +63,6 @@ export function expectedEventsFromScript(
       case 'drain-eligible-candidate':
         events.push({ kind: 'analyze-run' });
         break;
-      case 'prefilter-too-thin':
-        events.push({
-          kind: 'ineligible',
-          reason: 'prefilterTooThin',
-        });
-        break;
       case 'prefilter-rejected':
         events.push({ kind: 'ineligible', reason: 'prefilterRejected' });
         break;
@@ -110,12 +103,12 @@ export function buildSkillSessionFixtures(): readonly SkillSessionFixture[] {
       degraded: false,
       script:
         index === 3
-          ? ['idle-timeout', 'prefilter-too-thin']
+          ? ['idle-timeout', 'prefilter-rejected']
           : index === 4 || (index >= 5 && index <= 7)
-            ? ['manual-analyze', 'prefilter-too-thin']
+            ? ['manual-analyze', 'prefilter-rejected']
             : index <= 7
-              ? ['session-end', 'prefilter-too-thin']
-              : ['session-end', 'prefilter-rejected'],
+              ? ['session-end', 'prefilter-rejected']
+              : ['session-end'],
       topic:
         index <= 4
           ? `question and answer ${index}`
@@ -129,10 +122,7 @@ export function buildSkillSessionFixtures(): readonly SkillSessionFixture[] {
     cases.push({
       routine: null,
       degraded: true,
-      script: [
-        'session-end',
-        index <= 4 ? 'prefilter-too-thin' : 'prefilter-rejected',
-      ],
+      script: ['session-end', 'prefilter-rejected'],
       topic:
         index <= 4 ? `corrupt line ${index}` : `unsupported operation ${index}`,
       shape: index <= 4 ? 'unreadable' : 'unsupported',

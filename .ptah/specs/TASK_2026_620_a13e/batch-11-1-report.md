@@ -44,6 +44,61 @@ match in the fixtures. These in-process edits go to the Phase 3.2 review by a CL
 Regeneration note: after `UPDATE_FIXTURES=1`, run `prettier --write` on `index.json`, then
 `REBUILD_MANIFEST=1`.
 
+## Revision 3
+
+Applied the final contract decisions and regenerated `skill-sessions.v1` with
+`UPDATE_FIXTURES=1`, formatted `index.json`, then rebuilt `MANIFEST.json` with
+`REBUILD_MANIFEST=1`. The fixture spec continues to verify the committed
+manifest.
+
+`prefilterTooThin` has been removed from the fixture script vocabulary. Q&A,
+aborted, and unreadable sessions all retain at least two role turns, so their
+scripts now derive `ineligible { reason: prefilterRejected }`. This follows the
+extract-null branch at
+`libs/backend/skill-synthesis/src/lib/skill-synthesis.service.ts:569-581` and
+the reader floor at `trajectory-extractor.ts:203-205`: they are readable but
+lack work evidence, so the prefilter-rejection producer applies at
+`skill-synthesis.service.ts:747-767`.
+
+Single-edit sessions remain `routine: null`, but their scripts now contain only
+`session-end` and expect no `ineligible` event. One Edit satisfies the default
+minimum edit threshold (`libs/backend/skill-synthesis/src/lib/eligibility/session-work-evidence.ts:15-23`; defaults at
+`libs/backend/platform-core/src/file-settings-keys.ts:580-581`). Their later
+archaeology/cluster decision is intentionally outside this feed fixture.
+
+| Script operation                           | Fixture class                         | Expected skills activity events            | Producer / contract                                                                                                                                                                                                                    | Expected today                                               |
+| ------------------------------------------ | ------------------------------------- | ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| `session-end`                              | all classes                           | none directly                              | enqueue and same-turn guard: `libs/backend/skill-synthesis/src/lib/skill-synthesis.service.ts:560-608`                                                                                                                                 | measure — queue drain is asynchronous                        |
+| `drain-eligible-candidate`                 | routine                               | `analyze-run`                              | pushed after candidate registration: `skill-synthesis.service.ts:935-948`                                                                                                                                                              | measure — only after registration succeeds                   |
+| `idle-timeout`                             | Q&A                                   | `idle-trigger`                             | `libs/backend/skill-synthesis/src/lib/triggers/skill-trigger.service.ts:741`                                                                                                                                                           | measure — does not imply `analyze-run`                       |
+| `manual-analyze`                           | Q&A, aborted                          | `manual-run`                               | declared by `libs/backend/skill-synthesis/src/lib/diagnostics.types.ts:3-18`; skills `analyzeNow` calls `analyzeSession` but does not push it at `libs/backend/rpc-handlers/src/lib/handlers/skills-synthesis-rpc.handlers.ts:830-869` | **fail — no skills producer emits `manual-run`**             |
+| `prefilter-rejected`                       | Q&A, aborted, unreadable, unsupported | `ineligible { reason: prefilterRejected }` | `libs/backend/skill-synthesis/src/lib/skill-synthesis.service.ts:747-767`                                                                                                                                                              | measure — each is readable but lacks required work evidence  |
+| no rejection operation after `session-end` | single edit                           | none                                       | Edit work evidence: `eligibility/session-work-evidence.ts:15-23`; defaults: `file-settings-keys.ts:580-581`                                                                                                                            | measure — passes prefilter; later clustering is out of scope |
+
+The memory curator's `manual-run` at
+`libs/backend/rpc-handlers/src/lib/handlers/memory-rpc.handlers.ts:694-699` is
+explicitly not cited as a skills producer: it calls `this.curator.pushEvent`.
+The expected `manual-run` remains in this ground truth because the skills event
+union declares it, while the table records the current product gap rather than
+hiding it.
+
+Exact Revision 3 check results:
+
+```text
+Test Suites: 5 passed, 5 total
+Tests:       82 passed, 82 total
+Snapshots:   0 total
+Time:        10.018 s
+Ran all test suites matching tools/mcp-bench/src/memory-skills/ground-truth.
+EXIT=0
+
+Checking formatting...
+All matched files use Prettier code style!
+EXIT=0
+
+EXIT=0
+```
+
 ## Revision 2
 
 The fixture writer now emits the SDK-shaped `message.content` array that the
