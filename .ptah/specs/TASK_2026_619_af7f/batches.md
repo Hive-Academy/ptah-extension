@@ -1,6 +1,6 @@
 # Batches - TASK_2026_619_af7f
 
-Total tasks: 77 | Batches: 41 | Complete: 11/41
+Total tasks: 77 | Batches: 41 | Complete: 12/41
 
 Worktree root (every path below is absolute under it):
 `D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark` (branch `fix/task-619-tool-benchmark`).
@@ -1124,7 +1124,90 @@ Batch 8 findings recorded at Mode 2 (report:
 - Every listed artifact exists and contains the required work
 - `npx nx run-many -t typecheck,lint,test -p mcp-bench` passes
 
-## Batch 9: Suite runners, lifecycle scenarios and the bench CLI — IN_PROGRESS (Task 9.0 committed on its own)
+## Batch 9: Suite runners, lifecycle scenarios and the bench CLI — COMPLETE (commits ea2f92fd2 Task 9.0; the `feat: batch 9` commit after ea2f92fd2 for Tasks 9.1-9.3; SHA filled in after the commit)
+
+Batch 9 Tasks 9.1-9.3 findings recorded at Mode 2 (report:
+`D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\.ptah\specs\TASK_2026_619_af7f\batch-9-executor-report.md`,
+including "## Smoke round 1"):
+
+- Executor: backend-developer subagent, one smoke-driven round. The orchestrator ran the smoke runs
+  and made 1 correction inside the batch: `resultTokens` in `cost-metrics.ts` now encodes with
+  `disallowedSpecial: new Set()`, because a corpus file contains `<|endoftext|>` and that crashed
+  smoke run 1. A spec case was added in `retrieval-metrics.spec.ts`.
+- Smoke evidence:
+  - Run 2 broke. The python-attrs polyglot host died with 0xC0000409 before its ready line (empty
+    stderr), and the runner then wrote no scorecard. Fixes:
+    - a failed host, baseline or scenario fails only its own suites or rows, and the scorecard is
+      always written;
+    - exit code 2 = written with run failures;
+    - a host that dies before ready is retried once, and the retry is recorded (`run.hostExit.detail`
+      plus a `host-launch:<host>` lifecycle row);
+    - each host prints a start line.
+    - A guard error still voids the run (exit 3/4, no scorecard).
+  - Run 3: `npx nx run mcp-bench:bench --host cli-headless --smoke --skip-nx-cache` with `RG_PATH`
+    exited 0 after 49.5 min. All 5 hosts stopped `clean` with no retry. Guard `process-watch`,
+    `partial: true` (codex.exe, node.exe and cmd.exe from other sessions; reported, not failed).
+    Scorecard at `tools\mcp-bench\out\2026-10-07T03-30-47-793Z-cli-headless\` (gitignored, not
+    committed): 21 suites, 16 lifecycle rows.
+  - After run 3, `index-age-24h` waits for `reindexInFlight: false` before backdating, bounded at
+    120 s with `--smoke` and 300 s without. This was changed and specced only; no new smoke was run.
+- Smoke verdicts in brief (a Phase 1 record, not a gate; the gate is Batch 10):
+  - **12 of 13 TS suites fail:**
+    - symbols-exact and symbols-concept: error rate 1, unknown coverage, no boot-time index;
+    - relevance: 0.2125 vs native 0.225;
+    - references and definitions: not exposed on cli-headless;
+    - dependents: error rate 0.55, `building`;
+    - dependencies: error rate 0.05;
+    - symbol-index: 0.175 vs 0.675;
+    - memory: worktree scope 0 of 15;
+    - ast-analyze: 0.72 vs 1.0;
+    - context-enrich: 0.88 vs 1.0;
+    - search-files: 0.956 vs 0.994.
+  - **search-text is `na`**, because the tool does not exist until Batch 33.
+  - **Polyglot:** references for python-attrs and go-logrus fail (not exposed). Dependents for
+    python-attrs and go-logrus "pass" only because their native view (a TS import pattern) is
+    reported but does not decide. They are not evidence that the tool works.
+  - **Lifecycle: 5 pass, 11 fail.**
+    - Pass: embedder-warmup, two-workspaces-memory-leak (0 leaks), transport-idle-gaps (ECONNRESET
+      0), large-file-1.5mib, transport-restart.
+    - Fail, as expected today: worktree-memory-scope, worktree-spool-path, worktree-task-tools (the
+      task landed in the scenario repo's main checkout and the outside root was accepted; no folder
+      leaked into the real repository, checked), cold-start, edit-then-query 5 s and 60 s,
+      add-then-query, delete-then-query, large-file-3900-lines.
+    - Fail, unexpected: **two-workspaces-symbol-scope** (unknown coverage from workspace B; a new
+      finding for Phase 2A/Batch 13) and **index-age-24h**. The second mixed two effects in run 3,
+      because rows were backdated mid-reindex; it is fixed by the wait above and is re-measured in
+      Batch 11.
+- Accepted deviations (16 in the report; the orchestrator accepted them, and so does the
+  team-leader):
+  - **File count:** 20 files instead of 8 (19 from the executor, plus the orchestrator's `cost-metrics.ts` correction). All are in one project with one scoped command. The
+    reasons: the merged envelope module, max-lines splits, colocated specs, the seeding hook in the
+    entry, and the Batch 1 win32 `normalizePath` fix.
+  - **Embedder warm-up:** measured as its own `embedder-warmup` lifecycle cost, not a shared model
+    cache.
+  - **No lifecycle on Electron in this batch** (scenarios 6, 7 and 9 need the cli-headless isolated
+    DB and seeding hook). Batch 11 must cover the Electron host.
+  - **Noise margin:** a constant 0.02 (`--noise-margin`) until Batch 10 measures it.
+  - **SCIP-strict view:** the tool is scored on the 111 questions whose SCIP set equals the TS truth
+    (Jaccard 1). That view is `na` and never decides the verdict.
+  - **Two cost-only views:** `ptah_get_dependencies` is compared with a cost-only Read, and the
+    polyglot native dependents view does not decide.
+  - **Dependents argument name:** the adapter uses the real argument name `file`.
+- Pre-existing lint warnings, not from this batch: `scip-cross-check.ts` max-lines (Batch 7) and
+  an unused `eslint-disable` at `bench-host-process.spec.ts:42` (Task 9.0). Both are Minor and
+  named for the Phase 1 review.
+- **Carried to Batch 10:**
+  - Measure the noise margin from three baseline runs and replace the 0.02 constant.
+  - Treat exit code 2 (scorecard written, run failures) as distinct from a gate failure.
+- **Carried to Batch 11:**
+  - Cover the Electron host, including lifecycle, or record `na` with a reason per scenario.
+  - Re-measure index-age-24h with the settled-index wait.
+  - Record the python-attrs pre-ready 0xC0000409 as a TASK_2026_622 data point (boot-time crash
+    class, 1 occurrence in 3 smoke runs, empty stderr). Send it to that task; it is not a 619 fix.
+- Mode 2 checks (team-leader): with `RG_PATH` set, `npx nx run-many -t typecheck,lint,test -p
+  mcp-bench --skip-nx-cache` passed (3 targets, 2m 49s), and `npx nx run-many -t build-host,build-bench
+  -p mcp-bench --skip-nx-cache` built (32 dependent tasks, 2m 57s). `git diff -- libs apps` is empty, and there
+  are no TODO/STUB markers under `tools\mcp-bench\src`. No bench run, as instructed.
 
 - Recommended executor: backend-developer subagent
 - Fallback executor: senior-tester subagent
@@ -1154,7 +1237,7 @@ Batch 8 findings recorded at Mode 2 (report:
   the Python and Go reference and dependents question sets, and `ts-agreement.json`. References
   scoring follows the Batch 7 agreement analysis (see Task 9.1).
 
-### Task 9.0: Exports and an explicit env option for TASK_2026_620 — COMPLETE (commit: the `feat: batch 9.0` commit after 7ba564816; SHA filled in after the commit)
+### Task 9.0: Exports and an explicit env option for TASK_2026_620 — COMPLETE (commit ea2f92fd2)
 
 - File: D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\scorecard\scorecard.types.ts; D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\transport\host-launcher.ts; D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\transport\host-launcher.spec.ts; D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\transport\bench-host.entry.ts; D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\transport\bench-host-process.ts (new)
 - Plan reference: handoff.md "TASK_2026_620 requests (2026-10-07)" items 1, 2 and 4 (item 3 was
@@ -1209,7 +1292,7 @@ Batch 8 findings recorded at Mode 2 (report:
     mcp-bench --skip-nx-cache` passed (3 targets, 2m 4s, uncached), and `npx nx run mcp-bench:build-host`
     built (32 dependent tasks, 3m 28s, uncached). No real bench run, as instructed. Send the SHA to TASK_2026_620.
 
-### Task 9.1: Per-tool suite adapters and runner — IN_PROGRESS
+### Task 9.1: Per-tool suite adapters and runner — COMPLETE
 
 - File: D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\suites\tool-suites.ts; D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\suites\suite-runner.ts
 - Plan reference: research-report.md:147-158, :181-183; prompt claims at research-report.md:46-55
@@ -1244,7 +1327,7 @@ Batch 8 findings recorded at Mode 2 (report:
     `relevanceGitLogBaseline` as a second relevance baseline id (`view: 'git-log'`) and the memory
     baseline as `view: 'comparison'`; resolve rg once per run via `RG_PATH`, then PATH.
 
-### Task 9.2: Lifecycle scenarios 1-8 — IN_PROGRESS
+### Task 9.2: Lifecycle scenarios 1-8 — COMPLETE
 
 - File: D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\lifecycle\lifecycle-scenarios.ts; D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\lifecycle\lifecycle-scenarios.spec.ts
 - Depends on: Task 9.1
@@ -1262,7 +1345,7 @@ Batch 8 findings recorded at Mode 2 (report:
   so the scenario is recorded as a failure (not `na`); Batch 34b must turn it to pass. No file-count
   change (same two files).
 
-### Task 9.3: Bench CLI entry and targets — IN_PROGRESS
+### Task 9.3: Bench CLI entry and targets — COMPLETE
 
 - File: D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\main.ts; D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\project.json (targets `bench`, `generate`)
 - Depends on: Task 9.2
@@ -1306,6 +1389,12 @@ Batch 8 findings recorded at Mode 2 (report:
 - Pattern to follow: Task 2.1's schema reader
 - Quality requirements: recorded-failure mode passes only when the current scorecard equals the committed baseline within noise (2 standard deviations from three baseline runs; the margins are stored in the baseline); claim mode fails any suite below native or over 1% errors or failing a lifecycle scenario; the per-suite mode is set in the baseline so Phase 2 can tighten suite by suite.
 - Validation notes: an improvement beyond noise in recorded-failure mode is reported as "baseline out of date", not a failure.
+  Carried from Batch 9 (Mode 2):
+  - The runner uses a constant noise margin of 0.02 (`--noise-margin`) until this batch stores the
+    measured margins in the baseline.
+  - Bench exit codes: 0 means written; 2 means written, but a host, baseline or scenario failed to
+    run; 3 or 4 means the guard voided the run and no scorecard was written. Exit 2 is a run
+    failure that the gate reports as one. It is never read as a verdict.
 - Implementation details: target `gate` in project.json.
 
 ### Task 10.2: `.github/workflows/mcp-bench.yml` — PENDING
@@ -1345,6 +1434,14 @@ Batch 8 findings recorded at Mode 2 (report:
 - Quality requirements: three full runs per host to set the noise margins; the committed baseline holds verdicts per suite; the report quotes index time, DB size and eligible-file count (research unknowns at research-report.md:329-335), and the scenario 8 reset count.
 - Validation notes: the scorecard must show failures where context.md's evidence table shows losses (symbol search, relevance, references precision, dependents `building`, edit then query, spool path). If any of these passes, report it explicitly: either the benchmark is wrong or the evidence was. Carried from Batch 2 (Minor): `countEligibleFiles` (`tools\mcp-bench\src\corpus\corpus.ts:98-115`) counts every `.ts/.tsx/.js/.jsx` file except under `.git` and `node_modules`. It applies no gitignore rules and none of the indexer's skip rules, so its number is not the product's "eligible files" (the research measured 3,860 under the indexer's rules). Before quoting the eligible-file count and the `omittedByCap` reference that Batch 12 must bring to 0, make the count use the indexer's rules: reuse its discovery predicate, or label the raw number as a raw source count and quote the indexer census next to it. Adding `corpus.ts` and its spec raises this batch's file count to 5, still under the cap.
 - Implementation details: Electron is recorded in launch mode if available, else `na` with a reason.
+- Carried from Batch 9 (Mode 2):
+  - Batch 9 ran no lifecycle on Electron. Cover the Electron host here, or record `na` with a
+    reason per scenario.
+  - Re-measure `index-age-24h` with the settled-index wait.
+  - Use Batch 10's measured noise margin, not the 0.02 constant.
+  - Report any 0xC0000409 that happens before ready (one python-attrs case in Batch 9 smoke run 2)
+    as a TASK_2026_622 data point, with the host, attempt and time to death.
+  - Report the unexpected `two-workspaces-symbol-scope` failure explicitly.
 
 ### Task 11.2: Link each MANDATORY claim to a scorecard suite — PENDING
 

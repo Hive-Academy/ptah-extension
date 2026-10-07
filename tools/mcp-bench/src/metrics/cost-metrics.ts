@@ -5,8 +5,12 @@ export interface CallOutcome {
   truncated: boolean;
 }
 
+/**
+ * Result text is untrusted data: a special-token string in a file (e.g.
+ * `<|endoftext|>`) is counted as ordinary text, never rejected.
+ */
 export function resultTokens(result: string): number {
-  return encode(result).length;
+  return encode(result, { disallowedSpecial: new Set() }).length;
 }
 
 export function p50Latency(latenciesMs: readonly number[]): number | undefined {

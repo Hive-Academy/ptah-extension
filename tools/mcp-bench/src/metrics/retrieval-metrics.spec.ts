@@ -97,6 +97,22 @@ describe('retrieval metrics', () => {
     ).toBe(1);
   });
 
+  it('relativises case-insensitively beyond the drive letter on win32 only', () => {
+    const root = 'D:\\Projects\\Ptah-Extension';
+    expect(
+      normalizePath('d:/projects/ptah-extension/libs/A.ts', {
+        workspaceRoot: root,
+        platform: 'win32',
+      }),
+    ).toBe('libs/A.ts');
+    expect(
+      normalizePath('/srv/Repo/libs/a.ts', {
+        workspaceRoot: '/srv/repo',
+        platform: 'linux',
+      }),
+    ).toBe('/srv/Repo/libs/a.ts');
+  });
+
   it('exports the scorecard sign convention', () => {
     expect(LOWER_IS_BETTER.hitAt1).toBe(false);
     expect(LOWER_IS_BETTER.resultTokens).toBe(true);
@@ -105,6 +121,7 @@ describe('retrieval metrics', () => {
 
   it('calculates token, latency, error, and truncation metrics', () => {
     expect(resultTokens('hello world')).toBeGreaterThan(0);
+    expect(resultTokens('a <|endoftext|> b')).toBeGreaterThan(3);
     expect(p50Latency([10, 20, 30, 40])).toBe(20);
     expect(p95Latency([10, 20, 30, 40])).toBe(40);
     expect(p50Latency([])).toBeUndefined();

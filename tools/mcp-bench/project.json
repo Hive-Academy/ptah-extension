@@ -167,6 +167,61 @@
         ]
       }
     },
+    "build-bench": {
+      "executor": "@nx/esbuild:esbuild",
+      "dependsOn": ["build-host-bundle"],
+      "outputs": ["{options.outputPath}/bench.mjs"],
+      "options": {
+        "outputPath": "dist/tools/mcp-bench",
+        "main": "tools/mcp-bench/src/main.ts",
+        "outputFileName": "bench.mjs",
+        "tsConfig": "tools/mcp-bench/tsconfig.json",
+        "format": ["esm"],
+        "platform": "node",
+        "target": "node20",
+        "bundle": true,
+        "thirdParty": false,
+        "skipTypeCheck": true,
+        "deleteOutputPath": false,
+        "sourcemap": true,
+        "esbuildOptions": {
+          "outExtension": {
+            ".js": ".mjs"
+          },
+          "banner": {
+            "js": "import 'reflect-metadata'; import { createRequire as __esm_createRequire } from 'module'; import { fileURLToPath as __esm_fileURLToPath } from 'url'; import { dirname as __esm_dirname } from 'path'; const require = __esm_createRequire(import.meta.url); const __filename = __esm_fileURLToPath(import.meta.url); const __dirname = __esm_dirname(__filename);"
+          }
+        },
+        "external": [
+          "reflect-metadata",
+          "tsyringe",
+          "typescript",
+          "better-sqlite3",
+          "zod",
+          "fast-glob",
+          "gpt-tokenizer",
+          "electron"
+        ]
+      }
+    },
+    "bench": {
+      "executor": "nx:run-commands",
+      "dependsOn": ["build-host", "build-bench"],
+      "cache": false,
+      "options": {
+        "command": "node dist/tools/mcp-bench/bench.mjs bench",
+        "cwd": "{workspaceRoot}"
+      }
+    },
+    "generate": {
+      "executor": "nx:run-commands",
+      "dependsOn": ["build-bench"],
+      "cache": false,
+      "options": {
+        "command": "node dist/tools/mcp-bench/bench.mjs generate",
+        "cwd": "{workspaceRoot}"
+      }
+    },
     "test": {
       "executor": "@nx/jest:jest",
       "outputs": ["{workspaceRoot}/coverage/{projectRoot}"],

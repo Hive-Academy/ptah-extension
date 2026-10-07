@@ -10,6 +10,12 @@ export interface Truth {
 
 export interface PathNormalizationOptions {
   workspaceRoot?: string;
+  /**
+   * Path semantics for the workspace-root comparison. On win32 the root is
+   * matched case-insensitively (`D:/Projects` relativises `d:/projects/x`).
+   * Default `process.platform`.
+   */
+  platform?: NodeJS.Platform;
 }
 
 export type MetricName =
@@ -68,7 +74,14 @@ export function normalizePath(
     ? trimTrailingSlash(normalizeDriveLetter(root))
     : undefined;
 
-  if (!rootNormalized || !isWithinWorkspace(caseNormalized, rootNormalized)) {
+  const fold = (path: string): string =>
+    (options.platform ?? process.platform) === 'win32'
+      ? path.toLowerCase()
+      : path;
+  if (
+    !rootNormalized ||
+    !isWithinWorkspace(fold(caseNormalized), fold(rootNormalized))
+  ) {
     return trimLeadingDotSlash(caseNormalized);
   }
 
