@@ -53,6 +53,12 @@ export const RECORDING_EXPIRY_SLACK_MS = 10 * 60 * 1000;
 export const UNREACHABLE_OAUTH_TOKEN_ENDPOINT =
   'http://127.0.0.1:9/oauth/token';
 
+/** Settings which select the copied Codex OAuth login for SDK initialization. */
+export const RECORD_MODE_ACTIVE_AUTH_SETTINGS = {
+  authMethod: 'thirdParty',
+  anthropicProviderId: 'openai-codex',
+} as const;
+
 /**
  * CLI product config the engine reads at boot (`cli-workspace-provider.ts`
  * `loadConfigSync`: `{userDataPath}/config.json`, section object `ptah`).
@@ -62,31 +68,22 @@ export const UNREACHABLE_OAUTH_TOKEN_ENDPOINT =
 export const ISOLATED_PRODUCT_CONFIG_FILE = 'config.json';
 
 /**
- * Write the unreachable Codex token URL into the isolated config before
- * `withEngine` starts. Merges into an existing `config.json` so other keys
- * survive. The post-boot `setConfiguration` read-back still checks it.
+ * CLI file-routed settings (`authMethod` and `anthropicProviderId`) live here,
+ * not in {@link ISOLATED_PRODUCT_CONFIG_FILE}.
+ */
+export const ISOLATED_FILE_SETTINGS_FILE = 'settings.json';
+
+/**
+ * Seed the Codex active-auth selection and unreachable token URL before
+ * `withEngine` starts. The CLI routes the active-auth keys through
+ * `PtahFileSettingsManager`, so they must be top-level values in
+ * `settings.json`; the non-file-routed OAuth endpoint remains under `ptah` in
+ * `config.json`. Both files are merged so unrelated isolated settings survive.
  */
 export function seedRecordModeOAuthEndpoint(userDataPath: string): void {
   mkdirSync(userDataPath, { recursive: true });
-  const path = join(userDataPath, ISOLATED_PRODUCT_CONFIG_FILE);
-  let config: Record<string, unknown> = {};
-  if (existsSync(path)) {
-    try {
-      const parsed: unknown = JSON.parse(readFileSync(path, 'utf8'));
-      if (
-        parsed !== null &&
-        typeof parsed === 'object' &&
-        !Array.isArray(parsed)
-      ) {
-        config = parsed as Record<string, unknown>;
-      }
-    } catch (error: unknown) {
-      throw new RecordingBootstrapError(
-        'isolated product config.json is not JSON',
-        { cause: error },
-      );
-    }
-  }
+  const configPath = join(userDataPath, ISOLATED_PRODUCT_CONFIG_FILE);
+  const config = readIsolatedJsonObject(configPath, 'product config.json');
   const current = config['ptah'];
   const section: Record<string, unknown> =
     current !== null && typeof current === 'object' && !Array.isArray(current)
@@ -94,7 +91,34 @@ export function seedRecordModeOAuthEndpoint(userDataPath: string): void {
       : {};
   section[OAUTH_TOKEN_ENDPOINT_SETTING] = UNREACHABLE_OAUTH_TOKEN_ENDPOINT;
   config['ptah'] = section;
-  writeFileSync(path, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
+  writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
+
+  const settingsPath = join(userDataPath, ISOLATED_FILE_SETTINGS_FILE);
+  const settings = readIsolatedJsonObject(settingsPath, 'file settings.json');
+  Object.assign(settings, RECORD_MODE_ACTIVE_AUTH_SETTINGS);
+  writeFileSync(settingsPath, `${JSON.stringify(settings, null, 2)}\n`, 'utf8');
+}
+
+function readIsolatedJsonObject(
+  path: string,
+  description: string,
+): Record<string, unknown> {
+  if (!existsSync(path)) return {};
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(path, 'utf8'));
+    if (
+      parsed !== null &&
+      typeof parsed === 'object' &&
+      !Array.isArray(parsed)
+    ) {
+      return parsed as Record<string, unknown>;
+    }
+    return {};
+  } catch (error: unknown) {
+    throw new RecordingBootstrapError(`isolated ${description} is not JSON`, {
+      cause: error,
+    });
+  }
 }
 
 export class RecordingBootstrapError extends Error {

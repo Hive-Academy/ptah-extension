@@ -511,14 +511,33 @@ describe('mem.extraction', () => {
     ).rejects.toThrow('CURATOR_LLM was not replaced');
   });
 
-  it('limits a probe to the first deterministic seeded case', async () => {
-    const { cases } = await run(
+  it('marks a limited probe as truncated rather than passing', async () => {
+    const { cases, result } = await run(
       'record',
       join(root, 'cassettes', 'one-case.jsonl'),
       'one-case',
       { caseLimit: 1 },
     );
     expect(cases.map((entry) => entry.caseId)).toEqual(['seeded/F-001']);
+    expect(result).toMatchObject({
+      verdict: 'na',
+      naReason: 'truncated-probe',
+      details: { caseLimit: 1, truncationNote: 'suite truncated by caseLimit' },
+    });
+  });
+
+  it('refuses a limited probe in CI/replay mode', async () => {
+    const { env } = harness('replay', join(root, 'cassettes', 'ci.jsonl'));
+    await expect(
+      runExtractionSuite({
+        runDir: join(root, 'runs', 'ci-limited'),
+        home,
+        workspaceRoot: join(root, 'workspace'),
+        options: { caseLimit: 1 },
+        env,
+        ci: true,
+      }),
+    ).rejects.toThrow('caseLimit is refused for CI/replay suites');
   });
 
   it('plans one seeded case per fact and paired head/middle long sessions', () => {

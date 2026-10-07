@@ -53,6 +53,9 @@ export const curationDetailsSchema = z.discriminatedUnion('operation', [
       version: nonEmptyString,
     }),
     cassette: nonEmptyString.nullable(),
+    /** Present for diagnostic probes, which can never produce a passing suite. */
+    caseLimit: int.optional(),
+    truncationNote: z.literal('suite truncated by caseLimit').optional(),
   }),
   z.strictObject({
     operation: z.literal('dedup'),

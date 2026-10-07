@@ -39,6 +39,8 @@ import { MODEL_DISPATCH_PROVENANCE_TAP } from '../recorder/provider-provenance';
 import { canonicalProductSettingsSha256 } from '../runner/runner-plan';
 import {
   HOST_COMPLETION_FILE,
+  HOST_ERROR_FILE,
+  HOST_LOG_FILE,
   runMemorySkillsHost,
   type HostCompletion,
   type MemorySkillsHostDeps,
@@ -47,6 +49,7 @@ import {
 } from './memory-skills-host';
 import {
   CODEX_AUTH_SOURCE_ENV,
+  ISOLATED_FILE_SETTINGS_FILE,
   ISOLATED_PRODUCT_CONFIG_FILE,
   RECORDING_DEADLINE_ENV,
   UNREACHABLE_OAUTH_TOKEN_ENDPOINT,
@@ -180,9 +183,10 @@ describe('runMemorySkillsHost', () => {
       status: 'available',
       lastCheck: 0,
     }),
+    sdkInitialize: () => Promise<boolean> = async () => true,
   ): void {
     container.register(SDK_TOKENS.SDK_AGENT_ADAPTER, {
-      useValue: { getHealth: sdkHealth },
+      useValue: { getHealth: sdkHealth, initialize: sdkInitialize },
     });
   }
 
@@ -193,6 +197,7 @@ describe('runMemorySkillsHost', () => {
       status: 'available',
       lastCheck: 0,
     }),
+    sdkInitialize: () => Promise<boolean> = async () => true,
   ): MemorySkillsHostDeps['boot'] {
     return async (options) => {
       events.push('boot');
@@ -205,7 +210,7 @@ describe('runMemorySkillsHost', () => {
       container.register(PLATFORM_TOKENS.WORKSPACE_PROVIDER, {
         useValue: settings,
       });
-      registerSdkAdapter(container, sdkHealth);
+      registerSdkAdapter(container, sdkHealth, sdkInitialize);
       if (registerProviders) {
         container.register(MEMORY_CONTRACT_TOKENS.CURATOR_LLM, {
           useValue: {},
@@ -595,8 +600,13 @@ describe('runMemorySkillsHost', () => {
       return { status, lastCheck: 0 };
     }
 
-    it('runs suites once the SDK is already ready', async () => {
+    it('initializes the SDK once and runs after it becomes available', async () => {
       writePlan({ cassetteMode: 'record', suites: [{ id: 'a' }] });
+      let status: ProviderHealth['status'] = 'initializing';
+      const initialize = jest.fn(async () => {
+        status = 'available';
+        return true;
+      });
       const suite: MemorySkillsHostSuite = {
         id: 'a',
         run: async () => {
@@ -607,10 +617,32 @@ describe('runMemorySkillsHost', () => {
       await runMemorySkillsHost(
         deps({
           suites: [suite],
-          boot: bootWith(new MemorySettings(), true, () => health('available')),
+          boot: bootWith(
+            new MemorySettings(),
+            true,
+            () => health(status),
+            initialize,
+          ),
         }),
       );
       expect(events).toContain('suite-a');
+      expect(initialize).toHaveBeenCalledTimes(1);
+    });
+
+    it('never initializes the SDK during replay', async () => {
+      writePlan({ cassetteMode: 'replay' });
+      const initialize = jest.fn(async () => true);
+      await runMemorySkillsHost(
+        deps({
+          boot: bootWith(
+            new MemorySettings(),
+            true,
+            () => health('initializing'),
+            initialize,
+          ),
+        }),
+      );
+      expect(initialize).not.toHaveBeenCalled();
     });
 
     it('waits for an initializing SDK before running suites', async () => {
@@ -671,8 +703,48 @@ describe('runMemorySkillsHost', () => {
         ).rejects.toThrow(expected);
         expect(events).not.toContain('suite-a');
         expect(stop).toHaveBeenCalledTimes(1);
+        expect(readFileSync(join(runDir, HOST_ERROR_FILE), 'utf8')).toMatch(
+          expected,
+        );
       },
     );
+
+    it('fails with the redacted health message when initialization returns false', async () => {
+      writePlan({ cassetteMode: 'record' });
+      await expect(
+        runMemorySkillsHost(
+          deps({
+            boot: bootWith(
+              new MemorySettings(),
+              true,
+              () => ({
+                ...health('error'),
+                errorMessage: 'access_token=top-secret',
+              }),
+              async () => false,
+            ),
+          }),
+        ),
+      ).rejects.toThrow('access_token=<redacted>');
+    });
+
+    it('times out when SDK initialization never resolves', async () => {
+      writePlan({ cassetteMode: 'record' });
+      await expect(
+        runMemorySkillsHost(
+          deps({
+            boot: bootWith(
+              new MemorySettings(),
+              true,
+              () => health('initializing'),
+              () => new Promise<boolean>(() => undefined),
+            ),
+            sdkReadiness: { timeoutMs: 0 },
+          }),
+        ),
+      ).rejects.toThrow('SDK adapter did not become ready within 0ms');
+      expect(stop).toHaveBeenCalledTimes(1);
+    });
 
     it('fails loudly when the SDK adapter is not registered', async () => {
       writePlan({ cassetteMode: 'record' });
@@ -703,6 +775,13 @@ describe('runMemorySkillsHost', () => {
       );
       expect(stop).toHaveBeenCalledTimes(1);
     });
+  });
+
+  it('stops the host when retaining its log fails', async () => {
+    writePlan();
+    mkdirSync(join(runDir, HOST_LOG_FILE));
+    await runMemorySkillsHost(deps());
+    expect(stop).toHaveBeenCalledTimes(1);
   });
 
   it('sets the unreachable oauth endpoint only in record mode', async () => {
@@ -849,14 +928,20 @@ describe('runMemorySkillsHost', () => {
     }
   });
 
-  it('seeds the oauth endpoint into isolated config.json before the engine starts', async () => {
+  it('seeds active Codex auth into file settings and the oauth endpoint into config.json before the engine starts', async () => {
     writePlan({ cassetteMode: 'record' });
     const configPath = join(
       isolation.userDataPath,
       ISOLATED_PRODUCT_CONFIG_FILE,
     );
+    const settingsPath = join(
+      isolation.userDataPath,
+      ISOLATED_FILE_SETTINGS_FILE,
+    );
     writeFileSync(configPath, `${JSON.stringify({ ptah: { mcpPort: 1 } })}\n`);
     let endpointBeforeEngine = '';
+    let authMethodBeforeEngine = '';
+    let providerBeforeEngine = '';
     let preserved: unknown;
     const boot: MemorySkillsHostDeps['boot'] = async (options) => {
       events.push('boot');
@@ -870,6 +955,12 @@ describe('runMemorySkillsHost', () => {
       endpointBeforeEngine = String(
         config.ptah['provider.openai-codex.oauthTokenEndpoint'],
       );
+      const settings = JSON.parse(readFileSync(settingsPath, 'utf8')) as Record<
+        string,
+        unknown
+      >;
+      authMethodBeforeEngine = String(settings['authMethod']);
+      providerBeforeEngine = String(settings['anthropicProviderId']);
       preserved = config.ptah['mcpPort'];
       events.push('engine');
       const container = rootContainer.createChildContainer();
@@ -896,6 +987,8 @@ describe('runMemorySkillsHost', () => {
     expect(events.indexOf('boot')).toBeLessThan(events.indexOf('engine'));
     expect(events.indexOf('engine')).toBeLessThan(events.indexOf('mcp'));
     expect(endpointBeforeEngine).toBe(UNREACHABLE_OAUTH_TOKEN_ENDPOINT);
+    expect(authMethodBeforeEngine).toBe('thirdParty');
+    expect(providerBeforeEngine).toBe('openai-codex');
     expect(preserved).toBe(1);
   });
 

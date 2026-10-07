@@ -38,6 +38,7 @@ import {
   cassetteKey,
   sha256Hex,
 } from './cassette-store';
+import { redactSecrets } from '../host/redact-secrets';
 
 /** The fault modes the liveness suites select per key (design 3.8). */
 export type CuratorFaultMode = 'throw' | 'zero-drafts' | 'timeout' | 'stalled';
@@ -253,15 +254,6 @@ function redactCauseChain(error: unknown): string {
   }
   if (messages.length === 0) messages.push(redactSecrets(String(error)));
   return messages.join(' <- cause: ');
-}
-
-function redactSecrets(message: string): string {
-  return message
-    .replace(
-      /(authorization|api[_-]?key|token|secret|password)\s*[:=]\s*[^\s,;]+/gi,
-      '$1=<redacted>',
-    )
-    .replace(/Bearer\s+[^\s,;]+/gi, 'Bearer <redacted>');
 }
 
 /** One selected fault mode, applied to both curator methods where it can. */

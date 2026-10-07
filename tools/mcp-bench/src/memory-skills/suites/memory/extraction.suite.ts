@@ -154,6 +154,8 @@ export interface ExtractionRunInput {
   readonly workspaceRoot: string;
   readonly options: unknown;
   readonly env: ExtractionEnv;
+  /** CI/replay suites must always evaluate their complete deterministic plan. */
+  readonly ci?: boolean;
 }
 
 type Slice = 'seeded' | 'long-middle' | 'long-head';
@@ -617,6 +619,9 @@ export async function runExtractionSuite(
   input: ExtractionRunInput,
 ): Promise<{ result: SuiteResultInput; cases: CaseRecord[] }> {
   const options = extractionOptionsSchema.parse(input.options);
+  if (input.ci && options.caseLimit !== undefined) {
+    throw new Error('caseLimit is refused for CI/replay suites');
+  }
   const facts = readJsonl(fixturePath(input.home, options.factsFile), (value) =>
     factSchema.parse(value),
   );
@@ -642,9 +647,15 @@ export async function runExtractionSuite(
   }
   const modelCalls = input.env.modelCalls() - callsBefore;
 
-  const details = curationDetailsSchema.parse(
-    extractionDetails(evaluated, options.cassetteVersion),
-  );
+  const details = curationDetailsSchema.parse({
+    ...extractionDetails(evaluated, options.cassetteVersion),
+    ...(options.caseLimit === undefined
+      ? {}
+      : {
+          caseLimit: options.caseLimit,
+          truncationNote: 'suite truncated by caseLimit' as const,
+        }),
+  });
 
   const system = policyRates(evaluated, (c) => c.system);
   const baselineRates: Record<BaselineId, PolicyRates> = {
@@ -677,13 +688,19 @@ export async function runExtractionSuite(
   const misses = evaluated.filter((c) => c.cassetteMiss).length;
   const allPass = records.every((record) => record.outcome === 'pass');
   const verdict: SuiteResultInput['verdict'] =
-    misses > 0 || !options.matcherValidated ? 'na' : allPass ? 'pass' : 'fail';
+    options.caseLimit !== undefined || misses > 0 || !options.matcherValidated
+      ? 'na'
+      : allPass
+        ? 'pass'
+        : 'fail';
   const naReason =
-    misses > 0
-      ? 'cassette-miss'
-      : !options.matcherValidated
-        ? 'matcher-unvalidated'
-        : undefined;
+    options.caseLimit !== undefined
+      ? 'truncated-probe'
+      : misses > 0
+        ? 'cassette-miss'
+        : !options.matcherValidated
+          ? 'matcher-unvalidated'
+          : undefined;
   const latencies = records.map((record) => record.latencyMs);
 
   const result: SuiteResultInput = {
@@ -779,6 +796,7 @@ export function createExtractionSuite(): MemorySkillsHostSuite {
         workspaceRoot: context.workspaceRoot,
         options: context.options,
         env: hostExtractionEnv(context),
+        ci: context.ci,
       });
     },
   };

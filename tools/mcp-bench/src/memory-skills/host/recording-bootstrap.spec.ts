@@ -14,11 +14,15 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { CODEX_TOKEN_EXPIRY_SKEW_MS } from '@ptah-extension/shared';
+import { CliWorkspaceProvider } from '@ptah-extension/platform-cli';
 
 import {
+  ISOLATED_FILE_SETTINGS_FILE,
+  ISOLATED_PRODUCT_CONFIG_FILE,
   RECORDING_EXPIRY_SLACK_MS,
   RecordingBootstrapError,
   bootstrapIsolatedCodexAuth,
+  seedRecordModeOAuthEndpoint,
 } from './recording-bootstrap';
 
 function jwt(expSeconds: number): string {
@@ -144,5 +148,38 @@ describe('bootstrapIsolatedCodexAuth', () => {
     expect(() => run()).toThrow(/symbolic link|escapes the isolated home/);
     expect(existsSync(join(outside, 'auth.json'))).toBe(false);
     expect(process.env['CODEX_HOME']).not.toBe(join(home, '.codex'));
+  });
+});
+
+describe('seedRecordModeOAuthEndpoint', () => {
+  let root: string;
+  let userDataPath: string;
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), 'ptah-620-file-settings-'));
+    userDataPath = join(root, '.ptah');
+  });
+
+  afterEach(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it('writes active auth where the real CLI workspace provider reads file-routed settings', () => {
+    seedRecordModeOAuthEndpoint(userDataPath);
+
+    const provider = new CliWorkspaceProvider(userDataPath, root);
+    expect(provider.getConfiguration('ptah', 'authMethod')).toBe('thirdParty');
+    expect(provider.getConfiguration('ptah', 'anthropicProviderId')).toBe(
+      'openai-codex',
+    );
+
+    const config = JSON.parse(
+      readFileSync(join(userDataPath, ISOLATED_PRODUCT_CONFIG_FILE), 'utf8'),
+    ) as { ptah: Record<string, unknown> };
+    expect(config.ptah['authMethod']).toBeUndefined();
+    expect(config.ptah['anthropicProviderId']).toBeUndefined();
+    expect(existsSync(join(userDataPath, ISOLATED_FILE_SETTINGS_FILE))).toBe(
+      true,
+    );
   });
 });

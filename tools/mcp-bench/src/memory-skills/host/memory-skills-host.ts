@@ -86,6 +86,7 @@ import {
   UNREACHABLE_OAUTH_TOKEN_ENDPOINT,
   type IsolatedCodexAuth,
 } from './recording-bootstrap';
+import { redactSecrets } from './redact-secrets';
 import {
   canonicalProductSettingsSha256,
   OAUTH_TOKEN_ENDPOINT_SETTING,
@@ -97,10 +98,13 @@ export const HOST_COMPLETION_SCHEMA_ID = '620.host-completion.v1';
 export const HOST_NET_RECORDER_LOG = 'net-recorder.log';
 /** Redacted copy of the CLI Logger output, retained after temp-home cleanup. */
 export const HOST_LOG_FILE = 'host.log';
+/** Redacted fatal error retained when boot or readiness prevents completion. */
+export const HOST_ERROR_FILE = 'host-error.txt';
 export const SDK_READINESS_TIMEOUT_MS = 60_000;
 export const SDK_READINESS_POLL_MS = 50;
 
 interface SdkReadinessAdapter {
+  initialize(): Promise<boolean>;
   getHealth(): ProviderHealth;
 }
 
@@ -275,127 +279,132 @@ export async function runMemorySkillsHost(
     allowedRoots.push(plan.committedFixturesDir);
   }
 
-  const host = await deps.boot({
-    workspace,
-    beforeEngineBoot: ({ isolation }) => {
-      mkdirSync(plan.runDir, { recursive: true });
-      if (existsSync(join(plan.runDir, HOST_COMPLETION_FILE))) {
-        throw new MemorySkillsPlanError(
-          `run directory ${plan.runDir} already holds a completed run; use a new runId`,
+  try {
+    const host = await deps.boot({
+      workspace,
+      beforeEngineBoot: ({ isolation }) => {
+        mkdirSync(plan.runDir, { recursive: true });
+        if (existsSync(join(plan.runDir, HOST_COMPLETION_FILE))) {
+          throw new MemorySkillsPlanError(
+            `run directory ${plan.runDir} already holds a completed run; use a new runId`,
+          );
+        }
+        if (plan.cassetteMode === 'record') {
+          seedRecordModeOAuthEndpoint(isolation.userDataPath);
+        }
+        const authSource = deps.env[CODEX_AUTH_SOURCE_ENV];
+        if (authSource !== undefined) {
+          const deadlineMs = Number(deps.env[RECORDING_DEADLINE_ENV]);
+          codexAuth = bootstrapIsolatedCodexAuth({
+            isolationHome: isolation.home,
+            sourcePath: authSource,
+            deadlineMs,
+            env: deps.env,
+          });
+        }
+        seeded = seedFixtures({
+          fixtures: plan.fixtures,
+          isolation,
+          realHome: plan.realHome,
+          allowedRoots,
+        });
+      },
+      afterContainerReady: async (container) => {
+        const applied = appliedProductSettings(plan);
+        if (applied !== undefined) {
+          settingsMeta = await writeProductSettings(container, applied);
+        }
+        if (plan.cassetteMode === 'record') {
+          provenance = new DispatchProvenanceCollector();
+          container.register(MODEL_DISPATCH_PROVENANCE_TAP, {
+            useValue: provenance,
+          });
+        }
+        doubles = installRecordReplayDoubles(container, plan);
+      },
+    });
+
+    try {
+      if (doubles === undefined) {
+        // The boot helper resolved without running afterContainerReady.
+        throw new Error(
+          'the record/replay doubles were not installed before MCP started',
         );
       }
-      if (plan.cassetteMode === 'record') {
-        seedRecordModeOAuthEndpoint(isolation.userDataPath);
-      }
-      const authSource = deps.env[CODEX_AUTH_SOURCE_ENV];
-      if (authSource !== undefined) {
-        const deadlineMs = Number(deps.env[RECORDING_DEADLINE_ENV]);
-        codexAuth = bootstrapIsolatedCodexAuth({
-          isolationHome: isolation.home,
-          sourcePath: authSource,
-          deadlineMs,
-          env: deps.env,
-        });
-      }
-      seeded = seedFixtures({
-        fixtures: plan.fixtures,
-        isolation,
-        realHome: plan.realHome,
-        allowedRoots,
+      deps.writeWire({
+        benchHost: 'ready',
+        port: host.port,
+        workspaceRoot: host.workspaceRoot,
+        homedir: deps.homedir(),
+        userDataPath: host.isolation.userDataPath,
+        dbPath: host.isolation.dbPath,
       });
-    },
-    afterContainerReady: async (container) => {
-      const applied = appliedProductSettings(plan);
-      if (applied !== undefined) {
-        settingsMeta = await writeProductSettings(container, applied);
-      }
       if (plan.cassetteMode === 'record') {
-        provenance = new DispatchProvenanceCollector();
-        container.register(MODEL_DISPATCH_PROVENANCE_TAP, {
-          useValue: provenance,
-        });
+        await waitForSdkReady(host.container, deps.sdkReadiness);
       }
-      doubles = installRecordReplayDoubles(container, plan);
-    },
-  });
 
-  try {
-    if (doubles === undefined) {
-      // The boot helper resolved without running afterContainerReady.
-      throw new Error(
-        'the record/replay doubles were not installed before MCP started',
+      const context = {
+        runId: plan.runId,
+        runDir: plan.runDir,
+        workspaceRoot: host.workspaceRoot,
+        isolation: host.isolation,
+        container: host.container,
+        doubles,
+        ci: plan.ci,
+      };
+      const { suites, net } = await runSuites(
+        plan,
+        registry,
+        context,
+        deps,
+        now,
+        () => shutdownReason !== null,
       );
+
+      if (plan.cassetteMode === 'record') {
+        acceptRecording({ plan, provenance, codexAuth });
+      }
+
+      const completion: HostCompletion = {
+        schemaId: HOST_COMPLETION_SCHEMA_ID,
+        runId: plan.runId,
+        cassetteMode: plan.cassetteMode,
+        ci: plan.ci,
+        status:
+          net !== null && net.attempts.length > 0
+            ? 'net-violation'
+            : 'complete',
+        seeded,
+        suites,
+        net,
+        ...(settingsMeta !== undefined ? { settings: settingsMeta } : {}),
+      };
+      const completionFile = join(plan.runDir, HOST_COMPLETION_FILE);
+      writeJsonAtomic(completionFile, completion);
+      deps.writeWire({
+        benchHost: 'complete',
+        runId: plan.runId,
+        status: completion.status,
+        completionFile,
+      });
+
+      const reason = await deps.shutdownRequested;
+      return { completion, shutdownReason: reason };
+    } finally {
+      // Keep startup failures (including SDK readiness) diagnosable too.
+      retainHostLog(host.isolation.userDataPath, plan.runDir);
+      await host.stop();
     }
-    deps.writeWire({
-      benchHost: 'ready',
-      port: host.port,
-      workspaceRoot: host.workspaceRoot,
-      homedir: deps.homedir(),
-      userDataPath: host.isolation.userDataPath,
-      dbPath: host.isolation.dbPath,
-    });
-    if (plan.cassetteMode === 'record') {
-      await waitForSdkReady(host.container, deps.sdkReadiness);
-    }
-
-    const context = {
-      runId: plan.runId,
-      runDir: plan.runDir,
-      workspaceRoot: host.workspaceRoot,
-      isolation: host.isolation,
-      container: host.container,
-      doubles,
-      ci: plan.ci,
-    };
-    const { suites, net } = await runSuites(
-      plan,
-      registry,
-      context,
-      deps,
-      now,
-      () => shutdownReason !== null,
-    );
-
-    if (plan.cassetteMode === 'record') {
-      acceptRecording({ plan, provenance, codexAuth });
-    }
-
-    const completion: HostCompletion = {
-      schemaId: HOST_COMPLETION_SCHEMA_ID,
-      runId: plan.runId,
-      cassetteMode: plan.cassetteMode,
-      ci: plan.ci,
-      status:
-        net !== null && net.attempts.length > 0 ? 'net-violation' : 'complete',
-      seeded,
-      suites,
-      net,
-      ...(settingsMeta !== undefined ? { settings: settingsMeta } : {}),
-    };
-    const completionFile = join(plan.runDir, HOST_COMPLETION_FILE);
-    writeJsonAtomic(completionFile, completion);
-    deps.writeWire({
-      benchHost: 'complete',
-      runId: plan.runId,
-      status: completion.status,
-      completionFile,
-    });
-
-    const reason = await deps.shutdownRequested;
-    return { completion, shutdownReason: reason };
-  } finally {
-    // Keep startup failures (including SDK readiness) diagnosable too.
-    retainHostLog(host.isolation.userDataPath, plan.runDir);
-    await host.stop();
+  } catch (error: unknown) {
+    writeHostError(plan.runDir, error);
+    throw error;
   }
 }
 
 /**
  * Record mode reaches the real curator through the SDK query runner. Engine
- * boot starts adapter initialization asynchronously, so do not begin cases
- * until that existing initialization has published a terminal healthy state.
- * This observes health rather than calling initialize(): sequential calls to
- * initialize() start a new auth/CLI initialization pass.
+ * Boot intentionally leaves the adapter uninitialized. Start exactly one
+ * initialization pass, then wait for its healthy terminal state.
  */
 export async function waitForSdkReady(
   container: BenchHostContainer,
@@ -417,13 +426,35 @@ export async function waitForSdkReady(
     ((milliseconds: number) =>
       new Promise<void>((resolve) => setTimeout(resolve, milliseconds)));
   const startedAt = now();
+  let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<'timeout'>((resolve) => {
+    deadlineTimer = setTimeout(() => resolve('timeout'), timeoutMs);
+  });
+  let initialized: boolean | 'timeout';
+  try {
+    initialized = await Promise.race([adapter.initialize(), deadline]);
+  } finally {
+    if (deadlineTimer !== undefined) clearTimeout(deadlineTimer);
+  }
+  if (initialized === 'timeout') {
+    const health = adapter.getHealth();
+    throw new Error(
+      `SDK adapter did not become ready within ${timeoutMs}ms (status: ${health.status})`,
+    );
+  }
+  const initialHealth = adapter.getHealth();
+  if (!initialized || initialHealth.status === 'error') {
+    throw new Error(
+      `SDK adapter initialization failed: ${redactSecrets(initialHealth.errorMessage ?? 'no error detail was provided')}`,
+    );
+  }
 
   for (;;) {
     const health = adapter.getHealth();
     if (health.status === 'available') return;
     if (health.status === 'error') {
       throw new Error(
-        `SDK adapter initialization failed: ${health.errorMessage ?? 'no error detail was provided'}`,
+        `SDK adapter initialization failed: ${redactSecrets(health.errorMessage ?? 'no error detail was provided')}`,
       );
     }
     if (now() - startedAt >= timeoutMs) {
@@ -436,29 +467,39 @@ export async function waitForSdkReady(
 }
 
 function retainHostLog(userDataPath: string, runDir: string): void {
-  const logsDir = join(userDataPath, 'logs');
-  const output = join(runDir, HOST_LOG_FILE);
-  writeFileSync(output, '', 'utf8');
-  if (!existsSync(logsDir)) return;
-  for (const entry of readdirSync(logsDir, { withFileTypes: true })) {
-    if (!entry.isFile() || !entry.name.endsWith('.log')) continue;
-    const source = join(logsDir, entry.name);
-    try {
-      const redacted = redactLogSecrets(readFileSync(source, 'utf8'));
-      appendFileSync(output, `# ${entry.name}\n${redacted}`, 'utf8');
-    } catch {
-      // Diagnostics must not turn an otherwise complete benchmark into a failure.
+  try {
+    const logsDir = join(userDataPath, 'logs');
+    const output = join(runDir, HOST_LOG_FILE);
+    writeFileSync(output, '', 'utf8');
+    if (!existsSync(logsDir)) return;
+    for (const entry of readdirSync(logsDir, { withFileTypes: true })) {
+      if (!entry.isFile() || !entry.name.endsWith('.log')) continue;
+      const source = join(logsDir, entry.name);
+      try {
+        const redacted = redactSecrets(readFileSync(source, 'utf8'));
+        appendFileSync(output, `# ${entry.name}\n${redacted}`, 'utf8');
+      } catch {
+        // Keep collecting other log files when one diagnostic file is unreadable.
+      }
     }
+  } catch {
+    process.stderr.write('Unable to retain redacted host log.\n');
   }
 }
 
-function redactLogSecrets(value: string): string {
-  return value
-    .replace(
-      /(authorization|api[_-]?key|token|secret|password)\s*[:=]\s*[^\s,;]+/gi,
-      '$1=<redacted>',
-    )
-    .replace(/Bearer\s+[^\s,;]+/gi, 'Bearer <redacted>');
+function writeHostError(runDir: string, error: unknown): void {
+  try {
+    mkdirSync(runDir, { recursive: true });
+    const detail =
+      error instanceof Error ? (error.stack ?? error.message) : String(error);
+    writeFileSync(
+      join(runDir, HOST_ERROR_FILE),
+      `${redactSecrets(detail)}\n`,
+      'utf8',
+    );
+  } catch {
+    // Reporting a fatal error must never mask the original failure.
+  }
 }
 
 async function runSuites(
