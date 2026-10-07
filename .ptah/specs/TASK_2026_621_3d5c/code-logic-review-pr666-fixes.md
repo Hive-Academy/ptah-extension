@@ -82,3 +82,25 @@ Blocking 0, Serious 0, Moderate 0, Minor 2.
 
 ## Verdict (Round 2)
 APPROVED. Every Round 1 finding is closed with evidence, the paging is bounded in loop control and cannot loop forever, and nothing new broke.
+
+---
+
+# Round 3 (SonarCloud fix) - commit 461877740
+
+Test evidence (`nx test memory-curator --skip-nx-cache --testPathPatterns=memory-trigger`): `Test Suites: 6 passed, 6 total`; `Tests:       131 passed, 131 total`; exit 0.
+
+## Checks
+- Unhandled rejections: the four fire-and-forget callers (turn-complete :448, episode :627, commit-detect :651, idle :709) now go through `dispatchEpisodeCurate` (:810-831), which attaches `.catch` to the promise returned by `tryEpisodeCurate`. A null return (skipped dispatch) is correctly a no-op. Remaining un-caught call sites: `void this.invokeCurate` for user-cue (:582) and `void this.runBootScan` (:1038). `invokeCurate` handles its own errors (drain and compose are inside its try since Round 2) and `runBootScan` has an outer try/catch, so neither rejects in practice.
+- Observability of the settle path: `flushSessionEnd` does not use the new dispatch. It still calls `tryEpisodeCurate` directly (:503) and attaches `then(ok, err)`, so a rejection still reaches `clearEndedSessionFailures`. The `.catch` in the dispatch only applies to the four callers that never consumed the promise. Nothing a caller needed is swallowed.
+- Timing: `dispatchEpisodeCurate` calls `tryEpisodeCurate` synchronously and only the rejection handler is deferred, so the gate, detach, slot and in-flight bookkeeping run at the same point as before. A synchronous throw from `tryEpisodeCurate` propagates exactly as before.
+- Optional chain (:871): `snap?.windowStartMs === windowStart ? snap.count : 0` is identical when `snap` is undefined or null, because `undefined === number` is false and gives 0 as before. When defined, the comparison is unchanged. TypeScript narrows `snap.count` through the optional-chain equality with a number, so it needs no extra guard.
+- Spec: "logs a rejected asynchronous turn-complete dispatch" mocks `tryEpisodeCurate` to return a rejected promise and asserts `logger.error` with sessionId, source 'turn-complete' and the message. Without the dispatch, the rejection was discarded and no log was written, so the spec fails without the fix. It uses two microtask ticks, which is slightly timing-sensitive but passed here.
+
+## New findings
+1. MINOR - memory-trigger.service.ts:582. The user-cue path still uses `void this.invokeCurate(...)` with no `.catch`. It is safe today because `invokeCurate` does not reject, but it is inconsistent with the new pattern and would regress if that changes.
+
+## Counts
+Blocking 0, Serious 0, Moderate 0, Minor 1.
+
+## Verdict (Round 3)
+APPROVED.
