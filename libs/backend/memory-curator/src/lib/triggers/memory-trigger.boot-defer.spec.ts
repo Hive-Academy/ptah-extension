@@ -109,13 +109,23 @@ function makeSqlite(): SqliteConnectionService {
   return { db, isOpen: true } as unknown as SqliteConnectionService;
 }
 
-function makeWorkspace(overrides: Record<string, unknown>): IWorkspaceProvider {
+interface ConfigurableWorkspace extends IWorkspaceProvider {
+  readonly config: Record<string, unknown>;
+  fireMemoryEnabledChange(): void;
+}
+
+function makeWorkspace(
+  overrides: Record<string, unknown>,
+): ConfigurableWorkspace {
   const cfg: Record<string, unknown> = {
     'memory.triggers.bootScan': true,
     'memory.triggers.idleMs': 600000,
     'memory.triggers.maxCuratesPerHour': 100,
     ...overrides,
   };
+  let configurationListener:
+    | ((event: { affectsConfiguration(key: string): boolean }) => void)
+    | undefined;
   return {
     getWorkspaceRoot: jest.fn(() => '/ws'),
     getWorkspaceFolders: jest.fn(() => ['/ws']),
@@ -123,9 +133,18 @@ function makeWorkspace(overrides: Record<string, unknown>): IWorkspaceProvider {
       (_section: string, key: string, def: unknown) => cfg[key] ?? def,
     ),
     setConfiguration: jest.fn().mockResolvedValue(undefined),
-    onDidChangeConfiguration: jest.fn(),
+    onDidChangeConfiguration: jest.fn((listener) => {
+      configurationListener = listener;
+      return { dispose: () => (configurationListener = undefined) };
+    }),
     onDidChangeWorkspaceFolders: jest.fn(),
-  } as unknown as IWorkspaceProvider;
+    config: cfg,
+    fireMemoryEnabledChange: () => {
+      configurationListener?.({
+        affectsConfiguration: (key) => key === 'ptah.memory.enabled',
+      });
+    },
+  } as unknown as ConfigurableWorkspace;
 }
 
 function buildHarness(opts: {
@@ -151,12 +170,13 @@ function buildHarness(opts: {
 
   const activity = makeCapturingRegistry();
 
+  const workspace = makeWorkspace(opts.settings ?? {});
   const service = new MemoryTriggerService(
     makeLogger(),
     curator,
     activity.registry as never,
     makeRegistry() as never,
-    makeWorkspace(opts.settings ?? {}),
+    workspace,
     {} as unknown as IFileSystemProvider,
     makeSqlite(),
     {
@@ -181,7 +201,7 @@ function buildHarness(opts: {
     makeRegistry() as never,
   );
 
-  return { service, curate, emitActivity: activity.emit };
+  return { service, curate, emitActivity: activity.emit, workspace };
 }
 
 async function makeSessionsDir(): Promise<string> {
@@ -332,6 +352,46 @@ describe('MemoryTriggerService — boot scan deferral', () => {
 
     expect(h.curate).toHaveBeenCalledTimes(1);
 
+    h.service.stop();
+  });
+
+  it('re-arms exactly once after an externally paused scan stalls and chat resumes', async () => {
+    const h = buildHarness({
+      sessionsDir: dir,
+      settings: {
+        'memory.triggers.bootScanDelayMs': 0,
+        'memory.triggers.bootScanIdleBackoffMs': 0,
+      },
+    });
+    const state = h.service as unknown as {
+      bootScanArmed: boolean;
+      bootScanOwed: boolean;
+    };
+
+    h.service.start();
+    // Simulate an external settings edit: no configuration-change event fires.
+    h.workspace.config['memory.enabled'] = false;
+    await advanceUntil(0, () => !state.bootScanArmed && state.bootScanOwed);
+
+    expect(h.curate).not.toHaveBeenCalled();
+    expect(state.bootScanOwed).toBe(true);
+
+    h.workspace.config['memory.enabled'] = true;
+    h.emitActivity({
+      sessionId: 'resume-after-external-edit',
+      workspaceRoot: '/ws',
+      timestamp: Date.now(),
+    });
+    await advanceUntil(0, () => h.curate.mock.calls.length === 1);
+    h.emitActivity({
+      sessionId: 'resume-again',
+      workspaceRoot: '/ws',
+      timestamp: Date.now(),
+    });
+    await advance(0);
+
+    expect(h.curate).toHaveBeenCalledTimes(1);
+    expect(state.bootScanOwed).toBe(false);
     h.service.stop();
   });
 

@@ -131,6 +131,9 @@ export class MemoryTriggerService {
   private bootScanScheduler: BootScanScheduler | null = null;
   private bootScanOwed = false;
   private bootScanArmed = false;
+  /** Identifies the armed scan whose completion is allowed to release it. */
+  private bootScanGeneration = 0;
+  private activeBootScanGeneration: number | null = null;
   private configurationDisposer: { dispose(): void } | null = null;
   /**
    * When the last chat turn was observed, or `null` when none has been in this
@@ -243,6 +246,7 @@ export class MemoryTriggerService {
       (event) => {
         if (!event.affectsConfiguration('ptah.memory.enabled')) return;
         if (this.readMemoryEnabled()) {
+          this.rearmIdleTimers();
           this.maybeRearmBootScan();
           return;
         }
@@ -311,6 +315,7 @@ export class MemoryTriggerService {
   private onActivity(payload: SessionActivityPayload): void {
     this.maybeRearmBootScan();
     if (!this.readMemoryEnabled()) return;
+    this.rearmIdleTimers();
     if (blankToUndefined(payload.sessionId) === undefined) return;
 
     // Stamped ABOVE the `idleMs` guard, because this is the only foreground
@@ -671,6 +676,7 @@ export class MemoryTriggerService {
 
   private onSessionStart(_payload: SessionStartPayload): void {
     this.maybeRearmBootScan();
+    if (this.readMemoryEnabled()) this.rearmIdleTimers();
   }
 
   private extractBashCommand(toolInput: unknown): string | null {
@@ -715,7 +721,6 @@ export class MemoryTriggerService {
   }
 
   private fireIdle(sessionId: string): void {
-    if (!this.readMemoryEnabled()) return;
     const state = this.sessions.get(sessionId);
     if (!state) return;
     state.idleTimer = null;
@@ -1038,7 +1043,7 @@ export class MemoryTriggerService {
    * 122 s and 156 s on the same boot (`tmp/logs/log.log:676,678,1095,1453`).
    * The delay/backoff reasoning lives on the scheduler.
    */
-  private createBootScanScheduler(): BootScanScheduler {
+  private createBootScanScheduler(generation: number): BootScanScheduler {
     return new BootScanScheduler({
       logPrefix: '[memory-curator]',
       logger: this.logger,
@@ -1050,12 +1055,15 @@ export class MemoryTriggerService {
       idleBackoffMsDefault: MEMORY_TRIGGER_DEFAULTS.bootScanIdleBackoffMs,
       lastActivityAt: () => this.lastActivityAt,
       run: (signal) => {
-        void this.runBootScan(signal);
+        void this.runBootScan(signal, generation);
       },
     });
   }
 
-  private async runBootScan(signal: AbortSignal): Promise<void> {
+  private async runBootScan(
+    signal: AbortSignal,
+    generation: number,
+  ): Promise<void> {
     const root = this.workspace.getWorkspaceRoot();
     if (!root) return;
     try {
@@ -1188,6 +1196,15 @@ export class MemoryTriggerService {
         error: message,
       });
       this.logger.warn('[memory-curator] boot-scan failed', { error: message });
+    } finally {
+      // A cancelled older scan can settle after a resumed scan has armed. Its
+      // completion must not release the newer scan's ownership gate.
+      if (this.activeBootScanGeneration === generation) {
+        this.bootScanArmed = false;
+        this.activeBootScanGeneration = null;
+        this.bootScanScheduler = null;
+        this.bootScanController = null;
+      }
     }
   }
 
@@ -1217,12 +1234,28 @@ export class MemoryTriggerService {
     }
   }
 
+  /** Recreate idle boundaries whose buffered episode survived a master pause. */
+  private rearmIdleTimers(): void {
+    const idleMs = this.readIdleMs();
+    if (idleMs <= 0) return;
+    for (const [sessionId, state] of this.sessions) {
+      if (state.idleTimer || this.episodes.snapshot(sessionId).isEmpty)
+        continue;
+      state.idleDueAt = Date.now() + idleMs;
+      state.idleTimer = setTimeout(() => {
+        this.fireIdle(sessionId);
+      }, idleMs);
+    }
+  }
+
   private cancelBootScan(owed: boolean): void {
+    ++this.bootScanGeneration;
     this.bootScanScheduler?.cancel();
     this.bootScanScheduler = null;
     this.bootScanController?.abort();
     this.bootScanController = null;
     this.bootScanArmed = false;
+    this.activeBootScanGeneration = null;
     this.bootScanOwed ||= owed;
   }
 
@@ -1235,10 +1268,12 @@ export class MemoryTriggerService {
       !this.readBootScanFlag()
     )
       return;
+    const generation = ++this.bootScanGeneration;
     this.bootScanArmed = true;
+    this.activeBootScanGeneration = generation;
     this.bootScanOwed = false;
     this.bootScanController = new AbortController();
-    this.bootScanScheduler = this.createBootScanScheduler();
+    this.bootScanScheduler = this.createBootScanScheduler(generation);
     this.bootScanScheduler.schedule(this.bootScanController.signal);
   }
 

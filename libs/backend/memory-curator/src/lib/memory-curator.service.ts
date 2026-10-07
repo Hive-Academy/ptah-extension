@@ -30,6 +30,11 @@ import {
 } from '@ptah-extension/platform-core';
 import { blankToUndefined } from '@ptah-extension/shared';
 import { MEMORY_TOKENS } from './di/tokens';
+import {
+  MEMORY_TRIGGER_DEFAULTS,
+  MEMORY_TRIGGER_KEYS,
+  MEMORY_TRIGGER_SECTION,
+} from './triggers/memory-trigger-config';
 import { MemoryStore } from './memory.store';
 import { baseSalience } from './salience-ranking';
 import type {
@@ -252,9 +257,9 @@ export class MemoryCuratorService {
     this.disposer = this.registry.register((data) => {
       if (
         this.workspace?.getConfiguration<boolean>(
-          'ptah',
-          'memory.enabled',
-          true,
+          MEMORY_TRIGGER_SECTION,
+          MEMORY_TRIGGER_KEYS.enabled,
+          MEMORY_TRIGGER_DEFAULTS.enabled,
         ) === false
       )
         return;

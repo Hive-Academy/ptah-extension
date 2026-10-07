@@ -903,7 +903,7 @@ describe('MemoryTriggerService', () => {
 });
 
 describe('MemoryTriggerService — memory master pause and resume', () => {
-  it('clears an armed idle timer on pause and does not start curation', async () => {
+  it('pauses a real buffered episode and re-arms its idle boundary once on resume', async () => {
     jest.useFakeTimers();
     const enabled = { value: true };
     let configurationListener:
@@ -912,7 +912,11 @@ describe('MemoryTriggerService — memory master pause and resume', () => {
     const workspace = makeWorkspace({ 'memory.triggers.idleMs': 1 });
     (workspace.getConfiguration as jest.Mock).mockImplementation(
       (_section: string, key: string, fallback: unknown) =>
-        key === 'memory.enabled' ? enabled.value : fallback,
+        key === 'memory.enabled'
+          ? enabled.value
+          : key === 'memory.triggers.idleMs'
+            ? 1
+            : fallback,
     );
     (workspace.onDidChangeConfiguration as jest.Mock).mockImplementation(
       (listener) => {
@@ -920,8 +924,18 @@ describe('MemoryTriggerService — memory master pause and resume', () => {
         return { dispose: () => undefined };
       },
     );
-    const { service, activity, curator } = buildService({ workspace });
+    const { service, activity, stop, curator } = buildService({ workspace });
     service.start();
+    // A completed assistant turn populates the episode. Without the pause
+    // gate, this idle timer reaches `curate`, making the negative assertion
+    // non-vacuous.
+    stop.fire(
+      stopPayload({
+        sessionId: 'paused-idle',
+        workspaceRoot: '/ws',
+        lastAssistantMessage: 'The important buffered episode content.',
+      }),
+    );
     activity.registry.notifyAll({
       sessionId: 'paused-idle',
       workspaceRoot: '/ws',
@@ -935,6 +949,16 @@ describe('MemoryTriggerService — memory master pause and resume', () => {
     await jest.advanceTimersByTimeAsync(10);
 
     expect(curator.curate).not.toHaveBeenCalled();
+    enabled.value = true;
+    configurationListener?.({
+      affectsConfiguration: (key) => key === 'ptah.memory.enabled',
+    });
+    await jest.advanceTimersByTimeAsync(1);
+    for (let i = 0; i < 8; i++) await Promise.resolve();
+
+    expect(curator.curate).toHaveBeenCalledTimes(1);
+    await jest.advanceTimersByTimeAsync(10);
+    expect(curator.curate).toHaveBeenCalledTimes(1);
     service.stop();
     jest.useRealTimers();
   });
