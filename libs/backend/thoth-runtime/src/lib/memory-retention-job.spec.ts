@@ -39,7 +39,7 @@ function runReport(
     status: 'completed',
     reason: null,
     processedPurged: 120,
-    stuckQuarantined: 4,
+    stuckKept: 4,
     ledgerPruned: 0,
     freedBytes: 4096,
     pagesReclaimed: 9,
@@ -121,7 +121,7 @@ describe('createMemoryRetentionHandler', () => {
 
     await expect(handler(makeCtx())).resolves.toEqual({
       summary:
-        'purged 120 processed, quarantined 4 stuck, archived 8 / deleted 3 / evicted 2 memories, reclaimed 9 pages',
+        'purged 120 processed, kept 4 stuck unprocessed, archived 8 / deleted 3 / evicted 2 memories, reclaimed 9 pages',
     });
   });
 
@@ -138,7 +138,7 @@ describe('createMemoryRetentionHandler', () => {
 
     await expect(handler(makeCtx())).resolves.toEqual({
       summary:
-        'purged 120 processed, quarantined 4 stuck, archived 8 / deleted 3 / evicted 2 memories, reclaimed 9 pages (partial: time-budget)',
+        'purged 120 processed, kept 4 stuck unprocessed, archived 8 / deleted 3 / evicted 2 memories, reclaimed 9 pages (partial: time-budget)',
     });
   });
 

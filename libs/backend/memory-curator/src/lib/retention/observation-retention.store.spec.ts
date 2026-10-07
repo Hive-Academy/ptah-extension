@@ -124,7 +124,7 @@ describe('ObservationRetentionStore (real SQLite)', () => {
           // The unfiltered end-of-run count is a deliberate full index scan.
           name !== 'TOTAL_ROWS_SQL' && /observation_queue/.test(sql),
       );
-      expect(planned.length).toBeGreaterThanOrEqual(10);
+      expect(planned.length).toBeGreaterThanOrEqual(6);
       const violations: string[] = [];
       for (const [name, sql] of planned) {
         for (const detail of planOf(t, sql)) {
@@ -150,9 +150,6 @@ describe('ObservationRetentionStore (real SQLite)', () => {
       expect(planOf(t, sql.PROCESSED_IDS_FOR_SESSION_SQL).join('|')).toContain(
         'USING COVERING INDEX idx_obs_queue_session (session_id=? AND processed_at>? AND processed_at<?)',
       );
-      expect(planOf(t, sql.STUCK_IDS_SQL).join('|')).toContain(
-        'USING COVERING INDEX idx_obs_queue_drain (processed_at=? AND captured_at<?)',
-      );
       expect(planOf(t, sql.STUCK_ELIGIBLE_COUNT_SQL).join('|')).toContain(
         'USING COVERING INDEX idx_obs_queue_drain',
       );
@@ -162,20 +159,8 @@ describe('ObservationRetentionStore (real SQLite)', () => {
       expect(planOf(t, sql.PENDING_BYTES_SQL).join('|')).toContain(
         'USING INDEX idx_obs_queue_drain',
       );
-      for (const byId of [
-        sql.DELETE_IDS_SQL,
-        sql.QUARANTINE_UPSERT_SQL,
-        sql.STUCK_PAYLOAD_BYTES_SQL,
-      ]) {
-        expect(planOf(t, byId).join('|')).toContain(
-          'USING INTEGER PRIMARY KEY',
-        );
-      }
-      // The stuck DELETE re-checks `processed_at IS NULL`; without statistics the
-      // planner may drive it from the partial drain index (pending rows only)
-      // instead of rowids. Both are bounded seeks — neither scans the table.
-      expect(planOf(t, sql.DELETE_STUCK_SQL).join('|')).toMatch(
-        /SEARCH observation_queue USING (INTEGER PRIMARY KEY|COVERING INDEX idx_obs_queue_drain)/,
+      expect(planOf(t, sql.DELETE_IDS_SQL).join('|')).toContain(
+        'USING INTEGER PRIMARY KEY',
       );
     });
   });
@@ -202,7 +187,6 @@ describe('ObservationRetentionStore (real SQLite)', () => {
       },
     ]);
     store.purgeProcessedBatch(NOW - 7 * DAY, 100, '');
-    store.quarantineStuckBatch(NOW - 14 * DAY, 100, NOW);
     store.pruneLedger(NOW - 90 * DAY, 5000);
     store.readLiveStorage(NOW - 14 * DAY);
     expect(t.issued.length).toBeGreaterThan(0);
@@ -210,7 +194,47 @@ describe('ObservationRetentionStore (real SQLite)', () => {
       expect(sql).not.toMatch(/processed_at\s*=/i);
       expect(sql).not.toMatch(/UPDATE\s+observation_queue/i);
     }
-    expect(t.issued.filter((s) => s === 'BEGIN IMMEDIATE')).toHaveLength(3);
+    expect(t.issued.filter((s) => s === 'BEGIN IMMEDIATE')).toHaveLength(2);
+  });
+
+  // TASK_2026_621: retention must never delete a row extraction did not process.
+  it('every DELETE of observation_queue is guarded by processed_at IS NOT NULL', () => {
+    const deletes = Object.entries(OBSERVATION_RETENTION_SQL).filter(
+      ([, sql]) => /DELETE\s+FROM\s+observation_queue/i.test(sql),
+    );
+    expect(deletes.map(([name]) => name)).toEqual(['DELETE_IDS_SQL']);
+    for (const [, sql] of deletes) {
+      expect(sql).toMatch(/processed_at\s+IS\s+NOT\s+NULL/i);
+    }
+  });
+
+  it('the id DELETE leaves an unprocessed row in place even when handed its id', () => {
+    const { t } = fresh();
+    const [unprocessed, processed] = seedObservations(t.raw, [
+      {
+        sessionId: 'a',
+        kind: 'tool-use',
+        capturedAt: NOW - 30 * DAY,
+        processedAt: null,
+      },
+      {
+        sessionId: 'a',
+        kind: 'tool-use',
+        capturedAt: NOW - 30 * DAY,
+        processedAt: NOW - 20 * DAY,
+      },
+    ]);
+    const result = t.raw
+      .prepare(OBSERVATION_RETENTION_SQL.DELETE_IDS_SQL)
+      .run({ ids: JSON.stringify([unprocessed, processed]) });
+    expect(Number(result.changes)).toBe(1);
+    expect(
+      count(
+        t,
+        'SELECT COUNT(*) AS n FROM observation_queue WHERE id = ?',
+        unprocessed,
+      ),
+    ).toBe(1);
   });
 
   describe('purgeProcessedBatch', () => {
@@ -318,83 +342,6 @@ describe('ObservationRetentionStore (real SQLite)', () => {
         nextCursor: 's-02',
         exhausted: false,
       });
-    });
-  });
-
-  describe('quarantineStuckBatch', () => {
-    it('ledgers stuck rows per (session, kind), accumulates across batches, and deletes only them', () => {
-      const { t, store } = fresh();
-      const text = 'x'.repeat(100);
-      seedObservations(t.raw, [
-        ...rows(3, {
-          sessionId: 'a',
-          kind: 'tool-use',
-          capturedAt: NOW - 20 * DAY,
-          processedAt: null,
-          toolResponseText: text,
-        }),
-        ...rows(3, {
-          sessionId: 'a',
-          kind: 'tool-use',
-          capturedAt: NOW - 16 * DAY,
-          processedAt: null,
-          toolResponseText: text,
-        }),
-      ]);
-      const grace = seedObservations(t.raw, [
-        {
-          sessionId: 'a',
-          kind: 'tool-use',
-          capturedAt: NOW - 13 * DAY,
-          processedAt: null,
-        },
-      ]);
-      const processed = seedObservations(t.raw, [
-        {
-          sessionId: 'a',
-          kind: 'tool-use',
-          capturedAt: NOW - 20 * DAY,
-          processedAt: NOW - DAY,
-        },
-      ]);
-
-      const b1 = store.quarantineStuckBatch(NOW - 14 * DAY, 4, NOW);
-      expect(b1).toEqual({ quarantined: 4, payloadBytes: 400 });
-      const b2 = store.quarantineStuckBatch(NOW - 14 * DAY, 4, NOW + 1000);
-      expect(b2).toEqual({ quarantined: 2, payloadBytes: 200 });
-      expect(store.quarantineStuckBatch(NOW - 14 * DAY, 4, NOW + 2000)).toEqual(
-        {
-          quarantined: 0,
-          payloadBytes: 0,
-        },
-      );
-
-      const ledger = t.raw
-        .prepare('SELECT * FROM observation_quarantine')
-        .all() as Array<Record<string, unknown>>;
-      expect(ledger).toHaveLength(1);
-      expect(ledger[0]).toMatchObject({
-        session_id: 'a',
-        kind: 'tool-use',
-        reason: 'stuck-unprocessed',
-        row_count: 6,
-        payload_bytes: 600,
-        oldest_captured_at: NOW - 20 * DAY,
-        newest_captured_at: NOW - 16 * DAY,
-        first_quarantined_at: NOW,
-        last_quarantined_at: NOW + 1000,
-      });
-      expect(
-        count(
-          t,
-          'SELECT COUNT(*) AS n FROM observation_queue WHERE id = ?',
-          grace[0],
-        ),
-      ).toBe(1);
-      const kept = t.raw
-        .prepare('SELECT processed_at FROM observation_queue WHERE id = ?')
-        .get(processed[0]) as { processed_at: number };
-      expect(Number(kept.processed_at)).toBe(NOW - DAY);
     });
   });
 
@@ -708,6 +655,8 @@ describe('ObservationRetentionStore (real SQLite)', () => {
         oldestPendingAt: NOW - 20 * DAY,
         stuckEligibleRows: 1,
         quarantineLedgerRows: 0,
+        bootScanFailuresPending: 0,
+        bootScanFailuresGivenUp: 0,
         readErrors: [],
       });
     });
@@ -795,6 +744,8 @@ describe('ObservationRetentionStore (real SQLite)', () => {
         oldestPendingAt: null,
         stuckEligibleRows: null,
         quarantineLedgerRows: null,
+        bootScanFailuresPending: null,
+        bootScanFailuresGivenUp: null,
         readErrors: ['connection: PERSISTENCE_UNAVAILABLE'],
       });
     });
@@ -854,7 +805,7 @@ describe('ObservationRetentionStore (real SQLite)', () => {
       t.raw.exec('DROP TABLE observation_quarantine');
       let thrown: unknown;
       try {
-        store.quarantineStuckBatch(NOW - 14 * DAY, 10, NOW);
+        store.pruneLedger(NOW - 90 * DAY, 5000);
       } catch (error: unknown) {
         thrown = error;
       }

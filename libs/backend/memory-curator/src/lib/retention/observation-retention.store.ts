@@ -24,12 +24,15 @@
  * Id lists reach the DELETE as a bound JSON string through `json_each`, so the
  * delete is rowid lookups and the SQL text never changes shape.
  *
- * ## `processed_at` is never written here
+ * ## `processed_at` is never written here, and unprocessed rows are never deleted
  *
  * Only the curator's `markProcessed` may set it: a row marked processed without
- * being curated is a silently lost observation. Stuck rows are summarised into
- * the ledger and deleted instead. A spec asserts no statement in this file sets
- * the column.
+ * being curated is a silently lost observation. Every DELETE of
+ * `observation_queue` is keyed on `processed_at IS NOT NULL`, so a row that
+ * extraction never handled survives retention however old it is
+ * (TASK_2026_621); stuck rows are only counted (`STUCK_ELIGIBLE_COUNT_SQL`).
+ * The `observation_quarantine` ledger keeps the summaries written before that
+ * change and is still pruned. Specs assert both invariants.
  */
 import { inject, injectable } from 'tsyringe';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
@@ -47,44 +50,10 @@ const PROCESSED_IDS_FOR_SESSION_SQL = `SELECT id FROM observation_queue INDEXED 
  WHERE session_id = @sid AND processed_at IS NOT NULL AND processed_at < @cutoff
  LIMIT @remaining`;
 
+// Re-checks `processed_at IS NOT NULL`, so the never-delete-an-unprocessed-row
+// invariant is local to the statement rather than to the id query before it.
 const DELETE_IDS_SQL = `DELETE FROM observation_queue
- WHERE id IN (SELECT value FROM json_each(@ids))`;
-
-const STUCK_IDS_SQL = `SELECT id FROM observation_queue INDEXED BY idx_obs_queue_drain
- WHERE processed_at IS NULL AND captured_at < @cutoff
- ORDER BY captured_at LIMIT @limit`;
-
-const STUCK_PAYLOAD_BYTES_SQL = `SELECT COALESCE(SUM(
-   COALESCE(octet_length(q.tool_response_text),0) + COALESCE(octet_length(q.tool_input_json),0)
- + COALESCE(octet_length(q.assistant_message),0) + COALESCE(octet_length(q.user_prompt),0)
- + COALESCE(octet_length(q.file_path),0)), 0) AS bytes
- FROM observation_queue q
- WHERE q.id IN (SELECT value FROM json_each(@ids))`;
-
-// The WHERE clause before ON CONFLICT is required: SQLite's upsert grammar
-// needs the SELECT to carry one, or `ON` parses as a join constraint.
-const QUARANTINE_UPSERT_SQL = `INSERT INTO observation_quarantine
-  (session_id, kind, reason, row_count, payload_bytes,
-   oldest_captured_at, newest_captured_at, first_quarantined_at, last_quarantined_at)
-SELECT q.session_id, q.kind, 'stuck-unprocessed', COUNT(*),
-       SUM(COALESCE(octet_length(q.tool_response_text),0) + COALESCE(octet_length(q.tool_input_json),0)
-         + COALESCE(octet_length(q.assistant_message),0) + COALESCE(octet_length(q.user_prompt),0)
-         + COALESCE(octet_length(q.file_path),0)),
-       MIN(q.captured_at), MAX(q.captured_at), @now, @now
-  FROM observation_queue q
- WHERE q.id IN (SELECT value FROM json_each(@ids))
- GROUP BY q.session_id, q.kind
-ON CONFLICT(session_id, kind, reason) DO UPDATE SET
-  row_count           = row_count + excluded.row_count,
-  payload_bytes       = payload_bytes + excluded.payload_bytes,
-  oldest_captured_at  = MIN(oldest_captured_at, excluded.oldest_captured_at),
-  newest_captured_at  = MAX(newest_captured_at, excluded.newest_captured_at),
-  last_quarantined_at = excluded.last_quarantined_at`;
-
-// Re-checks `processed_at IS NULL`, so the never-delete-a-processed-row-as-stuck
-// invariant is local to the statement rather than to the transaction around it.
-const DELETE_STUCK_SQL = `DELETE FROM observation_queue
- WHERE id IN (SELECT value FROM json_each(@ids)) AND processed_at IS NULL`;
+ WHERE id IN (SELECT value FROM json_each(@ids)) AND processed_at IS NOT NULL`;
 
 const PRUNE_LEDGER_BY_AGE_SQL = `DELETE FROM observation_quarantine WHERE last_quarantined_at < @olderThan`;
 
@@ -115,6 +84,13 @@ const STUCK_ELIGIBLE_COUNT_SQL = `SELECT COUNT(*) AS n
  WHERE processed_at IS NULL AND captured_at < @cutoff`;
 
 const LEDGER_COUNT_SQL = `SELECT COUNT(*) AS n FROM observation_quarantine`;
+
+// The memory boot-scan failure ledger (migration 0052, TASK_2026_621): small,
+// one row per failed session, read through its status index.
+const BOOT_SCAN_FAILURE_COUNTS_SQL = `SELECT
+   COALESCE(SUM(status = 'pending'), 0) AS pending,
+   COALESCE(SUM(status = 'given_up'), 0) AS given_up
+ FROM memory_boot_scan_failures`;
 
 // Deliberately unfiltered and therefore only called at the END of a run, never
 // on a diagnostics poll (measured 72 ms warm, 1.4 s cold on the live file).
@@ -185,16 +161,13 @@ export const OBSERVATION_RETENTION_SQL = {
   NEXT_SESSION_SQL,
   PROCESSED_IDS_FOR_SESSION_SQL,
   DELETE_IDS_SQL,
-  STUCK_IDS_SQL,
-  STUCK_PAYLOAD_BYTES_SQL,
-  QUARANTINE_UPSERT_SQL,
-  DELETE_STUCK_SQL,
   PRUNE_LEDGER_BY_AGE_SQL,
   PRUNE_LEDGER_BY_COUNT_SQL,
   PENDING_SUMMARY_SQL,
   PENDING_BYTES_SQL,
   STUCK_ELIGIBLE_COUNT_SQL,
   LEDGER_COUNT_SQL,
+  BOOT_SCAN_FAILURE_COUNTS_SQL,
   TOTAL_ROWS_SQL,
   READ_STATE_SQL,
   WRITE_RUN_SQL,
@@ -230,17 +203,16 @@ export interface PurgeProcessedBatchResult {
   readonly exhausted: boolean;
 }
 
-export interface QuarantineStuckBatchResult {
-  readonly quarantined: number;
-  readonly payloadBytes: number;
-}
-
 export interface LiveStorageReading {
   readonly pendingRows: number | null;
   readonly pendingBytes: number | null;
   readonly oldestPendingAt: number | null;
   readonly stuckEligibleRows: number | null;
   readonly quarantineLedgerRows: number | null;
+  /** Boot-scan sessions whose failed pass is still being retried. */
+  readonly bootScanFailuresPending: number | null;
+  /** Boot-scan sessions whose failed pass was given up on. */
+  readonly bootScanFailuresGivenUp: number | null;
   /** `"<read>: <message>"` per failed read; empty when every read succeeded. */
   readonly readErrors: readonly string[];
 }
@@ -286,6 +258,11 @@ export interface RetentionRunRecord {
   readonly error: string | null;
   readonly durationMs: number;
   readonly processedPurged: number;
+  /**
+   * Stuck rows deleted into the ledger. Retention no longer deletes unprocessed
+   * rows (TASK_2026_621), so the service records 0; the column stays because
+   * the shared diagnostics DTO still carries it.
+   */
   readonly stuckQuarantined: number;
   readonly ledgerPruned: number;
   readonly freedBytes: number;
@@ -427,34 +404,6 @@ export class ObservationRetentionStore {
     });
   }
 
-  /**
-   * Summarise at most `limit` of the oldest unprocessed rows captured before
-   * `cutoffMs` into `observation_quarantine`, then delete them. Never marks a
-   * row processed.
-   */
-  quarantineStuckBatch(
-    cutoffMs: number,
-    limit: number,
-    nowMs: number,
-  ): QuarantineStuckBatchResult {
-    return this.inTransaction('quarantine-stuck', (db) => {
-      const rows = this.statement(db, STUCK_IDS_SQL).all({
-        cutoff: cutoffMs,
-        limit,
-      }) as Array<{ id: number }>;
-      if (rows.length === 0) return { quarantined: 0, payloadBytes: 0 };
-      const ids = JSON.stringify(rows.map((r) => Number(r.id)));
-      const bytesRow = this.statement(db, STUCK_PAYLOAD_BYTES_SQL).get({
-        ids,
-      }) as { bytes: number } | undefined;
-      this.statement(db, QUARANTINE_UPSERT_SQL).run({ ids, now: nowMs });
-      const quarantined = Number(
-        this.statement(db, DELETE_STUCK_SQL).run({ ids }).changes,
-      );
-      return { quarantined, payloadBytes: Number(bytesRow?.bytes ?? 0) };
-    });
-  }
-
   /** Bound the ledger by age and by row count. */
   pruneLedger(olderThanMs: number, maxRows: number): { pruned: number } {
     return this.inTransaction('prune-ledger', (db) => {
@@ -486,6 +435,8 @@ export class ObservationRetentionStore {
         oldestPendingAt: null,
         stuckEligibleRows: null,
         quarantineLedgerRows: null,
+        bootScanFailuresPending: null,
+        bootScanFailuresGivenUp: null,
         readErrors: [`connection: ${errorText(error)}`],
       };
     }
@@ -538,6 +489,14 @@ export class ObservationRetentionStore {
         { n: number } | undefined;
       return Number(row?.n ?? 0);
     });
+    const bootScanFailures = read('bootScanFailures', () => {
+      const row = this.statement(db, BOOT_SCAN_FAILURE_COUNTS_SQL).get() as
+        { pending: number; given_up: number } | undefined;
+      return {
+        pending: Number(row?.pending ?? 0),
+        givenUp: Number(row?.given_up ?? 0),
+      };
+    });
 
     return {
       pendingRows: pending?.rows ?? null,
@@ -545,6 +504,8 @@ export class ObservationRetentionStore {
       oldestPendingAt: pending?.oldest ?? null,
       stuckEligibleRows,
       quarantineLedgerRows,
+      bootScanFailuresPending: bootScanFailures?.pending ?? null,
+      bootScanFailuresGivenUp: bootScanFailures?.givenUp ?? null,
       readErrors,
     };
   }

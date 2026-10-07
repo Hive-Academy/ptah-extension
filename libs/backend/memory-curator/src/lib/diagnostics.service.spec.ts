@@ -24,6 +24,8 @@ const STORAGE_HEALTH: MemoryStorageHealthDto = {
     processedBytesEstimate: 1280,
     measuredAt: 1700000001000,
     quarantineLedgerRows: 3,
+    bootScanFailuresPending: 0,
+    bootScanFailuresGivenUp: 0,
   },
   retention: {
     healthVerdict: 'healthy',

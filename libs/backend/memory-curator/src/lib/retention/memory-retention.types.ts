@@ -64,7 +64,12 @@ export interface MemoryRetentionRunReport {
   /** Stop token for `partial`, failure token for `failed`, else `null` or `auto-vacuum-not-incremental`. */
   readonly reason: string | null;
   readonly processedPurged: number;
-  readonly stuckQuarantined: number;
+  /**
+   * Unprocessed rows captured before `stuckDays` that the run kept — retention
+   * never deletes a row extraction did not process (TASK_2026_621). `null`
+   * when the count was not read (an earlier stop, or a failed read).
+   */
+  readonly stuckKept: number | null;
   readonly ledgerPruned: number;
   /** Freelist growth caused by the processed purge, in bytes. */
   readonly freedBytes: number;
@@ -81,5 +86,4 @@ export interface MemoryRetentionRunReport {
 }
 
 export type MemoryRetentionReport =
-  | MemoryRetentionSkippedReport
-  | MemoryRetentionRunReport;
+  MemoryRetentionSkippedReport | MemoryRetentionRunReport;

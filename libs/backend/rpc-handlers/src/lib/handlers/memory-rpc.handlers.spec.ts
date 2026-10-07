@@ -175,6 +175,8 @@ function makeMemoryDiagnostics() {
           processedBytesEstimate: null,
           measuredAt: null,
           quarantineLedgerRows: null,
+          bootScanFailuresPending: null,
+          bootScanFailuresGivenUp: null,
         },
         retention: {
           enabled: true,
@@ -727,6 +729,8 @@ describe('MemoryRpcHandlers — memory:diagnostics', () => {
         processedBytesEstimate: 2560,
         measuredAt: 1700000000000,
         quarantineLedgerRows: 2,
+        bootScanFailuresPending: 0,
+        bootScanFailuresGivenUp: 0,
       },
       retention: {
         enabled: true,

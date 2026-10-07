@@ -96,6 +96,63 @@ describe('EventFeedComponent', () => {
     expect(text).toContain('1m ago');
   });
 
+  // TASK_2026_621: the stats summary used to keep only the first three
+  // entries, which hid a boot scan's stalled and failed counts.
+  it('shows boot-scan failed, given-up and stalled counts with the warning tone', () => {
+    const fixture = TestBed.createComponent(EventFeedComponent);
+    fixture.componentRef.setInput('events', [
+      {
+        kind: 'boot-scan',
+        timestamp: 1,
+        stats: {
+          scanned: 5,
+          succeeded: 3,
+          skipped: 0,
+          stalled: 1,
+          failed: 1,
+          retried: 2,
+          recovered: 1,
+          givenUp: 1,
+        },
+      } satisfies MemoryCuratorEventWire,
+    ]);
+    fixture.componentRef.setInput('now', 1_000);
+    fixture.detectChanges();
+
+    const root = fixture.nativeElement as HTMLElement;
+    const text = root.textContent ?? '';
+    expect(text).toContain('scanned=5');
+    expect(text).toContain('succeeded=3');
+    expect(text).toContain('failed (queued for retry)=1');
+    expect(text).toContain('retried=2');
+    expect(text).toContain('recovered=1');
+    expect(text).toContain('given up=1');
+    expect(text).toContain('stopped early by a gate');
+    expect(text).not.toContain('skipped=');
+    expect(
+      root.querySelector('.badge')?.classList.contains('badge-warning'),
+    ).toBe(true);
+  });
+
+  it('keeps a clean boot scan at the info tone', () => {
+    const fixture = TestBed.createComponent(EventFeedComponent);
+    fixture.componentRef.setInput('events', [
+      {
+        kind: 'boot-scan',
+        timestamp: 1,
+        stats: { scanned: 2, succeeded: 2, skipped: 0, stalled: 0, failed: 0 },
+      } satisfies MemoryCuratorEventWire,
+    ]);
+    fixture.componentRef.setInput('now', 1_000);
+    fixture.detectChanges();
+
+    const root = fixture.nativeElement as HTMLElement;
+    expect(root.textContent ?? '').toContain('scanned=2, succeeded=2');
+    expect(root.querySelector('.badge')?.classList.contains('badge-info')).toBe(
+      true,
+    );
+  });
+
   it('renders user-cue-trigger with cue text', () => {
     const fixture = TestBed.createComponent(EventFeedComponent);
     fixture.componentRef.setInput('events', [
