@@ -142,3 +142,45 @@ All paths are under
 
 - `OFFLINE_SUITES` and `HOST_SUITES` are empty; Batches 17–23 register suites there.
 - `.github/workflows/memory-skills-bench.yml` (design 7) is not part of this batch.
+
+## Review fixes
+
+Source: `code-logic-review-phase3-4.md` (APPROVED with findings), one correction round on top of
+`44a3329c4`. No git state changed; nothing committed; no 619-owned file edited; no bench run.
+
+Files (all MODIFIED, under `D:\projects\ptah-extension\.claude-worktrees\task-620-memory-skills-bench\tools\mcp-bench\src\memory-skills\`):
+`host\fixture-seeder.ts` + `.spec.ts`, `host\plan.schema.ts` + `.spec.ts`,
+`runner\read-path-guard.ts` + `.spec.ts`, `runner\ground-truth-freshness.ts` + `.spec.ts`,
+`runner\run-memory-skills.ts` + `.spec.ts`, `runner\run-scorecard.ts`.
+
+| Finding | Fix | Pinned by |
+|---|---|---|
+| 1 (moderate) seeder: isolated home equal to `~/.ptah` | The constructor now refuses a home that is, lies in, or contains the real `~/.ptah`, or contains the real home. Checked on the given paths and on resolved real paths (`resolveRealPath`), case-folded on win32 by 619's `isSamePath`/`isPathInside`. | `fixture-seeder.spec.ts`: "refuses an isolated home that is the real ~/.ptah or holds it" (equal, inside, holding, and a junction to it); "compares … case-insensitively on win32" |
+| 2 (moderate) guard TOCTOU | Fail closed at read time. `readText`/`readBytes` of a repo file read the bytes first, then run `git status --porcelain=v1 -z --untracked-files=all -- :(literal)<path>` for that one path. Any output means the read is refused ("changed in the working tree since the run started"). I chose this over a blob-hash compare because git applies its own `autocrlf`/filter normalisation, so a hash compare could falsely refuse on Windows checkouts. `git` is now a required guard option. | `read-path-guard.spec.ts`: "refuses a committed file edited after the guard was built (mid-run edit)"; the read test asserts the exact literal-pathspec git call |
+| 3 (moderate) non-CI exit code | Every plan suite without a result is now a `problems` line in every mode, so the exit code is 1. This covers a suite error (a `ReadPathRefusedError` inside an offline suite included), an invalid result, a skipped or unrun suite, and an incomplete host. The scorecard and `run-summary.json` are still written. The known-failures ratchet stays `--ci` only. | `run-memory-skills.spec.ts`: "fails a non-CI run whose offline suite was refused a read" (`gate` null, exit 1, problem names the refusal); "reports a host suite error as missing, writes the scorecard and exits 1 outside --ci" |
+| 4 (moderate) ledger last-write-wins | The ledger is now `<bench>/runs/first-scored-runs/<sha256(id)>.json`, one create-once file per id. Each entry is written fully to a unique temp file, published with `linkSync` (atomic; `EEXIST` means another run was first, and its entry wins), and the temp file is unlinked in `finally`. There is no existence pre-check, so a run with a stale view takes the same path. No run ever rewrites another id's file. A malformed entry, or one in the wrong file, fails closed. | `ground-truth-freshness.spec.ts`: "never rewrites another id and keeps the first publisher on a race" (stale second run: gt-a stays `ms-a` byte-for-byte, gt-b added, no `.tmp` left) |
+| 5 (minor) seeder real path vs lexical roots | The resolved source is now compared against the resolved allowed roots and against both `~/.ptah` and its real path. | "accepts a source reached through a linked allowed root (5b)"; "refuses a source in the target of a linked ~/.ptah (5a)" |
+| 6 (minor) run-dir reads bypass the guard | Fixed. `collectSuites` calls `guard.assertReadable` on both suite files before reading them. `runArtifact` and the scorecard hash read through `guard.readBytes`. `sha256File` was deleted from `run-scorecard.ts`. | No dedicated test: planting a file symlink on Windows needs privilege. The guard's link refusal is covered by `read-path-guard.spec.ts` |
+| 7 (minor) record cassette in committed fixtures | `plan.schema.ts` now refuses, in `record` mode, a cassette path inside `committedFixturesDir` (replay may still read committed cassettes). | `plan.schema.spec.ts`: "refuses a record-mode cassette in the committed fixtures"; the record-mode acceptance test now uses bench cassettes |
+| 8 (minor) `--workspace` under `~/.ptah` | `runMemorySkills` refuses, before the run directory is created, an explicit workspace that is, lies in, or holds the real `~/.ptah`. This is checked lexically and on real paths. | "refuses a --workspace that is, lies in or holds the real ~/.ptah" (no launch) |
+| 9 (minor) unpinned behaviours | Tests only. | "keeps a crash-on-shutdown run at exit 0 with its suite results"; "restores a previous value after a successful launch"; "removes the variable when the launch throws" |
+| 10 (minor) retry `stop()` masks the error | The window tracks whether its own `stop()` already ran. If it did, that error (the guard trip) is rethrown as itself and stop is not retried. Otherwise the retry stop runs. If the retry rejects too, the runner throws an `AggregateError([windowError, stopError])` with `cause: stopError`, so `errors[0]` is the original error. | "keeps the window error and the stop error when the retry stop rejects"; "reports a guard trip in the normal stop as itself, stopping once" |
+
+Deferred: none; findings 6 and 7 were each a few lines and are fixed.
+
+Behaviour change to note: the first-scored ledger moved from `runs/first-scored-runs.json` to the
+directory `runs/first-scored-runs/`. No real scored run has happened yet, so there is nothing to
+migrate.
+
+Process note: my first `prettier --write` pass in this round included untracked files, among them
+the reviewer's `code-logic-review-phase3-4.md`. Because that file is untracked I cannot tell whether
+prettier reformatted it. Its content is the reviewer's; please check it if the exact bytes matter.
+
+Check results (this round):
+
+- `npx jest -c tools/mcp-bench/jest.config.ts tools/mcp-bench/src/memory-skills --runInBand` →
+  `Test Suites: 36 passed, 36 total` / `Tests:       419 passed, 419 total`
+- `npx nx run-many -t typecheck,lint -p mcp-bench --skip-nx-cache` →
+  `NX   Successfully ran targets typecheck, lint for project mcp-bench`. `npx eslint` on
+  `memory-skills/runner` and `memory-skills/host` reports 0 problems.
+- `npx prettier --check --ignore-unknown <changed files>` → `All matched files use Prettier code style!`

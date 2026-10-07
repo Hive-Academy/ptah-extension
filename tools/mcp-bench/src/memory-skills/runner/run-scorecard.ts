@@ -8,7 +8,7 @@
  */
 
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
 
 import { z } from 'zod';
@@ -30,6 +30,8 @@ import {
 } from './runner-plan';
 import {
   readSuiteResult,
+  suiteCasesFile,
+  suiteResultFile,
   type CaseRecord,
   type SuiteResult,
 } from './suite-result';
@@ -64,10 +66,6 @@ export interface SuiteSummary {
   readonly maxCaseLatencyMs: number | null;
   readonly safetyCapCases: number;
   readonly retriedCases: number;
-}
-
-export function sha256File(path: string): string {
-  return createHash('sha256').update(readFileSync(path)).digest('hex');
 }
 
 export function scorecardOs(platform: NodeJS.Platform): Scorecard['run']['os'] {
@@ -130,11 +128,15 @@ export function collectSuites(
   runDir: string,
   completion: HostCompletionView | null,
   offline: ReadonlyMap<string, OfflineStatus>,
+  guard: ReadPathGuard,
 ): { scored: ScoredSuite[]; missing: MissingSuite[] } {
   const scored: ScoredSuite[] = [];
   const missing: MissingSuite[] = [];
   const read = (placement: SuitePlacement, id: string): void => {
     try {
+      // A link planted at either name must not redirect the parent's read.
+      guard.assertReadable(join(runDir, suiteResultFile(id)));
+      guard.assertReadable(join(runDir, suiteCasesFile(id)));
       scored.push({ placement, ...readSuiteResult(runDir, id) });
     } catch (error: unknown) {
       missing.push({
@@ -300,19 +302,23 @@ export function guardSummary(report: GuardReport): Scorecard['run']['guard'] {
   };
 }
 
-/** A run-relative artefact reference, or `null` when the file was not written. */
+/**
+ * A run-relative artefact reference, or `null` when the file was not written.
+ * The bytes are read through the guard, like every other parent read.
+ */
 export function runArtifact(
+  guard: ReadPathGuard,
   runDir: string,
   file: string,
   kind: string,
   schemaId: string,
 ): Scorecard['artifacts'][number] | null {
-  const path = join(runDir, file);
+  const path = guard.assertReadable(join(runDir, file));
   if (!existsSync(path)) return null;
   return {
     kind,
     path: relative(runDir, path).split(sep).join('/'),
-    sha256: sha256File(path),
+    sha256: createHash('sha256').update(guard.readBytes(path)).digest('hex'),
     schemaId,
   };
 }

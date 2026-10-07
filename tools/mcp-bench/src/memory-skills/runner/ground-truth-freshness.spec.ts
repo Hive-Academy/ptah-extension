@@ -1,11 +1,10 @@
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import {
   assertGroundTruthNotNewer,
-  FIRST_SCORED_RUNS_SCHEMA_ID,
-  firstScoredRunsPath,
+  firstScoredRunsDir,
   GroundTruthFreshnessError,
   mergeGroundTruthRefs,
   readFirstScoredRuns,
@@ -68,7 +67,6 @@ describe('ground-truth freshness (design 10.1 guarantee 2)', () => {
 
   it('refuses a commit newer than the first scored run, allows the same or an older one', () => {
     const ledger = {
-      schemaId: FIRST_SCORED_RUNS_SCHEMA_ID,
       groundTruths: {
         'gt-memory@v1': {
           runId: 'ms-first',
@@ -129,10 +127,50 @@ describe('ground-truth freshness (design 10.1 guarantee 2)', () => {
     ).not.toThrow();
   });
 
+  it('never rewrites another id and keeps the first publisher on a race (review finding 4)', () => {
+    const bench = mkdtempSync(join(tmpdir(), 'ptah-620-gtrace-'));
+    try {
+      const dir = firstScoredRunsDir(bench);
+      const gtA = {
+        id: 'gt-a@v1',
+        commit: SHA_A,
+        committedAt: '2026-10-06T23:00:00Z',
+      };
+      const gtB = {
+        id: 'gt-b@v1',
+        commit: SHA_B,
+        committedAt: '2026-10-06T23:00:00Z',
+      };
+      recordFirstScoredRuns(dir, [gtA], {
+        runId: 'ms-a',
+        startedAt: '2026-10-07T00:00:00.000Z',
+      });
+      const [fileA] = readdirSync(dir);
+      const bytesA = readFileSync(join(dir, fileA), 'utf8');
+
+      // A second run that read the ledger before run A published (so it
+      // believes both ids are new) publishes both: gt-a's link meets EEXIST
+      // and run A's entry wins; gt-b is added beside it.
+      const ledger = recordFirstScoredRuns(dir, [gtA, gtB], {
+        runId: 'ms-b',
+        startedAt: '2026-10-07T00:00:01.000Z',
+      });
+      expect(ledger.groundTruths['gt-a@v1'].runId).toBe('ms-a');
+      expect(ledger.groundTruths['gt-b@v1'].runId).toBe('ms-b');
+      expect(readFileSync(join(dir, fileA), 'utf8')).toBe(bytesA);
+      // No temp file is left behind.
+      expect(readdirSync(dir).filter((name) => name.endsWith('.tmp'))).toEqual(
+        [],
+      );
+    } finally {
+      rmSync(bench, { recursive: true, force: true });
+    }
+  });
+
   it('records only ids scored for the first time', () => {
     const bench = mkdtempSync(join(tmpdir(), 'ptah-620-gtledger-'));
     try {
-      const path = firstScoredRunsPath(bench);
+      const path = firstScoredRunsDir(bench);
       expect(readFirstScoredRuns(path).groundTruths).toEqual({});
       const gt = {
         id: 'gt-memory@v1',
@@ -157,7 +195,8 @@ describe('ground-truth freshness (design 10.1 guarantee 2)', () => {
       );
       expect(second.groundTruths['gt-memory@v1'].runId).toBe('ms-1');
       expect(second.groundTruths['gt-merge@v1'].runId).toBe('ms-2');
-      expect(JSON.parse(readFileSync(path, 'utf8'))).toEqual(second);
+      expect(readFirstScoredRuns(path)).toEqual(second);
+      expect(readdirSync(path)).toHaveLength(2);
     } finally {
       rmSync(bench, { recursive: true, force: true });
     }

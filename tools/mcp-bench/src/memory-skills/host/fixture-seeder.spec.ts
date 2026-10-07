@@ -224,6 +224,93 @@ describe('seedFixtures', () => {
     ).toThrow(/no allowed source root/);
   });
 
+  it('refuses an isolated home that is the real ~/.ptah or holds it (review finding 1)', () => {
+    const asHome = (home: string): IsolatedPaths => ({
+      home,
+      userDataPath: join(home, '.ptah'),
+      dbPath: join(home, '.ptah', 'state', 'ptah.sqlite'),
+    });
+    for (const home of [
+      join(realHome, '.ptah'),
+      join(realHome, '.ptah', 'state'),
+      root,
+    ]) {
+      expect(() =>
+        seedFixtures({
+          fixtures: [],
+          isolation: asHome(home),
+          realHome,
+          allowedRoots: [bench],
+        }),
+      ).toThrow(/overlap/);
+    }
+    // A junction to the real ~/.ptah as the isolated home: caught on the real path.
+    const linkedHome = join(root, 'linked-home');
+    linkDir(join(realHome, '.ptah'), linkedHome);
+    expect(() =>
+      seedFixtures({
+        fixtures: [],
+        isolation: asHome(linkedHome),
+        realHome,
+        allowedRoots: [bench],
+      }),
+    ).toThrow(/overlap/);
+  });
+
+  it('compares the isolated home with ~/.ptah case-insensitively on win32', () => {
+    expect(() =>
+      seedFixtures({
+        fixtures: [],
+        isolation: {
+          home: 'C:\\Users\\Dev\\.PTAH',
+          userDataPath: 'C:\\Users\\Dev\\.PTAH\\.ptah',
+          dbPath: 'C:\\Users\\Dev\\.PTAH\\.ptah\\state\\ptah.sqlite',
+        },
+        realHome: 'c:\\users\\dev',
+        allowedRoots: ['D:\\bench'],
+        platform: 'win32',
+        realpath: (path) => path,
+      }),
+    ).toThrow(/overlap/);
+  });
+
+  it('accepts a source reached through a linked allowed root (review finding 5b)', () => {
+    const file = join(bench, 'f.txt');
+    writeFileSync(file, 'via link');
+    const linkedBench = join(root, 'linked-bench');
+    linkDir(bench, linkedBench);
+    const [seeded] = seed(
+      [{ kind: 'file', source: join(linkedBench, 'f.txt'), target: 'f.txt' }],
+      [linkedBench],
+    );
+    expect(readFileSync(seeded.target, 'utf8')).toBe('via link');
+  });
+
+  it('refuses a source in the target of a linked ~/.ptah (review finding 5a)', () => {
+    const ptahTarget = join(root, 'ptah-target');
+    mkdirSync(ptahTarget);
+    writeFileSync(join(ptahTarget, 'memories.json'), 'REAL');
+    const linkedRealHome = join(root, 'linked-real-home');
+    mkdirSync(linkedRealHome);
+    linkDir(ptahTarget, join(linkedRealHome, '.ptah'));
+    const allowedLink = join(root, 'allowed-link');
+    linkDir(ptahTarget, allowedLink);
+    expect(() =>
+      seedFixtures({
+        fixtures: [
+          {
+            kind: 'file',
+            source: join(allowedLink, 'memories.json'),
+            target: 'm.json',
+          },
+        ],
+        isolation,
+        realHome: linkedRealHome,
+        allowedRoots: [allowedLink],
+      }),
+    ).toThrow(/lies in the real/);
+  });
+
   it('seeds nothing for an empty fixture list', () => {
     expect(seed([])).toEqual([]);
   });

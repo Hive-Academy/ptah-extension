@@ -196,6 +196,20 @@ export function createMemorySkillsPlanSchema(
       if (plan.cassetteMode === 'record' && plan.cassettes.curator.faults) {
         issue('curator faults are replay-only', ['cassettes', 'curator']);
       }
+      // Record mode writes the cassettes: never into the repository tree.
+      const committedRoot = plan.committedFixturesDir;
+      if (plan.cassetteMode === 'record' && committedRoot !== undefined) {
+        for (const which of ['curator', 'laneRunner'] as const) {
+          if (
+            isPathInside(plan.cassettes[which].path, committedRoot, platform)
+          ) {
+            issue(
+              'record mode writes cassettes; a record cassette must lie in benchDataDir, not committedFixturesDir',
+              ['cassettes', which, 'path'],
+            );
+          }
+        }
+      }
 
       let databases = 0;
       const targets = new Map<string, number>();

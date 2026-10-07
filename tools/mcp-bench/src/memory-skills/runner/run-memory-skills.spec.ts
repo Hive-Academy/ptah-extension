@@ -19,7 +19,11 @@ import {
   createMemorySkillsPlanSchema,
 } from '../host/plan.schema';
 import { SAFETY_CAP_ERROR } from './case-runner';
-import { firstScoredRunsPath } from './ground-truth-freshness';
+import {
+  firstScoredRunsDir,
+  readFirstScoredRuns,
+  recordFirstScoredRuns,
+} from './ground-truth-freshness';
 import type { RunnerHost } from './host-completion-reader';
 import type { NetAttempt, NetRecorderHandle } from './net-recorder';
 import type { MemorySkillsOfflineSuite } from './offline-suites';
@@ -98,6 +102,10 @@ interface HostScript {
   readonly writeCompletion?: boolean;
   readonly net?: NetAttempt[];
   readonly exitedEarly?: boolean;
+  /** How the stop reports the host's end (default `clean`). */
+  readonly exit?: HostStopReport['exit'];
+  /** stop() rejects with this (a real-state guard trip). */
+  readonly stopError?: Error;
 }
 
 describe('runMemorySkills (Batch 16)', () => {
@@ -206,7 +214,7 @@ describe('runMemorySkills (Batch 16)', () => {
       const stopReport: HostStopReport = {
         exit: script.exitedEarly
           ? { kind: 'exited-early', exitCode: 1, signal: null, detail: 'died' }
-          : { kind: 'clean', exitCode: 0, signal: null },
+          : (script.exit ?? { kind: 'clean', exitCode: 0, signal: null }),
         isolatedDbCreated: true,
         guard: {
           mode: 'hash',
@@ -219,7 +227,10 @@ describe('runMemorySkills (Batch 16)', () => {
         port: 5151,
         guardMode: 'hash',
         exitedEarly: () => (script.exitedEarly ? 1 : undefined),
-        stop: async () => stopReport,
+        stop: async () => {
+          if (script.stopError !== undefined) throw script.stopError;
+          return stopReport;
+        },
       };
       return host;
     };
@@ -298,7 +309,141 @@ describe('runMemorySkills (Batch 16)', () => {
     ]);
     expect(existsSync(join(result.runDir, 'scorecard.md'))).toBe(true);
     // An empty plan scores nothing, so no ground truth becomes first-scored.
-    expect(existsSync(firstScoredRunsPath(bench))).toBe(false);
+    expect(existsSync(firstScoredRunsDir(bench))).toBe(false);
+  });
+
+  describe('PTAH_BENCH_MEMORY_SKILLS_PLAN restore (review finding 9b)', () => {
+    it('restores a previous value after a successful launch', async () => {
+      env[MEMORY_SKILLS_PLAN_ENV] = 'previous';
+      await runMemorySkills(options(writePlan({})), deps());
+      expect(launches[0].planEnv).not.toBe('previous');
+      expect(env[MEMORY_SKILLS_PLAN_ENV]).toBe('previous');
+    });
+
+    it('removes the variable when the launch throws', async () => {
+      await expect(
+        runMemorySkills(
+          options(writePlan({})),
+          deps({
+            launch: async () => {
+              expect(env[MEMORY_SKILLS_PLAN_ENV]).toBeDefined();
+              throw new Error('spawn failed');
+            },
+          }),
+        ),
+      ).rejects.toThrow('spawn failed');
+      expect(env).toEqual({ KEEP: '1' });
+    });
+  });
+
+  it('keeps a crash-on-shutdown run at exit 0 with its suite results (review finding 9a)', async () => {
+    const result = await runMemorySkills(
+      options(writePlan({ hostSuites: [{ id: 'mem.ok', groundTruth: GT }] })),
+      deps({
+        launch: fakeLaunch({
+          results: [
+            { result: suiteResult('mem.ok'), cases: [caseRecord('c1')] },
+          ],
+          exit: {
+            kind: 'crash-on-shutdown',
+            exitCode: 3221226505,
+            signal: null,
+            detail: 'fail-fast after the graceful stop began',
+          },
+        }),
+      }),
+    );
+    expect(result.exitCode).toBe(0);
+    expect(result.problems).toEqual([]);
+    expect(result.hostExit.kind).toBe('crash-on-shutdown');
+    const scorecard = await readScorecard(result.scorecardPath);
+    expect(scorecard.run.hostExit.kind).toBe('crash-on-shutdown');
+    expect(scorecard.suites).toHaveLength(1);
+    expect(scorecard.suites[0].verdict).toBe('pass');
+  });
+
+  it('fails a non-CI run whose offline suite was refused a read (review finding 3)', async () => {
+    const offline: MemorySkillsOfflineSuite = {
+      id: 'skill.reads-ptah',
+      run: async (context) => {
+        context.read.readText(join(home, '.ptah', 'secret.json'));
+        throw new Error('unreachable');
+      },
+    };
+    const result = await runMemorySkills(
+      options(
+        writePlan({
+          offlineSuites: [{ id: 'skill.reads-ptah', groundTruth: GT }],
+        }),
+      ),
+      deps({ offlineSuites: [offline] }),
+    );
+    expect(result.gate).toBeNull();
+    expect(result.exitCode).toBe(1);
+    expect(result.problems).toEqual([
+      expect.stringMatching(
+        /^suite skill\.reads-ptah has no result: suite-error: read refused: .*real Ptah state directory/,
+      ),
+    ]);
+  });
+
+  it('refuses a --workspace that is, lies in or holds the real ~/.ptah (review finding 8)', async () => {
+    for (const workspace of [
+      join(home, '.ptah'),
+      join(home, '.ptah', 'sub'),
+      home,
+    ]) {
+      await expect(
+        runMemorySkills(options(writePlan({}), { workspace }), deps()),
+      ).rejects.toThrow(/overlaps the real Ptah state directory/);
+    }
+    expect(launches).toHaveLength(0);
+  });
+
+  describe('stop() failures in the launcher window (review finding 10)', () => {
+    it('keeps the window error and the stop error when the retry stop rejects', async () => {
+      const guardTrip = new Error('RealStateChangedError: ptah.sqlite changed');
+      const inner = fakeLaunch({
+        writeCompletion: false,
+        stopError: guardTrip,
+      });
+      const launch: RunMemorySkillsDeps['launch'] = async (launchOptions) => {
+        const host = await inner(launchOptions);
+        writeFileSync(
+          join(bench, 'runs', 'ms-test', 'host-completion.json'),
+          '{"schemaId":"620.host-completion.v1","runId":"other"}',
+        );
+        return host;
+      };
+      const failure = await runMemorySkills(
+        options(writePlan({})),
+        deps({ launch }),
+      ).catch((error: unknown) => error);
+      expect(failure).toBeInstanceOf(AggregateError);
+      const errors = (failure as AggregateError).errors as Error[];
+      expect(errors[0].message).toMatch(/invalid host completion/);
+      expect(errors[1]).toBe(guardTrip);
+    });
+
+    it('reports a guard trip in the normal stop as itself, stopping once', async () => {
+      const guardTrip = new Error('BenchHeldRealStateError: held');
+      let stops = 0;
+      const inner = fakeLaunch({ stopError: guardTrip });
+      const launch: RunMemorySkillsDeps['launch'] = async (launchOptions) => {
+        const host = await inner(launchOptions);
+        return {
+          ...host,
+          stop: () => {
+            stops += 1;
+            return host.stop();
+          },
+        };
+      };
+      await expect(
+        runMemorySkills(options(writePlan({})), deps({ launch })),
+      ).rejects.toBe(guardTrip);
+      expect(stops).toBe(1);
+    });
   });
 
   it('scores host and offline suites, sets cost.source and records per-case runtime', async () => {
@@ -372,7 +517,7 @@ describe('runMemorySkills (Batch 16)', () => {
     expect(scorecard.artifacts.map((a) => a.schemaId)).toContain(
       '620.case.liveness.v1',
     );
-    const ledger = JSON.parse(readFileSync(firstScoredRunsPath(bench), 'utf8'));
+    const ledger = readFirstScoredRuns(firstScoredRunsDir(bench));
     expect(ledger.groundTruths['gt-memory@v1']).toMatchObject({
       runId: 'ms-test',
       commit: GT_COMMIT,
@@ -420,14 +565,18 @@ describe('runMemorySkills (Batch 16)', () => {
     });
   });
 
-  it('reports a host suite error as missing and keeps the run', async () => {
+  it('reports a host suite error as missing, writes the scorecard and exits 1 outside --ci (review finding 3)', async () => {
     const result = await runMemorySkills(
       options(
         writePlan({ hostSuites: [{ id: 'mem.broken', groundTruth: GT }] }),
       ),
       deps({ launch: fakeLaunch({ suiteStatus: { 'mem.broken': 'error' } }) }),
     );
-    expect(result.exitCode).toBe(0);
+    expect(result.gate).toBeNull();
+    expect(result.exitCode).toBe(1);
+    expect(result.problems).toEqual([
+      'suite mem.broken has no result: suite-error: boom',
+    ]);
     expect(result.suites).toEqual([
       expect.objectContaining({
         id: 'mem.broken',
@@ -450,6 +599,7 @@ describe('runMemorySkills (Batch 16)', () => {
     expect(result.problems).toEqual([
       'the host wrote no completion record',
       'host exit exited-early: died',
+      'suite mem.x has no result: host-incomplete',
     ]);
   });
 
@@ -594,20 +744,16 @@ describe('runMemorySkills (Batch 16)', () => {
 
   describe('refusals before launch', () => {
     it('refuses a ground truth committed after its first scored run', async () => {
-      mkdirSync(join(bench, 'runs'), { recursive: true });
-      writeFileSync(
-        firstScoredRunsPath(bench),
-        JSON.stringify({
-          schemaId: '620.first-scored-runs.v1',
-          groundTruths: {
-            'gt-memory@v1': {
-              runId: 'ms-earlier',
-              startedAt: '2026-10-06T00:00:00.000Z',
-              commit: 'f'.repeat(40),
-              committedAt: '2026-10-05T00:00:00Z',
-            },
+      recordFirstScoredRuns(
+        firstScoredRunsDir(bench),
+        [
+          {
+            id: 'gt-memory@v1',
+            commit: 'f'.repeat(40),
+            committedAt: '2026-10-05T00:00:00Z',
           },
-        }),
+        ],
+        { runId: 'ms-earlier', startedAt: '2026-10-06T00:00:00.000Z' },
       );
       await expect(
         runMemorySkills(

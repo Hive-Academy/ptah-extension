@@ -66,9 +66,25 @@ describe('memory-skills plan schema', () => {
       'a CI plan must use cassetteMode "replay"',
     );
     expect(
-      schema.safeParse({ ...basePlan(), ci: false, cassetteMode: 'record' })
-        .success,
+      schema.safeParse({
+        ...basePlan(),
+        ci: false,
+        cassetteMode: 'record',
+        cassettes: {
+          curator: { path: '/bench/cassettes/curator.jsonl', model: 'm-1' },
+          laneRunner: { path: '/bench/cassettes/lane.jsonl', model: 'm-1' },
+        },
+      }).success,
     ).toBe(true);
+  });
+
+  it('refuses a record-mode cassette in the committed fixtures (review finding 7)', () => {
+    // basePlan's lane-runner cassette is a committed fixture: fine to replay.
+    expect(
+      messages({ ...basePlan(), ci: false, cassetteMode: 'record' }),
+    ).toEqual([
+      'record mode writes cassettes; a record cassette must lie in benchDataDir, not committedFixturesDir',
+    ]);
   });
 
   it('refuses a bench data dir in the real ~/.ptah', () => {

@@ -11,6 +11,12 @@
  * win32, 619's `isPathInside` / `isSamePath`) and on its real path, so a
  * junction or symlink cannot lead a permitted path into a forbidden place. A
  * path that does not exist yet resolves through its nearest existing ancestor.
+ *
+ * "Committed" is checked twice too: against the snapshot taken when the guard
+ * is built, and again for every repository read, AFTER the bytes are read
+ * (`git status` for that one path). An edit made during the run (an editor
+ * auto-save in a four-hour window) therefore fails the read instead of being
+ * scored as if it came from `HEAD`.
  */
 
 import { readFileSync, realpathSync } from 'node:fs';
@@ -41,6 +47,8 @@ export interface ReadPathGuardOptions {
   readonly realHome: string;
   /** Repo-relative `/` paths that are committed (see {@link listCommittedFiles}). */
   readonly committedFiles: ReadonlySet<string>;
+  /** Re-checks a repository file's git state at read time. */
+  readonly git: GitRunner;
   /** Default `process.platform`. */
   readonly platform?: NodeJS.Platform;
   /** Default `fs.realpathSync.native`; throws `ENOENT` for a missing path. */
@@ -87,14 +95,53 @@ function errorCode(error: unknown): string | undefined {
     : undefined;
 }
 
+/** The default resolver for a platform: the local one, or none for a simulated foreign platform. */
+export function defaultRealpath(
+  platform: NodeJS.Platform,
+): ((path: string) => string) | null {
+  return platform === process.platform ? realpathSync.native : null;
+}
+
+/**
+ * `path` with every link resolved. A path that does not exist yet resolves
+ * through its nearest existing ancestor, with the missing tail re-appended.
+ * Without a resolver the path is only resolved lexically. Any failure other
+ * than `ENOENT` throws (callers refuse rather than skip the link check).
+ */
+export function resolveRealPath(
+  path: string,
+  platform: NodeJS.Platform,
+  realpath: ((path: string) => string) | null,
+): string {
+  const api = platform === 'win32' ? win32 : posix;
+  if (realpath === null) return api.resolve(path);
+  const missing: string[] = [];
+  let current = api.resolve(path);
+  for (;;) {
+    try {
+      const real = realpath(current);
+      return missing.length === 0
+        ? real
+        : api.join(real, ...[...missing].reverse());
+    } catch (error: unknown) {
+      if (errorCode(error) !== 'ENOENT') throw error;
+      const parent = api.dirname(current);
+      if (parent === current) return api.resolve(path);
+      missing.push(api.basename(current));
+      current = parent;
+    }
+  }
+}
+
 export function createReadPathGuard(
   options: ReadPathGuardOptions,
 ): ReadPathGuard {
   const platform = options.platform ?? process.platform;
   const api = platform === 'win32' ? win32 : posix;
   const realpath =
-    options.realpath ??
-    (platform === process.platform ? realpathSync.native : null);
+    options.realpath === undefined
+      ? defaultRealpath(platform)
+      : options.realpath;
   const fold = (value: string): string =>
     platform === 'win32' ? value.toLowerCase() : value;
   const committed = new Set([...options.committedFiles].map(fold));
@@ -102,29 +149,14 @@ export function createReadPathGuard(
   const atOrUnder = (path: string, root: string): boolean =>
     isSamePath(path, root, platform) || isPathInside(path, root, platform);
 
-  /** `path` with links resolved; a missing tail is re-appended. */
   const realPathOf = (path: string): string => {
-    if (realpath === null) return api.resolve(path);
-    const missing: string[] = [];
-    let current = api.resolve(path);
-    for (;;) {
-      try {
-        const real = realpath(current);
-        return missing.length === 0
-          ? real
-          : api.join(real, ...[...missing].reverse());
-      } catch (error: unknown) {
-        if (errorCode(error) !== 'ENOENT') {
-          throw new ReadPathRefusedError(
-            path,
-            `cannot resolve its real path (${error instanceof Error ? error.message : String(error)})`,
-          );
-        }
-        const parent = api.dirname(current);
-        if (parent === current) return api.resolve(path);
-        missing.push(api.basename(current));
-        current = parent;
-      }
+    try {
+      return resolveRealPath(path, platform, realpath);
+    } catch (error: unknown) {
+      throw new ReadPathRefusedError(
+        path,
+        `cannot resolve its real path (${error instanceof Error ? error.message : String(error)})`,
+      );
     }
   };
 
@@ -133,7 +165,8 @@ export function createReadPathGuard(
   const benchReal = realPathOf(options.benchDataDir);
   const repoReal = realPathOf(options.repoRoot);
 
-  const assertReadable = (path: string): string => {
+  /** The allowed resolved path, and its repo-relative form for a repository file. */
+  const check = (path: string): { resolved: string; repoRelative?: string } => {
     if (!api.isAbsolute(path)) {
       throw new ReadPathRefusedError(path, 'not an absolute path');
     }
@@ -156,14 +189,14 @@ export function createReadPathGuard(
           `its real path ${real} leaves the bench data folder`,
         );
       }
-      return resolved;
+      return { resolved };
     }
     if (isPathInside(resolved, options.repoRoot, platform)) {
-      const relative = api
+      const repoRelative = api
         .relative(options.repoRoot, resolved)
         .split(api.sep)
         .join('/');
-      if (!committed.has(fold(relative))) {
+      if (!committed.has(fold(repoRelative))) {
         throw new ReadPathRefusedError(
           path,
           'not a committed repository file (untracked, or changed since HEAD)',
@@ -175,7 +208,7 @@ export function createReadPathGuard(
           `its real path ${real} leaves the repository`,
         );
       }
-      return resolved;
+      return { resolved, repoRelative };
     }
     throw new ReadPathRefusedError(
       path,
@@ -183,9 +216,32 @@ export function createReadPathGuard(
     );
   };
 
+  const read = (path: string): Buffer => {
+    const { resolved, repoRelative } = check(path);
+    const bytes = readFileSync(resolved);
+    if (repoRelative !== undefined) {
+      // After the read: a change before or during it shows up here.
+      const status = options.git([
+        'status',
+        '--porcelain=v1',
+        '-z',
+        '--untracked-files=all',
+        '--',
+        `:(literal)${repoRelative}`,
+      ]);
+      if (status.length > 0) {
+        throw new ReadPathRefusedError(
+          path,
+          'changed in the working tree since the run started (not the committed content)',
+        );
+      }
+    }
+    return bytes;
+  };
+
   return {
-    assertReadable,
-    readText: (path) => readFileSync(assertReadable(path), 'utf8'),
-    readBytes: (path) => readFileSync(assertReadable(path)),
+    assertReadable: (path) => check(path).resolved,
+    readText: (path) => read(path).toString('utf8'),
+    readBytes: read,
   };
 }

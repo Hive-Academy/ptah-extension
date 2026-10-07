@@ -51,12 +51,27 @@ describe('read-path guard (runner parent, R10)', () => {
     rmSync(root, { recursive: true, force: true });
   });
 
+  /** Per-path `git status` output at read time; '' means clean. */
+  let liveStatus: Record<string, string>;
+  let statusCalls: string[][];
+  beforeEach(() => {
+    liveStatus = {};
+    statusCalls = [];
+  });
+
+  const git: GitRunner = (args) => {
+    statusCalls.push([...args]);
+    const pathspec = args[args.length - 1];
+    return liveStatus[pathspec.replace(':(literal)', '')] ?? '';
+  };
+
   const guardFor = (committed: string[] = ['tools/fixtures/facts.jsonl']) =>
     createReadPathGuard({
       repoRoot: repo,
       benchDataDir: bench,
       realHome: home,
       committedFiles: new Set(committed),
+      git,
     });
 
   it('reads a committed repository file and a bench data file', () => {
@@ -64,6 +79,17 @@ describe('read-path guard (runner parent, R10)', () => {
     expect(guard.readText(join(repo, 'tools', 'fixtures', 'facts.jsonl'))).toBe(
       'committed\n',
     );
+    // The repository read re-checked that one path, as a literal pathspec.
+    expect(statusCalls).toEqual([
+      [
+        'status',
+        '--porcelain=v1',
+        '-z',
+        '--untracked-files=all',
+        '--',
+        ':(literal)tools/fixtures/facts.jsonl',
+      ],
+    ]);
     expect(guard.readBytes(join(bench, 'labels.csv')).toString('utf8')).toBe(
       'private\n',
     );
@@ -77,6 +103,18 @@ describe('read-path guard (runner parent, R10)', () => {
     expect(() =>
       guardFor().readText(join(repo, 'tools', 'fixtures', 'draft.jsonl')),
     ).toThrow(/not a committed repository file/);
+  });
+
+  it('refuses a committed file edited after the guard was built (mid-run edit)', () => {
+    const guard = guardFor();
+    const facts = join(repo, 'tools', 'fixtures', 'facts.jsonl');
+    writeFileSync(facts, 'edited mid-run\n');
+    liveStatus['tools/fixtures/facts.jsonl'] =
+      ' M tools/fixtures/facts.jsonl\0';
+    expect(() => guard.readText(facts)).toThrow(
+      /changed in the working tree since the run started/,
+    );
+    expect(() => guard.readBytes(facts)).toThrow(ReadPathRefusedError);
   });
 
   it('refuses the real ~/.ptah, even when it would otherwise be allowed', () => {
@@ -123,6 +161,7 @@ describe('read-path guard (runner parent, R10)', () => {
       committedFiles: new Set(['tools/Fixtures/facts.jsonl']),
       platform: 'win32',
       realpath: (path) => path,
+      git,
     });
     expect(guard.assertReadable('c:\\repo\\TOOLS\\fixtures\\facts.jsonl')).toBe(
       'c:\\repo\\TOOLS\\fixtures\\facts.jsonl',

@@ -7,6 +7,8 @@
  *
  * Refusals (each throws {@link FixtureSeedError} before anything is copied for
  * that fixture):
+ *   - an isolated home that is, contains or lies in the real `~/.ptah` (or
+ *     holds the real home), compared as given and with links resolved;
  *   - a source in the real `~/.ptah` (by path, and again after resolving the
  *     real path, so a junction or symlinked ancestor cannot reach it);
  *   - a source outside the allowed roots (bench data dir, committed fixtures);
@@ -36,6 +38,7 @@ import { dirname, join, relative, sep } from 'node:path';
 
 import { isPathInside, isSamePath } from '../../bench-data';
 import type { IsolatedPaths } from '../../transport/bench-host-boot';
+import { defaultRealpath, resolveRealPath } from '../runner/read-path-guard';
 import type { MemorySkillsFixture } from './plan.schema';
 
 export class FixtureSeedError extends Error {
@@ -68,6 +71,8 @@ export interface SeedFixturesInput {
   /** Roots a source must lie inside (bench data dir, committed fixtures). */
   readonly allowedRoots: readonly string[];
   readonly platform?: NodeJS.Platform;
+  /** Resolves links; default `fs.realpathSync.native` on this platform (specs override). */
+  readonly realpath?: (path: string) => string;
 }
 
 const HASH_CHUNK_BYTES = 1 << 20;
@@ -100,16 +105,40 @@ function lstatOrNull(path: string): Stats | null {
 class Seeder {
   private readonly platform: NodeJS.Platform;
   private readonly realPtah: string;
+  /** `realPtah` with links resolved. */
+  private readonly realPtahReal: string;
+  /** The allowed roots with links resolved, for checking a resolved source. */
+  private readonly allowedRootsReal: readonly string[];
 
   constructor(private readonly input: SeedFixturesInput) {
     this.platform = input.platform ?? process.platform;
+    const realpath =
+      input.realpath === undefined
+        ? defaultRealpath(this.platform)
+        : input.realpath;
+    const real = (path: string): string =>
+      resolveRealPath(path, this.platform, realpath);
     this.realPtah = join(input.realHome, '.ptah');
+    this.realPtahReal = real(this.realPtah);
+    this.allowedRootsReal = input.allowedRoots.map(real);
+    const atOrUnder = (path: string, root: string): boolean =>
+      isSamePath(path, root, this.platform) ||
+      isPathInside(path, root, this.platform);
     const home = input.isolation.home;
-    if (
-      isSamePath(input.realHome, home, this.platform) ||
-      isPathInside(input.realHome, home, this.platform) ||
-      isPathInside(home, this.realPtah, this.platform)
-    ) {
+    const homeReal = real(home);
+    // The isolated home must neither be nor lie in the real ~/.ptah, nor hold
+    // the real home (and with it ~/.ptah), compared as given and as resolved.
+    const overlaps = [
+      [home, this.realPtah],
+      [homeReal, this.realPtahReal],
+      [homeReal, this.realPtah],
+    ].some(
+      ([isolated, ptah]) =>
+        atOrUnder(isolated, ptah) ||
+        atOrUnder(ptah, isolated) ||
+        atOrUnder(input.realHome, isolated),
+    );
+    if (overlaps || atOrUnder(real(input.realHome), homeReal)) {
       throw new FixtureSeedError(
         `refusing to seed: the real home ${input.realHome} and the isolated home ${home} overlap`,
       );
@@ -130,8 +159,9 @@ class Seeder {
         `fixture source ${fixture.source} is a symbolic link`,
       );
     }
-    // A junction or symlinked ancestor: check where the bytes really are.
-    this.assertSourcePath(realpathSync.native(fixture.source));
+    // A junction or symlinked ancestor: check where the bytes really are,
+    // against the resolved roots.
+    this.assertSourcePath(realpathSync.native(fixture.source), true);
 
     if (fixture.kind === 'directory') {
       if (!stats.isDirectory()) {
@@ -167,16 +197,24 @@ class Seeder {
     };
   }
 
-  private assertSourcePath(path: string): void {
+  /** `resolved`: `path` is a real path, so compare it with the resolved roots too. */
+  private assertSourcePath(path: string, resolved = false): void {
+    const ptahRoots = resolved
+      ? [this.realPtah, this.realPtahReal]
+      : [this.realPtah];
     if (
-      isSamePath(path, this.realPtah, this.platform) ||
-      isPathInside(path, this.realPtah, this.platform)
+      ptahRoots.some(
+        (root) =>
+          isSamePath(path, root, this.platform) ||
+          isPathInside(path, root, this.platform),
+      )
     ) {
       throw new FixtureSeedError(
         `refusing fixture source ${path}: it lies in the real ${this.realPtah}`,
       );
     }
-    const allowed = this.input.allowedRoots.some((root) =>
+    const roots = resolved ? this.allowedRootsReal : this.input.allowedRoots;
+    const allowed = roots.some((root) =>
       isPathInside(path, root, this.platform),
     );
     if (!allowed) {

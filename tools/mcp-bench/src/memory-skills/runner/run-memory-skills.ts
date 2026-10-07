@@ -29,12 +29,13 @@
  * bench host.
  */
 
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
-import { join, relative, sep } from 'node:path';
+import { join, posix, relative, sep, win32 } from 'node:path';
 
 import { z } from 'zod';
 
+import { isPathInside, isSamePath } from '../../bench-data';
 import {
   writeScorecardJson,
   writeScorecardMarkdown,
@@ -63,7 +64,7 @@ import '../memory-skills-suite-kinds';
 import { SAFETY_CAP_MS } from './case-runner';
 import {
   assertGroundTruthNotNewer,
-  firstScoredRunsPath,
+  firstScoredRunsDir,
   mergeGroundTruthRefs,
   readFirstScoredRuns,
   recordFirstScoredRuns,
@@ -90,7 +91,9 @@ import {
 } from './offline-suites';
 import {
   createReadPathGuard,
+  defaultRealpath,
   listCommittedFiles,
+  resolveRealPath,
   type GitRunner,
   type ReadPathGuard,
 } from './read-path-guard';
@@ -101,7 +104,6 @@ import {
   readProduct,
   runArtifact,
   scorecardOs,
-  sha256File,
   summariseSuites,
   toScorecardSuite,
   type MissingSuite,
@@ -298,6 +300,7 @@ async function runLauncherWindow(
   },
   deps: RunMemorySkillsDeps,
 ): Promise<LauncherWindow> {
+  let stopping = false;
   try {
     let recorder: NetRecorderHandle | null = null;
     if (context.ci) {
@@ -336,50 +339,92 @@ async function runLauncherWindow(
         deps.sleep ??
         ((ms: number) => new Promise<void>((done) => setTimeout(done, ms))),
     });
+    stopping = true;
     const stopReport = await host.stop();
     return { offline, completion, recorder, parentAttempts, stopReport };
   } catch (error: unknown) {
-    // stop() is idempotent; a guard failure here outranks the window error.
-    await host.stop();
+    // The stop itself failed (a guard trip): that is the error to report.
+    if (stopping) throw error;
+    try {
+      await host.stop();
+    } catch (stopError: unknown) {
+      // Keep both: the window failure first, then the stop (guard) failure.
+      throw new AggregateError(
+        [error, stopError],
+        `the launcher window failed (${messageOf(error)}) and stopping the host failed too (${messageOf(stopError)})`,
+        { cause: stopError },
+      );
+    }
     throw error;
   }
 }
 
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 function runArtifacts(
+  guard: ReadPathGuard,
   runDir: string,
   scored: readonly ScoredSuite[],
 ): Scorecard['artifacts'] {
+  const artifact = (file: string, kind: string, schemaId: string) =>
+    runArtifact(guard, runDir, file, kind, schemaId);
   return [
-    runArtifact(runDir, RUNNER_PLAN_FILE, 'runner-plan', RUNNER_PLAN_SCHEMA_ID),
-    runArtifact(
-      runDir,
-      HOST_PLAN_FILE,
-      'host-plan',
-      MEMORY_SKILLS_PLAN_SCHEMA_ID,
-    ),
-    runArtifact(
-      runDir,
+    artifact(RUNNER_PLAN_FILE, 'runner-plan', RUNNER_PLAN_SCHEMA_ID),
+    artifact(HOST_PLAN_FILE, 'host-plan', MEMORY_SKILLS_PLAN_SCHEMA_ID),
+    artifact(
       HOST_COMPLETION_FILE,
       'host-completion',
       HOST_COMPLETION_SCHEMA_ID,
     ),
     ...scored.flatMap((entry) => [
-      runArtifact(
-        runDir,
+      artifact(
         suiteResultFile(entry.result.suiteId),
         'suite-result',
         SUITE_RESULT_SCHEMA_ID,
       ),
-      runArtifact(
-        runDir,
+      artifact(
         suiteCasesFile(entry.result.suiteId),
         'cases',
         `620.case.${entry.result.kind}.v1`,
       ),
     ]),
-    runArtifact(runDir, HOST_NET_RECORDER_LOG, 'net-log', NET_LOG_SCHEMA_ID),
-    runArtifact(runDir, RUNNER_NET_LOG, 'net-log', NET_LOG_SCHEMA_ID),
-  ].filter((artifact) => artifact !== null);
+    artifact(HOST_NET_RECORDER_LOG, 'net-log', NET_LOG_SCHEMA_ID),
+    artifact(RUNNER_NET_LOG, 'net-log', NET_LOG_SCHEMA_ID),
+  ].filter((entry) => entry !== null);
+}
+
+/**
+ * An explicit `--workspace` is served to the engine as its corpus, so it must
+ * neither be, lie in, nor hold the real `~/.ptah` (as given or resolved).
+ */
+function assertWorkspaceOutsideRealPtah(
+  workspace: string,
+  realHome: string,
+  platform: NodeJS.Platform,
+): void {
+  const api = platform === 'win32' ? win32 : posix;
+  const realPtah = api.join(realHome, '.ptah');
+  const realpath = defaultRealpath(platform);
+  const pairs = [
+    [workspace, realPtah],
+    [
+      resolveRealPath(workspace, platform, realpath),
+      resolveRealPath(realPtah, platform, realpath),
+    ],
+  ];
+  const overlaps = pairs.some(
+    ([space, ptah]) =>
+      isSamePath(space, ptah, platform) ||
+      isPathInside(space, ptah, platform) ||
+      isPathInside(ptah, space, platform),
+  );
+  if (overlaps) {
+    throw new MemorySkillsRunError(
+      `--workspace ${workspace} overlaps the real Ptah state directory ${realPtah}`,
+    );
+  }
 }
 
 function readKnownFailures(
@@ -451,8 +496,16 @@ export async function runMemorySkills(
     benchDataDir: options.benchDataDir,
     realHome: options.realHome,
     committedFiles,
+    git: deps.git,
     platform,
   });
+  if (options.workspace !== undefined) {
+    assertWorkspaceOutsideRealPtah(
+      options.workspace,
+      options.realHome,
+      platform,
+    );
+  }
   const plan = parseRunnerPlan(
     guard.readText(options.planPath),
     options.planPath,
@@ -463,7 +516,7 @@ export async function runMemorySkills(
     mergeGroundTruthRefs(allSuites.map((suite) => suite.groundTruth)),
     deps.git,
   );
-  const ledgerPath = firstScoredRunsPath(options.benchDataDir);
+  const ledgerPath = firstScoredRunsDir(options.benchDataDir);
   assertGroundTruthNotNewer(groundTruths, readFirstScoredRuns(ledgerPath));
   const { product, head } = readProduct(guard, deps.git, options.repoRoot);
   const corpus = readCorpus(guard, options.repoRoot, head, committedFiles);
@@ -509,6 +562,7 @@ export async function runMemorySkills(
     runDir,
     completion,
     window.offline,
+    guard,
   );
   const suites = scored.map((entry) =>
     toScorecardSuite(entry, plan.cassetteMode, { runId, startedAt, host }),
@@ -527,7 +581,7 @@ export async function runMemorySkills(
     },
     product,
     corpus,
-    artifacts: runArtifacts(runDir, scored),
+    artifacts: runArtifacts(guard, runDir, scored),
     suites,
     lifecycle: [],
     eagerSelection: {
@@ -583,6 +637,12 @@ export async function runMemorySkills(
       `host exit ${stopReport.exit.kind}${stopReport.exit.detail ? `: ${stopReport.exit.detail}` : ''}`,
     );
   }
+  // In every mode: a suite with no result (a suite error, a refused parent
+  // read, a skipped or unrun suite) fails the run. The known-failures ratchet
+  // below stays a --ci concern.
+  for (const entry of missing) {
+    problems.push(`suite ${entry.id} has no result: ${entry.reason}`);
+  }
   if (gate !== null && !gate.passed) {
     problems.push(
       `known-failures gate failed (${gate.findings.length} finding(s))`,
@@ -605,7 +665,9 @@ export async function runMemorySkills(
     parentNetAttempts: window.parentAttempts,
     scorecard: {
       path: relative(runDir, scorecardPath).split(sep).join('/'),
-      sha256: sha256File(scorecardPath),
+      sha256: createHash('sha256')
+        .update(guard.readBytes(scorecardPath))
+        .digest('hex'),
     },
     problems,
   });

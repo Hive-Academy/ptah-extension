@@ -12,23 +12,27 @@
  *   3. refuses when an earlier run already scored that id and the commit is
  *      newer than that run's start, so a label edit needs a new version id.
  * After the run, ids scored for the first time are recorded in
- * `<benchData>/runs/first-scored-runs.json` (private, per machine).
+ * `<benchData>/runs/first-scored-runs/`, one create-once file per id
+ * (private, per machine).
  */
 
+import { createHash, randomBytes } from 'node:crypto';
 import {
   existsSync,
+  linkSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
-  renameSync,
+  unlinkSync,
   writeFileSync,
 } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 
 import { z } from 'zod';
 
 import type { GitRunner } from './read-path-guard';
 
-export const FIRST_SCORED_RUNS_SCHEMA_ID = '620.first-scored-runs.v1';
+export const FIRST_SCORED_RUN_SCHEMA_ID = '620.first-scored-run.v1';
 
 export interface GroundTruthRef {
   readonly id: string;
@@ -51,11 +55,15 @@ const firstScoredRunSchema = z.strictObject({
 });
 export type FirstScoredRun = z.infer<typeof firstScoredRunSchema>;
 
-const ledgerSchema = z.strictObject({
-  schemaId: z.literal(FIRST_SCORED_RUNS_SCHEMA_ID),
-  groundTruths: z.record(z.string().min(1), firstScoredRunSchema),
+/** One entry file: the id it records plus its first scored run. */
+const entrySchema = firstScoredRunSchema.extend({
+  schemaId: z.literal(FIRST_SCORED_RUN_SCHEMA_ID),
+  id: z.string().min(1),
 });
-export type FirstScoredRunLedger = z.infer<typeof ledgerSchema>;
+
+export interface FirstScoredRunLedger {
+  readonly groundTruths: Readonly<Record<string, FirstScoredRun>>;
+}
 
 /** The run must not be scored against this ground truth. */
 export class GroundTruthFreshnessError extends Error {
@@ -65,8 +73,8 @@ export class GroundTruthFreshnessError extends Error {
   }
 }
 
-export function firstScoredRunsPath(benchDataDir: string): string {
-  return join(benchDataDir, 'runs', 'first-scored-runs.json');
+export function firstScoredRunsDir(benchDataDir: string): string {
+  return join(benchDataDir, 'runs', 'first-scored-runs');
 }
 
 /** One ref per id; two suites naming one id must name the same paths. */
@@ -123,11 +131,32 @@ export function resolveGroundTruthCommits(
   });
 }
 
-export function readFirstScoredRuns(path: string): FirstScoredRunLedger {
-  if (!existsSync(path)) {
-    return { schemaId: FIRST_SCORED_RUNS_SCHEMA_ID, groundTruths: {} };
+function entryFile(id: string): string {
+  return `${createHash('sha256').update(id, 'utf8').digest('hex')}.json`;
+}
+
+/** Every recorded entry; a malformed entry fails closed (blocks the run). */
+export function readFirstScoredRuns(dir: string): FirstScoredRunLedger {
+  const groundTruths: Record<string, FirstScoredRun> = {};
+  if (!existsSync(dir)) return { groundTruths };
+  for (const name of readdirSync(dir)) {
+    if (!/^[0-9a-f]{64}\.json$/.test(name)) continue;
+    const entry = entrySchema.parse(
+      JSON.parse(readFileSync(join(dir, name), 'utf8')) as unknown,
+    );
+    if (name !== entryFile(entry.id)) {
+      throw new GroundTruthFreshnessError(
+        `first-scored entry ${join(dir, name)} names ${entry.id}, which belongs in another file`,
+      );
+    }
+    groundTruths[entry.id] = {
+      runId: entry.runId,
+      startedAt: entry.startedAt,
+      commit: entry.commit,
+      committedAt: entry.committedAt,
+    };
   }
-  return ledgerSchema.parse(JSON.parse(readFileSync(path, 'utf8')) as unknown);
+  return { groundTruths };
 }
 
 /** Step 3: refuse a commit newer than the id's first scored run. */
@@ -151,31 +180,44 @@ export function assertGroundTruthNotNewer(
   }
 }
 
-/** Record ids scored for the first time; existing entries never change. */
+/**
+ * Record ids scored for the first time. Each id is its own file, published
+ * with a hard link from a complete temp file: the link fails with `EEXIST`
+ * when another run published that id first, and that earlier entry wins. No
+ * run ever rewrites another id's entry, so concurrent runs sharing one bench
+ * data folder cannot drop each other's entries, and a reader never sees a
+ * half-written one.
+ */
 export function recordFirstScoredRuns(
-  path: string,
+  dir: string,
   commits: readonly GroundTruthCommit[],
   run: { readonly runId: string; readonly startedAt: string },
 ): FirstScoredRunLedger {
-  const ledger = readFirstScoredRuns(path);
-  const groundTruths = { ...ledger.groundTruths };
-  let added = false;
+  if (commits.length > 0) mkdirSync(dir, { recursive: true });
   for (const gt of commits) {
-    if (groundTruths[gt.id] !== undefined) continue;
-    groundTruths[gt.id] = {
+    // No existence pre-check: the link itself is the test, so a stale view
+    // of the ledger (another run published meanwhile) takes the same path.
+    const target = join(dir, entryFile(gt.id));
+    const entry = entrySchema.parse({
+      schemaId: FIRST_SCORED_RUN_SCHEMA_ID,
+      id: gt.id,
       runId: run.runId,
       startedAt: run.startedAt,
       commit: gt.commit,
       committedAt: gt.committedAt,
-    };
-    added = true;
+    });
+    const temp = `${target}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`;
+    writeFileSync(temp, `${JSON.stringify(entry, null, 2)}\n`, {
+      encoding: 'utf8',
+      flag: 'wx',
+    });
+    try {
+      linkSync(temp, target);
+    } catch (error: unknown) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+    } finally {
+      unlinkSync(temp);
+    }
   }
-  const next = ledgerSchema.parse({ ...ledger, groundTruths });
-  if (added) {
-    mkdirSync(dirname(path), { recursive: true });
-    const temp = `${path}.${process.pid}.tmp`;
-    writeFileSync(temp, `${JSON.stringify(next, null, 2)}\n`, 'utf8');
-    renameSync(temp, path);
-  }
-  return next;
+  return readFirstScoredRuns(dir);
 }
