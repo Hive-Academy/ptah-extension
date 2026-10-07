@@ -319,6 +319,7 @@ async function startSkillSynthesis(
     try {
       if (
         refs.skillSynthesis !== null &&
+        !refs.skillSynthesis.isStopped() &&
         container.isRegistered(SKILL_SYNTHESIS_TOKENS.SKILL_TRIGGER_SERVICE)
       ) {
         const skillTrigger = container.resolve<SkillTriggerService>(

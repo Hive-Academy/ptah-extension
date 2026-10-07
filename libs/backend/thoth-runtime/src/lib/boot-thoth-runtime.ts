@@ -440,6 +440,7 @@ export async function bootThothRuntime(
     try {
       if (
         refs.skillSynthesis !== null &&
+        !refs.skillSynthesis.isStopped() &&
         !isAborted() &&
         container.isRegistered(SKILL_SYNTHESIS_TOKENS.SKILL_TRIGGER_SERVICE)
       ) {

@@ -249,6 +249,8 @@ export class SkillSynthesisService {
    * subscription or the curator interval on a disposed host.
    */
   private lifecycle = 0;
+  /** True from {@link stop} until the next {@link start}. */
+  private stopped = false;
   /**
    * Called after every successful `performStart()` (B-P review N1). The host
    * boot subscribes here so the skill TRIGGER service comes up whenever the
@@ -369,6 +371,7 @@ export class SkillSynthesisService {
    * the prefilter stage) complete that work without a restart.
    */
   async start(): Promise<void> {
+    this.stopped = false;
     // ABOVE both early returns, deliberately. Registration is a handful of Map
     // writes: it opens no database, reads no transcript and spends nothing, so
     // the "paused means touches nothing" rule the drain's gate 1 enforces is not
@@ -559,8 +562,19 @@ export class SkillSynthesisService {
   }
 
   /** Unsubscribes from the session-end registry and resets state. */
+  /**
+   * Whether {@link stop} ran after the last {@link start}. A `start()` that a
+   * `stop()` overtook still resolves normally, so a host must check this
+   * before it brings up anything that depends on the service (the skill
+   * trigger) — a paused boot resolves with this `false` and still needs it.
+   */
+  isStopped(): boolean {
+    return this.stopped;
+  }
+
   stop(): void {
     this.lifecycle += 1;
+    this.stopped = true;
     this._sessionEndDisposer?.();
     this._sessionEndDisposer = undefined;
     this._configDisposer?.dispose();

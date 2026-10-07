@@ -140,6 +140,7 @@ function makeStubs(extra: Array<[unknown, unknown]> = []): Stubs {
         }),
         // The real `SkillSynthesisService` contract the boot subscribes to.
         onStarted: jest.fn(() => ({ dispose: jest.fn() })),
+        isStopped: jest.fn(() => false),
       },
     ],
     [
@@ -230,6 +231,7 @@ describe('skill trigger ref reaches the shutdown refs', () => {
           start: jest.fn(async () => {
             throw new Error('db locked');
           }),
+          isStopped: jest.fn(() => false),
           onStarted: jest.fn((listener: () => void) => {
             listeners.add(listener);
             return { dispose: () => listeners.delete(listener) };

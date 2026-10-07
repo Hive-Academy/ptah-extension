@@ -50,6 +50,7 @@ interface RuntimeDoubles {
     start: jest.Mock;
     stop: jest.Mock;
     onStarted: jest.Mock;
+    isStopped: jest.Mock;
     /** Stands in for the end of a real successful `performStart()`. */
     fireStarted: () => void;
   };
@@ -109,6 +110,7 @@ function makeRuntimeDoubles(
     skillSynthesis: {
       start: jest.fn(async () => order.push('skillSynthesis.start')),
       stop: jest.fn(() => order.push('skillSynthesis.stop')),
+      isStopped: jest.fn(() => false),
       onStarted: jest.fn((listener: () => void) => {
         startedListeners.add(listener);
         return { dispose: () => startedListeners.delete(listener) };
@@ -367,6 +369,16 @@ describe('activateThoth — runtime tier', () => {
     await activateThoth(container as never, 'runtime', makeLogger() as never);
 
     expect(doubles.skillTrigger.start).toHaveBeenCalledTimes(1);
+  });
+
+  it('a start that a stop() overtook resolves but starts no skill trigger', async () => {
+    const doubles = makeRuntimeDoubles();
+    doubles.skillSynthesis.isStopped.mockReturnValue(true);
+    const container = makeRuntimeContainer(doubles, ALL_RUNTIME_TOKENS);
+
+    await activateThoth(container as never, 'runtime', makeLogger() as never);
+
+    expect(doubles.skillTrigger.start).not.toHaveBeenCalled();
   });
 
   it('upserts the daily-backup job and registers its handler exactly once', async () => {
