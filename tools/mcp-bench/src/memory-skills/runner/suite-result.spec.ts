@@ -113,6 +113,57 @@ describe('suite result files', () => {
     refuses({ ...RESULT, modelCalls: -1 }, /Too small|>=0/);
   });
 
+  it('refuses a key that 619 would strip at any depth, naming its path (619-adoption review)', () => {
+    const refuses = (result: Record<string, unknown>, message: string) =>
+      expect(() =>
+        suiteResultSchema.parse({
+          ...result,
+          schemaId: SUITE_RESULT_SCHEMA_ID,
+        }),
+      ).toThrow(message);
+    refuses(
+      { ...RESULT, claim: { ...RESULT.claim, reff: 'typo' } },
+      'unrecognized key: claim.reff',
+    );
+    refuses(
+      { ...RESULT, groundTruth: { ...RESULT.groundTruth, frozen: 'x' } },
+      'unrecognized key: groundTruth.frozen',
+    );
+    refuses(
+      {
+        ...RESULT,
+        cost: { ...RESULT.cost, tokens: { ...RESULT.cost.tokens, billd: 1 } },
+      },
+      'unrecognized key: cost.tokens.billd',
+    );
+    refuses(
+      {
+        ...RESULT,
+        baselines: [{ id: 'b', label: 'B', metrics: {}, lable: 'typo' }],
+      },
+      'unrecognized key: baselines.0.lable',
+    );
+  });
+
+  it('parses a valid result unchanged, including nested optional keys and free-form details', () => {
+    const full: SuiteResultInput = {
+      ...RESULT,
+      details: { operation: 'temporal', any: { nested: ['shape'] } },
+      claim: { ...RESULT.claim, text: 'claim text' },
+      groundTruth: {
+        ...RESULT.groundTruth,
+        raterCount: 2,
+        frozenAt: '2026-10-07T00:00:00.000Z',
+      },
+      arm: 'memory',
+      baselines: [{ id: 'b', label: 'B', metrics: { accuracy: 0.5 } }],
+      deltas: { b: { accuracy: 0.5 } },
+      cost: { ...RESULT.cost, tokens: { input: 1, output: null } },
+    };
+    const input = { ...full, schemaId: SUITE_RESULT_SCHEMA_ID };
+    expect(suiteResultSchema.parse(input)).toEqual(input);
+  });
+
   it('rejects a repeated case id, a foreign suite id and a missing result', () => {
     writeSuiteResult(runDir, RESULT, [CASE]);
     appendFileSync(

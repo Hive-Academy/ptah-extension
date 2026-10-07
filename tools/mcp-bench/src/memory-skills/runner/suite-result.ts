@@ -98,6 +98,31 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /**
+ * Every object-key path in `value` (array items by index), except inside the
+ * top-level `details`, which belongs to the suite kind's own schema.
+ */
+function keyPaths(
+  value: unknown,
+  prefix: readonly (string | number)[] = [],
+): (string | number)[][] {
+  if (Array.isArray(value)) {
+    return value.flatMap((item, index) => keyPaths(item, [...prefix, index]));
+  }
+  if (!isRecord(value)) return [];
+  return Object.keys(value).flatMap((key) => {
+    // An explicit `undefined` is an absent key (JSON drops it too).
+    if (value[key] === undefined) return [];
+    const path = [...prefix, key];
+    if (prefix.length === 0 && key === 'details') return [path];
+    return [path, ...keyPaths(value[key], path)];
+  });
+}
+
+function pathKey(path: readonly (string | number)[]): string {
+  return JSON.stringify(path);
+}
+
+/**
  * A suite result: the 620 envelope fields plus 619's `suiteCoreSchema`
  * (every scorecard suite field and its kind-independent checks), with
  * `cost.source` and `projectionSha256` refused because only the runner sets
@@ -132,20 +157,28 @@ export const suiteResultSchema: z.ZodType<SuiteResult> = z
     if (isRecord(cost) && 'source' in cost) {
       addIssue('cost.source is set by the runner', ['cost', 'source']);
     }
-    const core = suiteCoreSchema.safeParse({
+    const parsedInput = {
       ...coreInput,
       ...(isRecord(cost)
         ? { cost: { ...cost, source: PLACEHOLDER_COST_SOURCE } }
         : {}),
-    });
+    };
+    const core = suiteCoreSchema.safeParse(parsedInput);
     if (!core.success) {
       for (const issue of core.error.issues) {
         addIssue(issue.message, issue.path);
       }
       return z.NEVER;
     }
-    for (const key of Object.keys(coreInput)) {
-      if (!(key in core.data)) addIssue(`unrecognized key: ${key}`, [key]);
+    // 619's nested objects are not strict: a key it does not know is
+    // stripped, not refused. Refuse any key, at any depth, that the parse
+    // dropped, so a typo cannot silently lose provenance. `details` is
+    // validated by its suite kind and is passed through unparsed here.
+    const kept = new Set(keyPaths(core.data).map(pathKey));
+    for (const path of keyPaths(parsedInput)) {
+      if (!kept.has(pathKey(path))) {
+        addIssue(`unrecognized key: ${path.join('.')}`, path);
+      }
     }
     if (refused) return z.NEVER;
     const { kind, details, claim, groundTruth, arm, baselines, deltas } =

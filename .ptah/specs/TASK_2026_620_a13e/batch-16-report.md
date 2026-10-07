@@ -241,3 +241,16 @@ Check results (this round):
 - `npx nx run-many -t typecheck,lint -p mcp-bench --skip-nx-cache` gives `NX   Successfully ran targets typecheck, lint for project mcp-bench`. `npx eslint` on `runner`, `host` and `extraction.suite.ts` reports 0 problems.
 - `npx nx run mcp-bench:build-host-memory-skills` gives `NX   Successfully ran target build-host-memory-skills for project mcp-bench and 33 tasks it depends on`.
 - `npx prettier --check --ignore-unknown <changed files>` gives `All matched files use Prettier code style!`
+
+**619-adoption review fix.** Source: `code-logic-review-619-adoption.md` (REVISE, one moderate finding). The fix is in `runner\suite-result.ts`.
+
+- **What changed:** after 619's `suiteCoreSchema` parses a suite result, the schema compares every key path of the input with every key path of the output, at any depth, with array items counted by index. Any key the parse dropped is refused as `unrecognized key: <dotted path>`, for example `claim.reff`, `cost.tokens.billd` or `baselines.0.lable`.
+- **Exceptions:** the top-level `details` subtree is skipped, because each suite kind validates its own `details`. A key set to `undefined` counts as absent.
+- **619 files:** none edited.
+- **Specs:**
+  - "refuses a key that 619 would strip at any depth, naming its path" covers `claim`, `groundTruth`, `cost.tokens` and `baselines`.
+  - "parses a valid result unchanged, including nested optional keys and free-form details" checks output equals input.
+- **Checks:**
+  - scoped jest: `Test Suites: 51 passed, 51 total` and `Tests:       581 passed, 581 total`;
+  - `npx nx run-many -t typecheck,lint -p mcp-bench --skip-nx-cache`: `NX   Successfully ran targets typecheck, lint for project mcp-bench`;
+  - prettier on the two files: `All matched files use Prettier code style!`
