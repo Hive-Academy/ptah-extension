@@ -137,6 +137,25 @@ describe('addCliUsage (stats-bar oracle cases)', () => {
       ]),
     ).toEqual({ totalTokens: 1500, inputTokens: 400, outputTokens: 100 });
   });
+
+  it('sums reported cache reads and writes while keeping the latest context', () => {
+    expect(
+      foldAll([
+        info({
+          inputTokens: 100,
+          cacheReadTokens: 80,
+          cacheWriteTokens: 20,
+          contextTokens: 200,
+        }),
+        info({ inputTokens: 50, cacheReadTokens: 40, contextTokens: 250 }),
+      ]),
+    ).toEqual({
+      inputTokens: 150,
+      cacheReadTokens: 120,
+      cacheWriteTokens: 20,
+      contextTokens: 250,
+    });
+  });
 });
 
 describe('addCliUsage (incremental fold)', () => {

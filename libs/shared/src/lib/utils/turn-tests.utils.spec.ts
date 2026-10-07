@@ -65,7 +65,8 @@ describe('collectTurnTests', () => {
     ['streaming', false, false, 'unknown'],
     ['interrupted', false, false, 'unknown'],
     ['resumed', false, false, 'unknown'],
-    ['complete', false, true, 'unknown'],
+    ['complete', false, true, 'passed'],
+    ['streaming', false, true, 'running'],
   ] as const)(
     'maps %s with isError=%s and background=%s to %s',
     (status, isError, background, outcome) => {
@@ -110,6 +111,27 @@ describe('summarizeTurnTests', () => {
         { command: 'pytest', outcome: 'failed' },
         { command: 'go test', outcome: 'unknown' },
       ]),
-    ).toEqual({ total: 3, passed: 1, failed: 1, unknown: 1 });
+    ).toEqual({ total: 3, passed: 1, failed: 1, running: 0, unknown: 1 });
+  });
+
+  it('uses Nx and Jest output, including individual target failures', () => {
+    const command = 'npx nx run-many -t test -p cli,rpc';
+    const result = collectTurnTests(
+      [bash(command, 'complete', false)].map((entry) => ({
+        ...entry,
+        toolOutput:
+          'Successfully ran target cli:test\nFailed tasks:\n- rpc:test\nFAIL rpc.spec.ts',
+      })),
+      { finalized: true },
+    );
+    expect(result).toEqual([
+      { command, project: 'cli:test', outcome: 'passed' },
+      {
+        command,
+        project: 'rpc:test',
+        outcome: 'failed',
+        failures: ['rpc.spec.ts'],
+      },
+    ]);
   });
 });

@@ -674,6 +674,8 @@ export class PtahCliStreamLoop {
       ...(msg.usage && {
         inputTokens: msg.usage.input_tokens,
         outputTokens: msg.usage.output_tokens,
+        cacheReadTokens: msg.usage.cache_read_input_tokens,
+        cacheWriteTokens: msg.usage.cache_creation_input_tokens,
       }),
       ...(msg.total_cost_usd !== undefined && {
         costUsd: msg.total_cost_usd,

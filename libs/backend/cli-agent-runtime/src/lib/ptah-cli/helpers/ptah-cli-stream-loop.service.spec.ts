@@ -335,7 +335,12 @@ describe('PtahCliStreamLoop plan-limit signals and usage', () => {
     type: 'result',
     subtype: 'success',
     num_turns: 2,
-    usage: { input_tokens: 1200, output_tokens: 80 },
+    usage: {
+      input_tokens: 1200,
+      output_tokens: 80,
+      cache_read_input_tokens: 900,
+      cache_creation_input_tokens: 300,
+    },
     total_cost_usd: 0.0123,
     duration_ms: 1500,
   } as unknown as SDKMessage;
@@ -361,6 +366,8 @@ describe('PtahCliStreamLoop plan-limit signals and usage', () => {
         model: 'claude-sonnet-4-6',
         inputTokens: 1200,
         outputTokens: 80,
+        cacheReadTokens: 900,
+        cacheWriteTokens: 300,
         costUsd: 0.0123,
       },
     });

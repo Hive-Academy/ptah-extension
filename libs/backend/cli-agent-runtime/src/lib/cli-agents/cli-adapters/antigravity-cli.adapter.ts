@@ -42,7 +42,7 @@
  *   `--print=''`; direct spawn receives the quote-free argv item `--print=`.
  * - `--dangerously-skip-permissions` maps to autoApprove; required or
  *   file-writing tool calls hang waiting for interactive approval.
- * - `--effort` takes `low|medium|high` only; other values are dropped rather
+ * - `--effort` takes `low|medium|high|xhigh|max`; other values are dropped rather
  *   than passed through (same allowlist shape as the Codex adapter).
  * - `agy` has no GEMINI_SYSTEM_MD support, so projectGuidance is
  *   prepended to the task prompt via buildTaskPrompt (the shared fallback).
@@ -96,7 +96,7 @@ import { z } from 'zod';
 const PRINT_TIMEOUT = '3600s';
 
 /** Values `agy --effort` accepts. Anything else is dropped. */
-const AGY_EFFORTS = ['low', 'medium', 'high'] as const;
+const AGY_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
 
 /** Token/cost accounting attached to `agent_response` / `checkpoint` / `result`. */
 const AgyUsageSchema = z

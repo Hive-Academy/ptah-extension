@@ -2121,6 +2121,26 @@ describe('SdkAgentAdapter', () => {
       expect(budgetWarnings).toHaveLength(1);
     });
 
+    it('publishes an explicit no-budget marker but keeps it absent for a degraded observation', async () => {
+      const h = makeAdapter();
+      const onStats = jest.fn();
+      const arg = await startNewSession(h, onStats);
+      const snapshot = snapshotFor(REAL_ID);
+
+      h.sessionBudget.observe.mockReturnValueOnce(null);
+      (arg.onResultStats as ResultStatsCallback)(resultStats(snapshot));
+      expect(onStats.mock.calls[0][0]).toMatchObject({
+        sessionStats: snapshot,
+        budget: null,
+      });
+
+      h.sessionBudget.observe.mockImplementationOnce(() => {
+        throw new Error('degraded');
+      });
+      (arg.onResultStats as ResultStatsCallback)(resultStats(snapshot));
+      expect('budget' in onStats.mock.calls[1][0]).toBe(false);
+    });
+
     it('observes even when no result-stats callback is registered', async () => {
       const h = makeAdapter();
       const arg = await startNewSession(h);

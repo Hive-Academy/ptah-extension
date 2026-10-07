@@ -411,7 +411,7 @@ describe('AntigravityCliAdapter', () => {
       expect(argsArg[argsArg.indexOf('--effort') + 1]).toBe('high');
     });
 
-    it('drops --effort for a value agy does not accept', async () => {
+    it('passes through xhigh effort supported by agy', async () => {
       const handle = await adapter.runSdk({
         ...baseOptions,
         reasoningEffort: 'xhigh',
@@ -421,7 +421,7 @@ describe('AntigravityCliAdapter', () => {
       await handle.done;
 
       const [, argsArg] = mockSpawnCli.mock.calls[0] as [string, string[]];
-      expect(argsArg).not.toContain('--effort');
+      expect(argsArg[argsArg.indexOf('--effort') + 1]).toBe('xhigh');
     });
 
     it('adds --conversation when resuming a session', async () => {

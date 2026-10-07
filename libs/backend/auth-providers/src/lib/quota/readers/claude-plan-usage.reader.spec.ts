@@ -92,7 +92,7 @@ describe('Claude plan-usage reader', () => {
     expect(fiveHour).toEqual({
       key: 'five_hour',
       kind: 'five_hour',
-      label: '5-hour session',
+      label: '5-hour',
       durationMins: 300,
       used: { kind: 'percent', percent: 42 },
       usedSource: 'provider-api',

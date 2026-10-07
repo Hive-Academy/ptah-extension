@@ -19,9 +19,12 @@ const TARGET = {
     label: 'Ollama Cloud API key',
   },
 } as PlanOwnerTarget;
-const PROVISIONAL_PAYLOAD = {
-  session: { percentage: 20, resets_at: '2026-10-05T12:00:00Z' },
-  weekly: { percentage: 40, resets_at: null },
+const BALANCE_PAYLOAD = {
+  included: {
+    balance_usd: 80,
+    allowance_usd: 100,
+    period: { until: '2026-10-05T12:00:00Z' },
+  },
 };
 
 function loggerCalls(logger: Record<string, unknown>): string {
@@ -33,11 +36,11 @@ function loggerCalls(logger: Record<string, unknown>): string {
 }
 
 describe('Ollama Cloud plan-usage reader', () => {
-  it('F33: maps provisional valid data and never logs the API key', async () => {
+  it('F33: maps the documented balance and never logs the API key', async () => {
     const rawLogger = createMockLogger() as unknown as Record<string, unknown>;
     const fetcher = jest.fn(
       async () =>
-        new Response(JSON.stringify(PROVISIONAL_PAYLOAD), { status: 200 }),
+        new Response(JSON.stringify(BALANCE_PAYLOAD), { status: 200 }),
     );
     const reader = createOllamaCloudPlanUsageReader(
       rawLogger as unknown as Logger,
@@ -50,18 +53,21 @@ describe('Ollama Cloud plan-usage reader', () => {
       refresh: true,
     });
     expect(fetcher).toHaveBeenCalledWith(
-      'https://ollama.com/api/usage',
+      'https://ollama.com/api/balance',
       expect.objectContaining({ method: 'GET' }),
     );
     expect(reading).toMatchObject({
       status: 'available',
       windowSetEstablished: true,
     });
+    expect(reading.windows).toHaveLength(1);
     expect(reading.windows[0]).toMatchObject({
-      usedSource: 'provider-unofficial',
+      key: 'monthly',
+      label: 'Included credits',
+      used: { kind: 'percent', percent: 20 },
+      usedSource: 'provider-api',
       resetsAt: Date.parse('2026-10-05T12:00:00Z'),
     });
-    expect(reading.windows[1].resetsAt).toBeUndefined();
     expect(loggerCalls(rawLogger)).not.toContain(API_KEY);
   });
 
@@ -140,7 +146,7 @@ describe('Ollama Cloud plan-usage reader', () => {
   it('never lets the bearer header follow a redirect', async () => {
     const fetcher = jest.fn(async (_url: string, init?: RequestInit) => {
       if (init?.redirect === 'error') throw new TypeError('redirect refused');
-      return new Response(JSON.stringify(PROVISIONAL_PAYLOAD), { status: 200 });
+      return new Response(JSON.stringify(BALANCE_PAYLOAD), { status: 200 });
     });
     const reader = createOllamaCloudPlanUsageReader(
       createMockLogger() as unknown as Logger,
@@ -159,7 +165,7 @@ describe('Ollama Cloud plan-usage reader', () => {
       windows: [],
     });
     expect(fetcher).toHaveBeenCalledWith(
-      'https://ollama.com/api/usage',
+      'https://ollama.com/api/balance',
       expect.objectContaining({ redirect: 'error' }),
     );
   });

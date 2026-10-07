@@ -72,7 +72,7 @@ describe('buildTurnSourceSnapshot', () => {
       tests: {
         kind: 'available',
         runs: [],
-        summary: { total: 0, passed: 0, failed: 0, unknown: 0 },
+        summary: { total: 0, passed: 0, failed: 0, running: 0, unknown: 0 },
       },
       usage: {
         kind: 'available',

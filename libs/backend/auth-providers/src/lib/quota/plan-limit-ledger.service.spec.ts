@@ -484,7 +484,7 @@ describe('PlanLimitLedgerService — clearing (F22, F23, F62-F66)', () => {
     ledger.recordWindowEvidence(OWNER_A, {
       key: 'five_hour',
       kind: 'five_hour',
-      label: '5-hour session',
+      label: '5-hour',
       observedAt: T0 + MINUTE,
     });
 
@@ -917,7 +917,7 @@ describe('PlanLimitLedgerService — persistence (P6, F24, F74)', () => {
         {
           key: 'five_hour',
           kind: 'five_hour',
-          label: '5-hour session',
+          label: '5-hour',
           exhaustion: {
             observedAt: T0,
             source: 'stream-event',

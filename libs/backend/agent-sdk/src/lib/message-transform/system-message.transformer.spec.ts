@@ -854,19 +854,31 @@ describe('SystemMessageTransformer', () => {
       expect(events).toEqual([]);
     });
 
-    it('emits nothing for a task marked non-agent, and still clears the mapping', () => {
+    it('settles a local_bash task as a tool_result, and still clears the mapping', () => {
       state.isNonAgentTask.mockReturnValue(true);
       const helpers = makeHelpers();
       const msg = {
         task_id: 'task-bash',
         tool_use_id: 'toolu_bash',
-        status: 'success',
+        status: 'completed',
+        summary: 'Successfully ran target cli:test',
+        output_file: '/tmp/bash.log',
         usage: { total_tokens: 1, tool_uses: 0, duration_ms: 1 },
       } as never;
 
       const events = transformer.transformTaskNotification(msg, state, helpers);
 
-      expect(events).toEqual([]);
+      expect(events).toMatchObject([
+        {
+          eventType: 'tool_result',
+          toolCallId: 'toolu_bash',
+          isError: false,
+          output: {
+            summary: 'Successfully ran target cli:test',
+            outputFile: '/tmp/bash.log',
+          },
+        },
+      ]);
       expect(state.clearTaskParent).toHaveBeenCalledWith('task-bash');
     });
 
@@ -1188,7 +1200,10 @@ describe('SystemMessageTransformer - task_notification turn_state (TASK_2026_360
       'sess-1' as never,
     );
 
-    expect(events.map((e) => e.eventType)).toEqual(['turn_state']);
+    expect(events.map((e) => e.eventType)).toEqual([
+      'tool_result',
+      'turn_state',
+    ]);
   });
 
   it('emits no turn_state while generating (applySnapshot returns null)', () => {

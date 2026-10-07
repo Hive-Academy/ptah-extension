@@ -125,6 +125,7 @@ export type DiscoveryOwnerSource = Pick<
   | 'ownerForPtahCli'
   | 'ownerForClaudeAccount'
   | 'ownerForCodexHome'
+  | 'resolveCodexHomeOwner'
   | 'ownerForCliStore'
   | 'ownerForAntigravity'
   | 'ownerForSession'
@@ -226,26 +227,15 @@ export class PlanLimitOwnerDiscoveryService {
   /**
    * Resolves only the selected-provider source. Unlike the aggregate lookup,
    * this preserves a source failure so the account RPC can remain retryable.
+   * It deliberately has no shared lookup deadline: the account RPC asks for
+   * this one owner and its reader owns its own timeout (Codex cold starts can
+   * exceed the three-second aggregate dashboard budget).
    */
   async discoverSelectedProvider(
     providerId: string,
   ): Promise<SelectedProviderDiscovery> {
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const deadline = new Promise<typeof TIMED_OUT>((resolve) => {
-      timer = setTimeout(() => resolve(TIMED_OUT), LIMIT_LOOKUP_DEADLINE_MS);
-      timer.unref?.();
-    });
     try {
-      const entry = await Promise.race([
-        this.selectedProvider(providerId, []),
-        deadline,
-      ]);
-      if (entry === TIMED_OUT) {
-        this.logger.debug('[PlanLimitOwnerDiscovery] source timed out', {
-          source: 'selected-provider',
-        });
-        return { kind: 'unavailable' };
-      }
+      const entry = await this.selectedProvider(providerId, []);
       return { kind: 'owner', entry };
     } catch (error: unknown) {
       // degradation-audit: reported - selected-provider failure is logged and
@@ -255,8 +245,6 @@ export class PlanLimitOwnerDiscoveryService {
         errorName: error instanceof Error ? error.name : typeof error,
       });
       return { kind: 'unavailable' };
-    } finally {
-      if (timer !== undefined) clearTimeout(timer);
     }
   }
 
@@ -304,7 +292,7 @@ export class PlanLimitOwnerDiscoveryService {
       );
     }
     if (driver === 'openai-codex') {
-      return this.entryFor(this.owners.ownerForCodexHome(), origin);
+      return this.entryFor(await this.owners.resolveCodexHomeOwner(), origin);
     }
     if (STORED_KEY_PROVIDERS.has(driver)) {
       return this.entryFor(
@@ -347,11 +335,11 @@ export class PlanLimitOwnerDiscoveryService {
     );
   }
 
-  private detectedLanes(
+  private async detectedLanes(
     detected: readonly CliDetectionResult[],
-  ): Array<DiscoveredPlanOwner | undefined> {
+  ): Promise<Array<DiscoveredPlanOwner | undefined>> {
     return isInstalled(detected, 'codex')
-      ? [this.entryFor(this.owners.ownerForCodexHome(), 'lane')]
+      ? [this.entryFor(await this.owners.resolveCodexHomeOwner(), 'lane')]
       : [];
   }
 

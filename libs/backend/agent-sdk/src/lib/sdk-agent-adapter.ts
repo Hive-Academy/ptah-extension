@@ -1686,9 +1686,10 @@ export class SdkAgentAdapter implements IAgentAdapter {
       // never by this wrapper's id, which is the tracking id for a new session.
       const budget = this.observeBudget(stats.sessionStats);
       if (inner) {
-        // The payload keeps the IDENTICAL `sessionStats` reference; `budget`
-        // is only added when the budget produced a state.
-        inner(budget ? { ...stats, budget } : stats);
+        // The payload keeps the IDENTICAL `sessionStats` reference. `undefined`
+        // means a degraded/no-update observation and preserves the UI card;
+        // `null` is the explicit no-state marker.
+        inner(budget === undefined ? stats : { ...stats, budget });
       }
     };
   }
@@ -1700,8 +1701,8 @@ export class SdkAgentAdapter implements IAgentAdapter {
    */
   private observeBudget(
     snapshot: SessionStatsEntry | undefined,
-  ): SessionBudgetState | undefined {
-    let budget: SessionBudgetState | undefined;
+  ): SessionBudgetState | null | undefined {
+    let budget: SessionBudgetState | null | undefined;
     try {
       budget = this.sessionBudget.observe(snapshot);
     } catch (error: unknown) {

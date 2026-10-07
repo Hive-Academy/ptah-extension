@@ -305,7 +305,7 @@ export function windowKindFromDuration(
 ): PlanWindowDescriptor {
   switch (durationMins) {
     case 300:
-      return { kind: 'five_hour', key: 'five_hour', label: '5-hour session' };
+      return { kind: 'five_hour', key: 'five_hour', label: '5-hour' };
     case 10_080:
       return { kind: 'weekly', key: 'weekly', label: 'Weekly' };
     case 43_200:

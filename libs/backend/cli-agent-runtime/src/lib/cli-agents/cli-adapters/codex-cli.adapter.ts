@@ -34,7 +34,6 @@ import {
   stripAnsiCodes,
   buildTaskPrompt,
   fullPromptPreambles,
-  probeCliVersion,
   resolveCliPath,
   createBufferedEmitter,
   renderRoleBlock,
@@ -60,12 +59,7 @@ import { resolveCodexNativeBinaryInfo } from './codex/codex-native-binary';
 import { readCodexUserMcpServerNames } from './codex/codex-user-mcp-servers';
 
 /** Valid reasoning effort values for the Codex SDK. */
-const CODEX_REASONING_EFFORTS = [
-  'low',
-  'medium',
-  'high',
-  'xhigh',
-] as const;
+const CODEX_REASONING_EFFORTS = ['low', 'medium', 'high', 'xhigh'] as const;
 /**
  * Minimal local types for the dynamically imported Codex SDK.
  * These mirror the actual SDK exports but avoid importing ESM at module level.
@@ -338,13 +332,10 @@ export class CodexCliAdapter implements CliAdapter {
           messagingMode: bestMessagingCapability(this.capabilities()),
         };
       }
-      const version = await probeCliVersion(binaryPath);
-
       return {
         cli: 'codex',
         installed: true,
         path: binaryPath,
-        version,
         messagingMode: bestMessagingCapability(this.capabilities()),
       };
     } catch {
@@ -1165,6 +1156,7 @@ export class CodexCliAdapter implements CliAdapter {
         usage: {
           inputTokens: event.usage.input_tokens,
           outputTokens: event.usage.output_tokens,
+          cacheReadTokens: event.usage.cached_input_tokens,
         },
       });
     }

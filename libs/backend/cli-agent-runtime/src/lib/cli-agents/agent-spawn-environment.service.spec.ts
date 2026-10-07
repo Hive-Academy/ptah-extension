@@ -253,8 +253,8 @@ describe('AgentSpawnEnvironment', () => {
     it.each([
       ['minimal', 'low'],
       ['medium', 'medium'],
-      ['xhigh', 'high'],
-      ['max', 'high'],
+      ['xhigh', 'xhigh'],
+      ['max', 'max'],
       ['', undefined],
     ])("clamps antigravity effort '%s' to %s", (effort, expected) => {
       const { environment } = makeEnvironment({ effort });

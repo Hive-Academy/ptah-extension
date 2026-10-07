@@ -266,6 +266,7 @@ export class PtahCliRegistry {
         status,
         enabled: agentConfig.enabled,
         modelCount,
+        reasoningEffort: agentConfig.reasoningEffort,
       });
     }
 
@@ -346,7 +347,14 @@ export class PtahCliRegistry {
   async updateAgent(
     id: string,
     updates: Partial<
-      Pick<PtahCliConfig, 'name' | 'enabled' | 'tierMappings' | 'selectedModel'>
+      Pick<
+        PtahCliConfig,
+        | 'name'
+        | 'enabled'
+        | 'tierMappings'
+        | 'selectedModel'
+        | 'reasoningEffort'
+      >
     >,
     apiKey?: string,
   ): Promise<void> {
@@ -800,6 +808,7 @@ export class PtahCliRegistry {
         options: {
           abortController,
           model,
+          effort: agentConfig.reasoningEffort || undefined,
           cwd,
           systemPrompt:
             assembly.systemPromptMode === 'standalone' &&

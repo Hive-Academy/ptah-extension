@@ -73,6 +73,8 @@ export const KNOWN_CONFIG_KEYS = [
   'agentOrchestration.codexModel',
   'agentOrchestration.codexReasoningEffort',
   'agentOrchestration.copilotReasoningEffort',
+  'agentOrchestration.grokReasoningEffort',
+  'agentOrchestration.antigravityReasoningEffort',
   'agentOrchestration.piReasoningEffort',
   'agentOrchestration.antigravityModel',
   'agentOrchestration.grokModel',

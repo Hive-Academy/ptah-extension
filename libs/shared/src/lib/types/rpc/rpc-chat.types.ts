@@ -304,10 +304,10 @@ export interface ChatResumeResult {
    */
   stats?: SessionStatsEntry | null;
   /**
-   * The session's budget state evaluated from `stats`. Absent = keep the last
-   * state: no figure to evaluate, or no budget service on the host.
+   * The session's budget state evaluated from `stats`. `undefined` keeps the
+   * last state; `null` explicitly clears a known-absent state.
    */
-  budget?: SessionBudgetState;
+  budget?: SessionBudgetState | null;
   /**
    * Resumable subagents for this session.
    * Frontend uses this to mark agent nodes as resumable when loading from history.

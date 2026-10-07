@@ -1,7 +1,4 @@
-/**
- * Ollama Cloud's undocumented usage endpoint. Its payload is provisional and
- * is intentionally rejected conservatively when it changes.
- */
+/** Ollama Cloud's documented included-credit balance endpoint. */
 import { z } from 'zod';
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { PlanLimitWindow } from '@ptah-extension/shared';
@@ -10,17 +7,14 @@ import type {
   PlanUsageReading,
 } from './plan-usage-reader.types';
 
-export const OLLAMA_CLOUD_USAGE_URL = 'https://ollama.com/api/usage';
+export const OLLAMA_CLOUD_USAGE_URL = 'https://ollama.com/api/balance';
 export const OLLAMA_CLOUD_USAGE_TIMEOUT_MS = 5_000;
 
-const UsageSchema = z.object({
-  session: z.object({
-    percentage: z.number().min(0).max(100),
-    resets_at: z.string().nullable().optional(),
-  }),
-  weekly: z.object({
-    percentage: z.number().min(0).max(100),
-    resets_at: z.string().nullable().optional(),
+const BalanceSchema = z.object({
+  included: z.object({
+    balance_usd: z.number().nonnegative(),
+    allowance_usd: z.number().positive(),
+    period: z.object({ until: z.string() }),
   }),
 });
 
@@ -54,7 +48,7 @@ export function createOllamaCloudPlanUsageReader(
         return unavailable('unsupported-auth');
       }
       if (!response.ok) return unavailable('service-unavailable');
-      const parsed = UsageSchema.safeParse(await response.json());
+      const parsed = BalanceSchema.safeParse(await response.json());
       if (!parsed.success) {
         const issue = parsed.error.issues[0];
         logger.warn('[PlanUsage] provisional usage response rejected', {
@@ -69,10 +63,7 @@ export function createOllamaCloudPlanUsageReader(
         status: 'available',
         fetchedAt: observedAt,
         windowSetEstablished: true,
-        windows: [
-          window('session', 'Session', parsed.data.session, observedAt),
-          window('weekly', 'Weekly', parsed.data.weekly, observedAt),
-        ],
+        windows: [window(parsed.data.included, observedAt)],
       };
     } catch {
       return unavailable('service-unavailable');
@@ -84,22 +75,31 @@ export function createOllamaCloudPlanUsageReader(
 }
 
 function window(
-  key: 'session' | 'weekly',
-  label: string,
-  value: { percentage: number; resets_at?: string | null },
+  value: {
+    balance_usd: number;
+    allowance_usd: number;
+    period: { until: string };
+  },
   observedAt: number,
 ): PlanLimitWindow {
-  const reset = value.resets_at ? Date.parse(value.resets_at) : Number.NaN;
+  const reset = Date.parse(value.period.until);
+  const percent = Math.min(
+    100,
+    Math.max(
+      0,
+      ((value.allowance_usd - value.balance_usd) / value.allowance_usd) * 100,
+    ),
+  );
   return {
-    key: key === 'session' ? 'other:ollama-session' : 'weekly',
-    kind: key === 'session' ? 'other' : 'weekly',
-    label,
-    used: { kind: 'percent', percent: value.percentage },
-    usedSource: 'provider-unofficial',
+    key: 'monthly',
+    kind: 'monthly',
+    label: 'Included credits',
+    used: { kind: 'percent', percent },
+    usedSource: 'provider-api',
     usedObservedAt: observedAt,
     ...(Number.isFinite(reset) && {
       resetsAt: reset,
-      resetSource: 'provider-unofficial',
+      resetSource: 'provider-api',
     }),
     observedAt,
   };
