@@ -35,8 +35,6 @@ import {
 import {
   PtahTrayService,
   handleWindowAllClosed,
-  PTAH_CONFIG_SECTION,
-  TRAY_KEEPALIVE_KEY,
 } from './services/tray/tray.service';
 import {
   armBootGuards,
@@ -82,9 +80,9 @@ if (!gotLock) {
   let flushWorkspacePersistence: (() => void) | null = null;
   let sentryFlushed = false;
   let quitSequenceStarted = false;
-  // C5 (TASK_2026_180) — stays `null` unless `skillSynthesis.trayKeepalive` is
-  // explicitly on AND the tray actually constructed. Nothing else may suppress
-  // the quit (R10).
+  // The pause surface (TASK_2026_620), created once the container exists.
+  // `null` until then and whenever the tray failed to construct; a `null` tray
+  // means window-all-closed quits (R10).
   let trayService: PtahTrayService | null = null;
   let workspaceStorageReady = false;
   let startupShellQuery: Record<string, string> = { state: 'preparing' };
@@ -316,10 +314,10 @@ if (!gotLock) {
       boot.gitWatcherRef.current = coordinator.refs.gitWatcher;
     });
 
-    // C5 (TASK_2026_180) — tray keep-alive, purely additive. The tray is built
-    // ONLY when `skillSynthesis.trayKeepalive` is explicitly on; it ships
-    // `false`, so by default no tray exists and `window-all-closed` behaves
-    // exactly as it did before this commit. Every failure path leaves
+    // The tray — the pause surface for memory and skills (TASK_2026_620) — is
+    // always created. Keep-alive stays optional: `window-all-closed` reads
+    // `skillSynthesis.trayKeepalive` live at close time (ships `false`, so
+    // closing the last window still quits). Every failure path leaves
     // `trayService` null, which means "no keep-alive" — never "keep-alive with
     // no way to quit" (R10).
     try {
@@ -327,22 +325,15 @@ if (!gotLock) {
         boot.container.resolve<ElectronWorkspaceProvider>(
           PLATFORM_TOKENS.WORKSPACE_PROVIDER,
         );
-      const keepAlive = workspaceProvider.getConfiguration<boolean>(
-        PTAH_CONFIG_SECTION,
-        TRAY_KEEPALIVE_KEY,
-        false,
-      );
-      if (keepAlive === true) {
-        trayService = PtahTrayService.create({
-          workspace: workspaceProvider,
-          iconPath: path.join(__dirname, 'assets', 'icons', 'png', '32x32.png'),
-          quit: () => app.quit(),
-          logger: boot.container.resolve<Logger>(TOKENS.LOGGER),
-        });
-      }
+      trayService = PtahTrayService.create({
+        workspace: workspaceProvider,
+        iconPath: path.join(__dirname, 'assets', 'icons', 'png', '32x32.png'),
+        quit: () => app.quit(),
+        logger: boot.container.resolve<Logger>(TOKENS.LOGGER),
+      });
     } catch (error: unknown) {
       console.warn(
-        '[Ptah Electron] Tray keep-alive setup failed (non-fatal):',
+        '[Ptah Electron] Tray setup failed (non-fatal):',
         error instanceof Error ? error.message : String(error),
       );
       trayService = null;
@@ -384,7 +375,7 @@ if (!gotLock) {
   });
   // Branch-free delegation: the decision lives in `handleWindowAllClosed` so it
   // can be asserted (this file uses `import.meta` and is not importable under
-  // ts-jest). With no live tray — the shipped default — it is `if
+  // ts-jest). With `trayKeepalive` off — the shipped default — it is `if
   // (process.platform !== 'darwin') app.quit();` and nothing else. Pinned by
   // `main.quit-path.spec.ts`.
   app.on('window-all-closed', () => {
@@ -392,6 +383,7 @@ if (!gotLock) {
       platform: process.platform,
       quit: () => app.quit(),
       hasLiveTray: () => trayService?.isLive() ?? false,
+      keepAliveRequested: () => trayService?.isKeepAliveRequested() ?? false,
     });
   });
   // Branch-free delegation, for the same reason: the LIFO disposal order is a
