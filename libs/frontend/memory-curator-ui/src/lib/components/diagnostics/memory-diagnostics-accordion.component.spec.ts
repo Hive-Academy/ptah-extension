@@ -240,6 +240,8 @@ describe('MemoryDiagnosticsAccordionComponent', () => {
         processedBytesEstimate: 1_500_000,
         measuredAt: null,
         quarantineLedgerRows: 7,
+        bootScanFailuresPending: 0,
+        bootScanFailuresGivenUp: 0,
       },
       retention: {
         healthVerdict: 'healthy',
