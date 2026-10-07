@@ -46,15 +46,18 @@ registerSuiteKind('retrieval', retrievalDetailsSchema, (suite) => {
     '| Metric | Tool | Baseline | Delta |',
     '| --- | ---: | ---: | ---: |',
   ];
-  for (const [metric, toolValue] of Object.entries(suite.details.metrics))
+  for (const [metric, toolValue] of Object.entries(suite.details.metrics)) {
+    if (suite.baselines.length === 0)
+      lines.push(`| ${cell(metric)} | ${formatMetric(toolValue)} |  |  |`);
     for (const baseline of suite.baselines)
       lines.push(
-        `| ${metric} | ${formatMetric(toolValue)} | ${formatMetric(baseline.metrics[metric])} | ${formatMetric(suite.deltas[baseline.id]?.[metric])} |`,
+        `| ${cell(metric)} | ${formatMetric(toolValue)} | ${formatMetric(baseline.metrics[metric])} | ${formatMetric(suite.deltas[baseline.id]?.[metric])} |`,
       );
+  }
   lines.push(
     `| latency_ms.p50 | ${formatMetric(suite.cost.latency_ms.p50)} |  |  |`,
     `| latency_ms.p95 | ${formatMetric(suite.cost.latency_ms.p95)} |  |  |`,
-    `| cost.source | ${suite.cost.source} |  |  |`,
+    `| cost.source | ${cell(suite.cost.source)} |  |  |`,
     `| error_rate | ${formatMetric(suite.cost.error_rate)} |  |  |`,
     `| Verdict | ${suite.verdict} | ${suite.naReason ?? ''} |  |`,
     '',
@@ -63,4 +66,8 @@ registerSuiteKind('retrieval', retrievalDetailsSchema, (suite) => {
 });
 function formatMetric(value: number | null | undefined): string {
   return value === null || value === undefined ? 'na' : String(value);
+}
+
+function cell(value: string): string {
+  return value.replaceAll('|', '\\|').replaceAll(/\r?\n/gu, '<br>');
 }

@@ -725,7 +725,12 @@ export function sampleQuestions<Q>(
  */
 export function applyLifecycleVerdicts(
   suites: readonly ScorecardSuite[],
-  lifecycle: readonly { scenario: string; tool: string; pass: boolean }[],
+  lifecycle: readonly {
+    scenario: string;
+    tool: string;
+    pass: boolean;
+    na?: string;
+  }[],
 ): ScorecardSuite[] {
   return suites.map((suite) => {
     const details = suite.details as {
@@ -733,7 +738,8 @@ export function applyLifecycleVerdicts(
       failures: FailureEntry[];
     };
     const failed = lifecycle.filter(
-      (item) => !item.pass && item.tool === details.tool,
+      (item) =>
+        !item.pass && item.na === undefined && item.tool === details.tool,
     );
     if (suite.verdict === 'na' || failed.length === 0) return suite;
     return {

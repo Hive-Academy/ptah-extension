@@ -56,6 +56,7 @@ import {
   withLifecycleCorpus,
   withPinnedCorpus,
 } from './corpus/corpus';
+import { naScenarios } from './lifecycle/lifecycle-na';
 import {
   COPY_SCENARIOS,
   SESSION_SCENARIOS,
@@ -92,6 +93,8 @@ import {
   buildPolyglotSuites,
   buildTsSuites,
 } from './suites/tool-suites';
+import { ATTACH_MODE_NA_REASON } from './transport/electron-host';
+import { isGuardError, runThenStop } from './transport/guarded-stop';
 import { HostLaunchError } from './transport/host-launcher';
 import {
   BenchHeldRealStateError,
@@ -224,13 +227,7 @@ interface SuiteRun {
 }
 
 /** A guard error voids the run: it is never caught into a suite failure. */
-function isVoidingError(error: unknown): boolean {
-  return (
-    error instanceof RealStateChangedError ||
-    error instanceof BenchHeldRealStateError ||
-    error instanceof ConcurrentWriterError
-  );
-}
+const isVoidingError = isGuardError;
 
 function errorText(error: unknown): string {
   return (error instanceof Error ? error.message : String(error)).slice(0, 600);
@@ -254,7 +251,11 @@ async function askSuites(
 
 async function runBench(options: BenchOptions): Promise<number> {
   const root = benchProjectRoot();
-  const margins = await loadNoiseMargins(scorecardBaselineDirectory(root));
+  const margins = await loadNoiseMargins(
+    scorecardBaselineDirectory(root),
+    options.host,
+    options.smoke,
+  );
   if (margins === null) log('[bench] no stored noise margins: default applies');
   const configPath = join(root, 'corpus.config.json');
   const startedAt = new Date().toISOString();
@@ -286,6 +287,11 @@ async function runBench(options: BenchOptions): Promise<number> {
     host: options.host,
     electronMode: options['electron-mode'],
   };
+  // Attach mode drives a user's own app: it never writes state, so every
+  // lifecycle scenario (they edit files, seed memory, backdate a DB) is `na`.
+  const attached =
+    options.host === 'electron' && options['electron-mode'] === 'attach';
+  const runsLifecycle = wantLifecycle && !attached;
   // Failures that did not void the run: each is in the scorecard, and any of
   // them makes the exit code 2 once the scorecard is written.
   const problems: string[] = [];
@@ -305,10 +311,11 @@ async function runBench(options: BenchOptions): Promise<number> {
         gitRoot: repoRoot,
         corpusCommit: config.commit,
       };
-      const memoryRoots =
-        options.host === 'cli-headless'
-          ? await createMemoryRoots(scratch, git)
-          : null;
+      // Roots exist on every launched host (workspace B is also the symbol-scope
+      // probe); only cli-headless seeds memory into them.
+      const memoryRoots = attached
+        ? null
+        : await createMemoryRoots(scratch, git);
       const context = { corpusRoot: corpus.path, native, sample };
       const build = (
         listed: ReadonlySet<string>,
@@ -414,7 +421,7 @@ async function runBench(options: BenchOptions): Promise<number> {
 
       // Phase 2: the main host on the pinned corpus.
       const lifecycle: LifecycleResult[] = [];
-      let runs: SuiteRun[];
+      let runs: SuiteRun[] = [];
       const host = await startHost(
         target,
         corpus.path,
@@ -431,63 +438,63 @@ async function runBench(options: BenchOptions): Promise<number> {
           listed: new Set(),
           failure: host,
         }));
-        if (wantLifecycle && options.host === 'cli-headless')
+        if (runsLifecycle)
           lifecycle.push(...unscoredScenarios(SESSION_SCENARIOS, [], host));
       } else {
-        try {
-          const warmStart = performance.now();
-          const warm = await host.client.callTool('ptah_memory_search', {
-            query: 'bench warm-up',
-            maxResults: 1,
-          });
-          lifecycle.push({
-            scenario: 'embedder-warmup',
-            tool: 'ptah_memory_search',
-            pass: warm.kind === 'result' && !warm.isError,
-            detail: `${Math.round(performance.now() - warmStart)} ms for the first embedding call (model download and load into the per-run temp home), measured apart and kept out of query latency; host boot ${host.coldStartMs === null ? 'n/a (attached)' : `${Math.round(host.coldStartMs)} ms`}`,
-          });
-          runs = build(host.listedTools, host.memoryNaReason).map(
-            (definition) => ({
-              definition,
-              natives: nativeById.get(definition.id) ?? new Map(),
-              tools: null,
-              listed: host.listedTools,
-              failure: nativeFailures.get(definition.id),
-            }),
-          );
-          await askSuites(runs, host, corpus.path);
-          if (
-            wantLifecycle &&
-            options.host === 'cli-headless' &&
-            memoryRoots !== null
-          ) {
-            const session: LifecycleResult[] = [];
-            try {
-              await runSessionScenarios(
-                host,
-                sessionDeps,
-                {
-                  smoke: options.smoke,
-                  probe,
-                  tag,
-                  memoryRoots,
-                  scratchDir: join(scratch, 'scenario9'),
-                },
-                session,
-              );
-            } catch (error: unknown) {
-              if (isVoidingError(error)) throw error;
-              const reason = `a session scenario broke: ${errorText(error)}`;
-              problems.push(reason);
-              session.push(
-                ...unscoredScenarios(SESSION_SCENARIOS, session, reason),
-              );
+        await runThenStop(
+          () => host.stop(),
+          async () => {
+            const warmStart = performance.now();
+            const warm = await host.client.callTool('ptah_memory_search', {
+              query: 'bench warm-up',
+              maxResults: 1,
+            });
+            lifecycle.push({
+              scenario: 'embedder-warmup',
+              tool: 'ptah_memory_search',
+              pass: warm.kind === 'result' && !warm.isError,
+              detail: `${Math.round(performance.now() - warmStart)} ms for the first embedding call (model download and load into the per-run temp home), measured apart and kept out of query latency; host boot ${host.coldStartMs === null ? 'n/a (attached)' : `${Math.round(host.coldStartMs)} ms`}`,
+            });
+            runs = build(host.listedTools, host.memoryNaReason).map(
+              (definition) => ({
+                definition,
+                natives: nativeById.get(definition.id) ?? new Map(),
+                tools: null,
+                listed: host.listedTools,
+                failure: nativeFailures.get(definition.id),
+              }),
+            );
+            await askSuites(runs, host, corpus.path);
+            if (runsLifecycle && memoryRoots !== null) {
+              const session: LifecycleResult[] = [];
+              try {
+                await runSessionScenarios(
+                  host,
+                  sessionDeps,
+                  {
+                    smoke: options.smoke,
+                    probe,
+                    tag,
+                    memoryRoots,
+                    ...(host.memoryNaReason === null
+                      ? {}
+                      : { memoryNaReason: host.memoryNaReason }),
+                    scratchDir: join(scratch, 'scenario9'),
+                  },
+                  session,
+                );
+              } catch (error: unknown) {
+                if (isVoidingError(error)) throw error;
+                const reason = `a session scenario broke: ${errorText(error)}`;
+                problems.push(reason);
+                session.push(
+                  ...unscoredScenarios(SESSION_SCENARIOS, session, reason),
+                );
+              }
+              lifecycle.push(...session);
             }
-            lifecycle.push(...session);
-          }
-        } finally {
-          await host.stop();
-        }
+          },
+        );
       }
 
       // Phase 3: the Python and Go corpora, one host each.
@@ -506,11 +513,10 @@ async function runBench(options: BenchOptions): Promise<number> {
           if (typeof polyHost === 'string') {
             for (const run of poly.runs) run.failure ??= polyHost;
           } else {
-            try {
-              await askSuites(poly.runs, polyHost, polyRoot);
-            } finally {
-              await polyHost.stop();
-            }
+            await runThenStop(
+              () => polyHost.stop(),
+              () => askSuites(poly.runs, polyHost, polyRoot),
+            );
           }
         } finally {
           // The per-run worktree of the cached clone; the scratch folder goes too.
@@ -525,8 +531,8 @@ async function runBench(options: BenchOptions): Promise<number> {
         }
       }
 
-      // Phase 4: lifecycle scenarios on a disposable copy (cli-headless; see the report for Electron).
-      if (wantLifecycle && options.host === 'cli-headless') {
+      // Phase 4: lifecycle scenarios on a disposable copy, on every launched host.
+      if (runsLifecycle) {
         const copyResults: LifecycleResult[] = [];
         try {
           await withLifecycleCorpus(corpus, (copy) =>
@@ -553,10 +559,15 @@ async function runBench(options: BenchOptions): Promise<number> {
           );
         }
         lifecycle.push(...copyResults);
-      } else if (wantLifecycle)
-        log(
-          `[lifecycle] not run on ${options.host}: the scenarios need the cli-headless host's isolated DB and seeding hook`,
+      } else if (wantLifecycle) {
+        log(`[lifecycle] na on electron attach: ${ATTACH_MODE_NA_REASON}`);
+        lifecycle.push(
+          ...naScenarios(
+            [...SESSION_SCENARIOS, ...COPY_SCENARIOS],
+            ATTACH_MODE_NA_REASON,
+          ),
         );
+      }
       lifecycle.push(...hostLaunchRows(hosts));
 
       const allRuns = [...runs, ...polyglotRuns.flatMap((poly) => poly.runs)];
@@ -641,6 +652,7 @@ async function buildScorecard(
       host: options.host,
       os: process.platform === 'win32' ? 'win32' : 'linux',
       node: process.version,
+      smoke: options.smoke,
       ...runMetadata(hosts),
     },
     product: {

@@ -55,8 +55,8 @@ export const LOWER_IS_BETTER: Readonly<Record<MetricName, boolean>> = {
 export function callsPerAnswer(
   totalCalls: number,
   answerCount: number,
-): number {
-  if (answerCount === 0) return 0;
+): number | undefined {
+  if (answerCount === 0) return undefined;
   return totalCalls / answerCount;
 }
 

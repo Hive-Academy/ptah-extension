@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { LOWER_IS_BETTER } from '../metrics/retrieval-metrics';
 import {
   defaultSuiteKindRegistry,
   SuiteKindRegistry,
@@ -130,7 +131,106 @@ export function createSuiteSchema(
           message: issue.message,
           path: ['details', ...issue.path],
         });
+    if (suite.kind === 'retrieval' && details.success)
+      validateRetrievalSuite(
+        suite,
+        details.data as {
+          questions: number;
+          primaryMetric?: string;
+          decidingBaseline?: string;
+          metrics: Record<string, number | null | undefined>;
+        },
+        context,
+      );
   });
+}
+
+function validateRetrievalSuite(
+  suite: SuiteView<unknown>,
+  details: {
+    questions: number;
+    primaryMetric?: string;
+    decidingBaseline?: string;
+    metrics: Record<string, number | null | undefined>;
+  },
+  context: z.RefinementCtx,
+): void {
+  const metric = details.primaryMetric;
+  const baseline = suite.baselines.find(
+    (item) => item.id === details.decidingBaseline,
+  );
+  if (metric !== undefined && details.metrics[metric] === undefined)
+    issue(context, 'primaryMetric must resolve to a tool metric', [
+      'details',
+      'primaryMetric',
+    ]);
+  if (
+    details.decidingBaseline !== undefined &&
+    (!baseline ||
+      metric === undefined ||
+      baseline.metrics[metric] === undefined)
+  )
+    issue(context, 'decidingBaseline must resolve to a baseline metric', [
+      'details',
+      'decidingBaseline',
+    ]);
+  for (const baselineItem of suite.baselines)
+    for (const [metricName, delta] of Object.entries(
+      suite.deltas[baselineItem.id] ?? {},
+    )) {
+      const lowerIsBetter = scorecardMetricLowerIsBetter(metricName);
+      if (lowerIsBetter === undefined) continue;
+      const tool = details.metrics[metricName];
+      const native = baselineItem.metrics[metricName];
+      if (tool == null || native == null) {
+        if (delta !== null)
+          issue(
+            context,
+            'delta must be null when a tool or baseline metric is null',
+            ['deltas', baselineItem.id, metricName],
+          );
+      } else {
+        const expected = round(lowerIsBetter ? native - tool : tool - native);
+        // Existing hand-authored scorecards may carry a comparison margin for
+        // tied values. Preserve them; runner-produced non-zero differences are
+        // still validated against its rounded, sign-normalised calculation.
+        if (
+          expected !== 0 &&
+          (delta === null || Math.abs(delta - expected) > 1e-4 + 1e-9)
+        )
+          issue(context, 'delta must equal tool minus baseline', [
+            'deltas',
+            baselineItem.id,
+            metricName,
+          ]);
+      }
+    }
+}
+
+function scorecardMetricLowerIsBetter(metric: string): boolean | undefined {
+  const scorecardMetricNames: Readonly<Record<string, boolean>> = {
+    'hit@1': LOWER_IS_BETTER.hitAt1,
+    'hit@5': LOWER_IS_BETTER.hitAt5,
+    mrr: LOWER_IS_BETTER.meanReciprocalRank,
+    'recall@10': LOWER_IS_BETTER.recallAtK,
+    recall_all: LOWER_IS_BETTER.recallAtAll,
+    precision: LOWER_IS_BETTER.precision,
+    acc_at_k: LOWER_IS_BETTER.strictAccuracyAtK,
+    ndcg_at_k: LOWER_IS_BETTER.ndcgAtK,
+  };
+  return scorecardMetricNames[metric];
+}
+
+function round(value: number): number {
+  return Math.round(value * 10_000) / 10_000;
+}
+
+function issue(
+  context: z.RefinementCtx,
+  message: string,
+  path: PropertyKey[],
+): void {
+  context.addIssue({ code: z.ZodIssueCode.custom, message, path });
 }
 
 /** {@link createSuiteSchema} over the default registry (`retrieval` registered). */
@@ -146,6 +246,8 @@ export function createScorecardSchema(registry: SuiteKindRegistry) {
         host: z.enum(['cli-headless', 'electron', 'vscode']),
         os: z.enum(['win32', 'linux']),
         node: z.string().min(1),
+        /** `--smoke` run (a 40-question sample per suite). Absent in scorecards written before Batch 11. */
+        smoke: z.boolean().optional(),
         guardMode: z.enum(['hash', 'process-watch', 'not-applied']),
         guard: z.object({
           partial: z.boolean(),
@@ -196,6 +298,12 @@ export function createScorecardSchema(registry: SuiteKindRegistry) {
           tool: z.string().min(1),
           pass: z.boolean(),
           detail: z.string(),
+          /**
+           * Set (with `pass: false`) when the host cannot run the scenario at all,
+           * with the reason. Not a failure: it fails no suite and the gate never
+           * judges it.
+           */
+          na: z.string().min(1).optional(),
         }),
       ),
       eagerSelection: z.object({

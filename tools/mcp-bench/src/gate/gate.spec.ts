@@ -9,6 +9,7 @@ import {
   evaluateGate,
   loadNoiseMargins,
   marginFor,
+  noiseMarginsFile,
   runMeasureNoise,
   suiteMarginKey,
   writeNoiseMargins,
@@ -383,13 +384,43 @@ describe('commands', () => {
     expect(await loadNoiseMargins(baseline)).toBeNull();
     const stored = margins({ [KEY]: 0.0123 });
     await writeNoiseMargins(baseline, stored);
-    expect(await loadNoiseMargins(baseline)).toEqual(stored);
+    expect(await loadNoiseMargins(baseline, stored.host, stored.smoke)).toEqual(
+      stored,
+    );
     await mkdir(join(dir, 'bad'));
     await writeFile(
       join(dir, 'bad', 'noise-margins.json'),
       '{"schemaVersion":1}',
     );
     await expect(loadNoiseMargins(join(dir, 'bad'))).rejects.toThrow();
+  });
+
+  it('keeps margins per mode: cli-headless smoke is the PR file, every other mode has its own', async () => {
+    expect(noiseMarginsFile('cli-headless', true)).toBe('noise-margins.json');
+    expect(noiseMarginsFile('cli-headless', false)).toBe(
+      'noise-margins.cli-headless.full.json',
+    );
+    expect(noiseMarginsFile('electron', true)).toBe(
+      'noise-margins.electron.smoke.json',
+    );
+    const baseline = join(dir, 'baseline');
+    await writeNoiseMargins(baseline, {
+      ...margins({ [KEY]: 0.02 }),
+      smoke: true,
+    });
+    await writeNoiseMargins(baseline, {
+      ...margins({ [KEY]: 0.07 }),
+      smoke: false,
+    });
+    expect(
+      (await loadNoiseMargins(baseline, 'cli-headless', true))?.suites[KEY]
+        .margin,
+    ).toBe(0.02);
+    expect(
+      (await loadNoiseMargins(baseline, 'cli-headless', false))?.suites[KEY]
+        .margin,
+    ).toBe(0.07);
+    expect(await loadNoiseMargins(baseline, 'electron', false)).toBeNull();
   });
 
   it('measure-noise --from measures three scorecards and writes only with --write', async () => {
@@ -402,13 +433,18 @@ describe('commands', () => {
     ).join(',');
     const base = { host: 'cli-headless' as const, smoke: false, from };
     expect(await runMeasureNoise({ ...base, write: false }, dir, log)).toBe(0);
-    expect(await loadNoiseMargins(join(dir, 'baseline'))).toBeNull();
+    const full = (): ReturnType<typeof loadNoiseMargins> =>
+      loadNoiseMargins(join(dir, 'baseline'), 'cli-headless', false);
+    expect(await full()).toBeNull();
     expect(await runMeasureNoise({ ...base, write: true }, dir, log)).toBe(0);
-    const stored = await loadNoiseMargins(join(dir, 'baseline'));
+    const stored = await full();
     expect(stored?.suites[KEY].margin).toBe(0.04);
     expect(
       JSON.parse(
-        await readFile(join(dir, 'baseline', 'noise-margins.json'), 'utf8'),
+        await readFile(
+          join(dir, 'baseline', 'noise-margins.cli-headless.full.json'),
+          'utf8',
+        ),
       ),
     ).toMatchObject({ runs: 3 });
   });

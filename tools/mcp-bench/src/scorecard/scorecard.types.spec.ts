@@ -25,6 +25,21 @@ const minimalSuite: SuiteView<unknown> = {
   verdict: 'pass',
 };
 
+const retrievalSuite: SuiteView<unknown> = {
+  ...minimalSuite,
+  kind: 'retrieval',
+  details: {
+    tool: 'tool',
+    questions: 1,
+    primaryMetric: 'hit@1',
+    decidingBaseline: 'native',
+    metrics: { 'hit@1': 0.8 },
+    failures: [],
+  },
+  baselines: [{ id: 'native', label: 'native', metrics: { 'hit@1': 0.3 } }],
+  deltas: { native: { 'hit@1': 0.5 } },
+};
+
 const messages = (result: { error?: z.ZodError }): string[] =>
   result.error?.issues.map((issue) => issue.message) ?? [];
 
@@ -59,6 +74,48 @@ describe('suiteCoreSchema', () => {
 });
 
 describe('createSuiteSchema', () => {
+  it('validates retrieval verdict references and deltas', () => {
+    expect(suiteSchema.safeParse(retrievalSuite).success).toBe(true);
+    const missingMetric = structuredClone(retrievalSuite);
+    delete (missingMetric.details as { metrics: Record<string, number | null> })
+      .metrics['hit@1'];
+    expect(messages(suiteSchema.safeParse(missingMetric))).toContain(
+      'primaryMetric must resolve to a tool metric',
+    );
+    const unknownBaseline = structuredClone(retrievalSuite);
+    (unknownBaseline.details as { decidingBaseline: string }).decidingBaseline =
+      'missing';
+    expect(messages(suiteSchema.safeParse(unknownBaseline))).toContain(
+      'decidingBaseline must resolve to a baseline metric',
+    );
+    const wrongDelta = structuredClone(retrievalSuite);
+    const nativeDelta = wrongDelta.deltas['native'];
+    if (nativeDelta === undefined)
+      throw new Error('fixture must include native');
+    nativeDelta['hit@1'] = 0.4;
+    expect(messages(suiteSchema.safeParse(wrongDelta))).toContain(
+      'delta must equal tool minus baseline',
+    );
+    const nullMetric = structuredClone(retrievalSuite);
+    delete (nullMetric.details as { primaryMetric?: string }).primaryMetric;
+    delete (nullMetric.details as { decidingBaseline?: string })
+      .decidingBaseline;
+    (nullMetric.details as { metrics: Record<string, number | null> }).metrics[
+      'hit@1'
+    ] = null;
+    const nullNativeDelta = nullMetric.deltas['native'];
+    if (nullNativeDelta === undefined)
+      throw new Error('fixture must include native');
+    nullNativeDelta['hit@1'] = null;
+    expect(suiteSchema.safeParse(nullMetric).success).toBe(true);
+    const costDelta = structuredClone(retrievalSuite);
+    const costNativeDelta = costDelta.deltas['native'];
+    if (costNativeDelta === undefined)
+      throw new Error('fixture must include native');
+    costNativeDelta['calls_per_answer'] = 0.1234;
+    expect(suiteSchema.safeParse(costDelta).success).toBe(true);
+  });
+
   it('rejects an unknown kind that the core accepts', () => {
     const result = suiteSchema.safeParse(minimalSuite);
 

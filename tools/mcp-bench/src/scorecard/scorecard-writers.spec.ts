@@ -126,6 +126,27 @@ describe('scorecard writers', () => {
       await rm(directory, { recursive: true, force: true });
     }
   });
+  it('renders tool metrics without baselines and escapes markdown cells', () => {
+    const withoutBaselines = structuredClone(scorecard);
+    (
+      withoutBaselines.suites[1].details as {
+        metrics: Record<string, number>;
+      }
+    ).metrics = { mrr: 0.5 };
+    withoutBaselines.lifecycle = [
+      {
+        scenario: 'pipe | newline\nscenario',
+        tool: 'tool|name',
+        pass: true,
+        detail: 'line one\nline two',
+      },
+    ];
+    const markdown = renderScorecardMarkdown(withoutBaselines);
+    expect(markdown).toContain('| mrr | 0.5 |  |  |');
+    expect(markdown).toContain('pipe \\| newline<br>scenario');
+    expect(markdown).toContain('tool\\|name');
+    expect(markdown).toContain('line one<br>line two');
+  });
   it('rejects unknown kinds, missing baselines, invalid claims, and invalid guards', () => {
     const unknown = structuredClone(scorecard);
     unknown.suites[0].kind = 'unknown';

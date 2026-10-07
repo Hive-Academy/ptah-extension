@@ -15,7 +15,8 @@ overrides `research-report.md` where they differ), `research-report.md`.
   eager/deferred selection scorecard-driven (B10).
 - Review phases. Phase 2 is split into review phases 2A-2F, so each code-logic review covers one
   coherent diff instead of about 25 batches:
-  - Phase 1, Benchmark: Batches 1-11, including the inserted Batches 4b, 4c and 4d.
+  - Phase 1, Benchmark: Batches 1-11, including the inserted Batches 4b, 4c and 4d. Code-logic
+    review APPROVED (both sides); see "Phase 1 code-logic review" after Batch 11.
   - Phase 2A, Index and coverage: Batches 12-16.
   - Phase 2B, Ranker: Batch 17.
   - Phase 2C, Language-server manager, references, definitions and dependents: Batches 18-28.
@@ -1373,7 +1374,7 @@ including "## Smoke round 1"):
 - `npx nx run-many -t typecheck,lint,test -p mcp-bench` passes
 - `npx nx run mcp-bench:bench --host cli-headless --smoke` completes and writes the scorecard (tail it)
 
-## Batch 10: Recorded-failure gate and CI workflow — COMPLETE (commit: the `feat(mcp-bench): batch 10` commit after 4d3d0dd5d; SHA filled in after the commit)
+## Batch 10: Recorded-failure gate and CI workflow — COMPLETE (commit deb8aaa4b)
 
 Batch 10 findings recorded at Mode 2 (report:
 `D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\.ptah\specs\TASK_2026_619_af7f\batch-10-executor-report.md`):
@@ -1472,7 +1473,7 @@ Batch 10 findings recorded at Mode 2 (report:
 - Every listed artifact exists and contains the required work
 - `npx nx run-many -t typecheck,lint,test -p mcp-bench` passes; `actionlint` (if available) or a YAML parse of the workflow passes
 
-## Batch 11: First recorded scorecard and mandate-manifest link — PENDING
+## Batch 11: First recorded scorecard and mandate-manifest link — IN_PROGRESS
 
 - Recommended executor: senior-tester subagent
 - Fallback executor: backend-developer subagent
@@ -1481,7 +1482,7 @@ Batch 10 findings recorded at Mode 2 (report:
 - Tasks: 2 | Depends on: 10
 - Phase: 1 Benchmark | Phase review: code-logic (this is the last batch of Phase 1; review the combined diff of Batches 1-11)
 
-### Task 11.1: Record the baseline scorecards (cli-headless and electron) — PENDING
+### Task 11.1: Record the baseline scorecards (cli-headless and electron) — IN_PROGRESS
 
 - File: D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\baseline\scorecard.json; D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\baseline\scorecard.md
 - Plan reference: research-report.md:256 (expected failures); context.md:21 ("must fail on today's code")
@@ -1510,7 +1511,7 @@ Batch 10 findings recorded at Mode 2 (report:
   - File note: this task also writes `tools\mcp-bench\baseline\gate-baseline.json` (and may
     rewrite `noise-margins.json`). The count rises by one or two and stays under the cap.
 
-### Task 11.2: Link each MANDATORY claim to a scorecard suite — PENDING
+### Task 11.2: Link each MANDATORY claim to a scorecard suite — IN_PROGRESS
 
 - File: D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\libs\backend\vscode-lm-tools\src\lib\code-execution\mcp-core\mcp-mandate-manifest.spec.ts
 - Depends on: Task 11.1
@@ -1526,6 +1527,86 @@ Batch 10 findings recorded at Mode 2 (report:
 - Both baseline files exist; their verdicts match the Task 11.1 expectations or deviations are explained
 - `npx nx run-many -t typecheck,lint,test -p mcp-bench,@ptah-extension/vscode-lm-tools` passes
 - `npx nx run mcp-bench:gate` passes in recorded-failure mode against the new baseline
+
+## Phase 1 code-logic review — APPROVED (fix commit: the `fix(mcp-bench): phase 1 code-logic review fixes` commit after deb8aaa4b; SHA filled in after the commit)
+
+The review was run early, while Batch 11 Phase B (the recorded runs) was still open. It is split
+by author side, per context.md "User Requests (2026-10-07)" item 2.
+
+- **Subagent-authored code** (`transport\`, `suites\`, `lifecycle\`, `gate\`, `main.ts`,
+  `bench-hosts.ts`). Review:
+  `D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\.ptah\specs\TASK_2026_619_af7f\code-logic-review-phase1-subagents.md`.
+  - Reviewer: codex lane. antigravity/opencode was assigned, but opencode failed twice at start
+    with "Unknown error" and was dropped per agent-lanes §5.
+  - **REVISE 4/10.** Two defects:
+    - Critical: a guard error raised during a lifecycle cleanup `stop()` was swallowed, so a run
+      that touched real state wrote a scorecard instead of being voided.
+    - Serious: the host was left running after a failed `tools/list`.
+  - Fixed by the Batch 9 subagent: a new `transport\guarded-stop.ts` (`isGuardError`,
+    `stopThenRethrow`, `runThenStop`) is used on every cleanup path, and a new
+    `HostDiscoveryError` gets one recorded retry.
+  - **Re-review: APPROVED.**
+- **Lane-authored code** (`metrics\`, `scorecard\`, `corpus\`, `ground-truth\`, `baselines\`).
+  Review:
+  `D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\.ptah\specs\TASK_2026_619_af7f\code-logic-review-phase1-lanes.md`.
+  - Reviewer: code-logic-reviewer subagent. **REVISE 6/10** (S1, S2, M1-M8, m1-m8).
+  - Codex fixed S1, S2, M1-M5, M8, m2 and m8 in 2 rounds:
+    `D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\.ptah\specs\TASK_2026_619_af7f\phase1-review-fixes-lanes.md`.
+    - S1: a failed first rg call in dependents is now reported.
+    - S2 (orchestrator decision): one visibility rule. Hidden paths are included, `.gitignore` is
+      respected, and `.git` and `node_modules` are excluded. The baselines get `rg --hidden` and
+      fast-glob `dot: true`.
+    - M3: the scorecard delta and reference consistency check.
+    - M4/m8: markdown tool rows and cell escaping.
+  - The Batch 9 subagent fixed M6 (8.3 temp paths) and M7 (orphan sweep, reused PIDs).
+  - Re-review: **REVISE**.
+    - N1: a regression of M8. `git cat-file` exits 128 for a missing path.
+    - N2: the owner age limit.
+    - N3: `--sort path` serialises rg.
+  - Orchestrator bounded correction:
+    - N1 uses `git ls-tree`.
+    - N2 applies the age limit only to owners whose liveness cannot be verified.
+    - N3 sorts in the parsers instead.
+  - Codex re-review: REVISE on N1, because `core.quotePath` quotes non-ASCII paths. The
+    orchestrator added `-z`. That is one flag, one trivial change past the revise cap, and was
+    disclosed to the user. Codex then gave **APPROVED**.
+- **Accepted, not fixed** (Minor, recorded; none affects a deciding verdict today):
+  - m1: `hasExplicitSearchPath` counts `--glob` values. No live effect.
+  - m3: `memoryBaseline` reads the truth's abstain flag. The arm is not scored.
+  - m4: the git-log view greps the question's own commit. Measured mean recall@10 is 0.06 and
+    the arm does not decide.
+  - m5: `.tsx` is parsed as `.ts` in file-tool truth. The 3 committed cases agree.
+  - m6: the TS generators do not assert stratum counts. They are visible in `counts`.
+  - m7: dependents truth omits test importers.
+  - M3 keeps two minor gaps: a tied comparison accepts any delta, and pass/fail is not checked
+    against the metrics.
+  - Also carried: `scip-cross-check.ts` `max-lines` 703 (Batch 7) and the unused eslint-disable
+    in `bench-host-process.spec.ts:42` (Task 9.0).
+- **Lane evidence:**
+  - opencode failed twice at start ("Unknown error") and produced nothing.
+  - codex's review took about 4 min and covered a narrow scope. It found 2 real defects; the
+    broader moderate findings came from the subagent reviewer.
+  - codex as fix executor hit the 2-round revise cap. The last N1 change came from the
+    orchestrator.
+- **Commit split (team-leader, Mode 2):**
+  - The Batch 11 Phase A code is in the same mcp-bench files as the review fixes and cannot be
+    split cleanly by file:
+    - `main.ts` imports the new `lifecycle\lifecycle-na.ts`;
+    - `lifecycle-scenarios.ts` and its spec use `lifecycle-na.ts` and `lifecycle-probe.ts`;
+    - `scorecard.types.ts` and `scorecard-writers.ts` carry both the M3/M4 fixes and the new
+      optional `lifecycle[].na` and `run.smoke` fields;
+    - `gate\*`, `suite-runner.ts` and `electron-host.ts` read those fields.
+  - A split would leave a commit that does not typecheck. So the fix commit also carries the
+    Batch 11 Phase A mcp-bench code, listed in its body.
+  - Left for the Batch 11 commit:
+    `libs\backend\vscode-lm-tools\src\lib\code-execution\mcp-core\mcp-mandate-manifest.spec.ts`
+    (Task 11.2; it fails until `gate-baseline.json` exists), `batch-11-executor-report.md`, and
+    the Phase B outputs (`gate-baseline.json`, the per-host scorecards).
+  - Batch 11 stays IN_PROGRESS.
+- Mode 2 checks (team-leader): with `RG_PATH` set, `npx nx run-many -t typecheck,lint,test -p
+  mcp-bench --skip-nx-cache` passed on the tree including the `-z` spec (3 targets, 1m 26s). The
+  vscode-lm-tools tests were not run, as instructed. Nothing under `apps\` changed, and the only
+  `libs\` change stays uncommitted.
 
 ---
 

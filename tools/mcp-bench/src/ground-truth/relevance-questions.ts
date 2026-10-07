@@ -104,23 +104,40 @@ export function gitRelevanceDeps(
           { stdio: 'ignore' },
         );
         return true;
-      } catch {
-        return false;
+      } catch (error) {
+        if (exitCode(error) === 1) return false;
+        throw error;
       }
     },
-    fileExistsAtPin: (path: string): boolean => {
-      try {
-        execFileSync(
-          'git',
-          ['-C', repoRoot, 'cat-file', '-e', `${corpusCommit}:${path}`],
-          { stdio: 'ignore' },
-        );
-        return true;
-      } catch {
-        return false;
-      }
-    },
+    // `cat-file -e` exits 128 for a missing path and for a real failure alike;
+    // `ls-tree` exits 0 for a missing path (empty output) and fails only on a
+    // real error (bad commit, broken repository), which then propagates.
+    // `-z` gives NUL-separated, unquoted names (core.quotePath would quote
+    // non-ASCII paths in the default output).
+    fileExistsAtPin: (path: string): boolean =>
+      execFileSync(
+        'git',
+        [
+          '-C',
+          repoRoot,
+          'ls-tree',
+          '-z',
+          '--name-only',
+          corpusCommit,
+          '--',
+          path,
+        ],
+        { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] },
+      )
+        .split('\0')
+        .some((name) => name === path),
   };
+}
+
+function exitCode(error: unknown): number | undefined {
+  return typeof error === 'object' && error !== null && 'status' in error
+    ? (error as { status?: number }).status
+    : undefined;
 }
 
 /** Merged PRs fetched per GraphQL page. */
@@ -599,7 +616,7 @@ export const relevanceQuestionFileSchema = z
     counts: z.object({
       test: z.number().int().nonnegative(),
       tune: z.number().int().nonnegative(),
-      total: z.number().int().nonnegative(),
+      total: z.number().int().positive(),
       pr: z.number().int().nonnegative(),
       commit: z.number().int().nonnegative(),
     }),

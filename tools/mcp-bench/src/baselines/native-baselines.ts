@@ -16,6 +16,9 @@ const execFileAsync = promisify(execFile);
 const RG_TIMEOUT_MS = 10_000;
 const MAX_BUFFER_BYTES = 512 * 1024 * 1024;
 const RG_EXCLUDES = [
+  '--hidden',
+  '--glob',
+  '!.git',
   '--glob',
   '!tools/mcp-bench/questions/**',
   '--glob',
@@ -107,13 +110,13 @@ export async function symbolsExactBaseline(
 ): Promise<NativeResult> {
   const name = question.query.trim();
   const declaration = `\\b(function|class|interface|type|enum|const|let|var)\\s+${escapeRegex(name)}\\b`;
-  const first = await rg(ctx, ['-n', declaration, '.']);
+  const first = await rg(ctx, ['-n', '-e', declaration, '.']);
   if (first.error || first.value.stdout)
     return toLineResult(first, ctx.corpusRoot);
 
   const methodOrProperty = `\\b${escapeRegex(name)}\\s*(?:\\(|:|=)`;
   return toLineResult(
-    await rg(ctx, ['-n', methodOrProperty, '.'], first),
+    await rg(ctx, ['-n', '-e', methodOrProperty, '.'], first),
     ctx.corpusRoot,
   );
 }
@@ -130,7 +133,7 @@ export async function referencesBaseline(
   ctx: NativeContext,
 ): Promise<NativeResult> {
   return toLineResult(
-    await rg(ctx, ['-n', '-w', question.query.trim(), '.']),
+    await rg(ctx, ['-n', '-w', '-e', question.query.trim(), '.']),
     ctx.corpusRoot,
   );
 }
@@ -141,7 +144,7 @@ export async function definitionsBaseline(
 ): Promise<NativeResult> {
   const declaration = definitionPattern(question.query.trim());
   const result = toLineResult(
-    await rg(ctx, ['-n', declaration, '.']),
+    await rg(ctx, ['-n', '-e', declaration, '.']),
     ctx.corpusRoot,
   );
   const sameFile = normalizePath(question.file, {
@@ -164,8 +167,13 @@ export async function dependentsBaseline(
   const stem = path.basename(question.file).replace(/\.[^.]+$/u, '');
   const staticImport = `from\\s+['"][^'"]*${escapeRegex(stem)}['"]`;
   const dynamicImport = `import\\(\\s*['"][^'"]*${escapeRegex(stem)}['"]\\s*\\)`;
-  const first = await rg(ctx, ['-l', staticImport, 'libs', 'apps']);
-  const second = await rg(ctx, ['-l', dynamicImport, 'libs', 'apps'], first);
+  const first = await rg(ctx, ['-l', '-e', staticImport, 'libs', 'apps']);
+  if (first.error) return toFileResult(first, ctx.corpusRoot);
+  const second = await rg(
+    ctx,
+    ['-l', '-e', dynamicImport, 'libs', 'apps'],
+    first,
+  );
   return toFileResult(second, ctx.corpusRoot);
 }
 
@@ -239,6 +247,8 @@ export async function globBaseline(
     const files = await fastGlob(question.pattern, {
       cwd: ctx.corpusRoot,
       onlyFiles: true,
+      dot: true,
+      ignore: ['**/.git/**', '**/node_modules/**'],
     });
     const ranked = files.map((file) => normalizePath(file));
     return success(ranked, 1, ranked.join('\n'), performance.now() - startedAt);
@@ -252,7 +262,7 @@ export async function textLiteralBaseline(
   ctx: NativeContext,
 ): Promise<NativeResult> {
   return toLineResult(
-    await rg(ctx, ['-n', '-F', question.query, '.']),
+    await rg(ctx, ['-n', '-F', '--', question.query, '.']),
     ctx.corpusRoot,
   );
 }
@@ -307,7 +317,11 @@ async function rankedKeywordFiles(
   let aggregate: Aggregate | undefined;
   const counts = new Map<string, number>();
   for (const keyword of keywords) {
-    const next = await rg(ctx, ['-i', '-l', keyword, ...paths], aggregate);
+    const next = await rg(
+      ctx,
+      ['-i', '-l', '-e', keyword, ...paths],
+      aggregate,
+    );
     aggregate = next;
     if (next.error) return toFileResult(next, ctx.corpusRoot);
     for (const file of parseFileOutput(next.value.stdout, ctx.corpusRoot)) {
@@ -350,7 +364,7 @@ async function rg(
       commands: (previous?.commands ?? 0) + 1,
       stdout: [previous?.stdout, value.stdout].filter(Boolean).join('\n'),
       latencyMs: (previous?.latencyMs ?? 0) + value.latencyMs,
-      error: null,
+      error: previous?.error ?? null,
     };
   } catch (error) {
     return {
@@ -425,22 +439,37 @@ function failure(
   };
 }
 
+// rg runs multi-threaded (no `--sort path`, which serialises it and inflates
+// the native latency), so its output order varies; the parsers sort by path
+// and line to keep ranked baselines deterministic.
 function parseLineOutput(stdout: string, corpusRoot: string): string[] {
-  return stdout.split(/\r?\n/u).flatMap((line) => {
-    const match = /^(.*):(\d+):(.*)$/u.exec(line);
-    return match
-      ? [
-          `${normalizePath(match[1], { workspaceRoot: corpusRoot })}:${match[2]}`,
-        ]
-      : [];
-  });
+  return stdout
+    .split(/\r?\n/u)
+    .flatMap((line) => {
+      const match = /^(.*?):(\d+):/u.exec(line);
+      return match
+        ? [
+            {
+              path: normalizePath(match[1], { workspaceRoot: corpusRoot }),
+              line: Number(match[2]),
+            },
+          ]
+        : [];
+    })
+    .sort((a, b) => comparePaths(a.path, b.path) || a.line - b.line)
+    .map((hit) => `${hit.path}:${hit.line}`);
 }
 
 function parseFileOutput(stdout: string, corpusRoot: string): string[] {
   return stdout
     .split(/\r?\n/u)
     .filter(Boolean)
-    .map((file) => normalizePath(file, { workspaceRoot: corpusRoot }));
+    .map((file) => normalizePath(file, { workspaceRoot: corpusRoot }))
+    .sort(comparePaths);
+}
+
+function comparePaths(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
 }
 
 async function defaultGitRunner(

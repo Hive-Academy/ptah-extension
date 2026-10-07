@@ -7,11 +7,13 @@
  */
 
 import 'reflect-metadata';
+import { execFileSync } from 'node:child_process';
 import {
   mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
+  rmSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -26,6 +28,7 @@ import {
   commitCandidateSchema,
   filterRelevantCommits,
   filterRelevantPullRequests,
+  gitRelevanceDeps,
   isEligibleSourcePath,
   mergedPullRequestSchema,
   relevanceQuestionFileSchema,
@@ -108,6 +111,32 @@ function eligibleCommits(count: number): CommitCandidate[] {
 }
 
 describe('relevance questions', () => {
+  it('propagates git failures other than the absent-result exit code', () => {
+    const failed = gitRelevanceDeps(
+      join(tmpdir(), 'not-a-git-repository'),
+      'pin',
+    );
+    expect(() => failed.isAncestor('merge')).toThrow();
+    expect(() => failed.fileExistsAtPin('missing.ts')).toThrow();
+  });
+
+  it('reports a path missing at the pin as absent, not as a git failure', () => {
+    const repo = mkdtempSync(join(tmpdir(), 'mcp-bench-relevance-git-'));
+    const git = (...args: string[]): string =>
+      execFileSync('git', ['-C', repo, ...args], { encoding: 'utf8' });
+    git('init', '-q');
+    mkdirSync(join(repo, 'src'));
+    writeFileSync(join(repo, 'src', 'kept.ts'), 'export const kept = 1;\n');
+    writeFileSync(join(repo, 'src', 'naïve file.ts'), 'export const n = 1;\n');
+    git('add', '.');
+    git('-c', 'user.name=b', '-c', 'user.email=b@b', 'commit', '-qm', 'pin');
+    const pinned = gitRelevanceDeps(repo, git('rev-parse', 'HEAD').trim());
+    expect(pinned.fileExistsAtPin('src/kept.ts')).toBe(true);
+    expect(pinned.fileExistsAtPin('src/naïve file.ts')).toBe(true);
+    expect(pinned.fileExistsAtPin('src/deleted.ts')).toBe(false);
+    rmSync(repo, { recursive: true, force: true });
+  });
+
   it('keeps a PR on its eligible files and ignores its docs, spec and lockfile changes', () => {
     const candidates: MergedPullRequest[] = [
       pr(1, ['src/a.ts', 'src/b.ts'], dayIso(0)),
@@ -348,6 +377,19 @@ describe('relevance questions', () => {
         ),
       ).toBe(true);
     }
+  });
+
+  it('rejects a relevance file with no questions', () => {
+    const result = buildRelevanceQuestionFile(eligiblePrs(1), [], deps, {
+      corpusCommit: '7910f34cf',
+      frozenAt: dayIso(0),
+    });
+    const empty = {
+      ...result.file,
+      questions: [],
+      counts: { test: 0, tune: 0, total: 0, pr: 0, commit: 0 },
+    };
+    expect(relevanceQuestionFileSchema.safeParse(empty).success).toBe(false);
   });
 
   it('normalises backslash paths in truth files', () => {

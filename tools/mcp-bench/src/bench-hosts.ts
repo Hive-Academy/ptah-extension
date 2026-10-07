@@ -26,6 +26,7 @@ import {
   attachElectronHost,
   launchElectronHost,
 } from './transport/electron-host';
+import { stopThenRethrow } from './transport/guarded-stop';
 import {
   HostLaunchError,
   launchBenchHost,
@@ -132,6 +133,17 @@ export interface HostRecord {
   started: boolean;
 }
 
+/**
+ * The host started but its tool discovery (`tools/list`) failed; it was
+ * stopped before this was thrown. Retryable like a pre-ready crash.
+ */
+export class HostDiscoveryError extends HostLaunchError {
+  constructor(message: string, exit: HostExit, options?: { cause?: unknown }) {
+    super(message, exit, options);
+    this.name = 'HostDiscoveryError';
+  }
+}
+
 /** Attempts per host: the first, plus one retry of a host that dies before ready. */
 const LAUNCH_ATTEMPTS = 2;
 
@@ -191,8 +203,10 @@ export async function startHost(
       log(
         `[host] ${label} failed before ready (attempt ${attempt}): ${describeLaunchFailure(failure)}`,
       );
-      if (error.exit.kind !== 'exited-early' || attempt >= LAUNCH_ATTEMPTS)
-        throw error;
+      const retryable =
+        error.exit.kind === 'exited-early' ||
+        error instanceof HostDiscoveryError;
+      if (!retryable || attempt >= LAUNCH_ATTEMPTS) throw error;
     }
   }
 }
@@ -236,7 +250,7 @@ async function startHostOnce(
   const clients = new Map<string, McpHttpClient>();
   let port: number;
   let coldStartMs: number | null;
-  let dbPath: string | null = null;
+  let dbPath: string | null;
   let client: McpHttpClient;
   let memoryNaReason: string | null = null;
   let stopHost: () => Promise<{ exit: HostExit; guard: GuardReport | null }>;
@@ -263,6 +277,7 @@ async function startHostOnce(
         : await launchElectronHost({ workspaceRoot });
     record.guardMode = electron.guardMode;
     ({ port, coldStartMs, client } = electron);
+    dbPath = electron.dbPath;
     memoryNaReason =
       electron.mode === 'attach'
         ? ATTACH_MODE_NA_REASON
@@ -283,9 +298,33 @@ async function startHostOnce(
         : { exit: report.exit, guard: report.guard };
     };
   }
-  const listedTools = new Set(
-    (await client.listTools()).map((tool) => tool.name),
-  );
+  // Post-launch discovery: a failure here must not leave the host, its
+  // temp home and its guard running. Stop it (a guard error from the stop
+  // wins), then report the failure as a launch failure that may be retried.
+  let listedTools: Set<string>;
+  try {
+    listedTools = new Set((await client.listTools()).map((tool) => tool.name));
+  } catch (error: unknown) {
+    let exit: HostExit | null = null;
+    await stopThenRethrow(async () => {
+      const report = await stopHost();
+      record.exit = report.exit;
+      record.guard = report.guard;
+      exit = report.exit;
+    }, error).catch((rethrown: unknown) => {
+      if (rethrown !== error) throw rethrown;
+    });
+    throw new HostDiscoveryError(
+      `tools/list failed after the host was ready: ${error instanceof Error ? error.message : String(error)}`,
+      exit ?? {
+        kind: 'killed',
+        exitCode: null,
+        signal: null,
+        detail: 'stopped after a failed tools/list',
+      },
+      { cause: error },
+    );
+  }
   const callerFor = (root: string): McpToolCaller => {
     if (root === workspaceRoot) return client;
     let found = clients.get(root);

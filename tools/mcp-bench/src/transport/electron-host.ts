@@ -146,6 +146,12 @@ export interface ElectronHost {
   readonly pid: number | null;
   /** Spawn to the first successful `tools/list`; `null` when attached (already warm). */
   readonly coldStartMs: number | null;
+  /**
+   * The launched app's isolated SQLite file (`PTAH_DB_PATH` inside the temp
+   * home), which the lifecycle scenario 6 backdates. `null` when attached: the
+   * bench never touches a user's database.
+   */
+  readonly dbPath: string | null;
   readonly client: McpHttpClient;
   /** `not-applied` in attach mode, which refuses state-writing suites instead. */
   readonly guardMode: GuardMode | 'not-applied';
@@ -233,6 +239,7 @@ export async function attachElectronHost(
     portSource: 'attach-url',
     pid: null,
     coldStartMs: null,
+    dbPath: null,
     client,
     guardMode: 'not-applied',
     suiteNaReason: (suite) => suiteNaReason('attach', suite),
@@ -384,6 +391,7 @@ export async function launchElectronHost(
     portSource,
     pid: child.pid ?? null,
     coldStartMs,
+    dbPath: isolatedDb === '' ? null : isolatedDb,
     client,
     guardMode: guard.mode,
     suiteNaReason: (suite) => suiteNaReason('launch', suite),

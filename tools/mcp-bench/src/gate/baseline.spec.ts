@@ -315,6 +315,40 @@ describe('lifecycle rows', () => {
     ).toBe('fail');
   });
 
+  it('an na row (host cannot run it) is never recorded, judged, or reported missing', () => {
+    const withNa = (
+      rowsNow: { scenario: string; pass: boolean }[],
+    ): Scorecard => {
+      const base = card(suites, rowsNow);
+      return {
+        ...base,
+        lifecycle: [
+          ...base.lifecycle,
+          {
+            scenario: 'worktree-memory-scope',
+            tool: 'ptah_memory_search',
+            pass: false,
+            detail: '',
+            na: 'no seeding hook',
+          },
+        ],
+      };
+    };
+    const baseline = buildBaseline(withNa(rows(false)), AT, []);
+    expect(
+      Object.keys(baseline.modes.lifecycle).some((key) =>
+        key.includes('worktree-memory-scope'),
+      ),
+    ).toBe(false);
+    expect(
+      evaluateWithBaseline(withNa(rows(false)), baseline, null).status,
+    ).toBe('pass');
+    // A run without the row (or with it na) is not "missing" either.
+    expect(
+      evaluateWithBaseline(card(suites, rows(false)), baseline, null).status,
+    ).toBe('pass');
+  });
+
   it('a flaky row (changed verdict across the noise runs) tolerates a flip either way', () => {
     const flaky = margins(
       {},

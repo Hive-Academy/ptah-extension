@@ -10,6 +10,7 @@ import {
   type LaunchedHost,
 } from './transport/host-launcher';
 import { McpHttpClient } from './transport/mcp-client';
+import { BenchHeldRealStateError } from './transport/real-state-guard';
 
 jest.mock('@ptah-extension/platform-core', () => ({
   killProcessTree: jest.fn(),
@@ -136,6 +137,55 @@ describe('startHost', () => {
     await expect(
       startHost(target, '/corpus', 'main', [], null, () => undefined, launch),
     ).rejects.toThrow('guard tripped');
+    expect(launch).toHaveBeenCalledTimes(1);
+  });
+
+  it('stops a host whose tools/list fails after launch, records it and retries once', async () => {
+    const records: HostRecord[] = [];
+    const broken = fakeLaunched();
+    jest
+      .spyOn(broken.client, 'listTools')
+      .mockRejectedValue(new Error('tools/list transport error TIMEOUT'));
+    const stopBroken = jest.spyOn(broken, 'stop');
+    const launch = jest
+      .fn()
+      .mockResolvedValueOnce(broken)
+      .mockResolvedValueOnce(fakeLaunched());
+
+    const host = await startHost(
+      target,
+      '/corpus',
+      'main',
+      records,
+      null,
+      () => undefined,
+      launch,
+    );
+    await host.stop();
+
+    expect(stopBroken).toHaveBeenCalledTimes(1);
+    expect(launch).toHaveBeenCalledTimes(2);
+    expect(records[0].launchFailures[0].message).toContain(
+      'tools/list failed after the host was ready: tools/list transport error TIMEOUT',
+    );
+    expect(records[0].started).toBe(true);
+  });
+
+  it('lets a guard error from that cleanup stop win, with no retry', async () => {
+    const guard = new BenchHeldRealStateError([
+      { pid: 9, name: 'node.exe', path: 'C:/Users/u/.ptah/state/ptah.sqlite' },
+    ]);
+    const broken = fakeLaunched();
+    jest
+      .spyOn(broken.client, 'listTools')
+      .mockRejectedValue(new Error('bad body'));
+    jest.spyOn(broken, 'stop').mockRejectedValue(guard);
+    const launch = jest.fn().mockResolvedValue(broken);
+
+    await expect(
+      startHost(target, '/corpus', 'main', [], null, () => undefined, launch),
+    ).rejects.toBe(guard);
+    expect(guard.cause).toEqual(new Error('bad body'));
     expect(launch).toHaveBeenCalledTimes(1);
   });
 });

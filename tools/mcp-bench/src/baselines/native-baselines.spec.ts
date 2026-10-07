@@ -57,6 +57,10 @@ beforeAll(async () => {
     "import { AgentPanel } from '../libs/alpha';\nconst load = () => import('../libs/alpha');\n",
   );
   await writeFile(
+    path.join(root, 'libs', 'colon.ts'),
+    "const t = '10:30:45';\n",
+  );
+  await writeFile(
     path.join(root, '.ptah', 'specs', 'x.md'),
     'seeded benchmark memory fact\n',
   );
@@ -81,6 +85,10 @@ beforeAll(async () => {
     execFileSync('git', ['commit', '-qm', 'seeded benchmark memory'], {
       cwd: root,
     });
+    await writeFile(
+      path.join(root, '.git', 'query-leak.txt'),
+      'seeded benchmark memory fact\n',
+    );
   }
 });
 
@@ -296,7 +304,7 @@ describe('native baselines', () => {
         relevanceBaseline({ query: 'seeded benchmark' }, ctx),
       ).resolves.toMatchObject({
         commands: 2,
-        answer: { ranked: ['apps/relevance.md'] },
+        answer: { ranked: ['.ptah/specs/x.md', 'apps/relevance.md'] },
       });
       await expect(
         relevanceGitLogBaseline({ query: 'seeded benchmark' }, ctx),
@@ -315,8 +323,16 @@ describe('native baselines', () => {
         globBaseline({ pattern: 'libs/*.ts' }, ctx),
       ).resolves.toMatchObject({
         commands: 1,
-        answer: { ranked: ['libs/alpha.ts'] },
+        answer: { ranked: ['libs/alpha.ts', 'libs/colon.ts'] },
       });
+      await expect(
+        textLiteralBaseline({ query: 'seeded benchmark memory fact' }, ctx),
+      ).resolves.toMatchObject({
+        answer: { ranked: ['.ptah/specs/x.md:1'] },
+      });
+      await expect(
+        textLiteralBaseline({ query: '10:30:45' }, ctx),
+      ).resolves.toMatchObject({ answer: { ranked: ['libs/colon.ts:1'] } });
       await expect(
         textLiteralBaseline({ query: 'message' }, ctx),
       ).resolves.toMatchObject({
@@ -347,18 +363,45 @@ describe('native baselines', () => {
         { corpusRoot: root, rg: safeRunner },
       );
       expect(args[0]).toEqual([
+        '--hidden',
+        '--glob',
+        '!.git',
         '--glob',
         '!tools/mcp-bench/questions/**',
         '--glob',
         '!**/node_modules/**',
         '-n',
         '-F',
+        '--',
         '$(rm -rf x); "',
         '.',
       ]);
     },
     15_000,
   );
+
+  it('propagates a failed first dependent search instead of returning a partial answer', async () => {
+    let calls = 0;
+    const result = await dependentsBaseline(
+      { file: 'libs/alpha.ts' },
+      {
+        corpusRoot: root,
+        rg: async () => {
+          calls += 1;
+          if (calls === 1) throw new Error('first search failed');
+          return {
+            stdout: 'apps/consumer.ts\n',
+            exitCode: 0,
+            latencyMs: 1,
+            commandLine: 'rg',
+          };
+        },
+      },
+    );
+    expect(result.error).toContain('first search failed');
+    expect(result.answer.ranked).toEqual([]);
+    expect(result.commands).toBe(1);
+  });
 });
 
 function resolveOrUndefined(): string | undefined {

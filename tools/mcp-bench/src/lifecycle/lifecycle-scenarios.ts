@@ -32,9 +32,18 @@ import { buildMemoryQuestionSet } from '../ground-truth/memory-questions';
 import { mulberry32 } from '../ground-truth/ts-program';
 import { CallRecorder, classifyToolResult } from '../transport/call-recorder';
 import type { MemorySeedRoots } from '../transport/memory-seed-env';
+import { runThenStop, stopThenRethrow } from '../transport/guarded-stop';
 import type { HostExit } from '../transport/host-launcher';
-import type { McpToolCaller, ToolCallOutcome } from '../transport/mcp-client';
-import { parseMemoryContents, parseSymbolHits } from '../suites/tool-results';
+import type { McpToolCaller } from '../transport/mcp-client';
+import { MEMORY_SEEDED_SCENARIOS, naScenarios } from './lifecycle-na';
+import {
+  describeOutcome,
+  indexAgeScenario,
+  pollUntil,
+  searchSymbol,
+  states,
+} from './lifecycle-probe';
+import { parseMemoryContents } from '../suites/tool-results';
 import { ToolResultParseError } from '../suites/suite-runner';
 
 /** The cases {@link runCopyScenarios} scores, in order. */
@@ -88,6 +97,8 @@ export interface LifecycleResult {
   readonly tool: string;
   readonly pass: boolean;
   readonly detail: string;
+  /** Why the host cannot run the scenario; set means not run, not failed. */
+  readonly na?: string;
 }
 
 /** A running bench host, as the scenarios drive it. */
@@ -162,10 +173,6 @@ export interface LifecycleOptions {
   readonly tag: string;
 }
 
-const HOUR_MS = 3_600_000;
-const POLL_MS = 5_000;
-/** Index age the scenario backdates to: beyond the 24 h staleness rule. */
-const BACKDATE_MS = 25 * HOUR_MS;
 const SCENARIO_DIR = 'libs/mcp-bench-lifecycle';
 
 const timeouts = (smoke: boolean) => ({
@@ -174,95 +181,6 @@ const timeouts = (smoke: boolean) => ({
   refreshMs: smoke ? 120_000 : 300_000,
   transportCalls: smoke ? 40 : 200,
 });
-
-interface SymbolProbe {
-  readonly found: boolean;
-  readonly errored: boolean;
-  readonly state: string;
-  readonly text: string;
-  readonly hits: number;
-}
-
-/** One `ptah_code_search_symbols` call: is `name` in a hit of `file`? */
-async function searchSymbol(
-  caller: McpToolCaller,
-  root: string,
-  name: string,
-  file: string,
-): Promise<SymbolProbe> {
-  const outcome = await caller.callTool('ptah_code_search_symbols', {
-    query: name,
-    maxResults: 10,
-  });
-  if (outcome.kind !== 'result')
-    return {
-      found: false,
-      errored: true,
-      state: describeOutcome(outcome),
-      text: '',
-      hits: 0,
-    };
-  const classified = classifyToolResult(outcome.text, outcome.isError, root);
-  const index = /"index"\s*:\s*\{([^}]*)\}/.exec(outcome.text)?.[1] ?? '';
-  const state = `${classified.errorClass ?? 'ok'}${index ? ` {${index}}` : ''}`;
-  if (classified.errorClass !== null)
-    return { found: false, errored: true, state, text: outcome.text, hits: 0 };
-  try {
-    const answer = parseSymbolHits(outcome.text, root, [], true);
-    return {
-      found: answer.ranked.includes(file),
-      errored: false,
-      state,
-      text: outcome.text,
-      hits: answer.ranked.length,
-    };
-  } catch (error: unknown) {
-    if (!(error instanceof ToolResultParseError)) throw error;
-    return {
-      found: false,
-      errored: true,
-      state: `parse: ${error.message}`,
-      text: outcome.text,
-      hits: 0,
-    };
-  }
-}
-
-function describeOutcome(outcome: ToolCallOutcome): string {
-  if (outcome.kind === 'transport-error') return `transport ${outcome.code}`;
-  if (outcome.kind === 'rpc-error')
-    return `rpc ${outcome.code}: ${outcome.message}`;
-  return outcome.isError ? 'tool-error' : 'result';
-}
-
-/** Polls `check` every 5 s until it holds or `timeoutMs` passes. */
-async function pollUntil(
-  deps: LifecycleDeps,
-  timeoutMs: number,
-  check: () => Promise<SymbolProbe>,
-  want: (probe: SymbolProbe) => boolean,
-): Promise<{
-  ok: boolean;
-  elapsedMs: number;
-  states: string[];
-  last: SymbolProbe;
-}> {
-  const started = deps.now();
-  const states: string[] = [];
-  for (;;) {
-    const probe = await check();
-    if (!states.includes(probe.state)) states.push(probe.state);
-    const elapsedMs = deps.now() - started;
-    if (want(probe)) return { ok: true, elapsedMs, states, last: probe };
-    if (elapsedMs + POLL_MS > timeoutMs)
-      return { ok: false, elapsedMs, states, last: probe };
-    await deps.sleep(POLL_MS);
-  }
-}
-
-const states = (list: readonly string[]): string =>
-  list.slice(0, 4).join(' | ') +
-  (list.length > 4 ? ` (+${list.length - 4} more)` : '');
 
 async function writeScenarioFile(
   root: string,
@@ -327,7 +245,7 @@ export async function runCopyScenarios(
       scenario: 'cold-start',
       tool,
       pass: cold.ok,
-      detail: `${session.coldStartMs === null ? '' : `boot ${Math.round(session.coldStartMs)} ms; `}${cold.ok ? `first correct answer for ${options.probe.name} after ${cold.elapsedMs} ms` : `no correct answer for ${options.probe.name} within ${limits.coldStartMs / 1000} s`}; states: ${states(cold.states)}`,
+      detail: `${session.coldStartMs === null ? '' : `boot ${Math.round(session.coldStartMs)} ms; `}${cold.ok ? `first correct answer for ${options.probe.name} after ${cold.elapsedMs} ms` : `no correct answer for ${options.probe.name} within ${limits.coldStartMs / 1000} s`}; reindexInFlight false first seen ${cold.settledAtMs === null ? 'never (within the wait)' : `after ${cold.settledAtMs} ms`}; states: ${states(cold.states)}`,
     });
 
     // 2. Edit then query, within 5 s and within 60 s.
@@ -470,97 +388,41 @@ export async function runCopyScenarios(
     const [flight, stopped] = await Promise.all([inFlight, session.stop()]);
     exits.push(stopped.exit);
     const restarted = await deps.launch(copyRoot);
-    try {
-      const after = await restarted.client.callTool('ptah_search_files', {
-        pattern: 'package.json',
-        limit: 5,
-      });
-      results.push({
-        scenario: 'transport-restart',
-        tool: 'ptah_search_files',
-        pass: after.kind === 'result' && !after.isError,
-        detail: `in-flight call during stop: ${describeOutcome(flight)}${flight.kind === 'transport-error' && flight.code === 'ECONNRESET' ? ' (ECONNRESET)' : ''}; host exit ${stopped.exit.kind}; fresh host answered: ${describeOutcome(after)}`,
-      });
-    } finally {
-      exits.push((await restarted.stop()).exit);
-    }
+    await runThenStop(
+      async () => {
+        exits.push((await restarted.stop()).exit);
+      },
+      async () => {
+        const after = await restarted.client.callTool('ptah_search_files', {
+          pattern: 'package.json',
+          limit: 5,
+        });
+        results.push({
+          scenario: 'transport-restart',
+          tool: 'ptah_search_files',
+          pass: after.kind === 'result' && !after.isError,
+          detail: `in-flight call during stop: ${describeOutcome(flight)}${flight.kind === 'transport-error' && flight.code === 'ECONNRESET' ? ' (ECONNRESET)' : ''}; host exit ${stopped.exit.kind}; fresh host answered: ${describeOutcome(after)}`,
+        });
+      },
+    );
     return { results, exits };
   } catch (error: unknown) {
-    // Stop the scenario host if it still runs; the error (a guard error included) propagates.
-    await session.stop().catch(() => undefined);
-    throw error;
+    // Stop the scenario host if it still runs (stop is idempotent). A guard
+    // error from that stop outranks the scenario error: it voids the run.
+    return stopThenRethrow(() => session.stop(), error);
   }
-}
-
-async function indexAgeScenario(
-  session: BenchSession,
-  root: string,
-  deps: LifecycleDeps,
-  options: LifecycleOptions,
-  refreshMs: number,
-  probeFile: string,
-): Promise<LifecycleResult> {
-  const tool = 'ptah_code_search_symbols';
-  if (session.dbPath === null)
-    return {
-      scenario: 'index-age-24h',
-      tool,
-      pass: false,
-      detail: 'the host exposes no isolated DB path; rows cannot be backdated',
-    };
-  // Backdate only a settled index: rows a running reindex is still writing
-  // would come back fresh and the scenario would measure a new index.
-  const settle = await pollUntil(
-    deps,
-    refreshMs,
-    () => searchSymbol(session.client, root, options.probe.name, probeFile),
-    (probe) => /"reindexInFlight"\s*:\s*false/.test(probe.text),
-  );
-  if (!settle.ok)
-    return {
-      scenario: 'index-age-24h',
-      tool,
-      pass: false,
-      detail: `the index never settled: reindexInFlight still true after ${refreshMs / 1000} s, so rows were not backdated (a fresh index would be measured instead); states: ${states(settle.states)}`,
-    };
-  const changed = await deps.backdateCodeSymbols(session.dbPath, BACKDATE_MS);
-  const first = await searchSymbol(
-    session.client,
-    root,
-    options.probe.name,
-    probeFile,
-  );
-  const age = Number(
-    /"indexAgeMs"\s*:\s*(\d+)/.exec(first.text)?.[1] ?? Number.NaN,
-  );
-  const started =
-    /"reindexStarted"\s*:\s*true/.test(first.text) ||
-    /"reindexInFlight"\s*:\s*true/.test(first.text);
-  const refresh = await pollUntil(
-    deps,
-    refreshMs,
-    () => searchSymbol(session.client, root, options.probe.name, probeFile),
-    (probe) => /"reindexInFlight"\s*:\s*false/.test(probe.text),
-  );
-  const count = /"symbolCount"\s*:\s*(\d+)/.exec(refresh.last.text)?.[1] ?? '?';
-  const pass =
-    changed > 0 &&
-    age > 24 * HOUR_MS &&
-    started &&
-    refresh.ok &&
-    refresh.last.found;
-  return {
-    scenario: 'index-age-24h',
-    tool,
-    pass,
-    detail: `index settled after ${settle.elapsedMs} ms; ${changed} rows backdated 25 h; first answer indexAgeMs ${Number.isNaN(age) ? '?' : age}, refresh ${started ? 'started' : 'not started'}; ${refresh.ok ? `refresh done after ${refresh.elapsedMs} ms, symbolCount ${count}, ${options.probe.name} ${refresh.last.found ? 'found' : 'missing (cap or skip)'}` : `refresh not done within ${refreshMs / 1000} s`}`,
-  };
 }
 
 /** Run inputs of {@link runSessionScenarios}. */
 export interface SessionScenarioOptions extends LifecycleOptions {
-  /** The seeded memory roots of the main host. */
+  /** The memory roots of the main host (workspace B is also the symbol-scope probe). */
   readonly memoryRoots: MemorySeedRoots;
+  /**
+   * Whether the host seeded the memory ground truth into those roots. When it
+   * did not (Electron: no seeding hook), the memory scenarios are `na` with
+   * this reason instead of scoring an empty store.
+   */
+  readonly memoryNaReason?: string;
   /** A private temp folder for the scenario 9 repository (removed by the caller). */
   readonly scratchDir: string;
 }
@@ -574,10 +436,20 @@ export async function runSessionScenarios(
   results: LifecycleResult[] = [],
 ): Promise<LifecycleResult[]> {
   deps.log('[lifecycle] 7 two-workspaces-worktree');
-  results.push(...(await memoryScopeScenarios(session, options.memoryRoots)));
-  results.push(
-    await spoolPathScenario(session, options.memoryRoots.worktreeOfA),
-  );
+  if (options.memoryNaReason === undefined) {
+    results.push(...(await memoryScopeScenarios(session, options.memoryRoots)));
+    results.push(
+      await spoolPathScenario(session, options.memoryRoots.worktreeOfA),
+    );
+  } else
+    results.push(
+      ...naScenarios(
+        SESSION_SCENARIOS.filter((item) =>
+          MEMORY_SEEDED_SCENARIOS.includes(item.scenario),
+        ),
+        options.memoryNaReason,
+      ),
+    );
   results.push(
     await symbolScopeScenario(
       session,

@@ -104,6 +104,7 @@ export function buildBaseline(
     }
   const lifecycle: Record<string, GateMode> = {};
   for (const row of scorecard.lifecycle) {
+    if (row.na !== undefined) continue;
     const key = lifecycleKey(row.tool, row.scenario);
     lifecycle[key] = mode(key);
   }
@@ -222,10 +223,9 @@ function lifecycleResults(
   margins: NoiseMargins | null,
 ): SuiteGateResult[] {
   const recorded = new Map(
-    baseline.scorecard.lifecycle.map((row) => [
-      lifecycleKey(row.tool, row.scenario),
-      row,
-    ]),
+    baseline.scorecard.lifecycle
+      .filter((row) => row.na === undefined)
+      .map((row) => [lifecycleKey(row.tool, row.scenario), row]),
   );
   const results: SuiteGateResult[] = [];
   const seen = new Set<string>();
@@ -241,6 +241,7 @@ function lifecycleResults(
     note,
   });
   for (const item of current.lifecycle) {
+    if (item.na !== undefined) continue; // not run on this host: never judged
     const key = lifecycleKey(item.tool, item.scenario);
     seen.add(key);
     const mode = baseline.modes.lifecycle[key] ?? 'recorded-failure';

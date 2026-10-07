@@ -1,10 +1,22 @@
 import { spawn } from 'node:child_process';
-import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { existsSync, symlinkSync } from 'node:fs';
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
+  ORPHAN_GRACE_MS,
+  OWNER_MAX_AGE_MS,
   corpusOwnerPath,
+  isOwnerLive,
   readCorpusOwner,
+  type OwnerProbe,
   withLifecycleCorpus,
   withPinnedCorpus,
 } from './corpus';
@@ -36,7 +48,7 @@ describe('corpus checkout', () => {
         async (corpus) => {
           pinnedPath = corpus.path;
           expect(corpus.eligibleFiles).toBe(1);
-          expect(await readCorpusOwner(corpus.path)).toBe(process.pid);
+          expect((await readCorpusOwner(corpus.path))?.pid).toBe(process.pid);
           await withLifecycleCorpus(corpus, async (lifecycle) => {
             await writeFile(
               join(lifecycle.path, 'keep.ts'),
@@ -153,7 +165,7 @@ describe('corpus owner liveness', () => {
           expect(await readFile(join(outer.path, 'keep.ts'), 'utf8')).toContain(
             'true',
           );
-          expect(await readCorpusOwner(outer.path)).toBe(process.pid);
+          expect((await readCorpusOwner(outer.path))?.pid).toBe(process.pid);
         },
         { tempRoot },
       );
@@ -189,7 +201,7 @@ describe('corpus owner liveness', () => {
       expect(worktrees).not.toContain(forwardSlashes(deadPath));
       expect(worktrees).toContain(forwardSlashes(livePath));
       expect(await readCorpusOwner(deadPath)).toBeNull();
-      expect(await readCorpusOwner(livePath)).toBe(999_002);
+      expect((await readCorpusOwner(livePath))?.pid).toBe(999_002);
     } finally {
       await git(repository, ['worktree', 'remove', '--force', livePath]);
       await rm(repository, { recursive: true, force: true });
@@ -257,3 +269,155 @@ function git(cwd: string, args: readonly string[]): Promise<string> {
     );
   });
 }
+
+describe('corpus sweep (Phase 1 review M6, M7)', () => {
+  it('recognises a stale worktree registered under the real path when tempRoot is a link to it (8.3 / link form)', async () => {
+    const repository = await createRepository();
+    const configPath = await writeConfig(repository);
+    const commit = await git(repository, ['rev-parse', 'HEAD']);
+    const realRoot = join(tempRoot, 'real-temp');
+    const linkRoot = join(tempRoot, 'link-temp');
+    await mkdir(realRoot);
+    try {
+      symlinkSync(
+        realRoot,
+        linkRoot,
+        process.platform === 'win32' ? 'junction' : 'dir',
+      );
+    } catch {
+      return; // the OS refused to create the link; nothing to check
+    }
+    const stalePath = await mkdtemp(join(realRoot, 'ptah-mcp-bench-corpus-'));
+    try {
+      await git(repository, ['worktree', 'add', '--detach', stalePath, commit]);
+      await withPinnedCorpus(configPath, async () => undefined, {
+        tempRoot: linkRoot,
+      });
+      expect(
+        await git(repository, ['worktree', 'list', '--porcelain']),
+      ).not.toContain(forwardSlashes(stalePath));
+      expect(existsSync(stalePath)).toBe(false);
+    } finally {
+      await rm(repository, { recursive: true, force: true });
+    }
+  });
+
+  it('sweeps unregistered corpus folders and owner files whose owner is dead, and keeps live or fresh ones', async () => {
+    const repository = await createRepository();
+    const configPath = await writeConfig(repository);
+    const deadFolder = await mkdtemp(join(tempRoot, 'ptah-mcp-bench-corpus-'));
+    const liveFolder = await mkdtemp(join(tempRoot, 'ptah-mcp-bench-corpus-'));
+    const freshFolder = await mkdtemp(join(tempRoot, 'ptah-mcp-bench-corpus-'));
+    const lonelyOwner = corpusOwnerPath(
+      join(tempRoot, 'ptah-mcp-bench-corpus-gone'),
+    );
+    await writeFile(
+      corpusOwnerPath(deadFolder),
+      JSON.stringify({ pid: 999_011 }),
+      'utf8',
+    );
+    await writeFile(
+      corpusOwnerPath(liveFolder),
+      JSON.stringify({ pid: 999_012 }),
+      'utf8',
+    );
+    await writeFile(lonelyOwner, JSON.stringify({ pid: 999_013 }), 'utf8');
+    try {
+      await withPinnedCorpus(configPath, async () => undefined, {
+        tempRoot,
+        isProcessAlive: (pid) => pid === 999_012 || pid === process.pid,
+      });
+      expect(existsSync(deadFolder)).toBe(false);
+      expect(existsSync(corpusOwnerPath(deadFolder))).toBe(false);
+      expect(existsSync(lonelyOwner)).toBe(false);
+      expect(existsSync(liveFolder)).toBe(true);
+      // No owner file, younger than the grace period: a run may be about to write it.
+      expect(existsSync(freshFolder)).toBe(true);
+    } finally {
+      await rm(repository, { recursive: true, force: true });
+    }
+  });
+
+  it('sweeps an unregistered folder with no owner file once it is older than the grace period', async () => {
+    const repository = await createRepository();
+    const configPath = await writeConfig(repository);
+    const oldFolder = await mkdtemp(join(tempRoot, 'ptah-mcp-bench-corpus-'));
+    try {
+      await withPinnedCorpus(configPath, async () => undefined, {
+        tempRoot,
+        probe: { now: () => Date.now() + ORPHAN_GRACE_MS + 60_000 },
+      });
+      expect(existsSync(oldFolder)).toBe(false);
+    } finally {
+      await rm(repository, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('isOwnerLive', () => {
+  const now = Date.parse('2026-10-07T12:00:00.000Z');
+  const started = '2026-10-07T11:00:00.000Z';
+  const probe = (overrides: Partial<OwnerProbe> = {}): OwnerProbe => ({
+    isProcessAlive: () => true,
+    processStartedAt: async () => Date.parse(started),
+    hostname: 'bench-host',
+    now: () => now,
+    ...overrides,
+  });
+  const owner = {
+    pid: 4242,
+    hostname: 'bench-host',
+    processStartedAt: started,
+    createdAt: '2026-10-07T11:00:05.000Z',
+  };
+
+  it('is live when the pid runs with the recorded start time', async () => {
+    expect(await isOwnerLive(owner, probe())).toBe(true);
+  });
+
+  it('is stale when the pid was reused by a process with another start time', async () => {
+    expect(
+      await isOwnerLive(
+        owner,
+        probe({ processStartedAt: async () => now - 60_000 }),
+      ),
+    ).toBe(false);
+  });
+
+  it('is stale when the pid no longer runs', async () => {
+    expect(
+      await isOwnerLive(owner, probe({ isProcessAlive: () => false })),
+    ).toBe(false);
+  });
+
+  it('keeps a verified-live owner past the age limit (a long run is not stale)', async () => {
+    expect(
+      await isOwnerLive(owner, probe({ now: () => now + OWNER_MAX_AGE_MS })),
+    ).toBe(true);
+  });
+
+  it('is stale past the age limit when its liveness cannot be verified', async () => {
+    const late = { now: () => now + OWNER_MAX_AGE_MS };
+    expect(
+      await isOwnerLive(
+        owner,
+        probe({ ...late, processStartedAt: async () => null }),
+      ),
+    ).toBe(false);
+    expect(
+      await isOwnerLive({ ...owner, hostname: 'other-host' }, probe(late)),
+    ).toBe(false);
+  });
+
+  it('trusts another host only until the age limit, and an unreadable start time while the pid runs', async () => {
+    expect(
+      await isOwnerLive(
+        { ...owner, hostname: 'other-host' },
+        probe({ isProcessAlive: () => false }),
+      ),
+    ).toBe(true);
+    expect(
+      await isOwnerLive(owner, probe({ processStartedAt: async () => null })),
+    ).toBe(true);
+  });
+});

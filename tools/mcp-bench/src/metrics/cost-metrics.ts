@@ -21,11 +21,15 @@ export function p95Latency(latenciesMs: readonly number[]): number | undefined {
   return percentile(latenciesMs, 0.95);
 }
 
-export function errorRate(outcomes: readonly CallOutcome[]): number {
+export function errorRate(
+  outcomes: readonly CallOutcome[],
+): number | undefined {
   return rate(outcomes, (outcome) => outcome.errored);
 }
 
-export function truncationRate(outcomes: readonly CallOutcome[]): number {
+export function truncationRate(
+  outcomes: readonly CallOutcome[],
+): number | undefined {
   return rate(outcomes, (outcome) => outcome.truncated);
 }
 
@@ -42,7 +46,7 @@ function percentile(
 function rate<T>(
   values: readonly T[],
   predicate: (value: T) => boolean,
-): number {
-  if (values.length === 0) return 0;
+): number | undefined {
+  if (values.length === 0) return undefined;
   return values.filter(predicate).length / values.length;
 }

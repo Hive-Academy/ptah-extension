@@ -127,7 +127,7 @@ describe('retrieval metrics', () => {
     expect(p50Latency([])).toBeUndefined();
     expect(p95Latency([])).toBeUndefined();
     expect(callsPerAnswer(9, 4)).toBe(2.25);
-    expect(callsPerAnswer(0, 0)).toBe(0);
+    expect(callsPerAnswer(0, 0)).toBeUndefined();
     const outcomes = [
       { errored: false, truncated: false },
       { errored: true, truncated: false },
@@ -136,5 +136,7 @@ describe('retrieval metrics', () => {
     ];
     expect(errorRate(outcomes)).toBe(1 / 2);
     expect(truncationRate(outcomes)).toBe(1 / 2);
+    expect(errorRate([])).toBeUndefined();
+    expect(truncationRate([])).toBeUndefined();
   });
 });

@@ -495,3 +495,94 @@ Every suite and lifecycle verdict above is a recorded Phase 1 finding, not a run
 - Verification:
   - `npx nx run-many -t typecheck,lint,test -p mcp-bench --skip-nx-cache` with `RG_PATH`: passed in 1m 29s. 18 test suites, 252 tests, 0 lint errors, the same 2 pre-existing warnings.
   - `npx prettier --check` is clean on the changed files.
+
+## Phase 1 review fixes
+
+Revise round 1 of 2. Both defects came from the independent codex lane review and were confirmed by the orchestrator.
+
+1. **Critical: a guard error raised during cleanup was swallowed.**
+   - The problem: the catch path of `runCopyScenarios` did `await session.stop().catch(() => undefined); throw error;`. A `RealStateChangedError`, `BenchHeldRealStateError` or `ConcurrentWriterError` from that stop was dropped. The run then recorded an ordinary scenario failure and exited 2 instead of being voided.
+   - The new module `tools/mcp-bench/src/transport/guarded-stop.ts` holds the shared rule:
+     - `isGuardError`.
+     - `stopThenRethrow(stop, error)`: a guard error from the stop wins. It is rethrown with the original error as its `cause`, and the message gains "(raised while stopping the host after: …)". Any other stop failure gives way to the original error.
+     - `runThenStop(stop, body)`.
+   - Every cleanup path now uses the shared rule:
+     - the catch of `runCopyScenarios`, now `stopThenRethrow`;
+     - the restart host in scenario 8, which used `try/finally`;
+     - the main host and the polyglot hosts in `main.ts`, which used `try/finally`;
+     - the discovery cleanup in `bench-hosts.ts` (item 2).
+   - `main.ts` takes `isGuardError` for its voiding check, so the classes are listed in one place.
+   - Searched, nothing left: grep finds no remaining `stop().catch(() => undefined)` or swallowed stop in `suites/`, `lifecycle/`, `bench-hosts.ts` or `main.ts`. The one `.catch(() => undefined)` left removes the scratch folder.
+2. **Serious: a host was left running after a failed `tools/list`.**
+   - The problem: in `startHostOnce`, a failing `client.listTools()` after a successful launch escaped without stopping the host.
+   - Now `stopHost()` runs before rethrowing. It closes the client (the launcher's and the Electron host's `stop()` close it), removes the temp home and runs the guard. Its exit and guard report are kept on the host record.
+   - A guard error from that stop wins (same rule as item 1).
+   - Otherwise the failure becomes a `HostDiscoveryError`. That is a new subclass of `HostLaunchError`, carrying the stop's exit and the original error as `cause`.
+   - Decision: it is **retryable** like a pre-ready crash (one retry). It is recorded in `launchFailures`, so it shows in `run.hostExit.detail` and in the `host-launch:<host>` lifecycle row.
+   - Errors that are not launch failures are still not retried.
+
+New spec cases:
+
+- `lifecycle-scenarios.spec.ts`: a guard error from the cleanup stop wins over the scenario error, and is rethrown with `cause` set.
+- `bench-hosts.spec.ts`:
+  - a `tools/list` failure stops the launched host, is recorded ("tools/list failed after the host was ready: …"), and the host starts on the retry;
+  - a guard error from that cleanup stop wins, with no retry.
+
+Verification. A Batch 11 bench is running on this machine, so I ran no bench, no Electron, no `withPinnedCorpus`, and no `build-host` or `build-bench`.
+
+| Check                                                                                                                                           | Result                                |
+| ----------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------- |
+| `RG_PATH=… npx jest -c tools/mcp-bench/jest.config.ts tools/mcp-bench/src/bench-hosts tools/mcp-bench/src/lifecycle tools/mcp-bench/src/suites` | 3 suites, 35 tests passed             |
+| `npx nx run mcp-bench:typecheck --skip-nx-cache`                                                                                                | Passed                                |
+| `npx nx run mcp-bench:lint --skip-nx-cache`                                                                                                     | 0 errors; the 2 pre-existing warnings |
+| `npx prettier --check` on the changed files                                                                                                     | Clean                                 |
+
+Files touched in this round:
+
+| File                                                        | Change   |
+| ----------------------------------------------------------- | -------- |
+| `tools/mcp-bench/src/transport/guarded-stop.ts`             | Created  |
+| `tools/mcp-bench/src/lifecycle/lifecycle-scenarios.ts`      | Modified |
+| `tools/mcp-bench/src/lifecycle/lifecycle-scenarios.spec.ts` | Modified |
+| `tools/mcp-bench/src/bench-hosts.ts`                        | Modified |
+| `tools/mcp-bench/src/bench-hosts.spec.ts`                   | Modified |
+| `tools/mcp-bench/src/main.ts`                               | Modified |
+
+### Corpus sweep: review items M6 and M7 (`code-logic-review-phase1-lanes.md`)
+
+All changes are in `tools/mcp-bench/src/corpus/corpus.ts`, with spec cases in `corpus.spec.ts`.
+
+- **M6: 8.3 short temp paths.** `isTemporaryCorpusWorktree` now compares the worktree path with the temp root twice: lexically, and after `realpathSync.native`. Both comparisons fold case on win32. A worktree that `git worktree list` prints in long form is now recognised when `os.tmpdir()` is an 8.3 short path, and also when the temp root is reached through a link.
+- **M7a: orphans left by a hard kill.** After the registered sweep and `git worktree prune`, a new orphan sweep walks the `ptah-mcp-bench-corpus-*` entries under the temp root and removes:
+  - unregistered folders whose owner is stale;
+  - unregistered folders with no owner file that are older than `ORPHAN_GRACE_MS` (10 min);
+  - owner files whose folder is gone and whose owner is stale.
+
+  Registered worktrees and live owners are never touched. A removal that fails is left for the next run, because this cleanup only reclaims disk.
+
+- **M7b: reused PIDs and the hostname.**
+  - The owner file now also records `processStartedAt` (this process's start time) next to `pid`, `hostname` and `createdAt`.
+  - `isOwnerLive` decides in this order:
+    1. An owner older than `OWNER_MAX_AGE_MS` (12 h) is stale, whatever its pid.
+    2. An owner from another hostname is trusted until that age limit, because its pid cannot be probed.
+    3. An owner whose pid is not running is stale.
+    4. An owner whose pid is running with a start time more than 5 s away from the recorded one is stale: the pid was reused.
+    5. Otherwise the owner is live. That includes a running pid whose start time cannot be read.
+  - The start-time probe is `Get-Process` on win32 and `ps -o lstart=` elsewhere, with a 10 s timeout. Only a running pid seen by the sweep is probed.
+  - `readCorpusOwner` now returns the owner record instead of the pid.
+  - New option: `PinnedCorpusOptions.probe`, for injecting probes in specs.
+- **New spec cases** (private temp root only):
+  - M6: a stale worktree registered under the real path is swept when `tempRoot` is a junction (a dir symlink on POSIX) to it. Junctions work on this machine, so the case ran rather than skipped.
+  - M7a: a dead-owner folder and a lonely dead-owner file are swept, while a live-owner folder and a fresh folder with no owner file are kept.
+  - M7a: a folder with no owner file is swept once it is past the grace period.
+  - M7b: `isOwnerLive` with a matching start time, a reused pid, a pid that is not running, the age limit, another host, and an unreadable start time.
+- **Verification.** No bench, Electron, `withPinnedCorpus` on a live corpus, `build-host` or `build-bench` was run.
+
+  | Check                                                                             | Result                                   |
+  | --------------------------------------------------------------------------------- | ---------------------------------------- |
+  | `RG_PATH=… npx jest -c tools/mcp-bench/jest.config.ts tools/mcp-bench/src/corpus` | 13 tests passed                          |
+  | `npx nx run mcp-bench:lint --skip-nx-cache`                                       | 0 errors; the 2 pre-existing warnings    |
+  | `npx prettier --check tools/mcp-bench/src/corpus`                                 | Clean                                    |
+  | `npx nx run mcp-bench:typecheck --skip-nx-cache`                                  | **Fails, in a file outside this change** |
+
+  The typecheck error is `scorecard/scorecard.types.ts:134` TS2345: `unknown` is not assignable to the new `{ questions; primaryMetric?; decidingBaseline?; metrics }` parameter. `scorecard.types.ts`, `scorecard-writers.ts` and `retrieval-suite-kind.ts` are being changed by another agent at the same time. I did not touch them. The same `tsc` run reports no other error, so the corpus changes typecheck clean.

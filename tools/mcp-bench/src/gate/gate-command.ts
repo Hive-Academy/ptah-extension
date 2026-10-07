@@ -67,10 +67,17 @@ export async function runGate(
     log(`[gate] ${error.message}`);
     return 2;
   }
+  const scorecard = await readScorecard(resolve(options.scorecard));
+  // The margins of the scorecard's own mode (host, smoke or full); the PR gate
+  // reads cli-headless smoke, `noise-margins.json`.
   const report = evaluateWithBaseline(
-    await readScorecard(resolve(options.scorecard)),
+    scorecard,
     baseline,
-    await loadNoiseMargins(directory),
+    await loadNoiseMargins(
+      directory,
+      scorecard.run.host,
+      scorecard.run.smoke === true,
+    ),
     { noiseMargin: options['noise-margin'] },
   );
   return finish(report, log);

@@ -37,7 +37,19 @@ import {
 import type { Scorecard, ScorecardSuite } from '../scorecard/scorecard.types';
 import { NOISE_MARGIN } from '../suites/suite-runner';
 
+/**
+ * The margins the PR gate reads: `cli-headless`, `--smoke`. Every other mode
+ * (host x smoke/full) has its own file, {@link noiseMarginsFile}, so a margin
+ * measured on 200-question full runs never judges a 40-question smoke run.
+ */
 export const NOISE_MARGINS_FILE = 'noise-margins.json';
+
+/** `noise-margins.json` for cli-headless smoke; `noise-margins.<host>.<smoke|full>.json` otherwise. */
+export function noiseMarginsFile(host: string, smoke: boolean): string {
+  return host === 'cli-headless' && smoke
+    ? NOISE_MARGINS_FILE
+    : `noise-margins.${host}.${smoke ? 'smoke' : 'full'}.json`;
+}
 /** Runs a measurement needs (batches.md: three baseline runs). */
 export const MEASUREMENT_RUNS = 3;
 /** Standard deviations of the delta that make up the margin. */
@@ -96,10 +108,15 @@ export function marginFor(
 /** Reads the stored margins; `null` when none are stored, an error when the file is invalid. */
 export async function loadNoiseMargins(
   baselineDirectory: string,
+  host = 'cli-headless',
+  smoke = true,
 ): Promise<NoiseMargins | null> {
   let text: string;
   try {
-    text = await readFile(join(baselineDirectory, NOISE_MARGINS_FILE), 'utf8');
+    text = await readFile(
+      join(baselineDirectory, noiseMarginsFile(host, smoke)),
+      'utf8',
+    );
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
     throw error;
@@ -257,10 +274,12 @@ export function computeNoiseMargins(
   const lifecycle: NoiseMargins['lifecycle'] = {};
   const rowName = (row: { tool: string; scenario: string }): string =>
     `${row.tool} / ${row.scenario}`;
-  const rowKeys = new Set(runs.flatMap((run) => run.lifecycle.map(rowName)));
+  const scored = (run: Scorecard) =>
+    run.lifecycle.filter((row) => row.na === undefined);
+  const rowKeys = new Set(runs.flatMap((run) => scored(run).map(rowName)));
   for (const key of [...rowKeys].sort()) {
     const seen = runs.flatMap((run) =>
-      run.lifecycle.filter((row) => rowName(row) === key),
+      scored(run).filter((row) => rowName(row) === key),
     );
     const passes = seen.filter((row) => row.pass).length;
     lifecycle[key] = {
@@ -296,7 +315,10 @@ export async function writeNoiseMargins(
   margins: NoiseMargins,
 ): Promise<string> {
   await mkdir(baselineDirectory, { recursive: true });
-  const path = join(baselineDirectory, NOISE_MARGINS_FILE);
+  const path = join(
+    baselineDirectory,
+    noiseMarginsFile(margins.host, margins.smoke),
+  );
   const temp = `${path}.tmp`;
   await writeFile(
     temp,

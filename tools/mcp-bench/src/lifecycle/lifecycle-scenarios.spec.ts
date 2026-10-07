@@ -12,6 +12,7 @@ import { join } from 'node:path';
 
 import { buildMemoryQuestionSet } from '../ground-truth/memory-questions';
 import type { HostExit } from '../transport/host-launcher';
+import { BenchHeldRealStateError } from '../transport/real-state-guard';
 import type { McpToolCaller, ToolCallOutcome } from '../transport/mcp-client';
 import {
   COPY_SCENARIOS,
@@ -24,6 +25,7 @@ import {
   type LifecycleDeps,
   type LifecycleResult,
 } from './lifecycle-scenarios';
+import { coverageOf, naScenarios } from './lifecycle-na';
 
 type Handler = (
   root: string,
@@ -255,8 +257,11 @@ describe('runCopyScenarios', () => {
     });
 
     expect(results.filter((item) => !item.pass)).toEqual([]);
-    expect(byScenario(results)['index-age-24h'].detail).toContain(
-      'index settled after 0 ms; 12 rows backdated 25 h',
+    const age = byScenario(results)['index-age-24h'].detail;
+    expect(age).toContain('index settled after 0 ms (DB ');
+    expect(age).toContain('coverage {"clean":true}); 12 rows backdated 25 h');
+    expect(byScenario(results)['cold-start'].detail).toContain(
+      'reindexInFlight false first seen',
     );
     expect(
       existsSync(join(root, 'libs', 'mcp-bench-lifecycle', 'added-t2.ts')),
@@ -272,6 +277,32 @@ describe('runCopyScenarios', () => {
     await expect(
       runCopyScenarios(root, deps, { smoke: true, probe, tag: 't3' }),
     ).rejects.toThrow('guard tripped');
+    expect(session.stops).toBe(1);
+  });
+
+  it('lets a guard error from the cleanup stop win over the scenario error, so the run is voided', async () => {
+    const root = await corpusCopy();
+    const guard = new BenchHeldRealStateError([
+      { pid: 7, name: 'node.exe', path: 'C:/Users/u/.ptah/state/ptah.sqlite' },
+    ]);
+    const session = fakeSession(root, () => {
+      throw new Error('scenario broke');
+    });
+    session.stop = async () => {
+      session.stops += 1;
+      throw guard;
+    };
+    const deps = fakeDeps({ launch: async () => session });
+    const rejection = runCopyScenarios(root, deps, {
+      smoke: true,
+      probe,
+      tag: 't4',
+    });
+    await expect(rejection).rejects.toBe(guard);
+    expect(guard.cause).toEqual(new Error('scenario broke'));
+    expect(guard.message).toContain(
+      'raised while stopping the host after: scenario broke',
+    );
     expect(session.stops).toBe(1);
   });
 });
@@ -450,5 +481,74 @@ describe('unscoredScenarios', () => {
       ),
     ).toBe(true);
     expect(rows.map((row) => row.scenario)).not.toContain('cold-start');
+  });
+  it('marks the seeded-memory scenarios na (not failed) when the host has no seeding hook, and runs the rest', async () => {
+    const roots = {
+      rootA: join(scratch, 'A'),
+      rootB: join(scratch, 'B'),
+      worktreeOfA: join(scratch, 'A-wt'),
+    };
+    const memoryCalls: string[] = [];
+    const handler: Handler = async (root, tool) => {
+      if (tool === 'ptah_memory_search') memoryCalls.push(root);
+      if (tool === 'ptah_search_files') return result('{"files":[]}');
+      if (tool === 'ptah_code_search_symbols')
+        return result('{"hits":[],"index":{"symbolCount":5}}');
+      return result('{"ok":true}');
+    };
+    const results = byScenario(
+      await runSessionScenarios(
+        fakeSession(join(scratch, 'copy'), handler),
+        fakeDeps(),
+        {
+          smoke: true,
+          probe,
+          tag: 's3',
+          memoryRoots: roots,
+          memoryNaReason: 'no seeding hook',
+          scratchDir: join(scratch, 'scenario9'),
+        },
+      ),
+    );
+    for (const name of [
+      'two-workspaces-memory-leak',
+      'worktree-memory-scope',
+      'worktree-spool-path',
+    ])
+      expect(results[name]).toMatchObject({
+        pass: false,
+        na: 'no seeding hook',
+      });
+    expect(memoryCalls).toEqual([]);
+    expect(results['transport-idle-gaps'].na).toBeUndefined();
+    expect(results['two-workspaces-symbol-scope'].na).toBeUndefined();
+    expect(results['worktree-task-tools'].na).toBeUndefined();
+  });
+});
+
+describe('naScenarios and coverageOf', () => {
+  it('naScenarios builds one na row per expected case with the reason', () => {
+    const rows = naScenarios(
+      [{ scenario: 'a', tool: 't' }],
+      'attach mode never writes to a user DB',
+    );
+    expect(rows).toEqual([
+      {
+        scenario: 'a',
+        tool: 't',
+        pass: false,
+        detail: '',
+        na: 'attach mode never writes to a user DB',
+      },
+    ]);
+  });
+
+  it('coverageOf quotes the balanced coverage block, or says it is absent', () => {
+    expect(
+      coverageOf(
+        '{"hits":[],"coverage":{"clean":true,"census":"complete","by":{"x":1}},"index":{}}',
+      ),
+    ).toBe('{"clean":true,"census":"complete","by":{"x":1}}');
+    expect(coverageOf('{"hits":[]}')).toBe('none in the answer');
   });
 });

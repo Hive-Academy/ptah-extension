@@ -69,6 +69,10 @@ function renderValidatedScorecardMarkdown(
     `# MCP benchmark scorecard: ${scorecard.run.id}`,
     '',
     `Host: ${scorecard.run.host}`,
+    ...(scorecard.run.smoke === undefined
+      ? []
+      : [`Mode: ${scorecard.run.smoke ? 'smoke' : 'full'}`]),
+    `Corpus: ${scorecard.corpus.commit}, ${scorecard.corpus.eligibleFiles} raw source files (extension count; no gitignore or indexer rules; the indexer census is in the lifecycle rows' coverage blocks)`,
     `Guard mode: ${scorecard.run.guardMode}`,
     `Guard partial: ${scorecard.run.guard.partial ? `yes (${unprobed})` : 'no'}`,
     `Host exit: ${scorecard.run.hostExit.kind}`,
@@ -94,7 +98,7 @@ function renderValidatedScorecardMarkdown(
   );
   for (const item of scorecard.lifecycle)
     lines.push(
-      `| ${item.scenario} | ${item.tool} | ${item.pass ? 'pass' : 'fail'} | ${item.detail} |`,
+      `| ${cell(item.scenario)} | ${cell(item.tool)} | ${item.na === undefined ? (item.pass ? 'pass' : 'fail') : 'na'} | ${cell(item.na === undefined ? item.detail : `${item.na}${item.detail ? ` (${item.detail})` : ''}`)} |`,
     );
   lines.push(
     '',
@@ -102,8 +106,8 @@ function renderValidatedScorecardMarkdown(
     '',
     '| Mode | Tools | Rule |',
     '| --- | --- | --- |',
-    `| Eager | ${scorecard.eagerSelection.eager.join(', ')} | ${scorecard.eagerSelection.rule} |`,
-    `| Deferred | ${scorecard.eagerSelection.deferred.join(', ')} | ${scorecard.eagerSelection.rule} |`,
+    `| Eager | ${cell(scorecard.eagerSelection.eager.join(', '))} | ${cell(scorecard.eagerSelection.rule)} |`,
+    `| Deferred | ${cell(scorecard.eagerSelection.deferred.join(', '))} | ${cell(scorecard.eagerSelection.rule)} |`,
     '',
   );
   return `${lines.join('\n')}\n`;
@@ -114,25 +118,28 @@ function renderGenericSuite(suite: ScorecardSuite): string[] {
     '',
     '| Baseline | Metric | Value | Delta |',
     '| --- | --- | ---: | ---: |',
-    `| Suite | claim (${suite.claim.source}) | ${suite.claim.ref} | |`,
-    `| Suite | ground truth (${suite.groundTruth.method}) | ${suite.groundTruth.id} | |`,
+    `| Suite | claim (${cell(suite.claim.source)}) | ${cell(suite.claim.ref)} | |`,
+    `| Suite | ground truth (${cell(suite.groundTruth.method)}) | ${cell(suite.groundTruth.id)} | |`,
   ];
   for (const baseline of suite.baselines)
     for (const [metric, value] of Object.entries(baseline.metrics))
       lines.push(
-        `| ${baseline.label} | ${metric} | ${formatMetric(value)} | ${formatMetric(suite.deltas[baseline.id]?.[metric])} |`,
+        `| ${cell(baseline.label)} | ${cell(metric)} | ${formatMetric(value)} | ${formatMetric(suite.deltas[baseline.id]?.[metric])} |`,
       );
   lines.push(
     `| Cost | calls | ${suite.cost.calls} | |`,
-    `| Cost | source | ${suite.cost.source} | |`,
+    `| Cost | source | ${cell(suite.cost.source)} | |`,
     `| Cost | latency_ms.p50 | ${formatMetric(suite.cost.latency_ms.p50)} | |`,
     `| Cost | latency_ms.p95 | ${formatMetric(suite.cost.latency_ms.p95)} | |`,
     `| Cost | error_rate | ${formatMetric(suite.cost.error_rate)} | |`,
-    `| Verdict | ${suite.verdict} | ${suite.naReason ?? ''} | |`,
+    `| Verdict | ${suite.verdict} | ${cell(suite.naReason ?? '')} | |`,
     '',
   );
   return lines;
 }
 function formatMetric(value: number | null | undefined): string {
   return value === null || value === undefined ? 'na' : String(value);
+}
+function cell(value: string): string {
+  return value.replaceAll('|', '\\|').replaceAll(/\r?\n/gu, '<br>');
 }
