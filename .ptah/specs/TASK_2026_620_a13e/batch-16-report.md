@@ -184,3 +184,14 @@ Check results (this round):
   `NX   Successfully ran targets typecheck, lint for project mcp-bench`. `npx eslint` on
   `memory-skills/runner` and `memory-skills/host` reports 0 problems.
 - `npx prettier --check --ignore-unknown <changed files>` → `All matched files use Prettier code style!`
+
+## Phase 3.4 close (orchestrator)
+
+Re-review `code-logic-review-phase3-4-r2.md`: APPROVED (8/10), all 10 findings closed. Revise cap
+used; two new minor items are carried as known, not fixed in this phase:
+- N1 `runner/read-path-guard.ts:222-238`, `run-memory-skills.ts:521`: the read-time re-check uses
+  `git status`, so a label file COMMITTED mid-run passes; the run can score new-HEAD bytes under the
+  run-start HEAD. The ground-truth ratchet catches it on the next run. Fix candidate: compare the
+  blob hash against the run-start HEAD.
+- N2 `host/fixture-seeder.ts:164`: the source re-check hardcodes `realpathSync.native` while the
+  constructor honours the injected `realpath` option (spec-facing only).
