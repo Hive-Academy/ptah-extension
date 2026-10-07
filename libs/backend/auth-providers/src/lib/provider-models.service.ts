@@ -48,8 +48,10 @@ import {
 } from './model-tier-derivation';
 
 /**
- * Raw model response from OpenRouter-style /v1/models API
- * Both OpenRouter and Moonshot use a compatible format
+ * Raw model response from OpenRouter-style /v1/models API.
+ * OpenRouter and Moonshot use this format. Requesty differs: it reports tool
+ * support as `supports_tool_calling`, per-token prices as top-level
+ * `input_price` / `output_price`, and `pricing` as an array of price tiers.
  */
 interface ModelsApiModel {
   id: string;
@@ -58,16 +60,21 @@ interface ModelsApiModel {
   context_length?: number;
   context_window?: number;
   supported_parameters?: string[];
+  supports_tool_calling?: boolean;
+  input_price?: number;
+  output_price?: number;
   architecture?: {
     input_modalities?: string[];
     output_modalities?: string[];
   };
-  pricing?: {
-    prompt?: string;
-    completion?: string;
-    input_cache_read?: string;
-    input_cache_write?: string;
-  };
+  pricing?:
+    | {
+        prompt?: string;
+        completion?: string;
+        input_cache_read?: string;
+        input_cache_write?: string;
+      }
+    | unknown[];
 }
 
 interface ModelsApiResponse {
@@ -1159,25 +1166,35 @@ export class ProviderModelsService {
    * Shared by both fetchDynamicModels() and prefetchPricing().
    */
   private transformApiModels(rawModels: ModelsApiModel[]): ProviderModelInfo[] {
-    return rawModels.map((model) => ({
-      id: model.id,
-      name: model.name || model.id,
-      description: model.description || '',
-      contextLength: model.context_length || model.context_window || 0,
-      ...(Number.isFinite(model.context_length || model.context_window) &&
-      (model.context_length || model.context_window || 0) > 0
-        ? { contextLengthSource: 'provider' as const }
-        : {}),
-      supportsToolUse: model.supported_parameters?.includes('tools') ?? false,
-      inputCostPerToken: this.parsePricingField(model.pricing?.prompt),
-      outputCostPerToken: this.parsePricingField(model.pricing?.completion),
-      cacheReadCostPerToken: this.parsePricingField(
-        model.pricing?.input_cache_read,
-      ),
-      cacheCreationCostPerToken: this.parsePricingField(
-        model.pricing?.input_cache_write,
-      ),
-    }));
+    return rawModels.map((model) => {
+      const pricing = Array.isArray(model.pricing) ? undefined : model.pricing;
+      return {
+        id: model.id,
+        name: model.name || model.id,
+        description: model.description || '',
+        contextLength: model.context_length || model.context_window || 0,
+        ...(Number.isFinite(model.context_length || model.context_window) &&
+        (model.context_length || model.context_window || 0) > 0
+          ? { contextLengthSource: 'provider' as const }
+          : {}),
+        supportsToolUse:
+          model.supported_parameters?.includes('tools') ??
+          model.supports_tool_calling ??
+          false,
+        inputCostPerToken:
+          this.parsePricingField(pricing?.prompt) ??
+          this.parsePricingField(model.input_price),
+        outputCostPerToken:
+          this.parsePricingField(pricing?.completion) ??
+          this.parsePricingField(model.output_price),
+        cacheReadCostPerToken: this.parsePricingField(
+          pricing?.input_cache_read,
+        ),
+        cacheCreationCostPerToken: this.parsePricingField(
+          pricing?.input_cache_write,
+        ),
+      };
+    });
   }
 
   /**
@@ -1186,9 +1203,11 @@ export class ProviderModelsService {
    *
    * @returns Parsed number, or undefined if empty/invalid/negative
    */
-  private parsePricingField(value: string | undefined): number | undefined {
+  private parsePricingField(
+    value: string | number | undefined,
+  ): number | undefined {
     if (value === undefined || value === '') return undefined;
-    const parsed = parseFloat(value);
+    const parsed = typeof value === 'number' ? value : parseFloat(value);
     if (isNaN(parsed) || parsed < 0) return undefined;
     return parsed;
   }

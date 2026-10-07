@@ -311,6 +311,68 @@ describe('ProviderModelsService — discovered context windows', () => {
 // setModelTier — mainAgent scope
 // ---------------------------------------------------------------------------
 
+describe('ProviderModelsService — Requesty catalog shape', () => {
+  it('reads tool support and per-token prices from the Requesty fields', async () => {
+    const get = jest.spyOn(axios, 'get').mockResolvedValue({
+      data: {
+        data: [
+          {
+            id: 'openai/gpt-6-sol',
+            context_window: 272000,
+            supports_tool_calling: true,
+            input_price: 0.000002,
+            output_price: 0.000008,
+            pricing: [
+              {
+                prompt_tokens_threshold: 0,
+                input_price: 0.000002,
+                output_price: 0.000008,
+              },
+            ],
+          },
+          {
+            id: 'typesafe/jev-1.13.0',
+            context_window: 64000,
+            supports_tool_calling: false,
+            input_price: 4.2e-8,
+            output_price: 0,
+            pricing: [],
+          },
+          {
+            // OpenRouter shape: supported_parameters answers, even without tools.
+            id: 'openrouter-shaped/no-tools',
+            supported_parameters: ['temperature'],
+            supports_tool_calling: true,
+            pricing: { prompt: '0.000001', completion: '0.000003' },
+          },
+        ],
+      },
+    });
+    try {
+      const { service } = makeService({});
+      const { models } = await service.fetchModels('requesty', 'test-key');
+      const byId = new Map(models.map((m) => [m.id, m]));
+      expect(byId.get('openai/gpt-6-sol')).toMatchObject({
+        supportsToolUse: true,
+        inputCostPerToken: 0.000002,
+        outputCostPerToken: 0.000008,
+      });
+      expect(byId.get('typesafe/jev-1.13.0')).toMatchObject({
+        supportsToolUse: false,
+        inputCostPerToken: 4.2e-8,
+        outputCostPerToken: 0,
+      });
+      expect(byId.get('openrouter-shaped/no-tools')).toMatchObject({
+        supportsToolUse: false,
+        inputCostPerToken: 0.000001,
+        outputCostPerToken: 0.000003,
+      });
+    } finally {
+      get.mockRestore();
+    }
+  });
+});
+
 describe('ProviderModelsService.setModelTier', () => {
   describe('mainAgent scope', () => {
     it('writes to process.env', async () => {
