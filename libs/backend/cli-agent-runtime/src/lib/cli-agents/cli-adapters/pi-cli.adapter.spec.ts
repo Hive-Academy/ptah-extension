@@ -222,6 +222,35 @@ describe('PiCliAdapter (RPC mode)', () => {
       expect(argsArg).toEqual(['--list-models']);
     });
 
+    it('turns the Pi 0.80 table into provider/model ids and skips the header', async () => {
+      mockResolveCliPath.mockResolvedValue('/usr/local/bin/pi');
+      const models = adapter.listModels();
+
+      await flush();
+      currentChild?.stdout.write(
+        [
+          'provider      model                   context  max-out  thinking  images',
+          'ollama-cloud  deepseek-v3.1:671b      163.8K   32.8K    yes       no    ',
+          'ollama-cloud  deepseek-v3.2           163.8K   32.8K    yes       no    ',
+          'openai        gpt-6-sol               272K     128K     yes       yes   ',
+          '',
+        ].join('\n'),
+      );
+      currentChild?.emitClose(0);
+
+      expect(await models).toEqual([
+        {
+          id: 'ollama-cloud/deepseek-v3.1:671b',
+          name: 'ollama-cloud/deepseek-v3.1:671b',
+        },
+        {
+          id: 'ollama-cloud/deepseek-v3.2',
+          name: 'ollama-cloud/deepseek-v3.2',
+        },
+        { id: 'openai/gpt-6-sol', name: 'openai/gpt-6-sol' },
+      ]);
+    });
+
     it('returns an empty list when the probe produces no output', async () => {
       mockResolveCliPath.mockResolvedValue('/usr/local/bin/pi');
       const models = adapter.listModels();
