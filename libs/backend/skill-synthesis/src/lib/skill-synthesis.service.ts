@@ -195,6 +195,15 @@ function contentHash(description: string, body: string): string {
 const ULID_MAX_TIME = 0xffff_ffff_ffff;
 
 /**
+ * What {@link SkillSynthesisService.start} did. `abandoned`: a `stop()` ran
+ * while the boot work awaited the database, so nothing was registered.
+ * `failed` reaches only a caller that joined a run which rejected (the direct
+ * caller gets the rejection).
+ */
+export type SkillSynthesisStartOutcome =
+  'started' | 'already-started' | 'paused' | 'abandoned' | 'failed';
+
+/**
  * The seed time for an event id. `ulid` throws on a time it cannot encode, and
  * a throw here would break whatever pipeline step recorded the event. A
  * fractional timestamp is floored to its millisecond; a non-finite one, or one
@@ -241,7 +250,7 @@ export class SkillSynthesisService {
    * the first is still awaiting `openAndMigrate()` JOINS that run instead of
    * running the boot work — and the session-end subscription — a second time.
    */
-  private startRun: Promise<void> | null = null;
+  private startRun: Promise<SkillSynthesisStartOutcome> | null = null;
   /**
    * Bumped by {@link stop}. A boot run that was awaiting the database when the
    * host stopped sees a different value afterwards and registers nothing, so a
@@ -249,8 +258,6 @@ export class SkillSynthesisService {
    * subscription or the curator interval on a disposed host.
    */
   private lifecycle = 0;
-  /** True from {@link stop} until the next {@link start}. */
-  private stopped = false;
   /**
    * Called after every successful `performStart()` (B-P review N1). The host
    * boot subscribes here so the skill TRIGGER service comes up whenever the
@@ -370,8 +377,7 @@ export class SkillSynthesisService {
    * config-change event and lazily from `enqueueAnalyze` / `analyzeSession` /
    * the prefilter stage) complete that work without a restart.
    */
-  async start(): Promise<void> {
-    this.stopped = false;
+  async start(): Promise<SkillSynthesisStartOutcome> {
     // ABOVE both early returns, deliberately. Registration is a handful of Map
     // writes: it opens no database, reads no transcript and spends nothing, so
     // the "paused means touches nothing" rule the drain's gate 1 enforces is not
@@ -382,42 +388,43 @@ export class SkillSynthesisService {
     // the `started` re-entry guard below does not need to cover it.
     this.stageHandlers?.registerStageHandlers(this);
     this.registerConfigListener();
-    if (this.started) return;
+    if (this.started) return 'already-started';
     if (!this.readSettings().enabled) {
       this.logger.info(
         '[skill-synthesis] disabled via settings; skipping start',
       );
-      return;
+      return 'paused';
     }
     if (this.startRun !== null) {
       // A lazy deferred start is already completing the boot work; join it
       // rather than running it — and the session-end subscription — twice.
-      // The join promise never rejects (the failure is observed where it is
-      // created, below), so a joiner learns the outcome from `started`, as
-      // `ensureStarted` does — never from this await.
-      await this.startRun;
-      return;
+      // The joiner gets that run's outcome, so it can never mistake a run a
+      // `stop()` abandoned for a start. The join promise never rejects: a
+      // failed run is `'failed'` here and is observed where it is created.
+      return this.startRun;
     }
     const run = this.performStart();
     // The JOIN promise must never become an unhandled rejection (review
-    // finding 2). It is derived from `run`, and only a caller that arrives
-    // WHILE this run is in flight ever awaits it — when `performStart()`
-    // rejects (say `openAndMigrate` fails) and no second caller arrives, the
-    // derived promise would reject with no handler, and Node — which the CLI
-    // runs without an `unhandledRejection` handler — terminates the process
-    // on it. Observed and logged here; the DIRECT caller still sees the
-    // error from `await run` below, and `startRun` is reset either way so a
-    // later start retries the boot work.
+    // finding 2): it is derived from `run`, and when `performStart()` rejects
+    // with no joiner the derived promise would reject with no handler, which
+    // ends the CLI process. Observed and logged here; the DIRECT caller still
+    // sees the error from `await run` below, and `startRun` is reset either
+    // way so a later start retries the boot work.
     this.startRun = run
+      .then(
+        (started): SkillSynthesisStartOutcome =>
+          started ? 'started' : 'abandoned',
+        (err: unknown): SkillSynthesisStartOutcome => {
+          this.logger.warn('[skill-synthesis] background start failed', {
+            error: err instanceof Error ? err.message : String(err),
+          });
+          return 'failed';
+        },
+      )
       .finally(() => {
         this.startRun = null;
-      })
-      .catch((err: unknown) => {
-        this.logger.warn('[skill-synthesis] background start failed', {
-          error: err instanceof Error ? err.message : String(err),
-        });
       });
-    await run;
+    return (await run) ? 'started' : 'abandoned';
   }
 
   /**
@@ -426,7 +433,7 @@ export class SkillSynthesisService {
    * embedding-backfill row. Reached only through {@link start}, which owns the
    * `started` / `startRun` guards around it.
    */
-  private async performStart(): Promise<void> {
+  private async performStart(): Promise<boolean> {
     const lifecycle = this.lifecycle;
     if (!this.connection.isOpen) {
       await this.connection.openAndMigrate();
@@ -436,7 +443,7 @@ export class SkillSynthesisService {
       this.logger.info(
         '[skill-synthesis] stopped while starting; boot work abandoned',
       );
-      return;
+      return false;
     }
     try {
       const settingsForMigration = this.readSettings();
@@ -530,6 +537,7 @@ export class SkillSynthesisService {
       vecExtensionLoaded: this.vecStatus.available,
     });
     this.notifyStarted();
+    return true;
   }
 
   /**
@@ -562,19 +570,8 @@ export class SkillSynthesisService {
   }
 
   /** Unsubscribes from the session-end registry and resets state. */
-  /**
-   * Whether {@link stop} ran after the last {@link start}. A `start()` that a
-   * `stop()` overtook still resolves normally, so a host must check this
-   * before it brings up anything that depends on the service (the skill
-   * trigger) — a paused boot resolves with this `false` and still needs it.
-   */
-  isStopped(): boolean {
-    return this.stopped;
-  }
-
   stop(): void {
     this.lifecycle += 1;
-    this.stopped = true;
     this._sessionEndDisposer?.();
     this._sessionEndDisposer = undefined;
     this._configDisposer?.dispose();

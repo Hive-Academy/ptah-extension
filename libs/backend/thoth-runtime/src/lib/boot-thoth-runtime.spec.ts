@@ -71,7 +71,6 @@ function makeSkillSynthesis(start: jest.Mock) {
   const listeners = new Set<() => void>();
   return {
     start,
-    isStopped: jest.fn(() => false),
     onStarted: jest.fn((listener: () => void) => {
       listeners.add(listener);
       return { dispose: () => listeners.delete(listener) };
@@ -534,10 +533,11 @@ describe('bootThothRuntime', () => {
   });
 
   it('a start that a stop() overtook resolves but starts no trigger', async () => {
-    // The real service returns normally when stop() ran during its database
-    // open; only `isStopped()` tells the boot not to bring the trigger up.
-    const skillSynthesis = makeSkillSynthesis(jest.fn(async () => undefined));
-    skillSynthesis.isStopped.mockReturnValue(true);
+    // The real service resolves `'abandoned'` when stop() ran during its
+    // database open; the boot must not bring the trigger up for it.
+    const skillSynthesis = makeSkillSynthesis(
+      jest.fn(async () => 'abandoned' as const),
+    );
     const skillTrigger = { start: jest.fn() };
     const container = makeContainer([
       [PERSISTENCE_TOKENS.SQLITE_CONNECTION, makeSqlite()],

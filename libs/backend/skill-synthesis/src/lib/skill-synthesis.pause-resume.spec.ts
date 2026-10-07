@@ -587,8 +587,12 @@ describe('SkillSynthesisService — pause and resume (B-P)', () => {
     const run = h.svc.start();
     await h.settle();
     h.svc.stop();
+    // A second start that arrives before the abandoned run settles joins it
+    // and must learn that it was abandoned, not that it started.
+    const joiner = h.svc.start();
     openDb();
-    await run;
+    await expect(run).resolves.toBe('abandoned');
+    await expect(joiner).resolves.toBe('abandoned');
     await h.settle();
 
     expect(h.sessionEndRegistry.register).not.toHaveBeenCalled();

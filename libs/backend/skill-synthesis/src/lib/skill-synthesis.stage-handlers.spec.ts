@@ -450,7 +450,7 @@ describe('SkillSynthesisService — drain stage handlers (B0.9.1)', () => {
   it('starts cleanly in a host with no drain registered', async () => {
     const queue = makeOneRowQueue(queueRow());
     const { svc } = makeService({ queue, drain: null });
-    await expect(svc.start()).resolves.toBeUndefined();
+    await expect(svc.start()).resolves.toBe('started');
   });
 });
 

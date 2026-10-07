@@ -440,7 +440,6 @@ export async function bootThothRuntime(
     try {
       if (
         refs.skillSynthesis !== null &&
-        !refs.skillSynthesis.isStopped() &&
         !isAborted() &&
         container.isRegistered(SKILL_SYNTHESIS_TOKENS.SKILL_TRIGGER_SERVICE)
       ) {
@@ -483,8 +482,10 @@ export async function bootThothRuntime(
     // live, and shutdown's `stop()` must dispose its config listener.
     void skillSynthesis
       .start()
-      .then(() => {
-        if (isAborted()) return;
+      .then((outcome) => {
+        // `abandoned`: a stop() overtook the boot work, which registered
+        // nothing; the host is stopping, so no trigger either.
+        if (isAborted() || outcome === 'abandoned') return;
         console.log(`${logPrefix} Skill synthesis started`);
         startSkillTrigger();
       })

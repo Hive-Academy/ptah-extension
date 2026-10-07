@@ -319,7 +319,6 @@ async function startSkillSynthesis(
     try {
       if (
         refs.skillSynthesis !== null &&
-        !refs.skillSynthesis.isStopped() &&
         container.isRegistered(SKILL_SYNTHESIS_TOKENS.SKILL_TRIGGER_SERVICE)
       ) {
         const skillTrigger = container.resolve<SkillTriggerService>(
@@ -349,10 +348,10 @@ async function startSkillSynthesis(
       // every successful start must bring the trigger up (B-P review N1).
       // `stop()` in `disposeThoth` drops the subscription.
       skillSynthesis.onStarted(startSkillTrigger);
-      await skillSynthesis.start();
+      const outcome = await skillSynthesis.start();
       // A start that resolved — including a paused boot, whose trigger arms
-      // its owed boot scan for the resume.
-      startSkillTrigger();
+      // its owed boot scan for the resume — except one a stop() abandoned.
+      if (outcome !== 'abandoned') startSkillTrigger();
     }
   } catch (error: unknown) {
     // A failed `start()` keeps the ref: the service's retry path is still

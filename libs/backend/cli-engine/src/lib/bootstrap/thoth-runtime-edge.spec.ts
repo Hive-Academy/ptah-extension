@@ -63,7 +63,6 @@ function makeFullDoubles(
       start: jest.fn(async () => order.push('skillSynthesis.start')),
       stop: jest.fn(() => order.push('skillSynthesis.stop')),
       onStarted: jest.fn(() => ({ dispose: jest.fn() })),
-      isStopped: jest.fn(() => false),
     },
     skillTrigger: {
       start: jest.fn(() => order.push('skillTrigger.start')),
