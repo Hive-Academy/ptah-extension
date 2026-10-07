@@ -50,3 +50,9 @@ export {
   serializeEmbedderSnapshotForBridge,
   serializeVecDiagnosticForBridge,
 } from './lib/diagnostics';
+export {
+  WorkspaceIndexLifecycleService,
+  workspaceSymbolIndexFrom,
+  type WorkspaceSymbolIndex,
+  type WorkspaceIndexLifecycleOptions,
+} from './lib/workspace-index-lifecycle';

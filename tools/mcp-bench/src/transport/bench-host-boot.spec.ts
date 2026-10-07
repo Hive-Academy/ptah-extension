@@ -203,7 +203,12 @@ describe('bootCodeExecutionHost', () => {
     ]);
     expect(withEngineMock).toHaveBeenCalledWith(
       { cwd: workspace, config: join(homedir(), '.ptah-bench-spec') },
-      { mode: 'full', requireSdk: false, thoth: 'oneshot' },
+      {
+        mode: 'full',
+        requireSdk: false,
+        thoth: 'oneshot',
+        workspaceIndex: true,
+      },
       expect.any(Function),
     );
     expect(host.port).toBe(4321);

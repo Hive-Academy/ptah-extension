@@ -3,6 +3,7 @@ import type { DependencyContainer } from 'tsyringe';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
+import { CODE_SYMBOL_INDEXER } from '@ptah-extension/workspace-intelligence';
 import {
   KEEP_BY_KIND,
   PERSISTENCE_TOKENS,
@@ -46,7 +47,13 @@ import {
 } from '@ptah-extension/gateway-chat-bridge';
 
 import type { CliWebviewManagerAdapter } from '../transport/cli-webview-manager-adapter.js';
+import {
+  attachWorkspaceIndex,
+  resolveWorkspaceRoot,
+} from './cli-workspace-index.js';
 import { wireThothPushBridges } from './wire-thoth-push-bridges.js';
+
+export { startWorkspaceIndexLifecycle } from './cli-workspace-index.js';
 
 export type ThothTier = 'oneshot' | 'runtime';
 export type ThothTierOption = ThothTier | 'off';
@@ -66,6 +73,11 @@ export interface ThothRefs {
   chatBridge: GatewayChatBridge | null;
   embedderClient: EmbedderDisposable | null;
   pushDisposables: { dispose: () => void }[];
+  /**
+   * Boot-time code-symbol index. Set only for the runtime tier. Optional so
+   * refs built before this field existed still dispose.
+   */
+  workspaceIndex?: { dispose(): void } | null;
 }
 
 const BACKUP_HANDLER_NAME = 'backup:daily';
@@ -87,13 +99,24 @@ function emptyRefs(): ThothRefs {
     chatBridge: null,
     embedderClient: null,
     pushDisposables: [],
+    workspaceIndex: null,
   };
+}
+
+export interface ActivateThothOptions {
+  /**
+   * Start the code-symbol index on the runtime tier. Default true.
+   * `withEngine` passes false and starts the index itself, so a host cannot
+   * start it twice.
+   */
+  workspaceIndex?: boolean;
 }
 
 export async function activateThoth(
   container: DependencyContainer,
   tier: ThothTier,
   logger: Logger,
+  options?: ActivateThothOptions,
 ): Promise<ThothRefs> {
   const refs = emptyRefs();
 
@@ -131,6 +154,12 @@ export async function activateThoth(
   }
 
   const workspaceRoot = resolveWorkspaceRoot(container);
+  // Direct runtime callers (and the existing tier spec) start here.
+  // `withEngine` passes `workspaceIndex: false` and is the only start for
+  // every engine host, including runtime, so the scan cannot run twice.
+  if (options?.workspaceIndex !== false) {
+    startWorkspaceIndex(container, refs, workspaceRoot, logger);
+  }
 
   await startMemory(container, refs, workspaceRoot, logger);
   await startSkillSynthesis(container, refs, logger);
@@ -157,6 +186,9 @@ export async function disposeThoth(
 ): Promise<void> {
   if (!refs) return;
 
+  await guard('workspaceIndex.dispose', logger, async () => {
+    refs.workspaceIndex?.dispose();
+  });
   for (const disposable of refs.pushDisposables) {
     await guard('pushBridge.dispose', logger, async () => {
       disposable.dispose();
@@ -205,17 +237,15 @@ async function guard(
   }
 }
 
-function resolveWorkspaceRoot(
+function startWorkspaceIndex(
   container: DependencyContainer,
-): string | undefined {
-  try {
-    const workspaceProvider = container.resolve<IWorkspaceProvider>(
-      PLATFORM_TOKENS.WORKSPACE_PROVIDER,
-    );
-    return workspaceProvider.getWorkspaceRoot();
-  } catch {
-    return undefined;
-  }
+  refs: ThothRefs,
+  workspaceRoot: string | undefined,
+  logger: Logger,
+): void {
+  if (!workspaceRoot || !refs.sqliteConnection?.isOpen) return;
+  if (!container.isRegistered(CODE_SYMBOL_INDEXER)) return;
+  refs.workspaceIndex = attachWorkspaceIndex(container, workspaceRoot, logger);
 }
 
 async function startMemory(

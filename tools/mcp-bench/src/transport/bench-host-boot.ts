@@ -423,6 +423,7 @@ export async function bootCodeExecutionHost(
       mode: 'full',
       requireSdk: false,
       thoth: 'oneshot',
+      workspaceIndex: true,
       ...(bisect.size > 0 ? { bootstrap: bisectBootstrap(bisect) } : {}),
     },
     async (ctx) => {
