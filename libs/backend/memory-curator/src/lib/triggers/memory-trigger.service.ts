@@ -129,6 +129,9 @@ export class MemoryTriggerService {
    * {@link BootScanScheduler} for why the scan is armed rather than run.
    */
   private bootScanScheduler: BootScanScheduler | null = null;
+  private bootScanOwed = false;
+  private bootScanArmed = false;
+  private configurationDisposer: { dispose(): void } | null = null;
   /**
    * When the last chat turn was observed, or `null` when none has been in this
    * process. `null` — not `0` — because the boot-scan deferral reads "more
@@ -235,11 +238,19 @@ export class MemoryTriggerService {
       },
     );
 
-    if (this.readMemoryEnabled() && this.readBootScanFlag()) {
-      this.bootScanController = new AbortController();
-      this.bootScanScheduler = this.createBootScanScheduler();
-      this.bootScanScheduler.schedule(this.bootScanController.signal);
-    }
+    this.bootScanOwed = this.readBootScanFlag();
+    this.configurationDisposer = this.workspace.onDidChangeConfiguration(
+      (event) => {
+        if (!event.affectsConfiguration('ptah.memory.enabled')) return;
+        if (this.readMemoryEnabled()) {
+          this.maybeRearmBootScan();
+          return;
+        }
+        this.clearIdleTimers();
+        this.cancelBootScan(true);
+      },
+    );
+    this.maybeRearmBootScan();
 
     this.logger.info('[memory-curator] trigger service started');
   }
@@ -255,6 +266,7 @@ export class MemoryTriggerService {
     this.sessionEndHookDisposer?.();
     this.sessionStartDisposer?.();
     this.sessionIdResolvedDisposer?.();
+    this.configurationDisposer?.dispose();
     this.activityDisposer = null;
     this.sessionEndDisposer = null;
     this.userPromptSubmitDisposer = null;
@@ -264,6 +276,7 @@ export class MemoryTriggerService {
     this.sessionEndHookDisposer = null;
     this.sessionStartDisposer = null;
     this.sessionIdResolvedDisposer = null;
+    this.configurationDisposer = null;
     for (const state of this.sessions.values()) {
       if (state.idleTimer) clearTimeout(state.idleTimer);
     }
@@ -272,10 +285,9 @@ export class MemoryTriggerService {
     this.inFlightCurates.clear();
     this.lastCurateAt.clear();
     this.failedPasses.clear();
-    this.bootScanScheduler?.cancel();
-    this.bootScanScheduler = null;
-    this.bootScanController?.abort();
-    this.bootScanController = null;
+    this.clearIdleTimers();
+    this.cancelBootScan(false);
+    this.bootScanOwed = false;
     this.lastActivityAt = null;
     // Writes are batched now, so a stop with observations still pending would
     // lose them. The store is a shared singleton (`MemorySearchService` reads
@@ -297,6 +309,7 @@ export class MemoryTriggerService {
    * first's timer, and only one of them is ever curated.
    */
   private onActivity(payload: SessionActivityPayload): void {
+    this.maybeRearmBootScan();
     if (!this.readMemoryEnabled()) return;
     if (blankToUndefined(payload.sessionId) === undefined) return;
 
@@ -657,7 +670,7 @@ export class MemoryTriggerService {
   }
 
   private onSessionStart(_payload: SessionStartPayload): void {
-    return;
+    this.maybeRearmBootScan();
   }
 
   private extractBashCommand(toolInput: unknown): string | null {
@@ -702,6 +715,7 @@ export class MemoryTriggerService {
   }
 
   private fireIdle(sessionId: string): void {
+    if (!this.readMemoryEnabled()) return;
     const state = this.sessions.get(sessionId);
     if (!state) return;
     state.idleTimer = null;
@@ -727,6 +741,7 @@ export class MemoryTriggerService {
     eventKind: CurateEventKind,
     ending?: { sessionId: string },
   ): Promise<void> | null {
+    if (!this.readMemoryEnabled()) return null;
     if (this.shouldCoalesce(sessionId)) {
       this.logger.debug(
         '[memory-curator] curate trigger coalesced (in-flight or recent)',
@@ -1060,6 +1075,10 @@ export class MemoryTriggerService {
         // normal scan afterwards (TASK_2026_621).
         retryAllowed: () => this.curateSlotsLeft() >= 2,
         run: async (scanSessionId, scanWorkspaceRoot, runSignal) => {
+          if (!this.readMemoryEnabled()) {
+            this.bootScanOwed = true;
+            return 'stalled';
+          }
           // The boot scan draws from the SAME hourly budget as the cue path
           // (`onUserPromptSubmit`) and the episode path (`tryEpisodeCurate`).
           // It did not until TASK_2026_319: this callback calls
@@ -1188,6 +1207,39 @@ export class MemoryTriggerService {
       MEMORY_TRIGGER_DEFAULTS.enabled,
     );
     return typeof v === 'boolean' ? v : MEMORY_TRIGGER_DEFAULTS.enabled;
+  }
+
+  private clearIdleTimers(): void {
+    for (const state of this.sessions.values()) {
+      if (state.idleTimer) clearTimeout(state.idleTimer);
+      state.idleTimer = null;
+      state.idleDueAt = null;
+    }
+  }
+
+  private cancelBootScan(owed: boolean): void {
+    this.bootScanScheduler?.cancel();
+    this.bootScanScheduler = null;
+    this.bootScanController?.abort();
+    this.bootScanController = null;
+    this.bootScanArmed = false;
+    this.bootScanOwed ||= owed;
+  }
+
+  private maybeRearmBootScan(): void {
+    if (
+      !this.started ||
+      !this.bootScanOwed ||
+      this.bootScanArmed ||
+      !this.readMemoryEnabled() ||
+      !this.readBootScanFlag()
+    )
+      return;
+    this.bootScanArmed = true;
+    this.bootScanOwed = false;
+    this.bootScanController = new AbortController();
+    this.bootScanScheduler = this.createBootScanScheduler();
+    this.bootScanScheduler.schedule(this.bootScanController.signal);
   }
 
   private readIdleMs(): number {

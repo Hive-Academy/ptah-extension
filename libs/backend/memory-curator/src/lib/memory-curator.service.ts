@@ -250,6 +250,14 @@ export class MemoryCuratorService {
   start(): void {
     if (this.disposer) return;
     this.disposer = this.registry.register((data) => {
+      if (
+        this.workspace?.getConfiguration<boolean>(
+          'ptah',
+          'memory.enabled',
+          true,
+        ) === false
+      )
+        return;
       if (data.sessionId.startsWith(INTERNAL_QUERY_SESSION_PREFIX)) {
         this.logger.debug(
           '[memory-curator] ignoring a PreCompact fan-out for an internal one-shot query; it names no session',

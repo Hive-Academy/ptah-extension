@@ -1421,6 +1421,58 @@ describe('MemoryCuratorService — manual PreCompact window budget', () => {
   });
 });
 
+describe('MemoryCuratorService — PreCompact master gate', () => {
+  it('does not start a PreCompact curate while memory is paused', async () => {
+    type Data = Parameters<
+      Parameters<ICompactionCallbackRegistry['register']>[0]
+    >[0];
+    const handler: { current: ((data: Data) => void) | null } = {
+      current: null,
+    };
+    const extract = jest
+      .fn()
+      .mockResolvedValue({ status: 'extracted', drafts: [] });
+    const service = new MemoryCuratorService(
+      makeLogger(),
+      {
+        register: jest.fn((callback: (data: Data) => void) => {
+          handler.current = callback;
+          return () => undefined;
+        }),
+      } as unknown as ICompactionCallbackRegistry,
+      {
+        list: jest.fn(() => ({ memories: [], total: 0 })),
+        findMergeCandidates: jest.fn(() => []),
+      } as unknown as MemoryStore,
+      {
+        read: jest.fn().mockResolvedValue('USER: remembered detail'),
+      } as unknown as ITranscriptReader,
+      {
+        extract,
+        resolve: jest.fn().mockResolvedValue([]),
+      } as unknown as ICuratorLLM,
+      null,
+      null,
+      {
+        getConfiguration: jest.fn(() => false),
+      } as unknown as IWorkspaceProvider,
+    );
+    service.start();
+
+    if (!handler.current) throw new Error('curator did not subscribe');
+    handler.current({
+      sessionId: 'paused-session',
+      trigger: 'auto',
+      timestamp: Date.now(),
+      preTokens: 1,
+      cwd: '/ws',
+    });
+    await service.drain();
+
+    expect(extract).not.toHaveBeenCalled();
+  });
+});
+
 /**
  * TASK_2026_597 A7 (R5.5) — PreCompact curations of one session are coalesced
  * to at most one per {@link CURATOR_PRECOMPACT_MIN_INTERVAL_MS}.

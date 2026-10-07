@@ -902,6 +902,87 @@ describe('MemoryTriggerService', () => {
   });
 });
 
+describe('MemoryTriggerService — memory master pause and resume', () => {
+  it('clears an armed idle timer on pause and does not start curation', async () => {
+    jest.useFakeTimers();
+    const enabled = { value: true };
+    let configurationListener:
+      | ((event: { affectsConfiguration: (key: string) => boolean }) => void)
+      | undefined;
+    const workspace = makeWorkspace({ 'memory.triggers.idleMs': 1 });
+    (workspace.getConfiguration as jest.Mock).mockImplementation(
+      (_section: string, key: string, fallback: unknown) =>
+        key === 'memory.enabled' ? enabled.value : fallback,
+    );
+    (workspace.onDidChangeConfiguration as jest.Mock).mockImplementation(
+      (listener) => {
+        configurationListener = listener;
+        return { dispose: () => undefined };
+      },
+    );
+    const { service, activity, curator } = buildService({ workspace });
+    service.start();
+    activity.registry.notifyAll({
+      sessionId: 'paused-idle',
+      workspaceRoot: '/ws',
+      timestamp: Date.now(),
+      role: 'assistant',
+    });
+    enabled.value = false;
+    configurationListener?.({
+      affectsConfiguration: (key) => key === 'ptah.memory.enabled',
+    });
+    await jest.advanceTimersByTimeAsync(10);
+
+    expect(curator.curate).not.toHaveBeenCalled();
+    service.stop();
+    jest.useRealTimers();
+  });
+
+  it('boots paused and re-arms its owed boot scan exactly once on resume activity', () => {
+    const enabled = { value: false };
+    const workspace = makeWorkspace({
+      'memory.triggers.bootScan': true,
+      'memory.triggers.bootScanDelayMs': 60_000,
+    });
+    (workspace.getConfiguration as jest.Mock).mockImplementation(
+      (_section: string, key: string, fallback: unknown) =>
+        key === 'memory.enabled' ? enabled.value : fallback,
+    );
+    const { service, activity } = buildService({ workspace });
+    service.start();
+    const state = service as unknown as {
+      bootScanArmed: boolean;
+      bootScanOwed: boolean;
+    };
+    expect(state.bootScanOwed).toBe(true);
+    expect(state.bootScanArmed).toBe(false);
+
+    enabled.value = true;
+    activity.registry.notifyAll({
+      sessionId: 'resume-session',
+      workspaceRoot: '/ws',
+      timestamp: Date.now(),
+      role: 'assistant',
+    });
+    const scheduler = (service as unknown as { bootScanScheduler: unknown })
+      .bootScanScheduler;
+    activity.registry.notifyAll({
+      sessionId: 'resume-session-2',
+      workspaceRoot: '/ws',
+      timestamp: Date.now(),
+      role: 'assistant',
+    });
+
+    expect(state.bootScanArmed).toBe(true);
+    expect(state.bootScanOwed).toBe(false);
+    expect(
+      (service as unknown as { bootScanScheduler: unknown }).bootScanScheduler,
+    ).toBe(scheduler);
+    service.stop();
+  });
+});
+
 describe('MemoryTriggerService — user-cue trigger', () => {
   beforeEach(() => {
     jest.useFakeTimers({ now: FAKE_CLOCK_EPOCH });

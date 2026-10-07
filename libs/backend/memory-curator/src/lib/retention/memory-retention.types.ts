@@ -14,6 +14,7 @@
  * recorded through `ObservationRetentionStore.writeSkip`.
  */
 export type RetentionSkipReason =
+  | 'memory-paused'
   | 'disabled'
   | 'already-running'
   | 'boot-deferred'
