@@ -580,7 +580,7 @@ For each row of \`rater-${raterId}.csv\`:
 3. \`total\` = c1 + … + c8 (0-80).
 4. \`pass\` = \`true\` when total ≥ 64 **and** no criterion is below 6;
    otherwise \`false\`.
-5. \`ratedAt\` = the date you scored it, \`YYYY-MM-DD\`.
+5. \`ratedAt\` = the time you scored it, as an ISO-8601 UTC date-time (for example \`2026-10-07T00:00:00Z\`).
 6. Leave \`opaqueId\` and \`raterId\` unchanged. Do not add or reorder columns.
    Do not put commas in any cell. If a document should not be in the set
    (unreadable, empty), score what you can and say why in the notes file.

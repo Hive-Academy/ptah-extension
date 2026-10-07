@@ -224,6 +224,9 @@ describe('buildLabellingPacket', () => {
       );
       expect(sheet).toContain('C8. Progressive Disclosure & Token Economics');
       expect(sheet).toContain('Total score ≥ 64/80');
+      expect(sheet).toContain(
+        'ISO-8601 UTC date-time (for example `2026-10-07T00:00:00Z`)',
+      );
     }
   });
 

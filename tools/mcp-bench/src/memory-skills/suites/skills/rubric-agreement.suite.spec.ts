@@ -2,7 +2,7 @@
  * Batch 21.1 spec for `skill.rubric.inter-rater`. Every label here is
  * SYNTHETIC, written into the spec temp dir by `rubric-ground-truth.test-support.ts`;
  * the one real input read is the committed `fixtures/memory-skills` folder,
- * which proves the suite reports `na` today (the real labels are U1).
+ * which proves the frozen U1 labels load and the trust bar is reported.
  */
 
 import {
@@ -92,25 +92,86 @@ function expectExactRates(metrics: Record<string, number | null>): void {
 }
 
 describe('skill.rubric.inter-rater', () => {
-  it('reports na (ground-truth-untrusted) on the committed fixtures today: the labels are not committed yet', () => {
-    const { result, cases } = runRubricAgreement(
-      readerOf(COMMITTED_FIXTURES),
-      OPTIONS,
+  it('loads the committed U1 labels and reports the trust bar', () => {
+    const lane = (
+      raterId: string,
+      family: string,
+      provider: string,
+      model: string,
+    ) => ({
+      raterId,
+      family,
+      provider,
+      model,
+      promptSha256: 'ab'.repeat(32),
+      packetCount: 105,
+      responseCount: 105,
+      failureCount: 0,
+      timestamp: '2026-10-07T00:00:00.000Z',
+    });
+    const { result, cases } = runRubricAgreement(readerOf(COMMITTED_FIXTURES), {
+      ...OPTIONS,
+      panel: {
+        raters: [
+          lane('r1', 'xAI', 'grok', 'grok-4.7'),
+          lane('r2', 'Google', 'antigravity', 'gemini-3.1-pro'),
+        ],
+        adjudicator: lane(
+          'adj-glm',
+          'GLM',
+          'ollama-cloud',
+          'glm-5.3-flash:cloud',
+        ),
+        population: 105,
+        unresolvedCount: 0,
+        unresolvedShare: 0,
+      },
+    });
+    const fileCases = cases.filter((record) =>
+      record.caseId.startsWith('file/'),
     );
-    expect(result.verdict).toBe('na');
-    expect(result.naReason).toMatch(/^ground-truth-untrusted: /);
-    expect(result.naReason).toContain(SKILL_LABELS_FILE);
-    expect(cases.map((record) => record.caseId)).toEqual([
+    expect(fileCases.map((record) => record.caseId)).toEqual([
       `file/${SKILL_LABELS_FILE}`,
       `file/${SKILL_ADJUDICATION_FILE}`,
       `file/${SKILL_DOCS_FILE}`,
     ]);
-    expect(cases.every((record) => record.outcome === 'fail')).toBe(true);
+    expect(fileCases.every((record) => record.outcome === 'pass')).toBe(true);
+    expect(cases.some((record) => record.caseId === 'trust/full-kappa')).toBe(
+      true,
+    );
+    expect(result.groundTruth).toMatchObject({
+      method: 'model-panel',
+      panel: 'xAI+Google; adjudicator=GLM',
+      raterCount: 2,
+    });
+    expect(result.metrics['items']).toBe(105);
+    expect(result.metrics['population']).toBe(105);
+    expect(result.metrics['unresolved.count']).toBe(0);
+    expect(result.metrics['adjudicated']).toBe(37);
+    expect(result.metrics['adjudication.pending']).toBe(0);
+    expect(result.metrics['strata.missing']).toBe(0);
+    expect(result.metrics['candidates.items']).toBe(80);
+    expect(typeof result.metrics['full.kappaPass']).toBe('number');
+    expect(typeof result.metrics['full.spearmanTotal']).toBe('number');
+    expect(result.verdict === 'pass' || result.verdict === 'na').toBe(true);
+    if (result.verdict === 'na') {
+      expect(result.naReason).toMatch(/^ground-truth-untrusted: /);
+      expect(result.naReason).not.toContain('not committed');
+    }
     expect(rubricDetailsSchema.parse(result.details)).toMatchObject({
       mode: 'inter-rater',
-      items: 0,
-      trusted: false,
+      items: 105,
+      adjudicated: 37,
       raters: ['r1', 'r2'],
+      strata: {
+        authored: 23,
+        'promoted-synthesized': 2,
+        'anchor-471': 10,
+        suggestion: 18,
+        'judged-model': 20,
+        fallback: 20,
+        random: 12,
+      },
     });
     expect(result.modelCalls).toBe(0);
   });
@@ -311,6 +372,34 @@ describe('skill.rubric.inter-rater', () => {
     ).toBe(true);
   });
 
+  it('marks committed U1 labels as untrusted when the panel manifest is missing', async () => {
+    const context: OfflineSuiteContext = {
+      runId: 'spec',
+      runDir: dir,
+      options: {},
+      ci: true,
+      read: {
+        assertReadable: (path) => path,
+        readText: (path) => readFileSync(path, 'utf8'),
+        readBytes: (path) => readFileSync(path),
+      },
+      guardWorkerEntry: (entry) => entry,
+    };
+    const suite = createRubricAgreementSuite({
+      fixturesDir: COMMITTED_FIXTURES,
+      panelManifest: { ok: false, reason: 'panel-manifest-missing' },
+    });
+
+    const { result } = await suite.run(context);
+
+    expect(result.verdict).toBe('na');
+    expect(result.naReason).toBe(
+      'ground-truth-untrusted: panel-manifest-missing',
+    );
+    expect(result.groundTruth.method).toBe('model-panel');
+    expect(result.groundTruth.method).not.toBe('labelled');
+  });
+
   it('refuses one rater named twice', () => {
     writeSyntheticGroundTruth(dir, docs());
     expect(() =>
@@ -361,10 +450,15 @@ describe('skill.rubric.inter-rater', () => {
       raters: ['r1', 'r2'],
       panel: {
         raters: [
-          laneManifest('r1', 'xAI', 'xai', 'grok-4'),
-          laneManifest('r2', 'Google', 'google', 'gemini-2.5'),
+          laneManifest('r1', 'xAI', 'grok', 'grok-4.7'),
+          laneManifest('r2', 'Google', 'antigravity', 'gemini-3.1-pro'),
         ],
-        adjudicator: laneManifest('r3', 'GLM', 'ollama-cloud', 'glm-4.5'),
+        adjudicator: laneManifest(
+          'r3',
+          'GLM',
+          'ollama-cloud',
+          'glm-5.3-flash:cloud',
+        ),
         population: 10,
         unresolvedCount: 1,
         unresolvedShare: 0.1,

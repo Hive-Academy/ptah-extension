@@ -14,6 +14,10 @@
     "planted-negatives.v1/pn-08.md": "cdbe433bc062553b19d874e8ecdacc8f1f1d869378e0a19c7108976d8cdf6a9f",
     "planted-negatives.v1/pn-09.md": "f76f82694bb0148655fb542ab17248ad71e4eede46231c159383f1464935b011",
     "planted-negatives.v1/pn-10.md": "61d8cf258ca63bff87f78f3b8b9bad0b8fc24b1ed9967a2877aef29d92fd0892",
+    "real-sessions.v1.jsonl": "4b11da4f1632a394180beadf38ddad9aba41ec113b8b62623fa64d73deb8e03c",
+    "skill-adjudication.v1.csv": "0ac801d55eae65b131e097570b7444075286a025506d922e5427be421cf77c23",
+    "skill-docs.v1.json": "60a505ab5735bd35b45c8915fd1b34731e554d6879163f3bb7f07365884a301b",
+    "skill-labels.v1.csv": "9f965ce89a48dd07d3f9787afa1def30bddadc0fbf9d3b307d8e97768e023c42",
     "skill-sessions.v1/index.json": "67b7660740c093ecd7652d64ec02865c2cc2a462f36247239e137fbf91c981f9",
     "skill-sessions.v1/skill-session-01.jsonl": "6102aa0bf7886f39bda726896dbd07ba5218d29941517ed736905949210e0c3a",
     "skill-sessions.v1/skill-session-02.jsonl": "2e277abb8584b809b4362f1a5873bac1e2a07f88f791e1a0d12a3875e27192ef",
@@ -44,6 +48,7 @@
     "skill-sessions.v1/skill-session-27.jsonl": "c437791d900b54ec8ee0a7b47a10f00f260e19e573ef990082f0c6f313a3d168",
     "skill-sessions.v1/skill-session-28.jsonl": "ddd23befaff2dff9a5a956d52d59fb11cc62823ee0975dfe7c39836ef2eb7d93",
     "skill-sessions.v1/skill-session-29.jsonl": "f6b7ac09364d1f6f16604e6498c7e6424ff245f6f8bf677c5d7a71f8c733840b",
-    "skill-sessions.v1/skill-session-30.jsonl": "fc9dedd79eb3d3baef975bea0a2d5682fcc067a2b0e1318084fe73185a648c74"
+    "skill-sessions.v1/skill-session-30.jsonl": "fc9dedd79eb3d3baef975bea0a2d5682fcc067a2b0e1318084fe73185a648c74",
+    "skill-triggers.v1.jsonl": "7d9a4afc58a68990df4172ba0be11284f7c19cf1ce694a3aba63f08a1f255ea9"
   }
 }

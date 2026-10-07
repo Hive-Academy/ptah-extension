@@ -43,6 +43,7 @@ import {
   rateMetrics,
 } from '../memory/memory-suite-support';
 import { panelManifestSchema } from '../../labelling/model-panel';
+import type { RubricPanelManifestLoadResult } from './rubric-panel-manifest';
 import {
   FIXTURE_MANIFEST_FILE,
   groundTruthNaReason,
@@ -300,12 +301,19 @@ function trustCases(truth: LoadedRubricGroundTruth): CaseRecord[] {
 export function runRubricAgreement(
   read: GroundTruthFileReader,
   options: RubricAgreementOptions,
+  panelManifest?: RubricPanelManifestLoadResult,
 ): OfflineSuiteOutput {
+  const panel =
+    panelManifest === undefined
+      ? options.panel
+      : panelManifest.ok
+        ? panelManifest.panel
+        : undefined;
   const truth = loadRubricGroundTruth(read, {
     raters: options.raters,
-    ...(options.panel === undefined
+    ...(panel === undefined
       ? {}
-      : { panel: panelProvenanceFromManifest(options.panel) }),
+      : { panel: panelProvenanceFromManifest(panel) }),
   });
   const cases = [
     ...truth.files.map(fileCase),
@@ -334,7 +342,10 @@ export function runRubricAgreement(
       metrics: { ...TRUST_BAR_BASELINE },
     },
   ];
-  const naReason = groundTruthNaReason(truth);
+  const naReason =
+    panelManifest !== undefined && !panelManifest.ok
+      ? `ground-truth-untrusted: ${panelManifest.reason}`
+      : groundTruthNaReason(truth);
   const verdict: SuiteResultInput['verdict'] =
     truth.state === 'hash-mismatch'
       ? 'fail'
@@ -353,16 +364,26 @@ export function runRubricAgreement(
         text:
           truth.state === 'loaded' && truth.panel !== undefined
             ? `Model-panel agreement on the 471 exemplar rubric (${truth.panel}; raterCount=${RUBRIC_GROUND_TRUTH_RATER_COUNT}).`
-            : 'Two independent human raters agree on the 471 exemplar rubric well enough for gt-skill-rubric@v1 to be ground truth.',
+            : panelManifest !== undefined && !panelManifest.ok
+              ? 'Model-panel provenance for the 471 exemplar rubric is unavailable, so gt-skill-rubric@v1 is untrusted.'
+              : 'Two independent human raters agree on the 471 exemplar rubric well enough for gt-skill-rubric@v1 to be ground truth.',
       },
       groundTruth:
-        truth.state === 'loaded'
-          ? rubricGroundTruthMetadata(truth.method, truth.panel)
-          : {
+        panelManifest !== undefined && !panelManifest.ok
+          ? {
               id: RUBRIC_GROUND_TRUTH_ID,
               version: RUBRIC_GROUND_TRUTH_VERSION,
-              method: 'labelled',
-            },
+              method: 'model-panel',
+              panel: 'unverified',
+              raterCount: RUBRIC_GROUND_TRUTH_RATER_COUNT,
+            }
+          : truth.state === 'loaded'
+            ? rubricGroundTruthMetadata(truth.method, truth.panel)
+            : {
+                id: RUBRIC_GROUND_TRUTH_ID,
+                version: RUBRIC_GROUND_TRUTH_VERSION,
+                method: 'labelled',
+              },
       baselines,
       deltas: Object.fromEntries(
         baselines.map((baseline) => [
@@ -388,6 +409,7 @@ export function runRubricAgreement(
 export interface RubricAgreementSuiteDeps {
   /** Absolute `tools/mcp-bench/fixtures/memory-skills` of the checkout. */
   readonly fixturesDir: string;
+  readonly panelManifest?: RubricPanelManifestLoadResult;
 }
 
 /**
@@ -406,7 +428,9 @@ export function createRubricAgreementSuite(
         const path = join(deps.fixturesDir, name);
         return existsSync(path) ? context.read.readBytes(path) : null;
       };
-      return Promise.resolve(runRubricAgreement(read, options));
+      return Promise.resolve(
+        runRubricAgreement(read, options, deps.panelManifest),
+      );
     },
   };
 }

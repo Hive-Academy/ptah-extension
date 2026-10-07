@@ -20,6 +20,7 @@ import { resolve } from 'node:path';
 import { resolveBenchDataDir } from '../../bench-data';
 import { launchBenchHost } from '../../transport/host-launcher';
 import { createRubricAgreementSuite } from '../suites/skills/rubric-agreement.suite';
+import { loadRubricPanelManifest } from '../suites/skills/rubric-panel-manifest';
 import { startNetRecorder } from './net-recorder';
 import type { GitRunner } from './read-path-guard';
 import type { MemorySkillsOfflineSuite } from './offline-suites';
@@ -42,6 +43,7 @@ async function main(): Promise<number> {
     encoding: 'utf8',
     timeout: GIT_TIMEOUT_MS,
   }).trim();
+  const benchDataDir = resolveBenchDataDir({ create: true });
   const git: GitRunner = (args) =>
     execFileSync('git', ['-C', repoRoot, ...args], {
       encoding: 'utf8',
@@ -65,7 +67,7 @@ async function main(): Promise<number> {
           'memory-skills-host.mjs',
         ),
       repoRoot: resolve(repoRoot),
-      benchDataDir: resolveBenchDataDir({ create: true }),
+      benchDataDir,
       realHome: homedir(),
       hostCompletionTimeoutMs: args.hostCompletionTimeoutMs,
       codexAuthSource: args.codexAuthSource,
@@ -78,6 +80,7 @@ async function main(): Promise<number> {
         ...OFFLINE_SUITES,
         createRubricAgreementSuite({
           fixturesDir: resolve(repoRoot, COMMITTED_FIXTURES_DIR),
+          panelManifest: loadRubricPanelManifest(benchDataDir),
         }),
       ],
     },
