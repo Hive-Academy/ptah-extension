@@ -196,6 +196,43 @@ export const IpcBatchEnvelopeSchema = z
 
 export type IpcBatchEnvelope = z.infer<typeof IpcBatchEnvelopeSchema>;
 
+/**
+ * The v2 hidden-stream recovery envelope. Keep its runtime decoder separate
+ * from the root barrel so loading the shared contract does not load Zod into
+ * every webview bundle.
+ */
+export const ChatStreamSnapshotPayloadSchema = z
+  .object({
+    protocolVersion: z.literal(2),
+    tabId: z.string().min(1),
+    sessionId: z.string().min(1).optional(),
+    fromSequence: z.number().int().nonnegative(),
+    toSequence: z.number().int().nonnegative(),
+    events: z.array(z.unknown()).optional(),
+    resyncRequired: z.literal(true).optional(),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    if (value.toSequence < value.fromSequence) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'toSequence must not precede fromSequence',
+      });
+    }
+    if (value.resyncRequired === true && value.events !== undefined) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'resync snapshots must not include events',
+      });
+    }
+    if (value.resyncRequired !== true && value.events === undefined) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'snapshots without resyncRequired must include events',
+      });
+    }
+  });
+
 export const StrictChatSessionSchema = z
   .object({
     id: SessionIdSchema,
