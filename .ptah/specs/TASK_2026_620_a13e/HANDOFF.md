@@ -1,75 +1,68 @@
 # HANDOFF — TASK_2026_620_a13e (and TASK_2026_621_3d5c)
 
-Written 2026-10-07 by the orchestrator session `ptah-ptah-extension-skills-trajectory-an-10a89600005aw2q23htdi0c`
-at the user's request ("stop after the current step, create a handoff"). Read `context.md` in this
-folder first — it holds every user decision, the 619 agreement, and the corrections. This file is
-the resume point only.
+Updated 2026-10-07 ~06:45 by orchestrator session `ptah-ptah-extension-continue-memory-skil-b503dc00005aw2q23htdi0e`.
+Read `context.md` first (user decisions incl. "User decisions 2026-10-07, B-P pause switches", the 619
+agreement and answers). This file is the resume point only.
 
 ## Where things are
 
-| Item | Location |
-|---|---|
-| 620 branch / worktree | `feat/task-620-memory-skills-bench` at `D:\projects\ptah-extension\.claude-worktrees\task-620-memory-skills-bench` (based on 619 `d716e0e8f`; `node_modules` is a junction to the main repo — never delete it) |
-| 620 task folder | this folder, inside the 620 worktree (moved out of the main checkout 2026-10-07; the Tasks board on `main` will not show 620 until it merges) |
-| 621 branch / worktree | `fix/task-621-retention-guard` at `D:\projects\ptah-extension\.claude-worktrees\agent-a0c9cbefc2a09f580-4957846ea3d6`; task folder `.ptah/specs/TASK_2026_621_3d5c/` inside it |
-| 621 PR | https://github.com/Hive-Academy/ptah-extension/pull/666 (open, final review APPROVED, task status `in_review`) |
-| Bench data (private, never commit) | `C:/Users/abdal/AppData/Local/ptah-mcp-bench/` — `snapshots/ptah-20261006-pre-retention.sqlite` (sha256 `82cd16ac…d575a`), `snapshots/skill-candidates-20261006/` + manifest (`73a184c5…45f3`), `labelling/skill-rubric-v1/raters/rater-r1|r2/`, `drafts/memory-ground-truth/` (B10 drafts) |
-| 619 peer session | `ptah-ptah-extension-compare-grep-and-our-7799a800005aw2q23htdi0b` (owns `tools/mcp-bench/src/scorecard/`, `transport/`, `corpus/`, `bench-data.ts`; message it before any schema change or any real bench run) |
+| Item                  | Location                                                                                                                                                                                                                             |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 620 branch / worktree | `feat/task-620-memory-skills-bench` at `D:\projects\ptah-extension\.claude-worktrees	ask-620-memory-skills-bench`, based on 619 `ea2f92fd2` (Batch 9.0). Nothing pushed.                                                              |
+| 621                   | PR #666 (`fix/task-621-retention-guard`): all CI green (main, SonarCloud, e2e, git-real-git x3), CodeRabbit threads answered, pushed to `a0edd9ffb`. Review state REVIEW_REQUIRED (a reviewer must re-approve after the new pushes). |
+| Bench data (private)  | `C:/Users/abdal/AppData/Local/ptah-mcp-bench/` — never commit                                                                                                                                                                        |
+| 619 peer session      | `ptah-ptah-extension-continue-619-tool-en-55bb9d00005aw2q23htdi0d` — find its successor with `ListAgents` if gone                                                                                                                    |
 
-## State at handoff
+## State
 
-- 620 worktree is clean. Last commits: `179a5bbc6` B15 (bench host), `a3d12d49f` docs (this task
-  folder + the status edits to 439/471/473/563/578/588). Nothing is pushed.
-- **Tell the new 619 session** that `179a5bbc6` added the `build-host-memory-skills` target to
-  `tools/mcp-bench/project.json` (619 asked to be told the commit). `bench-memory-skills` is not added
-  yet (Batch 16).
-- 621 worktree: DONE — `.ptah/specs/TASK_2026_621_3d5c/` committed as `104a55d5d` (local; the
-  branch is 1 commit ahead of `origin`). The user has NOT yet approved pushing it to PR #666; ask
-  before pushing.
-
-## 620 commits so far (on top of `d716e0e8f`)
-
-Phase 1 (B1–B9, B11 part) and its review fixes, plus Phase 2 B12–B14:
-`4733c7b21` B1, `346cfccc1` B3, `817ee839e` B5, `10abf8578` B2, `52755452e` B6, `49f341213` B9,
-`60ac44a36` B8, `2ad65ced6` B11-part, `a07178aa6` B7, `9450ebd17` B4, `4c0db24f2` phase-1 fix
-(doubles), `22f6cd94b` phase-1 fix (data/labelling), `525db5bd5` phase-1 fix (metrics/matcher/
-baselines), `111a97be8` B14, `1ad622066` B12, `9cce01784` B13, `fe0ad8fff` phase-1 fix (generator).
+- **Benchmark program:** Phases 3.1-3.6 DONE and cross-side reviewed (B1-B23 committed; phase reviews
+  `code-logic-review-phase3-{2,4,5,6}*.md` all APPROVED). 17 memory + 16 skills suites registered.
+  Scoped jest: 51 suites / 578 tests. Many suites report `na` today by design (labels not committed,
+  cassettes not recorded, product seams missing) — see "Phase 4 seams" below.
+- **B-P pause switches (user request 2026-10-07, user-approved plan `pause-switches-plan.md`):**
+  IMPLEMENTED and REVIEWED: PD `7872fc689`, P1 `a6a6a6854`(+`a42ddf299`,`06a3decbe`), P2
+  `c2618c287`(+`ad6461c42`), P3 `752633f44`, P4 `f15e6e3a1`, P5 `56a03a52a`(+`98831dddb`), boot retry
+  `49b318425`,`1d4eddd75`,`48572ef5e`,`0c67b707a`,`8e25a6df6`. Reviews: backend r3 APPROVED,
+  RPC/UI/Electron r2 APPROVED, boot-retry r5 APPROVED.
+- **NOT DONE for B-P:** dark + light screenshots of the Thoth Memory and Skills tabs (switch, Paused
+  badge, greyed manual actions) by a visual-reviewer — postponed at 619's request while its Batch 10
+  noise runs measure latency (no Electron launch until "619 noise runs done"). Manual Linux/macOS
+  tray check (the reviewer verified the fs.watch path statically only).
 
 ## Next steps, in order
 
-1. **Batch 15 is done** (`179a5bbc6`; 48/48 host specs, eslint/typecheck/prettier clean, no
-   619-owned file changed, smoke run through `launchBenchHost` exited clean with the process-watch
-   guard). Notes for Batch 16 from `batch-15-report.md`: poll `host-completion.json` (the launcher
-   stops reading host stdout after the ready line); `HOST_SUITES` is still empty; no fake-timer
-   library is a declared dependency.
-2. **Phase-1 re-review** (all phase-1 findings are fixed): cross-side again — lane-authored fixes
-   (metrics/matcher/baselines `525db5bd5`, doubles `4c0db24f2`, generator `fe0ad8fff`) → a subagent
-   reviewer; in-process fixes (data/labelling `22f6cd94b`, orchestrator corrections) → a CLI lane.
-   Reviews: `code-logic-review-phase1-lanes.md`, `code-logic-review-phase1-inprocess.md`.
-3. **Open item from the generator fix:** `ground-truth/seeded-session-generator.ts:40-44` imports the
-   `@ptah-extension/memory-curator` barrel at runtime (for the real `clampTranscript`). The barrel
-   loads tsyringe and vscode-core, so the generator only runs where `reflect-metadata` and a `vscode`
-   shim exist (the bench host), not in the plain runner parent — same class as phase-1 finding 15.
-   Decide: run generation inside the host, or move the clamp check to the spec/host.
-4. **Rebase** onto 619 `f22b604fe` (4d; additive API, `resolveBenchDataDir()` now follows junctions)
-   when no agent writes in the worktree; re-run `npx jest -c tools/mcp-bench/jest.config.ts
-   tools/mcp-bench/src/memory-skills --runInBand`.
-5. **B11.1** (seeded session fixtures, needs the fixed generator), then **B16–B23** per `batches.md`
-   (runner CLI, suites). B14 note for B16: wire `failIfAny(label)` into `--ci` and pass worker entries
-   through `guardedWorkerEntry()` (`batch-14-report.md`). Each phase ends with one cross-side review.
-6. **B24 (CI workflow + first recorded run)**: before any real bench run, message the 619 session —
-   `withPinnedCorpus` force-removes every corpus worktree (race, see context.md); never run two benches
-   at once. A win32 `crash-on-shutdown` (TASK_2026_622) is a run fact, not a suite error.
-7. **User activities pending:** (U1–U3) the two raters label the 105-document skills packet blind;
-   (U4) re-run the held-out session sampler AFTER the eval window closed (2026-10-07T00:00Z) — the
-   current sample is provisional and contains the orchestrator's own still-growing transcript — then
-   label. B21, B23 scored runs and B25–B26 wait on labels.
-8. **B10 drafts** (`drafts/memory-ground-truth/`, accepted on the third attempt): 130 facts / 68
-   folders, 29/30 updates, 100 merge pairs, 21 temporal, 18 abstention. 11 update v2 sources cite spec
-   edits that were uncommitted — re-verify after the docs commit in "Uncommitted" above. A human check
-   is required before freezing (B25).
-9. **When 620 is finished: open a PR** (user instruction). If 619 has not merged, rebase on `main`
-   after it merges, or open a draft PR on top of the 619 branch and say which.
+1. Wait for "619 noise runs done". Then run the visual review (screenshots dark + light; see
+   `b-p-p4-report.md` "how to see it").
+2. Rebase onto 619 `4d3d0dd5d` (Batch 9: corpus owner-pid sweep, bench-host.entry.ts memory seeding,
+   new project.json targets — check `build-host-memory-skills` / `bench-memory-skills` merge cleanly).
+   Then drop the `suite-result.ts` mirror and the `process.env` save/restore around launchBenchHost
+   (619 exported `suiteCoreSchema`, `HostLaunchOptions.env`, `bench-host-process.ts` in `ea2f92fd2`).
+   Re-run scoped jest + `nx run-many -t typecheck,lint -p mcp-bench` + the B-P projects.
+3. User activities U1-U4 (raters label the 105-document packet; re-run the held-out session sampler
+   after the eval window, then label) — B21/B23 scored runs, B25, B26 wait on them.
+4. B24 (CI workflow + first recorded run): message the 619 session first and wait for its OK; never
+   run two benches at once. Pending live recordings (paid model calls — ask the user first):
+   extraction.v1, B18 curator cassettes, scope-write, funnel.v1 (commands in batch-17/18/19/22 reports).
+5. B25 freeze labels/ground truth (fix F-005, whose statement contains its own forbidden token; add
+   abstention cases to reach 15), B26 close-out.
+6. When 620 is finished: open a PR (619 base-branch rule in context.md).
+
+## Phase 4 seams the benchmark found (product changes needed before some rows get a verdict)
+
+- Trigger-pass result seam (liveness suites are `na: harness-only`).
+- Pre-rerank order in `searchRich` (`mem.dedup.rerank` `na`).
+- Public commit step of the memory curator (dedup/update/temporal `na: mirrored-commit-path`).
+- 588: archaeology before authoring + a visible `noRoutine` reason (funnel feed-parity fails today);
+  skills `manual-run` has no producer; promotion success counter stays 0; retirement removes a skill in
+  use; boot reconcile deletes a promoted skill's directory.
+- Memory: `mem.scope.write` fails on win32 (rows under a different key, 2 keyed `''`); tier-2 merge
+  not configurable; `created_at` not injectable; lifecycle deletes useful rows; 9-day stall loses rows.
+
+## Follow-ups recorded (not done)
+
+- B-P: idle re-arm hard-codes the 1-hour rate-limit window (`RATE_LIMIT_WINDOW_MS`); per-workspace
+  memory toggle fix (F1) and moving host-local trigger keys to `~/.ptah/settings.json` (F2).
+- Runner N1: read-time re-check uses `git status` (a mid-run commit passes); N2 seeder realpath option.
 
 ## Rules learned in this session (keep applying)
 
@@ -94,3 +87,10 @@ baselines), `111a97be8` B14, `1ad622066` B12, `9cce01784` B13, `fe0ad8fff` phase
 - **The 619 session `…7799a800005aw2q23htdi0b` has stopped and handed off.** Find its successor with
   `ListAgents`; it is told to message 620 before any real bench run. Do the same before B24. Run only scoped jest paths
   under `tools/mcp-bench/src/memory-skills/`, and say so explicitly in every executor prompt.
+- `opencode` failed twice in a row ("Unknown error", once after 8 s) on 2026-10-07; review work moved
+  to `codex` and subagents. Retry it on a short task before relying on it again.
+- Never move another agent's untracked files to prove a commit (it made the B22 agent think its files
+  were deleted). Prove a partial commit by re-running checks after the other agent finishes instead.
+- The repository `.gitignore` ignores every `skills/` folder; `tools/mcp-bench/src/memory-skills/suites/skills/`
+  and `fixtures/memory-skills/cassettes/skills/` now have exceptions — add one for any new `skills/` path.
+- Run multi-project nx tests with `--parallel=1` (Jest transform-cache race on Windows).
