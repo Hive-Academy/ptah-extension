@@ -33,11 +33,18 @@
 
 import * as os from 'os';
 import { injectable, inject } from 'tsyringe';
+import {
+  MODEL_DISPATCH_PROVENANCE_TAP,
+  type ModelDispatchProvenance,
+  type ModelDispatchProvenanceTap,
+  type ModelDispatchRoute,
+} from '../curator-llm-adapter/model-dispatch-provenance';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
-import type {
-  AuthEnv,
-  EffectiveCapabilitySet,
-  ICapabilityResolver,
+import {
+  ANTHROPIC_DIRECT_PROVIDER_ID,
+  type AuthEnv,
+  type EffectiveCapabilitySet,
+  type ICapabilityResolver,
 } from '@ptah-extension/shared';
 import {
   PLATFORM_TOKENS,
@@ -163,6 +170,12 @@ export interface OneShotRunInput {
   auth?: OneShotAuthOverride;
   /** Defaults to `'claude-code'`. */
   toolAccess?: OneShotToolAccess;
+  /**
+   * Set by the curator and the skill lane runner after they choose the
+   * provider. Absent for every other one-shot. The concrete model is
+   * filled in this runner, from `resolveModelId`, not from `input.model`.
+   */
+  dispatch?: ModelDispatchRoute;
 }
 
 /** The `canUseTool` of a `'none'` one-shot: every request is refused. */
@@ -238,6 +251,11 @@ export interface InteractiveRunResult {
   sdkQuery: Query;
 }
 
+function logProvenanceTapFailure(logger: Logger, error: unknown): void {
+  const message = error instanceof Error ? error.message : String(error);
+  logger.warn('[model-dispatch] provenance tap failed', { error: message });
+}
+
 @injectable()
 export class SdkQueryRunner {
   constructor(
@@ -266,6 +284,13 @@ export class SdkQueryRunner {
      */
     @inject(SDK_TOKENS.SDK_CAPABILITY_RESOLVER, { isOptional: true })
     private readonly capabilityResolver: ICapabilityResolver | null = null,
+    /**
+     * Optional. Notified with the concrete model on `options.model` after
+     * this method returns to the caller, so a slow subscriber cannot delay
+     * the SDK launch.
+     */
+    @inject(MODEL_DISPATCH_PROVENANCE_TAP, { isOptional: true })
+    private readonly provenanceTap: ModelDispatchProvenanceTap | null = null,
   ) {}
 
   /**
@@ -459,6 +484,48 @@ export class SdkQueryRunner {
     }
   }
 
+  /**
+   * Snapshot the route and the concrete model, then notify after this turn
+   * yields. A throw or a rejected promise is logged. Neither reaches the
+   * SDK launch, and neither becomes an unhandled rejection.
+   */
+  private scheduleProvenance(
+    route: ModelDispatchRoute | undefined,
+    resolvedModelId: string,
+    authEnv: AuthEnv,
+  ): void {
+    const tap = this.provenanceTap;
+    if (!tap || !route) return;
+    let resolvedProviderId = '';
+    try {
+      resolvedProviderId =
+        route.providerSource === 'override'
+          ? (route.overrideProviderId ?? '').trim()
+          : (getActiveProviderId(authEnv) ?? ANTHROPIC_DIRECT_PROVIDER_ID);
+    } catch (error: unknown) {
+      logProvenanceTapFailure(this.logger, error);
+    }
+    const snapshot: ModelDispatchProvenance = {
+      resolvedProviderId,
+      resolvedModelId,
+      component: route.component,
+      laneId: route.laneId,
+    };
+    const logger = this.logger;
+    queueMicrotask(() => {
+      try {
+        const result = tap.onModelDispatched(snapshot);
+        if (result instanceof Promise) {
+          void result.then(undefined, (error: unknown) => {
+            logProvenanceTapFailure(logger, error);
+          });
+        }
+      } catch (error: unknown) {
+        logProvenanceTapFailure(logger, error);
+      }
+    });
+  }
+
   private buildOneShotOptions(
     input: OneShotRunInput,
     abortController: AbortController,
@@ -566,6 +633,10 @@ export class SdkQueryRunner {
     }
 
     this.useOffThreadSpawner(options);
+
+    // Same `authEnv` and `resolvedModel` just written onto `options`.
+    // The tap check is inside `scheduleProvenance`, before any provider read.
+    this.scheduleProvenance(input.dispatch, resolvedModel, authEnv);
 
     return options;
   }

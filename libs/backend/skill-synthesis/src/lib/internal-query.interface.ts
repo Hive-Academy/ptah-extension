@@ -19,6 +19,7 @@
  *
  * Everything is optional so no existing caller or test double breaks.
  */
+import type { ModelDispatchRoute } from '@ptah-extension/agent-sdk';
 import type { LaneAuthOverride } from './lanes/lane.types';
 
 /**
@@ -113,6 +114,12 @@ export interface IInternalQuery {
      * scope guard (risk R1).
      */
     auth?: LaneAuthOverride;
+    /**
+     * Provider already chosen for this call, and which component it is.
+     * The SDK runner fills the concrete model. Optional so a double that
+     * ignores unknown fields still typechecks.
+     */
+    dispatch?: ModelDispatchRoute;
     /**
      * JSON-Schema constrained output. The SDK retries invalid output itself,
      * so a lane that declares `structuredOutput: 'sdk'` gets parse retries for

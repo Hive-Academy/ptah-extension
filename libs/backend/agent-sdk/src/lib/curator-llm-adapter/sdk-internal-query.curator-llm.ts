@@ -44,6 +44,7 @@ import {
 } from './extract.schema';
 import { ResolvedDraftSchema, ResolvedResponseSchema } from './resolve.schema';
 import { CuratorLlmQueryError } from './curator-llm-query.error';
+import type { ModelDispatchRoute } from './model-dispatch-provenance';
 import {
   classifyThrownNetworkFailure,
   QueryNetworkObserver,
@@ -99,7 +100,12 @@ const PROVIDER_QUOTA_ERROR_NAME = 'ProviderQuotaError';
  */
 type CuratorAuthDecision =
   | { readonly kind: 'ride-active' }
-  | { readonly kind: 'override'; readonly auth: OneShotAuthOverride }
+  | {
+      readonly kind: 'override';
+      readonly auth: OneShotAuthOverride;
+      /** The provider whose snapshot `auth` is. Not the active provider. */
+      readonly providerId: string;
+    }
   | { readonly kind: 'cooling-down'; readonly providerId: string };
 
 /**
@@ -231,7 +237,9 @@ export class SdkInternalQueryCuratorLlm implements ICuratorLLM {
     const curatorProviderId = this.resolveCuratorProviderId();
     try {
       const auth = await this.resolver.resolve(curatorProviderId);
-      return auth ? { kind: 'override', auth } : { kind: 'ride-active' };
+      return auth
+        ? { kind: 'override', auth, providerId: curatorProviderId }
+        : { kind: 'ride-active' };
     } catch (error: unknown) {
       if (error instanceof Error && error.name === PROVIDER_QUOTA_ERROR_NAME) {
         // The quota branch. See the constants' docblock for why this does NOT
@@ -385,6 +393,29 @@ export class SdkInternalQueryCuratorLlm implements ICuratorLLM {
     return this.parseResolved(outcome.text, drafts);
   }
 
+  /**
+   * Inert. Ride-active does not name a provider; the runner reads the
+   * auth env it actually dials, and only when a tap is registered.
+   */
+  private dispatchRoute(
+    decision: Exclude<CuratorAuthDecision, { kind: 'cooling-down' }>,
+    laneId: string,
+  ): ModelDispatchRoute {
+    if (decision.kind === 'override') {
+      return {
+        providerSource: 'override',
+        overrideProviderId: decision.providerId,
+        component: 'memory-curator',
+        laneId,
+      };
+    }
+    return {
+      providerSource: 'ride-active',
+      component: 'memory-curator',
+      laneId,
+    };
+  }
+
   private async runQuery(
     systemPromptAppend: string,
     prompt: string,
@@ -414,9 +445,14 @@ export class SdkInternalQueryCuratorLlm implements ICuratorLLM {
         return { kind: 'cooling-down', providerId: decision.providerId };
       }
       const auth = decision.kind === 'override' ? decision.auth : undefined;
+      const model = this.resolveCuratorModel();
+      const laneId =
+        options.userInitiated === true
+          ? USER_ACTION_QUERY_LANE
+          : MEMORY_CURATOR_QUERY_LANE;
       const handle = await this.internalQuery.execute({
         cwd: this.resolveQueryCwd(),
-        model: this.resolveCuratorModel(),
+        model,
         prompt,
         systemPromptAppend,
         // Was hard-coded false (defect 13). The curator reads and writes memory
@@ -434,12 +470,10 @@ export class SdkInternalQueryCuratorLlm implements ICuratorLLM {
         // A user-initiated pass (`memory:runNow`) takes the ungoverned
         // `user-action` lane instead, so a click never waits behind the
         // governor or a wizard call (C14, Batch 16b).
-        lane:
-          options.userInitiated === true
-            ? USER_ACTION_QUERY_LANE
-            : MEMORY_CURATOR_QUERY_LANE,
+        lane: laneId,
         abortController,
         auth,
+        dispatch: this.dispatchRoute(decision, laneId),
       });
       // The text of the LAST assistant message, not the concatenation of every
       // one of them (TASK_2026_376 R1, logic finding 1).
