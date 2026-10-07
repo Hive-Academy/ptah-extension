@@ -291,3 +291,16 @@ enhancements the 471 research found are in scope here:
   sha256 `82cd16ac39b60699c241286eda2db59b25be70c6aa85480db0be8ae7b77d575a`, schema_migrations 51,
   observation_queue 92,005, memories 26,905, memory_chunks 30,050, observation_quarantine 282.
   Benchmarks open it read-only or copy it; never write to it.
+
+## User decisions 2026-10-07 (session feat/task-620-memory-skills-bench-s2)
+
+- **Model-panel data flow approved ("approve all"):** U1 (105 skill documents), U2 (memory
+  ground-truth drafts) and U4 (re-drawn real Claude Code session transcripts) may be sent to the
+  panel providers xAI (grok), Google (antigravity) and Ollama Cloud (Glm). Raw packets, answers and
+  manifests stay in `C:/Users/abdal/AppData/Local/ptah-mcp-bench`; never commit them.
+- **New B24/recording gate (confirmed with the same answer):** 619 will not restart its Batch 11
+  full runs, so "619 Batch 11 runs done" is dropped. Gate = 620 rebased onto 619 `181c657ab`
+  (done) + message 619 before every 620 bench or recording and wait for its OK + ask the user to
+  refresh the Codex login just before the recordings.
+- 620 commits since: A1 `595cde626`, rebase fixture fix `012df8123`, S1 (adopt 619 model-panel
+  schema) `094331fec`.
