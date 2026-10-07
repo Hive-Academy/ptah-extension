@@ -1,5 +1,36 @@
 # Handoff - TASK_2026_619_af7f (2026-10-07)
 
+## Update (2026-10-08, fifth session `ptah-ptah-extension-continue-619-follow-0b15390000ktg2q3sqvco0a`) — read this first
+
+- **Commits this session:** ce290b460 Batch 13b (user-chosen simplification: one census per root, joiners share it, lifecycle owns follow-ups; foreign-abort + user-click-join fix; APPROVED 8/10); 2e80facac Batch 13d (bench: positive lifecycle hit counts under unknown coverage; APPROVED 7/10); cf9d72f9f Batch 13c (product: known partial coverage during a census; APPROVED 8/10); b15607206 Batch 13e (bench: `unrecognised?` alone is not unknown coverage; probe matches symbol or `Class.member`; REVISE 5/10 -> rev 1 -> APPROVED 8/10). Open non-blocking items per batch are in batches.md.
+- **Diagnosis (`batch-13b-smoke-diagnosis.md`):** watcher delivery works in the bench host (direct probes, `tmp/watch-probe/*.mjs`). Edits/adds failed because the bench scored every answer during a census as `unknown-coverage`. Then (13c gating) found the deeper cause: every code-index answer has `unrecognised?` (`unrecognised: null` by design), so the bench scored EVERY ptah symbol answer as an error -> symbols-exact hit@5 = 0 by construction. Fixed bench-side in 13e (user decision).
+- **Lanes:** grok balance exhausted (402) mid-13d; user chose codex implementor + in-process code-logic-reviewer subagent. Codex resumes over 60k context start a fresh lane: give full context.
+- **Smoke:** user authorized `nx run mcp-bench:bench --host=cli-headless --suite=lifecycle,symbols-exact --smoke --out=tools/mcp-bench/out/b13e-cli-smoke` (build included); 620 gave OK. The 620 session `...finish-task-620-and-9da...` has stopped; the NEXT 620 session (branch feat/task-620-memory-skills-bench-s3) will message 619 before its recordings/B24 and wait for OK. 620 knows about b15607206.
+- **Not committed:** `.claude/commands/orchestrate.md` (not ours), `b13b-pre-simplify.patch` (backup of the replaced 13b design; delete when no longer needed).
+- **Task 13b.3** (query-file priority for cold start) still open: decide after the b13e smoke.
+
+### b13e smoke result (`tools/mcp-bench/out/b13e-cli-smoke`, exit 0, 12 min 20 s incl. build; log `tmp/watch-probe/b13e-smoke.log`, gitignored)
+
+| Case | b13b | b13e |
+| --- | --- | --- |
+| edit-then-query 5 s / 60 s | fail / fail | **pass / pass** (found under unknown coverage) |
+| add-then-query | fail | **pass** (5.4 s) |
+| large-file-3900 | fail | **pass** |
+| large-file-1.5mib | pass | pass |
+| delete-then-query | (check b13b) | **fail**: still answered after 60 s, all states unknown-coverage |
+| cold-start | fail | fail (no clean/positive answer for `onKeepEditing` in 120 s) |
+| index-age-24h | fail | fail (census not settled in 120 s) |
+| two-workspaces-symbol-scope | fail | fail (workspace B: symbolCount 0, reindexInFlight false, unknown census) |
+| symbols-exact hit@5 ptah / native | 0 / 0.85 (b11) | **0 / 0**, error_rate 1 |
+
+### First actions for the sixth session (in order)
+
+1. **symbols-exact is broken in b13e: native hit@5 is also 0** (was 0.85). Suspect the 13e change in `tools/mcp-bench/src/suites/tool-results.ts` (`symbolHits`, `parseSymbolHits` now throws on a hit without a string `symbolName`) or a ground-truth/scoring path; read `scorecard.json` suite section (`failures`, per-question errors) and the native baseline path. Do not re-run the bench before a cause is found (620 coordination required; the stopped 620 session said the next 620 session will message 619 first).
+2. **Mid-census answers are still `unknown-coverage`**: the 13c mid-census reasons are `["updating","unrecognised?","unchecked"]` (3 entries), and the 13e rev-1 cap rule (3 entries incl. `unrecognised?` -> unknown) classifies exactly that shape as unknown. So 13c is invisible to the bench. Decide (user): drop/refine the cap rule (e.g. treat as unknown only when the 3rd slot is `unrecognised?` AND a lower-priority `?` reason could exist — check `COVERAGE_REASONS` order in `language-coverage.interface.ts:205-226`), or accept.
+3. delete-then-query now fails (needs a clean answer by design); after item 2 it may pass. two-workspaces-symbol-scope: workspace B never gets a census in that host — investigate.
+4. cold-start / index-age: census does not finish in 120 s on the 6,455-file corpus; Task 13b.3 (query-file priority) is the remaining lever; needs a user decision.
+5. Then Batch 14 onward per batches.md.
+
 ## Update (2026-10-07, fourth session `ptah-ptah-extension-continue-619-task-f6797e0000ktg2q3sqvco04`) — read this first
 
 - **Commits this session:** 285ce9855 Batch 11 (smoke baseline, host fixes, probe PID-reuse guard); d514bdc0e Batch 12 (rev 2 had landed; codex R3 REVISE 6/10 found purgeJunk/purgeWorkspace bypassing the vec protocol; ONE bounded correction by grok; codex final APPROVED 8/10; gate memory-curator 54/54); 181c657ab TASK_2026_620 schema (model-panel + panel, shared GROUND_TRUTH_METHODS, displayLabel; codex R2 APPROVED 8/10).
