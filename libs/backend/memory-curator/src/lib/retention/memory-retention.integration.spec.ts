@@ -1059,7 +1059,7 @@ describe('memory retention — integration (real SQLite, fake clock)', () => {
       status: 'partial',
       reason: 'row-budget',
       processedPurged: 250,
-      stuckKept: null,
+      stuckKept: 200,
       ledgerPruned: 1,
       backlogRemaining: true,
       error: null,

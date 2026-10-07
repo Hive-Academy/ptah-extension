@@ -207,6 +207,25 @@ export class BootScanRunner {
       }
     }
 
+    // A terminal ledger row is still a new scan candidate when the underlying
+    // file changed, even if its mtime is at or below the persisted watermark
+    // (for example after a preserved-mtime copy or clock skew).
+    const knownEligible = new Set(eligible.map((item) => item.sessionId));
+    for (const entry of options.failures?.listGivenUp(
+      options.workspaceFingerprint,
+      BOOT_SCAN_RETRIES_PER_BOOT,
+    ) ?? []) {
+      const mtime = await this.sessionMtime(entry.sessionPath);
+      if (
+        typeof mtime === 'number' &&
+        mtime !== entry.sessionMtimeMs &&
+        !knownEligible.has(entry.sessionId)
+      ) {
+        eligible.push({ sessionId: entry.sessionId, mtime });
+        knownEligible.add(entry.sessionId);
+      }
+    }
+
     eligible.sort((a, b) => a.mtime - b.mtime);
 
     // Ledger retries run BEFORE the scan. They only see failures from earlier

@@ -20,6 +20,10 @@ export interface BootScanFailureEntry {
   readonly attemptCount: number;
 }
 
+export interface BootScanGivenUpEntry extends BootScanFailureEntry {
+  readonly sessionMtimeMs: number | null;
+}
+
 export interface BootScanFailureRecord {
   readonly attemptCount: number;
   readonly status: 'pending' | 'given_up';
@@ -57,7 +61,13 @@ const LIST_PENDING_SQL = `SELECT session_id, workspace_root, session_path, attem
   FROM memory_boot_scan_failures
  WHERE workspace_fingerprint = ? AND status = 'pending'
  ORDER BY last_failed_at, session_id
- LIMIT ?`;
+  LIMIT ?`;
+
+const LIST_GIVEN_UP_SQL = `SELECT session_id, workspace_root, session_path, attempt_count, session_mtime_ms
+  FROM memory_boot_scan_failures
+  WHERE workspace_fingerprint = ? AND status = 'given_up'
+  ORDER BY last_failed_at, session_id
+  LIMIT ?`;
 
 const GIVE_UP_SQL = `UPDATE memory_boot_scan_failures
    SET status = 'given_up', give_up_reason = ?, last_failed_at = ?
@@ -116,6 +126,7 @@ export class BootScanFailureLedger {
       if (!row) return null;
       return { attemptCount: Number(row.attempt_count), status: row.status };
     } catch (error: unknown) {
+      // degradation-audit: reported - ledger recording failure keeps the watermark below the session
       this.warn('record', entry.sessionId, error);
       return null;
     }
@@ -139,7 +150,34 @@ export class BootScanFailureLedger {
         attemptCount: Number(r.attempt_count),
       }));
     } catch (error: unknown) {
+      // degradation-audit: reported - unavailable retry ledger degrades to no retries for this boot
       this.warn('list', null, error);
+      return [];
+    }
+  }
+
+  /** Terminal rows, used to admit a changed file generation below the watermark. */
+  listGivenUp(fp: string, limit: number): BootScanGivenUpEntry[] {
+    try {
+      const rows = this.sqlite.db
+        .prepare(LIST_GIVEN_UP_SQL)
+        .all(fp, limit) as Array<{
+        session_id: string;
+        workspace_root: string;
+        session_path: string;
+        attempt_count: number;
+        session_mtime_ms: number | null;
+      }>;
+      return rows.map((row) => ({
+        sessionId: row.session_id,
+        workspaceRoot: row.workspace_root,
+        sessionPath: row.session_path,
+        attemptCount: Number(row.attempt_count),
+        sessionMtimeMs: row.session_mtime_ms,
+      }));
+    } catch (error: unknown) {
+      // degradation-audit: reported - unavailable terminal ledger rows defer changed-generation recovery
+      this.warn('list-given-up', null, error);
       return [];
     }
   }
@@ -154,6 +192,7 @@ export class BootScanFailureLedger {
       this.sqlite.db.prepare(GIVE_UP_SQL).run(reason, nowMs, fp, sessionId);
       return true;
     } catch (error: unknown) {
+      // degradation-audit: reported - ledger status update failure leaves the row retryable on a later boot
       this.warn('give-up', sessionId, error);
       return false;
     }
@@ -168,6 +207,7 @@ export class BootScanFailureLedger {
       this.sqlite.db.prepare(REMOVE_SQL).run(fp, sessionId);
       return true;
     } catch (error: unknown) {
+      // degradation-audit: reported - ledger cleanup failure is harmless because later scans retry removal
       this.warn('remove', sessionId, error);
       return false;
     }

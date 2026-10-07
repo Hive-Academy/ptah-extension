@@ -112,6 +112,8 @@ export class MemoryTriggerService {
   private readonly lastCurateAt = new Map<string, number>();
   /** Consecutive failed passes per session; cleared by a pass that ran. */
   private readonly failedPasses = new Map<string, number>();
+  /** End-pass identities follow a rekey until their detached pass settles. */
+  private readonly endingSessions = new Map<string, { sessionId: string }>();
   private bootScanController: AbortController | null = null;
   /**
    * The arming gate in front of {@link runBootScan}. Created only on the path
@@ -368,6 +370,12 @@ export class MemoryTriggerService {
     if (failed !== undefined && !this.failedPasses.has(to)) {
       this.failedPasses.set(to, failed);
     }
+    const ending = this.endingSessions.get(from);
+    if (ending) {
+      this.endingSessions.delete(from);
+      ending.sessionId = to;
+      this.endingSessions.set(to, ending);
+    }
     this.curator.rekeySession(from, to);
 
     // 2 — the episode buffer (refuse-overwrite lives in the tracker).
@@ -483,12 +491,20 @@ export class MemoryTriggerService {
     // below must still run for state armed while memory was enabled. Only the
     // curate is gated.
     if (this.readMemoryEnabled() && this.readSessionEndEnabled()) {
-      this.tryEpisodeCurate(
+      const ending = { sessionId };
+      this.endingSessions.set(sessionId, ending);
+      void this.tryEpisodeCurate(
         sessionId,
         workspaceRoot,
         'session-end',
         'session-end-trigger',
-      );
+      ).finally(() => {
+        this.failedPasses.delete(sessionId);
+        this.failedPasses.delete(ending.sessionId);
+        if (this.endingSessions.get(ending.sessionId) === ending) {
+          this.endingSessions.delete(ending.sessionId);
+        }
+      });
     }
     this.episodes.reset(sessionId);
     const state = this.sessions.get(sessionId);
@@ -707,23 +723,23 @@ export class MemoryTriggerService {
       | 'episode-trigger'
       | 'commit-detect'
       | 'session-end-trigger',
-  ): void {
+  ): Promise<void> {
     if (this.shouldCoalesce(sessionId)) {
       this.logger.debug(
         '[memory-curator] curate trigger coalesced (in-flight or recent)',
         { sessionId, source },
       );
-      return;
+      return Promise.resolve();
     }
 
     const snap = this.episodes.snapshot(sessionId);
     if (snap.isEmpty) {
       this.episodes.reset(sessionId);
-      return;
+      return Promise.resolve();
     }
     // Before the slot is spent and before the buffer is detached: the episode
     // stays where it is and the next boundary tries again.
-    if (this.heldByNetworkBackoff(sessionId, source)) return;
+    if (this.heldByNetworkBackoff(sessionId, source)) return Promise.resolve();
 
     const decision = this.rateLimiter.tryAcquire(
       RATE_LIMIT_KEY,
@@ -741,7 +757,7 @@ export class MemoryTriggerService {
           usedThisWindow: decision.usedThisWindow,
         },
       });
-      return;
+      return Promise.resolve();
     }
 
     const salienceBoost = this.episodes.salienceBoost(sessionId);
@@ -772,7 +788,7 @@ export class MemoryTriggerService {
     const detached = this.episodes.detach(sessionId);
     this.inFlightCurates.add(sessionId);
     this.lastCurateAt.set(sessionId, Date.now());
-    void this.invokeCurate(
+    return this.invokeCurate(
       sessionId,
       workspaceRoot,
       source,

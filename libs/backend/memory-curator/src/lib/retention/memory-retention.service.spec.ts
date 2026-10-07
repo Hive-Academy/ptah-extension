@@ -1068,8 +1068,8 @@ describe('MemoryRetentionService — run', () => {
       status: 'partial',
       reason: 'row-budget',
       processedPurged: 250,
-      // The stop came before the stuck count, so it was never read.
-      stuckKept: null,
+      // A row budget does not prevent this independent, index-bounded warning.
+      stuckKept: 50,
       backlogRemaining: true,
       pagesReclaimed: 250,
     });

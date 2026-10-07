@@ -398,7 +398,7 @@ export class MemoryRetentionService {
       // Deleting them would silently lose observations extraction never saw;
       // the count makes a stalled curator visible instead. One index-bounded
       // read that never throws, so it consumes no row budget.
-      if (!stop) {
+      if (stop === null || stop === 'row-budget') {
         tally.stuckKept = this.store.readLiveStorage(
           startedAt - settings.stuckDays * DAY_MS,
         ).stuckEligibleRows;

@@ -8,6 +8,7 @@ import type {
   SqliteDatabase,
 } from '@ptah-extension/persistence-sqlite';
 import { BootScanRunner } from './boot-scan-runner';
+import type { BootScanFailureLedger } from './boot-scan-failure-ledger';
 
 function makeLogger(): Logger {
   return {
@@ -642,5 +643,43 @@ describe('BootScanRunner', () => {
         error: expect.stringContaining('SQLITE_BUSY'),
       }),
     );
+  });
+
+  it('admits a changed given_up generation even when its mtime remains below the watermark', async () => {
+    const now = Date.now();
+    const changedMtime = now - 5_000;
+    const dir = await makeTempSessionsDir([
+      { name: 'given-up.jsonl', mtime: changedMtime },
+    ]);
+    const run = jest.fn().mockResolvedValue('ran');
+    const ledger = {
+      listPending: jest.fn(() => []),
+      listGivenUp: jest.fn(() => [
+        {
+          sessionId: 'given-up',
+          workspaceRoot: '/ws',
+          sessionPath: path.join(dir, 'given-up.jsonl'),
+          attemptCount: 3,
+          sessionMtimeMs: now - 10_000,
+        },
+      ]),
+      remove: jest.fn(() => true),
+    } as unknown as BootScanFailureLedger;
+
+    await new BootScanRunner().run({
+      pipeline: 'memory',
+      workspaceRoot: '/ws',
+      workspaceFingerprint: 'fp1',
+      sessionsDirectory: dir,
+      sqlite: makeSqliteWithRow(now),
+      logger: makeLogger(),
+      run,
+      failures: ledger,
+      throttleMs: 0,
+      now,
+    });
+
+    expect(run).toHaveBeenCalledWith('given-up', '/ws', undefined);
+    expect(ledger.remove).toHaveBeenCalledWith('fp1', 'given-up');
   });
 });

@@ -1363,6 +1363,50 @@ describe('MemoryTriggerService — episode / failure / session-end', () => {
     expect(curator.curate).toHaveBeenCalledTimes(1);
   });
 
+  it('clears failed-pass state after a rekeyed session-end pass settles', async () => {
+    let settle: ((value: Record<string, unknown>) => void) | undefined;
+    const curator = {
+      ...makeCurator(),
+      curate: jest.fn(
+        () =>
+          new Promise<Record<string, unknown>>((resolve) => {
+            settle = resolve;
+          }),
+      ),
+    } as unknown as MemoryCuratorService;
+    const { service, stop, sessionEndHook } = buildService({
+      curator,
+      workspace: makeWorkspace({
+        'memory.triggers.idleMs': 0,
+        'memory.triggers.turnThreshold': 0,
+      }),
+    });
+    service.start();
+    stop.fire(stopPayload());
+    sessionEndHook.fire({
+      sessionId: 's1',
+      workspaceRoot: '/ws',
+      reason: 'clear',
+      timestamp: 20,
+    });
+    for (let i = 0; i < 8; i++) await Promise.resolve();
+    const internals = service as unknown as {
+      failedPasses: Map<string, number>;
+    };
+    internals.failedPasses.set('s1', 1);
+    service.rekeySession('s1', 's2');
+    settle?.({
+      outcome: 'failed',
+      extracted: 0,
+      merged: 0,
+      created: 0,
+      skipped: 0,
+    });
+    for (let i = 0; i < 8; i++) await Promise.resolve();
+
+    expect(internals.failedPasses).toEqual(new Map());
+  });
+
   it('SessionEnd hook with empty episode does not curate', async () => {
     const { service, sessionEndHook, curator } = buildService();
     service.start();
