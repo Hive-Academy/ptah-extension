@@ -11,7 +11,13 @@
 import 'reflect-metadata';
 jest.mock('vscode', () => ({}), { virtual: true });
 
-import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -79,7 +85,9 @@ function expectExactRates(metrics: Record<string, number | null>): void {
     const den = metrics[`${name}.den`];
     expect(num).not.toBeNull();
     expect(den).not.toBeNull();
-    expect(metrics[name]).toBe(den === 0 ? null : (num as number) / (den as number));
+    expect(metrics[name]).toBe(
+      den === 0 ? null : (num as number) / (den as number),
+    );
   }
 }
 
@@ -88,6 +96,7 @@ function fakeContext(
   runDir: string,
   container: DependencyContainer,
   options: unknown,
+  ci = false,
 ): MemorySkillsHostSuiteContext {
   return {
     runId: 'spec',
@@ -97,7 +106,7 @@ function fakeContext(
     isolation: { home } as never,
     container,
     doubles: {} as never,
-    ci: false,
+    ci,
   };
 }
 
@@ -192,7 +201,9 @@ describe('skill.namer.collisions', () => {
       maxPerBase: 5,
       writes: 5,
     });
-    expect(readdirSync(home).filter((n) => n.startsWith('namer-probe-'))).toEqual([]);
+    expect(
+      readdirSync(home).filter((n) => n.startsWith('namer-probe-')),
+    ).toEqual([]);
   });
 
   it('counts collisions on the frozen copy with exact rates and reports na', () => {
@@ -253,14 +264,21 @@ describe('skill.namer.collisions', () => {
     expect(output).not.toContain(MARK);
     expect(output).not.toContain('Body A');
     expect(output).not.toContain(home);
-    expect(JSON.stringify((logger.info as jest.Mock).mock.calls)).not.toContain(MARK);
+    expect(JSON.stringify((logger.info as jest.Mock).mock.calls)).not.toContain(
+      MARK,
+    );
   });
 
   it('host suite writes a result the runner reads back', async () => {
     const container = rootContainer.createChildContainer();
     container.register(TOKENS.LOGGER, { useValue: logger });
-    await namerCollisionsSuite.run(fakeContext(home, runDir, container, options()));
-    const { result, cases } = readSuiteResult(runDir, NAMER_COLLISIONS_SUITE_ID);
+    await namerCollisionsSuite.run(
+      fakeContext(home, runDir, container, options()),
+    );
+    const { result, cases } = readSuiteResult(
+      runDir,
+      NAMER_COLLISIONS_SUITE_ID,
+    );
     expect(result.verdict).toBe('na');
     expect(result.metrics['slugCollisionRate']).toBe(7 / 12);
     expect(cases).toHaveLength(3);
@@ -274,7 +292,11 @@ describe('skill.namer.collisions', () => {
     );
     let message = '';
     try {
-      runNamerCollisions({ home, options: options(), writer: realGenerator(logger) });
+      runNamerCollisions({
+        home,
+        options: options(),
+        writer: realGenerator(logger),
+      });
     } catch (error: unknown) {
       message = error instanceof Error ? error.message : String(error);
     }
@@ -286,7 +308,10 @@ describe('skill.namer.collisions', () => {
     expect(() =>
       runNamerCollisions({
         home,
-        options: { snapshotName: SNAPSHOT, expectedManifestSha256: 'a'.repeat(64) },
+        options: {
+          snapshotName: SNAPSHOT,
+          expectedManifestSha256: 'a'.repeat(64),
+        },
         writer: realGenerator(logger),
       }),
     ).toThrow(/not the frozen one/);
@@ -306,7 +331,9 @@ describe('skill.namer.collisions', () => {
       options: options(),
       writer: neverRefuses,
     });
-    expect(cases.find((c) => c.caseId === 'probe/slug-grammar')?.outcome).toBe('fail');
+    expect(cases.find((c) => c.caseId === 'probe/slug-grammar')?.outcome).toBe(
+      'fail',
+    );
     expect(result.metrics['probe.maxPerBase']).toBeNull();
 
     const broken: CandidateWriter = {
@@ -470,7 +497,11 @@ function triggerContainer(
 
 function writeJsonl(path: string, lines: readonly unknown[]): void {
   mkdirSync(join(path, '..'), { recursive: true });
-  writeFileSync(path, lines.map((line) => `${JSON.stringify(line)}\n`).join(''), 'utf8');
+  writeFileSync(
+    path,
+    lines.map((line) => `${JSON.stringify(line)}\n`).join(''),
+    'utf8',
+  );
 }
 
 describe('skill.trigger-eval.human', () => {
@@ -500,7 +531,9 @@ describe('skill.trigger-eval.human', () => {
       env: env(fixture),
     });
     expect(result.verdict).toBe('na');
-    expect(result.naReason).toMatch(/^ground-truth-absent: gt-skill-triggers@v1/);
+    expect(result.naReason).toMatch(
+      /^ground-truth-absent: gt-skill-triggers@v1/,
+    );
     expect(cases).toEqual([]);
     expect(result.modelCalls).toBe(0);
     expect(result.metrics).toMatchObject({
@@ -560,7 +593,11 @@ describe('skill.trigger-eval.human', () => {
     );
     expect(result.cost.calls).toBe(3);
     const details = funnelDetailsSchema.parse(result.details);
-    expect(details).toMatchObject({ precision: 4 / 5, recall: 4 / 5, stages: [] });
+    expect(details).toMatchObject({
+      precision: 4 / 5,
+      recall: 4 / 5,
+      stages: [],
+    });
     expect(result.groundTruth).toEqual({
       id: 'gt-skill-triggers',
       version: 'v1',
@@ -590,7 +627,10 @@ describe('skill.trigger-eval.human', () => {
 
   it('scores the recorded self-generated sets as the baseline', async () => {
     writeLabels();
-    writeJsonl(join(home, 'memory-skills', 'self-generated.jsonl'), SELF_GENERATED);
+    writeJsonl(
+      join(home, 'memory-skills', 'self-generated.jsonl'),
+      SELF_GENERATED,
+    );
     const fixture = triggerContainer();
     const { result, cases } = await runTriggerEvalHuman({
       home,
@@ -613,7 +653,10 @@ describe('skill.trigger-eval.human', () => {
       'recall.den': 2,
     });
     expectExactRates(baseline.metrics);
-    expect(result.deltas['self-generated']['precision']).toBeCloseTo(0.8 - 0.5, 12);
+    expect(result.deltas['self-generated']['precision']).toBeCloseTo(
+      0.8 - 0.5,
+      12,
+    );
     expect(result.deltas['self-generated']['recall']).toBeCloseTo(0.8 - 1, 12);
     expect(cases.map((c) => c.baselineOutcomes)).toEqual([
       { 'self-generated': 'fail' },
@@ -631,7 +674,9 @@ describe('skill.trigger-eval.human', () => {
       env: env(triggerContainer()),
     });
     expect(result.verdict).toBe('na');
-    expect(result.naReason).toBe('ground-truth-incomplete: 3 of 23 skills labelled');
+    expect(result.naReason).toBe(
+      'ground-truth-incomplete: 3 of 23 skills labelled',
+    );
     expect(result.metrics['precision']).toBe(4 / 5);
   });
 
@@ -670,7 +715,10 @@ describe('skill.trigger-eval.human', () => {
     await triggerEvalHumanSuite.run(
       fakeContext(home, runDir, fixture.container, { expectedSkills: 3 }),
     );
-    const { result, cases } = readSuiteResult(runDir, TRIGGER_EVAL_HUMAN_SUITE_ID);
+    const { result, cases } = readSuiteResult(
+      runDir,
+      TRIGGER_EVAL_HUMAN_SUITE_ID,
+    );
     expect(result.metrics['recall']).toBe(4 / 5);
     expect(cases).toHaveLength(3);
     expect(fixture.modelLane).not.toHaveBeenCalled();
@@ -678,8 +726,34 @@ describe('skill.trigger-eval.human', () => {
 });
 
 describe('NAMER_AND_TRIGGER_SUITES', () => {
+  it('refuses a CI run before reading any fixture or resolving a service', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'ptah-620-ci-'));
+    try {
+      const container = rootContainer.createChildContainer();
+      const resolve = jest.spyOn(container, 'resolve');
+      const createChild = jest.spyOn(container, 'createChildContainer');
+      for (const suite of NAMER_AND_TRIGGER_SUITES) {
+        const runDir = join(home, `ci-${suite.id}`);
+        await expect(
+          suite.run(fakeContext(home, runDir, container, {}, true)),
+        ).rejects.toThrow(
+          new RegExp(
+            `^${suite.id.replaceAll('.', '\\.')} is local-only: .*; it never runs in CI$`,
+          ),
+        );
+        expect(() => readSuiteResult(runDir, suite.id)).toThrow(/wrote no/);
+      }
+      expect(resolve).not.toHaveBeenCalled();
+      expect(createChild).not.toHaveBeenCalled();
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
   it('registers both host suites with no placement constraint', () => {
-    expect(NAMER_AND_TRIGGER_SUITES.map((suite) => [suite.id, suite.placement])).toEqual([
+    expect(
+      NAMER_AND_TRIGGER_SUITES.map((suite) => [suite.id, suite.placement]),
+    ).toEqual([
       [NAMER_COLLISIONS_SUITE_ID, undefined],
       [TRIGGER_EVAL_HUMAN_SUITE_ID, undefined],
     ]);

@@ -27,8 +27,9 @@ Both are **local host suites** with **placement `any`**. Neither declares `place
   - it recomputes `manifestSha256` with `computeManifestSha256` (Batch 8 code) and compares it to the pinned `FROZEN_CANDIDATES_MANIFEST_SHA256`;
   - it checks every file hash, and that no file is missing, unlisted or non-regular;
   - it checks the directory count.
-  
+
   Any mismatch throws a message that contains counts only.
+
 - **Real product path:** the suffix grammar is not copied from the generator. `probeSlugGrammar` calls the real `writeCandidate` (resolved from a child of the host container) with the synthetic slug `namer-probe` in a scratch temp folder until it refuses. The suffixes it chose (`-2`…`-5`) and the limit (5) become the classification rule. The scratch folder is removed in `finally`. Only the generator's own refusal (`slug collision`) ends the probe; any other error is rethrown.
 - **Frozen names are not passed through the generator.** `writeAtRoot` logs every slug it writes at `info` (`skill-md-generator.ts:320-324`), and the frozen slugs come from the user's first messages. Passing them through it would put user data in host logs.
 - **Counts:** `classifyCollisions` reports:
@@ -42,8 +43,9 @@ Both are **local host suites** with **placement `any`**. Neither declares `place
 - **Rates:**
   - `slugCollisionRate = rate(collided, dirs)`;
   - `selfCollisionShare = rate(sameBodyAsBase, collided)`.
-  
+
   Each rate is recorded as value, `.num` and `.den` through `rateMetrics`.
+
 - **Result:**
   - kind `funnel`; `details.slugCollisionRate`;
   - one `draft` stage: `in` = directories, `out` = distinct base slugs, invariant `group-size-within-retry-limit`, with `exampleIds` always empty;
@@ -59,18 +61,19 @@ Both are **local host suites** with **placement `any`**. Neither declares `place
 - **Real product path:** for each skill the suite calls `TriggerEvalService.evaluate` on a fresh instance, registered by class in a child container. In that child:
   - `LANE_RUNNER_SERVICE` is a `LabelledPromptLane`. It answers the service's one prompt-generation call with the labelled set. It holds no model and does no I/O.
   - `SKILL_CANDIDATE_STORE` is a `LabelledSkillLibrary`. The labelled descriptions form the retrieval corpus, and `recordTriggerEval` is kept in memory.
-  
+
   Everything after the generation call is the product's own code: embedding, rank, `TRIGGER_EVAL_TOP_K`, `TRIGGER_EVAL_MIN_SIMILARITY`, `measureRetrieval`. The embedder and the workspace (gate switch) come from the host container. Settings come from the product's `SkillSynthesisService.readSettings()`. Before scoring, the suite checks that the child resolves the two doubles. The container's own singleton and the real lane runner are never resolved.
+
 - **Aggregation:** precision and recall are micro-averaged over prompts. Per prompt, the product decides `triggered` and the human label decides the kind. `precision = rate(TP, TP+FP)` and `recall = rate(TP, positives)`, both exactly `num/den`. Per-skill cases come from the product report: `tp a/b, fp c/d, precision, recall`. A case passes when recall is 1 and there is no false positive.
 - **Baseline `self-generated`:** design :100 compares against the score on prompts the product generated itself. If the plan supplies `selfGeneratedFile`, those recorded sets are scored the same way, and the suite fills `baselines`, `deltas` and per-case `baselineOutcomes`. Without the file the baseline metrics are `null`, and its label says so.
 - **No model call:** `modelCalls` is 0. `cost.calls` counts the evaluations the labelled lane answered.
 
 ## Real path or `na` today, per suite
 
-| Suite | Product path called directly | Verdict today | Why |
-| --- | --- | --- | --- |
-| `skill.namer.collisions` | `SkillMdGenerator.writeCandidate` (grammar probe) | `na`, always | The design sets no threshold ("collision rate reported", :83). The frozen names are the namer's own output, so there is no independent ground truth and no named baseline. The numbers are in `metrics` and `details`. |
-| `skill.trigger-eval.human` | `TriggerEvalService.evaluate` (scoring path) | `na: ground-truth-absent: gt-skill-triggers@v1 is not labelled yet (U4)` | U4 labels do not exist yet. |
+| Suite                      | Product path called directly                      | Verdict today                                                            | Why                                                                                                                                                                                                                    |
+| -------------------------- | ------------------------------------------------- | ------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `skill.namer.collisions`   | `SkillMdGenerator.writeCandidate` (grammar probe) | `na`, always                                                             | The design sets no threshold ("collision rate reported", :83). The frozen names are the namer's own output, so there is no independent ground truth and no named baseline. The numbers are in `metrics` and `details`. |
+| `skill.trigger-eval.human` | `TriggerEvalService.evaluate` (scoring path)      | `na: ground-truth-absent: gt-skill-triggers@v1 is not labelled yet (U4)` | U4 labels do not exist yet.                                                                                                                                                                                            |
 
 With labels, `skill.trigger-eval.human` is still `na`. The reason, in priority order, is the first that applies:
 
@@ -167,6 +170,14 @@ Expected on the first local run:
 - `skill.trigger-eval.human` is `na: ground-truth-absent` until U4.
 
 The self-generated baseline file does not exist yet. Producing it needs one generation lane call per skill, so it is a separate recorded step and must not happen in this suite.
+
+## Phase 3.6 fixes
+
+- **CI refusal** (`code-logic-review-phase3-6.md`, minor). Both suites now refuse a CI run the same way the judge suites do (`judge-agreement.suite.ts:803-807`).
+  - **Where:** `refuseCi` in `namer-and-trigger.suite.ts` runs first in each `run`.
+  - **What it does when `context.ci` is set:** it throws `<suiteId> is local-only: <why>; it never runs in CI` before any fixture is read or any service is resolved. The host then records the suite as `error`.
+  - **Spec:** `refuses a CI run before reading any fixture or resolving a service` checks four things for both suites: the run rejects with that message, no result file is written, and `container.resolve` and `createChildContainer` are never called.
+  - **Checks:** jest 18/18 passed, and eslint and prettier exit 0 on both files.
 
 ## Deviations
 

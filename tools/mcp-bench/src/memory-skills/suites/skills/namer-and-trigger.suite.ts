@@ -45,15 +45,32 @@ export { TRIGGER_EVAL_HUMAN_SUITE_ID } from './trigger-human-eval';
  * The real generator, constructed in a child container so the probe never
  * shares state with the container's singleton.
  */
-function hostGenerator(context: MemorySkillsHostSuiteContext): SkillMdGenerator {
+function hostGenerator(
+  context: MemorySkillsHostSuiteContext,
+): SkillMdGenerator {
   const child = context.container.createChildContainer();
   child.register(SkillMdGenerator, { useClass: SkillMdGenerator });
   return child.resolve(SkillMdGenerator);
 }
 
+/**
+ * Both suites are local-only (as the judge suites, `judge-agreement.suite.ts`):
+ * a `--ci` plan naming one fails loudly before any fixture is read, instead of
+ * reading private data or reporting an `na` that looks like a measured run.
+ */
+function refuseCi(context: MemorySkillsHostSuiteContext, why: string): void {
+  if (context.ci) {
+    throw new Error(`${why}; it never runs in CI`);
+  }
+}
+
 export const namerCollisionsSuite: MemorySkillsHostSuite = {
   id: NAMER_COLLISIONS_SUITE_ID,
   async run(context) {
+    refuseCi(
+      context,
+      `${NAMER_COLLISIONS_SUITE_ID} is local-only: it reads the private frozen candidate copy`,
+    );
     const { result, cases } = runNamerCollisions({
       home: context.isolation.home,
       options: context.options,
@@ -66,6 +83,10 @@ export const namerCollisionsSuite: MemorySkillsHostSuite = {
 export const triggerEvalHumanSuite: MemorySkillsHostSuite = {
   id: TRIGGER_EVAL_HUMAN_SUITE_ID,
   async run(context) {
+    refuseCi(
+      context,
+      `${TRIGGER_EVAL_HUMAN_SUITE_ID} is local-only: it scores human labels with the real embedder`,
+    );
     const { result, cases } = await runTriggerEvalHuman({
       home: context.isolation.home,
       options: context.options,
