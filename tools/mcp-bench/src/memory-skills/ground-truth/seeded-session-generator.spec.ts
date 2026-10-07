@@ -96,10 +96,13 @@ beforeAll(async () => {
 
 describe('committed fixtures', () => {
   it('memory-facts.v1.jsonl carries the accepted U2 facts, git-cited', () => {
-    expect(facts).toHaveLength(129);
-    expect(facts.map((fact) => fact.id)).toEqual(
-      expect.arrayContaining(['F-001', 'F-005']),
-    );
+    const factIds = facts.map((fact) => fact.id);
+    const expectedFactIds = Array.from(
+      { length: 130 },
+      (_, index) => `F-${String(index + 1).padStart(3, '0')}`,
+    ).filter((id) => id !== 'F-038');
+    expect(new Set(factIds).size).toBe(factIds.length);
+    expect(new Set(factIds)).toEqual(new Set(expectedFactIds));
     for (const fact of facts) {
       // R-M1 form: a public task source plus the git revision that pins it.
       expect(

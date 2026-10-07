@@ -274,8 +274,8 @@ describe('read-side memory suites', () => {
     expect(result.cost.latency_ms.p50).not.toBeNull();
     expect(result.cost.error_rate).toBe(0);
     expectExactRates(result);
-    expect(result.metrics['unanswerable']).toBe(2);
-    expect(result.metrics['recallAt10.den']).toBe(7);
+    expect(result.metrics['unanswerable']).toBe(0);
+    expect(result.metrics['recallAt10.den']).toBe(cases.length);
     expect(cases.find((c) => c.caseId === 'fts.F-005')).toMatchObject({
       outcome: 'pass',
     });
@@ -315,7 +315,7 @@ describe('read-side memory suites', () => {
     expect(noMemory?.metrics['recall']).toBe(0);
     // The statement stream holds 16 messages, so last-50 sees every fact.
     const lastN = result.baselines.find((b) => b.id === 'last-n');
-    expect(lastN?.metrics).toMatchObject({ 'recall.den': 9 });
+    expect(lastN?.metrics).toMatchObject({ 'recall.num': 9, 'recall.den': 9 });
     expect(
       cases.find((c) => c.caseId === 'inject.F-005')?.baselineOutcomes?.[
         'last-n'
@@ -401,7 +401,7 @@ describe('read-side memory suites', () => {
     const seededRoot = 'D:/seeded/workspace';
     await port.insertRow(
       seededRoot,
-      'The user asked for proper fixes to be orchestrated over the 2 lanes with our CLI tool, not subagents.',
+      'Decision taken up front on 2026-08-15 (TASK_2026_248, user): single-session skills promoting themselves is intended behaviour, the empirical gates are the safety mechanism, and the documentation must describe the real split rather than the aspiration.',
     );
     port.inserted.length = 0;
     const session = [
@@ -413,7 +413,7 @@ describe('read-side memory suites', () => {
           content: [
             {
               type: 'text',
-              text: 'Orchestrate over the 2 lanes with our CLI tool, not subagents.',
+              text: 'Single-session skills promoting themselves is intended behaviour; empirical gates are the safety mechanism.',
             },
           ],
         },
@@ -443,8 +443,11 @@ describe('read-side memory suites', () => {
     );
     expect(port.inserted).toEqual([]);
     expect(cases.find((c) => c.caseId === 'inject.F-001')).toMatchObject({
+      outcome: 'pass',
+      baselineOutcomes: { 'last-n': 'pass', 'no-memory': 'fail' },
+    });
+    expect(cases.find((c) => c.caseId === 'inject.F-008')).toMatchObject({
       outcome: 'fail',
-      baselineOutcomes: { 'last-n': 'fail', 'no-memory': 'fail' },
     });
     expect(result.cost.calls).toBe(1 + 2 * 9);
   });

@@ -342,9 +342,13 @@ describe('mem.extraction', () => {
     const middle = cases.filter((c) => c.caseId.startsWith('long-middle/'));
     const head = cases.filter((c) => c.caseId.startsWith('long-head/'));
     // Head plantings reach the curator, unlike the clamped middle plantings.
-    expect(result.metrics['recall.longHead']).toBeGreaterThan(0);
-    expect(result.metrics['recall.longHead']).toBeGreaterThan(
-      result.metrics['recall.longMiddle'] as number,
+    const planned = planExtractionCases(
+      facts,
+      bank,
+      'TASK_2026_620:gt-memory@v1',
+    );
+    expect(result.metrics['recall.longHead']).toBe(
+      verbatimRecallFor(planned, 'long-head'),
     );
     expect(middle.length).toBeGreaterThan(0);
     expect(middle.length).toBe(head.length);

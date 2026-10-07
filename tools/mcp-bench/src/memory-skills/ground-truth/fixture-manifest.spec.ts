@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -12,6 +12,8 @@ import {
   verifyManifest,
   writeManifest,
 } from './fixture-manifest';
+import { factSchema } from './label-schemas';
+import { matchesFact } from '../matching/fact-matcher';
 
 const CSV = 'opaqueId,raterId,c1,c2,c3,c4,c5,c6,c7,c8,total,pass,ratedAt\n';
 const FACTS = '{"a":2,"b":1}\n';
@@ -144,6 +146,18 @@ describe('committed memory-skills fixtures', () => {
     for (const [relPath, expected] of Object.entries(manifest.files)) {
       const actual = await sha256File(join(fixtureDir, relPath));
       expect([relPath, actual]).toEqual([relPath, expected]);
+    }
+  });
+
+  it('makes every durable fact match its own statement', async () => {
+    const facts = (
+      await readFile(join(fixtureDir, 'memory-facts.v1.jsonl'), 'utf8')
+    )
+      .trim()
+      .split('\n')
+      .map((line) => factSchema.parse(JSON.parse(line)));
+    for (const fact of facts.filter((fact) => fact.category !== 'abstention')) {
+      expect(matchesFact(fact, { content: fact.statement })).toBe(true);
     }
   });
 });
