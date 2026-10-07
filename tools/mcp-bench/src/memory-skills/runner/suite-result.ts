@@ -9,13 +9,13 @@
  * The runner reads them back, sets `cost.source` and `projectionSha256`, and
  * hands the suite to 619's scorecard writers.
  *
- * The suite fields mirror 619's scorecard suite (`scorecard.types.ts`, which
- * does not export its suite schema) minus `cost.source` and
- * `projectionSha256`, which only the runner sets. The writers validate the
- * assembled scorecard again against 619's own schema.
+ * The suite fields are 619's `suiteCoreSchema` (`scorecard.types.ts`),
+ * extended with the 620-only fields; `cost.source` and `projectionSha256`
+ * are refused here because only the runner sets them. The writers validate
+ * the assembled scorecard again against 619's full schema (kind checks).
  *
- * This module imports only Node, zod and the label schemas, so host suites
- * can load it.
+ * This module imports only Node, zod, 619's scorecard types and the label
+ * schemas (no product barrel), so host suites can load it.
  */
 
 import {
@@ -29,6 +29,8 @@ import { join } from 'node:path';
 
 import { z } from 'zod';
 
+import { suiteCoreSchema } from '../../scorecard/scorecard.types';
+import type { SuiteView } from '../../scorecard/suite-kinds';
 import { sha256HexSchema } from '../ground-truth/label-schemas';
 
 export const SUITE_RESULT_SCHEMA_ID = '620.suite-result.v1';
@@ -60,54 +62,111 @@ export const caseRecordSchema = z.strictObject({
 });
 export type CaseRecord = z.infer<typeof caseRecordSchema>;
 
-export const suiteResultSchema = z.strictObject({
+/** The 620-only fields of a suite result, beside 619's suite core fields. */
+const suiteResultEnvelopeSchema = z.object({
   schemaId: z.literal(SUITE_RESULT_SCHEMA_ID),
   suiteId: suiteIdSchema,
-  kind: nonEmpty,
-  details: z.unknown(),
-  claim: z.strictObject({
-    source: z.enum(['prompt', 'tool-description', 'ledger', 'code']),
-    ref: nonEmpty,
-    text: z.string().optional(),
-  }),
-  groundTruth: z.strictObject({
-    id: nonEmpty,
-    version: nonEmpty,
-    method: z.enum(['generated', 'labelled', 'seeded', 'git-history']),
-    raterCount: z.number().int().positive().optional(),
-    frozenAt: z.string().datetime().optional(),
-  }),
-  arm: nonEmpty.optional(),
-  baselines: z.array(
-    z.strictObject({
-      id: nonEmpty,
-      label: nonEmpty,
-      metrics: z.record(z.string(), metricValue),
-    }),
-  ),
-  deltas: z.record(z.string(), z.record(z.string(), metricValue)),
-  /** `cost` without `source`: the runner derives it from `modelCalls` and the cassette mode. */
-  cost: z.strictObject({
-    calls: z.number().finite().nonnegative(),
-    latency_ms: z.strictObject({ p50: metricValue, p95: metricValue }),
-    error_rate: metricValue,
-    tokens: z.strictObject({
-      result_p50: metricValue.optional(),
-      input: metricValue.optional(),
-      output: metricValue.optional(),
-      billed: metricValue.optional(),
-    }),
-  }),
   /** Model calls among `cost.calls`; 0 makes `cost.source` `none`. */
   modelCalls: z.number().int().nonnegative(),
-  verdict: z.enum(['pass', 'fail', 'na']),
-  naReason: nonEmpty.optional(),
   /** Headline metrics the known-failures gate compares (`known-failures.v1.json`). */
   metrics: z.record(nonEmpty, metricValue),
   /** Cassette version the suite replayed or recorded; `null` without a cassette. */
   cassetteVersion: nonEmpty.nullable(),
 });
-export type SuiteResult = z.infer<typeof suiteResultSchema>;
+type SuiteResultEnvelope = z.infer<typeof suiteResultEnvelopeSchema>;
+const ENVELOPE_KEYS: ReadonlySet<string> = new Set([
+  'schemaId',
+  'suiteId',
+  'modelCalls',
+  'metrics',
+  'cassetteVersion',
+]);
+
+/** 619's suite core minus what only the runner sets: `cost.source` and `projectionSha256`. */
+export type SuiteResultCore = Omit<
+  SuiteView<unknown>,
+  'cost' | 'projectionSha256'
+> & { cost: Omit<SuiteView<unknown>['cost'], 'source'> };
+
+export type SuiteResult = SuiteResultEnvelope & SuiteResultCore;
+
+/** Stands in for the runner-set `cost.source` while 619's core schema validates the rest. */
+const PLACEHOLDER_COST_SOURCE = 'none';
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/**
+ * A suite result: the 620 envelope fields plus 619's `suiteCoreSchema`
+ * (every scorecard suite field and its kind-independent checks), with
+ * `cost.source` and `projectionSha256` refused because only the runner sets
+ * them. Unknown top-level keys are refused.
+ */
+export const suiteResultSchema: z.ZodType<SuiteResult> = z
+  .unknown()
+  .transform((value, ctx): SuiteResult => {
+    let refused = false;
+    const addIssue = (message: string, path: PropertyKey[]): void => {
+      refused = true;
+      ctx.addIssue({ code: 'custom', message, path });
+    };
+    if (!isRecord(value)) {
+      addIssue('a suite result must be an object', []);
+      return z.NEVER;
+    }
+    const envelope = suiteResultEnvelopeSchema.safeParse(value);
+    if (!envelope.success) {
+      for (const issue of envelope.error.issues) {
+        addIssue(issue.message, issue.path);
+      }
+      return z.NEVER;
+    }
+    const coreInput = Object.fromEntries(
+      Object.entries(value).filter(([key]) => !ENVELOPE_KEYS.has(key)),
+    );
+    if ('projectionSha256' in coreInput) {
+      addIssue('projectionSha256 is set by the runner', ['projectionSha256']);
+    }
+    const cost = coreInput['cost'];
+    if (isRecord(cost) && 'source' in cost) {
+      addIssue('cost.source is set by the runner', ['cost', 'source']);
+    }
+    const core = suiteCoreSchema.safeParse({
+      ...coreInput,
+      ...(isRecord(cost)
+        ? { cost: { ...cost, source: PLACEHOLDER_COST_SOURCE } }
+        : {}),
+    });
+    if (!core.success) {
+      for (const issue of core.error.issues) {
+        addIssue(issue.message, issue.path);
+      }
+      return z.NEVER;
+    }
+    for (const key of Object.keys(coreInput)) {
+      if (!(key in core.data)) addIssue(`unrecognized key: ${key}`, [key]);
+    }
+    if (refused) return z.NEVER;
+    const { kind, details, claim, groundTruth, arm, baselines, deltas } =
+      core.data;
+    const { calls, latency_ms, error_rate, tokens } = core.data.cost;
+    return {
+      ...envelope.data,
+      kind,
+      details,
+      claim,
+      groundTruth,
+      ...(arm === undefined ? {} : { arm }),
+      baselines,
+      deltas,
+      cost: { calls, latency_ms, error_rate, tokens },
+      verdict: core.data.verdict,
+      ...(core.data.naReason === undefined
+        ? {}
+        : { naReason: core.data.naReason }),
+    };
+  });
 
 /** A suite result without its schema id, as a suite produces it. */
 export type SuiteResultInput = Omit<SuiteResult, 'schemaId'>;

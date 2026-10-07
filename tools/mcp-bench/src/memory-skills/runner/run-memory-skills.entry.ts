@@ -114,7 +114,6 @@ async function main(): Promise<number> {
           fixturesDir: resolve(repoRoot, COMMITTED_FIXTURES_DIR),
         }),
       ],
-      env: process.env,
     },
   );
   process.stdout.write(

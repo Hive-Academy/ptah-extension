@@ -9,6 +9,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import {
+  SUITE_RESULT_SCHEMA_ID,
+  suiteResultSchema,
   readSuiteResult,
   suiteCasesFile,
   suiteResultFile,
@@ -88,6 +90,27 @@ describe('suite result files', () => {
         [CASE],
       ),
     ).toThrow();
+  });
+
+  it("validates the core fields with 619's suiteCoreSchema and refuses runner-set or unknown keys", () => {
+    const refuses = (result: Record<string, unknown>, message: RegExp) =>
+      expect(() =>
+        suiteResultSchema.parse({
+          ...result,
+          schemaId: SUITE_RESULT_SCHEMA_ID,
+        }),
+      ).toThrow(message);
+    refuses(
+      { ...RESULT, projectionSha256: 'a'.repeat(64) },
+      /set by the runner/,
+    );
+    refuses({ ...RESULT, extra: 1 }, /unrecognized key: extra/);
+    // A 619 core rule (naReason only on na suites) now applies here too.
+    refuses(
+      { ...RESULT, naReason: 'x' },
+      /naReason is only valid for na suites/,
+    );
+    refuses({ ...RESULT, modelCalls: -1 }, /Too small|>=0/);
   });
 
   it('rejects a repeated case id, a foreign suite id and a missing result', () => {

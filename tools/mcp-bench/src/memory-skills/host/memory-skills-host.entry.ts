@@ -18,18 +18,20 @@
  * with `PTAH_BENCH_MEMORY_SKILLS_PLAN` set to the plan JSON.
  */
 
-import { statSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { isAbsolute, resolve } from 'node:path';
 
 import { CliDIContainer } from '@ptah-extension/cli-engine';
 
 import {
-  BenchHostBootError,
-  BenchIsolationError,
   assertIsolatedEnvironment,
   bootCodeExecutionHost,
 } from '../../transport/bench-host-boot';
+import {
+  FORCED_EXIT_AFTER_MS,
+  describeFailure,
+  readWorkspaceArg,
+  shutdownRequested,
+} from '../../transport/bench-host-process';
 import { startNetRecorder } from '../runner/net-recorder';
 import { SNAPSHOT_AUDIT_SUITES } from '../suites/audits/snapshot-audits.suite';
 import { createDedupSuites } from '../suites/memory/dedup.suite';
@@ -76,8 +78,6 @@ const HOST_SUITES: readonly MemorySkillsHostSuite[] = [
   ...createFunnelSuites({ portsOf: hostFunnelPorts }),
 ];
 
-const FORCED_EXIT_AFTER_MS = 20_000;
-
 function writeWire(message: Record<string, unknown>): void {
   process.stdout.write(`${JSON.stringify(message)}\n`);
 }
@@ -85,56 +85,6 @@ function writeWire(message: Record<string, unknown>): void {
 function fail(error: string): never {
   writeWire({ benchHost: 'fatal', error });
   process.exit(1);
-}
-
-class UsageError extends Error {}
-
-function readWorkspaceArg(argv: readonly string[]): string {
-  const index = argv.indexOf('--workspace');
-  const value = index >= 0 ? argv[index + 1] : undefined;
-  if (!value || !isAbsolute(value)) {
-    throw new UsageError(
-      'usage: memory-skills-host --workspace <absolute directory>',
-    );
-  }
-  let isDirectory: boolean;
-  try {
-    isDirectory = statSync(value).isDirectory();
-  } catch (error: unknown) {
-    throw new UsageError(
-      `workspace unreadable: ${error instanceof Error ? error.message : String(error)}`,
-    );
-  }
-  if (!isDirectory) throw new UsageError(`not a directory: ${value}`);
-  return resolve(value);
-}
-
-/** Resolves once on stdin EOF, SIGTERM or SIGINT. */
-function shutdownRequested(): Promise<string> {
-  return new Promise((done) => {
-    process.stdin.once('end', () => done('stdin-eof'));
-    process.stdin.once('close', () => done('stdin-eof'));
-    process.once('SIGTERM', () => done('SIGTERM'));
-    process.once('SIGINT', () => done('SIGINT'));
-    process.stdin.resume();
-  });
-}
-
-/** The fatal line: typed refusals keep their message; anything else its stack. */
-function describeFailure(error: unknown): string {
-  if (error instanceof BenchIsolationError || error instanceof UsageError) {
-    return error.message;
-  }
-  if (error instanceof BenchHostBootError) {
-    const cause: unknown = error.cause;
-    if (cause instanceof Error && cause.stack) {
-      process.stderr.write(`[memory-skills-host] ${cause.stack}\n`);
-    }
-    return error.message;
-  }
-  return error instanceof Error
-    ? (error.stack ?? error.message)
-    : String(error);
 }
 
 async function main(): Promise<void> {

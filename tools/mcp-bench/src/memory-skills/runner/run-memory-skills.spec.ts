@@ -113,7 +113,6 @@ describe('runMemorySkills (Batch 16)', () => {
   let repo: string;
   let bench: string;
   let home: string;
-  let env: NodeJS.ProcessEnv;
   let committed: string[];
   let launches: Array<{
     options: HostLaunchOptions;
@@ -140,7 +139,6 @@ describe('runMemorySkills (Batch 16)', () => {
     writeFileSync(join(repo, GT_FILE), '{}\n');
     writeFileSync(join(home, '.ptah', 'secret.json'), '{}');
     committed = ['package.json', PRODUCT_PACKAGE_JSON, GT_FILE];
-    env = { KEEP: '1' };
     launches = [];
   });
 
@@ -177,7 +175,7 @@ describe('runMemorySkills (Batch 16)', () => {
 
   function fakeLaunch(script: HostScript = {}): RunMemorySkillsDeps['launch'] {
     return async (options) => {
-      const planPath = env[MEMORY_SKILLS_PLAN_ENV];
+      const planPath = options.env?.[MEMORY_SKILLS_PLAN_ENV];
       launches.push({ options, planEnv: planPath });
       if (planPath === undefined) throw new Error('no plan env');
       const plan = createMemorySkillsPlanSchema().parse(
@@ -265,7 +263,6 @@ describe('runMemorySkills (Batch 16)', () => {
       startNetRecorder: fakeRecorder([]),
       git,
       offlineSuites: [],
-      env,
       platform: process.platform === 'win32' ? 'win32' : 'linux',
       sleep: async () => undefined,
       pollMs: 1,
@@ -295,8 +292,10 @@ describe('runMemorySkills (Batch 16)', () => {
     expect(launches[0].options.workspaceRoot).toBe(
       join(result.runDir, 'workspace'),
     );
-    // The plan variable is set for the spawn only.
-    expect(env).toEqual({ KEEP: '1' });
+    // The plan path travels in the launch options, not through process.env.
+    expect(launches[0].options.env).toEqual({
+      [MEMORY_SKILLS_PLAN_ENV]: join(result.runDir, 'host-plan.json'),
+    });
 
     const scorecard = await readScorecard(result.scorecardPath);
     expect(scorecard.suites).toEqual([]);
@@ -312,27 +311,42 @@ describe('runMemorySkills (Batch 16)', () => {
     expect(existsSync(firstScoredRunsDir(bench))).toBe(false);
   });
 
-  describe('PTAH_BENCH_MEMORY_SKILLS_PLAN restore (review finding 9b)', () => {
-    it('restores a previous value after a successful launch', async () => {
-      env[MEMORY_SKILLS_PLAN_ENV] = 'previous';
-      await runMemorySkills(options(writePlan({})), deps());
-      expect(launches[0].planEnv).not.toBe('previous');
-      expect(env[MEMORY_SKILLS_PLAN_ENV]).toBe('previous');
+  describe('process.env is never mutated (review finding 9b, 619 env option)', () => {
+    it('leaves process.env untouched during and after a successful launch', async () => {
+      const before = { ...process.env };
+      let during: NodeJS.ProcessEnv | undefined;
+      const inner = fakeLaunch();
+      await runMemorySkills(
+        options(writePlan({})),
+        deps({
+          launch: async (launchOptions) => {
+            during = { ...process.env };
+            return inner(launchOptions);
+          },
+        }),
+      );
+      expect(during).toEqual(before);
+      expect(process.env).toEqual(before);
+      expect(process.env[MEMORY_SKILLS_PLAN_ENV]).toBe(
+        before[MEMORY_SKILLS_PLAN_ENV],
+      );
     });
 
-    it('removes the variable when the launch throws', async () => {
+    it('leaves process.env untouched when the launch throws', async () => {
+      const before = { ...process.env };
       await expect(
         runMemorySkills(
           options(writePlan({})),
           deps({
-            launch: async () => {
-              expect(env[MEMORY_SKILLS_PLAN_ENV]).toBeDefined();
+            launch: async (launchOptions) => {
+              expect(launchOptions.env?.[MEMORY_SKILLS_PLAN_ENV]).toBeDefined();
+              expect(process.env).toEqual(before);
               throw new Error('spawn failed');
             },
           }),
         ),
       ).rejects.toThrow('spawn failed');
-      expect(env).toEqual({ KEEP: '1' });
+      expect(process.env).toEqual(before);
     });
   });
 

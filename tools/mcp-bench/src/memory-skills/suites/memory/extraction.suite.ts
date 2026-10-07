@@ -683,7 +683,9 @@ export async function runExtractionSuite(
     kind: 'curation',
     details,
     claim: {
-      source: 'prompt',
+      // 619 reserves `prompt` for ptah-core-prompt.ts:<line>; the curator's
+      // extraction prompt is product code, so it is a `code` claim.
+      source: 'code',
       ref: 'libs/backend/agent-sdk/src/lib/curator-llm-adapter/extract-prompt.ts:54-66',
       text: 'durable facts are extracted; sediment classes are not',
     },

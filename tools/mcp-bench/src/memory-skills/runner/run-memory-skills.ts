@@ -8,8 +8,8 @@
  *   2. create `<benchData>/runs/<runId>/`, write the runner plan and the host
  *      plan (`620.host-plan.v1`, validated here before the host sees it);
  *   3. `launchBenchHost` with the memory-skills host script; the plan path
- *      reaches the child through `PTAH_BENCH_MEMORY_SKILLS_PLAN` in the
- *      inherited environment;
+ *      reaches the child as `PTAH_BENCH_MEMORY_SKILLS_PLAN` through the
+ *      launcher's `env` option; the parent's `process.env` is never changed;
  *   4. inside the launcher window: the offline suites run here, in plan order,
  *      reading only through the read-path guard (619 answer 6); in `--ci` the
  *      parent's net recorder wraps them. The host runs its suites meanwhile;
@@ -161,8 +161,6 @@ export interface RunMemorySkillsDeps {
   readonly startNetRecorder: (options: NetRecorderOptions) => NetRecorderHandle;
   readonly git: GitRunner;
   readonly offlineSuites: readonly MemorySkillsOfflineSuite[];
-  /** The environment the launcher spreads into the child: `process.env`. */
-  readonly env: NodeJS.ProcessEnv;
   readonly platform?: NodeJS.Platform;
   readonly now?: () => Date;
   readonly sleep?: (ms: number) => Promise<void>;
@@ -260,22 +258,6 @@ function writeHostPlan(
   const path = join(runDir, HOST_PLAN_FILE);
   writeJson(path, parsed.data);
   return path;
-}
-
-/** Set the plan env var for the spawn only; the child copies the env when it starts. */
-async function launchWithPlan(
-  deps: RunMemorySkillsDeps,
-  hostPlanPath: string,
-  options: HostLaunchOptions,
-): Promise<RunnerHost> {
-  const previous = deps.env[MEMORY_SKILLS_PLAN_ENV];
-  deps.env[MEMORY_SKILLS_PLAN_ENV] = hostPlanPath;
-  try {
-    return await deps.launch(options);
-  } finally {
-    if (previous === undefined) delete deps.env[MEMORY_SKILLS_PLAN_ENV];
-    else deps.env[MEMORY_SKILLS_PLAN_ENV] = previous;
-  }
 }
 
 interface LauncherWindow {
@@ -534,11 +516,14 @@ export async function runMemorySkills(
   }
 
   // Steps 3-5.
-  const host = await launchWithPlan(deps, hostPlanPath, {
+  // The plan path reaches the child through the launcher's `env` option
+  // (merged after the isolation); this process's environment is untouched.
+  const host = await deps.launch({
     workspaceRoot: workspace,
     hostScript: options.hostScript,
     realHome: options.realHome,
     guard: { ci: options.ci },
+    env: { [MEMORY_SKILLS_PLAN_ENV]: hostPlanPath },
   });
   const window = await runLauncherWindow(
     host,
