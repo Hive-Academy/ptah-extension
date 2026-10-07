@@ -175,6 +175,18 @@ Order: 619 sends the Batch 4b SHA (schema), then the Batch 4c SHA (helpers).
   619 commits since `f22b604fe`: B5 `7e1572272`, B6 `629e4f719` (no scorecard/transport/bench-data
   change). 619's first real bench is Batch 9/11; it messages 620 first.
 
+- **User decisions 2026-10-07, B-P pause switches** (`pause-switches-plan.md`; asked after the plan,
+  before its cross-side review finished): (1) read side stays on while paused — saved memories and
+  skills are still injected and `ptah_memory_search` still works; pause stops all background capture,
+  curation, retention, synthesis, judging and promotion. (2) Delete the dead keys
+  `memory.curatorEnabled`, `memory.triggers.preCompact`, `skillSynthesis.triggers.sessionEnd`; the
+  per-workspace toggle fix and moving the host-local trigger keys to `~/.ptah/settings.json` are
+  follow-ups, not B-P. (3) Manual runs (`memory:runNow`, `runCurator`, `analyzeNow`, `enhanceNow`) are
+  refused and greyed out while paused. (4) Electron tray: two items ("Pause memory", "Pause skills"),
+  tray always shown (not only with `trayKeepalive`), refreshed when the setting changes elsewhere.
+  Original request: switches visible on the Thoth Memory/Skills settings, stop ALL memory and skills
+  work, pause and resume without issues.
+
 Lessons from 619: put `npx prettier --check <changed paths>` in every batch verification (the commit
 hook does not check `tools/`). Review lane code directly — typecheck/lint/test passed while
 `corpus.ts` hid errors in its cleanup path. The memory DB keys rows by the exact `workspace_root`
