@@ -31,11 +31,14 @@ import {
   bootCodeExecutionHost,
 } from '../../transport/bench-host-boot';
 import { startNetRecorder } from '../runner/net-recorder';
+import { SNAPSHOT_AUDIT_SUITES } from '../suites/audits/snapshot-audits.suite';
 import { createDedupSuites } from '../suites/memory/dedup.suite';
 import { createExtractionSuite } from '../suites/memory/extraction.suite';
 import { createLivenessSuites } from '../suites/memory/liveness.suite';
 import { resolveMergeUpdatePorts } from '../suites/memory/merge-update-ports';
 import { READ_SIDE_SUITES } from '../suites/memory/read-side.suite';
+import { hostRetentionPort } from '../suites/memory/retention-port';
+import { createRetentionSuites } from '../suites/memory/retention.suite';
 import { SCOPE_WRITE_SUITE } from '../suites/memory/scope-write.suite';
 import { createUpdateSuites } from '../suites/memory/update.suite';
 import {
@@ -55,6 +58,10 @@ const HOST_SUITES: readonly MemorySkillsHostSuite[] = [
   ...createUpdateSuites({ resolvePorts: resolveMergeUpdatePorts }),
   ...READ_SIDE_SUITES,
   SCOPE_WRITE_SUITE,
+  // Run last in a plan, or alone: their retention runs age every row in the DB.
+  ...createRetentionSuites({ portOf: hostRetentionPort }),
+  // Local only (R-M1a): they read a snapshot copy the plan seeds into the home.
+  ...SNAPSHOT_AUDIT_SUITES,
 ];
 
 const FORCED_EXIT_AFTER_MS = 20_000;
