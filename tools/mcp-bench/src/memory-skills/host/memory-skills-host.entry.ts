@@ -31,6 +31,8 @@ import {
   bootCodeExecutionHost,
 } from '../../transport/bench-host-boot';
 import { startNetRecorder } from '../runner/net-recorder';
+import { READ_SIDE_SUITES } from '../suites/memory/read-side.suite';
+import { SCOPE_WRITE_SUITE } from '../suites/memory/scope-write.suite';
 import {
   runMemorySkillsHost,
   type MemorySkillsHostSuite,
@@ -41,7 +43,10 @@ import {
  * of Batches 17-23 register here; a plan naming any other id is refused
  * before the engine boots.
  */
-const HOST_SUITES: readonly MemorySkillsHostSuite[] = [];
+const HOST_SUITES: readonly MemorySkillsHostSuite[] = [
+  ...READ_SIDE_SUITES,
+  SCOPE_WRITE_SUITE,
+];
 
 const FORCED_EXIT_AFTER_MS = 20_000;
 
