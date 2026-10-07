@@ -8,7 +8,7 @@ agreement and answers). This file is the resume point only.
 
 | Item                  | Location                                                                                                                                                                                                                             |
 | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 620 branch / worktree | `feat/task-620-memory-skills-bench` at `D:\projects\ptah-extension\.claude-worktrees\task-620-memory-skills-bench`, based on 619 `ea2f92fd2` (Batch 9.0). Nothing pushed.                                                              |
+| 620 branch / worktree | `feat/task-620-memory-skills-bench` at `D:\projects\ptah-extension\.claude-worktrees\task-620-memory-skills-bench`, based on 619 `4d3d0dd5d` (Batch 9). Nothing pushed.                                                              |
 | 621                   | PR #666 (`fix/task-621-retention-guard`): all CI green (main, SonarCloud, e2e, git-real-git x3), CodeRabbit threads answered, pushed to `a0edd9ffb`. Review state REVIEW_REQUIRED (a reviewer must re-approve after the new pushes). |
 | Bench data (private)  | `C:/Users/abdal/AppData/Local/ptah-mcp-bench/` — never commit                                                                                                                                                                        |
 | 619 peer session      | `ptah-ptah-extension-continue-619-tool-en-55bb9d00005aw2q23htdi0d` — find its successor with `ListAgents` if gone                                                                                                                    |
@@ -32,13 +32,11 @@ agreement and answers). This file is the resume point only.
 
 ## Next steps, in order
 
-1. Wait for "619 noise runs done". Then run the visual review (screenshots dark + light; see
-   `b-p-p4-report.md` "how to see it").
-2. Rebase onto 619 `4d3d0dd5d` (Batch 9: corpus owner-pid sweep, bench-host.entry.ts memory seeding,
-   new project.json targets — check `build-host-memory-skills` / `bench-memory-skills` merge cleanly).
-   Then drop the `suite-result.ts` mirror and the `process.env` save/restore around launchBenchHost
-   (619 exported `suiteCoreSchema`, `HostLaunchOptions.env`, `bench-host-process.ts` in `ea2f92fd2`).
-   Re-run scoped jest + `nx run-many -t typecheck,lint -p mcp-bench` + the B-P projects.
+1. DONE 2026-10-07: visual review APPROVED (round 2) and rebased onto 619 `4d3d0dd5d` (project.json
+   merged at JSON level; scoped jest 578/578, mcp-bench typecheck+lint, build-host-memory-skills pass).
+2. Drop the `suite-result.ts` mirror and the `process.env` save/restore around launchBenchHost (619
+   exported `suiteCoreSchema`, `HostLaunchOptions.env`, `bench-host-process.ts` in `ea2f92fd2`). Re-run
+   scoped jest + `nx run-many -t typecheck,lint -p mcp-bench`.
 3. User activities U1-U4 (raters label the 105-document packet; re-run the held-out session sampler
    after the eval window, then label) — B21/B23 scored runs, B25, B26 wait on them.
 4. B24 (CI workflow + first recorded run): message the 619 session first and wait for its OK; never
