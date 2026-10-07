@@ -70,3 +70,31 @@ Test coverage gaps: findings 1, 2, 6. Skills pause/resume coverage (`skill-synth
 3. Input data: none beyond the above.
 4. Dependency failure: DB open failure on deferred start (findings 2, 4).
 5. Missing: none beyond findings.
+
+---
+
+# Round 2
+
+Reviewed a42ddf299 (P1) and ad6461c42 (P2). Tests: memory-curator (`memory-trigger.service|memory-curator.service`) `Tests: 160 passed, 160 total`; skill-synthesis (`pause-resume|boot-defer|stage-handlers|skill-synthesis.service|skill-trigger.service|skill-drain.gates`) `Tests: 247 passed, 247 total`.
+
+Verdict: **REVISE** (minimal) — 0 blocking, 0 serious, 4 moderate/minor open.
+
+## Round 1 findings
+
+| # | Status | Evidence |
+|---|---|---|
+| 1 memory scan stuck armed | CLOSED | `memory-trigger.service.ts` `runBootScan` `finally` releases `bootScanArmed` when `activeBootScanGeneration === generation`; `cancelBootScan` bumps the generation and nulls the active one, so a cancelled older scan cannot release a newer arm; `maybeRearmBootScan` takes a fresh generation. `boot-defer.spec.ts` gained 70 lines for the stall→resume path. |
+| 2 unhandled rejection | CLOSED | `skill-synthesis.service.ts:~381-395`: `run.finally(...).catch(log)`; `run` itself has a handler through the chain, the direct caller still gets the throw from `await run`, joiners learn the outcome from `started`. |
+| 3 pause between gate and analyzer | CLOSED | `stage-handlers.service.ts` `runPrefilterStage`: a `null` result with `readSettings().enabled === false` returns `unscored`/`analyzer-paused`, retry 15 min. Bounded: `markUnscored` sets `not_before`, and while paused drain gate 1 stops all claims, so no hot loop; no attempts counter is consumed. |
+| 4 failed start | PARTIAL | The listener now deliberately survives a failed start (`registerConfigListener` comment). It is disposed on a normal `stop()` (`stop()` disposes `_configDisposer`, then a later `start()` re-registers; the `_configDisposer` guard plus `startRun` prevent a double start). BUT `boot-thoth-runtime.ts:447-460` is unchanged: a rejected `start()` still nulls `refs.skillSynthesis` and never runs `startSkillTrigger()`. A retry through the listener revives the service (session-end subscription, curator, backfill) but the skill trigger service (hooks, idle/turn triggers, boot scan, harvest) is never started, and shutdown never calls `stop()` on it. Moderate (N1). |
+| 5 idle timers not re-armed | CLOSED with a caveat | `rearmIdleTimers` (event path, `onActivity`, `onSessionStart`) skips sessions that have a timer and sessions with an empty buffer; `onActivity` then clears and re-arms its own session's timer, so no double timer; `tryEpisodeCurate` still guards an empty snapshot. Caveat N2. |
+| 6 vacuous pause spec | PARTIAL | The spec now builds a real episode (Stop hook) and asserts one curate after resume. It no longer vacuous, but the event path calls `clearIdleTimers()` itself, so removing only the `fireIdle`/`tryEpisodeCurate` gate still passes. The live gate, the part that protects an external edit, which fires no event, has no spec (N3). |
+| 7 hard-coded key | CLOSED | `memory-curator.service.ts` uses `MEMORY_TRIGGER_*`. |
+| 9 skills generation | CLOSED | `skill-trigger.service.ts` `runBootScan` `finally` clears the flag only when `bootScanGeneration === generation`; `maybeRearmBootScan` bumps it. Skills `cancelBootScan` does not bump the generation, so a cancelled scan that unwinds with no re-arm clears an already-false flag (harmless), and a re-armed B keeps a newer generation than A. No lost re-arm, no double arm found. |
+
+## New / remaining
+
+- **N1 MODERATE (P2)** — see finding 4: trigger service never started after a failed boot start recovers through the listener. Fix: in the boot catch keep `refs.skillSynthesis`, or have the listener's successful retry (or the boot code) call `startSkillTrigger()`; at minimum keep the ref so `stop()` disposes the curator and listener.
+- **N2 MINOR (P1)** — `rearmIdleTimers` runs on every `onActivity` and iterates all sessions with an `episodes.snapshot` each. It also re-arms a timer for a session whose idle curate was deliberately skipped (rate-limited or network backoff keeps the episode), so any session's activity now schedules a retry for it; bounded by `idleMs` and the limiter, but a behaviour change. Prefer re-arming only on the resume edge (event, or `enabled` false→true transition).
+- **N3 MODERATE (P1 tests)** — add a no-event pause spec (flag flipped, no listener call, timer fires, assert no curate) so the live gate is covered.
+- **N4 MINOR (P1+P2)** — `if (!root) return;` in both `runBootScan` sits before the `try/finally`, so with no workspace root the armed flag stays set (generation current) and the scan can never re-arm in that process. Pre-existing; no data loss.

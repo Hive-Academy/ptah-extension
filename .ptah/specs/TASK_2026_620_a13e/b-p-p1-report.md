@@ -58,6 +58,26 @@ The command exits non-zero because an unrelated concurrent `apps/ptah-electron` 
 
 `All matched files use Prettier code style!`
 
+## Review fixes round 2
+
+- Added the no-event external-edit regression: a real buffered episode reaches `fireIdle` while `memory.enabled` reads false, performs no curation, then resumes lazily on later activity. This pins the live `fireIdle` / `tryEpisodeCurate` gate: `memory-trigger.service.spec.ts:928`; `memory-trigger.service.ts:693`.
+- Replaced unconditional activity/session idle rearming with a recorded false-to-true transition. Resume rearming skips empty episodes, existing timers, provider-backoff sessions, and an exhausted current hourly rate-limit window: `memory-trigger.service.ts:229`, `:297`, `:641`, `:1103`, `:1119`; pinned by `memory-trigger.service.spec.ts:976`.
+- Moved the boot root lookup inside the generation-owned `try/finally`, preserves `bootScanOwed` when no root exists, and proves a later activity re-arms exactly once: `memory-trigger.service.ts:944`; `memory-trigger.boot-defer.spec.ts:358`.
+
+`npx nx run-many -t test,typecheck,lint -p memory-curator --parallel=1`
+
+`NX   Successfully ran targets test, typecheck, lint for project @ptah-extension/memory-curator`
+
+`npx nx run degradation-audit:lint`
+
+`libs/backend/memory-curator: 20 ok (baseline 20)`
+
+The audit command exits non-zero because of an unrelated concurrent `libs/backend/cli-engine` baseline regression (`14 FAIL (baseline 12)`); memory-curator remains at baseline.
+
+`npx prettier --check <changed files>`
+
+`All matched files use Prettier code style!`
+
 ## Deviations
 
 P3 shared/RPC types are not required by these P1 production edits; M14 remains owned by P3.

@@ -131,6 +131,8 @@ export class MemoryTriggerService {
   private bootScanScheduler: BootScanScheduler | null = null;
   private bootScanOwed = false;
   private bootScanArmed = false;
+  /** The last observed master-switch state; used to detect a real resume edge. */
+  private memoryWasEnabled = true;
   /** Identifies the armed scan whose completion is allowed to release it. */
   private bootScanGeneration = 0;
   private activeBootScanGeneration: number | null = null;
@@ -241,12 +243,14 @@ export class MemoryTriggerService {
       },
     );
 
+    this.memoryWasEnabled = this.readMemoryEnabled();
     this.bootScanOwed = this.readBootScanFlag();
     this.configurationDisposer = this.workspace.onDidChangeConfiguration(
       (event) => {
         if (!event.affectsConfiguration('ptah.memory.enabled')) return;
-        if (this.readMemoryEnabled()) {
-          this.rearmIdleTimers();
+        const memory = this.observeMemoryEnabled();
+        if (memory.enabled) {
+          if (memory.resumed) this.rearmIdleTimers();
           this.maybeRearmBootScan();
           return;
         }
@@ -313,9 +317,10 @@ export class MemoryTriggerService {
    * first's timer, and only one of them is ever curated.
    */
   private onActivity(payload: SessionActivityPayload): void {
+    const memory = this.observeMemoryEnabled();
+    if (!memory.enabled) return;
+    if (memory.resumed) this.rearmIdleTimers();
     this.maybeRearmBootScan();
-    if (!this.readMemoryEnabled()) return;
-    this.rearmIdleTimers();
     if (blankToUndefined(payload.sessionId) === undefined) return;
 
     // Stamped ABOVE the `idleMs` guard, because this is the only foreground
@@ -675,8 +680,10 @@ export class MemoryTriggerService {
   }
 
   private onSessionStart(_payload: SessionStartPayload): void {
+    const memory = this.observeMemoryEnabled();
+    if (!memory.enabled) return;
+    if (memory.resumed) this.rearmIdleTimers();
     this.maybeRearmBootScan();
-    if (this.readMemoryEnabled()) this.rearmIdleTimers();
   }
 
   private extractBashCommand(toolInput: unknown): string | null {
@@ -725,6 +732,7 @@ export class MemoryTriggerService {
     if (!state) return;
     state.idleTimer = null;
     state.idleDueAt = null;
+    if (!this.observeMemoryEnabled().enabled) return;
     this.dispatchEpisodeCurate(
       sessionId,
       state.workspaceRoot,
@@ -1064,9 +1072,12 @@ export class MemoryTriggerService {
     signal: AbortSignal,
     generation: number,
   ): Promise<void> {
-    const root = this.workspace.getWorkspaceRoot();
-    if (!root) return;
     try {
+      const root = this.workspace.getWorkspaceRoot();
+      if (!root) {
+        this.bootScanOwed = true;
+        return;
+      }
       const { fp } = await deriveWorkspaceFingerprint(root, this.fs);
       const sessionsDir = await this.jsonl.findSessionsDirectory(root);
       const runner = new BootScanRunner();
@@ -1226,6 +1237,14 @@ export class MemoryTriggerService {
     return typeof v === 'boolean' ? v : MEMORY_TRIGGER_DEFAULTS.enabled;
   }
 
+  /** Read the live master switch and record whether this call observed a resume. */
+  private observeMemoryEnabled(): { enabled: boolean; resumed: boolean } {
+    const enabled = this.readMemoryEnabled();
+    const resumed = enabled && !this.memoryWasEnabled;
+    this.memoryWasEnabled = enabled;
+    return { enabled, resumed };
+  }
+
   private clearIdleTimers(): void {
     for (const state of this.sessions.values()) {
       if (state.idleTimer) clearTimeout(state.idleTimer);
@@ -1237,7 +1256,7 @@ export class MemoryTriggerService {
   /** Recreate idle boundaries whose buffered episode survived a master pause. */
   private rearmIdleTimers(): void {
     const idleMs = this.readIdleMs();
-    if (idleMs <= 0) return;
+    if (idleMs <= 0 || !this.idleRetryAdmissionOpen()) return;
     for (const [sessionId, state] of this.sessions) {
       if (state.idleTimer || this.episodes.snapshot(sessionId).isEmpty)
         continue;
@@ -1246,6 +1265,20 @@ export class MemoryTriggerService {
         this.fireIdle(sessionId);
       }, idleMs);
     }
+  }
+
+  /**
+   * Resume must not turn a quiet paused episode into an unsolicited retry when
+   * the shared curate budget or provider back-off had already deferred it.
+   */
+  private idleRetryAdmissionOpen(): boolean {
+    if (this.curator.networkDeferralMs() > 0) return false;
+    const limit = this.readMaxCuratesPerHour();
+    if (!Number.isFinite(limit) || limit <= 0) return true;
+    const bucket = this.rateLimiter.snapshot(RATE_LIMIT_KEY);
+    if (!bucket) return true;
+    const windowStart = Math.floor(Date.now() / HOUR_MS) * HOUR_MS;
+    return bucket.windowStartMs !== windowStart || bucket.count < limit;
   }
 
   private cancelBootScan(owed: boolean): void {

@@ -355,6 +355,33 @@ describe('MemoryTriggerService — boot scan deferral', () => {
     h.service.stop();
   });
 
+  it('releases and re-owes an armed scan when no workspace root is available', async () => {
+    const h = buildHarness({
+      sessionsDir: dir,
+      settings: { 'memory.triggers.bootScanDelayMs': 0 },
+    });
+    const state = h.service as unknown as {
+      bootScanArmed: boolean;
+      bootScanOwed: boolean;
+    };
+    (h.workspace.getWorkspaceRoot as jest.Mock).mockReturnValue(undefined);
+
+    h.service.start();
+    await advanceUntil(0, () => !state.bootScanArmed && state.bootScanOwed);
+    expect(state.bootScanArmed).toBe(false);
+    expect(state.bootScanOwed).toBe(true);
+
+    (h.workspace.getWorkspaceRoot as jest.Mock).mockReturnValue('/ws');
+    h.emitActivity({
+      sessionId: 'workspace-now-available',
+      workspaceRoot: '/ws',
+      timestamp: Date.now(),
+    });
+    await advanceUntil(0, () => h.curate.mock.calls.length === 1);
+    expect(h.curate).toHaveBeenCalledTimes(1);
+    h.service.stop();
+  });
+
   it('re-arms exactly once after an externally paused scan stalls and chat resumes', async () => {
     const h = buildHarness({
       sessionsDir: dir,

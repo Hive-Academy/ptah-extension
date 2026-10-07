@@ -916,7 +916,9 @@ describe('MemoryTriggerService — memory master pause and resume', () => {
           ? enabled.value
           : key === 'memory.triggers.idleMs'
             ? 1
-            : fallback,
+            : key === 'memory.triggers.maxCuratesPerHour'
+              ? 1
+              : fallback,
     );
     (workspace.onDidChangeConfiguration as jest.Mock).mockImplementation(
       (listener) => {
@@ -961,6 +963,131 @@ describe('MemoryTriggerService — memory master pause and resume', () => {
     expect(curator.curate).toHaveBeenCalledTimes(1);
     service.stop();
     jest.useRealTimers();
+  });
+
+  it('does not curate when an external edit pauses the live idle fire', async () => {
+    jest.useFakeTimers();
+    const enabled = { value: true };
+    const workspace = makeWorkspace({ 'memory.triggers.idleMs': 1 });
+    (workspace.getConfiguration as jest.Mock).mockImplementation(
+      (_section: string, key: string, fallback: unknown) =>
+        key === 'memory.enabled'
+          ? enabled.value
+          : key === 'memory.triggers.idleMs'
+            ? 1
+            : fallback,
+    );
+    const { service, activity, stop, curator } = buildService({ workspace });
+    service.start();
+    stop.fire(
+      stopPayload({
+        sessionId: 'external-idle',
+        lastAssistantMessage: 'Buffered before the external settings edit.',
+      }),
+    );
+    activity.registry.notifyAll({
+      sessionId: 'external-idle',
+      workspaceRoot: '/ws',
+      timestamp: Date.now(),
+      role: 'assistant',
+    });
+
+    // No configuration event is delivered for the external settings edit.
+    enabled.value = false;
+    await jest.advanceTimersByTimeAsync(1);
+    for (let i = 0; i < 8; i++) await Promise.resolve();
+    expect(curator.curate).not.toHaveBeenCalled();
+
+    enabled.value = true;
+    activity.registry.notifyAll({
+      sessionId: 'resume-external-idle',
+      workspaceRoot: '/ws',
+      timestamp: Date.now(),
+      role: 'assistant',
+    });
+    await jest.advanceTimersByTimeAsync(1);
+    for (let i = 0; i < 8; i++) await Promise.resolve();
+
+    expect(curator.curate).toHaveBeenCalledTimes(1);
+    service.stop();
+    jest.useRealTimers();
+  });
+
+  it('re-arms quiet episodes only on resume and only when idle retry admission is open', () => {
+    const enabled = { value: true };
+    let configurationListener:
+      | ((event: { affectsConfiguration: (key: string) => boolean }) => void)
+      | undefined;
+    const workspace = makeWorkspace({ 'memory.triggers.idleMs': 1 });
+    (workspace.getConfiguration as jest.Mock).mockImplementation(
+      (_section: string, key: string, fallback: unknown) =>
+        key === 'memory.enabled'
+          ? enabled.value
+          : key === 'memory.triggers.idleMs'
+            ? 1
+            : key === 'memory.triggers.maxCuratesPerHour'
+              ? 1
+              : fallback,
+    );
+    (workspace.onDidChangeConfiguration as jest.Mock).mockImplementation(
+      (listener) => {
+        configurationListener = listener;
+        return { dispose: () => undefined };
+      },
+    );
+    const { service, activity, stop, curator, rateLimiter } = buildService({
+      workspace,
+    });
+    service.start();
+    stop.fire(
+      stopPayload({
+        sessionId: 'quiet-backoff',
+        lastAssistantMessage: 'Keep this quiet episode buffered.',
+      }),
+    );
+    activity.registry.notifyAll({
+      sessionId: 'quiet-backoff',
+      workspaceRoot: '/ws',
+      timestamp: Date.now(),
+      role: 'assistant',
+    });
+    enabled.value = false;
+    configurationListener?.({
+      affectsConfiguration: (key) => key === 'ptah.memory.enabled',
+    });
+    (curator.networkDeferralMs as jest.Mock).mockReturnValue(1_000);
+    enabled.value = true;
+    configurationListener?.({
+      affectsConfiguration: (key) => key === 'ptah.memory.enabled',
+    });
+
+    const sessions = (
+      service as unknown as {
+        sessions: Map<string, { idleTimer: unknown }>;
+      }
+    ).sessions;
+    expect(sessions.get('quiet-backoff')?.idleTimer).toBeNull();
+
+    (curator.networkDeferralMs as jest.Mock).mockReturnValue(0);
+    activity.registry.notifyAll({
+      sessionId: 'another-session',
+      workspaceRoot: '/ws',
+      timestamp: Date.now(),
+      role: 'assistant',
+    });
+    expect(sessions.get('quiet-backoff')?.idleTimer).toBeNull();
+
+    enabled.value = false;
+    configurationListener?.({
+      affectsConfiguration: (key) => key === 'ptah.memory.enabled',
+    });
+    rateLimiter.tryAcquire('memory.curate', 1);
+    enabled.value = true;
+    configurationListener?.({
+      affectsConfiguration: (key) => key === 'ptah.memory.enabled',
+    });
+    expect(sessions.get('quiet-backoff')?.idleTimer).toBeNull();
+    service.stop();
   });
 
   it('boots paused and re-arms its owed boot scan exactly once on resume activity', () => {
