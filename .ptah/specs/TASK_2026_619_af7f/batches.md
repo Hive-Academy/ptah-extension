@@ -1473,7 +1473,7 @@ Batch 10 findings recorded at Mode 2 (report:
 - Every listed artifact exists and contains the required work
 - `npx nx run-many -t typecheck,lint,test -p mcp-bench` passes; `actionlint` (if available) or a YAML parse of the workflow passes
 
-## Batch 11: First recorded scorecard and mandate-manifest link — IN_PROGRESS
+## Batch 11: First recorded scorecard and mandate-manifest link — COMPLETE (commit 285ce9855; smoke scorecards only — user decision: no full runs, the only full run is Batch 36)
 
 - Recommended executor: senior-tester subagent
 - Fallback executor: backend-developer subagent
@@ -1528,7 +1528,7 @@ Batch 10 findings recorded at Mode 2 (report:
 - `npx nx run-many -t typecheck,lint,test -p mcp-bench,@ptah-extension/vscode-lm-tools` passes
 - `npx nx run mcp-bench:gate` passes in recorded-failure mode against the new baseline
 
-## Phase 1 code-logic review — APPROVED (fix commit: the `fix(mcp-bench): phase 1 code-logic review fixes` commit after deb8aaa4b; SHA filled in after the commit)
+## Phase 1 code-logic review — APPROVED (fix commit 4e533a6a9)
 
 The review was run early, while Batch 11 Phase B (the recorded runs) was still open. It is split
 by author side, per context.md "User Requests (2026-10-07)" item 2.
@@ -1610,7 +1610,7 @@ by author side, per context.md "User Requests (2026-10-07)" item 2.
 
 ---
 
-## Batch 12: Index completeness — cap, order, purge, transactional write (Fix 1) — PENDING
+## Batch 12: Index completeness — cap, order, purge, transactional write (Fix 1) — COMPLETE (commit d514bdc0e; symbol-suite smoke deferred to Batch 13b smoke)
 
 - Recommended executor: backend-developer subagent
 - Fallback executor: senior-tester subagent (tests), then a backend-developer retry
@@ -1645,7 +1645,7 @@ by author side, per context.md "User Requests (2026-10-07)" item 2.
 - `npx nx run-many -t typecheck,lint,test -p @ptah-extension/workspace-intelligence,@ptah-extension/memory-curator` passes
 - The symbol suite smoke run shows hit@5 up from baseline; the report quotes index time and DB size
 
-## Batch 13: Shared boot-time index and watcher reindex for Electron and CLI (Fix 2a) — PENDING
+## Batch 13: Shared boot-time index and watcher reindex for Electron and CLI (Fix 2a) — COMPLETE WITH OPEN GAP (commit d81526c31; lifecycle smoke still fails — see Batch 13b)
 
 - Recommended executor: backend-developer subagent
 - Fallback executor: none (re-run with the same subagent type)
@@ -1679,6 +1679,34 @@ by author side, per context.md "User Requests (2026-10-07)" item 2.
 - `npx prettier --check <every path the batch changed>` passes (lanes skipped formatting in Batches 1-2, and the commit hook does not check `tools/`)
 - `npx nx run-many -t typecheck,lint,test -p @ptah-extension/thoth-runtime,@ptah-extension/cli-engine` passes
 - Lifecycle smoke: edit-then-query and add-then-query on `cli-headless` pass
+
+## Batch 13b: Edits visible during a full run; one owner for full runs (Fix 2a follow-up) — IN_PROGRESS (uncommitted; cap and bounded correction used; final review REVISE 5/10 — see handoff.md)
+
+- Origin: the Batch 13 cli-headless smoke (`tools/mcp-bench/out/b13-cli-smoke`) still failed cold-start, edit-then-query and add-then-query. Diagnosis: `batch-13-smoke-diagnosis.md` (codex). Orchestrator decision 2026-10-07: Batch 13 code was committed as reviewed; this batch carries the acceptance gap with its own review cycle.
+- Recommended executor: grok lane (implementor); reviewer: codex lane
+- Scorecard metric it must move: the Batch 13 lifecycle smoke — edit-then-query (5 s and 60 s) and add-then-query PASS on `cli-headless`; cold-start PASS if Task 13b.3 is needed
+- Depends on: 13 | Phase: 2A | Phase review: code-logic (after Batch 16)
+
+### Task 13b.1: Per-file reindex while a census is active — PENDING
+
+- File: libs/backend/thoth-runtime/src/lib/workspace-index-lifecycle.ts (+ spec)
+- Remove the `fullRun` deferral in `schedule`/`apply` for create/update events: they call `reindexFile` after the debounce even when a full run is in flight. Keep storm coalescing, overflow/truncated handling and the directory-delete cooldown. The indexer's per-file lock (`code-symbol-indexer.service.ts:702-749`) prevents an interleaved write to the same file.
+- Tests: an edit and a create are searchable before an intentionally held full run finishes.
+
+### Task 13b.2: One owner for full runs — PENDING
+
+- Files: libs/backend/vscode-lm-tools/src/lib/code-execution/namespace-builders/code-namespace.builder.ts; libs/backend/workspace-intelligence/src/services/code-symbol-indexer.service.ts (+ specs)
+- `ensureIndexFresh` must not start a second `indexWorkspace` for a root while a run (from the lifecycle or any caller) is active: the indexer exposes a root-level active-run signal (or joins the in-flight run) instead of the namespace-private `inFlight` set.
+- Tests: lifecycle run active + first symbol query -> one run total.
+
+### Task 13b.3 (conditional): Query-file priority for cold start — PENDING
+
+- Only if cold-start still fails after 13b.1-13b.2. When the index is empty or stale and the query has a file hint, reindex that file first (bounded wait), then search; the census continues in the background. A query without a file hint keeps the current behavior.
+
+### Batch 13b verification
+
+- Scoped jest/typecheck/lint for thoth-runtime, workspace-intelligence, vscode-lm-tools; prettier on changed files
+- cli-headless smoke `--suite lifecycle,symbols-exact` (coordinate with the 620 session first): edit-then-query and add-then-query pass; the report quotes cold-start and the symbol-suite hit@5 against `b11-cli-smoke`
 
 ## Batch 14: VS Code switches to the shared lifecycle service (Fix 2a, VS Code host) — PENDING
 

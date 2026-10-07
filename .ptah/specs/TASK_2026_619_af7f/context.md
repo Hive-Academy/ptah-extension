@@ -37,6 +37,15 @@ Roster (`ptah_agent_list`, 2026-10-06):
 | pi | cli | not installed |
 | Glm | ptah-cli | available (Ollama Cloud, ptahCliId pc-355b645d-35af-4974-84cf-9cf961ea0164) |
 
+**Lane choice (user, 2026-10-07, overrides earlier per-batch lane assignments):** from now on use only the **codex** and **grok** CLI lanes for lane work. Do **not** use opencode or Glm until the user says otherwise. grok is installed (`ptah_agent_list`, 2026-10-07). Cross-side review rules are unchanged.
+
+**Lane roles (user, 2026-10-07, later the same day; overrides the line above where they differ):** to save the orchestrator's (Claude) quota, rely on the lanes more:
+- **codex = planner and reviewer** (decomposition input, plans, code-logic and code-style reviews).
+- **grok = implementor** (batch execution).
+- Claude subagents only where no lane can do the work, or as a fallback after a lane fails twice. The orchestrator itself only coordinates, runs the scoped gates and makes bounded corrections.
+- Review of grok-authored code by codex is a CLI-to-CLI (same-side, different-family) review. The user pinned it, so it is allowed; it is labelled as such in each review file.
+- An author never reviews its own work: codex-authored code (for example the Batch 11 probe fix) is reviewed by grok or a subagent, not by codex.
+
 | Phase | Executor | Deliverable |
 | --- | --- | --- |
 | Research | researcher-expert subagent (may use lanes for separate aspects) | `research-report.md` |
@@ -157,6 +166,12 @@ Install `scip-typescript`, `scip-python` and `scip-go` as global user tools; the
 - `ptah_task_create` writes to the Ptah MCP server's workspace root, which is the MAIN checkout, not this worktree. The orchestrator created TASK_2026_622_2d05 that way and then moved it into this worktree at the user's request. Include `.ptah/specs/TASK_2026_622_2d05/` in the next commit on this branch.
 - Rule for the rest of this task: no agent or lane writes anything in `D:\projects\ptah-extension` outside `.claude-worktrees\task-619-tool-benchmark`. After any `ptah_task_create`, move the new folder into this worktree at once.
 - **New Phase 2 item (user request, 2026-10-07): worktree-aware task tools.** `ptah_task_create/update/get/list/check` resolve their root through `deps.getWorkspaceRoot()` (`libs/backend/vscode-lm-tools/src/lib/code-execution/namespace-builders/tasks-namespace.builder.ts:677`), the session-aware resolver (declared URL root → caller session → active session → provider root; `ptah-api-builder.service.ts:992-1018`). The resolver works as designed — this session's root is the main checkout — but no task tool can target a git worktree, so a session that works in a worktree writes its task folders to the main checkout. Fix: an optional `workspaceRoot` argument on the five task tools, validated at the boundary to be the repository's main checkout or one of its registered git worktrees (`git worktree list --porcelain`), else rejected; the default stays the session root. Add a benchmark lifecycle check: create a task with a worktree root, assert the folder lands in the worktree and nothing changes in the main checkout. Place it with Fix 7 (session-aware spool root, Batch 34), which touches the same root-resolution area. The team-leader adds it to batches.md at its next Mode 2.
+
+## User Decision — no full "before" baseline (2026-10-07, fourth session)
+
+- The Batch 11 full runs never completed (attempt 1 voided by the PID-reuse guard false positive; attempt 2 got `^C` at 93 min in the cli-headless relevance phase, Electron never started).
+- User decision: do not restart them. The pre-fix product is "mostly broken any way". The only full run is the one in Batch 36 (full rescore, after the fixes). The Batch 11 smoke scorecards and `tools/mcp-bench/baseline/gate-baseline.json` (all rows `recorded-failure`, commit 285ce9855) stay the only "before" evidence.
+- Effect: the per-batch bench smoke checks deferred "until the full runs end" can run again, one at a time. TASK_2026_620 was told that "619 Batch 11 runs done" will not come.
 
 ## Conversation Summary
 
