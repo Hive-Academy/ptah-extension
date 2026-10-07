@@ -34,9 +34,9 @@ agreement and answers). This file is the resume point only.
 
 1. DONE 2026-10-07: visual review APPROVED (round 2) and rebased onto 619 `4d3d0dd5d` (project.json
    merged at JSON level; scoped jest 578/578, mcp-bench typecheck+lint, build-host-memory-skills pass).
-2. Drop the `suite-result.ts` mirror and the `process.env` save/restore around launchBenchHost (619
-   exported `suiteCoreSchema`, `HostLaunchOptions.env`, `bench-host-process.ts` in `ea2f92fd2`). Re-run
-   scoped jest + `nx run-many -t typecheck,lint -p mcp-bench`.
+2. DONE 2026-10-07: 619 exports adopted (`062e88f02`: suiteCoreSchema, HostLaunchOptions.env, bench-host-process
+   helpers; mem.extraction claim source fixed) and nested-key strictness (`f94a9bdd4`); review APPROVED
+   (`code-logic-review-619-adoption-r2.md`). Scoped jest 51 suites / 581 tests.
 3. User activities U1-U4 (raters label the 105-document packet; re-run the held-out session sampler
    after the eval window, then label) — B21/B23 scored runs, B25, B26 wait on them.
 4. B24 (CI workflow + first recorded run): message the 619 session first and wait for its OK; never
