@@ -29,6 +29,7 @@ import {
   runRubricAgreement,
 } from './rubric-agreement.suite';
 import {
+  FIXTURE_MANIFEST_FILE,
   RubricGroundTruthError,
   SKILL_ADJUDICATION_FILE,
   SKILL_DOCS_FILE,
@@ -316,4 +317,93 @@ describe('skill.rubric.inter-rater', () => {
       runRubricAgreement(readerOf(dir), { raters: ['r1', 'r1'] }),
     ).toThrow(RubricGroundTruthError);
   });
+
+  it('carries panel provenance and scores 9 of a frozen population of 10', () => {
+    const labelled = Array.from({ length: 10 }, (_, index) => {
+      const opaqueId = `SKD-${(index + 1).toString(16).padStart(8, '0')}`;
+      return {
+        opaqueId,
+        sha256: sha256Of(opaqueId),
+        stratum: 'random' as const,
+        totals: [72, 72] as const,
+      };
+    });
+    writeSyntheticGroundTruth(dir, labelled);
+    const dropped = labelled[9].opaqueId;
+    const labelsPath = join(dir, SKILL_LABELS_FILE);
+    const labels = readFileSync(labelsPath, 'utf8')
+      .split('\n')
+      .filter((line) => line === '' || !line.startsWith(`${dropped},`))
+      .join('\n');
+    writeFileSync(labelsPath, labels.endsWith('\n') ? labels : `${labels}\n`);
+    const pinned = [
+      SKILL_LABELS_FILE,
+      SKILL_ADJUDICATION_FILE,
+      SKILL_DOCS_FILE,
+    ];
+    writeFileSync(
+      join(dir, FIXTURE_MANIFEST_FILE),
+      `${JSON.stringify(
+        {
+          schemaVersion: 1,
+          files: Object.fromEntries(
+            pinned.map((name) => [
+              name,
+              sha256Of(readFileSync(join(dir, name))),
+            ]),
+          ),
+        },
+        null,
+        2,
+      )}\n`,
+    );
+    const { result } = runRubricAgreement(readerOf(dir), {
+      raters: ['r1', 'r2'],
+      panel: {
+        raters: [
+          laneManifest('r1', 'xAI', 'xai', 'grok-4'),
+          laneManifest('r2', 'Google', 'google', 'gemini-2.5'),
+        ],
+        adjudicator: laneManifest('r3', 'GLM', 'ollama-cloud', 'glm-4.5'),
+        population: 10,
+        unresolvedCount: 1,
+        unresolvedShare: 0.1,
+      },
+    });
+    expect(result.groundTruth).toEqual({
+      id: 'gt-skill-rubric',
+      version: 'v1',
+      method: 'labelled',
+      raterCount: 2,
+    });
+    expect(result.claim.text).toContain(
+      'model-panel:xAI+Google; adjudicator=GLM',
+    );
+    expect(result.claim.text).toContain('raterCount=2');
+    expect(result.metrics['items']).toBe(9);
+    expect(result.metrics['population']).toBe(10);
+    expect(result.metrics['unresolved.count']).toBe(1);
+    expect(result.metrics['unresolved.share']).toBe(0.1);
+    expect(result.metrics['full.rawAgreement.den']).toBe(9);
+    expect(result.naReason ?? '').not.toContain('unresolved-model-panel');
+  });
 });
+
+function laneManifest(
+  raterId: string,
+  family: string,
+  provider: string,
+  model: string,
+) {
+  return {
+    raterId,
+    family,
+    provider,
+    model,
+    promptSha256: sha256Of('panel-prompt'),
+    packetCount: 10,
+    responseCount: 9,
+    failureCount: 1,
+    timestamp: '2026-10-07T00:00:00.000Z',
+  };
+}

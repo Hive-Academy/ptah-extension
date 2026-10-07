@@ -177,7 +177,16 @@ export const abstentionCaseSchema = z.strictObject({
 });
 export type AbstentionCase = z.infer<typeof abstentionCaseSchema>;
 
-/** One sampled (row, fact) pair of `gt-matcher@v1` with the human judgement. */
+/**
+ * Legacy field name for the matcher boolean. A model-panel label writes it;
+ * the value is not a human rating. The committed key stays `humanMatch`.
+ */
+export const MATCHER_MATCH_PROVENANCE = 'panel-labelled' as const;
+
+/**
+ * One sampled (row, fact) pair of `gt-matcher@v1`.
+ * `humanMatch` is panel-labelled (`MATCHER_MATCH_PROVENANCE`).
+ */
 export const matcherSampleRowSchema = z.strictObject({
   id: nonEmptyString,
   factId: nonEmptyString,
@@ -194,24 +203,29 @@ export type MatcherSampleRow = z.infer<typeof matcherSampleRowSchema>;
  * The repo-side label of one held-out real session of `gt-memory-real@v1`:
  * only the opaque id, the copy's hash and the labelled line numbers.
  */
+function refineSortedLineRefs(
+  lineRefs: readonly number[],
+  ctx: z.RefinementCtx,
+): void {
+  const unsorted = lineRefs.some(
+    (ref, index) => index > 0 && ref <= lineRefs[index - 1],
+  );
+  if (unsorted) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'lineRefs must be unique and sorted ascending',
+      path: ['lineRefs'],
+    });
+  }
+}
+
 export const realSessionLabelSchema = z
   .strictObject({
     opaqueId: nonEmptyString,
     sha256: sha256HexSchema,
     lineRefs: z.array(z.number().int().positive()),
   })
-  .superRefine((label, ctx) => {
-    const unsorted = label.lineRefs.some(
-      (ref, index) => index > 0 && ref <= label.lineRefs[index - 1],
-    );
-    if (unsorted) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: 'lineRefs must be unique and sorted ascending',
-        path: ['lineRefs'],
-      });
-    }
-  });
+  .superRefine((label, ctx) => refineSortedLineRefs(label.lineRefs, ctx));
 export type RealSessionLabel = z.infer<typeof realSessionLabelSchema>;
 
 const criterionScore = z.number().int().min(0).max(10);
@@ -326,6 +340,191 @@ export const adjudicationRowSchema = z
     validateRubricScores(row, ctx);
   });
 export type AdjudicationRow = z.infer<typeof adjudicationRowSchema>;
+
+function rejectRepeatedTriggers(
+  triggers: readonly string[],
+  ctx: z.RefinementCtx,
+): void {
+  if (triggers.length !== new Set(triggers).size) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'triggers must not repeat',
+      path: ['triggers'],
+    });
+  }
+}
+
+const panelDecisionSchema = z.enum(['accept', 'edit', 'reject']);
+
+function refinePanelDecision(
+  row: { decision: 'accept' | 'edit' | 'reject'; replacement: string | null },
+  ctx: z.RefinementCtx,
+): void {
+  if (row.decision === 'edit') {
+    if (row.replacement === null || row.replacement.trim() === '') {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'edit needs a replacement',
+        path: ['replacement'],
+      });
+    }
+    return;
+  }
+  if (row.replacement !== null) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'accept and reject carry no replacement',
+      path: ['replacement'],
+    });
+  }
+}
+
+/**
+ * One U2 rater line. Accept is the draft unchanged; edit carries a replacement;
+ * reject drops the candidate. Abstention that is accepted stays an abstention.
+ */
+export const panelMemoryDecisionSchema = z
+  .strictObject({
+    id: nonEmptyString,
+    decision: panelDecisionSchema,
+    replacement: z.string().nullable(),
+    raterId: nonEmptyString,
+    ratedAt: isoDateTime,
+  })
+  .superRefine(refinePanelDecision);
+export type PanelMemoryDecision = z.infer<typeof panelMemoryDecisionSchema>;
+
+export const panelMemoryAdjudicationTriggerSchema = z.enum([
+  'decision-differs',
+  'replacement-hash-differs',
+]);
+
+/** U2 adjudicator line: the same decision plus who settled it. */
+export const panelMemoryAdjudicationSchema = z
+  .strictObject({
+    id: nonEmptyString,
+    decision: panelDecisionSchema,
+    replacement: z.string().nullable(),
+    adjudicatorId: nonEmptyString,
+    triggers: z.array(panelMemoryAdjudicationTriggerSchema).min(1).max(2),
+    decidedAt: isoDateTime,
+  })
+  .superRefine((row, ctx) => {
+    rejectRepeatedTriggers(row.triggers, ctx);
+    refinePanelDecision(row, ctx);
+  });
+export type PanelMemoryAdjudication = z.infer<
+  typeof panelMemoryAdjudicationSchema
+>;
+
+/** One U3 rater line. `humanMatch` is panel-labelled. */
+export const panelMatcherLabelSchema = z.strictObject({
+  id: nonEmptyString,
+  factId: nonEmptyString,
+  humanMatch: z.boolean(),
+  raterId: nonEmptyString,
+  ratedAt: isoDateTime,
+});
+export type PanelMatcherLabel = z.infer<typeof panelMatcherLabelSchema>;
+
+export const panelMatcherAdjudicationTriggerSchema = z.enum(['match-differs']);
+
+/** U3 adjudicator line. Boolean disagreement uses `match-differs`. */
+export const panelMatcherAdjudicationSchema = z
+  .strictObject({
+    id: nonEmptyString,
+    factId: nonEmptyString,
+    humanMatch: z.boolean(),
+    adjudicatorId: nonEmptyString,
+    triggers: z.array(panelMatcherAdjudicationTriggerSchema).min(1).max(1),
+    decidedAt: isoDateTime,
+  })
+  .superRefine((row, ctx) => rejectRepeatedTriggers(row.triggers, ctx));
+export type PanelMatcherAdjudication = z.infer<
+  typeof panelMatcherAdjudicationSchema
+>;
+
+/** One U4 session rater line, before it is stripped to `realSessionLabelSchema`. */
+export const panelSessionLabelSchema = z
+  .strictObject({
+    opaqueId: nonEmptyString,
+    sha256: sha256HexSchema,
+    lineRefs: z.array(z.number().int().positive()),
+    raterId: nonEmptyString,
+    ratedAt: isoDateTime,
+  })
+  .superRefine((row, ctx) => refineSortedLineRefs(row.lineRefs, ctx));
+export type PanelSessionLabel = z.infer<typeof panelSessionLabelSchema>;
+
+export const panelSessionAdjudicationTriggerSchema = z.enum([
+  'line-refs-differ',
+]);
+
+/** U4 session adjudicator line. */
+export const panelSessionAdjudicationSchema = z
+  .strictObject({
+    opaqueId: nonEmptyString,
+    sha256: sha256HexSchema,
+    lineRefs: z.array(z.number().int().positive()),
+    adjudicatorId: nonEmptyString,
+    triggers: z.array(panelSessionAdjudicationTriggerSchema).min(1).max(1),
+    decidedAt: isoDateTime,
+  })
+  .superRefine((row, ctx) => {
+    rejectRepeatedTriggers(row.triggers, ctx);
+    refineSortedLineRefs(row.lineRefs, ctx);
+  });
+export type PanelSessionAdjudication = z.infer<
+  typeof panelSessionAdjudicationSchema
+>;
+
+/** Skill id shape shared with `triggerLabelSchema` (trigger-human-eval.ts). */
+const panelSkillIdSchema = z
+  .string()
+  .regex(/^[a-z0-9][a-z0-9-]*$/, 'skill id: a lower-case slug');
+const panelPromptListSchema = z.array(z.string().trim().min(1)).min(1);
+
+/** One U4 trigger rater line. Description stays on the packet, not this row. */
+export const panelTriggerLabelSchema = z.strictObject({
+  skillId: panelSkillIdSchema,
+  shouldTrigger: panelPromptListSchema,
+  nearMiss: panelPromptListSchema,
+  raterId: nonEmptyString,
+  ratedAt: isoDateTime,
+});
+export type PanelTriggerLabel = z.infer<typeof panelTriggerLabelSchema>;
+
+export const panelTriggerAdjudicationTriggerSchema = z.enum([
+  'prompt-array-hash-differs',
+]);
+
+/** U4 trigger adjudicator line. */
+export const panelTriggerAdjudicationSchema = z
+  .strictObject({
+    skillId: panelSkillIdSchema,
+    shouldTrigger: panelPromptListSchema,
+    nearMiss: panelPromptListSchema,
+    adjudicatorId: nonEmptyString,
+    triggers: z.array(panelTriggerAdjudicationTriggerSchema).min(1).max(1),
+    decidedAt: isoDateTime,
+  })
+  .superRefine((row, ctx) => rejectRepeatedTriggers(row.triggers, ctx));
+export type PanelTriggerAdjudication = z.infer<
+  typeof panelTriggerAdjudicationSchema
+>;
+
+/**
+ * Committed U4 trigger row: `skillId`, `description`, `shouldTrigger`,
+ * `nearMiss`. Same shape as `triggerLabelSchema`; that module stays the
+ * suite's parser. B2 owns trigger-human-eval.ts.
+ */
+export const committedTriggerLabelSchema = z.strictObject({
+  skillId: panelSkillIdSchema,
+  description: z.string().trim().min(1),
+  shouldTrigger: panelPromptListSchema,
+  nearMiss: panelPromptListSchema,
+});
+export type CommittedTriggerLabel = z.infer<typeof committedTriggerLabelSchema>;
 
 /**
  * One entry of `known-failures.v1.json`. `direction` is mandatory on every

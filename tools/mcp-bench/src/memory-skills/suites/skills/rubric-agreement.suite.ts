@@ -42,12 +42,15 @@ import {
   inputSha256,
   rateMetrics,
 } from '../memory/memory-suite-support';
+import { panelManifestSchema } from '../../labelling/model-panel';
 import {
   FIXTURE_MANIFEST_FILE,
   groundTruthNaReason,
   loadRubricGroundTruth,
+  panelProvenanceFromManifest,
   RUBRIC_GROUND_TRUTH_FILES,
   RUBRIC_GROUND_TRUTH_ID,
+  RUBRIC_GROUND_TRUTH_RATER_COUNT,
   RUBRIC_GROUND_TRUTH_VERSION,
   type FileCheck,
   type GroundTruthFileReader,
@@ -59,10 +62,24 @@ export const RUBRIC_AGREEMENT_SUITE_ID = 'skill.rubric.inter-rater';
 
 const raterId = z.string().regex(/^[a-z0-9-]{1,32}$/, 'rater id');
 
-export const rubricAgreementOptionsSchema = z.strictObject({
-  /** The two human raters (Batch 9 packet ids); the first is the reference. */
-  raters: z.tuple([raterId, raterId]).default(['r1', 'r2']),
-});
+export const rubricAgreementOptionsSchema = z
+  .strictObject({
+    /** The two rater ids; the first is the reference. */
+    raters: z.tuple([raterId, raterId]).default(['r1', 'r2']),
+    /** Private model-panel manifest. Eligibility is part of the schema. */
+    panel: panelManifestSchema.optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (value.panel === undefined) return;
+    const [left, right] = value.panel.raters;
+    if (left.raterId !== value.raters[0] || right.raterId !== value.raters[1]) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'panel rater ids must match options.raters',
+        path: ['panel'],
+      });
+    }
+  });
 export type RubricAgreementOptions = z.infer<
   typeof rubricAgreementOptionsSchema
 >;
@@ -115,7 +132,10 @@ export function rubricAgreementMetrics(
 ): Record<string, number | null> {
   const anchors = truth.trust?.anchorStability;
   return {
-    items: truth.documents.length,
+    items: truth.acceptedCount,
+    population: truth.population,
+    'unresolved.count': truth.unresolvedIds.length,
+    'unresolved.share': truth.unresolvedShare,
     'candidates.items': truth.candidateItems,
     adjudicated: truth.adjudicated,
     'adjudication.pending': truth.pendingAdjudication.length,
@@ -179,7 +199,7 @@ function detailsOf(
     rubricVersion: RUBRIC_GROUND_TRUTH_VERSION,
     raters: [...truth.raters],
     intraRater: false,
-    items: truth.documents.length,
+    items: truth.acceptedCount,
     strata: strataOf(truth),
     kappaPassFull: truth.full.passFailKappa.value,
     spearmanTotalFull: truth.full.totalsSpearman.value,
@@ -280,7 +300,12 @@ export function runRubricAgreement(
   read: GroundTruthFileReader,
   options: RubricAgreementOptions,
 ): OfflineSuiteOutput {
-  const truth = loadRubricGroundTruth(read, { raters: options.raters });
+  const truth = loadRubricGroundTruth(read, {
+    raters: options.raters,
+    ...(options.panel === undefined
+      ? {}
+      : { panel: panelProvenanceFromManifest(options.panel) }),
+  });
   const cases = [
     ...truth.files.map(fileCase),
     ...(truth.state === 'loaded' ? trustCases(truth) : []),
@@ -324,13 +349,18 @@ export function runRubricAgreement(
       claim: {
         source: 'ledger',
         ref: 'benchmark-design.md 4.2 (trust bar of gt-skill-rubric@v1)',
-        text: 'Two independent human raters agree on the 471 exemplar rubric well enough for gt-skill-rubric@v1 to be ground truth.',
+        text:
+          truth.state === 'loaded' && truth.method !== 'labelled'
+            ? `Model-panel agreement on the 471 exemplar rubric (${truth.method}; raterCount=${RUBRIC_GROUND_TRUTH_RATER_COUNT}).`
+            : 'Two independent human raters agree on the 471 exemplar rubric well enough for gt-skill-rubric@v1 to be ground truth.',
       },
       groundTruth: {
         id: RUBRIC_GROUND_TRUTH_ID,
         version: RUBRIC_GROUND_TRUTH_VERSION,
         method: 'labelled',
-        ...(truth.state === 'loaded' ? { raterCount: 2 } : {}),
+        ...(truth.state === 'loaded'
+          ? { raterCount: RUBRIC_GROUND_TRUTH_RATER_COUNT }
+          : {}),
       },
       baselines,
       deltas: Object.fromEntries(

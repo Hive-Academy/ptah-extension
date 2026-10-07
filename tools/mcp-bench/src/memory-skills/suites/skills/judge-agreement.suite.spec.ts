@@ -53,7 +53,10 @@ import {
 } from './judge-agreement.suite';
 import { JudgeCorpusError, loadJudgeCorpus } from './judge-corpus';
 import { LaneTap } from './judge-lane-tap';
-import { loadRubricGroundTruth } from './rubric-ground-truth';
+import {
+  loadRubricGroundTruth,
+  panelProvenanceFromManifest,
+} from './rubric-ground-truth';
 import {
   sha256Of,
   trustedDocs,
@@ -182,14 +185,22 @@ function corpusOf(home: string) {
   });
 }
 
-function truthOf(home: string) {
+function truthOf(
+  home: string,
+  panel?: ReturnType<typeof judgeAgreementOptionsSchema.parse>['panel'],
+) {
   const dir = join(home, 'fixtures', 'memory-skills');
   return loadRubricGroundTruth(
     (name) => {
       const path = join(dir, name);
       return existsSync(path) ? readFileSync(path) : null;
     },
-    { raters: ['r1', 'r2'] },
+    {
+      raters: ['r1', 'r2'],
+      ...(panel === undefined
+        ? {}
+        : { panel: panelProvenanceFromManifest(panel) }),
+    },
   );
 }
 
@@ -343,7 +354,7 @@ async function judgeRun(
     runDir: join(f.root, runName),
     options,
     corpus: corpusOf(f.home),
-    truth: truthOf(f.home),
+    truth: truthOf(f.home, options.panel),
     ports: judgeAgreementPorts(kind, svc),
   });
 }
@@ -450,6 +461,49 @@ describe('skill.judge-agreement', () => {
     expect(result.naReason).toMatch(/^lane-runner-replay: /);
     // The replayed numbers stay reported.
     expect(result.metrics['positiveControl.passRate']).toBe(1);
+  });
+
+  it('records panel provenance on the claim and keeps the scorecard method labelled', async () => {
+    const f = tracked(fixture({ labels: true }));
+    const population = f.docs.length;
+    const lane = (
+      raterId: string,
+      family: string,
+      provider: string,
+      model: string,
+    ) => ({
+      raterId,
+      family,
+      provider,
+      model,
+      promptSha256: 'ab'.repeat(32),
+      packetCount: population,
+      responseCount: population,
+      failureCount: 0,
+      timestamp: '2026-10-07T00:00:00.000Z',
+    });
+    const svc = services(
+      recordingLane(f.root, syntheticLane(f.docs)),
+      'record',
+    );
+    const { result } = await judgeRun(f, 'skill-judge', svc, {
+      panel: {
+        raters: [
+          lane('r1', 'xAI', 'xai', 'grok-4'),
+          lane('r2', 'Google', 'google', 'gemini-2.5'),
+        ],
+        adjudicator: lane('r3', 'GLM', 'ollama-cloud', 'glm-4.5'),
+        population,
+        unresolvedCount: 0,
+        unresolvedShare: 0,
+      },
+    });
+    expect(result.groundTruth.method).toBe('labelled');
+    expect(result.groundTruth.raterCount).toBe(2);
+    expect(result.claim.text).toContain(
+      'model-panel:xAI+Google; adjudicator=GLM',
+    );
+    expect(result.claim.text).toContain('raterCount=2');
   });
 
   it('is na (ground-truth-untrusted) today: no labels committed, controls still measured', async () => {

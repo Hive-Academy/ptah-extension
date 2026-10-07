@@ -84,14 +84,17 @@ import {
   recordCase,
   resolveHomeFile,
 } from '../memory/memory-suite-support';
+import { panelManifestSchema } from '../../labelling/model-panel';
 import { loadJudgeCorpus, type JudgeDocument } from './judge-corpus';
 import type { LaneCall, LaneTap } from './judge-lane-tap';
 import {
   ANCHOR_STRATUM,
   groundTruthNaReason,
   loadRubricGroundTruth,
+  panelProvenanceFromManifest,
   RUBRIC_BOOTSTRAP,
   RUBRIC_GROUND_TRUTH_ID,
+  RUBRIC_GROUND_TRUTH_RATER_COUNT,
   RUBRIC_GROUND_TRUTH_VERSION,
   type LoadedRubricGroundTruth,
   type RubricGroundTruth,
@@ -115,25 +118,42 @@ export type JudgeKind = 'skill-judge' | 'judge-panel';
 const nonEmpty = z.string().min(1);
 const raterId = z.string().regex(/^[a-z0-9-]{1,32}$/, 'rater id');
 
-export const judgeAgreementOptionsSchema = z.strictObject({
-  /** The judge-lane model id this run is pinned to (`LaneRun.lane.model`). */
-  model: nonEmpty,
-  /** The synthesis-lane model of the panel's escalation; default `model`. */
-  escalationModel: nonEmpty.optional(),
-  /** sha256 of the judge rubric a previous run recorded; a change is drift. */
-  promptSha256: sha256HexSchema.optional(),
-  repeats: z.number().int().min(1).max(10).default(3),
-  /** Seed of the random-scorer baseline and the kappa interval. */
-  seed: nonEmpty.default('TASK_2026_620:judge-agreement'),
-  raters: z.tuple([raterId, raterId]).default(['r1', 'r2']),
-  /** Home-relative copies the plan seeds (see the batch report's plan). */
-  groundTruthDir: nonEmpty.default('fixtures/memory-skills'),
-  documentsDir: nonEmpty.default('judge-agreement/documents'),
-  idMapFile: nonEmpty.default('judge-agreement/id-map.json'),
-  plantedNegativesDir: nonEmpty.default(
-    'fixtures/memory-skills/planted-negatives.v1',
-  ),
-});
+export const judgeAgreementOptionsSchema = z
+  .strictObject({
+    /** The judge-lane model id this run is pinned to (`LaneRun.lane.model`). */
+    model: nonEmpty,
+    /** The synthesis-lane model of the panel's escalation; default `model`. */
+    escalationModel: nonEmpty.optional(),
+    /** sha256 of the judge rubric a previous run recorded; a change is drift. */
+    promptSha256: sha256HexSchema.optional(),
+    repeats: z.number().int().min(1).max(10).default(3),
+    /** Seed of the random-scorer baseline and the kappa interval. */
+    seed: nonEmpty.default('TASK_2026_620:judge-agreement'),
+    raters: z.tuple([raterId, raterId]).default(['r1', 'r2']),
+    /** Private model-panel manifest. Eligibility is part of the schema. */
+    panel: panelManifestSchema.optional(),
+    /** Home-relative copies the plan seeds (see the batch report's plan). */
+    groundTruthDir: nonEmpty.default('fixtures/memory-skills'),
+    documentsDir: nonEmpty.default('judge-agreement/documents'),
+    idMapFile: nonEmpty.default('judge-agreement/id-map.json'),
+    plantedNegativesDir: nonEmpty.default(
+      'fixtures/memory-skills/planted-negatives.v1',
+    ),
+  })
+  .superRefine((options, ctx) => {
+    if (options.panel === undefined) return;
+    const [left, right] = options.panel.raters;
+    if (
+      left.raterId !== options.raters[0] ||
+      right.raterId !== options.raters[1]
+    ) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'panel rater ids must match options.raters',
+        path: ['panel'],
+      });
+    }
+  });
 export type JudgeAgreementOptions = z.infer<typeof judgeAgreementOptionsSchema>;
 
 // ---------------------------------------------------------------- ports
@@ -741,18 +761,26 @@ export async function runJudgeAgreement(
           ? {
               source: 'code',
               ref: 'libs/backend/skill-synthesis/src/lib/skill-judge.service.ts:121-132',
-              text: 'The judge gate passes good skills and fails bad ones: its scores track human rubric totals better than body length does.',
+              text:
+                loaded !== null && loaded.method !== 'labelled'
+                  ? `The judge gate passes good skills and fails bad ones: its scores track model-panel rubric totals (${loaded.method}; raterCount=${RUBRIC_GROUND_TRUTH_RATER_COUNT}) better than body length does.`
+                  : 'The judge gate passes good skills and fails bad ones: its scores track human rubric totals better than body length does.',
             }
           : {
               source: 'code',
               ref: 'libs/backend/skill-synthesis/src/lib/gates/judge-panel.service.ts:261-413',
-              text: 'The judge panel passes good skills and fails bad ones: its verdicts track human rubric totals better than body length does.',
+              text:
+                loaded !== null && loaded.method !== 'labelled'
+                  ? `The judge panel passes good skills and fails bad ones: its verdicts track model-panel rubric totals (${loaded.method}; raterCount=${RUBRIC_GROUND_TRUTH_RATER_COUNT}) better than body length does.`
+                  : 'The judge panel passes good skills and fails bad ones: its verdicts track human rubric totals better than body length does.',
             },
       groundTruth: {
         id: RUBRIC_GROUND_TRUTH_ID,
         version: RUBRIC_GROUND_TRUTH_VERSION,
         method: 'labelled',
-        ...(loaded === null ? {} : { raterCount: 2 }),
+        ...(loaded === null
+          ? {}
+          : { raterCount: RUBRIC_GROUND_TRUTH_RATER_COUNT }),
       },
       baselines,
       deltas: Object.fromEntries(
@@ -814,7 +842,12 @@ export function createJudgeAgreementSuites(
       });
       const truth = loadRubricGroundTruth(
         homeReader(home, options.groundTruthDir),
-        { raters: options.raters },
+        {
+          raters: options.raters,
+          ...(options.panel === undefined
+            ? {}
+            : { panel: panelProvenanceFromManifest(options.panel) }),
+        },
       );
       const ports = judgeAgreementPorts(kind, deps.resolveServices(context));
       const { result, cases } = await runJudgeAgreement({

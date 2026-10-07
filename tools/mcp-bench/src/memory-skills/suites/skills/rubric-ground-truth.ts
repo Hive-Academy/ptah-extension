@@ -1,6 +1,8 @@
 /**
- * `gt-skill-rubric@v1` (benchmark-design.md 4.2): the committed human rubric
+ * `gt-skill-rubric@v1` (benchmark-design.md 4.2): the committed rubric
  * labels, recomputed from the committed files every time a suite needs them.
+ * U1 labels come from the model panel (`labelling/model-panel.ts`): pass
+ * `panel` to record `groundTruth.method` and the unresolved-share cap.
  * Both `skill.rubric.inter-rater` (`rubric-agreement.suite.ts`) and the judge
  * agreement suites (`judge-agreement.suite.ts`) load it here, so the trust bar
  * one of them reports is the trust bar the other one scores against.
@@ -43,6 +45,13 @@ import {
   type RubricScoreRow,
 } from '../../ground-truth/label-schemas';
 import {
+  PANEL_UNRESOLVED_REASON,
+  PANEL_UNRESOLVED_SHARE_CAP,
+  evaluatePanelEligibility,
+  unresolvedExclusion,
+  type PanelManifest,
+} from '../../labelling/model-panel';
+import {
   RUBRIC_STRATA,
   type RubricStratum,
 } from '../../labelling/select-rubric-sample';
@@ -77,6 +86,8 @@ export const AUTHORED_STRATA: readonly RubricStratum[] = [
 export const ANCHOR_STRATUM: RubricStratum = 'anchor-471';
 /** Totals differing by more than this go to the adjudicator (design 4.2). */
 export const ADJUDICATION_TOTAL_GAP = 12;
+/** Two rater families. The adjudicator is not a third rater. */
+export const RUBRIC_GROUND_TRUTH_RATER_COUNT = 2 as const;
 
 /** Seeded so a re-run of the same labels gives the same interval. */
 export const RUBRIC_BOOTSTRAP: BootstrapOptions = {
@@ -189,7 +200,7 @@ export interface FileCheck {
   readonly actual: string | null;
 }
 
-/** The consensus human verdict of one document. */
+/** The consensus verdict of one document (model panel, or a legacy file). */
 export interface HumanConsensus {
   readonly total: number;
   readonly pass: boolean;
@@ -200,6 +211,16 @@ export interface LoadedRubricGroundTruth {
   readonly state: 'loaded';
   readonly files: readonly FileCheck[];
   readonly raters: readonly [string, string];
+  /** `labelled` until `options.panel` supplies a model-panel method. */
+  readonly method: string;
+  readonly raterCount: typeof RUBRIC_GROUND_TRUTH_RATER_COUNT;
+  /** Frozen population, including unresolved documents. */
+  readonly population: number;
+  /** Documents with both rater rows. Agreement uses only these. */
+  readonly acceptedCount: number;
+  readonly unresolvedIds: readonly string[];
+  /** Null until the private manifest supplies a frozen population. */
+  readonly unresolvedShare: number | null;
   readonly documents: readonly SkillDocEntry[];
   /** Per document; absent while its adjudication is pending. */
   readonly consensus: ReadonlyMap<string, HumanConsensus>;
@@ -224,9 +245,51 @@ export type RubricGroundTruth =
   | { readonly state: 'hash-mismatch'; readonly files: readonly FileCheck[] }
   | LoadedRubricGroundTruth;
 
+export interface RubricPanelProvenance {
+  /** `modelPanelMethod(...)` for the verified families. */
+  readonly method: string;
+  readonly population: number;
+  readonly unresolvedCount: number;
+}
+
 export interface LoadRubricGroundTruthOptions {
   /** The two raters; the first is the agreement reference. */
   readonly raters: readonly [string, string];
+  /** Model-panel method and the unresolved share of the frozen population. */
+  readonly panel?: RubricPanelProvenance;
+}
+
+/**
+ * Provenance a suite passes into {@link loadRubricGroundTruth}. The manifest
+ * has already passed `panelManifestSchema` (eligibility included).
+ */
+export function panelProvenanceFromManifest(
+  manifest: PanelManifest,
+): RubricPanelProvenance {
+  const eligibility = evaluatePanelEligibility(manifest);
+  if (!eligibility.ok) {
+    throw new RubricGroundTruthError(eligibility.reason);
+  }
+  return {
+    method: eligibility.method,
+    population: manifest.population,
+    unresolvedCount: manifest.unresolvedCount,
+  };
+}
+
+/** `id`, `version`, `method` and `raterCount` for a suite ground-truth block. */
+export function rubricGroundTruthMetadata(method: string): {
+  readonly id: typeof RUBRIC_GROUND_TRUTH_ID;
+  readonly version: typeof RUBRIC_GROUND_TRUTH_VERSION;
+  readonly method: string;
+  readonly raterCount: typeof RUBRIC_GROUND_TRUTH_RATER_COUNT;
+} {
+  return {
+    id: RUBRIC_GROUND_TRUTH_ID,
+    version: RUBRIC_GROUND_TRUTH_VERSION,
+    method,
+    raterCount: RUBRIC_GROUND_TRUTH_RATER_COUNT,
+  };
 }
 
 function sha256(bytes: Buffer): string {
@@ -281,10 +344,15 @@ export function loadRubricGroundTruth(
 ): RubricGroundTruth {
   const [reference, comparison] = options.raters;
   if (reference === comparison) {
-    throw new RubricGroundTruthError(
-      'the two raters must be different people (Q1: a second human rater)',
-    );
+    throw new RubricGroundTruthError('the two raters must be different');
   }
+  const panelExclusion =
+    options.panel === undefined
+      ? null
+      : unresolvedExclusion(
+          options.panel.population,
+          options.panel.unresolvedCount,
+        );
   const { files, bytes } = checkGroundTruthFiles(read);
   if (files.some((check) => check.status !== 'ok' && check.status !== 'absent'))
     return { state: 'hash-mismatch', files };
@@ -304,15 +372,20 @@ export function loadRubricGroundTruth(
 
   const consensus = new Map<string, HumanConsensus>();
   const pendingAdjudication: string[] = [];
+  const unresolvedIds: string[] = [];
   const left: Record<string, RubricRating> = {};
   const right: Record<string, RubricRating> = {};
   for (const doc of documents) {
     const a = labels.get(`${doc.opaqueId}\u0000${reference}`);
     const b = labels.get(`${doc.opaqueId}\u0000${comparison}`);
     if (a === undefined || b === undefined) {
-      throw new RubricGroundTruthError(
-        `${SKILL_LABELS_FILE} has no row for ${doc.opaqueId} by ${a === undefined ? reference : comparison}`,
-      );
+      if (options.panel === undefined) {
+        throw new RubricGroundTruthError(
+          `${SKILL_LABELS_FILE} has no row for ${doc.opaqueId} by ${a === undefined ? reference : comparison}`,
+        );
+      }
+      unresolvedIds.push(doc.opaqueId);
+      continue;
     }
     left[doc.opaqueId] = ratingOf(a);
     right[doc.opaqueId] = ratingOf(b);
@@ -342,11 +415,27 @@ export function loadRubricGroundTruth(
     }
   }
 
+  if (options.panel !== undefined) {
+    if (options.panel.population !== documents.length) {
+      throw new RubricGroundTruthError(
+        `panel population ${options.panel.population} does not match the frozen ${documents.length} documents`,
+      );
+    }
+    if (options.panel.unresolvedCount !== unresolvedIds.length) {
+      throw new RubricGroundTruthError(
+        `panel unresolved count ${options.panel.unresolvedCount} does not match ${unresolvedIds.length} unlabelled documents`,
+      );
+    }
+  }
+  const acceptedIds = new Set(Object.keys(left));
+  const acceptedDocuments = documents.filter((doc) =>
+    acceptedIds.has(doc.opaqueId),
+  );
   const full = summarizeAgreement(left, right, RUBRIC_BOOTSTRAP);
-  const strataMissing = documents.filter(
+  const strataMissing = acceptedDocuments.filter(
     (doc) => doc.stratum === undefined,
   ).length;
-  const candidateIds = documents
+  const candidateIds = acceptedDocuments
     .filter(
       (doc) =>
         doc.stratum !== undefined && !AUTHORED_STRATA.includes(doc.stratum),
@@ -386,11 +475,23 @@ export function loadRubricGroundTruth(
     candidateItems: strataMissing > 0 ? 0 : candidateIds.length,
     anchors,
     trust,
+    method: options.panel?.method ?? 'labelled',
+    raterCount: RUBRIC_GROUND_TRUTH_RATER_COUNT,
+    population: options.panel?.population ?? documents.length,
+    acceptedCount: acceptedDocuments.length,
+    unresolvedIds,
+    unresolvedShare: panelExclusion === null ? null : panelExclusion.share,
     untrustedReason: untrustedReasonOf(
-      documents.length,
+      acceptedDocuments.length,
       strataMissing,
       pendingAdjudication,
       trust,
+      options.panel === undefined
+        ? null
+        : {
+            count: unresolvedIds.length,
+            population: options.panel.population,
+          },
     ),
   };
 }
@@ -435,8 +536,14 @@ function untrustedReasonOf(
   strataMissing: number,
   pending: readonly string[],
   trust: TrustBar | null,
+  unresolved: { count: number; population: number } | null,
 ): string | null {
   const reasons: string[] = [];
+  if (unresolved !== null && unresolved.count * 10 > unresolved.population) {
+    reasons.push(
+      `${PANEL_UNRESOLVED_REASON} ${unresolved.count}/${unresolved.population} exceeds ${PANEL_UNRESOLVED_SHARE_CAP}`,
+    );
+  }
   if (strataMissing > 0) {
     reasons.push(
       `strata not recorded for ${strataMissing} of ${documents} documents`,

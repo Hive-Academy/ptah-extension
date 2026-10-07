@@ -1,10 +1,16 @@
 import {
   abstentionCaseSchema,
   adjudicationRowSchema,
+  committedTriggerLabelSchema,
   factSchema,
   knownFailureEntrySchema,
   matcherSampleRowSchema,
   mergePairSchema,
+  panelMatcherLabelSchema,
+  panelMemoryAdjudicationSchema,
+  panelMemoryDecisionSchema,
+  panelSessionLabelSchema,
+  panelTriggerLabelSchema,
   privateRubricScoreRowSchema,
   realSessionLabelSchema,
   rubricScoreRowSchema,
@@ -482,5 +488,174 @@ describe('known-failure entry schema', () => {
     expect(() =>
       knownFailureEntrySchema.parse({ ...KNOWN_FAILURE, extra: true }),
     ).toThrow();
+  });
+});
+
+describe('rubric pass boundaries', () => {
+  const at = '2026-10-07T00:00:00.000Z';
+
+  it('passes a total of exactly 64 when every criterion is at least 6', () => {
+    const row = {
+      opaqueId: 'doc-boundary',
+      raterId: 'rater-a',
+      c1: 6,
+      c2: 8,
+      c3: 8,
+      c4: 8,
+      c5: 8,
+      c6: 8,
+      c7: 9,
+      c8: 9,
+      total: 64,
+      pass: true,
+      ratedAt: at,
+    };
+    expect(rubricScoreRowSchema.parse(row)).toEqual(row);
+  });
+
+  it('rejects a criterion of exactly 6 when the total is below 64', () => {
+    expect(() =>
+      rubricScoreRowSchema.parse({
+        opaqueId: 'doc-boundary',
+        raterId: 'rater-a',
+        c1: 6,
+        c2: 8,
+        c3: 8,
+        c4: 8,
+        c5: 8,
+        c6: 8,
+        c7: 8,
+        c8: 8,
+        total: 62,
+        pass: true,
+        ratedAt: at,
+      }),
+    ).toThrow(/pass/);
+  });
+
+  it('rejects a criterion below 6 even when the total is 64', () => {
+    expect(() =>
+      rubricScoreRowSchema.parse({
+        opaqueId: 'doc-boundary',
+        raterId: 'rater-a',
+        c1: 5,
+        c2: 9,
+        c3: 10,
+        c4: 8,
+        c5: 8,
+        c6: 8,
+        c7: 8,
+        c8: 8,
+        total: 64,
+        pass: true,
+        ratedAt: at,
+      }),
+    ).toThrow(/pass/);
+  });
+});
+
+describe('panel memory decision schema', () => {
+  const row = {
+    id: 'gt-m-001',
+    decision: 'accept',
+    replacement: null,
+    raterId: 'rater-a',
+    ratedAt: '2026-10-07T00:00:00.000Z',
+  };
+
+  it('accepts accept and edit, and rejects an edit without a replacement', () => {
+    expect(panelMemoryDecisionSchema.parse(row)).toEqual(row);
+    expect(
+      panelMemoryDecisionSchema.parse({
+        ...row,
+        decision: 'edit',
+        replacement: 'corrected statement',
+      }).decision,
+    ).toBe('edit');
+    expect(() =>
+      panelMemoryDecisionSchema.parse({
+        ...row,
+        decision: 'edit',
+        replacement: null,
+      }),
+    ).toThrow(/replacement/);
+    expect(() =>
+      panelMemoryDecisionSchema.parse({ ...row, replacement: 'nope' }),
+    ).toThrow(/replacement/);
+  });
+
+  it('accepts an adjudication only when a trigger is present', () => {
+    expect(
+      panelMemoryAdjudicationSchema.parse({
+        id: 'gt-m-001',
+        decision: 'reject',
+        replacement: null,
+        adjudicatorId: 'r-glm',
+        triggers: ['decision-differs'],
+        decidedAt: '2026-10-07T00:00:00.000Z',
+      }).triggers,
+    ).toEqual(['decision-differs']);
+    expect(() =>
+      panelMemoryAdjudicationSchema.parse({
+        id: 'gt-m-001',
+        decision: 'reject',
+        replacement: null,
+        adjudicatorId: 'r-glm',
+        triggers: [],
+        decidedAt: '2026-10-07T00:00:00.000Z',
+      }),
+    ).toThrow();
+  });
+});
+
+describe('panel matcher, session and trigger schemas', () => {
+  it('accepts a matcher label and rejects an unknown key', () => {
+    const row = {
+      id: 'gt-match-001',
+      factId: 'gt-m-001',
+      humanMatch: false,
+      raterId: 'rater-a',
+      ratedAt: '2026-10-07T00:00:00.000Z',
+    };
+    expect(panelMatcherLabelSchema.parse(row)).toEqual(row);
+    expect(() =>
+      panelMatcherLabelSchema.parse({ ...row, note: 'secret' }),
+    ).toThrow();
+  });
+
+  it('accepts sorted session line refs and rejects a repeat', () => {
+    const row = {
+      opaqueId: 'sess-1',
+      sha256: 'ab'.repeat(32),
+      lineRefs: [1, 4],
+      raterId: 'rater-a',
+      ratedAt: '2026-10-07T00:00:00.000Z',
+    };
+    expect(panelSessionLabelSchema.parse(row).lineRefs).toEqual([1, 4]);
+    expect(() =>
+      panelSessionLabelSchema.parse({ ...row, lineRefs: [4, 4] }),
+    ).toThrow(/lineRefs/);
+  });
+
+  it('accepts a trigger label and the committed description row', () => {
+    const row = {
+      skillId: 'demo-skill',
+      shouldTrigger: ['open the demo'],
+      nearMiss: ['close the demo'],
+      raterId: 'rater-a',
+      ratedAt: '2026-10-07T00:00:00.000Z',
+    };
+    expect(panelTriggerLabelSchema.parse(row)).toEqual(row);
+    expect(
+      committedTriggerLabelSchema.parse({
+        skillId: 'demo-skill',
+        description: 'Serves the demo.',
+        shouldTrigger: ['open the demo'],
+        nearMiss: ['close the demo'],
+      }).description,
+    ).toBe('Serves the demo.');
+    expect(() =>
+      panelTriggerLabelSchema.parse({ ...row, skillId: 'Not A Slug' }),
+    ).toThrow(/skill id/);
   });
 });
