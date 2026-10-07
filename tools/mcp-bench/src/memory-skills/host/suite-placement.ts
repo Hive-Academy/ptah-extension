@@ -31,6 +31,17 @@ export const HOST_SUITE_PLACEMENTS: Readonly<
   'mem.ranking.roster': 'last',
   'skill.judge-agreement': 'last',
   'skill.judge-agreement.panel': 'last',
+  'skill.funnel.prefilter': 'last',
+  'skill.funnel.archaeology': 'last',
+  'skill.funnel.cluster': 'last',
+  'skill.funnel.draft': 'last',
+  'skill.funnel.judge': 'last',
+  'skill.funnel.feed-parity': 'last',
+  'skill.funnel.replay': 'last',
+  'skill.funnel.promote': 'last',
+  'skill.funnel.retire': 'last',
+  'skill.funnel.delivery': 'last',
+  'skill.backlog.drain': 'last',
 };
 
 export function hostSuitePlacement(id: string): SuitePlacement {

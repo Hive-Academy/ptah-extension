@@ -39,6 +39,12 @@ const HOST_ONLY_MODULES = new Set([
   // scoring through the skill-synthesis barrel; wired only by the host entry.
   'suites/skills/namer-and-trigger.suite.ts',
   'suites/skills/trigger-human-eval.ts',
+  // Batch 22 host adapters: value-import the skill-synthesis and agent-sdk
+  // barrels; wired only by the host entry.
+  'suites/skills/funnel-host-port.ts',
+  'suites/skills/funnel-host-graph.ts',
+  // Batch 22 spec support: builds production DI for the funnel specs.
+  'suites/skills/funnel-di.test-support.ts',
   // Batch 20 host adapter of the retention suites: wired only by the host
   // entry; `retention.suite.ts` imports its types only.
   'suites/memory/retention-port.ts',

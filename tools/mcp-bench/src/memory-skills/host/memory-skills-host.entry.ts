@@ -41,6 +41,8 @@ import { hostRetentionPort } from '../suites/memory/retention-port';
 import { createRetentionSuites } from '../suites/memory/retention.suite';
 import { SCOPE_WRITE_SUITE } from '../suites/memory/scope-write.suite';
 import { createUpdateSuites } from '../suites/memory/update.suite';
+import { hostFunnelPorts } from '../suites/skills/funnel-host-port';
+import { createFunnelSuites } from '../suites/skills/funnel.suite';
 import { resolveJudgeServices } from '../suites/skills/judge-agreement-ports';
 import { createJudgeAgreementSuites } from '../suites/skills/judge-agreement.suite';
 import { NAMER_AND_TRIGGER_SUITES } from '../suites/skills/namer-and-trigger.suite';
@@ -69,6 +71,9 @@ const HOST_SUITES: readonly MemorySkillsHostSuite[] = [
   // Local only, `placement: 'last'`: they register one candidate row per
   // judged document.
   ...createJudgeAgreementSuites({ resolveServices: resolveJudgeServices }),
+  // `placement: 'last'`: they write the skill tables and the skills dir and
+  // run on a simulated clock.
+  ...createFunnelSuites({ portsOf: hostFunnelPorts }),
 ];
 
 const FORCED_EXIT_AFTER_MS = 20_000;
