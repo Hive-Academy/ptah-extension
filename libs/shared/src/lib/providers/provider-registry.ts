@@ -206,54 +206,24 @@ export const ANTHROPIC_PROVIDERS = [
     maskedKeyDisplay: '••••••••••••',
     modelsEndpoint: 'https://api.moonshot.ai/v1/models',
     defaultTiers: {
-      sonnet: 'kimi-k2.6',
-      opus: 'kimi-k2.7-code',
-      haiku: 'kimi-k2.5',
+      sonnet: 'kimi-k2.7-code',
+      opus: 'kimi-k3',
+      haiku: 'kimi-k2.6',
     },
+    // Fallback for when the live list cannot be read. Synced with models.dev
+    // `moonshotai` on 2026-10-07: kimi-k3 added; kimi-k2, kimi-k2-0905-preview,
+    // kimi-k2-thinking and kimi-k2.5, no longer listed, removed.
     staticModels: [
       {
-        id: 'kimi-k2',
-        name: 'Kimi K2',
-        description: 'Flagship model (128K context)',
-        contextLength: 128000,
+        id: 'kimi-k3',
+        name: 'Kimi K3',
+        description: 'Latest flagship model (1M context)',
+        contextLength: 1048576,
         supportsToolUse: true,
-        inputCostPerToken: 0.23e-6, // $0.23 per 1M tokens
-        outputCostPerToken: 3e-6, // $3.00 per 1M tokens
-        cacheReadCostPerToken: 0.023e-6, // 10% of input
-        cacheCreationCostPerToken: 0.2875e-6, // 125% of input
-      },
-      {
-        id: 'kimi-k2-0905-preview',
-        name: 'Kimi K2 (0905)',
-        description: 'Preview release (256K context)',
-        contextLength: 256000,
-        supportsToolUse: true,
-        inputCostPerToken: 0.23e-6, // $0.23 per 1M tokens
-        outputCostPerToken: 3e-6, // $3.00 per 1M tokens
-        cacheReadCostPerToken: 0.023e-6, // 10% of input
-        cacheCreationCostPerToken: 0.2875e-6, // 125% of input
-      },
-      {
-        id: 'kimi-k2-thinking',
-        name: 'Kimi K2 Thinking',
-        description: 'Extended thinking model (256K context)',
-        contextLength: 256000,
-        supportsToolUse: true,
-        inputCostPerToken: 0.4e-6, // $0.40 per 1M tokens
-        outputCostPerToken: 1.75e-6, // $1.75 per 1M tokens
-        cacheReadCostPerToken: 0.04e-6, // 10% of input
-        cacheCreationCostPerToken: 0.5e-6, // 125% of input
-      },
-      {
-        id: 'kimi-k2.5',
-        name: 'Kimi K2.5',
-        description: 'Latest generation model (256K context)',
-        contextLength: 256000,
-        supportsToolUse: true,
-        inputCostPerToken: 0.23e-6, // $0.23 per 1M tokens
-        outputCostPerToken: 3e-6, // $3.00 per 1M tokens
-        cacheReadCostPerToken: 0.023e-6, // 10% of input
-        cacheCreationCostPerToken: 0.2875e-6, // 125% of input
+        inputCostPerToken: 3e-6, // $3.00 per 1M tokens
+        outputCostPerToken: 15e-6, // $15.00 per 1M tokens
+        cacheReadCostPerToken: 0.3e-6, // $0.30 per 1M tokens (cache hit)
+        cacheCreationCostPerToken: 3e-6, // $3.00 per 1M tokens
       },
       {
         id: 'kimi-k2.6',
