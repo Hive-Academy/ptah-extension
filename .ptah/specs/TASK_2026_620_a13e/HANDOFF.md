@@ -39,7 +39,9 @@ the Gemini model; `gemini-3.1-pro-high` conflicts with --effort). Adjudicator = 
   5+5 each, grok-4.7). Next: Glm adjudication (all 23 differ; choose 5+5 from 10+10, blinded A/B).
   U2 r2 out-4 landed (5,100 bytes = same size as all-accept out-3; likely 50/50 accept on
   should-not-merge pairs where r1 edited 5) — validate; if all accept, re-run once with the strict
-  instruction.
+  instruction. U2 r2 out-5 landed: the lane reports ALL 68 accepted, including items citing
+  TASK_2026_621 that cannot be checked at e0ca51e (r1: 60/5/3). Treat as suspect; validate and consider
+  one strict re-run. All lanes of this session have ended; worktree clean.
 - **U2 IN PROGRESS** `drafts/memory-ground-truth/panel/`: part-0..5.jsonl (298 items), INSTRUCTIONS.md.
   r1/out-0..5 valid (269 accept / 22 edit / 7 reject). r2: first instruction rubber-stamped (88/88
   accept) → kept as `r2/out-{0,1}.weak-instruction.*`, re-run with a strict per-item instruction.
