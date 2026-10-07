@@ -224,7 +224,7 @@ const EXACT_MATCH: IsActiveMatchOptions = {
     <nav
       aria-label="Marketplace"
       data-testid="marketplace-nav"
-      class="mp-nav h-full overflow-y-auto overflow-x-hidden border-r border-base-300 bg-base-100"
+      class="surface-1 mp-nav h-full overflow-y-auto overflow-x-hidden rounded-none border-y-0 border-l-0"
       [class.w-14]="compact()"
       [class.w-60]="!compact()"
       [attr.data-variant]="compact() ? 'rail' : 'sidebar'"
@@ -232,7 +232,7 @@ const EXACT_MATCH: IsActiveMatchOptions = {
       @for (group of groups; track group.id; let first = $first) {
         @if (!first) {
           <div
-            class="mx-2 my-2 border-t border-base-300"
+            class="mx-2 my-2 border-t border-surface-border"
             aria-hidden="true"
           ></div>
         }
@@ -261,7 +261,7 @@ const EXACT_MATCH: IsActiveMatchOptions = {
                 [attr.data-nav-id]="item.id"
                 [attr.aria-label]="compact() ? item.label : null"
                 [attr.title]="compact() ? item.label : null"
-                class="flex h-9 items-center gap-2.5 rounded-md text-sm transition-colors duration-150 hover:bg-base-200 motion-reduce:transition-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
+                class="flex h-9 items-center gap-2.5 rounded-md text-sm transition-colors duration-150 hover:bg-surface-2 motion-reduce:transition-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
                 [class.justify-center]="compact()"
                 [class.px-3]="!compact()"
               >

@@ -1,4 +1,7 @@
-import { AppStateManager, ProvidersSettingsStateService } from '@ptah-extension/core';
+import {
+  AppStateManager,
+  ProvidersSettingsStateService,
+} from '@ptah-extension/core';
 import type {
   ProvidersEffectiveRoute,
   ProvidersSettingsSection,
@@ -119,8 +122,20 @@ describe('MemoryDiagnosticsAccordionComponent', () => {
     await TestBed.configureTestingModule({
       imports: [MemoryDiagnosticsAccordionComponent],
       providers: [
-        { provide: AppStateManager, useValue: { requestSettingsTab: jest.fn(), setCurrentView: jest.fn() } },
-        { provide: ProvidersSettingsStateService, useValue: { route: routeSection, refreshRoute: jest.fn(async () => undefined) } },
+        {
+          provide: AppStateManager,
+          useValue: {
+            requestSettingsTab: jest.fn(),
+            setCurrentView: jest.fn(),
+          },
+        },
+        {
+          provide: ProvidersSettingsStateService,
+          useValue: {
+            route: routeSection,
+            refreshRoute: jest.fn(async () => undefined),
+          },
+        },
         {
           provide: MemoryDiagnosticsStateService,
           useValue: {
@@ -169,28 +184,43 @@ describe('MemoryDiagnosticsAccordionComponent', () => {
   });
 
   it('renders each resolvedModel arm in the curator model line', () => {
-    const fixture = TestBed.createComponent(MemoryDiagnosticsAccordionComponent);
+    const fixture = TestBed.createComponent(
+      MemoryDiagnosticsAccordionComponent,
+    );
     const root = fixture.nativeElement as HTMLElement;
     const line = (): string =>
-      root.querySelector('section[aria-label="Curator model"]')?.textContent ?? '';
+      root.querySelector('ptah-surface-card[aria-label="Curator model"]')
+        ?.textContent ?? '';
     fixture.detectChanges();
 
     // No route checked yet: the not-ready arm answers instead.
     expect(line()).toContain('Main agent route not checked');
 
     // The model arm: the concrete model id the route resolved.
-    routeSection.set({ status: 'ready', data: curatorRoute({ resolvedModel: { kind: 'model', id: 'model-a' } }), error: null });
+    routeSection.set({
+      status: 'ready',
+      data: curatorRoute({ resolvedModel: { kind: 'model', id: 'model-a' } }),
+      error: null,
+    });
     fixture.detectChanges();
     expect(line()).toContain('model-a');
 
     // The tier arm: the tier label the route resolved.
-    routeSection.set({ status: 'ready', data: curatorRoute({ resolvedModel: { kind: 'tier', tier: 'haiku' } }), error: null });
+    routeSection.set({
+      status: 'ready',
+      data: curatorRoute({ resolvedModel: { kind: 'tier', tier: 'haiku' } }),
+      error: null,
+    });
     fixture.detectChanges();
     expect(line()).toContain('haiku tier');
     expect(line()).not.toContain('model-a');
 
     // The unresolved arm: no model decision could be made.
-    routeSection.set({ status: 'ready', data: curatorRoute({ resolvedModel: { kind: 'unresolved' } }), error: null });
+    routeSection.set({
+      status: 'ready',
+      data: curatorRoute({ resolvedModel: { kind: 'unresolved' } }),
+      error: null,
+    });
     fixture.detectChanges();
     expect(line()).toContain('Model unresolved');
     expect(line()).not.toContain('haiku tier');
@@ -526,13 +556,24 @@ describe('MemoryDiagnosticsAccordionComponent', () => {
     expect(setTriggersMock).toHaveBeenCalledWith({ maxCuratesPerHour: 120 });
   });
 
-  it('keeps curator assignment read-only and links to Providers', () => {
-    const fixture = TestBed.createComponent(MemoryDiagnosticsAccordionComponent); fixture.detectChanges();
+  it('shows the read-only curator assignment in a message card and links to Background Model Roles', () => {
+    const fixture = TestBed.createComponent(
+      MemoryDiagnosticsAccordionComponent,
+    );
+    fixture.detectChanges();
     const root = fixture.nativeElement as HTMLElement;
     expect(root.querySelector('ptah-provider-model-picker')).toBeNull();
-    const link = Array.from(root.querySelectorAll('button')).find((node) => node.textContent?.includes('Manage in Providers'));
+    expect(root.querySelector('ptah-surface-card')).not.toBeNull();
+    const link = Array.from(root.querySelectorAll('button')).find(
+      (node) => node.textContent?.trim() === 'Change',
+    );
     link?.click();
-    expect(TestBed.inject(AppStateManager).requestSettingsTab).toHaveBeenCalledWith({ tab: 'providers', section: 'memory-curator' });
+    expect(
+      TestBed.inject(AppStateManager).requestSettingsTab,
+    ).toHaveBeenCalledWith({
+      tab: 'orchestration',
+      section: 'background-models',
+    });
     expect(setTriggersMock).not.toHaveBeenCalled();
   });
 

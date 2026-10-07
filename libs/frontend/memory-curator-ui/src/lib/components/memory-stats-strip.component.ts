@@ -27,7 +27,7 @@ export interface MemoryStatCounts {
       class="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5"
       aria-label="Memory tier statistics"
     >
-      <div class="stats bg-base-200/40 border border-base-content/10 shadow-sm">
+      <div class="surface-2 rounded-xl">
         <div class="stat p-4">
           <div class="stat-figure text-primary">
             <lucide-angular
@@ -46,7 +46,7 @@ export interface MemoryStatCounts {
         </div>
       </div>
 
-      <div class="stats bg-base-200/40 border border-base-content/10 shadow-sm">
+      <div class="surface-2 rounded-xl">
         <div class="stat p-4">
           <div class="stat-figure text-info">
             <lucide-angular
@@ -65,7 +65,7 @@ export interface MemoryStatCounts {
         </div>
       </div>
 
-      <div class="stats bg-base-200/40 border border-base-content/10 shadow-sm">
+      <div class="surface-2 rounded-xl">
         <div class="stat p-4">
           <div class="stat-figure text-base-content-muted">
             <lucide-angular
@@ -85,7 +85,7 @@ export interface MemoryStatCounts {
       </div>
 
       <div
-        class="stats bg-base-200/40 border border-base-content/10 shadow-sm"
+        class="surface-2 rounded-xl"
         title="Indexed code symbols (functions, classes, methods) — shown separately from curated memory"
       >
         <div class="stat p-4">
@@ -106,7 +106,7 @@ export interface MemoryStatCounts {
         </div>
       </div>
 
-      <div class="stats bg-base-200/40 border border-base-content/10 shadow-sm">
+      <div class="surface-2 rounded-xl">
         <div class="stat p-4">
           <div class="stat-figure text-base-content-muted">
             <lucide-angular

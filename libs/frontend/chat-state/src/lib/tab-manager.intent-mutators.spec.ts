@@ -1194,7 +1194,7 @@ describe('TabManagerService — intent-named mutators', () => {
         expect(budgetOf(id)).toBe(current);
       });
 
-      it('keeps the last budget when an accepted snapshot carries none', () => {
+      it('keeps the last budget when an accepted snapshot has no budget update', () => {
         const id = service.createTab('budget absent');
         service.attachSession(id, SESS_X);
         const current = budgetState(SESS_X, 1, 100);
@@ -1206,6 +1206,51 @@ describe('TabManagerService — intent-named mutators', () => {
         const tab = service.tabs().find((t) => t.id === id);
         expect(tab?.sessionStats).toBe(next);
         expect(tab?.sessionBudget).toBe(current);
+      });
+
+      it('clears the last budget when an accepted snapshot explicitly has no state', () => {
+        const id = service.createTab('budget explicitly absent');
+        service.attachSession(id, SESS_X);
+        const current = budgetState(SESS_X, 1, 100);
+        service.installSessionStats(id, sessionSnapshot(SESS_X, 1, 1), current);
+
+        service.installSessionStats(id, sessionSnapshot(SESS_X, 2, 2), null);
+
+        expect(budgetOf(id)).toBeNull();
+      });
+
+      it('clears a restored stale budget only for the explicit no-state marker', () => {
+        const id = TabId.create();
+        const restored = budgetState(SESS_X, 50, 5_000);
+        localStorage.setItem(
+          'ptah.tabs',
+          JSON.stringify({
+            version: 2,
+            activeTabId: id,
+            tabs: [
+              {
+                id,
+                claudeSessionId: SESS_X,
+                name: 'restored budget',
+                title: 'restored budget',
+                order: 0,
+                status: 'loaded',
+                isDirty: false,
+                lastActivityAt: 0,
+                messages: [],
+                streamingState: null,
+                sessionStats: sessionSnapshot(SESS_X, 50, 50),
+                sessionBudget: restored,
+              },
+            ],
+          }),
+        );
+        service.loadTabState();
+
+        service.installSessionStats(id, sessionSnapshot(SESS_X, 1, 1), null);
+
+        expect(budgetOf(id)).toBeNull();
+        localStorage.clear();
       });
 
       it('ignores a budget keyed to another session than its snapshot', () => {

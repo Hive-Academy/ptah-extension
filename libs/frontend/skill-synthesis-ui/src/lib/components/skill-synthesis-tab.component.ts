@@ -45,9 +45,7 @@ import {
   type SkillCandidateAction,
 } from './skill-candidates-table.component';
 import { SkillInvocationsPanelComponent } from './skill-invocations-panel.component';
-import {
-  SkillSettingsPanelComponent,
-} from './skill-settings-panel.component';
+import { SkillSettingsPanelComponent } from './skill-settings-panel.component';
 
 type ActionKind = 'promote' | 'reject';
 
@@ -107,11 +105,14 @@ interface ActionDialogState {
         >
       </div>
     } @else {
-      <div class="space-y-6">
-        <header class="mb-2 flex flex-wrap items-start justify-between gap-3">
+      <div
+        class="surface-1 flex flex-col gap-5 rounded-xl p-5"
+        data-testid="thoth-section-skills"
+      >
+        <header class="flex flex-wrap items-start justify-between gap-3">
           <div class="flex items-start gap-3">
             <span
-              class="mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-xl border border-base-content/10 bg-base-200/60 text-secondary"
+              class="mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-lg bg-surface-0 text-secondary"
             >
               <lucide-angular
                 [img]="SparklesIcon"
@@ -157,7 +158,7 @@ interface ActionDialogState {
         <div
           role="tablist"
           aria-label="Skills views"
-          class="tabs tabs-boxed tabs-sm w-fit bg-base-200 p-1"
+          class="tabs tabs-boxed tabs-sm w-fit bg-surface-2 p-1"
         >
           @for (v of subViews; track v.id) {
             <button
@@ -193,7 +194,7 @@ interface ActionDialogState {
                 <nav
                   role="tablist"
                   aria-label="Status filter"
-                  class="tabs tabs-boxed tabs-sm w-fit bg-base-200 p-1"
+                  class="tabs tabs-boxed tabs-sm w-fit bg-surface-2 p-1"
                 >
                   @for (f of filters; track f.id) {
                     <button
@@ -213,7 +214,7 @@ interface ActionDialogState {
                 <nav
                   role="tablist"
                   aria-label="Project scope"
-                  class="tabs tabs-boxed tabs-sm w-fit bg-base-200 p-1"
+                  class="tabs tabs-boxed tabs-sm w-fit bg-surface-2 p-1"
                 >
                   @for (s of scopes; track s.id) {
                     <button
@@ -282,7 +283,7 @@ interface ActionDialogState {
 
               @if (selectedCount() > 0) {
                 <div
-                  class="flex flex-wrap items-center gap-2 rounded-lg border border-base-300 bg-base-200/60 px-3 py-2"
+                  class="surface-2 flex flex-wrap items-center gap-2 rounded-lg px-3 py-2"
                   data-testid="skills-bulk-toolbar"
                 >
                   <span class="text-sm font-medium">
@@ -491,8 +492,11 @@ interface ActionDialogState {
                 [loading]="digestLoading()"
               />
 
-              <div class="card border border-base-300 bg-base-200/40">
-                <div class="card-body gap-3 p-4">
+              <div
+                class="surface-2 rounded-xl p-4"
+                data-testid="thoth-section-skills-orchestration"
+              >
+                <div class="flex flex-col gap-3">
                   <div class="flex items-center justify-between gap-2">
                     <div>
                       <h3 class="text-sm font-semibold">Orchestration specs</h3>
@@ -842,7 +846,6 @@ export class SkillSynthesisTabComponent implements OnInit {
   });
 
   public readonly settingsLoaded = signal<boolean>(false);
-
 
   public readonly toast = signal<{
     message: string;

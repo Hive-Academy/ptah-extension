@@ -36,3 +36,4 @@
 export * from './lib/overlays';
 export * from './lib/selection';
 export * from './lib/native';
+export * from './lib/surfaces';

@@ -60,7 +60,7 @@ import { DROPDOWN_POSITIONS } from '../shared/overlay-positions';
       (detach)="handleDetach()"
     >
       <div
-        class="dropdown-panel bg-base-200 border border-base-300 rounded-lg shadow-lg"
+        class="dropdown-panel surface-3 rounded-xl p-1.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[oklch(var(--s))]"
       >
         <ng-content select="[content]" />
       </div>

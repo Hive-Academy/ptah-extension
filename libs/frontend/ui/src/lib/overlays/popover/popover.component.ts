@@ -66,7 +66,7 @@ import { POPOVER_POSITION_MAP } from '../shared/overlay-positions';
     >
       <div
         #popoverContent
-        class="popover-panel bg-base-200 border border-base-300 rounded-lg shadow-xl"
+        class="popover-panel surface-3 rounded-xl p-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[oklch(var(--s))]"
         tabindex="-1"
         (keydown.escape)="handleEscape()"
       >

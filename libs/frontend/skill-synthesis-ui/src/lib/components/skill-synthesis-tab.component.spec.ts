@@ -484,13 +484,13 @@ describe('SkillSynthesisTabComponent', () => {
 
     const root = fixture.nativeElement as HTMLElement;
     expect(
-      root.querySelector('[data-testid="skills-pipeline-status"]'),
+      root.querySelector('[data-testid="thoth-section-skills-pipeline"]'),
     ).toBeNull();
 
     openActivity(fixture);
 
     expect(
-      root.querySelector('[data-testid="skills-pipeline-status"]'),
+      root.querySelector('[data-testid="thoth-section-skills-pipeline"]'),
     ).toBeTruthy();
   });
 
@@ -523,7 +523,9 @@ describe('SkillSynthesisTabComponent', () => {
     openActivity(fixture);
 
     const root = fixture.nativeElement as HTMLElement;
-    const strip = root.querySelector('[data-testid="skills-pipeline-status"]');
+    const strip = root.querySelector(
+      '[data-testid="thoth-section-skills-pipeline"]',
+    );
     expect(strip).toBeTruthy();
     const text = strip?.textContent ?? '';
     expect(text).toContain('Last analysis:');
@@ -557,7 +559,7 @@ describe('SkillSynthesisTabComponent', () => {
     openActivity(fixture);
 
     const strip = (fixture.nativeElement as HTMLElement).querySelector(
-      '[data-testid="skills-pipeline-status"]',
+      '[data-testid="thoth-section-skills-pipeline"]',
     );
     expect(strip?.textContent ?? '').toContain('never');
   });

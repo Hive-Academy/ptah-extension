@@ -74,6 +74,11 @@ export const CLI_TARGET_BRANDS: Readonly<
 export const PROVIDER_BRAND_SLUGS: Readonly<Record<string, string>> = {
   anthropic: 'anthropic',
   'claude-cli': 'claude',
+  codex: 'openai',
+  cursor: 'cursor',
+  copilot: 'github-copilot',
+  antigravity: 'google-gemini',
+  opencode: 'opencode',
 };
 
 /**

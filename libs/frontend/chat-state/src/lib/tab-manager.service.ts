@@ -140,17 +140,18 @@ export interface ClosedTabEvent {
 }
 
 /**
- * The `sessionBudget` part of an accepted snapshot's tab update. An absent
- * budget, or one keyed to another session than the snapshot, leaves the tab's
- * last budget in place.
+ * The `sessionBudget` part of an accepted snapshot's tab update. An omitted
+ * budget is a degraded/no-update result and keeps the last card; `null` is the
+ * explicit no-state marker used to clear a card restored after a host reload.
  */
 function budgetPatch(
   snapshot: SessionStatsEntry,
-  budget: SessionBudgetState | undefined,
-): { sessionBudget?: SessionBudgetState } {
+  budget: SessionBudgetState | null | undefined,
+): Partial<Pick<TabState, 'sessionBudget'>> {
+  if (budget === undefined) return {};
   return budget?.sessionId === snapshot.sessionId
     ? { sessionBudget: budget }
-    : {};
+    : { sessionBudget: null };
 }
 
 /**
@@ -2245,12 +2246,12 @@ export class TabManagerService {
    * delayed history read must not regress the panel.
    *
    * `budget` is the session budget computed from this snapshot. It installs in
-   * the same update and is dropped with it; an absent budget keeps the last.
+   * the same update and is dropped with it; an absent budget clears the last.
    */
   installSessionStats(
     tabId: string,
     snapshot: SessionStatsEntry,
-    budget?: SessionBudgetState,
+    budget?: SessionBudgetState | null,
   ): void {
     if (!this.acceptSessionStats(tabId, snapshot)) return;
     this.updateTabInternal(tabId, {
@@ -2269,6 +2270,13 @@ export class TabManagerService {
     const tab = this.findTabByIdAcrossWorkspaces(tabId)?.tab;
     if (!tab || tab.claudeSessionId !== budget.sessionId) return;
     this.updateTabInternal(tabId, { sessionBudget: budget });
+  }
+
+  /** Clear a tab's budget only when it still belongs to the expected session. */
+  clearSessionBudget(tabId: string, sessionId: string): void {
+    const tab = this.findTabByIdAcrossWorkspaces(tabId)?.tab;
+    if (!tab || tab.claudeSessionId !== sessionId) return;
+    this.updateTabInternal(tabId, { sessionBudget: null });
   }
 
   /**
@@ -2301,7 +2309,7 @@ export class TabManagerService {
     tabId: string,
     stats: SessionStatsEntry,
     sessionModel: string | null,
-    budget?: SessionBudgetState,
+    budget?: SessionBudgetState | null,
   ): void {
     // Keep the model visible until the loader applies the independent history frame.
     // A legacy model-only record establishes neither numerator nor capacity.

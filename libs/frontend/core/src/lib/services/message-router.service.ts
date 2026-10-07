@@ -14,9 +14,9 @@
  * - The `message` listener is attached outside Angular, so an inbound event
  *   does not enter the zone. It only appends to a FIFO queue.
  * - One macrotask (`scheduleMacrotask`, a `MessageChannel` message) drains the
- *   queue inside ONE `ngZone.run`, so a burst of N messages (typical after a
- *   main-process stall) costs one zone entry and one change-detection pass
- *   instead of N.
+ *   queue. Signal-only stream messages stay outside Angular; a drain that
+ *   contains any zone-required message uses at most one `ngZone.run`.
+ *   Therefore a burst of streaming chunks does not schedule a Zone tick.
  * - `NgZone` is always injectable: the Zone-based webview shell gets the real
  *   zone, a zoneless host gets the no-op zone whose `run` /
  *   `runOutsideAngular` just call the function. Nothing here depends on
@@ -67,6 +67,18 @@ interface InboundMessage {
  * "RPC ordering" in the file header.
  */
 const LISTENER_OPTIONS: AddEventListenerOptions = { capture: true };
+
+/**
+ * These are the only inbound message types proven safe to dispatch outside
+ * Angular. Both flow through ChatMessageHandler into signal-backed stream
+ * state; Angular 22 schedules views that consume those signals independently
+ * of Zone stabilization. Keep this deliberately small: unknown/new types
+ * default to the Zone until their handler contract has been audited.
+ */
+const SIGNAL_ONLY_STREAM_TYPES = new Set<string>([
+  MESSAGE_TYPES.CHAT_CHUNK,
+  MESSAGE_TYPES.AGENT_SUMMARY_CHUNK,
+]);
 
 /** `payload.events` of a well-formed BATCH envelope, or `null`. */
 function batchEvents(message: { payload?: unknown }): unknown[] | null {
@@ -195,31 +207,60 @@ export class MessageRouterService {
     if (handle && this.drainScheduled) this.drainHandle = handle;
   }
 
-  /**
-   * Dispatch every message queued before this call, in arrival order, inside
-   * one zone entry. Anything enqueued during the drain gets its own drain.
-   */
+  /** Dispatch queued messages in arrival order; later arrivals get a new drain. */
   private drain(): void {
     if (this.destroyed || this.draining || this.queue.length === 0) return;
     const pending = this.queue;
     this.queue = [];
     this.draining = true;
     try {
-      this.ngZone.run(() => {
-        for (const message of pending) {
-          if (message.type === MESSAGE_TYPES.BATCH) {
-            this.dispatchBatch(message);
-          } else {
-            this.dispatchGuarded(message);
-          }
-        }
-      });
+      if (pending.some((message) => this.requiresZone(message))) {
+        // One entry at most, even when zone-required and signal-only messages
+        // are interleaved. Nested runOutsideAngular keeps the latter's handler
+        // contract truthful without changing FIFO/BATCH expansion ordering.
+        this.ngZone.run(() => this.dispatchPending(pending));
+      } else {
+        this.ngZone.runOutsideAngular(() => this.dispatchPending(pending));
+      }
     } finally {
       this.draining = false;
     }
     if (this.queue.length > 0) {
       this.scheduleDrain();
     }
+  }
+
+  private dispatchPending(pending: readonly InboundMessage[]): void {
+    for (const message of pending) {
+      const dispatch = () => {
+        if (message.type === MESSAGE_TYPES.BATCH) {
+          this.dispatchBatch(message);
+        } else {
+          this.dispatchGuarded(message);
+        }
+      };
+      if (this.requiresZone(message)) {
+        dispatch();
+      } else {
+        this.ngZone.runOutsideAngular(dispatch);
+      }
+    }
+  }
+
+  /** Unknown, malformed, and non-stream messages are conservative by default. */
+  private requiresZone(message: InboundMessage | BatchedStreamEvent): boolean {
+    if (message.type !== MESSAGE_TYPES.BATCH) {
+      return !SIGNAL_ONLY_STREAM_TYPES.has(message.type);
+    }
+    const events = batchEvents(message);
+    if (!events) return true;
+    return events.some(
+      (event) =>
+        !event ||
+        typeof event !== 'object' ||
+        typeof (event as { type?: unknown }).type !== 'string' ||
+        this.requiresZone(event as BatchedStreamEvent),
+    );
   }
 
   /**

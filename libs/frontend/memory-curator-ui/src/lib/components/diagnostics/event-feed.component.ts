@@ -24,9 +24,9 @@ const MAX_ROWS = 10;
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="rounded-md border border-base-300 bg-base-100">
+    <div class="surface-2 overflow-hidden rounded-lg">
       <header
-        class="border-b border-base-300 px-3 py-2 text-sm font-semibold text-base-content"
+        class="border-b border-surface-border px-3 py-2 text-sm font-semibold text-base-content"
       >
         Recent events
       </header>

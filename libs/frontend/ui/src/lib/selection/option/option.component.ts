@@ -38,10 +38,11 @@ import { Highlightable } from '@angular/cdk/a11y';
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: {
     '[id]': 'optionId()',
-    class: 'block px-3 py-2 rounded-md cursor-pointer transition-colors',
+    class:
+      'block cursor-pointer rounded-md px-3 py-2 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[oklch(var(--s))]',
     '[class.bg-primary]': 'isActive()',
     '[class.text-primary-content]': 'isActive()',
-    '[class.hover:bg-base-300]': '!isActive()',
+    '[class.hover:bg-surface-2]': '!isActive()',
     '(click)': 'handleClick()',
     '(mouseenter)': 'hovered.emit()',
     role: 'option',
