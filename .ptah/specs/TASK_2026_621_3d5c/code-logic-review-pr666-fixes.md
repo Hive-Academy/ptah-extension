@@ -55,3 +55,30 @@ Blocking: 0. Serious: 1. Moderate: 2. Minor: 3.
 
 ## Verdict
 REVISE. All four items are closed against the CodeRabbit comments, the CI failure and the specs. Finding 1 means the re-admission fix can silently fail for exactly the workspaces that need it, and finding 2 leaves the failedPasses clear incorrect for the coalesced path.
+
+---
+
+# Round 2 (commit 9ec626df3)
+
+Test evidence (scoped, `--skip-nx-cache`, boot-scan|memory-trigger|memory-retention): `Test Suites: 10 passed, 10 total`; `Tests:       241 passed, 241 total`; exit 0. `nx run degradation-audit:lint` exit 0 (it lists the baseline; no new ledger entries).
+
+## Closure of Round 1 findings
+- Finding 1 (SERIOUS, paging) - CLOSED. boot-scan-runner.ts:214-243 pages `listGivenUp` with OFFSET (ledger :70, :160). Only a present file with a changed mtime increments `reopened`, so missing, unreadable or unchanged rows do not consume the 20-admission cap. Termination holds: the loop ends on an empty page, a short page (`page.length < 20`), the cap, or the ledger returning [] on error. The rows do not change during the loop, so the offsets are stable. A new spec pins a changed row after 20 missing rows, and another that an unchanged mtime is not admitted.
+- Finding 2 (MODERATE, premature clear) - CLOSED. `tryEpisodeCurate` returns null for coalesced, empty, backoff and rate-limited paths (memory-trigger.service.ts:726-762). `flushSessionEnd` only attaches the settle handler when a pass actually started (:495-507). `endingSessions` is registered immediately before `invokeCurate` (:792), so rekey tracking still works. The spec shows a coalesced end keeps the live pass's count (1 -> 2).
+- Finding 3 (MODERATE, episode leak) - CLOSED. Session-end failed and stalled outcomes no longer reattach (:926, :939). Other sources keep their reattach. Spec pins an empty episode after a failed end pass.
+- Finding 4 (MINOR, thrown run) - CLOSED. The catch records the failure through the ledger cap (boot-scan-runner.ts:350-368). A record failure stops the scan below the item, like the 'failed' branch. This also fixes a latent loss: before, a thrown item was skipped while later successes advanced the watermark past it.
+- Finding 5 (MINOR, rejection/leak) - CLOSED. Drain and compose moved inside the try, so `inFlightCurates` is released in `finally` (:912-918). The settle handler uses `then(ok, err)` and neither side throws. `endingSessions` is no longer set before a possible synchronous throw.
+- Finding 6 (MINOR, tests) - CLOSED: unchanged-mtime, missing-file budget, thrown-run and hard-stop (`stuckKept: null`) specs added.
+
+## Thrown-run accounting, give-up risk
+A thrown run now counts as an attempt, the same as the existing 'failed' outcome and as the retry path (retryFailures treats a throw as 'failed'). Three attempts across boots is the existing cap, so it is not a new class of risk. Before, a throw was permanent loss once the watermark passed, which is strictly worse. A reopened given_up row starts at attempt 1.
+
+## New findings
+1. MINOR - boot-scan-runner.ts:214-243. The paging bound is the number of terminal rows rather than a constant: one `stat` per given_up row per boot when no row changed. This is cheap and linear in a table that only grows slowly, but there is no cap and no pruning of missing-file rows. Suggest a hard page ceiling or pruning later.
+2. MINOR - boot-scan-runner.ts:350. A shutdown abort mid-run can surface as a thrown or failed pass and burn one of the three attempts, so repeated shutdowns during a scan could give a session up until its file changes. The 'failed' path already behaved this way (recordError on abort at memory-curator.service.ts:754), so the throw route only matches it. Consider not recording a failure when `options.signal?.aborted`.
+
+## Counts
+Blocking 0, Serious 0, Moderate 0, Minor 2.
+
+## Verdict (Round 2)
+APPROVED. Every Round 1 finding is closed with evidence, the paging is bounded in loop control and cannot loop forever, and nothing new broke.
