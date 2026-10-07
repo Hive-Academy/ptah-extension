@@ -91,6 +91,8 @@ export const MemoryTriggersSchema = z.object({
 
 export const MemorySetTriggersParamsSchema = z.object({
   triggers: MemoryTriggersSchema.partial(),
+  /** `memory.enabled` — the memory pause switch. Omitted → unchanged. */
+  enabled: z.boolean().optional(),
 });
 
 export const MemoryGetTriggersParamsSchema = z.object({}).strict().optional();

@@ -285,8 +285,6 @@ interface ICuratorService {
     skippedPinned: number;
     suggestionsCreated: number;
   }>;
-  start(settings: SkillSynthesisSettings): void;
-  stop(): void;
   acceptSuggestion(
     id: string,
     settings: SkillSynthesisSettings,
@@ -658,15 +656,16 @@ export class SkillsSynthesisRpcHandlers {
             value,
           );
         }
-        if (curatorAffected && this.curator) {
-          const newSettings = this.synthesis.readSettings();
-          this.curator.stop();
-          this.curator.start(newSettings);
+        if (curatorAffected) {
+          // The service restarts the curator with the same pass/event
+          // callbacks `start()` wires, so passes after a settings change are
+          // still recorded and pushed (TASK_2026_620 B-P, S13).
+          this.synthesis.restartCurator();
           this.logger.debug(
             '[skill-synthesis] curator restarted after settings update',
             {
-              curatorEnabled: newSettings.curatorEnabled,
-              curatorIntervalHours: newSettings.curatorIntervalHours,
+              curatorEnabled: parsed.settings.curatorEnabled,
+              curatorIntervalHours: parsed.settings.curatorIntervalHours,
             },
           );
         }
@@ -730,6 +729,7 @@ export class SkillsSynthesisRpcHandlers {
       SkillSynthesisRunCuratorParams,
       SkillSynthesisRunCuratorResult
     >('skillSynthesis:runCurator', async () => {
+      this.assertSkillsNotPaused('skillSynthesis:runCurator');
       try {
         RunCuratorParamsSchema.parse({});
         if (!this.curator) {
@@ -843,6 +843,7 @@ export class SkillsSynthesisRpcHandlers {
           'INVALID_PARAMS',
         );
       }
+      this.assertSkillsNotPaused('skillSynthesis:analyzeNow');
       const startedAt = Date.now();
       try {
         const result = await this.synthesis.analyzeSession(
@@ -1102,6 +1103,7 @@ export class SkillsSynthesisRpcHandlers {
         params,
         'skillSynthesis:enhanceNow',
       );
+      this.assertSkillsNotPaused('skillSynthesis:enhanceNow');
       try {
         const enhancer = this.requireDesktop(this.enhancer);
         const registry = this.requireDesktop(this.registry);
@@ -1152,6 +1154,7 @@ export class SkillsSynthesisRpcHandlers {
         params,
         'skillSynthesis:previewEnhancement',
       );
+      this.assertSkillsNotPaused('skillSynthesis:previewEnhancement');
       try {
         const enhancer = this.requireDesktop(this.enhancer);
         const registry = this.requireDesktop(this.registry);
@@ -2645,6 +2648,27 @@ export class SkillsSynthesisRpcHandlers {
     // `SkillListCandidatesParamsSchema` rejects anything else at the boundary,
     // the assertion has nothing left to assert.
     return this.store.listByStatus(filter, workspaceRoot);
+  }
+
+  /**
+   * Refuses a manual run while `skillSynthesis.enabled` is off (TASK_2026_620
+   * B-P, user decision 3): the pause switch stops all skills model work, the
+   * user-initiated kind included. Read live on every call so a tray, CLI or
+   * hand edit applies at once. Only an explicit `false` pauses; an unset or
+   * malformed value is the default (on), as `readSettings` resolves it.
+   * Thrown before any `try` so a refusal is never reported as a failure.
+   */
+  private assertSkillsNotPaused(method: RpcMethodName): void {
+    const enabled = this.workspaceProvider.getConfiguration<unknown>(
+      'ptah',
+      'skillSynthesis.enabled',
+      FILE_BASED_SETTINGS_DEFAULTS['skillSynthesis.enabled'],
+    );
+    if (enabled !== false) return;
+    this.logger.info('[skill-synthesis] manual run refused — skills paused', {
+      method,
+    });
+    throw new RpcUserError('Skill synthesis is paused', 'PAUSED');
   }
 
   private report(error: unknown, errorSource: string): void {

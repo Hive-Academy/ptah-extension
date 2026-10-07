@@ -97,6 +97,7 @@ function makeSynthesis() {
   return {
     analyzeSession: jest.fn(),
     readSettings: jest.fn().mockReturnValue({}),
+    restartCurator: jest.fn(),
     promote: jest.fn(),
     promoteBulk: jest.fn().mockResolvedValue([]),
     reject: jest.fn(),
@@ -4812,5 +4813,193 @@ describe('SkillsSynthesisRpcHandlers — agent models get / set (C6)', () => {
     ).rejects.toMatchObject({ errorCode: 'PERSISTENCE_UNAVAILABLE' });
     expect(h.memory.snapshot()).toBe(before);
     expect(h.sentry.captureException).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// TASK_2026_620 B-P — the skills pause switch and the curator restart
+// ---------------------------------------------------------------------------
+
+describe('SkillsSynthesisRpcHandlers — manual runs while skills are paused', () => {
+  const cloneRow = {
+    slug: 'deep-research',
+    kind: 'skill' as const,
+    userPath: '/home/.ptah/user/skills/deep-research',
+    originPluginId: 'research-pack',
+    originVersion: '1.0.0',
+    sourceHash: 'sha256:aaa',
+    cloneStatus: 'clone' as const,
+    diverged: false,
+    historyDir: null,
+    lastEnhancedAt: null,
+    candidateId: null,
+    pendingSourceHash: null,
+    createdAt: 1690000000000,
+    updatedAt: 1700000000000,
+  };
+
+  /** `enabled` undefined → the key is not stored, so the default applies. */
+  function buildWithSwitch(enabled: boolean | undefined) {
+    const built = buildHandlersWithSuggestions();
+    if (enabled !== undefined) {
+      built.workspaceProvider.__state.config.set(
+        'ptah.skillSynthesis.enabled',
+        enabled,
+      );
+    }
+    built.registry.getBySlug.mockReturnValue(cloneRow);
+    built.synthesis.analyzeSession.mockResolvedValue(null);
+    built.enhancer.enhance.mockResolvedValue({
+      changed: false,
+      slug: 'deep-research',
+      kind: 'skill',
+      judgeScore: null,
+      judgeReason: null,
+      historyTs: null,
+    });
+    built.enhancer.generateProposal.mockResolvedValue({
+      proposed: false,
+      slug: 'deep-research',
+      kind: 'skill',
+      currentBody: 'OLD',
+      proposedBody: null,
+      judgeScore: null,
+      judgeReason: null,
+      proposalId: null,
+    });
+    return built;
+  }
+
+  type Built = ReturnType<typeof buildWithSwitch>;
+
+  const cases: ReadonlyArray<{
+    method:
+      | 'skillSynthesis:runCurator'
+      | 'skillSynthesis:analyzeNow'
+      | 'skillSynthesis:enhanceNow'
+      | 'skillSynthesis:previewEnhancement';
+    params: Record<string, unknown>;
+    work: (b: Built) => jest.Mock;
+  }> = [
+    {
+      method: 'skillSynthesis:runCurator',
+      params: {},
+      work: (b) => b.curator.runManual,
+    },
+    {
+      method: 'skillSynthesis:analyzeNow',
+      params: { sessionId: 'sess-1', workspaceRoot: '/workspace/project' },
+      work: (b) => b.synthesis.analyzeSession,
+    },
+    {
+      method: 'skillSynthesis:enhanceNow',
+      params: { kind: 'skill', slug: 'deep-research' },
+      work: (b) => b.enhancer.enhance,
+    },
+    {
+      method: 'skillSynthesis:previewEnhancement',
+      params: { kind: 'skill', slug: 'deep-research' },
+      work: (b) => b.enhancer.generateProposal,
+    },
+  ];
+
+  it.each(cases)(
+    '$method throws PAUSED and does no work when skillSynthesis.enabled is false',
+    async ({ method, params, work }) => {
+      const built = buildWithSwitch(false);
+
+      let thrown: unknown;
+      try {
+        await built.rpcHandler.call(method, params);
+      } catch (err) {
+        thrown = err;
+      }
+
+      expect(thrown).toBeInstanceOf(RpcUserError);
+      expect((thrown as RpcUserError).errorCode).toBe('PAUSED');
+      expect(work(built)).not.toHaveBeenCalled();
+      // A refusal is the switch working, not a failure to report.
+      expect(built.sentry.captureException).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(cases)(
+    '$method runs when skillSynthesis.enabled is true',
+    async ({ method, params, work }) => {
+      const built = buildWithSwitch(true);
+
+      await built.rpcHandler.call(method, params);
+
+      expect(work(built)).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it.each(cases)(
+    '$method runs when skillSynthesis.enabled is unset (default on)',
+    async ({ method, params, work }) => {
+      const built = buildWithSwitch(undefined);
+
+      await built.rpcHandler.call(method, params);
+
+      expect(work(built)).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it('analyzeNow reports INVALID_PARAMS before the pause check', async () => {
+    const built = buildWithSwitch(false);
+
+    await expect(
+      built.rpcHandler.call('skillSynthesis:analyzeNow', { sessionId: '' }),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+  });
+});
+
+describe('SkillsSynthesisRpcHandlers — updateSettings curator restart', () => {
+  it('a curatorIntervalHours change restarts the curator through the service', async () => {
+    const { rpcHandler, synthesis, curator, workspaceProvider } =
+      buildHandlersWithSuggestions();
+
+    await rpcHandler.call('skillSynthesis:updateSettings', {
+      settings: { curatorIntervalHours: 12 },
+    });
+
+    expect(
+      workspaceProvider.__state.config.get(
+        'ptah.skillSynthesis.curatorIntervalHours',
+      ),
+    ).toBe(12);
+    expect(synthesis.restartCurator).toHaveBeenCalledTimes(1);
+    // The RPC no longer stops/starts the curator itself; that path dropped the
+    // pass/event callbacks `SkillSynthesisService.start()` wires (S13).
+    expect(curator.stop).not.toHaveBeenCalled();
+    expect(curator.start).not.toHaveBeenCalled();
+  });
+
+  it('a curatorEnabled change restarts the curator through the service', async () => {
+    const { rpcHandler, synthesis } = buildHandlersWithSuggestions();
+
+    await rpcHandler.call('skillSynthesis:updateSettings', {
+      settings: { curatorEnabled: false },
+    });
+
+    expect(synthesis.restartCurator).toHaveBeenCalledTimes(1);
+  });
+
+  it('the pause switch alone writes skillSynthesis.enabled and does not restart the curator', async () => {
+    const { rpcHandler, synthesis, workspaceProvider } =
+      buildHandlersWithSuggestions();
+    const setSpy = jest.spyOn(workspaceProvider, 'setConfiguration');
+
+    await rpcHandler.call('skillSynthesis:updateSettings', {
+      settings: { enabled: false },
+    });
+
+    expect(setSpy).toHaveBeenCalledTimes(1);
+    expect(setSpy).toHaveBeenCalledWith(
+      'ptah',
+      'skillSynthesis.enabled',
+      false,
+    );
+    expect(synthesis.restartCurator).not.toHaveBeenCalled();
   });
 });

@@ -2094,3 +2094,119 @@ describe('MemoryRpcHandlers — dual-registration smoke', () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// TASK_2026_620 B-P — the memory pause switch (`memory.enabled`)
+// ---------------------------------------------------------------------------
+
+describe('MemoryRpcHandlers — memory pause switch', () => {
+  it('setTriggers { triggers: {}, enabled: false } writes only memory.enabled', async () => {
+    const { rpcHandler, workspaceProvider } = buildHandlers([
+      '/workspace/project',
+    ]);
+    const setSpy = jest.spyOn(workspaceProvider, 'setConfiguration');
+
+    const result = await rpcHandler.call('memory:setTriggers', {
+      triggers: {},
+      enabled: false,
+    });
+
+    expect(setSpy).toHaveBeenCalledTimes(1);
+    expect(setSpy).toHaveBeenCalledWith('ptah', 'memory.enabled', false);
+    expect(result).toMatchObject({ enabled: false });
+  });
+
+  it('setTriggers without enabled leaves memory.enabled untouched', async () => {
+    const { rpcHandler, workspaceProvider } = buildHandlers([
+      '/workspace/project',
+    ]);
+    workspaceProvider.__state.config.set('ptah.memory.enabled', false);
+    const setSpy = jest.spyOn(workspaceProvider, 'setConfiguration');
+
+    const result = await rpcHandler.call('memory:setTriggers', {
+      triggers: { bootScan: false },
+    });
+
+    expect(setSpy).toHaveBeenCalledTimes(1);
+    expect(setSpy).toHaveBeenCalledWith(
+      'ptah',
+      'memory.triggers.bootScan',
+      false,
+    );
+    expect(result).toMatchObject({ enabled: false });
+  });
+
+  it('getTriggers returns enabled: true by default and the stored value after a pause', async () => {
+    const { rpcHandler } = buildHandlers(['/workspace/project']);
+
+    expect(await rpcHandler.call('memory:getTriggers', {})).toMatchObject({
+      enabled: true,
+    });
+
+    await rpcHandler.call('memory:setTriggers', {
+      triggers: {},
+      enabled: false,
+    });
+
+    expect(await rpcHandler.call('memory:getTriggers', {})).toMatchObject({
+      enabled: false,
+    });
+  });
+
+  it('setTriggers rejects a non-boolean enabled with INVALID_PARAMS and writes nothing', async () => {
+    const { rpcHandler, workspaceProvider } = buildHandlers([
+      '/workspace/project',
+    ]);
+    const setSpy = jest.spyOn(workspaceProvider, 'setConfiguration');
+
+    await expect(
+      rpcHandler.call('memory:setTriggers', {
+        triggers: {},
+        enabled: 'false',
+      } as unknown),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+    expect(setSpy).not.toHaveBeenCalled();
+  });
+
+  it('runNow throws PAUSED and does not curate while memory is paused', async () => {
+    const { rpcHandler, curator, workspaceProvider } = buildHandlers([
+      '/workspace/project',
+    ]);
+    workspaceProvider.__state.config.set('ptah.memory.enabled', false);
+
+    await expect(
+      rpcHandler.call('memory:runNow', {
+        sessionId: 'sess-1',
+        workspaceRoot: '/workspace/project',
+      }),
+    ).rejects.toMatchObject({ errorCode: 'PAUSED' });
+    expect(curator.curate).not.toHaveBeenCalled();
+    expect(curator.pushEvent).not.toHaveBeenCalled();
+  });
+
+  it('runNow curates once memory is resumed', async () => {
+    const { rpcHandler, curator, workspaceProvider } = buildHandlers([
+      '/workspace/project',
+    ]);
+    workspaceProvider.__state.config.set('ptah.memory.enabled', false);
+    await rpcHandler.call('memory:setTriggers', {
+      triggers: {},
+      enabled: true,
+    });
+    curator.curate.mockResolvedValue({
+      outcome: 'ran',
+      extracted: 0,
+      merged: 0,
+      created: 0,
+      skipped: 0,
+    });
+
+    const result = await rpcHandler.call('memory:runNow', {
+      sessionId: 'sess-1',
+      workspaceRoot: '/workspace/project',
+    });
+
+    expect(curator.curate).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({ success: true });
+  });
+});
