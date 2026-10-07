@@ -37,8 +37,11 @@
  */
 
 import { spawn } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
+import * as fs from 'node:fs';
 import { readdir, readFile, readlink } from 'node:fs/promises';
-import { resolve } from 'node:path';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 
 export interface ProcessEntry {
   readonly pid: number;
@@ -139,8 +142,15 @@ const PROBE_TIMEOUT_MS = 60_000;
 const PER_HANDLE_TIMEOUT_MS = 250;
 
 /** Written for the C# 5 compiler Windows PowerShell 5.1 ships with. */
-const WINDOWS_PROBE_SCRIPT = String.raw`
+export const WINDOWS_PROBE_SCRIPT = String.raw`
 $ErrorActionPreference = 'Stop'
+$ProgressPreference = 'SilentlyContinue'
+$WarningPreference = 'SilentlyContinue'
+$InformationPreference = 'SilentlyContinue'
+try {
+  [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
+  [Console]::InputEncoding = New-Object System.Text.UTF8Encoding($false)
+} catch { }
 Add-Type -TypeDefinition @'
 using System;
 using System.Collections.Generic;
@@ -307,7 +317,8 @@ class WindowsHandleProbe implements HandleProbe {
   readonly platform = 'win32' as const;
 
   async holders(paths: readonly string[]): Promise<HoldersResult> {
-    const reply = parseReply(await runWindowsProbe({ mode: 'holders', paths }));
+    const { stdout, stderr } = await runWindowsProbe({ mode: 'holders', paths });
+    const reply = parseReply(stdout, stderr);
     const holders = new Map<string, number[]>();
     for (const item of asList(reply['holders'])) {
       const entry = item as Record<string, unknown>;
@@ -322,13 +333,15 @@ class WindowsHandleProbe implements HandleProbe {
   }
 
   async treeOpenPaths(rootPid: number): Promise<TreeOpenPathsResult> {
+    const { stdout, stderr } = await runWindowsProbe({
+      mode: 'tree',
+      rootPid,
+      perHandleTimeoutMs: PER_HANDLE_TIMEOUT_MS,
+    });
     return parseWindowsTreeReply(
       rootPid,
-      await runWindowsProbe({
-        mode: 'tree',
-        rootPid,
-        perHandleTimeoutMs: PER_HANDLE_TIMEOUT_MS,
-      }),
+      stdout,
+      stderr,
     );
   }
 }
@@ -344,9 +357,11 @@ function splitPidLine(line: unknown): [number, string] | null {
 /** The win32 probe's tree reply (stdout JSON) as a {@link TreeOpenPathsResult}. */
 export function parseWindowsTreeReply(
   rootPid: number,
-  stdout: string,
+  stdout: string | Buffer,
+  stderr = '',
+  writeDiagnosticFile: ProbeDiagnosticWriter = writeProbeDiagnosticFile,
 ): TreeOpenPathsResult {
-  const reply = parseReply(stdout);
+  const reply = parseReply(stdout, stderr, writeDiagnosticFile);
   const processes = parseProcesses(reply['processes']);
   const treePids = processTree(rootPid, processes);
   const open = asList(reply['open']).flatMap((line): OpenPath[] => {
@@ -371,7 +386,9 @@ export function parseWindowsTreeReply(
   };
 }
 
-function runWindowsProbe(request: Record<string, unknown>): Promise<string> {
+function runWindowsProbe(
+  request: Record<string, unknown>,
+): Promise<CapturedProbeReply> {
   return runCaptured(
     'powershell.exe',
     [
@@ -386,19 +403,58 @@ function runWindowsProbe(request: Record<string, unknown>): Promise<string> {
   );
 }
 
-function parseReply(stdout: string): Record<string, unknown> {
+function parseReply(
+  stdout: string | Buffer,
+  stderr = '',
+  writeDiagnosticFile: ProbeDiagnosticWriter = writeProbeDiagnosticFile,
+): Record<string, unknown> {
+  const rawStdout = Buffer.isBuffer(stdout) ? stdout : Buffer.from(stdout, 'utf8');
+  const text = rawStdout.toString('utf8').replace(/^\uFEFF/, '');
   let parsed: unknown;
   try {
-    parsed = JSON.parse(stdout);
+    parsed = JSON.parse(text);
   } catch {
+    const saved = saveRawProbeReply(rawStdout, stderr, writeDiagnosticFile);
+    const first = text.slice(0, 200);
+    const last = text.slice(-200);
     throw new Error(
-      `open-handle probe returned no JSON: ${stdout.slice(0, 200)}`,
+      `open-handle probe returned no JSON; ${saved}; stdout length: ${rawStdout.length}; first 200 chars: ${first}; last 200 chars: ${last}`,
     );
   }
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
     throw new Error('open-handle probe returned a non-object');
   }
   return parsed as Record<string, unknown>;
+}
+
+type ProbeDiagnosticWriter = (path: string, contents: string | Buffer) => void;
+
+function writeProbeDiagnosticFile(
+  path: string,
+  contents: string | Buffer,
+): void {
+  fs.writeFileSync(path, contents);
+}
+
+function saveRawProbeReply(
+  rawStdout: Buffer,
+  stderr: string,
+  writeDiagnosticFile: ProbeDiagnosticWriter,
+): string {
+  const stem = `ptah-open-handle-probe-${process.pid}-${Date.now()}-${randomBytes(4).toString('hex')}`;
+  const stdoutPath = join(tmpdir(), `${stem}.stdout.bin`);
+  const stderrPath = join(tmpdir(), `${stem}.stderr.txt`);
+  try {
+    writeDiagnosticFile(stdoutPath, rawStdout);
+    writeDiagnosticFile(stderrPath, stderr);
+    return `raw stdout saved: ${stdoutPath}; stderr saved: ${stderrPath}`;
+  } catch (error: unknown) {
+    return `raw reply not saved: ${errorMessage(error)}`;
+  }
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 /** ConvertTo-Json may collapse a one-element array; accept both forms. */
@@ -550,37 +606,48 @@ export class ProcFsHandleProbe implements HandleProbe {
   }
 }
 
-function runCaptured(
+interface CapturedProbeReply {
+  readonly stdout: Buffer;
+  readonly stderr: string;
+}
+
+/** Concatenate before decoding so UTF-8 characters can span stream chunks. */
+function concatProbeStdout(chunks: readonly Buffer[]): Buffer {
+  return Buffer.concat(chunks);
+}
+
+/** @internal Capture a probe child process's raw stdout and bounded stderr. */
+export function runCaptured(
   command: string,
   args: readonly string[],
   stdin: string,
-): Promise<string> {
+  timeoutMs = PROBE_TIMEOUT_MS,
+): Promise<CapturedProbeReply> {
   return new Promise((done, reject) => {
     const child = spawn(command, args, {
       stdio: ['pipe', 'pipe', 'pipe'],
       windowsHide: true,
     });
-    let stdout = '';
+    const stdout: Buffer[] = [];
     let stderr = '';
-    child.stdout.setEncoding('utf8');
     child.stderr.setEncoding('utf8');
-    child.stdout.on('data', (chunk: string) => (stdout += chunk));
+    child.stdout.on('data', (chunk: Buffer) => stdout.push(chunk));
     child.stderr.on('data', (chunk: string) => {
       stderr = (stderr + chunk).slice(-2_000);
     });
     const timer = setTimeout(() => {
       child.kill();
       reject(
-        new Error(`open-handle probe timed out after ${PROBE_TIMEOUT_MS} ms`),
+        new Error(`open-handle probe timed out after ${timeoutMs} ms`),
       );
-    }, PROBE_TIMEOUT_MS);
+    }, timeoutMs);
     child.once('error', (error) => {
       clearTimeout(timer);
       reject(error);
     });
     child.once('close', (code) => {
       clearTimeout(timer);
-      if (code === 0) done(stdout);
+      if (code === 0) done({ stdout: concatProbeStdout(stdout), stderr });
       else
         reject(new Error(`open-handle probe exited ${code}: ${stderr.trim()}`));
     });
