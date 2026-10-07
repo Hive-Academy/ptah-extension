@@ -315,6 +315,73 @@ describe('assembleSuite', () => {
     expect(suite.deltas['native']['hit@1']).toBe(-0.5);
   });
 
+  it('lists native errors and fails when the deciding baseline exceeds the error-rate limit', async () => {
+    const [suite] = await score(
+      definition({
+        natives: [
+          {
+            id: 'native',
+            label: 'rg',
+            run: native({ q1: ['a.ts'], q2: ['b.ts'] }, 'rg unavailable'),
+            decides: true,
+            scored: true,
+          },
+        ],
+      }),
+      { q1: ok('a.ts'), q2: ok('b.ts') },
+    );
+    expect(suite.verdict).toBe('fail');
+    expect(suite.baselines[0].metrics['error_rate']).toBe(1);
+    const failures = (
+      suite.details as {
+        readonly failures: readonly { question: string; got: string[] }[];
+      }
+    ).failures;
+    expect(failures).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          question: 'q1',
+          got: ['native native error: rg unavailable'],
+        }),
+        expect.objectContaining({
+          question: '(verdict)',
+          got: ['deciding baseline native error rate 1 is over 0.01'],
+        }),
+      ]),
+    );
+    expect(
+      failures.filter((failure) => failure.got[0] === 'native native error: rg unavailable'),
+    ).toHaveLength(1);
+  });
+
+  it('lists but does not fail for a non-deciding native error', async () => {
+    const [suite] = await score(
+      definition({
+        natives: [
+          {
+            id: 'native',
+            label: 'rg',
+            run: native({ q1: ['a.ts'], q2: ['b.ts'] }),
+            decides: true,
+            scored: true,
+          },
+          {
+            id: 'auxiliary',
+            label: 'other',
+            run: native({}, 'auxiliary unavailable'),
+            decides: false,
+            scored: false,
+          },
+        ],
+      }),
+      { q1: ok('a.ts'), q2: ok('b.ts') },
+    );
+    expect(suite.verdict).toBe('pass');
+    expect(JSON.stringify(suite.details)).toContain(
+      'native auxiliary error: auxiliary unavailable',
+    );
+  });
+
   it('fails a tool that tools/list does not show, makes no call, and still scores native', async () => {
     const [suite] = await score(definition(), {}, new Set());
     expect(suite.verdict).toBe('fail');

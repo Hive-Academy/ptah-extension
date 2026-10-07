@@ -36,7 +36,7 @@ import { promisify } from 'node:util';
 import ts from 'typescript';
 import { z } from 'zod';
 
-import { createRgRunner, resolveRg } from './baselines/rg-runner';
+import { createCheckedRgRunner } from './baselines/rg-runner';
 import type { NativeContext } from './baselines/native-baselines';
 import {
   backdateCodeSymbols,
@@ -261,7 +261,7 @@ async function runBench(options: BenchOptions): Promise<number> {
   const configPath = join(root, 'corpus.config.json');
   const startedAt = new Date().toISOString();
   const runId = `${startedAt.replace(/[:.]/g, '-')}-${options.host}`;
-  const rg = createRgRunner(resolveRg());
+  const rg = await createCheckedRgRunner();
   const config = await readCorpusConfig(configPath);
   const polyglot = await readPolyglotConfig(configPath);
   const bank = loadQuestionBank(root, config.commit);

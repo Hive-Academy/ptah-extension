@@ -1,5 +1,17 @@
 # Handoff - TASK_2026_619_af7f (2026-10-07)
 
+## Update (2026-10-08, sixth session "619 session 6", launcher branch `session/task-619-s6-launcher`, unused) — read this first
+
+- **Role:** the fifth-session parent closed and handed over; session 6 is the 619 orchestrator. Work happens in this worktree only (the launcher worktree is unused; the user owns its cleanup). Writes into this worktree from the session-6 tab need approval; codex lanes can write here.
+- **Diagnosis of b13e symbols-exact 0/0:**
+  - ptah side: NOT `parseSymbolHits` (no `parse:` errors). All listed failures were `unknown-coverage` with the 13c mid-census reasons `["updating","unrecognised?","unchecked"]`; the 13e cap rule classified that shape as unknown. Every `?` code in `COVERAGE_REASONS` ranks before `unchecked`, so that shape cannot hide a `?` reason.
+  - native side: environment. b13b native hit@5 0.85 / error_rate 0; b13e error_rate 1, latency 0, 1 call per answer -> each rg spawn failed instantly (smoke started from git-bash; `where rg` likely a shim). The scorecard hid it.
+- **Decisions:** the user delegated the five open questions to a codex lane -> `decisions-s6.md`. Batch 13f implements them (see batches.md); committed this session.
+- **User approvals (2026-10-08):** one smoke after 13f is committed (only after the 620 session confirms its recordings ended); push + PR 1 (Batches 1-13f) against main after that smoke and the CI gate pass — show the user a PR summary first; never merge.
+- **620 hold:** session `ptah-ptah-extension-task-620-final-round-ec2ce70000ktg2q3sqvco0b` runs 4 live recordings. No 619 bench/smoke/mcp-bench build/corpus or bench-data work until it says they ended; message it first and wait for OK. Tell 620 that 13f landed (b15607206 never broke parsing; it only over-classified mid-census answers).
+- **Next:** after the 620 OK: rerun `host-launcher.spec.ts` alone; smoke `--host=cli-headless --suite=lifecycle,symbols-exact --smoke` from any shell (rg preflight now fails fast if rg cannot spawn); check native hit@5 ~0.85 and ptah symbols-exact no longer 0; then PR 1 prep. Delete `b13b-pre-simplify.patch` (decision 5) when convenient.
+- **PR plan (decided):** PR 1 = Batches 1-13f; later PRs 18-26, 27-28, 29-33, 34, 36-37; 620's PR after 619 PR 1 merges.
+
 ## Update (2026-10-08, fifth session `ptah-ptah-extension-continue-619-follow-0b15390000ktg2q3sqvco0a`) — read this first
 
 - **Commits this session:** ce290b460 Batch 13b (user-chosen simplification: one census per root, joiners share it, lifecycle owns follow-ups; foreign-abort + user-click-join fix; APPROVED 8/10); 2e80facac Batch 13d (bench: positive lifecycle hit counts under unknown coverage; APPROVED 7/10); cf9d72f9f Batch 13c (product: known partial coverage during a census; APPROVED 8/10); b15607206 Batch 13e (bench: `unrecognised?` alone is not unknown coverage; probe matches symbol or `Class.member`; REVISE 5/10 -> rev 1 -> APPROVED 8/10). Open non-blocking items per batch are in batches.md.

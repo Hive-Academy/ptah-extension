@@ -54,11 +54,18 @@ registerSuiteKind('retrieval', retrievalDetailsSchema, (suite) => {
         `| ${cell(metric)} | ${formatMetric(toolValue)} | ${formatMetric(baseline.metrics[metric])} | ${formatMetric(suite.deltas[baseline.id]?.[metric])} |`,
       );
   }
+  if (suite.baselines.length === 0)
+    lines.push(
+      `| error_rate | ${formatMetric(suite.cost.error_rate)} |  |  |`,
+    );
+  for (const baseline of suite.baselines)
+    lines.push(
+      `| error_rate | ${formatMetric(suite.cost.error_rate)} | ${formatMetric(baseline.metrics['error_rate'])} |  |`,
+    );
   lines.push(
     `| latency_ms.p50 | ${formatMetric(suite.cost.latency_ms.p50)} |  |  |`,
     `| latency_ms.p95 | ${formatMetric(suite.cost.latency_ms.p95)} |  |  |`,
     `| cost.source | ${cell(suite.cost.source)} |  |  |`,
-    `| error_rate | ${formatMetric(suite.cost.error_rate)} |  |  |`,
     `| Verdict | ${suite.verdict} | ${suite.naReason ?? ''} |  |`,
     '',
   );

@@ -23,10 +23,12 @@ import { scorecardSchema } from '../scorecard/scorecard.types';
 import type { Scorecard, ScorecardSuite } from '../scorecard/scorecard.types';
 import {
   claimResult,
+  decidingBaselineError,
   decidingOf,
   describeComparison,
   deltaOf,
   marginFor,
+  MAX_ERROR_RATE_CLAIM,
   reportOf,
   runFailureReport,
   suiteMarginKey,
@@ -158,6 +160,12 @@ function recordedResult(
     delta: number | null = null,
     margin: number | null = null,
   ): SuiteGateResult => ({ suite: name, outcome, delta, margin, note });
+  const baselineError = decidingBaselineError(current);
+  if (baselineError !== null)
+    return result(
+      'over-baseline-error-rate',
+      `deciding baseline ${baselineError.id} error rate ${baselineError.errorRate} is over ${MAX_ERROR_RATE_CLAIM}`,
+    );
   if (recorded === undefined)
     return result('new', 'not in the baseline: record it');
   const deciding = decidingOf(current);

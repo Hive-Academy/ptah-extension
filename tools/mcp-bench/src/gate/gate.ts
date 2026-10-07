@@ -35,7 +35,7 @@ import {
   scorecardBaselineDirectory,
 } from '../scorecard/scorecard-writers';
 import type { Scorecard, ScorecardSuite } from '../scorecard/scorecard.types';
-import { NOISE_MARGIN } from '../suites/suite-runner';
+import { MAX_ERROR_RATE, NOISE_MARGIN } from '../suites/suite-runner';
 
 /**
  * The margins the PR gate reads: `cli-headless`, `--smoke`. Every other mode
@@ -338,6 +338,7 @@ export type SuiteOutcome =
   | 'below-native'
   | 'unscored'
   | 'over-error-rate'
+  | 'over-baseline-error-rate'
   | 'na'
   | 'not-compared'
   // recorded-failure mode
@@ -352,13 +353,28 @@ export const FAILING_OUTCOMES: ReadonlySet<SuiteOutcome> = new Set([
   'below-native',
   'unscored',
   'over-error-rate',
+  'over-baseline-error-rate',
   'regression',
   'changed',
   'missing',
 ]);
 
 /** Error rate above which claim mode fails a suite (same bound as the runner). */
-export const MAX_ERROR_RATE_CLAIM = 0.01;
+export const MAX_ERROR_RATE_CLAIM = MAX_ERROR_RATE;
+
+/** The deciding native's error rate when it exceeds the runner's limit. */
+export function decidingBaselineError(
+  suite: ScorecardSuite,
+): { readonly id: string; readonly errorRate: number } | null {
+  const deciding = decidingOf(suite);
+  if (deciding?.decidingBaseline === null || deciding === null) return null;
+  const errorRate =
+    suite.baselines.find((baseline) => baseline.id === deciding.decidingBaseline)
+      ?.metrics['error_rate'] ?? null;
+  return errorRate !== null && errorRate > MAX_ERROR_RATE_CLAIM
+    ? { id: deciding.decidingBaseline, errorRate }
+    : null;
+}
 
 export interface SuiteGateResult {
   readonly suite: string;
@@ -423,6 +439,15 @@ export function claimResult(
   const delta = deltaOf(suite, deciding);
   const margin = marginFor(margins, deciding.key, override);
   const against = describeComparison(deciding);
+  const baselineError = decidingBaselineError(suite);
+  if (baselineError !== null)
+    return {
+      suite: name,
+      outcome: 'over-baseline-error-rate',
+      delta,
+      margin,
+      note: `deciding baseline ${baselineError.id} error rate ${baselineError.errorRate} is over ${MAX_ERROR_RATE_CLAIM}`,
+    };
   const errorRate = suite.cost.error_rate;
   if (delta === null)
     return {

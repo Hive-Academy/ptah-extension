@@ -18,6 +18,11 @@
 import { existsSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 
+import {
+  COVERAGE_REASONS,
+  MAX_REPORTED_REASONS,
+} from '@ptah-extension/platform-core';
+
 import type { CallOutcome } from '../metrics/cost-metrics';
 import type { McpToolCaller, ToolCallOutcome } from './mcp-client';
 
@@ -115,7 +120,6 @@ const BUILDING = /"status"\s*:\s*"building"/;
 const RETRY_AFTER = /"retryAfterMs"\s*:\s*(\d+)/;
 const UNAVAILABLE = /"status"\s*:\s*"unavailable"|\bindex unavailable\b/i;
 const UNKNOWN_CENSUS = /"census"\s*:\s*"unknown"/;
-const UNKNOWN_REASON = /"reasons"\s*:\s*\[[^\]]*\?"/;
 const REASONS_START = /"reasons"\s*:\s*\[/g;
 /** A whole reasons array: only JSON strings and commas up to its `]`. */
 const REASONS_ARRAY =
@@ -126,8 +130,11 @@ const JSON_STRING = /"(?:\\.|[^"\\\n])*"/g;
  * Classify one tool result. Regex over the text rather than `JSON.parse`,
  * because a budget-cut body is no longer valid JSON while its leading status
  * fields (which the dispatcher writes first for that reason) survive. Unknown
- * coverage means an unknown census or a `?` reason other than `unrecognised?`:
- * the code index cannot find symbols in files with unrecognised extensions.
+ * coverage means an unknown census, a non-string reason, or an explicit `?`
+ * reason other than `unrecognised?`: the code index cannot find symbols in
+ * files with unrecognised extensions. A complete reason list at the product
+ * cap is unknown only when its final, priority-ordered reason could conceal a
+ * later unknown code.
  * If a cut body starts a reasons array that cannot be isolated,
  * classification stays conservatively unknown.
  */
@@ -157,7 +164,7 @@ export function classifyToolResult(
 
 function hasUnknownReason(text: string): boolean {
   const starts = [...text.matchAll(REASONS_START)];
-  if (starts.length === 0) return UNKNOWN_REASON.test(text);
+  if (starts.length === 0) return false;
   const arrays = [...text.matchAll(REASONS_ARRAY)];
   // A budget-cut or malformed array must remain unknown, even if a previous
   // complete array was clean.
@@ -171,14 +178,22 @@ function hasUnknownReason(text: string): boolean {
         return null;
       }
     });
-    return (
+    if (
       reasons.some(
         (reason) =>
           typeof reason !== 'string' ||
           (reason.endsWith('?') && reason !== 'unrecognised?'),
-      ) ||
-      (reasons.length >= 3 && reasons.includes('unrecognised?'))
+      )
+    )
+      return true;
+    if (reasons.length < MAX_REPORTED_REASONS) return false;
+    const lastReason = reasons[reasons.length - 1];
+    if (typeof lastReason !== 'string') return true;
+    const resolutionIndex = COVERAGE_REASONS.indexOf('resolution?');
+    const lastReasonIndex = COVERAGE_REASONS.findIndex(
+      (reason) => reason === lastReason,
     );
+    return lastReasonIndex === -1 || lastReasonIndex < resolutionIndex;
   });
 }
 

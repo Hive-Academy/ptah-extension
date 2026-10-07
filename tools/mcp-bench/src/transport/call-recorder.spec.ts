@@ -7,8 +7,12 @@ describe('classifyToolResult coverage reasons', () => {
   it.each([
     ['only an unrecognised extension', ['unrecognised?']],
     [
-      'one settled reason plus an unrecognised extension',
-      ['updating', 'unrecognised?'],
+      'a capped list whose later reasons rule out a hidden unknown',
+      ['updating', 'unrecognised?', 'unchecked'],
+    ],
+    [
+      'a capped list beginning at an unrecognised extension',
+      ['unrecognised?', 'unchecked', 'failed'],
     ],
   ])('does not mark %s as unknown coverage', (_case, reasons) => {
     expect(classify(JSON.stringify({ coverage: { reasons } })).errorClass).toBe(
@@ -26,6 +30,8 @@ describe('classifyToolResult coverage reasons', () => {
   it.each([
     ['unknown reasons', ['census?', 'unchecked?', 'failed?']],
     ['a mixed unknown reason', ['unchecked?', 'unrecognised?']],
+    ['an explicit resolution unknown', ['updating', 'stale', 'resolution?']],
+    ['a non-string reason', ['updating', null]],
   ])('marks %s as unknown coverage', (_case, reasons) => {
     expect(classify(JSON.stringify({ coverage: { reasons } })).errorClass).toBe(
       'unknown-coverage',
@@ -50,27 +56,35 @@ describe('classifyToolResult coverage reasons', () => {
     ).toBe('unknown-coverage');
   });
 
-  it('conservatively treats a capped array ending in unrecognised as unknown', () => {
+  it.each([
+    ['can hide a later unknown code', ['updating', 'stale', 'truncated']],
+    ['has an explicit unknown code', ['census?', 'updating', 'stale']],
+    ['ends with an unlisted code', ['updating', 'unrecognised?', 'future']],
+  ])('treats a capped array that %s as unknown', (_case, reasons) => {
     expect(
       classify(
         JSON.stringify({
-          coverage: { reasons: ['updating', 'stale', 'unrecognised?'] },
+          coverage: { reasons },
         }),
       ).errorClass,
     ).toBe('unknown-coverage');
   });
 
-  it('keeps fewer than three settled reasons with unrecognised clean', () => {
+  it.each([
+    ['unrecognised extension', ['updating', 'unrecognised?']],
+    ['settled reason', ['updating', 'stale']],
+    ['capped settled reason', ['updating', 'stale', 'unchecked']],
+  ])('keeps fewer than three reasons with a %s clean', (_case, reasons) => {
     expect(
       classify(
         JSON.stringify({
-          coverage: { reasons: ['updating', 'unrecognised?'] },
+          coverage: { reasons },
         }),
       ).errorClass,
     ).toBe(null);
   });
 
-  it('reads every reasons array in a budget-cut body', () => {
+  it('reads every reasons array in a multi-array body', () => {
     expect(
       classify(
         '{"coverage":{"reasons":["unrecognised?"]},"later":{"reasons":["stale?"]}}',

@@ -487,6 +487,7 @@ function listFailures<Q extends { readonly id: string }>(
   records: readonly QuestionRecord<Q>[],
 ): FailureEntry[] {
   const failures: FailureEntry[] = [];
+  const listedNativeErrors = new Set<string>();
   for (const record of records) {
     if (failures.length >= MAX_LISTED_FAILURES) break;
     if (record.tool === null) continue;
@@ -507,6 +508,24 @@ function listFailures<Q extends { readonly id: string }>(
             ? ['(abstained)']
             : answer.ranked.slice(0, LISTED_ITEMS),
     });
+  }
+  for (const record of records) {
+    if (failures.length >= MAX_LISTED_FAILURES) break;
+    for (const native of definition.natives) {
+      if (failures.length >= MAX_LISTED_FAILURES) break;
+      const outcome = record.natives.get(native.id);
+      if (outcome === undefined || outcome.result.error === null) continue;
+      const errorKey = `${native.id}\u0000${outcome.result.error}`;
+      if (listedNativeErrors.has(errorKey)) continue;
+      listedNativeErrors.add(errorKey);
+      failures.push({
+        question: record.question.id,
+        expected: record.truth.abstain
+          ? ['(abstain)']
+          : record.truth.items.slice(0, LISTED_ITEMS),
+        got: [`native ${native.id} error: ${outcome.result.error}`],
+      });
+    }
   }
   return failures;
 }
@@ -560,6 +579,9 @@ export function assembleSuite<Q extends { readonly id: string }>(
     ];
   }
   const listed = options.listedTools.has(definition.tool);
+  const decider = definition.natives.find(
+    (native) => native.decides && native.scored,
+  );
   const tool = listed ? toolSide(records) : null;
   const reasons: string[] = [];
   if (options.failure !== undefined) {
@@ -568,27 +590,36 @@ export function assembleSuite<Q extends { readonly id: string }>(
     reasons.push(
       `tool not exposed on this host (mechanism: none): ${definition.tool} is not in tools/list`,
     );
-  } else if (tool !== null) {
-    if (tool.errorRate !== null && tool.errorRate > MAX_ERROR_RATE)
-      reasons.push(`error rate ${tool.errorRate} is over ${MAX_ERROR_RATE}`);
-    const decider = definition.natives.find(
-      (native) => native.decides && native.scored,
-    );
+  } else {
     if (decider !== undefined) {
-      const baseValue = nativeMetrics(decider, records)[
-        definition.primaryMetric
-      ];
-      const toolValue = tool.quality[definition.primaryMetric];
-      const margin = options.noiseMargin ?? NOISE_MARGIN;
+      const baselineErrorRate = nativeMetrics(decider, records)['error_rate'];
       if (
-        toolValue !== null &&
-        baseValue !== null &&
-        baseValue !== undefined &&
-        toolValue < baseValue - margin
+        baselineErrorRate !== null &&
+        baselineErrorRate > MAX_ERROR_RATE
       )
         reasons.push(
-          `${definition.primaryMetric} ${toolValue} is below ${decider.id} ${baseValue} by more than ${margin}`,
+          `deciding baseline ${decider.id} error rate ${baselineErrorRate} is over ${MAX_ERROR_RATE}`,
         );
+    }
+    if (tool !== null) {
+      if (tool.errorRate !== null && tool.errorRate > MAX_ERROR_RATE)
+        reasons.push(`error rate ${tool.errorRate} is over ${MAX_ERROR_RATE}`);
+      if (decider !== undefined) {
+        const baseValue = nativeMetrics(decider, records)[
+          definition.primaryMetric
+        ];
+        const toolValue = tool.quality[definition.primaryMetric];
+        const margin = options.noiseMargin ?? NOISE_MARGIN;
+        if (
+          toolValue !== null &&
+          baseValue !== null &&
+          baseValue !== undefined &&
+          toolValue < baseValue - margin
+        )
+          reasons.push(
+            `${definition.primaryMetric} ${toolValue} is below ${decider.id} ${baseValue} by more than ${margin}`,
+          );
+      }
     }
     reasons.push(...(definition.claimChecks?.(records) ?? []));
   }

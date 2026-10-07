@@ -19,6 +19,7 @@ import {
   type NativeContext,
 } from './native-baselines';
 import {
+  assertRgRuns,
   createRgRunner,
   parseRgJsonMatchLines,
   resolveRg,
@@ -102,12 +103,64 @@ describe('rg runner', () => {
         lookup: () => 'ignored',
       }),
     ).toBe('C:/tools/rg.exe');
-    expect(resolveRg({ env: {}, lookup: () => '/usr/bin/rg' })).toBe(
-      '/usr/bin/rg',
-    );
+    expect(
+      resolveRg({
+        env: {},
+        lookup: () => '/usr/bin/rg',
+        platform: 'linux',
+      }),
+    ).toBe('/usr/bin/rg');
     expect(() => resolveRg({ env: {}, lookup: () => undefined })).toThrow(
       'RG_PATH',
     );
+  });
+
+  it('selects a Windows executable among where shim lines', () => {
+    expect(
+      resolveRg({
+        env: {},
+        lookup: () => ['C:/tools/rg', 'C:/tools/rg.EXE', 'C:/other/rg.exe'],
+        platform: 'win32',
+      }),
+    ).toBe('C:/tools/rg.EXE');
+    expect(() =>
+      resolveRg({
+        env: {},
+        lookup: () => ['C:/tools/rg.cmd', 'C:/tools/rg'],
+        platform: 'win32',
+      }),
+    ).toThrow('RG_PATH');
+  });
+
+  it('keeps RG_PATH ahead of Windows lookup and reports preflight failures clearly', async () => {
+    expect(
+      resolveRg({
+        env: { RG_PATH: 'C:/custom/rg.cmd' },
+        lookup: () => ['C:/tools/rg.exe'],
+        platform: 'win32',
+      }),
+    ).toBe('C:/custom/rg.cmd');
+    expect(
+      resolveRg({ env: { RG_PATH: '"C:/custom/rg.exe"' } }),
+    ).toBe('C:/custom/rg.exe');
+    await expect(
+      assertRgRuns('C:/tools/rg.exe', async () => {
+        throw new Error('spawn ENOENT');
+      }),
+    ).rejects.toThrow('C:/tools/rg.exe');
+    await expect(
+      assertRgRuns('C:/tools/rg.exe', async () => {
+        throw new Error('spawn ENOENT');
+      }),
+    ).rejects.toThrow('RG_PATH');
+  });
+
+  it('preserves the real spawn failure as the preflight cause', async () => {
+    const executable = path.join(root, 'missing-rg-executable');
+    await expect(assertRgRuns(executable)).rejects.toMatchObject({
+      message: expect.stringContaining('ENOENT'),
+      cause: expect.objectContaining({ code: 'ENOENT' }),
+    });
   });
 
   it('parses JSON match records with Windows paths', () => {

@@ -23,21 +23,65 @@ export type RgRunner = (
 
 export interface ResolveRgOptions {
   env?: NodeJS.ProcessEnv;
-  lookup?: (command: string) => string | undefined;
+  lookup?: (
+    command: string,
+  ) => string | readonly string[] | undefined;
+  /** Injected by tests; production always uses {@link process.platform}. */
+  platform?: NodeJS.Platform;
 }
+
+export type RgPreflightRun = (
+  executable: string,
+  args: readonly string[],
+) => Promise<void>;
 
 /** Resolves rg deterministically so benchmark invocations remain reproducible. */
 export function resolveRg(options: ResolveRgOptions = {}): string {
   const configured = (options.env ?? process.env)['RG_PATH'];
-  if (configured?.trim()) return configured.trim();
+  if (configured?.trim()) {
+    const value = configured.trim();
+    return value.startsWith('"') && value.endsWith('"')
+      ? value.slice(1, -1)
+      : value;
+  }
 
   const lookup = options.lookup ?? lookupOnPath;
-  const resolved = lookup('rg');
-  if (resolved?.trim()) return resolved.trim();
+  const found = lookup('rg');
+  const candidates = (
+    typeof found === 'string' ? [found] : (found ?? [])
+  ).map((candidate) => candidate.trim());
+  const resolved =
+    (options.platform ?? process.platform) === 'win32'
+      ? candidates.find((candidate) => /\.exe$/iu.test(candidate))
+      : candidates.find((candidate) => candidate.length > 0);
+  if (resolved !== undefined) return resolved;
 
   throw new Error(
     'Unable to find ripgrep: set RG_PATH or make rg available on PATH.',
   );
+}
+
+/** Verifies that the resolved executable can start before any benchmark host does. */
+export async function assertRgRuns(
+  executable: string,
+  run: RgPreflightRun = runRgVersion,
+): Promise<void> {
+  try {
+    await run(executable, ['--version']);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `Unable to run ripgrep at ${executable}: ${detail}. Set RG_PATH to a working executable.`,
+      { cause: error },
+    );
+  }
+}
+
+/** Resolves, validates, and constructs the runner before benchmark hosts start. */
+export async function createCheckedRgRunner(): Promise<RgRunner> {
+  const executable = resolveRg();
+  await assertRgRuns(executable);
+  return createRgRunner(executable);
 }
 
 export function createRgRunner(executable = resolveRg()): RgRunner {
@@ -142,7 +186,7 @@ export function parseRgJsonMatchLines(
   return matches;
 }
 
-function lookupOnPath(command: string): string | undefined {
+function lookupOnPath(command: string): string[] | undefined {
   try {
     const lookupCommand = process.platform === 'win32' ? 'where' : 'which';
     const output = execFileSync(lookupCommand, [command], {
@@ -150,13 +194,45 @@ function lookupOnPath(command: string): string | undefined {
       stdio: ['ignore', 'pipe', 'ignore'],
       windowsHide: true,
     });
-    return output
+    const candidates = output
       .split(/\r?\n/u)
-      .find((line) => line.trim())
-      ?.trim();
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0);
+    return candidates.length === 0 ? undefined : candidates;
   } catch {
     return undefined;
   }
+}
+
+function runRgVersion(
+  executable: string,
+  args: readonly string[],
+): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const child = spawn(executable, args, {
+      shell: false,
+      stdio: 'ignore',
+      windowsHide: true,
+    });
+    let settled = false;
+    const settle = (fn: () => void): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      fn();
+    };
+    const timeout = setTimeout(() => {
+      child.kill();
+      settle(() => reject(new Error('timed out')));
+    }, 5_000);
+    child.on('error', (error) => settle(() => reject(error)));
+    child.on('close', (exitCode) => {
+      settle(() => {
+        if (exitCode === 0) resolve();
+        else reject(new Error(`exited with code ${exitCode}`));
+      });
+    });
+  });
 }
 
 function quoteForDisplay(value: string): string {

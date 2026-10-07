@@ -22,6 +22,7 @@ interface SuiteSpec {
   readonly delta: number | null;
   readonly reason?: string;
   readonly errorRate?: number;
+  readonly nativeErrorRate?: number | null;
   readonly na?: string;
 }
 
@@ -45,7 +46,18 @@ function suite(spec: SuiteSpec): Scorecard['suites'][number] {
       version: '1',
       method: 'generated',
     },
-    baselines: [{ id: 'native', label: 'native', metrics: { 'hit@5': 0.9 } }],
+    baselines: [
+      {
+        id: 'native',
+        label: 'native',
+        metrics: {
+          'hit@5': 0.9,
+          ...(spec.nativeErrorRate === undefined
+            ? {}
+            : { 'error_rate': spec.nativeErrorRate }),
+        },
+      },
+    ],
     deltas: { native: { 'hit@5': spec.delta } },
     cost: {
       source: 'live',
@@ -153,6 +165,18 @@ describe('recorded-failure mode', () => {
     expect(report.outOfDate).toEqual([
       expect.stringContaining('baseline out of date'),
     ]);
+  });
+
+  it('fails an errored deciding baseline but otherwise preserves recorded outcomes', () => {
+    expect(gate(0.2, { nativeErrorRate: 1 }).suites[0]).toMatchObject({
+      outcome: 'over-baseline-error-rate',
+    });
+    expect(gate(0.2, { nativeErrorRate: 0 }).suites[0].outcome).toBe(
+      'improved',
+    );
+    expect(gate(0.2, { nativeErrorRate: null }).suites[0].outcome).toBe(
+      'improved',
+    );
   });
 
   it('tolerates a recorded failure: below native as recorded passes', () => {

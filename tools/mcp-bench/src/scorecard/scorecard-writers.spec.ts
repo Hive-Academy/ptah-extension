@@ -122,6 +122,9 @@ describe('scorecard writers', () => {
       expect(renderScorecardMarkdown(scorecard)).toContain(
         '| cost.source | live |',
       );
+      expect(renderScorecardMarkdown(scorecard)).toContain(
+        '| error_rate | 0 | na |  |',
+      );
     } finally {
       await rm(directory, { recursive: true, force: true });
     }

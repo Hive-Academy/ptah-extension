@@ -318,6 +318,19 @@ describe('evaluateGate', () => {
     expect(report.suites[0].outcome).toBe('unscored');
   });
 
+  it('fails when the deciding baseline exceeds the error-rate limit', () => {
+    const baselineFailure = card(0, {
+      verdict: 'fail',
+    });
+    baselineFailure.suites[0].baselines[0].metrics['error_rate'] = 0.02;
+    const report = evaluateGate(baselineFailure, null);
+    expect(report.status).toBe('fail');
+    expect(report.suites[0]).toMatchObject({
+      outcome: 'over-baseline-error-rate',
+      note: 'deciding baseline native error rate 0.02 is over 0.01',
+    });
+  });
+
   it('shows na suites with their reason and never counts them as a pass or a failure', () => {
     const report = evaluateGate(
       card(null, { verdict: 'na', noDecider: true }),

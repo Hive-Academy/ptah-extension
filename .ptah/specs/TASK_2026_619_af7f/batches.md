@@ -1728,7 +1728,7 @@ by author side, per context.md "User Requests (2026-10-07)" item 2.
 - Tests: active census after discovery -> numeric counts, `state: 'updating'`, `clean: false`, no `?` reason; before discovery -> unchanged unknown; per-file write during the census is counted.
 - Scorecard metric: the lifecycle edit/add cases and the symbols-exact suite read hits during the census (smoke after 13d).
 
-## Batch 13d: Lifecycle probe counts a positive hit under unknown coverage (bench) — PENDING
+## Batch 13d: Lifecycle probe counts a positive hit under unknown coverage (bench) — COMPLETE (2e80facac; review APPROVED 7/10 `code-logic-review-b13d.md`)
 
 - Origin and decision: as 13c. Recommended executor: grok lane; reviewer: codex lane. File-disjoint from 13b/13c.
 - File: tools/mcp-bench/src/lifecycle/lifecycle-probe.ts (+ spec); lifecycle-scenarios.ts only for the case detail text.
@@ -1743,6 +1743,15 @@ by author side, per context.md "User Requests (2026-10-07)" item 2.
 - 13e.1: `UNKNOWN_REASON` ignores `unrecognised?` only; any other `?` reason and `"census":"unknown"` still give `unknown-coverage`. Scorecard/report text names the rule.
 - 13e.2: `searchSymbol` requires a hit whose `symbolName` equals the queried name in the expected file (not only the file); the 13d wording MINORs (rejected unknown-coverage hit reads as "missing").
 - Tests: settled answer with only `unrecognised?` -> no error class; `census?`/`unchecked?` still unknown; edit case with only the old probe symbol in the file -> not found.
+
+## Batch 13f: Priority-aware reasons cap; native baseline errors visible and gating; shell-independent rg (bench) — COMPLETE (codex lanes; in-process review REVISE 7/10 -> revision 1 -> APPROVED 8/10 `code-logic-review-b13f-rev1.md`; mcp-bench transport+suites+scorecard+gate+baselines Jest 249/250 — the 1 failure is host-launcher.spec temp-home snapshot disturbed by the concurrent TASK_2026_620 bench run, file untouched by 13f, passed 247/247 before rev 1; rerun after 620 ends; tsc 0, eslint 0)
+
+- Origin: b13e smoke symbols-exact hit@5 0/0 (session 6 diagnosis in handoff.md). Ptah side: the 13e cap rule (`reasons.length >= 3 && includes('unrecognised?')`) classifies the 13c mid-census shape `["updating","unrecognised?","unchecked"]` as unknown. Native side: every rg spawn failed instantly (git-bash `where rg` shim), and the scorecard hid it. Decisions: `decisions-s6.md` (codex, delegated by the user 2026-10-08); orchestrator change: baseline gate uses `MAX_ERROR_RATE`, same as the tool side.
+- Executor: codex lane; reviewer: in-process code-logic-reviewer.
+- 13f.1 (call-recorder.ts + spec): explicit `?` reasons other than `unrecognised?` stay unknown; for exactly 3 complete reasons, unknown only when the last reason ranks before `resolution?` in `COVERAGE_REASONS` (unknown codes need a local priority copy or import per lib boundary rules); arrays shorter than 3 never imply a hidden reason; cut/unmatched reasons body stays unknown.
+- 13f.2 (suite-runner.ts, scorecard types/writers/retrieval renderer + specs): native error text in JSON failure entries; each baseline `error_rate` in Markdown; suite verdict `fail` when the deciding baseline `error_rate` > `MAX_ERROR_RATE`.
+- 13f.3 (rg-runner.ts + spec, main.ts): on win32 automatic resolution picks a `.exe` candidate from `where rg`; one `rg --version` preflight at startup fails the run with a clear message naming `RG_PATH`; explicit `RG_PATH` keeps priority.
+- Open (non-blocking, rev-1 review): MODERATE a baseline recorded with a broken deciding native now fails every gate run until the native is fixed (intended; documented here). MINOR RG_PATH of a lone quote becomes empty (still fails loudly); win32 error does not say non-.exe candidates were ignored; nativeMetrics computed twice in assembleSuite (suite-runner.ts ~595/608). Preflight stays unconditional (runBench builds NativeContext before suites are known). Native error text can be hidden behind >= 25 tool failures (the verdict entry still names the rate).
 
 ## Batch 14: VS Code switches to the shared lifecycle service (Fix 2a, VS Code host) — PENDING
 
