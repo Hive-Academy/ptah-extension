@@ -61,6 +61,34 @@ describe('memory-skills plan schema', () => {
     expect(messages({ ...basePlan(), extra: 1 }).length).toBeGreaterThan(0);
   });
 
+  it('accepts product settings and rejects secret-like keys', () => {
+    expect(
+      schema.safeParse({
+        ...basePlan(),
+        settings: {
+          'memory.curatorProvider': 'openai-codex',
+          'memory.curatorModel': 'gpt-5.6-terra',
+          turns: 2,
+        },
+      }).success,
+    ).toBe(true);
+    expect(
+      messages({
+        ...basePlan(),
+        settings: { 'accounts.password': 'nope' },
+      }).some((message) => /looks like a secret/.test(message)),
+    ).toBe(true);
+    expect(
+      messages({
+        ...basePlan(),
+        settings: {
+          'provider.openai-codex.oauthTokenEndpoint':
+            'http://127.0.0.1:9/oauth/token',
+        },
+      }),
+    ).toEqual([]);
+  });
+
   it('requires replay mode in CI', () => {
     expect(messages({ ...basePlan(), cassetteMode: 'record' })).toContain(
       'a CI plan must use cassetteMode "replay"',

@@ -108,3 +108,53 @@ describe('parseRunnerPlan: shared funnel pass options', () => {
     );
   });
 });
+
+describe('parseRunnerPlan settings', () => {
+  function text(settings: unknown): string {
+    return JSON.stringify({
+      schemaId: RUNNER_PLAN_SCHEMA_ID,
+      settings,
+    });
+  }
+
+  it('accepts ptah-relative settings, including the oauth endpoint key', () => {
+    const plan = parseRunnerPlan(
+      text({
+        'memory.curatorProvider': 'openai-codex',
+        'memory.curatorModel': 'gpt-5.6-terra',
+        'skillSynthesis.judge.replay': false,
+        'provider.openai-codex.oauthTokenEndpoint':
+          'http://127.0.0.1:9/oauth/token',
+      }),
+      'plan.json',
+    );
+    expect(plan.settings).toEqual({
+      'memory.curatorProvider': 'openai-codex',
+      'memory.curatorModel': 'gpt-5.6-terra',
+      'skillSynthesis.judge.replay': false,
+      'provider.openai-codex.oauthTokenEndpoint':
+        'http://127.0.0.1:9/oauth/token',
+    });
+  });
+
+  it('rejects secret-like keys and non-scalar values', () => {
+    expect(() =>
+      parseRunnerPlan(text({ 'memory.apiKey': 'x' }), 'plan.json'),
+    ).toThrow(/setting memory\.apiKey looks like a secret/);
+    expect(() =>
+      parseRunnerPlan(text({ 'provider.token': 'x' }), 'plan.json'),
+    ).toThrow(/looks like a secret/);
+    expect(() =>
+      parseRunnerPlan(text({ nested: { a: 1 } }), 'plan.json'),
+    ).toThrow(MemorySkillsRunError);
+  });
+
+  it('omits settings when the plan does not carry them', () => {
+    const plan = parseRunnerPlan(
+      JSON.stringify({ schemaId: RUNNER_PLAN_SCHEMA_ID }),
+      'plan.json',
+    );
+    expect(plan.settings).toBeUndefined();
+    expect(JSON.stringify(plan)).not.toContain('settings');
+  });
+});

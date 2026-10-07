@@ -31,11 +31,15 @@
 
 import { createHash, randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
-import { join, posix, relative, sep, win32 } from 'node:path';
+import { isAbsolute, join, posix, relative, sep, win32 } from 'node:path';
 
 import { z } from 'zod';
 
 import { isPathInside, isSamePath } from '../../bench-data';
+import {
+  CODEX_AUTH_SOURCE_ENV,
+  RECORDING_DEADLINE_ENV,
+} from '../host/recording-bootstrap';
 import {
   writeScorecardJson,
   writeScorecardMarkdown,
@@ -154,6 +158,13 @@ export interface RunMemorySkillsOptions {
   readonly benchDataDir: string;
   readonly realHome: string;
   readonly hostCompletionTimeoutMs?: number;
+  /**
+   * Absolute path of a Codex `auth.json` to copy into the isolated home.
+   * Passed to the child only through the launch environment. Never written
+   * into a plan, cassette, fixture, log line, completion record, or bench-data
+   * file.
+   */
+  readonly codexAuthSource?: string;
 }
 
 export interface RunMemorySkillsDeps {
@@ -249,6 +260,7 @@ function writeHostPlan(
     suites: plan.hostSuites.map(({ id, options: suiteOptions }) =>
       suiteOptions === undefined ? { id } : { id, options: suiteOptions },
     ),
+    ...(plan.settings !== undefined ? { settings: plan.settings } : {}),
   });
   if (!parsed.success) {
     throw new MemorySkillsRunError(
@@ -258,6 +270,27 @@ function writeHostPlan(
   const path = join(runDir, HOST_PLAN_FILE);
   writeJson(path, parsed.data);
   return path;
+}
+
+/**
+ * The plan path, plus the Codex auth source when the caller supplied one.
+ * The source is not written to disk; the launcher passes `env` to the child
+ * process only.
+ */
+function hostLaunchEnv(
+  hostPlanPath: string,
+  options: RunMemorySkillsOptions,
+): Record<string, string> {
+  const env: Record<string, string> = {
+    [MEMORY_SKILLS_PLAN_ENV]: hostPlanPath,
+  };
+  if (options.codexAuthSource !== undefined) {
+    env[CODEX_AUTH_SOURCE_ENV] = options.codexAuthSource;
+    env[RECORDING_DEADLINE_ENV] = String(
+      options.hostCompletionTimeoutMs ?? DEFAULT_HOST_COMPLETION_TIMEOUT_MS,
+    );
+  }
+  return env;
 }
 
 interface LauncherWindow {
@@ -488,6 +521,12 @@ export async function runMemorySkills(
       platform,
     );
   }
+  if (
+    options.codexAuthSource !== undefined &&
+    !isAbsolute(options.codexAuthSource)
+  ) {
+    throw new MemorySkillsRunError('codexAuthSource must be an absolute path');
+  }
   const plan = parseRunnerPlan(
     guard.readText(options.planPath),
     options.planPath,
@@ -523,7 +562,7 @@ export async function runMemorySkills(
     hostScript: options.hostScript,
     realHome: options.realHome,
     guard: { ci: options.ci },
-    env: { [MEMORY_SKILLS_PLAN_ENV]: hostPlanPath },
+    env: hostLaunchEnv(hostPlanPath, options),
   });
   const window = await runLauncherWindow(
     host,

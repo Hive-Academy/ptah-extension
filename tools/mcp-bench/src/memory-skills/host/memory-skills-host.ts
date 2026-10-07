@@ -32,6 +32,8 @@
 import { existsSync, mkdirSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+
 import type {
   BenchHostContainer,
   BenchHostHandle,
@@ -54,6 +56,31 @@ import {
   MemorySkillsPlanError,
   type MemorySkillsPlan,
 } from './plan.schema';
+import {
+  DispatchProvenanceCollector,
+  MODEL_DISPATCH_PROVENANCE_TAP,
+  RecordingRejectedError,
+  commitProvenanceSidecars,
+  discardStagedCassettes,
+  expectedRouteFor,
+  provenanceProblems,
+  readStagedCassetteEntries,
+  type ModelDispatchProvenance,
+} from '../recorder/provider-provenance';
+import {
+  bootstrapIsolatedCodexAuth,
+  CODEX_AUTH_SOURCE_ENV,
+  RECORDING_DEADLINE_ENV,
+  seedRecordModeOAuthEndpoint,
+  sha256File,
+  UNREACHABLE_OAUTH_TOKEN_ENDPOINT,
+  type IsolatedCodexAuth,
+} from './recording-bootstrap';
+import {
+  canonicalProductSettingsSha256,
+  OAUTH_TOKEN_ENDPOINT_SETTING,
+  type ProductSettings,
+} from '../runner/runner-plan';
 
 export const HOST_COMPLETION_FILE = 'host-completion.json';
 export const HOST_COMPLETION_SCHEMA_ID = '620.host-completion.v1';
@@ -117,6 +144,14 @@ export interface HostCompletion {
     readonly logFile: string;
     readonly attempts: readonly NetAttempt[];
   } | null;
+  /**
+   * Present only when product settings were written. Names and the canonical
+   * map hash; never the values.
+   */
+  readonly settings?: {
+    readonly names: readonly string[];
+    readonly sha256: string;
+  };
 }
 
 export interface MemorySkillsHostDeps {
@@ -207,6 +242,9 @@ export async function runMemorySkillsHost(
 
   let seeded: SeededFixture[] = [];
   let doubles: InstalledDoubles | undefined;
+  let settingsMeta: HostCompletion['settings'];
+  let provenance: DispatchProvenanceCollector | undefined;
+  let codexAuth: IsolatedCodexAuth | undefined;
   const allowedRoots = [plan.benchDataDir];
   if (plan.committedFixturesDir !== undefined) {
     allowedRoots.push(plan.committedFixturesDir);
@@ -221,6 +259,19 @@ export async function runMemorySkillsHost(
           `run directory ${plan.runDir} already holds a completed run; use a new runId`,
         );
       }
+      if (plan.cassetteMode === 'record') {
+        seedRecordModeOAuthEndpoint(isolation.userDataPath);
+      }
+      const authSource = deps.env[CODEX_AUTH_SOURCE_ENV];
+      if (authSource !== undefined) {
+        const deadlineMs = Number(deps.env[RECORDING_DEADLINE_ENV]);
+        codexAuth = bootstrapIsolatedCodexAuth({
+          isolationHome: isolation.home,
+          sourcePath: authSource,
+          deadlineMs,
+          env: deps.env,
+        });
+      }
       seeded = seedFixtures({
         fixtures: plan.fixtures,
         isolation,
@@ -228,7 +279,17 @@ export async function runMemorySkillsHost(
         allowedRoots,
       });
     },
-    afterContainerReady: (container) => {
+    afterContainerReady: async (container) => {
+      const applied = appliedProductSettings(plan);
+      if (applied !== undefined) {
+        settingsMeta = await writeProductSettings(container, applied);
+      }
+      if (plan.cassetteMode === 'record') {
+        provenance = new DispatchProvenanceCollector();
+        container.register(MODEL_DISPATCH_PROVENANCE_TAP, {
+          useValue: provenance,
+        });
+      }
       doubles = installRecordReplayDoubles(container, plan);
     },
   });
@@ -267,6 +328,10 @@ export async function runMemorySkillsHost(
       () => shutdownReason !== null,
     );
 
+    if (plan.cassetteMode === 'record') {
+      acceptRecording({ plan, provenance, codexAuth });
+    }
+
     const completion: HostCompletion = {
       schemaId: HOST_COMPLETION_SCHEMA_ID,
       runId: plan.runId,
@@ -277,6 +342,7 @@ export async function runMemorySkillsHost(
       seeded,
       suites,
       net,
+      ...(settingsMeta !== undefined ? { settings: settingsMeta } : {}),
     };
     const completionFile = join(plan.runDir, HOST_COMPLETION_FILE);
     writeJsonAtomic(completionFile, completion);
@@ -357,4 +423,143 @@ async function runSuites(
     suites: records,
     net: recorder === null ? null : { logFile: recorder.logFile, attempts },
   };
+}
+
+interface ProductConfigPort {
+  getConfiguration<T>(
+    section: string,
+    key: string,
+    defaultValue?: T,
+  ): T | undefined;
+  setConfiguration(section: string, key: string, value: unknown): Promise<void>;
+}
+
+/**
+ * Settings the host writes under section `ptah`. Record mode always adds the
+ * unreachable Codex token endpoint, overwriting a plan value of the same key.
+ * Replay with no settings returns `undefined` (nothing is written).
+ */
+export function appliedProductSettings(
+  plan: Pick<MemorySkillsPlan, 'cassetteMode' | 'settings'>,
+): ProductSettings | undefined {
+  const applied: ProductSettings = { ...(plan.settings ?? {}) };
+  if (plan.cassetteMode === 'record') {
+    applied[OAUTH_TOKEN_ENDPOINT_SETTING] = UNREACHABLE_OAUTH_TOKEN_ENDPOINT;
+  }
+  return Object.keys(applied).length === 0 ? undefined : applied;
+}
+
+async function writeProductSettings(
+  container: BenchHostContainer,
+  applied: ProductSettings,
+): Promise<NonNullable<HostCompletion['settings']>> {
+  if (!container.isRegistered(PLATFORM_TOKENS.WORKSPACE_PROVIDER, true)) {
+    throw new MemorySkillsPlanError(
+      'product settings need the workspace provider, and it is not registered',
+    );
+  }
+  const workspace = container.resolve<ProductConfigPort>(
+    PLATFORM_TOKENS.WORKSPACE_PROVIDER,
+  );
+  const names = Object.keys(applied).sort();
+  for (const key of names) {
+    const value = applied[key];
+    await workspace.setConfiguration('ptah', key, value);
+    if (!sameSetting(value, workspace.getConfiguration('ptah', key))) {
+      throw new MemorySkillsPlanError(
+        `product setting ${key} read back a different value`,
+      );
+    }
+  }
+  return { names, sha256: canonicalProductSettingsSha256(applied) };
+}
+
+function sameSetting(
+  expected: string | number | boolean,
+  actual: unknown,
+): boolean {
+  return actual === expected;
+}
+
+/**
+ * In record mode, keep the cassettes only when every staged entry has an
+ * exact provider/model dispatch and, when an auth file was copied, that file
+ * is unchanged. Otherwise delete the cassette files and fail the run.
+ */
+function acceptRecording(input: {
+  readonly plan: MemorySkillsPlan;
+  readonly provenance: DispatchProvenanceCollector | undefined;
+  readonly codexAuth: IsolatedCodexAuth | undefined;
+}): void {
+  if (input.provenance === undefined) {
+    throw new RecordingRejectedError(
+      'record mode did not register the provenance tap',
+    );
+  }
+  const sides: readonly {
+    readonly component: ModelDispatchProvenance['component'];
+    readonly path: string;
+    readonly model: string;
+  }[] = [
+    {
+      component: 'memory-curator',
+      path: input.plan.cassettes.curator.path,
+      model: input.plan.cassettes.curator.model,
+    },
+    {
+      component: 'skill-lane',
+      path: input.plan.cassettes.laneRunner.path,
+      model: input.plan.cassettes.laneRunner.model,
+    },
+  ];
+  const paths = sides.map((side) => side.path);
+  const problems: string[] = [];
+  const staged: {
+    component: ModelDispatchProvenance['component'];
+    path: string;
+    entries: ReturnType<typeof readStagedCassetteEntries>;
+    dispatches: readonly ModelDispatchProvenance[];
+  }[] = [];
+  try {
+    for (const side of sides) {
+      const entries = readStagedCassetteEntries(side.path);
+      const dispatches = input.provenance.forComponent(side.component);
+      problems.push(
+        ...provenanceProblems({
+          component: side.component,
+          entries,
+          dispatches,
+          expectedFor: (dispatch) =>
+            expectedRouteFor(dispatch, input.plan.settings, side.model),
+        }),
+      );
+      staged.push({
+        component: side.component,
+        path: side.path,
+        entries,
+        dispatches,
+      });
+    }
+  } catch (error: unknown) {
+    discardStagedCassettes(paths);
+    throw error;
+  }
+  if (input.codexAuth !== undefined && authFileChanged(input.codexAuth)) {
+    problems.push(
+      'isolated auth.json changed during recording; the staged cassette was discarded',
+    );
+  }
+  if (problems.length > 0) {
+    discardStagedCassettes(paths);
+    throw new RecordingRejectedError(problems.join('; '));
+  }
+  commitProvenanceSidecars(staged);
+}
+
+function authFileChanged(auth: IsolatedCodexAuth): boolean {
+  try {
+    return sha256File(auth.authFile) !== auth.sha256;
+  } catch {
+    return true;
+  }
 }

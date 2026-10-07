@@ -22,6 +22,7 @@ import { z } from 'zod';
 
 import { isPathInside, isSamePath } from '../../bench-data';
 import type { CuratorFaultMode } from '../doubles/recorded-curator-llm';
+import { productSettingsSchema } from '../runner/runner-plan';
 import { funnelPlanProblems } from '../suites/skills/funnel.suite';
 import { hostSuitePlacement, suitePlacementProblems } from './suite-placement';
 
@@ -130,6 +131,11 @@ export function createMemorySkillsPlanSchema(
       }),
       fixtures: z.array(fixtureSchema),
       suites: z.array(suiteEntrySchema),
+      /**
+       * `ptah.`-relative product settings. Absent on every plan that does not
+       * set them, so older plans stay valid.
+       */
+      settings: productSettingsSchema.optional(),
     })
     .superRefine((plan, ctx) => {
       const issue = (message: string, path: (string | number)[]): void => {

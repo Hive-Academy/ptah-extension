@@ -6,6 +6,7 @@
  * the host plan schema (`host/plan.schema.ts`) at that point.
  */
 
+import { createHash } from 'node:crypto';
 import { posix } from 'node:path';
 
 import { z } from 'zod';
@@ -61,6 +62,54 @@ const planSuiteSchema = z.strictObject({
 });
 export type RunnerPlanSuite = z.infer<typeof planSuiteSchema>;
 
+/**
+ * The one product setting whose name contains a secret-like word. It is the
+ * Codex OAuth token URL (`codex-auth.service.ts` reads
+ * `provider.openai-codex.oauthTokenEndpoint` under section `ptah`). Record
+ * mode overwrites it with an unreachable loopback address.
+ */
+export const OAUTH_TOKEN_ENDPOINT_SETTING =
+  'provider.openai-codex.oauthTokenEndpoint';
+
+/** Names that must not ride along in a plan: credentials, not configuration. */
+const SECRET_SETTING_KEY = /token|secret|key|password|auth/i;
+
+const settingValueSchema = z.union([z.string(), z.number(), z.boolean()]);
+
+/**
+ * `ptah.`-relative product settings. Keys are the configuration key under
+ * section `ptah` (for example `memory.curatorProvider`). Secret-like names
+ * are refused except {@link OAUTH_TOKEN_ENDPOINT_SETTING}.
+ */
+export const productSettingsSchema = z
+  .record(z.string(), settingValueSchema)
+  .superRefine((settings, ctx) => {
+    for (const key of Object.keys(settings)) {
+      if (key === OAUTH_TOKEN_ENDPOINT_SETTING) continue;
+      if (SECRET_SETTING_KEY.test(key)) {
+        ctx.addIssue({
+          code: 'custom',
+          message: `setting ${key} looks like a secret and is not allowed`,
+          path: [key],
+        });
+      }
+    }
+  });
+export type ProductSettings = z.infer<typeof productSettingsSchema>;
+
+/** sha256 of sorted-key JSON. Completion metadata stores this, never values. */
+export function canonicalProductSettingsSha256(
+  settings: Readonly<ProductSettings>,
+): string {
+  const sorted: ProductSettings = {};
+  for (const key of Object.keys(settings).sort()) {
+    sorted[key] = settings[key];
+  }
+  return createHash('sha256')
+    .update(JSON.stringify(sorted), 'utf8')
+    .digest('hex');
+}
+
 export const runnerPlanSchema = z
   .strictObject({
     schemaId: z.literal(RUNNER_PLAN_SCHEMA_ID),
@@ -72,6 +121,8 @@ export const runnerPlanSchema = z
     hostSuites: z.array(planSuiteSchema).default([]),
     /** Suites the parent runs inside the launcher window. */
     offlineSuites: z.array(planSuiteSchema).default([]),
+    /** Product settings written under section `ptah` in the isolated config. */
+    settings: productSettingsSchema.optional(),
   })
   .superRefine((plan, ctx) => {
     // Suite ids name files in one run directory, across both lists.

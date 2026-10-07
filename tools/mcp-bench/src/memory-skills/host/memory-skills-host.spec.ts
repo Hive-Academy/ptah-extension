@@ -15,7 +15,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { MEMORY_CONTRACT_TOKENS } from '@ptah-extension/memory-contracts';
+import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import { container as rootContainer } from 'tsyringe';
+
+/** Same symbol as `SKILL_SYNTHESIS_TOKENS.LANE_RUNNER_SERVICE`. */
+const LANE_RUNNER_SERVICE = Symbol.for('PtahSkillLaneRunnerService');
 
 import type {
   BenchHostHandle,
@@ -29,6 +33,8 @@ import type {
 } from '../runner/net-recorder';
 import { RecordedCuratorLlm } from '../doubles/recorded-curator-llm';
 import { startNetRecorder } from '../runner/net-recorder';
+import { MODEL_DISPATCH_PROVENANCE_TAP } from '../recorder/provider-provenance';
+import { canonicalProductSettingsSha256 } from '../runner/runner-plan';
 import {
   HOST_COMPLETION_FILE,
   runMemorySkillsHost,
@@ -37,6 +43,12 @@ import {
   type MemorySkillsHostSuite,
   type MemorySkillsHostSuiteContext,
 } from './memory-skills-host';
+import {
+  CODEX_AUTH_SOURCE_ENV,
+  ISOLATED_PRODUCT_CONFIG_FILE,
+  RECORDING_DEADLINE_ENV,
+  UNREACHABLE_OAUTH_TOKEN_ENDPOINT,
+} from './recording-bootstrap';
 import {
   MEMORY_SKILLS_PLAN_ENV,
   MEMORY_SKILLS_PLAN_SCHEMA_ID,
@@ -141,6 +153,59 @@ describe('runMemorySkillsHost', () => {
         stop,
       };
     })();
+  }
+
+  class MemorySettings {
+    readonly written = new Map<string, unknown>();
+    constructor(private readonly readBack?: (key: string) => unknown) {}
+    async setConfiguration(
+      section: string,
+      key: string,
+      value: unknown,
+    ): Promise<void> {
+      this.written.set(`${section}.${key}`, value);
+    }
+    getConfiguration<T>(section: string, key: string, fallback?: T): T {
+      const name = `${section}.${key}`;
+      if (this.readBack) return this.readBack(name) as T;
+      return (this.written.has(name) ? this.written.get(name) : fallback) as T;
+    }
+  }
+
+  function bootWith(
+    settings: MemorySettings,
+    registerProviders: boolean,
+  ): MemorySkillsHostDeps['boot'] {
+    return async (options) => {
+      events.push('boot');
+      await options.beforeEngineBoot?.({
+        workspace: options.workspace,
+        isolation,
+      });
+      events.push('engine');
+      const container = rootContainer.createChildContainer();
+      container.register(PLATFORM_TOKENS.WORKSPACE_PROVIDER, {
+        useValue: settings,
+      });
+      if (registerProviders) {
+        container.register(MEMORY_CONTRACT_TOKENS.CURATOR_LLM, {
+          useValue: {},
+        });
+        container.register(LANE_RUNNER_SERVICE, { useValue: {} });
+      }
+      await options.afterContainerReady?.(container, {
+        workspaceRoot: options.workspace,
+        isolation,
+      });
+      events.push('mcp');
+      return {
+        port: 4321,
+        workspaceRoot: options.workspace,
+        isolation,
+        container,
+        stop,
+      };
+    };
   }
 
   function deps(
@@ -464,5 +529,270 @@ describe('runMemorySkillsHost', () => {
     );
     expect(stop).toHaveBeenCalledTimes(1);
     expect(wire).toEqual([]);
+  });
+
+  it('writes product settings and fails when the read-back differs', async () => {
+    writePlan({
+      settings: { 'memory.curatorProvider': 'openai-codex', turns: 3 },
+    });
+    const settings = new MemorySettings(() => 'other');
+    await expect(
+      runMemorySkillsHost(deps({ boot: bootWith(settings, false) })),
+    ).rejects.toThrow(
+      'product setting memory.curatorProvider read back a different value',
+    );
+    expect(existsSync(join(runDir, HOST_COMPLETION_FILE))).toBe(false);
+    expect(
+      settings.written.get('ptah.provider.openai-codex.oauthTokenEndpoint'),
+    ).toBeUndefined();
+  });
+
+  it('does not set the codex token endpoint in replay', async () => {
+    writePlan({
+      settings: {
+        'memory.curatorProvider': 'openai-codex',
+        'memory.curatorModel': 'gpt-5.6-terra',
+      },
+    });
+    const settings = new MemorySettings();
+    await runMemorySkillsHost(deps({ boot: bootWith(settings, false) }));
+    expect(
+      settings.written.get('ptah.provider.openai-codex.oauthTokenEndpoint'),
+    ).toBeUndefined();
+    expect(settings.written.get('ptah.memory.curatorProvider')).toBe(
+      'openai-codex',
+    );
+    expect(completion().settings).toEqual({
+      names: ['memory.curatorModel', 'memory.curatorProvider'],
+      sha256: canonicalProductSettingsSha256({
+        'memory.curatorProvider': 'openai-codex',
+        'memory.curatorModel': 'gpt-5.6-terra',
+      }),
+    });
+  });
+
+  it('sets the unreachable oauth endpoint only in record mode', async () => {
+    writePlan({ cassetteMode: 'record' });
+    const settings = new MemorySettings();
+    await runMemorySkillsHost(deps({ boot: bootWith(settings, true) }));
+    expect(
+      settings.written.get('ptah.provider.openai-codex.oauthTokenEndpoint'),
+    ).toBe(UNREACHABLE_OAUTH_TOKEN_ENDPOINT);
+    expect(completion().settings?.names).toEqual([
+      'provider.openai-codex.oauthTokenEndpoint',
+    ]);
+  });
+
+  it('discards a staged cassette when provenance is an alias', async () => {
+    const curatorPath = join(bench, 'curator.jsonl');
+    writePlan({
+      cassetteMode: 'record',
+      settings: {
+        'memory.curatorProvider': 'openai-codex',
+        'memory.curatorModel': 'gpt-5.6-terra',
+      },
+      cassettes: {
+        curator: { path: curatorPath, model: 'gpt-5.6-terra' },
+        laneRunner: { path: join(bench, 'lane.jsonl'), model: 'none' },
+      },
+      suites: [{ id: 'mem.extraction' }],
+    });
+    const suite: MemorySkillsHostSuite = {
+      id: 'mem.extraction',
+      run: async (context) => {
+        writeFileSync(
+          curatorPath,
+          `${JSON.stringify({
+            key: 'k1',
+            method: 'extract',
+            model: 'gpt-5.6-terra',
+            promptSha: 'ab',
+            response: { ok: true },
+          })}\n`,
+        );
+        const tap = context.container.resolve<{
+          onModelDispatched(provenance: {
+            resolvedProviderId: string;
+            resolvedModelId: string;
+            component: 'memory-curator';
+            laneId: string;
+          }): void;
+        }>(MODEL_DISPATCH_PROVENANCE_TAP);
+        tap.onModelDispatched({
+          resolvedProviderId: 'openai',
+          resolvedModelId: 'gpt-5.6-terra',
+          component: 'memory-curator',
+          laneId: 'memory-curator',
+        });
+      },
+    };
+    await expect(
+      runMemorySkillsHost(
+        deps({ boot: bootWith(new MemorySettings(), true), suites: [suite] }),
+      ),
+    ).rejects.toThrow(/provenance provider openai does not match openai-codex/);
+    expect(existsSync(curatorPath)).toBe(false);
+    expect(existsSync(`${curatorPath}.provenance.json`)).toBe(false);
+    expect(existsSync(join(runDir, HOST_COMPLETION_FILE))).toBe(false);
+  });
+
+  it('discards a staged cassette when the isolated auth file changes', async () => {
+    const curatorPath = join(bench, 'curator.jsonl');
+    const source = join(root, 'operator-auth.json');
+    const now = Date.now();
+    const exp = Math.floor(now / 1000) + 3600;
+    const header = Buffer.from('{"alg":"none"}').toString('base64url');
+    const body = Buffer.from(JSON.stringify({ exp })).toString('base64url');
+    writeFileSync(
+      source,
+      JSON.stringify({ tokens: { access_token: `${header}.${body}.x` } }),
+    );
+    writePlan({
+      cassetteMode: 'record',
+      settings: {
+        'memory.curatorProvider': 'openai-codex',
+        'memory.curatorModel': 'gpt-5.6-terra',
+      },
+      cassettes: {
+        curator: { path: curatorPath, model: 'gpt-5.6-terra' },
+        laneRunner: { path: join(bench, 'lane.jsonl'), model: 'none' },
+      },
+      suites: [{ id: 'mem.extraction' }],
+    });
+    const previous = process.env['CODEX_HOME'];
+    const suite: MemorySkillsHostSuite = {
+      id: 'mem.extraction',
+      run: async (context) => {
+        writeFileSync(
+          curatorPath,
+          `${JSON.stringify({
+            key: 'k1',
+            method: 'extract',
+            model: 'gpt-5.6-terra',
+            promptSha: 'ab',
+            response: {},
+          })}\n`,
+        );
+        const tap = context.container.resolve<{
+          onModelDispatched(provenance: {
+            resolvedProviderId: string;
+            resolvedModelId: string;
+            component: 'memory-curator';
+            laneId: string;
+          }): void;
+        }>(MODEL_DISPATCH_PROVENANCE_TAP);
+        tap.onModelDispatched({
+          resolvedProviderId: 'openai-codex',
+          resolvedModelId: 'gpt-5.6-terra',
+          component: 'memory-curator',
+          laneId: 'memory-curator',
+        });
+        writeFileSync(
+          join(isolation.home, '.codex', 'auth.json'),
+          '{"tokens":{"access_token":"rotated"}}\n',
+        );
+      },
+    };
+    try {
+      await expect(
+        runMemorySkillsHost(
+          deps({
+            env: {
+              [MEMORY_SKILLS_PLAN_ENV]: planPath,
+              [CODEX_AUTH_SOURCE_ENV]: source,
+              [RECORDING_DEADLINE_ENV]: '1000',
+            },
+            boot: bootWith(new MemorySettings(), true),
+            suites: [suite],
+          }),
+        ),
+      ).rejects.toThrow(/isolated auth.json changed during recording/);
+      expect(existsSync(curatorPath)).toBe(false);
+      expect(process.env['CODEX_HOME']).toBe(join(isolation.home, '.codex'));
+    } finally {
+      if (previous === undefined) delete process.env['CODEX_HOME'];
+      else process.env['CODEX_HOME'] = previous;
+    }
+  });
+
+  it('seeds the oauth endpoint into isolated config.json before the engine starts', async () => {
+    writePlan({ cassetteMode: 'record' });
+    const configPath = join(
+      isolation.userDataPath,
+      ISOLATED_PRODUCT_CONFIG_FILE,
+    );
+    writeFileSync(configPath, `${JSON.stringify({ ptah: { mcpPort: 1 } })}\n`);
+    let endpointBeforeEngine = '';
+    let preserved: unknown;
+    const boot: MemorySkillsHostDeps['boot'] = async (options) => {
+      events.push('boot');
+      await options.beforeEngineBoot?.({
+        workspace: options.workspace,
+        isolation,
+      });
+      const config = JSON.parse(readFileSync(configPath, 'utf8')) as {
+        ptah: Record<string, unknown>;
+      };
+      endpointBeforeEngine = String(
+        config.ptah['provider.openai-codex.oauthTokenEndpoint'],
+      );
+      preserved = config.ptah['mcpPort'];
+      events.push('engine');
+      const container = rootContainer.createChildContainer();
+      container.register(PLATFORM_TOKENS.WORKSPACE_PROVIDER, {
+        useValue: new MemorySettings(),
+      });
+      container.register(MEMORY_CONTRACT_TOKENS.CURATOR_LLM, { useValue: {} });
+      container.register(LANE_RUNNER_SERVICE, { useValue: {} });
+      await options.afterContainerReady?.(container, {
+        workspaceRoot: options.workspace,
+        isolation,
+      });
+      events.push('mcp');
+      return {
+        port: 4321,
+        workspaceRoot: options.workspace,
+        isolation,
+        container,
+        stop,
+      };
+    };
+    await runMemorySkillsHost(deps({ boot }));
+    expect(events.indexOf('boot')).toBeLessThan(events.indexOf('engine'));
+    expect(events.indexOf('engine')).toBeLessThan(events.indexOf('mcp'));
+    expect(endpointBeforeEngine).toBe(UNREACHABLE_OAUTH_TOKEN_ENDPOINT);
+    expect(preserved).toBe(1);
+  });
+
+  it('does not seed isolated config.json before the engine in replay', async () => {
+    writePlan();
+    const configPath = join(
+      isolation.userDataPath,
+      ISOLATED_PRODUCT_CONFIG_FILE,
+    );
+    let configExisted = true;
+    const boot: MemorySkillsHostDeps['boot'] = async (options) => {
+      await options.beforeEngineBoot?.({
+        workspace: options.workspace,
+        isolation,
+      });
+      configExisted = existsSync(configPath);
+      events.push('engine');
+      const container = rootContainer.createChildContainer();
+      await options.afterContainerReady?.(container, {
+        workspaceRoot: options.workspace,
+        isolation,
+      });
+      return {
+        port: 4321,
+        workspaceRoot: options.workspace,
+        isolation,
+        container,
+        stop,
+      };
+    };
+    await runMemorySkillsHost(deps({ boot }));
+    expect(events).toContain('engine');
+    expect(configExisted).toBe(false);
   });
 });

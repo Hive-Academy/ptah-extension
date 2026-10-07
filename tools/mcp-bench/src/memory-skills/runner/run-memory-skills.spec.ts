@@ -18,6 +18,10 @@ import {
   MEMORY_SKILLS_PLAN_ENV,
   createMemorySkillsPlanSchema,
 } from '../host/plan.schema';
+import {
+  CODEX_AUTH_SOURCE_ENV,
+  RECORDING_DEADLINE_ENV,
+} from '../host/recording-bootstrap';
 import { SAFETY_CAP_ERROR } from './case-runner';
 import {
   firstScoredRunsDir,
@@ -781,6 +785,51 @@ describe('runMemorySkills (Batch 16)', () => {
     });
   });
 
+  it('copies settings into the host plan and keeps codexAuthSource off disk', async () => {
+    const authSource = join(root, 'operator-codex-auth.json');
+    const result = await runMemorySkills(
+      options(
+        writePlan({
+          settings: {
+            'memory.curatorProvider': 'openai-codex',
+            'memory.curatorModel': 'gpt-5.6-terra',
+            'skillSynthesis.archaeologist.provider': 'openai-codex',
+          },
+        }),
+        { codexAuthSource: authSource },
+      ),
+      deps(),
+    );
+    const hostPlan = readFileSync(
+      join(result.runDir, 'host-plan.json'),
+      'utf8',
+    );
+    const runnerPlan = readFileSync(
+      join(result.runDir, 'runner-plan.json'),
+      'utf8',
+    );
+    const summary = readFileSync(
+      join(result.runDir, 'run-summary.json'),
+      'utf8',
+    );
+    expect(JSON.parse(hostPlan).settings).toEqual({
+      'memory.curatorProvider': 'openai-codex',
+      'memory.curatorModel': 'gpt-5.6-terra',
+      'skillSynthesis.archaeologist.provider': 'openai-codex',
+    });
+    expect(JSON.parse(runnerPlan).settings['memory.curatorModel']).toBe(
+      'gpt-5.6-terra',
+    );
+    expect(hostPlan).not.toContain(authSource);
+    expect(runnerPlan).not.toContain(authSource);
+    expect(summary).not.toContain(authSource);
+    expect(launches[0].options.env).toEqual({
+      [MEMORY_SKILLS_PLAN_ENV]: join(result.runDir, 'host-plan.json'),
+      [CODEX_AUTH_SOURCE_ENV]: authSource,
+      [RECORDING_DEADLINE_ENV]: '1000',
+    });
+  });
+
   describe('refusals before launch', () => {
     it('refuses a ground truth committed after its first scored run', async () => {
       recordFirstScoredRuns(
@@ -841,6 +890,16 @@ describe('runMemorySkills (Batch 16)', () => {
           deps(),
         ),
       ).rejects.toThrow(/a CI plan must use cassetteMode "replay"/);
+      expect(launches).toHaveLength(0);
+    });
+
+    it('refuses a relative codexAuthSource before launch', async () => {
+      await expect(
+        runMemorySkills(
+          options(writePlan({}), { codexAuthSource: 'auth.json' }),
+          deps(),
+        ),
+      ).rejects.toThrow('codexAuthSource must be an absolute path');
       expect(launches).toHaveLength(0);
     });
 
