@@ -34,6 +34,8 @@ describe('MemoryDiagnosticsRpcService', () => {
       processedBytesEstimate: 0,
       measuredAt: null,
       quarantineLedgerRows: 0,
+      bootScanFailuresPending: 0,
+      bootScanFailuresGivenUp: 0,
     },
     retention: {
       healthVerdict: 'healthy' as const,

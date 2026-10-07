@@ -81,6 +81,7 @@ interface Harness {
   readonly store: ObservationRetentionStore;
   readonly service: MemoryRetentionService;
   readonly settings: Record<string, unknown>;
+  readonly logger: Logger;
   run(at: number): Promise<MemoryRetentionReport>;
 }
 
@@ -125,6 +126,7 @@ function makeHarness(
     store,
     service,
     settings,
+    logger,
     run: (at: number) =>
       service.run({
         signal: new AbortController().signal,
@@ -196,10 +198,6 @@ function ledger(t: RetentionTestDb): Array<Record<string, unknown>> {
   return t.raw
     .prepare('SELECT * FROM observation_quarantine ORDER BY session_id, kind')
     .all() as Array<Record<string, unknown>>;
-}
-
-function ledgerSum(t: RetentionTestDb): number {
-  return ledger(t).reduce((sum, row) => sum + Number(row['row_count']), 0);
 }
 
 afterEach(() => {
@@ -799,6 +797,7 @@ function makeLifecycleHarness(
     store,
     service,
     settings: workspaceSettings,
+    logger,
     memoryStore,
     lifecycleStore,
     vecStatus,
@@ -822,7 +821,7 @@ describe('memory retention — integration (real SQLite, fake clock)', () => {
     expect(() => requireSqliteOpener()).not.toThrow();
   });
 
-  it('purges, quarantines, reclaims and records; run 2 is not due; run 3 slides the default windows; run 4 is idempotent', async () => {
+  it('purges processed rows, keeps every unprocessed row, reclaims and records; run 2 is not due; run 3 slides the default windows; run 4 is idempotent', async () => {
     const h = makeHarness();
     const { t } = h;
 
@@ -864,32 +863,17 @@ describe('memory retention — integration (real SQLite, fake clock)', () => {
         processedAt: null,
       })),
     );
-    const stuckSeed = seedGroup(300, (i) => ({
-      sessionId: `u-${i % 2}`,
-      kind: i % 4 < 2 ? 'tool-use' : 'user-prompt',
-      capturedAt: NOW - 15 * DAY - i * 1000,
-      processedAt: null,
-      toolResponseText: 'stuck',
-    }));
-    const uStuck = seedObservations(t.raw, stuckSeed);
-
-    const expectedLedger = new Map<
-      string,
-      { count: number; oldest: number; newest: number }
-    >();
-    for (const row of stuckSeed) {
-      const key = `${row.sessionId}|${row.kind}`;
-      const e = expectedLedger.get(key) ?? {
-        count: 0,
-        oldest: Infinity,
-        newest: -Infinity,
-      };
-      e.count++;
-      e.oldest = Math.min(e.oldest, row.capturedAt);
-      e.newest = Math.max(e.newest, row.capturedAt);
-      expectedLedger.set(key, e);
-    }
-    expect(expectedLedger.size).toBe(4);
+    // TASK_2026_621: unprocessed rows far older than stuckDays (14) must survive.
+    const uStuck = seedObservations(
+      t.raw,
+      seedGroup(300, (i) => ({
+        sessionId: `u-${i % 2}`,
+        kind: i % 4 < 2 ? 'tool-use' : 'user-prompt',
+        capturedAt: NOW - 15 * DAY - i * 1000,
+        processedAt: null,
+        toolResponseText: 'stuck',
+      })),
+    );
 
     const before = snapshot(t);
     const pageCountBefore = pragmaNumber(t.raw, 'page_count');
@@ -900,37 +884,29 @@ describe('memory retention — integration (real SQLite, fake clock)', () => {
     expect(run1.status).toBe('completed');
     expect(run1.reason).toBeNull();
     expect(run1.processedPurged).toBe(1200);
-    expect(run1.stuckQuarantined).toBe(300);
+    expect(run1.stuckKept).toBe(300);
     expect(run1.backlogRemaining).toBe(false);
     expect(run1.error).toBeNull();
     expect(run1.freedBytes).toBeGreaterThan(1200 * 4096);
     expect(run1.pagesReclaimed).toBeGreaterThan(0);
+    expect(h.logger.warn).toHaveBeenCalledWith(
+      '[memory-curator] retention kept unprocessed observations older than stuckDays',
+      { stuckKept: 300, stuckDays: 14 },
+    );
 
     const after = snapshot(t);
-    for (const id of [...pOld, ...uStuck]) expect(after.has(id)).toBe(false);
-    for (const id of [...pNew, ...pOldCapturedNewProcessed, ...uGrace]) {
-      expect(after.get(id)).toEqual(before.get(id));
-    }
-    // No row anywhere had processed_at written: every survivor is unchanged.
-    expect(after.size).toBe(
-      pNew.length + pOldCapturedNewProcessed.length + uGrace.length,
-    );
-    for (const [id, row] of after) expect(row).toEqual(before.get(id));
-
-    const ledgerRows = ledger(t);
-    expect(ledgerRows).toHaveLength(4);
-    expect(ledgerSum(t)).toBe(300);
-    for (const row of ledgerRows) {
-      const expected = expectedLedger.get(
-        `${row['session_id']}|${row['kind']}`,
-      );
-      expect(expected).toBeDefined();
-      expect(row['reason']).toBe('stuck-unprocessed');
-      expect(Number(row['row_count'])).toBe(expected?.count);
-      expect(Number(row['oldest_captured_at'])).toBe(expected?.oldest);
-      expect(Number(row['newest_captured_at'])).toBe(expected?.newest);
-      expect(Number(row['last_quarantined_at'])).toBe(NOW);
-    }
+    for (const id of pOld) expect(after.has(id)).toBe(false);
+    // Every other row — including every stuck unprocessed one — is unchanged,
+    // and no row had processed_at written.
+    const survivors = [
+      ...pNew,
+      ...pOldCapturedNewProcessed,
+      ...uGrace,
+      ...uStuck,
+    ];
+    expect(after.size).toBe(survivors.length);
+    for (const id of survivors) expect(after.get(id)).toEqual(before.get(id));
+    expect(ledger(t)).toEqual([]);
 
     const freelistAfter = pragmaNumber(t.raw, 'freelist_count');
     expect(freelistAfter === 0 || freelistAfter < freelistBefore).toBe(true);
@@ -952,16 +928,20 @@ describe('memory retention — integration (real SQLite, fake clock)', () => {
     expect(state1?.lastOutcome).toBe('completed');
     expect(state1?.backlogRemaining).toBe(false);
     expect(state1?.processedPurged).toBe(1200);
+    expect(state1?.stuckQuarantined).toBe(0);
     expect(state1?.processedRowsAfter).toBe(
       pNew.length + pOldCapturedNewProcessed.length,
     );
 
+    // Liveness: the backlog and its age are visible in diagnostics.
     const health = h.service.storageHealth();
-    expect(health.observations.pendingRows).toBe(40);
-    expect(health.observations.quarantineLedgerRows).toBe(4);
+    expect(health.observations.pendingRows).toBe(340);
+    expect(health.observations.oldestPendingAt).toBe(
+      NOW - 15 * DAY - 299 * 1000,
+    );
+    expect(health.observations.quarantineLedgerRows).toBe(0);
     expect(health.retention.lastRun?.outcome).toBe('completed');
     expect(health.retention.nextDueAt).toBe(NOW + DAY);
-    expect(health.readErrors).toBeUndefined();
 
     // ---- Run 2: one hour later, nothing is due and nothing is written ----
     const stateBeforeRun2 = h.store.readState();
@@ -972,80 +952,42 @@ describe('memory retention — integration (real SQLite, fake clock)', () => {
     expect(h.store.readState()).toEqual(stateBeforeRun2);
 
     // ---- Run 3: 25 h later, DEFAULT 7/14-day windows. The cutoffs slide with
-    // the run clock: P-new (processed NOW-6d) is now older than 7 days and
-    // U-grace (captured NOW-13d) older than 14 days, so both go.
-    const ledgerBeforeRun3 = new Map(
-      ledger(t).map((row) => [`${row['session_id']}|${row['kind']}`, row]),
-    );
+    // the run clock: P-new (processed NOW-6d) is now older than 7 days and is
+    // purged; U-grace (captured NOW-13d) is now older than 14 days and is
+    // counted as stuck, but kept.
     const run3 = (await h.run(NOW + 25 * HOUR)) as MemoryRetentionRunReport;
     expect(run3).toMatchObject({
       status: 'completed',
       reason: null,
       processedPurged: 50,
-      stuckQuarantined: 40,
+      stuckKept: 340,
       ledgerPruned: 0,
       backlogRemaining: false,
       error: null,
     });
 
     const afterRun3 = snapshot(t);
-    for (const id of [...pNew, ...uGrace])
-      expect(afterRun3.has(id)).toBe(false);
-    // R7 again: processed NOW-1d, still inside the slid window, untouched.
-    expect(afterRun3.size).toBe(pOldCapturedNewProcessed.length);
-    for (const id of pOldCapturedNewProcessed) {
+    for (const id of pNew) expect(afterRun3.has(id)).toBe(false);
+    const run3Survivors = [...pOldCapturedNewProcessed, ...uGrace, ...uStuck];
+    expect(afterRun3.size).toBe(run3Survivors.length);
+    for (const id of run3Survivors) {
       expect(afterRun3.get(id)).toEqual(before.get(id));
-      expect(afterRun3.get(id)?.processed_at).toBe(NOW - DAY);
     }
-
-    // U-grace is 20 × u-0|tool-use and 20 × u-1|tool-use (no payload), which
-    // share their keys with two run-1 ledger rows; the two user-prompt rows
-    // share nothing with it and must not change at all.
-    expect(ledgerSum(t)).toBe(340);
-    const ledgerAfterRun3 = ledger(t);
-    expect(ledgerAfterRun3).toHaveLength(4);
-    const byKey = new Map(
-      ledgerAfterRun3.map((row) => [
-        `${row['session_id']}|${row['kind']}`,
-        row,
-      ]),
-    );
-    for (const session of ['u-0', 'u-1']) {
-      const grown = byKey.get(`${session}|tool-use`);
-      const prior = ledgerBeforeRun3.get(`${session}|tool-use`);
-      expect(Number(prior?.['row_count'])).toBe(75);
-      expect(Number(grown?.['row_count'])).toBe(95);
-      expect(Number(grown?.['payload_bytes'])).toBe(
-        Number(prior?.['payload_bytes']),
-      );
-      expect(Number(grown?.['oldest_captured_at'])).toBe(
-        Number(prior?.['oldest_captured_at']),
-      );
-      expect(Number(grown?.['newest_captured_at'])).toBe(NOW - 13 * DAY);
-      expect(Number(grown?.['first_quarantined_at'])).toBe(NOW);
-      expect(Number(grown?.['last_quarantined_at'])).toBe(NOW + 25 * HOUR);
-
-      const untouched = byKey.get(`${session}|user-prompt`);
-      expect(Number(untouched?.['row_count'])).toBe(75);
-      expect(untouched).toEqual(ledgerBeforeRun3.get(`${session}|user-prompt`));
-    }
+    expect(ledger(t)).toEqual([]);
 
     const state3 = h.store.readState();
     expect(state3?.lastCompletedAt).toBe(NOW + 25 * HOUR);
-    expect(state3?.lastOutcome).toBe('completed');
-    expect(state3?.backlogRemaining).toBe(false);
     expect(state3?.processedPurged).toBe(50);
-    expect(state3?.stuckQuarantined).toBe(40);
+    expect(state3?.stuckQuarantined).toBe(0);
     expect(state3?.processedRowsAfter).toBe(pOldCapturedNewProcessed.length);
 
-    // ---- Run 4: due again 25 h after run 3, defaults, over a clean cohort:
-    // nothing is eligible, every counter is zero, the ledger is unchanged.
+    // ---- Run 4: due again 25 h after run 3, nothing is eligible to delete.
     const run4 = (await h.run(NOW + 50 * HOUR)) as MemoryRetentionRunReport;
     expect(run4).toEqual({
       status: 'completed',
       reason: null,
       processedPurged: 0,
-      stuckQuarantined: 0,
+      stuckKept: 340,
       ledgerPruned: 0,
       freedBytes: 0,
       pagesReclaimed: 0,
@@ -1057,29 +999,19 @@ describe('memory retention — integration (real SQLite, fake clock)', () => {
       durationMs: 0,
       error: null,
     });
-    expect(ledgerSum(t)).toBe(340);
-    expect(ledger(t)).toEqual(ledgerAfterRun3);
     expect(snapshot(t)).toEqual(afterRun3);
     expect(h.store.readState()?.lastCompletedAt).toBe(NOW + 50 * HOUR);
   });
 
-  it('the row cap is shared across purge and quarantine; a row-budget stop still prunes the ledger and reclaims', async () => {
-    const quarantineLimits: number[] = [];
-    const h = makeHarness({ maxRowsPerRun: 250 }, (store) => {
-      const real = store.quarantineStuckBatch.bind(store);
-      store.quarantineStuckBatch = (cutoff, limit, now) => {
-        quarantineLimits.push(limit);
-        return real(cutoff, limit, now);
-      };
-    });
+  it('a row-budget stop still prunes the ledger and reclaims, and never touches unprocessed rows', async () => {
+    const h = makeHarness({ maxRowsPerRun: 250 });
     const { t } = h;
-    // Batch size above the cap, so each step's limit is the remaining allowance.
     h.settings['memory.retention.batchSize'] = 500;
 
-    // 100 eligible processed rows: fewer than the 250 cap.
-    const processed = seedObservations(
+    // 300 eligible processed rows: more than the 250 cap.
+    seedObservations(
       t.raw,
-      seedGroup(100, (i) => ({
+      seedGroup(300, (i) => ({
         sessionId: `p-${i % 2}`,
         kind: 'tool-use',
         capturedAt: NOW - 9 * DAY,
@@ -1087,7 +1019,6 @@ describe('memory retention — integration (real SQLite, fake clock)', () => {
         toolResponseText: PAYLOAD_8KB,
       })),
     );
-    // 200 stuck rows: more than the 150 the purge leaves.
     const stuck = seedObservations(
       t.raw,
       seedGroup(200, (i) => ({
@@ -1099,6 +1030,7 @@ describe('memory retention — integration (real SQLite, fake clock)', () => {
       })),
     );
 
+    // Ledger rows written before TASK_2026_621 are still bounded.
     const insertLedger = t.raw.prepare(
       `INSERT INTO observation_quarantine
          (session_id, kind, reason, row_count, payload_bytes, oldest_captured_at,
@@ -1126,27 +1058,17 @@ describe('memory retention — integration (real SQLite, fake clock)', () => {
     expect(run1).toMatchObject({
       status: 'partial',
       reason: 'row-budget',
-      processedPurged: 100,
-      stuckQuarantined: 150,
+      processedPurged: 250,
+      stuckKept: 200,
       ledgerPruned: 1,
       backlogRemaining: true,
       error: null,
     });
-    expect(run1.processedPurged + run1.stuckQuarantined).toBe(250);
-    // The quarantine step was handed the allowance the purge left, not a fresh one.
-    expect(quarantineLimits).toEqual([150]);
 
     const left = snapshot(t);
-    for (const id of processed) expect(left.has(id)).toBe(false);
-    expect(left.size).toBe(50);
-    for (const id of stuck.slice(0, 150)) expect(left.has(id)).toBe(false);
-    for (const id of stuck.slice(150)) expect(left.has(id)).toBe(true);
-
-    const sessions = ledger(t).map((row) => row['session_id']);
-    expect(sessions).not.toContain('old-s');
-    expect(sessions).toEqual(['recent-s', 'u-0']);
-    const u0 = ledger(t).find((row) => row['session_id'] === 'u-0');
-    expect(Number(u0?.['row_count'])).toBe(150);
+    for (const id of stuck) expect(left.get(id)?.processed_at).toBeNull();
+    expect(left.size).toBe(50 + stuck.length);
+    expect(ledger(t).map((row) => row['session_id'])).toEqual(['recent-s']);
 
     // Reclaim ran after the row-budget stop and emptied the freelist.
     expect(run1.pagesReclaimed).toBeGreaterThan(0);
@@ -1162,62 +1084,18 @@ describe('memory retention — integration (real SQLite, fake clock)', () => {
     expect(Number(stateRow['backlog_remaining'])).toBe(1);
     expect(Number(stateRow['ledger_pruned'])).toBe(1);
     expect(stateRow['last_completed_at']).toBeNull();
-  });
 
-  it('a row budget stops run 1 partial with committed deletes; the next hour is due and finishes', async () => {
-    const h = makeHarness({ maxRowsPerRun: 250 });
-    const { t } = h;
-    seedObservations(
-      t.raw,
-      seedGroup(300, (i) => ({
-        sessionId: `p-${i % 2}`,
-        kind: 'tool-use',
-        capturedAt: NOW - 9 * DAY,
-        processedAt: NOW - 8 * DAY,
-        toolResponseText: 'x'.repeat(512),
-      })),
-    );
-    seedObservations(
-      t.raw,
-      seedGroup(100, () => ({
-        sessionId: 'u-0',
-        kind: 'tool-use',
-        capturedAt: NOW - 20 * DAY,
-        processedAt: null,
-      })),
-    );
-
-    const run1 = (await h.run(NOW)) as MemoryRetentionRunReport;
-    expect(run1).toMatchObject({
-      status: 'partial',
-      reason: 'row-budget',
-      processedPurged: 250,
-      stuckQuarantined: 0,
-      backlogRemaining: true,
-    });
-    const processedLeft = t.raw
-      .prepare(
-        'SELECT COUNT(*) AS n FROM observation_queue WHERE processed_at IS NOT NULL',
-      )
-      .get() as { n: number };
-    expect(Number(processedLeft.n)).toBe(50);
-    const state1 = h.store.readState();
-    expect(state1?.backlogRemaining).toBe(true);
-    expect(state1?.lastCompletedAt).toBeNull();
-    expect(h.service.storageHealth().retention.nextDueAt).toBe(NOW);
-
+    // The next hour finishes the processed backlog; the stuck rows stay.
     const run2 = (await h.run(NOW + HOUR)) as MemoryRetentionRunReport;
     expect(run2).toMatchObject({
       status: 'completed',
       processedPurged: 50,
-      stuckQuarantined: 100,
+      stuckKept: 200,
       backlogRemaining: false,
     });
-    const left = t.raw
-      .prepare('SELECT COUNT(*) AS n FROM observation_queue')
-      .get() as { n: number };
-    expect(Number(left.n)).toBe(0);
-    expect(ledgerSum(t)).toBe(100);
+    const after2 = snapshot(t);
+    expect(after2.size).toBe(stuck.length);
+    for (const id of stuck) expect(after2.get(id)?.processed_at).toBeNull();
     expect(h.store.readState()?.lastCompletedAt).toBe(NOW + HOUR);
   });
 

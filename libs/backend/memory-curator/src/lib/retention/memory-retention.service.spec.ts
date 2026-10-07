@@ -96,8 +96,11 @@ class FakeStore {
   /** Advance the clock by this much inside each row batch. */
   batchCostMs = 0;
   onPurge: ((call: number) => void) | null = null;
-  onQuarantine: (() => void) | null = null;
+  /** Runs on every live-storage read; the first is the run's stuck count. */
+  onLiveRead: (() => void) | null = null;
   purgeCalls = 0;
+  /** Stuck cutoff of every live-storage read, in call order. */
+  liveCutoffs: number[] = [];
 
   constructor(
     private readonly clock: Clock,
@@ -116,27 +119,22 @@ class FakeStore {
     return { deleted, nextCursor: 's', exhausted: this.processed === 0 };
   }
 
-  quarantineStuckBatch(_cutoff: number, limit: number, _now: number) {
-    this.calls.push('quarantine');
-    this.onQuarantine?.();
-    this.clock.t += this.batchCostMs;
-    const quarantined = Math.min(limit, this.stuck);
-    this.stuck -= quarantined;
-    return { quarantined, payloadBytes: quarantined * 10 };
-  }
-
   pruneLedger(_olderThan: number, _maxRows: number) {
     this.calls.push('prune');
     return { pruned: 2 };
   }
 
-  readLiveStorage(_cutoff: number): LiveStorageReading {
+  readLiveStorage(cutoff: number): LiveStorageReading {
+    this.liveCutoffs.push(cutoff);
+    this.onLiveRead?.();
     return {
       pendingRows: this.pendingRows,
       pendingBytes: 1000,
       oldestPendingAt: 5,
       stuckEligibleRows: this.stuck,
       quarantineLedgerRows: 4,
+      bootScanFailuresPending: 0,
+      bootScanFailuresGivenUp: 0,
       readErrors: [],
     };
   }
@@ -826,7 +824,7 @@ describe('MemoryRetentionService — gates', () => {
 });
 
 describe('MemoryRetentionService — run', () => {
-  it('runs purge → quarantine → prune → reclaim → checkpoint → record, and completes', async () => {
+  it('runs purge → stuck count → prune → reclaim → checkpoint → record, and completes', async () => {
     const h = harness();
     h.store.processed = 1200;
     h.store.stuck = 300;
@@ -836,7 +834,7 @@ describe('MemoryRetentionService — run', () => {
       status: 'completed',
       reason: null,
       processedPurged: 1200,
-      stuckQuarantined: 300,
+      stuckKept: 300,
       ledgerPruned: 2,
       freedBytes: 1200 * 4096,
       pagesReclaimed: 1200,
@@ -852,7 +850,6 @@ describe('MemoryRetentionService — run', () => {
     expect(order).toEqual([
       'readState',
       'purge',
-      'quarantine',
       'lifecycle',
       'prune',
       'reclaim',
@@ -868,7 +865,38 @@ describe('MemoryRetentionService — run', () => {
       backlogRemaining: false,
       processedRowsAfter: 60,
       avgProcessedRowBytes: 4096,
+      stuckQuarantined: 0,
     });
+  });
+
+  // TASK_2026_621: unprocessed rows older than stuckDays are kept and counted.
+  it('keeps stuck unprocessed rows, counts them against the stuckDays cutoff, and warns once', async () => {
+    const h = harness({ settings: { 'memory.retention.stuckDays': 10 } });
+    h.store.stuck = 59_614;
+    const startedAt = h.clock.t;
+    const report = (await h.service.run(h.options)) as MemoryRetentionRunReport;
+
+    expect(report.status).toBe('completed');
+    expect(report.stuckKept).toBe(59_614);
+    // The fake only deletes on purge; nothing else touched the stuck rows.
+    expect(h.store.stuck).toBe(59_614);
+    expect(h.store.liveCutoffs[0]).toBe(startedAt - 10 * 86_400_000);
+    expect(h.store.runs[0].stuckQuarantined).toBe(0);
+    expect(h.logger.warn).toHaveBeenCalledWith(
+      '[memory-curator] retention kept unprocessed observations older than stuckDays',
+      { stuckKept: 59_614, stuckDays: 10 },
+    );
+  });
+
+  it('does not warn when no unprocessed row is older than stuckDays', async () => {
+    const h = harness();
+    h.store.stuck = 0;
+    const report = (await h.service.run(h.options)) as MemoryRetentionRunReport;
+    expect(report.stuckKept).toBe(0);
+    expect(h.logger.warn).not.toHaveBeenCalledWith(
+      '[memory-curator] retention kept unprocessed observations older than stuckDays',
+      expect.anything(),
+    );
   });
 
   it('passes the run budget by identity to lifecycle and persists its counters, note and preview', async () => {
@@ -1040,11 +1068,11 @@ describe('MemoryRetentionService — run', () => {
       status: 'partial',
       reason: 'row-budget',
       processedPurged: 250,
-      stuckQuarantined: 0,
+      // A row budget does not prevent this independent, index-bounded warning.
+      stuckKept: 50,
       backlogRemaining: true,
       pagesReclaimed: 250,
     });
-    expect(h.log).not.toContain('quarantine');
     expect(h.lifecycle.calls).toHaveLength(1);
     expect(h.store.runs[0]).toMatchObject({
       outcome: 'partial',
@@ -1075,11 +1103,13 @@ describe('MemoryRetentionService — run', () => {
   it('the wall budget stops the run partial', async () => {
     const h = harness({ limits: { maxRunMs: 1000 } });
     h.store.processed = 5000;
+    h.store.stuck = 50;
     h.store.batchCostMs = 400;
     const report = (await h.service.run(h.options)) as MemoryRetentionRunReport;
     expect(report.status).toBe('partial');
     expect(report.reason).toBe('time-budget');
     expect(report.processedPurged).toBeGreaterThan(0);
+    expect(report.stuckKept).toBeNull();
     expect(h.log).not.toContain('prune');
     expect(h.log).not.toContain('reclaim');
     expect(h.lifecycle.calls).toHaveLength(0);
@@ -1356,6 +1386,8 @@ describe('MemoryRetentionService — storageHealth', () => {
         processedBytesEstimate: 6000,
         measuredAt: 2000,
         quarantineLedgerRows: 4,
+        bootScanFailuresPending: 0,
+        bootScanFailuresGivenUp: 0,
       },
       retention: {
         healthVerdict: 'healthy',
@@ -1440,6 +1472,8 @@ describe('MemoryRetentionService — storageHealth', () => {
       oldestPendingAt: null,
       stuckEligibleRows: null,
       quarantineLedgerRows: null,
+      bootScanFailuresPending: null,
+      bootScanFailuresGivenUp: null,
       readErrors: [
         'connection: failed to open C:\\Users\\alice\\.ptah\\state\\db.sqlite - busy',
         'pending: query failed on /home/bob/.ptah/state/db.sqlite',
@@ -1479,6 +1513,8 @@ describe('MemoryRetentionService — storageHealth', () => {
       oldestPendingAt: 5,
       stuckEligibleRows: 0,
       quarantineLedgerRows: 0,
+      bootScanFailuresPending: 0,
+      bootScanFailuresGivenUp: 0,
       readErrors: [
         'pending: query failed on /var/lib/ptah/state.sqlite',
         'quarantineLedger: table missing in /tmp/ptah-x/db.sqlite',
@@ -1548,7 +1584,7 @@ describe('MemoryRetentionService — background-work governor', () => {
     const governor = new FakeGovernor();
     const h = harness({ governor });
     let lifecycleBatchDispatched = false;
-    h.store.onQuarantine = () => {
+    h.store.onLiveRead = () => {
       governor.clear = false;
     };
     h.lifecycle.implementation = async (budget) => {
@@ -1575,7 +1611,7 @@ describe('MemoryRetentionService — background-work governor', () => {
     const governor = new FakeGovernor();
     const h = harness({ governor });
     let lifecycleBatchDispatched = false;
-    h.store.onQuarantine = () => {
+    h.store.onLiveRead = () => {
       governor.clear = false;
     };
     h.lifecycle.implementation = async (budget) => {
