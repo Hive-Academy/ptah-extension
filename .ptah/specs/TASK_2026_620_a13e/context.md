@@ -184,6 +184,8 @@ Order: 619 sends the Batch 4b SHA (schema), then the Batch 4c SHA (helpers).
   follow-ups, not B-P. (3) Manual runs (`memory:runNow`, `runCurator`, `analyzeNow`, `enhanceNow`) are
   refused and greyed out while paused. (4) Electron tray: two items ("Pause memory", "Pause skills"),
   tray always shown (not only with `trayKeepalive`), refreshed when the setting changes elsewhere.
+  Orchestrator decision (follows decision 3): `previewEnhancement` (the call the Skills UI really
+  uses; `enhanceNow` has no UI caller) is refused while paused too, since it is the same model work.
   Original request: switches visible on the Thoth Memory/Skills settings, stop ALL memory and skills
   work, pause and resume without issues.
 

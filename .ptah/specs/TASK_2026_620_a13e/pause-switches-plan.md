@@ -1,401 +1,465 @@
 # B-P: memory and skills pause switches — inventory and implementation plan (TASK_2026_620_a13e)
 
-Status: plan only. No production code changed. All `file:line` references are against the
-worktree `D:\projects\ptah-extension\.claude-worktrees\task-620-memory-skills-bench`, branch
-`feat/task-620-memory-skills-bench`. "Verified" means the line was opened while writing this plan.
-"Assumption" names the check the implementer must run.
+Revision 1 (2026-10-07). Folds in the cross-side review `pause-switches-plan-review.md` (5 serious, 5 minor;
+each answered in "Review disposition" at the end) and the binding **User decisions 2026-10-07, B-P**
+(`context.md:178-188`). Plan only; no production code changed. All `file:line` references are against the
+worktree `D:\projects\ptah-extension\.claude-worktrees\task-620-memory-skills-bench`.
 
-User intent (verbatim): "Include these switches in our batch and make sure they are visible in our
-settings page or memory/skills Thoth settings ... make sure they work, stop ALL memory and skills
-related work, and are pausable and playable (pause/resume) without any issues."
+## Provenance tags
 
-## Inputs and constraints
+Every rule below carries one tag:
 
-- Read: `context.md`, `batches.md` (format and phase layout only), the three inventory sweeps
-  (memory jobs, skills jobs, settings UI + RPC) and direct reads of every file cited below.
-- All `CLAUDE.md` files were deleted in `7917b193a` (context.md "Corrections"); repository patterns
-  below are derived from source.
-- Host facts that shape the design:
-  - VS Code is Thoth-free by lint-enforced invariant (`apps/ptah-extension-vscode/src/di/phase-2-libraries.ts:87-88`);
-    the Memory and Skills Thoth tabs are `electronOnly: true` (`libs/frontend/thoth-shell/src/lib/components/thoth-shell.component.ts:240-241`).
-    Memory and skills background work runs only in **Electron** (`bootThothRuntime` from
-    `apps/ptah-electron/src/activation/boot-heavy-services.ts:164`, `startThothCron` at `:422`) and the **CLI**
-    (`libs/backend/cli-engine/src/lib/bootstrap/thoth-runtime.ts:93` `activateThoth`).
-  - Both master keys are already file-routed: `memory.enabled` (`libs/backend/platform-core/src/file-settings-keys.ts:369`, default `:658`)
-    and `skillSynthesis.enabled` (`:255`, default `:571`). So a write from any host lands in
-    `~/.ptah/settings.json` and is visible to every other host.
-- Adding an RPC method name changes `BASELINE_RPC_METHOD_NAMES` (`libs/shared/src/lib/types/rpc/host-source-registry.baseline.ts:1-5`,
-  "Any change to this baseline requires a Gate 2 exception in TASK_2026_610"). The plan therefore adds **no new RPC method**.
+- **[U]** user-requested — the original request or a binding user decision (`context.md:178-188`).
+- **[R]** project rule — verified in repository source (cited).
+- **[L]** lane-proposed — a design choice made in this plan; listed again in "Lane-introduced constraints".
+  The team-leader and reviewers may change an [L] rule without asking the user; [U] and [R] rules need the
+  user or a cited source change.
 
-### Settings change-notification mechanics (Verified)
+## User decisions applied (binding) [U]
 
-| Mechanism | Where | Fires on | Does NOT fire on |
-|---|---|---|---|
-| `IWorkspaceProvider.getConfiguration` (port) | `libs/backend/platform-core/src/interfaces/workspace-provider.interface.ts` | read, always current: file keys read the in-memory cache of `PtahFileSettingsManager`, refreshed by its cross-process `fs.watch` (`file-settings-manager.ts:188-210`, listeners fired at `:500`) | — |
-| `IWorkspaceProvider.onDidChangeConfiguration` (port, `workspace-provider.interface.ts:57`) | fired by `setConfiguration` for file keys on VS Code (`vscode-workspace-provider.ts:97-108`), Electron (`electron-workspace-provider.ts:217-226`), CLI (`cli-workspace-provider.ts:109-118`) | every **in-process** write: RPC handlers, Electron tray (`tray.service.ts:259-263` uses `setConfiguration`), `ptah config set` (`apps/ptah-cli/src/cli/commands/config.ts:257`) | a write made by **another process** (e.g. `ptah config set` while Electron runs): only the per-key `PtahFileSettingsManager.watch` listeners fire, and `fileSettings` is not on the port |
-| `ISettingsStore.watchGlobal` (settings-core, `ports/settings-store.interface.ts:31`) | `ReactiveSettingsStore` (`reactive/reactive-settings-store.ts:60-67`) | writes through that store only | writes via `setConfiguration`, cross-process writes. **No backend consumer exists** outside settings-core and the platform adapters |
+1. Read side stays on while paused: saved memories and skills are still injected and `ptah_memory_search`
+   still works. Pause stops all background capture, curation, retention, lifecycle, synthesis, judging,
+   promotion, and embedder warmup/backfill.
+2. Delete `memory.curatorEnabled`, `memory.triggers.preCompact`, `skillSynthesis.triggers.sessionEnd`.
+   The per-workspace toggle fix and moving host-local trigger keys are follow-ups.
+3. Manual runs `memory:runNow`, `skillSynthesis:runCurator`, `skillSynthesis:analyzeNow`,
+   `skillSynthesis:enhanceNow` are refused by the RPC and greyed out in the UI while paused.
+4. Electron tray: two items "Pause memory" / "Pause skills"; tray always shown; refreshed when the setting
+   changes elsewhere; Quit keeps working.
+5. Original request: switches visible on the settings page or the Thoth Memory/Skills settings; stop ALL
+   memory and skills work; pause and resume without issues.
 
-Consequence: the repository's established pattern is **re-read the key with `getConfiguration` at each
-unit of work** (drain gate 1 `skill-drain.service.ts:781-784`, backlog cleanup
-`skill-backlog-cleanup.service.ts:136`, retention `memory-retention.service.ts:190`, trigger handlers
-`memory-trigger.service.ts:276/397/424/466/482/550`). The plan keeps that as the authoritative gate
-and adds `onDidChangeConfiguration` only for *cleanup and re-arming*, never as the only gate.
+---
+
+## 0. Host and notification facts (Verified)
+
+### 0.1 What runs on each host
+
+| Host | Memory/skills background work | Evidence |
+|---|---|---|
+| **Electron** | everything in section 1 | `bootThothRuntime` `apps/ptah-electron/src/activation/boot-heavy-services.ts:164`, `startThothCron` `:422`, embedder warmup `apps/ptah-electron/src/activation/wire-runtime.ts:505, 632-660` |
+| **CLI** | the same libraries via its own composition | `libs/backend/cli-engine/src/lib/bootstrap/thoth-runtime.ts:93` (`activateThoth`), job specs imported from `@ptah-extension/thoth-runtime` (`:25-31`) |
+| **VS Code** | **none that a switch could pause** | see 0.2 |
+
+### 0.2 VS Code reachability [R]
+
+- No SQLite: "nothing under apps/ptah-extension-vscode calls registerPersistenceSqliteServices … the
+  Thoth-free invariant is lint-enforced" (`apps/ptah-extension-vscode/src/di/phase-2-libraries.ts:84-91`).
+- `MemoryRpcHandlers`, `IndexingRpcHandlers`, `SkillsSynthesisRpcHandlers` are pinned as **must-not-resolve**
+  in VS Code (`apps/ptah-extension-vscode/src/di/expected-absent.ts:22-26, 38-43`; header `:1-14`: "no
+  better-sqlite3, no embedder worker").
+- The symbol index path is guarded by `sqliteOk` (`apps/ptah-extension-vscode/src/activation/wire-runtime.ts:193-199`),
+  which is always false there, so `CodeSymbolIndexer.indexWorkspace` never runs in VS Code. (It is a code
+  index, not memory, in any host.)
+- `mirrorUserLayer` (`apps/ptah-extension-vscode/src/activation/wire-runtime.ts:49`,
+  `activation/plugin-activation.ts:107-135`) copies **already-promoted** skills (`synthesizedSkillsRoot`,
+  `plugin-activation.ts:89`) into `~/.ptah/user`. It creates nothing, runs no synthesis and no LLM; it is the
+  read side that user decision 1 keeps on.
+- The Memory and Skills Thoth tabs are `electronOnly: true` (`libs/frontend/thoth-shell/src/lib/components/thoth-shell.component.ts:240-241`).
+
+Statement for the user: **a VS Code user has nothing to pause in VS Code** — no capture, curation, retention,
+synthesis, judging, promotion or embedder runs there. The switches are therefore not shown in VS Code [L],
+because showing them would require registering `MemoryRpcHandlers`/`SkillsSynthesisRpcHandlers` in VS Code,
+which `expected-absent.ts` forbids [R]. If an Electron instance (kept alive by the tray) or a CLI process
+shares the same `~/.ptah/settings.json`, it is paused from the Electron tray or Thoth tabs, or with
+`ptah config set ptah.memory.enabled false` (`apps/ptah-cli/src/cli/commands/config.ts:8, 257`).
+
+### 0.3 Settings change notification
+
+| Write source | Path | Fires `IWorkspaceProvider.onDidChangeConfiguration`? |
+|---|---|---|
+| Thoth UI toggle (Electron) | RPC handler → `this.workspaceProvider.setConfiguration('ptah', key, v)` (`memory-rpc.handlers.ts:741-745`, `skills-synthesis-rpc.handlers.ts:654-660`) → `ElectronWorkspaceProvider.setConfiguration` `libs/backend/platform-electron/src/implementations/electron-workspace-provider.ts:212-226` (file key → `fileSettings.set` then `fireConfigChange`, `:217-225`); event field `:41`, assigned `:62` | **Yes** (in-process) |
+| Electron tray | `tray.service.ts:259-265` → the same `setConfiguration` (provider resolved `apps/ptah-electron/src/main.ts:327-333`) | **Yes** (in-process) |
+| `ptah config set` in the CLI process | `cli-workspace-provider.ts:104-118` | Yes **inside the CLI process only** |
+| External edit of `~/.ptah/settings.json`, or a write by another Ptah process | `PtahFileSettingsManager` cross-process `fs.watch` → debounced diff → fires only its **own per-key listeners** (`libs/backend/platform-core/src/file-settings-manager.ts:188-210, 455-505`); `ElectronWorkspaceProvider` never subscribes to `fileSettings.watch` (no such call in the file) | **No.** `getConfiguration` sees the new value (cache refreshed); no event |
+
+Consequence [L]: every gate re-reads the key at each unit of work (authoritative), and every re-arm also has
+a **lazy path** that does not depend on the event (sections 3.4 and 4), so an external-edit resume works
+without an app restart.
 
 ---
 
 ## 1. Inventory — every background job and path
 
-Legend. Gate read: **live** = re-read on each run/event; **boot** = read once at `start()`/boot.
-"On pause today" = what happens to running/armed work when the switch flips off today.
-**GAP** = runs (or loses data) while paused.
+Gate read: **live** = re-read per run/event; **boot** = once at `start()`. **GAP** = runs or loses data while paused.
+Paths: `memory-curator/…` = `libs/backend/memory-curator/src/lib/…`; `skill-synthesis/…` = `libs/backend/skill-synthesis/src/lib/…`.
 
-### 1a. Memory trajectory
+### 1a. Memory
 
-| # | Job / path | Start / body (file:line) | Gate(s) today | Gate read | On pause today | Status |
+| # | Job / path | Start / body | Gate(s) today | Read | On pause today | Status |
 |---|---|---|---|---|---|---|
-| M1 | PostToolUse observation capture → `observation_queue` | `memory-trigger.service.ts:546-550` | `memory.enabled` + `memory.triggers.postToolUse.enabled` | live | stops at next event | OK |
-| M2 | UserPromptSubmit cue → curate | `memory-trigger.service.ts:481-482` | `memory.enabled` + `userPromptSubmit.enabled` | live | stops | OK |
-| M3 | Stop hook (turn complete) → episode / curate | `memory-trigger.service.ts:396-397` | `memory.enabled` (+ `turnComplete.enabled`, host-local key, see M19) | live | stops | OK |
+| M1 | PostToolUse capture → `observation_queue` | `memory-curator/triggers/memory-trigger.service.ts:546-550` | `memory.enabled` + `postToolUse.enabled` | live | stops | OK |
+| M2 | UserPromptSubmit cue → curate | `memory-trigger.service.ts:481-482` | `memory.enabled` | live | stops | OK |
+| M3 | Stop hook → episode/curate | `memory-trigger.service.ts:396-397` | `memory.enabled` | live | stops | OK |
 | M4 | ToolFailure capture | `memory-trigger.service.ts:423-424` | `memory.enabled` | live | stops | OK |
-| M5 | SessionEnd hook → final episode curate | `memory-trigger.service.ts:451-476` (gate `:466`) | `memory.enabled` + `sessionEnd.enabled` | live | stops; teardown still runs (correct) | OK |
-| M6 | Per-session idle timer → `fireIdle` → `tryEpisodeCurate` | arm `memory-trigger.service.ts:275-303`; fire `:661-672` | arm: `memory.enabled`; **fire: none** | arm live / fire ungated | a timer armed before pause curates up to `memory.triggers.idleMs` (600 s) after pause | **GAP** |
-| M7 | Boot scan of unscanned transcripts → `curator.curate` per session | arm `memory-trigger.service.ts:215-219`; body `:915-1000` | `memory.enabled` && `memory.triggers.bootScan` | **boot only** | an armed/running scan keeps curating after pause; after a resume it never re-arms until the next app start | **GAP** |
-| M8 | In-flight curate (LLM call) | `memory-trigger.service.ts:820-870` → `MemoryCuratorService.curate` | none during the call | — | finishes; observations marked processed | acceptable (see 3.4) |
-| M9 | PreCompact curation (`MemoryCuratorService` subscriber) | `memory-curator.service.ts:250-321` | per-workspace `indexing_state.memory_enabled` at boot (`boot-thoth-runtime.ts:232-264`, CLI `thoth-runtime.ts:235-248`); live stop via `indexing-control.service.ts:416-422` | boot + per-workspace toggle | **not gated by `memory.enabled` at all**; the per-workspace toggle's `stop()` is process-wide | **GAP** |
-| M10 | Trigger service start when workspace memory is off (Electron) | `boot-thoth-runtime.ts:275-287` (condition `refs.memoryCurator !== null`, set before the un-awaited status lookup `:244-258`) | none | boot | Electron starts M1-M7 even when `memory_enabled = 0`; CLI does not (`cli thoth-runtime.ts:246-249`) | **GAP** (host inconsistency) |
-| M11 | Retention cron `@ptah/memory-retention`, `17 * * * *` (purge processed, quarantine stuck, vacuum) | register `start-thoth-cron.ts:270-300`; handler `memory-retention-job.ts`; body `memory-retention.service.ts:190…` | `memory.retention.enabled` | live | **runs while `memory.enabled = false`** (deletes rows) | **GAP** |
-| M12 | Lifecycle archive / delete / evict (inside the retention run) | `memory-lifecycle.service.ts`; config `memory-lifecycle-config.ts:44-47` | `memory.lifecycle.enabled` | live | runs while memory paused | **GAP** |
-| M13 | Memory indexing run (embeddings of memory chunks, user-started or stale rebuild) | `indexing-control.service.ts:304` | per-workspace `memory_enabled` (or `force`) | live | not gated by `memory.enabled` | **GAP** |
-| M14 | `memory:runNow` (manual curate) | `memory-rpc.handlers.ts:627` | none | — | runs | decision (3.6) |
-| M15 | Session-start memory injection into the system prompt | `libs/backend/agent-sdk/src/lib/helpers/memory-prompt-injector.ts:181-187` | `memory.triggers.sessionStart.injectionEnabled` (host-local key) | live | — (read side) | kept separate (3.3) |
-| M16 | Code-symbol injection | `agent-sdk/src/lib/helpers/code-symbol-prompt-injector.ts:26` | `memory.symbolInjectionEnabled` | live | — (read side) | kept separate |
-| M17 | `ptah_memory_search` / `memory:search` | `memory-rpc.handlers.ts:236` | none | — | read side, owned by TASK_2026_619 | kept separate |
-| M18 | DB integrity check and daily backup cron | `start-thoth-cron.ts:165-253`, `:456-467` | `cron.enabled` | live | shared SQLite maintenance, not memory work | out of scope (preserve) |
-| M19 | Trigger keys absent from `FILE_BASED_SETTINGS_KEYS`: `memory.triggers.turnComplete.enabled`, `episode.enabled`, `sessionEnd.enabled`, `maxObservationsPerCurate`, `bootScanDelayMs`, `bootScanIdleBackoffMs`, `sessionStart.*` (`memory-trigger-config.ts:30-56`; grep count 0 in `file-settings-keys.ts`) | — | — | — | writes go to the host-local `config.json` (Electron `electron-workspace-provider.ts:229-232`, CLI `cli-workspace-provider.ts:120-123`), not `~/.ptah/settings.json`; invisible to other hosts and to cross-process watch (`file-settings-keys.ts:363-368` documents the failure class) | **GAP** (not a pause path; see Open question 4) |
-| M20 | Dead/inert keys: `memory.curatorEnabled` (no reader outside its declaration `file-settings-keys.ts:248,564`); `memory.triggers.preCompact` (read only into the DTO, `memory-trigger-config.ts:175-180`, gates nothing) | — | — | — | toggling does nothing | Proposed Removals |
+| M5 | SessionEnd hook → final curate | `memory-trigger.service.ts:451-476` (`:466`) | `memory.enabled` + `sessionEnd.enabled` | live | stops | OK |
+| M6 | Idle timer → `fireIdle` → `tryEpisodeCurate` | arm `:275-303`; fire `:661-672`; `tryEpisodeCurate` `:680-764` | arm only | fire ungated | timer armed before pause curates up to 600 s later | **GAP** |
+| M7 | Boot scan → `curator.curate` per session | arm `:215-219` (only arm site; cancel `:251-254`); body `:915-1000` | `memory.enabled && bootScan` | **boot** | running scan continues; never re-armed after resume until next start | **GAP** |
+| M8 | In-flight curate | `:820-870` | — | — | finishes | acceptable (3.4) |
+| M9 | PreCompact curation (`MemoryCuratorService`) | `memory-curator/memory-curator.service.ts:250-321` | per-workspace `memory_enabled` (boot `libs/backend/thoth-runtime/src/lib/boot-thoth-runtime.ts:232-264`; toggle `memory-curator/control/indexing-control.service.ts:416-422`) | boot + toggle | **not gated by `memory.enabled`** | **GAP** |
+| M10 | Per-workspace row vs trigger service | Electron starts the trigger service regardless of the row (`boot-thoth-runtime.ts:274-289`); CLI starts it only when the row is on and never later (`libs/backend/cli-engine/src/lib/bootstrap/thoth-runtime.ts:235-249, 259-268`); flipping the row on starts PreCompact only (`indexing-control.service.ts:417-422`) | per-workspace row | boot | host-inconsistent | **Follow-up F1** (not B-P, user decision 2) |
+| M11 | Retention cron `@ptah/memory-retention` `17 * * * *` | `start-thoth-cron.ts:270-300`; `thoth-runtime/src/lib/memory-retention-job.ts`; `memory-curator/retention/memory-retention.service.ts:190` | `memory.retention.enabled` | live | runs while `memory.enabled=false` (deletes rows) | **GAP** |
+| M12 | Lifecycle archive/delete/evict (inside the retention run) | `memory-curator/retention/memory-lifecycle.service.ts`; `memory-lifecycle-config.ts:44-47` | `memory.lifecycle.enabled` | live | runs while paused | **GAP** |
+| M13 | Memory indexing run | `indexing-control.service.ts:304` | per-workspace row or `force` | live | not gated by master | **GAP** |
+| M14 | `memory:runNow` | `libs/backend/rpc-handlers/src/lib/handlers/memory-rpc.handlers.ts:627` | none | — | runs | **GAP** (decision 3) |
+| M15 | **Embedder + reranker warmup** (model load in utility process) | armed `apps/ptah-electron/src/activation/wire-runtime.ts:505`; body `:632-660`; barrier opens once the window has loaded and the curator exists | none | boot (once) | runs at every boot while paused | **GAP** (decision 1) |
+| M16 | Session-start memory injection | `libs/backend/agent-sdk/src/lib/helpers/memory-prompt-injector.ts:181-187` | `memory.triggers.sessionStart.injectionEnabled` | live | — | read side, stays on [U] |
+| M17 | Code-symbol injection | `agent-sdk/src/lib/helpers/code-symbol-prompt-injector.ts:26` | `memory.symbolInjectionEnabled` | live | — | read side, stays on [U] |
+| M18 | `ptah_memory_search` / `memory:search` (embeds the query; lazy-loads the embedder, `memory-curator/embedder/embedder-worker-client.ts:99, 170, 194`) | `memory-rpc.handlers.ts:236` | none | — | — | read side, stays on [U]; owned by TASK_2026_619 |
+| M19 | DB integrity + daily backup cron | `start-thoth-cron.ts:165-253, 456-467` | `cron.enabled` | live | shared SQLite maintenance, not memory work | out of scope; preserve |
+| M20 | Host-local trigger keys: `memory.triggers.turnComplete.enabled`, `episode.enabled`, `sessionEnd.enabled`, `maxObservationsPerCurate`, `bootScanDelayMs`, `bootScanIdleBackoffMs`, `sessionStart.injectionEnabled/observationCount/corpusCount` (`memory-curator/triggers/memory-trigger-config.ts:30-56`) | — | — | — | **Verified absent** from `file-settings-keys.ts` (`grep -c "'<key>'"` = 0 for each of the nine keys and for `skillSynthesis.drain.bootDeferralMs`); writes go to the host-local `config.json` (`electron-workspace-provider.ts:229-232`, `cli-workspace-provider.ts:120-123`) | **Follow-up F2** |
+| M21 | Dead keys to delete: `memory.curatorEnabled` — **Verified** no reader: the only hits in `libs/` and `apps/` are its declaration `file-settings-keys.ts:248`, a comment `:360`, and the default `:564`. `memory.triggers.preCompact` — read into the DTO only (`memory-trigger-config.ts:175-180, 263`), gates nothing | — | — | — | deleted in PD [U] |
 
-### 1b. Skills trajectory
+### 1b. Skills
 
-| # | Job / path | Start / body (file:line) | Gate(s) today | Gate read | On pause today | Status |
+| # | Job / path | Start / body | Gate(s) today | Read | On pause today | Status |
 |---|---|---|---|---|---|---|
-| S1 | Session-end → `enqueueAnalyze` | subscribe `skill-synthesis.service.ts:412-423`; gate `:530-531` | `skillSynthesis.enabled` | live in body, but subscription happens **only if enabled at boot** (`:345-350` early return) | a host booted paused never subscribes; resume leaves session-end capture dead until restart | **GAP** |
-| S2 | Skill trigger hooks (activity idle, Stop, PostToolUse, SubagentStop, prompt expansion) → `enqueueAnalyze` | `skill-trigger.service.ts:148-181`, `:765-778` | `skillSynthesis.enabled` inside `SkillSynthesisService.enqueueAnalyze` (`:529-531`); returns `null` when `!started` | live | while booted-paused the service is never `started`, so every enqueue after resume is a silent no-op | **GAP** (same root as S1) |
-| S3 | Skill boot scan → enqueue `source:'boot'` rows | arm `skill-trigger.service.ts:182-186`; callback `:866-870` | `skillSynthesis.triggers.bootScan` only | boot | the callback returns `'ran'` even when `enqueueAnalyze` refused (paused), so the scan **watermark advances past sessions that were never queued** | **GAP (data loss)** |
-| S4 | Spec harvest on turn complete | `skill-trigger.service.ts:421-433` | none (not `skillSynthesis.enabled`) | — | keeps writing while paused | **GAP** |
-| S5 | Skill/agent invocation telemetry | `skill-trigger.service.ts:436-450`, `:615`, `:625-690` | telemetry flag only | live | keeps recording | **kept on deliberately** (3.3) |
-| S6 | Drain cron ×3: `@ptah/skills-drain-frequent` `*/15`, `-nightly` `0 3 * * *`, `-weekly` `0 4 * * 0` | specs `thoth-runtime/src/lib/skill-drain-jobs.ts`; register `start-thoth-cron.ts:56-120`; body `skill-drain.service.ts:758-856` | gate 1 `skillSynthesis.enabled` (`:784`) | live **per tick only**; the item loop `:821-836` re-checks only `signal.aborted` | a nightly (40 items) or weekly (400 items) tick that started before pause keeps running every item | **GAP** |
-| S7 | Drain stages `prefilter`, `embedding`, `archaeology`, `judge-panel`, `replay`, `trigger-eval` | registered `stage-handlers.service.ts:216-245` (above the early return, `skill-synthesis.service.ts:337`) | inherit S6 | — | `prefilter` calls `analyzeSession`, which returns `null` when `!started` (`skill-synthesis.service.ts:698-700`); the stage then returns `{outcome:'skipped'}` (`stage-handlers.service.ts:272-283`) — **terminal**. Every prefilter row drained after a resume of a booted-paused host is lost | **GAP (data loss)** |
-| S8 | Embedding backfill enqueue | `skill-synthesis.service.ts:436-443` | inside `start()` | boot | — | OK (re-runs through deferred start) |
-| S9 | Skill curator interval (retirement, umbrella merge, enhancement → repropagation) | `skill-curator.service.ts:217-243`; pass `:268-276` | `skillSynthesis.curatorEnabled` at `start()` only; tick uses the **settings snapshot** taken at start | boot | never checks `skillSynthesis.enabled`; a pass fires every `curatorIntervalHours` while paused; after a settings change it uses stale values | **GAP** |
-| S10 | Curator reconciliation (data repair) | `skill-curator.service.ts:225`, `:505` | none ("runs even with the curator disabled") | at `start()` | runs once per start | OK (by design; preserve) |
-| S11 | Backlog cleanup cron `@ptah/skills-backlog-cleanup`, `41 * * * *` | `thoth-runtime/src/lib/skill-backlog-cleanup-job.ts`; gate `skill-backlog-cleanup.service.ts:136`, `:584` | `skillSynthesis.enabled` | live | skips | OK |
-| S12 | Manual RPCs `skillSynthesis:runCurator` (`skills-synthesis-rpc.handlers.ts:732`), `analyzeNow` (`:834`), `enhanceNow` | — | none | — | run | decision (3.6) |
-| S13 | Curator restart in `skillSynthesis:updateSettings` | `skills-synthesis-rpc.handlers.ts:651-674` | — | — | `curator.start(newSettings)` is called **without** the `onPassComplete`/`onEvent` options that `SkillSynthesisService.start` passes (`skill-synthesis.service.ts:426-429`), so after any curator setting change, passes stop being recorded and stop emitting activity events | bug found (fixed by 3.4 design) |
-| S14 | Electron tray "Pause background learning" | `apps/ptah-electron/src/services/tray/tray.service.ts:118-131`, read `:221-228`, write `:259-276`; built only when `skillSynthesis.trayKeepalive === true` (`apps/ptah-electron/src/main.ts:320-340`) | writes `skillSynthesis.enabled` only | menu state read at build and after its own click | no refresh when the key changes elsewhere; memory not covered | **GAP** |
-| S15 | Skill exposure to agents (promoted skills as files under `~/.ptah/skills`, mirrored into the workspace harness) | `apps/ptah-extension-vscode/src/activation/plugin-activation.ts:107-135`, `:271-272` | — | — | read side | kept separate |
-| S16 | Inert key `skillSynthesis.triggers.sessionEnd` (read into DTO `skill-trigger-config.ts:95-101`, round-tripped to the UI `skills-synthesis-rpc.handlers.ts:803`, gates nothing) | — | — | — | toggling does nothing | Proposed Removals |
+| S1 | Session-end → `enqueueAnalyze` | subscribe `skill-synthesis/skill-synthesis.service.ts:412-423`; gate `:529-531` | `skillSynthesis.enabled` | live body; **subscribed only if enabled at boot** (`:345-350`) | a host booted paused never subscribes | **GAP** |
+| S2 | Trigger hooks (activity idle, Stop, PostToolUse, SubagentStop, prompt expansion) → `enqueueAnalyze` | `skill-synthesis/triggers/skill-trigger.service.ts:148-181, 765-778` | inside `enqueueAnalyze` (`:529-531`, `null` when `!started`) | live | silent no-op after resume of a booted-paused host | **GAP** |
+| S3 | Skill boot scan → enqueue `source:'boot'` | arm `skill-trigger.service.ts:182-186` (no master gate); callback `:865-871` | `triggers.bootScan` | boot | returns `'ran'` even when the enqueue no-ops → **watermark advances past never-queued sessions**; never re-armed after resume | **GAP (data loss)** |
+| S4 | Spec harvest on turn complete | `skill-trigger.service.ts:395-433` | none | — | writes while paused | **GAP** |
+| S5 | Invocation telemetry | `skill-trigger.service.ts:436-450, 615, 625-690` | telemetry flag | live | records | stays on [L] (3.3) |
+| S6 | Drain cron ×3 (`*/15`, `0 3 * * *`, `0 4 * * 0`) | `thoth-runtime/src/lib/skill-drain-jobs.ts`; `start-thoth-cron.ts:56-120`; `skill-synthesis/queue/skill-drain.service.ts:758-856` | gate 1 (`:784`) | per tick only; loop `:821-836` checks only `signal.aborted` | a nightly (40) / weekly (400) tick keeps running | **GAP** |
+| S7 | Drain stages prefilter, embedding, archaeology, judge-panel, replay, trigger-eval | `skill-synthesis/queue/stage-handlers.service.ts:216-245` | inherit S6 | — | prefilter with `!started` → `analyzeSession` `null` (`skill-synthesis.service.ts:698-700`) → terminal `skipped` (`stage-handlers.service.ts:272-283`) | **GAP (data loss)** |
+| S8 | SKILL.md migration, dirs, embedding backfill enqueue | inside `SkillSynthesisService.start()` `:354-443` | `skillSynthesis.enabled` | boot | — | OK via deferred start |
+| S9 | Curator interval: retirement, umbrella merge, enhancement → promotion/repropagation | `skill-synthesis/skill-curator.service.ts:217-243`; pass `:268-276` | `curatorEnabled` at `start()`; tick uses the start-time snapshot | boot | fires while paused; stale settings | **GAP** |
+| S10 | Curator reconciliation (data repair) | `skill-curator.service.ts:224-225, 505` | none (by design) | at `start()` | runs once per start | OK; preserve |
+| S11 | Backlog cleanup cron `41 * * * *` | `thoth-runtime/src/lib/skill-backlog-cleanup-job.ts`; `skill-synthesis/cleanup/skill-backlog-cleanup.service.ts:136, 584` | `skillSynthesis.enabled` | live | skips | OK |
+| S12 | Manual `skillSynthesis:runCurator` (`skills-synthesis-rpc.handlers.ts:732`), `analyzeNow` (`:834`), `enhanceNow` (`:1100`) | — | none | — | run | **GAP** (decision 3) |
+| S13 | Curator restart in `updateSettings` drops `onPassComplete`/`onEvent` | `skills-synthesis-rpc.handlers.ts:650-672` vs `skill-synthesis.service.ts:426-429` | — | — | passes stop being recorded/emitted after a curator setting change | bug, fixed in P2/P3 |
+| S14 | Electron tray | `apps/ptah-electron/src/services/tray/tray.service.ts:118-131, 221-276`; created only with `trayKeepalive` (`apps/ptah-electron/src/main.ts:320-350`) | writes `skillSynthesis.enabled` only | own click only | no external refresh; no memory item | **GAP** (decision 4) |
+| S15 | Promoted skills exposed to agents (`mirrorUserLayer`, all hosts) | `plugin-activation.ts:89, 107-135` | — | — | — | read side, stays on [U] |
+| S16 | Dead key `skillSynthesis.triggers.sessionEnd` — read into the DTO only (`skill-trigger-config.ts:95-102, 146`), surfaced to the UI (`skills-synthesis-rpc.handlers.ts:803`), gates nothing | — | — | — | — | deleted in PD [U] |
 
-Totals: **36 rows** (20 memory, 16 skills); **14 behavioural gaps** that run or lose data while
-paused (M6, M7, M9, M10, M11, M12, M13, S1, S2, S3, S4, S6, S7, S9), plus one bug (S13),
-three inert keys (M20 ×2, S16), the host-local key routing defect (M19), and the control-surface gaps in section 2.
+Totals: **37 rows** (21 memory, 16 skills). **16 gaps fixed in B-P**: M6, M7, M9, M11, M12, M13, M14, M15,
+S1, S2, S3, S4, S6, S7, S9, S12 (+ tray S14 and bug S13). Two follow-ups (M10 → F1, M20 → F2).
+Three dead keys deleted (M21 ×2, S16).
 
 ---
 
-## 2. Existing UI and control surfaces
+## 2. Existing UI and control surfaces (Verified)
 
-| Surface | Location (Verified) | What it controls | How it reaches the backend |
+| Surface | Location | Controls | Backend path |
 |---|---|---|---|
-| Thoth shell (Memory / Skills / Schedules / Messaging tabs, all Electron-only) | `libs/frontend/thoth-shell/src/lib/components/thoth-shell.component.ts:31, 240-247` | tab host | — |
-| Thoth **Skills** tab → settings panel, "Enabled" **checkbox** inside a Save-button reactive form | `libs/frontend/skill-synthesis-ui/src/lib/components/skill-settings-panel.component.ts:21-28` (checkbox), `:385-393` (Save); mounted at `skill-synthesis-tab.component.ts:590` | `skillSynthesis.enabled` + all skill settings; nothing applies until Save | `SkillSynthesisRpcService.updateSettings` (`skill-synthesis-rpc.service.ts:265-269`) → `'skillSynthesis:updateSettings'` (`libs/shared/src/lib/types/rpc.types.ts:1952`) → `skills-synthesis-rpc.handlers.ts:640-674` → `setConfiguration('ptah','skillSynthesis.<key>')`; schema already has `enabled` (`skills-synthesis-rpc.schema.ts:75`) |
-| Thoth **Memory** tab → "Chat memory extraction" DaisyUI toggle | `libs/frontend/workspace-indexing/src/lib/workspace-indexing.component.html:355-365`, mounted at `memory-curator-tab.component.ts:207` | per-workspace `indexing_state.memory_enabled` (PreCompact only, M9) | indexing RPC (`indexing-rpc.handlers.ts:246-266`) → `IndexingControlService.setPipelineEnabled` (`indexing-control.service.ts:401-423`) |
-| Thoth Memory tab → diagnostics accordion, per-trigger checkboxes | `memory-diagnostics-accordion.component.ts:53-92` using `memory-trigger-toggle.component.ts:15-75` | `memory.triggers.*` | `MemoryDiagnosticsStateService.setTriggers` (`memory-diagnostics-state.service.ts:101-106`) → `'memory:setTriggers'` (`rpc.types.ts:1860`; params `rpc-curator-diagnostics.types.ts:229-231`; schema `memory-rpc.schema.ts:93-95`) → `memory-rpc.handlers.ts:720-757` |
-| **`memory.enabled` master switch** | — | — | **No UI anywhere.** Deliberately absent from `MemoryTriggersDto` (`memory-trigger-config.ts:8-17`) |
-| Electron tray | `tray.service.ts` (S14) | `skillSynthesis.enabled` only, only with `trayKeepalive` | direct `setConfiguration` (fires `onDidChangeConfiguration`) |
-| Main Settings page | `libs/frontend/chat/src/lib/settings/settings.component.ts`; deep-link via `AppStateManager.requestSettingsTab` | no memory/skills master switch; Skills panel deep-links to `providers` (`skill-settings-panel.component.ts:419-423`) | — |
-| Push of settings changes to the webview | push constants `libs/shared/src/lib/types/messages/message-constants.ts:245,255` (`memory:corpusChanged`, `skillSynthesis:event`) | **no settings-changed push exists** | a tray or CLI write is invisible to an open Thoth tab until it re-fetches |
+| Thoth shell (Electron only) | `thoth-shell.component.ts:31, 240-247`; already imports `MemoryCuratorTabComponent`/`SkillSynthesisTabComponent` (`:25-26`) and `ThothStatusService` from `@ptah-extension/dashboard` (`:21-24, 203, 212`) | tab rail with pillar status | `ThothStatusService.refresh()` on every tab switch (`libs/frontend/dashboard/src/lib/services/thoth-status.service.ts:137-145, 240`) |
+| Skills tab → settings panel, "Enabled" checkbox inside a Save form | `libs/frontend/skill-synthesis-ui/src/lib/components/skill-settings-panel.component.ts:21-28`, Save `:385-393`; mounted only at `skill-synthesis-tab.component.ts:590` | `skillSynthesis.enabled` (applies on Save) | `skill-synthesis-rpc.service.ts:265-269` → `skillSynthesis:updateSettings` (`libs/shared/src/lib/types/rpc.types.ts:1952`) → `skills-synthesis-rpc.handlers.ts:640-672`, writes only keys present (`:654-660`); schema has `enabled` (`skills-synthesis-rpc.schema.ts:75`) |
+| Skills tab → trigger toggles | `skill-synthesis-ui/…/diagnostics/skill-triggers-settings.component.ts:51-53, 135-136`; `skill-trigger-toggle.component.ts:9` | `skillSynthesis.triggers.*` | `skillSynthesis:setTriggers` (schema `skills-synthesis-rpc.schema.ts:276-277`) |
+| Memory tab → "Chat memory extraction" | `libs/frontend/workspace-indexing/src/lib/workspace-indexing.component.html:355-365`, mounted `memory-curator-tab.component.ts:207` | per-workspace row | indexing RPC → `indexing-control.service.ts:401-423` |
+| Memory tab → trigger checkboxes, Run now | `memory-curator-ui/…/diagnostics/memory-diagnostics-accordion.component.ts:53-92, 231, 239`; `memory-trigger-toggle.component.ts:15-75` | `memory.triggers.*`; manual run | `memory-diagnostics-state.service.ts:76-106` → `memory:setTriggers`/`memory:runNow` (`rpc.types.ts:1856-1863`; params `libs/shared/src/lib/types/rpc/rpc-curator-diagnostics.types.ts:229-241`; schema `memory-rpc.schema.ts:44-45, 93-95`) → `memory-rpc.handlers.ts:627, 720-757` |
+| Skills manual actions | Run curator `skill-synthesis-tab.component.ts:1025`; Analyze now `…/diagnostics/skill-activity-feed.component.ts:91` → `skill-diagnostics-state.service.ts:156`; enhance via `previewEnhancement` (`…/clones/skill-clones-view.component.ts:751`; `enhanceNow` has no UI caller, `enhance-preview-drawer.component.ts:4-6`) | manual runs | as S12 |
+| `memory.enabled` | — | **no UI anywhere** | — |
+| Settings push to the webview | push constants `libs/shared/src/lib/types/messages/message-constants.ts:245, 255` | **none for settings** | — |
+| Electron main Settings page | `libs/frontend/chat/src/lib/settings/settings.component.ts` | no memory/skills switch | — |
 
-Angular conventions observed (Verified): standalone + `ChangeDetectionStrategy.OnPush` + signal
-`input()`/`output()` (`memory-trigger-toggle.component.ts:15-17, 54-61`); DaisyUI immediate-apply
-switch markup `class="toggle toggle-xs toggle-primary"` (`workspace-indexing.component.html:358`).
+Angular conventions [R]: standalone, `OnPush`, signal `input()`/`output()` (`memory-trigger-toggle.component.ts:15-17, 54-61`);
+DaisyUI switch `class="toggle toggle-xs toggle-primary"` (`workspace-indexing.component.html:358`).
 
 ---
 
 ## 3. Design
 
-### 3.1 Switch model (recommended)
+### 3.1 Switch model
 
-Two user-facing master switches, **reusing the two existing file-routed keys**, no new keys:
-
-| Switch (UI label) | Key | Pauses | Does not pause |
+| Switch | Key | Pauses | Never pauses |
 |---|---|---|---|
-| **Memory — background learning** | `memory.enabled` | M1-M7, M9, M11, M12, M13 (capture, triggers, idle/boot curation, PreCompact curation, retention, lifecycle, memory indexing) | read side M15-M17; DB maintenance M18 |
-| **Skills — background learning** | `skillSynthesis.enabled` | S1-S4, S6-S9 (session-end/trigger enqueue, boot scan, spec harvest, drain and every stage, curator interval) | invocation telemetry S5; reconciliation-at-start S10; skill files on disk S15 |
+| **Memory** | `memory.enabled` | M1-M7, M9, M11-M15 | M16-M18 read side [U]; M19 DB maintenance [L] |
+| **Skills** | `skillSynthesis.enabled` | S1-S4, S6-S9, S12 | S5 telemetry [L]; S10 reconciliation at start [R]; S15 skill files [U] |
 
-Rationale: both keys already exist, are already file-routed (so every host sees one truth), already
-gate the bulk of the work live, and `skillSynthesis.enabled` is already documented as "the single
-master switch" with "deliberately NO pause/queueEnabled key" (`file-settings-keys.ts:286-292`). A
-third "pause" key would be a second way to mean "off". The fine-grained keys
-(`memory.retention.enabled`, `memory.lifecycle.enabled`, `memory.triggers.*`,
-`skillSynthesis.curatorEnabled`, `skillSynthesis.triggers.*`, `judgeEnabled`, …) stay as
-**sub-switches under** the master: effective = master AND sub-switch. Resume never flips a
-sub-switch.
+- Reuse the two existing file-routed keys (`file-settings-keys.ts:369, 658` and `:255, 571`) [L]; no new
+  keys. `skillSynthesis.enabled` is already documented as the single skills master with "deliberately NO
+  pause/queueEnabled key" [R] (`file-settings-keys.ts:286-292`).
+- Sub-switches stay underneath: effective = master AND sub-switch; resume never flips a sub-switch [L].
+- No new RPC method name [R] (`host-source-registry.baseline.ts:1-5`, Gate 2 exception required).
 
-Rejected: (a) a new `thoth.paused` umbrella key — adds a third state source and a migration for the
-tray; (b) making the per-workspace `memory_enabled` column the memory master — it is workspace-scoped,
-DB-resident (not visible to a second process without SQLite), and today only gates PreCompact.
+### 3.2 Per-workspace `memory_enabled`
 
-### 3.2 Per-workspace `memory_enabled` — keep, unchanged semantics in B-P
+Unchanged in B-P [U] (decision 2 → Follow-up F1). B-P does **not** apply the earlier M10 "mirror the CLI"
+change: the review showed it would leave capture dead with no revive path (CLI already has that hole,
+`cli-engine/src/lib/bootstrap/thoth-runtime.ts:246-268`; `indexing-control.service.ts:417-422` revives
+PreCompact only).
 
-It stays as the per-workspace "Chat memory extraction" toggle (preserve). B-P fixes only M10 (Electron
-starting the trigger service for a workspace whose row is off, mirroring the CLI). Its process-wide
-`stop()` (`indexing-control.service.ts:416-422`) is recorded as a known issue — see Open question 3.
+### 3.3 Read side and telemetry
 
-### 3.3 Read-side injection — kept separate (recommended)
+Stays on while paused [U]: M16, M17, M18, S15. Skill invocation telemetry (S5) also stays on [L]: retirement
+retires skills unused for `dormantAfterDays` (`file-settings-keys.ts:592-593`), so pausing usage recording
+while the user keeps using skills would retire them after resume. It writes usage events only; it runs no
+synthesis, judging or promotion.
 
-Not paused by either master switch: session-start memory injection (M15), symbol injection (M16),
-`ptah_memory_search` (M17), skill files exposed to agents (S15), and **skill invocation telemetry
-(S5)**. Why:
-- The request is to stop background *work*; injection is a cheap read on the user's own turn, already
-  has its own switches, and turning it off silently degrades agent answers.
-- `ptah_memory_search` belongs to TASK_2026_619 (context.md boundary).
-- Telemetry must keep running: retirement retires skills "unused" for `dormantAfterDays`
-  (`file-settings-keys.ts:592-593`). Pausing usage recording while the user keeps using skills would
-  make them look unused and get them retired after resume — a pause that causes data loss.
-
-The UI copy under each switch states this ("Pausing stops capture and background processing. Saved
-memories/skills are still used in chats."). If the user wants a "full off", that is Open question 1.
+The UI copy under each switch says: "Pausing stops capture and background processing. Saved memories/skills
+are still used in chats." [L]
 
 ### 3.4 Pause / resume semantics
 
-**Authoritative gate = live re-read at every unit-of-work boundary** (existing pattern). Event
-subscription is used only to release timers and to re-arm work, so a missed event (cross-process
-write) can delay a *resume* but can never let work run while paused.
+| Rule | Mechanism | Tag |
+|---|---|---|
+| No new unit starts while paused | each entry point re-reads its master before a unit: trigger events, `fireIdle`, each boot-scan session, each drain item, each curator tick, retention run, indexing run, warmup, manual RPCs | [U] stop ALL; [R] live re-read is the existing pattern (`memory-trigger.service.ts:276, 397, 424, 466, 482, 550`; `skill-drain.service.ts:784`; `memory-retention.service.ts:190`) |
+| In-flight: finish the current unit, start no further unit | a running curate, drain stage or curator step completes and records its result. Rejected "abort": an aborted drain claim waits for the stale reaper (`staleClaimTtlMs` 15 min, `file-settings-keys.ts:621`), spent tokens are wasted, and no rollback exists for half-written candidates | [L] |
+| Timers stop doing work | the pause event clears memory idle timers and cancels the boot-scan scheduler. Without an event (external edit) the timer fires and the live gate makes it a no-op | [L] |
+| Boot scans never advance the watermark while paused | memory and skills boot-scan callbacks return `'stalled'` when the master is off; `BootScanRunner` then stops and keeps the watermark below that session (`memory-trigger.service.ts:940-948`) | [L] |
+| **Boot scans resume without restart** | each trigger service keeps a `bootScanOwed` flag, set when `start()` skipped arming because paused, or when a scan ended because a callback stalled on the pause. `maybeRearmBootScan()` arms only if owed, master on, `bootScan` flag on, and the service's own `bootScanArmed` is false. It is called from (a) the `onDidChangeConfiguration` handler (in-process writes) and (b) **lazily from `onActivity`/`onSessionStart`**, which run on every session event, so an external-edit resume re-arms on the next chat activity. Rate-limit stalls do not set the flag (unchanged behaviour) | [L]; [U] resume without issues |
+| Queue rows are never lost | prefilter with the analyzer not started returns `{outcome:'unscored', retryInMs}` instead of terminal `skipped`; a mid-tick pause leaves unclaimed rows `queued` | [L] |
+| Skills deferred start | `SkillSynthesisService.ensureStarted()` (idempotent on `started`) completes the boot work skipped while paused (DB check, migration, session-end subscription, curator start, embedding backfill). Called from the `onDidChangeConfiguration` handler and **lazily** from `enqueueAnalyze`, `analyzeSession`, and the prefilter stage when `enabled && !started` | [L] |
+| Drain/retention resume | next cron tick (≤ 15 min drain, ≤ 60 min retention). The backlog stays queued and drains under the existing tier caps. No forced run-now kick | [L] |
+| No double scheduling | every arm is guarded by a handle the service owns (`bootScanArmed`, `intervalHandle`, `started`, `HandlerRegistry.has`). `SkillCuratorService.start()` clears an existing interval before arming (today it does not, `skill-curator.service.ts:234-242`). Listeners are registered once in `start()` and disposed in `stop()` | [L] |
+| Curator settings stay fresh; period changes apply live | the curator tick reads settings through a supplier (`SkillSynthesisService.readSettings`) and no-ops when `enabled` or `curatorEnabled` is false. A change to `curatorEnabled`/`curatorIntervalHours` via `updateSettings` calls a new `SkillSynthesisService.restartCurator()` that passes the same `onPassComplete`/`onEvent` options as `start()` (fixes S13 and keeps period changes live; review finding 7) | [L] |
+| Hexagonal, all hosts | only `IWorkspaceProvider.getConfiguration`/`onDidChangeConfiguration` (port, `workspace-provider.interface.ts:57`); no new `vscode-core` imports in agnostic libs | [R] |
 
-| Rule | Mechanism |
+Rejected [L]: adding `watchSetting(key)` to the `IWorkspaceProvider` port. It would change three adapters plus
+test doubles, and the lazy paths above already cover external edits.
+
+### 3.5 Dead keys — deleted in B-P [U]
+
+All readers, DTOs, UI and specs change in one sub-batch (PD), because removing a DTO field breaks compilation
+across libs:
+
+| Key | Files that change |
 |---|---|
-| No new work starts while paused | every entry point in section 1 re-reads its master key before starting a unit (event handler, timer fire, boot-scan session, drain item, curator tick, retention run, indexing run) |
-| In-flight work: **finish the current unit, start no further unit** | a running LLM call (curate, drain stage, curator pass step) completes and records its result; the loop checks the key before the next unit. Rejected "abort": an aborted drain claim is only reclaimed by the stale reaper after `staleClaimTtlMs` = 15 min (`file-settings-keys.ts:621`), already-spent tokens are wasted, and a half-written candidate would need rollback code that does not exist. Units are bounded (curate transcript tail, `enhanceTimeoutMs`, per-item drain), so "finish" ends within one unit |
-| Timers / scans stop | on the pause event: memory idle timers cleared, boot-scan scheduler cancelled with its `AbortController`; skill curator interval tick becomes a no-op while paused. Where no event arrives (cross-process), the timer fires and the live gate turns it into a no-op |
-| Boot scans never advance their watermark while paused | memory and skills boot-scan callbacks return `'stalled'` when the master is off (BootScanRunner leaves the watermark below that session, as documented at `memory-trigger.service.ts:942-948`) |
-| Queue rows are never lost | a `prefilter` row drained while synthesis is not started returns `unscored` with a retry, not terminal `skipped`; drain rows left unclaimed by a mid-tick pause stay `queued` (no state change) |
-| Resume restarts without app restart | `SkillSynthesisService` gains an idempotent deferred start: a host booted paused completes `start()` (DB check, session-end subscription, curator, embedding backfill) the first time it observes `enabled === true` — on the change event **or** lazily from `enqueueAnalyze`/`analyzeSession`/the prefilter stage (covers cross-process resume). `MemoryTriggerService` re-arms its boot scan on the resume event if not already armed. Drain and retention resume on their next cron tick (≤ 15 min / ≤ 60 min); the backlog that accumulated stays queued and drains under the existing tier caps |
-| No double scheduling | every re-arm is guarded by the existing handle (`bootScanScheduler === null`, `intervalHandle === null`, `started` flag, `HandlerRegistry.has`). The curator interval is **not** stopped/started on pause — it stays scheduled and its tick is gated — so pause/resume cannot create a second interval. Change listeners are registered in `start()` and disposed in `stop()` |
-| Settings snapshot | the curator tick re-reads settings via `SkillSynthesisService.readSettings()` instead of the start-time snapshot (fixes stale values and S13 without restarting the curator) |
-| All hosts, hexagonal | only `IWorkspaceProvider.getConfiguration` / `onDidChangeConfiguration` (platform-core port) are used. No new `vscode-core` import in agnostic libs (memory-curator already imports `TOKENS/Logger/WebviewManager`, `indexing-control.service.ts:6,14`; that is not extended). VS Code runs no Thoth work, so the switches are inert there by construction |
+| `memory.curatorEnabled` | `libs/backend/platform-core/src/file-settings-keys.ts:248, 564` (and reword the comment `:360`) |
+| `memory.triggers.preCompact` | `file-settings-keys.ts:380, 669`; `file-settings-keys.spec.ts:332, 345`; `memory-curator/triggers/memory-trigger-config.ts:19, 76, 126, 141, 175-180, 263` (+ `memory-trigger-config.spec.ts:16, 42, 66, 125, 130, 153`); `memory-curator/diagnostics.types.ts:53` and its builder (+ `diagnostics.service.spec.ts:149`); `memory-trigger.coalesce.spec.ts:106`, `memory-trigger.integration.spec.ts:59`, `memory-trigger.service.spec.ts:200`; `libs/shared/src/lib/types/rpc/rpc-curator-diagnostics.types.ts:68`; `rpc-handlers/…/memory-rpc.schema.ts:45`; `memory-rpc.handlers.ts:596` (+ `memory-rpc.handlers.spec.ts:191, 765, 795, 1013, 1022`); `libs/frontend/memory-curator-ui/…/memory-diagnostics-accordion.component.ts:55, 239` (+ `.spec.ts:298-300, 435, 465, 503, 554`); `memory-diagnostics-rpc.service.spec.ts:87, 132, 184-207, 268`; `memory-diagnostics-state.service.spec.ts:25, 89, 205-212`; `libs/frontend/webview-e2e-harness/src/lib/scenarios/settings/settings.fixtures.ts:257`, `…/thoth/skills-lane-pickers.e2e.spec.ts:215`, `…/thoth/thoth-feed-visual.e2e.spec.ts:180` |
+| `skillSynthesis.triggers.sessionEnd` | `file-settings-keys.ts:389, 686`; `file-settings-keys.spec.ts:339, 349`; `skill-synthesis/triggers/skill-trigger-config.ts:8, 44, 68, 78, 97-102, 146` (+ `skill-trigger-config.spec.ts:16`); `skill-synthesis/diagnostics.service.spec.ts:26, 143, 158, 165` and the diagnostics snapshot type that carries it; shared `SkillTriggersDto.sessionEnd` `rpc-curator-diagnostics.types.ts:95`; `skills-synthesis-rpc.schema.ts:277`; `skills-synthesis-rpc.handlers.ts:803` (+ `skills-synthesis-rpc.handlers.spec.ts:283, 392, 433, 487, 743-822`; `skills-synthesis-rpc.activity-feed.integration.spec.ts:374-377, 483, 493`); `libs/frontend/skill-synthesis-ui/…/diagnostics/skill-trigger-toggle.component.ts:9`, `skill-triggers-settings.component.ts:51-53, 135-136`, `…/services/skill-diagnostics-state.service.ts:66` (+ their specs) |
 
-Rejected for the live reaction: adding a `watchSetting(key)` method to `IWorkspaceProvider` so
-cross-process writes also fire — it changes a port implemented by three adapters plus test doubles
-for a case (two Ptah processes, the second one toggling) that the lazy deferred start and per-unit
-gates already make safe; only the re-arm latency differs.
+Do not touch: `persistence-sqlite/…/0032_skill_synthesis_queue.spec.ts:194` (`'sessionEnd'` there is not this
+key; implementer confirms), and every `onPreCompact`/`PreCompactTrigger`/compaction-coordinator symbol
+(the hook, not the key). Leftover values in users' `~/.ptah/settings.json` become unrouted keys.
+Assumption: `PtahFileSettingsManager` loads and ignores unknown keys; check `file-settings-manager.ts`
+load/diff and keep a spec that an unknown key does not throw.
 
-### 3.5 Dead key and tray decisions
+### 3.6 Manual runs while paused [U]
 
-- `memory.curatorEnabled`: **delete** (key `file-settings-keys.ts:248` and default `:564`). No reader;
-  wiring it would create a third memory "off" switch that duplicates `memory.enabled`. Needs approval
-  → Proposed Removals. Until approved, B-P leaves it untouched.
-- `memory.triggers.preCompact` and `skillSynthesis.triggers.sessionEnd`: inert today. Not part of the
-  pause path; listed under Proposed Removals with the alternative (wire them) as Open question 2.
-- Tray: **cover both**. Replace the single item with two checkbox items, "Pause memory learning" and
-  "Pause skills learning", each 1:1 with a master key (no mixed state to render). The menu refreshes on
-  `onDidChangeConfiguration` for either key, and the listener is disposed with the tray. The tray still
-  exists only with `skillSynthesis.trayKeepalive` (preserve; out of scope to change).
+- `memory:runNow`, `skillSynthesis:runCurator`, `analyzeNow`, `enhanceNow` throw
+  `RpcUserError('<feature> is paused', 'PAUSED')` when their master is off. `'PAUSED'` is added to
+  `RpcUserErrorCode` (`libs/shared/src/lib/types/rpc/rpc-error-codes.types.ts:7-23`) [L].
+- The UI greys out Run now (memory accordion `:231`), Run curator (`skill-synthesis-tab.component.ts:1025`)
+  and Analyze now (`skill-activity-feed.component.ts:91`), with the tooltip "Paused — resume Skills/Memory to
+  run". `enhanceNow` has no UI caller; see Open question 1 for `previewEnhancement`.
 
-### 3.6 Manual actions while paused
+### 3.7 UI [U visible; placement L]
 
-`memory:runNow`, `skillSynthesis:runCurator`, `skillSynthesis:analyzeNow`, `skillSynthesis:enhanceNow`:
-recommended **refuse with `RpcUserError(…, 'PAUSED')`** and disable the buttons with a tooltip while
-paused, because the request says "stop ALL". This is Open question 5 because it removes a capability
-the user may rely on (e.g. a deliberate one-off run while background learning is off).
+- **Where:** a "Background learning" switch at the top of the Thoth Memory tab and the Thoth Skills tab
+  (Electron) [L]. These are the "memory/skills Thoth settings" the user named [U], and Electron is the only
+  host where the work runs (0.1). The main Settings page gets no second control (two controls for one key
+  can drift) [L].
+- **Control:** an immediate-apply DaisyUI `toggle` (not in any form) with "On / Paused" text and the 3.3
+  copy. Optimistic update, rollback on RPC error, disabled while in flight [L].
+- **Memory payload (review finding 6):** `memory:setTriggers` with `{ triggers: {}, enabled }`, never the
+  cached trigger DTO. An empty partial writes no trigger key (`memory-rpc.handlers.ts:738-746` flattens only
+  present keys). Shared types: `MemorySetTriggersParams.enabled?: boolean`; `MemorySetTriggersResult.enabled`
+  and `MemoryGetTriggersResult.enabled: boolean` (`rpc-curator-diagnostics.types.ts:229-241`) [L].
+- **Skills:** the header switch sends `updateSettings({ settings: { enabled } })`. The "Enabled" checkbox
+  leaves the Save form (`skill-settings-panel.component.ts:21-28`), and the form payload drops `enabled`
+  [L].
+- **Paused badge (review finding 8):** the existing edges are enough. `ThothStatusService` (dashboard,
+  already imported by the shell) adds `memoryPaused`/`skillsPaused` to its pillar refresh, read through the
+  existing `memory:getTriggers` and `skillSynthesis:getSettings`. Each tab component emits a
+  `pausedChange` output; the shell, which already hosts both tabs, calls `thothStatus.refresh()` on it. No
+  new lib dependency [L].
+- **Freshness without a push channel:** tabs and `ThothStatusService` re-fetch on tab switch (existing),
+  window `focus` and `visibilitychange`. This covers tray and external writes [L].
 
-### 3.7 UI
+### 3.8 Electron tray [U two items, always shown, refreshed; mechanics L]
 
-- Each master switch is an **immediate-apply** DaisyUI toggle at the top of its Thoth tab (above the
-  tab content, not inside any form), labelled "Background learning" with an "On / Paused" state text,
-  a one-line explanation (3.3) and, when paused, a `badge badge-warning` "Paused" on the Thoth tab rail
-  item. Optimistic update with rollback on RPC failure; the toggle is disabled while the request is in
-  flight.
-- Skills: the "Enabled" checkbox is **moved out** of the Save form (`skill-settings-panel.component.ts:21-28`)
-  into the new header switch, so one key has one control; the Save form stops sending `enabled`.
-- Memory: the new switch reads/writes `memory.enabled` via the existing `memory:getTriggers` /
-  `memory:setTriggers` methods extended with an optional top-level `enabled` field (no new RPC name,
-  no baseline change). `MemoryTriggersDto` is not touched (keeps the documented separation).
-- Freshness without a push channel: both tabs re-fetch the switch state on tab activation and on
-  window `focus`/`visibilitychange`; that covers tray and CLI writes. A settings push message is
-  rejected for B-P (new message type and three host emitters for one boolean).
+- **Always created** in `main.ts` (drop the `trayKeepalive === true` condition at `main.ts:330-336`; keep
+  every failure → `trayService = null`).
+- **Menu:** checkbox "Pause memory" (`memory.enabled`), checkbox "Pause skills" (`skillSynthesis.enabled`),
+  separator, "Quit Ptah". The quit item stays a literal and `assertQuitItemPresent` stays [R] (`tray.service.ts:11-24, 111-117`).
+  `TRAY_SETTINGS_KEYS` gains `memory.enabled`.
+- **Refresh:** subscribe to `workspace.onDidChangeConfiguration` in `create()` and dispose in `destroy()`.
+  Also rebuild the menu just before it opens (`tray.on('click')`/`'right-click'`, Assumption: confirm the
+  event per platform), so an external edit, which fires no event (0.3), is still current when the menu shows.
+- **What "always shown" changes about quit:** today `handleWindowAllClosed` suppresses the quit whenever a
+  live tray exists (`tray.service.ts:309-329`, wired `main.ts:390-396`). With the tray always created,
+  closing the last window would stop quitting on Windows and Linux, a silent behaviour change. Rule [L]:
+  suppress the quit only when `trayKeepalive === true` (read live at close time) **and** a live tray exists.
+  This keeps R10 (no live tray → always quit) [R] and the shipped default (keepalive `false` → closing the
+  window quits, as today). `WindowAllClosedDeps` gains `keepAliveRequested: () => boolean`. macOS is
+  unchanged (`:317-319`). `main.quit-path.spec.ts` pins the new matrix.
+
+### 3.9 Embedder warmup (M15) [U]
+
+`runEmbedderWarmup` (`wire-runtime.ts:632-660`) returns early, with a log line, when `memory.enabled` is
+false. It needs no re-warm on resume, because the embedder lazy-loads on first `embed` (`embedder-worker-client.ts:99, 170, 194`).
+The cost is a cold start on the first search or curate after resume [L]. Skills embedding work is the drain's
+`embedding` stage plus the backfill enqueue in the deferred start, so it is already under the Skills switch.
 
 ---
 
-## 4. File-level plan (file-disjoint sub-batches)
+## 4. File-level plan (sub-batches)
 
-Contract first: P3 defines the RPC field that P4 consumes. P1, P2, P3, P5 are file-disjoint and can
-run in parallel; P4 starts after P3's shared type lands.
+Order: **PD first** (alone, because it spans libs). Then **P1, P2, P3, P5 in parallel** (file-disjoint with
+each other). Then **P4** after P3's shared types land. Executors: backend-developer sub-agent (or one CLI
+lane each) for PD, P1, P2, P3, P5; frontend-developer sub-agent for P4. One code-logic-reviewer pass over all.
 
-### P1 — Memory backend gates (backend-developer sub-agent)
-Lib: `libs/backend/memory-curator`.
-- MODIFY `src/lib/triggers/memory-trigger.service.ts`: gate `fireIdle` on `readMemoryEnabled()`;
-  boot-scan per-session callback returns `'stalled'` when paused; in `start()` subscribe to
-  `this.workspace.onDidChangeConfiguration` for `ptah.memory.enabled` — on pause clear idle timers and
-  cancel/abort the boot scan; on resume arm the boot scan if `readBootScanFlag()` and not armed;
-  dispose the subscription in `stop()`.
-- MODIFY `src/lib/memory-curator.service.ts`: PreCompact handler (`:252`) returns early when
-  `memory.enabled` is false (live read through the injected workspace provider — Assumption: confirm
-  the class already injects `IWorkspaceProvider`; if not, add `@inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)`,
-  the same token `indexing-control.service.ts:7` uses).
-- MODIFY `src/lib/retention/memory-retention.service.ts` (+ `memory-retention-config.ts` if the read
-  lives there): first gate `memory.enabled === false` → `skip('memory-paused')`, before
-  `memory.retention.enabled` (`:190`). Lifecycle inherits it (runs inside the same run).
-- MODIFY `src/lib/control/indexing-control.service.ts`: memory pipeline run (`:304`) skipped unless
-  `force` when `memory.enabled` is false; symbols pipeline untouched.
-- Specs: `memory-trigger.service.spec.ts` (or a new `memory-trigger.pause.spec.ts`),
-  `memory-retention.service.spec.ts`, `indexing-control.service.spec.ts`, curator PreCompact spec.
+### PD — Dead-key removal (backend-developer; frontend edits are mechanical field removals)
 
-### P2 — Skills backend gates (backend-developer sub-agent)
-Lib: `libs/backend/skill-synthesis`.
-- MODIFY `src/lib/skill-synthesis.service.ts`: split `start()` into boot entry + idempotent
-  `ensureStarted()`; when booted paused, register an `onDidChangeConfiguration` listener for
-  `ptah.skillSynthesis.enabled` that calls `ensureStarted()`; `enqueueAnalyze` / `analyzeSession`
-  call `ensureStarted()` when `enabled && !started`; pass the same `onPassComplete`/`onEvent`
-  options on every curator start (S13).
-- MODIFY `src/lib/queue/skill-drain.service.ts`: re-read `skillSynthesis.enabled` before each item in
-  the loop (`:821`); on false, break and record `summary.reason = 'paused-mid-run'` (rows stay queued).
-  Update the header gate-order comment.
-- MODIFY `src/lib/queue/stage-handlers.service.ts`: prefilter returns `{outcome:'unscored', retryInMs}`
-  (not `skipped`) when the analyzer is not started.
-- MODIFY `src/lib/skill-curator.service.ts`: tick reads fresh settings through a supplier instead of
-  `currentSettings`, and no-ops when `enabled` or `curatorEnabled` is false; `start()` stays idempotent
-  (`intervalHandle !== null` → clear before re-arm).
-- MODIFY `src/lib/triggers/skill-trigger.service.ts`: boot-scan callback returns `'stalled'` when
-  `synthesis.readSettings().enabled` is false; `fireHarvest` gated on the same key; telemetry untouched.
-- Specs: extend `queue/skill-drain.gates.spec.ts`, new `skill-synthesis.pause-resume.spec.ts`,
-  `skill-curator.service.spec.ts`, `skill-trigger.service.spec.ts` (boot-scan watermark).
+Every file in the 3.5 table. Done when nothing references the three keys, and the scoped typecheck plus
+tests pass for `platform-core`, `memory-curator`, `skill-synthesis`, `shared`, `rpc-handlers`,
+`memory-curator-ui`, `skill-synthesis-ui` and `webview-e2e-harness`.
 
-### P3 — Contract, RPC handlers, Electron boot (backend-developer sub-agent)
-- MODIFY `libs/shared/src/lib/types/rpc/rpc-curator-diagnostics.types.ts:229-241`: add
-  `readonly enabled?: boolean` to `MemorySetTriggersParams`, `readonly enabled: boolean` to
-  `MemorySetTriggersResult` and `MemoryGetTriggersResult`.
-- MODIFY `libs/backend/rpc-handlers/src/lib/handlers/memory-rpc.schema.ts:93-95`: `enabled: z.boolean().optional()`.
-- MODIFY `libs/backend/rpc-handlers/src/lib/handlers/memory-rpc.handlers.ts`: `setTriggers` writes
-  `memory.enabled` when present; both handlers return it; `memory:runNow` refuses while paused (if
-  Open question 5 = refuse).
-- MODIFY `libs/backend/rpc-handlers/src/lib/handlers/skills-synthesis-rpc.handlers.ts`: remove the
-  curator stop/start from `updateSettings` (`:651-674`; P2 makes the tick read live settings);
-  `runCurator`/`analyzeNow`/`enhanceNow` refusal while paused (Open question 5).
-- MODIFY `libs/backend/thoth-runtime/src/lib/boot-thoth-runtime.ts:232-287`: start the memory trigger
-  service only after the per-workspace status resolves true, matching CLI (M10).
-- Conditional on approval: MODIFY `libs/backend/platform-core/src/file-settings-keys.ts` (+ its spec)
-  to delete removed keys.
-- Specs: `memory-rpc.handlers.spec.ts`, `memory-rpc.schema.spec.ts`,
-  `skills-synthesis-rpc.handlers.spec.ts`, `boot-thoth-runtime.spec.ts`.
+### P1 — Memory backend (backend-developer) — `libs/backend/memory-curator`
 
-### P4 — Thoth UI switches (frontend-developer sub-agent; after P3 types)
-- MODIFY `libs/frontend/memory-curator-ui/src/lib/services/memory-diagnostics-rpc.service.ts` and
-  `memory-diagnostics-state.service.ts`: `memoryEnabled` signal, `setMemoryEnabled()` with optimistic
-  update + rollback, refresh on focus/visibility.
-- MODIFY `libs/frontend/memory-curator-ui/src/lib/components/memory-curator-tab.component.ts`: header
-  switch block (inline in the tab template; no new component unless the skills tab needs the identical
-  markup — then one shared presentational component in `memory-curator-ui` would cross a lib boundary,
-  so keep two inline blocks).
-- MODIFY `libs/frontend/skill-synthesis-ui/src/lib/services/skill-synthesis-state.service.ts`
-  (`:343` settings load) and `skill-synthesis-tab.component.ts`: header switch writing
-  `updateSettings({settings:{enabled}})` immediately; refresh on focus/visibility.
-- MODIFY `libs/frontend/skill-synthesis-ui/src/lib/components/skill-settings-panel.component.ts:21-28`:
-  remove the `enabled` checkbox from the form (and the form control/Save payload in the state service).
-- MODIFY `libs/frontend/thoth-shell/src/lib/components/thoth-shell.component.ts`: "Paused" badge on the
-  Memory/Skills rail items (Assumption: the pillar status source `libs/frontend/dashboard/src/lib/services/thoth-status.service.ts`
-  can expose the two booleans; if not, read them from the two state services).
-- Disable manual-run buttons while paused (Open question 5).
-- Specs for each touched component/service.
+- `triggers/memory-trigger.service.ts`: gate `fireIdle`/`tryEpisodeCurate` on `readMemoryEnabled()`;
+  boot-scan callback returns `'stalled'` when paused and sets `bootScanOwed`; add `bootScanArmed` and
+  `maybeRearmBootScan()` (event path plus lazy calls from `onActivity`/`onSessionStart`); in `start()` set owed
+  instead of arming when paused, and subscribe to `onDidChangeConfiguration` (`ptah.memory.enabled`): pause
+  → clear idle timers and cancel the scan (owed = true if it was running); resume → `maybeRearmBootScan()`.
+  Dispose in `stop()`.
+- `memory-curator.service.ts`: the PreCompact handler (`:252`) returns early when `memory.enabled` is false
+  (Assumption: confirm the class injects `IWorkspaceProvider`; else inject `PLATFORM_TOKENS.WORKSPACE_PROVIDER`
+  as `indexing-control.service.ts:7` does).
+- `retention/memory-retention.service.ts` (+ `memory-retention-config.ts` if the read lives there): first gate
+  `memory.enabled === false` → `skip('memory-paused')`. Lifecycle inherits it.
+- `control/indexing-control.service.ts:304`: the memory pipeline run is skipped while paused (except `force`);
+  symbols are untouched.
+- Specs: new `triggers/memory-trigger.pause.spec.ts`; `memory-retention.service.spec.ts`;
+  `indexing-control.service.spec.ts`; the curator PreCompact spec.
 
-### P5 — Electron tray (backend-developer sub-agent)
-- MODIFY `apps/ptah-electron/src/services/tray/tray.service.ts`: two checkbox items (memory, skills),
-  `TRAY_SETTINGS_KEYS` gains `memory.enabled`, subscribe to `workspace.onDidChangeConfiguration` in
-  `create()` and dispose in `destroy()`, refresh the menu on either key.
-- MODIFY `apps/ptah-electron/src/services/tray/tray.service.spec.ts` (Assumption: path of the existing spec).
-- `apps/ptah-electron/src/main.ts`: no change expected (Assumption: `PtahTrayService.create` options
-  already carry the workspace provider, `main.ts:336-341`).
+### P2 — Skills backend (backend-developer) — `libs/backend/skill-synthesis`
 
-Executors: all backend sub-batches suit a backend-developer sub-agent (or one CLI lane each — they are
-file-disjoint); P4 needs a frontend-developer sub-agent. Review: one code-logic-reviewer pass over
-P1-P5 (pause/resume races are the risk).
+- `skill-synthesis.service.ts`: `ensureStarted()` (event plus lazy from `enqueueAnalyze`/`analyzeSession`);
+  config-change listener; `restartCurator()` that passes the start options.
+- `queue/skill-drain.service.ts`: re-read `enabled` before each item (`:821`); on false, break with
+  `summary.reason = 'paused-mid-run'`. Update the gate-order header.
+- `queue/stage-handlers.service.ts`: prefilter with the analyzer not started → `unscored` + `retryInMs`.
+- `skill-curator.service.ts`: settings supplier, gated tick, clear-before-arm in `start()`.
+- `triggers/skill-trigger.service.ts`: boot-scan arming needs the master (else owed); the callback returns
+  `'stalled'` and sets owed when paused; `maybeRearmBootScan()` from the config-change event and lazily from
+  `onActivity`; gate `fireHarvest`; telemetry untouched.
+- Specs: `queue/skill-drain.gates.spec.ts`; new `skill-synthesis.pause-resume.spec.ts`;
+  `skill-curator.service.spec.ts`; `triggers/skill-trigger.service.spec.ts` (or the existing
+  `skill-trigger.boot-defer.spec.ts`, which already mocks `onDidChangeConfiguration` at `:128`).
+
+### P3 — Contract and RPC (backend-developer) — `libs/shared`, `libs/backend/rpc-handlers`
+
+- `shared/…/rpc-curator-diagnostics.types.ts`: `enabled` fields (3.7).
+- `shared/…/rpc-error-codes.types.ts`: `'PAUSED'`.
+- `rpc-handlers/…/memory-rpc.schema.ts`: `enabled: z.boolean().optional()` on set; `memory-rpc.handlers.ts`:
+  write/return `memory.enabled`; `runNow` refuses while paused.
+- `rpc-handlers/…/skills-synthesis-rpc.handlers.ts`: `updateSettings` calls `synthesis.restartCurator()`
+  instead of `curator.stop()/start(newSettings)` (`:661-664`); `runCurator`, `analyzeNow`, `enhanceNow` refuse
+  while paused.
+- Specs: `memory-rpc.handlers.spec.ts`, `memory-rpc.schema.spec.ts`, `skills-synthesis-rpc.handlers.spec.ts`.
+
+### P4 — Thoth UI (frontend-developer; after P3)
+
+- `memory-curator-ui`: `memory-diagnostics-rpc.service.ts`, `memory-diagnostics-state.service.ts`
+  (`memoryEnabled` signal, `setMemoryEnabled()` sending `{triggers:{}, enabled}`, rollback, focus refresh);
+  `memory-curator-tab.component.ts` (header switch, `pausedChange` output);
+  `memory-diagnostics-accordion.component.ts` (disable Run now while paused).
+- `skill-synthesis-ui`: `skill-synthesis-state.service.ts` (`:343`), `skill-synthesis-tab.component.ts`
+  (header switch, `pausedChange`, disable Run curator), `skill-settings-panel.component.ts` (remove `enabled`),
+  `diagnostics/skill-activity-feed.component.ts` (disable Analyze now).
+- `dashboard/…/thoth-status.service.ts` (paused flags) and `thoth-shell.component.ts` (badge; refresh on
+  `pausedChange` and focus).
+- Specs for each.
+
+### P5 — Electron (backend-developer) — `apps/ptah-electron`
+
+- `src/services/tray/tray.service.ts` (+ `tray.service.spec.ts`): two items, refresh listener plus refresh on
+  open, `keepAliveRequested` in `handleWindowAllClosed`, header comment updated.
+- `src/main.ts` (+ `main.quit-path.spec.ts`): always create the tray; pass `keepAliveRequested`.
+- `src/activation/wire-runtime.ts`: warmup gate (3.9).
 
 ---
 
 ## 5. Test plan
 
-Unit (scoped: `npx nx test <project> --testFile=<file>`; never mcp-bench):
+Unit tests run scoped (`npx nx test <project> --testFile=<file>`); mcp-bench never runs [U/R per orchestrator].
 
 | Project | Must prove |
 |---|---|
-| memory-curator | idle timer armed while enabled does **not** curate when it fires after pause; pause event clears all idle timers; boot scan returns `'stalled'` and does not advance the watermark when paused; resume event re-arms the boot scan exactly once (two resume events → one scheduler); PreCompact handler does nothing while paused; retention returns `skipped: memory-paused` before reading retention settings; listener disposed on `stop()` (no callback after stop) |
-| skill-synthesis | host started with `enabled=false` → flip to true (event) → session-end subscription exists, curator scheduled once, embedding backfill enqueued once; same via lazy path with **no event** (cross-process case); two resume events → one subscription/one interval; drain stops before the next item when paused mid-tick and leaves remaining rows `queued`; prefilter while not started → `unscored` (row survives); curator tick reads live settings and no-ops while paused; skill boot scan returns `'stalled'` while paused; harvest not called while paused; telemetry still recorded while paused |
-| rpc-handlers | `memory:setTriggers {enabled:false}` writes `memory.enabled`; get returns it; schema rejects non-boolean; `updateSettings` no longer restarts the curator; manual RPCs refuse with `PAUSED` (if approved) |
-| thoth-runtime | Electron boot does not start the memory trigger when the workspace row is off |
-| ptah-electron | tray renders both items from settings; clicking writes the right key; external `setConfiguration` refreshes the menu; listener disposed on destroy |
-| frontend libs | toggle optimistic update and rollback on RPC error; Skills Save payload no longer carries `enabled`; state re-fetched on focus |
+| memory-curator | an idle timer armed before pause does not curate after; the pause event clears timers; a paused boot scan returns `'stalled'` and the watermark does not move; **resume by event re-arms exactly once** (two events → one arm); **resume with no event** (value flipped in a fake provider, then one `onActivity`) re-arms once; boot with the master off arms nothing, and the first resume arms; PreCompact no-op while paused; retention `skipped: memory-paused`; listener disposed on `stop()` |
+| skill-synthesis | booted paused → event → subscription, curator interval and backfill exist once; the same via the lazy path with no event; two resumes → one interval; mid-tick pause leaves rows `queued`; prefilter while not started → `unscored`, row survives; curator tick reads live settings and no-ops while paused; `restartCurator()` keeps the callbacks (pass recorded after a settings change); **skill boot scan: paused → `'stalled'`, watermark kept → resume (event and lazy) re-arms once and queues the skipped sessions**; harvest not called while paused; telemetry still recorded |
+| rpc-handlers | `setTriggers {triggers:{}, enabled:false}` writes only `memory.enabled`; get returns it; schema rejects a non-boolean; the four manual RPCs throw `PAUSED` while paused and run when on; `updateSettings` with `curatorIntervalHours` calls `restartCurator` |
+| platform-core / PD | the three keys are absent from keys and defaults; an unknown key in `settings.json` does not throw |
+| ptah-electron | both items render from settings; a click writes the right key; an external `setConfiguration` refreshes the menu; refresh on open picks up a value changed with no event; listener disposed on destroy; quit matrix: no tray → quit; tray + keepalive false → quit; tray + keepalive true → stay; darwin → stay; warmup skipped when memory is paused |
+| frontend | optimistic toggle and rollback; payload `{triggers:{}, enabled}`; the Skills Save payload has no `enabled`; buttons disabled while paused; badge refresh on `pausedChange`; re-fetch on focus |
 
-Integration (one per pipeline, existing SQLite test support `queue-db.test-support.ts`,
-`retention-sqlite.test-support.ts`): enqueue N rows → pause → drain tick → resume → next tick drains
-all N, no row `skipped`/lost, no duplicate claims.
+Integration (existing `skill-synthesis/queue/queue-db.test-support.ts`, `memory-curator/retention/retention-sqlite.test-support.ts`):
+enqueue N → pause → tick → resume → next tick drains all N, none `skipped`, no duplicate claim.
 
-Visual (visual-reviewer or Electron run skill): Thoth Memory and Skills tabs, switch On and Paused, in
-**dark and light** themes, wide rail and narrow strip layouts — 8 screenshots minimum; plus the tray
-menu with both states. Check toggle focus ring, contrast of the "Paused" badge, and that the Skills
-form no longer shows "Enabled".
+Visual (visual-reviewer) [L]: Memory and Skills tabs, switch On and Paused, **dark and light**, wide rail and
+narrow strip (8 shots), plus the tray menu in both states. Check focus ring, badge contrast, disabled-button
+tooltips, and that the Skills form has no "Enabled".
 
-Manual smoke (Electron): pause both → wait one `*/15` drain tick and the `:17` retention tick → cron
-run history shows `skipped: disabled` / `memory-paused`; resume → next ticks run; toggle from tray with
-the Thoth tab open → tab reflects it on focus.
+Manual smoke (Electron): pause both from the tray with the Thoth tab open; cron history shows
+`skipped: disabled`/`memory-paused` on the next drain/retention ticks; edit `~/.ptah/settings.json` by hand
+to resume, start a chat turn, and confirm the boot scans re-arm and the next ticks run; close the window with
+keepalive off and confirm the app quits.
 
 ---
 
 ## 6. Preserve list
 
-- `skillSynthesis.enabled` stays the drain's first gate and the single skills master
-  (`skill-drain.service.ts:17-31`, `file-settings-keys.ts:286-292`); `memory.enabled` stays outside
-  `MemoryTriggersDto` (`memory-trigger-config.ts:8-17`).
-- All sub-switches keep their meaning and defaults: `memory.retention.enabled`, `memory.lifecycle.enabled`,
-  every `memory.triggers.*`, `skillSynthesis.curatorEnabled`, `judgeEnabled`, `triggers.*`,
-  `replayValidation.enabled`, `triggerEval.enabled`, `judgePanel.enabled`, drain battery/foreground/budget gates.
-- Per-workspace "Chat memory extraction" toggle and `indexing_state.memory_enabled`.
-- Stage-handler registration above the early return (`skill-synthesis.service.ts:330-343`).
-- Curator reconciliation runs at start even when the curator is disabled (`skill-curator.service.ts:224-225`).
-- Skill invocation telemetry keeps running while paused (3.3).
-- Read side: memory and symbol injection, `ptah_memory_search`, skill files.
-- Tray exists only with `skillSynthesis.trayKeepalive`; its quit item stays unconditional
-  (`tray.service.ts:111-117`, `assertQuitItemPresent`).
-- Cron job ids, handler names and expressions (`skill-drain-jobs.ts`, `MEMORY_RETENTION_JOB`,
-  `SKILL_BACKLOG_CLEANUP_JOB`); `drain()` never throws.
-- VS Code remains Thoth-free; no new RPC method names (baseline unchanged).
-- Observation-queue flush on `stop()` (`memory-trigger.service.ts:256-259`).
+- `skillSynthesis.enabled` as the drain's first gate and the single skills master [R] (`skill-drain.service.ts:17-31`);
+  `memory.enabled` stays outside `MemoryTriggersDto` [R] (`memory-trigger-config.ts:8-17`).
+- All remaining sub-switches and defaults [R].
+- Per-workspace "Chat memory extraction" behaviour, unchanged [U].
+- Stage-handler registration above the early return [R] (`skill-synthesis.service.ts:330-343`).
+- Reconciliation at curator start [R] (`skill-curator.service.ts:224-225`).
+- Read side M16-M18, S15 [U]; telemetry S5 [L].
+- Tray quit item unconditional + `assertQuitItemPresent` + R10 "no live tray → quit" [R]; default
+  window-close quits [L, preserves today].
+- Cron job ids, handler names, expressions; `drain()` never throws [R].
+- VS Code Thoth-free; `expected-absent.ts` unchanged [R]. No new RPC method names [R].
+- Observation-queue flush on `stop()` [R] (`memory-trigger.service.ts:256-259`).
 
 ## Proposed Removals
 
-Each needs explicit user approval; none is done in B-P without it.
+None pending. The three dead keys, the Skills form "Enabled" checkbox (moved, not dropped), the single tray
+item, and manual runs while paused were approved by the user decisions (`context.md:178-188`) and are now
+part of the plan.
 
-| Item | Evidence | Proposal |
+## Follow-ups (not B-P) [U decision 2]
+
+- **F1 Per-workspace memory toggle:** make `memory_enabled` a live per-workspace gate on every capture path.
+  Covers Electron starting the trigger service with the row off (`boot-thoth-runtime.ts:274-289`), CLI
+  capture never starting later (`cli-engine/src/lib/bootstrap/thoth-runtime.ts:246-268`), and the process-wide
+  `stop()` (`indexing-control.service.ts:417-422`).
+- **F2 Host-local trigger keys (M20):** route them to `~/.ptah/settings.json`, with a one-time migration from
+  the host `config.json`.
+- **F3 Settings push to the webview** (replaces focus re-fetch) [L].
+
+## Lane-introduced constraints
+
+Choices this plan made that are neither user-requested nor repository rules:
+
+1. The masters reuse `memory.enabled` / `skillSynthesis.enabled`, and sub-switches are ANDed beneath.
+2. The memory master is carried on `memory:getTriggers`/`setTriggers` (top-level `enabled`, payload `{triggers:{}, enabled}`).
+3. Switches live in the Thoth tab headers only; no main-Settings-page control; none in VS Code.
+4. In-flight units finish; nothing aborts mid-unit.
+5. Boot scans return `'stalled'` while paused; `bootScanOwed` + lazy re-arm from session events.
+6. `ensureStarted()` lazy deferred start for skills.
+7. Prefilter `unscored` + retry when not started; drain break with `paused-mid-run`.
+8. No forced drain run on resume; next tick.
+9. The curator tick reads live settings; `restartCurator()` replaces the RPC's stop/start.
+10. Invocation telemetry and DB maintenance stay on while paused.
+11. Error code `'PAUSED'`; disabled buttons with a tooltip.
+12. Optimistic toggle with rollback; refresh on focus/visibility; the `pausedChange` output drives the shell badge via `ThothStatusService`.
+13. Window-close keep-alive requires `trayKeepalive` (live) AND a live tray; the menu also refreshes on open.
+14. Embedder warmup is gated on `memory.enabled` only; no re-warm on resume.
+15. Visual review: 8 screenshots, dark + light, plus the tray.
+16. PD runs alone first; P4 waits for P3.
+
+## Review disposition (`pause-switches-plan-review.md`)
+
+| # | Finding | Resolution |
 |---|---|---|
-| `memory.curatorEnabled` key + default | `file-settings-keys.ts:248, 564`; no production reader | delete |
-| `memory.triggers.preCompact` key | read into DTO only (`memory-trigger-config.ts:175-180`), gates nothing | delete, or wire to gate PreCompact (Open question 2) |
-| `skillSynthesis.triggers.sessionEnd` key | read into DTO only (`skill-trigger-config.ts:95-101`), shown to the UI (`skills-synthesis-rpc.handlers.ts:803`) | delete, or wire to gate S1 (Open question 2) |
-| "Enabled" checkbox in the Skills settings form | `skill-settings-panel.component.ts:21-28` | move to the header switch (same key, different control) |
-| Single tray item "Pause background learning" | `tray.service.ts:118-131` | replace by two items |
-| Manual runs while paused (`memory:runNow`, `runCurator`, `analyzeNow`, `enhanceNow`) | section 3.6 | refuse while paused (Open question 5) |
+| 1 | Skills boot scan has no resume path | `bootScanOwed` + event and lazy re-arm in `SkillTriggerService` (3.4, P2); tests in §5 |
+| 2 | M10 fix creates capture-dead boot | M10 change dropped; per-workspace semantics unchanged; F1 (3.2) |
+| 3 | Memory re-arm is event-only | lazy re-arm from `onActivity`/`onSessionStart` (3.4, P1); no-event test |
+| 4 | Embedder warmup missed | row M15; gated under Memory (3.9, P5) |
+| 5 | VS Code reachability | 0.2: nothing runs there, and the handlers are forbidden by `expected-absent.ts`; no VS Code UI, stated explicitly |
+| 6 | `setTriggers` payload stale-write risk | payload fixed to `{triggers:{}, enabled}` (3.7) |
+| 7 | Interval change inert after removing restart | `restartCurator()` keeps period changes live and fixes S13 (3.4) |
+| 8 | Badge dependency direction | both edges already exist (`thoth-shell.component.ts:21-26`); `ThothStatusService` + `pausedChange` (3.7) |
+| 9 | Path errors / unverified citations | CLI path corrected to `cli-engine/src/lib/bootstrap/thoth-runtime.ts`; Electron event verified at `platform-electron/src/implementations/electron-workspace-provider.ts:41, 62, 212-226` (0.3); M20/M21 absence re-verified with stated grep |
+| 10 | No provenance tags | tags on every rule + Lane-introduced constraints |
 
 ## Open questions for the user
 
-1. **Read side** — should pausing Memory also stop memory injection into chats and `ptah_memory_search`, and pausing Skills also hide learned skills from agents?
-   - (Recommended) No: pause stops background capture and processing only; saved memories and skills keep being used.
-   - Yes: add a "full off" that also disables injection (more switches, agent quality drops while off).
-2. **Inert trigger keys** `memory.triggers.preCompact`, `skillSynthesis.triggers.sessionEnd`:
-   - (Recommended) Delete them (the master switches now cover the need).
-   - Wire them so they gate PreCompact curation / session-end enqueue.
-   - Leave as is.
-3. **Per-workspace "Chat memory extraction"** — today it only gates PreCompact and switching it off stops PreCompact for every workspace in the process:
-   - (Recommended) Leave for a follow-up; B-P only fixes the Electron boot mismatch.
-   - Fix now: make it a live per-workspace gate on every memory capture path.
-4. **Trigger keys stored in the host-local config instead of `~/.ptah/settings.json`** (M19):
-   - (Recommended) Separate follow-up (routing them changes where existing values live and needs a one-time migration).
-   - Fold into B-P.
-5. **Manual "Run now" actions while paused**:
-   - (Recommended) Refuse and grey out the buttons while paused.
-   - Allow them as explicit one-off runs.
+1. **`skillSynthesis:previewEnhancement`** is the call the Skills UI actually makes to generate an enhancement
+   (`skill-clones-view.component.ts:751`); `enhanceNow` has no UI caller. Should the preview also be refused
+   while Skills is paused?
+   - (Recommended) Yes: refuse it and grey out the Enhance button, because it is the same LLM work under a
+     different name.
+   - No: refuse only the four RPCs you named.
