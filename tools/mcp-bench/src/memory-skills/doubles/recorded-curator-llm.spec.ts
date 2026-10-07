@@ -117,6 +117,31 @@ describe('RecordedCuratorLlm', () => {
     await expect(replayer.resolve([DRAFT], [])).resolves.toEqual([RESOLVED]);
   });
 
+  it('retains a redacted full cause chain when the live inner curator fails', async () => {
+    const inner = fakeInner();
+    inner.extract.mockRejectedValue(
+      new Error('outer failure', {
+        cause: new Error('token=super-secret refresh failed'),
+      }),
+    );
+    const recorder = recordInto(cassette('cause-chain'), inner);
+
+    await expect(recorder.extract(TRANSCRIPT)).rejects.toThrow('outer failure');
+    expect(recorder.lastFailureMessage()).toBe(
+      'outer failure <- cause: token=<redacted> refresh failed',
+    );
+  });
+
+  it('clears a previous failure before the next curator call', async () => {
+    const inner = fakeInner();
+    inner.extract.mockRejectedValueOnce(new Error('first failure'));
+    const recorder = recordInto(cassette('cause-chain-reset'), inner);
+
+    await expect(recorder.extract(TRANSCRIPT)).rejects.toThrow('first failure');
+    await expect(recorder.resolve([DRAFT], [])).resolves.toEqual([RESOLVED]);
+    expect(recorder.lastFailureMessage()).toBeNull();
+  });
+
   it('writes {key, method, model, promptSha, response} entries', async () => {
     const path = cassette('entry-shape');
     await recordInto(path, fakeInner()).extract(TRANSCRIPT);

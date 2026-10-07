@@ -116,6 +116,8 @@ export const extractionOptionsSchema = z
     matcherValidated: z.boolean().default(false),
     /** Per-case safety cap override (specs); default `case-runner.ts`. */
     capMs: z.number().int().positive().optional(),
+    /** Restrict deterministic plan order for a live diagnostic probe. */
+    caseLimit: z.number().int().positive().optional(),
   })
   .prefault({});
 
@@ -139,6 +141,8 @@ export interface ExtractionEnv {
   onCuratorError(
     listener: (event: { sessionId?: string; error: string }) => void,
   ): () => void;
+  /** Redacted record-mode cause chain retained by the bench double. */
+  curatorFailureDetail?(): string | null;
   /** Calls the record/replay double has seen (extract + resolve). */
   modelCalls(): number;
 }
@@ -392,11 +396,12 @@ async function runCase(
   } finally {
     dispose();
   }
+  const failureDetail = input.env.curatorFailureDetail?.();
   const miss = errors.find((error) => error.includes('Cassette miss for '));
   if (caseError === null && miss !== undefined) {
     caseError = `cassette-miss: ${miss}`;
   } else if (caseError === null && errors.length > 0) {
-    caseError = `curator-error: ${errors[0]}`;
+    caseError = `curator-error: ${errors[0]}${failureDetail ? `; cause-chain: ${failureDetail}` : ''}`;
   }
 
   const rows = input.env
@@ -618,7 +623,10 @@ export async function runExtractionSuite(
   const bank = parseDistractorBank(
     readFileSync(fixturePath(input.home, options.distractorsFile), 'utf8'),
   );
-  const planned = planExtractionCases(facts, bank, options.seed);
+  const planned = planExtractionCases(facts, bank, options.seed).slice(
+    0,
+    options.caseLimit,
+  );
 
   const callsBefore = input.env.modelCalls();
   const evaluated: EvaluatedCase[] = [];
@@ -757,6 +765,7 @@ export function hostExtractionEnv(
       const counts = double.callCounts();
       return counts.extract + counts.resolve;
     },
+    curatorFailureDetail: () => double.lastFailureMessage(),
   };
 }
 

@@ -511,6 +511,16 @@ describe('mem.extraction', () => {
     ).rejects.toThrow('CURATOR_LLM was not replaced');
   });
 
+  it('limits a probe to the first deterministic seeded case', async () => {
+    const { cases } = await run(
+      'record',
+      join(root, 'cassettes', 'one-case.jsonl'),
+      'one-case',
+      { caseLimit: 1 },
+    );
+    expect(cases.map((entry) => entry.caseId)).toEqual(['seeded/F-001']);
+  });
+
   it('plans one seeded case per fact and paired head/middle long sessions', () => {
     const planned = planExtractionCases(facts, bank, 'seed');
     expect(planned.filter((c) => c.slice === 'seeded')).toHaveLength(

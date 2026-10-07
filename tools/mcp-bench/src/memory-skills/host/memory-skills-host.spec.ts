@@ -15,8 +15,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { MEMORY_CONTRACT_TOKENS } from '@ptah-extension/memory-contracts';
+import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
+import type { ProviderHealth } from '@ptah-extension/shared';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
-import { container as rootContainer } from 'tsyringe';
+import { container as rootContainer, type DependencyContainer } from 'tsyringe';
 
 /** Same symbol as `SKILL_SYNTHESIS_TOKENS.LANE_RUNNER_SERVICE`. */
 const LANE_RUNNER_SERVICE = Symbol.for('PtahSkillLaneRunnerService');
@@ -172,9 +174,25 @@ describe('runMemorySkillsHost', () => {
     }
   }
 
+  function registerSdkAdapter(
+    container: DependencyContainer,
+    sdkHealth: () => ProviderHealth = () => ({
+      status: 'available',
+      lastCheck: 0,
+    }),
+  ): void {
+    container.register(SDK_TOKENS.SDK_AGENT_ADAPTER, {
+      useValue: { getHealth: sdkHealth },
+    });
+  }
+
   function bootWith(
     settings: MemorySettings,
     registerProviders: boolean,
+    sdkHealth: () => ProviderHealth = () => ({
+      status: 'available',
+      lastCheck: 0,
+    }),
   ): MemorySkillsHostDeps['boot'] {
     return async (options) => {
       events.push('boot');
@@ -187,6 +205,7 @@ describe('runMemorySkillsHost', () => {
       container.register(PLATFORM_TOKENS.WORKSPACE_PROVIDER, {
         useValue: settings,
       });
+      registerSdkAdapter(container, sdkHealth);
       if (registerProviders) {
         container.register(MEMORY_CONTRACT_TOKENS.CURATOR_LLM, {
           useValue: {},
@@ -571,6 +590,121 @@ describe('runMemorySkillsHost', () => {
     });
   });
 
+  describe('record-mode SDK readiness', () => {
+    function health(status: ProviderHealth['status']): ProviderHealth {
+      return { status, lastCheck: 0 };
+    }
+
+    it('runs suites once the SDK is already ready', async () => {
+      writePlan({ cassetteMode: 'record', suites: [{ id: 'a' }] });
+      const suite: MemorySkillsHostSuite = {
+        id: 'a',
+        run: async () => {
+          events.push('suite-a');
+        },
+      };
+
+      await runMemorySkillsHost(
+        deps({
+          suites: [suite],
+          boot: bootWith(new MemorySettings(), true, () => health('available')),
+        }),
+      );
+      expect(events).toContain('suite-a');
+    });
+
+    it('waits for an initializing SDK before running suites', async () => {
+      writePlan({ cassetteMode: 'record', suites: [{ id: 'a' }] });
+      const states: ProviderHealth['status'][] = ['initializing', 'available'];
+      const suite: MemorySkillsHostSuite = {
+        id: 'a',
+        run: async () => {
+          events.push('suite-a');
+        },
+      };
+
+      await runMemorySkillsHost(
+        deps({
+          suites: [suite],
+          boot: bootWith(new MemorySettings(), true, () =>
+            health(states.shift() ?? 'available'),
+          ),
+          sdkReadiness: {
+            sleep: async () => {
+              events.push('sdk-wait');
+            },
+          },
+        }),
+      );
+      expect(events.indexOf('sdk-wait')).toBeLessThan(
+        events.indexOf('suite-a'),
+      );
+    });
+
+    it.each([
+      ['error', health('error'), {}, /SDK adapter initialization failed/],
+      [
+        'timeout',
+        health('initializing'),
+        { timeoutMs: 0 },
+        /SDK adapter did not become ready within 0ms/,
+      ],
+    ])(
+      'fails loudly on SDK %s and does not run suites',
+      async (_, sdk, gate, expected) => {
+        writePlan({ cassetteMode: 'record', suites: [{ id: 'a' }] });
+        const suite: MemorySkillsHostSuite = {
+          id: 'a',
+          run: async () => {
+            events.push('suite-a');
+          },
+        };
+
+        await expect(
+          runMemorySkillsHost(
+            deps({
+              suites: [suite],
+              boot: bootWith(new MemorySettings(), true, () => sdk),
+              sdkReadiness: gate,
+            }),
+          ),
+        ).rejects.toThrow(expected);
+        expect(events).not.toContain('suite-a');
+        expect(stop).toHaveBeenCalledTimes(1);
+      },
+    );
+
+    it('fails loudly when the SDK adapter is not registered', async () => {
+      writePlan({ cassetteMode: 'record' });
+      const boot: MemorySkillsHostDeps['boot'] = async (options) => {
+        const container = rootContainer.createChildContainer();
+        container.register(PLATFORM_TOKENS.WORKSPACE_PROVIDER, {
+          useValue: new MemorySettings(),
+        });
+        container.register(MEMORY_CONTRACT_TOKENS.CURATOR_LLM, {
+          useValue: {},
+        });
+        container.register(LANE_RUNNER_SERVICE, { useValue: {} });
+        await options.afterContainerReady?.(container, {
+          workspaceRoot: options.workspace,
+          isolation,
+        });
+        return {
+          port: 4321,
+          workspaceRoot: options.workspace,
+          isolation,
+          container,
+          stop,
+        };
+      };
+
+      await expect(runMemorySkillsHost(deps({ boot }))).rejects.toThrow(
+        'record mode needs the SDK agent adapter; it is not registered in the bench host',
+      );
+      expect(stop).toHaveBeenCalledTimes(1);
+    });
+  });
+
   it('sets the unreachable oauth endpoint only in record mode', async () => {
     writePlan({ cassetteMode: 'record' });
     const settings = new MemorySettings();
@@ -742,6 +876,7 @@ describe('runMemorySkillsHost', () => {
       container.register(PLATFORM_TOKENS.WORKSPACE_PROVIDER, {
         useValue: new MemorySettings(),
       });
+      registerSdkAdapter(container);
       container.register(MEMORY_CONTRACT_TOKENS.CURATOR_LLM, { useValue: {} });
       container.register(LANE_RUNNER_SERVICE, { useValue: {} });
       await options.afterContainerReady?.(container, {

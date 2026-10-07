@@ -29,10 +29,20 @@
  * its own `finally`.
  */
 
-import { existsSync, mkdirSync, renameSync, writeFileSync } from 'node:fs';
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  writeFileSync,
+} from 'node:fs';
 import { join } from 'node:path';
 
+import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import type { ProviderHealth } from '@ptah-extension/shared';
 
 import type {
   BenchHostContainer,
@@ -85,6 +95,14 @@ import {
 export const HOST_COMPLETION_FILE = 'host-completion.json';
 export const HOST_COMPLETION_SCHEMA_ID = '620.host-completion.v1';
 export const HOST_NET_RECORDER_LOG = 'net-recorder.log';
+/** Redacted copy of the CLI Logger output, retained after temp-home cleanup. */
+export const HOST_LOG_FILE = 'host.log';
+export const SDK_READINESS_TIMEOUT_MS = 60_000;
+export const SDK_READINESS_POLL_MS = 50;
+
+interface SdkReadinessAdapter {
+  getHealth(): ProviderHealth;
+}
 
 /** What a host suite receives. */
 export interface MemorySkillsHostSuiteContext {
@@ -172,6 +190,13 @@ export interface MemorySkillsHostDeps {
   /** The home this process resolves, for the ready line. */
   readonly homedir: () => string;
   readonly now?: () => number;
+  /** Test seam for the record-mode SDK readiness gate. */
+  readonly sdkReadiness?: {
+    readonly timeoutMs?: number;
+    readonly pollMs?: number;
+    readonly sleep?: (milliseconds: number) => Promise<void>;
+    readonly now?: () => number;
+  };
 }
 
 function messageOf(error: unknown): string {
@@ -309,6 +334,9 @@ export async function runMemorySkillsHost(
       userDataPath: host.isolation.userDataPath,
       dbPath: host.isolation.dbPath,
     });
+    if (plan.cassetteMode === 'record') {
+      await waitForSdkReady(host.container, deps.sdkReadiness);
+    }
 
     const context = {
       runId: plan.runId,
@@ -356,8 +384,81 @@ export async function runMemorySkillsHost(
     const reason = await deps.shutdownRequested;
     return { completion, shutdownReason: reason };
   } finally {
+    // Keep startup failures (including SDK readiness) diagnosable too.
+    retainHostLog(host.isolation.userDataPath, plan.runDir);
     await host.stop();
   }
+}
+
+/**
+ * Record mode reaches the real curator through the SDK query runner. Engine
+ * boot starts adapter initialization asynchronously, so do not begin cases
+ * until that existing initialization has published a terminal healthy state.
+ * This observes health rather than calling initialize(): sequential calls to
+ * initialize() start a new auth/CLI initialization pass.
+ */
+export async function waitForSdkReady(
+  container: BenchHostContainer,
+  options: MemorySkillsHostDeps['sdkReadiness'] = {},
+): Promise<void> {
+  if (!container.isRegistered(SDK_TOKENS.SDK_AGENT_ADAPTER, true)) {
+    throw new Error(
+      'record mode needs the SDK agent adapter; it is not registered in the bench host',
+    );
+  }
+  const adapter = container.resolve<SdkReadinessAdapter>(
+    SDK_TOKENS.SDK_AGENT_ADAPTER,
+  );
+  const timeoutMs = options.timeoutMs ?? SDK_READINESS_TIMEOUT_MS;
+  const pollMs = options.pollMs ?? SDK_READINESS_POLL_MS;
+  const now = options.now ?? Date.now;
+  const sleep =
+    options.sleep ??
+    ((milliseconds: number) =>
+      new Promise<void>((resolve) => setTimeout(resolve, milliseconds)));
+  const startedAt = now();
+
+  for (;;) {
+    const health = adapter.getHealth();
+    if (health.status === 'available') return;
+    if (health.status === 'error') {
+      throw new Error(
+        `SDK adapter initialization failed: ${health.errorMessage ?? 'no error detail was provided'}`,
+      );
+    }
+    if (now() - startedAt >= timeoutMs) {
+      throw new Error(
+        `SDK adapter did not become ready within ${timeoutMs}ms (status: ${health.status})`,
+      );
+    }
+    await sleep(pollMs);
+  }
+}
+
+function retainHostLog(userDataPath: string, runDir: string): void {
+  const logsDir = join(userDataPath, 'logs');
+  const output = join(runDir, HOST_LOG_FILE);
+  writeFileSync(output, '', 'utf8');
+  if (!existsSync(logsDir)) return;
+  for (const entry of readdirSync(logsDir, { withFileTypes: true })) {
+    if (!entry.isFile() || !entry.name.endsWith('.log')) continue;
+    const source = join(logsDir, entry.name);
+    try {
+      const redacted = redactLogSecrets(readFileSync(source, 'utf8'));
+      appendFileSync(output, `# ${entry.name}\n${redacted}`, 'utf8');
+    } catch {
+      // Diagnostics must not turn an otherwise complete benchmark into a failure.
+    }
+  }
+}
+
+function redactLogSecrets(value: string): string {
+  return value
+    .replace(
+      /(authorization|api[_-]?key|token|secret|password)\s*[:=]\s*[^\s,;]+/gi,
+      '$1=<redacted>',
+    )
+    .replace(/Bearer\s+[^\s,;]+/gi, 'Bearer <redacted>');
 }
 
 async function runSuites(

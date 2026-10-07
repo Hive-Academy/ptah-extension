@@ -98,6 +98,7 @@ export class RecordedCuratorLlm implements ICuratorLLM {
   private readonly inner: ICuratorLLM | undefined;
   private readonly counts = { extract: 0, resolve: 0 };
   private readonly hitFaults = new Set<string>();
+  private lastFailure: string | null = null;
 
   constructor(private readonly options: RecordedCuratorLlmOptions) {
     const store = options.store;
@@ -123,6 +124,15 @@ export class RecordedCuratorLlm implements ICuratorLLM {
   }
 
   /**
+   * Redacted diagnostic for the most recent live record-mode failure. This is
+   * deliberately kept out of cassettes: failures must never become replay
+   * data, but the host needs the real cause that the curator event flattens.
+   */
+  lastFailureMessage(): string | null {
+    return this.lastFailure;
+  }
+
+  /**
    * Fail when a configured fault key was never hit: a typo'd or drifted key
    * would otherwise let a liveness test pass vacuously. Replay mode only.
    */
@@ -143,6 +153,7 @@ export class RecordedCuratorLlm implements ICuratorLLM {
     signal?: AbortSignal,
     options?: CuratorCallOptions,
   ): Promise<CuratorExtraction> {
+    this.lastFailure = null;
     this.counts.extract++;
     const key = curatorExtractKey(transcript);
     if (this.options.store.mode === 'replay') {
@@ -153,10 +164,8 @@ export class RecordedCuratorLlm implements ICuratorLLM {
       return this.options.store.lookup('extract', key)
         .response as CuratorExtraction;
     }
-    const response = await this.requireInner().extract(
-      transcript,
-      signal,
-      options,
+    const response = await this.callInner(() =>
+      this.requireInner().extract(transcript, signal, options),
     );
     if (response.status === 'stalled' && !this.options.recordFailures) {
       throw new CassetteRecordRefusalError(
@@ -181,6 +190,7 @@ export class RecordedCuratorLlm implements ICuratorLLM {
     signal?: AbortSignal,
     options?: CuratorCallOptions,
   ): Promise<readonly ResolvedMemoryDraft[]> {
+    this.lastFailure = null;
     this.counts.resolve++;
     const key = curatorResolveKey(drafts, related);
     if (this.options.store.mode === 'replay') {
@@ -191,11 +201,8 @@ export class RecordedCuratorLlm implements ICuratorLLM {
       return this.options.store.lookup('resolve', key)
         .response as readonly ResolvedMemoryDraft[];
     }
-    const response = await this.requireInner().resolve(
-      drafts,
-      related,
-      signal,
-      options,
+    const response = await this.callInner(() =>
+      this.requireInner().resolve(drafts, related, signal, options),
     );
     this.options.store.record({
       key,
@@ -224,6 +231,37 @@ export class RecordedCuratorLlm implements ICuratorLLM {
     }
     return this.inner;
   }
+
+  private async callInner<T>(call: () => Promise<T>): Promise<T> {
+    try {
+      return await call();
+    } catch (error: unknown) {
+      this.lastFailure = redactCauseChain(error);
+      throw error;
+    }
+  }
+}
+
+function redactCauseChain(error: unknown): string {
+  const messages: string[] = [];
+  const seen = new Set<unknown>();
+  let current: unknown = error;
+  while (current instanceof Error && !seen.has(current)) {
+    seen.add(current);
+    messages.push(redactSecrets(current.message));
+    current = current.cause;
+  }
+  if (messages.length === 0) messages.push(redactSecrets(String(error)));
+  return messages.join(' <- cause: ');
+}
+
+function redactSecrets(message: string): string {
+  return message
+    .replace(
+      /(authorization|api[_-]?key|token|secret|password)\s*[:=]\s*[^\s,;]+/gi,
+      '$1=<redacted>',
+    )
+    .replace(/Bearer\s+[^\s,;]+/gi, 'Bearer <redacted>');
 }
 
 /** One selected fault mode, applied to both curator methods where it can. */
