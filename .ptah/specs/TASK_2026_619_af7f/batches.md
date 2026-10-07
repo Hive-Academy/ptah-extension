@@ -1,6 +1,6 @@
 # Batches - TASK_2026_619_af7f
 
-Total tasks: 77 | Batches: 41 | Complete: 12/41
+Total tasks: 77 | Batches: 41 | Complete: 13/41
 
 Worktree root (every path below is absolute under it):
 `D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark` (branch `fix/task-619-tool-benchmark`).
@@ -1124,7 +1124,7 @@ Batch 8 findings recorded at Mode 2 (report:
 - Every listed artifact exists and contains the required work
 - `npx nx run-many -t typecheck,lint,test -p mcp-bench` passes
 
-## Batch 9: Suite runners, lifecycle scenarios and the bench CLI — COMPLETE (commits ea2f92fd2 Task 9.0; the `feat: batch 9` commit after ea2f92fd2 for Tasks 9.1-9.3; SHA filled in after the commit)
+## Batch 9: Suite runners, lifecycle scenarios and the bench CLI — COMPLETE (commits ea2f92fd2 Task 9.0; 4d3d0dd5d Tasks 9.1-9.3)
 
 Batch 9 Tasks 9.1-9.3 findings recorded at Mode 2 (report:
 `D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\.ptah\specs\TASK_2026_619_af7f\batch-9-executor-report.md`,
@@ -1373,7 +1373,62 @@ including "## Smoke round 1"):
 - `npx nx run-many -t typecheck,lint,test -p mcp-bench` passes
 - `npx nx run mcp-bench:bench --host cli-headless --smoke` completes and writes the scorecard (tail it)
 
-## Batch 10: Recorded-failure gate and CI workflow — PENDING
+## Batch 10: Recorded-failure gate and CI workflow — COMPLETE (commit: the `feat(mcp-bench): batch 10` commit after 4d3d0dd5d; SHA filled in after the commit)
+
+Batch 10 findings recorded at Mode 2 (report:
+`D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\.ptah\specs\TASK_2026_619_af7f\batch-10-executor-report.md`):
+
+- Executor: devops-engineer subagent. There were three passes.
+  - Initial: the native-gap gate, `measure-noise`, the workflow, the CI rg rule and the
+    commitlint scope.
+  - Revision 1, on orchestrator decisions:
+    - Recorded-failure mode is implemented as Task 10.1 requires (`gate\baseline.ts`,
+      `gate-command.ts`, target `record-baseline`). The initial pass had left it out.
+    - An unscored suite fails in claim mode. In recorded mode it passes only when the baseline is
+      also unscored for the same reason.
+    - The PR timeout is 60 min.
+  - Revision 2:
+    - The margin is `max(2·SD, 1/questions)`.
+    - `ptah_memory_search` is measured on its own hit@5 (no native baseline).
+    - Lifecycle rows are recorded as `pass | fail | flaky` with a tolerance for flaky rows.
+- Orchestrator evidence: 3 noise smoke runs on cli-headless with `RG_PATH` exited 0 each, taking
+  52, 44 and 37 min. TASK_2026_620 was coordinated for every real run. The margins are in
+  `tools\mcp-bench\baseline\noise-margins.json` (schema v2, `smoke: true`, corpus 7910f34cf, 40
+  questions per suite). Measured margins:
+  - 0.1 for dependents;
+  - 0.0289 for symbols-exact and symbol-index;
+  - 0.025 (the one-question floor) for the rest.
+  No lifecycle row was flaky: 5 rows passed in 3 of 3 runs and 11 failed in 3 of 3.
+- Accepted deviations:
+  - (1) **PR smoke timeout is 60 min instead of 10.** The local smoke took 49.5 min, so 10 could
+    never pass. Batch 11 or later tunes it from the first real CI run, with caching keyed by corpus
+    commit if needed.
+  - (2) **File count is 11 instead of 5:** `project.json`, `main.ts`, `suite-runner.ts`,
+    `retrieval-suite-kind.ts`, `baseline.ts`, `gate-command.ts` and `baseline.spec.ts`. They wire
+    the targets, the margin lookup, the deciding-comparison fields and recorded-failure mode,
+    while keeping `main.ts` under `max-lines`. One project plus two repository config files
+    (`.commitlintrc.json`, the workflow) are checked by one scoped command.
+  - (3) **Unscored suites fail in claim mode and must equal the baseline in recorded mode.** Today
+    the LSP suites on cli-headless are unscored ("not exposed").
+  - (4) **No optional pyright/gopls/SCIP step in nightly.** The bench has no such switch yet.
+- **Until Batch 11 commits `tools\mcp-bench\baseline\gate-baseline.json`, the CI gate step exits 2**
+  ("no gate baseline": a run failure, nothing judged). That file is not part of this commit.
+- **The default margin of 0.02 for unmeasured suites is below one question's weight** (0.025 at 40
+  questions). It only applies to the LSP suites (TS, python-attrs, go-logrus), which have no score
+  in any run. Revisit it when they get scores (Batch 25 on cli-headless, or the Electron record in
+  Batch 11).
+- **TASK_2026_622 data points** (product crash class, not a 619 fix; send them to that task):
+  - Batch 9 smoke run 2: the python-attrs host hit 0xC0000409 before its ready line, with empty
+    stderr.
+  - Batch 10 noise run 2: one lifecycle host hit 0xC0000409 at `crash-on-shutdown`. It was
+    classified as a run-level fact, not a tool error.
+- **Workflow check (note for the Phase 1 review):** `.github\workflows\mcp-bench.yml` was only
+  parsed by Prettier; `actionlint` is not available here. The first real CI run is the check.
+  `ci.yml` is untouched. The workflow has `permissions: contents: read`, a concurrency group per
+  ref, ripgrep via apt or choco, and `CI: 'true'`, so the guard runs in `hash` mode.
+- Mode 2 checks (team-leader): with `RG_PATH` set, `npx nx run-many -t typecheck,lint,test -p
+  mcp-bench --skip-nx-cache` passed (3 targets, 1m 35s). There are no TODO/STUB markers in `gate\` or
+  the workflow, and `git diff -- libs apps` is empty.
 
 - Recommended executor: devops-engineer subagent
 - Fallback executor: backend-developer subagent
@@ -1382,7 +1437,7 @@ including "## Smoke round 1"):
 - Tasks: 2 | Depends on: 9
 - Phase: 1 Benchmark | Phase review: code-logic (after Batch 11)
 
-### Task 10.1: Gate script (recorded-failure mode and claim mode) — PENDING
+### Task 10.1: Gate script (recorded-failure mode and claim mode) — COMPLETE
 
 - File: D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\gate\gate.ts; D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\gate\gate.spec.ts
 - Plan reference: research-report.md:225-229 (B9)
@@ -1397,7 +1452,7 @@ including "## Smoke round 1"):
     failure that the gate reports as one. It is never read as a verdict.
 - Implementation details: target `gate` in project.json.
 
-### Task 10.2: `.github/workflows/mcp-bench.yml` — PENDING
+### Task 10.2: `.github/workflows/mcp-bench.yml` — COMPLETE
 
 - File: D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\.github\workflows\mcp-bench.yml
 - Depends on: Task 10.1
@@ -1442,6 +1497,18 @@ including "## Smoke round 1"):
   - Report any 0xC0000409 that happens before ready (one python-attrs case in Batch 9 smoke run 2)
     as a TASK_2026_622 data point, with the host, attempt and time to death.
   - Report the unexpected `two-workspaces-symbol-scope` failure explicitly.
+- Carried from Batch 10 (Mode 2):
+  - Record and commit `tools\mcp-bench\baseline\gate-baseline.json` with `npx nx run
+    mcp-bench:record-baseline --scorecard <cli-headless smoke scorecard>`. Use the same mode as PR
+    CI (`--smoke`, `cli-headless`, corpus 7910f34cf). Until that file exists, the CI gate exits 2.
+    Then run `mcp-bench:gate` against the same scorecard and expect exit 0.
+  - `noise-margins.json` already holds the smoke margins from 3 runs (Batch 10). "Three full runs
+    per host" for the full-mode baseline remains this task's job; record margins per mode and say
+    which one the PR gate reads.
+  - Tune the PR job's 60 min timeout from the first real CI run.
+  - Revisit the 0.02 default margin for any LSP suite that gets a score, for example on Electron.
+  - File note: this task also writes `tools\mcp-bench\baseline\gate-baseline.json` (and may
+    rewrite `noise-margins.json`). The count rises by one or two and stays under the cap.
 
 ### Task 11.2: Link each MANDATORY claim to a scorecard suite — PENDING
 

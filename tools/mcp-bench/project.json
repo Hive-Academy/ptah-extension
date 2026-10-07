@@ -213,6 +213,33 @@
         "cwd": "{workspaceRoot}"
       }
     },
+    "gate": {
+      "executor": "nx:run-commands",
+      "dependsOn": ["build-bench"],
+      "cache": false,
+      "options": {
+        "command": "node dist/tools/mcp-bench/bench.mjs gate",
+        "cwd": "{workspaceRoot}"
+      }
+    },
+    "record-baseline": {
+      "executor": "nx:run-commands",
+      "dependsOn": ["build-bench"],
+      "cache": false,
+      "options": {
+        "command": "node dist/tools/mcp-bench/bench.mjs record-baseline",
+        "cwd": "{workspaceRoot}"
+      }
+    },
+    "measure-noise": {
+      "executor": "nx:run-commands",
+      "dependsOn": ["build-host", "build-bench"],
+      "cache": false,
+      "options": {
+        "command": "node dist/tools/mcp-bench/bench.mjs measure-noise",
+        "cwd": "{workspaceRoot}"
+      }
+    },
     "generate": {
       "executor": "nx:run-commands",
       "dependsOn": ["build-bench"],

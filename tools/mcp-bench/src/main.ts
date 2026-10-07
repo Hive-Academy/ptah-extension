@@ -68,11 +68,14 @@ import {
 } from './lifecycle/lifecycle-scenarios';
 import {
   readScorecard,
+  scorecardBaselineDirectory,
   scorecardOutputDirectory,
   writeScorecardJson,
   writeScorecardMarkdown,
 } from './scorecard/scorecard-writers';
 import type { Scorecard, ScorecardSuite } from './scorecard/scorecard.types';
+import { GATE_USAGE, runGateCommand } from './gate/gate-command';
+import { loadNoiseMargins, marginFor, suiteMarginKey } from './gate/gate';
 import { generateOptionsSchema, runGenerate } from './generate';
 import { loadQuestionBank, type QuestionBank } from './suites/question-sets';
 import {
@@ -114,7 +117,7 @@ const benchOptionsSchema = z.object({
 });
 export type BenchOptions = z.infer<typeof benchOptionsSchema>;
 
-const BOOLEAN_FLAGS = new Set(['smoke']);
+const BOOLEAN_FLAGS = new Set(['smoke', 'write']);
 const REPEATED_FLAGS = new Set(['scip-index']);
 
 /**
@@ -251,6 +254,8 @@ async function askSuites(
 
 async function runBench(options: BenchOptions): Promise<number> {
   const root = benchProjectRoot();
+  const margins = await loadNoiseMargins(scorecardBaselineDirectory(root));
+  if (margins === null) log('[bench] no stored noise margins: default applies');
   const configPath = join(root, 'corpus.config.json');
   const startedAt = new Date().toISOString();
   const runId = `${startedAt.replace(/[:.]/g, '-')}-${options.host}`;
@@ -559,7 +564,14 @@ async function runBench(options: BenchOptions): Promise<number> {
         allRuns.flatMap((run) =>
           assembleSuite(run.definition, run.natives, run.tools, {
             listedTools: run.listed,
-            noiseMargin: options['noise-margin'],
+            noiseMargin: marginFor(
+              margins,
+              suiteMarginKey(
+                run.definition.tool,
+                run.definition.groundTruth.id,
+              ),
+              options['noise-margin'],
+            ),
             ...(run.failure === undefined ? {} : { failure: run.failure }),
           }),
         ),
@@ -717,6 +729,7 @@ async function writeComparison(
 const USAGE = `usage:
   bench [--host cli-headless|electron] [--electron-mode launch|attach] [--suite <id|tool|lifecycle|polyglot>[,…]]
         [--smoke] [--out <dir>] [--compare <scorecard.json>] [--noise-margin <0..1>]
+  ${GATE_USAGE}
   generate [--only ts,file-tools,memory,relevance] [--out <dir>] [--scip-index <corpusId>=<index.scip>]`;
 
 async function main(argv: readonly string[]): Promise<number> {
@@ -725,6 +738,14 @@ async function main(argv: readonly string[]): Promise<number> {
     return runBench(strictParse(benchOptionsSchema, flags));
   if (command === 'generate')
     return runGenerate(strictParse(generateOptionsSchema, flags), log);
+  const gated = await runGateCommand(
+    command,
+    flags,
+    benchProjectRoot(),
+    log,
+    strictParse,
+  );
+  if (gated !== null) return gated;
   log(USAGE);
   return command === 'help' ? 0 : 1;
 }

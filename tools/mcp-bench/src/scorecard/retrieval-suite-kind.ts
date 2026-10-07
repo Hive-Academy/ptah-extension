@@ -4,6 +4,20 @@ const metricValueSchema = z.number().finite().nullable();
 export const retrievalDetailsSchema = z.object({
   tool: z.string().min(1),
   questions: z.number().int().nonnegative(),
+  /** The metric and native baseline that decide the verdict (read by the gate and the noise measurement). */
+  primaryMetric: z
+    .enum([
+      'hit@1',
+      'hit@5',
+      'mrr',
+      'recall@10',
+      'recall_all',
+      'precision',
+      'acc_at_k',
+      'ndcg_at_k',
+    ])
+    .optional(),
+  decidingBaseline: z.string().min(1).optional(),
   metrics: z.object({
     'hit@1': metricValueSchema.optional(),
     'hit@5': metricValueSchema.optional(),

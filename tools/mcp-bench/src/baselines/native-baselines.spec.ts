@@ -27,7 +27,21 @@ import {
 
 let root = '';
 const hasRg = hasUsableRg();
-const itWithRg = hasRg ? it : it.skip;
+/**
+ * The live-rg cases skip on a developer machine without ripgrep. Under
+ * `CI=true` a missing rg is a CI setup defect (the workflow installs it), so
+ * the cases fail instead: a silent skip hid two defects in Batch 8.
+ */
+const itWithRg: jest.It = hasRg
+  ? it
+  : process.env['CI'] === 'true'
+    ? (((name: string) =>
+        it(name, () => {
+          throw new Error(
+            'CI=true but no usable ripgrep was found: set RG_PATH or install rg (apt install ripgrep)',
+          );
+        })) as unknown as jest.It)
+    : it.skip;
 
 beforeAll(async () => {
   root = await mkdtemp(path.join(os.tmpdir(), 'mcp-native-baseline-'));

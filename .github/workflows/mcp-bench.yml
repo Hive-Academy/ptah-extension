@@ -1,0 +1,210 @@
+# MCP tool benchmark (TASK_2026_619_af7f, Nx project `mcp-bench`)
+#
+# Gate rule (context.md): a tool that scores below its native baseline fails.
+# Phase 1 gates each suite and lifecycle row by its mode in the committed
+# tools/mcp-bench/baseline/gate-baseline.json: `recorded-failure` (equals the
+# recorded run within the measured noise margin) or `claim` (the rule above).
+#
+#   - Pull requests run the smoke subset on the `cli-headless` host, ubuntu-latest
+#     (60 minute timeout: the local smoke took 49.5 min; Batch 11 tunes it from
+#     the first real CI run).
+#   - Nightly (and manual dispatch) runs the full set on ubuntu and windows, plus
+#     the Electron host on ubuntu under xvfb. Electron is never part of the PR run.
+#     A host that is not available shows as `na` with its reason in the scorecard,
+#     never as a pass.
+#
+# Each job: bench -> upload the scorecard -> gate. The bench step records its exit
+# code and never fails the step itself, so the scorecard is always uploaded. The
+# gate step then treats ANY non-zero bench exit (2 = scorecard written but a host,
+# baseline or scenario failed to run; 3 or 4 = the isolation guard voided the run)
+# as a run failure, never as a verdict, and reads a scorecard only after exit 0.
+#
+# The isolation guard always runs in `hash` mode here: GitHub sets CI=true, and
+# under CI=true a concurrent writer to the real ~/.ptah is an environment failure.
+#
+# ripgrep is installed explicitly (apt / choco). The live-rg specs in
+# native-baselines.spec.ts fail rather than skip under CI=true when no rg is found.
+
+name: MCP Bench
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'tools/mcp-bench/**'
+      - 'libs/backend/**'
+      - 'libs/shared/**'
+      - '.github/workflows/mcp-bench.yml'
+  schedule:
+    # Nightly, 03:30 UTC.
+    - cron: '30 3 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: mcp-bench-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  # 24, not 22: node 22 ships npm 10, which cannot resolve our npm-11 lockfile
+  # (see cli-e2e.yml).
+  NODE_VERSION: 24
+  NX_TUI: 'false'
+  CI: 'true'
+
+jobs:
+  bench-cli:
+    name: Bench cli-headless (${{ matrix.os }}, ${{ matrix.mode }})
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(github.event_name == 'pull_request' && '{"include":[{"os":"ubuntu-latest","mode":"smoke","flags":"--smoke","timeout":60}]}' || '{"include":[{"os":"ubuntu-latest","mode":"full","flags":"","timeout":45},{"os":"windows-latest","mode":"full","flags":"","timeout":45}]}') }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: ${{ matrix.timeout }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      # Full history: the bench pins the corpus commit with `git worktree add`
+      # and the relevance baseline reads `git log`.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install ripgrep (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ripgrep
+          rg --version
+
+      - name: Install ripgrep (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          choco install ripgrep -y --no-progress
+          rg --version
+
+      - name: Cache node_modules
+        id: cache-modules
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: node-modules-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Install dependencies
+        if: steps.cache-modules.outputs.cache-hit != 'true'
+        # Fall back to `npm install` if lockfile drift (npm/cli#4828).
+        run: |
+          npm ci || npm install --no-audit --no-fund
+          if [ "${{ runner.os }}" = "Linux" ]; then
+            npm install @rollup/rollup-linux-x64-gnu --no-save --force
+          fi
+
+      # `npm ci`'s postinstall compiles better-sqlite3 for the Electron ABI; the
+      # bench host runs under the runner Node ABI (see cli-e2e.yml).
+      - name: Rebuild native modules for runner Node ABI
+        run: npm rebuild better-sqlite3
+
+      - name: Run bench
+        id: bench
+        run: |
+          set +e
+          npx nx run mcp-bench:bench --host cli-headless ${{ matrix.flags }} --out mcp-bench-out
+          code=$?
+          echo "exit=$code" >> "$GITHUB_OUTPUT"
+          echo "bench exited $code"
+          exit 0
+
+      - name: Publish scorecard summary
+        if: always()
+        run: |
+          if [ -f mcp-bench-out/scorecard.md ]; then
+            cat mcp-bench-out/scorecard.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload scorecard
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mcp-bench-scorecard-${{ matrix.os }}-${{ matrix.mode }}
+          path: mcp-bench-out/
+          if-no-files-found: warn
+
+      - name: Gate (a tool below its native baseline fails)
+        run: npx nx run mcp-bench:gate --scorecard mcp-bench-out/scorecard.json --bench-exit ${{ steps.bench.outputs.exit }}
+
+  # Nightly and manual only. Electron needs a display on Linux. The scorecard
+  # records a host that is not available as `na` with a reason; the gate lists
+  # it and never counts it as a pass.
+  bench-electron:
+    name: Bench electron (ubuntu-latest, full)
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install ripgrep and xvfb
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ripgrep xvfb
+          rg --version
+
+      - name: Cache node_modules
+        id: cache-modules
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: node-modules-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Install dependencies
+        if: steps.cache-modules.outputs.cache-hit != 'true'
+        run: |
+          npm ci || npm install --no-audit --no-fund
+          npm install @rollup/rollup-linux-x64-gnu --no-save --force
+
+      - name: Rebuild native modules for runner Node ABI
+        run: npm rebuild better-sqlite3
+
+      - name: Run bench
+        id: bench
+        run: |
+          set +e
+          xvfb-run -a npx nx run mcp-bench:bench --host electron --out mcp-bench-out
+          code=$?
+          echo "exit=$code" >> "$GITHUB_OUTPUT"
+          echo "bench exited $code"
+          exit 0
+
+      - name: Publish scorecard summary
+        if: always()
+        run: |
+          if [ -f mcp-bench-out/scorecard.md ]; then
+            cat mcp-bench-out/scorecard.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload scorecard
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mcp-bench-scorecard-electron
+          path: mcp-bench-out/
+          if-no-files-found: warn
+
+      - name: Gate (a tool below its native baseline fails)
+        run: npx nx run mcp-bench:gate --scorecard mcp-bench-out/scorecard.json --bench-exit ${{ steps.bench.outputs.exit }}

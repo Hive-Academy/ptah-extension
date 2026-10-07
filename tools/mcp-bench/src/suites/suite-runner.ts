@@ -48,7 +48,11 @@ import {
 import type { McpToolCaller } from '../transport/mcp-client';
 import type { GroundTruthRef } from './question-sets';
 
-/** Allowed drop of the primary metric below native before a suite fails (until Batch 10 measures noise). */
+/**
+ * Allowed drop of the primary metric below native when no measured margin is
+ * stored (`baseline/noise-margins.json`, Task 10.1) and no `--noise-margin`
+ * is given.
+ */
 export const NOISE_MARGIN = 0.02;
 /** Error rate above which a suite fails. */
 export const MAX_ERROR_RATE = 0.01;
@@ -618,6 +622,21 @@ export function assembleSuite<Q extends { readonly id: string }>(
   return [main, ...views];
 }
 
+/** Names the metric and native baseline that decide the suite, so the gate re-reads the same comparison. */
+function decidingFields<Q extends { readonly id: string }>(
+  definition: ToolSuiteDefinition<Q>,
+): { primaryMetric?: QualityMetric; decidingBaseline?: string } {
+  const decider = definition.natives.find(
+    (native) => native.decides && native.scored,
+  );
+  return decider === undefined
+    ? { primaryMetric: definition.primaryMetric }
+    : {
+        primaryMetric: definition.primaryMetric,
+        decidingBaseline: decider.id,
+      };
+}
+
 function suiteRecord<Q extends { readonly id: string }>(
   definition: ToolSuiteDefinition<Q>,
   records: readonly QuestionRecord<Q>[],
@@ -653,6 +672,7 @@ function suiteRecord<Q extends { readonly id: string }>(
       tool: definition.tool,
       questions: records.length,
       metrics: toolMetricsBlock(tool),
+      ...decidingFields(definition),
       failures: [
         ...outcome.extraFailures,
         ...listFailures(definition, records),
