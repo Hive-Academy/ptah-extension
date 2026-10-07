@@ -15,6 +15,7 @@ import {
   Info,
   LucideAngularModule,
   Plus,
+  RefreshCw,
   ShieldAlert,
   Terminal,
   X,
@@ -857,6 +858,50 @@ const SAVE_SCOPE = 'global';
                                 >
                                   {{ installGuide(row).note }}
                                 </p>
+                                <div
+                                  class="flex items-center gap-2 border-t border-base-300 pt-2"
+                                >
+                                  <button
+                                    type="button"
+                                    [class]="
+                                      'btn btn-outline btn-xs h-6 min-h-6 shrink-0 gap-1 text-[11px] ' +
+                                      focusRing
+                                    "
+                                    [ptahBusyDisabled]="guideDetecting()"
+                                    (click)="redetectFromGuide(row.id)"
+                                    [attr.data-testid]="
+                                      'cli-install-redetect-' + row.id
+                                    "
+                                  >
+                                    @if (guideDetecting()) {
+                                      <span
+                                        class="loading loading-spinner loading-xs"
+                                        aria-hidden="true"
+                                      ></span>
+                                      Detecting…
+                                    } @else {
+                                      <lucide-angular
+                                        [img]="RefreshIcon"
+                                        class="h-3 w-3"
+                                        aria-hidden="true"
+                                      />
+                                      Re-detect
+                                    }
+                                  </button>
+                                  @if (guideNote()?.rowId === row.id) {
+                                    <p
+                                      class="text-xs text-base-content"
+                                      role="status"
+                                      data-testid="cli-install-redetect-note"
+                                    >
+                                      {{
+                                        guideNote()?.outcome === 'failed'
+                                          ? 'Detection failed. Try again.'
+                                          : 'Still not found. Check the step above, then try again.'
+                                      }}
+                                    </p>
+                                  }
+                                </div>
                               </div>
                             }
                           </ptah-native-popover>
@@ -982,6 +1027,16 @@ export class CliOrchestrationMatrixComponent {
   protected readonly dot = DOT;
   protected readonly badge = BADGE;
   protected readonly keyTone = KEY_TONE;
+
+  protected readonly RefreshIcon = RefreshCw;
+  protected readonly guideDetecting = computed(
+    () => this.state.cliDetection().status === 'loading',
+  );
+  /** The install guide's last Re-detect outcome when the CLI did not move to the installed group. */
+  protected readonly guideNote = signal<{
+    readonly rowId: string;
+    readonly outcome: 'not-found' | 'failed';
+  } | null>(null);
 
   protected readonly state = inject(ProvidersSettingsStateService);
   private readonly feedback = inject(SettingsSaveFeedbackService);
@@ -1113,11 +1168,32 @@ export class CliOrchestrationMatrixComponent {
   }
 
   protected openCell(rowId: string, kind: OpenCell['kind']): void {
+    this.guideNote.set(null);
     this.openState.set(this.isOpen(rowId, kind) ? null : { rowId, kind });
   }
 
   protected close(): void {
     this.openState.set(null);
+  }
+
+  /**
+   * The install guide's Re-detect: the same re-read as the policy bar's Re-detect CLIs. A CLI that is found
+   * leaves the Uninstalled group, so the guide closes and focus follows the row; otherwise the guide says why.
+   */
+  protected async redetectFromGuide(rowId: string): Promise<void> {
+    if (this.guideDetecting()) return;
+    this.guideNote.set(null);
+    await this.state.redetectClis();
+    if (this.state.cliDetection().status !== 'ready') {
+      this.guideNote.set({ rowId, outcome: 'failed' });
+      return;
+    }
+    if (this.rows().uninstalled.some((row) => row.id === rowId)) {
+      this.guideNote.set({ rowId, outcome: 'not-found' });
+      return;
+    }
+    this.close();
+    this.focusAfterRender(`[data-testid="cli-matrix-toggle-${rowId}"]`);
   }
 
   /**
