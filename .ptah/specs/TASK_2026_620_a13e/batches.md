@@ -901,6 +901,46 @@ baselines, `cost`, per-case JSONL (`620.case.<kind>.v1`) and a projection hash.
 
 ---
 
+## Addendum batches A1, A2, B1, B2 (Codex/terra recording and model-panel labels)
+
+User decisions (2026-10-07): the live recordings use the product's `openai-codex` provider with
+`gpt-5.6-terra`; U1-U4 ground truth comes from a cross-family model panel (raters xAI + Google,
+adjudicator GLM; no OpenAI lane labels), escalating only if fewer than two eligible families exist;
+implementor grok, planner and code reviewer codex (same side, user-pinned). Design:
+`design-addendum-codex-recording-and-model-panel.md`; review APPROVED round 1
+(`design-addendum-codex-recording-and-model-panel-review.md`). Order: A2, B1, B2 in parallel, then
+A1 (it consumes the A2 callback). Recordings and B24 still wait for "619 Batch 11 runs done" and the
+rebase on the 619 probe-fix commit. Each batch: one grok lane, at most 40 tool calls, scoped jest only.
+
+### Batch A2: Product provenance taps — PENDING
+
+- Files: the curator `sdk-internal-query.curator-llm.ts` + spec; skill-synthesis `lane-runner.service.ts` + spec.
+- Read-only dispatch callback with `resolvedProviderId` / `resolvedModelId` after final route
+  resolution, including the ride-active path. Request and result bytes unchanged without a subscriber.
+
+### Batch B1: Panel schemas and import — PENDING
+
+- Files: new `labelling/model-panel.ts` + spec; `ground-truth/label-schemas.ts` + spec; `suites/skills/rubric-ground-truth.ts` + spec.
+
+### Batch B2: Terminology and docs — PENDING
+
+- Files: `suites/skills/trigger-human-eval.ts` + spec; `tools/mcp-bench/README.md`.
+- `groundTruth.method` says `model-panel:<families>`, never "human"; display label `skill.trigger-eval.panel`.
+
+### Batch A1: Plan, config and auth recording seam — PENDING
+
+- Files: `runner/runner-plan.ts`, `runner/run-memory-skills.ts` + specs; `host/plan.schema.ts`,
+  `host/memory-skills-host.ts`; new `host/recording-bootstrap.ts` + spec; `host/fixture-seeder.ts` + spec;
+  `recorder/provider-provenance.ts` + spec.
+- Orchestrator addition to review finding N1 (refresh is only detectable after the token server
+  already rotated the token): in record mode the settings carrier must also set the Codex OAuth
+  token endpoint `ptah.provider.openai-codex.oauthTokenEndpoint` (read by
+  `codex-auth.service.ts:517-524` `getOAuthTokenEndpoint`) to an unreachable
+  loopback address, so a refresh fails BEFORE it reaches the server; plus hash the isolated
+  `auth.json` and discard the staged cassette if it changed.
+
+---
+
 ## Appendix A — Phase 4 fixes (not Phase 3 batches) mapped to the metric each must move
 
 | Fix | Must move | Guard |
