@@ -115,10 +115,12 @@ interface CloudModelMeta {
  * Comprehensive catalog of known Ollama Cloud models.
  * Source: https://ollama.com/search?c=cloud (last updated 2026-04-14)
  *
- * Ollama has NO API to list available cloud models — /api/tags only returns
- * locally pulled models. This static catalog is the primary source for the
- * model selector. It's merged with /api/tags results to pick up any models
- * the user has run that aren't in this list.
+ * The live `ollama.com/api/tags` list (OllamaCloudMetadataService) is the
+ * source of which models exist; this catalog only adds metadata (context,
+ * capabilities, description) to live entries, and is the list itself only
+ * when the live fetch is empty or fails. It is never merged in as extra
+ * entries: on 2026-10-07 15 of its 20 IDs were no longer served (some return
+ * 410 "retired"), and the merge kept showing them.
  *
  * Key is the base model name (without the `:cloud` / `-cloud` suffix).
  */
@@ -380,10 +382,10 @@ export class OllamaModelDiscoveryService {
     try {
       const liveTags = await this.cloudMetadata.fetchCloudTags(apiKey);
       if (liveTags.length > 0) {
+        const staticById = new Map(staticModels.map((m) => [m.id, m]));
         const merged = new Map<string, ProviderModelInfo>();
-        for (const m of staticModels) merged.set(m.id, m);
         for (const tag of liveTags) {
-          const existing = merged.get(tag.id);
+          const existing = staticById.get(tag.id);
           const baseName = tag.id.replace(/:cloud$/, '').replace(/-cloud$/, '');
           const knownMeta = KNOWN_CLOUD_MODELS[baseName];
           merged.set(tag.id, {
@@ -399,12 +401,12 @@ export class OllamaModelDiscoveryService {
             supportsToolUse: existing?.supportsToolUse ?? true,
           });
         }
-        const newIds = liveTags
-          .map((t) => t.id)
-          .filter((id) => !staticModels.some((s) => s.id === id));
+        const retiredIds = staticModels
+          .map((m) => m.id)
+          .filter((id) => !merged.has(id));
         this.logger.info(
-          `[OllamaModelDiscovery] listCloudModels: ${staticModels.length} static + ${liveTags.length} live (ollama.com/api/tags) = ${merged.size} total. ` +
-            `New from live: [${newIds.slice(0, 8).join(', ')}${newIds.length > 8 ? ', …' : ''}]`,
+          `[OllamaModelDiscovery] listCloudModels: ${merged.size} live (ollama.com/api/tags). ` +
+            `Static entries not served live: [${retiredIds.slice(0, 8).join(', ')}${retiredIds.length > 8 ? ', …' : ''}]`,
         );
         return Array.from(merged.values());
       } else {
