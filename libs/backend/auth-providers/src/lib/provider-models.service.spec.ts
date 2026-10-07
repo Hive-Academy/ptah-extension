@@ -273,7 +273,9 @@ describe('ProviderModelsService — discovered context windows', () => {
       }),
     );
     const { service } = makeService({
-      configValues: { 'provider.moonshot.modelCatalog': { models } },
+      configValues: {
+        'provider.moonshot.modelCatalog': { models, timestamp: Date.now() },
+      },
     });
     const restored = await service.fetchModels('moonshot', null);
     expect(restored.models).toHaveLength(5);
@@ -296,6 +298,7 @@ describe('ProviderModelsService — discovered context windows', () => {
               supportsToolUse: true,
             },
           ],
+          timestamp: Date.now(),
         },
       },
     });
@@ -976,7 +979,7 @@ describe('ProviderModelsService persisted model catalog', () => {
               supportsToolUse: true,
             },
           ],
-          timestamp: 1,
+          timestamp: Date.now(),
         },
       },
     });
@@ -992,6 +995,39 @@ describe('ProviderModelsService persisted model catalog', () => {
     ]);
     expect(result.isStatic).toBe(false);
   });
+
+  it.each([
+    ['older than 30 days', Date.now() - 31 * 24 * 60 * 60 * 1000],
+    ['without a timestamp', undefined],
+  ])(
+    'ignores a persisted catalog %s and uses staticModels instead',
+    async (_case, timestamp) => {
+      const { service } = makeService({
+        configValues: {
+          [CATALOG_KEY]: {
+            models: [
+              {
+                id: 'retired-model',
+                name: 'Retired',
+                description: '',
+                contextLength: 0,
+                supportsToolUse: true,
+              },
+            ],
+            ...(timestamp !== undefined && { timestamp }),
+          },
+        },
+      });
+      service.registerDynamicFetcher('claude-cli', async () => {
+        throw new Error('SDK bridge unavailable');
+      });
+
+      const result = await service.fetchModels('claude-cli', null);
+
+      expect(result.isStatic).toBe(true);
+      expect(result.models.map((m) => m.id)).not.toContain('retired-model');
+    },
+  );
 
   it('still falls back to staticModels when nothing is persisted', async () => {
     const { service } = makeService({});
@@ -1106,7 +1142,7 @@ describe('ProviderModelsService live-catalog tier derivation', () => {
       configValues: {
         'provider.openrouter.modelCatalog': {
           models: ROUTER_MODELS,
-          timestamp: 1,
+          timestamp: Date.now(),
         },
       },
     });
@@ -1131,7 +1167,7 @@ describe('ProviderModelsService live-catalog tier derivation', () => {
       configValues: {
         'provider.openrouter.modelCatalog': {
           models: ROUTER_MODELS,
-          timestamp: 1,
+          timestamp: Date.now(),
         },
       },
     });
@@ -1147,7 +1183,7 @@ describe('ProviderModelsService live-catalog tier derivation', () => {
         'provider.openrouter.mainAgent.modelTier.opus': 'openai/gpt-5.3-codex',
         'provider.openrouter.modelCatalog': {
           models: ROUTER_MODELS,
-          timestamp: 1,
+          timestamp: Date.now(),
         },
       },
     });
@@ -1172,7 +1208,7 @@ describe('ProviderModelsService live-catalog tier derivation', () => {
       configValues: {
         [`provider.${PROVIDER}.modelCatalog`]: {
           models: ROUTER_MODELS,
-          timestamp: 1,
+          timestamp: Date.now(),
         },
       },
     });
@@ -1191,7 +1227,7 @@ describe('ProviderModelsService live-catalog tier derivation', () => {
       configValues: {
         'provider.openrouter.modelCatalog': {
           models: ROUTER_MODELS,
-          timestamp: 1,
+          timestamp: Date.now(),
         },
       },
     });

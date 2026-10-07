@@ -25,7 +25,12 @@ describe('ProviderModelsService OpenCode catalog', () => {
         supportsToolUse: true,
       };
       const config = createMockConfigManager({
-        values: { [`provider.${id}.modelCatalog`]: { models: [unknown] } },
+        values: {
+          [`provider.${id}.modelCatalog`]: {
+            models: [unknown],
+            timestamp: Date.now(),
+          },
+        },
       });
       const service = new ProviderModelsService(
         createMockLogger() as unknown as Logger,

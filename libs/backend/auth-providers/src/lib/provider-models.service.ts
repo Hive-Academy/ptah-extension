@@ -94,6 +94,12 @@ export type DynamicModelFetcher = () => Promise<ProviderModelInfo[]>;
 export class ProviderModelsService {
   private readonly modelCache = new Map<string, ProviderCache>();
   private readonly CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+  /**
+   * A persisted catalog older than this is not used: vendors retire models
+   * within weeks, so an old saved answer would offer IDs that now fail. The
+   * static list, which the model-list drift check keeps current, takes over.
+   */
+  private readonly PERSISTED_CATALOG_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 
   /** Per-provider dynamic model fetcher callbacks */
   private readonly dynamicFetchers = new Map<string, DynamicModelFetcher>();
@@ -185,15 +191,28 @@ export class ProviderModelsService {
   }
 
   /**
-   * Read the persisted catalog. Returns null when absent or malformed — the
-   * value survives across releases, so treat its shape as untrusted.
+   * Read the persisted catalog. Returns null when absent, malformed, or older
+   * than PERSISTED_CATALOG_MAX_AGE_MS (a missing timestamp counts as too old):
+   * the value survives across releases, so treat it as untrusted.
    */
   private readPersistedCatalog(providerId: string): ProviderModelInfo[] | null {
-    const stored = this.config.get<{ models?: unknown }>(
+    const stored = this.config.get<{ models?: unknown; timestamp?: unknown }>(
       this.getCatalogConfigKey(providerId),
     );
     const models = stored?.models;
     if (!Array.isArray(models)) return null;
+    const savedAt = stored?.timestamp;
+    if (
+      typeof savedAt !== 'number' ||
+      !Number.isFinite(savedAt) ||
+      Date.now() - savedAt > this.PERSISTED_CATALOG_MAX_AGE_MS
+    ) {
+      this.logger.debug(
+        '[ProviderModelsService] Ignoring a persisted model catalog that is too old',
+        { providerId, savedAt },
+      );
+      return null;
+    }
     const valid = models.filter(
       (m): m is ProviderModelInfo =>
         !!m &&
