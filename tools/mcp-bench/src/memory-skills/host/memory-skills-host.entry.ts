@@ -31,6 +31,8 @@ import {
   bootCodeExecutionHost,
 } from '../../transport/bench-host-boot';
 import { startNetRecorder } from '../runner/net-recorder';
+import { createExtractionSuite } from '../suites/memory/extraction.suite';
+import { createLivenessSuites } from '../suites/memory/liveness.suite';
 import { READ_SIDE_SUITES } from '../suites/memory/read-side.suite';
 import { SCOPE_WRITE_SUITE } from '../suites/memory/scope-write.suite';
 import {
@@ -44,6 +46,8 @@ import {
  * before the engine boots.
  */
 const HOST_SUITES: readonly MemorySkillsHostSuite[] = [
+  createExtractionSuite(),
+  ...createLivenessSuites(),
   ...READ_SIDE_SUITES,
   SCOPE_WRITE_SUITE,
 ];

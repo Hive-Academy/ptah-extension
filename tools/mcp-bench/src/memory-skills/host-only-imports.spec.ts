@@ -6,7 +6,8 @@
  * `vscode`), so this spec pins the rule on the import graph instead:
  *
  * 1. Only the modules in `HOST_ONLY_MODULES` may value-import the barrel.
- * 2. Outside `host/`, no non-spec module may import a host-only module.
+ * 2. Outside `host/`, no non-spec module may import a host-only module,
+ *    unless it is host-only itself.
  */
 
 import { readdirSync, readFileSync } from 'node:fs';
@@ -18,6 +19,10 @@ const BARREL = '@ptah-extension/memory-curator';
 const HOST_ONLY_MODULES = new Set([
   'baselines/retention-policy-defaults.ts',
   'ground-truth/seeded-session-generator.ts',
+  // Host suites (Batch 17): they run inside the bench host only.
+  'suites/memory/extraction.suite.ts',
+  'suites/memory/liveness.suite.ts',
+  'suites/memory/liveness-harness.ts',
 ]);
 
 const IMPORT_PATTERN =
@@ -77,6 +82,8 @@ describe('memory-skills host-only imports', () => {
   it('keeps host-only modules out of every non-host module', () => {
     const offenders = files
       .filter((file) => !toKey(file).startsWith('host/'))
+      // A host-only module runs in the host, so it may import another one.
+      .filter((file) => !HOST_ONLY_MODULES.has(toKey(file)))
       .flatMap((file) =>
         readImports(file)
           .filter((e) => e.specifier.startsWith('.') && !e.typeOnly)
