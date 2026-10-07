@@ -601,3 +601,47 @@ describe('SkillTriggerService — boot scan under the master switch (B-P S3)', (
     h.service.stop();
   });
 });
+
+/**
+ * B-P review N4 — a scan that fires with no workspace root must still release
+ * its arm. The early `return` used to sit before the `try/finally`, so the
+ * current generation's `bootScanArmed` stayed set and `maybeRearmBootScan`
+ * could never arm a scan again in that process.
+ */
+describe('SkillTriggerService — boot scan with no workspace root (B-P N4)', () => {
+  jest.setTimeout(TEST_TIMEOUT_MS);
+
+  let dir: string;
+
+  beforeEach(async () => {
+    dir = await makeSessionsDir();
+    jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate'] });
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  const armed = (h: ReturnType<typeof buildHarness>): boolean =>
+    (h.service as unknown as { bootScanArmed: boolean }).bootScanArmed;
+
+  it('releases the arm when the scan finds no workspace root, and enqueues nothing', async () => {
+    const h = buildHarness({
+      sessionsDir: dir,
+      settings: { 'skillSynthesis.triggers.bootScanDelayMs': 1_000 },
+    });
+    (
+      h.workspace as unknown as { getWorkspaceRoot: jest.Mock }
+    ).getWorkspaceRoot.mockReturnValue(undefined);
+
+    h.service.start();
+    expect(armed(h)).toBe(true);
+
+    await advanceUntil(2_000, () => !armed(h));
+
+    expect(armed(h)).toBe(false);
+    expect(h.enqueueAnalyze).not.toHaveBeenCalled();
+
+    h.service.stop();
+  });
+});

@@ -309,6 +309,32 @@ async function startSkillSynthesis(
   refs: ThothRefs,
   logger: Logger,
 ): Promise<void> {
+  /**
+   * The skill trigger, which may only start once skill synthesis has. Reached
+   * from the `onStarted` hook and after `start()` resolves, and later from a
+   * retried start, so it brings the trigger up at most once.
+   */
+  const startSkillTrigger = (): void => {
+    if (refs.skillTrigger !== null) return;
+    try {
+      if (
+        refs.skillSynthesis !== null &&
+        container.isRegistered(SKILL_SYNTHESIS_TOKENS.SKILL_TRIGGER_SERVICE)
+      ) {
+        const skillTrigger = container.resolve<SkillTriggerService>(
+          SKILL_SYNTHESIS_TOKENS.SKILL_TRIGGER_SERVICE,
+        );
+        skillTrigger.start();
+        refs.skillTrigger = skillTrigger;
+      }
+    } catch (error: unknown) {
+      logger.warn('[CLI Thoth] Skill trigger start skipped (non-fatal)', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      refs.skillTrigger = null;
+    }
+  };
+
   try {
     if (
       container.isRegistered(SKILL_SYNTHESIS_TOKENS.SKILL_SYNTHESIS_SERVICE)
@@ -316,32 +342,25 @@ async function startSkillSynthesis(
       const skillSynthesis = container.resolve<SkillSynthesisService>(
         SKILL_SYNTHESIS_TOKENS.SKILL_SYNTHESIS_SERVICE,
       );
-      await skillSynthesis.start();
       refs.skillSynthesis = skillSynthesis;
+      // Subscribed BEFORE `start()`: a start that fails here can succeed later
+      // through the service's `skillSynthesis.enabled` listener retry, and
+      // every successful start must bring the trigger up (B-P review N1).
+      // `stop()` in `disposeThoth` drops the subscription.
+      skillSynthesis.onStarted(startSkillTrigger);
+      await skillSynthesis.start();
+      // A start that resolved — including a paused boot, whose trigger arms
+      // its owed boot scan for the resume.
+      startSkillTrigger();
     }
   } catch (error: unknown) {
-    logger.warn('[CLI Thoth] Skill synthesis start skipped (non-fatal)', {
-      error: error instanceof Error ? error.message : String(error),
-    });
-    refs.skillSynthesis = null;
-  }
-
-  try {
-    if (
-      refs.skillSynthesis !== null &&
-      container.isRegistered(SKILL_SYNTHESIS_TOKENS.SKILL_TRIGGER_SERVICE)
-    ) {
-      const skillTrigger = container.resolve<SkillTriggerService>(
-        SKILL_SYNTHESIS_TOKENS.SKILL_TRIGGER_SERVICE,
-      );
-      skillTrigger.start();
-      refs.skillTrigger = skillTrigger;
-    }
-  } catch (error: unknown) {
-    logger.warn('[CLI Thoth] Skill trigger start skipped (non-fatal)', {
-      error: error instanceof Error ? error.message : String(error),
-    });
-    refs.skillTrigger = null;
+    // A failed `start()` keeps the ref: the service's retry path is still
+    // live, and `disposeThoth` must `stop()` it to dispose its config
+    // listener. A failed resolve leaves it null.
+    logger.warn(
+      '[CLI Thoth] Skill synthesis start failed (non-fatal; retried when skillSynthesis.enabled changes)',
+      { error: error instanceof Error ? error.message : String(error) },
+    );
   }
 }
 

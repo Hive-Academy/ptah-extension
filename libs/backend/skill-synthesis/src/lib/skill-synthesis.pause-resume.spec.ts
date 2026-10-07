@@ -528,8 +528,8 @@ describe('SkillSynthesisService — pause and resume (B-P)', () => {
    * Review finding 4 — a failed start leaves the config listener in place AS
    * the retry path.
    *
-   * The boot catch nulls its ref and never calls `stop()` on a failed start,
-   * so nothing else disposes the listener — disposing it here would leave the
+   * The boot catch keeps its ref (so shutdown's `stop()` disposes the
+   * listener) — disposing it on the failure would leave the
    * failed host with no resume path at all. The listener turns the next
    * pause→resume cycle into a retry that runs the FULL `performStart()`:
    * subscription, curator interval, backfill row, and no second listener.
@@ -562,6 +562,59 @@ describe('SkillSynthesisService — pause and resume (B-P)', () => {
     expect(h.enqueued.filter((r) => r.stage === 'embedding')).toHaveLength(1);
     // The retry reuses the ONE listener — `registerConfigListener` is guarded.
     expect(h.ws.listenerRegistrations()).toBe(1);
+    h.svc.stop();
+  });
+
+  /**
+   * B-P review N1 — the host boot subscribes to `onStarted` to bring up the
+   * skill TRIGGER service. The boot's own `.then` never sees a start that
+   * failed at boot and succeeded later through the listener retry, so the
+   * notification must fire on THAT start too — once per successful start,
+   * never on a failed one, and never after `stop()`.
+   */
+  it('onStarted fires on the retried start after a failed boot start, once, and not after stop() (N1)', async () => {
+    jest.useRealTimers();
+    const h = buildHarness({ enabled: true });
+    h.connection.isOpen = false;
+    (h.connection.openAndMigrate as jest.Mock).mockRejectedValueOnce(
+      new Error('db locked'),
+    );
+    const started = jest.fn();
+    h.svc.onStarted(started);
+
+    await expect(h.svc.start()).rejects.toThrow('db locked');
+    await h.settle();
+    expect(started).not.toHaveBeenCalled();
+
+    h.ws.fireSkillSynthesisEnabled(false);
+    await h.settle();
+    h.ws.fireSkillSynthesisEnabled(true);
+    await h.settle();
+    expect(started).toHaveBeenCalledTimes(1);
+
+    // A second resume on a started service runs no boot work → no notification.
+    h.ws.fireSkillSynthesisEnabled(true);
+    await h.settle();
+    expect(started).toHaveBeenCalledTimes(1);
+
+    // stop() drops the subscription: a later start does not reach it.
+    h.svc.stop();
+    await h.svc.start();
+    await h.settle();
+    expect(started).toHaveBeenCalledTimes(1);
+    h.svc.stop();
+  });
+
+  it('a disposed onStarted subscription is not notified', async () => {
+    jest.useRealTimers();
+    const h = buildHarness({ enabled: true });
+    const started = jest.fn();
+    h.svc.onStarted(started).dispose();
+
+    await h.svc.start();
+    await h.settle();
+
+    expect(started).not.toHaveBeenCalled();
     h.svc.stop();
   });
 });

@@ -242,6 +242,14 @@ export class SkillSynthesisService {
    * running the boot work — and the session-end subscription — a second time.
    */
   private startRun: Promise<void> | null = null;
+  /**
+   * Called after every successful `performStart()` (B-P review N1). The host
+   * boot subscribes here so the skill TRIGGER service comes up whenever the
+   * boot work completes — including a start that failed at boot and later
+   * succeeded through the `skillSynthesis.enabled` listener retry, which the
+   * boot's own `.then` never sees. Cleared by `stop()`.
+   */
+  private readonly startedListeners = new Set<() => void>();
   /** Event ring, oldest at index 0, newest at the tail. */
   private readonly events: SkillSynthesisEvent[] = [];
   /**
@@ -503,6 +511,36 @@ export class SkillSynthesisService {
     this.logger.info('[skill-synthesis] started', {
       vecExtensionLoaded: this.vecStatus.available,
     });
+    this.notifyStarted();
+  }
+
+  /**
+   * Subscribe to "the boot work completed" — every successful start, whether
+   * it came from the host boot, a deferred resume or the retry of a failed
+   * boot start. Not replayed: subscribe before calling `start()`. The
+   * returned handle removes the listener; `stop()` removes all of them.
+   */
+  onStarted(listener: () => void): { dispose(): void } {
+    this.startedListeners.add(listener);
+    return {
+      dispose: () => {
+        this.startedListeners.delete(listener);
+      },
+    };
+  }
+
+  private notifyStarted(): void {
+    for (const listener of [...this.startedListeners]) {
+      try {
+        listener();
+      } catch (err: unknown) {
+        // degradation-audit: reported - a failing subscriber is warned and
+        // must not undo a start that already succeeded.
+        this.logger.warn('[skill-synthesis] onStarted listener failed', {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
   }
 
   /** Unsubscribes from the session-end registry and resets state. */
@@ -511,6 +549,7 @@ export class SkillSynthesisService {
     this._sessionEndDisposer = undefined;
     this._configDisposer?.dispose();
     this._configDisposer = undefined;
+    this.startedListeners.clear();
     this.curator?.stop();
     this.started = false;
     this.analyzedSessions.clear();
@@ -612,13 +651,13 @@ export class SkillSynthesisService {
    *
    * The listener DELIBERATELY outlives a failed start (review finding 4): it
    * is the retry path. When `performStart()` rejects, the Electron/CLI boot
-   * catch nulls its ref and never calls `stop()`, so nothing else disposes
-   * this listener — and disposing it here would leave the failed host with
-   * no resume path at all. Kept, it turns the next `skillSynthesis.enabled`
-   * change into a retry through `onMasterSwitchChanged` → `ensureStarted()`,
-   * which re-runs the full `performStart()` and brings up everything a
-   * normal start does (the drain's prefilter stage and `enqueueAnalyze`'s
-   * lazy path retry the same way between events).
+   * keeps its ref (so shutdown's `stop()` still disposes it), and disposing it
+   * here would leave the failed host with no resume path at all. Kept, it
+   * turns the next `skillSynthesis.enabled` change into a retry through
+   * `onMasterSwitchChanged` → `ensureStarted()`, which re-runs the full
+   * `performStart()`; its `onStarted` notification lets the host bring up the
+   * skill trigger service too (the drain's prefilter stage and
+   * `enqueueAnalyze`'s lazy path retry the same way between events).
    */
   private registerConfigListener(): void {
     if (this._configDisposer) return;

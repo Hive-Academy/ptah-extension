@@ -882,9 +882,13 @@ export class SkillTriggerService {
     signal: AbortSignal,
     generation: number,
   ): Promise<void> {
-    const root = this.workspace.getWorkspaceRoot();
-    if (!root) return;
     try {
+      // Inside the `try` so the `finally` below releases this run's arm when
+      // no workspace is open (B-P review N4). Returning before the `try` left
+      // `bootScanArmed` set for the current generation, so `maybeRearmBootScan`
+      // could never arm a scan again in this process.
+      const root = this.workspace.getWorkspaceRoot();
+      if (!root) return;
       const { fp } = await deriveWorkspaceFingerprint(root, this.fs);
       const sessionsDir = await this.jsonl.findSessionsDirectory(root);
       const runner = new BootScanRunner();
