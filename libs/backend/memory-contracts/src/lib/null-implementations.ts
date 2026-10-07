@@ -33,4 +33,6 @@ export const NullMemoryUsageRecorder: IMemoryUsageRecorder = Object.freeze({
 export const NullSymbolSink: ISymbolSink = Object.freeze({
   deleteSymbolsForFile: () => 0,
   insertSymbols: async () => undefined,
+  replaceFileSymbols: async () => undefined,
+  purgeMissing: () => 0,
 });

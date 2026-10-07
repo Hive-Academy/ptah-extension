@@ -45,9 +45,10 @@ export interface CodeSymbolIndexerOptions {
   /** Number of files to process per batch before yielding. Default: 20 */
   batchSize?: number;
   /**
-   * Most indexable files one run processes, counted after the skip filter
-   * (config, test and generated files never use the budget). Past it the
-   * run's census is `truncated`. Default: 2000
+   * Optional bound on eligible files after the skip filter. Omitted (the
+   * default) indexes every eligible file. When set and the tree has more
+   * eligible files, the run's census is `truncated` and `omittedByCap` is
+   * the number of eligible files not selected.
    */
   maxFilesPerRun?: number;
   /**
@@ -100,7 +101,11 @@ const DISCOVERY_PATTERNS: readonly string[] = recognisedSourceExtensions().map(
 const DEFAULT_BATCH_SIZE = 20;
 /** `whenClear` lane name; it only labels the governor's ceiling log line. */
 const GOVERNOR_LANE = 'code-symbol-indexer';
-const DEFAULT_MAX_FILES = 2000;
+/**
+ * Paths indexed last so source trees fill the run (and any optional cap)
+ * before workspace-local skills and agent files.
+ */
+const DEFERRED_DISCOVERY = /(?:^|\/)(?:\.ptah|\.github\/skills)(?:\/|$)/;
 /**
  * A run never reads a file larger than this (the discovery stream's old
  * silent size limit, now counted as `failed` with reason `too-large`).
@@ -160,6 +165,18 @@ function shouldSkipFile(absoluteFilePath: string): boolean {
   return SKIP_MATCHER(path.basename(absoluteFilePath));
 }
 
+function normalizeIndexPath(filePath: string): string {
+  return filePath.replace(/\\/g, '/');
+}
+
+/** Source files first; `.ptah/` and `.github/skills` last; then path order. */
+function compareDiscoveryOrder(a: string, b: string): number {
+  const deferredA = DEFERRED_DISCOVERY.test(a) ? 1 : 0;
+  const deferredB = DEFERRED_DISCOVERY.test(b) ? 1 : 0;
+  if (deferredA !== deferredB) return deferredA - deferredB;
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
 /**
  * Maps a file extension to the tree-sitter SupportedLanguage.
  *
@@ -217,6 +234,8 @@ interface IndexRun {
    */
   census: CoverageCensus | null;
   censusLimit?: number;
+  /** Eligible files past `maxFilesPerRun`; 0 when the run was not capped. */
+  omittedByCap: number;
   /** Path identities the run set out to index. */
   selected: string[];
   unsupported: number;
@@ -459,8 +478,11 @@ export class CodeSymbolIndexer {
    * Coverage (TASK_2026_559 Batch 24b): the run begins synchronously, before
    * this method's first `await`, so a caller that starts it without awaiting
    * (the lazy reindex) already reads `state: 'updating'`. A run that returns
-   * normally ends `current`; an abort, a failed discovery or a thrown error
-   * ends `incomplete`, which stays until a later run succeeds.
+   * normally ends `current`; an abort, a failed discovery, a purge failure,
+   * or a thrown error ends `incomplete`, which stays until a later run succeeds.
+   * `IndexingStats` has no completeness field. A purge failure is thrown so
+   * callers that only observe the promise (the host `.catch`) can schedule
+   * a retry. Discovery failure still returns, because there is no write error.
    */
   async indexWorkspace(
     workspaceRoot: string,
@@ -565,8 +587,7 @@ export class CodeSymbolIndexer {
       unrecognised: null,
       nonSource: null,
       excluded: null,
-      // Discovery stopped at the cap, so how many more were eligible is unknown.
-      omittedByCap: run.census === 'truncated' ? null : 0,
+      omittedByCap: run.census === 'truncated' ? saturate(run.omittedByCap) : 0,
       ...(run.unsupported > 0
         ? {
             unsupportedByLanguage: limitLanguageCounts(
@@ -588,6 +609,7 @@ export class CodeSymbolIndexer {
   private beginRun(workspaceRoot: string): IndexRun {
     const run: IndexRun = {
       census: null,
+      omittedByCap: 0,
       selected: [],
       unsupported: 0,
       unsupportedByLanguage: {},
@@ -746,32 +768,33 @@ export class CodeSymbolIndexer {
   ): Promise<{ stats: IndexingStats; complete: boolean }> {
     const startMs = Date.now();
     const batchSize = options?.batchSize ?? DEFAULT_BATCH_SIZE;
-    const maxFilesPerRun = options?.maxFilesPerRun ?? DEFAULT_MAX_FILES;
-    const files: Array<{
+    const maxFilesPerRun = options?.maxFilesPerRun;
+    const eligible: Array<{
       readonly path: string;
       readonly size: number;
       /** Discovery could not stat it (locked, permission denied). */
       readonly unreadable: boolean;
     }> = [];
-    let truncated = false;
-    /** Classify one discovered file; false once the eligible cap is passed. */
+    const presentPaths: string[] = [];
+    const seenPresent = new Set<string>();
+    /** Classify one discovered file; every path is recorded as present on disk. */
     const consider = (
       filePath: string,
       size: number,
       unreadable: boolean,
-    ): boolean => {
+    ): void => {
+      const normalized = normalizeIndexPath(filePath);
+      if (!seenPresent.has(normalized)) {
+        seenPresent.add(normalized);
+        presentPaths.push(normalized);
+      }
       const fileClass = classifyFileForCoverage(filePath, 'codeIndex');
       if (fileClass === 'unsupported') {
         this.countUnsupported(run, filePath);
-        return true;
+        return;
       }
-      if (fileClass !== 'eligible' || shouldSkipFile(filePath)) return true;
-      if (files.length >= maxFilesPerRun) {
-        truncated = true;
-        return false;
-      }
-      files.push({ path: filePath, size, unreadable });
-      return true;
+      if (fileClass !== 'eligible' || shouldSkipFile(filePath)) return;
+      eligible.push({ path: normalized, size, unreadable });
     };
 
     try {
@@ -784,14 +807,15 @@ export class CodeSymbolIndexer {
         maxFileSize: Number.MAX_SAFE_INTEGER,
         // A locked file is counted as `failed` (`read`), not lost.
         onUnreadableEntry: (filePath) => {
-          if (!truncated) consider(filePath, 0, true);
+          consider(filePath, 0, true);
         },
       });
 
-      // The skip filter runs before the cap, so config, test and generated
-      // files never use the eligible-only budget.
+      // The skip filter runs before any optional cap, so config, test and
+      // generated files never use the eligible-only budget. Discovery
+      // always finishes so `omittedByCap` is a real count.
       for await (const file of stream) {
-        if (!consider(file.path, file.size, false)) break;
+        consider(file.path, file.size, false);
       }
     } catch (error: unknown) {
       // The root's coverage stays `incomplete` with an unknown census.
@@ -809,7 +833,18 @@ export class CodeSymbolIndexer {
       };
     }
 
+    eligible.sort((a, b) => compareDiscoveryOrder(a.path, b.path));
+    let files = eligible;
+    let truncated = false;
+    let omittedByCap = 0;
+    if (maxFilesPerRun !== undefined && eligible.length > maxFilesPerRun) {
+      truncated = true;
+      omittedByCap = eligible.length - maxFilesPerRun;
+      files = eligible.slice(0, maxFilesPerRun);
+    }
+
     run.census = truncated ? 'truncated' : 'complete';
+    run.omittedByCap = omittedByCap;
     if (truncated) run.censusLimit = maxFilesPerRun;
     run.selected = files.map((file) => graphPathIdentity(file.path));
 
@@ -819,8 +854,13 @@ export class CodeSymbolIndexer {
 
     const governed = options?.userInitiated !== true;
     let filesProcessed = 0;
+    // Before any write, after every batch (including the last), and again
+    // immediately before purge. A cancel during the only or last batch used
+    // to fall through into purgeAbsentPaths.
+    this.throwIfAborted(options?.signal);
     for (let i = 0; i < files.length; i += batchSize) {
       if (governed) await this.yieldToForeground(options?.signal);
+      this.throwIfAborted(options?.signal);
       const batch = files.slice(i, i + batchSize);
 
       for (const file of batch) {
@@ -855,22 +895,29 @@ export class CodeSymbolIndexer {
 
       if (i + batchSize < files.length) {
         await yieldToEventLoop();
-        if (options?.signal?.aborted) {
-          this.logger.debug?.(
-            '[CodeSymbolIndexer] Abort signal received at batch boundary — stopping early',
-          );
-          throw new DOMException('Aborted', 'AbortError');
-        }
       }
+      this.throwIfAborted(options?.signal);
     }
 
     const durationMs = Date.now() - startMs;
+
+    // A cancelled run throws AbortError, including when this was the only
+    // or last batch. It must not be reported as a finished index.
+    this.throwIfAborted(options?.signal);
 
     if (attempted > 0 && totalSymbols === 0 && totalErrors === attempted) {
       throw new Error(
         `Code symbol indexing failed: all ${totalErrors} files errored and 0 symbols were produced. ` +
           `This usually means the tree-sitter WASM runtime or the symbol sink failed to initialize — check the logs for the underlying error.`,
       );
+    }
+
+    // Truncated, discovery-failed (returned above), and aborted (thrown
+    // above) runs never reach this. A governor AbortError is thrown from
+    // yieldToForeground and likewise never purges.
+    this.throwIfAborted(options?.signal);
+    if (run.census === 'complete') {
+      this.purgeAbsentPaths(workspaceRoot, presentPaths);
     }
 
     this.logger.info('[CodeSymbolIndexer] Workspace indexing complete', {
@@ -979,9 +1026,56 @@ export class CodeSymbolIndexer {
     }
   }
 
+  /** A cancelled run throws AbortError and must not purge. */
+  private throwIfAborted(signal: AbortSignal | undefined): void {
+    if (!signal?.aborted) return;
+    this.logger.debug?.(
+      '[CodeSymbolIndexer] Abort signal received — stopping before purge',
+    );
+    throw new DOMException('Aborted', 'AbortError');
+  }
+
   /**
-   * Index a single file: parse AST, delete stale symbols, insert new ones.
-   * Returns per-file stats including durationMs.
+   * Per-file write. {@link ISymbolSink.replaceFileSymbols} is one
+   * transaction in the store, so a failed insert keeps the previous rows.
+   */
+  private async writeFileSymbols(
+    filePath: string,
+    workspaceRoot: string,
+    chunks: readonly SymbolChunkInsert[],
+  ): Promise<void> {
+    await this.sink.replaceFileSymbols(workspaceRoot, filePath, chunks);
+  }
+
+  /**
+   * Drop rows for paths that discovery did not see. Only a complete census
+   * may call this: a truncated or aborted run has not enumerated the tree.
+   */
+  private purgeAbsentPaths(
+    workspaceRoot: string,
+    presentPaths: readonly string[],
+  ): void {
+    let deleted: number;
+    try {
+      deleted = this.sink.purgeMissing(workspaceRoot, presentPaths);
+    } catch (err: unknown) {
+      const reason = err instanceof Error ? err.message : String(err);
+      this.logger.warn(
+        '[CodeSymbolIndexer] Failed to purge missing paths after a complete run',
+        { error: reason },
+      );
+      throw err;
+    }
+    if (deleted > 0) {
+      this.logger.debug?.(
+        `[CodeSymbolIndexer] Purged ${deleted} symbol rows for paths absent from disk`,
+      );
+    }
+  }
+
+  /**
+   * Index a single file: parse AST, then replace its symbol rows in one
+   * write. Returns per-file stats including durationMs.
    *
    * `absoluteFilePath` must already be normalized to forward slashes before
    * calling this method (callers are responsible for normalization).
@@ -1047,28 +1141,6 @@ export class CodeSymbolIndexer {
     }
 
     const relPath = path.relative(workspaceRoot, normalizedFilePath);
-    try {
-      const deletedCount = this.sink.deleteSymbolsForFile(
-        normalizedFilePath,
-        workspaceRoot,
-      );
-      if (deletedCount > 0) {
-        this.logger.debug?.(
-          `[CodeSymbolIndexer] Cleared ${deletedCount} stale entries for ${normalizedFilePath}`,
-        );
-      }
-    } catch (err: unknown) {
-      this.logger.warn(
-        `[CodeSymbolIndexer] Failed to clear stale entries for ${normalizedFilePath}`,
-        { error: err instanceof Error ? err.message : String(err) },
-      );
-      return {
-        symbolsIndexed: 0,
-        errors: 1,
-        durationMs: Date.now() - startMs,
-        outcome: failure('write'),
-      };
-    }
 
     const chunks: SymbolChunkInsert[] = [];
     // The store keys a row by (workspace root, subject) and overwrites on
@@ -1177,24 +1249,20 @@ export class CodeSymbolIndexer {
       });
     }
 
-    if (chunks.length > 0) {
-      try {
-        await this.sink.insertSymbols(chunks);
-      } catch (insertError: unknown) {
-        const msg =
-          insertError instanceof Error
-            ? insertError.message
-            : String(insertError);
-        this.logger.warn(
-          `[CodeSymbolIndexer] Symbols deleted but insert failed for ${normalizedFilePath}: ${msg}. Re-index this file to recover.`,
-        );
-        return {
-          symbolsIndexed: 0,
-          errors: 1,
-          durationMs: Date.now() - startMs,
-          outcome: failure('write'),
-        };
-      }
+    try {
+      await this.writeFileSymbols(normalizedFilePath, workspaceRoot, chunks);
+    } catch (writeError: unknown) {
+      const msg =
+        writeError instanceof Error ? writeError.message : String(writeError);
+      this.logger.warn(
+        `[CodeSymbolIndexer] Failed to write symbols for ${normalizedFilePath}: ${msg}`,
+      );
+      return {
+        symbolsIndexed: 0,
+        errors: 1,
+        durationMs: Date.now() - startMs,
+        outcome: failure('write'),
+      };
     }
 
     return {

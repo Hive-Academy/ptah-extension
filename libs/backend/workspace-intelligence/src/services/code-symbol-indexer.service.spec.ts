@@ -4,7 +4,10 @@
 import 'reflect-metadata';
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { IFileSystemProvider } from '@ptah-extension/platform-core';
-import type { ISymbolSink } from '@ptah-extension/memory-contracts';
+import type {
+  ISymbolSink,
+  SymbolChunkInsert,
+} from '@ptah-extension/memory-contracts';
 import type { AstAnalysisService } from '../ast/ast-analysis.service';
 import type { BackgroundWorkAdmission } from '@ptah-extension/vscode-core';
 import { WorkspaceIndexerService } from '../file-indexing/workspace-indexer.service';
@@ -40,11 +43,31 @@ function makeFs(): jest.Mocked<IFileSystemProvider> {
   } as unknown as jest.Mocked<IFileSystemProvider>;
 }
 
-function makeSymbolSink(): jest.Mocked<ISymbolSink> {
-  return {
+type TestSymbolSink = jest.Mocked<ISymbolSink> & {
+  replaceFileSymbols: jest.Mock;
+  purgeMissing: jest.Mock;
+};
+
+function makeSymbolSink(): TestSymbolSink {
+  const sink = {
     deleteSymbolsForFile: jest.fn().mockReturnValue(0),
     insertSymbols: jest.fn().mockResolvedValue(undefined),
-  };
+    replaceFileSymbols: jest.fn(),
+    purgeMissing: jest.fn().mockReturnValue(0),
+  } as unknown as TestSymbolSink;
+  sink.replaceFileSymbols.mockImplementation(
+    async (
+      workspaceRoot: string,
+      filePath: string,
+      rows: readonly SymbolChunkInsert[],
+    ) => {
+      sink.deleteSymbolsForFile(filePath, workspaceRoot);
+      if (rows.length > 0) {
+        await sink.insertSymbols(rows);
+      }
+    },
+  );
+  return sink;
 }
 
 /**
@@ -360,6 +383,7 @@ describe('CodeSymbolIndexer', () => {
       // Batch 1 completed whole; batch 2 never started.
       expect(fs.readFile).toHaveBeenCalledTimes(3);
       expect(sink.deleteSymbolsForFile).toHaveBeenCalledTimes(3);
+      expect(sink.purgeMissing).not.toHaveBeenCalled();
       expect(logger.warn).not.toHaveBeenCalled();
       expect(logger.error).not.toHaveBeenCalled();
       expect(logger.info).not.toHaveBeenCalled();
@@ -388,7 +412,7 @@ describe('CodeSymbolIndexer', () => {
 
     it('fails open on a governor failure that is not an abort — warns once and indexes anyway', async () => {
       const governor = makeGovernor();
-      const { service, fs, logger } = build(governor, fakeTsFiles(6));
+      const { service, fs, logger, sink } = build(governor, fakeTsFiles(6));
 
       const run = service.indexWorkspace('/workspace', { batchSize: 3 });
       await flush();
@@ -398,11 +422,41 @@ describe('CodeSymbolIndexer', () => {
       governor.reject(new Error('unexpected again'));
 
       await expect(run).resolves.toMatchObject({ filesScanned: 6 });
+      expect(sink.purgeMissing).toHaveBeenCalledTimes(1);
       expect(logger.warn).toHaveBeenCalledTimes(1);
       expect(logger.warn).toHaveBeenCalledWith(
         '[CodeSymbolIndexer] background-work wait failed — indexing anyway',
         { reason: 'unexpected' },
       );
+    });
+
+    it('a governor abort before the only batch purges nothing', async () => {
+      const governor = makeGovernor();
+      const { service, fs, sink } = build(governor, fakeTsFiles(2));
+
+      const run = service.indexWorkspace('/workspace', { batchSize: 10 });
+      await flush();
+      governor.reject(abortError());
+
+      await expect(run).rejects.toMatchObject({ name: 'AbortError' });
+      expect(fs.readFile).not.toHaveBeenCalled();
+      expect(sink.purgeMissing).not.toHaveBeenCalled();
+    });
+
+    it('a governor abort before the last batch purges nothing', async () => {
+      const governor = makeGovernor();
+      const { service, fs, sink } = build(governor, fakeTsFiles(4));
+
+      const run = service.indexWorkspace('/workspace', { batchSize: 2 });
+      await flush();
+      governor.release();
+      await flush();
+      expect(fs.readFile).toHaveBeenCalledTimes(2);
+
+      governor.reject(abortError());
+      await expect(run).rejects.toMatchObject({ name: 'AbortError' });
+      expect(fs.readFile).toHaveBeenCalledTimes(2);
+      expect(sink.purgeMissing).not.toHaveBeenCalled();
     });
   });
 
@@ -429,6 +483,7 @@ describe('CodeSymbolIndexer', () => {
         /all 5 files errored/,
       );
       expect(sink.insertSymbols).not.toHaveBeenCalled();
+      expect(sink.purgeMissing).not.toHaveBeenCalled();
     });
 
     it('does NOT throw when at least one file produces a symbol', async () => {
@@ -689,8 +744,8 @@ describe('CodeSymbolIndexer', () => {
       });
     });
 
-    it('past the eligible cap the census is truncated and the omitted count unknown', async () => {
-      const { service } = setup(fakeTsFiles(3));
+    it('past the eligible cap the census is truncated and omittedByCap is the unselected count', async () => {
+      const { service, sink } = setup(fakeTsFiles(3));
 
       await service.indexWorkspace(ROOT, { maxFilesPerRun: 2 });
 
@@ -699,8 +754,9 @@ describe('CodeSymbolIndexer', () => {
         censusLimit: 2,
         state: 'current',
         analyzed: 2,
-        omittedByCap: null,
+        omittedByCap: 1,
       });
+      expect(sink.purgeMissing).not.toHaveBeenCalled();
     });
 
     it('search after an aborted run reports incomplete, and a per-file reindex never promotes it', async () => {
@@ -1101,6 +1157,158 @@ describe('CodeSymbolIndexer', () => {
       releaseInsert();
       await manual;
       expect(service.getCoverage(ROOT).state).toBe('current');
+    });
+
+    it('indexes every eligible file when no maxFilesPerRun is set (omittedByCap is 0)', async () => {
+      const files = fakeTsFiles(5);
+      const { service, fs, sink } = setup(files);
+
+      const stats = await service.indexWorkspace(ROOT);
+
+      expect(stats.filesScanned).toBe(5);
+      expect(fs.readFile).toHaveBeenCalledTimes(5);
+      expect(service.getCoverage(ROOT)).toMatchObject({
+        census: 'complete',
+        analyzed: 5,
+        omittedByCap: 0,
+      });
+      expect(sink.purgeMissing).toHaveBeenCalledTimes(1);
+      expect(sink.purgeMissing).toHaveBeenCalledWith(ROOT, files);
+    });
+
+    it('selects files in deterministic order: source first, .ptah/ and .github/skills last', async () => {
+      const { service, fs, sink } = setup([
+        '/workspace/.ptah/agents/a.ts',
+        '/workspace/.github/skills/b.ts',
+        '/workspace/src/z.ts',
+        '/workspace/src/a.ts',
+        '/workspace/.ptah/tools/c.ts',
+      ]);
+
+      await service.indexWorkspace(ROOT);
+
+      expect(fs.readFile.mock.calls.map((call) => call[0])).toEqual([
+        '/workspace/src/a.ts',
+        '/workspace/src/z.ts',
+        '/workspace/.github/skills/b.ts',
+        '/workspace/.ptah/agents/a.ts',
+        '/workspace/.ptah/tools/c.ts',
+      ]);
+      const first = fs.readFile.mock.calls.map((call) => call[0]);
+      fs.readFile.mockClear();
+      await service.indexWorkspace(ROOT);
+      expect(fs.readFile.mock.calls.map((call) => call[0])).toEqual(first);
+      expect(sink.replaceFileSymbols).toHaveBeenCalled();
+    });
+
+    it('a cancelled run purges nothing', async () => {
+      const files = fakeTsFiles(9);
+      const { service, fs, sink } = setup(files);
+      const controller = new AbortController();
+      let reads = 0;
+      fs.readFile.mockImplementation(async () => {
+        reads++;
+        if (reads === 3) controller.abort();
+        return 'function f() {}';
+      });
+
+      await expect(
+        service.indexWorkspace(ROOT, {
+          batchSize: 3,
+          signal: controller.signal,
+        }),
+      ).rejects.toMatchObject({ name: 'AbortError' });
+
+      expect(sink.purgeMissing).not.toHaveBeenCalled();
+    });
+
+    it('a cancel during the only batch purges nothing', async () => {
+      const files = fakeTsFiles(2);
+      const { service, fs, sink } = setup(files);
+      const controller = new AbortController();
+      fs.readFile.mockImplementation(async () => {
+        controller.abort();
+        return 'function f() {}';
+      });
+
+      await expect(
+        service.indexWorkspace(ROOT, {
+          batchSize: 10,
+          signal: controller.signal,
+        }),
+      ).rejects.toMatchObject({ name: 'AbortError' });
+
+      expect(fs.readFile).toHaveBeenCalled();
+      expect(sink.purgeMissing).not.toHaveBeenCalled();
+    });
+
+    it('a cancel during the last batch purges nothing', async () => {
+      const files = fakeTsFiles(4);
+      const { service, fs, sink } = setup(files);
+      const controller = new AbortController();
+      let reads = 0;
+      fs.readFile.mockImplementation(async () => {
+        reads += 1;
+        if (reads === 4) controller.abort();
+        return 'function f() {}';
+      });
+
+      await expect(
+        service.indexWorkspace(ROOT, {
+          batchSize: 2,
+          signal: controller.signal,
+        }),
+      ).rejects.toMatchObject({ name: 'AbortError' });
+
+      expect(fs.readFile).toHaveBeenCalledTimes(4);
+      expect(sink.purgeMissing).not.toHaveBeenCalled();
+    });
+
+    it('an already-aborted signal writes nothing and purges nothing', async () => {
+      const files = fakeTsFiles(2);
+      const { service, fs, sink } = setup(files);
+      const controller = new AbortController();
+      controller.abort();
+
+      await expect(
+        service.indexWorkspace(ROOT, {
+          batchSize: 10,
+          signal: controller.signal,
+        }),
+      ).rejects.toMatchObject({ name: 'AbortError' });
+
+      expect(fs.readFile).not.toHaveBeenCalled();
+      expect(sink.replaceFileSymbols).not.toHaveBeenCalled();
+      expect(sink.purgeMissing).not.toHaveBeenCalled();
+    });
+
+    it('a purgeMissing failure rejects the run and leaves coverage incomplete', async () => {
+      const files = fakeTsFiles(2);
+      const { service, sink } = setup(files);
+      sink.purgeMissing.mockImplementation(() => {
+        throw new Error('sqlite purge failed');
+      });
+
+      await expect(service.indexWorkspace(ROOT)).rejects.toThrow(
+        /sqlite purge failed/,
+      );
+      expect(sink.purgeMissing).toHaveBeenCalledTimes(1);
+      expect(service.getCoverage(ROOT)).toMatchObject({
+        census: 'complete',
+        state: 'incomplete',
+      });
+    });
+
+    it('a truncated run purges nothing; a later complete run purges', async () => {
+      const files = fakeTsFiles(3);
+      const { service, sink } = setup(files);
+
+      await service.indexWorkspace(ROOT, { maxFilesPerRun: 2 });
+      expect(sink.purgeMissing).not.toHaveBeenCalled();
+
+      await service.indexWorkspace(ROOT);
+      expect(sink.purgeMissing).toHaveBeenCalledTimes(1);
+      expect(sink.purgeMissing.mock.calls[0][1]).toEqual(files);
     });
   });
 });
