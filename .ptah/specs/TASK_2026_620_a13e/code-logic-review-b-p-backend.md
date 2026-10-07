@@ -98,3 +98,21 @@ Verdict: **REVISE** (minimal) — 0 blocking, 0 serious, 4 moderate/minor open.
 - **N2 MINOR (P1)** — `rearmIdleTimers` runs on every `onActivity` and iterates all sessions with an `episodes.snapshot` each. It also re-arms a timer for a session whose idle curate was deliberately skipped (rate-limited or network backoff keeps the episode), so any session's activity now schedules a retry for it; bounded by `idleMs` and the limiter, but a behaviour change. Prefer re-arming only on the resume edge (event, or `enabled` false→true transition).
 - **N3 MODERATE (P1 tests)** — add a no-event pause spec (flag flipped, no listener call, timer fires, assert no curate) so the live gate is covered.
 - **N4 MINOR (P1+P2)** — `if (!root) return;` in both `runBootScan` sits before the `try/finally`, so with no workspace root the armed flag stays set (generation current) and the scan can never re-arm in that process. Pre-existing; no data loss.
+
+---
+
+# Round 3 (final)
+
+Reviewed 06a3decbe (memory-curator only; 49b318425 skipped per instruction). `npx nx test memory-curator --testPathPatterns="memory-trigger|memory-curator.service"`: `Tests: 195 passed, 195 total`.
+
+Verdict: **APPROVED** — 0 blocking, 0 serious, 0 moderate, 1 minor.
+
+| Item | Status | Evidence |
+|---|---|---|
+| Finding 6 / N3: external-edit pause spec | CLOSED | `memory-trigger.service.spec.ts` "does not curate when an external edit pauses the live idle fire": no listener call, flag flipped, timer fires with a real buffered episode (Stop hook). No event means `clearIdleTimers` is never run, so only the `fireIdle` gate (`memory-trigger.service.ts:~693`) and the `tryEpisodeCurate` gate (`:~712`) stop the curate; with both removed the episode reaches `curator.curate` and the assertion fails. Removing only one of the two still passes (they are redundant by design). Resume half asserts exactly one curate. |
+| N2: edge-only, content-only, not backed off, no double timers | CLOSED | `observeMemoryEnabled` (`:~1102`) records the last seen state in `fireIdle`, `onActivity`, `onSessionStart` and the event handler; `rearmIdleTimers` runs only when `resumed` (false to true). It skips sessions with a live timer or an empty episode, and returns early when `idleRetryAdmissionOpen` is false (network deferral, or the hourly bucket full via `rateLimiter.snapshot`, window aligned like `curator-rate-limit.service.ts:38`). `onActivity` clears and re-arms its own session's timer, so no double timer. Spec covers backoff-closed and bucket-full cases with `idleTimer` staying null. |
+| N4 memory: no-root scan | CLOSED | `runBootScan` now resolves the root inside the `try`; no root sets `bootScanOwed = true` and returns, and the generation-owned `finally` releases the arm. `memory-trigger.boot-defer.spec.ts` asserts armed false and owed true, then one re-arm and one curate once a root appears. A persistently rootless host re-arms at most once per boot-scan delay (armed stays true until the scan runs), so no hot loop. |
+
+Remaining minor (M1): `idleRetryAdmissionOpen` hard-codes `RATE_LIMIT_WINDOW_MS = 3_600_000`, duplicating the limiter's window constant; a limiter change would silently desync it. No behavioural defect today.
+
+Out of scope here: finding 4 and skills N4 (49b318425), reviewed by a CLI lane.
