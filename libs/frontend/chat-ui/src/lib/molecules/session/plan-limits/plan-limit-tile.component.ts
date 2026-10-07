@@ -200,7 +200,9 @@ export class PlanLimitTileComponent {
   protected readonly faceClass = computed(() =>
     planFaceClass(this.tile().tone),
   );
-  protected readonly expandable = computed(() => this.tile().kind !== 'status');
+  protected readonly expandable = computed(() =>
+    this.tile().kind !== 'status' && this.tile().kind !== 'local-usage',
+  );
   protected readonly statusTitle = computed(() =>
     this.tile().detailLines.join(' '),
   );

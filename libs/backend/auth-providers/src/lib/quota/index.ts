@@ -47,3 +47,11 @@ export type {
   PlanUsageReadRequest,
   PlanUsageReading,
 } from './readers/plan-usage-reader.types';
+export {
+  createOpenCodeLocalUsageReader,
+  type OpenCodeCommandRunner,
+} from './readers/opencode-local-usage.reader';
+export {
+  createGrokSessionUsageReader,
+  type GrokCommandRunner,
+} from './readers/grok-session-usage.reader';

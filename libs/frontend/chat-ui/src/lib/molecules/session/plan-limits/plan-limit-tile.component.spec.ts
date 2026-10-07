@@ -211,6 +211,26 @@ describe('PlanLimitTileComponent', () => {
     expect(panel(root).textContent).not.toMatch(/\b0%/);
   });
 
+  it('renders local token and cost accounting without a radial gauge', () => {
+    const root = render(
+      windowTile({
+        id: 'local-usage:opencode#account:0123456789abcdef',
+        kind: 'local-usage',
+        label: 'Local usage: tokens & estimated cost',
+        value: '1,234 tokens · $5.67',
+        resetLine: 'Local CLI accounting',
+        tone: 'neutral',
+        window: undefined,
+        detailLines: [],
+      }),
+    );
+
+    expect(button(root).textContent).toContain('Local usage: tokens & estimated cost');
+    expect(button(root).textContent).toContain('1,234 tokens · $5.67');
+    expect(root.querySelector('[data-testid="plan-limit-radial-progress"]')).toBeNull();
+    expect(button(root).getAttribute('aria-expanded')).toBeNull();
+  });
+
   it('renders the detail lines of a non-window tile', () => {
     const root = render(
       windowTile({

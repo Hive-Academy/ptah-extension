@@ -59,6 +59,12 @@ const { createClaudePlanUsageReader } =
 const { createOllamaCloudPlanUsageReader } =
   require('../../libs/backend/auth-providers/src/lib/quota/readers/ollama-cloud-plan-usage.reader') as typeof import('../../libs/backend/auth-providers/src/lib/quota/readers/ollama-cloud-plan-usage.reader');
 // eslint-disable-next-line @typescript-eslint/no-require-imports
+const { createOpenCodeLocalUsageReader } =
+  require('../../libs/backend/auth-providers/src/lib/quota/readers/opencode-local-usage.reader') as typeof import('../../libs/backend/auth-providers/src/lib/quota/readers/opencode-local-usage.reader');
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { createGrokSessionUsageReader } =
+  require('../../libs/backend/auth-providers/src/lib/quota/readers/grok-session-usage.reader') as typeof import('../../libs/backend/auth-providers/src/lib/quota/readers/grok-session-usage.reader');
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 const { PlanUsageService } =
   require('../../libs/backend/auth-providers/src/lib/quota/plan-usage.service') as typeof import('../../libs/backend/auth-providers/src/lib/quota/plan-usage.service');
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -74,6 +80,13 @@ type ProbeResult = {
     percent: number | null;
     resetAt: string | null;
   }>;
+  localUsage?: {
+    kind: 'local-usage';
+    label: string;
+    hasTokens: true;
+    hasEstimatedCost: true;
+    hasRange: boolean;
+  };
   failure?: { step: string; errorClass: string; message: string };
 };
 
@@ -281,6 +294,13 @@ function toResult(
       used?: { kind: string; percent?: number };
       resetsAt?: number;
     }[];
+    localUsage?: {
+      kind: 'local-usage';
+      label: string;
+      tokens: number;
+      estimatedCostUsd: number;
+      range?: string;
+    };
   },
   reason: string,
 ): ProbeResult {
@@ -289,6 +309,15 @@ function toResult(
     state: reading.status,
     reason,
     windows: windowsOf(reading),
+    ...(reading.localUsage && {
+      localUsage: {
+        kind: 'local-usage' as const,
+        label: reading.localUsage.label,
+        hasTokens: true as const,
+        hasEstimatedCost: true as const,
+        hasRange: reading.localUsage.range !== undefined,
+      },
+    }),
   };
 }
 
@@ -433,6 +462,28 @@ async function antigravity(): Promise<ProbeResult> {
   }
 }
 
+async function opencode(): Promise<ProbeResult> {
+  try {
+    const reading = await createOpenCodeLocalUsageReader(logger)({
+      target: target('opencode'),
+      refresh: true,
+    });
+    return toResult('OpenCode', reading, 'local-cli:stats-json-cost');
+  } catch (error) {
+    return failure('OpenCode', 'local-cli:stats-json-cost', error);
+  }
+}
+
+async function grok(): Promise<ProbeResult> {
+  // The harness intentionally has no Ptah-started Grok session id. Do not
+  // discover one: production only invokes this reader with a recorded id.
+  const reading = await createGrokSessionUsageReader(logger)({
+    target: target('grok'),
+    refresh: true,
+  });
+  return toResult('Grok', reading, 'skipped:no-ptah-session-id');
+}
+
 async function ollamaCloud(): Promise<ProbeResult> {
   try {
     const reading = await createOllamaCloudPlanUsageReader(logger)({
@@ -465,15 +516,11 @@ async function main(): Promise<void> {
   const results = await Promise.all([
     codex(),
     antigravity(),
+    opencode(),
+    grok(),
     ollamaCloud(),
     claude(),
   ]);
-  results.push({
-    provider: 'OpenCode',
-    state: 'no-usage-source',
-    reason: 'no-official-reader',
-    windows: [],
-  });
   console.log(
     JSON.stringify(
       { generatedAt: new Date().toISOString(), providers: results },

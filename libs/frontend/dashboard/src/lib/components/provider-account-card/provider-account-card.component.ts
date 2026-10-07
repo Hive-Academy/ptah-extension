@@ -47,6 +47,7 @@ import {
   type PlanLimitOwnerSnapshot,
   type PlanLimitSource,
   type PlanLimitWindow,
+  type PlanLocalUsage,
   type PlanLimitsSnapshot,
   type PlanWindowState,
   type ProviderAccountUsageStatus,
@@ -89,6 +90,12 @@ export interface NoticeView {
   readonly sources: readonly SourceChipView[];
 }
 
+export interface LocalUsageView {
+  readonly label: string;
+  readonly value: string;
+  readonly range: string | null;
+}
+
 export interface OwnerSectionView {
   readonly key: string;
   readonly providerId: string;
@@ -98,6 +105,7 @@ export interface OwnerSectionView {
   readonly noUsageSource: boolean;
   readonly statusNotice: NoticeView | null;
   readonly windows: readonly WindowRowView[];
+  readonly localUsage: LocalUsageView | null;
   readonly evidence: readonly NoticeView[];
   readonly cooldown: string | null;
   readonly activity: PlanLimitOwnerSnapshot['activity'] | null;
@@ -216,6 +224,17 @@ const STATUS_SENTENCES: Partial<Record<ProviderAccountUsageStatus, string>> = {
             >
               {{ notice.text }}
             </p>
+          }
+
+          @if (section.localUsage; as usage) {
+            <div class="mt-3 rounded border border-base-content/20 px-3 py-2" data-testid="local-usage-stat">
+              <p class="text-[10px] uppercase tracking-wider text-base-content-muted">{{ usage.label }}</p>
+              <p class="text-sm font-semibold tabular-nums">{{ usage.value }}</p>
+              @if (usage.range) {
+                <p class="text-[11px] text-base-content-muted">Range: {{ usage.range }}</p>
+              }
+              <p class="text-[11px] text-base-content-muted">Local CLI accounting · not a plan percentage or reset</p>
+            </div>
           }
 
           @if (section.windows.length > 0) {
@@ -558,7 +577,7 @@ function buildOwnerSection(
   now: number,
   time: LocalTimeOptions,
 ): OwnerSectionView {
-  const hasData = owner.windows.length > 0 || owner.ownerEvidence.length > 0;
+  const hasData = owner.windows.length > 0 || owner.ownerEvidence.length > 0 || owner.localUsage !== undefined;
   return {
     key: owner.owner.key,
     providerId: owner.owner.providerId,
@@ -570,12 +589,21 @@ function buildOwnerSection(
     noUsageSource: owner.status === 'no-usage-source',
     statusNotice: statusNotice(owner, hasData, now, time),
     windows: owner.windows.map((w) => buildWindowRow(w, owner, now, time)),
+    localUsage: owner.localUsage ? localUsageView(owner.localUsage) : null,
     evidence: owner.ownerEvidence.map((e) => evidenceNotice(e, now, time)),
     cooldown:
       owner.cooldown !== undefined && owner.cooldown.until > now
         ? `Retrying after ${formatLocalAbsolute(owner.cooldown.until, now, time)} (${formatRelative(owner.cooldown.until, now)}) · a retry delay, not a plan reset`
         : null,
     activity: owner.activity ?? null,
+  };
+}
+
+function localUsageView(usage: PlanLocalUsage): LocalUsageView {
+  return {
+    label: usage.label,
+    value: `${usage.tokens.toLocaleString()} tokens · $${usage.estimatedCostUsd.toFixed(2)}`,
+    range: usage.range ?? null,
   };
 }
 
@@ -649,7 +677,7 @@ function statusNotice(
     }
     if (owner.owner.providerId === 'antigravity') {
       return {
-        text: 'Antigravity usage is available only while its local language server is running and exposes its local status endpoint. It was not available for this refresh.',
+      text: 'Open Antigravity to read local quota',
         tone: 'neutral',
         sources: [],
       };

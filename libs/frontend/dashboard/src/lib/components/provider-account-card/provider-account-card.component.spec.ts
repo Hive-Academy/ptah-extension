@@ -343,6 +343,30 @@ describe('ProviderAccountCardComponent', () => {
     );
   });
 
+  it('renders local token and cost accounting as a compact stat without a radial gauge', () => {
+    const el = render(
+      snapshotOf(
+        owner('opencode', 'OpenCode local', {
+          windowSetEstablished: false,
+          localUsage: {
+            kind: 'local-usage',
+            label: 'Local usage: tokens & estimated cost',
+            tokens: 1234,
+            estimatedCostUsd: 5.67,
+            observedAt: NOW,
+            source: 'local-cli',
+          },
+        }),
+      ),
+    );
+    const stat = el.querySelector('[data-testid="local-usage-stat"]');
+
+    expect(textOf(stat)).toContain('Local usage: tokens & estimated cost');
+    expect(textOf(stat)).toContain('1,234 tokens · $5.67');
+    expect(stat?.querySelector('.radial-progress')).toBeNull();
+    expect(el.querySelector('[data-testid="window-radial-progress"]')).toBeNull();
+  });
+
   it('6. OpenCode: no usage source plus a recorded limit hit with a known reset', () => {
     const evidence: OwnerLimitEvidence = {
       observedAt: NOW - 18 * MIN,
