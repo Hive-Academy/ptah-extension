@@ -165,6 +165,16 @@ Order: 619 sends the Batch 4b SHA (schema), then the Batch 4c SHA (helpers).
 - Orchestrator correction in Batch 1: `mergeF1` value now computed as `num/den` (was float P/R,
   0.6666666666666665 ≠ 6/9); covered by the Phase-1 code review.
 
+- **2026-10-07 (620 B16 `44a3329c4`, `bench-memory-skills` target; 619 told).** 619 answers to the
+  B15/B16 requests: (1) core per-suite schema export, (2) `env` option on `launchBenchHost` (merged
+  after isolation; isolation keys refused), (4) bench-host argument/shutdown helper exports — all
+  accepted, delivered as a first task of 619 Batch 9 before 620 B24; 619 sends the SHA. Until then
+  keep the `suite-result.ts` mirror and the `process.env` save/restore. (3) `guard: { ci: true }` is
+  right for the Linux CI job (always `hash`; a concurrent writer under CI is an environment failure);
+  a local `--ci` refusal while Ptah.exe is open is by design — local runs use the default guard.
+  619 commits since `f22b604fe`: B5 `7e1572272`, B6 `629e4f719` (no scorecard/transport/bench-data
+  change). 619's first real bench is Batch 9/11; it messages 620 first.
+
 Lessons from 619: put `npx prettier --check <changed paths>` in every batch verification (the commit
 hook does not check `tools/`). Review lane code directly — typecheck/lint/test passed while
 `corpus.ts` hid errors in its cleanup path. The memory DB keys rows by the exact `workspace_root`
