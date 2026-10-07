@@ -474,6 +474,8 @@ export interface DeliveryObservation {
   readonly candidateId: string;
   readonly promoted: boolean;
   readonly reason: string;
+  /** Residents left by earlier suites; the promotion's cap is lifted above it. */
+  readonly residentAtEntry: number;
   readonly hostWorkspaceHasSkill: boolean | null;
   readonly freshWorkspaceHasSkill: boolean | null;
 }
@@ -495,6 +497,7 @@ export async function runDeliveryScenario(
     candidateId,
     promoted: observed.promoted,
     reason: observed.reason,
+    residentAtEntry: observed.residentAtEntry,
     hostWorkspaceHasSkill: observed.hostWorkspaceHasSkill,
     freshWorkspaceHasSkill: observed.freshWorkspaceHasSkill,
   };
@@ -528,7 +531,7 @@ export function scoreDelivery(observation: DeliveryObservation): StageScore {
         observation.hostWorkspaceHasSkill,
       ),
     ],
-    metrics: {},
+    metrics: { 'delivery.residentAtEntry': observation.residentAtEntry },
     cases: [
       scoredCase(
         'delivery:fresh-workspace',

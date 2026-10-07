@@ -108,7 +108,12 @@ export function buildSkillSessionFixtures(): readonly SkillSessionFixture[] {
             ? ['manual-analyze', 'prefilter-rejected']
             : index <= 7
               ? ['session-end', 'prefilter-rejected']
-              : ['session-end'],
+              : // One Edit passes the default prefilter
+                // (`eligibility/session-work-evidence.ts:15-23`), so the
+                // bench-caused drain drafts it and the product pushes
+                // `analyze-run` on registration (`skill-synthesis.service.ts`
+                // `analyzeSession`). Archaeology pushes no feed event.
+                ['session-end', 'drain-eligible-candidate'],
       topic:
         index <= 4
           ? `question and answer ${index}`

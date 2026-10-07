@@ -153,7 +153,7 @@ const STAGE_CLAIMS: Record<Stage22, StageSuiteMeta['claim']> = {
   judge: {
     source: 'ledger',
     ref: '471 decisions 7, 9',
-    text: 'every non-fallback draft gets a judge-panel row; constant scorecard shape',
+    text: 'every non-fallback draft gets a judge-panel row; constant scorecard shape. Scope: fixture scale (gt-skill-sessions@v1, one drain cycle); does not close the 471 decision-7 copy-scale backlog row (2,347 unjudged), which skill.backlog.drain and the backlog audit measure',
   },
   'feed-parity': {
     source: 'ledger',
@@ -222,6 +222,59 @@ function write(
   writeSuiteResult(context.runDir, result, cases);
 }
 
+/** A plan whose funnel suites disagree on the shared pass's options. */
+export class FunnelPlanError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'FunnelPlanError';
+  }
+}
+
+/** The options that shape the shared 22.1 pass, canonically. */
+function sharedPassKey(options: FunnelOptions): string {
+  return JSON.stringify({
+    sessionsDir: options.sessionsDir,
+    capMs: options.capMs ?? null,
+  });
+}
+
+/** The seven suite ids that score the shared 22.1 pass. */
+export const FUNNEL_PASS_SUITE_IDS: readonly string[] = (
+  Object.keys(FUNNEL_STAGE_SCORERS) as Stage22[]
+).map((stage) => FUNNEL_SUITE_IDS[stage]);
+
+/**
+ * Plan-time check (pure): every listed 22.1 stage suite must give the shared
+ * pass the same `sessionsDir` and `capMs`. The runner parent and the host plan
+ * schema call this before any suite runs; each suite also refuses at run time.
+ */
+export function funnelPlanProblems(
+  suites: readonly { readonly id: string; readonly options?: unknown }[],
+): string[] {
+  const keys = new Map<string, string[]>();
+  const problems: string[] = [];
+  for (const suite of suites) {
+    if (!FUNNEL_PASS_SUITE_IDS.includes(suite.id)) continue;
+    const parsed = funnelOptionsSchema.safeParse(suite.options ?? {});
+    if (!parsed.success) {
+      problems.push(`suite ${suite.id} has invalid funnel options`);
+      continue;
+    }
+    const key = sharedPassKey(parsed.data);
+    keys.set(key, [...(keys.get(key) ?? []), suite.id]);
+  }
+  if (keys.size > 1) {
+    problems.push(
+      `funnel stage suites share one pass but disagree on sessionsDir/capMs: ${[
+        ...keys.entries(),
+      ]
+        .map(([key, ids]) => `${ids.join(', ')} -> ${key}`)
+        .join('; ')}`,
+    );
+  }
+  return problems;
+}
+
 /** All eleven funnel suites over the injected product ports. */
 export function createFunnelSuites(deps: {
   readonly portsOf: FunnelPortsOf;
@@ -229,15 +282,28 @@ export function createFunnelSuites(deps: {
   // One 22.1 pass per host run, shared by the seven stage suites.
   const passes = new Map<
     string,
-    Promise<{ fixture: FunnelFixture; pass: FunnelPass }>
+    {
+      readonly shared: string;
+      readonly run: Promise<{ fixture: FunnelFixture; pass: FunnelPass }>;
+    }
   >();
 
   const passFor = (
     context: MemorySkillsHostSuiteContext,
     options: FunnelOptions,
   ) => {
+    const shared = sharedPassKey(options);
     const existing = passes.get(context.runId);
-    if (existing !== undefined) return existing;
+    if (existing !== undefined) {
+      // A later stage suite scores the pass the first one ran; it may not ask
+      // for a different one (Phase 3.6 review finding 3).
+      if (existing.shared !== shared) {
+        throw new FunnelPlanError(
+          `the shared funnel pass ran with ${existing.shared}; this suite asks for ${shared}`,
+        );
+      }
+      return existing.run;
+    }
     const started = (async () => {
       const fixture = loadFunnelFixture(
         context.isolation.home,
@@ -256,7 +322,7 @@ export function createFunnelSuites(deps: {
         clock.restore();
       }
     })();
-    passes.set(context.runId, started);
+    passes.set(context.runId, { shared, run: started });
     return started;
   };
 

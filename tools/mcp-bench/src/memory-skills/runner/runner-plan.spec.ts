@@ -84,3 +84,27 @@ describe('parseRunnerPlan: host suite placement', () => {
     expect(parseRunnerPlan(text, 'plan.json').offlineSuites).toHaveLength(1);
   });
 });
+
+describe('parseRunnerPlan: shared funnel pass options', () => {
+  function funnelPlan(capA: number, capB: number): string {
+    return JSON.stringify({
+      schemaId: RUNNER_PLAN_SCHEMA_ID,
+      hostSuites: [
+        { ...entry('skill.funnel.prefilter'), options: { capMs: capA } },
+        { ...entry('skill.funnel.archaeology'), options: { capMs: capB } },
+      ],
+    });
+  }
+
+  it('accepts funnel stages that agree on the shared pass options', () => {
+    expect(
+      parseRunnerPlan(funnelPlan(5000, 5000), 'plan.json').hostSuites,
+    ).toHaveLength(2);
+  });
+
+  it('refuses funnel stages that disagree on the shared pass options', () => {
+    expect(() => parseRunnerPlan(funnelPlan(5000, 9000), 'plan.json')).toThrow(
+      MemorySkillsRunError,
+    );
+  });
+});

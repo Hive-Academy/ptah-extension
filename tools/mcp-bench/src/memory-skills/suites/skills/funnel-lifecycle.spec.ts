@@ -181,6 +181,10 @@ describe('skill.funnel lifecycle suites over production DI (synthetic cassette)'
     const { result } = await run('delivery');
     expect(result.verdict).toBe('na');
     expect(result.naReason).toMatch(/no harness propagation service/);
+    // Earlier suites left residents (promote races, retire seeds); the
+    // promotion was not refused because of them.
+    expect(result.metrics['delivery.residentAtEntry']).toBeGreaterThan(0);
+    expect(result.naReason).not.toMatch(/promotion refused/);
   }, 120_000);
 
   it('backlog drain: the scripted load runs on the simulated clock with exact rates', async () => {

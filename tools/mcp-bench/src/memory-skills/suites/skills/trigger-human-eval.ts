@@ -272,10 +272,7 @@ export interface TriggerScoringEnv {
   readonly readSettings: () => SkillSynthesisSettings;
 }
 
-function scoreOf(
-  skillId: string,
-  outcome: TriggerEvalOutcome,
-): SkillScore {
+function scoreOf(skillId: string, outcome: TriggerEvalOutcome): SkillScore {
   if (outcome.status === 'skipped') {
     return {
       skillId,
@@ -427,9 +424,7 @@ export interface AggregateRates {
   readonly perfect: number;
 }
 
-export function aggregate(
-  scores: Iterable<SkillScore | null>,
-): AggregateRates {
+export function aggregate(scores: Iterable<SkillScore | null>): AggregateRates {
   let tp = 0;
   let fp = 0;
   let positives = 0;
@@ -452,7 +447,9 @@ export function aggregate(
   };
 }
 
-function aggregateMetrics(rates: AggregateRates): Record<string, number | null> {
+function aggregateMetrics(
+  rates: AggregateRates,
+): Record<string, number | null> {
   return {
     ...rateMetrics('precision', rates.precision),
     ...rateMetrics('recall', rates.recall),
@@ -612,7 +609,10 @@ export async function runTriggerEvalHuman(
   );
   const promptsScored = scored.reduce(
     (sum, entry) =>
-      sum + (entry.score === null ? 0 : entry.score.positives + entry.score.negatives),
+      sum +
+      (entry.score === null
+        ? 0
+        : entry.score.positives + entry.score.negatives),
     0,
   );
   const details: FunnelDetails = funnelDetailsSchema.parse({

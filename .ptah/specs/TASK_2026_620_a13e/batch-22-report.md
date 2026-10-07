@@ -189,3 +189,38 @@ Risks to check in that replay:
 - `archaeology` `routine` accuracy is presence accuracy (routine vs none). The verdict's routine is free text, so id-level agreement with the fixture labels is not measurable.
 - Single-edit sessions 20-22: the fixture expects no feed event, but the product drafts them, which counts as phantom `analyze-run`s. I kept the fixture's expectation, as the honesty rule requires. A reviewer should confirm that this ground truth is intended.
 - The design's "expected fail" for `judge` was observed as `pass` in the spec, and `backlog-drain` is open until the 30-day run.
+
+## Revision 1 (Phase 3.6 review, `code-logic-review-phase3-6.md`)
+
+1. **Serious, feed-parity ground truth for sessions 20-22: fixed at the source.** From the product code: a single edit passes the prefilter (`eligibility/session-work-evidence.ts:15-23`). The bench-caused drain then authors it and pushes `analyze-run` on registration (`skill-synthesis.service.ts:1149-1154`). Archaeology emits no feed event (no `pushEvent` in `archaeology/`, the stage handlers, the drain or the judge panel). The generator (`ground-truth/skill-session-fixture.ts`) now gives those sessions `["session-end", "drain-eligible-candidate"]`, so their expectation is `[analyze-run]`. The fixture was regenerated (index, prettier, manifest), and `batch-11-1-report.md` gained a Revision 4 explaining why Revision 3 was wrong. No product bug is hidden: drafting a single-session candidate is still scored as a `fail` by the cluster and archaeology stages. Spec result: `feed-equals-script` now passes 0/26. `feed-survives-restart` fails 26/26 (the in-memory ring), so the stage still `fail`s for a real cause. On the host, the four `manual-run` sessions are expected to fail too: nothing in skills produces that event.
+2. **Moderate, judge scope.** The `skill.funnel.judge` claim text now reads: "Scope: fixture scale (gt-skill-sessions@v1, one drain cycle); does not close the 471 decision-7 copy-scale backlog row (2,347 unjudged), which skill.backlog.drain and the backlog audit measure". The panel case says "(fixture scale)". **This `pass` does not close the 471-decision-7 ledger row.** That row's expected-fail stays anchored to `skill.backlog.drain`'s `judged-share-is-1` and to the Phase 4 backlog audit.
+3. **Moderate, divergent shared-pass options are refused.** The memoised pass now remembers its `sessionsDir` and `capMs`. A later stage suite in the same run that asks for different values throws `FunnelPlanError` instead of silently scoring the first suite's pass. `funnelPlanProblems(plan.suites)` is exported for plan-time refusal before any suite runs; see the registration lines below. Specs: a divergent suite is refused, an agreeing suite reuses the pass without a second run, and `funnelPlanProblems` accepts agreeing suites and names the disagreeing ones.
+4. **Minors.**
+   - An RPC refusal other than "Method not found" is now scored, not excluded, and its error is kept in the session's `observed` (`… (rpc refused: <error>)`). A spec pins it.
+   - Child product containers (restart, race, reconcile wait) are disposed: restart at once, the others at the lifecycle port's `close`. The never-resolving reconcile pass keeps no resolver and nothing references it once its child is disposed. It is deliberately never resolved, because resuming it would run a real-time curator pass against the shared database.
+   - Delivery now lifts the cap to one above the residents present at entry and records `delivery.residentAtEntry`, so earlier suites' residents cannot shape it. A spec pins that residents were present and that the promotion was not refused.
+
+### Registration addition (do not edit these files myself)
+
+In the runner parent's plan check (`runner/runner-plan.ts`) and in `host/plan.schema.ts`'s `superRefine`:
+
+```ts
+import { funnelPlanProblems } from '../suites/skills/funnel.suite';
+for (const message of funnelPlanProblems(plan.suites)) issue(message, ['suites']);
+```
+
+`funnel.suite.ts` is parent-loadable: it imports types only from the host-only modules. `HOST_ONLY_MODULES` stays as listed above (`funnel-host-port.ts`, `funnel-host-graph.ts`, `funnel-di.test-support.ts`). `HostBacklogPort` moved into `funnel-host-graph.ts`.
+
+### Checks (revise round 1)
+
+```text
+npx jest -c tools/mcp-bench/jest.config.ts tools/mcp-bench/src/memory-skills --runInBand
+Test Suites: 51 passed, 51 total
+Tests:       576 passed, 576 total
+
+npx tsc --noEmit -p tools/mcp-bench/tsconfig.json          -> exit 0
+npx eslint suites/skills/funnel* ground-truth/skill-session-fixture*.ts   -> no problems
+npx prettier --check (same files + skill-sessions.v1/index.json + MANIFEST.json) -> clean
+```
+
+I did not touch `libs/`, the host entry, `suite-placement.ts` or `host-only-imports.spec.ts`. No git state changed.

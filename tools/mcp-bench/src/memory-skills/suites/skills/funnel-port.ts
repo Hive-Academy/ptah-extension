@@ -129,6 +129,10 @@ export interface FunnelSessionFile {
   readonly jsonl: string;
 }
 
+/** `manualAnalyze`: ran, cannot run in this host, or ran and was refused. */
+export type ManualAnalyzeOutcome =
+  'ran' | 'unreachable' | { readonly rpcError: string };
+
 /** Task 22.1: one scripted pass of the fixture sessions through the funnel. */
 export interface FunnelRunPort {
   /**
@@ -143,8 +147,11 @@ export interface FunnelRunPort {
   sessionEnd(sessionId: string): Promise<void>;
   /** Session activity, then the trigger's own idle timer fired on the clock. */
   idleTimeout(sessionId: string): Promise<void>;
-  /** RPC `skillSynthesis:analyzeNow`; `unreachable` when no RPC handler has it. */
-  manualAnalyze(sessionId: string): Promise<'ran' | 'unreachable'>;
+  /**
+   * RPC `skillSynthesis:analyzeNow`: `unreachable` when no RPC handler has the
+   * method; any other refusal keeps its error.
+   */
+  manualAnalyze(sessionId: string): Promise<ManualAnalyzeOutcome>;
   /**
    * One drain cycle on the clock: frequent ticks every 15 simulated minutes
    * until no frequent-tier row is eligible (at most one simulated day), then
@@ -205,6 +212,8 @@ export interface FunnelDeliveryObservation {
   readonly promoted: boolean;
   readonly reason: string;
   readonly slug: string | null;
+  /** Resident promoted skills when the delivery scenario started. */
+  readonly residentAtEntry: number;
   /** `null` when the host has no harness propagation service. */
   readonly hostWorkspaceHasSkill: boolean | null;
   readonly freshWorkspaceHasSkill: boolean | null;

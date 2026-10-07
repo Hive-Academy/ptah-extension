@@ -94,9 +94,15 @@ describe('gt-skill-sessions@v1', () => {
         reason: 'prefilterRejected',
       });
     }
+    // Single edits pass the prefilter, so the drain drafts them: one
+    // `analyze-run`, never an empty feed (Phase 3.6 review finding 1).
     for (const fixture of fixtures.slice(19, 22)) {
       expect(fixture.routine).toBeNull();
-      expect(fixture.expectedEvents).toEqual([]);
+      expect(fixture.script).toEqual([
+        'session-end',
+        'drain-eligible-candidate',
+      ]);
+      expect(fixture.expectedEvents).toEqual([{ kind: 'analyze-run' }]);
     }
   });
 

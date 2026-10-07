@@ -28,6 +28,7 @@ import { rate, type Rate } from '../../metrics/curation-metrics';
 import type { CaseRecord } from '../../runner/suite-result';
 import type { FunnelFixture, FunnelFixtureSession } from './funnel-fixture';
 import type {
+  ManualAnalyzeOutcome,
   FunnelCandidateView,
   FunnelClock,
   FunnelDrainTick,
@@ -70,8 +71,12 @@ const CRITERION_KEYS = [
 /** The C-S8 docs claim (`how-it-works.mdx:106`). */
 export const REPLAY_DOCS_PHRASE = 'Replay is designed, not running yet';
 
-/** What the bench did for one session's trigger operation. */
-export type TriggerOutcome = 'ran' | 'unreachable';
+/**
+ * What the bench did for one session's trigger operation: it ran, it cannot
+ * run in this host (excluded from scoring), or the RPC ran and refused (scored,
+ * with the refusal kept on the session's cases).
+ */
+export type TriggerOutcome = ManualAnalyzeOutcome;
 
 export interface FunnelPassObservation {
   readonly triggers: Readonly<Record<string, TriggerOutcome>>;
@@ -171,7 +176,17 @@ function candidatesBySession(
 /** Sessions the trigger operation reached (an unreachable RPC excludes it). */
 function evaluatedSessions(input: FunnelStageInput): FunnelFixtureSession[] {
   const triggers = input.pass.observation?.triggers ?? {};
-  return input.fixture.sessions.filter((s) => triggers[s.id] === 'ran');
+  return input.fixture.sessions.filter(
+    (s) => triggers[s.id] !== undefined && triggers[s.id] !== 'unreachable',
+  );
+}
+
+/** ` (rpc refused: <error>)` when the session's RPC trigger was refused. */
+function triggerNote(input: FunnelStageInput, sessionId: string): string {
+  const outcome = input.pass.observation?.triggers[sessionId];
+  return typeof outcome === 'object'
+    ? ` (rpc refused: ${outcome.rpcError})`
+    : '';
 }
 
 function excludedNote(input: FunnelStageInput): InvariantResult[] {
@@ -248,7 +263,7 @@ export function scorePrefilter(input: FunnelStageInput): StageScore {
       s.id,
       { id: s.id, routine: s.routine, degraded: s.degraded },
       expected,
-      passed ? 'accepted' : 'rejected',
+      `${passed ? 'accepted' : 'rejected'}${triggerNote(input, s.id)}`,
       (expected === 'accepted') === passed,
     );
   });
@@ -546,7 +561,7 @@ export function scoreJudge(input: FunnelStageInput): StageScore {
     scoredCase(
       `${c.id}:panel`,
       { id: c.id },
-      'panel row after one drain cycle',
+      'panel row after one drain cycle (fixture scale)',
       c.judgePanelRationales === null
         ? `no panel row (judgeStatus ${c.judgeStatus ?? 'null'})`
         : 'panel row',
@@ -643,7 +658,7 @@ export function scoreFeedParity(input: FunnelStageInput): StageScore {
         `${s.id}:feed`,
         { id: s.id, script: s.script, expectedEvents: s.expectedEvents },
         expected.join(' > ') || '(none)',
-        observed.join(' > ') || '(none)',
+        `${observed.join(' > ') || '(none)'}${triggerNote(input, s.id)}`,
         equal,
       ),
     );

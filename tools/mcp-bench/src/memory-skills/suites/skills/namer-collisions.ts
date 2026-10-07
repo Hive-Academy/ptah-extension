@@ -98,7 +98,10 @@ export type NamerCollisionsOptions = z.infer<
 
 /** The surface of the real `SkillMdGenerator` the probe calls. */
 export interface CandidateWriter {
-  writeCandidate(input: SkillMdInput, candidatesDir?: string): MaterializedSkill;
+  writeCandidate(
+    input: SkillMdInput,
+    candidatesDir?: string,
+  ): MaterializedSkill;
 }
 
 // ------------------------------------------------------------ frozen copy

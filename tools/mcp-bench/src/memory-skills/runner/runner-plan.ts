@@ -14,6 +14,7 @@ import {
   hostSuitePlacement,
   suitePlacementProblems,
 } from '../host/suite-placement';
+import { funnelPlanProblems } from '../suites/skills/funnel.suite';
 import { suiteIdSchema } from './suite-result';
 
 export const RUNNER_PLAN_SCHEMA_ID = '620.runner-plan.v1';
@@ -100,6 +101,10 @@ export const runnerPlanSchema = z
         message: problem.message,
         path: ['hostSuites', problem.index, 'id'],
       });
+    }
+    // The funnel stages share one memoised pass: their shared options agree.
+    for (const message of funnelPlanProblems(plan.hostSuites)) {
+      ctx.addIssue({ code: 'custom', message, path: ['hostSuites'] });
     }
   });
 export type RunnerPlan = z.infer<typeof runnerPlanSchema>;

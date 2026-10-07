@@ -23,6 +23,8 @@ import { cpSync, mkdirSync, rmSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { TOKENS } from '@ptah-extension/vscode-core';
+
 import type { MemorySkillsHostSuiteContext } from '../../host/memory-skills-host';
 import { funnelDetailsSchema } from '../../memory-skills-suite-kinds';
 import { readSuiteResult } from '../../runner/suite-result';
@@ -32,7 +34,13 @@ import {
   type FunnelSpecContainer,
 } from './funnel-di.test-support';
 import { funnelPortsOver } from './funnel-host-port';
-import { createFunnelSuites, FUNNEL_SUITE_IDS } from './funnel.suite';
+import type { FunnelPorts, FunnelRunPort } from './funnel-port';
+import {
+  createFunnelSuites,
+  FUNNEL_SUITE_IDS,
+  FunnelPlanError,
+  funnelPlanProblems,
+} from './funnel.suite';
 import { feedDiff } from './funnel-stages';
 
 const FIXTURE_DIR = join(
@@ -226,11 +234,24 @@ describe('skill.funnel stage suites over production DI (synthetic cassette)', ()
     expect(result.verdict).toBe('pass');
   });
 
-  it('feed-parity: single edits add phantom analyze-run events and the feed is lost on restart', () => {
+  it('feed-parity: the feed matches every scripted session, then is lost on restart', () => {
     const { result, cases } = results['feed-parity'];
-    expect(invariant(result, 'feed-survives-restart')?.pass).toBe(false);
-    const singleEdit = cases.find((c) => c.caseId === 'skill-session-20:feed');
-    expect(singleEdit).toMatchObject({ expected: '(none)', outcome: 'fail' });
+    expect(invariant(result, 'feed-equals-script')).toMatchObject({
+      pass: true,
+      violations: 0,
+    });
+    expect(invariant(result, 'feed-survives-restart')).toMatchObject({
+      pass: false,
+      violations: 26,
+    });
+    // Single edits pass the prefilter and are drafted: the fixture expects it.
+    expect(
+      cases.find((c) => c.caseId === 'skill-session-20:feed'),
+    ).toMatchObject({
+      expected: 'analyze-run',
+      observed: 'analyze-run',
+      outcome: 'pass',
+    });
     for (const id of ROUTINE) {
       expect(cases.find((c) => c.caseId === `${id}:feed`)?.outcome).toBe(
         'pass',
@@ -276,13 +297,104 @@ describe('skill.funnel stage suites with an empty replay cassette', () => {
       cassettePath: join(root, 'empty.jsonl'),
       mode: 'replay',
     });
+    // An RPC handler that refuses: the manual sessions ran and were refused.
+    spec.container.register(TOKENS.RPC_HANDLER, {
+      useValue: {
+        handleMessage: async () => ({
+          success: false,
+          error: 'Invalid parameters for skillSynthesis:analyzeNow',
+        }),
+      },
+    });
     const results = await runStages(spec, join(root, 'run'), {});
     for (const stage of STAGES) {
       expect(results[stage].result.verdict).toBe('na');
       expect(results[stage].result.naReason).toBe('cassette-miss');
       expect(results[stage].result.metrics['lane.misses']).toBeGreaterThan(0);
     }
+    // A refusal other than "Method not found" is scored and keeps its cause.
+    expect(results.prefilter.result.metrics['prefilter.in']).toBe(30);
+    expect(
+      results['feed-parity'].cases.find(
+        (c) => c.caseId === 'skill-session-16:feed',
+      ),
+    ).toMatchObject({
+      outcome: 'fail',
+      observed:
+        '(none) (rpc refused: Invalid parameters for skillSynthesis:analyzeNow)',
+    });
   }, 180_000);
+
+  it('refuses a stage suite that asks the shared pass for different options', async () => {
+    let runs = 0;
+    // A run port that fails at once: the first suite records a failed pass.
+    const failingRun = {
+      prepare: async () => {
+        runs += 1;
+        throw new Error('stub run port');
+      },
+      laneStats: () => ({ calls: 0, misses: 0 }),
+      close: async () => undefined,
+    } as unknown as FunnelRunPort;
+    const suites = createFunnelSuites({
+      portsOf: () => ({ run: () => failingRun }) as unknown as FunnelPorts,
+    });
+    const find = (id: string) => {
+      const suite = suites.find((s) => s.id === id);
+      if (!suite) throw new Error(`no suite ${id}`);
+      return suite;
+    };
+    // The fixture only; the home may hold the previous test's open database.
+    mkdirSync(join(homedir(), 'memory-skills'), { recursive: true });
+    cpSync(FIXTURE_DIR, join(homedir(), 'memory-skills', 'skill-sessions.v1'), {
+      recursive: true,
+    });
+    // No product container is reached: the run port is the stub above.
+    const stubSpec = {
+      container: undefined,
+      laneRunner: undefined,
+    } as unknown as FunnelSpecContainer;
+    const runDir = join(root, 'run-divergent');
+    await find(FUNNEL_SUITE_IDS.prefilter).run(
+      contextFor(stubSpec, runDir, { capMs: 9_000 }),
+    );
+    expect(
+      readSuiteResult(runDir, FUNNEL_SUITE_IDS.prefilter).result.verdict,
+    ).toBe('fail');
+    await expect(
+      find(FUNNEL_SUITE_IDS.judge).run(
+        contextFor(stubSpec, runDir, { capMs: 5_000 }),
+      ),
+    ).rejects.toThrow(FunnelPlanError);
+    // An agreeing suite scores the same memoised pass; no second run.
+    await find(FUNNEL_SUITE_IDS.cluster).run(
+      contextFor(stubSpec, runDir, { capMs: 9_000 }),
+    );
+    expect(runs).toBe(1);
+  });
+});
+
+describe('funnelPlanProblems', () => {
+  it('accepts agreeing funnel suites and names the disagreeing ones', () => {
+    expect(
+      funnelPlanProblems([
+        { id: 'skill.funnel.prefilter', options: { capMs: 9_000 } },
+        {
+          id: 'skill.funnel.judge',
+          options: { capMs: 9_000, replayDocs: undefined },
+        },
+        { id: 'skill.funnel.promote', options: { capMs: 1 } },
+        { id: 'mem.extraction' },
+      ]),
+    ).toEqual([]);
+    const problems = funnelPlanProblems([
+      { id: 'skill.funnel.prefilter' },
+      { id: 'skill.funnel.judge', options: { sessionsDir: 'other/dir' } },
+    ]);
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toMatch(/skill\.funnel\.prefilter/);
+    expect(problems[0]).toMatch(/skill\.funnel\.judge/);
+  });
 });
 
 describe('feedDiff', () => {

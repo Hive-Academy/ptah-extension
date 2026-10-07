@@ -237,22 +237,34 @@
       "id": "skill-session-20",
       "routine": null,
       "degraded": false,
-      "script": ["session-end"],
-      "expectedEvents": []
+      "script": ["session-end", "drain-eligible-candidate"],
+      "expectedEvents": [
+        {
+          "kind": "analyze-run"
+        }
+      ]
     },
     {
       "id": "skill-session-21",
       "routine": null,
       "degraded": false,
-      "script": ["session-end"],
-      "expectedEvents": []
+      "script": ["session-end", "drain-eligible-candidate"],
+      "expectedEvents": [
+        {
+          "kind": "analyze-run"
+        }
+      ]
     },
     {
       "id": "skill-session-22",
       "routine": null,
       "degraded": false,
-      "script": ["session-end"],
-      "expectedEvents": []
+      "script": ["session-end", "drain-eligible-candidate"],
+      "expectedEvents": [
+        {
+          "kind": "analyze-run"
+        }
+      ]
     },
     {
       "id": "skill-session-23",

@@ -44,6 +44,8 @@ import { CassetteMissError } from '../../doubles/cassette-store';
 import type { LaneRunnerDouble } from '../../doubles/recorded-lane-runner';
 import { classifyBodyShape } from '../../labelling/select-rubric-sample';
 import type {
+  FunnelBacklogPort,
+  FunnelClock,
   FunnelCandidateView,
   FunnelDrainTick,
   FunnelFeedEvent,
@@ -635,5 +637,76 @@ export class ProductGraph {
       candidateId,
       pendingSourceHash: null,
     });
+  }
+}
+
+/**
+ * Dispose what a child container constructed. A disposed container refuses
+ * every later call, so its registrations need no separate reset.
+ */
+export async function disposeChild(child: DependencyContainer): Promise<void> {
+  await child.dispose();
+}
+
+/** `skill.backlog.drain`: copied transcripts enqueued, drain ticks per tier. */
+export class HostBacklogPort implements FunnelBacklogPort {
+  private readonly graph: ProductGraph;
+  private readonly lane: ReturnType<typeof instrumentLaneRunner>;
+  private readonly workspaceRoot: string;
+  private readonly templates = new Map<string, string>();
+  private started = false;
+
+  constructor(private readonly input: FunnelHostInput) {
+    this.graph = new ProductGraph(input.container);
+    this.lane = instrumentLaneRunner(input.laneRunner);
+    this.workspaceRoot = join(input.home, 'funnel-backlog-workspace');
+  }
+
+  async begin(
+    sessions: readonly FunnelSessionFile[],
+    clock: FunnelClock,
+  ): Promise<void> {
+    void clock;
+    for (const session of sessions)
+      this.templates.set(session.id, session.jsonl);
+    stageTranscripts(this.input.home, this.workspaceRoot, []);
+    this.started = true;
+    await this.graph.synthesis.start();
+  }
+
+  async enqueueCopy(templateId: string, sessionId: string): Promise<void> {
+    const jsonl = this.templates.get(templateId);
+    if (jsonl === undefined)
+      throw new Error(`no backlog template ${templateId}`);
+    stageTranscripts(this.input.home, this.workspaceRoot, [
+      { id: sessionId, jsonl },
+    ]);
+    await this.graph.synthesis.enqueueAnalyze(sessionId, this.workspaceRoot, {
+      source: 'session-end',
+    });
+  }
+
+  drainTick(tier: DrainTier): Promise<FunnelDrainTick> {
+    return this.graph.drain(tier);
+  }
+
+  queueRows(sessionPrefix: string): FunnelQueueRowView[] {
+    return this.graph.queueRows('session_id LIKE ?', `${sessionPrefix}%`);
+  }
+
+  candidate(id: string): FunnelCandidateView | null {
+    return this.graph.candidate(id);
+  }
+
+  laneStats(): FunnelLaneStats {
+    return this.lane.stats();
+  }
+
+  async close(): Promise<void> {
+    try {
+      if (this.started) this.graph.synthesis.stop();
+    } finally {
+      this.lane.restore();
+    }
   }
 }

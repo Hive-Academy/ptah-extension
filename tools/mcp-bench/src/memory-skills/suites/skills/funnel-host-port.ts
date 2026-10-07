@@ -22,10 +22,8 @@
  *    real invocation event through the product recorder before calling through;
  *  - a never-resolving `SKILL_REPROPAGATION_TOKEN` in a child container for the
  *    reconcile-timeout case only;
- *  - the injected clock: `Date.now` is the suite's simulated clock, and the
- *    timers the trigger service arms during `start()` and during one activity
- *    notification are captured (`captureTimers`) and fired by the suite, never
- *    by real time.
+ *  - the injected clock: `Date.now` is simulated; trigger timers armed in
+ *    `start()` or one activity notification are captured, never real-timed.
  *
  * Host-only: value-imports the skill-synthesis, agent-sdk and persistence
  * barrels. The suites import its types only (`funnel-port.ts`).
@@ -46,7 +44,6 @@ import { z } from 'zod';
 
 import type { LaneRunnerDouble } from '../../doubles/recorded-lane-runner';
 import type {
-  FunnelBacklogPort,
   FunnelCandidateView,
   FunnelClock,
   FunnelDeliveryObservation,
@@ -55,8 +52,8 @@ import type {
   FunnelLaneStats,
   FunnelLifecyclePort,
   FunnelLifecycleSettings,
+  ManualAnalyzeOutcome,
   FunnelPorts,
-  FunnelQueueRowView,
   FunnelRaceObservation,
   FunnelRaceSchedule,
   FunnelRetireObservation,
@@ -83,6 +80,7 @@ import {
   type RpcHandlerLike,
   captureTimers,
   childProductContainer,
+  disposeChild,
   descriptionOf,
   instrumentLaneRunner,
   parseStringArray,
@@ -92,6 +90,7 @@ import {
   stageTranscripts,
   suggestionRowSchema,
   yieldTurn,
+  HostBacklogPort,
 } from './funnel-host-graph';
 
 // ------------------------------------------------------------------ 22.1
@@ -192,7 +191,7 @@ class HostRunPort implements FunnelRunPort {
     await this.settleEnqueue(sessionId);
   }
 
-  async manualAnalyze(sessionId: string): Promise<'ran' | 'unreachable'> {
+  async manualAnalyze(sessionId: string): Promise<ManualAnalyzeOutcome> {
     this.requireClock().advance(OPERATION_GAP_MS);
     if (!this.input.container.isRegistered(TOKENS.RPC_HANDLER, true)) {
       return 'unreachable';
@@ -205,10 +204,11 @@ class HostRunPort implements FunnelRunPort {
       params: { sessionId, workspaceRoot: this.workspaceRoot },
       correlationId: `bench-funnel-${sessionId}`,
     });
-    if (!response.success && /Method not found/.test(response.error ?? '')) {
-      return 'unreachable';
-    }
-    return 'ran';
+    if (response.success) return 'ran';
+    const error = response.error ?? 'unknown RPC error';
+    // Only an unregistered method means the operation cannot run here; any
+    // other refusal ran and failed, and its cause is kept for the case.
+    return /Method not found/.test(error) ? 'unreachable' : { rpcError: error };
   }
 
   async drainCycle(): Promise<FunnelDrainTick[]> {
@@ -276,15 +276,21 @@ class HostRunPort implements FunnelRunPort {
   }
 
   async restartFeed(sessionIds: readonly string[]): Promise<FunnelFeedEvent[]> {
-    const fresh = new ProductGraph(
-      childProductContainer(this.input.container, this.input.laneRunner),
+    const child = childProductContainer(
+      this.input.container,
+      this.input.laneRunner,
     );
-    const synthesis = fresh.synthesis;
-    await synthesis.start();
+    const fresh = new ProductGraph(child);
     try {
-      return fresh.feed(new Set(sessionIds));
+      const synthesis = fresh.synthesis;
+      await synthesis.start();
+      try {
+        return fresh.feed(new Set(sessionIds));
+      } finally {
+        synthesis.stop();
+      }
     } finally {
-      synthesis.stop();
+      await disposeChild(child);
     }
   }
 
@@ -308,6 +314,8 @@ class HostLifecyclePort implements FunnelLifecyclePort {
   private readonly lane: ReturnType<typeof instrumentLaneRunner>;
   private started = false;
   private freshWorkspaces = 0;
+  /** Child product containers this port built; disposed at `close`. */
+  private readonly children: DependencyContainer[] = [];
 
   constructor(private readonly input: FunnelHostInput) {
     this.graph = new ProductGraph(input.container);
@@ -432,9 +440,9 @@ class HostLifecyclePort implements FunnelLifecyclePort {
         return laneRunner.run(req);
       },
     };
-    const graph = new ProductGraph(
-      childProductContainer(this.input.container, gate),
-    );
+    const raceChild = childProductContainer(this.input.container, gate);
+    this.children.push(raceChild);
+    const graph = new ProductGraph(raceChild);
     const store = graph.store;
     // Observation-only hooks on the child's store instance: log, call through.
     const read = store.listActiveOrderedByDecayScore.bind(store);
@@ -625,27 +633,37 @@ class HostLifecyclePort implements FunnelLifecyclePort {
   }
 
   reconcileWait(): Promise<'settled'> {
+    // Never resolved (resuming would run a real-time curator pass on the
+    // shared DB); unreferenced once `close` disposes the child.
     const never = { repropagate: () => new Promise<void>(() => undefined) };
-    const graph = new ProductGraph(
-      childProductContainer(
-        this.input.container,
-        this.input.laneRunner,
-        (child) => {
-          child.register(SKILL_REPROPAGATION_TOKEN, { useValue: never });
-        },
-      ),
+    const waitChild = childProductContainer(
+      this.input.container,
+      this.input.laneRunner,
+      (child) => {
+        child.register(SKILL_REPROPAGATION_TOKEN, { useValue: never });
+      },
     );
+    this.children.push(waitChild);
+    const graph = new ProductGraph(waitChild);
     const curator = graph.curator;
     curator.start({ ...graph.synthesis.readSettings(), curatorEnabled: false });
     // A pass waits on the in-flight reconcile (`skill-curator.service.ts:272`).
-    // The dependency never resolves, so an abandoned pass never resumes.
     return curator.runManual().then(() => 'settled' as const);
   }
 
   async delivery(candidateId: string): Promise<FunnelDeliveryObservation> {
+    // Cap lifted above the residents earlier suites left (review finding 6).
+    const residentAtEntry = this.residentCount();
+    const settings = this.graph.synthesis.readSettings();
     const decision = await this.graph.promotion.promoteManually(
       candidateId as SkillCandidateRow['id'],
-      this.graph.synthesis.readSettings(),
+      {
+        ...settings,
+        maxActiveSkills: Math.max(
+          settings.maxActiveSkills,
+          residentAtEntry + 1,
+        ),
+      },
       { userInitiated: true },
     );
     const slug = decision.promoted ? (decision.candidate?.name ?? null) : null;
@@ -662,6 +680,7 @@ class HostLifecyclePort implements FunnelLifecyclePort {
         promoted: decision.promoted,
         reason: decision.reason,
         slug,
+        residentAtEntry,
         hostWorkspaceHasSkill: null,
         freshWorkspaceHasSkill: null,
       };
@@ -680,6 +699,7 @@ class HostLifecyclePort implements FunnelLifecyclePort {
       promoted: true,
       reason: decision.reason,
       slug,
+      residentAtEntry,
       hostWorkspaceHasSkill: hostRoot === '' ? null : delivered(hostRoot),
       freshWorkspaceHasSkill: delivered(fresh),
     };
@@ -693,69 +713,11 @@ class HostLifecyclePort implements FunnelLifecyclePort {
     try {
       if (this.started) this.graph.stop();
     } finally {
-      this.lane.restore();
-    }
-  }
-}
-
-class HostBacklogPort implements FunnelBacklogPort {
-  private readonly graph: ProductGraph;
-  private readonly lane: ReturnType<typeof instrumentLaneRunner>;
-  private readonly workspaceRoot: string;
-  private readonly templates = new Map<string, string>();
-  private started = false;
-
-  constructor(private readonly input: FunnelHostInput) {
-    this.graph = new ProductGraph(input.container);
-    this.lane = instrumentLaneRunner(input.laneRunner);
-    this.workspaceRoot = join(input.home, 'funnel-backlog-workspace');
-  }
-
-  async begin(
-    sessions: readonly FunnelSessionFile[],
-    clock: FunnelClock,
-  ): Promise<void> {
-    void clock;
-    for (const session of sessions)
-      this.templates.set(session.id, session.jsonl);
-    stageTranscripts(this.input.home, this.workspaceRoot, []);
-    this.started = true;
-    await this.graph.synthesis.start();
-  }
-
-  async enqueueCopy(templateId: string, sessionId: string): Promise<void> {
-    const jsonl = this.templates.get(templateId);
-    if (jsonl === undefined)
-      throw new Error(`no backlog template ${templateId}`);
-    stageTranscripts(this.input.home, this.workspaceRoot, [
-      { id: sessionId, jsonl },
-    ]);
-    await this.graph.synthesis.enqueueAnalyze(sessionId, this.workspaceRoot, {
-      source: 'session-end',
-    });
-  }
-
-  drainTick(tier: DrainTier): Promise<FunnelDrainTick> {
-    return this.graph.drain(tier);
-  }
-
-  queueRows(sessionPrefix: string): FunnelQueueRowView[] {
-    return this.graph.queueRows('session_id LIKE ?', `${sessionPrefix}%`);
-  }
-
-  candidate(id: string): FunnelCandidateView | null {
-    return this.graph.candidate(id);
-  }
-
-  laneStats(): FunnelLaneStats {
-    return this.lane.stats();
-  }
-
-  async close(): Promise<void> {
-    try {
-      if (this.started) this.graph.synthesis.stop();
-    } finally {
-      this.lane.restore();
+      try {
+        for (const child of this.children.splice(0)) await disposeChild(child);
+      } finally {
+        this.lane.restore();
+      }
     }
   }
 }
