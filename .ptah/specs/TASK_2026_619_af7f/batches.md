@@ -1040,7 +1040,7 @@ Batch 7 findings recorded at Mode 2 (report:
 - `npx nx run-many -t typecheck,lint,test -p mcp-bench` passes
 - The `na`-when-absent path is tested
 
-## Batch 8: Native baselines — COMPLETE (commit: the `feat: batch 8` commit after 90de07275; SHA filled in after the commit)
+## Batch 8: Native baselines — COMPLETE (commit 7ba564816)
 
 Batch 8 findings recorded at Mode 2 (report:
 `D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\.ptah\specs\TASK_2026_619_af7f\batch-8-executor-report.md`):
@@ -1124,7 +1124,7 @@ Batch 8 findings recorded at Mode 2 (report:
 - Every listed artifact exists and contains the required work
 - `npx nx run-many -t typecheck,lint,test -p mcp-bench` passes
 
-## Batch 9: Suite runners, lifecycle scenarios and the bench CLI — PENDING
+## Batch 9: Suite runners, lifecycle scenarios and the bench CLI — IN_PROGRESS (Task 9.0 committed on its own)
 
 - Recommended executor: backend-developer subagent
 - Fallback executor: senior-tester subagent
@@ -1154,7 +1154,7 @@ Batch 8 findings recorded at Mode 2 (report:
   the Python and Go reference and dependents question sets, and `ts-agreement.json`. References
   scoring follows the Batch 7 agreement analysis (see Task 9.1).
 
-### Task 9.0: Exports and an explicit env option for TASK_2026_620 — PENDING
+### Task 9.0: Exports and an explicit env option for TASK_2026_620 — COMPLETE (commit: the `feat: batch 9.0` commit after 7ba564816; SHA filled in after the commit)
 
 - File: D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\scorecard\scorecard.types.ts; D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\transport\host-launcher.ts; D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\transport\host-launcher.spec.ts; D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\transport\bench-host.entry.ts; D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\transport\bench-host-process.ts (new)
 - Plan reference: handoff.md "TASK_2026_620 requests (2026-10-07)" items 1, 2 and 4 (item 3 was
@@ -1182,8 +1182,34 @@ Batch 8 findings recorded at Mode 2 (report:
   (and a win32 case variant) rejects before spawn with no temp home left. The scorecard-writers and
   suite-kinds specs pass unchanged. Send the commit SHA to TASK_2026_620.
 - Implementation details: keep `host-launcher.ts` under the 700-line `max-lines` ceiling.
+- Task 9.0 findings recorded at Mode 2 (report:
+  `D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\.ptah\specs\TASK_2026_619_af7f\batch-9-task-9.0-executor-report.md`):
+  - Executor: backend-developer subagent. The orchestrator reviewed it before Mode 2.
+  - Exports for TASK_2026_620:
+    - `suiteCoreSchema`, `createSuiteSchema(registry)` and `suiteSchema` (`scorecard.types.ts`).
+    - `HostLaunchOptions.env`, `refusedEnvKeys`, `HostEnvRefusedError` (`host-launcher.ts`).
+    - `FORCED_EXIT_AFTER_MS`, `BenchHostArgumentError`, `readWorkspaceArg`, `shutdownRequested`
+      and `describeFailure` (`bench-host-process.ts`).
+  - Verified on disk:
+    - The env merge is `{ ...isolatedEnv(tempHome), ...options.env }`.
+    - The refused keys are `Object.keys(isolatedEnv('', {}))`. `isolatedEnv` only sets keys and
+      removes none, so the list is complete.
+    - The refusal is the first statement of `launchBenchHost`, before the guard, the temp home
+      and the spawn.
+    - On win32, key names are compared case-insensitively.
+  - Accepted deviations:
+    - (1) Two extra spec files (`scorecard.types.spec.ts`, `bench-host-process.spec.ts`), so Task
+      9.0 is 7 files instead of 5. Both are colocated specs for the new exports, in the same
+      project, run by the same scoped command.
+    - (2) A separate `HostEnvRefusedError` class instead of reusing `HostLaunchError`. Nothing
+      was launched, so there is no classified exit to carry.
+    - (3) After a failed parse, zod now lists kind issues after core issues. No assertion depends
+      on that order.
+  - Mode 2 checks (team-leader): with `RG_PATH` set, `npx nx run-many -t typecheck,lint,test -p
+    mcp-bench --skip-nx-cache` passed (3 targets, 2m 4s, uncached), and `npx nx run mcp-bench:build-host`
+    built (32 dependent tasks, 3m 28s, uncached). No real bench run, as instructed. Send the SHA to TASK_2026_620.
 
-### Task 9.1: Per-tool suite adapters and runner — PENDING
+### Task 9.1: Per-tool suite adapters and runner — IN_PROGRESS
 
 - File: D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\suites\tool-suites.ts; D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\suites\suite-runner.ts
 - Plan reference: research-report.md:147-158, :181-183; prompt claims at research-report.md:46-55
@@ -1218,7 +1244,7 @@ Batch 8 findings recorded at Mode 2 (report:
     `relevanceGitLogBaseline` as a second relevance baseline id (`view: 'git-log'`) and the memory
     baseline as `view: 'comparison'`; resolve rg once per run via `RG_PATH`, then PATH.
 
-### Task 9.2: Lifecycle scenarios 1-8 — PENDING
+### Task 9.2: Lifecycle scenarios 1-8 — IN_PROGRESS
 
 - File: D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\lifecycle\lifecycle-scenarios.ts; D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\lifecycle\lifecycle-scenarios.spec.ts
 - Depends on: Task 9.1
@@ -1236,7 +1262,7 @@ Batch 8 findings recorded at Mode 2 (report:
   so the scenario is recorded as a failure (not `na`); Batch 34b must turn it to pass. No file-count
   change (same two files).
 
-### Task 9.3: Bench CLI entry and targets — PENDING
+### Task 9.3: Bench CLI entry and targets — IN_PROGRESS
 
 - File: D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\main.ts; D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\project.json (targets `bench`, `generate`)
 - Depends on: Task 9.2

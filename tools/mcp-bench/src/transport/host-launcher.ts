@@ -69,6 +69,12 @@ export interface HostLaunchOptions {
   readonly keepAlive?: boolean;
   /** Per-call deadline of the client. */
   readonly requestTimeoutMs?: number;
+  /**
+   * Extra child environment, merged after the isolation. A key that the
+   * isolation sets ({@link refusedEnvKeys}) is refused: the launch rejects
+   * with {@link HostEnvRefusedError} before anything is spawned or created.
+   */
+  readonly env?: Readonly<Record<string, string>>;
 }
 
 /** How a host process ended; the scorecard's `run.hostExit`. */
@@ -266,6 +272,34 @@ export function isolatedEnv(
   };
 }
 
+/** The keys {@link isolatedEnv} sets, read from its output (an empty parent). */
+const ISOLATION_KEYS: readonly string[] = Object.keys(isolatedEnv('', {}));
+
+/**
+ * The keys of `env` that would override the isolation, in `env`'s order.
+ * Environment names are case-insensitive on win32, so there a case variant
+ * (`home`, `Home`) is refused too.
+ */
+export function refusedEnvKeys(
+  env: Readonly<Record<string, string>>,
+  platform: NodeJS.Platform = process.platform,
+): string[] {
+  const fold = (key: string): string =>
+    platform === 'win32' ? key.toUpperCase() : key;
+  const isolation = new Set(ISOLATION_KEYS.map(fold));
+  return Object.keys(env).filter((key) => isolation.has(fold(key)));
+}
+
+/** `HostLaunchOptions.env` tried to override the isolation; nothing was started. */
+export class HostEnvRefusedError extends Error {
+  constructor(readonly refused: readonly string[]) {
+    super(
+      `launchBenchHost: env may not set isolation keys: ${refused.join(', ')}`,
+    );
+    this.name = 'HostEnvRefusedError';
+  }
+}
+
 function parseReadyLine(
   line: string,
 ): HostReadyLine | { error: string } | null {
@@ -310,6 +344,9 @@ export async function launchBenchHost(
 ): Promise<LaunchedHost> {
   const bootTimeoutMs = options.bootTimeoutMs ?? DEFAULT_BOOT_TIMEOUT_MS;
   const stopTimeoutMs = options.stopTimeoutMs ?? DEFAULT_STOP_TIMEOUT_MS;
+  // Checked first: a refused env leaves no guard, temp home or process behind.
+  const refused = refusedEnvKeys(options.env ?? {});
+  if (refused.length > 0) throw new HostEnvRefusedError(refused);
 
   const guard = await armRealStateGuard({
     ...options.guard,
@@ -317,7 +354,7 @@ export async function launchBenchHost(
   });
   const tempHome = await mkdtemp(join(tmpdir(), 'ptah-mcp-bench-home-'));
   await mkdir(join(tempHome, '.ptah', 'state'), { recursive: true });
-  const env = isolatedEnv(tempHome);
+  const env = { ...isolatedEnv(tempHome), ...options.env };
 
   const nodePath = options.nodePath ?? process.execPath;
   const hostScript = options.hostScript ?? defaultHostScript();

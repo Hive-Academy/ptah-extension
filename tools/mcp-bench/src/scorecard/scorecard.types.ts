@@ -43,80 +43,98 @@ const costSchema = z.object({
     billed: metricValueSchema.optional(),
   }),
 });
-const createSuiteSchema = (
+/**
+ * One suite without its kind-dependent checks: every field, plus the checks
+ * that hold for any kind (unique baseline ids, deltas naming known baselines,
+ * `naReason` exactly on `na` suites). `details` is left unparsed and `kind` is
+ * not looked up in a registry. {@link createSuiteSchema} builds on this schema.
+ */
+export const suiteCoreSchema: z.ZodType<SuiteView<unknown>> = z
+  .object({
+    kind: z.string().min(1),
+    details: z.unknown(),
+    claim: claimSchema,
+    groundTruth: groundTruthSchema,
+    arm: z.string().min(1).optional(),
+    projectionSha256: z
+      .string()
+      .regex(/^[a-f0-9]{64}$/, 'projectionSha256 must be lowercase hex')
+      .optional(),
+    baselines: z.array(
+      z.object({
+        id: z.string().min(1),
+        label: z.string().min(1),
+        metrics: z.record(z.string(), metricValueSchema),
+      }),
+    ),
+    deltas: z.record(z.string(), z.record(z.string(), metricValueSchema)),
+    cost: costSchema,
+    verdict: z.enum(['pass', 'fail', 'na']),
+    naReason: z.string().min(1).optional(),
+  })
+  .superRefine((suite, context) => {
+    const baselineIds = new Set<string>();
+    for (const [index, baseline] of suite.baselines.entries()) {
+      if (baselineIds.has(baseline.id))
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `duplicate baseline id: ${baseline.id}`,
+          path: ['baselines', index, 'id'],
+        });
+      baselineIds.add(baseline.id);
+    }
+    for (const id of Object.keys(suite.deltas))
+      if (!baselineIds.has(id))
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `delta names unknown baseline: ${id}`,
+          path: ['deltas', id],
+        });
+    if (suite.verdict === 'na' && suite.naReason === undefined)
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'na suites require naReason',
+        path: ['naReason'],
+      });
+    if (suite.verdict !== 'na' && suite.naReason !== undefined)
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'naReason is only valid for na suites',
+        path: ['naReason'],
+      });
+  });
+
+/**
+ * One full suite: {@link suiteCoreSchema} plus the kind checks (the kind is
+ * registered in `registry`, and `details` parses with that kind's schema).
+ * This is the per-suite schema {@link createScorecardSchema} uses.
+ */
+export function createSuiteSchema(
   registry: SuiteKindRegistry,
-): z.ZodType<SuiteView<unknown>> =>
-  z
-    .object({
-      kind: z.string().min(1),
-      details: z.unknown(),
-      claim: claimSchema,
-      groundTruth: groundTruthSchema,
-      arm: z.string().min(1).optional(),
-      projectionSha256: z
-        .string()
-        .regex(/^[a-f0-9]{64}$/, 'projectionSha256 must be lowercase hex')
-        .optional(),
-      baselines: z.array(
-        z.object({
-          id: z.string().min(1),
-          label: z.string().min(1),
-          metrics: z.record(z.string(), metricValueSchema),
-        }),
-      ),
-      deltas: z.record(z.string(), z.record(z.string(), metricValueSchema)),
-      cost: costSchema,
-      verdict: z.enum(['pass', 'fail', 'na']),
-      naReason: z.string().min(1).optional(),
-    })
-    .superRefine((suite, context) => {
-      const registeredKind = registry.getSuiteKind(suite.kind);
-      if (registeredKind === undefined)
+): z.ZodType<SuiteView<unknown>> {
+  return suiteCoreSchema.superRefine((suite, context) => {
+    const registeredKind = registry.getSuiteKind(suite.kind);
+    if (registeredKind === undefined) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `unregistered suite kind: ${suite.kind}`,
+        path: ['kind'],
+      });
+      return;
+    }
+    const details = registeredKind.detailsSchema.safeParse(suite.details);
+    if (!details.success)
+      for (const issue of details.error.issues)
         context.addIssue({
           code: z.ZodIssueCode.custom,
-          message: `unregistered suite kind: ${suite.kind}`,
-          path: ['kind'],
+          message: issue.message,
+          path: ['details', ...issue.path],
         });
-      else {
-        const details = registeredKind.detailsSchema.safeParse(suite.details);
-        if (!details.success)
-          for (const issue of details.error.issues)
-            context.addIssue({
-              code: z.ZodIssueCode.custom,
-              message: issue.message,
-              path: ['details', ...issue.path],
-            });
-      }
-      const baselineIds = new Set<string>();
-      for (const [index, baseline] of suite.baselines.entries()) {
-        if (baselineIds.has(baseline.id))
-          context.addIssue({
-            code: z.ZodIssueCode.custom,
-            message: `duplicate baseline id: ${baseline.id}`,
-            path: ['baselines', index, 'id'],
-          });
-        baselineIds.add(baseline.id);
-      }
-      for (const id of Object.keys(suite.deltas))
-        if (!baselineIds.has(id))
-          context.addIssue({
-            code: z.ZodIssueCode.custom,
-            message: `delta names unknown baseline: ${id}`,
-            path: ['deltas', id],
-          });
-      if (suite.verdict === 'na' && suite.naReason === undefined)
-        context.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: 'na suites require naReason',
-          path: ['naReason'],
-        });
-      if (suite.verdict !== 'na' && suite.naReason !== undefined)
-        context.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: 'naReason is only valid for na suites',
-          path: ['naReason'],
-        });
-    });
+  });
+}
+
+/** {@link createSuiteSchema} over the default registry (`retrieval` registered). */
+export const suiteSchema = createSuiteSchema(defaultSuiteKindRegistry);
 
 export function createScorecardSchema(registry: SuiteKindRegistry) {
   return z

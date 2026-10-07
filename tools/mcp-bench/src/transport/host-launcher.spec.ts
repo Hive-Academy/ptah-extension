@@ -17,8 +17,11 @@ import { spawn, type ChildProcess } from 'node:child_process';
 
 import {
   classifyHostExit,
+  HostEnvRefusedError,
   HostLaunchError,
+  isolatedEnv,
   launchBenchHost,
+  refusedEnvKeys,
   type HostExitObservation,
   type LaunchedHost,
 } from './host-launcher';
@@ -75,7 +78,7 @@ function answer(name) {
   counts[name] = (counts[name] || 0) + 1;
   switch (name) {
     case 'fx_env':
-      return text(JSON.stringify({ home: os.homedir(), env: {
+      return text(JSON.stringify({ home: os.homedir(), extra: process.env.FIXTURE_EXTRA, env: {
         HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE,
         PTAH_CONFIG_PATH: process.env.PTAH_CONFIG_PATH, PTAH_DB_PATH: process.env.PTAH_DB_PATH } }));
     case 'fx_building_then_ok':
@@ -444,6 +447,77 @@ describe('launchBenchHost', () => {
     });
   });
 
+  describe('explicit env', () => {
+    const tempHomes = async (): Promise<string[]> =>
+      (await readdir(tmpdir())).filter((name) =>
+        name.startsWith('ptah-mcp-bench-home-'),
+      );
+
+    it('passes an extra key to the child, after the isolation', async () => {
+      const host = await launchBenchHost({
+        workspaceRoot: workspace,
+        hostScript,
+        realHome,
+        bootTimeoutMs: 20_000,
+        guard: { ci: false, preSampleMs: 50 },
+        env: { FIXTURE_EXTRA: 'from-options' },
+      });
+      launched.push(host);
+
+      const outcome = await host.client.callTool('fx_env', {});
+      if (outcome.kind !== 'result')
+        throw new Error(`unexpected ${outcome.kind}`);
+      const seen = JSON.parse(outcome.text) as {
+        home: string;
+        extra?: string;
+      };
+      expect(seen.extra).toBe('from-options');
+      expect(seen.home).toBe(host.tempHome);
+    });
+
+    const isolationKeys = Object.keys(isolatedEnv('', {}));
+    const refusedCases: Array<Record<string, string>> = [
+      ...isolationKeys.map((key) => ({ [key]: 'x' })),
+      ...(process.platform === 'win32'
+        ? [{ home: 'x' }, { Ptah_Db_Path: 'x' }]
+        : []),
+    ];
+
+    it.each(refusedCases)(
+      'refuses %j before spawning, leaving no temp home',
+      async (env) => {
+        const marker = join(root, 'spawned');
+        const markerHost = join(root, 'marker-host.cjs');
+        await writeFile(
+          markerHost,
+          `require('node:fs').writeFileSync(${JSON.stringify(marker)}, '');`,
+        );
+        const before = await tempHomes();
+
+        const failure = await launchBenchHost({
+          workspaceRoot: workspace,
+          hostScript: markerHost,
+          realHome,
+          guard: { ci: false, preSampleMs: 50 },
+          env: { FIXTURE_EXTRA: 'allowed', ...env },
+        }).then(
+          () => {
+            throw new Error('expected the launch to be refused');
+          },
+          (error: unknown) => error,
+        );
+
+        expect(failure).toBeInstanceOf(HostEnvRefusedError);
+        expect((failure as HostEnvRefusedError).refused).toEqual(
+          Object.keys(env),
+        );
+        expect((failure as Error).message).toContain(Object.keys(env)[0]);
+        expect(existsSync(marker)).toBe(false);
+        expect(await tempHomes()).toEqual(before);
+      },
+    );
+  });
+
   describe('guard mode', () => {
     const realFile = (): string => join(realHome, '.ptah', 'settings.json');
 
@@ -782,6 +856,59 @@ describe('launchBenchHost', () => {
       expect(answer.final.errorClass).toBe('transport');
       expect(answer.final.text).toMatch(/^ECONNREFUSED/);
     });
+  });
+});
+
+describe('refusedEnvKeys', () => {
+  it('names every isolation key, in the given order, and nothing else', () => {
+    expect(
+      refusedEnvKeys(
+        {
+          PTAH_DB_PATH: 'x',
+          FIXTURE_EXTRA: 'x',
+          HOME: 'x',
+          XDG_CACHE_HOME: 'x',
+          PTAH_BENCH_ISOLATED_HOME: 'x',
+        },
+        'linux',
+      ),
+    ).toEqual([
+      'PTAH_DB_PATH',
+      'HOME',
+      'XDG_CACHE_HOME',
+      'PTAH_BENCH_ISOLATED_HOME',
+    ]);
+  });
+
+  it('derives the refused set from isolatedEnv', () => {
+    const keys = Object.keys(isolatedEnv('', {}));
+    expect(keys).toEqual(
+      expect.arrayContaining([
+        'HOME',
+        'USERPROFILE',
+        'APPDATA',
+        'LOCALAPPDATA',
+        'XDG_CONFIG_HOME',
+        'XDG_DATA_HOME',
+        'XDG_STATE_HOME',
+        'XDG_CACHE_HOME',
+        'PTAH_BENCH_ISOLATED_HOME',
+        'PTAH_CONFIG_PATH',
+        'PTAH_DB_PATH',
+      ]),
+    );
+    expect(
+      refusedEnvKeys(
+        Object.fromEntries(keys.map((key) => [key, 'x'])),
+        'linux',
+      ),
+    ).toEqual(keys);
+  });
+
+  it('refuses case variants on win32 only', () => {
+    const env = { home: 'x', Ptah_Config_Path: 'x', path: 'x' };
+    expect(refusedEnvKeys(env, 'win32')).toEqual(['home', 'Ptah_Config_Path']);
+    expect(refusedEnvKeys(env, 'linux')).toEqual([]);
   });
 });
 
