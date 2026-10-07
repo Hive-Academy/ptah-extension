@@ -51,7 +51,7 @@ describe('ProviderModelsService OpenCode catalog', () => {
         expect(result.models.map((m) => m.id)).toEqual(
           Object.keys(OPENCODE_MODEL_ROUTES[id]),
         );
-        expect(result.totalCount).toBe(id === 'opencode-zen' ? 76 : 35);
+        expect(result.totalCount).toBe(id === 'opencode-zen' ? 78 : 35);
         for (const model of result.models)
           expect(model).toMatchObject({
             contextLength: 0,

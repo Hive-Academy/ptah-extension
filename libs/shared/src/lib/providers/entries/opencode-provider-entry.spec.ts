@@ -92,6 +92,15 @@ describe('OpenCode Model Routes', () => {
         'chat/completions',
       );
 
+      // Same ID, different protocol per subscription (the reason the table
+      // is keyed on both).
+      expect(getOpenCodeModelProtocol('opencode-zen', 'qwen3.8-max')).toBe(
+        'chat/completions',
+      );
+      expect(getOpenCodeModelProtocol('opencode-go', 'qwen3.8-max')).toBe(
+        'messages',
+      );
+
       expect(getOpenCodeModelProtocol('opencode-zen', 'qwen3.8-flash')).toBe(
         'messages',
       );
@@ -124,12 +133,10 @@ describe('OpenCode Model Routes', () => {
         'chat/completions',
       );
 
-      // qwen3.8-max exists in Go but not Zen
-      expect(
-        getOpenCodeModelProtocol('opencode-zen', 'qwen3.8-max'),
-      ).toBeUndefined();
-      expect(getOpenCodeModelProtocol('opencode-go', 'qwen3.8-max')).toBe(
-        'messages',
+      // hy3 exists in Go but not Zen
+      expect(getOpenCodeModelProtocol('opencode-zen', 'hy3')).toBeUndefined();
+      expect(getOpenCodeModelProtocol('opencode-go', 'hy3')).toBe(
+        'chat/completions',
       );
     });
 
@@ -250,13 +257,13 @@ describe('OpenCode Model Routes', () => {
       return counts;
     }
 
-    it('encodes exactly 76 Zen models (17 messages, 27 chat/completions, 32 responses)', () => {
+    it('encodes exactly 78 Zen models (18 messages, 28 chat/completions, 32 responses)', () => {
       const counts = countProtocols('opencode-zen');
-      expect(counts.messages).toBe(17);
-      expect(counts['chat/completions']).toBe(27);
+      expect(counts.messages).toBe(18);
+      expect(counts['chat/completions']).toBe(28);
       expect(counts.responses).toBe(32);
       expect(Object.keys(OPENCODE_MODEL_ROUTES['opencode-zen'])).toHaveLength(
-        76,
+        78,
       );
     });
 
@@ -270,11 +277,11 @@ describe('OpenCode Model Routes', () => {
       );
     });
 
-    it('encodes exactly 111 total model routes across both subscriptions', () => {
+    it('encodes exactly 113 total model routes across both subscriptions', () => {
       const totalRoutes =
         Object.keys(OPENCODE_MODEL_ROUTES['opencode-zen']).length +
         Object.keys(OPENCODE_MODEL_ROUTES['opencode-go']).length;
-      expect(totalRoutes).toBe(111);
+      expect(totalRoutes).toBe(113);
     });
 
     it('freezes the routing table against mutation', () => {
@@ -347,7 +354,7 @@ describe('OpenCode Provider Entries', () => {
 
   describe('static models', () => {
     it('derives Zen static models strictly from Zen route keys', () => {
-      expect(OPENCODE_ZEN_STATIC_MODELS).toHaveLength(76);
+      expect(OPENCODE_ZEN_STATIC_MODELS).toHaveLength(78);
       for (const model of OPENCODE_ZEN_STATIC_MODELS) {
         expect(
           Object.prototype.hasOwnProperty.call(

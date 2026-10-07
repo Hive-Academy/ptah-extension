@@ -32,12 +32,15 @@ export type OpenCodeModelRoutes = Readonly<
  * 2026-10-07: retired IDs removed, new IDs added. A new ID's protocol comes
  * from its models.dev `provider.npm` (anthropic → messages, openai →
  * responses, openai-compatible → chat/completions), which matched every one of
- * the 64 Zen routes already here. Live IDs with no such source stay out
- * rather than guess a protocol (Qwen on Zen, where the two disagree on Go).
+ * the 64 Zen routes already here. Zen `qwen3.8-max` is confirmed by the
+ * gateway itself: unauthenticated requests are refused with "not supported
+ * for format" on every protocol but chat/completions. Zen `claude-haiku-5-5`
+ * follows every other Zen Claude model (messages). Live IDs whose protocol no
+ * source settles (several Go models) stay out rather than guess.
  */
 export const OPENCODE_MODEL_ROUTES: OpenCodeModelRoutes = Object.freeze({
   'opencode-zen': Object.freeze({
-    // Anthropic Messages (17 models)
+    // Anthropic Messages (18 models)
     'claude-fable-5-1': 'messages',
     'claude-fable-5': 'messages',
     'claude-opus-5': 'messages',
@@ -52,11 +55,12 @@ export const OPENCODE_MODEL_ROUTES: OpenCodeModelRoutes = Object.freeze({
     'claude-opus-5-5': 'messages',
     'claude-sonnet-5-5': 'messages',
     'claude-sonnet-4': 'messages',
+    'claude-haiku-5-5': 'messages',
     'qwen3.8-flash': 'messages',
     'qwen3.6-plus': 'messages',
     'qwen3.5-plus': 'messages',
 
-    // OpenAI Chat Completions (27 models)
+    // OpenAI Chat Completions (28 models)
     'deepseek-v4.1-flash': 'chat/completions',
     'deepseek-v4-pro': 'chat/completions',
     'deepseek-v4-flash': 'chat/completions',
@@ -78,6 +82,7 @@ export const OPENCODE_MODEL_ROUTES: OpenCodeModelRoutes = Object.freeze({
     'ling-3.0-flash-fin-free': 'chat/completions',
     'nemotron-3-ultra-free': 'chat/completions',
     'nemotron-3.5-lightning-free': 'chat/completions',
+    'qwen3.8-max': 'chat/completions',
     'mistral-large-4': 'chat/completions',
     'exo-free': 'chat/completions',
     'space-bunny-free': 'chat/completions',
