@@ -83,9 +83,8 @@ import { SubagentTranscriptViewerService } from '../../../services/subagent-tran
     <!-- Interrupted agents get warning border + tinted background to stand out -->
     <!-- Background agents get dashed border + info tint -->
     <div
-      class="my-3 border-l-2 rounded-lg overflow-hidden transition-colors"
+      class="surface-1 my-3 border-l-2 rounded-lg overflow-hidden transition-colors"
       [ngClass]="{
-        'bg-base-200/50': !isInterrupted() && !isResumed() && !isBackground(),
         'bg-warning/10': isInterrupted(),
         'border-warning': isInterrupted(),
         'ring-1': isInterrupted() || isResumed() || isBackground(),
@@ -763,7 +762,9 @@ export class InlineAgentBubbleComponent {
     if (!container || container === this.scrollElement) return;
     this.scrollElement?.removeEventListener('scroll', this.scrollHandler);
     this.ngZone.runOutsideAngular(() => {
-      container.addEventListener('scroll', this.scrollHandler, { passive: true });
+      container.addEventListener('scroll', this.scrollHandler, {
+        passive: true,
+      });
     });
     this.scrollElement = container;
   }

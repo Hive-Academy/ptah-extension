@@ -121,7 +121,8 @@ interface PastedImage {
   providers: [VoiceInputService],
   template: `
     <div
-      class="ptah-composer relative flex flex-col px-3 pt-2 pb-2 bg-base-100"
+      class="ptah-composer relative flex flex-col px-3 pt-2 pb-2 bg-surface-0"
+      data-testid="chat-composer"
       (dragover)="handleDragOver($event)"
       (dragleave)="handleDragLeave($event)"
       (drop)="handleDrop($event)"
@@ -629,7 +630,7 @@ export class ChatInputComponent implements OnInit {
    */
   readonly cardClasses = computed(() => {
     const base =
-      'relative flex flex-col rounded-2xl border bg-base-200/60 transition-colors';
+      'surface-2 relative flex flex-col rounded-2xl transition-colors';
     if (
       this.autopilotState.agentPlanMode() ||
       this.autopilotState.permissionLevel() === 'plan'

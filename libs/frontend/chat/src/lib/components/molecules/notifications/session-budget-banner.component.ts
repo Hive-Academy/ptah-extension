@@ -14,10 +14,46 @@ import type {
   SessionBudgetState,
   SessionBudgetWindowReason,
 } from '@ptah-extension/shared';
+import {
+  ArrowRightLeft,
+  Gauge,
+  LucideAngularModule,
+  OctagonAlert,
+  RefreshCw,
+  type LucideIconData,
+} from 'lucide-angular';
 import { SessionRotationKeepService } from '../../../services/session-rotation-keep.service';
+import type { SessionBudgetUsageSample } from '../../../services/session-budget-actions.service';
 
 /** Stages that show a banner. `unknown` and `normal` show none. */
 type BannerStage = 'rotation' | 'tighten' | 'handoff' | 'limit';
+
+/** Meter and border tone. Tighten warns; handoff and the limit are errors. */
+type BannerTone = 'warning' | 'error' | 'info';
+
+interface BodyPart {
+  readonly code: boolean;
+  readonly text: string;
+}
+
+interface BudgetStats {
+  readonly usedLabel: string;
+  readonly used: string;
+  readonly limit: string;
+  readonly percent: string;
+  readonly compactions: string;
+}
+
+interface BudgetMeter {
+  /** Bar value, clamped to 0–100. */
+  readonly value: number;
+  readonly label: string;
+}
+
+interface BudgetSpark {
+  readonly points: string;
+  readonly label: string;
+}
 
 /**
  * Why the tighten step did not lower auto-compact, in the user's words.
@@ -49,6 +85,9 @@ const READ_STATUS_TEXT: Readonly<
 const COMPACT_NOTE =
   "/compact frees context but does not reset this session's budget";
 
+const FOCUS =
+  'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content';
+
 /**
  * SessionBudgetBannerComponent - one session's budget stage (TASK_2026_597 N7)
  *
@@ -59,52 +98,177 @@ const COMPACT_NOTE =
  *
  * Stages: tighten and handoff are `role="status"`, limit is `role="alert"`.
  * A dismissed tighten or handoff stage stays hidden until a higher stage.
+ * There is no per-turn usage series on `SessionBudgetState`, so the card
+ * shows a meter and the current figures only.
  */
 @Component({
   selector: 'ptah-session-budget-banner',
+  standalone: true,
+  imports: [LucideAngularModule],
   template: `
     @if (stage(); as current) {
       <div
-        class="mx-2 my-1 rounded border bg-base-300/30 text-xs"
-        [class.border-info]="current === 'tighten' || current === 'rotation'"
-        [class.border-warning]="current === 'handoff'"
-        [class.border-error]="current === 'limit'"
+        class="surface-2 mx-2 my-1 rounded-lg text-xs"
+        [class.border-warning]="tone() === 'warning'"
+        [class.border-error]="tone() === 'error'"
+        [class.border-info]="tone() === 'info'"
         [attr.role]="current === 'limit' ? 'alert' : 'status'"
+        [attr.aria-live]="current === 'limit' ? 'assertive' : 'polite'"
         data-testid="session-budget-banner"
       >
-        <div class="px-2 py-1.5">
-          <div class="font-semibold" data-testid="session-budget-title">
-            {{ title() }}
+        <div class="flex items-start gap-2 px-2.5 pt-2">
+          <lucide-angular
+            [img]="stageIcon()"
+            class="mt-0.5 h-4 w-4 shrink-0"
+            [class.text-warning]="tone() === 'warning'"
+            [class.text-error]="tone() === 'error'"
+            [class.text-info]="tone() === 'info'"
+            aria-hidden="true"
+            data-testid="session-budget-icon"
+          />
+          <div class="min-w-0 flex-1">
+            <div
+              class="font-semibold leading-5"
+              data-testid="session-budget-title"
+            >
+              {{ title() }}
+            </div>
+            @if (meter(); as meter) {
+              <progress
+                class="progress mt-1.5 h-1.5 w-full"
+                [class.progress-warning]="tone() === 'warning'"
+                [class.progress-error]="tone() === 'error'"
+                [class.progress-info]="tone() === 'info'"
+                [value]="meter.value"
+                max="100"
+                aria-valuemin="0"
+                aria-valuemax="100"
+                [attr.aria-valuenow]="meter.value"
+                [attr.aria-label]="meter.label"
+                data-testid="session-budget-meter"
+              ></progress>
+            }
+            @if (spark(); as spark) {
+              <svg
+                class="mt-1 h-6 w-full"
+                viewBox="0 0 100 24"
+                preserveAspectRatio="none"
+                role="img"
+                [attr.aria-label]="spark.label"
+                data-testid="session-budget-sparkline"
+              >
+                <polyline
+                  fill="none"
+                  stroke-width="1.5"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  [class.stroke-warning]="tone() === 'warning'"
+                  [class.stroke-error]="tone() === 'error'"
+                  [class.stroke-info]="tone() === 'info'"
+                  [attr.points]="spark.points"
+                />
+              </svg>
+            }
+            @if (stats(); as stats) {
+              <dl
+                class="mt-2 flex flex-wrap gap-x-3 gap-y-1"
+                aria-label="Session budget"
+                data-testid="session-budget-stats"
+              >
+                <div class="min-w-[4.5rem]">
+                  <dt
+                    class="text-[10px] uppercase tracking-wide text-base-content-muted"
+                  >
+                    {{ stats.usedLabel }}
+                  </dt>
+                  <dd
+                    class="font-medium tabular-nums"
+                    data-testid="session-budget-used"
+                  >
+                    {{ stats.used }}
+                  </dd>
+                </div>
+                <div class="min-w-[4.5rem]">
+                  <dt
+                    class="text-[10px] uppercase tracking-wide text-base-content-muted"
+                  >
+                    Budget
+                  </dt>
+                  <dd
+                    class="font-medium tabular-nums"
+                    data-testid="session-budget-limit"
+                  >
+                    {{ stats.limit }}
+                  </dd>
+                </div>
+                <div class="min-w-[3.5rem]">
+                  <dt
+                    class="text-[10px] uppercase tracking-wide text-base-content-muted"
+                  >
+                    Percent
+                  </dt>
+                  <dd
+                    class="font-medium tabular-nums"
+                    data-testid="session-budget-percent"
+                  >
+                    {{ stats.percent }}
+                  </dd>
+                </div>
+                <div class="min-w-[4.5rem]">
+                  <dt
+                    class="text-[10px] uppercase tracking-wide text-base-content-muted"
+                  >
+                    Compactions
+                  </dt>
+                  <dd
+                    class="font-medium tabular-nums"
+                    data-testid="session-budget-compactions"
+                  >
+                    {{ stats.compactions }}
+                  </dd>
+                </div>
+              </dl>
+            }
           </div>
-          <p
-            class="mt-0.5 text-base-content-muted"
-            data-testid="session-budget-body"
-          >
-            {{ body() }}
-          </p>
-          @if (writeErrorLine(); as errorLine) {
-            <p
-              class="mt-0.5 text-warning"
-              data-testid="session-budget-write-error"
-            >
-              {{ errorLine }}
-            </p>
-          }
-          @if (readStatusLine(); as readLine) {
-            <p
-              class="mt-0.5 text-warning"
-              data-testid="session-budget-read-status"
-            >
-              {{ readLine }}
-            </p>
-          }
         </div>
 
-        <div class="flex flex-wrap items-center gap-1 px-2 pb-1.5">
+        <p
+          class="mt-1.5 px-2.5 leading-relaxed text-base-content-muted"
+          data-testid="session-budget-body"
+        >
+          @for (part of bodyParts(); track $index) {
+            @if (part.code) {
+              <code
+                class="rounded bg-base-300 px-1 font-mono text-[11px] text-base-content"
+                >{{ part.text }}</code
+              >
+            } @else {
+              {{ part.text }}
+            }
+          }
+        </p>
+        @if (writeErrorLine(); as errorLine) {
+          <p
+            class="mt-0.5 px-2.5 text-warning"
+            data-testid="session-budget-write-error"
+          >
+            {{ errorLine }}
+          </p>
+        }
+        @if (readStatusLine(); as readLine) {
+          <p
+            class="mt-0.5 px-2.5 text-warning"
+            data-testid="session-budget-read-status"
+          >
+            {{ readLine }}
+          </p>
+        }
+
+        <div class="flex flex-wrap items-center gap-1 px-2.5 pb-2 pt-1.5">
           @if (current === 'rotation') {
             <button
               type="button"
-              class="btn btn-xs btn-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
+              class="btn btn-xs btn-primary {{ focus }}"
               aria-label="Rotate session: start a new session from a handoff"
               [disabled]="busy()"
               (click)="rotate.emit()"
@@ -113,7 +277,7 @@ const COMPACT_NOTE =
             </button>
             <button
               type="button"
-              class="btn btn-xs btn-ghost"
+              class="btn btn-xs btn-outline {{ focus }}"
               aria-label="Keep this session and hide this suggestion"
               (click)="keepSession()"
             >
@@ -122,16 +286,26 @@ const COMPACT_NOTE =
           } @else if (current === 'tighten') {
             <button
               type="button"
-              class="btn btn-xs btn-ghost"
+              class="btn btn-xs btn-primary {{ focus }}"
+              aria-label="Compact this session"
+              [disabled]="busy() || compacting()"
+              (click)="compact.emit()"
+            >
+              Compact
+            </button>
+            <button
+              type="button"
+              class="btn btn-xs btn-outline {{ focus }}"
+              aria-label="Dismiss"
               [disabled]="busy()"
               (click)="dismiss.emit()"
             >
-              OK
+              Dismiss
             </button>
             @if (windowApplied()) {
               <button
                 type="button"
-                class="btn btn-xs btn-outline"
+                class="btn btn-xs btn-outline {{ focus }}"
                 [disabled]="busy()"
                 (click)="restoreWindow.emit()"
               >
@@ -141,19 +315,31 @@ const COMPACT_NOTE =
           } @else {
             <button
               type="button"
-              class="btn btn-xs btn-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
-              [disabled]="busy()"
-              (click)="continueInNewSession.emit()"
-            >
-              {{
+              class="btn btn-xs btn-primary {{ focus }}"
+              [attr.aria-label]="
                 current === 'limit'
                   ? 'Continue in new session'
                   : 'Start new session from handoff'
-              }}
+              "
+              [disabled]="busy()"
+              (click)="continueInNewSession.emit()"
+            >
+              New session
             </button>
+            @if (current === 'handoff') {
+              <button
+                type="button"
+                class="btn btn-xs btn-outline {{ focus }}"
+                aria-label="Compact this session"
+                [disabled]="busy() || compacting()"
+                (click)="compact.emit()"
+              >
+                Compact
+              </button>
+            }
             <button
               type="button"
-              class="btn btn-xs btn-outline"
+              class="btn btn-xs btn-outline {{ focus }}"
               [disabled]="busy()"
               [attr.aria-expanded]="previewOpen()"
               (click)="togglePreview()"
@@ -163,7 +349,7 @@ const COMPACT_NOTE =
             @if (current === 'limit') {
               <button
                 type="button"
-                class="btn btn-xs btn-ghost"
+                class="btn btn-xs btn-outline {{ focus }}"
                 [disabled]="busy()"
                 (click)="extend.emit()"
               >
@@ -172,11 +358,12 @@ const COMPACT_NOTE =
             } @else {
               <button
                 type="button"
-                class="btn btn-xs btn-ghost"
+                class="btn btn-xs btn-outline {{ focus }}"
+                aria-label="Dismiss and keep working"
                 [disabled]="busy()"
                 (click)="dismiss.emit()"
               >
-                Keep working
+                Dismiss
               </button>
             }
           }
@@ -194,7 +381,7 @@ const COMPACT_NOTE =
             <span>Could not load the handoff.</span>
             <button
               type="button"
-              class="btn btn-xs btn-ghost"
+              class="btn btn-xs btn-ghost {{ focus }}"
               [disabled]="busy()"
               (click)="previewRequested.emit()"
             >
@@ -232,7 +419,13 @@ export class SessionBudgetBannerComponent {
   /** True while a budget action runs; disables the buttons. */
   readonly busy = input(false);
 
-  /** "OK" (tighten) and "Keep working" (handoff). */
+  /** Per-session usage samples. Fewer than two points hides the sparkline. */
+  readonly usage = input<readonly SessionBudgetUsageSample[]>([]);
+
+  /** True while this session's compaction is in flight. Disables Compact. */
+  readonly compacting = input(false);
+
+  /** "Dismiss" (tighten and handoff). */
   readonly dismiss = output<void>();
   /** "Allow 20% more" (limit). */
   readonly extend = output<void>();
@@ -240,10 +433,15 @@ export class SessionBudgetBannerComponent {
   readonly restoreWindow = output<void>();
   /** The preview was opened; the parent loads the handoff text. */
   readonly previewRequested = output<void>();
-  /** "Continue in new session" / "Start new session from handoff". */
+  /** "New session" (handoff and limit). */
   readonly continueInNewSession = output<void>();
   /** "Rotate session" (rotation advisory). */
   readonly rotate = output<void>();
+  /** "Compact" on tighten and handoff. The parent sends `/compact`. */
+  readonly compact = output<void>();
+
+  /** Shared focus ring, interpolated into every button class. */
+  protected readonly focus = FOCUS;
 
   protected readonly previewOpen = signal(false);
 
@@ -280,9 +478,92 @@ export class SessionBudgetBannerComponent {
     return stage;
   });
 
+  /** Tighten warns; handoff and the limit are errors. Rotation stays info. */
+  protected readonly tone = computed<BannerTone>(() => {
+    switch (this.stage()) {
+      case 'tighten':
+        return 'warning';
+      case 'handoff':
+      case 'limit':
+        return 'error';
+      default:
+        return 'info';
+    }
+  });
+
+  protected readonly stageIcon = computed<LucideIconData>(() => {
+    switch (this.stage()) {
+      case 'tighten':
+        return Gauge;
+      case 'handoff':
+        return ArrowRightLeft;
+      case 'limit':
+        return OctagonAlert;
+      default:
+        return RefreshCw;
+    }
+  });
+
   protected readonly windowApplied = computed(
     () => this.budget()?.window?.applied === true,
   );
+
+  /** Current figures. No usage series exists on the budget state. */
+  protected readonly stats = computed<BudgetStats | null>(() => {
+    const budget = this.budget();
+    if (!budget || !this.stage()) return null;
+    const cost = this.isCost(budget);
+    const prefix = budget.lowerBound ? '≥ ' : '';
+    return {
+      usedLabel: cost
+        ? 'Cost'
+        : budget.measure === 'weighted-fallback'
+          ? 'Used (est.)'
+          : 'Used',
+      used: `${prefix}${cost ? this.usd(budget.used) : this.tokens(budget.used)}`,
+      limit: cost ? this.usd(budget.limit) : this.tokens(budget.limit),
+      percent:
+        budget.percent === null ? '—' : this.formatPercent(budget.percent),
+      compactions: String(budget.compactions),
+    };
+  });
+
+  /** Inline sparkline. Hidden until two samples exist. */
+  protected readonly spark = computed<BudgetSpark | null>(() => {
+    const samples = this.usage();
+    if (samples.length < 2) return null;
+    const last = samples.length - 1;
+    const points = samples
+      .map((sample, index) => {
+        const percent =
+          sample.percent !== null && Number.isFinite(sample.percent)
+            ? Math.max(0, Math.min(100, sample.percent))
+            : 0;
+        const x = (index / last) * 100;
+        const y = 22 - (percent / 100) * 20;
+        return `${x.toFixed(2)},${y.toFixed(2)}`;
+      })
+      .join(' ');
+    return {
+      points,
+      label: `Budget use over this session, ${samples.length} samples`,
+    };
+  });
+
+  /** Linear meter of `percent`, clamped for the bar. Hidden with no figure. */
+  protected readonly meter = computed<BudgetMeter | null>(() => {
+    const budget = this.budget();
+    if (!budget || !this.stage() || budget.percent === null) return null;
+    const value = Math.max(0, Math.min(100, budget.percent));
+    const shown = this.formatPercent(budget.percent);
+    return {
+      value,
+      label:
+        budget.percent > 100
+          ? `${shown} of session budget, over the limit`
+          : `${shown} of session budget`,
+    };
+  });
 
   protected readonly title = computed(() => {
     switch (this.stage()) {
@@ -306,10 +587,24 @@ export class SessionBudgetBannerComponent {
     if (stage === 'rotation' && budget.rotation) {
       return `The context is about ${this.tokens(budget.rotation.contextTokens)} tokens. A new session that starts from a handoff keeps the goal and decisions and answers faster. Rotate to start a new session from the handoff, or keep this one.`;
     }
-    const amount = this.amount(budget);
-    if (stage === 'tighten') return this.tightenBody(budget, amount);
-    if (stage === 'handoff') return this.handoffBody(budget, amount);
-    return this.limitBody(budget, amount);
+    if (stage === 'tighten') return this.tightenBody(budget);
+    if (stage === 'handoff') return this.handoffBody(budget);
+    return this.limitBody(budget);
+  });
+
+  /** Splits `/compact` out so the template can render it as inline code. */
+  protected readonly bodyParts = computed<readonly BodyPart[]>(() => {
+    const text = this.body();
+    if (!text) return [];
+    const chunks = text.split('/compact');
+    const parts: BodyPart[] = [];
+    chunks.forEach((chunk, index) => {
+      if (chunk) parts.push({ code: false, text: chunk });
+      if (index < chunks.length - 1) {
+        parts.push({ code: true, text: '/compact' });
+      }
+    });
+    return parts;
   });
 
   /** Shown on handoff and limit when the file could not be written. */
@@ -340,31 +635,17 @@ export class SessionBudgetBannerComponent {
     if (open) this.previewRequested.emit();
   }
 
-  /** "<used> of <limit> <unit>", formatted like the stats chip. */
-  private amount(budget: SessionBudgetState): string {
-    switch (budget.measure) {
-      case 'tokens':
-        return `${this.tokens(budget.used)} of ${this.tokens(budget.limit)} tokens`;
-      case 'weighted-fallback':
-        return `${this.tokens(budget.used)} of ${this.tokens(budget.limit)} weighted tokens (estimate)`;
-      case 'cost-lower-bound':
-        return `≥ ${this.usd(budget.used)} of ${this.usd(budget.limit)} of cost`;
-      case 'cost':
-        return `${this.usd(budget.used)} of ${this.usd(budget.limit)} of cost`;
-    }
-  }
-
-  private tightenBody(budget: SessionBudgetState, amount: string): string {
+  private tightenBody(budget: SessionBudgetState): string {
     const window = budget.window;
     if (!window || window.reason === 'disabled') {
-      return `${amount}. Run /compact or start a fresh session for unrelated work to slow the spend. ${COMPACT_NOTE}.`;
+      return `Run /compact or start a fresh session for unrelated work to slow the spend. ${COMPACT_NOTE}.`;
     }
     const target = this.tokens(window.target);
     if (window.applied && window.reason === 'restore-failed') {
-      return `${amount}. Ptah could not restore auto-compact; it stays at ${target} tokens for this session. Try Restore auto-compact again.`;
+      return `Ptah could not restore auto-compact; it stays at ${target} tokens for this session. Try Restore auto-compact again.`;
     }
     if (window.applied) {
-      return `${amount}. Ptah lowered auto-compact to ${target} tokens for this session. If the context is already above that, the next request compacts first. More compactions bring the handoff step sooner.`;
+      return `Ptah lowered auto-compact to ${target} tokens for this session. If the context is already above that, the next request compacts first. More compactions bring the handoff step sooner.`;
     }
     // `restore-failed` is only sent with `applied: true` (handled above).
     const reasonKey =
@@ -372,20 +653,16 @@ export class SessionBudgetBannerComponent {
         ? 'failed'
         : window.reason;
     const reason = WINDOW_REASON_TEXT[reasonKey].replace('<target>', target);
-    return `${amount}. Ptah could not lower auto-compact here (${reason}). Use /compact or start a fresh session to slow the spend. ${COMPACT_NOTE}.`;
+    return `Ptah could not lower auto-compact here (${reason}). Use /compact or start a fresh session to slow the spend. ${COMPACT_NOTE}.`;
   }
 
-  private handoffBody(budget: SessionBudgetState, amount: string): string {
+  private handoffBody(budget: SessionBudgetState): string {
     const parts: string[] = [];
-    if (budget.percent !== null) {
-      parts.push(`${amount} (${Math.floor(budget.percent)}%).`);
-    }
     if (budget.compactions > 0) {
       parts.push(
         `This session has compacted ${budget.compactions} ${budget.compactions === 1 ? 'time' : 'times'}, and each compaction loses detail.`,
       );
     }
-    if (parts.length === 0) parts.push(`${amount}.`);
     if (budget.handoff && !budget.handoff.writeError) {
       parts.push(
         'Ptah saved a handoff with the goal, decisions, changed files, open items and next step.',
@@ -395,12 +672,12 @@ export class SessionBudgetBannerComponent {
     return parts.join(' ');
   }
 
-  private limitBody(budget: SessionBudgetState, amount: string): string {
+  private limitBody(budget: SessionBudgetState): string {
     const pause = budget.blocked
       ? `New messages here are paused after the current turn (one queued message may still run). /clear still works. ${COMPACT_NOTE}; at the limit only a bare /compact is allowed.`
       : 'New messages are not paused (blocking is off in settings).';
     const handoff = budget.handoff;
-    if (!handoff) return `${amount}. ${pause}`;
+    if (!handoff) return pause;
     const context = this.contextTokens();
     const instead =
       context !== null && context > 0
@@ -408,8 +685,18 @@ export class SessionBudgetBannerComponent {
         : '';
     const handoffLine = `Continue in a new session that starts with only the handoff (about ${this.tokens(Math.ceil(handoff.chars / 4))} tokens${instead}).`;
     return budget.blocked
-      ? `${amount}. ${pause} ${handoffLine}`
-      : `${amount}. ${handoffLine} ${pause}`;
+      ? `${pause} ${handoffLine}`
+      : `${handoffLine} ${pause}`;
+  }
+
+  private isCost(budget: SessionBudgetState): boolean {
+    return budget.measure === 'cost' || budget.measure === 'cost-lower-bound';
+  }
+
+  /** `50%`, `100.2%`. */
+  private formatPercent(percent: number): string {
+    const rounded = Math.round(percent * 10) / 10;
+    return Number.isInteger(rounded) ? `${rounded}%` : `${rounded.toFixed(1)}%`;
   }
 
   /** Same scale as the stats chip: `14.1M`, `950.0k`, `812`. */

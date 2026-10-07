@@ -22,6 +22,7 @@ import {
 } from '@ptah-extension/chat-streaming';
 import { CliAgentOutputComponent } from './cli-agent-output.component';
 import { AgentCardHeaderComponent } from './agent-card-header.component';
+import { CliLaneUsageSummaryComponent } from './cli-lane-usage-summary.component';
 import {
   formatElapsed,
   parseAgentOutput,
@@ -32,7 +33,12 @@ import type { RenderSegment } from '@ptah-extension/chat-ui';
 @Component({
   selector: 'ptah-agent-card',
   standalone: true,
-  imports: [SlicePipe, AgentCardHeaderComponent, CliAgentOutputComponent],
+  imports: [
+    SlicePipe,
+    AgentCardHeaderComponent,
+    CliLaneUsageSummaryComponent,
+    CliAgentOutputComponent,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div
@@ -45,9 +51,17 @@ import type { RenderSegment } from '@ptah-extension/chat-ui';
         [elapsedDisplay]="elapsedDisplay()"
         [isStopping]="isStopping()"
         [isResuming]="isResuming()"
+        [closable]="closable()"
         (toggleExpanded)="toggleExpanded.emit()"
         (stopAgent)="stopAgent($event)"
         (resumeAgent)="resumeAgent($event)"
+        (closeLane)="closeLane.emit(agent().agentId)"
+      />
+
+      <ptah-cli-lane-usage-summary
+        class="block px-2 pt-1.5 flex-shrink-0"
+        [agent]="agent()"
+        [duration]="elapsedDisplay()"
       />
 
       @if (agent().expanded) {
@@ -104,7 +118,9 @@ import type { RenderSegment } from '@ptah-extension/chat-ui';
 })
 export class AgentCardComponent {
   readonly agent = input.required<MonitoredAgent>();
+  readonly closable = input(false);
   readonly toggleExpanded = output<void>();
+  readonly closeLane = output<string>();
 
   private readonly store = inject(AgentMonitorStore);
   private readonly rpcService = inject(ClaudeRpcService);

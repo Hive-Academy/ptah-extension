@@ -109,7 +109,7 @@ function keepDraftUntilTrimmedChange(
       data-testid="session-filter-bar"
     >
       <label
-        class="input input-xs w-full flex items-center gap-1.5 bg-base-100 border-base-content/10 ${FOCUS_RING_WITHIN}"
+        class="input input-sm rounded-lg h-8 min-h-8 w-full flex items-center gap-1.5 bg-surface-0 border-surface-border ${FOCUS_RING_WITHIN}"
       >
         <lucide-angular
           [img]="SearchIcon"
@@ -148,7 +148,7 @@ function keepDraftUntilTrimmedChange(
           <button
             trigger
             type="button"
-            class="btn btn-ghost btn-xs h-6 min-h-6 gap-1 px-1.5 text-base-content"
+            class="btn btn-ghost btn-sm h-8 min-h-8 gap-1 px-1.5 text-base-content"
             aria-haspopup="dialog"
             [attr.aria-expanded]="filtersOpen()"
             [attr.aria-label]="filtersButtonLabel()"
@@ -160,7 +160,7 @@ function keepDraftUntilTrimmedChange(
               class="w-3 h-3"
               aria-hidden="true"
             />
-            <span class="text-[11px]">Filters</span>
+            <span class="text-xs">Filters</span>
             @if (activeFilterCount() > 0) {
               <span
                 class="badge badge-xs badge-neutral tabular-nums"
@@ -222,7 +222,7 @@ function keepDraftUntilTrimmedChange(
               <input
                 [id]="taskInputId"
                 type="text"
-                class="input input-xs w-full bg-base-100 border-base-content/10 ${FOCUS_RING}"
+                class="input input-sm rounded-lg h-8 min-h-8 w-full bg-surface-0 border-surface-border ${FOCUS_RING}"
                 placeholder="TASK_2026_..."
                 [value]="taskId()"
                 (input)="onTaskId($event)"
@@ -277,7 +277,7 @@ function keepDraftUntilTrimmedChange(
         <label class="sr-only" [attr.for]="sortSelectId">Sort sessions</label>
         <select
           [id]="sortSelectId"
-          class="select select-xs h-6 min-h-6 min-w-0 flex-1 pl-2 pr-6 bg-base-100 border-base-content/10 text-[11px] ${FOCUS_RING}"
+          class="select select-sm rounded-lg h-8 min-h-8 min-w-0 flex-1 pl-2 pr-6 bg-surface-0 border-surface-border text-xs ${FOCUS_RING}"
           (change)="onSort($event)"
           data-testid="session-filter-sort"
         >
@@ -291,7 +291,7 @@ function keepDraftUntilTrimmedChange(
         <label class="sr-only" [attr.for]="groupSelectId">Group sessions</label>
         <select
           [id]="groupSelectId"
-          class="select select-xs h-6 min-h-6 min-w-0 flex-1 pl-2 pr-6 bg-base-100 border-base-content/10 text-[11px] ${FOCUS_RING}"
+          class="select select-sm rounded-lg h-8 min-h-8 min-w-0 flex-1 pl-2 pr-6 bg-surface-0 border-surface-border text-xs ${FOCUS_RING}"
           (change)="onGroup($event)"
           data-testid="session-filter-group"
         >

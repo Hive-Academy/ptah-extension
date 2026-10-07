@@ -160,4 +160,56 @@ describe('ElectronShellComponent — activity placement', () => {
       '--ptah-activity-toast-inset',
     );
   });
+
+  it('reserves the global-actions width so the back slot cannot shift the tabs', () => {
+    const root = shell().firstElementChild as HTMLElement | null;
+    expect(root?.classList).toContain('bg-surface-0');
+    expect(navbar().classList).toContain('bg-surface-1');
+    expect(navbar().classList).toContain('border-surface-border');
+    expect(navbar().classList).not.toContain('bg-base-200');
+
+    const cluster = navbar().querySelector(
+      '[data-testid="titlebar-global-actions"]',
+    );
+    expect(cluster?.classList).toContain('min-w-[13rem]');
+    expect(cluster?.classList).toContain('shrink-0');
+    expect(cluster?.classList).toContain('justify-end');
+
+    const slot = cluster?.querySelector('[data-testid="titlebar-back-slot"]');
+    expect(slot?.classList).toContain('w-8');
+    expect(slot?.classList).toContain('shrink-0');
+    // Folders are open, so the tab strip is up and the reserved slot is empty.
+    expect(
+      slot?.querySelector('[data-test="config-back-to-welcome"]'),
+    ).toBeNull();
+    expect(navbar().querySelector('ptah-activity-ticker')).toBeNull();
+  });
+
+  it('resizes the sessions sidebar from the between-sidebars divider and leaves the workspace width alone', () => {
+    const sessions = {
+      sidebarWidth: () => 272,
+      beginExternalSidebarResize: jest.fn(),
+      applyExternalSidebarResize: jest.fn(),
+      commitExternalSidebarResize: jest.fn(),
+    };
+    const component = fixture.componentInstance as unknown as {
+      sessionsShell: () => typeof sessions;
+      onSessionsDividerMouseDown: (event: MouseEvent) => void;
+      onSessionsDividerDrag: (pointerX: number) => void;
+      onSessionsDividerDragEnd: () => void;
+    };
+    component.sessionsShell = () => sessions;
+
+    component.onSessionsDividerMouseDown({ clientX: 252 } as MouseEvent);
+    component.onSessionsDividerDrag(292);
+
+    expect(sessions.beginExternalSidebarResize).toHaveBeenCalledTimes(1);
+    // +40px on the sessions pane (272 → 312), not the absolute pointer 292
+    // that used to be written as the workspace sidebar width.
+    expect(sessions.applyExternalSidebarResize).toHaveBeenCalledWith(312);
+    expect(layoutStub.setWorkspaceSidebarWidth).not.toHaveBeenCalled();
+
+    component.onSessionsDividerDragEnd();
+    expect(sessions.commitExternalSidebarResize).toHaveBeenCalledTimes(1);
+  });
 });

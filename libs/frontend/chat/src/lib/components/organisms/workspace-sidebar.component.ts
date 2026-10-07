@@ -35,12 +35,16 @@ import { SessionLivenessRegistry } from '@ptah-extension/chat-state';
     }
   `,
   template: `
+    <!-- surface-1 panel. The single edge is border-r; the sessions
+         sidebar does not add a matching border-l. Header, list and footer
+         share a 12px inset (px-3) so the label, row tiles and Add Folder
+         box start on one edge. Row type stays text-[13px]. -->
     <div
-      class="flex flex-col h-full bg-base-200 border-r border-base-content/10"
+      class="flex flex-col h-full bg-surface-1 border-r border-surface-border"
       [style.width.px]="width()"
     >
       <!-- Workspace label -->
-      <div class="px-3 pt-2.5 pb-1">
+      <div class="px-3 pt-3 pb-2">
         <span
           class="text-[10px] font-semibold uppercase tracking-wider text-base-content-muted"
         >
@@ -49,26 +53,28 @@ import { SessionLivenessRegistry } from '@ptah-extension/chat-state';
       </div>
 
       <!-- Folder list -->
-      <div class="flex-1 overflow-y-auto px-2">
+      <div class="flex-1 overflow-y-auto px-3 py-3">
         @for (
           folder of layout.workspaceFolders();
           track folder.path;
           let i = $index
         ) {
           <div
-            class="sidebar-item group relative flex items-center gap-2 px-2 py-2 rounded-md cursor-pointer transition-colors duration-150 mb-0.5 hover:bg-base-300"
-            [class.bg-base-300]="i === layout.activeWorkspaceIndex()"
+            class="sidebar-item group relative flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer transition-colors duration-150 mb-0.5 hover:bg-surface-2"
+            [class.sidebar-item-active]="i === layout.activeWorkspaceIndex()"
             [class.text-primary]="i === layout.activeWorkspaceIndex()"
             (click)="layout.switchWorkspace(i)"
             [title]="folder.path"
           >
             <lucide-angular
               [img]="FolderOpenIcon"
-              class="w-4 h-4 flex-shrink-0"
+              class="w-3.5 h-3.5 flex-shrink-0"
               [class.text-primary]="i === layout.activeWorkspaceIndex()"
               [class.opacity-50]="i !== layout.activeWorkspaceIndex()"
             />
-            <span class="text-sm truncate flex-1">{{ folder.name }}</span>
+            <span class="text-[13px] font-medium truncate flex-1">{{
+              folder.name
+            }}</span>
             @if (liveness.liveWorkspaces().has(folder.path)) {
               <span
                 class="w-1.5 h-1.5 rounded-full bg-primary animate-pulse flex-shrink-0"
@@ -103,7 +109,7 @@ import { SessionLivenessRegistry } from '@ptah-extension/chat-state';
       </div>
 
       <!-- Add folder button -->
-      <div class="p-2 border-t border-base-content/10">
+      <div class="px-3 py-3 border-t border-surface-border">
         <button
           class="btn btn-ghost btn-sm w-full gap-2 text-base-content-muted hover:text-base-content justify-start"
           (click)="layout.addFolder()"

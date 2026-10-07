@@ -20,12 +20,17 @@ import {
   X,
 } from 'lucide-angular';
 import { ProvidersSettingsStateService } from '@ptah-extension/core';
-import { NativePopoverComponent } from '@ptah-extension/ui';
+import {
+  NativePopoverComponent,
+  ProviderMarkComponent,
+  SurfaceSectionComponent,
+} from '@ptah-extension/ui';
 import type { SystemCliType } from '@ptah-extension/shared';
 import { SettingsSaveFeedbackService } from '../feedback/settings-save-feedback.service';
 import {
   cliMatrixRows,
   cliModelDisplay,
+  isCliProcessDump,
   type CliMatrixRow,
   type CliMatrixStatus,
   type CliKeyStatus,
@@ -162,20 +167,23 @@ const SAVE_SCOPE = 'global';
     SettingsBusyDisabledDirective,
     LucideAngularModule,
     NativePopoverComponent,
+    ProviderMarkComponent,
     CliModelEffortPopoverComponent,
     CopilotAutoApproveToggleComponent,
     CursorCredentialPopoverComponent,
     AddCliInstanceModalComponent,
     CliTierMappingModalComponent,
+    SurfaceSectionComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <section
-      class="rounded-xl border border-base-300 bg-base-200 p-3"
+    <ptah-surface-section
+      tone="subtle"
+      padding="md"
       aria-labelledby="cli-matrix-heading"
-      data-testid="cli-matrix-section"
+      data-testid="settings-cli-matrix"
     >
-      <div class="mb-2 flex flex-wrap items-center gap-x-2 gap-y-1">
+      <div section-header class="flex flex-wrap items-center gap-x-2 gap-y-1">
         <h2
           id="cli-matrix-heading"
           class="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-base-content"
@@ -206,9 +214,7 @@ const SAVE_SCOPE = 'global';
         </button>
       </div>
 
-      <div
-        class="overflow-x-auto rounded-lg border border-base-300 bg-base-100"
-      >
+      <div class="surface-2 overflow-x-auto rounded-lg">
         <!-- table-xs density: the §1.2 fold budget is the pass line, not the prototype's 56 px rows (plan :1049-1052).
              tabindex -1: the cli-agents deep link focuses the table (Batch 34); it is not a Tab stop. -->
         <table
@@ -274,10 +280,8 @@ const SAVE_SCOPE = 'global';
                   class="cli-row"
                   [attr.data-testid]="'cli-matrix-row-' + row.id"
                   [attr.data-kind]="row.kind"
-                  [class.bg-primary/5]="
-                    row.kind === 'instance' && row.interactive
-                  "
-                  [class.bg-base-300/50]="!row.interactive"
+                  [class.surface-2]="!rowOpen(row.id)"
+                  [class.surface-3]="rowOpen(row.id)"
                   [attr.data-dimmed]="row.interactive ? null : 'true'"
                 >
                   <td class="align-middle">
@@ -310,7 +314,7 @@ const SAVE_SCOPE = 'global';
                       @if (row.kind === 'system' && row.versionLabel) {
                         <span
                           class="min-w-0 max-w-[8rem] truncate whitespace-nowrap text-xs font-normal text-base-content-muted"
-                          [title]="row.version"
+                          [title]="versionTitle(row)"
                           data-testid="cli-matrix-version"
                           >{{ row.versionLabel }}</span
                         >
@@ -342,10 +346,17 @@ const SAVE_SCOPE = 'global';
                         {{ statusLabel(row) }}
                       </span>
                       <span
-                        class="w-0 min-w-0 flex-1 truncate text-xs text-base-content-muted"
+                        class="flex w-0 min-w-0 flex-1 items-center gap-1 truncate text-xs text-base-content-muted"
                         [title]="providerLabel(row)"
-                        >{{ providerLabel(row) }}</span
                       >
+                        <ptah-provider-mark
+                          [providerId]="providerMarkId(row)"
+                          fallback="Terminal"
+                        />
+                        <span class="min-w-0 truncate">{{
+                          providerLabel(row)
+                        }}</span>
+                      </span>
                     </div>
                     @if (row.kind === 'instance') {
                       <div
@@ -401,7 +412,15 @@ const SAVE_SCOPE = 'global';
                     class="cli-col-narrow-hidden min-w-[5rem] text-xs"
                     [class.text-base-content-muted]="!row.interactive"
                   >
-                    {{ providerLabel(row) }}
+                    <span class="inline-flex min-w-0 items-center gap-1.5">
+                      <ptah-provider-mark
+                        [providerId]="providerMarkId(row)"
+                        fallback="Terminal"
+                      />
+                      <span class="min-w-0 truncate">{{
+                        providerLabel(row)
+                      }}</span>
+                    </span>
                   </td>
                   <!-- The model column keeps a readable width; long ids wrap at word breaks (prototype: 2 lines at most). -->
                   <td class="min-w-[8rem]">
@@ -465,11 +484,52 @@ const SAVE_SCOPE = 'global';
                         >—</span
                       >
                     } @else if (row.kind === 'instance') {
-                      <span
-                        class="font-mono text-xs text-base-content-muted"
-                        title="Effort follows the instance's tier mappings"
-                        >mapped</span
-                      >
+                      @if (row.interactive) {
+                        <ptah-native-popover
+                          [isOpen]="isOpen(row.id, 'effort')"
+                          placement="bottom-start"
+                          [hasBackdrop]="true"
+                          backdropClass="transparent"
+                          (closed)="close()"
+                          (opened)="focusOpened()"
+                        >
+                          <button
+                            trigger
+                            type="button"
+                            [class]="cell"
+                            [ptahBusyDisabled]="busy()"
+                            (click)="openCell(row.id, 'effort')"
+                            [attr.aria-label]="
+                              row.name +
+                              ' reasoning effort: ' +
+                              (row.effort || 'default') +
+                              '. Change'
+                            "
+                            [attr.aria-expanded]="isOpen(row.id, 'effort')"
+                            [attr.data-testid]="'cli-matrix-effort-' + row.id"
+                          >
+                            {{ row.effort || 'default' }}
+                            <lucide-angular
+                              [img]="ChevronIcon"
+                              class="h-2.5 w-2.5 shrink-0 text-base-content-muted"
+                              aria-hidden="true"
+                            />
+                          </button>
+                          @if (isOpen(row.id, 'effort')) {
+                            <ptah-cli-model-effort-popover
+                              content
+                              [row]="row"
+                              field="effort"
+                              (closed)="close()"
+                            />
+                          }
+                        </ptah-native-popover>
+                      } @else {
+                        <span
+                          class="font-mono text-xs text-base-content-muted"
+                          >{{ row.effort || 'default' }}</span
+                        >
+                      }
                     } @else if (row.effort) {
                       @if (row.interactive) {
                         <ptah-native-popover
@@ -902,7 +962,7 @@ const SAVE_SCOPE = 'global';
           }
         </table>
       </div>
-    </section>
+    </ptah-surface-section>
 
     <!-- Batch 32: centered modals on the shared native <dialog> (design-spec §6), in this lazy chunk. -->
     <ptah-add-cli-instance-modal
@@ -1112,6 +1172,11 @@ export class CliOrchestrationMatrixComponent {
     return open?.rowId === rowId && open.kind === kind;
   }
 
+  /** A row carrying an active editor rises above the otherwise uniform matrix rows. */
+  protected rowOpen(rowId: string): boolean {
+    return this.openState()?.rowId === rowId;
+  }
+
   protected openCell(rowId: string, kind: OpenCell['kind']): void {
     this.openState.set(this.isOpen(rowId, kind) ? null : { rowId, kind });
   }
@@ -1190,6 +1255,17 @@ export class CliOrchestrationMatrixComponent {
     if (row.kind === 'instance') return row.provider;
     if (!row.installed) return 'None';
     return row.provider ?? 'Set by the model';
+  }
+
+  /** Registry or CLI id for `ptah-provider-mark`. Unknown ids use its Terminal fallback. */
+  protected providerMarkId(row: CliMatrixRow): string {
+    return row.kind === 'instance' ? row.providerId : row.cli;
+  }
+
+  /** The version tooltip. A multi-line probe stays off the page; the token label is enough. */
+  protected versionTitle(row: SystemCliMatrixRow): string | null {
+    if (!row.version) return null;
+    return isCliProcessDump(row.version) ? row.versionLabel : row.version;
   }
 
   /** The Model cell's text: one value, the model id (Batch 52.2); null when the instance's saved model has not loaded. */

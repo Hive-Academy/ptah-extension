@@ -32,7 +32,11 @@ describe('SessionBudgetBannerComponent', () => {
 
   function render(
     budget: SessionBudgetState | null,
-    extra: { preview?: string | null; contextTokens?: number | null } = {},
+    extra: {
+      preview?: string | null;
+      contextTokens?: number | null;
+      usage?: readonly { at: number; used: number; percent: number | null }[];
+    } = {},
   ): HTMLElement {
     TestBed.configureTestingModule({
       imports: [SessionBudgetBannerComponent],
@@ -51,6 +55,9 @@ describe('SessionBudgetBannerComponent', () => {
     }
     if (extra.contextTokens !== undefined) {
       fixture.componentRef.setInput('contextTokens', extra.contextTokens);
+    }
+    if (extra.usage !== undefined) {
+      fixture.componentRef.setInput('usage', extra.usage);
     }
     fixture.detectChanges();
     return fixture.nativeElement as HTMLElement;
@@ -185,17 +192,30 @@ describe('SessionBudgetBannerComponent', () => {
   });
 
   describe('tighten', () => {
-    it('advisory (no window): status role, /compact advice, OK only', () => {
-      const root = render({ ...BASE, stage: 'tighten' });
+    it('advisory (no window): status role, /compact advice, Dismiss only', () => {
+      const root = render({ ...BASE, stage: 'tighten', compactions: 2 });
 
       expect(banner(root)?.getAttribute('role')).toBe('status');
+      expect(banner(root)?.getAttribute('aria-live')).toBe('polite');
       expect(text(root, 'session-budget-title')).toBe(
         "Half of this session's budget is used",
       );
       expect(text(root, 'session-budget-body')).toBe(
-        "25.0M of 50.0M tokens. Run /compact or start a fresh session for unrelated work to slow the spend. /compact frees context but does not reset this session's budget.",
+        "Run /compact or start a fresh session for unrelated work to slow the spend. /compact frees context but does not reset this session's budget.",
       );
-      expect(buttons(root)).toEqual(['OK']);
+      expect(root.querySelector('code')?.textContent).toBe('/compact');
+      expect(text(root, 'session-budget-used')).toBe('25.0M');
+      expect(text(root, 'session-budget-limit')).toBe('50.0M');
+      expect(text(root, 'session-budget-percent')).toBe('50%');
+      expect(text(root, 'session-budget-compactions')).toBe('2');
+      const meter = root.querySelector('[data-testid="session-budget-meter"]');
+      expect(meter?.tagName).toBe('PROGRESS');
+      expect(meter?.classList.contains('progress-warning')).toBe(true);
+      expect(meter?.getAttribute('aria-valuenow')).toBe('50');
+      expect(
+        root.querySelector('[data-testid="session-budget-sparkline"]'),
+      ).toBeNull();
+      expect(buttons(root)).toEqual(['Compact', 'Dismiss']);
     });
 
     // TASK_2026_614 F-A / Batch 28: a failed restore keeps the lowered window.
@@ -207,9 +227,13 @@ describe('SessionBudgetBannerComponent', () => {
       });
 
       expect(text(root, 'session-budget-body')).toBe(
-        '25.0M of 50.0M tokens. Ptah could not restore auto-compact; it stays at 200.0k tokens for this session. Try Restore auto-compact again.',
+        'Ptah could not restore auto-compact; it stays at 200.0k tokens for this session. Try Restore auto-compact again.',
       );
-      expect(buttons(root)).toEqual(['OK', 'Restore auto-compact']);
+      expect(buttons(root)).toEqual([
+        'Compact',
+        'Dismiss',
+        'Restore auto-compact',
+      ]);
     });
 
     it('advisory when the window reason is disabled', () => {
@@ -232,9 +256,13 @@ describe('SessionBudgetBannerComponent', () => {
       });
 
       expect(text(root, 'session-budget-body')).toBe(
-        '25.0M of 50.0M tokens. Ptah lowered auto-compact to 200.0k tokens for this session. If the context is already above that, the next request compacts first. More compactions bring the handoff step sooner.',
+        'Ptah lowered auto-compact to 200.0k tokens for this session. If the context is already above that, the next request compacts first. More compactions bring the handoff step sooner.',
       );
-      expect(buttons(root)).toEqual(['OK', 'Restore auto-compact']);
+      expect(buttons(root)).toEqual([
+        'Compact',
+        'Dismiss',
+        'Restore auto-compact',
+      ]);
     });
 
     it.each([
@@ -250,12 +278,61 @@ describe('SessionBudgetBannerComponent', () => {
       });
 
       expect(text(root, 'session-budget-body')).toBe(
-        `25.0M of 50.0M tokens. Ptah could not lower auto-compact here (${reasonText}). Use /compact or start a fresh session to slow the spend. /compact frees context but does not reset this session's budget.`,
+        `Ptah could not lower auto-compact here (${reasonText}). Use /compact or start a fresh session to slow the spend. /compact frees context but does not reset this session's budget.`,
       );
-      expect(buttons(root)).toEqual(['OK']);
+      expect(buttons(root)).toEqual(['Compact', 'Dismiss']);
     });
 
-    it('OK emits dismiss; Restore emits restoreWindow', () => {
+    it('Compact emits compact and is disabled while compaction runs', () => {
+      const root = render({ ...BASE, stage: 'tighten' });
+      const compact = jest.fn();
+      fixture.componentInstance.compact.subscribe(compact);
+
+      button(root, 'Compact').click();
+      expect(compact).toHaveBeenCalledTimes(1);
+
+      fixture.componentRef.setInput('compacting', true);
+      fixture.detectChanges();
+      expect(button(root, 'Compact').disabled).toBe(true);
+      expect(button(root, 'Dismiss').disabled).toBe(false);
+    });
+
+    it('draws a sparkline once two usage samples exist', () => {
+      const root = render(
+        { ...BASE, stage: 'tighten' },
+        {
+          usage: [
+            { at: 1, used: 10, percent: 10 },
+            { at: 2, used: 25_000_000, percent: 50 },
+          ],
+        },
+      );
+
+      const spark = root.querySelector(
+        '[data-testid="session-budget-sparkline"]',
+      );
+      expect(spark?.getAttribute('aria-label')).toBe(
+        'Budget use over this session, 2 samples',
+      );
+      expect(
+        spark?.querySelector('polyline')?.getAttribute('points'),
+      ).toContain(',');
+      expect(
+        spark?.querySelector('polyline')?.classList.contains('stroke-warning'),
+      ).toBe(true);
+    });
+
+    it('hides the sparkline with fewer than two samples', () => {
+      const root = render(
+        { ...BASE, stage: 'tighten' },
+        { usage: [{ at: 1, used: 10, percent: 10 }] },
+      );
+      expect(
+        root.querySelector('[data-testid="session-budget-sparkline"]'),
+      ).toBeNull();
+    });
+
+    it('Dismiss emits dismiss; Restore emits restoreWindow', () => {
       const root = render({
         ...BASE,
         stage: 'tighten',
@@ -266,7 +343,7 @@ describe('SessionBudgetBannerComponent', () => {
       fixture.componentInstance.dismiss.subscribe(dismiss);
       fixture.componentInstance.restoreWindow.subscribe(restore);
 
-      button(root, 'OK').click();
+      button(root, 'Dismiss').click();
       button(root, 'Restore auto-compact').click();
 
       expect(dismiss).toHaveBeenCalledTimes(1);
@@ -300,13 +377,20 @@ describe('SessionBudgetBannerComponent', () => {
         'Time to hand off this session',
       );
       expect(text(root, 'session-budget-body')).toBe(
-        '40.0M of 50.0M tokens (80%). Ptah saved a handoff with the goal, decisions, changed files, open items and next step. At 100% new messages in this session pause.',
+        'Ptah saved a handoff with the goal, decisions, changed files, open items and next step. At 100% new messages in this session pause.',
       );
+      expect(text(root, 'session-budget-percent')).toBe('80%');
+      const meter = root.querySelector('[data-testid="session-budget-meter"]');
+      expect(meter?.classList.contains('progress-error')).toBe(true);
       expect(buttons(root)).toEqual([
-        'Start new session from handoff',
+        'New session',
+        'Compact',
         'Preview handoff',
-        'Keep working',
+        'Dismiss',
       ]);
+      expect(button(root, 'New session').getAttribute('aria-label')).toBe(
+        'Start new session from handoff',
+      );
     });
 
     it('names the compactions when they count', () => {
@@ -366,8 +450,8 @@ describe('SessionBudgetBannerComponent', () => {
       fixture.componentInstance.continueInNewSession.subscribe(cont);
       fixture.componentInstance.dismiss.subscribe(dismiss);
 
-      button(root, 'Start new session from handoff').click();
-      button(root, 'Keep working').click();
+      button(root, 'New session').click();
+      button(root, 'Dismiss').click();
 
       expect(cont).toHaveBeenCalledTimes(1);
       expect(dismiss).toHaveBeenCalledTimes(1);
@@ -392,13 +476,22 @@ describe('SessionBudgetBannerComponent', () => {
         'This session reached its budget',
       );
       expect(text(root, 'session-budget-body')).toBe(
-        "50.1M of 50.0M tokens. New messages here are paused after the current turn (one queued message may still run). /clear still works. /compact frees context but does not reset this session's budget; at the limit only a bare /compact is allowed. Continue in a new session that starts with only the handoff (about 1.5k tokens instead of 180.0k).",
+        "New messages here are paused after the current turn (one queued message may still run). /clear still works. /compact frees context but does not reset this session's budget; at the limit only a bare /compact is allowed. Continue in a new session that starts with only the handoff (about 1.5k tokens instead of 180.0k).",
       );
+      expect(text(root, 'session-budget-used')).toBe('50.1M');
+      expect(text(root, 'session-budget-percent')).toBe('100.2%');
+      const meter = root.querySelector('[data-testid="session-budget-meter"]');
+      expect(meter?.classList.contains('progress-error')).toBe(true);
+      expect(meter?.getAttribute('aria-valuenow')).toBe('100');
+      expect(meter?.getAttribute('aria-label')).toContain('over the limit');
       expect(buttons(root)).toEqual([
-        'Continue in new session',
+        'New session',
         'Preview handoff',
         'Allow 20% more',
       ]);
+      expect(button(root, 'New session').getAttribute('aria-label')).toBe(
+        'Continue in new session',
+      );
     });
 
     it('says sends are not paused when blocking is off', () => {
@@ -424,9 +517,9 @@ describe('SessionBudgetBannerComponent', () => {
         lowerBound: true,
       });
 
-      expect(text(root, 'session-budget-body')).toMatch(
-        /^≥ \$30\.50 of \$30 of cost\. /,
-      );
+      expect(text(root, 'session-budget-used')).toBe('≥ $30.50');
+      expect(text(root, 'session-budget-limit')).toBe('$30');
+      expect(text(root, 'session-budget-stats')).toContain('Cost');
     });
 
     it('Allow 20% more emits extend; busy disables every button', () => {

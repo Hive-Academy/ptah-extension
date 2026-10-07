@@ -42,58 +42,130 @@ import type { PlanLimitTileModel } from './stats-limit-view-model.types';
       type="button"
       [class]="faceClass()"
       [class.rounded-b-none]="open()"
-      [attr.aria-expanded]="open()"
-      [attr.aria-controls]="panelId"
+      [class.cursor-default]="!expandable()"
+      [disabled]="!expandable()"
+      [attr.aria-expanded]="expandable() ? open() : null"
+      [attr.aria-controls]="expandable() ? panelId : null"
       data-testid="plan-limit-tile"
       (click)="toggled.emit()"
     >
-      <span
-        class="block text-[10px] uppercase tracking-wider text-base-content-muted leading-tight"
-        >{{ t.label }}</span
-      >
-      <span
-        class="flex min-w-0 gap-1 text-[10px] text-base-content-muted leading-tight"
-        [attr.title]="t.caption"
-        data-testid="plan-limit-caption"
-      >
-        <span [class.truncate]="!open()">{{ t.captionLead }}</span>
-        @if (t.captionTail; as tail) {
-          <span class="shrink-0 whitespace-nowrap">{{ tail }}</span>
-        }
-      </span>
-      <span
-        class="block text-sm font-semibold leading-tight mt-0.5"
-        data-testid="plan-limit-tile-value"
-        >{{ t.value }}</span
-      >
-      @if (t.resetLine) {
+      @if (t.kind === 'status') {
         <span
-          class="block text-[11px] text-base-content-muted leading-tight mt-0.5"
-          >{{ t.resetLine }}</span
+          class="block text-[10px] uppercase tracking-wider text-base-content-muted leading-tight"
+          >{{ t.label }}</span
         >
-      }
-      @if (t.chip; as chip) {
-        <span class="flex flex-wrap gap-1 mt-1">
-          <span [class]="chipClass(chip.tone)" data-testid="plan-limit-chip">
-            @if (chip.glyph) {
-              <span aria-hidden="true">{{ chip.glyph }}</span>
-            }
-            {{ chip.text }}
-          </span>
-        </span>
-      }
-      @if (t.sourceChips.length > 0) {
-        <span class="flex flex-wrap gap-1 mt-1">
-          @for (source of t.sourceChips; track source) {
-            <span [class]="sourceChipClass(source)">{{ source }}</span>
+        <span
+          class="flex min-w-0 gap-1 text-[10px] text-base-content-muted leading-tight"
+          [attr.title]="t.caption"
+          data-testid="plan-limit-caption"
+        >
+          <span [class.truncate]="!open()">{{ t.captionLead }}</span>
+          @if (t.captionTail; as tail) {
+            <span class="shrink-0 whitespace-nowrap">{{ tail }}</span>
           }
         </span>
+        <span
+          [class]="chipClass('neutral')"
+          [attr.title]="statusTitle()"
+          data-testid="plan-limit-status"
+          >{{ t.value }} · {{ t.resetLine }}</span
+        >
+      } @else {
+        @if (progressPercent() !== null) {
+          <span class="mt-1 flex min-w-0 items-center gap-2">
+            <span
+              [class]="radialClass()"
+              role="progressbar"
+              aria-valuemin="0"
+              aria-valuemax="100"
+              [attr.aria-valuenow]="progressPercent()!"
+              [attr.aria-label]="t.label + ' plan usage'"
+              [attr.title]="t.value + '. ' + t.resetLine"
+              [style.--value]="progressPercent()!"
+              style="--size: 2.75rem; --thickness: 4px"
+              data-testid="plan-limit-radial-progress"
+              >{{ roundedProgressPercent() }}%</span
+            >
+            <span class="min-w-0 text-left">
+              <span
+                class="block text-[10px] uppercase tracking-wider text-base-content-muted leading-tight"
+                >{{ t.label }}</span
+              >
+              <span
+                class="flex min-w-0 gap-1 text-[10px] text-base-content-muted leading-tight"
+                [attr.title]="t.caption"
+                data-testid="plan-limit-caption"
+              >
+                <span [class.truncate]="!open()">{{ t.captionLead }}</span>
+                @if (t.captionTail; as tail) {
+                  <span class="shrink-0 whitespace-nowrap">{{ tail }}</span>
+                }
+              </span>
+              <span
+                class="block text-sm font-semibold leading-tight"
+                data-testid="plan-limit-tile-value"
+                >{{ t.value }}</span
+              >
+              @if (t.resetLine) {
+                <span
+                  class="block text-[11px] text-base-content-muted leading-tight mt-0.5"
+                  >{{ t.resetLine }}</span
+                >
+              }
+            </span>
+          </span>
+        } @else {
+          <span
+            class="block text-[10px] uppercase tracking-wider text-base-content-muted leading-tight"
+            >{{ t.label }}</span
+          >
+          <span
+            class="flex min-w-0 gap-1 text-[10px] text-base-content-muted leading-tight"
+            [attr.title]="t.caption"
+            data-testid="plan-limit-caption"
+          >
+            <span [class.truncate]="!open()">{{ t.captionLead }}</span>
+            @if (t.captionTail; as tail) {
+              <span class="shrink-0 whitespace-nowrap">{{ tail }}</span>
+            }
+          </span>
+          <span
+            class="block text-sm font-semibold leading-tight mt-0.5"
+            data-testid="plan-limit-tile-value"
+            >{{ t.value }}</span
+          >
+          @if (t.resetLine) {
+            <span
+              class="block text-[11px] text-base-content-muted leading-tight mt-0.5"
+              >{{ t.resetLine }}</span
+            >
+          }
+        }
+        @if (t.chip; as chip) {
+          <span class="flex flex-wrap gap-1 mt-1">
+            <span [class]="chipClass(chip.tone)" data-testid="plan-limit-chip">
+              @if (chip.glyph) {
+                <span aria-hidden="true">{{ chip.glyph }}</span>
+              }
+              {{ chip.text }}
+            </span>
+          </span>
+        }
+        @if (t.sourceChips.length > 0) {
+          <span class="flex flex-wrap gap-1 mt-1">
+            @for (source of t.sourceChips; track source) {
+              <span [class]="sourceChipClass(source)">{{ source }}</span>
+            }
+          </span>
+        }
       }
-      <lucide-angular
-        [img]="open() ? ChevronUpIcon : ChevronDownIcon"
-        class="absolute top-1.5 right-1 w-3 h-3 text-base-content-muted"
-        aria-hidden="true"
-      />
+      @if (expandable()) {
+        <lucide-angular
+          [img]="open() ? ChevronUpIcon : ChevronDownIcon"
+          class="absolute top-1.5 right-1 w-3 h-3 text-base-content-muted"
+          aria-hidden="true"
+        />
+      }
     </button>
     <div
       [id]="panelId"
@@ -128,4 +200,25 @@ export class PlanLimitTileComponent {
   protected readonly faceClass = computed(() =>
     planFaceClass(this.tile().tone),
   );
+  protected readonly expandable = computed(() => this.tile().kind !== 'status');
+  protected readonly statusTitle = computed(() =>
+    this.tile().detailLines.join(' '),
+  );
+  protected readonly progressPercent = computed<number | null>(() => {
+    const percent = this.tile().window?.percent;
+    return typeof percent === 'number' && Number.isFinite(percent)
+      ? Math.max(0, Math.min(100, percent))
+      : null;
+  });
+  protected readonly roundedProgressPercent = computed(() =>
+    Math.round(this.progressPercent() ?? 0),
+  );
+  protected readonly radialClass = computed(() => {
+    const percent = this.progressPercent();
+    return this.tile().tone === 'error'
+      ? 'radial-progress bg-base-300 text-error'
+      : percent !== null && percent >= 75
+        ? 'radial-progress bg-base-300 text-warning'
+        : 'radial-progress bg-base-300 text-success';
+  });
 }

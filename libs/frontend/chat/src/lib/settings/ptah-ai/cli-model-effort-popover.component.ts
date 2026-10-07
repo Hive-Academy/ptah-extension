@@ -23,6 +23,7 @@ import {
 import {
   CLI_REASONING_EFFORT_VALUES,
   PI_REASONING_EFFORT_VALUES,
+  type PtahCliReasoningEffort,
 } from '@ptah-extension/shared';
 import {
   SettingsSaveFeedbackService,
@@ -30,6 +31,7 @@ import {
 } from '../feedback/settings-save-feedback.service';
 import {
   cliModelDisplay,
+  isCliProcessDump,
   type CliEffortSettingKey,
   type CliMatrixRow,
   type CliModelSettingKey,
@@ -39,8 +41,8 @@ import { SettingsBusyDisabledDirective } from '../feedback/busy-disabled.directi
 
 export type CliMatrixCellField = 'model' | 'effort';
 
-interface EffortOption {
-  readonly value: string;
+interface EffortOption<T extends string = string> {
+  readonly value: T;
   readonly label: string;
 }
 
@@ -56,7 +58,9 @@ const EFFORT_LABELS: Readonly<Record<string, string>> = {
   xhigh: 'Extra high',
   max: 'Max',
 };
-const effortOptions = (values: readonly string[]): readonly EffortOption[] =>
+const effortOptions = <T extends string>(
+  values: readonly T[],
+): readonly EffortOption<T>[] =>
   values.map((value) => ({ value, label: EFFORT_LABELS[value] ?? value }));
 /** Codex/Copilot: the host allowlist (`agent:setConfig`); `inherit` resolves in `lane-spawn-policy.ts` `resolveLaneEffort`. */
 const CLI_EFFORT_OPTIONS = effortOptions(CLI_REASONING_EFFORT_VALUES);
@@ -104,7 +108,7 @@ const FOCUS =
     <div
       role="dialog"
       [attr.aria-labelledby]="titleId()"
-      class="w-[17rem] max-w-[calc(100vw-2rem)] space-y-2 whitespace-normal p-3 text-left text-xs"
+      class="surface-3 w-[17rem] max-w-[calc(100vw-2rem)] space-y-2 rounded-xl p-3 text-left text-xs"
       data-testid="cli-matrix-popover"
       [attr.data-field]="field()"
       [attr.data-row]="row().id"
@@ -140,7 +144,7 @@ const FOCUS =
       }
 
       @if (systemModel(); as cell) {
-        @if (catalogueStatus() === 'error') {
+        @if (catalogueStatus() === 'error' || modelListRejected()) {
           <p
             role="alert"
             class="flex flex-wrap items-center gap-1.5 text-base-content"
@@ -224,6 +228,28 @@ const FOCUS =
         }
       }
 
+      @if (instanceEffort(); as cell) {
+        <div
+          class="grid grid-cols-2 gap-1"
+          role="group"
+          [attr.aria-label]="cell.name + ' reasoning effort'"
+          data-testid="cli-matrix-effort-options"
+        >
+          @for (option of ptahCliEffortChoices; track option.value) {
+            <button
+              type="button"
+              [class]="effortClass(option.value)"
+              [attr.aria-pressed]="option.value === cell.effort"
+              [ptahBusyDisabled]="busy() || !context"
+              [attr.data-effort]="option.value || 'default'"
+              (click)="saveInstanceEffort(cell, option.value)"
+            >
+              {{ option.label }}
+            </button>
+          }
+        </div>
+      }
+
       @if (instanceModel(); as cell) {
         <ptah-provider-model-picker
           [fixedProvider]="cell.providerId"
@@ -289,6 +315,10 @@ export class CliModelEffortPopoverComponent implements OnInit {
     const row = this.row();
     return row.kind === 'instance' && this.field() === 'model' ? row : null;
   });
+  protected readonly instanceEffort = computed(() => {
+    const row = this.row();
+    return row.kind === 'instance' && this.field() === 'effort' ? row : null;
+  });
 
   /** #45 (moved from the retired instance cards, Batch 34): the instance's model count, once the list has loaded. */
   protected readonly instanceModelCount = computed(() => {
@@ -302,21 +332,44 @@ export class CliModelEffortPopoverComponent implements OnInit {
   protected readonly catalogueStatus = computed(
     () => this.state.delegatedModelOptions().status,
   );
+  /**
+   * The probe returned stdout instead of model ids. The rows are dropped and
+   * the same clean status as a failed load is shown. The probe logger keeps
+   * the raw output.
+   */
+  protected readonly modelListRejected = computed(() => {
+    const row = this.systemModel();
+    if (!row || this.catalogueStatus() !== 'ready') return false;
+    const listed = this.state.delegatedModelOptions().data?.[row.cli] ?? [];
+    return (
+      listed.length > 0 &&
+      listed.every(
+        (model) =>
+          isCliProcessDump(model.id) || isCliProcessDump(model.name || ''),
+      )
+    );
+  });
   /** The CLI's catalogue; a saved id it lacks stays listed so opening the popover never changes it. */
   protected readonly modelOptions = computed<
     readonly ProviderModelSearchOption[]
   >(() => {
     const row = this.systemModel();
     if (!row) return [];
-    const options = (
-      this.state.delegatedModelOptions().data?.[row.cli] ?? []
-    ).map((model) => ({
-      id: model.id,
-      name: model.name || model.id,
-      supportsToolUse: null,
-    }));
+    const listed = this.state.delegatedModelOptions().data?.[row.cli] ?? [];
+    const options = listed
+      .filter(
+        (model) =>
+          !isCliProcessDump(model.id) && !isCliProcessDump(model.name || ''),
+      )
+      .map((model) => ({
+        id: model.id,
+        name: model.name || model.id,
+        supportsToolUse: null,
+      }));
     const saved = this.savedModelId(row);
-    return !saved || options.some((option) => option.id === saved)
+    return !saved ||
+      saved === 'Model unavailable' ||
+      options.some((option) => option.id === saved)
       ? options
       : [
           {
@@ -336,6 +389,14 @@ export class CliModelEffortPopoverComponent implements OnInit {
       ? PI_EFFORT_OPTIONS
       : CLI_EFFORT_OPTIONS,
   );
+  protected readonly ptahCliEffortChoices = effortOptions([
+    '',
+    'low',
+    'medium',
+    'high',
+    'xhigh',
+    'max',
+  ] as const);
   /** A saved effort outside the allowlist (e.g. from the old free-text field): shown, never offered. */
   protected readonly unsupportedEffort = computed(() => {
     const saved = this.systemEffort()?.effort?.value ?? '';
@@ -389,7 +450,9 @@ export class CliModelEffortPopoverComponent implements OnInit {
   }
 
   protected effortClass(value: string): string {
-    const selected = this.systemEffort()?.effort?.value === value;
+    const selected =
+      (this.systemEffort()?.effort?.value ?? this.instanceEffort()?.effort) ===
+      value;
     return `btn btn-xs min-h-7 font-medium ${selected ? 'btn-primary' : 'btn-outline border-base-content-muted text-base-content'} ${FOCUS}`;
   }
 
@@ -443,6 +506,35 @@ export class CliModelEffortPopoverComponent implements OnInit {
         label: `${row.name} model`,
         scope: SAVE_SCOPE,
         write: write(model),
+        undo: write(previous),
+      }),
+    );
+  }
+
+  protected async saveInstanceEffort(
+    row: Extract<CliMatrixRow, { kind: 'instance' }>,
+    reasoningEffort: '' | PtahCliReasoningEffort,
+  ): Promise<void> {
+    const previous = row.effort,
+      context = this.context;
+    if (reasoningEffort === previous || !context) return;
+    const write = (effort: '' | PtahCliReasoningEffort) => () =>
+      this.state.saveSettings(
+        {
+          cli: [
+            {
+              action: 'update',
+              params: { id: row.id, reasoningEffort: effort },
+            },
+          ],
+        },
+        context,
+      );
+    this.afterSave(
+      await this.feedback.save({
+        label: `${row.name} reasoning effort`,
+        scope: SAVE_SCOPE,
+        write: write(reasoningEffort),
         undo: write(previous),
       }),
     );

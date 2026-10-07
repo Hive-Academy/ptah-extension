@@ -33,7 +33,7 @@ import {
 } from './session-organization-labels';
 
 const CHIP_BASE =
-  'inline-flex items-center gap-1 h-5 px-1.5 rounded border text-[11px] leading-none whitespace-nowrap text-base-content';
+  'inline-flex items-center gap-1 h-4 px-1.5 rounded border text-[10px] leading-none whitespace-nowrap text-base-content';
 
 const PRIORITY_TINT: Readonly<Record<SessionPriority, string>> = {
   urgent: 'border-error/60 bg-error/15',

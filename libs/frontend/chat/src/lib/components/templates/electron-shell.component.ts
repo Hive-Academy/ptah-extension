@@ -48,6 +48,7 @@ import {
   NOTIFICATION_FOCUS_ROUTER,
 } from '@ptah-extension/core';
 import { AppShellComponent } from './app-shell.component';
+import { sessionSidebarWidthFromDividerDrag } from './session-sidebar-width';
 import { ElectronWelcomeComponent } from './electron-welcome.component';
 import { GlobalConfigActionsComponent } from '../molecules/global-config-actions.component';
 import { WorkspaceSidebarComponent } from '../organisms/workspace-sidebar.component';
@@ -99,10 +100,12 @@ import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-
     }
   `,
   template: `
-    <div class="flex flex-col h-screen w-screen bg-base-100">
-      <!-- Global Navbar (spans full width, draggable on macOS) -->
+    <div class="flex flex-col h-screen w-screen bg-surface-0">
+      <!-- Global Navbar (spans full width, draggable on macOS).
+           One surface-1 plane and a single bottom edge. The canvas behind
+           the panels is the surface-0 root above. -->
       <div
-        class="flex items-center h-10 px-3 bg-base-200 border-b border-base-content/10 gap-2 flex-shrink-0"
+        class="flex items-center h-10 px-3 bg-surface-1 border-b border-surface-border gap-2 flex-shrink-0"
         [class.titlebar-drag]="isMac"
       >
         <!-- Logo + App name -->
@@ -212,28 +215,41 @@ import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-
 
         <!-- Global actions: configuration, theme and notifications.
              The back-office activity ticker never sits in this row: an
-             arriving message would resize this cluster and shift the tab
+             arriving message would resize the cluster and shift the tab
              strip (TASK_2026_405). It lives in the canvas dock row instead,
-             pinned to that row's free left edge. -->
-        <div class="flex items-center gap-0.5 no-drag">
-          @if (
-            !layout.hasWorkspaceFolders() &&
-            appState.openConfigurationSurface() !== null
-          ) {
-            <button
-              type="button"
-              class="btn btn-ghost btn-sm btn-square"
-              aria-label="Back to welcome"
-              data-test="config-back-to-welcome"
-              (click)="appState.setCurrentView('chat')"
-            >
-              <lucide-angular
-                [img]="ArrowLeftIcon"
-                class="w-4 h-4"
-                aria-hidden="true"
-              />
-            </button>
-          }
+             pinned to that row's free left edge.
+             The cluster keeps a fixed minimum width and an always-present
+             32px back slot, so the conditional back button (and an in-flow
+             badge up to that slack) cannot move the centered tabs. The slot
+             is the back button's place; it stays empty while folders — and
+             therefore the tab strip — are showing. -->
+        <div
+          class="flex min-w-[13rem] shrink-0 items-center justify-end gap-0.5 no-drag"
+          data-testid="titlebar-global-actions"
+        >
+          <span
+            class="inline-flex h-8 w-8 shrink-0 items-center justify-center"
+            data-testid="titlebar-back-slot"
+          >
+            @if (
+              !layout.hasWorkspaceFolders() &&
+              appState.openConfigurationSurface() !== null
+            ) {
+              <button
+                type="button"
+                class="btn btn-ghost btn-sm btn-square"
+                aria-label="Back to welcome"
+                data-test="config-back-to-welcome"
+                (click)="appState.setCurrentView('chat')"
+              >
+                <lucide-angular
+                  [img]="ArrowLeftIcon"
+                  class="w-4 h-4"
+                  aria-hidden="true"
+                />
+              </button>
+            }
+          </span>
           <ptah-global-config-actions
             [showSetupHub]="!layout.hasWorkspaceFolders()"
           />
@@ -267,12 +283,15 @@ import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-
           />
 
           @if (layout.workspaceSidebarVisible()) {
-            <!-- Resize handle: sidebar ↔ chat -->
+            <!-- Divider between the workspace sidebar and the sessions
+                 sidebar. It resizes only the sessions sidebar (same clamp and
+                 localStorage key as the sessions pane's own handle). The
+                 workspace sidebar keeps workspaceSidebarWidth. -->
             <ptah-electron-resize-handle
               [direction]="'left'"
-              (dragStarted)="layout.setSidebarDragging(true)"
-              (dragMoved)="layout.setWorkspaceSidebarWidth($event)"
-              (dragEnded)="layout.setSidebarDragging(false)"
+              (mousedown)="onSessionsDividerMouseDown($event)"
+              (dragMoved)="onSessionsDividerDrag($event)"
+              (dragEnded)="onSessionsDividerDragEnd()"
             />
           }
 
@@ -297,7 +316,7 @@ import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-
             />
 
             <div
-              class="min-w-[300px] border-l border-base-content/10 overflow-hidden"
+              class="min-w-[300px] border-l border-surface-border overflow-hidden"
               [style.width.px]="layout.editorPanelWidth()"
             >
               @if (dockComponent()) {
@@ -350,6 +369,49 @@ export class ElectronShellComponent {
   private readonly configurationSurfaceHost = viewChild<
     ElementRef<HTMLElement>
   >('configurationSurfaceHost');
+  /** Sessions pane inside the chat column. The divider writes its width. */
+  private readonly sessionsShell = viewChild(AppShellComponent);
+  /**
+   * Pointer X and sessions width when the between-sidebars divider went down.
+   * The handle emits absolute viewport X (workspace-pane coordinates). The
+   * sessions width is the start width plus the delta.
+   */
+  private sessionsDividerAnchor: { pointerX: number; width: number } | null =
+    null;
+
+  /**
+   * Pointer-down on the divider between the workspace and sessions sidebars.
+   * Records the sessions width. The workspace width is not captured.
+   */
+  protected onSessionsDividerMouseDown(event: MouseEvent): void {
+    const shell = this.sessionsShell();
+    if (!shell) return;
+    this.sessionsDividerAnchor = {
+      pointerX: event.clientX,
+      width: shell.sidebarWidth(),
+    };
+    shell.beginExternalSidebarResize();
+  }
+
+  /** Drag: sessions width follows the pointer delta. Workspace width stays. */
+  protected onSessionsDividerDrag(pointerX: number): void {
+    const anchor = this.sessionsDividerAnchor;
+    const shell = this.sessionsShell();
+    if (!anchor || !shell) return;
+    shell.applyExternalSidebarResize(
+      sessionSidebarWidthFromDividerDrag(
+        anchor.width,
+        anchor.pointerX,
+        pointerX,
+      ),
+    );
+  }
+
+  /** Drag end, including Escape restoring the start pointer: persist sessions. */
+  protected onSessionsDividerDragEnd(): void {
+    this.sessionsDividerAnchor = null;
+    this.sessionsShell()?.commitExternalSidebarResize();
+  }
 
   /** Lazily loaded ReviewShellComponent — keeps git-ui out of the initial bundle. */
   readonly dockComponent = signal<Type<unknown> | null>(null);

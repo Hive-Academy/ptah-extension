@@ -211,7 +211,7 @@ function subagentToTile(r: SubagentRecord): WorkflowTileVM {
   `,
   template: `
     <aside
-      class="flex flex-col min-w-0 border-base-content/5 overflow-hidden h-full"
+      class="surface-1 flex flex-col min-w-0 overflow-hidden h-full"
       [class.bg-base-200]="!isOverlay()"
       [class.border-l]="!isOverlay()"
       [class.agent-panel-open]="effectiveOpen() && !isOverlay()"
@@ -477,7 +477,7 @@ function subagentToTile(r: SubagentRecord): WorkflowTileVM {
         </div>
       }
 
-      <ng-template #agentDetail let-agent>
+      <ng-template #agentDetail let-agent let-remove="remove">
         <!-- Permission requests for selected agent -->
         @if (agent.permissionQueue.length > 0) {
           <div class="border-b border-warning/30">
@@ -533,7 +533,9 @@ function subagentToTile(r: SubagentRecord): WorkflowTileVM {
           <ptah-agent-card
             class="block h-full"
             [agent]="agent"
+            [closable]="!!remove"
             (toggleExpanded)="store.toggleAgentExpanded(agent.agentId)"
+            (closeLane)="remove?.($event)"
           />
         </div>
 
@@ -956,7 +958,9 @@ export class AgentMonitorPanelComponent {
       const container = this._scroll()?.nativeElement;
       if (!container) return;
       this.ngZone.runOutsideAngular(() => {
-        container.addEventListener('scroll', this.scrollHandler, { passive: true });
+        container.addEventListener('scroll', this.scrollHandler, {
+          passive: true,
+        });
       });
       this.destroyRef.onDestroy(() =>
         container.removeEventListener('scroll', this.scrollHandler),
