@@ -43,7 +43,10 @@ the Gemini model; `gemini-3.1-pro-high` conflicts with --effort). Adjudicator = 
   r2 out-0 (strict) 40/3/1, out-1 (strict) 44 accept, out-2 40 accept/2 reject, out-3 50 accept; out-4
   (`7948e221`) and out-5 (`7fe0d20d`) were still running. Validate r2 parts 1,4,5; then build blinded
   adjudication for differing decision or replacement hash; Glm adjudicates. Items citing TASK_2026_621
-  cannot be checked at `e0ca51e` (621 is another branch) — disclose.
+  cannot be checked at `e0ca51e` (621 is another branch) — disclose. antigravity lanes left scratch
+  files in the worktree root (spec excerpts + `write_output.py` that writes "accept" except a listed
+  reject set); moved to `drafts/memory-ground-truth/panel/r2-lane-scratch/`. Check `git status` for
+  new strays after the running lanes end, and tell r2 lanes to keep scratch files out of the repo.
 - Then: write private panel manifests (`panelManifestSchema`: lanes, families, models, prompt sha,
   counts, unresolved share), merged label files for B25. U3 waits for the B24 replay.
 
