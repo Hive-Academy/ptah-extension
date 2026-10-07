@@ -94,6 +94,11 @@ export type DynamicModelFetcher = () => Promise<ProviderModelInfo[]>;
 export class ProviderModelsService {
   private readonly modelCache = new Map<string, ProviderCache>();
   private readonly CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+  /** OpenCode's public live ID lists, per subscription. */
+  private readonly openCodeLiveIds = new Map<
+    string,
+    { readonly ids: ReadonlySet<string>; readonly timestamp: number }
+  >();
   /**
    * A persisted catalog older than this is not used: vendors retire models
    * within weeks, so an old saved answer would offer IDs that now fail. The
@@ -280,22 +285,30 @@ export class ProviderModelsService {
     totalCount: number;
     isStatic: boolean;
   }> {
-    // The reviewed route-derived catalog is authoritative, even offline or
-    // when an older persisted/dynamic catalog contains unsupported model IDs.
+    // Only the reviewed route table decides which IDs Ptah can call (each
+    // needs a known protocol), but OpenCode's public list decides which of
+    // them still exist: a retired ID drops out without a release. When the
+    // public list cannot be read, the whole route table is offered.
     if (isOpenCodeProviderId(providerId)) {
-      const models: ProviderModelInfo[] = (
-        getAnthropicProvider(providerId)?.staticModels ?? []
-      ).map((m) => ({
-        id: m.id,
-        name: m.name,
-        description: m.description,
-        contextLength: m.contextLength,
-        supportsToolUse: m.supportsToolUse,
-      }));
+      const openCode = getAnthropicProvider(providerId);
+      const routed: ProviderModelInfo[] = (openCode?.staticModels ?? []).map(
+        (m) => ({
+          id: m.id,
+          name: m.name,
+          description: m.description,
+          contextLength: m.contextLength,
+          supportsToolUse: m.supportsToolUse,
+        }),
+      );
+      const liveIds = await this.fetchOpenCodeLiveIds(
+        providerId,
+        openCode?.baseUrl,
+      );
+      const models = liveIds ? routed.filter((m) => liveIds.has(m.id)) : routed;
       return {
         models: toolUseOnly ? models.filter((m) => m.supportsToolUse) : models,
         totalCount: models.length,
-        isStatic: true,
+        isStatic: liveIds === null,
       };
     }
     const dynamicFetcher = this.dynamicFetchers.get(providerId);
@@ -434,6 +447,49 @@ export class ProviderModelsService {
   /**
    * Fetch models from a provider's /v1/models API endpoint
    */
+  /**
+   * The model IDs OpenCode currently serves for one subscription, from its
+   * public `/models` list (no key needed), cached like other live lists.
+   * `null` when the list cannot be read or is empty.
+   */
+  private async fetchOpenCodeLiveIds(
+    providerId: string,
+    baseUrl: string | undefined,
+  ): Promise<ReadonlySet<string> | null> {
+    const cached = this.openCodeLiveIds.get(providerId);
+    if (cached && Date.now() - cached.timestamp < this.CACHE_TTL_MS) {
+      return cached.ids;
+    }
+    if (!baseUrl) return null;
+    try {
+      const { data } = await axios.get<ModelsApiResponse>(
+        `${baseUrl.replace(/\/+$/, '')}/models`,
+        { headers: { 'User-Agent': 'Ptah-Extension/1.0' }, timeout: 10_000 },
+      );
+      const ids = new Set(
+        (Array.isArray(data?.data) ? data.data : [])
+          .map((m) => m?.id)
+          .filter(
+            (id): id is string => typeof id === 'string' && id.length > 0,
+          ),
+      );
+      if (ids.size === 0) return null;
+      this.openCodeLiveIds.set(providerId, { ids, timestamp: Date.now() });
+      return ids;
+    } catch (error: unknown) {
+      // degradation-audit: reported - logged; the caller offers the whole
+      // reviewed route table, which is the list Ptah shipped with.
+      this.logger.debug(
+        '[ProviderModelsService] OpenCode public model list unavailable; offering the full route table',
+        {
+          providerId,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      );
+      return null;
+    }
+  }
+
   private async fetchDynamicModels(
     providerId: string,
     provider: AnthropicProvider,
