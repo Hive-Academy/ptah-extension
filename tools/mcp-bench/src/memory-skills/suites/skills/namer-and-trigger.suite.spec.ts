@@ -58,6 +58,8 @@ import {
   type CandidateWriter,
 } from './namer-collisions';
 import {
+  TRIGGER_EVAL_DISPLAY_LABEL,
+  TRIGGER_EVAL_PANEL_METHOD,
   runTriggerEvalHuman,
   scoreWithProductService,
   type TriggerLabel,
@@ -598,11 +600,20 @@ describe('skill.trigger-eval.human', () => {
       recall: 4 / 5,
       stages: [],
     });
+    expect(result.suiteId).toBe('skill.trigger-eval.human');
+    expect(TRIGGER_EVAL_DISPLAY_LABEL).toBe('skill.trigger-eval.panel');
     expect(result.groundTruth).toEqual({
       id: 'gt-skill-triggers',
       version: 'v1',
       method: 'labelled',
+      raterCount: 2,
     });
+    expect(result.claim.text).toContain(TRIGGER_EVAL_PANEL_METHOD);
+    expect(result.claim.text).toContain('skill.trigger-eval.panel');
+    expect(result.claim.text).toContain(
+      'model-panel labels; id kept for compatibility',
+    );
+    expect(result.claim.text).not.toMatch(/\bhuman\b/i);
   });
 
   it('records exactly the product measurement for each skill', async () => {
@@ -734,13 +745,18 @@ describe('NAMER_AND_TRIGGER_SUITES', () => {
       const createChild = jest.spyOn(container, 'createChildContainer');
       for (const suite of NAMER_AND_TRIGGER_SUITES) {
         const runDir = join(home, `ci-${suite.id}`);
+        const refusal =
+          suite.id === TRIGGER_EVAL_HUMAN_SUITE_ID
+            ? `${TRIGGER_EVAL_HUMAN_SUITE_ID} is local-only: it scores model-panel labels with the real embedder (display ${TRIGGER_EVAL_DISPLAY_LABEL}; model-panel labels; id kept for compatibility); it never runs in CI`
+            : new RegExp(
+                `^${suite.id.replaceAll('.', '\\.')} is local-only: .*; it never runs in CI$`,
+              );
         await expect(
           suite.run(fakeContext(home, runDir, container, {}, true)),
-        ).rejects.toThrow(
-          new RegExp(
-            `^${suite.id.replaceAll('.', '\\.')} is local-only: .*; it never runs in CI$`,
-          ),
-        );
+        ).rejects.toThrow(refusal);
+        if (typeof refusal === 'string') {
+          expect(refusal).not.toContain('human labels');
+        }
         expect(() => readSuiteResult(runDir, suite.id)).toThrow(/wrote no/);
       }
       expect(resolve).not.toHaveBeenCalled();

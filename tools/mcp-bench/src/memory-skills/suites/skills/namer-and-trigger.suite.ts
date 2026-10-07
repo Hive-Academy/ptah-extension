@@ -12,8 +12,8 @@
  *   the frozen candidate copy the plan seeds into the isolated home. Local
  *   only: the copy is private user data, so it can never be a CI suite.
  * - `skill.trigger-eval.human` (`trigger-human-eval.ts`): the product's
- *   trigger-eval scoring on human-labelled prompts; `na: ground-truth-absent`
- *   until U4 labels exist.
+ *   trigger-eval scoring on model-panel prompts. model-panel labels; id kept
+ *   for compatibility. `na: ground-truth-absent` until U4 labels exist.
  *
  * Results are written with `writeSuiteResult` (`runner/suite-result.ts`).
  */
@@ -34,6 +34,7 @@ import {
   runNamerCollisions,
 } from './namer-collisions';
 import {
+  TRIGGER_EVAL_DISPLAY_LABEL,
   TRIGGER_EVAL_HUMAN_SUITE_ID,
   runTriggerEvalHuman,
 } from './trigger-human-eval';
@@ -85,7 +86,7 @@ export const triggerEvalHumanSuite: MemorySkillsHostSuite = {
   async run(context) {
     refuseCi(
       context,
-      `${TRIGGER_EVAL_HUMAN_SUITE_ID} is local-only: it scores human labels with the real embedder`,
+      `${TRIGGER_EVAL_HUMAN_SUITE_ID} is local-only: it scores model-panel labels with the real embedder (display ${TRIGGER_EVAL_DISPLAY_LABEL}; model-panel labels; id kept for compatibility)`,
     );
     const { result, cases } = await runTriggerEvalHuman({
       home: context.isolation.home,

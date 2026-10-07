@@ -1,8 +1,18 @@
 /**
- * `skill.trigger-eval.human` (benchmark-design.md:100, :291): human-labelled
+ * `skill.trigger-eval.human` (benchmark-design.md:100, :291): model-panel
  * should-trigger and near-miss prompts for the authored skills (5 + 5 each,
  * `gt-skill-triggers@v1`, user activity U4), scored by the product's
  * `TriggerEvalService` itself.
+ *
+ * Ground truth is a cross-family model panel (raters xAI and Google,
+ * adjudicator GLM), not a human label. The display label is
+ * {@link TRIGGER_EVAL_DISPLAY_LABEL}. The suite id stays
+ * `skill.trigger-eval.human`: model-panel labels; id kept for compatibility.
+ * `groundTruth.method` stays `labelled`, the closest value 619's closed enum
+ * accepts, so `writeSuiteResult` still validates. The honest panel string
+ * {@link TRIGGER_EVAL_PANEL_METHOD} is carried on `claim.text`, the free-text
+ * field the written result keeps. `funnel` details are a strict schema with
+ * no note key, and a top-level `note` is refused.
  *
  * Real product path, and why no model is called. `TriggerEvalService.evaluate`
  * makes exactly one lane call, to GENERATE its prompts; everything after it
@@ -11,7 +21,7 @@
  * a fresh `TriggerEvalService` from a child container in which
  * `LANE_RUNNER_SERVICE` is a {@link LabelledPromptLane}: it hands back the
  * labelled prompt set as the "generated" set and never reaches a model, so the
- * human prompts run through the product's own scoring path unchanged.
+ * panel prompts run through the product's own scoring path unchanged.
  * `SKILL_CANDIDATE_STORE` is a {@link LabelledSkillLibrary}: the retrieval
  * corpus is the labelled skills' descriptions, and `recordTriggerEval` keeps
  * the measurement in memory (the product database is never written). The
@@ -59,6 +69,23 @@ import {
   resolveHomeFile,
 } from '../memory/memory-suite-support';
 
+/** Scorecard display label. 619's suite view has no display-label field. */
+export const TRIGGER_EVAL_DISPLAY_LABEL = 'skill.trigger-eval.panel';
+
+/**
+ * Honest ground-truth method. Not a human label. 619's `groundTruthSchema`
+ * does not accept this string yet, so it is stored on `claim.text`.
+ */
+export const TRIGGER_EVAL_PANEL_METHOD =
+  'model-panel:xAI+Google; adjudicator=GLM';
+
+/** Raters in the panel (xAI and Google). The GLM adjudicator is not a third rater. */
+export const TRIGGER_EVAL_PANEL_RATER_COUNT = 2;
+
+/**
+ * Suite id. model-panel labels; id kept for compatibility with the host
+ * registry and with result files named `<suiteId>.suite.json`.
+ */
 export const TRIGGER_EVAL_HUMAN_SUITE_ID = 'skill.trigger-eval.human';
 
 /** Home-relative target the plan seeds `gt-skill-triggers@v1` into. */
@@ -499,15 +526,21 @@ export async function runTriggerEvalHuman(
 ): Promise<{ result: SuiteResultInput; cases: CaseRecord[] }> {
   const options = triggerHumanOptionsSchema.parse(input.options);
   const labelsPath = resolveHomeFile(input.home, options.labelsFile);
+  // `labelled` is the closest closed-enum value (`generated|labelled|seeded|git-history`).
+  // The panel string cannot go here until 619 widens `groundTruthSchema.method`.
   const groundTruth: SuiteResultInput['groundTruth'] = {
     id: 'gt-skill-triggers',
     version: options.groundTruthVersion,
     method: 'labelled',
+    raterCount: TRIGGER_EVAL_PANEL_RATER_COUNT,
   };
   const claim: SuiteResultInput['claim'] = {
     source: 'code',
     ref: 'libs/backend/skill-synthesis/src/lib/gates/trigger-eval.service.ts:13-25',
-    text: 'Retrieval on a skill description is measured against prompts it should and should not answer, with no model in the scoring path.',
+    text:
+      'Retrieval on a skill description is measured against prompts it should and should not answer, with no model in the scoring path. ' +
+      `Ground truth note: ${TRIGGER_EVAL_PANEL_METHOD}. Display label: ${TRIGGER_EVAL_DISPLAY_LABEL}. ` +
+      'model-panel labels; id kept for compatibility.',
   };
   const fixtureId = `gt-skill-triggers@${options.groundTruthVersion}`;
 
