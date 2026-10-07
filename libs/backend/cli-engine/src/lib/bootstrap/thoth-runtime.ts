@@ -349,9 +349,11 @@ async function startSkillSynthesis(
       // `stop()` in `disposeThoth` drops the subscription.
       skillSynthesis.onStarted(startSkillTrigger);
       const outcome = await skillSynthesis.start();
-      // A start that resolved — including a paused boot, whose trigger arms
-      // its owed boot scan for the resume — except one a stop() abandoned.
-      if (outcome !== 'abandoned') startSkillTrigger();
+      // A start that resolved, including a paused boot, whose trigger arms
+      // its owed boot scan for the resume. Not one a stop() abandoned, and not
+      // a joined start that failed: a later retry brings the trigger up
+      // through `onStarted`.
+      if (outcome !== 'abandoned' && outcome !== 'failed') startSkillTrigger();
     }
   } catch (error: unknown) {
     // A failed `start()` keeps the ref: the service's retry path is still

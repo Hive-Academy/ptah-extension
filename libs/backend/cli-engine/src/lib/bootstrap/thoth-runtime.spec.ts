@@ -369,6 +369,18 @@ describe('activateThoth — runtime tier', () => {
     expect(doubles.skillTrigger.start).toHaveBeenCalledTimes(1);
   });
 
+  it('a joined start that failed resolves but starts no skill trigger', async () => {
+    const doubles = makeRuntimeDoubles();
+    doubles.skillSynthesis.start.mockImplementation(
+      async () => 'failed' as const,
+    );
+    const container = makeRuntimeContainer(doubles, ALL_RUNTIME_TOKENS);
+
+    await activateThoth(container as never, 'runtime', makeLogger() as never);
+
+    expect(doubles.skillTrigger.start).not.toHaveBeenCalled();
+  });
+
   it('a start that a stop() overtook resolves but starts no skill trigger', async () => {
     const doubles = makeRuntimeDoubles();
     doubles.skillSynthesis.start.mockImplementation(

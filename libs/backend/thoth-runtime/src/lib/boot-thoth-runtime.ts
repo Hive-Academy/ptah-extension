@@ -484,8 +484,12 @@ export async function bootThothRuntime(
       .start()
       .then((outcome) => {
         // `abandoned`: a stop() overtook the boot work, which registered
-        // nothing; the host is stopping, so no trigger either.
-        if (isAborted() || outcome === 'abandoned') return;
+        // nothing; the host is stopping, so no trigger either. `failed`: this
+        // boot joined a start that rejected; a later retry brings the trigger
+        // up through `onStarted`.
+        if (isAborted() || outcome === 'abandoned' || outcome === 'failed') {
+          return;
+        }
         console.log(`${logPrefix} Skill synthesis started`);
         startSkillTrigger();
       })

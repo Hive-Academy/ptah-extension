@@ -532,6 +532,24 @@ describe('bootThothRuntime', () => {
     expect(skillTrigger.start).toHaveBeenCalledTimes(1);
   });
 
+  it('a joined start that failed resolves but starts no trigger', async () => {
+    const skillSynthesis = makeSkillSynthesis(
+      jest.fn(async () => 'failed' as const),
+    );
+    const skillTrigger = { start: jest.fn() };
+    const container = makeContainer([
+      [PERSISTENCE_TOKENS.SQLITE_CONNECTION, makeSqlite()],
+      [SKILL_SYNTHESIS_TOKENS.SKILL_SYNTHESIS_SERVICE, skillSynthesis],
+      [SKILL_SYNTHESIS_TOKENS.SKILL_TRIGGER_SERVICE, skillTrigger],
+      [TOKENS.WEBVIEW_MANAGER, makeWebviewManager()],
+    ]);
+
+    await bootThothRuntime(container, { workspaceRoot: '/ws' });
+    await flushDeferredStarts();
+
+    expect(skillTrigger.start).not.toHaveBeenCalled();
+  });
+
   it('a start that a stop() overtook resolves but starts no trigger', async () => {
     // The real service resolves `'abandoned'` when stop() ran during its
     // database open; the boot must not bring the trigger up for it.
