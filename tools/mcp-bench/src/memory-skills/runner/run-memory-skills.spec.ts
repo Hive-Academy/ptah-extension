@@ -563,6 +563,31 @@ describe('runMemorySkills (Batch 16)', () => {
       verdict: 'na',
       naReason: 'zero-cases',
     });
+    // A forced zero-cases na scored nothing, so it starts no ratchet.
+    expect(existsSync(firstScoredRunsDir(bench))).toBe(false);
+  });
+
+  it('does not mark a ground truth first-scored when every suite on it is na', async () => {
+    const result = await runMemorySkills(
+      options(
+        writePlan({ hostSuites: [{ id: 'mem.unlabelled', groundTruth: GT }] }),
+      ),
+      deps({
+        launch: fakeLaunch({
+          results: [
+            {
+              result: suiteResult('mem.unlabelled', {
+                verdict: 'na',
+                naReason: 'ground-truth-untrusted',
+              }),
+              cases: [caseRecord('c1')],
+            },
+          ],
+        }),
+      }),
+    );
+    expect(result.exitCode).toBe(0);
+    expect(existsSync(firstScoredRunsDir(bench))).toBe(false);
   });
 
   it('reports a host suite error as missing, writes the scorecard and exits 1 outside --ci (review finding 3)', async () => {

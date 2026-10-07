@@ -594,8 +594,17 @@ export async function runMemorySkills(
   const scorecardMarkdownPath = await writeScorecardMarkdown(scorecard, runDir);
   const summaries = summariseSuites(scored, suites, missing);
 
-  // Ground truths a suite actually scored against are now first-scored.
-  const scoredIds = new Set(scored.map((entry) => entry.result.suiteId));
+  // Ground truths a suite actually scored against are now first-scored. An
+  // `na` result (including the scorecard's forced `na: zero-cases`) scored
+  // nothing, so it must not start the ratchet: an early run before the labels
+  // are committed would otherwise refuse every later one.
+  const scoredIds = new Set(
+    scored
+      .filter(
+        (entry) => entry.result.verdict !== 'na' && entry.cases.length > 0,
+      )
+      .map((entry) => entry.result.suiteId),
+  );
   const scoredGroundTruths = new Set(
     allSuites
       .filter((suite) => scoredIds.has(suite.id))
