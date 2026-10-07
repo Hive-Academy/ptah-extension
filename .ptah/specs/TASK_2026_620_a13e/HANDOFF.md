@@ -1,5 +1,70 @@
 # HANDOFF — TASK_2026_620_a13e (and TASK_2026_621_3d5c)
 
+## RESUME HERE (2026-10-07 ~19:30Z, session on branch `feat/task-620-memory-skills-bench-s2`)
+
+Worktree `D:\projects\ptah-extension\.claude-worktrees\feat-task-620-memory-skills-bench-s2-2be8618bcca9`.
+Branch rebased onto 619 `181c657ab` (schema commit; contains probe-fix `285ce9855`). Nothing pushed.
+
+Commits this session: A1 `595cde626` (codex r1 REVISE 4/10 → r2 APPROVED 10/10), rebase fixture fix
+`012df8123` (`HostStopReport.tempLeft`), S1 adopt 619 model-panel schema `094331fec` (r1 REVISE 5/10 →
+r2 APPROVED 8/10), user decisions `5044f1647`. Checks on the final tree: memory-skills jest 55 suites /
+653 tests, mcp-bench `tsc` clean, eslint 0 errors (2 known max-lines warnings).
+
+User decisions (context.md, last section): panel data flow approved for U1/U2/U4; new B24/recording
+gate = rebase done + message 619 before each 620 bench/recording and wait for OK + ask the user to
+refresh Codex login just before recordings. "619 Batch 11 runs done" will never come (619 decision).
+619 session now: `ptah-ptah-extension-continue-619-task-f6797e0000ktg2q3sqvco04` (ListAgents if gone).
+
+### Model-panel labelling state (all private, under `C:\Users\abdal\AppData\Local\ptah-mcp-bench`)
+
+Raters: r1 = grok `grok-4.7` (xAI); r2 = antigravity with `--model gemini-3.1-pro --effort high`
+("Gemini 3.1 Pro (High)"; antigravity's DEFAULT model is `claude-sonnet-4-6` = Anthropic — always pass
+the Gemini model; `gemini-3.1-pro-high` conflicts with --effort). Adjudicator = Glm ptah-cli
+`pc-355b645d-…` (`glm-5.3-flash:cloud`). antigravity quota is small: run ≤2 lanes at a time (HTTP 429
+"Individual quota reached", resets in minutes). Validation scripts were inline `node -e` (re-write).
+
+- **U1 DONE** `labelling/skill-rubric-v1/panel/`: r1/out-0..5.csv and r2/out-0..5.csv (105 valid each);
+  `adjudicate.txt` (37 = 2 pass-differs + 35 gap>12); blinded `adj/chunk-0..7.csv` → `adj/out-0..7.csv`
+  (37 rows) — row SKD-C311B75A in out-2.csv had total≠sum, replaced by `adj/out-2-retry.csv` (valid).
+  0 unresolved. r1 mean total is 10 points above r2.
+- **U4 sessions DONE** `sessions/gt-memory-real-v1/`: re-drawn after the window closed (provisional
+  false, 20 sessions). Condensed packets `panel/packets/RS-*.txt` (user/assistant text only, `L<n>` =
+  JSONL line), `panel/INSTRUCTIONS.md`, `panel/group-0..3.txt`. r1/out-0..3.jsonl, r2/out-0..3.jsonl
+  (r2 groups 0 and 1 used their one retry for non-existent line numbers). 1 identical, 19 adjudicated
+  from candidate-line excerpts `panel/adj/chunk-0..3.md` → `adj/out-0..3.jsonl` (63 refs). 0 unresolved.
+  Limit to disclose: the adjudicator chooses only among lines a rater cited.
+- **U4 trigger labels IN PROGRESS** `labelling/skill-triggers-v1/`: `skills.jsonl` (23 authored skills,
+  descriptions parsed with js-yaml), `INSTRUCTIONS.md`. r2/out.jsonl valid (one tribunal prompt names
+  "tribunal" — tell Glm not to select prompts containing a skill id). r1 lane grok `150c5e06` was still
+  running. Next: validate r1, then Glm adjudication (all 23 differ; choose 5+5 from 10+10).
+- **U2 IN PROGRESS** `drafts/memory-ground-truth/panel/`: part-0..5.jsonl (298 items), INSTRUCTIONS.md.
+  r1/out-0..5 valid (269 accept / 22 edit / 7 reject). r2: first instruction rubber-stamped (88/88
+  accept) → kept as `r2/out-{0,1}.weak-instruction.*`, re-run with a strict per-item instruction.
+  r2 out-0 (strict) 40/3/1, out-1 (strict) 44 accept, out-2 40 accept/2 reject, out-3 50 accept; out-4
+  (`7948e221`) and out-5 (`7fe0d20d`) were still running. Validate r2 parts 1,4,5; then build blinded
+  adjudication for differing decision or replacement hash; Glm adjudicates. Items citing TASK_2026_621
+  cannot be checked at `e0ca51e` (621 is another branch) — disclose.
+- Then: write private panel manifests (`panelManifestSchema`: lanes, families, models, prompt sha,
+  counts, unresolved share), merged label files for B25. U3 waits for the B24 replay.
+
+### Next steps after labelling
+
+Four Codex/terra recordings (message 619 first; ask the user to refresh Codex login; the runner has
+`codexAuthSource` only as a `RunMemorySkillsOptions` field — add the CLI flag in
+`run-memory-skills.entry.ts` first), then U3, B24, B25, B26, PR (ask before push; base per context.md:134).
+
+### Open items / follow-ups
+
+- **node_modules junction:** this session created `<worktree>\node_modules` → `D:\projects\ptah-extension\node_modules`
+  (junction) so jest resolves. REMOVE the junction (`cmd /c rmdir`, never recursive delete) before
+  anyone removes the worktree.
+- 620 runner does not surface 619's new `HostStopReport.tempLeft`.
+- `ptah_agent_report` from this child session always failed `unattributed-caller`.
+- **Product UI issue reported by the user (not 620 work; route to the UI-defects session):** "this pop
+  shows while the agent is working and doesn't send before it shows the continue in new session" —
+  a popup appears while the agent is still working, and the pending message is not sent before the
+  "continue in new session" prompt appears. Get a screenshot / exact popup name from the user.
+
 Updated 2026-10-07 ~06:45 by orchestrator session `ptah-ptah-extension-continue-memory-skil-b503dc00005aw2q23htdi0e`.
 Read `context.md` first (user decisions incl. "User decisions 2026-10-07, B-P pause switches", the 619
 agreement and answers). This file is the resume point only.
