@@ -25,7 +25,8 @@ correction in agent-lanes §6; any code you change is independently reviewed bef
    | research, investigate, analyze              | RESEARCH      |
 
 2. **Pick depth**: Full (unclear scope), Partial (known requirements), Minimal (one developer or
-   reviewer). Two types equally plausible, or none fits → ask the user.
+   reviewer). Two types equally plausible, or none fits → pick the broader flow, log it in
+   `decisions.md` and announce it; the user can redirect.
 3. **Announce** type, depth and the planned agent sequence. Then proceed.
 
 | Type          | Flow                                                                               |
@@ -56,24 +57,49 @@ Any flow adding or redesigning a UI surface inserts [designer → prototype → 
   (keep/move/remove-proposed), new location, test that proves it. Record user approval for removals.
 - Status changes: `Edit` exactly the `status:` line of `task.md`. Never rewrite the carrier.
 
+## Decide first, ask last
+
+Agents decide from what exists; the user gets only the decisions that are theirs. Every open
+decision runs the [decision ladder](references/checkpoints.md#decision-ladder):
+
+1. **Evidence** — the task folder, code and conventions, project docs, `ptah_memory_search`,
+   `ptah_web_search`. One defensible answer → decide.
+2. **Peer** — still open or costly to undo → a cross-side reviewer validates the proposed decision.
+3. **User** — only a [user-reserved decision](references/checkpoints.md#user-reserved-decisions)
+   (scope intent, removals, irreversible or outward actions, security/privacy/licensing, money,
+   breaking public changes, hook bypass) or a split the peer could not settle. One bundled
+   `AskUserQuestion` call.
+
+Every decision taken at steps 1–2 goes in `<taskFolder>/decisions.md` with its evidence; gate notices
+and the completion summary list them so the user can audit and overturn any of them.
+
 ## Gates (all yours — subagents and lanes cannot reach the user)
 
 | Gate             | When                                                                                                                                                                                            | How                                          |
 | ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
-| 0.1 CLI lanes    | Start, when `ptah_agent_list` shows a spawnable lane                                                                                                                                            | `AskUserQuestion`                            |
-| 0 Scope          | Before PM, if the request is ambiguous                                                                                                                                                          | `AskUserQuestion`                            |
-| 1 Requirements   | After `task-description.md`                                                                                                                                                                     | **Plain message**, wait for `APPROVED`       |
-| 1.5 Technical    | Before architect, if several valid approaches                                                                                                                                                   | `AskUserQuestion`                            |
-| 1.7 Design       | After `design-spec.md` and `prototype/`, before the next phase of the flow (architect, team-leader, or content writer); mandatory whenever a designer ran or any UI surface is added/redesigned | **Plain message**, wait for `APPROVED`       |
-| 2 Architecture   | After `implementation-plan.md`                                                                                                                                                                  | **Plain message**, wait for `APPROVED`       |
-| 3 QA choice      | After team-leader completion                                                                                                                                                                    | `AskUserQuestion`                            |
-| SR Clarification | An agent returned `## Clarifications Needed`                                                                                                                                                    | Ask, then re-invoke with `## User Decisions` |
+| 0.1 CLI lanes    | Start; read `ptah_agent_list`                                                                                                                                                                   | Notice, no wait (default `auto`)             |
+| 0 Scope          | Before PM, if the request is ambiguous                                                                                                                                                          | Decision ladder; ask only for scope intent   |
+| 1 Requirements   | After `task-description.md`                                                                                                                                                                     | Per approval mode (below)                    |
+| 1.5 Technical    | Before architect, if several valid approaches                                                                                                                                                   | Decision ladder; ask only if user-reserved   |
+| 1.7 Design       | After `design-spec.md` and `prototype/`, before the next phase of the flow (architect, team-leader, or content writer); mandatory whenever a designer ran or any UI surface is added/redesigned | Per approval mode (below)                    |
+| 2 Architecture   | After `implementation-plan.md`                                                                                                                                                                  | Per approval mode (below)                    |
+| 3 QA selection   | After team-leader completion                                                                                                                                                                    | Notice, agents chosen by rule                |
+| SR Questions     | An agent messaged a question or returned `## Clarifications Needed`                                                                                                                             | Decision ladder, answer back via messaging   |
 
 **Cross-side review before Gates 1, 1.7 and 2**: you invoke an independent reviewer on the
 other execution side (routing and disclosed fallback per [agent-lanes §6](../agent-lanes/SKILL.md)),
 then run the bounded revision protocol in [checkpoints.md](references/checkpoints.md#cross-side-review-protocol).
-The gate shows who wrote it, who reviewed it, the verdict and any open items. A reviewer's
-APPROVED never counts as the user's `APPROVED`.
+The gate shows who wrote it, who reviewed it, the verdict and any open items.
+
+**Approval mode** (set at Gate 0.1, recorded in `context.md`;
+[checkpoints.md § Approval mode](references/checkpoints.md#approval-mode)):
+
+- `lane-review` — the default: a spawnable lane exists and lanes are `enabled` or `auto`. The cross-side
+  reviewer's APPROVED passes Gates 1, 1.7 and 2: post a short notice and continue without waiting.
+- `user` — no spawnable lane, lanes `disabled`, or the user asked to approve gates. Present the
+  gate as a **plain message** and wait for the user's `APPROVED`.
+- Escalate to the user in either mode when the reviewer is still at REVISE after the cap, the
+  review was not cross-side, the artifact proposes a removal, or the user asked to see the gate.
 
 Templates, skip conditions and rejection handling: [checkpoints.md](references/checkpoints.md).
 
@@ -90,14 +116,17 @@ Templates, skip conditions and rejection handling: [checkpoints.md](references/c
 
 ## Never
 
-- Never let a lane-authored spec/design/plan reach implementation without the user seeing and
-  approving it (Gate 1.7 or 2).
+- Never let a spec/design/plan reach implementation without its gate decision: an approving
+  cross-side review in `lane-review` mode, or the user's `APPROVED` in `user` mode or on escalation.
+- Never let a reviewer approve a proposed removal — removals always go to the user.
 - Never delete a capability that is not an approved removal in `parity-inventory.md` or the lane preserve list.
 - Never present Gate 1, 1.7 or 2 without the cross-side review; a same-side review states its
   recorded reason (user pin, lanes disabled at Gate 0.1, or opposite side unavailable).
 - Never let an agent's claim stand in for the build: run typecheck, tests and lint before
   reporting done — scoped to the projects changed with `-p`, output tailed; never workspace-wide.
-- Never answer an agent's `## Clarifications Needed` on the user's behalf — run Gate SR.
+- Never answer a user-reserved question on the user's behalf, and never ask the user a question
+  that evidence or a peer settled — run Gate SR.
+- Never take an unlogged decision: no row in `decisions.md`, no decision.
 - Never bypass a commit hook without the user's choice ([git-standards.md](references/git-standards.md#hook-failure-protocol)).
 - Never commit to or merge into `main` on your own.
 

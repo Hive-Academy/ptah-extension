@@ -8,7 +8,7 @@ Valid blocks render only in the Ptah Electron app. If parsing fails, the whole b
 
 Trailing spaces at the end of any line are removed before parsing.
 
-```text
+````text
 fence      = "```ptah-ui" NL body "```" ;          (* info string exactly "ptah-ui"; closing line exactly "```" *)
 body       = { blank } element { { blank } element } { blank } ;
 blank      = NL ;                                   (* a line that is empty after trailing-space removal *)
@@ -44,24 +44,24 @@ SPS        = SP { SP } ;
 SP         = U+0020 ;
 NL         = U+000A | U+000D U+000A ;
 char       = any Unicode scalar value - ( U+0000..U+001F | U+007F ) ;   (* excludes TAB, CR and LF *)
-```
+````
 
 ## Lexical table
 
-| Item | Rule |
-| ---- | ---- |
-| Keywords and tokens | `title stats table list chart cols line bar` are lowercase and exact. Any other header word makes the block invalid. |
-| Header lines | Start at column 0. Body lines start with exactly two spaces then a non-space character. Three or more spaces, or one, is invalid. |
-| Tab, other control characters | Invalid anywhere in the body (excluded from `char`). |
-| Escaped pipe (backslash, pipe) | Decodes to a literal pipe inside a cell or text. An unescaped pipe is a cell separator in cell lines (`statline`, `tablerow`, `colsline`, `point`). In `text` positions (title, chart title, list item) an unescaped pipe is a literal character. |
-| Escaped backslash (backslash, backslash) | Decodes to a literal backslash, in cells and in text. |
-| Escaped dollar (backslash, dollar) | Decodes to a literal `$`. It is needed only where a `$` would otherwise start a source reference: the start of a `value` cell, or a `table`/`list` argument. A `$` anywhere else (inside text, inside a table row cell, or mid-cell) is literal and needs no escape. |
-| Any other `\` sequence | Invalid, including a trailing lone `\`. |
-| Source reference | Recognised only in a `stats` value (`scalar`) and as the `table`/`list` argument (`rowsource`). A scalar in a table argument, or a row source in a stats value, is invalid. |
-| Empty text | Invalid for `title`, the `chart` title, `note` text and list items, after trimming. |
-| Empty cell | Valid in `tablerow`. Invalid in `statline` (both cells) and in a `point` label. |
-| Numbers | Only `number` is accepted in a chart point: no `+`, exponent, thousands separator or unit. |
-| Unicode | Any non-control character is allowed in `text` and `cell`, and renders as plain text. |
+| Item                                     | Rule                                                                                                                                                                                                                                                                 |
+| ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Keywords and tokens                      | `title stats table list chart cols line bar` are lowercase and exact. Any other header word makes the block invalid.                                                                                                                                                 |
+| Header lines                             | Start at column 0. Body lines start with exactly two spaces then a non-space character. Three or more spaces, or one, is invalid.                                                                                                                                    |
+| Tab, other control characters            | Invalid anywhere in the body (excluded from `char`).                                                                                                                                                                                                                 |
+| Escaped pipe (backslash, pipe)           | Decodes to a literal pipe inside a cell or text. An unescaped pipe is a cell separator in cell lines (`statline`, `tablerow`, `colsline`, `point`). In `text` positions (title, chart title, list item) an unescaped pipe is a literal character.                    |
+| Escaped backslash (backslash, backslash) | Decodes to a literal backslash, in cells and in text.                                                                                                                                                                                                                |
+| Escaped dollar (backslash, dollar)       | Decodes to a literal `$`. It is needed only where a `$` would otherwise start a source reference: the start of a `value` cell, or a `table`/`list` argument. A `$` anywhere else (inside text, inside a table row cell, or mid-cell) is literal and needs no escape. |
+| Any other `\` sequence                   | Invalid, including a trailing lone `\`.                                                                                                                                                                                                                              |
+| Source reference                         | Recognised only in a `stats` value (`scalar`) and as the `table`/`list` argument (`rowsource`). A scalar in a table argument, or a row source in a stats value, is invalid.                                                                                          |
+| Empty text                               | Invalid for `title`, the `chart` title, `note` text and list items, after trimming.                                                                                                                                                                                  |
+| Empty cell                               | Valid in `tablerow`. Invalid in `statline` (both cells) and in a `point` label.                                                                                                                                                                                      |
+| Numbers                                  | Only `number` is accepted in a chart point: no `+`, exponent, thousands separator or unit.                                                                                                                                                                           |
+| Unicode                                  | Any non-control character is allowed in `text` and `cell`, and renders as plain text.                                                                                                                                                                                |
 
 ## Dollar rules
 
@@ -71,11 +71,11 @@ char       = any Unicode scalar value - ( U+0000..U+001F | U+007F ) ;   (* exclu
 
 Every source is scoped to the turn containing the block. `list $source` lists the first row column only.
 
-| Source | Scalars (type) | Rows (columns) | Backed by |
-| ------ | -------------- | -------------- | --------- |
-| `$diff` | `files` int; `additions` int; `deletions` int | `path` string, `status` A/M/D/R/U, `additions` int or null, `deletions` int or null (default columns: all four) | `TurnChangeSet` in the change-set store |
-| `$tests` | `total`, `passed`, `failed`, `unknown` int | `command` string, `outcome` passed/failed/unknown | Req 1.2 detection |
-| `$usage` | `input` int; `output` int; `cost` USD or null; `duration` ms | none | `ExecutionChatMessage` |
+| Source   | Scalars (type)                                               | Rows (columns)                                                                                                  | Backed by                               |
+| -------- | ------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------- | --------------------------------------- |
+| `$diff`  | `files` int; `additions` int; `deletions` int                | `path` string, `status` A/M/D/R/U, `additions` int or null, `deletions` int or null (default columns: all four) | `TurnChangeSet` in the change-set store |
+| `$tests` | `total`, `passed`, `failed`, `unknown` int                   | `command` string, `outcome` passed/failed/unknown                                                               | Req 1.2 detection                       |
+| `$usage` | `input` int; `output` int; `cost` USD or null; `duration` ms | none                                                                                                            | `ExecutionChatMessage`                  |
 
 ## Limits and release elements
 

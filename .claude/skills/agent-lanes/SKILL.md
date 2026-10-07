@@ -72,8 +72,14 @@ A lane shares none of your context and cannot ask the user anything. Every `task
    own throwaway worktree and says so. Never run git commands that discard working-tree changes
    (`restore`, `checkout -- <path>`, `stash`, `reset`, `clean`); a change the lane did not make
    belongs to another writer — report it, never revert it.
-8. **Blocked**: if it cannot proceed, write the blocking questions under `## Clarifications Needed`
-   in the deliverable and stop.
+8. **Decide, then ask the spawner**: settle open points from the code, the inputs, project docs and
+   web search, and list each under `## Decisions` in the deliverable (decision, options, evidence,
+   reversible). A point still open, or user-reserved (orchestration `checkpoints.md` § User-reserved
+   decisions), goes to you through `ptah_agent_report` with options and a recommendation; the lane
+   continues with the work that does not depend on it. If the report is not delivered, or nothing is
+   left to do without the answer, it writes the questions under `## Clarifications Needed` in the
+   deliverable and stops. You answer with `ptah_agent_message` (branch on `mode`, §7) after running
+   the decision ladder.
 9. **Preserve list**: when replacing, consolidating or deleting an existing surface, list what it
    can do today (or pass `parity-inventory.md` in `files`). Every item stays, moves, or is listed
    under `## Proposed Removals` for user approval — never removed silently.
@@ -149,7 +155,7 @@ Lane output is evidence, not proof.
 | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Research, surveys, summaries                          | Spot-check claims against the code                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | Scaffolding, stubs                                    | Read it in full — only the files the lane edited                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| Decision artifacts (spec, design, plan)               | A proposal, not a decision. Diff every rule against the user's request; tag rules `user-requested` / `project-rule` / `lane-proposed`, and list only `lane-proposed` rules under `## Lane-introduced constraints`. Project rules keep their `project-rule` tag and cite their source where they appear; do not list them as lane-introduced. A cross-side review (below) runs first; then the user approves the artifact at orchestration Gate 1, 1.7 or 2 before any lane builds from it. |
+| Decision artifacts (spec, design, plan)               | A proposal, not a decision. Diff every rule against the user's request; tag rules `user-requested` / `project-rule` / `lane-proposed`, and list only `lane-proposed` rules under `## Lane-introduced constraints`. Project rules keep their `project-rule` tag and cite their source where they appear; do not list them as lane-introduced. A cross-side review (below) runs first; then orchestration Gate 1, 1.7 or 2 approves the artifact before any lane builds from it — the reviewer in `lane-review` mode, the user in `user` mode or on escalation. |
 | Code that deletes, replaces or consolidates a surface | Check the supplied preserve list or `parity-inventory.md` item by item; a missing, unapproved capability blocks the batch. Proposed removals require explicit user approval before the batch is accepted.                                                                                                                                                                                                                                                                                  |
 | UI code                                               | Typecheck/test/lint are not proof. Require visual-reviewer screenshots in dark + light themes, compared with the approved prototype (or — for a UI change with no added/redesigned surface and so no prototype — before/after screenshots of the affected screen, the "before" taken from the base commit before the fix lands) and shown to the user before merge.                                                                                                                        |
 | Code that will ship                                   | Independent review routed cross-side (below), recorded in `code-logic-review.md` under the code-review role's own verdict contract. **Write-path trace**: when persisted settings/config/storage writes change, trace each write to its runtime reader (key, scope, value format, side effects such as env vars); confirm behaviour is unchanged or intended.                                                                                                                              |
@@ -167,11 +173,13 @@ Lane output is evidence, not proof.
   shipping code. Document reviews write `<artifact-stem>-review.md` (APPROVED / REVISE); code
   reviews keep `code-logic-review.md`, and an existing eligible review is not duplicated.
   Invocation and the review protocol: orchestration `agent-catalog.md` and `checkpoints.md`.
-  The review informs the user's gate and never replaces it.
+  An approving cross-side document review passes the gate when lanes are installed and enabled
+  (`lane-review` mode); a same-side review, a REVISE at the cap or a proposed removal always goes to
+  the user. Rules: orchestration `checkpoints.md` § Approval mode.
 - **Defects** go back to the original lane (resume per §5) as a numbered list, each with
   `file:line`. Drop any defect without a location before relaying it.
 - **Revise cap**: at most 2 revise rounds (author/reviewer revision pairs) after the initial review; announce it
-  first. At exhaustion, a document goes to its user gate with every open item. For code, report the
+  first. At exhaustion, a document goes to the user with every open item, in either approval mode. For code, report the
   open defects or make ONE bounded correction, then have the changed code independently reviewed;
   if that review finds defects, report them and stop — never reset the cap or claim completion.
 - **Code checks** are the project's typecheck, tests and lint; UI also needs rendered evidence.
