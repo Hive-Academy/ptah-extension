@@ -205,6 +205,8 @@ skills/
 !apps/ptah-cli/src/skills/**
 !libs/frontend/marketplace/src/lib/pages/skills/
 !libs/frontend/marketplace/src/lib/pages/skills/**
+!tools/mcp-bench/src/memory-skills/suites/skills/
+!tools/mcp-bench/src/memory-skills/suites/skills/**
 # Project-owned `.claude/skills` — must sit AFTER the broad `skills/` rule above,
 # because the last matching rule wins and `skills/` would re-ignore the directory.
 !.claude/skills/

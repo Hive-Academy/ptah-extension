@@ -41,6 +41,7 @@ import { hostRetentionPort } from '../suites/memory/retention-port';
 import { createRetentionSuites } from '../suites/memory/retention.suite';
 import { SCOPE_WRITE_SUITE } from '../suites/memory/scope-write.suite';
 import { createUpdateSuites } from '../suites/memory/update.suite';
+import { NAMER_AND_TRIGGER_SUITES } from '../suites/skills/namer-and-trigger.suite';
 import {
   runMemorySkillsHost,
   type MemorySkillsHostSuite,
@@ -58,6 +59,7 @@ const HOST_SUITES: readonly MemorySkillsHostSuite[] = [
   ...createUpdateSuites({ resolvePorts: resolveMergeUpdatePorts }),
   ...READ_SIDE_SUITES,
   SCOPE_WRITE_SUITE,
+  ...NAMER_AND_TRIGGER_SUITES,
   // `placement: 'last'`: they age every row in the DB (`suite-placement.ts`).
   ...createRetentionSuites({ portOf: hostRetentionPort }),
   // Local only (R-M1a): they read a snapshot copy the plan seeds into the home.
