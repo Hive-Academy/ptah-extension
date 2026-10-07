@@ -148,6 +148,10 @@ Finding (Batch 6 finish): the paged GraphQL fetch returned 643 merged PRs before
 
 Decision: **PRs + commits.** A PR qualifies when it changes 1-8 eligible source files; its other changed files (docs, specs, lockfiles) are ignored, and the truth is the eligible files. Non-merge commits (subject = query, same file rule) fill the set to the most recent 200 `test` questions, the rest `tune`. Each question records `source: 'pr' | 'commit'`. Method stays `git-history`. The `gh` fetch is paged (GraphQL, 25 per page); CI still reads only the frozen JSON.
 
+## User Decision — SCIP indexers (2026-10-07)
+
+Install `scip-typescript`, `scip-python` and `scip-go` as global user tools; the repository `package.json` stays unchanged. `scip-python` runs only in WSL Ubuntu-24.04 (nvm Node 22 under `/root/.nvm`), because it crashes on Windows. SCIP stays benchmark ground truth only (Gate SR decisions 1 and 4).
+
 ## Workspace hygiene (2026-10-07)
 
 - `ptah_task_create` writes to the Ptah MCP server's workspace root, which is the MAIN checkout, not this worktree. The orchestrator created TASK_2026_622_2d05 that way and then moved it into this worktree at the user's request. Include `.ptah/specs/TASK_2026_622_2d05/` in the next commit on this branch.

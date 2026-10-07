@@ -1,6 +1,6 @@
 # Batch 6 executor report — Ground truth B (relevance PR + commit split, memory seed set, file-tool questions)
 
-Executor: backend-developer subagent (fallback path; Batch 6 recommended a CLI lane).
+Executor: initial run Glm lane (ptah-cli, Ollama Cloud; exit `no-deliverable`); Revision 1 and this report: opencode CLI lane with the `backend-developer` role (agent `0b496e62`, 25 m 21 s).
 Worktree: `D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark`
 
 ## Work completed

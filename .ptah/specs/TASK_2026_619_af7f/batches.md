@@ -1,6 +1,6 @@
 # Batches - TASK_2026_619_af7f
 
-Total tasks: 76 | Batches: 41 | Complete: 9/41
+Total tasks: 77 | Batches: 41 | Complete: 10/41
 
 Worktree root (every path below is absolute under it):
 `D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark` (branch `fix/task-619-tool-benchmark`).
@@ -861,7 +861,7 @@ Batch 5 findings recorded at Mode 2 (report:
 - `npx nx run-many -t typecheck,lint,test -p mcp-bench` passes
 - Question files are generated for the pinned commit (counts quoted in the report)
 
-## Batch 6: Ground truth B — relevance PR split, memory seed set, file-tool questions — COMPLETE (commit: the `feat: batch 6` commit after 7e1572272; SHA filled in after the commit)
+## Batch 6: Ground truth B — relevance PR split, memory seed set, file-tool questions — COMPLETE (commit 629e4f719)
 
 Batch 6 findings recorded at Mode 2 (report:
 `D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\.ptah\specs\TASK_2026_619_af7f\batch-6-executor-report.md`):
@@ -870,9 +870,9 @@ Batch 6 findings recorded at Mode 2 (report:
   generated `file-tools.json` and `memory.json`, wrote no report, and got stuck waiting on a
   background `gh` retry after `gh pr list --limit 1000` failed (truncated JSON, then HTTP 502).
   Revision 1 (relevance source only) ran on opencode per the orchestrator: about 25 min, scoped
-  prettier, eslint and jest (25/25) clean in the lane. Note: the report header names "backend-developer
-  subagent (fallback path)"; the orchestrator's lane record says opencode. This file follows the
-  orchestrator's record; the final per-lane table should resolve it from the lane log.
+  prettier, eslint and jest (25/25) clean in the lane. Resolved at Batch 7 Mode 2: the report's
+  executor line now reads opencode CLI lane with the `backend-developer` role (agent `0b496e62`,
+  25 m 21 s); the earlier "backend-developer subagent" wording named the role, not the executor.
 - **Relevance source changed by user decision (2026-10-07, context.md "User Decision — relevance
   ground-truth source"): PRs + commits.** The strict PR-only rule kept 1 PR. Now a PR or a non-merge
   commit qualifies when it changes 1-8 eligible source files; its other files are ignored and the
@@ -951,7 +951,58 @@ Batch 6 findings recorded at Mode 2 (report:
 - `npx nx run-many -t typecheck,lint,test -p mcp-bench` passes
 - The held-out split file is committed and its size quoted
 
-## Batch 7: Polyglot corpus and SCIP cross-check ground truth — PENDING
+## Batch 7: Polyglot corpus and SCIP cross-check ground truth — COMPLETE (commit: the `feat: batch 7` commit after 629e4f719; SHA filled in after the commit)
+
+Batch 7 findings recorded at Mode 2 (report:
+`D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\.ptah\specs\TASK_2026_619_af7f\batch-7-executor-report.md`):
+
+- Lane evidence: opencode CLI lane with the `backend-developer` role (agent `70a3b1f8`), code and
+  spec only, as recommended at Batch 5/6 Mode 2. Hand-written protobuf decoder for the pinned
+  `scip.proto` subset (no new dependency; `@scip-code/scip` not used); 11 spec cases with a
+  spec-only encoder; scoped jest and eslint clean in the lane. The orchestrator ran the indexers and
+  the generation outside the lane, and made 1 correction: scip-typescript on win32 writes `\` in
+  `relative_path`, so `compareWithTsTruth` matched 0 of 150; `parseDocument` now normalizes to `/`,
+  with a new spec case (12/12).
+- Indexers (user decision 2026-10-07, context.md "User Decision — SCIP indexers"; global user tools,
+  repository `package.json` unchanged): scip-typescript 0.4.0 (Windows, 6,346 documents, 2 m 12 s,
+  268 MB index); scip-go 0.2.7 (Windows, 37 documents); scip-python 0.6.6 (WSL Ubuntu-24.04 only,
+  64 documents). SCIP stays ground truth only; nothing outside `tools/mcp-bench` imports the module.
+- Corpora pinned in `corpus.config.json` under a new `polyglot` key (the corpus reader's non-strict
+  `z.object` strips it, so existing flows are unchanged): `python-attrs` (attrs 25.4.0,
+  `9a98e00a7c078360add417c5d62db820d4645ab1`, MIT) and `go-logrus` (logrus v1.9.4,
+  `b61f268f75b6ff134a62cd62aee1095fa12e8d2e`, MIT).
+- Frozen outputs verified on disk (`tools\mcp-bench\questions\scip\`):
+  - `python-attrs.json`, seed 6190701: 37 reference questions (under-5 17, 5-50 17, over-50 3 of 16)
+    and 50 dependency questions.
+  - `go-logrus.json`, seed 6190702: 41 reference questions (under-5 17, 5-50 17, over-50 7 of 16)
+    and 37 dependency questions.
+  - `ts-agreement.json`: 148 of 150 Batch 5 reference questions compared, 2 unmatched, mean Jaccard
+    0.877, exact rate 0.750.
+- Accepted deviations:
+  - (1) Python references 37 of 50 and Go references 41 of 50; Go dependencies 37 of 50. The pinned
+    corpora are small (attrs has few symbols with more than 50 references; logrus has 37 documents).
+    The unfilled strata are recorded in `counts` (`-target` keys, `unfilled-strata: 1`) and not
+    refilled from other strata, the same rule as Batch 5 references.
+  - (2) Envelope adds `language`; `naRecord` uses `id` = language, `corpusCommit: ''`. Reference
+    targets 17/17/16; dependency questions are a seeded shuffle without strata (the spec stratifies
+    references only). The `compareWithTsTruth` fixture has 3 questions instead of 2 (exact, partial,
+    unmatched).
+  - (3) Minor, recorded, not fixed: `scip-cross-check.ts` now draws a `max-lines` **warning** (703
+    counted lines of 849 physical, limit 700; the rule is `warn`, so lint passes and the gate is not
+    blocked). The lane left it at 700; the orchestrator's path-normalization correction added 3.
+    The next change to this file splits the protobuf decoder into its own module (named for the
+    Phase 1 code-logic review after Batch 11).
+- **Agreement analysis and its consequence for Batch 9.** In all 37 non-exact questions `onlyScip`
+  is 0: SCIP never finds a reference the TS truth misses. All 1,477 extra TS locations are interface
+  or inherited members in the over-50 stratum (`dispose`, `getDiagnostics`, `name`, `readFile`):
+  the TS language service `findReferences` returns a member together with its implementations, as
+  the editor's "Find All References" does, while SCIP keeps each symbol separate. So the Batch 5 TS
+  truth is the editor-semantics view, which is what the `ptah_lsp_references` claim names. Batch 9
+  scores references against the TS truth (primary) and reports the SCIP-strict set as a second view
+  (carried into Task 9.1).
+- Mode 2 checks (team-leader): `npx nx run-many -t typecheck,lint,test -p mcp-bench
+  --skip-nx-cache` passed (3 targets, 1m 30s; one `max-lines` warning, see deviation 3); `npx prettier --check` on the batch's files clean;
+  `git diff -- libs apps` empty.
 
 - Recommended executor: CLI lane x 1
 - Fallback executor: backend-developer subagent
@@ -973,7 +1024,7 @@ Batch 6 findings recorded at Mode 2 (report:
 - Tasks: 1 | Depends on: 5
 - Phase: 1 Benchmark | Phase review: code-logic (after Batch 11)
 
-### Task 7.1: Pinned Python and Go corpora and SCIP cross-check — PENDING
+### Task 7.1: Pinned Python and Go corpora and SCIP cross-check — COMPLETE
 
 - File: D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\ground-truth\scip-cross-check.ts; D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\ground-truth\scip-cross-check.spec.ts; D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\corpus.config.json (add pinned small MIT-licensed Python and Go repos)
 - Plan reference: context.md:58-61 (Gate SR decisions 1 and 4: SCIP as benchmark ground truth only); research-report.md:302
@@ -1029,7 +1080,7 @@ Batch 6 findings recorded at Mode 2 (report:
 - Fallback executor: senior-tester subagent
 - Execution mode: sequential
 - Rationale: integrates the transport, ground truth and baselines; lifecycle scenarios mutate a corpus copy and restart hosts.
-- Tasks: 3 | Depends on: 3, 4, 4b, 4c, 4d, 7, 8
+- Tasks: 4 (Task 9.0 added at Batch 7 Mode 2) | Depends on: 3, 4, 4b, 4c, 4d, 7, 8
 - Phase: 1 Benchmark | Phase review: code-logic (after Batch 11)
 - Schema note (Batch 4 Mode 2): every suite is written in the Task 4b.1 generic shape — `kind:
   'retrieval'`, `claim {source, ref}`, `groundTruth`, `baselines[]` with `native` as one baseline id,
@@ -1038,6 +1089,45 @@ Batch 6 findings recorded at Mode 2 (report:
   (`'live'` for suites measured over the MCP transport, `'none'` for an `na` suite that made no
   call); `suite.projectionSha256` is optional and, when set, comes from `computeProjectionSha256`
   (`suite-kinds.ts:106`), never a hand-rolled hash.
+- Added at Batch 7 Mode 2: Task 9.0 (TASK_2026_620 requests, handoff.md, accepted by the
+  orchestrator) runs first. **File-count deviation:** Task 9.0 adds 5 files to Batch 9's 8 (13
+  total, one project `mcp-bench`, one scoped command; precedent Batches 4 and 4d). The requests
+  cannot fold into Tasks 9.1-9.3 within the cap, and the coordinator asked for them in Batch 9.
+  Because TASK_2026_620 waits on these exports, the team-leader may commit Task 9.0 on its own as
+  `batch 9 part 1` once its scoped checks pass, and send that SHA to the TASK_2026_620 session
+  (handoff.md: send 620 the SHA of any commit that changes `scorecard/` or the bench-host files).
+- Added at Batch 7 Mode 2: Batch 9 also reads `tools\mcp-bench\questions\scip\*.json` (Batch 7):
+  the Python and Go reference and dependents question sets, and `ts-agreement.json`. References
+  scoring follows the Batch 7 agreement analysis (see Task 9.1).
+
+### Task 9.0: Exports and an explicit env option for TASK_2026_620 — PENDING
+
+- File: D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\scorecard\scorecard.types.ts; D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\transport\host-launcher.ts; D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\transport\host-launcher.spec.ts; D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\transport\bench-host.entry.ts; D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark\tools\mcp-bench\src\transport\bench-host-process.ts (new)
+- Plan reference: handoff.md "TASK_2026_620 requests (2026-10-07)" items 1, 2 and 4 (item 3 was
+  answered: `guard: { ci: true }` is correct for the 620 Linux CI job; no work)
+- Pattern to follow: the registry-aware factory `createScorecardSchema(registry)` at
+  scorecard.types.ts:121; `isolatedEnv(tempHome, parent)` at host-launcher.ts:248
+- Quality requirements:
+  - (1) Export the core per-suite zod schema from `scorecard.types.ts` (the suite object and its
+    refinements that `createScorecardSchema` uses today, as a registry-aware factory plus the
+    default-registry instance), so TASK_2026_620 can validate one suite without a whole scorecard.
+    `createScorecardSchema` uses the exported schema; no change in what validates.
+  - (2) `HostLaunchOptions.env?: Record<string, string>` on `launchBenchHost`, merged **after**
+    `isolatedEnv(tempHome)`. Any key that isolation sets (`HOME`, `USERPROFILE`, `APPDATA`,
+    `LOCALAPPDATA`, the four `XDG_*`, `PTAH_BENCH_ISOLATED_HOME`, `PTAH_CONFIG_PATH`,
+    `PTAH_DB_PATH`; compare case-insensitively on win32) is refused: `launchBenchHost` rejects
+    before spawning, the error names each refused key, and no temp home is left behind. Derive the
+    refused list from `isolatedEnv`'s output, not a second hand-written list.
+  - (4) Move the bench-host argument and shutdown helpers (`readWorkspaceArg`, `shutdownRequested`,
+    `describeFailure`, and `FORCED_EXIT_AFTER_MS`) out of `bench-host.entry.ts` into the new
+    `bench-host-process.ts` and export them; the entry imports them. Importing the new module must
+    not start a host (the entry's `main()` stays in the entry). `readWorkspaceArg` returns or throws
+    a typed error instead of calling `process.exit` inside the helper; the entry keeps its fatal
+    line and exit code byte-identical.
+- Validation notes: spec cases for (2): an allowed extra key reaches the child; each refused key
+  (and a win32 case variant) rejects before spawn with no temp home left. The scorecard-writers and
+  suite-kinds specs pass unchanged. Send the commit SHA to TASK_2026_620.
+- Implementation details: keep `host-launcher.ts` under the 700-line `max-lines` ceiling.
 
 ### Task 9.1: Per-tool suite adapters and runner — PENDING
 
@@ -1053,6 +1143,22 @@ Batch 6 findings recorded at Mode 2 (report:
   the download time as a separate cold-start cost. It must not leave the download hidden inside
   query latency.
 - Implementation details: `--smoke` takes 40 seeded questions per suite.
+- Carried from Batches 5-7 (team-leader, Mode 2):
+  - Read `tools\mcp-bench\questions\7910f34cf\*.json` and `tools\mcp-bench\questions\scip\*.json`;
+    merge the Batch 5, 6 and 7 envelope zod schemas into one module (accepted short-lived
+    duplication until here). The SCIP envelopes add `language`; an `na` record yields `verdict: na`
+    with its reason.
+  - References scoring (Batch 7 agreement analysis): the primary truth for `ptah_lsp_references` on
+    the TS corpus is the Batch 5 TS language-service truth (editor "Find All References"
+    semantics, the claim's meaning). Report the SCIP-strict set (each symbol separate, no
+    implementations) as a second view next to it, never as the verdict. Python and Go references
+    and dependents are scored against the SCIP sets in `python-attrs.json` / `go-logrus.json`; their
+    unfilled strata are quoted, not padded.
+  - Dependents questions (Batch 5 and the SCIP sets) carry `pathForms: ['relative','absolute']`:
+    join the absolute form to this run's fresh corpus root.
+  - Relevance: score the `test` split only; report recall@10 per `source` (pr, commit) and overall;
+    quote the split composition (8 PRs, 192 commits).
+  - Memory: call `seedMemory(target, set, roots)` from `afterContainerReady` with the isolated roots.
 
 ### Task 9.2: Lifecycle scenarios 1-8 — PENDING
 

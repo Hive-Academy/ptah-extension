@@ -1,5 +1,15 @@
 # Handoff - TASK_2026_619_af7f (2026-10-07)
 
+## Update (2026-10-07, second session) — read this first
+
+- Batches 5 and 6 are COMPLETE: `7e1572272` (Batch 5), `629e4f719` (Batch 6). 9 of 41 batches done (the team-leader corrected the count: 1-37 + 4b/4c/4d + 34b = 41). The sections below this update describe the state before these commits and are kept for history.
+- New user decisions in context.md: relevance truth = PRs + commits (200 test / 1,427 tune); SCIP indexers installed globally (scip-typescript 0.4.0 and scip-go 0.2.7 on Windows, scip-go at `%USERPROFILE%\go\bin`; scip-python 0.6.6 only in WSL Ubuntu-24.04 via nvm Node 22, because it crashes on Windows).
+- Batch 7 in progress: opencode lane writes `scip-cross-check.ts` + spec + `corpus.config.json` `polyglot` pins (attrs 25.4.0 `9a98e00a`, logrus v1.9.4 `b61f268f`, both MIT). The orchestrator makes the indexes outside the lane: `%TEMP%\mcp-bench-scip-go.scip`, `%TEMP%\mcp-bench-scip-python.scip` (WSL: `scip-python index . --environment /tmp/scip-env.json` with `[]`), `%TEMP%\mcp-bench-scip-ts.scip` (`tsconfig.scip.json` in `%TEMP%\mcp-bench-b5-corpus`).
+- Ground-truth generators run outside lanes via an esbuild bundle of a throwaway driver kept in `%TEMP%\mcp-bench-drivers` (never in `tools/mcp-bench/out/`: ESLint lints that folder).
+- `batches.md` has one uncommitted edit (Batch 6 SHA in its header) and `batch-6-executor-report.md` an executor-line fix; commit both with the next batch.
+- TASK_2026_620 requests (2026-10-07, accepted by the orchestrator; the next team-leader Mode 2 adds them to Batch 9 as a first small task): (1) export a core per-suite zod schema from `scorecard.types.ts`; (2) an explicit `env` option on `launchBenchHost`, merged after isolation, refusing isolation keys; (4) export the bench-host argument and shutdown helpers. (3) answered: `guard: { ci: true }` is correct for the 620 Linux CI job. 620 commits so far: 179a5bbc6, 44a3329c4 (only project.json targets). Send 620 the Batch 9 SHA.
+- Lane evidence added: codex Batch 5 rev 1 (7 defects, 3 m 17 s, 2 orchestrator corrections after); opencode Batch 6 rev 1 (25 m 21 s, clean scoped checks, report delivered).
+
 The orchestrator session stopped at the user's request after the Batch 5 / Batch 6 step. This file is the entry point for the next session. Read it first, then `context.md` (all user decisions), then `batches.md`.
 
 ## Where things are

@@ -1,0 +1,902 @@
+{
+  "id": "ts-agreement",
+  "version": "1",
+  "frozenAt": "2026-10-07T00:35:20.112Z",
+  "corpusCommit": "7910f34cf",
+  "generator": "scip-cross-check.ts",
+  "indexer": "scip-typescript 0.4.0",
+  "compared": 148,
+  "unmatched": 2,
+  "meanJaccard": 0.8768534519455795,
+  "exactRate": 0.75,
+  "perQuestion": [
+    {
+      "id": "reference-1",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-2",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-3",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-4",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-5",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-6",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-7",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-8",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-9",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-10",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-11",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-12",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-13",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-14",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-15",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-16",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-17",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-18",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-19",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-20",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-21",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-22",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-23",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-24",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-25",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-26",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-27",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-28",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-29",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-30",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-31",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-32",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-33",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-34",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-35",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-36",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-37",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-38",
+      "jaccard": 0.75,
+      "onlyTs": 1,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-39",
+      "jaccard": 0.25,
+      "onlyTs": 3,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-40",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-41",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-42",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-43",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-44",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-45",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-46",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-47",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-48",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-49",
+      "jaccard": 0.5,
+      "onlyTs": 1,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-50",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-51",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-52",
+      "jaccard": 0.34615384615384615,
+      "onlyTs": 17,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-53",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-54",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-55",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-56",
+      "jaccard": 0.8888888888888888,
+      "onlyTs": 1,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-57",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-58",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-59",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-60",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-61",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-62",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-63",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-64",
+      "jaccard": 0.9761904761904762,
+      "onlyTs": 1,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-65",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-66",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-67",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-68",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-69",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-70",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-71",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-72",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-73",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-74",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-75",
+      "jaccard": 0.875,
+      "onlyTs": 1,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-76",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-77",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-78",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-79",
+      "jaccard": 0.875,
+      "onlyTs": 1,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-80",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-81",
+      "jaccard": 0.022727272727272728,
+      "onlyTs": 43,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-83",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-84",
+      "jaccard": 0.7142857142857143,
+      "onlyTs": 2,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-85",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-86",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-87",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-88",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-89",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-90",
+      "jaccard": 0.125,
+      "onlyTs": 14,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-91",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-92",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-93",
+      "jaccard": 0.8947368421052632,
+      "onlyTs": 2,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-94",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-95",
+      "jaccard": 0.47619047619047616,
+      "onlyTs": 11,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-96",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-97",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-98",
+      "jaccard": 0.9090909090909091,
+      "onlyTs": 1,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-99",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-100",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-101",
+      "jaccard": 0.01818181818181818,
+      "onlyTs": 54,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-102",
+      "jaccard": 0.125,
+      "onlyTs": 63,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-103",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-104",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-105",
+      "jaccard": 0.5087719298245614,
+      "onlyTs": 28,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-107",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-108",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-109",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-110",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-111",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-112",
+      "jaccard": 0.9225352112676056,
+      "onlyTs": 11,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-113",
+      "jaccard": 0.015625,
+      "onlyTs": 63,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-114",
+      "jaccard": 0.014084507042253521,
+      "onlyTs": 140,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-115",
+      "jaccard": 0.0058823529411764705,
+      "onlyTs": 169,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-116",
+      "jaccard": 0.4176470588235294,
+      "onlyTs": 99,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-117",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-118",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-119",
+      "jaccard": 0.014084507042253521,
+      "onlyTs": 70,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-120",
+      "jaccard": 0.06741573033707865,
+      "onlyTs": 83,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-121",
+      "jaccard": 0.017241379310344827,
+      "onlyTs": 57,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-122",
+      "jaccard": 0.007874015748031496,
+      "onlyTs": 252,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-123",
+      "jaccard": 0.07608695652173914,
+      "onlyTs": 85,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-124",
+      "jaccard": 0.9225352112676056,
+      "onlyTs": 11,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-125",
+      "jaccard": 0.013888888888888888,
+      "onlyTs": 71,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-126",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-127",
+      "jaccard": 0.9988331388564761,
+      "onlyTs": 1,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-128",
+      "jaccard": 0.26717557251908397,
+      "onlyTs": 96,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-129",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-130",
+      "jaccard": 0.9571428571428572,
+      "onlyTs": 3,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-131",
+      "jaccard": 0.9833333333333333,
+      "onlyTs": 1,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-132",
+      "jaccard": 0.9947916666666666,
+      "onlyTs": 1,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-133",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-134",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-135",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-136",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-137",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-138",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-139",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-140",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-141",
+      "jaccard": 0.9986357435197817,
+      "onlyTs": 1,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-142",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-143",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-144",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-145",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-146",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-147",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-148",
+      "jaccard": 1,
+      "onlyTs": 0,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-149",
+      "jaccard": 0.9957081545064378,
+      "onlyTs": 1,
+      "onlyScip": 0
+    },
+    {
+      "id": "reference-150",
+      "jaccard": 0.8285714285714286,
+      "onlyTs": 18,
+      "onlyScip": 0
+    }
+  ]
+}
