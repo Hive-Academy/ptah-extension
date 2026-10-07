@@ -20,7 +20,12 @@ import {
   MEMORY_CONTRACT_TOKENS,
   type ICuratorLLM,
 } from '@ptah-extension/memory-contracts';
+import {
+  MEMORY_TOKENS,
+  MemoryCuratorService,
+} from '@ptah-extension/memory-curator';
 import { SKILL_SYNTHESIS_TOKENS } from '@ptah-extension/skill-synthesis';
+import { Lifecycle } from 'tsyringe';
 
 import type { BenchHostContainer } from '../../transport/bench-host-boot';
 import { CassetteStore } from '../doubles/cassette-store';
@@ -94,6 +99,18 @@ export function installRecordReplayDoubles(
 
   container.register<ICuratorLLM>(curatorToken, { useValue: curator });
   container.register<LaneRunnerDouble>(laneToken, { useValue: laneRunner });
+
+  // A singleton resolved before `afterContainerReady` captured the old
+  // adapter. Rebind it so host suites always construct their curator after the
+  // double is installed. The `thoth: 'oneshot'` bench has no started curator
+  // or trigger that must retain the discarded singleton.
+  if (container.isRegistered(MEMORY_TOKENS.MEMORY_CURATOR, true)) {
+    container.register(
+      MEMORY_TOKENS.MEMORY_CURATOR,
+      { useClass: MemoryCuratorService },
+      { lifecycle: Lifecycle.Singleton },
+    );
+  }
 
   if (container.resolve(curatorToken) !== curator) {
     throw new DoublesOverrideError(

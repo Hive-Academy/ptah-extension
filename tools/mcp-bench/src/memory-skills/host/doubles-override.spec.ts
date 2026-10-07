@@ -2,6 +2,14 @@ import 'reflect-metadata';
 
 jest.mock('vscode', () => ({}), { virtual: true });
 
+jest.mock('@ptah-extension/memory-curator', () => {
+  class MemoryCuratorService {}
+  return {
+    MEMORY_TOKENS: { MEMORY_CURATOR: Symbol.for('PtahMemoryCurator') },
+    MemoryCuratorService,
+  };
+});
+
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -10,6 +18,10 @@ import {
   MEMORY_CONTRACT_TOKENS,
   type ICuratorLLM,
 } from '@ptah-extension/memory-contracts';
+import {
+  MEMORY_TOKENS,
+  MemoryCuratorService,
+} from '@ptah-extension/memory-curator';
 import { SKILL_SYNTHESIS_TOKENS } from '@ptah-extension/skill-synthesis';
 import { container as rootContainer, type DependencyContainer } from 'tsyringe';
 
@@ -108,6 +120,26 @@ describe('installRecordReplayDoubles', () => {
     expect(container.resolve(CURATOR)).toBe(doubles.curator);
     await doubles.curator.extract('hello');
     expect(realCurator.extract).toHaveBeenCalledTimes(1);
+  });
+
+  it('replaces a curator singleton that captured the pre-override adapter', () => {
+    const staleCurator = { llm: { real: true } };
+    container.register(MEMORY_TOKENS.MEMORY_CURATOR, {
+      useValue: staleCurator,
+    });
+    expect(container.resolve(MEMORY_TOKENS.MEMORY_CURATOR)).toBe(staleCurator);
+
+    installRecordReplayDoubles(container, {
+      cassetteMode: 'replay',
+      cassettes,
+    });
+
+    expect(container.resolve(MEMORY_TOKENS.MEMORY_CURATOR)).toBeInstanceOf(
+      MemoryCuratorService,
+    );
+    expect(container.resolve(MEMORY_TOKENS.MEMORY_CURATOR)).not.toBe(
+      staleCurator,
+    );
   });
 
   it('record: refuses when a real adapter is missing', () => {
