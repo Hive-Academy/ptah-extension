@@ -283,6 +283,132 @@ describe('SkillCuratorService — pass orchestration', () => {
     expect(() => harness().svc.stop()).not.toThrow();
   });
 
+  /**
+   * TASK_2026_620 B-P (S9) — the curator tick reads LIVE settings, pauses
+   * without a restart, and `start()` never leaves a second interval beside
+   * the first.
+   *
+   * The supplier handed to `start()` in `options.readSettings` is the whole
+   * mechanism: a pause (the skills master switch `skillSynthesis.enabled`,
+   * or `curatorEnabled`) flips the backing map and the NEXT tick no-ops — no
+   * stop, no restart, no lost interval on resume. The interval is kept
+   * armed on purpose: a paused tick that tore the interval down would need a
+   * re-arm path for a resume that fires no event.
+   */
+  describe('live settings + pause (B-P S9)', () => {
+    it('the tick no-ops while the master switch is off, and resumes without a restart', async () => {
+      jest.useFakeTimers();
+      try {
+        const h = harness();
+        // One mutable settings object shared with the supplier — an external
+        // edit of `~/.ptah/settings.json` mutates exactly this way, with no
+        // event to announce it.
+        let live = makeSettings({ curatorIntervalHours: 1 });
+        h.svc.start(live, { readSettings: () => live });
+        await jest.advanceTimersByTimeAsync(3_600_000);
+        expect(h.retirement.run).toHaveBeenCalledTimes(1);
+
+        // Paused: the tick keeps firing and no-ops; the interval stays armed
+        // so the resume needs no restart.
+        live = makeSettings({ ...live, enabled: false });
+        await jest.advanceTimersByTimeAsync(3 * 3_600_000);
+        expect(h.retirement.run).toHaveBeenCalledTimes(1);
+        expect(h.svc.isScheduled()).toBe(true);
+
+        // Resumed (externally, no event): the very next tick runs a pass.
+        live = makeSettings({ ...live, enabled: true });
+        await jest.advanceTimersByTimeAsync(3_600_000);
+        expect(h.retirement.run).toHaveBeenCalledTimes(2);
+        h.svc.stop();
+        expect(h.svc.isScheduled()).toBe(false);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('the tick no-ops while curatorEnabled is off, and resumes without a restart', async () => {
+      jest.useFakeTimers();
+      try {
+        const h = harness();
+        let live = makeSettings({ curatorIntervalHours: 1 });
+        h.svc.start(live, { readSettings: () => live });
+        await jest.advanceTimersByTimeAsync(3_600_000);
+        expect(h.retirement.run).toHaveBeenCalledTimes(1);
+
+        // The sub-switch flipped off externally: the tick no-ops from now on.
+        live = makeSettings({ ...live, curatorEnabled: false });
+        await jest.advanceTimersByTimeAsync(2 * 3_600_000);
+        expect(h.retirement.run).toHaveBeenCalledTimes(1);
+
+        // …and back on: the very next tick runs, no restart.
+        live = makeSettings({ ...live, curatorEnabled: true });
+        await jest.advanceTimersByTimeAsync(3_600_000);
+        expect(h.retirement.run).toHaveBeenCalledTimes(2);
+        h.svc.stop();
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('start() clears an existing interval before arming (no double schedule)', async () => {
+      jest.useFakeTimers();
+      try {
+        const h = harness();
+        const settings = makeSettings({ curatorIntervalHours: 1 });
+        h.svc.start(settings);
+        // The restart path: a second start on a LIVE curator (`restartCurator`
+        // stops then starts). Before B-P the first interval survived beside
+        // the new one and every settings change doubled the cadence.
+        h.svc.start({ ...settings, curatorIntervalHours: 1 });
+
+        // One interval, not two: one elapse runs exactly one pass.
+        await jest.advanceTimersByTimeAsync(3_600_000);
+        expect(h.retirement.run).toHaveBeenCalledTimes(1);
+        expect(h.svc.isScheduled()).toBe(true);
+        h.svc.stop();
+        expect(h.svc.isScheduled()).toBe(false);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('start() with the master switch off reconciles nothing and schedules nothing', async () => {
+      jest.useFakeTimers();
+      try {
+        const h = harness();
+        h.svc.start(makeSettings({ enabled: false }));
+        await jest.advanceTimersByTimeAsync(10 * 3_600_000);
+        // Pause stops the reconcile too — it is a skills write, not repair of
+        // host data that a pause would corrupt by leaving half-done.
+        expect(
+          h.suggestions.listAcceptedWithoutPromotedCandidate,
+        ).not.toHaveBeenCalled();
+        expect(h.retirement.run).not.toHaveBeenCalled();
+        expect(h.svc.isScheduled()).toBe(false);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('runManual() reads the live settings when a supplier was handed over', async () => {
+      const h = harness();
+      const snapshot = makeSettings({ maxActiveSkills: 5 });
+      h.svc.start(snapshot, {
+        readSettings: () => makeSettings({ ...snapshot, maxActiveSkills: 50 }),
+      });
+
+      await h.svc.runManual();
+
+      // The pass ran with the LIVE read, not the stale snapshot the pause
+      // cannot see past.
+      expect(h.umbrella.runPass).toHaveBeenCalledTimes(1);
+      expect(h.umbrella.runPass.mock.calls[0][0]).toMatchObject({
+        maxActiveSkills: 50,
+      });
+      h.svc.stop();
+    });
+  });
+
   it('runManual() before start returns an empty report', async () => {
     const h = harness();
     const report = await h.svc.runManual();

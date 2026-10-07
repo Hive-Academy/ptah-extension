@@ -68,7 +68,10 @@ import { SkillCandidateStore } from './skill-candidate.store';
 import { SkillMdGenerator } from './skill-md-generator';
 import { SkillPromotionService } from './skill-promotion.service';
 import type { PromotionDecision } from './skill-promotion.service';
-import { SkillCuratorService } from './skill-curator.service';
+import {
+  SkillCuratorService,
+  type SkillCuratorStartOptions,
+} from './skill-curator.service';
 import {
   MIN_ROLE_TURNS_FLOOR,
   TrajectoryExtractor,
@@ -225,6 +228,20 @@ export class SkillSynthesisService {
   private readonly analyzedSessions = new Map<string, number>();
   /** Disposer returned by the session-end registry — called in stop(). */
   private _sessionEndDisposer?: () => void;
+  /**
+   * Disposer of the `skillSynthesis.enabled` config listener (B-P). Registered
+   * in `start()` ABOVE the early returns so a host that booted paused still
+   * hears the resume, disposed in `stop()`.
+   */
+  private _configDisposer?: { dispose(): void };
+  /**
+   * The in-flight `performStart()` run (B-P). A promise, not a boolean,
+   * because the lazy deferred start added by B-P means `start()` can now be
+   * reached from several triggers at once: a second caller that arrives while
+   * the first is still awaiting `openAndMigrate()` JOINS that run instead of
+   * running the boot work — and the session-end subscription — a second time.
+   */
+  private startRun: Promise<void> | null = null;
   /** Event ring, oldest at index 0, newest at the tail. */
   private readonly events: SkillSynthesisEvent[] = [];
   /**
@@ -330,6 +347,11 @@ export class SkillSynthesisService {
   /**
    * Idempotent. Ensures DB is open + migrated. Caller wraps in
    * try/catch so a failure here NEVER blocks app activation.
+   *
+   * A host that booted while `skillSynthesis.enabled` was false returns before
+   * any boot work; the resume paths ({@link ensureStarted}, reached from the
+   * config-change event and lazily from `enqueueAnalyze` / `analyzeSession` /
+   * the prefilter stage) complete that work without a restart.
    */
   async start(): Promise<void> {
     // ABOVE both early returns, deliberately. Registration is a handful of Map
@@ -341,6 +363,7 @@ export class SkillSynthesisService {
     // drained row would be marked `skipped` for want of one. Idempotent, so
     // the `started` re-entry guard below does not need to cover it.
     this.stageHandlers?.registerStageHandlers(this);
+    this.registerConfigListener();
     if (this.started) return;
     if (!this.readSettings().enabled) {
       this.logger.info(
@@ -348,6 +371,26 @@ export class SkillSynthesisService {
       );
       return;
     }
+    if (this.startRun !== null) {
+      // A lazy deferred start is already completing the boot work; join it
+      // rather than running it — and the session-end subscription — twice.
+      await this.startRun;
+      return;
+    }
+    const run = this.performStart();
+    this.startRun = run.finally(() => {
+      this.startRun = null;
+    });
+    await run;
+  }
+
+  /**
+   * The boot work itself: DB open + migration, skill directories, SKILL.md
+   * migration, the session-end subscription, the curator interval and the
+   * embedding-backfill row. Reached only through {@link start}, which owns the
+   * `started` / `startRun` guards around it.
+   */
+  private async performStart(): Promise<void> {
     if (!this.connection.isOpen) {
       await this.connection.openAndMigrate();
     }
@@ -423,10 +466,7 @@ export class SkillSynthesisService {
     );
     const settings = this.readSettings();
     try {
-      this.curator?.start(settings, {
-        onPassComplete: (timestamp) => this.recordCuratorPass(timestamp),
-        onEvent: (ev) => this.pushEvent(ev),
-      });
+      this.curator?.start(settings, this.curatorStartOptions());
     } catch (err: unknown) {
       this.logger.warn('[skill-synthesis] curator start failed (non-fatal)', {
         error: err instanceof Error ? err.message : String(err),
@@ -451,9 +491,127 @@ export class SkillSynthesisService {
   stop(): void {
     this._sessionEndDisposer?.();
     this._sessionEndDisposer = undefined;
+    this._configDisposer?.dispose();
+    this._configDisposer = undefined;
     this.curator?.stop();
     this.started = false;
     this.analyzedSessions.clear();
+  }
+
+  /**
+   * Complete the boot work a paused boot skipped, and re-arm a curator
+   * interval that stopped (B-P, S1/S2/S8/S9). THE resume entry.
+   *
+   * Idempotent on `started`: when the service is already up this only
+   * re-arms a curator interval a `restartCurator()` during a pause stopped —
+   * a field read on the healthy path — so every resume path (the
+   * config-change event for in-process writes, and the lazy
+   * `enqueueAnalyze` / `analyzeSession` / prefilter-stage calls that run on
+   * every session event) can call it unconditionally, and an external edit
+   * that flips the switch back on needs no restart.
+   *
+   * Returns whether the service is started after the call. `false` means
+   * paused (the switch is off again) or the boot work failed — either way the
+   * next trigger retries, and nothing was enqueued on a maybe-half-started
+   * host.
+   */
+  async ensureStarted(): Promise<boolean> {
+    if (!this.started) {
+      if (!this.readSettings().enabled) return false;
+      try {
+        await this.start();
+      } catch (err: unknown) {
+        // degradation-audit: reported - a failed deferred start is warned; the
+        // row stays queued (the caller no-ops) and the next trigger retries.
+        this.logger.warn(
+          '[skill-synthesis] deferred start failed; will retry on the next trigger',
+          { error: err instanceof Error ? err.message : String(err) },
+        );
+        return false;
+      }
+      return this.started;
+    }
+    this.ensureCuratorRunning();
+    return true;
+  }
+
+  /**
+   * Re-arm the curator after a settings change (RPC
+   * `skillSynthesis:updateSettings` with `curatorEnabled` /
+   * `curatorIntervalHours`) — B-P, S9/S13.
+   *
+   * `stop()` + `start()` with the SAME pass/event options
+   * {@link performStart} wires, so a curator settings change never leaves
+   * passes unrecorded or events unpushed (S13), and a new interval period
+   * applies live. A host that booted paused (`!started`) or is paused now is
+   * left with the curator STOPPED and nothing re-armed: the reconcile and the
+   * interval are background work, and the resume paths
+   * ({@link ensureStarted}) start the curator once the switch is on again.
+   */
+  restartCurator(): void {
+    this.curator?.stop();
+    if (!this.started) return;
+    this.ensureCuratorRunning();
+  }
+
+  /**
+   * The one option set every curator start uses — `performStart`,
+   * `restartCurator` and the resume re-arm — so the callbacks S13 lost on the
+   * old stop/start path are the same everywhere by construction.
+   */
+  private curatorStartOptions(): SkillCuratorStartOptions {
+    return {
+      onPassComplete: (timestamp) => this.recordCuratorPass(timestamp),
+      onEvent: (ev) => this.pushEvent(ev),
+      readSettings: () => this.readSettings(),
+    };
+  }
+
+  /**
+   * Start the curator when it should run and does not. The two ways it stops
+   * running while the service is up: `restartCurator()` while paused, and
+   * `stop()`. No-op when there is no curator, its interval is armed, the
+   * master switch is off, or the curator sub-switch is off. Settings are only
+   * read on the rare unscheduled path, never per trigger.
+   */
+  private ensureCuratorRunning(settings?: SkillSynthesisSettings): void {
+    if (!this.curator || this.curator.isScheduled()) return;
+    const s = settings ?? this.readSettings();
+    if (!s.enabled || !s.curatorEnabled) return;
+    try {
+      this.curator.start(s, this.curatorStartOptions());
+    } catch (err: unknown) {
+      this.logger.warn('[skill-synthesis] curator re-arm failed (non-fatal)', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  /**
+   * Register the `skillSynthesis.enabled` config listener once. Called from
+   * `start()` above the early returns, so a host that booted paused still
+   * hears the resume.
+   */
+  private registerConfigListener(): void {
+    if (this._configDisposer) return;
+    this._configDisposer = this.workspaceProvider.onDidChangeConfiguration(
+      (event) => {
+        if (!event.affectsConfiguration('ptah.skillSynthesis.enabled')) return;
+        this.onMasterSwitchChanged();
+      },
+    );
+  }
+
+  /**
+   * The event-driven resume path. A pause needs no teardown — every unit
+   * re-reads the switch before it starts (the enqueue body, the drain's gates,
+   * the curator tick) — so only the resume side does work: complete the boot
+   * work a paused boot skipped, and re-arm a curator interval a
+   * `restartCurator()` during the pause stopped.
+   */
+  private onMasterSwitchChanged(): void {
+    if (!this.readSettings().enabled) return;
+    void this.ensureStarted();
   }
 
   /**
@@ -526,9 +684,18 @@ export class SkillSynthesisService {
     opts: EnqueueAnalyzeOptions,
   ): Promise<EnqueueOutcome | null> {
     if (opts.signal?.aborted) return null;
-    if (!this.started) return null;
     const settings = this.readSettings();
     if (!settings.enabled) return null;
+    if (!this.started) {
+      // Lazy deferred start (B-P, S1/S2): a host that BOOTED paused never
+      // subscribed to session end and never armed the curator, and an
+      // external-edit resume fires no config event, so the first trigger after
+      // the resume completes that boot work here. `false` (still paused, or
+      // the boot work failed) no-ops exactly as before.
+      if (!(await this.ensureStarted())) return null;
+    } else {
+      this.ensureCuratorRunning(settings);
+    }
     if (sessionId === 'manual') {
       this.logger.warn(
         '[skill-synthesis] enqueueAnalyze called with reserved sessionId "manual" — rejecting',
@@ -695,12 +862,22 @@ export class SkillSynthesisService {
 
     if (signal?.aborted) return null;
 
-    if (!this.started) {
-      this.logger.debug('[skill-synthesis] analyzeSession called before start');
-      return null;
-    }
     const settings = this.readSettings();
     if (!settings.enabled) return null;
+    if (!this.started) {
+      // Lazy deferred start (B-P), the mirror of the one in `enqueueAnalyze`:
+      // the one other caller of this worker is the manual `analyzeNow` RPC,
+      // which is refused while paused but must work on a booted-paused host
+      // the moment the switch comes back on — with or without an event.
+      if (!(await this.ensureStarted())) {
+        this.logger.debug(
+          '[skill-synthesis] analyzeSession could not start (paused, or the deferred start failed)',
+        );
+        return null;
+      }
+    } else {
+      this.ensureCuratorRunning(settings);
+    }
     if (sessionId === 'manual') {
       this.logger.warn(
         '[skill-synthesis] analyzeSession called with reserved sessionId "manual" — rejecting',

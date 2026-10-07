@@ -164,6 +164,9 @@ function makeService(opts: {
       (_section: string, key: string, fallback: unknown) =>
         key === 'skillSynthesis.enabled' ? (opts.enabled ?? true) : fallback,
     ),
+    // B-P: `start()` subscribes to `skillSynthesis.enabled` above its early
+    // returns; a plain `jest.fn()` stands in for the disposer it returns.
+    onDidChangeConfiguration: jest.fn(),
   } as unknown as ConstructorParameters<typeof SkillSynthesisService>[3];
 
   const unembedded = {
@@ -390,12 +393,16 @@ describe('SkillSynthesisService — drain stage handlers (B0.9.1)', () => {
 
     await drain.drain(drainOpts());
 
-    // The row is still skipped — `start()` bailed, so the worker has nothing
-    // to say — but it is skipped by the HANDLER, with the handler's reason.
+    // The row is still answered by the HANDLER, with the handler's reason —
     // "no handler for stage prefilter" would mean the wiring itself was lost.
-    expect(queue.markSkipped).toHaveBeenCalledWith('row-1', {
-      reason: 'no candidate from this session',
+    // B-P (S7): with the analyzer not started the answer is `unscored` with a
+    // retry, never a terminal `skipped` — a paused row is not a verdict on
+    // the session, and the row survives to re-open after a resume.
+    expect(queue.markUnscored).toHaveBeenCalledWith('row-1', {
+      reason: 'analyzer-not-started',
+      notBefore: expect.any(Number),
     });
+    expect(queue.markSkipped).not.toHaveBeenCalled();
   });
 
   it('starts cleanly in a host with no drain registered', async () => {

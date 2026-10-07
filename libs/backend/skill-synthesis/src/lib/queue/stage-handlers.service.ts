@@ -122,7 +122,30 @@ export interface SkillStageWorkers {
   ): Promise<RegisterCandidateResult | null>;
   backfillEmbeddings(): Promise<number>;
   readSettings(): SkillSynthesisSettings;
+  /**
+   * The deferred-start seam (TASK_2026_620 B-P, S7): complete the boot work a
+   * paused boot skipped, lazily, when this tick is the first enabled moment —
+   * an external-edit resume fires no config event, so the drain may be the
+   * only thing that has noticed. Returns whether the analyzer is started
+   * after the call; `false` means still paused, and the `prefilter` stage
+   * must NOT treat that as a verdict on the session.
+   */
+  ensureStarted(): Promise<boolean>;
 }
+
+/**
+ * The reason token + backoff for a `prefilter` row whose analyzer never
+ * started (the host booted paused and is still paused, or the deferred start
+ * failed) — TASK_2026_620 B-P, S7.
+ *
+ * `unscored`, never `skipped`: a paused row is not a verdict on the session,
+ * and a terminal `skipped` would drop work the pause had no opinion about.
+ * The backoff keeps the row eligible; fifteen minutes matches the frequent
+ * tier's cadence, so a resumed host retries it on the next tick rather than
+ * waiting a night for it.
+ */
+const PREFILTER_NOT_STARTED_REASON = 'analyzer-not-started';
+const PREFILTER_NOT_STARTED_RETRY_MS = 15 * 60_000;
 
 @injectable()
 export class SkillStageHandlersService {
@@ -268,6 +291,19 @@ export class SkillStageHandlersService {
     workers: SkillStageWorkers,
   ): Promise<SkillStageResult> {
     const { row } = ctx;
+    // Deferred start, lazily (B-P, S7): a host that booted paused has handlers
+    // (registration sits above the early return) but no started analyzer, and
+    // a resumed external edit fires no config event, so this tick may be the
+    // first enabled moment. Not started → `unscored` + a retry, never a
+    // terminal `skipped`: the row survives the pause and re-opens after the
+    // resume instead of being lost as "no candidate from this session".
+    if (!(await workers.ensureStarted())) {
+      return {
+        outcome: 'unscored',
+        reason: PREFILTER_NOT_STARTED_REASON,
+        retryInMs: PREFILTER_NOT_STARTED_RETRY_MS,
+      };
+    }
     const result = await this.withClaimHeartbeat(ctx, (signal) =>
       workers.analyzeSession(row.sessionId, row.workspaceRoot, {
         force: true,

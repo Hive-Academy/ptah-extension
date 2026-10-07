@@ -118,6 +118,11 @@ function makeWorkspace(overrides: Record<string, unknown>): IWorkspaceProvider {
     'skillSynthesis.triggers.idleMs': 600000,
     ...overrides,
   };
+  // A REAL subscription list, so a B-P test can fire the
+  // `skillSynthesis.enabled` change the way an in-process write does.
+  const configListeners: Array<
+    (event: { affectsConfiguration: (section: string) => boolean }) => void
+  > = [];
   return {
     getWorkspaceRoot: jest.fn(() => '/ws'),
     getWorkspaceFolders: jest.fn(() => ['/ws']),
@@ -125,9 +130,25 @@ function makeWorkspace(overrides: Record<string, unknown>): IWorkspaceProvider {
       (_section: string, key: string, def: unknown) => cfg[key] ?? def,
     ),
     setConfiguration: jest.fn().mockResolvedValue(undefined),
-    onDidChangeConfiguration: jest.fn(),
+    onDidChangeConfiguration: jest.fn((cb: (event: never) => void) => {
+      configListeners.push(cb as never);
+      return { dispose: () => undefined };
+    }),
     onDidChangeWorkspaceFolders: jest.fn(),
-  } as unknown as IWorkspaceProvider;
+    __fireSkillSynthesisEnabled: (enabled: boolean) => {
+      cfg['skillSynthesis.enabled'] = enabled;
+      for (const cb of configListeners) {
+        cb({
+          // The shape ElectronWorkspaceProvider.setConfiguration fires: the
+          // predicate answers for the FULL key and its prefixes only.
+          affectsConfiguration: (s: string) =>
+            s === 'ptah.skillSynthesis.enabled',
+        });
+      }
+    },
+  } as unknown as IWorkspaceProvider & {
+    __fireSkillSynthesisEnabled: (enabled: boolean) => void;
+  };
 }
 
 function buildHarness(opts: {
@@ -142,13 +163,14 @@ function buildHarness(opts: {
   } as unknown as SkillSynthesisService;
 
   const activity = makeCapturingRegistry();
+  const workspace = makeWorkspace(opts.settings ?? {});
 
   const service = new SkillTriggerService(
     makeLogger(),
     synthesis,
     activity.registry as never,
     makeRegistry() as never,
-    makeWorkspace(opts.settings ?? {}),
+    workspace,
     {} as unknown as IFileSystemProvider,
     makeSqlite(),
     {
@@ -165,7 +187,13 @@ function buildHarness(opts: {
     makeRegistry() as never,
   );
 
-  return { service, enqueueAnalyze, emitActivity: activity.emit };
+  return {
+    service,
+    enqueueAnalyze,
+    emitActivity: activity.emit,
+    workspace,
+    synthesis,
+  };
 }
 
 async function makeSessionsDir(): Promise<string> {
@@ -174,6 +202,26 @@ async function makeSessionsDir(): Promise<string> {
   await fs.writeFile(full, '{}\n');
   const mtime = new Date(Date.now() - DAY_MS);
   await fs.utimes(full, mtime, mtime);
+  return dir;
+}
+
+/**
+ * Two session files for the stall test: `sess-a` older, `sess-b` newer. The
+ * scan walks oldest-first and the watermark is the MAX over handled sessions,
+ * so a stall on `sess-b` is exactly the "watermark kept below the stalled
+ * session" case.
+ */
+async function makeTwoSessionsDir(): Promise<string> {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'skill-boot-stall-'));
+  for (const [name, ageMs] of [
+    ['sess-a.jsonl', DAY_MS],
+    ['sess-b.jsonl', DAY_MS - 60_000],
+  ] as const) {
+    const full = path.join(dir, name);
+    await fs.writeFile(full, '{}\n');
+    const mtime = new Date(Date.now() - ageMs);
+    await fs.utimes(full, mtime, mtime);
+  }
   return dir;
 }
 
@@ -335,6 +383,158 @@ describe('SkillTriggerService — boot scan deferral', () => {
     await advanceUntil(2_000, () => h.enqueueAnalyze.mock.calls.length > 0);
 
     expect(h.enqueueAnalyze).toHaveBeenCalledTimes(1);
+
+    h.service.stop();
+  });
+});
+
+/**
+ * TASK_2026_620 B-P (S3) — the skills boot scan under the master switch.
+ *
+ * A host that booted paused arms NOTHING and keeps the scan OWED; the resume
+ * paths (config event for an in-process write, the next chat activity for an
+ * external edit that fires no event) re-arm it exactly once, so resume needs
+ * no restart. A scan that stalls on the switch returns `'stalled'`, which
+ * keeps the watermark below the stalled session — the paused session is
+ * never recorded as scanned, and the re-armed scan queues it after the
+ * resume instead of losing it to the next `mtime > watermark` filter.
+ */
+describe('SkillTriggerService — boot scan under the master switch (B-P S3)', () => {
+  jest.setTimeout(TEST_TIMEOUT_MS);
+
+  let dir: string;
+
+  /**
+   * The external-edit seam: flips `skillSynthesis.enabled` in the backing
+   * config map WITHOUT firing an event — exactly what a hand edit of
+   * `~/.ptah/settings.json` does, per the plan's 0.3 table.
+   */
+  const flipMaster = (
+    h: ReturnType<typeof buildHarness>,
+    settings: Record<string, unknown>,
+    enabled: boolean,
+  ): void => {
+    (
+      h.workspace as unknown as { getConfiguration: jest.Mock }
+    ).getConfiguration.mockImplementation(
+      (_s: string, key: string, def: unknown) =>
+        key === 'skillSynthesis.enabled' ? enabled : (settings[key] ?? def),
+    );
+  };
+
+  /** The in-process-write seam: the value lands, THEN the event fires. */
+  const writeMaster = (
+    h: ReturnType<typeof buildHarness>,
+    enabled: boolean,
+  ): void => {
+    (
+      h.workspace as unknown as {
+        __fireSkillSynthesisEnabled: (v: boolean) => void;
+      }
+    ).__fireSkillSynthesisEnabled(enabled);
+  };
+
+  beforeEach(async () => {
+    dir = await makeSessionsDir();
+    jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate'] });
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('boots paused arms nothing; the first resume event re-arms once and queues the session', async () => {
+    const settings: Record<string, unknown> = {
+      'skillSynthesis.enabled': false,
+      'skillSynthesis.triggers.bootScanDelayMs': 0,
+    };
+    const h = buildHarness({ sessionsDir: dir, settings });
+    h.service.start();
+    await advance(2_000);
+    expect(h.enqueueAnalyze).not.toHaveBeenCalled();
+
+    // Resume by event (the tray / Thoth tab write path).
+    writeMaster(h, true);
+    await advanceUntil(2_000, () => h.enqueueAnalyze.mock.calls.length > 0);
+    expect(h.enqueueAnalyze).toHaveBeenCalledTimes(1);
+
+    // A second event re-arms nothing: the debt is paid.
+    writeMaster(h, true);
+    await advance(2_000);
+    expect(h.enqueueAnalyze).toHaveBeenCalledTimes(1);
+
+    h.service.stop();
+  });
+
+  it('boots paused arms nothing; an external resume (no event) re-arms on the next activity', async () => {
+    const settings: Record<string, unknown> = {
+      'skillSynthesis.enabled': false,
+      'skillSynthesis.triggers.bootScanDelayMs': 0,
+    };
+    const h = buildHarness({ sessionsDir: dir, settings });
+    h.service.start();
+    await advance(2_000);
+    expect(h.enqueueAnalyze).not.toHaveBeenCalled();
+
+    // The external edit: the map flips with NO event. The next chat activity
+    // is the only signal left.
+    flipMaster(h, settings, true);
+    h.emitActivity({ sessionId: 'live', workspaceRoot: '/ws' });
+    await advanceUntil(2_000, () => h.enqueueAnalyze.mock.calls.length > 0);
+    expect(h.enqueueAnalyze).toHaveBeenCalledTimes(1);
+
+    h.service.stop();
+  });
+
+  it('a pause mid-scan stalls, keeps the watermark, and the resume re-queues the skipped session', async () => {
+    // Two sessions: `sess-a` older, `sess-b` newer. The scan walks them
+    // oldest-first and the watermark is the MAX over handled sessions.
+    const twoSessions = await makeTwoSessionsDir();
+    const settings: Record<string, unknown> = {
+      'skillSynthesis.enabled': true,
+      'skillSynthesis.triggers.bootScanDelayMs': 0,
+    };
+    const h = buildHarness({ sessionsDir: twoSessions, settings });
+    // The enqueue mock pauses AFTER the first session is queued — the exact
+    // moment a tray click lands between two per-session callbacks. ONCE only:
+    // the re-armed scan's second pass over `sess-a` must run with the switch
+    // back on.
+    let pausedOnce = false;
+    (h.enqueueAnalyze as jest.Mock).mockImplementation(
+      async (sessionId: string) => {
+        if (sessionId === 'sess-a' && !pausedOnce) {
+          pausedOnce = true;
+          flipMaster(h, settings, false);
+        }
+        return undefined;
+      },
+    );
+
+    h.service.start();
+    await advanceUntil(2_000, () => h.enqueueAnalyze.mock.calls.length >= 1);
+    await advance(2_000);
+
+    // The paused scan: `sess-a` queued, `sess-b` stalled — never enqueued,
+    // never recorded as scanned.
+    expect(h.enqueueAnalyze).toHaveBeenCalledTimes(1);
+    expect(h.enqueueAnalyze.mock.calls[0][0]).toBe('sess-a');
+    // ...and its verdict was 'stalled' in the scan stats, not a quiet 'ran'.
+    expect(h.synthesis.pushEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'boot-scan',
+        stats: expect.objectContaining({ succeeded: 1, stalled: 1 }),
+      }),
+    );
+
+    // The external resume: no event, the next activity re-arms, and the
+    // re-armed scan queues the skipped session.
+    flipMaster(h, settings, true);
+    h.emitActivity({ sessionId: 'live', workspaceRoot: '/ws' });
+    await advanceUntil(2_000, () => h.enqueueAnalyze.mock.calls.length >= 2);
+    await advance(2_000);
+
+    const queued = h.enqueueAnalyze.mock.calls.map((c) => c[0]);
+    expect(queued).toContain('sess-b');
 
     h.service.stop();
   });
