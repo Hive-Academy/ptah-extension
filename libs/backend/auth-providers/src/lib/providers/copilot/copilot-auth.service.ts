@@ -633,29 +633,45 @@ export class CopilotAuthService implements ICopilotAuthService {
         headers: { ...(await this.getHeaders()) },
       });
       if (!response.ok) return [];
+      // Field names as the Copilot /models response carries them (the shape
+      // opencode's Copilot plugin parses): the window sits under
+      // capabilities.limits, and model_picker_enabled marks the models the
+      // Copilot model picker offers. Hidden ones are embeddings, retired
+      // versions and internal routers.
       const data = (await response.json()) as {
         data?: Array<{
           id: string;
           name?: string;
-          capabilities?: { supports?: { tool_calls?: boolean } };
+          model_picker_enabled?: boolean;
+          capabilities?: {
+            supports?: { tool_calls?: boolean };
+            limits?: { max_context_window_tokens?: number };
+          };
           context_window?: number;
         }>;
       };
       const models = data.data ?? [];
       return models
-        .filter((m) => m.capabilities?.supports?.tool_calls !== false)
-        .map((m) => ({
-          id: m.id,
-          name: m.name ?? m.id,
-          description: '',
-          contextLength: m.context_window ?? 0,
-          ...(typeof m.context_window === 'number' &&
-          Number.isFinite(m.context_window) &&
-          m.context_window > 0
-            ? { contextLengthSource: 'provider' as const }
-            : {}),
-          supportsToolUse: true,
-        }));
+        .filter(
+          (m) =>
+            m.model_picker_enabled !== false &&
+            m.capabilities?.supports?.tool_calls !== false,
+        )
+        .map((m) => {
+          const window =
+            m.capabilities?.limits?.max_context_window_tokens ??
+            m.context_window;
+          const known =
+            typeof window === 'number' && Number.isFinite(window) && window > 0;
+          return {
+            id: m.id,
+            name: m.name ?? m.id,
+            description: '',
+            contextLength: known ? window : 0,
+            ...(known ? { contextLengthSource: 'provider' as const } : {}),
+            supportsToolUse: true,
+          };
+        });
     } catch {
       return [];
     }
