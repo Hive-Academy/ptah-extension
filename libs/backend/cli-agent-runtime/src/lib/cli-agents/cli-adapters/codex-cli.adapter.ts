@@ -397,6 +397,19 @@ export class CodexCliAdapter implements CliAdapter {
   private readonly loggedLaneWarnings = new Set<string>();
 
   /**
+   * One model-list load reads the catalog twice (`listModels` through
+   * detection, then the model-list service directly), and each probe can wait
+   * up to 8 seconds. Keyed by binary path so a moved install is read again;
+   * the short TTL bounds how long an in-place upgrade shows the old list.
+   */
+  private catalogProbe: {
+    readonly binaryPath: string;
+    readonly at: number;
+    readonly output: Promise<string | undefined>;
+  } | null = null;
+  private static readonly CATALOG_TTL_MS = 30_000;
+
+  /**
    * Path to the Codex auth file.
    *
    * Resolved lazily (per call) so:
@@ -435,10 +448,24 @@ export class CodexCliAdapter implements CliAdapter {
    */
   async listCatalogModels(): Promise<CliModelInfo[]> {
     const binaryPath = (await resolveCliPath('codex')) ?? 'codex';
-    const raw = await probeCodexModelCatalog(binaryPath);
+    const raw = await this.probeCatalog(binaryPath);
     return (raw ? parseCodexModelCatalog(raw) : []).map((model) =>
       this.markLaneDefault(model),
     );
+  }
+
+  private probeCatalog(binaryPath: string): Promise<string | undefined> {
+    const cached = this.catalogProbe;
+    if (
+      cached?.binaryPath === binaryPath &&
+      Date.now() - cached.at < CodexCliAdapter.CATALOG_TTL_MS
+    ) {
+      return cached.output;
+    }
+    // probeCodexModelCatalog never rejects, so a cached promise cannot replay an error.
+    const output = probeCodexModelCatalog(binaryPath);
+    this.catalogProbe = { binaryPath, at: Date.now(), output };
+    return output;
   }
 
   private markLaneDefault(model: CliModelInfo): CliModelInfo {
