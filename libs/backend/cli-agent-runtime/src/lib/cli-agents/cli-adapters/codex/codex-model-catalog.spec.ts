@@ -1,4 +1,9 @@
-import { parseCodexModelCatalog } from './codex-model-catalog';
+import { EventEmitter } from 'events';
+import type { IProcessSpawner } from '@ptah-extension/platform-core';
+import {
+  parseCodexModelCatalog,
+  probeCodexModelCatalog,
+} from './codex-model-catalog';
 
 /** Shape of `codex debug models` (codex-cli 0.161.0), trimmed to the read fields. */
 const CATALOG = {
@@ -67,5 +72,24 @@ describe('parseCodexModelCatalog', () => {
     ],
   ])('returns [] for %s so the caller falls back', (_case, stdout) => {
     expect(parseCodexModelCatalog(stdout)).toEqual([]);
+  });
+});
+
+describe('probeCodexModelCatalog', () => {
+  it('resolves undefined on timeout even when the handle throws on kill', async () => {
+    const child = Object.assign(new EventEmitter(), {
+      stdout: Object.assign(new EventEmitter(), { setEncoding: jest.fn() }),
+      kill: jest.fn(() => {
+        throw new Error('kill failed');
+      }),
+    });
+    const spawner = {
+      spawnProcess: jest.fn(() => child),
+    } as unknown as IProcessSpawner;
+
+    await expect(
+      probeCodexModelCatalog('codex', { spawner, timeoutMs: 5 }),
+    ).resolves.toBeUndefined();
+    expect(child.kill).toHaveBeenCalledTimes(1);
   });
 });

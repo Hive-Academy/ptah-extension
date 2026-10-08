@@ -77,8 +77,13 @@ export function probeCodexModelCatalog(
       return;
     }
     const timer = setTimeout(() => {
-      child.kill();
       resolve(undefined);
+      try {
+        child.kill();
+      } catch {
+        // degradation-audit: optional-capability - an injected handle's kill may
+        // throw; the probe has already settled, so the kill is best-effort.
+      }
     }, options.timeoutMs ?? 8000);
     child.stdout?.setEncoding('utf8');
     child.stdout?.on('data', (data: string) => {
