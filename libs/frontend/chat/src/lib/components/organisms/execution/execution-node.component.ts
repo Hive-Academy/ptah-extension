@@ -22,6 +22,7 @@ import {
 // fence pipeline, zod and the declarative renderer) as a lazy chunk. Same
 // contract as `@ptah-extension/chat-ui/change-set-card` in the transcript.
 import { PtahUiMessageTextComponent } from '@ptah-extension/chat-ui/ptah-ui';
+import { MermaidMessageTextComponent } from '@ptah-extension/chat-ui/mermaid';
 import { ToolCallItemComponent } from '../../molecules/tool-execution/tool-call-item.component';
 import { WorkflowCardComponent } from './workflow-card.component';
 import { TaskCardComponent } from './task-card.component';
@@ -42,6 +43,7 @@ import type {
   TurnSourceSnapshot,
 } from '@ptah-extension/shared';
 import { hasPtahUiFenceLine } from './ptah-ui-fence-line';
+import { hasMermaidFenceLine } from './mermaid-fence-line';
 
 /**
  * What a top-level assistant text node needs to render `ptah-ui` fences
@@ -152,6 +154,7 @@ function scheduleFrame(cb: () => void): FrameHandle {
     ScheduleWakeupChipComponent,
     // Used only inside `@defer` (see the import above).
     PtahUiMessageTextComponent,
+    MermaidMessageTextComponent,
   ],
   template: `
     @switch (node().type) {
@@ -184,6 +187,7 @@ function scheduleFrame(cb: () => void): FrameHandle {
                 [orderKey]="host.orderKey"
                 [active]="surfaceActive()"
                 [snapshot]="host.snapshot ?? null"
+                [finalized]="!isNodeStreaming() && !isFinalizing()"
               />
             } @placeholder {
               <markdown
@@ -193,6 +197,16 @@ function scheduleFrame(cb: () => void): FrameHandle {
               <markdown
                 [data]="renderedContent() | surfaceMarkdown: surfaceActive()"
               />
+            }
+          </div>
+        } @else if (mermaidHost()) {
+          <div class="prose prose-sm prose-invert max-w-none my-2 exec-text-branch">
+            @defer (on immediate) {
+              <ptah-mermaid-message-text [text]="renderedContent()" [finalized]="true" [active]="surfaceActive()" />
+            } @placeholder {
+              <markdown [data]="renderedContent() | surfaceMarkdown: surfaceActive()" />
+            } @error {
+              <markdown [data]="renderedContent() | surfaceMarkdown: surfaceActive()" />
             }
           </div>
         } @else {
@@ -524,6 +538,15 @@ export class ExecutionNodeComponent {
       return hasPtahUiFenceLine(this.renderedContent()) ? context : null;
     },
     { equal: samePtahUiContext },
+  );
+
+  /** Mermaid mounts once, only after streaming and the finalization handoff. */
+  protected readonly mermaidHost = computed(
+    () =>
+      this.ptahUiHost() === null &&
+      !this.isNodeStreaming() &&
+      !this.isFinalizing() &&
+      hasMermaidFenceLine(this.renderedContent()),
   );
 
   /**

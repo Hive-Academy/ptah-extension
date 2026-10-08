@@ -111,12 +111,20 @@
             />
           } @else {
             <!-- Fallback text content -->
-            <markdown
-              [data]="
-                message().rawContent || '' | surfaceMarkdown: surfaceActive()
-              "
-              class="prose prose-sm max-w-none"
-            />
+            @if (mermaidFallbackText(); as text) {
+              @defer (on immediate) {
+                <ptah-mermaid-message-text [text]="text" [finalized]="true" [active]="surfaceActive()" />
+              } @placeholder {
+                <markdown [data]="text | surfaceMarkdown: surfaceActive()" class="prose prose-sm max-w-none" />
+              } @error {
+                <markdown [data]="text | surfaceMarkdown: surfaceActive()" class="prose prose-sm max-w-none" />
+              }
+            } @else {
+              <markdown
+                [data]="message().rawContent || '' | surfaceMarkdown: surfaceActive()"
+                class="prose prose-sm max-w-none"
+              />
+            }
             @if (isStreaming()) {
               <ptah-typing-cursor colorClass="text-base-content-muted" />
             }
