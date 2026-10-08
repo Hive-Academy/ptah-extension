@@ -24,4 +24,7 @@ export const ProviderProfileSchema = z.object({
   baseUrl: z.string().optional(),
   cliJsPath: z.string().optional(),
   defaultMaxTokens: z.number().int().positive().optional(),
+  reasoningEffort: z
+    .enum(['', 'low', 'medium', 'high', 'xhigh', 'max'])
+    .optional(),
 }) satisfies z.ZodType<ProviderProfile>;

@@ -141,16 +141,15 @@ export interface ClosedTabEvent {
 
 /**
  * The `sessionBudget` part of an accepted snapshot's tab update. An absent
- * budget, or one keyed to another session than the snapshot, leaves the tab's
- * last budget in place.
+ * budget leaves the tab's last budget in place. `null` is the explicit marker
+ * that the backend has no budget for this snapshot, so it clears the last one.
  */
 function budgetPatch(
   snapshot: SessionStatsEntry,
-  budget: SessionBudgetState | undefined,
-): { sessionBudget?: SessionBudgetState } {
-  return budget?.sessionId === snapshot.sessionId
-    ? { sessionBudget: budget }
-    : {};
+  budget: SessionBudgetState | null | undefined,
+): { sessionBudget?: SessionBudgetState | null } {
+  if (budget === null) return { sessionBudget: null };
+  return budget?.sessionId === snapshot.sessionId ? { sessionBudget: budget } : {};
 }
 
 /**
@@ -2250,7 +2249,7 @@ export class TabManagerService {
   installSessionStats(
     tabId: string,
     snapshot: SessionStatsEntry,
-    budget?: SessionBudgetState,
+    budget?: SessionBudgetState | null,
   ): void {
     if (!this.acceptSessionStats(tabId, snapshot)) return;
     this.updateTabInternal(tabId, {
@@ -2301,7 +2300,7 @@ export class TabManagerService {
     tabId: string,
     stats: SessionStatsEntry,
     sessionModel: string | null,
-    budget?: SessionBudgetState,
+    budget?: SessionBudgetState | null,
   ): void {
     // Keep the model visible until the loader applies the independent history frame.
     // A legacy model-only record establishes neither numerator nor capacity.

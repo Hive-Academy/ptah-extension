@@ -28,6 +28,7 @@ interface TurnTestRow {
 const OUTCOME_CLASS: Readonly<Record<TurnTestOutcome, string>> = {
   passed: 'font-semibold w-14 shrink-0 diff-add-text',
   failed: 'font-semibold w-14 shrink-0 diff-del-text',
+  running: 'font-semibold w-14 shrink-0 text-base-content-muted',
   unknown: 'font-semibold w-14 shrink-0 text-base-content-muted',
 };
 

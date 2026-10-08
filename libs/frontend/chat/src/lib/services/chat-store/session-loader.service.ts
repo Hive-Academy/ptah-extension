@@ -1040,7 +1040,7 @@ export class SessionLoaderService {
       tabId,
       stats,
       stats.model ?? null,
-      options?.budget,
+      options?.budget ?? null,
     );
 
     // A targeted compaction reload reads immutable history, which may still

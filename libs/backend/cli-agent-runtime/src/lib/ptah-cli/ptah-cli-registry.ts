@@ -475,6 +475,7 @@ export class PtahCliRegistry {
       model: resolvedModel,
       baseUrl: provider.baseUrl,
       cliJsPath,
+      reasoningEffort: agentConfig.reasoningEffort,
     };
   }
 
