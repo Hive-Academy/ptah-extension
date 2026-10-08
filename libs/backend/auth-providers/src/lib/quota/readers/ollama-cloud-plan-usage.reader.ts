@@ -1,4 +1,4 @@
-/** Ollama Cloud's documented included-credit balance endpoint. */
+/** Ollama Cloud usage endpoint. */
 import { z } from 'zod';
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { PlanLimitWindow } from '@ptah-extension/shared';
@@ -7,15 +7,23 @@ import type {
   PlanUsageReading,
 } from './plan-usage-reader.types';
 
-export const OLLAMA_CLOUD_USAGE_URL = 'https://ollama.com/api/balance';
+export const OLLAMA_CLOUD_USAGE_URL = 'https://ollama.com/api/usage';
 export const OLLAMA_CLOUD_USAGE_TIMEOUT_MS = 5_000;
 
-const BalanceSchema = z.object({
-  included: z.object({
-    balance_usd: z.number().nonnegative(),
-    allowance_usd: z.number().positive(),
-    period: z.object({ until: z.string() }),
-  }),
+const UsageLimitSchema = z.object({
+  usage: z.number().nonnegative(),
+  period: z
+    .object({ until: z.string().optional(), ending_at: z.string().optional() })
+    .optional(),
+});
+
+const UsageSchema = z.object({
+  limits: z
+    .object({
+      session: UsageLimitSchema.optional(),
+      weekly: UsageLimitSchema.optional(),
+    })
+    .refine((limits) => limits.session !== undefined || limits.weekly !== undefined),
 });
 
 type FetchLike = typeof fetch;
@@ -48,10 +56,10 @@ export function createOllamaCloudPlanUsageReader(
         return unavailable('unsupported-auth');
       }
       if (!response.ok) return unavailable('service-unavailable');
-      const parsed = BalanceSchema.safeParse(await response.json());
+      const parsed = UsageSchema.safeParse(await response.json());
       if (!parsed.success) {
         const issue = parsed.error.issues[0];
-        logger.warn('[PlanUsage] provisional usage response rejected', {
+        logger.warn('[PlanUsage] Ollama Cloud usage response rejected', {
           providerId: 'ollama-cloud',
           fieldPath: issue?.path.map(String).join('.') ?? '',
           reason: issue?.code ?? 'invalid',
@@ -63,9 +71,13 @@ export function createOllamaCloudPlanUsageReader(
         status: 'available',
         fetchedAt: observedAt,
         windowSetEstablished: true,
-        windows: [window(parsed.data.included, observedAt)],
+        windows: windows(parsed.data.limits, observedAt),
       };
-    } catch {
+    } catch (error: unknown) {
+      logger.warn('[PlanUsage] Ollama Cloud usage request failed', {
+        providerId: 'ollama-cloud',
+        reason: error instanceof Error ? error.name : 'unknown',
+      });
       return unavailable('service-unavailable');
     } finally {
       clearTimeout(timeout);
@@ -74,35 +86,44 @@ export function createOllamaCloudPlanUsageReader(
   };
 }
 
-function window(
-  value: {
-    balance_usd: number;
-    allowance_usd: number;
-    period: { until: string };
+function windows(
+  limits: {
+    session?: z.infer<typeof UsageLimitSchema>;
+    weekly?: z.infer<typeof UsageLimitSchema>;
   },
   observedAt: number,
-): PlanLimitWindow {
-  const reset = Date.parse(value.period.until);
-  const percent = Math.min(
-    100,
-    Math.max(
-      0,
-      ((value.allowance_usd - value.balance_usd) / value.allowance_usd) * 100,
-    ),
-  );
-  return {
-    key: 'monthly',
-    kind: 'monthly',
-    label: 'Included credits',
-    used: { kind: 'percent', percent },
-    usedSource: 'provider-api',
-    usedObservedAt: observedAt,
-    ...(Number.isFinite(reset) && {
-      resetsAt: reset,
-      resetSource: 'provider-api',
-    }),
-    observedAt,
-  };
+): PlanLimitWindow[] {
+  return ([
+    ['session', 'five_hour', 'Session'],
+    ['weekly', 'weekly', 'Weekly'],
+  ] as const).flatMap(([key, kind, label]) => {
+    const value = limits[key];
+    if (!value) return [];
+    const reset = Date.parse(
+      value.period?.until ?? value.period?.ending_at ?? '',
+    );
+    return [
+      {
+        key: kind,
+        kind,
+        label,
+        used: {
+          kind: 'percent' as const,
+          percent: Math.min(
+            100,
+            value.usage <= 1 ? value.usage * 100 : value.usage,
+          ),
+        },
+        usedSource: 'provider-api' as const,
+        usedObservedAt: observedAt,
+        ...(Number.isFinite(reset) && {
+          resetsAt: reset,
+          resetSource: 'provider-api' as const,
+        }),
+        observedAt,
+      },
+    ];
+  });
 }
 
 function unavailable(

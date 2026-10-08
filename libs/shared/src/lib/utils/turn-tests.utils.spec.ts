@@ -101,6 +101,55 @@ describe('collectTurnTests', () => {
       ),
     ).toEqual([]);
   });
+
+  it('does not mark a zero-failure summary as failed', () => {
+    const command = 'npm test';
+    const result = collectTurnTests(
+      [{ ...bash(command, 'complete', false), toolOutput: 'Tests: 0 failed, 5 passed' }],
+      { finalized: true },
+    );
+    expect(result).toEqual([{ command, outcome: 'passed' }]);
+  });
+
+  it('does not record a running target as passed', () => {
+    const command = 'npx nx test app';
+    const result = collectTurnTests(
+      [{ ...bash(command, 'streaming', false), toolOutput: 'Running target app:test' }],
+      { finalized: false },
+    );
+    expect(result).toEqual([{ command, outcome: 'unknown' }]);
+  });
+
+  it('keeps the command failure when parsed projects only passed', () => {
+    const command = 'npx nx test app';
+    const result = collectTurnTests(
+      [
+        {
+          ...bash(command, 'complete', true),
+          toolOutput: 'Successfully ran target app:test',
+        },
+      ],
+      { finalized: true },
+    );
+    expect(result).toEqual([
+      { command, project: 'app:test', outcome: 'passed' },
+      { command, outcome: 'failed' },
+    ]);
+  });
+
+  it('does not let partial success output override an active command', () => {
+    const command = 'npx nx test app';
+    const result = collectTurnTests(
+      [
+        {
+          ...bash(command, 'streaming', false),
+          toolOutput: 'Successfully ran target app:test',
+        },
+      ],
+      { finalized: false },
+    );
+    expect(result).toEqual([{ command, outcome: 'unknown' }]);
+  });
 });
 
 describe('summarizeTurnTests', () => {

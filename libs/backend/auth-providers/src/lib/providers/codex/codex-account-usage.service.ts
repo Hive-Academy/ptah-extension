@@ -155,7 +155,7 @@ export class CodexAccountUsageService
     }
     // The initiating caller still owns cancellation of the shared process.
     // Joiners can abandon only their own wait without disrupting other callers.
-    if (this.readInFlight)
+    if (this.readInFlight !== null)
       return joinWithCallerAbort(this.readInFlight, options.signal);
     const read = this.performRead(options.signal);
     this.readInFlight = read;
@@ -288,7 +288,7 @@ export class CodexAccountUsageService
 
   private closeChild(child: SpawnedProcessHandle): Promise<void> {
     const existing = this.closing.get(child);
-    if (existing) return existing;
+    if (existing !== undefined) return existing;
     const closing = new Promise<void>((done) => {
       this.active.delete(child);
       child.stdin?.end();
