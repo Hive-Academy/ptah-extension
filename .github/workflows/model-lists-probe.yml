@@ -38,22 +38,21 @@ jobs:
         uses: actions/cache@v4
         with:
           path: node_modules
-          key: node-modules-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          # Own key: this install skips lifecycle scripts, so other workflows
+          # must never restore it.
+          key: node-modules-noscripts-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
 
       - name: Install dependencies
         if: steps.cache-modules.outputs.cache-hit != 'true'
-        # Workaround for npm/cli#4828: package-lock.json generated on
-        # Windows omits Linux rollup platform binaries.
-        # Fall back to `npm install` if `npm ci` fails on transitive drift.
-        run: |
-          npm ci || npm install --no-audit --no-fund
-          npm install @rollup/rollup-linux-x64-gnu --no-save --force
+        # Locked versions only, and no lifecycle scripts: the Jest run below
+        # needs no native rebuilds.
+        run: npm ci --ignore-scripts --no-audit --no-fund
 
       - name: Run live model-list drift check
         id: probe
         run: |
           set -o pipefail
-          npx nx test @ptah-extension/auth-providers --testPathPatterns model-lists.live 2>&1 | tee "${RUNNER_TEMP}/model-lists-probe-output.txt"
+          ./node_modules/.bin/nx test @ptah-extension/auth-providers --testPathPatterns model-lists.live --passWithNoTests=false 2>&1 | tee "${RUNNER_TEMP}/model-lists-probe-output.txt"
 
       - name: Open or update the probe failure issue
         if: failure() && steps.probe.outcome == 'failure'
