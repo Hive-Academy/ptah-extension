@@ -348,6 +348,11 @@ describe('ProviderModelsService — Requesty catalog shape', () => {
             supports_tool_calling: true,
             pricing: { prompt: '0.000001', completion: '0.000003' },
           },
+          {
+            id: 'broken/non-finite-price',
+            input_price: Infinity,
+            output_price: Number.NaN,
+          },
         ],
       },
     });
@@ -369,6 +374,11 @@ describe('ProviderModelsService — Requesty catalog shape', () => {
         supportsToolUse: false,
         inputCostPerToken: 0.000001,
         outputCostPerToken: 0.000003,
+      });
+      // A non-finite price is no price, so it never reaches the pricing map.
+      expect(byId.get('broken/non-finite-price')).toMatchObject({
+        inputCostPerToken: undefined,
+        outputCostPerToken: undefined,
       });
     } finally {
       get.mockRestore();

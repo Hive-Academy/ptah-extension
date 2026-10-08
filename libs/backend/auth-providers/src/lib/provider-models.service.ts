@@ -461,11 +461,13 @@ export class ProviderModelsService {
       return cached.ids;
     }
     if (!baseUrl) return null;
+    let base = baseUrl;
+    while (base.endsWith('/')) base = base.slice(0, -1);
     try {
-      const { data } = await axios.get<ModelsApiResponse>(
-        `${baseUrl.replace(/\/+$/, '')}/models`,
-        { headers: { 'User-Agent': 'Ptah-Extension/1.0' }, timeout: 10_000 },
-      );
+      const { data } = await axios.get<ModelsApiResponse>(`${base}/models`, {
+        headers: { 'User-Agent': 'Ptah-Extension/1.0' },
+        timeout: 10_000,
+      });
       const ids = new Set(
         (Array.isArray(data?.data) ? data.data : [])
           .map((m) => m?.id)
@@ -1276,14 +1278,14 @@ export class ProviderModelsService {
    * Parse a pricing field string to a number.
    * OpenRouter returns pricing as strings (e.g., "0.000005" for $5/1M tokens).
    *
-   * @returns Parsed number, or undefined if empty/invalid/negative
+   * @returns Parsed number, or undefined if empty/invalid/non-finite/negative
    */
   private parsePricingField(
     value: string | number | undefined,
   ): number | undefined {
     if (value === undefined || value === '') return undefined;
-    const parsed = typeof value === 'number' ? value : parseFloat(value);
-    if (isNaN(parsed) || parsed < 0) return undefined;
+    const parsed = typeof value === 'number' ? value : Number.parseFloat(value);
+    if (!Number.isFinite(parsed) || parsed < 0) return undefined;
     return parsed;
   }
 

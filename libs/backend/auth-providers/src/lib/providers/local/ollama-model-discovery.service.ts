@@ -336,10 +336,12 @@ export class OllamaModelDiscoveryService {
   /**
    * Fetch models for the 'ollama-cloud' provider.
    *
-   * Ollama has no API to list available cloud models — /api/tags only returns
-   * locally pulled/used models. We use the static KNOWN_CLOUD_MODELS catalog
-   * as the primary source, then merge any additional :cloud models from /api/tags
-   * that aren't in our catalog (e.g., newly released models the user has tried).
+   * The live ollama.com/api/tags list is the source: when it is non-empty,
+   * only its IDs are returned, and the static KNOWN_CLOUD_MODELS catalog only
+   * supplies names, descriptions and context lengths for them. When the live
+   * list is empty or the fetch fails, the static catalog is the fallback, plus
+   * any extra :cloud models from the local /api/tags (models the user has
+   * pulled that the catalog does not know).
    */
   async listCloudModels(): Promise<ProviderModelInfo[]> {
     const staticModels: ProviderModelInfo[] = Object.entries(
