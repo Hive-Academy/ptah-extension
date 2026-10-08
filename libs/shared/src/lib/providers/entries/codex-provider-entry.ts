@@ -10,6 +10,23 @@ import type {
   ProviderStaticModel,
 } from '../provider-registry';
 
+/** `contextLength` 0 means unknown; pricing is 0 because the subscription covers usage. */
+function codexModel(
+  id: string,
+  name: string,
+  description = name,
+): ProviderStaticModel {
+  return {
+    id,
+    name,
+    description,
+    contextLength: 0,
+    supportsToolUse: true,
+    inputCostPerToken: 0,
+    outputCostPerToken: 0,
+  };
+}
+
 /**
  * Fallback model IDs for OpenAI Codex. Pricing is 0 since the subscription
  * covers usage (and `seedStaticModelPricing` skips subscription providers).
@@ -27,69 +44,17 @@ import type {
  * model stays first.
  */
 const CODEX_STATIC_MODELS: ProviderStaticModel[] = [
-  {
-    id: 'gpt-6.1-sol',
-    name: 'GPT 6.1 Sol',
-    description: 'Latest workhorse model for coding and everyday work',
-    contextLength: 0,
-    supportsToolUse: true,
-    inputCostPerToken: 0,
-    outputCostPerToken: 0,
-  },
-  {
-    id: 'gpt-6-astra',
-    name: 'GPT 6 Astra',
-    description: 'GPT 6 Astra',
-    contextLength: 0,
-    supportsToolUse: true,
-    inputCostPerToken: 0,
-    outputCostPerToken: 0,
-  },
-  {
-    id: 'gpt-6-sol',
-    name: 'GPT 6 Sol',
-    description: 'GPT 6 Sol',
-    contextLength: 0,
-    supportsToolUse: true,
-    inputCostPerToken: 0,
-    outputCostPerToken: 0,
-  },
-  {
-    id: 'gpt-6-luna',
-    name: 'GPT 6 Luna',
-    description: 'GPT 6 Luna',
-    contextLength: 0,
-    supportsToolUse: true,
-    inputCostPerToken: 0,
-    outputCostPerToken: 0,
-  },
-  {
-    id: 'gpt-5.6-sol',
-    name: 'GPT 5.6 Sol',
-    description: 'GPT 5.6 Sol',
-    contextLength: 0,
-    supportsToolUse: true,
-    inputCostPerToken: 0,
-    outputCostPerToken: 0,
-  },
-  {
-    id: 'gpt-5.6-terra',
-    name: 'GPT 5.6 Terra',
-    description: 'GPT 5.6 Terra',
-    contextLength: 0,
-    supportsToolUse: true,
-    inputCostPerToken: 0,
-    outputCostPerToken: 0,
-  },
-  {
-    id: 'gpt-5.6-luna',
-    name: 'GPT 5.6 Luna',
-    description: 'GPT 5.6 Luna',
-    contextLength: 0,
-    supportsToolUse: true,
-    inputCostPerToken: 0,
-    outputCostPerToken: 0,
-  },
+  codexModel(
+    'gpt-6.1-sol',
+    'GPT 6.1 Sol',
+    'Latest workhorse model for coding and everyday work',
+  ),
+  codexModel('gpt-6-astra', 'GPT 6 Astra'),
+  codexModel('gpt-6-sol', 'GPT 6 Sol'),
+  codexModel('gpt-6-luna', 'GPT 6 Luna'),
+  codexModel('gpt-5.6-sol', 'GPT 5.6 Sol'),
+  codexModel('gpt-5.6-terra', 'GPT 5.6 Terra'),
+  codexModel('gpt-5.6-luna', 'GPT 5.6 Luna'),
 ];
 
 /**
