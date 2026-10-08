@@ -136,9 +136,10 @@
       </div>
 
       <!-- Session budget banner (TASK_2026_597 N7): tighten, handoff, limit -->
-      @if (resolvedSessionBudget(); as budget) {
+      @if (showSessionBudgetBanner()) {
         <ptah-session-budget-banner
-          [budget]="budget"
+          [budget]="resolvedSessionBudget()"
+          [handover]="resolvedHandover()"
           [preview]="budgetPreviewText()"
           [previewFailed]="budgetPreviewFailed()"
           [contextTokens]="budgetContextTokens()"
@@ -148,6 +149,8 @@
           (restoreWindow)="onBudgetAction('restore-window')"
           (previewRequested)="onBudgetPreview()"
           (continueInNewSession)="onBudgetContinue()"
+          (cancelHandover)="onBudgetCancelHandover()"
+          (restoreLostInputs)="onRestoreLostHandoverInputs($event)"
           (rotate)="onBudgetRotate()"
         />
       }

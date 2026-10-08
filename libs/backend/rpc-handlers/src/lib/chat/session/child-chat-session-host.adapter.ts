@@ -19,11 +19,15 @@
  */
 
 import { inject, injectable } from 'tsyringe';
-import { Logger, TOKENS } from '@ptah-extension/vscode-core';
+import { randomUUID } from 'node:crypto';
+import { TOKENS } from '@ptah-extension/vscode-core';
+import type { Logger } from '@ptah-extension/vscode-core';
 import type {
   ChildChatSessionStartInput,
   ChildChatSessionStartOutcome,
   IChildChatSessionHost,
+  SuccessorSessionQueuedInput,
+  StartSuccessorSessionInput,
 } from '@ptah-extension/cli-agent-runtime';
 import { MESSAGE_TYPES } from '@ptah-extension/shared';
 
@@ -31,8 +35,19 @@ import { CHAT_TOKENS } from '../tokens';
 import type { ChatSessionService } from './chat-session.service';
 import type { WebviewManager } from '../streaming/chat-stream-broadcaster.service';
 
+/** The UI must bind and focus before the source can be closed. */
+export const SUCCESSOR_BIND_TIMEOUT_MS = 15_000;
+
+interface PendingSuccessorBind {
+  readonly sourceTabId: string;
+  readonly successorTabId: string;
+  readonly resolve: () => void;
+}
+
 @injectable()
 export class ChildChatSessionHostAdapter implements IChildChatSessionHost {
+  private readonly pendingSuccessorBinds = new Map<string, PendingSuccessorBind>();
+  private readonly boundSuccessors = new Map<string, string>();
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.WEBVIEW_MANAGER)
@@ -73,6 +88,141 @@ export class ChildChatSessionHostAdapter implements IChildChatSessionHost {
       await this.reportStartFailure(input.tabId, error);
     }
     return { started: false, error };
+  }
+
+  async startSuccessorSession(
+    input: StartSuccessorSessionInput,
+  ): Promise<ChildChatSessionStartOutcome> {
+    const successorTabId = randomUUID();
+    const config = input.source.successorConfig;
+    try {
+      const started = await this.session.startHandoverSuccessor({
+        tabId: successorTabId,
+        workspaceRoot: config.workspacePath,
+        worktreePath: input.resourceLease.worktreePath,
+        seed: input.seed,
+        model: config.model,
+        effort: config.effort,
+        permissionLevel: config.permissionLevel,
+      });
+      if (!started.success) {
+        return { started: false, error: started.error ?? 'successor start failed' };
+      }
+
+      if (!this.hasInteractiveWebview()) {
+        this.boundSuccessors.set(input.operationId, successorTabId);
+        return { started: true, uiAnnounced: false };
+      }
+
+      const bound = await this.requestSuccessorBind(input, successorTabId);
+      if (bound) {
+        this.boundSuccessors.set(input.operationId, successorTabId);
+        return { started: true, uiAnnounced: true };
+      }
+
+      await this.stopSuccessor(successorTabId);
+      return { started: false, error: 'successor tab was not bound before timeout' };
+    } catch (error: unknown) {
+      await this.stopSuccessor(successorTabId);
+      return {
+        started: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  async deliverTransferInputs(
+    operationId: string,
+    inputs: readonly SuccessorSessionQueuedInput[],
+  ): Promise<{ readonly delivered: boolean; readonly error?: string }> {
+    const successorTabId = this.boundSuccessors.get(operationId);
+    if (!successorTabId) {
+      return { delivered: false, error: 'successor was not bound' };
+    }
+    const delivered = await this.session.deliverHandoverInputs(successorTabId, inputs);
+    this.boundSuccessors.delete(operationId);
+    if (!delivered.delivered) await this.stopSuccessor(successorTabId);
+    return delivered;
+  }
+
+  async stopSuccessorSession(operationId: string): Promise<void> {
+    const successorTabId = this.boundSuccessors.get(operationId);
+    if (!successorTabId) return;
+    this.boundSuccessors.delete(operationId);
+    await this.stopSuccessor(successorTabId);
+  }
+
+  acknowledgeSuccessorBound(
+    operationId: string,
+    sourceTabId: string,
+    successorTabId: string,
+  ): boolean {
+    const pending = this.pendingSuccessorBinds.get(operationId);
+    if (
+      !pending ||
+      pending.sourceTabId !== sourceTabId ||
+      pending.successorTabId !== successorTabId
+    ) {
+      return false;
+    }
+    this.pendingSuccessorBinds.delete(operationId);
+    pending.resolve();
+    return true;
+  }
+
+  private hasInteractiveWebview(): boolean {
+    const manager = this.webviewManager as WebviewManager & {
+      getActiveWebviews?: () => readonly string[];
+    };
+    return (manager.getActiveWebviews?.().length ?? 0) > 0;
+  }
+
+  private async requestSuccessorBind(
+    input: StartSuccessorSessionInput,
+    successorTabId: string,
+  ): Promise<boolean> {
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    const acknowledged = new Promise<void>((resolve) => {
+      this.pendingSuccessorBinds.set(input.operationId, {
+        sourceTabId: input.source.tabId,
+        successorTabId,
+        resolve,
+      });
+    });
+    try {
+      await this.webviewManager.broadcastMessage(
+        MESSAGE_TYPES.SESSION_SUCCESSOR_REPLACEMENT,
+        {
+          operationId: input.operationId,
+          sourceSessionId: input.source.sessionId,
+          sourceTabId: input.source.tabId,
+          successorSessionId: successorTabId,
+          successorTabId,
+          config: input.source.successorConfig,
+        },
+      );
+      await Promise.race([
+        acknowledged,
+        new Promise<void>((resolve) => {
+          timeout = setTimeout(resolve, SUCCESSOR_BIND_TIMEOUT_MS);
+        }),
+      ]);
+      return !this.pendingSuccessorBinds.has(input.operationId);
+    } finally {
+      if (timeout) clearTimeout(timeout);
+      this.pendingSuccessorBinds.delete(input.operationId);
+    }
+  }
+
+  private async stopSuccessor(tabId: string): Promise<void> {
+    try {
+      await this.session.stopHandoverSuccessor(tabId);
+    } catch (error: unknown) {
+      this.logger.warn('[ChildChatSessionHost] successor cleanup failed', {
+        tabId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   /** Push the tab descriptor; `true` only when the broadcast resolved. */

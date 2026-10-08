@@ -6,7 +6,10 @@ import {
   ClaudeRpcService,
   RpcResult,
 } from '@ptah-extension/core';
-import type { SessionBudgetState } from '@ptah-extension/shared';
+import type {
+  SessionBudgetState,
+  SessionHandoverState,
+} from '@ptah-extension/shared';
 import { ActionBannerService } from './action-banner.service';
 import { ChatStore } from './chat.store';
 import { SessionBudgetActionsService } from './session-budget-actions.service';
@@ -35,6 +38,15 @@ const BUDGET: SessionBudgetState = {
   blocked: true,
 };
 
+const HANDOVER: SessionHandoverState = {
+  operationId: 'handover-1',
+  sourceSessionId: SESSION,
+  reason: 'budget-limit',
+  phase: 'armed',
+  revision: 1,
+  heldInputCount: 0,
+};
+
 describe('SessionBudgetActionsService (TASK_2026_597 N7)', () => {
   function setup(budget: SessionBudgetState | null = BUDGET) {
     const rpcCallMock = jest.fn();
@@ -50,6 +62,7 @@ describe('SessionBudgetActionsService (TASK_2026_597 N7)', () => {
       sessionBudget: budget,
     });
     const tabId = signal<string | null>('tab-abc');
+    const handoverTab = { queuedContent: ' queued follow-up ' };
 
     TestBed.configureTestingModule({
       providers: [
@@ -58,7 +71,11 @@ describe('SessionBudgetActionsService (TASK_2026_597 N7)', () => {
         { provide: ActionBannerService, useValue: { showError: showErrorMock } },
         {
           provide: TabManagerService,
-          useValue: { createTab: createTabMock, activeWorkspacePath: '/ws' },
+          useValue: {
+            createTab: createTabMock,
+            activeWorkspacePath: '/ws',
+            findTabByIdAcrossWorkspaces: jest.fn(() => ({ tab: handoverTab })),
+          },
         },
         {
           provide: AppStateManager,
@@ -260,44 +277,39 @@ describe('SessionBudgetActionsService (TASK_2026_597 N7)', () => {
     expect(h.service.previewText()).toBe('# Handoff');
   });
 
-  it('continue writes the handoff and starts a new tab with only the seed', async () => {
+  it('continue starts one backend-owned handover and transfers queued input', async () => {
     const h = setup();
     h.rpcCallMock.mockResolvedValue(
-      rpcOk({
-        success: true,
-        handoff: { content: '# Handoff', path: '/h.md', seed: 'SEED TEXT' },
-      }),
+      rpcOk({ accepted: true, state: HANDOVER }),
     );
 
     await h.service.continueInNewSession();
 
-    expect(h.rpcCallMock).toHaveBeenCalledWith('session:budgetAction', {
-      sessionId: SESSION,
-      action: 'write-handoff',
+    expect(h.rpcCallMock).toHaveBeenCalledWith('session:beginHandover', {
+      sourceSessionId: SESSION,
+      sourceTabId: 'tab-abc',
+      queuedInput: 'queued follow-up',
     });
-    expect(h.createTabMock).toHaveBeenCalledTimes(1);
-    expect(h.sendOrQueueMessageMock).toHaveBeenCalledWith('SEED TEXT', {
-      tabId: 'tab-new',
-    });
-    expect(h.requestCanvasTabMock).not.toHaveBeenCalled();
+    expect(h.createTabMock).not.toHaveBeenCalled();
+    expect(h.sendOrQueueMessageMock).not.toHaveBeenCalled();
   });
 
-  it('continue in grid layout asks the canvas to adopt the new tab', async () => {
+  it('makes repeated Continue clicks single-flight', async () => {
     const h = setup();
-    h.layoutModeSig.set('grid');
-    h.rpcCallMock.mockResolvedValue(
-      rpcOk({
-        success: true,
-        handoff: { content: 'c', path: null, seed: 'SEED' },
-      }),
+    let resolve!: (value: RpcResult<unknown>) => void;
+    h.rpcCallMock.mockReturnValue(
+      new Promise<RpcResult<unknown>>((done) => (resolve = done)),
     );
 
-    await h.service.continueInNewSession();
+    const first = h.service.continueInNewSession();
+    const second = h.service.continueInNewSession();
+    resolve(rpcOk({ accepted: true, state: HANDOVER }));
+    await Promise.all([first, second]);
 
-    expect(h.requestCanvasTabMock).toHaveBeenCalledWith('tab-new', '/ws');
+    expect(h.rpcCallMock).toHaveBeenCalledTimes(1);
   });
 
-  it('continue opens no tab when the action fails', async () => {
+  it('keeps the source tab when beginning handover fails', async () => {
     const h = setup();
     h.rpcCallMock.mockResolvedValue(rpcOk({ success: false, error: 'nope' }));
 
@@ -307,25 +319,19 @@ describe('SessionBudgetActionsService (TASK_2026_597 N7)', () => {
     expect(h.sendOrQueueMessageMock).not.toHaveBeenCalled();
   });
 
-  it('continue reports a new session that could not start', async () => {
+  it('cancels an active handover to keep working', async () => {
     const h = setup();
-    h.rpcCallMock.mockResolvedValue(
-      rpcOk({
-        success: true,
-        handoff: { content: 'c', path: null, seed: 'SEED' },
-      }),
-    );
-    h.sendOrQueueMessageMock.mockResolvedValue({
-      success: false,
-      error: 'busy',
-    });
-
+    h.rpcCallMock.mockResolvedValueOnce(rpcOk({ accepted: true, state: HANDOVER }));
     await h.service.continueInNewSession();
-
-    expect(h.showErrorMock).toHaveBeenLastCalledWith(
-      'Could not start the new session: busy',
-      'tab-new',
+    h.rpcCallMock.mockResolvedValueOnce(
+      rpcOk({ cancelled: true, state: { ...HANDOVER, phase: 'cancelled', revision: 2 } }),
     );
+    await h.service.cancelHandover();
+
+    expect(h.rpcCallMock).toHaveBeenLastCalledWith('session:cancelHandover', {
+      operationId: HANDOVER.operationId,
+      sourceSessionId: SESSION,
+    });
   });
 
   it('rotate previews the handoff and only prefills the new tab composer', async () => {

@@ -2275,6 +2275,7 @@ describe('ChatViewComponent — session budget banner wiring (TASK_2026_597 N7)'
     onBudgetPreview(): Promise<void>;
     onBudgetContinue(): Promise<void>;
     onBudgetRotate(): Promise<void>;
+    showSessionBudgetBanner(): boolean;
   };
 
   function setup(budget: SessionBudgetState | null = BUDGET) {
@@ -2283,9 +2284,10 @@ describe('ChatViewComponent — session budget banner wiring (TASK_2026_597 N7)'
       id: 'tab-abc',
       claudeSessionId: SESSION,
       sessionBudget: budget,
+      status: 'streaming',
     });
     h.activeTabMock.mockImplementation(() => tab());
-    return { h, view: h.component as unknown as BudgetView };
+    return { h, tab, view: h.component as unknown as BudgetView };
   }
 
   afterEach(() => {
@@ -2296,6 +2298,26 @@ describe('ChatViewComponent — session budget banner wiring (TASK_2026_597 N7)'
   it('passes the tab budget through', () => {
     const { view } = setup();
     expect(view.resolvedSessionBudget()).toBe(BUDGET);
+  });
+
+  it('waits for terminal turn_state before showing budget state received while generating', () => {
+    const { tab, view } = setup();
+
+    // session:stats has already supplied the budget, but the turn still runs.
+    expect(view.showSessionBudgetBanner()).toBe(false);
+
+    // This is the terminal turn_state application; the queue flush runs in the
+    // streaming store before Angular can render this now-idle banner.
+    tab.update((current) => ({ ...current, status: 'loaded' }));
+    expect(view.showSessionBudgetBanner()).toBe(true);
+  });
+
+  it('renders the idle active view as the session banner owner', () => {
+    const { h, tab, view } = setup();
+    tab.update((current) => ({ ...current, status: 'loaded' }));
+    expect(view.showSessionBudgetBanner()).toBe(true);
+
+    expect(h.activeTabIdSig()).toBe('tab-abc');
   });
 
   it('a banner action calls session:budgetAction and reports on this tab', async () => {
@@ -2338,22 +2360,53 @@ describe('ChatViewComponent — session budget banner wiring (TASK_2026_597 N7)'
     expect(view.budgetPreviewText()).toBeNull();
   });
 
-  it('continue and rotate open a new tab from the handoff seed', async () => {
+  it('continues through the backend-owned handover and keeps rotation local', async () => {
     const { h, view } = setup();
-    h.rpcCallMock.mockResolvedValue(
+    h.rpcCallMock.mockResolvedValueOnce(
+      rpcOk({
+        accepted: true,
+        state: {
+          operationId: 'handover-1',
+          sourceSessionId: SESSION,
+          reason: 'budget-limit',
+          phase: 'armed',
+          revision: 1,
+          heldInputCount: 0,
+        },
+      }),
+    );
+
+    await view.onBudgetContinue();
+    expect(h.rpcCallMock).toHaveBeenCalledWith('session:beginHandover', {
+      sourceSessionId: 'session-uuid-123',
+      sourceTabId: 'tab-abc',
+    });
+    expect(h.sendOrQueueMessageMock).not.toHaveBeenCalled();
+
+    h.rpcCallMock.mockResolvedValueOnce(
       rpcOk({
         success: true,
         handoff: { content: '# H', path: null, seed: 'SEED' },
       }),
     );
 
-    await view.onBudgetContinue();
-    expect(h.sendOrQueueMessageMock).toHaveBeenCalledWith('SEED', {
-      tabId: 'tab-new',
-    });
-
     await view.onBudgetRotate();
     expect(h.requestComposerPrefillMock).toHaveBeenCalledWith('SEED', null);
-    expect(h.createTabMock).toHaveBeenCalledTimes(2);
+    expect(h.createTabMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('puts lost handover text back into this source view composer', () => {
+    const { view } = setup();
+    const restoreContentToInput = jest.fn();
+    (view as unknown as { chatInputRef: jest.Mock }).chatInputRef = jest.fn(
+      () => ({ restoreContentToInput }),
+    );
+
+    (view as unknown as { onRestoreLostHandoverInputs(texts: readonly string[]): void })
+      .onRestoreLostHandoverInputs(['first lost message', 'second lost message']);
+
+    expect(restoreContentToInput).toHaveBeenCalledWith(
+      'first lost message\n\nsecond lost message',
+    );
   });
 });

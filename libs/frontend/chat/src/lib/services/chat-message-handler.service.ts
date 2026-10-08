@@ -34,6 +34,7 @@ import {
   parseSdkTurnEndedPayload,
   parseSdkTurnFailedPayload,
   parseSessionMcpStatusPayload,
+  type SessionSuccessorReplacementPayload,
 } from '@ptah-extension/shared';
 import { ChatStore } from './chat.store';
 import { BoardTaskLinkCaptureService } from './chat-store/board-task-link-capture.service';
@@ -41,6 +42,7 @@ import {
   AgentSessionAdoptionService,
   parseAgentSessionOpenedPayload,
 } from './agent-session-adoption.service';
+import { SessionHandoverClientService } from './session-handover-client.service';
 import {
   AgentMonitorStore,
   TurnStateApplier,
@@ -59,6 +61,24 @@ import {
   WorkflowSessionClaimService,
 } from '@ptah-extension/chat-routing';
 
+function isSuccessorReplacementPayload(
+  value: unknown,
+): value is SessionSuccessorReplacementPayload {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const payload = value as Record<string, unknown>;
+  const config = payload['config'];
+  return (
+    typeof payload['operationId'] === 'string' &&
+    typeof payload['sourceSessionId'] === 'string' &&
+    typeof payload['sourceTabId'] === 'string' &&
+    typeof payload['successorSessionId'] === 'string' &&
+    typeof payload['successorTabId'] === 'string' &&
+    !!config &&
+    typeof config === 'object' &&
+    typeof (config as Record<string, unknown>)['workspacePath'] === 'string'
+  );
+}
+
 @Injectable({ providedIn: 'root' })
 export class ChatMessageHandler implements MessageHandler {
   private readonly chatStore = inject(ChatStore);
@@ -71,6 +91,7 @@ export class ChatMessageHandler implements MessageHandler {
   private readonly surfaceRegistry = inject(StreamingSurfaceRegistry);
   private readonly boardTaskLinkCapture = inject(BoardTaskLinkCaptureService);
   private readonly agentSessionAdoption = inject(AgentSessionAdoptionService);
+  private readonly handoverClient = inject(SessionHandoverClientService);
   /**
    * Authoritative StreamRouter.
    *
@@ -130,6 +151,7 @@ export class ChatMessageHandler implements MessageHandler {
     MESSAGE_TYPES.GATEWAY_SESSION_ATTACHED,
     MESSAGE_TYPES.GATEWAY_SESSION_DETACHED,
     MESSAGE_TYPES.AGENT_SESSION_OPENED,
+    MESSAGE_TYPES.SESSION_SUCCESSOR_REPLACEMENT,
   ] as const;
 
   handleMessage(message: { type: string; payload?: unknown }): void {
@@ -197,6 +219,9 @@ export class ChatMessageHandler implements MessageHandler {
       case MESSAGE_TYPES.AGENT_SESSION_OPENED:
         this.handleAgentSessionOpened(message.payload);
         break;
+      case MESSAGE_TYPES.SESSION_SUCCESSOR_REPLACEMENT:
+        this.handleSuccessorReplacement(message.payload);
+        break;
     }
   }
 
@@ -218,6 +243,17 @@ export class ChatMessageHandler implements MessageHandler {
     // Never throws (the service catches an adoption fault), so the switch
     // keeps handling the messages that follow.
     this.agentSessionAdoption.adopt(parsed, 'live');
+  }
+
+  private handleSuccessorReplacement(payload: unknown): void {
+    if (!isSuccessorReplacementPayload(payload)) {
+      console.warn(
+        '[ChatMessageHandler] session:successorReplacement payload rejected — dropped',
+        ChatMessageHandler.describePayload(payload),
+      );
+      return;
+    }
+    void this.handoverClient.bindSuccessor(payload);
   }
 
   /**

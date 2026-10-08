@@ -11,6 +11,8 @@
  * until `markTurnEnded` fires on the turn's `result`.
  */
 
+import 'reflect-metadata';
+
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { AISessionConfig, SessionId } from '@ptah-extension/shared';
 
@@ -19,6 +21,10 @@ import { SessionRegistry } from './session-registry.service';
 import { SessionStreamPump } from './session-stream-pump.service';
 import type { SdkMessageFactory } from '../sdk-message-factory';
 import type { SDKUserMessage } from '../../types/sdk-types/claude-sdk.types';
+import { SessionHandoverCoordinator } from '../session-handoff/session-handover-coordinator.service';
+import { SessionHandoffBuilder } from '../session-budget/session-handoff-builder';
+import { SessionHandoffWriter } from '../session-budget/session-handoff-writer';
+import { SessionHistoryReaderService } from '../../session-history-reader.service';
 
 const TAB = 'tab_pump' as SessionId;
 
@@ -79,6 +85,23 @@ function settle<T>(p: Promise<T>): Promise<T | typeof PENDING> {
 }
 
 describe('SessionStreamPump — one message per turn (TASK_2026_294)', () => {
+  it('creates the SDK message only when the neutral queue is dequeued', async () => {
+    const logger = makeLogger();
+    const registry = new SessionRegistry(logger);
+    const factory = makeMessageFactory();
+    const pump = new SessionStreamPump(logger, registry, factory);
+    const abortController = new AbortController();
+    registry.register(TAB as string, {} as AISessionConfig, abortController);
+
+    await pump.sendMessage(TAB, 'dequeue-me');
+
+    expect(factory.createUserMessage).not.toHaveBeenCalled();
+    const stream = pump.createUserMessageStream(TAB, abortController);
+    const iterator = stream[Symbol.asyncIterator]();
+    expect(textOf((await iterator.next()).value as SDKUserMessage)).toBe('dequeue-me');
+    expect(factory.createUserMessage).toHaveBeenCalledTimes(1);
+  });
+
   it('holds a message sent while a turn is in flight, then yields it on turn end', async () => {
     const h = makeHarness();
 
@@ -163,6 +186,51 @@ describe('SessionStreamPump — one message per turn (TASK_2026_294)', () => {
     );
     expect(h.registry.find(TAB as string)?.turnInFlight).toBe(true);
   });
+
+  it('delivers the coordinator-owned handoff request while source admission is held', async () => {
+    const logger = makeLogger();
+    const registry = new SessionRegistry(logger);
+    const factory = makeMessageFactory();
+    const coordinator = new SessionHandoverCoordinator(
+      {
+        build: jest.fn().mockResolvedValue({
+          document: { content: '# handoff', seed: 'seed', truncated: false },
+        }),
+      } as unknown as SessionHandoffBuilder,
+      { write: jest.fn().mockResolvedValue({ path: '/handoff.md' }) } as unknown as SessionHandoffWriter,
+      {
+        readHistoryForCuration: jest.fn().mockResolvedValue([]),
+      } as unknown as SessionHistoryReaderService,
+      () => ({
+        startSuccessorSession: jest.fn().mockResolvedValue({ started: true }),
+        deliverTransferInputs: jest.fn().mockResolvedValue({ delivered: true }),
+      }),
+    );
+    const pump = new SessionStreamPump(logger, registry, factory, coordinator);
+    const abortController = new AbortController();
+    registry.register(TAB as string, {} as AISessionConfig, abortController);
+    coordinator.attachRuntime({
+      sourceSnapshot: jest.fn().mockReturnValue({
+        sessionId: TAB,
+        tabId: TAB,
+        token: 'token',
+        workspacePath: '/workspace',
+        successorConfig: { workspacePath: '/workspace' },
+        resourceLease: { worktreePath: '/workspace', inheritedParentIds: [] },
+      }),
+      queueOwnedHandoff: (sessionId, prompt) =>
+        pump.enqueueOwnedHandoff(sessionId as SessionId, prompt),
+      restoreInputs: jest.fn().mockReturnValue(true),
+      closeIfTokenMatches: jest.fn().mockResolvedValue(true),
+      isOwnedHandoffPendingOrRunning: jest.fn().mockReturnValue(false),
+    });
+
+    expect(coordinator.begin(TAB as string, 'successor', false).accepted).toBe(true);
+    const iterator = pump.createUserMessageStream(TAB, abortController)[Symbol.asyncIterator]();
+
+    expect(textOf((await iterator.next()).value as SDKUserMessage)).toContain('Write a concise Markdown handoff');
+    expect(coordinator.transferInputs(TAB as string)).toEqual([]);
+  });
 });
 
 /**
@@ -189,7 +257,7 @@ function makeDeferredMessageFactory(): {
   return {
     factory: { createUserMessage } as unknown as SdkMessageFactory,
     createUserMessage,
-    release: (index: number) => releases[index](),
+    release: (index: number) => releases[index]?.(),
   };
 }
 
@@ -261,10 +329,11 @@ describe('SessionStreamPump — require-idle admission (TASK_2026_538)', () => {
   it('refuses busy up front while a turn is in flight, without building a message', async () => {
     const h = makeDeferredHarness();
 
-    const first = h.pump.sendMessage(TAB, 'first');
+    await h.pump.sendMessage(TAB, 'first');
+    const first = h.iterator.next();
+    await flush();
     h.release(0);
     await first;
-    await h.iterator.next();
 
     await expect(
       h.pump.sendMessage(TAB, 'submit', undefined, undefined, {
@@ -275,115 +344,109 @@ describe('SessionStreamPump — require-idle admission (TASK_2026_538)', () => {
     expect(h.registry.find(TAB as string)?.messageQueue).toHaveLength(0);
   });
 
-  it('refuses session-ended when the record is removed during the await, queue untouched', async () => {
+  it('refuses session-ended when the source record was removed, queue untouched', async () => {
     const h = makeDeferredHarness();
     const record = h.registry.find(TAB as string);
     if (!record) throw new Error('record not registered');
 
-    const sent = h.pump.sendMessage(TAB, 'submit', undefined, undefined, {
-      admission: 'require-idle',
-    });
-    await flush();
     h.registry.remove(record);
-    h.release(0);
 
-    await expect(sent).rejects.toBeInstanceOf(SessionAdmissionRefusedError);
-    await expect(sent).rejects.toMatchObject({ reason: 'session-ended' });
+    await expect(
+      h.pump.sendMessage(TAB, 'submit', undefined, undefined, {
+        admission: 'require-idle',
+      }),
+    ).rejects.toMatchObject({ reason: 'session-ended' });
     expect(record.messageQueue).toHaveLength(0);
   });
 
-  it('refuses session-ended when the record is displaced by a re-registration during the await', async () => {
+  it('admits to the replacement record after re-registration', async () => {
     const h = makeDeferredHarness();
     const record = h.registry.find(TAB as string);
     if (!record) throw new Error('record not registered');
 
-    const sent = h.pump.sendMessage(TAB, 'submit', undefined, undefined, {
-      admission: 'require-idle',
-    });
-    await flush();
     const replacement = h.registry.register(
       TAB as string,
       {} as AISessionConfig,
       new AbortController(),
     );
-    h.release(0);
 
-    await expect(sent).rejects.toMatchObject({ reason: 'session-ended' });
+    await expect(
+      h.pump.sendMessage(TAB, 'submit', undefined, undefined, {
+        admission: 'require-idle',
+      }),
+    ).resolves.toBeUndefined();
     expect(record.messageQueue).toHaveLength(0);
-    expect(replacement.messageQueue).toHaveLength(0);
+    expect(replacement.messageQueue.map((input) => input.content)).toEqual([
+      'submit',
+    ]);
   });
 
-  it('refuses busy when a competing message is pushed during the await', async () => {
+  it('refuses busy when a message is already queued', async () => {
     const h = makeDeferredHarness();
 
-    const submit = h.pump.sendMessage(TAB, 'submit', undefined, undefined, {
-      admission: 'require-idle',
-    });
-    const competing = h.pump.sendMessage(TAB, 'competing');
-    await flush();
-    h.release(1);
-    await competing;
-    h.release(0);
+    await h.pump.sendMessage(TAB, 'competing');
 
-    await expect(submit).rejects.toBeInstanceOf(SessionAdmissionRefusedError);
-    await expect(submit).rejects.toMatchObject({ reason: 'busy' });
+    await expect(
+      h.pump.sendMessage(TAB, 'submit', undefined, undefined, {
+        admission: 'require-idle',
+      }),
+    ).rejects.toMatchObject({ reason: 'busy' });
     const queue = h.registry.find(TAB as string)?.messageQueue ?? [];
-    expect(queue.map(textOf)).toEqual(['competing']);
+    expect(queue.map((input) => input.content)).toEqual(['competing']);
   });
 
-  it('refuses busy when a competing message starts a turn during the await', async () => {
+  it('refuses busy when a competing message starts a turn', async () => {
     const h = makeDeferredHarness();
 
-    const submit = h.pump.sendMessage(TAB, 'submit', undefined, undefined, {
-      admission: 'require-idle',
-    });
-    const competing = h.pump.sendMessage(TAB, 'competing');
+    await h.pump.sendMessage(TAB, 'competing');
+    const competing = h.iterator.next();
     await flush();
-    h.release(1);
-    await competing;
+    h.release(0);
     // The iterator drains the competing message and claims the turn, so the
     // queue is empty again but a turn is in flight.
-    expect(textOf((await h.iterator.next()).value as SDKUserMessage)).toBe(
-      'competing',
-    );
-    h.release(0);
+    expect(textOf((await competing).value as SDKUserMessage)).toBe('competing');
 
-    await expect(submit).rejects.toMatchObject({ reason: 'busy' });
+    await expect(
+      h.pump.sendMessage(TAB, 'submit', undefined, undefined, {
+        admission: 'require-idle',
+      }),
+    ).rejects.toMatchObject({ reason: 'busy' });
     expect(h.registry.find(TAB as string)?.messageQueue).toHaveLength(0);
   });
 
-  it('refuses when the session aborts during the await, pushing nothing', async () => {
+  it('refuses when the session has already aborted, pushing nothing', async () => {
     const h = makeDeferredHarness();
     const record = h.registry.find(TAB as string);
     if (!record) throw new Error('record not registered');
 
-    const sent = h.pump.sendMessage(TAB, 'submit', undefined, undefined, {
-      admission: 'require-idle',
-    });
-    await flush();
     h.abortController.abort();
-    h.release(0);
 
-    await expect(sent).rejects.toBeInstanceOf(SessionAdmissionRefusedError);
-    await expect(sent).rejects.toMatchObject({ reason: 'session-ended' });
+    await expect(
+      h.pump.sendMessage(TAB, 'submit', undefined, undefined, {
+        admission: 'require-idle',
+      }),
+    ).rejects.toMatchObject({ reason: 'session-ended' });
     expect(record.messageQueue).toHaveLength(0);
   });
 
   it('without admission, holds a message sent mid-turn as before', async () => {
     const h = makeDeferredHarness();
 
-    const first = h.pump.sendMessage(TAB, 'first');
+    await h.pump.sendMessage(TAB, 'first');
+    const first = h.iterator.next();
+    await flush();
     h.release(0);
     await first;
-    await h.iterator.next();
 
     const followUp = h.pump.sendMessage(TAB, 'follow-up');
     await flush();
-    h.release(1);
     await expect(followUp).resolves.toBeUndefined();
 
     const record = h.registry.find(TAB as string);
     expect(record?.turnInFlight).toBe(true);
-    expect(record?.messageQueue.map(textOf)).toEqual(['follow-up']);
+    expect(record?.messageQueue.map((input) => input.content)).toEqual([
+      'follow-up',
+    ]);
   });
 });
+import 'reflect-metadata';

@@ -103,8 +103,15 @@ import { SettingsExportService } from '../settings-export.service';
 import { SettingsImportService } from '../settings-import.service';
 import { SessionBudgetConfigProvider } from '../helpers/session-budget/session-budget-config.provider';
 import { SessionHandoffBuilder } from '../helpers/session-budget/session-handoff-builder';
+import {
+  SESSION_SUCCESSOR_HOST,
+  SessionHandoverCoordinator,
+} from '../helpers/session-handoff/session-handover-coordinator.service';
 import { SessionHandoffWriter } from '../helpers/session-budget/session-handoff-writer';
-import { SessionBudgetService } from '../helpers/session-budget/session-budget.service';
+import {
+  SessionBudgetService,
+  type SessionBudgetSessionControl,
+} from '../helpers/session-budget/session-budget.service';
 import { SessionRotationAdvisor } from '../helpers/compaction/session-rotation-advisor';
 import { ToolOutputCapper } from '../helpers/compaction/tool-output-capper';
 import { CompactionCoordinator } from '../helpers/compaction/compaction-coordinator';
@@ -737,17 +744,58 @@ export function registerSdkServices(
   // injects the service.
   container.registerSingleton(SessionBudgetConfigProvider);
   container.registerSingleton(SessionHandoffBuilder);
+  container.register(SessionHandoverCoordinator, {
+    useFactory: instanceCachingFactory(
+      (c) =>
+        new SessionHandoverCoordinator(
+          c.resolve(SessionHandoffBuilder),
+          c.resolve(SessionHandoffWriter),
+          c.resolve<SessionHistoryReaderService>(
+            SDK_TOKENS.SDK_SESSION_HISTORY_READER,
+          ),
+          () =>
+            c.isRegistered(SESSION_SUCCESSOR_HOST, true)
+              ? c.resolve(SESSION_SUCCESSOR_HOST)
+              : null,
+        ),
+    ),
+  });
   container.registerSingleton(SessionRotationAdvisor);
   container.register(SessionHandoffWriter, {
     useFactory: instanceCachingFactory(
       (c) => new SessionHandoffWriter(c.resolve<Logger>(TOKENS.LOGGER)),
     ),
   });
-  container.register(
-    SDK_TOKENS.SDK_SESSION_BUDGET,
-    { useClass: SessionBudgetService },
-    { lifecycle: Lifecycle.Singleton },
-  );
+  // The lifecycle manager reads the budget at turn-end and the budget applies
+  // compact windows through lifecycle. Resolve the latter only when budget work
+  // needs it, matching the lazy factory used for other reciprocal SDK services.
+  container.register(SDK_TOKENS.SDK_SESSION_BUDGET, {
+    useFactory: instanceCachingFactory((c) => {
+      const lifecycle: SessionBudgetSessionControl = {
+        applySessionAutoCompactWindow: (...args) =>
+          c
+            .resolve<SessionLifecycleManager>(
+              SDK_TOKENS.SDK_SESSION_LIFECYCLE_MANAGER,
+            )
+            .applySessionAutoCompactWindow(...args),
+        getSessionWorkspace: (...args) =>
+          c
+            .resolve<SessionLifecycleManager>(
+              SDK_TOKENS.SDK_SESSION_LIFECYCLE_MANAGER,
+            )
+            .getSessionWorkspace(...args),
+      };
+      return new SessionBudgetService(
+        c.resolve<Logger>(TOKENS.LOGGER),
+        c.resolve(SessionBudgetConfigProvider),
+        c.resolve(SDK_TOKENS.SDK_SESSION_STATS_OWNER),
+        lifecycle,
+        c.resolve(SessionHandoffBuilder),
+        c.resolve(SessionHandoffWriter),
+        c.resolve(SessionRotationAdvisor),
+      );
+    }),
+  });
 
   container.register(
     SDK_TOKENS.SDK_AGENT_ADAPTER,

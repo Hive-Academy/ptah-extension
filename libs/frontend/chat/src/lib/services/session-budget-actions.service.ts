@@ -14,7 +14,7 @@ import type {
   SessionBudgetState,
 } from '@ptah-extension/shared';
 import { ActionBannerService } from './action-banner.service';
-import { ChatStore } from './chat.store';
+import { SessionHandoverClientService } from './session-handover-client.service';
 
 /** The chat view's resolved tab and session, as the budget actions see them. */
 export interface SessionBudgetView {
@@ -49,7 +49,7 @@ export class SessionBudgetActionsService {
   private readonly actionBanner = inject(ActionBannerService);
   private readonly tabManager = inject(TabManagerService);
   private readonly appState = inject(AppStateManager);
-  private readonly chatStore = inject(ChatStore);
+  private readonly handoverClient = inject(SessionHandoverClientService);
 
   private readonly view = signal<SessionBudgetView>(NO_VIEW);
 
@@ -143,20 +143,64 @@ export class SessionBudgetActionsService {
     });
   }
 
-  /**
-   * "Continue in new session": write a fresh handoff, then open a new tab
-   * whose first prompt is exactly the seed the backend returned (AS-N7b).
-   */
+  /** Start the backend-owned, single-flight successor flow. */
   async continueInNewSession(): Promise<void> {
-    const seed = await this.handoffSeed('write-handoff');
-    if (!seed) return;
-    const tabId = this.openTabForHandoff().tabId;
-    const outcome = await this.chatStore.sendOrQueueMessage(seed, { tabId });
-    if (!outcome.success) {
-      this.actionBanner.showError(
-        `Could not start the new session: ${outcome.error ?? 'Unknown error'}`,
-        tabId,
+    const sessionId = this.view().sessionId();
+    const tabId = this.view().tabId();
+    if (!sessionId || !tabId || this._busy()) return;
+    const queuedInput = this.tabManager
+      .findTabByIdAcrossWorkspaces(tabId)
+      ?.tab.queuedContent?.trim();
+    this._busy.set(true);
+    try {
+      const result = await this.claudeRpc.call('session:beginHandover', {
+        sourceSessionId: sessionId,
+        sourceTabId: tabId,
+        ...(queuedInput ? { queuedInput } : {}),
+      });
+      const data = result.isSuccess() ? result.data : null;
+      if (data?.accepted) {
+        this.handoverClient.record(sessionId, data.state);
+        return;
+      }
+      this.showError(
+        data?.error === 'unavailable'
+          ? 'Session handover is not available in this window.'
+          : 'Could not start the session handover. Please try again.',
       );
+    } catch (error: unknown) {
+      this.showError(
+        `Could not start the session handover: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    } finally {
+      this._busy.set(false);
+    }
+  }
+
+  /** Release the backend-held transfer and keep the source session active. */
+  async cancelHandover(): Promise<void> {
+    const sessionId = this.view().sessionId();
+    const tabId = this.view().tabId();
+    const handover = sessionId ? this.handoverClient.stateFor(sessionId) : null;
+    if (!sessionId || !tabId || !handover || this._busy()) return;
+
+    this._busy.set(true);
+    try {
+      const result = await this.claudeRpc.call('session:cancelHandover', {
+        operationId: handover.operationId,
+        sourceSessionId: sessionId,
+      });
+      const data = result.isSuccess() ? result.data : null;
+      if (data?.state) this.handoverClient.record(sessionId, data.state);
+      if (!data?.cancelled) {
+        this.showError('Could not cancel the session handover. Please try again.');
+      }
+    } catch (error: unknown) {
+      this.showError(
+        `Could not cancel the session handover: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    } finally {
+      this._busy.set(false);
     }
   }
 

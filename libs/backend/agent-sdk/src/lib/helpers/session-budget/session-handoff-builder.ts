@@ -56,6 +56,8 @@ export const SESSION_HANDOFF_LIMITS = {
   pathChars: 300,
   /** One rendered TodoWrite item. */
   itemChars: 300,
+  /** Optional agent-authored supplement carried ahead of the durable seed. */
+  agentHandoffChars: 2_000,
 } as const;
 
 /** Bytes read from the end of the transcript. */
@@ -137,9 +139,13 @@ export interface SessionHandoffDocument {
 export interface SessionHandoffBuildRequest {
   readonly sessionId: string;
   readonly workspacePath: string;
+  /** Durable compact boundary selected by the coordinator, when available. */
+  readonly boundaryId?: string;
   readonly budget?: SessionBudgetState;
   /** Defaults to `Date.now()`. */
   readonly builtAt?: number;
+  /** Supplemental agent context; bounded and never used instead of the transcript. */
+  readonly agentHandoff?: string;
 }
 
 export interface SessionHandoffBuildResult {
@@ -296,10 +302,16 @@ function safeStringify(value: unknown): string {
 /** Read every handoff fact from the parsed transcript window, oldest first. */
 export function extractSessionHandoffFacts(
   lines: readonly SessionHistoryMessage[],
+  boundaryId?: string,
 ): SessionHandoffFacts {
   let lastBoundary = -1;
   for (let index = 0; index < lines.length; index++) {
-    if (isCompactBoundary(lines[index])) lastBoundary = index;
+    if (
+      isCompactBoundary(lines[index]) &&
+      (boundaryId === undefined || lines[index].uuid === boundaryId)
+    ) {
+      lastBoundary = index;
+    }
   }
 
   let summary: string | null = null;
@@ -316,11 +328,15 @@ export function extractSessionHandoffFacts(
     if (!isUser && !isAssistant) continue;
 
     const text = messageText(line);
+    if (isUser && text && isConversational(line) && firstPrompt === null) {
+      firstPrompt = text;
+    }
     if (text) collectTaskFolders(text, taskFolders);
-
+    // A compact boundary is the durable cutover. Older facts describe the
+    // compacted context and must not leak into a successor handoff.
+    if (lastBoundary >= 0 && index <= lastBoundary) continue;
     if (isUser && text && isConversational(line)) {
-      if (firstPrompt === null) firstPrompt = text;
-      if (lastBoundary >= 0 && index > lastBoundary && summary === null) {
+      if (lastBoundary >= 0 && summary === null) {
         summary = text;
       }
     }
@@ -517,8 +533,9 @@ export function renderSessionHandoff(
 export function assembleSessionHandoff(
   lines: readonly SessionHistoryMessage[],
   meta: SessionHandoffMeta,
+  boundaryId?: string,
 ): SessionHandoffDocument {
-  return renderSessionHandoff(extractSessionHandoffFacts(lines), meta);
+  return renderSessionHandoff(extractSessionHandoffFacts(lines, boundaryId), meta);
 }
 
 // ---------------------------------------------------------------------------
@@ -552,7 +569,10 @@ export class SessionHandoffBuilder {
       ...(request.budget ? { budget: request.budget } : {}),
     };
     const read = await this.readTail(request);
-    const document = assembleSessionHandoff(read.lines, meta);
+    const document = withAgentHandoff(
+      assembleSessionHandoff(read.lines, meta, request.boundaryId),
+      request.agentHandoff,
+    );
     return read.error === undefined
       ? { document }
       : { document, readError: read.error };
@@ -608,4 +628,30 @@ export class SessionHandoffBuilder {
     }
     return { lines: [], error: reason };
   }
+}
+
+function withAgentHandoff(
+  document: SessionHandoffDocument,
+  agentHandoff: string | undefined,
+): SessionHandoffDocument {
+  if (!agentHandoff) return document;
+  const text = sanitizeHandoffText(agentHandoff).trim();
+  if (!text) return document;
+  const separator = 'Agent handoff supplement:\n';
+  const suffix = '\n\n';
+  const available = Math.max(
+    0,
+    SESSION_HANDOFF_LIMITS.seedChars - document.seed.length - separator.length - suffix.length,
+  );
+  const bounded = capText(
+    text,
+    Math.min(SESSION_HANDOFF_LIMITS.agentHandoffChars, available),
+  ).text;
+  if (!bounded) return document;
+  const prefix = `${separator}${bounded}${suffix}`;
+  return {
+    ...document,
+    seed: `${prefix}${document.seed}`,
+    truncated: document.truncated || bounded.length < text.length,
+  };
 }

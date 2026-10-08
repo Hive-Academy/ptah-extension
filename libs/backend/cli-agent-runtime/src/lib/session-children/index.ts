@@ -33,6 +33,8 @@ export type {
   ChildChatSessionStartInput,
   ChildChatSessionStartOutcome,
   IChildChatSessionHost,
+  SuccessorSessionQueuedInput,
+  StartSuccessorSessionInput,
 } from './child-chat-session-host.port';
 export {
   SessionChildRegistry,

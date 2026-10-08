@@ -43,6 +43,10 @@ import type {
 } from '../../types/sdk-types/claude-sdk.types';
 import type { SdkMessageFactory } from '../sdk-message-factory';
 import type {
+  QueuedSessionInput,
+  SessionHandoverCoordinator,
+} from '../session-handoff/session-handover-coordinator.service';
+import type {
   SessionRecord,
   SessionRegistry,
 } from './session-registry.service';
@@ -52,6 +56,7 @@ export class SessionStreamPump {
     private readonly logger: Logger,
     private readonly registry: SessionRegistry,
     private readonly messageFactory: SdkMessageFactory,
+    private readonly handoverCoordinator: SessionHandoverCoordinator | null = null,
   ) {}
 
   /**
@@ -68,6 +73,8 @@ export class SessionStreamPump {
   ): AsyncIterable<SDKUserMessage> {
     const registry = this.registry;
     const logger = this.logger;
+    const messageFactory = this.messageFactory;
+    const handoverCoordinator = this.handoverCoordinator;
 
     return {
       async *[Symbol.asyncIterator]() {
@@ -80,8 +87,28 @@ export class SessionStreamPump {
             return;
           }
           while (session.messageQueue.length > 0 && !session.turnInFlight) {
-            const message = session.messageQueue.shift();
-            if (message) {
+            const input = session.messageQueue.shift();
+            if (input) {
+              // A handover can arm after this iterator wakes but before it
+              // claims a turn. Re-admit at the dequeue boundary so no source
+              // input crosses the closed gate.
+              if (
+                input.admission !== 'owned-compact' &&
+                input.admission !== 'owned-handoff' &&
+                handoverCoordinator?.admitOrHold(
+                  sessionId as string,
+                  input,
+                ).held
+              ) {
+                continue;
+              }
+              const message = await messageFactory.createUserMessage({
+                content: input.content,
+                sessionId,
+                files: input.files ? [...input.files] : undefined,
+                images: input.images ? [...input.images] : undefined,
+                origin: input.origin,
+              });
               // Claim the turn BEFORE yielding: this both ends the drain loop
               // after one message and blocks any message that arrives while
               // the SDK is generating (TASK_2026_294).
@@ -216,6 +243,16 @@ export class SessionStreamPump {
       }
       throw new SdkError(`Session not found: ${sessionId}`);
     }
+    const input: QueuedSessionInput = {
+      content,
+      ...(files ? { files } : {}),
+      ...(images ? { images } : {}),
+      ...(options?.origin ? { origin: options.origin } : {}),
+      ...(requireIdle ? { admission: 'require-idle' as const } : {}),
+    };
+    if (this.handoverCoordinator?.admitOrHold(sessionId as string, input).held) {
+      return;
+    }
     if (requireIdle) {
       // Fail fast before building the message. Not sufficient on its own: the
       // await below yields, so the same check runs again before the push.
@@ -231,20 +268,13 @@ export class SessionStreamPump {
       originKind: options?.origin?.kind,
     });
 
-    const sdkUserMessage = await this.messageFactory.createUserMessage({
-      content,
-      sessionId,
-      files,
-      images,
-      origin: options?.origin,
-    });
     if (requireIdle) {
-      // Synchronous from here to the push: no competing send, teardown or
-      // turn start can interleave between this check and the enqueue.
+      // The first admission check can race with any asynchronous caller.
+      // Repeat it at the actual enqueue boundary.
       this.assertAdmissible(sessionId, session);
       this.registry.markActive(sessionId as string);
     }
-    session.messageQueue.push(sdkUserMessage);
+    session.messageQueue.push(input);
     if (session.resolveNext) {
       session.resolveNext();
       session.resolveNext = null;
@@ -255,6 +285,64 @@ export class SessionStreamPump {
         ? `[SessionLifecycle] Message held for ${sessionId} — turn in flight, will send at turn end`
         : `[SessionLifecycle] Message queued for ${sessionId}`,
     );
+  }
+
+  /** Queue the coordinator-owned `/compact` after it has closed admission. */
+  async enqueueOwnedCompact(sessionId: SessionId): Promise<void> {
+    const session = this.registry.find(sessionId as string);
+    if (!session || session.abortController.signal.aborted) {
+      throw new SdkError(`Session not found: ${sessionId}`);
+    }
+    if (session.turnInFlight || session.messageQueue.length > 0) {
+      throw new SessionAdmissionRefusedError('busy', sessionId as string);
+    }
+    this.registry.markActive(sessionId as string);
+    session.messageQueue.push({ content: '/compact', admission: 'owned-compact' });
+    if (session.resolveNext) {
+      session.resolveNext();
+      session.resolveNext = null;
+    }
+  }
+
+  /** Queue a coordinator-owned handoff request after admission has closed. */
+  async enqueueOwnedHandoff(sessionId: SessionId, prompt: string): Promise<void> {
+    const session = this.registry.find(sessionId as string);
+    if (!session || session.abortController.signal.aborted) {
+      throw new SdkError(`Session not found: ${sessionId}`);
+    }
+    if (session.turnInFlight || session.messageQueue.length > 0) {
+      throw new SessionAdmissionRefusedError('busy', sessionId as string);
+    }
+    this.registry.markActive(sessionId as string);
+    session.messageQueue.push({ content: prompt, admission: 'owned-handoff' });
+    if (session.resolveNext) {
+      session.resolveNext();
+      session.resolveNext = null;
+    }
+  }
+
+  /**
+   * Append the coordinator-detached FIFO as one queue ownership transfer.
+   * This deliberately bypasses normal handover admission: the inputs were
+   * admitted and held by the source coordinator before this successor existed.
+   */
+  async enqueueTransferInputs(
+    sessionId: SessionId,
+    inputs: readonly QueuedSessionInput[],
+  ): Promise<void> {
+    const session = this.registry.find(sessionId as string);
+    if (!session || session.abortController.signal.aborted) {
+      throw new SdkError(`Session not found: ${sessionId}`);
+    }
+    if (session.turnInFlight || session.messageQueue.length > 0) {
+      throw new SessionAdmissionRefusedError('busy', sessionId as string);
+    }
+    session.messageQueue.push(...inputs);
+    this.registry.markActive(sessionId as string);
+    if (session.resolveNext) {
+      session.resolveNext();
+      session.resolveNext = null;
+    }
   }
 
   /**

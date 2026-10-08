@@ -105,7 +105,7 @@ describe('MessageDispatchService', () => {
     continueConversationMock = jest.fn().mockResolvedValue(undefined);
     continueExistingSessionForQueueFlushMock = jest
       .fn()
-      .mockResolvedValue(undefined);
+      .mockResolvedValue({ success: true });
     handlePermissionResponseMock = jest.fn();
     isTabStreamingMock = jest.fn(() => false);
 
@@ -204,7 +204,28 @@ describe('MessageDispatchService', () => {
     expect(sendMock).toHaveBeenCalledTimes(1);
   });
 
-  it('re-queues a flush refused at the budget limit without a notice or a retry', async () => {
+  it('typing during a successful flush leaves only the new draft', async () => {
+    tabs = [makeTab({ queuedContent: 'original' })];
+    let resolveFlush!: (outcome: { success: boolean }) => void;
+    continueExistingSessionForQueueFlushMock.mockImplementation(
+      () =>
+        new Promise<{ success: boolean }>((resolve) => {
+          resolveFlush = resolve;
+        }),
+    );
+
+    const flushing = service.sendQueuedMessage('tab-1', 'original');
+    expect(tabs[0].queuedContent).toBeNull();
+
+    tabs = [makeTab({ queuedContent: 'new draft' })];
+    resolveFlush({ success: true });
+    await flushing;
+
+    expect(tabs[0].queuedContent).toBe('new draft');
+    expect(clearQueuedContentAndOptionsMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('a failed flush with no new draft restores the original once', async () => {
     tabs = [makeTab({ queuedContent: 'queued' })];
     continueExistingSessionForQueueFlushMock.mockResolvedValue({
       success: false,
@@ -216,10 +237,12 @@ describe('MessageDispatchService', () => {
 
     expect(tabs[0].queuedContent).toBe('queued');
     expect(setMessagesMock).not.toHaveBeenCalled();
+    expect(setQueuedContentMock).toHaveBeenCalledTimes(1);
+    expect(clearQueuedContentAndOptionsMock).toHaveBeenCalledTimes(1);
     expect(continueExistingSessionForQueueFlushMock).toHaveBeenCalledTimes(1);
   });
 
-  it('restores resolved queue failure with attachments without overwriting newer arrivals', async () => {
+  it('a failed flush with a new draft restores original and new exactly once', async () => {
     tabs = [
       makeTab({
         queuedContent: 'old',
@@ -233,8 +256,7 @@ describe('MessageDispatchService', () => {
       return { success: false, error: 'not sent' };
     });
     await service.sendQueuedMessage('tab-1', 'old');
-    expect(tabs[0].queuedContent).toBe(`old
-new`);
+    expect(tabs[0].queuedContent).toBe('old\nnew');
     expect(tabs[0].queuedOptions?.files).toEqual(['old.ts', 'new.ts']);
     expect(tabs[0].queuedOptions?.effort).toBe('high');
     expect(JSON.stringify(tabs[0].messages)).toContain('not sent');
@@ -629,6 +651,18 @@ new`);
       expect(clearQueuedContentAndOptionsMock).toHaveBeenCalledWith('tab-1');
     });
 
+    it('clears queue only when handover holds the prompt in its transfer FIFO', async () => {
+      continueExistingSessionForQueueFlushMock.mockResolvedValue({
+        success: false,
+        errorCode: 'SESSION_HANDOVER_HELD',
+      });
+
+      await service.sendQueuedMessage('tab-1', 'queued');
+
+      expect(clearQueuedContentAndOptionsMock).toHaveBeenCalledWith('tab-1');
+      expect(setMessagesMock).not.toHaveBeenCalled();
+    });
+
     it('forwards stored queuedOptions (files + images) to the dedicated queue-flush method', async () => {
       await service.sendQueuedMessage('tab-1', 'queued');
       expect(continueExistingSessionForQueueFlushMock).toHaveBeenCalledWith(
@@ -669,12 +703,13 @@ new`);
       warnSpy.mockRestore();
     });
 
-    it('on error, restores content to queue', async () => {
+    it('on error, restores the cleared content to the queue', async () => {
       const err = new Error('boom');
       continueExistingSessionForQueueFlushMock.mockRejectedValueOnce(err);
       const errorSpy = jest.spyOn(console, 'error').mockImplementation();
       await service.sendQueuedMessage('tab-1', 'queued');
-      expect(setQueuedContentMock).toHaveBeenCalledWith('tab-1', 'queued');
+      expect(tabs[0].queuedContent).toBe('queued');
+      expect(clearQueuedContentAndOptionsMock).toHaveBeenCalledWith('tab-1');
       expect(errorSpy).toHaveBeenCalledWith(
         '[ChatStore] sendQueuedMessage failed:',
         err,

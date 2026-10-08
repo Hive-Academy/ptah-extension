@@ -79,6 +79,20 @@ function todos(
 const meta = { sessionId: SESSION_ID, builtAt: BUILT_AT };
 
 describe('extractSessionHandoffFacts', () => {
+  it('ignores changed files, todos and assistant text at or before the compact boundary', () => {
+    const facts = extractSessionHandoffFacts([
+      toolUse('Edit', { file_path: 'before.ts' }),
+      assistantText('before action'),
+      todos(['before todo', 'pending']),
+      boundary,
+      toolUse('Edit', { file_path: 'after.ts' }),
+      assistantText('after action'),
+      todos(['after todo', 'pending']),
+    ]);
+    expect(facts.changedFiles).toEqual(['after.ts']);
+    expect(facts.openItems).toEqual([{ content: 'after todo', status: 'pending' }]);
+    expect(facts.nextAction).toEqual({ source: 'pending', text: 'after todo' });
+  });
   it('uses the first user text after the latest compact boundary as the summary', () => {
     const facts = extractSessionHandoffFacts([
       user('first prompt'),
@@ -438,6 +452,16 @@ describe('SessionHandoffBuilder', () => {
     logger = createMockLogger();
   });
 
+  it('prepends a bounded agent handoff supplement to the successor seed', async () => {
+    const { builder } = makeBuilder();
+    const result = await builder.build({
+      sessionId: SESSION_ID,
+      workspacePath: 'D:/work/repo',
+      agentHandoff: 'agent context',
+    });
+    expect(result.document.seed.startsWith('Agent handoff supplement:\nagent context')).toBe(true);
+  });
+
   it('reads the fixture transcript tail and renders every fact', async () => {
     const { builder, reader } = makeBuilder();
     const tail = jest.spyOn(reader, 'readJsonlTail');
@@ -458,8 +482,8 @@ describe('SessionHandoffBuilder', () => {
       '> This session is being continued from a previous conversation.',
     );
     expect(content).toContain(
-      '- `libs/shared/src/lib/types/session-budget.types.ts`\n' +
-        '- `libs/backend/agent-sdk/src/lib/helpers/session-budget/session-budget-config.provider.ts`\n' +
+      '- `libs/backend/agent-sdk/src/lib/helpers/session-budget/session-budget-config.provider.ts`\n' +
+        '- `libs/shared/src/lib/types/session-budget.types.ts`\n' +
         '- `notebooks/budget.ipynb`',
     );
     expect(content).toContain(

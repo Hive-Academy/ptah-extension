@@ -20,9 +20,15 @@ import {
   type AgentSessionOpenedPayload,
 } from '@ptah-extension/shared';
 import { createMockLogger } from '@ptah-extension/shared/testing';
-import type { ChildChatSessionStartInput } from '@ptah-extension/cli-agent-runtime';
+import type {
+  ChildChatSessionStartInput,
+  StartSuccessorSessionInput,
+} from '@ptah-extension/cli-agent-runtime';
 
-import { ChildChatSessionHostAdapter } from './child-chat-session-host.adapter';
+import {
+  ChildChatSessionHostAdapter,
+  SUCCESSOR_BIND_TIMEOUT_MS,
+} from './child-chat-session-host.adapter';
 import type { ChatSessionService } from './chat-session.service';
 import type { WebviewManager } from '../streaming/chat-stream-broadcaster.service';
 
@@ -51,10 +57,34 @@ const input: ChildChatSessionStartInput = {
   model: 'claude-child-model',
 };
 
+const successorInput: StartSuccessorSessionInput = {
+  operationId: '11111111-2222-4333-8444-555555555555',
+  source: {
+    sessionId: '22222222-3333-4444-8555-666666666666',
+    tabId: 'source-tab',
+    token: 'source-token',
+    workspacePath: '/repo',
+    successorConfig: {
+      model: 'claude-sonnet',
+      effort: 'medium',
+      permissionLevel: 'auto-edit',
+      workspacePath: '/repo',
+    },
+  },
+  seed: 'Continue from handoff',
+  resourceLease: {
+    worktreePath: '/repo',
+    inheritedParentIds: [],
+  },
+};
+
 interface Harness {
   adapter: ChildChatSessionHostAdapter;
   broadcastMessage: jest.Mock;
   startAgentChildSession: jest.Mock;
+  startHandoverSuccessor: jest.Mock;
+  stopHandoverSuccessor: jest.Mock;
+  getActiveWebviews: jest.Mock;
   order: string[];
 }
 
@@ -67,15 +97,31 @@ function makeHarness(): Harness {
     order.push('start');
     return { success: true };
   });
+  const startHandoverSuccessor = jest.fn().mockResolvedValue({ success: true });
+  const stopHandoverSuccessor = jest.fn().mockResolvedValue(undefined);
+  const getActiveWebviews = jest.fn(() => []);
   const adapter = new ChildChatSessionHostAdapter(
     createMockLogger() as unknown as Logger,
     {
       broadcastMessage,
       sendMessage: jest.fn(),
+      getActiveWebviews,
     } as unknown as WebviewManager,
-    { startAgentChildSession } as unknown as ChatSessionService,
+    {
+      startAgentChildSession,
+      startHandoverSuccessor,
+      stopHandoverSuccessor,
+    } as unknown as ChatSessionService,
   );
-  return { adapter, broadcastMessage, startAgentChildSession, order };
+  return {
+    adapter,
+    broadcastMessage,
+    startAgentChildSession,
+    startHandoverSuccessor,
+    stopHandoverSuccessor,
+    getActiveWebviews,
+    order,
+  };
 }
 
 function chatErrorCalls(h: Harness): unknown[][] {
@@ -85,6 +131,82 @@ function chatErrorCalls(h: Harness): unknown[][] {
 }
 
 describe('ChildChatSessionHostAdapter', () => {
+  it('starts a headless successor after live registration without a UI acknowledgement', async () => {
+    const h = makeHarness();
+
+    await expect(h.adapter.startSuccessorSession(successorInput)).resolves.toEqual({
+      started: true,
+      uiAnnounced: false,
+    });
+    expect(h.startHandoverSuccessor).toHaveBeenCalledWith({
+      tabId: expect.any(String),
+      workspaceRoot: '/repo',
+      worktreePath: '/repo',
+      seed: 'Continue from handoff',
+      model: 'claude-sonnet',
+      effort: 'medium',
+      permissionLevel: 'auto-edit',
+    });
+    expect(h.broadcastMessage).not.toHaveBeenCalled();
+  });
+
+  it('confirms an interactive successor only after its matching bind acknowledgement', async () => {
+    const h = makeHarness();
+    h.getActiveWebviews.mockReturnValue(['webview-1']);
+
+    const outcome = h.adapter.startSuccessorSession(successorInput);
+    await Promise.resolve();
+    const [type, payload] = h.broadcastMessage.mock.calls[0] as [string, {
+      operationId: string;
+      sourceTabId: string;
+      successorTabId: string;
+    }];
+    expect(type).toBe(MESSAGE_TYPES.SESSION_SUCCESSOR_REPLACEMENT);
+    expect(h.adapter.acknowledgeSuccessorBound(
+      payload.operationId,
+      payload.sourceTabId,
+      payload.successorTabId,
+    )).toBe(true);
+
+    await expect(outcome).resolves.toEqual({ started: true, uiAnnounced: true });
+    expect(h.stopHandoverSuccessor).not.toHaveBeenCalled();
+  });
+
+  it('ends the successor when its interactive tab does not bind before timeout', async () => {
+    jest.useFakeTimers();
+    try {
+      const h = makeHarness();
+      h.getActiveWebviews.mockReturnValue(['webview-1']);
+
+      const outcome = h.adapter.startSuccessorSession(successorInput);
+      await Promise.resolve();
+      await jest.advanceTimersByTimeAsync(SUCCESSOR_BIND_TIMEOUT_MS);
+
+      await expect(outcome).resolves.toEqual({
+        started: false,
+        error: 'successor tab was not bound before timeout',
+      });
+      const [[{ tabId: successorTabId }]] = h.startHandoverSuccessor.mock.calls;
+      expect(h.stopHandoverSuccessor).toHaveBeenCalledWith(successorTabId);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('stops a bound successor when its source ends during coordinator completion', async () => {
+    const h = makeHarness();
+    h.getActiveWebviews.mockReturnValue([]);
+
+    await expect(h.adapter.startSuccessorSession(successorInput)).resolves.toEqual({
+      started: true,
+      uiAnnounced: false,
+    });
+    await h.adapter.stopSuccessorSession(successorInput.operationId);
+
+    const [[{ tabId: successorTabId }]] = h.startHandoverSuccessor.mock.calls;
+    expect(h.stopHandoverSuccessor).toHaveBeenCalledWith(successorTabId);
+  });
+
   it('announces the tab with the descriptor, then starts the session', async () => {
     const h = makeHarness();
 

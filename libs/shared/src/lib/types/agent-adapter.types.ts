@@ -230,6 +230,20 @@ export interface AgentModelInfo {
  * runtime MUST throw an Error rather than silently no-op.
  */
 export interface IAgentAdapter extends IAIProvider {
+  /**
+   * Atomically accept an already-admitted ordered batch for a successor
+   * session. The promise resolves only after the complete batch is owned by
+   * the runtime queue, so callers can safely release the source batch once.
+   */
+  enqueueTransferInputs(
+    sessionId: SessionId,
+    inputs: readonly {
+      readonly content: string;
+      readonly files?: readonly string[];
+      readonly images?: readonly { readonly data: string; readonly mediaType: string }[];
+    }[],
+  ): Promise<void>;
+
   /** Pre-warm any heavy SDK modules (no-op if nothing to pre-load). */
   preloadSdk(): Promise<void>;
 

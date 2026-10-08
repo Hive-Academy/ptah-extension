@@ -63,6 +63,8 @@ interface Harness {
 
 function makeHarness(
   getCompactionConfig: (() => CompactionConfig) | null = null,
+  onTurnTerminal: ((sessionId: SessionId) => void) | null = null,
+  mayInterrupt: ((sessionId: SessionId) => boolean) | null = null,
 ): Harness {
   const logger = makeLogger();
   const registry = new SessionRegistry(logger);
@@ -96,6 +98,8 @@ function makeHarness(
     modelResolver,
     sessionEndRegistry,
     getCompactionConfig,
+    onTurnTerminal,
+    mayInterrupt,
   );
 
   return {
@@ -107,6 +111,33 @@ function makeHarness(
     logger,
   };
 }
+
+describe('SessionControl.interruptCurrentTurn', () => {
+  it('notifies the terminal hook after a successful interrupt', async () => {
+    const terminal = jest.fn();
+    const h = makeHarness(null, terminal);
+    const rec = h.registry.register(KEY, makeConfig(), new AbortController());
+    rec.query = {
+      interrupt: jest.fn().mockResolvedValue(undefined),
+    } as unknown as typeof rec.query;
+
+    await expect(h.control.interruptCurrentTurn(KEY_ID)).resolves.toBe(true);
+
+    expect(terminal).toHaveBeenCalledWith(KEY_ID);
+  });
+
+  it('refuses an interrupt once handover owns the source', async () => {
+    const h = makeHarness(null, null, () => false);
+    const rec = h.registry.register(KEY, makeConfig(), new AbortController());
+    const interrupt = jest.fn().mockResolvedValue(undefined);
+    rec.query = {
+      interrupt,
+    } as unknown as typeof rec.query;
+
+    await expect(h.control.interruptCurrentTurn(KEY_ID)).resolves.toBe(false);
+    expect(interrupt).not.toHaveBeenCalled();
+  });
+});
 
 describe('SessionControl.endSessionIfTokenMatches', () => {
   it('refuses a stale token and leaves the REPLACEMENT record intact', async () => {
