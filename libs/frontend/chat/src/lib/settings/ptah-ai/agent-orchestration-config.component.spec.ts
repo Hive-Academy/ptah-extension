@@ -126,8 +126,9 @@ class StateStub {
       return true;
     },
   );
-  readonly redetectClis = jest.fn(async () => {
+  readonly redetectClis = jest.fn(async (): Promise<boolean> => {
     this.cliDetection.set(ready([]));
+    return true;
   });
 }
 
@@ -690,7 +691,12 @@ describe('AgentOrchestrationConfigComponent (policy bar, Batch 33)', () => {
             error:
               HOST_ERROR as string as ProvidersSettingsSection<unknown>['error'],
           });
+          return false;
         },
+      ],
+      [
+        'a failed detection while an overlapping one left the section ready',
+        async () => false,
       ],
       [
         'a thrown command',

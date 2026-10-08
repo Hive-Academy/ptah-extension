@@ -1183,8 +1183,7 @@ export class CliOrchestrationMatrixComponent {
   protected async redetectFromGuide(rowId: string): Promise<void> {
     if (this.guideDetecting()) return;
     this.guideNote.set(null);
-    await this.state.redetectClis();
-    if (this.state.cliDetection().status !== 'ready') {
+    if (!(await this.state.redetectClis())) {
       this.guideNote.set({ rowId, outcome: 'failed' });
       return;
     }

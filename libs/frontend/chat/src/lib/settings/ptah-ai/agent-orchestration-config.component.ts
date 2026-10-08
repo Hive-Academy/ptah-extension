@@ -590,8 +590,7 @@ export class AgentOrchestrationConfigComponent {
     this.detectFailed.set(false);
     this.detectDone.set(false);
     try {
-      await this.state.redetectClis();
-      const ok = this.state.cliDetection().status === 'ready';
+      const ok = await this.state.redetectClis();
       this.detectFailed.set(!ok);
       this.detectDone.set(ok);
     } catch (error: unknown) {

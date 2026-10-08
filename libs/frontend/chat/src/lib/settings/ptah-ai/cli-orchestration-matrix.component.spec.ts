@@ -153,8 +153,9 @@ class StateStub {
   >(ready([]));
   /** What the next re-detect does to the state; by default nothing changes (the CLI is still missing). */
   onRedetect: () => void = () => undefined;
-  readonly redetectClis = jest.fn(async () => {
+  readonly redetectClis = jest.fn(async (): Promise<boolean> => {
     this.onRedetect();
+    return this.cliDetection().status === 'ready';
   });
 }
 
@@ -727,6 +728,18 @@ describe('CliOrchestrationMatrixComponent', () => {
           '[data-testid="cli-install-redetect-pi"]',
         )?.click();
         await flush();
+        expect(note()).toBe('Detection failed. Try again.');
+      });
+
+      it('decides on its own detection result, not the shared section an overlapping re-detect replaced', async () => {
+        // This call failed, but a later policy-bar re-detect already left the shared section ready.
+        state.redetectClis.mockResolvedValueOnce(false);
+        openPiGuide();
+        q<HTMLButtonElement>(
+          '[data-testid="cli-install-redetect-pi"]',
+        )?.click();
+        await flush();
+        expect(state.cliDetection().status).toBe('ready');
         expect(note()).toBe('Detection failed. Try again.');
       });
     });
