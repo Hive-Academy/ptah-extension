@@ -24,6 +24,8 @@ import {
   TabManagerService,
 } from '@ptah-extension/chat-state';
 import { ChatMessageHandler } from './chat-message-handler.service';
+import { StreamFlushScheduler } from './stream-flush-scheduler.service';
+import { StreamViewportController } from './stream-viewport-controller.service';
 import { AgentSessionAdoptionService } from './agent-session-adoption.service';
 import { ChatStore } from './chat.store';
 import { BoardTaskLinkCaptureService } from './chat-store/board-task-link-capture.service';
@@ -68,6 +70,7 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
     deferLiveStreamEvent: jest.Mock;
     handleSessionIdResolved: jest.Mock;
     loadSessions: jest.Mock;
+    resyncStream: jest.Mock;
   };
   let linkCapture: { onSessionIdResolved: jest.Mock };
   let streamRouter: {
@@ -111,6 +114,7 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
       deferLiveStreamEvent: jest.fn().mockReturnValue(false),
       handleSessionIdResolved: jest.fn(),
       loadSessions: jest.fn().mockResolvedValue(undefined),
+      resyncStream: jest.fn().mockResolvedValue(undefined),
     };
     linkCapture = {
       onSessionIdResolved: jest.fn().mockResolvedValue(undefined),
@@ -138,6 +142,11 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
       providers: [
         ChatMessageHandler,
         { provide: ChatStore, useValue: chatStore },
+        {
+          provide: StreamFlushScheduler,
+          useValue: { enqueue: (_tabId: string | undefined, work: () => void) => work(), enqueueSnapshot: (_snapshot: unknown, work: () => void) => work() },
+        },
+        { provide: StreamViewportController, useValue: {} },
         { provide: StreamRouter, useValue: streamRouter },
         {
           provide: AgentMonitorStore,
@@ -846,6 +855,53 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
       } finally {
         jest.useRealTimers();
       }
+    });
+  });
+
+  describe('stream snapshots (Phase 2)', () => {
+    it('replays an ordered snapshot through the existing stream path once', () => {
+      const first = { type: 'assistant_text', text: 'first' };
+      const second = { type: 'assistant_text', text: 'second' };
+
+      handler.handleMessage({
+        type: MESSAGE_TYPES.CHAT_STREAM_SNAPSHOT,
+        payload: {
+          protocolVersion: 2,
+          tabId: 'tab-1',
+          fromSequence: 4,
+          toSequence: 5,
+          events: [first, second],
+        },
+      });
+
+      expect(chatStore.processStreamEvent).toHaveBeenNthCalledWith(
+        1,
+        first,
+        'tab-1',
+        undefined,
+      );
+      expect(chatStore.processStreamEvent).toHaveBeenNthCalledWith(
+        2,
+        second,
+        'tab-1',
+        undefined,
+      );
+    });
+
+    it('requests the existing resume path for an overflow snapshot', () => {
+      handler.handleMessage({
+        type: MESSAGE_TYPES.CHAT_STREAM_SNAPSHOT,
+        payload: {
+          protocolVersion: 2,
+          tabId: 'tab-1',
+          sessionId: 'session-1',
+          fromSequence: 9,
+          toSequence: 9,
+          resyncRequired: true,
+        },
+      });
+
+      expect(chatStore.resyncStream).toHaveBeenCalledWith('tab-1', 'session-1');
     });
   });
 });

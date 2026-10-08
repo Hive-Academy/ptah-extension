@@ -43,6 +43,11 @@ export {
   type ValidationResult,
 } from './message-validation.service';
 export { ChatMessageHandler } from './chat-message-handler.service';
+export { StreamFlushScheduler } from './stream-flush-scheduler.service';
+export {
+  StreamViewportController,
+  type StreamTier,
+} from './stream-viewport-controller.service';
 export { AgentSessionAdoptionService } from './agent-session-adoption.service';
 export { VoiceDownloadProgressService } from './voice-download-progress.service';
 export { VoiceProviderErrorService } from './voice-provider-error.service';
