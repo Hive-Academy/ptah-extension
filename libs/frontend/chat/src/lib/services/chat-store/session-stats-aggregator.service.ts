@@ -54,7 +54,7 @@ export interface SessionStatsSnapshotEvent {
   readonly sessionId: string;
   readonly sessionStats?: SessionStatsEntry;
   /** Budget computed from `sessionStats`; installed with it, never alone. */
-  readonly budget?: SessionBudgetState;
+  readonly budget?: SessionBudgetState | null;
   readonly turnCost?: undefined;
   readonly tokens?: undefined;
   readonly duration?: undefined;

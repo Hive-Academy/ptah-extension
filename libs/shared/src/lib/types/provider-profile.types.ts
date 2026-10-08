@@ -22,4 +22,5 @@ export interface ProviderProfile {
   baseUrl?: string | undefined;
   cliJsPath?: string | undefined;
   defaultMaxTokens?: number | undefined;
+  reasoningEffort?: '' | 'low' | 'medium' | 'high' | 'xhigh' | 'max' | undefined;
 }

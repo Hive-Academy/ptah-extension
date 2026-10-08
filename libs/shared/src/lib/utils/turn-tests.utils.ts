@@ -49,10 +49,13 @@ function outputText(output: unknown): string {
 }
 
 function outputOutcome(output: string): TurnTestOutcome | null {
+  const reportedFailures = Array.from(
+    output.matchAll(/(?:Tests|Test Suites):\s*(\d+)\s+failed/gi),
+    (match) => Number(match[1]),
+  );
   if (
-    /Running targets[\s\S]*failed|Failed tasks:|Tests:\s*\d+\s+failed|Test Suites:\s*\d+\s+failed/i.test(
-      output,
-    )
+    /Running targets[\s\S]*failed|Failed tasks:/i.test(output) ||
+    reportedFailures.some((count) => count > 0)
   )
     return 'failed';
   if (
@@ -68,28 +71,46 @@ function projectRuns(
   command: string,
   output: string,
   outcome: TurnTestOutcome,
+  completed: boolean,
 ): TurnTestRun[] {
   const projects = new Map<string, TurnTestOutcome>();
-  for (const match of output.matchAll(
-    /(?:Successfully ran target|Running target)\s+([^\s:]+):([^\s\n]+)/gi,
-  ))
-    projects.set(`${match[1]}:${match[2]}`, 'passed');
-  for (const match of output.matchAll(
-    /(?:failed tasks?:?\s*\n\s*-\s*|^\s*[×x]\s*)([^\s:]+):([^\s\n]+)/gim,
-  ))
-    projects.set(`${match[1]}:${match[2]}`, 'failed');
+  if (completed) {
+    for (const match of output.matchAll(
+      /Successfully ran target\s+([^\s:]+):([^\s\n]+)/gi,
+    ))
+      projects.set(`${match[1]}:${match[2]}`, 'passed');
+  }
+  let inFailedTasks = false;
+  for (const line of output.split('\n')) {
+    if (/^\s*Failed tasks:\s*$/i.test(line)) {
+      inFailedTasks = true;
+      continue;
+    }
+    const match = inFailedTasks
+      ? /^\s*-\s*([^\s:]+):([^\s\n]+)\s*$/.exec(line)
+      : /^\s*[\u00d7x]\s*([^\s:]+):([^\s\n]+)/i.exec(line);
+    if (match !== null) {
+      projects.set(`${match[1]}:${match[2]}`, 'failed');
+      continue;
+    }
+    if (line.trim() !== '') inFailedTasks = false;
+  }
   const failures = Array.from(
-    output.matchAll(/(?:FAIL|×)\s+([^\n]+)/gim),
+    output.matchAll(/(?:FAIL|\u00d7)\s+([^\n]+)/gim),
     (match) => match[1].trim(),
   ).slice(0, 5);
   if (projects.size === 0)
     return [{ command, outcome, ...(failures.length > 0 && { failures }) }];
-  return Array.from(projects, ([project, projectOutcome]) => ({
+  const runs: TurnTestRun[] = Array.from(projects, ([project, projectOutcome]) => ({
     command,
     project,
     outcome: projectOutcome,
     ...(projectOutcome === 'failed' && failures.length > 0 && { failures }),
   }));
+  if (outcome === 'failed' && !runs.some((run) => run.outcome === 'failed')) {
+    runs.push({ command, outcome });
+  }
+  return runs;
 }
 
 /** Collects Bash test commands in depth-first execution-tree order. */
@@ -112,13 +133,18 @@ export function collectTurnTests(
       classifyTestCommand(command)
     ) {
       const output = outputText(node.toolOutput);
+      const completed = node.status === 'complete' || node.status === 'error';
       const parsedOutcome = outputOutcome(output);
       const outcome =
-        parsedOutcome ??
+        (node.isError === true
+          ? 'failed'
+          : parsedOutcome === 'failed' || completed
+            ? parsedOutcome
+            : null) ??
         (hasMaskedTestCommandOutcome(command) && node.status === 'complete'
           ? 'unknown'
           : outcomeFor(node, opts.finalized));
-      runs.push(...projectRuns(command, output, outcome));
+      runs.push(...projectRuns(command, output, outcome, completed));
     }
     for (const child of node.children) visit(child);
   };

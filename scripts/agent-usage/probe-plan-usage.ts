@@ -303,11 +303,16 @@ function failure(provider: string, step: string, error: unknown): ProbeResult {
       step,
       errorClass: value.name,
       // Provider errors can contain identity material; keep a bounded type-only diagnostic.
-      message: value.message
-        .replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+/g, '[redacted-email]')
-        .slice(0, 160),
+      message: redactEmail(value.message).slice(0, 160),
     },
   };
+}
+
+function redactEmail(value: string): string {
+  return value
+    .split(/\s+/)
+    .map((part) => (part.includes('@') ? '[redacted-email]' : part))
+    .join(' ');
 }
 
 async function codex(): Promise<ProbeResult & { delivery?: CodexDelivery }> {
@@ -321,7 +326,7 @@ async function codex(): Promise<ProbeResult & { delivery?: CodexDelivery }> {
   };
   const usage = new CodexAccountUsageService(
     logger,
-    { getAccountUsageEligibility: async () => 'supported' } as never,
+    { getAccountUsageEligibility: () => Promise.resolve('supported') } as never,
     { path: home } as never,
     spawner,
     { onAuthFileChanged: () => undefined } as never,
@@ -349,12 +354,12 @@ async function codex(): Promise<ProbeResult & { delivery?: CodexDelivery }> {
       logger as never,
       ledger as never,
       {
-        resolve: async () => ({
+        resolve: () => Promise.resolve({
           kind: 'unavailable',
           status: 'unsupported-config',
         }),
       } as never,
-      { readPlanUsage: async () => null } as never,
+        { readPlanUsage: () => Promise.resolve(null) } as never,
       usage,
     );
     const entry = {
@@ -365,11 +370,11 @@ async function codex(): Promise<ProbeResult & { delivery?: CodexDelivery }> {
     const snapshots = new PlanLimitsSnapshotService(
       logger as never,
       {
-        discoverSelectedProvider: async () => ({
+        discoverSelectedProvider: () => Promise.resolve({
           kind: 'owner' as const,
           entry,
         }),
-        discoverTargets: async () => [entry],
+        discoverTargets: () => Promise.resolve([entry]),
       } as never,
       planUsage,
       ledger as never,
@@ -448,7 +453,7 @@ async function ollamaCloud(): Promise<ProbeResult> {
 async function claude(): Promise<ProbeResult> {
   try {
     const reading = await createClaudePlanUsageReader(
-      { readPlanUsage: async () => null },
+      { readPlanUsage: () => Promise.resolve(null) },
       logger,
     )({ target: target('anthropic'), refresh: true });
     return toResult('Claude', reading, 'account/read:no-open-session');
