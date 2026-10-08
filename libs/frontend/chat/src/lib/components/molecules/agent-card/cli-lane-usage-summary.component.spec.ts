@@ -45,14 +45,15 @@ describe('CliLaneUsageSummaryComponent', () => {
     expect(text).toContain('4m 2s');
   });
 
-  it('does not substitute zero when the CLI has not reported usage', () => {
+  it('omits token labels that the provider did not report', () => {
     TestBed.configureTestingModule({ imports: [CliLaneUsageSummaryComponent] });
     const fixture = TestBed.createComponent(CliLaneUsageSummaryComponent);
     fixture.componentRef.setInput('agent', agent(null));
     fixture.componentRef.setInput('duration', '1s');
     fixture.detectChanges();
 
-    expect(fixture.nativeElement.textContent).toContain('cache not reported');
-    expect(fixture.nativeElement.textContent).toContain('in —');
+    expect(fixture.nativeElement.textContent).not.toContain('cache read');
+    expect(fixture.nativeElement.textContent).not.toContain('cache write');
+    expect(fixture.nativeElement.textContent).not.toContain('in ');
   });
 });

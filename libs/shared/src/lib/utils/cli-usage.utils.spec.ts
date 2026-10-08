@@ -1,5 +1,9 @@
 import type { CliOutputSegment } from '../types/agent-process.types';
-import { addCliUsage, type CliUsageTotals } from './cli-usage.utils';
+import {
+  addCliUsage,
+  hasReportedCliCacheTokens,
+  type CliUsageTotals,
+} from './cli-usage.utils';
 
 /** Fold a whole segment list, as `extractCliAgentStats` does today. */
 function foldAll(
@@ -210,5 +214,14 @@ describe('addCliUsage (incremental fold)', () => {
       costUsd: 0.01,
       durationMs: 900,
     });
+  });
+});
+
+describe('hasReportedCliCacheTokens', () => {
+  it('reports only fields a provider actually supplied', () => {
+    expect(hasReportedCliCacheTokens(null)).toBe(false);
+    expect(hasReportedCliCacheTokens({ inputTokens: 10 })).toBe(false);
+    expect(hasReportedCliCacheTokens({ cacheReadTokens: 0 })).toBe(true);
+    expect(hasReportedCliCacheTokens({ cacheWriteTokens: 0 })).toBe(true);
   });
 });

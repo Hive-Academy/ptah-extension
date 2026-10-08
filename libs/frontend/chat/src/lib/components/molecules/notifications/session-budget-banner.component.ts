@@ -668,6 +668,11 @@ export class SessionBudgetBannerComponent {
         'Ptah saved a handoff with the goal, decisions, changed files, open items and next step.',
       );
     }
+    if (parts.length === 0) {
+      parts.push(
+        `This session is using ${this.tokens(budget.used)} of its ${this.tokens(budget.limit)} token budget.`,
+      );
+    }
     parts.push('At 100% new messages in this session pause.');
     return parts.join(' ');
   }

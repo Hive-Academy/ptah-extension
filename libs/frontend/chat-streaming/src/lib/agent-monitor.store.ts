@@ -40,6 +40,7 @@ import type {
 } from '@ptah-extension/shared';
 import {
   addCliUsage,
+  hasReportedCliCacheTokens,
   calculateMessageCost,
   computeSubagentCacheState,
   findModelPricing,
@@ -1313,10 +1314,7 @@ export class AgentMonitorStore implements OnDestroy {
           }
         }
         updated.usageTotals = usageTotals;
-        if (
-          usageTotals?.cacheReadTokens !== undefined ||
-          usageTotals?.cacheWriteTokens !== undefined
-        ) {
+        if (hasReportedCliCacheTokens(usageTotals)) {
           updated = { ...updated, cacheReported: true };
         }
         const existing = updated.segments;
