@@ -223,11 +223,73 @@ export function parseFileList(text: string, root: string): Answer {
 /** `file:line` locations anywhere in a text (the future `ptah_search_text`). */
 export function parseTextLocations(text: string, root: string): Answer {
   const relative = relativeTo(root);
-  const ranked = Array.from(
-    text.matchAll(/([^\s`'"|]+?):(\d+)(?=[:\s`\|]|$)/g),
-    (match) => `${relative(match[1])}:${match[2]}`,
-  );
+  const ranked: string[] = [];
+  let start = 0;
+  while (start < text.length) {
+    if (isPathStop(text[start])) {
+      start += 1;
+      continue;
+    }
+    let end = start;
+    while (end < text.length && !isPathStop(text[end])) end += 1;
+    for (const [path, line] of runLocations(text, start, end)) {
+      ranked.push(`${relative(path)}:${line}`);
+    }
+    start = end;
+  }
   return answerOf(ranked);
+}
+
+/**
+ * `path:line` pairs inside one run of path characters, scanned linearly. Same
+ * matches as `/([^\s`'"|]+?):(\d+)(?=[:\s`|]|$)/g`: the path is non-empty and
+ * ends at the first `:` that is followed by a full digit run and then by `:`,
+ * whitespace, a backtick, `|` or the end of the text.
+ */
+function runLocations(
+  text: string,
+  start: number,
+  end: number,
+): Array<[string, string]> {
+  const found: Array<[string, string]> = [];
+  let cursor = start;
+  let colon = text.indexOf(':', cursor + 1);
+  while (colon !== -1 && colon < end) {
+    let digitsEnd = colon + 1;
+    while (digitsEnd < end && isAsciiDigit(text[digitsEnd])) digitsEnd += 1;
+    if (digitsEnd > colon + 1 && endsLocation(text[digitsEnd])) {
+      found.push([text.slice(cursor, colon), text.slice(colon + 1, digitsEnd)]);
+      cursor = digitsEnd;
+      colon = text.indexOf(':', cursor + 1);
+    } else {
+      colon = text.indexOf(':', colon + 1);
+    }
+  }
+  return found;
+}
+
+function isPathStop(char: string): boolean {
+  return (
+    char === '`' ||
+    char === "'" ||
+    char === '"' ||
+    char === '|' ||
+    /\s/.test(char)
+  );
+}
+
+function isAsciiDigit(char: string): boolean {
+  return char >= '0' && char <= '9';
+}
+
+function endsLocation(char: string | undefined): boolean {
+  return (
+    char === undefined ||
+    char === ':' ||
+    char === '`' ||
+    char === '|' ||
+    /\s/.test(char)
+  );
 }
 
 /** Which of `names` the text mentions as a quoted name (structure tools vs Read). */
