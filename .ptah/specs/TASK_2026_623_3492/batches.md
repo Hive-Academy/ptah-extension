@@ -342,7 +342,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
   fact `status` typed `string` so the unknown → `pending` rule is reachable; `ptah-ui-agents-source.ts` is not
   exported from the eager `surface.index.ts` barrel (D6: the module is lazy and forbidden-eager).
 
-## Batch 5: S5 resolver and pipeline (`compilePtahUiBlock`) — COMPLETE
+## Batch 5: S5 resolver and pipeline (`compilePtahUiBlock`) — COMPLETE (commit 00db87c36)
 
 - Recommended executor: backend-developer
 - Fallback executor: general-purpose subagent
@@ -403,7 +403,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
   `ptah-ui-agents-source.ts` forbidden-eager pattern goes to Task 32.1. Task 17.2 carries the `PtahUiLimitsInput`
   mapping.
 
-## Batch 6: S6 corpus and compactness — PENDING
+## Batch 6: S6 corpus and compactness — COMPLETE
 
 - Recommended executor: backend-developer
 - Fallback executor: general-purpose subagent
@@ -412,7 +412,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - Tasks: 2 | Depends on: Batch 5
 - Phase: 1 (last batch) | Phase review: code-logic on Batches 1-6
 
-### Task 6.1: corpus cases for the new grammar and skill examples — PENDING
+### Task 6.1: corpus cases for the new grammar and skill examples — COMPLETE
 
 - Files:
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\shared\src\mcp-apps-contracts\ptah-ui.corpus.ts
@@ -420,8 +420,14 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - Plan reference: implementation-plan.md:433-514, 1146-1192 (examples become corpus cases)
 - Quality requirements: R8.4; includes the subagent-usage dashboard, id update, and "CLI tools with usage and context
   stats" examples that DOC1 will publish.
+- Validation notes (Batch 5, decisions #32-#36):
+  - Render the corpus through `renderPtahUiBlock(body, {surfaceId, snapshot, agents?, limits?, countBytes})`. Supply
+    `$agents`/`$limits` inputs as `PtahUiAgentsInput` / `PtahUiLimitsInput` (from `ptah-ui-agents-source.ts` /
+    `ptah-ui-resolver.ts`).
+  - A budget-breach case expects `<maxX> (<n>) exceeded`, not "block exceeds a display limit".
+  - The "CLI tools with usage and context stats" example expects CLI-lane `context` as "unavailable" (#16, #28).
 
-### Task 6.2: `$agents` compactness spec and `/3` regression run — PENDING
+### Task 6.2: `$agents` compactness spec and `/3` regression run — COMPLETE
 
 - File (CREATE): D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\shared\src\mcp-apps-contracts\ptah-ui-agents-compactness.spec.ts
 - Plan reference: implementation-plan.md:512 (R8.5), 1435-1438
@@ -432,6 +438,16 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - `npx jest -c libs/shared/jest.config.ts libs/shared/src/mcp-apps-contracts/ptah-ui-compactness.spec.ts libs/shared/src/mcp-apps-contracts/ptah-ui-agents-compactness.spec.ts libs/shared/src/mcp-apps-contracts/surface-contract.spec.ts libs/shared/src/mcp-apps-contracts/dashboard-trust-boundary.spec.ts libs/shared/src/mcp-apps-contracts/surface-budgets.spec.ts libs/shared/src/mcp-apps-contracts/host-source-registry.contract.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -n 40 && npx nx typecheck @ptah-extension/shared --parallel=1 2>&1 | tail -n 20 && npx nx lint @ptah-extension/shared --parallel=1 2>&1 | tail -n 20`
   (the executor locates any of these specs not under `mcp-apps-contracts/` with Glob and uses the real path)
 - Phase 1 code-logic review due after commit
+- Result (team-leader run): one Jest run of the six Batch 6 specs plus the three corpus consumers
+  (`ptah-ui-parser.spec.ts`, `ptah-ui-converter.spec.ts`, `ptah-ui-pipeline.spec.ts`), with
+  `host-source-registry.contract.spec.ts` at `libs/shared/src/lib/types/rpc/`: 9 suites, 529 tests passed. Shared
+  typecheck passed. Shared lint: 0 errors, 6 baseline warnings.
+
+### Batch 6 decisions
+
+- #38: the `release`/`displayId` corpus fields are accepted. The `/3` goldens were checked against the base-commit
+  converter logic.
+- #39: `maxComponents (200)` cannot be reached from a fence body; no action.
 
 ## Batch 7: L1 lane plan-limit RPC types — PENDING
 
