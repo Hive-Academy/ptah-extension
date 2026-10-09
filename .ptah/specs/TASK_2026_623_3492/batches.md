@@ -1,6 +1,6 @@
 # Batches - TASK_2026_623_3492
 
-Total tasks: 69 | Batches: 34 (incl. fix batch 6F) | Complete: 10/34
+Total tasks: 69 | Batches: 34 (incl. fix batch 6F) | Complete: 13/34
 
 Worktree root `W` = `D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel` (branch
 `feat/task-623-display-panel`, base `70f995a56`). Every path below is absolute.
@@ -636,7 +636,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 
 - `npx jest -c libs/backend/cli-agent-runtime/jest.config.ts libs/backend/cli-agent-runtime/src/lib/cli-agents/limits/lane-limit-lookup.service.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -n 40 && npx nx lint @ptah-extension/cli-agent-runtime --parallel=1 2>&1 | tail -n 20`
 
-## Batch 11: L4 Electron enablement — COMPLETE
+## Batch 11: L4 Electron enablement — COMPLETE (commit 02d47eb3b)
 
 - Recommended executor: backend-developer
 - Fallback executor: general-purpose subagent
@@ -666,7 +666,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 
 - `npx jest -c apps/ptah-electron/jest.config.ts apps/ptah-electron/src/di/container.smoke.spec.ts apps/ptah-electron/src/di/rpc-surface.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -n 40 && npx nx typecheck ptah-electron --parallel=1 2>&1 | tail -n 20 && npx nx lint @ptah-extension/rpc-handlers --parallel=1 2>&1 | tail -n 20`
 
-## Batch 12: L5 expected-absent lists (VS Code, CLI) — IN_PROGRESS
+## Batch 12: L5 expected-absent lists (VS Code, CLI) — COMPLETE (commit PENDING_SHA; Phase 2 review pending)
 
 - Recommended executor: backend-developer
 - Fallback executor: general-purpose subagent
@@ -675,7 +675,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - Tasks: 1 | Depends on: Batch 9
 - Phase: 2 (last batch) | Phase review: code-logic + style on Batches 7-12
 
-### Task 12.1: add `lanePlanLimits` to both expected-absent lists — IN_PROGRESS
+### Task 12.1: add `lanePlanLimits` to both expected-absent lists — COMPLETE
 
 - Files:
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\apps\ptah-extension-vscode\src\di\expected-absent.ts

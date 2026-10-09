@@ -36,6 +36,9 @@ import {
 /** Webview-only surfaces: pickers, command palette, embedded PTY,
  *  desktop updater. Every backend subsystem stays on. */
 export const CLI_EXPECTED_ABSENT_METHODS: readonly string[] = [
+  // Lane plan-limit read (TASK_2026_623 R10.9) — `lanePlanLimits` capability is
+  // Electron-only, see expected-absent.ts.
+  'agent:getLanePlanLimits',
   'command:execute',
   'file:exists',
   'file:open',
