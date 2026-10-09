@@ -49,6 +49,7 @@ import { TestBed, ComponentFixture } from '@angular/core/testing';
 import { MarkdownComponent } from 'ngx-markdown';
 import { ExecutionNodeComponent } from './execution-node.component';
 import { SURFACE_ACTIVE } from '@ptah-extension/core';
+import { INCREMENTAL_STREAMING_PRESENTATION_ENABLED } from '../../../services/scroll-dirty.service';
 import type { ExecutionNode, ExecutionStatus } from '@ptah-extension/shared';
 
 /** The markdown stub, reached through the mocked module's export. */
@@ -117,7 +118,10 @@ describe('ExecutionNodeComponent — streamed markdown render throttle', () => {
 
     TestBed.configureTestingModule({
       imports: [ExecutionNodeComponent],
-      providers: [{ provide: SURFACE_ACTIVE, useValue: surfaceActive }],
+      providers: [
+        { provide: SURFACE_ACTIVE, useValue: surfaceActive },
+        { provide: INCREMENTAL_STREAMING_PRESENTATION_ENABLED, useValue: false },
+      ],
     });
     fixture = TestBed.createComponent(ExecutionNodeComponent);
   });
