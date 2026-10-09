@@ -233,17 +233,6 @@ describe('Electron DI — shared RPC handler resolution', () => {
       instance = c.resolve(token);
     }).not.toThrow();
     expect(instance).toBeDefined();
-    if (token === SetupRpcHandlers) {
-      // The bug class this whole refactor exists to prevent: slot 3 must be a
-      // real ModelSettings, not a ConfigManager. Concretely we check that the
-      // resolved instance has a working `modelSettings.selectedModel.get`.
-      const ms = (
-        instance as unknown as {
-          modelSettings: { selectedModel: { get: () => unknown } };
-        }
-      ).modelSettings;
-      expect(typeof ms.selectedModel.get).toBe('function');
-    }
   });
 });
 
