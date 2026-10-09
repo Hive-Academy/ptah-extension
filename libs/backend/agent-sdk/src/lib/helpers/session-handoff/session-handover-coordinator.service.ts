@@ -117,6 +117,7 @@ const CANCELLABLE_PHASES: ReadonlySet<SessionHandoverState['phase']> = new Set([
   'armed',
   'awaiting-confirmation',
   'writing-handoff',
+  'failed',
 ]);
 
 const LOST_INPUT_TEXT_LIMIT = 2_000;
@@ -428,21 +429,29 @@ export class SessionHandoverCoordinator {
       operation.successorTabId = started.successorTabId;
 
       this.transition(operation, 'successor-confirmed');
-      const transferInputs = [...operation.inputs];
-      const delivered = await successorHost.deliverTransferInputs(
-        operation.id,
-        transferInputs,
-      );
-      if (!this.isActive(operation)) {
-        await successorHost.stopSuccessorSession?.(operation.id);
-        return;
-      }
-      if (!delivered.delivered) {
-        throw new Error(delivered.error ?? 'successor input delivery failed');
-      }
-      operation.inputs.splice(0, transferInputs.length);
-      operation.revision += 1;
-      this.publish(operation);
+      const deliveredInputs: QueuedSessionInput[] = [];
+      do {
+        const transferInputs = [...operation.inputs];
+        const delivered = await successorHost.deliverTransferInputs(
+          operation.id,
+          transferInputs,
+        );
+        if (!this.isActive(operation)) {
+          await successorHost.stopSuccessorSession?.(operation.id);
+          return;
+        }
+        if (!delivered.delivered) {
+          // Stop the successor so only the source keeps working, and give
+          // it back every held input, earlier delivered batches first.
+          operation.inputs.unshift(...deliveredInputs);
+          await successorHost.stopSuccessorSession?.(operation.id);
+          throw new Error(delivered.error ?? 'successor input delivery failed');
+        }
+        operation.inputs.splice(0, transferInputs.length);
+        deliveredInputs.push(...transferInputs);
+        operation.revision += 1;
+        this.publish(operation);
+      } while (operation.inputs.length > 0);
       this.transition(operation, 'closing');
       const closed = await runtime.closeIfTokenMatches(
         operation.sourceSessionId,

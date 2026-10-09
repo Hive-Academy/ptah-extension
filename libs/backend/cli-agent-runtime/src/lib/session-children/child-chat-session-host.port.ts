@@ -11,6 +11,7 @@
  */
 import type {
   AgentSessionOpenedPayload,
+  AIMessageOrigin,
   EffortLevel,
   InlineImageAttachment,
   PermissionLevel,
@@ -56,7 +57,7 @@ export interface SuccessorSessionQueuedInput {
   readonly content: string;
   readonly files?: readonly string[];
   readonly images?: readonly InlineImageAttachment[];
-  readonly origin?: unknown;
+  readonly origin?: AIMessageOrigin;
   readonly admission?: 'require-idle' | 'owned-handoff';
 }
 

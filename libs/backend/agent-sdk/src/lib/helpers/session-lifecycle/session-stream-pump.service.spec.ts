@@ -187,6 +187,58 @@ describe('SessionStreamPump — one message per turn (TASK_2026_294)', () => {
     expect(h.registry.find(TAB as string)?.turnInFlight).toBe(true);
   });
 
+  it('holds a tab-id input for a handover armed under the real SDK session id', async () => {
+    const logger = makeLogger();
+    const registry = new SessionRegistry(logger);
+    const coordinator = new SessionHandoverCoordinator();
+    const pump = new SessionStreamPump(
+      logger,
+      registry,
+      makeMessageFactory(),
+      coordinator,
+    );
+    const abortController = new AbortController();
+    const realSessionId = 'sdk_pump_handover';
+    registry.register(
+      TAB as string,
+      {} as AISessionConfig,
+      abortController,
+      realSessionId,
+    );
+    coordinator.armAtTerminal(realSessionId, true, []);
+
+    await pump.sendMessage(TAB, 'hold this input');
+
+    expect(coordinator.transferInputs(realSessionId)).toEqual([
+      { content: 'hold this input' },
+    ]);
+    expect(registry.find(TAB as string)?.messageQueue).toEqual([]);
+  });
+
+  it('keeps holding an operation created before the real SDK session id binds', async () => {
+    const logger = makeLogger();
+    const registry = new SessionRegistry(logger);
+    const coordinator = new SessionHandoverCoordinator();
+    const pump = new SessionStreamPump(
+      logger,
+      registry,
+      makeMessageFactory(),
+      coordinator,
+    );
+    const abortController = new AbortController();
+    const realSessionId = 'sdk_pump_rebound';
+    registry.register(TAB as string, {} as AISessionConfig, abortController);
+    coordinator.armAtTerminal(TAB as string, true, []);
+    registry.bindRealSessionId(TAB as string, realSessionId);
+
+    await pump.sendMessage(realSessionId as SessionId, 'retain legacy operation');
+
+    expect(coordinator.transferInputs(TAB as string)).toEqual([
+      { content: 'retain legacy operation' },
+    ]);
+    expect(coordinator.transferInputs(realSessionId)).toEqual([]);
+  });
+
   it('delivers the coordinator-owned handoff request while source admission is held', async () => {
     const logger = makeLogger();
     const registry = new SessionRegistry(logger);
@@ -287,6 +339,21 @@ function makeDeferredHarness(): Harness & {
 const flush = (): Promise<void> => new Promise((r) => setImmediate(r));
 
 describe('SessionStreamPump — require-idle admission (TASK_2026_538)', () => {
+  it('appends transfer inputs while the successor seed turn is in flight', async () => {
+    const h = makeDeferredHarness();
+    await h.pump.sendMessage(TAB, 'successor seed');
+    const seed = h.iterator.next();
+    await flush();
+
+    await h.pump.enqueueTransferInputs(TAB, [{ content: 'held source input' }]);
+
+    expect(h.registry.find(TAB as string)?.messageQueue.map((input) => input.content)).toEqual([
+      'held source input',
+    ]);
+    h.release(0);
+    await seed;
+  });
+
   it('admits a message onto a live, idle session and yields it', async () => {
     const h = makeHarness();
 

@@ -170,6 +170,70 @@ describe('SessionHandoverCoordinator', () => {
     expect(coordinator.snapshotFor('source')?.phase).toBe('closed');
   });
 
+  it('delivers inputs held during a delivery snapshot before closing', async () => {
+    const { coordinator, host } = makeHarness();
+    host.deliverTransferInputs.mockImplementationOnce(async () => {
+      coordinator.admitOrHold('source', { content: 'late arrival' });
+      return { delivered: true };
+    });
+    coordinator.begin('source', 'successor', false);
+    coordinator.admitOrHold('source', { content: 'initial arrival' });
+
+    await flush();
+    await flush();
+    await flush();
+
+    expect(host.deliverTransferInputs).toHaveBeenNthCalledWith(
+      1,
+      expect.any(String),
+      [{ content: 'initial arrival' }],
+    );
+    expect(host.deliverTransferInputs).toHaveBeenNthCalledWith(
+      2,
+      expect.any(String),
+      [{ content: 'late arrival' }],
+    );
+    expect(coordinator.snapshotFor('source')?.phase).toBe('closed');
+  });
+
+  it('stops the successor and restores every held input when a later delivery fails', async () => {
+    const { coordinator, host, runtime } = makeHarness();
+    host.stopSuccessorSession = jest.fn().mockResolvedValue(undefined);
+    host.deliverTransferInputs
+      .mockImplementationOnce(async () => {
+        coordinator.admitOrHold('source', { content: 'late arrival' });
+        return { delivered: true };
+      })
+      .mockResolvedValueOnce({ delivered: false, error: 'delivery' });
+    coordinator.begin('source', 'successor', false);
+    coordinator.admitOrHold('source', { content: 'initial arrival' });
+
+    await flush();
+    await flush();
+    await flush();
+
+    expect(host.stopSuccessorSession).toHaveBeenCalledTimes(1);
+    expect(runtime.restoreInputs).toHaveBeenCalledWith('source', [
+      { content: 'initial arrival' },
+      { content: 'late arrival' },
+    ]);
+    expect(coordinator.snapshotFor('source')?.phase).toBe('failed');
+  });
+
+  it('cancels a failed handover so the source can keep working', async () => {
+    const { coordinator, host } = makeHarness();
+    host.startSuccessorSession.mockResolvedValueOnce({ started: false, error: 'start' });
+    coordinator.begin('source', 'successor', false);
+
+    await flush();
+    await flush();
+
+    const failed = coordinator.snapshotFor('source');
+    expect(failed?.phase).toBe('failed');
+    expect(coordinator.cancel('source', failed?.operationId ?? '')).toEqual([]);
+    expect(coordinator.snapshotFor('source')?.phase).toBe('cancelled');
+  });
+
   it('passes the source full-auto permission level to the successor unchanged', async () => {
     const { coordinator, host, runtime } = makeHarness();
     runtime.sourceSnapshot.mockReturnValue({

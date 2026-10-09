@@ -800,6 +800,7 @@ export class ChatSessionService {
           content: input.content,
           ...(input.files ? { files: input.files } : {}),
           ...(input.images ? { images: input.images } : {}),
+          ...(input.origin ? { origin: input.origin } : {}),
         })),
       );
       return { delivered: true };

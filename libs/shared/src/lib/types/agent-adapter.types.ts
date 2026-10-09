@@ -9,6 +9,7 @@ import type { ContextCapacity } from '../utils/pricing.utils';
 import type {
   IAIProvider,
   AISessionConfig,
+  AIMessageOrigin,
   EffortLevel,
 } from './ai-provider.types';
 import type { SessionId } from './branded.types';
@@ -241,6 +242,7 @@ export interface IAgentAdapter extends IAIProvider {
       readonly content: string;
       readonly files?: readonly string[];
       readonly images?: readonly { readonly data: string; readonly mediaType: string }[];
+      readonly origin?: AIMessageOrigin;
     }[],
   ): Promise<void>;
 

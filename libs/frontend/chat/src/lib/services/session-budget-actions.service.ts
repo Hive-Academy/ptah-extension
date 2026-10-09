@@ -160,6 +160,12 @@ export class SessionBudgetActionsService {
       });
       const data = result.isSuccess() ? result.data : null;
       if (data?.accepted) {
+        const currentQueuedInput = this.tabManager
+          .findTabByIdAcrossWorkspaces(tabId)
+          ?.tab.queuedContent?.trim();
+        if (queuedInput && currentQueuedInput === queuedInput) {
+          this.tabManager.clearQueuedContentAndOptions(tabId);
+        }
         this.handoverClient.record(sessionId, data.state);
         return;
       }

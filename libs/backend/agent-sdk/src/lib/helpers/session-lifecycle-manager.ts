@@ -454,7 +454,9 @@ export class SessionLifecycleManager {
       compactionProvider ? () => compactionProvider.getConfig() : null,
       (sessionId) => this.onTurnTerminal(sessionId),
       (sessionId) =>
-        !this.handoverCoordinator?.admitInterrupt(sessionId as string).held,
+        !this.handoverCoordinator?.admitInterrupt(
+          this.handoverKey(sessionId),
+        ).held,
     );
     this.handoverCoordinator?.attachRuntime({
       sourceSnapshot: (sourceSessionId) => {
@@ -506,11 +508,12 @@ export class SessionLifecycleManager {
   ): void {
     const rec = this._registry.find(sessionId as string);
     if (rec && this.handoverCoordinator) {
+      const canonicalId = this.handoverKey(sessionId);
       this.handoverCoordinator.armAtTerminal(
-        sessionId as string,
+        canonicalId,
         atBlockingLimit,
         rec.messageQueue,
-        this.sessionBudget?.stageFor(sessionId as string) === 'handoff',
+        this.sessionBudget?.stageFor(canonicalId) === 'handoff',
       );
     }
     this._registry.markTurnEnded(sessionId as string);
@@ -520,6 +523,26 @@ export class SessionLifecycleManager {
   private isAtBlockingLimit(sessionId: SessionId): boolean {
     const check = this.sessionBudget?.canSend(sessionId as string);
     return check?.ok === false;
+  }
+
+  /**
+   * Use the SDK session id once it is known. An operation started before the
+   * SDK init message remains under its tab id, so continue addressing that
+   * existing operation instead of creating a second handover.
+   */
+  private handoverKey(sessionId: SessionId): string {
+    const rec = this._registry.find(sessionId as string);
+    if (!rec) return sessionId as string;
+
+    const canonicalId = rec.realSessionId ?? rec.tabId;
+    if (
+      canonicalId !== rec.tabId &&
+      this.handoverCoordinator?.snapshotFor(rec.tabId) &&
+      !this.handoverCoordinator.snapshotFor(canonicalId)
+    ) {
+      return rec.tabId;
+    }
+    return canonicalId;
   }
 
   /**
@@ -672,7 +695,13 @@ export class SessionLifecycleManager {
    */
   async endSession(sessionId: SessionId): Promise<void> {
     const token = this.getSessionToken(sessionId);
-    if (token) this.handoverCoordinator?.sourceEnded(sessionId as string, token, 'session ended');
+    if (token) {
+      this.handoverCoordinator?.sourceEnded(
+        this.handoverKey(sessionId),
+        token,
+        'session ended',
+      );
+    }
     await this._control.endSession(sessionId);
   }
 
@@ -693,7 +722,11 @@ export class SessionLifecycleManager {
     token: string,
   ): Promise<boolean> {
     if (this.getSessionToken(sessionId) === token) {
-      this.handoverCoordinator?.sourceEnded(sessionId as string, token, 'session ended');
+      this.handoverCoordinator?.sourceEnded(
+        this.handoverKey(sessionId),
+        token,
+        'session ended',
+      );
     }
     return this._control.endSessionIfTokenMatches(sessionId, token);
   }

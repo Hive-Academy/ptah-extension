@@ -462,6 +462,32 @@ describe('SessionHandoffBuilder', () => {
     expect(result.document.seed.startsWith('Agent handoff supplement:\nagent context')).toBe(true);
   });
 
+  it('skips an agent supplement when the seed has no room for its marker', async () => {
+    const { builder, reader } = makeBuilder();
+    jest.spyOn(reader, 'readJsonlTail').mockResolvedValue([
+      boundary,
+      user('s'.repeat(5_000)),
+      ...Array.from({ length: 60 }, (_, i) =>
+        toolUse('Edit', { file_path: `${'d/'.repeat(100)}file-${i}.ts` }),
+      ),
+      todos(
+        ...Array.from(
+          { length: 25 },
+          (_, i) => [`${'t'.repeat(400)} ${i}`, 'pending'] as [string, string],
+        ),
+      ),
+    ]);
+
+    const result = await builder.build({
+      sessionId: SESSION_ID,
+      workspacePath: 'D:/work/repo',
+      agentHandoff: 'agent context that must not overflow the seed',
+    });
+
+    expect(result.document.seed).not.toContain('Agent handoff supplement:');
+    expect(result.document.seed.length).toBeLessThanOrEqual(SESSION_HANDOFF_LIMITS.seedChars);
+  });
+
   it('reads the fixture transcript tail and renders every fact', async () => {
     const { builder, reader } = makeBuilder();
     const tail = jest.spyOn(reader, 'readJsonlTail');

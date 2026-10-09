@@ -42,22 +42,30 @@ function handoverService(): {
   readonly service: ChatSessionService;
   readonly startAgentChildSession: jest.Mock;
   readonly sendMessageToSession: jest.Mock;
+  readonly enqueueTransferInputs: jest.Mock;
   readonly endSession: jest.Mock;
 } {
   const service = Object.create(ChatSessionService.prototype) as ChatSessionService;
   const startAgentChildSession = jest.fn().mockResolvedValue({ success: true });
   const sendMessageToSession = jest.fn().mockResolvedValue(undefined);
+  const enqueueTransferInputs = jest.fn().mockResolvedValue(undefined);
   const endSession = jest.fn();
   jest.spyOn(service, 'startAgentChildSession').mockImplementation(
     startAgentChildSession,
   );
   Object.defineProperty(service, 'sdkAdapter', {
-    value: { sendMessageToSession, endSession } as Pick<
+    value: { sendMessageToSession, enqueueTransferInputs, endSession } as Pick<
       IAgentAdapter,
-      'sendMessageToSession' | 'endSession'
+      'sendMessageToSession' | 'enqueueTransferInputs' | 'endSession'
     >,
   });
-  return { service, startAgentChildSession, sendMessageToSession, endSession };
+  return {
+    service,
+    startAgentChildSession,
+    sendMessageToSession,
+    enqueueTransferInputs,
+    endSession,
+  };
 }
 
 describe('ChatSessionService successor handover', () => {
@@ -93,6 +101,17 @@ describe('ChatSessionService successor handover', () => {
     await h.service.stopHandoverSuccessor(TAB_ID);
 
     expect(h.endSession).toHaveBeenCalledWith(TAB_ID);
+  });
+
+  it('preserves held input origins when delivering to the successor', async () => {
+    const h = handoverService();
+    const origin = { kind: 'peer', from: 'parent-session' } as const;
+
+    await h.service.deliverHandoverInputs(TAB_ID, [{ content: 'peer update', origin }]);
+
+    expect(h.enqueueTransferInputs).toHaveBeenCalledWith(TAB_ID, [
+      { content: 'peer update', origin },
+    ]);
   });
 
   it('forwards full-auto permission to the SDK launch', async () => {

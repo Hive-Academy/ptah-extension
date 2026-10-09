@@ -64,6 +64,7 @@ import type {
 } from './sdk-query-options-builder';
 import type { SdkMessageFactory } from './sdk-message-factory';
 import type { IModelResolver } from '../auth-env.port';
+import type { SessionHandoverCoordinator } from './session-handoff/session-handover-coordinator.service';
 import type {
   QueryFunction,
   Query,
@@ -213,6 +214,7 @@ function makeHarness(
       options: SdkQueryOptions;
     }) => Query;
     authEnv?: Partial<AuthEnv>;
+    handoverCoordinator?: SessionHandoverCoordinator;
   } = {},
 ): Harness {
   const logger = createMockLogger();
@@ -289,6 +291,14 @@ function makeHarness(
     modelResolver as unknown as IModelResolver,
     sessionEndRegistryStub as unknown as import('./session-end-callback-registry').SessionEndCallbackRegistry,
     queryRunnerStub as unknown as import('./sdk-query-runner.service').SdkQueryRunner,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    opts.handoverCoordinator ?? null,
   );
 
   return {
@@ -757,6 +767,34 @@ describe('SessionLifecycleManager', () => {
       const rec = harness.manager.find(realUUID);
       // The query field is set by executeQuery's internal setSessionQuery call
       expect(rec?.query).not.toBeNull();
+    });
+  });
+
+  describe('handover key normalization', () => {
+    it('arms a real-SDK-id handover when turn completion arrives with the tab id', async () => {
+      const coordinator = {
+        attachRuntime: jest.fn(),
+        armAtTerminal: jest.fn(),
+        snapshotFor: jest.fn(),
+      } as unknown as SessionHandoverCoordinator;
+      const handoverHarness = makeHarness({ handoverCoordinator: coordinator });
+      const tabId = 'tab_handover_key' as SessionId;
+      const realSessionId = 'sdk_handover_key';
+
+      await handoverHarness.manager.executeQuery({
+        sessionId: tabId,
+        sessionConfig: createSessionConfig(),
+      });
+      handoverHarness.manager.bindRealSessionId(tabId as string, realSessionId);
+
+      handoverHarness.manager.onTurnTerminal(tabId, false);
+
+      expect(coordinator.armAtTerminal).toHaveBeenCalledWith(
+        realSessionId,
+        false,
+        expect.any(Array),
+        false,
+      );
     });
   });
 

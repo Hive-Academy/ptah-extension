@@ -63,6 +63,7 @@ describe('SessionBudgetActionsService (TASK_2026_597 N7)', () => {
     });
     const tabId = signal<string | null>('tab-abc');
     const handoverTab = { queuedContent: ' queued follow-up ' };
+    const clearQueuedContentAndOptionsMock = jest.fn();
 
     TestBed.configureTestingModule({
       providers: [
@@ -75,6 +76,7 @@ describe('SessionBudgetActionsService (TASK_2026_597 N7)', () => {
             createTab: createTabMock,
             activeWorkspacePath: '/ws',
             findTabByIdAcrossWorkspaces: jest.fn(() => ({ tab: handoverTab })),
+            clearQueuedContentAndOptions: clearQueuedContentAndOptionsMock,
           },
         },
         {
@@ -108,6 +110,8 @@ describe('SessionBudgetActionsService (TASK_2026_597 N7)', () => {
       sendOrQueueMessageMock,
       requestCanvasTabMock,
       requestComposerPrefillMock,
+      handoverTab,
+      clearQueuedContentAndOptionsMock,
     };
   }
 
@@ -292,6 +296,20 @@ describe('SessionBudgetActionsService (TASK_2026_597 N7)', () => {
     });
     expect(h.createTabMock).not.toHaveBeenCalled();
     expect(h.sendOrQueueMessageMock).not.toHaveBeenCalled();
+    expect(h.clearQueuedContentAndOptionsMock).toHaveBeenCalledWith('tab-abc');
+  });
+
+  it('preserves newer queued content after beginning a handover', async () => {
+    const h = setup();
+    let resolve!: (value: RpcResult<unknown>) => void;
+    h.rpcCallMock.mockReturnValue(new Promise<RpcResult<unknown>>((done) => (resolve = done)));
+
+    const request = h.service.continueInNewSession();
+    h.handoverTab.queuedContent = 'newer draft';
+    resolve(rpcOk({ accepted: true, state: HANDOVER }));
+    await request;
+
+    expect(h.clearQueuedContentAndOptionsMock).not.toHaveBeenCalled();
   });
 
   it('makes repeated Continue clicks single-flight', async () => {

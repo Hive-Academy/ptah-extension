@@ -643,6 +643,7 @@ function withAgentHandoff(
     0,
     SESSION_HANDOFF_LIMITS.seedChars - document.seed.length - separator.length - suffix.length,
   );
+  if (available <= TRUNCATED_MARKER.length + 1) return document;
   const bounded = capText(
     text,
     Math.min(SESSION_HANDOFF_LIMITS.agentHandoffChars, available),

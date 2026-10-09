@@ -75,6 +75,7 @@ export class SessionStreamPump {
     const logger = this.logger;
     const messageFactory = this.messageFactory;
     const handoverCoordinator = this.handoverCoordinator;
+    const handoverKey = (session: SessionRecord) => this.handoverKey(session);
 
     return {
       async *[Symbol.asyncIterator]() {
@@ -96,7 +97,7 @@ export class SessionStreamPump {
                 input.admission !== 'owned-compact' &&
                 input.admission !== 'owned-handoff' &&
                 handoverCoordinator?.admitOrHold(
-                  sessionId as string,
+                  handoverKey(session),
                   input,
                 ).held
               ) {
@@ -250,7 +251,10 @@ export class SessionStreamPump {
       ...(options?.origin ? { origin: options.origin } : {}),
       ...(requireIdle ? { admission: 'require-idle' as const } : {}),
     };
-    if (this.handoverCoordinator?.admitOrHold(sessionId as string, input).held) {
+    if (this.handoverCoordinator?.admitOrHold(
+      this.handoverKey(session),
+      input,
+    ).held) {
       return;
     }
     if (requireIdle) {
@@ -285,6 +289,19 @@ export class SessionStreamPump {
         ? `[SessionLifecycle] Message held for ${sessionId} — turn in flight, will send at turn end`
         : `[SessionLifecycle] Message queued for ${sessionId}`,
     );
+  }
+
+  /** Keep pre-init operations addressable after the SDK session id binds. */
+  private handoverKey(session: SessionRecord): string {
+    const canonicalId = session.realSessionId ?? session.tabId;
+    if (
+      canonicalId !== session.tabId &&
+      this.handoverCoordinator?.snapshotFor(session.tabId) &&
+      !this.handoverCoordinator.snapshotFor(canonicalId)
+    ) {
+      return session.tabId;
+    }
+    return canonicalId;
   }
 
   /** Queue the coordinator-owned `/compact` after it has closed admission. */
@@ -334,9 +351,7 @@ export class SessionStreamPump {
     if (!session || session.abortController.signal.aborted) {
       throw new SdkError(`Session not found: ${sessionId}`);
     }
-    if (session.turnInFlight || session.messageQueue.length > 0) {
-      throw new SessionAdmissionRefusedError('busy', sessionId as string);
-    }
+    if (inputs.length === 0) return;
     session.messageQueue.push(...inputs);
     this.registry.markActive(sessionId as string);
     if (session.resolveNext) {
