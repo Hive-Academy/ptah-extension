@@ -418,6 +418,18 @@ describe('SessionBudgetBannerComponent', () => {
       );
     });
 
+    it('keeps a meaningful body when no compaction has completed and the handoff write failed', () => {
+      const root = render({
+        ...STATE,
+        compactions: 0,
+        handoff: { ...HANDOFF, path: null, writeError: 'EACCES' },
+      });
+
+      expect(text(root, 'session-budget-body')).toContain(
+        'This session is using 40.0M of its 50.0M token budget.',
+      );
+    });
+
     // TASK_2026_614 F.1 M3: a handoff built without the transcript says so.
     it.each([
       [

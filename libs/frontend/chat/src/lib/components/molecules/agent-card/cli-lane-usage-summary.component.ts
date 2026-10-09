@@ -5,6 +5,7 @@ import {
   input,
 } from '@angular/core';
 import type { MonitoredAgent } from '@ptah-extension/chat-streaming';
+import { hasReportedCliCacheTokens } from '@ptah-extension/shared';
 import { formatEstimatedCost, formatOptionalTokens } from './stats-bar.utils';
 
 /** Compact lane-usage card using the same value formatting as chat's subagent summary. */
@@ -21,26 +22,27 @@ import { formatEstimatedCost, formatOptionalTokens } from './stats-bar.utils';
       <span class="text-base-content-muted" title="Reported request context">
         ctx {{ tokens(usage()?.contextTokens) }}
       </span>
-      <span class="text-info/70" title="Input tokens">
-        in {{ tokens(usage()?.inputTokens) }}
-      </span>
-      <span class="text-accent/70" title="Output tokens">
-        out {{ tokens(usage()?.outputTokens) }}
-      </span>
+      @if (usage()?.inputTokens !== undefined) {
+        <span class="text-info/70" title="Input tokens">
+          in {{ tokens(usage()?.inputTokens) }}
+        </span>
+      }
+      @if (usage()?.outputTokens !== undefined) {
+        <span class="text-accent/70" title="Output tokens">
+          out {{ tokens(usage()?.outputTokens) }}
+        </span>
+      }
       @if (cacheReported()) {
-        <span class="text-info/70" title="Prompt-cache tokens read">
-          cache read {{ tokens(usage()?.cacheReadTokens) }}
-        </span>
-        <span class="text-info/70" title="Prompt-cache tokens written">
-          cache write {{ tokens(usage()?.cacheWriteTokens) }}
-        </span>
-      } @else {
-        <span
-          class="text-base-content-muted"
-          title="This provider did not report prompt-cache tokens"
-        >
-          cache not reported
-        </span>
+        @if (usage()?.cacheReadTokens !== undefined) {
+          <span class="text-info/70" title="Prompt-cache tokens read">
+            cache read {{ tokens(usage()?.cacheReadTokens) }}
+          </span>
+        }
+        @if (usage()?.cacheWriteTokens !== undefined) {
+          <span class="text-info/70" title="Prompt-cache tokens written">
+            cache write {{ tokens(usage()?.cacheWriteTokens) }}
+          </span>
+        }
       }
       <span class="text-warning/70 ml-auto" title="Reported or estimated cost">
         {{ costLabel() }}
@@ -56,10 +58,8 @@ export class CliLaneUsageSummaryComponent {
   readonly duration = input.required<string>();
 
   protected readonly usage = computed(() => this.agent().usageTotals ?? null);
-  protected readonly cacheReported = computed(
-    () =>
-      this.usage()?.cacheReadTokens !== undefined ||
-      this.usage()?.cacheWriteTokens !== undefined,
+  protected readonly cacheReported = computed(() =>
+    hasReportedCliCacheTokens(this.usage()),
   );
   protected readonly costLabel = computed(() =>
     formatEstimatedCost(this.usage()?.costUsd),
