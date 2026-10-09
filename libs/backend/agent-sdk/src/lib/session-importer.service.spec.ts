@@ -147,13 +147,13 @@ describe('SessionImporterService', () => {
       fsPromises.readFile.mockResolvedValueOnce(
         makeIndex([
           {
-            sessionId: 'sess-old',
+            sessionId: '740a7874-5cea-4bf5-ae16-760f66499b82',
             created: '2026-01-01T00:00:00.000Z',
             modified: '2026-01-01T00:00:00.000Z',
             firstPrompt: 'Old session',
           },
           {
-            sessionId: 'sess-new',
+            sessionId: '786d86da-3e8f-4fd0-8c78-6dcf38dfbd19',
             created: '2026-02-01T00:00:00.000Z',
             modified: '2026-02-01T00:00:00.000Z',
             summary: 'Newer session summary',
@@ -165,14 +165,19 @@ describe('SessionImporterService', () => {
 
       expect(imported).toBe(2);
       const all = await store.getForWorkspace(WORKSPACE);
-      expect(all.map((m) => m.sessionId)).toEqual(['sess-new', 'sess-old']); // newest first
-      expect(all.find((m) => m.sessionId === 'sess-new')?.name).toBe(
-        'Newer session summary',
-      );
+      expect(all.map((m) => m.sessionId)).toEqual([
+        '786d86da-3e8f-4fd0-8c78-6dcf38dfbd19',
+        '740a7874-5cea-4bf5-ae16-760f66499b82',
+      ]); // newest first
+      expect(
+        all.find((m) => m.sessionId === '786d86da-3e8f-4fd0-8c78-6dcf38dfbd19')
+          ?.name,
+      ).toBe('Newer session summary');
       // firstPrompt truncated to 50 chars + "..." appended only when longer.
-      expect(all.find((m) => m.sessionId === 'sess-old')?.name).toBe(
-        'Old session',
-      );
+      expect(
+        all.find((m) => m.sessionId === '740a7874-5cea-4bf5-ae16-760f66499b82')
+          ?.name,
+      ).toBe('Old session');
     });
 
     it('skips sessions flagged as isSidechain', async () => {
@@ -183,11 +188,14 @@ describe('SessionImporterService', () => {
       fsPromises.readFile.mockResolvedValueOnce(
         makeIndex([
           {
-            sessionId: 'sidechain',
+            sessionId: 'b26e6530-8f4d-443b-8844-95cc093628e8',
             isSidechain: true,
             modified: '2026-01-01T00:00:00.000Z',
           },
-          { sessionId: 'main', modified: '2026-01-02T00:00:00.000Z' },
+          {
+            sessionId: '0bcc97b5-c087-40d7-8500-06dc1d9015da',
+            modified: '2026-01-02T00:00:00.000Z',
+          },
         ]),
       );
       // For the JSONL fallback pass, make readdir empty so we don't double-count.
@@ -199,15 +207,56 @@ describe('SessionImporterService', () => {
       const ids = (await store.getForWorkspace(WORKSPACE)).map(
         (m) => m.sessionId,
       );
-      expect(ids).toContain('main');
-      expect(ids).not.toContain('sidechain');
+      expect(ids).toContain('0bcc97b5-c087-40d7-8500-06dc1d9015da');
+      expect(ids).not.toContain('b26e6530-8f4d-443b-8844-95cc093628e8');
+    });
+
+    it('skips index entries whose id is not a session id', async () => {
+      primeFindSessionsDir();
+      fsPromises.access.mockResolvedValue(undefined);
+      fsPromises.readFile.mockResolvedValueOnce(
+        JSON.stringify({
+          version: 1,
+          entries: [
+            {
+              sessionId: 'fleet-model-runs',
+              modified: '2026-01-01T00:00:00.000Z',
+            },
+          ],
+        }),
+      );
+      fsPromises.readdir.mockResolvedValueOnce(
+        [] as unknown as Awaited<ReturnType<typeof fsPromises.readdir>>,
+      );
+
+      await expect(importer.scanAndImport(WORKSPACE)).resolves.toBe(0);
+      await expect(store.getForWorkspace(WORKSPACE)).resolves.toEqual([]);
+    });
+
+    it('skips a flat .jsonl whose name is not a session id', async () => {
+      primeFindSessionsDir();
+      fsPromises.access.mockRejectedValueOnce(new Error('ENOENT')); // no index
+      fsPromises.readdir.mockResolvedValueOnce([
+        'fleet-model-runs.jsonl',
+      ] as unknown as Awaited<ReturnType<typeof fsPromises.readdir>>);
+      fsPromises.stat.mockResolvedValue({
+        mtimeMs: 1_700_000_000_000,
+      } as unknown as Awaited<ReturnType<typeof fsPromises.stat>>);
+      fsPromises.access.mockResolvedValue(undefined);
+
+      await expect(importer.scanAndImport(WORKSPACE)).resolves.toBe(0);
+      await expect(store.getForWorkspace(WORKSPACE)).resolves.toEqual([]);
+      expect(fsPromises.open).not.toHaveBeenCalled();
     });
 
     it('rejects unknown index versions (format drift guardrail)', async () => {
       primeFindSessionsDir();
       fsPromises.access.mockResolvedValueOnce(undefined);
       fsPromises.readFile.mockResolvedValueOnce(
-        JSON.stringify({ version: 999, entries: [{ sessionId: 'ignored' }] }),
+        JSON.stringify({
+          version: 999,
+          entries: [{ sessionId: 'cba3e913-b8ed-4c15-aef2-d1adc3a33a60' }],
+        }),
       );
       // JSONL fallback also empty
       fsPromises.readdir.mockResolvedValueOnce(
@@ -233,8 +282,14 @@ describe('SessionImporterService', () => {
         .mockResolvedValueOnce(undefined); // ghost-1 .jsonl — exists
       fsPromises.readFile.mockResolvedValueOnce(
         makeIndex([
-          { sessionId: 'ghost-1', modified: '2026-01-01T00:00:00.000Z' },
-          { sessionId: 'ghost-2', modified: '2026-01-02T00:00:00.000Z' },
+          {
+            sessionId: '76cfac9e-f527-46a0-bf48-254a874ba12c',
+            modified: '2026-01-01T00:00:00.000Z',
+          },
+          {
+            sessionId: '2030b46b-5d1d-4929-a984-6fdad860a28f',
+            modified: '2026-01-02T00:00:00.000Z',
+          },
         ]),
       );
       fsPromises.readdir.mockResolvedValueOnce(
@@ -246,7 +301,7 @@ describe('SessionImporterService', () => {
       const ids = (await store.getForWorkspace(WORKSPACE)).map(
         (m) => m.sessionId,
       );
-      expect(ids).toEqual(['ghost-1']);
+      expect(ids).toEqual(['76cfac9e-f527-46a0-bf48-254a874ba12c']);
     });
 
     it('imports a referenced child session as hidden (createChild path)', async () => {
@@ -260,7 +315,7 @@ describe('SessionImporterService', () => {
         task: 't',
         startedAt: '2026-01-01T00:00:00.000Z',
         status: 'completed',
-        sdkSessionId: 'kid-1',
+        sdkSessionId: '2cd415f5-73a1-4385-876e-3606dd694d1e',
       });
 
       primeFindSessionsDir();
@@ -269,7 +324,10 @@ describe('SessionImporterService', () => {
         .mockResolvedValue(undefined); // session .jsonl exists
       fsPromises.readFile.mockResolvedValueOnce(
         makeIndex([
-          { sessionId: 'kid-1', modified: '2026-01-01T00:00:00.000Z' },
+          {
+            sessionId: '2cd415f5-73a1-4385-876e-3606dd694d1e',
+            modified: '2026-01-01T00:00:00.000Z',
+          },
         ]),
       );
       fsPromises.readdir.mockResolvedValueOnce(
@@ -282,7 +340,9 @@ describe('SessionImporterService', () => {
       // Parent-1 only — kid-1 is hidden as a child session.
       expect(visible.map((m) => m.sessionId)).toEqual(['parent-1']);
       const all = await store.getForWorkspace(WORKSPACE, true);
-      const kid = all.find((m) => m.sessionId === 'kid-1');
+      const kid = all.find(
+        (m) => m.sessionId === '2cd415f5-73a1-4385-876e-3606dd694d1e',
+      );
       expect(kid?.isChildSession).toBe(true);
     });
   });
@@ -298,7 +358,7 @@ describe('SessionImporterService', () => {
       fsPromises.access.mockRejectedValueOnce(new Error('ENOENT'));
       // readdir for flat scan returns a mix of main + agent files.
       fsPromises.readdir.mockResolvedValueOnce([
-        'sess-flat.jsonl',
+        '58d3f89f-0e82-47cf-9d5f-f182332ba263.jsonl',
         'agent-subagent-1.jsonl', // must be excluded
         'not-a-session.txt',
       ] as unknown as Awaited<ReturnType<typeof fsPromises.readdir>>);
@@ -313,7 +373,7 @@ describe('SessionImporterService', () => {
         JSON.stringify({
           type: 'system',
           subtype: 'init',
-          session_id: 'sess-flat',
+          session_id: '58d3f89f-0e82-47cf-9d5f-f182332ba263',
         }) +
           '\n' +
           JSON.stringify({
@@ -337,7 +397,7 @@ describe('SessionImporterService', () => {
       const ids = (await store.getForWorkspace(WORKSPACE)).map(
         (m) => m.sessionId,
       );
-      expect(ids).toEqual(['sess-flat']);
+      expect(ids).toEqual(['58d3f89f-0e82-47cf-9d5f-f182332ba263']);
     });
 
     // -----------------------------------------------------------------------
@@ -410,7 +470,7 @@ describe('SessionImporterService', () => {
           JSON.stringify({
             type: 'system',
             subtype: 'init',
-            session_id: 'sess-trunc',
+            session_id: 'a1676b78-00c5-40fa-8e17-db4f3f443796',
           }) +
             '\n' +
             JSON.stringify({
@@ -421,14 +481,16 @@ describe('SessionImporterService', () => {
         );
         expect(content.length).toBeGreaterThan(8192);
 
-        primeFlatScan('sess-trunc.jsonl');
+        primeFlatScan('a1676b78-00c5-40fa-8e17-db4f3f443796.jsonl');
         mockPositionalRead(content);
 
         const imported = await importer.scanAndImport(WORKSPACE);
 
         expect(imported).toBe(1);
         const all = await store.getForWorkspace(WORKSPACE);
-        expect(all.map((m) => m.sessionId)).toEqual(['sess-trunc']);
+        expect(all.map((m) => m.sessionId)).toEqual([
+          'a1676b78-00c5-40fa-8e17-db4f3f443796',
+        ]);
         expect(all[0].name).toMatch(/^Session /);
       });
 
@@ -451,14 +513,14 @@ describe('SessionImporterService', () => {
           mockPositionalRead(content);
           const deleteSpy = jest.spyOn(store, 'delete');
 
-          primeFlatScan('metadata-first.jsonl');
+          primeFlatScan('1551196f-6425-4923-ad77-820f70172c6e.jsonl');
           expect(await importer.scanAndImport(WORKSPACE)).toBe(1);
-          primeFlatScan('metadata-first.jsonl');
+          primeFlatScan('1551196f-6425-4923-ad77-820f70172c6e.jsonl');
           expect(await importer.scanAndImport(WORKSPACE)).toBe(0);
 
           const all = await store.getForWorkspace(WORKSPACE);
           expect(all.map((entry) => entry.sessionId)).toEqual([
-            'metadata-first',
+            '1551196f-6425-4923-ad77-820f70172c6e',
           ]);
           expect(all[0].name).toMatch(/^Session /);
           expect(deleteSpy).not.toHaveBeenCalled();
@@ -483,7 +545,7 @@ describe('SessionImporterService', () => {
                   }) + '\n'
                 : ''),
           );
-          primeFlatScan('boundary-metadata.jsonl');
+          primeFlatScan('51f60cce-7855-477f-a1a5-b8fe1d9e4190.jsonl');
           mockPositionalRead(content);
 
           expect(await importer.scanAndImport(WORKSPACE)).toBe(1);
@@ -491,7 +553,7 @@ describe('SessionImporterService', () => {
             (await store.getForWorkspace(WORKSPACE)).map(
               (entry) => entry.sessionId,
             ),
-          ).toEqual(['boundary-metadata']);
+          ).toEqual(['51f60cce-7855-477f-a1a5-b8fe1d9e4190']);
         },
       );
 
@@ -501,7 +563,7 @@ describe('SessionImporterService', () => {
         'permission-mode',
         'file-history-snapshot',
       ])('still skips a complete %s sidecar', async (type) => {
-        primeFlatScan('complete-sidecar.jsonl');
+        primeFlatScan('7915345a-25a4-4ceb-bb42-5fbf505a0dc4.jsonl');
         mockPositionalRead(Buffer.from(JSON.stringify({ type }) + '\n'));
         expect(await importer.scanAndImport(WORKSPACE)).toBe(0);
         expect(await store.getForWorkspace(WORKSPACE)).toEqual([]);
@@ -516,19 +578,21 @@ describe('SessionImporterService', () => {
           JSON.stringify({
             type: 'system',
             subtype: 'init',
-            session_id: 'unreachable',
+            session_id: 'd4ccfb3f-9a35-47e5-9254-7af3a4ad0dfc',
             payload: 'B'.repeat(12000),
           }) + '\n',
         );
 
-        primeFlatScan('big-first-record.jsonl');
+        primeFlatScan('e9b8f833-c023-409b-a88b-0bd2f7beb1f1.jsonl');
         mockPositionalRead(content);
 
         const imported = await importer.scanAndImport(WORKSPACE);
 
         expect(imported).toBe(1);
         const all = await store.getForWorkspace(WORKSPACE);
-        expect(all.map((m) => m.sessionId)).toEqual(['big-first-record']);
+        expect(all.map((m) => m.sessionId)).toEqual([
+          'e9b8f833-c023-409b-a88b-0bd2f7beb1f1',
+        ]);
       });
 
       it('still returns nothing for a genuinely corrupt file, and warns', async () => {
@@ -537,7 +601,7 @@ describe('SessionImporterService', () => {
         // would turn a real failure into a silent phantom session.
         const content = Buffer.from('not json at all\nalso not json\n');
 
-        primeFlatScan('corrupt-session.jsonl');
+        primeFlatScan('007caee3-99f0-4178-ae4f-8960406f043f.jsonl');
         mockPositionalRead(content);
 
         const imported = await importer.scanAndImport(WORKSPACE);
@@ -555,7 +619,7 @@ describe('SessionImporterService', () => {
           JSON.stringify({ type: 'ai-title', title: 'Some title' }) + '\n',
         );
 
-        primeFlatScan('title-only.jsonl');
+        primeFlatScan('56e14efa-058d-4a01-bd93-50ee0278137b.jsonl');
         mockPositionalRead(content);
 
         const imported = await importer.scanAndImport(WORKSPACE);
@@ -597,7 +661,7 @@ describe('SessionImporterService', () => {
           const content = Buffer.from('\n   \n\t\n');
           expect(content.length).toBeLessThan(8192);
 
-          primeFlatScan('whitespace-only.jsonl');
+          primeFlatScan('704c470e-6792-4647-9b1e-abc7ac61d777.jsonl');
           mockPositionalRead(content);
 
           const imported = await importer.scanAndImport(WORKSPACE);
@@ -615,19 +679,21 @@ describe('SessionImporterService', () => {
             JSON.stringify({
               type: 'system',
               subtype: 'init',
-              session_id: 'unreachable',
+              session_id: 'd4ccfb3f-9a35-47e5-9254-7af3a4ad0dfc',
               payload: 'C'.repeat(12000),
             }) + '\n',
           );
 
-          primeFlatScan('prefix-full.jsonl');
+          primeFlatScan('a5476995-74e4-4a50-ae89-a7bdf54cc024.jsonl');
           mockPositionalRead(content);
 
           const imported = await importer.scanAndImport(WORKSPACE);
 
           expect(imported).toBe(1);
           const all = await store.getForWorkspace(WORKSPACE);
-          expect(all.map((m) => m.sessionId)).toEqual(['prefix-full']);
+          expect(all.map((m) => m.sessionId)).toEqual([
+            'a5476995-74e4-4a50-ae89-a7bdf54cc024',
+          ]);
         });
 
         // THE SPEC THAT STOPS THE GUARD BEING "IMPROVED" INTO DATA LOSS.
@@ -644,13 +710,13 @@ describe('SessionImporterService', () => {
               JSON.stringify({
                 type: 'system',
                 subtype: 'init',
-                session_id: 'late-start-id',
+                session_id: 'ad8ddceb-ba10-4eae-af6a-04b7ec37d8a9',
               }) + '\n',
             ),
           ]);
           expect(content.length).toBeGreaterThan(8192);
 
-          primeFlatScan('late-start.jsonl');
+          primeFlatScan('238232d6-365b-478c-ad3e-92bc6bda1b67.jsonl');
           mockPositionalRead(content);
 
           const imported = await importer.scanAndImport(WORKSPACE);
@@ -660,7 +726,9 @@ describe('SessionImporterService', () => {
           // session id. Badly named beats absent.
           expect(imported).toBe(1);
           const all = await store.getForWorkspace(WORKSPACE);
-          expect(all.map((m) => m.sessionId)).toEqual(['late-start']);
+          expect(all.map((m) => m.sessionId)).toEqual([
+            '238232d6-365b-478c-ad3e-92bc6bda1b67',
+          ]);
         });
 
         // ACCEPTED LIMITATION, pinned so it is a decision and not a surprise.
@@ -677,14 +745,16 @@ describe('SessionImporterService', () => {
           const content = Buffer.alloc(8192, 0x20);
           expect(content.length).toBe(8192);
 
-          primeFlatScan('whitespace-8192.jsonl');
+          primeFlatScan('1d3dc7ef-92e6-4e99-97dd-b2d550fcc58c.jsonl');
           mockPositionalRead(content);
 
           const imported = await importer.scanAndImport(WORKSPACE);
 
           expect(imported).toBe(1);
           const all = await store.getForWorkspace(WORKSPACE);
-          expect(all.map((m) => m.sessionId)).toEqual(['whitespace-8192']);
+          expect(all.map((m) => m.sessionId)).toEqual([
+            '1d3dc7ef-92e6-4e99-97dd-b2d550fcc58c',
+          ]);
           expect(all[0].name).toMatch(/^Session /);
         });
 
@@ -699,7 +769,7 @@ describe('SessionImporterService', () => {
               JSON.stringify({
                 type: 'system',
                 subtype: 'init',
-                session_id: 'bom-real-id',
+                session_id: '2cee5f9a-5435-4a94-996d-e2d6db9f3e31',
               }) +
               '\n' +
               JSON.stringify({
@@ -709,14 +779,16 @@ describe('SessionImporterService', () => {
               '\n',
           );
 
-          primeFlatScan('bom-session.jsonl');
+          primeFlatScan('56997ae8-0ddf-4eab-83eb-931310f1703c.jsonl');
           mockPositionalRead(content);
 
           const imported = await importer.scanAndImport(WORKSPACE);
 
           expect(imported).toBe(1);
           const all = await store.getForWorkspace(WORKSPACE);
-          expect(all.map((m) => m.sessionId)).toEqual(['bom-real-id']);
+          expect(all.map((m) => m.sessionId)).toEqual([
+            '2cee5f9a-5435-4a94-996d-e2d6db9f3e31',
+          ]);
           expect(all[0].name).toBe('Ship the thing');
         });
 
@@ -736,19 +808,21 @@ describe('SessionImporterService', () => {
               JSON.stringify({
                 type: 'system',
                 subtype: 'init',
-                session_id: 'bom-solo-id',
+                session_id: '7f07c2c4-958d-42a1-815e-6096bd9c6110',
               }) +
               '\n',
           );
 
-          primeFlatScan('bom-solo.jsonl');
+          primeFlatScan('19e8254f-3197-40c3-99b1-57a4318d4198.jsonl');
           mockPositionalRead(content);
 
           const imported = await importer.scanAndImport(WORKSPACE);
 
           expect(imported).toBe(1);
           const all = await store.getForWorkspace(WORKSPACE);
-          expect(all.map((m) => m.sessionId)).toEqual(['bom-solo-id']);
+          expect(all.map((m) => m.sessionId)).toEqual([
+            '7f07c2c4-958d-42a1-815e-6096bd9c6110',
+          ]);
           expect(logger.warn).not.toHaveBeenCalledWith(
             expect.stringContaining('No parseable records'),
             expect.anything(),
@@ -765,7 +839,7 @@ describe('SessionImporterService', () => {
         it('still refuses a short file whose only record is unparseable, and warns', async () => {
           const content = Buffer.from('{"type":"user","message":{"cont\n');
 
-          primeFlatScan('half-written.jsonl');
+          primeFlatScan('e13c6223-11d2-4e45-944d-5a6a80eb8f76.jsonl');
           mockPositionalRead(content);
 
           const imported = await importer.scanAndImport(WORKSPACE);
@@ -788,14 +862,16 @@ describe('SessionImporterService', () => {
             }) + '\n',
           );
 
-          primeFlatScan('tiny-real-session.jsonl');
+          primeFlatScan('3baac9b5-2409-4a81-bdb1-fea2a24a2a59.jsonl');
           mockPositionalRead(content);
 
           const imported = await importer.scanAndImport(WORKSPACE);
 
           expect(imported).toBe(1);
           const all = await store.getForWorkspace(WORKSPACE);
-          expect(all.map((m) => m.sessionId)).toEqual(['tiny-real-session']);
+          expect(all.map((m) => m.sessionId)).toEqual([
+            '3baac9b5-2409-4a81-bdb1-fea2a24a2a59',
+          ]);
           expect(all[0].name).toBe('Hi there');
         });
       });
@@ -849,13 +925,17 @@ describe('SessionImporterService', () => {
         }
 
         it('does not prune a BOM-prefixed real session', async () => {
-          await store.create('bom-keep', WORKSPACE, 'Real work');
+          await store.create(
+            'dbf83904-940f-4ca0-998e-fed54118df14',
+            WORKSPACE,
+            'Real work',
+          );
           const content = Buffer.from(
             String.fromCharCode(0xfeff) +
               JSON.stringify({
                 type: 'system',
                 subtype: 'init',
-                session_id: 'bom-keep',
+                session_id: 'dbf83904-940f-4ca0-998e-fed54118df14',
               }) +
               '\n',
           );
@@ -866,7 +946,9 @@ describe('SessionImporterService', () => {
           await importer.scanAndImport(WORKSPACE);
 
           const all = await store.getForWorkspace(WORKSPACE);
-          expect(all.map((m) => m.sessionId)).toEqual(['bom-keep']);
+          expect(all.map((m) => m.sessionId)).toEqual([
+            'dbf83904-940f-4ca0-998e-fed54118df14',
+          ]);
         });
 
         it('does not prune a BOM-prefixed file that carries both a title and a turn', async () => {
@@ -1122,12 +1204,16 @@ describe('SessionImporterService', () => {
         it('keeps a REAL session whose stored name is "Session <date>"', async () => {
           // The spec that fails the moment anyone reaches for a name
           // heuristic. This row is named exactly like a phantom and is real.
-          await store.create('real-untitled', WORKSPACE, 'Session 1/1/2026');
+          await store.create(
+            '882f89f3-f0a8-424a-a5a9-056ce026910a',
+            WORKSPACE,
+            'Session 1/1/2026',
+          );
           const content = Buffer.from(
             JSON.stringify({
               type: 'system',
               subtype: 'init',
-              session_id: 'real-untitled',
+              session_id: '882f89f3-f0a8-424a-a5a9-056ce026910a',
             }) +
               '\n' +
               JSON.stringify({
@@ -1143,19 +1229,25 @@ describe('SessionImporterService', () => {
           await importer.scanAndImport(WORKSPACE);
 
           const all = await store.getForWorkspace(WORKSPACE);
-          expect(all.map((m) => m.sessionId)).toEqual(['real-untitled']);
+          expect(all.map((m) => m.sessionId)).toEqual([
+            '882f89f3-f0a8-424a-a5a9-056ce026910a',
+          ]);
         });
 
         it('keeps a real session whose only record is cut off by the byte bound', async () => {
           // Longer than the prefix and containing no newline inside it, so
           // `splitCompleteRecords` drops the cut tail and NOTHING complete
           // remains to judge from. Unparseable is not contentless.
-          await store.create('truncated', WORKSPACE, 'Session 1/1/2026');
+          await store.create(
+            'acba0b1b-c926-4f10-9234-bbd747a0c59b',
+            WORKSPACE,
+            'Session 1/1/2026',
+          );
           const content = Buffer.from(
             JSON.stringify({
               type: 'system',
               subtype: 'init',
-              session_id: 'truncated',
+              session_id: 'acba0b1b-c926-4f10-9234-bbd747a0c59b',
               payload: 'B'.repeat(12000),
             }) + '\n',
           );
@@ -1167,7 +1259,9 @@ describe('SessionImporterService', () => {
           await importer.scanAndImport(WORKSPACE);
 
           const all = await store.getForWorkspace(WORKSPACE);
-          expect(all.map((m) => m.sessionId)).toEqual(['truncated']);
+          expect(all.map((m) => m.sessionId)).toEqual([
+            'acba0b1b-c926-4f10-9234-bbd747a0c59b',
+          ]);
         });
 
         it('keeps a SHORT file whose summary parses but whose last user line is half-flushed', async () => {
@@ -1230,12 +1324,16 @@ describe('SessionImporterService', () => {
     });
 
     it('does not re-import sessions already in the metadata store', async () => {
-      await store.create('pre-existing', WORKSPACE, 'already here');
+      await store.create(
+        '88feb76d-2063-4580-9148-3bf11ae61cd3',
+        WORKSPACE,
+        'already here',
+      );
 
       primeFindSessionsDir();
       fsPromises.access.mockRejectedValueOnce(new Error('ENOENT'));
       fsPromises.readdir.mockResolvedValueOnce([
-        'pre-existing.jsonl',
+        '88feb76d-2063-4580-9148-3bf11ae61cd3.jsonl',
       ] as unknown as Awaited<ReturnType<typeof fsPromises.readdir>>);
       fsPromises.stat.mockResolvedValueOnce({
         mtimeMs: 1_700_000_000_000,
@@ -1266,7 +1364,7 @@ describe('SessionImporterService', () => {
       fsPromises.readFile.mockResolvedValueOnce(
         makeIndex(
           Array.from({ length: count }, (_, i) => ({
-            sessionId: `sess-${i}`,
+            sessionId: `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`,
             modified: `2026-01-0${i + 1}T00:00:00.000Z`,
           })),
         ),
@@ -1426,7 +1524,12 @@ describe('SessionImporterService', () => {
     });
 
     it('runs ONE scan for two concurrent calls and gives both the same count', async () => {
-      primeProjects([ESCAPED], { [ESCAPED]: ['sess-a', 'sess-b'] });
+      primeProjects([ESCAPED], {
+        [ESCAPED]: [
+          'a2430412-6524-4d4b-8e6c-15ef531515ea',
+          '01b40f53-e5a5-4bf5-8636-e433d0de320f',
+        ],
+      });
 
       const [first, second] = await Promise.all([
         importer.scanAndImport(WORKSPACE),
@@ -1446,8 +1549,11 @@ describe('SessionImporterService', () => {
       const ALPHA = '/workspace/alpha';
       const BETA = '/workspace/beta';
       primeProjects(['-workspace-alpha', '-workspace-beta'], {
-        '-workspace-alpha': ['alpha-1', 'alpha-2'],
-        '-workspace-beta': ['beta-1'],
+        '-workspace-alpha': [
+          '7de30aba-dc9e-4f21-bd12-815165e65e31',
+          '5c5f1c92-1991-45c3-98bd-334ed970f598',
+        ],
+        '-workspace-beta': ['3b18e430-f9e5-4e25-a13b-e7a016aa9307'],
       });
 
       const [alpha, beta] = await Promise.all([
@@ -1464,7 +1570,9 @@ describe('SessionImporterService', () => {
       // The startup root and the root the renderer echoes back through
       // `workspace:switch` differ by separator, trailing separator and drive
       // case on Windows. Keyed raw, these are two roots and two scans.
-      primeProjects(['c--repos-x-'], { 'c--repos-x-': ['win-1'] });
+      primeProjects(['c--repos-x-'], {
+        'c--repos-x-': ['1d519883-11fb-4a21-9a40-a2d51122ee83'],
+      });
 
       const [fromBoot, fromSwitch] = await Promise.all([
         importer.scanAndImport('C:\\Repos\\X\\'),
@@ -1477,7 +1585,9 @@ describe('SessionImporterService', () => {
     });
 
     it('clears the entry once a scan settles, so a later call scans again', async () => {
-      primeProjects([ESCAPED], { [ESCAPED]: ['sess-a'] });
+      primeProjects([ESCAPED], {
+        [ESCAPED]: ['a2430412-6524-4d4b-8e6c-15ef531515ea'],
+      });
 
       await importer.scanAndImport(WORKSPACE);
       expect(scansStarted()).toBe(1);

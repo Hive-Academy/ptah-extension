@@ -13,7 +13,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
-import { blankToUndefined } from '@ptah-extension/shared';
+import { SessionId } from '@ptah-extension/shared';
 import {
   SessionMetadataStore,
   SessionMetadata,
@@ -517,7 +517,7 @@ export class SessionImporterService {
         .filter(
           (e) =>
             typeof e.sessionId === 'string' &&
-            blankToUndefined(e.sessionId) !== undefined &&
+            SessionId.validate(e.sessionId) &&
             !e.isSidechain,
         )
         .sort((a, b) => {
@@ -740,11 +740,14 @@ export class SessionImporterService {
   /**
    * Extract session ID from filename
    *
-   * Claude uses format: {session-id}.jsonl
+   * Claude uses format: {session-id}.jsonl. Other tools write their own
+   * `.jsonl` logs into the same folder (e.g. `fleet-model-runs.jsonl`); those
+   * are not sessions, and session:list rejects their ids, so they are skipped.
    */
   private extractSessionIdFromFilename(filename: string): string | null {
     if (!filename.endsWith('.jsonl')) return null;
-    return filename.slice(0, -6); // Remove .jsonl
+    const id = filename.slice(0, -6); // Remove .jsonl
+    return SessionId.validate(id) ? id : null;
   }
 
   /**
