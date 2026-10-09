@@ -148,6 +148,28 @@ export interface PersistedAgentOutput {
  * Storage key for session metadata
  */
 const STORAGE_KEY = 'ptah.sessionMetadata';
+
+/**
+ * The part of Electron's WorkspaceAwareStateStorage this store reads. Duck-typed
+ * so VS Code's single workspace storage keeps the old behaviour.
+ */
+interface WorkspaceRoutedStorage {
+  getActiveWorkspacePath(): string | null;
+  getStorageForWorkspace(workspacePath: string): IStateStorage | undefined;
+}
+
+function isWorkspaceRouted(
+  storage: IStateStorage,
+): storage is IStateStorage & WorkspaceRoutedStorage {
+  const candidate = storage as Partial<WorkspaceRoutedStorage>;
+  return (
+    typeof candidate.getActiveWorkspacePath === 'function' &&
+    typeof candidate.getStorageForWorkspace === 'function'
+  );
+}
+
+const normalizeWorkspaceId = (workspaceId: string): string =>
+  workspaceId.replace(/\\/g, '/');
 const SESSION_DETAIL_KEY_PREFIX = 'ptah.session:';
 
 /** Key prefix for per-agent bulk output. One key per agent, written once. */
@@ -404,6 +426,71 @@ export class SessionMetadataStore {
    */
   private pendingAll: SessionMetadata[] | null = null;
 
+  /**
+   * Records of sessions whose workspace was not the active one when they were
+   * written (Plane PTAH-32). The storage follows the active workspace, so
+   * writing them would land them in another workspace's store, where neither
+   * list shows them. They wait here, appear in their own workspace's list, and
+   * move into storage on the first read made while that workspace is active.
+   * MP-1 (one session store keyed by project) replaces this.
+   */
+  private readonly strays = new Map<string, SessionMetadata>();
+  private strayRestoreQueued = false;
+
+  /**
+   * True when `workspaceId` is another registered workspace than the active
+   * one. An unregistered or unknown id keeps the old behaviour, so a path
+   * spelled differently can never strand a record in memory.
+   */
+  private isForeignWorkspace(workspaceId: string): boolean {
+    if (!isWorkspaceRouted(this.storage)) return false;
+    const active = this.storage.getActiveWorkspacePath();
+    if (active === null) return false;
+    if (normalizeWorkspaceId(active) === normalizeWorkspaceId(workspaceId)) {
+      return false;
+    }
+    return this.storage.getStorageForWorkspace(workspaceId) !== undefined;
+  }
+
+  /** Adds this workspace's strays to a listing and queues their persistence. */
+  private withStrays(items: SessionMetadata[]): SessionMetadata[] {
+    if (this.strays.size === 0) return items;
+    const local = [...this.strays.values()].filter(
+      (stray) => !this.isForeignWorkspace(stray.workspaceId),
+    );
+    if (local.length === 0) return items;
+    for (const stray of local) {
+      const index = items.findIndex((m) => m.sessionId === stray.sessionId);
+      if (index >= 0) items[index] = stray;
+      else items.push(stray);
+    }
+    this.queueStrayRestore();
+    return items;
+  }
+
+  private queueStrayRestore(): void {
+    if (this.strayRestoreQueued) return;
+    this.strayRestoreQueued = true;
+    void this.enqueueWrite(async () => {
+      this.strayRestoreQueued = false;
+      for (const stray of [...this.strays.values()]) {
+        if (this.isForeignWorkspace(stray.workspaceId)) continue;
+        this.strays.delete(stray.sessionId);
+        try {
+          await this._saveInternal(stray);
+        } catch (error: unknown) {
+          this.strays.set(stray.sessionId, stray);
+          throw error;
+        }
+      }
+    }).catch((error: unknown) => {
+      this.logger.warn(
+        '[SessionMetadataStore] Could not persist metadata kept in memory; will retry on the next read',
+        error instanceof Error ? error : new Error(String(error)),
+      );
+    });
+  }
+
   private async readStorage<T>(key: string): Promise<T | undefined> {
     return isAsyncStateStorage(this.storage)
       ? await this.storage.getAsync<T>(key)
@@ -497,6 +584,17 @@ export class SessionMetadataStore {
         ? { resumableSdkSubagents: existing.resumableSdkSubagents }
         : {}),
     };
+    if (this.isForeignWorkspace(merged.workspaceId)) {
+      if (!this.strays.has(merged.sessionId)) {
+        this.logger.info(
+          '[SessionMetadataStore] Session belongs to an inactive workspace; keeping its metadata in memory until that workspace is active',
+          { sessionId: merged.sessionId, workspaceId: merged.workspaceId },
+        );
+      }
+      this.strays.set(merged.sessionId, merged);
+      return;
+    }
+    this.strays.delete(merged.sessionId);
     const strippedBulkRefCount = countReferencesWithBulk(merged);
     const detail =
       strippedBulkRefCount > 0
@@ -581,6 +679,12 @@ export class SessionMetadataStore {
    * the rejection to.
    */
   async flushForShutdown(): Promise<void> {
+    if (this.strays.size > 0) {
+      this.logger.warn(
+        '[SessionMetadataStore] Shutdown with session metadata still in memory for inactive workspaces — not persisted',
+        { sessionIds: [...this.strays.keys()] },
+      );
+    }
     try {
       await this.flush();
     } catch (error: unknown) {
@@ -595,6 +699,8 @@ export class SessionMetadataStore {
    * Get metadata by session ID
    */
   async get(sessionId: string): Promise<SessionMetadata | null> {
+    const stray = this.strays.get(sessionId);
+    if (stray) return { ...stray };
     if (isAsyncStateStorage(this.storage)) {
       const detail = await this.storage.getAsync<SessionMetadata>(
         sessionDetailKey(sessionId),
@@ -681,7 +787,7 @@ export class SessionMetadataStore {
    * flushed. Always a fresh array — `_saveInternal` mutates what it gets back.
    */
   async getAll(): Promise<SessionMetadata[]> {
-    if (this.pendingAll) return [...this.pendingAll];
+    if (this.pendingAll) return this.withStrays([...this.pendingAll]);
     // Copied, not handed through. `_saveInternal` replaces entries in what it
     // gets back, and `IStateStorage.get` returns the adapter's own cached
     // array (`vscode.Memento` included) — so returning it directly let a
@@ -691,7 +797,7 @@ export class SessionMetadataStore {
       SessionMetadata[] | SessionMetadataIndex
     >(STORAGE_KEY);
     const items = Array.isArray(stored) ? stored : stored?.items;
-    return [...(items ?? [])];
+    return this.withStrays([...(items ?? [])]);
   }
 
   async saveAgentOutput(
@@ -912,12 +1018,16 @@ export class SessionMetadataStore {
    */
   async touch(sessionId: string): Promise<void> {
     const metadata = await this.get(sessionId);
-    if (metadata) {
-      await this.save({
-        ...metadata,
-        lastActiveAt: Date.now(),
-      });
+    if (!metadata) {
+      this.logger.debug(
+        `[SessionMetadataStore] touch skipped: no metadata for ${sessionId} in the active workspace`,
+      );
+      return;
     }
+    await this.save({
+      ...metadata,
+      lastActiveAt: Date.now(),
+    });
   }
 
   /**
@@ -1020,6 +1130,7 @@ export class SessionMetadataStore {
    * Public callers must use delete() which wraps this in enqueueWrite().
    */
   private async _deleteInternal(sessionId: string): Promise<void> {
+    this.strays.delete(sessionId);
     const all = await this.getAll();
     const removedSummary = all.find((m) => m.sessionId === sessionId);
     const removedDetail = isAsyncStateStorage(this.storage)

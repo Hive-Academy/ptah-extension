@@ -1762,3 +1762,136 @@ describe('SessionMetadataStore', () => {
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// Plane PTAH-32 guard: a session whose workspace is not the active one must
+// not be written into the active workspace's store, where neither list shows
+// it. It is kept in memory and persisted once its workspace is active again.
+// ---------------------------------------------------------------------------
+
+describe('SessionMetadataStore — sessions of an inactive workspace', () => {
+  const WS_A = '/workspace/a';
+  const WS_B = '/workspace/b';
+
+  function routedStorage() {
+    const stores = new Map([
+      [WS_A, createMockStateStorage()],
+      [WS_B, createMockStateStorage()],
+    ]);
+    let active = WS_A;
+    const current = () =>
+      stores.get(active) as ReturnType<typeof createMockStateStorage>;
+    const storage = {
+      get: <T>(key: string, fallback?: T) => current().get<T>(key, fallback),
+      update: (key: string, value: unknown) => current().update(key, value),
+      keys: () => current().keys(),
+      getActiveWorkspacePath: () => active,
+      getStorageForWorkspace: (path: string) => stores.get(path),
+    };
+    return {
+      storage,
+      stores,
+      activate: (path: string) => {
+        active = path;
+      },
+    };
+  }
+
+  function sessionIds(value: unknown): string[] {
+    const items = Array.isArray(value)
+      ? value
+      : ((value as { items?: unknown[] } | undefined)?.items ?? []);
+    return (items as Array<{ sessionId: string }>).map((m) => m.sessionId);
+  }
+
+  it('keeps a session created for an inactive workspace out of the active store', async () => {
+    const routed = routedStorage();
+    const store = new SessionMetadataStore(
+      routed.storage as never,
+      asLogger(createMockLogger()),
+    );
+    routed.activate(WS_B);
+
+    await store.create('sess-a', WS_A, 'Started in A');
+
+    expect(
+      sessionIds(routed.stores.get(WS_B)?.__state.entries.get(METADATA_KEY)),
+    ).not.toContain('sess-a');
+    await expect(store.get('sess-a')).resolves.toMatchObject({
+      workspaceId: WS_A,
+      name: 'Started in A',
+    });
+  });
+
+  it('applies later writes in memory instead of dropping them', async () => {
+    const routed = routedStorage();
+    const store = new SessionMetadataStore(
+      routed.storage as never,
+      asLogger(createMockLogger()),
+    );
+    routed.activate(WS_B);
+    await store.create('sess-a', WS_A, 'Started in A');
+
+    await store.saveResumeState('sess-a', {
+      workingDirectory: `${WS_A}/.worktrees/fix`,
+      resumableSdkSubagents: [],
+    });
+
+    await expect(store.get('sess-a')).resolves.toMatchObject({
+      workingDirectory: `${WS_A}/.worktrees/fix`,
+    });
+  });
+
+  it('lists and persists the session once its workspace is active again', async () => {
+    const routed = routedStorage();
+    const store = new SessionMetadataStore(
+      routed.storage as never,
+      asLogger(createMockLogger()),
+    );
+    routed.activate(WS_B);
+    await store.create('sess-a', WS_A, 'Started in A');
+
+    routed.activate(WS_A);
+    const listed = await store.getForWorkspace(WS_A);
+    expect(listed.map((m) => m.sessionId)).toEqual(['sess-a']);
+
+    await store.flush();
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(
+      sessionIds(routed.stores.get(WS_A)?.__state.entries.get(METADATA_KEY)),
+    ).toContain('sess-a');
+    expect(
+      sessionIds(routed.stores.get(WS_B)?.__state.entries.get(METADATA_KEY)),
+    ).not.toContain('sess-a');
+  });
+
+  it('writes normally for an unregistered workspace path, as before', async () => {
+    const routed = routedStorage();
+    const store = new SessionMetadataStore(
+      routed.storage as never,
+      asLogger(createMockLogger()),
+    );
+
+    await store.create('sess-x', '/not/registered', 'Odd path');
+
+    expect(
+      sessionIds(routed.stores.get(WS_A)?.__state.entries.get(METADATA_KEY)),
+    ).toContain('sess-x');
+  });
+
+  it('forgets a deleted session that was kept in memory', async () => {
+    const routed = routedStorage();
+    const store = new SessionMetadataStore(
+      routed.storage as never,
+      asLogger(createMockLogger()),
+    );
+    routed.activate(WS_B);
+    await store.create('sess-a', WS_A, 'Started in A');
+
+    await store.delete('sess-a');
+
+    await expect(store.get('sess-a')).resolves.toBeNull();
+    routed.activate(WS_A);
+    await expect(store.getForWorkspace(WS_A)).resolves.toEqual([]);
+  });
+});
