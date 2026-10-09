@@ -1451,6 +1451,56 @@ describe('AgentMonitorStore', () => {
       expect(card('lane-3')?.quotaOwner).toEqual(OWNER_KNOWN);
     });
 
+    it('a batch of deltas gives the same card as applying them one by one, with one list update', () => {
+      const deltasFor = (six: string, seven: string) =>
+        [
+          {
+            agentId: six,
+            stdoutDelta: 'hel',
+            segments: [
+              { type: 'text', content: 'hel', usage: { inputTokens: 3 } },
+            ],
+          },
+          { agentId: seven, stdoutDelta: 'other lane' },
+          {
+            agentId: six,
+            stdoutDelta: 'lo',
+            segments: [
+              { type: 'text', content: 'lo', usage: { outputTokens: 2 } },
+            ],
+          },
+        ] as AgentOutputDelta[];
+      for (const id of ['seq-6', 'seq-7', 'bat-6', 'bat-7']) spawnLane(id, {});
+
+      for (const delta of deltasFor('seq-6', 'seq-7')) {
+        store.onAgentOutput(delta);
+      }
+      const before = store.agents();
+      store.onAgentOutputBatch(deltasFor('bat-6', 'bat-7'));
+
+      expect(store.agents()).not.toBe(before);
+      const strip = (id: string) => {
+        const c = card(id);
+        return {
+          stdout: c?.stdout,
+          segments: c?.segments,
+          usageTotals: c?.usageTotals,
+        };
+      };
+      expect(strip('bat-6')).toEqual(strip('seq-6'));
+      expect(strip('bat-6').stdout).toBe('hello');
+      expect(strip('bat-7')).toEqual(strip('seq-7'));
+    });
+
+    it('ignores a batch for unknown agents without copying the list', () => {
+      spawnLane('lane-8', {});
+      const before = store.agents();
+      store.onAgentOutputBatch([
+        { agentId: 'nobody', stdoutDelta: 'x' } as AgentOutputDelta,
+      ]);
+      expect(store.agents()).toEqual(before);
+    });
+
     it('keeps the spawn-time owner and role when the exit payload omits them', () => {
       spawnLane('lane-4', { role: 'tester', quotaOwner: OWNER_A });
       exitLane('lane-4', {});

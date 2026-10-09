@@ -649,6 +649,86 @@ export interface SubagentRpcError {
   readonly timestamp: number;
 }
 
+/** One output delta folded into an agent. Pure apart from the shared streamEvents buffer. */
+function applyAgentOutputDelta(
+  agent: MonitoredAgent,
+  delta: AgentOutputDelta,
+): MonitoredAgent {
+  let updated: MonitoredAgent = { ...agent };
+
+  if (delta.stdoutDelta) {
+    updated.stdout = capBuffer(
+      updated.stdout + delta.stdoutDelta,
+      MAX_FRONTEND_BUFFER,
+    );
+  }
+  if (delta.stderrDelta) {
+    updated.stderr = capBuffer(
+      updated.stderr + delta.stderrDelta,
+      MAX_FRONTEND_BUFFER,
+    );
+  }
+  if (delta.segments && delta.segments.length > 0) {
+    // Fold usage from the raw incoming segments first: the text merge
+    // below keeps only the earlier segment's fields, and `capSegments`
+    // may drop usage-bearing segments, so neither may see usage first.
+    let usageTotals = agent.usageTotals ?? null;
+    // A restored card's usage reads "unknown" (null) by design (Req 8.4):
+    // folding the first live segment of a re-opened run would publish a
+    // partial run total as known. Stay null while the card is restored and
+    // nothing is known yet; a card that somehow holds a total still folds.
+    if (!(agent.restored === true && agent.usageTotals === null)) {
+      for (const segment of delta.segments) {
+        usageTotals = addCliUsage(usageTotals, segment.usage);
+      }
+    }
+    updated.usageTotals = usageTotals;
+    if (hasReportedCliCacheTokens(usageTotals)) {
+      updated = { ...updated, cacheReported: true };
+    }
+    const existing = updated.segments;
+    const incoming = delta.segments;
+    const lastIdx = existing.length - 1;
+    const lastType = lastIdx >= 0 ? existing[lastIdx].type : null;
+    const firstIncomingType = incoming[0].type;
+    if (
+      lastIdx >= 0 &&
+      (lastType === 'text' || lastType === 'thinking') &&
+      lastType === firstIncomingType
+    ) {
+      const merged = [
+        ...existing.slice(0, lastIdx),
+        {
+          ...existing[lastIdx],
+          content: existing[lastIdx].content + incoming[0].content,
+        },
+        ...incoming.slice(1),
+      ];
+      updated.segments = merged;
+    } else {
+      updated.segments = [...existing, ...incoming];
+    }
+    // The copy above is unavoidable (the array identity is what tells the
+    // card's `@for` to re-diff), but the cap is what stops it from being a
+    // copy of an unbounded array on every token. `capSegments` folds the
+    // prose it drops and marks what it could not fold — this used to be a
+    // bare `slice(-MAX)` that silently deleted a long agent's opening plan.
+    updated.segments = capSegments(updated.segments);
+  }
+  if (delta.streamEvents && delta.streamEvents.length > 0) {
+    // Append in place — streamEvents shares its reference across deltas, so
+    // this is O(new events) with no whole-array copy. The bumped
+    // streamRevision is what drives the agent card to recompute.
+    for (const ev of delta.streamEvents) {
+      updated.streamEvents.push(ev);
+    }
+    capStreamEventsInPlace(updated.streamEvents);
+    updated.streamRevision = agent.streamRevision + 1;
+  }
+
+  return updated;
+}
+
 @Injectable({ providedIn: 'root' })
 export class AgentMonitorStore implements OnDestroy {
   private readonly tabManager = inject(TabManagerService);
@@ -1274,92 +1354,29 @@ export class AgentMonitorStore implements OnDestroy {
   }
 
   onAgentOutput(delta: AgentOutputDelta): void {
+    this.onAgentOutputBatch([delta]);
+  }
+
+  /**
+   * Apply several output deltas with one list copy. The live message path
+   * coalesces deltas once per animation frame and lands them here, so a burst
+   * of chunks costs one list copy and one card re-render, not one per chunk
+   * (Plane PTAH-16).
+   */
+  onAgentOutputBatch(deltas: readonly AgentOutputDelta[]): void {
+    if (deltas.length === 0) return;
     this._agents.update((list) => {
-      let foundIndex = -1;
-      for (let i = 0; i < list.length; i++) {
-        if (list[i].agentId === delta.agentId) {
-          foundIndex = i;
-          break;
-        }
-      }
-      if (foundIndex === -1) return list;
-
-      const agent = list[foundIndex];
-      let updated: MonitoredAgent = { ...agent };
-
-      if (delta.stdoutDelta) {
-        updated.stdout = capBuffer(
-          updated.stdout + delta.stdoutDelta,
-          MAX_FRONTEND_BUFFER,
+      let next: MonitoredAgent[] | null = null;
+      for (const delta of deltas) {
+        const current = next ?? list;
+        const foundIndex = current.findIndex(
+          (a) => a.agentId === delta.agentId,
         );
+        if (foundIndex === -1) continue;
+        next ??= [...list];
+        next[foundIndex] = applyAgentOutputDelta(current[foundIndex], delta);
       }
-      if (delta.stderrDelta) {
-        updated.stderr = capBuffer(
-          updated.stderr + delta.stderrDelta,
-          MAX_FRONTEND_BUFFER,
-        );
-      }
-      if (delta.segments && delta.segments.length > 0) {
-        // Fold usage from the raw incoming segments first: the text merge
-        // below keeps only the earlier segment's fields, and `capSegments`
-        // may drop usage-bearing segments, so neither may see usage first.
-        let usageTotals = agent.usageTotals ?? null;
-        // A restored card's usage reads "unknown" (null) by design (Req 8.4):
-        // folding the first live segment of a re-opened run would publish a
-        // partial run total as known. Stay null while the card is restored and
-        // nothing is known yet; a card that somehow holds a total still folds.
-        if (!(agent.restored === true && agent.usageTotals === null)) {
-          for (const segment of delta.segments) {
-            usageTotals = addCliUsage(usageTotals, segment.usage);
-          }
-        }
-        updated.usageTotals = usageTotals;
-        if (hasReportedCliCacheTokens(usageTotals)) {
-          updated = { ...updated, cacheReported: true };
-        }
-        const existing = updated.segments;
-        const incoming = delta.segments;
-        const lastIdx = existing.length - 1;
-        const lastType = lastIdx >= 0 ? existing[lastIdx].type : null;
-        const firstIncomingType = incoming[0].type;
-        if (
-          lastIdx >= 0 &&
-          (lastType === 'text' || lastType === 'thinking') &&
-          lastType === firstIncomingType
-        ) {
-          const merged = [
-            ...existing.slice(0, lastIdx),
-            {
-              ...existing[lastIdx],
-              content: existing[lastIdx].content + incoming[0].content,
-            },
-            ...incoming.slice(1),
-          ];
-          updated.segments = merged;
-        } else {
-          updated.segments = [...existing, ...incoming];
-        }
-        // The copy above is unavoidable (the array identity is what tells the
-        // card's `@for` to re-diff), but the cap is what stops it from being a
-        // copy of an unbounded array on every token. `capSegments` folds the
-        // prose it drops and marks what it could not fold — this used to be a
-        // bare `slice(-MAX)` that silently deleted a long agent's opening plan.
-        updated.segments = capSegments(updated.segments);
-      }
-      if (delta.streamEvents && delta.streamEvents.length > 0) {
-        // Append in place — streamEvents shares its reference across deltas, so
-        // this is O(new events) with no whole-array copy. The bumped
-        // streamRevision is what drives the agent card to recompute.
-        for (const ev of delta.streamEvents) {
-          updated.streamEvents.push(ev);
-        }
-        capStreamEventsInPlace(updated.streamEvents);
-        updated.streamRevision = agent.streamRevision + 1;
-      }
-
-      const next = [...list];
-      next[foundIndex] = updated;
-      return next;
+      return next ?? list;
     });
   }
 
