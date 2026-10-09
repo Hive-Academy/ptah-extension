@@ -466,7 +466,12 @@ export async function waitForSdkReady(
   }
 }
 
-function retainHostLog(userDataPath: string, runDir: string): void {
+export function retainHostLog(
+  userDataPath: string,
+  runDir: string,
+  readLogFile: (source: string) => string = (source) =>
+    readFileSync(source, 'utf8'),
+): void {
   try {
     const logsDir = join(userDataPath, 'logs');
     const output = join(runDir, HOST_LOG_FILE);
@@ -476,10 +481,16 @@ function retainHostLog(userDataPath: string, runDir: string): void {
       if (!entry.isFile() || !entry.name.endsWith('.log')) continue;
       const source = join(logsDir, entry.name);
       try {
-        const redacted = redactSecrets(readFileSync(source, 'utf8'));
+        const redacted = redactSecrets(readLogFile(source));
         appendFileSync(output, `# ${entry.name}\n${redacted}`, 'utf8');
-      } catch {
+      } catch (error) {
         // Keep collecting other log files when one diagnostic file is unreadable.
+        const detail = redactSecrets(messageOf(error)).replace(/[\r\n]+/g, ' ');
+        appendFileSync(
+          output,
+          `[unable to retain ${entry.name}: ${detail}]\n`,
+          'utf8',
+        );
       }
     }
   } catch {

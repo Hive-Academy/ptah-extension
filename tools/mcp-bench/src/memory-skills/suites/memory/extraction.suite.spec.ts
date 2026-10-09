@@ -17,6 +17,7 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -538,6 +539,20 @@ describe('mem.extraction', () => {
         ci: true,
       }),
     ).rejects.toThrow('caseLimit is refused for CI/replay suites');
+  });
+
+  it('fails instead of passing when its evaluated case set is empty', async () => {
+    writeFileSync(join(home, 'memory-skills', 'empty-facts.jsonl'), '', 'utf8');
+
+    const { result, cases } = await run(
+      'record',
+      join(root, 'cassettes', 'empty.jsonl'),
+      'empty-cases',
+      { factsFile: 'memory-skills/empty-facts.jsonl', matcherValidated: true },
+    );
+
+    expect(cases).toEqual([]);
+    expect(result.verdict).toBe('fail');
   });
 
   it('plans one seeded case per fact and paired head/middle long sessions', () => {

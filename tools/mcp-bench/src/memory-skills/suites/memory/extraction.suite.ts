@@ -29,7 +29,8 @@
  *
  * Verdict: `na: cassette-miss` when any replayed call missed (R-M5); otherwise
  * `na: matcher-unvalidated` until the R-M4 agreement bar is met (option
- * `matcherValidated`); otherwise `pass` only when every case passed.
+ * `matcherValidated`); otherwise `pass` only when at least one case ran and
+ * every case passed.
  *
  * Host-only: imports the memory-curator barrel and the seeded-session
  * generator (`../../host-only-imports.spec.ts`).
@@ -686,7 +687,8 @@ export async function runExtractionSuite(
 
   const records = evaluated.map((c) => c.record);
   const misses = evaluated.filter((c) => c.cassetteMiss).length;
-  const allPass = records.every((record) => record.outcome === 'pass');
+  const allPass =
+    records.length > 0 && records.every((record) => record.outcome === 'pass');
   const verdict: SuiteResultInput['verdict'] =
     options.caseLimit !== undefined || misses > 0 || !options.matcherValidated
       ? 'na'

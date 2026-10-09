@@ -41,6 +41,7 @@ import {
   HOST_COMPLETION_FILE,
   HOST_ERROR_FILE,
   HOST_LOG_FILE,
+  retainHostLog,
   runMemorySkillsHost,
   type HostCompletion,
   type MemorySkillsHostDeps,
@@ -782,6 +783,20 @@ describe('runMemorySkillsHost', () => {
     mkdirSync(join(runDir, HOST_LOG_FILE));
     await runMemorySkillsHost(deps());
     expect(stop).toHaveBeenCalledTimes(1);
+  });
+
+  it('notes an unreadable individual host log with a redacted error', () => {
+    const logsDir = join(isolation.userDataPath, 'logs');
+    mkdirSync(logsDir, { recursive: true });
+    writeFileSync(join(logsDir, 'engine.log'), 'not read', 'utf8');
+
+    retainHostLog(isolation.userDataPath, runDir, () => {
+      throw new Error('apiKey mysecret\nsecond line');
+    });
+
+    expect(readFileSync(join(runDir, HOST_LOG_FILE), 'utf8')).toBe(
+      '[unable to retain engine.log: apiKey <redacted> second line]\n',
+    );
   });
 
   it('sets the unreachable oauth endpoint only in record mode', async () => {

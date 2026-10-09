@@ -21,6 +21,13 @@ describe('redactSecrets', () => {
       'Set-Cookie: <redacted>',
     ],
     ['API key header', 'x-api-key: abc', 'x-api-key: <redacted>'],
+    ['space-separated API key', 'apiKey mysecret', 'apiKey <redacted>'],
+    ['space-separated token', 'token abc', 'token <redacted>'],
+    [
+      'multi-word authorization header',
+      'Authorization: Basic part1 part2',
+      'Authorization: <redacted>',
+    ],
     ['bearer credential', 'Bearer abc.def', 'Bearer <redacted>'],
     [
       'bare JWT',
