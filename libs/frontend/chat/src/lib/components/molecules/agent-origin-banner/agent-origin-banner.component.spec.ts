@@ -25,18 +25,23 @@ function mount(
 describe('AgentOriginBannerComponent (TASK_2026_584)', () => {
   afterEach(() => TestBed.resetTestingModule());
 
-  it('renders a labelled note naming the parent, branch and worktree', () => {
+  it('renders a labelled, collapsed hint with the parent and branch', () => {
     const el: HTMLElement = mount('Planner').nativeElement;
     const note = el.querySelector('[role="note"]');
+    const toggle: HTMLButtonElement | null = el.querySelector(
+      '[data-test="agent-origin-toggle"]',
+    );
 
     expect(note).not.toBeNull();
     expect(note?.getAttribute('aria-label')).toBe('Agent-started session');
     const text = note?.textContent ?? '';
     expect(text).toContain('Started by "Planner"');
-    expect(text).toContain('Via ptah_session_start');
     expect(text).toContain('feat/child');
-    expect(text).toContain('/ws/.worktrees/child');
-    expect(text).toContain('You can type here.');
+    expect(toggle?.getAttribute('aria-expanded')).toBe('false');
+    // No reference to a details element that is not rendered.
+    expect(toggle?.hasAttribute('aria-controls')).toBe(false);
+    expect(toggle?.getAttribute('aria-label')).toBe('Show session details');
+    expect(el.querySelector('[data-test="agent-origin-details"]')).toBeNull();
   });
 
   it('names the parent once, not again in the paragraph', () => {
@@ -45,23 +50,53 @@ describe('AgentOriginBannerComponent (TASK_2026_584)', () => {
     expect(occurrences).toBe(1);
   });
 
-  it('shows the policy inline on wide panels and behind a closed disclosure on narrow ones', () => {
-    const el: HTMLElement = mount('Planner').nativeElement;
-    const inline = el.querySelector('[data-test="agent-origin-policy-inline"]');
-    const disclosure: HTMLDetailsElement | null = el.querySelector(
-      '[data-test="agent-origin-policy-disclosure"]',
+  it('expands and collapses the session details', () => {
+    const fixture = mount('Planner');
+    const toggle: HTMLButtonElement = fixture.nativeElement.querySelector(
+      '[data-test="agent-origin-toggle"]',
     );
 
-    expect(inline?.classList).toContain('hidden');
-    expect(inline?.classList).toContain('sm:inline');
-    expect(inline?.textContent).toContain('Runs unattended');
-    expect(disclosure?.tagName).toBe('DETAILS');
-    expect(disclosure?.classList).toContain('sm:hidden');
-    expect(disclosure?.open).toBe(false);
-    expect(disclosure?.querySelector('summary')?.textContent).toContain(
-      'How this session runs',
+    toggle.click();
+    fixture.detectChanges();
+
+    const details: HTMLElement | null = fixture.nativeElement.querySelector(
+      '[data-test="agent-origin-details"]',
     );
-    expect(disclosure?.textContent).toContain('Runs unattended');
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+    expect(toggle.getAttribute('aria-controls')).toMatch(/^agent-origin-details-\d+$/);
+    expect(details?.id).toBe(toggle.getAttribute('aria-controls'));
+    expect(toggle.getAttribute('aria-label')).toBe('Hide session details');
+    expect(details?.textContent).toContain('Via ptah_session_start');
+    expect(details?.textContent).toContain('feat/child');
+    expect(details?.textContent).toContain('/ws/.worktrees/child');
+    expect(details?.textContent).toContain('You can type here.');
+    expect(details?.textContent).toContain('Runs unattended');
+
+    toggle.click();
+    fixture.detectChanges();
+
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    expect(
+      fixture.nativeElement.querySelector('[data-test="agent-origin-details"]'),
+    ).toBeNull();
+  });
+
+  it('collapses again when the reused instance gets another origin', () => {
+    const fixture = mount('Planner');
+    const toggle: HTMLButtonElement = fixture.nativeElement.querySelector(
+      '[data-test="agent-origin-toggle"]',
+    );
+    toggle.click();
+    fixture.detectChanges();
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+
+    fixture.componentRef.setInput('origin', { ...ORIGIN, branch: 'feat/other' });
+    fixture.detectChanges();
+
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    expect(
+      fixture.nativeElement.querySelector('[data-test="agent-origin-details"]'),
+    ).toBeNull();
   });
 
   it('"Open parent" is a labelled, keyboard-reachable button that emits the parent tab id', () => {
@@ -80,8 +115,12 @@ describe('AgentOriginBannerComponent (TASK_2026_584)', () => {
     );
     expect(button?.tabIndex).toBe(0);
 
+    // A canvas tile focuses its own tab on click; the switch must not bubble.
+    const tileClick = jest.fn();
+    fixture.nativeElement.addEventListener('click', tileClick);
     button?.click();
     expect(emitted).toEqual(['parent-tab']);
+    expect(tileClick).not.toHaveBeenCalled();
   });
 
   it('says the parent tab is closed and offers no action when it is gone', () => {
