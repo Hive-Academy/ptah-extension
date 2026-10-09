@@ -161,6 +161,10 @@ export class ProviderRpcHandlers {
       PlanLimitsSnapshotService,
       'snapshot' | 'ownerSnapshotForProvider'
     >,
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_LM_STUDIO_PROXY)
+    private readonly lmStudioProxy: {
+      listModels(): Promise<ProviderModelInfo[]>;
+    },
   ) {}
 
   /**
@@ -539,7 +543,15 @@ export class ProviderRpcHandlers {
     this.providerModels.registerDynamicFetcher('ollama-cloud', () =>
       this.ollamaDiscovery.listCloudModels(),
     );
-    this.logger.debug('[ProviderRpc] Registered eager Ollama dynamic fetchers');
+    // Same chicken-and-egg for LM Studio: its fetcher used to be registered
+    // only once LM Studio was the active provider. Listing its models needs
+    // only the configured endpoint, not the running translation proxy.
+    this.providerModels.registerDynamicFetcher('lm-studio', () =>
+      this.lmStudioProxy.listModels(),
+    );
+    this.logger.debug(
+      '[ProviderRpc] Registered eager Ollama and LM Studio dynamic fetchers',
+    );
   }
 
   /** Convert model ID slug to display name: "gpt-5.3-codex" → "GPT 5.3 Codex" */

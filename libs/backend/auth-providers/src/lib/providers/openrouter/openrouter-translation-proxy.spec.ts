@@ -106,7 +106,10 @@ describe("OpenRouter chat path — the chat's 'default' to the id on the wire", 
   function runChatPath(withCatalog: boolean): string {
     const configValues = withCatalog
       ? {
-          'provider.openrouter.modelCatalog': { models: CATALOG, timestamp: 1 },
+          'provider.openrouter.modelCatalog': {
+            models: CATALOG,
+            timestamp: Date.now(),
+          },
         }
       : {};
     const config = createMockConfigManager({ values: configValues });

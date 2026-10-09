@@ -5,7 +5,7 @@
  * 1. `gpt-5.4` stays first (`staticModels[0]` is the default-model fallback).
  * 2. `gpt-6-astra` and `gpt-5.6-sol` are appended after the original six.
  * 3. Every `contextLength` is 0 (unknown); windows come only from the live catalog.
- * 4. `CODEX_DEFAULT_TIERS` is unchanged and names only listed IDs.
+ * 4. `CODEX_DEFAULT_TIERS` names current, listed IDs.
  * 5. `seedStaticModelPricing('openai-codex')` writes nothing, so no
  *    `maxTokens: 0` entry is ever published for a Codex ID.
  *
@@ -27,20 +27,17 @@ const STATIC_MODELS = CODEX_PROVIDER_ENTRY.staticModels ?? [];
 const STATIC_IDS = STATIC_MODELS.map((m) => m.id);
 
 describe('CODEX_PROVIDER_ENTRY static models', () => {
-  it('keeps gpt-5.4 first so the default-model fallback is unchanged', () => {
-    expect(STATIC_IDS[0]).toBe('gpt-5.4');
-  });
-
-  it('keeps the original six IDs in order and appends the two new IDs', () => {
+  it('matches the listed live catalog in menu order, first model as the default fallback', () => {
+    // `codex debug models`, visibility "list", 2026-10-07. The gpt-5.x-codex IDs
+    // it replaced are rejected for ChatGPT accounts.
     expect(STATIC_IDS).toEqual([
-      'gpt-5.4',
-      'gpt-5.3-codex',
-      'gpt-5.2-codex',
-      'gpt-5.2',
-      'gpt-5.1-codex-max',
-      'gpt-5.1-codex-mini',
+      'gpt-6.1-sol',
       'gpt-6-astra',
+      'gpt-6-sol',
+      'gpt-6-luna',
       'gpt-5.6-sol',
+      'gpt-5.6-terra',
+      'gpt-5.6-luna',
     ]);
   });
 
@@ -69,11 +66,11 @@ describe('CODEX_PROVIDER_ENTRY static models', () => {
 });
 
 describe('CODEX_DEFAULT_TIERS', () => {
-  it('is unchanged', () => {
+  it('maps each tier to a current model', () => {
     expect(CODEX_DEFAULT_TIERS).toEqual({
-      sonnet: 'gpt-5.3-codex',
-      opus: 'gpt-5.4',
-      haiku: 'gpt-5.1-codex-mini',
+      sonnet: 'gpt-6-sol',
+      opus: 'gpt-6.1-sol',
+      haiku: 'gpt-6-luna',
     });
     expect(CODEX_PROVIDER_ENTRY.defaultTiers).toBe(CODEX_DEFAULT_TIERS);
   });

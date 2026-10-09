@@ -97,7 +97,8 @@ import type {
   AgentRoleDefinition,
   CliOutputSegment,
 } from '@ptah-extension/shared';
-import { CopilotSdkAdapter } from './copilot-sdk.adapter';
+import { COPILOT_MODELS, CopilotSdkAdapter } from './copilot-sdk.adapter';
+import { COPILOT_PROVIDER_ENTRY } from '@ptah-extension/shared';
 import {
   buildTaskPrompt,
   CliCommandLineTooLongError,
@@ -178,10 +179,18 @@ describe('CopilotSdkAdapter', () => {
   });
 
   describe('listModels() / capabilities() / parseOutput()', () => {
-    it('returns the curated Copilot model list including claude-sonnet-4.5', async () => {
+    it('returns the curated Copilot model list', async () => {
       const models = await adapter.listModels();
-      expect(models.length).toBeGreaterThan(0);
-      expect(models.some((m) => m.id === 'claude-sonnet-4.5')).toBe(true);
+      expect(models).toEqual(COPILOT_MODELS);
+      expect(models.some((m) => m.id === 'claude-sonnet-5.5')).toBe(true);
+    });
+
+    it('keeps the lane list in sync with the provider fallback list', () => {
+      // The drift check (model-lists.live.spec.ts) verifies the provider list
+      // against Copilot's published models; this keeps the lane on the same IDs.
+      expect(COPILOT_MODELS.map((m) => m.id)).toEqual(
+        (COPILOT_PROVIDER_ENTRY.staticModels ?? []).map((m) => m.id),
+      );
     });
 
     it('reports continuation only', () => {
