@@ -112,7 +112,7 @@ export function describeOutcome(outcome: ToolCallOutcome): string {
 
 /** Polls `check` every 5 s until it holds or `timeoutMs` passes. */
 export async function pollUntil(
-  deps: LifecycleDeps,
+  deps: Pick<LifecycleDeps, 'sleep' | 'now'>,
   timeoutMs: number,
   check: () => Promise<SymbolProbe>,
   want: (probe: SymbolProbe) => boolean,

@@ -551,6 +551,14 @@ export interface AssembleOptions {
    * before the failure is kept.
    */
   readonly failure?: string;
+  /** Code-index readiness measured before an index-backed suite was asked. */
+  readonly indexSettle?: {
+    readonly settled: boolean;
+    readonly elapsedMs: number;
+    readonly symbolCount: number | null;
+    readonly coverage: string;
+    readonly states: readonly string[];
+  };
 }
 
 /**
@@ -593,10 +601,7 @@ export function assembleSuite<Q extends { readonly id: string }>(
   } else {
     if (decider !== undefined) {
       const baselineErrorRate = nativeMetrics(decider, records)['error_rate'];
-      if (
-        baselineErrorRate !== null &&
-        baselineErrorRate > MAX_ERROR_RATE
-      )
+      if (baselineErrorRate !== null && baselineErrorRate > MAX_ERROR_RATE)
         reasons.push(
           `deciding baseline ${decider.id} error rate ${baselineErrorRate} is over ${MAX_ERROR_RATE}`,
         );
@@ -625,6 +630,7 @@ export function assembleSuite<Q extends { readonly id: string }>(
   }
   const main = suiteRecord(definition, records, tool, {
     verdict: reasons.length > 0 ? 'fail' : 'pass',
+    indexSettle: options.indexSettle,
     extraFailures: [
       ...reasons.map((reason) => ({
         question: '(verdict)',
@@ -646,6 +652,7 @@ export function assembleSuite<Q extends { readonly id: string }>(
         verdict: 'na',
         naReason: breakdown.naReason(subset.length, records.length),
         arm: breakdown.arm,
+        indexSettle: options.indexSettle,
         extraFailures: [],
       },
     );
@@ -676,6 +683,7 @@ function suiteRecord<Q extends { readonly id: string }>(
     readonly verdict: 'pass' | 'fail' | 'na';
     readonly naReason?: string;
     readonly arm?: string;
+    readonly indexSettle?: AssembleOptions['indexSettle'];
     readonly extraFailures: readonly FailureEntry[];
   },
 ): ScorecardSuite {
@@ -704,6 +712,9 @@ function suiteRecord<Q extends { readonly id: string }>(
       questions: records.length,
       metrics: toolMetricsBlock(tool),
       ...decidingFields(definition),
+      ...(outcome.indexSettle === undefined
+        ? {}
+        : { indexSettle: outcome.indexSettle }),
       failures: [
         ...outcome.extraFailures,
         ...listFailures(definition, records),

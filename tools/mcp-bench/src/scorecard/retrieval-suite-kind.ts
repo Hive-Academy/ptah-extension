@@ -29,6 +29,16 @@ export const retrievalDetailsSchema = z.object({
     ndcg_at_k: metricValueSchema.optional(),
     truncation_rate: metricValueSchema.optional(),
   }),
+  /** Absent on scorecards written before index-settle measurement existed. */
+  indexSettle: z
+    .object({
+      settled: z.boolean(),
+      elapsedMs: z.number().finite().nonnegative(),
+      symbolCount: z.number().int().nonnegative().nullable(),
+      coverage: z.string(),
+      states: z.array(z.string()),
+    })
+    .optional(),
   failures: z
     .array(
       z.object({
@@ -55,9 +65,7 @@ registerSuiteKind('retrieval', retrievalDetailsSchema, (suite) => {
       );
   }
   if (suite.baselines.length === 0)
-    lines.push(
-      `| error_rate | ${formatMetric(suite.cost.error_rate)} |  |  |`,
-    );
+    lines.push(`| error_rate | ${formatMetric(suite.cost.error_rate)} |  |  |`);
   for (const baseline of suite.baselines)
     lines.push(
       `| error_rate | ${formatMetric(suite.cost.error_rate)} | ${formatMetric(baseline.metrics['error_rate'])} |  |`,
@@ -67,6 +75,13 @@ registerSuiteKind('retrieval', retrievalDetailsSchema, (suite) => {
     `| latency_ms.p95 | ${formatMetric(suite.cost.latency_ms.p95)} |  |  |`,
     `| cost.source | ${cell(suite.cost.source)} |  |  |`,
     `| Verdict | ${suite.verdict} | ${suite.naReason ?? ''} |  |`,
+    ...(suite.details.indexSettle === undefined
+      ? []
+      : [
+          suite.details.indexSettle.settled
+            ? `Index settled after ${Math.round(suite.details.indexSettle.elapsedMs / 1000)} s (${suite.details.indexSettle.symbolCount ?? 'unknown'} symbols) before scoring`
+            : 'Index did not settle within 1200 s; symbol-suite scoring was skipped',
+        ]),
     '',
   );
   return lines;

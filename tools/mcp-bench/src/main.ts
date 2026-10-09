@@ -68,6 +68,10 @@ import {
   type LifecycleResult,
 } from './lifecycle/lifecycle-scenarios';
 import {
+  askAfterIndexSettle,
+  type IndexSettleMeasurement,
+} from './lifecycle/index-settle';
+import {
   readScorecard,
   scorecardBaselineDirectory,
   scorecardOutputDirectory,
@@ -225,6 +229,8 @@ interface SuiteRun {
   listed: ReadonlySet<string>;
   /** Why the suite could not be measured; it then fails with this reason. */
   failure?: string;
+  /** Index state captured immediately before this index-backed suite was scored. */
+  indexSettle?: IndexSettleMeasurement;
 }
 
 /** A guard error voids the run: it is never caught into a suite failure. */
@@ -238,16 +244,26 @@ async function askSuites(
   runs: readonly SuiteRun[],
   host: RunningHost,
   corpusRoot: string,
+  probe: { readonly name: string; readonly file: string },
+  deps: SessionDeps,
 ): Promise<void> {
-  for (const run of runs) {
-    run.listed = host.listedTools;
-    run.tools = await runToolQuestions(run.definition, {
-      listedTools: host.listedTools,
-      callerFor: host.callerFor,
-      corpusRoot,
-      log,
-    });
-  }
+  for (const run of runs) run.listed = host.listedTools;
+  await askAfterIndexSettle(
+    runs,
+    host.listedTools,
+    host.callerFor(corpusRoot),
+    corpusRoot,
+    probe,
+    deps,
+    async (run) => {
+      run.tools = await runToolQuestions(run.definition, {
+        listedTools: host.listedTools,
+        callerFor: host.callerFor,
+        corpusRoot,
+        log,
+      });
+    },
+  );
 }
 
 async function runBench(options: BenchOptions): Promise<number> {
@@ -465,7 +481,13 @@ async function runBench(options: BenchOptions): Promise<number> {
                 failure: nativeFailures.get(definition.id),
               }),
             );
-            await askSuites(runs, host, corpus.path);
+            await askSuites(
+              runs,
+              host,
+              corpus.path,
+              { name: probe.name, file: probe.location.replace(/:\d+$/, '') },
+              sessionDeps,
+            );
             if (runsLifecycle && memoryRoots !== null) {
               const session: LifecycleResult[] = [];
               try {
@@ -516,7 +538,17 @@ async function runBench(options: BenchOptions): Promise<number> {
           } else {
             await runThenStop(
               () => polyHost.stop(),
-              () => askSuites(poly.runs, polyHost, polyRoot),
+              () =>
+                askSuites(
+                  poly.runs,
+                  polyHost,
+                  polyRoot,
+                  {
+                    name: probe.name,
+                    file: probe.location.replace(/:\d+$/, ''),
+                  },
+                  sessionDeps,
+                ),
             );
           }
         } finally {
@@ -585,6 +617,9 @@ async function runBench(options: BenchOptions): Promise<number> {
               options['noise-margin'],
             ),
             ...(run.failure === undefined ? {} : { failure: run.failure }),
+            ...(run.indexSettle === undefined
+              ? {}
+              : { indexSettle: run.indexSettle }),
           }),
         ),
         lifecycle,

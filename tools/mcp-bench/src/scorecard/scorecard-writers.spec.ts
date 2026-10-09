@@ -129,6 +129,28 @@ describe('scorecard writers', () => {
       await rm(directory, { recursive: true, force: true });
     }
   });
+  it('renders settled and timed-out index measurements while old scorecards remain valid', () => {
+    expect(() => scorecardSchema.parse(scorecard)).not.toThrow();
+    const settled = structuredClone(scorecard);
+    (settled.suites[0].details as Record<string, unknown>)['indexSettle'] = {
+      settled: true,
+      elapsedMs: 412_000,
+      symbolCount: 8931,
+      coverage: '{"clean":true}',
+      states: ['ok'],
+    };
+    expect(renderScorecardMarkdown(settled)).toContain(
+      'Index settled after 412 s (8931 symbols) before scoring',
+    );
+    const timedOut = structuredClone(settled);
+    (timedOut.suites[0].details as Record<string, unknown>)['indexSettle'] = {
+      ...(timedOut.suites[0].details as { indexSettle: object }).indexSettle,
+      settled: false,
+    };
+    expect(renderScorecardMarkdown(timedOut)).toContain(
+      'Index did not settle within 1200 s; symbol-suite scoring was skipped',
+    );
+  });
   it('renders tool metrics without baselines and escapes markdown cells', () => {
     const withoutBaselines = structuredClone(scorecard);
     (

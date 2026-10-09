@@ -2574,6 +2574,12 @@ run after Batch 34, not in parallel with it.
 
 ---
 
+## Batch 13h — wait for index settle before scoring (COMPLETE)
+
+- User decision: score both indexing time and retrieval quality. The existing cold-start lifecycle row remains unchanged; symbol retrieval waits for the code index to settle and records the separate settle measurement before scoring.
+- `ptah_code_search_symbols` is the only current suite tool backed by the asynchronous code-symbol index. Its suites now wait once per main or polyglot host, fail without issuing partial-index questions after 20 minutes, and render the settle result in the scorecard.
+- Legacy scorecards remain valid because the `indexSettle` detail is optional.
+
 ## Mode 3 obligations recorded now
 
 - Parity: no user-facing surface is removed. VS Code's index wiring is moved (preserve list in Task
