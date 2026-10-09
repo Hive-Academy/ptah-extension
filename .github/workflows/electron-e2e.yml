@@ -192,12 +192,12 @@ jobs:
     if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.run_perf)
     runs-on: ubuntu-latest
     permissions:
-      actions: read
       contents: read
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
+          persist-credentials: false
           filter: tree:0
           fetch-depth: 0
 
