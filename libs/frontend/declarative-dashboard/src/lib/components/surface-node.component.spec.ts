@@ -33,7 +33,7 @@ function v1Nodes(components: readonly DashboardComponent[]): readonly SurfaceNod
 }
 
 const series = [{ name: 'Cost', points: [{ x: 'Mon', y: 1 }, { x: 'Tue', y: 2 }] }];
-/** One component of each rendered kind (the 19 `/3` kinds plus `/4` accordion), and the element each must render. */
+/** One component of each rendered kind (the 19 `/3` kinds plus `/4` accordion and avatar), and the element each must render. */
 const EVERY_KIND: readonly (readonly [SurfaceComponent, string])[] = [
   [{ id: 'k-section', kind: 'section', title: { text: 'S' }, children: [] }, 'ptah-surface-layout section'],
   [{ id: 'k-stack', kind: 'stack', children: [] }, 'ptah-surface-layout'],
@@ -56,6 +56,7 @@ const EVERY_KIND: readonly (readonly [SurfaceComponent, string])[] = [
   [{ id: 'k-radial', kind: 'radial-progress', value: 70, tone: 'info', label: { text: 'L' } }, 'ptah-dashboard-radial-progress'],
   [{ id: 'k-divider', kind: 'divider', direction: 'horizontal' }, 'ptah-dashboard-divider'],
   [{ id: 'k-text-block', kind: 'text-block', role: 'heading', text: { text: 'H' } }, 'ptah-dashboard-text-block h3'],
+  [{ id: 'k-avatar', kind: 'avatar', name: 'code-explorer', subtitle: 'lane' }, 'ptah-dashboard-avatar [data-testid="avatar-initials"]'],
 ];
 
 const NO_INTERACTION: SurfaceInteractionState = {
@@ -94,8 +95,8 @@ describe('SurfaceNodeComponent', () => {
     return { fixture, host: fixture.componentInstance, element, rerender: () => fixture.detectChanges() };
   }
 
-  it('switches over the 19 /3 kinds and the /4 accordion, each to its own component', () => {
-    expect(SURFACE_NODE_KINDS.size).toBe(20);
+  it('switches over the 19 /3 kinds and the /4 accordion and avatar, each to its own component', () => {
+    expect(SURFACE_NODE_KINDS.size).toBe(21);
     expect(new Set(EVERY_KIND.map(([component]) => component.kind))).toEqual(SURFACE_NODE_KINDS);
     for (const [component, selector] of EVERY_KIND) {
       const { element, host } = setup(v2Nodes([component], {}, SURFACE_CATALOG_VERSION_4)[0]);

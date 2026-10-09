@@ -18,12 +18,14 @@ import type {
 } from '../surface-interaction';
 import type { SurfaceComponentViewState } from '../surface-view-state';
 import type {
+  AvatarNode,
   DisplayNode,
   InputNode,
   LayoutNode,
   SurfaceNode,
 } from '../view-model/view-model.types';
 import { DashboardAlertComponent, type AlertNode } from './dashboard-alert.component';
+import { DashboardAvatarComponent } from './dashboard-avatar.component';
 import { DashboardBadgeComponent, type BadgeNode } from './dashboard-badge.component';
 import { DashboardDividerComponent, type DividerNode } from './dashboard-divider.component';
 import { DashboardProgressComponent, type ProgressNode } from './dashboard-progress.component';
@@ -64,15 +66,15 @@ const NO_INTERACTION: SurfaceInteractionState = {
 };
 
 /**
- * The kinds this node renders: the 19 `/3` kinds plus the `/4` `accordion`;
- * anything else is `@default`. The `/4` `avatar` joins once its atom exists
- * (Batch 14); until then an avatar surface reports `renderFailed`.
+ * The kinds this node renders: the 19 `/3` kinds plus the `/4` `accordion`
+ * and `avatar`; anything else is `@default` and reports `renderFailed`.
  */
 export const SURFACE_NODE_KINDS: ReadonlySet<string> = new Set([
   'section', 'stack', 'grid', 'card', 'accordion',
   'text', 'select', 'radio-group', 'checkbox',
   'stat', 'table', 'list', 'line-chart', 'bar-chart',
   'alert', 'badge', 'progress', 'radial-progress', 'divider', 'text-block',
+  'avatar',
 ]);
 
 function ownEntry<T>(record: Readonly<Record<string, T>>, key: string): T | undefined {
@@ -105,6 +107,7 @@ function ownEntry<T>(record: Readonly<Record<string, T>>, key: string): T | unde
     DashboardRadialProgressComponent,
     DashboardDividerComponent,
     DashboardTextBlockComponent,
+    DashboardAvatarComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -231,6 +234,11 @@ function ownEntry<T>(record: Readonly<Record<string, T>>, key: string): T | unde
           <ptah-dashboard-text-block [node]="textBlock" />
         }
       }
+      @case ('avatar') {
+        @if (avatarNode(); as avatar) {
+          <ptah-dashboard-avatar [node]="avatar" />
+        }
+      }
       @default {}
     }
   `,
@@ -307,6 +315,10 @@ export class SurfaceNodeComponent {
   public readonly textBlockNode: Signal<TextBlockNode | null> = computed((): TextBlockNode | null => {
     const node = this.node();
     return node.kind === 'text-block' ? node : null;
+  });
+  public readonly avatarNode: Signal<AvatarNode | null> = computed((): AvatarNode | null => {
+    const node = this.node();
+    return node.kind === 'avatar' ? node : null;
   });
   /** v1 display children only; layouts render theirs through the layout component. */
   public readonly displayChildNodes = computed((): readonly DisplayNode[] => {

@@ -1,6 +1,6 @@
 # Batches - TASK_2026_623_3492
 
-Total tasks: 72 | Batches: 36 (incl. fix batches 6F, 12F, post-cap correction 12F2) | Complete: 16/36
+Total tasks: 72 | Batches: 36 (incl. fix batches 6F, 12F, post-cap correction 12F2) | Complete: 17/36
 
 Worktree root `W` = `D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel` (branch
 `feat/task-623-display-panel`, base `70f995a56`). Every path below is absolute.
@@ -799,7 +799,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - Avatar node wiring moved to new Task 15.0 (decision #49): Batch 14 is at the 6-file cap.
 - Section collapse container-only and container root stat grid accepted (decision #50).
 
-## Batch 14: D2 stat trend/sparkline and avatar — COMPLETE (commit see git log: "batch 14")
+## Batch 14: D2 stat trend/sparkline and avatar — COMPLETE (commit cf913a15f)
 
 - Recommended executor: frontend-developer
 - Fallback executor: general-purpose subagent
@@ -839,7 +839,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
   0 errors / 127 warnings (new warnings are spec `no-non-null-assertion` only).
 - Failing-series signal ruled: `trend.polarity === 'bad'` draws the latest spark bar in `--dp-er-fill` (decision #51).
 
-## Batch 15: D3 container-width and trust-boundary specs, exports — PENDING
+## Batch 15: D3 container-width and trust-boundary specs, exports — COMPLETE (Phase 3 review pending)
 
 - Recommended executor: frontend-developer
 - Fallback executor: general-purpose subagent
@@ -848,7 +848,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - Tasks: 4 | Depends on: Batch 14
 - Phase: 3 (last batch) | Phase review: code-logic on Batches 13-15 (plus style if Task 15.3 adds exports)
 
-### Task 15.0: wire `avatar` into the node switch — PENDING (decision #49; runs first)
+### Task 15.0: wire `avatar` into the node switch — COMPLETE (decision #49; runs first)
 
 - Files:
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\declarative-dashboard\src\lib\components\surface-node.component.ts
@@ -858,17 +858,17 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - Validation notes: until this lands an avatar surface fails closed (`renderFailed`); Task 15.2 trust-boundary avatar
   cases depend on this task.
 
-### Task 15.1: container-width spec (R3.5) — PENDING
+### Task 15.1: container-width spec (R3.5) — COMPLETE
 
 - File (CREATE): D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\declarative-dashboard\src\lib\components\surface-container-width.spec.ts
 - Quality requirements: 300 px → 1 column; 960 px → ceiling; `'viewport'` mode unchanged.
 
-### Task 15.2: trust-boundary spec for new kinds — PENDING
+### Task 15.2: trust-boundary spec for new kinds — COMPLETE
 
 - File: D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\declarative-dashboard\src\lib\trust-boundary.spec.ts (exists; corrected path)
 - Quality requirements: no agent HTML/URL/script reaches the DOM through `accordion`, `avatar`, trend, spark.
 
-### Task 15.3: barrel exports, only if needed — PENDING
+### Task 15.3: barrel exports, only if needed — COMPLETE
 
 - File: D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\declarative-dashboard\src\index.ts
 
@@ -876,6 +876,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 
 - `npx jest -c libs/frontend/declarative-dashboard/jest.config.ts libs/frontend/declarative-dashboard/src/lib/components/surface-container-width.spec.ts libs/frontend/declarative-dashboard/src/lib/trust-boundary.spec.ts libs/frontend/declarative-dashboard/src/lib/components/surface-node.component.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -n 40 && npx nx typecheck @ptah-extension/declarative-dashboard --parallel=1 2>&1 | tail -n 20 && npx nx lint @ptah-extension/declarative-dashboard --parallel=1 2>&1 | tail -n 20`
 - Phase 3 code-logic review due after commit
+- Verified by team-leader: Jest 3 suites / 46 tests passed; typecheck passed (re-run after the spec-only change); lint 0 errors, 127 warnings (Batch 14 baseline). Task 15.3: no exports (no consumer outside the lib), so no style review for Phase 3.
 
 ## Batch 16: C1 host-sources token and ptah-ui block — PENDING
 
