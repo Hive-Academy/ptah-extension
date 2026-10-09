@@ -304,7 +304,12 @@ export class MessageRouterService {
         skipped++;
         continue;
       }
-      this.dispatchGuarded(event as BatchedStreamEvent);
+      const dispatch = () => this.dispatchGuarded(event as BatchedStreamEvent);
+      if (this.requiresZone(event as BatchedStreamEvent)) {
+        dispatch();
+      } else {
+        this.ngZone.runOutsideAngular(dispatch);
+      }
     }
     if (skipped > 0) {
       this.errorHandler.handleError(

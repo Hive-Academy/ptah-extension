@@ -184,7 +184,7 @@ describe('ProviderAccountCardComponent', () => {
     expect(textOf(five)).toContain('94% used');
     const resetAt = NOW + 3 * HOUR + 10 * MIN;
     expect(textOf(five)).toContain(
-      `Resets in ${formatRelative(resetAt, NOW)} (${abs(resetAt)})`,
+      `Resets ${formatRelative(resetAt, NOW)} (${abs(resetAt)})`,
     );
     const meter = five.querySelector('[data-testid="window-radial-progress"]');
     expect(meter?.getAttribute('aria-valuenow')).toBe('94');
@@ -829,7 +829,7 @@ describe('ProviderAccountCardComponent', () => {
     );
     const resetAt = NOW + 2 * HOUR;
     expect(textOf(el)).toContain(
-      `Resets in ${formatRelative(resetAt, NOW)} (${formatLocalAbsolute(resetAt, NOW, { timeZone: ZONE, zoneNameLocale: 'en-GB' })})`,
+      `Resets ${formatRelative(resetAt, NOW)} (${formatLocalAbsolute(resetAt, NOW, { timeZone: ZONE, zoneNameLocale: 'en-GB' })})`,
     );
   });
 

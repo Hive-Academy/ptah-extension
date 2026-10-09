@@ -417,6 +417,23 @@ describe('MessageRouterService burst coalescing (TASK_2026_437 C18)', () => {
     expect(zones).toEqual([false, true, false]);
   });
 
+  it('routes mixed BATCH members in their own required zone', () => {
+    const zones: boolean[] = [];
+    boot([
+      loggingHandler([MESSAGE_TYPES.CHAT_CHUNK, 'zone-required'], () => {
+        zones.push(NgZone.isInAngularZone());
+      }),
+    ]);
+
+    fireWindowMessage({
+      type: MESSAGE_TYPES.BATCH,
+      payload: { events: [{ type: MESSAGE_TYPES.CHAT_CHUNK }, { type: 'zone-required' }] },
+    });
+    channel.deliver();
+
+    expect(zones).toEqual([false, true]);
+  });
+
   it('attaches the window listener outside the Angular zone and dispatches inside it', () => {
     let handlerInZone: boolean | null = null;
     TestBed.configureTestingModule({

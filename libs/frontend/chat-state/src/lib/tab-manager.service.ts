@@ -2246,7 +2246,8 @@ export class TabManagerService {
    * delayed history read must not regress the panel.
    *
    * `budget` is the session budget computed from this snapshot. It installs in
-   * the same update and is dropped with it; an absent budget clears the last.
+    * the same update and is dropped with it; `undefined` preserves the last
+    * budget while `null` explicitly clears it.
    */
   installSessionStats(
     tabId: string,
@@ -2516,6 +2517,7 @@ export class TabManagerService {
       streamingState: StreamingState;
     },
   ): void {
+    const previousSessionId = this.findTabByIdAcrossWorkspaces(tabId)?.tab.claudeSessionId;
     this.updateTabInternal(tabId, {
       messages: [],
       olderHistoryCursor: undefined,
@@ -2525,6 +2527,7 @@ export class TabManagerService {
       name: payload.name,
       titleOrigin: 'history',
       claudeSessionId: payload.sessionId,
+      ...(previousSessionId !== payload.sessionId ? { sessionBudget: null } : {}),
       // A resume installs a fresh SDK query. Its revisions do NOT restart —
       // the backend floor is per session id (TASK_2026_371) — but this tab may
       // be adopting a session it never streamed, so it starts with no recorded

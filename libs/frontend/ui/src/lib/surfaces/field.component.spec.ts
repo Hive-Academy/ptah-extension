@@ -6,7 +6,7 @@ import { PtahFieldControlDirective } from './field-control.directive';
   standalone: true,
   imports: [PtahFieldComponent, PtahFieldControlDirective],
   template: `<ptah-field label="Name" [hint]="hint()" [error]="error()"
-    ><input ptahFieldControl aria-describedby="external"
+    ><input id="existing-control-id" ptahFieldControl aria-describedby="external"
   /></ptah-field>`,
 })
 class Host {

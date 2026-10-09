@@ -4,6 +4,7 @@ import {
   contentChild,
   effect,
   input,
+  signal,
 } from '@angular/core';
 import { PtahFieldControlDirective } from './field-control.directive';
 
@@ -13,7 +14,7 @@ let fieldId = 0;
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `<div class="flex flex-col">
-    <label [attr.for]="controlId" class="mb-1 text-xs font-medium">{{
+    <label [attr.for]="labelFor()" class="mb-1 text-xs font-medium">{{
       label()
     }}</label
     ><ng-content
@@ -36,6 +37,7 @@ export class PtahFieldComponent {
   readonly error = input<string | null>(null);
   readonly control = contentChild(PtahFieldControlDirective);
   readonly controlId = `ptah-field-control-${++fieldId}`;
+  readonly labelFor = signal(this.controlId);
   readonly descriptionId = `ptah-field-description-${fieldId}`;
   constructor() {
     effect(() => {
@@ -43,6 +45,7 @@ export class PtahFieldComponent {
       const control = marked?.element.nativeElement;
       if (!control || !marked) return;
       if (!control.id) control.id = this.controlId;
+      this.labelFor.set(control.id);
       const text = this.error() || this.hint();
       const ids = new Set(
         (marked.originalDescription ?? '').split(/\s+/).filter(Boolean),

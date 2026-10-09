@@ -211,7 +211,7 @@ const STATUS_SENTENCES: Partial<Record<ProviderAccountUsageStatus, string>> = {
           @if (section.statusNotice; as notice) {
             <p
               role="status"
-              class="sr-only"
+              class="rounded border px-2 py-1 text-xs"
               [class]="noticeBorder(notice.tone)"
             >
               {{ notice.text }}
@@ -748,7 +748,7 @@ function resetText(
   time: LocalTimeOptions,
 ): string {
   if (resetsAt !== undefined && Number.isFinite(resetsAt) && resetsAt > now) {
-    return `Resets in ${formatRelative(resetsAt, now)} (${formatLocalAbsolute(resetsAt, now, time)})`;
+    return `Resets ${formatRelative(resetsAt, now)} (${formatLocalAbsolute(resetsAt, now, time)})`;
   }
   const phrase = resetPhrase(resetsAt, now, time);
   return phrase.charAt(0).toUpperCase() + phrase.slice(1);
