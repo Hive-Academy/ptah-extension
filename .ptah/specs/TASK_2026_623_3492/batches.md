@@ -614,7 +614,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 
 - `npx jest -c libs/backend/rpc-handlers/jest.config.ts libs/backend/rpc-handlers/src/lib/handlers/lane-plan-limits-rpc.handlers.spec.ts libs/backend/rpc-handlers/src/lib/host-profile/resolve-handler-plan.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -n 40 && npx nx typecheck @ptah-extension/rpc-handlers --parallel=1 2>&1 | tail -n 20 && npx nx lint @ptah-extension/rpc-handlers --parallel=1 2>&1 | tail -n 20`
 
-## Batch 10: L3b lookup never passes `refresh` — COMPLETE
+## Batch 10: L3b lookup never passes `refresh` — COMPLETE (commit 47d8fb903)
 
 - Recommended executor: backend-developer
 - Fallback executor: general-purpose subagent
@@ -636,7 +636,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 
 - `npx jest -c libs/backend/cli-agent-runtime/jest.config.ts libs/backend/cli-agent-runtime/src/lib/cli-agents/limits/lane-limit-lookup.service.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -n 40 && npx nx lint @ptah-extension/cli-agent-runtime --parallel=1 2>&1 | tail -n 20`
 
-## Batch 11: L4 Electron enablement — IN_PROGRESS
+## Batch 11: L4 Electron enablement — COMPLETE
 
 - Recommended executor: backend-developer
 - Fallback executor: general-purpose subagent
@@ -645,7 +645,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - Tasks: 2 | Depends on: Batch 9
 - Phase: 2 | Phase review: after Batch 12
 
-### Task 11.1: root export and Electron capability flag — IN_PROGRESS
+### Task 11.1: root export and Electron capability flag — COMPLETE
 
 - Files:
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\backend\rpc-handlers\src\index.ts
@@ -654,17 +654,19 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - Pattern to follow: `rpc-host-profile.ts:43-45` (`goVetDiagnostics: true`)
 - Quality requirements: `lanePlanLimits: true` in Electron only; no `registerSingleton` in `phase-4-handlers.ts`.
 
-### Task 11.2: Electron container resolution test — IN_PROGRESS
+### Task 11.2: Electron container resolution test — COMPLETE
 
 - File: D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\apps\ptah-electron\src\di\container.smoke.spec.ts
 - Pattern to follow: `container.smoke.spec.ts:630-690`
 - Quality requirements: `container.resolve(LanePlanLimitsRpcHandlers)` succeeds and registers its method (A2).
 
+- Batch 11 verified: Jest 2 suites / 23 tests (Batch 8 `marked` mapper override on the command line), `nx typecheck ptah-electron` success, rpc-handlers lint 0 errors / 50 baseline warnings. Deviation accepted: the `composePhase3` helper in `container.smoke.spec.ts` keeps the same stub list and order, and both tests share it (behaviour-preserving, inside the assigned file). A2 is pinned: the handler's `apiBuilder` is the `TOKENS.PTAH_API_BUILDER` singleton, and it registers exactly `agent:getLanePlanLimits`. `lanePlanLimits: true` is set in the Electron profile only.
+
 ### Batch 11 verification
 
 - `npx jest -c apps/ptah-electron/jest.config.ts apps/ptah-electron/src/di/container.smoke.spec.ts apps/ptah-electron/src/di/rpc-surface.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -n 40 && npx nx typecheck ptah-electron --parallel=1 2>&1 | tail -n 20 && npx nx lint @ptah-extension/rpc-handlers --parallel=1 2>&1 | tail -n 20`
 
-## Batch 12: L5 expected-absent lists (VS Code, CLI) — PENDING
+## Batch 12: L5 expected-absent lists (VS Code, CLI) — IN_PROGRESS
 
 - Recommended executor: backend-developer
 - Fallback executor: general-purpose subagent
@@ -673,7 +675,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - Tasks: 1 | Depends on: Batch 9
 - Phase: 2 (last batch) | Phase review: code-logic + style on Batches 7-12
 
-### Task 12.1: add `lanePlanLimits` to both expected-absent lists — PENDING
+### Task 12.1: add `lanePlanLimits` to both expected-absent lists — IN_PROGRESS
 
 - Files:
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\apps\ptah-extension-vscode\src\di\expected-absent.ts

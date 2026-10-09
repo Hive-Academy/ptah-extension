@@ -57,6 +57,7 @@ import { AGENT_GENERATION_TOKENS } from '@ptah-extension/agent-generation';
 import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
 import {
   AuthRpcHandlers,
+  LanePlanLimitsRpcHandlers,
   SetupRpcHandlers,
   registerSharedRpcHandlers,
 } from '@ptah-extension/rpc-handlers';
@@ -629,12 +630,13 @@ describe('Electron DI — session organization recorder binding (TASK_2026_580 R
     return { c, logger, output };
   }
 
-  it('the bound recorder reaches all three producers and capture subscribes to PostToolUse', () => {
-    const { c, logger, output } = composePhase2(false);
-
-    // Phase 3. Required producer dependencies unrelated to this check (bound
-    // by other phase-2 libraries in production) are bare stubs, as in
-    // `ptah-extension-vscode/src/di/surface-composition.spec.ts`.
+  /**
+   * Phase 3's `registerVsCodeLmToolsServices`, which binds
+   * `TOKENS.PTAH_API_BUILDER`. Required producer dependencies unrelated to
+   * these checks (bound by other phase-2 libraries in production) are bare
+   * stubs, as in `ptah-extension-vscode/src/di/surface-composition.spec.ts`.
+   */
+  function composePhase3(c: DependencyContainer, logger: Logger): void {
     c.register(TOKENS.CONTEXT_ORCHESTRATION_SERVICE, { useValue: {} });
     registerVsCodeLmToolsServices(c, logger);
     for (const token of [
@@ -667,6 +669,11 @@ describe('Electron DI — session organization recorder binding (TASK_2026_580 R
     ]) {
       if (!c.isRegistered(token, true)) c.register(token, { useValue: {} });
     }
+  }
+
+  it('the bound recorder reaches all three producers and capture subscribes to PostToolUse', () => {
+    const { c, logger, output } = composePhase2(false);
+    composePhase3(c, logger);
 
     const recorder = c.resolve(PLATFORM_TOKENS.SESSION_ORGANIZATION_RECORDER);
     expect(recorder).toBe(c.resolve(SESSION_ORGANIZATION_TOKENS.SERVICE));
@@ -709,5 +716,35 @@ describe('Electron DI — session organization recorder binding (TASK_2026_580 R
         CLI_AGENT_RUNTIME_TOKENS.SESSION_SPAWNER,
       ).organizationRecorder,
     ).toBe(recorder);
+  });
+
+  /**
+   * TASK_2026_623 assumption A2. `LanePlanLimitsRpcHandlers` is a lib-owned,
+   * capability-gated family: `registerRpcSurface` runs
+   * `container.resolve(ctor).register()` for it, with no `registerSingleton`
+   * in `phase-4-handlers.ts`. Its third constructor slot is
+   * `TOKENS.PTAH_API_BUILDER`, bound in phase 3, so it must resolve against
+   * the phase-2-plus-phase-3 composition and register its one method.
+   */
+  it('resolves LanePlanLimitsRpcHandlers against the phase-3 API builder and registers agent:getLanePlanLimits (A2)', () => {
+    const { c, logger } = composePhase2(false);
+    composePhase3(c, logger);
+
+    const handlers = c.resolve(LanePlanLimitsRpcHandlers);
+    expect(handlers).toBeInstanceOf(LanePlanLimitsRpcHandlers);
+    expect((handlers as unknown as { apiBuilder: unknown }).apiBuilder).toBe(
+      c.resolve(TOKENS.PTAH_API_BUILDER),
+    );
+
+    const rpcHandler = c.resolve<{ registerMethod: jest.Mock }>(
+      TOKENS.RPC_HANDLER,
+    );
+    rpcHandler.registerMethod.mockClear();
+    handlers.register();
+    const registered = rpcHandler.registerMethod.mock.calls.map(
+      ([method]) => method as string,
+    );
+    expect(registered).toEqual([...LanePlanLimitsRpcHandlers.METHODS]);
+    expect(registered).toEqual(['agent:getLanePlanLimits']);
   });
 });

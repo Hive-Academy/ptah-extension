@@ -43,6 +43,9 @@ export function createElectronRpcHostProfile(
       // Serves the `go vet` consent RPC; `phase-2-libraries.ts` attaches the
       // checker it governs. Consent itself is off until the user grants it.
       goVetDiagnostics: true,
+      // Serves `agent:getLanePlanLimits` (the `$limits` host source); its
+      // lookup is the `PtahAPIBuilder` bound in `phase-3-storage.ts`.
+      lanePlanLimits: true,
     }),
     hostHandlers: {
       'host.fileOpen': ElectronFileOpenRpcHandlers,
