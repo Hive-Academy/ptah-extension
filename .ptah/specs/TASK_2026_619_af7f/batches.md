@@ -2581,6 +2581,12 @@ run after Batch 34, not in parallel with it.
 - Legacy scorecards remain valid because the `indexSettle` detail is optional.
 - Rev 1: settle now requires a normal, covered response with more than zero symbols; repeated transport/RPC/tool errors abort early with a stable gate reason, existing failures and `na` runs are preserved, and polyglot probes use their own corpus questions.
 
+## Batch 13i — cap `ptah_agent_wait` on HTTP (COMPLETE)
+
+- Defect and measurement: the non-streaming HTTP handler returns one JSON reply only after the wait completes, while the HTTP MCP client aborted a `timeoutSec: 200` wait after about 61 s (17:20:33 to 17:21:34), losing the reply although the lanes continued.
+- Fix: `ptah_agent_wait` still accepts its 0–900 s schema range, but the HTTP dispatcher caps an effective wait at 45 s to leave margin below the measured ~60 s client request timeout. When that cap leaves lanes running, the bounded reply names the cap, original request, and retry action. Stdio retains the requested range.
+- Open follow-up: `ptah_run_check` receives the HTTP request abort signal and kills its process tree on abort, so checks beyond the same client timeout need a later detached job plus poll/wait design.
+
 ## Mode 3 obligations recorded now
 
 - Parity: no user-facing surface is removed. VS Code's index wiring is moved (preserve list in Task

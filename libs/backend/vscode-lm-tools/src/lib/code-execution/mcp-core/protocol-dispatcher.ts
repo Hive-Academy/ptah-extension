@@ -46,6 +46,7 @@ import {
 import { AgentSpawnArgsSchema } from './agent-spawn-args.schema';
 import {
   AgentWaitArgsSchema,
+  HTTP_MAX_AGENT_WAIT_SEC,
   RunCheckArgsSchema,
 } from './wait-tools-args.schema';
 import {
@@ -1383,11 +1384,16 @@ async function handleIndividualTool(
         // The reply is self-bounded (WAIT_SUMMARY_MAX_CHARS, half the default
         // budget), so the budget step returns it unchanged.
         // A closed connection ends the wait (the lanes keep running).
-        const text = await runAgentWait(parsed.data, {
+        const requestedTimeoutSec = parsed.data.timeoutSec;
+        const timeoutSec = Math.min(requestedTimeoutSec, HTTP_MAX_AGENT_WAIT_SEC);
+        const text = await runAgentWait({ ...parsed.data, timeoutSec }, {
           waitForAgents: (ids, mode, timeoutMs, signal) =>
             ptahAPI.agent.waitForAgents(ids, mode, timeoutMs, signal),
           readOutput: (agentId, tail) => ptahAPI.agent.read(agentId, tail),
           signal: getRequestAbortSignal(),
+          ...(timeoutSec < requestedTimeoutSec
+            ? { cappedFromTimeoutSec: requestedTimeoutSec }
+            : {}),
         });
         return await createToolSuccessResponse(request, text, deps);
       }

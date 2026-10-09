@@ -25,6 +25,7 @@ import type { AgentOutput, AgentProcessInfo } from '@ptah-extension/shared';
 import type { MCPToolDefinition } from '../types';
 import {
   DEFAULT_AGENT_WAIT_TIMEOUT_SEC,
+  HTTP_MAX_AGENT_WAIT_SEC,
   MAX_WAIT_AGENT_IDS,
   MAX_WAIT_TIMEOUT_SEC,
   WAIT_SUMMARY_MAX_CHARS,
@@ -64,6 +65,8 @@ export interface AgentWaitDependencies {
   statFile?: (path: string) => Promise<FileStat | undefined>;
   /** Clock (epoch ms) for a running lane's duration. Default `Date.now`. */
   now?: () => number;
+  /** Original HTTP timeout when its transport ceiling shortened this wait. */
+  cappedFromTimeoutSec?: number;
 }
 
 export function buildAgentWaitTool(): MCPToolDefinition {
@@ -74,6 +77,7 @@ export function buildAgentWaitTool(): MCPToolDefinition {
       'mode "all" (default) returns when every lane has ended; "any" when the first one has. ' +
       `timeoutSec (0-${MAX_WAIT_TIMEOUT_SEC}, default ${DEFAULT_AGENT_WAIT_TIMEOUT_SEC}) bounds the wait; ` +
       'on timeout the reply is a PARTIAL result (not an error) and the call is safe to repeat. ' +
+      `Over HTTP, each call waits at most ${HTTP_MAX_AGENT_WAIT_SEC} s; repeat the call while lanes are running. ` +
       'Per lane it reports status, exit code, duration, why it stopped, the declared deliverables ' +
       `checked on disk, and the last output lines, in at most ${WAIT_SUMMARY_MAX_CHARS} chars. ` +
       'Read the full output with ptah_agent_read.',
@@ -128,7 +132,7 @@ export async function runAgentWait(
   const lanes = await Promise.all(
     result.entries.map((entry) => describeEntry(entry, deps, statFile, now)),
   );
-  return formatAgentWaitSummary(result, args.timeoutSec, lanes);
+  return formatAgentWaitSummary(result, args.timeoutSec, lanes, deps.cappedFromTimeoutSec);
 }
 
 /** What the reply says about one lane, before the size budget is applied. */
@@ -151,8 +155,9 @@ export function formatAgentWaitSummary(
   result: AgentWaitResult,
   timeoutSec: number,
   lanes: readonly LaneSummary[],
+  cappedFromTimeoutSec?: number,
 ): string {
-  const header = headerOf(result, timeoutSec);
+  const header = headerOf(result, timeoutSec, cappedFromTimeoutSec);
   const footer =
     'Full output: ptah_agent_read {"agentId": "<id>"}. Lane statuses: ptah_agent_status.';
   // One blank-line join ("\n\n") between each of the lanes + 2 parts.
@@ -169,15 +174,25 @@ export function formatAgentWaitSummary(
     : `${text.slice(0, WAIT_SUMMARY_MAX_CHARS - 1)}…`;
 }
 
-function headerOf(result: AgentWaitResult, timeoutSec: number): string {
+function headerOf(
+  result: AgentWaitResult,
+  timeoutSec: number,
+  cappedFromTimeoutSec?: number,
+): string {
   const known = result.entries.filter(
     (e): e is Extract<AgentWaitEntry, { info: AgentProcessInfo }> =>
       'info' in e,
   );
   const running = known.filter((e) => e.state === 'running').length;
   const ended = known.length - running;
+  const capNote =
+    cappedFromTimeoutSec !== undefined && running > 0
+      ? `Wait capped at ${timeoutSec} s on the HTTP transport (requested ${cappedFromTimeoutSec} s); ` +
+        `${running} lane(s) still running — call ptah_agent_wait again. `
+      : '';
   if (result.cancelled) {
     return (
+      capNote +
       `WAIT CANCELLED after ${formatDuration(result.waitedMs)} waiting for ${result.mode}: ` +
       `${ended} of ${known.length} known lane(s) ended, ${running} still running. ` +
       'Partial result; the lanes themselves were not stopped.'
@@ -185,12 +200,16 @@ function headerOf(result: AgentWaitResult, timeoutSec: number): string {
   }
   if (result.timedOut) {
     return (
+      capNote +
       `TIMED OUT after ${timeoutSec}s waiting for ${result.mode}: ${ended} of ${known.length} ` +
       `known lane(s) ended, ${running} still running. Partial result; call ptah_agent_wait ` +
       'again to keep waiting.'
     );
   }
-  return `Wait (${result.mode}) done after ${formatDuration(result.waitedMs)}: ${ended} of ${known.length} known lane(s) ended, ${running} still running.`;
+  return (
+    capNote +
+    `Wait (${result.mode}) done after ${formatDuration(result.waitedMs)}: ${ended} of ${known.length} known lane(s) ended, ${running} still running.`
+  );
 }
 
 function renderLane(lane: LaneSummary, share: number): string {

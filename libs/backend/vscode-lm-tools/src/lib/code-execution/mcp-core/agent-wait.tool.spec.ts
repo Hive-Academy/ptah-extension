@@ -88,6 +88,7 @@ describe('buildAgentWaitTool', () => {
       maxItems: MAX_WAIT_AGENT_IDS,
     });
     expect(tool.description).toContain('PARTIAL');
+    expect(tool.description).toContain('Over HTTP, each call waits at most 45 s');
   });
 });
 

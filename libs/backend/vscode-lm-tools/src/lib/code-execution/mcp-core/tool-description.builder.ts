@@ -616,7 +616,8 @@ export function buildAgentSpawnTool(): MCPToolDefinition {
       '"no-deliverable" means the agent exited cleanly WITHOUT doing the ' +
       'work, so declare "deliverables" on every spawn whose output is a file. ' +
       'To block until lanes end, make one ptah_agent_wait call, never a ' +
-      'ptah_agent_status loop. ' +
+      'ptah_agent_status loop. Over HTTP each wait call lasts at most 45 s, so ' +
+      'repeat ptah_agent_wait while lanes remain running. ' +
       'Use ptah_agent_status and ptah_agent_read as the fallback when no ' +
       'signal arrives (some adapters report nothing useful, and a signal is ' +
       'refused when this session is no longer live). ' +

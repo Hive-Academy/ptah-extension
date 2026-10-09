@@ -409,6 +409,73 @@ describe('blocking wait surface parity', () => {
     });
   });
 
+  it('caps only HTTP waits below its request timeout and reports the partial result', async () => {
+    const runningResult = {
+      mode: 'all' as const,
+      timedOut: true,
+      cancelled: false,
+      waitedMs: 45_000,
+      entries: [
+        {
+          agentId: 'a-1',
+          state: 'running' as const,
+          info: {
+            agentId: 'a-1',
+            cli: 'codex' as const,
+            task: 't',
+            workingDirectory: '/ws',
+            status: 'running' as const,
+            startedAt: '2026-10-03T00:00:00.000Z',
+          },
+        },
+      ],
+    };
+    const httpApi = waitApi();
+    httpApi.agent.waitForAgents.mockResolvedValue(runningResult);
+    const http = await callOverHttp(
+      'ptah_agent_wait',
+      { agentIds: ['a-1'], timeoutSec: 600 },
+      httpApi,
+    );
+
+    expect(httpApi.agent.waitForAgents).toHaveBeenCalledWith(
+      ['a-1'],
+      'all',
+      45_000,
+      undefined,
+    );
+    expect(textOf(http)).toContain(
+      'Wait capped at 45 s on the HTTP transport (requested 600 s); 1 lane(s) still running',
+    );
+    expect(textOf(http).length).toBeLessThanOrEqual(4_000);
+
+    const shortHttpApi = waitApi();
+    await callOverHttp(
+      'ptah_agent_wait',
+      { agentIds: ['a-1'], timeoutSec: 20 },
+      shortHttpApi,
+    );
+    expect(shortHttpApi.agent.waitForAgents).toHaveBeenCalledWith(
+      ['a-1'],
+      'all',
+      20_000,
+      undefined,
+    );
+
+    const stdioApi = waitApi();
+    await callOverStdio(
+      'agent_wait',
+      { agentIds: ['a-1'], timeoutSec: 600 },
+      stdioApi,
+    );
+    expect(stdioApi.agent.waitForAgents).toHaveBeenCalledWith(
+      ['a-1'],
+      'all',
+      600_000,
+      undefined,
+    );
+  });
+
   it.each([
     ['no agentIds', {}],
     ['an empty agentIds', { agentIds: [] }],
