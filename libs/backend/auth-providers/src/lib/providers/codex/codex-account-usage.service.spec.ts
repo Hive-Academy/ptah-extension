@@ -1,4 +1,14 @@
 import 'reflect-metadata';
+
+const SYNTHETIC_CODEX_BINARY =
+  '/synthetic/vendor/aarch64-apple-darwin/bin/codex';
+const mockResolveCodexNativeBinaryPath = jest.fn<string | undefined, []>(
+  () => SYNTHETIC_CODEX_BINARY,
+);
+jest.mock('@ptah-extension/agent-sdk', () => ({
+  ...jest.requireActual('@ptah-extension/agent-sdk'),
+  resolveCodexNativeBinaryPath: () => mockResolveCodexNativeBinaryPath(),
+}));
 import { EventEmitter } from 'node:events';
 import { PassThrough, Writable } from 'node:stream';
 import { resolve } from 'node:path';
@@ -187,6 +197,64 @@ function harness(scenario: Scenario = {}) {
 }
 
 describe('CodexAccountUsageService', () => {
+  afterEach(() => {
+    mockResolveCodexNativeBinaryPath.mockImplementation(
+      () => SYNTHETIC_CODEX_BINARY,
+    );
+    jest.restoreAllMocks();
+  });
+
+  it('spawns the native Codex binary, never the host executable', async () => {
+    const h = harness();
+    await h.service.getAccountUsage();
+    expect(h.requests).toHaveLength(1);
+    expect(h.requests[0].command).toBe(SYNTHETIC_CODEX_BINARY);
+    expect(h.requests[0].command).not.toBe(process.execPath);
+    expect(h.requests[0].args).toEqual(['app-server']);
+  });
+
+  it('reports cli-unavailable without spawning when no native binary is found', async () => {
+    mockResolveCodexNativeBinaryPath.mockImplementation(() => undefined);
+    const h = harness();
+    await expect(h.service.getAccountUsage()).resolves.toEqual({
+      status: 'cli-unavailable',
+      providerId: 'openai-codex',
+    });
+    expect(h.requests).toHaveLength(0);
+  });
+
+  it('answers a failed read from memory during the backoff; refresh and auth changes still read', async () => {
+    const h = harness({ spawnThrows: true });
+    await h.service.getAccountUsage();
+    await h.service.getAccountUsage();
+    await h.service.getAccountUsage();
+    expect(h.requests).toHaveLength(1);
+    await h.service.getAccountUsage({ refresh: true });
+    expect(h.requests).toHaveLength(2);
+    h.authChanged();
+    await h.service.getAccountUsage();
+    expect(h.requests).toHaveLength(3);
+  });
+
+  it('reads again once the backoff has passed', async () => {
+    const now = jest.spyOn(Date, 'now').mockReturnValue(1_000_000);
+    const h = harness({ spawnThrows: true });
+    await h.service.getAccountUsage();
+    now.mockReturnValue(1_000_000 + 29_999);
+    await h.service.getAccountUsage();
+    expect(h.requests).toHaveLength(1);
+    now.mockReturnValue(1_000_000 + 30_000);
+    await h.service.getAccountUsage();
+    expect(h.requests).toHaveLength(2);
+  });
+
+  it('does not re-read a signed-out home on every call', async () => {
+    const h = harness({ account: null });
+    await h.service.getAccountUsage();
+    await h.service.getAccountUsage();
+    expect(h.requests).toHaveLength(1);
+  });
+
   it('initializes first, omits params on both reads, uses exact CODEX_HOME, validates and redacts', async () => {
     const h = harness();
     const result = await h.service.getAccountUsage();

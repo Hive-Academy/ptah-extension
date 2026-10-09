@@ -1,11 +1,15 @@
-import { dirname, join, resolve } from 'node:path';
+import { resolve } from 'node:path';
 import { inject, injectable } from 'tsyringe';
 import type {
   IProcessSpawner,
   SpawnedProcessHandle,
 } from '@ptah-extension/platform-core';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
-import { SDK_TOKENS, type SdkAdapterEvents } from '@ptah-extension/agent-sdk';
+import {
+  SDK_TOKENS,
+  resolveCodexNativeBinaryPath,
+  type SdkAdapterEvents,
+} from '@ptah-extension/agent-sdk';
 import { AUTH_PROVIDERS_TOKENS } from '../../di/tokens';
 import { accountOwnerKey } from '../../quota/provider-owner.resolver';
 import { CodexHomeResolver } from './codex-home-resolver';
@@ -24,6 +28,9 @@ import {
 } from './codex-account.schemas';
 
 const CACHE_TTL_MS = 30_000;
+// A read that did not end in usable data is answered from memory for this
+// long, so callers that poll cannot turn it into a spawn per call.
+const MISS_BACKOFF_MS = 30_000;
 const REQUEST_TIMEOUT_MS = 10_000;
 const MAX_LINE_BYTES = 1024 * 1024;
 
@@ -91,11 +98,6 @@ function joinWithCallerAbort<T>(
   });
 }
 
-function packagedCodexScript(): string {
-  const packageJson = require.resolve('@openai/codex/package.json') as string;
-  return join(dirname(packageJson), 'bin', 'codex.js');
-}
-
 @injectable()
 export class CodexAccountUsageService
   implements ICodexAccountUsageService, ICodexOwnerKeySource
@@ -109,6 +111,8 @@ export class CodexAccountUsageService
    */
   private generation = 0;
   private readInFlight: Promise<CodexAccountUsageResult> | null = null;
+  private lastMiss: { at: number; result: CodexAccountUsageResult } | null =
+    null;
   private readonly active = new Set<SpawnedProcessHandle>();
   private readonly closing = new Map<SpawnedProcessHandle, Promise<void>>();
 
@@ -133,6 +137,7 @@ export class CodexAccountUsageService
     this.generation += 1;
     // Later callers start a fresh read instead of joining one begun before the change.
     this.readInFlight = null;
+    this.lastMiss = null;
   }
 
   currentOwnerKey(): string | null {
@@ -152,6 +157,13 @@ export class CodexAccountUsageService
       Date.now() - this.cached.fetchedAt < CACHE_TTL_MS
     ) {
       return this.cached;
+    }
+    if (
+      !options.refresh &&
+      this.lastMiss !== null &&
+      Date.now() - this.lastMiss.at < MISS_BACKOFF_MS
+    ) {
+      return this.lastMiss.result;
     }
     // The initiating caller still owns cancellation of the shared process.
     // Joiners can abandon only their own wait without disrupting other callers.
@@ -179,6 +191,8 @@ export class CodexAccountUsageService
       if (generation === this.generation) {
         this.cached = result;
         this.ownerKey = ownerKey;
+        this.lastMiss =
+          result.status === 'available' ? null : { at: Date.now(), result };
       }
       return result;
     } catch (error: unknown) {
@@ -192,12 +206,15 @@ export class CodexAccountUsageService
         '[CodexAccountUsage] App Server account read unavailable',
         { status },
       );
-      return this.cached
+      const result: CodexAccountUsageResult = this.cached
         ? { ...this.cached, status: 'stale', staleSince: Date.now() }
         : {
             status,
             providerId: 'openai-codex',
           };
+      if (generation === this.generation)
+        this.lastMiss = { at: Date.now(), result };
+      return result;
     }
   }
 
@@ -276,9 +293,14 @@ export class CodexAccountUsageService
   }
 
   private spawn(args: readonly string[]): SpawnedProcessHandle {
+    // The native binary, not the `codex.js` launcher: on Electron
+    // `process.execPath` is the Ptah app, so launching the script with it
+    // opened a second app instance (Plane PTAH-20).
+    const binary = resolveCodexNativeBinaryPath();
+    if (binary === undefined) throw new AppServerError('cli');
     const child = this.spawner.spawnProcess({
-      command: process.execPath,
-      args: [packagedCodexScript(), ...args],
+      command: binary,
+      args: [...args],
       env: { ...process.env, CODEX_HOME: this.codexHome.path },
     });
     this.active.add(child);
