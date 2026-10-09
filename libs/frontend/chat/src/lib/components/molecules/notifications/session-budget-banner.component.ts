@@ -425,10 +425,6 @@ export class SessionBudgetBannerComponent {
 
   /** The stage to show, or `null` for none. */
   protected readonly stage = computed<BannerStage | null>(() => {
-    const budget = this.budget();
-    if (!budget || (budget.stage !== 'handoff' && budget.stage !== 'limit')) {
-      return null;
-    }
     const handover = this.handover();
     if (handover?.phase === 'failed') return 'handover-failed';
     if (
@@ -436,6 +432,10 @@ export class SessionBudgetBannerComponent {
       ['writing-handoff', 'starting-successor', 'successor-confirmed', 'closing'].includes(handover.phase)
     ) {
       return 'handover-progress';
+    }
+    const budget = this.budget();
+    if (!budget || (budget.stage !== 'handoff' && budget.stage !== 'limit')) {
+      return null;
     }
     if (budget.stage === 'handoff' && budget.dismissedStage === 'handoff') return null;
     return budget.stage;

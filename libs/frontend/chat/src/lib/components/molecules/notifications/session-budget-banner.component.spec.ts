@@ -437,7 +437,7 @@ describe('SessionBudgetBannerComponent', () => {
     );
   });
 
-  it('does not render a lifecycle notification before handoff', () => {
+  it('renders a failed handover before the budget handoff stage', () => {
     const root = render(
       { ...BASE, stage: 'tighten' },
       {
@@ -453,7 +453,24 @@ describe('SessionBudgetBannerComponent', () => {
       },
     );
 
-    expect(banner(root)).toBeNull();
+    expect(text(root, 'session-budget-title')).toBe('Could not continue in a new session');
+    expect(button(root, 'Retry')).toBeInstanceOf(HTMLButtonElement);
+  });
+
+  it('renders handover progress without a budget', () => {
+    const root = render(null, {
+      handover: {
+        operationId: 'handover-1',
+        sourceSessionId: BASE.sessionId,
+        reason: 'successor',
+        phase: 'starting-successor',
+        revision: 3,
+        heldInputCount: 0,
+      },
+    });
+
+    expect(text(root, 'session-budget-title')).toBe('Continuing in a new session…');
+    expect(text(root, 'session-handover-progress')).toBe('Starting the new session…');
   });
 
   // Main-side coverage retained for the merged handoff/limit surface.

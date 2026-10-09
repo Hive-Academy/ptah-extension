@@ -510,11 +510,12 @@ export class SessionLifecycleManager {
     const rec = this._registry.find(sessionId as string);
     if (rec && this.handoverCoordinator) {
       const canonicalId = this.handoverKey(sessionId);
+      const budgetSessionId = rec.realSessionId ?? (sessionId as string);
       this.handoverCoordinator.armAtTerminal(
         canonicalId,
         atBlockingLimit,
         rec.messageQueue,
-        this.sessionBudget?.stageFor(canonicalId) === 'handoff',
+        this.sessionBudget?.stageFor(budgetSessionId) === 'handoff',
       );
     }
     this._registry.markTurnEnded(sessionId as string);
@@ -522,7 +523,9 @@ export class SessionLifecycleManager {
 
   /** Read the current refusal before an interrupt releases the source turn. */
   private isAtBlockingLimit(sessionId: SessionId): boolean {
-    const check = this.sessionBudget?.canSend(sessionId as string);
+    const rec = this._registry.find(sessionId as string);
+    const budgetSessionId = rec?.realSessionId ?? (sessionId as string);
+    const check = this.sessionBudget?.canSend(budgetSessionId);
     return check?.ok === false;
   }
 

@@ -458,16 +458,22 @@ describe('SessionHandoverCoordinator', () => {
     expect(host.deliverTransferInputs).toHaveBeenCalledWith(expect.any(String), []);
   });
 
-  it('restores held input when the source ends and allows a new operation', () => {
+  it('reports held inputs as lost when the source ends and allows a new operation', () => {
     const { coordinator, runtime } = makeHarness();
     const first = coordinator.request('source', 'budget-limit', false);
     coordinator.armAtTerminal('source', true, []);
     coordinator.admitOrHold('source', { content: 'keep me' });
+    coordinator.admitOrHold('source', { content: 'put me back' });
 
     coordinator.sourceEnded('source', SOURCE.token, 'stream stopped');
 
-    expect(runtime.restoreInputs).toHaveBeenCalledWith('source', [{ content: 'keep me' }]);
-    expect(coordinator.snapshotFor('source')).toEqual(expect.objectContaining({ phase: 'failed' }));
+    expect(runtime.restoreInputs).not.toHaveBeenCalled();
+    expect(coordinator.snapshotFor('source')).toEqual(expect.objectContaining({
+      phase: 'failed',
+      error: 'source session ended: stream stopped',
+      lostInputCount: 2,
+      lostInputTexts: ['keep me', 'put me back'],
+    }));
     expect(coordinator.request('source', 'successor', false).operationId).not.toBe(first.operationId);
   });
 
@@ -488,7 +494,7 @@ describe('SessionHandoverCoordinator', () => {
     );
   });
 
-  it('restores once and never delivers when the source ends during successor startup', async () => {
+  it('reports lost inputs and never delivers when the source ends during successor startup', async () => {
     let resolveStart!: (result: { readonly started: boolean }) => void;
     const start = jest.fn().mockImplementation(
       () => new Promise<{ readonly started: boolean }>((resolve) => { resolveStart = resolve; }),
@@ -513,8 +519,7 @@ describe('SessionHandoverCoordinator', () => {
     resolveStart({ started: true });
     await flush();
 
-    expect(runtime.restoreInputs).toHaveBeenCalledTimes(1);
-    expect(runtime.restoreInputs).toHaveBeenCalledWith('source', [{ content: 'keep me' }]);
+    expect(runtime.restoreInputs).not.toHaveBeenCalled();
     expect(deliver).not.toHaveBeenCalled();
     expect(stop).toHaveBeenCalledTimes(1);
     expect(coordinator.snapshotFor('source')).toEqual(expect.objectContaining({ phase: 'failed' }));
@@ -539,9 +544,8 @@ describe('SessionHandoverCoordinator', () => {
     }));
   });
 
-  it('publishes bounded source text when held inputs cannot be restored', () => {
+  it('publishes bounded source text when the source ends with held inputs', () => {
     const { coordinator, runtime } = makeHarness();
-    runtime.restoreInputs.mockReturnValue(false);
     coordinator.request('source', 'budget-limit', false);
     coordinator.armAtTerminal('source', true, []);
     coordinator.admitOrHold('source', { content: 'a'.repeat(2_100) });
@@ -553,5 +557,6 @@ describe('SessionHandoverCoordinator', () => {
       lostInputCount: 1,
       lostInputTexts: ['a'.repeat(2_000)],
     }));
+    expect(runtime.restoreInputs).not.toHaveBeenCalled();
   });
 });

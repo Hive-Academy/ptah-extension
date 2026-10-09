@@ -576,7 +576,8 @@ export class SessionHandoverCoordinator {
     operation.phase = 'failed';
     operation.error = `source session ended: ${reason}`;
     operation.revision += 1;
-    this.restore(operation);
+    operation.lostInputCount = operation.inputs.length;
+    operation.lostInputTexts = this.boundedLostInputTexts(operation.inputs);
     this.publish(operation);
   }
 

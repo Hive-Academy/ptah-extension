@@ -65,6 +65,7 @@ import type {
 import type { SdkMessageFactory } from './sdk-message-factory';
 import type { IModelResolver } from '../auth-env.port';
 import type { SessionHandoverCoordinator } from './session-handoff/session-handover-coordinator.service';
+import type { SessionBudgetService } from './session-budget/session-budget.service';
 import type {
   QueryFunction,
   Query,
@@ -215,6 +216,7 @@ function makeHarness(
     }) => Query;
     authEnv?: Partial<AuthEnv>;
     handoverCoordinator?: SessionHandoverCoordinator;
+    sessionBudget?: SessionBudgetService;
   } = {},
 ): Harness {
   const logger = createMockLogger();
@@ -299,6 +301,7 @@ function makeHarness(
     null,
     null,
     opts.handoverCoordinator ?? null,
+    opts.sessionBudget ?? null,
   );
 
   return {
@@ -771,6 +774,41 @@ describe('SessionLifecycleManager', () => {
   });
 
   describe('handover key normalization', () => {
+    it('uses the real SDK id for blocking-budget lookups when terminal arrives by tab id', async () => {
+      const coordinator = {
+        attachRuntime: jest.fn(),
+        armAtTerminal: jest.fn(),
+        snapshotFor: jest.fn(),
+      } as unknown as SessionHandoverCoordinator;
+      const budget = {
+        canSend: jest.fn().mockReturnValue({ ok: false }),
+        stageFor: jest.fn().mockReturnValue('handoff'),
+      } as unknown as SessionBudgetService;
+      const handoverHarness = makeHarness({
+        handoverCoordinator: coordinator,
+        sessionBudget: budget,
+      });
+      const tabId = 'tab_budget_key' as SessionId;
+      const realSessionId = 'sdk_budget_key';
+
+      await handoverHarness.manager.executeQuery({
+        sessionId: tabId,
+        sessionConfig: createSessionConfig(),
+      });
+      handoverHarness.manager.bindRealSessionId(tabId as string, realSessionId);
+
+      handoverHarness.manager.onTurnTerminal(tabId);
+
+      expect(budget.canSend).toHaveBeenCalledWith(realSessionId);
+      expect(budget.stageFor).toHaveBeenCalledWith(realSessionId);
+      expect(coordinator.armAtTerminal).toHaveBeenCalledWith(
+        realSessionId,
+        true,
+        expect.any(Array),
+        true,
+      );
+    });
+
     it('arms a real-SDK-id handover when turn completion arrives with the tab id', async () => {
       const coordinator = {
         attachRuntime: jest.fn(),
