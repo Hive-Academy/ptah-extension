@@ -133,6 +133,14 @@ jobs:
           AFFECTED_PROJECTS="$(node_modules/.bin/nx show projects --affected -t test --json)" \
             node -e 'const affected = JSON.parse(process.env.AFFECTED_PROJECTS); const heavy = ["@ptah-extension/vscode-lm-tools", "@ptah-extension/agent-sdk", "@ptah-extension/chat", "@ptah-extension/rpc-handlers", "@ptah-extension/cli-agent-runtime", "@ptah-extension/chat-streaming", "@ptah-extension/cli-engine"]; const remaining = new Set(affected); const ordered = [...heavy.filter((project) => remaining.delete(project)), ...[...remaining].sort()]; const shard = Number(process.argv[1]); const shardCount = Number(process.argv[2]); const bucket = ordered.filter((_, index) => index % shardCount === shard - 1); console.error(`Shard ${shard}/${shardCount}: ${bucket.join(", ") || "no affected test projects"}`); console.log(`projects=${bucket.join(",")}`);' "${{ matrix.shard }}" 4 >> "$GITHUB_OUTPUT"
 
+      # mcp-bench's live-rg specs fail under CI=true without ripgrep (see
+      # tools/mcp-bench/src/baselines/native-baselines.spec.ts).
+      - name: Install ripgrep for mcp-bench specs
+        if: contains(format(',{0},', steps.bucket.outputs.projects), ',mcp-bench,')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ripgrep
+
       # Required coverage gate (TASK_2025_294 W8.B1). Per-project
       # `coverageThreshold` stanzas in each `jest.config.ts` are ratcheted
       # to the current baseline rounded down to the nearest 5. A drop below

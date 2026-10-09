@@ -212,24 +212,46 @@ interface IndexerDouble {
   indexWorkspace: jest.Mock;
   reindexFile: jest.Mock;
   runs: Deferred[];
+  /** Roots whose full run the double has not settled. */
+  activeRoots: Set<string>;
 }
 
-/** An indexer whose every full run stays pending until the spec settles it. */
+/**
+ * An indexer whose every full run stays pending until the spec settles it.
+ * `isIndexing` is true for a root from the synchronous `indexWorkspace`
+ * call until that run's promise settles — the real indexer's contract.
+ */
 function makeIndexer(): IndexerDouble {
   const runs: Deferred[] = [];
-  const indexWorkspace = jest.fn(() => {
+  const activeRoots = new Set<string>();
+  const indexWorkspace = jest.fn((root: string) => {
     const run = deferred();
     runs.push(run);
+    activeRoots.add(root);
+    void run.promise.then(
+      () => {
+        activeRoots.delete(root);
+      },
+      () => {
+        activeRoots.delete(root);
+      },
+    );
     return run.promise;
   });
   const reindexFile = jest
     .fn()
     .mockResolvedValue({ symbolsIndexed: 4, errors: 0, durationMs: 12 });
+  const isIndexing = jest.fn((root: string) => activeRoots.has(root));
   return {
-    indexer: { indexWorkspace, reindexFile } as unknown as CodeSymbolIndexer,
+    indexer: {
+      indexWorkspace,
+      reindexFile,
+      isIndexing,
+    } as unknown as CodeSymbolIndexer,
     indexWorkspace,
     reindexFile,
     runs,
+    activeRoots,
   };
 }
 
@@ -488,6 +510,42 @@ describe('buildCodeNamespace.ensureIndexFresh', () => {
     expect(JSON.stringify(warn.mock.calls)).not.toContain('/secret');
   });
 
+  it('does not start a second indexWorkspace when the indexer already has a run for the root', async () => {
+    let active = true;
+    const double = makeIndexer();
+    (double.indexer.isIndexing as unknown as jest.Mock).mockImplementation(
+      () => active,
+    );
+    // The lifecycle already owns the one full run.
+    const lifecycle = deferred();
+    double.runs.push(lifecycle);
+    double.indexWorkspace.mockImplementation(() => lifecycle.promise);
+    void double.indexer.indexWorkspace('/ws');
+    double.indexWorkspace.mockClear();
+
+    const ns = buildCodeNamespace(freshnessDeps(makeReader(EMPTY), double));
+    const result = (await ns.searchSymbols('login')) as SymbolSearchResult;
+    await flush();
+
+    expect(double.indexWorkspace).not.toHaveBeenCalled();
+    expect(result.index).toMatchObject({
+      reindexStarted: false,
+      reindexInFlight: true,
+    });
+
+    active = false;
+    lifecycle.resolve();
+    await flush();
+    const later = (await ns.searchSymbols('login')) as SymbolSearchResult;
+    await flush();
+
+    expect(later.index.reindexStarted).toBe(true);
+    expect(double.indexWorkspace).toHaveBeenCalledTimes(1);
+    expect(double.indexWorkspace).toHaveBeenCalledWith('/ws', {
+      userInitiated: false,
+    });
+  });
+
   it('still reports a pending run as in flight when the freshness read rejects', async () => {
     const warn = jest.fn();
     const double = makeIndexer();
@@ -618,10 +676,21 @@ function coverageOf(over: Partial<CoverageFields> = {}): LanguageCoverage {
 function makeLiveIndexer(): IndexerDouble & { getCoverage: jest.Mock } {
   const double = makeIndexer();
   let running = false;
-  double.indexWorkspace.mockImplementation(() => {
+  double.indexWorkspace.mockImplementation((root: string) => {
     running = true;
+    double.activeRoots.add(root);
     const run = deferred();
     double.runs.push(run);
+    void run.promise.then(
+      () => {
+        running = false;
+        double.activeRoots.delete(root);
+      },
+      () => {
+        running = false;
+        double.activeRoots.delete(root);
+      },
+    );
     return run.promise;
   });
   const getCoverage = jest.fn(() =>

@@ -255,234 +255,246 @@ export async function execute(
   let sessionSubmitDisposeAll: (() => void) | null = null;
 
   try {
-    await engine(globals, { mode: 'full', requireSdk: false }, async (ctx) => {
-      const logger = ctx.container.resolve<Logger>(TOKENS.LOGGER);
-      registerMcpStdioServices(ctx.container, logger);
+    await engine(
+      globals,
+      { mode: 'full', requireSdk: false, workspaceIndex: true },
+      async (ctx) => {
+        const logger = ctx.container.resolve<Logger>(TOKENS.LOGGER);
+        registerMcpStdioServices(ctx.container, logger);
 
-      const stdioServer =
-        hooks.serverFactory !== undefined
-          ? hooks.serverFactory(logger)
-          : ctx.container.resolve<StdioMcpServerService>(
-              STDIO_MCP_SERVER_TOKEN,
-            );
-      cachedServerService = stdioServer;
+        const stdioServer =
+          hooks.serverFactory !== undefined
+            ? hooks.serverFactory(logger)
+            : ctx.container.resolve<StdioMcpServerService>(
+                STDIO_MCP_SERVER_TOKEN,
+              );
+        cachedServerService = stdioServer;
 
-      let sdkInitPromise: Promise<{
-        initialized: boolean;
-        errorMessage?: string;
-      }> | null = null;
-      const ensureSdk = async (): Promise<{
-        initialized: boolean;
-        errorMessage?: string;
-      }> => {
-        if (ctx.sdkAdapter) {
-          return { initialized: true };
+        let sdkInitPromise: Promise<{
+          initialized: boolean;
+          errorMessage?: string;
+        }> | null = null;
+        const ensureSdk = async (): Promise<{
+          initialized: boolean;
+          errorMessage?: string;
+        }> => {
+          if (ctx.sdkAdapter) {
+            return { initialized: true };
+          }
+          sdkInitPromise ??= (async () => {
+            try {
+              if (globals.verbose === true) {
+                process.stderr.write(
+                  '[ptah-mcp] initializing SDK adapter on demand\n',
+                );
+              }
+              const res = await ctx.initializeSdk();
+              return res;
+            } catch (err) {
+              const errorMessage =
+                err instanceof Error ? err.message : String(err);
+              return { initialized: false, errorMessage };
+            }
+          })();
+          const result = await sdkInitPromise;
+          // A failure is never cached. `mcp-serve` outlives the condition that
+          // caused it: the user adds a key in Settings while the server is up,
+          // and the next tool call must be able to succeed without a restart.
+          if (!result.initialized) sdkInitPromise = null;
+          return result;
+        };
+
+        const sessionSubmitHandler =
+          hooks.sessionSubmitFactory !== undefined
+            ? hooks.sessionSubmitFactory({
+                transport: ctx.transport,
+                pushAdapter: ctx.pushAdapter,
+                logger,
+                cwd: globals.cwd,
+                notify: (method, params) => server.notify(method, params),
+                ensureSdk,
+              })
+            : new SessionSubmitService({
+                transport: ctx.transport,
+                pushAdapter: ctx.pushAdapter,
+                logger,
+                cwd: globals.cwd,
+                notifier: {
+                  notify: <TParams>(
+                    method: string,
+                    params?: TParams,
+                  ): Promise<void> => server.notify(method, params),
+                },
+                ensureSdk,
+              });
+        stdioServer.setSessionSubmitHandler(sessionSubmitHandler);
+        const maybeDisposable = sessionSubmitHandler as unknown as {
+          disposeAll?: () => void;
+        };
+        if (typeof maybeDisposable.disposeAll === 'function') {
+          const disposeAll = maybeDisposable.disposeAll.bind(maybeDisposable);
+          sessionSubmitDisposeAll = disposeAll;
         }
-        sdkInitPromise ??= (async () => {
-          try {
-            if (globals.verbose === true) {
+
+        transport = new StdioTransport({
+          notifier: {
+            notify: <TParams>(
+              method: string,
+              params?: TParams,
+            ): Promise<void> => server.notify(method, params),
+          },
+        });
+        await transport.start();
+
+        server.register(
+          'tools/list',
+          async (params: unknown): Promise<unknown> => {
+            const req = buildMcpRequest(randomId(), 'tools/list', params);
+            const resp = stdioServer.handleToolsList(req, opts.allowTools);
+            return (resp.result ?? null) as unknown;
+          },
+        );
+
+        server.register(
+          'tools/call',
+          async (
+            params: unknown,
+            envelope?: { readonly id: string | number },
+          ): Promise<unknown> => {
+            // No bootstrap guard here. This registration runs AFTER the stdio
+            // service exists, so a call that reaches this handler is past the
+            // bootstrap window by construction. A call made DURING that window
+            // finds no `tools/call` handler at all and gets the JSON-RPC
+            // method-not-found answer, which is the truthful one. The flag that
+            // used to be read here could never be false at this point.
+            //
+            // The peer's own id, not a fresh one: `notifications/cancelled`
+            // names the call by it, so only that id lets a cancel find it.
+            const req = buildMcpRequest(
+              envelope?.id ?? randomId(),
+              'tools/call',
+              params,
+            );
+            const resp = await stdioServer.handleToolsCall(req);
+            // The peer cancelled this call while it ran: MCP says a cancelled
+            // request SHOULD NOT be answered, so no reply goes on the wire.
+            if (stdioServer.wasCancelledByPeer(resp)) return NO_RESPONSE;
+            if (resp.error !== undefined) {
+              if (resp.error.code === -32602) {
+                throw new InvalidParamsError(
+                  resp.error.message,
+                  resp.error.data,
+                );
+              }
+              const err = new Error(resp.error.message);
+              (err as unknown as { code: number; data: unknown }).code =
+                resp.error.code;
+              (err as unknown as { code: number; data: unknown }).data =
+                resp.error.data;
+              throw err;
+            }
+            return (resp.result ?? null) as unknown;
+          },
+        );
+
+        server.register(
+          'notifications/cancelled',
+          async (params: unknown): Promise<void> => {
+            await stdioServer.handleCancelled(params);
+          },
+        );
+
+        const buildMcpToolCatalog = (): readonly SessionDescribeToolEntry[] => {
+          const allowed = opts.allowTools;
+          return buildMcpMvpTools()
+            .filter(
+              (tool) =>
+                allowed === undefined ||
+                allowed.length === 0 ||
+                allowed.includes(tool.name),
+            )
+            .map((tool) => ({
+              name: tool.name,
+              description: tool.description,
+            }));
+        };
+
+        server.register('session.describe', async () =>
+          buildSessionDescribe({
+            mode: 'mcp-serve',
+            version,
+            schemaVersion: JSONRPC_SCHEMA_VERSION,
+            methods: server.getRegisteredMethods(),
+            mcpTools: buildMcpToolCatalog(),
+          }),
+        );
+
+        server.register('session.methods', async () => ({
+          methods: server.getRegisteredMethods(),
+        }));
+
+        await server.notify('notifications/initialized', {
+          serverInfo,
+          mcpHostSessionId,
+        });
+
+        await server.notify('notifications/message', {
+          level: 'debug',
+          data: {
+            kind: 'session.ready',
+            schema_version: JSONRPC_SCHEMA_VERSION,
+            capabilities: ['mcp'],
+            mcpHostSessionId,
+          },
+        });
+
+        // Derived, never a literal. This read `mvp:7` while the tuple held 8
+        // (TASK_2026_402 retired `agent_steer` and added `agent_message` +
+        // `agent_report`), so the readiness line reported a count that was
+        // simply wrong. Counting the tuple keeps it true through the next change.
+        process.stderr.write(
+          `[ptah-mcp] ready (tools=${
+            (opts.allowTools ?? []).join(',') ||
+            `mvp:${MCP_MVP_TOOL_NAMES.length}`
+          })\n`,
+        );
+
+        const exitCode = await drainPromise;
+        await drainWithTimeout(async () => {
+          stdinSource.off('end', onStdinEnd);
+          stdinSource.off('close', onStdinEnd);
+          uninstallSigint();
+          uninstallSigterm();
+          if (sessionSubmitDisposeAll !== null) {
+            try {
+              sessionSubmitDisposeAll();
+            } catch (err) {
               process.stderr.write(
-                '[ptah-mcp] initializing SDK adapter on demand\n',
+                `[ptah-mcp] session_submit disposeAll failed: ${
+                  err instanceof Error ? err.message : String(err)
+                }\n`,
               );
             }
-            const res = await ctx.initializeSdk();
-            return res;
-          } catch (err) {
-            const errorMessage =
-              err instanceof Error ? err.message : String(err);
-            return { initialized: false, errorMessage };
           }
-        })();
-        const result = await sdkInitPromise;
-        // A failure is never cached. `mcp-serve` outlives the condition that
-        // caused it: the user adds a key in Settings while the server is up,
-        // and the next tool call must be able to succeed without a restart.
-        if (!result.initialized) sdkInitPromise = null;
-        return result;
-      };
-
-      const sessionSubmitHandler =
-        hooks.sessionSubmitFactory !== undefined
-          ? hooks.sessionSubmitFactory({
-              transport: ctx.transport,
-              pushAdapter: ctx.pushAdapter,
-              logger,
-              cwd: globals.cwd,
-              notify: (method, params) => server.notify(method, params),
-              ensureSdk,
-            })
-          : new SessionSubmitService({
-              transport: ctx.transport,
-              pushAdapter: ctx.pushAdapter,
-              logger,
-              cwd: globals.cwd,
-              notifier: {
-                notify: <TParams>(
-                  method: string,
-                  params?: TParams,
-                ): Promise<void> => server.notify(method, params),
-              },
-              ensureSdk,
-            });
-      stdioServer.setSessionSubmitHandler(sessionSubmitHandler);
-      const maybeDisposable = sessionSubmitHandler as unknown as {
-        disposeAll?: () => void;
-      };
-      if (typeof maybeDisposable.disposeAll === 'function') {
-        const disposeAll = maybeDisposable.disposeAll.bind(maybeDisposable);
-        sessionSubmitDisposeAll = disposeAll;
-      }
-
-      transport = new StdioTransport({
-        notifier: {
-          notify: <TParams>(method: string, params?: TParams): Promise<void> =>
-            server.notify(method, params),
-        },
-      });
-      await transport.start();
-
-      server.register(
-        'tools/list',
-        async (params: unknown): Promise<unknown> => {
-          const req = buildMcpRequest(randomId(), 'tools/list', params);
-          const resp = stdioServer.handleToolsList(req, opts.allowTools);
-          return (resp.result ?? null) as unknown;
-        },
-      );
-
-      server.register(
-        'tools/call',
-        async (
-          params: unknown,
-          envelope?: { readonly id: string | number },
-        ): Promise<unknown> => {
-          // No bootstrap guard here. This registration runs AFTER the stdio
-          // service exists, so a call that reaches this handler is past the
-          // bootstrap window by construction. A call made DURING that window
-          // finds no `tools/call` handler at all and gets the JSON-RPC
-          // method-not-found answer, which is the truthful one. The flag that
-          // used to be read here could never be false at this point.
-          //
-          // The peer's own id, not a fresh one: `notifications/cancelled`
-          // names the call by it, so only that id lets a cancel find it.
-          const req = buildMcpRequest(
-            envelope?.id ?? randomId(),
-            'tools/call',
-            params,
-          );
-          const resp = await stdioServer.handleToolsCall(req);
-          // The peer cancelled this call while it ran: MCP says a cancelled
-          // request SHOULD NOT be answered, so no reply goes on the wire.
-          if (stdioServer.wasCancelledByPeer(resp)) return NO_RESPONSE;
-          if (resp.error !== undefined) {
-            if (resp.error.code === -32602) {
-              throw new InvalidParamsError(resp.error.message, resp.error.data);
-            }
-            const err = new Error(resp.error.message);
-            (err as unknown as { code: number; data: unknown }).code =
-              resp.error.code;
-            (err as unknown as { code: number; data: unknown }).data =
-              resp.error.data;
-            throw err;
+          // Before the transport stops: aborts the tool calls still in flight
+          // and kills every live `run_check` Nx tree. Never rejects.
+          await stdioServer.dispose();
+          if (transport !== null) {
+            await transport.stop();
           }
-          return (resp.result ?? null) as unknown;
-        },
-      );
-
-      server.register(
-        'notifications/cancelled',
-        async (params: unknown): Promise<void> => {
-          await stdioServer.handleCancelled(params);
-        },
-      );
-
-      const buildMcpToolCatalog = (): readonly SessionDescribeToolEntry[] => {
-        const allowed = opts.allowTools;
-        return buildMcpMvpTools()
-          .filter(
-            (tool) =>
-              allowed === undefined ||
-              allowed.length === 0 ||
-              allowed.includes(tool.name),
-          )
-          .map((tool) => ({ name: tool.name, description: tool.description }));
-      };
-
-      server.register('session.describe', async () =>
-        buildSessionDescribe({
-          mode: 'mcp-serve',
-          version,
-          schemaVersion: JSONRPC_SCHEMA_VERSION,
-          methods: server.getRegisteredMethods(),
-          mcpTools: buildMcpToolCatalog(),
-        }),
-      );
-
-      server.register('session.methods', async () => ({
-        methods: server.getRegisteredMethods(),
-      }));
-
-      await server.notify('notifications/initialized', {
-        serverInfo,
-        mcpHostSessionId,
-      });
-
-      await server.notify('notifications/message', {
-        level: 'debug',
-        data: {
-          kind: 'session.ready',
-          schema_version: JSONRPC_SCHEMA_VERSION,
-          capabilities: ['mcp'],
-          mcpHostSessionId,
-        },
-      });
-
-      // Derived, never a literal. This read `mvp:7` while the tuple held 8
-      // (TASK_2026_402 retired `agent_steer` and added `agent_message` +
-      // `agent_report`), so the readiness line reported a count that was
-      // simply wrong. Counting the tuple keeps it true through the next change.
-      process.stderr.write(
-        `[ptah-mcp] ready (tools=${
-          (opts.allowTools ?? []).join(',') ||
-          `mvp:${MCP_MVP_TOOL_NAMES.length}`
-        })\n`,
-      );
-
-      const exitCode = await drainPromise;
-      await drainWithTimeout(async () => {
-        stdinSource.off('end', onStdinEnd);
-        stdinSource.off('close', onStdinEnd);
-        uninstallSigint();
-        uninstallSigterm();
-        if (sessionSubmitDisposeAll !== null) {
-          try {
-            sessionSubmitDisposeAll();
-          } catch (err) {
-            process.stderr.write(
-              `[ptah-mcp] session_submit disposeAll failed: ${
-                err instanceof Error ? err.message : String(err)
-              }\n`,
-            );
+          server.stop();
+          await formatter.close();
+          if (priorSessionIdSet && priorSessionId !== undefined) {
+            process.env['PTAH_MCP_HOST_SESSION_ID'] = priorSessionId;
+          } else {
+            delete process.env['PTAH_MCP_HOST_SESSION_ID'];
           }
-        }
-        // Before the transport stops: aborts the tool calls still in flight
-        // and kills every live `run_check` Nx tree. Never rejects.
-        await stdioServer.dispose();
-        if (transport !== null) {
-          await transport.stop();
-        }
-        server.stop();
-        await formatter.close();
-        if (priorSessionIdSet && priorSessionId !== undefined) {
-          process.env['PTAH_MCP_HOST_SESSION_ID'] = priorSessionId;
-        } else {
-          delete process.env['PTAH_MCP_HOST_SESSION_ID'];
-        }
-      }, drainTimeoutMs);
+        }, drainTimeoutMs);
 
-      resolvedExitCode = exitCode;
-      process.stderr.write(`[ptah-mcp] shut down (exit=${exitCode})\n`);
-    });
+        resolvedExitCode = exitCode;
+        process.stderr.write(`[ptah-mcp] shut down (exit=${exitCode})\n`);
+      },
+    );
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     process.stderr.write(`[ptah-mcp] fatal: ${message}\n`);

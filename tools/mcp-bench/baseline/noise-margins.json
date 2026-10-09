@@ -1,0 +1,165 @@
+{
+  "schemaVersion": 2,
+  "measuredAt": "2026-10-07T07:09:30.187Z",
+  "runs": 3,
+  "host": "cli-headless",
+  "smoke": true,
+  "corpusCommit": "7910f34cf",
+  "sigmaMultiple": 2,
+  "suites": {
+    "ptah_ast_analyze / file-tools": {
+      "margin": 0.025,
+      "sdMargin": 0,
+      "floor": 0.025,
+      "questions": 40,
+      "metric": "recall_all",
+      "measuredAs": "native-gap"
+    },
+    "ptah_code_search_symbols / symbols-concept": {
+      "margin": 0.025,
+      "sdMargin": 0,
+      "floor": 0.025,
+      "questions": 40,
+      "metric": "hit@5",
+      "measuredAs": "native-gap"
+    },
+    "ptah_code_search_symbols / symbols-exact": {
+      "margin": 0.0289,
+      "sdMargin": 0.0289,
+      "floor": 0.025,
+      "questions": 40,
+      "metric": "hit@5",
+      "measuredAs": "native-gap"
+    },
+    "ptah_context_enrich_file / file-tools": {
+      "margin": 0.025,
+      "sdMargin": 0,
+      "floor": 0.025,
+      "questions": 40,
+      "metric": "recall_all",
+      "measuredAs": "native-gap"
+    },
+    "ptah_get_dependents / dependents": {
+      "margin": 0.1,
+      "sdMargin": 0.1,
+      "floor": 0.025,
+      "questions": 40,
+      "metric": "recall_all",
+      "measuredAs": "native-gap"
+    },
+    "ptah_get_symbol_index / symbols-exact": {
+      "margin": 0.0289,
+      "sdMargin": 0.0289,
+      "floor": 0.025,
+      "questions": 40,
+      "metric": "hit@1",
+      "measuredAs": "native-gap"
+    },
+    "ptah_memory_search / memory": {
+      "margin": 0.025,
+      "sdMargin": 0,
+      "floor": 0.025,
+      "questions": 40,
+      "metric": "hit@5",
+      "measuredAs": "own-metric"
+    },
+    "ptah_relevance_rank_files / relevance": {
+      "margin": 0.025,
+      "sdMargin": 0,
+      "floor": 0.025,
+      "questions": 40,
+      "metric": "recall@10",
+      "measuredAs": "native-gap"
+    },
+    "ptah_search_files / file-tools": {
+      "margin": 0.025,
+      "sdMargin": 0,
+      "floor": 0.025,
+      "questions": 40,
+      "metric": "recall_all",
+      "measuredAs": "native-gap"
+    }
+  },
+  "lifecycle": {
+    "ptah_code_search_symbols / add-then-query": {
+      "status": "fail",
+      "passes": 0,
+      "runsSeen": 3
+    },
+    "ptah_code_search_symbols / cold-start": {
+      "status": "fail",
+      "passes": 0,
+      "runsSeen": 3
+    },
+    "ptah_code_search_symbols / delete-then-query": {
+      "status": "fail",
+      "passes": 0,
+      "runsSeen": 3
+    },
+    "ptah_code_search_symbols / edit-then-query-5s": {
+      "status": "fail",
+      "passes": 0,
+      "runsSeen": 3
+    },
+    "ptah_code_search_symbols / edit-then-query-60s": {
+      "status": "fail",
+      "passes": 0,
+      "runsSeen": 3
+    },
+    "ptah_code_search_symbols / index-age-24h": {
+      "status": "fail",
+      "passes": 0,
+      "runsSeen": 3
+    },
+    "ptah_code_search_symbols / large-file-1.5mib": {
+      "status": "pass",
+      "passes": 3,
+      "runsSeen": 3
+    },
+    "ptah_code_search_symbols / large-file-3900-lines": {
+      "status": "fail",
+      "passes": 0,
+      "runsSeen": 3
+    },
+    "ptah_code_search_symbols / two-workspaces-symbol-scope": {
+      "status": "fail",
+      "passes": 0,
+      "runsSeen": 3
+    },
+    "ptah_memory_search / embedder-warmup": {
+      "status": "pass",
+      "passes": 3,
+      "runsSeen": 3
+    },
+    "ptah_memory_search / two-workspaces-memory-leak": {
+      "status": "pass",
+      "passes": 3,
+      "runsSeen": 3
+    },
+    "ptah_memory_search / worktree-memory-scope": {
+      "status": "fail",
+      "passes": 0,
+      "runsSeen": 3
+    },
+    "ptah_memory_search / worktree-spool-path": {
+      "status": "fail",
+      "passes": 0,
+      "runsSeen": 3
+    },
+    "ptah_search_files / transport-idle-gaps": {
+      "status": "pass",
+      "passes": 3,
+      "runsSeen": 3
+    },
+    "ptah_search_files / transport-restart": {
+      "status": "pass",
+      "passes": 3,
+      "runsSeen": 3
+    },
+    "ptah_task_create / worktree-task-tools": {
+      "status": "fail",
+      "passes": 0,
+      "runsSeen": 3
+    }
+  }
+}
