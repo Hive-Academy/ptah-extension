@@ -381,7 +381,10 @@ test.describe('webview > settings > agent orchestration > background model picke
     );
     await bridge.inject({ type: 'switchView', payload: { view: 'settings' } });
     await expect(page.locator('[data-testid="settings-back"]')).toBeVisible();
-    await page.getByRole('button', { name: 'Agent Orchestration' }).click();
+    await page
+      .locator('ptah-settings')
+      .getByRole('button', { name: 'Agent Orchestration', exact: true })
+      .click();
     await page.locator('[data-testid="background-roles-summary"]').click();
 
     // Background model rows render only after their section read lands, so
