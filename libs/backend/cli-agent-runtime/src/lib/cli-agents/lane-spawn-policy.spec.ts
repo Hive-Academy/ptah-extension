@@ -268,7 +268,6 @@ describe('lane spawn policy (TASK_2026_597, D4)', () => {
       );
 
       it.each([
-        ['minimal', 'low'],
         ['medium', 'medium'],
         ['xhigh', 'xhigh'],
         ['max', 'max'],
@@ -277,6 +276,16 @@ describe('lane spawn policy (TASK_2026_597, D4)', () => {
           effort: expected,
           step: 5,
           ignored: [],
+        });
+      });
+
+      it('drops unsupported antigravity spawn effort instead of coercing it', () => {
+        expect(
+          resolveLaneEffort({ cli: 'antigravity', spawnEffort: 'minimal' }),
+        ).toEqual({
+          effort: undefined,
+          step: 6,
+          ignored: [{ step: 1, value: 'minimal' }],
         });
       });
 

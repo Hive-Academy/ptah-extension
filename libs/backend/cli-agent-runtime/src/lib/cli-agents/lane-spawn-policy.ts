@@ -202,8 +202,6 @@ function mapEffortToCli(effort: string): string | undefined {
 /** Allowlist the `low|medium|high|xhigh|max` scale `agy --effort` accepts. */
 function mapEffortToAgy(effort: string): string | undefined {
   switch (effort) {
-    case 'minimal':
-      return 'low';
     case 'low':
     case 'medium':
     case 'high':

@@ -50,7 +50,7 @@ import {
 
       @if (notice()) {
         <p
-          class="flex max-w-sm items-start gap-2 rounded-lg border border-base-300 bg-base-200/40 px-3 py-2 text-left text-xs text-base-content-muted"
+          class="surface-2 flex max-w-sm items-start gap-2 rounded-lg px-3 py-2 text-left text-xs text-base-content-muted"
           role="note"
           data-testid="tribunal-spec-folder-notice"
         >

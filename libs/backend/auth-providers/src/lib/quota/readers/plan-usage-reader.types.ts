@@ -39,6 +39,8 @@ export interface PlanOwnerTarget {
   readonly ownerRef: QuotaOwnerRef;
   readonly credentialRef?: PlanCredentialRef;
   readonly sessionHandle?: PlanSessionHandle;
+  /** A CLI session created by Ptah; readers must never discover sessions. */
+  readonly cliSessionId?: string;
 }
 
 /** Everything one reader call gets. */
@@ -47,6 +49,11 @@ export interface PlanUsageReadRequest {
   /** Resolved from `target.credentialRef` for this call only; never kept. */
   readonly credential?: PlanSecret;
   readonly refresh: boolean;
+  /**
+   * Local CLI accounting range expressed as OpenCode's `--days` value.
+   * `0` means today. Omitted leaves the CLI's default aggregation intact.
+   */
+  readonly localUsageDays?: number;
   readonly signal?: AbortSignal;
 }
 

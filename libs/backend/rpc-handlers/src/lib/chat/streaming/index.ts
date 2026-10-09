@@ -16,3 +16,9 @@ export {
   type BatchSink,
   type StreamBatchBufferOptions,
 } from './stream-batch-buffer';
+export {
+  ChatStreamDeliveryCoordinator,
+  STREAM_HIDDEN_TAIL_MAX_BYTES,
+  STREAM_HIDDEN_TAIL_MAX_EVENTS,
+  type ChatStreamDeliveryCoordinatorOptions,
+} from './chat-stream-delivery-coordinator.service';

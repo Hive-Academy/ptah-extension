@@ -65,6 +65,10 @@ import { TranscriptOlderHistorySentinelDirective } from './transcript-older-hist
 import { TranscriptPrependAnchorDirective } from './transcript-prepend-anchor.directive';
 import { TranscriptRenderWindow } from './transcript-render-window';
 import { TranscriptSlotDirective } from './transcript-slot.directive';
+import {
+  STREAM_PRESENTATION_RECORDS_ENABLED,
+  StreamPresentationStore,
+} from '../../../services/stream-presentation-store.service';
 
 const EMPTY_STRING_SET: ReadonlySet<string> = new Set<string>();
 const EMPTY_MESSAGES: readonly ExecutionChatMessage[] = [];
@@ -115,6 +119,7 @@ function mergeByTime(
  */
 interface TranscriptViewModel {
   readonly messages: readonly ExecutionChatMessage[];
+  readonly slots: readonly TranscriptMessageSlot[];
   /**
    * Render-window and per-bubble streaming boundary. During history replay it
    * equals `totalCount`, so replayed trees are windowed and publish settled
@@ -133,6 +138,7 @@ interface TranscriptViewModel {
 
 const EMPTY_VIEW_MODEL: TranscriptViewModel = {
   messages: EMPTY_MESSAGES,
+  slots: [],
   streamingBoundary: 0,
   streamingCount: 0,
   totalCount: 0,
@@ -141,6 +147,11 @@ const EMPTY_VIEW_MODEL: TranscriptViewModel = {
   hasOlderHistory: false,
   isSessionActive: false,
 };
+
+interface TranscriptMessageSlot {
+  readonly id: string;
+  readonly record: () => ExecutionChatMessage;
+}
 
 /**
  * ChatTranscriptComponent - Per-tab message list (scroll container + `@for` +
@@ -196,6 +207,12 @@ export class ChatTranscriptComponent {
   private readonly destroyRef = inject(DestroyRef);
   private readonly _tabManager = inject(TabManagerService);
   private readonly _treeBuilder = inject(ExecutionTreeBuilderService);
+  private readonly presentationRecordsEnabled = inject(
+    STREAM_PRESENTATION_RECORDS_ENABLED,
+  );
+  private readonly presentationStore = this.presentationRecordsEnabled
+    ? inject(StreamPresentationStore)
+    : null;
   private readonly _sessionContext = inject(SESSION_CONTEXT, {
     optional: true,
   });
@@ -375,6 +392,11 @@ export class ChatTranscriptComponent {
     () => this._tab()?.streamingState ?? null,
   );
 
+  private readonly presentation = computed(() => {
+    if (!this.presentationStore) return null;
+    return this.presentationStore.structureFor(this.tabId())();
+  });
+
   private readonly _executionTrees = computed<readonly ExecutionNode[]>(() => {
     const state = this._streamingState();
     if (!state) return EMPTY_TREES;
@@ -428,24 +450,6 @@ export class ChatTranscriptComponent {
     );
   });
 
-  /**
-   * Unified message list: resolved (finalized) messages + currently-streaming
-   * trees, rendered through a SINGLE `@for` block in the template.
-   *
-   * Why unified: the streaming-tree id and the eventual finalized-message id
-   * are the same value (`MessageFinalizationService` sets
-   * `treeNodeId = finalTree[0]?.id`). When the finalization handler swaps the
-   * streaming tree for a finalized message, the id is preserved — Angular's
-   * `track msg.id` reuses the same `<ptah-message-bubble>` instance across the
-   * transition, so streaming → finalized is an in-place mutation rather than a
-   * remove-from-list + add-to-list remount. This eliminates the dramatic DOM
-   * destroy/create that previously caused layout shift, scroll-anchor
-   * disruption, and content-visibility flashes.
-   */
-  readonly totalMessageCount = computed((): number => {
-    return this.finalizedFiltered().length + this.streamingMessages().length;
-  });
-
   private _allMessagesCache: readonly ExecutionChatMessage[] = [];
   private _allMessagesFinalizedRef: readonly ExecutionChatMessage[] | null =
     null;
@@ -487,11 +491,34 @@ export class ChatTranscriptComponent {
     if (!this.workActive()) {
       return this._frozenView;
     }
+    const presentation = this.presentation();
+    if (presentation) {
+      const next: TranscriptViewModel = {
+        messages: presentation.messages,
+        slots: presentation.slots,
+        streamingBoundary: this.historyReplaying()
+          ? presentation.totalCount
+          : presentation.streamingBoundary,
+        streamingCount: presentation.streamingCount,
+        totalCount: presentation.totalCount,
+        isStreaming: presentation.isStreaming,
+        hasMessages: presentation.hasMessages,
+        hasOlderHistory: this.hasOlderHistory(),
+        isSessionActive: this.isSessionActive(),
+      };
+      this._frozenView = next;
+      return next;
+    }
     const finalized = this.finalizedFiltered();
     const streaming = this.streamingMessages();
     const totalCount = finalized.length + streaming.length;
+    const messages = this.allMessages();
     const next: TranscriptViewModel = {
-      messages: this.allMessages(),
+      messages,
+      slots: messages.map((message) => ({
+        id: message.id,
+        record: () => message,
+      })),
       streamingBoundary: this.historyReplaying()
         ? totalCount
         : finalized.length,
@@ -522,6 +549,8 @@ export class ChatTranscriptComponent {
   protected readonly ptahUiOrderKeys = computed<ReadonlyMap<string, number>>(
     () => {
       if (!this.vscodeService.isElectron) return EMPTY_ORDER_KEYS;
+      const presentation = this.presentation();
+      if (presentation) return presentation.orderKeys;
       const messages = this.vm().messages;
       if (messages.length === 0) return EMPTY_ORDER_KEYS;
       const keys = new Map<string, number>();
@@ -668,14 +697,14 @@ export class ChatTranscriptComponent {
     });
   }
 
-  protected trackByMessageId(
-    _index: number,
-    msg: ExecutionChatMessage,
-  ): string {
-    return msg.id;
-  }
-
   constructor() {
+    // The scheduler has coalesced publication; sync only active transcripts.
+    effect(() => {
+      if (!this.presentationStore || !this.workActive()) return;
+      const tab = this._tab();
+      if (tab) this.presentationStore.sync(tab);
+    });
+
     // The store loads the ACTIVE tab's change sets itself; a canvas tile or a
     // background tab renders another session, so a visible transcript asks
     // for its own. A load already in flight is joined, not repeated.
@@ -784,7 +813,7 @@ export class ChatTranscriptComponent {
         this.wasRenderWindowReplaying = historyReplaying;
         this.renderWindow.setActive(isActive);
         this.renderWindow.syncMessages(
-          view.messages.map((m) => m.id),
+          view.slots.map((slot) => slot.id),
           view.streamingBoundary,
         );
       });

@@ -163,6 +163,7 @@ describe('ChatRpcHandlers (Wave C7e thin facade)', () => {
     expect([...ChatRpcHandlers.METHODS]).toEqual([
       'chat:start',
       'chat:continue',
+      'chat:setStreamViewport',
       'chat:resume',
       'chat:history-page',
       'chat:abort',
@@ -195,6 +196,18 @@ describe('ChatRpcHandlers (Wave C7e thin facade)', () => {
       expect(typeof match?.[1]).toBe('function');
     },
   );
+
+  it('keeps a host without a coordinator on the v1 viewport contract', async () => {
+    const suite = buildSuite();
+    suite.handlers.register();
+
+    await expect(
+      getHandler(suite.rpc, 'chat:setStreamViewport')({
+        protocolVersion: 2,
+        visibleTabIds: [],
+      }),
+    ).resolves.toEqual({ acceptedProtocolVersion: 1 });
+  });
 
   describe('delegation — happy paths', () => {
     type Delegate = keyof Pick<

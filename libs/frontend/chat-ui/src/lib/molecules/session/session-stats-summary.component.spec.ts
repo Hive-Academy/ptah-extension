@@ -627,7 +627,6 @@ describe('SessionStatsSummaryComponent limits', () => {
       'Cost',
       'Agents',
       'stats-models-toggle',
-      'stats-collapse',
     ]);
   });
 
@@ -693,7 +692,6 @@ describe('SessionStatsSummaryComponent limits', () => {
       'plan-limit-tile',
       'lane-usage-tile',
       'lane-subtotal-tile',
-      'stats-collapse',
     ]);
     expect(grid.className).not.toContain('dense');
     expect(grid.getAttribute('style') ?? '').not.toContain('dense');
@@ -734,9 +732,7 @@ describe('SessionStatsSummaryComponent limits', () => {
       tileButton(root, 'lane:codex:review').getAttribute('aria-expanded'),
     ).toBe('true');
 
-    // A collapse/expand re-render destroys and recreates every tile.
-    click(root, '[data-testid="stats-collapse"]');
-    click(root, '[data-testid="stats-expand"]');
+    // A normal parent update keeps the stable tile id and therefore its open state.
     expect(tileButton(root, FIVE_HOUR_TILE).getAttribute('aria-expanded')).toBe(
       'true',
     );
@@ -825,5 +821,19 @@ describe('SessionStatsSummaryComponent limits', () => {
 
     expect(root.textContent).toContain('Context');
     expect(root.textContent).not.toContain('Main context');
+  });
+
+  it('keeps the expanded-grid collapse control in the header, outside stat tiles', () => {
+    const root = render(limitsFor(40), { sessionId: 'session-1' });
+
+    click(root, '[data-testid="stats-expand"]');
+    const collapse = root.querySelector<HTMLButtonElement>(
+      '[data-testid="stats-collapse"]',
+    );
+
+    expect(collapse?.closest('.stats-cards')).toBeNull();
+    collapse?.click();
+    fixture.detectChanges();
+    expect(root.querySelector('[data-testid="stats-expand"]')).not.toBeNull();
   });
 });

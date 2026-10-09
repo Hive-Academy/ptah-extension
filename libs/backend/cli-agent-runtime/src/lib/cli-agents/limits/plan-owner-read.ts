@@ -28,6 +28,8 @@ export interface PlanOwnerReadContext {
   readonly sessionId?: string;
   /** The Ptah CLI agent whose stored key an Ollama Cloud read uses. */
   readonly ptahCliId?: string;
+  /** Grok CLI session id recorded when Ptah started the lane. */
+  readonly cliSessionId?: string;
 }
 
 /** A status that is known without asking the provider. */
@@ -47,6 +49,7 @@ const KEYLESS_READ_PROVIDERS: ReadonlySet<string> = new Set([
   'opencode',
   'opencode-go',
   'opencode-zen',
+  'grok',
 ]);
 
 /** Statuses after which no window of the owner applies. */
@@ -103,6 +106,17 @@ export function planOwnerRead(
             : { kind: 'provider-key', providerId: 'ollama-cloud' },
         },
       };
+    case 'grok':
+      return context.cliSessionId
+        ? {
+            kind: 'read',
+            target: {
+              providerId: 'grok',
+              ownerRef: owner,
+              cliSessionId: context.cliSessionId,
+            },
+          }
+        : { kind: 'known', status: 'service-unavailable' };
     default:
       return KEYLESS_READ_PROVIDERS.has(owner.providerId)
         ? { kind: 'read', target: { providerId: owner.providerId, ownerRef: owner } }

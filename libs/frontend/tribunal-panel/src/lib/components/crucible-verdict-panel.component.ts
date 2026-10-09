@@ -137,7 +137,7 @@ const TERMINATION_COPY: Record<
 
         @if (terminal(); as terminal) {
           <div
-            class="flex flex-col gap-0.5 rounded-lg border border-base-300 bg-base-200/40 px-3 py-2"
+            class="surface-2 flex flex-col gap-0.5 rounded-lg px-3 py-2"
             data-testid="tribunal-termination"
             [attr.data-termination]="terminal.kind"
             role="status"
@@ -238,7 +238,7 @@ const TERMINATION_COPY: Record<
 
             @if (round.mentorNote; as note) {
               <div
-                class="rounded border border-base-300 bg-base-200/40 px-2 py-1"
+              class="surface-2 rounded px-2 py-1"
                 data-testid="tribunal-mentor-note"
               >
                 <span

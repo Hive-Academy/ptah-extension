@@ -114,7 +114,7 @@ import { ConfirmationModalComponent } from './confirmation-modal.component';
           <!-- Phase cards -->
           @for (phase of phaseEntries(); track phase.id) {
             <div
-              class="collapse collapse-arrow border border-base-300 bg-base-200/50"
+              class="collapse collapse-arrow surface-2"
             >
               <input
                 type="checkbox"

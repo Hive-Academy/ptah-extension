@@ -53,7 +53,7 @@ export type SessionStatsResultEvent = Omit<
 export interface SessionStatsSnapshotEvent {
   readonly sessionId: string;
   readonly sessionStats?: SessionStatsEntry;
-  /** Budget computed from `sessionStats`; installed with it, never alone. */
+  /** `null` clears known-absent state; `undefined` keeps the last budget. */
   readonly budget?: SessionBudgetState | null;
   readonly turnCost?: undefined;
   readonly tokens?: undefined;

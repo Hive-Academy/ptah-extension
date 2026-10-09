@@ -33,7 +33,7 @@ import { TASK_STATUS_BADGE, TASK_STATUS_LABELS } from '../../task-presentation';
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <section
-      class="flex flex-col w-64 flex-shrink-0 min-h-0 rounded-lg bg-base-200/60"
+      class="surface-1 flex flex-col w-64 flex-shrink-0 min-h-0 rounded-lg"
       [attr.aria-label]="label() + ' column'"
     >
       <header

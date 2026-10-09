@@ -30,7 +30,9 @@ import { AgentLaneGridComponent } from './agent-lane-grid.component';
 })
 class CardStub {
   readonly agent = input.required<MonitoredAgent>();
+  readonly closable = input(false);
   readonly toggleExpanded = output<void>();
+  readonly closeLane = output<string>();
 }
 @Component({
   selector: 'ptah-agent-continue-input',

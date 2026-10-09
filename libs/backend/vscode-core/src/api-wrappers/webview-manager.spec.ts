@@ -490,6 +490,27 @@ describe('WebviewManager', () => {
   // broadcastMessage
   // ---------------------------------------------------------------------
   describe('broadcastMessage', () => {
+    it('posts a v2 stream snapshot unchanged through the VS Code boundary', async () => {
+      manager.createWebviewPanel({
+        viewType: 'ptah.stream-snapshot',
+        title: 'Stream snapshot',
+      });
+      const payload = {
+        protocolVersion: 2 as const,
+        tabId: 'tab-1',
+        fromSequence: 1,
+        toSequence: 1,
+        events: [],
+      };
+
+      await manager.broadcastMessage(MESSAGE_TYPES.CHAT_STREAM_SNAPSHOT, payload);
+
+      expect(panels[0].webview.postMessage).toHaveBeenCalledWith({
+        type: MESSAGE_TYPES.CHAT_STREAM_SNAPSHOT,
+        payload,
+      });
+    });
+
     it('sends the message to every registered panel and view', async () => {
       manager.createWebviewPanel({
         viewType: 'ptah.broadcast.panel',

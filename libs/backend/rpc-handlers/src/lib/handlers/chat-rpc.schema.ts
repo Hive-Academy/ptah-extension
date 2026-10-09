@@ -93,6 +93,23 @@ export const ChatResumeParamsSchema = z
   })
   .passthrough();
 
+/** v2 viewport preferences. Unknown fields are rejected at this boundary. */
+export const ChatSetStreamViewportParamsSchema = z
+  .object({
+    protocolVersion: z.literal(2),
+    focusedTabId: uuidString('focusedTabId').optional(),
+    visibleTabIds: z.array(uuidString('visibleTabIds')).max(128),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    if (new Set(value.visibleTabIds).size !== value.visibleTabIds.length) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'visibleTabIds must not contain duplicates',
+      });
+    }
+  });
+
 /** Side-effect-free older-history page request. */
 export const ChatHistoryPageParamsSchema = z
   .object({

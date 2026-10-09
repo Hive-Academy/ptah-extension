@@ -128,7 +128,7 @@ export function changeSetAccent(changeSet: TurnChangeSet): string {
   imports: [LucideAngularModule, FileStatusBadgeComponent],
   template: `
     <section
-      class="bg-base-300 shadow-card rounded-box border-l-2 overflow-hidden text-base-content"
+      class="surface-2 rounded-box border-l-2 overflow-hidden text-base-content"
       [style.border-left-color]="accent()"
       [attr.aria-label]="filesLabel()"
       data-testid="change-set-card"

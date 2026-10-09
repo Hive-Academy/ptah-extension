@@ -353,6 +353,21 @@ export interface ChatResumeResult {
   providerId?: string;
 }
 
+/**
+ * Delivery preference negotiated by v2 webviews. Tabs absent from
+ * `visibleTabIds` are retained host-side until they are revealed.
+ */
+export interface ChatSetStreamViewportParams {
+  readonly protocolVersion: 2;
+  readonly focusedTabId?: string;
+  readonly visibleTabIds: readonly string[];
+}
+
+/** Result of stream viewport capability negotiation. */
+export interface ChatSetStreamViewportResult {
+  readonly acceptedProtocolVersion: 1 | 2;
+}
+
 /** Parameters for the side-effect-free chat:history-page RPC method. */
 export interface ChatHistoryPageParams {
   readonly sessionId: SessionId;

@@ -200,7 +200,7 @@ const DEFAULT_PLATFORM: NewProjectPlatform = 'node-ts';
   template: `
     <!-- Header -->
     <header
-      class="flex items-center justify-between px-6 py-3 border-b border-base-300 bg-base-100 shrink-0"
+      class="surface-1 flex items-center justify-between px-6 py-3 shrink-0"
     >
       <div class="flex items-center gap-3">
         <button
@@ -762,8 +762,8 @@ const DEFAULT_PLATFORM: NewProjectPlatform = 'node-ts';
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <!-- ── Card 3: Saved Presets ── -->
             <div
-              class="rounded-xl bg-base-200/60 border border-base-300/40 p-4
-                     hover:border-base-300 hover:bg-base-200/80
+              class="surface-2 rounded-xl p-4
+                     hover:border-[var(--surface-border-strong)]
                      transition-all duration-200 card-enter card-enter-delay-3"
             >
               <!-- Header row -->
@@ -824,8 +824,8 @@ const DEFAULT_PLATFORM: NewProjectPlatform = 'node-ts';
 
             <!-- ── Card 4: Active Configuration ── -->
             <div
-              class="rounded-xl bg-base-200/60 border border-base-300/40 p-4
-                     hover:border-base-300 hover:bg-base-200/80
+              class="surface-2 rounded-xl p-4
+                     hover:border-[var(--surface-border-strong)]
                      transition-all duration-200 card-enter card-enter-delay-4"
             >
               <!-- Header row -->
@@ -916,7 +916,7 @@ const DEFAULT_PLATFORM: NewProjectPlatform = 'node-ts';
         data-testid="new-project-intake"
       >
         <div
-          class="bg-base-100 border border-base-300 rounded-2xl shadow-2xl w-full max-w-xl max-h-full overflow-y-auto"
+          class="surface-3 rounded-2xl w-full max-w-xl max-h-full overflow-y-auto"
         >
           <div
             class="flex items-start justify-between gap-4 px-6 pt-6 pb-4 border-b border-base-300/60"
@@ -1103,7 +1103,7 @@ const DEFAULT_PLATFORM: NewProjectPlatform = 'node-ts';
         data-testid="new-project-discard-confirm"
       >
         <div
-          class="bg-base-100 border border-base-300 rounded-lg shadow-xl p-5 max-w-sm w-full"
+          class="surface-3 rounded-lg p-5 max-w-sm w-full"
         >
           <h2
             id="new-project-discard-title"

@@ -166,7 +166,7 @@ const MAX_VISIBLE_LABELS = 3;
                reading must not leave the screen because the group under it is
                long — that is the whole reason the list groups at all. -->
           <header
-            class="sticky top-0 z-30 flex h-9 items-center gap-2 border-b border-base-300 bg-base-100/95 px-3 backdrop-blur"
+            class="surface-1 sticky top-0 z-30 flex h-9 items-center gap-2 px-3 backdrop-blur"
           >
             <button
               type="button"
@@ -547,7 +547,7 @@ const MAX_VISIBLE_LABELS = 3;
                         </button>
                         <ul
                           [attr.tabindex]="rovingTabIndex(task.id)"
-                          class="dropdown-content menu menu-xs z-40 w-52 rounded-box border border-base-content/10 bg-base-200 p-1 shadow"
+                          class="dropdown-content menu menu-xs surface-3 z-40 w-52 rounded-box p-1"
                         >
                           @if (group.startable) {
                             <li>

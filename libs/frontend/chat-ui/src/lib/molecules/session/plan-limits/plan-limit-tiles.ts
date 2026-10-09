@@ -106,6 +106,9 @@ export function sessionPlan(
     ...(captionTail && { captionTail }),
   };
   const tiles: PlanLimitTileModel[] = [
+    ...(snapshot.localUsage
+      ? [localUsageTile(snapshot, caption, ctx)]
+      : []),
     ...statusTiles(snapshot, result.windows.length, caption, ctx),
     ...result.windows.map((entry) => windowTile(snapshot, entry, caption, ctx)),
     ...limits.ownerEvidence.map((evidence) =>
@@ -124,6 +127,25 @@ export function sessionPlan(
       result.windows.map((entry) => [entry.window.key, entry]),
     ),
     renderedEvidence: new Set(limits.ownerEvidence),
+  };
+}
+
+function localUsageTile(
+  snapshot: PlanLimitOwnerSnapshot,
+  caption: TileCaption,
+  ctx: Ctx,
+): PlanLimitTileModel {
+  const usage = snapshot.localUsage!;
+  return {
+    id: `local-usage:${snapshot.owner.key}`,
+    kind: 'local-usage',
+    label: usage.label,
+    ...caption,
+    value: `${usage.tokens.toLocaleString()} tokens · $${usage.estimatedCostUsd.toFixed(2)}`,
+    resetLine: usage.range ? `Range: ${usage.range}` : 'Local CLI accounting',
+    tone: 'neutral',
+    sourceChips: ['Local CLI'],
+    detailLines: [`Observed ${formatLocalAbsolute(usage.observedAt, ctx.now, ctx.time)}. This is not a plan percentage or reset.`],
   };
 }
 

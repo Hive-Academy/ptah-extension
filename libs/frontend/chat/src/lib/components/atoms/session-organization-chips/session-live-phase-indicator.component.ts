@@ -6,8 +6,8 @@
  *
  * Shows a pulsing dot (running), a moon (waiting on background work) or an
  * alert icon (last run failed). Idle shows nothing: the host is `invisible`
- * but keeps its 16 px column, so every row's name lines up and the row does
- * not shift when the phase comes and goes.
+ * but stays mounted. The sidebar row positions this host out of flow, in the
+ * list padding, so the dot never shifts the title, time or chips.
  *
  * Live phase: the webview's own `SessionLivenessRegistry` wins over the row's
  * `livePhase`, because the registry is fed by the stream and the row is a
