@@ -173,7 +173,7 @@ function toSessionRow(session: TaskLinkedSession): SessionRow {
          remainder, because there the panel IS the reading surface and the
          markdown body is the thing being read. -->
     <aside
-      class="flex flex-col h-full border-l border-base-content/10 bg-base-100"
+      class="surface-1 flex flex-col h-full border-l border-base-content/10"
       [class.w-96]="!wide()"
       [class.flex-shrink-0]="!wide()"
       [class.flex-1]="wide()"
