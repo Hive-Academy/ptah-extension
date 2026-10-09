@@ -368,7 +368,7 @@ async function captureMatrixPopovers(
         box.y + box.height <= viewport.height &&
         box.x >= 0 &&
         box.x + box.width <= viewport.width,
-      `${selector} on screen`,
+      `${selector} on screen: ${JSON.stringify(box)}`,
     ).toBe(true);
   };
   // Batch 31: popovers sit inside table cells (nowrap, right-aligned); their text must still wrap inside the panel.

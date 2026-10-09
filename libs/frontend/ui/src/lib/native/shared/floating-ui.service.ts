@@ -134,9 +134,11 @@ export class FloatingUIService {
       ...(enableFlip ? [flip()] : []),
       ...(enableShift ? [shift({ padding: shiftPadding })] : []),
     ];
+    // `fixed` matches the `position: fixed` that applyPosition writes (viewport coordinates).
     const { x, y } = await computePosition(referenceEl, floatingEl, {
       placement,
       middleware,
+      strategy: 'fixed',
     });
     if (this.isDestroyed) return;
     this.applyPosition(floatingEl, x, y);
@@ -144,6 +146,7 @@ export class FloatingUIService {
       const result = await computePosition(referenceEl, floatingEl, {
         placement,
         middleware,
+        strategy: 'fixed',
       });
       if (this.isDestroyed) return;
       this.applyPosition(floatingEl, result.x, result.y);
@@ -161,6 +164,18 @@ export class FloatingUIService {
       top: `${y}px`,
       visibility: 'visible',
     });
+    // `x`/`y` are viewport coordinates. An ancestor floating-ui does not detect can still be the containing block
+    // of a fixed element (seen in the CLI matrix: the Cursor panel landed hundreds of px off when the page was
+    // scrolled). Measure where the panel really is and shift it by the difference.
+    const rect = floatingEl.getBoundingClientRect();
+    // No box (hidden, or no layout engine as in JSDOM): nothing to measure.
+    if (rect.width === 0 && rect.height === 0) return;
+    const dx = rect.left - x;
+    const dy = rect.top - y;
+    if (Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5) {
+      floatingEl.style.left = `${x - dx}px`;
+      floatingEl.style.top = `${y - dy}px`;
+    }
   }
 
   /**

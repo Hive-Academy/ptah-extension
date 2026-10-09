@@ -61,6 +61,30 @@ describe('FloatingUIService', () => {
   });
 
   describe('position()', () => {
+    it('computes viewport coordinates (strategy fixed, matching position: fixed)', async () => {
+      mockedCompute.mockResolvedValueOnce({ x: 10, y: 20 });
+      await service.position(reference, floating);
+      expect(
+        (
+          mockedCompute.mock.calls[0] as [
+            unknown,
+            unknown,
+            { strategy: string },
+          ]
+        )[2].strategy,
+      ).toBe('fixed');
+    });
+
+    it('shifts the panel back when an ancestor is its containing block (it renders off the computed point)', async () => {
+      mockedCompute.mockResolvedValueOnce({ x: 300, y: 400 });
+      // Rendered 500 px higher and 20 px further left than computed, as under a containing-block ancestor.
+      floating.getBoundingClientRect = () =>
+        ({ left: 280, top: -100, width: 304, height: 237 }) as DOMRect;
+      await service.position(reference, floating);
+      expect(floating.style.left).toBe('320px');
+      expect(floating.style.top).toBe('900px');
+    });
+
     it('should compute position with default options', async () => {
       mockedCompute.mockResolvedValueOnce({ x: 10, y: 20 });
 

@@ -417,8 +417,9 @@ for (const host of HOSTS) {
       await expect(menu).toBeVisible();
       const panel = await menu.boundingBox();
       if (!panel) throw new Error('No More actions panel box');
-      const items = menu.locator('button');
-      await expect(items).toHaveCount(2);
+      // Wide box: Edit and Delete. Narrow box: Tiers and Test move in first (hidden, not removed, when wide).
+      const items = menu.locator('button:visible');
+      expect([2, 4]).toContain(await items.count());
       for (const item of await items.all()) {
         const box = await item.boundingBox();
         if (!box) throw new Error('No More actions item box');
@@ -436,8 +437,12 @@ for (const host of HOSTS) {
       }
       // A column: Delete sits under Edit, not beside it.
       const [edit, remove] = [
-        await items.nth(0).boundingBox(),
-        await items.nth(1).boundingBox(),
+        await menu
+          .locator(`[data-testid="cli-matrix-edit-${GLM_ID}"]`)
+          .boundingBox(),
+        await menu
+          .locator(`[data-testid="cli-matrix-delete-${GLM_ID}"]`)
+          .boundingBox(),
       ];
       expect(remove?.y ?? 0).toBeGreaterThan(edit?.y ?? 0);
     });
