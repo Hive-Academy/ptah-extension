@@ -72,13 +72,13 @@ import { AUTOCOMPLETE_POSITIONS } from '../../overlays/shared/overlay-positions'
       cdkConnectedOverlayPush
     >
       <div
-        class="suggestions-panel bg-base-200 border border-base-300 rounded-lg shadow-lg max-h-80 flex flex-col"
+        class="suggestions-panel surface-3 max-h-80 flex flex-col rounded-xl p-1.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[oklch(var(--s))]"
         role="listbox"
         [attr.aria-label]="ariaLabel()"
       >
         <!-- Header -->
         @if (headerTitle()) {
-          <div class="px-3 py-2 border-b border-base-300">
+          <div class="px-3 py-2 border-b border-surface-border">
             <span
               class="text-xs font-semibold text-base-content-muted uppercase tracking-wide"
             >
@@ -106,7 +106,7 @@ import { AUTOCOMPLETE_POSITIONS } from '../../overlays/shared/overlay-positions'
 
         <!-- Suggestions List -->
         @else {
-          <div class="flex flex-col overflow-y-auto overflow-x-hidden p-1">
+          <div class="flex flex-col overflow-y-auto overflow-x-hidden">
             @for (
               suggestion of suggestions();
               track trackBy()($index, suggestion);

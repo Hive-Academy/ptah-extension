@@ -3,6 +3,10 @@ import { signal } from '@angular/core';
 import { WelcomeComponent } from './welcome.component';
 import { SetupWizardStateService } from '../services/setup-wizard-state.service';
 import { WizardRpcService } from '../services/wizard-rpc.service';
+import {
+  ModelStateService,
+  ProvidersSettingsStateService,
+} from '@ptah-extension/core';
 
 /**
  * WelcomeComponent tests.
@@ -35,6 +39,28 @@ describe('WelcomeComponent', () => {
       providers: [
         { provide: SetupWizardStateService, useValue: mockStateService },
         { provide: WizardRpcService, useValue: mockRpcService },
+        {
+          provide: ModelStateService,
+          useValue: {
+            availableModels: signal([]).asReadonly(),
+            currentModel: signal('').asReadonly(),
+            currentModelInfo: signal(null).asReadonly(),
+            isPending: signal(false).asReadonly(),
+            refreshModels: jest.fn(),
+            switchModel: jest.fn(),
+          },
+        },
+        {
+          provide: ProvidersSettingsStateService,
+          useValue: {
+            connections: signal({ status: 'ready', data: [] }).asReadonly(),
+            activeProviderId: signal(''),
+            reviewContext: jest.fn(() => null),
+            open: jest.fn(),
+            activateConnection: jest.fn(),
+            refreshRoute: jest.fn(),
+          },
+        },
       ],
     }).compileComponents();
 

@@ -68,6 +68,7 @@ import {
   type ProviderModelTier,
 } from '@ptah-extension/shared';
 
+import { ProviderMarkComponent } from '../provider-mark/provider-mark.component';
 import { PROVIDER_MODELS_LOADER } from './provider-models-loader.port';
 import {
   ProviderModelSearchFieldComponent,
@@ -129,6 +130,20 @@ const SUGGESTED_CHARS_PER_CONTEXT_TOKEN = 2;
  * provider the host settled on, and this component has no business guessing
  * which one that is.
  */
+const MODEL_LOAD_FAILED = 'Could not load models for this provider.';
+
+/** Multi-line or banner text from a CLI probe. A short status sentence stays. */
+function isProcessDump(value: string): boolean {
+  return value.includes('\n') || value.includes('\r') || value.length > 180;
+}
+
+/** One short sentence for the page. A probe dump becomes the fixed status. */
+function visibleLoadError(raw: string): string {
+  const line = raw.split(/\r?\n/, 1)[0]?.trim() ?? '';
+  if (!line || isProcessDump(raw)) return MODEL_LOAD_FAILED;
+  return line;
+}
+
 function buildDefaultModelLabel(
   providerId: string,
   tier: ProviderModelTier,
@@ -143,7 +158,7 @@ function buildDefaultModelLabel(
 @Component({
   selector: 'ptah-provider-model-picker',
   standalone: true,
-  imports: [ProviderModelSearchFieldComponent],
+  imports: [ProviderMarkComponent, ProviderModelSearchFieldComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <section
@@ -164,10 +179,12 @@ function buildDefaultModelLabel(
               >Provider</span
             >
             <span
-              class="flex min-h-9 items-center bg-base-100 px-1 text-sm text-base-content"
+              class="flex h-8 min-h-8 items-center gap-2 rounded-lg border border-surface-border bg-surface-0 px-2 text-sm text-base-content"
               data-testid="provider-model-picker-fixed-provider"
-              >{{ fixedProviderName() }}</span
             >
+              <ptah-provider-mark [providerId]="fixedId" fallback="Bot" />
+              <span class="min-w-0 truncate">{{ fixedProviderName() }}</span>
+            </span>
             <span class="sr-only"
               >{{ providerAriaLabel() }}: {{ fixedProviderName() }}</span
             >
@@ -177,28 +194,34 @@ function buildDefaultModelLabel(
             <span class="text-xs font-medium text-base-content-muted"
               >Provider</span
             >
-            <select
-              class="select select-bordered select-sm aria-disabled:cursor-not-allowed aria-disabled:opacity-60"
-              data-testid="provider-model-picker-provider"
-              [value]="selectedProvider()"
-              [attr.aria-disabled]="disabled() ? 'true' : null"
-              [attr.aria-label]="providerAriaLabel()"
-              (mousedown)="blockWhileDisabled($event)"
-              (keydown)="blockWhileDisabled($event)"
-              (change)="onProviderChange($event)"
-            >
-              <option value="" [selected]="selectedProvider() === ''">
-                {{ inheritProviderLabel }}
-              </option>
-              @for (opt of providerOptions(); track opt.id) {
-                <option
-                  [value]="opt.id"
-                  [selected]="opt.id === selectedProvider()"
-                >
-                  {{ opt.name }}
+            <span class="flex min-w-0 items-center gap-2">
+              <ptah-provider-mark
+                [providerId]="selectedProvider()"
+                fallback="Bot"
+              />
+              <select
+                class="select select-sm h-8 min-h-8 min-w-0 flex-1 rounded-lg border border-surface-border bg-surface-0 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[oklch(var(--s))] aria-disabled:cursor-not-allowed aria-disabled:opacity-60"
+                data-testid="provider-model-picker-provider"
+                [value]="selectedProvider()"
+                [attr.aria-disabled]="disabled() ? 'true' : null"
+                [attr.aria-label]="providerAriaLabel()"
+                (mousedown)="blockWhileDisabled($event)"
+                (keydown)="blockWhileDisabled($event)"
+                (change)="onProviderChange($event)"
+              >
+                <option value="" [selected]="selectedProvider() === ''">
+                  {{ inheritProviderLabel }}
                 </option>
-              }
-            </select>
+                @for (opt of providerOptions(); track opt.id) {
+                  <option
+                    [value]="opt.id"
+                    [selected]="opt.id === selectedProvider()"
+                  >
+                    {{ opt.name }}
+                  </option>
+                }
+              </select>
+            </span>
           </label>
         }
 
@@ -222,7 +245,7 @@ function buildDefaultModelLabel(
               >Model</span
             >
             <select
-              class="select select-bordered select-sm aria-disabled:cursor-not-allowed aria-disabled:opacity-60"
+              class="select select-sm h-8 min-h-8 rounded-lg border border-surface-border bg-surface-0 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[oklch(var(--s))] aria-disabled:cursor-not-allowed aria-disabled:opacity-60"
               data-testid="provider-model-picker-model"
               [value]="selectedModelId()"
               [disabled]="modelsLoading()"
@@ -320,7 +343,7 @@ function buildDefaultModelLabel(
           <div class="mt-2 flex flex-wrap items-center gap-2">
             <input
               type="text"
-              class="input input-bordered input-sm w-full min-w-0 flex-1"
+              class="input input-sm h-8 min-h-8 w-full min-w-0 flex-1 rounded-lg border border-surface-border bg-surface-0 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[oklch(var(--s))]"
               data-testid="provider-model-picker-manual-input"
               [value]="manualDraft()"
               [disabled]="!selectedProvider()"
@@ -584,11 +607,19 @@ export class ProviderModelPickerComponent {
    */
   private loadGeneration = 0;
 
+  /**
+   * The provider whose catalogue is loaded or in flight. A model-only input
+   * change, and the parent echoing a provider this control just selected,
+   * must not start another `listModels` round trip.
+   */
+  private catalogueProvider: string | undefined;
+
   constructor() {
     effect(() => {
       const providerId = this.fixedProvider() || this.provider();
       this._provider.set(providerId);
       this._model.set(this.model());
+      if (this.catalogueProvider === providerId) return;
       void this.loadModels(providerId);
     });
   }
@@ -600,7 +631,11 @@ export class ProviderModelPickerComponent {
    */
   protected blockWhileDisabled(event: Event): void {
     if (!this.disabled()) return;
-    if (event instanceof KeyboardEvent && (event.key === 'Tab' || event.key === 'Escape')) return;
+    if (
+      event instanceof KeyboardEvent &&
+      (event.key === 'Tab' || event.key === 'Escape')
+    )
+      return;
     event.preventDefault();
   }
 
@@ -678,6 +713,7 @@ export class ProviderModelPickerComponent {
 
   private async loadModels(providerId: string): Promise<void> {
     const generation = ++this.loadGeneration;
+    this.catalogueProvider = providerId;
     this._modelsLoading.set(true);
     this._modelsError.set(null);
     try {
@@ -685,13 +721,23 @@ export class ProviderModelPickerComponent {
       // loader's own contract spells that case `undefined`.
       const result = await this.loader.listModels(providerId || undefined);
       if (generation !== this.loadGeneration) return;
-      this._models.set(result.models);
-      if (result.error) this._modelsError.set(result.error);
+      const models = result.models.filter(
+        (model) => !isProcessDump(model.id) && !isProcessDump(model.name),
+      );
+      const dumped = models.length !== result.models.length;
+      this._models.set(dumped ? [] : models);
+      if (dumped) {
+        this._modelsError.set(MODEL_LOAD_FAILED);
+      } else if (result.error) {
+        this._modelsError.set(visibleLoadError(result.error));
+      }
     } catch (error: unknown) {
       if (generation !== this.loadGeneration) return;
       this._models.set([]);
       this._modelsError.set(
-        error instanceof Error ? error.message : 'Failed to load models',
+        error instanceof Error
+          ? visibleLoadError(error.message)
+          : 'Failed to load models',
       );
     } finally {
       if (generation === this.loadGeneration) this._modelsLoading.set(false);

@@ -126,11 +126,11 @@ const IN_FLIGHT_STATUSES: ReadonlySet<SkillSynthesisQueueItem['status']> =
   imports: [EligibilityHistogramComponent],
   template: `
     <section
-      class="overflow-hidden rounded-xl border border-base-300 bg-base-200/40"
-      data-testid="skills-pipeline-status"
+      class="surface-2 overflow-hidden rounded-xl"
+      data-testid="thoth-section-skills-pipeline"
       aria-label="Skill synthesis pipeline status"
     >
-      <div class="border-b border-base-300 px-4 py-3">
+      <div class="border-b border-surface-border px-4 py-3">
         <div class="flex flex-wrap items-start justify-between gap-2">
           <div class="min-w-0 flex-1">
             <div class="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
@@ -248,7 +248,7 @@ const IN_FLIGHT_STATUSES: ReadonlySet<SkillSynthesisQueueItem['status']> =
         }
       </div>
 
-      <div class="border-b border-base-300 px-4 py-3">
+      <div class="border-b border-surface-border px-4 py-3">
         <div class="flex flex-wrap items-baseline justify-between gap-x-2">
           <h4 class="text-xs font-semibold uppercase tracking-wide">
             Drain runs
@@ -353,7 +353,7 @@ const IN_FLIGHT_STATUSES: ReadonlySet<SkillSynthesisQueueItem['status']> =
                   </span>
                 </div>
                 <div
-                  class="h-1 w-full overflow-hidden rounded-full bg-base-300"
+                  class="h-1 w-full overflow-hidden rounded-full bg-surface-0"
                   role="presentation"
                 >
                   <div

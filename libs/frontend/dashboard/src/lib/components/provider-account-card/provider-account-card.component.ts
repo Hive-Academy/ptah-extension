@@ -24,6 +24,7 @@ import {
   untracked,
 } from '@angular/core';
 import { AuthStateService, PlanLimitsStore } from '@ptah-extension/core';
+import { ProviderMarkComponent } from '@ptah-extension/ui';
 import {
   activeEstimatedExhaustion,
   activeWindowExhaustion,
@@ -51,7 +52,7 @@ import {
   type ProviderAccountUsageStatus,
 } from '@ptah-extension/shared';
 
-type Tone = 'error' | 'warning' | 'info' | 'neutral';
+type Tone = 'success' | 'error' | 'warning' | 'info' | 'neutral';
 
 export interface SourceChipView {
   readonly text: string;
@@ -90,9 +91,10 @@ export interface NoticeView {
 
 export interface OwnerSectionView {
   readonly key: string;
+  readonly providerId: string;
   readonly label: string;
   readonly subtitle: string;
-  readonly statusChip: ProviderAccountUsageStatus | null;
+  readonly statusChip: StateChipView | null;
   readonly noUsageSource: boolean;
   readonly statusNotice: NoticeView | null;
   readonly windows: readonly WindowRowView[];
@@ -134,7 +136,11 @@ const STATUS_SENTENCES: Partial<Record<ProviderAccountUsageStatus, string>> = {
 @Component({
   selector: 'ptah-provider-account-card',
   standalone: true,
+  imports: [ProviderMarkComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
+  styles: [
+    ':host{display:grid;grid-template-columns:repeat(auto-fit,minmax(15rem,1fr));gap:0.5rem;align-items:stretch}',
+  ],
   template: `
     @if (sections(); as list) {
       @if (refreshNotice(); as notice) {
@@ -148,44 +154,53 @@ const STATUS_SENTENCES: Partial<Record<ProviderAccountUsageStatus, string>> = {
       }
       @for (section of list; track section.key) {
         <section
-          class="rounded-lg border border-base-content/10 bg-base-100/40 p-3"
+          class="surface-2 flex h-full min-w-0 flex-col rounded-lg border border-base-content/10 p-3"
           [attr.aria-label]="section.label + ' usage'"
           data-testid="provider-account-section"
         >
           <div
-            class="flex flex-wrap items-start justify-between gap-x-3 gap-y-1"
+            class="flex flex-wrap items-start justify-between gap-2"
             data-testid="section-header"
           >
             <!-- A 5rem basis, not the subtitle's full width, decides when the
                  chip group wraps below: only when the title would get less. -->
-            <div class="min-w-0 flex-1 basis-20">
-              <h4 class="font-medium text-sm">{{ section.label }}</h4>
-              <p class="text-[10px] text-base-content-muted">
-                {{ section.subtitle }}
-              </p>
+            <div class="flex min-w-0 flex-1 items-start gap-2">
+              <ptah-provider-mark [providerId]="section.providerId" />
+              <div class="min-w-0">
+                <h4 class="font-semibold text-sm">{{ section.label }}</h4>
+                <p
+                  class="truncate text-[10px] text-base-content-muted"
+                  [title]="section.subtitle"
+                >
+                  {{ section.subtitle }}
+                </p>
+              </div>
             </div>
-            <div class="flex items-center gap-1.5 shrink-0">
+            <div class="flex items-center gap-1 shrink-0">
               @if (section.statusChip; as status) {
                 <span
-                  class="text-[11px] px-1.5 rounded border border-dashed border-base-content/20 whitespace-nowrap"
+                  class="badge badge-sm whitespace-nowrap"
+                  [class]="statusChipClass(status.tone)"
+                  [attr.title]="section.statusNotice?.text ?? status.text"
                   data-testid="status-chip"
-                  >{{ status }}</span
+                  >{{ status.text }}</span
                 >
               }
               <button
                 type="button"
-                class="btn btn-ghost btn-xs"
+                class="btn btn-ghost btn-xs btn-square"
                 [disabled]="loading()"
                 [attr.aria-label]="'Refresh ' + section.label + ' usage'"
                 (click)="refresh()"
+                title="Refresh usage"
               >
-                Refresh
+                <span aria-hidden="true">↻</span>
               </button>
             </div>
           </div>
 
           @if (section.noUsageSource) {
-            <p class="text-xs mt-2.5">
+            <p class="sr-only">
               <strong>No usage source</strong>
               <span class="text-base-content-muted">
                 · This provider does not report plan usage, so nothing is shown
@@ -196,7 +211,7 @@ const STATUS_SENTENCES: Partial<Record<ProviderAccountUsageStatus, string>> = {
           @if (section.statusNotice; as notice) {
             <p
               role="status"
-              class="text-xs mt-2.5 border-l-2 pl-2"
+              class="sr-only"
               [class]="noticeBorder(notice.tone)"
             >
               {{ notice.text }}
@@ -204,11 +219,20 @@ const STATUS_SENTENCES: Partial<Record<ProviderAccountUsageStatus, string>> = {
           }
 
           @if (section.windows.length > 0) {
-            <div class="mt-2 flex flex-col gap-2.5">
+            <div
+              class="mt-3 grid grid-cols-[repeat(auto-fit,minmax(8rem,1fr))] gap-2"
+            >
               @for (row of section.windows; track row.key) {
-                <div role="group" [attr.aria-label]="row.name" data-testid="window-row">
-                  <div class="flex items-center justify-between gap-2">
-                    <span class="text-[13px] font-semibold">{{ row.name }}</span>
+                <div
+                  role="group"
+                  [attr.aria-label]="row.name"
+                  class="flex min-w-0 flex-col items-center rounded-md bg-surface-0/50 p-2 text-center"
+                  data-testid="window-row"
+                >
+                  <div class="flex w-full items-center justify-center gap-1">
+                    <span class="text-[13px] font-semibold">{{
+                      row.name
+                    }}</span>
                     @if (row.chip; as chip) {
                       <span
                         class="text-[11px] px-1.5 rounded border whitespace-nowrap"
@@ -219,44 +243,47 @@ const STATUS_SENTENCES: Partial<Record<ProviderAccountUsageStatus, string>> = {
                       >
                     }
                   </div>
-                  <div class="flex items-center gap-2 mt-1">
-                    @if (row.percent !== null) {
-                      <div
-                        class="relative flex-1 h-1.5 rounded bg-base-content/10"
-                        role="meter"
-                        aria-valuemin="0"
-                        aria-valuemax="100"
-                        [attr.aria-valuenow]="roundPercent(row.percent)"
-                        [attr.aria-valuetext]="row.valueText"
-                        [attr.aria-label]="row.name + ' used'"
-                      >
-                        <span
-                          class="block h-full rounded bg-base-content/70"
-                          [style.width.%]="clampPercent(row.percent)"
-                          [style.background-image]="barStripes(row.barTone)"
-                        ></span>
-                        <span
-                          class="absolute -top-0.5 h-2.5 w-px bg-base-content/60"
-                          [style.left.%]="nearLimitPercent"
-                          aria-hidden="true"
-                          [attr.title]="'Near-limit threshold ' + nearLimitPercent + '%'"
-                        ></span>
-                      </div>
-                    } @else {
-                      <div class="flex-1"></div>
-                    }
-                    <span class="text-xs font-semibold tabular-nums text-right" data-testid="window-value">{{
+                  @if (row.percent !== null) {
+                    <div
+                      [class]="radialClass(row.percent, row.barTone)"
+                      role="progressbar"
+                      aria-valuemin="0"
+                      aria-valuemax="100"
+                      [attr.aria-valuenow]="roundPercent(row.percent)"
+                      [attr.aria-valuetext]="row.valueText"
+                      [attr.aria-label]="row.name + ' plan usage'"
+                      [attr.title]="
+                        row.valueText + '. ' + row.resetLines.join(' ')
+                      "
+                      [style.--value]="clampPercent(row.percent)"
+                      style="--size: 3.5rem; --thickness: 5px"
+                      data-testid="window-radial-progress"
+                    >
+                      {{ roundPercent(row.percent) }}%
+                    </div>
+                    <span class="sr-only" data-testid="window-value">{{
                       row.valueText
                     }}</span>
-                  </div>
+                  } @else {
+                    <span
+                      class="mt-1 text-xs font-semibold tabular-nums"
+                      data-testid="window-value"
+                      >{{ row.valueText }}</span
+                    >
+                  }
                   <div
-                    class="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1 text-[11px] text-base-content-muted"
+                    class="mt-1 flex flex-wrap justify-center gap-x-2 gap-y-1 text-[11px] text-base-content-muted"
                   >
                     @if (row.limitLine) {
-                      <strong class="text-base-content">{{ row.limitLine }}</strong>
+                      <strong class="text-base-content">{{
+                        row.limitLine
+                      }}</strong>
                     }
                     @for (line of row.resetLines; track $index) {
-                      <span>{{ line }}</span>
+                      <span
+                        [class.font-semibold]="line.startsWith('Resets in')"
+                        >{{ line }}</span
+                      >
                     }
                     @if (row.note) {
                       <span>{{ row.note }}</span>
@@ -272,7 +299,10 @@ const STATUS_SENTENCES: Partial<Record<ProviderAccountUsageStatus, string>> = {
                     }
                   </div>
                   @if (row.estimateNote) {
-                    <p class="text-[11px] text-base-content-muted mt-1" data-testid="estimate-note">
+                    <p
+                      class="text-[11px] text-base-content-muted mt-1"
+                      data-testid="estimate-note"
+                    >
                       {{ row.estimateNote }}
                     </p>
                   }
@@ -306,24 +336,28 @@ const STATUS_SENTENCES: Partial<Record<ProviderAccountUsageStatus, string>> = {
               class="text-xs mt-2.5 border-l-2 border-info pl-2 flex flex-wrap items-center gap-x-1.5"
               data-testid="cooldown"
             >
-              <span class="text-[11px] px-1.5 rounded border border-info bg-info/15">Cooldown</span>
+              <span
+                class="text-[11px] px-1.5 rounded border border-info bg-info/15"
+                >Cooldown</span
+              >
               <span>{{ cooldown }}</span>
             </p>
           }
 
           @if (section.activity; as activity) {
-            <div class="mt-3" aria-label="Account activity">
+            <div class="mt-2" aria-label="Account activity">
               <p class="text-xs font-medium">Activity</p>
-              <p class="text-xs">Lifetime tokens: {{ activity.lifetimeTokens ?? 'Unavailable' }}</p>
-              <p class="text-[10px] text-base-content-muted">Activity is not remaining messages, credits, or billing.</p>
+              <p class="text-xs">
+                Lifetime tokens: {{ activity.lifetimeTokens ?? 'Unavailable' }}
+              </p>
+              <p class="text-[10px] text-base-content-muted">
+                Activity is not remaining messages, credits, or billing.
+              </p>
             </div>
           }
         </section>
       } @empty {
-        <section
-          class="rounded-lg border border-base-content/10 bg-base-100/40 p-3"
-          aria-label="Account usage"
-        >
+        <section class="surface-2 rounded-lg p-3" aria-label="Account usage">
           <div class="flex items-center justify-between gap-3">
             <h4 class="font-medium text-sm">Account usage</h4>
             <button
@@ -336,16 +370,25 @@ const STATUS_SENTENCES: Partial<Record<ProviderAccountUsageStatus, string>> = {
             </button>
           </div>
           @if (loading()) {
-            <span class="loading loading-spinner loading-xs mt-3" aria-label="Loading account usage"></span>
+            <span
+              class="loading loading-spinner loading-xs mt-3"
+              aria-label="Loading account usage"
+            ></span>
           } @else {
-            <p class="text-xs text-base-content-muted mt-3" data-testid="usage-unavailable">
+            <p
+              class="text-xs text-base-content-muted mt-3"
+              data-testid="usage-unavailable"
+            >
               Account usage unavailable
             </p>
           }
         </section>
       }
     } @else if (loading()) {
-      <span class="loading loading-spinner loading-xs" aria-label="Loading account usage"></span>
+      <span
+        class="loading loading-spinner loading-xs"
+        aria-label="Loading account usage"
+      ></span>
     }
   `,
 })
@@ -412,15 +455,21 @@ export class ProviderAccountCardComponent {
     return Math.max(0, Math.min(100, percent));
   }
 
-  /** Stripes are decoration only; the fill stays neutral (design §4, §8). */
-  protected barStripes(tone: Tone): string | null {
-    if (tone === 'error') {
-      return 'repeating-linear-gradient(45deg, oklch(var(--er)) 0 4px, transparent 4px 8px)';
-    }
-    if (tone === 'warning') {
-      return 'repeating-linear-gradient(90deg, oklch(var(--wa)) 0 6px, transparent 6px 8px)';
-    }
-    return null;
+  /** DaisyUI's radial fill inherits `currentColor`; its track stays base-muted. */
+  protected radialClass(percent: number, stateTone: Tone): string {
+    return stateTone === 'error'
+      ? 'radial-progress bg-base-300 text-error'
+      : percent >= 75
+        ? 'radial-progress bg-base-300 text-warning'
+        : 'radial-progress bg-base-300 text-success';
+  }
+
+  protected statusChipClass(tone: Tone): string {
+    return tone === 'error'
+      ? 'badge-error'
+      : tone === 'warning'
+        ? 'badge-warning'
+        : 'badge-ghost';
   }
 
   /** Semantic colour only as border and tint, never as text (design §8). */
@@ -491,7 +540,10 @@ export function refreshFailedNotice(
       ...owner.ownerEvidence.map((evidence) => evidence.observedAt),
     ];
     for (const instant of instants) {
-      if (Number.isFinite(instant) && (newest === undefined || instant > newest)) {
+      if (
+        Number.isFinite(instant) &&
+        (newest === undefined || instant > newest)
+      ) {
         newest = instant;
       }
     }
@@ -509,14 +561,12 @@ function buildOwnerSection(
   const hasData = owner.windows.length > 0 || owner.ownerEvidence.length > 0;
   return {
     key: owner.owner.key,
+    providerId: owner.owner.providerId,
     // The generic label plus the key suffix ("Claude account · a1b2") so two
     // owners of one provider are told apart; never the full key.
     label: ownerDisplayLabel(owner.owner),
     subtitle: subtitleFor(owner),
-    statusChip:
-      owner.status === 'available' || owner.status === 'no-usage-source'
-        ? null
-        : owner.status,
+    statusChip: statusChip(owner.status),
     noUsageSource: owner.status === 'no-usage-source',
     statusNotice: statusNotice(owner, hasData, now, time),
     windows: owner.windows.map((w) => buildWindowRow(w, owner, now, time)),
@@ -536,6 +586,29 @@ function subtitleFor(owner: PlanLimitOwnerSnapshot): string {
       : 'Subscription quota';
   const plan = owner.account?.planType;
   return plan ? `${base} · Plan: ${plan}` : base;
+}
+
+/** Short, human-readable status labels; diagnostic codes stay out of the UI. */
+function statusChip(status: ProviderAccountUsageStatus): StateChipView | null {
+  switch (status) {
+    case 'available':
+      return null;
+    case 'no-usage-source':
+      return { glyph: '', text: 'No usage source', tone: 'neutral' };
+    case 'stale':
+      return { glyph: '', text: 'Cached data', tone: 'warning' };
+    case 'unsupported-auth':
+      return { glyph: '', text: 'API key — no plan limits', tone: 'neutral' };
+    case 'unsupported-config':
+    case 'provider-unsupported':
+      return { glyph: '', text: 'No usage source', tone: 'neutral' };
+    case 'cli-unavailable':
+      return { glyph: '', text: 'CLI unavailable', tone: 'warning' };
+    case 'cli-version-unsupported':
+      return { glyph: '', text: 'CLI update needed', tone: 'warning' };
+    case 'service-unavailable':
+      return { glyph: '', text: 'Usage unavailable', tone: 'neutral' };
+  }
 }
 
 function statusNotice(
@@ -574,10 +647,17 @@ function statusNotice(
         sources: [],
       };
     }
+    if (owner.owner.providerId === 'antigravity') {
+      return {
+        text: 'Antigravity usage is available only while its local language server is running and exposes its local status endpoint. It was not available for this refresh.',
+        tone: 'neutral',
+        sources: [],
+      };
+    }
   }
   const sentence = STATUS_SENTENCES[owner.status];
   if (sentence === undefined || hasData) return null;
-  return { text: `${owner.status} · ${sentence}`, tone: 'neutral', sources: [] };
+  return { text: sentence, tone: 'neutral', sources: [] };
 }
 
 function buildWindowRow(
@@ -635,7 +715,7 @@ function buildWindowRow(
         ? 'error'
         : state === 'near-limit'
           ? 'warning'
-          : 'neutral',
+          : 'success',
     valueText: showValue ? `${formatUsed(window.used)} used` : 'Used: unknown',
     limitLine,
     resetLines,
@@ -667,6 +747,9 @@ function resetText(
   now: number,
   time: LocalTimeOptions,
 ): string {
+  if (resetsAt !== undefined && Number.isFinite(resetsAt) && resetsAt > now) {
+    return `Resets in ${formatRelative(resetsAt, now)} (${formatLocalAbsolute(resetsAt, now, time)})`;
+  }
   const phrase = resetPhrase(resetsAt, now, time);
   return phrase.charAt(0).toUpperCase() + phrase.slice(1);
 }

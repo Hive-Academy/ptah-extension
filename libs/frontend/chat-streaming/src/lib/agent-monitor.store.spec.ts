@@ -1431,6 +1431,18 @@ describe('AgentMonitorStore', () => {
       });
     });
 
+    it('copies stopReason on exit and clears it when the lane is re-opened', () => {
+      spawnLane('lane-stop', {});
+      exitLane('lane-stop', {
+        status: 'stopped',
+        stopReason: 'tool-call-budget',
+      });
+      expect(card('lane-stop')?.stopReason).toBe('tool-call-budget');
+
+      spawnLane('lane-stop', {});
+      expect(card('lane-stop')?.stopReason).toBeUndefined();
+    });
+
     it('copies failureKind on exit and upgrades an unknown owner to the known one', () => {
       spawnLane('lane-3', { quotaOwner: OWNER_UNKNOWN });
       exitLane('lane-3', { failureKind: 'quota', quotaOwner: OWNER_KNOWN });
@@ -1873,7 +1885,12 @@ describe('AgentMonitorStore', () => {
           subagentUsageView(
             {
               ...record,
-              usage: { input: 1_000, output: 10, cacheRead: 50, model: CACHED_A },
+              usage: {
+                input: 1_000,
+                output: 10,
+                cacheRead: 50,
+                model: CACHED_A,
+              },
             },
             NOW,
           ).estimatedCostUsd,
@@ -1888,7 +1905,12 @@ describe('AgentMonitorStore', () => {
           subagentUsageView(
             {
               ...record,
-              usage: { input: 1_000, output: 10, cacheRead: 50, model: 'gpt-4o' },
+              usage: {
+                input: 1_000,
+                output: 10,
+                cacheRead: 50,
+                model: 'gpt-4o',
+              },
             },
             NOW,
           ).estimatedCostUsd,

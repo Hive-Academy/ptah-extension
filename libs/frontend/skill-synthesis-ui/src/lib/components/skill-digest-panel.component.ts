@@ -105,12 +105,12 @@ interface DigestItemView {
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <section
-      class="overflow-hidden rounded-xl border border-base-300 bg-base-200/40"
+      class="surface-2 overflow-hidden rounded-xl"
       data-testid="skills-digest-panel"
       aria-label="Skill synthesis weekly digest"
     >
       <div
-        class="flex flex-wrap items-baseline justify-between gap-x-2 border-b border-base-300 px-4 py-3"
+        class="flex flex-wrap items-baseline justify-between gap-x-2 border-b border-surface-border px-4 py-3"
       >
         <h4 class="text-xs font-semibold uppercase tracking-wide">This week</h4>
         <span

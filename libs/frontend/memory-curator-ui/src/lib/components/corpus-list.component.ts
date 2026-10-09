@@ -112,10 +112,8 @@ export const CORPUS_CHAT_NAVIGATOR = new InjectionToken<CorpusChatNavigator>(
       }
 
       @if (loading() && corpora().length === 0) {
-        <div
-          class="overflow-hidden rounded-xl border border-base-300 bg-base-200/40"
-        >
-          <div class="divide-y divide-base-300/70">
+        <div class="overflow-hidden surface-2 rounded-xl">
+          <div class="divide-y divide-surface-border">
             @for (n of skeletonRows; track n) {
               <div class="flex items-center gap-3 px-4 py-3">
                 <div class="skeleton h-3 w-40"></div>
@@ -134,11 +132,11 @@ export const CORPUS_CHAT_NAVIGATOR = new InjectionToken<CorpusChatNavigator>(
         </div>
       } @else {
         <ul
-          class="divide-y divide-base-300/70 overflow-hidden rounded-xl border border-base-300 bg-base-200/40"
+          class="divide-y divide-surface-border overflow-hidden surface-2 rounded-xl"
         >
           @for (corpus of corpora(); track corpus.id) {
             <li
-              class="group flex flex-col gap-2 px-4 py-3 transition-colors duration-150 hover:bg-base-300/30 md:flex-row md:items-center"
+              class="group flex flex-col gap-2 px-4 py-3 transition-colors duration-150 hover:bg-surface-3 md:flex-row md:items-center"
             >
               <div class="min-w-0 flex-1">
                 <div class="flex flex-wrap items-center gap-x-2 gap-y-0.5">

@@ -110,11 +110,13 @@ function emptyForm(timezone: string): CronJobFormState {
         >
       </div>
     } @else {
-      <div class="space-y-6">
-        <header class="flex flex-wrap items-start justify-between gap-3">
+      <div class="space-y-6" data-testid="cron-scheduler-section">
+        <header
+          class="surface-1 flex flex-wrap items-start justify-between gap-3 rounded-xl p-5"
+        >
           <div class="flex items-start gap-3">
             <span
-              class="mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-xl border border-base-content/10 bg-base-200/60 text-info"
+              class="mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-xl border border-surface-border bg-surface-2 text-info"
             >
               <lucide-angular
                 [img]="CalendarClockIcon"
@@ -188,9 +190,7 @@ function emptyForm(timezone: string): CronJobFormState {
           class="grid grid-cols-2 gap-3 xl:grid-cols-4"
           aria-label="Cron statistics"
         >
-          <div
-            class="stats bg-base-200/40 border border-base-content/10 shadow-sm"
-          >
+          <div class="stats surface-2">
             <div class="stat p-4">
               <div class="stat-figure text-primary">
                 <lucide-angular
@@ -209,9 +209,7 @@ function emptyForm(timezone: string): CronJobFormState {
             </div>
           </div>
 
-          <div
-            class="stats bg-base-200/40 border border-base-content/10 shadow-sm"
-          >
+          <div class="stats surface-2">
             <div class="stat p-4">
               <div class="stat-figure text-success">
                 <lucide-angular
@@ -230,9 +228,7 @@ function emptyForm(timezone: string): CronJobFormState {
             </div>
           </div>
 
-          <div
-            class="stats bg-base-200/40 border border-base-content/10 shadow-sm"
-          >
+          <div class="stats surface-2">
             <div class="stat p-4">
               <div class="stat-figure text-base-content-muted">
                 <lucide-angular
@@ -251,9 +247,7 @@ function emptyForm(timezone: string): CronJobFormState {
             </div>
           </div>
 
-          <div
-            class="stats bg-base-200/40 border border-base-content/10 shadow-sm"
-          >
+          <div class="stats surface-2">
             <div class="stat p-4">
               <div class="stat-figure text-info">
                 <lucide-angular
@@ -326,7 +320,7 @@ function emptyForm(timezone: string): CronJobFormState {
 
         @if (formOpen()) {
           <section
-            class="overflow-hidden rounded-xl border border-base-300 bg-base-200/40 p-5"
+            class="surface-1 overflow-hidden rounded-xl p-5"
             aria-label="Job editor"
             data-testid="cron-form"
           >

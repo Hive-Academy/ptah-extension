@@ -24,6 +24,7 @@ import {
   type PtahCliConfig,
 } from '@ptah-extension/shared';
 import { ClaudeRpcService } from './claude-rpc.service';
+import { AuthStateService } from './auth-state.service';
 import { EffortSettingsChangeService } from './effort-settings-change.service';
 import {
   ProvidersCommitService,
@@ -103,6 +104,7 @@ const CLI_TEST_REASONS: Readonly<Record<string, string>> = {
 @Injectable({ providedIn: 'root' })
 export class ProvidersSettingsStateService {
   private readonly rpc = inject(ClaudeRpcService);
+  private readonly authState = inject(AuthStateService);
   private readonly commits = inject(ProvidersCommitService);
   private readonly setup = inject(ProvidersConnectionSetupService);
   private readonly effortChanges = inject(EffortSettingsChangeService);
@@ -980,6 +982,7 @@ export class ProvidersSettingsStateService {
     refreshConnections: () => this.refreshConnections(),
     refreshRoute: () => this.refreshRoute(),
     route: () => this.route(),
+    refreshAuthStatus: () => this.authState.refreshAuthStatus(),
   };
   /** Resolves `false` when refused because another save is in flight (see `ProvidersCommitService.run`). */
   private runCommit(

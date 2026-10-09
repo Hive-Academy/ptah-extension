@@ -88,7 +88,7 @@ interface SuggestionsToast {
 
         @if (pending().length === 0 && !loading()) {
           <div
-            class="rounded-xl border border-base-300 bg-base-200/40 px-6 py-12 text-center"
+            class="surface-2 rounded-xl px-6 py-12 text-center"
             data-testid="suggestions-empty"
           >
             <lucide-angular
@@ -106,7 +106,7 @@ interface SuggestionsToast {
           <ul class="space-y-3" data-testid="suggestions-list">
             @for (s of pending(); track s.id) {
               <li
-                class="rounded-xl border border-base-300 bg-base-200/40 p-4"
+                class="surface-2 rounded-xl p-4"
                 data-testid="suggestions-card"
               >
                 <div class="flex flex-wrap items-start justify-between gap-3">

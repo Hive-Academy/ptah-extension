@@ -72,7 +72,7 @@ let nextStatCardId = 0;
       role="group"
       [attr.aria-labelledby]="labelId"
       [attr.aria-busy]="state() === 'loading'"
-      class="flex h-full flex-col gap-1 rounded-xl border border-base-300 bg-base-200 p-4 transition-transform duration-150 hover:-translate-y-px motion-reduce:transition-none motion-reduce:hover:translate-y-0"
+      class="surface-2 flex h-full flex-col gap-1 rounded-xl p-4 transition-transform duration-150 hover:-translate-y-px motion-reduce:transition-none motion-reduce:hover:translate-y-0"
       [attr.data-state]="state()"
       data-testid="stat-card"
     >

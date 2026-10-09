@@ -39,11 +39,7 @@ import {
 } from './memory-danger-zone.component';
 
 export type MemoryTabView =
-  | 'memories'
-  | 'timeline'
-  | 'corpus'
-  | 'code'
-  | 'maintenance';
+  'memories' | 'timeline' | 'corpus' | 'code' | 'maintenance';
 
 interface ViewChip {
   readonly id: MemoryTabView;
@@ -94,11 +90,14 @@ const SEARCH_DEBOUNCE_MS = 300;
         >
       </div>
     } @else {
-      <div class="space-y-6">
-        <header class="mb-2 flex flex-wrap items-start justify-between gap-3">
+      <div
+        class="surface-1 flex flex-col gap-5 rounded-xl p-5"
+        data-testid="thoth-section-memory"
+      >
+        <header class="flex flex-wrap items-start justify-between gap-3">
           <div class="flex items-start gap-3">
             <span
-              class="mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-xl border border-base-content/10 bg-base-200/60 text-primary"
+              class="mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-lg bg-surface-0 text-primary"
             >
               <lucide-angular
                 [img]="BrainIcon"
@@ -155,7 +154,7 @@ const SEARCH_DEBOUNCE_MS = 300;
         <nav
           role="tablist"
           aria-label="Memory views"
-          class="tabs tabs-boxed tabs-sm w-fit bg-base-200 p-1"
+          class="tabs tabs-boxed tabs-sm w-fit bg-surface-2 p-1"
         >
           @for (chip of viewChips; track chip.id) {
             <button

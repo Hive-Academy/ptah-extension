@@ -49,6 +49,12 @@ describe('MetricsCardsComponent', () => {
   it('shows a fully priced total without a marker', () => {
     const root = render(totals());
     expect(normalized(byTestId(root, 'metrics-total-cost'))).toBe('$5.00');
+    expect(
+      byTestId(root, 'metrics-total-cost')?.parentElement?.className,
+    ).toContain('border-success');
+    expect(
+      byTestId(root, 'metrics-total-cost')?.parentElement?.className,
+    ).toContain('bg-surface-2');
     expect(byTestId(root, 'metrics-total-lower-bound')).toBeNull();
     expect(normalized(byTestId(root, 'metrics-avg-cost'))).toBe('$2.50');
   });
