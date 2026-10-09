@@ -1,14 +1,26 @@
-import type { SurfaceComponent, SurfaceEnvelope } from './surface.types';
+import type {
+  SurfaceAlertComponent,
+  SurfaceBadgeComponent,
+  SurfaceComponent,
+  SurfaceEnvelope,
+  SurfaceStatComponent,
+} from './surface.types';
 import {
-  SURFACE_CATALOG_VERSION,
+  SURFACE_CATALOG_VERSION_4,
   SURFACE_SCHEMA_VERSION,
 } from './surface-catalog';
 import { PTAH_UI_SOURCES } from './ptah-ui-parser';
 import type {
+  PtahUiContainerElement,
   PtahUiDocument,
+  PtahUiElement,
   PtahUiNode,
+  PtahUiNoteTone,
   PtahUiScalar,
   PtahUiSourceName,
+  PtahUiSourceScope,
+  PtahUiStatItem,
+  PtahUiTone,
 } from './ptah-ui.types';
 
 export type PtahUiBinding =
@@ -17,12 +29,16 @@ export type PtahUiBinding =
       readonly componentId: string;
       readonly source: PtahUiSourceName;
       readonly field: string;
+      /** Present only on `$agents.session.<scalar>` (R5.11). */
+      readonly scope?: PtahUiSourceScope;
     }
   | {
       readonly kind: 'rows';
       readonly componentId: string;
       readonly source: PtahUiSourceName;
       readonly columns: readonly string[];
+      /** Present only on `table|list $agents session` (R5.11). */
+      readonly scope?: PtahUiSourceScope;
     };
 
 /** A display-only surface plus the host values it still needs. */
@@ -31,82 +47,124 @@ export interface PtahUiConversion {
   readonly bindings: readonly PtahUiBinding[];
 }
 
-/** Converts parsed ptah-ui grammar to a display-only v2 surface. */
+/**
+ * Converts parsed ptah-ui grammar to a display-only `dashboard-catalog/4`
+ * surface. Depth-0 ids stay positional (`c${n}`, a statline expanding to one
+ * stat each), so a 610 block converts to the same components; the children of
+ * a container with id `P` are `${P}.${i}`.
+ */
 export function convertPtahUi(
   doc: PtahUiDocument,
   surfaceId: string,
 ): PtahUiConversion {
   const bindings: PtahUiBinding[] = [];
-  const components: SurfaceComponent[] = [];
-  for (const element of doc.elements) {
-    if (element.kind === 'stats') {
-      for (const item of element.items) {
-        if (item.trend !== undefined || item.spark !== undefined)
-          throw notConvertible('stat trend and spark');
-        const id = `c${components.length}`;
-        components.push({
-          kind: 'stat',
-          id,
-          title: { text: item.label },
-          value: convertStatValue(item.value, id, bindings),
-        });
-      }
-      continue;
-    }
-    components.push(convertElement(element, `c${components.length}`, bindings));
-  }
   return {
     envelope: {
       schemaVersion: SURFACE_SCHEMA_VERSION,
-      catalogVersion: SURFACE_CATALOG_VERSION,
+      catalogVersion: SURFACE_CATALOG_VERSION_4,
       surfaceId,
       title: { text: doc.title ?? '' },
-      components,
+      components: convertItems(doc.elements, (index) => `c${index}`, bindings),
     },
     bindings,
   };
 }
 
-function convertElement(
-  element: PtahUiNode,
+/** Converts sibling items; `idAt` names the n-th emitted component. */
+function convertItems(
+  items: readonly PtahUiNode[],
+  idAt: (index: number) => string,
+  bindings: PtahUiBinding[],
+): SurfaceComponent[] {
+  const components: SurfaceComponent[] = [];
+  for (const item of items) {
+    if (item.kind === 'stats') {
+      for (const stat of item.items)
+        components.push(convertStat(stat, idAt(components.length), bindings));
+      continue;
+    }
+    components.push(convertItem(item, idAt(components.length), bindings));
+  }
+  return components;
+}
+
+function convertItem(
+  item: Exclude<PtahUiNode, { readonly kind: 'stats' }>,
   id: string,
   bindings: PtahUiBinding[],
 ): SurfaceComponent {
-  switch (element.kind) {
-    case 'stats':
-      throw new Error('stats are expanded before conversion');
+  switch (item.kind) {
     case 'row':
     case 'col':
     case 'grid':
     case 'card':
     case 'section':
     case 'accordion':
-    case 'note':
-    case 'progress':
-    case 'badge':
-    case 'avatar':
-      throw notConvertible(`\`${element.kind}\``);
+      return convertContainer(item, id, bindings);
+    default:
+      return convertElement(item, id, bindings);
+  }
+}
+
+function convertContainer(
+  container: PtahUiContainerElement,
+  id: string,
+  bindings: PtahUiBinding[],
+): SurfaceComponent {
+  const children = convertItems(
+    container.children,
+    (index) => `${id}.${index}`,
+    bindings,
+  );
+  switch (container.kind) {
+    case 'row':
+    case 'col':
+      return {
+        kind: 'stack',
+        id,
+        direction: container.kind === 'row' ? 'horizontal' : 'vertical',
+        children,
+      };
+    case 'grid':
+      return { kind: 'grid', id, columns: container.columns, children };
+    case 'card':
+      return container.title === undefined
+        ? { kind: 'card', id, children }
+        : { kind: 'card', id, title: { text: container.title }, children };
+    case 'section':
+    case 'accordion':
+      return {
+        kind: container.kind,
+        id,
+        title: { text: container.title },
+        children,
+      };
+  }
+}
+
+function convertElement(
+  element: Exclude<PtahUiElement, { readonly kind: 'stats' }>,
+  id: string,
+  bindings: PtahUiBinding[],
+): SurfaceComponent {
+  switch (element.kind) {
     case 'table':
       if ('source' in element) {
         const columns = element.columns ?? sourceColumns(element.source);
-        bindings.push({
-          kind: 'rows',
-          componentId: id,
-          source: element.source,
-          columns,
-        });
+        bindings.push(rowsBinding(id, element.source, columns, element.scope));
         return table(id, columns, []);
       }
       return table(id, element.columns, element.rows);
     case 'list':
       if ('source' in element) {
-        const columns = sourceColumns(element.source);
-        bindings.push({
-          kind: 'rows',
-          componentId: id,
-          source: element.source,
-          columns,
-        });
+        bindings.push(
+          rowsBinding(
+            id,
+            element.source,
+            sourceColumns(element.source),
+            element.scope,
+          ),
+        );
         return { kind: 'list', id, items: [] };
       }
       return {
@@ -129,7 +187,82 @@ function convertElement(
           },
         ],
       };
+    case 'note':
+      return {
+        kind: 'alert',
+        id,
+        tone: NOTE_TONES[element.tone],
+        text: { text: element.text },
+      };
+    case 'badge':
+      return {
+        kind: 'badge',
+        id,
+        tone: ATOM_TONES[element.tone],
+        text: { text: element.text },
+      };
+    case 'progress':
+      return {
+        kind: 'progress',
+        id,
+        value: element.value,
+        tone: ATOM_TONES[element.tone ?? 'neutral'],
+        label: { text: element.label },
+      };
+    case 'avatar':
+      return element.subtitle === undefined
+        ? { kind: 'avatar', id, name: element.name }
+        : {
+            kind: 'avatar',
+            id,
+            name: element.name,
+            subtitle: element.subtitle,
+          };
   }
+}
+
+/** R4 mapping: `note` tones onto the `alert` vocabulary. */
+const NOTE_TONES: Readonly<
+  Record<PtahUiNoteTone, SurfaceAlertComponent['tone']>
+> = { info: 'info', ok: 'success', warn: 'warning', error: 'error' };
+
+/** R4 mapping: `badge` and `progress` tones onto the catalog vocabulary. */
+const ATOM_TONES: Readonly<Record<PtahUiTone, SurfaceBadgeComponent['tone']>> =
+  {
+    neutral: 'neutral',
+    info: 'info',
+    ok: 'success',
+    warn: 'warning',
+    error: 'error',
+  };
+
+function convertStat(
+  item: PtahUiStatItem,
+  id: string,
+  bindings: PtahUiBinding[],
+): SurfaceComponent {
+  const stat: SurfaceStatComponent = {
+    kind: 'stat',
+    id,
+    title: { text: item.label },
+    value: convertStatValue(item.value, id, bindings),
+  };
+  const trend =
+    item.trend === undefined
+      ? undefined
+      : {
+          direction: item.trend.direction,
+          amount: item.trend.amount,
+          percent: item.trend.percent,
+          ...(item.trend.polarity === undefined
+            ? {}
+            : { polarity: item.trend.polarity }),
+        };
+  return {
+    ...stat,
+    ...(trend === undefined ? {} : { trend }),
+    ...(item.spark === undefined ? {} : { spark: [...item.spark] }),
+  };
 }
 
 function convertStatValue(
@@ -143,8 +276,26 @@ function convertStatValue(
     componentId,
     source: value.source,
     field: value.field,
+    ...(value.scope === undefined ? {} : { scope: value.scope }),
   });
-  return `$${value.source}.${value.field}`;
+  return value.scope === undefined
+    ? `$${value.source}.${value.field}`
+    : `$${value.source}.${value.scope}.${value.field}`;
+}
+
+function rowsBinding(
+  componentId: string,
+  source: PtahUiSourceName,
+  columns: readonly string[],
+  scope: PtahUiSourceScope | undefined,
+): PtahUiBinding {
+  return {
+    kind: 'rows',
+    componentId,
+    source,
+    columns,
+    ...(scope === undefined ? {} : { scope }),
+  };
 }
 
 function table(
@@ -161,18 +312,6 @@ function table(
     })),
     rows,
   };
-}
-
-/**
- * The R3 nested grammar parses before this converter emits it: it still emits
- * the 610 flat dashboard-catalog/3 shape. A block using a construct it cannot
- * emit fails here, and `renderPtahUiBlock` turns the throw into the atomic
- * code-block fallback instead of a partial surface.
- */
-function notConvertible(construct: string): Error {
-  return new Error(
-    `ptah-ui ${construct} is not convertible to ${SURFACE_CATALOG_VERSION}`,
-  );
 }
 
 function sourceColumns(source: PtahUiSourceName): readonly string[] {

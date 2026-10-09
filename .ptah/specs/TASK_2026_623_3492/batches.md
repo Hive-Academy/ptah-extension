@@ -237,7 +237,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
   `SURFACE_CATALOG_VERSION_4`. A zod-free consumer in a later batch may need it there; the `/surface` subpath already
   has it.
 
-## Batch 3: S3 fence and parser rewrite — COMPLETE
+## Batch 3: S3 fence and parser rewrite — COMPLETE (commit d702fc14a)
 
 - Recommended executor: backend-developer
 - Fallback executor: general-purpose subagent
@@ -290,7 +290,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
   same information, and 610 segments keep their exact shape. Consumers must test `target === 'display'` and treat an
   absent `target` as inline; notes added to Tasks 18.2 and 22.2.
 
-## Batch 4: S4 converter and `$agents` source — PENDING
+## Batch 4: S4 converter and `$agents` source — COMPLETE
 
 - Recommended executor: backend-developer
 - Fallback executor: general-purpose subagent
@@ -299,7 +299,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - Tasks: 2 | Depends on: Batch 3
 - Phase: 1 | Phase review: code-logic (after Batch 6)
 
-### Task 4.1: converter emits `/4`, maps new nodes — PENDING
+### Task 4.1: converter emits `/4`, maps new nodes — COMPLETE
 
 - Files:
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\shared\src\mcp-apps-contracts\ptah-ui-converter.ts
@@ -309,7 +309,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - Validation notes (decision #24): replace the Batch 3 interim `notConvertible(...)` throws with real `/4` mapping
   for containers, atoms and stat trend/spark; remove the seam.
 
-### Task 4.2: pure `$agents` source module — PENDING
+### Task 4.2: pure `$agents` source module — COMPLETE
 
 - Files (CREATE):
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\shared\src\mcp-apps-contracts\ptah-ui-agents-source.ts
@@ -325,6 +325,22 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 ### Batch 4 verification
 
 - `npx jest -c libs/shared/jest.config.ts libs/shared/src/mcp-apps-contracts/ptah-ui-converter.spec.ts libs/shared/src/mcp-apps-contracts/ptah-ui-agents-source.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -n 40 && npx nx typecheck @ptah-extension/shared --parallel=1 2>&1 | tail -n 20 && npx nx lint @ptah-extension/shared --parallel=1 2>&1 | tail -n 20`
+
+- Result: 2 suites / 82 tests passed; typecheck passed; lint 0 errors, 6 baseline warnings.
+
+### Batch 4 decisions (recorded at verification)
+
+- #27 Interim gap accepted: the converter now emits nested bindings (`c1.0.0`) but the resolver still maps top-level
+  components only, so a source-bound value inside a container shows its placeholder text until Task 5.1. No commit
+  between Batch 4 and Batch 5 is shipped or merged. Task 5.1 now carries this as an explicit requirement with a test.
+- #28 `CliLaneFact` has no context field. Accepted: matches R5.10 and decision #16 (CLI `context` "unavailable" in
+  this task); the follow-up CLI-context task adds the field.
+- #29 `tokens` scalar is unavailable when any in-scope row's tokens are unavailable (same rule as `cost`, R5.3).
+  Accepted: R5.3 says missing tokens are never zero and values are never guessed; a sum skipping an unknown row would
+  be a guessed figure.
+- #30 Other executor choices accepted: R tokens = input + output, else `totalTokens` (R5 names input + output first);
+  fact `status` typed `string` so the unknown → `pending` rule is reachable; `ptah-ui-agents-source.ts` is not
+  exported from the eager `surface.index.ts` barrel (D6: the module is lazy and forbidden-eager).
 
 ## Batch 5: S5 resolver and pipeline (`compilePtahUiBlock`) — PENDING
 
@@ -345,6 +361,14 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
   reserved `ptah.` id invalid with reason "reserved display id" (R2.5, D11).
 - Validation notes (decision #24): replace the Batch 3 interim `agents`/`limits` → "unavailable" branches in
   `scalarValue` and `rowsSource` with the real inputs. The parser already declares `'reserved-id'`; this task produces it.
+- Required (decision #27): the resolver walks the component tree recursively (containers and `accordion` children),
+  so every binding emitted by the converter at any depth (ids like `c1.0.0`) is resolved, including scoped
+  `$agents.session.<field>` placeholders and `rows` bindings with `scope: 'session'`. Spec: a block with `$agents.total`
+  in a stat nested two levels deep and a nested `table $agents session` resolves to real values, and no resolved
+  surface text contains a `$agents.` / `$limits.` / `$diff.` placeholder.
+- Required: build the `$agents` branches on `ptah-ui-agents-source.ts` (`resolvePtahUiAgents`, `agentsScalarValue`,
+  `agentsRowValues`); do not re-implement merge or aggregation. Decide and pin by spec how a zero-agent `cost` scalar
+  renders (`formatUsdCost(0)` gives `$0.0000`, a true zero, not a missing value).
 
 ### Task 5.2: pipeline `compilePtahUiBlock(body, surfaceId)` + `usedSources` — PENDING
 
@@ -355,6 +379,9 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - Plan reference: implementation-plan.md:200-215 (D5)
 - Quality requirements: parse+convert once per body; `renderPtahUiBlock` keeps its signature and composes
   compile/resolve/validate; an invalid block falls back atomically.
+- Validation note (Batch 4): the converter no longer throws for containers, atoms or stat trend/spark (decision #24
+  seam removed). Any pipeline spec case that expected the code-block fallback for those constructs must now expect a
+  rendered `/4` surface.
 
 ### Batch 5 verification
 
