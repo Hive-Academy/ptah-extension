@@ -152,7 +152,10 @@ export class SessionHandoverCoordinator {
     @inject(SessionHandoffWriter, { isOptional: true })
     private readonly handoffWriter: SessionHandoffWriter | null = null,
     @inject(SDK_TOKENS.SDK_SESSION_HISTORY_READER, { isOptional: true })
-    private readonly historyReader: SessionHistoryReaderService | null = null,
+    private readonly historyReader: Pick<
+      SessionHistoryReaderService,
+      'readHistoryForCuration'
+    > | null = null,
     private readonly successorHostResolver: () => SessionSuccessorHost | null =
       () => null,
   ) {}

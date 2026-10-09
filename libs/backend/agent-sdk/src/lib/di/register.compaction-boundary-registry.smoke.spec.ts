@@ -351,8 +351,14 @@ describe('registerSdkServices — session budget DI smoke', () => {
 });
 
 describe('registerSdkServices — session handover DI integration', () => {
-  it('injects the token-registered history reader and budget service', () => {
+  it('injects the token-registered history reader and budget service', async () => {
     const container = buildSmokeContainer(undefined, false);
+    const reader = container.resolve<SessionHistoryReaderService>(
+      SDK_TOKENS.SDK_SESSION_HISTORY_READER,
+    );
+    const read = jest
+      .spyOn(reader, 'readHistoryForCuration')
+      .mockResolvedValue([]);
     const coordinator = container.resolve<SessionHandoverCoordinator>(
       SessionHandoverCoordinator,
     );
@@ -363,13 +369,15 @@ describe('registerSdkServices — session handover DI integration', () => {
     const coordinatorDependencies = coordinator as unknown as {
       handoffBuilder: unknown;
       handoffWriter: unknown;
-      historyReader: unknown;
+      historyReader: Pick<SessionHistoryReaderService, 'readHistoryForCuration'>;
     };
     const lifecycleDependencies = lifecycle as unknown as { sessionBudget: unknown };
 
     expect(coordinatorDependencies.handoffBuilder).toBeInstanceOf(SessionHandoffBuilder);
     expect(coordinatorDependencies.handoffWriter).toBeInstanceOf(SessionHandoffWriter);
-    expect(coordinatorDependencies.historyReader).toBeInstanceOf(SessionHistoryReaderService);
+    // The reader is resolved lazily and forwards to the token-registered one.
+    await coordinatorDependencies.historyReader.readHistoryForCuration('s1', '/ws');
+    expect(read).toHaveBeenCalledWith('s1', '/ws');
     expect(lifecycleDependencies.sessionBudget).toBeInstanceOf(SessionBudgetService);
   });
 });

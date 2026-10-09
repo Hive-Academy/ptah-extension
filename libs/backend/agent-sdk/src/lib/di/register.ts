@@ -750,9 +750,16 @@ export function registerSdkServices(
         new SessionHandoverCoordinator(
           c.resolve(SessionHandoffBuilder),
           c.resolve(SessionHandoffWriter),
-          c.resolve<SessionHistoryReaderService>(
-            SDK_TOKENS.SDK_SESSION_HISTORY_READER,
-          ),
+          // Resolved on first use: the reader pulls in the model resolver,
+          // which a host may register after the spawner that injects this.
+          {
+            readHistoryForCuration: (...args) =>
+              c
+                .resolve<SessionHistoryReaderService>(
+                  SDK_TOKENS.SDK_SESSION_HISTORY_READER,
+                )
+                .readHistoryForCuration(...args),
+          },
           () =>
             c.isRegistered(SESSION_SUCCESSOR_HOST, true)
               ? c.resolve(SESSION_SUCCESSOR_HOST)
