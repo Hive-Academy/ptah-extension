@@ -101,6 +101,11 @@ export {
 } from './lib/permission/unattended-session-policy.registry';
 export type { IAuthEnvProvider } from './lib/auth-env.port';
 export type { IProviderAuthResolver } from './lib/auth/provider-auth-resolver.port';
+export type {
+  IWorkspaceLlmResolver,
+  WorkspaceLlmSnapshot,
+  WorkspaceLlmResolveOptions,
+} from './lib/auth/workspace-llm-resolver.port';
 export type { OneShotAuthOverride } from './lib/helpers';
 export type { IPricingProvider } from './lib/pricing.port';
 export {

@@ -627,6 +627,16 @@ export class SessionLifecycleManager {
     return this._control.disposeAllSessions();
   }
 
+  /** Tab ids of the live sessions of one workspace (normalized path match). */
+  getSessionIdsForWorkspace(workspacePath: string): string[] {
+    return this._control.getSessionIdsForWorkspace(workspacePath);
+  }
+
+  /** End only the sessions of one workspace; other workspaces keep running. */
+  async disposeSessionsForWorkspace(workspacePath: string): Promise<void> {
+    return this._control.disposeSessionsForWorkspace(workspacePath);
+  }
+
   /**
    * Get session count
    */

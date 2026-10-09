@@ -46,6 +46,7 @@ import {
 import type {
   InternalQueryConfig,
   InternalQueryHandle,
+  IWorkspaceLlmResolver,
 } from '@ptah-extension/agent-sdk';
 
 /**
@@ -94,6 +95,9 @@ export class JobRunner {
     private readonly handlers: IHandlerRegistry,
     @inject(TOKENS.LOGGER)
     private readonly logger: Logger,
+    /** Provider + model for the job's own workspace (never the active one's). */
+    @inject(SDK_TOKENS.SDK_WORKSPACE_LLM_RESOLVER)
+    private readonly workspaceLlm: IWorkspaceLlmResolver,
     /**
      * Optional: a host with no in-process MCP server (the CLI) resolves
      * nothing and every job runs exactly as it did before.
@@ -254,9 +258,17 @@ export class JobRunner {
       }
       return handler({ job, scheduledFor, signal: ctl.signal });
     }
+    // Provider and model of ONE snapshot for the job's workspace: the job runs
+    // on that workspace's files, so it runs on that workspace's provider too,
+    // whichever workspace is active when it fires. A rootless job resolves the
+    // app/global provider and model explicitly.
+    const { model, auth } = await this.workspaceLlm.resolveForPath(
+      job.workspaceRoot ?? undefined,
+    );
     const handle = await this.internalQuery.execute({
       cwd: job.workspaceRoot ?? process.cwd(),
-      model: '',
+      model,
+      ...(auth ? { auth } : {}),
       prompt: job.prompt,
       // A cron job used to run with MCP hard-disabled, so it could not call a
       // single Ptah tool on a host where the server was listening the whole

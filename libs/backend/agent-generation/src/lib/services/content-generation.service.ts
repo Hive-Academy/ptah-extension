@@ -35,8 +35,6 @@ import type {
   MessageCompleteEvent,
 } from '@ptah-extension/shared';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
-import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
-import type { ModelSettings } from '@ptah-extension/settings-core';
 import * as path from 'path';
 import { readFileSync } from 'fs';
 import {
@@ -59,7 +57,10 @@ import {
   discoverPluginSkills,
   formatSkillsForPrompt,
 } from '@ptah-extension/agent-sdk';
-import type { InternalQueryService } from '@ptah-extension/agent-sdk';
+import type {
+  InternalQueryService,
+  IWorkspaceLlmResolver,
+} from '@ptah-extension/agent-sdk';
 import type {
   SDKMessage,
   StreamEventEmitter,
@@ -140,8 +141,8 @@ export class ContentGenerationService implements IContentGenerationService {
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(SDK_TOKENS.SDK_INTERNAL_QUERY_SERVICE)
     private readonly internalQueryService: InternalQueryService,
-    @inject(SETTINGS_TOKENS.MODEL_SETTINGS)
-    private readonly modelSettings: ModelSettings,
+    @inject(SDK_TOKENS.SDK_WORKSPACE_LLM_RESOLVER)
+    private readonly workspaceLlm: IWorkspaceLlmResolver,
     @inject(PLATFORM_TOKENS.MCP_SERVER_STATUS, { isOptional: true })
     private readonly mcpServerStatus: IMcpServerStatus | null = null,
     // Last, and defaulted, so the seventeen existing three-argument
@@ -348,9 +349,13 @@ export class ContentGenerationService implements IContentGenerationService {
         },
         required: ['sections'],
       };
-      const model =
-        sdkConfig?.model ??
-        (this.modelSettings.selectedModel.get() || 'default');
+      // Provider and model of ONE snapshot for the workspace being generated
+      // for — never the active workspace's model or the process-wide auth.
+      // A configured model is kept only when that provider offers it.
+      const { model, auth } = await this.workspaceLlm.resolveForPath(
+        context.rootPath,
+        { requestedModel: sdkConfig?.model },
+      );
       let systemPrompt = `You write the repository-specific half of a subagent instruction file. The other half — role, method, output contract — is already authored and stack-agnostic. Your sections tell the agent HOW THIS REPOSITORY DOES THINGS.
 
 WHAT A SECTION IS
@@ -403,6 +408,7 @@ OUTPUT FORMAT
         maxTurns: 25,
         abortController,
         outputFormat: { type: 'json_schema', schema: outputSchema },
+        ...(auth ? { auth } : {}),
       });
 
       let structuredOutput: unknown | null;

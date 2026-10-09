@@ -29,7 +29,10 @@
 import { inject, injectable } from 'tsyringe';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import { SDK_TOKENS, SdkStreamProcessor } from '@ptah-extension/agent-sdk';
-import type { InternalQueryService } from '@ptah-extension/agent-sdk';
+import type {
+  InternalQueryService,
+  IWorkspaceLlmResolver,
+} from '@ptah-extension/agent-sdk';
 import type { HarnessStreamOperation } from '@ptah-extension/shared';
 
 import { HARNESS_TOKENS } from '../tokens';
@@ -43,7 +46,11 @@ import { HarnessStreamBroadcaster } from '../streaming/harness-stream-broadcaste
  */
 export interface HarnessLlmExecuteParams {
   cwd: string;
-  model: string;
+  /**
+   * Optional model the caller wants. Kept only when the workspace's provider
+   * offers it; by default the model saved for `cwd`'s provider is used.
+   */
+  model?: string;
   prompt: string;
   systemPromptAppend: string;
   mcpServerRunning: boolean;
@@ -92,6 +99,8 @@ export class HarnessLlmRunner {
     private readonly internalQueryService: InternalQueryService,
     @inject(HARNESS_TOKENS.STREAM_BROADCASTER)
     private readonly broadcaster: HarnessStreamBroadcaster,
+    @inject(SDK_TOKENS.SDK_WORKSPACE_LLM_RESOLVER)
+    private readonly workspaceLlm: IWorkspaceLlmResolver,
   ) {}
 
   /**
@@ -108,15 +117,24 @@ export class HarnessLlmRunner {
       args.operation,
     );
 
+    // Provider and model come from ONE snapshot resolved for the harness's
+    // workspace — never the process-wide auth env (which belongs to whichever
+    // workspace was configured last) and never the active workspace's model.
+    const { model, auth } = await this.workspaceLlm.resolveForPath(
+      args.execute.cwd,
+      { requestedModel: args.execute.model },
+    );
+
     const handle = await this.internalQueryService.execute({
       cwd: args.execute.cwd,
-      model: args.execute.model,
+      model,
       prompt: args.execute.prompt,
       systemPromptAppend: args.execute.systemPromptAppend,
       mcpServerRunning: args.execute.mcpServerRunning,
       maxTurns: args.execute.maxTurns,
       outputFormat: args.execute.outputFormat,
       abortController,
+      ...(auth ? { auth } : {}),
     });
 
     try {

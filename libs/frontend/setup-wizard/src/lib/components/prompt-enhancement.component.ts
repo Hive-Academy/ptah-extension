@@ -13,10 +13,26 @@ import {
   SkipForward,
   Sparkles,
 } from 'lucide-angular';
+import { WorkspaceScopeService } from '@ptah-extension/core';
 import { SetupWizardStateService } from '../services/setup-wizard-state.service';
 import { WizardRpcService } from '../services/wizard-rpc.service';
 import { AnalysisTranscriptComponent } from './analysis-transcript.component';
 import { EnhancedPromptsSummaryCardComponent } from './cards/enhanced-prompts-summary-card.component';
+
+/**
+ * The workspace root an analysis directory (`<root>/.ptah/analysis/<slug>`)
+ * belongs to; else the active workspace; else `'.'` (the host's root).
+ */
+export function analyzedWorkspaceRoot(
+  analysisDir: string | undefined,
+  activeWorkspacePath: string | null,
+): string {
+  const match = analysisDir
+    ? /^(.*?)[\\/]\.ptah[\\/]analysis[\\/][^\\/]+[\\/]?$/.exec(analysisDir)
+    : null;
+  if (match && match[1]) return match[1];
+  return activeWorkspacePath ?? '.';
+}
 
 /**
  * PromptEnhancementComponent - Dedicated wizard step for Enhanced Prompts generation
@@ -208,6 +224,7 @@ import { EnhancedPromptsSummaryCardComponent } from './cards/enhanced-prompts-su
 export class PromptEnhancementComponent {
   private readonly wizardState = inject(SetupWizardStateService);
   private readonly wizardRpc = inject(WizardRpcService);
+  private readonly workspaceScope = inject(WorkspaceScopeService);
 
   protected readonly CircleCheckIcon = CircleCheck;
   protected readonly CircleAlertIcon = CircleAlert;
@@ -270,7 +287,6 @@ export class PromptEnhancementComponent {
     this.wizardState.setEnhancedPromptsStatus('generating');
 
     try {
-      const workspacePath = '.';
       const multiPhase = this.wizardState.multiPhaseResult();
 
       if (!multiPhase) {
@@ -280,6 +296,12 @@ export class PromptEnhancementComponent {
         );
         return;
       }
+      // The workspace the analysis belongs to — not whichever is active now,
+      // so the backend resolves THAT workspace's provider and model.
+      const workspacePath = analyzedWorkspaceRoot(
+        multiPhase.analysisDir,
+        this.workspaceScope.activeWorkspacePath(),
+      );
       const result = await this.wizardRpc.runEnhancedPromptsWizard(
         workspacePath,
         multiPhase.analysisDir,

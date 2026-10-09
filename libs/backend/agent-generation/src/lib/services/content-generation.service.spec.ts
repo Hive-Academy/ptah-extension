@@ -111,7 +111,7 @@ describe('ContentGenerationService', () => {
   let service: ContentGenerationService;
   let mockLogger: MockLogger;
   let mockInternalQueryService: { execute: jest.Mock };
-  let mockModelSettings: { selectedModel: { get: jest.Mock } };
+  let mockWorkspaceLlm: { resolveForPath: jest.Mock };
 
   beforeEach(() => {
     mockLogger = {
@@ -130,8 +130,14 @@ describe('ContentGenerationService', () => {
       }),
     };
 
-    mockModelSettings = {
-      selectedModel: { get: jest.fn().mockReturnValue('claude-3-5-haiku') },
+    mockWorkspaceLlm = {
+      resolveForPath: jest.fn(
+        async (_root: string, opts?: { requestedModel?: string }) => ({
+          providerId: 'anthropic',
+          model: opts?.requestedModel || 'claude-3-5-haiku',
+          auth: { env: { ANTHROPIC_API_KEY: 'ws-key' } },
+        }),
+      ),
     };
 
     SdkStreamProcessorMock.mockImplementation(
@@ -144,7 +150,7 @@ describe('ContentGenerationService', () => {
     service = new ContentGenerationService(
       mockLogger as never,
       mockInternalQueryService as never,
-      mockModelSettings as never,
+      mockWorkspaceLlm as never,
     );
   });
 
@@ -984,9 +990,7 @@ Default
       );
     });
 
-    it('should fall back to default model when modelSettings has no selection', async () => {
-      mockModelSettings.selectedModel.get.mockReturnValue('');
-
+    it('runs on the provider and model of the snapshot for the generation root', async () => {
       const template = {
         ...baseTemplate,
         content: `<!-- LLM:SECTION_A -->
@@ -996,11 +1000,16 @@ Default
 
       await service.generateContent(template, mockContext);
 
+      expect(mockWorkspaceLlm.resolveForPath).toHaveBeenCalledWith(
+        mockContext.rootPath,
+        { requestedModel: undefined },
+      );
       const callArgs = mockInternalQueryService.execute.mock.calls[0][0];
-      expect(callArgs.model).toBe('default');
+      expect(callArgs.model).toBe('claude-3-5-haiku');
+      expect(callArgs.auth).toEqual({ env: { ANTHROPIC_API_KEY: 'ws-key' } });
     });
 
-    it('should prefer sdkConfig.model over modelSettings selection', async () => {
+    it('hands sdkConfig.model to the snapshot as a request it validates', async () => {
       const template = {
         ...baseTemplate,
         content: `<!-- LLM:SECTION_A -->
@@ -1937,7 +1946,9 @@ describe('ContentGenerationService — abort signal and section counts', () => {
       abort: jest.fn(),
       close: jest.fn(),
     });
-    const modelSettings = { selectedModel: { get: () => 'model' } };
+    const workspaceLlm = {
+      resolveForPath: async () => ({ providerId: 'anthropic', model: 'model' }),
+    };
     const sectionValidator = {
       buildPathIndex: jest.fn(() => ({})),
       validate: jest.fn(async ({ sectionId }: { sectionId: string }) =>
@@ -1949,7 +1960,7 @@ describe('ContentGenerationService — abort signal and section counts', () => {
     const service = new ContentGenerationService(
       logger as never,
       { execute } as never,
-      modelSettings as never,
+      workspaceLlm as never,
       null,
       sectionValidator,
     );

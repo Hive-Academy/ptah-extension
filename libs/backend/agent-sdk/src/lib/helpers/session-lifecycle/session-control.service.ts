@@ -16,6 +16,7 @@
 
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { SubagentRegistryService } from '@ptah-extension/vscode-core';
+import { normalizeWorkspaceRoot } from '@ptah-extension/platform-core';
 import type {
   SessionId,
   ISdkPermissionHandler,
@@ -391,6 +392,56 @@ export class SessionControl {
     for (const ended of endedSessions) {
       this.sessionEndRegistry.notifyAll(ended);
     }
+  }
+
+  /**
+   * Tab ids of the live sessions whose `projectPath` is `workspacePath`
+   * (compared through `normalizeWorkspaceRoot`, so separator, trailing-slash
+   * and drive-letter case differences do not split one workspace). Sessions
+   * with no `projectPath` belong to no workspace and are never matched.
+   */
+  getSessionIdsForWorkspace(workspacePath: string): string[] {
+    return this.recordsForWorkspace(workspacePath).map((rec) => rec.tabId);
+  }
+
+  /**
+   * End every live session of ONE workspace, leaving the sessions of every
+   * other workspace running. A workspace-scoped auth change only affects that
+   * workspace, so {@link disposeAllSessions} would end unrelated chats.
+   *
+   * Each session goes through the same per-session teardown as `endSession`
+   * (permissions, subagents, interrupt, abort, deregister, SessionEnd
+   * notification). A failed teardown is logged and does not stop the others.
+   */
+  async disposeSessionsForWorkspace(workspacePath: string): Promise<void> {
+    const records = this.recordsForWorkspace(workspacePath);
+    this.logger.info(
+      `[SessionLifecycle] Disposing ${records.length} session(s) of one workspace...`,
+    );
+    const results = await Promise.allSettled(
+      records.map((rec) => this.endRecord(rec, rec.tabId as SessionId)),
+    );
+    for (const result of results) {
+      if (result.status === 'rejected') {
+        this.logger.warn(
+          '[SessionLifecycle] Failed to end a workspace session',
+          result.reason instanceof Error
+            ? result.reason
+            : new Error(String(result.reason)),
+        );
+      }
+    }
+  }
+
+  private recordsForWorkspace(workspacePath: string): SessionRecord[] {
+    if (!workspacePath) return [];
+    const wanted = normalizeWorkspaceRoot(workspacePath);
+    return Array.from(this.registry.entries())
+      .map(([, rec]) => rec)
+      .filter((rec) => {
+        const root = rec.config.projectPath;
+        return !!root && normalizeWorkspaceRoot(root) === wanted;
+      });
   }
 
   /**

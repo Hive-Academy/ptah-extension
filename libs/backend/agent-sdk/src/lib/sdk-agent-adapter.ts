@@ -160,6 +160,15 @@ export class SdkAgentAdapter implements IAgentAdapter {
    */
   private resetChain: Promise<void> | null = null;
 
+  /**
+   * Workspace-scoped auth changes in flight ({@link applyWorkspaceAuthChange}).
+   * While above zero the `configChanged` handler stands down: the change it
+   * would react to (a saved key fires the `ptah.auth.*` secret watcher) is
+   * already being applied to the one workspace it belongs to, and the
+   * handler's `disposeAllSessions()` would end every other workspace's chats.
+   */
+  private workspaceAuthChanges = 0;
+
   private cliInstallation: ClaudeInstallation | null = null;
 
   private lastConfiguredAuth: {
@@ -264,7 +273,14 @@ export class SdkAgentAdapter implements IAgentAdapter {
     this.workspaceProvider.onDidChangeWorkspaceFolders(() => {
       this.handleWorkspaceChanged();
     });
-    this.events.onConfigChanged(async () => {
+    this.events.onConfigChanged(async (event) => {
+      if (this.workspaceAuthChanges > 0) {
+        this.logger.info(
+          '[SdkAgentAdapter] Config change during a workspace-scoped auth save — applied to that workspace only',
+          { key: event?.key },
+        );
+        return;
+      }
       this.logger.info(
         '[SdkAgentAdapter] Config change detected, re-initializing...',
       );
@@ -699,6 +715,60 @@ export class SdkAgentAdapter implements IAgentAdapter {
     }
     this.dispose();
     await this.initialize();
+  }
+
+  /**
+   * Apply an auth change saved for ONE workspace (`auth:saveSettings` with
+   * `applyTo: 'workspace'`). Unlike {@link reset}, which disposes the whole
+   * adapter and so ends every session in the process, this ends only the
+   * sessions of `workspacePath` and re-configures auth for the active
+   * workspace — the same per-workspace path a workspace switch takes.
+   *
+   * `write` performs the settings and secret writes. It runs inside the
+   * window in which the `configChanged` handler stands down, so a secret
+   * change it fires cannot tear down every other workspace's sessions.
+   */
+  async applyWorkspaceAuthChange(
+    workspacePath: string,
+    write: () => Promise<void>,
+  ): Promise<void> {
+    this.workspaceAuthChanges += 1;
+    try {
+      await write();
+      await this.endSessionsForWorkspace(workspacePath);
+      // Like `doReset`, never let an in-flight pass (started before the write)
+      // answer this one.
+      const running = this.initInFlight;
+      if (running !== null) {
+        // degradation-audit: optional-capability - the result of a pass that
+        // predates the write is discarded; a fresh pass follows regardless.
+        await running.catch(() => false);
+      }
+      this.cliDetector.clearCache();
+      this.modelService.invalidateForAuthChange();
+      await this.initialize();
+    } finally {
+      this.workspaceAuthChanges -= 1;
+    }
+  }
+
+  /**
+   * End every live session of one workspace with the same accounting the
+   * single-session `endSession` does (pending activity, stats owners, budget),
+   * captured before the teardown awaits while the records still exist.
+   */
+  private async endSessionsForWorkspace(workspacePath: string): Promise<void> {
+    const ids = this.sessionLifecycle.getSessionIdsForWorkspace(workspacePath);
+    const leases: OwnerLease[] = [];
+    const budgetKeys: string[] = [];
+    for (const id of ids) {
+      this.flushPendingUserActivityFor(id as SessionId);
+      leases.push(...this.captureStatsLeases(id as SessionId));
+      budgetKeys.push(...this.sessionKeys(id as SessionId));
+    }
+    await this.sessionLifecycle.disposeSessionsForWorkspace(workspacePath);
+    this.releaseStatsOwners(leases);
+    this.releaseBudget(budgetKeys);
   }
 
   async startChatSession(

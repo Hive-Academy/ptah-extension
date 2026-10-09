@@ -21,8 +21,6 @@ import {
   TOKENS,
   type WebviewManager,
 } from '@ptah-extension/vscode-core';
-import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
-import type { ModelSettings } from '@ptah-extension/settings-core';
 import { Result, MESSAGE_TYPES } from '@ptah-extension/shared';
 import type {
   AnalysisPhase,
@@ -31,6 +29,7 @@ import type {
 import { SDK_TOKENS, SdkStreamProcessor } from '@ptah-extension/agent-sdk';
 import type {
   InternalQueryService,
+  IWorkspaceLlmResolver,
   SDKMessage,
   StreamEventEmitter,
   PhaseTracker,
@@ -129,8 +128,8 @@ export class AgenticAnalysisService {
     private readonly webviewManager: WebviewManager,
     @inject(SDK_TOKENS.SDK_INTERNAL_QUERY_SERVICE)
     private readonly internalQueryService: InternalQueryService,
-    @inject(SETTINGS_TOKENS.MODEL_SETTINGS)
-    private readonly modelSettings: ModelSettings,
+    @inject(SDK_TOKENS.SDK_WORKSPACE_LLM_RESOLVER)
+    private readonly workspaceLlm: IWorkspaceLlmResolver,
   ) {}
 
   /**
@@ -147,8 +146,11 @@ export class AgenticAnalysisService {
     },
   ): Promise<Result<DeepProjectAnalysis, Error>> {
     const timeout = options?.timeout ?? DEFAULT_TIMEOUT_MS;
-    const model =
-      options?.model || this.modelSettings.selectedModel.get() || 'default';
+    // Provider and model of ONE snapshot for the analyzed workspace.
+    const { model, auth } = await this.workspaceLlm.resolveForPath(
+      workspacePath,
+      { requestedModel: options?.model },
+    );
     const mcpServerRunning = options?.mcpServerRunning ?? false;
     const mcpPort = options?.mcpPort;
 
@@ -191,6 +193,7 @@ export class AgenticAnalysisService {
           type: 'json_schema',
           schema: buildAnalysisJsonSchema(),
         },
+        ...(auth ? { auth } : {}),
       });
 
       try {

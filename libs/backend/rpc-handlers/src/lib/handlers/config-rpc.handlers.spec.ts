@@ -367,6 +367,26 @@ describe('ConfigRpcHandlers', () => {
         'workspace',
       );
     });
+
+    it('returns a failed result when the workspace save is rejected (no open workspace)', async () => {
+      const h = makeHarness();
+      h.modelSettings.selectedModel.set.mockRejectedValue(
+        new Error(
+          "Cannot save 'provider.claudeCli.selectedModel' for this workspace: no workspace is open.",
+        ),
+      );
+      h.handlers.register();
+
+      const response = await h.rpcHandler.handleMessage({
+        method: 'config:model-switch',
+        params: { model: 'claude-opus-4-7', applyTo: 'workspace' },
+        correlationId: 'corr',
+      });
+
+      expect(response.success).toBe(false);
+      expect(response.error).toMatch(/no workspace is open/);
+      expect(h.sdkAdapter.setSessionModel).not.toHaveBeenCalled();
+    });
   });
 
   // -------------------------------------------------------------------------

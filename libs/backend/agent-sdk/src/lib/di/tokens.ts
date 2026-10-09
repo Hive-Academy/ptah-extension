@@ -123,6 +123,12 @@ export const SDK_TOKENS = {
 
   SDK_PROVIDER_AUTH_RESOLVER: Symbol.for('SdkProviderAuthResolver'),
 
+  /**
+   * `IWorkspaceLlmResolver` — provider + model snapshot for one workspace
+   * path. Implemented and registered by `auth-providers`.
+   */
+  SDK_WORKSPACE_LLM_RESOLVER: Symbol.for('SdkWorkspaceLlmResolver'),
+
   /** `CommitMessageGenerator` — staged diff to commit message (TASK_2026_576). */
   SDK_COMMIT_MESSAGE_GENERATOR: Symbol.for('SdkCommitMessageGenerator'),
 

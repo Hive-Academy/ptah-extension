@@ -382,11 +382,18 @@ export class WelcomeComponent implements OnInit {
       providerId === this.providers.activeProviderId()
     )
       return;
+    // An open workspace keeps the choice to itself (`writeScopes` offers
+    // `workspace` only then), so other workspaces' sessions are not ended.
+    const applyTo = this.providers
+      .writeScopes('authMethod')
+      .includes('workspace')
+      ? 'workspace'
+      : 'global';
     this.providerSaving.set(true);
     try {
       const saved = await this.providers.activateConnection(
         providerId,
-        'global',
+        applyTo,
         context,
       );
       if (saved) {

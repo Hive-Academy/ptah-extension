@@ -30,8 +30,8 @@ import type {
   RpcHandler,
   SentryService,
 } from '@ptah-extension/vscode-core';
-import type { ModelSettings } from '@ptah-extension/settings-core';
 import type {
+  PluginLoaderService,
   SettingsExportService,
   SettingsImportService,
 } from '@ptah-extension/agent-sdk';
@@ -53,8 +53,11 @@ type _SetupParam1 = _SetupRpcHandlersArgs[1];
 const _assertSetupParam1: _SetupParam1 extends RpcHandler ? true : never = true;
 void _assertSetupParam1;
 type _SetupParam2 = _SetupRpcHandlersArgs[2];
-const _assertSetupParam2: _SetupParam2 extends ModelSettings ? true : never =
-  true;
+// The ambient ModelSettings is gone: the wizard resolves provider + model
+// for its own workspace (WorkspaceLlmResolver).
+const _assertSetupParam2: _SetupParam2 extends PluginLoaderService
+  ? true
+  : never = true;
 void _assertSetupParam2;
 
 type _SettingsRpcHandlersArgs = ConstructorParameters<

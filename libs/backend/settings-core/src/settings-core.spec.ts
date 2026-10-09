@@ -55,6 +55,11 @@ import {
 import type { ISettingsStore } from './ports/settings-store.interface';
 import type { IDisposable } from '@ptah-extension/platform-core';
 import { providerSelectedModelDef } from './schema/provider-schema';
+import { ModelSettings } from './repositories/model-settings';
+import {
+  WorkspaceScopeResolver,
+  appScopePrefixFor,
+} from './scope/workspace-scope-resolver';
 
 // ---------------------------------------------------------------------------
 // Shared mock store — avoids TS generic overload issues by using a hand-built
@@ -1025,4 +1030,137 @@ describe('TC-29: sensitivity:secret routing — secret values land in secrets.en
     const parsed = JSON.parse(raw) as { entries: Record<string, unknown> };
     expect(parsed.entries['gateway.discord.tokenCipher']).toBeDefined();
   });
+});
+
+// ---------------------------------------------------------------------------
+// Workspace provider scope: a saved model must be the model read back, under
+// the same provider key the Settings UI writes.
+// ---------------------------------------------------------------------------
+
+describe('ModelSettings.selectedModel — scope and provider key', () => {
+  const PATH = path.join(mockTestHome, 'ws-model');
+  const APP_SCOPE = appScopePrefixFor('electron');
+  const MODEL_KEY = 'provider.thirdParty.openrouter.selectedModel';
+
+  function makeResolver(data: Record<string, unknown>): {
+    store: MockStore;
+    resolver: WorkspaceScopeResolver;
+  } {
+    const store = makeMockStore(data);
+    const resolver = new WorkspaceScopeResolver(
+      store,
+      { getActivePath: () => PATH, onDidChange: () => ({ dispose: () => {} }) },
+      APP_SCOPE,
+    );
+    return { store, resolver };
+  }
+
+  it('a save at a broader scope clears the narrower overrides, so the new model is read back', async () => {
+    const { store, resolver } = makeResolver({
+      authMethod: 'thirdParty',
+      anthropicProviderId: 'openrouter',
+      [MODEL_KEY]: 'old-global',
+      [`${APP_SCOPE}.${MODEL_KEY}`]: 'old-app',
+    });
+    await resolver.write(MODEL_KEY, 'old-workspace', 'workspace', true);
+    const settings = new ModelSettings(store, resolver);
+    expect(settings.selectedModel.get()).toBe('old-workspace');
+
+    await settings.selectedModel.set('new-global', 'global');
+
+    expect(settings.selectedModel.get()).toBe('new-global');
+    expect(store.readGlobal(`${APP_SCOPE}.${MODEL_KEY}`)).toBeUndefined();
+    expect(resolver.hasOverride(MODEL_KEY, true)).toBe(false);
+  });
+
+  it('watch re-targets when the provider changes at workspace scope (hashed key)', async () => {
+    const { store, resolver } = makeResolver({
+      authMethod: 'thirdParty',
+      anthropicProviderId: 'openrouter',
+      [MODEL_KEY]: 'or-model',
+      'provider.thirdParty.moonshot.selectedModel': 'kimi-k2.5',
+    });
+    const settings = new ModelSettings(store, resolver);
+    const seen: string[] = [];
+    const sub = settings.selectedModel.watch((value) => seen.push(value));
+    expect(seen.at(-1)).toBe('or-model');
+
+    await resolver.write('anthropicProviderId', 'moonshot', 'workspace', true);
+    expect(seen.at(-1)).toBe('kimi-k2.5');
+
+    // A model written at workspace scope for the new provider is seen too.
+    await settings.selectedModel.set('kimi-k2-thinking', 'workspace');
+    expect(seen.at(-1)).toBe('kimi-k2-thinking');
+
+    // The previous provider's key is no longer watched.
+    const count = seen.length;
+    await store.writeGlobal(MODEL_KEY, 'or-other');
+    expect(seen.length).toBe(count);
+    sub.dispose();
+  });
+
+  it('a workspace save leaves the broader values alone', async () => {
+    const { store, resolver } = makeResolver({
+      authMethod: 'thirdParty',
+      anthropicProviderId: 'openrouter',
+      [MODEL_KEY]: 'global-model',
+    });
+    const settings = new ModelSettings(store, resolver);
+
+    await settings.selectedModel.set('ws-model', 'workspace');
+
+    expect(settings.selectedModel.get()).toBe('ws-model');
+    expect(store.readGlobal(MODEL_KEY)).toBe('global-model');
+  });
+
+  it('a workspace save with no open workspace is rejected and leaves the store untouched', async () => {
+    const store = makeMockStore({
+      authMethod: 'thirdParty',
+      anthropicProviderId: 'openrouter',
+      [MODEL_KEY]: 'global-model',
+      [`${APP_SCOPE}.${MODEL_KEY}`]: 'app-model',
+    });
+    const resolver = new WorkspaceScopeResolver(
+      store,
+      {
+        getActivePath: () => undefined,
+        onDidChange: () => ({ dispose: () => {} }),
+      },
+      APP_SCOPE,
+    );
+    const clearSpy = jest.spyOn(resolver, 'clearMoreSpecific');
+    const settings = new ModelSettings(store, resolver);
+
+    await expect(
+      settings.selectedModel.set('stale-ws-model', 'workspace'),
+    ).rejects.toThrow(/no workspace is open/);
+
+    expect(store._writeGlobalCalls).toEqual([]);
+    expect(clearSpy).not.toHaveBeenCalled();
+    expect(store.readGlobal(MODEL_KEY)).toBe('global-model');
+    expect(store.readGlobal(`${APP_SCOPE}.${MODEL_KEY}`)).toBe('app-model');
+  });
+
+  it.each([
+    ['openrouter', 'openrouter', MODEL_KEY],
+    [
+      'oauth',
+      'github-copilot',
+      'provider.thirdParty.github-copilot.selectedModel',
+    ],
+    ['claude-cli', undefined, 'provider.claudeCli.selectedModel'],
+    ['thirdParty', undefined, MODEL_KEY],
+  ])(
+    'legacy authMethod %p with provider %p reads the key the UI writes (%s)',
+    (authMethod, providerId, key) => {
+      const store = makeMockStore({
+        authMethod,
+        ...(providerId ? { anthropicProviderId: providerId } : {}),
+        [key]: 'expected-model',
+      });
+      expect(new ModelSettings(store).selectedModel.get()).toBe(
+        'expected-model',
+      );
+    },
+  );
 });

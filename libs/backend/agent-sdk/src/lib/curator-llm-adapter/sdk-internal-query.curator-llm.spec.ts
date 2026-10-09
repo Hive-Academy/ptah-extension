@@ -302,7 +302,7 @@ describe('SdkInternalQueryCuratorLlm — resolveCuratorModel', () => {
 });
 
 describe('SdkInternalQueryCuratorLlm — query cwd', () => {
-  it('roots the internal query at the active workspace, not process.cwd()', async () => {
+  it("roots the internal query at the curated session's workspace, not the active one", async () => {
     const capture: ExecuteCapture = {};
     const internalQuery = makeInternalQuery({
       text: '{"memories":[]}',
@@ -311,11 +311,28 @@ describe('SdkInternalQueryCuratorLlm — query cwd', () => {
     const adapter = new SdkInternalQueryCuratorLlm(
       makeLogger(),
       internalQuery,
-      makeWorkspace('', '/home/abdo/project'),
+      makeWorkspace('', '/home/abdo/active-project'),
     );
-    await adapter.extract(EXTRACT_TRANSCRIPT);
+    await adapter.extract(EXTRACT_TRANSCRIPT, undefined, {
+      workspaceRoot: '/home/abdo/project',
+    });
     expect(capture.cwd).toBe('/home/abdo/project');
     expect(capture.cwd).not.toBe(process.cwd());
+  });
+
+  it('a session without a workspace runs in the home dir, never the active workspace', async () => {
+    const capture: ExecuteCapture = {};
+    const internalQuery = makeInternalQuery({
+      text: '{"memories":[]}',
+      capture,
+    });
+    const adapter = new SdkInternalQueryCuratorLlm(
+      makeLogger(),
+      internalQuery,
+      makeWorkspace('', '/home/abdo/active-project'),
+    );
+    await adapter.extract(EXTRACT_TRANSCRIPT);
+    expect(capture.cwd).toBe(os.homedir());
   });
 
   it('falls back to the user home dir when no workspace folder is open', async () => {
@@ -1237,5 +1254,79 @@ describe('SdkInternalQueryCuratorLlm — an unreachable provider stalls the pass
     });
     const result = await adapter.extract(EXTRACT_TRANSCRIPT);
     expect(result.status).toBe('extracted');
+  });
+});
+
+describe('SdkInternalQueryCuratorLlm — inherits the curated workspace provider', () => {
+  const SNAPSHOT_AUTH = {
+    env: { ANTHROPIC_AUTH_TOKEN: 'ws-a-key' },
+  } as unknown as OneShotAuthOverride;
+
+  function build(snapshot: {
+    providerId: string;
+    model: string;
+    auth?: OneShotAuthOverride;
+    cooldownMs?: number;
+  }) {
+    const capture: ExecuteCapture = {};
+    const internalQuery = makeInternalQuery({
+      text: '{"memories":[]}',
+      capture,
+    });
+    const resolveForPath = jest.fn(async () => snapshot);
+    const adapter = new SdkInternalQueryCuratorLlm(
+      makeLogger(),
+      internalQuery,
+      makeWorkspace('', '/ws/active'),
+      null,
+      null,
+      { resolveForPath },
+    );
+    return { adapter, capture, resolveForPath, internalQuery };
+  }
+
+  it('with no curator provider pinned, uses the snapshot of the session workspace', async () => {
+    const { adapter, capture, resolveForPath } = build({
+      providerId: 'moonshot',
+      model: 'kimi-k2.5',
+      auth: SNAPSHOT_AUTH,
+    });
+
+    await adapter.extract(EXTRACT_TRANSCRIPT, undefined, {
+      workspaceRoot: '/ws/a',
+    });
+
+    expect(resolveForPath).toHaveBeenCalledWith('/ws/a');
+    expect(capture.auth).toBe(SNAPSHOT_AUTH);
+    // The curator keeps its own cheap tier, resolved against that provider.
+    expect(capture.model).toBe(CURATOR_DEFAULT_MODEL_TIER);
+  });
+
+  it('a rootless session resolves the app/global snapshot', async () => {
+    const { adapter, resolveForPath } = build({
+      providerId: 'openrouter',
+      model: 'x',
+      auth: SNAPSHOT_AUTH,
+    });
+
+    await adapter.extract(EXTRACT_TRANSCRIPT);
+
+    expect(resolveForPath).toHaveBeenCalledWith(undefined);
+  });
+
+  it('stalls without a query when the workspace provider is cooling down', async () => {
+    const { adapter, internalQuery } = build({
+      providerId: 'moonshot',
+      model: 'kimi-k2.5',
+      auth: SNAPSHOT_AUTH,
+      cooldownMs: 10_000,
+    });
+
+    const result = await adapter.extract(EXTRACT_TRANSCRIPT, undefined, {
+      workspaceRoot: '/ws/a',
+    });
+
+    expect(result.status).toBe('stalled');
+    expect(internalQuery.execute).not.toHaveBeenCalled();
   });
 });

@@ -193,6 +193,8 @@ function createMockSessionLifecycle(): jest.Mocked<
     | 'executeQuery'
     | 'executeSlashCommandQuery'
     | 'disposeAllSessions'
+    | 'getSessionIdsForWorkspace'
+    | 'disposeSessionsForWorkspace'
     | 'dispose'
     | 'endSession'
     | 'find'
@@ -212,6 +214,8 @@ function createMockSessionLifecycle(): jest.Mocked<
     executeQuery: jest.fn(),
     executeSlashCommandQuery: jest.fn(),
     disposeAllSessions: jest.fn().mockResolvedValue(undefined),
+    getSessionIdsForWorkspace: jest.fn().mockReturnValue([]),
+    disposeSessionsForWorkspace: jest.fn().mockResolvedValue(undefined),
     dispose: jest.fn(),
     endSession: jest.fn().mockResolvedValue(undefined),
     find: jest.fn().mockReturnValue(undefined),
@@ -977,6 +981,57 @@ describe('SdkAgentAdapter', () => {
       await flush();
 
       expect(h.authManager.configureAuthentication).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('workspace-scoped auth change (applyWorkspaceAuthChange)', () => {
+    it('ends only that workspace and re-configures auth, without disposing the adapter', async () => {
+      const h = makeAdapter({ workspaceRoot: '/ws/a' });
+      await h.adapter.initialize();
+      h.sessionLifecycle.getSessionIdsForWorkspace.mockReturnValue(['tab_a']);
+      const disposed = jest.fn();
+      h.events.onDisposed(disposed);
+      const write = jest.fn().mockResolvedValue(undefined);
+
+      await h.adapter.applyWorkspaceAuthChange('/ws/a', write);
+
+      expect(write).toHaveBeenCalledTimes(1);
+      expect(
+        h.sessionLifecycle.disposeSessionsForWorkspace,
+      ).toHaveBeenCalledWith('/ws/a');
+      expect(h.sessionLifecycle.disposeAllSessions).not.toHaveBeenCalled();
+      expect(disposed).not.toHaveBeenCalled();
+      expect(h.authManager.clearAuthentication).not.toHaveBeenCalled();
+      expect(h.sessionBudget.release).toHaveBeenCalledWith('tab_a');
+      // A fresh pass picks up the new auth for the active workspace.
+      expect(h.authManager.configureAuthentication).toHaveBeenCalledTimes(2);
+      expect(h.adapter.getHealth().status).toBe('available');
+    });
+
+    it('a config change fired while the write runs (a saved key) does not dispose every session', async () => {
+      const h = makeAdapter({ workspaceRoot: '/ws/a' });
+      await h.adapter.initialize();
+
+      await h.adapter.applyWorkspaceAuthChange('/ws/a', async () => {
+        // The secret watcher fires synchronously from inside the key write.
+        h.events.emitConfigChanged({
+          key: 'ptah.auth.provider.openrouter',
+          timestamp: Date.now(),
+        });
+      });
+      await new Promise<void>((resolve) => setImmediate(resolve));
+
+      expect(h.sessionLifecycle.disposeAllSessions).not.toHaveBeenCalled();
+    });
+
+    it('a config change outside a workspace-scoped save still re-initializes everything', async () => {
+      const h = makeAdapter({ workspaceRoot: '/ws/a' });
+      await h.adapter.initialize();
+
+      h.events.emitConfigChanged({ key: 'authMethod', timestamp: Date.now() });
+      await new Promise<void>((resolve) => setImmediate(resolve));
+
+      expect(h.sessionLifecycle.disposeAllSessions).toHaveBeenCalledTimes(1);
     });
   });
 

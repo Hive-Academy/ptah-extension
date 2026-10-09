@@ -174,6 +174,8 @@ describe('MultiPhaseAnalysisService', () => {
   >;
   let closeFn: jest.Mock;
   let broadcastMessage: jest.Mock;
+  let resolveLlm: jest.Mock;
+  const SNAPSHOT_AUTH = { env: { ANTHROPIC_AUTH_TOKEN: 'ws-key' } };
   const logger = {
     debug: jest.fn(),
     info: jest.fn(),
@@ -219,12 +221,19 @@ describe('MultiPhaseAnalysisService', () => {
       };
     });
     broadcastMessage = jest.fn();
+    resolveLlm = jest.fn(async () => ({
+      providerId: 'moonshot',
+      model: 'snapshot-model',
+      auth: SNAPSHOT_AUTH,
+    }));
     service = new MultiPhaseAnalysisService(
       logger as never,
       { broadcastMessage } as never,
       { execute } as never,
       storage,
-      { selectedModel: { get: () => 'test-model' } } as never,
+      {
+        resolveForPath: resolveLlm,
+      } as never,
     );
   });
 
@@ -705,6 +714,31 @@ describe('MultiPhaseAnalysisService', () => {
     expect(last.phaseStatuses.every((s) => s.status === 'completed')).toBe(
       true,
     );
+  });
+
+  it('runs every phase on the provider AND model of one snapshot for the analyzed workspace', async () => {
+    scenarios = FILES.map((file) => agentWritesFile(file));
+
+    const result = await service.analyzeWorkspace(WORKSPACE, {
+      mcpServerRunning: true,
+      model: 'frontend-model',
+    });
+
+    expect(result.isOk()).toBe(true);
+    expect(resolveLlm).toHaveBeenCalledWith(WORKSPACE, {
+      requestedModel: 'frontend-model',
+    });
+    expect(execute).toHaveBeenCalledTimes(4);
+    for (const [call] of execute.mock.calls) {
+      const config = call as unknown as {
+        model: string;
+        auth: unknown;
+        cwd: string;
+      };
+      expect(config.model).toBe('snapshot-model');
+      expect(config.auth).toBe(SNAPSHOT_AUTH);
+      expect(config.cwd).toBe(WORKSPACE);
+    }
   });
 
   it('executes quality-audit with higher maxTurns (120) and other phases with 50', async () => {

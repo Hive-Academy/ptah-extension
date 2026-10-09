@@ -147,16 +147,28 @@ for (const host of HOSTS) {
       await expect(catalogDialog(page)).not.toHaveAttribute('open');
     });
 
-    test('popover model: a save shows a toast, and Undo sends a second config:model-switch with the previous model', async ({
+    test('popover model: nothing is written before Save; Save shows a toast, and Undo sends a second config:model-switch with the previous model', async ({
       page,
     }) => {
-      const popover = await openMainAgentPopover(page);
       const state = getFixtureState(page);
+      // Batch 4 (TASK_PROVIDER_SCOPE): a choice is a draft; Save writes it and closes the popover.
+      const saveModel = async (option: string) => {
+        const popover = await openMainAgentPopover(page);
+        const start = state.calls.length;
+        await chooseMainAgentModel(page, popover, option);
+        expect(
+          state.calls
+            .slice(start)
+            .some((call) => call.method === 'config:model-switch'),
+        ).toBe(false);
+        await popover.locator('[data-testid="main-agent-save"]').click();
+        await expect(popover).toHaveCount(0);
+      };
       // The fixture starts on the provider default (''), which has nothing to undo to: set a first model.
-      await chooseMainAgentModel(page, popover, 'Kimi K2.5 [Tool: Yes]');
+      await saveModel('Kimi K2.5 [Tool: Yes]');
       await expect.poll(() => state.model).toBe('kimi-k2.5');
       const before = state.calls.length;
-      await chooseMainAgentModel(page, popover, 'Kimi Lite [Tool: No]');
+      await saveModel('Kimi Lite [Tool: No]');
       await expectCall(
         page,
         before,
@@ -199,7 +211,7 @@ for (const host of HOSTS) {
       await expect(
         popover.locator('[data-testid="main-agent-provider-copy"]'),
       ).toHaveText(
-        'New main-agent requests use Moonshot (Kimi). Changing the provider ends running chat sessions.',
+        'New main-agent requests use Moonshot (Kimi). Changing the provider ends running chat sessions in this workspace.',
       );
       await visibleEnabled(
         popover.getByRole('button', {
@@ -278,25 +290,54 @@ for (const host of HOSTS) {
             : null;
         })
         .toBe('Kimi K2.7 Code [Tool: Yes]');
+      // Batch 4 (TASK_PROVIDER_SCOPE): Enter picks the model into the draft; nothing is written yet.
       await page.keyboard.press('Enter');
+      await expect(input).toHaveValue('Kimi K2.7 Code [Tool: Yes]');
+      await expect(input).toBeFocused();
+      expect(
+        getFixtureState(page)
+          .calls.slice(before)
+          .some((call) => call.method === 'config:model-switch'),
+      ).toBe(false);
+      // ArrowDown reopens the list; Esc closes the list only.
+      await page.keyboard.press('ArrowDown');
+      await expect(input).toHaveAttribute('aria-expanded', 'true');
+      await page.keyboard.press('Escape');
+      await expect(input).toHaveAttribute('aria-expanded', 'false');
+      await expect(popover).toBeVisible();
+      // Save writes the drafted model and closes the popover.
+      await popover.locator('[data-testid="main-agent-save"]').click();
       await expectCall(
         page,
         before,
         'config:model-switch',
         expect.objectContaining({ model: 'kimi-k2.7-code' }),
       );
-      await expect(input).toHaveValue('Kimi K2.7 Code [Tool: Yes]');
-      // The save made the field busy for a moment (Batch 54.1: aria-disabled, so focus stayed on it). Once it is free,
-      // ArrowDown reopens the list; the first Esc closes the list and the second the popover.
-      await visibleEnabled(input);
-      await expect(input).toBeFocused();
-      await page.keyboard.press('ArrowDown');
-      await expect(input).toHaveAttribute('aria-expanded', 'true');
-      await page.keyboard.press('Escape');
-      await expect(input).toHaveAttribute('aria-expanded', 'false');
-      await expect(popover).toBeVisible();
-      await page.keyboard.press('Escape');
       await expect(popover).toHaveCount(0);
+    });
+
+    test('popover Cancel discards the draft: nothing is written and the popover closes', async ({
+      page,
+    }) => {
+      const popover = await openMainAgentPopover(page);
+      const before = getFixtureState(page).calls.length;
+      await chooseMainAgentModel(page, popover, 'Kimi Lite [Tool: No]');
+      await popover
+        .locator('[data-testid="main-agent-effort"] [data-effort="high"]')
+        .click();
+      await visibleEnabled(popover.locator('[data-testid="main-agent-save"]'));
+      await popover.locator('[data-testid="main-agent-cancel"]').click();
+      await expect(popover).toHaveCount(0);
+      expect(
+        getFixtureState(page)
+          .calls.slice(before)
+          .some(
+            (call) =>
+              call.method === 'config:model-switch' ||
+              call.method === 'config:effort-set' ||
+              call.method === 'auth:saveSettings',
+          ),
+      ).toBe(false);
     });
   });
 

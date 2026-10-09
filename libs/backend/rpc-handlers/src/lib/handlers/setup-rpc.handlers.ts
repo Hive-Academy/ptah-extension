@@ -17,8 +17,6 @@ import {
   RpcUserError,
   TOKENS,
 } from '@ptah-extension/vscode-core';
-import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
-import type { ModelSettings } from '@ptah-extension/settings-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
 import { CodeExecutionMCP } from '@ptah-extension/vscode-lm-tools';
 import {
@@ -101,8 +99,6 @@ export class SetupRpcHandlers {
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
-    @inject(SETTINGS_TOKENS.MODEL_SETTINGS)
-    private readonly modelSettings: ModelSettings,
     @inject(SDK_TOKENS.SDK_PLUGIN_LOADER)
     private readonly pluginLoader: PluginLoaderService,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
@@ -321,9 +317,6 @@ export class SetupRpcHandlers {
         throw new Error('MCP server required for workspace analysis.');
       }
 
-      const currentModel =
-        params?.model || this.modelSettings.selectedModel.get() || 'default';
-
       const pluginPaths = this.resolvePluginPaths();
 
       const multiPhaseService = this.resolveService<{
@@ -345,7 +338,9 @@ export class SetupRpcHandlers {
       const multiPhaseResult = await multiPhaseService.analyzeWorkspace(
         workspaceRoot,
         {
-          model: currentModel,
+          // The analysis resolves provider + model for `workspaceRoot` itself;
+          // a frontend model is only a request it validates against them.
+          model: params?.model,
           mcpServerRunning,
           mcpPort,
           pluginPaths,
