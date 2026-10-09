@@ -2590,6 +2590,10 @@ run after Batch 34, not in parallel with it.
 - Rev 1: the cap notice now appears only when the shortened HTTP timer actually expires with lanes still running; HTTP and stdio publish transport-specific wait guidance. The schema continues to accept 0â€“900 s requests (including existing 600 s callers), while the HTTP description and `timeoutSec` field explicitly say that each individual HTTP call is capped at 45 s.
 - Open follow-up: `ptah_web_search` may block past 60 s; its timeout ceiling has not been checked.
 
+## Batch 13j — 13b spec stub follow-up + 13i minors (COMPLETE)
+
+- Restored the dispatcher freshness-double `isIndexing` contract, completed capped wait summaries, and sourced spawn HTTP guidance from the shared cap constant.
+
 ## Mode 3 obligations recorded now
 
 - Parity: no user-facing surface is removed. VS Code's index wiring is moved (preserve list in Task

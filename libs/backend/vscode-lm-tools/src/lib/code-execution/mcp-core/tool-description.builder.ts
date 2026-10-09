@@ -15,6 +15,7 @@ import {
   SYMBOL_INDEX_DEFAULT_LIMIT,
   SYMBOL_INDEX_MAX_LIMIT,
 } from '../namespace-builders/symbol-index-query';
+import { HTTP_MAX_AGENT_WAIT_SEC } from './wait-tools-args.schema';
 import {
   TASK_CHECK_ENTRY_CAP,
   TASK_LIST_DEFAULT_LIMIT,
@@ -619,7 +620,7 @@ export function buildAgentSpawnTool(
       'work, so declare "deliverables" on every spawn whose output is a file. ' +
       'To block until lanes end, call ptah_agent_wait; never poll ptah_agent_status. ' +
       (transport === 'http'
-        ? 'HTTP calls wait at most 45 s, so repeat while lanes run. '
+        ? `HTTP calls wait at most ${HTTP_MAX_AGENT_WAIT_SEC} s, so repeat while lanes run. `
         : '') +
       'Use ptah_agent_status and ptah_agent_read as the fallback when no ' +
       'signal arrives (some adapters report nothing useful, and a signal is ' +

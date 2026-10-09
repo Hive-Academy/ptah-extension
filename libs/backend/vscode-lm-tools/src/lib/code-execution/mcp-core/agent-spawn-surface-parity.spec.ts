@@ -456,7 +456,7 @@ describe('blocking wait surface parity', () => {
       undefined,
     );
     expect(textOf(http)).toContain(
-      'WAIT CAPPED at 45 s on the HTTP transport (requested 600 s): 1 lane(s) still running',
+      'WAIT CAPPED at 45 s on the HTTP transport (requested 600 s): 0 of 1 known lane(s) ended, 1 still running. Partial result; call ptah_agent_wait again to keep waiting.',
     );
     expect(textOf(http).length).toBeLessThanOrEqual(4_000);
 

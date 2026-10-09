@@ -199,10 +199,15 @@ function headerOf(
       ? `WAIT CAPPED at ${timeoutSec} s on the HTTP transport (requested ${cappedFromTimeoutSec} s): ` +
         `${running} lane(s) still running — call ptah_agent_wait again. `
       : '';
-  if (capNote) return capNote.trim();
+  if (capNote) {
+    return (
+      `WAIT CAPPED at ${timeoutSec} s on the HTTP transport (requested ${cappedFromTimeoutSec} s): ` +
+      `${ended} of ${known.length} known lane(s) ended, ${running} still running. ` +
+      'Partial result; call ptah_agent_wait again to keep waiting.'
+    );
+  }
   if (result.cancelled) {
     return (
-      capNote +
       `WAIT CANCELLED after ${formatDuration(result.waitedMs)} waiting for ${result.mode}: ` +
       `${ended} of ${known.length} known lane(s) ended, ${running} still running. ` +
       'Partial result; the lanes themselves were not stopped.'
@@ -210,14 +215,12 @@ function headerOf(
   }
   if (result.timedOut) {
     return (
-      capNote +
       `TIMED OUT after ${timeoutSec}s waiting for ${result.mode}: ${ended} of ${known.length} ` +
       `known lane(s) ended, ${running} still running. Partial result; call ptah_agent_wait ` +
       'again to keep waiting.'
     );
   }
   return (
-    capNote +
     `Wait (${result.mode}) done after ${formatDuration(result.waitedMs)}: ${ended} of ${known.length} known lane(s) ended, ${running} still running.`
   );
 }

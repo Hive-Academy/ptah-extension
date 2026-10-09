@@ -189,6 +189,33 @@ describe('runAgentWait', () => {
     expect(text).not.toContain('WAIT CAPPED');
   });
 
+  it('keeps capped waits as partial results with the normal lane summary', async () => {
+    const text = await runAgentWait(
+      AgentWaitArgsSchema.parse({ agentIds: ['lane-1'], timeoutSec: 45 }),
+      deps(
+        {
+          mode: 'all',
+          timedOut: true,
+          cancelled: false,
+          waitedMs: 45_000,
+          entries: [
+            {
+              agentId: 'lane-1',
+              state: 'running',
+              info: info('lane-1', { status: 'running', exitCode: undefined }),
+            },
+          ],
+        },
+        { cappedFromTimeoutSec: 600 },
+      ),
+    );
+
+    expect(text).toContain(
+      'WAIT CAPPED at 45 s on the HTTP transport (requested 600 s): 0 of 1 known lane(s) ended, 1 still running. Partial result; call ptah_agent_wait again to keep waiting.',
+    );
+    expect(text.length).toBeLessThanOrEqual(WAIT_SUMMARY_MAX_CHARS);
+  });
+
   it('does not report an HTTP cap when mode any ends early', async () => {
     const text = await runAgentWait(
       AgentWaitArgsSchema.parse({

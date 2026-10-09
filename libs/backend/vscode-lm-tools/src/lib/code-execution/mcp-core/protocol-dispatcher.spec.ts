@@ -5465,7 +5465,12 @@ describe('protocol-handlers › ptah_code_reindex and index freshness (TASK_2026
   });
 
   it('ptah_code_search_symbols runs the freshness check and surfaces the index block', async () => {
-    const indexWorkspace = jest.fn(() => new Promise<never>(() => undefined));
+    let indexing = false;
+    const indexWorkspace = jest.fn(() => {
+      indexing = true;
+      return new Promise<never>(() => undefined);
+    });
+    const isIndexing = jest.fn(() => indexing);
     const reader: ICodeSymbolReader = {
       searchSymbols: jest.fn().mockResolvedValue({ hits: [], bm25Only: false }),
       getIndexFreshness: jest
@@ -5476,7 +5481,7 @@ describe('protocol-handlers › ptah_code_reindex and index freshness (TASK_2026
       getCodeSymbolSearch: () => reader,
       getMemorySearch: () => undefined,
       getSymbolIndexer: () =>
-        ({ indexWorkspace }) as unknown as CodeSymbolIndexer,
+        ({ indexWorkspace, isIndexing }) as unknown as CodeSymbolIndexer,
       getWorkspaceRoot: () => '/ws',
       getHostWorkspaceRoots: () => ['/ws'],
       logger: { warn: jest.fn() },
