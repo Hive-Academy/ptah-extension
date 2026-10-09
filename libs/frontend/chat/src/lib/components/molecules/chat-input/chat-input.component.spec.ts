@@ -21,6 +21,7 @@ import {
   Input,
   NgModule,
   ChangeDetectionStrategy,
+  provideZonelessChangeDetection,
 } from '@angular/core';
 jest.mock('ngx-markdown', () => {
   @Component({
@@ -183,6 +184,7 @@ describe('ChatInputComponent', () => {
     TestBed.resetTestingModule();
     TestBed.configureTestingModule({
       providers: [
+        provideZonelessChangeDetection(),
         { provide: ChatStore, useValue: mockChatStore },
         { provide: TabManagerService, useValue: mockTabManager },
         { provide: AutopilotStateService, useValue: mockAutopilotState },
@@ -397,6 +399,7 @@ describe('ChatInputComponent', () => {
       TestBed.resetTestingModule();
       TestBed.configureTestingModule({
         providers: [
+          provideZonelessChangeDetection(),
           { provide: ChatStore, useValue: chatStore },
           { provide: TabManagerService, useValue: tabManager },
           { provide: AutopilotStateService, useValue: mockAutopilotState },
