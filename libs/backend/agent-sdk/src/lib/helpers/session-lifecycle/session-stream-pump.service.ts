@@ -42,9 +42,10 @@ import type {
   SDKUserMessage,
 } from '../../types/sdk-types/claude-sdk.types';
 import type { SdkMessageFactory } from '../sdk-message-factory';
-import type {
-  QueuedSessionInput,
-  SessionHandoverCoordinator,
+import {
+  isInProgress,
+  type QueuedSessionInput,
+  type SessionHandoverCoordinator,
 } from '../session-handoff/session-handover-coordinator.service';
 import type {
   SessionRecord,
@@ -296,8 +297,8 @@ export class SessionStreamPump {
     const canonicalId = session.realSessionId ?? session.tabId;
     if (
       canonicalId !== session.tabId &&
-      this.handoverCoordinator?.snapshotFor(session.tabId) &&
-      !this.handoverCoordinator.snapshotFor(canonicalId)
+      isInProgress(this.handoverCoordinator?.snapshotFor(session.tabId)) &&
+      !this.handoverCoordinator?.snapshotFor(canonicalId)
     ) {
       return session.tabId;
     }

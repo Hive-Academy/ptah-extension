@@ -220,6 +220,45 @@ describe('SessionHandoverCoordinator', () => {
     expect(coordinator.snapshotFor('source')?.phase).toBe('failed');
   });
 
+  it('delivers input held while the source closes to the successor', async () => {
+    const { coordinator, host, runtime } = makeHarness();
+    runtime.closeIfTokenMatches.mockImplementationOnce(async () => {
+      coordinator.admitOrHold('source', { content: 'sent during close' });
+      return true;
+    });
+    coordinator.begin('source', 'successor', false);
+
+    await flush();
+    await flush();
+    await flush();
+
+    expect(host.deliverTransferInputs).toHaveBeenLastCalledWith(
+      expect.any(String),
+      [{ content: 'sent during close' }],
+    );
+    expect(coordinator.transferInputs('source')).toEqual([]);
+  });
+
+  it('clears the lost-input error when a cancel retries the restore successfully', async () => {
+    const { coordinator, host, runtime } = makeHarness();
+    host.startSuccessorSession.mockResolvedValueOnce({ started: false, error: 'start' });
+    runtime.restoreInputs.mockReturnValueOnce(false);
+    coordinator.begin('source', 'successor', false);
+    coordinator.admitOrHold('source', { content: 'held' });
+
+    await flush();
+    await flush();
+
+    const failed = coordinator.snapshotFor('source');
+    expect(failed?.lostInputCount).toBe(1);
+    coordinator.cancel('source', failed?.operationId ?? '');
+
+    const cancelled = coordinator.snapshotFor('source');
+    expect(cancelled?.phase).toBe('cancelled');
+    expect(cancelled?.lostInputCount ?? 0).toBe(0);
+    expect(cancelled?.error).toBeUndefined();
+  });
+
   it('cancels a failed handover so the source can keep working', async () => {
     const { coordinator, host } = makeHarness();
     host.startSuccessorSession.mockResolvedValueOnce({ started: false, error: 'start' });

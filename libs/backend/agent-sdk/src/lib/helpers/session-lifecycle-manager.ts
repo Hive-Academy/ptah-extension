@@ -65,6 +65,7 @@ import {
 import type { IContextUsagePort } from './compaction/context-usage.port';
 import { SessionControl } from './session-lifecycle/session-control.service';
 import {
+  isInProgress,
   SessionHandoverCoordinator,
   type QueuedSessionInput,
 } from './session-handoff/session-handover-coordinator.service';
@@ -537,8 +538,8 @@ export class SessionLifecycleManager {
     const canonicalId = rec.realSessionId ?? rec.tabId;
     if (
       canonicalId !== rec.tabId &&
-      this.handoverCoordinator?.snapshotFor(rec.tabId) &&
-      !this.handoverCoordinator.snapshotFor(canonicalId)
+      isInProgress(this.handoverCoordinator?.snapshotFor(rec.tabId)) &&
+      !this.handoverCoordinator?.snapshotFor(canonicalId)
     ) {
       return rec.tabId;
     }

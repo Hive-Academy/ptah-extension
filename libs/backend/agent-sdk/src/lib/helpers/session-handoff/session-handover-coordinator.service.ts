@@ -85,6 +85,16 @@ export interface SessionHandoverRuntime {
 
 export type SessionHandoverListener = (state: SessionHandoverState) => void;
 
+/** True while an operation still owns its source (not closed, failed or cancelled). */
+export function isInProgress(state: SessionHandoverState | undefined): boolean {
+  return (
+    state !== undefined &&
+    state.phase !== 'closed' &&
+    state.phase !== 'failed' &&
+    state.phase !== 'cancelled'
+  );
+}
+
 interface Operation {
   readonly id: string;
   readonly sourceSessionId: string;
@@ -120,6 +130,7 @@ const CANCELLABLE_PHASES: ReadonlySet<SessionHandoverState['phase']> = new Set([
   'failed',
 ]);
 
+const RESTORE_FAILED_ERROR = 'held inputs could not be restored';
 const LOST_INPUT_TEXT_LIMIT = 2_000;
 const LOST_INPUT_TEXT_TOTAL_LIMIT = 8_000;
 
@@ -457,6 +468,9 @@ export class SessionHandoverCoordinator {
         operation.sourceSessionId,
         source.token,
       );
+      if (closed && operation.inputs.length > 0) {
+        await this.deliverLateInputs(successorHost, operation);
+      }
       if (!this.isActive(operation)) return;
       if (!closed) {
         operation.error = 'source token no longer matches';
@@ -563,6 +577,26 @@ export class SessionHandoverCoordinator {
     this.publish(operation);
   }
 
+  /** Input held while the source closed goes to the successor, never nowhere. */
+  private async deliverLateInputs(
+    successorHost: SessionSuccessorHost,
+    operation: Operation,
+  ): Promise<void> {
+    const lateInputs = [...operation.inputs];
+    const delivered = await successorHost.deliverTransferInputs(
+      operation.id,
+      lateInputs,
+    );
+    if (delivered.delivered) {
+      operation.inputs.splice(0, lateInputs.length);
+    } else {
+      operation.lostInputCount = lateInputs.length;
+      operation.lostInputTexts = this.boundedLostInputTexts(lateInputs);
+    }
+    operation.revision += 1;
+    this.publish(operation);
+  }
+
   private restore(operation: Operation): void {
     if (operation.restored || operation.inputs.length === 0) return;
     const restored = this.runtime?.restoreInputs(
@@ -571,9 +605,12 @@ export class SessionHandoverCoordinator {
     ) ?? false;
     if (restored) {
       operation.restored = true;
+      if (operation.error === RESTORE_FAILED_ERROR) operation.error = undefined;
+      operation.lostInputCount = 0;
+      operation.lostInputTexts = [];
       return;
     }
-    operation.error = 'held inputs could not be restored';
+    operation.error = RESTORE_FAILED_ERROR;
     operation.lostInputCount = operation.inputs.length;
     operation.lostInputTexts = this.boundedLostInputTexts(operation.inputs);
   }

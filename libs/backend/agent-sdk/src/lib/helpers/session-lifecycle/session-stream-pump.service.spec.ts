@@ -239,6 +239,32 @@ describe('SessionStreamPump — one message per turn (TASK_2026_294)', () => {
     expect(coordinator.transferInputs(realSessionId)).toEqual([]);
   });
 
+  it('does not pin the key to a finished pre-bind operation', async () => {
+    const logger = makeLogger();
+    const registry = new SessionRegistry(logger);
+    const coordinator = new SessionHandoverCoordinator();
+    const pump = new SessionStreamPump(
+      logger,
+      registry,
+      makeMessageFactory(),
+      coordinator,
+    );
+    const abortController = new AbortController();
+    const realSessionId = 'sdk_pump_stale';
+    registry.register(TAB as string, {} as AISessionConfig, abortController);
+    coordinator.armAtTerminal(TAB as string, true, []);
+    const stale = coordinator.snapshotFor(TAB as string);
+    coordinator.cancel(TAB as string, stale?.operationId ?? '');
+    registry.bindRealSessionId(TAB as string, realSessionId);
+    coordinator.armAtTerminal(realSessionId, true, []);
+
+    await pump.sendMessage(TAB, 'held under the real id');
+
+    expect(coordinator.transferInputs(realSessionId)).toEqual([
+      { content: 'held under the real id' },
+    ]);
+  });
+
   it('delivers the coordinator-owned handoff request while source admission is held', async () => {
     const logger = makeLogger();
     const registry = new SessionRegistry(logger);
