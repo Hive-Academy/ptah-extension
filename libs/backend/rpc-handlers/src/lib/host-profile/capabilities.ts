@@ -77,6 +77,11 @@ export const RPC_CAPABILITIES = [
    * `go vet` consent (`diagnostics:go-vet-consent-*`). Off in VS Code.
    */
   'goVetDiagnostics',
+  /**
+   * Host can read the per-lane plan-limit rows `ptah_agent_list` prints
+   * (`agent:getLanePlanLimits`, the `$limits` host source). Electron only.
+   */
+  'lanePlanLimits',
 ] as const;
 
 export type Capability = (typeof RPC_CAPABILITIES)[number];

@@ -1,6 +1,6 @@
 # Batches - TASK_2026_623_3492
 
-Total tasks: 69 | Batches: 34 (incl. fix batch 6F) | Complete: 8/34
+Total tasks: 69 | Batches: 34 (incl. fix batch 6F) | Complete: 9/34
 
 Worktree root `W` = `D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel` (branch
 `feat/task-623-display-panel`, base `70f995a56`). Every path below is absolute.
@@ -27,7 +27,7 @@ Status: PASSED WITH RISKS
 
 Assumptions:
 
-- A1 `PtahAPIBuilder.build()` cost/memoization (`ptah-api-builder.service.ts:543`) — unverified; checked in Task 9.1.
+- A1 `PtahAPIBuilder.build()` cost/memoization (`ptah-api-builder.service.ts:543`) — verified in Task 9.1: not memoized; the handler builds lazily once and does not cache a failed build (specs pin build-once, register-without-build, retry-after-failure).
   If not memoized the handler builds once lazily and keeps the `PtahAPI`.
 - A2 `TOKENS.PTAH_API_BUILDER` registered before `registerRpcSurface` in Electron — verified:
   `registerVsCodeLmToolsServices` runs in `apps/ptah-electron/src/di/phase-3-storage.ts:134`, and
@@ -536,7 +536,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - Known red window (MEDIUM risk): manifest coverage and host `rpc-surface`/`container.smoke` specs may be red until
   Batches 9-12 land; do not push before Batch 12 (and Batch 13 per decision #21).
 
-## Batch 8: L2 export `formatPlanLimitRows` — COMPLETE
+## Batch 8: L2 export `formatPlanLimitRows` — COMPLETE (commit 89894ac0a)
 
 - Recommended executor: backend-developer
 - Fallback executor: general-purpose subagent
@@ -575,7 +575,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
   import from this worktree. No repo file changes for it; CI (real checkout) is unaffected. Applies to every later
   vscode-lm-tools / app spec that reaches `marked`.
 
-## Batch 9: L3 `LanePlanLimitsRpcHandlers` — IN_PROGRESS
+## Batch 9: L3 `LanePlanLimitsRpcHandlers` — COMPLETE
 
 - Recommended executor: backend-developer
 - Fallback executor: general-purpose subagent
@@ -584,7 +584,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - Tasks: 2 | Depends on: Batches 7, 8
 - Phase: 2 | Phase review: after Batch 12
 
-### Task 9.1: handler class and zod schema — IN_PROGRESS
+### Task 9.1: handler class and zod schema — COMPLETE
 
 - Files (CREATE):
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\backend\rpc-handlers\src\lib\handlers\lane-plan-limits-rpc.handlers.ts
@@ -598,7 +598,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
   `failed`/undefined.
 - Validation notes: resolve A1 (`ptah-api-builder.service.ts:543`); if `build()` is not memoized, build once lazily.
 
-### Task 9.2: barrel, manifest entry and capability — IN_PROGRESS
+### Task 9.2: barrel, manifest entry and capability — COMPLETE
 
 - Depends on: Task 9.1
 - Files:
@@ -608,11 +608,13 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - Pattern to follow: `manifest.ts:459-467` (`diagnosticsConsent` entry)
 - Quality requirements: entry `lanePlanLimits` with `requires: ['lanePlanLimits']`; capability defaults false.
 
+- Batch 9 decisions: decisions.md #41 (out-of-list `host-profile.ts` `lanePlanLimits: false` accepted) and #42 (unavailable lookup throws plain `Error` with fixed text, not `RpcUserError`; accepted). Verified: Jest 2 suites / 27 tests (Batch 8 worktree mapper), rpc-handlers typecheck pass, lint 0 errors / 50 baseline warnings.
+
 ### Batch 9 verification
 
 - `npx jest -c libs/backend/rpc-handlers/jest.config.ts libs/backend/rpc-handlers/src/lib/handlers/lane-plan-limits-rpc.handlers.spec.ts libs/backend/rpc-handlers/src/lib/host-profile/resolve-handler-plan.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -n 40 && npx nx typecheck @ptah-extension/rpc-handlers --parallel=1 2>&1 | tail -n 20 && npx nx lint @ptah-extension/rpc-handlers --parallel=1 2>&1 | tail -n 20`
 
-## Batch 10: L3b lookup never passes `refresh` — PENDING
+## Batch 10: L3b lookup never passes `refresh` — IN_PROGRESS
 
 - Recommended executor: backend-developer
 - Fallback executor: general-purpose subagent
@@ -621,7 +623,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - Tasks: 1 | Depends on: none
 - Phase: 2 | Phase review: after Batch 12
 
-### Task 10.1: lookup-level no-`refresh` case — PENDING
+### Task 10.1: lookup-level no-`refresh` case — IN_PROGRESS
 
 - File: D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\backend\cli-agent-runtime\src\lib\cli-agents\limits\lane-limit-lookup.service.spec.ts (exists; extend)
 - Plan reference: implementation-plan.md:1082-1083, decisions #18
