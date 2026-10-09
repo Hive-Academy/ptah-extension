@@ -286,12 +286,14 @@ function setup(
   const build = jest.fn(() => api);
   const apiBuilder = { build } as unknown as PtahAPIBuilder;
   new LanePlanLimitsRpcHandlers(logger, rpcHandler, apiBuilder).register();
-  const call = (params: unknown = {}) => {
+  /** The registered handler, given exactly `params` (no default). */
+  const send = (params: unknown) => {
     const handler = registered.get(METHOD);
     if (!handler) throw new Error(`${METHOD} was not registered`);
     return handler(params);
   };
-  return { logger, recording, build, call };
+  const call = (params: unknown = {}) => send(params);
+  return { logger, recording, build, call, send };
 }
 
 describe('LanePlanLimitsRpcHandlers', () => {
@@ -483,6 +485,25 @@ describe('LanePlanLimitsRpcHandlers', () => {
         expect(recording.list).not.toHaveBeenCalled();
       },
     );
+
+    it('rejects null with INVALID_PARAMS before any lookup', async () => {
+      const { send, recording, build } = setup();
+
+      const rejection = send(null);
+
+      await expect(rejection).rejects.toBeInstanceOf(RpcUserError);
+      await expect(rejection).rejects.toMatchObject({
+        errorCode: 'INVALID_PARAMS',
+      });
+      expect(build).not.toHaveBeenCalled();
+      expect(recording.list).not.toHaveBeenCalled();
+    });
+
+    it('still succeeds when params are omitted (undefined reaches the handler)', async () => {
+      const { send } = setup();
+
+      await expect(send(undefined)).resolves.toMatchObject({ lanes: 3 });
+    });
   });
 
   describe('failure', () => {
@@ -509,6 +530,65 @@ describe('LanePlanLimitsRpcHandlers', () => {
       await expect(call()).rejects.toThrow(
         'Lane plan limits are unavailable on this host',
       );
+    });
+
+    it('rejects with fixed text when the lookup resolves null', async () => {
+      const { call, recording } = setup();
+      recording.limits.mockResolvedValue(
+        null as unknown as readonly AgentLimit[],
+      );
+
+      await expect(call()).rejects.toThrow(
+        'Lane plan limits are unavailable on this host',
+      );
+    });
+
+    it.each([[{}], ['not an array']])(
+      'rejects with fixed text when the lookup resolves the non-array %p',
+      async (value) => {
+        const { call, recording } = setup();
+        recording.limits.mockResolvedValue(
+          value as unknown as readonly AgentLimit[],
+        );
+
+        await expect(call()).rejects.toThrow(
+          'Lane plan limits are unavailable on this host',
+        );
+      },
+    );
+
+    it('rejects with fixed text on a malformed row, without logging or linking its error', async () => {
+      const SENTINEL_MALFORMED = 'SENTINEL-lane-/home/acct';
+      const malformed = new Proxy(
+        {},
+        {
+          get() {
+            throw new Error(SENTINEL_MALFORMED);
+          },
+        },
+      ) as AgentLimit;
+      const { call, recording, logger } = setup();
+      recording.limits.mockResolvedValue([LIMITS[0], malformed]);
+
+      const error = await call().then(
+        () => undefined,
+        (reason: unknown) => reason,
+      );
+
+      expect(error).toBeInstanceOf(Error);
+      expect((error as Error).message).toBe(
+        'Lane plan limits are unavailable on this host',
+      );
+      expect(error).not.toHaveProperty('cause');
+      const logged = JSON.stringify([
+        logger.info.mock.calls,
+        logger.warn.mock.calls,
+        logger.error.mock.calls,
+        logger.debug.mock.calls,
+      ]);
+      expect(logger.warn).toHaveBeenCalled();
+      expect(logged).not.toContain(SENTINEL_MALFORMED);
+      expect(logged).not.toContain('/home/acct');
     });
 
     it('rejects with fixed text when the namespace has no limits lookup', async () => {

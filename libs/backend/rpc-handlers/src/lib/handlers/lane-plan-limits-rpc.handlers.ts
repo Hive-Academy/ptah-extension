@@ -75,7 +75,11 @@ export class LanePlanLimitsRpcHandlers {
   private async getLanePlanLimits(
     params: unknown,
   ): Promise<AgentGetLanePlanLimitsResult> {
-    const parsed = LanePlanLimitsParamsSchema.safeParse(params ?? {});
+    // Only an absent payload means "no params"; `null` reaches the strict
+    // schema and is rejected like any other non-object.
+    const parsed = LanePlanLimitsParamsSchema.safeParse(
+      params === undefined ? {} : params,
+    );
     if (!parsed.success) {
       throw new RpcUserError(
         `${METHOD}: invalid params — this method takes no parameters`,
@@ -84,26 +88,19 @@ export class LanePlanLimitsRpcHandlers {
     }
 
     const limits = await this.lookup();
-    const now = Date.now();
-    return {
-      rows: formatPlanLimitRows(limits, now).map(toRow),
-      lanes: limits.length,
-      atLimit: countState(limits, 'at-limit'),
-      nearLimit: countState(limits, 'near-limit'),
-      unknown: limits.filter(
-        (limit) =>
-          limit.state.state !== 'at-limit' &&
-          limit.state.state !== 'near-limit' &&
-          limit.state.state !== 'confirmed-room',
-      ).length,
-      asOf: now,
-    };
+    // The lookup's result is typed but not checked at runtime: `null`, a
+    // non-array or a malformed row makes the formatter or a count throw, and
+    // that failure ends in the same fixed text as a failed lookup.
+    try {
+      return buildResult(limits, Date.now());
+    } catch (error) {
+      throw this.unavailable('response build failed', error);
+    }
   }
 
   /**
    * The `ptah_agent_list` lookup: `list()` then `limits(rows)` with exactly one
-   * argument. Failures are logged by error name only, never by message, since
-   * a message may quote a lane, a path or an account.
+   * argument.
    */
   private async lookup(): Promise<readonly AgentLimit[]> {
     let limits: readonly AgentLimit[] | undefined;
@@ -112,13 +109,7 @@ export class LanePlanLimitsRpcHandlers {
       const rows = await agent.list();
       limits = await agent.limits?.(rows);
     } catch (error) {
-      this.logger.warn(`[lanePlanLimits] ${METHOD} lookup failed`, {
-        errorName: error instanceof Error ? error.name : typeof error,
-      });
-      // The cause is dropped on purpose: its message may quote a lane, a path
-      // or an account, and error reporting would forward a linked cause.
-      // eslint-disable-next-line preserve-caught-error
-      throw new Error(UNAVAILABLE);
+      throw this.unavailable('lookup failed', error);
     }
     if (limits === undefined) {
       this.logger.warn(`[lanePlanLimits] ${METHOD}: no lane limit lookup`);
@@ -127,10 +118,43 @@ export class LanePlanLimitsRpcHandlers {
     return limits;
   }
 
+  /**
+   * Logs a failure by error name only, never by message, since a message may
+   * quote a lane, a path or an account, and returns the fixed caller-facing
+   * error. The cause is dropped on purpose: error reporting would forward a
+   * linked cause and its message.
+   */
+  private unavailable(stage: string, error: unknown): Error {
+    this.logger.warn(`[lanePlanLimits] ${METHOD} ${stage}`, {
+      errorName: error instanceof Error ? error.name : typeof error,
+    });
+    return new Error(UNAVAILABLE);
+  }
+
   private getApi(): PtahAPI {
     this.api ??= this.apiBuilder.build();
     return this.api;
   }
+}
+
+/** The response, field by field: rows from cells 0-4 and four lane counts. */
+function buildResult(
+  limits: readonly AgentLimit[],
+  now: number,
+): AgentGetLanePlanLimitsResult {
+  return {
+    rows: formatPlanLimitRows(limits, now).map(toRow),
+    lanes: limits.length,
+    atLimit: countState(limits, 'at-limit'),
+    nearLimit: countState(limits, 'near-limit'),
+    unknown: limits.filter(
+      (limit) =>
+        limit.state.state !== 'at-limit' &&
+        limit.state.state !== 'near-limit' &&
+        limit.state.state !== 'confirmed-room',
+    ).length,
+    asOf: now,
+  };
 }
 
 /** Cells 0-4 only. Cell 5 (Source) is never sent. */

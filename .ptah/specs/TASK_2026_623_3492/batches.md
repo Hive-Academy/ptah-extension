@@ -1,6 +1,6 @@
 # Batches - TASK_2026_623_3492
 
-Total tasks: 69 | Batches: 34 (incl. fix batch 6F) | Complete: 13/34
+Total tasks: 70 | Batches: 35 (incl. fix batches 6F, 12F) | Complete: 14/35
 
 Worktree root `W` = `D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel` (branch
 `feat/task-623-display-panel`, base `70f995a56`). Every path below is absolute.
@@ -90,7 +90,7 @@ Edge cases:
 | Phase | Batches | Phase review |
 | ----- | ------- | ------------ |
 | 1 Contract `/4` and grammar | 1-6, 6F (fix) | code-logic (REVISE 6/10, `code-logic-review.md`); re-review of 6F: APPROVED 8/10 (`code-logic-review-phase1-fix.md`). Phase 1 ACCEPTED |
-| 2 Lane plan-limit read (R10 backend) | 7-12 | code-logic, plus style (new RPC method `agent:getLanePlanLimits`, new export `formatPlanLimitRows`) |
+| 2 Lane plan-limit read (R10 backend) | 7-12, 12F (fix) | code-logic (REVISE 6/10, `code-logic-review-phase2.md`), style (APPROVED 8/10, `code-style-review-phase2.md`); fix round 12F, re-review pending |
 | 3 Renderer `/4` | 13-15 | code-logic, plus style only if Task 15.3 adds exports |
 | 4 chat-ui display panel | 16-21 | code-logic, plus style (new entry `@ptah-extension/chat-ui/display-panel`, new host-sources token) |
 | 5 Transcript and dock | 22-25 | code-logic |
@@ -666,7 +666,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 
 - `npx jest -c apps/ptah-electron/jest.config.ts apps/ptah-electron/src/di/container.smoke.spec.ts apps/ptah-electron/src/di/rpc-surface.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -n 40 && npx nx typecheck ptah-electron --parallel=1 2>&1 | tail -n 20 && npx nx lint @ptah-extension/rpc-handlers --parallel=1 2>&1 | tail -n 20`
 
-## Batch 12: L5 expected-absent lists (VS Code, CLI) — COMPLETE (commit PENDING_SHA; Phase 2 review pending)
+## Batch 12: L5 expected-absent lists (VS Code, CLI) — COMPLETE (commit c8c137611; Phase 2 review pending)
 
 - Recommended executor: backend-developer
 - Fallback executor: general-purpose subagent
@@ -688,6 +688,47 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 
 - `npx jest -c apps/ptah-extension-vscode/jest.config.ts apps/ptah-extension-vscode/src/di/container.smoke.spec.ts apps/ptah-extension-vscode/src/di/rpc-surface.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -n 40 && npx jest -c libs/backend/cli-engine/jest.config.cjs libs/backend/cli-engine/src/lib/rpc/rpc-surface.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -n 40`
 - Phase 2 code-logic + style review due after commit
+- Phase 2 review: code-logic REVISE 6/10 (1 Serious, 1 Moderate; `code-logic-review-phase2.md`), style APPROVED 8/10
+  no findings (`code-style-review-phase2.md`). Fix round: Batch 12F (decision #45).
+
+## Batch 12F: Phase 2 review fix — malformed `agent.limits()` output and `null` params — COMPLETE (commit see git log: "batch 12F"; Phase 2 re-review pending)
+
+- Recommended executor: backend-developer
+- Fallback executor: general-purpose subagent
+- Execution mode: sequential
+- Rationale: one handler and its spec; both findings sit in the same method.
+- Tasks: 1 | Depends on: Batch 12
+- Phase: 2 (fix batch, last of phase) | Phase review: code-logic re-review scoped to the 12F commit only
+
+### Task 12F.1: fixed-text boundary over the whole response build; reject `null` params — COMPLETE
+
+- Files:
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\backend\rpc-handlers\src\lib\handlers\lane-plan-limits-rpc.handlers.ts
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\backend\rpc-handlers\src\lib\handlers\lane-plan-limits-rpc.handlers.spec.ts
+- Review reference: code-logic-review-phase2.md Serious #1 (`:86-127`), Moderate #2 (`:78`); decisions #42, #45
+- Fix (Serious #1): a resolved `agent.limits()` value that is `null`, not an array, or holds a row whose
+  formatting/counting throws must end in the same fixed `Error('Lane plan limits are unavailable on this host')`,
+  cause dropped, logged by error name only (never message). Either validate the resolved value (array, each item an
+  object with an object `state`) before use, or wrap the formatting/counting in the same fixed-text path — the
+  executor picks; both `formatPlanLimitRows` and the counts must be inside the boundary. `undefined` keeps its current
+  "no lane limit lookup" path. A valid empty array still returns `rows: []` and zero counts.
+- Fix (Moderate #2): normalise only `undefined` to `{}` (`params === undefined ? {} : params`); `null` reaches the
+  strict schema and throws `RpcUserError(..., 'INVALID_PARAMS')` before the API is built or `list()` is called.
+- Regression tests (required, in the spec):
+  1. `limits` resolves `null` → rejects with exactly the fixed text.
+  2. `limits` resolves a non-array (e.g. `{}` or a string) → fixed text.
+  3. `limits` resolves `[ <valid row>, <malformed row whose getter/field access throws an Error with a sentinel
+     message such as 'SENTINEL-lane-/home/acct'> ]` → fixed text; the sentinel appears in no logger call argument
+     and the thrown error has no `cause`.
+  4. `params = null` → `INVALID_PARAMS` `RpcUserError`; `build()` and `list()` not called.
+  5. Existing omitted-params (`undefined`) case still succeeds.
+- Must not change: response shape, cells 0-4 mapping, counts for valid input, read semantics (no `refresh`, only
+  `list()`/`limits(rows)`), the lazy build cache and its retry-after-throw behaviour, the schema file.
+
+### Batch 12F verification
+
+- `npx jest -c libs/backend/rpc-handlers/jest.config.ts libs/backend/rpc-handlers/src/lib/handlers/lane-plan-limits-rpc.handlers.spec.ts --coverage=false --maxWorkers=2` with the Batch 8 `marked` `--moduleNameMapper` override (batches.md:571-576), `| tail -n 40`; then `npx nx typecheck @ptah-extension/rpc-handlers --parallel=1 | tail -n 20`; then `npx nx lint @ptah-extension/rpc-handlers --parallel=1 | tail -n 20`. One at a time.
+- Phase 2 code-logic re-review scoped to the 12F commit after commit
 
 ## Batch 13: D1 renderer container layout and `/4` view model — PENDING
 
