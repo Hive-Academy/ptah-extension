@@ -6,7 +6,7 @@ import {
 import { PTAH_UI_SOURCES } from './ptah-ui-parser';
 import type {
   PtahUiDocument,
-  PtahUiElement,
+  PtahUiNode,
   PtahUiScalar,
   PtahUiSourceName,
 } from './ptah-ui.types';
@@ -41,6 +41,8 @@ export function convertPtahUi(
   for (const element of doc.elements) {
     if (element.kind === 'stats') {
       for (const item of element.items) {
+        if (item.trend !== undefined || item.spark !== undefined)
+          throw notConvertible('stat trend and spark');
         const id = `c${components.length}`;
         components.push({
           kind: 'stat',
@@ -66,13 +68,24 @@ export function convertPtahUi(
 }
 
 function convertElement(
-  element: PtahUiElement,
+  element: PtahUiNode,
   id: string,
   bindings: PtahUiBinding[],
 ): SurfaceComponent {
   switch (element.kind) {
     case 'stats':
       throw new Error('stats are expanded before conversion');
+    case 'row':
+    case 'col':
+    case 'grid':
+    case 'card':
+    case 'section':
+    case 'accordion':
+    case 'note':
+    case 'progress':
+    case 'badge':
+    case 'avatar':
+      throw notConvertible(`\`${element.kind}\``);
     case 'table':
       if ('source' in element) {
         const columns = element.columns ?? sourceColumns(element.source);
@@ -148,6 +161,18 @@ function table(
     })),
     rows,
   };
+}
+
+/**
+ * The R3 nested grammar parses before this converter emits it: it still emits
+ * the 610 flat dashboard-catalog/3 shape. A block using a construct it cannot
+ * emit fails here, and `renderPtahUiBlock` turns the throw into the atomic
+ * code-block fallback instead of a partial surface.
+ */
+function notConvertible(construct: string): Error {
+  return new Error(
+    `ptah-ui ${construct} is not convertible to ${SURFACE_CATALOG_VERSION}`,
+  );
 }
 
 function sourceColumns(source: PtahUiSourceName): readonly string[] {

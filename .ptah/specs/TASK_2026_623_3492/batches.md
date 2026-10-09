@@ -1,6 +1,6 @@
 # Batches - TASK_2026_623_3492
 
-Total tasks: 68 | Batches: 33 | Complete: 2/33
+Total tasks: 68 | Batches: 33 | Complete: 3/33
 
 Worktree root `W` = `D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel` (branch
 `feat/task-623-display-panel`, base `70f995a56`). Every path below is absolute.
@@ -167,7 +167,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
   Constraint: no batch between 2 and 12 may run `declarative-dashboard` typecheck as its acceptance gate, and the
   branch must not be pushed for CI or merged before Batch 13 commits. The Phase 1 review is told this is known.
 
-## Batch 2: S2 text fallback, index, patch text, budgets — COMPLETE
+## Batch 2: S2 text fallback, index, patch text, budgets — COMPLETE (commit e6826d07d)
 
 - Recommended executor: backend-developer
 - Fallback executor: general-purpose subagent
@@ -237,7 +237,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
   `SURFACE_CATALOG_VERSION_4`. A zod-free consumer in a later batch may need it there; the `/surface` subpath already
   has it.
 
-## Batch 3: S3 fence and parser rewrite — PENDING
+## Batch 3: S3 fence and parser rewrite — COMPLETE
 
 - Recommended executor: backend-developer
 - Fallback executor: general-purpose subagent
@@ -246,7 +246,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - Tasks: 2 | Depends on: Batch 1
 - Phase: 1 | Phase review: code-logic (after Batch 6)
 
-### Task 3.1: types and fence (`display [id]`, closed fences only) — PENDING
+### Task 3.1: types and fence (`display [id]`, closed fences only) — COMPLETE
 
 - Files:
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\shared\src\mcp-apps-contracts\ptah-ui.types.ts
@@ -257,7 +257,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - Quality requirements: R2.1, R2.7; info string `ptah-ui display [id]`; unclosed fences never yield a block.
 - Validation notes: 610 fences (no `display`) unchanged.
 
-### Task 3.2: parser REWRITE (nested layout grammar) — PENDING
+### Task 3.2: parser REWRITE (nested layout grammar) — COMPLETE
 
 - Depends on: Task 3.1
 - Files:
@@ -272,6 +272,23 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 ### Batch 3 verification
 
 - `npx jest -c libs/shared/jest.config.ts libs/shared/src/mcp-apps-contracts/ptah-ui-fence.spec.ts libs/shared/src/mcp-apps-contracts/ptah-ui-parser.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -n 40 && npx nx typecheck @ptah-extension/shared --parallel=1 2>&1 | tail -n 20 && npx nx lint @ptah-extension/shared --parallel=1 2>&1 | tail -n 20`
+- Added at verification (decision #24): `npx jest -c libs/shared/jest.config.ts libs/shared/src/mcp-apps-contracts/ptah-ui-converter.spec.ts libs/shared/src/mcp-apps-contracts/ptah-ui-resolver.spec.ts libs/shared/src/mcp-apps-contracts/ptah-ui-pipeline.spec.ts --coverage=false --maxWorkers=2`
+- Result: fence + parser 2 suites / 180 tests passed; typecheck passed; lint 0 errors, 6 baseline warnings;
+  converter + resolver + pipeline 3 suites / 66 tests passed.
+
+### Batch 3 decisions (recorded at verification)
+
+- #23 Parser spec case `rejects note because it belongs to PR D` became `accepts note now that R3 folds in PR D`.
+  Accepted: R3 adds `note` (task-description.md:403, 426, 442; implementation-plan.md:464, 504), so the old case
+  pins behaviour the requirements remove. Every other 610 case is unchanged (one case only re-wrapped by Prettier).
+- #24 Out-of-list `ptah-ui-converter.ts` (throw on new constructs, caught by `renderPtahUiBlock` → atomic code-block
+  fallback) and `ptah-ui-resolver.ts` (`agents`/`limits` → "unavailable") accepted as interim seams; Tasks 4.1 and 5.1
+  replace them. Because both files ship in this commit, their specs and the pipeline spec were run now (passed).
+- #25 New `ptah-ui-lexical.ts` and `ptah-ui-values.ts` accepted (split to keep the parser under the 700-line
+  `max-lines` limit; public exports unchanged, `PTAH_UI_SOURCES` re-exported from `ptah-ui-parser.ts`).
+- #26 Fence segment uses `target?: 'display'` (absent = inline) instead of required `'inline'|'display'`. Accepted:
+  same information, and 610 segments keep their exact shape. Consumers must test `target === 'display'` and treat an
+  absent `target` as inline; notes added to Tasks 18.2 and 22.2.
 
 ## Batch 4: S4 converter and `$agents` source — PENDING
 
@@ -289,6 +306,8 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\shared\src\mcp-apps-contracts\ptah-ui-converter.spec.ts
 - Plan reference: implementation-plan.md:176-200 (D1 "converter always emits /4"), 433-514
 - Quality requirements: R3.1 (the only literal change for 610 output is `catalogVersion`).
+- Validation notes (decision #24): replace the Batch 3 interim `notConvertible(...)` throws with real `/4` mapping
+  for containers, atoms and stat trend/spark; remove the seam.
 
 ### Task 4.2: pure `$agents` source module — PENDING
 
@@ -324,6 +343,8 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - Plan reference: implementation-plan.md:200-215 (D5), 433-567
 - Quality requirements: `agents?`, `limits?` inputs separate from `TurnSourceSnapshot`; missing source → "unavailable";
   reserved `ptah.` id invalid with reason "reserved display id" (R2.5, D11).
+- Validation notes (decision #24): replace the Batch 3 interim `agents`/`limits` → "unavailable" branches in
+  `scalarValue` and `rowsSource` with the real inputs. The parser already declares `'reserved-id'`; this task produces it.
 
 ### Task 5.2: pipeline `compilePtahUiBlock(body, surfaceId)` + `usedSources` — PENDING
 
@@ -704,6 +725,9 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\organisms\ptah-ui\ptah-ui-message-text.component.ts
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\organisms\ptah-ui\ptah-ui-message-text.component.spec.ts
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\ptah-ui.ts
+- Validation notes (decision #26): the fence segment carries `target?: 'display'`; branch on
+  `segment.target === 'display'` and treat an absent `target` as inline. `displayId` is optional. If this task needs
+  the new `ptah-ui.types` exports (`PtahUiNode`, atom/container types) from `surface.index.ts`, add them here.
 
 ### Batch 18 verification
 
@@ -828,7 +852,8 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat\src\lib\components\organisms\transcript\transcript-display-candidates.ts
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat\src\lib\components\organisms\transcript\transcript-display-candidates.spec.ts
 - Quality requirements: R2.1, R2.7, R2.10-R2.11; `blockKey`, `orderKey`, `turnKey`, `live`.
-- Validation notes: resolve A4 (streaming text nodes in `vm().messages`).
+- Validation notes: resolve A4 (streaming text nodes in `vm().messages`). Decision #26: display fences are segments
+  with `target === 'display'` (absent `target` = inline), `displayId` optional.
 
 ### Task 22.3: `collectTurnAgentFacts` — PENDING
 

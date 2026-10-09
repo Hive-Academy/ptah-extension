@@ -107,6 +107,10 @@ function scalarValue(
           return 'unavailable';
       }
     }
+    case 'agents':
+    case 'limits':
+      // Not part of TurnSourceSnapshot: with no input for them, they are unavailable.
+      return 'unavailable';
   }
 }
 
@@ -175,6 +179,7 @@ function rowsSource(
   | TurnSourceSnapshot['usage']
   | 'pending'
   | 'unavailable' {
+  if (name === 'agents' || name === 'limits') return 'unavailable';
   if (snapshot === null || !Object.hasOwn(snapshot, name)) return 'unavailable';
   const source = snapshot[name];
   return source.kind === 'available' ? source : source.kind;
