@@ -392,6 +392,7 @@ describe('MemoryCuratorService — real-fixture integration (Critical Verificati
 
     expect(extract).toHaveBeenCalledWith(recordedTranscript, undefined, {
       userInitiated: undefined,
+      workspaceRoot: '/ws',
     });
     expect(insertMemoryWithChunks).toHaveBeenCalledTimes(1);
 
@@ -2135,10 +2136,13 @@ describe('MemoryCuratorService — userInitiated reaches every curator LLM call'
 
     expect(extract).toHaveBeenCalled();
     for (const call of extract.mock.calls) {
-      expect(call[2]).toEqual({ userInitiated: true });
+      expect(call[2]).toEqual({ userInitiated: true, workspaceRoot: '/ws' });
     }
     expect(resolve).toHaveBeenCalledTimes(1);
-    expect(resolve.mock.calls[0][3]).toEqual({ userInitiated: true });
+    expect(resolve.mock.calls[0][3]).toEqual({
+      userInitiated: true,
+      workspaceRoot: '/ws',
+    });
   });
 
   it('logs once when a user-initiated curate joins an in-flight pass, and changes nothing else', async () => {
@@ -2180,7 +2184,10 @@ describe('MemoryCuratorService — userInitiated reaches every curator LLM call'
     // that pass ran on its own (background) options.
     expect(manualStats).toEqual(backgroundStats);
     expect(extract).toHaveBeenCalledTimes(1);
-    expect(extract.mock.calls[0][2]).toEqual({ userInitiated: undefined });
+    expect(extract.mock.calls[0][2]).toEqual({
+      userInitiated: undefined,
+      workspaceRoot: '/ws',
+    });
   });
 
   it('leaves userInitiated unset for a pass nobody is waiting on', async () => {
@@ -2192,8 +2199,14 @@ describe('MemoryCuratorService — userInitiated reaches every curator LLM call'
       transcript: '{"type":"user","content":"remember the lanes"}',
     });
 
-    expect(extract.mock.calls[0][2]).toEqual({ userInitiated: undefined });
-    expect(resolve.mock.calls[0][3]).toEqual({ userInitiated: undefined });
+    expect(extract.mock.calls[0][2]).toEqual({
+      userInitiated: undefined,
+      workspaceRoot: '/ws',
+    });
+    expect(resolve.mock.calls[0][3]).toEqual({
+      userInitiated: undefined,
+      workspaceRoot: '/ws',
+    });
   });
 });
 

@@ -37,6 +37,7 @@ export {
   type ActiveAuth,
 } from './lib/auth/active-provider-resolver';
 export { WorkspaceProviderProfileResolver } from './lib/auth/workspace-provider-profile-resolver';
+export { WorkspaceLlmResolver } from './lib/auth/workspace-llm-resolver';
 export {
   ProviderProxyPool,
   type AcquiredProxy,

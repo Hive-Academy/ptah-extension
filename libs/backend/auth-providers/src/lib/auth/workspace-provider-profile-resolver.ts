@@ -107,6 +107,24 @@ export class WorkspaceProviderProfileResolver {
       return undefined;
     }
 
+    return this.buildProfileForPath(workspacePath, requestedModel);
+  }
+
+  /**
+   * Build the isolated profile for the provider that `workspacePath` resolves
+   * to — its own override when it has one, else the app- then global-scoped
+   * provider. Unlike {@link resolveProviderProfileForWorkspace} there is no
+   * "explicit override" gate: callers that must never ride the process-wide
+   * auth env (one-shot workflows, `WorkspaceLlmResolver`) always get the
+   * snapshot. `''` resolves the app/global provider (rootless callers).
+   *
+   * Returns `undefined` when no isolated snapshot can be built (unknown
+   * provider, missing credentials, proxy start failure); logged here.
+   */
+  async buildProfileForPath(
+    workspacePath: string,
+    requestedModel: string,
+  ): Promise<ProviderProfile | undefined> {
     const { authMethod, providerId } =
       this.activeProviderResolver.resolveActiveAuthForPath(workspacePath);
 

@@ -325,3 +325,78 @@ describe('SessionLifecycleManager — disposeAllSessions permission scope (TASK_
     manager.dispose();
   });
 });
+
+// ===========================================================================
+// A workspace-scoped auth change ends that workspace's sessions through
+// disposeSessionsForWorkspace. Like endSession, it must tell the handover
+// coordinator each source ended, or a pending handover waits on a session
+// that no longer exists.
+// ===========================================================================
+
+describe('SessionLifecycleManager — disposeSessionsForWorkspace handover', () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it('reports sourceEnded for every session of the workspace, with its token, and none for other workspaces', async () => {
+    const handoverCoordinator = {
+      sourceEnded: jest.fn(),
+      snapshotFor: jest.fn().mockReturnValue(undefined),
+      attachRuntime: jest.fn(),
+      admitInterrupt: jest.fn().mockReturnValue({ held: false }),
+    };
+    const subagentRegistry = {
+      beginSessionTeardown: jest.fn(),
+      endSessionTeardown: jest.fn(),
+      markAllInterrupted: jest.fn(),
+    } as unknown as SubagentRegistryService;
+    const manager = new SessionLifecycleManager(
+      asLogger(createMockLogger()),
+      {
+        cleanupPendingPermissions: jest.fn(),
+      } as unknown as ISdkPermissionHandler,
+      { getQueryFunction: jest.fn() } as unknown as SdkModuleLoader,
+      { build: jest.fn() } as unknown as SdkQueryOptionsBuilder,
+      {} as unknown as SdkMessageFactory,
+      subagentRegistry,
+      {} as AuthEnv,
+      { resolve: jest.fn((m: string) => m) } as unknown as IModelResolver,
+      { notifyAll: jest.fn() } as unknown as SessionEndCallbackRegistry,
+      {} as unknown as SdkQueryRunner,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      handoverCoordinator as unknown as ConstructorParameters<
+        typeof SessionLifecycleManager
+      >[17],
+    );
+
+    const inA = { model: 'm', projectPath: '/ws/a' } as AISessionConfig;
+    const inB = { model: 'm', projectPath: '/ws/b' } as AISessionConfig;
+    const a1 = manager.register('tab_a1', inA, new AbortController());
+    const a2 = manager.register('tab_a2', inA, new AbortController());
+    manager.register('tab_b1', inB, new AbortController());
+
+    await manager.disposeSessionsForWorkspace('/ws/a');
+
+    expect(handoverCoordinator.sourceEnded).toHaveBeenCalledTimes(2);
+    expect(handoverCoordinator.sourceEnded).toHaveBeenCalledWith(
+      'tab_a1',
+      a1.token,
+      'session ended',
+    );
+    expect(handoverCoordinator.sourceEnded).toHaveBeenCalledWith(
+      'tab_a2',
+      a2.token,
+      'session ended',
+    );
+    expect(manager.getSessionIdsForWorkspace('/ws/a')).toEqual([]);
+    expect(manager.getSessionIdsForWorkspace('/ws/b')).toEqual(['tab_b1']);
+
+    manager.dispose();
+  });
+});

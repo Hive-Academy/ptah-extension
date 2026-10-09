@@ -685,6 +685,9 @@ export class MemoryCuratorService {
   private async doCurate(input: CurateInput): Promise<CuratorRunStats> {
     const callOptions: CuratorCallOptions = {
       userInitiated: input.userInitiated,
+      // The adapter resolves provider, model and cwd for the session's own
+      // workspace, not the active one (the pass may run much later).
+      workspaceRoot: input.workspaceRoot ?? null,
     };
     // A pass can sit in the job queue for minutes, and the caller that queued it
     // may have withdrawn in that time. Running the pipeline for it would spend a

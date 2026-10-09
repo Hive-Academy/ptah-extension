@@ -25,8 +25,6 @@ import {
   TOKENS,
   type WebviewManager,
 } from '@ptah-extension/vscode-core';
-import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
-import type { ModelSettings } from '@ptah-extension/settings-core';
 import { Result, MESSAGE_TYPES, WizardPhaseId } from '@ptah-extension/shared';
 import type {
   AnalysisPhase,
@@ -44,6 +42,8 @@ import type {
 import { SDK_TOKENS, SdkStreamProcessor } from '@ptah-extension/agent-sdk';
 import type {
   InternalQueryService,
+  IWorkspaceLlmResolver,
+  OneShotAuthOverride,
   SDKMessage,
   StreamEventEmitter,
   StreamEvent,
@@ -82,7 +82,6 @@ export const PHASE_MAX_AGENT_TURNS: Record<MultiPhaseId, number> = {
   'elevation-plan': 50,
 };
 export const SUBSTANTIAL_PHASE_FILE_MIN_BYTES = 500;
-const DEFAULT_MODEL = 'default';
 const LLM_PHASE_COUNT = 4; // Phases 1-4 are LLM-based
 
 /**
@@ -142,8 +141,8 @@ export class MultiPhaseAnalysisService {
     private readonly internalQueryService: InternalQueryService,
     @inject(AGENT_GENERATION_TOKENS.ANALYSIS_STORAGE_SERVICE)
     private readonly storageService: AnalysisStorageService,
-    @inject(SETTINGS_TOKENS.MODEL_SETTINGS)
-    private readonly modelSettings: ModelSettings,
+    @inject(SDK_TOKENS.SDK_WORKSPACE_LLM_RESOLVER)
+    private readonly workspaceLlm: IWorkspaceLlmResolver,
   ) {}
 
   /**
@@ -167,8 +166,13 @@ export class MultiPhaseAnalysisService {
     const mcpPort = options?.mcpPort;
     const pluginPaths = options?.pluginPaths;
     const resume = options?.resume === true;
-    const model =
-      options?.model || this.modelSettings.selectedModel.get() || DEFAULT_MODEL;
+    // Provider and model of ONE snapshot for the workspace being analyzed —
+    // never the active workspace's model or the process-wide auth env. A
+    // caller model is kept only when that provider offers it.
+    const { model, auth } = await this.workspaceLlm.resolveForPath(
+      workspacePath,
+      { requestedModel: options?.model },
+    );
 
     this.logger.info(`${SERVICE_TAG} Starting multi-phase analysis`, {
       workspace: workspacePath,
@@ -278,7 +282,10 @@ export class MultiPhaseAnalysisService {
             i,
             slugDir,
             workspacePath,
-            manifest.model,
+            // The snapshot's model. A resumed manifest always records the same
+            // one: `AnalysisRunCheckpoint.open` starts fresh when it differs.
+            model,
+            auth,
             mcpServerRunning,
             mcpPort,
             masterAbortController,
@@ -574,6 +581,7 @@ export class MultiPhaseAnalysisService {
     slugDir: string,
     cwd: string,
     model: string,
+    auth: OneShotAuthOverride | undefined,
     mcpServerRunning: boolean,
     mcpPort: number | undefined,
     masterAbortController: AbortController,
@@ -647,6 +655,7 @@ export class MultiPhaseAnalysisService {
         mcpPort,
         maxTurns,
         abortController: phaseAbortController,
+        ...(auth ? { auth } : {}),
       });
 
       this.logger.info(

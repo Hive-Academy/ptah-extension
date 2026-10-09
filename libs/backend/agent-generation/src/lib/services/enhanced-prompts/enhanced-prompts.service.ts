@@ -23,8 +23,6 @@
 import { inject, injectable } from 'tsyringe';
 import { relative } from 'path';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
-import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
-import type { ModelSettings } from '@ptah-extension/settings-core';
 import type { AnalysisStreamPayload } from '@ptah-extension/shared';
 import {
   PTAH_CORE_SYSTEM_PROMPT,
@@ -36,6 +34,7 @@ import {
 } from '@ptah-extension/agent-sdk';
 import type {
   InternalQueryService,
+  IWorkspaceLlmResolver,
   SDKMessage,
   StreamEventEmitter,
   StreamEvent,
@@ -265,8 +264,8 @@ export class EnhancedPromptsService {
     private readonly workspaceIntelligence: IWorkspaceIntelligence,
     @inject(SDK_TOKENS.SDK_INTERNAL_QUERY_SERVICE)
     private readonly internalQueryService: InternalQueryService,
-    @inject(SETTINGS_TOKENS.MODEL_SETTINGS)
-    private readonly modelSettings: ModelSettings,
+    @inject(SDK_TOKENS.SDK_WORKSPACE_LLM_RESOLVER)
+    private readonly workspaceLlm: IWorkspaceLlmResolver,
     @inject(AGENT_GENERATION_TOKENS.ANALYSIS_STORAGE_SERVICE)
     private readonly traceWriter: EnhancedPromptTraceWriter,
   ) {
@@ -834,8 +833,13 @@ export class EnhancedPromptsService {
         message: 'Calling AI agent for guidance generation...',
         progress: 40,
       });
-      const configModel = this.modelSettings.selectedModel.get();
-      const model = sdkConfig?.model || configModel || 'default';
+      // Provider and model of ONE snapshot for this workspace — never the
+      // active workspace's model or the process-wide auth. A frontend model
+      // is kept only when that provider offers it.
+      const { model, auth } = await this.workspaceLlm.resolveForPath(
+        workspacePath,
+        { requestedModel: sdkConfig?.model },
+      );
       const abortController = new AbortController();
       // Arm the timeout BEFORE execute() so the budget covers the queue wait
       // for a concurrency slot, not just the stream after the handle resolves.
@@ -856,6 +860,7 @@ export class EnhancedPromptsService {
           type: 'json_schema',
           schema: outputSchema,
         },
+        ...(auth ? { auth } : {}),
       });
 
       try {

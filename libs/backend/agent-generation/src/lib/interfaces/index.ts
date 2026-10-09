@@ -19,7 +19,3 @@ export {
 export { IOutputValidationService } from './output-validation.interface';
 export { IAgentFileWriterService } from './agent-file-writer.interface';
 export { ISetupWizardOrchestrator } from './setup-wizard-orchestrator.interface';
-export {
-  IAgentCustomizationService,
-  CustomizationRequest,
-} from './agent-customization.interface';

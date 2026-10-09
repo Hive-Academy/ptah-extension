@@ -73,6 +73,7 @@ interface Harness {
   };
   jobs: { update: jest.Mock };
   internalQuery: { execute: jest.Mock };
+  workspaceLlm: { resolveForPath: jest.Mock };
 }
 
 /**
@@ -101,6 +102,13 @@ function makeHarness(handler: JobHandler | null): Harness {
   };
   const jobs = { update: jest.fn() };
   const internalQuery = { execute: jest.fn() };
+  const workspaceLlm = {
+    resolveForPath: jest.fn(async () => ({
+      providerId: 'moonshot',
+      model: 'kimi-k2.5',
+      auth: { env: { ANTHROPIC_AUTH_TOKEN: 'ws-a-key' } },
+    })),
+  };
   const handlers: IHandlerRegistry = {
     register: jest.fn(),
     unregister: jest.fn(),
@@ -121,9 +129,10 @@ function makeHarness(handler: JobHandler | null): Harness {
     internalQuery,
     handlers,
     logger,
+    workspaceLlm,
     null,
   );
-  return { runner, runs, jobs, internalQuery };
+  return { runner, runs, jobs, internalQuery, workspaceLlm };
 }
 
 describe('JobRunner outcomes', () => {
@@ -267,5 +276,48 @@ describe('JobRunner skips the RUNNER owns (unchanged by the handler channel)', (
     expect(runs.markSkipped).not.toHaveBeenCalled();
     expect(runs.markSucceeded).not.toHaveBeenCalled();
     expect(runs.markFailed).not.toHaveBeenCalled();
+  });
+});
+
+describe('JobRunner prompt jobs — workspace provider and model', () => {
+  function emptyHandle() {
+    return {
+      stream: (async function* () {
+        yield { type: 'result', subtype: 'success', result: 'done' };
+      })(),
+      close: jest.fn(),
+      abort: jest.fn(),
+    };
+  }
+
+  it('runs on the provider AND model of one snapshot for the job workspace', async () => {
+    const h = makeHarness(null);
+    h.internalQuery.execute.mockResolvedValue(emptyHandle());
+
+    await h.runner.run(
+      { ...drainJob(), prompt: 'Summarise the repo', workspaceRoot: '/ws/a' },
+      1_700_000_000_000,
+    );
+
+    expect(h.workspaceLlm.resolveForPath).toHaveBeenCalledWith('/ws/a');
+    const config = h.internalQuery.execute.mock.calls[0][0];
+    expect(config.cwd).toBe('/ws/a');
+    expect(config.model).toBe('kimi-k2.5');
+    expect(config.auth).toEqual({
+      env: { ANTHROPIC_AUTH_TOKEN: 'ws-a-key' },
+    });
+  });
+
+  it('a rootless job resolves the app/global snapshot explicitly', async () => {
+    const h = makeHarness(null);
+    h.internalQuery.execute.mockResolvedValue(emptyHandle());
+
+    await h.runner.run(
+      { ...drainJob(), prompt: 'Summarise', workspaceRoot: null },
+      1_700_000_000_000,
+    );
+
+    expect(h.workspaceLlm.resolveForPath).toHaveBeenCalledWith(undefined);
+    expect(h.internalQuery.execute.mock.calls[0][0].model).toBe('kimi-k2.5');
   });
 });

@@ -744,6 +744,31 @@ export class SessionLifecycleManager {
     return this._control.disposeAllSessions();
   }
 
+  /** Tab ids of the live sessions of one workspace (normalized path match). */
+  getSessionIdsForWorkspace(workspacePath: string): string[] {
+    return this._control.getSessionIdsForWorkspace(workspacePath);
+  }
+
+  /**
+   * End only the sessions of one workspace; other workspaces keep running.
+   * Each session's pending handover is told its source ended first, exactly
+   * as {@link endSession} does for a single session.
+   */
+  async disposeSessionsForWorkspace(workspacePath: string): Promise<void> {
+    for (const id of this.getSessionIdsForWorkspace(workspacePath)) {
+      const sessionId = id as SessionId;
+      const token = this.getSessionToken(sessionId);
+      if (token) {
+        this.handoverCoordinator?.sourceEnded(
+          this.handoverKey(sessionId),
+          token,
+          'session ended',
+        );
+      }
+    }
+    return this._control.disposeSessionsForWorkspace(workspacePath);
+  }
+
   /**
    * Get session count
    */

@@ -79,7 +79,7 @@ interface Mocks {
     getCurrentWorkspaceInfo: jest.Mock;
   };
   internalQueryService: { execute: jest.Mock };
-  modelSettings: { selectedModel: { get: jest.Mock } };
+  workspaceLlm: { resolveForPath: jest.Mock };
   analysisStorage: { writeEnhancedPromptTrace: jest.Mock };
 }
 
@@ -126,8 +126,13 @@ function createMocks(): Mocks {
     internalQueryService: {
       execute: jest.fn(),
     },
-    modelSettings: {
-      selectedModel: { get: jest.fn().mockReturnValue(undefined) },
+    workspaceLlm: {
+      resolveForPath: jest.fn(
+        async (_root: string, opts?: { requestedModel?: string }) => ({
+          providerId: 'anthropic',
+          model: opts?.requestedModel || 'default',
+        }),
+      ),
     },
     analysisStorage: {
       writeEnhancedPromptTrace: jest.fn().mockResolvedValue({
@@ -147,7 +152,7 @@ function createService(mocks: Mocks): EnhancedPromptsService {
       mocks.context,
       mocks.workspaceIntelligence,
       mocks.internalQueryService,
-      mocks.modelSettings,
+      mocks.workspaceLlm,
       mocks.analysisStorage,
     ] as unknown as ConstructorParameters<typeof EnhancedPromptsService>),
   );
@@ -1047,8 +1052,12 @@ describe('EnhancedPromptsService', () => {
       );
     });
 
-    it('uses configured model when sdkConfig model not supplied', async () => {
-      mocks.modelSettings.selectedModel.get.mockReturnValue('claude-pinned');
+    it('runs on the provider and model of the snapshot for its workspace', async () => {
+      mocks.workspaceLlm.resolveForPath.mockResolvedValue({
+        providerId: 'moonshot',
+        model: 'claude-pinned',
+        auth: { env: { ANTHROPIC_AUTH_TOKEN: 'ws-key' } },
+      });
       mocks.promptDesignerAgent.buildPrompts.mockResolvedValue({
         systemPrompt: 's',
         userPrompt: 'u',
@@ -1073,8 +1082,15 @@ describe('EnhancedPromptsService', () => {
         devDependencies: [],
       };
       await service.runWizard(testWorkspacePath, undefined, undefined, input);
+      expect(mocks.workspaceLlm.resolveForPath).toHaveBeenCalledWith(
+        testWorkspacePath,
+        { requestedModel: undefined },
+      );
       expect(mocks.internalQueryService.execute).toHaveBeenCalledWith(
-        expect.objectContaining({ model: 'claude-pinned' }),
+        expect.objectContaining({
+          model: 'claude-pinned',
+          auth: { env: { ANTHROPIC_AUTH_TOKEN: 'ws-key' } },
+        }),
       );
     });
 
