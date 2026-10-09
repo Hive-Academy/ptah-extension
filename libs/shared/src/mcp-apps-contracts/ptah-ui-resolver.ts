@@ -367,8 +367,13 @@ function agentsRows(
 }
 
 /**
- * `$limits` rows keep the list's order. `list $limits` lists `lane`; a lane
- * with several windows has several rows but is listed once.
+ * `$limits` rows keep the list's order; the table shows the first
+ * `maxTableRows` rows and notes the rest as "+N more".
+ *
+ * `list $limits` lists each lane once, in the order it first appears across
+ * every row, not only the rows the table shows. The list renders no notes, so
+ * when there are more lanes than `maxTableRows` it lists the first
+ * `maxTableRows - 1` and ends with a "+N more" item for the lanes left out.
  */
 function limitsRows(
   limits: PtahUiLimitsInput | null | undefined,
@@ -381,13 +386,21 @@ function limitsRows(
     columns.map((column) => clampHostValue(limitCell(row, column))),
   );
   const omittedRows = limits.rows.length - shown.length;
-  const lanes = [...new Set(shown.map((row) => row.lane))];
   return {
     rows,
-    listItems: lanes.map((lane) => String(clampHostValue(lane))),
+    listItems: laneListItems(limits.rows),
     notes: omittedRows > 0 ? [`+${omittedRows} more`] : [],
     freshness: `as of ${clockTime(limits.asOf)}`,
   };
+}
+
+function laneListItems(rows: readonly PtahUiLimitRow[]): string[] {
+  const lanes = [...new Set(rows.map((row) => row.lane))];
+  const cap = SURFACE_LIMITS.maxTableRows;
+  const listed = lanes.length <= cap ? lanes : lanes.slice(0, cap - 1);
+  const items = listed.map((lane) => String(clampHostValue(lane)));
+  const omittedLanes = lanes.length - listed.length;
+  return omittedLanes > 0 ? [...items, `+${omittedLanes} more`] : items;
 }
 
 function optional(value: string | undefined): readonly string[] {

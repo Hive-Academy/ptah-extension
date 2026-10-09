@@ -1,6 +1,6 @@
 # Batches - TASK_2026_623_3492
 
-Total tasks: 68 | Batches: 33 | Complete: 5/33
+Total tasks: 69 | Batches: 34 | Complete: 6/34
 
 Worktree root `W` = `D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel` (branch
 `feat/task-623-display-panel`, base `70f995a56`). Every path below is absolute.
@@ -89,7 +89,7 @@ Edge cases:
 
 | Phase | Batches | Phase review |
 | ----- | ------- | ------------ |
-| 1 Contract `/4` and grammar | 1-6 | code-logic |
+| 1 Contract `/4` and grammar | 1-6, 6F (fix) | code-logic (REVISE 6/10, `code-logic-review.md`); one re-review scoped to the 6F commit |
 | 2 Lane plan-limit read (R10 backend) | 7-12 | code-logic, plus style (new RPC method `agent:getLanePlanLimits`, new export `formatPlanLimitRows`) |
 | 3 Renderer `/4` | 13-15 | code-logic, plus style only if Task 15.3 adds exports |
 | 4 chat-ui display panel | 16-21 | code-logic, plus style (new entry `@ptah-extension/chat-ui/display-panel`, new host-sources token) |
@@ -403,7 +403,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
   `ptah-ui-agents-source.ts` forbidden-eager pattern goes to Task 32.1. Task 17.2 carries the `PtahUiLimitsInput`
   mapping.
 
-## Batch 6: S6 corpus and compactness — COMPLETE
+## Batch 6: S6 corpus and compactness — COMPLETE (commit 7206eb973)
 
 - Recommended executor: backend-developer
 - Fallback executor: general-purpose subagent
@@ -448,6 +448,58 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - #38: the `release`/`displayId` corpus fields are accepted. The `/3` goldens were checked against the base-commit
   converter logic.
 - #39: `maxComponents (200)` cannot be reached from a fence body; no action.
+- Phase 1 review: REVISE 6/10, 0 Blocking, 1 Serious (`code-logic-review.md`, Codex CLI lane). Fix round: Batch 6F
+  (decision #40).
+
+## Batch 6F: Phase 1 review fix — `list $limits` lanes independent of the row cap — COMPLETE
+
+- Recommended executor: backend-developer
+- Fallback executor: general-purpose subagent
+- Execution mode: sequential
+- Rationale: one function and its spec in one file pair; the list-cap policy is a judgment the executor applies
+  inside the same edit.
+- Tasks: 1 | Depends on: Batch 6
+- Phase: 1 (fix batch, last of phase) | Phase review: code-logic re-review scoped to the 6F commit only
+
+### Task 6F.1: derive `list $limits` lanes from every row, then apply the list cap — COMPLETE
+
+- Files:
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\shared\src\mcp-apps-contracts\ptah-ui-resolver.ts
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\shared\src\mcp-apps-contracts\ptah-ui-resolver.spec.ts
+- Review reference: code-logic-review.md, Serious #1 (`ptah-ui-resolver.ts:379-387`); decisions.md #34, #40
+- Defect: `limitsRows` builds `lanes` from `shown` (rows already sliced to `SURFACE_LIMITS.maxTableRows`), so a lane
+  whose windows all come after the cap is missing from `list $limits` while `$limits.lanes` still counts it.
+- Fix (decision #40 policy):
+  - Table path unchanged: `rows` = first `maxTableRows` rows, note `+<omittedRows> more`.
+  - List path: ordered unique lanes from ALL of `limits.rows` (first-occurrence order; dedupe on the raw `row.lane`,
+    clamp only for display), computed independently of `shown`.
+  - List cap: `maxTableRows` also caps `list.items` (`dashboard-catalog.ts:165`). If unique lanes <= `maxTableRows`,
+    list them all. If more, list the first `maxTableRows - 1` lanes and make the last item `+<n> more`, where `n` is
+    the number of lanes not listed, so the list stays within the cap and the omission is visible (the list path
+    renders no `notes`, `ptah-ui-resolver.ts:249-258`).
+  - Update the `limitsRows` doc comment to state the list projection and its cap.
+- Regression tests (required, in `ptah-ui-resolver.spec.ts`, near the existing cap case at ~line 555):
+  1. `limits.rows` = `maxTableRows` rows for lane `codex` (distinct windows) followed by one row for lane `grok`;
+     body `list $limits` → items exactly `['codex', 'grok']`; the same input with `table $limits` still has
+     `maxTableRows` rows and the `+1 more` note (table behaviour unchanged).
+  2. Lane cap: `maxTableRows + 2` distinct lanes, one row each → `list $limits` has exactly `maxTableRows` items,
+     the first `maxTableRows - 1` are the lanes in input order and the last is `+3 more`.
+  3. Exactly `maxTableRows` distinct lanes → all listed, no `+N more` item (boundary).
+- Must not change: `$limits.*` scalar values, the pending/unavailable list status, `$agents`/`$runs` list paths.
+- Out of scope (recorded, not fixed): `$agents`/`$runs` lists also take the first `maxTableRows` rows with no list
+  `+N more` item; not flagged by the review and each row is one item there, so no item is silently merged away.
+
+### Batch 6F verification
+
+- `npx jest -c libs/shared/jest.config.ts libs/shared/src/mcp-apps-contracts/ptah-ui-resolver.spec.ts libs/shared/src/mcp-apps-contracts/ptah-ui-pipeline.spec.ts libs/shared/src/mcp-apps-contracts/ptah-ui-compactness.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -n 40`,
+  then `npx nx typecheck @ptah-extension/shared --parallel=1 2>&1 | tail -n 20`, then
+  `npx nx lint @ptah-extension/shared --parallel=1 2>&1 | tail -n 20` (one at a time; 0 errors, 6 baseline warnings).
+- The new case 1 fails on the pre-fix code (executor states that it confirmed this).
+- After commit: one code-logic re-review scoped to the 6F commit.
+- Result (team-leader run): `laneListItems(limits.rows)` verified on disk (dedupe on raw lane over all rows,
+  clamp for display only, `maxTableRows - 1` lanes + `+N more` above the cap); the three regression cases are present.
+  Jest 3 suites, 133 tests passed. Shared typecheck passed. Shared lint: 0 errors, 6 baseline warnings (resolver
+  477 lines, spec 685 lines, both under max-lines).
 
 ## Batch 7: L1 lane plan-limit RPC types — PENDING
 

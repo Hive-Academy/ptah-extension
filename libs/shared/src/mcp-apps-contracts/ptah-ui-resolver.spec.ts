@@ -580,6 +580,74 @@ describe('resolvePtahUi live sources', () => {
     });
   });
 
+  const limitRow = (lane: string, window: string) => ({
+    lane,
+    window,
+    used: '1%',
+    state: 'room',
+    reset: 'r',
+  });
+  const listTexts = (surface: ReturnType<typeof resolveBody>) => {
+    const list = surface.components[0];
+    return list.kind === 'list'
+      ? (list.items ?? []).map((item) => item.text.text)
+      : [];
+  };
+
+  it('lists a lane whose windows all fall past the table row cap', () => {
+    const rows = [
+      ...Array.from({ length: SURFACE_LIMITS.maxTableRows }, (_, index) =>
+        limitRow('codex', `w${index}`),
+      ),
+      limitRow('grok', 'w0'),
+    ];
+    expect(
+      listTexts(resolveBody('list $limits\n', { limits: { ...limits, rows } })),
+    ).toEqual(['codex', 'grok']);
+    const table = resolveBody('table $limits\n', {
+      limits: { ...limits, rows },
+    }).components[0];
+    expect(table).toMatchObject({
+      description: { text: 'as of 14:32; +1 more' },
+    });
+    expect(table.kind === 'table' && table.rows?.length).toBe(
+      SURFACE_LIMITS.maxTableRows,
+    );
+  });
+
+  it('caps list $limits lanes with a final "+N more" item', () => {
+    const lanes = Array.from(
+      { length: SURFACE_LIMITS.maxTableRows + 2 },
+      (_, index) => `lane-${index}`,
+    );
+    const items = listTexts(
+      resolveBody('list $limits\n', {
+        limits: { ...limits, rows: lanes.map((lane) => limitRow(lane, 'w')) },
+      }),
+    );
+    expect(items).toEqual([
+      ...lanes.slice(0, SURFACE_LIMITS.maxTableRows - 1),
+      '+3 more',
+    ]);
+  });
+
+  it('lists exactly maxTableRows lanes without a "+N more" item', () => {
+    const lanes = Array.from(
+      { length: SURFACE_LIMITS.maxTableRows },
+      (_, index) => `lane-${index}`,
+    );
+    expect(
+      listTexts(
+        resolveBody('list $limits\n', {
+          limits: {
+            ...limits,
+            rows: lanes.map((lane) => limitRow(lane, 'w')),
+          },
+        }),
+      ),
+    ).toEqual(lanes);
+  });
+
   it.each(['pending', 'unavailable'] as const)(
     'renders a %s $limits read as its status',
     (kind) => {
