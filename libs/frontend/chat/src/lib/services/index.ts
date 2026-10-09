@@ -44,6 +44,9 @@ export {
 } from './message-validation.service';
 export { ChatMessageHandler } from './chat-message-handler.service';
 export { StreamFlushScheduler } from './stream-flush-scheduler.service';
+export { ScrollDirtyService } from './scroll-dirty.service';
+export { INCREMENTAL_STREAMING_PRESENTATION_ENABLED } from './scroll-dirty.service';
+export { COMPOSER_TRIGGER_CACHE_ENABLED } from './composer-trigger-scheduler';
 export {
   StreamViewportController,
   type StreamTier,

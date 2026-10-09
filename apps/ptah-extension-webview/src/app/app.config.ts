@@ -3,6 +3,7 @@ import {
   provideAppInitializer,
   provideBrowserGlobalErrorListeners,
   provideZoneChangeDetection,
+  provideZonelessChangeDetection,
   ErrorHandler,
   inject,
 } from '@angular/core';
@@ -98,6 +99,7 @@ import {
   provideMarkdownFileLinks,
   provideMarkdownRendering,
 } from '@ptah-extension/markdown';
+import { useZoneChangeDetectionFallback } from './zone-change-detection';
 class WebviewErrorHandler implements ErrorHandler {
   public handleError(error: unknown): void {
     const isError = (e: unknown): e is { name: string; message?: string } => {
@@ -133,13 +135,18 @@ class WebviewErrorHandler implements ErrorHandler {
   }
 }
 
+const changeDetectionProvider = useZoneChangeDetectionFallback()
+  ? provideZoneChangeDetection({ eventCoalescing: true, runCoalescing: true })
+  : provideZonelessChangeDetection();
+
 export const appConfig: ApplicationConfig = {
   providers: [
     // Root streaming ingestion serves both persistent layouts. The outlet and
     // the two element boundaries provide their narrower surface signals.
     { provide: SURFACE_ACTIVE, useFactory: surfaceActiveFor('chat') },
     provideBrowserGlobalErrorListeners(),
-    provideZoneChangeDetection({ eventCoalescing: true, runCoalescing: true }),
+    // TODO(streaming-p6): remove zone fallback flag after one stable release
+    changeDetectionProvider,
     { provide: ErrorHandler, useClass: WebviewErrorHandler },
     // THE ROUTER'S HOST SEAM — this provider is what makes routing possible in
     // both hosts, and it is load-bearing.
