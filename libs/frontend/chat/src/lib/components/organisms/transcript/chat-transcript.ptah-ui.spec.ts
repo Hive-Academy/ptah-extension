@@ -418,7 +418,7 @@ describe('ChatTranscriptComponent ptah-ui source snapshots', () => {
         { command: 'npx jest libs/frontend/chat', outcome: 'passed' },
         { command: 'npm test', outcome: 'failed' },
       ],
-      summary: { total: 2, passed: 1, failed: 1, unknown: 0 },
+      summary: { total: 2, passed: 1, failed: 1, running: 0, unknown: 0 },
     });
   });
 

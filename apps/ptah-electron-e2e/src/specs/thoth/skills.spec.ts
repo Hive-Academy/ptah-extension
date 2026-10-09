@@ -329,7 +329,7 @@ test.describe('Thoth — Skills tab', () => {
    * plan Decision 9 row 6). The four lane pickers were REMOVED from
    * `SkillSettingsPanelComponent` ("REMOVE the four picker mounts. Unrelated
    * synthesis policy stays."); lane provider/model selection moved to the
-   * Providers settings page's "Background models" section
+   * Agent Orchestration settings page's "Background Model Roles" section
    * (`ProviderConsumerAssignmentsComponent`, which mounts the same
    * `ProviderModelPickerComponent` extracted into `libs/frontend/ui` — the
    * component this test always really tested, batches B1.9/B1.10). The
@@ -348,7 +348,7 @@ test.describe('Thoth — Skills tab', () => {
    * skills-lane-pickers.e2e.spec.ts`), adapted to this harness's
    * `ui.openTab` / `ui.mockRpc` driver.
    */
-  test('Skills deep-link opens the Providers page where the shared picker enumerates providers and a pinned lane renders pinned', async ({
+  test('the shared picker enumerates providers and a pinned lane renders pinned', async ({
     ui,
   }) => {
     await ui.mockRpc({
@@ -362,8 +362,8 @@ test.describe('Thoth — Skills tab', () => {
       },
       'skillSynthesis:getSettings': { settings: SETTINGS_FIXTURE },
       'skillSynthesis:getLanes': { lanes: LANES_FIXTURE },
-      // Everything `ProvidersSettingsStateService.refresh()` fans out over
-      // when the Providers page opens. A section left unanswered still gets
+      // Everything the settings route fans out over when Agent Orchestration
+      // opens. A section left unanswered still gets
       // the fake listener's namespace default (empty arrays), which does not
       // satisfy shapes like `settings:get` — so every read is mocked here and
       // the rows render loaded. `toggleEdit` refuses to open an editor for a
@@ -402,13 +402,13 @@ test.describe('Thoth — Skills tab', () => {
     // assert the panel no longer mounts a picker and still offers the link.
     const panel = page.locator('ptah-skill-settings-panel');
     await expect(panel.locator('ptah-provider-model-picker')).toHaveCount(0);
-    const lanesSection = page.locator('[data-testid="skills-lanes-section"]');
-    await expect(lanesSection).toBeVisible();
-    const manageSynthesis = lanesSection.getByRole('button', {
-      name: 'Manage synthesis in Providers',
-    });
-    await expect(manageSynthesis).toBeVisible();
-    await manageSynthesis.click();
+    await expect(panel.getByText('Manage synthesis in Providers')).toHaveCount(0);
+    await ui.goto('settings');
+    await page
+      .locator('ptah-settings')
+      .getByRole('button', { name: 'Agent Orchestration', exact: true })
+      .click();
+    await page.locator('[data-testid="background-roles-summary"]').click();
 
     // The deep-link routes to the settings view; the Providers tab is its
     // default tab. Wait for the Background models section to be LOADED (a
