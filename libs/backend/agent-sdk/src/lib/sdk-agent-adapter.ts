@@ -1044,6 +1044,9 @@ export class SdkAgentAdapter implements IAgentAdapter {
     const sessionConfigWithProfileModel = {
       ...config,
       ...(providerProfile ? { model: providerProfile.model } : {}),
+      ...(providerProfile?.reasoningEffort
+        ? { effort: providerProfile.reasoningEffort }
+        : {}),
       ...(resolvedSessionName ? { sessionName: resolvedSessionName } : {}),
     } as typeof config;
 

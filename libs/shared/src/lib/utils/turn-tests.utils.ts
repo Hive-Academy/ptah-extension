@@ -54,7 +54,7 @@ function outputOutcome(output: string): TurnTestOutcome | null {
     (match) => Number(match[1]),
   );
   if (
-    /Running targets[\s\S]*failed|Failed tasks:/i.test(output) ||
+    /^\s*(?:Failed tasks:|Ran targets?\b.*\bfailed\b)/im.test(output) ||
     reportedFailures.some((count) => count > 0)
   )
     return 'failed';
@@ -96,7 +96,7 @@ function projectRuns(
     if (line.trim() !== '') inFailedTasks = false;
   }
   const failures = Array.from(
-    output.matchAll(/(?:FAIL|\u00d7)\s+([^\n]+)/gim),
+    output.matchAll(/^\s*(?:FAIL|\u00d7)\s+([^\n]+)/gm),
     (match) => match[1].trim(),
   ).slice(0, 5);
   if (projects.size === 0)
