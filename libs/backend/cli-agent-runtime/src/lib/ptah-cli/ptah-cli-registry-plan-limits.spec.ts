@@ -150,6 +150,7 @@ function buildHarness(accountInfo: jest.Mock): Harness {
         ownerForClaudeAccount,
         ownerForPtahCli: jest.fn(),
         ownerForCodexHome: jest.fn(),
+        resolveCodexHomeOwner: jest.fn(),
         ownerForCliStore: jest.fn(),
         ownerForAntigravity: jest.fn(),
       }),

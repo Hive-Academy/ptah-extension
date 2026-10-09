@@ -270,7 +270,7 @@ describe('classifyLaneLimit', () => {
 
   describe('laneWindowDescriptor', () => {
     it.each([
-      ['five_hour', undefined, 'five_hour', '5-hour session'],
+      ['five_hour', undefined, 'five_hour', '5-hour'],
       ['weekly', undefined, 'weekly', 'Weekly'],
       ['weekly_model:opus', 'opus', 'weekly_model', 'Weekly · Opus'],
       ['weekly_model:sonnet', undefined, 'weekly_model', 'Weekly · Sonnet'],
@@ -296,7 +296,7 @@ describe('laneLimitEvidence', () => {
       window: {
         key: 'five_hour',
         kind: 'five_hour',
-        label: '5-hour session',
+        label: '5-hour',
         resetsAt,
         resetSource: 'error-derived',
         exhaustion: {
