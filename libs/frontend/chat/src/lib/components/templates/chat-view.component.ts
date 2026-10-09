@@ -47,6 +47,7 @@ import { AgentOriginBannerComponent } from '../molecules/agent-origin-banner/age
 import { ChatStore } from '../../services/chat.store';
 import { ActionBannerService } from '../../services/action-banner.service';
 import { SessionBudgetActionsService } from '../../services/session-budget-actions.service';
+import { SessionHandoverClientService } from '../../services/session-handover-client.service';
 import { TranscriptRetentionService } from '../../services/transcript-retention.service';
 import { SessionLoaderService } from '../../services/chat-store/session-loader.service';
 import { SessionHistoryReplayer } from '../../services/chat-store/session-history-replayer.service';
@@ -932,11 +933,28 @@ export class ChatViewComponent implements OnDestroy {
 
   /** Budget banner state and flows, scoped to this view's tab and session. */
   private readonly _budgetActions = inject(SessionBudgetActionsService);
+  private readonly _handoverClient = inject(SessionHandoverClientService);
 
   /** The tab's budget, or the newer state a budget action returned (M6). */
   readonly resolvedSessionBudget = this._budgetActions.budget;
   /** Per-session samples for the budget sparkline. */
   protected readonly budgetUsage = this._budgetActions.usage;
+  /** Stored immediately from stats, rendered only after this tab is idle. */
+  protected readonly resolvedHandover = computed(() =>
+    this._handoverClient.stateFor(this.resolvedSessionId()),
+  );
+  protected readonly showSessionBudgetBanner = computed(() => {
+    const tab = this.resolvedActiveTab();
+    const tabId = this.resolvedTabId();
+    const hasNotice = this.resolvedSessionBudget() !== null || this.resolvedHandover() !== null;
+    return (
+      hasNotice &&
+      this.mainPanelShowing() &&
+      tab?.status === 'loaded' &&
+      tabId !== null &&
+      tabId === this._tabManager.activeTabId()
+    );
+  });
   protected readonly budgetActionBusy = this._budgetActions.busy;
   protected readonly budgetPreviewText = this._budgetActions.previewText;
   /** True when the last preview load for this session failed (F.6). */
@@ -1301,6 +1319,16 @@ export class ChatViewComponent implements OnDestroy {
 
   protected onBudgetContinue(): Promise<void> {
     return this._budgetActions.continueInNewSession();
+  }
+
+  protected onBudgetCancelHandover(): Promise<void> {
+    return this._budgetActions.cancelHandover();
+  }
+
+  /** Put bounded lost handover inputs back into this source view's composer. */
+  protected onRestoreLostHandoverInputs(texts: readonly string[]): void {
+    const content = texts.filter(Boolean).join('\n\n');
+    if (content) this.chatInputRef()?.restoreContentToInput(content);
   }
 
   protected onBudgetRotate(): Promise<void> {

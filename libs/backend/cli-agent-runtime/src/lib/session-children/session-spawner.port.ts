@@ -96,6 +96,7 @@ export interface SessionChildSnapshot {
 export interface SessionChildStartRequest {
   /** Transport-derived only — never a tool argument. */
   readonly callerSessionId: string | undefined;
+  readonly mode?: 'child';
   readonly task: string;
   readonly branch: string;
   readonly baseRef?: string;
@@ -105,6 +106,15 @@ export interface SessionChildStartRequest {
   readonly deliverables?: readonly string[];
   readonly model?: string;
 }
+
+/** A successor replaces its caller and cannot provision child-only resources. */
+export interface SessionSuccessorStartRequest {
+  readonly callerSessionId: string | undefined;
+  readonly mode: 'successor';
+  readonly handoff?: string;
+}
+
+export type SessionStartRequest = SessionChildStartRequest | SessionSuccessorStartRequest;
 
 export type SessionSpawnRefusalCode =
   | 'unattributed-caller'
@@ -135,6 +145,7 @@ export interface SessionChildRollbackStep {
 
 export type SessionChildStartResult =
   | { readonly ok: true; readonly child: SessionChildSnapshot }
+  | { readonly ok: true; readonly successor: true }
   | {
       readonly ok: false;
       readonly refusal: SessionSpawnRefusalCode;
@@ -156,6 +167,9 @@ export type SessionChildSendResult =
       readonly delivered: true;
       readonly effect:
         'started-turn' | 'held-until-turn-end' | 'interrupted-and-started';
+      /** The message is in the successor FIFO rather than the source queue. */
+      readonly held?: true;
+      readonly code?: 'SESSION_HANDOVER_HELD';
     }
   | {
       readonly delivered: false;
@@ -257,7 +271,7 @@ export type SessionChildCompletionDelivery =
     };
 
 export interface ISessionSpawner {
-  start(request: SessionChildStartRequest): Promise<SessionChildStartResult>;
+  start(request: SessionStartRequest): Promise<SessionChildStartResult>;
   send(request: SessionChildSendRequest): Promise<SessionChildSendResult>;
   status(
     query: SessionChildQuery,

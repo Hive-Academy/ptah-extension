@@ -29,7 +29,10 @@ jest.mock('node:fs', () => ({ createReadStream: jest.fn() }));
 
 import * as fs from 'fs/promises';
 import { createReadStream } from 'node:fs';
-import { SessionHistoryReaderService } from './session-history-reader.service';
+import {
+  COMPACT_BOUNDARY_POLL_INTERVAL_MS,
+  SessionHistoryReaderService,
+} from './session-history-reader.service';
 import { JsonlReaderService } from './helpers/history/jsonl-reader.service';
 import type { SessionReplayService } from './helpers/history/session-replay.service';
 import { HistoryEventFactory } from './helpers/history/history-event-factory';
@@ -2034,6 +2037,49 @@ describe('SessionHistoryReaderService', () => {
 
       expect(stubs.usageTracker.getCumulativeTokens('valid-session')).toBe(0);
     });
+  });
+});
+
+describe('SessionHistoryReaderService durable compact boundaries', () => {
+  it('waits for a new persisted compact_boundary before returning it', async () => {
+    jest.useFakeTimers();
+    try {
+    const stubs = makeStubs();
+    const previous = {
+      type: 'system',
+      subtype: 'compact_boundary',
+      uuid: 'boundary-before',
+    } as unknown as SessionHistoryMessage;
+    const next = {
+      type: 'system',
+      subtype: 'compact_boundary',
+      uuid: 'boundary-after',
+    } as unknown as SessionHistoryMessage;
+    stubs.jsonlReader.findSessionsDirectory.mockResolvedValue('/sessions/dir');
+    stubs.jsonlReader.readJsonlMessages
+      .mockResolvedValueOnce([previous])
+      .mockResolvedValueOnce([previous])
+      .mockResolvedValueOnce([previous, next]);
+    const service = makeService(stubs);
+
+    const checkpoint = await service.captureCompactBoundary(
+      'session-boundary-test',
+      '/workspace',
+    );
+    const boundaryPromise = service.waitForNewCompactBoundary(
+      'session-boundary-test',
+      '/workspace',
+      checkpoint,
+    );
+    await Promise.resolve();
+    await jest.advanceTimersByTimeAsync(COMPACT_BOUNDARY_POLL_INTERVAL_MS);
+    const boundary = await boundaryPromise;
+
+    expect(checkpoint).toEqual({ count: 1, latestId: 'boundary-before' });
+    expect(boundary?.uuid).toBe('boundary-after');
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });
 

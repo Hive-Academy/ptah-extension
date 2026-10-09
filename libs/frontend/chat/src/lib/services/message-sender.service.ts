@@ -33,6 +33,8 @@ import {
   SessionId,
   EffortLevel,
   normalizeWorkspaceRoot,
+  type RpcUserErrorCode,
+  SESSION_HANDOVER_HELD,
 } from '@ptah-extension/shared';
 import {
   ABORT_REASON_SUPERSEDED,
@@ -69,7 +71,10 @@ export interface SendOutcome {
    * The prompt was not sent and its bubble was removed, so callers keep the
    * draft and show no generic failure; the budget banner explains the block.
    */
-  errorCode?: 'SESSION_BUDGET_REACHED';
+  errorCode?: Extract<
+    RpcUserErrorCode,
+    'SESSION_BUDGET_REACHED' | typeof SESSION_HANDOVER_HELD
+  >;
 }
 
 /**
@@ -731,6 +736,7 @@ export class MessageSenderService {
 
       const authFailed = this.handleAuthRequired(result);
       const budgetReached = this.isSessionBudgetReached(result);
+      const handoverHeld = result.data?.error === SESSION_HANDOVER_HELD;
       const refusalBudget = budgetReached ? result.data?.budget : undefined;
       if (refusalBudget) {
         this.tabManager.installSessionBudget(activeTabId, refusalBudget);
@@ -754,9 +760,11 @@ export class MessageSenderService {
           success: false,
           error:
             result.data?.error ?? result.error ?? 'Failed to continue chat',
-          ...(budgetReached && {
-            errorCode: 'SESSION_BUDGET_REACHED' as const,
-          }),
+          ...(budgetReached
+              ? { errorCode: 'SESSION_BUDGET_REACHED' as const }
+              : handoverHeld
+              ? { errorCode: SESSION_HANDOVER_HELD }
+              : {}),
         };
       }
       this.sessionManager.setStatus('streaming');

@@ -415,10 +415,18 @@ export class ChatStore {
       this.handleCompactionStart(result.compactionSessionId);
       return;
     }
-    if (result && result.queuedContent) {
-      const queuedContent = result.queuedContent;
-      const resultTabId = result.tabId;
-      this.messageDispatch.sendQueuedMessage(resultTabId, queuedContent);
+    const queueFlushes = result?.queueFlushes ??
+      (result?.queuedContent
+        ? [{ tabId: result.tabId, content: result.queuedContent }]
+        : []);
+    // A terminal turn_state reaches this point only after it was applied by
+    // StreamingHandlerService. Start each send now, before signal rendering
+    // observes the newly-idle tab and may reveal its budget banner.
+    for (const queueFlush of queueFlushes) {
+      this.messageDispatch.sendQueuedMessage(
+        queueFlush.tabId,
+        queueFlush.content,
+      );
     }
   }
 

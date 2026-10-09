@@ -21,7 +21,9 @@ import {
   MessageStartEvent,
   type ResultStatsPayload,
   SessionId,
+  isTerminalTurnPhase,
   isTurnStateEvent,
+  type TurnStateEvent,
 } from '@ptah-extension/shared';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import { SessionManager } from './session-manager.service';
@@ -193,6 +195,8 @@ export class StreamingHandlerService {
   ): {
     tabId: string;
     queuedContent?: string;
+    /** Queue flushes unlocked by an accepted terminal turn_state. */
+    queueFlushes?: ReadonlyArray<{ readonly tabId: string; readonly content: string }>;
     compactionSessionId?: string;
     compactionComplete?: boolean;
     boundaryId?: string;
@@ -207,8 +211,29 @@ export class StreamingHandlerService {
       // accumulator: it drives status / spinner / liveness and is never stored
       // in `StreamingState` (TASK_2026_360).
       if (isTurnStateEvent(event)) {
+        const terminalTargets = isTerminalTurnPhase(event.phase)
+          ? this.terminalTurnTargets(event, tabId)
+          : [];
         this.turnStateApplier.apply(event, tabId);
-        return null;
+        // The applier has synchronously installed the terminal state before
+        // this returns to ChatStore. Returning the queue here lets ChatStore
+        // start chat:continue in the same event delivery stack, before Angular
+        // can render an idle-only budget/handover banner.
+        const queueFlushes = terminalTargets.flatMap(({ tabId: targetTabId, revision }) => {
+          const tab = this.tabManager.findTabByIdAcrossWorkspaces(targetTabId)?.tab;
+          if (!tab || tab.lastTurnStateRevision !== event.revision || revision === event.revision) {
+            return [];
+          }
+          const content = tab.queuedContent?.trim();
+          return content ? [{ tabId: targetTabId, content }] : [];
+        });
+        return queueFlushes.length > 0
+          ? {
+              tabId: queueFlushes[0].tabId,
+              queuedContent: queueFlushes[0].content,
+              queueFlushes,
+            }
+          : null;
       }
       // `SessionId.from` THROWS on a non-UUID, and an event can arrive with no
       // session at all while the SDK session is still resolving. The fan-out
@@ -313,6 +338,35 @@ export class StreamingHandlerService {
       );
       return null;
     }
+  }
+
+  /**
+   * Snapshot terminal-turn targets before the applier mutates their revision.
+   * A repeated or stale terminal event therefore cannot initiate another
+   * queued send while the first send is still in flight.
+   */
+  private terminalTurnTargets(
+    event: TurnStateEvent,
+    tabId?: string,
+  ): ReadonlyArray<{ readonly tabId: string; readonly revision: number | undefined }> {
+    if (tabId) {
+      const tab = this.tabManager.findTabByIdAcrossWorkspaces(tabId)?.tab;
+      return tab ? [{ tabId: tab.id, revision: tab.lastTurnStateRevision }] : [];
+    }
+
+    const sessionId = SessionId.safeParse(event.sessionId);
+    if (!sessionId) return [];
+    const tabs = this.tabManager.findTabsBySessionId(sessionId);
+    if (tabs.length > 0) {
+      return tabs.map((tab) => ({
+        tabId: tab.id,
+        revision: tab.lastTurnStateRevision,
+      }));
+    }
+    const background = this.tabManager.findTabBySessionIdAcrossWorkspaces(sessionId)?.tab;
+    return background
+      ? [{ tabId: background.id, revision: background.lastTurnStateRevision }]
+      : [];
   }
 
   /**

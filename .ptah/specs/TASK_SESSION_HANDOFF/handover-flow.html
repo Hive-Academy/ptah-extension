@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Session hand-over flow (current branch)</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 1100px; margin: 2rem auto; padding: 0 1rem; background: #111; color: #ddd; }
+  h1 { font-size: 1.4rem; } h2 { font-size: 1.1rem; margin-top: 2.5rem; color: #e0b050; }
+  p, li { line-height: 1.5; } code { background: #222; padding: 0 .3rem; border-radius: 3px; }
+  .mermaid { background: #1b1b1b; border: 1px solid #333; border-radius: 6px; padding: 1rem; }
+  .warn { border-left: 4px solid #e0b050; background: #1d1a12; padding: .6rem 1rem; }
+</style>
+</head>
+<body>
+<h1>Session hand-over flow &mdash; branch <code>fix/session-handoff-workflow</code></h1>
+<p>Batches A and B, plus the fix round in progress. The frontend part (batch C) is not built yet.</p>
+
+<h2>1. How the system knows the agent finished its turn</h2>
+<p>The only end-of-turn signal is the SDK <code>result</code> message. A successful interrupt is the second release path. <code>armAtTerminal</code> runs before <code>markTurnEnded</code>, so the gate is closed before the queue is released.</p>
+<pre class="mermaid">
+flowchart TD
+    SDK["Claude Agent SDK stream"] -->|"result message (success or error subtype)"| ST["stream-transformer onTurnEnd"]
+    INT["Successful interrupt (session-control.service.ts:124)"] --> TT
+    ST --> TT["SessionLifecycleManager.onTurnTerminal (session-lifecycle-manager.ts:500)"]
+    TT --> CHK{"At blocking limit? canSend() = false"}
+    CHK -->|yes| ARM["coordinator.armAtTerminal: queued inputs move to hand-over FIFO"]
+    CHK -->|"no, no operation"| REL
+    ARM --> REL["registry.markTurnEnded: releases the pump"]
+    REL --> PUMP["SessionStreamPump: next input"]
+    PUMP --> GATE{"Hand-over active? admitOrHold"}
+    GATE -->|no| TURN["New source turn starts"]
+    GATE -->|yes| HOLD["Input held in FIFO (no new turn)"]
+</pre>
+
+<h2>2. All inputs go through one gate</h2>
+<pre class="mermaid">
+flowchart LR
+    U["User composer (chat:continue)"] --> A
+    L["Lane completion"] --> A
+    R["Agent report"] --> A
+    P["Peer message (ptah_session_send)"] --> A
+    S["Steer / stop-intent (interrupt refused)"] --> A
+    C["Ptah CLI continue"] --> A
+    A["Coordinator admission (before budget refusal)"] -->|idle| Q["Source queue: new turn"]
+    A -->|hand-over active| F["Transfer FIFO: SESSION_HANDOVER_HELD"]
+    F -->|success| SUC["Successor: in order, once"]
+    F -->|"failure / cancel"| SRC["Back to source: in order"]
+</pre>
+
+<h2>3. States of one hand-over</h2>
+<pre class="mermaid">
+stateDiagram-v2
+    [*] --> idle
+    idle --> waiting_for_turn_end: request while turn runs
+    idle --> armed: request while idle
+    waiting_for_turn_end --> armed: SDK result
+    armed --> awaiting_confirmation: budget limit (user confirms)
+    armed --> compacting: successor mode (auto)
+    awaiting_confirmation --> compacting: user clicks Continue
+    awaiting_confirmation --> cancelled: Keep working
+    compacting --> writing_handoff: new compact_boundary saved
+    writing_handoff --> starting_successor
+    starting_successor --> successor_confirmed: tab bound and focused (ack)
+    successor_confirmed --> closing
+    closing --> closed: token matches
+    compacting --> failed
+    writing_handoff --> failed
+    starting_successor --> failed: ack timeout 15 s
+    failed --> idle: FIFO restored, source stays open
+    cancelled --> idle: FIFO released in order
+</pre>
+
+<h2>4. Full transition between sessions</h2>
+<pre class="mermaid">
+sequenceDiagram
+    participant SDK as Source agent (SDK)
+    participant LM as Lifecycle manager
+    participant CO as Coordinator
+    participant UI as Webview
+    participant H as Successor host
+    participant N as New session
+    SDK->>LM: result (turn ended)
+    LM->>CO: armAtTerminal (limit reached)
+    LM->>LM: markTurnEnded (gate already closed)
+    Note over CO: Lane completions, reports and peer messages now go to the FIFO
+    CO-->>UI: state via session:stats (revisioned)
+    UI->>CO: Continue in new session (beginHandover)
+    CO->>SDK: owned /compact turn
+    SDK-->>CO: new compact_boundary saved
+    CO->>CO: build handoff (summary + agent text)
+    CO->>H: startSuccessorSession(seed, FIFO, config)
+    H->>N: start and register live
+    H-->>UI: session:successorReplacement
+    UI->>UI: bind successor into source tab, focus it
+    UI->>H: session:successorBound (ack)
+    H-->>CO: started: true
+    CO->>N: deliver FIFO in order, once
+    CO->>SDK: close source (token must match)
+</pre>
+
+<h2>Gaps still open</h2>
+<div class="warn">
+<ol>
+  <li><b>Fix lane in progress:</b> the coordinator holds its own <code>/compact</code>, and two services use the wrong DI token. Until fixed, every real hand-over fails.</li>
+  <li><b>UI timing depends on batch C:</b> hand-over state travels on <code>session:stats</code>, which arrives before <code>turn_state</code>. The banner must wait for <code>turn_state</code>.</li>
+  <li><b>No <code>result</code> = no hand-over:</b> if the SDK process stops without a <code>result</code>, the end of the turn is never detected.</li>
+  <li><b>Turn is not run:</b> background lanes can finish after the turn. After arming, their completions go to the FIFO and then to the successor.</li>
+</ol>
+</div>
+
+<script type="module">
+  import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+  mermaid.initialize({ startOnLoad: true, theme: 'dark', flowchart: { useMaxWidth: true } });
+</script>
+</body>
+</html>

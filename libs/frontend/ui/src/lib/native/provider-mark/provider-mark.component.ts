@@ -69,18 +69,33 @@ const LUCIDE_MARKS: Readonly<Record<ProviderMarkLucideIcon, MarkArtwork>> = {
   imports: [MarkSvgComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <span
-      class="flex h-8 w-8 shrink-0 items-center justify-center text-base-content"
-      aria-hidden="true"
-      data-testid="provider-mark-box"
-    >
-      <ptah-mark-svg
-        class="h-6 w-6"
-        [art]="art()"
-        paint="mono"
-        data-testid="provider-mark-svg"
-      />
-    </span>
+    @if (size() === 'sm') {
+      <span
+        class="flex h-4 w-4 shrink-0 items-center justify-center text-base-content"
+        aria-hidden="true"
+        data-testid="provider-mark-box"
+      >
+        <ptah-mark-svg
+          class="h-3.5 w-3.5"
+          [art]="art()"
+          paint="mono"
+          data-testid="provider-mark-svg"
+        />
+      </span>
+    } @else {
+      <span
+        class="flex h-8 w-8 shrink-0 items-center justify-center text-base-content"
+        aria-hidden="true"
+        data-testid="provider-mark-box"
+      >
+        <ptah-mark-svg
+          class="h-6 w-6"
+          [art]="art()"
+          paint="mono"
+          data-testid="provider-mark-svg"
+        />
+      </span>
+    }
   `,
 })
 export class ProviderMarkComponent {
@@ -91,6 +106,8 @@ export class ProviderMarkComponent {
    * mark. Ignored when the table pins a `kind: 'lucide'` record for the id.
    */
   readonly fallback = input<ProviderMarkLucideIcon>('Bot');
+  /** Compact marks fit beside a narrow matrix row without changing other surfaces. */
+  readonly size = input<'sm' | 'md'>('md');
 
   protected readonly art = computed<MarkArtwork>(() => {
     const id = this.providerId();

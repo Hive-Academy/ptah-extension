@@ -65,6 +65,7 @@ import {
   PtahCliRpcHandlers,
   QualityRpcHandlers,
   SessionBudgetRpcHandlers,
+  SessionHandoverRpcHandlers,
   SessionOrganizationRpcHandlers,
   SessionRpcHandlers,
   SettingsRpcHandlers,
@@ -303,6 +304,12 @@ export const RPC_HANDLER_MANIFEST = [
     methods: SessionBudgetRpcHandlers.METHODS,
     requires: [],
     handler: SessionBudgetRpcHandlers,
+  },
+  {
+    key: 'sessionHandover',
+    methods: SessionHandoverRpcHandlers.METHODS,
+    requires: [],
+    handler: SessionHandoverRpcHandlers,
   },
   {
     key: 'settings',
