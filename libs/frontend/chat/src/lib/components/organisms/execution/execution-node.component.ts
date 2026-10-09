@@ -204,13 +204,23 @@ function scheduleFrame(cb: () => void): FrameHandle {
             }
           </div>
         } @else if (mermaidHost()) {
-          <div class="prose prose-sm prose-invert max-w-none my-2 exec-text-branch">
+          <div
+            class="prose prose-sm prose-invert max-w-none my-2 exec-text-branch"
+          >
             @defer (on immediate) {
-              <ptah-mermaid-message-text [text]="renderedContent()" [finalized]="true" [active]="surfaceActive()" />
+              <ptah-mermaid-message-text
+                [text]="renderedContent()"
+                [finalized]="true"
+                [active]="surfaceActive()"
+              />
             } @placeholder {
-              <markdown [data]="renderedContent() | surfaceMarkdown: surfaceActive()" />
+              <markdown
+                [data]="renderedContent() | surfaceMarkdown: surfaceActive()"
+              />
             } @error {
-              <markdown [data]="renderedContent() | surfaceMarkdown: surfaceActive()" />
+              <markdown
+                [data]="renderedContent() | surfaceMarkdown: surfaceActive()"
+              />
             }
           </div>
         } @else {
@@ -390,13 +400,15 @@ function scheduleFrame(cb: () => void): FrameHandle {
         }
       }
 
+      /* backwards, not both: the end state equals the element's own style, and a
+         kept fill holds a compositor layer on every tool row (Plane PTAH-23). */
       .exec-fade-in {
-        animation: execFadeIn 280ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
+        animation: execFadeIn 280ms cubic-bezier(0.22, 0.61, 0.36, 1) backwards;
       }
 
       .exec-defer-placeholder {
         min-height: 2.5rem;
-        animation: execFadeIn 200ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
+        animation: execFadeIn 200ms cubic-bezier(0.22, 0.61, 0.36, 1) backwards;
       }
 
       @media (prefers-reduced-motion: reduce) {
