@@ -207,6 +207,17 @@ describe('recorded-failure mode', () => {
     expect(gate(null).suites[0].outcome).toBe('regression');
   });
 
+  it('keeps the same index-settle timeout gate-unchanged across runs', () => {
+    const reason = 'the code index did not settle within 1200 s before scoring';
+    const timedOut = recorded([{ tool: 'tool_a', delta: null, reason }]);
+    const report = evaluateWithBaseline(
+      card([{ tool: 'tool_a', delta: null, reason }]),
+      timedOut,
+      noise,
+    );
+    expect(report.suites[0]).toMatchObject({ outcome: 'pass' });
+  });
+
   it('judges a suite that is missing from the run as failing and a new one as out of date', () => {
     const missing = evaluateWithBaseline(card([]), base, noise);
     expect(missing.suites[0].outcome).toBe('missing');

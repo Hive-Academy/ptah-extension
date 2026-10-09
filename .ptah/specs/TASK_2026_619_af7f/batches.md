@@ -2579,6 +2579,7 @@ run after Batch 34, not in parallel with it.
 - User decision: score both indexing time and retrieval quality. The existing cold-start lifecycle row remains unchanged; symbol retrieval waits for the code index to settle and records the separate settle measurement before scoring.
 - `ptah_code_search_symbols` is the only current suite tool backed by the asynchronous code-symbol index. Its suites now wait once per main or polyglot host, fail without issuing partial-index questions after 20 minutes, and render the settle result in the scorecard.
 - Legacy scorecards remain valid because the `indexSettle` detail is optional.
+- Rev 1: settle now requires a normal, covered response with more than zero symbols; repeated transport/RPC/tool errors abort early with a stable gate reason, existing failures and `na` runs are preserved, and polyglot probes use their own corpus questions.
 
 ## Mode 3 obligations recorded now
 

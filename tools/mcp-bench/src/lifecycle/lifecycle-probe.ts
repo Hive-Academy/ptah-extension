@@ -116,8 +116,10 @@ export async function pollUntil(
   timeoutMs: number,
   check: () => Promise<SymbolProbe>,
   want: (probe: SymbolProbe) => boolean,
+  abort?: (probe: SymbolProbe) => boolean,
 ): Promise<{
   ok: boolean;
+  aborted: boolean;
   elapsedMs: number;
   states: string[];
   last: SymbolProbe;
@@ -137,9 +139,32 @@ export async function pollUntil(
     )
       settledAtMs = elapsedMs;
     if (want(probe))
-      return { ok: true, elapsedMs, states, last: probe, settledAtMs };
+      return {
+        ok: true,
+        aborted: false,
+        elapsedMs,
+        states,
+        last: probe,
+        settledAtMs,
+      };
+    if (abort?.(probe))
+      return {
+        ok: false,
+        aborted: true,
+        elapsedMs,
+        states,
+        last: probe,
+        settledAtMs,
+      };
     if (elapsedMs + POLL_MS > timeoutMs)
-      return { ok: false, elapsedMs, states, last: probe, settledAtMs };
+      return {
+        ok: false,
+        aborted: false,
+        elapsedMs,
+        states,
+        last: probe,
+        settledAtMs,
+      };
     await deps.sleep(POLL_MS);
   }
 }

@@ -134,10 +134,13 @@ describe('scorecard writers', () => {
     const settled = structuredClone(scorecard);
     (settled.suites[0].details as Record<string, unknown>)['indexSettle'] = {
       settled: true,
+      aborted: false,
+      abortKind: null,
       elapsedMs: 412_000,
       symbolCount: 8931,
       coverage: '{"clean":true}',
       states: ['ok'],
+      lastState: 'ok',
     };
     expect(renderScorecardMarkdown(settled)).toContain(
       'Index settled after 412 s (8931 symbols) before scoring',

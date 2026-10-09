@@ -652,7 +652,6 @@ export function assembleSuite<Q extends { readonly id: string }>(
         verdict: 'na',
         naReason: breakdown.naReason(subset.length, records.length),
         arm: breakdown.arm,
-        indexSettle: options.indexSettle,
         extraFailures: [],
       },
     );

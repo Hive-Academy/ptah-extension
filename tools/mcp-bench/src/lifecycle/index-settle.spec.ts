@@ -5,12 +5,14 @@ import {
   type IndexBackedRun,
   waitForIndexSettle,
 } from './index-settle';
+import { RealStateChangedError } from '../transport/real-state-guard';
 
 const ROOT = 'D:/corpus';
 
 function answer(
   reindexInFlight: boolean,
   symbolCount: number,
+  coverage: object = { clean: true, indexed: symbolCount },
 ): ToolCallOutcome {
   return {
     kind: 'result',
@@ -18,10 +20,14 @@ function answer(
     wallMs: 1,
     text: JSON.stringify({
       index: { reindexInFlight, symbolCount },
-      coverage: { clean: true, indexed: symbolCount },
+      coverage,
       hits: [],
     }),
   };
+}
+
+function transportError(code = 'ECONNRESET'): ToolCallOutcome {
+  return { kind: 'transport-error', code, detail: 'connection reset', wallMs: 1 };
 }
 
 function caller(outcomes: readonly ToolCallOutcome[]): McpToolCaller {
@@ -65,6 +71,79 @@ describe('index settle', () => {
     expect(logs.at(-1)).toContain('settled after 5 s (12 symbols)');
   });
 
+  it('does not settle on an idle empty index before accepting a populated one', async () => {
+    const { deps } = fakeDeps();
+    const measurement = await waitForIndexSettle(
+      caller([answer(false, 0), answer(false, 12)]),
+      ROOT,
+      { name: 'probe', file: 'libs/probe.ts' },
+      deps,
+    );
+
+    expect(measurement).toMatchObject({
+      settled: true,
+      symbolCount: 12,
+      elapsedMs: 5_000,
+    });
+  });
+
+  it('does not settle while coverage is unknown', async () => {
+    const { deps } = fakeDeps();
+    const measurement = await waitForIndexSettle(
+      caller([
+        answer(false, 12, { census: 'unknown', reasons: ['coverage?'] }),
+        answer(false, 12),
+      ]),
+      ROOT,
+      { name: 'probe', file: 'libs/probe.ts' },
+      deps,
+    );
+
+    expect(measurement).toMatchObject({ settled: true, elapsedMs: 5_000 });
+  });
+
+  it('aborts after three consecutive transport errors with a stable reason', async () => {
+    const { deps } = fakeDeps();
+    const runs: IndexBackedRun[] = [
+      { definition: { tool: 'ptah_code_search_symbols' } },
+    ];
+    await askAfterIndexSettle(
+      runs,
+      new Set(['ptah_code_search_symbols']),
+      caller([transportError(), transportError(), transportError()]),
+      ROOT,
+      { name: 'probe', file: 'libs/probe.ts' },
+      deps,
+      async () => undefined,
+    );
+
+    expect(runs[0].indexSettle).toMatchObject({
+      settled: false,
+      aborted: true,
+      abortKind: 'transport',
+    });
+    expect(runs[0].failure).toBe(
+      'the code index wait aborted after repeated transport errors (transport)',
+    );
+  });
+
+  it('rethrows a guard error from the settle probe unchanged', async () => {
+    const { deps } = fakeDeps();
+    const guard = new RealStateChangedError(
+      { takenAt: 'before', files: [] },
+      { takenAt: 'after', files: [] },
+      ['state.db'],
+    );
+    await expect(
+      waitForIndexSettle(
+        { callTool: async () => Promise.reject(guard) },
+        ROOT,
+        { name: 'probe', file: 'libs/probe.ts' },
+        deps,
+      ),
+    ).rejects.toBe(guard);
+  });
+
   it('marks only index-backed runs failed and does not ask them after timeout', async () => {
     const { deps } = fakeDeps();
     const runs: IndexBackedRun[] = [
@@ -85,13 +164,64 @@ describe('index settle', () => {
     );
 
     expect(runs[0].failure).toBe(
-      'the code index did not settle within 1200 s (symbolCount 99, reindexInFlight still true); scoring a partial index would measure indexing speed, not search',
+      'the code index did not settle within 1200 s before scoring',
     );
     expect(runs[0].indexSettle).toMatchObject({
       settled: false,
-      elapsedMs: CODE_INDEX_SETTLE_TIMEOUT_MS,
+      elapsedMs: expect.any(Number),
     });
+    expect(runs[0].indexSettle?.elapsedMs).toBeLessThanOrEqual(
+      CODE_INDEX_SETTLE_TIMEOUT_MS,
+    );
     expect(asked).toEqual(['ptah_search_text']);
+  });
+
+  it('does not poll when the index tool is not listed', async () => {
+    const { deps } = fakeDeps();
+    const runs: IndexBackedRun[] = [
+      { definition: { tool: 'ptah_code_search_symbols' } },
+    ];
+    const asked: string[] = [];
+    await askAfterIndexSettle(
+      runs,
+      new Set(),
+      { callTool: async () => Promise.reject(new Error('should not poll')) },
+      ROOT,
+      { name: 'probe' },
+      deps,
+      async (run) => {
+        asked.push(run.definition.tool);
+      },
+    );
+
+    expect(asked).toEqual(['ptah_code_search_symbols']);
+    expect(runs[0].indexSettle).toBeUndefined();
+  });
+
+  it('preserves an existing failure while settling another index suite', async () => {
+    const { deps } = fakeDeps();
+    const runs: IndexBackedRun[] = [
+      {
+        definition: { tool: 'ptah_code_search_symbols' },
+        failure: 'native baseline broke',
+      },
+      { definition: { tool: 'ptah_code_search_symbols' } },
+    ];
+    await askAfterIndexSettle(
+      runs,
+      new Set(['ptah_code_search_symbols']),
+      caller([transportError(), transportError(), transportError()]),
+      ROOT,
+      { name: 'probe' },
+      deps,
+      async () => undefined,
+    );
+
+    expect(runs[0].failure).toBe('native baseline broke');
+    expect(runs[0].indexSettle).toBeUndefined();
+    expect(runs[1].failure).toBe(
+      'the code index wait aborted after repeated transport errors (transport)',
+    );
   });
 
   it('leaves non-index suites untouched and does not poll when none are selected', async () => {

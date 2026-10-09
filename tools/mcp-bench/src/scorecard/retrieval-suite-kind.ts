@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { CODE_INDEX_SETTLE_TIMEOUT_MS } from '../lifecycle/index-settle';
 import { registerSuiteKind } from './suite-kinds';
 const metricValueSchema = z.number().finite().nullable();
 export const retrievalDetailsSchema = z.object({
@@ -33,10 +34,13 @@ export const retrievalDetailsSchema = z.object({
   indexSettle: z
     .object({
       settled: z.boolean(),
+      aborted: z.boolean().optional(),
+      abortKind: z.enum(['transport', 'rpc', 'tool-error']).nullable().optional(),
       elapsedMs: z.number().finite().nonnegative(),
       symbolCount: z.number().int().nonnegative().nullable(),
       coverage: z.string(),
       states: z.array(z.string()),
+      lastState: z.string().optional(),
     })
     .optional(),
   failures: z
@@ -80,7 +84,7 @@ registerSuiteKind('retrieval', retrievalDetailsSchema, (suite) => {
       : [
           suite.details.indexSettle.settled
             ? `Index settled after ${Math.round(suite.details.indexSettle.elapsedMs / 1000)} s (${suite.details.indexSettle.symbolCount ?? 'unknown'} symbols) before scoring`
-            : 'Index did not settle within 1200 s; symbol-suite scoring was skipped',
+            : `Index did not settle within ${CODE_INDEX_SETTLE_TIMEOUT_MS / 1000} s; symbol-suite scoring was skipped`,
         ]),
     '',
   );

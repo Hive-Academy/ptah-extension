@@ -376,11 +376,19 @@ async function runBench(options: BenchOptions): Promise<number> {
         id: string;
         root: string | null;
         gitRoot: string | null;
+        probe: { readonly name: string; readonly file: string };
         runs: SuiteRun[];
       }[] = [];
       for (const entry of polyglot) {
         const set = bank.polyglot.find((item) => item.corpusId === entry.id);
         if (set === undefined) continue;
+        const probeQuestion = set.references.questions[0];
+        if (probeQuestion === undefined)
+          throw new Error(`the ${entry.id} corpus has no reference probe`);
+        const polyProbe = {
+          name: probeQuestion.query,
+          file: probeQuestion.file,
+        };
         const selected = selectSuites(
           buildPolyglotSuites(set, { corpusRoot: '', native, sample }),
           filter,
@@ -396,6 +404,7 @@ async function runBench(options: BenchOptions): Promise<number> {
             id: entry.id,
             root: null,
             gitRoot: null,
+            probe: polyProbe,
             runs: selected.map((definition) => ({
               definition,
               natives: new Map(),
@@ -432,6 +441,7 @@ async function runBench(options: BenchOptions): Promise<number> {
           id: entry.id,
           root: checkout.root,
           gitRoot: checkout.gitRoot,
+          probe: polyProbe,
           runs,
         });
       }
@@ -543,10 +553,7 @@ async function runBench(options: BenchOptions): Promise<number> {
                   poly.runs,
                   polyHost,
                   polyRoot,
-                  {
-                    name: probe.name,
-                    file: probe.location.replace(/:\d+$/, ''),
-                  },
+                  poly.probe,
                   sessionDeps,
                 ),
             );
