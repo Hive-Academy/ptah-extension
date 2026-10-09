@@ -1,6 +1,10 @@
 /** In-memory, HTTP-only lifecycle for `ptah_run_check` jobs. */
 import { randomUUID } from 'node:crypto';
-import { runningCheckPids, type RunCheckOutcome } from './run-check.tool';
+import {
+  runningCheckPids,
+  setRunCheckJobAbortAll,
+  type RunCheckOutcome,
+} from './run-check.tool';
 import type { RunCheckArgs } from './wait-tools-args.schema';
 
 export const RUN_CHECK_RESULT_TTL_MS = 15 * 60 * 1000;
@@ -40,6 +44,7 @@ export interface RunCheckJobRegistry {
     signal?: AbortSignal,
   ): Promise<RunCheckOutcome | undefined>;
   cancel(job: RunCheckJob): void;
+  abortAll(): void;
 }
 
 export function createRunCheckJobRegistry(
@@ -64,7 +69,11 @@ export function createRunCheckJobRegistry(
     start(args, root, ownerKey, run) {
       sweep();
       if (running !== undefined) {
-        if (running.ownerKey === ownerKey && sameCheck(running.args, args)) {
+        if (
+          !running.controller.signal.aborted &&
+          running.ownerKey === ownerKey &&
+          sameCheck(running.args, args)
+        ) {
           return { job: running, attached: true };
         }
         return {
@@ -139,6 +148,9 @@ export function createRunCheckJobRegistry(
     cancel(job) {
       job.controller.abort();
     },
+    abortAll() {
+      running?.controller.abort();
+    },
   };
 }
 
@@ -152,3 +164,4 @@ function sameCheck(left: RunCheckArgs, right: RunCheckArgs): boolean {
 
 /** Process-wide registry, parallel to the existing live-check process map. */
 export const runCheckJobs = createRunCheckJobRegistry();
+setRunCheckJobAbortAll(() => runCheckJobs.abortAll());

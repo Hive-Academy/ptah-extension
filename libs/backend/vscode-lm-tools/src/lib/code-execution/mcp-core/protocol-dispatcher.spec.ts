@@ -8140,3 +8140,168 @@ describe('protocol-handlers › ptah_run_check workspace root (S4-a S1)', () => 
     expect(reply.structured).toBeUndefined();
   });
 });
+
+describe('protocol-handlers › ptah_run_check HTTP jobs', () => {
+  let root: string;
+  beforeEach(() => {
+    root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'ptah-job-')));
+  });
+  afterEach(() => fs.rmSync(root, { recursive: true, force: true }));
+
+  const call = (
+    name: string,
+    arguments_: Record<string, unknown>,
+    extra: Partial<MCPRequest> = {},
+  ) =>
+    makeRequest({
+      id: `${name}-${Math.random()}`,
+      method: 'tools/call',
+      params: { name, arguments: arguments_ },
+      _callerWorkspaceRoot: root,
+      _callerSessionId: 'session-a',
+      _callerAgentId: 'agent-a',
+      ...extra,
+    });
+  const reply = (res: MCPResponse) => {
+    const result = res.result as {
+      content: Array<{ text: string }>;
+      isError?: boolean;
+      structuredContent?: Record<string, unknown>;
+    };
+    return {
+      text: result.content[0].text,
+      isError: result.isError === true,
+      structured: result.structuredContent,
+    };
+  };
+  const passed = (): import('./run-check.tool').RunCheckOutcome => ({
+    isError: false,
+    text: 'ptah_run_check app [lint]: PASSED',
+    logPath: path.join(root, '.ptah', 'tmp', 'checks', 'run.log'),
+    structured: {
+      cwd: root,
+      project: 'app',
+      targets: ['lint'],
+      verdict: 'passed' as const,
+      exitCode: 0,
+    },
+  });
+
+  it('returns the unchanged final reply when an HTTP check finishes quickly', async () => {
+    const res = await handleMCPRequest(
+      call('ptah_run_check', { project: 'app', targets: ['lint'] }),
+      buildDeps({
+        workspaceProvider: knownFolders(root),
+        runCheck: jest.fn(async () => passed()),
+      }),
+    );
+    expect(reply(res)).toMatchObject({
+      isError: false,
+      text: 'ptah_run_check app [lint]: PASSED',
+      structured: { verdict: 'passed', exitCode: 0 },
+    });
+  });
+
+  it('returns RUNNING with a job id, then collects the completed reply', async () => {
+    jest.useFakeTimers();
+    try {
+      let finish!: () => void;
+      let started!: () => void;
+      const pending = new Promise<void>((resolve) => (finish = resolve));
+      const launched = new Promise<void>((resolve) => (started = resolve));
+      const deps = buildDeps({
+        workspaceProvider: knownFolders(root),
+        runCheck: jest.fn(async () => {
+          started();
+          await pending;
+          return passed();
+        }),
+      });
+      const start = handleMCPRequest(
+        call('ptah_run_check', { project: 'app', targets: ['lint'] }),
+        deps,
+      );
+      await launched;
+      await jest.advanceTimersByTimeAsync(45_000);
+      const running = reply(await start);
+      expect(running).toMatchObject({
+        isError: false,
+        structured: { verdict: 'running', jobId: expect.any(String) },
+      });
+      expect(running.text).toContain('Full log:');
+      finish();
+      await Promise.resolve();
+      await Promise.resolve();
+      const collected = reply(
+        await handleMCPRequest(
+          call('ptah_run_check_wait', {
+            jobId: running.structured?.['jobId'],
+            timeoutSec: 0,
+          }),
+          deps,
+        ),
+      );
+      expect(collected.structured).toMatchObject({ verdict: 'passed' });
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('cancels via wait, hides foreign ids, and does not kill a job on request abort', async () => {
+    const requestAbort = new AbortController();
+    let jobSignal: AbortSignal | undefined;
+    let finish!: () => void;
+    let started!: () => void;
+    const pending = new Promise<void>((resolve) => (finish = resolve));
+    const launched = new Promise<void>((resolve) => (started = resolve));
+    const deps = buildDeps({
+      workspaceProvider: knownFolders(root),
+      runCheck: jest.fn(async (_args, runDeps) => {
+        jobSignal = runDeps.signal;
+        started();
+        jobSignal?.addEventListener('abort', finish, { once: true });
+        await pending;
+        return {
+          ...passed(),
+          text: 'ptah_run_check app [lint]: CANCELLED',
+          structured: { ...passed().structured, verdict: 'cancelled' as const },
+        };
+      }),
+    });
+    const starting = handleMCPRequest(
+      call(
+        'ptah_run_check',
+        { project: 'app', targets: ['lint'] },
+        { _abortSignal: requestAbort.signal },
+      ),
+      deps,
+    );
+    await launched;
+    requestAbort.abort();
+    const running = reply(await starting);
+    const jobId = running.structured?.['jobId'] as string;
+    expect(jobSignal?.aborted).toBe(false);
+    expect(running.structured).toMatchObject({ verdict: 'running', jobId });
+    const foreign = reply(
+      await handleMCPRequest(
+        call(
+          'ptah_run_check_wait',
+          { jobId },
+          { _callerSessionId: 'session-b', _callerAgentId: 'agent-b' },
+        ),
+        deps,
+      ),
+    );
+    expect(foreign.text).toBe(
+      'unknown or expired job id; the full log stays under .ptah/tmp/checks',
+    );
+    const cancelled = reply(
+      await handleMCPRequest(
+        call('ptah_run_check_wait', { jobId, cancel: true, timeoutSec: 1 }),
+        deps,
+      ),
+    );
+    expect(jobSignal?.aborted).toBe(true);
+    expect(cancelled.structured).toMatchObject({ verdict: 'cancelled' });
+  });
+});

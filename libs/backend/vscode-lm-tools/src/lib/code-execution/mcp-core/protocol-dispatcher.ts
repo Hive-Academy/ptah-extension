@@ -47,6 +47,7 @@ import { AgentSpawnArgsSchema } from './agent-spawn-args.schema';
 import {
   AgentWaitArgsSchema,
   HTTP_MAX_AGENT_WAIT_SEC,
+  WAIT_SUMMARY_MAX_CHARS,
   RunCheckArgsSchema,
   RunCheckWaitArgsSchema,
 } from './wait-tools-args.schema';
@@ -298,6 +299,8 @@ export interface ProtocolHandlerDependencies {
   workspaceProvider?: Pick<IWorkspaceProvider, 'getWorkspaceFolders'>;
   /** Clock (epoch ms) of the `ptah_agent_status` repeat throttle. Default `Date.now`. */
   now?: () => number;
+  /** Test seam for HTTP run-check dispatch; production uses {@link runCheck}. */
+  runCheck?: typeof runCheck;
 }
 
 /**
@@ -1438,7 +1441,7 @@ async function handleIndividualTool(
           root.root,
           ownerKey,
           (signal, onLogOpened) =>
-            runCheck(parsed.data, {
+            (deps.runCheck ?? runCheck)(parsed.data, {
               workspaceRoot: root.root,
               signal,
               onLogOpened,
@@ -1464,7 +1467,13 @@ async function handleIndividualTool(
           attachStructuredContent(response, outcome.structured);
           return response;
         }
-        return await runCheckRunningResponse(request, started.job, deps);
+        return await runCheckRunningResponse(
+          request,
+          started.job,
+          deps,
+          undefined,
+          started.attached,
+        );
       }
 
       case RUN_CHECK_WAIT_TOOL_NAME: {
@@ -3549,7 +3558,11 @@ async function resolveSpoolRoot(
  * caller never edited.
  */
 function runCheckOwnerKey(root: string): string {
-  return [root, getCallerSessionId() ?? '', getCallerAgentId() ?? ''].join('|');
+  return JSON.stringify([
+    root,
+    getCallerSessionId() ?? '',
+    getCallerAgentId() ?? '',
+  ]);
 }
 
 function unknownRunCheckJobResponse(request: MCPRequest): MCPResponse {
@@ -3567,7 +3580,10 @@ function formatRunCheckBusy(
     job === undefined ? 0 : Math.max(0, Date.now() - job.startedAt);
   const seconds = Math.round(elapsed / 1000);
   if (external || job === undefined) {
-    return `ptah_run_check is busy: another check is running on this host, started ${seconds}s ago.`;
+    return (
+      `ptah_run_check is busy: another check is running on this host, started ${seconds}s ago. ` +
+      "The slot frees when its owner's check finishes, is cancelled, or reaches its timeout (at most 900 s)."
+    );
   }
   return (
     `ptah_run_check is busy with your job ${job.id}: ${job.args.project} ` +
@@ -3581,8 +3597,9 @@ async function runCheckRunningResponse(
   job: RunCheckJob,
   deps: ProtocolHandlerDependencies,
   cappedFromTimeoutSec?: number,
+  attached = false,
 ): Promise<MCPResponse> {
-  const text =
+  const text = clampRunCheckWaitSummary(
     formatRunCheckRunning({
       jobId: job.id,
       project: job.args.project,
@@ -3591,9 +3608,13 @@ async function runCheckRunningResponse(
       logPath: job.logPath,
       cwd: job.root,
     }) +
-    (cappedFromTimeoutSec === undefined
-      ? ''
-      : ` Requested timeoutSec ${cappedFromTimeoutSec} was capped at ${HTTP_MAX_AGENT_WAIT_SEC} s.`);
+      (cappedFromTimeoutSec === undefined
+        ? ''
+        : ` Requested timeoutSec ${cappedFromTimeoutSec} was capped at ${HTTP_MAX_AGENT_WAIT_SEC} s.`) +
+      (attached
+        ? ` Attached to the running job; it keeps its original timeoutSec (${job.args.timeoutSec}) and target order.`
+        : ''),
+  );
   const response = await createToolSuccessResponse(request, text, deps);
   attachStructuredContent(response, {
     cwd: job.root,
@@ -3605,6 +3626,12 @@ async function runCheckRunningResponse(
     jobId: job.id,
   });
   return response;
+}
+
+function clampRunCheckWaitSummary(text: string): string {
+  return text.length <= WAIT_SUMMARY_MAX_CHARS
+    ? text
+    : `${text.slice(0, WAIT_SUMMARY_MAX_CHARS - 1)}…`;
 }
 
 async function resolveRunCheckRoot(

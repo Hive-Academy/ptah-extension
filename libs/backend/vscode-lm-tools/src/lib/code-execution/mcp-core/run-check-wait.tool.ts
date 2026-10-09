@@ -23,6 +23,7 @@ export function buildRunCheckWaitTool(): MCPToolDefinition {
           type: 'integer',
           minimum: 0,
           maximum: MAX_WAIT_TIMEOUT_SEC,
+          description: `Seconds to wait (default ${HTTP_MAX_AGENT_WAIT_SEC}).`,
         },
         cancel: { type: 'boolean' },
       },
@@ -30,8 +31,8 @@ export function buildRunCheckWaitTool(): MCPToolDefinition {
       additionalProperties: false,
     },
     annotations: {
-      readOnlyHint: true,
-      destructiveHint: false,
+      readOnlyHint: false,
+      destructiveHint: true,
       idempotentHint: true,
     },
   };

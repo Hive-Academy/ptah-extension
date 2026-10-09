@@ -2601,7 +2601,8 @@ list --porcelain` (run with an argument array, `cwd` = the session root, a timeo
 - One check runs per host. The same caller and identical check attach; another caller gets a non-disclosing busy reply, while a same-caller different check receives its job details.
 - `ptah_run_check_wait` is HTTP-only, repeat-safe and capped to 45 seconds per call; it returns stored final results, a bounded running result, or cancellation.
 - Finished results are in-memory, repeat-collectable for 15 minutes, lazily swept, and capped at 16 records.
-- Stdio `run_check` remains blocking with its full timeout and does not expose the new wait tool.
+  - Stdio `run_check` remains blocking with its full timeout and does not expose the new wait tool.
+  - Rev 1: dispatcher-path coverage now proves final, running/collect, cancel, cross-caller hiding and request-abort survival. Dispose aborts pre-pid launches, cancellation cannot attach a stale job, and wait metadata/text/summaries match the job contract.
 
 ## Mode 3 obligations recorded now
 

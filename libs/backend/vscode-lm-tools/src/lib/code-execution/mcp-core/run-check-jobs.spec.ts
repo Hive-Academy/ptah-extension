@@ -103,6 +103,82 @@ describe('run check jobs', () => {
     expect(registry.get(start.job.id, 'other')).toBeUndefined();
   });
 
+  it('releases the busy slot after rejected and synchronously throwing runs', async () => {
+    const registry = createRunCheckJobRegistry();
+    const rejected = registry.start(args, 'c:/ws', owner, async () => {
+      throw new Error('rejected');
+    });
+    if (!('job' in rejected)) throw new Error('expected a job');
+    await expect(rejected.job.done).resolves.toMatchObject({
+      structured: { verdict: 'not_run' },
+    });
+    const afterRejected = registry.start(args, 'c:/ws', owner, () => {
+      throw new Error('synchronous');
+    });
+    if (!('job' in afterRejected)) throw new Error('expected a job');
+    await expect(afterRejected.job.done).resolves.toMatchObject({
+      structured: { verdict: 'not_run' },
+    });
+    expect(
+      registry.start(args, 'c:/ws', owner, async () => outcome()),
+    ).toMatchObject({
+      attached: false,
+    });
+  });
+
+  it('does not attach a same-owner check while cancellation is settling', async () => {
+    const registry = createRunCheckJobRegistry();
+    const done = deferred<RunCheckOutcome>();
+    const first = registry.start(
+      args,
+      'c:/ws',
+      owner,
+      async () => done.promise,
+    );
+    if (!('job' in first)) throw new Error('expected a job');
+    registry.cancel(first.job);
+    expect(
+      registry.start(args, 'c:/ws', owner, async () => outcome()),
+    ).toMatchObject({
+      busy: { id: first.job.id },
+      external: false,
+    });
+    done.resolve({
+      ...outcome(),
+      structured: { ...outcome().structured, verdict: 'cancelled' },
+    });
+    await first.job.done;
+    const restarted = registry.start(args, 'c:/ws', owner, async () =>
+      outcome(),
+    );
+    expect(restarted).toMatchObject({ attached: false });
+    if ('job' in restarted) await restarted.job.done;
+  });
+
+  it('leaves no timeout or abort listener after an aborted collection wait', async () => {
+    jest.useFakeTimers();
+    try {
+      const registry = createRunCheckJobRegistry();
+      const done = deferred<RunCheckOutcome>();
+      const start = registry.start(
+        args,
+        'c:/ws',
+        owner,
+        async () => done.promise,
+      );
+      if (!('job' in start)) throw new Error('expected a job');
+      const caller = new AbortController();
+      const waiting = registry.waitFor(start.job, 10_000, caller.signal);
+      caller.abort();
+      await expect(waiting).resolves.toBeUndefined();
+      expect(jest.getTimerCount()).toBe(0);
+      done.resolve(outcome());
+      await start.job.done;
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   it('expires old results and evicts the oldest after sixteen', async () => {
     let clock = 0;
     const registry = createRunCheckJobRegistry(() => clock);
