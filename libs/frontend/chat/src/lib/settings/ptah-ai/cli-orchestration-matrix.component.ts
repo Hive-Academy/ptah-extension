@@ -196,7 +196,8 @@ const SAVE_SCOPE = 'global';
           />
           CLI Agents &amp; Custom Instances Matrix
         </h2>
-        <span class="text-xs text-base-content-muted"
+        <!-- Wide only: in the narrow (Electron) box the hint pushed the Add button onto a second header line. -->
+        <span class="cli-wide-only text-xs text-base-content-muted"
           >Click model or effort cells to reassign in place</span
         >
         <!-- Batch 32: opens the add-instance modal (#46-#49); focus returns here when it closes. -->

@@ -706,8 +706,9 @@ async function captureRolesOpen(
     'article[data-testid^="consumer-row-"]',
   );
   await expect(consumerRows).toHaveCount(6);
+  // The edit button stretches to the card row's height (flex-1); its label is what must stay on one line.
   const cellHeights = await consumers
-    .locator('[data-testid^="consumer-edit-"]')
+    .locator('[data-testid^="consumer-summary-"]')
     .evaluateAll((cells) =>
       cells.map((cell) => Math.round(cell.getBoundingClientRect().height)),
     );
