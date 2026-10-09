@@ -96,7 +96,15 @@ function harness(options: { storage?: MemoryStorage; at?: number } = {}) {
     logger as unknown as Logger,
     { getProviderKey: jest.fn() } as unknown as IAuthSecretsService,
     probe,
-    { currentOwnerKey: () => null },
+    {
+      currentOwnerKey: () => null,
+      getAccountUsage: jest.fn(async () => ({
+        status: 'service-unavailable' as const,
+        providerId: 'openai-codex',
+      })),
+      clearCache: jest.fn(),
+      close: jest.fn(async () => undefined),
+    },
     new CodexHomeResolver(resolve('synthetic-codex-home')),
   );
   const ledger = new PlanLimitLedgerService(

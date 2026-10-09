@@ -63,9 +63,9 @@ describe('PROVIDER_MARKS', () => {
     ]);
   });
 
-  it('holds no record for a provider drawn from vendored artwork (R1)', () => {
+  it('holds no fallback record for a provider drawn from vendored artwork (R1), except the retained OpenCode fallback', () => {
     for (const id of Object.keys(PROVIDER_BRAND_SLUGS)) {
-      expect(Object.hasOwn(PROVIDER_MARKS, id)).toBe(false);
+      expect(Object.hasOwn(PROVIDER_MARKS, id)).toBe(id === 'opencode');
     }
   });
 });
