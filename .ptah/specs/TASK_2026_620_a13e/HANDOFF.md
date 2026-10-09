@@ -1,6 +1,61 @@
 # HANDOFF — TASK_2026_620_a13e (and TASK_2026_621_3d5c)
 
-## RESUME HERE (2026-10-09 — hand-off to the 619 wrap-up session; READ THIS FIRST)
+## RESUME HERE (2026-10-10 — PR follow-up session; READ THIS FIRST)
+
+Goal of the next session: get the open PRs green (CI + SonarCloud) and address review comments. No new
+features. The user merges (squash is disabled; the repo uses merge commits). Pushing fixes to the PR
+branches is approved; opening PRs is approved.
+
+**PR state at hand-off (2026-10-10 ~00:30 local):**
+- **#672 (TASK_2026_619) — MERGED** (merge commit `ffeea1657`, admin override for main's pre-existing
+  failures, at the user's request).
+- **#687 `fix/mcp-bench-regex-escape` @ `12067928d`** — all CI green, SonarCloud gate OK. Ready to merge.
+  It replaces the `parseTextLocations` lazy regex (Sonar S8786) with a linear scanner (fuzz-checked equal
+  on 200k strings) and drops a useless `\|` escape that broke `nx lint mcp-bench` on main.
+  Worktree: `D:\projects\ptah-extension\.claude-worktrees\task-619-tool-benchmark` (now on that branch).
+- **#686 `feat/task-620-memory-skills-bench-s3` @ `b1c23b980`** — the 620 PR to main. CI + Sonar were
+  re-running at hand-off. The same scanner change is on this branch (`a419e57d2`), so #686 and #687
+  merge cleanly in either order.
+
+**#686 history this session:** `origin/main` merged in (`5090ef1b8`, 4 UI conflicts, review APPROVE 9/10:
+`code-logic-review-main-merge.md`); post-merge scoped checks green (`post-main-merge-checks.md`); lint
+fix `62072bb1e`; CI/Sonar fixes `b1c23b980` (di-lint provenance-tap registration, ThothStatusService no
+longer waits on pause reads — fixes Electron e2e `message-handlers-eager.spec.ts:187`, Linux-neutral
+session sampling, deterministic funnel clock, liveness wording, 22×S2871, 4×S4036). Reviews:
+`code-logic-review-pr686-ci-fixes.md` (round 1 REVISE 5/10 → round 2 APPROVE 7/10). Reports:
+`pr686-ci-sonar-fixes-report.md`, `pr686-ci-fixes-round2-report.md`.
+
+**Expected CI failures that are NOT from #686/#687 (do not fix in these PRs; the user says another
+session is fixing them on main):** auth-providers `plan-usage.service.spec.ts` F31/F32 (from PR #673);
+platform-electron `workspace-watch-host.stress.spec.ts` (needs a built watch-host bundle); platform-cli
+`cli-workspace-watcher.spec.ts` nestedRepoDetection (timing flake); Webview E2E plan-limits stats strip
+and settings-visual orchestration specs (also fail on `fix/session-handoff-workflow`). Re-check each
+against main before classifying — main may have fixed them by then.
+
+**What to check first:** `gh pr checks 686` / `687`; SonarCloud via the public API (the sonarqube MCP
+returned 0 issues for PRs): `https://sonarcloud.io/api/qualitygates/project_status?projectKey=Hive-Academy_ptah-extension&pullRequest=<n>`
+and `.../api/issues/search?componentKeys=Hive-Academy_ptah-extension&pullRequest=<n>&resolved=false&types=BUG,VULNERABILITY`.
+Fetch failed job logs with `gh api repos/Hive-Academy/ptah-extension/actions/jobs/<id>/logs` (run it
+from inside a worktree; `gh run view --log-failed` is empty while a run is in progress; GitHub API
+calls sometimes time out — retry once). Open review comments: `gh pr view <n> --comments` and
+`gh api repos/Hive-Academy/ptah-extension/pulls/<n>/comments`.
+
+**Open, non-blocking notes from the reviews (fix only if cheap or a reviewer asks):** resolve the
+deferred pause promises at the end of the new thoth-status spec and assert `summary().paused`;
+sample-sessions stats the source mtime after the copy (TOCTOU); `createGitTreeReader` resolves git
+eagerly; production now runs `scheduleProvenance` per dispatch (harmless — mention in the PR if asked).
+
+**Environment:** the 620 worktree's `node_modules` junction was REMOVED at hand-off. To run checks,
+re-create it: `cmd /c mklink /J <620-worktree>\node_modules D:\projects\ptah-extension\node_modules`,
+and remove it afterwards with `cmd /c rmdir <620-worktree>\node_modules` (never a recursive delete).
+The 619 worktree has no `node_modules`; run binaries from the main checkout
+(`node D:/projects/ptah-extension/node_modules/jest/bin/jest.js ...`).
+
+**Recording (deferred, not this PR):** `extraction-record-v1` hit the runner's 4 h default host timeout
+at 229 cassette entries; diagnosis and options in `follow-up-recordings.md`. Do not run any bench
+without asking the user.
+
+## Earlier: RESUME HERE (2026-10-09 — hand-off to the 619 wrap-up session)
 
 **User decisions 2026-10-09 (final):** the 620 PR ships the product changes and the committed bench
 WITHOUT recordings. Everything that needs a live recording (the four recordings, Batch 24, U3, Batch 26,
