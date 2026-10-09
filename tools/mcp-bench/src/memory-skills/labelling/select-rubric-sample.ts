@@ -15,6 +15,7 @@ import {
   sha256,
   type BenchDataRules,
 } from '../data/verify-candidate-manifest';
+import { getGitExecutable } from '../../utils/git-executable';
 
 /** Strata of `gt-skill-rubric@v1` (benchmark-design.md §4.1). */
 export const RUBRIC_STRATA = [
@@ -601,10 +602,11 @@ export function createGitTreeReader(
   repoRoot: string,
   timeoutMs = 30_000,
 ): GitTreeReader {
+  const gitExecutable = getGitExecutable();
   const run = (args: string[]): Promise<Buffer> =>
     new Promise((resolvePromise, reject) => {
       execFile(
-        'git',
+        gitExecutable,
         args,
         {
           cwd: repoRoot,

@@ -40,6 +40,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join, resolve, sep } from 'node:path';
 
+import { compareCodeUnits } from '../../../utils/compare-code-units';
 import {
   CURATOR_MAX_WINDOWS,
   MEMORY_TOKENS,
@@ -335,7 +336,7 @@ function passes(observation: Observation, planned: PlannedCase): boolean {
 
 function describeObservation(observation: Observation, rows: number): string {
   const list = (values: ReadonlySet<string>): string =>
-    values.size === 0 ? 'none' : [...values].sort().join(', ');
+    values.size === 0 ? 'none' : [...values].sort(compareCodeUnits).join(', ');
   const count = (label: RowLabel): number =>
     observation.labels.filter((value) => value === label).length;
   return (

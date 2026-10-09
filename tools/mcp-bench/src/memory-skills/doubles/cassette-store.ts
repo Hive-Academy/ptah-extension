@@ -28,6 +28,8 @@ import {
 } from 'node:fs';
 import { dirname } from 'node:path';
 
+import { compareCodeUnits } from '../../utils/compare-code-units';
+
 /** Which side of the double the store serves. */
 export type CassetteMode = 'record' | 'replay';
 
@@ -122,7 +124,7 @@ function canonicalize(value: unknown): unknown {
   }
   if (value !== null && typeof value === 'object') {
     const sorted: Record<string, unknown> = {};
-    for (const name of Object.keys(value).sort()) {
+    for (const name of Object.keys(value).sort(compareCodeUnits)) {
       const member = (value as Record<string, unknown>)[name];
       if (member !== undefined) {
         sorted[name] = canonicalize(member);

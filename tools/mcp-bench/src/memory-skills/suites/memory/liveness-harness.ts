@@ -32,6 +32,7 @@ import { join } from 'node:path';
 import { z } from 'zod';
 
 import { CassetteStore } from '../../doubles/cassette-store';
+import { compareCodeUnits } from '../../../utils/compare-code-units';
 import {
   RecordedCuratorLlm,
   curatorExtractKey,
@@ -70,7 +71,9 @@ export class ScriptedLivenessCurator implements ICuratorLLM {
     _options?: CuratorCallOptions,
   ): Promise<CuratorExtraction> {
     this.counts.extract += 1;
-    const markers = [...new Set(transcript.match(MARKER_PATTERN) ?? [])].sort();
+    const markers = [...new Set(transcript.match(MARKER_PATTERN) ?? [])].sort(
+      compareCodeUnits,
+    );
     const fault = markers
       .map((marker) => this.faults.get(marker))
       .find((mode) => mode !== undefined);

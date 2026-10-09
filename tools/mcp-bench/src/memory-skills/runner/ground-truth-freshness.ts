@@ -30,6 +30,7 @@ import { join } from 'node:path';
 
 import { z } from 'zod';
 
+import { compareCodeUnits } from '../../utils/compare-code-units';
 import type { GitRunner } from './read-path-guard';
 
 export const FIRST_SCORED_RUN_SCHEMA_ID = '620.first-scored-run.v1';
@@ -83,7 +84,7 @@ export function mergeGroundTruthRefs(
 ): GroundTruthRef[] {
   const byId = new Map<string, GroundTruthRef>();
   for (const ref of refs) {
-    const paths = [...new Set(ref.paths)].sort();
+    const paths = [...new Set(ref.paths)].sort(compareCodeUnits);
     const seen = byId.get(ref.id);
     if (seen === undefined) {
       byId.set(ref.id, { id: ref.id, paths });

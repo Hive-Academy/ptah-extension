@@ -271,7 +271,10 @@ export class ThothStatusService implements MessageHandler {
 
     const memoryPromise = this.loadMemory(isCurrent);
     const skillsPromise = this.loadSkills(isCurrent);
-    const pausedPromise = this.refreshPaused();
+    // Pause badges are supplementary state. Do not let an unavailable or slow
+    // pause RPC delay the primary status load: callers rely on hasLoadedOnce()
+    // to avoid re-fetching a gateway push on a quick close/reopen.
+    void this.refreshPaused();
     const cronPromise = isElectron
       ? this.loadCron(isCurrent)
       : Promise.resolve(this.markDesktopOnly('cron'));
@@ -282,7 +285,6 @@ export class ThothStatusService implements MessageHandler {
     await Promise.all([
       memoryPromise,
       skillsPromise,
-      pausedPromise,
       cronPromise,
       gatewayPromise,
     ]);

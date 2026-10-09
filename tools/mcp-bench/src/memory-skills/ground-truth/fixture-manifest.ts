@@ -4,6 +4,7 @@ import { join } from 'node:path';
 
 import { z } from 'zod';
 
+import { compareCodeUnits } from '../../utils/compare-code-units';
 import { sha256HexSchema } from './label-schemas';
 
 export const manifestSchema = z.strictObject({
@@ -146,7 +147,7 @@ async function listFixtureFiles(
       if (relPath !== MANIFEST_FILE_NAME) files.push(relPath);
     } else throw new Error(`unsupported fixture entry: ${relPath}`);
   }
-  return files.sort();
+  return files.sort(compareCodeUnits);
 }
 
 function sha256Text(text: string): string {

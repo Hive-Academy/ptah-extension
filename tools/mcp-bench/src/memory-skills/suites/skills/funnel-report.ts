@@ -35,6 +35,7 @@ import {
   rateMetrics,
 } from '../memory/memory-suite-support';
 import type { FunnelLaneStats } from './funnel-port';
+import { compareCodeUnits } from '../../../utils/compare-code-units';
 
 export type FunnelStage = FunnelDetails['stages'][number]['stage'];
 
@@ -54,7 +55,7 @@ export function invariantOf(
   id: string,
   violations: readonly string[],
 ): InvariantResult {
-  const sorted = [...violations].sort();
+  const sorted = [...violations].sort(compareCodeUnits);
   return { id, evaluated: true, pass: sorted.length === 0, violations: sorted };
 }
 
@@ -64,7 +65,12 @@ export function thresholdInvariantOf(
   pass: boolean,
   violations: readonly string[],
 ): InvariantResult {
-  return { id, evaluated: true, pass, violations: [...violations].sort() };
+  return {
+    id,
+    evaluated: true,
+    pass,
+    violations: [...violations].sort(compareCodeUnits),
+  };
 }
 
 export function notEvaluated(id: string, reason: string): InvariantResult {

@@ -24,6 +24,7 @@ import { readFileSync } from 'node:fs';
 
 import { z } from 'zod';
 
+import { compareCodeUnits } from '../../../utils/compare-code-units';
 import { rate, type Rate } from '../../metrics/curation-metrics';
 import type { CaseRecord } from '../../runner/suite-result';
 import type { FunnelFixture, FunnelFixtureSession } from './funnel-fixture';
@@ -432,7 +433,7 @@ export function scoreCluster(input: FunnelStageInput): StageScore {
   const cases = candidates.map((c) =>
     scoredCase(
       `${c.id}:sessions`,
-      { sessions: [...c.sourceSessionIds].sort() },
+      { sessions: [...c.sourceSessionIds].sort(compareCodeUnits) },
       '>= 2 distinct sessions',
       `${distinct(c.sourceSessionIds)} distinct session(s)`,
       distinct(c.sourceSessionIds) >= 2,
@@ -529,14 +530,14 @@ function shapeViolations(candidates: readonly FunnelCandidateView[]): string[] {
     const ok =
       entries.length > 0 &&
       entries.every((entry) => {
-        const keys = Object.keys(entry).sort();
+        const keys = Object.keys(entry).sort(compareCodeUnits);
         if (keys.join() !== RATIONALE_KEYS.join()) return false;
         const criteria = entry['criteria'];
         return (
           criteria === null ||
           (typeof criteria === 'object' &&
             Object.keys(criteria as object)
-              .sort()
+              .sort(compareCodeUnits)
               .join() === CRITERION_KEYS.join())
         );
       });

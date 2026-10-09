@@ -216,6 +216,56 @@ describe('ThothStatusService', () => {
     expect(gatewayRpc.listBindings).toHaveBeenCalledWith({ status: 'pending' });
   });
 
+  it('finishes the primary load while pause reads never settle, preserving a pushed gateway status on reopen', async () => {
+    memoryRpc.stats.mockResolvedValue({
+      core: 0,
+      recall: 0,
+      archival: 0,
+      codeIndex: 0,
+      lastCuratedAt: null,
+    });
+    skillsRpc.listCandidates.mockResolvedValue([]);
+    cronRpc.list.mockResolvedValue({ jobs: [] });
+    gatewayRpc.status.mockResolvedValue({ enabled: true, adapters: [] });
+    gatewayRpc.listBindings.mockResolvedValue({ bindings: [] });
+    const pausedMemory = deferred<{ triggers: object; enabled: boolean }>();
+    const pausedSkills = deferred<{ enabled: boolean }>();
+    memoryDiagnosticsRpc.getTriggers.mockReturnValue(pausedMemory.promise);
+    skillsRpc.getSettings.mockReturnValue(pausedSkills.promise as never);
+
+    const service = TestBed.inject(ThothStatusService);
+    await service.refresh();
+
+    expect(service.hasLoadedOnce()).toBe(true);
+    expect(service.summary().gateway).toMatchObject({
+      available: true,
+      pendingBindings: 0,
+    });
+
+    service.handleMessage({
+      type: MESSAGE_TYPES.GATEWAY_STATUS_CHANGED,
+      payload: {
+        status: {
+          enabled: true,
+          adapters: [
+            { platform: 'telegram', running: true },
+            { platform: 'discord', running: true },
+          ],
+        },
+      },
+    });
+    await service.refreshIfNeeded();
+
+    expect(gatewayRpc.status).toHaveBeenCalledTimes(1);
+    const gateway = service.summary().gateway;
+    expect(gateway.available).toBe(true);
+    if (gateway.available) {
+      expect(
+        gateway.platforms.filter((platform) => platform.state === 'running'),
+      ).toHaveLength(2);
+    }
+  });
+
   it('returns desktop-only state for cron and gateway when not Electron', async () => {
     vscode.config.set({ isElectron: false });
 

@@ -38,6 +38,7 @@ import { dirname, join, relative, sep } from 'node:path';
 
 import { isPathInside, isSamePath } from '../../bench-data';
 import type { IsolatedPaths } from '../../transport/bench-host-boot';
+import { compareCodeUnits } from '../../utils/compare-code-units';
 import { defaultRealpath, resolveRealPath } from '../runner/read-path-guard';
 import type { MemorySkillsFixture } from './plan.schema';
 
@@ -310,7 +311,7 @@ class Seeder {
       }
     };
     walk(source, target);
-    lines.sort();
+    lines.sort(compareCodeUnits);
     const sha256 = createHash('sha256')
       .update(lines.join(''), 'utf8')
       .digest('hex');

@@ -63,6 +63,7 @@ import type {
 } from '@ptah-extension/skill-synthesis';
 import { z } from 'zod';
 
+import { compareCodeUnits } from '../../../utils/compare-code-units';
 import { sha256HexSchema } from '../../ground-truth/label-schemas';
 import type {
   MemorySkillsHostSuite,
@@ -478,7 +479,7 @@ function rubricPin(runs: readonly JudgedRun[]): {
         .map((run) => run.calls[0]?.systemPromptSha256)
         .filter((sha): sha is string => sha !== undefined),
     ),
-  ].sort();
+  ].sort(compareCodeUnits);
   return {
     sha256:
       distinct.length === 1 ? distinct[0] : sha256Text(distinct.join('\n')),
@@ -502,7 +503,7 @@ function modelProblem(
         .filter((call) => call.model !== pinOf(call.laneId))
         .map((call) => `${call.laneId}=${call.model}`),
     ),
-  ].sort();
+  ].sort(compareCodeUnits);
   return off.length === 0
     ? null
     : `lane reported ${off.join(', ')}; the plan pins ${options.model}${options.escalationModel === undefined ? '' : ` (escalation ${options.escalationModel})`}`;

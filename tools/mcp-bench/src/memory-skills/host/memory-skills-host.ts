@@ -44,6 +44,8 @@ import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { ProviderHealth } from '@ptah-extension/shared';
 
+import { compareCodeUnits } from '../../utils/compare-code-units';
+
 import type {
   BenchHostContainer,
   BenchHostHandle,
@@ -637,7 +639,7 @@ async function writeProductSettings(
   const workspace = container.resolve<ProductConfigPort>(
     PLATFORM_TOKENS.WORKSPACE_PROVIDER,
   );
-  const names = Object.keys(applied).sort();
+  const names = Object.keys(applied).sort(compareCodeUnits);
   for (const key of names) {
     const value = applied[key];
     await workspace.setConfiguration('ptah', key, value);

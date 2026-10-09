@@ -34,6 +34,7 @@ import {
 import { funnelPortsOver } from './funnel-host-port';
 import { p95, sessionsOnDay, slope } from './funnel-backlog';
 import { interleavingPoints } from './funnel-lifecycle';
+import { installFunnelClock } from './funnel-port';
 import { createFunnelSuites, FUNNEL_SUITE_IDS } from './funnel.suite';
 
 const FIXTURE_DIR = join(
@@ -60,12 +61,15 @@ function invariant(
 
 describe('skill.funnel lifecycle suites over production DI (synthetic cassette)', () => {
   const root = join(tmpdir(), 'ptah-620-lifecycle-spec');
-  const runDir = join(root, 'run');
   let spec: FunnelSpecContainer;
+  let runSequence = 0;
   let run: (
     key: Key,
     options?: unknown,
   ) => Promise<ReturnType<typeof readSuiteResult>>;
+  // Jan 1 2100 is a Friday. The two backlog runs below pin opposite weekly
+  // scheduler cases without moving pre-existing singletons back in time.
+  let clockStartAt = Date.UTC(2100, 0, 1, 12);
 
   beforeAll(() => {
     rmSync(root, { recursive: true, force: true });
@@ -87,8 +91,10 @@ describe('skill.funnel lifecycle suites over production DI (synthetic cassette)'
           home: context.isolation.home,
           laneRunner: spec.laneRunner,
         }),
+      installClock: () => installFunnelClock(clockStartAt),
     });
     run = async (key, options = {}) => {
+      const runDir = join(root, `run-${runSequence++}`);
       const suite = suites.find((s) => s.id === FUNNEL_SUITE_IDS[key]);
       if (!suite) throw new Error(`no suite ${key}`);
       expect(suite.placement).toBe('last');
@@ -187,26 +193,36 @@ describe('skill.funnel lifecycle suites over production DI (synthetic cassette)'
     expect(result.naReason).not.toMatch(/promotion refused/);
   }, 120_000);
 
-  it('backlog drain: the scripted load runs on the simulated clock with exact rates', async () => {
-    const { result } = await run('backlog', {
-      backlog: { days: 2, sessionsPerWeek: 70 },
-    });
-    const details = funnelDetailsSchema.parse(result.details);
-    expect(result.metrics['backlog.enqueued']).toBe(20);
-    expect(result.metrics['backlog.ticks']).toBe(2 * 96 + 2);
-    expect(details.backlog?.map((row) => row.stage)).toEqual([
-      'prefilter',
-      'archaeology',
-      'judge-panel',
-      'trigger-eval',
-    ]);
-    const num = result.metrics['backlog.judgedShare.num'] ?? 0;
-    const den = result.metrics['backlog.judgedShare.den'] ?? 0;
-    expect(result.metrics['backlog.judgedShare']).toBe(
-      den === 0 ? null : num / den,
-    );
-    expect(invariant(result, 'drain-ticks-without-error')?.pass).toBe(true);
-    expect(['pass', 'fail', 'na']).toContain(result.verdict);
+  it('backlog drain: pins weekday windows and counts their exact scheduled ticks', async () => {
+    const windows = [
+      // Friday noon -> Saturday/Sunday: the Sunday weekly tick is included.
+      { startAt: Date.UTC(2100, 0, 1, 12), expectedTicks: 2 * 96 + 3 },
+      // Sunday noon -> Monday/Tuesday: no weekly tick is scheduled.
+      { startAt: Date.UTC(2100, 0, 3, 12), expectedTicks: 2 * 96 + 2 },
+    ];
+
+    for (const window of windows) {
+      clockStartAt = window.startAt;
+      const { result } = await run('backlog', {
+        backlog: { days: 2, sessionsPerWeek: 70 },
+      });
+      const details = funnelDetailsSchema.parse(result.details);
+      expect(result.metrics['backlog.enqueued']).toBe(20);
+      expect(result.metrics['backlog.ticks']).toBe(window.expectedTicks);
+      expect(details.backlog?.map((row) => row.stage)).toEqual([
+        'prefilter',
+        'archaeology',
+        'judge-panel',
+        'trigger-eval',
+      ]);
+      const num = result.metrics['backlog.judgedShare.num'] ?? 0;
+      const den = result.metrics['backlog.judgedShare.den'] ?? 0;
+      expect(result.metrics['backlog.judgedShare']).toBe(
+        den === 0 ? null : num / den,
+      );
+      expect(invariant(result, 'drain-ticks-without-error')?.pass).toBe(true);
+      expect(['pass', 'fail', 'na']).toContain(result.verdict);
+    }
   }, 300_000);
 });
 

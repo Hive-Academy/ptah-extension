@@ -34,6 +34,7 @@ import { createHash } from 'node:crypto';
 
 import { z } from 'zod';
 
+import { compareCodeUnits } from '../../../utils/compare-code-units';
 import {
   manifestSchema,
   type FixtureManifest,
@@ -418,8 +419,8 @@ export function loadRubricGroundTruth(
     const needed = triggersOf(a, b);
     const adjudication = adjudications.get(doc.opaqueId);
     if (adjudication !== undefined) {
-      const recorded = [...adjudication.triggers].sort();
-      if (recorded.join(',') !== [...needed].sort().join(',')) {
+      const recorded = [...adjudication.triggers].sort(compareCodeUnits);
+      if (recorded.join(',') !== [...needed].sort(compareCodeUnits).join(',')) {
         throw new RubricGroundTruthError(
           `${SKILL_ADJUDICATION_FILE}: ${doc.opaqueId} records triggers [${recorded.join(', ')}] but the raters' disagreement is [${needed.join(', ')}]`,
         );

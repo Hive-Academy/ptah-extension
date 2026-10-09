@@ -38,6 +38,8 @@ import { basename, dirname, join, resolve, sep } from 'node:path';
 
 import { z } from 'zod';
 
+import { compareCodeUnits } from '../../../utils/compare-code-units';
+import { getGitExecutable } from '../../../utils/git-executable';
 import type { BenchHostContainer } from '../../../transport/bench-host-boot';
 import { RECORD_SEPARATOR } from '../../ground-truth/session-jsonl-writer';
 import type {
@@ -106,7 +108,7 @@ const defaultGit: ScratchGit = (args, cwd) => {
   for (const name of REPOSITORY_REDIRECTS) delete env[name];
   env['GIT_TERMINAL_PROMPT'] = '0';
   env['GIT_CEILING_DIRECTORIES'] = dirname(resolve(cwd));
-  return execFileSync('git', [...args], {
+  return execFileSync(getGitExecutable(), [...args], {
     cwd,
     encoding: 'utf8',
     timeout: GIT_TIMEOUT_MS,
@@ -364,7 +366,7 @@ function keyClass(root: string | null, cases: readonly ScopeCase[]): string {
 
 function countBy(values: readonly string[]): Record<string, number> {
   const counts: Record<string, number> = {};
-  for (const value of [...values].sort())
+  for (const value of [...values].sort(compareCodeUnits))
     counts[value] = (counts[value] ?? 0) + 1;
   return counts;
 }

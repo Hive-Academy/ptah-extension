@@ -9,7 +9,7 @@ import {
   writeFile,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { isAbsolute, join, relative, resolve } from 'node:path';
+import { isAbsolute, join, relative, resolve, win32 } from 'node:path';
 import { createInterface } from 'node:readline';
 import { sha256File } from './candidate-row-diff';
 import {
@@ -225,7 +225,18 @@ function isTask619WorktreePath(cwd: string): boolean {
 
 function isWithin(target: string, root: string): boolean {
   const fold = (p: string): string =>
-    process.platform === 'win32' ? p.toLowerCase() : p;
+    process.platform === 'win32' || /^[A-Za-z]:[\\/]/u.test(p)
+      ? p.toLowerCase()
+      : p;
+  const windowsPaths =
+    /^[A-Za-z]:[\\/]/u.test(target) || /^[A-Za-z]:[\\/]/u.test(root);
+  if (windowsPaths) {
+    const rel = win32.relative(
+      win32.resolve(fold(root)),
+      win32.resolve(fold(target)),
+    );
+    return rel === '' || (!rel.startsWith('..') && !win32.isAbsolute(rel));
+  }
   const rel = relative(fold(resolve(root)), fold(resolve(target)));
   return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
 }
@@ -308,7 +319,17 @@ export async function sampleSessions(
       // Everything recorded comes from the copy, so size, hash and content
       // agree even when the source grew between the scan and the copy.
       const copyScan = await scanSession(target, pick.file);
-      const copied = classifySession(copyScan, tempRoots);
+      // copyFile does not preserve mtimes on every supported platform. The
+      // source stat is the freeze-relevant timestamp; the copied content is
+      // still re-read to catch a transcript that changed during the copy.
+      const sourceInfo = await stat(join(sourceDir, pick.file));
+      const copied = classifySession(
+        {
+          ...copyScan,
+          modifiedAt: new Date(sourceInfo.mtimeMs).toISOString(),
+        },
+        tempRoots,
+      );
       const reason =
         copied.exclusion ??
         (copied.window === 'eval' ? null : `window:${copied.window ?? 'none'}`);

@@ -20,6 +20,7 @@ import { join } from 'node:path';
 
 import { z } from 'zod';
 
+import { compareCodeUnits } from '../../../utils/compare-code-units';
 import { sha256HexSchema } from '../../ground-truth/label-schemas';
 import {
   parseSkillMarkdown,
@@ -138,11 +139,11 @@ export function loadJudgeCorpus(paths: JudgeCorpusPaths): JudgeDocument[] {
       `${paths.idMapFile} is invalid: ${z.prettifyError(idMap.error)}`,
     );
   }
-  const ids = Object.keys(idMap.data).sort();
+  const ids = Object.keys(idMap.data).sort(compareCodeUnits);
   const files = readdirSync(paths.documentsDir)
     .filter((name) => name.endsWith('.md'))
     .map((name) => name.slice(0, -'.md'.length))
-    .sort();
+    .sort(compareCodeUnits);
   if (files.join('\n') !== ids.join('\n')) {
     throw new JudgeCorpusError(
       `${paths.documentsDir} holds ${files.length} documents, the id-map lists ${ids.length}; they must be the same set`,

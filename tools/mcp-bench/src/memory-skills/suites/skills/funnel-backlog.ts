@@ -15,6 +15,7 @@
 
 import { rate } from '../../metrics/curation-metrics';
 import type { CaseRecord } from '../../runner/suite-result';
+import { compareCodeUnits } from '../../../utils/compare-code-units';
 import type {
   FunnelBacklogPort,
   FunnelClock,
@@ -172,7 +173,7 @@ export async function runBacklogScenario(
     if (row.payloadCandidateId !== null)
       candidateIds.add(row.payloadCandidateId);
   }
-  const judged = [...candidateIds].sort().flatMap((id) => {
+  const judged = [...candidateIds].sort(compareCodeUnits).flatMap((id) => {
     const view = port.candidate(id);
     return view === null
       ? []

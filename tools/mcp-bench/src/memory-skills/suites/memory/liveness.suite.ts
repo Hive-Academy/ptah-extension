@@ -25,10 +25,13 @@
  * (c) timeout — each on the observation path: the drained observations must
  * stay unprocessed, and (a)/(c) must not report `'ran'`; (d) a boot scan
  * where one session throws among two successes: the watermark must stay below
- * the failed session. A `stalled` control (expected to pass today) shows the
- * harness can see a kept observation. (a)-(d) are expected to FAIL today;
- * they are recorded as failing cases, never skipped. The suite verdict is
- * always `na` ({@link HARNESS_ONLY_REASON}): the cases are harness evidence.
+ * the failed session. Upstream curator fixes (2521773ad, aae3e441a,
+ * a181ab1b2) make (a), (c), and (d) pass; (b) remains the failing case. A
+ * `stalled` control shows the harness can see a kept observation. The frozen
+ * baseline predates those upstream fixes and is historic, so its deltas record
+ * change since the freeze rather than a change made by this suite. The suite
+ * verdict is always `na` ({@link HARNESS_ONLY_REASON}): the cases are harness
+ * evidence.
  *
  * Rescan (M2 mode (e)): the same seeded transcripts are boot-scanned twice;
  * before the second scan their mtimes are moved to fixed later values with

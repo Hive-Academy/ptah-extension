@@ -3,6 +3,7 @@ import {
   type BootstrapInterval,
   type BootstrapOptions,
 } from './bootstrap';
+import { compareCodeUnits } from '../../utils/compare-code-units';
 
 export interface Rate {
   readonly value: number | null;
@@ -216,8 +217,8 @@ function assertSameIds<T, U>(
   left: Readonly<Record<string, T>>,
   right: Readonly<Record<string, U>>,
 ): string[] {
-  const leftIds = Object.keys(left).sort();
-  const rightIds = Object.keys(right).sort();
+  const leftIds = Object.keys(left).sort(compareCodeUnits);
+  const rightIds = Object.keys(right).sort(compareCodeUnits);
   if (
     leftIds.length !== rightIds.length ||
     leftIds.some((id, index) => id !== rightIds[index])

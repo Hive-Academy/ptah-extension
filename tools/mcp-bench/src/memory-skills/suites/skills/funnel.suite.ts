@@ -278,7 +278,10 @@ export function funnelPlanProblems(
 /** All eleven funnel suites over the injected product ports. */
 export function createFunnelSuites(deps: {
   readonly portsOf: FunnelPortsOf;
+  /** Test seam for deterministic calendar scenarios; production uses real now. */
+  readonly installClock?: () => FunnelClock;
 }): readonly MemorySkillsHostSuite[] {
+  const installClock = deps.installClock ?? installFunnelClock;
   // One 22.1 pass per host run, shared by the seven stage suites.
   const passes = new Map<
     string,
@@ -309,7 +312,7 @@ export function createFunnelSuites(deps: {
         context.isolation.home,
         options.sessionsDir,
       );
-      const clock = installFunnelClock();
+      const clock = installClock();
       try {
         const pass = await runFunnelPass(
           deps.portsOf(context).run(),
@@ -377,7 +380,7 @@ export function createFunnelSuites(deps: {
     async run(context) {
       const options = funnelOptionsSchema.parse(context.options ?? {});
       const port = open(deps.portsOf(context));
-      const clock = installFunnelClock();
+      const clock = installClock();
       let operations = 0;
       let outcome: FunnelRunOutcome;
       let scored: StageScore;

@@ -26,13 +26,17 @@ export interface FunnelClock {
 }
 
 /**
- * Install the simulated clock at the current real instant (the base is never
- * written anywhere; every assertion uses offsets). Starting at the real instant
- * keeps singletons constructed before the install (the drain's `startedAt`) on
- * the same time line.
+ * Install the simulated clock at the supplied instant (the default is the
+ * current real instant). Starting at the real instant keeps singletons
+ * constructed before the install (the drain's `startedAt`) on the same time
+ * line; specs may supply a fixed future instant when calendar arithmetic is
+ * part of the assertion.
  */
-export function installFunnelClock(): FunnelClock {
-  const clock: SimulatedClock = installSimulatedClock(Date.now());
+export function installFunnelClock(startAt = Date.now()): FunnelClock {
+  if (!Number.isFinite(startAt)) {
+    throw new RangeError(`clock start must be finite, got ${startAt}`);
+  }
+  const clock: SimulatedClock = installSimulatedClock(startAt);
   return {
     now: () => Date.now(),
     advance: (ms) => {

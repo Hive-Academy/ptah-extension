@@ -11,6 +11,7 @@ import { posix } from 'node:path';
 
 import { z } from 'zod';
 
+import { compareCodeUnits } from '../../utils/compare-code-units';
 import {
   hostSuitePlacement,
   suitePlacementProblems,
@@ -102,7 +103,7 @@ export function canonicalProductSettingsSha256(
   settings: Readonly<ProductSettings>,
 ): string {
   const sorted: ProductSettings = {};
-  for (const key of Object.keys(settings).sort()) {
+  for (const key of Object.keys(settings).sort(compareCodeUnits)) {
     sorted[key] = settings[key];
   }
   return createHash('sha256')

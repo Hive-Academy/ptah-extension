@@ -19,6 +19,7 @@ import { resolve } from 'node:path';
 
 import { resolveBenchDataDir } from '../../bench-data';
 import { launchBenchHost } from '../../transport/host-launcher';
+import { getGitExecutable } from '../../utils/git-executable';
 import { createRubricAgreementSuite } from '../suites/skills/rubric-agreement.suite';
 import { loadRubricPanelManifest } from '../suites/skills/rubric-panel-manifest';
 import { startNetRecorder } from './net-recorder';
@@ -38,14 +39,19 @@ const GIT_TIMEOUT_MS = 30_000;
 
 async function main(): Promise<number> {
   const args = parseRunMemorySkillsArgs(process.argv.slice(2));
+  const gitExecutable = getGitExecutable();
 
-  const repoRoot = execFileSync('git', ['rev-parse', '--show-toplevel'], {
-    encoding: 'utf8',
-    timeout: GIT_TIMEOUT_MS,
-  }).trim();
+  const repoRoot = execFileSync(
+    gitExecutable,
+    ['rev-parse', '--show-toplevel'],
+    {
+      encoding: 'utf8',
+      timeout: GIT_TIMEOUT_MS,
+    },
+  ).trim();
   const benchDataDir = resolveBenchDataDir({ create: true });
   const git: GitRunner = (args) =>
-    execFileSync('git', ['-C', repoRoot, ...args], {
+    execFileSync(gitExecutable, ['-C', repoRoot, ...args], {
       encoding: 'utf8',
       timeout: GIT_TIMEOUT_MS,
       maxBuffer: 256 * 1024 * 1024,

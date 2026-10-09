@@ -6,9 +6,10 @@
  * own specs do, over in-memory stores, a fake SQLite watermark table and a
  * real temp sessions directory whose mtimes are set with `fs.utimes`.
  *
- * The expected results pin TODAY's behaviour: fault modes (a)-(d) and every
- * rescan invariant fail (forensics M2), the stalled control passes. When the
- * liveness fix lands these expectations flip, and so must known-failures.
+ * The fault assertions reflect current upstream curator behaviour: (a), (c),
+ * and (d) pass after 2521773ad, aae3e441a, and a181ab1b2; (b) still fails and
+ * the stalled control passes. The frozen baseline predates those fixes and is
+ * historic. Rescan assertions remain the recorded forensics M2 behaviour.
  */
 import 'reflect-metadata';
 jest.mock('vscode', () => ({}), { virtual: true });
@@ -306,7 +307,7 @@ function byId(cases: readonly CaseRecord[]): Map<string, CaseRecord> {
 }
 
 describe('mem.liveness.fault', () => {
-  it('records fault modes (a)-(d) as failing today and the stalled control as passing', async () => {
+  it('records current upstream behavior: (a), (c), and (d) pass; (b) fails; the stalled control passes', async () => {
     const parts = buildParts();
     const { result, cases } = await runLivenessFaultSuite({
       runDir: join(root, 'run'),
@@ -322,27 +323,28 @@ describe('mem.liveness.fault', () => {
       'fault/d-boot-scan',
       'control/stalled',
     ]);
-    // (a) and (c): the failed call is reported 'ran' and consumes the input.
+    // (a) and (c): the failed call is now reported failed and leaves all input
+    // observations unprocessed.
     expect(records.get('fault/a-throw')?.observed).toBe(
-      "pass outcome 'ran'; 0 of 3 observations unprocessed",
+      "pass outcome 'failed'; 3 of 3 observations unprocessed",
     );
     expect(records.get('fault/c-timeout')?.observed).toBe(
-      "pass outcome 'ran'; 0 of 3 observations unprocessed",
+      "pass outcome 'failed'; 3 of 3 observations unprocessed",
     );
     expect(records.get('fault/b-zero-drafts')?.outcome).toBe('fail');
-    // (d): the watermark jumps over the failed middle session.
+    // (d): a failed middle session now stops the watermark at the first input.
     expect(records.get('fault/d-boot-scan')?.observed).toContain(
-      `watermark ${new Date(LIVENESS_MTIMES.fault + 120_000).toISOString()}`,
+      `watermark ${new Date(LIVENESS_MTIMES.fault).toISOString()}`,
     );
     expect(records.get('fault/d-boot-scan')?.observed).toContain(
-      'curate outcomes ran, ran, ran',
+      'curate outcomes ran, failed',
     );
-    expect(parts.watermark.value).toBe(LIVENESS_MTIMES.fault + 120_000);
+    expect(parts.watermark.value).toBe(LIVENESS_MTIMES.fault);
     expect(
       ['a-throw', 'b-zero-drafts', 'c-timeout', 'd-boot-scan'].map(
         (id) => records.get(`fault/${id}`)?.outcome,
       ),
-    ).toEqual(['fail', 'fail', 'fail', 'fail']);
+    ).toEqual(['pass', 'fail', 'pass', 'pass']);
     expect(records.get('control/stalled')).toMatchObject({
       outcome: 'pass',
       observed: "pass outcome 'stalled'; 3 of 3 observations unprocessed",
@@ -352,9 +354,9 @@ describe('mem.liveness.fault', () => {
       ranPassesWithError: number;
       faults: { pass: boolean }[];
     };
-    expect(details.ranPassesWithError).toBe(3);
+    expect(details.ranPassesWithError).toBe(0);
     expect(details.faults).toHaveLength(4);
-    expect(result.metrics['faults.passRate']).toBe(0 / 4);
+    expect(result.metrics['faults.passRate']).toBe(3 / 4);
     // Harness-only: the invariants fail as measured, the verdict is na.
     expect(result.verdict).toBe('na');
     expect(result.naReason).toBe(HARNESS_ONLY_REASON);
@@ -365,7 +367,7 @@ describe('mem.liveness.fault', () => {
     expect(readdirSync(parts.sessionsDir)).toEqual([]);
   });
 
-  it('reports the frozen baseline and its deltas when the plan supplies them', async () => {
+  it('reports the historic frozen baseline and its deltas when the plan supplies them', async () => {
     const { result } = await runLivenessFaultSuite({
       runDir: join(root, 'run'),
       home,
@@ -379,8 +381,8 @@ describe('mem.liveness.fault', () => {
       ranPassesWithError: 3,
     });
     expect(result.deltas['recorded-at-freeze']).toEqual({
-      'faults.passRate': 0,
-      ranPassesWithError: 0,
+      'faults.passRate': 0.75,
+      ranPassesWithError: -3,
     });
   });
 
