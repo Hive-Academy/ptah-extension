@@ -61,8 +61,8 @@ export const CLI_TARGET_BRANDS: Readonly<
   claude: { kind: 'brand', brandSlug: 'claude' },
   cursor: { kind: 'brand', brandSlug: 'cursor' },
   copilot: { kind: 'brand', brandSlug: 'github-copilot' },
-  codex: { kind: 'brand', brandSlug: 'openai' },
-  antigravity: { kind: 'brand', brandSlug: 'google' },
+  codex: { kind: 'provider-mark', providerId: 'codex' },
+  antigravity: { kind: 'provider-mark', providerId: 'antigravity' },
   opencode: { kind: 'provider-mark', providerId: 'opencode' },
 };
 

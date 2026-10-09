@@ -2,31 +2,30 @@
 
 # Brand icon rejection report
 
-theSVG `glincker/thesvg` at commit `20c10d8dd10bbce6de90101f50599d5686061cfa` (pinned 2026-09-23): 68 slugs, 59 vendored, 9 monogram.
+theSVG `glincker/thesvg` at commit `20c10d8dd10bbce6de90101f50599d5686061cfa` (pinned 2026-09-23): 66 slugs, 57 vendored, 9 monogram.
 
 A4 probe github/dark: viewBox 0 0 1024 1024, path bbox 0 0 1024 998.74, 1 path(s) -> PASS
 
 ## Rejected variants
 
-| Slug               | Variant | Reason                                                                                                                                                          | Fallback                     |
-| ------------------ | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------- |
-| amplitude          | default | wordmark-shaped (5:1), illegible in a square tile                                                                                                               | monogram (no mono variant)   |
-| angular            | default | gradient; gradient or pattern fill                                                                                                                              | mono variant in currentColor |
-| atlassian          | default | gradient; gradient or pattern fill                                                                                                                              | mono variant in currentColor |
-| canva              | default | gradient; gradient or pattern fill                                                                                                                              | monogram (no mono variant)   |
-| cloudflare-workers | default | gradient; gradient or pattern fill                                                                                                                              | mono variant in currentColor |
-| daisyui            | default | stroke-only path                                                                                                                                                | mono variant in currentColor |
-| google             | default | clip-path other than one rectangle; filter; gradient; gradient or pattern fill; path data extends far outside the viewBox; transform svgo could not apply (<g>) | mono variant in currentColor |
-| google-chat        | default | stroke-only path                                                                                                                                                | mono variant in currentColor |
-| google-sheets      | default | gradient; gradient or pattern fill; mask other than one opaque white rectangle                                                                                  | mono variant in currentColor |
-| google-slides      | default | gradient; gradient or pattern fill; mask other than one opaque white rectangle                                                                                  | mono variant in currentColor |
-| intercom           | default | invisible on light surfaces (every fill below 1.5:1 on #ffffff)                                                                                                 | mono variant in currentColor |
-| monday             | default | path data extends far outside the viewBox; wordmark-shaped (10.03:1), illegible in a square tile                                                                | mono variant in currentColor |
-| neon               | default | gradient; gradient or pattern fill                                                                                                                              | monogram (no mono variant)   |
-| nodedotjs          | default | gradient; gradient or pattern fill                                                                                                                              | mono variant in currentColor |
-| pipedream          | default | wordmark-shaped (5.12:1), illegible in a square tile                                                                                                            | monogram (no mono variant)   |
-| supabase           | default | gradient; gradient or pattern fill                                                                                                                              | mono variant in currentColor |
-| visual-studio-code | default | blend mode; filter; gradient; gradient or pattern fill; mask other than one opaque white rectangle                                                              | monogram (no mono variant)   |
+| Slug               | Variant | Reason                                                                                             | Fallback                     |
+| ------------------ | ------- | -------------------------------------------------------------------------------------------------- | ---------------------------- |
+| amplitude          | default | wordmark-shaped (5:1), illegible in a square tile                                                  | monogram (no mono variant)   |
+| angular            | default | gradient; gradient or pattern fill                                                                 | mono variant in currentColor |
+| atlassian          | default | gradient; gradient or pattern fill                                                                 | mono variant in currentColor |
+| canva              | default | gradient; gradient or pattern fill                                                                 | monogram (no mono variant)   |
+| cloudflare-workers | default | gradient; gradient or pattern fill                                                                 | mono variant in currentColor |
+| daisyui            | default | stroke-only path                                                                                   | mono variant in currentColor |
+| google-chat        | default | stroke-only path                                                                                   | mono variant in currentColor |
+| google-sheets      | default | gradient; gradient or pattern fill; mask other than one opaque white rectangle                     | mono variant in currentColor |
+| google-slides      | default | gradient; gradient or pattern fill; mask other than one opaque white rectangle                     | mono variant in currentColor |
+| intercom           | default | invisible on light surfaces (every fill below 1.5:1 on #ffffff)                                    | mono variant in currentColor |
+| monday             | default | path data extends far outside the viewBox; wordmark-shaped (10.03:1), illegible in a square tile   | mono variant in currentColor |
+| neon               | default | gradient; gradient or pattern fill                                                                 | monogram (no mono variant)   |
+| nodedotjs          | default | gradient; gradient or pattern fill                                                                 | mono variant in currentColor |
+| pipedream          | default | wordmark-shaped (5.12:1), illegible in a square tile                                               | monogram (no mono variant)   |
+| supabase           | default | gradient; gradient or pattern fill                                                                 | mono variant in currentColor |
+| visual-studio-code | default | blend mode; filter; gradient; gradient or pattern fill; mask other than one opaque white rectangle | monogram (no mono variant)   |
 
 ## Monograms
 
@@ -44,6 +43,6 @@ A4 probe github/dark: viewBox 0 0 1024 1024, path bbox 0 0 1024 998.74, 1 path(s
 
 ## Tile data
 
-- surface `light` (white tile): `anthropic`, `attio`, `cursor`, `datadog`, `davinci-resolve`, `exa`, `github`, `github-copilot`, `mongodb`, `openai`, `planetscale`, `sentry`, `trello`, `vercel`
-- `onDark` artwork: `anthropic`, `cursor`, `firecrawl`, `github`, `github-copilot`, `mongodb`, `openai`, `planetscale`, `vercel`
+- surface `light` (white tile): `anthropic`, `attio`, `cursor`, `datadog`, `davinci-resolve`, `exa`, `github`, `github-copilot`, `mongodb`, `planetscale`, `sentry`, `trello`, `vercel`
+- `onDark` artwork: `anthropic`, `cursor`, `firecrawl`, `github`, `github-copilot`, `mongodb`, `planetscale`, `vercel`
 - `mono` artwork: `anthropic`, `claude`

@@ -377,16 +377,16 @@ describe('brand slug tables', () => {
       brandSlug: 'claude',
     });
     expect(CLI_TARGET_BRANDS.codex).toEqual({
-      kind: 'brand',
-      brandSlug: 'openai',
+      kind: 'provider-mark',
+      providerId: 'codex',
     });
     expect(CLI_TARGET_BRANDS.copilot).toEqual({
       kind: 'brand',
       brandSlug: 'github-copilot',
     });
     expect(CLI_TARGET_BRANDS.antigravity).toEqual({
-      kind: 'brand',
-      brandSlug: 'google',
+      kind: 'provider-mark',
+      providerId: 'antigravity',
     });
     expect(CLI_TARGET_BRANDS.opencode).toEqual({
       kind: 'provider-mark',
