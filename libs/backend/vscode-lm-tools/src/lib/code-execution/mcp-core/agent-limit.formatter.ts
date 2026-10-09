@@ -223,11 +223,25 @@ function planLimitRows(limit: AgentLimit, now: number): string[][] {
   ];
 }
 
+/**
+ * The `### Plan limits` rows, one per lane per window (or one `(none)` row),
+ * in list order. Cells: Agent, Window, Used, State, Reset, Source. The list's
+ * table and the `$limits` host read both use this one implementation, so the
+ * two never drift; missing values keep the list's own words ("unknown",
+ * "reset unknown", "-").
+ */
+export function formatPlanLimitRows(
+  limits: readonly AgentLimit[],
+  now = Date.now(),
+): string[][] {
+  return limits.flatMap((limit) => planLimitRows(limit, now));
+}
+
 export function formatPlanLimitsSection(
   limits: readonly AgentLimit[],
   now = Date.now(),
 ): string {
-  const rows = limits.flatMap((limit) => planLimitRows(limit, now));
+  const rows = formatPlanLimitRows(limits, now);
   return `### Plan limits\n\n${table(['Agent', 'Window', 'Used', 'State', 'Reset', 'Source'], rows)}`;
 }
 

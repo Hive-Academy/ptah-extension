@@ -1,6 +1,6 @@
 # Batches - TASK_2026_623_3492
 
-Total tasks: 69 | Batches: 34 (incl. fix batch 6F) | Complete: 7/34
+Total tasks: 69 | Batches: 34 (incl. fix batch 6F) | Complete: 8/34
 
 Worktree root `W` = `D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel` (branch
 `feat/task-623-display-panel`, base `70f995a56`). Every path below is absolute.
@@ -503,7 +503,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - Phase 1 re-review (scoped to f0d5df3a4): APPROVED 8/10, Serious #1 CLOSED, no new findings
   (`code-logic-review-phase1-fix.md`). Phase 1 (Batches 1-6, 6F) accepted.
 
-## Batch 7: L1 lane plan-limit RPC types — COMPLETE
+## Batch 7: L1 lane plan-limit RPC types — COMPLETE (commit 6d0421cb9)
 
 - Recommended executor: backend-developer
 - Fallback executor: general-purpose subagent
@@ -536,7 +536,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - Known red window (MEDIUM risk): manifest coverage and host `rpc-surface`/`container.smoke` specs may be red until
   Batches 9-12 land; do not push before Batch 12 (and Batch 13 per decision #21).
 
-## Batch 8: L2 export `formatPlanLimitRows` — IN_PROGRESS
+## Batch 8: L2 export `formatPlanLimitRows` — COMPLETE
 
 - Recommended executor: backend-developer
 - Fallback executor: general-purpose subagent
@@ -545,7 +545,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - Tasks: 1 | Depends on: none
 - Phase: 2 | Phase review: after Batch 12
 
-### Task 8.1: export `planLimitRows` as `formatPlanLimitRows` — IN_PROGRESS
+### Task 8.1: export `planLimitRows` as `formatPlanLimitRows` — COMPLETE
 
 - Files:
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\backend\vscode-lm-tools\src\lib\code-execution\mcp-core\agent-limit.formatter.ts
@@ -560,7 +560,22 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 
 - `npx jest -c libs/backend/vscode-lm-tools/jest.config.ts libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/agent-limit.formatter.spec.ts libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/mcp-response-formatter.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -n 40 && npx nx typecheck @ptah-extension/vscode-lm-tools --parallel=1 2>&1 | tail -n 20 && npx nx lint @ptah-extension/vscode-lm-tools --parallel=1 2>&1 | tail -n 20`
 
-## Batch 9: L3 `LanePlanLimitsRpcHandlers` — PENDING
+### Batch 8 result
+
+- Verified on disk: `formatPlanLimitRows` = `limits.flatMap(planLimitRows)`; `formatPlanLimitsSection` calls it (one
+  implementation); private `planLimitRows` unchanged; barrel exports the function and `type AgentLimit` (accepted
+  deviation: the parameter type consumers need). Spec adds a byte-identity snapshot and an equivalence fixture per
+  R10.2 case; no TODO/STUB markers.
+- Jest 2 suites, 197 tests passed (re-run by team-leader). vscode-lm-tools typecheck passed. Lint: 0 errors,
+  77 baseline warnings.
+- Decision (Jest in this worktree): `jest.preset.js:30-35` maps `^marked$` to `<repo>/node_modules/marked`, and this
+  worktree has no `node_modules`. Accepted evidence for worktree runs: the same command with a CLI
+  `--moduleNameMapper` that repeats the lib's own mappers and points `^marked$` at
+  `D:/projects/ptah-extension/node_modules/marked/lib/marked.umd.js` — the same package Node resolves for every other
+  import from this worktree. No repo file changes for it; CI (real checkout) is unaffected. Applies to every later
+  vscode-lm-tools / app spec that reaches `marked`.
+
+## Batch 9: L3 `LanePlanLimitsRpcHandlers` — IN_PROGRESS
 
 - Recommended executor: backend-developer
 - Fallback executor: general-purpose subagent
@@ -569,7 +584,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - Tasks: 2 | Depends on: Batches 7, 8
 - Phase: 2 | Phase review: after Batch 12
 
-### Task 9.1: handler class and zod schema — PENDING
+### Task 9.1: handler class and zod schema — IN_PROGRESS
 
 - Files (CREATE):
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\backend\rpc-handlers\src\lib\handlers\lane-plan-limits-rpc.handlers.ts
@@ -583,7 +598,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
   `failed`/undefined.
 - Validation notes: resolve A1 (`ptah-api-builder.service.ts:543`); if `build()` is not memoized, build once lazily.
 
-### Task 9.2: barrel, manifest entry and capability — PENDING
+### Task 9.2: barrel, manifest entry and capability — IN_PROGRESS
 
 - Depends on: Task 9.1
 - Files:
