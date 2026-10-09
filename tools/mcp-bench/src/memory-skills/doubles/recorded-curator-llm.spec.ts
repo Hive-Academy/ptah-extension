@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -35,6 +35,7 @@ const EXTRACTION: CuratorExtraction = {
   drafts: [DRAFT],
 };
 const RESOLVED: ResolvedMemoryDraft = { ...DRAFT, mergeTargetId: null };
+const RELATED = { id: 'related', subject: 'release day', content: 'Tuesday' };
 
 function fakeInner(): ICuratorLLM & {
   extract: jest.Mock;
@@ -108,13 +109,32 @@ describe('RecordedCuratorLlm', () => {
     const recorder = recordInto(path, inner);
 
     await expect(recorder.extract(TRANSCRIPT)).resolves.toEqual(EXTRACTION);
-    await expect(recorder.resolve([DRAFT], [])).resolves.toEqual([RESOLVED]);
+    await expect(recorder.resolve([DRAFT], [RELATED])).resolves.toEqual([
+      RESOLVED,
+    ]);
     expect(inner.extract).toHaveBeenCalledTimes(1);
     expect(inner.resolve).toHaveBeenCalledTimes(1);
 
     const replayer = replayFrom(path);
     await expect(replayer.extract(TRANSCRIPT)).resolves.toEqual(EXTRACTION);
-    await expect(replayer.resolve([DRAFT], [])).resolves.toEqual([RESOLVED]);
+    await expect(replayer.resolve([DRAFT], [RELATED])).resolves.toEqual([
+      RESOLVED,
+    ]);
+  });
+
+  it('does not record a resolve that the real curator short-circuits', async () => {
+    const path = cassette('model-free-resolve');
+    const inner = fakeInner();
+    const recorder = recordInto(path, inner);
+
+    await expect(recorder.resolve([DRAFT], [])).resolves.toEqual([RESOLVED]);
+    await expect(recorder.resolve([], [RELATED])).resolves.toEqual([]);
+
+    expect(inner.resolve).not.toHaveBeenCalled();
+    expect(existsSync(path)).toBe(false);
+    await expect(replayFrom(path).resolve([DRAFT], [])).resolves.toEqual([
+      RESOLVED,
+    ]);
   });
 
   it('retains a redacted full cause chain when the live inner curator fails', async () => {
@@ -238,12 +258,12 @@ describe('RecordedCuratorLlm', () => {
     const path = cassette('call-counts');
     const recorder = recordInto(path, fakeInner());
     await recorder.extract(TRANSCRIPT);
-    await recorder.resolve([DRAFT], []);
+    await recorder.resolve([DRAFT], [RELATED]);
     expect(recorder.callCounts()).toEqual({ extract: 1, resolve: 1 });
 
     const replayer = replayFrom(path);
     await replayer.extract(TRANSCRIPT);
-    await replayer.resolve([DRAFT], []);
+    await replayer.resolve([DRAFT], [RELATED]);
     expect(replayer.callCounts()).toEqual({ extract: 1, resolve: 1 });
   });
 

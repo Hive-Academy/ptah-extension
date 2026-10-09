@@ -215,7 +215,9 @@ describe('staged cassette sidecar', () => {
       cassette,
       `${JSON.stringify({ key: 'k', method: 'extract', model: 'gpt-5.6-terra', promptSha: 'ab', response: {} })}\n`,
     );
-    expect(readStagedCassetteEntries(cassette)).toEqual([{ key: 'k' }]);
+    expect(readStagedCassetteEntries(cassette)).toEqual([
+      { key: 'k', method: 'extract' },
+    ]);
     writeProvenanceSidecar(
       cassette,
       'memory-curator',

@@ -100,6 +100,8 @@ export const HOST_NET_RECORDER_LOG = 'net-recorder.log';
 export const HOST_LOG_FILE = 'host.log';
 /** Redacted fatal error retained when boot or readiness prevents completion. */
 export const HOST_ERROR_FILE = 'host-error.txt';
+/** Redacted staged-cassette diagnostics retained when record acceptance fails. */
+export const RECORDING_REJECTION_FILE = 'recording-rejection.json';
 export const SDK_READINESS_TIMEOUT_MS = 60_000;
 export const SDK_READINESS_POLL_MS = 50;
 
@@ -644,11 +646,6 @@ function acceptRecording(input: {
   readonly provenance: DispatchProvenanceCollector | undefined;
   readonly codexAuth: IsolatedCodexAuth | undefined;
 }): void {
-  if (input.provenance === undefined) {
-    throw new RecordingRejectedError(
-      'record mode did not register the provenance tap',
-    );
-  }
   const sides: readonly {
     readonly component: ModelDispatchProvenance['component'];
     readonly path: string;
@@ -666,10 +663,17 @@ function acceptRecording(input: {
     },
   ];
   const paths = sides.map((side) => side.path);
+  if (input.provenance === undefined) {
+    writeRecordingRejection(input.plan, []);
+    throw new RecordingRejectedError(
+      'record mode did not register the provenance tap',
+    );
+  }
   const problems: string[] = [];
   const staged: {
     component: ModelDispatchProvenance['component'];
     path: string;
+    model: string;
     entries: ReturnType<typeof readStagedCassetteEntries>;
     dispatches: readonly ModelDispatchProvenance[];
   }[] = [];
@@ -689,11 +693,15 @@ function acceptRecording(input: {
       staged.push({
         component: side.component,
         path: side.path,
+        model: side.model,
         entries,
         dispatches,
       });
     }
   } catch (error: unknown) {
+    if (error instanceof RecordingRejectedError) {
+      writeRecordingRejection(input.plan, staged);
+    }
     discardStagedCassettes(paths);
     throw error;
   }
@@ -703,10 +711,56 @@ function acceptRecording(input: {
     );
   }
   if (problems.length > 0) {
+    writeRecordingRejection(input.plan, staged);
     discardStagedCassettes(paths);
     throw new RecordingRejectedError(problems.join('; '));
   }
   commitProvenanceSidecars(staged);
+}
+
+/**
+ * Retain only the shape needed to diagnose a rejected recording. In
+ * particular, never retain prompts, responses, model text, or full keys.
+ */
+function writeRecordingRejection(
+  plan: MemorySkillsPlan,
+  staged: readonly {
+    readonly component: ModelDispatchProvenance['component'];
+    readonly model: string;
+    readonly entries: ReturnType<typeof readStagedCassetteEntries>;
+    readonly dispatches: readonly ModelDispatchProvenance[];
+  }[],
+): void {
+  const entries = staged.flatMap((side) => {
+    const maxPerEntry = side.component === 'skill-lane' ? 2 : 1;
+    return side.entries.map((entry, index) => ({
+      component: side.component,
+      operation:
+        entry.method === 'extract' || entry.method === 'resolve'
+          ? entry.method
+          : 'unknown',
+      keyPrefix: entry.key.slice(0, 12),
+      matchingDispatch: side.dispatches
+        .slice(index * maxPerEntry, (index + 1) * maxPerEntry)
+        .some((dispatch) => {
+          const expected = expectedRouteFor(
+            dispatch,
+            plan.settings,
+            side.model,
+          );
+          return (
+            dispatch.component === side.component &&
+            dispatch.resolvedProviderId === expected.providerId &&
+            dispatch.resolvedModelId === expected.modelId
+          );
+        }),
+    }));
+  });
+  writeFileSync(
+    join(plan.runDir, RECORDING_REJECTION_FILE),
+    `${JSON.stringify({ schemaId: '620.recording-rejection.v1', entries })}\n`,
+    'utf8',
+  );
 }
 
 function authFileChanged(auth: IsolatedCodexAuth): boolean {

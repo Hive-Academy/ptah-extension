@@ -199,8 +199,20 @@ export class RecordedCuratorLlm implements ICuratorLLM {
       if (fault) {
         return fault.resolves(key);
       }
+      if (drafts.length === 0) return [];
+      if (related.length === 0) {
+        return drafts.map((draft) => ({ ...draft, mergeTargetId: null }));
+      }
       return this.options.store.lookup('resolve', key)
         .response as readonly ResolvedMemoryDraft[];
+    }
+    // The live SDK curator deliberately does not dispatch for either of these
+    // cases (SdkInternalQueryCuratorLlm.resolve).  Recording that deterministic
+    // result would manufacture a model cassette entry with no provider request
+    // for the provenance gate to attest.
+    if (drafts.length === 0) return [];
+    if (related.length === 0) {
+      return drafts.map((draft) => ({ ...draft, mergeTargetId: null }));
     }
     const response = await this.callInner(() =>
       this.requireInner().resolve(drafts, related, signal, options),

@@ -59,6 +59,8 @@ export class RecordingRejectedError extends Error {
 
 export interface StagedCassetteEntry {
   readonly key: string;
+  /** Cassette operation, retained only for redacted rejection diagnostics. */
+  readonly method?: string;
 }
 
 /** `<cassette path>.provenance.json`, beside the staged cassette. */
@@ -83,16 +85,18 @@ export function readStagedCassetteEntries(
         `staged cassette ${path} has a line that is not JSON`,
       );
     }
+    const entry = parsed as { key?: unknown; method?: unknown };
     const key =
-      parsed !== null && typeof parsed === 'object'
-        ? (parsed as { key?: unknown }).key
-        : undefined;
+      parsed !== null && typeof parsed === 'object' ? entry.key : undefined;
     if (typeof key !== 'string' || key.length === 0) {
       throw new RecordingRejectedError(
         `staged cassette ${path} has an entry with no key`,
       );
     }
-    entries.push({ key });
+    entries.push({
+      key,
+      method: typeof entry.method === 'string' ? entry.method : 'unknown',
+    });
   }
   return entries;
 }

@@ -41,6 +41,7 @@ import {
   HOST_COMPLETION_FILE,
   HOST_ERROR_FILE,
   HOST_LOG_FILE,
+  RECORDING_REJECTION_FILE,
   retainHostLog,
   runMemorySkillsHost,
   type HostCompletion,
@@ -862,6 +863,19 @@ describe('runMemorySkillsHost', () => {
     expect(existsSync(curatorPath)).toBe(false);
     expect(existsSync(`${curatorPath}.provenance.json`)).toBe(false);
     expect(existsSync(join(runDir, HOST_COMPLETION_FILE))).toBe(false);
+    expect(
+      JSON.parse(readFileSync(join(runDir, RECORDING_REJECTION_FILE), 'utf8')),
+    ).toEqual({
+      schemaId: '620.recording-rejection.v1',
+      entries: [
+        {
+          component: 'memory-curator',
+          operation: 'extract',
+          keyPrefix: 'k1',
+          matchingDispatch: false,
+        },
+      ],
+    });
   });
 
   it('discards a staged cassette when the isolated auth file changes', async () => {
