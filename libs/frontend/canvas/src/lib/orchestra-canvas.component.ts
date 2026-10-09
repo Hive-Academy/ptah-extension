@@ -83,7 +83,7 @@ import type { CanvasLayoutPreset } from './canvas-layout-intent';
       @if (canvasStore.tiles().length > 0) {
         <!-- Reserved canvas control dock outside measured session viewport -->
         <div
-          class="canvas-dock flex items-center gap-2 px-3 py-1.5 border-b border-base-content/10 shrink-0 bg-base-200/50 backdrop-blur-sm z-20"
+          class="canvas-dock flex items-center gap-2 px-3 py-1.5 border-b border-surface-border shrink-0 bg-surface-1 backdrop-blur-sm z-20"
           data-testid="canvas-dock"
         >
           <!--
@@ -135,10 +135,7 @@ import type { CanvasLayoutPreset } from './canvas-layout-intent';
                 <span class="text-xs font-medium">New Session</span>
               </button>
 
-              <div
-                content
-                class="p-4 w-72 bg-base-200 border border-base-content/10 rounded-xl shadow-lg"
-              >
+              <div content class="surface-3 p-4 w-72 rounded-xl">
                 <h3 class="text-sm font-semibold mb-3 text-base-content-muted">
                   New Session
                 </h3>
@@ -208,9 +205,7 @@ import type { CanvasLayoutPreset } from './canvas-layout-intent';
         <div
           class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50"
         >
-          <div
-            class="p-4 w-72 bg-base-200 border border-base-content/10 rounded-xl shadow-lg"
-          >
+          <div class="surface-3 p-4 w-72 rounded-xl">
             <h3 class="text-sm font-semibold mb-3 text-base-content-muted">
               New Session
             </h3>
@@ -422,9 +417,7 @@ export class OrchestraCanvasComponent implements OnDestroy {
     effect(() => {
       const pending = this.appState.canvasTabRequests();
       if (pending.length === 0) return;
-      const requests = untracked(() =>
-        this.appState.takeCanvasTabRequests(),
-      );
+      const requests = untracked(() => this.appState.takeCanvasTabRequests());
       const activeWorkspacePath = this.canvasStore.activeWorkspacePath() ?? '';
       for (const req of requests) {
         if ((req.workspacePath ?? '') !== activeWorkspacePath) continue;

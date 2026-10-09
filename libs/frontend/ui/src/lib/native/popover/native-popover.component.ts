@@ -90,7 +90,7 @@ import { DEFAULT_OVERLAY_OFFSET, FloatingUIService } from '../shared';
       <!-- Floating content - starts hidden until positioned -->
       <div
         #floatingRef
-        class="popover-panel bg-base-200 border border-base-300 rounded-lg shadow-xl z-50"
+        class="popover-panel surface-3 z-50 rounded-xl p-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[oklch(var(--s))]"
         style="visibility: hidden;"
         tabindex="-1"
       >

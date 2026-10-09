@@ -1,7 +1,7 @@
 <dialog class="modal" [class.modal-open]="!!session()">
   @if (session(); as s) {
     <div
-      class="modal-box max-w-2xl border border-base-content/10"
+      class="modal-box surface-3 max-w-2xl"
       role="dialog"
       [attr.aria-label]="'Session details: ' + s.name"
       [attr.aria-busy]="s.status === 'pending'"
@@ -53,19 +53,19 @@
 
       <!-- Timeline -->
       <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-4">
-        <div class="bg-base-200/50 rounded-lg px-3 py-2 border border-base-content/10">
+        <div class="bg-surface-2 rounded-lg p-3 border border-surface-border">
           <div class="text-[10px] uppercase tracking-wider text-base-content-muted mb-0.5">
             Created
           </div>
           <div class="text-xs font-medium">{{ formatFullDate(s.createdAt) }}</div>
         </div>
-        <div class="bg-base-200/50 rounded-lg px-3 py-2 border border-base-content/10">
+        <div class="bg-surface-2 rounded-lg p-3 border border-surface-border">
           <div class="text-[10px] uppercase tracking-wider text-base-content-muted mb-0.5">
             Last Activity
           </div>
           <div class="text-xs font-medium">{{ formatFullDate(s.lastActivityAt) }}</div>
         </div>
-        <div class="bg-base-200/50 rounded-lg px-3 py-2 border border-base-content/10">
+        <div class="bg-surface-2 rounded-lg p-3 border border-surface-border">
           <div class="text-[10px] uppercase tracking-wider text-base-content-muted mb-0.5">
             Active Duration
           </div>
@@ -75,7 +75,7 @@
 
       <!-- Primary metrics -->
       <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-3">
-        <div class="bg-base-200/50 rounded-lg px-3 py-2.5 border border-success/20" [title]="estimateLabel">
+        <div class="bg-surface-2 rounded-lg p-3 border border-success/20" [title]="estimateLabel">
           <div class="text-[10px] uppercase tracking-wider text-base-content-muted mb-1">
             Est. Total Cost
           </div>
@@ -91,7 +91,7 @@
             {{ costText() }}
           </div>
         </div>
-        <div class="bg-base-200/50 rounded-lg px-3 py-2.5 border border-cyan-600/20">
+        <div class="bg-surface-2 rounded-lg p-3 border border-cyan-600/20">
           <div class="text-[10px] uppercase tracking-wider text-base-content-muted mb-1">
             Total Tokens
           </div>
@@ -99,7 +99,7 @@
             {{ formatTokenCount(totalTokens()) }}
           </div>
         </div>
-        <div class="bg-base-200/50 rounded-lg px-3 py-2.5 border border-info/20">
+        <div class="bg-surface-2 rounded-lg p-3 border border-info/20">
           <div class="text-[10px] uppercase tracking-wider text-base-content-muted mb-1">
             Messages
           </div>
@@ -107,7 +107,7 @@
             {{ s.messageCount }}
           </div>
         </div>
-        <div class="bg-base-200/50 rounded-lg px-3 py-2.5 border border-base-content/15">
+        <div class="bg-surface-2 rounded-lg p-3 border border-base-content/15">
           <div class="text-[10px] uppercase tracking-wider text-base-content-muted mb-1">
             Cost / Msg
           </div>
@@ -140,7 +140,7 @@
             <span class="tabular-nums text-base-content-muted">{{ formatTokenCount(totalTokens()) }}</span>
           </div>
           <div
-            class="flex h-2.5 w-full rounded-full overflow-hidden bg-base-300/40"
+            class="flex h-2.5 w-full rounded-full overflow-hidden bg-surface-0"
             role="img"
             aria-label="Token composition breakdown"
           >
@@ -171,7 +171,7 @@
 
       <!-- Per-model usage (always shown when present) -->
       @if (s.modelUsageList.length > 0) {
-        <div class="mt-4 space-y-1.5 border-t border-base-300/60 pt-3">
+        <div class="mt-4 space-y-1.5 border-t border-surface-border pt-3">
           <div class="text-[11px] uppercase tracking-wider text-base-content-muted">
             Per-Model Usage
           </div>
@@ -196,7 +196,7 @@
         s.tokens.cacheRead > 0 ||
         s.tokens.cacheCreation > 0
       ) {
-        <div class="mt-4 flex items-center flex-wrap gap-2 border-t border-base-300/60 pt-3">
+        <div class="mt-4 flex items-center flex-wrap gap-2 border-t border-surface-border pt-3">
           @if (s.agentSessionCount > 0) {
             <span class="badge badge-sm gap-1 border-info/30 text-info bg-info/10">
               <lucide-angular [img]="BotIcon" class="w-3 h-3" aria-hidden="true"></lucide-angular>

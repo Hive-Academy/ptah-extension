@@ -17,7 +17,10 @@ import {
   Zap,
 } from 'lucide-angular';
 import type { SavedAnalysisMetadata } from '@ptah-extension/shared';
-import { AppStateManager, ModelStateService } from '@ptah-extension/core';
+import {
+  ModelStateService,
+  ProvidersSettingsStateService,
+} from '@ptah-extension/core';
 import { SetupWizardStateService } from '../services/setup-wizard-state.service';
 import { WizardRpcService } from '../services/wizard-rpc.service';
 
@@ -141,34 +144,63 @@ import { WizardRpcService } from '../services/wizard-rpc.service';
           </div>
 
           <!-- Model Selection -->
-          @if (modelState.availableModels().length > 0) {
-            <div class="max-w-sm mx-auto mb-4 text-left">
-              <label
-                for="wizard-model-select"
-                class="text-xs font-semibold text-base-content-muted mb-1.5 block"
-              >
-                Analysis model
-              </label>
-              <p>{{ modelState.currentModel() }}</p>
-              <button type="button" class="btn btn-outline min-h-9 focus-visible:outline-2" (click)="manageModel()">Manage model in Providers</button>
-              @if (modelState.currentModelInfo(); as info) {
-                <div
-                  class="mt-2 rounded-md border border-base-300 bg-base-200/40 px-3 py-2"
-                >
-                  @if (info.description) {
-                    <p class="text-xs text-base-content-muted">
-                      {{ info.description }}
-                    </p>
-                  }
-                  @if (info.providerModelId) {
-                    <p class="text-[11px] font-mono text-accent mt-1 truncate">
-                      {{ info.providerModelId }}
-                    </p>
-                  }
-                </div>
+          <div class="max-w-sm mx-auto mb-4 text-left">
+            <label
+              for="wizard-model-select"
+              class="text-xs font-semibold text-base-content-muted mb-1.5 block"
+            >
+              Analysis model
+            </label>
+            <select
+              id="wizard-provider-select"
+              class="select select-bordered select-sm w-full"
+              [value]="providers.activeProviderId()"
+              [disabled]="
+                providers.connections().status !== 'ready' ||
+                connectedProviders().length === 0 ||
+                providerSaving()
+              "
+              (change)="onProviderChange($event)"
+            >
+              @for (provider of connectedProviders(); track provider.id) {
+                <option [value]="provider.id">{{ provider.name }}</option>
               }
-            </div>
-          }
+            </select>
+            <label for="wizard-model-select" class="sr-only"
+              >Analysis model</label
+            >
+            <select
+              id="wizard-model-select"
+              class="select select-bordered select-sm mt-2 w-full"
+              [value]="modelState.currentModel()"
+              [disabled]="
+                modelState.availableModels().length === 0 ||
+                modelState.isPending() ||
+                providerSaving()
+              "
+              (change)="onModelChange($event)"
+            >
+              @for (model of modelState.availableModels(); track model.id) {
+                <option [value]="model.id">{{ model.name || model.id }}</option>
+              }
+            </select>
+            @if (modelState.currentModelInfo(); as info) {
+              <div
+                class="mt-2 rounded-md border border-base-300 bg-base-200/40 px-3 py-2"
+              >
+                @if (info.description) {
+                  <p class="text-xs text-base-content-muted">
+                    {{ info.description }}
+                  </p>
+                }
+                @if (info.providerModelId) {
+                  <p class="text-[11px] font-mono text-accent mt-1 truncate">
+                    {{ info.providerModelId }}
+                  </p>
+                }
+              </div>
+            }
+          </div>
 
           <!-- CTA Button -->
           <div class="text-center mb-4">
@@ -294,6 +326,7 @@ export class WelcomeComponent implements OnInit {
   private readonly wizardState = inject(SetupWizardStateService);
   private readonly wizardRpc = inject(WizardRpcService);
   protected readonly modelState = inject(ModelStateService);
+  protected readonly providers = inject(ProvidersSettingsStateService);
 
   protected readonly SearchIcon = Search;
   protected readonly BotIcon = Bot;
@@ -308,9 +341,15 @@ export class WelcomeComponent implements OnInit {
   protected readonly isLoadingAnalyses = signal(false);
   protected readonly isLoadingAnalysis = signal(false);
   protected readonly loadingFilename = signal<string | null>(null);
+  protected readonly providerSaving = signal(false);
+  protected readonly connectedProviders = () =>
+    (this.providers.connections().data ?? []).filter(
+      (provider) => provider.configured,
+    );
 
   public ngOnInit(): void {
     this.loadSavedAnalyses();
+    void this.providers.open();
   }
 
   private async loadSavedAnalyses(): Promise<void> {
@@ -332,10 +371,35 @@ export class WelcomeComponent implements OnInit {
     this.wizardState.setCurrentStep('scan');
   }
 
-  private readonly appState = inject(AppStateManager);
-  protected manageModel(): void {
-    this.appState.requestSettingsTab({ tab: 'providers', section: 'main-model' });
-    this.appState.setCurrentView('settings');
+  protected async onProviderChange(event: Event): Promise<void> {
+    const providerId = (event.target as HTMLSelectElement).value;
+    const context = this.providers.reviewContext();
+    if (
+      !providerId ||
+      !context ||
+      providerId === this.providers.activeProviderId()
+    )
+      return;
+    this.providerSaving.set(true);
+    try {
+      const saved = await this.providers.activateConnection(
+        providerId,
+        'global',
+        context,
+      );
+      if (saved) {
+        await Promise.all([
+          this.providers.refreshRoute(),
+          this.modelState.refreshModels(),
+        ]);
+      }
+    } finally {
+      this.providerSaving.set(false);
+    }
+  }
+
+  protected onModelChange(event: Event): void {
+    void this.modelState.switchModel((event.target as HTMLSelectElement).value);
   }
 
   protected async onUseAnalysis(

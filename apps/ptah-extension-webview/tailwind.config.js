@@ -29,6 +29,11 @@ module.exports = {
          * "fails contrast".
          */
         'base-content-muted': 'oklch(var(--bcm, var(--bc)) / <alpha-value>)',
+        'surface-0': 'var(--surface-0)',
+        'surface-1': 'var(--surface-1)',
+        'surface-2': 'var(--surface-2)',
+        'surface-3': 'var(--surface-3)',
+        'surface-border': 'var(--surface-border)',
       },
       fontFamily: {
         sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],

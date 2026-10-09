@@ -140,16 +140,18 @@ export interface ClosedTabEvent {
 }
 
 /**
- * The `sessionBudget` part of an accepted snapshot's tab update. An absent
- * budget leaves the tab's last budget in place. `null` is the explicit marker
- * that the backend has no budget for this snapshot, so it clears the last one.
+ * The `sessionBudget` part of an accepted snapshot's tab update. An omitted
+ * budget is a degraded/no-update result and keeps the last card; `null` is the
+ * explicit no-state marker used to clear a card restored after a host reload.
  */
 function budgetPatch(
   snapshot: SessionStatsEntry,
   budget: SessionBudgetState | null | undefined,
-): { sessionBudget?: SessionBudgetState | null } {
-  if (budget === null) return { sessionBudget: null };
-  return budget?.sessionId === snapshot.sessionId ? { sessionBudget: budget } : {};
+): Partial<Pick<TabState, 'sessionBudget'>> {
+  if (budget === undefined) return {};
+  return budget?.sessionId === snapshot.sessionId
+    ? { sessionBudget: budget }
+    : { sessionBudget: null };
 }
 
 /**
@@ -2244,7 +2246,7 @@ export class TabManagerService {
    * delayed history read must not regress the panel.
    *
    * `budget` is the session budget computed from this snapshot. It installs in
-   * the same update and is dropped with it; an absent budget keeps the last.
+   * the same update and is dropped with it; an absent budget clears the last.
    */
   installSessionStats(
     tabId: string,
@@ -2268,6 +2270,13 @@ export class TabManagerService {
     const tab = this.findTabByIdAcrossWorkspaces(tabId)?.tab;
     if (!tab || tab.claudeSessionId !== budget.sessionId) return;
     this.updateTabInternal(tabId, { sessionBudget: budget });
+  }
+
+  /** Clear a tab's budget only when it still belongs to the expected session. */
+  clearSessionBudget(tabId: string, sessionId: string): void {
+    const tab = this.findTabByIdAcrossWorkspaces(tabId)?.tab;
+    if (!tab || tab.claudeSessionId !== sessionId) return;
+    this.updateTabInternal(tabId, { sessionBudget: null });
   }
 
   /**
