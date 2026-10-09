@@ -62,7 +62,7 @@ type SwitchMode = Pick<GitCheckoutParams, 'stash' | 'force'>;
         role="dialog"
         aria-label="Branch picker"
         data-testid="branch-picker"
-        class="absolute top-full left-0 z-50 mt-1 min-w-72 rounded border border-base-content/10 bg-base-200 shadow-lg"
+        class="surface-3 absolute top-full left-0 z-50 mt-1 min-w-72 rounded"
       >
         <input
           class="input input-xs m-2 w-[calc(100%-1rem)] focus-visible:outline-[oklch(var(--s))]"

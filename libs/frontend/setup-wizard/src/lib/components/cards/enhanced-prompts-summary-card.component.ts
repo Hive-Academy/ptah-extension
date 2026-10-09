@@ -30,7 +30,7 @@ import type { EnhancedPromptsSummary } from '@ptah-extension/shared';
   imports: [LucideAngularModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="card bg-base-200/50 border border-base-300">
+    <div class="card surface-2">
       <div class="card-body p-3">
         <!-- Header -->
         <div class="flex items-center gap-2 mb-2">

@@ -135,7 +135,7 @@ const SKILL_DEPENDENT_MOVES: ReadonlySet<TribunalMove> = new Set<TribunalMove>([
 
       @if (blockedReasonFor('crucible')) {
         <div
-          class="flex items-start gap-2 rounded-lg border border-base-300 bg-base-200/40 px-3 py-2 text-xs text-base-content-muted"
+          class="surface-2 flex items-start gap-2 rounded-lg px-3 py-2 text-xs text-base-content-muted"
           role="note"
         >
           <span class="flex-1">
