@@ -75,32 +75,23 @@ describe('FloatingUIService', () => {
       ).toBe('fixed');
     });
 
-    it('shifts the panel back when an ancestor is its containing block (it renders off the computed point)', async () => {
-      mockedCompute.mockResolvedValueOnce({ x: 300, y: 400 });
-      // Rendered 500 px higher and 20 px further left than computed, as under a containing-block ancestor.
-      floating.getBoundingClientRect = () =>
-        ({ left: 280, top: -100, width: 304, height: 237 }) as DOMRect;
+    it('positions the panel as fixed before it computes (floating-ui reads the containing block)', async () => {
+      mockedCompute.mockImplementationOnce(async () => {
+        expect(floating.style.position).toBe('fixed');
+        return { x: 0, y: 0 };
+      });
       await service.position(reference, floating);
-      expect(floating.style.left).toBe('320px');
-      expect(floating.style.top).toBe('900px');
+      expect(mockedCompute).toHaveBeenCalledTimes(1);
     });
 
-    it('makes floating-ui compute against the window, even under a containing-block ancestor it detects', async () => {
+    it('writes the computed point unchanged', async () => {
       mockedCompute.mockResolvedValueOnce({ x: 300, y: 400 });
-      const containingBlock = document.createElement('div');
-      containingBlock.style.transform = 'translateX(280px)';
-      containingBlock.appendChild(floating);
-      document.body.appendChild(containingBlock);
+      // Rendered elsewhere, as under a containing block floating-ui already accounted for: no second move.
+      floating.getBoundingClientRect = () =>
+        ({ left: 580, top: 500, width: 304, height: 237 }) as DOMRect;
       await service.position(reference, floating);
-      const config = (
-        mockedCompute.mock.calls[0] as [
-          unknown,
-          unknown,
-          { platform: FloatingDom.Platform },
-        ]
-      )[2];
-      expect(await config.platform.getOffsetParent?.(floating)).toBe(window);
-      containingBlock.remove();
+      expect(floating.style.left).toBe('300px');
+      expect(floating.style.top).toBe('400px');
     });
 
     it('should compute position with default options', async () => {

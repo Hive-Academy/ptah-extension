@@ -32,16 +32,8 @@ import {
   shift,
   offset,
   autoUpdate,
-  platform,
   Placement,
-  Platform,
 } from '@floating-ui/dom';
-
-/** floating-ui's DOM platform with the window as every offset parent, so it always returns viewport coordinates. */
-const VIEWPORT_PLATFORM: Platform = {
-  ...platform,
-  getOffsetParent: () => window,
-};
 
 /**
  * Configuration options for positioning floating elements.
@@ -142,15 +134,12 @@ export class FloatingUIService {
       ...(enableFlip ? [flip()] : []),
       ...(enableShift ? [shift({ padding: shiftPadding })] : []),
     ];
-    // `fixed` matches the `position: fixed` that applyPosition writes. The window as offset parent keeps `x`/`y`
-    // in viewport coordinates even when floating-ui detects a containing-block ancestor: applyPosition measures
-    // the frame the browser really uses, which can differ from the one floating-ui would assume.
-    const config = {
-      placement,
-      middleware,
-      strategy: 'fixed' as const,
-      platform: VIEWPORT_PLATFORM,
-    };
+    // `fixed` matches the `position: fixed` that applyPosition writes: with the default `absolute`, `x`/`y` carry
+    // the page scroll, and a scrolled page put the CLI matrix Cursor panel hundreds of px off. Set it first:
+    // floating-ui resolves a fixed element's offset parent from its containing block (a modal box's transform),
+    // any other element's from its offsetParent.
+    floatingEl.style.position = 'fixed';
+    const config = { placement, middleware, strategy: 'fixed' as const };
     const { x, y } = await computePosition(referenceEl, floatingEl, config);
     if (this.isDestroyed) return;
     this.applyPosition(floatingEl, x, y);
@@ -172,18 +161,6 @@ export class FloatingUIService {
       top: `${y}px`,
       visibility: 'visible',
     });
-    // `x`/`y` are viewport coordinates, but a containing-block ancestor offsets a fixed element: the CLI matrix
-    // host's `container-type` (floating-ui misses it) or a modal box's transform. Measure where the panel really
-    // is and shift it by the difference.
-    const rect = floatingEl.getBoundingClientRect();
-    // No box (hidden, or no layout engine as in JSDOM): nothing to measure.
-    if (rect.width === 0 && rect.height === 0) return;
-    const dx = rect.left - x;
-    const dy = rect.top - y;
-    if (Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5) {
-      floatingEl.style.left = `${x - dx}px`;
-      floatingEl.style.top = `${y - dy}px`;
-    }
   }
 
   /**
