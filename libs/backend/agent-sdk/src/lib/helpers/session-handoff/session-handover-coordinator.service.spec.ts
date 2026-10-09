@@ -239,6 +239,28 @@ describe('SessionHandoverCoordinator', () => {
     expect(coordinator.transferInputs('source')).toEqual([]);
   });
 
+  it('reports late inputs as lost when their delivery throws after the source closed', async () => {
+    const { coordinator, host, runtime } = makeHarness();
+    runtime.closeIfTokenMatches.mockImplementationOnce(async () => {
+      coordinator.admitOrHold('source', { content: 'sent during close' });
+      return true;
+    });
+    host.deliverTransferInputs
+      .mockResolvedValueOnce({ delivered: true })
+      .mockRejectedValueOnce(new Error('successor gone'));
+    coordinator.begin('source', 'successor', false);
+
+    await flush();
+    await flush();
+    await flush();
+
+    const state = coordinator.snapshotFor('source');
+    expect(state?.phase).toBe('closed');
+    expect(state?.lostInputCount).toBe(1);
+    expect(state?.lostInputTexts).toEqual(['sent during close']);
+    expect(coordinator.transferInputs('source')).toEqual([]);
+  });
+
   it('clears the lost-input error when a cancel retries the restore successfully', async () => {
     const { coordinator, host, runtime } = makeHarness();
     host.startSuccessorSession.mockResolvedValueOnce({ started: false, error: 'start' });

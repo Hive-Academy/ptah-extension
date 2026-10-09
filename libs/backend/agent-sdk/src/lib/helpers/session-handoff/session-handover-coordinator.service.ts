@@ -583,16 +583,21 @@ export class SessionHandoverCoordinator {
     operation: Operation,
   ): Promise<void> {
     const lateInputs = [...operation.inputs];
-    const delivered = await successorHost.deliverTransferInputs(
-      operation.id,
-      lateInputs,
-    );
-    if (delivered.delivered) {
-      operation.inputs.splice(0, lateInputs.length);
-    } else {
+    let delivered = false;
+    try {
+      delivered = (
+        await successorHost.deliverTransferInputs(operation.id, lateInputs)
+      ).delivered;
+    } catch {
+      // The source is already closed, so a throw is a failed delivery: the
+      // inputs are reported as lost below instead of failing a closed handover.
+      delivered = false;
+    }
+    if (!delivered) {
       operation.lostInputCount = lateInputs.length;
       operation.lostInputTexts = this.boundedLostInputTexts(lateInputs);
     }
+    operation.inputs.splice(0, lateInputs.length);
     operation.revision += 1;
     this.publish(operation);
   }
