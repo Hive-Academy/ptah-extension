@@ -155,6 +155,8 @@ export class SessionRpcHandlers {
     'session:status',
   ] as const satisfies readonly RpcMethodName[];
 
+  private readonly reportedCorruptSessionIds = new Set<string>();
+
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
@@ -449,13 +451,23 @@ export class SessionRpcHandlers {
             let id: SessionId;
             try {
               id = SessionId.from(s.sessionId);
-            } catch (parseError) {
-              this.logger.error(
-                'RPC: session:list skipping row with corrupt sessionId',
-                parseError instanceof Error
-                  ? parseError
-                  : new Error(String(parseError)),
-              );
+            } catch (parseError: unknown) {
+              // degradation-audit: optional-capability - rows imported from
+              // non-session files before the importer checked ids. Harmless,
+              // so each is reported once, not on every list.
+              if (!this.reportedCorruptSessionIds.has(s.sessionId)) {
+                this.reportedCorruptSessionIds.add(s.sessionId);
+                this.logger.warn(
+                  'RPC: session:list skipping row with an invalid sessionId',
+                  {
+                    sessionId: s.sessionId,
+                    reason:
+                      parseError instanceof Error
+                        ? parseError.message
+                        : String(parseError),
+                  },
+                );
+              }
               return [];
             }
             const livePhase = this.turnState.get(s.sessionId)?.phase;

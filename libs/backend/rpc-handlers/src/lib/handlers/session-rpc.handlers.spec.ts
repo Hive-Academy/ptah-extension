@@ -903,15 +903,23 @@ describe('SessionRpcHandlers', () => {
       expect(result.total).toBe(2);
       expect(result.sessions).toHaveLength(1);
       expect(result.sessions[0].id).toBe(okId);
-      // The corrupt row is logged at error-level for observability.
-      const errorMessages = (h.logger.error as jest.Mock).mock.calls.map(
-        ([msg]) => msg as string,
-      );
-      expect(
-        errorMessages.some((m) =>
-          m.includes('session:list skipping row with corrupt sessionId'),
+      // Reported once per id at warn level, not on every list call.
+      await call(h, 'session:list', { workspacePath: WORKSPACE });
+      const warns = (h.logger.warn as jest.Mock).mock.calls.filter(([msg]) =>
+        String(msg).includes(
+          'session:list skipping row with an invalid sessionId',
         ),
-      ).toBe(true);
+      );
+      expect(warns).toEqual([
+        [
+          'RPC: session:list skipping row with an invalid sessionId',
+          {
+            sessionId: 'tab_legacy_format',
+            reason: 'Invalid SessionId format: tab_legacy_format',
+          },
+        ],
+      ]);
+      expect(h.logger.error).not.toHaveBeenCalled();
     });
 
     it('wraps metadataStore errors with "Failed to list sessions:" and reports to Sentry', async () => {
