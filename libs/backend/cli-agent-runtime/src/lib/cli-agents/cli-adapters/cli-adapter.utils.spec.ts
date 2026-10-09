@@ -99,7 +99,7 @@ describe('buildTaskPrompt', () => {
   const toolPolicy =
     'Tool policy: prefer direct `ptah_*` tools over `execute_code`. `ptah.files` is read-only; use native CLI write/edit tools for file creation or edits, never `execute_code`.\n' +
     'Cost policy — every tool call resends the whole thread, so finish in as few calls as possible:\n' +
-    '- Verify only the projects you changed (`-p <project>`); never a workspace-wide test, lint or build.\n' +
+    '- Verify only changed projects: `nx test <project>`, `nx affected -t test`, or changed Jest specs; never workspace-wide, build, serve, dev or e2e unless asked. Use Nx `--parallel=1`, Jest `--maxWorkers=2` (or 50%), one heavy foreground run at a time.\n' +
     '- Keep tool output small: filter or tail command output, never paste a full test or build log into the thread, and never re-run a failed suite just to re-read its output.\n' +
     '- For a long command: run it once in the foreground with a long timeout, or in the background with ONE completion check. Never a wait/status loop.\n' +
     '- Prefer AST/summary tools and targeted reads over whole-file reads.';
@@ -168,7 +168,7 @@ describe('buildTaskPrompt', () => {
 
         Tool policy: prefer direct \`ptah_*\` tools over \`execute_code\`. \`ptah.files\` is read-only; use native CLI write/edit tools for file creation or edits, never \`execute_code\`.
         Cost policy — every tool call resends the whole thread, so finish in as few calls as possible:
-        - Verify only the projects you changed (\`-p <project>\`); never a workspace-wide test, lint or build.
+        - Verify only changed projects: \`nx test <project>\`, \`nx affected -t test\`, or changed Jest specs; never workspace-wide, build, serve, dev or e2e unless asked. Use Nx \`--parallel=1\`, Jest \`--maxWorkers=2\` (or 50%), one heavy foreground run at a time.
         - Keep tool output small: filter or tail command output, never paste a full test or build log into the thread, and never re-run a failed suite just to re-read its output.
         - For a long command: run it once in the foreground with a long timeout, or in the background with ONE completion check. Never a wait/status loop.
         - Prefer AST/summary tools and targeted reads over whole-file reads.

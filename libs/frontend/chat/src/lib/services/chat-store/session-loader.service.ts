@@ -106,7 +106,7 @@ function compareCodeUnits(a: string, b: string): number {
 }
 
 interface SwitchSessionOptions {
-  reason?: 'compaction';
+  reason?: 'compaction' | 'resync';
   activate?: boolean;
   targetTabId?: TabId;
 }
@@ -776,7 +776,7 @@ export class SessionLoaderService {
 
     const existingTab =
       targetedTab ?? this.tabManager.findTabBySessionId(sessionId);
-    if (opts?.reason !== 'compaction' && existingTab?.hasLiveSession) {
+    if (opts?.reason !== 'compaction' && opts?.reason !== 'resync' && existingTab?.hasLiveSession) {
       const inActiveWorkspace = this.tabManager
         .tabs()
         .some((t) => t.id === existingTab.id);

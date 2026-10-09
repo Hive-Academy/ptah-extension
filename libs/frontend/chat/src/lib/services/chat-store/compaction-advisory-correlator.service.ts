@@ -1,4 +1,4 @@
-import { Injectable, inject } from '@angular/core';
+import { Injectable, NgZone, inject } from '@angular/core';
 import { SessionId } from '@ptah-extension/shared';
 import {
   ConversationRegistry,
@@ -61,6 +61,7 @@ export class CompactionAdvisoryCorrelator {
   private static readonly MAX_POST_COMPACT_ADVISORY_SESSIONS = 256;
 
   private readonly tabManager = inject(TabManagerService);
+  private readonly ngZone = inject(NgZone);
   private readonly conversationRegistry = inject(ConversationRegistry);
   private readonly tabSessionBinding = inject(TabSessionBinding);
 
@@ -195,7 +196,7 @@ export class CompactionAdvisoryCorrelator {
       staleRetryTimeoutId: null,
       staleRetryScheduled: false,
     };
-    const timeoutId = setTimeout(() => {
+    const timeoutId = setTimeout(() => this.ngZone.run(() => {
       if (this.advisories.get(params.key) !== advisory) return;
       if (advisory.timeoutId !== timeoutId) return;
       advisory.timeoutId = null;
@@ -221,7 +222,7 @@ export class CompactionAdvisoryCorrelator {
       );
       params.onFallback(origin.id);
       this.advisories.set(params.key, advisory);
-    }, CompactionAdvisoryCorrelator.POST_COMPACT_BOUNDARY_WAIT_MS);
+    }), CompactionAdvisoryCorrelator.POST_COMPACT_BOUNDARY_WAIT_MS);
     advisory.timeoutId = timeoutId;
     this.advisories.set(params.key, advisory);
     this.trim();
@@ -239,10 +240,10 @@ export class CompactionAdvisoryCorrelator {
     advisory.fallbackStale = true;
     if (advisory.staleRetryScheduled) return;
     advisory.staleRetryScheduled = true;
-    advisory.staleRetryTimeoutId = setTimeout(() => {
+    advisory.staleRetryTimeoutId = setTimeout(() => this.ngZone.run(() => {
       advisory.staleRetryTimeoutId = null;
       if (this.advisories.get(key) !== advisory) return;
-      void retry().then((stillStale) => {
+      void retry().then((stillStale) => this.ngZone.run(() => {
         if (this.advisories.get(key) !== advisory) return;
         advisory.fallbackStale = stillStale;
         if (stillStale) {
@@ -251,8 +252,8 @@ export class CompactionAdvisoryCorrelator {
             { sessionId: advisory.incomingSessionId },
           );
         }
-      });
-    }, CompactionAdvisoryCorrelator.POST_COMPACT_BOUNDARY_WAIT_MS);
+      }));
+    }), CompactionAdvisoryCorrelator.POST_COMPACT_BOUNDARY_WAIT_MS);
   }
 
   /**

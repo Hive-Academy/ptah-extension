@@ -89,6 +89,18 @@ describe('ProviderMarkComponent', () => {
 
     const claudeCli = create('claude-cli', 'Bot');
     expect(pathDs(claudeCli)).toEqual(artDs(PROVIDER_BRAND_ART['claude']));
+
+    for (const [providerId, slug] of [
+      ['codex', 'openai'],
+      ['cursor', 'cursor'],
+      ['copilot', 'github-copilot'],
+      ['antigravity', 'google-gemini'],
+      ['opencode', 'opencode'],
+    ]) {
+      expect(pathDs(create(providerId))).toEqual(
+        artDs(PROVIDER_BRAND_ART[slug]),
+      );
+    }
   });
 
   it('paints vendored artwork in currentColor so it follows the text colour', () => {

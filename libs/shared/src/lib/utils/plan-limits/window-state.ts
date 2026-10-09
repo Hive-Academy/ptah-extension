@@ -215,6 +215,19 @@ export function classifyWindow(
 
   const age = ctx.now - windowObservedAt(window);
   if (ctx.status === 'stale' || !(age <= ctx.freshnessMs)) return 'aged';
-  if (window.lastResetAt === undefined) return 'not-confirmed';
+  // A fresh authoritative response reports the usage for its current window.
+  // Some APIs (notably Claude's /usage response) expose only the *next*
+  // reset, so requiring a historical reset timestamp incorrectly makes every
+  // fresh provider reading "not confirmed".
+  if (
+    window.lastResetAt === undefined &&
+    !(
+      window.resetSource === 'provider-api' &&
+      window.resetsAt !== undefined &&
+      window.resetsAt > ctx.now
+    )
+  ) {
+    return 'not-confirmed';
+  }
   return percent >= ctx.nearLimitPercent ? 'near-limit' : 'ok';
 }

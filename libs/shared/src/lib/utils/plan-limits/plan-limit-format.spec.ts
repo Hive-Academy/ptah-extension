@@ -25,7 +25,7 @@ const BERLIN = { timeZone: 'Europe/Berlin', zoneNameLocale: 'en-GB' };
 const win = (overrides: Partial<PlanLimitWindow> = {}): PlanLimitWindow => ({
   key: 'five_hour',
   kind: 'five_hour',
-  label: '5-hour session',
+  label: '5-hour',
   used: { kind: 'percent', percent: 94 },
   usedSource: 'provider-api',
   resetsAt: at(4, 15, 10),

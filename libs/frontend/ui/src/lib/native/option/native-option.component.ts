@@ -49,13 +49,14 @@ import {
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: {
     '[id]': 'optionId()',
-    class: 'block px-3 py-2 rounded-md transition-colors',
+    class:
+      'block rounded-md px-3 py-2 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[oklch(var(--s))]',
     '[class.cursor-pointer]': '!disabled()',
     '[class.cursor-not-allowed]': 'disabled()',
     '[class.opacity-50]': 'disabled()',
     '[class.bg-primary]': 'isActive() && !disabled()',
     '[class.text-primary-content]': 'isActive() && !disabled()',
-    '[class.hover:bg-base-300]': '!isActive() && !disabled()',
+    '[class.hover:bg-surface-2]': '!isActive() && !disabled()',
     '(click)': 'handleClick()',
     '(mouseenter)': 'handleMouseEnter()',
     role: 'option',
@@ -111,7 +112,7 @@ export class NativeOptionComponent<T = unknown> {
       if (!id || id.trim().length === 0) {
         throw new Error(
           '[NativeOptionComponent] optionId must be a non-empty string. ' +
-            'Empty optionId breaks ARIA aria-activedescendant pattern.'
+            'Empty optionId breaks ARIA aria-activedescendant pattern.',
         );
       }
     });

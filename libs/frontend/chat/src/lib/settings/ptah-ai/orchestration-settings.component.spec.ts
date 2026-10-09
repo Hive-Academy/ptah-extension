@@ -22,6 +22,7 @@ import { AgentOrchestrationConfigComponent } from './agent-orchestration-config.
 import { CliOrchestrationMatrixComponent } from './cli-orchestration-matrix.component';
 import { SubagentCacheTtlSettingComponent } from './subagent-cache-ttl-setting.component';
 import { SessionBudgetSettingsComponent } from './session-budget-settings.component';
+import { LaneGuardsSettingsComponent } from './lane-guards-settings.component';
 import { ProviderConsumerAssignmentsComponent } from '../providers/provider-consumer-assignments.component';
 import type { BackgroundConsumerId } from '../providers/provider-consumer-rows';
 
@@ -77,6 +78,14 @@ class SubagentCacheTtlStub {}
   template: '<section data-testid="session-budget-settings">Budget</section>',
 })
 class SessionBudgetStub {}
+
+@Component({
+  selector: 'ptah-lane-guards-settings',
+  standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  template: '<section data-testid="lane-guards-settings">Guards</section>',
+})
+class LaneGuardsStub {}
 
 const ready = <T>(data: T): ProvidersSettingsSection<T> => ({
   status: 'ready',
@@ -142,6 +151,7 @@ describe('OrchestrationSettingsComponent', () => {
             CliOrchestrationMatrixComponent,
             SubagentCacheTtlSettingComponent,
             SessionBudgetSettingsComponent,
+            LaneGuardsSettingsComponent,
           ],
         },
         add: {
@@ -151,6 +161,7 @@ describe('OrchestrationSettingsComponent', () => {
             CliMatrixStub,
             SubagentCacheTtlStub,
             SessionBudgetStub,
+            LaneGuardsStub,
           ],
         },
       })
@@ -228,7 +239,7 @@ describe('OrchestrationSettingsComponent', () => {
     );
   });
 
-  it('defers the session budget card in its own block, after the background roles (below the Orchestration fold)', async () => {
+  it('keeps Lane guards independent from the viewport-deferred session budget card', async () => {
     await render();
     const budget = () =>
       element.querySelector('[data-testid="session-budget-settings"]');
@@ -240,6 +251,10 @@ describe('OrchestrationSettingsComponent', () => {
       element.querySelector('[data-testid="session-budget-placeholder"]'),
     ).not.toBeNull();
     expect(budget()).toBeNull();
+    // Lane guards is intentionally direct: it must not depend on a viewport/defer trigger.
+    expect(
+      element.querySelector('[data-testid="lane-guards-settings"]'),
+    ).not.toBeNull();
     await block.render(DeferBlockState.Complete);
     await blocks[1].render(DeferBlockState.Complete);
     const ttl = element.querySelector(
@@ -253,6 +268,12 @@ describe('OrchestrationSettingsComponent', () => {
     );
     // After the roles <details>: the deferred card cannot push the roles summary past the fold.
     expect(rolesDetails()?.compareDocumentPosition(budget() as Node)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+    const guards = element.querySelector(
+      '[data-testid="lane-guards-settings"]',
+    );
+    expect(budget()?.compareDocumentPosition(guards as Node)).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
     );
   });
@@ -271,12 +292,11 @@ describe('OrchestrationSettingsComponent', () => {
     );
     expect(summary?.textContent).toContain('Background Model Roles');
     expect(summary?.textContent).toContain('6 roles');
-    // Batch 35 revise R2 (deviation 6): the role list is plain text, never the theme's tinted muted colour.
     const list = Array.from(summary?.querySelectorAll('span') ?? []).find(
       (span) => span.textContent?.includes('archaeologist'),
     );
-    expect(list?.className).toContain('text-base-content');
-    expect(list?.className).not.toContain('text-base-content-muted');
+    // Secondary helper text must use the theme's contrast-tested muted-content token.
+    expect(list?.className).toContain('text-base-content-muted');
   });
 
   // Batch 34 revise 1: › closed, ⌄ open. lucide-angular copies its host class onto the <svg>, so the turn must sit on the

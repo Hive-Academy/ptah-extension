@@ -35,7 +35,7 @@ const ctx = (
 const win = (overrides: Partial<PlanLimitWindow> = {}): PlanLimitWindow => ({
   key: 'five_hour',
   kind: 'five_hour',
-  label: '5-hour session',
+  label: '5-hour',
   used: { kind: 'percent', percent: 40 },
   usedSource: 'provider-api',
   resetsAt: at(4, 15, 10),
@@ -253,10 +253,28 @@ describe('classifyWindow — first-match order (Decision 1)', () => {
   it('6 not-confirmed: last reset unknown', () => {
     expect(
       classifyWindow(
-        win({ lastResetAt: undefined, used: { kind: 'percent', percent: 97 } }),
+        win({
+          lastResetAt: undefined,
+          resetSource: 'estimated',
+          used: { kind: 'percent', percent: 97 },
+        }),
         ctx(),
       ),
     ).toBe('not-confirmed');
+  });
+
+  it('confirms a fresh provider API reading that reports its next reset', () => {
+    expect(
+      classifyWindow(
+        win({
+          lastResetAt: undefined,
+          resetSource: 'provider-api',
+          resetsAt: NOW + 60 * MINUTE,
+          used: { kind: 'percent', percent: 97 },
+        }),
+        ctx(),
+      ),
+    ).toBe('near-limit');
   });
 
   it('7 near-limit at or above the threshold, ok below it', () => {

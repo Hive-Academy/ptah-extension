@@ -328,20 +328,19 @@ describe('CliOrchestrationMatrixComponent', () => {
       );
     });
 
-    it('shades disabled and uninstalled rows and keeps the table-xs density (Visual rounds 1-2, V30-4; V30-3 reverted)', () => {
+    it('uses a surface row ladder and keeps the table-xs density', () => {
       expect(q('[data-testid="cli-matrix"]')?.className).toContain('table-xs');
       expect(q('[data-testid="cli-matrix"]')?.className).not.toContain('py-3');
       for (const id of ['copilot', 'cursor', 'pi']) {
-        expect(row(id)?.className).toContain('bg-base-300/50');
+        expect(row(id)?.className).toContain('surface-2');
         expect(row(id)?.getAttribute('data-dimmed')).toBe('true');
       }
       for (const id of ['codex', 'glm-1'])
         expect(row(id)?.getAttribute('data-dimmed')).toBeNull();
-      expect(row('glm-1')?.className).toContain('bg-primary/5');
+      expect(row('glm-1')?.className).toContain('surface-2');
       state.cliAgents.set(ready([{ ...GLM, enabled: false }]));
       fixture.detectChanges();
-      expect(row('glm-1')?.className).toContain('bg-base-300/50');
-      expect(row('glm-1')?.className).not.toContain('bg-primary/5');
+      expect(row('glm-1')?.className).toContain('surface-2');
     });
 
     it('has one Add, and Tiers / More (Edit, Delete) on instance rows only (Batch 32, V36-7); Credentials only on Cursor', () => {
@@ -451,9 +450,12 @@ describe('CliOrchestrationMatrixComponent', () => {
       expect(row('codex')?.textContent).toContain('OpenAI Codex');
       expect(row('opencode')?.textContent).toContain('opencode');
       expect(row('pi')?.textContent).toContain('None');
-      expect(q('[data-testid="cli-matrix-effort-antigravity"]')).toBeNull();
-      expect(row('antigravity')?.textContent).toContain('n/a');
-      expect(row('glm-1')?.textContent).toContain('mapped');
+      expect(
+        q('[data-testid="cli-matrix-effort-antigravity"]')?.textContent?.trim(),
+      ).toBe('default');
+      expect(
+        q('[data-testid="cli-matrix-effort-glm-1"]')?.textContent?.trim(),
+      ).toBe('default');
     });
 
     it('makes model and effort cells buttons only on enabled, installed rows', () => {
@@ -1122,7 +1124,9 @@ describe('CliOrchestrationMatrixComponent', () => {
     it('V36-2: helper text is 12 px: subtitle, version, provider subline', () => {
       expect(
         Array.from(
-          element().querySelectorAll('[data-testid="cli-matrix-section"] span'),
+          element().querySelectorAll(
+            '[data-testid="settings-cli-matrix"] span',
+          ),
         ).find((span) =>
           span.textContent?.includes('Click model or effort cells'),
         )?.className,

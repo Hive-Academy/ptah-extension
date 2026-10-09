@@ -9,4 +9,4 @@
 
 /** Tailwind classes of a storefront header's outer box. */
 export const STOREFRONT_SURFACE_CLASS =
-  'overflow-hidden rounded-2xl border border-base-300 bg-gradient-to-br from-base-200 via-base-100 to-primary/10 p-6';
+  'surface-1 overflow-hidden rounded-xl bg-gradient-to-br from-base-200 via-base-100 to-primary/10 p-5';

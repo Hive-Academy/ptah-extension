@@ -167,6 +167,18 @@ describe('IpcBridge — streaming-event batching (Batch D)', () => {
     );
   });
 
+  it('passes a coordinator-created BATCH through without recursively queueing it', () => {
+    bridge.sendToRenderer({
+      type: MESSAGE_TYPES.BATCH,
+      payload: { events: [{ type: MESSAGE_TYPES.CHAT_CHUNK, payload: { i: 1 } }] },
+    });
+
+    expect(win.sent).toHaveLength(1);
+    expect((win.sent[0].message as { type: string }).type).toBe(
+      MESSAGE_TYPES.BATCH,
+    );
+  });
+
   it('(c) RPC response path flushes the stream queue BEFORE the response (ordering invariant)', async () => {
     const handleMessageMock = jest.fn().mockResolvedValue({
       success: true,

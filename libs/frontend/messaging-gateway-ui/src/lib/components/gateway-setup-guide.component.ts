@@ -16,10 +16,10 @@ import { ChangeDetectionStrategy, Component, output } from '@angular/core';
       aria-label="Gateway setup guide"
       tabindex="-1"
       (keydown.escape)="closed.emit()"
-      class="fixed inset-y-0 right-0 z-50 w-96 max-w-full overflow-y-auto bg-base-100 shadow-xl"
+      class="surface-3 fixed inset-y-0 right-0 z-50 w-96 max-w-full overflow-y-auto"
     >
       <div
-        class="sticky top-0 flex items-center justify-between border-b border-base-300 bg-base-100 p-4"
+        class="sticky top-0 flex items-center justify-between border-b border-surface-border bg-surface-3 p-4"
       >
         <h2 class="text-base font-semibold">Gateway setup</h2>
         <button

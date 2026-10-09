@@ -335,8 +335,21 @@ describe('PtahCliStreamLoop plan-limit signals and usage', () => {
     type: 'result',
     subtype: 'success',
     num_turns: 2,
-    usage: { input_tokens: 1200, output_tokens: 80 },
+    usage: {
+      input_tokens: 1200,
+      output_tokens: 80,
+      cache_read_input_tokens: 900,
+      cache_creation_input_tokens: 300,
+    },
     total_cost_usd: 0.0123,
+    modelUsage: {
+      'claude-sonnet-4-6': {
+        inputTokens: 1200,
+        outputTokens: 80,
+        cacheReadInputTokens: 900,
+        cacheCreationInputTokens: 300,
+      },
+    },
     duration_ms: 1500,
   } as unknown as SDKMessage;
 
@@ -361,9 +374,49 @@ describe('PtahCliStreamLoop plan-limit signals and usage', () => {
         model: 'claude-sonnet-4-6',
         inputTokens: 1200,
         outputTokens: 80,
+        cacheReadTokens: 900,
+        cacheWriteTokens: 300,
         costUsd: 0.0123,
       },
     });
+  });
+
+  it('emits modelUsage deltas so the token totals match the cumulative cost scope', async () => {
+    const { loop, emitSegment } = makeSignalLoop();
+    const nextResult = {
+      ...usageResult,
+      modelUsage: {
+        'claude-sonnet-4-6': {
+          inputTokens: 1500,
+          outputTokens: 120,
+          cacheReadInputTokens: 1050,
+          cacheCreationInputTokens: 350,
+        },
+        'claude-haiku-4-5': {
+          inputTokens: 200,
+          outputTokens: 40,
+          cacheReadInputTokens: 0,
+          cacheCreationInputTokens: 0,
+        },
+      },
+      total_cost_usd: 0.02,
+    } as unknown as SDKMessage;
+
+    await loop.run(
+      manyMessages([messageStart('claude-sonnet-4-6'), usageResult, nextResult]),
+    );
+
+    expect(emitSegment.mock.calls[1][0]).toEqual(
+      expect.objectContaining({
+        usage: expect.objectContaining({
+          inputTokens: 500,
+          outputTokens: 80,
+          cacheReadTokens: 150,
+          cacheWriteTokens: 50,
+          costUsd: 0.02,
+        }),
+      }),
+    );
   });
 
   it('falls back to the init model and leaves unreported values out', async () => {

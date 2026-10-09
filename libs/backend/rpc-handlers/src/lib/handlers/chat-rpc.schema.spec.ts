@@ -17,6 +17,7 @@ import {
   ChatStartParamsSchema,
   ChatContinueParamsSchema,
   ChatResumeParamsSchema,
+  ChatSetStreamViewportParamsSchema,
   ChatAbortParamsSchema,
   ChatPendingQuestionsParamsSchema,
 } from './chat-rpc.schema';
@@ -150,6 +151,28 @@ describe('chat-rpc.schema', () => {
       const known = Object.keys(ChatResumeParamsSchema.shape);
       expect(known).not.toContain('resumeSessionAt');
       expect(known).toEqual(expect.arrayContaining(['tabId', 'sessionId']));
+    });
+  });
+
+  describe('ChatSetStreamViewportParamsSchema', () => {
+    it('accepts a distinct v2 focused/visible viewport', () => {
+      expect(
+        ChatSetStreamViewportParamsSchema.parse({
+          protocolVersion: 2,
+          focusedTabId: VALID_TAB_UUID,
+          visibleTabIds: [VALID_TAB_UUID],
+        }),
+      ).toMatchObject({ protocolVersion: 2, visibleTabIds: [VALID_TAB_UUID] });
+    });
+
+    it.each([
+      { protocolVersion: 1, visibleTabIds: [] },
+      { protocolVersion: 2, visibleTabIds: [VALID_TAB_UUID, VALID_TAB_UUID] },
+      { protocolVersion: 2, visibleTabIds: ['not-a-tab-id'] },
+    ])('rejects an invalid v2 viewport %#', (params) => {
+      expect(() => ChatSetStreamViewportParamsSchema.parse(params)).toThrow(
+        ZodError,
+      );
     });
   });
 

@@ -19,9 +19,14 @@ const TARGET = {
     label: 'Ollama Cloud API key',
   },
 } as PlanOwnerTarget;
-const PROVISIONAL_PAYLOAD = {
-  session: { percentage: 20, resets_at: '2026-10-05T12:00:00Z' },
-  weekly: { percentage: 40, resets_at: null },
+const USAGE_PAYLOAD = {
+  limits: {
+    session: {
+      usage: 0.2,
+      period: { ending_at: '2026-10-05T12:00:00Z' },
+    },
+    weekly: { usage: 80 },
+  },
 };
 
 function loggerCalls(logger: Record<string, unknown>): string {
@@ -33,11 +38,11 @@ function loggerCalls(logger: Record<string, unknown>): string {
 }
 
 describe('Ollama Cloud plan-usage reader', () => {
-  it('F33: maps provisional valid data and never logs the API key', async () => {
+  it('F33: maps usage limits and never logs the API key', async () => {
     const rawLogger = createMockLogger() as unknown as Record<string, unknown>;
     const fetcher = jest.fn(
       async () =>
-        new Response(JSON.stringify(PROVISIONAL_PAYLOAD), { status: 200 }),
+        new Response(JSON.stringify(USAGE_PAYLOAD), { status: 200 }),
     );
     const reader = createOllamaCloudPlanUsageReader(
       rawLogger as unknown as Logger,
@@ -57,11 +62,14 @@ describe('Ollama Cloud plan-usage reader', () => {
       status: 'available',
       windowSetEstablished: true,
     });
+    expect(reading.windows).toHaveLength(2);
     expect(reading.windows[0]).toMatchObject({
-      usedSource: 'provider-unofficial',
+      key: 'five_hour',
+      label: 'Session',
+      used: { kind: 'percent', percent: 20 },
+      usedSource: 'provider-api',
       resetsAt: Date.parse('2026-10-05T12:00:00Z'),
     });
-    expect(reading.windows[1].resetsAt).toBeUndefined();
     expect(loggerCalls(rawLogger)).not.toContain(API_KEY);
   });
 
@@ -140,7 +148,7 @@ describe('Ollama Cloud plan-usage reader', () => {
   it('never lets the bearer header follow a redirect', async () => {
     const fetcher = jest.fn(async (_url: string, init?: RequestInit) => {
       if (init?.redirect === 'error') throw new TypeError('redirect refused');
-      return new Response(JSON.stringify(PROVISIONAL_PAYLOAD), { status: 200 });
+      return new Response(JSON.stringify(USAGE_PAYLOAD), { status: 200 });
     });
     const reader = createOllamaCloudPlanUsageReader(
       createMockLogger() as unknown as Logger,

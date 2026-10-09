@@ -20,7 +20,7 @@
       <!-- Session Stats Summary (only when there are messages) -->
       @if (resolvedMessages().length > 0) {
         <div
-          class="p-1 bg-base-200/30"
+          class="p-1"
           animate.enter="banner-enter"
           animate.leave="banner-leave"
         >
@@ -50,7 +50,12 @@
 
       <!-- Compaction Notification Banner -->
       <div class="px-2">
-        <ptah-compaction-notification [isCompacting]="resolvedIsCompacting()" />
+        <ptah-compaction-notification
+          [isCompacting]="resolvedIsCompacting()"
+          [completed]="compactionCompleted()"
+          [preTokens]="compactionPreTokens()"
+          [postTokens]="compactionPostTokens()"
+        />
         @if (resolvedCompactionMarker(); as m) {
           <ptah-compaction-marker
             [summary]="m.summary"
@@ -143,6 +148,9 @@
           [previewFailed]="budgetPreviewFailed()"
           [contextTokens]="budgetContextTokens()"
           [busy]="budgetActionBusy()"
+          [usage]="budgetUsage()"
+          [compacting]="resolvedIsCompacting()"
+          (compact)="onBudgetCompact()"
           (dismiss)="onBudgetAction('dismiss')"
           (extend)="onBudgetAction('extend')"
           (restoreWindow)="onBudgetAction('restore-window')"
@@ -231,7 +239,7 @@
 
           <!-- Queued content preview (click to edit) -->
           <button
-            class="w-full text-left text-xs text-base-content-muted bg-base-200 hover:bg-base-300 rounded px-2 py-1 max-h-12 overflow-hidden transition-colors cursor-text"
+            class="w-full text-left text-xs text-base-content-muted bg-surface-1 hover:bg-surface-2 rounded px-2 py-1 max-h-12 overflow-hidden transition-colors cursor-text"
             (click)="editQueue()"
             type="button"
             title="Edit queued message"

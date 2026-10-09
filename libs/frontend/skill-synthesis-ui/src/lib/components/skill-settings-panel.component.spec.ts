@@ -1,6 +1,5 @@
 import { TestBed } from '@angular/core/testing';
 import { FormBuilder, FormGroup } from '@angular/forms';
-import { AppStateManager } from '@ptah-extension/core';
 import { SkillSettingsPanelComponent } from './skill-settings-panel.component';
 function settingsForm(): FormGroup {
   const fb = new FormBuilder();
@@ -43,12 +42,17 @@ function settingsForm(): FormGroup {
 }
 
 describe('SkillSettingsPanelComponent', () => {
-  const navigation = { requestSettingsTab: jest.fn(), setCurrentView: jest.fn() };
   beforeEach(() => {
-    jest.clearAllMocks();
-    TestBed.configureTestingModule({ imports: [SkillSettingsPanelComponent], providers: [{ provide: AppStateManager, useValue: navigation }] });
+    TestBed.configureTestingModule({ imports: [SkillSettingsPanelComponent] });
   });
-  function render(inputs: { form?: FormGroup; loaded?: boolean; saving?: boolean; isElectron?: boolean } = {}) {
+  function render(
+    inputs: {
+      form?: FormGroup;
+      loaded?: boolean;
+      saving?: boolean;
+      isElectron?: boolean;
+    } = {},
+  ) {
     const fixture = TestBed.createComponent(SkillSettingsPanelComponent);
     fixture.componentRef.setInput('form', inputs.form ?? settingsForm());
     fixture.componentRef.setInput('loaded', inputs.loaded ?? true);
@@ -57,15 +61,12 @@ describe('SkillSettingsPanelComponent', () => {
     fixture.detectChanges();
     return { fixture, el: fixture.nativeElement as HTMLElement };
   }
-  it('replaces every lane and judge model editor with a targeted Providers link', () => {
+  it('does not render a redundant background-models navigation section', () => {
     const { el } = render();
     expect(el.querySelector('ptah-provider-model-picker')).toBeNull();
     expect(el.querySelector('[formControlName="judgeModel"]')).toBeNull();
-    for (const target of ['archaeologist', 'synthesis', 'judge', 'replay']) {
-      const button = Array.from(el.querySelectorAll('button')).find((node) => node.textContent?.includes(`Manage ${target} in Providers`));
-      button?.click();
-      expect(navigation.requestSettingsTab).toHaveBeenLastCalledWith({ tab: 'providers', section: target });
-    }
+    expect(el.querySelector('[data-testid="skills-lanes-section"]')).toBeNull();
+    expect(el.textContent).not.toContain('Manage judging model in Providers');
   });
   describe('Phase-0 background knobs', () => {
     /**

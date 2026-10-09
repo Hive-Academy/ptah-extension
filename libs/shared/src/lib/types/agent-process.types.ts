@@ -421,6 +421,12 @@ export interface CliOutputSegment {
     readonly model?: string;
     readonly inputTokens?: number;
     readonly outputTokens?: number;
+    /** Prompt-cache tokens served from an existing cache entry. */
+    readonly cacheReadTokens?: number;
+    /** Prompt-cache tokens written while serving the request. */
+    readonly cacheWriteTokens?: number;
+    /** Context size reported by the provider for this request. */
+    readonly contextTokens?: number;
     readonly totalTokens?: number;
     readonly costUsd?: number;
     readonly durationMs?: number;

@@ -163,11 +163,49 @@ describe('WebviewHtmlGenerator fallback document', () => {
   });
 });
 
+describe('WebviewHtmlGenerator zone fallback bootstrap config', () => {
+  const integrationScript = (enabled: boolean): string => {
+    jest
+      .spyOn(vscode.workspace, 'getConfiguration')
+      .mockReturnValue({
+        get: () => enabled,
+      } as unknown as vscode.WorkspaceConfiguration);
+    try {
+      return (
+        createGenerator() as unknown as {
+          getVSCodeIntegrationScript: (
+            theme: vscode.ColorThemeKind,
+            workspaceInfo?: Record<string, unknown>,
+            webview?: vscode.Webview,
+          ) => string;
+        }
+      ).getVSCodeIntegrationScript(
+        vscode.ColorThemeKind.Dark,
+        undefined,
+        createWebview(),
+      );
+    } finally {
+      jest.restoreAllMocks();
+    }
+  };
+
+  it.each([
+    [true, 'true'],
+    [false, 'false'],
+  ])('emits the configured fallback as literal %s', (enabled, literal) => {
+    expect(integrationScript(enabled)).toContain(
+      `zoneChangeDetectionFallback: ${literal},`,
+    );
+    expect(integrationScript(enabled)).not.toContain(
+      `zoneChangeDetectionFallback: '${literal}'`,
+    );
+  });
+});
+
 describe('WebviewHtmlGenerator content security policy', () => {
   function directive(html: string, name: string): string[] {
-    const policy = /http-equiv="Content-Security-Policy" content="([^"]*)"/.exec(
-      html,
-    )?.[1];
+    const policy =
+      /http-equiv="Content-Security-Policy" content="([^"]*)"/.exec(html)?.[1];
     const entry = (policy ?? '')
       .split(';')
       .map((part) => part.trim().split(/\s+/))

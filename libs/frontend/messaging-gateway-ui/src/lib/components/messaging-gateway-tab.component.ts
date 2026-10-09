@@ -80,11 +80,13 @@ const PLATFORM_CARDS: readonly PlatformCardConfig[] = [
         >
       </div>
     } @else {
-      <div class="space-y-6">
-        <header class="flex flex-wrap items-start justify-between gap-3">
+      <div class="space-y-6" data-testid="messaging-gateway-section">
+        <header
+          class="surface-1 flex flex-wrap items-start justify-between gap-3 rounded-2xl p-5"
+        >
           <div class="flex items-start gap-3">
             <span
-              class="mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-xl border border-base-content/10 bg-base-200/60 text-secondary"
+              class="mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-xl border border-surface-border bg-surface-2 text-secondary"
             >
               <lucide-angular
                 [img]="RadioTowerIcon"
@@ -194,9 +196,7 @@ const PLATFORM_CARDS: readonly PlatformCardConfig[] = [
           class="grid grid-cols-2 gap-3 xl:grid-cols-4"
           aria-label="Gateway statistics"
         >
-          <div
-            class="stats rounded-2xl bg-base-200/40 border border-base-content/10 shadow-sm"
-          >
+          <div class="stats surface-2 rounded-2xl">
             <div class="stat p-4">
               <div class="stat-figure text-success">
                 <lucide-angular
@@ -214,9 +214,7 @@ const PLATFORM_CARDS: readonly PlatformCardConfig[] = [
             </div>
           </div>
 
-          <div
-            class="stats rounded-2xl bg-base-200/40 border border-base-content/10 shadow-sm"
-          >
+          <div class="stats surface-2 rounded-2xl">
             <div class="stat p-4">
               <div class="stat-figure text-warning">
                 <lucide-angular
@@ -234,9 +232,7 @@ const PLATFORM_CARDS: readonly PlatformCardConfig[] = [
             </div>
           </div>
 
-          <div
-            class="stats rounded-2xl bg-base-200/40 border border-base-content/10 shadow-sm"
-          >
+          <div class="stats surface-2 rounded-2xl">
             <div class="stat p-4">
               <div class="stat-figure text-primary">
                 <lucide-angular
@@ -254,9 +250,7 @@ const PLATFORM_CARDS: readonly PlatformCardConfig[] = [
             </div>
           </div>
 
-          <div
-            class="stats rounded-2xl bg-base-200/40 border border-base-content/10 shadow-sm"
-          >
+          <div class="stats surface-2 rounded-2xl">
             <div class="stat p-4">
               <div class="stat-figure text-info">
                 <lucide-angular
@@ -274,11 +268,11 @@ const PLATFORM_CARDS: readonly PlatformCardConfig[] = [
         </div>
 
         <section
-          class="overflow-hidden rounded-2xl border border-base-content/10 bg-base-200/30"
+          class="surface-1 overflow-hidden rounded-2xl"
           aria-label="Platform configuration"
         >
           <div
-            class="flex flex-wrap items-center justify-between gap-3 border-b border-base-content/10 bg-base-200/50 px-3 py-2.5 sm:px-4"
+            class="flex flex-wrap items-center justify-between gap-3 border-b border-surface-border px-3 py-2.5 sm:px-4"
           >
             <ptah-gateway-platform-tabs
               [platforms]="platforms()"
@@ -302,7 +296,7 @@ const PLATFORM_CARDS: readonly PlatformCardConfig[] = [
         </section>
 
         <section
-          class="rounded-2xl border border-base-content/10 bg-base-200/30 p-5 sm:p-6"
+          class="surface-1 rounded-2xl p-5 sm:p-6"
           aria-label="Voice and rate-limit settings"
         >
           <div class="space-y-1">
@@ -313,7 +307,7 @@ const PLATFORM_CARDS: readonly PlatformCardConfig[] = [
             </p>
           </div>
           <div
-            class="mt-4 grid gap-x-8 gap-y-2 rounded-lg border border-base-content/10 bg-base-100/40 p-4 font-mono text-xs sm:grid-cols-2"
+            class="mt-4 grid gap-x-8 gap-y-2 rounded-lg border border-surface-border bg-surface-2 p-4 font-mono text-xs sm:grid-cols-2"
           >
             <p>
               gateway.voice.enabled =

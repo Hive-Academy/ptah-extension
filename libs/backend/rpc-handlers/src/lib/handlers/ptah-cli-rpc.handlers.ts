@@ -11,13 +11,19 @@
  */
 
 import { injectable, inject } from 'tsyringe';
-import { Logger, RpcHandler, RpcUserError, TOKENS } from '@ptah-extension/vscode-core';
+import {
+  Logger,
+  RpcHandler,
+  RpcUserError,
+  TOKENS,
+} from '@ptah-extension/vscode-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
 import { getAnthropicProvider } from '@ptah-extension/agent-sdk';
 import {
   CLI_AGENT_RUNTIME_TOKENS,
   PtahCliRegistry,
 } from '@ptah-extension/cli-agent-runtime';
+import { PtahCliReasoningEffortInputSchema } from '@ptah-extension/shared';
 import type {
   PtahCliListParams,
   PtahCliListResult,
@@ -172,6 +178,7 @@ export class PtahCliRpcHandlers {
             enabled?: boolean;
             tierMappings?: { sonnet?: string; opus?: string; haiku?: string };
             selectedModel?: string;
+            reasoningEffort?: '' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
           } = {};
 
           if (params.name !== undefined) {
@@ -185,6 +192,11 @@ export class PtahCliRpcHandlers {
           }
           if (params.selectedModel !== undefined) {
             updates.selectedModel = params.selectedModel;
+          }
+          if (params.reasoningEffort !== undefined) {
+            updates.reasoningEffort = PtahCliReasoningEffortInputSchema.parse(
+              params.reasoningEffort,
+            );
           }
 
           await this.ptahCliRegistry.updateAgent(

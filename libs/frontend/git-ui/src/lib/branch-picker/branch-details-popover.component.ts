@@ -19,7 +19,7 @@ import { GitBranchesService } from '../services/git-branches.service';
       role="dialog"
       aria-label="Branch details"
       data-testid="branch-details"
-      class="absolute top-full left-0 z-50 mt-1 min-w-64 rounded border border-base-content/10 bg-base-200 p-3 text-xs shadow-lg"
+        class="surface-3 absolute top-full left-0 z-50 mt-1 min-w-64 rounded p-3 text-xs"
     >
       <strong>{{ gitBranches.currentBranch() || '(no branch)' }}</strong>
       <p>Stashes: {{ gitBranches.stashCount() }}</p>

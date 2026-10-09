@@ -27,6 +27,8 @@ export interface PtahCliConfig {
   };
   /** Selected model ID for direct selection (overrides tier if set) */
   readonly selectedModel?: string;
+  /** Claude Agent SDK reasoning effort; absent uses the provider default. */
+  readonly reasoningEffort?: '' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
   /** Timestamp of last configuration change */
   readonly updatedAt: number;
 }
@@ -57,4 +59,6 @@ export interface PtahCliSummary {
   readonly status: PtahCliState['status'];
   readonly enabled: boolean;
   readonly modelCount: number;
+  /** Saved Claude Agent SDK reasoning effort; absent means provider default. */
+  readonly reasoningEffort?: PtahCliConfig['reasoningEffort'];
 }

@@ -11,6 +11,7 @@ import {
   BackgroundAgentStartedEvent,
   BackgroundAgentCompletedEvent,
   BackgroundAgentStoppedEvent,
+  ToolResultEvent,
   SessionId,
   isAgentTaskType,
 } from '@ptah-extension/shared';
@@ -615,7 +616,7 @@ export class SystemMessageTransformer {
 
     state.clearTaskParent(msg.task_id);
 
-    if (isNonAgentTask || msg.skip_transcript) {
+    if (msg.skip_transcript) {
       return [];
     }
 
@@ -625,6 +626,22 @@ export class SystemMessageTransformer {
         { taskId: msg.task_id, status: msg.status },
       );
       return [];
+    }
+
+    // local_bash tasks never become agent cards, but their terminal task
+    // notification must settle the Bash node that launched them.
+    if (isNonAgentTask) {
+      const event: ToolResultEvent = {
+        id: generateEventId(),
+        eventType: 'tool_result',
+        timestamp: Date.now(),
+        sessionId,
+        messageId: state.getMessageId('') ?? `task_${msg.task_id}`,
+        toolCallId: parentToolUseId,
+        output: { summary: msg.summary, outputFile: msg.output_file },
+        isError: msg.status !== 'completed',
+      };
+      return [event];
     }
 
     // `sessionId` already IS `callerSessionId || msg.session_id || undefined` —

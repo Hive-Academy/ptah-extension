@@ -1,5 +1,9 @@
 import type { CliOutputSegment } from '../types/agent-process.types';
-import { addCliUsage, type CliUsageTotals } from './cli-usage.utils';
+import {
+  addCliUsage,
+  hasReportedCliCacheTokens,
+  type CliUsageTotals,
+} from './cli-usage.utils';
 
 /** Fold a whole segment list, as `extractCliAgentStats` does today. */
 function foldAll(
@@ -137,6 +141,25 @@ describe('addCliUsage (stats-bar oracle cases)', () => {
       ]),
     ).toEqual({ totalTokens: 1500, inputTokens: 400, outputTokens: 100 });
   });
+
+  it('sums reported cache reads and writes while keeping the latest context', () => {
+    expect(
+      foldAll([
+        info({
+          inputTokens: 100,
+          cacheReadTokens: 80,
+          cacheWriteTokens: 20,
+          contextTokens: 200,
+        }),
+        info({ inputTokens: 50, cacheReadTokens: 40, contextTokens: 250 }),
+      ]),
+    ).toEqual({
+      inputTokens: 150,
+      cacheReadTokens: 120,
+      cacheWriteTokens: 20,
+      contextTokens: 250,
+    });
+  });
 });
 
 describe('addCliUsage (incremental fold)', () => {
@@ -191,5 +214,14 @@ describe('addCliUsage (incremental fold)', () => {
       costUsd: 0.01,
       durationMs: 900,
     });
+  });
+});
+
+describe('hasReportedCliCacheTokens', () => {
+  it('reports only fields a provider actually supplied', () => {
+    expect(hasReportedCliCacheTokens(null)).toBe(false);
+    expect(hasReportedCliCacheTokens({ inputTokens: 10 })).toBe(false);
+    expect(hasReportedCliCacheTokens({ cacheReadTokens: 0 })).toBe(true);
+    expect(hasReportedCliCacheTokens({ cacheWriteTokens: 0 })).toBe(true);
   });
 });

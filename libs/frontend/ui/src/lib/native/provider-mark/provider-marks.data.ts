@@ -87,6 +87,9 @@ export const PROVIDER_MARKS: Readonly<Record<string, ProviderMark>> = {
   openrouter: strokeMark(['M3 6 L12 12 L3 18', 'M21 6 L12 12 L21 18']),
   ollama: OLLAMA_MARK,
   'ollama-cloud': OLLAMA_MARK,
+  // xAI's compact X mark for Grok. xAI does not publish a freely licensed
+  // SVG; this is a monochrome geometric rendering in the same safe path form.
+  grok: strokeMark(['M5 3 L19 21', 'M19 3 L5 21']),
   // Simplified hexagon with an inner prompt chevron.
   opencode: strokeMark([
     'M12 2 L21 7 L21 17 L12 22 L3 17 L3 7 Z',

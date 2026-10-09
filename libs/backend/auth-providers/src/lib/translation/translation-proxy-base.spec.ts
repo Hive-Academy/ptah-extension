@@ -1108,7 +1108,15 @@ describe('TranslationProxyBase — quota owner key at the response boundary (TAS
         createMockLogger() as unknown as Logger,
         { getProviderKey: async () => 'K' } as never,
         {} as never,
-        { currentOwnerKey: () => null },
+        {
+          currentOwnerKey: () => null,
+          getAccountUsage: jest.fn(async () => ({
+            status: 'service-unavailable' as const,
+            providerId: 'openai-codex',
+          })),
+          clearCache: jest.fn(),
+          close: jest.fn(async () => undefined),
+        },
         { path: '/codex-home' } as never,
       );
       const expected = await resolver.ownerForProviderKey('fake-provider');

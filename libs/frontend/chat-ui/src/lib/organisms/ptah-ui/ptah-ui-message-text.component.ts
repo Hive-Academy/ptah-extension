@@ -9,6 +9,8 @@ import { SurfaceMarkdownPipe } from '@ptah-extension/markdown';
 import { segmentPtahUi } from '@ptah-extension/shared/mcp-apps-contracts/surface';
 import type { TurnSourceSnapshot } from '@ptah-extension/shared';
 import { PtahUiBlockComponent } from './ptah-ui-block.component';
+import { MermaidDiagramComponent } from '../mermaid/mermaid-diagram.component';
+import { segmentMermaidFences } from '../mermaid/mermaid-fences';
 
 /** One rendered part of the message text, keyed for a stable `@for` track. */
 type PtahUiTextPart =
@@ -19,7 +21,8 @@ type PtahUiTextPart =
       readonly ordinal: number;
       readonly raw: string;
       readonly body: string;
-    };
+    }
+  | { readonly kind: 'mermaid'; readonly track: string; readonly source: string };
 
 /**
  * PtahUiMessageTextComponent - assistant text with in-place `ptah-ui` blocks
@@ -36,13 +39,13 @@ type PtahUiTextPart =
 @Component({
   selector: 'ptah-ui-message-text',
   standalone: true,
-  imports: [MarkdownModule, SurfaceMarkdownPipe, PtahUiBlockComponent],
+  imports: [MarkdownModule, SurfaceMarkdownPipe, PtahUiBlockComponent, MermaidDiagramComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @for (part of parts(); track part.track) {
       @if (part.kind === 'markdown') {
         <markdown [data]="part.text | surfaceMarkdown: active()" />
-      } @else {
+      } @else if (part.kind === 'block') {
         <ptah-ui-block
           [raw]="part.raw"
           [body]="part.body"
@@ -53,6 +56,8 @@ type PtahUiTextPart =
           [active]="active()"
           [snapshot]="snapshot()"
         />
+      } @else {
+        <ptah-mermaid-diagram [source]="part.source" />
       }
     }
   `,
@@ -66,23 +71,29 @@ export class PtahUiMessageTextComponent {
   readonly orderKey = input.required<number>();
   readonly active = input(true);
   readonly snapshot = input<TurnSourceSnapshot | null>(null);
+  readonly finalized = input(false);
 
   protected readonly parts = computed((): readonly PtahUiTextPart[] => {
     let markdownIndex = 0;
-    return segmentPtahUi(this.text()).map((segment): PtahUiTextPart =>
-      segment.kind === 'markdown'
-        ? {
-            kind: 'markdown',
-            track: `md:${markdownIndex++}`,
-            text: segment.text,
-          }
-        : {
+    let mermaidIndex = 0;
+    return segmentPtahUi(this.text()).flatMap((segment): readonly PtahUiTextPart[] => {
+      if (segment.kind === 'markdown') {
+        const parts = this.finalized()
+          ? segmentMermaidFences(segment.text)
+          : [{ kind: 'markdown' as const, text: segment.text }];
+        return parts.map((part): PtahUiTextPart =>
+          part.kind === 'markdown'
+            ? { kind: 'markdown', track: `md:${markdownIndex++}`, text: part.text }
+            : { kind: 'mermaid', track: `mermaid:${mermaidIndex++}`, source: part.source },
+        );
+      }
+      return [{
             kind: 'block',
             track: `ui:${segment.ordinal}`,
             ordinal: segment.ordinal,
             raw: segment.raw,
             body: segment.body,
-          },
-    );
+          }];
+    });
   });
 }

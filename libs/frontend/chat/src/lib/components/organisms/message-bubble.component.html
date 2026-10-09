@@ -32,7 +32,7 @@
 
     <!-- Message bubble - uses base-300 for theme-aware background -->
     <div
-      class="chat-bubble bg-base-300 text-base-content shadow-card min-w-[95%] md:min-w-[98%] lg:min-w-[95%]"
+      class="chat-bubble surface-1 text-base-content min-w-[95%] md:min-w-[98%] lg:min-w-[95%]"
       data-testid="chat-tool-output"
     >
       <!-- Collapsible Header (only for completed assistant messages) -->
@@ -111,12 +111,20 @@
             />
           } @else {
             <!-- Fallback text content -->
-            <markdown
-              [data]="
-                message().rawContent || '' | surfaceMarkdown: surfaceActive()
-              "
-              class="prose prose-sm max-w-none"
-            />
+            @if (mermaidFallbackText(); as text) {
+              @defer (on immediate) {
+                <ptah-mermaid-message-text [text]="text" [finalized]="true" [active]="surfaceActive()" />
+              } @placeholder {
+                <markdown [data]="text | surfaceMarkdown: surfaceActive()" class="prose prose-sm max-w-none" />
+              } @error {
+                <markdown [data]="text | surfaceMarkdown: surfaceActive()" class="prose prose-sm max-w-none" />
+              }
+            } @else {
+              <markdown
+                [data]="message().rawContent || '' | surfaceMarkdown: surfaceActive()"
+                class="prose prose-sm max-w-none"
+              />
+            }
             @if (isStreaming()) {
               <ptah-typing-cursor colorClass="text-base-content-muted" />
             }
@@ -209,9 +217,8 @@
          left border + the icon above) so the two are distinguishable without
          relying on colour alone. -->
     <div
-      class="chat-bubble text-base-content shadow-card max-w-[85%] md:max-w-[90%] lg:max-w-[85%]"
-      [class.bg-base-300]="!inboundPeerLabel()"
-      [class.bg-base-200]="!!inboundPeerLabel()"
+      class="chat-bubble surface-1 text-base-content max-w-[85%] md:max-w-[90%] lg:max-w-[85%]"
+      [class.surface-2]="!!inboundPeerLabel()"
       [class.border-l-4]="!!inboundPeerLabel()"
       [class.border-secondary]="!!inboundPeerLabel()"
       [attr.data-testid]="

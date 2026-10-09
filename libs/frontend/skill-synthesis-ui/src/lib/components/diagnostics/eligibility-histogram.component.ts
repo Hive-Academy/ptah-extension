@@ -29,7 +29,7 @@ interface HistogramBar {
           <div class="flex items-center gap-2 text-xs" role="listitem">
             <span class="w-40 truncate">{{ bar.label }}</span>
             <div
-              class="flex-1 bg-base-300 rounded h-3 overflow-hidden"
+              class="h-3 flex-1 overflow-hidden rounded bg-surface-0"
               [attr.aria-label]="bar.label + ' count'"
             >
               <div

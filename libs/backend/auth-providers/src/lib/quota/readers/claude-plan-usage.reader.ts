@@ -115,7 +115,7 @@ const FIXED_WINDOWS: readonly FixedWindow[] = [
     field: 'five_hour',
     key: 'five_hour',
     kind: 'five_hour',
-    label: '5-hour session',
+    label: '5-hour',
     durationMins: FIVE_HOUR_MINS,
   },
   {

@@ -220,7 +220,10 @@ describe('dashboard harness card', () => {
 
       const home = await mountHome();
 
-      expect(home.querySelector('[data-testid="harness-card"]')).not.toBeNull();
+      const harness = home.querySelector('[data-testid="harness-card"]');
+      expect(harness).not.toBeNull();
+      expect(harness?.className).toContain('surface-2');
+      expect(harness?.className).toContain('ring-warning');
       expect(
         textOf(home.querySelector('[data-testid="harness-blocked-heading"]')),
       ).toBe('13 blocked paths');

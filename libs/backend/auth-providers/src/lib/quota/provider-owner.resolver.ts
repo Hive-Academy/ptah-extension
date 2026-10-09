@@ -38,6 +38,7 @@ import { AUTH_PROVIDERS_TOKENS } from '../di/tokens';
 import type { CodexHomeResolver } from '../providers/codex/codex-home-resolver';
 import {
   CODEX_PROXY_TOKEN_PLACEHOLDER,
+  type ICodexAccountUsageService,
   type ICodexOwnerKeySource,
 } from '../providers/codex/codex-provider.types';
 import { COPILOT_PROXY_TOKEN_PLACEHOLDER } from '../providers/copilot/copilot-provider.types';
@@ -398,7 +399,8 @@ export class ProviderOwnerResolver {
     @inject(SDK_TOKENS.SDK_SESSION_QUOTA_PROBE)
     private readonly probe: SessionQuotaProbe,
     @inject(AUTH_PROVIDERS_TOKENS.SDK_CODEX_ACCOUNT_USAGE)
-    private readonly codexAccountUsage: ICodexOwnerKeySource,
+    private readonly codexAccountUsage: ICodexAccountUsageService &
+      ICodexOwnerKeySource,
     @inject(AUTH_PROVIDERS_TOKENS.SDK_CODEX_HOME_RESOLVER)
     private readonly codexHome: CodexHomeResolver,
   ) {}
@@ -463,6 +465,18 @@ export class ProviderOwnerResolver {
     return quotaOwnerRefFromKey(
       key ?? unknownOwnerKey(CODEX_PROVIDER_ID, this.codexHome.path),
     );
+  }
+
+  /**
+   * Establish the Codex account owner before discovery snapshots it. The
+   * account service coalesces and caches this App Server read, so the usage
+   * reader immediately following discovery reuses the same result.
+   */
+  async resolveCodexHomeOwner(): Promise<QuotaOwnerRef> {
+    if (!this.codexAccountUsage.currentOwnerKey()) {
+      await this.codexAccountUsage.getAccountUsage();
+    }
+    return this.ownerForCodexHome();
   }
 
   /** A CLI whose quota follows its own on-disk credential store. */

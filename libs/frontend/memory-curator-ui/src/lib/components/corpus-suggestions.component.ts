@@ -37,7 +37,7 @@ import type { CorpusSuggestion } from '@ptah-extension/shared';
         <div class="flex flex-wrap gap-2">
           @for (n of skeletonCards; track n) {
             <div
-              class="flex w-64 flex-col gap-2 rounded-xl border border-base-300 bg-base-200/40 px-4 py-3"
+              class="flex w-64 flex-col gap-2 surface-2 rounded-xl px-4 py-3"
             >
               <div class="skeleton h-3 w-32"></div>
               <div class="skeleton h-2 w-20"></div>
@@ -57,7 +57,7 @@ import type { CorpusSuggestion } from '@ptah-extension/shared';
         <div class="flex flex-wrap gap-2">
           @for (suggestion of suggestions(); track suggestion.suggestedName) {
             <article
-              class="group flex w-64 flex-col gap-2 rounded-xl border border-base-300 bg-base-200/40 px-4 py-3 transition-colors duration-150 hover:bg-base-300/30"
+              class="group flex w-64 flex-col gap-2 surface-2 rounded-xl px-4 py-3 transition-colors duration-150 hover:bg-surface-3"
             >
               <div class="flex items-start justify-between gap-2">
                 <div class="min-w-0 flex-1">

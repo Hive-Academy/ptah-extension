@@ -9,6 +9,7 @@ import {
   nextChosenSessionSidebarWidth,
   parseStoredSessionSidebarWidth,
   sessionSidebarWidthCap,
+  sessionSidebarWidthFromDividerDrag,
 } from './session-sidebar-width';
 
 const RESERVED = SESSION_SIDEBAR_TAB_RESERVE + SESSION_SIDEBAR_MAIN_MIN_WIDTH;
@@ -37,6 +38,16 @@ describe('clampSessionSidebarWidth', () => {
     expect(clampSessionSidebarWidth(120, 400)).toBe(SESSION_SIDEBAR_MIN_WIDTH);
     expect(clampSessionSidebarWidth(450, 400)).toBe(400);
     expect(clampSessionSidebarWidth(250.6, 400)).toBe(251);
+  });
+});
+
+describe('sessionSidebarWidthFromDividerDrag', () => {
+  it('adds the pointer delta to the sessions width, not the absolute pointer', () => {
+    // Workspace chrome can sit at x=252. A pointer of 292 is +40px, so the
+    // sessions pane goes from 272 to 312. It must not become 292 (that number
+    // is the workspace divider's absolute X).
+    expect(sessionSidebarWidthFromDividerDrag(272, 252, 292)).toBe(312);
+    expect(sessionSidebarWidthFromDividerDrag(272, 252, 212)).toBe(232);
   });
 });
 

@@ -53,10 +53,8 @@ import type { CodeSymbolListItem } from '@ptah-extension/shared';
       }
 
       @if (loading() && items().length === 0) {
-        <div
-          class="overflow-hidden rounded-xl border border-base-300 bg-base-200/40"
-        >
-          <div class="divide-y divide-base-300/70">
+        <div class="overflow-hidden surface-2 rounded-xl">
+          <div class="divide-y divide-surface-border">
             @for (n of skeletonRows; track n) {
               <div class="flex items-center gap-3 px-4 py-2.5">
                 <div class="skeleton h-3 w-40"></div>
@@ -74,11 +72,11 @@ import type { CodeSymbolListItem } from '@ptah-extension/shared';
         </div>
       } @else {
         <ul
-          class="divide-y divide-base-300/70 overflow-hidden rounded-xl border border-base-300 bg-base-200/40"
+          class="divide-y divide-surface-border overflow-hidden surface-2 rounded-xl"
         >
           @for (sym of items(); track sym.id) {
             <li
-              class="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5 transition-colors duration-150 hover:bg-base-300/30"
+              class="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5 transition-colors duration-150 hover:bg-surface-3"
             >
               <span class="font-mono text-sm text-base-content">
                 {{ sym.symbolName }}

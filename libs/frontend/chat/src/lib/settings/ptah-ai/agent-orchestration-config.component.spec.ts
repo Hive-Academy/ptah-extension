@@ -225,7 +225,7 @@ describe('AgentOrchestrationConfigComponent (policy bar, Batch 33)', () => {
 
   describe('structure (design-spec §1.2 item 2, deviation 5, RUX-9)', () => {
     it('is one policy bar with the slider, the order chips and Re-detect', () => {
-      const bar = q('[data-testid="orchestration-policy-bar"]');
+      const bar = q('[data-testid="settings-section-orchestration-policy"]');
       expect(bar).not.toBeNull();
       expect(bar?.querySelector('#agent-max-concurrent')).not.toBeNull();
       expect(bar?.querySelector('[data-testid="policy-order"]')).not.toBeNull();
@@ -253,7 +253,7 @@ describe('AgentOrchestrationConfigComponent (policy bar, Batch 33)', () => {
     });
 
     it('shows the order as compact read-only chips with no move buttons on the bar (deviation 5: no grip, no drag)', () => {
-      const bar = q('[data-testid="orchestration-policy-bar"]');
+      const bar = q('[data-testid="settings-section-orchestration-policy"]');
       expect(
         bar?.querySelectorAll(
           '[data-testid^="policy-order-up-"], [data-testid^="policy-order-down-"]',

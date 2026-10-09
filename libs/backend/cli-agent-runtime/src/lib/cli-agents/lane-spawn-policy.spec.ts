@@ -268,11 +268,10 @@ describe('lane spawn policy (TASK_2026_597, D4)', () => {
       );
 
       it.each([
-        ['minimal', 'low'],
         ['medium', 'medium'],
-        ['xhigh', 'high'],
-        ['max', 'high'],
-      ])("clamps antigravity '%s' to '%s'", (chatEffort, expected) => {
+        ['xhigh', 'xhigh'],
+        ['max', 'max'],
+      ])("preserves antigravity '%s'", (chatEffort, expected) => {
         expect(resolveLaneEffort({ cli: 'antigravity', chatEffort })).toEqual({
           effort: expected,
           step: 5,
@@ -280,17 +279,32 @@ describe('lane spawn policy (TASK_2026_597, D4)', () => {
         });
       });
 
-      it('gives antigravity steps 1 and 4 (it has no setting)', () => {
+      it('drops unsupported antigravity spawn effort instead of coercing it', () => {
         expect(
-          resolveLaneEffort({ cli: 'antigravity', spawnEffort: 'xhigh' }),
-        ).toEqual({ effort: 'high', step: 1, ignored: [] });
+          resolveLaneEffort({ cli: 'antigravity', spawnEffort: 'minimal' }),
+        ).toEqual({
+          effort: undefined,
+          step: 6,
+          ignored: [{ step: 1, value: 'minimal' }],
+        });
+      });
+
+      it('honours antigravity setting before reviewer defaults', () => {
+        expect(
+          resolveLaneEffort({
+            cli: 'antigravity',
+            spawnEffort: 'xhigh',
+            setting: 'max',
+          }),
+        ).toEqual({ effort: 'xhigh', step: 1, ignored: [] });
         expect(
           resolveLaneEffort({
             cli: 'antigravity',
             chatEffort: 'high',
+            setting: 'max',
             roleName: 'code-logic-reviewer',
           }),
-        ).toEqual({ effort: 'medium', step: 4, ignored: [] });
+        ).toEqual({ effort: 'max', step: 2, ignored: [] });
       });
 
       it.each([

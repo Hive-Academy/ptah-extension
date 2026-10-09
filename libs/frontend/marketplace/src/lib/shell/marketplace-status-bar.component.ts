@@ -76,7 +76,7 @@ export function marketplaceStatusSummary(
   template: `
     <footer
       data-testid="marketplace-status-bar"
-      class="flex h-8 min-w-0 items-center gap-4 border-t border-base-300 bg-base-100 px-3 text-xs text-base-content-muted"
+      class="surface-1 flex h-8 min-w-0 items-center gap-4 rounded-none border-x-0 border-b-0 px-3 text-xs text-base-content-muted"
     >
       <ul
         class="flex min-w-0 items-center gap-3"

@@ -1,7 +1,4 @@
-/**
- * Ollama Cloud's undocumented usage endpoint. Its payload is provisional and
- * is intentionally rejected conservatively when it changes.
- */
+/** Ollama Cloud usage endpoint. */
 import { z } from 'zod';
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { PlanLimitWindow } from '@ptah-extension/shared';
@@ -13,15 +10,20 @@ import type {
 export const OLLAMA_CLOUD_USAGE_URL = 'https://ollama.com/api/usage';
 export const OLLAMA_CLOUD_USAGE_TIMEOUT_MS = 5_000;
 
+const UsageLimitSchema = z.object({
+  usage: z.number().nonnegative(),
+  period: z
+    .object({ until: z.string().optional(), ending_at: z.string().optional() })
+    .optional(),
+});
+
 const UsageSchema = z.object({
-  session: z.object({
-    percentage: z.number().min(0).max(100),
-    resets_at: z.string().nullable().optional(),
-  }),
-  weekly: z.object({
-    percentage: z.number().min(0).max(100),
-    resets_at: z.string().nullable().optional(),
-  }),
+  limits: z
+    .object({
+      session: UsageLimitSchema.optional(),
+      weekly: UsageLimitSchema.optional(),
+    })
+    .refine((limits) => limits.session !== undefined || limits.weekly !== undefined),
 });
 
 type FetchLike = typeof fetch;
@@ -57,7 +59,7 @@ export function createOllamaCloudPlanUsageReader(
       const parsed = UsageSchema.safeParse(await response.json());
       if (!parsed.success) {
         const issue = parsed.error.issues[0];
-        logger.warn('[PlanUsage] provisional usage response rejected', {
+        logger.warn('[PlanUsage] Ollama Cloud usage response rejected', {
           providerId: 'ollama-cloud',
           fieldPath: issue?.path.map(String).join('.') ?? '',
           reason: issue?.code ?? 'invalid',
@@ -69,12 +71,13 @@ export function createOllamaCloudPlanUsageReader(
         status: 'available',
         fetchedAt: observedAt,
         windowSetEstablished: true,
-        windows: [
-          window('session', 'Session', parsed.data.session, observedAt),
-          window('weekly', 'Weekly', parsed.data.weekly, observedAt),
-        ],
+        windows: windows(parsed.data.limits, observedAt),
       };
-    } catch {
+    } catch (error: unknown) {
+      logger.warn('[PlanUsage] Ollama Cloud usage request failed', {
+        providerId: 'ollama-cloud',
+        reason: error instanceof Error ? error.name : 'unknown',
+      });
       return unavailable('service-unavailable');
     } finally {
       clearTimeout(timeout);
@@ -83,26 +86,44 @@ export function createOllamaCloudPlanUsageReader(
   };
 }
 
-function window(
-  key: 'session' | 'weekly',
-  label: string,
-  value: { percentage: number; resets_at?: string | null },
+function windows(
+  limits: {
+    session?: z.infer<typeof UsageLimitSchema>;
+    weekly?: z.infer<typeof UsageLimitSchema>;
+  },
   observedAt: number,
-): PlanLimitWindow {
-  const reset = value.resets_at ? Date.parse(value.resets_at) : Number.NaN;
-  return {
-    key: key === 'session' ? 'other:ollama-session' : 'weekly',
-    kind: key === 'session' ? 'other' : 'weekly',
-    label,
-    used: { kind: 'percent', percent: value.percentage },
-    usedSource: 'provider-unofficial',
-    usedObservedAt: observedAt,
-    ...(Number.isFinite(reset) && {
-      resetsAt: reset,
-      resetSource: 'provider-unofficial',
-    }),
-    observedAt,
-  };
+): PlanLimitWindow[] {
+  return ([
+    ['session', 'five_hour', 'Session'],
+    ['weekly', 'weekly', 'Weekly'],
+  ] as const).flatMap(([key, kind, label]) => {
+    const value = limits[key];
+    if (!value) return [];
+    const reset = Date.parse(
+      value.period?.until ?? value.period?.ending_at ?? '',
+    );
+    return [
+      {
+        key: kind,
+        kind,
+        label,
+        used: {
+          kind: 'percent' as const,
+          percent: Math.min(
+            100,
+            value.usage <= 1 ? value.usage * 100 : value.usage,
+          ),
+        },
+        usedSource: 'provider-api' as const,
+        usedObservedAt: observedAt,
+        ...(Number.isFinite(reset) && {
+          resetsAt: reset,
+          resetSource: 'provider-api' as const,
+        }),
+        observedAt,
+      },
+    ];
+  });
 }
 
 function unavailable(

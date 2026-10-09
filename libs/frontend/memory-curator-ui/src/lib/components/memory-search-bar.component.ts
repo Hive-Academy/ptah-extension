@@ -35,7 +35,7 @@ interface TierChip {
       <div
         role="tablist"
         aria-label="Memory tier filter"
-        class="tabs tabs-boxed tabs-sm w-fit bg-base-200 p-1"
+        class="tabs tabs-boxed tabs-sm w-fit bg-surface-2 p-1"
       >
         @for (chip of tierChips; track chip.id) {
           <button
