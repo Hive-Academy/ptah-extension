@@ -1,6 +1,6 @@
 # Batches - TASK_2026_623_3492
 
-Total tasks: 69 | Batches: 34 (incl. fix batch 6F) | Complete: 9/34
+Total tasks: 69 | Batches: 34 (incl. fix batch 6F) | Complete: 10/34
 
 Worktree root `W` = `D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel` (branch
 `feat/task-623-display-panel`, base `70f995a56`). Every path below is absolute.
@@ -575,7 +575,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
   import from this worktree. No repo file changes for it; CI (real checkout) is unaffected. Applies to every later
   vscode-lm-tools / app spec that reaches `marked`.
 
-## Batch 9: L3 `LanePlanLimitsRpcHandlers` — COMPLETE
+## Batch 9: L3 `LanePlanLimitsRpcHandlers` — COMPLETE (commit a59a701cd)
 
 - Recommended executor: backend-developer
 - Fallback executor: general-purpose subagent
@@ -614,7 +614,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 
 - `npx jest -c libs/backend/rpc-handlers/jest.config.ts libs/backend/rpc-handlers/src/lib/handlers/lane-plan-limits-rpc.handlers.spec.ts libs/backend/rpc-handlers/src/lib/host-profile/resolve-handler-plan.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -n 40 && npx nx typecheck @ptah-extension/rpc-handlers --parallel=1 2>&1 | tail -n 20 && npx nx lint @ptah-extension/rpc-handlers --parallel=1 2>&1 | tail -n 20`
 
-## Batch 10: L3b lookup never passes `refresh` — IN_PROGRESS
+## Batch 10: L3b lookup never passes `refresh` — COMPLETE
 
 - Recommended executor: backend-developer
 - Fallback executor: general-purpose subagent
@@ -623,18 +623,20 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - Tasks: 1 | Depends on: none
 - Phase: 2 | Phase review: after Batch 12
 
-### Task 10.1: lookup-level no-`refresh` case — IN_PROGRESS
+### Task 10.1: lookup-level no-`refresh` case — COMPLETE
 
 - File: D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\backend\cli-agent-runtime\src\lib\cli-agents\limits\lane-limit-lookup.service.spec.ts (exists; extend)
 - Plan reference: implementation-plan.md:1082-1083, decisions #18
 - Pattern to follow: existing cases in the same spec; `lane-limit-lookup.service.ts:110-168,186`
 - Quality requirements: asserts the lookup never forwards `refresh`.
 
+- Batch 10 verified: Jest 1 suite / 11 tests (Batch 8 `marked` mapper override on the command line), lint 0 errors / 45 baseline warnings. Test only, no production change; `lane-limit-lookup.service.ts:186` passes `{ signal }` only.
+
 ### Batch 10 verification
 
 - `npx jest -c libs/backend/cli-agent-runtime/jest.config.ts libs/backend/cli-agent-runtime/src/lib/cli-agents/limits/lane-limit-lookup.service.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -n 40 && npx nx lint @ptah-extension/cli-agent-runtime --parallel=1 2>&1 | tail -n 20`
 
-## Batch 11: L4 Electron enablement — PENDING
+## Batch 11: L4 Electron enablement — IN_PROGRESS
 
 - Recommended executor: backend-developer
 - Fallback executor: general-purpose subagent
@@ -643,7 +645,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - Tasks: 2 | Depends on: Batch 9
 - Phase: 2 | Phase review: after Batch 12
 
-### Task 11.1: root export and Electron capability flag — PENDING
+### Task 11.1: root export and Electron capability flag — IN_PROGRESS
 
 - Files:
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\backend\rpc-handlers\src\index.ts
@@ -652,7 +654,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - Pattern to follow: `rpc-host-profile.ts:43-45` (`goVetDiagnostics: true`)
 - Quality requirements: `lanePlanLimits: true` in Electron only; no `registerSingleton` in `phase-4-handlers.ts`.
 
-### Task 11.2: Electron container resolution test — PENDING
+### Task 11.2: Electron container resolution test — IN_PROGRESS
 
 - File: D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\apps\ptah-electron\src\di\container.smoke.spec.ts
 - Pattern to follow: `container.smoke.spec.ts:630-690`
