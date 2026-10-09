@@ -1,0 +1,1171 @@
+# Batches - TASK_2026_623_3492
+
+Total tasks: 68 | Batches: 33 | Complete: 1/33
+
+Worktree root `W` = `D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel` (branch
+`feat/task-623-display-panel`, base `70f995a56`). Every path below is absolute.
+
+Inputs: implementation-plan.md rev 2 (Gate 2), task-description.md rev 3.2, design-spec.md rev 3 + `prototype/`
+(Gate 1.7), parity-inventory.md rev 2, decisions.md #1-#18.
+
+## Chosen defaults (recorded, not asked)
+
+- Batch boundaries and order follow the plan's batch table (implementation-plan.md:1383-1425) and its component
+  dependency list (implementation-plan.md:1326-1336). The plan fixes the order, so no batching question is raised.
+- Execution is strictly sequential, one batch at a time, because the user pinned subagents as implementers
+  (decisions roster in the orchestrator prompt) and CLAUDE.md allows one heavy check at a time. The plan's
+  parallel-safe sets (L* with frontend, P* with S*/D*) are not used; they would only overlap heavy checks.
+- Implementation executors: `backend-developer` (shared, backend, scripts, hint) and `frontend-developer` (Angular).
+  The skill text (DOC1) goes to `technical-content-writer`. No implementation batch is assigned to a CLI lane.
+- Reviews: phase code-logic reviews run as Codex CLI lanes (user roster). Style review only for phases that add new
+  public API. V1 visual review is the `visual-reviewer` subagent.
+- Batch numbers are sequential; the plan's batch ids (S1, L3, C5 ...) are kept in each batch name.
+
+## Plan validation
+
+Status: PASSED WITH RISKS
+
+Assumptions:
+
+- A1 `PtahAPIBuilder.build()` cost/memoization (`ptah-api-builder.service.ts:543`) — unverified; checked in Task 9.1.
+  If not memoized the handler builds once lazily and keeps the `PtahAPI`.
+- A2 `TOKENS.PTAH_API_BUILDER` registered before `registerRpcSurface` in Electron — verified:
+  `registerVsCodeLmToolsServices` runs in `apps/ptah-electron/src/di/phase-3-storage.ts:134`, and
+  `container.smoke.spec.ts:683` already resolves `TOKENS.PTAH_API_BUILDER`. Task 11.2 adds the resolution test.
+- A3 every SDK subagent record's `parentToolUseId` matches a transcript node `toolCallId` — unverified; checked in
+  Task 22.3 (unmatched R belongs to no turn, D7).
+- A4 open-turn messages carry streaming text nodes in `vm().messages` — unverified; checked in Task 22.2.
+- A5 capabilities default false; expected-absent lists asserted — verified: `EXPECTED_ABSENT_CAPABILITIES` is read by
+  `apps/ptah-extension-vscode/src/di/container.smoke.spec.ts` and `libs/backend/cli-engine/src/lib/rpc/rpc-surface.spec.ts`;
+  Task 12.1 adds `lanePlanLimits` to both lists and runs both specs.
+- A6 `add-component` / `locate` treat any layout kind as a parent — verified: `isSurfaceLayoutComponent` derives from
+  `SURFACE_LAYOUT_KINDS` (`surface-bindings.ts:30-36`), so `accordion` is accepted once added. Only the error text at
+  `surface-patch.ts:165` ("only section, stack, grid and card take children") is hard-coded; Task 2.2 updates it.
+- A7 spark points count toward `maxSeriesPoints` per component like chart series (`dashboard-catalog.ts:167`) —
+  unverified; checked in Task 1.2.
+- A8 `surface-catalog-reference.spec.ts` (exists at
+  `libs/backend/vscode-lm-tools/src/lib/code-execution/surface-catalog-reference.spec.ts`) derives or pins Apps text —
+  checked in Task 31.2.
+- A9 no exit code on `ExecutionNode` — unverified; checked in Task 27.1 (if absent, "Command succeeded/failed" with no
+  number).
+- Plan correction (path): the declarative-dashboard trust-boundary spec is
+  `libs/frontend/declarative-dashboard/src/lib/trust-boundary.spec.ts` (not under `components/`). Task 15.2 extends it.
+- Plan correction (commands): Nx project names are scoped, e.g. `@ptah-extension/shared`, `@ptah-extension/chat-ui`;
+  the plain names in implementation-plan.md:1427-1474 are replaced by the scoped names in every batch below.
+  `ptah-electron`, `ptah-extension-vscode` and `ptah-extension-webview` are unscoped.
+
+| Risk | Severity | Mitigation |
+| ---- | -------- | ---------- |
+| V1 launch prerequisites exceed decisions.md #17's literal wording. No `dist/` exists in the worktree; `apps/ptah-electron/scripts/launch.js` needs `dist/apps/ptah-electron/main.mjs`, which only `nx build-dev ptah-electron` (main, preload and 5 worker builds) produces, plus `copy-renderer` and possibly `rebuild-native`. The main-process build is required anyway because this branch adds the `agent:getLanePlanLimits` handler. | HIGH | Batch 33 precondition: before V1 the orchestrator obtains a user ruling that the one "app launch" includes the Electron main-process build (`nx build-dev ptah-electron`) and native rebuild, with exactly one production webview build via `nx copy-renderer ptah-electron` (dependsOn `ptah-extension-webview:build`, production has `statsJson: true`). No batch before 33 is affected. |
+| No merge-base `stats.json` exists (`dist/` absent), so the eager-closure growth check cannot run under the single-build rule. | MEDIUM | Task 33.2 records "growth check not run (single build, decisions.md #17)" and lists added eager inputs by name and bytes in measurement.md, as the plan prescribes. |
+| Intermediate commits L1-L5 can leave cross-project specs red: L1 adds the RPC method to `RPC_METHOD_ENTRIES` before the manifest covers it (manifest coverage, `manifest.ts:486-539`); L3 adds a capability-gated entry before Electron/VS Code/CLI profiles list it. | MEDIUM | Batches 7-12 run back to back with no other batch interleaved. Batch 9 runs `resolve-handler-plan.spec.ts`; Batches 11 and 12 run the Electron, VS Code and CLI `rpc-surface` / `container.smoke` specs. Phase 2 review covers the combined diff. |
+| `/3` behaviour regression from the `/4` bump (610 corpus, Apps renderer viewport layout). | HIGH | Task 1.2 (`/3` rejects `/4` features), Task 6.2 (610 corpus deep-equal except `catalogVersion`, plus `surface-contract`, `dashboard-trust-boundary`, `surface-budgets`, `host-source-registry.contract` specs), Task 13.1 (`layoutWidth` defaults to `'viewport'`). |
+| Parser rewrite (`ptah-ui-parser.ts`) breaks 610 fences. | HIGH | Task 3.2 keeps every existing `ptah-ui-parser.spec.ts` case passing; Task 6.2 corpus. |
+| `$limits` privacy / side effects (owner, account, email, CLI session ids; refresh or lane spawn). | HIGH | Task 7.1 field-by-field type; Task 9.1 recording-proxy tests (no `refresh`, no spawn/stop/session call), sentinel test; Task 10.1 lookup-level no-`refresh` case. |
+| `formatPlanLimitsSection` / `formatAgentList` output drift after exporting `planLimitRows`. | MEDIUM | Task 8.1 byte-identical snapshot plus formatter-equivalence fixture; `mcp-response-formatter.spec.ts` runs. |
+| Eager bundle growth: panel, renderer or summary leaking into the initial chunk. | HIGH | D14 chunking in Tasks 20.1, 25.1; Task 32.1 gate patterns; Task 33.2 real-build gate run. |
+| Parity loss when the Electron tests row and change-set card leave the chat (decisions #5, #10). | HIGH | Task 19.1/21.2 port every `turn-tests-row.component.spec.ts` case before Task 24.2 deletes it; Task 24.1 keeps the VS Code path unchanged; Mode 3 row-by-row parity check. |
+| Auto-open re-triggering after remount, or reopening a panel the user closed this turn (R1.7-R1.10). | MEDIUM | Task 20.2 (`seenBlockKeys` in the ChatView store, `userClosedTurnKey`), Task 23.1 store spec. |
+| Shared-file sequencing: `chat-ui/src/index.ts` (Batches 16, 27) and `chat-ui/src/turn-recap.ts` (Batches 19, 24). | LOW | Sequential execution; noted on the tasks. |
+| R7 preview changes reach the VS Code webview (decisions #8) — host branching untested. | MEDIUM | Tasks 26-28 run each spec for both host configurations where the component branches; V1 covers both webviews. |
+
+Edge cases:
+
+- Unclosed / streaming fence, closed fence then more streaming (same body must not re-apply) — Tasks 3.1, 20.2, 22.2.
+- Reserved `ptah.` display id (R2.5) — Tasks 5.1, 20.1.
+- Surface cap eviction order and `evicted` status (D11) — Task 20.1.
+- Reload rebuilds the panel from stored messages; R-only fields "unavailable" after reload (D8, R2.9, R5.6) — Tasks
+  4.2, 20.1, 22.3.
+- Agents tab with no agents shows its own tabpanel empty state "No agents in this session" (decisions #11, R1.13) —
+  Tasks 21.1, 25.1.
+- CLI lanes show `context` "unavailable"; no context percent without a known limit (decisions #14, #16) — Task 4.2.
+- `$limits` RPC failure or VS Code host (no capability) renders "unavailable" — Tasks 17.2, 9.1.
+- Hint over 100 tokens: drop `$limits` first and record both counts (R8.1) — Task 29.1.
+- Grid at 300 px is one column (R3.5 beats the 128 px design minimum) — Tasks 13.1, 15.1.
+- Aborted / errored turn shows "(incomplete)" in the summary (parity row) — Task 19.1.
+- No exit code on the node (A9) — Task 27.1.
+
+## Phases
+
+| Phase | Batches | Phase review |
+| ----- | ------- | ------------ |
+| 1 Contract `/4` and grammar | 1-6 | code-logic |
+| 2 Lane plan-limit read (R10 backend) | 7-12 | code-logic, plus style (new RPC method `agent:getLanePlanLimits`, new export `formatPlanLimitRows`) |
+| 3 Renderer `/4` | 13-15 | code-logic, plus style only if Task 15.3 adds exports |
+| 4 chat-ui display panel | 16-21 | code-logic, plus style (new entry `@ptah-extension/chat-ui/display-panel`, new host-sources token) |
+| 5 Transcript and dock | 22-25 | code-logic |
+| 6 Previews (R7, both webviews) | 26-28 | code-logic, plus style (new exported `copy-text-button` atom and `tool-language` util) |
+| 7 Hint, skill, measurement, eager gate | 29-32 | code-logic |
+| 8 Visual verification (V1) | 33 | visual (visual-reviewer subagent); no code-logic |
+
+Verification rule for every batch (CLAUDE.md): changed projects only, `--parallel=1`, `--maxWorkers=2`, one heavy check
+at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package except Batch 33.
+
+---
+
+## Batch 1: S1 catalog `/4` contract — COMPLETE
+
+- Recommended executor: backend-developer
+- Fallback executor: general-purpose subagent with the same prompt
+- Execution mode: sequential
+- Rationale: four tightly coupled contract files (catalog, types, schemas, validator) whose types must agree.
+- Tasks: 2 | Depends on: none
+- Phase: 1 Contract `/4` and grammar | Phase review: code-logic (after Batch 6)
+
+### Task 1.1: catalog `/4` constants, types and schemas — COMPLETE
+
+- Files:
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\shared\src\mcp-apps-contracts\surface-catalog.ts
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\shared\src\mcp-apps-contracts\surface.types.ts
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\shared\src\mcp-apps-contracts\surface.schemas.ts
+- Plan reference: implementation-plan.md:176-200 (D1, D2), 390-432 (component 1)
+- Pattern to follow: existing `/3` entries in `surface-catalog.ts:9-47`, `surface.types.ts:201-206`
+- Quality requirements: `accordion` layout kind `{id, kind, title (required SurfaceRichText), children}`; `avatar`
+  display kind; stat `trend` and `spark` (2..`maxSeriesPoints`); closed enums; no class/style/url/colour/icon field;
+  `SURFACE_SUPPORTED_CATALOG_VERSIONS` gains `/4`; `DASHBOARD_CONTRACT_VERSION_PAIRS` gains `[spec/2, catalog/4]`.
+- Validation notes: `/3` must remain semantically unchanged (released catalog, TASK_2026_594).
+- Implementation details: add kinds/fields per version so `/3` vocabularies exclude them.
+
+### Task 1.2: validator whole-pair check and `/3` rejection — COMPLETE
+
+- Depends on: Task 1.1
+- Files:
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\shared\src\mcp-apps-contracts\surface.validator.ts
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\shared\src\mcp-apps-contracts\surface-validator.spec.ts
+- Plan reference: implementation-plan.md:176-190 (D1), 390-432
+- Pattern to follow: `surface.validator.ts:150-163` (current `find` by schema, to be replaced by whole-pair match)
+- Quality requirements: R4.1-R4.2; a `/3` envelope using a `/4` kind or field is rejected with a reason naming the
+  field; spark points counted per component like chart series.
+- Validation notes: verify A7 against `dashboard-catalog.ts:167` / `checkChart` and record the outcome in the report.
+- Implementation details: pair check matches `[schema, catalog]` as a pair; add `/4` field rejection for `/3`.
+
+### Batch 1 verification
+
+- Every listed artifact exists and contains the required work
+- `npx jest -c libs/shared/jest.config.ts libs/shared/src/mcp-apps-contracts/surface-validator.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -n 40 && npx nx typecheck @ptah-extension/shared --parallel=1 2>&1 | tail -n 20 && npx nx lint @ptah-extension/shared --parallel=1 2>&1 | tail -n 20`
+- No per-batch review: Phase 1 code-logic review after Batch 6
+- Edge cases above addressed
+
+### Batch 1 decisions (recorded at verification)
+
+- Verified on disk: jest `surface-validator.spec.ts` 109/109 passed; `@ptah-extension/shared` typecheck passed; lint 0
+  errors, 6 warnings (includes `surface.schemas.ts` over the 700-line warning, 758 lines; left to the Phase 1 review).
+- Out-of-list file ACCEPTED IN SCOPE: `libs/shared/src/mcp-apps-contracts/surface-bindings.ts`. The batch kept
+  `SURFACE_LAYOUT_KINDS` at its `/3` value (Task 1.1 "add kinds per version"; `surface-contract.spec.ts` pins 19 `/3`
+  kinds), so A6's walk had to switch to `SURFACE_CATALOG_4_LAYOUT_KINDS` or the validator would miss duplicate ids,
+  inputs and submit scope inside `accordion`. Same lib, same rollback boundary, pinned by the spec case "walks accordion
+  children". Committed with Batch 1. Task 2.2 now derives the patch message from `SURFACE_CATALOG_4_LAYOUT_KINDS`.
+- `surface-contract.spec.ts:74-77` (pair count) is red from the Batch 1 commit: D1 mandates the third pair and no
+  batch listed the spec as an edit target (Task 6.2 only ran it). Decision: moved the one-assertion update into Task 2.2
+  and added the spec to the Batch 2 verification command, so the red window is one commit, inside Phase 1, in the same
+  project. Batch 1 is not rejected: its own scoped command passes and the edit is outside its file list.
+- `@ptah-extension/declarative-dashboard` typecheck is expected to be red from Batch 1 until Batch 13
+  (`surface-view-model.ts:29-30,190-211`: `SurfaceComponent` now includes `accordion` / `avatar`, unmapped). Not run
+  here (outside the batch's project, per CLAUDE.md). Decision: acceptable, no reorder. Batch 13 depends only on
+  Batch 2 but runs in plan order; no `/4` producer exists before Batch 4 and no consumer is wired before Phase 4, so
+  nothing breaks at runtime; Batch 13's own verification command already runs that typecheck and must clear it.
+  Constraint: no batch between 2 and 12 may run `declarative-dashboard` typecheck as its acceptance gate, and the
+  branch must not be pushed for CI or merged before Batch 13 commits. The Phase 1 review is told this is known.
+
+## Batch 2: S2 text fallback, index, patch text, budgets — IN_PROGRESS
+
+- Recommended executor: backend-developer
+- Fallback executor: general-purpose subagent
+- Execution mode: sequential
+- Rationale: small follow-ons to S1 in the same lib, ordered after the types.
+- Tasks: 3 | Depends on: Batch 1
+- Phase: 1 | Phase review: code-logic (after Batch 6)
+
+### Task 2.1: text fallback for `accordion`, `avatar`, stat trend/spark — IN_PROGRESS
+
+- Files:
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\shared\src\mcp-apps-contracts\surface-text-fallback.ts
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\shared\src\mcp-apps-contracts\surface-text-fallback.spec.ts
+- Plan reference: implementation-plan.md:390-432
+- Pattern to follow: existing kind cases in `surface-text-fallback.ts`
+- Quality requirements: every new kind has a readable text fallback.
+- Validation notes: none beyond `/3` fallback output unchanged.
+- Implementation details: extend the kind switch; spec covers each new kind.
+
+### Task 2.2: barrel exports, patch error text (A6), contract pair spec — IN_PROGRESS
+
+- Files:
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\shared\src\mcp-apps-contracts\surface.index.ts
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\shared\src\mcp-apps-contracts\surface-patch.ts
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\shared\src\mcp-apps-contracts\surface-contract.spec.ts
+    (added at Batch 1 verification, see the Batch 1 decisions)
+- Plan reference: implementation-plan.md:367-370 (A6), 423-431
+- Pattern to follow: `surface-patch.ts:160-166`
+- Quality requirements: export new types and the new `SURFACE_CATALOG_VERSION_4` / `SURFACE_CATALOG_4_*` constants;
+  the parent-kind error message names `accordion` (derive the list from `SURFACE_CATALOG_4_LAYOUT_KINDS`, not a
+  literal — Batch 1 kept `SURFACE_LAYOUT_KINDS` at the `/3` value); `surface-contract.spec.ts:74-77` expects the
+  third pair `['dashboard-spec/2', SURFACE_CATALOG_VERSION_4]` (D1), and its `/3` assertions (19 kinds) stay
+  unchanged.
+- Validation notes: A6 verified at decomposition (`surface-bindings.ts:30-36`); only the message is hard-coded.
+- Implementation details: message built from the layout-kinds constant.
+
+### Task 2.3: budgets spec for spark points (A7) — IN_PROGRESS
+
+- File: D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\shared\src\mcp-apps-contracts\surface-budgets.spec.ts
+- Plan reference: implementation-plan.md:371-372 (A7)
+- Pattern to follow: `dashboard-budgets.spec.ts:133` (`maxSeriesPoints` case)
+- Quality requirements: spark above the per-component point budget is rejected; at the limit accepted.
+- Validation notes: consistent with Task 1.2's A7 finding.
+- Implementation details: add boundary cases.
+
+### Batch 2 verification
+
+- `npx jest -c libs/shared/jest.config.ts libs/shared/src/mcp-apps-contracts/surface-text-fallback.spec.ts libs/shared/src/mcp-apps-contracts/surface-budgets.spec.ts libs/shared/src/mcp-apps-contracts/surface-validator.spec.ts libs/shared/src/mcp-apps-contracts/surface-contract.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -n 40 && npx nx typecheck @ptah-extension/shared --parallel=1 2>&1 | tail -n 20 && npx nx lint @ptah-extension/shared --parallel=1 2>&1 | tail -n 20`
+- No per-batch review
+
+## Batch 3: S3 fence and parser rewrite — PENDING
+
+- Recommended executor: backend-developer
+- Fallback executor: general-purpose subagent
+- Execution mode: sequential
+- Rationale: parser rewrite with its types and fence tokenizer; one coherent grammar unit needing design judgement.
+- Tasks: 2 | Depends on: Batch 1
+- Phase: 1 | Phase review: code-logic (after Batch 6)
+
+### Task 3.1: types and fence (`display [id]`, closed fences only) — PENDING
+
+- Files:
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\shared\src\mcp-apps-contracts\ptah-ui.types.ts
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\shared\src\mcp-apps-contracts\ptah-ui-fence.ts
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\shared\src\mcp-apps-contracts\ptah-ui-fence.spec.ts
+- Plan reference: implementation-plan.md:433-514 (component 2)
+- Pattern to follow: existing `segmentPtahUi` in `ptah-ui-fence.ts`
+- Quality requirements: R2.1, R2.7; info string `ptah-ui display [id]`; unclosed fences never yield a block.
+- Validation notes: 610 fences (no `display`) unchanged.
+
+### Task 3.2: parser REWRITE (nested layout grammar) — PENDING
+
+- Depends on: Task 3.1
+- Files:
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\shared\src\mcp-apps-contracts\ptah-ui-parser.ts
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\shared\src\mcp-apps-contracts\ptah-ui-parser.spec.ts
+- Plan reference: implementation-plan.md:449-502 (R3 EBNF, lexical delta, caps)
+- Pattern to follow: current parser error/reason shape
+- Quality requirements: R3.1-R3.4; row/col/grid/card/section/accordion; stat trend + spark; progress, badge, avatar,
+  note; depth and size caps; every existing parser spec case still passes.
+- Validation notes: HIGH risk of 610 regression; keep the existing spec cases unchanged.
+
+### Batch 3 verification
+
+- `npx jest -c libs/shared/jest.config.ts libs/shared/src/mcp-apps-contracts/ptah-ui-fence.spec.ts libs/shared/src/mcp-apps-contracts/ptah-ui-parser.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -n 40 && npx nx typecheck @ptah-extension/shared --parallel=1 2>&1 | tail -n 20 && npx nx lint @ptah-extension/shared --parallel=1 2>&1 | tail -n 20`
+
+## Batch 4: S4 converter and `$agents` source — PENDING
+
+- Recommended executor: backend-developer
+- Fallback executor: general-purpose subagent
+- Execution mode: sequential
+- Rationale: converter emits `/4`; the pure `$agents` module is consumed by the resolver next.
+- Tasks: 2 | Depends on: Batch 3
+- Phase: 1 | Phase review: code-logic (after Batch 6)
+
+### Task 4.1: converter emits `/4`, maps new nodes — PENDING
+
+- Files:
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\shared\src\mcp-apps-contracts\ptah-ui-converter.ts
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\shared\src\mcp-apps-contracts\ptah-ui-converter.spec.ts
+- Plan reference: implementation-plan.md:176-200 (D1 "converter always emits /4"), 433-514
+- Quality requirements: R3.1 (the only literal change for 610 output is `catalogVersion`).
+
+### Task 4.2: pure `$agents` source module — PENDING
+
+- Files (CREATE):
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\shared\src\mcp-apps-contracts\ptah-ui-agents-source.ts
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\shared\src\mcp-apps-contracts\ptah-ui-agents-source.spec.ts
+- Plan reference: implementation-plan.md:515-567 (component 2a), D6-D8 (in 176-354)
+- Pattern to follow: capacity predicate restates `libs/frontend/chat/.../session-live-stats.util.ts:77-89` over a passed
+  evidence list (no import from chat)
+- Quality requirements: R5.1-R5.13; allow-listed fact types only (no prompt/output text); turn vs `session` scope;
+  `context` field (decisions #14), CLI lanes "unavailable" (#16), no percent without a known limit; unknown start sorts
+  last by key (R5.11); reload yields "unavailable" for R-only fields (D8).
+- Validation notes: shared is `type:util`; no imports from frontend libs.
+
+### Batch 4 verification
+
+- `npx jest -c libs/shared/jest.config.ts libs/shared/src/mcp-apps-contracts/ptah-ui-converter.spec.ts libs/shared/src/mcp-apps-contracts/ptah-ui-agents-source.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -n 40 && npx nx typecheck @ptah-extension/shared --parallel=1 2>&1 | tail -n 20 && npx nx lint @ptah-extension/shared --parallel=1 2>&1 | tail -n 20`
+
+## Batch 5: S5 resolver and pipeline (`compilePtahUiBlock`) — PENDING
+
+- Recommended executor: backend-developer
+- Fallback executor: general-purpose subagent
+- Execution mode: sequential
+- Rationale: resolver and pipeline share the live-source input contract (D5).
+- Tasks: 2 | Depends on: Batch 4
+- Phase: 1 | Phase review: code-logic (after Batch 6)
+
+### Task 5.1: resolver with `$agents` / `$limits` inputs — PENDING
+
+- Files:
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\shared\src\mcp-apps-contracts\ptah-ui-resolver.ts
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\shared\src\mcp-apps-contracts\ptah-ui-resolver.spec.ts
+- Plan reference: implementation-plan.md:200-215 (D5), 433-567
+- Quality requirements: `agents?`, `limits?` inputs separate from `TurnSourceSnapshot`; missing source → "unavailable";
+  reserved `ptah.` id invalid with reason "reserved display id" (R2.5, D11).
+
+### Task 5.2: pipeline `compilePtahUiBlock(body, surfaceId)` + `usedSources` — PENDING
+
+- Depends on: Task 5.1
+- Files:
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\shared\src\mcp-apps-contracts\ptah-ui-pipeline.ts
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\shared\src\mcp-apps-contracts\ptah-ui-pipeline.spec.ts
+- Plan reference: implementation-plan.md:200-215 (D5)
+- Quality requirements: parse+convert once per body; `renderPtahUiBlock` keeps its signature and composes
+  compile/resolve/validate; an invalid block falls back atomically.
+
+### Batch 5 verification
+
+- `npx jest -c libs/shared/jest.config.ts libs/shared/src/mcp-apps-contracts/ptah-ui-resolver.spec.ts libs/shared/src/mcp-apps-contracts/ptah-ui-pipeline.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -n 40 && npx nx typecheck @ptah-extension/shared --parallel=1 2>&1 | tail -n 20 && npx nx lint @ptah-extension/shared --parallel=1 2>&1 | tail -n 20`
+
+## Batch 6: S6 corpus and compactness — PENDING
+
+- Recommended executor: backend-developer
+- Fallback executor: general-purpose subagent
+- Execution mode: sequential
+- Rationale: closes Phase 1 with the regression corpus and R8.4/R8.5 measurements.
+- Tasks: 2 | Depends on: Batch 5
+- Phase: 1 (last batch) | Phase review: code-logic on Batches 1-6
+
+### Task 6.1: corpus cases for the new grammar and skill examples — PENDING
+
+- Files:
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\shared\src\mcp-apps-contracts\ptah-ui.corpus.ts
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\shared\src\mcp-apps-contracts\ptah-ui-compactness.spec.ts
+- Plan reference: implementation-plan.md:433-514, 1146-1192 (examples become corpus cases)
+- Quality requirements: R8.4; includes the subagent-usage dashboard, id update, and "CLI tools with usage and context
+  stats" examples that DOC1 will publish.
+
+### Task 6.2: `$agents` compactness spec and `/3` regression run — PENDING
+
+- File (CREATE): D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\shared\src\mcp-apps-contracts\ptah-ui-agents-compactness.spec.ts
+- Plan reference: implementation-plan.md:512 (R8.5), 1435-1438
+- Quality requirements: fence vs markdown counts; 610 corpus deep-equal except `catalogVersion`.
+
+### Batch 6 verification
+
+- `npx jest -c libs/shared/jest.config.ts libs/shared/src/mcp-apps-contracts/ptah-ui-compactness.spec.ts libs/shared/src/mcp-apps-contracts/ptah-ui-agents-compactness.spec.ts libs/shared/src/mcp-apps-contracts/surface-contract.spec.ts libs/shared/src/mcp-apps-contracts/dashboard-trust-boundary.spec.ts libs/shared/src/mcp-apps-contracts/surface-budgets.spec.ts libs/shared/src/mcp-apps-contracts/host-source-registry.contract.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -n 40 && npx nx typecheck @ptah-extension/shared --parallel=1 2>&1 | tail -n 20 && npx nx lint @ptah-extension/shared --parallel=1 2>&1 | tail -n 20`
+  (the executor locates any of these specs not under `mcp-apps-contracts/` with Glob and uses the real path)
+- Phase 1 code-logic review due after commit
+
+## Batch 7: L1 lane plan-limit RPC types — PENDING
+
+- Recommended executor: backend-developer
+- Fallback executor: general-purpose subagent
+- Execution mode: sequential
+- Rationale: shared wire contract consumed by the handler (L3) and the webview source (C2).
+- Tasks: 1 | Depends on: none (run after Batch 6 to keep shared commits ordered)
+- Phase: 2 Lane plan-limit read | Phase review: code-logic + style (after Batch 12)
+
+### Task 7.1: `agent:getLanePlanLimits` types and registration — PENDING
+
+- Files:
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\shared\src\lib\types\rpc\rpc-lane-plan-limits.types.ts (CREATE)
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\shared\src\lib\types\rpc\rpc-lane-plan-limits.contract.spec.ts (CREATE)
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\shared\src\lib\types\rpc.types.ts
+- Plan reference: implementation-plan.md:994-1085 (component 10), D13
+- Pattern to follow: `rpc.types.ts:4027-4066,4188-4202` (`RPC_METHOD_ENTRIES`)
+- Quality requirements: R10.1-R10.4; response = exactly five text cells per row, four scalars, `asOf`; no owner,
+  account, provider id, CLI session id or email; `provider:getPlanLimits` untouched.
+- Validation notes: privacy sentinel in the contract spec.
+
+### Batch 7 verification
+
+- `npx jest -c libs/shared/jest.config.ts libs/shared/src/lib/types/rpc/rpc-lane-plan-limits.contract.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -n 40 && npx nx typecheck @ptah-extension/shared --parallel=1 2>&1 | tail -n 20 && npx nx lint @ptah-extension/shared --parallel=1 2>&1 | tail -n 20`
+
+## Batch 8: L2 export `formatPlanLimitRows` — PENDING
+
+- Recommended executor: backend-developer
+- Fallback executor: general-purpose subagent
+- Execution mode: sequential
+- Rationale: one function export with byte-identical output proof.
+- Tasks: 1 | Depends on: none
+- Phase: 2 | Phase review: after Batch 12
+
+### Task 8.1: export `planLimitRows` as `formatPlanLimitRows` — PENDING
+
+- Files:
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\backend\vscode-lm-tools\src\lib\code-execution\mcp-core\agent-limit.formatter.ts
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\backend\vscode-lm-tools\src\lib\code-execution\mcp-core\agent-limit.formatter.spec.ts
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\backend\vscode-lm-tools\src\index.ts
+- Plan reference: implementation-plan.md:1037-1041, D13
+- Pattern to follow: `agent-limit.formatter.ts:147-232`
+- Quality requirements: one implementation for both callers; `formatPlanLimitsSection` and `formatAgentList` output
+  byte-identical; formatter-equivalence fixture per R10.2 case.
+
+### Batch 8 verification
+
+- `npx jest -c libs/backend/vscode-lm-tools/jest.config.ts libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/agent-limit.formatter.spec.ts libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/mcp-response-formatter.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -n 40 && npx nx typecheck @ptah-extension/vscode-lm-tools --parallel=1 2>&1 | tail -n 20 && npx nx lint @ptah-extension/vscode-lm-tools --parallel=1 2>&1 | tail -n 20`
+
+## Batch 9: L3 `LanePlanLimitsRpcHandlers` — PENDING
+
+- Recommended executor: backend-developer
+- Fallback executor: general-purpose subagent
+- Execution mode: sequential
+- Rationale: one handler family with schema, manifest entry and capability; cross-file but one lib.
+- Tasks: 2 | Depends on: Batches 7, 8
+- Phase: 2 | Phase review: after Batch 12
+
+### Task 9.1: handler class and zod schema — PENDING
+
+- Files (CREATE):
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\backend\rpc-handlers\src\lib\handlers\lane-plan-limits-rpc.handlers.ts
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\backend\rpc-handlers\src\lib\handlers\lane-plan-limits-rpc.handlers.spec.ts
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\backend\rpc-handlers\src\lib\handlers\lane-plan-limits-rpc.schema.ts
+- Plan reference: implementation-plan.md:295-323 (D13), 994-1085
+- Pattern to follow: `diagnostics-consent-rpc.handlers.ts:26-29,98-119`; `boot-rpc.schema.ts:1-14`
+- Quality requirements: `@injectable()`; inject `TOKENS.LOGGER`, `TOKENS.RPC_HANDLER`, `TOKENS.PTAH_API_BUILDER`;
+  `agent.list()` then `agent.limits(rows)`; never `refresh`; never spawn/stop/session; rows via `formatPlanLimitRows`;
+  logs without row contents. Specs: recording proxy (no refresh, no lane), sentinel privacy test, failure → per-lane
+  `failed`/undefined.
+- Validation notes: resolve A1 (`ptah-api-builder.service.ts:543`); if `build()` is not memoized, build once lazily.
+
+### Task 9.2: barrel, manifest entry and capability — PENDING
+
+- Depends on: Task 9.1
+- Files:
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\backend\rpc-handlers\src\lib\handlers\index.ts
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\backend\rpc-handlers\src\lib\host-profile\manifest.ts
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\backend\rpc-handlers\src\lib\host-profile\capabilities.ts
+- Pattern to follow: `manifest.ts:459-467` (`diagnosticsConsent` entry)
+- Quality requirements: entry `lanePlanLimits` with `requires: ['lanePlanLimits']`; capability defaults false.
+
+### Batch 9 verification
+
+- `npx jest -c libs/backend/rpc-handlers/jest.config.ts libs/backend/rpc-handlers/src/lib/handlers/lane-plan-limits-rpc.handlers.spec.ts libs/backend/rpc-handlers/src/lib/host-profile/resolve-handler-plan.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -n 40 && npx nx typecheck @ptah-extension/rpc-handlers --parallel=1 2>&1 | tail -n 20 && npx nx lint @ptah-extension/rpc-handlers --parallel=1 2>&1 | tail -n 20`
+
+## Batch 10: L3b lookup never passes `refresh` — PENDING
+
+- Recommended executor: backend-developer
+- Fallback executor: general-purpose subagent
+- Execution mode: sequential
+- Rationale: single spec case in another lib.
+- Tasks: 1 | Depends on: none
+- Phase: 2 | Phase review: after Batch 12
+
+### Task 10.1: lookup-level no-`refresh` case — PENDING
+
+- File: D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\backend\cli-agent-runtime\src\lib\cli-agents\limits\lane-limit-lookup.service.spec.ts (exists; extend)
+- Plan reference: implementation-plan.md:1082-1083, decisions #18
+- Pattern to follow: existing cases in the same spec; `lane-limit-lookup.service.ts:110-168,186`
+- Quality requirements: asserts the lookup never forwards `refresh`.
+
+### Batch 10 verification
+
+- `npx jest -c libs/backend/cli-agent-runtime/jest.config.ts libs/backend/cli-agent-runtime/src/lib/cli-agents/limits/lane-limit-lookup.service.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -n 40 && npx nx lint @ptah-extension/cli-agent-runtime --parallel=1 2>&1 | tail -n 20`
+
+## Batch 11: L4 Electron enablement — PENDING
+
+- Recommended executor: backend-developer
+- Fallback executor: general-purpose subagent
+- Execution mode: sequential
+- Rationale: root export plus Electron profile and container resolution proof.
+- Tasks: 2 | Depends on: Batch 9
+- Phase: 2 | Phase review: after Batch 12
+
+### Task 11.1: root export and Electron capability flag — PENDING
+
+- Files:
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\backend\rpc-handlers\src\index.ts
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\apps\ptah-electron\src\rpc-host-profile.ts
+- Plan reference: implementation-plan.md:295-323
+- Pattern to follow: `rpc-host-profile.ts:43-45` (`goVetDiagnostics: true`)
+- Quality requirements: `lanePlanLimits: true` in Electron only; no `registerSingleton` in `phase-4-handlers.ts`.
+
+### Task 11.2: Electron container resolution test — PENDING
+
+- File: D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\apps\ptah-electron\src\di\container.smoke.spec.ts
+- Pattern to follow: `container.smoke.spec.ts:630-690`
+- Quality requirements: `container.resolve(LanePlanLimitsRpcHandlers)` succeeds and registers its method (A2).
+
+### Batch 11 verification
+
+- `npx jest -c apps/ptah-electron/jest.config.ts apps/ptah-electron/src/di/container.smoke.spec.ts apps/ptah-electron/src/di/rpc-surface.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -n 40 && npx nx typecheck ptah-electron --parallel=1 2>&1 | tail -n 20 && npx nx lint @ptah-extension/rpc-handlers --parallel=1 2>&1 | tail -n 20`
+
+## Batch 12: L5 expected-absent lists (VS Code, CLI) — PENDING
+
+- Recommended executor: backend-developer
+- Fallback executor: general-purpose subagent
+- Execution mode: sequential
+- Rationale: two one-line list edits with their asserting specs; closes Phase 2.
+- Tasks: 1 | Depends on: Batch 9
+- Phase: 2 (last batch) | Phase review: code-logic + style on Batches 7-12
+
+### Task 12.1: add `lanePlanLimits` to both expected-absent lists — PENDING
+
+- Files:
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\apps\ptah-extension-vscode\src\di\expected-absent.ts
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\backend\cli-engine\src\lib\rpc\expected-absent.ts
+- Plan reference: implementation-plan.md:365-366 (A5), 1080-1081
+- Pattern to follow: `expected-absent.ts:62-74`
+- Quality requirements: R10.9; VS Code and CLI do not expose the read.
+
+### Batch 12 verification
+
+- `npx jest -c apps/ptah-extension-vscode/jest.config.ts apps/ptah-extension-vscode/src/di/container.smoke.spec.ts apps/ptah-extension-vscode/src/di/rpc-surface.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -n 40 && npx jest -c libs/backend/cli-engine/jest.config.cjs libs/backend/cli-engine/src/lib/rpc/rpc-surface.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -n 40`
+- Phase 2 code-logic + style review due after commit
+
+## Batch 13: D1 renderer container layout and `/4` view model — PENDING
+
+- Recommended executor: frontend-developer
+- Fallback executor: general-purpose subagent
+- Execution mode: sequential
+- Rationale: coupled renderer components and view model in one lib.
+- Tasks: 2 | Depends on: Batch 2
+- Phase: 3 Renderer `/4` | Phase review: code-logic (after Batch 15)
+
+### Task 13.1: view model for `accordion`, `avatar`, trend, spark — PENDING
+
+- Files:
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\declarative-dashboard\src\lib\view-model\view-model.types.ts
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\declarative-dashboard\src\lib\view-model\surface-view-model.ts
+- Plan reference: implementation-plan.md:568-629 (component 3)
+
+### Task 13.2: `layoutWidth` input, container queries, accordion layout — PENDING
+
+- Depends on: Task 13.1
+- Files:
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\declarative-dashboard\src\lib\components\surface-node.component.ts
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\declarative-dashboard\src\lib\components\surface-layout.component.ts
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\declarative-dashboard\src\lib\components\surface-renderer.component.ts
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\declarative-dashboard\src\lib\components\surface-layout.component.spec.ts
+- Plan reference: implementation-plan.md:248-264 (D9), 568-629
+- Quality requirements: `layoutWidth = input<'viewport'|'container'>('viewport')`; Apps page unchanged; container mode:
+  one column below 360 px, `auto-fit minmax(min(100%,128px),1fr)` above with `columns` as ceiling, stat grids 3 cols
+  at ≥ 700 px; accordion closed by default with toggle ARIA (R4.6, R9.1-R9.4); section open by default.
+
+### Batch 13 verification
+
+- `npx jest -c libs/frontend/declarative-dashboard/jest.config.ts libs/frontend/declarative-dashboard/src/lib/components/surface-layout.component.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -n 40 && npx nx typecheck @ptah-extension/declarative-dashboard --parallel=1 2>&1 | tail -n 20 && npx nx lint @ptah-extension/declarative-dashboard --parallel=1 2>&1 | tail -n 20`
+
+## Batch 14: D2 stat trend/sparkline and avatar — PENDING
+
+- Recommended executor: frontend-developer
+- Fallback executor: general-purpose subagent
+- Execution mode: sequential
+- Rationale: new display atoms sharing the geometry helper.
+- Tasks: 2 | Depends on: Batch 13
+- Phase: 3 | Phase review: after Batch 15
+
+### Task 14.1: stat trend pill and sparkline — PENDING
+
+- Files:
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\declarative-dashboard\src\lib\charts\sparkline-geometry.ts (CREATE)
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\declarative-dashboard\src\lib\components\dashboard-sparkline.component.ts (CREATE)
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\declarative-dashboard\src\lib\components\dashboard-stat.component.ts
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\declarative-dashboard\src\lib\components\dashboard-stat.component.spec.ts
+- Plan reference: implementation-plan.md:568-629; design-spec.md (stat, sparkline)
+- Pattern to follow: `charts/chart-geometry.ts`
+- Quality requirements: R4.3-R4.5; highlight uses theme `primary` (decisions #12); polarity good/bad tone via semantic
+  tokens; accessible text for trend; no per-element timers.
+
+### Task 14.2: avatar atom — PENDING
+
+- Files (CREATE):
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\declarative-dashboard\src\lib\components\dashboard-avatar.component.ts
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\declarative-dashboard\src\lib\components\dashboard-avatar.component.spec.ts
+- Quality requirements: R4.7-R4.8; initials only, no URL or image (trust boundary).
+
+### Batch 14 verification
+
+- `npx jest -c libs/frontend/declarative-dashboard/jest.config.ts libs/frontend/declarative-dashboard/src/lib/components/dashboard-stat.component.spec.ts libs/frontend/declarative-dashboard/src/lib/components/dashboard-avatar.component.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -n 40 && npx nx typecheck @ptah-extension/declarative-dashboard --parallel=1 2>&1 | tail -n 20 && npx nx lint @ptah-extension/declarative-dashboard --parallel=1 2>&1 | tail -n 20`
+
+## Batch 15: D3 container-width and trust-boundary specs, exports — PENDING
+
+- Recommended executor: frontend-developer
+- Fallback executor: general-purpose subagent
+- Execution mode: sequential
+- Rationale: proof specs and barrel for the renderer; closes Phase 3.
+- Tasks: 3 | Depends on: Batch 14
+- Phase: 3 (last batch) | Phase review: code-logic on Batches 13-15 (plus style if Task 15.3 adds exports)
+
+### Task 15.1: container-width spec (R3.5) — PENDING
+
+- File (CREATE): D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\declarative-dashboard\src\lib\components\surface-container-width.spec.ts
+- Quality requirements: 300 px → 1 column; 960 px → ceiling; `'viewport'` mode unchanged.
+
+### Task 15.2: trust-boundary spec for new kinds — PENDING
+
+- File: D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\declarative-dashboard\src\lib\trust-boundary.spec.ts (exists; corrected path)
+- Quality requirements: no agent HTML/URL/script reaches the DOM through `accordion`, `avatar`, trend, spark.
+
+### Task 15.3: barrel exports, only if needed — PENDING
+
+- File: D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\declarative-dashboard\src\index.ts
+
+### Batch 15 verification
+
+- `npx jest -c libs/frontend/declarative-dashboard/jest.config.ts libs/frontend/declarative-dashboard/src/lib/components/surface-container-width.spec.ts libs/frontend/declarative-dashboard/src/lib/trust-boundary.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -n 40 && npx nx typecheck @ptah-extension/declarative-dashboard --parallel=1 2>&1 | tail -n 20 && npx nx lint @ptah-extension/declarative-dashboard --parallel=1 2>&1 | tail -n 20`
+- Phase 3 code-logic review due after commit
+
+## Batch 16: C1 host-sources token and ptah-ui block — PENDING
+
+- Recommended executor: frontend-developer
+- Fallback executor: general-purpose subagent
+- Execution mode: sequential
+- Rationale: the token is eager-light; the block consumes it and the new pipeline.
+- Tasks: 2 | Depends on: Batches 5, 13
+- Phase: 4 chat-ui display panel | Phase review: code-logic + style (after Batch 21)
+
+### Task 16.1: host-sources token (component 9) — PENDING
+
+- Files:
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\services\ptah-ui-host-sources.ts (CREATE)
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\index.ts
+- Plan reference: implementation-plan.md:977-993
+- Validation notes: `chat-ui/src/index.ts` is edited again in Batch 27; sequential only. No `mcp-apps-contracts`
+  runtime import (eager-light).
+
+### Task 16.2: ptah-ui block uses `compilePtahUiBlock`, container layout, live inputs — PENDING
+
+- Depends on: Task 16.1
+- Files:
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\organisms\ptah-ui\ptah-ui-block.component.ts
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\organisms\ptah-ui\ptah-ui-block.component.spec.ts
+- Plan reference: implementation-plan.md:630-673 (component 4), D5
+- Quality requirements: computes agents/limits input only when `usedSources` contains them; passes
+  `layoutWidth='container'`; inline live cap 8.
+
+### Batch 16 verification
+
+- `npx jest -c libs/frontend/chat-ui/jest.config.ts libs/frontend/chat-ui/src/lib/organisms/ptah-ui/ptah-ui-block.component.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -n 40 && npx nx typecheck @ptah-extension/chat-ui --parallel=1 2>&1 | tail -n 20 && npx nx lint @ptah-extension/chat-ui --parallel=1 2>&1 | tail -n 20`
+
+## Batch 17: C2 live source adapters (`$agents`, `$limits`) — PENDING
+
+- Recommended executor: frontend-developer
+- Fallback executor: general-purpose subagent
+- Execution mode: sequential
+- Rationale: two lazy adapters with the same acquire/release shape.
+- Tasks: 2 | Depends on: Batches 16, 7
+- Phase: 4 | Phase review: after Batch 21
+
+### Task 17.1: `$agents` adapter — PENDING
+
+- Files (CREATE):
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\organisms\ptah-ui\sources\ptah-ui-agents.source.ts
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\organisms\ptah-ui\sources\ptah-ui-agents.source.spec.ts
+- Plan reference: implementation-plan.md:674-719 (component 4a)
+- Quality requirements: R5.4 live during the turn; allow-list projection only.
+
+### Task 17.2: `$limits` adapter — PENDING
+
+- Files (CREATE):
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\organisms\ptah-ui\sources\ptah-ui-lane-limits.source.ts
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\organisms\ptah-ui\sources\ptah-ui-lane-limits.source.spec.ts
+- Quality requirements: R10.6; first acquire calls `agent:getLanePlanLimits`; re-read on `PlanLimitsStore.snapshot()`
+  change while acquired; response type-guarded; RPC failure → "unavailable", `console.warn` without payload; no timers.
+
+### Batch 17 verification
+
+- `npx jest -c libs/frontend/chat-ui/jest.config.ts libs/frontend/chat-ui/src/lib/organisms/ptah-ui/sources --coverage=false --maxWorkers=2 2>&1 | tail -n 40 && npx nx typecheck @ptah-extension/chat-ui --parallel=1 2>&1 | tail -n 20 && npx nx lint @ptah-extension/chat-ui --parallel=1 2>&1 | tail -n 20`
+
+## Batch 18: C3 display chip and message text — PENDING
+
+- Recommended executor: frontend-developer
+- Fallback executor: general-purpose subagent
+- Execution mode: sequential
+- Rationale: the chip and its host in the message text, both in the `ptah-ui` entry.
+- Tasks: 2 | Depends on: Batch 16
+- Phase: 4 | Phase review: after Batch 21
+
+### Task 18.1: display chip — PENDING
+
+- Files (CREATE):
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\organisms\ptah-ui\ptah-ui-display-chip.component.ts
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\organisms\ptah-ui\ptah-ui-display-chip.component.spec.ts
+- Plan reference: implementation-plan.md:630-673
+- Quality requirements: R1.11, R2.10-R2.11, decisions #7 ("Open in display", "updated later" when superseded);
+  collapsible and responsive (decisions #9).
+
+### Task 18.2: message text renders the chip for display fences — PENDING
+
+- Files:
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\organisms\ptah-ui\ptah-ui-message-text.component.ts
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\organisms\ptah-ui\ptah-ui-message-text.component.spec.ts
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\ptah-ui.ts
+
+### Batch 18 verification
+
+- `npx jest -c libs/frontend/chat-ui/jest.config.ts libs/frontend/chat-ui/src/lib/organisms/ptah-ui/ptah-ui-display-chip.component.spec.ts libs/frontend/chat-ui/src/lib/organisms/ptah-ui/ptah-ui-message-text.component.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -n 40 && npx nx typecheck @ptah-extension/chat-ui --parallel=1 2>&1 | tail -n 20 && npx nx lint @ptah-extension/chat-ui --parallel=1 2>&1 | tail -n 20`
+
+## Batch 19: C4 turn summary model and chip — PENDING
+
+- Recommended executor: frontend-developer
+- Fallback executor: general-purpose subagent
+- Execution mode: sequential
+- Rationale: renderer-free summary model and chip in the existing `turn-recap` entry.
+- Tasks: 2 | Depends on: Batch 1
+- Phase: 4 | Phase review: after Batch 21
+
+### Task 19.1: summary model (ports every tests-row case) — PENDING
+
+- Files (CREATE):
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\molecules\turn-recap\turn-summary.model.ts
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\molecules\turn-recap\turn-summary.model.spec.ts
+- Plan reference: implementation-plan.md:802-832 (component 6); parity-inventory.md sections 1-2
+- Quality requirements: R6.1-R6.4, R6.6, R6.8; Tests card omitted when empty; "(incomplete)" for aborted turns; label
+  cases ported from `turn-tests-row.component.spec.ts`; Files and Lines cards carry change-set capabilities.
+
+### Task 19.2: summary chip and entry export — PENDING
+
+- Files:
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\molecules\turn-recap\turn-summary-chip.component.ts (CREATE)
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\molecules\turn-recap\turn-summary-chip.component.spec.ts (CREATE)
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\turn-recap.ts
+- Quality requirements: R6.5, R6.9, R6.10; warm gradient kept (decisions #13); no renderer import.
+- Validation notes: `turn-recap.ts` is edited again in Batch 24 (keep the `TurnTestsRowComponent` export here).
+
+### Batch 19 verification
+
+- `npx jest -c libs/frontend/chat-ui/jest.config.ts libs/frontend/chat-ui/src/lib/molecules/turn-recap --coverage=false --maxWorkers=2 2>&1 | tail -n 40 && npx nx typecheck @ptah-extension/chat-ui --parallel=1 2>&1 | tail -n 20 && npx nx lint @ptah-extension/chat-ui --parallel=1 2>&1 | tail -n 20`
+
+## Batch 20: C5 display-panel entry, surfaces and sync — PENDING
+
+- Recommended executor: frontend-developer
+- Fallback executor: general-purpose subagent
+- Execution mode: sequential
+- Rationale: pure surfaces computation plus the headless sync and the new lazy entry; needs design judgement.
+- Tasks: 2 | Depends on: Batches 17, 18
+- Phase: 4 | Phase review: after Batch 21
+
+### Task 20.1: `display-surfaces.ts` pure computation — PENDING
+
+- Files (CREATE):
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\organisms\display-panel\display-surfaces.ts
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\organisms\display-panel\display-surfaces.spec.ts
+- Plan reference: implementation-plan.md:216-247 (D3), 265-294 (D10-D12), 720-801 (component 5)
+- Quality requirements: R1.12, R2.3-R2.6, R2.8, R2.9; keys `id:X` / `anon:<blockKey>:<ordinal>`; reserved `ptah.`;
+  cap via `SURFACE_STORE_LIMITS.maxSurfacesPerRoutingId`, LRU drop with `evicted`; view-state pruning on replace;
+  pure function of ordered candidates.
+
+### Task 20.2: surface sync, entry file and tsconfig path — PENDING
+
+- Depends on: Task 20.1
+- Files:
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\organisms\display-panel\display-surface-sync.component.ts (CREATE)
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\organisms\display-panel\display-surface-sync.component.spec.ts (CREATE)
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\display-panel.ts (CREATE)
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\tsconfig.base.json
+- Pattern to follow: `tsconfig.base.json:52-60` (`chat-ui/ptah-ui`, `chat-ui/turn-recap` paths)
+- Quality requirements: R1.1, R1.5, R1.6, R1.8; compile cache by body; auto-open only for applied, live, unseen
+  `blockKey:ordinal`; `seenBlockKeys` in the ChatView store; summary never auto-opens.
+
+### Batch 20 verification
+
+- `npx jest -c libs/frontend/chat-ui/jest.config.ts libs/frontend/chat-ui/src/lib/organisms/display-panel --coverage=false --maxWorkers=2 2>&1 | tail -n 40 && npx nx typecheck @ptah-extension/chat-ui --parallel=1 2>&1 | tail -n 20 && npx nx lint @ptah-extension/chat-ui --parallel=1 2>&1 | tail -n 20`
+
+## Batch 21: C6 display panel and turn summary cards — PENDING
+
+- Recommended executor: frontend-developer
+- Fallback executor: general-purpose subagent
+- Execution mode: sequential
+- Rationale: the two visible panel components; closes Phase 4.
+- Tasks: 2 | Depends on: Batches 19, 20, 14
+- Phase: 4 (last batch) | Phase review: code-logic + style on Batches 16-21
+
+### Task 21.1: display panel component — PENDING
+
+- Files (CREATE):
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\organisms\display-panel\display-panel.component.ts
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\organisms\display-panel\display-panel.component.spec.ts
+- Plan reference: implementation-plan.md:720-801; design-spec.md sections 1-10; prototype/
+- Quality requirements: R1.13 (summary first, strip, surfaces, per-surface view state); collapsible, responsive at
+  300/960 px (decisions #9); R9.1-R9.4.
+
+### Task 21.2: turn summary cards — PENDING
+
+- Files (CREATE):
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\organisms\display-panel\turn-summary.component.ts
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\organisms\display-panel\turn-summary.component.spec.ts
+- Quality requirements: R6.1-R6.4, R6.8; tests-row capabilities (expand/collapse ARIA, run rows, icons with labels,
+  `<details>` command, failure lines); 1 column at 300 px (R9.6).
+
+### Batch 21 verification
+
+- `npx jest -c libs/frontend/chat-ui/jest.config.ts libs/frontend/chat-ui/src/lib/organisms/display-panel --coverage=false --maxWorkers=2 2>&1 | tail -n 40 && npx nx typecheck @ptah-extension/chat-ui --parallel=1 2>&1 | tail -n 20 && npx nx lint @ptah-extension/chat-ui --parallel=1 2>&1 | tail -n 20`
+- Phase 4 code-logic + style review due after commit
+
+## Batch 22: H1 transcript projections — PENDING
+
+- Recommended executor: frontend-developer
+- Fallback executor: general-purpose subagent
+- Execution mode: sequential
+- Rationale: eager, zero-import pure projections in the chat lib.
+- Tasks: 3 | Depends on: Batch 3
+- Phase: 5 Transcript and dock | Phase review: code-logic (after Batch 25)
+
+### Task 22.1: fence-line display check — PENDING
+
+- Files:
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat\src\lib\components\organisms\execution\ptah-ui-fence-line.ts
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat\src\lib\components\organisms\execution\ptah-ui-fence-line.spec.ts (CREATE)
+- Plan reference: implementation-plan.md:833-881 (component 7)
+
+### Task 22.2: `collectDisplayCandidates` — PENDING
+
+- Files (CREATE):
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat\src\lib\components\organisms\transcript\transcript-display-candidates.ts
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat\src\lib\components\organisms\transcript\transcript-display-candidates.spec.ts
+- Quality requirements: R2.1, R2.7, R2.10-R2.11; `blockKey`, `orderKey`, `turnKey`, `live`.
+- Validation notes: resolve A4 (streaming text nodes in `vm().messages`).
+
+### Task 22.3: `collectTurnAgentFacts` — PENDING
+
+- Files (CREATE):
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat\src\lib\components\organisms\transcript\transcript-agent-facts.ts
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat\src\lib\components\organisms\transcript\transcript-agent-facts.spec.ts
+- Plan reference: D6-D8
+- Quality requirements: turn attribution per D7; allow-listed fields only.
+- Validation notes: resolve A3 (`agent-monitor.store.ts:241-251`); R5.9(d) fixture seeds the Task tool node.
+
+### Batch 22 verification
+
+- `npx jest -c libs/frontend/chat/jest.config.ts libs/frontend/chat/src/lib/components/organisms/execution/ptah-ui-fence-line.spec.ts libs/frontend/chat/src/lib/components/organisms/transcript/transcript-display-candidates.spec.ts libs/frontend/chat/src/lib/components/organisms/transcript/transcript-agent-facts.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -n 40 && npx nx typecheck @ptah-extension/chat --parallel=1 2>&1 | tail -n 20 && npx nx lint @ptah-extension/chat --parallel=1 2>&1 | tail -n 20`
+
+## Batch 23: H2 dock state, transcript host sources, sidebar tab — PENDING
+
+- Recommended executor: frontend-developer
+- Fallback executor: general-purpose subagent
+- Execution mode: sequential
+- Rationale: the per-tab store and the host-sources provider the transcript wires next.
+- Tasks: 3 | Depends on: Batches 16, 22
+- Phase: 5 | Phase review: after Batch 25
+
+### Task 23.1: `DisplayDockState` — PENDING
+
+- Files (CREATE):
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat\src\lib\services\display-dock\display-dock.state.ts
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat\src\lib\services\display-dock\display-dock.state.spec.ts
+- Plan reference: implementation-plan.md:227-238 (D4), 265-294 (D12), 882-976 (component 8)
+- Quality requirements: per-tab `open`, `pinned`, `activeTab`, `widthPx`, `userClosedTurnKey`, `newCount`,
+  `seenBlockKeys`, selections, surfaces, statuses, summaries; `requestAutoOpen` ignored when the user closed this turn
+  (increments `newCount`); types-only import from `mcp-apps-contracts`.
+
+### Task 23.2: transcript host-sources provider — PENDING
+
+- File (CREATE): D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat\src\lib\components\organisms\transcript\transcript-ptah-ui-host-sources.ts
+- Plan reference: implementation-plan.md:833-881, 977-993
+
+### Task 23.3: sidebar tab atom (count badge / tab ARIA) — PENDING
+
+- File: D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\atoms\sidebar-tab.component.ts
+- Plan reference: implementation-plan.md:975
+
+### Batch 23 verification
+
+- `npx jest -c libs/frontend/chat/jest.config.ts libs/frontend/chat/src/lib/services/display-dock --coverage=false --maxWorkers=2 2>&1 | tail -n 40 && npx nx typecheck @ptah-extension/chat --parallel=1 2>&1 | tail -n 20 && npx nx lint @ptah-extension/chat --parallel=1 2>&1 | tail -n 20 && npx nx lint @ptah-extension/chat-ui --parallel=1 2>&1 | tail -n 20`
+
+## Batch 24: H3 transcript wiring and tests-row removal — PENDING
+
+- Recommended executor: frontend-developer
+- Fallback executor: general-purpose subagent
+- Execution mode: sequential
+- Rationale: the Electron placement move; export removal and deletion stay together so the boundary compiles.
+- Tasks: 2 | Depends on: Batches 23, 19, 20
+- Phase: 5 | Phase review: after Batch 25
+
+### Task 24.1: transcript publishes candidates/summary inputs, mounts sync and chip — PENDING
+
+- Files:
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat\src\lib\components\organisms\transcript\chat-transcript.component.ts
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat\src\lib\components\organisms\transcript\chat-transcript.component.html
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat\src\lib\components\organisms\transcript\chat-transcript.display.spec.ts (CREATE)
+- Plan reference: implementation-plan.md:833-881, 1219-1242
+- Quality requirements: R6.5, R6.9, R6.10; Electron: change-set card and tests row replaced by the summary chip
+  (decisions #5, #10); VS Code transcript unchanged (keeps the card, still no tests row); sync under `@defer`.
+
+### Task 24.2: delete the tests row — PENDING
+
+- Depends on: Task 24.1 and Task 19.1 (cases already ported)
+- Files:
+  - DELETE D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\molecules\turn-recap\turn-tests-row.component.ts
+  - DELETE D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\molecules\turn-recap\turn-tests-row.component.spec.ts
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\turn-recap.ts
+- Quality requirements: no remaining reference to `TurnTestsRowComponent` / `ptah-turn-tests-row` (grep).
+
+### Batch 24 verification
+
+- `npx jest -c libs/frontend/chat/jest.config.ts libs/frontend/chat/src/lib/components/organisms/transcript/chat-transcript.display.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -n 40 && npx nx typecheck @ptah-extension/chat-ui --parallel=1 2>&1 | tail -n 20 && npx nx typecheck @ptah-extension/chat --parallel=1 2>&1 | tail -n 20 && npx nx lint @ptah-extension/chat --parallel=1 2>&1 | tail -n 20`
+
+## Batch 25: H4 dock component and ChatView integration — PENDING
+
+- Recommended executor: frontend-developer
+- Fallback executor: general-purpose subagent
+- Execution mode: sequential
+- Rationale: one coherent UI integration (dock, ChatView, monitor move); closes Phase 5.
+- Tasks: 2 | Depends on: Batches 24, 21
+- Phase: 5 (last batch) | Phase review: code-logic on Batches 22-25
+
+### Task 25.1: display dock component (Displays and Agents tabpanels) — PENDING
+
+- Files (CREATE):
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat\src\lib\components\organisms\display-dock\display-dock.component.ts
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat\src\lib\components\organisms\display-dock\display-dock.component.spec.ts
+- Plan reference: implementation-plan.md:882-976 (component 8)
+- Pattern to follow: `libs/frontend/chat/src/lib/components/organisms/agent-monitor-panel.component.ts`
+- Quality requirements: pin, close, resize; Agents tab always controls a `role="tabpanel"` with "No agents in this
+  session" (decisions #11, R1.13); lazy `display-panel` import; chunk failure → dock alert line.
+
+### Task 25.2: ChatView mounts the dock; monitor panel becomes the Agents tabpanel — PENDING
+
+- Files:
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat\src\lib\components\templates\chat-view.component.ts
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat\src\lib\components\templates\chat-view.component.html
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat\src\lib\components\templates\chat-view.dock.spec.ts (CREATE)
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat\src\lib\components\organisms\agent-monitor-panel.component.ts
+- Plan reference: implementation-plan.md:954-965 (R1.3)
+- Quality requirements: R1.2-R1.4, R1.7, R1.9, R1.14; `DisplayDockState` provided by ChatView; dock under
+  `@defer (when dockOpen())`; one panel element, one visible tabpanel, chat width = host − one dock width at 1280 px;
+  the user-closed rule.
+- Note: this batch touches 6 files in one lib (limit reached).
+
+### Batch 25 verification
+
+- `npx jest -c libs/frontend/chat/jest.config.ts libs/frontend/chat/src/lib/components/organisms/display-dock libs/frontend/chat/src/lib/components/templates/chat-view.dock.spec.ts libs/frontend/chat/src/lib/components/templates/chat-view.component.spec.ts libs/frontend/chat/src/lib/components/templates/chat-view.keepalive.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -n 40 && npx jest -c libs/frontend/chat/jest.config.ts execution-node.ptah-ui.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -n 20 && npx nx typecheck @ptah-extension/chat --parallel=1 2>&1 | tail -n 20 && npx nx lint @ptah-extension/chat --parallel=1 2>&1 | tail -n 20`
+- Phase 5 code-logic review due after commit
+
+## Batch 26: P1 tool-language util, copy button, code output — PENDING
+
+- Recommended executor: frontend-developer
+- Fallback executor: general-purpose subagent
+- Execution mode: sequential
+- Rationale: shared preview building blocks first.
+- Tasks: 3 | Depends on: none (runs after Phase 5)
+- Phase: 6 Previews (R7) | Phase review: code-logic + style (after Batch 28)
+
+### Task 26.1: tool-language util — PENDING
+
+- Files (CREATE):
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\utils\tool-language.utils.ts
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\utils\tool-language.utils.spec.ts
+- Plan reference: implementation-plan.md:1086-1145 (component 11)
+- Quality requirements: R7.5; keeps existing detection (extension, `bash`, JSON sniffing — parity section 4).
+
+### Task 26.2: copy-text button atom — PENDING
+
+- Files (CREATE):
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\atoms\copy-text-button.component.ts
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\atoms\copy-text-button.component.spec.ts
+
+### Task 26.3: code output expand, language label — PENDING
+
+- Files:
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\molecules\tool-execution\code-output.component.ts
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\molecules\tool-execution\code-output.component.spec.ts
+- Quality requirements: R7.4; keep `max-h-48` scroll, ANSI/system-reminder/`N→` stripping (parity section 4).
+
+### Batch 26 verification
+
+- `npx jest -c libs/frontend/chat-ui/jest.config.ts libs/frontend/chat-ui/src/lib/utils/tool-language.utils.spec.ts libs/frontend/chat-ui/src/lib/atoms/copy-text-button.component.spec.ts libs/frontend/chat-ui/src/lib/molecules/tool-execution/code-output.component.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -n 40 && npx nx typecheck @ptah-extension/chat-ui --parallel=1 2>&1 | tail -n 20 && npx nx lint @ptah-extension/chat-ui --parallel=1 2>&1 | tail -n 20`
+
+## Batch 27: P2 tool-call header and tool-call item — PENDING
+
+- Recommended executor: frontend-developer
+- Fallback executor: general-purpose subagent
+- Execution mode: sequential
+- Rationale: header redesign and its host item; edits `chat-ui/src/index.ts` after Batch 16.
+- Tasks: 2 | Depends on: Batches 26, 16
+- Phase: 6 | Phase review: after Batch 28
+
+### Task 27.1: tool-call header (command preview, status text, accessible names) — PENDING
+
+- Files:
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\molecules\tool-execution\tool-call-header.component.ts
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\molecules\tool-execution\tool-call-header.component.spec.ts (CREATE)
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\index.ts
+- Quality requirements: R7.1-R7.3; every header parity row (gold `mcp__ptah` styling, badges, toggle `aria-expanded`,
+  file path link, Bash description/40-char truncation with full command, streaming description, parse-error warning,
+  status icons, duration badge).
+- Validation notes: resolve A9; with no exit code, "Command succeeded/failed".
+
+### Task 27.2: tool-call item — PENDING
+
+- Files:
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat\src\lib\components\molecules\tool-execution\tool-call-item.component.ts
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat\src\lib\components\molecules\tool-execution\tool-call-item.component.spec.ts
+- Quality requirements: collapsed by default; auto-expand on permission request; R7.10 both webviews.
+
+### Batch 27 verification
+
+- `npx jest -c libs/frontend/chat-ui/jest.config.ts libs/frontend/chat-ui/src/lib/molecules/tool-execution/tool-call-header.component.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -n 40 && npx jest -c libs/frontend/chat/jest.config.ts libs/frontend/chat/src/lib/components/molecules/tool-execution/tool-call-item.component.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -n 40 && npx nx typecheck @ptah-extension/chat --parallel=1 2>&1 | tail -n 20 && npx nx lint @ptah-extension/chat-ui --parallel=1 2>&1 | tail -n 20 && npx nx lint @ptah-extension/chat --parallel=1 2>&1 | tail -n 20`
+
+## Batch 28: P3 diff, input and output displays — PENDING
+
+- Recommended executor: frontend-developer
+- Fallback executor: general-purpose subagent
+- Execution mode: sequential
+- Rationale: the three file-preview molecules; closes Phase 6.
+- Tasks: 3 | Depends on: Batch 26
+- Phase: 6 (last batch) | Phase review: code-logic + style on Batches 26-28
+
+### Task 28.1: diff display (+/− counts, gutter) — PENDING
+
+- Files:
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\molecules\tool-execution\diff-display.component.ts
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\molecules\tool-execution\diff-display.component.spec.ts
+- Quality requirements: R7.6; keeps path link, replacements badge, `max-h-64`.
+
+### Task 28.2: tool input display (full command, Write preview) — PENDING
+
+- Files:
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\molecules\tool-execution\tool-input-display.component.ts
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\molecules\tool-execution\tool-input-display.component.spec.ts
+- Quality requirements: R7.2, R7.7; trivial-input hiding, 60-char truncation for other params, retention notice kept.
+
+### Task 28.3: tool output display — PENDING
+
+- Files:
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\molecules\tool-execution\tool-output-display.component.ts
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\molecules\tool-execution\tool-output-display.component.spec.ts
+- Quality requirements: output routing, retention notice and error alert kept.
+
+### Batch 28 verification
+
+- `npx jest -c libs/frontend/chat-ui/jest.config.ts libs/frontend/chat-ui/src/lib/molecules/tool-execution --coverage=false --maxWorkers=2 2>&1 | tail -n 40 && npx nx typecheck @ptah-extension/chat-ui --parallel=1 2>&1 | tail -n 20 && npx nx lint @ptah-extension/chat-ui --parallel=1 2>&1 | tail -n 20`
+- Phase 6 code-logic + style review due after commit
+
+## Batch 29: A1 prompt hint and no-write-back fixtures — PENDING
+
+- Recommended executor: backend-developer
+- Fallback executor: general-purpose subagent
+- Execution mode: sequential
+- Rationale: hint text with its token gate, plus the two host-data sentinel specs.
+- Tasks: 2 | Depends on: Batches 6, 7, 19
+- Phase: 7 Hint, skill, measurement, eager gate | Phase review: code-logic (after Batch 32)
+
+### Task 29.1: `PTAH_UI_HINT` — PENDING
+
+- Files:
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\backend\agent-sdk\src\lib\prompt-harness\ptah-ui-hint.ts
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\backend\agent-sdk\src\lib\prompt-harness\ptah-ui-hint.spec.ts
+- Plan reference: implementation-plan.md:1146-1192 (component 12)
+- Quality requirements: R8.1 ≤ 100 tokens; names `display [id]`, the id-update rule, `$diff $tests $usage $agents
+  $limits`, points to the skill; examples parse; no `/note/i`; if over budget drop `$limits` and record both counts.
+
+### Task 29.2: host-data sentinel specs — PENDING
+
+- Files:
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\backend\agent-sdk\src\lib\helpers\sdk-query-options-builder.host-data.spec.ts
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat\src\lib\services\message-sender.host-data.spec.ts
+- Quality requirements: R5.8 (`$agents` sentinel name, cost `0.623623`), R10.5 (`$limits` sentinel lane, `62.3623%`),
+  R6.7 (summary) never reach the outgoing prompt/options.
+
+### Batch 29 verification
+
+- `npx jest -c libs/backend/agent-sdk/jest.config.ts libs/backend/agent-sdk/src/lib/prompt-harness/ptah-ui-hint.spec.ts libs/backend/agent-sdk/src/lib/helpers/sdk-query-options-builder.host-data.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -n 40 && npx jest -c libs/frontend/chat/jest.config.ts libs/frontend/chat/src/lib/services/message-sender.host-data.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -n 40 && npx nx lint @ptah-extension/agent-sdk --parallel=1 2>&1 | tail -n 20`
+
+## Batch 30: DOC1 `ptah-surface-authoring` skill text — PENDING
+
+- Recommended executor: technical-content-writer
+- Fallback executor: backend-developer
+- Execution mode: sequential
+- Rationale: documentation in two mirrored copies; every example must be a corpus case from Task 6.1.
+- Tasks: 2 | Depends on: Batches 6, 29
+- Phase: 7 | Phase review: after Batch 32
+
+### Task 30.1: asset skill copy — PENDING
+
+- Files:
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\apps\ptah-extension-vscode\assets\plugins\ptah-core\skills\ptah-surface-authoring\SKILL.md
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\apps\ptah-extension-vscode\assets\plugins\ptah-core\skills\ptah-surface-authoring\references\ptah-ui.md
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\apps\ptah-extension-vscode\assets\plugins\ptah-core\skills\ptah-surface-authoring\references\catalog.md
+- Plan reference: implementation-plan.md:1146-1192
+- Quality requirements: R3 EBNF and lexical delta; display and id rules; `$agents` (context, unavailable/no-percent,
+  `session`, CLI context unavailable today); `$limits`; the three worked examples; "Common mistakes" for `session` and
+  indentation; `/4` kinds in catalog.md.
+
+### Task 30.2: `.claude/skills` mirror — PENDING
+
+- Files:
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\.claude\skills\ptah-surface-authoring\SKILL.md
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\.claude\skills\ptah-surface-authoring\references\ptah-ui.md
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\.claude\skills\ptah-surface-authoring\references\catalog.md
+- Quality requirements: byte-identical to Task 30.1.
+
+### Batch 30 verification
+
+- `diff -r apps/ptah-extension-vscode/assets/plugins/ptah-core/skills/ptah-surface-authoring .claude/skills/ptah-surface-authoring && npx jest -c libs/shared/jest.config.ts libs/shared/src/mcp-apps-contracts/ptah-ui-compactness.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -n 20`
+- Team-leader also confirms each skill example appears in `ptah-ui.corpus.ts`.
+
+## Batch 31: DOC2 content manifest and measurement — PENDING
+
+- Recommended executor: backend-developer
+- Fallback executor: general-purpose subagent
+- Execution mode: sequential
+- Rationale: generated manifest plus the measurement record.
+- Tasks: 2 | Depends on: Batches 30, 29
+- Phase: 7 | Phase review: after Batch 32
+
+### Task 31.1: regenerate `content-manifest.json` — PENDING
+
+- File: D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\content-manifest.json
+- Quality requirements: `npm run manifest:generate` then `npm run manifest:check` (scripts, not build targets).
+
+### Task 31.2: `measurement.md` and A8 — PENDING
+
+- Files:
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\.ptah\specs\TASK_2026_623_3492\measurement.md (CREATE)
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\backend\vscode-lm-tools\src\lib\code-execution\surface-catalog-reference.spec.ts (only if A8 requires a change)
+- Quality requirements: hint text, characters and tokens; corpus fence vs JSON (R8.4) and fence vs markdown (R8.5);
+  coding `tools/list` parity (NFR 5.10); Apps `tools/list` delta (A8); an eager-closure section left for Batch 33.
+
+### Batch 31 verification
+
+- `npm run manifest:check 2>&1 | tail -n 20 && npx jest -c libs/backend/vscode-lm-tools/jest.config.ts libs/backend/vscode-lm-tools/src/lib/code-execution/surface-catalog-reference.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -n 40`
+
+## Batch 32: G1 eager-closure gate patterns — PENDING
+
+- Recommended executor: backend-developer
+- Fallback executor: general-purpose subagent
+- Execution mode: sequential
+- Rationale: script plus its synthetic spec; closes Phase 7.
+- Tasks: 1 | Depends on: Batch 25
+- Phase: 7 (last batch) | Phase review: code-logic on Batches 29-32
+
+### Task 32.1: forbidden and allowed eager inputs — PENDING
+
+- Files:
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\scripts\eager-closure-gate.js
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\apps\ptah-electron\src\config\eager-closure-gate.spec.ts
+- Plan reference: implementation-plan.md:1193-1216 (component 13)
+- Pattern to follow: `scripts/eager-closure-gate.js:11-25,76,99-104`
+- Quality requirements: forbidden: `chat-ui/src/display-panel.ts`, `chat-ui/src/lib/organisms/display-panel/`,
+  `chat/.*/organisms/display-dock/`; allowed growth: the five eager files; fails closed; synthetic fixtures per pattern.
+
+### Batch 32 verification
+
+- `npx jest -c apps/ptah-electron/jest.config.ts apps/ptah-electron/src/config/eager-closure-gate.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -n 40`
+- Phase 7 code-logic review due after commit
+
+## Batch 33: V1 single build, gate run and visual review — PENDING
+
+- Recommended executor: team-leader runs the build and gate once; visual-reviewer subagent reviews the launched app
+- Fallback executor: none (a second run needs a new user decision)
+- Execution mode: sequential
+- Rationale: decisions.md #17 allows exactly one webview build and one app launch, after every frontend batch and G1.
+- Tasks: 3 | Depends on: Batches 13-28, 32
+- Phase: 8 Visual verification | Phase review: visual (visual-reviewer), no code-logic
+- PRECONDITION (Risk HIGH above): the orchestrator records a user ruling that the one launch includes the Electron
+  main-process build (`nx build-dev ptah-electron`) and native rebuild. Do not start this batch without it.
+
+### Task 33.1: one production webview build with stats — PENDING
+
+- Command (once): `npx nx copy-renderer ptah-electron --parallel=1` (its dependsOn runs the single production
+  `ptah-extension-webview:build`, `statsJson: true`), producing `dist/apps/ptah-extension-webview/stats.json`.
+
+### Task 33.2: eager-closure gate on the head stats — PENDING
+
+- Command: `node scripts/eager-closure-gate.js dist/apps/ptah-extension-webview/stats.json`
+- No merge-base stats exist: record "growth check not run (single build, decisions.md #17)" and list added eager inputs
+  by name and bytes in D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\.ptah\specs\TASK_2026_623_3492\measurement.md.
+
+### Task 33.3: one Electron app launch and visual review — PENDING
+
+- Launch once (after the ruled main-process build): `node apps/ptah-electron/scripts/launch.js`
+- visual-reviewer checks against `prototype/screenshots/`: widths 360/1024 (chat) and 300/960 (panel), dark and light,
+  collapsed and expanded; chat chips, previews (Bash/Read/Write/Edit, Electron and VS Code webviews per R7.8/R7.10),
+  summary, states, agents, atoms, dock, empty, the Agents empty tabpanel; R9.5 width script (prototype `?check=1`);
+  collapsed row ≤ 36 px (R7.9); axe zero serious/critical. Writes visual-review.md in the task folder.
+- Plan reference: implementation-plan.md:1324-1345, 1420

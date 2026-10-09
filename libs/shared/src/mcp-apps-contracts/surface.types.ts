@@ -1,8 +1,11 @@
 /** Plain contracts: schemas depend on these types, never the reverse. */
 import type {
   SurfaceActionId,
+  SurfaceCatalogVersion,
   SurfaceGap,
   SurfaceStackDirection,
+  SurfaceTrendDirection,
+  SurfaceTrendPolarity,
 } from './surface-catalog';
 import type {
   DashboardAction,
@@ -45,6 +48,11 @@ export interface SurfaceCardComponent extends SurfaceLayoutBase {
   readonly kind: 'card';
   readonly title?: SurfaceRichText;
   readonly description?: SurfaceRichText;
+}
+/** dashboard-catalog/4. Closed by default is intrinsic to the kind. */
+export interface SurfaceAccordionComponent extends SurfaceLayoutBase {
+  readonly kind: 'accordion';
+  readonly title: SurfaceRichText;
 }
 export interface SurfaceRequiredHints {
   readonly required?: boolean;
@@ -91,7 +99,20 @@ export type SurfaceInput =
 type SurfaceDisplay<T> = Omit<T, 'children' | 'actions'> & {
   readonly actions?: readonly SurfaceAction[];
 };
-export type SurfaceStatComponent = SurfaceDisplay<DashboardStatComponent>;
+/** dashboard-catalog/4 stat trend: `amount` is a magnitude, `direction` its sign. */
+export interface SurfaceStatTrend {
+  readonly direction: SurfaceTrendDirection;
+  readonly amount: number;
+  readonly percent: boolean;
+  /** `good`/`bad` pick the success/error tone; omitted means neutral. */
+  readonly polarity?: SurfaceTrendPolarity;
+}
+export type SurfaceStatComponent = SurfaceDisplay<DashboardStatComponent> & {
+  /** dashboard-catalog/4 only. */
+  readonly trend?: SurfaceStatTrend;
+  /** dashboard-catalog/4 only: 2..`maxSeriesPoints` points, one series. */
+  readonly spark?: readonly number[];
+};
 export type SurfaceLineChartComponent =
   SurfaceDisplay<DashboardLineChartComponent>;
 export type SurfaceBarChartComponent =
@@ -142,11 +163,22 @@ export interface SurfaceTextBlockComponent {
   readonly text: SurfaceRichText;
   readonly role: 'heading' | 'body';
 }
+/**
+ * dashboard-catalog/4. Plain text only: initials and tone are derived by the
+ * renderer, so there is no image, URL, colour or icon field.
+ */
+export interface SurfaceAvatarComponent {
+  readonly id: string;
+  readonly kind: 'avatar';
+  readonly name: string;
+  readonly subtitle?: string;
+}
 export type SurfaceComponent =
   | SurfaceSectionComponent
   | SurfaceStackComponent
   | SurfaceGridComponent
   | SurfaceCardComponent
+  | SurfaceAccordionComponent
   | SurfaceInput
   | SurfaceStatComponent
   | SurfaceLineChartComponent
@@ -158,7 +190,8 @@ export type SurfaceComponent =
   | SurfaceProgressComponent
   | SurfaceRadialProgressComponent
   | SurfaceDividerComponent
-  | SurfaceTextBlockComponent;
+  | SurfaceTextBlockComponent
+  | SurfaceAvatarComponent;
 
 /** JSON only. The schema enforces finite numbers and bounded nesting/width. */
 export type SurfaceDataValue =
@@ -171,7 +204,7 @@ export type SurfaceDataValue =
 export type SurfaceDataModel = Readonly<Record<string, SurfaceDataValue>>;
 export interface SurfaceEnvelope {
   readonly schemaVersion: 'dashboard-spec/2';
-  readonly catalogVersion: 'dashboard-catalog/3';
+  readonly catalogVersion: SurfaceCatalogVersion;
   readonly surfaceId: string;
   readonly title: SurfaceRichText;
   readonly description?: SurfaceRichText;
