@@ -95,6 +95,12 @@ describe('retrieval metrics', () => {
         options,
       ),
     ).toBe(1);
+    const deepRoot = `/${'src/'.repeat(20_000)}root`;
+    expect(
+      normalizePath(`${deepRoot}/file.ts`, {
+        workspaceRoot: `${deepRoot}////`,
+      }),
+    ).toBe('file.ts');
   });
 
   it('relativises case-insensitively beyond the drive letter on win32 only', () => {

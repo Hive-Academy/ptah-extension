@@ -245,10 +245,11 @@ export async function attachElectronHost(
     client,
     guardMode: 'not-applied',
     suiteNaReason: (suite) => suiteNaReason('attach', suite),
-    stop: async () => {
-      client.close();
-      return { mode: 'attach' };
-    },
+    stop: () =>
+      Promise.resolve().then(() => {
+        client.close();
+        return { mode: 'attach' as const };
+      }),
   };
 }
 

@@ -211,18 +211,42 @@ export function parseFileList(text: string, root: string): Answer {
       'no "Found:" line in the file search result',
     );
   const relative = relativeTo(root);
-  const ranked = [...text.matchAll(/^\s*\d+\.\s+(.+?)\s*$/gm)].map((match) =>
-    relative(match[1]),
-  );
+  const ranked = text.split(/\r?\n/u).flatMap((line) => {
+    const prefix = /^\s*\d+\.\s+/u.exec(line);
+    if (!prefix) return [];
+    const path = line.slice(prefix[0].length).trimEnd();
+    return path.length === 0 ? [] : [relative(path)];
+  });
   return answerOf(ranked);
 }
 
 /** `file:line` locations anywhere in a text (the future `ptah_search_text`). */
 export function parseTextLocations(text: string, root: string): Answer {
   const relative = relativeTo(root);
-  const ranked = [...text.matchAll(/([^\s`'"|]+?):(\d+)(?=[:\s`|]|$)/gm)].map(
-    (match) => `${relative(match[1])}:${match[2]}`,
-  );
+  const ranked: string[] = [];
+  for (const token of text.split(/[\s`'"|]+/u)) {
+    let cursor = 0;
+    let pathStart = 0;
+    while (cursor < token.length) {
+      const separator = token.indexOf(':', cursor);
+      if (separator === -1) break;
+      let end = separator + 1;
+      while (end < token.length && /\d/u.test(token[end] ?? '')) end += 1;
+      const line = token.slice(separator + 1, end);
+      if (
+        line.length > 0 &&
+        (end === token.length || token[end] === ':') &&
+        separator > 0
+      ) {
+        ranked.push(`${relative(token.slice(pathStart, separator))}:${line}`);
+        if (end === token.length) break;
+        cursor = end;
+        pathStart = cursor;
+      } else {
+        cursor = separator + 1;
+      }
+    }
+  }
   return answerOf(ranked);
 }
 

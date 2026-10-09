@@ -30,6 +30,8 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { z } from 'zod';
 
+import { compareCodeUnits } from '../utils/compare-code-units';
+
 import {
   readScorecard,
   scorecardBaselineDirectory,
@@ -249,7 +251,7 @@ export function computeNoiseMargins(
   const keys = new Set(perRun.flatMap((byKey) => [...byKey.keys()]));
   const suites: NoiseMargins['suites'] = {};
   const unmeasured: string[] = [];
-  for (const key of [...keys].sort()) {
+  for (const key of [...keys].sort(compareCodeUnits)) {
     const entries = perRun.map((byKey) => byKey.get(key));
     if (entries.some((entry) => entry === undefined || entry.value === null)) {
       unmeasured.push(key);
@@ -277,7 +279,7 @@ export function computeNoiseMargins(
   const scored = (run: Scorecard) =>
     run.lifecycle.filter((row) => row.na === undefined);
   const rowKeys = new Set(runs.flatMap((run) => scored(run).map(rowName)));
-  for (const key of [...rowKeys].sort()) {
+  for (const key of [...rowKeys].sort(compareCodeUnits)) {
     const seen = runs.flatMap((run) =>
       scored(run).filter((row) => rowName(row) === key),
     );
@@ -561,6 +563,11 @@ export interface MeasureNoiseDeps {
   readonly now: () => Date;
 }
 
+const defaultMeasureNoiseDeps: MeasureNoiseDeps = {
+  bench: spawnBenchChild,
+  now: () => new Date(),
+};
+
 /**
  * Measures the margins from scorecards (`--from`) or by running the bench
  * `--runs` times, one after the other, each into its own folder under
@@ -572,7 +579,7 @@ export async function runMeasureNoise(
   options: z.infer<typeof measureNoiseOptionsSchema>,
   projectRoot: string,
   log: (line: string) => void,
-  deps: MeasureNoiseDeps = { bench: spawnBenchChild, now: () => new Date() },
+  deps: MeasureNoiseDeps = defaultMeasureNoiseDeps,
 ): Promise<number> {
   if ((options.from === undefined) === (options.runs === undefined)) {
     log(

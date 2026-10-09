@@ -30,6 +30,7 @@ import {
   parseRankedFiles,
   parseSymbolHits,
   parseSymbolIndex,
+  parseTextLocations,
 } from './tool-results';
 
 const ROOT =
@@ -174,6 +175,9 @@ describe('result parsers', () => {
       ranked: [],
       abstained: true,
     });
+    expect(
+      parseTextLocations(`${'x'.repeat(20_000)}:42\nlibs/a.ts:3`, ROOT).ranked,
+    ).toEqual([`${'x'.repeat(20_000)}:42`, 'libs/a.ts:3']);
   });
 
   it('finds declaration names in a structure result', () => {

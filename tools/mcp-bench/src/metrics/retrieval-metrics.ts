@@ -247,7 +247,9 @@ function normalizeDriveLetter(value: string): string {
 }
 
 function trimTrailingSlash(value: string): string {
-  return value.length > 1 ? value.replace(/\/+$/, '') : value;
+  let end = value.length;
+  while (end > 0 && value[end - 1] === '/') end -= 1;
+  return value.slice(0, end);
 }
 
 function trimLeadingDotSlash(value: string): string {

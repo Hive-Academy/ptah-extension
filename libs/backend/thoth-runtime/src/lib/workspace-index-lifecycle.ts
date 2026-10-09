@@ -125,7 +125,7 @@ function isDatabaseArtifact(
 
 /** Forward slashes, matching the path the indexer writes into the store. */
 export function normalizeSymbolPath(filePath: string): string {
-  return filePath.replace(/\\/g, '/');
+  return filePath.replaceAll('\\', '/');
 }
 
 /**
@@ -371,19 +371,14 @@ export class WorkspaceIndexLifecycleService {
     }
     const controller = new AbortController();
     this.runAbort = controller;
-    let pending: Promise<unknown>;
-    try {
-      pending = this.indexer.indexWorkspace(this.workspaceRoot, {
-        signal: controller.signal,
-      });
-      // degradation-audit: reported - non-abort failures are forwarded through onError; aborts are expected when disposal cancels the run.
-    } catch (error: unknown) {
-      if (this.runAbort === controller) this.runAbort = undefined;
-      if (!controller.signal.aborted && !isAbort(error)) {
-        this.report(FULL_RUN_FAILURE, error);
-      }
-      return;
-    }
+    const pending = new Promise<unknown>((resolvePromise) =>
+      resolvePromise(
+        this.indexer.indexWorkspace(this.workspaceRoot, {
+          signal: controller.signal,
+        }),
+      ),
+    );
+    // degradation-audit: reported - non-abort failures are forwarded through onError; aborts are expected when disposal cancels the run.
     this.fullRun = pending
       .then(() => undefined)
       .catch((error: unknown) => {

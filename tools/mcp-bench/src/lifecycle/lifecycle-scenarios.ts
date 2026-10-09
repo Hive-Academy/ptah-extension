@@ -684,7 +684,7 @@ async function worktreeTaskScenario(
   await deps.git(main, ['commit', '-m', 'scenario 9']);
   await deps.git(main, ['worktree', 'add', '-b', `bench-${tag}`, worktree]);
 
-  const listing = async (root: string): Promise<string[]> =>
+  const listing = (root: string): Promise<string[]> =>
     readdir(join(root, '.ptah', 'specs')).catch(() => []);
   const mainBefore = await listing(main);
   const caller = session.callerFor(main);

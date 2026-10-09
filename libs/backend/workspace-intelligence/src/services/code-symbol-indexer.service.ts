@@ -1229,15 +1229,19 @@ export class CodeSymbolIndexer {
    * root. The lock identity matches `reindexFile`. A later successful
    * non-census `reindexFile` of the same path clears the tombstone.
    */
-  async deleteFileSymbols(
+  deleteFileSymbols(
     filePath: string,
     workspaceRoot: string,
   ): Promise<number> {
-    const normalized = filePath.replace(/\\/g, '/');
-    const identity = graphPathIdentity(normalized);
-    return this.withFileLock(identity, async () => {
-      this.rememberTombstone(workspaceRoot, identity);
-      return this.sink.deleteSymbolsForFile(normalized, workspaceRoot);
+    return Promise.resolve().then(() => {
+      const normalized = filePath.replace(/\\/g, '/');
+      const identity = graphPathIdentity(normalized);
+      return this.withFileLock(identity, () =>
+        Promise.resolve().then(() => {
+          this.rememberTombstone(workspaceRoot, identity);
+          return this.sink.deleteSymbolsForFile(normalized, workspaceRoot);
+        }),
+      );
     });
   }
 

@@ -139,7 +139,7 @@ const PURGE_MISSING_BATCH = 200;
 const VEC_STALE_FINGERPRINT = 'code-symbols-vec-stale';
 
 function normalizeStoredPath(filePath: string): string {
-  return filePath.replace(/\\/g, '/');
+  return filePath.replaceAll('\\', '/');
 }
 
 /** Row columns selected by the exact-name lookups. */

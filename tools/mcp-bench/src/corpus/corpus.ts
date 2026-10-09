@@ -13,6 +13,7 @@ import { hostname, tmpdir } from 'node:os';
 import { basename, isAbsolute, join, relative, resolve } from 'node:path';
 import { z } from 'zod';
 import { removeTempDir } from '../transport/temp-cleanup';
+import { getGitExecutable } from '../utils/git-executable';
 const corpusConfigSchema = z.object({
   repository: z.string().min(1),
   commit: z.string().regex(/^[0-9a-f]+$/i),
@@ -467,7 +468,7 @@ function runGit(
   timeoutMs = 30_000,
 ): Promise<string> {
   return new Promise((resolvePromise, reject) => {
-    const child = spawn('git', [...args], {
+    const child = spawn(getGitExecutable(), [...args], {
       cwd,
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,

@@ -103,17 +103,16 @@ jobs:
 
       - name: Install dependencies
         if: steps.cache-modules.outputs.cache-hit != 'true'
-        # Fall back to `npm install` if lockfile drift (npm/cli#4828).
         run: |
-          npm ci || npm install --no-audit --no-fund
+          npm ci --ignore-scripts --no-audit --no-fund
           if [ "${{ runner.os }}" = "Linux" ]; then
-            npm install @rollup/rollup-linux-x64-gnu --no-save --force
+            npm install @rollup/rollup-linux-x64-gnu@4.63.4 --no-save --force --ignore-scripts
           fi
 
-      # `npm ci`'s postinstall compiles better-sqlite3 for the Electron ABI; the
-      # bench host runs under the runner Node ABI (see cli-e2e.yml).
-      - name: Rebuild native modules for runner Node ABI
-        run: npm rebuild better-sqlite3
+      # The guarded install skips lifecycle scripts; the bench only needs this
+      # native module rebuilt for the runner Node ABI (see cli-e2e.yml).
+      - name: Rebuild required native modules for runner Node ABI
+        run: npm rebuild better-sqlite3 esbuild
 
       - name: Run bench
         id: bench
@@ -179,11 +178,11 @@ jobs:
       - name: Install dependencies
         if: steps.cache-modules.outputs.cache-hit != 'true'
         run: |
-          npm ci || npm install --no-audit --no-fund
-          npm install @rollup/rollup-linux-x64-gnu --no-save --force
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm install @rollup/rollup-linux-x64-gnu@4.63.4 --no-save --force --ignore-scripts
 
-      - name: Rebuild native modules for runner Node ABI
-        run: npm rebuild better-sqlite3
+      - name: Rebuild required native modules for runner Node ABI
+        run: npm rebuild better-sqlite3 esbuild
 
       - name: Run bench
         id: bench
