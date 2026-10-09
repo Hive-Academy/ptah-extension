@@ -48,6 +48,7 @@ import type {
   PermissionResponse,
 } from '@ptah-extension/shared';
 import { NgClass, NgTemplateOutlet } from '@angular/common';
+import { ScrollDirtyService } from '../../../services/scroll-dirty.service';
 import { resolveModelDisplayName } from '@ptah-extension/shared';
 import { ModelStateService } from '@ptah-extension/core';
 import { SubagentTranscriptViewerService } from '../../../services/subagent-transcript-viewer.service';
@@ -617,14 +618,13 @@ export class InlineAgentBubbleComponent {
   private readonly backgroundAgentStore = inject(BackgroundAgentStore);
   private readonly modelState = inject(ModelStateService);
   private readonly transcriptViewer = inject(SubagentTranscriptViewerService);
+  private readonly scrollDirty = inject(ScrollDirtyService);
 
   /**
    * MutationObserver for auto-scroll behavior.
    * Watches DOM mutations to trigger scroll after recursive ExecutionNode tree completes.
    */
   private observer: MutationObserver | null = null;
-  private scrollTimeoutId: ReturnType<typeof setTimeout> | null = null;
-  private readonly SCROLL_DEBOUNCE_MS = 50;
 
   /**
    * Whether the inner content container is pinned to its bottom. Set false
@@ -797,10 +797,7 @@ export class InlineAgentBubbleComponent {
   private scheduleScroll(): void {
     const isStreaming = this.node().status === 'streaming';
     if (!isStreaming || this.isCollapsed() || !this.pinnedToBottom) return;
-    if (this.scrollTimeoutId) {
-      clearTimeout(this.scrollTimeoutId);
-    }
-    this.scrollTimeoutId = setTimeout(() => {
+    this.scrollDirty.markDirty(() => {
       if (
         this.node().status === 'streaming' &&
         !this.isCollapsed() &&
@@ -808,8 +805,7 @@ export class InlineAgentBubbleComponent {
       ) {
         this.scrollAgentContentToBottom();
       }
-      this.scrollTimeoutId = null;
-    }, this.SCROLL_DEBOUNCE_MS);
+    });
   }
 
   /**
@@ -821,10 +817,6 @@ export class InlineAgentBubbleComponent {
     if (this.observer) {
       this.observer.disconnect();
       this.observer = null;
-    }
-    if (this.scrollTimeoutId) {
-      clearTimeout(this.scrollTimeoutId);
-      this.scrollTimeoutId = null;
     }
   }
   readonly isStreaming = computed(() => this.node().status === 'streaming');

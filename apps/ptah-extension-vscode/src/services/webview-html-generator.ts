@@ -437,6 +437,11 @@ export class WebviewHtmlGenerator {
           vscode.Uri.joinPath(appDistPathUri, 'images', 'user-icon.png'),
         )
         .toString() || '';
+    // TODO(streaming-p6): remove zone fallback flag after one stable release
+    const zoneChangeDetectionFallback =
+      vscode.workspace
+        .getConfiguration('ptah')
+        .get<boolean>('zoneChangeDetectionFallback', false) === true;
 
     return `
       const vscode = acquireVsCodeApi();
@@ -455,6 +460,7 @@ export class WebviewHtmlGenerator {
         baseUri: '${baseUri}',
         iconUri: '${iconUri}',
         userIconUri: '${userIconUri}',
+        zoneChangeDetectionFallback: ${zoneChangeDetectionFallback},
         initialView: ${
           initialView ? `'${this.escapeJsString(initialView)}'` : 'null'
         },
