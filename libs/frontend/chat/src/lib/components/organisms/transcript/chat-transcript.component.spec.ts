@@ -72,6 +72,7 @@ import {
   makeTranscriptMessage as makeMessage,
   makeTranscriptTree as makeTree,
   removeFakeIntersectionObserver,
+  TranscriptMessageBubbleStub,
   type TranscriptIntersectionEntry,
 } from './testing/transcript-spec-harness';
 
@@ -82,6 +83,7 @@ interface Harness {
   streamingStateSig: WritableSignal<unknown>;
   buildTreeMock: jest.Mock;
   bubbleCount: () => number;
+  bubbleComponents: () => TranscriptMessageBubbleStub[];
   slots: () => HTMLElement[];
   placeholders: () => HTMLElement[];
 }
@@ -129,6 +131,10 @@ function makeHarness(
 
   const bubbleCount = () =>
     fixture.nativeElement.querySelectorAll('ptah-message-bubble').length;
+  const bubbleComponents = () =>
+    fixture.debugElement
+      .queryAll(By.directive(TranscriptMessageBubbleStub))
+      .map((bubble) => bubble.componentInstance as TranscriptMessageBubbleStub);
   const slots = (): HTMLElement[] =>
     Array.from(fixture.nativeElement.querySelectorAll('.chat-msg-slot'));
   const placeholders = (): HTMLElement[] =>
@@ -141,6 +147,7 @@ function makeHarness(
     streamingStateSig,
     buildTreeMock,
     bubbleCount,
+    bubbleComponents,
     slots,
     placeholders,
   };
@@ -763,6 +770,11 @@ describe('ChatTranscriptComponent — transcript ordering (TASK_2026_382 D1)', (
       'live-tree',
       'user-sent-mid-stream',
     ]);
+    expect(
+      h
+        .slots()
+        .map((slot) => slot.getAttribute('data-ptah-transcript-message-id')),
+    ).toEqual(['assistant-earlier', 'live-tree', 'user-sent-mid-stream']);
   });
 
   it('keeps lifecycle order when the keys tie, so equal-timestamp turns do not shuffle', () => {
@@ -794,6 +806,86 @@ describe('ChatTranscriptComponent — transcript ordering (TASK_2026_382 D1)', (
 
     expect(second).toBe(first);
     expect(first.map((m) => m.id)).toEqual(['m1', 'live']);
+  });
+});
+
+describe('ChatTranscriptComponent — per-message presentation records (Phase 3)', () => {
+  let rafSpy: jest.SpyInstance;
+
+  beforeEach(() => {
+    rafSpy = jest
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation((callback: FrameRequestCallback) => {
+        callback(0);
+        return 0;
+      });
+  });
+
+  afterEach(() => {
+    rafSpy.mockRestore();
+    TestBed.resetTestingModule();
+    jest.clearAllMocks();
+  });
+
+  it('updates one live record without recomputing transcript-wide derivations', () => {
+    const h = makeHarness();
+    const unchangedTree = makeTree('live-unchanged', 2_000);
+    const pendingStats = { tokens: 1 };
+    h.streamingStateSig.set({ pendingStats });
+    h.buildTreeMock.mockReturnValue([
+      makeTree('live-changed', 1_000),
+      unchangedTree,
+    ]);
+    h.fixture.detectChanges();
+    const recordsBeforeDelta = h.bubbleComponents().map(
+      (bubble) => bubble.message,
+    );
+
+    const allMessages = jest.spyOn(h.component, 'allMessages');
+    const finalizedMessageIds = jest.spyOn(
+      h.component as unknown as { finalizedMessageIds: () => ReadonlySet<string> },
+      'finalizedMessageIds',
+    );
+    const renderWindow = h.fixture.debugElement.injector.get(
+      TranscriptRenderWindow,
+    );
+    const renderWindowIds = jest.spyOn(renderWindow, 'syncMessages');
+    allMessages.mockClear();
+    finalizedMessageIds.mockClear();
+    renderWindowIds.mockClear();
+
+    h.streamingStateSig.set({ pendingStats });
+    h.buildTreeMock.mockReturnValue([
+      makeTree('live-changed', 1_000),
+      unchangedTree,
+    ]);
+    h.fixture.detectChanges();
+
+    expect(h.bubbleComponents().map((bubble) => bubble.message.id)).toEqual([
+      'live-changed',
+      'live-unchanged',
+    ]);
+    expect(h.bubbleComponents()[0].message).not.toBe(recordsBeforeDelta[0]);
+    expect(h.bubbleComponents()[1].message).toBe(recordsBeforeDelta[1]);
+    expect(allMessages).not.toHaveBeenCalled();
+    expect(finalizedMessageIds).not.toHaveBeenCalled();
+    expect(renderWindowIds).not.toHaveBeenCalled();
+  });
+
+  it('keeps the bubble component when a live record finalizes with its id', () => {
+    const h = makeHarness();
+    const liveTree = makeTree('stable-id', 1_000);
+    h.streamingStateSig.set({ pendingStats: null });
+    h.buildTreeMock.mockReturnValue([liveTree]);
+    h.fixture.detectChanges();
+
+    const liveBubble = h.bubbleComponents()[0];
+    h.messagesSig.set([makeMessage('stable-id', 'assistant', 1_000)]);
+    h.fixture.detectChanges();
+
+    expect(h.bubbleComponents()).toHaveLength(1);
+    expect(h.bubbleComponents()[0]).toBe(liveBubble);
+    expect(h.bubbleComponents()[0].message.streamingState).toBeNull();
   });
 });
 

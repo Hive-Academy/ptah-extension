@@ -24,6 +24,8 @@ export interface WebviewConfig {
   isElectron?: boolean;
   /** OS platform from Electron main process: 'darwin', 'win32', 'linux'. */
   platform?: string;
+  /** Temporary bootstrap-only rollback switch for the zoneless webview. */
+  zoneChangeDetectionFallback?: boolean;
 }
 
 /**
@@ -98,8 +100,7 @@ export class VSCodeService implements MessageHandler {
    */
   handleMessage(message: { type: string; payload?: unknown }): void {
     const payload = message.payload as
-      | { workspaceInfo?: { path?: string } | null }
-      | undefined;
+      { workspaceInfo?: { path?: string } | null } | undefined;
     const path = payload?.workspaceInfo?.path;
     if (path) {
       this.updateWorkspaceRoot(path);
@@ -255,8 +256,7 @@ export class VSCodeService implements MessageHandler {
 export function initializeVSCodeService(
   _vscodeService: VSCodeService,
 ): () => void {
-  return () => {
-  };
+  return () => {};
 }
 
 /**
