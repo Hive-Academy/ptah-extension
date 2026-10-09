@@ -94,4 +94,20 @@ describe('ChatSessionService successor handover', () => {
 
     expect(h.endSession).toHaveBeenCalledWith(TAB_ID);
   });
+
+  it('forwards full-auto permission to the SDK launch', async () => {
+    const h = handoverService();
+
+    await h.service.startHandoverSuccessor({
+      tabId: TAB_ID,
+      workspaceRoot: '/repo',
+      worktreePath: '/repo/.ptah/worktrees/successor',
+      seed: 'handoff seed',
+      permissionLevel: 'yolo',
+    });
+
+    expect(h.startAgentChildSession).toHaveBeenCalledWith(
+      expect.objectContaining({ permissionLevel: 'yolo' }),
+    );
+  });
 });

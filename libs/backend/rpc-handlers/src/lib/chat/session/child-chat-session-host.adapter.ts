@@ -111,13 +111,13 @@ export class ChildChatSessionHostAdapter implements IChildChatSessionHost {
 
       if (!this.hasInteractiveWebview()) {
         this.boundSuccessors.set(input.operationId, successorTabId);
-        return { started: true, uiAnnounced: false };
+        return { started: true, uiAnnounced: false, successorTabId };
       }
 
       const bound = await this.requestSuccessorBind(input, successorTabId);
       if (bound) {
         this.boundSuccessors.set(input.operationId, successorTabId);
-        return { started: true, uiAnnounced: true };
+        return { started: true, uiAnnounced: true, successorTabId };
       }
 
       await this.stopSuccessor(successorTabId);

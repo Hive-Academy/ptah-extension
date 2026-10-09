@@ -170,6 +170,55 @@ describe('SessionHandoverCoordinator', () => {
     expect(coordinator.snapshotFor('source')?.phase).toBe('closed');
   });
 
+  it('passes the source full-auto permission level to the successor unchanged', async () => {
+    const { coordinator, host, runtime } = makeHarness();
+    runtime.sourceSnapshot.mockReturnValue({
+      ...SOURCE,
+      successorConfig: { ...SOURCE.successorConfig, permissionLevel: 'yolo' },
+    });
+
+    coordinator.begin('source', 'successor', false);
+    await flush();
+    await flush();
+
+    expect(host.startSuccessorSession).toHaveBeenCalledWith(expect.objectContaining({
+      source: expect.objectContaining({
+        successorConfig: expect.objectContaining({ permissionLevel: 'yolo' }),
+      }),
+    }));
+  });
+
+  it('merges a child resource lease and publishes its successor tab id before closing', async () => {
+    const { coordinator, host } = makeHarness();
+    host.startSuccessorSession.mockResolvedValueOnce({
+      started: true,
+      successorTabId: 'successor-tab',
+    });
+    coordinator.setResourceLeaseProvider(() => ({
+      worktreePath: '/child-worktree',
+      mcpRootPath: '/child-worktree',
+      inheritedParentIds: ['parent-tab'],
+    }));
+    const states: SessionHandoverState[] = [];
+    coordinator.onStateChange((state) => states.push(state));
+
+    coordinator.begin('source', 'successor', false, 'handoff');
+    await flush();
+    await flush();
+
+    expect(host.startSuccessorSession).toHaveBeenCalledWith(expect.objectContaining({
+      resourceLease: {
+        worktreePath: '/child-worktree',
+        mcpRootPath: '/child-worktree',
+        inheritedParentIds: ['parent-tab'],
+      },
+    }));
+    expect(states).toEqual(expect.arrayContaining([
+      expect.objectContaining({ phase: 'successor-confirmed', successorTabId: 'successor-tab' }),
+      expect.objectContaining({ phase: 'closing', successorTabId: 'successor-tab' }),
+    ]));
+  });
+
   it('restores FIFO and leaves source open when the writer fails', async () => {
     const { coordinator, write, runtime } = makeHarness();
     write.mockResolvedValueOnce({ path: null, writeError: 'disk' });

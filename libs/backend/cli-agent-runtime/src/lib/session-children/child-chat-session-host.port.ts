@@ -74,6 +74,8 @@ export type ChildChatSessionStartOutcome =
       readonly started: true;
       /** False when no webview took the tab; it is adopted late on the next bootstrap. */
       readonly uiAnnounced: boolean;
+      /** Present for a replacement, so its source lease can be transferred. */
+      readonly successorTabId?: string;
     }
   | { readonly started: false; readonly error: string };
 

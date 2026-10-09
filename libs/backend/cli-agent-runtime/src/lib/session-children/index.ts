@@ -27,6 +27,8 @@ export type {
   SessionChildStatus,
   SessionChildTerminalStatus,
   SessionSendMode,
+  SessionStartRequest,
+  SessionSuccessorStartRequest,
   SessionSpawnRefusalCode,
 } from './session-spawner.port';
 export type {

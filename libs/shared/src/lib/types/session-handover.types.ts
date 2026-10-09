@@ -20,6 +20,8 @@ export interface SessionHandoverState {
   readonly phase: SessionHandoverPhase;
   readonly revision: number;
   readonly heldInputCount: number;
+  /** Present once the replacement tab has started and remains visible through close. */
+  readonly successorTabId?: string;
   /** Inputs that could not be restored because the source no longer existed. */
   readonly lostInputCount?: number;
   /** UI-safe recovery hint for a composer that needs the lost text re-entered. */

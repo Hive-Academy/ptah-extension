@@ -17,7 +17,7 @@ import type { MCPToolDefinition } from '../types';
 import {
   SessionReadArgsSchema,
   SessionSendArgsSchema,
-  SessionStartArgsSchema,
+  SessionStartToolInputSchema,
   SessionStatusArgsSchema,
   SessionStopArgsSchema,
 } from './session-tool-args.schema';
@@ -59,19 +59,20 @@ export function buildSessionStartTool(): MCPToolDefinition {
   return {
     name: SESSION_START_TOOL_NAME,
     description:
-      'Start a child chat session on a NEW git branch in its own worktree. It ' +
-      "opens as a tab in the user's window and runs unattended: file edits " +
-      'inside its worktree and allowlisted Bash commands run without asking; ' +
-      'other actions wait a bounded time for the user in that tab, then are ' +
-      'denied. Steer it with ptah_session_send. It reports with ' +
-      'ptah_agent_report, and a completion turn is pushed into this session ' +
-      'each time it settles. A task starting with "/" (e.g. /orchestrate ...) ' +
-      'runs as that slash command. The child cannot start sessions itself. ' +
-      'The user owns merge, PR and cleanup: the worktree and the branch remain ' +
-      'after it ends. There is no permission, path or parent argument; you are ' +
-      'the parent. Refusals are returned as text with a code. ' +
+      'Start a child chat session on a NEW git branch in its own worktree. ' +
+      'For mode "child" (the default), task and branch are required. Use mode ' +
+      '"successor" to hand this session to a replacement, optionally with ' +
+      'agent-written handoff text; successor accepts no child task/worktree ' +
+      'fields. It opens as a tab and runs unattended: edits in its worktree ' +
+      'and allowlisted Bash commands run without asking; other actions wait a ' +
+      'bounded time for the user, then are denied. Steer it with ' +
+      'ptah_session_send. It reports with ptah_agent_report and pushes a ' +
+      'completion turn when it settles. Slash-command tasks run as that command. ' +
+      'The user owns merge, PR and cleanup; worktree and branch remain after it ' +
+      'ends. There is no permission, path or parent argument. Refusals are text ' +
+      'with a code. ' +
       HELD_NOTE,
-    inputSchema: inputSchemaOf(SessionStartArgsSchema),
+    inputSchema: inputSchemaOf(SessionStartToolInputSchema),
   };
 }
 

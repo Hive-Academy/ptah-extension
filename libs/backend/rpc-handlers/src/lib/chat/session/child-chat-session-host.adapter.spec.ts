@@ -67,7 +67,7 @@ const successorInput: StartSuccessorSessionInput = {
     successorConfig: {
       model: 'claude-sonnet',
       effort: 'medium',
-      permissionLevel: 'auto-edit',
+      permissionLevel: 'yolo',
       workspacePath: '/repo',
     },
   },
@@ -134,10 +134,11 @@ describe('ChildChatSessionHostAdapter', () => {
   it('starts a headless successor after live registration without a UI acknowledgement', async () => {
     const h = makeHarness();
 
-    await expect(h.adapter.startSuccessorSession(successorInput)).resolves.toEqual({
+    await expect(h.adapter.startSuccessorSession(successorInput)).resolves.toEqual(expect.objectContaining({
       started: true,
       uiAnnounced: false,
-    });
+      successorTabId: expect.any(String),
+    }));
     expect(h.startHandoverSuccessor).toHaveBeenCalledWith({
       tabId: expect.any(String),
       workspaceRoot: '/repo',
@@ -145,7 +146,7 @@ describe('ChildChatSessionHostAdapter', () => {
       seed: 'Continue from handoff',
       model: 'claude-sonnet',
       effort: 'medium',
-      permissionLevel: 'auto-edit',
+      permissionLevel: 'yolo',
     });
     expect(h.broadcastMessage).not.toHaveBeenCalled();
   });
@@ -168,7 +169,11 @@ describe('ChildChatSessionHostAdapter', () => {
       payload.successorTabId,
     )).toBe(true);
 
-    await expect(outcome).resolves.toEqual({ started: true, uiAnnounced: true });
+    await expect(outcome).resolves.toEqual(expect.objectContaining({
+      started: true,
+      uiAnnounced: true,
+      successorTabId: payload.successorTabId,
+    }));
     expect(h.stopHandoverSuccessor).not.toHaveBeenCalled();
   });
 
@@ -197,10 +202,11 @@ describe('ChildChatSessionHostAdapter', () => {
     const h = makeHarness();
     h.getActiveWebviews.mockReturnValue([]);
 
-    await expect(h.adapter.startSuccessorSession(successorInput)).resolves.toEqual({
+    await expect(h.adapter.startSuccessorSession(successorInput)).resolves.toEqual(expect.objectContaining({
       started: true,
       uiAnnounced: false,
-    });
+      successorTabId: expect.any(String),
+    }));
     await h.adapter.stopSuccessorSession(successorInput.operationId);
 
     const [[{ tabId: successorTabId }]] = h.startHandoverSuccessor.mock.calls;

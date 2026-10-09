@@ -65,7 +65,7 @@ export interface StartSuccessorHandoverInput {
 export interface SessionSuccessorHost {
   startSuccessorSession(
     input: StartSuccessorHandoverInput,
-  ): Promise<{ readonly started: boolean; readonly error?: string }>;
+  ): Promise<{ readonly started: boolean; readonly successorTabId?: string; readonly error?: string }>;
   deliverTransferInputs(
     operationId: string,
     inputs: readonly QueuedSessionInput[],
@@ -97,6 +97,7 @@ interface Operation {
   restored: boolean;
   lostInputCount: number;
   lostInputTexts: string[];
+  successorTabId?: string;
 }
 
 const HELD_SOURCE_PHASES: ReadonlySet<SessionHandoverState['phase']> = new Set([
@@ -129,6 +130,9 @@ export class SessionHandoverCoordinator {
   private readonly cancelledAutomaticSources = new Set<string>();
   private readonly listeners = new Set<SessionHandoverListener>();
   private runtime: SessionHandoverRuntime | null = null;
+  private resourceLeaseProvider: ((
+    sourceSessionId: string,
+  ) => Partial<HandoverSourceSnapshot['resourceLease']> | undefined) | null = null;
 
   constructor(
     @inject(SessionHandoffBuilder, { isOptional: true })
@@ -143,6 +147,16 @@ export class SessionHandoverCoordinator {
 
   attachRuntime(runtime: SessionHandoverRuntime): void {
     this.runtime = runtime;
+  }
+
+  /** Lets a host-owned child lease replace the lifecycle default at handover. */
+  setResourceLeaseProvider(
+    provider: (sourceSessionId: string) => Partial<HandoverSourceSnapshot['resourceLease']> | undefined,
+  ): () => void {
+    this.resourceLeaseProvider = provider;
+    return () => {
+      if (this.resourceLeaseProvider === provider) this.resourceLeaseProvider = null;
+    };
   }
 
   /** Batch B forwards this revisioned event through the session-state broadcast. */
@@ -363,7 +377,14 @@ export class SessionHandoverCoordinator {
       return;
     }
     try {
-      const source = runtime.sourceSnapshot(operation.sourceSessionId);
+      const snapshot = runtime.sourceSnapshot(operation.sourceSessionId);
+      const source = snapshot && {
+        ...snapshot,
+        resourceLease: {
+          ...snapshot.resourceLease,
+          ...this.resourceLeaseProvider?.(operation.sourceSessionId),
+        },
+      };
       if (!source) {
         this.fail(operation, 'source session unavailable');
         return;
@@ -403,6 +424,8 @@ export class SessionHandoverCoordinator {
         return;
       }
       if (!started.started) throw new Error(started.error ?? 'successor start failed');
+
+      operation.successorTabId = started.successorTabId;
 
       this.transition(operation, 'successor-confirmed');
       const transferInputs = [...operation.inputs];
@@ -590,6 +613,7 @@ export class SessionHandoverCoordinator {
       phase: operation.phase,
       revision: operation.revision,
       heldInputCount: operation.inputs.length,
+      ...(operation.successorTabId ? { successorTabId: operation.successorTabId } : {}),
       ...(operation.lostInputCount > 0
         ? {
             lostInputCount: operation.lostInputCount,
