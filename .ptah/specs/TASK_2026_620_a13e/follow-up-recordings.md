@@ -42,5 +42,16 @@ The detached recording ended without a usable cassette. `run-summary.json`
 record; the graceful stop timed out and the process tree was force-killed (exit code 1); suite
 `mem.extraction` is `missing` / verdict `na` (`host-incomplete`), 0 cases. No
 `recording-rejection.json` was written. Nx reported `mcp-bench:bench-memory-skills` failed after
-240m 23s. The follow-up task must re-record; investigate why the host did not finish (very long
-critical path, ~173/255+ entries at 16:38Z) before retrying, e.g. split the extraction suite.
+240m 23s. **Cause (diagnosed 2026-10-09):** not a crash. The run hit the runner's default host completion
+timeout, `DEFAULT_HOST_COMPLETION_TIMEOUT_MS = 4 h` (`runner/run-memory-skills.ts:142`): it ran
+17:38-21:38 local, exactly 240 min. The cassette `cassettes/memory/extraction.v1.jsonl` holds 229
+distinct entries (~63 s per live `gpt-5.6-terra` call), so the suite needs roughly 4.5-5 h.
+
+**Before re-recording:**
+- Pass `--host-timeout-ms` (e.g. `28800000` = 8 h) to `bench-memory-skills`.
+- Record mode does not resume: `RecordedCuratorLlm.extract` always calls the live model and
+  `CassetteStore.record` replaces an existing entry for the same key, so a re-run re-records all
+  ~260 calls. A `record-missing` mode (serve keys already in the cassette, call the model only for
+  missing keys) would reuse the 229 entries; it changes cassette provenance (entries from two runs),
+  so it needs a design decision first.
+- Alternatively split the extraction suite into shards that each finish well inside the timeout.
