@@ -1,6 +1,54 @@
 # HANDOFF — TASK_2026_620_a13e (and TASK_2026_621_3d5c)
 
-## RESUME HERE (2026-10-08, session on branch `feat/task-620-memory-skills-bench-s3`)
+## RESUME HERE (2026-10-09 — hand-off to the 619 wrap-up session; READ THIS FIRST)
+
+**User decisions 2026-10-09 (final):** the 620 PR ships the product changes and the committed bench
+WITHOUT recordings. Everything that needs a live recording (the four recordings, Batch 24, U3, Batch 26,
+per-call provenance correlation) is deferred to a follow-up task: brief `follow-up-recordings.md`.
+PR order: 619 #672 merges first, then 620 is retargeted onto `main` and opened as a normal PR to `main`.
+**Ask the user before any push.** PR body ends with `🤖 Generated with [Claude Code](https://claude.com/claude-code)`;
+commits end with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
+
+**Branch state:** `feat/task-620-memory-skills-bench-s3` @ `3aa1af0bc` (+ this handoff commit), local only,
+rebased onto the 619 head `9bba84b23` (105 commits). Backup of the pre-rebase state:
+`backup/task-620-s3-pre-rebase-0329ff421` (delete after the PR merges).
+Scoped checks after the rebase, all green: typecheck/lint/test for memory-curator, agent-sdk, cli-engine,
+platform-core, rpc-handlers, skill-synthesis, thoth-runtime, core, dashboard, memory-curator-ui,
+skill-synthesis-ui, thoth-shell, shared, ptah-electron; typecheck/lint for webview-e2e-harness and
+mcp-bench (mcp-bench lint 0 errors, 6 pre-existing warnings — do not add eslint-disable waivers).
+Conflicts resolved in `memory-trigger.service.ts` (621 hardening kept, 620 pause re-applied):
+`rebase-conflict-resolution.md`. mcp-bench adapted to the 621 retention contract: `post-rebase-mcp-bench-fixes.md`.
+
+**Remaining steps:**
+1. Wait for #672 to merge (ask the user for its merge method). Then
+   `git fetch origin && git rebase --onto origin/main 9bba84b23` (619 asked to keep `9bba84b23` as the old
+   base; 620 does not touch `cli-workspace-index.ts` or `.github/workflows/*`, only
+   `cli-engine/src/lib/bootstrap/thoth-runtime*`).
+2. Re-run the scoped checks per project (one project at a time, `--parallel=1`, Jest `--maxWorkers=2`;
+   NEVER `nx run-many`, never the full mcp-bench test target). Fix failures via lanes; validate yourself.
+3. Ask the user, push, open the PR to `main` (title < 70 chars; `## Summary` + `## Test plan`). The body
+   must state: recordings deferred (`follow-up-recordings.md`); suites that report `na` without cassettes
+   or panel labels (extraction, merge/update, scope-write, funnel, everything gated on U1-U4 / R-M4); the
+   memory-skills bench is not in any CI workflow; the Phase 4 product seams are follow-ups.
+4. After the PR: remove the worktree's node_modules junction with `cmd /c rmdir <path>\node_modules`
+   (NEVER a recursive delete).
+
+**Background recording still running:** `extraction-record-v1` (started ~14:38Z, detached `cmd` running
+`%TEMP%\extraction-record.cmd`; log `%TEMP%\extraction-record.log`; it writes `%TEMP%\extraction-record.done`
+when it ends). It was ~173/255+ entries at 16:38Z and slow. It blocks nothing; its cassette and run dir are
+private bench data for the follow-up task. When it ends, read `run-summary.json` / `recording-rejection.json`
+in `%LOCALAPPDATA%\ptah-mcp-bench\runs\extraction-record-v1` and note the result in `follow-up-recordings.md`.
+
+**Open review notes:** `code-logic-review-model-free-resolve.md` defect 3 (aggregate provenance counting)
+is deferred to the follow-up. `code-logic-review-curator-rebind.md` defect 1 was rejected with evidence.
+
+**Standing rules (repeat in every lane prompt):** memory-safe scoped checks only (CLAUDE.md); never edit
+619-owned `tools/mcp-bench/src/{scorecard,transport,corpus}/`, `suites/question-sets.ts`, `bench-data.ts`;
+never commit private bench data under `%LOCALAPPDATA%\ptah-mcp-bench`; lanes never read
+`C:\Users\abdal\.codex\auth.json` or the real `C:\Users\abdal\.ptah`; lanes never commit, push, stash,
+restore, checkout --, reset, clean or run rebase steps (the orchestrator does git).
+
+## Earlier: RESUME HERE (2026-10-08, session on branch `feat/task-620-memory-skills-bench-s3`)
 
 Worktree `D:\projects\ptah-extension\.claude-worktrees\feat-task-620-memory-skills-bench-s2-2be8618bcca9`,
 branch `feat/task-620-memory-skills-bench-s3` (created from `-s2` tip `9832dc17c`). Nothing pushed.
