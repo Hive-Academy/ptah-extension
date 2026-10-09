@@ -150,6 +150,22 @@ describe('collectTurnTests', () => {
     );
     expect(result).toEqual([{ command, outcome: 'unknown' }]);
   });
+
+  it('does not treat prose after a running-target line as an Nx failure summary', () => {
+    const command = 'npx nx test app';
+    const result = collectTurnTests(
+      [
+        {
+          ...bash(command, 'complete', false),
+          toolOutput:
+            'Running targets app:test\nThis passing test documents a failed retry.',
+        },
+      ],
+      { finalized: true },
+    );
+
+    expect(result).toEqual([{ command, outcome: 'passed' }]);
+  });
 });
 
 describe('summarizeTurnTests', () => {
@@ -182,5 +198,20 @@ describe('summarizeTurnTests', () => {
         failures: ['rpc.spec.ts'],
       },
     ]);
+  });
+
+  it('does not extract lowercase fail prose as a Jest failure marker', () => {
+    const command = 'npm test';
+    const result = collectTurnTests(
+      [
+        {
+          ...bash(command, 'complete', true),
+          toolOutput: 'expected request to fail with 401',
+        },
+      ],
+      { finalized: true },
+    );
+
+    expect(result).toEqual([{ command, outcome: 'failed' }]);
   });
 });

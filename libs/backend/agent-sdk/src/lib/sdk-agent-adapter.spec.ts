@@ -1440,6 +1440,30 @@ describe('SdkAgentAdapter', () => {
       expect(transformArg.onStreamEnd).toBe(onStreamEnd);
       expect(transformArg.sdkQuery).toBe(sdkQuery);
     });
+
+    it('maps a resumed provider profile reasoning effort to the SDK effort option', async () => {
+      const h = makeAdapter();
+      await h.adapter.initialize();
+      h.sessionLifecycle.executeQuery.mockResolvedValueOnce({
+        sdkQuery: createFakeQuery(),
+        initialModel: 'claude-sonnet-4-20250514',
+        abortController: new AbortController(),
+      } as ExecuteQueryResult);
+
+      await h.adapter.resumeSession('sess-1' as SessionId, {
+        providerProfile: {
+          providerId: 'anthropic',
+          model: 'claude-sonnet-4-20250514',
+          reasoningEffort: 'high',
+        },
+      } as AISessionConfig & { providerProfile: ProviderProfile });
+
+      expect(h.sessionLifecycle.executeQuery).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sessionConfig: expect.objectContaining({ effort: 'high' }),
+        }),
+      );
+    });
   });
 
   describe('session stats ownership (TASK_2026_533)', () => {
