@@ -64,7 +64,7 @@ export class StreamViewportController {
 
     return {
       ...(isChatSurface && activeTabId ? { focusedTabId: activeTabId } : {}),
-      visibleTabIds: [...visible].sort(),
+      visibleTabIds: [...visible].sort((left, right) => left.localeCompare(right)),
     };
   }
 
