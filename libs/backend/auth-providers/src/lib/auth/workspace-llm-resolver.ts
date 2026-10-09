@@ -100,15 +100,16 @@ export class WorkspaceLlmResolver implements IWorkspaceLlmResolver {
       );
     }
 
-    const cooldownMs = this.quota.retryAfterMs(providerId);
-    const cooldown = cooldownMs > 0 ? { cooldownMs } : {};
-
     if (!profile) {
       this.logger.warn(
         '[WorkspaceLlmResolver] No isolated provider snapshot for this workspace — the query rides the process-wide auth',
         { providerId, workspaceRoot: path || '(none)' },
       );
-      return { providerId, model: requestedModel ?? savedModel, ...cooldown };
+      return {
+        providerId,
+        model: requestedModel ?? savedModel,
+        ...this.cooldownFor(providerId),
+      };
     }
 
     const auth: OneShotAuthOverride = {
@@ -119,8 +120,14 @@ export class WorkspaceLlmResolver implements IWorkspaceLlmResolver {
       providerId: profile.providerId,
       model: this.ensureAvailable(profile, catalog),
       auth,
-      ...cooldown,
+      // The cooldown belongs to the provider the snapshot targets.
+      ...this.cooldownFor(profile.providerId),
     };
+  }
+
+  private cooldownFor(providerId: string): { cooldownMs?: number } {
+    const cooldownMs = this.quota.retryAfterMs(providerId);
+    return cooldownMs > 0 ? { cooldownMs } : {};
   }
 
   /**
@@ -153,20 +160,23 @@ export class WorkspaceLlmResolver implements IWorkspaceLlmResolver {
   /**
    * Stale-model pre-flight: a model absent from the provider's cached list is
    * replaced by the provider's tier mapping (opus → sonnet → haiku, the order
-   * `resolveModel` uses for `default`), preferring a tier the list contains.
-   * No cached list → the model is kept; this never blocks a run.
+   * `resolveModel` uses for `default`), the first tier the list contains.
+   * No cached list, or no tier in it → the model is kept (swapping one
+   * unlisted id for another fixes nothing); this never blocks a run.
    */
   private ensureAvailable(
     profile: ProviderProfile,
     catalog: readonly string[] | null,
   ): string {
     if (!catalog || catalog.includes(profile.model)) return profile.model;
-    const tiers = [
+    const fallback = [
       profile.authEnv.ANTHROPIC_DEFAULT_OPUS_MODEL,
       profile.authEnv.ANTHROPIC_DEFAULT_SONNET_MODEL,
       profile.authEnv.ANTHROPIC_DEFAULT_HAIKU_MODEL,
-    ].filter((m): m is string => typeof m === 'string' && m.length > 0);
-    const fallback = tiers.find((m) => catalog.includes(m)) ?? tiers[0];
+    ].find(
+      (m): m is string =>
+        typeof m === 'string' && m.length > 0 && catalog.includes(m),
+    );
     if (!fallback) return profile.model;
     this.logger.warn(
       '[WorkspaceLlmResolver] Saved model is not offered by the workspace provider — using its default tier',

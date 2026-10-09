@@ -282,8 +282,8 @@ export class MultiPhaseAnalysisService {
             i,
             slugDir,
             workspacePath,
-            // The snapshot's model, not a resumed manifest's: that one may name
-            // a model of a provider the workspace has since left.
+            // The snapshot's model. A resumed manifest always records the same
+            // one: `AnalysisRunCheckpoint.open` starts fresh when it differs.
             model,
             auth,
             mcpServerRunning,

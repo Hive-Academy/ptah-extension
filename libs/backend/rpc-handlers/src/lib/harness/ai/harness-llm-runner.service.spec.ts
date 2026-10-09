@@ -51,7 +51,7 @@ function makeRunner(snapshot: WorkspaceLlmSnapshot) {
     broadcaster as unknown as HarnessStreamBroadcaster,
     { resolveForPath } as IWorkspaceLlmResolver,
   );
-  return { runner, execute, resolveForPath };
+  return { runner, execute, resolveForPath, broadcaster };
 }
 
 const ARGS = {
@@ -120,5 +120,31 @@ describe('HarnessLlmRunner — workspace provider and model', () => {
     const config = execute.mock.calls[0][0];
     expect(config.model).toBe('saved-model');
     expect(config).not.toHaveProperty('auth');
+  });
+
+  it('when the snapshot cannot be resolved, clears the abort timer and broadcasts failure', async () => {
+    const clearSpy = jest.spyOn(global, 'clearTimeout');
+    const { runner, execute, resolveForPath, broadcaster } = makeRunner({
+      providerId: 'moonshot',
+      model: 'kimi-k2.5',
+    });
+    resolveForPath.mockRejectedValueOnce(new Error('settings unreadable'));
+
+    await expect(runner.run(ARGS)).rejects.toThrow('settings unreadable');
+
+    expect(execute).not.toHaveBeenCalled();
+    expect(clearSpy).toHaveBeenCalled();
+    expect(broadcaster.broadcastComplete).toHaveBeenCalledWith(
+      'design-agents',
+      'op-1',
+      false,
+      'settings unreadable',
+    );
+    expect(broadcaster.broadcastFlatComplete).toHaveBeenCalledWith(
+      'op-1',
+      false,
+      'settings unreadable',
+    );
+    clearSpy.mockRestore();
   });
 });

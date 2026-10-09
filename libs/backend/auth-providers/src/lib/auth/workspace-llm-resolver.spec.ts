@@ -161,6 +161,21 @@ describe('WorkspaceLlmResolver', () => {
     expect(logger.warn).toHaveBeenCalled();
   });
 
+  it('keeps the saved model when the provider lists none of its tiers either', async () => {
+    const { resolver, logger } = await harness({
+      global: {
+        ...GLOBAL,
+        'provider.thirdParty.openrouter.selectedModel': 'retired-model',
+      },
+      catalogs: { openrouter: ['unrelated-a', 'unrelated-b'] },
+    });
+
+    const snapshot = await resolver.resolveForPath(WS_B);
+
+    expect(snapshot.model).toBe('retired-model');
+    expect(logger.warn).not.toHaveBeenCalled();
+  });
+
   it('keeps the model when the provider has no cached list', async () => {
     const { resolver } = await harness({ global: GLOBAL });
 
@@ -192,6 +207,29 @@ describe('WorkspaceLlmResolver', () => {
     expect((await resolver.resolveForPath(WS_B)).cooldownMs).toBe(30_000);
     const ok = await harness({ global: GLOBAL });
     expect((await ok.resolver.resolveForPath(WS_B)).cooldownMs).toBeUndefined();
+  });
+
+  it('reads the cooldown for the provider the snapshot targets', async () => {
+    // The path resolves openrouter, but the snapshot is built for moonshot.
+    const { resolver } = await harness({
+      global: GLOBAL,
+      profile: (_p, model) => profileFor('moonshot', model),
+      cooldowns: { moonshot: 12_000 },
+    });
+
+    const snapshot = await resolver.resolveForPath(WS_B);
+
+    expect(snapshot.providerId).toBe('moonshot');
+    expect(snapshot.cooldownMs).toBe(12_000);
+
+    const other = await harness({
+      global: GLOBAL,
+      profile: (_p, model) => profileFor('moonshot', model),
+      cooldowns: { openrouter: 12_000 },
+    });
+    expect(
+      (await other.resolver.resolveForPath(WS_B)).cooldownMs,
+    ).toBeUndefined();
   });
 
   it('with no isolated snapshot, returns the path model without auth', async () => {
