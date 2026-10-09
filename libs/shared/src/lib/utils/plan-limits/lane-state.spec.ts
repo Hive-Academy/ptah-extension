@@ -36,7 +36,7 @@ const laneCtx = (
 const win = (overrides: Partial<PlanLimitWindow> = {}): PlanLimitWindow => ({
   key: 'five_hour',
   kind: 'five_hour',
-  label: '5-hour session',
+  label: '5-hour',
   used: { kind: 'percent', percent: 40 },
   usedSource: 'provider-api',
   resetsAt: at(4, 15, 10),
@@ -548,7 +548,9 @@ describe('classifyLaneState (design §2.2)', () => {
   });
 
   it('not-confirmed windows keep the lane unknown', () => {
-    const owner = snapshot({ windows: [win({ lastResetAt: undefined })] });
+    const owner = snapshot({
+      windows: [win({ lastResetAt: undefined, resetSource: 'estimated' })],
+    });
     expect(classify(owner, null).reasons).toEqual([
       expect.objectContaining({ kind: 'window-state', state: 'not-confirmed' }),
     ]);

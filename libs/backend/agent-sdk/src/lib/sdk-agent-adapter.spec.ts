@@ -37,6 +37,7 @@ import type {
   AISessionConfig,
   AuthEnv,
   FlatStreamEventUnion,
+  ProviderProfile,
   SessionBudgetState,
   SessionId,
   SessionStatsEntry,
@@ -1440,6 +1441,30 @@ describe('SdkAgentAdapter', () => {
       expect(transformArg.onStreamEnd).toBe(onStreamEnd);
       expect(transformArg.sdkQuery).toBe(sdkQuery);
     });
+
+    it('maps a resumed provider profile reasoning effort to the SDK effort option', async () => {
+      const h = makeAdapter();
+      await h.adapter.initialize();
+      h.sessionLifecycle.executeQuery.mockResolvedValueOnce({
+        sdkQuery: createFakeQuery(),
+        initialModel: 'claude-sonnet-4-20250514',
+        abortController: new AbortController(),
+      } as ExecuteQueryResult);
+
+      await h.adapter.resumeSession('sess-1' as SessionId, {
+        providerProfile: {
+          providerId: 'anthropic',
+          model: 'claude-sonnet-4-20250514',
+          reasoningEffort: 'high',
+        },
+      } as AISessionConfig & { providerProfile: ProviderProfile });
+
+      expect(h.sessionLifecycle.executeQuery).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sessionConfig: expect.objectContaining({ effort: 'high' }),
+        }),
+      );
+    });
   });
 
   describe('session stats ownership (TASK_2026_533)', () => {
@@ -2119,6 +2144,26 @@ describe('SdkAgentAdapter', () => {
         String(call[0]).includes('Session budget observe failed'),
       );
       expect(budgetWarnings).toHaveLength(1);
+    });
+
+    it('publishes an explicit no-budget marker but keeps it absent for a degraded observation', async () => {
+      const h = makeAdapter();
+      const onStats = jest.fn();
+      const arg = await startNewSession(h, onStats);
+      const snapshot = snapshotFor(REAL_ID);
+
+      h.sessionBudget.observe.mockReturnValueOnce(null);
+      (arg.onResultStats as ResultStatsCallback)(resultStats(snapshot));
+      expect(onStats.mock.calls[0][0]).toMatchObject({
+        sessionStats: snapshot,
+        budget: null,
+      });
+
+      h.sessionBudget.observe.mockImplementationOnce(() => {
+        throw new Error('degraded');
+      });
+      (arg.onResultStats as ResultStatsCallback)(resultStats(snapshot));
+      expect('budget' in onStats.mock.calls[1][0]).toBe(false);
     });
 
     it('observes even when no result-stats callback is registered', async () => {

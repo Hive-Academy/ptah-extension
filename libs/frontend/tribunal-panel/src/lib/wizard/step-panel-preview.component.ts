@@ -80,7 +80,7 @@ const EFFORT_LEVELS: readonly EffortLevel[] = [
       </header>
 
       <div
-        class="flex items-center gap-3 rounded-lg border border-base-300 bg-base-200/40 px-3 py-2"
+          class="surface-2 flex items-center gap-3 rounded-lg px-3 py-2"
       >
         <div class="flex flex-col">
           <span class="text-lg font-semibold tabular-nums text-base-content">{{

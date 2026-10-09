@@ -125,6 +125,7 @@ export type DiscoveryOwnerSource = Pick<
   | 'ownerForPtahCli'
   | 'ownerForClaudeAccount'
   | 'ownerForCodexHome'
+  | 'resolveCodexHomeOwner'
   | 'ownerForCliStore'
   | 'ownerForAntigravity'
   | 'ownerForSession'
@@ -158,6 +159,10 @@ const TIMED_OUT: unique symbol = Symbol('plan-owner-source-timed-out');
 
 @injectable()
 export class PlanLimitOwnerDiscoveryService {
+  private completedCodexHomeOwner: QuotaOwnerRef | undefined;
+  private codexHomeOwnerInFlight: Promise<QuotaOwnerRef> | null = null;
+  private retainNextCodexHomeOwner = false;
+
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(AUTH_PROVIDERS_TOKENS.PROVIDER_OWNER_RESOLVER)
@@ -179,6 +184,8 @@ export class PlanLimitOwnerDiscoveryService {
     request: PlanOwnerDiscoveryRequest = {},
   ): Promise<DiscoveredPlanOwner[]> {
     const sessionIds = request.sessionIds ?? [];
+    const cachedCodexHomeOwner = this.completedCodexHomeOwner;
+    this.completedCodexHomeOwner = undefined;
     const listed = new Map<string, DiscoveredPlanOwner>();
     const add = (entries: ReadonlyArray<DiscoveredPlanOwner | undefined>) => {
       for (const entry of entries) {
@@ -197,15 +204,21 @@ export class PlanLimitOwnerDiscoveryService {
     const sources: Array<
       Promise<ReadonlyArray<DiscoveredPlanOwner | undefined> | undefined>
     > = [
-      this.fromSource('selected-provider', async () => [
-        await this.selectedProvider(request.selectedProviderId, sessionIds),
-      ]),
+      this.fromSource(
+        'selected-provider',
+        async () => [
+          await this.selectedProvider(request.selectedProviderId, sessionIds, cachedCodexHomeOwner),
+        ],
+        () => (this.retainNextCodexHomeOwner = true),
+      ),
       this.fromSource('cli-store', async () =>
         this.cliStores((await detected) ?? []),
       ),
       this.fromSource('session', () => this.sessions(sessionIds)),
-      this.fromSource('lane', async () =>
-        this.detectedLanes((await detected) ?? []),
+      this.fromSource(
+        'lane',
+        async () => this.detectedLanes((await detected) ?? [], cachedCodexHomeOwner),
+        () => (this.retainNextCodexHomeOwner = true),
       ),
       this.fromSource('ptah-cli', () => this.ptahCliLanes()),
       this.fromSource('owner-key', () =>
@@ -226,26 +239,15 @@ export class PlanLimitOwnerDiscoveryService {
   /**
    * Resolves only the selected-provider source. Unlike the aggregate lookup,
    * this preserves a source failure so the account RPC can remain retryable.
+   * It deliberately has no shared lookup deadline: the account RPC asks for
+   * this one owner and its reader owns its own timeout (Codex cold starts can
+   * exceed the three-second aggregate dashboard budget).
    */
   async discoverSelectedProvider(
     providerId: string,
   ): Promise<SelectedProviderDiscovery> {
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const deadline = new Promise<typeof TIMED_OUT>((resolve) => {
-      timer = setTimeout(() => resolve(TIMED_OUT), LIMIT_LOOKUP_DEADLINE_MS);
-      timer.unref?.();
-    });
     try {
-      const entry = await Promise.race([
-        this.selectedProvider(providerId, []),
-        deadline,
-      ]);
-      if (entry === TIMED_OUT) {
-        this.logger.debug('[PlanLimitOwnerDiscovery] source timed out', {
-          source: 'selected-provider',
-        });
-        return { kind: 'unavailable' };
-      }
+      const entry = await this.selectedProvider(providerId, []);
       return { kind: 'owner', entry };
     } catch (error: unknown) {
       // degradation-audit: reported - selected-provider failure is logged and
@@ -255,8 +257,6 @@ export class PlanLimitOwnerDiscoveryService {
         errorName: error instanceof Error ? error.name : typeof error,
       });
       return { kind: 'unavailable' };
-    } finally {
-      if (timer !== undefined) clearTimeout(timer);
     }
   }
 
@@ -265,6 +265,7 @@ export class PlanLimitOwnerDiscoveryService {
   private async selectedProvider(
     selectedProviderId: string | undefined,
     sessionIds: readonly string[],
+    cachedCodexHomeOwner?: QuotaOwnerRef,
   ): Promise<DiscoveredPlanOwner | undefined> {
     const { config, providers } = this.routeInput(selectedProviderId);
     const driver = resolveEffectiveAuthRoute(
@@ -304,7 +305,10 @@ export class PlanLimitOwnerDiscoveryService {
       );
     }
     if (driver === 'openai-codex') {
-      return this.entryFor(this.owners.ownerForCodexHome(), origin);
+      return this.entryFor(
+        await this.resolveCodexHomeOwner(cachedCodexHomeOwner),
+        origin,
+      );
     }
     if (STORED_KEY_PROVIDERS.has(driver)) {
       return this.entryFor(
@@ -347,12 +351,43 @@ export class PlanLimitOwnerDiscoveryService {
     );
   }
 
-  private detectedLanes(
+  private async detectedLanes(
     detected: readonly CliDetectionResult[],
-  ): Array<DiscoveredPlanOwner | undefined> {
+    cachedCodexHomeOwner?: QuotaOwnerRef,
+  ): Promise<Array<DiscoveredPlanOwner | undefined>> {
     return isInstalled(detected, 'codex')
-      ? [this.entryFor(this.owners.ownerForCodexHome(), 'lane')]
+      ? [
+          this.entryFor(
+            await this.resolveCodexHomeOwner(cachedCodexHomeOwner),
+            'lane',
+          ),
+        ]
       : [];
+  }
+
+  private resolveCodexHomeOwner(
+    cachedCodexHomeOwner?: QuotaOwnerRef,
+  ): Promise<QuotaOwnerRef> {
+    if (cachedCodexHomeOwner !== undefined) {
+      return Promise.resolve(cachedCodexHomeOwner);
+    }
+    if (this.codexHomeOwnerInFlight !== null) return this.codexHomeOwnerInFlight;
+    const read = this.owners.resolveCodexHomeOwner();
+    this.codexHomeOwnerInFlight = read;
+    void read
+      .then((owner) => {
+        if (this.retainNextCodexHomeOwner) {
+          this.completedCodexHomeOwner = owner;
+          this.retainNextCodexHomeOwner = false;
+        }
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        if (this.codexHomeOwnerInFlight === read) {
+          this.codexHomeOwnerInFlight = null;
+        }
+      });
+    return read;
   }
 
   /**
@@ -492,11 +527,13 @@ export class PlanLimitOwnerDiscoveryService {
   /**
    * `read()`, or `undefined` when it throws or misses the lookup deadline;
    * the other sources go on. A late read cannot be cancelled, but its
-   * result is ignored and its timer is released either way.
+   * result is ignored and its timer is released either way. Callers may retain
+   * a completed result for the next refresh.
    */
   private async fromSource<T>(
     source: string,
     read: () => Promise<T>,
+    onTimeout?: () => void,
   ): Promise<T | undefined> {
     let timer: ReturnType<typeof setTimeout> | undefined;
     const deadline = new Promise<typeof TIMED_OUT>((resolve) => {
@@ -506,6 +543,7 @@ export class PlanLimitOwnerDiscoveryService {
     try {
       const result = await Promise.race([read(), deadline]);
       if (result === TIMED_OUT) {
+        onTimeout?.();
         this.logger.debug('[PlanLimitOwnerDiscovery] source timed out', {
           source,
         });

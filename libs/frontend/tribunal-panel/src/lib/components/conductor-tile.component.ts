@@ -39,7 +39,7 @@ import { TribunalStateService } from '../services/tribunal-state.service';
   imports: [NgComponentOutlet, LucideAngularModule],
   template: `
     <section
-      class="flex h-full min-h-0 w-full flex-col bg-base-200/40"
+      class="surface-1 flex h-full min-h-0 w-full flex-col"
       data-testid="tribunal-conductor-column"
       aria-label="Tribunal conductor"
     >

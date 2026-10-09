@@ -26,6 +26,7 @@
  * rather than asserted against a mock that was told to agree.
  */
 
+import { NgZone } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { CompactionLifecycleService } from './compaction-lifecycle.service';
 import {
@@ -119,6 +120,7 @@ describe('CompactionLifecycleService', () => {
   let createMock: jest.Mock;
   let warn: jest.SpyInstance;
   let info: jest.SpyInstance;
+  let runInAngularZone: jest.SpyInstance;
 
   // Each tab maps to a synthetic conversation id so registry writes are
   // observable without standing up the real binding service. Rebuilt per test
@@ -231,11 +233,15 @@ describe('CompactionLifecycleService', () => {
       ],
     });
     service = TestBed.inject(CompactionLifecycleService);
+    runInAngularZone = jest
+      .spyOn(TestBed.inject(NgZone), 'run')
+      .mockImplementation((fn) => fn());
   });
 
   afterEach(() => {
     warn.mockRestore();
     info.mockRestore();
+    runInAngularZone.mockRestore();
     jest.useRealTimers();
     TestBed.resetTestingModule();
   });
@@ -339,6 +345,7 @@ describe('CompactionLifecycleService', () => {
       expect(applyCompactionTimeoutResetMock).toHaveBeenCalledWith('tab-1');
       expect(markTabIdleMock).toHaveBeenCalledWith('tab-1');
       expect(setStatusMock).toHaveBeenCalledWith('loaded');
+      expect(runInAngularZone).toHaveBeenCalled();
       expect(warn).toHaveBeenCalledWith(
         '[ChatStore] Compaction safety timeout reached — compaction_complete event may have been lost',
       );

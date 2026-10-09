@@ -10,6 +10,7 @@ import {
   Component,
   input,
   output,
+  computed,
   ChangeDetectionStrategy,
 } from '@angular/core';
 import {
@@ -18,9 +19,20 @@ import {
   ChevronRight,
   Square,
   Play,
+  X,
 } from 'lucide-angular';
 import { SlicePipe } from '@angular/common';
 import type { MonitoredAgent } from '@ptah-extension/chat-streaming';
+import type { LaneStopReason } from '@ptah-extension/shared';
+
+/** Readable host stop reason for a lane the budget guard stopped. */
+export function laneGuardStopText(
+  reason: LaneStopReason | undefined,
+): string | null {
+  if (reason === 'tool-call-budget') return 'Stopped: tool-call limit reached';
+  if (reason === 'repeat-call') return 'Stopped: repeated the same tool call';
+  return null;
+}
 
 @Component({
   selector: 'ptah-agent-card-header',
@@ -28,16 +40,25 @@ import type { MonitoredAgent } from '@ptah-extension/chat-streaming';
   imports: [LucideAngularModule, SlicePipe],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <button
-      type="button"
+    <div
       class="flex items-center gap-1.5 w-full px-2 py-1.5 text-left hover:bg-base-200/50 transition-colors flex-shrink-0"
-      (click)="toggleExpanded.emit()"
     >
-      <!-- Expand/collapse icon -->
-      <lucide-angular
-        [img]="agent().expanded ? ChevronDownIcon : ChevronRightIcon"
-        class="w-3 h-3 text-base-content-muted flex-shrink-0"
-      />
+      <button
+        type="button"
+        class="btn btn-ghost btn-xs btn-square flex-shrink-0"
+        [attr.aria-label]="
+          (agent().expanded ? 'Collapse ' : 'Expand ') +
+          (agent().displayName || agent().cli)
+        "
+        [attr.aria-expanded]="agent().expanded"
+        (click)="toggleExpanded.emit()"
+      >
+        <lucide-angular
+          [img]="agent().expanded ? ChevronDownIcon : ChevronRightIcon"
+          class="w-3 h-3 text-base-content-muted"
+          aria-hidden="true"
+        />
+      </button>
 
       <!-- CLI badge (display name or CLI type) -->
       <span
@@ -59,6 +80,15 @@ import type { MonitoredAgent } from '@ptah-extension/chat-streaming';
         {{ agent().status }}
       </span>
 
+      @if (stopText(); as reason) {
+        <span
+          class="min-w-0 truncate text-[10px] text-warning flex-shrink"
+          data-testid="lane-stop-reason"
+        >
+          {{ reason }}
+        </span>
+      }
+
       <!-- Model badge -->
       @if (agent().model) {
         <span
@@ -66,18 +96,6 @@ import type { MonitoredAgent } from '@ptah-extension/chat-streaming';
           [title]="'Model: ' + agent().model"
         >
           {{ agent().model }}
-        </span>
-      }
-
-      <!-- Prompt cache: CLI lanes report no cache tokens and no context size,
-           so they show "not reported" and never a warm/cold badge. -->
-      @if (agent().cacheReported === false) {
-        <span
-          class="badge badge-sm badge-ghost text-[9px] text-base-content-muted flex-shrink-0"
-          data-testid="lane-cache-not-reported"
-          title="This provider does not report prompt-cache tokens"
-        >
-          cache not reported
         </span>
       }
 
@@ -134,7 +152,21 @@ import type { MonitoredAgent } from '@ptah-extension/chat-streaming';
           {{ agent().cliSessionId! | slice: 0 : 8 }}...
         </span>
       }
-    </button>
+
+      @if (closable()) {
+        <button
+          type="button"
+          class="btn btn-ghost btn-xs btn-square flex-shrink-0"
+          title="Remove column"
+          [attr.aria-label]="
+            'Remove ' + (agent().displayName || agent().cli) + ' column'
+          "
+          (click)="closeLane.emit($event)"
+        >
+          <lucide-angular [img]="XIcon" class="w-3 h-3" aria-hidden="true" />
+        </button>
+      }
+    </div>
   `,
 })
 export class AgentCardHeaderComponent {
@@ -142,13 +174,23 @@ export class AgentCardHeaderComponent {
   readonly elapsedDisplay = input.required<string>();
   readonly isStopping = input.required<boolean>();
   readonly isResuming = input.required<boolean>();
+  readonly closable = input(false);
 
   readonly toggleExpanded = output<void>();
   readonly stopAgent = output<Event>();
   readonly resumeAgent = output<Event>();
+  readonly closeLane = output<Event>();
+
+  /** Shown once the lane has left `running` with a host budget stop reason. */
+  protected readonly stopText = computed(() =>
+    this.agent().status === 'running'
+      ? null
+      : laneGuardStopText(this.agent().stopReason),
+  );
 
   readonly ChevronDownIcon = ChevronDown;
   readonly ChevronRightIcon = ChevronRight;
   readonly SquareIcon = Square;
   readonly PlayIcon = Play;
+  readonly XIcon = X;
 }

@@ -27,7 +27,7 @@ const NO_SESSION_HINT = 'Open a session to analyze it manually';
   imports: [SkillEventFeedComponent],
   template: `
     <section
-      class="overflow-hidden rounded-xl border border-base-300 bg-base-200/40 px-4 py-3 text-sm"
+      class="surface-2 overflow-hidden rounded-xl px-4 py-3 text-sm"
       aria-label="Recent events"
       data-test="panel-events"
     >

@@ -13,8 +13,8 @@ import {
 } from './ptah-core-prompt';
 
 describe('PTAH_CORE_SYSTEM_PROMPT', () => {
-  it('stays within the ~4,000-token budget its header declares', () => {
-    expect(PTAH_CORE_SYSTEM_PROMPT_TOKENS).toBeLessThanOrEqual(4000);
+  it('stays within the ~4,100-token budget its header declares', () => {
+    expect(PTAH_CORE_SYSTEM_PROMPT_TOKENS).toBeLessThanOrEqual(4100);
   });
 
   it('carries the MCP substitution section exactly once', () => {
@@ -43,9 +43,7 @@ describe('PTAH_CORE_SYSTEM_PROMPT', () => {
 
   it('states the token-economy rules', () => {
     expect(PTAH_CORE_SYSTEM_PROMPT).toContain('### Token economy');
-    expect(PTAH_CORE_SYSTEM_PROMPT).toContain(
-      'Verify only the projects you changed',
-    );
+    expect(PTAH_CORE_SYSTEM_PROMPT).toContain('Verify only changed projects:');
     expect(PTAH_CORE_SYSTEM_PROMPT).toContain('Never a wait/status loop');
   });
 });

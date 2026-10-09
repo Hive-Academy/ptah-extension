@@ -424,7 +424,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
   }
 
   async initialize(): Promise<boolean> {
-    if (this.initInFlight) {
+    if (this.initInFlight !== null) {
       this.logger.debug(
         '[SdkAgentAdapter] initialize already in progress, awaiting existing call',
       );
@@ -665,7 +665,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
     const previous = this.resetChain;
     const pass = (this.resetChain = (async () => {
       // A failed reset must not wedge the chain shut for the ones behind it.
-      if (previous) {
+      if (previous !== null) {
         // degradation-audit: optional-capability - the queued reset only waits
         // for its predecessor to settle; the previous caller was already given
         // that rejection, and swallowing it here keeps the chain open.
@@ -691,7 +691,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
     // ANSWERED by the in-flight guard. Let a running pass settle first (its
     // result is discarded), then dispose and initialize from a clean slate.
     const running = this.initInFlight;
-    if (running) {
+    if (running !== null) {
       // degradation-audit: optional-capability - the reset only waits out the
       // in-flight init and discards its result either way; a failed pass is
       // owned by its own caller and dispose + initialize follow regardless.
@@ -752,6 +752,9 @@ export class SdkAgentAdapter implements IAgentAdapter {
     const sessionConfigWithProfileModel: typeof config = {
       ...configWithoutSessionTitle,
       ...(providerProfile ? { model: providerProfile.model } : {}),
+      ...(providerProfile?.reasoningEffort
+        ? { effort: providerProfile.reasoningEffort }
+        : {}),
       sessionName: resolvedSessionName,
       ...(callerSuppliedSessionTitle
         ? { sessionTitle: callerSuppliedSessionTitle }
@@ -1041,6 +1044,9 @@ export class SdkAgentAdapter implements IAgentAdapter {
     const sessionConfigWithProfileModel = {
       ...config,
       ...(providerProfile ? { model: providerProfile.model } : {}),
+      ...(providerProfile?.reasoningEffort
+        ? { effort: providerProfile.reasoningEffort }
+        : {}),
       ...(resolvedSessionName ? { sessionName: resolvedSessionName } : {}),
     } as typeof config;
 
@@ -1686,9 +1692,10 @@ export class SdkAgentAdapter implements IAgentAdapter {
       // never by this wrapper's id, which is the tracking id for a new session.
       const budget = this.observeBudget(stats.sessionStats);
       if (inner) {
-        // The payload keeps the IDENTICAL `sessionStats` reference; `budget`
-        // is only added when the budget produced a state.
-        inner(budget ? { ...stats, budget } : stats);
+        // The payload keeps the IDENTICAL `sessionStats` reference. `undefined`
+        // means a degraded/no-update observation and preserves the UI card;
+        // `null` is the explicit no-state marker.
+        inner(budget === undefined ? stats : { ...stats, budget });
       }
     };
   }
@@ -1700,8 +1707,8 @@ export class SdkAgentAdapter implements IAgentAdapter {
    */
   private observeBudget(
     snapshot: SessionStatsEntry | undefined,
-  ): SessionBudgetState | undefined {
-    let budget: SessionBudgetState | undefined;
+  ): SessionBudgetState | null | undefined {
+    let budget: SessionBudgetState | null | undefined;
     try {
       budget = this.sessionBudget.observe(snapshot);
     } catch (error: unknown) {

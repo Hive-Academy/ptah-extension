@@ -122,6 +122,10 @@ describe('SessionBudgetSettingsComponent', () => {
       );
       expect(read).toHaveLength(10);
       expect(field('tokens').value).toBe('50000000');
+      expect(field('tokens').className).toContain('input-sm');
+      expect(field('tokens').className).toContain('flex-1');
+      expect(field('tokens').className).toContain('join-item');
+      expect(host().textContent).toContain('50M tokens');
       expect(field('tightenPercent').value).toBe('50');
       expect(field('handoffPercent').value).toBe('80');
       expect(field('tightenWindowTokens').value).toBe('');
@@ -130,6 +134,7 @@ describe('SessionBudgetSettingsComponent', () => {
       );
       expect(field('enabled').checked).toBe(true);
       expect(field('blockAtLimit').checked).toBe(true);
+      expect(field('enabled').className).toContain('toggle-sm');
       expect(writes()).toEqual([]);
     });
 
@@ -358,7 +363,7 @@ describe('SessionBudgetSettingsComponent', () => {
       expect(
         host().querySelector('#session-budget-tightenWindowTokens-help')
           ?.textContent,
-      ).toContain('advisory only until set');
+      ).toMatch(/advisory only until set/i);
       await enter('tightenWindowTokens', '');
       expect(writes()).toEqual([
         { key: 'sessionBudget.tightenWindowTokens', value: null },

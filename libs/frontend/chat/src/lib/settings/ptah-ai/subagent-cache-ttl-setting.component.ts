@@ -10,6 +10,7 @@ import {
   SUBAGENT_PROMPT_CACHE_TTL_SETTINGS,
   type SubagentPromptCacheTtlSetting,
 } from '@ptah-extension/shared';
+import { SurfaceSectionComponent } from '@ptah-extension/ui';
 import { SettingsSaveFeedbackService } from '../feedback/settings-save-feedback.service';
 import { SettingsBusyDisabledDirective } from '../feedback/busy-disabled.directive';
 
@@ -38,15 +39,17 @@ const LABELS: Readonly<Record<SubagentPromptCacheTtlSetting, string>> = {
 @Component({
   selector: 'ptah-subagent-cache-ttl-setting',
   standalone: true,
-  imports: [SettingsBusyDisabledDirective],
+  imports: [SettingsBusyDisabledDirective, SurfaceSectionComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <section
-      class="space-y-1.5 rounded-xl border border-base-300 bg-base-200 px-3 py-2 text-xs text-base-content"
+    <ptah-surface-section
+      tone="subtle"
+      padding="md"
+      class="text-xs text-base-content"
       aria-label="Subagent prompt cache"
       data-testid="subagent-cache-ttl-setting"
     >
-      <div class="flex flex-wrap items-center justify-between gap-2">
+      <div class="flex flex-wrap items-center justify-between gap-3">
         <label for="subagent-cache-ttl" class="text-xs font-bold"
           >Subagent prompt-cache TTL</label
         >
@@ -123,7 +126,7 @@ const LABELS: Readonly<Record<SubagentPromptCacheTtlSetting, string>> = {
           Check saved setting again
         </button>
       }
-    </section>
+    </ptah-surface-section>
   `,
 })
 export class SubagentCacheTtlSettingComponent {

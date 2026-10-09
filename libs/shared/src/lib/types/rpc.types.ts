@@ -81,6 +81,8 @@ import type {
   ChatStartResult,
   ChatContinueParams,
   ChatContinueResult,
+  ChatSetStreamViewportParams,
+  ChatSetStreamViewportResult,
   ChatResumeParams,
   ChatResumeResult,
   ChatHistoryPageParams,
@@ -748,6 +750,10 @@ import type {
 export interface RpcMethodRegistry {
   'chat:start': { params: ChatStartParams; result: ChatStartResult };
   'chat:continue': { params: ChatContinueParams; result: ChatContinueResult };
+  'chat:setStreamViewport': {
+    params: ChatSetStreamViewportParams;
+    result: ChatSetStreamViewportResult;
+  };
   'chat:resume': { params: ChatResumeParams; result: ChatResumeResult };
   'chat:history-page': {
     params: ChatHistoryPageParams;
@@ -3717,6 +3723,7 @@ export type RpcMethodName = keyof RpcMethodRegistry;
 const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'chat:start': true,
   'chat:continue': true,
+  'chat:setStreamViewport': true,
   'chat:abort': true,
   'chat:pending-questions': true,
   'chat:running-agents': true,

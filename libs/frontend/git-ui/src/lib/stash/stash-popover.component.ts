@@ -57,7 +57,7 @@ export function stashAge(
       role="dialog"
       aria-label="Stashes"
       data-testid="stash-popover"
-      class="absolute top-full left-0 z-50 mt-1 w-96 max-w-[80vw] rounded border border-base-content/10 bg-base-200 text-xs shadow-lg"
+      class="surface-3 absolute top-full left-0 z-50 mt-1 w-96 max-w-[80vw] rounded text-xs"
     >
       @if (stash.error(); as error) {
         <div role="alert" class="p-2 text-error">{{ error }}</div>

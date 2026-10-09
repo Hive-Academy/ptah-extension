@@ -119,7 +119,7 @@ const VEC_REASON_COPY: Record<VecLoadDiagnosticWire['reason'], string> = {
           }
         } @else {
           <div
-            class="rounded-xl border border-base-300 bg-base-200/40 px-3 py-3 text-xs text-base-content-muted"
+            class="surface-2 rounded-xl px-3 py-3 text-xs text-base-content-muted"
           >
             No DB health data yet.
           </div>

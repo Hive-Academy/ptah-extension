@@ -235,7 +235,7 @@ describe('windowKindFromDuration', () => {
     expect(windowKindFromDuration(300, 1)).toEqual({
       kind: 'five_hour',
       key: 'five_hour',
-      label: '5-hour session',
+      label: '5-hour',
     });
     expect(windowKindFromDuration(10_080, 2)).toEqual({
       kind: 'weekly',

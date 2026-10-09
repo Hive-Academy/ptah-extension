@@ -3,9 +3,9 @@
  *
  * Coverage moved here from `session-organization-chips.component.spec.ts`
  * when the live-phase marker was extracted from the chips component to sit
- * in the sidebar row's leading column: the live-phase precedence (the
+ * beside the sidebar row, out of flow: the live-phase precedence (the
  * liveness registry wins over the row snapshot) and idle rendering nothing
- * (no marker, no label — the row's layout does not shift).
+ * (no marker, no label — the host stays mounted and does not shift the row).
  *
  * The fixture's host element IS the indicator: the label, title, phase and
  * invisible state live on the host itself, so the assertions read the host

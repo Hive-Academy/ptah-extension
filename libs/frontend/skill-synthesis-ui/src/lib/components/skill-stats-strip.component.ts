@@ -20,9 +20,7 @@ import type { SkillSynthesisStatsResult } from '@ptah-extension/shared';
         class="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5"
         aria-label="Skill synthesis statistics"
       >
-        <div
-          class="stats bg-base-200/40 border border-base-content/10 shadow-sm"
-        >
+        <div class="surface-2 rounded-xl">
           <div class="stat p-4">
             <div class="stat-figure text-info">
               <lucide-angular
@@ -41,9 +39,7 @@ import type { SkillSynthesisStatsResult } from '@ptah-extension/shared';
           </div>
         </div>
 
-        <div
-          class="stats bg-base-200/40 border border-base-content/10 shadow-sm"
-        >
+        <div class="surface-2 rounded-xl">
           <div class="stat p-4">
             <div class="stat-figure text-success">
               <lucide-angular
@@ -62,9 +58,7 @@ import type { SkillSynthesisStatsResult } from '@ptah-extension/shared';
           </div>
         </div>
 
-        <div
-          class="stats bg-base-200/40 border border-base-content/10 shadow-sm"
-        >
+        <div class="surface-2 rounded-xl">
           <div class="stat p-4">
             <div class="stat-figure text-error">
               <lucide-angular
@@ -80,9 +74,7 @@ import type { SkillSynthesisStatsResult } from '@ptah-extension/shared';
           </div>
         </div>
 
-        <div
-          class="stats bg-base-200/40 border border-base-content/10 shadow-sm"
-        >
+        <div class="surface-2 rounded-xl">
           <div class="stat p-4">
             <div class="stat-figure text-secondary">
               <lucide-angular
@@ -98,9 +90,7 @@ import type { SkillSynthesisStatsResult } from '@ptah-extension/shared';
           </div>
         </div>
 
-        <div
-          class="stats bg-base-200/40 border border-base-content/10 shadow-sm"
-        >
+        <div class="surface-2 rounded-xl">
           <div class="stat p-4">
             <div class="stat-figure text-primary">
               <lucide-angular
@@ -123,9 +113,7 @@ import type { SkillSynthesisStatsResult } from '@ptah-extension/shared';
         aria-busy="true"
       >
         @for (i of skeletonSlots; track i) {
-          <div
-            class="stats bg-base-200/40 border border-base-content/10 shadow-sm"
-          >
+          <div class="surface-2 rounded-xl">
             <div class="stat gap-2 p-4">
               <div class="skeleton h-4 w-20"></div>
               <div class="skeleton h-7 w-12"></div>

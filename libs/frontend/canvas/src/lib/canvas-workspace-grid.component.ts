@@ -106,6 +106,7 @@ const UNMEASURED_ITEM = { x: 0, y: 0, w: 12, h: 6 } as const;
   },
   template: `
     <gridstack
+      data-testid="canvas"
       [options]="gsOptions"
       [class.singleton]="isSingleton()"
       [class.compact-singleton]="isCompactSingleton()"

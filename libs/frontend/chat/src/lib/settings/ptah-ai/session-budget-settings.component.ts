@@ -16,6 +16,7 @@ import {
   type SessionBudgetUnit,
 } from '@ptah-extension/shared';
 import { SettingsBusyDisabledDirective } from '../feedback/busy-disabled.directive';
+import { SurfaceSectionComponent } from '@ptah-extension/ui';
 
 type BudgetKey = keyof SessionBudgetConfig;
 type NumberKey =
@@ -57,37 +58,37 @@ const NUMBER_FIELDS: readonly NumberField[] = [
   {
     key: 'tokens',
     label: 'Token budget',
-    help: 'Session limit when the unit is Tokens: the token figure the chat shows.',
+    help: 'Chat token limit.',
   },
   {
     key: 'usd',
     label: 'Cost budget (USD)',
-    help: 'Session limit when the unit is Cost.',
+    help: 'Session cost limit.',
   },
   {
     key: 'fallbackWeightedTokens',
     label: 'Fallback weighted tokens',
-    help: 'Limit used when no model in the session has a price.',
+    help: 'Used when model pricing is unavailable.',
   },
   {
     key: 'tightenPercent',
     label: 'Tighten at (%)',
-    help: 'Percent of the limit that starts the tighten stage. Must be below Handoff at.',
+    help: 'Starts tightening; stays below Handoff.',
   },
   {
     key: 'handoffPercent',
     label: 'Handoff at (%)',
-    help: 'Percent of the limit that suggests a handoff to a new session.',
+    help: 'Suggests a new session.',
   },
   {
     key: 'handoffAfterCompactions',
     label: 'Handoff after compactions',
-    help: 'Suggest a handoff after this many compactions, whatever the percent.',
+    help: 'Suggests a handoff after this many compactions.',
   },
   {
     key: 'tightenWindowTokens',
     label: 'Tighten auto-compact window (tokens)',
-    help: 'Leave empty: the tighten stage is advisory only until set. When set, Ptah lowers the auto-compact window to this size at tighten.',
+    help: 'Advisory only until set; then lowers the compact window.',
   },
 ];
 
@@ -148,17 +149,27 @@ function storedNumberIsValid(
 @Component({
   selector: 'ptah-session-budget-settings',
   standalone: true,
-  imports: [SettingsBusyDisabledDirective],
+  imports: [SettingsBusyDisabledDirective, SurfaceSectionComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <section
-      class="space-y-2 rounded-xl border border-base-300 bg-base-200 px-3 py-2 text-xs text-base-content"
+    <ptah-surface-section
+      tone="subtle"
+      padding="md"
+      class="text-xs text-base-content"
       aria-labelledby="session-budget-heading"
-      data-testid="session-budget-settings"
+      data-testid="settings-section-session-budget"
     >
-      <h3 id="session-budget-heading" class="text-xs font-bold">
-        Session budget
-      </h3>
+      <div section-header>
+        <h3
+          id="session-budget-heading"
+          class="font-bold uppercase tracking-wide"
+        >
+          Session budget
+        </h3>
+        <p class="mt-0.5 text-[11px] text-base-content-muted">
+          Set per-chat limits and when Ptah should intervene.
+        </p>
+      </div>
 
       @switch (load()) {
         @case ('loading') {
@@ -190,31 +201,38 @@ function storedNumberIsValid(
           </div>
         }
         @default {
-          <div class="grid gap-x-4 gap-y-2 sm:grid-cols-2">
+          <div class="grid auto-rows-fr gap-4 md:grid-cols-3">
             @for (key of booleanKeys; track key) {
-              <label
-                class="flex cursor-pointer items-center gap-2 sm:col-span-2"
-              >
-                <input
-                  type="checkbox"
-                  [class]="'checkbox checkbox-xs checkbox-primary ' + focusRing"
-                  [checked]="booleanValue(key)"
-                  [ptahBusyDisabled]="busy()"
-                  (change)="toggle(key, $event)"
-                  [attr.data-testid]="'session-budget-' + key"
-                />
-                <span>{{ labels[key] }}</span>
-              </label>
+              <div class="flex min-w-0 flex-col gap-1">
+                <span class="font-bold">{{ labels[key] }}</span>
+                <label
+                  class="flex h-8 w-full cursor-pointer items-center gap-2 rounded-lg border border-base-content/10 px-2"
+                >
+                  <input
+                    type="checkbox"
+                    [class]="'toggle toggle-sm toggle-primary ' + focusRing"
+                    [checked]="booleanValue(key)"
+                    [ptahBusyDisabled]="busy()"
+                    (change)="toggle(key, $event)"
+                    [attr.aria-label]="labels[key]"
+                    [attr.data-testid]="'session-budget-' + key"
+                  />
+                  <span>Enabled</span>
+                </label>
+                <p class="text-[11px] text-base-content-muted">
+                  Enable this limit for the current chat.
+                </p>
+              </div>
             }
 
-            <div class="space-y-0.5 sm:col-span-2">
+            <div class="flex min-w-0 flex-col gap-1">
               <label for="session-budget-unit" class="font-bold">{{
                 labels.unit
               }}</label>
               <select
                 id="session-budget-unit"
                 [class]="
-                  'select select-bordered select-xs min-h-7 w-full sm:w-72 ' +
+                  'select select-bordered select-sm h-8 min-h-8 w-full text-xs ' +
                   focusRing
                 "
                 [value]="unitValue()"
@@ -229,9 +247,11 @@ function storedNumberIsValid(
                   </option>
                 }
               </select>
-              <p id="session-budget-unit-help" class="text-base-content-muted">
-                Tokens counts the figure the chat shows. Cost uses USD where the
-                models are priced.
+              <p
+                id="session-budget-unit-help"
+                class="text-[11px] text-base-content-muted"
+              >
+                Tokens use chat usage; Cost uses priced models.
               </p>
               @if (errors()['unit']; as message) {
                 <p data-testid="session-budget-unit-error">{{ message }}</p>
@@ -239,49 +259,62 @@ function storedNumberIsValid(
             </div>
 
             @for (field of numberFields; track field.key) {
-              <div class="space-y-0.5">
+              <div class="flex min-w-0 flex-col gap-1">
                 <label
                   [for]="'session-budget-' + field.key"
                   class="font-bold"
                   >{{ field.label }}</label
                 >
-                <input
-                  type="text"
-                  [id]="'session-budget-' + field.key"
-                  [attr.inputmode]="
-                    settings[field.key].integer ? 'numeric' : 'decimal'
-                  "
-                  [class]="
-                    'input input-bordered input-xs min-h-7 w-full text-base-content ' +
-                    (errors()[field.key] ? 'input-error ' : '') +
-                    focusRing
-                  "
-                  [value]="numberText(field.key)"
-                  [attr.placeholder]="
-                    settings[field.key].nullable ? 'Advisory only' : null
-                  "
-                  [attr.aria-invalid]="errors()[field.key] ? 'true' : null"
-                  [attr.aria-describedby]="
-                    'session-budget-' +
-                    field.key +
-                    '-help' +
-                    (errors()[field.key]
-                      ? ' session-budget-' + field.key + '-error'
-                      : '') +
-                    (storedNotice(field.key)
-                      ? ' session-budget-' + field.key + '-stored'
-                      : '')
-                  "
-                  [ptahBusyDisabled]="busy()"
-                  (input)="edit(field.key, $event)"
-                  (change)="commit(field.key)"
-                  (focus)="focusedKey = field.key"
-                  (blur)="blurred(field.key)"
-                  [attr.data-testid]="'session-budget-' + field.key"
-                />
+                <div class="join flex w-full">
+                  <input
+                    type="text"
+                    [id]="'session-budget-' + field.key"
+                    [attr.inputmode]="
+                      settings[field.key].integer ? 'numeric' : 'decimal'
+                    "
+                    [class]="
+                      'input input-bordered input-sm join-item h-8 min-h-8 min-w-0 flex-1 text-right text-xs tabular-nums text-base-content ' +
+                      (errors()[field.key] ? 'input-error ' : '') +
+                      focusRing
+                    "
+                    [value]="numberText(field.key)"
+                    [attr.placeholder]="
+                      settings[field.key].nullable ? 'Advisory only' : null
+                    "
+                    [attr.aria-invalid]="errors()[field.key] ? 'true' : null"
+                    [attr.aria-describedby]="
+                      'session-budget-' +
+                      field.key +
+                      '-help' +
+                      (errors()[field.key]
+                        ? ' session-budget-' + field.key + '-error'
+                        : '') +
+                      (storedNotice(field.key)
+                        ? ' session-budget-' + field.key + '-stored'
+                        : '')
+                    "
+                    [ptahBusyDisabled]="busy()"
+                    (input)="edit(field.key, $event)"
+                    (change)="commit(field.key)"
+                    (focus)="focusedKey = field.key"
+                    (blur)="blurred(field.key)"
+                    [attr.data-testid]="'session-budget-' + field.key"
+                  />
+                  <span
+                    class="btn btn-sm join-item h-8 min-h-8 shrink-0 cursor-default whitespace-nowrap border-base-content/10 px-2 text-[11px] font-normal text-base-content-muted"
+                    aria-hidden="true"
+                    >{{ unitSuffix(field.key) }}</span
+                  >
+                </div>
+                @if (humanReadable(field.key); as readable) {
+                  <span
+                    class="whitespace-nowrap text-[11px] text-base-content-muted"
+                    >{{ readable }}</span
+                  >
+                }
                 <p
                   [id]="'session-budget-' + field.key + '-help'"
-                  class="text-base-content-muted"
+                  class="text-[11px] text-base-content-muted"
                 >
                   {{ field.help }} Range: {{ range(field.key) }}.
                 </p>
@@ -320,7 +353,7 @@ function storedNumberIsValid(
       >
         {{ status() }}
       </p>
-    </section>
+    </ptah-surface-section>
   `,
 })
 export class SessionBudgetSettingsComponent implements OnInit {
@@ -409,6 +442,23 @@ export class SessionBudgetSettingsComponent implements OnInit {
   protected range(key: NumberKey): string {
     const setting: SessionBudgetNumberSetting = this.settings[key];
     return `${NUMBER_FORMAT.format(setting.min)} to ${NUMBER_FORMAT.format(setting.max)}`;
+  }
+
+  protected unitSuffix(key: NumberKey): string {
+    if (key === 'usd') return 'USD';
+    if (key.endsWith('Percent')) return '%';
+    if (key === 'handoffAfterCompactions') return 'runs';
+    return 'tokens';
+  }
+
+  protected humanReadable(key: NumberKey): string | null {
+    if (
+      !['tokens', 'fallbackWeightedTokens', 'tightenWindowTokens'].includes(key)
+    )
+      return null;
+    const value = Number(this.numberText(key).replace(/[,_\s]/g, ''));
+    if (!Number.isFinite(value) || value < 1_000) return null;
+    return `${new Intl.NumberFormat('en-US', { maximumFractionDigits: 1, notation: 'compact' }).format(value)} tokens`;
   }
 
   /** A stored value the backend ignores (out of bounds, wrong type, or a broken percent pair) says what applies instead. */

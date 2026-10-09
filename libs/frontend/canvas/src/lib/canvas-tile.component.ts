@@ -150,17 +150,19 @@ const NEXT_VIEW_MODE_LABEL: Readonly<Record<TabViewMode, string>> = {
   ],
   template: `
     <div
-      class="canvas-tile flex flex-col border rounded-lg h-full overflow-hidden transition-shadow"
+      class="canvas-tile flex flex-col rounded-xl h-full overflow-hidden transition-shadow"
       [attr.data-focused]="focused()"
       [class.border-primary]="focused()"
       [class.ring-2]="focused()"
       [class.ring-primary]="focused()"
-      [class.border-base-300]="!focused()"
+      [class.surface-2]="!focused()"
+      [class.surface-3]="focused()"
       (click)="onTileClick()"
     >
       <!-- Tile header: label + agent indicator + layout menu + close button -->
       <div
-        class="tile-header flex items-center gap-2 px-2 py-1 bg-base-300 text-xs rounded-t-lg shrink-0"
+        class="tile-header flex items-center gap-2 px-2 py-1 bg-surface-1 text-xs shrink-0"
+        data-testid="canvas-tile-header"
       >
         <span class="truncate flex-1 font-medium text-base-content">{{
           tabLabel()
@@ -229,7 +231,7 @@ const NEXT_VIEW_MODE_LABEL: Readonly<Record<TabViewMode, string>> = {
                     tabindex="-1"
                     data-layout-item
                     class="join-item btn btn-xs flex-1 font-normal px-0"
-                    [class.btn-ghost]="!(isSpanChecked(option.span))"
+                    [class.btn-ghost]="!isSpanChecked(option.span)"
                     [class.btn-primary]="isSpanChecked(option.span)"
                     [attr.data-span]="option.span"
                     [attr.aria-checked]="isSpanChecked(option.span)"

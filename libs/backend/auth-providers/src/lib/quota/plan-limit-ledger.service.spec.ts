@@ -96,7 +96,15 @@ function harness(options: { storage?: MemoryStorage; at?: number } = {}) {
     logger as unknown as Logger,
     { getProviderKey: jest.fn() } as unknown as IAuthSecretsService,
     probe,
-    { currentOwnerKey: () => null },
+    {
+      currentOwnerKey: () => null,
+      getAccountUsage: jest.fn(async () => ({
+        status: 'service-unavailable' as const,
+        providerId: 'openai-codex',
+      })),
+      clearCache: jest.fn(),
+      close: jest.fn(async () => undefined),
+    },
     new CodexHomeResolver(resolve('synthetic-codex-home')),
   );
   const ledger = new PlanLimitLedgerService(
@@ -484,7 +492,7 @@ describe('PlanLimitLedgerService — clearing (F22, F23, F62-F66)', () => {
     ledger.recordWindowEvidence(OWNER_A, {
       key: 'five_hour',
       kind: 'five_hour',
-      label: '5-hour session',
+      label: '5-hour',
       observedAt: T0 + MINUTE,
     });
 
@@ -917,7 +925,7 @@ describe('PlanLimitLedgerService — persistence (P6, F24, F74)', () => {
         {
           key: 'five_hour',
           kind: 'five_hour',
-          label: '5-hour session',
+          label: '5-hour',
           exhaustion: {
             observedAt: T0,
             source: 'stream-event',

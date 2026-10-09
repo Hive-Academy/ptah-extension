@@ -90,7 +90,7 @@ let nextPopupId = 0;
           role="combobox"
           aria-autocomplete="list"
           autocomplete="off"
-          class="input input-bordered input-sm w-full pl-7 aria-disabled:cursor-not-allowed aria-disabled:opacity-60"
+          class="input input-sm h-8 min-h-8 w-full rounded-lg border border-surface-border bg-surface-0 pl-7 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[oklch(var(--s))] aria-disabled:cursor-not-allowed aria-disabled:opacity-60"
           data-testid="provider-model-picker-search"
           [attr.id]="inputId()"
           [value]="displayValue()"
@@ -114,13 +114,31 @@ let nextPopupId = 0;
     <!-- Compact rows: the id in mono, the catalogue's display name (when it differs) muted after it, and the
          current selection marked with a check. -->
     <ng-template #compactOptionTemplate let-option>
-      <span class="flex min-w-0 items-center gap-1.5 text-xs" [attr.data-current]="option.id === selectedId() ? 'true' : null">
-        <span class="w-3 shrink-0 text-center" aria-hidden="true">{{ option.id === selectedId() ? '✓' : '' }}</span>
-        <span class="truncate" [class.font-mono]="option.id !== '' && option.id !== pinnedOption()?.id">{{ compactLabel(option) }}</span>
-        @if (option.id && option.name && option.name !== option.id && option.id !== pinnedOption()?.id) {
+      <span
+        class="flex min-w-0 items-center gap-1.5 text-xs"
+        [attr.data-current]="option.id === selectedId() ? 'true' : null"
+      >
+        <span class="w-3 shrink-0 text-center" aria-hidden="true">{{
+          option.id === selectedId() ? '✓' : ''
+        }}</span>
+        <span
+          class="truncate"
+          [class.font-mono]="
+            option.id !== '' && option.id !== pinnedOption()?.id
+          "
+          >{{ compactLabel(option) }}</span
+        >
+        @if (
+          option.id &&
+          option.name &&
+          option.name !== option.id &&
+          option.id !== pinnedOption()?.id
+        ) {
           <span class="truncate opacity-70">{{ option.name }}</span>
         }
-        @if (option.id === selectedId()) { <span class="sr-only">(current)</span> }
+        @if (option.id === selectedId()) {
+          <span class="sr-only">(current)</span>
+        }
       </span>
     </ng-template>
 
@@ -277,7 +295,9 @@ export class ProviderModelSearchFieldComponent {
 
   /** Compact rows lead with the id; the sentinel and the pinned action row keep their label. */
   protected compactLabel(option: ProviderModelSearchOption): string {
-    return option.id === '' || option.id === this.pinnedOption()?.id ? option.name : option.id;
+    return option.id === '' || option.id === this.pinnedOption()?.id
+      ? option.name
+      : option.id;
   }
 
   protected openPanel(): void {
@@ -327,7 +347,11 @@ export class ProviderModelSearchFieldComponent {
    * (TASK_2026_555 Batch 55b F3). Cancelling the row's mousedown keeps focus in this field; the click still selects.
    */
   protected keepFocusOnPick(event: MouseEvent): void {
-    if (event.target instanceof Element && event.target.closest('[role="option"]')) event.preventDefault();
+    if (
+      event.target instanceof Element &&
+      event.target.closest('[role="option"]')
+    )
+      event.preventDefault();
   }
 
   protected choose(option: ProviderModelSearchOption): void {

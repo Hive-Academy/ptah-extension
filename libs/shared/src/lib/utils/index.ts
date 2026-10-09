@@ -68,7 +68,11 @@ export {
   PTAH_AGENTS_REGION_END,
   type AgentBody,
 } from './agents-region.utils';
-export { addCliUsage, type CliUsageTotals } from './cli-usage.utils';
+export {
+  addCliUsage,
+  hasReportedCliCacheTokens,
+  type CliUsageTotals,
+} from './cli-usage.utils';
 export {
   activeEstimatedExhaustion,
   activeWindowExhaustion,

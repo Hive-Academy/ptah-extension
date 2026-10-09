@@ -4,6 +4,7 @@
  * Types for agent:*, ptahCli:*, skillsSh:* methods
  */
 
+import { z } from 'zod';
 import type { PtahCliSummary } from '../ptah-cli.types';
 import type { AgentPermissionDecision } from '../agent-permission.types';
 
@@ -132,6 +133,10 @@ export interface AgentOrchestrationConfig {
   codexReasoningEffort: string;
   /** Copilot reasoning effort (empty string = SDK default) */
   copilotReasoningEffort: string;
+  /** Grok reasoning effort mapped to its `reasoning_effort` session option. */
+  grokReasoningEffort?: string;
+  /** Antigravity reasoning effort mapped to `agy --effort`. */
+  antigravityReasoningEffort?: string;
   /** Pi reasoning effort mapped to `--thinking` (empty string = CLI default). Scale: off|minimal|low|medium|high|xhigh|max. */
   piReasoningEffort?: string;
   /** @deprecated Codex always runs in full-auto headless mode. Kept for backward compat. */
@@ -262,6 +267,10 @@ export interface AgentSetConfigParams {
   subagentPromptCacheTtl?: SubagentPromptCacheTtlSetting;
   /** Copilot reasoning effort override */
   copilotReasoningEffort?: string;
+  /** Grok reasoning effort override */
+  grokReasoningEffort?: string;
+  /** Antigravity reasoning effort override */
+  antigravityReasoningEffort?: string;
   /** Pi reasoning effort override, mapped to `--thinking` (off|minimal|low|medium|high|xhigh|max) */
   piReasoningEffort?: string;
   /** MCP server port (1024-65535, default: 51820) */
@@ -332,7 +341,24 @@ export interface PtahCliUpdateParams {
     haiku?: string;
   };
   selectedModel?: string;
+  reasoningEffort?: '' | PtahCliReasoningEffort;
 }
+
+/** The Claude Agent SDK's supported `query()` effort values for Ptah CLI instances. */
+export const PtahCliReasoningEffortSchema = z.enum([
+  'low',
+  'medium',
+  'high',
+  'xhigh',
+  'max',
+]);
+export type PtahCliReasoningEffort = z.infer<
+  typeof PtahCliReasoningEffortSchema
+>;
+export const PtahCliReasoningEffortInputSchema = z.union([
+  z.literal(''),
+  PtahCliReasoningEffortSchema,
+]);
 
 /** Response from ptahCli:update RPC method */
 export interface PtahCliUpdateResult {

@@ -20,7 +20,10 @@ import {
   X,
 } from 'lucide-angular';
 import { ProvidersSettingsStateService } from '@ptah-extension/core';
-import { NativePopoverComponent } from '@ptah-extension/ui';
+import {
+  NativePopoverComponent,
+  SurfaceSectionComponent,
+} from '@ptah-extension/ui';
 import { SettingsSaveFeedbackService } from '../feedback/settings-save-feedback.service';
 import { cliMatrixRows } from './cli-matrix-rows';
 import { SettingsBusyDisabledDirective } from '../feedback/busy-disabled.directive';
@@ -72,16 +75,21 @@ interface OrderChip {
     SettingsBusyDisabledDirective,
     LucideAngularModule,
     NativePopoverComponent,
+    SurfaceSectionComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <section
-      class="rounded-xl border border-base-300 bg-base-200 px-3 py-2"
+    <ptah-surface-section
+      tone="subtle"
+      padding="md"
       aria-label="Orchestration policy"
-      data-testid="orchestration-policy-bar"
+      data-testid="settings-section-orchestration-policy"
     >
       <!-- One row in both hosts: the chips clip at the end in a narrow box; the trigger names the whole order. -->
-      <div class="flex items-center gap-2.5 text-xs text-base-content">
+      <div
+        class="flex items-center gap-2.5 text-xs text-base-content"
+        data-testid="orchestration-policy-bar"
+      >
         <div class="flex shrink-0 items-center gap-1.5">
           <label
             for="agent-max-concurrent"
@@ -353,7 +361,7 @@ interface OrderChip {
       <span class="sr-only" role="status" aria-live="polite">{{
         detectDone() ? 'CLI agents re-detected.' : ''
       }}</span>
-    </section>
+    </ptah-surface-section>
   `,
 })
 export class AgentOrchestrationConfigComponent {

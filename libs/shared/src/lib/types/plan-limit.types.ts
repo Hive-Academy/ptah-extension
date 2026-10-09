@@ -137,6 +137,21 @@ export interface PlanLimitCooldown {
   readonly rawUntil?: number;
 }
 
+/**
+ * Historical token/cost accounting read from a local CLI. This is deliberately
+ * separate from plan windows: it has no allowance percentage or reset time.
+ */
+export interface PlanLocalUsage {
+  readonly kind: 'local-usage';
+  readonly label: string;
+  readonly tokens: number;
+  readonly estimatedCostUsd: number;
+  readonly observedAt: number;
+  readonly source: 'local-cli';
+  /** The CLI's reported aggregation range, when it supplies one. */
+  readonly range?: string;
+}
+
 /** Why an owner's limits could not be read even though the route supports it. */
 export type PlanLimitUnavailableReason = 'no-open-session';
 
@@ -149,6 +164,8 @@ export interface PlanLimitOwnerSnapshot {
   /** True once a full-table source declared this owner's window set. */
   readonly windowSetEstablished: boolean;
   readonly windows: readonly PlanLimitWindow[];
+  /** Local historical accounting; never interpreted as a plan allowance. */
+  readonly localUsage?: PlanLocalUsage;
   readonly ownerEvidence: readonly OwnerLimitEvidence[];
   readonly cooldown?: PlanLimitCooldown;
   readonly account?: ProviderGetAccountUsageResult['account'];

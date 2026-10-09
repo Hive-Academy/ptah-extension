@@ -385,7 +385,7 @@ describe('AntigravityCliAdapter', () => {
       );
     });
 
-    it('passes only the id of a model saved as `id<TAB>name` by the earlier parse (Batch 52.2)', async () => {
+    it('migrates the stale saved default while extracting a model id from `id<TAB>name`', async () => {
       const handle = await adapter.runSdk({
         ...baseOptions,
         model: 'claude-sonnet-4-6\tClaude Sonnet 4.6 (Thinking)',
@@ -395,10 +395,12 @@ describe('AntigravityCliAdapter', () => {
       await handle.done;
 
       const [, argsArg] = mockSpawnCli.mock.calls[0] as [string, string[]];
-      expect(argsArg[argsArg.indexOf('--model') + 1]).toBe('claude-sonnet-4-6');
+      expect(argsArg[argsArg.indexOf('--model') + 1]).toBe(
+        'claude-sonnet-5-5-medium',
+      );
     });
 
-    it('adds --effort for a value agy accepts', async () => {
+    it('adds --effort for a value agy accepts when no model is set', async () => {
       const handle = await adapter.runSdk({
         ...baseOptions,
         reasoningEffort: 'high',
@@ -411,7 +413,54 @@ describe('AntigravityCliAdapter', () => {
       expect(argsArg[argsArg.indexOf('--effort') + 1]).toBe('high');
     });
 
-    it('drops --effort for a value agy does not accept', async () => {
+    it('keeps an effort-suffixed model and omits conflicting --effort', async () => {
+      const handle = await adapter.runSdk({
+        ...baseOptions,
+        model: 'claude-sonnet-5-5-low',
+        reasoningEffort: 'high',
+      });
+      collect(handle);
+      currentChild?.emitClose(0);
+      await handle.done;
+
+      const [, argsArg] = mockSpawnCli.mock.calls[0] as [string, string[]];
+      expect(argsArg[argsArg.indexOf('--model') + 1]).toBe(
+        'claude-sonnet-5-5-low',
+      );
+      expect(argsArg).not.toContain('--effort');
+    });
+
+    it('encodes requested effort in a known base model id', async () => {
+      const handle = await adapter.runSdk({
+        ...baseOptions,
+        model: 'claude-sonnet-5-5',
+        reasoningEffort: 'high',
+      });
+      collect(handle);
+      currentChild?.emitClose(0);
+      await handle.done;
+
+      const [, argsArg] = mockSpawnCli.mock.calls[0] as [string, string[]];
+      expect(argsArg[argsArg.indexOf('--model') + 1]).toBe(
+        'claude-sonnet-5-5-high',
+      );
+      expect(argsArg).not.toContain('--effort');
+    });
+
+    it('drops an effort agy does not accept', async () => {
+      const handle = await adapter.runSdk({
+        ...baseOptions,
+        reasoningEffort: 'minimal',
+      });
+      collect(handle);
+      currentChild?.emitClose(0);
+      await handle.done;
+
+      const [, argsArg] = mockSpawnCli.mock.calls[0] as [string, string[]];
+      expect(argsArg).not.toContain('--effort');
+    });
+
+    it('passes through xhigh effort supported by agy', async () => {
       const handle = await adapter.runSdk({
         ...baseOptions,
         reasoningEffort: 'xhigh',
@@ -421,7 +470,7 @@ describe('AntigravityCliAdapter', () => {
       await handle.done;
 
       const [, argsArg] = mockSpawnCli.mock.calls[0] as [string, string[]];
-      expect(argsArg).not.toContain('--effort');
+      expect(argsArg[argsArg.indexOf('--effort') + 1]).toBe('xhigh');
     });
 
     it('adds --conversation when resuming a session', async () => {

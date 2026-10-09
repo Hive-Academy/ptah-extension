@@ -411,8 +411,9 @@ export class AppShellComponent {
   readonly editSessionInput =
     viewChild<ElementRef<HTMLInputElement>>('editSessionInput');
   /** The sidebar resize handle: the pointer-capture target while dragging. */
-  private readonly sidebarResizeHandle =
-    viewChild<ElementRef<HTMLElement>>('sidebarResizeHandle');
+  private readonly sidebarResizeHandle = viewChild<ElementRef<HTMLElement>>(
+    'sidebarResizeHandle',
+  );
   private readonly shellRow = viewChild<ElementRef<HTMLElement>>('shellRow');
 
   /**
@@ -503,8 +504,7 @@ export class AppShellComponent {
       return;
     }
     this.applySidebarWidth(
-      this.sidebarResizeStartWidth +
-        (event.clientX - this.sidebarResizeStartX),
+      this.sidebarResizeStartWidth + (event.clientX - this.sidebarResizeStartX),
     );
   }
 
@@ -545,6 +545,33 @@ export class AppShellComponent {
    */
   resetSidebarWidth(): void {
     this.chosenSidebarWidth.set(SESSION_SIDEBAR_DEFAULT_WIDTH);
+    this.persistSidebarWidth();
+  }
+
+  /**
+   * The Electron divider between the workspace sidebar and this sessions
+   * sidebar started a drag. Same transition suppression as the in-pane handle.
+   */
+  beginExternalSidebarResize(): void {
+    this._sidebarResizing.set(true);
+  }
+
+  /**
+   * Sessions width requested by that divider. Clamped and capped like a
+   * pointer drag on this sidebar's own handle. Not persisted until commit.
+   */
+  applyExternalSidebarResize(width: number): void {
+    if (!this._sidebarResizing()) return;
+    this.applySidebarWidth(width);
+  }
+
+  /**
+   * Divider released (or Escape restored the start width). Persist the
+   * settled choice under the sessions sidebar key.
+   */
+  commitExternalSidebarResize(): void {
+    if (!this._sidebarResizing()) return;
+    this._sidebarResizing.set(false);
     this.persistSidebarWidth();
   }
 

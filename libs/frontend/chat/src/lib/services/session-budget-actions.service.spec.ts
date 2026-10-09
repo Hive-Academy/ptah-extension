@@ -45,6 +45,7 @@ describe('SessionBudgetActionsService (TASK_2026_597 N7)', () => {
       .mockResolvedValue({ success: true });
     const requestCanvasTabMock = jest.fn();
     const requestComposerPrefillMock = jest.fn();
+    const clearSessionBudgetMock = jest.fn();
     const layoutModeSig = signal<'single' | 'grid'>('single');
     const tab = signal<{ sessionBudget: SessionBudgetState | null }>({
       sessionBudget: budget,
@@ -55,10 +56,17 @@ describe('SessionBudgetActionsService (TASK_2026_597 N7)', () => {
       providers: [
         SessionBudgetActionsService,
         { provide: ClaudeRpcService, useValue: { call: rpcCallMock } },
-        { provide: ActionBannerService, useValue: { showError: showErrorMock } },
+        {
+          provide: ActionBannerService,
+          useValue: { showError: showErrorMock },
+        },
         {
           provide: TabManagerService,
-          useValue: { createTab: createTabMock, activeWorkspacePath: '/ws' },
+          useValue: {
+            createTab: createTabMock,
+            clearSessionBudget: clearSessionBudgetMock,
+            activeWorkspacePath: '/ws',
+          },
         },
         {
           provide: AppStateManager,
@@ -91,6 +99,7 @@ describe('SessionBudgetActionsService (TASK_2026_597 N7)', () => {
       sendOrQueueMessageMock,
       requestCanvasTabMock,
       requestComposerPrefillMock,
+      clearSessionBudgetMock,
     };
   }
 
@@ -227,6 +236,22 @@ describe('SessionBudgetActionsService (TASK_2026_597 N7)', () => {
       'Budget action failed: timeout',
       'tab-abc',
     );
+  });
+
+  it('quietly clears a stale restored budget when the host has no state', async () => {
+    const h = setup();
+    h.rpcCallMock.mockResolvedValueOnce(
+      rpcOk({
+        success: false,
+        error: 'No budget state for this session',
+        errorCode: 'NO_SESSION_BUDGET_STATE',
+      }),
+    );
+
+    await h.service.runStateAction('dismiss');
+
+    expect(h.clearSessionBudgetMock).toHaveBeenCalledWith('tab-abc', SESSION);
+    expect(h.showErrorMock).not.toHaveBeenCalled();
   });
 
   it('reports a rejected budget action without leaving the action busy', async () => {
@@ -385,5 +410,78 @@ describe('SessionBudgetActionsService (TASK_2026_597 N7)', () => {
     const h = setup(null);
     await h.service.runStateAction('dismiss');
     expect(h.rpcCallMock).not.toHaveBeenCalled();
+  });
+
+  it('compact sends /compact on the composer path for this tab', async () => {
+    const h = setup();
+    await h.service.compact();
+    expect(h.sendOrQueueMessageMock).toHaveBeenCalledWith('/compact', {
+      tabId: 'tab-abc',
+    });
+    expect(h.rpcCallMock).not.toHaveBeenCalled();
+  });
+
+  it('compact reports a failed send and stays quiet at the budget limit', async () => {
+    const h = setup();
+    h.sendOrQueueMessageMock.mockResolvedValueOnce({
+      success: false,
+      error: 'nope',
+    });
+    await h.service.compact();
+    expect(h.showErrorMock).toHaveBeenCalledWith('nope', 'tab-abc');
+
+    h.sendOrQueueMessageMock.mockResolvedValueOnce({
+      success: false,
+      errorCode: 'SESSION_BUDGET_REACHED',
+    });
+    await h.service.compact();
+    expect(h.showErrorMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('records a usage point when used changes and skips a repeat', () => {
+    const h = setup({ ...BUDGET, used: 10, percent: 10 });
+    TestBed.flushEffects();
+    expect(h.service.usage().map((sample) => sample.used)).toEqual([10]);
+
+    h.tab.set({ sessionBudget: { ...BUDGET, used: 10, percent: 11 } });
+    TestBed.flushEffects();
+    expect(h.service.usage()).toHaveLength(1);
+
+    h.tab.set({ sessionBudget: { ...BUDGET, used: 20, percent: 20 } });
+    TestBed.flushEffects();
+    expect(h.service.usage().map((sample) => sample.used)).toEqual([10, 20]);
+  });
+
+  it('resets the series on a session change and when the budget clears', () => {
+    const h = setup({ ...BUDGET, used: 10, percent: 10 });
+    TestBed.flushEffects();
+
+    h.tab.set({
+      sessionBudget: {
+        ...BUDGET,
+        sessionId: '22222222-2222-4222-8222-222222222222',
+        used: 4,
+        percent: 1,
+      },
+    });
+    TestBed.flushEffects();
+    expect(h.service.usage().map((sample) => sample.used)).toEqual([4]);
+
+    h.tab.set({ sessionBudget: null });
+    TestBed.flushEffects();
+    expect(h.service.usage()).toEqual([]);
+  });
+
+  it('keeps at most 60 usage samples', () => {
+    const h = setup({ ...BUDGET, used: 1, percent: 1 });
+    TestBed.flushEffects();
+    for (let used = 2; used <= 80; used++) {
+      h.tab.set({ sessionBudget: { ...BUDGET, used, percent: used } });
+      TestBed.flushEffects();
+    }
+    const series = h.service.usage();
+    expect(series).toHaveLength(60);
+    expect(series[0]?.used).toBe(21);
+    expect(series[59]?.used).toBe(80);
   });
 });

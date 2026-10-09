@@ -42,6 +42,7 @@ import { CHAT_TOKENS } from './tokens';
 import { ChatSdkContextService } from './session/chat-sdk-context.service';
 import { ChatPtahCliService } from './ptah-cli/chat-ptah-cli.service';
 import { ChatStreamBroadcaster } from './streaming/chat-stream-broadcaster.service';
+import { ChatStreamDeliveryCoordinator } from './streaming/chat-stream-delivery-coordinator.service';
 import { ChatSubagentContextInjectorService } from './session/chat-subagent-context-injector.service';
 import { ChatSlashCommandRouterService } from './session/chat-slash-command-router.service';
 import { ChatSessionService } from './session/chat-session.service';
@@ -61,6 +62,10 @@ export function registerChatServices(container: DependencyContainer): void {
   assertOutputStyleServicesRegistered(container);
   container.registerSingleton(CHAT_TOKENS.SDK_CONTEXT, ChatSdkContextService);
   container.registerSingleton(CHAT_TOKENS.PTAH_CLI, ChatPtahCliService);
+  container.registerSingleton(
+    CHAT_TOKENS.STREAM_DELIVERY_COORDINATOR,
+    ChatStreamDeliveryCoordinator,
+  );
   container.registerSingleton(
     CHAT_TOKENS.STREAM_BROADCASTER,
     ChatStreamBroadcaster,

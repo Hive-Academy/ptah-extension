@@ -66,6 +66,10 @@ describe('AnalyticsCardComponent', () => {
     expect(text('analytics-estimate-label')).toBe(
       'Estimated from recorded usage and current rate card',
     );
+    expect(
+      el().querySelector('[data-testid="analytics-section-session"]')
+        ?.className,
+    ).toContain('surface-1');
     expect(el().textContent).not.toContain('Real costs');
   });
 
@@ -74,6 +78,9 @@ describe('AnalyticsCardComponent', () => {
     await settle();
 
     expect(count('ptah-session-stats-card')).toBe(25);
+    expect(
+      el().querySelector('[data-testid="analytics-section-provider-accounts"]'),
+    ).not.toBeNull();
     expect(count('[data-testid="session-card-pending"]')).toBe(25);
     expect(text('analytics-progress')).toMatch(/0 of\s+25 sessions/);
 
@@ -124,7 +131,12 @@ describe('AnalyticsCardComponent', () => {
     answerStats(statsCall(0), (id) =>
       id === sessionId(0)
         ? { totalCost: null, pricingCoverage: 'none' }
-        : { totalCost: null, pricingCoverage: 'none', untimestampedCount: 3, coverage: 'partial' },
+        : {
+            totalCost: null,
+            pricingCoverage: 'none',
+            untimestampedCount: 3,
+            coverage: 'partial',
+          },
     );
     await settle();
 
@@ -143,9 +155,9 @@ describe('AnalyticsCardComponent', () => {
 
   describe('partially priced sessions (scope 6c)', () => {
     const cardCosts = (): (string | undefined)[] =>
-      Array.from(el().querySelectorAll('[data-testid="session-card-cost"]')).map(
-        (c) => c.textContent?.replace(/\s+/g, ' ').trim(),
-      );
+      Array.from(
+        el().querySelectorAll('[data-testid="session-card-cost"]'),
+      ).map((c) => c.textContent?.replace(/\s+/g, ' ').trim());
 
     it('renders the known spend of a partial session and adds it to the total', async () => {
       answerList(listCall(), sessions(3));
@@ -182,7 +194,9 @@ describe('AnalyticsCardComponent', () => {
       expect(text('analytics-partial-pricing')).toMatch(
         /priced part is included[\s\S]*lower bound/,
       );
-      expect(text('analytics-unknown-cost')).toMatch(/Cost unknown for 1\s+session/);
+      expect(text('analytics-unknown-cost')).toMatch(
+        /Cost unknown for 1\s+session/,
+      );
     });
 
     it('renders an unknown cost in a neutral colour, never the success colour', async () => {
@@ -195,7 +209,9 @@ describe('AnalyticsCardComponent', () => {
       );
       await settle();
 
-      const costEls = el().querySelectorAll('[data-testid="session-card-cost"]');
+      const costEls = el().querySelectorAll(
+        '[data-testid="session-card-cost"]',
+      );
       expect(costEls[0].classList).toContain('text-success');
       expect(costEls[1].textContent?.trim()).toBe('Unknown');
       expect(costEls[1].classList).not.toContain('text-success');
@@ -239,7 +255,12 @@ describe('AnalyticsCardComponent', () => {
       await settle();
       answerStats(statsCall(0), (id) =>
         id === sessionId(0)
-          ? { totalCost: 2, knownCost: 2, pricingCoverage: 'full', cliAgents: ['codex'] }
+          ? {
+              totalCost: 2,
+              knownCost: 2,
+              pricingCoverage: 'full',
+              cliAgents: ['codex'],
+            }
           : {
               status: 'empty',
               totalCost: null,
@@ -307,7 +328,9 @@ describe('AnalyticsCardComponent', () => {
     );
     await settle();
 
-    expect(text('analytics-errors')).toMatch(/Stats unavailable for 1\s+session/);
+    expect(text('analytics-errors')).toMatch(
+      /Stats unavailable for 1\s+session/,
+    );
     expect(
       el().querySelector('button[aria-label="Retry loading session stats"]'),
     ).not.toBeNull();

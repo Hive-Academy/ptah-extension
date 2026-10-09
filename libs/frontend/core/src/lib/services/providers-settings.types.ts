@@ -71,6 +71,8 @@ export type ProvidersOrchestrationField =
   | 'piModel'
   | 'codexReasoningEffort'
   | 'copilotReasoningEffort'
+  | 'grokReasoningEffort'
+  | 'antigravityReasoningEffort'
   | 'piReasoningEffort';
 /** Orchestration policy the CLI matrix writes. Array fields are read back order-sensitively. */
 export type ProvidersOrchestrationPolicyField =

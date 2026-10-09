@@ -1,4 +1,4 @@
-import { Injectable, inject } from '@angular/core';
+import { Injectable, NgZone, inject } from '@angular/core';
 import {
   type CompactionMeasurement,
   SessionId,
@@ -39,6 +39,7 @@ import { CompactionAdvisoryCorrelator } from './compaction-advisory-correlator.s
 @Injectable({ providedIn: 'root' })
 export class CompactionLifecycleService {
   private readonly tabManager = inject(TabManagerService);
+  private readonly ngZone = inject(NgZone);
   private readonly sessionManager = inject(SessionManager);
   private readonly treeBuilder = inject(ExecutionTreeBuilderService);
   private readonly sessionLoader = inject(SessionLoaderService);
@@ -165,7 +166,7 @@ export class CompactionLifecycleService {
       });
     }
     const compactingTabIds = tabs.map((t) => t.id);
-    const timeoutId = setTimeout(() => {
+    const timeoutId = setTimeout(() => this.ngZone.run(() => {
       const recovery = this.compactionRecoveryTimers.get(compactionSid);
       if (!recovery || recovery.timeoutId !== timeoutId) return;
       this.compactionRecoveryTimers.delete(compactionSid);
@@ -198,7 +199,7 @@ export class CompactionLifecycleService {
       console.warn(
         '[ChatStore] Compaction safety timeout reached — compaction_complete event may have been lost',
       );
-    }, CompactionLifecycleService.COMPACTION_SAFETY_TIMEOUT_MS);
+    }), CompactionLifecycleService.COMPACTION_SAFETY_TIMEOUT_MS);
     this.compactionRecoveryTimers.set(compactionSid, {
       timeoutId,
       tabIds: compactingTabIds,

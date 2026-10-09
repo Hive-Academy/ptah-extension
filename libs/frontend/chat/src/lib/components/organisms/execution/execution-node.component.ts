@@ -10,8 +10,12 @@ import {
   ChangeDetectionStrategy,
 } from '@angular/core';
 import { MarkdownModule } from 'ngx-markdown';
-import { SurfaceMarkdownPipe } from '@ptah-extension/markdown';
+import {
+  SurfaceMarkdownPipe,
+  StreamingMarkdownRenderer,
+} from '@ptah-extension/markdown';
 import { SURFACE_ACTIVE } from '@ptah-extension/core';
+import { INCREMENTAL_STREAMING_PRESENTATION_ENABLED } from '../../../services/scroll-dirty.service';
 import { LucideAngularModule, Info } from 'lucide-angular';
 import { InlineAgentBubbleComponent } from './inline-agent-bubble.component';
 import {
@@ -22,6 +26,7 @@ import {
 // fence pipeline, zod and the declarative renderer) as a lazy chunk. Same
 // contract as `@ptah-extension/chat-ui/change-set-card` in the transcript.
 import { PtahUiMessageTextComponent } from '@ptah-extension/chat-ui/ptah-ui';
+import { MermaidMessageTextComponent } from '@ptah-extension/chat-ui/mermaid';
 import { ToolCallItemComponent } from '../../molecules/tool-execution/tool-call-item.component';
 import { WorkflowCardComponent } from './workflow-card.component';
 import { TaskCardComponent } from './task-card.component';
@@ -42,6 +47,7 @@ import type {
   TurnSourceSnapshot,
 } from '@ptah-extension/shared';
 import { hasPtahUiFenceLine } from './ptah-ui-fence-line';
+import { hasMermaidFenceLine } from './mermaid-fence-line';
 
 /**
  * What a top-level assistant text node needs to render `ptah-ui` fences
@@ -152,6 +158,7 @@ function scheduleFrame(cb: () => void): FrameHandle {
     ScheduleWakeupChipComponent,
     // Used only inside `@defer` (see the import above).
     PtahUiMessageTextComponent,
+    MermaidMessageTextComponent,
   ],
   template: `
     @switch (node().type) {
@@ -184,6 +191,7 @@ function scheduleFrame(cb: () => void): FrameHandle {
                 [orderKey]="host.orderKey"
                 [active]="surfaceActive()"
                 [snapshot]="host.snapshot ?? null"
+                [finalized]="!isNodeStreaming() && !isFinalizing()"
               />
             } @placeholder {
               <markdown
@@ -193,6 +201,16 @@ function scheduleFrame(cb: () => void): FrameHandle {
               <markdown
                 [data]="renderedContent() | surfaceMarkdown: surfaceActive()"
               />
+            }
+          </div>
+        } @else if (mermaidHost()) {
+          <div class="prose prose-sm prose-invert max-w-none my-2 exec-text-branch">
+            @defer (on immediate) {
+              <ptah-mermaid-message-text [text]="renderedContent()" [finalized]="true" [active]="surfaceActive()" />
+            } @placeholder {
+              <markdown [data]="renderedContent() | surfaceMarkdown: surfaceActive()" />
+            } @error {
+              <markdown [data]="renderedContent() | surfaceMarkdown: surfaceActive()" />
             }
           </div>
         } @else {
@@ -205,9 +223,13 @@ function scheduleFrame(cb: () => void): FrameHandle {
                  streams, and the exact final string the moment it settles.
                  Every value still goes through ngx-markdown, so DOMPurify
                  remains the only path AI text takes to the DOM. -->
-            <markdown
-              [data]="renderedContent() | surfaceMarkdown: surfaceActive()"
-            />
+            @if (incrementalStreamingEnabled && isNodeStreaming()) {
+              <div [innerHTML]="streamingHtml()"></div>
+            } @else {
+              <markdown
+                [data]="renderedContent() | surfaceMarkdown: surfaceActive()"
+              />
+            }
           </div>
         }
       }
@@ -463,6 +485,12 @@ export class ExecutionNodeComponent {
   // "always active" and silently never throttle — the gate would be dead with
   // no error and no failing test.
   protected readonly surfaceActive = inject(SURFACE_ACTIVE);
+  protected readonly incrementalStreamingEnabled = inject(
+    INCREMENTAL_STREAMING_PRESENTATION_ENABLED,
+  );
+  private readonly streamingMarkdown = new StreamingMarkdownRenderer();
+  private readonly _streamingHtml = signal('');
+  protected readonly streamingHtml = this._streamingHtml.asReadonly();
 
   constructor() {
     effect(() => {
@@ -491,7 +519,7 @@ export class ExecutionNodeComponent {
         if (!this.surfaceActive()) return;
         const pending = this.pendingContent;
         this.pendingContent = null;
-        if (pending !== null) this._renderedContent.set(pending);
+        if (pending !== null) this.publishStreaming(pending);
       });
     });
 
@@ -510,6 +538,14 @@ export class ExecutionNodeComponent {
     this.pendingFrame = null;
     this.pendingContent = null;
     this._renderedContent.set(content);
+    this._streamingHtml.set('');
+  }
+
+  private publishStreaming(content: string): void {
+    this._renderedContent.set(content);
+    if (this.incrementalStreamingEnabled) {
+      this._streamingHtml.set(this.streamingMarkdown.render(content));
+    }
   }
 
   /**
@@ -520,10 +556,19 @@ export class ExecutionNodeComponent {
   protected readonly ptahUiHost = computed(
     (): PtahUiNodeContext | null => {
       const context = this.ptahUi();
-      if (context === null) return null;
+      if (context === null || this.isNodeStreaming()) return null;
       return hasPtahUiFenceLine(this.renderedContent()) ? context : null;
     },
     { equal: samePtahUiContext },
+  );
+
+  /** Mermaid mounts once, only after streaming and the finalization handoff. */
+  protected readonly mermaidHost = computed(
+    () =>
+      this.ptahUiHost() === null &&
+      !this.isNodeStreaming() &&
+      !this.isFinalizing() &&
+      hasMermaidFenceLine(this.renderedContent()),
   );
 
   /**

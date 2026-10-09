@@ -33,11 +33,17 @@ import type {
   SkillLanesDto,
 } from '@ptah-extension/shared';
 import { ProviderConsumerAssignmentsComponent } from './provider-consumer-assignments.component';
-import { toBackendJudgeModel, toPickerModel, type BackgroundConsumerId } from './provider-consumer-rows';
+import {
+  toBackendJudgeModel,
+  toPickerModel,
+  type BackgroundConsumerId,
+} from './provider-consumer-rows';
 import { isDisabledControl } from '../feedback/busy-disabled.testing';
 
 class MockProvidersSettingsStateService {
-  readonly routeStore = signal<ProvidersSettingsSection<ProvidersEffectiveRoute>>({
+  readonly routeStore = signal<
+    ProvidersSettingsSection<ProvidersEffectiveRoute>
+  >({
     status: 'ready',
     data: {
       // AuthStrategyType — the backend resolves one of five strategies, never a wire id.
@@ -68,7 +74,10 @@ class MockProvidersSettingsStateService {
   readonly activeProviderId = computed(() => 'anthropic');
 
   readonly memoryStore = signal<
-    ProvidersSettingsSection<{ curatorProvider?: string; curatorModel?: string }>
+    ProvidersSettingsSection<{
+      curatorProvider?: string;
+      curatorModel?: string;
+    }>
   >({
     status: 'ready',
     data: {
@@ -129,7 +138,9 @@ class MockProvidersSettingsStateService {
     error: null,
   });
 
-  readonly judgingStore = signal<ProvidersSettingsSection<ProvidersJudgingSettings>>({
+  readonly judgingStore = signal<
+    ProvidersSettingsSection<ProvidersJudgingSettings>
+  >({
     status: 'ready',
     data: {
       judgeProvider: '',
@@ -144,7 +155,9 @@ class MockProvidersSettingsStateService {
     error: null,
   });
 
-  readonly scopesStore = signal<ProvidersSettingsSection<ConfigGetScopesResult>>({
+  readonly scopesStore = signal<
+    ProvidersSettingsSection<ConfigGetScopesResult>
+  >({
     status: 'ready',
     data: {
       activePath: '/workspace',
@@ -207,9 +220,15 @@ class MockProvidersSettingsStateService {
     return { scopeKey: 'test-scope', activePath: '/workspace' };
   }
 
-  readonly refreshMemory = jest.fn<Promise<void>, []>().mockResolvedValue(undefined);
-  readonly refreshLanes = jest.fn<Promise<void>, []>().mockResolvedValue(undefined);
-  readonly refreshJudging = jest.fn<Promise<void>, []>().mockResolvedValue(undefined);
+  readonly refreshMemory = jest
+    .fn<Promise<void>, []>()
+    .mockResolvedValue(undefined);
+  readonly refreshLanes = jest
+    .fn<Promise<void>, []>()
+    .mockResolvedValue(undefined);
+  readonly refreshJudging = jest
+    .fn<Promise<void>, []>()
+    .mockResolvedValue(undefined);
 
   /** Resolves the per-call result: `false` = refused because another save is in flight (nothing written). */
   readonly saveSettings = jest
@@ -227,15 +246,24 @@ class MockProvidersSettingsStateService {
     });
 }
 
-function query(fixture: ComponentFixture<unknown>, testId: string): HTMLElement | null {
+function query(
+  fixture: ComponentFixture<unknown>,
+  testId: string,
+): HTMLElement | null {
   return fixture.nativeElement.querySelector(`[data-testid="${testId}"]`);
 }
 
-function button(fixture: ComponentFixture<unknown>, testId: string): HTMLButtonElement | null {
+function button(
+  fixture: ComponentFixture<unknown>,
+  testId: string,
+): HTMLButtonElement | null {
   return query(fixture, testId) as HTMLButtonElement | null;
 }
 
-function inputEl(fixture: ComponentFixture<unknown>, testId: string): HTMLInputElement | null {
+function inputEl(
+  fixture: ComponentFixture<unknown>,
+  testId: string,
+): HTMLInputElement | null {
   return query(fixture, testId) as HTMLInputElement | null;
 }
 
@@ -257,9 +285,13 @@ describe('ProviderConsumerAssignmentsComponent', () => {
     await settle();
   }
   const providerSelect = (id: BackgroundConsumerId) =>
-    query(fixture, `picker-${id}`)?.querySelector('[data-testid="provider-model-picker-provider"]') as HTMLSelectElement;
+    query(fixture, `picker-${id}`)?.querySelector(
+      '[data-testid="provider-model-picker-provider"]',
+    ) as HTMLSelectElement;
   const modelSelect = (id: BackgroundConsumerId) =>
-    query(fixture, `picker-${id}`)?.querySelector('[data-testid="provider-model-picker-model"]') as HTMLSelectElement;
+    query(fixture, `picker-${id}`)?.querySelector(
+      '[data-testid="provider-model-picker-model"]',
+    ) as HTMLSelectElement;
   /**
    * A picker choice, as the user makes it; the popover saves on it. Microtasks only: a saved choice starts the
    * toast's dismiss timer, which `whenStable()` would wait out.
@@ -284,7 +316,10 @@ describe('ProviderConsumerAssignmentsComponent', () => {
     fixture.detectChanges();
     return input;
   }
-  async function choose(select: HTMLSelectElement, value: string): Promise<void> {
+  async function choose(
+    select: HTMLSelectElement,
+    value: string,
+  ): Promise<void> {
     select.value = value;
     select.dispatchEvent(new Event('change'));
     for (let i = 0; i < 3; i += 1) {
@@ -296,7 +331,16 @@ describe('ProviderConsumerAssignmentsComponent', () => {
   function setJudging(judgeProvider: string, judgeModel: string): void {
     mockState.judgingStore.set({
       status: 'ready',
-      data: { judgeProvider, judgeModel, enhanceTimeoutMs: { value: 120000, default: 120000, min: 15000, max: 600000 } },
+      data: {
+        judgeProvider,
+        judgeModel,
+        enhanceTimeoutMs: {
+          value: 120000,
+          default: 120000,
+          min: 15000,
+          max: 600000,
+        },
+      },
       error: null,
     });
     fixture.detectChanges();
@@ -307,8 +351,16 @@ describe('ProviderConsumerAssignmentsComponent', () => {
     mockModelsLoader = {
       listModels: jest.fn().mockResolvedValue({
         models: [
-          { id: 'claude-3-5-sonnet', name: 'Claude 3.5 Sonnet', supportsToolUse: true },
-          { id: 'claude-3-5-haiku', name: 'Claude 3.5 Haiku', supportsToolUse: true },
+          {
+            id: 'claude-3-5-sonnet',
+            name: 'Claude 3.5 Sonnet',
+            supportsToolUse: true,
+          },
+          {
+            id: 'claude-3-5-haiku',
+            name: 'Claude 3.5 Haiku',
+            supportsToolUse: true,
+          },
         ],
       }),
     };
@@ -397,7 +449,9 @@ describe('ProviderConsumerAssignmentsComponent', () => {
       expect(toBackendJudgeModel('   ')).toBe('inherit');
       expect(toBackendJudgeModel(undefined)).toBe('inherit');
       expect(toBackendJudgeModel(null)).toBe('inherit');
-      expect(toBackendJudgeModel('claude-3-5-sonnet')).toBe('claude-3-5-sonnet');
+      expect(toBackendJudgeModel('claude-3-5-sonnet')).toBe(
+        'claude-3-5-sonnet',
+      );
     });
 
     it('READ direction: adapts stored "inherit" to picker sentinel "" for Judging & enhancement', async () => {
@@ -427,7 +481,12 @@ describe('ProviderConsumerAssignmentsComponent', () => {
       await openRow('judging-enhancement');
       await choose(modelSelect('judging-enhancement'), 'claude-3-5-sonnet');
       expect(mockState.saveSettings).toHaveBeenCalledWith(
-        { judging: { judgeProvider: 'anthropic', judgeModel: 'claude-3-5-sonnet' } },
+        {
+          judging: {
+            judgeProvider: 'anthropic',
+            judgeModel: 'claude-3-5-sonnet',
+          },
+        },
         expect.any(Object),
       );
     });
@@ -449,7 +508,9 @@ describe('ProviderConsumerAssignmentsComponent', () => {
       await settle();
       expect(query(fixture, 'consumer-editor-synthesis')).toBeNull();
       expect(mockState.saveSettings).not.toHaveBeenCalled();
-      expect(document.activeElement).toBe(button(fixture, 'consumer-edit-synthesis'));
+      expect(document.activeElement).toBe(
+        button(fixture, 'consumer-edit-synthesis'),
+      );
     });
 
     it('a provider choice saves the lane at once, with a toast and an Undo that writes the previous value back', async () => {
@@ -458,36 +519,61 @@ describe('ProviderConsumerAssignmentsComponent', () => {
       await openRow('archaeologist');
       await choose(providerSelect('archaeologist'), 'anthropic');
       expect(mockState.saveSettings).toHaveBeenCalledWith(
-        { lanes: { archaeologist: { provider: 'anthropic', model: '' } } }, { scopeKey: 'test-scope', activePath: '/workspace' });
-      expect(feedback.toast()?.message).toBe('Saved Archaeologist lane assignment to All Ptah apps.');
+        { lanes: { archaeologist: { provider: 'anthropic', model: '' } } },
+        { scopeKey: 'test-scope', activePath: '/workspace' },
+      );
+      expect(feedback.toast()?.message).toBe(
+        'Saved Archaeologist lane assignment to All Ptah apps.',
+      );
       expect(feedback.toast()?.canUndo).toBe(true);
-      expect(saved).toHaveBeenCalledWith({ id: 'archaeologist', provider: 'anthropic', model: '' });
+      expect(saved).toHaveBeenCalledWith({
+        id: 'archaeologist',
+        provider: 'anthropic',
+        model: '',
+      });
       await feedback.undo();
       expect(mockState.saveSettings).toHaveBeenLastCalledWith(
-        { lanes: { archaeologist: { provider: '', model: '' } } }, expect.any(Object));
-      expect(saved).toHaveBeenLastCalledWith({ id: 'archaeologist', provider: '', model: '' });
+        { lanes: { archaeologist: { provider: '', model: '' } } },
+        expect.any(Object),
+      );
+      expect(saved).toHaveBeenLastCalledWith({
+        id: 'archaeologist',
+        provider: '',
+        model: '',
+      });
     });
 
     it('saves the memory curator to the memory patch', async () => {
       await openRow('memory-curator');
       await choose(providerSelect('memory-curator'), 'anthropic');
       expect(mockState.saveSettings).toHaveBeenCalledWith(
-        { memory: { curatorProvider: 'anthropic', curatorModel: '' } }, expect.any(Object));
+        { memory: { curatorProvider: 'anthropic', curatorModel: '' } },
+        expect.any(Object),
+      );
     });
 
     it('D15: a write that did not save emits nothing, shows a fixed-sentence alert and puts the picker back', async () => {
       const saved = jest.fn();
       component.assignmentSaved.subscribe(saved);
       mockState.saveSettings.mockImplementationOnce(async () => {
-        mockState.commitState.set({ status: 'failed', saved: [], unsaved: ['Archaeologist lane provider'], unconfirmed: [], refreshFailed: false, message: null });
+        mockState.commitState.set({
+          status: 'failed',
+          saved: [],
+          unsaved: ['Archaeologist lane provider'],
+          unconfirmed: [],
+          refreshFailed: false,
+          message: null,
+        });
         return true;
       });
       await openRow('archaeologist');
       await choose(providerSelect('archaeologist'), 'anthropic');
       expect(saved).not.toHaveBeenCalled();
       expect(feedback.toast()).toEqual({
-        tone: 'alert', canUndo: false,
-        message: 'Could not save Archaeologist lane assignment. Not saved: Archaeologist lane provider.',
+        tone: 'alert',
+        canUndo: false,
+        message:
+          'Could not save Archaeologist lane assignment. Not saved: Archaeologist lane provider.',
       });
       expect(providerSelect('archaeologist').value).toBe('');
     });
@@ -504,16 +590,37 @@ describe('ProviderConsumerAssignmentsComponent', () => {
     });
 
     it('re-check N-1: a write that throws after an earlier saved commit puts the picker back (own result, not commit())', async () => {
-      mockState.commitState.set({ status: 'saved', saved: ['earlier'], unsaved: [], unconfirmed: [], refreshFailed: false, message: null });
-      mockState.saveSettings.mockImplementationOnce(async () => { throw new Error('host broke'); });
+      mockState.commitState.set({
+        status: 'saved',
+        saved: ['earlier'],
+        unsaved: [],
+        unconfirmed: [],
+        refreshFailed: false,
+        message: null,
+      });
+      mockState.saveSettings.mockImplementationOnce(async () => {
+        throw new Error('host broke');
+      });
       await openRow('archaeologist');
       await choose(providerSelect('archaeologist'), 'anthropic');
-      expect(feedback.toast()).toEqual({ tone: 'alert', canUndo: false, message: 'Could not confirm whether Archaeologist lane assignment was saved.' });
+      expect(feedback.toast()).toEqual({
+        tone: 'alert',
+        canUndo: false,
+        message:
+          'Could not confirm whether Archaeologist lane assignment was saved.',
+      });
       expect(providerSelect('archaeologist').value).toBe('');
     });
 
     it('writes nothing while another save runs (D3): the cells are aria-disabled (still focusable) and do not open', async () => {
-      mockState.commitState.set({ status: 'saving', saved: [], unsaved: [], unconfirmed: [], refreshFailed: false, message: null });
+      mockState.commitState.set({
+        status: 'saving',
+        saved: [],
+        unsaved: [],
+        unconfirmed: [],
+        refreshFailed: false,
+        message: null,
+      });
       await settle();
       const cell = button(fixture, 'consumer-edit-judge');
       expect(cell?.getAttribute('aria-disabled')).toBe('true');
@@ -521,18 +628,41 @@ describe('ProviderConsumerAssignmentsComponent', () => {
       cell?.click();
       await settle();
       expect(query(fixture, 'consumer-editor-judge')).toBeNull();
-      mockState.commitState.set({ status: 'idle', saved: [], unsaved: [], unconfirmed: [], refreshFailed: false, message: null });
+      mockState.commitState.set({
+        status: 'idle',
+        saved: [],
+        unsaved: [],
+        unconfirmed: [],
+        refreshFailed: false,
+        message: null,
+      });
       await settle();
-      expect(button(fixture, 'consumer-edit-judge')?.hasAttribute('aria-disabled')).toBe(false);
+      expect(
+        button(fixture, 'consumer-edit-judge')?.hasAttribute('aria-disabled'),
+      ).toBe(false);
     });
 
     it('M-2: Esc while the choice saves closes the popover and returns focus to the row cell, not the page', async () => {
       let finish: () => void = () => undefined;
       mockState.saveSettings.mockImplementationOnce(() => {
-        mockState.commitState.set({ status: 'saving', saved: [], unsaved: [], unconfirmed: [], refreshFailed: false, message: null });
+        mockState.commitState.set({
+          status: 'saving',
+          saved: [],
+          unsaved: [],
+          unconfirmed: [],
+          refreshFailed: false,
+          message: null,
+        });
         return new Promise<boolean>((resolve) => {
           finish = () => {
-            mockState.commitState.set({ status: 'saved', saved: ['test'], unsaved: [], unconfirmed: [], refreshFailed: false, message: null });
+            mockState.commitState.set({
+              status: 'saved',
+              saved: ['test'],
+              unsaved: [],
+              unconfirmed: [],
+              refreshFailed: false,
+              message: null,
+            });
             resolve(true);
           };
         });
@@ -541,7 +671,9 @@ describe('ProviderConsumerAssignmentsComponent', () => {
       await choose(providerSelect('archaeologist'), 'anthropic');
       const cell = button(fixture, 'consumer-edit-archaeologist');
       expect(cell?.getAttribute('aria-disabled')).toBe('true');
-      query(fixture, 'consumer-editor-archaeologist')?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      query(fixture, 'consumer-editor-archaeologist')?.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
+      );
       await flushSave();
       TestBed.tick();
       expect(query(fixture, 'consumer-editor-archaeologist')).toBeNull();
@@ -558,11 +690,19 @@ describe('ProviderConsumerAssignmentsComponent', () => {
     it('keeps an uncheckable (unknown/skipped) provider: an advisory note, and the choice still saves', async () => {
       await openRow('archaeologist');
       await choose(providerSelect('archaeologist'), 'openai'); // 'unknown': the host cannot check it, it has not failed
-      expect(query(fixture, 'readiness-alert-archaeologist')?.getAttribute('role')).toBe('status');
-      expect(query(fixture, 'readiness-message-archaeologist')?.textContent?.trim()).toBe(
-        'Ptah cannot check OpenAI before use. If requests fail, check that it is running and reachable.');
+      expect(
+        query(fixture, 'readiness-alert-archaeologist')?.getAttribute('role'),
+      ).toBe('status');
+      expect(
+        query(fixture, 'readiness-message-archaeologist')?.textContent?.trim(),
+      ).toBe(
+        'Ptah cannot check OpenAI before use. If requests fail, check that it is running and reachable.',
+      );
       expect(button(fixture, 'readiness-setup-archaeologist')).toBeNull();
-      expect(mockState.saveSettings).toHaveBeenCalledWith({ lanes: { archaeologist: { provider: 'openai', model: '' } } }, expect.any(Object));
+      expect(mockState.saveSettings).toHaveBeenCalledWith(
+        { lanes: { archaeologist: { provider: 'openai', model: '' } } },
+        expect.any(Object),
+      );
     });
 
     it('"Follow main agent" needs no note when the active provider comes from the effective route', async () => {
@@ -576,8 +716,12 @@ describe('ProviderConsumerAssignmentsComponent', () => {
       await openRow('archaeologist');
       await choose(providerSelect('archaeologist'), 'ollama'); // 'needs-key'
       expect(mockState.saveSettings).not.toHaveBeenCalled();
-      expect(query(fixture, 'readiness-alert-archaeologist')?.getAttribute('role')).toBe('alert');
-      expect(query(fixture, 'readiness-message-archaeologist')?.textContent?.trim()).toBe('Add an API key to connect Ollama. Not saved.');
+      expect(
+        query(fixture, 'readiness-alert-archaeologist')?.getAttribute('role'),
+      ).toBe('alert');
+      expect(
+        query(fixture, 'readiness-message-archaeologist')?.textContent?.trim(),
+      ).toBe('Add an API key to connect Ollama. Not saved.');
       expect(providerSelect('archaeologist').value).toBe('ollama');
       button(fixture, 'readiness-setup-archaeologist')?.click();
       expect(setupSpy).toHaveBeenCalledWith('ollama');
@@ -585,30 +729,50 @@ describe('ProviderConsumerAssignmentsComponent', () => {
 
     it.each([
       ['custom-cli', 'Install custom-cli to use this connection. Not saved.'],
-      ['remote-bedrock', 'Could not reach remote-bedrock; check the connection and retry. Not saved.'],
-      ['expired-auth', 'Your credential is missing or expired; authenticate again. Not saved.'],
-    ])('renders the fixed readiness sentence for %s and saves nothing', async (provider, message) => {
-      await openRow('archaeologist');
-      await choose(providerSelect('archaeologist'), provider);
-      expect(query(fixture, 'readiness-message-archaeologist')?.textContent?.trim()).toBe(message);
-      expect(mockState.saveSettings).not.toHaveBeenCalled();
-    });
+      [
+        'remote-bedrock',
+        'Could not reach remote-bedrock; check the connection and retry. Not saved.',
+      ],
+      [
+        'expired-auth',
+        'Your credential is missing or expired; authenticate again. Not saved.',
+      ],
+    ])(
+      'renders the fixed readiness sentence for %s and saves nothing',
+      async (provider, message) => {
+        await openRow('archaeologist');
+        await choose(providerSelect('archaeologist'), provider);
+        expect(
+          query(
+            fixture,
+            'readiness-message-archaeologist',
+          )?.textContent?.trim(),
+        ).toBe(message);
+        expect(mockState.saveSettings).not.toHaveBeenCalled();
+      },
+    );
   });
 
   describe('5. Enhancement Time Limit Control', () => {
     it('displays effective seconds before editing from backend data', () => {
-      expect(query(fixture, 'timeout-effective-display')?.textContent?.trim()).toBe('Time limit: 120 seconds');
+      expect(
+        query(fixture, 'timeout-effective-display')?.textContent?.trim(),
+      ).toBe('Time limit: 120 seconds');
     });
 
     it('sits in its own table row directly beneath Judging & enhancement', () => {
       const judgingRow = query(fixture, 'consumer-row-judging-enhancement');
-      expect(judgingRow?.nextElementSibling?.getAttribute('data-testid')).toBe('enhancement-timeout-section');
+      expect(judgingRow?.nextElementSibling?.getAttribute('data-testid')).toBe(
+        'enhancement-timeout-section',
+      );
     });
 
     it('derives bounds from backend enhanceTimeoutMs rather than inventing range', async () => {
       button(fixture, 'timeout-edit-button')?.click();
       await settle();
-      expect(query(fixture, 'timeout-range-helper')?.textContent?.trim()).toContain('Allowed: 15–600 seconds (default 120 seconds)');
+      expect(
+        query(fixture, 'timeout-range-helper')?.textContent?.trim(),
+      ).toContain('Allowed: 15–600 seconds (default 120 seconds)');
       const input = inputEl(fixture, 'timeout-input');
       expect(input?.min).toBe('15');
       expect(input?.max).toBe('600');
@@ -624,8 +788,12 @@ describe('ProviderConsumerAssignmentsComponent', () => {
         input.dispatchEvent(new Event('input'));
       }
       fixture.detectChanges();
-      expect(query(fixture, 'timeout-validation-error')?.textContent?.trim()).toBe('Must be between 15 and 600 seconds.');
-      expect(isDisabledControl(button(fixture, 'timeout-save-button'))).toBe(true);
+      expect(
+        query(fixture, 'timeout-validation-error')?.textContent?.trim(),
+      ).toBe('Must be between 15 and 600 seconds.');
+      expect(isDisabledControl(button(fixture, 'timeout-save-button'))).toBe(
+        true,
+      );
     });
 
     it('saves timeout converted to milliseconds, emits timeoutSaved, closes the editor and offers Undo', async () => {
@@ -634,12 +802,22 @@ describe('ProviderConsumerAssignmentsComponent', () => {
       typeTimeout('180');
       button(fixture, 'timeout-save-button')?.click();
       await flushSave();
-      expect(mockState.saveSettings).toHaveBeenCalledWith({ judging: { enhanceTimeoutMs: 180000 } }, expect.any(Object));
+      expect(mockState.saveSettings).toHaveBeenCalledWith(
+        { judging: { enhanceTimeoutMs: 180000 } },
+        expect.any(Object),
+      );
       expect(timeoutSavedSpy).toHaveBeenCalledWith(180);
       expect(query(fixture, 'timeout-editor')).toBeNull();
-      expect(feedback.toast()).toEqual({ tone: 'status', message: 'Saved enhancement time limit to All Ptah apps.', canUndo: true });
+      expect(feedback.toast()).toEqual({
+        tone: 'status',
+        message: 'Saved enhancement time limit to All Ptah apps.',
+        canUndo: true,
+      });
       await feedback.undo();
-      expect(mockState.saveSettings).toHaveBeenLastCalledWith({ judging: { enhanceTimeoutMs: 120000 } }, expect.any(Object));
+      expect(mockState.saveSettings).toHaveBeenLastCalledWith(
+        { judging: { enhanceTimeoutMs: 120000 } },
+        expect.any(Object),
+      );
       expect(timeoutSavedSpy).toHaveBeenLastCalledWith(120);
     });
 
@@ -653,19 +831,40 @@ describe('ProviderConsumerAssignmentsComponent', () => {
       expect(timeoutSavedSpy).not.toHaveBeenCalled();
       expect(query(fixture, 'timeout-editor')).toBeTruthy();
       expect(inputEl(fixture, 'timeout-input')?.value).toBe('120');
-      expect(query(fixture, 'timeout-save-error')?.getAttribute('role')).toBe('alert');
+      expect(query(fixture, 'timeout-save-error')?.getAttribute('role')).toBe(
+        'alert',
+      );
       // Gate V 36 re-check N-2: a refused save says why it did not run.
-      expect(query(fixture, 'timeout-save-error')?.textContent?.trim())
-        .toBe('The enhancement time limit was not saved because another change was still saving. The limit shown is the saved one.');
-      expect(feedback.toast()).toEqual({ tone: 'alert', message: 'Another change is still saving.', canUndo: false });
+      expect(query(fixture, 'timeout-save-error')?.textContent?.trim()).toBe(
+        'The enhancement time limit was not saved because another change was still saving. The limit shown is the saved one.',
+      );
+      expect(feedback.toast()).toEqual({
+        tone: 'alert',
+        message: 'Another change is still saving.',
+        canUndo: false,
+      });
     });
 
     it('S-1 / D15: a write that did not save (failed commit, after an earlier saved one) is never shown as saved', async () => {
       const timeoutSavedSpy = jest.fn();
       component.timeoutSaved.subscribe(timeoutSavedSpy);
-      mockState.commitState.set({ status: 'saved', saved: ['earlier'], unsaved: [], unconfirmed: [], refreshFailed: false, message: null });
+      mockState.commitState.set({
+        status: 'saved',
+        saved: ['earlier'],
+        unsaved: [],
+        unconfirmed: [],
+        refreshFailed: false,
+        message: null,
+      });
       mockState.saveSettings.mockImplementationOnce(async () => {
-        mockState.commitState.set({ status: 'failed', saved: [], unsaved: ['Enhancement time limit'], unconfirmed: [], refreshFailed: false, message: 'EACCES: /home/user/.config' });
+        mockState.commitState.set({
+          status: 'failed',
+          saved: [],
+          unsaved: ['Enhancement time limit'],
+          unconfirmed: [],
+          refreshFailed: false,
+          message: 'EACCES: /home/user/.config',
+        });
         return true;
       });
       typeTimeout('180');
@@ -673,21 +872,31 @@ describe('ProviderConsumerAssignmentsComponent', () => {
       await flushSave();
       expect(timeoutSavedSpy).not.toHaveBeenCalled();
       expect(inputEl(fixture, 'timeout-input')?.value).toBe('120');
-      expect(query(fixture, 'timeout-save-error')?.textContent?.trim())
-        .toBe('Could not save the enhancement time limit. The limit shown is the saved one.');
-      expect(query(fixture, 'timeout-editor')?.textContent).not.toContain('EACCES');
+      expect(query(fixture, 'timeout-save-error')?.textContent?.trim()).toBe(
+        'Could not save the enhancement time limit. The limit shown is the saved one.',
+      );
+      expect(query(fixture, 'timeout-editor')?.textContent).not.toContain(
+        'EACCES',
+      );
       expect(feedback.toast()?.tone).toBe('alert');
-      expect(feedback.toast()?.message).toContain('Could not save enhancement time limit.');
+      expect(feedback.toast()?.message).toContain(
+        'Could not save enhancement time limit.',
+      );
     });
 
     it('S-1: a write that throws shows the same fixed sentence; typing again clears it', async () => {
-      mockState.saveSettings.mockImplementationOnce(async () => { throw new Error('host broke'); });
+      mockState.saveSettings.mockImplementationOnce(async () => {
+        throw new Error('host broke');
+      });
       const input = typeTimeout('180');
       button(fixture, 'timeout-save-button')?.click();
       await flushSave();
-      expect(query(fixture, 'timeout-save-error')?.textContent?.trim())
-        .toBe('Could not save the enhancement time limit. The limit shown is the saved one.');
-      expect(query(fixture, 'timeout-editor')?.textContent).not.toContain('host broke');
+      expect(query(fixture, 'timeout-save-error')?.textContent?.trim()).toBe(
+        'Could not save the enhancement time limit. The limit shown is the saved one.',
+      );
+      expect(query(fixture, 'timeout-editor')?.textContent).not.toContain(
+        'host broke',
+      );
       if (input) {
         input.value = '200';
         input.dispatchEvent(new Event('input'));
@@ -700,7 +909,9 @@ describe('ProviderConsumerAssignmentsComponent', () => {
       fixture.componentRef.setInput('timeoutNotice', { seconds: 37 });
       fixture.detectChanges();
       expect(query(fixture, 'timeout-notice-alert')).toBeTruthy();
-      expect(query(fixture, 'timeout-notice-text')?.textContent?.trim()).toBe('Enhancement stopped after 37 seconds. No changes were saved.');
+      expect(query(fixture, 'timeout-notice-text')?.textContent?.trim()).toBe(
+        'Enhancement stopped after 37 seconds. No changes were saved.',
+      );
       const retrySpy = jest.fn();
       component.retryEnhancementRequested.subscribe(retrySpy);
       button(fixture, 'timeout-retry-button')?.click();
@@ -711,42 +922,61 @@ describe('ProviderConsumerAssignmentsComponent', () => {
     });
   });
 
-  describe('6. Table Density, Chips and Accessibility', () => {
-    it('renders the roles as a table-xs with Role, Provider & model and Tier columns (no Scope column, V36-6)', () => {
-      const table = query(fixture, 'consumer-table');
-      expect(table?.tagName).toBe('TABLE');
-      expect(table?.className).toContain('table-xs');
-      const headers = Array.from(table?.querySelectorAll('thead th') ?? []).map((th) => th.textContent?.trim());
-      expect(headers).toEqual(['Role', 'Provider & model', 'Tier']);
-      expect(query(fixture, 'consumer-row-judge')?.querySelectorAll('td')).toHaveLength(2);
-      expect(query(fixture, 'enhancement-timeout-section')?.querySelector('td')?.getAttribute('colspan')).toBe('3');
-      expect(table?.querySelector('caption')?.textContent?.trim()).toBe('Background model roles');
+  describe('6. Role cards, chips and accessibility', () => {
+    it('renders responsive CLI-style surface cards, with the time limit in its own card', () => {
+      const roles = query(fixture, 'consumer-table');
+      expect(roles?.tagName).toBe('DIV');
+      expect(roles?.className).toContain('grid');
+      const judge = query(fixture, 'consumer-row-judge');
+      expect(judge?.tagName).toBe('ARTICLE');
+      expect(judge?.className).toContain('surface-2');
+      expect(judge?.className).toContain('rounded-lg');
+      const timeout = query(fixture, 'enhancement-timeout-section');
+      expect(timeout?.tagName).toBe('SECTION');
+      expect(timeout?.className).toContain('surface-2');
     });
 
     it('shows "Follows main agent →" for a role without its own provider, and "{provider} · {model}" otherwise', () => {
-      expect(query(fixture, 'consumer-summary-archaeologist')?.textContent?.trim()).toBe('Follows main agent → anthropic');
-      expect(query(fixture, 'consumer-summary-synthesis')?.textContent?.trim()).toBe('anthropic · claude-3-5-sonnet');
-      expect(query(fixture, 'consumer-tier-archaeologist')?.textContent?.trim()).toBe('haiku tier');
-      expect(query(fixture, 'consumer-tier-synthesis')?.textContent?.trim()).toBe('direct model');
+      expect(
+        query(fixture, 'consumer-summary-archaeologist')?.textContent?.trim(),
+      ).toBe('Follows main agent → anthropic');
+      expect(
+        query(fixture, 'consumer-summary-synthesis')?.textContent?.trim(),
+      ).toBe('anthropic · claude-3-5-sonnet');
+      expect(
+        query(fixture, 'consumer-tier-archaeologist')?.textContent?.trim(),
+      ).toBe('haiku tier');
+      expect(
+        query(fixture, 'consumer-tier-synthesis')?.textContent?.trim(),
+      ).toBe('direct model');
     });
 
     it('names each cell with the full route for screen readers, as a dialog trigger', () => {
       const cell = button(fixture, 'consumer-edit-memory-curator');
-      expect(cell?.getAttribute('aria-label')).toBe('Memory curator: Follows main agent → anthropic · api-key → Default (haiku tier). Reassign');
+      expect(cell?.getAttribute('aria-label')).toBe(
+        'Memory curator: Follows main agent → anthropic · api-key → Default (haiku tier). Reassign',
+      );
       expect(cell?.getAttribute('aria-haspopup')).toBe('dialog');
       expect(cell?.getAttribute('aria-expanded')).toBe('false');
       expect(cell?.className).toContain('focus-visible:outline-2');
     });
 
-    it('keeps each cell on one line: the label truncates, the full route is its title, the icon follows it (R1)', () => {
+    it('uses provider marks and lets each model name use the available row width before truncating with a title', () => {
       const cell = button(fixture, 'consumer-edit-archaeologist');
       expect(cell?.className).toContain('whitespace-nowrap');
-      expect(cell?.className).toContain('max-w-[15rem]');
-      expect(cell?.getAttribute('title')).toBe('Follows main agent → anthropic · api-key → Default (haiku tier)');
+      expect(cell?.className).not.toContain('max-w-[15rem]');
+      expect(cell?.getAttribute('title')).toBe(
+        'Follows main agent → anthropic · api-key → Default (haiku tier)',
+      );
       const label = query(fixture, 'consumer-summary-archaeologist');
       expect(label?.className).toContain('truncate');
-      expect(label?.nextElementSibling?.tagName.toLowerCase()).toBe('lucide-angular');
-      expect(button(fixture, 'consumer-edit-synthesis')?.getAttribute('title')).toBe('anthropic · claude-3-5-sonnet');
+      expect(cell?.querySelector('ptah-provider-mark')).toBeTruthy();
+      expect(
+        button(fixture, 'consumer-edit-synthesis')?.getAttribute('title'),
+      ).toBe('anthropic · claude-3-5-sonnet');
+      expect(query(fixture, 'consumer-tier-synthesis')?.className).toContain(
+        'bg-base-300',
+      );
     });
 
     it('V36-6 / D16: an inherited role shows no scope; an overridden one shows its badge inline after the cell', () => {
@@ -756,25 +986,48 @@ describe('ProviderConsumerAssignmentsComponent', () => {
       expect(query(fixture, 'scope-row-timeout')).toBeTruthy();
       mockState.scopesStore.update((section) => ({
         ...section,
-        data: section.data && { ...section.data, entries: section.data.entries.map((entry) => entry.key === 'memory.curatorModel'
-          ? { ...entry, scope: 'app' as const, hasOverride: true } : entry) },
+        data: section.data && {
+          ...section.data,
+          entries: section.data.entries.map((entry) =>
+            entry.key === 'memory.curatorModel'
+              ? { ...entry, scope: 'app' as const, hasOverride: true }
+              : entry,
+          ),
+        },
       }));
       fixture.detectChanges();
-      const cell = button(fixture, 'consumer-edit-memory-curator')?.closest('td');
-      const badge = cell?.querySelector('[data-testid="scope-row-model-memory-curator"] [data-testid="scope-badge"]');
+      const cell = button(fixture, 'consumer-edit-memory-curator')?.closest(
+        '[data-testid="consumer-row-memory-curator"]',
+      );
+      const badge = cell?.querySelector(
+        '[data-testid="scope-row-model-memory-curator"] [data-testid="scope-badge"]',
+      );
       expect(badge?.textContent).toContain('· App');
-      expect(cell?.querySelector('[data-testid="scope-row-provider-memory-curator"] [data-testid="scope-badge"]')).toBeNull();
+      expect(
+        cell?.querySelector(
+          '[data-testid="scope-row-provider-memory-curator"] [data-testid="scope-badge"]',
+        ),
+      ).toBeNull();
     });
 
     it('V36-2: helper text is at least 12 px (text-xs); 11 px stays only on btn-xs labels and the table headings', () => {
       button(fixture, 'timeout-edit-button')?.click();
       fixture.detectChanges();
       const host = fixture.nativeElement as HTMLElement;
-      const small = Array.from(host.querySelectorAll<HTMLElement>('[class*="text-[10px]"], [class*="text-[11px]"]'))
-        .filter((node) => !node.classList.contains('btn') && node.tagName !== 'TR');
+      const small = Array.from(
+        host.querySelectorAll<HTMLElement>(
+          '[class*="text-[10px]"], [class*="text-[11px]"]',
+        ),
+      ).filter(
+        (node) => !node.classList.contains('btn') && node.tagName !== 'TR',
+      );
       expect(small).toHaveLength(0);
-      expect(query(fixture, 'consumer-helper-judging-enhancement')?.className).toContain('text-xs');
-      expect(query(fixture, 'assignments-copy')?.className).toContain('text-xs');
+      expect(
+        query(fixture, 'consumer-helper-judging-enhancement')?.className,
+      ).toContain('text-xs');
+      expect(query(fixture, 'assignments-copy')?.className).toContain(
+        'text-xs',
+      );
     });
 
     it('names the popover dialog "Reassign {role}"; the picker header (the role name) is its only visible title', async () => {
@@ -783,22 +1036,36 @@ describe('ProviderConsumerAssignmentsComponent', () => {
       expect(dialog?.getAttribute('role')).toBe('dialog');
       expect(dialog?.getAttribute('aria-label')).toBe('Reassign Judge lane');
       expect(dialog?.querySelectorAll('h2, h3')).toHaveLength(0);
-      expect(dialog?.querySelector('[data-testid="provider-model-picker-label"]')?.textContent?.trim()).toBe('Judge lane');
-      expect(button(fixture, 'consumer-close-judge')?.getAttribute('aria-label')).toBe('Close');
-      expect(button(fixture, 'consumer-edit-judge')?.getAttribute('aria-expanded')).toBe('true');
+      expect(
+        dialog
+          ?.querySelector('[data-testid="provider-model-picker-label"]')
+          ?.textContent?.trim(),
+      ).toBe('Judge lane');
+      expect(
+        button(fixture, 'consumer-close-judge')?.getAttribute('aria-label'),
+      ).toBe('Close');
+      expect(
+        button(fixture, 'consumer-edit-judge')?.getAttribute('aria-expanded'),
+      ).toBe('true');
     });
   });
 
   describe('7. Honest Section Loading and Provenance', () => {
     it('renders a not-loaded state with retry when a section read has not landed', () => {
-      mockState.memoryStore.set({ status: 'unloaded', data: null, error: null });
+      mockState.memoryStore.set({
+        status: 'unloaded',
+        data: null,
+        error: null,
+      });
       fixture.detectChanges();
       expect(query(fixture, 'consumer-row-memory-curator')).toBeTruthy();
       expect(query(fixture, 'consumer-row-archaeologist')).toBeTruthy();
       expect(query(fixture, 'consumer-row-judging-enhancement')).toBeTruthy();
       expect(query(fixture, 'consumer-summary-memory-curator')).toBeNull();
       expect(button(fixture, 'consumer-edit-memory-curator')).toBeNull();
-      expect(query(fixture, 'consumer-notloaded-memory-curator')?.textContent).toContain('Could not load this section. Retry.');
+      expect(
+        query(fixture, 'consumer-notloaded-memory-curator')?.textContent,
+      ).toContain('Could not load this section. Retry.');
       button(fixture, 'consumer-retry-memory-curator')?.click();
       fixture.detectChanges();
       expect(mockState.refreshMemory).toHaveBeenCalled();
@@ -809,15 +1076,25 @@ describe('ProviderConsumerAssignmentsComponent', () => {
     it('renders Loading without retry while a section is loading', () => {
       mockState.memoryStore.set({ status: 'loading', data: null, error: null });
       fixture.detectChanges();
-      expect(query(fixture, 'consumer-notloaded-memory-curator')?.textContent).toContain('Loading…');
+      expect(
+        query(fixture, 'consumer-notloaded-memory-curator')?.textContent,
+      ).toContain('Loading…');
       expect(button(fixture, 'consumer-retry-memory-curator')).toBeNull();
     });
 
     it('keeps the values and offers Retry when a later refresh of a loaded section failed', () => {
-      mockState.lanesStore.update((section) => ({ ...section, status: 'error', error: 'Could not load this section. Retry.' }));
+      mockState.lanesStore.update((section) => ({
+        ...section,
+        status: 'error',
+        error: 'Could not load this section. Retry.',
+      }));
       fixture.detectChanges();
-      expect(query(fixture, 'consumer-summary-synthesis')?.textContent?.trim()).toBe('anthropic · claude-3-5-sonnet');
-      expect(query(fixture, 'consumer-reload-copy-synthesis')?.textContent?.trim()).toBe('Could not load this section. Retry.');
+      expect(
+        query(fixture, 'consumer-summary-synthesis')?.textContent?.trim(),
+      ).toBe('anthropic · claude-3-5-sonnet');
+      expect(
+        query(fixture, 'consumer-reload-copy-synthesis')?.textContent?.trim(),
+      ).toBe('Could not load this section. Retry.');
       button(fixture, 'consumer-retry-synthesis')?.click();
       expect(mockState.refreshLanes).toHaveBeenCalled();
     });
@@ -825,11 +1102,17 @@ describe('ProviderConsumerAssignmentsComponent', () => {
     it('renders an effective empty assignment when the section is loaded and empty', () => {
       // Default mock state: ready with empty strings — loaded and empty, which is not the same as not loaded.
       expect(query(fixture, 'consumer-notloaded-memory-curator')).toBeNull();
-      expect(query(fixture, 'consumer-summary-memory-curator')?.textContent?.trim()).toBe('Follows main agent → anthropic');
+      expect(
+        query(fixture, 'consumer-summary-memory-curator')?.textContent?.trim(),
+      ).toBe('Follows main agent → anthropic');
     });
 
     it('renders no timeout number while the judging read has not landed', () => {
-      mockState.judgingStore.set({ status: 'unloaded', data: null, error: null });
+      mockState.judgingStore.set({
+        status: 'unloaded',
+        data: null,
+        error: null,
+      });
       fixture.detectChanges();
       expect(query(fixture, 'timeout-effective-display')).toBeNull();
       expect(button(fixture, 'timeout-edit-button')).toBeNull();
@@ -840,29 +1123,52 @@ describe('ProviderConsumerAssignmentsComponent', () => {
     it('derives the timeout range and default from the backend payload only', () => {
       mockState.judgingStore.set({
         status: 'ready',
-        data: { judgeProvider: '', judgeModel: 'inherit', enhanceTimeoutMs: { value: 60000, default: 45000, min: 30000, max: 90000 } },
+        data: {
+          judgeProvider: '',
+          judgeModel: 'inherit',
+          enhanceTimeoutMs: {
+            value: 60000,
+            default: 45000,
+            min: 30000,
+            max: 90000,
+          },
+        },
         error: null,
       });
       fixture.detectChanges();
-      expect(query(fixture, 'timeout-effective-display')?.textContent?.trim()).toBe('Time limit: 60 seconds');
+      expect(
+        query(fixture, 'timeout-effective-display')?.textContent?.trim(),
+      ).toBe('Time limit: 60 seconds');
       button(fixture, 'timeout-edit-button')?.click();
       fixture.detectChanges();
-      expect(query(fixture, 'timeout-range-helper')?.textContent?.trim()).toContain('Allowed: 30–90 seconds (default 45 seconds)');
+      expect(
+        query(fixture, 'timeout-range-helper')?.textContent?.trim(),
+      ).toContain('Allowed: 30–90 seconds (default 45 seconds)');
     });
 
     it('renders Mixed sources when the scope source is unknown, and nothing for an inherited global value (D16)', () => {
       // memory keys have scope entries (global, inherited); the lane and timeout keys do not.
       expect(query(fixture, 'scope-row-provider-memory-curator')).toBeNull();
-      const laneBadge = query(fixture, 'scope-row-provider-archaeologist')?.querySelector('[data-testid="scope-badge"]');
+      const laneBadge = query(
+        fixture,
+        'scope-row-provider-archaeologist',
+      )?.querySelector('[data-testid="scope-badge"]');
       expect(laneBadge?.textContent).toContain('· Mixed sources');
       expect(laneBadge?.getAttribute('data-field')).toBeTruthy();
-      const timeoutBadge = query(fixture, 'scope-row-timeout')?.querySelector('[data-testid="scope-badge"]');
-      expect(timeoutBadge?.textContent).toContain('Enhancement time limit · Mixed sources');
+      const timeoutBadge = query(fixture, 'scope-row-timeout')?.querySelector(
+        '[data-testid="scope-badge"]',
+      );
+      expect(timeoutBadge?.textContent).toContain(
+        'Enhancement time limit · Mixed sources',
+      );
     });
 
-    it('applies the deep-link input reactively after mount: the role\'s popover opens', async () => {
+    it("applies the deep-link input reactively after mount: the role's popover opens", async () => {
       expect(query(fixture, 'consumer-editor-memory-curator')).toBeNull();
-      fixture.componentRef.setInput('initialEditingConsumerId', 'memory-curator');
+      fixture.componentRef.setInput(
+        'initialEditingConsumerId',
+        'memory-curator',
+      );
       await settle();
       expect(query(fixture, 'consumer-editor-memory-curator')).toBeTruthy();
       fixture.componentRef.setInput('initialEditingConsumerId', 'judge');
@@ -905,12 +1211,26 @@ describe('ProviderConsumerAssignmentsComponent', () => {
     it('a deep link that lands while a save runs waits for it to end, then opens the popover', async () => {
       const opened = jest.fn();
       component.deepLinkOpened.subscribe(opened);
-      mockState.commitState.set({ status: 'saving', saved: [], unsaved: [], unconfirmed: [], refreshFailed: false, message: null });
+      mockState.commitState.set({
+        status: 'saving',
+        saved: [],
+        unsaved: [],
+        unconfirmed: [],
+        refreshFailed: false,
+        message: null,
+      });
       fixture.componentRef.setInput('initialEditingConsumerId', 'replay');
       await settle();
       expect(query(fixture, 'consumer-editor-replay')).toBeNull();
       expect(opened).not.toHaveBeenCalled();
-      mockState.commitState.set({ status: 'saved', saved: ['test'], unsaved: [], unconfirmed: [], refreshFailed: false, message: null });
+      mockState.commitState.set({
+        status: 'saved',
+        saved: ['test'],
+        unsaved: [],
+        unconfirmed: [],
+        refreshFailed: false,
+        message: null,
+      });
       await settle();
       expect(query(fixture, 'consumer-editor-replay')).toBeTruthy();
       expect(opened).toHaveBeenCalledWith('replay');
@@ -920,10 +1240,14 @@ describe('ProviderConsumerAssignmentsComponent', () => {
       fixture.componentRef.setInput('initialEditingConsumerId', 'judge');
       await settle();
       const dialog = query(fixture, 'consumer-editor-judge');
-      dialog?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      dialog?.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
+      );
       await settle();
       expect(query(fixture, 'consumer-editor-judge')).toBeNull();
-      expect(document.activeElement).toBe(button(fixture, 'consumer-edit-judge'));
+      expect(document.activeElement).toBe(
+        button(fixture, 'consumer-edit-judge'),
+      );
     });
   });
 });

@@ -65,7 +65,7 @@ import type { IndexingUiState } from '@ptah-extension/workspace-indexing';
       }
       @case ('indexing') {
         <div
-          class="flex flex-wrap items-center gap-3 rounded-xl border border-base-300 bg-base-200/40 px-4 py-3 mb-2"
+          class="surface-2 mb-2 flex flex-wrap items-center gap-3 rounded-xl px-4 py-3"
           role="status"
           data-testid="memory-banner-indexing"
         >

@@ -83,6 +83,7 @@ function createHarness(active: ActiveAuth): Harness {
     ownerForPtahCli: jest.fn(async () => GLM_LANE),
     ownerForClaudeAccount: jest.fn(() => CLAUDE_UNKNOWN),
     ownerForCodexHome: jest.fn(() => CODEX_A),
+    resolveCodexHomeOwner: jest.fn(async () => CODEX_A),
     ownerForCliStore: jest.fn(() => OPENCODE),
     ownerForAntigravity: jest.fn(() => ANTIGRAVITY),
     ownerForSession: jest.fn(async () => CLAUDE_A),
@@ -309,9 +310,9 @@ describe('PlanLimitOwnerDiscoveryService', () => {
 
   it('F72: after an account change the new owner is listed and read; the old one only from the ledger', async () => {
     const h = createHarness(THIRD_PARTY('openai-codex'));
-    h.owners.ownerForCodexHome
-      .mockReturnValueOnce(CODEX_A)
-      .mockReturnValue(CODEX_B);
+    h.owners.resolveCodexHomeOwner
+      .mockResolvedValueOnce(CODEX_A)
+      .mockResolvedValue(CODEX_B);
 
     const before = await h.service.discoverTargets({});
     const after = await h.service.discoverTargets({ ownerKeys: [CODEX_A.key] });
@@ -428,16 +429,24 @@ describe('PlanLimitOwnerDiscoveryService', () => {
     }
   });
 
-  it('reports selected-provider timeout as unavailable and releases its timer', async () => {
+  it('lets a selected-provider owner use its reader timeout, not the aggregate deadline', async () => {
     jest.useFakeTimers();
     try {
       const h = createHarness(THIRD_PARTY('ollama-cloud'));
+      let resolveOwner: (owner: QuotaOwnerRef) => void = () => undefined;
       h.owners.ownerForProviderKey.mockImplementation(
-        () => new Promise<QuotaOwnerRef>(() => undefined),
+        () =>
+          new Promise<QuotaOwnerRef>((resolve) => {
+            resolveOwner = resolve;
+          }),
       );
       const pending = h.service.discoverSelectedProvider('ollama-cloud');
       await jest.advanceTimersByTimeAsync(LIMIT_LOOKUP_DEADLINE_MS);
-      await expect(pending).resolves.toEqual({ kind: 'unavailable' });
+      resolveOwner(OLLAMA_KEY);
+      await expect(pending).resolves.toEqual({
+        kind: 'owner',
+        entry: expect.objectContaining({ origin: 'selected-provider' }),
+      });
       expect(jest.getTimerCount()).toBe(0);
     } finally {
       jest.useRealTimers();

@@ -117,7 +117,7 @@ interface PhaseStep {
           <!-- Resume hold: the prior run is kept until the user decides -->
           <div class="h-full flex flex-col items-center justify-center gap-4">
             <div
-              class="card bg-base-200/60 border border-base-300 max-w-md"
+              class="card surface-2 max-w-md"
               data-testid="resume-analysis-card"
             >
               <div class="card-body items-center text-center gap-3">

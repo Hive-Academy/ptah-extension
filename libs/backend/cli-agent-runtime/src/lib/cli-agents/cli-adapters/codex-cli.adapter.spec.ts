@@ -284,15 +284,15 @@ describe('CodexCliAdapter', () => {
   describe('detect()', () => {
     it('should return installed: true when codex binary is found', async () => {
       mockResolveCliPath.mockResolvedValue('/usr/local/bin/codex');
-      mockProbeCliVersion.mockResolvedValue('1.2.3');
 
       const result = await adapter.detect();
 
       expect(result.cli).toBe('codex');
       expect(result.installed).toBe(true);
       expect(result.path).toBe('/usr/local/bin/codex');
-      expect(result.version).toBe('1.2.3');
+      expect(result.version).toBeUndefined();
       expect(result.messagingMode).toBe('queue');
+      expect(mockProbeCliVersion).not.toHaveBeenCalled();
     });
 
     it('should return installed: false when codex binary is not found', async () => {
@@ -826,7 +826,11 @@ describe('CodexCliAdapter', () => {
       expect(segments).toContainEqual({
         type: 'info',
         content: 'Usage: 100 input (80 cached), 50 output tokens',
-        usage: { inputTokens: 100, outputTokens: 50 },
+        usage: {
+          inputTokens: 100,
+          outputTokens: 50,
+          cacheReadTokens: 80,
+        },
       });
       expect(exitCode).toBe(0);
     });

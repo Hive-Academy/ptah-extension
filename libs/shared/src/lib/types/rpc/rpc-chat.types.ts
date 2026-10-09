@@ -304,10 +304,10 @@ export interface ChatResumeResult {
    */
   stats?: SessionStatsEntry | null;
   /**
-   * The session's budget state evaluated from `stats`. Absent = keep the last
-   * state: no figure to evaluate, or no budget service on the host.
+   * The session's budget state evaluated from `stats`. `undefined` keeps the
+   * last state; `null` explicitly clears a known-absent state.
    */
-  budget?: SessionBudgetState;
+  budget?: SessionBudgetState | null;
   /**
    * Resumable subagents for this session.
    * Frontend uses this to mark agent nodes as resumable when loading from history.
@@ -351,6 +351,21 @@ export interface ChatResumeResult {
   errorCode?: RpcUserErrorCode;
   /** Provider whose auth is required, when errorCode is 'AUTH_REQUIRED'. */
   providerId?: string;
+}
+
+/**
+ * Delivery preference negotiated by v2 webviews. Tabs absent from
+ * `visibleTabIds` are retained host-side until they are revealed.
+ */
+export interface ChatSetStreamViewportParams {
+  readonly protocolVersion: 2;
+  readonly focusedTabId?: string;
+  readonly visibleTabIds: readonly string[];
+}
+
+/** Result of stream viewport capability negotiation. */
+export interface ChatSetStreamViewportResult {
+  readonly acceptedProtocolVersion: 1 | 2;
 }
 
 /** Parameters for the side-effect-free chat:history-page RPC method. */
