@@ -165,3 +165,30 @@ Re-check the plan in `context.md` "User Requests (2026-10-07)": given the Codex 
 
 - **TASK_2026_622_2d05** (in this worktree): product bug. `SqliteConnectionService.close()` (`libs/backend/persistence-sqlite/src/lib/sqlite-connection.service.ts:526`) dies with 0xC0000409 in `wal_checkpoint(TRUNCATE)` in 50-80% of win32 shutdowns after vectors are written to `vec0` tables. Not part of 619. The user was told it may affect the desktop app and the real DB; recommend starting it soon.
 - **TASK_2026_620_a13e** (other session, `ptah-ptah-extension-skills-trajectory-an-10a89600005aw2q23htdi0c`): memory + skills benchmark. It reuses `tools/mcp-bench` (code in `src/memory-skills/`, two targets of its own in `project.json`). Agreements: 619 is the only writer of the scorecard core files; 620 does not run a bench that calls `withPinnedCorpus` while a 619 bench may run, and messages 619 before its first recorded run (its Batch 24). Send 620 the SHA of any commit that changes `tools/mcp-bench/src/scorecard/`, `transport/bench-host-boot.ts` or `bench-data.ts`.
+
+## Seventh session — start here
+
+- **Done in session 6, all reviewed with APPROVE.** Each batch is in batches.md, and the review files are in this folder.
+  - 13f: priority-aware reasons cap; the gate checks native baseline errors; rg runs without a shell.
+  - 13g: the guard PowerShell probe is quiet, and its raw reply is kept on a parse failure.
+  - 13h: the bench waits for the code index to settle before it scores ptah_code_search_symbols. The rule: reindexInFlight false, symbolCount > 0, a normal result, and no `updating` reason. The wait has a 20-minute limit. It aborts after 6 consecutive error replies. It records indexSettle, renders a Markdown line, and keeps the failure text stable.
+  - 13i/13j: HTTP ptah_agent_wait is capped at 45 s per call, with a "call again" note. The cause: the Claude Code HTTP MCP client aborts a request at about 60 s (measured at 61 s). The descriptions are per transport. 13j also fixes the isIndexing stub in protocol-dispatcher.spec.ts that 13b broke.
+  - 13k: the ptah_run_check job model over HTTP. A call waits up to 45 s, then returns RUNNING + jobId. ptah_run_check_wait collects or cancels. There is one check per host, results are kept for 15 min (max 16), and stdio is unchanged.
+- **Smoke b13g (2026-10-09, cli-headless, lifecycle,symbols-exact).**
+  - It produced the first full scorecard. Native hit@5 was 0.85. Ptah error_rate was 0, but hit@5 was 0, because the questions ran on a partial index. That led to 13h.
+  - Lifecycle: edit/add/delete-then-query passed.
+  - These failed: worktree-memory-scope, worktree-spool-path, worktree-task-tools, transport-idle-gaps ECONNRESET, large-file-3900, cold-start/index-age (the index was still building after 120 s, at about 150 symbols per 5 s), and two-workspaces-symbol-scope.
+  - Both hosts reported crash-on-shutdown 0xC0000409.
+- **NEXT: validation smoke.** Run it ONLY after TASK_2026_620 messages "free now". 620 is recording extraction-record-v1, with an ETA of about 18:00-19:00Z on 2026-10-09. After that, 620 holds b18 until 619 messages that the smoke ended. The user runs the smoke in their own PowerShell with rg on PATH (ripgrep 15.2.0 is installed via winget):
+  `npx nx run mcp-bench:bench --host=cli-headless --suite=lifecycle,symbols-exact --smoke --out=tools/mcp-bench/out/b13j-cli-smoke --parallel=1`
+  Expect ptah symbols-exact > 0 after the index settles, plus an "Index settled after ..." line. Then message 620 that the smoke ended.
+- **Worktree Jest note.** The worktree has no node_modules, and jest.preset.js maps `marked` to a missing worktree path. Use the temporary config in the launcher folder, .ptah/tmp/jest.vscode-lm-tools.worktree.config.js, which maps marked to the main checkout.
+- **Follow-ups.**
+  - ptah_web_search may block for more than 60 s over HTTP; this has not been checked.
+  - Minor review notes for 13h and 13k (see the rev2/rev1 review files).
+  - The indexing speed is a product performance issue.
+  - The lifecycle failures listed above.
+  - The branch is behind main.
+  - Leftover temp corpora %TEMP%\ptah-mcp-bench-corpus-*.
+  - Delete b13b-pre-simplify.patch.
+- **PR #672** (draft) is pushed with 13f-13k. Never merge it. Ask the user before you mark it ready.
