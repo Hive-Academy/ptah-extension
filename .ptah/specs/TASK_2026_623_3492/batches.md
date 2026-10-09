@@ -1,6 +1,6 @@
 # Batches - TASK_2026_623_3492
 
-Total tasks: 71 | Batches: 36 (incl. fix batches 6F, 12F, post-cap correction 12F2) | Complete: 15/36
+Total tasks: 72 | Batches: 36 (incl. fix batches 6F, 12F, post-cap correction 12F2) | Complete: 16/36
 
 Worktree root `W` = `D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel` (branch
 `feat/task-623-display-panel`, base `70f995a56`). Every path below is absolute.
@@ -732,7 +732,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - Re-review (76b125fa0): REVISE 5/10, Moderate #2 CLOSED, Serious #1 OPEN (`unavailable()` could throw while
   inspecting a hostile caught value). Fix round spent; one bounded post-cap correction follows as Batch 12F2.
 
-## Batch 12F2: post-cap correction — non-throwing error-name inspection — COMPLETE (commit see git log: "batch 12F2"; review code-logic-review-phase2-fix2.md APPROVED 9/10)
+## Batch 12F2: post-cap correction — non-throwing error-name inspection — COMPLETE (commit e05d8250f; review code-logic-review-phase2-fix2.md APPROVED 9/10)
 
 - Executor: orchestrator (one bounded post-cap correction, agent-lanes §6; decision #46)
 - Execution mode: sequential
@@ -743,8 +743,8 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 ### Task 12F2.1: `unavailable()` never throws while naming the caught value — COMPLETE
 
 - Files:
-  - D:\projects\ptah-extension\.claude-worktrees	ask-623-display-panel\libsackendpc-handlers\src\lib\handlers\lane-plan-limits-rpc.handlers.ts
-  - D:\projects\ptah-extension\.claude-worktrees	ask-623-display-panel\libsackendpc-handlers\src\lib\handlers\lane-plan-limits-rpc.handlers.spec.ts
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\backend\rpc-handlers\src\lib\handlers\lane-plan-limits-rpc.handlers.ts
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\backend\rpc-handlers\src\lib\handlers\lane-plan-limits-rpc.handlers.spec.ts
 - Change: module function `errorName(error: unknown): string` wraps the `instanceof`/`name` read in try/catch and
   returns `'uninspectable'` on throw; `unavailable()` logs `errorName(error)`. Spec `it.each` covers an Error whose
   `name` getter throws and a Proxy whose `getPrototypeOf` trap throws: fixed text, no `cause`, `errorName:
@@ -757,7 +757,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - Cross-side re-review: APPROVED 9/10, Serious #1 CLOSED, no new findings (`code-logic-review-phase2-fix2.md`).
   Phase 2 (Batches 7-12, 12F, 12F2) accepted.
 
-## Batch 13: D1 renderer container layout and `/4` view model — IN_PROGRESS
+## Batch 13: D1 renderer container layout and `/4` view model — COMPLETE (commit see git log: "batch 13")
 
 - Recommended executor: frontend-developer
 - Fallback executor: general-purpose subagent
@@ -766,14 +766,14 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - Tasks: 2 | Depends on: Batch 2
 - Phase: 3 Renderer `/4` | Phase review: code-logic (after Batch 15)
 
-### Task 13.1: view model for `accordion`, `avatar`, trend, spark — IN_PROGRESS
+### Task 13.1: view model for `accordion`, `avatar`, trend, spark — COMPLETE
 
 - Files:
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\declarative-dashboard\src\lib\view-model\view-model.types.ts
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\declarative-dashboard\src\lib\view-model\surface-view-model.ts
 - Plan reference: implementation-plan.md:568-629 (component 3)
 
-### Task 13.2: `layoutWidth` input, container queries, accordion layout — IN_PROGRESS
+### Task 13.2: `layoutWidth` input, container queries, accordion layout — COMPLETE
 
 - Depends on: Task 13.1
 - Files:
@@ -790,7 +790,16 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 
 - `npx jest -c libs/frontend/declarative-dashboard/jest.config.ts libs/frontend/declarative-dashboard/src/lib/components/surface-layout.component.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -n 40 && npx nx typecheck @ptah-extension/declarative-dashboard --parallel=1 2>&1 | tail -n 20 && npx nx lint @ptah-extension/declarative-dashboard --parallel=1 2>&1 | tail -n 20`
 
-## Batch 14: D2 stat trend/sparkline and avatar — PENDING
+### Batch 13 decisions (recorded at verification)
+
+- Team-leader reran: Jest 5 suites / 111 tests passed (layout, node, renderer, view-model, trust-boundary specs);
+  `nx typecheck @ptah-extension/declarative-dashboard --skip-nx-cache` passes (decision #21 closed, #47);
+  lint 0 errors / 115 warnings.
+- Out-of-list `surface-node.component.spec.ts` edit accepted (decision #48).
+- Avatar node wiring moved to new Task 15.0 (decision #49): Batch 14 is at the 6-file cap.
+- Section collapse container-only and container root stat grid accepted (decision #50).
+
+## Batch 14: D2 stat trend/sparkline and avatar — IN_PROGRESS
 
 - Recommended executor: frontend-developer
 - Fallback executor: general-purpose subagent
@@ -799,7 +808,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - Tasks: 2 | Depends on: Batch 13
 - Phase: 3 | Phase review: after Batch 15
 
-### Task 14.1: stat trend pill and sparkline — PENDING
+### Task 14.1: stat trend pill and sparkline — IN_PROGRESS
 
 - Files:
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\declarative-dashboard\src\lib\charts\sparkline-geometry.ts (CREATE)
@@ -811,12 +820,16 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - Quality requirements: R4.3-R4.5; highlight uses theme `primary` (decisions #12); polarity good/bad tone via semantic
   tokens; accessible text for trend; no per-element timers.
 
-### Task 14.2: avatar atom — PENDING
+### Task 14.2: avatar atom — IN_PROGRESS
 
 - Files (CREATE):
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\declarative-dashboard\src\lib\components\dashboard-avatar.component.ts
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\declarative-dashboard\src\lib\components\dashboard-avatar.component.spec.ts
 - Quality requirements: R4.7-R4.8; initials only, no URL or image (trust boundary).
+- Validation notes: input shape is the Batch 13 `AvatarNode` (`view-model.types.ts`: `name`, optional `subtitle`,
+  `selectable`). Do NOT edit `surface-node.component.ts` here; the node switch wiring is Task 15.0 (decision #49).
+- Stat inputs (Task 14.1): stat `DisplayNode` carries optional `trend` and `spark` (already validated by the view
+  model). Use the renderer tokens `--dp-su-text`, `--dp-er-text`, `--dp-hl`, `--dp-bar-dim`, `--dp-er-fill`.
 
 ### Batch 14 verification
 
@@ -828,8 +841,18 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - Fallback executor: general-purpose subagent
 - Execution mode: sequential
 - Rationale: proof specs and barrel for the renderer; closes Phase 3.
-- Tasks: 3 | Depends on: Batch 14
+- Tasks: 4 | Depends on: Batch 14
 - Phase: 3 (last batch) | Phase review: code-logic on Batches 13-15 (plus style if Task 15.3 adds exports)
+
+### Task 15.0: wire `avatar` into the node switch — PENDING (decision #49; runs first)
+
+- Files:
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\declarative-dashboard\src\lib\components\surface-node.component.ts
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\declarative-dashboard\src\lib\components\surface-node.component.spec.ts
+- Implementation details: import `DashboardAvatarComponent` (Batch 14), add `'avatar'` to `SURFACE_NODE_KINDS`, add
+  `@case ('avatar')`, update the doc comment; node spec kind count 20 → 21 with an `avatar` entry built under `/4`.
+- Validation notes: until this lands an avatar surface fails closed (`renderFailed`); Task 15.2 trust-boundary avatar
+  cases depend on this task.
 
 ### Task 15.1: container-width spec (R3.5) — PENDING
 
@@ -847,7 +870,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 
 ### Batch 15 verification
 
-- `npx jest -c libs/frontend/declarative-dashboard/jest.config.ts libs/frontend/declarative-dashboard/src/lib/components/surface-container-width.spec.ts libs/frontend/declarative-dashboard/src/lib/trust-boundary.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -n 40 && npx nx typecheck @ptah-extension/declarative-dashboard --parallel=1 2>&1 | tail -n 20 && npx nx lint @ptah-extension/declarative-dashboard --parallel=1 2>&1 | tail -n 20`
+- `npx jest -c libs/frontend/declarative-dashboard/jest.config.ts libs/frontend/declarative-dashboard/src/lib/components/surface-container-width.spec.ts libs/frontend/declarative-dashboard/src/lib/trust-boundary.spec.ts libs/frontend/declarative-dashboard/src/lib/components/surface-node.component.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -n 40 && npx nx typecheck @ptah-extension/declarative-dashboard --parallel=1 2>&1 | tail -n 20 && npx nx lint @ptah-extension/declarative-dashboard --parallel=1 2>&1 | tail -n 20`
 - Phase 3 code-logic review due after commit
 
 ## Batch 16: C1 host-sources token and ptah-ui block — PENDING

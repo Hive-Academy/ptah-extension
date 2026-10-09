@@ -2,7 +2,11 @@ import { Component, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import type { DashboardComponent } from '@ptah-extension/shared';
 import type { SurfaceComponent, SurfaceDataModel, SurfaceSelection } from '@ptah-extension/shared/mcp-apps-contracts/surface';
-import { SURFACE_CATALOG_VERSION } from '@ptah-extension/shared/mcp-apps-contracts/surface';
+import {
+  SURFACE_CATALOG_VERSION,
+  SURFACE_CATALOG_VERSION_4,
+  type SurfaceCatalogVersion,
+} from '@ptah-extension/shared/mcp-apps-contracts/surface';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import type { SurfaceActionInvoke, SurfaceInputCommit, SurfaceInteractionState } from '../surface-interaction';
@@ -11,9 +15,10 @@ import type { SurfaceNode } from '../view-model/view-model.types';
 import { SURFACE_NODE_KINDS, SurfaceNodeComponent, type SurfaceComponentViewStateWrite } from './surface-node.component';
 import type { SurfaceDraftWrite } from './surface-text-input.component';
 
-function v2Nodes(components: readonly SurfaceComponent[], dataModel: SurfaceDataModel = {}): readonly SurfaceNode[] {
+function v2Nodes(components: readonly SurfaceComponent[], dataModel: SurfaceDataModel = {},
+  catalogVersion: SurfaceCatalogVersion = SURFACE_CATALOG_VERSION): readonly SurfaceNode[] {
   const result = buildSurfaceViewModel({ contract: 'dashboard-spec/2', dataModel, surface: {
-    schemaVersion: 'dashboard-spec/2', catalogVersion: SURFACE_CATALOG_VERSION, surfaceId: 's', title: { text: 'T' },
+    schemaVersion: 'dashboard-spec/2', catalogVersion, surfaceId: 's', title: { text: 'T' },
     components } });
   if (result.renderFailed) throw new Error(result.reason);
   return result.viewModel.components;
@@ -28,12 +33,13 @@ function v1Nodes(components: readonly DashboardComponent[]): readonly SurfaceNod
 }
 
 const series = [{ name: 'Cost', points: [{ x: 'Mon', y: 1 }, { x: 'Tue', y: 2 }] }];
-/** One component of each of the 19 kinds, and the element each must render. */
+/** One component of each rendered kind (the 19 `/3` kinds plus `/4` accordion), and the element each must render. */
 const EVERY_KIND: readonly (readonly [SurfaceComponent, string])[] = [
   [{ id: 'k-section', kind: 'section', title: { text: 'S' }, children: [] }, 'ptah-surface-layout section'],
   [{ id: 'k-stack', kind: 'stack', children: [] }, 'ptah-surface-layout'],
   [{ id: 'k-grid', kind: 'grid', columns: 2, children: [] }, 'ptah-surface-layout'],
   [{ id: 'k-card', kind: 'card', children: [] }, 'ptah-surface-layout .card'],
+  [{ id: 'k-accordion', kind: 'accordion', title: { text: 'A' }, children: [] }, 'ptah-surface-layout button[aria-expanded="false"]'],
   [{ id: 'k-text', kind: 'text', label: 'T', path: 'a' }, 'ptah-surface-text-input input'],
   [{ id: 'k-select', kind: 'select', label: 'S', path: 'b', options: [{ value: 'x', label: 'X' }] }, 'ptah-surface-choice-input select'],
   [{ id: 'k-radio', kind: 'radio-group', label: 'R', path: 'c', options: [{ value: 'x', label: 'X' }] }, 'ptah-surface-choice-input fieldset'],
@@ -88,14 +94,22 @@ describe('SurfaceNodeComponent', () => {
     return { fixture, host: fixture.componentInstance, element, rerender: () => fixture.detectChanges() };
   }
 
-  it('switches over all 19 catalog kinds, each to its own component', () => {
-    expect(SURFACE_NODE_KINDS.size).toBe(19);
+  it('switches over the 19 /3 kinds and the /4 accordion, each to its own component', () => {
+    expect(SURFACE_NODE_KINDS.size).toBe(20);
     expect(new Set(EVERY_KIND.map(([component]) => component.kind))).toEqual(SURFACE_NODE_KINDS);
     for (const [component, selector] of EVERY_KIND) {
-      const { element, host } = setup(v2Nodes([component])[0]);
+      const { element, host } = setup(v2Nodes([component], {}, SURFACE_CATALOG_VERSION_4)[0]);
       expect(element.querySelector(selector)).not.toBeNull();
       expect(host.failures).toBe(0);
     }
+  });
+
+  it('writes an accordion toggle into its own component view state record', () => {
+    const [accordion] = v2Nodes([{ id: 'acc', kind: 'accordion', title: { text: 'Checklist' }, children: [] }], {},
+      SURFACE_CATALOG_VERSION_4);
+    const { element, host } = setup(accordion);
+    element.querySelector<HTMLButtonElement>('ptah-surface-layout button[aria-controls]')!.click();
+    expect(host.events).toEqual([['state', { componentId: 'acc', state: { expanded: true } }]]);
   });
 
   it('marks a selectable badge pressed from the current selection and emits the badge target', () => {

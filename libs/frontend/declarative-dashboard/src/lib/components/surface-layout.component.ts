@@ -1,5 +1,15 @@
 import { NgTemplateOutlet } from '@angular/common';
-import { ChangeDetectionStrategy, Component, computed, input, output, type TemplateRef } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  ElementRef,
+  input,
+  linkedSignal,
+  output,
+  viewChild,
+  type TemplateRef,
+} from '@angular/core';
 import { SURFACE_LIMITS, type SurfaceAction } from '@ptah-extension/shared/mcp-apps-contracts/surface';
 import type { SurfaceActionInvoke, SurfaceActionUiState } from '../surface-interaction';
 import type { LayoutNode, SurfaceNode } from '../view-model/view-model.types';
@@ -13,8 +23,65 @@ export interface SurfaceLayoutChildContext {
   readonly index: number;
 }
 
+/**
+ * `viewport`: the Apps page layout (Tailwind `sm:` breakpoints, unchanged).
+ * `container`: columns follow the renderer root's own width (D9, R3.5).
+ */
+export type SurfaceLayoutWidth = 'viewport' | 'container';
+
+/**
+ * Container-mode grid rules, shared by the renderer root and nested grids.
+ * The renderer root is the `dp` container. Below 360 px every grid is one
+ * column; from 360 px columns auto-fit at 128 px or wider, never more than
+ * the grid's `dp-cols-N` ceiling; from 700 px a stat grid takes 3 columns
+ * (or its ceiling, when lower).
+ */
+export const SURFACE_CONTAINER_GRID_STYLES = `
+  .dp-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--dp-gap); min-width: 0; }
+  .dp-gap-none { --dp-gap: 0px; }
+  .dp-gap-small { --dp-gap: 0.5rem; }
+  .dp-gap-medium { --dp-gap: 1rem; }
+  .dp-gap-large { --dp-gap: 1.5rem; }
+  .dp-cols-1 { --dp-cols: 1; }
+  .dp-cols-2 { --dp-cols: 2; }
+  .dp-cols-3 { --dp-cols: 3; }
+  .dp-cols-4 { --dp-cols: 4; }
+  @container dp (min-width: 360px) {
+    .dp-grid {
+      grid-template-columns: repeat(auto-fit,
+        minmax(min(100%, max(128px, calc((100% - (var(--dp-cols) - 1) * var(--dp-gap)) / var(--dp-cols)))), 1fr));
+    }
+  }
+  @container dp (min-width: 700px) {
+    .dp-grid--stats.dp-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .dp-grid--stats.dp-cols-3, .dp-grid--stats.dp-cols-4 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  }
+`;
+
+/**
+ * One collapse pattern for `accordion` and the container-mode `section`
+ * (design section 7): the hidden body is `inert` and `visibility:hidden`.
+ * Motion runs only under `prefers-reduced-motion: no-preference`.
+ */
+const COLLAPSE_STYLES = `
+  .dp-collapse { display: grid; grid-template-rows: 1fr; min-width: 0; }
+  .dp-collapse[data-open='false'] { grid-template-rows: 0fr; visibility: hidden; }
+  .dp-collapse-inner { min-height: 0; min-width: 0; }
+  .dp-collapse[data-open='false'] > .dp-collapse-inner { overflow: hidden; }
+  .dp-toggle { min-height: 2rem; }
+  .dp-toggle:focus-visible { outline: 2px solid oklch(var(--bc)); outline-offset: 2px; }
+  .dp-chevron[data-open='true'] { transform: rotate(180deg); }
+  @media (prefers-reduced-motion: no-preference) {
+    .dp-collapse { transition: grid-template-rows 220ms ease, visibility 220ms; }
+    .dp-chevron { transition: transform 200ms ease; }
+  }
+`;
+
 let nextLayoutInstance = 0;
 const GAP_CLASSES = { none: 'gap-0', small: 'gap-2', medium: 'gap-4', large: 'gap-6' } as const;
+const CONTAINER_GAP_CLASSES = {
+  none: 'dp-gap-none', small: 'dp-gap-small', medium: 'dp-gap-medium', large: 'dp-gap-large',
+} as const;
 /** Literal class names so the Tailwind scanner emits them. Index = column count. */
 const SM_GRID_COLUMNS = ['sm:grid-cols-1', 'sm:grid-cols-1', 'sm:grid-cols-2', 'sm:grid-cols-3', 'sm:grid-cols-4'] as const;
 const NO_ACTION_STATES: ReadonlyMap<string, SurfaceActionUiState> = new Map();
@@ -50,6 +117,7 @@ function submitStatusText(state: SurfaceActionUiState | undefined): string {
   standalone: true,
   imports: [NgTemplateOutlet],
   changeDetection: ChangeDetectionStrategy.OnPush,
+  styles: [SURFACE_CONTAINER_GRID_STYLES, COLLAPSE_STYLES],
   template: `
     <ng-template #children>
       <!-- Position plus id: duplicate ids stay distinct, and a swapped id gets a fresh view. -->
@@ -69,14 +137,47 @@ function submitStatusText(state: SurfaceActionUiState | undefined): string {
         </div>
       }
     </ng-template>
+    <ng-template #collapsible>
+      <!-- The header button toggles the body; Escape inside collapses it and refocuses the button (R4.6, R9.1). -->
+      <section class="card card-bordered bg-base-100 flex min-w-0 flex-col text-base-content" [attr.data-kind]="node().kind"
+        (keydown.escape)="collapse($event)">
+        <h3 class="m-0">
+          <button #collapseToggle type="button" class="dp-toggle flex w-full items-center gap-2 rounded-[inherit] px-3 py-2 text-left"
+            [id]="toggleId" [attr.aria-expanded]="open()" [attr.aria-controls]="regionId"
+            [attr.data-apps-focus-key]="focusKey('toggle')" (click)="toggle()">
+            <span class="flex min-w-0 flex-1 flex-col">
+              <span class="break-words text-sm font-semibold">{{ title() }}</span>
+              @if (description(); as description) {
+                <span class="break-words text-xs font-normal text-base-content-muted">{{ description }}</span>
+              }
+            </span>
+            <svg class="dp-chevron shrink-0" [attr.data-open]="open()" width="16" height="16" viewBox="0 0 24 24"
+              aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 10l5 5 5-5" /></svg>
+          </button>
+        </h3>
+        <div [id]="regionId" class="dp-collapse" [attr.data-open]="open()" [attr.inert]="open() ? null : ''">
+          <div class="dp-collapse-inner">
+            <div class="flex flex-col gap-3 px-3 pb-3">
+              <div [class]="containerClass()"><ng-container [ngTemplateOutlet]="children" /></div>
+              <ng-container [ngTemplateOutlet]="submit" />
+            </div>
+          </div>
+        </div>
+      </section>
+    </ng-template>
     @switch (node().kind) {
+      @case ('accordion') { <ng-container [ngTemplateOutlet]="collapsible" /> }
       @case ('section') {
-        <section class="flex flex-col gap-3 text-base-content">
-          <h3 class="text-sm font-semibold">{{ title() }}</h3>
-          @if (description(); as description) { <p class="text-sm text-base-content-muted">{{ description }}</p> }
-          <div class="flex flex-col gap-3"><ng-container [ngTemplateOutlet]="children" /></div>
-          <ng-container [ngTemplateOutlet]="submit" />
-        </section>
+        @if (layoutWidth() === 'container') {
+          <ng-container [ngTemplateOutlet]="collapsible" />
+        } @else {
+          <section class="flex flex-col gap-3 text-base-content">
+            <h3 class="text-sm font-semibold">{{ title() }}</h3>
+            @if (description(); as description) { <p class="text-sm text-base-content-muted">{{ description }}</p> }
+            <div class="flex flex-col gap-3"><ng-container [ngTemplateOutlet]="children" /></div>
+            <ng-container [ngTemplateOutlet]="submit" />
+          </section>
+        }
       }
       @case ('card') {
         <div class="card card-bordered bg-base-100 flex flex-col gap-3 p-4 text-base-content">
@@ -102,7 +203,17 @@ export class SurfaceLayoutComponent {
   public readonly surfaceId = input('');
   public readonly actionStates = input<ReadonlyMap<string, SurfaceActionUiState>>(NO_ACTION_STATES);
   public readonly submitDisabled = input(false);
+  public readonly layoutWidth = input<SurfaceLayoutWidth>('viewport');
+  /** `viewState.components[id].expanded`; absent means the kind's default (accordion closed, section open). */
+  public readonly expanded = input<boolean | undefined>(undefined);
   public readonly actionInvoke = output<SurfaceActionInvoke>();
+  public readonly expandedChange = output<boolean>();
+
+  public readonly toggleId = `${this.instanceId}-toggle`;
+  public readonly regionId = `${this.instanceId}-region`;
+  private readonly toggleButton = viewChild<ElementRef<HTMLButtonElement>>('collapseToggle');
+  /** Follows the parent's state; a toggle applies at once and is reported, so a parent that stores it keeps it. */
+  public readonly open = linkedSignal(() => this.expanded() ?? this.node().kind === 'section');
 
   /** Only `surface.submit` is a control; every other action id renders nothing (Req 4.6). */
   public readonly submitActions = computed((): readonly SurfaceAction[] => {
@@ -114,16 +225,26 @@ export class SurfaceLayoutComponent {
   });
   public readonly title = computed(() => {
     const node = this.node();
-    return node.kind === 'section' || node.kind === 'card' ? plainText(node.title) : undefined;
+    return node.kind === 'section' || node.kind === 'card' || node.kind === 'accordion' ? plainText(node.title) : undefined;
   });
   public readonly description = computed(() => {
     const node = this.node();
     return node.kind === 'section' || node.kind === 'card' ? plainText(node.description) : undefined;
   });
-  /** Stack: flex by direction. Grid: at most maxGridColumns, one column below `sm`. */
+  /**
+   * Stack: flex by direction. Grid, viewport mode: at most maxGridColumns, one
+   * column below `sm`. Grid, container mode: the `dp-grid` rules, with the
+   * stat variant when every child is a stat.
+   */
   public readonly containerClass = computed(() => {
     const node = this.node();
-    const gap = node.kind === 'stack' || node.kind === 'grid' ? GAP_CLASSES[node.gap ?? 'medium'] ?? GAP_CLASSES.medium : GAP_CLASSES.medium;
+    const gapKey = node.kind === 'stack' || node.kind === 'grid' ? node.gap ?? 'medium' : 'medium';
+    const gap = GAP_CLASSES[gapKey] ?? GAP_CLASSES.medium;
+    if (node.kind === 'grid' && this.layoutWidth() === 'container') {
+      const stats = node.children.length > 0 && node.children.every(child => child.kind === 'stat');
+      const containerGap = CONTAINER_GAP_CLASSES[gapKey] ?? CONTAINER_GAP_CLASSES.medium;
+      return `dp-grid dp-cols-${this.gridColumns()} ${containerGap}${stats ? ' dp-grid--stats' : ''}`;
+    }
     if (node.kind === 'grid') return `grid grid-cols-1 ${SM_GRID_COLUMNS[this.gridColumns()]} ${gap}`;
     if (node.kind === 'stack' && node.direction === 'horizontal') return `flex flex-row flex-wrap ${gap}`;
     return `flex flex-col ${gap}`;
@@ -134,6 +255,20 @@ export class SurfaceLayoutComponent {
     return Math.min(SURFACE_LIMITS.maxGridColumns, Math.max(1, columns));
   });
 
+  public toggle(): void {
+    const next = !this.open();
+    this.open.set(next);
+    this.expandedChange.emit(next);
+  }
+  /** Escape inside an expanded body collapses it and returns focus to its toggle (R9.1). */
+  public collapse(event: Event): void {
+    const toggle = this.toggleButton();
+    if (!this.open() || toggle === undefined) return;
+    event.stopPropagation();
+    this.open.set(false);
+    this.expandedChange.emit(false);
+    toggle.nativeElement.focus();
+  }
   public focusKey(control: string): string { return `${this.surfaceId()}:${this.node().id}:${control}`; }
   public statusId(index: number): string { return `${this.instanceId}-status-${index}`; }
   public statusText(action: SurfaceAction): string { return submitStatusText(this.actionStates().get(action.id)); }

@@ -3,17 +3,26 @@ import {
   checkDraftValue,
   readSurfacePath,
   SURFACE_CATALOG_VERSION,
+  SURFACE_CATALOG_VERSION_4,
   SURFACE_INPUT_EMPTY_VALUES,
   SURFACE_LIMITS,
+  SURFACE_SPARK_MIN_POINTS,
+  SURFACE_TREND_DIRECTIONS,
+  SURFACE_TREND_POLARITIES,
   type SurfaceAction,
+  type SurfaceAvatarComponent,
   type SurfaceComponent,
   type SurfaceDataModel,
   type SurfaceDataValue,
   type SurfaceInput,
+  type SurfaceStatComponent,
+  type SurfaceStatTrend,
 } from '@ptah-extension/shared/mcp-apps-contracts/surface';
 import type { SurfaceRenderable } from '../surface-view-state';
 import { buildDashboardViewModel, mapDisplayNode } from './dashboard-view-model';
 import type {
+  AvatarNode,
+  DisplayNode,
   InputNode,
   LayoutNode,
   StatusNode,
@@ -27,7 +36,7 @@ export type SurfaceViewModelBuild =
   | { readonly renderFailed: true; readonly reason: string; readonly viewModel: null };
 
 type LayoutComponent = Extract<SurfaceComponent, { kind: LayoutNode['kind'] }>;
-type DisplayComponent = Exclude<SurfaceComponent, LayoutComponent | SurfaceInput>;
+type DisplayComponent = Exclude<SurfaceComponent, LayoutComponent | SurfaceInput | SurfaceAvatarComponent>;
 type StatusComponent = Extract<
   SurfaceComponent,
   { kind: 'alert' | 'badge' | 'progress' | 'radial-progress' | 'divider' | 'text-block' }
@@ -39,6 +48,8 @@ const DIVIDER_DIRECTIONS = ['horizontal', 'vertical'] as const;
 const TEXT_BLOCK_ROLES = ['heading', 'body'] as const;
 
 const BUILD_FAILED = 'Surface content could not be mapped.';
+/** Kinds and stat fields that only `dashboard-catalog/4` may carry. */
+const CATALOG_4_ONLY_KINDS: ReadonlySet<string> = new Set(['accordion', 'avatar']);
 
 /** Deliberately not a type guard: a guard would narrow interface unions away. */
 function isObject(value: unknown): boolean {
@@ -166,18 +177,66 @@ function mapStatus(component: StatusComponent): StatusNode {
   }
 }
 
+/** `/4` stat trend: closed enums, a finite non-negative magnitude, and a boolean percent flag. */
+function checkTrend(trend: SurfaceStatTrend): SurfaceStatTrend {
+  if (!isObject(trend) || !SURFACE_TREND_DIRECTIONS.includes(trend.direction)
+    || typeof trend.amount !== 'number' || !Number.isFinite(trend.amount) || trend.amount < 0
+    || typeof trend.percent !== 'boolean'
+    || (trend.polarity !== undefined && !SURFACE_TREND_POLARITIES.includes(trend.polarity))) {
+    throw new TypeError('Invalid surface stat trend.');
+  }
+  return { direction: trend.direction, amount: trend.amount, percent: trend.percent,
+    ...(trend.polarity === undefined ? {} : { polarity: trend.polarity }) };
+}
+
+/** `/4` spark: one series of finite numbers, counted against `maxSeriesPoints` like a chart series. */
+function checkSpark(spark: readonly number[]): readonly number[] {
+  if (!Array.isArray(spark) || spark.length < SURFACE_SPARK_MIN_POINTS || spark.length > SURFACE_LIMITS.maxSeriesPoints
+    || !spark.every((point: unknown) => typeof point === 'number' && Number.isFinite(point))) {
+    throw new TypeError('Invalid surface stat spark.');
+  }
+  return [...spark];
+}
+
+/**
+ * Stat trend and spark exist only in `dashboard-catalog/4`; a `/3` stat that
+ * carries either is rejected, never silently stripped.
+ */
+function withStatExtras(node: DisplayNode, component: SurfaceStatComponent, catalog4: boolean): DisplayNode {
+  if (node.kind !== 'stat' || (component.trend === undefined && component.spark === undefined)) return node;
+  if (!catalog4) throw new TypeError('Stat trend and spark need dashboard-catalog/4.');
+  return {
+    ...node,
+    ...(component.trend === undefined ? {} : { trend: checkTrend(component.trend) }),
+    ...(component.spark === undefined ? {} : { spark: checkSpark(component.spark) }),
+  };
+}
+
+/** `/4` avatar: plain name and optional subtitle; any other field is dropped. */
+function mapAvatar(component: SurfaceAvatarComponent): AvatarNode {
+  if (typeof component.name !== 'string' || component.name.trim().length === 0) {
+    throw new TypeError('Invalid surface avatar name.');
+  }
+  if (component.subtitle !== undefined && typeof component.subtitle !== 'string') {
+    throw new TypeError('Invalid surface avatar subtitle.');
+  }
+  return { id: component.id, kind: component.kind, name: component.name,
+    ...(component.subtitle === undefined ? {} : { subtitle: component.subtitle }), selectable: false };
+}
+
 function buildSurface(content: Extract<SurfaceRenderable, { contract: 'dashboard-spec/2' }>): SurfaceViewModel {
   const { surface, dataModel } = content;
   if (
     !isObject(surface) ||
     surface.schemaVersion !== 'dashboard-spec/2' ||
-    surface.catalogVersion !== SURFACE_CATALOG_VERSION ||
+    (surface.catalogVersion !== SURFACE_CATALOG_VERSION && surface.catalogVersion !== SURFACE_CATALOG_VERSION_4) ||
     !isRichText(surface.title) ||
     !Array.isArray(surface.components) ||
     !isObject(dataModel)
   ) {
     throw new TypeError('Invalid surface envelope.');
   }
+  const catalog4 = surface.catalogVersion === SURFACE_CATALOG_VERSION_4;
   let mapped = 0;
 
   function mapComponents(components: readonly SurfaceComponent[], depth: number): readonly SurfaceNode[] {
@@ -187,11 +246,15 @@ function buildSurface(content: Extract<SurfaceRenderable, { contract: 'dashboard
       }
       // Validated content is bounded; this cap keeps a hostile in-process tree finite.
       if (++mapped > SURFACE_LIMITS.maxComponents) throw new TypeError('Surface exceeds maxComponents.');
+      if (!catalog4 && CATALOG_4_ONLY_KINDS.has(component.kind)) {
+        throw new TypeError(`Surface kind ${component.kind} needs dashboard-catalog/4.`);
+      }
       switch (component.kind) {
         case 'section':
         case 'stack':
         case 'grid':
         case 'card':
+        case 'accordion':
           return mapLayout(component, depth);
         case 'text':
         case 'select':
@@ -205,6 +268,10 @@ function buildSurface(content: Extract<SurfaceRenderable, { contract: 'dashboard
         case 'divider':
         case 'text-block':
           return mapStatus(component);
+        case 'avatar':
+          return mapAvatar(component);
+        case 'stat':
+          return withStatExtras(mapDisplayNode(component), component, catalog4);
         default:
           checkDisplayShape(component);
           return mapDisplayNode(component);
@@ -224,6 +291,9 @@ function buildSurface(content: Extract<SurfaceRenderable, { contract: 'dashboard
         return { ...common, kind: component.kind, title: component.title, description: component.description };
       case 'card':
         return { ...common, kind: component.kind, title: component.title, description: component.description };
+      case 'accordion':
+        if (!isRichText(component.title)) throw new TypeError('Invalid surface accordion title.');
+        return { ...common, kind: component.kind, title: component.title };
       case 'stack':
         return { ...common, kind: component.kind, direction: component.direction, gap: component.gap };
       case 'grid':
