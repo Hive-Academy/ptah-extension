@@ -48,6 +48,12 @@ export {
   StreamViewportController,
   type StreamTier,
 } from './stream-viewport-controller.service';
+export {
+  StreamPresentationStore,
+  STREAM_PRESENTATION_RECORDS_ENABLED,
+  type StreamPresentationSlot,
+  type StreamPresentationStructure,
+} from './stream-presentation-store.service';
 export { AgentSessionAdoptionService } from './agent-session-adoption.service';
 export { VoiceDownloadProgressService } from './voice-download-progress.service';
 export { VoiceProviderErrorService } from './voice-provider-error.service';
