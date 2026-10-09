@@ -272,7 +272,7 @@ describe('PtahCliLanePlanLimits — stream signals', () => {
     expect(ledger.recordWindowEvidence).toHaveBeenCalledWith(claudeAccount, {
       key: 'five_hour',
       kind: 'five_hour',
-      label: '5-hour session',
+      label: '5-hour',
       resetsAt: 9_000,
       resetSource: 'stream-event',
       exhaustion: {
