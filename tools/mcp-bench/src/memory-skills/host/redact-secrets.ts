@@ -2,27 +2,27 @@
 export function redactSecrets(value: string): string {
   const secretKey =
     '[\\w-]*(?:token|secret|password|api[_-]?key|authorization|cookie|session)[\\w-]*';
-  const secretKeyWithQuotes = `(?:[\"']?${secretKey}[\"']?)`;
+  const secretKeyWithQuotes = `(?:["']?${secretKey}["']?)`;
   const keyValuePrefix = `(?:${secretKeyWithQuotes}\\s*[:=]\\s*)`;
   const whitespaceValuePrefix = `(?:${secretKeyWithQuotes}\\s+)`;
 
   return value
     .replace(/((?:set-)?cookie\s*:\s*)[^\r\n]*/gi, '$1<redacted>')
-    .replace(/((?<![\"'])\bauthorization\s*:\s*)[^\r\n]*/gi, '$1<redacted>')
+    .replace(/((?<!["'])\bauthorization\s*:\s*)[^\r\n]*/gi, '$1<redacted>')
     .replace(/Bearer\s+[^\s,;]+/gi, 'Bearer <redacted>')
     .replace(
       new RegExp(
-        `(${keyValuePrefix}|${whitespaceValuePrefix})([\"'])(.*?)\\2`,
+        `(${keyValuePrefix}|${whitespaceValuePrefix})(["'])(.*?)\\2`,
         'gi',
       ),
       '$1$2<redacted>$2',
     )
     .replace(
-      new RegExp(`(${keyValuePrefix})[^\\s,;}\"'\\]\\r\\n]+`, 'gi'),
+      new RegExp(`(${keyValuePrefix})[^\\s,;}"'\\]\\r\\n]+`, 'gi'),
       '$1<redacted>',
     )
     .replace(
-      new RegExp(`(${whitespaceValuePrefix})[^\\s,;}\"'\\]\\r\\n]+`, 'gi'),
+      new RegExp(`(${whitespaceValuePrefix})[^\\s,;}"'\\]\\r\\n]+`, 'gi'),
       '$1<redacted>',
     )
     .replace(/eyJ[\w-]+\.[\w-]+\.[\w-]+/g, '<redacted-jwt>');

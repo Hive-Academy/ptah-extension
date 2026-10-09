@@ -187,7 +187,7 @@ export function hostRetentionPort(
           archived: 0,
           deleted: 0,
           evicted: 0,
-          stuckQuarantined: 0,
+          stuckKept: null,
           processedPurged: 0,
           lifecycleNote: null,
         };
@@ -198,7 +198,9 @@ export function hostRetentionPort(
         archived: report.memoriesArchived,
         deleted: report.memoriesDeleted,
         evicted: report.memoriesEvicted,
-        stuckQuarantined: report.stuckQuarantined,
+        // TASK_2026_621 keeps, rather than quarantines, this same stale
+        // unprocessed-observation cohort so the suite does not invent a delete.
+        stuckKept: report.stuckKept,
         processedPurged: report.processedPurged,
         lifecycleNote: report.lifecycleNote,
       };

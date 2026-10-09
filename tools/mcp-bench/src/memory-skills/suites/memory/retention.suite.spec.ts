@@ -3,14 +3,14 @@
  * `mem.ranking.roster`. The suites run over an in-memory {@link RetentionPort}
  * that models TODAY's product: the archive/delete/evict decision is the pure
  * age-only policy (the product's current decision, `retention-policies.ts`),
- * observations are purged 7 days after processing and deleted 14 days after
- * capture while unprocessed (`MEMORY_RETENTION_DEFAULTS`), a stalled pass
- * leaves its observations untouched, and the roster ranks by the product's own
- * `rankSalience`. Like the product, the double stamps every write with
- * `Date.now()`, so the suites' simulated clock is exercised for real.
+ * observations are purged 7 days after processing while unprocessed rows older
+ * than `stuckDays` remain visible (`MEMORY_RETENTION_DEFAULTS`), a stalled
+ * pass leaves its observations untouched, and the roster ranks by the
+ * product's own `rankSalience`. Like the product, the double stamps every
+ * write with `Date.now()`, so the suites' simulated clock is exercised for
+ * real.
  *
- * The expectations pin today's recorded failures: false-delete > 0 and
- * unprocessed observations deleted under the 9-day stall.
+ * The expectations pin today's retained observations under the 9-day stall.
  */
 import 'reflect-metadata';
 jest.mock('vscode', () => ({}), { virtual: true });
@@ -152,7 +152,7 @@ class FakeRetentionPort implements RetentionPort {
         archived: 0,
         deleted: 0,
         evicted: 0,
-        stuckQuarantined: 0,
+        stuckKept: null,
         processedPurged: 0,
         lifecycleNote: null,
       };
@@ -165,10 +165,9 @@ class FakeRetentionPort implements RetentionPort {
     for (let index = this.observations.length - 1; index >= 0; index -= 1) {
       const row = this.observations[index];
       const purge = row.processedAt !== null && row.processedAt < purgeCutoff;
-      const quarantine =
-        row.processedAt === null && row.capturedAt < stuckCutoff;
-      if (quarantine) stuck += 1;
-      if (purge || quarantine) this.observations.splice(index, 1);
+      const isStuck = row.processedAt === null && row.capturedAt < stuckCutoff;
+      if (isStuck) stuck += 1;
+      if (purge) this.observations.splice(index, 1);
     }
     const rows: RetentionPolicyRow[] = [...this.memories.values()].map(
       (row) => ({
@@ -202,8 +201,8 @@ class FakeRetentionPort implements RetentionPort {
       archived: decision.archived.length,
       deleted: decision.deleted.length,
       evicted: decision.evicted.length,
-      stuckQuarantined: stuck,
-      processedPurged: before - this.observations.length - stuck,
+      stuckKept: stuck,
+      processedPurged: before - this.observations.length,
       lifecycleNote: this.runMode.kind === 'note' ? this.runMode.note : null,
     };
   }
@@ -541,7 +540,7 @@ describe('retention suites', () => {
     expect(Date.now).toBe(originalNow);
   });
 
-  it('records the unprocessed observations the 9-day stall loses in mem.retention.growth', async () => {
+  it('keeps unprocessed observations visible through the 9-day stall in mem.retention.growth', async () => {
     const scored = await runSuite(
       RETENTION_GROWTH_SUITE_ID,
       root,
@@ -551,31 +550,25 @@ describe('retention suites', () => {
     const details = curationDetailsSchema.parse(result.details);
     if (details.operation !== 'retention') throw new Error('not retention');
 
-    // Days 20-28, 4 sessions a day, 10 observations a session; each is deleted 15 days later.
-    expect(details.unprocessedObservationsDeleted).toBe(9 * 4 * 10);
-    expect(result.metrics['unprocessedDeleted.num']).toBe(360);
+    expect(details.unprocessedObservationsDeleted).toBe(0);
+    expect(result.metrics['unprocessedDeleted.num']).toBe(0);
     expect(result.metrics['unprocessedDeleted.den']).toBe(181 * 4 * 10);
     expectExactRates(result.metrics);
     expect(result.metrics['passes.stalled']).toBe(36);
-    expect(result.verdict).toBe('fail');
+    expect(result.verdict).toBe('pass');
     expect(details.dbBytesByDay).toHaveLength(181);
     expect(cases).toHaveLength(181);
-    const failed = cases
-      .filter((c) => c.outcome === 'fail')
-      .map((c) => c.caseId);
-    expect(failed).toEqual(
-      Array.from({ length: 9 }, (_, i) => `day/0${35 + i}`),
-    );
+    expect(cases.every((c) => c.outcome === 'pass')).toBe(true);
     expect(cases[35].observed).toMatch(
-      /^retention completed; 40 unprocessed deleted; passes 4 ran, 0 stalled, 0 threw; \d+ bytes$/,
+      /^retention completed; 0 unprocessed deleted; passes 4 ran, 0 stalled, 0 failed, 0 threw; \d+ bytes$/,
     );
     expect(cases[20].observed).toContain(
-      '0 ran, 4 stalled, 0 threw (stall day)',
+      '0 ran, 4 stalled, 0 failed, 0 threw (stall day)',
     );
     expect(result.baselines[0]).toMatchObject({ id: 'no-retention' });
     expect(
       result.deltas['no-retention']['unprocessedObservationsDeleted'],
-    ).toBe(360);
+    ).toBe(0);
     expect(Date.now).toBe(originalNow);
   });
 

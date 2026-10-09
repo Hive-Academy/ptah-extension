@@ -8,7 +8,7 @@
  *
  * One simulated day, in order:
  *   1. `T = epoch + day * 24 h`: one retention run at `T` (processed purge,
- *      stuck quarantine, lifecycle step, ledger prune, page reclaim), then the
+ *      stale-row count, lifecycle step, ledger prune, page reclaim), then the
  *      DB size after the reclaim step (`page_count * page_size`);
  *   2. lifecycle: at `T + 12 h` the held-out questions of the day are asked;
  *   3. growth: at `T + 1 h` the day's synthetic sessions enqueue their

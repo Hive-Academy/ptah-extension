@@ -60,7 +60,8 @@ export interface RetentionRunSummary {
   readonly archived: number;
   readonly deleted: number;
   readonly evicted: number;
-  readonly stuckQuarantined: number;
+  /** Unprocessed rows older than `stuckDays`; retention keeps them visible. */
+  readonly stuckKept: number | null;
   readonly processedPurged: number;
   readonly lifecycleNote: 'disabled' | 'vec-unavailable' | null;
 }
@@ -84,7 +85,8 @@ export interface ObservationLoadRow {
   readonly text: string;
 }
 
-export type CurateOutcome = 'ran' | 'stalled' | 'threw';
+/** Includes the product's handled curation outcomes plus a harness throw. */
+export type CurateOutcome = 'ran' | 'stalled' | 'failed' | 'threw';
 
 /** The product surface the three suites drive. */
 export interface RetentionPort {

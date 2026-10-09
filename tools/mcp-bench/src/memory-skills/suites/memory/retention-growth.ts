@@ -6,9 +6,8 @@
  * stall outcome (`'stalled'`, provider-unreachable): the M2 outage reproduced
  * deterministically.
  *
- * Expected today (recorded, not hidden): unprocessed observations deleted > 0
- * (forensics M2: a stalled session is never re-curated, and the stuck
- * quarantine deletes its rows at 14 days); the verdict is `fail`.
+ * Expected today: stalled sessions remain visible to a later curation pass;
+ * retention counts stale unprocessed rows but does not delete them.
  */
 
 import type { CurationDetails } from '../../memory-skills-suite-kinds';
@@ -88,7 +87,7 @@ export async function runRetentionGrowth(
   const runs: RetentionRunSummary[] = [];
   const pending = new Set<string>();
   const sessions: string[] = [];
-  const outcomes = { ran: 0, stalled: 0, threw: 0 };
+  const outcomes = { ran: 0, stalled: 0, failed: 0, threw: 0 };
   let unprocessedDeleted = 0;
   const unprocessedOf = (ids: Iterable<string>): number => {
     let total = 0;
@@ -133,7 +132,7 @@ export async function runRetentionGrowth(
       }
       clock.set(at + 2 * HOUR_MS);
       const stalled = inStall(day);
-      const dayOutcomes = { ran: 0, stalled: 0, threw: 0 };
+      const dayOutcomes = { ran: 0, stalled: 0, failed: 0, threw: 0 };
       for (const session of today) {
         const outcome = await port.curate(session.id, session.marker, stalled);
         ledger.calls += 1;
@@ -152,7 +151,8 @@ export async function runRetentionGrowth(
         observed:
           `retention ${run.status}${run.reason === null ? '' : ` (${run.reason})`}; ` +
           `${deleted} unprocessed deleted; passes ${dayOutcomes.ran} ran, ` +
-          `${dayOutcomes.stalled} stalled, ${dayOutcomes.threw} threw` +
+          `${dayOutcomes.stalled} stalled, ${dayOutcomes.failed} failed, ` +
+          `${dayOutcomes.threw} threw` +
           `${stalled ? ' (stall day)' : ''}; ${dayBytes} bytes`,
         outcome: deleted === 0 && runOk ? 'pass' : 'fail',
         cassetteKey: null,
@@ -213,7 +213,7 @@ export async function runRetentionGrowth(
       details,
       claim: {
         source: 'ledger',
-        ref: 'feature-evidence: retention job, stuck-row quarantine, vacuum (440, PR #513); libs/backend/memory-curator/src/lib/retention/memory-retention.service.ts:1-30',
+        ref: 'feature-evidence: retention job, stale-row visibility, vacuum (440, TASK_2026_621); libs/backend/memory-curator/src/lib/retention/memory-retention.service.ts:1-30',
         text: 'DB growth is bounded; no useful memory is lost.',
       },
       groundTruth: {
@@ -224,7 +224,7 @@ export async function runRetentionGrowth(
       baselines: [
         {
           id: 'no-retention',
-          label: 'no retention (nothing purged, quarantined or deleted)',
+          label: 'no retention (nothing purged, retained or deleted)',
           metrics: noRetention,
         },
       ],
@@ -246,6 +246,7 @@ export async function runRetentionGrowth(
         bounded: bounded ? 1 : 0,
         'passes.ran': outcomes.ran,
         'passes.stalled': outcomes.stalled,
+        'passes.failed': outcomes.failed,
         'passes.threw': outcomes.threw,
         stallDays: growth.stall.days,
         ...runCounts(runs),
