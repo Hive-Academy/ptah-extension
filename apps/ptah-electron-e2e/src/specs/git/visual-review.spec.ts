@@ -415,9 +415,7 @@ for (const theme of ['dark', 'light'] as const) {
             await cap.dock(width);
             const section = ui.reviewFileSection(THREE_HUNK_FILE);
             await section.scrollIntoViewIfNeeded();
-            const caret = section.locator(
-              'ptah-open-in-button button[aria-label="Choose where to open"]',
-            );
+            const caret = section.getByTestId('open-in-caret');
             await caret.focus();
             await page.keyboard.press('Shift+Tab');
             await page.keyboard.press('Tab');
