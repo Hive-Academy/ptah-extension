@@ -4,6 +4,7 @@ import {
   NgModule,
   ChangeDetectionStrategy,
   signal,
+  provideZonelessChangeDetection,
 } from '@angular/core';
 
 jest.mock('ngx-markdown', () => {
@@ -119,8 +120,12 @@ describe('ExecutionNodeComponent — streamed markdown render throttle', () => {
     TestBed.configureTestingModule({
       imports: [ExecutionNodeComponent],
       providers: [
+        provideZonelessChangeDetection(),
         { provide: SURFACE_ACTIVE, useValue: surfaceActive },
-        { provide: INCREMENTAL_STREAMING_PRESENTATION_ENABLED, useValue: false },
+        {
+          provide: INCREMENTAL_STREAMING_PRESENTATION_ENABLED,
+          useValue: false,
+        },
       ],
     });
     fixture = TestBed.createComponent(ExecutionNodeComponent);

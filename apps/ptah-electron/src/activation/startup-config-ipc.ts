@@ -44,13 +44,27 @@ export interface StartupConfig {
   initialView: string | null;
   workspaceRoot: string;
   workspaceName: string;
+  /** TODO(streaming-p6): remove zone fallback flag after one stable release */
+  zoneChangeDetectionFallback: boolean;
 }
 
 const EMPTY_STARTUP_CONFIG: StartupConfig = {
   initialView: null,
   workspaceRoot: '',
   workspaceName: '',
+  zoneChangeDetectionFallback: false,
 };
+
+function readZoneChangeDetectionFallback(): boolean {
+  return process.env['PTAH_ZONE_CHANGE_DETECTION_FALLBACK'] === '1';
+}
+
+function emptyStartupConfig(): StartupConfig {
+  return {
+    ...EMPTY_STARTUP_CONFIG,
+    zoneChangeDetectionFallback: readZoneChangeDetectionFallback(),
+  };
+}
 
 /**
  * Answer the config question for whatever container exists RIGHT NOW.
@@ -64,23 +78,25 @@ const EMPTY_STARTUP_CONFIG: StartupConfig = {
 export function readStartupConfig(
   container: DependencyContainer | null,
 ): StartupConfig {
-  if (!container) return { ...EMPTY_STARTUP_CONFIG };
+  if (!container) return emptyStartupConfig();
   try {
     const workspaceProvider = container.resolve<IWorkspaceProvider>(
       PLATFORM_TOKENS.WORKSPACE_PROVIDER,
     );
     const resolvedRoot = workspaceProvider.getWorkspaceRoot();
-    if (!resolvedRoot) return { ...EMPTY_STARTUP_CONFIG };
+    if (!resolvedRoot) return emptyStartupConfig();
     return {
       initialView: null,
       workspaceRoot: resolvedRoot,
       workspaceName: path.basename(resolvedRoot),
+      // TODO(streaming-p6): remove zone fallback flag after one stable release
+      zoneChangeDetectionFallback: readZoneChangeDetectionFallback(),
     };
   } catch (error: unknown) {
     console.error(
       '[Ptah Electron] get-startup-config read failed; answering empty:',
       error instanceof Error ? error.message : String(error),
     );
-    return { ...EMPTY_STARTUP_CONFIG };
+    return emptyStartupConfig();
   }
 }
