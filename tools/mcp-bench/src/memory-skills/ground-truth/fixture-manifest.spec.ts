@@ -149,7 +149,7 @@ describe('committed memory-skills fixtures', () => {
     }
   });
 
-  it('makes every durable fact match its own statement', async () => {
+  it('makes every durable fact match its own question-and-statement memory', async () => {
     const facts = (
       await readFile(join(fixtureDir, 'memory-facts.v1.jsonl'), 'utf8')
     )
@@ -157,7 +157,12 @@ describe('committed memory-skills fixtures', () => {
       .split('\n')
       .map((line) => factSchema.parse(JSON.parse(line)));
     for (const fact of facts.filter((fact) => fact.category !== 'abstention')) {
-      expect(matchesFact(fact, { content: fact.statement })).toBe(true);
+      expect(
+        matchesFact(fact, {
+          subject: fact.question,
+          content: fact.statement,
+        }),
+      ).toBe(true);
     }
   });
 });

@@ -35,7 +35,10 @@ import type {
 } from '../runner/net-recorder';
 import { RecordedCuratorLlm } from '../doubles/recorded-curator-llm';
 import { startNetRecorder } from '../runner/net-recorder';
-import { MODEL_DISPATCH_PROVENANCE_TAP } from '../recorder/provider-provenance';
+import {
+  MODEL_DISPATCH_PROVENANCE_TAP,
+  RecordingRejectedError,
+} from '../recorder/provider-provenance';
 import { canonicalProductSettingsSha256 } from '../runner/runner-plan';
 import {
   HOST_COMPLETION_FILE,
@@ -876,6 +879,72 @@ describe('runMemorySkillsHost', () => {
         },
       ],
     });
+  });
+
+  it('discards cassettes and preserves the rejection when diagnostics cannot be written', async () => {
+    const curatorPath = join(bench, 'curator.jsonl');
+    writePlan({
+      cassetteMode: 'record',
+      settings: {
+        'memory.curatorProvider': 'openai-codex',
+        'memory.curatorModel': 'gpt-5.6-terra',
+      },
+      cassettes: {
+        curator: { path: curatorPath, model: 'gpt-5.6-terra' },
+        laneRunner: { path: join(bench, 'lane.jsonl'), model: 'none' },
+      },
+      suites: [{ id: 'mem.extraction' }],
+    });
+    const suite: MemorySkillsHostSuite = {
+      id: 'mem.extraction',
+      run: async (context) => {
+        writeFileSync(
+          curatorPath,
+          `${JSON.stringify({
+            key: 'k1',
+            method: 'extract',
+            model: 'gpt-5.6-terra',
+            promptSha: 'ab',
+            response: { ok: true },
+          })}\n`,
+        );
+        context.container
+          .resolve<{
+            onModelDispatched(provenance: {
+              resolvedProviderId: string;
+              resolvedModelId: string;
+              component: 'memory-curator';
+              laneId: string;
+            }): void;
+          }>(MODEL_DISPATCH_PROVENANCE_TAP)
+          .onModelDispatched({
+            resolvedProviderId: 'openai',
+            resolvedModelId: 'gpt-5.6-terra',
+            component: 'memory-curator',
+            laneId: 'memory-curator',
+          });
+      },
+    };
+    let thrown: unknown;
+    try {
+      await runMemorySkillsHost(
+        deps({
+          boot: bootWith(new MemorySettings(), true),
+          suites: [suite],
+          writeRecordingRejection: () => {
+            throw new Error('diagnostic disk full');
+          },
+        }),
+      );
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(RecordingRejectedError);
+    expect((thrown as Error).message).toMatch(
+      /provenance provider openai does not match openai-codex/,
+    );
+    expect(existsSync(curatorPath)).toBe(false);
   });
 
   it('discards a staged cassette when the isolated auth file changes', async () => {

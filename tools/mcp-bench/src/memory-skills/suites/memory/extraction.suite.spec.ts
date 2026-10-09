@@ -84,11 +84,9 @@ const bank = parseDistractorBank(
 );
 const baits = bank.filter((record) => record.kind === 'distractor');
 /**
- * Share of durable facts whose own statement satisfies their R-M4 label: the
- * recall ceiling of any policy that stores the statement verbatim. Below 1
- * today because F-005 lists "google account" as forbidden while its own
- * statement says "not the active Google account" (a gt-memory@v1 label
- * defect, reported in batch-17-report.md).
+ * Share of durable facts whose fixture-faithful memory (question as subject,
+ * statement as content) satisfies its R-M4 label: the recall ceiling for the
+ * extract-all baseline below.
  */
 const durable = facts.filter((fact) => fact.category !== 'abstention');
 const selfMatchingShare =

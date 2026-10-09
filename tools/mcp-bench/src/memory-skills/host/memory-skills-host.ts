@@ -110,6 +110,19 @@ interface SdkReadinessAdapter {
   getHealth(): ProviderHealth;
 }
 
+type StagedCassette = {
+  readonly component: ModelDispatchProvenance['component'];
+  readonly path: string;
+  readonly model: string;
+  readonly entries: ReturnType<typeof readStagedCassetteEntries>;
+  readonly dispatches: readonly ModelDispatchProvenance[];
+};
+
+type RecordingRejectionWriter = (
+  plan: MemorySkillsPlan,
+  staged: readonly StagedCassette[],
+) => void;
+
 /** What a host suite receives. */
 export interface MemorySkillsHostSuiteContext {
   readonly runId: string;
@@ -196,6 +209,8 @@ export interface MemorySkillsHostDeps {
   /** The home this process resolves, for the ready line. */
   readonly homedir: () => string;
   readonly now?: () => number;
+  /** Test seam for retaining diagnostics when a record-mode acceptance fails. */
+  readonly writeRecordingRejection?: RecordingRejectionWriter;
   /** Test seam for the record-mode SDK readiness gate. */
   readonly sdkReadiness?: {
     readonly timeoutMs?: number;
@@ -364,7 +379,13 @@ export async function runMemorySkillsHost(
       );
 
       if (plan.cassetteMode === 'record') {
-        acceptRecording({ plan, provenance, codexAuth });
+        acceptRecording({
+          plan,
+          provenance,
+          codexAuth,
+          writeRejection:
+            deps.writeRecordingRejection ?? writeRecordingRejection,
+        });
       }
 
       const completion: HostCompletion = {
@@ -645,6 +666,7 @@ function acceptRecording(input: {
   readonly plan: MemorySkillsPlan;
   readonly provenance: DispatchProvenanceCollector | undefined;
   readonly codexAuth: IsolatedCodexAuth | undefined;
+  readonly writeRejection: RecordingRejectionWriter;
 }): void {
   const sides: readonly {
     readonly component: ModelDispatchProvenance['component'];
@@ -664,19 +686,18 @@ function acceptRecording(input: {
   ];
   const paths = sides.map((side) => side.path);
   if (input.provenance === undefined) {
-    writeRecordingRejection(input.plan, []);
-    throw new RecordingRejectedError(
-      'record mode did not register the provenance tap',
+    rejectRecording(
+      input.plan,
+      paths,
+      [],
+      new RecordingRejectedError(
+        'record mode did not register the provenance tap',
+      ),
+      input.writeRejection,
     );
   }
   const problems: string[] = [];
-  const staged: {
-    component: ModelDispatchProvenance['component'];
-    path: string;
-    model: string;
-    entries: ReturnType<typeof readStagedCassetteEntries>;
-    dispatches: readonly ModelDispatchProvenance[];
-  }[] = [];
+  const staged: StagedCassette[] = [];
   try {
     for (const side of sides) {
       const entries = readStagedCassetteEntries(side.path);
@@ -700,7 +721,7 @@ function acceptRecording(input: {
     }
   } catch (error: unknown) {
     if (error instanceof RecordingRejectedError) {
-      writeRecordingRejection(input.plan, staged);
+      rejectRecording(input.plan, paths, staged, error, input.writeRejection);
     }
     discardStagedCassettes(paths);
     throw error;
@@ -711,11 +732,33 @@ function acceptRecording(input: {
     );
   }
   if (problems.length > 0) {
-    writeRecordingRejection(input.plan, staged);
-    discardStagedCassettes(paths);
-    throw new RecordingRejectedError(problems.join('; '));
+    rejectRecording(
+      input.plan,
+      paths,
+      staged,
+      new RecordingRejectedError(problems.join('; ')),
+      input.writeRejection,
+    );
   }
   commitProvenanceSidecars(staged);
+}
+
+function rejectRecording(
+  plan: MemorySkillsPlan,
+  paths: readonly string[],
+  staged: readonly StagedCassette[],
+  error: RecordingRejectedError,
+  writeRejection: RecordingRejectionWriter,
+): never {
+  try {
+    writeRejection(plan, staged);
+  } catch {
+    process.stderr.write(
+      '[memory-skills] could not write recording rejection diagnostics\n',
+    );
+  }
+  discardStagedCassettes(paths);
+  throw error;
 }
 
 /**

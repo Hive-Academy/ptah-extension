@@ -137,6 +137,18 @@ describe('RecordedCuratorLlm', () => {
     ]);
   });
 
+  it('does not apply a replay fault to a model-free resolve', async () => {
+    const noRelatedKey = curatorResolveKey([DRAFT], []);
+    const noDraftsKey = curatorResolveKey([], [RELATED]);
+    const replayer = replayFrom(cassette('model-free-fault'), {
+      [noRelatedKey]: 'throw',
+      [noDraftsKey]: 'throw',
+    });
+
+    await expect(replayer.resolve([DRAFT], [])).resolves.toEqual([RESOLVED]);
+    await expect(replayer.resolve([], [RELATED])).resolves.toEqual([]);
+  });
+
   it('retains a redacted full cause chain when the live inner curator fails', async () => {
     const inner = fakeInner();
     inner.extract.mockRejectedValue(
@@ -280,13 +292,13 @@ describe('RecordedCuratorLlm', () => {
     it('returns zero drafts', async () => {
       const replayer = replayFrom(cassette('fault-zero'), {
         [key]: 'zero-drafts',
-        [curatorResolveKey([DRAFT], [])]: 'zero-drafts',
+        [curatorResolveKey([DRAFT], [RELATED])]: 'zero-drafts',
       });
       await expect(replayer.extract(TRANSCRIPT)).resolves.toEqual({
         status: 'extracted',
         drafts: [],
       });
-      await expect(replayer.resolve([DRAFT], [])).resolves.toEqual([]);
+      await expect(replayer.resolve([DRAFT], [RELATED])).resolves.toEqual([]);
     });
 
     it('times out', async () => {
@@ -322,7 +334,7 @@ describe('RecordedCuratorLlm', () => {
     });
 
     it('passes assertAllFaultsHit only after every configured key fired', async () => {
-      const resolveKey = curatorResolveKey([DRAFT], []);
+      const resolveKey = curatorResolveKey([DRAFT], [RELATED]);
       const replayer = replayFrom(cassette('fault-all-hit'), {
         [key]: 'zero-drafts',
         [resolveKey]: 'zero-drafts',
@@ -331,15 +343,15 @@ describe('RecordedCuratorLlm', () => {
       expect(() => replayer.assertAllFaultsHit()).toThrow(
         new RegExp(resolveKey.slice(0, 8)),
       );
-      await replayer.resolve([DRAFT], []);
+      await replayer.resolve([DRAFT], [RELATED]);
       expect(() => replayer.assertAllFaultsHit()).not.toThrow();
     });
 
     it('refuses the stalled fault on resolve, which has no stalled arm', async () => {
       const replayer = replayFrom(cassette('fault-stalled-resolve'), {
-        [curatorResolveKey([DRAFT], [])]: 'stalled',
+        [curatorResolveKey([DRAFT], [RELATED])]: 'stalled',
       });
-      await expect(replayer.resolve([DRAFT], [])).rejects.toThrow(
+      await expect(replayer.resolve([DRAFT], [RELATED])).rejects.toThrow(
         /not valid for resolve/,
       );
     });

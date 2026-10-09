@@ -194,14 +194,12 @@ export class RecordedCuratorLlm implements ICuratorLLM {
     this.lastFailure = null;
     this.counts.resolve++;
     const key = curatorResolveKey(drafts, related);
+    const modelFree = this.modelFreeResolution(drafts, related);
+    if (modelFree !== undefined) return modelFree;
     if (this.options.store.mode === 'replay') {
       const fault = this.faultFor(key);
       if (fault) {
         return fault.resolves(key);
-      }
-      if (drafts.length === 0) return [];
-      if (related.length === 0) {
-        return drafts.map((draft) => ({ ...draft, mergeTargetId: null }));
       }
       return this.options.store.lookup('resolve', key)
         .response as readonly ResolvedMemoryDraft[];
@@ -210,10 +208,6 @@ export class RecordedCuratorLlm implements ICuratorLLM {
     // cases (SdkInternalQueryCuratorLlm.resolve).  Recording that deterministic
     // result would manufacture a model cassette entry with no provider request
     // for the provenance gate to attest.
-    if (drafts.length === 0) return [];
-    if (related.length === 0) {
-      return drafts.map((draft) => ({ ...draft, mergeTargetId: null }));
-    }
     const response = await this.callInner(() =>
       this.requireInner().resolve(drafts, related, signal, options),
     );
@@ -227,6 +221,17 @@ export class RecordedCuratorLlm implements ICuratorLLM {
       response,
     });
     return response;
+  }
+
+  private modelFreeResolution(
+    drafts: readonly ExtractedMemoryDraft[],
+    related: readonly RelatedCandidate[],
+  ): readonly ResolvedMemoryDraft[] | undefined {
+    if (drafts.length === 0) return [];
+    if (related.length === 0) {
+      return drafts.map((draft) => ({ ...draft, mergeTargetId: null }));
+    }
+    return undefined;
   }
 
   private faultFor(key: string): CuratorFault | null {
