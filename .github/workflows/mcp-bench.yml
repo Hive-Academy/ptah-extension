@@ -184,6 +184,10 @@ jobs:
       - name: Rebuild required native modules for runner Node ABI
         run: npm rebuild better-sqlite3 esbuild
 
+      # `npm ci --ignore-scripts` skips Electron's binary downloader; this job launches Electron.
+      - name: Install Electron binary
+        run: node node_modules/electron/install.js
+
       - name: Run bench
         id: bench
         run: |

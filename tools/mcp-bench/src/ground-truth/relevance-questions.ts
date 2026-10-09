@@ -32,7 +32,7 @@
 import { execFileSync } from 'node:child_process';
 import { z } from 'zod';
 import { compareCodeUnits } from '../utils/compare-code-units';
-import { getGitExecutable } from '../utils/git-executable';
+import { getGhExecutable, getGitExecutable } from '../utils/git-executable';
 
 /** File extensions eligible for corpus questions (mirrors corpus.config.json). */
 export const ELIGIBLE_EXTENSIONS: readonly string[] = [
@@ -222,7 +222,7 @@ function resolveRepository(repoRoot: string): {
   name: string;
 } {
   const stdout = execFileSync(
-    'gh',
+    getGhExecutable(),
     ['repo', 'view', '--json', 'nameWithOwner'],
     { cwd: repoRoot, encoding: 'utf8' },
   );
@@ -251,7 +251,7 @@ function fetchPullRequestPage(
       if (cursor !== undefined) {
         args.push('-f', `cursor=${cursor}`);
       }
-      const stdout = execFileSync('gh', args, {
+      const stdout = execFileSync(getGhExecutable(), args, {
         cwd: repoRoot,
         encoding: 'utf8',
         maxBuffer: 64 * 1024 * 1024,

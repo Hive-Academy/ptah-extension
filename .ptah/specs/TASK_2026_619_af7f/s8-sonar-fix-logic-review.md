@@ -134,3 +134,64 @@ Recommended, not blocking: M-1 (keep the lock enqueue synchronous), M-2 (`"/"` g
 APPROVE WITH FIXES.
 - Confidence: HIGH on Q1-Q3 (read in full); MEDIUM on Q4 (inferred from package metadata and workflow text, no CI run).
 - Top risk: the electron nightly bench loses its Electron binary, and the text-location parser silently degrades scoring.
+
+---
+
+# Round 2 (working-tree diff on HEAD 41b384c1b) - static review
+
+Verdict: APPROVE. Score 8/10. 0 blocking, 0 serious, 3 minor. Must fix before merge: none.
+
+| Fix | Result |
+| --- | --- |
+| A. shared resolver (`utils/git-executable.ts`) | Correct. |
+| B. Electron install step | Correct (see caveat). |
+| C. `parseTextLocations` | Equivalent to the pre-6a05846f8 code. |
+| D1. `deleteFileSymbols` | Correct. |
+| D2. `requestFullRun` | Correct, one stale-field nit. |
+| D3. root `/` | Correct and intended, but a deliberate change from the pre-6a05846f8 behaviour. |
+
+## A. Resolver (`git-executable.ts`)
+- **Caching:** a `Map<name, path>` is filled only after the `--version` check passes (line 37). A hit returns early (`if (cached)`), so git and gh each resolve once. Failures are not cached; this matches the earlier `??=` behaviour, which also re-ran after a throw. The cache is keyed by name only, so a later change to `GIT_PATH` or `GH_PATH` is ignored, same as before.
+- **Windows `.exe` preference:** kept in `findExecutableOnPath`, which picks the first `*.exe` candidate on `win32` and `candidates[0]` elsewhere.
+- **Error messages:** the git messages are character-identical after templating (`Unable to find git: set GIT_PATH or make git available on PATH.` and `Unable to run git at <exe>: <detail>.`). gh gets the matching `GH_PATH` text.
+- **Call sites:** `main.ts:195`, `native-baselines.ts:481`, and `relevance-questions.ts` (git plus the two gh sites at ~225 and ~254) all use the resolver. Because `getGitExecutable()` is evaluated inside the existing try/`async` bodies, failures stay rejections or caught errors. Behavioural delta (intended): git and gh are now validated with `--version` up front, and a missing tool gives a clearer error than ENOENT.
+- **`rg-runner.resolveRg`:** unchanged where it matters.
+  - `RG_PATH` handling (trim, strip surrounding double quotes) is untouched.
+  - The injected `lookup` still takes precedence (`options.lookup ?? findExecutablesOnPath`).
+  - `findExecutablesOnPath` returns `[]` where the old `lookupOnPath` returned `undefined`, but `resolveRg` normalizes both with `found ?? []`, so empty and failed lookups both reach the same "Unable to find ripgrep" error.
+  - A string result is still wrapped. The `.exe` filter, selected by the injected `platform`, is unchanged.
+  - The old `lookupOnPath` collapsed empty output to `undefined`; this makes no observable difference.
+
+## B. Workflow
+`mcp-bench.yml` now runs `node node_modules/electron/install.js` after the rebuild step, in `bench-electron` only. This restores the binary download that `--ignore-scripts` skipped, and the script is idempotent when the binary exists. It resolves S-1.
+- Residual (pre-existing, not from this change): the job still does not build `dist/apps/ptah-electron/main.mjs` (`electron-host.ts:263`), and `npm rebuild better-sqlite3` leaves a Node-ABI sqlite, so the electron host may still report `na`. The note on the step is accurate.
+
+## C. `parseTextLocations`
+New regex: `/([^\s`'"|]+?):(\d+)(?=[:\s`\|]|$)/g`. The old code used the same pattern with the `gm` flags.
+- `\|` inside a character class is the same as `|`.
+- Dropping the `m` flag is safe: the only effect of `m` on `$` is to also match before a line terminator, and every line terminator (`\n`, `\r`, `\u2028`, `\u2029`) is already matched by `\s` in the lookahead. So the match sets are equal. `matchAll` plus `Array.from` with `match[1]` and `match[2]` gives the same captures.
+- Resolves S-2 (`a.ts:12:5` yields only `a.ts:12`; quoted `"a.ts:3"` is again not matched).
+- Minor (m-1, pre-existing and the reason Sonar flagged it): the lazy `+?` inside a token with no `:digits` is quadratic in token length. A single 20k-character token without a colon costs about n^2/2 steps (hundreds of millions of steps). The added spec uses a matching token (`x*20000:42`), which exits fast, so it does not exercise the slow path. Realistic only for minified-file hits. Not a regression versus pre-6a05846f8.
+
+## D1. `deleteFileSymbols`
+It is non-`async`; the normalize and `graphPathIdentity` calls are in a try that returns `Promise.reject(error)`, then `withFileLock(identity, ...)` is called synchronously. `withFileLock` is `async` and reaches `this.fileLocks.set(...)` before its first `await`, so the queue slot is taken at call time, as in the original `async` version. Order against an immediately following `reindexFile` is preserved. The tombstone and sink call run inside the lock callback, as before. `AsyncLocalStorage` context is unaffected. This resolves M-1. (`replaceAll` replaces the old regex; same result.)
+
+## D2. `requestFullRun`
+```
+try { pending = Promise.resolve(indexer.indexWorkspace(...)); }
+catch (e) { if (isAbort(e)) return; pending = Promise.reject(e); }
+```
+- This matches the pre-6a05846f8 behaviour for a sync abort (silent return, no `followUp`).
+- A sync non-abort throw becomes a rejection and goes through the existing `.catch`: it reports unless disposed or aborted, and `.finally` clears `runAbort`/`fullRun`. This is equivalent to the old direct report.
+- Minor (m-2): on the silent abort path the code returns without the old `if (this.runAbort === controller) this.runAbort = undefined;`. The stale controller stays in `runAbort` (`workspace-index-lifecycle.ts:373`) until the next run overwrites it or disposal aborts it (lines 258-259, harmless). No reader depends on it being undefined, so no functional impact. Cheap to restore for exact parity.
+- This resolves M-3.
+
+## D3. Root `/`
+`trimTrailingSlash` stops at length 1 (`end > 1`) and `isWithinWorkspace` special-cases root `/`, so `/a/b` relative to `/` now gives `a/b` and `/` stays `/`. This fixes M-2. Note this is intentionally not identical to the pre-6a05846f8 code, where root `/` made `startsWith('//')` false and left the path unrelativised. It is an improvement and only affects a filesystem-root workspace. Slash runs are collapsed before this function, so `end > 1` loses nothing else.
+
+## Minor items
+- m-1: quadratic lazy regex above (pre-existing).
+- m-2: `runAbort` left set on the sync-abort return.
+- m-3: Electron job still lacks the `dist/apps/ptah-electron/main.mjs` build (pre-existing).
+
+Must fix before merge: none.

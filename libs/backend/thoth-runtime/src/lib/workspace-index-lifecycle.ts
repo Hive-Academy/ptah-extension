@@ -371,13 +371,17 @@ export class WorkspaceIndexLifecycleService {
     }
     const controller = new AbortController();
     this.runAbort = controller;
-    const pending = new Promise<unknown>((resolvePromise) =>
-      resolvePromise(
+    let pending: Promise<unknown>;
+    try {
+      pending = Promise.resolve(
         this.indexer.indexWorkspace(this.workspaceRoot, {
           signal: controller.signal,
         }),
-      ),
-    );
+      );
+    } catch (error) {
+      if (isAbort(error)) return;
+      pending = Promise.reject(error);
+    }
     // degradation-audit: reported - non-abort failures are forwarded through onError; aborts are expected when disposal cancels the run.
     this.fullRun = pending
       .then(() => undefined)

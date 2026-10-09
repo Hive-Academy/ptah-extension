@@ -1,19 +1,31 @@
 import { execFileSync } from 'node:child_process';
 import { isAbsolute, resolve } from 'node:path';
 
-let resolvedGit: string | undefined;
+const resolvedExecutables = new Map<string, string>();
 
 /** Resolves and validates git once, so invocations never delegate command lookup to PATH. */
 export function getGitExecutable(): string {
-  resolvedGit ??= resolveGitExecutable();
-  return resolvedGit;
+  return resolveExecutable('git', 'GIT_PATH');
 }
 
-function resolveGitExecutable(): string {
-  const configured = process.env['GIT_PATH']?.trim();
-  const candidate = configured ? normalizePath(configured) : findGitOnPath();
+/** Resolves and validates GitHub CLI once, so invocations never delegate command lookup to PATH. */
+export function getGhExecutable(): string {
+  return resolveExecutable('gh', 'GH_PATH');
+}
+
+/** Resolves and validates an executable once, so invocations never delegate command lookup to PATH. */
+export function resolveExecutable(name: string, envVar: string): string {
+  const cached = resolvedExecutables.get(name);
+  if (cached) return cached;
+
+  const configured = process.env[envVar]?.trim();
+  const candidate = configured
+    ? normalizePath(configured)
+    : findExecutableOnPath(name);
   if (!candidate)
-    throw new Error('Unable to find git: set GIT_PATH or make git available on PATH.');
+    throw new Error(
+      `Unable to find ${name}: set ${envVar} or make ${name} available on PATH.`,
+    );
   const executable = isAbsolute(candidate) ? candidate : resolve(candidate);
   try {
     execFileSync(executable, ['--version'], {
@@ -22,10 +34,11 @@ function resolveGitExecutable(): string {
     });
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
-    throw new Error(`Unable to run git at ${executable}: ${detail}.`, {
+    throw new Error(`Unable to run ${name} at ${executable}: ${detail}.`, {
       cause: error,
     });
   }
+  resolvedExecutables.set(name, executable);
   return executable;
 }
 
@@ -35,10 +48,18 @@ function normalizePath(value: string): string {
     : value;
 }
 
-function findGitOnPath(): string | undefined {
+function findExecutableOnPath(name: string): string | undefined {
+  const candidates = findExecutablesOnPath(name);
+  return process.platform === 'win32'
+    ? candidates.find((candidate) => /\.exe$/iu.test(candidate))
+    : candidates[0];
+}
+
+/** Looks up an executable on PATH. Command lookup is deliberately centralized here. */
+export function findExecutablesOnPath(name: string): string[] {
   try {
     const lookup = process.platform === 'win32' ? 'where' : 'which';
-    const candidates = execFileSync(lookup, ['git'], {
+    return execFileSync(lookup, [name], {
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'ignore'],
       windowsHide: true,
@@ -46,10 +67,7 @@ function findGitOnPath(): string | undefined {
       .split(/\r?\n/u)
       .map((line) => line.trim())
       .filter((line) => line.length > 0);
-    return process.platform === 'win32'
-      ? candidates.find((candidate) => /\.exe$/iu.test(candidate))
-      : candidates[0];
   } catch {
-    return undefined;
+    return [];
   }
 }

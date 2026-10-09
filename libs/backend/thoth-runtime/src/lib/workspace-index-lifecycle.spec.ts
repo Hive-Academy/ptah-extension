@@ -153,6 +153,22 @@ describe('WorkspaceIndexLifecycleService', () => {
     );
   });
 
+  it('silently returns when indexWorkspace synchronously throws an abort error', async () => {
+    const indexer = {
+      indexWorkspace: jest.fn(() => {
+        throw abortError();
+      }),
+      reindexFile: jest.fn().mockResolvedValue(undefined),
+      deleteFileSymbols: jest.fn().mockReturnValue(0),
+    } as unknown as ReturnType<typeof makeIndexer>;
+
+    const { onError } = start({ indexer });
+    await flush();
+
+    expect(onError).not.toHaveBeenCalled();
+    expect(indexer.indexWorkspace).toHaveBeenCalledTimes(1);
+  });
+
   it('replaces and reports when a census owned by another caller aborts', async () => {
     let rejectJoined!: (error: unknown) => void;
     const joined = new Promise<void>((_resolve, reject) => {
