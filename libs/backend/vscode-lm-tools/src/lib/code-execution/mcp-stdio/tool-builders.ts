@@ -122,7 +122,7 @@ export function buildMcpAgentWaitTool(): MCPToolDefinition {
 }
 
 export function buildMcpRunCheckTool(): MCPToolDefinition {
-  return rename(buildRunCheckTool(), 'run_check');
+  return rename(buildRunCheckTool({ transport: 'stdio' }), 'run_check');
 }
 
 /**

@@ -31,6 +31,7 @@ import { killProcessTree } from '@ptah-extension/platform-core';
 import type { MCPToolDefinition } from '../types';
 import {
   DEFAULT_RUN_CHECK_TIMEOUT_SEC,
+  HTTP_MAX_AGENT_WAIT_SEC,
   MAX_WAIT_TIMEOUT_SEC,
   RUN_CHECK_TARGETS,
   WAIT_SUMMARY_MAX_CHARS,
@@ -118,6 +119,8 @@ export interface RunCheckDependencies {
   readonly signal?: AbortSignal;
   /** Directory for full logs. Default `<workspaceRoot>/.ptah/tmp/checks`. */
   readonly logDirectory?: string;
+  /** Called as soon as the full-log path is available (HTTP job observability). */
+  readonly onLogOpened?: (path: string | undefined) => void;
   /** Clock (epoch ms). Default `Date.now`. */
   readonly now?: () => number;
 }
@@ -137,25 +140,31 @@ export interface RunCheckStructuredResult {
   readonly cwd: string;
   readonly project: string;
   readonly targets: readonly RunCheckTarget[];
-  readonly verdict: 'passed' | 'failed' | 'timed_out' | 'cancelled' | 'not_run';
+  readonly verdict:
+    'passed' | 'failed' | 'timed_out' | 'cancelled' | 'not_run' | 'running';
   readonly exitCode: number | null;
   readonly logPath?: string;
+  readonly jobId?: string;
 }
 
 type TargetResult = 'passed' | 'failed' | 'not run' | 'incomplete' | 'unknown';
 
-export function buildRunCheckTool(): MCPToolDefinition {
+export function buildRunCheckTool({
+  transport = 'http',
+}: { transport?: 'http' | 'stdio' } = {}): MCPToolDefinition {
+  const httpCap =
+    transport === 'http'
+      ? ` HTTP calls block at most ${HTTP_MAX_AGENT_WAIT_SEC} s; a longer check returns a jobId — collect it with ptah_run_check_wait.`
+      : '';
   return {
     name: RUN_CHECK_TOOL_NAME,
     description:
       `Run Nx targets (${RUN_CHECK_TARGETS.join(', ')}) for ONE project in your declared workspace ` +
-      '(worktrees inside an open workspace folder too) and ' +
-      'block until done. Runs `nx run-many -t <targets> -p <project> --outputStyle=static` ' +
-      'with the workspace-local Nx, no shell. Returns exit code, duration, per-target result and ' +
-      `the last lines of a failing run in at most ${WAIT_SUMMARY_MAX_CHARS} chars; the full log is ` +
-      'written under .ptah/tmp/checks/ (path in the reply). ' +
-      `timeoutSec (1-${MAX_WAIT_TIMEOUT_SEC}, default ${DEFAULT_RUN_CHECK_TIMEOUT_SEC}): on timeout ` +
-      'the process tree is killed and the reply says so.',
+      '(worktrees inside an open workspace folder too). Uses workspace-local Nx, no shell. ' +
+      `Returns exit code, duration, per-target result and failing tail (at most ${WAIT_SUMMARY_MAX_CHARS} chars); ` +
+      'the full log is under .ptah/tmp/checks/. ' +
+      `timeoutSec (1-${MAX_WAIT_TIMEOUT_SEC}, default ${DEFAULT_RUN_CHECK_TIMEOUT_SEC}) kills its tree on timeout.` +
+      httpCap,
     inputSchema: {
       type: 'object',
       properties: {
@@ -230,6 +239,7 @@ export async function runCheck(
     args.project,
     now(),
   );
+  deps.onLogOpened?.(log.path);
   log.write(`$ ${node} ${argv.join(' ')}\n(cwd ${root})\n\n`);
 
   const collector = new OutputCollector(args.project);
@@ -367,6 +377,24 @@ export function formatRunCheckSummary(input: RunCheckSummaryInput): string {
     used += line.length;
   }
   return clamp(kept.length > 0 ? `${fixed}${heading}${kept.join('')}` : fixed);
+}
+
+/** A short, repeat-safe HTTP job reply. */
+export function formatRunCheckRunning(input: {
+  readonly jobId: string;
+  readonly project: string;
+  readonly targets: readonly RunCheckTarget[];
+  readonly elapsedMs: number;
+  readonly logPath?: string;
+  readonly cwd: string;
+}): string {
+  const seconds = (input.elapsedMs / 1000).toFixed(1);
+  return clamp(
+    `ptah_run_check ${input.project} [${input.targets.join(', ')}]: RUNNING, ${seconds}s.\n` +
+      `Job: ${input.jobId}\nRan in: ${input.cwd}\n` +
+      `Full log: ${input.logPath ?? '.ptah/tmp/checks (opening)'}\n` +
+      'Call ptah_run_check_wait with this jobId to collect or cancel it.',
+  );
 }
 
 function logLine(input: RunCheckSummaryInput): string {

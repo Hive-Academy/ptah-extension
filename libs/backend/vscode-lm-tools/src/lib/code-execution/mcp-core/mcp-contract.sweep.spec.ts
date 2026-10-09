@@ -1346,6 +1346,8 @@ const CONTROL_TOOL_EXCEPTIONS: Readonly<Record<string, string>> = {
     'control/UI: answers the host permission prompt with an allow/deny decision; it never returns model-facing content to budget',
   ptah_run_check:
     'process launcher: it runs the workspace-local Nx in a child process, which this in-process sweep cannot fake through the PtahAPI stub. Its reply is self-bounded at WAIT_SUMMARY_MAX_CHARS (4,000), asserted in run-check.tool.spec.ts; both surfaces are pinned in agent-spawn-surface-parity.spec.ts',
+  ptah_run_check_wait:
+    'process-job collector: it only observes or cancels the in-memory run_check job. Its reply is self-bounded at WAIT_SUMMARY_MAX_CHARS (4,000), asserted in run-check job specs.',
 };
 
 /**
@@ -1362,6 +1364,7 @@ const OWN_WINDOWING_TOOLS = new Set<string>([
   // Bounded at WAIT_SUMMARY_MAX_CHARS; its size bound is asserted in
   // agent-wait.tool.spec.ts.
   'ptah_agent_wait',
+  'ptah_run_check_wait',
 ]);
 
 /** Every tool this file does not (yet) drive; used only to build a clear failure message. */
@@ -1434,7 +1437,11 @@ function spoolDirPath(): string {
 /** Portable spool discovery (r1 defect 8): a directory snapshot, never a regex over a printed path. */
 function snapshotSpoolFiles(): Set<string> {
   const dir = spoolDirPath();
-  return new Set(fs.existsSync(dir) ? fs.readdirSync(dir).filter((n) => n !== '.gitignore') : []);
+  return new Set(
+    fs.existsSync(dir)
+      ? fs.readdirSync(dir).filter((n) => n !== '.gitignore')
+      : [],
+  );
 }
 
 function newSpoolFiles(before: ReadonlySet<string>): string[] {
@@ -1885,12 +1892,12 @@ describe('coverage matrix — served tools across host, caller and transport (de
     // Pinned at this HEAD (2026-09-27): update deliberately if the served
     // set legitimately changes. 62 in total: the five ptah_session_* tools
     // (TASK_2026_584) and ptah_session_link_task (TASK_2026_580); coding
-    // drops the 3 Apps-only tools (TASK_2026_595). +2 (TASK_2026_597 Batch
-    // 34): ptah_agent_wait and ptah_run_check.
-    expect(namesPerCaller[0]).toHaveLength(61);
+    // drops the 3 Apps-only tools (TASK_2026_595). +3: agent_wait,
+    // run_check and HTTP-only run_check_wait.
+    expect(namesPerCaller[0]).toHaveLength(62);
   });
 
-  it('HTTP coding without IDE capabilities serves 58 tools, identically across caller kinds, minus exactly the 3 IDE-gated tools', async () => {
+  it('HTTP coding without IDE capabilities serves 59 tools, identically across caller kinds, minus exactly the 3 IDE-gated tools', async () => {
     const deps = buildDeps({}, { hasIDECapabilities: false });
     const callers: Array<Partial<MCPRequest>> = [
       {},
@@ -1911,8 +1918,8 @@ describe('coverage matrix — served tools across host, caller and transport (de
     for (const names of namesPerCaller.slice(1)) {
       expect(names).toEqual(namesPerCaller[0]);
     }
-    // 61 in total minus the 3 Apps-only tools; see the note above.
-    expect(namesPerCaller[0]).toHaveLength(58);
+    // 62 in total minus the 3 Apps-only tools; see the note above.
+    expect(namesPerCaller[0]).toHaveLength(59);
     for (const ideOnly of [
       'ptah_lsp_references',
       'ptah_lsp_definitions',
@@ -1950,7 +1957,7 @@ describe('coverage matrix — served tools across host, caller and transport (de
             deps,
           ),
         );
-        expect(apps).toHaveLength(hasIDECapabilities ? 64 : 61);
+        expect(apps).toHaveLength(hasIDECapabilities ? 65 : 62);
         expect(apps.filter((name) => !APPS_ONLY_TOOL_NAMES.has(name))).toEqual(
           coding,
         );
@@ -2393,6 +2400,7 @@ describe('MCP dispatcher contract sweep (TASK_2026_559 Batch 21, Task 21.1)', ()
       // TASK_2026_597 Batch 34, measured 2026-10-04: 498 and 491 chars.
       ptah_agent_wait: 548,
       ptah_run_check: 540,
+      ptah_run_check_wait: 320,
     };
     const tools = await listAllTools();
     const violations: string[] = [];

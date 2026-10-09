@@ -100,3 +100,19 @@ export const RunCheckArgsSchema = z
   .strict();
 
 export type RunCheckArgs = z.infer<typeof RunCheckArgsSchema>;
+
+/** Arguments for the HTTP-only collection/cancellation side of run_check jobs. */
+export const RunCheckWaitArgsSchema = z
+  .object({
+    jobId: z.string().uuid().max(128),
+    timeoutSec: z
+      .number()
+      .int()
+      .min(0)
+      .max(MAX_WAIT_TIMEOUT_SEC)
+      .default(HTTP_MAX_AGENT_WAIT_SEC),
+    cancel: z.boolean().optional(),
+  })
+  .strict();
+
+export type RunCheckWaitArgs = z.infer<typeof RunCheckWaitArgsSchema>;

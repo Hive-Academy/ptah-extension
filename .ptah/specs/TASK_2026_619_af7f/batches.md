@@ -97,20 +97,20 @@ Assumptions:
   repository root resolved via `git rev-parse --git-common-dir`. Stored `workspace_root` values are
   never rewritten (no write-path change). Task 34.2 checks this.
 
-| Risk | Severity | Mitigation |
-| --- | --- | --- |
-| The research's transport assumption (B5) is false. `ptah mcp-serve` serves only the 10 agent MVP tools (`libs\backend\vscode-lm-tools\src\lib\code-execution\mcp-stdio\tool-builders.ts:58-69`), and the CLI never starts the code-execution HTTP MCP (`startCodeExecutionMcp` is called only at `apps\ptah-electron\src\activation\wire-runtime.ts:409` and in VS Code `post-init.ts:38`). | HIGH | The bench "cli" host is a bench-owned child process. It boots the CLI DI container and calls `startCodeExecutionMcp`, so the calls exercise the real HTTP transport, the protocol-dispatcher and the CLI adapters with no product change (Tasks 3.2-3.3). The scorecard labels this host `cli-headless`. The Electron host is measured over its real HTTP MCP (Batch 4). The Mode 3 summary reports this finding to the user: CLI agents have no code-intelligence MCP surface today. |
-| The benchmark writes to the user's real `~/.ptah` DB: memory seeding or index runs could corrupt the live state. | HIGH | The bench host runs with `HOME`/`USERPROFILE` pointed at a temp dir and an explicit `userDataPath`. A guard hashes and stats the real `~/.ptah/state/ptah.sqlite` before and after every run and fails on change (Task 3.3). Electron attach mode skips the memory and lifecycle suites (Task 4.1). |
-| The language server uses about 1.7 GB RSS for TS on this repo (research A3) and can starve the Electron main process. | HIGH | The language servers run under a separate host process with a memory ceiling (`execArgv --max-old-space-size`, the tsserver memory option, and `GOMEMLIMIT` for gopls), plus an RSS sampler that restarts above the ceiling (Tasks 19.1, 20.1). Batch 21's contract suite pins the restart behaviour. |
-| Grandchild language servers (pyright, gopls, tsserver) escape the host's own heap ceiling. | MEDIUM | Each recipe sets a server-specific limit, and the supervisor samples the RSS of the whole host process tree (Task 20.1). |
-| Raising the 2,000-file cap raises first-run index time and DB size (about 40k rows expected). | MEDIUM | Measured in Batch 11 (first scorecard). The boot run is governed and debounced (Batch 13). Batch 12 reports index time and DB size. |
-| Phase 2 tuning overfits the relevance benchmark. | MEDIUM | Batch 6 freezes a held-out PR split. Batch 17 may tune only on the tuning split; the held-out split is scored once per batch. |
-| Persisted migrations (run summary, dependency graph) collide with migration numbering on main. | MEDIUM | Each migration batch takes the next free number at execution time and runs the persistence-sqlite migration specs (Batches 15 and 27). The Mode 3 write-path trace covers both. |
-| Moving VS Code's inline index and save-reindex logic into a shared service drops behaviour. | MEDIUM | Task 14.1 carries a preserve list: activation run, save-reindex debounce (`wire-runtime.ts:216-246`) and non-fatal error logging. A spec pins each item. |
-| The ECONNRESET cause is not reproduced. | LOW | Batch 35 is conditional on the Phase 1 transport scenario (Task 9.2, scenario 8). If no resets are recorded, the batch closes with evidence and no code. |
-| The Electron host is unavailable in CI (headless launch). | MEDIUM | Batch 4 supports launch and attach modes. CI runs `cli-headless` on PRs, and Electron runs nightly in the electron-e2e environment or locally. A missing host shows in the scorecard as `na` with a reason, never as a pass. |
-| The prompt mandates `ptah_relevance_rank_files` and others while they fail. | LOW | Phase 1 records the failure. Batch 37's manifest check fails when an eager tool fails its suite or a failing tool is MANDATORY, which surfaces it to the user instead of editing the claim. |
-| `rg` is not first-party in Phase 1 (only a transitive `@cursor/sdk` copy). | LOW | The bench resolves `rg` from `RG_PATH` or `PATH`, and CI installs ripgrep via apt (Task 8.1). No package.json change happens in Phase 1. |
+| Risk                                                                                                                                                                                                                                                                                                                                                                                        | Severity | Mitigation                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The research's transport assumption (B5) is false. `ptah mcp-serve` serves only the 10 agent MVP tools (`libs\backend\vscode-lm-tools\src\lib\code-execution\mcp-stdio\tool-builders.ts:58-69`), and the CLI never starts the code-execution HTTP MCP (`startCodeExecutionMcp` is called only at `apps\ptah-electron\src\activation\wire-runtime.ts:409` and in VS Code `post-init.ts:38`). | HIGH     | The bench "cli" host is a bench-owned child process. It boots the CLI DI container and calls `startCodeExecutionMcp`, so the calls exercise the real HTTP transport, the protocol-dispatcher and the CLI adapters with no product change (Tasks 3.2-3.3). The scorecard labels this host `cli-headless`. The Electron host is measured over its real HTTP MCP (Batch 4). The Mode 3 summary reports this finding to the user: CLI agents have no code-intelligence MCP surface today. |
+| The benchmark writes to the user's real `~/.ptah` DB: memory seeding or index runs could corrupt the live state.                                                                                                                                                                                                                                                                            | HIGH     | The bench host runs with `HOME`/`USERPROFILE` pointed at a temp dir and an explicit `userDataPath`. A guard hashes and stats the real `~/.ptah/state/ptah.sqlite` before and after every run and fails on change (Task 3.3). Electron attach mode skips the memory and lifecycle suites (Task 4.1).                                                                                                                                                                                   |
+| The language server uses about 1.7 GB RSS for TS on this repo (research A3) and can starve the Electron main process.                                                                                                                                                                                                                                                                       | HIGH     | The language servers run under a separate host process with a memory ceiling (`execArgv --max-old-space-size`, the tsserver memory option, and `GOMEMLIMIT` for gopls), plus an RSS sampler that restarts above the ceiling (Tasks 19.1, 20.1). Batch 21's contract suite pins the restart behaviour.                                                                                                                                                                                 |
+| Grandchild language servers (pyright, gopls, tsserver) escape the host's own heap ceiling.                                                                                                                                                                                                                                                                                                  | MEDIUM   | Each recipe sets a server-specific limit, and the supervisor samples the RSS of the whole host process tree (Task 20.1).                                                                                                                                                                                                                                                                                                                                                              |
+| Raising the 2,000-file cap raises first-run index time and DB size (about 40k rows expected).                                                                                                                                                                                                                                                                                               | MEDIUM   | Measured in Batch 11 (first scorecard). The boot run is governed and debounced (Batch 13). Batch 12 reports index time and DB size.                                                                                                                                                                                                                                                                                                                                                   |
+| Phase 2 tuning overfits the relevance benchmark.                                                                                                                                                                                                                                                                                                                                            | MEDIUM   | Batch 6 freezes a held-out PR split. Batch 17 may tune only on the tuning split; the held-out split is scored once per batch.                                                                                                                                                                                                                                                                                                                                                         |
+| Persisted migrations (run summary, dependency graph) collide with migration numbering on main.                                                                                                                                                                                                                                                                                              | MEDIUM   | Each migration batch takes the next free number at execution time and runs the persistence-sqlite migration specs (Batches 15 and 27). The Mode 3 write-path trace covers both.                                                                                                                                                                                                                                                                                                       |
+| Moving VS Code's inline index and save-reindex logic into a shared service drops behaviour.                                                                                                                                                                                                                                                                                                 | MEDIUM   | Task 14.1 carries a preserve list: activation run, save-reindex debounce (`wire-runtime.ts:216-246`) and non-fatal error logging. A spec pins each item.                                                                                                                                                                                                                                                                                                                              |
+| The ECONNRESET cause is not reproduced.                                                                                                                                                                                                                                                                                                                                                     | LOW      | Batch 35 is conditional on the Phase 1 transport scenario (Task 9.2, scenario 8). If no resets are recorded, the batch closes with evidence and no code.                                                                                                                                                                                                                                                                                                                              |
+| The Electron host is unavailable in CI (headless launch).                                                                                                                                                                                                                                                                                                                                   | MEDIUM   | Batch 4 supports launch and attach modes. CI runs `cli-headless` on PRs, and Electron runs nightly in the electron-e2e environment or locally. A missing host shows in the scorecard as `na` with a reason, never as a pass.                                                                                                                                                                                                                                                          |
+| The prompt mandates `ptah_relevance_rank_files` and others while they fail.                                                                                                                                                                                                                                                                                                                 | LOW      | Phase 1 records the failure. Batch 37's manifest check fails when an eager tool fails its suite or a failing tool is MANDATORY, which surfaces it to the user instead of editing the claim.                                                                                                                                                                                                                                                                                           |
+| `rg` is not first-party in Phase 1 (only a transitive `@cursor/sdk` copy).                                                                                                                                                                                                                                                                                                                  | LOW      | The bench resolves `rg` from `RG_PATH` or `PATH`, and CI installs ripgrep via apt (Task 8.1). No package.json change happens in Phase 1.                                                                                                                                                                                                                                                                                                                                              |
 
 Edge cases:
 
@@ -636,8 +636,8 @@ Batch 4d findings recorded at Mode 2 (report:
 - Mapping for Task 9.3: the guard's `unprobedProcesses` maps onto scorecard `run.guard.unprobed`
   (`scorecard.types.ts:133`, `:191`), and the guard's `partial` maps onto `run.guard.partial`.
 - Mode 2 checks (team-leader): `npx prettier --check tools/mcp-bench/src` is clean. `npx nx run-many -t
-  typecheck,lint,test -p mcp-bench --skip-nx-cache` passed (3 targets, 1m 13s). `git diff -- libs
-  apps` is empty. `build-host` and the 20-shutdown smoke come from the executor report.
+typecheck,lint,test -p mcp-bench --skip-nx-cache` passed (3 targets, 1m 13s). `git diff -- libs
+apps` is empty. `build-host` and the 20-shutdown smoke come from the executor report.
 
 - Recommended executor: backend-developer subagent
 - Fallback executor: senior-tester subagent
@@ -822,8 +822,8 @@ Batch 5 findings recorded at Mode 2 (report:
 - Hand-off to Task 9.1: dependents questions declare `pathForms: ['relative', 'absolute']`. The
   absolute form must be joined to that run's fresh corpus root (not the generation-time temp root).
 - Mode 2 checks (team-leader, combined tree with Batch 6): `npx prettier --check
-  tools/mcp-bench/src/ground-truth tools/mcp-bench/questions` clean; `npx nx run-many -t
-  typecheck,lint,test -p mcp-bench --skip-nx-cache` passed (3 targets, 1m 26s; Nx flagged `lint`
+tools/mcp-bench/src/ground-truth tools/mcp-bench/questions` clean; `npx nx run-many -t
+typecheck,lint,test -p mcp-bench --skip-nx-cache` passed (3 targets, 1m 26s; Nx flagged `lint`
   as flaky from history, and it passed this run); `git diff -- libs apps` empty; no TODO, FIXME,
   PLACEHOLDER or STUB markers under `ground-truth\`.
 
@@ -1002,7 +1002,7 @@ Batch 7 findings recorded at Mode 2 (report:
   scores references against the TS truth (primary) and reports the SCIP-strict set as a second view
   (carried into Task 9.1).
 - Mode 2 checks (team-leader): `npx nx run-many -t typecheck,lint,test -p mcp-bench
-  --skip-nx-cache` passed (3 targets, 1m 30s; one `max-lines` warning, see deviation 3); `npx prettier --check` on the batch's files clean;
+--skip-nx-cache` passed (3 targets, 1m 30s; one `max-lines` warning, see deviation 3); `npx prettier --check` on the batch's files clean;
   `git diff -- libs apps` empty.
 
 - Recommended executor: CLI lane x 1
@@ -1057,7 +1057,7 @@ Batch 8 findings recorded at Mode 2 (report:
   - one root served rg and git, so rg searched the repository and leaked the frozen question JSON;
   - `git log` overflowed `maxBuffer`;
   - memory's git calls used the wrong root.
-  The revision cap (2 rounds) was reached; no defect is left open.
+    The revision cap (2 rounds) was reached; no defect is left open.
 - Real-question smoke (orchestrator, pinned extract, `gitRoot` = the worktree): every suite answers.
   Definitions hit 4 of 5 sampled call sites in the top 10; symbols-exact 3/3; dependents 2/2;
   text 4/4. Relevance (rg) hit 1 of 3 in the top 10 with about 0.8-1.0 M characters of output per
@@ -1089,9 +1089,9 @@ Batch 8 findings recorded at Mode 2 (report:
   skip it. This adds `tools\mcp-bench\src\baselines\native-baselines.spec.ts` to Task 10.2 (one
   file; the batch stays under the cap).
 - Mode 2 checks (team-leader): with `RG_PATH` set, `npx nx run-many -t typecheck,lint,test -p
-  mcp-bench --skip-nx-cache` passed (3 targets, 2m 43s); `npx prettier --check
-  tools/mcp-bench/src/baselines` clean; no TODO, FIXME, PLACEHOLDER or STUB markers; `git diff --
-  libs apps` empty.
+mcp-bench --skip-nx-cache` passed (3 targets, 2m 43s); `npx prettier --check
+tools/mcp-bench/src/baselines` clean; no TODO, FIXME, PLACEHOLDER or STUB markers; `git diff --
+libs apps` empty.
 
 - Recommended executor: CLI lane x 1
 - Fallback executor: backend-developer subagent
@@ -1206,8 +1206,8 @@ including "## Smoke round 1"):
   - Record the python-attrs pre-ready 0xC0000409 as a TASK_2026_622 data point (boot-time crash
     class, 1 occurrence in 3 smoke runs, empty stderr). Send it to that task; it is not a 619 fix.
 - Mode 2 checks (team-leader): with `RG_PATH` set, `npx nx run-many -t typecheck,lint,test -p
-  mcp-bench --skip-nx-cache` passed (3 targets, 2m 49s), and `npx nx run-many -t build-host,build-bench
-  -p mcp-bench --skip-nx-cache` built (32 dependent tasks, 2m 57s). `git diff -- libs apps` is empty, and there
+mcp-bench --skip-nx-cache` passed (3 targets, 2m 49s), and `npx nx run-many -t build-host,build-bench
+-p mcp-bench --skip-nx-cache` built (32 dependent tasks, 2m 57s). `git diff -- libs apps` is empty, and there
   are no TODO/STUB markers under `tools\mcp-bench\src`. No bench run, as instructed.
 
 - Recommended executor: backend-developer subagent
@@ -1217,7 +1217,7 @@ including "## Smoke round 1"):
 - Tasks: 4 (Task 9.0 added at Batch 7 Mode 2) | Depends on: 3, 4, 4b, 4c, 4d, 7, 8
 - Phase: 1 Benchmark | Phase review: code-logic (after Batch 11)
 - Schema note (Batch 4 Mode 2): every suite is written in the Task 4b.1 generic shape — `kind:
-  'retrieval'`, `claim {source, ref}`, `groundTruth`, `baselines[]` with `native` as one baseline id,
+'retrieval'`, `claim {source, ref}`, `groundTruth`, `baselines[]` with `native` as one baseline id,
   `deltas`, `cost`, `details`. The `tool_metrics` / `native_metrics` / `delta` wording in the tasks
   below predates it and maps onto those fields. Added at Batch 4b Mode 2: `cost.source` is required
   (`'live'` for suites measured over the MCP transport, `'none'` for an `na` suite that made no
@@ -1290,7 +1290,7 @@ including "## Smoke round 1"):
     - (3) After a failed parse, zod now lists kind issues after core issues. No assertion depends
       on that order.
   - Mode 2 checks (team-leader): with `RG_PATH` set, `npx nx run-many -t typecheck,lint,test -p
-    mcp-bench --skip-nx-cache` passed (3 targets, 2m 4s, uncached), and `npx nx run mcp-bench:build-host`
+mcp-bench --skip-nx-cache` passed (3 targets, 2m 4s, uncached), and `npx nx run mcp-bench:build-host`
     built (32 dependent tasks, 3m 28s, uncached). No real bench run, as instructed. Send the SHA to TASK_2026_620.
 
 ### Task 9.1: Per-tool suite adapters and runner — COMPLETE
@@ -1399,7 +1399,7 @@ Batch 10 findings recorded at Mode 2 (report:
   - 0.1 for dependents;
   - 0.0289 for symbols-exact and symbol-index;
   - 0.025 (the one-question floor) for the rest.
-  No lifecycle row was flaky: 5 rows passed in 3 of 3 runs and 11 failed in 3 of 3.
+    No lifecycle row was flaky: 5 rows passed in 3 of 3 runs and 11 failed in 3 of 3.
 - Accepted deviations:
   - (1) **PR smoke timeout is 60 min instead of 10.** The local smoke took 49.5 min, so 10 could
     never pass. Batch 11 or later tunes it from the first real CI run, with caching keyed by corpus
@@ -1428,7 +1428,7 @@ Batch 10 findings recorded at Mode 2 (report:
   `ci.yml` is untouched. The workflow has `permissions: contents: read`, a concurrency group per
   ref, ripgrep via apt or choco, and `CI: 'true'`, so the guard runs in `hash` mode.
 - Mode 2 checks (team-leader): with `RG_PATH` set, `npx nx run-many -t typecheck,lint,test -p
-  mcp-bench --skip-nx-cache` passed (3 targets, 1m 35s). There are no TODO/STUB markers in `gate\` or
+mcp-bench --skip-nx-cache` passed (3 targets, 1m 35s). There are no TODO/STUB markers in `gate\` or
   the workflow, and `git diff -- libs apps` is empty.
 
 - Recommended executor: devops-engineer subagent
@@ -1500,7 +1500,7 @@ Batch 10 findings recorded at Mode 2 (report:
   - Report the unexpected `two-workspaces-symbol-scope` failure explicitly.
 - Carried from Batch 10 (Mode 2):
   - Record and commit `tools\mcp-bench\baseline\gate-baseline.json` with `npx nx run
-    mcp-bench:record-baseline --scorecard <cli-headless smoke scorecard>`. Use the same mode as PR
+mcp-bench:record-baseline --scorecard <cli-headless smoke scorecard>`. Use the same mode as PR
     CI (`--smoke`, `cli-headless`, corpus 7910f34cf). Until that file exists, the CI gate exits 2.
     Then run `mcp-bench:gate` against the same scorecard and expect exit 0.
   - `noise-margins.json` already holds the smoke margins from 3 runs (Batch 10). "Three full runs
@@ -1604,7 +1604,7 @@ by author side, per context.md "User Requests (2026-10-07)" item 2.
     the Phase B outputs (`gate-baseline.json`, the per-host scorecards).
   - Batch 11 stays IN_PROGRESS.
 - Mode 2 checks (team-leader): with `RG_PATH` set, `npx nx run-many -t typecheck,lint,test -p
-  mcp-bench --skip-nx-cache` passed on the tree including the `-z` spec (3 targets, 1m 26s). The
+mcp-bench --skip-nx-cache` passed on the tree including the `-z` spec (3 targets, 1m 26s). The
   vscode-lm-tools tests were not run, as instructed. Nothing under `apps\` changed, and the only
   `libs\` change stays uncommitted.
 
@@ -2454,7 +2454,7 @@ run after Batch 34, not in parallel with it.
   `workspaceRoot`. Absent → the session root exactly as today (byte-identical behaviour). Present →
   accepted only when, after resolving and comparing case-insensitively on win32, it equals the main
   checkout of the session root's repository or one of its registered worktrees from `git worktree
-  list --porcelain` (run with an argument array, `cwd` = the session root, a timeout); otherwise the
+list --porcelain` (run with an argument array, `cwd` = the session root, a timeout); otherwise the
   call fails with a clear error naming the path and the rule, and nothing is written. A `git`
   failure or timeout rejects a supplied `workspaceRoot` (fail closed) and never affects calls
   without one.
@@ -2593,6 +2593,15 @@ run after Batch 34, not in parallel with it.
 ## Batch 13j — 13b spec stub follow-up + 13i minors (COMPLETE)
 
 - Restored the dispatcher freshness-double `isIndexing` contract, completed capped wait summaries, and sourced spawn HTTP guidance from the shared cap constant.
+
+## Batch 13k — ptah_run_check job model over HTTP (COMPLETE)
+
+- HTTP `ptah_run_check` owns a detached job and waits at most 45 seconds; completed checks retain their existing reply and longer checks return `RUNNING`, a job id and the check log path for `ptah_run_check_wait`.
+- Request aborts stop only collection; an explicit `cancel: true` on `ptah_run_check_wait` stops the job, while host disposal continues to kill all live check trees.
+- One check runs per host. The same caller and identical check attach; another caller gets a non-disclosing busy reply, while a same-caller different check receives its job details.
+- `ptah_run_check_wait` is HTTP-only, repeat-safe and capped to 45 seconds per call; it returns stored final results, a bounded running result, or cancellation.
+- Finished results are in-memory, repeat-collectable for 15 minutes, lazily swept, and capped at 16 records.
+- Stdio `run_check` remains blocking with its full timeout and does not expose the new wait tool.
 
 ## Mode 3 obligations recorded now
 

@@ -48,6 +48,7 @@ import {
   AgentWaitArgsSchema,
   HTTP_MAX_AGENT_WAIT_SEC,
   RunCheckArgsSchema,
+  RunCheckWaitArgsSchema,
 } from './wait-tools-args.schema';
 import {
   AGENT_WAIT_TOOL_NAME,
@@ -57,8 +58,14 @@ import {
 import {
   RUN_CHECK_TOOL_NAME,
   buildRunCheckTool,
+  formatRunCheckRunning,
   runCheck,
 } from './run-check.tool';
+import { runCheckJobs, type RunCheckJob } from './run-check-jobs';
+import {
+  RUN_CHECK_WAIT_TOOL_NAME,
+  buildRunCheckWaitTool,
+} from './run-check-wait.tool';
 import type { PermissionPromptService } from '../../permission/permission-prompt.service';
 import type {
   PtahAPI,
@@ -524,7 +531,8 @@ function buildToolDefinitions(
           // ptah_agent_status loop, and an Nx check that blocks until it ends.
           // Both are orchestration steps, so the `agent` toggle governs them.
           buildAgentWaitTool(),
-          buildRunCheckTool(),
+          buildRunCheckTool({ transport: 'http' }),
+          buildRunCheckWaitTool(),
         ]
       : []),
     ...(!disabled.has('git')
@@ -1385,16 +1393,22 @@ async function handleIndividualTool(
         // budget), so the budget step returns it unchanged.
         // A closed connection ends the wait (the lanes keep running).
         const requestedTimeoutSec = parsed.data.timeoutSec;
-        const timeoutSec = Math.min(requestedTimeoutSec, HTTP_MAX_AGENT_WAIT_SEC);
-        const text = await runAgentWait({ ...parsed.data, timeoutSec }, {
-          waitForAgents: (ids, mode, timeoutMs, signal) =>
-            ptahAPI.agent.waitForAgents(ids, mode, timeoutMs, signal),
-          readOutput: (agentId, tail) => ptahAPI.agent.read(agentId, tail),
-          signal: getRequestAbortSignal(),
-          ...(timeoutSec < requestedTimeoutSec
-            ? { cappedFromTimeoutSec: requestedTimeoutSec }
-            : {}),
-        });
+        const timeoutSec = Math.min(
+          requestedTimeoutSec,
+          HTTP_MAX_AGENT_WAIT_SEC,
+        );
+        const text = await runAgentWait(
+          { ...parsed.data, timeoutSec },
+          {
+            waitForAgents: (ids, mode, timeoutMs, signal) =>
+              ptahAPI.agent.waitForAgents(ids, mode, timeoutMs, signal),
+            readOutput: (agentId, tail) => ptahAPI.agent.read(agentId, tail),
+            signal: getRequestAbortSignal(),
+            ...(timeoutSec < requestedTimeoutSec
+              ? { cappedFromTimeoutSec: requestedTimeoutSec }
+              : {}),
+          },
+        );
         return await createToolSuccessResponse(request, text, deps);
       }
 
@@ -1418,16 +1432,84 @@ async function handleIndividualTool(
         if ('error' in root) {
           return toolErrorResponse(request, root.error);
         }
-        // A closed connection kills the Nx tree instead of leaving it running.
-        const outcome = await runCheck(parsed.data, {
-          workspaceRoot: root.root,
-          signal: getRequestAbortSignal(),
-        });
-        const response = outcome.isError
-          ? toolErrorResponse(request, outcome.text)
-          : await createToolSuccessResponse(request, outcome.text, deps);
-        attachStructuredContent(response, outcome.structured);
-        return response;
+        const ownerKey = runCheckOwnerKey(root.root);
+        const started = runCheckJobs.start(
+          parsed.data,
+          root.root,
+          ownerKey,
+          (signal, onLogOpened) =>
+            runCheck(parsed.data, {
+              workspaceRoot: root.root,
+              signal,
+              onLogOpened,
+            }),
+        );
+        if ('busy' in started) {
+          return toolErrorResponse(
+            request,
+            formatRunCheckBusy(started.busy, started.external),
+          );
+        }
+        // A closed HTTP connection ends only this collection wait. The job
+        // owns its controller and keeps the process tree alive for a retry.
+        const outcome = await runCheckJobs.waitFor(
+          started.job,
+          HTTP_MAX_AGENT_WAIT_SEC * 1000,
+          getRequestAbortSignal(),
+        );
+        if (outcome !== undefined) {
+          const response = outcome.isError
+            ? toolErrorResponse(request, outcome.text)
+            : await createToolSuccessResponse(request, outcome.text, deps);
+          attachStructuredContent(response, outcome.structured);
+          return response;
+        }
+        return await runCheckRunningResponse(request, started.job, deps);
+      }
+
+      case RUN_CHECK_WAIT_TOOL_NAME: {
+        const parsed = RunCheckWaitArgsSchema.safeParse(
+          args !== null && typeof args === 'object' ? args : {},
+        );
+        if (!parsed.success) {
+          return toolErrorResponse(
+            request,
+            `Error: invalid ${RUN_CHECK_WAIT_TOOL_NAME} arguments — ${describeZodIssues(parsed.error)}. Required: "jobId".`,
+          );
+        }
+        // Do not expose why a root could not be resolved: lookup denial must
+        // be indistinguishable from a missing or another caller's job id.
+        const root = await resolveRunCheckRoot(deps);
+        if ('error' in root) return unknownRunCheckJobResponse(request);
+        const job = runCheckJobs.get(
+          parsed.data.jobId,
+          runCheckOwnerKey(root.root),
+        );
+        if (job === undefined) return unknownRunCheckJobResponse(request);
+        if (parsed.data.cancel) runCheckJobs.cancel(job);
+        const requestedTimeoutSec = parsed.data.timeoutSec;
+        const timeoutSec = Math.min(
+          requestedTimeoutSec,
+          HTTP_MAX_AGENT_WAIT_SEC,
+        );
+        const outcome = await runCheckJobs.waitFor(
+          job,
+          timeoutSec * 1000,
+          getRequestAbortSignal(),
+        );
+        if (outcome !== undefined) {
+          const response = outcome.isError
+            ? toolErrorResponse(request, outcome.text)
+            : await createToolSuccessResponse(request, outcome.text, deps);
+          attachStructuredContent(response, outcome.structured);
+          return response;
+        }
+        return await runCheckRunningResponse(
+          request,
+          job,
+          deps,
+          timeoutSec < requestedTimeoutSec ? requestedTimeoutSec : undefined,
+        );
       }
 
       case 'ptah_web_search': {
@@ -3466,12 +3548,73 @@ async function resolveSpoolRoot(
  * the first open folder, because a check run there is a verdict on a tree the
  * caller never edited.
  */
+function runCheckOwnerKey(root: string): string {
+  return [root, getCallerSessionId() ?? '', getCallerAgentId() ?? ''].join('|');
+}
+
+function unknownRunCheckJobResponse(request: MCPRequest): MCPResponse {
+  return toolErrorResponse(
+    request,
+    'unknown or expired job id; the full log stays under .ptah/tmp/checks',
+  );
+}
+
+function formatRunCheckBusy(
+  job: RunCheckJob | undefined,
+  external: boolean,
+): string {
+  const elapsed =
+    job === undefined ? 0 : Math.max(0, Date.now() - job.startedAt);
+  const seconds = Math.round(elapsed / 1000);
+  if (external || job === undefined) {
+    return `ptah_run_check is busy: another check is running on this host, started ${seconds}s ago.`;
+  }
+  return (
+    `ptah_run_check is busy with your job ${job.id}: ${job.args.project} ` +
+    `[${job.args.targets.join(', ')}], started ${seconds}s ago. ` +
+    'Call ptah_run_check_wait with that jobId.'
+  );
+}
+
+async function runCheckRunningResponse(
+  request: MCPRequest,
+  job: RunCheckJob,
+  deps: ProtocolHandlerDependencies,
+  cappedFromTimeoutSec?: number,
+): Promise<MCPResponse> {
+  const text =
+    formatRunCheckRunning({
+      jobId: job.id,
+      project: job.args.project,
+      targets: job.args.targets,
+      elapsedMs: Math.max(0, Date.now() - job.startedAt),
+      logPath: job.logPath,
+      cwd: job.root,
+    }) +
+    (cappedFromTimeoutSec === undefined
+      ? ''
+      : ` Requested timeoutSec ${cappedFromTimeoutSec} was capped at ${HTTP_MAX_AGENT_WAIT_SEC} s.`);
+  const response = await createToolSuccessResponse(request, text, deps);
+  attachStructuredContent(response, {
+    cwd: job.root,
+    project: job.args.project,
+    targets: job.args.targets,
+    verdict: 'running',
+    exitCode: null,
+    ...(job.logPath ? { logPath: job.logPath } : {}),
+    jobId: job.id,
+  });
+  return response;
+}
+
 async function resolveRunCheckRoot(
   deps: ProtocolHandlerDependencies,
 ): Promise<{ readonly root: string } | { readonly error: string }> {
   const known = knownWorkspaceFolders(deps);
   const openList =
-    known.length > 0 ? `open folders: ${known.join(', ')}` : 'no folder is open';
+    known.length > 0
+      ? `open folders: ${known.join(', ')}`
+      : 'no folder is open';
   const declared = getCallerWorkspaceRoot()?.trim();
   if (declared !== undefined && declared !== '') {
     const match =

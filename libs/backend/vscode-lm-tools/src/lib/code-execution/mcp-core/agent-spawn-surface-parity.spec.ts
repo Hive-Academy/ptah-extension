@@ -13,6 +13,7 @@ import {
 } from './wait-tools-args.schema';
 import { buildAgentWaitTool } from './agent-wait.tool';
 import { buildRunCheckTool } from './run-check.tool';
+import { buildRunCheckWaitTool } from './run-check-wait.tool';
 import {
   buildMcpAgentSpawnTool,
   buildMcpAgentWaitTool,
@@ -324,6 +325,9 @@ describe('blocking wait surface parity', () => {
       if (httpName === 'ptah_agent_wait') {
         expect(http.description).toContain('HTTP calls wait at most 45 s');
         expect(stdio.description).not.toContain('HTTP');
+      } else if (httpName === 'ptah_run_check') {
+        expect(http.description).toContain('HTTP calls block at most 45 s');
+        expect(stdio.description).not.toContain('HTTP');
       } else {
         expect(stdio.description).toBe(http.description);
       }
@@ -356,7 +360,11 @@ describe('blocking wait surface parity', () => {
     const stdioNames = buildMcpMvpTools().map((t) => t.name);
 
     expect(httpNames).toEqual(
-      expect.arrayContaining(['ptah_agent_wait', 'ptah_run_check']),
+      expect.arrayContaining([
+        'ptah_agent_wait',
+        'ptah_run_check',
+        'ptah_run_check_wait',
+      ]),
     );
     expect(stdioNames).toEqual(
       expect.arrayContaining(['agent_wait', 'run_check']),
@@ -381,6 +389,14 @@ describe('blocking wait surface parity', () => {
 
     expect(names).not.toContain('ptah_agent_wait');
     expect(names).not.toContain('ptah_run_check');
+    expect(names).not.toContain('ptah_run_check_wait');
+  });
+
+  it('keeps run_check_wait HTTP-only', () => {
+    expect(buildRunCheckWaitTool().name).toBe('ptah_run_check_wait');
+    expect(buildMcpMvpTools().map((tool) => tool.name)).not.toContain(
+      'run_check_wait',
+    );
   });
 
   it('waits through the same PtahAPI call and returns the same reply on both surfaces', async () => {
@@ -556,13 +572,7 @@ describe('blocking wait surface parity', () => {
       const args = { project: 'app', targets: ['lint'] };
       // HTTP: the caller declares its root in the MCP URL (S4-a review S1);
       // stdio: the launching process's working directory.
-      const http = await callOverHttp(
-        'ptah_run_check',
-        args,
-        {},
-        [root],
-        root,
-      );
+      const http = await callOverHttp('ptah_run_check', args, {}, [root], root);
       const stdio = await callOverStdio('run_check', args, {}, root);
 
       expect(isError(http)).toBe(true);

@@ -3833,7 +3833,9 @@ describe('protocol-handlers › tool-result budget (TASK_2026_559 2f.1)', () => 
 
   /** The one spool file written under `root`. */
   function onlySpoolFile(root = spoolRoot): string {
-    const files = fs.readdirSync(spoolDir(root)).filter((n) => n !== '.gitignore');
+    const files = fs
+      .readdirSync(spoolDir(root))
+      .filter((n) => n !== '.gitignore');
     expect(files).toHaveLength(1);
     return fs.readFileSync(path.join(spoolDir(root), files[0]), 'utf8');
   }
@@ -4192,7 +4194,9 @@ describe('protocol-handlers › tool-result budget (TASK_2026_559 2f.1)', () => 
       expect(text).not.toContain('FOOTER-NOISE');
       expect(text).not.toContain('<p>');
       expect(onlySpoolFile()).toBe(page.html);
-      const [spooled] = fs.readdirSync(spoolDir()).filter((n) => n !== '.gitignore');
+      const [spooled] = fs
+        .readdirSync(spoolDir())
+        .filter((n) => n !== '.gitignore');
       const trailer =
         /\n\n\[reduced: html-extract(?: — partial, cut at a line end)? — showing \d+ of \d+ tokens — full output: ([^\]]+)\]$/.exec(
           text,
@@ -4298,7 +4302,9 @@ describe('protocol-handlers › tool-result budget (TASK_2026_559 2f.1)', () => 
     expect(text).not.toContain('TAIL-MARKER');
     expect(text).not.toContain('[reduced:');
     expect(onlySpoolFile()).toBe(value);
-    const [spooled] = fs.readdirSync(spoolDir()).filter((n) => n !== '.gitignore');
+    const [spooled] = fs
+      .readdirSync(spoolDir())
+      .filter((n) => n !== '.gitignore');
     expect(text).toContain(
       `; full value: ${path.join(spoolDir(), spooled)} — for page content use ptah_browser_content with a selector]`,
     );
@@ -4409,7 +4415,9 @@ describe('protocol-handlers › tool-result budget (TASK_2026_559 2f.1)', () => 
         await callWithDeclaredRoot('\\\\server\\share');
         await callWithDeclaredRoot('\\\\?\\UNC\\server\\share');
 
-        const files = fs.readdirSync(spoolDir(hostRoot)).filter((n) => n !== '.gitignore');
+        const files = fs
+          .readdirSync(spoolDir(hostRoot))
+          .filter((n) => n !== '.gitignore');
         expect(files).toHaveLength(2);
         for (const [arg] of realpath.mock.calls) {
           expect(String(arg)).not.toMatch(/server/);
@@ -7684,8 +7692,8 @@ describe('MCP tool profile listing, eager loading and dispatch', () => {
       const apps = await list('apps');
       expect(await list('coding')).toEqual(coding);
       expect(await list('admin')).toEqual(coding);
-      // +2 (TASK_2026_597 Batch 34): ptah_agent_wait and ptah_run_check.
-      expect(coding).toHaveLength(hasIDECapabilities ? 61 : 58);
+      // +3: agent_wait, run_check and HTTP-only run_check_wait.
+      expect(coding).toHaveLength(hasIDECapabilities ? 62 : 59);
       expect(
         apps.filter((tool) => !APPS_ONLY_TOOL_NAMES.has(tool.name)),
       ).toEqual(coding);
@@ -8094,8 +8102,13 @@ describe('protocol-handlers › ptah_run_check workspace root (S4-a S1)', () => 
 
   it('runs in a declared worktree inside an open folder, and names it in text and structuredContent', async () => {
     const reply = await runCheckCall(worktree, [mainRoot]);
-    expect(reply.text).toContain(`Nx was not found in this workspace (${worktree})`);
-    expect(reply.structured).toMatchObject({ cwd: worktree, verdict: 'not_run' });
+    expect(reply.text).toContain(
+      `Nx was not found in this workspace (${worktree})`,
+    );
+    expect(reply.structured).toMatchObject({
+      cwd: worktree,
+      verdict: 'not_run',
+    });
   });
 
   it('runs in the host record of a declared open folder', async () => {
@@ -8113,7 +8126,9 @@ describe('protocol-handlers › ptah_run_check workspace root (S4-a S1)', () => 
   });
 
   it('refuses a declared directory inside an open folder that does not exist', async () => {
-    const reply = await runCheckCall(path.join(mainRoot, 'missing'), [mainRoot]);
+    const reply = await runCheckCall(path.join(mainRoot, 'missing'), [
+      mainRoot,
+    ]);
     expect(reply.isError).toBe(true);
     expect(reply.text).toContain('nothing was run');
   });
