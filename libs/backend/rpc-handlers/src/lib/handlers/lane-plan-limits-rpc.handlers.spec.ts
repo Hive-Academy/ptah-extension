@@ -591,6 +591,64 @@ describe('LanePlanLimitsRpcHandlers', () => {
       expect(logged).not.toContain('/home/acct');
     });
 
+    it.each([
+      [
+        'an Error whose name getter throws',
+        () => {
+          const hostile = new Error('SENTINEL-hostile-error');
+          Object.defineProperty(hostile, 'name', {
+            get() {
+              throw new Error('SENTINEL-name-getter');
+            },
+          });
+          return hostile;
+        },
+      ],
+      [
+        'a proxy whose prototype lookup throws',
+        () =>
+          new Proxy(
+            {},
+            {
+              getPrototypeOf() {
+                throw new Error('SENTINEL-proto-trap');
+              },
+            },
+          ),
+      ],
+    ])(
+      'rejects with fixed text when the row throws %s',
+      async (_label, makeThrown) => {
+        const malformed = new Proxy(
+          {},
+          {
+            get() {
+              throw makeThrown();
+            },
+          },
+        ) as AgentLimit;
+        const { call, recording, logger } = setup();
+        recording.limits.mockResolvedValue([LIMITS[0], malformed]);
+
+        const error = await call().then(
+          () => undefined,
+          (reason: unknown) => reason,
+        );
+
+        expect(error).toBeInstanceOf(Error);
+        expect((error as Error).message).toBe(
+          'Lane plan limits are unavailable on this host',
+        );
+        expect(error).not.toHaveProperty('cause');
+        expect(logger.warn).toHaveBeenCalledWith(expect.any(String), {
+          errorName: 'uninspectable',
+        });
+        expect(JSON.stringify(logger.warn.mock.calls)).not.toContain(
+          'SENTINEL',
+        );
+      },
+    );
+
     it('rejects with fixed text when the namespace has no limits lookup', async () => {
       const { call } = setup(LIMITS, { withoutLimits: true });
       await expect(call()).rejects.toThrow(

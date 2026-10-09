@@ -1,6 +1,6 @@
 # Batches - TASK_2026_623_3492
 
-Total tasks: 70 | Batches: 35 (incl. fix batches 6F, 12F) | Complete: 14/35
+Total tasks: 71 | Batches: 36 (incl. fix batches 6F, 12F, post-cap correction 12F2) | Complete: 15/36
 
 Worktree root `W` = `D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel` (branch
 `feat/task-623-display-panel`, base `70f995a56`). Every path below is absolute.
@@ -90,7 +90,7 @@ Edge cases:
 | Phase | Batches | Phase review |
 | ----- | ------- | ------------ |
 | 1 Contract `/4` and grammar | 1-6, 6F (fix) | code-logic (REVISE 6/10, `code-logic-review.md`); re-review of 6F: APPROVED 8/10 (`code-logic-review-phase1-fix.md`). Phase 1 ACCEPTED |
-| 2 Lane plan-limit read (R10 backend) | 7-12, 12F (fix) | code-logic (REVISE 6/10, `code-logic-review-phase2.md`), style (APPROVED 8/10, `code-style-review-phase2.md`); fix round 12F, re-review pending |
+| 2 Lane plan-limit read (R10 backend) | 7-12, 12F (fix) | code-logic (REVISE 6/10, `code-logic-review-phase2.md`), style (APPROVED 8/10, `code-style-review-phase2.md`); fix round 12F, re-review REVISE 5/10 (`code-logic-review-phase2-fix.md`, Serious #1 open); post-cap correction 12F2 (decision #46), cross-side re-review APPROVED 9/10 (`code-logic-review-phase2-fix2.md`). Phase 2 ACCEPTED |
 | 3 Renderer `/4` | 13-15 | code-logic, plus style only if Task 15.3 adds exports |
 | 4 chat-ui display panel | 16-21 | code-logic, plus style (new entry `@ptah-extension/chat-ui/display-panel`, new host-sources token) |
 | 5 Transcript and dock | 22-25 | code-logic |
@@ -691,7 +691,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - Phase 2 review: code-logic REVISE 6/10 (1 Serious, 1 Moderate; `code-logic-review-phase2.md`), style APPROVED 8/10
   no findings (`code-style-review-phase2.md`). Fix round: Batch 12F (decision #45).
 
-## Batch 12F: Phase 2 review fix — malformed `agent.limits()` output and `null` params — COMPLETE (commit see git log: "batch 12F"; Phase 2 re-review pending)
+## Batch 12F: Phase 2 review fix — malformed `agent.limits()` output and `null` params — COMPLETE (commit 76b125fa0; re-review REVISE 5/10, code-logic-review-phase2-fix.md)
 
 - Recommended executor: backend-developer
 - Fallback executor: general-purpose subagent
@@ -729,8 +729,35 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 
 - `npx jest -c libs/backend/rpc-handlers/jest.config.ts libs/backend/rpc-handlers/src/lib/handlers/lane-plan-limits-rpc.handlers.spec.ts --coverage=false --maxWorkers=2` with the Batch 8 `marked` `--moduleNameMapper` override (batches.md:571-576), `| tail -n 40`; then `npx nx typecheck @ptah-extension/rpc-handlers --parallel=1 | tail -n 20`; then `npx nx lint @ptah-extension/rpc-handlers --parallel=1 | tail -n 20`. One at a time.
 - Phase 2 code-logic re-review scoped to the 12F commit after commit
+- Re-review (76b125fa0): REVISE 5/10, Moderate #2 CLOSED, Serious #1 OPEN (`unavailable()` could throw while
+  inspecting a hostile caught value). Fix round spent; one bounded post-cap correction follows as Batch 12F2.
 
-## Batch 13: D1 renderer container layout and `/4` view model — PENDING
+## Batch 12F2: post-cap correction — non-throwing error-name inspection — COMPLETE (commit see git log: "batch 12F2"; review code-logic-review-phase2-fix2.md APPROVED 9/10)
+
+- Executor: orchestrator (one bounded post-cap correction, agent-lanes §6; decision #46)
+- Execution mode: sequential
+- Tasks: 1 | Depends on: Batch 12F
+- Phase: 2 (post-cap correction, last of phase) | Phase review: independent cross-side code-logic re-review scoped to
+  the correction
+
+### Task 12F2.1: `unavailable()` never throws while naming the caught value — COMPLETE
+
+- Files:
+  - D:\projects\ptah-extension\.claude-worktrees	ask-623-display-panel\libsackendpc-handlers\src\lib\handlers\lane-plan-limits-rpc.handlers.ts
+  - D:\projects\ptah-extension\.claude-worktrees	ask-623-display-panel\libsackendpc-handlers\src\lib\handlers\lane-plan-limits-rpc.handlers.spec.ts
+- Change: module function `errorName(error: unknown): string` wraps the `instanceof`/`name` read in try/catch and
+  returns `'uninspectable'` on throw; `unavailable()` logs `errorName(error)`. Spec `it.each` covers an Error whose
+  `name` getter throws and a Proxy whose `getPrototypeOf` trap throws: fixed text, no `cause`, `errorName:
+  'uninspectable'`, no sentinel in any logger argument.
+
+### Batch 12F2 verification
+
+- Orchestrator: handler spec 29/29 (marked override), `nx typecheck @ptah-extension/rpc-handlers` pass, eslint on both
+  files exit 0. Team-leader rerun of the handler spec: 1 suite, 29/29 passed.
+- Cross-side re-review: APPROVED 9/10, Serious #1 CLOSED, no new findings (`code-logic-review-phase2-fix2.md`).
+  Phase 2 (Batches 7-12, 12F, 12F2) accepted.
+
+## Batch 13: D1 renderer container layout and `/4` view model — IN_PROGRESS
 
 - Recommended executor: frontend-developer
 - Fallback executor: general-purpose subagent
@@ -739,14 +766,14 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - Tasks: 2 | Depends on: Batch 2
 - Phase: 3 Renderer `/4` | Phase review: code-logic (after Batch 15)
 
-### Task 13.1: view model for `accordion`, `avatar`, trend, spark — PENDING
+### Task 13.1: view model for `accordion`, `avatar`, trend, spark — IN_PROGRESS
 
 - Files:
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\declarative-dashboard\src\lib\view-model\view-model.types.ts
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\declarative-dashboard\src\lib\view-model\surface-view-model.ts
 - Plan reference: implementation-plan.md:568-629 (component 3)
 
-### Task 13.2: `layoutWidth` input, container queries, accordion layout — PENDING
+### Task 13.2: `layoutWidth` input, container queries, accordion layout — IN_PROGRESS
 
 - Depends on: Task 13.1
 - Files:

@@ -126,7 +126,7 @@ export class LanePlanLimitsRpcHandlers {
    */
   private unavailable(stage: string, error: unknown): Error {
     this.logger.warn(`[lanePlanLimits] ${METHOD} ${stage}`, {
-      errorName: error instanceof Error ? error.name : typeof error,
+      errorName: errorName(error),
     });
     return new Error(UNAVAILABLE);
   }
@@ -134,6 +134,18 @@ export class LanePlanLimitsRpcHandlers {
   private getApi(): PtahAPI {
     this.api ??= this.apiBuilder.build();
     return this.api;
+  }
+}
+
+/**
+ * Never throws: a caught value can carry a throwing `name` getter or proxy
+ * trap, and the fixed-text boundary must hold for it too.
+ */
+function errorName(error: unknown): string {
+  try {
+    return error instanceof Error ? String(error.name) : typeof error;
+  } catch {
+    return 'uninspectable';
   }
 }
 
