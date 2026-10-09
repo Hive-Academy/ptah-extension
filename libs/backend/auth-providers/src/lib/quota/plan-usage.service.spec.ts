@@ -26,7 +26,10 @@ import {
   quotaOwnerRefFromKey,
   unknownOwnerKey,
 } from './provider-owner.resolver';
-import type { PlanOwnerTarget } from './readers/plan-usage-reader.types';
+import type {
+  PlanOwnerTarget,
+  PlanUsageReading,
+} from './readers/plan-usage-reader.types';
 
 const T0 = Date.UTC(2026, 9, 4, 12, 0, 0);
 const SECRET = 'sk-plan-usage-secret-123';
@@ -245,8 +248,29 @@ describe('PlanUsageService', () => {
       });
     });
 
-    it('F31: OpenCode with no evidence answers no-usage-source alone, without reading its key', async () => {
+    // OpenCode reads local usage through its CLI (PR #673); stub that reader
+    // so these tests never spawn a real `opencode` process.
+    const stubOpenCodeReader = (
+      service: PlanUsageService,
+      providerId: 'opencode' | 'opencode-go',
+      reading: PlanUsageReading,
+    ): jest.Mock => {
+      const reader = jest.fn<Promise<PlanUsageReading>, [unknown]>(
+        async () => reading,
+      );
+      (service as unknown as { readers: Record<string, unknown> }).readers[
+        providerId
+      ] = reader;
+      return reader;
+    };
+
+    it('F31: OpenCode with no local usage answers its reader status and no evidence', async () => {
       const h = harness();
+      const reader = stubOpenCodeReader(h.service, 'opencode-go', {
+        status: 'service-unavailable',
+        windowSetEstablished: false,
+        windows: [],
+      });
 
       const snapshot = await h.service.getOwnerSnapshot({
         providerId: 'opencode-go',
@@ -254,18 +278,23 @@ describe('PlanUsageService', () => {
         credentialRef: { kind: 'provider-key', providerId: 'opencode-go' },
       });
 
+      expect(reader).toHaveBeenCalledTimes(1);
       expect(snapshot).toEqual({
         owner: OPENCODE,
-        status: 'no-usage-source',
+        status: 'service-unavailable',
         windowSetEstablished: false,
         windows: [],
         ownerEvidence: [],
       });
-      expect(h.resolve).not.toHaveBeenCalled();
     });
 
-    it('F32: OpenCode with a recorded limit hit returns no-usage-source plus that evidence (Req 2.8)', async () => {
+    it('F32: OpenCode with a recorded limit hit keeps that evidence (Req 2.8)', async () => {
       const h = harness();
+      stubOpenCodeReader(h.service, 'opencode', {
+        status: 'service-unavailable',
+        windowSetEstablished: false,
+        windows: [],
+      });
       const owner = quotaOwnerRefFromKey(cliStoreOwnerKey('opencode', '/oc'));
       const hit = { observedAt: T0 - 60_000, source: 'error-derived' as const };
       h.ledger.recordOwnerEvidence(owner, hit);
@@ -275,7 +304,7 @@ describe('PlanUsageService', () => {
         ownerRef: owner,
       });
 
-      expect(snapshot.status).toBe('no-usage-source');
+      expect(snapshot.status).toBe('service-unavailable');
       expect(snapshot.ownerEvidence).toEqual([hit]);
     });
 
