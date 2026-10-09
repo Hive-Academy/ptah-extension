@@ -28,7 +28,7 @@ describe('migration 0051_skill_lifecycle — registry entry', () => {
     ).toHaveLength(1);
     const versions = MIGRATIONS.map((migration) => migration.version);
     expect(versions).toContain(49);
-    expect(Math.max(...versions)).toBe(51);
+    expect(Math.max(...versions)).toBe(53);
   });
 });
 

@@ -63,7 +63,7 @@ describe('migration 0039_reap_orphaned_queue_rows — registry entry', () => {
     // 46 since TASK_2026_473 appended 0046_memory_merge_subject_index.
     // 48 and 49 since TASK_2026_563 appended 0048_memory_quarantine and 0049_memory_sediment_quarantine.
     // 51 since TASK_2026_578 appended 0051_skill_lifecycle.
-    expect(Math.max(...MIGRATIONS.map((m) => m.version))).toBe(51);
+    expect(Math.max(...MIGRATIONS.map((m) => m.version))).toBe(53);
   });
 
   it('contains no id-shape predicate — a tabId is a UUID v4', () => {
@@ -75,12 +75,12 @@ describe('migration 0039_reap_orphaned_queue_rows — registry entry', () => {
     expect(sql0039ReapOrphanedQueueRows).not.toContain('tab_');
   });
 
-  it('deletes from exactly the two work-queue tables and nothing else', () => {
+  it('deletes from skill_synthesis_queue only — never observation_queue (TASK_2026_621)', () => {
     const deleted = Array.from(
       sql0039ReapOrphanedQueueRows.matchAll(/DELETE FROM (\w+)/g),
       (m) => m[1],
     );
-    expect(deleted).toEqual(['observation_queue', 'skill_synthesis_queue']);
+    expect(deleted).toEqual(['skill_synthesis_queue']);
   });
 });
 
@@ -202,24 +202,44 @@ describe('migration 0039_reap_orphaned_queue_rows — behavior', () => {
       .map((r) => (r as { id: string }).id);
   }
 
-  maybe('reaps only unprocessed observations older than the window', () => {
-    const db = openDb();
-    try {
-      seedObservation(db, { id: 1, capturedAt: ANCIENT, processedAt: null });
-      seedObservation(db, { id: 2, capturedAt: RECENT, processedAt: null });
-      seedObservation(db, { id: 3, capturedAt: ANCIENT, processedAt: ANCIENT });
-      seedObservation(db, { id: 4, capturedAt: RECENT, processedAt: RECENT });
+  maybe(
+    'upgrade path: an old unprocessed observation survives the migration run (TASK_2026_621)',
+    async () => {
+      const db = openDb();
+      try {
+        seedObservation(db, { id: 1, capturedAt: ANCIENT, processedAt: null });
+        seedObservation(db, { id: 2, capturedAt: RECENT, processedAt: null });
+        seedObservation(db, {
+          id: 3,
+          capturedAt: ANCIENT,
+          processedAt: ANCIENT,
+        });
+        seedObservation(db, { id: 4, capturedAt: RECENT, processedAt: RECENT });
 
-      db.exec(sql0039ReapOrphanedQueueRows);
+        // Through the runner, as an install upgrading from before 0039 sees it.
+        const result = await new SqliteMigrationRunner(
+          db as unknown as SqliteDatabase,
+          fakeLogger,
+        ).applyAll([
+          {
+            version: 39,
+            name: '0039_reap_orphaned_queue_rows',
+            sql: sql0039ReapOrphanedQueueRows,
+          },
+        ]);
+        expect(result.appliedVersions).toEqual([39]);
 
-      // 1 is the orphan. 2 is inside the window (a live install upgrading
-      // mid-session). 3 and 4 were processed, and processed rows are the
-      // existing purge's business, never this migration's.
-      expect(survivingObservationIds(db)).toEqual([2, 3, 4]);
-    } finally {
-      db.close();
-    }
-  });
+        // 1 is 60 days old and was never processed: it is kept for extraction.
+        expect(survivingObservationIds(db)).toEqual([1, 2, 3, 4]);
+        const row = db
+          .prepare('SELECT processed_at FROM observation_queue WHERE id = 1')
+          .get() as { processed_at: number | null };
+        expect(row.processed_at).toBeNull();
+      } finally {
+        db.close();
+      }
+    },
+  );
 
   maybe('reaps only un-advanced queue rows older than the window', () => {
     const db = openDb();

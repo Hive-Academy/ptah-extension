@@ -153,6 +153,15 @@ function parseBoolFlag(raw: string): boolean {
 }
 
 /**
+ * `--cli` targets for help text, derived from {@link agentCliCmd.CLI_AGENT_SELECTORS}
+ * (itself derived from `SYSTEM_CLI_TYPES`) so a new CLI needs no edit here.
+ * `glm` is left out: help names it separately as a deprecated alias.
+ */
+const CLI_TARGET_IDS = agentCliCmd.CLI_AGENT_SELECTORS.filter(
+  (selector) => selector !== 'glm',
+).join('|');
+
+/**
  * Build the root commander program with every subcommand wired to its stub
  * handler. The caller is responsible for invoking `parseAsync(argv)`.
  */
@@ -732,7 +741,7 @@ export function buildRouter(): Command {
     )
     .option(
       '--cli <id>',
-      'scope to one CLI target: codex|copilot|cursor|antigravity|opencode|pi|ptah-cli (ptah-cli answers supported:false)',
+      `scope to one CLI target: ${CLI_TARGET_IDS} (ptah-cli answers supported:false)`,
     )
     .action(async (opts: { cli?: string }) => {
       const exit = await agentCliCmd.execute(
@@ -770,7 +779,7 @@ export function buildRouter(): Command {
     )
     .requiredOption(
       '--cli <id>',
-      'CLI target: codex|copilot|cursor|antigravity|opencode|pi|ptah-cli (glm is a deprecated alias for ptah-cli)',
+      `CLI target: ${CLI_TARGET_IDS} (glm is a deprecated alias for ptah-cli)`,
     )
     .requiredOption(
       '--task <text>',

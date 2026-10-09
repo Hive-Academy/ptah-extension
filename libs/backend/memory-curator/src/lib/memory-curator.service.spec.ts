@@ -579,7 +579,7 @@ describe('MemoryCuratorService — curator-error on LLM failure', () => {
     });
 
     expect(stats).toEqual({
-      outcome: 'ran',
+      outcome: 'failed',
       extracted: 0,
       merged: 0,
       created: 0,
@@ -592,7 +592,7 @@ describe('MemoryCuratorService — curator-error on LLM failure', () => {
     expect(typeof evt?.error).toBe('string');
     const info = svc.lastRunInfo();
     expect(info.stats).toEqual({
-      outcome: 'ran',
+      outcome: 'failed',
       extracted: 0,
       merged: 0,
       created: 0,
@@ -642,7 +642,7 @@ describe('MemoryCuratorService — curator-error on LLM failure', () => {
     });
 
     expect(stats).toEqual({
-      outcome: 'ran',
+      outcome: 'failed',
       extracted: 0,
       merged: 0,
       created: 0,
@@ -658,7 +658,7 @@ describe('MemoryCuratorService — curator-error on LLM failure', () => {
     expect(evt?.error).toContain('transport down');
     const info = svc.lastRunInfo();
     expect(info.stats).toEqual({
-      outcome: 'ran',
+      outcome: 'failed',
       extracted: 0,
       merged: 0,
       created: 0,
@@ -1630,7 +1630,9 @@ describe('MemoryCuratorService — PreCompact coalescing (TASK_2026_597 A7)', ()
 
     expect(h.read).toHaveBeenCalledTimes(1);
     expect(
-      skipLogs(h.logger).some((c) => String(c[0]).includes('already in flight')),
+      skipLogs(h.logger).some((c) =>
+        String(c[0]).includes('already in flight'),
+      ),
     ).toBe(true);
 
     // The settled reservation became the watermark.
@@ -1868,7 +1870,7 @@ describe('MemoryCuratorService — concurrency-slot loss (TASK_2026_376 F4)', ()
     expect(svc.lastRunInfo().stats).toBeNull();
   });
 
-  it('still reports a dispatched failure as a run', async () => {
+  it('reports a dispatched failure as failed, not as a run (TASK_2026_621)', async () => {
     const llm = {
       extract: jest.fn().mockRejectedValue(new Error('provider returned 500')),
       resolve: jest.fn(),
@@ -1880,7 +1882,8 @@ describe('MemoryCuratorService — concurrency-slot loss (TASK_2026_376 F4)', ()
       transcript: 'USER: something worth curating',
     });
 
-    expect(stats.outcome).toBe('ran');
+    // `'ran'` would let the trigger mark the drained observations processed.
+    expect(stats.outcome).toBe('failed');
   });
 });
 

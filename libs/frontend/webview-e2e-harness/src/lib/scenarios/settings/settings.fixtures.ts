@@ -158,6 +158,7 @@ export const AGENT_CONFIG_FIXTURE = {
       messagingMode: 'none',
     },
     { cli: 'pi', installed: false, messagingMode: 'none' },
+    { cli: 'grok', installed: true, version: '1.0.46', messagingMode: 'queue' },
     {
       cli: 'ptah-cli',
       installed: true,
@@ -174,6 +175,7 @@ export const AGENT_CONFIG_FIXTURE = {
   copilotModel: '',
   cursorModel: '',
   antigravityModel: 'claude-sonnet-4-6',
+  grokModel: '',
   opencodeModel: 'opencode/nemotron-3-ultra-free',
   piModel: '',
   cursorApiKeyConfigured: false,
@@ -245,7 +247,10 @@ function settingsGetResolver(params: unknown): {
   value: unknown;
 } {
   const key = (params as { key?: unknown }).key;
-  if (typeof key === 'string' && Object.hasOwn(SESSION_BUDGET_SETTINGS_FIXTURE, key)) {
+  if (
+    typeof key === 'string' &&
+    Object.hasOwn(SESSION_BUDGET_SETTINGS_FIXTURE, key)
+  ) {
     return { success: true, value: SESSION_BUDGET_SETTINGS_FIXTURE[key] };
   }
   return PTAH_CLI_AGENTS_SETTING_FIXTURE;
@@ -531,6 +536,9 @@ export const CLI_MODELS_FIXTURE = {
     { id: 'opencode/nemotron-3-ultra-free', name: 'nemotron-3-ultra-free' },
   ],
   pi: [{ id: 'pi-default', name: 'Pi default' }],
+  // The id `grok models` printed on grok 1.0.46 (`grok-probe.md` §6); the
+  // adapter names a model by its id.
+  grok: [{ id: 'grok-4.7', name: 'grok-4.7' }],
 };
 
 // ---------------------------------------------------------------------------

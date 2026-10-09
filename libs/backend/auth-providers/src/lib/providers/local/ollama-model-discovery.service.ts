@@ -112,159 +112,134 @@ interface CloudModelMeta {
 }
 
 /**
- * Comprehensive catalog of known Ollama Cloud models.
- * Source: https://ollama.com/search?c=cloud (last updated 2026-04-14)
+ * Catalog of Ollama Cloud models: the IDs live on `ollama.com/api/tags` on
+ * 2026-10-07, with context and capabilities from models.dev `ollama-cloud`.
+ * The model-list drift check (model-lists.live.spec.ts) fails when an ID here
+ * stops being served.
  *
- * Ollama has NO API to list available cloud models — /api/tags only returns
- * locally pulled models. This static catalog is the primary source for the
- * model selector. It's merged with /api/tags results to pick up any models
- * the user has run that aren't in this list.
+ * The live `ollama.com/api/tags` list (OllamaCloudMetadataService) is the
+ * source of which models exist; this catalog only adds metadata (context,
+ * capabilities, description) to live entries, and is the list itself only
+ * when the live fetch is empty or fails. It is never merged in as extra
+ * entries: on 2026-10-07 15 of its 20 IDs were no longer served (some return
+ * 410 "retired"), and the merge kept showing them.
  *
  * Key is the base model name (without the `:cloud` / `-cloud` suffix).
  */
-const KNOWN_CLOUD_MODELS: Record<string, CloudModelMeta> = {
-  'kimi-k2.6': {
-    contextLength: 256000,
+export const KNOWN_CLOUD_MODELS: Record<string, CloudModelMeta> = {
+  'deepseek-v4-pro:0813': {
+    tag: 'deepseek-v4-pro:0813-cloud',
+    contextLength: 1048576,
+    supportsToolUse: true,
+    supportsThinking: true,
+    supportsVision: false,
+  },
+  'deepseek-v4.1-flash': {
+    contextLength: 1048576,
     supportsToolUse: true,
     supportsThinking: true,
     supportsVision: true,
-    description: '256K context \u2022 vision, tools, thinking',
+  },
+  'gemma4:31b': {
+    tag: 'gemma4:31b-cloud',
+    contextLength: 262144,
+    supportsToolUse: true,
+    supportsThinking: true,
+    supportsVision: true,
+  },
+  'glm-5.2': {
+    contextLength: 976000,
+    supportsToolUse: true,
+    supportsThinking: true,
+    supportsVision: false,
   },
   'glm-5.3': {
+    contextLength: 1048576,
+    supportsToolUse: true,
+    supportsThinking: true,
+    supportsVision: false,
+  },
+  'glm-5.3-flash': {
     contextLength: 1000000,
     supportsToolUse: true,
     supportsThinking: true,
+    supportsVision: true,
+  },
+  'gpt-oss:120b': {
+    tag: 'gpt-oss:120b-cloud',
+    contextLength: 131072,
+    supportsToolUse: true,
+    supportsThinking: true,
     supportsVision: false,
-    description: '1M context \u2022 tools, thinking',
   },
   'gpt-oss:20b': {
     tag: 'gpt-oss:20b-cloud',
-    contextLength: 128000,
+    contextLength: 131072,
     supportsToolUse: true,
     supportsThinking: true,
     supportsVision: false,
-    description: '20B \u2022 128K context \u2022 tools, thinking',
   },
-  'devstral-2': {
-    contextLength: 128000,
-    supportsToolUse: true,
-    supportsThinking: false,
-    supportsVision: false,
-    description: '123B \u2022 128K context \u2022 tools',
-  },
-  'cogito-2.1': {
-    contextLength: 128000,
-    supportsToolUse: false,
-    supportsThinking: false,
-    supportsVision: false,
-    description: '671B \u2022 128K context',
-  },
-  'nemotron-3-super': {
-    contextLength: 128000,
+  'kimi-k2.6': {
+    contextLength: 262144,
     supportsToolUse: true,
     supportsThinking: true,
-    supportsVision: false,
-    description: '120B \u2022 128K context \u2022 tools, thinking',
+    supportsVision: true,
   },
-  'qwen3-next': {
-    contextLength: 128000,
+  'kimi-k2.7-code': {
+    contextLength: 262144,
     supportsToolUse: true,
     supportsThinking: true,
-    supportsVision: false,
-    description: '80B \u2022 128K context \u2022 tools, thinking',
+    supportsVision: true,
   },
-  'glm-5.1': {
-    contextLength: 200000,
+  'kimi-k3': {
+    contextLength: 1048576,
     supportsToolUse: true,
     supportsThinking: true,
-    supportsVision: false,
-    description: '200K context \u2022 tools, thinking',
-  },
-  'glm-5': {
-    contextLength: 200000,
-    supportsToolUse: true,
-    supportsThinking: true,
-    supportsVision: false,
-    description: '200K context \u2022 tools, thinking',
-  },
-  'glm-4.7': {
-    contextLength: 128000,
-    supportsToolUse: true,
-    supportsThinking: true,
-    supportsVision: false,
-    description: '128K context \u2022 tools, thinking',
+    supportsVision: true,
   },
   'minimax-m2.7': {
-    contextLength: 128000,
+    contextLength: 196608,
     supportsToolUse: true,
     supportsThinking: true,
     supportsVision: false,
-    description: '128K context \u2022 tools, thinking',
   },
-  'minimax-m2.5': {
-    contextLength: 128000,
-    supportsToolUse: true,
-    supportsThinking: true,
-    supportsVision: false,
-    description: '128K context \u2022 tools, thinking',
-  },
-  'minimax-m2': {
-    contextLength: 128000,
-    supportsToolUse: true,
-    supportsThinking: true,
-    supportsVision: false,
-    description: '128K context \u2022 tools, thinking',
-  },
-  gemma4: {
-    contextLength: 128000,
+  'minimax-m3': {
+    contextLength: 512000,
     supportsToolUse: true,
     supportsThinking: true,
     supportsVision: true,
-    description:
-      '26B/31B \u2022 128K context \u2022 vision, tools, thinking, audio',
   },
-  'qwen3.5': {
-    contextLength: 128000,
-    supportsToolUse: true,
-    supportsThinking: true,
-    supportsVision: true,
-    description:
-      'Up to 122B \u2022 128K context \u2022 vision, tools, thinking',
-  },
-  'qwen3-coder-next': {
-    contextLength: 128000,
-    supportsToolUse: true,
-    supportsThinking: false,
-    supportsVision: false,
-    description: '128K context \u2022 tools',
-  },
-  'gemini-3-flash-preview': {
-    contextLength: 128000,
-    supportsToolUse: true,
-    supportsThinking: true,
-    supportsVision: true,
-    description: '128K context \u2022 vision, tools, thinking',
-  },
-  'devstral-small-2': {
-    contextLength: 128000,
+  'mistral-large-3:675b': {
+    tag: 'mistral-large-3:675b-cloud',
+    contextLength: 262144,
     supportsToolUse: true,
     supportsThinking: false,
     supportsVision: true,
-    description: '24B \u2022 128K context \u2022 vision, tools',
   },
-  'nemotron-3-nano': {
-    contextLength: 8192,
+  'mistral-large-4': {
+    contextLength: 1048576,
+    supportsToolUse: true,
+    supportsThinking: true,
+    supportsVision: true,
+  },
+  'nemotron-3-nano:30b': {
+    tag: 'nemotron-3-nano:30b-cloud',
+    contextLength: 1048576,
     supportsToolUse: true,
     supportsThinking: true,
     supportsVision: false,
-    description: '4B/30B \u2022 8K context \u2022 tools, thinking',
   },
-  'rnj-1': {
-    contextLength: 32000,
+  'nemotron-3-super': {
+    contextLength: 262144,
     supportsToolUse: true,
-    supportsThinking: false,
+    supportsThinking: true,
     supportsVision: false,
-    description: '8B \u2022 32K context \u2022 tools',
+  },
+  'nemotron-3-ultra': {
+    contextLength: 262144,
+    supportsToolUse: true,
+    supportsThinking: true,
+    supportsVision: false,
   },
 };
 
@@ -361,10 +336,12 @@ export class OllamaModelDiscoveryService {
   /**
    * Fetch models for the 'ollama-cloud' provider.
    *
-   * Ollama has no API to list available cloud models — /api/tags only returns
-   * locally pulled/used models. We use the static KNOWN_CLOUD_MODELS catalog
-   * as the primary source, then merge any additional :cloud models from /api/tags
-   * that aren't in our catalog (e.g., newly released models the user has tried).
+   * The live ollama.com/api/tags list is the source: when it is non-empty,
+   * only its IDs are returned, and the static KNOWN_CLOUD_MODELS catalog only
+   * supplies names, descriptions and context lengths for them. When the live
+   * list is empty or the fetch fails, the static catalog is the fallback, plus
+   * any extra :cloud models from the local /api/tags (models the user has
+   * pulled that the catalog does not know).
    */
   async listCloudModels(): Promise<ProviderModelInfo[]> {
     const staticModels: ProviderModelInfo[] = Object.entries(
@@ -380,10 +357,10 @@ export class OllamaModelDiscoveryService {
     try {
       const liveTags = await this.cloudMetadata.fetchCloudTags(apiKey);
       if (liveTags.length > 0) {
+        const staticById = new Map(staticModels.map((m) => [m.id, m]));
         const merged = new Map<string, ProviderModelInfo>();
-        for (const m of staticModels) merged.set(m.id, m);
         for (const tag of liveTags) {
-          const existing = merged.get(tag.id);
+          const existing = staticById.get(tag.id);
           const baseName = tag.id.replace(/:cloud$/, '').replace(/-cloud$/, '');
           const knownMeta = KNOWN_CLOUD_MODELS[baseName];
           merged.set(tag.id, {
@@ -399,12 +376,12 @@ export class OllamaModelDiscoveryService {
             supportsToolUse: existing?.supportsToolUse ?? true,
           });
         }
-        const newIds = liveTags
-          .map((t) => t.id)
-          .filter((id) => !staticModels.some((s) => s.id === id));
+        const retiredIds = staticModels
+          .map((m) => m.id)
+          .filter((id) => !merged.has(id));
         this.logger.info(
-          `[OllamaModelDiscovery] listCloudModels: ${staticModels.length} static + ${liveTags.length} live (ollama.com/api/tags) = ${merged.size} total. ` +
-            `New from live: [${newIds.slice(0, 8).join(', ')}${newIds.length > 8 ? ', …' : ''}]`,
+          `[OllamaModelDiscovery] listCloudModels: ${merged.size} live (ollama.com/api/tags). ` +
+            `Static entries not served live: [${retiredIds.slice(0, 8).join(', ')}${retiredIds.length > 8 ? ', …' : ''}]`,
         );
         return Array.from(merged.values());
       } else {

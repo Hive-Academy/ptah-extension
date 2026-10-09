@@ -861,17 +861,19 @@ describe('CursorCliAdapter', () => {
     function makeLogger(): {
       logger: Logger;
       debugMock: jest.Mock;
+      warnMock: jest.Mock;
       errorMock: jest.Mock;
     } {
       const debugMock = jest.fn();
+      const warnMock = jest.fn();
       const errorMock = jest.fn();
       const logger = {
         debug: debugMock,
         info: jest.fn(),
-        warn: jest.fn(),
+        warn: warnMock,
         error: errorMock,
       } as unknown as Logger;
-      return { logger, debugMock, errorMock };
+      return { logger, debugMock, warnMock, errorMock };
     }
 
     /** Agent whose every send() hands back a fresh run, recorded in `runs`. */
@@ -1024,7 +1026,7 @@ describe('CursorCliAdapter', () => {
 
     it('listModels failure carrying the key: no logger call contains it', async () => {
       process.env['CURSOR_API_KEY'] = SECRET;
-      const { logger, debugMock, errorMock } = makeLogger();
+      const { logger, debugMock, warnMock, errorMock } = makeLogger();
       const guarded = new CursorCliAdapter(logger, resolveKey);
       mockModelsList.mockRejectedValue(
         new Error(`models request rejected for ${SECRET}`),
@@ -1033,7 +1035,16 @@ describe('CursorCliAdapter', () => {
       const models = await guarded.listModels();
       expect(models.some((m) => m.id === 'composer-2.5')).toBe(true);
 
+      // The fallback is no longer silent, and the warning is redacted.
+      expect(warnMock).toHaveBeenCalledWith(
+        expect.stringContaining('showing the fallback list'),
+        expect.anything(),
+      );
+      expect(JSON.stringify(warnMock.mock.calls)).toContain(
+        'models request rejected',
+      );
       expect(JSON.stringify(debugMock.mock.calls)).not.toContain(SECRET);
+      expect(JSON.stringify(warnMock.mock.calls)).not.toContain(SECRET);
       expect(JSON.stringify(errorMock.mock.calls)).not.toContain(SECRET);
     });
   });

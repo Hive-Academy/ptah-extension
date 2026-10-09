@@ -23,7 +23,7 @@
  * agent-cli` shipped with `['glm', 'gemini']` when `gemini` was a real member of
  * `CliType`; two later commits removed Gemini from the type and from the list,
  * deleting the entry that worked and leaving the one that never did. Meanwhile
- * `CliDetectionService` registered six spawnable adapters — `codex`, `copilot`,
+ * `CliDetectionService` registered six spawnable adapters at the time — `codex`, `copilot`,
  * `cursor`, `antigravity`, `opencode`, `pi` — every one of them rejected here
  * with exit 3, and nothing blocked at the runtime layer at all. The README's
  * "copilot and cursor are blocked due to Windows spawn issues" outlived its
@@ -31,12 +31,12 @@
  *
  * So there is no gate any more. {@link CLI_AGENT_SELECTORS} is the set of values
  * `--cli` can NAME, and it is DERIVED from `SYSTEM_CLI_TYPES` — the declared
- * single source of truth — rather than re-listed here. A seventh adapter becomes
+ * single source of truth — rather than re-listed here. A new adapter becomes
  * reachable from this CLI the moment it is added there, which is precisely how
- * these six failed to.
+ * those six failed to.
  *
  * **Two vocabularies, one translation point.** A selector is what the user
- * types; `CliType` is what goes on the wire. For the six system CLIs those
+ * types; `CliType` is what goes on the wire. For every system CLI those
  * coincide. They do not for `glm`, which names an Anthropic-compatible provider
  * (Z.AI GLM) reached through the `'ptah-cli'` wire value and addressed by
  * `ptahCliId` — never a binary on PATH. This file used to bridge that gap with
@@ -77,8 +77,8 @@ import type {
 /**
  * Every value `--cli` accepts, in the user's vocabulary.
  *
- * DERIVED, not re-listed. The six system CLIs come straight from
- * `SYSTEM_CLI_TYPES`, so adding a seventh adapter makes it selectable here with
+ * DERIVED, not re-listed. The system CLIs come straight from
+ * `SYSTEM_CLI_TYPES`, so adding a new adapter makes it selectable here with
  * no edit to this file — the exact failure mode that left `codex`, `copilot`,
  * `cursor`, `antigravity`, `opencode` and `pi` unreachable behind a
  * single-entry list for their whole existence. `ptah-cli` is appended because it
@@ -98,12 +98,7 @@ export const CLI_AGENT_SELECTORS = [
 export type CliAgentSelector = (typeof CLI_AGENT_SELECTORS)[number];
 
 export type AgentCliSubcommand =
-  | 'detect'
-  | 'config-get'
-  | 'config-set'
-  | 'models-list'
-  | 'stop'
-  | 'resume';
+  'detect' | 'config-get' | 'config-set' | 'models-list' | 'stop' | 'resume';
 
 export interface AgentCliOptions {
   subcommand: AgentCliSubcommand;
@@ -227,9 +222,9 @@ export interface CliAgentTarget {
 }
 
 /**
- * The six system CLIs, whose wire meaning is their own name.
+ * Every system CLI, whose wire meaning is its own name.
  *
- * Built from `SYSTEM_CLI_TYPES` rather than written out, so a seventh adapter
+ * Built from `SYSTEM_CLI_TYPES` rather than written out, so a new adapter
  * needs no decision here: a system CLI's `CliType` IS its selector. The single
  * assertion is provable — the loop writes one entry per member of the very
  * tuple that defines the key union — and is not the `as unknown as` this task
@@ -441,7 +436,7 @@ async function runModelsList(
     // `--cli codex` used to exit 3 before it could be asked. It is now a field
     // lookup on the same result the unscoped branch already reports, keyed by
     // the wire type — `AgentListCliModelsResult`'s keys ARE `SYSTEM_CLI_TYPES`,
-    // so this indexes without a cast and a seventh adapter comes along for free.
+    // so this indexes without a cast and a new adapter comes along for free.
     return engine(globals, { mode: 'full' }, async (ctx) => {
       const result = await callRpc<AgentListCliModelsResult>(
         ctx.transport,
@@ -464,10 +459,10 @@ async function runModelsList(
       undefined,
     );
 
-    // All six system CLIs, not just codex+copilot. The RPC has returned cursor,
-    // antigravity, opencode and pi for as long as `AgentListCliModelsResult`
-    // has had those fields; dropping them here silently hid four CLIs' models
-    // from every CLI consumer.
+    // Every system CLI, not just codex+copilot. The RPC has returned cursor,
+    // antigravity, opencode, pi and grok for as long as
+    // `AgentListCliModelsResult` has had those fields; dropping them here
+    // silently hid those CLIs' models from every CLI consumer.
     await formatter.writeNotification('agent_cli.models', {
       codex: result?.codex ?? [],
       copilot: result?.copilot ?? [],
@@ -475,6 +470,7 @@ async function runModelsList(
       antigravity: result?.antigravity ?? [],
       opencode: result?.opencode ?? [],
       pi: result?.pi ?? [],
+      grok: result?.grok ?? [],
     });
     return ExitCode.Success;
   });
@@ -581,8 +577,8 @@ async function runResume(
     );
     return ExitCode.UsageError;
   }
-  // A provider id only means something for a ptah-cli target. Now that the six
-  // system CLIs are selectable, `--cli codex --ptah-cli-id x` is expressible and
+  // A provider id only means something for a ptah-cli target. Now that every
+  // system CLI is selectable, `--cli codex --ptah-cli-id x` is expressible and
   // is nonsense: `codex` is a binary on PATH, not a configured provider. Saying
   // so beats forwarding a field the spawn path has nothing to do with.
   if (opts.ptahCliId !== undefined && target.cli !== 'ptah-cli') {
@@ -682,9 +678,7 @@ function buildSetConfigParams(
       const v = rawValue.toLowerCase();
       params[
         key as
-          | 'codexAutoApprove'
-          | 'copilotAutoApprove'
-          | 'browserAllowLocalhost'
+          'codexAutoApprove' | 'copilotAutoApprove' | 'browserAllowLocalhost'
       ] = v === 'true' || v === '1';
       break;
     }

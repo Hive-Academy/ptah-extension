@@ -27,6 +27,12 @@ import type { CliCommandOptions } from './cli-adapter.interface';
 import { renderLaneCompletionContract } from '../lane-reporting-contract';
 import { condenseLaneRole } from './lane-role-condenser';
 
+// Re-exported for `cli-stdout-probe.ts`, which kills its timed-out probe
+// through `killProcessTree` the way `probeCliVersion` does: the probe must
+// reach it through this module so the adapter specs that mock
+// `./cli-adapter.utils` control that kill through the same seam as `spawnCli`.
+export { killProcessTree };
+
 /**
  * A buffer-until-first-subscriber emitter. Items emitted before any
  * subscriber attaches are buffered and flushed (in order) to the first

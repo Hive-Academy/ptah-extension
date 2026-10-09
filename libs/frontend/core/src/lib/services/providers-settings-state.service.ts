@@ -291,7 +291,7 @@ export class ProvidersSettingsStateService {
   }
 
   /**
-   * Model lists for the delegated CLIs (codex, copilot, cursor, antigravity, opencode, pi). These are
+   * Model lists for the delegated CLIs (codex, copilot, cursor, antigravity, opencode, pi, grok). These are
    * CLI names, not provider-registry ids, so they come from agent:listCliModels, never provider:listModels.
    * Loaded on demand: the host may fetch remote catalogues.
    */
@@ -766,6 +766,7 @@ export class ProvidersSettingsStateService {
           copilotModel: config.copilotModel,
           cursorModel: config.cursorModel,
           antigravityModel: config.antigravityModel,
+          grokModel: config.grokModel,
           opencodeModel: config.opencodeModel,
           piModel: config.piModel,
           codexReasoningEffort: config.codexReasoningEffort,
@@ -794,21 +795,23 @@ export class ProvidersSettingsStateService {
   /**
    * Re-detects installed CLIs, then rereads everything derived from them. A failed detection
    * leaves `cliDetection()` in error and rereads nothing. Each call decides on its own detection
-   * result, not the shared section, which an overlapping call may have replaced.
+   * result, not the shared section, which an overlapping call may have replaced, and returns it
+   * so callers can do the same.
    */
-  async redetectClis(): Promise<void> {
+  async redetectClis(): Promise<boolean> {
     let detected = false;
     await this.read(this.detectionStore, async () => {
       const { clis } = await this.require('agent:detectClis', undefined);
       detected = true;
       return clis;
     });
-    if (!detected) return;
+    if (!detected) return false;
     await Promise.all([
       this.refreshOrchestration(),
       this.refreshCliAgents(),
       this.refreshCliModels(),
     ]);
+    return true;
   }
   async refreshTiers(
     params: RpcMethodParams<'provider:getModelTiers'>,

@@ -5,6 +5,7 @@ import type { IModelDiscovery } from '@ptah-extension/platform-core';
 import {
   AUTH_PROVIDERS_TOKENS,
   type CodexAuthService,
+  type CopilotAuthService,
 } from '@ptah-extension/auth-providers';
 import type {
   AgentListCliModelsResult,
@@ -23,6 +24,8 @@ export class CliModelListService {
     private readonly modelDiscovery: IModelDiscovery,
     @inject(AUTH_PROVIDERS_TOKENS.SDK_CODEX_AUTH)
     private readonly codexAuthService: CodexAuthService,
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_COPILOT_AUTH)
+    private readonly copilotAuthService: CopilotAuthService,
   ) {}
 
   async listAll(): Promise<AgentListCliModelsResult> {
@@ -53,18 +56,20 @@ export class CliModelListService {
   }> {
     const modelMap = await this.cliDetection.listModelsForAll();
 
-    // The Codex adapter only knows a curated list baked into the build.
-    // `~/.codex/auth.json` is the same account the CLI uses, so the
-    // account's live model menu is authoritative when it resolves.
-    let codex = await this.getCodexModelsFromAuth();
+    // The lane runs the installed `codex`, so its own catalog (already
+    // filtered for that binary's version) comes first. The account's live
+    // menu in `~/.codex/auth.json` is next; the adapter's curated list last.
+    let codex = await this.getCodexModelsFromCliCatalog();
+    if (codex.length === 0) codex = await this.getCodexModelsFromAuth();
     const codexReported = codex.length > 0;
     if (!codexReported) {
       codex = (modelMap['codex'] ?? []) as CliModelOption[];
     }
-    // Hosts with a Language Model API (VS Code) report the models the
-    // user actually has; everywhere else this is empty and the curated
-    // per-CLI list stands in.
+    // Hosts with a Language Model API (VS Code) report the models the user
+    // actually has. Elsewhere the signed-in Copilot account's /models list
+    // does; the curated per-CLI list stands in only when neither answers.
     let copilot = await this.getCopilotModelsFromHost();
+    if (copilot.length === 0) copilot = await this.getCopilotModelsFromAuth();
     const copilotReported = copilot.length > 0;
     if (!copilotReported) {
       copilot = (modelMap['copilot'] ?? []) as CliModelOption[];
@@ -73,6 +78,7 @@ export class CliModelListService {
     const antigravity = (modelMap['antigravity'] ?? []) as CliModelOption[];
     const opencode = (modelMap['opencode'] ?? []) as CliModelOption[];
     const pi = (modelMap['pi'] ?? []) as CliModelOption[];
+    const grok = (modelMap['grok'] ?? []) as CliModelOption[];
 
     const result: AgentListCliModelsResult = {
       codex,
@@ -81,6 +87,7 @@ export class CliModelListService {
       antigravity,
       opencode,
       pi,
+      grok,
     };
 
     return { models: result, codexReported, copilotReported };
@@ -100,6 +107,39 @@ export class CliModelListService {
     } catch {
       // degradation-audit: optional-capability - the host Language Model API
       // is optional; an empty list leaves the adapter's curated list standing in.
+      return [];
+    }
+  }
+
+  /** The installed Codex CLI's own catalog; empty when it cannot be read. */
+  private async getCodexModelsFromCliCatalog(): Promise<CliModelOption[]> {
+    const adapter = this.cliDetection.getAdapter('codex') as
+      | { listCatalogModels?: () => Promise<readonly CliModelOption[]> }
+      | undefined;
+    try {
+      return [...((await adapter?.listCatalogModels?.()) ?? [])];
+    } catch {
+      // degradation-audit: optional-capability - no readable CLI catalog
+      // means the account list or the curated list stands in.
+      return [];
+    }
+  }
+
+  /**
+   * Copilot models for the signed-in Copilot account, from its /models
+   * endpoint. Empty when not signed in or offline.
+   */
+  private async getCopilotModelsFromAuth(): Promise<CliModelOption[]> {
+    try {
+      const models = await this.copilotAuthService.listModels();
+      return models.map((model) => ({
+        id: model.id,
+        name: model.name || this.formatModelDisplayName(model.id),
+      }));
+    } catch {
+      // degradation-audit: optional-capability - the Copilot /models endpoint
+      // needs a signed-in, online account; an empty list leaves the curated
+      // per-CLI list standing in.
       return [];
     }
   }

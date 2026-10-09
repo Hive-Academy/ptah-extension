@@ -23,7 +23,9 @@ describe('lane spawn policy (TASK_2026_597, D4)', () => {
     it('does not match other models or an empty value', () => {
       expect(findBlockedLaneModel('gpt-6-sol')).toBeUndefined();
       expect(findBlockedLaneModel('mimo-v2.6-flash-free-x')).toBeUndefined();
-      expect(findBlockedLaneModel('mimo-v2.6-flash-free/other')).toBeUndefined();
+      expect(
+        findBlockedLaneModel('mimo-v2.6-flash-free/other'),
+      ).toBeUndefined();
       expect(findBlockedLaneModel(undefined)).toBeUndefined();
       expect(findBlockedLaneModel('')).toBeUndefined();
     });
@@ -259,9 +261,9 @@ describe('lane spawn policy (TASK_2026_597, D4)', () => {
       it.each(['codex', 'copilot'] as const)(
         "maps 'minimal' to 'low' for %s (newer models reject 'minimal')",
         (cli) => {
-          expect(resolveLaneEffort({ cli, spawnEffort: 'minimal' }).effort).toBe(
-            'low',
-          );
+          expect(
+            resolveLaneEffort({ cli, spawnEffort: 'minimal' }).effort,
+          ).toBe('low');
         },
       );
 
@@ -285,6 +287,54 @@ describe('lane spawn policy (TASK_2026_597, D4)', () => {
         expect(
           resolveLaneEffort({
             cli: 'antigravity',
+            chatEffort: 'high',
+            roleName: 'code-logic-reviewer',
+          }),
+        ).toEqual({ effort: 'medium', step: 4, ignored: [] });
+      });
+
+      it.each([
+        ['minimal', 'low'],
+        ['low', 'low'],
+        ['medium', 'medium'],
+        ['high', 'high'],
+        ['xhigh', 'xhigh'],
+        ['max', 'xhigh'],
+      ])("maps grok '%s' to '%s'", (spawnEffort, expected) => {
+        expect(resolveLaneEffort({ cli: 'grok', spawnEffort })).toEqual({
+          effort: expected,
+          step: 1,
+          ignored: [],
+        });
+      });
+
+      it.each(['off', 'inherit', '', 'ultra'])(
+        "gives grok no effort for '%s'",
+        (value) => {
+          expect(
+            resolveLaneEffort({ cli: 'grok', spawnEffort: value }).effort,
+          ).toBeUndefined();
+        },
+      );
+
+      it('ignores an unknown grok spawn effort and falls back to the chat effort', () => {
+        expect(
+          resolveLaneEffort({
+            cli: 'grok',
+            spawnEffort: 'off',
+            chatEffort: 'max',
+          }),
+        ).toEqual({
+          effort: 'xhigh',
+          step: 5,
+          ignored: [{ step: 1, value: 'off' }],
+        });
+      });
+
+      it('gives a grok reviewer medium at step 4', () => {
+        expect(
+          resolveLaneEffort({
+            cli: 'grok',
             chatEffort: 'high',
             roleName: 'code-logic-reviewer',
           }),

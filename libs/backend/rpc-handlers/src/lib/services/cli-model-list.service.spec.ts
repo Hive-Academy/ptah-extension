@@ -1,12 +1,18 @@
 import 'reflect-metadata';
 
 jest.mock('@ptah-extension/auth-providers', () => ({
-  AUTH_PROVIDERS_TOKENS: { SDK_CODEX_AUTH: Symbol.for('CodexAuthService') },
+  AUTH_PROVIDERS_TOKENS: {
+    SDK_CODEX_AUTH: Symbol.for('CodexAuthService'),
+    SDK_COPILOT_AUTH: Symbol.for('CopilotAuthService'),
+  },
 }));
 
 import type { CliDetectionService } from '@ptah-extension/cli-agent-runtime';
 import type { IModelDiscovery } from '@ptah-extension/platform-core';
-import type { CodexAuthService } from '@ptah-extension/auth-providers';
+import type {
+  CodexAuthService,
+  CopilotAuthService,
+} from '@ptah-extension/auth-providers';
 import type { AgentListCliModelsResult } from '@ptah-extension/shared';
 import { providerReported } from '@ptah-extension/shared';
 import { CliModelListService } from './cli-model-list.service';
@@ -19,21 +25,63 @@ function makeHarness() {
     antigravity: [{ id: 'antigravity-model', name: 'Antigravity model' }],
     opencode: [{ id: 'provider/model', name: 'OpenCode model' }],
     pi: [{ id: 'pi-model', name: 'Pi model' }],
+    grok: [{ id: 'grok-model', name: 'Grok model' }],
   };
+  const codexAdapter = { listCatalogModels: jest.fn().mockResolvedValue([]) };
   const cliDetection = {
     listModelsForAll: jest.fn().mockResolvedValue(modelMap),
+    getAdapter: jest.fn((cli: string) =>
+      cli === 'codex' ? codexAdapter : undefined,
+    ),
   };
   const modelDiscovery = { getCopilotModels: jest.fn().mockResolvedValue([]) };
   const codexAuth = { listModels: jest.fn().mockResolvedValue([]) };
+  const copilotAuth = { listModels: jest.fn().mockResolvedValue([]) };
   const service = new CliModelListService(
     cliDetection as unknown as CliDetectionService,
     modelDiscovery as unknown as IModelDiscovery,
     codexAuth as unknown as CodexAuthService,
+    copilotAuth as unknown as CopilotAuthService,
   );
-  return { service, cliDetection, modelDiscovery, codexAuth, modelMap };
+  return {
+    service,
+    cliDetection,
+    codexAdapter,
+    modelDiscovery,
+    codexAuth,
+    copilotAuth,
+    modelMap,
+  };
 }
 
 describe('CliModelListService', () => {
+  describe('lane source order', () => {
+    it('prefers the installed Codex CLI catalog over the account list', async () => {
+      const h = makeHarness();
+      h.codexAdapter.listCatalogModels.mockResolvedValue([
+        { id: 'gpt-6-sol', name: 'GPT-6-Sol' },
+      ]);
+      h.codexAuth.listModels.mockResolvedValue([
+        { id: 'gpt-6.1-sol', name: 'Too new for this CLI' },
+      ]);
+      const result = await h.service.listForClassification();
+      expect(result.codex).toEqual([{ id: 'gpt-6-sol', name: 'GPT-6-Sol' }]);
+      expect(h.codexAuth.listModels).not.toHaveBeenCalled();
+    });
+
+    it('uses the Copilot account list when the host has no Language Model API', async () => {
+      const h = makeHarness();
+      h.copilotAuth.listModels.mockResolvedValue([
+        { id: 'claude-sonnet-5-5', name: 'Claude Sonnet 5.5' },
+      ]);
+      const result = await h.service.listForClassification();
+      expect(result.copilot).toEqual([
+        { id: 'claude-sonnet-5-5', name: 'Claude Sonnet 5.5' },
+      ]);
+      expect(result.copilot[0]).not.toHaveProperty('isFallback');
+    });
+  });
+
   describe('listForClassification', () => {
     it.each(['codex', 'copilot'] as const)(
       'returns live %s entries without fallback metadata',
@@ -211,6 +259,7 @@ describe('CliModelListService', () => {
       antigravity: [],
       opencode: [],
       pi: [],
+      grok: [],
     });
   });
 

@@ -38,6 +38,7 @@
           "electron",
           "@anthropic-ai/claude-agent-sdk",
           "@openai/codex-sdk",
+          "@agentclientprotocol/sdk",
           "@cursor/sdk",
           "@sentry/node",
           "deepagents",

@@ -7,6 +7,7 @@ import type {
   AgentOrchestrationConfig,
   CliDetectionResult,
 } from '@ptah-extension/shared';
+import { getAnthropicProvider } from '@ptah-extension/shared';
 import type { DiscoveredVendor } from './tribunal-discovery.service';
 
 function makeCli(
@@ -265,7 +266,7 @@ describe('TribunalDiscoveryService', () => {
 
       const result = await service.discover();
       expect(byLaneId(result, 'ptah-cli|moonshot#0')?.lane.model).toBe(
-        'kimi-k2.7-code',
+        getAnthropicProvider('moonshot')?.defaultTiers?.opus,
       );
     });
 

@@ -17,10 +17,7 @@ export type MemoryCuratorEventKind =
   | 'embedder-download';
 
 export type EmbedderDownloadPhaseWire =
-  | 'starting'
-  | 'downloading'
-  | 'ready'
-  | 'failed';
+  'starting' | 'downloading' | 'ready' | 'failed';
 
 export interface MemoryCuratorEventWire {
   readonly kind: MemoryCuratorEventKind;
@@ -135,11 +132,7 @@ export interface MemoryLifecyclePreviewDto {
 }
 
 export type RetentionHealthVerdict =
-  | 'disabled'
-  | 'never-completed'
-  | 'stalled'
-  | 'unknown'
-  | 'healthy';
+  'disabled' | 'never-completed' | 'stalled' | 'unknown' | 'healthy';
 
 export interface MemoryStorageHealthDto {
   readonly dbBytes: number | null; // page_count × page_size, live
@@ -154,6 +147,8 @@ export interface MemoryStorageHealthDto {
     readonly processedBytesEstimate: number | null; // processedRows × avg freed bytes per purged row
     readonly measuredAt: number | null; // when processedRows was counted
     readonly quarantineLedgerRows: number | null;
+    readonly bootScanFailuresPending: number | null; // live: failed boot-scan sessions still retried
+    readonly bootScanFailuresGivenUp: number | null; // live: failed boot-scan sessions given up on
   };
   readonly retention: {
     readonly healthVerdict: RetentionHealthVerdict;

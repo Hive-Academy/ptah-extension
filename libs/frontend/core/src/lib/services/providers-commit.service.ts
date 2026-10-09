@@ -191,6 +191,7 @@ export class ProvidersCommitService {
       'copilotModel',
       'cursorModel',
       'antigravityModel',
+      'grokModel',
       'opencodeModel',
       'piModel',
       'codexReasoningEffort',

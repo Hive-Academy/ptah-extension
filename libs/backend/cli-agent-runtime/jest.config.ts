@@ -13,6 +13,8 @@ export default {
     ],
   },
   moduleFileExtensions: ['ts', 'js', 'html'],
+  // `@agentclientprotocol/sdk` ships ESM only; ts-jest transpiles it to CommonJS for the specs.
+  transformIgnorePatterns: ['node_modules/(?!@agentclientprotocol/)'],
   coverageDirectory: '../../../coverage/libs/backend/cli-agent-runtime',
   moduleNameMapper: {
     '^vscode$': '<rootDir>/../../../__mocks__/vscode.ts',

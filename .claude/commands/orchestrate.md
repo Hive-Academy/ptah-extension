@@ -35,7 +35,7 @@ Invoke the orchestration skill for development workflows.
 
 **Agents** (13): project-manager, software-architect, team-leader, backend-developer, frontend-developer, devops-engineer, senior-tester, code-style-reviewer, code-logic-reviewer, researcher-expert, modernization-detector, ui-ux-designer, technical-content-writer
 
-**Checkpoints**: Scope Clarification, Requirements Validation, Architecture Validation, QA Choice
+**Checkpoints**: Scope Clarification, Requirements Validation, Architecture Validation, QA Selection
 
 ## Skill
 

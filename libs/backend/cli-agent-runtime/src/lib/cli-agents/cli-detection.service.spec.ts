@@ -41,10 +41,8 @@ jest.mock('./cli-adapters/copilot-permission-bridge', () => ({
   CopilotPermissionBridge: jest.fn(() => ({})),
 }));
 const mockCursorCtor = jest.fn(
-  (
-    _logger?: unknown,
-    _resolveApiKey?: () => Promise<string | undefined>,
-  ) => mockAdapterFor('cursor'),
+  (_logger?: unknown, _resolveApiKey?: () => Promise<string | undefined>) =>
+    mockAdapterFor('cursor'),
 );
 jest.mock('./cli-adapters/cursor-cli.adapter', () => ({
   CursorCliAdapter: mockCursorCtor,
@@ -58,6 +56,12 @@ jest.mock('./cli-adapters/opencode-cli.adapter', () => ({
 jest.mock('./cli-adapters/pi-cli.adapter', () => ({
   PiCliAdapter: jest.fn(() => mockAdapterFor('pi')),
 }));
+const mockGrokCtor = jest.fn((_spawner?: unknown, _logger?: unknown) =>
+  mockAdapterFor('grok'),
+);
+jest.mock('./cli-adapters/grok-cli.adapter', () => ({
+  GrokCliAdapter: mockGrokCtor,
+}));
 
 import { CliDetectionService } from './cli-detection.service';
 
@@ -68,6 +72,7 @@ const CHANNELS: ReadonlyArray<[CliType, AgentRoleChannel]> = [
   ['antigravity', 'task-prompt'],
   ['opencode', 'task-prompt'],
   ['pi', 'task-prompt'],
+  ['grok', 'task-prompt'],
 ];
 
 function createAdapter(
@@ -119,6 +124,7 @@ describe('CliDetectionService role stamp', () => {
   beforeEach(() => {
     mockAdapters.clear();
     mockCursorCtor.mockClear();
+    mockGrokCtor.mockClear();
     for (const [name, channel] of CHANNELS) {
       mockAdapters.set(name, createAdapter(name, channel));
     }
@@ -135,6 +141,25 @@ describe('CliDetectionService role stamp', () => {
     }
     await resolver();
     expect(authSecrets.getProviderKey).toHaveBeenCalledWith('cursor');
+  });
+
+  it('constructs the Grok adapter with the process spawner and the logger', () => {
+    createService();
+
+    expect(mockGrokCtor).toHaveBeenCalledTimes(1);
+    const [spawnerArg, loggerArg] = mockGrokCtor.mock.calls[0];
+    expect(spawnerArg).toBeDefined();
+    expect(loggerArg).toBeDefined();
+  });
+
+  it('checks Grok credentials in refreshCliTokens', async () => {
+    const ensureTokensFresh = jest.fn(async () => true);
+    Object.assign(mockAdapterFor('grok'), { ensureTokensFresh });
+    const { service } = createService();
+
+    await service.refreshCliTokens();
+
+    expect(ensureTokensFresh).toHaveBeenCalledTimes(1);
   });
 
   it('stamps preamble delivery and the adapter channel on every successful detection', async () => {

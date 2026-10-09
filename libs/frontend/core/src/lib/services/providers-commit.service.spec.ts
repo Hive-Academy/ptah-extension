@@ -740,6 +740,26 @@ describe('ProvidersCommitService', () => {
           undefined,
         );
       });
+      it('writes the Grok model alone and confirms it by read-back', async () => {
+        host({
+          'agent:setConfig': () => success({ success: true }),
+          'agent:getConfig': config({ grokModel: 'grok-4' }),
+        });
+        await service.run(
+          service.operations({ orchestration: { grokModel: 'grok-4' } }),
+          context,
+          hooks,
+        );
+        expect(service.commit()).toMatchObject({
+          status: 'saved',
+          saved: ['agentOrchestration.grokModel'],
+        });
+        expect(call).toHaveBeenCalledWith(
+          'agent:setConfig',
+          { grokModel: 'grok-4' },
+          undefined,
+        );
+      });
       it.each([
         ['a different value', '5m'],
         ['no value (a host without the field)', undefined],

@@ -77,10 +77,26 @@ const DEFAULT_API_ENDPOINT_APIKEY = 'https://api.openai.com/v1';
 const DEFAULT_API_ENDPOINT_OAUTH = 'https://chatgpt.com/backend-api/codex';
 
 /**
- * The Codex `/models` endpoint requires a `client_version` query param to be
- * present (any value is accepted; it does not gate which models are returned).
+ * The Codex `/models` endpoint hides each model from clients older than that
+ * model's minimum version: on 2026-10-07 `0.0.0` returned 4 of the 7 listed
+ * models and `0.162.0` returned all 7. The request sends the newer of this
+ * floor and the `client_version` the local Codex app or CLI last wrote to
+ * `models_cache.json`, so a newer local Codex lifts the floor without a release.
  */
-const CODEX_MODELS_CLIENT_VERSION = '0.0.0';
+const CODEX_MODELS_CLIENT_VERSION_FLOOR = '0.162.0';
+
+/** Numeric `major.minor.patch` compare; a missing or non-numeric part counts as 0. */
+function compareClientVersions(left: string, right: string): number {
+  const parts = (value: string) =>
+    value.split('.').map((part) => Number.parseInt(part, 10) || 0);
+  const a = parts(left);
+  const b = parts(right);
+  for (let i = 0; i < Math.max(a.length, b.length); i += 1) {
+    const diff = (a[i] ?? 0) - (b[i] ?? 0);
+    if (diff !== 0) return diff;
+  }
+  return 0;
+}
 
 @injectable()
 export class CodexAuthService implements ICodexAuthService {
@@ -303,7 +319,8 @@ export class CodexAuthService implements ICodexAuthService {
     try {
       const token = await this.resolveAccessToken();
       if (!token) return [];
-      const endpoint = `${this.getApiEndpoint()}/models?client_version=${CODEX_MODELS_CLIENT_VERSION}`;
+      const clientVersion = await this.resolveModelsClientVersion();
+      const endpoint = `${this.getApiEndpoint()}/models?client_version=${clientVersion}`;
       const response = await fetch(endpoint, {
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -610,6 +627,29 @@ export class CodexAuthService implements ICodexAuthService {
    * Read and parse the auth file directly from disk, bypassing the cache.
    * Used before an atomic write so we never clobber concurrent external edits.
    */
+  /** See CODEX_MODELS_CLIENT_VERSION_FLOOR. */
+  private async resolveModelsClientVersion(): Promise<string> {
+    try {
+      const raw = await readFile(
+        join(this.codexHome.path, 'models_cache.json'),
+        'utf-8',
+      );
+      const cached = (JSON.parse(raw) as { client_version?: unknown })
+        .client_version;
+      if (
+        typeof cached === 'string' &&
+        /^\d+\.\d+\.\d+$/.test(cached) &&
+        compareClientVersions(cached, CODEX_MODELS_CLIENT_VERSION_FLOOR) > 0
+      ) {
+        return cached;
+      }
+    } catch {
+      // degradation-audit: optional-capability - no readable cache means no
+      // local Codex has fetched models yet; the floor is the documented value.
+    }
+    return CODEX_MODELS_CLIENT_VERSION_FLOOR;
+  }
+
   private async readAuthFileFromDisk(): Promise<CodexAuthFile | null> {
     try {
       const raw = await readFile(this.authFilePath, 'utf-8');

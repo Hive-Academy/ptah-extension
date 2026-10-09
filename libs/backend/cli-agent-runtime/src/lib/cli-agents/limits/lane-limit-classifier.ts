@@ -14,6 +14,8 @@
  * - Antigravity "RESOURCE_EXHAUSTED … reset after 144h24m50s" (provisional)
  * - OpenCode    "Free usage exceeded" (provisional)
  * - Ollama      HTTP 429 with a limit wording (provisional)
+ * - Grok        "subscription:free-usage-exhausted" (the `-32003` data), or
+ *               "reached your free Grok Build usage limit" (`grok -p`)
  *
  * A Ptah CLI lane is checked against its provider's wordings (Claude for
  * `anthropic`, Ollama for `ollama-cloud`) once its owner names the provider,
@@ -51,6 +53,15 @@ const OPENCODE_LIMIT_REGEX = /Free usage exceeded/i;
 const OLLAMA_LIMIT_REGEX =
   /\b429\b[^\n]{0,80}?\b(?:too many requests|usage limit|quota)\b/i;
 
+/**
+ * Grok free-usage exhaustion. ACP carries the code in the `-32003` "Rate
+ * limited" error's `data` (string, or the `body_preview` object's `code`);
+ * `grok -p` prints the second wording, whose apostrophes may be curly. The
+ * window is a rolling 24 hours with no reset instant, so none is derived.
+ */
+const GROK_LIMIT_REGEX =
+  /subscription:free-usage-exhausted|reached your free Grok Build usage limit/i;
+
 /** Capacity, not quota (Req 3.9). A text carrying it is never classified. */
 const MODEL_CAPACITY_REGEX = /MODEL_CAPACITY_EXHAUSTED/i;
 
@@ -75,7 +86,8 @@ export type LaneLimitPattern =
   | 'codex-usage-limit'
   | 'antigravity-resource-exhausted'
   | 'opencode-free-usage'
-  | 'ollama-429';
+  | 'ollama-429'
+  | 'grok-free-usage';
 
 export interface LaneLimitClassification {
   readonly failureKind: 'quota';
@@ -142,6 +154,9 @@ const matchOpenCode: PatternMatcher = (text) =>
 const matchOllama: PatternMatcher = (text) =>
   OLLAMA_LIMIT_REGEX.test(text) ? quota('ollama-429', {}) : null;
 
+const matchGrok: PatternMatcher = (text) =>
+  GROK_LIMIT_REGEX.test(text) ? quota('grok-free-usage', {}) : null;
+
 /**
  * Wordings per CLI or provider. A Ptah CLI lane is classified by its provider
  * when its recorded owner names one ({@link laneLimitWording}). With no
@@ -153,6 +168,7 @@ const MATCHERS: Readonly<Record<string, readonly PatternMatcher[]>> = {
   codex: [matchCodex],
   antigravity: [matchAntigravity],
   opencode: [matchOpenCode],
+  grok: [matchGrok],
   'ptah-cli': [matchClaude],
   anthropic: [matchClaude],
   'ollama-cloud': [matchOllama],

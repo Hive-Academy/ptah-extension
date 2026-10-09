@@ -1,0 +1,15 @@
+{
+  "theme": "anubis-light",
+  "vp": "narrow",
+  "overflow": {
+    "doc": 400,
+    "win": 400,
+    "rows": [
+      "cli-matrix-row-codex",
+      "cli-matrix-row-antigravity",
+      "cli-matrix-row-glm-instance-1",
+      "cli-matrix-row-copilot",
+      "cli-matrix-row-opencode"
+    ]
+  }
+}

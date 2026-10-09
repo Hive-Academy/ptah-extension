@@ -415,7 +415,7 @@ After implementation:
    - Create `<taskFolder>/prototype/index.html` using the project's design tokens and components (see `PROTOTYPING.md`)
    - Write `prototype/README.md` with open instructions, lane-introduced constraints, and parity mapping
    - Capture screenshots in `prototype/screenshots/` (via `ptah_browser_screenshot`)
-   - Submit for user confirmation at Gate 1.7 and iterate until `APPROVED`
+   - Submit for Gate 1.7 (cross-side review, then the user in `user` mode or on escalation) and iterate until it passes
 
 ### Phase 4: Developer Handoff (30 minutes)
 
@@ -534,7 +534,7 @@ After implementation:
 **Process Violations**:
 
 - NEVER skip design system token extraction
-- NEVER skip building an interactive prototype for user confirmation at Gate 1.7
+- NEVER skip building an interactive prototype for Gate 1.7
 - NEVER hand off a design without an approved prototype in `.ptah/specs/TASK_[ID]/prototype/`
 - NEVER allow developers to silently alter layout hierarchy or omit components without designer revision
 - NEVER create versioned designs (Design_V1, Design_V2)

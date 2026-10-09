@@ -1,0 +1,115 @@
+{
+  "theme": "anubis-light",
+  "vp": "narrow",
+  "overflow": {
+    "doc": 400,
+    "win": 400,
+    "rows": [
+      "cli-matrix-row-codex",
+      "cli-matrix-row-antigravity",
+      "cli-matrix-row-glm-instance-1",
+      "cli-matrix-row-copilot",
+      "cli-matrix-row-opencode",
+      "cli-matrix-row-grok"
+    ]
+  },
+  "rowBox": {
+    "x": 26,
+    "y": 494.5,
+    "width": 630.4375,
+    "height": 42.5
+  },
+  "badge": {
+    "grok": {
+      "text": "Auto-approve",
+      "color": "oklch(0.23574 0.066 313.189)",
+      "bg": [245, 128, 0, 26],
+      "textRatio": 6.44,
+      "borderColor": "oklch(0.23574 0.066 313.189 / 0.1)",
+      "borderRatio": 6.48,
+      "fs": "9px"
+    },
+    "codex": {
+      "text": "Full auto",
+      "color": "oklch(0.23574 0.066 313.189)",
+      "bg": [245, 128, 0, 26],
+      "textRatio": 6.44,
+      "borderColor": "oklch(0.23574 0.066 313.189 / 0.1)",
+      "borderRatio": 6.48,
+      "fs": "9px"
+    },
+    "copilot": {
+      "text": "Auto-approve: Off",
+      "color": "oklch(0.23574 0.066 313.189)",
+      "bg": [230, 226, 223, 255],
+      "textRatio": 13.18,
+      "borderColor": "oklch(0.23574 0.066 313.189 / 0.1)",
+      "borderRatio": 13.25,
+      "fs": "9px"
+    },
+    "targets": {
+      "toggle": [18, 18],
+      "model": [137, 16],
+      "permission-info": [20, 20]
+    }
+  },
+  "modelCell": 1,
+  "popoverText": "Model for Grok\n\nProvider default uses Grok's own default. Saved globally; new agents use it.\n\n✓\nProvider default\n(current)\ngrok-4.7",
+  "popBox": {
+    "x": 36.875,
+    "y": 549,
+    "width": 272,
+    "height": 135
+  },
+  "focusAfterEsc": "provider-model-picker-search",
+  "stops": [
+    {
+      "id": "cli-matrix-toggle-grok",
+      "al": "Grok enabled",
+      "outline": "solid 2px oklch(0.23574 0.066 313.189)",
+      "shadow": "none",
+      "inRow": true
+    },
+    {
+      "id": "cli-matrix-model-grok",
+      "al": "Grok model: provider default. Change",
+      "outline": "solid 2px oklch(0.23574 0.066 313.189)",
+      "shadow": "none",
+      "inRow": true
+    },
+    {
+      "al": "Close",
+      "outline": "solid 2px oklch(0.23574 0.066 313.189)",
+      "shadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0",
+      "inRow": true
+    },
+    {
+      "id": "provider-model-picker-search",
+      "al": "Grok model",
+      "outline": "solid 2px oklch(0.23574 0.066 313.189 / 0.2)",
+      "shadow": "none",
+      "inRow": true
+    },
+    {
+      "id": "cli-matrix-permission-info-grok",
+      "al": "Grok permission details",
+      "outline": "solid 2px oklch(0.23574 0.066 313.189)",
+      "shadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0",
+      "inRow": true
+    },
+    {
+      "id": "cli-matrix-uninstalled-toggle",
+      "al": null,
+      "outline": "solid 2px oklch(0.23574 0.066 313.189)",
+      "shadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0",
+      "inRow": false
+    },
+    {
+      "id": "subagent-cache-ttl",
+      "al": null,
+      "outline": "solid 2px oklch(0.23574 0.066 313.189)",
+      "shadow": "none",
+      "inRow": false
+    }
+  ]
+}
