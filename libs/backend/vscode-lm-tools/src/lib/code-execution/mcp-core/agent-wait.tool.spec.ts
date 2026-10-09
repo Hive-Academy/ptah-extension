@@ -88,7 +88,18 @@ describe('buildAgentWaitTool', () => {
       maxItems: MAX_WAIT_AGENT_IDS,
     });
     expect(tool.description).toContain('PARTIAL');
-    expect(tool.description).toContain('Over HTTP, each call waits at most 45 s');
+    expect(tool.description).toContain('HTTP calls wait at most 45 s');
+    expect(tool.inputSchema.properties['timeoutSec']).toMatchObject({
+      description: expect.stringContaining('HTTP call is capped at 45 s'),
+    });
+  });
+
+  it('keeps HTTP-cap wording out of the stdio description', () => {
+    const tool = buildAgentWaitTool({ transport: 'stdio' });
+    expect(tool.description).not.toContain('HTTP');
+    expect(tool.inputSchema.properties['timeoutSec']).toMatchObject({
+      description: expect.not.stringContaining('HTTP'),
+    });
   });
 });
 
@@ -138,7 +149,7 @@ describe('runAgentWait', () => {
           },
         ],
       },
-      { signal: controller.signal },
+      { signal: controller.signal, cappedFromTimeoutSec: 600 },
     );
 
     const text = await runAgentWait(
@@ -155,7 +166,61 @@ describe('runAgentWait', () => {
     expect(text).toContain('WAIT CANCELLED after 2s waiting for all');
     expect(text).toContain('0 of 1 known lane(s) ended, 1 still running');
     expect(text).not.toContain('TIMED OUT');
+    expect(text).not.toContain('WAIT CAPPED');
     expect(d.readOutput).not.toHaveBeenCalled();
+  });
+
+  it('only reports an HTTP cap when its shortened timer timed out', async () => {
+    const controller = new AbortController();
+    const text = await runAgentWait(
+      AgentWaitArgsSchema.parse({ agentIds: ['lane-1'], timeoutSec: 45 }),
+      deps(
+        {
+          mode: 'all',
+          timedOut: false,
+          cancelled: false,
+          waitedMs: 5_000,
+          entries: [{ agentId: 'lane-1', state: 'exited', info: info('lane-1') }],
+        },
+        { signal: controller.signal, cappedFromTimeoutSec: 600 },
+      ),
+    );
+
+    expect(text).not.toContain('WAIT CAPPED');
+  });
+
+  it('does not report an HTTP cap when mode any ends early', async () => {
+    const text = await runAgentWait(
+      AgentWaitArgsSchema.parse({
+        agentIds: ['done', 'running'],
+        mode: 'any',
+        timeoutSec: 45,
+      }),
+      deps(
+        {
+          mode: 'any',
+          timedOut: false,
+          cancelled: false,
+          waitedMs: 5_000,
+          entries: [
+            { agentId: 'done', state: 'exited', info: info('done') },
+            {
+              agentId: 'running',
+              state: 'running',
+              info: info('running', {
+                status: 'running',
+                exitCode: undefined,
+                completedAt: undefined,
+              }),
+            },
+          ],
+        },
+        { cappedFromTimeoutSec: 600 },
+      ),
+    );
+
+    expect(text).toContain('Wait (any) done');
+    expect(text).not.toContain('WAIT CAPPED');
   });
 
   it('reports status, exit code, duration, stop reason, deliverables and last lines', async () => {

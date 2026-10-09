@@ -69,7 +69,13 @@ export interface AgentWaitDependencies {
   cappedFromTimeoutSec?: number;
 }
 
-export function buildAgentWaitTool(): MCPToolDefinition {
+export function buildAgentWaitTool(
+  { transport = 'http' }: { transport?: 'http' | 'stdio' } = {},
+): MCPToolDefinition {
+  const httpCap =
+    transport === 'http'
+      ? ` HTTP calls wait at most ${HTTP_MAX_AGENT_WAIT_SEC} s; repeat while lanes run.`
+      : '';
   return {
     name: AGENT_WAIT_TOOL_NAME,
     description:
@@ -77,9 +83,9 @@ export function buildAgentWaitTool(): MCPToolDefinition {
       'mode "all" (default) returns when every lane has ended; "any" when the first one has. ' +
       `timeoutSec (0-${MAX_WAIT_TIMEOUT_SEC}, default ${DEFAULT_AGENT_WAIT_TIMEOUT_SEC}) bounds the wait; ` +
       'on timeout the reply is a PARTIAL result (not an error) and the call is safe to repeat. ' +
-      `Over HTTP, each call waits at most ${HTTP_MAX_AGENT_WAIT_SEC} s; repeat the call while lanes are running. ` +
+      httpCap +
       'Per lane it reports status, exit code, duration, why it stopped, the declared deliverables ' +
-      `checked on disk, and the last output lines, in at most ${WAIT_SUMMARY_MAX_CHARS} chars. ` +
+      `checked on disk and last output, in at most ${WAIT_SUMMARY_MAX_CHARS} chars. ` +
       'Read the full output with ptah_agent_read.',
     inputSchema: {
       type: 'object',
@@ -100,7 +106,10 @@ export function buildAgentWaitTool(): MCPToolDefinition {
           type: 'integer',
           minimum: 0,
           maximum: MAX_WAIT_TIMEOUT_SEC,
-          description: `Longest wait in seconds (default ${DEFAULT_AGENT_WAIT_TIMEOUT_SEC}).`,
+          description:
+            transport === 'http'
+              ? `Requested wait in seconds (default ${DEFAULT_AGENT_WAIT_TIMEOUT_SEC}); each HTTP call is capped at ${HTTP_MAX_AGENT_WAIT_SEC} s.`
+              : `Longest wait in seconds (default ${DEFAULT_AGENT_WAIT_TIMEOUT_SEC}).`,
         },
       },
       required: ['agentIds'],
@@ -186,10 +195,11 @@ function headerOf(
   const running = known.filter((e) => e.state === 'running').length;
   const ended = known.length - running;
   const capNote =
-    cappedFromTimeoutSec !== undefined && running > 0
-      ? `Wait capped at ${timeoutSec} s on the HTTP transport (requested ${cappedFromTimeoutSec} s); ` +
+    result.timedOut && cappedFromTimeoutSec !== undefined && running > 0
+      ? `WAIT CAPPED at ${timeoutSec} s on the HTTP transport (requested ${cappedFromTimeoutSec} s): ` +
         `${running} lane(s) still running — call ptah_agent_wait again. `
       : '';
+  if (capNote) return capNote.trim();
   if (result.cancelled) {
     return (
       capNote +

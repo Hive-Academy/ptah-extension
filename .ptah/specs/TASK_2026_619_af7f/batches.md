@@ -2587,6 +2587,8 @@ run after Batch 34, not in parallel with it.
 - Defect and measurement: the non-streaming HTTP handler returns one JSON reply only after the wait completes, while the HTTP MCP client aborted a `timeoutSec: 200` wait after about 61 s (17:20:33 to 17:21:34), losing the reply although the lanes continued.
 - Fix: `ptah_agent_wait` still accepts its 0–900 s schema range, but the HTTP dispatcher caps an effective wait at 45 s to leave margin below the measured ~60 s client request timeout. When that cap leaves lanes running, the bounded reply names the cap, original request, and retry action. Stdio retains the requested range.
 - Open follow-up: `ptah_run_check` receives the HTTP request abort signal and kills its process tree on abort, so checks beyond the same client timeout need a later detached job plus poll/wait design.
+- Rev 1: the cap notice now appears only when the shortened HTTP timer actually expires with lanes still running; HTTP and stdio publish transport-specific wait guidance. The schema continues to accept 0â€“900 s requests (including existing 600 s callers), while the HTTP description and `timeoutSec` field explicitly say that each individual HTTP call is capped at 45 s.
+- Open follow-up: `ptah_web_search` may block past 60 s; its timeout ceiling has not been checked.
 
 ## Mode 3 obligations recorded now
 

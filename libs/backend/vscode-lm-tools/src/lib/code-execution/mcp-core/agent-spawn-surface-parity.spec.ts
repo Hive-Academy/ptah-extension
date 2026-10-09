@@ -101,22 +101,19 @@ describe('agent spawn surface parity', () => {
     expect(advertised).toEqual(accepted);
   });
 
-  it('gives the stdio tool the HTTP definition under its own name', () => {
+  it('gives spawn each transport its own name and wait guidance', () => {
     const http = buildAgentSpawnTool();
     const stdio = buildMcpAgentSpawnTool();
 
     expect(http.name).toBe('ptah_agent_spawn');
     expect(stdio.name).toBe('agent_spawn');
-    // The HTTP `tools/list` stamps the result ceiling onto the builder's
-    // definition (`declareResultBudgets`); the stdio builder declares the
-    // same ceiling itself, so the two served definitions are equal.
-    expect({ ...stdio, name: http.name }).toEqual({
-      ...http,
-      _meta: {
-        ...http._meta,
-        'anthropic/maxResultSizeChars': getToolResultBudget(http.name).chars,
-      },
+    expect(stdio.inputSchema).toEqual(http.inputSchema);
+    expect(stdio._meta).toEqual({
+      ...http._meta,
+      'anthropic/maxResultSizeChars': getToolResultBudget(http.name).chars,
     });
+    expect(http.description).toContain('HTTP calls wait at most 45 s');
+    expect(stdio.description).not.toContain('HTTP');
   });
 
   it('requires only task on both surfaces', () => {
@@ -309,13 +306,27 @@ describe('blocking wait surface parity', () => {
 
       expect(http.name).toBe(httpName);
       expect(stdio.name).toBe(stdioName);
-      expect({ ...stdio, name: http.name }).toEqual({
-        ...http,
-        _meta: {
-          ...http._meta,
-          'anthropic/maxResultSizeChars': getToolResultBudget(http.name).chars,
-        },
+      if (httpName === 'ptah_agent_wait') {
+        expect(stdio.inputSchema).toMatchObject({
+          type: http.inputSchema.type,
+          required: http.inputSchema.required,
+        });
+        expect(stdio.inputSchema.properties['timeoutSec']).toMatchObject({
+          maximum: 900,
+        });
+      } else {
+        expect(stdio.inputSchema).toEqual(http.inputSchema);
+      }
+      expect(stdio._meta).toEqual({
+        ...http._meta,
+        'anthropic/maxResultSizeChars': getToolResultBudget(http.name).chars,
       });
+      if (httpName === 'ptah_agent_wait') {
+        expect(http.description).toContain('HTTP calls wait at most 45 s');
+        expect(stdio.description).not.toContain('HTTP');
+      } else {
+        expect(stdio.description).toBe(http.description);
+      }
     },
   );
 
@@ -445,7 +456,7 @@ describe('blocking wait surface parity', () => {
       undefined,
     );
     expect(textOf(http)).toContain(
-      'Wait capped at 45 s on the HTTP transport (requested 600 s); 1 lane(s) still running',
+      'WAIT CAPPED at 45 s on the HTTP transport (requested 600 s): 1 lane(s) still running',
     );
     expect(textOf(http).length).toBeLessThanOrEqual(4_000);
 
@@ -463,7 +474,7 @@ describe('blocking wait surface parity', () => {
     );
 
     const stdioApi = waitApi();
-    await callOverStdio(
+    const stdio = await callOverStdio(
       'agent_wait',
       { agentIds: ['a-1'], timeoutSec: 600 },
       stdioApi,
@@ -474,6 +485,25 @@ describe('blocking wait surface parity', () => {
       600_000,
       undefined,
     );
+    expect(textOf(stdio)).not.toContain('WAIT CAPPED');
+    expect(textOf(stdio)).not.toContain('HTTP');
+  });
+
+  it('does not cap an HTTP zero-second wait', async () => {
+    const api = waitApi();
+    const reply = await callOverHttp(
+      'ptah_agent_wait',
+      { agentIds: ['a-1'], timeoutSec: 0 },
+      api,
+    );
+
+    expect(api.agent.waitForAgents).toHaveBeenCalledWith(
+      ['a-1'],
+      'all',
+      0,
+      undefined,
+    );
+    expect(textOf(reply)).not.toContain('WAIT CAPPED');
   });
 
   it.each([

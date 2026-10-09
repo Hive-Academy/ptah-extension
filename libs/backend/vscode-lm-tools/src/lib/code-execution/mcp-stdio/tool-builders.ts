@@ -90,7 +90,7 @@ function rename(
 }
 
 export function buildMcpAgentSpawnTool(): MCPToolDefinition {
-  return rename(buildAgentSpawnTool(), 'agent_spawn');
+  return rename(buildAgentSpawnTool({ transport: 'stdio' }), 'agent_spawn');
 }
 
 export function buildMcpAgentStatusTool(): MCPToolDefinition {
@@ -118,7 +118,7 @@ export function buildMcpAgentListTool(): MCPToolDefinition {
 }
 
 export function buildMcpAgentWaitTool(): MCPToolDefinition {
-  return rename(buildAgentWaitTool(), 'agent_wait');
+  return rename(buildAgentWaitTool({ transport: 'stdio' }), 'agent_wait');
 }
 
 export function buildMcpRunCheckTool(): MCPToolDefinition {
