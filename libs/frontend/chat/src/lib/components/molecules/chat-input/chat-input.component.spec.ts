@@ -55,6 +55,7 @@ jest.mock('ngx-markdown', () => {
 import { TestBed } from '@angular/core/testing';
 import { signal } from '@angular/core';
 import { ChatInputComponent } from './chat-input.component';
+import { COMPOSER_TRIGGER_CACHE_ENABLED } from '../../../services/composer-trigger-scheduler';
 import { ChatStore } from '../../../services/chat.store';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import { FilePickerService } from '../../../services/file-picker.service';
@@ -171,6 +172,7 @@ describe('ChatInputComponent', () => {
   function createComponent(
     opts: {
       isElectron?: boolean;
+      composerTriggerCacheEnabled?: boolean;
       /** Tile tab id for SESSION_CONTEXT; `undefined` = token not provided. */
       sessionContextTabId?: string | null;
     } = {},
@@ -189,6 +191,14 @@ describe('ChatInputComponent', () => {
         { provide: ClaudeRpcService, useValue: mockRpcService },
         { provide: VSCodeService, useValue: mockVSCodeService },
         { provide: VoiceInputService, useValue: mockVoiceInput },
+        ...(opts.composerTriggerCacheEnabled === undefined
+          ? []
+          : [
+              {
+                provide: COMPOSER_TRIGGER_CACHE_ENABLED,
+                useValue: opts.composerTriggerCacheEnabled,
+              },
+            ]),
         ...(opts.sessionContextTabId === undefined
           ? []
           : [
@@ -577,11 +587,11 @@ describe('ChatInputComponent', () => {
   });
 
   // ============================================================================
-  // handleQueryChanged - IMMEDIATE
+  // handleQueryChanged - immediate draft state, debounced trigger projection
   // ============================================================================
 
   describe('handleQueryChanged (immediate query update)', () => {
-    it('should update the current query immediately', () => {
+    it('keeps the query current while deferring trigger projection', () => {
       // Activate first
       component.handleAtActivated({
         query: '',
@@ -595,11 +605,84 @@ describe('ChatInputComponent', () => {
       component.handleQueryChanged('por');
       component.handleQueryChanged('portal');
 
-      // Access filteredSuggestions to trigger evaluation
-      component.filteredSuggestions();
+      // The local resolver runs on the bounded trigger schedule, not on this
+      // synchronous input path.
+      expect(component.showSuggestions()).toBe(true);
+    });
+  });
 
-      // searchFiles should be called with the latest query
-      expect(mockFilePicker.searchFiles).toHaveBeenCalled();
+  // ============================================================================
+  // PHASE 5 â€” COMPOSER RESPONSIVENESS
+  // ============================================================================
+
+  describe('composer trigger scheduling', () => {
+    afterEach(() => jest.useRealTimers());
+
+    it('keeps ordinary composer typing off the suggestion work path', () => {
+      mockFilePicker.searchFiles.mockClear();
+      mockFilePicker.searchFilesRemote.mockClear();
+
+      component.handleInput({ target: { value: 'keep typing' } } as Event);
+
+      expect(component.currentMessage()).toBe('keep typing');
+      expect(mockFilePicker.searchFiles).not.toHaveBeenCalled();
+      expect(mockFilePicker.searchFilesRemote).not.toHaveBeenCalled();
+    });
+
+    it('coalesces trigger typing to one latest-query projection', () => {
+      jest.useFakeTimers();
+      component.handleAtActivated({
+        query: '',
+        cursorPosition: 1,
+        triggerPosition: 0,
+      });
+      mockFilePicker.searchFiles.mockClear();
+      mockFilePicker.searchFilesRemote.mockClear();
+
+      component.handleQueryChanged('p');
+      component.handleQueryChanged('po');
+      component.handleQueryChanged('portal');
+
+      expect(mockFilePicker.searchFiles).not.toHaveBeenCalled();
+      jest.advanceTimersByTime(49);
+      expect(mockFilePicker.searchFiles).not.toHaveBeenCalled();
+      jest.advanceTimersByTime(1);
+
+      expect(mockFilePicker.searchFiles).toHaveBeenCalledTimes(1);
+      expect(mockFilePicker.searchFiles).toHaveBeenCalledWith('portal');
+      expect(mockFilePicker.searchFilesRemote).toHaveBeenCalledWith('portal');
+    });
+
+    it('reuses a cached trigger projection when a query is revisited', () => {
+      jest.useFakeTimers();
+      component.handleAtActivated({
+        query: 'portal',
+        cursorPosition: 7,
+        triggerPosition: 0,
+      });
+      mockFilePicker.searchFiles.mockClear();
+
+      component.handleQueryChanged('port');
+      jest.advanceTimersByTime(50);
+      component.handleQueryChanged('portal');
+      jest.advanceTimersByTime(50);
+
+      expect(mockFilePicker.searchFiles).toHaveBeenCalledTimes(1);
+      expect(mockFilePicker.searchFiles).toHaveBeenCalledWith('port');
+    });
+
+    it('restores immediate trigger projection when the rollback flag is off', () => {
+      createComponent({ composerTriggerCacheEnabled: false });
+      component.handleAtActivated({
+        query: '',
+        cursorPosition: 1,
+        triggerPosition: 0,
+      });
+      mockFilePicker.searchFiles.mockClear();
+
+      component.handleQueryChanged('portal');
+
+      expect(mockFilePicker.searchFiles).toHaveBeenCalledWith('portal');
     });
   });
 
@@ -937,12 +1020,8 @@ describe('ChatInputComponent', () => {
       expect(component.showSuggestions()).toBe(true);
       expect(component.suggestionMode()).toBe('at-trigger');
 
-      // Access filteredSuggestions to verify searchFiles is called
-      mockFilePicker.searchFiles.mockClear();
-      component.filteredSuggestions();
-
-      // searchFiles should be called with "portal" (latest), NOT "" (stale)
-      expect(mockFilePicker.searchFiles).toHaveBeenCalledWith('portal');
+      // The stale debounced directive event must not close or overwrite the
+      // latest draft query; projection is covered by the scheduling seam.
     });
   });
 

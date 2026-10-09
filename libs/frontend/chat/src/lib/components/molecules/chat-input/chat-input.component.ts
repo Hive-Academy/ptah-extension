@@ -8,6 +8,7 @@ import {
   viewChild,
   ElementRef,
   OnInit,
+  OnDestroy,
 } from '@angular/core';
 import {
   LucideAngularModule,
@@ -65,6 +66,11 @@ import {
 import { EffortSelectorComponent } from './effort-selector.component';
 import { McpStatusChipComponent } from '../mcp-status-chip.component';
 import { PeerSessionSendComponent } from '../peer-session-send';
+import {
+  COMPOSER_TRIGGER_CACHE_ENABLED,
+  MAX_CACHED_TRIGGER_QUERIES,
+  TRIGGER_PROJECTION_DEBOUNCE_MS,
+} from '../../../services/composer-trigger-scheduler';
 
 /** Pasted image data for UI display */
 interface PastedImage {
@@ -74,6 +80,8 @@ interface PastedImage {
   dataUrl: string; // for thumbnail display
   name: string;
 }
+
+type FileSuggestionItem = Extract<SuggestionItem, { type: 'file' }>;
 
 /**
  * ChatInputComponent - Enhanced message input with bottom bar controls
@@ -445,7 +453,7 @@ interface PastedImage {
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class ChatInputComponent implements OnInit {
+export class ChatInputComponent implements OnInit, OnDestroy {
   readonly chatStore = inject(ChatStore);
   readonly tabManager = inject(TabManagerService);
   private readonly _sessionContext = inject(SESSION_CONTEXT, {
@@ -456,6 +464,9 @@ export class ChatInputComponent implements OnInit {
   private readonly vscodeService = inject(VSCodeService);
   readonly voiceInput = inject(VoiceInputService);
   readonly filePicker = inject(FilePickerService);
+  private readonly composerTriggerCacheEnabled = inject(
+    COMPOSER_TRIGGER_CACHE_ENABLED,
+  );
 
   readonly isElectron = this.vscodeService.isElectron;
   readonly isRecording = this.voiceInput.isRecording;
@@ -653,6 +664,13 @@ export class ChatInputComponent implements OnInit {
   >(null);
   private readonly _triggerPosition = signal(0); // Position where trigger (@, /) starts
   private readonly _currentQuery = signal(''); // Current search query after trigger
+  /** Query whose expensive local suggestion projection is ready to render. */
+  private readonly _projectedQuery = signal('');
+  private readonly _localSuggestions = signal<SuggestionItem[]>([]);
+  private readonly _fileSuggestionCache = new Map<string, SuggestionItem[]>();
+  private _commandSuggestions: SuggestionItem[] | null = null;
+  private _triggerProjectionTimeout: ReturnType<typeof setTimeout> | null =
+    null;
   private readonly _selectedFiles = signal<ChatFile[]>([]);
   private readonly _pastedImages = signal<PastedImage[]>([]);
   private readonly _isDraggingOver = signal(false);
@@ -691,6 +709,13 @@ export class ChatInputComponent implements OnInit {
     void this.authState.loadAuthStatus();
   }
 
+  ngOnDestroy(): void {
+    this.clearTriggerProjectionTimeout();
+    if (this._imageAttachmentErrorTimeout) {
+      clearTimeout(this._imageAttachmentErrorTimeout);
+    }
+  }
+
   /**
    * Computed signal for filtered suggestions.
    * Hybrid approach: merges local fuzzy results + server-side remote results.
@@ -698,52 +723,28 @@ export class ChatInputComponent implements OnInit {
    */
   readonly filteredSuggestions = computed(() => {
     const mode = this._suggestionMode();
-    const query = this._currentQuery().toLowerCase().trim();
+    this._projectedQuery();
 
     if (mode === 'at-trigger') {
-      const localResults = this.filePicker.searchFiles(query);
+      const localResults = this._localSuggestions().filter(
+        (suggestion): suggestion is FileSuggestionItem =>
+          suggestion.type === 'file',
+      );
       const remoteResults = this.filePicker.remoteResults();
       const seenPaths = new Set(localResults.map((f) => f.path));
       const merged = [...localResults];
       for (const remote of remoteResults) {
         if (!seenPaths.has(remote.path)) {
-          merged.push(remote);
+          merged.push(this.toFileSuggestionItem(remote));
           seenPaths.add(remote.path);
         }
       }
 
-      return merged.slice(0, 40).map((f) => {
-        const isFolder = f.type === 'directory';
-        return {
-          type: 'file' as const,
-          icon: isFolder ? FolderIcon : f.isImage ? ImageIcon : FileIcon,
-          description: f.directory,
-          isFolder,
-          path: f.path,
-          name: f.name,
-          directory: f.directory,
-          extension: f.extension,
-          size: f.size,
-          lastModified: f.lastModified,
-          isImage: f.isImage,
-          isText: f.isText,
-        } as SuggestionItem;
-      });
+      return merged.slice(0, 40);
     }
 
     if (mode === 'slash-trigger') {
-      const allCommands = this.commandDiscovery.searchCommands('').map((c) => ({
-        type: 'command' as const,
-        ...c,
-      })) as SuggestionItem[];
-
-      if (!query) return allCommands;
-      return allCommands.filter(
-        (c) =>
-          c.type === 'command' &&
-          (c.name.toLowerCase().includes(query) ||
-            (c.description && c.description.toLowerCase().includes(query))),
-      );
+      return this._localSuggestions();
     }
 
     return [];
@@ -1070,6 +1071,7 @@ export class ChatInputComponent implements OnInit {
     this._triggerPosition.set(event.triggerPosition);
     this._currentQuery.set(event.query);
     this._showSuggestions.set(true);
+    this.refreshSuggestions(event.query);
     this.fetchAtSuggestions();
   }
 
@@ -1090,6 +1092,7 @@ export class ChatInputComponent implements OnInit {
       this._showSuggestions.set(false);
       this._suggestionMode.set(null);
       this.filePicker.clearRemoteResults();
+      this.clearTriggerProjectionTimeout();
     }
   }
 
@@ -1102,6 +1105,7 @@ export class ChatInputComponent implements OnInit {
     this._triggerPosition.set(0); // Slash always starts at position 0
     this._currentQuery.set(event.query);
     this._showSuggestions.set(true);
+    this.refreshSuggestions(event.query);
     this.fetchCommandSuggestions();
   }
 
@@ -1120,6 +1124,7 @@ export class ChatInputComponent implements OnInit {
     if (this._suggestionMode() === 'slash-trigger') {
       this._showSuggestions.set(false);
       this._suggestionMode.set(null);
+      this.clearTriggerProjectionTimeout();
     }
   }
 
@@ -1129,9 +1134,98 @@ export class ChatInputComponent implements OnInit {
    */
   handleQueryChanged(query: string): void {
     this._currentQuery.set(query);
-    if (this._suggestionMode() === 'at-trigger') {
-      this.filePicker.searchFilesRemote(query);
+    this.scheduleSuggestionRefresh(query);
+  }
+
+  /**
+   * Keeps typing on the synchronous draft path. The potentially expensive
+   * local search/filter work runs once after a brief quiet period instead of
+   * for every trigger keystroke.
+   */
+  private scheduleSuggestionRefresh(query: string): void {
+    this.clearTriggerProjectionTimeout();
+    if (!this.composerTriggerCacheEnabled) {
+      this.refreshSuggestions(query);
+      return;
     }
+    this._triggerProjectionTimeout = setTimeout(() => {
+      this._triggerProjectionTimeout = null;
+      this.refreshSuggestions(query);
+    }, TRIGGER_PROJECTION_DEBOUNCE_MS);
+  }
+
+  private refreshSuggestions(query: string): void {
+    const mode = this._suggestionMode();
+    if (!mode) return;
+
+    this._projectedQuery.set(query);
+    if (mode === 'at-trigger') {
+      const cached = this._fileSuggestionCache.get(query);
+      if (cached) {
+        this._localSuggestions.set(cached);
+      } else {
+        const suggestions = this.filePicker
+          .searchFiles(query)
+          .slice(0, 40)
+          .map((file) => this.toFileSuggestionItem(file));
+        this.cacheFileSuggestions(query, suggestions);
+        this._localSuggestions.set(suggestions);
+      }
+      this.filePicker.searchFilesRemote(query);
+      return;
+    }
+
+    const commands =
+      this._commandSuggestions ??
+      this.commandDiscovery.searchCommands('').map((command) => ({
+        type: 'command' as const,
+        ...command,
+      }));
+    this._commandSuggestions = commands;
+    this._localSuggestions.set(
+      !query
+        ? commands
+        : commands.filter(
+            (command) =>
+              command.name.toLowerCase().includes(query.toLowerCase()) ||
+              (command.description &&
+                command.description.toLowerCase().includes(query.toLowerCase())),
+          ),
+    );
+  }
+
+  private toFileSuggestionItem(file: FileSuggestion): FileSuggestionItem {
+    const isFolder = file.type === 'directory';
+    return {
+      type: 'file',
+      icon: isFolder ? FolderIcon : file.isImage ? ImageIcon : FileIcon,
+      description: file.directory,
+      path: file.path,
+      name: file.name,
+      directory: file.directory,
+      extension: file.extension,
+      size: file.size,
+      lastModified: file.lastModified,
+      isImage: file.isImage,
+      isText: file.isText,
+    };
+  }
+
+  private cacheFileSuggestions(
+    query: string,
+    suggestions: SuggestionItem[],
+  ): void {
+    if (this._fileSuggestionCache.size >= MAX_CACHED_TRIGGER_QUERIES) {
+      const oldest = this._fileSuggestionCache.keys().next().value;
+      if (oldest !== undefined) this._fileSuggestionCache.delete(oldest);
+    }
+    this._fileSuggestionCache.set(query, suggestions);
+  }
+
+  private clearTriggerProjectionTimeout(): void {
+    if (!this._triggerProjectionTimeout) return;
+    clearTimeout(this._triggerProjectionTimeout);
+    this._triggerProjectionTimeout = null;
   }
 
   /**
@@ -1141,6 +1235,8 @@ export class ChatInputComponent implements OnInit {
     this._isLoadingSuggestions.set(true);
     try {
       await this.filePicker.ensureFilesLoaded();
+      this._fileSuggestionCache.clear();
+      this.refreshSuggestions(this._currentQuery());
     } catch (error) {
       console.error(
         '[ChatInputComponent] Failed to fetch @ suggestions:',
@@ -1158,6 +1254,8 @@ export class ChatInputComponent implements OnInit {
     this._isLoadingSuggestions.set(true);
     try {
       await this.commandDiscovery.fetchCommands();
+      this._commandSuggestions = null;
+      this.refreshSuggestions(this._currentQuery());
     } catch (error) {
       console.error(
         '[ChatInputComponent] Failed to fetch / suggestions:',
@@ -1270,6 +1368,7 @@ export class ChatInputComponent implements OnInit {
     this._showSuggestions.set(false);
     this._suggestionMode.set(null);
     this._currentQuery.set('');
+    this.clearTriggerProjectionTimeout();
     this.filePicker.clearRemoteResults();
   }
 
