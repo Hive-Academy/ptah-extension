@@ -52,6 +52,9 @@
       "@ptah-extension/chat-ui/ptah-ui": [
         "./libs/frontend/chat-ui/src/ptah-ui.ts"
       ],
+      "@ptah-extension/chat-ui/mermaid": [
+        "./libs/frontend/chat-ui/src/mermaid.ts"
+      ],
       "@ptah-extension/chat-ui/turn-recap": [
         "./libs/frontend/chat-ui/src/turn-recap.ts"
       ],
