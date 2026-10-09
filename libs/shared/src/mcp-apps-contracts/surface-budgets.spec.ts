@@ -17,7 +17,12 @@ import {
   makeSurfaceTextInput,
 } from '../testing/fixtures/surface';
 import { validateDashboardSpec } from './dashboard-spec.validator';
-import { SURFACE_CATALOG_VERSION, SURFACE_LIMITS } from './surface-catalog';
+import {
+  SURFACE_CATALOG_VERSION,
+  SURFACE_CATALOG_VERSION_4,
+  SURFACE_LIMITS,
+  SURFACE_SPARK_MIN_POINTS,
+} from './surface-catalog';
 import { applyDataModelOps } from './surface-data-model';
 import type { SurfaceDataModelOp } from './surface-data-model';
 import type {
@@ -269,7 +274,9 @@ describe('surface budgets — at the limit passes, one above is rejected', () =>
               kind: 'text-block',
               id: 'text',
               text: {
-                text: 'x'.repeat(at ? L.maxStringLength : L.maxStringLength + 1),
+                text: 'x'.repeat(
+                  at ? L.maxStringLength : L.maxStringLength + 1,
+                ),
               },
               role: 'heading',
             },
@@ -681,6 +688,74 @@ describe('the complete state read fits maxStateReadBytes', () => {
     expect(2 * L.maxSurfaceBytes + 4096).toBeLessThanOrEqual(
       L.maxStateReadBytes,
     );
+  });
+});
+
+/**
+ * `ptah_surface_update` accepts `/3` only, so `/4` budgets are pinned through
+ * `validateSurfaceDocument`, the gate the ptah-ui pipeline uses.
+ */
+describe('stat spark points (A7, dashboard-catalog/4)', () => {
+  const spark = (count: number) =>
+    Array.from({ length: count }, (_v, i) => i % 7);
+  const v4 = (components: SurfaceComponent[]): SurfaceEnvelope => ({
+    ...envelope(components),
+    catalogVersion: SURFACE_CATALOG_VERSION_4,
+  });
+
+  it('accepts exactly maxSeriesPoints spark points and rejects one more', () => {
+    expectAccepted(
+      documentOf(v4([stat('s', { spark: spark(L.maxSeriesPoints) })])),
+    );
+    expectRejected(
+      documentOf(v4([stat('s', { spark: spark(L.maxSeriesPoints + 1) })])),
+      'components.0.spark',
+    );
+  });
+
+  it('accepts the two-point minimum and rejects a single point', () => {
+    expect(SURFACE_SPARK_MIN_POINTS).toBe(2);
+    expectAccepted(
+      documentOf(v4([stat('s', { spark: spark(SURFACE_SPARK_MIN_POINTS) })])),
+    );
+    expectRejected(
+      documentOf(
+        v4([stat('s', { spark: spark(SURFACE_SPARK_MIN_POINTS - 1) })]),
+      ),
+      'components.0.spark',
+    );
+  });
+
+  it('counts points per component, not across the surface', () => {
+    expectAccepted(
+      documentOf(
+        v4([
+          stat('a', { spark: spark(L.maxSeriesPoints) }),
+          stat('b', { spark: spark(L.maxSeriesPoints) }),
+          {
+            kind: 'line-chart',
+            id: 'chart',
+            series: [
+              {
+                name: 'only',
+                points: Array.from({ length: L.maxSeriesPoints }, (_v, i) => ({
+                  x: i,
+                  y: i,
+                })),
+              },
+            ],
+          },
+        ]),
+      ),
+    );
+  });
+
+  it('rejects a spark within budget on a /3 envelope, naming the field', () => {
+    const v3 = envelope([
+      stat('s', { spark: spark(SURFACE_SPARK_MIN_POINTS) }),
+    ]);
+    expectRejected(documentOf(v3), 'components.0.spark');
+    expectRejected(create(v3), 'components.0.spark');
   });
 });
 

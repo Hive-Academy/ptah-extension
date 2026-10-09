@@ -4,7 +4,7 @@ import {
   makeSurfaceEnvelope,
 } from '../testing/fixtures/surface';
 import { renderDashboardSpecText } from './dashboard-text-fallback';
-import { SURFACE_LIMITS } from './surface-catalog';
+import { SURFACE_CATALOG_VERSION_4, SURFACE_LIMITS } from './surface-catalog';
 import {
   describeSurfaceLimits,
   renderSurfaceText,
@@ -217,6 +217,118 @@ describe('surface text fallback', () => {
     expect(lines).toContain('Divider');
     expect(lines).toContain('Heading: Section title');
     expect(lines).toContain('Text: Plain paragraph');
+  });
+
+  describe('dashboard-catalog/4 kinds and stat fields', () => {
+    const v4 = (components: SurfaceEnvelope['components']) =>
+      renderSurfaceText(
+        view(
+          makeSurfaceEnvelope({
+            catalogVersion: SURFACE_CATALOG_VERSION_4,
+            description: undefined,
+            components,
+            dataModel: {},
+          }),
+        ),
+      );
+
+    it('renders an accordion as its title with its children indented', () => {
+      const text = v4([
+        {
+          kind: 'accordion',
+          id: 'details',
+          title: { text: ' Details ' },
+          children: [
+            {
+              kind: 'text-block',
+              id: 'body',
+              role: 'body',
+              text: { text: 'Hidden until opened' },
+            },
+          ],
+        },
+      ]);
+      expect(text.split('\n')).toEqual([
+        'Profile',
+        'Details',
+        '  Text: Hidden until opened',
+        'surface profile revision 7',
+      ]);
+    });
+
+    it('renders an avatar with and without its subtitle', () => {
+      const lines = v4([
+        {
+          kind: 'avatar',
+          id: 'a1',
+          name: 'Ada Lovelace',
+          subtitle: 'Reviewer',
+        },
+        { kind: 'avatar', id: 'a2', name: 'Grace Hopper' },
+      ]).split('\n');
+      expect(lines).toContain('Avatar: Ada Lovelace — Reviewer');
+      expect(lines).toContain('Avatar: Grace Hopper');
+    });
+
+    it('appends the stat trend in words, with percent and polarity when given', () => {
+      const lines = v4([
+        {
+          kind: 'stat',
+          id: 'cost',
+          title: { text: 'Cost' },
+          value: 12,
+          unit: 'USD',
+          delta: -3,
+          trend: {
+            direction: 'down',
+            amount: 4.5,
+            percent: true,
+            polarity: 'good',
+          },
+        },
+        {
+          kind: 'stat',
+          id: 'runs',
+          title: { text: 'Runs' },
+          value: 9,
+          trend: { direction: 'up', amount: 2, percent: false },
+        },
+      ]).split('\n');
+      expect(lines).toContain('Cost: 12 USD (-3); trend down 4.5% (good)');
+      expect(lines).toContain('Runs: 9; trend up 2');
+    });
+
+    it('summarises the spark instead of listing every point', () => {
+      const text = v4([
+        {
+          kind: 'stat',
+          id: 'tokens',
+          title: { text: 'Tokens' },
+          value: 7,
+          trend: { direction: 'up', amount: 1, percent: false },
+          spark: [3, 9, -1, 7],
+        },
+      ]);
+      expect(text.split('\n')).toContain(
+        'Tokens: 7; trend up 1; spark 4 points from 3 to 7 (low -1, high 9)',
+      );
+    });
+
+    it('leaves a /3 stat line unchanged', () => {
+      const component = {
+        kind: 'stat' as const,
+        id: 'stat',
+        title: { text: 'Builds' },
+        value: 42,
+        delta: 2,
+      };
+      expect(v4([component]).split('\n')).toContain('Builds: 42 (+2)');
+      expect(
+        renderSurfaceText(
+          view(makeSurfaceEnvelope({ components: [component] })),
+        ).split('\n'),
+      ).toContain('Builds: 42 (+2)');
+    });
   });
 
   it('renders referenced display data without inventing inline values', () => {

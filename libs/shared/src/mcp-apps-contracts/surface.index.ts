@@ -15,6 +15,7 @@ export type * from './surface.types';
 export {
   SURFACE_SCHEMA_VERSION,
   SURFACE_CATALOG_VERSION,
+  SURFACE_CATALOG_VERSION_4,
   SURFACE_SUPPORTED_SCHEMA_VERSIONS,
   SURFACE_SUPPORTED_CATALOG_VERSIONS,
   DASHBOARD_CONTRACT_VERSION_PAIRS,
@@ -22,6 +23,15 @@ export {
   SURFACE_INPUT_KINDS,
   SURFACE_DISPLAY_KINDS,
   SURFACE_COMPONENT_KINDS,
+  SURFACE_CATALOG_4_ONLY_LAYOUT_KINDS,
+  SURFACE_CATALOG_4_ONLY_DISPLAY_KINDS,
+  SURFACE_CATALOG_4_ONLY_STAT_FIELDS,
+  SURFACE_CATALOG_4_LAYOUT_KINDS,
+  SURFACE_CATALOG_4_DISPLAY_KINDS,
+  SURFACE_CATALOG_4_COMPONENT_KINDS,
+  SURFACE_TREND_DIRECTIONS,
+  SURFACE_TREND_POLARITIES,
+  SURFACE_SPARK_MIN_POINTS,
   SURFACE_ACTIONS,
   SURFACE_HOST_SUPPORTED_ACTIONS,
   SURFACE_INPUT_EMPTY_VALUES,
@@ -32,10 +42,13 @@ export {
 } from './surface-catalog';
 export type {
   SurfaceActionId,
+  SurfaceCatalogVersion,
   SurfaceComponentKind,
   SurfaceLayoutKind,
   SurfaceInputKind,
   SurfaceDisplayKind,
+  SurfaceTrendDirection,
+  SurfaceTrendPolarity,
   SurfaceStackDirection,
   SurfaceGap,
 } from './surface-catalog';
@@ -103,6 +116,7 @@ export type {
   SurfaceValidationRejected,
   SurfaceUpdateInputAccepted,
   SurfaceDocumentAccepted,
+  SurfaceContractCatalogVersion,
 } from './surface.validator';
 
 // Plain-text presentation

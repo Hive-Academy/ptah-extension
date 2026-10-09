@@ -1,6 +1,6 @@
 # Batches - TASK_2026_623_3492
 
-Total tasks: 68 | Batches: 33 | Complete: 1/33
+Total tasks: 68 | Batches: 33 | Complete: 2/33
 
 Worktree root `W` = `D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel` (branch
 `feat/task-623-display-panel`, base `70f995a56`). Every path below is absolute.
@@ -103,7 +103,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 
 ---
 
-## Batch 1: S1 catalog `/4` contract — COMPLETE
+## Batch 1: S1 catalog `/4` contract — COMPLETE (commit 29c30cf06)
 
 - Recommended executor: backend-developer
 - Fallback executor: general-purpose subagent with the same prompt
@@ -167,7 +167,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
   Constraint: no batch between 2 and 12 may run `declarative-dashboard` typecheck as its acceptance gate, and the
   branch must not be pushed for CI or merged before Batch 13 commits. The Phase 1 review is told this is known.
 
-## Batch 2: S2 text fallback, index, patch text, budgets — IN_PROGRESS
+## Batch 2: S2 text fallback, index, patch text, budgets — COMPLETE
 
 - Recommended executor: backend-developer
 - Fallback executor: general-purpose subagent
@@ -176,7 +176,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - Tasks: 3 | Depends on: Batch 1
 - Phase: 1 | Phase review: code-logic (after Batch 6)
 
-### Task 2.1: text fallback for `accordion`, `avatar`, stat trend/spark — IN_PROGRESS
+### Task 2.1: text fallback for `accordion`, `avatar`, stat trend/spark — COMPLETE
 
 - Files:
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\shared\src\mcp-apps-contracts\surface-text-fallback.ts
@@ -187,7 +187,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - Validation notes: none beyond `/3` fallback output unchanged.
 - Implementation details: extend the kind switch; spec covers each new kind.
 
-### Task 2.2: barrel exports, patch error text (A6), contract pair spec — IN_PROGRESS
+### Task 2.2: barrel exports, patch error text (A6), contract pair spec — COMPLETE
 
 - Files:
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\shared\src\mcp-apps-contracts\surface.index.ts
@@ -204,7 +204,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - Validation notes: A6 verified at decomposition (`surface-bindings.ts:30-36`); only the message is hard-coded.
 - Implementation details: message built from the layout-kinds constant.
 
-### Task 2.3: budgets spec for spark points (A7) — IN_PROGRESS
+### Task 2.3: budgets spec for spark points (A7) — COMPLETE
 
 - File: D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\shared\src\mcp-apps-contracts\surface-budgets.spec.ts
 - Plan reference: implementation-plan.md:371-372 (A7)
@@ -217,6 +217,25 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 
 - `npx jest -c libs/shared/jest.config.ts libs/shared/src/mcp-apps-contracts/surface-text-fallback.spec.ts libs/shared/src/mcp-apps-contracts/surface-budgets.spec.ts libs/shared/src/mcp-apps-contracts/surface-validator.spec.ts libs/shared/src/mcp-apps-contracts/surface-contract.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -n 40 && npx nx typecheck @ptah-extension/shared --parallel=1 2>&1 | tail -n 20 && npx nx lint @ptah-extension/shared --parallel=1 2>&1 | tail -n 20`
 - No per-batch review
+
+### Batch 2 decisions (recorded at verification)
+
+- Verified on disk:
+  - `avatar` case and `renderStatExtras` in `surface-text-fallback.ts`;
+  - `PARENT_KINDS_TEXT` in `surface-patch.ts`, derived from `SURFACE_CATALOG_4_LAYOUT_KINDS`;
+  - the `/4` constant and type exports in `surface.index.ts`;
+  - the third pair and the `SURFACE_CATALOG_VERSION_4` assertion in `surface-contract.spec.ts`;
+  - the A7 spark boundary cases in `surface-budgets.spec.ts`.
+- Scoped checks passed:
+  - Jest: 5 suites, 254 tests (the Batch 2 spec list plus `surface-patch.spec.ts`, in one invocation);
+  - `@ptah-extension/shared` typecheck;
+  - lint: 0 errors and 6 warnings, the same warnings as Batch 1.
+- Out-of-list file `surface-patch.spec.ts` is ACCEPTED IN SCOPE (decision #22). It pinned the old parent-kinds literal
+  that Task 2.2 had to change, and it gains the `avatar`-into-`accordion` case. Same lib, same rollback boundary.
+- The contract-pair red window from Batch 1 (decision #20) is closed by this commit.
+- Noted for later, not a Batch 2 defect: the main barrel `mcp-apps-contracts/index.ts:113-120` does not re-export
+  `SURFACE_CATALOG_VERSION_4`. A zod-free consumer in a later batch may need it there; the `/surface` subpath already
+  has it.
 
 ## Batch 3: S3 fence and parser rewrite — PENDING
 
