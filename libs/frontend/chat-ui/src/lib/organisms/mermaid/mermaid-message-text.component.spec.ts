@@ -2,7 +2,7 @@ import { Component, signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideMarkdown } from 'ngx-markdown';
 import DOMPurify from 'dompurify';
-import { sanitizeMermaidSvg } from './mermaid-diagram.component';
+import { extractMermaidCss, sanitizeMermaidSvg } from './mermaid-diagram.component';
 import { MermaidMessageTextComponent } from './mermaid-message-text.component';
 import { segmentMermaidFences } from './mermaid-fences';
 
@@ -77,8 +77,17 @@ describe('Mermaid chat fences', () => {
 
   it('sanitizes generated SVG before binding it', () => {
     const sanitize = jest.spyOn(DOMPurify, 'sanitize');
-    sanitizeMermaidSvg('<svg><script>alert(1)</script><text>safe</text></svg>');
+    const svg = sanitizeMermaidSvg('<svg><style>.node { fill: red; }</style><script>alert(1)</script><text>safe</text></svg>');
     expect(sanitize).toHaveBeenCalledWith(expect.stringContaining('<script>'), expect.objectContaining({ USE_PROFILES: expect.any(Object) }));
+    expect(svg).not.toContain('<script>');
+    expect(svg).not.toContain('<style>');
+    expect(svg).toContain('<text>safe</text>');
     sanitize.mockRestore();
+  });
+
+  it('keeps Mermaid scoped CSS but drops CSS that can load resources', () => {
+    expect(extractMermaidCss('<svg><style>#d .node { fill: red; }</style></svg>')).toContain('fill: red');
+    expect(extractMermaidCss('<svg><style>.n { background: url(https://x) }</style></svg>')).toBe('');
+    expect(extractMermaidCss('<svg><style>@import "https://x";</style></svg>')).toBe('');
   });
 });
