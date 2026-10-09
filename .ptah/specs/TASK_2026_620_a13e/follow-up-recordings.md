@@ -4,6 +4,17 @@ User decision 2026-10-09: the 620 PR ships the product changes and the committed
 recordings. Everything that depends on a live recording moves to this follow-up task, opened after the
 619 (#672) and 620 PRs merge. Create it as its own task folder at that time; this file is the brief.
 
+**User decisions 2026-10-10:**
+- Start this follow-up only after #686 merges; branch from `main` then.
+- Extraction: add a **`record-missing` mode** (serve keys already in the cassette, call the live model
+  only for missing keys) and reuse the 229 entries of `extraction.v1.jsonl`. This changes cassette
+  provenance (entries from two runs), so design it first (how the provenance sidecar records both
+  runs, which run id / corpus SHA / prompt SHA each entry carries, and how acceptance treats a mixed
+  cassette) and get a code-logic review before any recording. Ask the user before any scoring-rule or
+  provenance-contract choice. Still pass `--host-timeout-ms` with headroom.
+- Protect the 229 entries: never start the extraction plan in plain record mode again (it re-records and
+  replaces every key). Back up `extraction.v1.jsonl` before the first `record-missing` run.
+
 ## State at hand-off
 
 - The record path works end to end: one-case probe `extraction-probe-7` passed with the cassette and

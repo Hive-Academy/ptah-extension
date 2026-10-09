@@ -876,6 +876,40 @@ describe('StreamingHandlerService', () => {
       expect(turnStateApplier.apply).toHaveBeenCalledWith(event, TAB_ID);
     });
 
+    it('returns the trimmed queue once after an accepted terminal turn_state', () => {
+      tabsSignal.update((tabs) => [
+        {
+          ...tabs[0],
+          queuedContent: '  next please  ',
+          lastTurnStateRevision: 1,
+        } as TabState,
+      ]);
+      turnStateApplier.apply.mockImplementation((event) => {
+        tabsSignal.update((tabs) =>
+          tabs.map(
+            (tab) =>
+              ({
+                ...tab,
+                status: 'loaded',
+                lastTurnStateRevision: (event as TurnStateEvent).revision,
+              }) as TabState,
+          ),
+        );
+      });
+
+      const event = turnState();
+      expect(service.processStreamEvent(event, TAB_ID)).toEqual({
+        tabId: TAB_ID,
+        queuedContent: 'next please',
+        queueFlushes: [{ tabId: TAB_ID, content: 'next please' }],
+      });
+
+      // The queue remains in tab state until MessageDispatch receives a
+      // successful response, but a repeated terminal event cannot start a
+      // second concurrent flush.
+      expect(service.processStreamEvent(event, TAB_ID)).toBeNull();
+    });
+
     it('never stores the event in StreamingState nor schedules a UI update', () => {
       service.processStreamEvent(turnState(), TAB_ID);
 
@@ -883,13 +917,16 @@ describe('StreamingHandlerService', () => {
       expect(batchedUpdate.scheduleUpdate).not.toHaveBeenCalled();
     });
 
-    it('intercepts before tab resolution — no lookups, no missing-tab warning', () => {
+    it('does not warn when an unrouted terminal state has no queue owner', () => {
       tabsSignal.set([]);
 
       service.processStreamEvent(turnState());
 
       expect(turnStateApplier.apply).toHaveBeenCalledTimes(1);
-      expect(tabManager.findTabsBySessionId).not.toHaveBeenCalled();
+      // Terminal states resolve their targets only to expose queued content
+      // after the applier accepts the revision; they never enter the normal
+      // stream accumulator or warning path.
+      expect(tabManager.findTabsBySessionId).toHaveBeenCalledWith(SESSION_ID);
       expect(consoleWarn).not.toHaveBeenCalled();
     });
   });

@@ -85,17 +85,6 @@ const FOCUS =
         ></div>
       }
 
-      <!-- Subagent prompt-cache TTL (TASK_2026_597 N1): its own chunk, loaded when scrolled into view. -->
-      @defer (on viewport) {
-        <ptah-subagent-cache-ttl-setting />
-      } @placeholder {
-        <div
-          class="min-h-[2.75rem] rounded-xl border border-base-300 bg-base-200/40"
-          aria-busy="true"
-          data-testid="subagent-cache-ttl-placeholder"
-        ></div>
-      }
-
       @for (section of readStates(); track section.id) {
         @if (section.state.status === 'error') {
           <div
@@ -181,6 +170,19 @@ const FOCUS =
           </section>
         </details>
       </ptah-surface-section>
+
+      <!-- Subagent prompt-cache TTL (TASK_2026_597 N1): its own chunk, loaded when scrolled into view. Like the
+           session budget below, it sits after the background roles so it cannot push the roles summary past the
+           660 px Orchestration fold. -->
+      @defer (on viewport) {
+        <ptah-subagent-cache-ttl-setting />
+      } @placeholder {
+        <div
+          class="min-h-[2.75rem] rounded-xl border border-base-300 bg-base-200/40"
+          aria-busy="true"
+          data-testid="subagent-cache-ttl-placeholder"
+        ></div>
+      }
 
       <!-- Session budget (TASK_2026_597 N7): its own chunk, loaded when scrolled into view. It sits after the
            background roles — below the Orchestration fold content (Batch 36: the roles summary ends within the

@@ -47,10 +47,14 @@ import {
   InternalQueryService,
   McpServerBackoffService,
   SessionBudgetService,
+  SessionHandoverCoordinator,
+  SessionLifecycleManager,
   // Relative, not `@ptah-extension/agent-sdk`: a project may not import itself
   // by alias (`@nx/enforce-module-boundaries`). This is still the public
   // barrel, so the smoke test proves the same surface.
 } from '../../index';
+import { SessionHandoffBuilder } from '../helpers/session-budget/session-handoff-builder';
+import { SessionHandoffWriter } from '../helpers/session-budget/session-handoff-writer';
 // `@ptah-extension/auth-providers-tokens` only, never the full
 // `@ptah-extension/auth-providers` lib: auth-providers depends on agent-sdk
 // one way (its own CLAUDE.md states this explicitly, to break what would
@@ -83,6 +87,7 @@ function createMockLogger(): Logger {
 
 function buildSmokeContainer(
   governor?: BackgroundWorkGovernor,
+  stubLifecycleManager = true,
 ): DependencyContainer {
   const c = rootContainer.createChildContainer();
   const logger = createMockLogger();
@@ -179,7 +184,25 @@ function buildSmokeContainer(
   // platform stacks. Stub it after registerSdkServices, same as
   // cli-agent-runtime's smoke spec, to isolate resolution of the transformer
   // and history reader under test — neither exercises session lifecycle here.
-  c.register(SDK_TOKENS.SDK_SESSION_LIFECYCLE_MANAGER, { useValue: {} });
+  if (stubLifecycleManager) {
+    c.register(SDK_TOKENS.SDK_SESSION_LIFECYCLE_MANAGER, { useValue: {} });
+  } else {
+    // This integration test constructs the real lifecycle manager only to
+    // verify its token injection. Its query collaborators are outside the
+    // handover graph, so minimal value registrations keep the smoke container
+    // focused and avoid booting the auth/query platform stack.
+    c.register(SDK_TOKENS.SDK_PERMISSION_HANDLER, { useValue: {} });
+    c.register(SDK_TOKENS.SDK_MODULE_LOADER, { useValue: {} });
+    c.register(SDK_TOKENS.SDK_QUERY_OPTIONS_BUILDER, { useValue: {} });
+    c.register(SDK_TOKENS.SDK_MESSAGE_FACTORY, { useValue: {} });
+    c.register(SDK_TOKENS.SDK_SESSION_END_CALLBACK_REGISTRY, { useValue: {} });
+    c.register(SDK_TOKENS.SDK_QUERY_RUNNER, { useValue: {} });
+    c.register(SDK_TOKENS.SDK_HARNESS_POLICY_SYNC, { useValue: {} });
+    c.register(SDK_TOKENS.SDK_COMPACTION_CONFIG_PROVIDER, { useValue: {} });
+    c.register(SDK_TOKENS.SDK_COMPACTION_COORDINATOR, { useValue: {} });
+    c.register(SDK_TOKENS.SDK_CONTEXT_USAGE_PORT, { useValue: {} });
+    c.register(SDK_TOKENS.SDK_SUBAGENT_BUDGET_MONITOR, { useValue: {} });
+  }
 
   return c;
 }
@@ -324,5 +347,37 @@ describe('registerSdkServices — session budget DI smoke', () => {
     expect(service.canSend('6f1c2a5e-4b7d-4c1e-9a3f-2d8e5b0c7a91')).toEqual({
       ok: true,
     });
+  });
+});
+
+describe('registerSdkServices — session handover DI integration', () => {
+  it('injects the token-registered history reader and budget service', async () => {
+    const container = buildSmokeContainer(undefined, false);
+    const reader = container.resolve<SessionHistoryReaderService>(
+      SDK_TOKENS.SDK_SESSION_HISTORY_READER,
+    );
+    const read = jest
+      .spyOn(reader, 'readHistoryForCuration')
+      .mockResolvedValue([]);
+    const coordinator = container.resolve<SessionHandoverCoordinator>(
+      SessionHandoverCoordinator,
+    );
+    const lifecycle = container.resolve<SessionLifecycleManager>(
+      SDK_TOKENS.SDK_SESSION_LIFECYCLE_MANAGER,
+    );
+
+    const coordinatorDependencies = coordinator as unknown as {
+      handoffBuilder: unknown;
+      handoffWriter: unknown;
+      historyReader: Pick<SessionHistoryReaderService, 'readHistoryForCuration'>;
+    };
+    const lifecycleDependencies = lifecycle as unknown as { sessionBudget: unknown };
+
+    expect(coordinatorDependencies.handoffBuilder).toBeInstanceOf(SessionHandoffBuilder);
+    expect(coordinatorDependencies.handoffWriter).toBeInstanceOf(SessionHandoffWriter);
+    // The reader is resolved lazily and forwards to the token-registered one.
+    await coordinatorDependencies.historyReader.readHistoryForCuration('s1', '/ws');
+    expect(read).toHaveBeenCalledWith('s1', '/ws');
+    expect(lifecycleDependencies.sessionBudget).toBeInstanceOf(SessionBudgetService);
   });
 });

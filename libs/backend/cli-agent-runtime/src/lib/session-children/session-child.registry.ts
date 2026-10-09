@@ -163,6 +163,20 @@ export class SessionChildRegistry {
     return tabId ? this.records.get(tabId) : undefined;
   }
 
+  /** Move a live child identity to its successor without consuming a slot. */
+  rekey(oldChildSessionId: string, newChildSessionId: string): SessionChildRecord | undefined {
+    const record = this.records.get(oldChildSessionId);
+    if (!record || this.records.has(newChildSessionId)) return undefined;
+    this.records.delete(oldChildSessionId);
+    if (record.sdkSessionId) this.bySdkId.delete(record.sdkSessionId);
+    const moved = { ...record, childSessionId: newChildSessionId };
+    this.records.set(newChildSessionId, moved);
+    if (moved.sdkSessionId) this.bySdkId.set(moved.sdkSessionId, newChildSessionId);
+    const endedIndex = this.endedOrder.indexOf(oldChildSessionId);
+    if (endedIndex >= 0) this.endedOrder[endedIndex] = newChildSessionId;
+    return moved;
+  }
+
   /**
    * The child whose worktree is `path`, preferring a live one. Used when a
    * turn event arrives before the SDK id was bound.

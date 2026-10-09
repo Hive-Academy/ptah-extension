@@ -200,6 +200,7 @@ function createMockSessionLifecycle(): jest.Mocked<
     | 'sendMessage'
     | 'interruptCurrentTurn'
     | 'markTurnEnded'
+    | 'onTurnTerminal'
     | 'setSessionPermissionLevel'
     | 'setSessionModel'
     | 'getSessionToken'
@@ -221,6 +222,7 @@ function createMockSessionLifecycle(): jest.Mocked<
     sendMessage: jest.fn().mockResolvedValue(undefined),
     interruptCurrentTurn: jest.fn().mockResolvedValue(true),
     markTurnEnded: jest.fn().mockReturnValue(true),
+    onTurnTerminal: jest.fn(),
     setSessionPermissionLevel: jest.fn().mockResolvedValue(undefined),
     setSessionModel: jest.fn().mockResolvedValue(undefined),
     getSessionToken: jest.fn().mockReturnValue(null),
@@ -361,7 +363,7 @@ interface AdapterHarness {
 function createMockSessionBudget(): jest.Mocked<
   Pick<
     SessionBudgetService,
-    'observe' | 'recordCompaction' | 'release' | 'clearAll'
+    'observe' | 'recordCompaction' | 'release' | 'clearAll' | 'canSend'
   >
 > {
   return {
@@ -369,6 +371,7 @@ function createMockSessionBudget(): jest.Mocked<
     recordCompaction: jest.fn(),
     release: jest.fn(),
     clearAll: jest.fn(),
+    canSend: jest.fn().mockReturnValue({ ok: true }),
   };
 }
 
@@ -2191,6 +2194,27 @@ describe('SdkAgentAdapter', () => {
         arg.onCompactBoundary?.(REAL_ID as unknown as SessionId),
       ).not.toThrow();
       expect(h.logger.warn).toHaveBeenCalled();
+    });
+
+    it('delegates terminal handover before releasing the result turn', async () => {
+      const h = makeAdapter();
+      const arg = await startNewSession(h);
+      const callOrder: string[] = [];
+      h.sessionLifecycle.onTurnTerminal.mockImplementation(
+        (sessionId) => {
+          callOrder.push('arm');
+          h.sessionLifecycle.markTurnEnded(sessionId);
+        },
+      );
+      h.sessionLifecycle.markTurnEnded.mockImplementation(() => {
+        callOrder.push('markTurnEnded');
+        return true;
+      });
+
+      (arg.onTurnEnd as () => void)();
+
+      expect(h.sessionLifecycle.onTurnTerminal).toHaveBeenCalledWith('tab_1');
+      expect(callOrder).toEqual(['arm', 'markTurnEnded']);
     });
 
     it('keeps the budget of an interrupted session (Stop is not a session end)', async () => {

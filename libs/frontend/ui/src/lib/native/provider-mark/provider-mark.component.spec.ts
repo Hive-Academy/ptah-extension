@@ -5,10 +5,7 @@ import { TestBed } from '@angular/core/testing';
 import { PROVIDER_BRAND_ART } from '../brand-mark/provider-brand-art.vendored';
 import type { MarkArtwork } from '../brand-mark/mark-artwork';
 import { ProviderMarkComponent } from './provider-mark.component';
-import {
-  PROVIDER_MARKS,
-  type ProviderMarkLucideIcon,
-} from './provider-marks.data';
+import { type ProviderMarkLucideIcon } from './provider-marks.data';
 
 describe('ProviderMarkComponent', () => {
   function create(
@@ -45,19 +42,10 @@ describe('ProviderMarkComponent', () => {
     return art.paths.map((path) => path.d);
   }
 
-  function tabledStroke(id: string): MarkArtwork {
-    const mark = PROVIDER_MARKS[id];
-    if (mark?.kind !== 'stroke') {
-      throw new Error(`${id} is not a tabled stroke mark`);
-    }
-    return mark;
-  }
-
-  it('renders the tabled stroke mark for a known provider id', () => {
+  it('renders the vendored mark for a provider id', () => {
     const fixture = create('openrouter');
-    expect(pathDs(fixture)).toEqual(artDs(tabledStroke('openrouter')));
-    expect(svg(fixture).getAttribute('data-kind')).toBe('stroke');
-    expect(svg(fixture).getAttribute('stroke')).toBe('currentColor');
+    expect(pathDs(fixture)).toEqual(artDs(PROVIDER_BRAND_ART['openrouter']));
+    expect(svg(fixture).getAttribute('data-kind')).toBe('fill');
   });
 
   it('renders the shared ollama mark for both ollama ids', () => {
@@ -91,11 +79,12 @@ describe('ProviderMarkComponent', () => {
     expect(pathDs(claudeCli)).toEqual(artDs(PROVIDER_BRAND_ART['claude']));
 
     for (const [providerId, slug] of [
-      ['codex', 'openai'],
+      ['codex', 'codex'],
       ['cursor', 'cursor'],
       ['copilot', 'github-copilot'],
-      ['antigravity', 'google-gemini'],
+      ['antigravity', 'antigravity-google'],
       ['opencode', 'opencode'],
+      ['grok', 'grok'],
     ]) {
       expect(pathDs(create(providerId))).toEqual(
         artDs(PROVIDER_BRAND_ART[slug]),
@@ -121,11 +110,37 @@ describe('ProviderMarkComponent', () => {
     expect(bot).not.toEqual(terminal);
   });
 
-  it('lets a lucide record in the table win over the fallback input', () => {
-    // `lm-studio` is pinned to Server in the table.
-    const pinned = pathDs(create('lm-studio', 'Bot'));
-    expect(pinned).toEqual(pathDs(create('some-user-provider', 'Server')));
-    expect(pinned).not.toEqual(pathDs(create('some-user-provider', 'Bot')));
+  it('renders the vendored mark for lm-studio instead of a Lucide fallback', () => {
+    expect(pathDs(create('lm-studio', 'Bot'))).toEqual(
+      artDs(PROVIDER_BRAND_ART['lm-studio']),
+    );
+  });
+
+  it.each([
+    'claude-cli',
+    'codex',
+    'copilot',
+    'cursor',
+    'antigravity',
+    'opencode',
+    'grok',
+  ])('renders vendored artwork for CLI id %s', (providerId) => {
+    expect(svg(create(providerId, 'Terminal')).getAttribute('data-kind')).toBe(
+      'fill',
+    );
+  });
+
+  it('supports the compact size without changing the default', () => {
+    const fixture = TestBed.createComponent(ProviderMarkComponent);
+    fixture.componentRef.setInput('size', 'sm');
+    fixture.detectChanges();
+    expect(
+      (
+        fixture.nativeElement.querySelector(
+          '[data-testid="provider-mark-box"]',
+        ) as HTMLElement
+      ).className,
+    ).toContain('h-4 w-4');
   });
 
   it('never resolves inherited object keys as provider ids', () => {

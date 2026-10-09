@@ -31,4 +31,6 @@ export type RpcUserErrorCode =
    * `skillSynthesis.enabled`) is off, so a manual run that would do the same
    * model work is refused until the user resumes it.
    */
-  | 'PAUSED';
+  | 'PAUSED'
+  /** A queued prompt has been accepted into the handover transfer FIFO. */
+  | 'SESSION_HANDOVER_HELD';

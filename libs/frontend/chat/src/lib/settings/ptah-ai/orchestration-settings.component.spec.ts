@@ -217,7 +217,7 @@ describe('OrchestrationSettingsComponent', () => {
     }
   });
 
-  it('defers the subagent cache TTL card behind a placeholder, then mounts it after the CLI matrix', async () => {
+  it('defers the subagent cache TTL card behind a placeholder, then mounts it after the CLI matrix and the roles', async () => {
     await render();
     const ttl = () =>
       element.querySelector('[data-testid="subagent-cache-ttl-setting"]');
@@ -234,7 +234,8 @@ describe('OrchestrationSettingsComponent', () => {
     expect(matrixTable()?.compareDocumentPosition(ttl() as Node)).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
     );
-    expect(ttl()?.compareDocumentPosition(rolesDetails() as Node)).toBe(
+    // Below the roles (fold room on Electron): the roles summary stays above 660 px.
+    expect(rolesDetails()?.compareDocumentPosition(ttl() as Node)).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
     );
   });

@@ -52,6 +52,7 @@ import {
 import type { SentryService } from '@ptah-extension/vscode-core';
 import {
   SDK_TOKENS,
+  SessionHandoverCoordinator,
   SessionMetadataStore,
   SessionTurnStateRegistry,
   toTurnStateEvent,
@@ -104,6 +105,8 @@ export class ChatStreamBroadcaster {
     private readonly ptahCli: ChatPtahCliService,
     @inject(SDK_TOKENS.SDK_SESSION_TURN_STATE_REGISTRY)
     private readonly turnState: SessionTurnStateRegistry,
+    @inject(SessionHandoverCoordinator, { isOptional: true })
+    private readonly handoverCoordinator: SessionHandoverCoordinator | null = null,
     @inject(CHAT_TOKENS.STREAM_DELIVERY_COORDINATOR, { isOptional: true })
     private readonly deliveryCoordinator: ChatStreamDeliveryCoordinator | null = null,
   ) {}
@@ -354,6 +357,13 @@ export class ChatStreamBroadcaster {
           `[RPC] Session ${sessionId} failed during resume (0 events), cleaning up dead session. Original error: ${errorMessage}`,
         );
         try {
+          if (recordToken !== null) {
+            this.handoverCoordinator?.sourceEnded(
+              sessionId as string,
+              recordToken,
+              'stream failed during resume',
+            );
+          }
           await this.sdkAdapter.endSession(sessionId);
         } catch (cleanupErr) {
           this.logger.warn(
@@ -407,6 +417,11 @@ export class ChatStreamBroadcaster {
       // and there is nothing to match.
       if (recordToken !== null) {
         try {
+          this.handoverCoordinator?.sourceEnded(
+            sessionId as string,
+            recordToken,
+            streamExitedNormally ? 'stream exited without result' : 'stream aborted',
+          );
           const ended = await this.sdkAdapter.endSessionIfTokenMatches(
             sessionId,
             recordToken,

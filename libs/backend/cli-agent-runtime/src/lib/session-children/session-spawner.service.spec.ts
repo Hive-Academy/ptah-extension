@@ -11,6 +11,7 @@ import 'reflect-metadata';
 import { resolve } from 'path';
 import { container as rootContainer, type DependencyContainer } from 'tsyringe';
 import {
+  SessionHandoverCoordinator,
   SdkAdapterEvents,
   SessionAdmissionRefusedError,
   SessionEndCallbackRegistry,
@@ -22,6 +23,7 @@ import {
 } from '@ptah-extension/agent-sdk';
 import type {
   AgentProcessInfo,
+  SessionHandoverState,
   SessionTurnPhase,
 } from '@ptah-extension/shared';
 import { resolveWorktreePath, type Logger } from '@ptah-extension/vscode-core';
@@ -65,6 +67,7 @@ function makeHarness(
     config?: Record<string, unknown>;
     /** `null` builds the spawner with no recorder bound (VS Code). */
     recorder?: { recordAgentStartedSession: jest.Mock } | null;
+    handoverCoordinator?: Pick<SessionHandoverCoordinator, 'begin' | 'admitOrHold' | 'setResourceLeaseProvider' | 'onStateChange'> | null;
   } = {},
 ) {
   const logger = createMockLogger() as unknown as Logger;
@@ -179,6 +182,7 @@ function makeHarness(
       host?: unknown;
       mcpStatus?: unknown;
       container?: DependencyContainer | null;
+      handoverCoordinator?: Pick<SessionHandoverCoordinator, 'begin' | 'admitOrHold' | 'setResourceLeaseProvider' | 'onStateChange'> | null;
     } = {},
   ) =>
     new SessionSpawnerService(
@@ -205,6 +209,9 @@ function makeHarness(
       registrar,
       recorder as never,
       sessionBudget,
+      ('handoverCoordinator' in overrides
+        ? overrides.handoverCoordinator
+        : options.handoverCoordinator) as never,
     );
 
   const spawner = build();
@@ -223,6 +230,7 @@ function makeHarness(
     const result = await spawner.start(request(overrides));
     if (!result.ok)
       throw new Error(`start refused: ${result.refusal} ${result.detail}`);
+    if (!('child' in result)) throw new Error('expected a child start');
     return result.child;
   }
 
@@ -396,6 +404,30 @@ describe('SessionSpawnerService.start — guards in order', () => {
     expect(result).toMatchObject({ ok: false, refusal: 'depth-exceeded' });
   });
 
+  it('lets a child start a successor but not another child', async () => {
+    const begin = jest.fn().mockReturnValue({ accepted: true, state: {} });
+    const h = makeHarness({
+      handoverCoordinator: {
+        begin,
+        admitOrHold: jest.fn(() => ({ held: false })),
+        setResourceLeaseProvider: jest.fn(() => () => undefined),
+        onStateChange: jest.fn(() => () => undefined),
+      },
+    });
+    const child = await h.startChild();
+
+    await expect(h.spawner.start({
+      callerSessionId: child.childSessionId,
+      mode: 'successor',
+      handoff: 'continue',
+    })).resolves.toEqual({ ok: true, successor: true });
+    expect(begin).toHaveBeenCalledWith(child.childSessionId, 'successor', false, 'continue');
+    await expect(h.spawner.start(h.request({
+      callerSessionId: child.childSessionId,
+      branch: 'feat/grandchild',
+    }))).resolves.toMatchObject({ ok: false, refusal: 'depth-exceeded' });
+  });
+
   it('refuses mcp-unavailable when the server has no port, before reserving', async () => {
     const h = makeHarness({ config: { 'agentSessions.maxConcurrent': 1 } });
     h.mcpStatus.getPort.mockReturnValue(null);
@@ -485,6 +517,105 @@ describe('SessionSpawnerService.start — guards in order', () => {
       rollback,
     });
     expect(h.registry.reserveSlot(1)).not.toBeNull();
+  });
+});
+
+describe('SessionSpawnerService — successor lease transfer', () => {
+  function withHandover() {
+    let stateListener: (state: SessionHandoverState) => void = () => undefined;
+    const coordinator = {
+      begin: jest.fn(),
+      admitOrHold: jest.fn(() => ({ held: false })),
+      setResourceLeaseProvider: jest.fn(() => () => undefined),
+      onStateChange: jest.fn((listener: (state: SessionHandoverState) => void) => {
+        stateListener = listener;
+        return () => undefined;
+      }),
+    };
+    const h = makeHarness({ config: { 'agentSessions.maxRuntimeMinutes': 5 } });
+    const spawner = h.build({ handoverCoordinator: coordinator as never });
+    return { h, spawner, emit: (state: SessionHandoverState) => stateListener(state) };
+  }
+
+  it('moves a child lease only when its closing source ends', async () => {
+    const { h, spawner, emit } = withHandover();
+    const register = jest.spyOn(h.policies, 'register');
+    const result = await spawner.start(h.request());
+    if (!result.ok || !('child' in result)) throw new Error('expected child');
+    const child = result.child;
+
+    emit({ phase: 'closing', sourceSessionId: child.childSessionId, successorTabId: OTHER } as SessionHandoverState);
+    expect(h.registry.get(child.childSessionId)).toBeDefined();
+    expect(h.policies.get(child.childSessionId)).toBeDefined();
+
+    h.sessionEnd.notifyAll({ sessionId: child.childSessionId, workspaceRoot: WORKTREE });
+
+    expect(h.registry.get(child.childSessionId)).toBeUndefined();
+    expect(h.registry.get(OTHER)).toBeDefined();
+    expect(h.policies.get(child.childSessionId)).toBeUndefined();
+    expect(h.policies.get(OTHER)).toBeDefined();
+    expect(register).toHaveBeenLastCalledWith(OTHER, expect.any(Object));
+    expect(h.registrar.releaseRoot).not.toHaveBeenCalled();
+  });
+
+  it('moves the lease when `closed` is published before the source end', async () => {
+    const { h, spawner, emit } = withHandover();
+    const result = await spawner.start(h.request());
+    if (!result.ok || !('child' in result)) throw new Error('expected child');
+    const source = result.child.childSessionId;
+
+    emit({ phase: 'closing', sourceSessionId: source, successorTabId: OTHER } as SessionHandoverState);
+    emit({ phase: 'closed', sourceSessionId: source, successorTabId: OTHER } as SessionHandoverState);
+    h.sessionEnd.notifyAll({ sessionId: source, workspaceRoot: WORKTREE });
+
+    expect(h.registry.get(source)).toBeUndefined();
+    expect(h.registry.get(OTHER)).toBeDefined();
+    expect(h.registrar.releaseRoot).not.toHaveBeenCalled();
+  });
+
+  it('binds the successor SDK id that resolved before the source ended', async () => {
+    const { h, spawner, emit } = withHandover();
+    const result = await spawner.start(h.request());
+    if (!result.ok || !('child' in result)) throw new Error('expected child');
+    h.lifecycleIds.set(OTHER, 'successor-sdk');
+
+    emit({ phase: 'closing', sourceSessionId: result.child.childSessionId, successorTabId: OTHER } as SessionHandoverState);
+    h.sessionEnd.notifyAll({ sessionId: result.child.childSessionId, workspaceRoot: WORKTREE });
+
+    expect(h.registry.get('successor-sdk')?.childSessionId).toBe(OTHER);
+  });
+
+  it('clears a failed pending transfer so the source end releases normally', async () => {
+    const { h, spawner, emit } = withHandover();
+    const result = await spawner.start(h.request());
+    if (!result.ok || !('child' in result)) throw new Error('expected child');
+    const child = result.child;
+    h.active.delete(child.childSessionId);
+
+    emit({ phase: 'closing', sourceSessionId: child.childSessionId, successorTabId: OTHER } as SessionHandoverState);
+    emit({ phase: 'failed', sourceSessionId: child.childSessionId } as SessionHandoverState);
+    h.sessionEnd.notifyAll({ sessionId: child.childSessionId, workspaceRoot: WORKTREE });
+    jest.advanceTimersByTime(SESSION_CHILD_GRACE_MS);
+
+    expect(h.registry.get(child.childSessionId)?.terminalStatus).toBe('ended');
+    expect(h.registrar.releaseRoot).toHaveBeenCalledWith(WORKTREE);
+  });
+
+  it('keeps the original runtime deadline when a lease moves to its successor', async () => {
+    const { h, spawner, emit } = withHandover();
+    const result = await spawner.start(h.request());
+    if (!result.ok || !('child' in result)) throw new Error('expected child');
+    const child = result.child;
+    h.phases.set(OTHER, 'generating');
+
+    jest.advanceTimersByTime(60_000);
+    emit({ phase: 'closing', sourceSessionId: child.childSessionId, successorTabId: OTHER } as SessionHandoverState);
+    h.sessionEnd.notifyAll({ sessionId: child.childSessionId, workspaceRoot: WORKTREE });
+    jest.advanceTimersByTime(4 * 60_000);
+    await flush();
+
+    expect(h.registry.get(OTHER)).toMatchObject({ terminalStatus: 'timed-out' });
+    expect(h.adapter.interruptSession).toHaveBeenCalledWith(OTHER);
   });
 });
 

@@ -177,6 +177,8 @@ export const MESSAGE_TYPES = {
    * that missed the push adopts live children through `chat:agent-sessions`.
    */
   AGENT_SESSION_OPENED: 'agentSession:opened',
+  /** Backend → frontend: bind and focus a handover successor before close. */
+  SESSION_SUCCESSOR_REPLACEMENT: 'session:successorReplacement',
   AGENT_SUMMARY_CHUNK: 'agent:summary-chunk',
   SDK_ERROR: 'sdk:error',
   SETUP_WIZARD_OPEN_AGENTS_FOLDER: 'setup-wizard:open-agents-folder',
