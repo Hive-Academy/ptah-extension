@@ -154,7 +154,7 @@ import { WizardRpcService } from '../services/wizard-rpc.service';
             <select
               id="wizard-provider-select"
               class="select select-bordered select-sm w-full"
-              [value]="providers.activeProviderId()"
+              [value]="providers.activeProviderId() ?? ''"
               [disabled]="
                 providers.connections().status !== 'ready' ||
                 connectedProviders().length === 0 ||
@@ -162,6 +162,7 @@ import { WizardRpcService } from '../services/wizard-rpc.service';
               "
               (change)="onProviderChange($event)"
             >
+              <option value="" disabled>Select a provider</option>
               @for (provider of connectedProviders(); track provider.id) {
                 <option [value]="provider.id">{{ provider.name }}</option>
               }
@@ -180,6 +181,7 @@ import { WizardRpcService } from '../services/wizard-rpc.service';
               "
               (change)="onModelChange($event)"
             >
+              <option value="" disabled>Select a model</option>
               @for (model of modelState.availableModels(); track model.id) {
                 <option [value]="model.id">{{ model.name || model.id }}</option>
               }
