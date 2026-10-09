@@ -1,0 +1,87 @@
+name: Setup CI
+description: Install and cache the shared CI dependencies and Nx task results.
+
+inputs:
+  NODE_VERSION:
+    description: Node.js version to install.
+    required: true
+  NX_CACHE_KEY:
+    description: Full cache key for this job's Nx task results.
+    required: true
+  NX_CACHE_RESTORE_KEY:
+    description: Shared restore-key prefix for Nx task results.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v4
+      with:
+        node-version: ${{ inputs.NODE_VERSION }}
+
+    # Cache node_modules directly — skips npm ci entirely on cache hit
+    - name: Cache node_modules
+      id: cache-modules
+      uses: actions/cache@v4
+      with:
+        path: node_modules
+        key: node-modules-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+    - name: Install dependencies
+      if: steps.cache-modules.outputs.cache-hit != 'true'
+      # Lockfile only, no `npm install` fallback (githubactions:S8543). A
+      # lockfile out of sync with package.json now fails here instead of
+      # installing unpinned versions; fix the lockfile when that happens.
+      shell: bash
+      run: npm ci --ignore-scripts --no-audit --no-fund
+
+    # Always run: cached node_modules may be missing Linux platform binaries
+    # (npm/cli#4828). Pure binary packages with no lifecycle scripts, so
+    # --ignore-scripts is safe. Versions pinned to the package-lock.json
+    # resolution; bump them together with rollup / unrs-resolver.
+    - name: Install Linux platform binaries
+      shell: bash
+      run: npm install @rollup/rollup-linux-x64-gnu@4.63.4 @unrs/resolver-binding-linux-x64-gnu@1.12.2 --no-save --force --ignore-scripts
+
+    # Cache key is keyed on package-lock.json only. When the runner Node
+    # ABI changes (or when the cache was populated by a different OS), the
+    # better-sqlite3 prebuilt binary fails to self-register at require()
+    # time. node-pty has no Linux optional-dependency binary package either.
+    # The install skips lifecycle scripts, so rebuild both explicitly.
+    - name: Rebuild native modules for runner Node ABI
+      shell: bash
+      run: npm rebuild better-sqlite3 node-pty
+
+    # Cache Prisma generated client
+    - name: Cache Prisma client
+      id: cache-prisma
+      uses: actions/cache@v4
+      with:
+        path: node_modules/.prisma
+        key: prisma-${{ runner.os }}-${{ hashFiles('apps/ptah-license-server/prisma/schema.prisma', 'package-lock.json') }}
+
+    - name: Generate Prisma client
+      if: steps.cache-prisma.outputs.cache-hit != 'true'
+      shell: bash
+      run: node_modules/.bin/nx run ptah-license-server:prisma:generate
+
+    # Nx task cache. `affected` only picks the task LIST; the cache decides
+    # which of those tasks actually execute. Without this, every run starts
+    # cold, so a PR that touches `libs/shared` re-runs ~80 projects from
+    # scratch even though their own test/build inputs never changed
+    # (measured on PR #464: 73 of 97 projects affected by the source files
+    # alone, 97 once the root eslint.config.mjs is counted). The key carries
+    # the SHA because GitHub cache entries are immutable — the prefix
+    # restore-key is what actually reuses the previous run's results.
+    - name: Cache Nx task results
+      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      with:
+        path: .nx/cache
+        key: ${{ inputs.NX_CACHE_KEY }}
+        restore-keys: |
+          ${{ inputs.NX_CACHE_RESTORE_KEY }}
+
+    - name: Set NX SHAs
+      uses: nrwl/nx-set-shas@v4
+      with:
+        main-branch-name: main
