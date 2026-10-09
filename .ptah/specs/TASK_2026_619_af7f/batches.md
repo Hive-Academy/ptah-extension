@@ -1,5 +1,10 @@
 # Batches - TASK_2026_619_af7f
 
+## CI: bench PR job is label-gated (user decision 2026-10-09)
+
+- The MCP Bench CLI job runs for a pull request only while it carries the `bench` label; `labeled` is included in the trigger types so adding that label starts the smoke run.
+- Nightly at 03:30 UTC and manual dispatch remain full runs, and the Electron job remains excluded from PR runs.
+
 Total tasks: 77 | Batches: 41 | Complete: 13/41
 
 Worktree root (every path below is absolute under it):

@@ -5,13 +5,15 @@
 # tools/mcp-bench/baseline/gate-baseline.json: `recorded-failure` (equals the
 # recorded run within the measured noise margin) or `claim` (the rule above).
 #
-#   - Pull requests run the smoke subset on the `cli-headless` host, ubuntu-latest
-#     (60 minute timeout: the local smoke took 49.5 min; Batch 11 tunes it from
-#     the first real CI run).
-#   - Nightly (and manual dispatch) runs the full set on ubuntu and windows, plus
-#     the Electron host on ubuntu under xvfb. Electron is never part of the PR run.
-#     A host that is not available shows as `na` with its reason in the scorecard,
-#     never as a pass.
+#   - Pull requests run the smoke subset on the `cli-headless` host, ubuntu-latest,
+#     only when the PR carries the `bench` label. The smoke run takes 15-60 minutes:
+#     it builds, cold-indexes a ~6,455-file corpus, waits up to 20 minutes for the
+#     index to settle, and runs lifecycle scenarios that wait on purpose. The path
+#     filter alone matched most PRs. A skipped job does not block a PR.
+#   - Nightly at 03:30 UTC and manual dispatch run the full set on ubuntu and
+#     windows, plus the Electron host on ubuntu under xvfb. Electron is never part
+#     of the PR run. A host that is not available shows as `na` with its reason in
+#     the scorecard, never as a pass.
 #
 # Each job: bench -> upload the scorecard -> gate. The bench step records its exit
 # code and never fails the step itself, so the scorecard is always uploaded. The
@@ -29,6 +31,7 @@ name: MCP Bench
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, labeled]
     branches:
       - main
     paths:
@@ -58,6 +61,7 @@ env:
 jobs:
   bench-cli:
     name: Bench cli-headless (${{ matrix.os }}, ${{ matrix.mode }})
+    if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'bench')
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(github.event_name == 'pull_request' && '{"include":[{"os":"ubuntu-latest","mode":"smoke","flags":"--smoke","timeout":60}]}' || '{"include":[{"os":"ubuntu-latest","mode":"full","flags":"","timeout":45},{"os":"windows-latest","mode":"full","flags":"","timeout":45}]}') }}
