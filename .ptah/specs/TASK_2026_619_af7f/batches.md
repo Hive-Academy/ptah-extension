@@ -2580,6 +2580,7 @@ run after Batch 34, not in parallel with it.
 - `ptah_code_search_symbols` is the only current suite tool backed by the asynchronous code-symbol index. Its suites now wait once per main or polyglot host, fail without issuing partial-index questions after 20 minutes, and render the settle result in the scorecard.
 - Legacy scorecards remain valid because the `indexSettle` detail is optional.
 - Rev 1: settle now requires a normal, covered response with more than zero symbols; repeated transport/RPC/tool errors abort early with a stable gate reason, existing failures and `na` runs are preserved, and polyglot probes use their own corpus questions.
+- Rev 2: a finished populated index settles with partial coverage unless it is still `updating`; six consecutive transport/RPC/tool/unavailable replies abort with stable gating and precise scorecard diagnostics.
 
 ## Batch 13i — cap `ptah_agent_wait` on HTTP (COMPLETE)
 

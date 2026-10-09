@@ -1,6 +1,7 @@
 import type { McpToolCaller, ToolCallOutcome } from '../transport/mcp-client';
 import {
   askAfterIndexSettle,
+  CODE_INDEX_SETTLE_ABORT_CONSECUTIVE_ERRORS,
   CODE_INDEX_SETTLE_TIMEOUT_MS,
   type IndexBackedRun,
   waitForIndexSettle,
@@ -28,6 +29,32 @@ function answer(
 
 function transportError(code = 'ECONNRESET'): ToolCallOutcome {
   return { kind: 'transport-error', code, detail: 'connection reset', wallMs: 1 };
+}
+
+function rpcError(code = -32001): ToolCallOutcome {
+  return { kind: 'rpc-error', code, message: 'host busy', wallMs: 1 };
+}
+
+function toolError(): ToolCallOutcome {
+  return { kind: 'result', isError: true, text: 'tool failed', wallMs: 1 };
+}
+
+function unavailable(): ToolCallOutcome {
+  return {
+    kind: 'result',
+    isError: false,
+    text: JSON.stringify({ status: 'unavailable', message: 'index unavailable' }),
+    wallMs: 1,
+  };
+}
+
+function building(): ToolCallOutcome {
+  return {
+    kind: 'result',
+    isError: false,
+    text: JSON.stringify({ status: 'building', index: { symbolCount: 12 } }),
+    wallMs: 1,
+  };
 }
 
 function caller(outcomes: readonly ToolCallOutcome[]): McpToolCaller {
@@ -100,9 +127,64 @@ describe('index settle', () => {
     );
 
     expect(measurement).toMatchObject({ settled: true, elapsedMs: 5_000 });
+    expect(measurement.states[0]).toContain('unknown-coverage');
   });
 
-  it('aborts after three consecutive transport errors with a stable reason', async () => {
+  it('keeps waiting while coverage says updating', async () => {
+    const { deps } = fakeDeps();
+    const measurement = await waitForIndexSettle(
+      caller([
+        answer(false, 12, { clean: false, reasons: ['updating'] }),
+        answer(false, 12),
+      ]),
+      ROOT,
+      { name: 'probe', file: 'libs/probe.ts' },
+      deps,
+    );
+
+    expect(measurement).toMatchObject({ settled: true, elapsedMs: 5_000 });
+  });
+
+  it('settles a finished index with stale coverage', async () => {
+    const { deps } = fakeDeps();
+    const measurement = await waitForIndexSettle(
+      caller([answer(false, 12, { clean: false, reasons: ['stale'] })]),
+      ROOT,
+      { name: 'probe', file: 'libs/probe.ts' },
+      deps,
+    );
+
+    expect(measurement).toMatchObject({
+      settled: true,
+      elapsedMs: 0,
+      coverage: '{"clean":false,"reasons":["stale"]}',
+    });
+  });
+
+  it('settles a finished index with a persistent partial-coverage reason', async () => {
+    const { deps } = fakeDeps();
+    const measurement = await waitForIndexSettle(
+      caller([
+        answer(false, 12, {
+          census: 'complete',
+          clean: false,
+          reasons: ['failed?'],
+        }),
+      ]),
+      ROOT,
+      { name: 'probe', file: 'libs/probe.ts' },
+      deps,
+    );
+
+    expect(measurement).toMatchObject({ settled: true, elapsedMs: 0 });
+  });
+
+  it.each([
+    ['transport', transportError],
+    ['rpc', rpcError],
+    ['tool-error', toolError],
+    ['unavailable', unavailable],
+  ] as const)('aborts after six consecutive %s replies', async (kind, reply) => {
     const { deps } = fakeDeps();
     const runs: IndexBackedRun[] = [
       { definition: { tool: 'ptah_code_search_symbols' } },
@@ -110,7 +192,12 @@ describe('index settle', () => {
     await askAfterIndexSettle(
       runs,
       new Set(['ptah_code_search_symbols']),
-      caller([transportError(), transportError(), transportError()]),
+      caller(
+        Array.from(
+          { length: CODE_INDEX_SETTLE_ABORT_CONSECUTIVE_ERRORS },
+          () => reply(),
+        ),
+      ),
       ROOT,
       { name: 'probe', file: 'libs/probe.ts' },
       deps,
@@ -120,11 +207,54 @@ describe('index settle', () => {
     expect(runs[0].indexSettle).toMatchObject({
       settled: false,
       aborted: true,
-      abortKind: 'transport',
+      abortKind: kind,
     });
     expect(runs[0].failure).toBe(
-      'the code index wait aborted after repeated transport errors (transport)',
+      'the code index wait aborted after repeated error replies before scoring',
     );
+    expect(runs[0].indexSettle?.elapsedMs).toBe(25_000);
+  });
+
+  it('resets the error counter after a good reply', async () => {
+    const { deps } = fakeDeps();
+    const measurement = await waitForIndexSettle(
+      caller([
+        ...Array.from(
+          { length: CODE_INDEX_SETTLE_ABORT_CONSECUTIVE_ERRORS - 1 },
+          () => transportError(),
+        ),
+        answer(true, 12),
+        ...Array.from(
+          { length: CODE_INDEX_SETTLE_ABORT_CONSECUTIVE_ERRORS - 1 },
+          () => transportError(),
+        ),
+        answer(false, 12),
+      ]),
+      ROOT,
+      { name: 'probe', file: 'libs/probe.ts' },
+      deps,
+    );
+
+    expect(measurement).toMatchObject({ settled: true, aborted: false });
+  });
+
+  it('does not abort for a reply that is still building', async () => {
+    const { deps } = fakeDeps();
+    const measurement = await waitForIndexSettle(
+      caller([
+        ...Array.from(
+          { length: CODE_INDEX_SETTLE_ABORT_CONSECUTIVE_ERRORS - 1 },
+          () => transportError(),
+        ),
+        building(),
+        answer(false, 12),
+      ]),
+      ROOT,
+      { name: 'probe', file: 'libs/probe.ts' },
+      deps,
+    );
+
+    expect(measurement).toMatchObject({ settled: true, aborted: false });
   });
 
   it('rethrows a guard error from the settle probe unchanged', async () => {
@@ -210,17 +340,24 @@ describe('index settle', () => {
     await askAfterIndexSettle(
       runs,
       new Set(['ptah_code_search_symbols']),
-      caller([transportError(), transportError(), transportError()]),
+      caller(
+        Array.from(
+          { length: CODE_INDEX_SETTLE_ABORT_CONSECUTIVE_ERRORS },
+          () => transportError(),
+        ),
+      ),
       ROOT,
       { name: 'probe' },
       deps,
-      async () => undefined,
+      async (run) => {
+        throw new Error(`should not ask ${run.definition.tool}`);
+      },
     );
 
     expect(runs[0].failure).toBe('native baseline broke');
     expect(runs[0].indexSettle).toBeUndefined();
     expect(runs[1].failure).toBe(
-      'the code index wait aborted after repeated transport errors (transport)',
+      'the code index wait aborted after repeated error replies before scoring',
     );
   });
 

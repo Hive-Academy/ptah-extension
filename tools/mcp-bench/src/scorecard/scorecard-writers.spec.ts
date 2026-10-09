@@ -143,7 +143,7 @@ describe('scorecard writers', () => {
       lastState: 'ok',
     };
     expect(renderScorecardMarkdown(settled)).toContain(
-      'Index settled after 412 s (8931 symbols) before scoring',
+      'Index settled after 412 s (8931 symbols, coverage {"clean":true}) before scoring',
     );
     const timedOut = structuredClone(settled);
     (timedOut.suites[0].details as Record<string, unknown>)['indexSettle'] = {
@@ -151,7 +151,17 @@ describe('scorecard writers', () => {
       settled: false,
     };
     expect(renderScorecardMarkdown(timedOut)).toContain(
-      'Index did not settle within 1200 s; symbol-suite scoring was skipped',
+      'Index did not settle within 1200 s; last state: ok',
+    );
+    const aborted = structuredClone(timedOut);
+    (aborted.suites[0].details as Record<string, unknown>)['indexSettle'] = {
+      ...(aborted.suites[0].details as { indexSettle: object }).indexSettle,
+      aborted: true,
+      abortKind: 'unavailable',
+      elapsedMs: 25_000,
+    };
+    expect(renderScorecardMarkdown(aborted)).toContain(
+      'Index wait aborted after 6 consecutive unavailable replies (~25 s)',
     );
   });
   it('renders tool metrics without baselines and escapes markdown cells', () => {

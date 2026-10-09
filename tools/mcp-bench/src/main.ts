@@ -382,18 +382,34 @@ async function runBench(options: BenchOptions): Promise<number> {
       for (const entry of polyglot) {
         const set = bank.polyglot.find((item) => item.corpusId === entry.id);
         if (set === undefined) continue;
-        const probeQuestion = set.references.questions[0];
-        if (probeQuestion === undefined)
-          throw new Error(`the ${entry.id} corpus has no reference probe`);
-        const polyProbe = {
-          name: probeQuestion.query,
-          file: probeQuestion.file,
-        };
         const selected = selectSuites(
           buildPolyglotSuites(set, { corpusRoot: '', native, sample }),
           filter,
         );
         if (selected.length === 0) continue;
+        const probeQuestion = set.references.questions[0];
+        if (probeQuestion === undefined) {
+          const reason = `the ${entry.id} corpus has no reference probe`;
+          problems.push(reason);
+          polyglotRuns.push({
+            id: entry.id,
+            root: null,
+            gitRoot: null,
+            probe: { name: '', file: '' },
+            runs: selected.map((definition) => ({
+              definition,
+              natives: new Map(),
+              tools: null,
+              listed: new Set(),
+              failure: reason,
+            })),
+          });
+          continue;
+        }
+        const polyProbe = {
+          name: probeQuestion.query,
+          file: probeQuestion.file,
+        };
         let checkout: { root: string; gitRoot: string };
         try {
           checkout = await polyglotCheckout(entry, scratch, git, log);

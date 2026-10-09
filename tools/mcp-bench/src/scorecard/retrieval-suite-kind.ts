@@ -1,5 +1,8 @@
 import { z } from 'zod';
-import { CODE_INDEX_SETTLE_TIMEOUT_MS } from '../lifecycle/index-settle';
+import {
+  CODE_INDEX_SETTLE_ABORT_CONSECUTIVE_ERRORS,
+  CODE_INDEX_SETTLE_TIMEOUT_MS,
+} from '../lifecycle/index-settle';
 import { registerSuiteKind } from './suite-kinds';
 const metricValueSchema = z.number().finite().nullable();
 export const retrievalDetailsSchema = z.object({
@@ -35,7 +38,10 @@ export const retrievalDetailsSchema = z.object({
     .object({
       settled: z.boolean(),
       aborted: z.boolean().optional(),
-      abortKind: z.enum(['transport', 'rpc', 'tool-error']).nullable().optional(),
+      abortKind: z
+        .enum(['transport', 'rpc', 'tool-error', 'unavailable'])
+        .nullable()
+        .optional(),
       elapsedMs: z.number().finite().nonnegative(),
       symbolCount: z.number().int().nonnegative().nullable(),
       coverage: z.string(),
@@ -82,14 +88,28 @@ registerSuiteKind('retrieval', retrievalDetailsSchema, (suite) => {
     ...(suite.details.indexSettle === undefined
       ? []
       : [
-          suite.details.indexSettle.settled
-            ? `Index settled after ${Math.round(suite.details.indexSettle.elapsedMs / 1000)} s (${suite.details.indexSettle.symbolCount ?? 'unknown'} symbols) before scoring`
-            : `Index did not settle within ${CODE_INDEX_SETTLE_TIMEOUT_MS / 1000} s; symbol-suite scoring was skipped`,
+          indexSettleLine(suite.details.indexSettle),
         ]),
     '',
   );
   return lines;
 });
+
+function indexSettleLine(indexSettle: {
+  readonly settled: boolean;
+  readonly aborted?: boolean;
+  readonly abortKind?: 'transport' | 'rpc' | 'tool-error' | 'unavailable' | null;
+  readonly elapsedMs: number;
+  readonly symbolCount: number | null;
+  readonly coverage: string;
+  readonly lastState?: string;
+}): string {
+  if (indexSettle.settled)
+    return `Index settled after ${Math.round(indexSettle.elapsedMs / 1000)} s (${indexSettle.symbolCount ?? 'unknown'} symbols, coverage ${indexSettle.coverage}) before scoring`;
+  if (indexSettle.aborted)
+    return `Index wait aborted after ${CODE_INDEX_SETTLE_ABORT_CONSECUTIVE_ERRORS} consecutive ${indexSettle.abortKind ?? 'unknown'} replies (~${Math.round(indexSettle.elapsedMs / 1000)} s)`;
+  return `Index did not settle within ${CODE_INDEX_SETTLE_TIMEOUT_MS / 1000} s; last state: ${indexSettle.lastState ?? 'unknown'}`;
+}
 function formatMetric(value: number | null | undefined): string {
   return value === null || value === undefined ? 'na' : String(value);
 }

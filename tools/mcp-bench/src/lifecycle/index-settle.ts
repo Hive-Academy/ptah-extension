@@ -5,16 +5,18 @@ import type { McpToolCaller } from '../transport/mcp-client';
 
 /** Do not score a partial code-symbol index; slow indexing is reported separately. */
 export const CODE_INDEX_SETTLE_TIMEOUT_MS = 20 * 60_000;
+/** Six five-second polls give a transient host roughly half a minute to recover. */
+export const CODE_INDEX_SETTLE_ABORT_CONSECUTIVE_ERRORS = 6;
 
 /** The only suite tool backed by the asynchronously-built code-symbol index. */
 export const INDEX_BACKED_TOOLS = new Set(['ptah_code_search_symbols']);
 
 export interface IndexSettleMeasurement {
   readonly settled: boolean;
-  /** The poll stopped after repeated transport, RPC, or tool errors. */
+  /** The poll stopped after repeated transport, RPC, tool, or unavailable errors. */
   readonly aborted: boolean;
   /** Stable error class for an early-aborted wait, when applicable. */
-  readonly abortKind: 'transport' | 'rpc' | 'tool-error' | null;
+  readonly abortKind: 'transport' | 'rpc' | 'tool-error' | 'unavailable' | null;
   readonly elapsedMs: number;
   readonly symbolCount: number | null;
   readonly coverage: string;
@@ -58,7 +60,7 @@ export async function waitForIndexSettle(
       }
       consecutiveErrors += 1;
       abortKind = kind;
-      return consecutiveErrors >= 3;
+      return consecutiveErrors >= CODE_INDEX_SETTLE_ABORT_CONSECUTIVE_ERRORS;
     },
   );
   const measurement: IndexSettleMeasurement = {
@@ -85,7 +87,7 @@ export function indexSettleFailure(
   measurement: IndexSettleMeasurement,
 ): string {
   if (measurement.aborted)
-    return `the code index wait aborted after repeated transport errors (${measurement.abortKind ?? 'unknown'})`;
+    return 'the code index wait aborted after repeated error replies before scoring';
   return `the code index did not settle within ${CODE_INDEX_SETTLE_TIMEOUT_MS / 1000} s before scoring`;
 }
 
@@ -117,10 +119,13 @@ export async function askAfterIndexSettle<R extends IndexBackedRun>(
     }
   }
   for (const run of runs)
-    if (!(
-      isIndexBackedTool(run.definition.tool) &&
-      run.indexSettle?.settled === false
-    ))
+    if (
+      run.failure === undefined &&
+      !(
+        isIndexBackedTool(run.definition.tool) &&
+        run.indexSettle?.settled === false
+      )
+    )
       await ask(run);
 }
 
@@ -129,17 +134,28 @@ function symbolCountOf(text: string): number | null {
   return value === undefined ? null : Number(value);
 }
 
-/** A settled index has results, a normal response, and no unresolved coverage. */
+/** A finished, populated index may retain partial coverage, but not `updating`. */
 function isSettledProbe(probe: Awaited<ReturnType<typeof searchSymbol>>): boolean {
   const symbolCount = symbolCountOf(probe.text);
   const coverage = coverageOf(probe.text);
   return (
-    !probe.errored &&
-    !probe.underUnknownCoverage &&
+    isNormalResult(probe, coverage) &&
     /"reindexInFlight"\s*:\s*false/.test(probe.text) &&
     symbolCount !== null &&
     symbolCount > 0 &&
-    !/\b(?:updating|stale)\b/i.test(coverage)
+    !/\bupdating\b/i.test(coverage)
+  );
+}
+
+/** Unknown coverage is still a normal tool reply; persistent partiality is recorded. */
+function isNormalResult(
+  probe: Awaited<ReturnType<typeof searchSymbol>>,
+  coverage: string,
+): boolean {
+  return (
+    !probe.errored ||
+    (probe.state.startsWith('unknown-coverage') &&
+      !/"census"\s*:\s*"unknown"/.test(coverage))
   );
 }
 
@@ -149,13 +165,13 @@ function retryableErrorKind(
   if (state.startsWith('transport ')) return 'transport';
   if (state.startsWith('rpc ')) return 'rpc';
   if (state.startsWith('tool-error')) return 'tool-error';
+  if (state.startsWith('unavailable')) return 'unavailable';
   return null;
 }
 
 function unsettledDescription(measurement: IndexSettleMeasurement): string {
   if (/unknown-coverage/.test(measurement.lastState)) return 'coverage unknown';
-  if (/\b(?:updating|stale)\b/i.test(measurement.coverage))
-    return 'coverage updating or stale';
+  if (/\bupdating\b/i.test(measurement.coverage)) return 'coverage updating';
   if (measurement.symbolCount === null) return 'index did not report a symbol count';
   if (measurement.symbolCount === 0) return 'index reported 0 symbols';
   if (/reindexInFlight\s*:\s*true/.test(measurement.lastState))
