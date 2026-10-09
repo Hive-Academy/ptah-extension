@@ -1,6 +1,6 @@
 # Batches - TASK_2026_623_3492
 
-Total tasks: 69 | Batches: 34 | Complete: 6/34
+Total tasks: 69 | Batches: 34 (incl. fix batch 6F) | Complete: 7/34
 
 Worktree root `W` = `D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel` (branch
 `feat/task-623-display-panel`, base `70f995a56`). Every path below is absolute.
@@ -89,7 +89,7 @@ Edge cases:
 
 | Phase | Batches | Phase review |
 | ----- | ------- | ------------ |
-| 1 Contract `/4` and grammar | 1-6, 6F (fix) | code-logic (REVISE 6/10, `code-logic-review.md`); one re-review scoped to the 6F commit |
+| 1 Contract `/4` and grammar | 1-6, 6F (fix) | code-logic (REVISE 6/10, `code-logic-review.md`); re-review of 6F: APPROVED 8/10 (`code-logic-review-phase1-fix.md`). Phase 1 ACCEPTED |
 | 2 Lane plan-limit read (R10 backend) | 7-12 | code-logic, plus style (new RPC method `agent:getLanePlanLimits`, new export `formatPlanLimitRows`) |
 | 3 Renderer `/4` | 13-15 | code-logic, plus style only if Task 15.3 adds exports |
 | 4 chat-ui display panel | 16-21 | code-logic, plus style (new entry `@ptah-extension/chat-ui/display-panel`, new host-sources token) |
@@ -451,7 +451,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - Phase 1 review: REVISE 6/10, 0 Blocking, 1 Serious (`code-logic-review.md`, Codex CLI lane). Fix round: Batch 6F
   (decision #40).
 
-## Batch 6F: Phase 1 review fix — `list $limits` lanes independent of the row cap — COMPLETE
+## Batch 6F: Phase 1 review fix — `list $limits` lanes independent of the row cap — COMPLETE (commit f0d5df3a4; review code-logic-review-phase1-fix.md APPROVED 8/10)
 
 - Recommended executor: backend-developer
 - Fallback executor: general-purpose subagent
@@ -500,8 +500,10 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
   clamp for display only, `maxTableRows - 1` lanes + `+N more` above the cap); the three regression cases are present.
   Jest 3 suites, 133 tests passed. Shared typecheck passed. Shared lint: 0 errors, 6 baseline warnings (resolver
   477 lines, spec 685 lines, both under max-lines).
+- Phase 1 re-review (scoped to f0d5df3a4): APPROVED 8/10, Serious #1 CLOSED, no new findings
+  (`code-logic-review-phase1-fix.md`). Phase 1 (Batches 1-6, 6F) accepted.
 
-## Batch 7: L1 lane plan-limit RPC types — PENDING
+## Batch 7: L1 lane plan-limit RPC types — COMPLETE
 
 - Recommended executor: backend-developer
 - Fallback executor: general-purpose subagent
@@ -510,7 +512,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - Tasks: 1 | Depends on: none (run after Batch 6 to keep shared commits ordered)
 - Phase: 2 Lane plan-limit read | Phase review: code-logic + style (after Batch 12)
 
-### Task 7.1: `agent:getLanePlanLimits` types and registration — PENDING
+### Task 7.1: `agent:getLanePlanLimits` types and registration — COMPLETE
 
 - Files:
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\shared\src\lib\types\rpc\rpc-lane-plan-limits.types.ts (CREATE)
@@ -526,7 +528,15 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 
 - `npx jest -c libs/shared/jest.config.ts libs/shared/src/lib/types/rpc/rpc-lane-plan-limits.contract.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -n 40 && npx nx typecheck @ptah-extension/shared --parallel=1 2>&1 | tail -n 20 && npx nx lint @ptah-extension/shared --parallel=1 2>&1 | tail -n 20`
 
-## Batch 8: L2 export `formatPlanLimitRows` — PENDING
+### Batch 7 result
+
+- Verified on disk: closed types (no index signature, `Record<string, never>` params, no `refresh`), registry and
+  `RPC_METHOD_ENTRIES` entries, `provider:getPlanLimits` untouched; no TODO/STUB markers.
+- Jest 1 suite, 10 tests passed. Shared typecheck passed. Shared lint: 0 errors, 6 baseline warnings.
+- Known red window (MEDIUM risk): manifest coverage and host `rpc-surface`/`container.smoke` specs may be red until
+  Batches 9-12 land; do not push before Batch 12 (and Batch 13 per decision #21).
+
+## Batch 8: L2 export `formatPlanLimitRows` — IN_PROGRESS
 
 - Recommended executor: backend-developer
 - Fallback executor: general-purpose subagent
@@ -535,7 +545,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - Tasks: 1 | Depends on: none
 - Phase: 2 | Phase review: after Batch 12
 
-### Task 8.1: export `planLimitRows` as `formatPlanLimitRows` — PENDING
+### Task 8.1: export `planLimitRows` as `formatPlanLimitRows` — IN_PROGRESS
 
 - Files:
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\backend\vscode-lm-tools\src\lib\code-execution\mcp-core\agent-limit.formatter.ts
