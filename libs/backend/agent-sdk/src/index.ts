@@ -307,6 +307,10 @@ export type {
 } from '@ptah-extension/shared';
 export { ClaudeCliDetector } from './lib/detector/claude-cli-detector';
 export {
+  resolveCodexNativeBinaryPath,
+  withAsarUnpackedTwin,
+} from './lib/detector/codex-native-binary-path';
+export {
   assembleSystemPrompt,
   buildModelIdentityPrompt,
   // The one builder of the output-style FLAG tier. Exported so the CLI-agent
