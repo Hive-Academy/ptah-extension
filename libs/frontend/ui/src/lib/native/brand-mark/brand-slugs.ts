@@ -40,9 +40,9 @@ export const KNOWN_SERVER_BRANDS: Readonly<Record<string, string>> = {
  * The mark of one CLI install target.
  *
  * - `brand`: a slug for `ptah-brand-mark`.
- * - `provider-mark`: an id of the hand-authored provider glyph table
- *   (`PROVIDER_MARKS`), rendered by `ptah-provider-mark`. OpenCode has no
- *   vendored logo, and its hand-authored glyph beats a monogram.
+ * - `provider-mark`: a provider id rendered by `ptah-provider-mark`, which
+ *   draws it from the provider subset (`PROVIDER_BRAND_SLUGS`). OpenCode is
+ *   not in the full brand table, only in that subset.
  */
 export type CliTargetBrand =
   | { readonly kind: 'brand'; readonly brandSlug: string }
@@ -74,11 +74,24 @@ export const CLI_TARGET_BRANDS: Readonly<
 export const PROVIDER_BRAND_SLUGS: Readonly<Record<string, string>> = {
   anthropic: 'anthropic',
   'claude-cli': 'claude',
-  codex: 'openai',
+  codex: 'codex',
   cursor: 'cursor',
   copilot: 'github-copilot',
-  antigravity: 'google-gemini',
+  antigravity: 'antigravity-google',
   opencode: 'opencode',
+  'opencode-zen': 'opencode',
+  'opencode-go': 'opencode',
+  grok: 'grok',
+  openrouter: 'openrouter',
+  ollama: 'ollama',
+  'ollama-cloud': 'ollama',
+  moonshot: 'moonshot',
+  'z-ai': 'zdotai',
+  'lm-studio': 'lm-studio',
+  xai: 'xai',
+  openai: 'openai',
+  'openai-codex': 'codex',
+  'github-copilot': 'github-copilot',
 };
 
 /**

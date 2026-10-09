@@ -1,0 +1,1886 @@
+{
+  "id": "symbols-concept",
+  "version": "1",
+  "method": "generated",
+  "frozenAt": "2026-10-06T23:31:56.133Z",
+  "corpusCommit": "7910f34cf",
+  "generator": "symbol-questions.ts",
+  "seed": 6190501,
+  "counts": {
+    "jsdoc": 200
+  },
+  "questions": [
+    {
+      "id": "symbol-concept-1",
+      "query": "before reading or writing, including before creating parent objects.",
+      "truth": ["libs/shared/src/mcp-apps-contracts/surface-data-model.ts:31"],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-2",
+      "query": "switches for the SDK / agent-event bridges.",
+      "truth": [
+        "libs/backend/rpc-handlers/src/lib/host-profile/host-profile.ts:19"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-3",
+      "query": "— the home screen, in ONE request (R6.1, R6.2, R6.5).",
+      "truth": ["libs/api/member-hub/src/lib/member-hub.controller.ts:54"],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-4",
+      "query": "A pass gave up waiting for its turn in {@link CuratorJobQueue}.",
+      "truth": [
+        "libs/backend/memory-curator/src/lib/curator-llm/curator-job-queue.ts:70"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-5",
+      "query": "PillarsSpineComponent — production S4–S6: the three product threaded by one central, scroll-drawn \"timeline",
+      "truth": [
+        "libs/web/landing/src/lib/sections/pillars/pillars-spine.component.ts:275"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-6",
+      "query": "Step 1-3: the parent reduced to canonical, absolute that are neither inside the workspace nor inside the host user-data directory.",
+      "truth": [
+        "libs/backend/workspace-intelligence/src/diagnostics/external-checkers/go-binary-resolver.ts:161"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-7",
+      "query": "Fine-grained for Copilot SDK tool/permission approval.",
+      "truth": [
+        "libs/backend/cli-agent-runtime/src/lib/cli-agents/cli-adapters/copilot-permission-bridge.ts:29"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-8",
+      "query": "SkeletonBlockComponent — the repository's one daisyui loading-row",
+      "truth": [
+        "libs/frontend/chat-ui/src/lib/atoms/skeleton-block.component.ts:49"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-9",
+      "query": "Returns true when the given Ollama model id refers to a cloud-hosted model.",
+      "truth": [
+        "libs/backend/auth-providers/src/lib/providers/local/ollama-cloud-metadata.service.ts:128"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-10",
+      "query": "`profile`: submit `send` scopes `form` (name required, agree); submit `send-other` scopes `other` (note).",
+      "truth": [
+        "libs/backend/rpc-handlers/src/test-utils/surface-rpc-harness.ts:101"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-11",
+      "query": "Fold the two camelCase spellings the SDK also accepts into their canonical kebab-case so `.strict()` sees exactly one form.",
+      "truth": [
+        "libs/backend/output-styles/src/lib/output-style-frontmatter.ts:128"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-12",
+      "query": "from current session Updated after each turn completion with context window info",
+      "truth": [
+        "libs/frontend/chat-ui/src/lib/molecules/session/session-stats-summary.component.ts:42"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-13",
+      "query": "Fixed copy for a connection whose stored the host could not read (, M-6).",
+      "truth": [
+        "libs/frontend/chat/src/lib/settings/providers/provider-connection-card.state.ts:43"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-14",
+      "query": "The webview's route table — one entry per standalone surface.",
+      "truth": ["apps/ptah-extension-webview/src/app/app.routes.ts:68"],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-15",
+      "query": "Read-only of a store; a value read in another workspace shows as `unloaded`.",
+      "truth": [
+        "libs/frontend/core/src/lib/services/providers-settings-sections.ts:44"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-16",
+      "query": "ProjectSetupCardComponent - The \"Skills Not Configured\" warning and the Intelligent",
+      "truth": [
+        "libs/frontend/chat/src/lib/components/molecules/setup-plugins/project-setup-card.component.ts:115"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-17",
+      "query": "CLI → client requests (require a response on stdin).",
+      "truth": ["apps/ptah-cli/src/cli/jsonrpc/types.ts:283"],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-18",
+      "query": "MG-1.6's counts, asserted before any write rather than counted after one.",
+      "truth": [
+        "apps/ptah-license-server/prisma/seed/discourse-export.schema.ts:65"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-19",
+      "query": "Canonical valid ptah-ui blocks used as parser, rendering, and authoring examples.",
+      "truth": ["libs/shared/src/mcp-apps-contracts/ptah-ui.corpus.ts:2"],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-20",
+      "query": "One discovered `tsconfig*.json` that could not be type-checked.",
+      "truth": [
+        "libs/backend/workspace-intelligence/src/diagnostics/ts-diagnostics-worker.ts:72"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-21",
+      "query": "True when the spec would exclude anything at all.",
+      "truth": ["libs/shared/src/lib/types/task-filter.ts:176"],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-22",
+      "query": "BackgroundWorkGovernor — \"may start a unit now?\", derived from foreground sources and event-loop samples (TASK_2026_437 C14).",
+      "truth": ["libs/backend/vscode-core/src/di/tokens.ts:193"],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-23",
+      "query": "The surface this client needs.",
+      "truth": [
+        "libs/backend/cli-agent-runtime/src/lib/mcp-directory/smithery-connections.client.ts:38"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-24",
+      "query": "Bulk captured from one CLI stored under its OWN key.",
+      "truth": ["libs/backend/agent-sdk/src/lib/session-metadata-store.ts:136"],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-25",
+      "query": "Who is authoritative for a query run's dollars, frozen when the query is created.",
+      "truth": [
+        "libs/backend/agent-sdk/src/lib/session-stats/session-stats-owner.service.ts:59"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-26",
+      "query": "an card shows a sync for, in display order.",
+      "truth": ["libs/shared/src/lib/types/harness-sync.types.ts:416"],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-27",
+      "query": "ModuleLessons — the lesson authoring panel for ONE",
+      "truth": [
+        "libs/web/admin/src/lib/builders/courses/components/module-lessons/module-lessons.ts:46"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-28",
+      "query": "One declared as observed on disk after the finished.",
+      "truth": ["libs/shared/src/lib/types/agent-process.types.ts:505"],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-29",
+      "query": "True when the symlink at was written by Ptah's pre-reconciler junction layer and may therefore be unlinked.",
+      "truth": [
+        "libs/backend/harness-sync/src/lib/targets/link-ownership.ts:70"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-30",
+      "query": "The `bootSettings(page,...)` registered for `page` — reach steps use this to assert a write RPC fired () and that the next read reflects it (e.g.",
+      "truth": [
+        "libs/frontend/webview-e2e-harness/src/lib/scenarios/settings/settings.fixtures.ts:881"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-31",
+      "query": "MESSAGE_TYPES - Runtime constants for type-safe handling Use these constants instead of string literals when calling postMessage() or publish() to ensure consistency and enable ESLint enforcement.",
+      "truth": ["libs/shared/src/lib/types/messages/message-constants.ts:18"],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-32",
+      "query": "ToolIconComponent - Display tool-specific with semantic color Complexity Level: 1 (Simple atom) Patterns: Standalone OnPush change detection Features: - Map name to lucide (Read→File, Bash→Terminal, etc.) - Apply semantic color coding (blue=Read, green=Write, yellow=Bash) - Support 6 types + default fallback - Consistent 14px size (w-3.5 h-3.5)",
+      "truth": [
+        "libs/frontend/chat-ui/src/lib/atoms/tool-icon.component.ts:40"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-33",
+      "query": "injected into from settings (see file-settings-keys.ts).",
+      "truth": ["libs/backend/cron-scheduler/src/lib/types.ts:111"],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-34",
+      "query": "`bytes` as or return null when they are not text.",
+      "truth": [
+        "libs/backend/plugin-marketplace/src/lib/github/github-content.client.ts:478"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-35",
+      "query": "The fragment identifying a tombstone at `now`.",
+      "truth": [
+        "libs/api/community/src/lib/live-sessions/common/soft-delete.ts:98"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-36",
+      "query": "from every soft delete on this surface.",
+      "truth": [
+        "libs/web/admin/src/lib/services/admin-learning-api.service.ts:365"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-37",
+      "query": "The best mechanism a CLI can offer, as reported by listings.",
+      "truth": ["libs/shared/src/lib/types/agent-process.types.ts:349"],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-38",
+      "query": "The wizard's as the draft-probe contract spells it.",
+      "truth": [
+        "libs/frontend/chat/src/lib/settings/providers/provider-setup-wizard.component.ts:67"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-39",
+      "query": "Archive, age-delete and cap-eviction combined,",
+      "truth": [
+        "libs/backend/memory-curator/src/lib/retention/memory-retention-config.ts:69"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-40",
+      "query": "The for one on one target.",
+      "truth": [
+        "libs/frontend/skill-synthesis-ui/src/lib/components/clones/agent-sync-chips.ts:93"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-41",
+      "query": "Sentinel string deliberately chosen to be invalid as a filesystem path so any accidental use as a directory surfaces as a missing-file error rather than silently succeeding against the repo root.",
+      "truth": ["apps/ptah-cli/__mocks__/wasm-bundle-dir.ts:29"],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-42",
+      "query": "True when a somewhere plugin content may legitimately come from.",
+      "truth": [
+        "libs/backend/plugin-marketplace/src/lib/github/github-content.client.ts:73"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-43",
+      "query": "Receive a from a peer, dispatch, return a response.",
+      "truth": [
+        "libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/types/mcp-transport.types.ts:18"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-44",
+      "query": "Which of the file's two maps an entry came from.",
+      "truth": [
+        "libs/backend/cli-agent-runtime/src/lib/mcp-directory/claude-user-mcp.reader.ts:45"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-45",
+      "query": "The `.md` basename a is stored under, once slugified.",
+      "truth": ["libs/backend/output-styles/src/lib/output-style-slug.ts:189"],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-46",
+      "query": "Settings key that applies to every without its own entry.",
+      "truth": ["libs/shared/src/lib/types/agent-models.types.ts:27"],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-47",
+      "query": "One sentence per explaining why the folder never reached the board and what to fix.",
+      "truth": ["libs/frontend/tasks-ui/src/lib/task-presentation.ts:401"],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-48",
+      "query": "Initial for deletes that fan out through FTS and vec triggers.",
+      "truth": [
+        "libs/backend/memory-curator/src/lib/retention/memory-retention-config.ts:75"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-49",
+      "query": "Every carries the id of the lease that produced it.",
+      "truth": [
+        "libs/backend/agent-sdk/src/lib/helpers/spawn-worker-pool.ts:83"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-50",
+      "query": "ExternalInstalledRowComponent — one card of the flat list, built from consent records rather than from any marketplace manifest.",
+      "truth": [
+        "libs/frontend/marketplace/src/lib/external-installed-row.component.ts:97"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-51",
+      "query": "AgentSteerInputComponent — single-line for a running or background",
+      "truth": [
+        "libs/frontend/chat-ui/src/lib/molecules/agent-steer-input.component.ts:64"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-52",
+      "query": "Batch 52.1: the detected is the CLI's raw line (), e.g.",
+      "truth": [
+        "libs/frontend/chat/src/lib/settings/ptah-ai/cli-matrix-rows.ts:150"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-53",
+      "query": "The rehearsal payload — and the base every apply also carries.",
+      "truth": [
+        "libs/api/learning/src/lib/courses/dto/schedule-modules.dto.ts:60"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-54",
+      "query": "Map a raw Google the PHASE-4 LIVE shape — the member contract plus the master series id — or null when it lacks the minimum fields.",
+      "truth": [
+        "libs/api/community/src/lib/google-sessions/google-event.mapper.ts:89"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-55",
+      "query": "The word shown on the card: divergence outranks the stored",
+      "truth": [
+        "libs/frontend/skill-synthesis-ui/src/lib/components/clones/clone-action-gating.ts:201"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-56",
+      "query": "Decide exactly which classes a profile constructs, in order, with each class appearing once even when it serves several manifest entries.",
+      "truth": [
+        "libs/backend/rpc-handlers/src/lib/host-profile/register-rpc-surface.ts:95"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-57",
+      "query": "The four stages that call an LLM.",
+      "truth": [
+        "libs/shared/src/lib/types/rpc/rpc-curator-diagnostics.types.ts:312"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-58",
+      "query": "ExternalInstallReportComponent — the post-install of an plugin: only what the user still needs to know after the landed (files written, files skipped as non-text, skills shadowed by an existing skill of the same name).",
+      "truth": [
+        "libs/frontend/marketplace/src/lib/external-install-report.component.ts:72"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-59",
+      "query": "One CLI (CLI + role) as a stats-grid (design §3.3).",
+      "truth": [
+        "libs/frontend/chat-ui/src/lib/molecules/session/plan-limits/lane-usage-tile.component.ts:192"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-60",
+      "query": "Entry for a that could not be read (I/O failure or abort).",
+      "truth": [
+        "libs/backend/agent-sdk/src/lib/session-stats/session-usage-aggregator.ts:145"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-61",
+      "query": "One -> webview in the shape `bridge.inject` takes.",
+      "truth": [
+        "libs/frontend/webview-e2e-harness/src/lib/scenarios/plan-limits/plan-limits.fixtures.ts:454"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-62",
+      "query": "Status colour (colour sits on the the label stays text-base-content, deviation 6).",
+      "truth": [
+        "libs/frontend/chat/src/lib/settings/providers/provider-connection-card.state.ts:147"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-63",
+      "query": "Derive the and status-bar from the shell-scoped stores.",
+      "truth": [
+        "libs/frontend/marketplace/src/lib/shell/marketplace-nav-counts.ts:38"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-64",
+      "query": "Token for OrchestraCanvasComponent — breaks circular dependency between",
+      "truth": [
+        "libs/frontend/core/src/lib/tokens/lazy-view-components.token.ts:41"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-65",
+      "query": "The a spawned CLI calls Ptah's on (TASK_2026_364).",
+      "truth": [
+        "libs/backend/cli-agent-runtime/src/lib/cli-agents/cli-adapters/ptah-mcp-url.ts:46"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-66",
+      "query": "written onto a just-promoted row by a revive or an in-place accept.",
+      "truth": [
+        "libs/backend/skill-synthesis/src/lib/skill-candidate.store.ts:119"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-67",
+      "query": "for the synthetic (direct API key) entry.",
+      "truth": ["apps/ptah-tui/src/components/settings/provider-form.ts:52"],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-68",
+      "query": "Clock, zone and engine thresholds of one build.",
+      "truth": [
+        "libs/frontend/chat-ui/src/lib/molecules/session/plan-limits/stats-limit-view-model.types.ts:232"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-69",
+      "query": "Presentation grouping — the renders one heading per group.",
+      "truth": [
+        "libs/frontend/tasks-ui/src/lib/components/palette/palette-entries.ts:101"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-70",
+      "query": "Render the reply within {@link WAIT_SUMMARY_MAX_CHARS}.",
+      "truth": [
+        "libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/run-check.tool.ts:330"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-71",
+      "query": "Gate inputs supplied by the host seam for ONE",
+      "truth": [
+        "libs/backend/memory-curator/src/lib/retention/memory-retention.types.ts:44"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-72",
+      "query": "Returns a new map without `key`'s",
+      "truth": [
+        "libs/frontend/mcp-apps-page/src/lib/services/apps-workspace-slice.ts:149"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-73",
+      "query": "Parameters for auth:testConnection RPC method",
+      "truth": ["libs/shared/src/lib/types/rpc/rpc-auth.types.ts:47"],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-74",
+      "query": "Provider function for VSCodeService with APP_INITIALIZER",
+      "truth": ["libs/frontend/core/src/lib/services/vscode.service.ts:265"],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-75",
+      "query": "Kind-coded classes; an error tone overrides the kind colour.",
+      "truth": [
+        "libs/frontend/chat-ui/src/lib/molecules/compact-session/compact-feed-rows.ts:134"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-76",
+      "query": "The header above one discovery (Smithery, MCP Registry, Custom URL, Ptah plugins, skills.sh, external marketplaces): which this is, one sentence about it, and room for the source's own actions.",
+      "truth": [
+        "libs/frontend/marketplace/src/lib/ui/source-band.component.ts:125"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-77",
+      "query": "Produces compact.d.ts-style structural summaries of TypeScript/JavaScript declaration-only files from one tree-sitter parse.",
+      "truth": [
+        "libs/backend/workspace-intelligence/src/context-analysis/context-enrichment.service.ts:98"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-78",
+      "query": "The persisted record of the last that reached a verdict.",
+      "truth": [
+        "libs/backend/persistence-sqlite/src/lib/integrity/integrity-check-state.store.ts:39"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-79",
+      "query": "SessionsList — admin view of the Builders session calendar.",
+      "truth": ["libs/web/admin/src/lib/builders/sessions/sessions-list.ts:79"],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-80",
+      "query": "of stopping a recording and assembling the GIF",
+      "truth": [
+        "libs/backend/vscode-lm-tools/src/lib/code-execution/types.ts:659"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-81",
+      "query": "True for a that active on discovery rather than by enrolment.",
+      "truth": ["libs/shared/src/lib/types/origin-sidecar.types.ts:112"],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-82",
+      "query": "VS Code with event integration Provides centralized channel management with comprehensive monitoring",
+      "truth": [
+        "libs/backend/vscode-core/src/api-wrappers/output-manager.ts:64"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-83",
+      "query": "What the C# layout reads from one manifest.",
+      "truth": [
+        "libs/backend/workspace-intelligence/src/ast/import-resolution/csharp-context.ts:195"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-84",
+      "query": "for a plan Community is FREE forever, Builders is subscription-based (Paddle).",
+      "truth": ["libs/api/core/src/lib/config/plans.config.ts:97"],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-85",
+      "query": "(replaces loose ChatSession from common.types.ts)",
+      "truth": ["libs/shared/src/lib/types/messages/session.ts:59"],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-86",
+      "query": "CampaignDetail — bespoke read-only performance record for a single (design spec §5.2).",
+      "truth": [
+        "libs/web/admin/src/lib/marketing/campaign-history/campaign-detail/campaign-detail.ts:70"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-87",
+      "query": "Response from auth:getScope RPC method",
+      "truth": ["libs/shared/src/lib/types/rpc/rpc-auth.types.ts:213"],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-88",
+      "query": "Whether `error`, or anything it wraps, an internal-query",
+      "truth": [
+        "libs/backend/memory-curator/src/lib/curator-llm/queue-slot-timeout.ts:38"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-89",
+      "query": "all Ptah custom on the global `expect`.",
+      "truth": ["libs/shared/src/testing/matchers/index.ts:42"],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-90",
+      "query": "for the 'git:status-update' broadcast message.",
+      "truth": ["libs/shared/src/lib/types/messages/git-status.ts:47"],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-91",
+      "query": "style detected from project files.",
+      "truth": ["libs/shared/src/lib/types/wizard/conventions.ts:76"],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-92",
+      "query": "How close a rival description has to come, on one of OUR prompts, to count as a",
+      "truth": [
+        "libs/backend/skill-synthesis/src/lib/gates/trigger-eval.service.ts:154"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-93",
+      "query": "The and current model scope of one chat",
+      "truth": ["libs/shared/src/lib/types/plan-limit.types.ts:160"],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-94",
+      "query": "Per-panel queue: observing a request does not mean its controls were shown.",
+      "truth": [
+        "libs/frontend/chat/src/lib/components/organisms/agent-monitor/workflow-permission-presenter.service.ts:12"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-95",
+      "query": "Frozen fields, plus the id owned by the containing host state.",
+      "truth": [
+        "libs/shared/src/mcp-apps-contracts/surface-submit.format.ts:5"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-96",
+      "query": "Size bounds on everything that crosses the wire.",
+      "truth": [
+        "libs/backend/platform-core/src/workspace-watch/workspace-watch-protocol.ts:36"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-97",
+      "query": "ConfigManager service for type-safe configuration management Manages VS Code extension settings with validation and change notifications File-based settings routing: keys in fileBasedKeys are routed to the IFileSettingsStore (~/.ptah/settings.json) instead of VS Code's workspace configuration.",
+      "truth": ["libs/backend/vscode-core/src/config/config-manager.ts:48"],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-98",
+      "query": "The of every place a server is declared, global first, each once: \"Global\", \"Workspace\", or both when it is declared in both (AC-2.1).",
+      "truth": [
+        "libs/frontend/marketplace/src/lib/pages/servers/installed-servers-page.component.ts:63"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-99",
+      "query": "Planted violation for the missing-@inject detector.",
+      "truth": ["tools/di-lint/__fixtures__/missing-inject.ts:24"],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-100",
+      "query": "Build the optional workspace-scoping fragment shared by the `@` file (`context:getAllFiles`, `context:getFileSuggestions`) and the `/` command (`autocomplete:agents`, `autocomplete:commands`) RPC params.",
+      "truth": [
+        "libs/frontend/core/src/lib/services/picker-workspace-scope.util.ts:36"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-101",
+      "query": "A caller-supplied write, enlisted in the mutation's OWN transaction.",
+      "truth": ["libs/api/learning/src/lib/courses/courses.service.ts:1184"],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-102",
+      "query": "who is authoritative for a query's dollars from its effective auth route (TASK_2026_533).",
+      "truth": [
+        "libs/backend/agent-sdk/src/lib/helpers/session-lifecycle/session-query-executor.service.ts:91"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-103",
+      "query": "budget values, as read from settings or passed by a caller.",
+      "truth": [
+        "libs/backend/cli-agent-runtime/src/lib/cli-agents/cli-adapters/codex/codex-lane-budgets.ts:29"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-104",
+      "query": "Copy shown when the backend could not be reached at all failure).",
+      "truth": [
+        "libs/frontend/git-ui/src/lib/services/git-read-error-messages.ts:33"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-105",
+      "query": "Thrown by {@link withFileLock} when the deadline expired with another writer still holding the",
+      "truth": ["libs/backend/harness-sync/src/lib/lock/file-lock.ts:99"],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-106",
+      "query": "Recent always retained regardless of type, so streaming text/thinking near the (e.g.",
+      "truth": [
+        "libs/backend/cli-agent-runtime/src/lib/cli-agents/agent-process-manager-helpers.ts:138"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-107",
+      "query": "How strongly the session's outcome is EVIDENCED.",
+      "truth": [
+        "libs/backend/skill-synthesis/src/lib/archaeology/session-verdict.types.ts:44"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-108",
+      "query": "Raw format (used in both SDK messages and JSONL files)",
+      "truth": [
+        "libs/backend/agent-sdk/src/lib/helpers/usage-extraction.utils.ts:17"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-109",
+      "query": "ErrorHandler service for centralized management Provides boundaries and user-friendly notifications",
+      "truth": [
+        "libs/backend/vscode-core/src/error-handling/error-handler.ts:24"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-110",
+      "query": "- `empty`: nothing set (blank after trimming); saving it clears the entry.",
+      "truth": ["libs/shared/src/lib/types/agent-models.types.ts:65"],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-111",
+      "query": "Narrow a wire the shared enum.",
+      "truth": [
+        "libs/backend/cli-agent-runtime/src/lib/mcp-directory/smithery-connections.client.ts:170"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-112",
+      "query": "EmailPreviewFrame — the ONE shared, safe email-HTML surface (design spec §4.6).",
+      "truth": [
+        "libs/web/admin/src/lib/marketing/components/email-preview-frame/email-preview-frame.ts:36"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-113",
+      "query": "Return `false` from the to stop the walk early.",
+      "truth": ["libs/shared/src/mcp-apps-contracts/surface-bindings.ts:56"],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-114",
+      "query": "Single source of truth for the structured union.",
+      "truth": ["libs/shared/src/lib/types/rpc/rpc-error-codes.types.ts:7"],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-115",
+      "query": "Human wording for a status-unavailable reason (review shell, source control).",
+      "truth": [
+        "libs/frontend/git-ui/src/lib/services/git-status-unavailable-label.ts:14"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-116",
+      "query": "SkillShBrowserComponent - Browse, search and install skills from skills.sh Discovery only: browse, search and install.",
+      "truth": [
+        "libs/frontend/chat-ui/src/lib/molecules/setup-plugins/skill-sh-browser.component.ts:259"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-117",
+      "query": "Detects blocks that silently swallow errors.",
+      "truth": [
+        "libs/backend/workspace-intelligence/src/quality/rules/error-handling-rules.ts:51"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-118",
+      "query": "Shared formatter used by the chat badge.",
+      "truth": ["libs/shared/src/lib/utils/usage-format.utils.ts:9"],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-119",
+      "query": "ExecutionNodeComponent - THE KEY RECURSIVE Complexity Level: 3 (Complex recursive organism) Patterns: Recursive composition, Discriminated union rendering This is the revolutionary that enables nested agent visualization.",
+      "truth": [
+        "libs/frontend/chat/src/lib/components/organisms/execution/execution-node.component.ts:390"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-120",
+      "query": "ScanProgressComponent - Real-time workspace display Purpose: - Show live file scanning (X of Y files) - Display real-time detection updates (tech stack, frameworks, etc.) - Show phase stepper for agentic analysis - Display agent reasoning in collapsible section - Provide cancel option with confirmation Features: - Reactive bar based on files scanned / total files - Phase stepper UI for agentic analysis phases - Collapsible agent reasoning section - Live detection list with alert cards - Percentage calculation computed signal - Cancel button with confirmation prompt Usage: ````",
+      "truth": [
+        "libs/frontend/setup-wizard/src/lib/components/scan-progress.component.ts:414"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-121",
+      "query": "The a board reads: id → its linked sessions, in host order.",
+      "truth": [
+        "libs/frontend/tasks-ui/src/lib/services/task-session-links.service.ts:15"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-122",
+      "query": "Remove every server the session must not load from a built map.",
+      "truth": [
+        "libs/backend/agent-sdk/src/lib/helpers/sdk-query-options-builder.ts:562"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-123",
+      "query": "The one path for save-on-selection and Undo (plan Component 11, D2/D3/D15).",
+      "truth": [
+        "libs/frontend/chat/src/lib/settings/feedback/settings-save-feedback.service.ts:66"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-124",
+      "query": "Centralized for sending messages Replaces callback-based sending with direct method calls.",
+      "truth": [
+        "libs/frontend/chat/src/lib/services/message-sender.service.ts:82"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-125",
+      "query": "Deadline before a contended write proceeds unlocked.",
+      "truth": [
+        "libs/backend/harness-sync/src/lib/targets/mcp/mcp-config-lock.ts:57"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-126",
+      "query": "the ptah_git_worktree_list definition all git worktrees in the current repository",
+      "truth": [
+        "libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/tool-description.builder.ts:985"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-127",
+      "query": "One capability's on/off switch: the control, the scope it writes to, its badges, the enforcement gaps for its kind and the next-session note.",
+      "truth": [
+        "libs/frontend/marketplace/src/lib/ui/capability-toggle.component.ts:274"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-128",
+      "query": "server in both naming conventions: (ptah-cli) and (Copilot).",
+      "truth": ["libs/frontend/chat-ui/src/lib/utils/tool-target.utils.ts:82"],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-129",
+      "query": "The built as a forked Node behind the adapter's port.",
+      "truth": [
+        "libs/backend/platform-electron/src/workspace-watch/workspace-watch-host.stress.harness.ts:277"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-130",
+      "query": "SkillSynthesisLiveService MessageHandler that consumes push events broadcast from the backend and reflects them in the Skills tab in real time: - records every event into the diagnostics recent-events log (via {@link SkillDiagnosticsStateService.pushLiveEvent}); - surfaces a short human-readable {@link activity} label so scheduled / background curator passes and the embedding backfill are visible even when the user didn't click anything; - refreshes the relevant slices of {@link SkillSynthesisStateService} when an event implies the underlying data changed (new suggestions, completed backfill, updated stats, a stale weekly digest).",
+      "truth": [
+        "libs/frontend/skill-synthesis-ui/src/lib/services/skill-synthesis-live.service.ts:74"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-131",
+      "query": "Which database a process should open.",
+      "truth": ["libs/backend/persistence-sqlite/src/lib/db-path.ts:34"],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-132",
+      "query": "Minimum recorded before a clone is auto-enhance eligible.",
+      "truth": [
+        "libs/backend/skill-synthesis/src/lib/skill-enhancer.service.ts:82"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-133",
+      "query": "The projection {@link ObservationQueueStore.drainForSession} returns.",
+      "truth": [
+        "libs/backend/memory-curator/src/lib/observation-queue.store.ts:82"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-134",
+      "query": "CDK Overlay options - transparent: Invisible for click-outside detection only - dark: Semi-transparent dark (modal-like UX)",
+      "truth": ["libs/frontend/ui/src/lib/overlays/shared/overlay.types.ts:18"],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-135",
+      "query": "Default backed by -style provider-key slots.",
+      "truth": [
+        "libs/backend/cli-agent-runtime/src/lib/mcp-directory/oauth/mcp-oauth-token-store.ts:37"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-136",
+      "query": "inputs: the state table's states plus the wire values of.",
+      "truth": [
+        "libs/frontend/chat/src/lib/settings/providers/provider-connection-card.state.ts:10"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-137",
+      "query": "One `--refresh-bodies` overwrite, named precisely enough to reconstruct what was destroyed (§7.4).",
+      "truth": ["apps/ptah-license-server/prisma/seed/summary.ts:34"],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-138",
+      "query": "Parameters for session:rewindFiles RPC method",
+      "truth": ["libs/shared/src/lib/types/rpc/rpc-session.types.ts:541"],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-139",
+      "query": "— authentication, session tokens and authorization guards.",
+      "truth": ["libs/api/identity/src/lib/identity.module.ts:108"],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-140",
+      "query": "LessonCommentComposer — a markdown textarea with a preview, for one (R2.5.1).",
+      "truth": [
+        "libs/web/members/src/lib/learning/components/lesson-comment-composer.ts:135"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-141",
+      "query": "a count for display (no currency, thousands separators).",
+      "truth": ["libs/frontend/dashboard/src/lib/utils/format.utils.ts:150"],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-142",
+      "query": "A failed pinned to the it was run on, so the message shows on that card and nowhere else.",
+      "truth": [
+        "libs/frontend/marketplace/src/lib/ui/featured-connectors.component.ts:58"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-143",
+      "query": "Detects blocks that contain logging.",
+      "truth": [
+        "libs/backend/workspace-intelligence/src/quality/rules/error-handling-rules.ts:101"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-144",
+      "query": "Why a blocked row cannot be removed from here, and the command that can.",
+      "truth": [
+        "libs/frontend/marketplace/src/lib/data/marketplace-inventory.store.ts:63"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-145",
+      "query": "Defensive ceiling for CSV checked BEFORE data retrieval.",
+      "truth": ["libs/api/admin/src/lib/waitlist-query.ts:100"],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-146",
+      "query": "The a file-backed tier, or `undefined` when it cannot exist — which the project tier means \"no workspace is open\".",
+      "truth": [
+        "libs/backend/output-styles/src/lib/output-style-discovery.service.ts:100"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-147",
+      "query": "One a run is expected to write for one agent.",
+      "truth": ["libs/shared/src/lib/types/rpc/rpc-setup.types.ts:197"],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-148",
+      "query": "HubSectionCard — the chrome every shares, and the ONE place the three statuses are turned into something a member can read.",
+      "truth": ["libs/web/members/src/lib/hub/sections/hub-section-card.ts:98"],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-149",
+      "query": "Build the writer the mutation calls INSIDE its own transaction.",
+      "truth": [
+        "libs/api/community/src/lib/live-sessions/common/admin-audit.ts:114"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-150",
+      "query": "The slice of the crash handlers attach to.",
+      "truth": ["apps/ptah-electron/src/activation/boot-trace.ts:71"],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-151",
+      "query": ", or `undefined` to take the lib default.",
+      "truth": [
+        "apps/ptah-extension-vscode/src/activation/plugin-activation.ts:233"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-152",
+      "query": "Parameters for git:log RPC method (TASK_2026_576 Requirement 12).",
+      "truth": ["libs/shared/src/lib/types/rpc/rpc-git.types.ts:1012"],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-153",
+      "query": "Assert two paths are equivalent after POSIX normalization.",
+      "truth": ["libs/shared/src/testing/path/expect-normalized-path.ts:39"],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-154",
+      "query": "Builds from session configuration Responsibilities: - System prompt construction (preset + optional append) - MCP server configuration (Ptah HTTP server) - Permission callback creation - Subagent lifecycle hooks - Environment variable passthrough - stderr capture for debugging",
+      "truth": [
+        "libs/backend/agent-sdk/src/lib/helpers/sdk-query-options-builder.ts:934"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-155",
+      "query": "for a index: one entry per distinct exported name, with a wildcard re-export written as `* from <module>` so each one stays distinct.",
+      "truth": [
+        "libs/backend/workspace-intelligence/src/ast/export-extraction.ts:263"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-156",
+      "query": "The ran to its end (continue) or was rolled back (abort).",
+      "truth": ["libs/shared/src/lib/types/rpc/rpc-git.types.ts:177"],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-157",
+      "query": "The half of the contract above, kept field-for-field in step with.",
+      "truth": [
+        "libs/backend/skill-synthesis/src/lib/skill-synthesizer.service.ts:70"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-158",
+      "query": "Rejection for a child that ran past its",
+      "truth": ["libs/backend/vscode-core/src/utils/exec-git.ts:90"],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-159",
+      "query": "Hard on the number of block identity keys this window tracks (registered or remembered for remount).",
+      "truth": [
+        "libs/frontend/chat-ui/src/lib/services/ptah-ui-live-window.ts:20"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-160",
+      "query": "derived from the current job list.",
+      "truth": [
+        "libs/frontend/cron-scheduler-ui/src/lib/services/cron-state.service.ts:32"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-161",
+      "query": "Saves the full stringified (the dispatcher passes ).",
+      "truth": [
+        "libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/mcp-response-formatter.ts:2345"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-162",
+      "query": "a sparse patch into `[dottedKey, value]` pairs for the write path.",
+      "truth": [
+        "libs/backend/skill-synthesis/src/lib/lanes/skill-lane-config.ts:264"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-163",
+      "query": "Production Configuration Used when running inside VS Code webview",
+      "truth": [
+        "apps/ptah-extension-webview/src/environments/environment.production.ts:5"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-164",
+      "query": "Everything the consent dialog must show before a single byte is written.",
+      "truth": [
+        "libs/shared/src/lib/types/rpc/rpc-plugin-marketplace.types.ts:109"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-165",
+      "query": "The a did not author, plus its child rollup.",
+      "truth": [
+        "libs/backend/vscode-lm-tools/src/lib/code-execution/namespace-builders/tasks-namespace.builder.ts:302"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-166",
+      "query": "The 1-based caret position, or `null` while no document is mounted.",
+      "truth": ["apps/ptah-electron-e2e/src/support/spot-editor.ts:36"],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-167",
+      "query": "process kinds supported by the shared backend.",
+      "truth": ["libs/backend/platform-core/src/types/platform.types.ts:148"],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-168",
+      "query": "Flush stdout (bounded) and with `code`.",
+      "truth": ["apps/ptah-cli/src/cli/io/finalize-exit.ts:92"],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-169",
+      "query": "the ptah_ast_analyze definition Tree-sitter structural analysis — functions/classes/imports/exports",
+      "truth": [
+        "libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/tool-description.builder.ts:1729"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-170",
+      "query": "field each row writes through `voice:setProviderConfig`.",
+      "truth": [
+        "libs/frontend/chat/src/lib/settings/ptah-ai/elevenlabs-select-rows.ts:12"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-171",
+      "query": "FILLED (not stroke) 24×24 SVG glyph — solid so SVGLoader.createShapes yields real extrudable shapes.",
+      "truth": ["apps/ptah-video-studio/src/concept3d/three-assets.tsx:566"],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-172",
+      "query": "Raw from Claude session files.",
+      "truth": [
+        "libs/backend/agent-sdk/src/lib/helpers/history/history.types.ts:16"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-173",
+      "query": "Go's `goodOSArchFile` shape: the part after the first `_`, minus a `_test` suffix, ending in a known GOOS or GOARCH.",
+      "truth": [
+        "libs/backend/workspace-intelligence/src/diagnostics/external-checkers/go-file-membership.ts:98"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-174",
+      "query": "Build the per-run for {@link MEMORY_RETENTION_JOB}.",
+      "truth": [
+        "libs/backend/thoth-runtime/src/lib/memory-retention-job.ts:62"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-175",
+      "query": "Whether points at real data in `content`: the component exists, its kind matches the target, and every index is in range of the INLINE data.",
+      "truth": ["libs/shared/src/mcp-apps-contracts/surface-patch.ts:371"],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-176",
+      "query": "Wall-clock for all of one pass's queries.",
+      "truth": [
+        "libs/backend/memory-curator/src/lib/curator-llm/merge-candidate-collector.ts:39"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-177",
+      "query": "Public interface representing an for incremental parsing.",
+      "truth": [
+        "libs/backend/workspace-intelligence/src/ast/tree-sitter-parser.service.ts:33"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-178",
+      "query": "Providers tab, then the of `field` (its full name, `data-field`, D16); returns its popover.",
+      "truth": [
+        "libs/frontend/webview-e2e-harness/src/lib/scenarios/settings/settings-drawer.reach.ts:190"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-179",
+      "query": "Resolve every slot should currently own.",
+      "truth": [
+        "libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-http/ptah-mcp-slots.ts:275"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-180",
+      "query": "Parameters for license:getStatus RPC method",
+      "truth": ["libs/shared/src/lib/types/rpc/rpc-misc.types.ts:276"],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-181",
+      "query": "AuthInitializerService - Handles state synchronization on app startup Problem this solves: When users authenticate via OAuth or magic link, the backend sets an HTTP-only cookie and redirects to the frontend.",
+      "truth": [
+        "libs/web/core/src/lib/services/auth-initializer.service.ts:41"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-182",
+      "query": "Rejection for a child whose combined passed its cap.",
+      "truth": ["libs/backend/vscode-core/src/utils/exec-git.ts:72"],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-183",
+      "query": "A prepared the owner lease plus its restore candidate.",
+      "truth": [
+        "libs/backend/agent-sdk/src/lib/session-stats/session-stats-owner.service.ts:319"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-184",
+      "query": ": set, or clear with `null`, the surface's selection.",
+      "truth": ["libs/shared/src/lib/types/rpc/rpc-surface.types.ts:57"],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-185",
+      "query": "A checkpoint record returned to the UI for recovery.",
+      "truth": ["libs/shared/src/lib/types/rpc/rpc-setup.types.ts:144"],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-186",
+      "query": "Parameters for llm:setProviderBaseUrl RPC method",
+      "truth": ["libs/shared/src/lib/types/rpc/rpc-providers.types.ts:472"],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-187",
+      "query": "`reason` is plain text, safe to put in a tool result verbatim.",
+      "truth": [
+        "libs/shared/src/mcp-apps-contracts/dashboard-spec.validator.ts:52"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-188",
+      "query": "A in flight, plus the one thing a caller may do to it.",
+      "truth": [
+        "libs/backend/persistence-sqlite/src/lib/integrity/db-worker-runner.ts:52"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-189",
+      "query": "Parameters for git:removeWorktree RPC method",
+      "truth": ["libs/shared/src/lib/types/rpc/rpc-git.types.ts:284"],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-190",
+      "query": "Throws when the module or its native binding cannot be loaded.",
+      "truth": [
+        "libs/backend/platform-electron/src/workspace-watch/parcel-watcher-engine.ts:27"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-191",
+      "query": "Where the owner's comes from.",
+      "truth": [
+        "libs/backend/cli-agent-runtime/src/lib/cli-agents/limits/plan-owner-read.ts:26"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-192",
+      "query": "Minimal skills.sh client surface the namespace consumes.",
+      "truth": [
+        "libs/backend/vscode-lm-tools/src/lib/code-execution/namespace-builders/harness-namespace.builder.ts:40"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-193",
+      "query": "of a value that an change can make stale: while a change is pending, or when the value was read before the latest change (`readRevision`), it shows as `loading` with no data.",
+      "truth": [
+        "libs/frontend/core/src/lib/services/providers-settings-sections.ts:61"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-194",
+      "query": "Base class for all errors.",
+      "truth": [
+        "libs/backend/agent-generation/src/lib/errors/agent-generation.error.ts:5"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-195",
+      "query": "An item resolved from a, with its raw record.",
+      "truth": [
+        "libs/frontend/marketplace/src/lib/pages/skills/installed-skill-rows.ts:88"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-196",
+      "query": "the for Ptah API self-documentation Provides documentation for all Ptah namespaces at ptah.help() root level",
+      "truth": [
+        "libs/backend/vscode-lm-tools/src/lib/code-execution/namespace-builders/system-namespace.builders.ts:720"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-197",
+      "query": "Whether every successful turn of a provider's plan-billed.",
+      "truth": [
+        "libs/backend/cli-agent-runtime/src/lib/ptah-cli/helpers/ptah-cli-lane-plan-limits.ts:92"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-198",
+      "query": "Most files one lists; past it the is `truncated`.",
+      "truth": [
+        "libs/backend/workspace-intelligence/src/diagnostics/language-aware-diagnostics-provider.ts:115"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-199",
+      "query": "Why an owner's limits could not be read even though the route supports it.",
+      "truth": ["libs/shared/src/lib/types/plan-limit.types.ts:141"],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-concept-200",
+      "query": "IntegrationLicensesController — machine/ops license provisioning (TASK_2026_170 R3).",
+      "truth": [
+        "libs/api/licensing/src/lib/license/controllers/integration-licenses.controller.ts:55"
+      ],
+      "abstain": false,
+      "stratum": "jsdoc",
+      "truthCount": 1
+    }
+  ]
+}

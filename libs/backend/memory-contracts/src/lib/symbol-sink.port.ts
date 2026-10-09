@@ -28,4 +28,23 @@ export interface ISymbolSink {
    * Each chunk becomes a separate memory row with a single chunk.
    */
   insertSymbols(chunks: readonly SymbolChunkInsert[]): Promise<void>;
+
+  /**
+   * Replace one file's symbol rows. A persisting implementation does the
+   * delete and the insert in one transaction, so a failed insert keeps the
+   * previous rows. The indexer calls this, not delete-then-insert.
+   */
+  replaceFileSymbols(
+    workspaceRoot: string,
+    filePath: string,
+    chunks: readonly SymbolChunkInsert[],
+  ): Promise<void>;
+
+  /**
+   * Delete symbol rows for `workspaceRoot` whose file path is not in
+   * `presentPaths`. Other workspace roots are left untouched. Returns the
+   * number of symbol rows deleted. The indexer calls this only after a
+   * complete, non-aborted discovery.
+   */
+  purgeMissing(workspaceRoot: string, presentPaths: readonly string[]): number;
 }

@@ -25,6 +25,7 @@ import {
   type RunCheckDependencies,
   type SpawnCheckProcess,
 } from './run-check.tool';
+import { runCheckJobs } from './run-check-jobs';
 import {
   RunCheckArgsSchema,
   WAIT_SUMMARY_MAX_CHARS,
@@ -55,6 +56,41 @@ beforeEach(() => {
 
 afterEach(() => {
   rmSync(root, { recursive: true, force: true });
+});
+
+it('dispose aborts an HTTP job still launching before it has a pid', async () => {
+  let signal: AbortSignal | undefined;
+  let resolve!: (value: import('./run-check.tool').RunCheckOutcome) => void;
+  const done = new Promise<import('./run-check.tool').RunCheckOutcome>(
+    (next) => {
+      resolve = next;
+    },
+  );
+  const started = runCheckJobs.start(
+    args({ project: 'app', targets: ['lint'] }),
+    root,
+    'dispose-launch',
+    async (next) => {
+      signal = next;
+      return done;
+    },
+  );
+  if (!('job' in started)) throw new Error('expected a job');
+  await Promise.resolve();
+  await killRunningChecks();
+  expect(signal?.aborted).toBe(true);
+  resolve({
+    isError: false,
+    text: 'cancelled before spawn',
+    structured: {
+      cwd: root,
+      project: 'app',
+      targets: ['lint'],
+      verdict: 'cancelled',
+      exitCode: null,
+    },
+  });
+  await started.job.done;
 });
 
 function installNx(script: string, candidate = 0): string {

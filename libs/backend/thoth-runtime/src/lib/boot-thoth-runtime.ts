@@ -1,6 +1,8 @@
 import type { DependencyContainer } from 'tsyringe';
 
 import { MESSAGE_TYPES } from '@ptah-extension/shared';
+import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import type { IWorkspaceWatcher } from '@ptah-extension/platform-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import type { WebviewManager } from '@ptah-extension/vscode-core';
 import {
@@ -40,6 +42,10 @@ import {
   type BootThothRuntimeOptions,
   type ThothRuntimeRefs,
 } from './types';
+import {
+  WorkspaceIndexLifecycleService,
+  workspaceSymbolIndexFrom,
+} from './workspace-index-lifecycle';
 
 interface PushBridgeDisposable {
   dispose: () => void;
@@ -61,6 +67,27 @@ interface ActivePushBridge {
  * bridge.
  */
 const activePushBridges = new WeakMap<object, ActivePushBridge>();
+
+/**
+ * File the symbol index writes. The lifecycle has no container, so the boot
+ * passes `SqliteConnectionService.dbPath` (already imported here). A missing
+ * registration leaves the filter off; it does not skip the index.
+ */
+function readSymbolDatabasePath(
+  container: DependencyContainer,
+): string | undefined {
+  try {
+    if (!container.isRegistered(PERSISTENCE_TOKENS.SQLITE_CONNECTION)) {
+      return undefined;
+    }
+    return container.resolve<SqliteConnectionService>(
+      PERSISTENCE_TOKENS.SQLITE_CONNECTION,
+    ).dbPath;
+    // degradation-audit: optional-capability - resolving the optional SQLite service can fail; the lifecycle still runs without database artifact filtering.
+  } catch {
+    return undefined;
+  }
+}
 
 function replacePushBridge(
   source: object,
@@ -528,6 +555,42 @@ export async function bootThothRuntime(
         const indexingRpcHandlers =
           container.resolve<IndexingRpcHandlers>(IndexingRpcHandlers);
         indexingRpcHandlers.setRunDeps(runDeps);
+      }
+
+      // Background full run plus the watcher subscription. Not awaited:
+      // indexWorkspace is the long scan, and it already waits on the governor
+      // because this call does not set userInitiated. Electron teardown closes
+      // refs.symbolWatcher; that close is this service's dispose.
+      if (!isAborted()) {
+        const watcher = container.isRegistered(
+          PLATFORM_TOKENS.WORKSPACE_WATCHER,
+        )
+          ? container.resolve<IWorkspaceWatcher>(
+              PLATFORM_TOKENS.WORKSPACE_WATCHER,
+            )
+          : undefined;
+        const lifecycle = new WorkspaceIndexLifecycleService({
+          indexer: workspaceSymbolIndexFrom(symbolIndexer),
+          watcher,
+          workspaceRoot,
+          databasePath: readSymbolDatabasePath(container),
+          onError: (message, error) => {
+            console.warn(
+              `${logPrefix} ${message}`,
+              error instanceof Error ? error.message : String(error),
+            );
+          },
+        });
+        lifecycle.start();
+        signal?.addEventListener('abort', () => lifecycle.dispose(), {
+          once: true,
+        });
+        refs.symbolWatcher = {
+          close: () => {
+            lifecycle.dispose();
+            return Promise.resolve();
+          },
+        } as NonNullable<ThothRuntimeRefs['symbolWatcher']>;
       }
     }
   } catch (error) {

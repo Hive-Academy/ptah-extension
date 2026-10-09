@@ -11,6 +11,7 @@ import { GATEWAY_TOKENS } from '@ptah-extension/messaging-gateway';
 import { GATEWAY_CHAT_BRIDGE_TOKENS } from '@ptah-extension/gateway-chat-bridge';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
+import { CODE_SYMBOL_INDEXER } from '@ptah-extension/workspace-intelligence';
 
 import {
   activateThoth,
@@ -27,10 +28,11 @@ jest.mock('./wire-thoth-push-bridges.js', () => ({
 interface FakeLogger {
   info: jest.Mock;
   warn: jest.Mock;
+  error: jest.Mock;
 }
 
 function makeLogger(): FakeLogger {
-  return { info: jest.fn(), warn: jest.fn() };
+  return { info: jest.fn(), warn: jest.fn(), error: jest.fn() };
 }
 
 interface RuntimeDoubles {
@@ -922,5 +924,102 @@ describe('activateThoth — runtime tier with a bare container', () => {
     await expect(
       disposeThoth(refs, makeLogger() as never),
     ).resolves.toBeUndefined();
+  });
+});
+
+describe('activateThoth workspace index', () => {
+  beforeEach(() => {
+    wireMock.mockReset();
+    wireMock.mockReturnValue([]);
+    resetVecDiagnosticForTest();
+  });
+
+  function indexContainer() {
+    let settled = false;
+    let release: (() => void) | undefined;
+    const indexer = {
+      indexWorkspace: jest.fn(
+        () =>
+          new Promise<void>((resolve) => {
+            release = () => {
+              settled = true;
+              resolve();
+            };
+          }),
+      ),
+      reindexFile: jest.fn().mockResolvedValue(undefined),
+    };
+    const dispose = jest.fn();
+    const watcher = {
+      watch: jest.fn(() => ({ dispose })),
+    };
+    const doubles = makeRuntimeDoubles();
+    const registered = new Set<symbol>([
+      ...ALL_RUNTIME_TOKENS,
+      CODE_SYMBOL_INDEXER,
+      PLATFORM_TOKENS.WORKSPACE_WATCHER,
+    ]);
+    const container = makeRuntimeContainer(
+      doubles,
+      registered,
+      new Map<symbol, unknown>([
+        [CODE_SYMBOL_INDEXER, indexer],
+        [PLATFORM_TOKENS.WORKSPACE_WATCHER, watcher],
+      ]),
+    );
+    return {
+      container,
+      indexer,
+      watcher,
+      dispose,
+      settled: () => settled,
+      release: () => release?.(),
+    };
+  }
+
+  it('starts the index on the runtime tier without awaiting it, and not on oneshot', async () => {
+    const runtime = indexContainer();
+    const refs = await activateThoth(
+      runtime.container as never,
+      'runtime',
+      makeLogger() as never,
+    );
+
+    expect(runtime.indexer.indexWorkspace).toHaveBeenCalledTimes(1);
+    expect(runtime.indexer.indexWorkspace).toHaveBeenCalledWith(
+      '/ws',
+      expect.not.objectContaining({ userInitiated: true }),
+    );
+    expect(runtime.watcher.watch).toHaveBeenCalledTimes(1);
+    expect(runtime.settled()).toBe(false);
+    expect(refs.workspaceIndex).toBeDefined();
+
+    await disposeThoth(refs, makeLogger() as never);
+    await disposeThoth(refs, makeLogger() as never);
+    expect(runtime.dispose).toHaveBeenCalledTimes(1);
+    runtime.release();
+
+    const oneshot = indexContainer();
+    await activateThoth(
+      oneshot.container as never,
+      'oneshot',
+      makeLogger() as never,
+    );
+    expect(oneshot.indexer.indexWorkspace).not.toHaveBeenCalled();
+    expect(oneshot.watcher.watch).not.toHaveBeenCalled();
+  });
+
+  it('logs one non-fatal warning when the runtime index fails', async () => {
+    const runtime = indexContainer();
+    runtime.indexer.indexWorkspace.mockRejectedValue(new Error('disk'));
+    const logger = makeLogger();
+
+    await activateThoth(runtime.container as never, 'runtime', logger as never);
+    for (let i = 0; i < 8; i++) await Promise.resolve();
+
+    const failures = logger.warn.mock.calls.filter((call) =>
+      String(call[0]).includes('indexWorkspace failed'),
+    );
+    expect(failures).toHaveLength(1);
   });
 });

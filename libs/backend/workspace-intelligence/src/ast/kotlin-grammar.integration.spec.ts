@@ -461,14 +461,21 @@ describe('Kotlin grammar integration (vendored tree-sitter WASM, Batch 30k)', ()
       const file = `${root}/${relativePath}`;
       const rows = new Map<string, SymbolChunkInsert>();
       let inserted = 0;
+      const record = (chunks: readonly SymbolChunkInsert[]): void => {
+        for (const chunk of chunks) {
+          inserted += 1;
+          rows.set(chunk.subject, chunk);
+        }
+      };
       const sink: ISymbolSink = {
         deleteSymbolsForFile: () => 0,
-        insertSymbols: async (chunks: readonly SymbolChunkInsert[]) => {
-          for (const chunk of chunks) {
-            inserted += 1;
-            rows.set(chunk.subject, chunk);
-          }
+        insertSymbols: async (chunks) => {
+          record(chunks);
         },
+        replaceFileSymbols: async (_workspaceRoot, _filePath, chunks) => {
+          record(chunks);
+        },
+        purgeMissing: () => 0,
       };
       const discovery = {
         indexWorkspaceStream: () =>

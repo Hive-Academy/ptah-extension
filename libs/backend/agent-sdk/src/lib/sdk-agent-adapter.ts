@@ -38,6 +38,7 @@ import { AuthRequiredError } from './errors';
 import { getActiveProviderId } from './helpers';
 import { SessionMetadataStore } from './session-metadata-store';
 import type { SessionHistoryReaderService } from './session-history-reader.service';
+import type { QueuedSessionInput } from './helpers/session-handoff/session-handover-coordinator.service';
 import type {
   OwnerLease,
   RunPreparation,
@@ -261,7 +262,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
     @inject(SDK_TOKENS.SDK_SESSION_BUDGET)
     private readonly sessionBudget: Pick<
       SessionBudgetService,
-      'observe' | 'recordCompaction' | 'release' | 'clearAll'
+      'observe' | 'recordCompaction' | 'release' | 'clearAll' | 'canSend'
     >,
   ) {
     this.callbacks = new SdkAdapterCallbackRegistry();
@@ -1463,6 +1464,13 @@ export class SdkAgentAdapter implements IAgentAdapter {
     );
   }
 
+  async enqueueTransferInputs(
+    sessionId: SessionId,
+    inputs: readonly QueuedSessionInput[],
+  ): Promise<void> {
+    return this.sessionLifecycle.enqueueTransferInputs(sessionId, inputs);
+  }
+
   async executeSlashCommand(
     sessionId: SessionId,
     command: string,
@@ -1815,7 +1823,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
    */
   private releaseTurnOnResult(sessionId: SessionId): () => void {
     return () => {
-      this.sessionLifecycle.markTurnEnded(sessionId);
+      this.sessionLifecycle.onTurnTerminal(sessionId);
     };
   }
 }

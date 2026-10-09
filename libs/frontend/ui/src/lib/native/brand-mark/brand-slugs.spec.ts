@@ -362,8 +362,11 @@ describe('brand slug tables', () => {
       if (mark.kind === 'brand') {
         expect(isKnownSlug(mark.brandSlug)).toBe(true);
       } else {
-        // Presence only: the record's internal shape changes in Batch 7c.
-        expect(Object.hasOwn(PROVIDER_MARKS, mark.providerId)).toBe(true);
+        // Presence only: a vendored provider mark or a hand-authored glyph.
+        expect(
+          Object.hasOwn(PROVIDER_BRAND_SLUGS, mark.providerId) ||
+            Object.hasOwn(PROVIDER_MARKS, mark.providerId),
+        ).toBe(true);
       }
     }
   });
@@ -403,11 +406,24 @@ describe('brand slug tables', () => {
     expect(PROVIDER_BRAND_SLUGS).toEqual({
       anthropic: 'anthropic',
       'claude-cli': 'claude',
-      codex: 'openai',
+      codex: 'codex',
       cursor: 'cursor',
       copilot: 'github-copilot',
-      antigravity: 'google-gemini',
+      antigravity: 'antigravity-google',
       opencode: 'opencode',
+      'opencode-zen': 'opencode',
+      'opencode-go': 'opencode',
+      grok: 'grok',
+      openrouter: 'openrouter',
+      ollama: 'ollama',
+      'ollama-cloud': 'ollama',
+      moonshot: 'moonshot',
+      'z-ai': 'zdotai',
+      'lm-studio': 'lm-studio',
+      xai: 'xai',
+      openai: 'openai',
+      'openai-codex': 'codex',
+      'github-copilot': 'github-copilot',
     });
     for (const slug of Object.values(PROVIDER_BRAND_SLUGS)) {
       expect(Object.hasOwn(PROVIDER_BRAND_ART, slug)).toBe(true);

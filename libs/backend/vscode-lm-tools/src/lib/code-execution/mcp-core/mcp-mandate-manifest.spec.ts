@@ -219,6 +219,85 @@ const MANDATE_MAP: Readonly<Record<string, Mapping>> = {
   ),
 };
 
+/**
+ * TASK_2026_619 Batch 11 (Task 11.2): every MANDATORY claim names the scorecard
+ * suite that measures it. A suite is a `<tool> / <groundTruth.id>` entry of the
+ * COMMITTED gate baseline (`tools/mcp-bench/baseline/gate-baseline.json`, read
+ * here with `fs`: this lib never imports `mcp-bench`). A mandated tool is
+ * either mapped to suites that exist in that baseline, or carries a reasoned
+ * `noSuite` (the benchmark has no retrieval ground truth for it).
+ */
+type ClaimSuite =
+  { readonly suites: readonly string[] } | { readonly noSuite: string };
+
+const CLAIM_SUITE: Readonly<Record<string, ClaimSuite>> = {
+  ptah_search_files: { suites: ['file-tools'] },
+  ptah_code_search_symbols: { suites: ['symbols-exact', 'symbols-concept'] },
+  ptah_lsp_references: { suites: ['references'] },
+  ptah_lsp_definitions: { suites: ['definitions'] },
+  ptah_ast_analyze: { suites: ['file-tools'] },
+  ptah_context_enrich_file: { suites: ['file-tools'] },
+  ptah_get_dependents: { suites: ['dependents'] },
+  ptah_memory_search: { suites: ['memory'] },
+  ptah_relevance_rank_files: { suites: ['relevance'] },
+  ptah_get_symbol_index: { suites: ['symbols-exact'] },
+  ptah_workspace_analyze: {
+    noSuite:
+      'a structure summary: the benchmark has no retrieval ground truth for it; pinned by its mcp-contract guards',
+  },
+  ptah_project_detect_monorepo: {
+    noSuite:
+      'deterministic project detection, no retrieval ground truth; pinned by mcp-contract.bench.spec.ts',
+  },
+  ptah_get_diagnostics: {
+    noSuite:
+      'a host language-service read (Batch 19 provider contract), not a retrieval claim the corpus can score',
+  },
+  ptah_get_dirty_files: {
+    noSuite: 'live editor state: nothing to freeze into a corpus',
+  },
+  ptah_count_tokens: {
+    noSuite: 'a deterministic tokenizer count: no retrieval ground truth',
+  },
+  ptah_web_search: { noSuite: 'external network: not benchmarkable offline' },
+};
+
+/** The committed gate baseline, relative to the repo root. */
+const GATE_BASELINE_FILE = 'tools/mcp-bench/baseline/gate-baseline.json';
+
+/** `<tool> / <groundTruth.id>` of every non-breakdown suite of a gate baseline's scorecard. */
+function baselineSuiteKeys(baselineJson: string): Set<string> {
+  const baseline = JSON.parse(baselineJson) as {
+    scorecard?: {
+      suites?: {
+        arm?: string;
+        details?: { tool?: string };
+        groundTruth?: { id?: string };
+      }[];
+    };
+  };
+  const suites = baseline.scorecard?.suites;
+  if (!Array.isArray(suites))
+    throw new Error('the gate baseline holds no scorecard suites');
+  return new Set(
+    suites
+      .filter((suite) => suite.arm === undefined)
+      .map((suite) => `${suite.details?.tool} / ${suite.groundTruth?.id}`),
+  );
+}
+
+/** The `<tool> / <suite>` keys a mandated tool claims that the baseline lacks. */
+function missingClaimSuites(
+  tool: string,
+  claim: ClaimSuite,
+  present: ReadonlySet<string>,
+): string[] {
+  if ('noSuite' in claim) return [];
+  return claim.suites
+    .map((suite) => `${tool} / ${suite}`)
+    .filter((key) => !present.has(key));
+}
+
 // ---------------------------------------------------------------------------
 // AST helpers shared by the test-title matcher and the invocation proof.
 // ---------------------------------------------------------------------------
@@ -1123,5 +1202,75 @@ describe('MCP mandate manifest (TASK_2026_559 Batch 21, Task 21.2)', () => {
         'some title',
       ),
     ).toBe(true);
+  });
+});
+
+describe('MCP mandate claims -> scorecard suites (TASK_2026_619 Batch 11, Task 11.2)', () => {
+  const mandatedTools = parseMandatedToolNames(PTAH_MCP_SUBSTITUTION_SECTION);
+
+  it('the committed gate baseline exists and holds suites', () => {
+    const file = path.join(REPO_ROOT, GATE_BASELINE_FILE);
+    expect(fs.existsSync(file)).toBe(true);
+    expect(
+      baselineSuiteKeys(fs.readFileSync(file, 'utf8')).size,
+    ).toBeGreaterThan(0);
+  });
+
+  it('every tool the prompt mandates has a CLAIM_SUITE entry (no silent gap)', () => {
+    expect(
+      mandatedTools.filter((name) => CLAIM_SUITE[name] === undefined),
+    ).toEqual([]);
+  });
+
+  it.each(Object.keys(CLAIM_SUITE).sort())(
+    '%s names a suite of the committed baseline, or a reasoned no-suite exemption',
+    (tool) => {
+      const claim = CLAIM_SUITE[tool];
+      if ('noSuite' in claim) {
+        expect(claim.noSuite.trim().length).toBeGreaterThan(0);
+        return;
+      }
+      expect(claim.suites.length).toBeGreaterThan(0);
+      const present = baselineSuiteKeys(
+        fs.readFileSync(path.join(REPO_ROOT, GATE_BASELINE_FILE), 'utf8'),
+      );
+      expect(missingClaimSuites(tool, claim, present)).toEqual([]);
+    },
+  );
+
+  it('missingClaimSuites reports a mandated tool whose suite is absent, and ignores breakdown arms', () => {
+    const baseline = JSON.stringify({
+      scorecard: {
+        suites: [
+          {
+            details: { tool: 'ptah_search_files' },
+            groundTruth: { id: 'file-tools' },
+          },
+          {
+            arm: 'same-name',
+            details: { tool: 'ptah_lsp_references' },
+            groundTruth: { id: 'references' },
+          },
+        ],
+      },
+    });
+    const present = baselineSuiteKeys(baseline);
+    expect(
+      missingClaimSuites(
+        'ptah_search_files',
+        { suites: ['file-tools'] },
+        present,
+      ),
+    ).toEqual([]);
+    expect(
+      missingClaimSuites(
+        'ptah_lsp_references',
+        { suites: ['references'] },
+        present,
+      ),
+    ).toEqual(['ptah_lsp_references / references']);
+    expect(
+      missingClaimSuites('ptah_web_search', { noSuite: 'x' }, present),
+    ).toEqual([]);
   });
 });

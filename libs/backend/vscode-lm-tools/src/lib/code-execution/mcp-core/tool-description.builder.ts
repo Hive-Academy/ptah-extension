@@ -15,6 +15,7 @@ import {
   SYMBOL_INDEX_DEFAULT_LIMIT,
   SYMBOL_INDEX_MAX_LIMIT,
 } from '../namespace-builders/symbol-index-query';
+import { HTTP_MAX_AGENT_WAIT_SEC } from './wait-tools-args.schema';
 import {
   TASK_CHECK_ENTRY_CAP,
   TASK_LIST_DEFAULT_LIMIT,
@@ -599,7 +600,9 @@ export function buildCountTokensTool(): MCPToolDefinition {
  * Build the ptah_agent_spawn tool definition
  * Spawn a CLI agent to work on a task in the background
  */
-export function buildAgentSpawnTool(): MCPToolDefinition {
+export function buildAgentSpawnTool(
+  { transport = 'http' }: { transport?: 'http' | 'stdio' } = {},
+): MCPToolDefinition {
   return {
     name: 'ptah_agent_spawn',
     description:
@@ -615,8 +618,10 @@ export function buildAgentSpawnTool(): MCPToolDefinition {
       'whether each declared file was actually written. A verdict of ' +
       '"no-deliverable" means the agent exited cleanly WITHOUT doing the ' +
       'work, so declare "deliverables" on every spawn whose output is a file. ' +
-      'To block until lanes end, make one ptah_agent_wait call, never a ' +
-      'ptah_agent_status loop. ' +
+      'To block until lanes end, call ptah_agent_wait; never poll ptah_agent_status. ' +
+      (transport === 'http'
+        ? `HTTP calls wait at most ${HTTP_MAX_AGENT_WAIT_SEC} s, so repeat while lanes run. `
+        : '') +
       'Use ptah_agent_status and ptah_agent_read as the fallback when no ' +
       'signal arrives (some adapters report nothing useful, and a signal is ' +
       'refused when this session is no longer live). ' +

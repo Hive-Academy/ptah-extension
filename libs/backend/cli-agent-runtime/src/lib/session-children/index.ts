@@ -27,12 +27,16 @@ export type {
   SessionChildStatus,
   SessionChildTerminalStatus,
   SessionSendMode,
+  SessionStartRequest,
+  SessionSuccessorStartRequest,
   SessionSpawnRefusalCode,
 } from './session-spawner.port';
 export type {
   ChildChatSessionStartInput,
   ChildChatSessionStartOutcome,
   IChildChatSessionHost,
+  SuccessorSessionQueuedInput,
+  StartSuccessorSessionInput,
 } from './child-chat-session-host.port';
 export {
   SessionChildRegistry,

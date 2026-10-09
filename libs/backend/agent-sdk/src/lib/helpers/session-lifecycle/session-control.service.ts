@@ -64,6 +64,8 @@ export class SessionControl {
      */
     private readonly getCompactionConfig:
       (() => CompactionConfig) | null = null,
+    private readonly onTurnTerminal: ((sessionId: SessionId) => void) | null = null,
+    private readonly mayInterrupt: ((sessionId: SessionId) => boolean) | null = null,
   ) {}
 
   /**
@@ -82,6 +84,12 @@ export class SessionControl {
    * @returns true if interrupt was called, false if session/query not found
    */
   async interruptCurrentTurn(sessionId: SessionId): Promise<boolean> {
+    if (this.mayInterrupt && !this.mayInterrupt(sessionId)) {
+      this.logger.info(
+        `[SessionLifecycle] Interrupt refused for handover source: ${sessionId}`,
+      );
+      return false;
+    }
     const rec = this.registry.find(sessionId as string);
 
     if (!rec?.query) {
@@ -114,7 +122,11 @@ export class SessionControl {
         // allowing late A hooks to acquire operation ownership during turn B.
         this.retireInterruptedRecord(rec);
       } else if (this.registry.find(sessionId as string) === rec) {
-        this.registry.markTurnEnded(sessionId as string);
+        if (this.onTurnTerminal) {
+          this.onTurnTerminal(sessionId);
+        } else {
+          this.registry.markTurnEnded(sessionId as string);
+        }
       }
       if (timedOut) {
         this.logger.warn(

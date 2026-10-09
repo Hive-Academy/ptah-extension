@@ -463,9 +463,9 @@ describe('bootThothRuntime', () => {
       indexWorkspace: jest.fn(
         async (
           _root: string,
-          opts: { onProgress: (p: unknown) => void },
+          opts?: { onProgress?: (p: unknown) => void; userInitiated?: boolean },
         ): Promise<void> => {
-          opts.onProgress({ filesScanned: 5, totalFiles: 10 });
+          opts?.onProgress?.({ filesScanned: 5, totalFiles: 10 });
         },
       ),
     };
@@ -485,12 +485,17 @@ describe('bootThothRuntime', () => {
     };
     await runDeps.runSymbols('/ws');
 
-    expect(symbolIndexer.indexWorkspace).toHaveBeenCalledTimes(1);
+    // Boot starts one governed run (no userInitiated). The click is the second.
+    expect(symbolIndexer.indexWorkspace).toHaveBeenCalledTimes(2);
     // These deps only serve `indexing:start` / `indexing:resume` — a click —
     // so the run never waits on the background-work governor (TASK_2026_437).
     expect(symbolIndexer.indexWorkspace).toHaveBeenCalledWith(
       '/ws',
       expect.objectContaining({ userInitiated: true }),
+    );
+    expect(symbolIndexer.indexWorkspace).toHaveBeenCalledWith(
+      '/ws',
+      expect.not.objectContaining({ userInitiated: true }),
     );
     expect(webviewManager.broadcastMessage).toHaveBeenCalledWith(
       MESSAGE_TYPES.INDEXING_PROGRESS,
@@ -507,11 +512,18 @@ describe('bootThothRuntime', () => {
     const setRunDeps = jest.fn();
     const abortError = new Error('aborted');
     abortError.name = 'AbortError';
+    const scripted = [abortError, new Error('real failure')];
     const symbolIndexer = {
-      indexWorkspace: jest
-        .fn()
-        .mockRejectedValueOnce(abortError)
-        .mockRejectedValueOnce(new Error('real failure')),
+      indexWorkspace: jest.fn(
+        async (
+          _root: string,
+          opts?: { userInitiated?: boolean },
+        ): Promise<void> => {
+          if (!opts?.userInitiated) return;
+          const next = scripted.shift();
+          if (next) throw next;
+        },
+      ),
     };
     const container = makeContainer([
       [PERSISTENCE_TOKENS.SQLITE_CONNECTION, makeSqlite()],
@@ -531,9 +543,10 @@ describe('bootThothRuntime', () => {
 
   it('does not wire the symbol indexer when the connection is closed', async () => {
     const setRunDeps = jest.fn();
+    const indexWorkspace = jest.fn();
     const container = makeContainer([
       [PERSISTENCE_TOKENS.SQLITE_CONNECTION, makeSqlite({ isOpen: false })],
-      [CODE_SYMBOL_INDEXER, { indexWorkspace: jest.fn() }],
+      [CODE_SYMBOL_INDEXER, { indexWorkspace }],
       [IndexingRpcHandlers, { setRunDeps }],
       [TOKENS.WEBVIEW_MANAGER, makeWebviewManager()],
     ]);
@@ -541,6 +554,58 @@ describe('bootThothRuntime', () => {
     await bootThothRuntime(container, { workspaceRoot: '/ws' });
 
     expect(setRunDeps).not.toHaveBeenCalled();
+    expect(indexWorkspace).not.toHaveBeenCalled();
+  });
+
+  it('does not await the background symbol index', async () => {
+    let settled = false;
+    let release: (() => void) | undefined;
+    const symbolIndexer = {
+      indexWorkspace: jest.fn(
+        () =>
+          new Promise<void>((resolve) => {
+            release = () => {
+              settled = true;
+              resolve();
+            };
+          }),
+      ),
+    };
+    const container = makeContainer([
+      [PERSISTENCE_TOKENS.SQLITE_CONNECTION, makeSqlite()],
+      [CODE_SYMBOL_INDEXER, symbolIndexer],
+      [TOKENS.WEBVIEW_MANAGER, makeWebviewManager()],
+    ]);
+
+    const refs = await bootThothRuntime(container, { workspaceRoot: '/ws' });
+    await flushDeferredStarts();
+
+    expect(symbolIndexer.indexWorkspace).toHaveBeenCalledTimes(1);
+    expect(settled).toBe(false);
+    expect(refs.symbolWatcher).not.toBeNull();
+    await refs.symbolWatcher?.close();
+    await refs.symbolWatcher?.close();
+    release?.();
+  });
+
+  it('logs one non-fatal warning when the background symbol index fails', async () => {
+    const symbolIndexer = {
+      indexWorkspace: jest.fn().mockRejectedValue(new Error('disk')),
+    };
+    const container = makeContainer([
+      [PERSISTENCE_TOKENS.SQLITE_CONNECTION, makeSqlite()],
+      [CODE_SYMBOL_INDEXER, symbolIndexer],
+      [TOKENS.WEBVIEW_MANAGER, makeWebviewManager()],
+    ]);
+
+    await bootThothRuntime(container, { workspaceRoot: '/ws' });
+    await flushDeferredStarts();
+
+    const warnings = (console.warn as jest.Mock).mock.calls.filter((call) =>
+      String(call[0]).includes('indexWorkspace failed'),
+    );
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]?.[1]).toBe('disk');
   });
 
   it('starts the workspace file index for the active workspace root', async () => {

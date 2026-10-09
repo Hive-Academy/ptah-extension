@@ -25,4 +25,6 @@ export type RpcUserErrorCode =
    * The session reached its budget limit and sends are blocked until the user
    * allows more, compacts, clears or continues in a new session.
    */
-  | 'SESSION_BUDGET_REACHED';
+  | 'SESSION_BUDGET_REACHED'
+  /** A queued prompt has been accepted into the handover transfer FIFO. */
+  | 'SESSION_HANDOVER_HELD';

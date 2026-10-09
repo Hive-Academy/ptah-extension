@@ -346,6 +346,11 @@ export {
 export { SlashCommandInterceptor } from './lib/helpers';
 export type { SlashCommandResult, SlashCommandConfig } from './lib/helpers';
 export { SettingsExportService } from './lib/settings-export.service';
+export {
+  SessionHandoverCoordinator,
+  type QueuedSessionInput,
+  type SessionQueueItem,
+} from './lib/helpers/session-handoff/session-handover-coordinator.service';
 export { SettingsImportService } from './lib/settings-import.service';
 export type { SettingsImportOptions } from './lib/settings-import.service';
 export {

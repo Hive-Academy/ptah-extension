@@ -98,7 +98,7 @@ describe('CodeSymbolStore — workspaceRoot tri-state (SQL shape)', () => {
           };
         }),
         exec: jest.fn(),
-        transaction: jest.fn(),
+        transaction: jest.fn((fn: (...args: unknown[]) => unknown) => fn),
       },
     } as unknown as SqliteConnectionService;
 
@@ -215,6 +215,16 @@ describe('CodeSymbolStore — workspaceRoot tri-state (SQL shape)', () => {
             sql.includes('length(cs.symbol_name)'),
         ),
       ).toBe(false);
+    });
+  });
+
+  describe('purgeMissing', () => {
+    it('lists distinct file_path scoped to workspace_root', () => {
+      const { store, prepared, boundArgs } = makeSqlCapturingStore();
+      store.purgeMissing('/ws/a', ['/ws/a/src/keep.ts']);
+      expect(prepared[0]).toContain('SELECT DISTINCT file_path');
+      expect(prepared[0]).toContain('WHERE workspace_root = ?');
+      expect(boundArgs[0]).toEqual(['/ws/a']);
     });
   });
 
@@ -1441,6 +1451,758 @@ describe('CodeSymbolStore (native-gated)', () => {
         });
       } finally {
         nowSpy.mockRestore();
+        service.close();
+      }
+    },
+  );
+
+  maybe(
+    'replaceFileSymbols: a failed insert keeps the previous symbol, FTS and vector rows',
+    async () => {
+      const { service, store } = await bootstrap();
+      try {
+        const first = makeEntry({
+          symbolName: 'keepMe',
+          subject: 'code:/test/ws/src/a.ts#keepMe',
+          text: 'function keepMe() { return 1; }',
+        });
+        await store.replaceFileSymbols(first.workspaceRoot, first.filePath, [
+          first,
+        ]);
+        expect(
+          (
+            service.db
+              .prepare('SELECT COUNT(*) AS n FROM code_symbols')
+              .get() as { n: number }
+          ).n,
+        ).toBe(1);
+        expect(
+          (
+            service.db
+              .prepare('SELECT COUNT(*) AS n FROM code_symbols_vec')
+              .get() as { n: number }
+          ).n,
+        ).toBe(1);
+        expect(
+          (
+            service.db
+              .prepare('SELECT COUNT(*) AS n FROM code_symbols_fts')
+              .get() as { n: number }
+          ).n,
+        ).toBe(1);
+
+        const dbRef = service.db;
+        const originalPrepare = dbRef.prepare.bind(dbRef);
+        const prepareSpy = jest
+          .spyOn(dbRef, 'prepare')
+          .mockImplementation((sql: string) => {
+            const stmt = originalPrepare(sql);
+            if (/INSERT INTO code_symbols \(id, workspace_root/i.test(sql)) {
+              return {
+                ...stmt,
+                run: () => {
+                  throw new Error('simulated insert failure');
+                },
+              } as unknown as ReturnType<typeof originalPrepare>;
+            }
+            return stmt;
+          });
+
+        await expect(
+          store.replaceFileSymbols(first.workspaceRoot, first.filePath, [
+            makeEntry({
+              symbolName: 'replacement',
+              subject: 'code:/test/ws/src/a.ts#replacement',
+              text: 'function replacement() {}',
+            }),
+          ]),
+        ).rejects.toThrow(/simulated insert failure/);
+        prepareSpy.mockRestore();
+
+        const kept = service.db
+          .prepare('SELECT symbol_name AS name, text AS text FROM code_symbols')
+          .get() as { name: string; text: string };
+        expect(kept.name).toBe('keepMe');
+        expect(kept.text).toBe('function keepMe() { return 1; }');
+        expect(
+          (
+            service.db
+              .prepare('SELECT COUNT(*) AS n FROM code_symbols_vec')
+              .get() as { n: number }
+          ).n,
+        ).toBe(1);
+        expect(
+          (
+            service.db
+              .prepare('SELECT COUNT(*) AS n FROM code_symbols_fts')
+              .get() as { n: number }
+          ).n,
+        ).toBe(1);
+      } finally {
+        service.close();
+      }
+    },
+  );
+
+  maybe(
+    'purgeMissing deletes FTS and vector rows with symbols and never crosses workspace_root',
+    async () => {
+      const { service, store } = await bootstrap();
+      try {
+        const keep = makeEntry({
+          filePath: '/test/ws/src/keep.ts',
+          subject: 'code:/test/ws/src/keep.ts#keep',
+          symbolName: 'keep',
+          text: 'function keep() {}',
+        });
+        const gone = makeEntry({
+          filePath: '/test/ws/src/gone.ts',
+          subject: 'code:/test/ws/src/gone.ts#gone',
+          symbolName: 'gone',
+          text: 'function gone() {}',
+        });
+        const otherRoot = makeEntry({
+          workspaceRoot: '/other/ws',
+          filePath: '/other/ws/src/gone.ts',
+          subject: 'code:/other/ws/src/gone.ts#gone',
+          symbolName: 'gone',
+          text: 'function gone() {}',
+        });
+        await store.insertBatch([keep, gone, otherRoot]);
+        expect(
+          (
+            service.db
+              .prepare('SELECT COUNT(*) AS n FROM code_symbols')
+              .get() as { n: number }
+          ).n,
+        ).toBe(3);
+
+        const deleted = store.purgeMissing('/test/ws', [keep.filePath]);
+        expect(deleted).toBe(1);
+
+        const remaining = service.db
+          .prepare(
+            'SELECT workspace_root AS root, file_path AS file FROM code_symbols ORDER BY workspace_root, file_path',
+          )
+          .all() as Array<{ root: string; file: string }>;
+        expect(remaining).toEqual([
+          { root: '/other/ws', file: '/other/ws/src/gone.ts' },
+          { root: '/test/ws', file: '/test/ws/src/keep.ts' },
+        ]);
+        expect(
+          (
+            service.db
+              .prepare('SELECT COUNT(*) AS n FROM code_symbols_vec')
+              .get() as { n: number }
+          ).n,
+        ).toBe(2);
+        expect(
+          (
+            service.db
+              .prepare('SELECT COUNT(*) AS n FROM code_symbols_fts')
+              .get() as { n: number }
+          ).n,
+        ).toBe(2);
+      } finally {
+        service.close();
+      }
+    },
+  );
+
+  function setVecAvailable(
+    service: SqliteConnectionService,
+    available: boolean,
+  ): void {
+    Object.defineProperty(service, 'vecExtensionLoaded', {
+      configurable: true,
+      get: () => available,
+    });
+    Object.defineProperty(service, 'vecLoadDiagnostic', {
+      configurable: true,
+      get: () => ({
+        ok: available,
+        reason: available ? 'loaded' : 'binary-missing',
+        electronVersion: 'unknown',
+        processArch: process.arch,
+        processPlatform: process.platform,
+      }),
+    });
+  }
+
+  function countTable(service: SqliteConnectionService, table: string): number {
+    return (
+      service.db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as {
+        n: number;
+      }
+    ).n;
+  }
+
+  function symbolRowid(
+    service: SqliteConnectionService,
+    subject: string,
+  ): number {
+    return (
+      service.db
+        .prepare('SELECT rowid AS rowid FROM code_symbols WHERE subject = ?')
+        .get(subject) as { rowid: number }
+    ).rowid;
+  }
+
+  function vecEmbedding(
+    service: SqliteConnectionService,
+    rowid: number,
+  ): Buffer | undefined {
+    const row = service.db
+      .prepare(
+        'SELECT embedding AS embedding FROM code_symbols_vec WHERE rowid = ?',
+      )
+      .get(rowid) as { embedding: Buffer } | undefined;
+    return row?.embedding;
+  }
+
+  function staleMarkerCount(service: SqliteConnectionService): number {
+    return (
+      service.db
+        .prepare(
+          'SELECT COUNT(*) AS n FROM indexing_state WHERE workspace_fingerprint = ?',
+        )
+        .get('code-symbols-vec-stale') as { n: number }
+    ).n;
+  }
+
+  maybe(
+    'vec outage leaves symbol-less vec rows, and the next vec-available call removes them',
+    async () => {
+      const { service, store } = await bootstrap();
+      try {
+        const entry = makeEntry({
+          symbolName: 'alpha',
+          subject: 'code:/test/ws/src/a.ts#alpha',
+          text: 'function alpha() { return 1; }',
+        });
+        await store.insertBatch([entry]);
+        expect(countTable(service, 'code_symbols')).toBe(1);
+        expect(countTable(service, 'code_symbols_vec')).toBe(1);
+
+        setVecAvailable(service, false);
+        expect(store.deleteByFile(entry.workspaceRoot, entry.filePath)).toBe(1);
+        expect(countTable(service, 'code_symbols')).toBe(0);
+        // The vec table cannot be touched while the extension is unloaded.
+        expect(countTable(service, 'code_symbols_vec')).toBe(1);
+
+        setVecAvailable(service, true);
+        await store.searchSymbols('alpha', 5, entry.workspaceRoot);
+        expect(countTable(service, 'code_symbols_vec')).toBe(0);
+      } finally {
+        service.close();
+      }
+    },
+  );
+
+  maybe(
+    'a reused rowid does not keep the previous embedding once vec writes resume',
+    async () => {
+      const { service, store } = await bootstrap();
+      try {
+        const first = makeEntry({
+          symbolName: 'alpha',
+          subject: 'code:/test/ws/src/a.ts#alpha',
+          text: 'function alpha() { return 1; }',
+        });
+        await store.insertBatch([first]);
+        const firstRow = service.db
+          .prepare('SELECT rowid AS rowid FROM code_symbols WHERE subject = ?')
+          .get(first.subject) as { rowid: number };
+        const firstEmbedding = (
+          service.db
+            .prepare(
+              'SELECT embedding AS embedding FROM code_symbols_vec WHERE rowid = ?',
+            )
+            .get(firstRow.rowid) as { embedding: Buffer }
+        ).embedding;
+
+        setVecAvailable(service, false);
+        store.deleteByFile(first.workspaceRoot, first.filePath);
+        const second = makeEntry({
+          symbolName: 'beta',
+          subject: 'code:/test/ws/src/b.ts#beta',
+          filePath: '/test/ws/src/b.ts',
+          text: 'function beta() { return 222222; }',
+        });
+        await store.insertBatch([second]);
+        const secondRow = service.db
+          .prepare('SELECT rowid AS rowid FROM code_symbols WHERE subject = ?')
+          .get(second.subject) as { rowid: number };
+
+        setVecAvailable(service, true);
+        await store.insertBatch([second]);
+
+        expect(countTable(service, 'code_symbols')).toBe(1);
+        expect(countTable(service, 'code_symbols_vec')).toBe(1);
+        const joined = service.db
+          .prepare(
+            `SELECT COUNT(*) AS n FROM code_symbols s
+             JOIN code_symbols_vec v ON v.rowid = s.rowid`,
+          )
+          .get() as { n: number };
+        expect(joined.n).toBe(1);
+        const current = (
+          service.db
+            .prepare(
+              'SELECT embedding AS embedding FROM code_symbols_vec WHERE rowid = ?',
+            )
+            .get(secondRow.rowid) as { embedding: Buffer }
+        ).embedding;
+        expect(Buffer.compare(current, firstEmbedding)).not.toBe(0);
+      } finally {
+        service.close();
+      }
+    },
+  );
+
+  maybe(
+    'a replace during a vec outage is not served with the old embedding after search',
+    async () => {
+      const { service, store } = await bootstrap();
+      try {
+        const first = makeEntry({
+          symbolName: 'alpha',
+          subject: 'code:/test/ws/src/a.ts#alpha',
+          text: 'function alpha() { return 1; }',
+        });
+        await store.replaceFileSymbols(first.workspaceRoot, first.filePath, [
+          first,
+        ]);
+        const firstRow = service.db
+          .prepare('SELECT rowid AS rowid FROM code_symbols WHERE subject = ?')
+          .get(first.subject) as { rowid: number };
+        const firstEmbedding = (
+          service.db
+            .prepare(
+              'SELECT embedding AS embedding FROM code_symbols_vec WHERE rowid = ?',
+            )
+            .get(firstRow.rowid) as { embedding: Buffer }
+        ).embedding;
+
+        setVecAvailable(service, false);
+        const second = makeEntry({
+          symbolName: 'beta',
+          subject: 'code:/test/ws/src/a.ts#beta',
+          text: 'function beta() { return 222222; }',
+        });
+        await store.replaceFileSymbols(second.workspaceRoot, second.filePath, [
+          second,
+        ]);
+        const secondRow = service.db
+          .prepare('SELECT rowid AS rowid FROM code_symbols WHERE subject = ?')
+          .get(second.subject) as { rowid: number };
+        // The only symbol was deleted, so SQLite reuses its implicit rowid.
+        expect(secondRow.rowid).toBe(firstRow.rowid);
+        const stale = service.db
+          .prepare(
+            'SELECT embedding AS embedding FROM code_symbols_vec WHERE rowid = ?',
+          )
+          .get(secondRow.rowid) as { embedding: Buffer } | undefined;
+        expect(stale).toBeDefined();
+        if (!stale)
+          throw new Error(
+            'expected the reused rowid to keep the old embedding',
+          );
+        expect(Buffer.compare(stale.embedding, firstEmbedding)).toBe(0);
+        const marked = service.db
+          .prepare(
+            'SELECT COUNT(*) AS n FROM indexing_state WHERE workspace_fingerprint = ?',
+          )
+          .get('code-symbols-vec-stale') as { n: number };
+        expect(marked.n).toBe(1);
+
+        setVecAvailable(service, true);
+        const page = await store.searchSymbols('alpha', 5, first.workspaceRoot);
+        expect(page.bm25Only).toBe(false);
+        expect(page.hits.map((hit) => hit.symbolName)).not.toContain('beta');
+        const served = service.db
+          .prepare(
+            `SELECT v.embedding AS embedding
+             FROM code_symbols s
+             JOIN code_symbols_vec v ON v.rowid = s.rowid
+             WHERE s.symbol_name = 'beta'`,
+          )
+          .get() as { embedding: Buffer } | undefined;
+        expect(served).toBeUndefined();
+        const markerLeft = service.db
+          .prepare(
+            'SELECT COUNT(*) AS n FROM indexing_state WHERE workspace_fingerprint = ?',
+          )
+          .get('code-symbols-vec-stale') as { n: number };
+        expect(markerLeft.n).toBe(0);
+      } finally {
+        service.close();
+      }
+    },
+  );
+
+  maybe(
+    'purgeJunk deletes vec rows of junk symbols and leaves the others',
+    async () => {
+      const { service, store } = await bootstrap();
+      try {
+        const junk = makeEntry({
+          workspaceRoot: '/ws/a',
+          symbolName: 'junkA',
+          subject: 'code:/ws/a/node_modules/x/i.ts#junkA',
+          filePath: '/ws/a/node_modules/x/i.ts',
+          text: 'function junkA() { return 1; }',
+        });
+        const keep = makeEntry({
+          workspaceRoot: '/ws/a',
+          symbolName: 'keepA',
+          subject: 'code:/ws/a/src/keep.ts#keepA',
+          filePath: '/ws/a/src/keep.ts',
+          text: 'function keepA() { return 2; }',
+        });
+        const other = makeEntry({
+          workspaceRoot: '/ws/b',
+          symbolName: 'junkB',
+          subject: 'code:/ws/b/dist/b.ts#junkB',
+          filePath: '/ws/b/dist/b.ts',
+          text: 'function junkB() { return 3; }',
+        });
+        await store.insertBatch([junk, keep, other]);
+        const junkRowid = symbolRowid(service, junk.subject);
+        const keepRowid = symbolRowid(service, keep.subject);
+        const otherRowid = symbolRowid(service, other.subject);
+        const keepEmbedding = vecEmbedding(service, keepRowid);
+        const otherEmbedding = vecEmbedding(service, otherRowid);
+        expect(vecEmbedding(service, junkRowid)).toBeDefined();
+        expect(keepEmbedding).toBeDefined();
+        expect(otherEmbedding).toBeDefined();
+        if (!keepEmbedding || !otherEmbedding) {
+          throw new Error('expected vec rows for the symbols purgeJunk keeps');
+        }
+
+        expect(store.purgeJunk('/ws/a')).toBe(1);
+
+        expect(countTable(service, 'code_symbols')).toBe(2);
+        expect(countTable(service, 'code_symbols_vec')).toBe(2);
+        expect(vecEmbedding(service, junkRowid)).toBeUndefined();
+        const keepLeft = vecEmbedding(service, keepRowid);
+        const otherLeft = vecEmbedding(service, otherRowid);
+        expect(keepLeft).toBeDefined();
+        expect(otherLeft).toBeDefined();
+        if (!keepLeft || !otherLeft) {
+          throw new Error('expected the kept vec rows to remain');
+        }
+        expect(Buffer.compare(keepLeft, keepEmbedding)).toBe(0);
+        expect(Buffer.compare(otherLeft, otherEmbedding)).toBe(0);
+        expect(staleMarkerCount(service)).toBe(0);
+      } finally {
+        service.close();
+      }
+    },
+  );
+
+  maybe(
+    'purgeJunk during a vec outage writes the stale marker only when rows are deleted',
+    async () => {
+      const { service, store } = await bootstrap();
+      try {
+        const junk = makeEntry({
+          workspaceRoot: '/ws/a',
+          symbolName: 'junkA',
+          subject: 'code:/ws/a/node_modules/x/i.ts#junkA',
+          filePath: '/ws/a/node_modules/x/i.ts',
+          text: 'function junkA() { return 1; }',
+        });
+        const keep = makeEntry({
+          workspaceRoot: '/ws/a',
+          symbolName: 'keepA',
+          subject: 'code:/ws/a/src/keep.ts#keepA',
+          filePath: '/ws/a/src/keep.ts',
+          text: 'function keepA() { return 2; }',
+        });
+        await store.insertBatch([junk, keep]);
+        expect(countTable(service, 'code_symbols_vec')).toBe(2);
+
+        setVecAvailable(service, false);
+        expect(store.purgeJunk(null)).toBe(0);
+        expect(staleMarkerCount(service)).toBe(0);
+        expect(countTable(service, 'code_symbols')).toBe(2);
+        expect(countTable(service, 'code_symbols_vec')).toBe(2);
+
+        expect(store.purgeJunk('/ws/a')).toBe(1);
+        expect(countTable(service, 'code_symbols')).toBe(1);
+        expect(countTable(service, 'code_symbols_vec')).toBe(2);
+        expect(staleMarkerCount(service)).toBe(1);
+      } finally {
+        service.close();
+      }
+    },
+  );
+
+  maybe(
+    'purgeWorkspace deletes vec rows of that workspace and leaves the others',
+    async () => {
+      const { service, store } = await bootstrap();
+      try {
+        const first = makeEntry({
+          workspaceRoot: '/ws/a',
+          symbolName: 'alpha',
+          subject: 'code:/ws/a/src/a.ts#alpha',
+          filePath: '/ws/a/src/a.ts',
+          text: 'function alpha() { return 1; }',
+        });
+        const second = makeEntry({
+          workspaceRoot: '/ws/a',
+          symbolName: 'beta',
+          subject: 'code:/ws/a/src/b.ts#beta',
+          filePath: '/ws/a/src/b.ts',
+          text: 'function beta() { return 2; }',
+        });
+        const other = makeEntry({
+          workspaceRoot: '/ws/b',
+          symbolName: 'gamma',
+          subject: 'code:/ws/b/src/c.ts#gamma',
+          filePath: '/ws/b/src/c.ts',
+          text: 'function gamma() { return 3; }',
+        });
+        await store.insertBatch([first, second, other]);
+        const firstRowid = symbolRowid(service, first.subject);
+        const secondRowid = symbolRowid(service, second.subject);
+        const otherRowid = symbolRowid(service, other.subject);
+        const otherEmbedding = vecEmbedding(service, otherRowid);
+        expect(vecEmbedding(service, firstRowid)).toBeDefined();
+        expect(vecEmbedding(service, secondRowid)).toBeDefined();
+        expect(otherEmbedding).toBeDefined();
+        if (!otherEmbedding) {
+          throw new Error('expected a vec row for the workspace that stays');
+        }
+
+        expect(store.purgeWorkspace('/ws/a')).toBe(2);
+
+        expect(countTable(service, 'code_symbols')).toBe(1);
+        expect(countTable(service, 'code_symbols_vec')).toBe(1);
+        expect(vecEmbedding(service, firstRowid)).toBeUndefined();
+        expect(vecEmbedding(service, secondRowid)).toBeUndefined();
+        const otherLeft = vecEmbedding(service, otherRowid);
+        expect(otherLeft).toBeDefined();
+        if (!otherLeft) {
+          throw new Error('expected the other workspace vec row to remain');
+        }
+        expect(Buffer.compare(otherLeft, otherEmbedding)).toBe(0);
+        expect(staleMarkerCount(service)).toBe(0);
+      } finally {
+        service.close();
+      }
+    },
+  );
+
+  maybe(
+    'purgeWorkspace during a vec outage writes the stale marker only when rows are deleted',
+    async () => {
+      const { service, store } = await bootstrap();
+      try {
+        const first = makeEntry({
+          workspaceRoot: '/ws/a',
+          symbolName: 'alpha',
+          subject: 'code:/ws/a/src/a.ts#alpha',
+          filePath: '/ws/a/src/a.ts',
+          text: 'function alpha() { return 1; }',
+        });
+        const second = makeEntry({
+          workspaceRoot: '/ws/a',
+          symbolName: 'beta',
+          subject: 'code:/ws/a/src/b.ts#beta',
+          filePath: '/ws/a/src/b.ts',
+          text: 'function beta() { return 2; }',
+        });
+        const other = makeEntry({
+          workspaceRoot: '/ws/b',
+          symbolName: 'gamma',
+          subject: 'code:/ws/b/src/c.ts#gamma',
+          filePath: '/ws/b/src/c.ts',
+          text: 'function gamma() { return 3; }',
+        });
+        await store.insertBatch([first, second, other]);
+        expect(countTable(service, 'code_symbols_vec')).toBe(3);
+
+        setVecAvailable(service, false);
+        expect(store.purgeWorkspace('/missing')).toBe(0);
+        expect(staleMarkerCount(service)).toBe(0);
+        expect(countTable(service, 'code_symbols')).toBe(3);
+        expect(countTable(service, 'code_symbols_vec')).toBe(3);
+
+        expect(store.purgeWorkspace('/ws/a')).toBe(2);
+        expect(countTable(service, 'code_symbols')).toBe(1);
+        expect(store.count('/ws/b')).toBe(1);
+        expect(countTable(service, 'code_symbols_vec')).toBe(3);
+        expect(staleMarkerCount(service)).toBe(1);
+      } finally {
+        service.close();
+      }
+    },
+  );
+
+  maybe(
+    'purgeMissing deletes 201 missing paths across the 200-file batch boundary',
+    async () => {
+      const { service, store } = await bootstrap();
+      try {
+        const keep = makeEntry({
+          filePath: '/test/ws/src/keep.ts',
+          subject: 'code:/test/ws/src/keep.ts#keep',
+          symbolName: 'keep',
+          text: 'function keep() { return 1; }',
+        });
+        const other = makeEntry({
+          workspaceRoot: '/other/ws',
+          filePath: '/other/ws/src/stay.ts',
+          subject: 'code:/other/ws/src/stay.ts#stay',
+          symbolName: 'stay',
+          text: 'function stay() { return 1; }',
+        });
+        const missing = Array.from({ length: 201 }, (_, i) =>
+          makeEntry({
+            filePath: `/test/ws/src/m${i}.ts`,
+            subject: `code:/test/ws/src/m${i}.ts#m${i}`,
+            symbolName: `m${i}`,
+            text: `function m${i}() { return ${i}; }`,
+          }),
+        );
+        await store.insertBatch([keep, other, ...missing]);
+        expect(countTable(service, 'code_symbols')).toBe(203);
+
+        const deleted = store.purgeMissing('/test/ws', [keep.filePath]);
+        expect(deleted).toBe(201);
+        expect(countTable(service, 'code_symbols')).toBe(2);
+        expect(countTable(service, 'code_symbols_vec')).toBe(2);
+        expect(countTable(service, 'code_symbols_fts')).toBe(2);
+        const remaining = service.db
+          .prepare(
+            'SELECT workspace_root AS root, file_path AS file FROM code_symbols ORDER BY workspace_root, file_path',
+          )
+          .all() as Array<{ root: string; file: string }>;
+        expect(remaining).toEqual([
+          { root: '/other/ws', file: '/other/ws/src/stay.ts' },
+          { root: '/test/ws', file: '/test/ws/src/keep.ts' },
+        ]);
+      } finally {
+        service.close();
+      }
+    },
+  );
+
+  maybe(
+    'a failure in the second purge batch rolls that batch back and leaves earlier batches committed',
+    async () => {
+      const { service, store } = await bootstrap();
+      try {
+        const keep = makeEntry({
+          filePath: '/test/ws/src/keep.ts',
+          subject: 'code:/test/ws/src/keep.ts#keep',
+          symbolName: 'keep',
+          text: 'function keep() { return 1; }',
+        });
+        const missing = Array.from({ length: 201 }, (_, i) =>
+          makeEntry({
+            filePath: `/test/ws/src/m${i}.ts`,
+            subject: `code:/test/ws/src/m${i}.ts#m${i}`,
+            symbolName: `m${i}`,
+            text: `function m${i}() { return ${i}; }`,
+          }),
+        );
+        await store.insertBatch([keep, ...missing]);
+
+        let symbolDeletes = 0;
+        const originalPrepare = service.db.prepare.bind(service.db);
+        const prepareSpy = jest
+          .spyOn(service.db, 'prepare')
+          .mockImplementation((sql: string) => {
+            const stmt = originalPrepare(sql);
+            if (sql.startsWith('DELETE FROM code_symbols WHERE')) {
+              const run = stmt.run.bind(stmt);
+              return {
+                ...stmt,
+                run: (...args: unknown[]) => {
+                  symbolDeletes += 1;
+                  if (symbolDeletes > 200) {
+                    throw new Error('batch-2 failure');
+                  }
+                  return run(...args);
+                },
+              } as unknown as ReturnType<typeof originalPrepare>;
+            }
+            return stmt;
+          });
+
+        expect(() => store.purgeMissing('/test/ws', [keep.filePath])).toThrow(
+          /batch-2 failure/,
+        );
+        prepareSpy.mockRestore();
+
+        // Batch 1 (200 files) committed. Batch 2 (1 file) rolled back, so
+        // that symbol and its vec/FTS row are still there with `keep`.
+        expect(countTable(service, 'code_symbols')).toBe(2);
+        expect(countTable(service, 'code_symbols_vec')).toBe(2);
+        expect(countTable(service, 'code_symbols_fts')).toBe(2);
+        const keepRow = service.db
+          .prepare('SELECT COUNT(*) AS n FROM code_symbols WHERE file_path = ?')
+          .get(keep.filePath) as { n: number };
+        expect(keepRow.n).toBe(1);
+      } finally {
+        service.close();
+      }
+    },
+  );
+
+  maybe(
+    'workspace_root scoping does not fold case or a trailing separator; file paths fold backslashes',
+    async () => {
+      const { service, store } = await bootstrap();
+      try {
+        const root = 'C:/Repo';
+        const keep = makeEntry({
+          workspaceRoot: root,
+          filePath: 'C:/Repo/src/keep.ts',
+          subject: 'code:C:/Repo/src/keep.ts#keep',
+          symbolName: 'keep',
+          text: 'function keep() { return 1; }',
+        });
+        const gone = makeEntry({
+          workspaceRoot: root,
+          filePath: 'C:/Repo/src/gone.ts',
+          subject: 'code:C:/Repo/src/gone.ts#gone',
+          symbolName: 'gone',
+          text: 'function gone() { return 2; }',
+        });
+        const otherCase = makeEntry({
+          workspaceRoot: 'c:/repo',
+          filePath: 'c:/repo/src/keep.ts',
+          subject: 'code:c:/repo/src/keep.ts#keep',
+          symbolName: 'keep',
+          text: 'function otherCase() { return 3; }',
+        });
+        await store.insertBatch([keep, gone, otherCase]);
+
+        // Present-path comparison rewrites `\\` to `/`. The root string is
+        // bound as given.
+        const deleted = store.purgeMissing(root, ['C:\\Repo\\src\\keep.ts']);
+        expect(deleted).toBe(1);
+
+        // A trailing separator and a different case are different roots.
+        // An empty present list deletes every file of the root it names.
+        expect(store.purgeMissing(`${root}/`, [keep.filePath])).toBe(0);
+        expect(store.purgeMissing('c:/Repo', [])).toBe(0);
+        expect(store.purgeMissing('c:/repo', [])).toBe(1);
+
+        const remaining = service.db
+          .prepare(
+            'SELECT workspace_root AS root, file_path AS file FROM code_symbols ORDER BY workspace_root, file_path',
+          )
+          .all() as Array<{ root: string; file: string }>;
+        expect(remaining).toEqual([
+          { root: 'C:/Repo', file: 'C:/Repo/src/keep.ts' },
+        ]);
+      } finally {
         service.close();
       }
     },
