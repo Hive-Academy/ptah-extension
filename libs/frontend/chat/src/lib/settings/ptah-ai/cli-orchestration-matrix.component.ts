@@ -424,7 +424,7 @@ const SAVE_SCOPE = 'global';
                     </span>
                   </td>
                   <!-- The model column keeps a readable width; long ids wrap at word breaks (prototype: 2 lines at most). -->
-                  <td class="min-w-[7.5rem]">
+                  <td class="min-w-[8rem]">
                     @if (row.kind === 'system' && !row.installed) {
                       <span class="font-mono text-xs text-base-content-muted"
                         >—</span
