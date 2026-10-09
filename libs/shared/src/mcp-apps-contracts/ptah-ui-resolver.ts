@@ -9,22 +9,77 @@ import type {
   SurfaceContent,
   SurfaceEnvelope,
 } from './surface.types';
+import { isSurfaceLayoutComponent } from './surface-bindings';
 import { SURFACE_LIMITS } from './surface-catalog';
 import type { PtahUiBinding, PtahUiConversion } from './ptah-ui-converter';
-import type { PtahUiSourceName } from './ptah-ui.types';
+import {
+  agentsRowValues,
+  agentsScalarValue,
+  resolvePtahUiAgents,
+  type PtahUiAgentsInput,
+  type PtahUiAgentsView,
+} from './ptah-ui-agents-source';
+import type { PtahUiSourceName, PtahUiSourceScope } from './ptah-ui.types';
 
 export type ResolvedPtahUiContent = Extract<
   SurfaceContent,
   { readonly contract: 'dashboard-spec/2' }
 >;
 
-/** Resolves host-owned turn data into a fully literal renderable surface. */
+/** One `$limits` row: the first five cells of the matching list row (R10.2). */
+export interface PtahUiLimitRow {
+  readonly lane: string;
+  readonly window: string;
+  readonly used: string;
+  readonly state: string;
+  readonly reset: string;
+}
+
+/**
+ * The latest lane plan-limit read (R10.1, R10.6). `$limits` is a current-state
+ * source, so it is not part of `TurnSourceSnapshot`.
+ */
+export type PtahUiLimitsInput =
+  | { readonly kind: 'pending' }
+  | { readonly kind: 'unavailable' }
+  | {
+      readonly kind: 'available';
+      /** Rows in list order: one per lane per window. */
+      readonly rows: readonly PtahUiLimitRow[];
+      /** The four R10 scalars; they count lanes, not rows. */
+      readonly lanes: number;
+      readonly atLimit: number;
+      readonly nearLimit: number;
+      readonly unknown: number;
+      /** Epoch milliseconds of the read, shown as "as of HH:MM". */
+      readonly asOf: number;
+    };
+
+/**
+ * Live sources, kept apart from the frozen turn snapshot (D5). A missing input
+ * makes its source "unavailable", never an invalid block.
+ */
+export interface PtahUiLiveSources {
+  readonly agents?: PtahUiAgentsInput | null;
+  readonly limits?: PtahUiLimitsInput | null;
+}
+
+/** Resolves host-owned data into a fully literal renderable surface. */
 export function resolvePtahUi(
   conversion: PtahUiConversion,
   snapshot: TurnSourceSnapshot | null,
+  live: PtahUiLiveSources = {},
 ): ResolvedPtahUiContent {
+  const context: ResolveContext = {
+    bindings: new Map(
+      conversion.bindings.map((binding) => [binding.componentId, binding]),
+    ),
+    snapshot,
+    live,
+    agentViews: new Map(),
+  };
   const components = conversion.envelope.components.map((component) =>
-    resolveComponent(component, conversion.bindings, snapshot),
+    resolveComponent(component, context),
   );
   const surface: Omit<SurfaceEnvelope, 'dataModel'> = {
     ...conversion.envelope,
@@ -33,29 +88,55 @@ export function resolvePtahUi(
   return { contract: 'dashboard-spec/2', surface, dataModel: {} };
 }
 
+interface ResolveContext {
+  readonly bindings: ReadonlyMap<string, PtahUiBinding>;
+  readonly snapshot: TurnSourceSnapshot | null;
+  readonly live: PtahUiLiveSources;
+  /** One `$agents` resolution per scope per resolve, shared by every binding. */
+  readonly agentViews: Map<PtahUiSourceScope | 'turn', PtahUiAgentsView>;
+}
+
+/** Resolves one component and, for a container, every descendant (D27). */
 function resolveComponent(
   component: SurfaceComponent,
-  bindings: readonly PtahUiBinding[],
-  snapshot: TurnSourceSnapshot | null,
+  context: ResolveContext,
 ): SurfaceComponent {
-  const binding = bindings.find(
-    (candidate) => candidate.componentId === component.id,
-  );
+  if (isSurfaceLayoutComponent(component))
+    return {
+      ...component,
+      children: component.children.map((child) =>
+        resolveComponent(child, context),
+      ),
+    };
+  const binding = context.bindings.get(component.id);
   if (binding === undefined) return component;
   if (binding.kind === 'scalar' && component.kind === 'stat') {
     return {
       ...component,
-      value: clampHostValue(scalarValue(binding, snapshot)),
+      value: clampHostValue(scalarValue(binding, context)),
     };
   }
-  if (binding.kind === 'rows') return resolveRows(component, binding, snapshot);
+  if (binding.kind === 'rows') return resolveRows(component, binding, context);
   return component;
+}
+
+function agentsView(
+  context: ResolveContext,
+  scope: PtahUiSourceScope | undefined,
+): PtahUiAgentsView {
+  const key = scope ?? 'turn';
+  const cached = context.agentViews.get(key);
+  if (cached !== undefined) return cached;
+  const view = resolvePtahUiAgents(context.live.agents, scope);
+  context.agentViews.set(key, view);
+  return view;
 }
 
 function scalarValue(
   binding: Extract<PtahUiBinding, { readonly kind: 'scalar' }>,
-  snapshot: TurnSourceSnapshot | null,
+  context: ResolveContext,
 ): string | number {
+  const { snapshot } = context;
   switch (binding.source) {
     case 'diff': {
       const source = snapshot === null ? null : snapshot.diff;
@@ -108,55 +189,238 @@ function scalarValue(
       }
     }
     case 'agents':
+      return agentsScalarValue(
+        agentsView(context, binding.scope),
+        binding.field,
+      );
     case 'limits':
-      // Not part of TurnSourceSnapshot: with no input for them, they are unavailable.
+      return limitsScalarValue(context.live.limits, binding.field);
+  }
+}
+
+function limitsScalarValue(
+  limits: PtahUiLimitsInput | null | undefined,
+  field: string,
+): string | number {
+  if (limits === null || limits === undefined) return 'unavailable';
+  if (limits.kind !== 'available') return limits.kind;
+  switch (field) {
+    case 'lanes':
+      return limits.lanes;
+    case 'atLimit':
+      return limits.atLimit;
+    case 'nearLimit':
+      return limits.nearLimit;
+    case 'unknown':
+      return limits.unknown;
+    default:
       return 'unavailable';
   }
 }
 
+/** Resolved rows of a bound source, or the status shown in their place. */
+type RowsResolution =
+  | 'pending'
+  | 'unavailable'
+  | {
+      /** Cells for the binding's columns, at most `maxTableRows` rows. */
+      readonly rows: readonly (readonly (string | number | null)[])[];
+      /** One text per displayed row for `list`, deduplicated where rows repeat. */
+      readonly listItems: readonly string[];
+      /** Notes about the displayed rows ("+N more"); dropped when there are none. */
+      readonly notes: readonly string[];
+      /** The read time of a current-state source ("as of HH:MM"), always shown. */
+      readonly freshness?: string;
+    };
+
 function resolveRows(
   component: SurfaceComponent,
   binding: Extract<PtahUiBinding, { readonly kind: 'rows' }>,
-  snapshot: TurnSourceSnapshot | null,
+  context: ResolveContext,
 ): SurfaceComponent {
-  const source = rowsSource(snapshot, binding.source);
+  const resolved = rowsResolution(binding, context);
+  const empty = emptyMessage(binding.source, binding.scope);
   if (component.kind === 'table' && component.columns.length === 0) {
     return statusList(
       component.id,
-      source === 'pending' || source === 'unavailable'
-        ? source
-        : emptyMessage(binding.source),
+      typeof resolved === 'string' ? resolved : empty,
     );
   }
   if (component.kind === 'list') {
-    if (source === 'pending' || source === 'unavailable')
-      return { ...component, items: [{ text: { text: source } }] };
-    const rows = rowValues(binding.source, source, binding.columns);
+    if (typeof resolved === 'string')
+      return { ...component, items: [{ text: { text: resolved } }] };
     return {
       ...component,
       items:
-        rows.length === 0
-          ? [{ text: { text: emptyMessage(binding.source) } }]
-          : rows.map(([text]) => ({ text: { text: String(text) } })),
+        resolved.listItems.length === 0
+          ? [{ text: { text: empty } }]
+          : resolved.listItems.map((text) => ({ text: { text } })),
     };
   }
   if (component.kind !== 'table') return component;
-  if (source === 'pending' || source === 'unavailable') {
+  if (typeof resolved === 'string') {
     // Req 3.2-3.4 requires a visible status while retaining the table's declared shape.
     return {
       ...component,
-      rows: [statusRow(component.columns.length, source)],
+      rows: [statusRow(component.columns.length, resolved)],
     };
   }
-  const rows = rowValues(binding.source, source, binding.columns);
+  const notes =
+    resolved.rows.length === 0
+      ? [empty, ...optional(resolved.freshness)]
+      : [...optional(resolved.freshness), ...resolved.notes];
   return {
     ...component,
-    rows,
-    description:
-      rows.length === 0
-        ? { text: emptyMessage(binding.source) }
-        : sourceDescription(binding.source, source, rows.length),
+    rows: resolved.rows,
+    description: notes.length === 0 ? undefined : { text: notes.join('; ') },
   };
+}
+
+function rowsResolution(
+  binding: Extract<PtahUiBinding, { readonly kind: 'rows' }>,
+  context: ResolveContext,
+): RowsResolution {
+  switch (binding.source) {
+    case 'agents':
+      return agentsRows(agentsView(context, binding.scope), binding.columns);
+    case 'limits':
+      return limitsRows(context.live.limits, binding.columns);
+    case 'diff':
+      return diffRows(context.snapshot, binding.columns);
+    case 'tests':
+      return testRows(context.snapshot, binding.columns);
+    case 'usage':
+      // The registry gives `usage` no columns, so the parser rejects its rows.
+      return 'unavailable';
+  }
+}
+
+function diffRows(
+  snapshot: TurnSourceSnapshot | null,
+  columns: readonly string[],
+): RowsResolution {
+  const source = snapshot === null ? null : snapshot.diff;
+  if (source === null || source.kind !== 'available')
+    return source?.kind ?? 'unavailable';
+  const { changeSet } = source;
+  const rows = changeSet.files
+    .slice(0, SURFACE_LIMITS.maxTableRows)
+    .map((file) =>
+      columns.map((column) => {
+        if (column === 'path') return clampHostValue(file.path);
+        if (column === 'status') return clampHostValue(file.status);
+        if (column === 'additions')
+          return file.binary ? 'binary' : (file.additions ?? 'unknown');
+        if (column === 'deletions')
+          return file.binary ? 'binary' : (file.deletions ?? 'unknown');
+        return 'unavailable';
+      }),
+    );
+  const notes: string[] = [];
+  const moreRows =
+    changeSet.truncatedCount + changeSet.files.length - rows.length;
+  if (moreRows > 0) notes.push(`+${moreRows} more`);
+  if (changeSet.baselineMissing) notes.push('may include earlier changes');
+  return { rows, listItems: rows.map(firstCellText), notes };
+}
+
+function testRows(
+  snapshot: TurnSourceSnapshot | null,
+  columns: readonly string[],
+): RowsResolution {
+  const source = snapshot === null ? null : snapshot.tests;
+  if (source === null || source.kind !== 'available')
+    return source?.kind ?? 'unavailable';
+  const rows = source.runs
+    .slice(0, SURFACE_LIMITS.maxTableRows)
+    .map((run) =>
+      columns.map((column) =>
+        column === 'command'
+          ? clampHostValue(run.command)
+          : column === 'outcome'
+            ? clampHostValue(run.outcome)
+            : 'unavailable',
+      ),
+    );
+  const omittedRows = source.runs.length - rows.length;
+  return {
+    rows,
+    listItems: rows.map(firstCellText),
+    notes: omittedRows > 0 ? [`+${omittedRows} more`] : [],
+  };
+}
+
+/** `$agents` rows come capped and ordered from the agents module (R5.11). */
+function agentsRows(
+  view: PtahUiAgentsView,
+  columns: readonly string[],
+): RowsResolution {
+  if (view.kind === 'unavailable') return 'unavailable';
+  const rows = agentsRowValues(view.rows, columns).map((row) =>
+    row.map(clampHostValue),
+  );
+  return {
+    rows,
+    listItems: rows.map(firstCellText),
+    notes: view.omittedRows > 0 ? [`+${view.omittedRows} more`] : [],
+  };
+}
+
+/**
+ * `$limits` rows keep the list's order. `list $limits` lists `lane`; a lane
+ * with several windows has several rows but is listed once.
+ */
+function limitsRows(
+  limits: PtahUiLimitsInput | null | undefined,
+  columns: readonly string[],
+): RowsResolution {
+  if (limits === null || limits === undefined) return 'unavailable';
+  if (limits.kind !== 'available') return limits.kind;
+  const shown = limits.rows.slice(0, SURFACE_LIMITS.maxTableRows);
+  const rows = shown.map((row) =>
+    columns.map((column) => clampHostValue(limitCell(row, column))),
+  );
+  const omittedRows = limits.rows.length - shown.length;
+  const lanes = [...new Set(shown.map((row) => row.lane))];
+  return {
+    rows,
+    listItems: lanes.map((lane) => String(clampHostValue(lane))),
+    notes: omittedRows > 0 ? [`+${omittedRows} more`] : [],
+    freshness: `as of ${clockTime(limits.asOf)}`,
+  };
+}
+
+function optional(value: string | undefined): readonly string[] {
+  return value === undefined ? [] : [value];
+}
+
+function limitCell(row: PtahUiLimitRow, column: string): string {
+  switch (column) {
+    case 'lane':
+      return row.lane;
+    case 'window':
+      return row.window;
+    case 'used':
+      return row.used;
+    case 'state':
+      return row.state;
+    case 'reset':
+      return row.reset;
+    default:
+      return 'unavailable';
+  }
+}
+
+/** Local wall-clock `HH:MM` of an epoch-millisecond time; "unknown" if invalid. */
+function clockTime(epochMs: number): string {
+  const date = new Date(epochMs);
+  if (!Number.isFinite(date.getTime())) return 'unknown';
+  const pad = (value: number): string => String(value).padStart(2, '0');
+  return `${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function firstCellText(row: readonly (string | number | null)[]): string {
+  return String(row[0] ?? 'unavailable');
 }
 
 function statusRow(
@@ -170,93 +434,6 @@ function statusList(id: string, text: string): SurfaceComponent {
   return { kind: 'list', id, items: [{ text: { text } }] };
 }
 
-function rowsSource(
-  snapshot: TurnSourceSnapshot | null,
-  name: PtahUiSourceName,
-):
-  | TurnSourceSnapshot['diff']
-  | TurnSourceSnapshot['tests']
-  | TurnSourceSnapshot['usage']
-  | 'pending'
-  | 'unavailable' {
-  if (name === 'agents' || name === 'limits') return 'unavailable';
-  if (snapshot === null || !Object.hasOwn(snapshot, name)) return 'unavailable';
-  const source = snapshot[name];
-  return source.kind === 'available' ? source : source.kind;
-}
-
-function isDiffRowsSource(
-  value: Exclude<ReturnType<typeof rowsSource>, 'pending' | 'unavailable'>,
-): value is Extract<
-  TurnSourceSnapshot['diff'],
-  { readonly kind: 'available' }
-> {
-  return Object.hasOwn(value, 'changeSet');
-}
-
-function isTestRowsSource(
-  value: Exclude<ReturnType<typeof rowsSource>, 'pending' | 'unavailable'>,
-): value is Extract<
-  TurnSourceSnapshot['tests'],
-  { readonly kind: 'available' }
-> {
-  return Object.hasOwn(value, 'runs');
-}
-
-function rowValues(
-  source: PtahUiSourceName,
-  value: Exclude<ReturnType<typeof rowsSource>, 'pending' | 'unavailable'>,
-  columns: readonly string[],
-): readonly (readonly (string | number | null)[])[] {
-  if (source === 'diff' && isDiffRowsSource(value))
-    return value.changeSet.files
-      .slice(0, SURFACE_LIMITS.maxTableRows)
-      .map((file) =>
-        columns.map((column) => {
-          if (column === 'path') return clampHostValue(file.path);
-          if (column === 'status') return clampHostValue(file.status);
-          if (column === 'additions')
-            return file.binary ? 'binary' : (file.additions ?? 'unknown');
-          if (column === 'deletions')
-            return file.binary ? 'binary' : (file.deletions ?? 'unknown');
-          return 'unavailable';
-        }),
-      );
-  if (source === 'tests' && isTestRowsSource(value))
-    return value.runs
-      .slice(0, SURFACE_LIMITS.maxTableRows)
-      .map((run) =>
-        columns.map((column) =>
-          column === 'command'
-            ? clampHostValue(run.command)
-            : column === 'outcome'
-              ? clampHostValue(run.outcome)
-              : 'unavailable',
-        ),
-      );
-  return [];
-}
-
-function sourceDescription(
-  source: PtahUiSourceName,
-  value: Exclude<ReturnType<typeof rowsSource>, 'pending' | 'unavailable'>,
-  displayedRows: number,
-): { readonly text: string } | undefined {
-  const notes: string[] = [];
-  if (source === 'diff' && isDiffRowsSource(value)) {
-    const omittedRows = value.changeSet.files.length - displayedRows;
-    const moreRows = value.changeSet.truncatedCount + omittedRows;
-    if (moreRows > 0) notes.push(`+${moreRows} more`);
-    if (value.changeSet.baselineMissing)
-      notes.push('may include earlier changes');
-  }
-  if (source === 'tests' && isTestRowsSource(value)) {
-    const omittedRows = value.runs.length - displayedRows;
-    if (omittedRows > 0) notes.push(`+${omittedRows} more`);
-  }
-  return notes.length === 0 ? undefined : { text: notes.join('; ') };
-}
-
 function clampHostValue(value: string | number): string | number {
   if (
     typeof value !== 'string' ||
@@ -266,10 +443,22 @@ function clampHostValue(value: string | number): string | number {
   return `${value.slice(0, SURFACE_LIMITS.maxStringLength - 1)}…`;
 }
 
-function emptyMessage(source: PtahUiSourceName): string {
-  return source === 'diff'
-    ? 'No files changed this turn'
-    : source === 'tests'
-      ? 'No tests ran this turn'
-      : 'No rows available';
+function emptyMessage(
+  source: PtahUiSourceName,
+  scope: PtahUiSourceScope | undefined,
+): string {
+  switch (source) {
+    case 'diff':
+      return 'No files changed this turn';
+    case 'tests':
+      return 'No tests ran this turn';
+    case 'agents':
+      return scope === 'session'
+        ? 'No agents in this session'
+        : 'No agents this turn';
+    case 'limits':
+      return 'No CLI lanes';
+    case 'usage':
+      return 'No rows available';
+  }
 }

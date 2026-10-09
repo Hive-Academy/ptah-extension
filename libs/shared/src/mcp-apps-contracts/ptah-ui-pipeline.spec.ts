@@ -1,7 +1,12 @@
 import type { TurnSourceSnapshot } from '../lib/utils/turn-sources.utils';
 
-import { renderPtahUiBlock } from './ptah-ui-pipeline';
+import {
+  compilePtahUiBlock,
+  renderPtahUiBlock,
+  resolveCompiledPtahUiBlock,
+} from './ptah-ui-pipeline';
 import { PTAH_UI_CORPUS } from './ptah-ui.corpus';
+import { SURFACE_LIMITS } from './surface-catalog';
 import type { SurfaceContent } from './surface.types';
 
 const countBytes = (value: unknown): number =>
@@ -191,7 +196,7 @@ describe('renderPtahUiBlock', () => {
     );
   });
 
-  it('returns the validator budget reason when a block exceeds it', () => {
+  it("names the breached validator budget in the parser's words (R3.3)", () => {
     const result = renderPtahUiBlock('stats\n  Literal | value\n', {
       surfaceId: 'surface',
       snapshot: null,
@@ -200,10 +205,93 @@ describe('renderPtahUiBlock', () => {
           ? Number.MAX_SAFE_INTEGER
           : 0,
     });
+    expect(result).toEqual({
+      ok: false,
+      reason: `maxSurfaceBytes (${SURFACE_LIMITS.maxSurfaceBytes}) exceeded`,
+    });
+  });
+
+  it('names a nesting limit breached by the grammar (R3.3)', () => {
+    const body = Array.from(
+      { length: SURFACE_LIMITS.maxTreeDepth + 1 },
+      (_, depth) => `${'  '.repeat(depth)}col`,
+    ).join('\n');
+    const result = renderPtahUiBlock(`${body}\n`, {
+      surfaceId: 'surface',
+      snapshot: null,
+      countBytes,
+    });
     expect(result).toMatchObject({
       ok: false,
-      reason: 'block exceeds a display limit',
+      reason: expect.stringContaining(
+        `maxTreeDepth (${SURFACE_LIMITS.maxTreeDepth}) exceeded`,
+      ),
     });
+  });
+
+  it('rejects a reserved `ptah.` display id with no surface (R2.5, D11)', () => {
+    expect(
+      renderPtahUiBlock('stats\n  Literal | value\n', {
+        surfaceId: 'ptah.turn-summary',
+        snapshot: populated,
+        countBytes,
+      }),
+    ).toEqual({ ok: false, reason: 'reserved display id' });
+  });
+
+  it('renders containers, atoms and stat trend/spark as a /4 surface, not a fallback', () => {
+    const result = renderPtahUiBlock(
+      'title Overview\ngrid 2\n  card Totals\n    stats\n      Files | $diff.files | +2 | 1 3\n  accordion More\n    note info Later\n    badge ok Done\n    progress Build | 40\n    avatar Priya | Reviewer\n',
+      { surfaceId: 'surface', snapshot: populated, countBytes },
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok || result.content.contract !== 'dashboard-spec/2') return;
+    expect(result.content.surface).toMatchObject({
+      catalogVersion: 'dashboard-catalog/4',
+      components: [
+        { kind: 'grid', children: [{ kind: 'card' }, { kind: 'accordion' }] },
+      ],
+    });
+    expect(surfaceText(result.content)).not.toContain('$diff.');
+  });
+
+  it('passes the live $agents and $limits inputs through to the resolver', () => {
+    const result = renderPtahUiBlock(
+      'stats\n  Agents | $agents.total\n  Lanes | $limits.lanes\n',
+      {
+        surfaceId: 'surface',
+        snapshot: populated,
+        agents: {
+          turnIndex: 0,
+          turns: [
+            {
+              startedAt: 0,
+              nodes: [{ id: 'n', agentType: 'coder', status: 'complete' }],
+              spawnToolCallIds: [],
+            },
+          ],
+          records: [],
+          lanes: [],
+          capacities: [],
+        },
+        limits: {
+          kind: 'available',
+          rows: [],
+          lanes: 2,
+          atLimit: 0,
+          nearLimit: 0,
+          unknown: 0,
+          asOf: 0,
+        },
+        countBytes,
+      },
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok || result.content.contract !== 'dashboard-spec/2') return;
+    expect(result.content.surface.components).toMatchObject([
+      { value: 1 },
+      { value: 2 },
+    ]);
   });
 
   it.each(PTAH_UI_CORPUS)('renders corpus case $name', ({ body }) => {
@@ -232,6 +320,81 @@ describe('renderPtahUiBlock', () => {
     });
     expect(result).toMatchObject({ ok: true });
     expect(JSON.stringify(result)).toContain(`${'c'.repeat(1_999)}…`);
+  });
+});
+
+describe('compilePtahUiBlock', () => {
+  it('reports exactly the sources a block names, at any depth (D5)', () => {
+    const compiled = compilePtahUiBlock(
+      'section A\n  stats\n    T | $agents.session.total\n  card\n    table $limits\nlist $diff\n',
+      'surface',
+    );
+    expect(compiled.ok).toBe(true);
+    if (!compiled.ok) return;
+    expect([...compiled.usedSources].sort()).toEqual([
+      'agents',
+      'diff',
+      'limits',
+    ]);
+  });
+
+  it('reports no sources for a literal block', () => {
+    const compiled = compilePtahUiBlock(
+      'stats\n  Literal | value\n',
+      'surface',
+    );
+    expect(compiled.ok && compiled.usedSources.size).toBe(0);
+  });
+
+  it('marks a reserved display id with the reserved-id code, before parsing', () => {
+    expect(compilePtahUiBlock('gauge Nope\n', 'ptah.anything')).toEqual({
+      ok: false,
+      code: 'reserved-id',
+      reason: 'reserved display id',
+    });
+  });
+
+  it('keeps the parser failure code and reason', () => {
+    expect(compilePtahUiBlock('gauge Nope\n', 'surface')).toEqual({
+      ok: false,
+      code: 'syntax',
+      reason: 'unknown element `gauge` (line 1)',
+    });
+  });
+
+  it('accepts an inline id that only starts with the word ptah', () => {
+    expect(
+      compilePtahUiBlock('stats\n  Literal | value\n', 'ptah-ui-node-0').ok,
+    ).toBe(true);
+  });
+
+  it('resolves one compilation against changing inputs exactly as renderPtahUiBlock does', () => {
+    const body = 'stats\n  Files | $diff.files\ntable $tests\n';
+    const compiled = compilePtahUiBlock(body, 'surface');
+    if (!compiled.ok) throw new Error(compiled.reason);
+    for (const snapshot of [null, pending, empty, populated]) {
+      expect(
+        resolveCompiledPtahUiBlock(compiled, { snapshot, countBytes }),
+      ).toEqual(
+        renderPtahUiBlock(body, { surfaceId: 'surface', snapshot, countBytes }),
+      );
+    }
+  });
+
+  it('never throws when the byte counter throws during resolution', () => {
+    const compiled = compilePtahUiBlock(
+      'stats\n  Literal | value\n',
+      'surface',
+    );
+    if (!compiled.ok) throw new Error(compiled.reason);
+    expect(
+      resolveCompiledPtahUiBlock(compiled, {
+        snapshot: null,
+        countBytes: () => {
+          throw new Error('boom');
+        },
+      }),
+    ).toEqual({ ok: false, reason: 'internal error' });
   });
 });
 

@@ -1,6 +1,6 @@
 # Batches - TASK_2026_623_3492
 
-Total tasks: 68 | Batches: 33 | Complete: 3/33
+Total tasks: 68 | Batches: 33 | Complete: 5/33
 
 Worktree root `W` = `D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel` (branch
 `feat/task-623-display-panel`, base `70f995a56`). Every path below is absolute.
@@ -290,7 +290,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
   same information, and 610 segments keep their exact shape. Consumers must test `target === 'display'` and treat an
   absent `target` as inline; notes added to Tasks 18.2 and 22.2.
 
-## Batch 4: S4 converter and `$agents` source — COMPLETE
+## Batch 4: S4 converter and `$agents` source — COMPLETE (commit 31904b890)
 
 - Recommended executor: backend-developer
 - Fallback executor: general-purpose subagent
@@ -342,7 +342,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
   fact `status` typed `string` so the unknown → `pending` rule is reachable; `ptah-ui-agents-source.ts` is not
   exported from the eager `surface.index.ts` barrel (D6: the module is lazy and forbidden-eager).
 
-## Batch 5: S5 resolver and pipeline (`compilePtahUiBlock`) — PENDING
+## Batch 5: S5 resolver and pipeline (`compilePtahUiBlock`) — COMPLETE
 
 - Recommended executor: backend-developer
 - Fallback executor: general-purpose subagent
@@ -351,7 +351,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - Tasks: 2 | Depends on: Batch 4
 - Phase: 1 | Phase review: code-logic (after Batch 6)
 
-### Task 5.1: resolver with `$agents` / `$limits` inputs — PENDING
+### Task 5.1: resolver with `$agents` / `$limits` inputs — COMPLETE
 
 - Files:
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\shared\src\mcp-apps-contracts\ptah-ui-resolver.ts
@@ -370,7 +370,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
   `agentsRowValues`); do not re-implement merge or aggregation. Decide and pin by spec how a zero-agent `cost` scalar
   renders (`formatUsdCost(0)` gives `$0.0000`, a true zero, not a missing value).
 
-### Task 5.2: pipeline `compilePtahUiBlock(body, surfaceId)` + `usedSources` — PENDING
+### Task 5.2: pipeline `compilePtahUiBlock(body, surfaceId)` + `usedSources` — COMPLETE
 
 - Depends on: Task 5.1
 - Files:
@@ -386,6 +386,22 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 ### Batch 5 verification
 
 - `npx jest -c libs/shared/jest.config.ts libs/shared/src/mcp-apps-contracts/ptah-ui-resolver.spec.ts libs/shared/src/mcp-apps-contracts/ptah-ui-pipeline.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -n 40 && npx nx typecheck @ptah-extension/shared --parallel=1 2>&1 | tail -n 20 && npx nx lint @ptah-extension/shared --parallel=1 2>&1 | tail -n 20`
+- Result (team-leader run): 2 suites, 83 tests passed; shared typecheck passed; shared lint 0 errors / 6 baseline
+  warnings (none in the four batch files).
+
+### Batch 5 decisions
+
+- #31-#36 (decisions.md): six executor choices accepted, none reverted:
+  - #31: the reserved-id check is in `compilePtahUiBlock`;
+  - #32: `PtahUiLimitsInput` with `pending` lives in the resolver;
+  - #33: `resolveCompiledPtahUiBlock`;
+  - #34: `list $limits` lists each lane once;
+  - #35: zero-agent cost is `$0.0000`;
+  - #36: the budget reason names the limit, `<maxX> (<n>) exceeded`, as plan:64/477 and R3.3 require. The old generic
+    text was the behaviour to replace.
+- #37: the `surface.index.ts` exports go to Task 16.2 (the file and the shared checks join Batch 16). The
+  `ptah-ui-agents-source.ts` forbidden-eager pattern goes to Task 32.1. Task 17.2 carries the `PtahUiLimitsInput`
+  mapping.
 
 ## Batch 6: S6 corpus and compactness — PENDING
 
@@ -691,13 +707,25 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - Files:
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\organisms\ptah-ui\ptah-ui-block.component.ts
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\organisms\ptah-ui\ptah-ui-block.component.spec.ts
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\shared\src\mcp-apps-contracts\surface.index.ts (decision #37a)
 - Plan reference: implementation-plan.md:630-673 (component 4), D5
 - Quality requirements: computes agents/limits input only when `usedSources` contains them; passes
   `layoutWidth='container'`; inline live cap 8.
+- Validation notes (decisions #33, #37a):
+  - First, add these exports to `surface.index.ts`, next to the existing `resolvePtahUi`/`renderPtahUiBlock`
+    re-exports (`surface.index.ts:139-141`):
+    - the functions `compilePtahUiBlock` and `resolveCompiledPtahUiBlock`;
+    - the types `CompiledPtahUiBlock`, `CompilePtahUiBlockResult` and `ResolvePtahUiBlockInput` (`ptah-ui-pipeline.ts`);
+    - the types `PtahUiLimitsInput`, `PtahUiLimitRow` and `PtahUiLiveSources` (`ptah-ui-resolver.ts`).
+  - Do not export `ptah-ui-agents-source.ts` runtime symbols from the barrel (#30, D6). A type-only `PtahUiAgentsInput`
+    export is allowed if needed.
+  - The block compiles once per body (`compilePtahUiBlock(body, surfaceId)`), and on input change re-resolves with
+    `resolveCompiledPtahUiBlock`, never parsing again.
+  - A compile failure, including `reserved-id`, shows the fallback with `reason`.
 
 ### Batch 16 verification
 
-- `npx jest -c libs/frontend/chat-ui/jest.config.ts libs/frontend/chat-ui/src/lib/organisms/ptah-ui/ptah-ui-block.component.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -n 40 && npx nx typecheck @ptah-extension/chat-ui --parallel=1 2>&1 | tail -n 20 && npx nx lint @ptah-extension/chat-ui --parallel=1 2>&1 | tail -n 20`
+- `npx jest -c libs/frontend/chat-ui/jest.config.ts libs/frontend/chat-ui/src/lib/organisms/ptah-ui/ptah-ui-block.component.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -n 40 && npx nx typecheck @ptah-extension/shared --parallel=1 2>&1 | tail -n 20 && npx nx lint @ptah-extension/shared --parallel=1 2>&1 | tail -n 20 && npx nx typecheck @ptah-extension/chat-ui --parallel=1 2>&1 | tail -n 20 && npx nx lint @ptah-extension/chat-ui --parallel=1 2>&1 | tail -n 20`
 
 ## Batch 17: C2 live source adapters (`$agents`, `$limits`) — PENDING
 
@@ -723,6 +751,12 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\organisms\ptah-ui\sources\ptah-ui-lane-limits.source.spec.ts
 - Quality requirements: R10.6; first acquire calls `agent:getLanePlanLimits`; re-read on `PlanLimitsStore.snapshot()`
   change while acquired; response type-guarded; RPC failure → "unavailable", `console.warn` without payload; no timers.
+- Validation notes (decision #32):
+  - The signal holds `PtahUiLimitsInput` (exported from the `surface` entry by Task 16.2).
+  - It starts at `{kind:'pending'}`, and becomes `{kind:'unavailable'}` on failure or timeout.
+  - A successful read maps 1:1 onto `{kind:'available', rows, lanes, atLimit, nearLimit, unknown, asOf}`: five string
+    cells per row, and `asOf` in epoch ms.
+  - No owner, account or session fields are copied.
 
 ### Batch 17 verification
 
@@ -1204,6 +1238,12 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - Pattern to follow: `scripts/eager-closure-gate.js:11-25,76,99-104`
 - Quality requirements: forbidden: `chat-ui/src/display-panel.ts`, `chat-ui/src/lib/organisms/display-panel/`,
   `chat/.*/organisms/display-dock/`; allowed growth: the five eager files; fails closed; synthetic fixtures per pattern.
+- Validation notes (decision #37b):
+  - Add `shared/src/mcp-apps-contracts/ptah-ui-agents-source.ts` to the forbidden-eager patterns (D6), with its own
+    synthetic fixture.
+  - Since Batch 5, `ptah-ui-resolver.ts` imports it at runtime, and the `surface` barrel re-exports the resolver and
+    pipeline, so an eager barrel importer could pull it in.
+  - If the real gate run trips on it, report the eager importer chain as a finding. Do not drop or loosen the pattern.
 
 ### Batch 32 verification
 
