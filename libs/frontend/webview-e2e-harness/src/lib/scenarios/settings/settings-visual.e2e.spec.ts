@@ -634,9 +634,9 @@ async function assertOrchestrationFold(
     uninstalled: 2,
   });
   await expect(matrix).toHaveClass(/\btable-xs\b/);
-  await expect(page.locator('[data-testid="consumer-table"]')).toHaveClass(
-    /\btable-xs\b/,
-  );
+  const consumers = page.locator('[data-testid="consumer-table"]');
+  await expect(consumers).toHaveClass(/\bgrid\b/);
+  await expect(consumers).toHaveClass(/\bgap-2\b/);
   await expect(details).not.toHaveAttribute('open');
   for (const region of ORCHESTRATION_FOLD_REGIONS[host]) {
     expect(bottoms[region], `${region} bottom`).toBeLessThanOrEqual(
@@ -701,13 +701,17 @@ async function captureRolesOpen(
     })
     .toEqual({ wrapper: 'matrix(0, 1, -1, 0, 0, 0)', icons: 'none' });
   // Batch 35 revise R1: every role's Provider & model cell is one line in both hosts (the label truncates instead).
-  const cellHeights = await page
+  const consumers = page.locator('[data-testid="consumer-table"]');
+  const consumerRows = consumers.locator(
+    'article[data-testid^="consumer-row-"]',
+  );
+  await expect(consumerRows).toHaveCount(6);
+  const cellHeights = await consumers
     .locator('[data-testid^="consumer-edit-"]')
     .evaluateAll((cells) =>
       cells.map((cell) => Math.round(cell.getBoundingClientRect().height)),
     );
-  const rowHeights = await page
-    .locator('[data-testid^="consumer-row-"]')
+  const rowHeights = await consumerRows
     .evaluateAll((rows) =>
       rows.map((row) => Math.round(row.getBoundingClientRect().height)),
     );
@@ -721,7 +725,7 @@ async function captureRolesOpen(
   await waitForSettled(page);
   await capture(page, 'orchestration-roles-open', host, theme);
   // Batch 35: a role's reassignment popover (the Judge lane cell), on screen and painted on top; Esc returns focus.
-  const roleCell = page.locator('[data-testid="consumer-edit-judge"]');
+  const roleCell = consumers.locator('[data-testid="consumer-edit-judge"]');
   await roleCell.click();
   const rolePopover = page.locator('[data-testid="consumer-editor-judge"]');
   await expect(rolePopover).toBeVisible();
