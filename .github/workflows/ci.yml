@@ -232,9 +232,8 @@ jobs:
       !startsWith(github.head_ref, 'chore/bump-extension-v') &&
       !contains(github.event.head_commit.message, 'chore(release)')
     # Force bash everywhere: windows-latest defaults `run:` steps to pwsh,
-    # and the `npm ci || npm install` fallback below relies on POSIX `||`
-    # semantics being identical across all three runners. Git Bash ships on
-    # windows-latest.
+    # and the install steps below expect identical POSIX shell semantics
+    # across all three runners. Git Bash ships on windows-latest.
     defaults:
       run:
         shell: bash
@@ -297,7 +296,7 @@ jobs:
         # Same fallback as the main job: npm/cli#4828 -- a Windows-generated
         # lockfile can omit transitive deps under sass-embedded's catch-all
         # packages, breaking a plain `npm ci` on Linux.
-        run: npm ci --ignore-scripts --no-audit --no-fund || npm install --ignore-scripts --no-audit --no-fund
+        run: npm ci --ignore-scripts --no-audit --no-fund
 
       - name: Install Linux platform binaries
         if: matrix.os == 'ubuntu-latest'

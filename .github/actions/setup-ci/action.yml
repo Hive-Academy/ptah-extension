@@ -29,11 +29,11 @@ runs:
 
     - name: Install dependencies
       if: steps.cache-modules.outputs.cache-hit != 'true'
-      # Fall back to `npm install` if lockfile drift (npm/cli#4828:
-      # Windows-generated lockfiles omit transitive deps under
-      # sass-embedded's catch-all packages, breaking `npm ci` on Linux).
+      # Lockfile only, no `npm install` fallback (githubactions:S8543). A
+      # lockfile out of sync with package.json now fails here instead of
+      # installing unpinned versions; fix the lockfile when that happens.
       shell: bash
-      run: npm ci --ignore-scripts --no-audit --no-fund || npm install --ignore-scripts --no-audit --no-fund
+      run: npm ci --ignore-scripts --no-audit --no-fund
 
     # Always run: cached node_modules may be missing Linux platform binaries
     # (npm/cli#4828). Pure binary packages with no lifecycle scripts, so

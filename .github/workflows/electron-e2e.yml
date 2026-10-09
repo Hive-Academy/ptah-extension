@@ -88,8 +88,8 @@ jobs:
 
       - name: Install dependencies
         if: steps.cache-modules.outputs.cache-hit != 'true'
-        # Fall back to `npm install` if lockfile drift (npm/cli#4828).
-        run: npm ci --ignore-scripts --no-audit --no-fund || npm install --ignore-scripts --no-audit --no-fund
+        # Lockfile only, no `npm install` fallback (githubactions:S8543).
+        run: npm ci --ignore-scripts --no-audit --no-fund
 
       # Always run — cached node_modules may be missing Linux platform
       # binaries (npm/cli#4828: package-lock.json generated on Windows omits
@@ -164,10 +164,10 @@ jobs:
     needs: [electron-e2e-shard]
     runs-on: ubuntu-latest
     permissions: {}
+    # Nightly/manual perf runs skip both this summary and the normal shards;
+    # electron-e2e-perf is their sole required job, avoiding a skipped
+    # matrix result being treated as a normal-suite failure.
     if: |
-      # Nightly/manual perf runs skip both this summary and the normal shards;
-      # electron-e2e-perf is their sole required job, avoiding a skipped
-      # matrix result being treated as a normal-suite failure.
       always() &&
       github.event_name != 'schedule' &&
       !(github.event_name == 'workflow_dispatch' && inputs.run_perf) &&
@@ -206,7 +206,7 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
 
       - name: Install dependencies
-        run: npm ci --ignore-scripts --no-audit --no-fund || npm install --ignore-scripts --no-audit --no-fund
+        run: npm ci --ignore-scripts --no-audit --no-fund
 
       - name: Install Linux platform binaries
         run: npm install @rollup/rollup-linux-x64-gnu@4.63.4 @unrs/resolver-binding-linux-x64-gnu@1.12.2 --no-save --force --ignore-scripts
