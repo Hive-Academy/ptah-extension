@@ -757,7 +757,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - Cross-side re-review: APPROVED 9/10, Serious #1 CLOSED, no new findings (`code-logic-review-phase2-fix2.md`).
   Phase 2 (Batches 7-12, 12F, 12F2) accepted.
 
-## Batch 13: D1 renderer container layout and `/4` view model — COMPLETE (commit see git log: "batch 13")
+## Batch 13: D1 renderer container layout and `/4` view model — COMPLETE (commit 51a6aa3a9)
 
 - Recommended executor: frontend-developer
 - Fallback executor: general-purpose subagent
@@ -799,7 +799,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - Avatar node wiring moved to new Task 15.0 (decision #49): Batch 14 is at the 6-file cap.
 - Section collapse container-only and container root stat grid accepted (decision #50).
 
-## Batch 14: D2 stat trend/sparkline and avatar — IN_PROGRESS
+## Batch 14: D2 stat trend/sparkline and avatar — COMPLETE (commit see git log: "batch 14")
 
 - Recommended executor: frontend-developer
 - Fallback executor: general-purpose subagent
@@ -808,7 +808,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - Tasks: 2 | Depends on: Batch 13
 - Phase: 3 | Phase review: after Batch 15
 
-### Task 14.1: stat trend pill and sparkline — IN_PROGRESS
+### Task 14.1: stat trend pill and sparkline — COMPLETE
 
 - Files:
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\declarative-dashboard\src\lib\charts\sparkline-geometry.ts (CREATE)
@@ -820,7 +820,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - Quality requirements: R4.3-R4.5; highlight uses theme `primary` (decisions #12); polarity good/bad tone via semantic
   tokens; accessible text for trend; no per-element timers.
 
-### Task 14.2: avatar atom — IN_PROGRESS
+### Task 14.2: avatar atom — COMPLETE
 
 - Files (CREATE):
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\declarative-dashboard\src\lib\components\dashboard-avatar.component.ts
@@ -834,6 +834,10 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 ### Batch 14 verification
 
 - `npx jest -c libs/frontend/declarative-dashboard/jest.config.ts libs/frontend/declarative-dashboard/src/lib/components/dashboard-stat.component.spec.ts libs/frontend/declarative-dashboard/src/lib/components/dashboard-avatar.component.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -n 40 && npx nx typecheck @ptah-extension/declarative-dashboard --parallel=1 2>&1 | tail -n 20 && npx nx lint @ptah-extension/declarative-dashboard --parallel=1 2>&1 | tail -n 20`
+
+- Team-leader verification: 4 created + 2 modified files read on disk; jest 2 suites 16/16, typecheck passed, lint
+  0 errors / 127 warnings (new warnings are spec `no-non-null-assertion` only).
+- Failing-series signal ruled: `trend.polarity === 'bad'` draws the latest spark bar in `--dp-er-fill` (decision #51).
 
 ## Batch 15: D3 container-width and trust-boundary specs, exports — PENDING
 
