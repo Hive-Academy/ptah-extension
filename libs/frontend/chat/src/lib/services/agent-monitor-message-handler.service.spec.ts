@@ -14,6 +14,7 @@ type StoreSlice = Pick<
   AgentMonitorStore,
   | 'onAgentSpawned'
   | 'onAgentOutput'
+  | 'onAgentOutputBatch'
   | 'onAgentExited'
   | 'onAgentExpired'
   | 'onPermissionRequest'
@@ -27,6 +28,7 @@ describe('AgentMonitorMessageHandler', () => {
     store = {
       onAgentSpawned: jest.fn(),
       onAgentOutput: jest.fn(),
+      onAgentOutputBatch: jest.fn(),
       onAgentExited: jest.fn(),
       onAgentExpired: jest.fn(),
       onPermissionRequest: jest.fn(),
@@ -41,7 +43,10 @@ describe('AgentMonitorMessageHandler', () => {
     handler = TestBed.inject(AgentMonitorMessageHandler);
   });
 
-  afterEach(() => TestBed.resetTestingModule());
+  afterEach(() => {
+    jest.useRealTimers();
+    TestBed.resetTestingModule();
+  });
 
   it('declares the five AGENT_MONITOR_* message types', () => {
     expect(handler.handledMessageTypes).toEqual([
@@ -73,13 +78,46 @@ describe('AgentMonitorMessageHandler', () => {
     expect(store.onPermissionRequest).not.toHaveBeenCalled();
   });
 
-  it('routes AGENT_MONITOR_OUTPUT → store.onAgentOutput', () => {
-    const payload = { agentId: 'a1', chunk: 'hello' };
+  it('coalesces AGENT_MONITOR_OUTPUT deltas into one batch per flush', () => {
+    jest.useFakeTimers();
+    const first = { agentId: 'a1', stdoutDelta: 'hel' };
+    const second = { agentId: 'a1', stdoutDelta: 'lo' };
     handler.handleMessage({
       type: MESSAGE_TYPES.AGENT_MONITOR_OUTPUT,
-      payload,
+      payload: first,
     });
-    expect(store.onAgentOutput).toHaveBeenCalledWith(payload);
+    handler.handleMessage({
+      type: MESSAGE_TYPES.AGENT_MONITOR_OUTPUT,
+      payload: second,
+    });
+    expect(store.onAgentOutputBatch).not.toHaveBeenCalled();
+
+    jest.advanceTimersByTime(100);
+
+    expect(store.onAgentOutputBatch).toHaveBeenCalledTimes(1);
+    expect(store.onAgentOutputBatch).toHaveBeenCalledWith([first, second]);
+    expect(store.onAgentOutput).not.toHaveBeenCalled();
+  });
+
+  it('applies pending output before any other agent event', () => {
+    jest.useFakeTimers();
+    const output = { agentId: 'a1', stdoutDelta: 'last words' };
+    const exited = { agentId: 'a1' };
+    handler.handleMessage({
+      type: MESSAGE_TYPES.AGENT_MONITOR_OUTPUT,
+      payload: output,
+    });
+    handler.handleMessage({
+      type: MESSAGE_TYPES.AGENT_MONITOR_EXITED,
+      payload: exited,
+    });
+
+    expect(store.onAgentOutputBatch).toHaveBeenCalledWith([output]);
+    expect(store.onAgentOutputBatch.mock.invocationCallOrder[0]).toBeLessThan(
+      store.onAgentExited.mock.invocationCallOrder[0],
+    );
+    jest.advanceTimersByTime(100);
+    expect(store.onAgentOutputBatch).toHaveBeenCalledTimes(1);
   });
 
   it('routes AGENT_MONITOR_EXITED → store.onAgentExited', () => {
