@@ -66,8 +66,8 @@ jobs:
       # against a planted fixture so a broken linter can't silently pass.
       - name: di-lint (DI invariant + self-test)
         run: |
-          npx nx run di-lint:self-test
-          npx nx run di-lint:lint
+          node_modules/.bin/nx run di-lint:self-test
+          node_modules/.bin/nx run di-lint:lint
 
       # Degradation-audit ratchet (TASK_2026_383 Batch 3) — per-directory
       # inventory of silently swallowed catch/`.catch()` sites. Also runs its
@@ -91,7 +91,7 @@ jobs:
       - name: Run scripts/ tests
         run: npm run test:scripts
 
-      - run: npx nx affected -t build
+      - run: node_modules/.bin/nx affected -t build
 
       - name: Enforce eager-closure bundle gate
         if: hashFiles('dist/apps/ptah-extension-webview/stats.json') != ''
@@ -297,7 +297,7 @@ jobs:
         # Same fallback as the main job: npm/cli#4828 -- a Windows-generated
         # lockfile can omit transitive deps under sass-embedded's catch-all
         # packages, breaking a plain `npm ci` on Linux.
-        run: npm ci || npm install --no-audit --no-fund
+        run: npm ci --ignore-scripts --no-audit --no-fund || npm install --ignore-scripts --no-audit --no-fund
 
       - name: Install Linux platform binaries
         if: matrix.os == 'ubuntu-latest'

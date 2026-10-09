@@ -72,7 +72,7 @@ interface SweepResult {
 test.describe('review canvas — 200 files / 10,000 modified lines (A9)', () => {
   test.setTimeout(240_000);
 
-  test('scrolls through the whole canvas at >= 50 fps with no long task over 200 ms', async ({
+  test('scrolls through the whole canvas at >= 50 fps with no long task over 200 ms @perf', async ({
     ui,
     electronApp,
   }) => {

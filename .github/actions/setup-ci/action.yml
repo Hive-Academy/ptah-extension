@@ -33,22 +33,24 @@ runs:
       # Windows-generated lockfiles omit transitive deps under
       # sass-embedded's catch-all packages, breaking `npm ci` on Linux).
       shell: bash
-      run: npm ci || npm install --no-audit --no-fund
+      run: npm ci --ignore-scripts --no-audit --no-fund || npm install --ignore-scripts --no-audit --no-fund
 
-    # Always run — cached node_modules may be missing Linux platform
-    # binaries (npm/cli#4828: package-lock.json generated on Windows omits
-    # them). Without unrs-resolver, jest can't resolve preset paths.
+    # Always run: cached node_modules may be missing Linux platform binaries
+    # (npm/cli#4828). Pure binary packages with no lifecycle scripts, so
+    # --ignore-scripts is safe. Versions pinned to the package-lock.json
+    # resolution; bump them together with rollup / unrs-resolver.
     - name: Install Linux platform binaries
       shell: bash
-      run: npm install @rollup/rollup-linux-x64-gnu @unrs/resolver-binding-linux-x64-gnu --no-save --force
+      run: npm install @rollup/rollup-linux-x64-gnu@4.63.4 @unrs/resolver-binding-linux-x64-gnu@1.12.2 --no-save --force --ignore-scripts
 
     # Cache key is keyed on package-lock.json only. When the runner Node
     # ABI changes (or when the cache was populated by a different OS), the
     # better-sqlite3 prebuilt binary fails to self-register at require()
-    # time. Rebuilding it is cheap and idempotent — always run.
+    # time. node-pty has no Linux optional-dependency binary package either.
+    # The install skips lifecycle scripts, so rebuild both explicitly.
     - name: Rebuild native modules for runner Node ABI
       shell: bash
-      run: npm rebuild better-sqlite3
+      run: npm rebuild better-sqlite3 node-pty
 
     # Cache Prisma generated client
     - name: Cache Prisma client
@@ -61,7 +63,7 @@ runs:
     - name: Generate Prisma client
       if: steps.cache-prisma.outputs.cache-hit != 'true'
       shell: bash
-      run: npx nx run ptah-license-server:prisma:generate
+      run: node_modules/.bin/nx run ptah-license-server:prisma:generate
 
     # Nx task cache. `affected` only picks the task LIST; the cache decides
     # which of those tasks actually execute. Without this, every run starts
