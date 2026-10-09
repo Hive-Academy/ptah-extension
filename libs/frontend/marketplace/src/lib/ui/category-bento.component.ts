@@ -128,7 +128,7 @@ let instanceCounter = 0;
 
       @if (items().length === 0) {
         <p
-          class="m-0 rounded-xl border border-base-300 bg-base-200 p-4 text-sm text-base-content-muted"
+          class="surface-2 m-0 rounded-xl p-4 text-sm text-base-content-muted"
           data-testid="category-bento-empty"
         >
           No connectors to browse yet.
@@ -139,7 +139,7 @@ let instanceCounter = 0;
             <li class="flex">
               <button
                 type="button"
-                class="group flex w-full flex-col gap-4 rounded-xl border border-base-300 bg-base-200 p-4 text-left transition-transform duration-150 hover:-translate-y-px hover:border-base-content/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 motion-reduce:transition-none motion-reduce:hover:translate-y-0"
+                class="surface-2 group flex w-full flex-col gap-4 rounded-xl p-4 text-left transition-transform duration-150 hover:-translate-y-px hover:border-base-content/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 motion-reduce:transition-none motion-reduce:hover:translate-y-0"
                 [class.border-primary]="item.category === activeCategory()"
                 [attr.aria-current]="
                   item.category === activeCategory() ? 'true' : null
@@ -162,7 +162,7 @@ let instanceCounter = 0;
                   >
                 </span>
                 <span
-                  class="mt-auto flex w-full items-center justify-between gap-2 border-t border-base-300 pt-3"
+                  class="mt-auto flex w-full items-center justify-between gap-2 border-t border-surface-border pt-3"
                 >
                   <span
                     class="flex items-center -space-x-1.5"

@@ -31,6 +31,8 @@
 
 import { execFileSync } from 'node:child_process';
 import { z } from 'zod';
+import { compareCodeUnits } from '../utils/compare-code-units';
+import { getGhExecutable, getGitExecutable } from '../utils/git-executable';
 
 /** File extensions eligible for corpus questions (mirrors corpus.config.json). */
 export const ELIGIBLE_EXTENSIONS: readonly string[] = [
@@ -92,7 +94,7 @@ export function gitRelevanceDeps(
     isAncestor: (mergeCommitSha: string): boolean => {
       try {
         execFileSync(
-          'git',
+          getGitExecutable(),
           [
             '-C',
             repoRoot,
@@ -116,7 +118,7 @@ export function gitRelevanceDeps(
     // non-ASCII paths in the default output).
     fileExistsAtPin: (path: string): boolean =>
       execFileSync(
-        'git',
+        getGitExecutable(),
         [
           '-C',
           repoRoot,
@@ -220,7 +222,7 @@ function resolveRepository(repoRoot: string): {
   name: string;
 } {
   const stdout = execFileSync(
-    'gh',
+    getGhExecutable(),
     ['repo', 'view', '--json', 'nameWithOwner'],
     { cwd: repoRoot, encoding: 'utf8' },
   );
@@ -249,7 +251,7 @@ function fetchPullRequestPage(
       if (cursor !== undefined) {
         args.push('-f', `cursor=${cursor}`);
       }
-      const stdout = execFileSync('gh', args, {
+      const stdout = execFileSync(getGhExecutable(), args, {
         cwd: repoRoot,
         encoding: 'utf8',
         maxBuffer: 64 * 1024 * 1024,
@@ -343,7 +345,7 @@ export function fetchCommitCandidates(
   corpusCommit: string,
 ): readonly CommitCandidate[] {
   const stdout = execFileSync(
-    'git',
+    getGitExecutable(),
     [
       '-C',
       repoRoot,
@@ -377,7 +379,7 @@ export function fetchCommitCandidates(
 
 /** True for an eligible source path: right extension, not a test, not a lockfile. */
 export function isEligibleSourcePath(rawPath: string): boolean {
-  const path = rawPath.replace(/\\/g, '/');
+  const path = rawPath.replaceAll('\\', '/');
   if (path.length === 0 || path.startsWith('/')) return false;
   if (!ELIGIBLE_EXTENSIONS.some((ext) => path.endsWith(ext))) return false;
   if (/\.(spec|test)\.(ts|tsx|js|jsx)$/.test(path)) return false;
@@ -400,9 +402,9 @@ export function isEligibleSourcePath(rawPath: string): boolean {
  * changed files, forward slashes, deduplicated, sorted.
  */
 function eligibleTruthFiles(paths: readonly string[]): readonly string[] {
-  return [...new Set(paths.map((path) => path.replace(/\\/g, '/')))]
+  return [...new Set(paths.map((path) => path.replaceAll('\\', '/')))]
     .filter(isEligibleSourcePath)
-    .sort();
+    .sort(compareCodeUnits);
 }
 
 /** True for 1-8 truth files, the qualifying size of a relevance question. */

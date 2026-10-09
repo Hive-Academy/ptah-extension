@@ -752,6 +752,33 @@ describe('SessionLoaderService', () => {
       ]);
     });
 
+    it('preserves the existing budget when the resume response omits it', async () => {
+      const restoredTabId = TabId.from('6c3a1d2e-4b5f-4a6b-9c7d-8e9f0a1b2c3d');
+      activeTabSessionIdSignal.set(SESSION);
+      activeTabIdSignal.set(restoredTabId);
+      const stats = {
+        sessionId: SESSION,
+        totalCost: 2,
+        tokens: { input: 10, output: 5, cacheRead: 0, cacheCreation: 0 },
+        messageCount: 4,
+        model: 'claude-sonnet-4-5',
+      };
+      rpcCall.mockImplementation(async (method: string) =>
+        method === 'chat:resume'
+          ? { success: true, data: { stats } }
+          : { success: true, data: {} },
+      );
+
+      activeTabStatusSignal.set('loaded');
+      TestBed.tick();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(applyLoadedSessionStats.mock.calls).toEqual([
+        [restoredTabId, stats, stats.model, undefined],
+      ]);
+    });
+
     it('applyResumeStats uses snapshot.contextWindow (gpt-5.6-sol, 400000) instead of the name lookup', async () => {
       const restoredTabId = TabId.from('0b1f7f7e-5b8a-4c7e-9d1a-4f2d6a3b8c11');
       activeTabSessionIdSignal.set(SESSION);

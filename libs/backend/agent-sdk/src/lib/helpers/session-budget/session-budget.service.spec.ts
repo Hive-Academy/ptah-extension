@@ -758,6 +758,7 @@ describe('SessionBudgetService.act', () => {
       expect(await h.service.act(OTHER, action)).toEqual({
         success: false,
         error: 'No budget state for this session',
+        errorCode: 'NO_SESSION_BUDGET_STATE',
       });
     }
     // No transcript read, no file written (so the writer's prune never ran).
@@ -773,6 +774,7 @@ describe('SessionBudgetService.act', () => {
     expect(await h.service.act(SID, 'write-handoff')).toEqual({
       success: false,
       error: 'No budget state for this session',
+      errorCode: 'NO_SESSION_BUDGET_STATE',
     });
     expect(h.write).not.toHaveBeenCalled();
   });
@@ -828,6 +830,7 @@ describe('SessionBudgetService.act', () => {
       expect(await h.service.act(SID, action)).toEqual({
         success: false,
         error: 'No budget state for this session',
+        errorCode: 'NO_SESSION_BUDGET_STATE',
       });
     }
   });
@@ -868,12 +871,14 @@ describe('SessionBudgetService.release / clearAll', () => {
     h.service.observe(at(120, 1));
     h.service.release(SID);
 
-    // The run is over: its stats owner was released with it.
-    expect(h.service.observe(at(130, 2))).toBeUndefined();
+    // The run is over: its stats owner was released with it. `null` is the
+    // explicit "no budget state" marker, so the client drops the card.
+    expect(h.service.observe(at(130, 2))).toBeNull();
     expect(h.service.canSend(SID)).toEqual({ ok: true });
     expect(await h.service.act(SID, 'dismiss')).toEqual({
       success: false,
       error: 'No budget state for this session',
+      errorCode: 'NO_SESSION_BUDGET_STATE',
     });
     await flush();
     expect(h.write).toHaveBeenCalledTimes(1);

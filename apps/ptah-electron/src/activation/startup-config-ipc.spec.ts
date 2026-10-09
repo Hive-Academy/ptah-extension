@@ -58,8 +58,20 @@ function containerReturning(root: string | null): DependencyContainer {
 }
 
 describe('get-startup-config responder', () => {
+  const originalZoneFallback =
+    process.env['PTAH_ZONE_CHANGE_DETECTION_FALLBACK'];
+
   beforeEach(() => {
     ipcMainListeners.clear();
+    delete process.env['PTAH_ZONE_CHANGE_DETECTION_FALLBACK'];
+  });
+
+  afterAll(() => {
+    if (originalZoneFallback === undefined) {
+      delete process.env['PTAH_ZONE_CHANGE_DETECTION_FALLBACK'];
+    } else {
+      process.env['PTAH_ZONE_CHANGE_DETECTION_FALLBACK'] = originalZoneFallback;
+    }
   });
 
   it('answers before any container exists — the preparing-shell case', () => {
@@ -73,6 +85,7 @@ describe('get-startup-config responder', () => {
       initialView: null,
       workspaceRoot: '',
       workspaceName: '',
+      zoneChangeDetectionFallback: false,
     });
   });
 
@@ -80,7 +93,9 @@ describe('get-startup-config responder', () => {
     let container: DependencyContainer | null = null;
     registerStartupConfigIpc(() => container);
 
-    expect((askOverIpc().returnValue as { workspaceRoot: string }).workspaceRoot).toBe('');
+    expect(
+      (askOverIpc().returnValue as { workspaceRoot: string }).workspaceRoot,
+    ).toBe('');
 
     container = containerReturning(join('/tmp', 'demo-workspace'));
 
@@ -88,6 +103,7 @@ describe('get-startup-config responder', () => {
       initialView: null,
       workspaceRoot: join('/tmp', 'demo-workspace'),
       workspaceName: 'demo-workspace',
+      zoneChangeDetectionFallback: false,
     });
   });
 
@@ -105,6 +121,7 @@ describe('get-startup-config responder', () => {
       initialView: null,
       workspaceRoot: '',
       workspaceName: '',
+      zoneChangeDetectionFallback: false,
     });
     jest.restoreAllMocks();
   });
@@ -124,6 +141,14 @@ describe('get-startup-config responder', () => {
     expect(container.resolve).toHaveBeenCalledWith(
       PLATFORM_TOKENS.WORKSPACE_PROVIDER,
     );
+  });
+
+  it('uses only PTAH_ZONE_CHANGE_DETECTION_FALLBACK=1 for the temporary fallback', () => {
+    process.env['PTAH_ZONE_CHANGE_DETECTION_FALLBACK'] = '1';
+    expect(readStartupConfig(null).zoneChangeDetectionFallback).toBe(true);
+
+    process.env['PTAH_ZONE_CHANGE_DETECTION_FALLBACK'] = 'true';
+    expect(readStartupConfig(null).zoneChangeDetectionFallback).toBe(false);
   });
 });
 

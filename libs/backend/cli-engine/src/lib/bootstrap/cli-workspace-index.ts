@@ -33,17 +33,8 @@ export function startWorkspaceIndexLifecycle(
 ): { dispose(): void } {
   let disposed = false;
   let openedHere = false;
-  let openFailureLogged = false;
   let connection: SqliteConnectionService | undefined;
   let handle: { dispose(): void } | null = null;
-
-  const logOpenFailure = (error: unknown): void => {
-    if (openFailureLogged) return;
-    openFailureLogged = true;
-    logger.warn('[CLI Thoth] Workspace index SQLite open failed (non-fatal)', {
-      error: error instanceof Error ? error.message : String(error),
-    });
-  };
 
   const closeOpened = (): void => {
     if (!openedHere || !connection) return;
@@ -59,7 +50,7 @@ export function startWorkspaceIndexLifecycle(
   };
 
   const pending = (async (): Promise<void> => {
-    const workspaceRoot = resolveWorkspaceRoot(container);
+    const workspaceRoot = resolveWorkspaceRoot(container, logger);
     if (
       disposed ||
       !workspaceRoot ||
@@ -77,7 +68,9 @@ export function startWorkspaceIndexLifecycle(
         openedHere = true;
       }
     } catch (error: unknown) {
-      logOpenFailure(error);
+      logger.error('[CLI Thoth] Workspace index SQLite open failed (non-fatal)', {
+        error: error instanceof Error ? error.message : String(error),
+      });
       return;
     }
     if (disposed || !connection.isOpen) {
@@ -96,7 +89,9 @@ export function startWorkspaceIndexLifecycle(
     }
   })();
   void pending.catch((error: unknown) => {
-    logOpenFailure(error);
+    logger.error('[CLI Thoth] Workspace index startup failed (non-fatal)', {
+      error: error instanceof Error ? error.message : String(error),
+    });
   });
 
   return {
@@ -130,7 +125,7 @@ export function attachWorkspaceIndex(
       indexer: workspaceSymbolIndexFrom(indexer),
       watcher,
       workspaceRoot,
-      databasePath: readSymbolDatabasePath(container),
+      databasePath: readSymbolDatabasePath(container, logger),
       onError: (message, error) => {
         logger.warn(message, {
           error: error instanceof Error ? error.message : String(error),
@@ -154,6 +149,7 @@ export function attachWorkspaceIndex(
  */
 function readSymbolDatabasePath(
   container: DependencyContainer,
+  logger: Logger,
 ): string | undefined {
   try {
     if (!container.isRegistered(PERSISTENCE_TOKENS.SQLITE_CONNECTION)) {
@@ -162,20 +158,27 @@ function readSymbolDatabasePath(
     return container.resolve<SqliteConnectionService>(
       PERSISTENCE_TOKENS.SQLITE_CONNECTION,
     ).dbPath;
-  } catch {
+  } catch (error: unknown) {
+    logger.error('[CLI Thoth] Workspace index database path unavailable', {
+      error: error instanceof Error ? error.message : String(error),
+    });
     return undefined;
   }
 }
 
 export function resolveWorkspaceRoot(
   container: DependencyContainer,
+  logger: Logger,
 ): string | undefined {
   try {
     const workspaceProvider = container.resolve<IWorkspaceProvider>(
       PLATFORM_TOKENS.WORKSPACE_PROVIDER,
     );
     return workspaceProvider.getWorkspaceRoot();
-  } catch {
+  } catch (error: unknown) {
+    logger.error('[CLI Thoth] Workspace index workspace root unavailable', {
+      error: error instanceof Error ? error.message : String(error),
+    });
     return undefined;
   }
 }

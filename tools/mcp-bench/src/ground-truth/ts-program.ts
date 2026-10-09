@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { extname, join, relative, resolve, sep } from 'node:path';
 import ts from 'typescript';
+import { compareCodeUnits } from '../utils/compare-code-units';
 
 export interface CorpusTsProgram {
   readonly root: string;
@@ -30,8 +31,8 @@ export function workspacePath(root: string, fileName: string): string {
 }
 
 export function isCorpusFile(root: string, fileName: string): boolean {
-  const normalizedRoot = resolve(root).replace(/\\/g, '/').toLowerCase();
-  const normalizedFile = resolve(fileName).replace(/\\/g, '/').toLowerCase();
+  const normalizedRoot = resolve(root).replaceAll('\\', '/').toLowerCase();
+  const normalizedFile = resolve(fileName).replaceAll('\\', '/').toLowerCase();
   return (
     normalizedFile === normalizedRoot ||
     normalizedFile.startsWith(`${normalizedRoot}/`)
@@ -39,7 +40,7 @@ export function isCorpusFile(root: string, fileName: string): boolean {
 }
 
 export function isTestFile(fileName: string): boolean {
-  const normal = fileName.replace(/\\/g, '/');
+  const normal = fileName.replaceAll('\\', '/');
   return /\.(spec|test)\.tsx?$/.test(normal) || normal.includes('/__tests__/');
 }
 
@@ -104,7 +105,7 @@ function eligibleFiles(root: string): string[] {
     const directory = join(root, top);
     if (existsSync(directory)) collect(directory, files);
   }
-  return files.sort();
+  return files.sort(compareCodeUnits);
 }
 
 function collect(directory: string, files: string[]): void {

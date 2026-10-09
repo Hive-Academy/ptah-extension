@@ -35,12 +35,12 @@ let nextInspectorId = 0;
   host: { class: 'block h-full min-h-0' },
   template: `
     <aside
-      class="flex h-full min-h-0 flex-col border-l border-base-300 bg-base-100"
+      class="surface-3 flex h-full min-h-0 flex-col rounded-none border-y-0 border-r-0"
       [attr.aria-labelledby]="headingId"
       data-testid="docked-inspector"
     >
       <div
-        class="flex flex-shrink-0 items-center gap-2 border-b border-base-300 px-4 py-3"
+        class="flex flex-shrink-0 items-center gap-2 border-b border-surface-border px-4 py-3"
       >
         <h2
           [id]="headingId"

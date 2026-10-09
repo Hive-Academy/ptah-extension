@@ -6,7 +6,8 @@
  * deliver in one hop instead of N. Every consumer unwraps it by re-dispatching
  * each inner message through the exact path an unbatched message would take, so
  * nothing downstream — routing, tab gating, handler lookup — can tell the
- * difference. That is the whole contract.
+ * difference. That is the whole contract. `chat:streamSnapshot` is a separate
+ * domain envelope and is never a batch member.
  *
  * It deliberately has no `payload-map.ts` entry. `MessagePayloadMap` maps a
  * message type to the ONE payload shape it carries; a batch's meaning is "these

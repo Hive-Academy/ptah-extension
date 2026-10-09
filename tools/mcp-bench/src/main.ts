@@ -82,6 +82,7 @@ import type { Scorecard, ScorecardSuite } from './scorecard/scorecard.types';
 import { GATE_USAGE, runGateCommand } from './gate/gate-command';
 import { loadNoiseMargins, marginFor, suiteMarginKey } from './gate/gate';
 import { generateOptionsSchema, runGenerate } from './generate';
+import { getGitExecutable } from './utils/git-executable';
 import { loadQuestionBank, type QuestionBank } from './suites/question-sets';
 import {
   applyLifecycleVerdicts,
@@ -191,7 +192,7 @@ async function git(
   args: readonly string[],
   timeoutMs = 120_000,
 ): Promise<string> {
-  const { stdout } = await execFileAsync('git', [...args], {
+  const { stdout } = await execFileAsync(getGitExecutable(), [...args], {
     cwd,
     timeout: timeoutMs,
     windowsHide: true,

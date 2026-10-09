@@ -247,6 +247,12 @@ describe('ThothShellComponent', () => {
       (t) => t.getAttribute('aria-selected') === 'true',
     );
     expect(active ? labelOf(active) : undefined).toBe('Memory');
+    expect(active?.className).toContain('surface-3');
+    const host = fixture.nativeElement as HTMLElement;
+    expect(
+      host.querySelector('[data-testid="thoth-section-nav"]')?.className,
+    ).toContain('surface-1');
+    expect(host.firstElementChild?.className).toContain('bg-surface-0');
   });
 
   it('switches active tab via setThothActiveTab when a tab is clicked', () => {

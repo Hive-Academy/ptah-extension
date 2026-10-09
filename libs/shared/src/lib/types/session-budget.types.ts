@@ -299,6 +299,9 @@ export interface SessionBudgetActionParams {
   readonly action: SessionBudgetAction;
 }
 
+/** Machine-readable reason for an unsuccessful budget action. */
+export type SessionBudgetActionErrorCode = 'NO_SESSION_BUDGET_STATE';
+
 export interface SessionBudgetActionResult {
   readonly success: boolean;
   /** The session's state after the action. */
@@ -317,4 +320,6 @@ export interface SessionBudgetActionResult {
   };
   /** Failure text; `'unavailable'` when the host has no budget service. */
   readonly error?: string;
+  /** Machine-readable failure reason, when one is available. */
+  readonly errorCode?: SessionBudgetActionErrorCode;
 }

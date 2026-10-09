@@ -71,6 +71,7 @@ import { MESSAGE_TYPES } from '@ptah-extension/shared';
 import { CHAT_TOKENS } from '../tokens';
 import type { ChatPtahCliService } from '../ptah-cli/chat-ptah-cli.service';
 import { StreamBatchBuffer } from './stream-batch-buffer';
+import type { ChatStreamDeliveryCoordinator } from './chat-stream-delivery-coordinator.service';
 
 export interface WebviewManager {
   sendMessage(viewType: string, type: string, payload: unknown): Promise<void>;
@@ -103,6 +104,8 @@ export class ChatStreamBroadcaster {
     private readonly ptahCli: ChatPtahCliService,
     @inject(SDK_TOKENS.SDK_SESSION_TURN_STATE_REGISTRY)
     private readonly turnState: SessionTurnStateRegistry,
+    @inject(CHAT_TOKENS.STREAM_DELIVERY_COORDINATOR, { isOptional: true })
+    private readonly deliveryCoordinator: ChatStreamDeliveryCoordinator | null = null,
   ) {}
 
   private readonly streamingSessionIds = new Set<string>();
@@ -151,34 +154,59 @@ export class ChatStreamBroadcaster {
     // fresh session; the events carry the real SDK UUID once known, and the
     // registry's alias (`rekey`) covers the gap either way (TASK_2026_360).
     let turnSessionId: string = sessionId;
-    const pushTurnState = (
-      state: ReturnType<SessionTurnStateRegistry['forceIdle']>,
-    ): void => {
-      batch.push({
-        type: MESSAGE_TYPES.CHAT_CHUNK,
-        payload: {
-          tabId,
-          sessionId: turnSessionId,
-          event: toTurnStateEvent(turnSessionId, state),
-          ...(surfaceMode ? { surfaceMode: true } : {}),
-        },
-      });
-    };
-
     this.streamingSessionIds.add(sessionId as string);
     // Identity of the record this loop is the consumer OF, captured before the
     // first event. The finally block compares against it so teardown can only
     // ever hit the record streamed here.
     const recordToken = this.sdkAdapter.getSessionToken(sessionId);
-    const batch = new StreamBatchBuffer({
-      sink: (type, payload) =>
-        this.webviewManager.broadcastMessage(type, payload),
-      onError: (error: unknown) =>
-        this.logger.warn(
-          `[RPC] Failed to deliver a chat batch for session ${sessionId}`,
-          { error: error instanceof Error ? error.message : String(error) },
-        ),
-    });
+    const batch = this.deliveryCoordinator
+      ? null
+      : new StreamBatchBuffer({
+          sink: (type, payload) =>
+            this.webviewManager.broadcastMessage(type, payload),
+          onError: (error: unknown) =>
+            this.logger.warn(
+              `[RPC] Failed to deliver a chat batch for session ${sessionId}`,
+              { error: error instanceof Error ? error.message : String(error) },
+            ),
+        });
+    const publish = (
+      event: FlatStreamEventUnion,
+      eventSessionId: string | undefined,
+    ): void | Promise<void> =>
+      this.deliveryCoordinator
+        ? this.deliveryCoordinator.publish(
+            tabId,
+            eventSessionId,
+            event,
+            surfaceMode,
+          )
+        : batch?.push({
+            type: MESSAGE_TYPES.CHAT_CHUNK,
+            payload: {
+              tabId,
+              sessionId: eventSessionId,
+              event,
+              ...(surfaceMode ? { surfaceMode: true } : {}),
+            },
+          });
+    const flush = (): Promise<void> =>
+      this.deliveryCoordinator
+        ? this.deliveryCoordinator.flushBeforeTerminal(tabId)
+        : batch?.flush() ?? Promise.resolve();
+    const settle = (): Promise<void> =>
+      this.deliveryCoordinator
+        ? this.deliveryCoordinator.settle()
+        : batch?.settle() ?? Promise.resolve();
+    const publishTerminal = (type: string, payload: unknown): Promise<void> =>
+      this.deliveryCoordinator
+        ? this.deliveryCoordinator.publishTerminal(tabId, type, payload)
+        : this.webviewManager.broadcastMessage(type, payload);
+    const pushTurnState = (
+      state: ReturnType<SessionTurnStateRegistry['forceIdle']>,
+    ): void => {
+      void publish(toTurnStateEvent(turnSessionId, state), turnSessionId);
+    };
     try {
       for await (const event of stream) {
         eventCount++;
@@ -230,15 +258,7 @@ export class ChatStreamBroadcaster {
             );
           }
         }
-        const backPressure = batch.push({
-          type: MESSAGE_TYPES.CHAT_CHUNK,
-          payload: {
-            tabId, // For frontend tab routing
-            sessionId: event.sessionId, // Real SDK UUID from the event
-            event,
-            ...(surfaceMode ? { surfaceMode: true } : {}),
-          },
-        });
+        const backPressure = publish(event, event.sessionId);
         // Most events stay on the allocation-free path. Once the send window is
         // retained by the transport, pause the SDK drain until one releases;
         // this is a bounded overlap, not the old per-send transport await.
@@ -265,8 +285,8 @@ export class ChatStreamBroadcaster {
           // A turn boundary is the one place the buffer MUST NOT wait for its
           // timer: `chat:complete` closes the turn in the UI, so it arriving
           // ahead of the chunks it completes renders a truncated message.
-          await batch.flush();
-          await this.webviewManager.broadcastMessage(
+          await flush();
+          await publishTerminal(
             MESSAGE_TYPES.CHAT_COMPLETE,
             {
               tabId,
@@ -278,9 +298,9 @@ export class ChatStreamBroadcaster {
         }
       }
 
-      await batch.flush();
+      await flush();
       if (!turnCompleteSent) {
-        await this.webviewManager.broadcastMessage(
+        await publishTerminal(
           MESSAGE_TYPES.CHAT_COMPLETE,
           {
             tabId,
@@ -295,7 +315,7 @@ export class ChatStreamBroadcaster {
       // Deliver whatever arrived before the failure. These chunks are real
       // output the user already paid for, and the error message reads as a
       // non-sequitur without them.
-      await batch.flush();
+      await flush();
       const errorMessage =
         error instanceof Error ? error.message : String(error);
       const lowerMessage = errorMessage.toLowerCase();
@@ -327,7 +347,7 @@ export class ChatStreamBroadcaster {
           isUserAbort ? 'aborted_streaming' : undefined,
         ),
       );
-      await batch.flush();
+      await flush();
       const isCorruptedResume = eventCount === 0 && !isUserAbort;
       if (isCorruptedResume) {
         this.logger.warn(
@@ -345,7 +365,7 @@ export class ChatStreamBroadcaster {
         }
       }
       if (!isUserAbort) {
-        await this.webviewManager.broadcastMessage(MESSAGE_TYPES.CHAT_ERROR, {
+        await publishTerminal(MESSAGE_TYPES.CHAT_ERROR, {
           tabId,
           sessionId,
           error: isCorruptedResume
@@ -359,12 +379,12 @@ export class ChatStreamBroadcaster {
       // believing the agent still generates. Settle it before teardown.
       if (this.turnState.get(turnSessionId)?.phase === 'generating') {
         pushTurnState(this.turnState.forceIdle(turnSessionId));
-        await batch.flush();
+        await flush();
       }
       // Release the timer and let any size-triggered flush that is still in
       // flight land before teardown ends the session underneath it.
-      batch.dispose();
-      await batch.settle();
+      batch?.dispose();
+      await settle();
       this.streamingSessionIds.delete(sessionId as string);
       this.ptahCli.deleteSession(sessionId as string);
       this.ptahCli.deleteSession(tabId);

@@ -30,7 +30,8 @@ let root = '';
 const hasRg = hasUsableRg();
 /**
  * The live-rg cases skip on a developer machine without ripgrep. Under
- * `CI=true` a missing rg is a CI setup defect (the workflow installs it), so
+ * `CI=true` a missing rg is a CI setup defect (ci.yml test-shard and
+ * mcp-bench.yml install it), so
  * the cases fail instead: a silent skip hid two defects in Batch 8.
  */
 const itWithRg: jest.It = hasRg
@@ -140,9 +141,9 @@ describe('rg runner', () => {
         platform: 'win32',
       }),
     ).toBe('C:/custom/rg.cmd');
-    expect(
-      resolveRg({ env: { RG_PATH: '"C:/custom/rg.exe"' } }),
-    ).toBe('C:/custom/rg.exe');
+    expect(resolveRg({ env: { RG_PATH: '"C:/custom/rg.exe"' } })).toBe(
+      'C:/custom/rg.exe',
+    );
     await expect(
       assertRgRuns('C:/tools/rg.exe', async () => {
         throw new Error('spawn ENOENT');

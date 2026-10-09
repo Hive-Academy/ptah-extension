@@ -84,7 +84,7 @@ import { DEFAULT_OVERLAY_OFFSET, FloatingUIService } from '../shared';
       <!-- Floating content - starts hidden until positioned -->
       <div
         #floatingRef
-        class="dropdown-panel bg-base-200 border border-base-300 rounded-lg shadow-lg z-50"
+        class="dropdown-panel surface-3 z-50 rounded-xl p-1.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[oklch(var(--s))]"
         style="visibility: hidden;"
         [attr.role]="panelRole()"
       >

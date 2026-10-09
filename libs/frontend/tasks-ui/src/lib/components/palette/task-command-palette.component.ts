@@ -95,7 +95,7 @@ let paletteInstanceCounter = 0;
         (click)="requestClose()"
       ></button>
       <div
-        class="relative mt-[8vh] w-full max-w-xl mx-3 rounded-lg border border-base-content/10 bg-base-200 shadow-xl overflow-hidden"
+        class="surface-3 relative mt-[8vh] w-full max-w-xl mx-3 rounded-lg overflow-hidden"
         role="dialog"
         aria-modal="true"
         aria-label="Task board command palette"

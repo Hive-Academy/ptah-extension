@@ -2,6 +2,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import ts from 'typescript';
 import { z } from 'zod';
+import { compareCodeUnits } from '../utils/compare-code-units';
 import {
   CorpusTsProgram,
   isCorpusFile,
@@ -356,9 +357,9 @@ function dependencyQuestions(
     id: `dependency-${index + 1}`,
     file,
     pathForms: ['relative', 'absolute'],
-    dependencies: [...(edges.get(file) ?? [])].sort(),
-    dependents: [...(imports.get(file) ?? [])].sort(),
-    imports: [...(edges.get(file) ?? [])].sort(),
+    dependencies: [...(edges.get(file) ?? [])].sort(compareCodeUnits),
+    dependents: [...(imports.get(file) ?? [])].sort(compareCodeUnits),
+    imports: [...(edges.get(file) ?? [])].sort(compareCodeUnits),
   }));
 }
 function shuffled<T>(items: readonly T[], random: () => number): T[] {

@@ -373,7 +373,7 @@ export function parseWindowsTreeReply(
   const unprobed = asList(reply['unprobed']).flatMap(
     (line): UnprobedHandles[] => {
       const split = splitPidLine(line);
-      const handles = split === null ? NaN : Number(split[1]);
+      const handles = split === null ? Number.NaN : Number(split[1]);
       return split !== null && Number.isInteger(handles) && handles > 0
         ? [{ pid: split[0], handles }]
         : [];

@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
+import { compareCodeUnits } from '../utils/compare-code-units';
 
 /** Closed set of ground-truth methods. Schemas derive their enum from this. */
 export const GROUND_TRUTH_METHODS = [
@@ -174,7 +175,7 @@ function canonicalJson(
     ancestors.add(value);
     const record = value as Record<string, unknown>;
     const result = `{${Object.keys(record)
-      .sort()
+      .sort(compareCodeUnits)
       .filter((key) => record[key] !== undefined)
       .map(
         (key) =>

@@ -61,7 +61,7 @@ describe('Codex plan-usage reader', () => {
       {
         kind: 'five_hour',
         key: 'five_hour',
-        label: '5-hour session',
+        label: '5-hour',
         durationMins: 300,
         used: { kind: 'percent', percent: 37 },
         usedSource: 'provider-api',

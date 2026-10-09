@@ -7,7 +7,11 @@
  * type-checks this file, so re-adding the key fails the suite at compile time.
  */
 
-import type { ChatResumeResult } from './rpc-chat.types';
+import type {
+  ChatResumeResult,
+  ChatSetStreamViewportParams,
+  ChatSetStreamViewportResult,
+} from './rpc-chat.types';
 
 type ChatResumeResultKeys = keyof ChatResumeResult;
 type HasNoMessagesKey = 'messages' extends ChatResumeResultKeys ? false : true;
@@ -23,5 +27,21 @@ describe('ChatResumeResult', () => {
     expect(hasNoMessagesKey).toBe(true);
     expect(hasEventsKey).toBe(true);
     expect(reply).not.toHaveProperty('messages');
+  });
+});
+
+describe('ChatSetStreamViewport contract', () => {
+  it('pins the additive v2 negotiation literals', () => {
+    const params: ChatSetStreamViewportParams = {
+      protocolVersion: 2,
+      focusedTabId: 'tab-1',
+      visibleTabIds: ['tab-1'],
+    };
+    const result: ChatSetStreamViewportResult = {
+      acceptedProtocolVersion: 2,
+    };
+
+    expect(params.protocolVersion).toBe(2);
+    expect(result.acceptedProtocolVersion).toBe(2);
   });
 });

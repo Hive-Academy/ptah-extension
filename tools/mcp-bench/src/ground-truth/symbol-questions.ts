@@ -211,7 +211,7 @@ export function removeIdentifierTokens(
         ),
     )
     .join(' ')
-    .replace(/\s+([.,;:!?])/g, '$1')
+    .replace(/[ \t\n\r\f\v]+(?=[.,;:!?])/g, '')
     .trim();
 }
 export function declarationsOf(corpus: CorpusTsProgram): Declaration[] {

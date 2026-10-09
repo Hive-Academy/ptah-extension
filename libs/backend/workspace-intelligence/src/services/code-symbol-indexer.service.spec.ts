@@ -1133,6 +1133,28 @@ describe('CodeSymbolIndexer', () => {
       expect(present).toContain(file);
     });
 
+    it('queues a delete before an immediately following reindex of the same file', async () => {
+      const { service, fs, sink } = setup([]);
+      const file = '/workspace/src/a.ts';
+      const events: string[] = [];
+      fs.readFile.mockResolvedValue('function f() {}');
+      sink.deleteSymbolsForFile.mockImplementation((path: string) => {
+        events.push(`delete ${path}`);
+        return 0;
+      });
+      sink.replaceFileSymbols.mockImplementation(
+        async (_root: string, path: string) => {
+          events.push(`replace ${path}`);
+        },
+      );
+
+      const deletion = service.deleteFileSymbols(file, ROOT);
+      const reindex = service.reindexFile(file, ROOT);
+      await Promise.all([deletion, reindex]);
+
+      expect(events).toEqual([`delete ${file}`, `replace ${file}`]);
+    });
+
     it('the 2,001st distinct per-file update truncates the census instead of growing the record', async () => {
       const { service } = setup(['/workspace/src/seed.ts']);
       await service.indexWorkspace(ROOT);

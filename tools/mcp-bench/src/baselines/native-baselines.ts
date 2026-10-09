@@ -6,6 +6,7 @@ import { promisify } from 'node:util';
 import fastGlob from 'fast-glob';
 
 import { type Answer, normalizePath } from '../metrics/retrieval-metrics';
+import { getGitExecutable } from '../utils/git-executable';
 import {
   type RgRunOptions,
   type RgRunResult,
@@ -478,7 +479,7 @@ async function defaultGitRunner(
 ): Promise<RgRunResult> {
   const startedAt = performance.now();
   try {
-    const { stdout } = await execFileAsync('git', [...args], {
+    const { stdout } = await execFileAsync(getGitExecutable(), [...args], {
       cwd: options.cwd,
       encoding: 'utf8',
       timeout: options.timeoutMs,

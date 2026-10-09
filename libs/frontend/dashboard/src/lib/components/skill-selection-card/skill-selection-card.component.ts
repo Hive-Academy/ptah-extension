@@ -79,11 +79,11 @@ const SKILL_SELECTION_READ_TIMEOUT_MS = 10_000;
   template: `
     @if (needsSelection()) {
       <section
-        class="card bg-base-200/40 border border-base-300 shadow-sm mt-2"
+        class="surface-2 mt-2 flex flex-col gap-3 rounded-xl p-4"
         data-testid="skill-selection-card"
         aria-label="Skills for this project"
       >
-        <div class="card-body p-4 gap-3">
+        <div class="flex flex-col gap-3">
           <div class="flex items-start gap-4">
             <span
               class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary"
@@ -133,7 +133,7 @@ const SKILL_SELECTION_READ_TIMEOUT_MS = 10_000;
         aria-label="Configure Ptah Skills"
         (document:keydown.escape)="onPickerEscape()"
       >
-        <div class="modal-box max-w-2xl relative">
+        <div class="modal-box surface-3 relative max-w-2xl">
           <button
             class="btn btn-sm btn-circle btn-ghost absolute right-3 top-3"
             type="button"

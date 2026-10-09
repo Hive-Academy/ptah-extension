@@ -211,16 +211,20 @@ export function parseFileList(text: string, root: string): Answer {
       'no "Found:" line in the file search result',
     );
   const relative = relativeTo(root);
-  const ranked = [...text.matchAll(/^\s*\d+\.\s+(.+?)\s*$/gm)].map((match) =>
-    relative(match[1]),
-  );
+  const ranked = text.split(/\r?\n/u).flatMap((line) => {
+    const prefix = /^\s*\d+\.\s+/u.exec(line);
+    if (!prefix) return [];
+    const path = line.slice(prefix[0].length).trimEnd();
+    return path.length === 0 ? [] : [relative(path)];
+  });
   return answerOf(ranked);
 }
 
 /** `file:line` locations anywhere in a text (the future `ptah_search_text`). */
 export function parseTextLocations(text: string, root: string): Answer {
   const relative = relativeTo(root);
-  const ranked = [...text.matchAll(/([^\s`'"|]+?):(\d+)(?=[:\s`|]|$)/gm)].map(
+  const ranked = Array.from(
+    text.matchAll(/([^\s`'"|]+?):(\d+)(?=[:\s`\|]|$)/g),
     (match) => `${relative(match[1])}:${match[2]}`,
   );
   return answerOf(ranked);

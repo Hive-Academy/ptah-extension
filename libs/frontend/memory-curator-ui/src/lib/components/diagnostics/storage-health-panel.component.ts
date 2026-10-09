@@ -299,7 +299,7 @@ const RUN_TONE: Record<MemoryRetentionRunDto['outcome'], NativeCardTone> = {
 
         @if (v.readErrors.length > 0) {
           <div
-            class="rounded-xl border border-base-300 bg-base-200/40 px-3 py-2"
+            class="surface-2 rounded-xl px-3 py-2"
             data-testid="storage-read-errors"
           >
             <ul class="list-disc space-y-0.5 pl-5">
@@ -313,7 +313,7 @@ const RUN_TONE: Record<MemoryRetentionRunDto['outcome'], NativeCardTone> = {
         }
       } @else {
         <div
-          class="rounded-xl border border-base-300 bg-base-200/40 px-3 py-3 text-xs text-base-content-muted"
+          class="surface-2 rounded-xl px-3 py-3 text-xs text-base-content-muted"
           data-testid="storage-empty"
         >
           No storage data yet.

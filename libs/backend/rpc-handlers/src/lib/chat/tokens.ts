@@ -13,6 +13,7 @@ export const CHAT_TOKENS = {
   SESSION: Symbol.for('ChatSessionService'),
   HISTORY_READ: Symbol.for('ChatHistoryReadService'),
   STREAM_BROADCASTER: Symbol.for('ChatStreamBroadcaster'),
+  STREAM_DELIVERY_COORDINATOR: Symbol.for('ChatStreamDeliveryCoordinator'),
   SUBAGENT_CONTEXT_INJECTOR: Symbol.for('ChatSubagentContextInjectorService'),
   SLASH_COMMAND_ROUTER: Symbol.for('ChatSlashCommandRouterService'),
   /**

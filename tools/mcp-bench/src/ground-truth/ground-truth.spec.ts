@@ -74,6 +74,15 @@ describe('compiler ground truth generators', () => {
     ).toBe('Returns the useful');
   });
 
+  it('normalizes punctuation spacing in representative and adversarial concepts', () => {
+    expect(removeIdentifierTokens('Useful concept   , kept!', 'OtherName')).toBe(
+      'Useful concept, kept!',
+    );
+    expect(
+      removeIdentifierTokens(`${'useful '.repeat(20_000)}   .`, 'OtherName'),
+    ).toBe(`${'useful '.repeat(19_999)}useful.`);
+  });
+
   it('keeps only indexable declaration kinds', () => {
     const generated = generateSymbolQuestions(
       loadCorpusTsProgram(root),

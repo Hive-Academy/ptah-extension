@@ -103,9 +103,8 @@ import {
               Prompt
             </h3>
             <pre
-              class="mt-1 max-h-48 overflow-auto whitespace-pre-wrap rounded-lg border border-base-300 bg-base-200/40 p-3 font-mono text-xs"
-              >{{ j.prompt }}</pre
-            >
+              class="mt-1 max-h-48 overflow-auto whitespace-pre-wrap rounded-lg border border-surface-border bg-surface-2 p-3 font-mono text-xs"
+              >{{ j.prompt }}</pre>
           </section>
 
           @if (j.workspaceRoot) {

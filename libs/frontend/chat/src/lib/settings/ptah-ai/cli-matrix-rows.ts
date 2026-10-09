@@ -5,6 +5,7 @@ import type {
 } from '@ptah-extension/core';
 import {
   SYSTEM_CLI_TYPES,
+  type PtahCliReasoningEffort,
   type PtahCliSummary,
   type SystemCliType,
 } from '@ptah-extension/shared';
@@ -23,7 +24,11 @@ export type CliModelSettingKey =
   | 'piModel'
   | 'grokModel';
 export type CliEffortSettingKey =
-  'codexReasoningEffort' | 'copilotReasoningEffort' | 'piReasoningEffort';
+  | 'codexReasoningEffort'
+  | 'copilotReasoningEffort'
+  | 'grokReasoningEffort'
+  | 'antigravityReasoningEffort'
+  | 'piReasoningEffort';
 
 /**
  * Status column. System rows show only what detection reports (D11: no quota state, no system-CLI test):
@@ -71,7 +76,7 @@ export interface SystemCliMatrixRow extends CliMatrixRowBase {
   readonly provider: string | null;
   /** Saved delegated model (`''` = CLI default). */
   readonly model: { readonly key: CliModelSettingKey; readonly value: string };
-  /** Saved reasoning effort; null for CLIs without an effort setting (Cursor, Antigravity, opencode, Grok). */
+  /** Saved reasoning effort; null for CLIs without an effort setting (Cursor, opencode). */
   readonly effort: {
     readonly key: CliEffortSettingKey;
     readonly value: string;
@@ -105,6 +110,8 @@ export interface InstanceCliMatrixRow extends CliMatrixRowBase {
   readonly tiers: readonly CliTierBadge[] | null;
   /** Saved direct model; `''` = the tier mappings decide. Null while `cliModels` has no entry. */
   readonly selectedModel: string | null;
+  /** Saved Claude Agent SDK effort; empty means provider default. */
+  readonly effort: '' | PtahCliReasoningEffort;
   /** The last connection test of this instance (#52), or null when the last test was another one. */
   readonly lastTest: Pick<
     ProvidersCliTest,
@@ -170,7 +177,7 @@ const SYSTEM_CLIS: Readonly<Record<SystemCliType, SystemCliSpec>> = {
     name: 'Antigravity',
     provider: 'Google Antigravity',
     modelKey: 'antigravityModel',
-    effortKey: null,
+    effortKey: 'antigravityReasoningEffort',
   },
   opencode: {
     name: 'OpenCode',
@@ -188,7 +195,7 @@ const SYSTEM_CLIS: Readonly<Record<SystemCliType, SystemCliSpec>> = {
     name: 'Grok',
     provider: 'xAI',
     modelKey: 'grokModel',
-    effortKey: null,
+    effortKey: 'grokReasoningEffort',
   },
 };
 
@@ -234,13 +241,27 @@ const VERSION_TOKEN =
   /(?:^|[^\w.])v?(\d+(?:\.\d+){1,3}(?:-[0-9A-Za-z]+(?:\.[0-9A-Za-z]+)*)?)(?!\w)/;
 
 /**
+ * A CLI probe sometimes returns its whole stdout (a banner, a usage line, or
+ * several lines). That text is not a version or a model id. Callers show a
+ * clean label instead; the probe logger already keeps the raw output.
+ */
+export function isCliProcessDump(value: string): boolean {
+  if (value.includes('\n') || value.includes('\r') || value.length > 180)
+    return true;
+  return /^\s*(usage:|error:|warning:|stdout|stderr)\b/i.test(value);
+}
+
+/**
  * Batch 52.1: the detected version is the CLI's raw `--version` line (`probeCliVersion`), e.g. "codex-cli 0.155.1",
  * "opencode v2.0.12" or "GitHub Copilot CLI 1.0.83.". Shows the version token as "v0.155.1"; a line with no such token
- * is shown trimmed and without a "v" (the cell truncates it, with the raw line in its title).
+ * is shown trimmed and without a "v" (the cell truncates it, with the raw line in its title). A multi-line probe
+ * still yields the token when it has one, and otherwise nothing — the stdout is not the label.
  */
 export function cliVersionLabel(raw: string): string {
   const token = VERSION_TOKEN.exec(raw)?.[1];
-  return token ? `v${token}` : raw.trim();
+  if (token) return `v${token}`;
+  if (isCliProcessDump(raw)) return '';
+  return raw.trim();
 }
 
 /**
@@ -251,6 +272,9 @@ export function cliModelDisplay(value: string): {
   readonly label: string;
   readonly title: string;
 } {
+  if (isCliProcessDump(value)) {
+    return { label: 'Model unavailable', title: 'Model unavailable' };
+  }
   const tab = value.indexOf('\t');
   if (tab < 0) return { label: value, title: value };
   const id = value.slice(0, tab).trim(),
@@ -363,6 +387,7 @@ function instanceRow(
         })
       : null,
     selectedModel: saved ? (saved.selectedModel ?? '') : null,
+    effort: agent.reasoningEffort ?? '',
     lastTest:
       test?.id === agent.id
         ? {

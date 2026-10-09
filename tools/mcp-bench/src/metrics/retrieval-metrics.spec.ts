@@ -88,6 +88,9 @@ describe('retrieval metrics', () => {
       'src/file.ts',
     );
     expect(normalizePath('./src/file.ts', options)).toBe('src/file.ts');
+    expect(normalizePath('/src/file.ts', { workspaceRoot: '/' })).toBe(
+      'src/file.ts',
+    );
     expect(
       hitAt1(
         { ranked: ['C:\\Repo\\Workspace\\src\\file.ts'], abstained: false },
@@ -95,6 +98,12 @@ describe('retrieval metrics', () => {
         options,
       ),
     ).toBe(1);
+    const deepRoot = `/${'src/'.repeat(20_000)}root`;
+    expect(
+      normalizePath(`${deepRoot}/file.ts`, {
+        workspaceRoot: `${deepRoot}////`,
+      }),
+    ).toBe('file.ts');
   });
 
   it('relativises case-insensitively beyond the drive letter on win32 only', () => {

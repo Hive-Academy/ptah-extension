@@ -1,6 +1,7 @@
-import { execFileSync, spawn } from 'node:child_process';
+import { spawn } from 'node:child_process';
 
 import { normalizePath } from '../metrics/retrieval-metrics';
+import { findExecutablesOnPath } from '../utils/git-executable';
 
 const MAX_BUFFER_BYTES = 512 * 1024 * 1024;
 
@@ -23,9 +24,7 @@ export type RgRunner = (
 
 export interface ResolveRgOptions {
   env?: NodeJS.ProcessEnv;
-  lookup?: (
-    command: string,
-  ) => string | readonly string[] | undefined;
+  lookup?: (command: string) => string | readonly string[] | undefined;
   /** Injected by tests; production always uses {@link process.platform}. */
   platform?: NodeJS.Platform;
 }
@@ -45,11 +44,11 @@ export function resolveRg(options: ResolveRgOptions = {}): string {
       : value;
   }
 
-  const lookup = options.lookup ?? lookupOnPath;
+  const lookup = options.lookup ?? findExecutablesOnPath;
   const found = lookup('rg');
-  const candidates = (
-    typeof found === 'string' ? [found] : (found ?? [])
-  ).map((candidate) => candidate.trim());
+  const candidates = (typeof found === 'string' ? [found] : (found ?? [])).map(
+    (candidate) => candidate.trim(),
+  );
   const resolved =
     (options.platform ?? process.platform) === 'win32'
       ? candidates.find((candidate) => /\.exe$/iu.test(candidate))
@@ -184,24 +183,6 @@ export function parseRgJsonMatchLines(
     }
   }
   return matches;
-}
-
-function lookupOnPath(command: string): string[] | undefined {
-  try {
-    const lookupCommand = process.platform === 'win32' ? 'where' : 'which';
-    const output = execFileSync(lookupCommand, [command], {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-      windowsHide: true,
-    });
-    const candidates = output
-      .split(/\r?\n/u)
-      .map((line) => line.trim())
-      .filter((line) => line.length > 0);
-    return candidates.length === 0 ? undefined : candidates;
-  } catch {
-    return undefined;
-  }
 }
 
 function runRgVersion(

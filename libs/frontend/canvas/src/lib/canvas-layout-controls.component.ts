@@ -64,7 +64,7 @@ const PRESETS: ReadonlyArray<{
       <button
         trigger
         type="button"
-        class="btn btn-xs btn-ghost gap-1.5 shadow-sm border border-base-content/10 bg-base-100/90 hover:bg-base-200"
+        class="btn btn-xs btn-ghost gap-1.5 shadow-sm border border-surface-border bg-surface-1 hover:bg-surface-2"
         [class.btn-active]="isOpen()"
         [disabled]="disabled()"
         [attr.aria-expanded]="isOpen()"
@@ -80,7 +80,7 @@ const PRESETS: ReadonlyArray<{
       <!-- Expandable dock actions: layout presets and lock/unlock -->
       <div
         content
-        class="p-1 flex items-center gap-1 bg-base-200 border border-base-content/10 rounded-lg shadow-lg"
+        class="surface-3 p-1 flex items-center gap-1 rounded-lg"
         role="group"
         aria-label="Layout presets"
         (keydown.escape)="close()"

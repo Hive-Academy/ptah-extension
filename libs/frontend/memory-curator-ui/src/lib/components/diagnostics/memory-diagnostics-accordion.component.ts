@@ -10,6 +10,7 @@ import {
   AppStateManager,
   ProvidersSettingsStateService,
 } from '@ptah-extension/core';
+import { SurfaceCardComponent } from '@ptah-extension/ui';
 
 import {
   MEMORY_PAUSED_REASON,
@@ -34,11 +35,15 @@ import { EventFeedComponent } from './event-feed.component';
     DbHealthPanelComponent,
     StorageHealthPanelComponent,
     EventFeedComponent,
+    SurfaceCardComponent,
   ],
   template: `
-    <div class="flex flex-col gap-3">
+    <div
+      class="flex flex-col gap-3"
+      data-testid="thoth-section-memory-diagnostics"
+    >
       <section class="grid grid-cols-1 gap-2 sm:grid-cols-2">
-        <div class="rounded-xl border border-base-300 bg-base-200/40 px-4 py-3">
+        <div class="surface-2 rounded-xl px-4 py-3">
           <div class="text-xs text-base-content-muted">Last curator run</div>
           <div class="mt-1 text-sm" data-testid="last-curator-run">
             {{ lastRunLabel() }}
@@ -46,9 +51,9 @@ import { EventFeedComponent } from './event-feed.component';
         </div>
       </section>
 
-      <section class="rounded-xl border border-base-300 bg-base-200/40">
+      <section class="surface-2 rounded-xl">
         <header
-          class="border-b border-base-300 px-4 py-2.5 text-sm font-medium text-base-content-muted"
+          class="border-b border-surface-border px-4 py-2.5 text-sm font-medium text-base-content-muted"
         >
           Triggers
         </header>
@@ -136,25 +141,29 @@ import { EventFeedComponent } from './event-feed.component';
       </section>
 
       @if (triggers(); as t) {
-        <section aria-label="Curator model" class="p-3 space-y-2">
-          <h3>Curator model</h3>
-          <p>
-            {{ t.curatorProvider || 'Follows main agent' }} →
-            {{
-              t.curatorModel ||
-                (t.curatorProvider
-                  ? 'Provider haiku tier'
-                  : resolvedCuratorModel())
-            }}
-          </p>
-          <button
-            type="button"
-            class="btn btn-outline min-h-9 focus-visible:outline-2"
-            (click)="manageCurator()"
-          >
-            Manage in Providers
-          </button>
-        </section>
+        <ptah-surface-card aria-label="Curator model" class="block">
+          <div class="flex items-start justify-between gap-3">
+            <div class="min-w-0">
+              <h3 class="text-sm font-semibold">Curator model</h3>
+              <p class="mt-1 text-sm text-base-content">
+                {{ t.curatorProvider || 'Follows main agent' }} →
+                {{
+                  t.curatorModel ||
+                    (t.curatorProvider
+                      ? 'Provider haiku tier'
+                      : resolvedCuratorModel())
+                }}
+              </p>
+            </div>
+            <button
+              type="button"
+              class="btn btn-ghost btn-xs min-h-7 px-1 text-primary underline underline-offset-2 focus-visible:outline-2"
+              (click)="manageCurator()"
+            >
+              Change
+            </button>
+          </div>
+        </ptah-surface-card>
       }
 
       <ptah-event-feed [events]="recentEvents()" [now]="now()" />
@@ -339,8 +348,8 @@ export class MemoryDiagnosticsAccordionComponent implements OnInit, OnDestroy {
   });
   protected manageCurator(): void {
     this.appState.requestSettingsTab({
-      tab: 'providers',
-      section: 'memory-curator',
+      tab: 'orchestration',
+      section: 'background-models',
     });
     this.appState.setCurrentView('settings');
   }

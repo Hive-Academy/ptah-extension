@@ -29,6 +29,8 @@ import {
   samePtahUiContext,
   type PtahUiNodeContext,
 } from './execution/execution-node.component';
+import { MermaidMessageTextComponent } from '@ptah-extension/chat-ui/mermaid';
+import { hasMermaidFenceLine } from './execution/mermaid-fence-line';
 import {
   TypingCursorComponent,
   StreamingQuotesComponent,
@@ -68,6 +70,7 @@ import {
     SurfaceMarkdownPipe,
     MarkdownModule,
     ExecutionNodeComponent,
+    MermaidMessageTextComponent,
     TypingCursorComponent,
     StreamingQuotesComponent,
     CopyButtonComponent,
@@ -114,6 +117,14 @@ export class MessageBubbleComponent {
    * fade keyframes that would otherwise stack on top of the layout settle.
    */
   readonly isFinalizing = input<boolean>(false);
+
+  /** Raw-message fallback has no execution node, but follows the same final-only rule. */
+  protected readonly mermaidFallbackText = computed(() => {
+    const text = this.message().rawContent || '';
+    return !this.isStreaming() && !this.isFinalizing() && hasMermaidFenceLine(text)
+      ? text
+      : null;
+  });
 
   /** Position of this message in the messages array */
   readonly messageIndex = input<number>(0);

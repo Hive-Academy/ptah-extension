@@ -15,6 +15,7 @@ import {
   type ProvidersConnectionDraft,
 } from './providers-settings-state.service';
 import { EffortStateService } from './effort-state.service';
+import { AuthStateService } from './auth-state.service';
 import { WorkspaceScopeService } from './workspace-scope.service';
 import { VSCodeService } from './vscode.service';
 
@@ -124,6 +125,7 @@ describe('ProvidersSettingsStateService', () => {
     Promise<RpcResult<unknown>>,
     [RpcMethodName, unknown, unknown?]
   >;
+  let refreshAuthStatus: jest.Mock<Promise<void>, []>;
 
   beforeEach(() => {
     scopeResponse = {
@@ -208,11 +210,13 @@ describe('ProvidersSettingsStateService', () => {
       if (!handler) throw new Error(`Unexpected RPC: ${method}`);
       return handler(params);
     });
+    refreshAuthStatus = jest.fn().mockResolvedValue(undefined);
     TestBed.configureTestingModule({
       providers: [
         ProvidersSettingsStateService,
         WorkspaceScopeService,
         { provide: ClaudeRpcService, useValue: { call } },
+        { provide: AuthStateService, useValue: { refreshAuthStatus } },
       ],
     });
     workspace = TestBed.inject(WorkspaceScopeService);
@@ -971,6 +975,7 @@ describe('ProvidersSettingsStateService', () => {
       call.mock.calls.some(([method]) => method === 'provider:setModelTier'),
     ).toBe(false);
     expect(service.commit().status).toBe('saved');
+    expect(refreshAuthStatus).toHaveBeenCalledTimes(1);
   });
   it.each([
     ['anthropic', { authMethod: 'apiKey', applyTo: 'global' }],
@@ -1306,6 +1311,7 @@ describe('ProvidersSettingsStateService', () => {
           ProvidersSettingsStateService,
           WorkspaceScopeService,
           { provide: ClaudeRpcService, useValue: { call } },
+          { provide: AuthStateService, useValue: { refreshAuthStatus } },
           { provide: VSCodeService, useValue: { isElectron } },
         ],
       });

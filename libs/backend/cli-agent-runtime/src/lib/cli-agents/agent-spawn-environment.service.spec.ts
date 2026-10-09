@@ -251,12 +251,12 @@ describe('AgentSpawnEnvironment', () => {
     });
 
     it.each([
-      ['minimal', 'low'],
+      ['minimal', undefined],
       ['medium', 'medium'],
-      ['xhigh', 'high'],
-      ['max', 'high'],
+      ['xhigh', 'xhigh'],
+      ['max', 'max'],
       ['', undefined],
-    ])("clamps antigravity effort '%s' to %s", (effort, expected) => {
+    ])("maps accepted antigravity effort '%s' to %s", (effort, expected) => {
       const { environment } = makeEnvironment({ effort });
       expect(environment.resolveReasoningEffort('antigravity').effort).toBe(
         expected,

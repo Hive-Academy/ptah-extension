@@ -211,7 +211,7 @@ describe('PlanUsageService', () => {
       h.ledger.recordWindowEvidence(CLAUDE_A, {
         key: 'five_hour',
         kind: 'five_hour',
-        label: '5-hour session',
+        label: '5-hour',
         observedAt: T0 - 1_000,
       });
 

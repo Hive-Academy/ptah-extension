@@ -21,12 +21,13 @@ import type { MemoryWire } from '@ptah-extension/shared';
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [CommonModule, LucideAngularModule],
   template: `
-    <section aria-label="Memory entries">
+    <section
+      aria-label="Memory entries"
+      data-testid="thoth-section-memory-entries"
+    >
       @if (loading() && entries().length === 0) {
-        <div
-          class="overflow-hidden rounded-xl border border-base-300 bg-base-200/40"
-        >
-          <div class="divide-y divide-base-300/70">
+        <div class="overflow-hidden surface-2 rounded-xl">
+          <div class="divide-y divide-surface-border">
             @for (n of skeletonRows; track n) {
               <div class="flex items-start gap-3 px-4 py-3">
                 <div class="skeleton mt-1.5 size-1.5 rounded-full"></div>
@@ -53,12 +54,12 @@ import type { MemoryWire } from '@ptah-extension/shared';
         </div>
       } @else {
         <ul
-          class="divide-y divide-base-300/70 overflow-hidden rounded-xl border border-base-300 bg-base-200/40"
+          class="divide-y divide-surface-border overflow-hidden surface-2 rounded-xl"
         >
           @for (entry of entries(); track entry.id) {
             <li
               data-testid="memory-entry-row"
-              class="group flex items-start gap-3 px-4 py-3 transition-colors duration-150 hover:bg-base-300/30"
+              class="group flex items-start gap-3 px-4 py-3 transition-colors duration-150 hover:bg-surface-3"
             >
               <div class="min-w-0 flex-1">
                 <div class="flex flex-wrap items-center gap-1.5">

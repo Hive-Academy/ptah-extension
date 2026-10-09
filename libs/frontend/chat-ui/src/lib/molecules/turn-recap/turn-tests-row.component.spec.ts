@@ -134,6 +134,27 @@ describe('TurnTestsRowComponent', () => {
     );
   });
 
+  it('gives each recap body a distinct id referenced by its own header', () => {
+    render([run('nx test chat', 'passed')]);
+    const second = TestBed.createComponent(TurnTestsRowComponent);
+    second.componentRef.setInput('runs', [run('npx jest foo', 'failed')]);
+    second.detectChanges();
+
+    const firstBody = native().querySelector('ul[id]') as HTMLUListElement;
+    const secondBody = (second.nativeElement as HTMLElement).querySelector(
+      'ul[id]',
+    ) as HTMLUListElement;
+    expect(firstBody.id).not.toBe(secondBody.id);
+    expect(query('turn-tests-header')?.getAttribute('aria-controls')).toBe(
+      firstBody.id,
+    );
+    expect(
+      (second.nativeElement as HTMLElement)
+        .querySelector('[data-testid="turn-tests-header"]')
+        ?.getAttribute('aria-controls'),
+    ).toBe(secondBody.id);
+  });
+
   it('renders no file or +/- counts content (the change-set card owns that)', () => {
     render([run('nx test chat', 'passed'), run('pnpm vitest run', 'failed')]);
 

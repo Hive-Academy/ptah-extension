@@ -101,6 +101,8 @@ function invalidReasoningEffort(params: AgentSetConfigParams): string | null {
     [
       ['codexReasoningEffort', CLI_REASONING_EFFORT_VALUES],
       ['copilotReasoningEffort', CLI_REASONING_EFFORT_VALUES],
+      ['grokReasoningEffort', CLI_REASONING_EFFORT_VALUES],
+      ['antigravityReasoningEffort', CLI_REASONING_EFFORT_VALUES],
       ['piReasoningEffort', PI_REASONING_EFFORT_VALUES],
     ];
   for (const [field, allowed] of checks) {
@@ -405,6 +407,14 @@ export class AgentRpcHandlers {
               'copilotReasoningEffort',
               '',
             ),
+            grokReasoningEffort: this.getAgentCfg<string>(
+              'grokReasoningEffort',
+              '',
+            ),
+            antigravityReasoningEffort: this.getAgentCfg<string>(
+              'antigravityReasoningEffort',
+              '',
+            ),
             piReasoningEffort: this.getAgentCfg<string>(
               'piReasoningEffort',
               '',
@@ -593,6 +603,18 @@ export class AgentRpcHandlers {
         await this.setAgentCfg(
           'copilotReasoningEffort',
           params.copilotReasoningEffort,
+        );
+      }
+      if (params.grokReasoningEffort !== undefined) {
+        await this.setAgentCfg(
+          'grokReasoningEffort',
+          params.grokReasoningEffort,
+        );
+      }
+      if (params.antigravityReasoningEffort !== undefined) {
+        await this.setAgentCfg(
+          'antigravityReasoningEffort',
+          params.antigravityReasoningEffort,
         );
       }
       if (params.piReasoningEffort !== undefined) {

@@ -30,6 +30,7 @@ import {
   parseRankedFiles,
   parseSymbolHits,
   parseSymbolIndex,
+  parseTextLocations,
 } from './tool-results';
 
 const ROOT =
@@ -174,6 +175,12 @@ describe('result parsers', () => {
       ranked: [],
       abstained: true,
     });
+    expect(
+      parseTextLocations(
+        `${'x'.repeat(20_000)}:42\nlibs/a.ts:3 libs/a.ts:12:5 "a.ts:3"`,
+        ROOT,
+      ).ranked,
+    ).toEqual([`${'x'.repeat(20_000)}:42`, 'libs/a.ts:3', 'libs/a.ts:12']);
   });
 
   it('finds declaration names in a structure result', () => {
@@ -350,7 +357,9 @@ describe('assembleSuite', () => {
       ]),
     );
     expect(
-      failures.filter((failure) => failure.got[0] === 'native native error: rg unavailable'),
+      failures.filter(
+        (failure) => failure.got[0] === 'native native error: rg unavailable',
+      ),
     ).toHaveLength(1);
   });
 

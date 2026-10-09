@@ -103,13 +103,14 @@ export class AgentSpawnEnvironment {
   ) {}
 
   /**
-   * Per-CLI effort setting keys. Antigravity and Grok have none (their
-   * settings panes are model-only), so R2.3 step 2 never matches for them.
+   * Per-CLI effort setting keys.
    */
   private static readonly EFFORT_CONFIG_KEYS: Partial<Record<CliType, string>> =
     {
       codex: 'codexReasoningEffort',
       copilot: 'copilotReasoningEffort',
+      grok: 'grokReasoningEffort',
+      antigravity: 'antigravityReasoningEffort',
       pi: 'piReasoningEffort',
     };
 

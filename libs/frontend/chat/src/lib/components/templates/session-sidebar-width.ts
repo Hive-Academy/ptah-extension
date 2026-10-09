@@ -46,6 +46,24 @@ export function clampSessionSidebarWidth(width: number, cap: number): number {
 }
 
 /**
+ * Sessions-sidebar width while the Electron divider between the workspace
+ * sidebar and the sessions sidebar is dragged.
+ *
+ * The divider reports a viewport pointer X. That X is the workspace pane's
+ * width only because the workspace pane starts at the window's left edge.
+ * The sessions pane keeps its own width: the drag adds the pointer delta to
+ * the sessions width it started from. Dragging right widens the sessions
+ * sidebar; the workspace width is not an input.
+ */
+export function sessionSidebarWidthFromDividerDrag(
+  startWidth: number,
+  startPointerX: number,
+  pointerX: number,
+): number {
+  return startWidth + (pointerX - startPointerX);
+}
+
+/**
  * The chosen width after a drag or keyboard request. A request the cap turns
  * into no visible change keeps the current choice, so a wider preference
  * survives ArrowRight or an outward drag on a capped sidebar.

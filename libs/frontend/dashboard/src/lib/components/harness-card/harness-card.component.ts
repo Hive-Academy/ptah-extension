@@ -96,11 +96,11 @@ import {
   template: `
     @if (blocked().count > 0) {
       <section
-        class="card bg-base-200/40 border border-warning/30 shadow-sm mt-2"
+        class="surface-2 mt-2 flex flex-col gap-3 rounded-xl p-4 ring-1 ring-inset ring-warning/40"
         data-testid="harness-card"
         aria-label="Harness blocked paths"
       >
-        <div class="card-body p-4 gap-3">
+        <div class="flex flex-col gap-3">
           <div class="flex items-start gap-4">
             <span
               class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-warning/10 text-warning"

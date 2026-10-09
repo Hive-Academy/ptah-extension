@@ -105,6 +105,19 @@ describe('PlanLimitTileComponent', () => {
     expect(face).toContain('limit From error');
   });
 
+  it('shows an accessible radial usage gauge on a window tile', () => {
+    const root = render(windowTile());
+    const progress = root.querySelector<HTMLElement>(
+      '[data-testid="plan-limit-radial-progress"]',
+    );
+
+    expect(progress?.getAttribute('aria-valuenow')).toBe('94');
+    expect(progress?.classList.contains('radial-progress')).toBe(true);
+    expect(progress?.classList.contains('text-warning')).toBe(true);
+    expect(progress?.style.getPropertyValue('--value')).toBe('94');
+    expect(progress?.getAttribute('title')).toContain('resets 15:10');
+  });
+
   it('truncates the closed caption to one line and titles the full text', () => {
     const root = render(windowTile());
     const caption = button(root).querySelector(
@@ -198,6 +211,26 @@ describe('PlanLimitTileComponent', () => {
     expect(panel(root).textContent).not.toMatch(/\b0%/);
   });
 
+  it('renders local token and cost accounting without a radial gauge', () => {
+    const root = render(
+      windowTile({
+        id: 'local-usage:opencode#account:0123456789abcdef',
+        kind: 'local-usage',
+        label: 'Local usage: tokens & estimated cost',
+        value: '1,234 tokens · $5.67',
+        resetLine: 'Local CLI accounting',
+        tone: 'neutral',
+        window: undefined,
+        detailLines: [],
+      }),
+    );
+
+    expect(button(root).textContent).toContain('Local usage: tokens & estimated cost');
+    expect(button(root).textContent).toContain('1,234 tokens · $5.67');
+    expect(root.querySelector('[data-testid="plan-limit-radial-progress"]')).toBeNull();
+    expect(button(root).getAttribute('aria-expanded')).toBeNull();
+  });
+
   it('renders the detail lines of a non-window tile', () => {
     const root = render(
       windowTile({
@@ -220,11 +253,13 @@ describe('PlanLimitTileComponent', () => {
     expect(button(root).className).toContain('border-info');
   });
 
-  it('uses the tone only as a border, never as text colour', () => {
+  it('uses semantic text colour only for the radial gauge fill', () => {
     const root = render(windowTile({ tone: 'error' }));
-    const classes = root.innerHTML;
+    const gauge = root.querySelector(
+      '[data-testid="plan-limit-radial-progress"]',
+    );
 
     expect(button(root).className).toContain('border-error');
-    expect(classes).not.toMatch(/\btext-(error|warning|success|info)\b/);
+    expect(gauge?.className).toContain('text-error');
   });
 });

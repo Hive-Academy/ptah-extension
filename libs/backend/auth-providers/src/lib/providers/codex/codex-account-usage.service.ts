@@ -1,17 +1,25 @@
 import { dirname, join, resolve } from 'node:path';
 import { inject, injectable } from 'tsyringe';
-import type { IProcessSpawner, SpawnedProcessHandle } from '@ptah-extension/platform-core';
+import type {
+  IProcessSpawner,
+  SpawnedProcessHandle,
+} from '@ptah-extension/platform-core';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import { SDK_TOKENS, type SdkAdapterEvents } from '@ptah-extension/agent-sdk';
 import { AUTH_PROVIDERS_TOKENS } from '../../di/tokens';
 import { accountOwnerKey } from '../../quota/provider-owner.resolver';
 import { CodexHomeResolver } from './codex-home-resolver';
 import type {
-  ICodexAccountUsageService, ICodexAuthService, ICodexOwnerKeySource, CodexAccountUsageResult,
+  ICodexAccountUsageService,
+  ICodexAuthService,
+  ICodexOwnerKeySource,
+  CodexAccountUsageResult,
 } from './codex-provider.types';
 import {
-  CODEX_ACCOUNT_PROTOCOL_VERSION, CODEX_ACCOUNT_USAGE_INT64_FIELDS, codexAccountResponseSchema,
-  codexInitializeResponseSchema, codexRateLimitsResponseSchema,
+  CODEX_ACCOUNT_USAGE_INT64_FIELDS,
+  codexAccountResponseSchema,
+  codexInitializeResponseSchema,
+  codexRateLimitsResponseSchema,
   codexTokenUsageResponseSchema,
 } from './codex-account.schemas';
 
@@ -20,19 +28,28 @@ const REQUEST_TIMEOUT_MS = 10_000;
 const MAX_LINE_BYTES = 1024 * 1024;
 
 class AppServerError extends Error {
-  constructor(readonly kind: 'cli' | 'unavailable' | 'version' | 'method') {
+  constructor(readonly kind: 'cli' | 'unavailable' | 'method') {
     super(kind);
   }
 }
 
-interface RpcResponse { id: number; result?: unknown; error?: { code?: number } }
+interface RpcResponse {
+  id: number;
+  result?: unknown;
+  error?: { code?: number };
+}
 
 /** One App Server read: the RPC-safe result plus its backend-only owner key. */
-interface AppServerRead { result: CodexAccountUsageResult; ownerKey: string | null }
+interface AppServerRead {
+  result: CodexAccountUsageResult;
+  ownerKey: string | null;
+}
 
 function samePath(left: string, right: string): boolean {
   const [a, b] = [resolve(left), resolve(right)];
-  return process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b;
+  return process.platform === 'win32'
+    ? a.toLowerCase() === b.toLowerCase()
+    : a === b;
 }
 
 const accountUsageInt64Pattern = new RegExp(
@@ -50,7 +67,10 @@ function callerAbortError(): Error {
   return error;
 }
 
-function joinWithCallerAbort<T>(shared: Promise<T>, signal?: AbortSignal): Promise<T> {
+function joinWithCallerAbort<T>(
+  shared: Promise<T>,
+  signal?: AbortSignal,
+): Promise<T> {
   if (!signal) return shared;
   if (signal.aborted) return Promise.reject(callerAbortError());
   return new Promise<T>((resolvePromise, rejectPromise) => {
@@ -77,7 +97,9 @@ function packagedCodexScript(): string {
 }
 
 @injectable()
-export class CodexAccountUsageService implements ICodexAccountUsageService, ICodexOwnerKeySource {
+export class CodexAccountUsageService
+  implements ICodexAccountUsageService, ICodexOwnerKeySource
+{
   private cached: CodexAccountUsageResult | null = null;
   private ownerKey: string | null = null;
   /**
@@ -92,9 +114,12 @@ export class CodexAccountUsageService implements ICodexAccountUsageService, ICod
 
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
-    @inject(AUTH_PROVIDERS_TOKENS.SDK_CODEX_AUTH) private readonly auth: ICodexAuthService,
-    @inject(AUTH_PROVIDERS_TOKENS.SDK_CODEX_HOME_RESOLVER) private readonly codexHome: CodexHomeResolver,
-    @inject(SDK_TOKENS.SDK_PROCESS_SPAWNER) private readonly spawner: IProcessSpawner,
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_CODEX_AUTH)
+    private readonly auth: ICodexAuthService,
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_CODEX_HOME_RESOLVER)
+    private readonly codexHome: CodexHomeResolver,
+    @inject(SDK_TOKENS.SDK_PROCESS_SPAWNER)
+    private readonly spawner: IProcessSpawner,
     @inject(SDK_TOKENS.SDK_ADAPTER_EVENTS) events: SdkAdapterEvents,
   ) {
     events.onAuthFileChanged((event) => {
@@ -110,22 +135,33 @@ export class CodexAccountUsageService implements ICodexAccountUsageService, ICod
     this.readInFlight = null;
   }
 
-  currentOwnerKey(): string | null { return this.ownerKey; }
+  currentOwnerKey(): string | null {
+    return this.ownerKey;
+  }
 
-  async getAccountUsage(options: { refresh?: boolean; signal?: AbortSignal } = {}): Promise<CodexAccountUsageResult> {
+  async getAccountUsage(
+    options: { refresh?: boolean; signal?: AbortSignal } = {},
+  ): Promise<CodexAccountUsageResult> {
     const eligibility = await this.auth.getAccountUsageEligibility();
     if (eligibility !== 'supported') {
       return { status: eligibility, providerId: 'openai-codex' };
     }
-    if (!options.refresh && this.cached?.fetchedAt && Date.now() - this.cached.fetchedAt < CACHE_TTL_MS) {
+    if (
+      !options.refresh &&
+      this.cached?.fetchedAt &&
+      Date.now() - this.cached.fetchedAt < CACHE_TTL_MS
+    ) {
       return this.cached;
     }
     // The initiating caller still owns cancellation of the shared process.
     // Joiners can abandon only their own wait without disrupting other callers.
-    if (this.readInFlight) return joinWithCallerAbort(this.readInFlight, options.signal);
+    if (this.readInFlight !== null)
+      return joinWithCallerAbort(this.readInFlight, options.signal);
     const read = this.performRead(options.signal);
     this.readInFlight = read;
-    try { return await read; } finally {
+    try {
+      return await read;
+    } finally {
       if (this.readInFlight === read) this.readInFlight = null;
     }
   }
@@ -134,7 +170,9 @@ export class CodexAccountUsageService implements ICodexAccountUsageService, ICod
     await Promise.all([...this.active].map((child) => this.closeChild(child)));
   }
 
-  private async performRead(signal?: AbortSignal): Promise<CodexAccountUsageResult> {
+  private async performRead(
+    signal?: AbortSignal,
+  ): Promise<CodexAccountUsageResult> {
     const generation = this.generation;
     try {
       const { result, ownerKey } = await this.readFromAppServer(signal);
@@ -144,38 +182,61 @@ export class CodexAccountUsageService implements ICodexAccountUsageService, ICod
       }
       return result;
     } catch (error: unknown) {
-      const status = error instanceof AppServerError && error.kind === 'version'
-        ? 'cli-version-unsupported'
-        : error instanceof AppServerError && error.kind === 'method'
+      const status =
+        error instanceof AppServerError && error.kind === 'method'
           ? 'cli-version-unsupported'
           : error instanceof AppServerError && error.kind === 'cli'
             ? 'cli-unavailable'
             : 'service-unavailable';
-      this.logger.warn('[CodexAccountUsage] App Server account read unavailable', { status });
-      return this.cached ? { ...this.cached, status: 'stale', staleSince: Date.now() } : {
-        status, providerId: 'openai-codex',
-      };
+      this.logger.warn(
+        '[CodexAccountUsage] App Server account read unavailable',
+        { status },
+      );
+      return this.cached
+        ? { ...this.cached, status: 'stale', staleSince: Date.now() }
+        : {
+            status,
+            providerId: 'openai-codex',
+          };
     }
   }
 
-  private async readFromAppServer(signal?: AbortSignal): Promise<AppServerRead> {
-    await this.assertVersion(signal);
-    const child = this.spawn(['app-server']);
+  private async readFromAppServer(
+    signal?: AbortSignal,
+  ): Promise<AppServerRead> {
+    let child: SpawnedProcessHandle;
+    try {
+      child = this.spawn(['app-server']);
+    } catch {
+      throw new AppServerError('cli');
+    }
     const rpc = this.createRpcClient(child, signal);
     try {
-      const initialized = codexInitializeResponseSchema.parse(await rpc.request(1, 'initialize', {
-        clientInfo: { name: 'ptah', version: '1' },
-      }));
-      if (!samePath(initialized.codexHome, this.codexHome.path)) throw new AppServerError('unavailable');
+      const initialized = codexInitializeResponseSchema.parse(
+        await rpc.request(1, 'initialize', {
+          clientInfo: { name: 'ptah', version: '1' },
+        }),
+      );
+      if (!samePath(initialized.codexHome, this.codexHome.path))
+        throw new AppServerError('unavailable');
       rpc.notify('initialized');
       const account = codexAccountResponseSchema.parse(
         await rpc.request(2, 'account/read', { refreshToken: false }),
       );
-      if (account.account?.type === 'apiKey' || account.account?.type === 'amazonBedrock') {
-        return { result: { status: 'unsupported-auth', providerId: 'openai-codex' }, ownerKey: null };
+      if (
+        account.account?.type === 'apiKey' ||
+        account.account?.type === 'amazonBedrock'
+      ) {
+        return {
+          result: { status: 'unsupported-auth', providerId: 'openai-codex' },
+          ownerKey: null,
+        };
       }
       if (account.account?.type !== 'chatgpt') {
-        return { result: { status: 'service-unavailable', providerId: 'openai-codex' }, ownerKey: null };
+        return {
+          result: { status: 'service-unavailable', providerId: 'openai-codex' },
+          ownerKey: null,
+        };
       }
       // The email is identity material only: hashed here, never returned or logged.
       const email = account.account.email?.trim();
@@ -190,11 +251,17 @@ export class CodexAccountUsageService implements ICodexAccountUsageService, ICod
       );
       const reachedType = quota.rateLimits.rateLimitReachedType;
       const result: CodexAccountUsageResult = {
-        status: 'available', providerId: 'openai-codex', fetchedAt: Date.now(),
+        status: 'available',
+        providerId: 'openai-codex',
+        fetchedAt: Date.now(),
         account: { planType: account.account.planType },
         quota: {
-          ...(quota.rateLimits.primary ? { primary: quota.rateLimits.primary } : {}),
-          ...(quota.rateLimits.secondary ? { secondary: quota.rateLimits.secondary } : {}),
+          ...(quota.rateLimits.primary
+            ? { primary: quota.rateLimits.primary }
+            : {}),
+          ...(quota.rateLimits.secondary
+            ? { secondary: quota.rateLimits.secondary }
+            : {}),
           ...(reachedType ? { rateLimitReachedType: reachedType } : {}),
         },
         activity: {
@@ -219,75 +286,52 @@ export class CodexAccountUsageService implements ICodexAccountUsageService, ICod
     return child;
   }
 
-  private async assertVersion(signal?: AbortSignal): Promise<void> {
-    let output: string;
-    try {
-      const child = this.spawn(['--version']);
-      output = await this.readProcessOutput(child, signal);
-    } catch (error: unknown) {
-      if (error instanceof AppServerError && error.kind === 'version') throw error;
-      throw new AppServerError('cli');
-    }
-    if (!output.trim().endsWith(CODEX_ACCOUNT_PROTOCOL_VERSION)) {
-      throw new AppServerError('version');
-    }
-  }
-
   private closeChild(child: SpawnedProcessHandle): Promise<void> {
     const existing = this.closing.get(child);
-    if (existing) return existing;
+    if (existing !== undefined) return existing;
     const closing = new Promise<void>((done) => {
       this.active.delete(child);
       child.stdin?.end();
-      if (child.killed) { done(); return; }
+      if (child.killed) {
+        done();
+        return;
+      }
       const timer = setTimeout(done, 1_000);
       timer.unref?.();
-      child.once('close', () => { clearTimeout(timer); done(); });
+      child.once('close', () => {
+        clearTimeout(timer);
+        done();
+      });
       child.kill();
     }).finally(() => this.closing.delete(child));
     this.closing.set(child, closing);
     return closing;
   }
 
-  private readProcessOutput(child: SpawnedProcessHandle, signal?: AbortSignal): Promise<string> {
-    return new Promise((resolve, reject) => {
-      let output = '';
-      const timer = setTimeout(() => fail(new AppServerError('unavailable')), REQUEST_TIMEOUT_MS);
-      timer.unref?.();
-      const fail = (error: Error) => {
-        clearTimeout(timer);
-        if (!child.killed) child.kill();
-        reject(error);
-      };
-      child.stdout?.on('data', (chunk) => {
-        output += String(chunk);
-        if (Buffer.byteLength(output) > MAX_LINE_BYTES) fail(new AppServerError('unavailable'));
-      });
-      child.once('error', () => fail(new AppServerError('unavailable')));
-      child.once('close', (code) => {
-        clearTimeout(timer);
-        if (code === 0) resolve(output);
-        else reject(new AppServerError('unavailable'));
-      });
-      signal?.addEventListener('abort', () => fail(new AppServerError('unavailable')), { once: true });
-    });
-  }
-
-  private createRpcClient(child: SpawnedProcessHandle, signal?: AbortSignal): {
+  private createRpcClient(
+    child: SpawnedProcessHandle,
+    signal?: AbortSignal,
+  ): {
     request: (id: number, method: string, params?: unknown) => Promise<unknown>;
     notify: (method: string) => void;
   } {
     let buffer = '';
-    const pending = new Map<number, {
-      method: string; resolve: (value: unknown) => void; reject: (error: Error) => void;
-    }>();
+    const pending = new Map<
+      number,
+      {
+        method: string;
+        resolve: (value: unknown) => void;
+        reject: (error: Error) => void;
+      }
+    >();
     const rejectAll = (error: Error) => {
       for (const waiter of pending.values()) waiter.reject(error);
       pending.clear();
     };
     child.stdout?.on('data', (chunk) => {
       buffer += String(chunk);
-      if (Buffer.byteLength(buffer) > MAX_LINE_BYTES) return rejectAll(new AppServerError('unavailable'));
+      if (Buffer.byteLength(buffer) > MAX_LINE_BYTES)
+        return rejectAll(new AppServerError('unavailable'));
       let newline: number;
       while ((newline = buffer.indexOf('\n')) >= 0) {
         const line = buffer.slice(0, newline).trim();
@@ -296,38 +340,60 @@ export class CodexAccountUsageService implements ICodexAccountUsageService, ICod
         try {
           const envelope = JSON.parse(line) as RpcResponse;
           const pendingMethod = pending.get(envelope.id)?.method;
-          const response = pendingMethod === 'account/usage/read'
-            ? JSON.parse(preserveAccountUsageInt64(line)) as RpcResponse
-            : envelope;
+          const response =
+            pendingMethod === 'account/usage/read'
+              ? (JSON.parse(preserveAccountUsageInt64(line)) as RpcResponse)
+              : envelope;
           const waiter = pending.get(response.id);
           if (!waiter) continue;
           pending.delete(response.id);
           if (response.error) {
-            waiter.reject(new AppServerError(response.error.code === -32601 ? 'method' : 'unavailable'));
+            waiter.reject(
+              new AppServerError(
+                response.error.code === -32601 ? 'method' : 'unavailable',
+              ),
+            );
           } else {
             waiter.resolve(response.result);
           }
-        } catch { rejectAll(new AppServerError('unavailable')); }
+        } catch {
+          rejectAll(new AppServerError('unavailable'));
+        }
       }
     });
     child.once('error', () => rejectAll(new AppServerError('unavailable')));
     child.once('close', () => rejectAll(new AppServerError('unavailable')));
-    signal?.addEventListener('abort', () => rejectAll(new AppServerError('unavailable')), { once: true });
-    const write = (value: object) => child.stdin?.write(`${JSON.stringify(value)}\n`);
+    signal?.addEventListener(
+      'abort',
+      () => rejectAll(new AppServerError('unavailable')),
+      { once: true },
+    );
+    const write = (value: object) =>
+      child.stdin?.write(`${JSON.stringify(value)}\n`);
     return {
-      request: (id, method, params) => new Promise((resolve, reject) => {
-        const timer = setTimeout(() => {
-          pending.delete(id); reject(new AppServerError('unavailable'));
-        }, REQUEST_TIMEOUT_MS);
-        timer.unref?.();
-        pending.set(id, {
-          method,
-          resolve: (value) => { clearTimeout(timer); resolve(value); },
-          reject: (error) => { clearTimeout(timer); reject(error); },
-        });
-        write({ id, method, ...(params === undefined ? {} : { params }) });
-      }),
-      notify: (method) => { write({ method }); },
+      request: (id, method, params) =>
+        new Promise((resolve, reject) => {
+          const timer = setTimeout(() => {
+            pending.delete(id);
+            reject(new AppServerError('unavailable'));
+          }, REQUEST_TIMEOUT_MS);
+          timer.unref?.();
+          pending.set(id, {
+            method,
+            resolve: (value) => {
+              clearTimeout(timer);
+              resolve(value);
+            },
+            reject: (error) => {
+              clearTimeout(timer);
+              reject(error);
+            },
+          });
+          write({ id, method, ...(params === undefined ? {} : { params }) });
+        }),
+      notify: (method) => {
+        write({ method });
+      },
     };
   }
 }

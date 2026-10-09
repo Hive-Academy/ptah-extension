@@ -45,11 +45,9 @@ const TILES: readonly PlatformTileSpec[] = [
           (click)="onSelect(tile.id)"
           (keydown)="onKeydown($event, tile.id)"
           class="flex min-w-[7rem] items-center gap-2.5 rounded-lg border px-3 py-2 text-left transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 focus-visible:ring-offset-base-200"
-          [class.border-base-content/10]="selected() === tile.id"
-          [class.bg-base-100]="selected() === tile.id"
-          [class.shadow-sm]="selected() === tile.id"
+          [class.surface-3]="selected() === tile.id"
           [class.border-transparent]="selected() !== tile.id"
-          [class.hover:bg-base-100/50]="selected() !== tile.id"
+          [class.hover:bg-surface-2]="selected() !== tile.id"
         >
           <lucide-angular
             [img]="tile.icon"

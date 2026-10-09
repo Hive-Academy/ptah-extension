@@ -69,6 +69,8 @@ describe('DockedInspectorComponent', () => {
   it('is an aside named by its heading', () => {
     const aside = byTestId('docked-inspector');
     expect(aside?.tagName).toBe('ASIDE');
+    expect(aside?.classList).toContain('surface-3');
+    expect(aside?.classList).not.toContain('bg-base-100');
     const headingId = aside?.getAttribute('aria-labelledby');
     expect(headingId).toBeTruthy();
     const heading = element.querySelector(`#${headingId}`);

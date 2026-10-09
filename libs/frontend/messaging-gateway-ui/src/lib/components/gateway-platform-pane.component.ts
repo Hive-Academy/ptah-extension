@@ -54,9 +54,7 @@ export interface PlatformCardConfig {
               Save a bot token to start the {{ config().label }} adapter.
             </p>
           </div>
-          <div
-            class="max-w-2xl space-y-4 rounded-lg border border-base-content/10 bg-base-100/40 p-4"
-          >
+          <div class="surface-2 max-w-2xl space-y-4 rounded-lg p-4">
             <ptah-platform-token-form
               [platform]="config().id"
               [label]="config().label"
@@ -97,9 +95,7 @@ export interface PlatformCardConfig {
               Control who can reach this adapter and approve pairing requests.
             </p>
           </div>
-          <div
-            class="max-w-2xl space-y-4 rounded-lg border border-base-content/10 bg-base-100/40 p-4"
-          >
+          <div class="surface-2 max-w-2xl space-y-4 rounded-lg p-4">
             <ptah-allow-list-editor
               [platform]="config().id"
               [label]="config().label"
@@ -122,9 +118,7 @@ export interface PlatformCardConfig {
                 servers.
               </p>
             </div>
-            <div
-              class="max-w-2xl rounded-lg border border-base-content/10 bg-base-100/40 p-4"
-            >
+            <div class="surface-2 max-w-2xl rounded-lg p-4">
               <ptah-discord-integration-kit />
             </div>
           </section>

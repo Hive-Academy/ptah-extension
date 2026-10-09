@@ -5,13 +5,15 @@
 # tools/mcp-bench/baseline/gate-baseline.json: `recorded-failure` (equals the
 # recorded run within the measured noise margin) or `claim` (the rule above).
 #
-#   - Pull requests run the smoke subset on the `cli-headless` host, ubuntu-latest
-#     (60 minute timeout: the local smoke took 49.5 min; Batch 11 tunes it from
-#     the first real CI run).
-#   - Nightly (and manual dispatch) runs the full set on ubuntu and windows, plus
-#     the Electron host on ubuntu under xvfb. Electron is never part of the PR run.
-#     A host that is not available shows as `na` with its reason in the scorecard,
-#     never as a pass.
+#   - Pull requests run the smoke subset on the `cli-headless` host, ubuntu-latest,
+#     only when the PR carries the `bench` label. The smoke run takes 15-60 minutes:
+#     it builds, cold-indexes a ~6,455-file corpus, waits up to 20 minutes for the
+#     index to settle, and runs lifecycle scenarios that wait on purpose. The path
+#     filter alone matched most PRs. A skipped job does not block a PR.
+#   - Nightly at 03:30 UTC and manual dispatch run the full set on ubuntu and
+#     windows, plus the Electron host on ubuntu under xvfb. Electron is never part
+#     of the PR run. A host that is not available shows as `na` with its reason in
+#     the scorecard, never as a pass.
 #
 # Each job: bench -> upload the scorecard -> gate. The bench step records its exit
 # code and never fails the step itself, so the scorecard is always uploaded. The
@@ -29,6 +31,7 @@ name: MCP Bench
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, labeled]
     branches:
       - main
     paths:
@@ -58,6 +61,7 @@ env:
 jobs:
   bench-cli:
     name: Bench cli-headless (${{ matrix.os }}, ${{ matrix.mode }})
+    if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'bench')
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(github.event_name == 'pull_request' && '{"include":[{"os":"ubuntu-latest","mode":"smoke","flags":"--smoke","timeout":60}]}' || '{"include":[{"os":"ubuntu-latest","mode":"full","flags":"","timeout":45},{"os":"windows-latest","mode":"full","flags":"","timeout":45}]}') }}
@@ -99,17 +103,16 @@ jobs:
 
       - name: Install dependencies
         if: steps.cache-modules.outputs.cache-hit != 'true'
-        # Fall back to `npm install` if lockfile drift (npm/cli#4828).
         run: |
-          npm ci || npm install --no-audit --no-fund
+          npm ci --ignore-scripts --no-audit --no-fund
           if [ "${{ runner.os }}" = "Linux" ]; then
-            npm install @rollup/rollup-linux-x64-gnu --no-save --force
+            npm install @rollup/rollup-linux-x64-gnu@4.63.4 --no-save --force --ignore-scripts
           fi
 
-      # `npm ci`'s postinstall compiles better-sqlite3 for the Electron ABI; the
-      # bench host runs under the runner Node ABI (see cli-e2e.yml).
-      - name: Rebuild native modules for runner Node ABI
-        run: npm rebuild better-sqlite3
+      # The guarded install skips lifecycle scripts; the bench only needs this
+      # native module rebuilt for the runner Node ABI (see cli-e2e.yml).
+      - name: Rebuild required native modules for runner Node ABI
+        run: npm rebuild better-sqlite3 esbuild
 
       - name: Run bench
         id: bench
@@ -175,11 +178,15 @@ jobs:
       - name: Install dependencies
         if: steps.cache-modules.outputs.cache-hit != 'true'
         run: |
-          npm ci || npm install --no-audit --no-fund
-          npm install @rollup/rollup-linux-x64-gnu --no-save --force
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm install @rollup/rollup-linux-x64-gnu@4.63.4 --no-save --force --ignore-scripts
 
-      - name: Rebuild native modules for runner Node ABI
-        run: npm rebuild better-sqlite3
+      - name: Rebuild required native modules for runner Node ABI
+        run: npm rebuild better-sqlite3 esbuild
+
+      # `npm ci --ignore-scripts` skips Electron's binary downloader; this job launches Electron.
+      - name: Install Electron binary
+        run: node node_modules/electron/install.js
 
       - name: Run bench
         id: bench

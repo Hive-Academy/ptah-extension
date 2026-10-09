@@ -1,6 +1,7 @@
 import { mkdirSync, statSync, writeFileSync } from 'node:fs';
 import { delimiter, isAbsolute, join } from 'node:path';
 import { z } from 'zod';
+import { compareCodeUnits } from '../utils/compare-code-units';
 import { mulberry32 } from './ts-program';
 
 /**
@@ -74,8 +75,8 @@ function parseDocument(
     if (scanned.kind !== 'bytes') return;
     // scip-typescript on win32 writes `\` separators; truths use `/`.
     if (scanned.field === 1)
-      relativePath = decodeUtf8(buffer, scanned.start, scanned.end).replace(
-        /\\/g,
+      relativePath = decodeUtf8(buffer, scanned.start, scanned.end).replaceAll(
+        '\\',
         '/',
       );
     else if (scanned.field === 2) {
@@ -704,9 +705,9 @@ function dependencyQuestions(
     id: `dependency-${index + 1}`,
     file,
     pathForms: ['relative', 'absolute'] as const,
-    dependencies: [...(edges.get(file) ?? new Set<string>())].sort(),
-    dependents: [...(reverseEdges.get(file) ?? new Set<string>())].sort(),
-    imports: [...(edges.get(file) ?? new Set<string>())].sort(),
+    dependencies: [...(edges.get(file) ?? new Set<string>())].sort(compareCodeUnits),
+    dependents: [...(reverseEdges.get(file) ?? new Set<string>())].sort(compareCodeUnits),
+    imports: [...(edges.get(file) ?? new Set<string>())].sort(compareCodeUnits),
   }));
 }
 

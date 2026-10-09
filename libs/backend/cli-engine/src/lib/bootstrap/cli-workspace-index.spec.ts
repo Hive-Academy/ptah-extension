@@ -51,7 +51,7 @@ describe('startWorkspaceIndexLifecycle', () => {
         return registrations.get(token);
       },
     } as unknown as DependencyContainer;
-    const logger = { warn: jest.fn() } as unknown as Logger;
+    const logger = { warn: jest.fn(), error: jest.fn() } as unknown as Logger;
     return {
       connection,
       indexer,
@@ -97,11 +97,12 @@ describe('startWorkspaceIndexLifecycle', () => {
     await flush();
     await flush();
 
-    expect(logger.warn).toHaveBeenCalledTimes(1);
-    expect(logger.warn).toHaveBeenCalledWith(
+    expect(logger.error).toHaveBeenCalledTimes(1);
+    expect(logger.error).toHaveBeenCalledWith(
       '[CLI Thoth] Workspace index SQLite open failed (non-fatal)',
       { error: 'migrate failed' },
     );
+    expect(logger.warn).not.toHaveBeenCalled();
     expect(indexer.indexWorkspace).not.toHaveBeenCalled();
     expect(connection.close).not.toHaveBeenCalled();
     handle.dispose();

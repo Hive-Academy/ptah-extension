@@ -1,9 +1,11 @@
 import {
   Injectable,
   computed,
+  effect,
   inject,
   linkedSignal,
   signal,
+  untracked,
   type Signal,
 } from '@angular/core';
 import { TabManagerService } from '@ptah-extension/chat-state';
@@ -27,6 +29,16 @@ export interface SessionBudgetView {
 
 /** The budget banner buttons that only change the budget state. */
 export type SessionBudgetStateAction = 'dismiss' | 'extend' | 'restore-window';
+
+/** One point on the banner sparkline. Frontend-only; the backend sends snapshots. */
+export interface SessionBudgetUsageSample {
+  readonly at: number;
+  readonly used: number;
+  readonly percent: number | null;
+}
+
+/** Sparkline length. Older points drop off the front. */
+const USAGE_CAP = 60;
 
 const NO_VIEW: SessionBudgetView = {
   activeTab: signal(null),
@@ -83,6 +95,22 @@ export class SessionBudgetActionsService {
   readonly busy = this._busy.asReadonly();
 
   /**
+   * Per-session usage samples for the banner sparkline. Kept beside the
+   * budget the banner renders, so a snapshot and an action result both
+   * record. Reset when the session id changes or the budget clears.
+   */
+  private readonly _usage = signal<readonly SessionBudgetUsageSample[]>([]);
+  readonly usage = this._usage.asReadonly();
+  private usageSessionId: string | null = null;
+
+  constructor() {
+    effect(() => {
+      const budget = this.budget();
+      untracked(() => this.recordUsage(budget));
+    });
+  }
+
+  /**
    * The tab's budget (installed with its stats snapshot), or the state a
    * budget action returned for the same session. With both revisions known
    * the newer one wins (ties go to the action). Without them the action
@@ -111,9 +139,7 @@ export class SessionBudgetActionsService {
   });
 
   /** Handoff preview text for the shown session, or `null`. */
-  readonly previewText = computed(
-    () => this.currentPreview()?.content ?? null,
-  );
+  readonly previewText = computed(() => this.currentPreview()?.content ?? null);
 
   /** True when the last preview load for this session failed (F.6). */
   readonly previewFailed = computed(() => {
@@ -129,6 +155,21 @@ export class SessionBudgetActionsService {
   /** Budget banner buttons that only change the budget state. */
   async runStateAction(action: SessionBudgetStateAction): Promise<void> {
     await this.runAction(action);
+  }
+
+  /**
+   * "Compact": the same send path the composer uses for a typed `/compact`.
+   * Compaction itself stays in the SDK slash-command handler.
+   */
+  async compact(): Promise<void> {
+    const tabId = this.view().tabId();
+    if (!tabId) return;
+    const outcome = await this.chatStore.sendOrQueueMessage('/compact', {
+      tabId,
+    });
+    if (!outcome?.success && outcome?.errorCode !== 'SESSION_BUDGET_REACHED') {
+      this.showError(outcome?.error ?? 'Could not run /compact.');
+    }
   }
 
   async loadPreview(): Promise<void> {
@@ -176,6 +217,33 @@ export class SessionBudgetActionsService {
     return this.view().activeTab()?.sessionBudget ?? null;
   }
 
+  /** Append one sample when `used` moves. Identical `used` is not a point. */
+  private recordUsage(budget: SessionBudgetState | null): void {
+    if (!budget) {
+      this.usageSessionId = null;
+      this._usage.set([]);
+      return;
+    }
+    if (this.usageSessionId !== budget.sessionId) {
+      this.usageSessionId = budget.sessionId;
+      this._usage.set(
+        budget.used === null
+          ? []
+          : [{ at: Date.now(), used: budget.used, percent: budget.percent }],
+      );
+      return;
+    }
+    if (budget.used === null) return;
+    const current = this._usage();
+    const last = current[current.length - 1];
+    if (last && last.used === budget.used) return;
+    const next = [
+      ...current,
+      { at: Date.now(), used: budget.used, percent: budget.percent },
+    ];
+    this._usage.set(next.length > USAGE_CAP ? next.slice(-USAGE_CAP) : next);
+  }
+
   /** Runs a handoff action and returns its seed, reporting a missing one. */
   private async handoffSeed(
     action: 'write-handoff' | 'preview-handoff',
@@ -219,6 +287,14 @@ export class SessionBudgetActionsService {
       const data = result.isSuccess() ? result.data : null;
       if (data?.state) this.actionState.set({ state: data.state, base });
       if (data?.success) return data;
+      if (data?.errorCode === 'NO_SESSION_BUDGET_STATE') {
+        // The host restarted and no longer tracks this restored session. The
+        // stale card is no longer actionable, so dismiss it quietly.
+        this.actionState.set(null);
+        const tabId = this.view().tabId();
+        if (tabId) this.tabManager.clearSessionBudget(tabId, budget.sessionId);
+        return null;
+      }
       const error = data?.error ?? result.error ?? 'Unknown error';
       this.showError(
         error === 'unavailable'

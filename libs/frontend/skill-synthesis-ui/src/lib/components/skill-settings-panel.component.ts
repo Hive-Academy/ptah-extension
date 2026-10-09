@@ -1,12 +1,10 @@
 import {
   ChangeDetectionStrategy,
   Component,
-  inject,
   input,
   output,
 } from '@angular/core';
 import { ReactiveFormsModule, FormGroup } from '@angular/forms';
-import { AppStateManager } from '@ptah-extension/core';
 
 @Component({
   selector: 'ptah-skill-settings-panel',
@@ -150,13 +148,6 @@ import { AppStateManager } from '@ptah-extension/core';
                 formControlName="minJudgeScore"
               />
             </label>
-            <button
-              type="button"
-              class="btn btn-outline min-h-9 focus-visible:outline-2"
-              (click)="manage('judging-enhancement')"
-            >
-              Manage judging model in Providers
-            </button>
           </div>
         </section>
 
@@ -212,19 +203,6 @@ import { AppStateManager } from '@ptah-extension/core';
               />
             </label>
           </div>
-        </section>
-
-        <section class="space-y-3" data-testid="skills-lanes-section">
-          <h2 class="text-sm font-semibold">Background models</h2>
-          @for (lane of laneTargets; track lane) {
-            <button
-              type="button"
-              class="btn btn-outline min-h-9 focus-visible:outline-2"
-              (click)="manage(lane)"
-            >
-              Manage {{ lane }} in Providers
-            </button>
-          }
         </section>
 
         <section class="space-y-3" data-testid="skills-background-section">
@@ -426,18 +404,5 @@ export class SkillSettingsPanelComponent {
 
   public readonly save = output<void>();
 
-  private readonly appState = inject(AppStateManager);
   protected readonly skeletonSlots = [0, 1, 2, 3];
-  protected readonly laneTargets = [
-    'archaeologist',
-    'synthesis',
-    'judge',
-    'replay',
-  ] as const;
-  protected manage(
-    section: (typeof this.laneTargets)[number] | 'judging-enhancement',
-  ): void {
-    this.appState.requestSettingsTab({ tab: 'providers', section });
-    this.appState.setCurrentView('settings');
-  }
 }

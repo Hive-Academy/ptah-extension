@@ -68,6 +68,8 @@ import {
 } from './readers/codex-plan-usage.reader';
 import { createAntigravityPlanUsageReader } from './readers/antigravity-plan-usage.reader';
 import { createOllamaCloudPlanUsageReader } from './readers/ollama-cloud-plan-usage.reader';
+import { createOpenCodeLocalUsageReader } from './readers/opencode-local-usage.reader';
+import { createGrokSessionUsageReader } from './readers/grok-session-usage.reader';
 import type {
   PlanOwnerTarget,
   PlanUsageReader,
@@ -81,9 +83,6 @@ export const PLAN_USAGE_MAX_OWNERS = 64;
 
 /** Providers that have an owner but no source reporting its limits. */
 const NO_USAGE_SOURCE_PROVIDERS: ReadonlySet<string> = new Set([
-  'opencode',
-  'opencode-go',
-  'opencode-zen',
 ]);
 
 /** The owner cannot be read at all; such a snapshot carries no windows. */
@@ -150,6 +149,10 @@ export class PlanUsageService {
       'openai-codex': createCodexPlanUsageReader(codexUsage, now),
       'ollama-cloud': createOllamaCloudPlanUsageReader(logger, now),
       antigravity: createAntigravityPlanUsageReader(logger, now),
+      opencode: createOpenCodeLocalUsageReader(logger, now),
+      'opencode-go': createOpenCodeLocalUsageReader(logger, now),
+      'opencode-zen': createOpenCodeLocalUsageReader(logger, now),
+      grok: createGrokSessionUsageReader(logger, now),
     };
   }
 

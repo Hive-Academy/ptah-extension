@@ -34,3 +34,13 @@ recordings. Everything that depends on a live recording moves to this follow-up 
    Then `matcher-sample.v1.jsonl` and the R-M4 gate.
 5. **Batch 26** (`batches.md:892`): re-run, tighten known failures, update the ledger.
 6. **Phase 4 product seams** the bench found (`HANDOFF.md` "Phase 4 seams") — separate product tasks.
+
+## Result: extraction-record-v1 (ended 2026-10-09)
+
+The detached recording ended without a usable cassette. `run-summary.json`
+(`%LOCALAPPDATA%\ptah-mcp-bench\runs\extraction-record-v1`) reports: the host wrote no completion
+record; the graceful stop timed out and the process tree was force-killed (exit code 1); suite
+`mem.extraction` is `missing` / verdict `na` (`host-incomplete`), 0 cases. No
+`recording-rejection.json` was written. Nx reported `mcp-bench:bench-memory-skills` failed after
+240m 23s. The follow-up task must re-record; investigate why the host did not finish (very long
+critical path, ~173/255+ entries at 16:38Z) before retrying, e.g. split the extraction suite.

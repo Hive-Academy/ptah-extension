@@ -37,12 +37,12 @@ describe('AgentCardHeaderComponent — prompt cache (N6)', () => {
     return fixture.nativeElement as HTMLElement;
   }
 
-  it('shows "cache not reported" on a CLI lane, with no context size or warm/cold badge', () => {
+  it('keeps cache details in the usage card instead of duplicating them in the lane header', () => {
     const el = setup(lane());
-    const chip = el.querySelector('[data-testid="lane-cache-not-reported"]');
-    expect(chip?.textContent?.trim()).toBe('cache not reported');
+    expect(
+      el.querySelector('[data-testid="lane-cache-not-reported"]'),
+    ).toBeNull();
     expect(el.textContent).not.toMatch(/\b(warm|cold|ctx)\b/);
-    expect(el.textContent).not.toContain('0 tok');
   });
 
   it('shows no cache chip when the agent carries no cache fields', () => {
@@ -50,5 +50,33 @@ describe('AgentCardHeaderComponent — prompt cache (N6)', () => {
     expect(el.querySelector('[data-testid="lane-cache-not-reported"]')).toBe(
       null,
     );
+  });
+
+  it('explains a tool-call budget stop and a repeat-call stop', () => {
+    const budget = setup(
+      lane({ status: 'stopped', stopReason: 'tool-call-budget' }),
+    );
+    expect(
+      budget.querySelector('[data-testid="lane-stop-reason"]')?.textContent,
+    ).toContain('Stopped: tool-call limit reached');
+
+    const repeat = setup(
+      lane({ status: 'stopped', stopReason: 'repeat-call' }),
+    );
+    expect(
+      repeat.querySelector('[data-testid="lane-stop-reason"]')?.textContent,
+    ).toContain('Stopped: repeated the same tool call');
+  });
+
+  it('hides the stop reason while the lane is running and when none was recorded', () => {
+    const running = setup(
+      lane({ status: 'running', stopReason: 'tool-call-budget' }),
+    );
+    expect(
+      running.querySelector('[data-testid="lane-stop-reason"]'),
+    ).toBeNull();
+
+    const plain = setup(lane({ status: 'stopped' }));
+    expect(plain.querySelector('[data-testid="lane-stop-reason"]')).toBeNull();
   });
 });

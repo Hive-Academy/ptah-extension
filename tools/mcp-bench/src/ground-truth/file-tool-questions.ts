@@ -24,6 +24,7 @@ import { join, sep } from 'node:path';
 import picomatch from 'picomatch';
 import * as ts from 'typescript';
 import { z } from 'zod';
+import { compareCodeUnits } from '../utils/compare-code-units';
 import { ELIGIBLE_EXTENSIONS } from './relevance-questions';
 
 /** Directories never scanned and never matched by generated patterns. */
@@ -100,7 +101,7 @@ export function listCorpusFiles(corpusRoot: string): readonly string[] {
     }
   };
   walk(corpusRoot);
-  return files.sort();
+  return files.sort(compareCodeUnits);
 }
 
 function readCorpusFile(corpusRoot: string, path: string): CorpusFile {
@@ -359,7 +360,7 @@ export function buildGlobPatterns(
   );
   const dirs = [
     ...new Set(sourceFiles.map((path) => posixDirname(path))),
-  ].sort();
+  ].sort(compareCodeUnits);
   const basenames = pickEvenlySpaced(
     sourceFiles,
     Math.min(10, sourceFiles.length),
@@ -466,7 +467,7 @@ function selectLiteralCandidates(
   const candidates = [...lineCounts.entries()]
     .filter(([, lines]) => lines >= TOKEN_MIN_LINES && lines <= TOKEN_MAX_LINES)
     .map(([token]) => token)
-    .sort();
+    .sort(compareCodeUnits);
   return pickEvenlySpaced(candidates, count);
 }
 
@@ -511,7 +512,7 @@ export function buildTextQuestions(
         if (line.includes(query)) truth.push(`${file.path}:${index + 1}`);
       });
     }
-    return truth.sort();
+    return truth.sort(compareCodeUnits);
   };
   literals.forEach((literal, index) => {
     questions.push({
@@ -537,7 +538,7 @@ export function buildTextQuestions(
         id: `text-regex-${String(regexIndex + 1).padStart(4, '0')}`,
         kind: 'text-regex',
         query: pattern,
-        truth: truth.sort(),
+        truth: truth.sort(compareCodeUnits),
       });
       regexIndex++;
     }

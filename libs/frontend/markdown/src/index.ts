@@ -1,5 +1,7 @@
 export { MarkdownBlockComponent } from './lib/markdown-block.component';
 export { provideMarkdownRendering } from './lib/provide-markdown-rendering';
+export { sanitizeFullMarkdownHtml } from './lib/provide-markdown-rendering';
+export { StreamingMarkdownRenderer } from './lib/streaming-markdown-renderer';
 export type { MarkdownRenderingConfig } from './lib/provide-markdown-rendering';
 export { getMarkedExtensions } from './lib/marked-extensions';
 export {

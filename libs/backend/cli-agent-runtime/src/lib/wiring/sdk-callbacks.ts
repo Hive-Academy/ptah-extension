@@ -417,7 +417,7 @@ async function sendStatsWithRetry(
           ...(stats.sessionStats && { sessionStats: stats.sessionStats }),
           // The session budget computed from that same snapshot
           // (TASK_2026_597 N7). Absent → the panel keeps its last one.
-          ...(stats.budget && { budget: stats.budget }),
+          ...(stats.budget !== undefined && { budget: stats.budget }),
         }),
       {
         retries: 3,

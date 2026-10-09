@@ -26,6 +26,7 @@ import {
   NgZone,
   provideZonelessChangeDetection,
 } from '@angular/core';
+import { MESSAGE_TYPES } from '@ptah-extension/shared';
 import { TestBed } from '@angular/core/testing';
 import { createMockMessageRouter } from '../../testing/mock-message-router';
 import { MessageRouterService } from './message-router.service';
@@ -373,6 +374,66 @@ describe('MessageRouterService burst coalescing (TASK_2026_437 C18)', () => {
     );
   });
 
+  it('dispatches a burst of signal-only stream messages outside Angular with no zone entry', () => {
+    let handlerInZone: boolean | null = null;
+    const { run } = boot([
+      loggingHandler([MESSAGE_TYPES.CHAT_CHUNK], () => {
+        handlerInZone = NgZone.isInAngularZone();
+      }),
+    ]);
+
+    for (let ord = 0; ord < 1000; ord++) {
+      fireWindowMessage({ type: MESSAGE_TYPES.CHAT_CHUNK, payload: { ord } });
+    }
+    channel.deliver();
+
+    expect(run).not.toHaveBeenCalled();
+    expect(handlerInZone).toBe(false);
+    expect(log).toHaveLength(1000);
+  });
+
+  it('keeps zone-required messages inside Angular while preserving mixed-drain order', () => {
+    const zones: boolean[] = [];
+    const { run } = boot([
+      loggingHandler([MESSAGE_TYPES.CHAT_CHUNK], () => {
+        zones.push(NgZone.isInAngularZone());
+      }),
+      loggingHandler(['zone-required'], () => {
+        zones.push(NgZone.isInAngularZone());
+      }),
+    ]);
+
+    fireWindowMessage({ type: MESSAGE_TYPES.CHAT_CHUNK, payload: { ord: 1 } });
+    fireWindowMessage({ type: 'zone-required', payload: { ord: 2 } });
+    fireWindowMessage({ type: MESSAGE_TYPES.CHAT_CHUNK, payload: { ord: 3 } });
+    channel.deliver();
+
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(log).toEqual([
+      `${MESSAGE_TYPES.CHAT_CHUNK}:1`,
+      'zone-required:2',
+      `${MESSAGE_TYPES.CHAT_CHUNK}:3`,
+    ]);
+    expect(zones).toEqual([false, true, false]);
+  });
+
+  it('routes mixed BATCH members in their own required zone', () => {
+    const zones: boolean[] = [];
+    boot([
+      loggingHandler([MESSAGE_TYPES.CHAT_CHUNK, 'zone-required'], () => {
+        zones.push(NgZone.isInAngularZone());
+      }),
+    ]);
+
+    fireWindowMessage({
+      type: MESSAGE_TYPES.BATCH,
+      payload: { events: [{ type: MESSAGE_TYPES.CHAT_CHUNK }, { type: 'zone-required' }] },
+    });
+    channel.deliver();
+
+    expect(zones).toEqual([false, true]);
+  });
+
   it('attaches the window listener outside the Angular zone and dispatches inside it', () => {
     let handlerInZone: boolean | null = null;
     TestBed.configureTestingModule({
@@ -708,8 +769,7 @@ describe('MessageRouterService with the real RpcClient (R-P8)', () => {
       await Promise.resolve();
     }
     const sent = postMessage.mock.calls[0]?.[0] as
-      | { payload: { correlationId: string } }
-      | undefined;
+      { payload: { correlationId: string } } | undefined;
     if (!sent) throw new Error('rpcCall never posted');
     return { correlationId: sent.payload.correlationId, resumed };
   }

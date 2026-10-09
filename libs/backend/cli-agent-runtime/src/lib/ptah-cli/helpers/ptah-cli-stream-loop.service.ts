@@ -58,6 +58,13 @@ const UNNAMED_PEER_LABEL = 'unverified peer';
 /** How much of a sender-authored name is shown. A tile is narrow. */
 const MAX_PEER_NAME_LENGTH = 48;
 
+type ModelUsageTotals = {
+  readonly inputTokens: number;
+  readonly outputTokens: number;
+  readonly cacheReadTokens: number;
+  readonly cacheWriteTokens: number;
+};
+
 /**
  * A turn another session injected into this lane, as the CLI echoes it back.
  *
@@ -230,10 +237,13 @@ export class PtahCliStreamLoop {
   private readonly emittedToolCallIds = new Set<string>();
   /** Model the system init reported; the usage segment's fallback model. */
   private sessionModel: string | undefined;
+  /** Previous cumulative SDK modelUsage snapshot, used to emit one delta per result. */
+  private previousModelUsage: ModelUsageTotals | null = null;
   /**
    * Per-turn plan-limit state (Decision 4 S1/S2), reset on every `result`.
-   * Scopes and model come only from this turn's main-loop `message_start`s —
-   * subagent partials and the cumulative `result.modelUsage` are never read.
+   * Scopes and model for plan-limit signals come only from this turn's
+   * main-loop `message_start`s. Usage accounting separately reads cumulative
+   * `result.modelUsage`, which includes subagent pipeline calls.
    * Billing is the latest in-turn `rate_limit_event`'s; none leaves it
    * `unknown`, which clears nothing.
    */
@@ -663,17 +673,50 @@ export class PtahCliStreamLoop {
   }
 
   /**
-   * The turn's usage as reported by its `result`, or `undefined` when it
-   * reported none. A value the result did not carry is left out rather than
-   * shown as 0.
+   * The SDK's modelUsage totals cover the same query pipeline as total_cost_usd
+   * (including Task subagents). They are cumulative, so emit their delta for
+   * the incremental UI fold. Older SDK results without modelUsage retain the
+   * main-loop usage fallback.
    */
   private turnUsage(msg: SDKResultSuccess): CliOutputSegment['usage'] {
     const model = this.turnModel ?? this.sessionModel;
+    const modelUsage = Object.values(msg.modelUsage ?? {});
+    if (modelUsage.length > 0) {
+      const cumulative = modelUsage.reduce<ModelUsageTotals>(
+        (total, usage) => ({
+          inputTokens: total.inputTokens + usage.inputTokens,
+          outputTokens: total.outputTokens + usage.outputTokens,
+          cacheReadTokens: total.cacheReadTokens + usage.cacheReadInputTokens,
+          cacheWriteTokens:
+            total.cacheWriteTokens + usage.cacheCreationInputTokens,
+        }),
+        {
+          inputTokens: 0,
+          outputTokens: 0,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+        },
+      );
+      const previous = this.previousModelUsage;
+      this.previousModelUsage = cumulative;
+      const delta = (key: keyof ModelUsageTotals): number =>
+        Math.max(0, cumulative[key] - (previous?.[key] ?? 0));
+      return {
+        ...(model && { model }),
+        inputTokens: delta('inputTokens'),
+        outputTokens: delta('outputTokens'),
+        cacheReadTokens: delta('cacheReadTokens'),
+        cacheWriteTokens: delta('cacheWriteTokens'),
+        ...(msg.total_cost_usd !== undefined && { costUsd: msg.total_cost_usd }),
+      };
+    }
     const usage: NonNullable<CliOutputSegment['usage']> = {
       ...(model && { model }),
       ...(msg.usage && {
         inputTokens: msg.usage.input_tokens,
         outputTokens: msg.usage.output_tokens,
+        cacheReadTokens: msg.usage.cache_read_input_tokens,
+        cacheWriteTokens: msg.usage.cache_creation_input_tokens,
       }),
       ...(msg.total_cost_usd !== undefined && {
         costUsd: msg.total_cost_usd,

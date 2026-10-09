@@ -28,10 +28,11 @@ jest.mock('./wire-thoth-push-bridges.js', () => ({
 interface FakeLogger {
   info: jest.Mock;
   warn: jest.Mock;
+  error: jest.Mock;
 }
 
 function makeLogger(): FakeLogger {
-  return { info: jest.fn(), warn: jest.fn() };
+  return { info: jest.fn(), warn: jest.fn(), error: jest.fn() };
 }
 
 interface RuntimeDoubles {
