@@ -15,6 +15,7 @@ function makeSummary(
     isLoading: false,
     lastUpdatedAt: 1,
     errors: { memory: null, skills: null, cron: null, gateway: null },
+    paused: { memory: false, skills: false },
     ...overrides,
   };
 }
@@ -139,5 +140,16 @@ describe('deriveThothPillars', () => {
 
     expect(pillars.memory.error).toBe('boom');
     expect(pillars.memory.available).toBe(false);
+  });
+
+  it('marks only the paused pillar, and only memory or skills', () => {
+    const pillars = deriveThothPillars(
+      makeSummary({ paused: { memory: false, skills: true } }),
+    );
+
+    expect(pillars.skills.paused).toBe(true);
+    expect(pillars.memory.paused).toBe(false);
+    expect(pillars.cron.paused).toBe(false);
+    expect(pillars.gateway.paused).toBe(false);
   });
 });

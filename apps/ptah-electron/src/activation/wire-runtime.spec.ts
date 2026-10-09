@@ -37,8 +37,10 @@ import {
 } from '@ptah-extension/skill-synthesis';
 
 import {
+  isBackgroundLearningPaused,
   logBootDegradationSummary,
   reportStartupBootFailure,
+  runEmbedderWarmup,
 } from './wire-runtime';
 
 function buildTestContainer(): DependencyContainer {
@@ -637,5 +639,94 @@ describe('reportStartupBootFailure (TASK_2026_383 task 2.2)', () => {
     expect(errorSpy).toHaveBeenCalledTimes(1);
     expect(report).not.toHaveBeenCalled();
     bare.clearInstances();
+  });
+});
+
+/**
+ * Row M15 (TASK_2026_620 B-P): memory and skills share one embedder, so the
+ * warmup runs while EITHER switch is on and is skipped only when both are
+ * paused.
+ */
+describe('runEmbedderWarmup pause gate (TASK_2026_620 M15)', () => {
+  let warmupContainer: DependencyContainer;
+  let warmup: jest.Mock;
+  let logSpy: jest.SpyInstance;
+
+  function setSwitches(
+    memory: boolean | undefined,
+    skills: boolean | undefined,
+  ) {
+    const values: Record<string, boolean | undefined> = {
+      'memory.enabled': memory,
+      'skillSynthesis.enabled': skills,
+    };
+    warmupContainer.register(PLATFORM_TOKENS.WORKSPACE_PROVIDER, {
+      useValue: {
+        getConfiguration: jest.fn(
+          <T>(_section: string, key: string, fallback?: T): T | undefined =>
+            values[key] === undefined ? fallback : (values[key] as T),
+        ),
+      },
+    });
+  }
+
+  beforeEach(() => {
+    warmupContainer = buildTestContainer();
+    warmup = jest.fn().mockResolvedValue(undefined);
+    warmupContainer.register(PERSISTENCE_TOKENS.EMBEDDER, {
+      useValue: { warmup },
+    });
+    logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    logSpy.mockRestore();
+    warmupContainer.clearInstances();
+  });
+
+  it.each<[string, boolean | undefined, boolean | undefined]>([
+    ['both on', true, true],
+    ['memory paused, skills on', false, true],
+    ['memory on, skills paused', true, false],
+    ['neither key set (defaults on)', undefined, undefined],
+  ])('warms the embedder when %s', async (_name, memory, skills) => {
+    setSwitches(memory, skills);
+
+    await runEmbedderWarmup(warmupContainer);
+
+    expect(warmup).toHaveBeenCalledTimes(1);
+  });
+
+  it('skips the warmup, with one log line, only when both are paused', async () => {
+    setSwitches(false, false);
+
+    await runEmbedderWarmup(warmupContainer);
+
+    expect(warmup).not.toHaveBeenCalled();
+    const logger = warmupContainer.resolve(TOKENS.LOGGER) as unknown as {
+      info: jest.Mock;
+    };
+    expect(logger.info).toHaveBeenCalledWith(
+      '[Ptah Electron] Embedder warmup skipped — memory and skills are both paused',
+    );
+  });
+
+  it('isBackgroundLearningPaused reads both master keys under the ptah section', () => {
+    const getConfiguration = jest.fn(
+      <T>(_section: string, _key: string, _fallback?: T): T | undefined =>
+        false as unknown as T,
+    );
+
+    expect(isBackgroundLearningPaused({ getConfiguration })).toBe(true);
+    expect(getConfiguration).toHaveBeenCalledWith(
+      'ptah',
+      'memory.enabled',
+      true,
+    );
+    expect(getConfiguration).toHaveBeenCalledWith(
+      'ptah',
+      'skillSynthesis.enabled',
+      true,
+    );
   });
 });

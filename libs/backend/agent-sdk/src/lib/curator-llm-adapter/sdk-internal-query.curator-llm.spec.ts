@@ -11,6 +11,12 @@ import { CuratorLlmQueryError } from './curator-llm-query.error';
 import { EXTRACT_SYSTEM_PROMPT } from './extract-prompt';
 import { RESOLVE_SYSTEM_PROMPT } from './resolve-prompt';
 import type { IProviderAuthResolver } from '../auth/provider-auth-resolver.port';
+import type { ModelDispatchRoute } from './model-dispatch-provenance';
+import {
+  MEMORY_CURATOR_QUERY_LANE,
+  USER_ACTION_QUERY_LANE,
+} from '../internal-query/internal-query-concurrency-gate';
+
 import type { OneShotAuthOverride } from '../helpers/sdk-query-runner.service';
 import type { InternalQueryService } from '../internal-query';
 import type { AuthEnv } from '@ptah-extension/shared';
@@ -147,6 +153,7 @@ interface ExecuteCapture {
   maxTurns?: number;
   lane?: string;
   systemPromptAppend?: string;
+  dispatch?: ModelDispatchRoute;
 }
 
 function makeInternalQuery(opts: {
@@ -166,6 +173,7 @@ function makeInternalQuery(opts: {
         lane?: string;
         auth?: OneShotAuthOverride;
         systemPromptAppend?: string;
+        dispatch?: ExecuteCapture['dispatch'];
       }) => {
         if (opts.capture) {
           opts.capture.systemPromptAppend = config.systemPromptAppend;
@@ -175,6 +183,7 @@ function makeInternalQuery(opts: {
           opts.capture.maxTurns = config.maxTurns;
           opts.capture.auth = config.auth;
           opts.capture.authWasPresent = 'auth' in config;
+          opts.capture.dispatch = config.dispatch;
         }
         if (opts.throwOnExecute) throw opts.throwOnExecute;
         if (opts.messages) {
@@ -1237,5 +1246,151 @@ describe('SdkInternalQueryCuratorLlm — an unreachable provider stalls the pass
     });
     const result = await adapter.extract(EXTRACT_TRANSCRIPT);
     expect(result.status).toBe('extracted');
+  });
+});
+
+describe('SdkInternalQueryCuratorLlm — dispatch provenance tap', () => {
+  const snap: OneShotAuthOverride = { env: { ANTHROPIC_AUTH_TOKEN: 'snap' } };
+
+  function adapterWith(opts: {
+    provider?: string;
+    model?: string;
+    resolver?: IProviderAuthResolver | null;
+    logger?: Logger;
+    capture?: ExecuteCapture;
+  }) {
+    const capture = opts.capture ?? {};
+    const internalQuery = makeInternalQuery({
+      text: '{"memories":[]}',
+      capture,
+    });
+    const workspace = makeWorkspaceFromConfig({
+      'memory.curatorProvider': opts.provider ?? '',
+      'memory.curatorModel': opts.model ?? 'gpt-5.6-terra',
+    });
+    const adapter = new SdkInternalQueryCuratorLlm(
+      opts.logger ?? makeLogger(),
+      internalQuery,
+      workspace,
+      opts.resolver ?? null,
+      null,
+    );
+    return { adapter, capture, internalQuery };
+  }
+
+  it('hands ride-active metadata and does not read active auth', async () => {
+    const resolveActiveAuth = jest.fn();
+    const { adapter, capture } = adapterWith({
+      provider: 'openai-codex',
+      model: 'haiku',
+    });
+
+    await expect(adapter.extract(EXTRACT_TRANSCRIPT)).resolves.toEqual({
+      status: 'extracted',
+      drafts: [],
+    });
+    expect(resolveActiveAuth).not.toHaveBeenCalled();
+    expect(capture.model).toBe('haiku');
+    expect(capture.auth).toBeUndefined();
+    expect(capture.dispatch).toEqual({
+      providerSource: 'ride-active',
+      component: 'memory-curator',
+      laneId: MEMORY_CURATOR_QUERY_LANE,
+    });
+  });
+
+  it('hands the configured override id and keeps the alias', async () => {
+    const resolveActiveAuth = jest.fn();
+    const { adapter, capture } = adapterWith({
+      provider: 'openai-codex',
+      model: 'haiku',
+      resolver: makeResolver(async () => snap),
+    });
+
+    await adapter.extract(EXTRACT_TRANSCRIPT);
+
+    expect(resolveActiveAuth).not.toHaveBeenCalled();
+    expect(capture.auth).toBe(snap);
+    expect(capture.model).toBe('haiku');
+    expect(capture.dispatch).toEqual({
+      providerSource: 'override',
+      overrideProviderId: 'openai-codex',
+      component: 'memory-curator',
+      laneId: MEMORY_CURATOR_QUERY_LANE,
+    });
+  });
+
+  it('stays ride-active when auth fails', async () => {
+    const { adapter, capture } = adapterWith({
+      provider: 'openai-codex',
+      resolver: makeResolver(async () => {
+        throw new FakeProviderAuthError('openai-codex', 'login expired');
+      }),
+    });
+
+    await adapter.extract(EXTRACT_TRANSCRIPT);
+
+    expect(capture.auth).toBeUndefined();
+    expect(capture.model).toBe('gpt-5.6-terra');
+    expect(capture.dispatch).toEqual({
+      providerSource: 'ride-active',
+      component: 'memory-curator',
+      laneId: MEMORY_CURATOR_QUERY_LANE,
+    });
+  });
+
+  it('stays ride-active when the resolver returns null', async () => {
+    const { adapter, capture } = adapterWith({
+      provider: 'openai-codex',
+      resolver: makeResolver(async () => null),
+    });
+
+    await adapter.extract(EXTRACT_TRANSCRIPT, undefined, {
+      userInitiated: true,
+    });
+
+    expect(capture.dispatch).toEqual({
+      providerSource: 'ride-active',
+      component: 'memory-curator',
+      laneId: USER_ACTION_QUERY_LANE,
+    });
+  });
+
+  it('does not dispatch when the provider is cooling down', async () => {
+    const resolveActiveAuth = jest.fn();
+    const capture: ExecuteCapture = {};
+    const { adapter } = adapterWith({
+      provider: 'openai-codex',
+      resolver: makeResolver(async () => {
+        throw new FakeProviderQuotaError('openai-codex', 60_000, 'slow down');
+      }),
+      capture,
+    });
+
+    await expect(adapter.extract(EXTRACT_TRANSCRIPT)).resolves.toEqual({
+      status: 'stalled',
+      reason: 'provider-cooling-down',
+      providerId: 'openai-codex',
+    });
+    expect(resolveActiveAuth).not.toHaveBeenCalled();
+    expect(capture.model).toBeUndefined();
+    expect(capture.dispatch).toBeUndefined();
+  });
+
+  it('does not warn about the active provider on ride-active', async () => {
+    const logger = makeLogger();
+    const { adapter } = adapterWith({
+      provider: 'openai-codex',
+      logger,
+    });
+
+    await expect(adapter.extract(EXTRACT_TRANSCRIPT)).resolves.toEqual({
+      status: 'extracted',
+      drafts: [],
+    });
+    expect(logger.warn).not.toHaveBeenCalledWith(
+      '[memory-curator] active provider unreadable',
+      expect.anything(),
+    );
   });
 });

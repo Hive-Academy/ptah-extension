@@ -16,15 +16,14 @@ import { ReactiveFormsModule, FormGroup } from '@angular/forms';
       <form [formGroup]="form()" class="max-w-2xl space-y-6">
         <section class="space-y-3">
           <h2 class="text-sm font-semibold">Core</h2>
+          <p
+            class="text-xs text-base-content-muted"
+            data-testid="skills-settings-switch-note"
+          >
+            Turn Skills on or off with the Skills switch at the top of this tab.
+            It applies at once; Save does not change it.
+          </p>
           <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <label class="flex items-center gap-2">
-              <input
-                type="checkbox"
-                class="checkbox checkbox-sm"
-                formControlName="enabled"
-              />
-              <span class="text-sm">Enabled</span>
-            </label>
             <label class="flex flex-col gap-1">
               <span class="text-xs text-base-content-muted"
                 >Successes to promote</span

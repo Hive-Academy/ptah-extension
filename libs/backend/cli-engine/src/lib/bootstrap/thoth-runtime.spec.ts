@@ -47,7 +47,13 @@ interface RuntimeDoubles {
   embedderClient: { dispose: jest.Mock };
   memoryCurator: { start: jest.Mock; stop: jest.Mock };
   memoryTrigger: { start: jest.Mock; stop: jest.Mock };
-  skillSynthesis: { start: jest.Mock; stop: jest.Mock };
+  skillSynthesis: {
+    start: jest.Mock;
+    stop: jest.Mock;
+    onStarted: jest.Mock;
+    /** Stands in for the end of a real successful `performStart()`. */
+    fireStarted: () => void;
+  };
   skillTrigger: { start: jest.Mock; stop: jest.Mock };
   cronScheduler: { start: jest.Mock; stop: jest.Mock };
   jobStore: { upsert: jest.Mock };
@@ -72,6 +78,7 @@ function makeRuntimeDoubles(
 ): RuntimeDoubles {
   const order: string[] = [];
   const memoryEnabled = opts.memoryEnabled ?? true;
+  const startedListeners = new Set<() => void>();
   return {
     order,
     sqliteConnection: {
@@ -103,6 +110,13 @@ function makeRuntimeDoubles(
     skillSynthesis: {
       start: jest.fn(async () => order.push('skillSynthesis.start')),
       stop: jest.fn(() => order.push('skillSynthesis.stop')),
+      onStarted: jest.fn((listener: () => void) => {
+        startedListeners.add(listener);
+        return { dispose: () => startedListeners.delete(listener) };
+      }),
+      fireStarted: () => {
+        for (const l of [...startedListeners]) l();
+      },
     },
     skillTrigger: {
       start: jest.fn(() => order.push('skillTrigger.start')),
@@ -315,6 +329,69 @@ describe('activateThoth — runtime tier', () => {
     expect(refs.memoryCurator).not.toBeNull();
     expect(refs.gateway).not.toBeNull();
     expect(refs.chatBridge).not.toBeNull();
+  });
+
+  // B-P review N1: a failed boot start that the service later retries
+  // successfully must bring the skill trigger up, exactly once.
+  it('starts the skill trigger once when a failed skill-synthesis start is retried successfully', async () => {
+    const doubles = makeRuntimeDoubles();
+    doubles.skillSynthesis.start.mockRejectedValue(new Error('boom'));
+    const container = makeRuntimeContainer(doubles, ALL_RUNTIME_TOKENS);
+
+    const refs = await activateThoth(
+      container as never,
+      'runtime',
+      makeLogger() as never,
+    );
+
+    // Kept for `disposeThoth`'s `stop()`; trigger not started yet.
+    expect(refs.skillSynthesis).toBe(doubles.skillSynthesis);
+    expect(doubles.skillTrigger.start).not.toHaveBeenCalled();
+    expect(refs.skillTrigger).toBeNull();
+
+    // The `skillSynthesis.enabled` listener retry succeeds; a later resume
+    // fires again and must not double-start.
+    doubles.skillSynthesis.fireStarted();
+    doubles.skillSynthesis.fireStarted();
+
+    expect(doubles.skillTrigger.start).toHaveBeenCalledTimes(1);
+    expect(refs.skillTrigger).toBe(doubles.skillTrigger);
+  });
+
+  it('a normal start that fires onStarted and resolves starts the skill trigger once', async () => {
+    const doubles = makeRuntimeDoubles();
+    doubles.skillSynthesis.start.mockImplementation(async () => {
+      doubles.skillSynthesis.fireStarted();
+    });
+    const container = makeRuntimeContainer(doubles, ALL_RUNTIME_TOKENS);
+
+    await activateThoth(container as never, 'runtime', makeLogger() as never);
+
+    expect(doubles.skillTrigger.start).toHaveBeenCalledTimes(1);
+  });
+
+  it('a joined start that failed resolves but starts no skill trigger', async () => {
+    const doubles = makeRuntimeDoubles();
+    doubles.skillSynthesis.start.mockImplementation(
+      async () => 'failed' as const,
+    );
+    const container = makeRuntimeContainer(doubles, ALL_RUNTIME_TOKENS);
+
+    await activateThoth(container as never, 'runtime', makeLogger() as never);
+
+    expect(doubles.skillTrigger.start).not.toHaveBeenCalled();
+  });
+
+  it('a start that a stop() overtook resolves but starts no skill trigger', async () => {
+    const doubles = makeRuntimeDoubles();
+    doubles.skillSynthesis.start.mockImplementation(
+      async () => 'abandoned' as const,
+    );
+    const container = makeRuntimeContainer(doubles, ALL_RUNTIME_TOKENS);
+
+    await activateThoth(container as never, 'runtime', makeLogger() as never);
+
+    expect(doubles.skillTrigger.start).not.toHaveBeenCalled();
   });
 
   it('upserts the daily-backup job and registers its handler exactly once', async () => {

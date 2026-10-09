@@ -5,10 +5,13 @@ import * as os from 'os';
 
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { IPlatformInfo } from '@ptah-extension/platform-core';
-import type {
-  AuthEnv,
-  EffectiveCapabilitySet,
-  ICapabilityResolver,
+import {
+  ANTHROPIC_DIRECT_PROVIDER_ID,
+  CODEX_PROXY_TOKEN_PLACEHOLDER,
+  OPENROUTER_PROXY_TOKEN_PLACEHOLDER,
+  type AuthEnv,
+  type EffectiveCapabilitySet,
+  type ICapabilityResolver,
 } from '@ptah-extension/shared';
 import {
   createMockLogger,
@@ -16,6 +19,11 @@ import {
   type MockLogger,
 } from '@ptah-extension/shared/testing';
 
+import type {
+  ModelDispatchProvenanceTap,
+  ModelDispatchRoute,
+} from '../curator-llm-adapter/model-dispatch-provenance';
+import { getActiveProviderId } from './sdk-query-options-builder';
 import { SdkQueryRunner } from './sdk-query-runner.service';
 import type { OffThreadProcessSpawner } from './off-thread-process-spawner';
 import { SdkError } from '../errors';
@@ -126,6 +134,8 @@ function makeRunner(
     authEnv?: AuthEnv;
     extensionPath?: string;
     capabilityResolver?: ICapabilityResolver;
+    provenanceTap?: ModelDispatchProvenanceTap | null;
+    resolveModelId?: (model: string, envOverride?: AuthEnv) => string;
   } = {},
 ): RunnerHarness {
   const logger = createMockLogger();
@@ -145,17 +155,19 @@ function makeRunner(
   // effective env defines one. Identity otherwise. The tier remap matters
   // because the identity clarification now names the RESOLVED model, so a
   // pass-through stub would hide whether the override env reached resolution.
-  const resolveModelId = (m: string, envOverride?: AuthEnv): string => {
-    const env = envOverride ?? authEnv;
-    const tierVar = m.startsWith('claude-sonnet-')
-      ? env.ANTHROPIC_DEFAULT_SONNET_MODEL
-      : m.startsWith('claude-opus-')
-        ? env.ANTHROPIC_DEFAULT_OPUS_MODEL
-        : m.startsWith('claude-haiku-')
-          ? env.ANTHROPIC_DEFAULT_HAIKU_MODEL
-          : undefined;
-    return tierVar && tierVar !== m ? tierVar : m;
-  };
+  const resolveModelId =
+    opts.resolveModelId ??
+    ((m: string, envOverride?: AuthEnv): string => {
+      const env = envOverride ?? authEnv;
+      const tierVar = m.startsWith('claude-sonnet-')
+        ? env.ANTHROPIC_DEFAULT_SONNET_MODEL
+        : m.startsWith('claude-opus-')
+          ? env.ANTHROPIC_DEFAULT_OPUS_MODEL
+          : m.startsWith('claude-haiku-')
+            ? env.ANTHROPIC_DEFAULT_HAIKU_MODEL
+            : undefined;
+      return tierVar && tierVar !== m ? tierVar : m;
+    });
   const modelService = {
     resolveModelId: jest.fn(resolveModelId),
   } as unknown as SdkModelService;
@@ -184,6 +196,7 @@ function makeRunner(
     platformInfo as unknown as IPlatformInfo,
     processSpawner as unknown as OffThreadProcessSpawner,
     opts.capabilityResolver ?? null,
+    opts.provenanceTap ?? null,
   );
 
   return {
@@ -1070,5 +1083,347 @@ describe('SdkQueryRunner', () => {
         expect.anything(),
       );
     });
+  });
+});
+
+describe('SdkQueryRunner — concrete dispatch provenance', () => {
+  const order: string[] = [];
+  const tap: ModelDispatchProvenanceTap & { onModelDispatched: jest.Mock } = {
+    onModelDispatched: jest.fn(() => {
+      order.push('tap');
+    }),
+  };
+  const ride = (
+    component: ModelDispatchRoute['component'],
+    laneId: string,
+  ): ModelDispatchRoute => ({
+    providerSource: 'ride-active',
+    component,
+    laneId,
+  });
+
+  function providerOf(env: AuthEnv | undefined): string {
+    return getActiveProviderId(env ?? {}) ?? ANTHROPIC_DIRECT_PROVIDER_ID;
+  }
+
+  function mappedRunner(
+    onTap?: ModelDispatchProvenanceTap['onModelDispatched'],
+    authEnv: AuthEnv = { ANTHROPIC_AUTH_TOKEN: 'anthropic-token' } as AuthEnv,
+  ) {
+    return makeRunner({
+      authEnv,
+      provenanceTap: onTap ? { onModelDispatched: onTap } : tap,
+      resolveModelId: (model, envOverride) => {
+        const env = envOverride ?? authEnv;
+        if (model !== 'haiku') return model;
+        if (env.ANTHROPIC_AUTH_TOKEN === 'codex-token') return 'gpt-5.6-terra';
+        if (env.ANTHROPIC_AUTH_TOKEN === 'router-token') return 'gpt-router-1';
+        return 'claude-haiku-4-5';
+      },
+    });
+  }
+
+  beforeEach(() => {
+    order.length = 0;
+    tap.onModelDispatched.mockImplementation(() => {
+      order.push('tap');
+    });
+  });
+
+  it('reports the concrete model for the curator override and the lane ride-active path', async () => {
+    const seen: string[] = [];
+    const h = makeRunner({
+      authEnv: { ANTHROPIC_AUTH_TOKEN: 'anthropic-token' } as AuthEnv,
+      provenanceTap: {
+        onModelDispatched: (provenance) => {
+          seen.push(
+            `${provenance.component}:${provenance.resolvedProviderId}:${provenance.resolvedModelId}`,
+          );
+        },
+      },
+      queryFnImpl: (params) => {
+        seen.push(`sdk:${String(params.options.model)}`);
+        return createFakeQuery('fresh');
+      },
+      resolveModelId: (model, envOverride) => {
+        const token = envOverride?.ANTHROPIC_AUTH_TOKEN ?? 'anthropic-token';
+        if (model !== 'haiku') return model;
+        return token === 'codex-token' ? 'gpt-5.6-terra' : 'claude-haiku-4-5';
+      },
+    });
+
+    await h.runner.runOneShot({
+      mode: 'oneShot',
+      cwd: '/work',
+      model: 'haiku',
+      prompt: 'curate',
+      mcpServerRunning: false,
+      auth: { env: { ANTHROPIC_AUTH_TOKEN: 'codex-token' } },
+      dispatch: {
+        providerSource: 'override',
+        overrideProviderId: 'openai-codex',
+        component: 'memory-curator',
+        laneId: 'memory-curator',
+      },
+    });
+    await h.runner.runOneShot({
+      mode: 'oneShot',
+      cwd: '/work',
+      model: 'haiku',
+      prompt: 'judge',
+      mcpServerRunning: false,
+      dispatch: ride('skill-lane', 'judge'),
+    });
+
+    expect(seen).toEqual([
+      'sdk:gpt-5.6-terra',
+      'memory-curator:openai-codex:gpt-5.6-terra',
+      'sdk:claude-haiku-4-5',
+      'skill-lane:anthropic:claude-haiku-4-5',
+    ]);
+  });
+
+  it('does not call resolveActiveAuth when no tap is registered', async () => {
+    const resolveActiveAuth = jest.fn(() => ({ providerId: 'openai-codex' }));
+    const h = makeRunner();
+    for (const dispatch of [
+      ride('memory-curator', 'memory-curator'),
+      ride('skill-lane', 'judge'),
+    ]) {
+      await h.runner.runOneShot({
+        mode: 'oneShot',
+        cwd: '/work',
+        model: 'haiku',
+        prompt: 'hi',
+        mcpServerRunning: false,
+        dispatch,
+      });
+    }
+    expect(resolveActiveAuth).not.toHaveBeenCalled();
+    expect(h.queryFn).toHaveBeenCalledTimes(2);
+    expect(h.logger.warn).not.toHaveBeenCalledWith(
+      '[model-dispatch] provenance tap failed',
+      expect.anything(),
+    );
+  });
+
+  it('names the provider of the auth env written onto the SDK options', async () => {
+    const authEnv = {
+      ANTHROPIC_BASE_URL: 'http://127.0.0.1:4141',
+      ANTHROPIC_AUTH_TOKEN: CODEX_PROXY_TOKEN_PLACEHOLDER,
+    } as AuthEnv;
+    const seen: { provider: string; model: string; envProvider: string }[] = [];
+    const h = mappedRunner((provenance) => {
+      const call = h.queryFn.mock.calls.at(-1)?.[0] as
+        { options: SdkQueryOptions } | undefined;
+      const env = (call?.options.env ?? {}) as AuthEnv;
+      seen.push({
+        provider: provenance.resolvedProviderId,
+        model: provenance.resolvedModelId,
+        envProvider: providerOf(env),
+      });
+    }, authEnv);
+
+    await h.runner.runOneShot({
+      mode: 'oneShot',
+      cwd: '/work',
+      model: 'haiku',
+      prompt: 'curate',
+      mcpServerRunning: false,
+      dispatch: ride('memory-curator', 'memory-curator'),
+    });
+    await h.runner.runOneShot({
+      mode: 'oneShot',
+      cwd: '/work',
+      model: 'haiku',
+      prompt: 'judge',
+      mcpServerRunning: false,
+      dispatch: ride('skill-lane', 'judge'),
+    });
+
+    expect(seen).toEqual([
+      {
+        provider: 'openai-codex',
+        model: 'claude-haiku-4-5',
+        envProvider: 'openai-codex',
+      },
+      {
+        provider: 'openai-codex',
+        model: 'claude-haiku-4-5',
+        envProvider: 'openai-codex',
+      },
+    ]);
+    expect(seen.every((row) => row.provider === row.envProvider)).toBe(true);
+  });
+
+  it('reports the provider used after async setup, not the earlier one', async () => {
+    const authEnv = {
+      ANTHROPIC_BASE_URL: 'https://api.anthropic.com',
+      ANTHROPIC_AUTH_TOKEN: 'user-key',
+    } as AuthEnv;
+    const later = [
+      CODEX_PROXY_TOKEN_PLACEHOLDER,
+      OPENROUTER_PROXY_TOKEN_PLACEHOLDER,
+    ];
+    let call = 0;
+    const seen: string[] = [];
+    const h = mappedRunner((provenance) => {
+      seen.push(`${provenance.component}:${provenance.resolvedProviderId}`);
+    }, authEnv);
+    h.moduleLoader.getQueryFunction.mockImplementation(async () => {
+      authEnv.ANTHROPIC_BASE_URL = 'http://127.0.0.1:4141';
+      authEnv.ANTHROPIC_AUTH_TOKEN = later[call] ?? later[0];
+      call += 1;
+      return h.queryFn as unknown as QueryFunction;
+    });
+
+    expect(providerOf({ ...authEnv })).toBe(ANTHROPIC_DIRECT_PROVIDER_ID);
+
+    await h.runner.runOneShot({
+      mode: 'oneShot',
+      cwd: '/work',
+      model: 'haiku',
+      prompt: 'curate',
+      mcpServerRunning: false,
+      dispatch: ride('memory-curator', 'memory-curator'),
+    });
+    await h.runner.runOneShot({
+      mode: 'oneShot',
+      cwd: '/work',
+      model: 'haiku',
+      prompt: 'judge',
+      mcpServerRunning: false,
+      dispatch: ride('skill-lane', 'judge'),
+    });
+
+    expect(seen).toEqual([
+      'memory-curator:openai-codex',
+      'skill-lane:openrouter',
+    ]);
+    const tokens = h.queryFn.mock.calls.map(
+      (args) =>
+        (args[0] as { options: SdkQueryOptions }).options.env?.[
+          'ANTHROPIC_AUTH_TOKEN'
+        ],
+    );
+    expect(tokens).toEqual(later);
+  });
+
+  it('reports the override provider and the concrete model', async () => {
+    const resolveActiveAuth = jest.fn();
+    const authEnv = {
+      ANTHROPIC_BASE_URL: 'https://api.anthropic.com',
+      ANTHROPIC_AUTH_TOKEN: 'user-key',
+    } as AuthEnv;
+    const seen: string[] = [];
+    const h = mappedRunner((provenance) => {
+      seen.push(
+        `${provenance.component}:${provenance.resolvedProviderId}:${provenance.resolvedModelId}`,
+      );
+    }, authEnv);
+    h.moduleLoader.getQueryFunction.mockImplementation(async () => {
+      authEnv.ANTHROPIC_BASE_URL = 'http://127.0.0.1:4141';
+      authEnv.ANTHROPIC_AUTH_TOKEN = OPENROUTER_PROXY_TOKEN_PLACEHOLDER;
+      return h.queryFn as unknown as QueryFunction;
+    });
+
+    await h.runner.runOneShot({
+      mode: 'oneShot',
+      cwd: '/work',
+      model: 'haiku',
+      prompt: 'curate',
+      mcpServerRunning: false,
+      auth: { env: { ANTHROPIC_AUTH_TOKEN: 'codex-token' } },
+      dispatch: {
+        providerSource: 'override',
+        overrideProviderId: 'openai-codex',
+        component: 'memory-curator',
+        laneId: 'memory-curator',
+      },
+    });
+    await h.runner.runOneShot({
+      mode: 'oneShot',
+      cwd: '/work',
+      model: 'haiku',
+      prompt: 'judge',
+      mcpServerRunning: false,
+      auth: { env: { ANTHROPIC_AUTH_TOKEN: 'router-token' } },
+      dispatch: {
+        providerSource: 'override',
+        overrideProviderId: 'openrouter',
+        component: 'skill-lane',
+        laneId: 'judge',
+      },
+    });
+
+    expect(resolveActiveAuth).not.toHaveBeenCalled();
+    expect(seen).toEqual([
+      'memory-curator:openai-codex:gpt-5.6-terra',
+      'skill-lane:openrouter:gpt-router-1',
+    ]);
+    const models = h.queryFn.mock.calls.map(
+      (args) => (args[0] as { options: SdkQueryOptions }).options.model,
+    );
+    expect(models).toEqual(['gpt-5.6-terra', 'gpt-router-1']);
+  });
+
+  it('starts the SDK query before a blocked tap runs', async () => {
+    const h = mappedRunner(() => {
+      const until = Date.now() + 40;
+      while (Date.now() < until) {
+        // Deliberately blocks. It must not run before query().
+      }
+      order.push('tap');
+    });
+    h.queryFn.mockImplementation(() => {
+      order.push('execute');
+      return createFakeQuery('fresh');
+    });
+
+    await h.runner.runOneShot({
+      mode: 'oneShot',
+      cwd: '/work',
+      model: 'haiku',
+      prompt: 'hi',
+      mcpServerRunning: false,
+      dispatch: ride('memory-curator', 'memory-curator'),
+    });
+
+    expect(order).toEqual(['execute', 'tap']);
+  });
+
+  it('logs a rejected async tap and does not reject the query', async () => {
+    const h = mappedRunner(() => Promise.reject(new Error('async tap')));
+
+    await expect(
+      h.runner.runOneShot({
+        mode: 'oneShot',
+        cwd: '/work',
+        model: 'haiku',
+        prompt: 'hi',
+        mcpServerRunning: false,
+        dispatch: ride('skill-lane', 'judge'),
+      }),
+    ).resolves.toEqual(expect.objectContaining({ stream: expect.anything() }));
+    await Promise.resolve();
+
+    expect(h.queryFn).toHaveBeenCalledTimes(1);
+    expect(h.logger.warn).toHaveBeenCalledWith(
+      '[model-dispatch] provenance tap failed',
+      { error: 'async tap' },
+    );
+  });
+
+  it('does not notify when the caller did not attach a route', async () => {
+    const h = mappedRunner();
+    await h.runner.runOneShot({
+      mode: 'oneShot',
+      cwd: '/work',
+      model: 'haiku',
+      prompt: 'hi',
+      mcpServerRunning: false,
+    });
+    await Promise.resolve();
+    expect(tap.onModelDispatched).not.toHaveBeenCalled();
   });
 });

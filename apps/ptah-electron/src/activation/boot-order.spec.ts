@@ -88,7 +88,8 @@ interface Stubs {
   memoryTriggerStart: jest.Mock;
 }
 
-function makeStubs(): Stubs {
+/** `extra` entries are appended, so a later entry replaces a default one. */
+function makeStubs(extra: Array<[unknown, unknown]> = []): Stubs {
   const openAndMigrate = jest.fn(async () => {
     // A real `openAndMigrate` yields; asserting order across an await is the
     // point, so this one does too.
@@ -137,6 +138,8 @@ function makeStubs(): Stubs {
         start: jest.fn(async () => {
           record('skillSynthesis.start');
         }),
+        // The real `SkillSynthesisService` contract the boot subscribes to.
+        onStarted: jest.fn(() => ({ dispose: jest.fn() })),
       },
     ],
     [
@@ -160,6 +163,7 @@ function makeStubs(): Stubs {
     [SDK_TOKENS.SDK_SESSION_IMPORTER, { scanAndImport }],
     // GIT_INFO_SERVICE is deliberately absent: the git-watcher block is
     // non-fatal and this keeps a real chokidar watcher off the test's disk.
+    ...extra,
   ]);
 
   return { container, scanAndImport, openAndMigrate, memoryTriggerStart };
@@ -204,6 +208,76 @@ beforeEach(() => {
 
 afterEach(() => {
   jest.restoreAllMocks();
+});
+
+/**
+ * B-P review round 2 — shutdown must stop the skill trigger that RUNS.
+ *
+ * The trigger starts on the continuation of the unawaited skill-synthesis
+ * start, or only when a start that failed at boot is retried successfully, so
+ * a copy of `thoth.skillTrigger` taken when `bootThothRuntime` returns is
+ * `null` and `shutdown.ts` (`refs.skillTrigger?.stop()`) would never stop it.
+ * The booter now takes the instance through `onSkillTriggerStarted`.
+ */
+describe('skill trigger ref reaches the shutdown refs', () => {
+  it('holds the trigger started by a retried skill-synthesis start after a failed boot start', async () => {
+    const listeners = new Set<() => void>();
+    const skillTrigger = { start: jest.fn(), stop: jest.fn() };
+    const stubs = makeStubs([
+      [
+        SKILL_SYNTHESIS_TOKENS.SKILL_SYNTHESIS_SERVICE,
+        {
+          start: jest.fn(async () => {
+            throw new Error('db locked');
+          }),
+          onStarted: jest.fn((listener: () => void) => {
+            listeners.add(listener);
+            return { dispose: () => listeners.delete(listener) };
+          }),
+        },
+      ],
+      [SKILL_SYNTHESIS_TOKENS.SKILL_TRIGGER_SERVICE, skillTrigger],
+    ]);
+    const coordinator = new BootCoordinator();
+    const booter = createHeavyServicesBooter({
+      container: stubs.container,
+      coordinator,
+    });
+
+    const reserved = booter.startOrJoin(WORKSPACE);
+    booter.openWindowGate();
+    await reserved;
+    for (let i = 0; i < 10; i++) await Promise.resolve();
+
+    expect(skillTrigger.start).not.toHaveBeenCalled();
+    expect(coordinator.refs.skillTrigger).toBeNull();
+
+    // The service's `skillSynthesis.enabled` listener retries and succeeds.
+    for (const l of [...listeners]) l();
+
+    expect(skillTrigger.start).toHaveBeenCalledTimes(1);
+    expect(coordinator.refs.skillTrigger).toBe(skillTrigger);
+  });
+
+  it('holds the trigger started on the normal (unawaited) continuation', async () => {
+    const skillTrigger = { start: jest.fn(), stop: jest.fn() };
+    const stubs = makeStubs([
+      [SKILL_SYNTHESIS_TOKENS.SKILL_TRIGGER_SERVICE, skillTrigger],
+    ]);
+    const coordinator = new BootCoordinator();
+    const booter = createHeavyServicesBooter({
+      container: stubs.container,
+      coordinator,
+    });
+
+    const reserved = booter.startOrJoin(WORKSPACE);
+    booter.openWindowGate();
+    await reserved;
+    for (let i = 0; i < 10; i++) await Promise.resolve();
+
+    expect(skillTrigger.start).toHaveBeenCalledTimes(1);
+    expect(coordinator.refs.skillTrigger).toBe(skillTrigger);
+  });
 });
 
 describe('activation order — the window comes first', () => {

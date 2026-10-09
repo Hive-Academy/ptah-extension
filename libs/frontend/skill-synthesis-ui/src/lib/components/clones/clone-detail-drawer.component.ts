@@ -184,13 +184,24 @@ const STATUS_DOT: Record<SkillCloneStatus, string> = {
                 type="button"
                 class="btn btn-primary btn-xs"
                 data-testid="drawer-enhance-btn"
-                [disabled]="!m.actions.enhance.enabled || busy()"
-                [title]="m.actions.enhance.reason ?? enhanceTitle"
+                [disabled]="
+                  !m.actions.enhance.enabled ||
+                  busy() ||
+                  enhanceBlockedReason() !== null
+                "
+                [title]="
+                  enhanceBlockedReason() ??
+                  m.actions.enhance.reason ??
+                  enhanceTitle
+                "
                 (click)="enhance.emit(m.clone)"
               >
                 Enhance now
               </button>
-              @if (m.actions.enhance.reason; as reason) {
+              @if (
+                enhanceBlockedReason() ?? m.actions.enhance.reason;
+                as reason
+              ) {
                 <span
                   class="text-[11px] text-base-content-muted"
                   data-testid="drawer-enhance-reason"
@@ -437,6 +448,11 @@ export class CloneDetailDrawerComponent {
   public readonly canEditBody = input<boolean>(false);
   /** A body save for this entry is in flight. */
   public readonly bodySaving = input<boolean>(false);
+  /**
+   * Why "Enhance now" is unavailable regardless of this entry (today: the
+   * Skills switch is paused). `null` leaves the per-entry gating alone.
+   */
+  public readonly enhanceBlockedReason = input<string | null>(null);
 
   public readonly closed = output<void>();
   public readonly enhance = output<CloneSummary>();
@@ -522,10 +538,9 @@ export class CloneDetailDrawerComponent {
   protected cancelEditingBody(): void {
     this.submittedBody.set(null);
     this.editing.set(false);
-    afterNextRender(
-      () => this.editBodyButton()?.nativeElement.focus(),
-      { injector: this.injector },
-    );
+    afterNextRender(() => this.editBodyButton()?.nativeElement.focus(), {
+      injector: this.injector,
+    });
   }
 
   protected onBodySaved(clone: CloneSummary, body: string): void {

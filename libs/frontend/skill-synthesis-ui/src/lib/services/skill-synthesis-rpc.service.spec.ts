@@ -7,7 +7,10 @@
  */
 import { TestBed } from '@angular/core/testing';
 import { ClaudeRpcService } from '@ptah-extension/core';
-import { SkillSynthesisRpcService } from './skill-synthesis-rpc.service';
+import {
+  SkillSynthesisRpcService,
+  SkillsPausedError,
+} from './skill-synthesis-rpc.service';
 
 describe('SkillSynthesisRpcService', () => {
   let service: SkillSynthesisRpcService;
@@ -400,6 +403,51 @@ describe('SkillSynthesisRpcService', () => {
 
     await expect(service.listQuarantinedAgents()).rejects.toThrow(
       'Quarantine record could not be read',
+    );
+  });
+
+  describe('PAUSED refusals from the manual runs', () => {
+    const paused = {
+      ...errResult('Skill synthesis is paused'),
+      errorCode: 'PAUSED',
+    };
+
+    it.each([
+      ['runCurator', (s: SkillSynthesisRpcService) => s.runCurator()],
+      [
+        'previewEnhancement',
+        (s: SkillSynthesisRpcService) => s.previewEnhancement('skill', 'x'),
+      ],
+      [
+        'enhanceNow',
+        (s: SkillSynthesisRpcService) => s.enhanceNow('skill', 'x'),
+      ],
+    ])('%s() throws SkillsPausedError', async (_name, run) => {
+      rpcCall.mockResolvedValue(paused);
+
+      const call = run(service);
+      await expect(call).rejects.toBeInstanceOf(SkillsPausedError);
+      await expect(call).rejects.toThrow('Skill synthesis is paused');
+    });
+
+    it('keeps any other failure a plain Error', async () => {
+      rpcCall.mockResolvedValue(errResult('model down'));
+
+      const call = service.runCurator();
+      await expect(call).rejects.not.toBeInstanceOf(SkillsPausedError);
+      await expect(call).rejects.toThrow('model down');
+    });
+  });
+
+  it('updateSettings({ enabled }) sends the master switch alone', async () => {
+    rpcCall.mockResolvedValue(okResult({ updated: true }));
+
+    await service.updateSettings({ enabled: false });
+
+    expect(rpcCall).toHaveBeenCalledWith(
+      'skillSynthesis:updateSettings',
+      { settings: { enabled: false } },
+      expect.objectContaining({ timeout: expect.any(Number) }),
     );
   });
 

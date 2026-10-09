@@ -117,7 +117,15 @@ import { ToolOutputCapper } from '../helpers/compaction/tool-output-capper';
 import { CompactionCoordinator } from '../helpers/compaction/compaction-coordinator';
 import { ContextUsagePort } from '../helpers/compaction/context-usage.port';
 import { SubagentBudgetMonitor } from '../helpers/compaction/subagent-budget-monitor';
+import {
+  MODEL_DISPATCH_PROVENANCE_TAP,
+  type ModelDispatchProvenanceTap,
+} from '../curator-llm-adapter/model-dispatch-provenance';
 import { SDK_TOKENS } from './tokens';
+
+const noOpModelDispatchProvenanceTap: ModelDispatchProvenanceTap = {
+  onModelDispatched: () => undefined,
+};
 
 /**
  * Register all agent-sdk services in DI container
@@ -141,6 +149,12 @@ export function registerSdkServices(
   logger: Logger,
 ): void {
   logger.info('[AgentSDK] Registering SDK services...');
+  // Product hosts do not consume model-dispatch provenance. Benchmark record
+  // mode replaces this default with its collector after the container boots.
+  container.registerInstance(
+    MODEL_DISPATCH_PROVENANCE_TAP,
+    noOpModelDispatchProvenanceTap,
+  );
   container.register(
     SDK_TOKENS.SDK_SESSION_METADATA_STORE,
     { useClass: SessionMetadataStore },

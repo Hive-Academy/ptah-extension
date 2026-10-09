@@ -1,0 +1,369 @@
+{
+  "fixture": "gt-skill-sessions@v1",
+  "schemaVersion": 1,
+  "sessions": [
+    {
+      "id": "skill-session-01",
+      "routine": "dependency-upgrade",
+      "degraded": false,
+      "script": ["session-end", "drain-eligible-candidate"],
+      "expectedEvents": [
+        {
+          "kind": "analyze-run"
+        }
+      ]
+    },
+    {
+      "id": "skill-session-02",
+      "routine": "dependency-upgrade",
+      "degraded": false,
+      "script": ["session-end", "drain-eligible-candidate"],
+      "expectedEvents": [
+        {
+          "kind": "analyze-run"
+        }
+      ]
+    },
+    {
+      "id": "skill-session-03",
+      "routine": "dependency-upgrade",
+      "degraded": false,
+      "script": ["session-end", "drain-eligible-candidate"],
+      "expectedEvents": [
+        {
+          "kind": "analyze-run"
+        }
+      ]
+    },
+    {
+      "id": "skill-session-04",
+      "routine": "incident-triage",
+      "degraded": false,
+      "script": ["session-end", "drain-eligible-candidate"],
+      "expectedEvents": [
+        {
+          "kind": "analyze-run"
+        }
+      ]
+    },
+    {
+      "id": "skill-session-05",
+      "routine": "incident-triage",
+      "degraded": false,
+      "script": ["session-end", "drain-eligible-candidate"],
+      "expectedEvents": [
+        {
+          "kind": "analyze-run"
+        }
+      ]
+    },
+    {
+      "id": "skill-session-06",
+      "routine": "incident-triage",
+      "degraded": false,
+      "script": ["session-end", "drain-eligible-candidate"],
+      "expectedEvents": [
+        {
+          "kind": "analyze-run"
+        }
+      ]
+    },
+    {
+      "id": "skill-session-07",
+      "routine": "release-checklist",
+      "degraded": false,
+      "script": ["session-end", "drain-eligible-candidate"],
+      "expectedEvents": [
+        {
+          "kind": "analyze-run"
+        }
+      ]
+    },
+    {
+      "id": "skill-session-08",
+      "routine": "release-checklist",
+      "degraded": false,
+      "script": ["session-end", "drain-eligible-candidate"],
+      "expectedEvents": [
+        {
+          "kind": "analyze-run"
+        }
+      ]
+    },
+    {
+      "id": "skill-session-09",
+      "routine": "release-checklist",
+      "degraded": false,
+      "script": ["session-end", "drain-eligible-candidate"],
+      "expectedEvents": [
+        {
+          "kind": "analyze-run"
+        }
+      ]
+    },
+    {
+      "id": "skill-session-10",
+      "routine": "test-failure-diagnosis",
+      "degraded": false,
+      "script": ["session-end", "drain-eligible-candidate"],
+      "expectedEvents": [
+        {
+          "kind": "analyze-run"
+        }
+      ]
+    },
+    {
+      "id": "skill-session-11",
+      "routine": "test-failure-diagnosis",
+      "degraded": false,
+      "script": ["session-end", "drain-eligible-candidate"],
+      "expectedEvents": [
+        {
+          "kind": "analyze-run"
+        }
+      ]
+    },
+    {
+      "id": "skill-session-12",
+      "routine": "test-failure-diagnosis",
+      "degraded": false,
+      "script": ["session-end", "drain-eligible-candidate"],
+      "expectedEvents": [
+        {
+          "kind": "analyze-run"
+        }
+      ]
+    },
+    {
+      "id": "skill-session-13",
+      "routine": null,
+      "degraded": false,
+      "script": ["session-end", "prefilter-rejected"],
+      "expectedEvents": [
+        {
+          "kind": "ineligible",
+          "reason": "prefilterRejected"
+        }
+      ]
+    },
+    {
+      "id": "skill-session-14",
+      "routine": null,
+      "degraded": false,
+      "script": ["session-end", "prefilter-rejected"],
+      "expectedEvents": [
+        {
+          "kind": "ineligible",
+          "reason": "prefilterRejected"
+        }
+      ]
+    },
+    {
+      "id": "skill-session-15",
+      "routine": null,
+      "degraded": false,
+      "script": ["idle-timeout", "prefilter-rejected"],
+      "expectedEvents": [
+        {
+          "kind": "idle-trigger"
+        },
+        {
+          "kind": "ineligible",
+          "reason": "prefilterRejected"
+        }
+      ]
+    },
+    {
+      "id": "skill-session-16",
+      "routine": null,
+      "degraded": false,
+      "script": ["manual-analyze", "prefilter-rejected"],
+      "expectedEvents": [
+        {
+          "kind": "manual-run"
+        },
+        {
+          "kind": "ineligible",
+          "reason": "prefilterRejected"
+        }
+      ]
+    },
+    {
+      "id": "skill-session-17",
+      "routine": null,
+      "degraded": false,
+      "script": ["manual-analyze", "prefilter-rejected"],
+      "expectedEvents": [
+        {
+          "kind": "manual-run"
+        },
+        {
+          "kind": "ineligible",
+          "reason": "prefilterRejected"
+        }
+      ]
+    },
+    {
+      "id": "skill-session-18",
+      "routine": null,
+      "degraded": false,
+      "script": ["manual-analyze", "prefilter-rejected"],
+      "expectedEvents": [
+        {
+          "kind": "manual-run"
+        },
+        {
+          "kind": "ineligible",
+          "reason": "prefilterRejected"
+        }
+      ]
+    },
+    {
+      "id": "skill-session-19",
+      "routine": null,
+      "degraded": false,
+      "script": ["manual-analyze", "prefilter-rejected"],
+      "expectedEvents": [
+        {
+          "kind": "manual-run"
+        },
+        {
+          "kind": "ineligible",
+          "reason": "prefilterRejected"
+        }
+      ]
+    },
+    {
+      "id": "skill-session-20",
+      "routine": null,
+      "degraded": false,
+      "script": ["session-end", "archaeology-no-routine"],
+      "expectedEvents": [
+        {
+          "kind": "ineligible",
+          "reason": "noRoutine"
+        }
+      ]
+    },
+    {
+      "id": "skill-session-21",
+      "routine": null,
+      "degraded": false,
+      "script": ["session-end", "archaeology-no-routine"],
+      "expectedEvents": [
+        {
+          "kind": "ineligible",
+          "reason": "noRoutine"
+        }
+      ]
+    },
+    {
+      "id": "skill-session-22",
+      "routine": null,
+      "degraded": false,
+      "script": ["session-end", "archaeology-no-routine"],
+      "expectedEvents": [
+        {
+          "kind": "ineligible",
+          "reason": "noRoutine"
+        }
+      ]
+    },
+    {
+      "id": "skill-session-23",
+      "routine": null,
+      "degraded": true,
+      "script": ["session-end", "prefilter-rejected"],
+      "expectedEvents": [
+        {
+          "kind": "ineligible",
+          "reason": "prefilterRejected"
+        }
+      ]
+    },
+    {
+      "id": "skill-session-24",
+      "routine": null,
+      "degraded": true,
+      "script": ["session-end", "prefilter-rejected"],
+      "expectedEvents": [
+        {
+          "kind": "ineligible",
+          "reason": "prefilterRejected"
+        }
+      ]
+    },
+    {
+      "id": "skill-session-25",
+      "routine": null,
+      "degraded": true,
+      "script": ["session-end", "prefilter-rejected"],
+      "expectedEvents": [
+        {
+          "kind": "ineligible",
+          "reason": "prefilterRejected"
+        }
+      ]
+    },
+    {
+      "id": "skill-session-26",
+      "routine": null,
+      "degraded": true,
+      "script": ["session-end", "prefilter-rejected"],
+      "expectedEvents": [
+        {
+          "kind": "ineligible",
+          "reason": "prefilterRejected"
+        }
+      ]
+    },
+    {
+      "id": "skill-session-27",
+      "routine": null,
+      "degraded": true,
+      "script": ["session-end", "prefilter-rejected"],
+      "expectedEvents": [
+        {
+          "kind": "ineligible",
+          "reason": "prefilterRejected"
+        }
+      ]
+    },
+    {
+      "id": "skill-session-28",
+      "routine": null,
+      "degraded": true,
+      "script": ["session-end", "prefilter-rejected"],
+      "expectedEvents": [
+        {
+          "kind": "ineligible",
+          "reason": "prefilterRejected"
+        }
+      ]
+    },
+    {
+      "id": "skill-session-29",
+      "routine": null,
+      "degraded": true,
+      "script": ["session-end", "prefilter-rejected"],
+      "expectedEvents": [
+        {
+          "kind": "ineligible",
+          "reason": "prefilterRejected"
+        }
+      ]
+    },
+    {
+      "id": "skill-session-30",
+      "routine": null,
+      "degraded": true,
+      "script": ["session-end", "prefilter-rejected"],
+      "expectedEvents": [
+        {
+          "kind": "ineligible",
+          "reason": "prefilterRejected"
+        }
+      ]
+    }
+  ]
+}

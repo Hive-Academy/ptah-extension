@@ -1,0 +1,2 @@
+{"type":"user","uuid":"3277e298-2c04-4b4a-8975-55e3aad73f56","sessionId":"skill-session-15","timestamp":"2026-01-15T09:00:00.000Z","cwd":"D:/bench/ptah-extension","message":{"role":"user","content":[{"type":"text","text":"Synthetic benchmark request: question and answer 3."}]}}
+{"type":"assistant","uuid":"11acf2cc-e30b-4357-92b6-25378ae02c4e","sessionId":"skill-session-15","timestamp":"2026-01-15T09:01:00.000Z","cwd":"D:/bench/ptah-extension","message":{"role":"assistant","content":[{"type":"text","text":"Synthetic answer: this is a Q&A-only exchange."}]}}

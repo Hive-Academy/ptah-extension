@@ -6,7 +6,6 @@ import {
 } from '@angular/core';
 
 export type SkillTriggerKey =
-  | 'sessionEnd'
   | 'idleMs'
   | 'bootScan'
   | 'subagentStop'

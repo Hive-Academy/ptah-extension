@@ -1,5 +1,6 @@
 /**
- * Tray service — R10 and the pause checkbox (TASK_2026_180, B5.1.1 / B5.1.3).
+ * Tray service — R10, the two pause checkboxes, freshness and the keep-alive
+ * copy (TASK_2026_180 B5.1.1 / B5.1.3; TASK_2026_620 B-P P5).
  *
  * The load-bearing group is "R10 — the quit item". Suppressing
  * `window-all-closed` without a working quit leaves an unkillable background
@@ -11,11 +12,11 @@
 import type { MenuItem, MenuItemConstructorOptions } from 'electron';
 
 /**
- * `apps/ptah-electron/__mocks__/electron.ts` has no `Tray` (there was no tray
- * in the app before this batch) and its `Menu` discards the template. Both are
- * replaced here, per that file's own header. Everything is created inside the
- * factory because `jest.mock` is hoisted above the module body — referencing an
- * outer `class` from the factory would hit its TDZ.
+ * `apps/ptah-electron/__mocks__/electron.ts` has no `Tray` and its `Menu`
+ * discards the template. Both are replaced here, per that file's own header.
+ * Everything is created inside the factory because `jest.mock` is hoisted above
+ * the module body — referencing an outer `class` from the factory would hit its
+ * TDZ.
  */
 jest.mock('electron', () => {
   /** Constructing a tray with this path throws, standing in for a real failure. */
@@ -28,6 +29,7 @@ jest.mock('electron', () => {
   class MockTray {
     contextMenu: BuiltMenu | null = null;
     tooltip: string | null = null;
+    readonly listeners = new Map<string, Array<() => void>>();
     private destroyed = false;
 
     constructor(public readonly iconPath: string) {
@@ -42,6 +44,16 @@ jest.mock('electron', () => {
     }
     setToolTip(tooltip: string): void {
       this.tooltip = tooltip;
+    }
+    on(event: string, listener: () => void): this {
+      const list = this.listeners.get(event) ?? [];
+      list.push(listener);
+      this.listeners.set(event, list);
+      return this;
+    }
+    emit(event: string): void {
+      if (this.destroyed) return;
+      for (const listener of this.listeners.get(event) ?? []) listener();
     }
     isDestroyed(): boolean {
       return this.destroyed;
@@ -74,10 +86,13 @@ import {
   PtahTrayService,
   buildTrayMenuTemplate,
   assertQuitItemPresent,
-  PAUSE_ITEM_LABEL,
+  trayTooltip,
+  PAUSE_MEMORY_ITEM_LABEL,
+  PAUSE_SKILLS_ITEM_LABEL,
   QUIT_ITEM_LABEL,
   TRAY_TOOLTIP,
   PTAH_CONFIG_SECTION,
+  MEMORY_ENABLED_KEY,
   SKILL_SYNTHESIS_ENABLED_KEY,
   TRAY_KEEPALIVE_KEY,
   TRAY_SETTINGS_KEYS,
@@ -95,6 +110,8 @@ interface MockTrayShape {
     readonly template: readonly MenuItemConstructorOptions[];
   } | null;
   tooltip: string | null;
+  readonly listeners: Map<string, Array<() => void>>;
+  emit(event: string): void;
   isDestroyed(): boolean;
   destroy(): void;
 }
@@ -134,32 +151,64 @@ function clickItem(
   menuItem: Partial<MenuItem> = {},
 ): void {
   const click = item.click as unknown as
-    | ((m: Partial<MenuItem>) => void)
-    | undefined;
+    ((m: Partial<MenuItem>) => void) | undefined;
   if (typeof click !== 'function') {
     throw new Error(`menu item "${String(item.label)}" has no click handler`);
   }
   click(menuItem);
 }
 
+async function flushMicrotasks(turns = 5): Promise<void> {
+  for (let i = 0; i < turns; i += 1) {
+    await Promise.resolve();
+  }
+}
+
 interface Harness {
   readonly options: TrayServiceOptions;
+  readonly store: Map<string, unknown>;
   readonly getConfiguration: jest.Mock;
   readonly setConfiguration: jest.Mock;
+  readonly watchSetting: jest.Mock;
   readonly quit: jest.Mock;
+  readonly info: jest.Mock;
   readonly warn: jest.Mock;
+  readonly subscriptionDispose: jest.Mock;
+  /**
+   * Fire the file-settings watcher for `key`, as `PtahFileSettingsManager`
+   * does after its own `set()` and after a cross-process `fs.watch` diff.
+   */
+  fireChange(key: string): void;
+  /** Another process edited ~/.ptah/settings.json: value lands, watcher fires. */
+  externalEdit(key: string, value: unknown): void;
+  watcherCount(): number;
 }
 
 function makeHarness(
-  overrides: { enabled?: boolean; iconPath?: string } = {},
+  overrides: {
+    memoryEnabled?: boolean;
+    skillsEnabled?: boolean;
+    keepAlive?: boolean;
+    iconPath?: string;
+  } = {},
 ): Harness {
   // Stateful on purpose: `getConfiguration` must observe what
   // `setConfiguration` wrote, or the menu rebuild after a toggle silently
-  // re-reads the ORIGINAL state and the "still has a quit item while paused"
-  // assertion never reaches the paused branch it exists to cover.
+  // re-reads the ORIGINAL state.
   const store = new Map<string, unknown>([
-    [SKILL_SYNTHESIS_ENABLED_KEY, overrides.enabled ?? true],
+    [MEMORY_ENABLED_KEY, overrides.memoryEnabled ?? true],
+    [SKILL_SYNTHESIS_ENABLED_KEY, overrides.skillsEnabled ?? true],
   ]);
+  if (overrides.keepAlive !== undefined) {
+    store.set(TRAY_KEEPALIVE_KEY, overrides.keepAlive);
+  }
+  const watchers = new Map<string, Set<() => void>>();
+  const subscriptionDispose = jest.fn();
+
+  const fireChange = (key: string): void => {
+    for (const watcher of [...(watchers.get(key) ?? [])]) watcher();
+  };
+
   const getConfiguration = jest.fn(
     <T>(_section: string, key: string, fallback?: T): T | undefined =>
       store.has(key) ? (store.get(key) as T) : fallback,
@@ -169,21 +218,46 @@ function makeHarness(
     .mockImplementation(
       async (_section: string, key: string, value: unknown): Promise<void> => {
         store.set(key, value);
+        fireChange(key);
       },
     );
+  const watchSetting = jest.fn((key: string, onChange: () => void) => {
+    const set = watchers.get(key) ?? new Set<() => void>();
+    set.add(onChange);
+    watchers.set(key, set);
+    return {
+      dispose: () => {
+        subscriptionDispose();
+        watchers.get(key)?.delete(onChange);
+      },
+    };
+  });
   const quit = jest.fn();
+  const info = jest.fn();
   const warn = jest.fn();
 
   return {
+    store,
     getConfiguration,
     setConfiguration,
+    watchSetting,
     quit,
+    info,
     warn,
+    subscriptionDispose,
+    fireChange,
+    externalEdit: (key, value) => {
+      store.set(key, value);
+      fireChange(key);
+    },
+    watcherCount: () =>
+      [...watchers.values()].reduce((total, set) => total + set.size, 0),
     options: {
       workspace: { getConfiguration, setConfiguration },
+      watchSetting,
       iconPath: overrides.iconPath ?? WORKING_ICON_PATH,
       quit,
-      logger: { info: jest.fn(), warn },
+      logger: { info, warn },
     },
   };
 }
@@ -193,33 +267,41 @@ beforeEach(() => {
   electronMock.Menu.buildFromTemplate.mockClear();
 });
 
+const noopTemplateOptions = {
+  memoryPaused: false,
+  skillsPaused: false,
+  onTogglePause: jest.fn(),
+  onQuit: jest.fn(),
+};
+
 // ---------------------------------------------------------------------------
 // R10 — the "Quit Ptah" item is unconditional and usable
 // ---------------------------------------------------------------------------
 
 describe('R10 — the tray menu always carries a usable "Quit Ptah" item', () => {
   it.each([
-    ['not paused', false],
-    ['paused', true],
-  ])('emits the quit item when %s', (_name, paused) => {
-    const template = buildTrayMenuTemplate({
-      paused,
-      onTogglePause: jest.fn(),
-      onQuit: jest.fn(),
-    });
+    [false, false],
+    [true, false],
+    [false, true],
+    [true, true],
+  ])(
+    'emits the quit item when memoryPaused=%s skillsPaused=%s',
+    (memoryPaused, skillsPaused) => {
+      const template = buildTrayMenuTemplate({
+        ...noopTemplateOptions,
+        memoryPaused,
+        skillsPaused,
+      });
 
-    const quitItem = itemLabelled(template, QUIT_ITEM_LABEL);
-    expect(quitItem.enabled).toBe(true);
-    expect(typeof quitItem.click).toBe('function');
-  });
+      const quitItem = itemLabelled(template, QUIT_ITEM_LABEL);
+      expect(quitItem.enabled).toBe(true);
+      expect(typeof quitItem.click).toBe('function');
+    },
+  );
 
   it('wires the quit item to the quit callback', () => {
     const onQuit = jest.fn();
-    const template = buildTrayMenuTemplate({
-      paused: false,
-      onTogglePause: jest.fn(),
-      onQuit,
-    });
+    const template = buildTrayMenuTemplate({ ...noopTemplateOptions, onQuit });
 
     clickItem(itemLabelled(template, QUIT_ITEM_LABEL));
 
@@ -238,27 +320,31 @@ describe('R10 — the tray menu always carries a usable "Quit Ptah" item', () =>
     expect(harness.quit).toHaveBeenCalledTimes(1);
   });
 
-  it('still carries a usable quit item after the pause checkbox is toggled', async () => {
-    const harness = makeHarness({ enabled: true });
-    PtahTrayService.create(harness.options);
+  it.each([PAUSE_MEMORY_ITEM_LABEL, PAUSE_SKILLS_ITEM_LABEL])(
+    'still carries a usable quit item after "%s" is toggled',
+    async (label) => {
+      const harness = makeHarness();
+      PtahTrayService.create(harness.options);
 
-    clickItem(itemLabelled(mountedTemplate(), PAUSE_ITEM_LABEL), {
-      checked: true,
-    });
-    await Promise.resolve();
-    await Promise.resolve();
+      clickItem(itemLabelled(mountedTemplate(), label), { checked: true });
+      await flushMicrotasks();
 
-    expect(electronMock.Menu.buildFromTemplate).toHaveBeenCalledTimes(2);
-    const quitItem = itemLabelled(mountedTemplate(), QUIT_ITEM_LABEL);
-    expect(quitItem.enabled).toBe(true);
-    clickItem(quitItem);
-    expect(harness.quit).toHaveBeenCalledTimes(1);
-  });
+      expect(
+        electronMock.Menu.buildFromTemplate.mock.calls.length,
+      ).toBeGreaterThanOrEqual(2);
+      const quitItem = itemLabelled(mountedTemplate(), QUIT_ITEM_LABEL);
+      expect(quitItem.enabled).toBe(true);
+      clickItem(quitItem);
+      expect(harness.quit).toHaveBeenCalledTimes(1);
+    },
+  );
 
   describe('assertQuitItemPresent rejects every unusable shape', () => {
     it('throws when the quit item is absent', () => {
       expect(() =>
-        assertQuitItemPresent([{ label: PAUSE_ITEM_LABEL, click: jest.fn() }]),
+        assertQuitItemPresent([
+          { label: PAUSE_MEMORY_ITEM_LABEL, click: jest.fn() },
+        ]),
       ).toThrow(/no usable "Quit Ptah" item/);
     });
 
@@ -278,13 +364,7 @@ describe('R10 — the tray menu always carries a usable "Quit Ptah" item', () =>
 
     it('accepts the template the service actually builds', () => {
       expect(() =>
-        assertQuitItemPresent(
-          buildTrayMenuTemplate({
-            paused: false,
-            onTogglePause: jest.fn(),
-            onQuit: jest.fn(),
-          }),
-        ),
+        assertQuitItemPresent(buildTrayMenuTemplate(noopTemplateOptions)),
       ).not.toThrow();
     });
   });
@@ -311,96 +391,310 @@ describe('R10 — the tray menu always carries a usable "Quit Ptah" item', () =>
 });
 
 // ---------------------------------------------------------------------------
-// B5.1.3 — the checkbox writes the master switch, and nothing else
+// The two pause checkboxes — each writes its own master switch, nothing else
 // ---------------------------------------------------------------------------
 
-describe('"Pause background learning" toggles skillSynthesis.enabled', () => {
-  it('renders as a checkbox with the agreed label', () => {
+describe('"Pause memory" and "Pause skills" checkboxes', () => {
+  it('renders both as checkboxes, before the separator and the quit item', () => {
     PtahTrayService.create(makeHarness().options);
 
-    const pauseItem = itemLabelled(mountedTemplate(), PAUSE_ITEM_LABEL);
-    expect(pauseItem.type).toBe('checkbox');
+    const template = mountedTemplate();
+    expect(template.map((item) => item.label ?? item.type)).toEqual([
+      PAUSE_MEMORY_ITEM_LABEL,
+      PAUSE_SKILLS_ITEM_LABEL,
+      'separator',
+      QUIT_ITEM_LABEL,
+    ]);
+    expect(itemLabelled(template, PAUSE_MEMORY_ITEM_LABEL).type).toBe(
+      'checkbox',
+    );
+    expect(itemLabelled(template, PAUSE_SKILLS_ITEM_LABEL).type).toBe(
+      'checkbox',
+    );
   });
 
   it.each([
-    ['unchecked while synthesis is enabled', true, false],
-    ['checked while synthesis is disabled', false, true],
-  ])('is %s', (_name, enabled, expectedChecked) => {
-    PtahTrayService.create(makeHarness({ enabled }).options);
+    [true, true, false, false],
+    [false, true, true, false],
+    [true, false, false, true],
+    [false, false, true, true],
+  ])(
+    'renders memory.enabled=%s skillSynthesis.enabled=%s as memory checked=%s, skills checked=%s',
+    (memoryEnabled, skillsEnabled, memoryChecked, skillsChecked) => {
+      PtahTrayService.create(
+        makeHarness({ memoryEnabled, skillsEnabled }).options,
+      );
 
-    expect(itemLabelled(mountedTemplate(), PAUSE_ITEM_LABEL).checked).toBe(
-      expectedChecked,
-    );
-  });
+      const template = mountedTemplate();
+      expect(itemLabelled(template, PAUSE_MEMORY_ITEM_LABEL).checked).toBe(
+        memoryChecked,
+      );
+      expect(itemLabelled(template, PAUSE_SKILLS_ITEM_LABEL).checked).toBe(
+        skillsChecked,
+      );
+    },
+  );
 
-  it('writes skillSynthesis.enabled=false when the user checks "pause"', async () => {
-    const harness = makeHarness({ enabled: true });
-    PtahTrayService.create(harness.options);
+  it.each<[string, string, boolean, boolean]>([
+    [PAUSE_MEMORY_ITEM_LABEL, MEMORY_ENABLED_KEY, true, false],
+    [PAUSE_MEMORY_ITEM_LABEL, MEMORY_ENABLED_KEY, false, true],
+    [PAUSE_SKILLS_ITEM_LABEL, SKILL_SYNTHESIS_ENABLED_KEY, true, false],
+    [PAUSE_SKILLS_ITEM_LABEL, SKILL_SYNTHESIS_ENABLED_KEY, false, true],
+  ])(
+    '"%s" writes ONLY %s (checked=%s → value %s)',
+    async (label, key, checked, expectedValue) => {
+      const harness = makeHarness({
+        memoryEnabled: checked,
+        skillsEnabled: checked,
+      });
+      PtahTrayService.create(harness.options);
 
-    clickItem(itemLabelled(mountedTemplate(), PAUSE_ITEM_LABEL), {
-      checked: true,
-    });
-    await Promise.resolve();
+      clickItem(itemLabelled(mountedTemplate(), label), { checked });
+      await flushMicrotasks();
 
-    expect(harness.setConfiguration).toHaveBeenCalledWith(
-      PTAH_CONFIG_SECTION,
-      SKILL_SYNTHESIS_ENABLED_KEY,
-      false,
-    );
-  });
+      // One write, one key: no trigger sub-switch, no second "off" concept.
+      expect(harness.setConfiguration).toHaveBeenCalledTimes(1);
+      expect(harness.setConfiguration).toHaveBeenCalledWith(
+        PTAH_CONFIG_SECTION,
+        key,
+        expectedValue,
+      );
+    },
+  );
 
-  it('writes skillSynthesis.enabled=true when the user unchecks "pause"', async () => {
-    const harness = makeHarness({ enabled: false });
-    PtahTrayService.create(harness.options);
-
-    clickItem(itemLabelled(mountedTemplate(), PAUSE_ITEM_LABEL), {
-      checked: false,
-    });
-    await Promise.resolve();
-
-    expect(harness.setConfiguration).toHaveBeenCalledWith(
-      PTAH_CONFIG_SECTION,
-      SKILL_SYNTHESIS_ENABLED_KEY,
-      true,
-    );
-  });
-
-  it('introduces no second "off" concept — the master switch is the only key written', async () => {
-    const harness = makeHarness({ enabled: true });
-    PtahTrayService.create(harness.options);
-
-    clickItem(itemLabelled(mountedTemplate(), PAUSE_ITEM_LABEL), {
-      checked: true,
-    });
-    await Promise.resolve();
-
-    expect(harness.setConfiguration).toHaveBeenCalledTimes(1);
-    const writtenKeys = harness.setConfiguration.mock.calls.map(
-      (call) => call[1] as string,
-    );
-    expect(writtenKeys).toEqual([SKILL_SYNTHESIS_ENABLED_KEY]);
-    expect(writtenKeys).not.toContain('skillSynthesis.trayPaused');
-  });
-
-  it('survives a failed write, logs it, and stays live', async () => {
-    const harness = makeHarness({ enabled: true });
+  it('survives a failed write, logs it, stays live, and reverts the checkbox', async () => {
+    const harness = makeHarness({ memoryEnabled: true });
     harness.setConfiguration.mockRejectedValue(
       new Error('settings file locked'),
     );
     const service = PtahTrayService.create(harness.options);
 
-    clickItem(itemLabelled(mountedTemplate(), PAUSE_ITEM_LABEL), {
+    clickItem(itemLabelled(mountedTemplate(), PAUSE_MEMORY_ITEM_LABEL), {
       checked: true,
     });
-    await Promise.resolve();
-    await Promise.resolve();
-    await Promise.resolve();
+    await flushMicrotasks();
 
     expect(harness.warn).toHaveBeenCalledTimes(1);
-    expect(String(harness.warn.mock.calls[0][0])).toContain(
-      SKILL_SYNTHESIS_ENABLED_KEY,
-    );
+    expect(String(harness.warn.mock.calls[0][0])).toContain(MEMORY_ENABLED_KEY);
     expect(service?.isLive()).toBe(true);
+    // Rebuilt from the unchanged persisted value, even though it equals the
+    // state the previous menu was built from.
+    expect(electronMock.Menu.buildFromTemplate).toHaveBeenCalledTimes(2);
+    expect(
+      itemLabelled(mountedTemplate(), PAUSE_MEMORY_ITEM_LABEL).checked,
+    ).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Freshness — file-settings watcher (in-process AND external), refresh on
+// open, intent-based clicks on a stale menu, subscription disposal
+// ---------------------------------------------------------------------------
+
+describe('the menu stays current with the persisted switches', () => {
+  it('subscribes to exactly the two pause keys through the file-settings watcher', () => {
+    const harness = makeHarness();
+    PtahTrayService.create(harness.options);
+
+    const watchedKeys = harness.watchSetting.mock.calls.map(
+      (call) => call[0] as string,
+    );
+    expect(watchedKeys.sort()).toEqual(
+      [MEMORY_ENABLED_KEY, SKILL_SYNTHESIS_ENABLED_KEY].sort(),
+    );
+  });
+
+  it('refreshes the checkbox and tooltip on an EXTERNAL edit of settings.json (no tray event needed)', () => {
+    const harness = makeHarness();
+    PtahTrayService.create(harness.options);
+
+    // Another process (a second Ptah, the CLI, a hand edit) paused memory. The
+    // cross-process fs.watch diff fires the watcher; no tray event fires —
+    // which is the Linux AppIndicator case.
+    harness.externalEdit(MEMORY_ENABLED_KEY, false);
+
+    expect(
+      itemLabelled(mountedTemplate(), PAUSE_MEMORY_ITEM_LABEL).checked,
+    ).toBe(true);
+    expect(lastTray().tooltip).toBe(`${TRAY_TOOLTIP} — memory paused`);
+
+    harness.externalEdit(SKILL_SYNTHESIS_ENABLED_KEY, false);
+
+    expect(
+      itemLabelled(mountedTemplate(), PAUSE_SKILLS_ITEM_LABEL).checked,
+    ).toBe(true);
+    expect(lastTray().tooltip).toBe(`${TRAY_TOOLTIP} — learning paused`);
+  });
+
+  it('refreshes when another surface writes a switch in-process', async () => {
+    const harness = makeHarness({ skillsEnabled: false });
+    PtahTrayService.create(harness.options);
+
+    // e.g. the Thoth Skills tab writing through the same provider.
+    await harness.options.workspace.setConfiguration(
+      PTAH_CONFIG_SECTION,
+      SKILL_SYNTHESIS_ENABLED_KEY,
+      true,
+    );
+
+    expect(
+      itemLabelled(mountedTemplate(), PAUSE_SKILLS_ITEM_LABEL).checked,
+    ).toBe(false);
+    expect(lastTray().tooltip).toBe(TRAY_TOOLTIP);
+  });
+
+  it.each(['mouse-enter', 'click', 'right-click'])(
+    'backstop: picks up a value changed with no watcher callback on "%s"',
+    (event) => {
+      const harness = makeHarness();
+      PtahTrayService.create(harness.options);
+
+      // The watcher was lost (PtahFileSettingsManager gave up after retries).
+      harness.store.set(SKILL_SYNTHESIS_ENABLED_KEY, false);
+      lastTray().emit(event);
+
+      expect(
+        itemLabelled(mountedTemplate(), PAUSE_SKILLS_ITEM_LABEL).checked,
+      ).toBe(true);
+      expect(lastTray().tooltip).toBe(`${TRAY_TOOLTIP} — skills paused`);
+    },
+  );
+
+  it('does not rebuild on open when nothing changed', () => {
+    PtahTrayService.create(makeHarness().options);
+
+    lastTray().emit('mouse-enter');
+    lastTray().emit('right-click');
+
+    expect(electronMock.Menu.buildFromTemplate).toHaveBeenCalledTimes(1);
+  });
+
+  it.each<[string, string, boolean]>([
+    // Menu shows "not paused" but the file says paused; the user checks it.
+    [PAUSE_MEMORY_ITEM_LABEL, MEMORY_ENABLED_KEY, true],
+    // Menu shows "paused" but the file says running; the user unchecks it.
+    [PAUSE_SKILLS_ITEM_LABEL, SKILL_SYNTHESIS_ENABLED_KEY, false],
+  ])(
+    'a click on a STALE "%s" writes the clicked intent, not a toggle of the file value',
+    async (label, key, checkedAfterClick) => {
+      // The menu is built from the initial state...
+      const harness = makeHarness({
+        memoryEnabled: true,
+        skillsEnabled: false,
+      });
+      PtahTrayService.create(harness.options);
+      // ...then the file changes with NO watcher callback, so the menu is stale.
+      harness.store.set(MEMORY_ENABLED_KEY, false);
+      harness.store.set(SKILL_SYNTHESIS_ENABLED_KEY, true);
+
+      // Electron flips the stale checkbox and reports the NEW checked state.
+      clickItem(itemLabelled(mountedTemplate(), label), {
+        checked: checkedAfterClick,
+      });
+      await flushMicrotasks();
+
+      // paused = checked ⇒ enabled = !checked. A toggle of the file value would
+      // have written the opposite.
+      expect(harness.setConfiguration).toHaveBeenCalledTimes(1);
+      expect(harness.setConfiguration).toHaveBeenCalledWith(
+        PTAH_CONFIG_SECTION,
+        key,
+        !checkedAfterClick,
+      );
+      // Re-read and rebuilt after the write.
+      expect(itemLabelled(mountedTemplate(), label).checked).toBe(
+        checkedAfterClick,
+      );
+    },
+  );
+
+  it('disposes both watcher subscriptions on destroy', () => {
+    const harness = makeHarness();
+    const service = PtahTrayService.create(harness.options);
+    expect(harness.watcherCount()).toBe(2);
+
+    service?.destroy();
+
+    expect(harness.subscriptionDispose).toHaveBeenCalledTimes(2);
+    expect(harness.watcherCount()).toBe(0);
+    harness.externalEdit(MEMORY_ENABLED_KEY, false);
+    expect(electronMock.Menu.buildFromTemplate).toHaveBeenCalledTimes(1);
+  });
+
+  it('releases an earlier subscription and the tray when a later watcher registration throws', () => {
+    const harness = makeHarness();
+    let calls = 0;
+    harness.watchSetting.mockImplementation(() => {
+      calls += 1;
+      if (calls === 2) throw new Error('watch failed');
+      return { dispose: harness.subscriptionDispose };
+    });
+
+    const service = PtahTrayService.create(harness.options);
+
+    expect(service).toBeNull();
+    expect(harness.subscriptionDispose).toHaveBeenCalledTimes(1);
+    expect(lastTray().isDestroyed()).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Keep-alive mode — the create log and the live read
+// ---------------------------------------------------------------------------
+
+describe('keep-alive mode', () => {
+  it('logs keep-alive OFF by default — closing all windows quits', () => {
+    const harness = makeHarness();
+
+    const service = PtahTrayService.create(harness.options);
+
+    expect(harness.info).toHaveBeenCalledWith(
+      '[Ptah Electron] Tray created (pause controls); keep-alive off — ' +
+        'closing all windows quits',
+    );
+    expect(service?.isKeepAliveRequested()).toBe(false);
+  });
+
+  it('logs keep-alive ON when trayKeepalive is true', () => {
+    const harness = makeHarness({ keepAlive: true });
+
+    const service = PtahTrayService.create(harness.options);
+
+    expect(harness.info).toHaveBeenCalledWith(
+      '[Ptah Electron] Tray created (pause controls); keep-alive on — ' +
+        'closing all windows leaves Ptah running',
+    );
+    expect(service?.isKeepAliveRequested()).toBe(true);
+  });
+
+  it('never logs the old "keep-alive active" line', () => {
+    const harness = makeHarness();
+    PtahTrayService.create(harness.options);
+
+    const lines = harness.info.mock.calls.map((call) => String(call[0]));
+    expect(lines.some((line) => line.includes('keep-alive active'))).toBe(
+      false,
+    );
+  });
+
+  it('reads trayKeepalive live, not once at creation', () => {
+    const harness = makeHarness({ keepAlive: false });
+    const service = PtahTrayService.create(harness.options);
+
+    harness.store.set(TRAY_KEEPALIVE_KEY, true);
+
+    expect(service?.isKeepAliveRequested()).toBe(true);
+  });
+
+  it('answers "off" (quit) when the setting cannot be read', () => {
+    const harness = makeHarness();
+    const service = PtahTrayService.create(harness.options);
+    harness.getConfiguration.mockImplementation(() => {
+      throw new Error('settings unreadable');
+    });
+
+    expect(service?.isKeepAliveRequested()).toBe(false);
+    expect(harness.warn).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -416,18 +710,51 @@ describe('the tray writes keys that are actually routed to the file store', () =
     },
   );
 
-  it('uses the same key strings the drain reads', () => {
+  it('uses the same key strings the pipelines read', () => {
     // Hardcoded here rather than imported: the app layer must not import
-    // `skill-synthesis`. This asserts the strings did not drift.
+    // `skill-synthesis` or `memory-curator`. This asserts the strings did not
+    // drift.
     expect(SKILL_SYNTHESIS_ENABLED_KEY).toBe('skillSynthesis.enabled');
+    expect(MEMORY_ENABLED_KEY).toBe('memory.enabled');
     expect(TRAY_KEEPALIVE_KEY).toBe('skillSynthesis.trayKeepalive');
   });
 });
 
-describe('tray identity', () => {
-  it('sets a tooltip so the icon is identifiable', () => {
-    PtahTrayService.create(makeHarness().options);
+// ---------------------------------------------------------------------------
+// Tooltip — identifies the icon and names the paused switch
+// ---------------------------------------------------------------------------
 
+describe('tray tooltip', () => {
+  it.each([
+    [false, false, 'Ptah'],
+    [true, false, 'Ptah — memory paused'],
+    [false, true, 'Ptah — skills paused'],
+    [true, true, 'Ptah — learning paused'],
+  ])(
+    'memoryPaused=%s skillsPaused=%s → "%s"',
+    (memoryPaused, skillsPaused, expected) => {
+      expect(trayTooltip({ memoryPaused, skillsPaused })).toBe(expected);
+    },
+  );
+
+  it('is set on the tray at creation from the persisted state', () => {
+    PtahTrayService.create(
+      makeHarness({ memoryEnabled: false, skillsEnabled: false }).options,
+    );
+
+    expect(lastTray().tooltip).toBe('Ptah — learning paused');
+  });
+
+  it('follows a toggle from the tray itself', async () => {
+    const harness = makeHarness();
+    PtahTrayService.create(harness.options);
     expect(lastTray().tooltip).toBe(TRAY_TOOLTIP);
+
+    clickItem(itemLabelled(mountedTemplate(), PAUSE_SKILLS_ITEM_LABEL), {
+      checked: true,
+    });
+    await flushMicrotasks();
+
+    expect(lastTray().tooltip).toBe('Ptah — skills paused');
   });
 });

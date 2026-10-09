@@ -264,6 +264,92 @@
     },
     "lint": {
       "executor": "@nx/eslint:lint"
+    },
+    "build-host-memory-skills": {
+      "executor": "@nx/esbuild:esbuild",
+      "dependsOn": ["build-host"],
+      "outputs": ["{options.outputPath}/memory-skills-host.mjs"],
+      "options": {
+        "outputPath": "dist/tools/mcp-bench",
+        "main": "tools/mcp-bench/src/memory-skills/host/memory-skills-host.entry.ts",
+        "outputFileName": "memory-skills-host.mjs",
+        "tsConfig": "tools/mcp-bench/tsconfig.json",
+        "format": ["esm"],
+        "platform": "node",
+        "target": "node20",
+        "bundle": true,
+        "thirdParty": false,
+        "skipTypeCheck": true,
+        "deleteOutputPath": false,
+        "sourcemap": true,
+        "esbuildOptions": {
+          "outExtension": {
+            ".js": ".mjs"
+          },
+          "alias": {
+            "vscode": "./libs/backend/cli-engine/src/lib/shims/vscode-shim.ts"
+          },
+          "banner": {
+            "js": "import 'reflect-metadata'; import { createRequire as __esm_createRequire } from 'module'; import { fileURLToPath as __esm_fileURLToPath } from 'url'; import { dirname as __esm_dirname } from 'path'; const require = __esm_createRequire(import.meta.url); const __filename = __esm_fileURLToPath(import.meta.url); const __dirname = __esm_dirname(__filename);"
+          }
+        },
+        "external": [
+          "@anthropic-ai/claude-agent-sdk",
+          "@openai/codex-sdk",
+          "@cursor/sdk",
+          "reflect-metadata",
+          "tsyringe",
+          "async-mutex",
+          "cross-spawn",
+          "eventemitter3",
+          "gray-matter",
+          "json2md",
+          "jsonrepair",
+          "minimatch",
+          "picomatch",
+          "@parcel/watcher",
+          "rxjs",
+          "uuid",
+          "which",
+          "zod",
+          "tslib",
+          "chokidar",
+          "fast-glob",
+          "axios",
+          "exa-js",
+          "gpt-tokenizer",
+          "web-tree-sitter",
+          "@tavily/core",
+          "marked",
+          "commander",
+          "better-sqlite3",
+          "sqlite-vec",
+          "croner",
+          "ulid",
+          "@huggingface/transformers",
+          "grammy",
+          "discord.js",
+          "@slack/bolt",
+          "ffmpeg-static",
+          "nodejs-whisper",
+          "bottleneck",
+          "typescript"
+        ]
+      }
+    },
+    "bench-memory-skills": {
+      "executor": "nx:run-commands",
+      "dependsOn": ["build-host-memory-skills"],
+      "options": {
+        "parallel": false,
+        "commands": [
+          {
+            "command": "npx esbuild tools/mcp-bench/src/memory-skills/runner/run-memory-skills.entry.ts --bundle --platform=node --target=node20 --format=esm --tsconfig=tools/mcp-bench/tsconfig.json --packages=external --log-level=warning --outfile=dist/tools/mcp-bench/run-memory-skills.mjs \"--banner:js=import { createRequire as __esm_createRequire } from 'node:module'; const require = __esm_createRequire(import.meta.url);\"",
+            "forwardAllArgs": false
+          },
+          "node dist/tools/mcp-bench/run-memory-skills.mjs"
+        ]
+      }
     }
   }
 }

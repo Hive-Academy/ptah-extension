@@ -56,7 +56,6 @@ function makeWorkspace(
     'memory.triggers.idleMs': 0,
     'memory.triggers.turnThreshold': 0,
     'memory.triggers.bootScan': false,
-    'memory.triggers.preCompact': true,
     'memory.triggers.userPromptSubmit.enabled': true,
     'memory.triggers.userPromptSubmit.cueList': [
       'remember (this|that)',

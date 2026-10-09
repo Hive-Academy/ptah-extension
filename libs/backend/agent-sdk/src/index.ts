@@ -100,6 +100,12 @@ export {
   type UnattendedSessionPolicy,
 } from './lib/permission/unattended-session-policy.registry';
 export type { IAuthEnvProvider } from './lib/auth-env.port';
+export {
+  MODEL_DISPATCH_PROVENANCE_TAP,
+  type ModelDispatchProvenance,
+  type ModelDispatchProvenanceTap,
+  type ModelDispatchRoute,
+} from './lib/curator-llm-adapter/model-dispatch-provenance';
 export type { IProviderAuthResolver } from './lib/auth/provider-auth-resolver.port';
 export type { OneShotAuthOverride } from './lib/helpers';
 export type { IPricingProvider } from './lib/pricing.port';

@@ -105,6 +105,9 @@ describe('SkillSynthesisService', () => {
           return fallback;
         },
       ),
+      // B-P: `start()` subscribes to `skillSynthesis.enabled` above its early
+      // returns; a plain `jest.fn()` stands in for the disposer it returns.
+      onDidChangeConfiguration: jest.fn(),
     } as unknown as jest.Mocked<
       ConstructorParameters<typeof SkillSynthesisService>[3]
     >;
@@ -239,8 +242,24 @@ describe('SkillSynthesisService', () => {
     expect(connection.openAndMigrate).not.toHaveBeenCalled();
   });
 
-  it('analyzeSession() returns null before start()', async () => {
-    const { svc } = setup();
+  it('analyzeSession() completes the deferred start when enabled (B-P)', async () => {
+    // The pre-B-P contract was "null before start". B-P replaces it with the
+    // lazy deferred start: the one other caller of this worker besides the
+    // prefilter stage is the manual `analyzeNow` RPC, which must work on a
+    // booted-paused host the moment the switch comes back on — with or
+    // without a config event.
+    const { svc, extractor } = setup();
+    expect(await svc.analyzeSession('s1', '/repo')).not.toBeNull();
+    expect(extractor.extract).toHaveBeenCalledWith(
+      's1',
+      '/repo',
+      expect.anything(),
+      undefined,
+    );
+  });
+
+  it('analyzeSession() returns null when the deferred start cannot run (paused)', async () => {
+    const { svc } = setup({ enabled: false });
     expect(await svc.analyzeSession('s1', '/repo')).toBeNull();
   });
 
@@ -841,9 +860,9 @@ describe('SkillSynthesisService', () => {
     it('gives two same-kind events in the same millisecond two distinct, increasing ULIDs, and broadcasts the same id', async () => {
       const broadcastMessage = jest.fn().mockResolvedValue(undefined);
       const { svc } = setup({
-        webviewManager: { broadcastMessage } as unknown as ConstructorParameters<
-          typeof SkillSynthesisService
-        >[13],
+        webviewManager: {
+          broadcastMessage,
+        } as unknown as ConstructorParameters<typeof SkillSynthesisService>[13],
       });
       await svc.start();
       broadcastMessage.mockClear();
@@ -881,9 +900,9 @@ describe('SkillSynthesisService', () => {
     it('folds reason and candidateId into the broadcast stats, identically to the snapshot mapper', async () => {
       const broadcastMessage = jest.fn().mockResolvedValue(undefined);
       const { svc } = setup({
-        webviewManager: { broadcastMessage } as unknown as ConstructorParameters<
-          typeof SkillSynthesisService
-        >[13],
+        webviewManager: {
+          broadcastMessage,
+        } as unknown as ConstructorParameters<typeof SkillSynthesisService>[13],
       });
       await svc.start();
       broadcastMessage.mockClear();

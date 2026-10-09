@@ -30,6 +30,11 @@ import {
 } from '@ptah-extension/platform-core';
 import { blankToUndefined } from '@ptah-extension/shared';
 import { MEMORY_TOKENS } from './di/tokens';
+import {
+  MEMORY_TRIGGER_DEFAULTS,
+  MEMORY_TRIGGER_KEYS,
+  MEMORY_TRIGGER_SECTION,
+} from './triggers/memory-trigger-config';
 import { MemoryStore } from './memory.store';
 import { baseSalience } from './salience-ranking';
 import type {
@@ -250,6 +255,14 @@ export class MemoryCuratorService {
   start(): void {
     if (this.disposer) return;
     this.disposer = this.registry.register((data) => {
+      if (
+        this.workspace?.getConfiguration<boolean>(
+          MEMORY_TRIGGER_SECTION,
+          MEMORY_TRIGGER_KEYS.enabled,
+          MEMORY_TRIGGER_DEFAULTS.enabled,
+        ) === false
+      )
+        return;
       if (data.sessionId.startsWith(INTERNAL_QUERY_SESSION_PREFIX)) {
         this.logger.debug(
           '[memory-curator] ignoring a PreCompact fan-out for an internal one-shot query; it names no session',

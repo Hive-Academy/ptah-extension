@@ -25,7 +25,6 @@ import { SkillDiagnosticsStateService } from '../../services/skill-diagnostics-s
 import { SkillTriggersSettingsComponent } from './skill-triggers-settings.component';
 
 const ALL_ON: SkillTriggersDto = {
-  sessionEnd: true,
   idleMs: 600_000,
   bootScan: true,
   subagentStop: { enabled: true },
@@ -52,13 +51,6 @@ interface ParityCase {
 
 /** Base accordion `onTriggerChange`, one row per control behaviour. */
 const CASES: readonly ParityCase[] = [
-  {
-    name: 'sessionEnd off',
-    key: 'sessionEnd',
-    action: { type: 'checkbox', checked: false },
-    initial: ALL_ON,
-    expected: { sessionEnd: false },
-  },
   {
     name: 'idleMs on applies 600000',
     key: 'idleMs',
@@ -112,7 +104,7 @@ const CASES: readonly ParityCase[] = [
     name: 'postToolUse on with no current value defaults minEditCount to 1',
     key: 'postToolUse',
     action: { type: 'checkbox', checked: true },
-    initial: { sessionEnd: true, idleMs: 600_000, bootScan: true },
+    initial: { idleMs: 600_000, bootScan: true },
     expected: { postToolUse: { enabled: true, minEditCount: 1 } },
   },
   {
@@ -126,7 +118,7 @@ const CASES: readonly ParityCase[] = [
     name: 'postToolUseMinEditCount with no current value defaults enabled to false',
     key: 'postToolUseMinEditCount',
     action: { type: 'number', value: 5 },
-    initial: { sessionEnd: true, idleMs: 600_000, bootScan: true },
+    initial: { idleMs: 600_000, bootScan: true },
     // The numeric input only renders when it has a value; with no
     // `postToolUse` the control shows 0, so typing still emits the payload.
     expected: { postToolUse: { enabled: false, minEditCount: 5 } },
@@ -257,7 +249,7 @@ function act(
 }
 
 describe('Settings triggers card: setTriggers payload parity with the base accordion', () => {
-  it('covers all eight controls', () => {
+  it('covers all seven controls', () => {
     const keys = new Set(CASES.map((c) => c.key));
     expect([...keys].sort()).toEqual(
       [
@@ -266,7 +258,6 @@ describe('Settings triggers card: setTriggers payload parity with the base accor
         'maxAnalyzesPerHour',
         'postToolUse',
         'postToolUseMinEditCount',
-        'sessionEnd',
         'subagentStop',
         'turnComplete',
       ].sort(),

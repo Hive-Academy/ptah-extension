@@ -274,7 +274,6 @@ export const SkillAnalyzeNowParamsSchema = z.object({
 });
 
 export const SkillTriggersSchema = z.object({
-  sessionEnd: z.boolean(),
   idleMs: z
     .number()
     .int()

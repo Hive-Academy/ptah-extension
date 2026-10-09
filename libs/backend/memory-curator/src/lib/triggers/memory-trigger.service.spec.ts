@@ -200,7 +200,6 @@ function makeWorkspace(
     'memory.triggers.idleMs': 600000,
     'memory.triggers.turnThreshold': 20,
     'memory.triggers.bootScan': false,
-    'memory.triggers.preCompact': true,
     'memory.triggers.userPromptSubmit.enabled': true,
     'memory.triggers.userPromptSubmit.cueList': [
       'remember (this|that)',
@@ -900,6 +899,238 @@ describe('MemoryTriggerService', () => {
     stop.fire(stopPayload({ timestamp: 3 }));
     for (let i = 0; i < 8; i++) await Promise.resolve();
     expect(curator.curate).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('MemoryTriggerService — memory master pause and resume', () => {
+  it('pauses a real buffered episode and re-arms its idle boundary once on resume', async () => {
+    jest.useFakeTimers();
+    const enabled = { value: true };
+    let configurationListener:
+      | ((event: { affectsConfiguration: (key: string) => boolean }) => void)
+      | undefined;
+    const workspace = makeWorkspace({ 'memory.triggers.idleMs': 1 });
+    (workspace.getConfiguration as jest.Mock).mockImplementation(
+      (_section: string, key: string, fallback: unknown) =>
+        key === 'memory.enabled'
+          ? enabled.value
+          : key === 'memory.triggers.idleMs'
+            ? 1
+            : key === 'memory.triggers.maxCuratesPerHour'
+              ? 1
+              : fallback,
+    );
+    (workspace.onDidChangeConfiguration as jest.Mock).mockImplementation(
+      (listener) => {
+        configurationListener = listener;
+        return { dispose: () => undefined };
+      },
+    );
+    const { service, activity, stop, curator } = buildService({ workspace });
+    service.start();
+    // A completed assistant turn populates the episode. Without the pause
+    // gate, this idle timer reaches `curate`, making the negative assertion
+    // non-vacuous.
+    stop.fire(
+      stopPayload({
+        sessionId: 'paused-idle',
+        workspaceRoot: '/ws',
+        lastAssistantMessage: 'The important buffered episode content.',
+      }),
+    );
+    activity.registry.notifyAll({
+      sessionId: 'paused-idle',
+      workspaceRoot: '/ws',
+      timestamp: Date.now(),
+      role: 'assistant',
+    });
+    enabled.value = false;
+    configurationListener?.({
+      affectsConfiguration: (key) => key === 'ptah.memory.enabled',
+    });
+    await jest.advanceTimersByTimeAsync(10);
+
+    expect(curator.curate).not.toHaveBeenCalled();
+    enabled.value = true;
+    configurationListener?.({
+      affectsConfiguration: (key) => key === 'ptah.memory.enabled',
+    });
+    await jest.advanceTimersByTimeAsync(1);
+    for (let i = 0; i < 8; i++) await Promise.resolve();
+
+    expect(curator.curate).toHaveBeenCalledTimes(1);
+    await jest.advanceTimersByTimeAsync(10);
+    expect(curator.curate).toHaveBeenCalledTimes(1);
+    service.stop();
+    jest.useRealTimers();
+  });
+
+  it('does not curate when an external edit pauses the live idle fire', async () => {
+    jest.useFakeTimers();
+    const enabled = { value: true };
+    const workspace = makeWorkspace({ 'memory.triggers.idleMs': 1 });
+    (workspace.getConfiguration as jest.Mock).mockImplementation(
+      (_section: string, key: string, fallback: unknown) =>
+        key === 'memory.enabled'
+          ? enabled.value
+          : key === 'memory.triggers.idleMs'
+            ? 1
+            : fallback,
+    );
+    const { service, activity, stop, curator } = buildService({ workspace });
+    service.start();
+    stop.fire(
+      stopPayload({
+        sessionId: 'external-idle',
+        lastAssistantMessage: 'Buffered before the external settings edit.',
+      }),
+    );
+    activity.registry.notifyAll({
+      sessionId: 'external-idle',
+      workspaceRoot: '/ws',
+      timestamp: Date.now(),
+      role: 'assistant',
+    });
+
+    // No configuration event is delivered for the external settings edit.
+    enabled.value = false;
+    await jest.advanceTimersByTimeAsync(1);
+    for (let i = 0; i < 8; i++) await Promise.resolve();
+    expect(curator.curate).not.toHaveBeenCalled();
+
+    enabled.value = true;
+    activity.registry.notifyAll({
+      sessionId: 'resume-external-idle',
+      workspaceRoot: '/ws',
+      timestamp: Date.now(),
+      role: 'assistant',
+    });
+    await jest.advanceTimersByTimeAsync(1);
+    for (let i = 0; i < 8; i++) await Promise.resolve();
+
+    expect(curator.curate).toHaveBeenCalledTimes(1);
+    service.stop();
+    jest.useRealTimers();
+  });
+
+  it('re-arms quiet episodes only on resume and only when idle retry admission is open', () => {
+    const enabled = { value: true };
+    let configurationListener:
+      | ((event: { affectsConfiguration: (key: string) => boolean }) => void)
+      | undefined;
+    const workspace = makeWorkspace({ 'memory.triggers.idleMs': 1 });
+    (workspace.getConfiguration as jest.Mock).mockImplementation(
+      (_section: string, key: string, fallback: unknown) =>
+        key === 'memory.enabled'
+          ? enabled.value
+          : key === 'memory.triggers.idleMs'
+            ? 1
+            : key === 'memory.triggers.maxCuratesPerHour'
+              ? 1
+              : fallback,
+    );
+    (workspace.onDidChangeConfiguration as jest.Mock).mockImplementation(
+      (listener) => {
+        configurationListener = listener;
+        return { dispose: () => undefined };
+      },
+    );
+    const { service, activity, stop, curator, rateLimiter } = buildService({
+      workspace,
+    });
+    service.start();
+    stop.fire(
+      stopPayload({
+        sessionId: 'quiet-backoff',
+        lastAssistantMessage: 'Keep this quiet episode buffered.',
+      }),
+    );
+    activity.registry.notifyAll({
+      sessionId: 'quiet-backoff',
+      workspaceRoot: '/ws',
+      timestamp: Date.now(),
+      role: 'assistant',
+    });
+    enabled.value = false;
+    configurationListener?.({
+      affectsConfiguration: (key) => key === 'ptah.memory.enabled',
+    });
+    (curator.networkDeferralMs as jest.Mock).mockReturnValue(1_000);
+    enabled.value = true;
+    configurationListener?.({
+      affectsConfiguration: (key) => key === 'ptah.memory.enabled',
+    });
+
+    const sessions = (
+      service as unknown as {
+        sessions: Map<string, { idleTimer: unknown }>;
+      }
+    ).sessions;
+    expect(sessions.get('quiet-backoff')?.idleTimer).toBeNull();
+
+    (curator.networkDeferralMs as jest.Mock).mockReturnValue(0);
+    activity.registry.notifyAll({
+      sessionId: 'another-session',
+      workspaceRoot: '/ws',
+      timestamp: Date.now(),
+      role: 'assistant',
+    });
+    expect(sessions.get('quiet-backoff')?.idleTimer).toBeNull();
+
+    enabled.value = false;
+    configurationListener?.({
+      affectsConfiguration: (key) => key === 'ptah.memory.enabled',
+    });
+    rateLimiter.tryAcquire('memory.curate', 1);
+    enabled.value = true;
+    configurationListener?.({
+      affectsConfiguration: (key) => key === 'ptah.memory.enabled',
+    });
+    expect(sessions.get('quiet-backoff')?.idleTimer).toBeNull();
+    service.stop();
+  });
+
+  it('boots paused and re-arms its owed boot scan exactly once on resume activity', () => {
+    const enabled = { value: false };
+    const workspace = makeWorkspace({
+      'memory.triggers.bootScan': true,
+      'memory.triggers.bootScanDelayMs': 60_000,
+    });
+    (workspace.getConfiguration as jest.Mock).mockImplementation(
+      (_section: string, key: string, fallback: unknown) =>
+        key === 'memory.enabled' ? enabled.value : fallback,
+    );
+    const { service, activity } = buildService({ workspace });
+    service.start();
+    const state = service as unknown as {
+      bootScanArmed: boolean;
+      bootScanOwed: boolean;
+    };
+    expect(state.bootScanOwed).toBe(true);
+    expect(state.bootScanArmed).toBe(false);
+
+    enabled.value = true;
+    activity.registry.notifyAll({
+      sessionId: 'resume-session',
+      workspaceRoot: '/ws',
+      timestamp: Date.now(),
+      role: 'assistant',
+    });
+    const scheduler = (service as unknown as { bootScanScheduler: unknown })
+      .bootScanScheduler;
+    activity.registry.notifyAll({
+      sessionId: 'resume-session-2',
+      workspaceRoot: '/ws',
+      timestamp: Date.now(),
+      role: 'assistant',
+    });
+
+    expect(state.bootScanArmed).toBe(true);
+    expect(state.bootScanOwed).toBe(false);
+    expect(
+      (service as unknown as { bootScanScheduler: unknown }).bootScanScheduler,
+    ).toBe(scheduler);
+    service.stop();
   });
 });
 

@@ -177,7 +177,6 @@ const STATIC_RPC_FIXTURES: Record<string, unknown> = {
   'memory:stats': { core: 12, recall: 5, archival: 40 },
   'memory:getTriggers': {
     triggers: {
-      preCompact: true,
       idleMs: 300_000,
       turnThreshold: 20,
       bootScan: true,
@@ -194,7 +193,7 @@ const STATIC_RPC_FIXTURES: Record<string, unknown> = {
     activeSkills: 4,
   },
   'skillSynthesis:getTriggers': {
-    triggers: { sessionEnd: true, idleMs: 300_000, bootScan: true },
+    triggers: { idleMs: 300_000, bootScan: true },
   },
   'skillSynthesis:digest': { items: [] },
   'skillSynthesis:listSuggestions': { suggestions: [] },
@@ -365,7 +364,6 @@ async function installFixtures(page: Page, args: FixtureArgs): Promise<void> {
         },
         recentEvents: fx.events,
         triggers: {
-          sessionEnd: true,
           idleMs: 300_000,
           bootScan: true,
           subagentStop: { enabled: true },

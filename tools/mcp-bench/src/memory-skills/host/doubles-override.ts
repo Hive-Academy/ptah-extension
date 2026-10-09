@@ -1,0 +1,157 @@
+/**
+ * Replaces the two model-calling services of the booted container with the
+ * record/replay doubles (benchmark-design.md 6.1 R-X2 step 4 and 6.2). Runs in
+ * `afterContainerReady`, before the MCP server starts, so no tool call can
+ * reach the real adapters first.
+ *
+ * Only `CURATOR_LLM` and `LANE_RUNNER_SERVICE` are registered; nothing else in
+ * the container changes. In replay mode the real adapters are never resolved,
+ * so they are never constructed and cannot be reached through the container.
+ * In record mode the real adapter is resolved once and wrapped.
+ *
+ * Residual risk: a consumer singleton constructed before this hook keeps the
+ * real adapter it was injected with. The bench boot uses Thoth `oneshot`
+ * (`thoth-runtime.ts:129` returns before the memory curator and the skill
+ * services are resolved), and in CI the host's net recorder fails the run on
+ * any outbound attempt, which a real adapter call would make.
+ */
+
+import {
+  MEMORY_CONTRACT_TOKENS,
+  type ICuratorLLM,
+} from '@ptah-extension/memory-contracts';
+import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
+import {
+  MEMORY_TOKENS,
+  MemoryCuratorService,
+} from '@ptah-extension/memory-curator';
+import { SKILL_SYNTHESIS_TOKENS } from '@ptah-extension/skill-synthesis';
+import { Lifecycle } from 'tsyringe';
+
+import type { BenchHostContainer } from '../../transport/bench-host-boot';
+import { CassetteStore } from '../doubles/cassette-store';
+import { RecordedCuratorLlm } from '../doubles/recorded-curator-llm';
+import {
+  RecordedLaneRunner,
+  type LaneRunnerDouble,
+} from '../doubles/recorded-lane-runner';
+import type { ModelDispatchProvenanceTap } from '../recorder/provider-provenance';
+import type { MemorySkillsPlan } from './plan.schema';
+
+export interface InstalledDoubles {
+  readonly mode: MemorySkillsPlan['cassetteMode'];
+  readonly curator: RecordedCuratorLlm;
+  readonly laneRunner: RecordedLaneRunner;
+}
+
+export class DoublesOverrideError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'DoublesOverrideError';
+  }
+}
+
+function resolveReal<T>(
+  container: BenchHostContainer,
+  token: symbol,
+  name: string,
+): T {
+  if (!container.isRegistered(token, true)) {
+    throw new DoublesOverrideError(
+      `record mode needs the real ${name}, but it is not registered`,
+    );
+  }
+  return container.resolve<T>(token);
+}
+
+/**
+ * `SdkQueryRunner` captures its optional provenance tap in its constructor.
+ * The bench's `afterContainerReady` hook can therefore arrive after the
+ * singleton is already live, even though it registers the tap before it wraps
+ * the curator. Attach the same tap to that live runner: the runner still
+ * emits the event at its real SDK-launch boundary, rather than treating a
+ * cassette write or a curator call as a dispatch.
+ */
+function attachProvenanceTap(
+  container: BenchHostContainer,
+  provenanceTap: ModelDispatchProvenanceTap | undefined,
+): void {
+  if (provenanceTap === undefined) return;
+  const token = SDK_TOKENS.SDK_QUERY_RUNNER;
+  if (!container.isRegistered(token, true)) return;
+  const runner = container.resolve<{
+    provenanceTap?: ModelDispatchProvenanceTap | null;
+  }>(token);
+  if (!('provenanceTap' in runner)) {
+    throw new DoublesOverrideError(
+      'record mode SDK query runner does not expose the provenance tap',
+    );
+  }
+  runner.provenanceTap = provenanceTap;
+}
+
+/**
+ * Register the doubles for `CURATOR_LLM` and `LANE_RUNNER_SERVICE` and verify
+ * that the container now resolves exactly them. Throws
+ * {@link DoublesOverrideError}; the boot then aborts before MCP starts.
+ */
+export function installRecordReplayDoubles(
+  container: BenchHostContainer,
+  plan: Pick<MemorySkillsPlan, 'cassetteMode' | 'cassettes'>,
+  provenanceTap?: ModelDispatchProvenanceTap,
+): InstalledDoubles {
+  const mode = plan.cassetteMode;
+  const curatorToken = MEMORY_CONTRACT_TOKENS.CURATOR_LLM;
+  const laneToken = SKILL_SYNTHESIS_TOKENS.LANE_RUNNER_SERVICE;
+
+  if (mode === 'record') attachProvenanceTap(container, provenanceTap);
+
+  const curator = new RecordedCuratorLlm({
+    store: new CassetteStore({ path: plan.cassettes.curator.path, mode }),
+    model: plan.cassettes.curator.model,
+    inner:
+      mode === 'record'
+        ? resolveReal<ICuratorLLM>(container, curatorToken, 'CURATOR_LLM')
+        : undefined,
+    faults: plan.cassettes.curator.faults,
+  });
+  const laneRunner = new RecordedLaneRunner({
+    store: new CassetteStore({ path: plan.cassettes.laneRunner.path, mode }),
+    model: plan.cassettes.laneRunner.model,
+    inner:
+      mode === 'record'
+        ? resolveReal<LaneRunnerDouble>(
+            container,
+            laneToken,
+            'LANE_RUNNER_SERVICE',
+          )
+        : undefined,
+  });
+
+  container.register<ICuratorLLM>(curatorToken, { useValue: curator });
+  container.register<LaneRunnerDouble>(laneToken, { useValue: laneRunner });
+
+  // A singleton resolved before `afterContainerReady` captured the old
+  // adapter. Rebind it so host suites always construct their curator after the
+  // double is installed. The `thoth: 'oneshot'` bench has no started curator
+  // or trigger that must retain the discarded singleton.
+  if (container.isRegistered(MEMORY_TOKENS.MEMORY_CURATOR, true)) {
+    container.register(
+      MEMORY_TOKENS.MEMORY_CURATOR,
+      { useClass: MemoryCuratorService },
+      { lifecycle: Lifecycle.Singleton },
+    );
+  }
+
+  if (container.resolve(curatorToken) !== curator) {
+    throw new DoublesOverrideError(
+      'CURATOR_LLM does not resolve to the record/replay double after the override',
+    );
+  }
+  if (container.resolve(laneToken) !== laneRunner) {
+    throw new DoublesOverrideError(
+      'LANE_RUNNER_SERVICE does not resolve to the record/replay double after the override',
+    );
+  }
+  return { mode, curator, laneRunner };
+}

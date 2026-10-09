@@ -42,6 +42,7 @@ import {
   effect,
   inject,
   input,
+  output,
   signal,
   untracked,
   viewChild,
@@ -57,7 +58,14 @@ import type {
   SkillSynthesisPreviewEnhancementResult,
 } from '@ptah-extension/shared';
 
-import { SkillSynthesisRpcService } from '../../services/skill-synthesis-rpc.service';
+import {
+  SkillSynthesisRpcService,
+  SkillsPausedError,
+} from '../../services/skill-synthesis-rpc.service';
+import {
+  SKILLS_PAUSED_NOTICE,
+  SKILLS_PAUSED_REASON,
+} from '../../services/skill-synthesis-state.service';
 import { SkillClonesStateService } from '../../services/skill-clones-state.service';
 import { CloneBulkRebaseService } from '../../services/clone-bulk-rebase.service';
 import { CloneCardComponent } from './clone-card.component';
@@ -213,6 +221,17 @@ const EMPTY_COPY: Record<SkillCloneKind, string> = {
           </div>
         }
 
+        @if (skillsPaused()) {
+          <p
+            class="rounded border border-warning/60 bg-warning/10 px-3 py-2 text-xs text-base-content"
+            role="status"
+            data-testid="clones-paused-notice"
+          >
+            Skills is paused, so "Enhance now" is unavailable. Turn Skills on at
+            the top of this tab to enhance.
+          </p>
+        }
+
         @if (toast(); as t) {
           <div
             role="alert"
@@ -295,6 +314,7 @@ const EMPTY_COPY: Record<SkillCloneKind, string> = {
                       [busy]="busySlug() === c.slug || bulk.running()"
                       [syncChips]="chipsFor(c)"
                       [notOwned]="isNotOwned(c)"
+                      [enhanceBlockedReason]="enhanceBlockedReason()"
                       [modelGuard]="
                         onAgentTab() ? (reconcileGuard() ?? null) : null
                       "
@@ -339,6 +359,7 @@ const EMPTY_COPY: Record<SkillCloneKind, string> = {
         [historyDiffLoading]="historyDiffLoading()"
         [canEditBody]="canEditSelectedBody()"
         [bodySaving]="bodySaving()"
+        [enhanceBlockedReason]="enhanceBlockedReason()"
         (bodySaved)="onSaveBody($event)"
         (closed)="onCloseDetail()"
         (enhance)="onEnhance($event)"
@@ -451,6 +472,19 @@ export class SkillClonesViewComponent implements OnInit {
    * race, and whichever effect ran second would see a cleared flag.
    */
   public readonly divergedFilterRequest = input<number>(0);
+
+  /**
+   * The Skills switch is paused. "Enhance now" (which calls
+   * `skillSynthesis:previewEnhancement`, refused by the host while paused) is
+   * greyed out on every card and in the drawer.
+   */
+  public readonly skillsPaused = input<boolean>(false);
+  /** The host refused an enhancement with `PAUSED` (Skills paused elsewhere). */
+  public readonly pausedRefusal = output<void>();
+
+  protected readonly enhanceBlockedReason = computed<string | null>(() =>
+    this.skillsPaused() ? SKILLS_PAUSED_REASON : null,
+  );
 
   /** Whether the last effect run saw the Agents tab; detects tab ENTRY. */
   private wasOnAgentTab = false;
@@ -743,6 +777,7 @@ export class SkillClonesViewComponent implements OnInit {
    * judge verdict, which the preview drawer renders as a diff.
    */
   protected async onEnhance(c: CloneSummary): Promise<void> {
+    if (this.skillsPaused()) return;
     this.previewClone.set(c);
     this.previewResult.set(null);
     this.previewError.set(null);
@@ -751,7 +786,15 @@ export class SkillClonesViewComponent implements OnInit {
       const result = await this.rpc.previewEnhancement(c.kind, c.slug);
       this.previewResult.set(result);
     } catch (err: unknown) {
-      this.previewError.set(this.toMessage(err));
+      if (err instanceof SkillsPausedError) {
+        // Paused elsewhere after this tab last read the switch: close the
+        // preview and say so, rather than showing a failed enhancement.
+        this.closePreview();
+        this.showToast(SKILLS_PAUSED_NOTICE, 'info');
+        this.pausedRefusal.emit();
+      } else {
+        this.previewError.set(this.toMessage(err));
+      }
     } finally {
       this.previewLoading.set(false);
     }

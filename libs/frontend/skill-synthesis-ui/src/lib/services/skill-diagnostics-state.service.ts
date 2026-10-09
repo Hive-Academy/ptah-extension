@@ -9,6 +9,8 @@ import type {
 } from '@ptah-extension/shared';
 
 import { SkillDiagnosticsRpcService } from './skill-diagnostics-rpc.service';
+import { SkillsPausedError } from './skill-synthesis-rpc.service';
+import { SKILLS_PAUSED_NOTICE } from './skill-synthesis-state.service';
 
 const POLL_INTERVAL_MS = 30_000;
 
@@ -63,7 +65,6 @@ function insertNewestFirst(
 }
 
 const DEFAULT_TRIGGERS: SkillTriggersDto = {
-  sessionEnd: true,
   idleMs: 600_000,
   bootScan: true,
   turnComplete: { enabled: true },
@@ -112,6 +113,7 @@ export class SkillDiagnosticsStateService {
   });
   private readonly _loading = signal<boolean>(false);
   private readonly _error = signal<string | null>(null);
+  private readonly _pausedNotice = signal<string | null>(null);
   private readonly _subscriberCount = signal<number>(0);
 
   public readonly triggers = this._triggers.asReadonly();
@@ -123,6 +125,7 @@ export class SkillDiagnosticsStateService {
   public readonly byStatus = this._byStatus.asReadonly();
   public readonly loading = this._loading.asReadonly();
   public readonly error = this._error.asReadonly();
+  public readonly pausedNotice = this._pausedNotice.asReadonly();
 
   public readonly sessionsAnalyzedToday = computed<number>(() => {
     const h = this._eligibilityHistogram();
@@ -153,19 +156,26 @@ export class SkillDiagnosticsStateService {
     }
   }
 
-  public async analyzeNow(): Promise<void> {
+  /**
+   * Analyze the active session now. Resolves `'paused'` when the host refused
+   * because Skills is paused, so the caller can update the switch; that
+   * refusal is shown as {@link pausedNotice}, not as an error.
+   */
+  public async analyzeNow(): Promise<'paused' | 'done'> {
     const workspaceRoot = this.appState.workspaceInfo()?.path ?? null;
     if (!workspaceRoot) {
       this._error.set('No active workspace');
-      return;
+      return 'done';
     }
     const sessionId = this.tabManager.activeTab()?.claudeSessionId ?? null;
     if (!sessionId) {
       this._error.set('No active session to analyze.');
-      return;
+      return 'done';
     }
     this._loading.set(true);
     this._error.set(null);
+    this._pausedNotice.set(null);
+    let outcome: 'paused' | 'done' = 'done';
     try {
       await this.rpc.analyzeNow({
         sessionId: String(sessionId),
@@ -174,10 +184,16 @@ export class SkillDiagnosticsStateService {
       });
       await this.refresh();
     } catch (err: unknown) {
-      this._error.set(err instanceof Error ? err.message : String(err));
+      if (err instanceof SkillsPausedError) {
+        outcome = 'paused';
+        this._pausedNotice.set(SKILLS_PAUSED_NOTICE);
+      } else {
+        this._error.set(err instanceof Error ? err.message : String(err));
+      }
     } finally {
       this._loading.set(false);
     }
+    return outcome;
   }
 
   public async setTriggers(triggers: Partial<SkillTriggersDto>): Promise<void> {

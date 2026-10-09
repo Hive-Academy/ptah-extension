@@ -60,6 +60,11 @@ import {
   type MemoryRetentionSettings,
   readMemoryRetentionSettings,
 } from './memory-retention-config';
+import {
+  MEMORY_TRIGGER_DEFAULTS,
+  MEMORY_TRIGGER_KEYS,
+  MEMORY_TRIGGER_SECTION,
+} from '../triggers/memory-trigger-config';
 import type {
   MemoryRetentionReport,
   MemoryRetentionRunOptions,
@@ -190,6 +195,14 @@ export class MemoryRetentionService {
   ): Promise<MemoryRetentionReport> {
     const now = options.now ?? Date.now;
     const settings = this.readSettings();
+    if (
+      this.workspace.getConfiguration<boolean>(
+        MEMORY_TRIGGER_SECTION,
+        MEMORY_TRIGGER_KEYS.enabled,
+        MEMORY_TRIGGER_DEFAULTS.enabled,
+      ) === false
+    )
+      return this.skip('memory-paused', now(), settings);
     if (!settings.enabled) return this.skip('disabled', now(), settings);
     if (this.running) return this.skip('already-running', now(), settings);
 

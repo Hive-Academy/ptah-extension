@@ -13,6 +13,7 @@ import {
 import { SurfaceCardComponent } from '@ptah-extension/ui';
 
 import {
+  MEMORY_PAUSED_REASON,
   MemoryDiagnosticsStateService,
   type LastRunSnapshot,
 } from '../../services/memory-diagnostics-state.service';
@@ -58,11 +59,6 @@ import { EventFeedComponent } from './event-feed.component';
         </header>
         @if (triggers(); as t) {
           <div class="grid grid-cols-1 gap-2 p-2 sm:grid-cols-2">
-            <ptah-memory-trigger-toggle
-              label="PreCompact hook"
-              [enabled]="t.preCompact"
-              (triggerChange)="onPreCompactChange($event)"
-            />
             <ptah-memory-trigger-toggle
               label="Idle timer"
               [enabled]="t.idleMs > 0"
@@ -182,14 +178,22 @@ import { EventFeedComponent } from './event-feed.component';
         </div>
       }
 
+      @if (pausedNotice(); as notice) {
+        <p
+          class="rounded border border-warning/60 bg-warning/10 px-3 py-2 text-xs text-base-content"
+          role="status"
+          data-testid="memory-paused-notice"
+        >
+          {{ notice }}
+        </p>
+      }
+
       <div class="flex flex-wrap items-center gap-2">
         <button
           type="button"
           class="btn btn-sm btn-primary"
-          [disabled]="loading() || !hasActiveSession()"
-          [title]="
-            !hasActiveSession() ? 'Open a session to run curator manually' : ''
-          "
+          [disabled]="loading() || !hasActiveSession() || paused()"
+          [title]="runNowTitle()"
           (click)="onRunCuratorNow()"
           data-testid="run-curator-now"
         >
@@ -198,7 +202,14 @@ import { EventFeedComponent } from './event-feed.component';
           }
           Run curator now
         </button>
-        @if (!hasActiveSession()) {
+        @if (paused()) {
+          <span
+            class="text-xs text-base-content-muted"
+            data-testid="run-curator-paused-hint"
+          >
+            {{ pausedReason }}
+          </span>
+        } @else if (!hasActiveSession()) {
           <span
             class="text-xs text-base-content-muted"
             data-testid="no-active-session-hint"
@@ -230,6 +241,16 @@ export class MemoryDiagnosticsAccordionComponent implements OnInit, OnDestroy {
   protected readonly loading = this.state.loading;
   protected readonly error = this.state.error;
   protected readonly hasActiveSession = this.state.hasActiveSession;
+  protected readonly paused = this.state.memoryPaused;
+  protected readonly pausedNotice = this.state.pausedNotice;
+  protected readonly pausedReason = MEMORY_PAUSED_REASON;
+
+  protected readonly runNowTitle = computed(() => {
+    if (this.paused()) return MEMORY_PAUSED_REASON;
+    return this.hasActiveSession()
+      ? ''
+      : 'Open a session to run curator manually';
+  });
 
   protected readonly now = computed(() => {
     this.recentEvents();
@@ -259,10 +280,6 @@ export class MemoryDiagnosticsAccordionComponent implements OnInit, OnDestroy {
 
   protected onRefresh(): void {
     void this.state.refresh();
-  }
-
-  protected onPreCompactChange(c: TriggerToggleChange): void {
-    void this.state.setTriggers({ preCompact: c.enabled });
   }
 
   protected onIdleChange(c: TriggerToggleChange): void {
