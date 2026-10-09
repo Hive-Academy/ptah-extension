@@ -11,6 +11,14 @@ import { createMockLogger } from '@ptah-extension/shared/testing';
 
 import { SessionHandoverRpcHandlers } from './session-handover-rpc.handlers';
 
+// The real barrel reaches the tree-sitter loader, which uses `import.meta`
+// and cannot load under CJS jest. The handler only needs the host token.
+jest.mock('@ptah-extension/cli-agent-runtime', () => ({
+  CLI_AGENT_RUNTIME_TOKENS: {
+    CHILD_CHAT_SESSION_HOST: Symbol.for('ChildChatSessionHost'),
+  },
+}));
+
 const SESSION_ID = '11111111-2222-4333-8444-555555555555';
 const OPERATION_ID = '66666666-7777-4888-8999-aaaaaaaaaaaa';
 const SUCCESSOR_TAB_ID = 'bbbbbbbb-cccc-4ddd-8eee-ffffffffffff';

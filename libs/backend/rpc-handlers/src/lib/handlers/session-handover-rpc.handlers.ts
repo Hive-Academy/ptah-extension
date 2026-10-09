@@ -5,7 +5,10 @@ import {
   SessionHandoverCoordinator,
   SessionTurnStateRegistry,
 } from '@ptah-extension/agent-sdk';
-import type { IChildChatSessionHost } from '@ptah-extension/cli-agent-runtime';
+import {
+  CLI_AGENT_RUNTIME_TOKENS,
+  type IChildChatSessionHost,
+} from '@ptah-extension/cli-agent-runtime';
 import {
   MESSAGE_TYPES,
   type BeginSessionHandoverResult,
@@ -41,7 +44,7 @@ export class SessionHandoverRpcHandlers {
     private readonly coordinator: SessionHandoverCoordinator | null = null,
     @inject(SDK_TOKENS.SDK_SESSION_TURN_STATE_REGISTRY, { isOptional: true })
     private readonly turnState: SessionTurnStateRegistry | null = null,
-    @inject(Symbol.for('ChildChatSessionHost'), { isOptional: true })
+    @inject(CLI_AGENT_RUNTIME_TOKENS.CHILD_CHAT_SESSION_HOST, { isOptional: true })
     private readonly successorHost: IChildChatSessionHost | null = null,
     @inject(TOKENS.WEBVIEW_MANAGER, { isOptional: true })
     private readonly webviewManager: {
