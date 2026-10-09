@@ -224,7 +224,7 @@ export function parseFileList(text: string, root: string): Answer {
 export function parseTextLocations(text: string, root: string): Answer {
   const relative = relativeTo(root);
   const ranked = Array.from(
-    text.matchAll(/([^\s`'"|]+?):(\d+)(?=[:\s`\|]|$)/g),
+    text.matchAll(/([^\s`'"|]+?):(\d+)(?=[:\s`|]|$)/g),
     (match) => `${relative(match[1])}:${match[2]}`,
   );
   return answerOf(ranked);
