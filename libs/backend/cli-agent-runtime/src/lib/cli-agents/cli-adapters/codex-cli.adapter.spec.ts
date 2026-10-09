@@ -200,6 +200,7 @@ jest.mock('fs', () => {
 });
 
 // Import adapter AFTER mocks are declared
+import { EventEmitter } from 'events';
 import path from 'path';
 import { CodexCliAdapter, commandToolLabel } from './codex-cli.adapter';
 import type { CliLaneBudgets, SdkHandle } from './cli-adapter.interface';
@@ -303,6 +304,73 @@ describe('CodexCliAdapter', () => {
       expect(result.installed).toBe(false);
       expect(result.messagingMode).toBe('queue');
       expect(mockProbeCliVersion).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('listCatalogModels()', () => {
+    const CATALOG = JSON.stringify({
+      models: [
+        {
+          slug: 'gpt-6.1-sol',
+          display_name: 'GPT-6.1-Sol',
+          visibility: 'list',
+          priority: 1,
+        },
+      ],
+    });
+    /** A `codex debug models` child that prints the catalog and exits. */
+    function catalogChild() {
+      const stdout = Object.assign(new EventEmitter(), {
+        setEncoding: jest.fn(),
+      });
+      const child = Object.assign(new EventEmitter(), {
+        stdout,
+        kill: jest.fn(),
+      });
+      setImmediate(() => {
+        stdout.emit('data', CATALOG);
+        child.emit('close', 0);
+      });
+      return child;
+    }
+
+    beforeEach(() => {
+      mockSpawnCli.mockImplementation(() => catalogChild());
+    });
+
+    it('probes the catalog once for back-to-back reads of the same binary', async () => {
+      mockResolveCliPath.mockResolvedValue('/usr/local/bin/codex');
+
+      const first = await adapter.listCatalogModels();
+      const second = await adapter.listModels();
+
+      expect(first.map((model) => model.id)).toEqual(['gpt-6.1-sol']);
+      expect(second).toEqual(first);
+      expect(mockSpawnCli).toHaveBeenCalledTimes(1);
+    });
+
+    it('probes again when the resolved binary changes', async () => {
+      mockResolveCliPath.mockResolvedValueOnce('/usr/local/bin/codex');
+      await adapter.listCatalogModels();
+      mockResolveCliPath.mockResolvedValueOnce('/opt/codex/bin/codex');
+      await adapter.listCatalogModels();
+
+      expect(mockSpawnCli).toHaveBeenCalledTimes(2);
+      expect(mockSpawnCli.mock.calls[1][0]).toBe('/opt/codex/bin/codex');
+    });
+
+    it('probes again once the cached read is older than the TTL', async () => {
+      mockResolveCliPath.mockResolvedValue('/usr/local/bin/codex');
+      const now = jest.spyOn(Date, 'now').mockReturnValue(1_000_000);
+      try {
+        await adapter.listCatalogModels();
+        now.mockReturnValue(1_000_000 + 30_000);
+        await adapter.listCatalogModels();
+      } finally {
+        now.mockRestore();
+      }
+
+      expect(mockSpawnCli).toHaveBeenCalledTimes(2);
     });
   });
 

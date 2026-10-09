@@ -86,7 +86,10 @@ interface OrderChip {
       data-testid="settings-section-orchestration-policy"
     >
       <!-- One row in both hosts: the chips clip at the end in a narrow box; the trigger names the whole order. -->
-      <div class="flex items-center gap-2.5 text-xs text-base-content">
+      <div
+        class="flex items-center gap-2.5 text-xs text-base-content"
+        data-testid="orchestration-policy-bar"
+      >
         <div class="flex shrink-0 items-center gap-1.5">
           <label
             for="agent-max-concurrent"
@@ -595,8 +598,7 @@ export class AgentOrchestrationConfigComponent {
     this.detectFailed.set(false);
     this.detectDone.set(false);
     try {
-      await this.state.redetectClis();
-      const ok = this.state.cliDetection().status === 'ready';
+      const ok = await this.state.redetectClis();
       this.detectFailed.set(!ok);
       this.detectDone.set(ok);
     } catch (error: unknown) {

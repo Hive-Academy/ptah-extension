@@ -32,12 +32,57 @@ export const CLAUDE_CLI_PROVIDER_ENTRY: AnthropicProvider = {
   description: 'Use your local Claude login / subscription — no API key needed',
   keyPlaceholder: 'No API key needed',
   maskedKeyDisplay: 'Local (Claude login)',
+  // The models the CLI's own `opus` / `sonnet` / `haiku` aliases resolve to
+  // (SDK supportedModels(), 2026-10-07); each ID checked with `claude -p`.
   defaultTiers: {
-    opus: 'claude-opus-4-8',
-    sonnet: 'claude-sonnet-4-6',
-    haiku: 'claude-haiku-4-5',
+    opus: 'claude-opus-5-5',
+    sonnet: 'claude-sonnet-5-5',
+    haiku: 'claude-haiku-5-5',
   },
+  // Fallback for when the native login cannot list models. Prices and
+  // windows from models.dev; Haiku 5.5 has neither published there yet, so it
+  // carries the "unknown" window (0) and no price rather than a guess.
   staticModels: [
+    {
+      id: 'claude-opus-5-5',
+      name: 'Claude Opus 5.5',
+      description: 'Most capable (1M context)',
+      contextLength: 1000000,
+      supportsToolUse: true,
+      inputCostPerToken: 4e-6, // $4.00 per 1M tokens
+      outputCostPerToken: 20e-6, // $20.00 per 1M tokens
+      cacheReadCostPerToken: 0.2e-6,
+      cacheCreationCostPerToken: 5e-6,
+    },
+    {
+      id: 'claude-sonnet-5-5',
+      name: 'Claude Sonnet 5.5',
+      description: 'Best balance of speed and intelligence (1M context)',
+      contextLength: 1000000,
+      supportsToolUse: true,
+      inputCostPerToken: 2e-6, // $2.00 per 1M tokens
+      outputCostPerToken: 10e-6, // $10.00 per 1M tokens
+      cacheReadCostPerToken: 0.2e-6,
+      cacheCreationCostPerToken: 2.5e-6,
+    },
+    {
+      id: 'claude-haiku-5-5',
+      name: 'Claude Haiku 5.5',
+      description: 'Fastest current model',
+      contextLength: 0,
+      supportsToolUse: true,
+    },
+    {
+      id: 'claude-fable-5-1',
+      name: 'Claude Fable 5.1',
+      description: 'Largest model (1M context)',
+      contextLength: 1000000,
+      supportsToolUse: true,
+      inputCostPerToken: 10e-6, // $10.00 per 1M tokens
+      outputCostPerToken: 50e-6, // $50.00 per 1M tokens
+      cacheReadCostPerToken: 0.25e-6,
+      cacheCreationCostPerToken: 12.5e-6,
+    },
     {
       id: 'claude-opus-4-8',
       name: 'Claude Opus 4.8',

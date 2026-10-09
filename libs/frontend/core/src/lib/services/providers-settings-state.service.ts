@@ -797,21 +797,23 @@ export class ProvidersSettingsStateService {
   /**
    * Re-detects installed CLIs, then rereads everything derived from them. A failed detection
    * leaves `cliDetection()` in error and rereads nothing. Each call decides on its own detection
-   * result, not the shared section, which an overlapping call may have replaced.
+   * result, not the shared section, which an overlapping call may have replaced, and returns it
+   * so callers can do the same.
    */
-  async redetectClis(): Promise<void> {
+  async redetectClis(): Promise<boolean> {
     let detected = false;
     await this.read(this.detectionStore, async () => {
       const { clis } = await this.require('agent:detectClis', undefined);
       detected = true;
       return clis;
     });
-    if (!detected) return;
+    if (!detected) return false;
     await Promise.all([
       this.refreshOrchestration(),
       this.refreshCliAgents(),
       this.refreshCliModels(),
     ]);
+    return true;
   }
   async refreshTiers(
     params: RpcMethodParams<'provider:getModelTiers'>,

@@ -152,7 +152,7 @@ describe('WorkspaceProviderProfileResolver — live-catalogue tiers', () => {
       configValues: {
         'provider.requesty.modelCatalog': {
           models: ROUTER_MODELS,
-          timestamp: 1,
+          timestamp: Date.now(),
         },
       },
       providerKeys: { requesty: 'rq-key' },
@@ -181,7 +181,7 @@ describe('WorkspaceProviderProfileResolver — live-catalogue tiers', () => {
       configValues: {
         'provider.openrouter.modelCatalog': {
           models: ROUTER_MODELS,
-          timestamp: 1,
+          timestamp: Date.now(),
         },
       },
     });
@@ -207,7 +207,7 @@ describe('WorkspaceProviderProfileResolver — live-catalogue tiers', () => {
       configValues: {
         'provider.requesty.modelCatalog': {
           models: ROUTER_MODELS,
-          timestamp: 1,
+          timestamp: Date.now(),
         },
       },
       providerKeys: { requesty: 'rq-key' },
@@ -230,7 +230,7 @@ describe('WorkspaceProviderProfileResolver — live-catalogue tiers', () => {
         'provider.requesty.mainAgent.modelTier.opus': 'openai/gpt-5.3-codex',
         'provider.requesty.modelCatalog': {
           models: ROUTER_MODELS,
-          timestamp: 1,
+          timestamp: Date.now(),
         },
       },
       providerKeys: { requesty: 'rq-key' },
@@ -262,7 +262,7 @@ describe('WorkspaceProviderProfileResolver — live-catalogue tiers', () => {
       configValues: {
         'provider.moonshot.modelCatalog': {
           models: ROUTER_MODELS,
-          timestamp: 1,
+          timestamp: Date.now(),
         },
       },
       providerKeys: { moonshot: 'moon-key' },
@@ -338,7 +338,7 @@ describe('WorkspaceProviderProfileResolver — the post-fallback ladder', () => 
       configValues: {
         'provider.requesty.modelCatalog': {
           models: ROUTER_MODELS,
-          timestamp: 1,
+          timestamp: Date.now(),
         },
       },
       providerKeys: { requesty: 'rq-key' },

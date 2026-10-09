@@ -273,7 +273,9 @@ describe('ProviderModelsService — discovered context windows', () => {
       }),
     );
     const { service } = makeService({
-      configValues: { 'provider.moonshot.modelCatalog': { models } },
+      configValues: {
+        'provider.moonshot.modelCatalog': { models, timestamp: Date.now() },
+      },
     });
     const restored = await service.fetchModels('moonshot', null);
     expect(restored.models).toHaveLength(5);
@@ -296,6 +298,7 @@ describe('ProviderModelsService — discovered context windows', () => {
               supportsToolUse: true,
             },
           ],
+          timestamp: Date.now(),
         },
       },
     });
@@ -310,6 +313,78 @@ describe('ProviderModelsService — discovered context windows', () => {
 // ---------------------------------------------------------------------------
 // setModelTier — mainAgent scope
 // ---------------------------------------------------------------------------
+
+describe('ProviderModelsService — Requesty catalog shape', () => {
+  it('reads tool support and per-token prices from the Requesty fields', async () => {
+    const get = jest.spyOn(axios, 'get').mockResolvedValue({
+      data: {
+        data: [
+          {
+            id: 'openai/gpt-6-sol',
+            context_window: 272000,
+            supports_tool_calling: true,
+            input_price: 0.000002,
+            output_price: 0.000008,
+            pricing: [
+              {
+                prompt_tokens_threshold: 0,
+                input_price: 0.000002,
+                output_price: 0.000008,
+              },
+            ],
+          },
+          {
+            id: 'typesafe/jev-1.13.0',
+            context_window: 64000,
+            supports_tool_calling: false,
+            input_price: 4.2e-8,
+            output_price: 0,
+            pricing: [],
+          },
+          {
+            // OpenRouter shape: supported_parameters answers, even without tools.
+            id: 'openrouter-shaped/no-tools',
+            supported_parameters: ['temperature'],
+            supports_tool_calling: true,
+            pricing: { prompt: '0.000001', completion: '0.000003' },
+          },
+          {
+            id: 'broken/non-finite-price',
+            input_price: Infinity,
+            output_price: Number.NaN,
+          },
+        ],
+      },
+    });
+    try {
+      const { service } = makeService({});
+      const { models } = await service.fetchModels('requesty', 'test-key');
+      const byId = new Map(models.map((m) => [m.id, m]));
+      expect(byId.get('openai/gpt-6-sol')).toMatchObject({
+        supportsToolUse: true,
+        inputCostPerToken: 0.000002,
+        outputCostPerToken: 0.000008,
+      });
+      expect(byId.get('typesafe/jev-1.13.0')).toMatchObject({
+        supportsToolUse: false,
+        inputCostPerToken: 4.2e-8,
+        outputCostPerToken: 0,
+      });
+      expect(byId.get('openrouter-shaped/no-tools')).toMatchObject({
+        supportsToolUse: false,
+        inputCostPerToken: 0.000001,
+        outputCostPerToken: 0.000003,
+      });
+      // A non-finite price is no price, so it never reaches the pricing map.
+      expect(byId.get('broken/non-finite-price')).toMatchObject({
+        inputCostPerToken: undefined,
+        outputCostPerToken: undefined,
+      });
+    } finally {
+      get.mockRestore();
+    }
+  });
+});
 
 describe('ProviderModelsService.setModelTier', () => {
   describe('mainAgent scope', () => {
@@ -914,7 +989,7 @@ describe('ProviderModelsService persisted model catalog', () => {
               supportsToolUse: true,
             },
           ],
-          timestamp: 1,
+          timestamp: Date.now(),
         },
       },
     });
@@ -930,6 +1005,39 @@ describe('ProviderModelsService persisted model catalog', () => {
     ]);
     expect(result.isStatic).toBe(false);
   });
+
+  it.each([
+    ['older than 30 days', Date.now() - 31 * 24 * 60 * 60 * 1000],
+    ['without a timestamp', undefined],
+  ])(
+    'ignores a persisted catalog %s and uses staticModels instead',
+    async (_case, timestamp) => {
+      const { service } = makeService({
+        configValues: {
+          [CATALOG_KEY]: {
+            models: [
+              {
+                id: 'retired-model',
+                name: 'Retired',
+                description: '',
+                contextLength: 0,
+                supportsToolUse: true,
+              },
+            ],
+            ...(timestamp !== undefined && { timestamp }),
+          },
+        },
+      });
+      service.registerDynamicFetcher('claude-cli', async () => {
+        throw new Error('SDK bridge unavailable');
+      });
+
+      const result = await service.fetchModels('claude-cli', null);
+
+      expect(result.isStatic).toBe(true);
+      expect(result.models.map((m) => m.id)).not.toContain('retired-model');
+    },
+  );
 
   it('still falls back to staticModels when nothing is persisted', async () => {
     const { service } = makeService({});
@@ -1044,7 +1152,7 @@ describe('ProviderModelsService live-catalog tier derivation', () => {
       configValues: {
         'provider.openrouter.modelCatalog': {
           models: ROUTER_MODELS,
-          timestamp: 1,
+          timestamp: Date.now(),
         },
       },
     });
@@ -1069,7 +1177,7 @@ describe('ProviderModelsService live-catalog tier derivation', () => {
       configValues: {
         'provider.openrouter.modelCatalog': {
           models: ROUTER_MODELS,
-          timestamp: 1,
+          timestamp: Date.now(),
         },
       },
     });
@@ -1085,7 +1193,7 @@ describe('ProviderModelsService live-catalog tier derivation', () => {
         'provider.openrouter.mainAgent.modelTier.opus': 'openai/gpt-5.3-codex',
         'provider.openrouter.modelCatalog': {
           models: ROUTER_MODELS,
-          timestamp: 1,
+          timestamp: Date.now(),
         },
       },
     });
@@ -1110,7 +1218,7 @@ describe('ProviderModelsService live-catalog tier derivation', () => {
       configValues: {
         [`provider.${PROVIDER}.modelCatalog`]: {
           models: ROUTER_MODELS,
-          timestamp: 1,
+          timestamp: Date.now(),
         },
       },
     });
@@ -1129,7 +1237,7 @@ describe('ProviderModelsService live-catalog tier derivation', () => {
       configValues: {
         'provider.openrouter.modelCatalog': {
           models: ROUTER_MODELS,
-          timestamp: 1,
+          timestamp: Date.now(),
         },
       },
     });

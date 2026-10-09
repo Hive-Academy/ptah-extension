@@ -166,19 +166,17 @@ describe('CodexAuthService', () => {
   describe('isAuthenticated', () => {
     it('declares capacity evidence only for positive provider model windows', async () => {
       seedAuthFile({ openai_api_key: 'fixture-key' });
-      const fetchMock = jest
-        .spyOn(globalThis, 'fetch')
-        .mockResolvedValue(
-          new Response(
-            JSON.stringify({
-              models: [200000, 0, -1, null].map((context_window, i) => ({
-                slug: `model-${i}`,
-                visibility: 'list',
-                context_window,
-              })),
-            }),
-          ),
-        );
+      const fetchMock = jest.spyOn(globalThis, 'fetch').mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            models: [200000, 0, -1, null].map((context_window, i) => ({
+              slug: `model-${i}`,
+              visibility: 'list',
+              context_window,
+            })),
+          }),
+        ),
+      );
       try {
         const models = await service.listModels();
         expect(models[0]).toHaveProperty('contextLengthSource', 'provider');
@@ -188,6 +186,35 @@ describe('CodexAuthService', () => {
         fetchMock.mockRestore();
       }
     });
+    it.each([
+      ['no local catalog', null, '0.162.0'],
+      ['an older local catalog', '0.157.0', '0.162.0'],
+      ['a newer local catalog', '0.170.2', '0.170.2'],
+      ['a malformed version', 'latest', '0.162.0'],
+    ])(
+      'asks /models with a client_version that unlocks current models (%s)',
+      async (_case, cachedVersion, expected) => {
+        mockedReadFile.mockImplementation((async (path: string) => {
+          if (String(path).endsWith('models_cache.json')) {
+            if (cachedVersion === null)
+              throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+            return JSON.stringify({ client_version: cachedVersion });
+          }
+          return JSON.stringify({ openai_api_key: 'fixture-key' });
+        }) as never);
+        const fetchMock = jest
+          .spyOn(globalThis, 'fetch')
+          .mockResolvedValue(new Response(JSON.stringify({ models: [] })));
+        try {
+          await service.listModels();
+          expect(String(fetchMock.mock.calls[0]?.[0])).toContain(
+            `/models?client_version=${expected}`,
+          );
+        } finally {
+          fetchMock.mockRestore();
+        }
+      },
+    );
     it('returns true when openai_api_key (snake_case) is present', async () => {
       seedAuthFile({ openai_api_key: 'sk-live-abcd' });
       await expect(service.isAuthenticated()).resolves.toBe(true);

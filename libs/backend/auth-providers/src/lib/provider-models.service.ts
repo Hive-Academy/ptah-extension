@@ -48,8 +48,10 @@ import {
 } from './model-tier-derivation';
 
 /**
- * Raw model response from OpenRouter-style /v1/models API
- * Both OpenRouter and Moonshot use a compatible format
+ * Raw model response from OpenRouter-style /v1/models API.
+ * OpenRouter and Moonshot use this format. Requesty differs: it reports tool
+ * support as `supports_tool_calling`, per-token prices as top-level
+ * `input_price` / `output_price`, and `pricing` as an array of price tiers.
  */
 interface ModelsApiModel {
   id: string;
@@ -58,16 +60,21 @@ interface ModelsApiModel {
   context_length?: number;
   context_window?: number;
   supported_parameters?: string[];
+  supports_tool_calling?: boolean;
+  input_price?: number;
+  output_price?: number;
   architecture?: {
     input_modalities?: string[];
     output_modalities?: string[];
   };
-  pricing?: {
-    prompt?: string;
-    completion?: string;
-    input_cache_read?: string;
-    input_cache_write?: string;
-  };
+  pricing?:
+    | {
+        prompt?: string;
+        completion?: string;
+        input_cache_read?: string;
+        input_cache_write?: string;
+      }
+    | unknown[];
 }
 
 interface ModelsApiResponse {
@@ -87,6 +94,17 @@ export type DynamicModelFetcher = () => Promise<ProviderModelInfo[]>;
 export class ProviderModelsService {
   private readonly modelCache = new Map<string, ProviderCache>();
   private readonly CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+  /** OpenCode's public live ID lists, per subscription. */
+  private readonly openCodeLiveIds = new Map<
+    string,
+    { readonly ids: ReadonlySet<string>; readonly timestamp: number }
+  >();
+  /**
+   * A persisted catalog older than this is not used: vendors retire models
+   * within weeks, so an old saved answer would offer IDs that now fail. The
+   * static list, which the model-list drift check keeps current, takes over.
+   */
+  private readonly PERSISTED_CATALOG_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 
   /** Per-provider dynamic model fetcher callbacks */
   private readonly dynamicFetchers = new Map<string, DynamicModelFetcher>();
@@ -178,15 +196,28 @@ export class ProviderModelsService {
   }
 
   /**
-   * Read the persisted catalog. Returns null when absent or malformed — the
-   * value survives across releases, so treat its shape as untrusted.
+   * Read the persisted catalog. Returns null when absent, malformed, or older
+   * than PERSISTED_CATALOG_MAX_AGE_MS (a missing timestamp counts as too old):
+   * the value survives across releases, so treat it as untrusted.
    */
   private readPersistedCatalog(providerId: string): ProviderModelInfo[] | null {
-    const stored = this.config.get<{ models?: unknown }>(
+    const stored = this.config.get<{ models?: unknown; timestamp?: unknown }>(
       this.getCatalogConfigKey(providerId),
     );
     const models = stored?.models;
     if (!Array.isArray(models)) return null;
+    const savedAt = stored?.timestamp;
+    if (
+      typeof savedAt !== 'number' ||
+      !Number.isFinite(savedAt) ||
+      Date.now() - savedAt > this.PERSISTED_CATALOG_MAX_AGE_MS
+    ) {
+      this.logger.debug(
+        '[ProviderModelsService] Ignoring a persisted model catalog that is too old',
+        { providerId, savedAt },
+      );
+      return null;
+    }
     const valid = models.filter(
       (m): m is ProviderModelInfo =>
         !!m &&
@@ -254,22 +285,30 @@ export class ProviderModelsService {
     totalCount: number;
     isStatic: boolean;
   }> {
-    // The reviewed route-derived catalog is authoritative, even offline or
-    // when an older persisted/dynamic catalog contains unsupported model IDs.
+    // Only the reviewed route table decides which IDs Ptah can call (each
+    // needs a known protocol), but OpenCode's public list decides which of
+    // them still exist: a retired ID drops out without a release. When the
+    // public list cannot be read, the whole route table is offered.
     if (isOpenCodeProviderId(providerId)) {
-      const models: ProviderModelInfo[] = (
-        getAnthropicProvider(providerId)?.staticModels ?? []
-      ).map((m) => ({
-        id: m.id,
-        name: m.name,
-        description: m.description,
-        contextLength: m.contextLength,
-        supportsToolUse: m.supportsToolUse,
-      }));
+      const openCode = getAnthropicProvider(providerId);
+      const routed: ProviderModelInfo[] = (openCode?.staticModels ?? []).map(
+        (m) => ({
+          id: m.id,
+          name: m.name,
+          description: m.description,
+          contextLength: m.contextLength,
+          supportsToolUse: m.supportsToolUse,
+        }),
+      );
+      const liveIds = await this.fetchOpenCodeLiveIds(
+        providerId,
+        openCode?.baseUrl,
+      );
+      const models = liveIds ? routed.filter((m) => liveIds.has(m.id)) : routed;
       return {
         models: toolUseOnly ? models.filter((m) => m.supportsToolUse) : models,
         totalCount: models.length,
-        isStatic: true,
+        isStatic: liveIds === null,
       };
     }
     const dynamicFetcher = this.dynamicFetchers.get(providerId);
@@ -408,6 +447,51 @@ export class ProviderModelsService {
   /**
    * Fetch models from a provider's /v1/models API endpoint
    */
+  /**
+   * The model IDs OpenCode currently serves for one subscription, from its
+   * public `/models` list (no key needed), cached like other live lists.
+   * `null` when the list cannot be read or is empty.
+   */
+  private async fetchOpenCodeLiveIds(
+    providerId: string,
+    baseUrl: string | undefined,
+  ): Promise<ReadonlySet<string> | null> {
+    const cached = this.openCodeLiveIds.get(providerId);
+    if (cached && Date.now() - cached.timestamp < this.CACHE_TTL_MS) {
+      return cached.ids;
+    }
+    if (!baseUrl) return null;
+    let base = baseUrl;
+    while (base.endsWith('/')) base = base.slice(0, -1);
+    try {
+      const { data } = await axios.get<ModelsApiResponse>(`${base}/models`, {
+        headers: { 'User-Agent': 'Ptah-Extension/1.0' },
+        timeout: 10_000,
+      });
+      const ids = new Set(
+        (Array.isArray(data?.data) ? data.data : [])
+          .map((m) => m?.id)
+          .filter(
+            (id): id is string => typeof id === 'string' && id.length > 0,
+          ),
+      );
+      if (ids.size === 0) return null;
+      this.openCodeLiveIds.set(providerId, { ids, timestamp: Date.now() });
+      return ids;
+    } catch (error: unknown) {
+      // degradation-audit: reported - logged; the caller offers the whole
+      // reviewed route table, which is the list Ptah shipped with.
+      this.logger.debug(
+        '[ProviderModelsService] OpenCode public model list unavailable; offering the full route table',
+        {
+          providerId,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      );
+      return null;
+    }
+  }
+
   private async fetchDynamicModels(
     providerId: string,
     provider: AnthropicProvider,
@@ -1159,37 +1243,49 @@ export class ProviderModelsService {
    * Shared by both fetchDynamicModels() and prefetchPricing().
    */
   private transformApiModels(rawModels: ModelsApiModel[]): ProviderModelInfo[] {
-    return rawModels.map((model) => ({
-      id: model.id,
-      name: model.name || model.id,
-      description: model.description || '',
-      contextLength: model.context_length || model.context_window || 0,
-      ...(Number.isFinite(model.context_length || model.context_window) &&
-      (model.context_length || model.context_window || 0) > 0
-        ? { contextLengthSource: 'provider' as const }
-        : {}),
-      supportsToolUse: model.supported_parameters?.includes('tools') ?? false,
-      inputCostPerToken: this.parsePricingField(model.pricing?.prompt),
-      outputCostPerToken: this.parsePricingField(model.pricing?.completion),
-      cacheReadCostPerToken: this.parsePricingField(
-        model.pricing?.input_cache_read,
-      ),
-      cacheCreationCostPerToken: this.parsePricingField(
-        model.pricing?.input_cache_write,
-      ),
-    }));
+    return rawModels.map((model) => {
+      const pricing = Array.isArray(model.pricing) ? undefined : model.pricing;
+      return {
+        id: model.id,
+        name: model.name || model.id,
+        description: model.description || '',
+        contextLength: model.context_length || model.context_window || 0,
+        ...(Number.isFinite(model.context_length || model.context_window) &&
+        (model.context_length || model.context_window || 0) > 0
+          ? { contextLengthSource: 'provider' as const }
+          : {}),
+        supportsToolUse:
+          model.supported_parameters?.includes('tools') ??
+          model.supports_tool_calling ??
+          false,
+        inputCostPerToken:
+          this.parsePricingField(pricing?.prompt) ??
+          this.parsePricingField(model.input_price),
+        outputCostPerToken:
+          this.parsePricingField(pricing?.completion) ??
+          this.parsePricingField(model.output_price),
+        cacheReadCostPerToken: this.parsePricingField(
+          pricing?.input_cache_read,
+        ),
+        cacheCreationCostPerToken: this.parsePricingField(
+          pricing?.input_cache_write,
+        ),
+      };
+    });
   }
 
   /**
    * Parse a pricing field string to a number.
    * OpenRouter returns pricing as strings (e.g., "0.000005" for $5/1M tokens).
    *
-   * @returns Parsed number, or undefined if empty/invalid/negative
+   * @returns Parsed number, or undefined if empty/invalid/non-finite/negative
    */
-  private parsePricingField(value: string | undefined): number | undefined {
+  private parsePricingField(
+    value: string | number | undefined,
+  ): number | undefined {
     if (value === undefined || value === '') return undefined;
-    const parsed = parseFloat(value);
-    if (isNaN(parsed) || parsed < 0) return undefined;
+    const parsed = typeof value === 'number' ? value : Number.parseFloat(value);
+    if (!Number.isFinite(parsed) || parsed < 0) return undefined;
     return parsed;
   }
 

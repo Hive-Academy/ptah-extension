@@ -2113,7 +2113,7 @@ describe('ProvidersSettingsStateService', () => {
       record('agent:getConfig', fullConfig);
       record('ptahCli:list', { agents: [] });
       record('settings:get', { success: true, value: [] });
-      await service.redetectClis();
+      await expect(service.redetectClis()).resolves.toBe(true);
       expect(order[0]).toBe('agent:detectClis');
       expect([...order.slice(1)].sort()).toEqual([
         'agent:getConfig',
@@ -2133,7 +2133,7 @@ describe('ProvidersSettingsStateService', () => {
         async () => new RpcResult(false, undefined, 'raw detection failure'),
       );
       call.mockClear();
-      await service.redetectClis();
+      await expect(service.redetectClis()).resolves.toBe(false);
       expect(call.mock.calls.map(([method]) => method)).toEqual([
         'agent:detectClis',
       ]);
@@ -2168,7 +2168,8 @@ describe('ProvidersSettingsStateService', () => {
         // Resolve in reverse order so the shared section ends up describing the other call.
         second.resolve(outcome(secondOk));
         first.resolve(outcome(firstOk));
-        await Promise.all(calls);
+        // Each call reports its own outcome, whatever the shared section says now.
+        expect(await Promise.all(calls)).toEqual([firstOk, secondOk]);
         // Exactly one call detected successfully, so exactly one cascade ran.
         expect(
           call.mock.calls.filter(([method]) => method === 'agent:getConfig'),

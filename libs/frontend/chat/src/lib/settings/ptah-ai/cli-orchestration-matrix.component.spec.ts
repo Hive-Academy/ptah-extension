@@ -69,8 +69,6 @@ const ORCHESTRATION: ProvidersOrchestration = {
   piModel: '',
   codexReasoningEffort: 'medium',
   copilotReasoningEffort: '',
-  grokReasoningEffort: '',
-  antigravityReasoningEffort: '',
   piReasoningEffort: '',
   cursorApiKeyConfigured: false,
   cursorApiKeyStored: false,
@@ -150,6 +148,15 @@ class StateStub {
     this.cliTest.set(ready(this.testResult));
   });
   readonly clearCliTest = jest.fn((_id: string) => undefined);
+  readonly cliDetection = signal<
+    ProvidersSettingsSection<CliDetectionResult[]>
+  >(ready([]));
+  /** What the next re-detect does to the state; by default nothing changes (the CLI is still missing). */
+  onRedetect: () => void = () => undefined;
+  readonly redetectClis = jest.fn(async (): Promise<boolean> => {
+    this.onRedetect();
+    return this.cliDetection().status === 'ready';
+  });
 }
 
 describe('CliOrchestrationMatrixComponent', () => {
@@ -458,9 +465,6 @@ describe('CliOrchestrationMatrixComponent', () => {
       expect(
         q('[data-testid="cli-matrix-effort-codex"]')?.textContent?.trim(),
       ).toBe('medium');
-      expect(q('[data-testid="cli-matrix-effort-glm-1"]')?.tagName).toBe(
-        'BUTTON',
-      );
       expect(
         q('[data-testid="cli-matrix-model-glm-1"]')?.textContent?.trim(),
       ).toBe('glm-5.3:cloud');
@@ -664,6 +668,82 @@ describe('CliOrchestrationMatrixComponent', () => {
       expect(q('[data-testid="cli-install-popover"]')?.textContent).toContain(
         'npm install -g @earendil-works/pi-coding-agent',
       );
+    });
+
+    describe('install guide Re-detect', () => {
+      function openPiGuide() {
+        q<HTMLButtonElement>('[data-testid="cli-matrix-install-pi"]')?.click();
+        fixture.detectChanges();
+      }
+      const note = () =>
+        q('[data-testid="cli-install-redetect-note"]')?.textContent?.trim();
+
+      it('closes the guide and focuses the row once the CLI is found', async () => {
+        state.onRedetect = () =>
+          state.orchestration.set(
+            ready({
+              ...ORCHESTRATION,
+              detectedClis: ORCHESTRATION.detectedClis.map((cli) =>
+                cli.cli === 'pi'
+                  ? detected('pi', true, { version: '0.80.3' })
+                  : cli,
+              ),
+            }),
+          );
+        openPiGuide();
+        q<HTMLButtonElement>(
+          '[data-testid="cli-install-redetect-pi"]',
+        )?.click();
+        await flush();
+        render();
+        expect(state.redetectClis).toHaveBeenCalledTimes(1);
+        expect(q('[data-testid="cli-install-popover"]')).toBeNull();
+        expect(rowIds('[data-testid="cli-matrix-uninstalled"]')).not.toContain(
+          'pi',
+        );
+        expect(document.activeElement?.getAttribute('data-testid')).toBe(
+          'cli-matrix-toggle-pi',
+        );
+      });
+
+      it('says the CLI is still missing when detection does not find it', async () => {
+        openPiGuide();
+        q<HTMLButtonElement>(
+          '[data-testid="cli-install-redetect-pi"]',
+        )?.click();
+        await flush();
+        expect(q('[data-testid="cli-install-popover"]')).not.toBeNull();
+        expect(note()).toBe(
+          'Still not found. Check the step above, then try again.',
+        );
+      });
+
+      it('says detection failed when the re-read fails', async () => {
+        state.onRedetect = () =>
+          state.cliDetection.set({
+            status: 'error',
+            data: null,
+            error: 'Could not load this section. Retry.',
+          });
+        openPiGuide();
+        q<HTMLButtonElement>(
+          '[data-testid="cli-install-redetect-pi"]',
+        )?.click();
+        await flush();
+        expect(note()).toBe('Detection failed. Try again.');
+      });
+
+      it('decides on its own detection result, not the shared section an overlapping re-detect replaced', async () => {
+        // This call failed, but a later policy-bar re-detect already left the shared section ready.
+        state.redetectClis.mockResolvedValueOnce(false);
+        openPiGuide();
+        q<HTMLButtonElement>(
+          '[data-testid="cli-install-redetect-pi"]',
+        )?.click();
+        await flush();
+        expect(state.cliDetection().status).toBe('ready');
+        expect(note()).toBe('Detection failed. Try again.');
+      });
     });
 
     it('has install copy for every system CLI, Codex and Copilot as before (#77)', () => {
