@@ -492,6 +492,8 @@ export class SessionHandoverCoordinator {
         .join('\n\n');
       return handoff || undefined;
     } catch {
+      // degradation-audit: optional-capability - the agent-written handoff is
+      // optional; undefined makes the caller use the deterministic builder.
       return undefined;
     }
   }

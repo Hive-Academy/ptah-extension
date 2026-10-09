@@ -61,6 +61,8 @@ export class SessionHandoverRpcHandlers {
     state: SessionHandoverState,
   ): Promise<void> {
     const previous = this.stateBroadcasts.get(state.sourceSessionId) ?? Promise.resolve();
+    // degradation-audit: reported - keeps the per-source broadcast chain alive;
+    // the try below logs every broadcast failure.
     const scheduled = previous.catch(() => undefined).then(async () => {
       if (this.latestStates.get(state.sourceSessionId)?.revision !== state.revision) return;
       try {
