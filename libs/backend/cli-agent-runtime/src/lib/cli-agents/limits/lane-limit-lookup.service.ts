@@ -47,6 +47,8 @@ export interface LaneLimitLookupRow {
   readonly ptahCliId?: string;
   /** The Ptah CLI agent's provider id; set for `cli: 'ptah-cli'`. */
   readonly providerId?: string;
+  /** CLI session id returned by a Ptah-started lane, never discovered locally. */
+  readonly cliSessionId?: string;
   /**
    * The owner a spawned run recorded. It wins over the lane's owner rule, so
    * a run keeps the account it ran on after the current account changes.
@@ -174,7 +176,10 @@ export class LaneLimitLookupService {
     try {
       const owner = row.quotaOwner ?? (await this.ownerOf(row));
       if (!owner) return { kind: 'read', read: {} };
-      const plan = planOwnerRead(owner, { ptahCliId: row.ptahCliId });
+      const plan = planOwnerRead(owner, {
+        ptahCliId: row.ptahCliId,
+        cliSessionId: row.cliSessionId,
+      });
       if (!plan) return { kind: 'read', read: { owner } };
       const snapshot =
         plan.kind === 'read'
