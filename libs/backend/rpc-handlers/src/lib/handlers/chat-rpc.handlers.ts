@@ -65,6 +65,8 @@ import type {
   ChatResumeResult,
   ChatHistoryPageParams,
   ChatHistoryPageResult,
+  ChatSetStreamViewportParams,
+  ChatSetStreamViewportResult,
   RpcMethodName,
 } from '@ptah-extension/shared';
 import {
@@ -75,6 +77,7 @@ import {
 import { CHAT_TOKENS } from '../chat/tokens';
 import type { ChatPtahCliService } from '../chat/ptah-cli/chat-ptah-cli.service';
 import type { ChatStreamBroadcaster } from '../chat/streaming/chat-stream-broadcaster.service';
+import type { ChatStreamDeliveryCoordinator } from '../chat/streaming/chat-stream-delivery-coordinator.service';
 import type { ChatSessionService } from '../chat/session/chat-session.service';
 import type { ChatHistoryReadService } from '../chat/session/chat-history-read.service';
 import { hasStopIntent } from '../chat/session/chat-stop-intent';
@@ -85,6 +88,7 @@ import {
   ChatHistoryPageParamsSchema,
   ChatAbortParamsSchema,
   ChatPendingQuestionsParamsSchema,
+  ChatSetStreamViewportParamsSchema,
 } from './chat-rpc.schema';
 
 /** Type of the RPC handler callback used by every `rpcHandler.registerMethod`. */
@@ -102,6 +106,7 @@ export class ChatRpcHandlers {
   static readonly METHODS = [
     'chat:start',
     'chat:continue',
+    'chat:setStreamViewport',
     'chat:resume',
     'chat:history-page',
     'chat:abort',
@@ -134,6 +139,8 @@ export class ChatRpcHandlers {
      */
     @inject(CLI_AGENT_RUNTIME_TOKENS.SESSION_SPAWNER, { isOptional: true })
     private readonly sessionSpawner: ISessionSpawner | null = null,
+    @inject(CHAT_TOKENS.STREAM_DELIVERY_COORDINATOR, { isOptional: true })
+    private readonly streamDelivery: ChatStreamDeliveryCoordinator | null = null,
   ) {}
 
   /**
@@ -239,6 +246,18 @@ export class ChatRpcHandlers {
       (params) => {
         ChatContinueParamsSchema.parse(params);
         return this.session.continueSession(params);
+      },
+    );
+    this.wire<ChatSetStreamViewportParams, ChatSetStreamViewportResult>(
+      'chat:setStreamViewport',
+      'registerChatSetStreamViewport',
+      async (params) => {
+        ChatSetStreamViewportParamsSchema.parse(params);
+        // A host without the coordinator remains a v1-compatible host. A v2
+        // frontend must not wait for snapshots when it receives this answer.
+        if (!this.streamDelivery) return { acceptedProtocolVersion: 1 };
+        await this.streamDelivery.updateViewport(params);
+        return { acceptedProtocolVersion: 2 };
       },
     );
     this.wire<ChatResumeParams, ChatResumeResult>(
@@ -368,6 +387,7 @@ export class ChatRpcHandlers {
       methods: [
         'chat:start',
         'chat:continue',
+        'chat:setStreamViewport',
         'chat:resume',
         'chat:history-page',
         'chat:abort',

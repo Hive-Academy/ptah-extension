@@ -10,8 +10,12 @@ import {
   ChangeDetectionStrategy,
 } from '@angular/core';
 import { MarkdownModule } from 'ngx-markdown';
-import { SurfaceMarkdownPipe } from '@ptah-extension/markdown';
+import {
+  SurfaceMarkdownPipe,
+  StreamingMarkdownRenderer,
+} from '@ptah-extension/markdown';
 import { SURFACE_ACTIVE } from '@ptah-extension/core';
+import { INCREMENTAL_STREAMING_PRESENTATION_ENABLED } from '../../../services/scroll-dirty.service';
 import { LucideAngularModule, Info } from 'lucide-angular';
 import { InlineAgentBubbleComponent } from './inline-agent-bubble.component';
 import {
@@ -205,9 +209,13 @@ function scheduleFrame(cb: () => void): FrameHandle {
                  streams, and the exact final string the moment it settles.
                  Every value still goes through ngx-markdown, so DOMPurify
                  remains the only path AI text takes to the DOM. -->
-            <markdown
-              [data]="renderedContent() | surfaceMarkdown: surfaceActive()"
-            />
+            @if (incrementalStreamingEnabled && isNodeStreaming()) {
+              <div [innerHTML]="streamingHtml()"></div>
+            } @else {
+              <markdown
+                [data]="renderedContent() | surfaceMarkdown: surfaceActive()"
+              />
+            }
           </div>
         }
       }
@@ -463,6 +471,12 @@ export class ExecutionNodeComponent {
   // "always active" and silently never throttle — the gate would be dead with
   // no error and no failing test.
   protected readonly surfaceActive = inject(SURFACE_ACTIVE);
+  protected readonly incrementalStreamingEnabled = inject(
+    INCREMENTAL_STREAMING_PRESENTATION_ENABLED,
+  );
+  private readonly streamingMarkdown = new StreamingMarkdownRenderer();
+  private readonly _streamingHtml = signal('');
+  protected readonly streamingHtml = this._streamingHtml.asReadonly();
 
   constructor() {
     effect(() => {
@@ -491,7 +505,7 @@ export class ExecutionNodeComponent {
         if (!this.surfaceActive()) return;
         const pending = this.pendingContent;
         this.pendingContent = null;
-        if (pending !== null) this._renderedContent.set(pending);
+        if (pending !== null) this.publishStreaming(pending);
       });
     });
 
@@ -510,6 +524,14 @@ export class ExecutionNodeComponent {
     this.pendingFrame = null;
     this.pendingContent = null;
     this._renderedContent.set(content);
+    this._streamingHtml.set('');
+  }
+
+  private publishStreaming(content: string): void {
+    this._renderedContent.set(content);
+    if (this.incrementalStreamingEnabled) {
+      this._streamingHtml.set(this.streamingMarkdown.render(content));
+    }
   }
 
   /**
@@ -520,7 +542,7 @@ export class ExecutionNodeComponent {
   protected readonly ptahUiHost = computed(
     (): PtahUiNodeContext | null => {
       const context = this.ptahUi();
-      if (context === null) return null;
+      if (context === null || this.isNodeStreaming()) return null;
       return hasPtahUiFenceLine(this.renderedContent()) ? context : null;
     },
     { equal: samePtahUiContext },

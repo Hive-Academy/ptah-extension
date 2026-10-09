@@ -19,6 +19,7 @@ const startupConfig = ipcRenderer.sendSync('get-startup-config') as {
   initialView?: string | null;
   workspaceRoot?: string;
   workspaceName?: string;
+  zoneChangeDetectionFallback?: boolean;
 } | null;
 contextBridge.exposeInMainWorld('vscode', {
   postMessage: (message: unknown) => {
@@ -44,6 +45,9 @@ contextBridge.exposeInMainWorld('ptahConfig', {
   panelId: 'electron-main',
   platform: process.platform, // 'darwin', 'win32', 'linux' — reliable in preload context
   initialView: startupConfig?.initialView || 'chat',
+  // TODO(streaming-p6): remove zone fallback flag after one stable release
+  zoneChangeDetectionFallback:
+    startupConfig?.zoneChangeDetectionFallback === true,
 });
 contextBridge.exposeInMainWorld('ptahClipboard', {
   readText: (): Promise<string> => ipcRenderer.invoke('clipboard:read-text'),

@@ -31,27 +31,23 @@
         </button>
       </div>
     }
-    @for (
-      msg of vm().messages;
-      track trackByMessageId($index, msg);
-      let i = $index
-    ) {
+    @for (slot of vm().slots; track slot.id; let i = $index) {
       <!-- Persistent slot: stays observed while its bubble is unmounted, so a
            scrolled-away message can be observed back into the render window. -->
       <div
         class="chat-msg-slot"
-        [ptahTranscriptSlot]="msg.id"
-        [attr.data-ptah-transcript-message-id]="msg.id"
+        [ptahTranscriptSlot]="slot.id"
+        [attr.data-ptah-transcript-message-id]="slot.id"
       >
         @if (
-          renderWindow.isMounted(msg.id) ||
-          prependAnchor.isForcedMounted(msg.id)
+          renderWindow.isMounted(slot.id) ||
+          prependAnchor.isForcedMounted(slot.id)
         ) {
           <ptah-message-bubble
             class="block px-2 pb-3"
-            [message]="msg"
-            [ptahUiOrderKey]="ptahUiOrderKeys().get(msg.id) ?? 0"
-            [ptahUiSnapshot]="ptahUiSnapshots().get(msg.id) ?? null"
+            [message]="slot.record()"
+            [ptahUiOrderKey]="ptahUiOrderKeys().get(slot.id) ?? 0"
+            [ptahUiSnapshot]="ptahUiSnapshots().get(slot.id) ?? null"
             [messageIndex]="i"
             [totalMessages]="vm().totalCount"
             [isStreaming]="i >= vm().streamingBoundary"
@@ -64,13 +60,13 @@
           <div
             class="chat-msg-placeholder"
             aria-hidden="true"
-            [style.min-height.px]="renderWindow.placeholderHeight(msg.id)"
+            [style.min-height.px]="renderWindow.placeholderHeight(slot.id)"
           ></div>
         }
       </div>
       <!-- Change-set cards of the turn this message ends. `when` adds no
            per-item observer and keeps the card chunk lazy. -->
-      @if (changeSetAnchors().get(msg.id); as changeSets) {
+      @if (changeSetAnchors().get(slot.id); as changeSets) {
         @defer (when changeSets.length > 0) {
           @for (changeSet of changeSets; track changeSetKey(changeSet)) {
             <!-- pl-11 lines the card up with the assistant bubble column
@@ -108,7 +104,7 @@
       <!-- Tests row of the turn this message ends: one row per finalized turn
            that ran test commands, Electron only (see `turnTestsAnchors`).
            `when` adds no per-item observer and keeps the row chunk lazy. -->
-      @if (turnTestsAnchors().get(msg.id); as tests) {
+      @if (turnTestsAnchors().get(slot.id); as tests) {
         @defer (when tests.runs.length > 0) {
           <div class="px-2 pb-3" data-testid="chat-turn-tests">
             <ptah-turn-tests-row
