@@ -489,7 +489,18 @@ async function captureMatrixPopovers(
       name: 'orchestration-modal-tiers',
     },
   ]) {
-    await page.locator(modal.opener).click();
+    if (modal.testid === 'cli-tier-mapping-modal') {
+      const inline = page.locator(modal.opener);
+      if (await inline.isVisible()) await inline.click();
+      else {
+        await page
+          .locator('[data-testid="cli-matrix-more-glm-instance-1"]')
+          .click();
+        await page
+          .locator('[data-testid="cli-matrix-more-tiers-glm-instance-1"]')
+          .click();
+      }
+    } else await page.locator(modal.opener).click();
     const dialog = page.locator(`dialog:has([data-testid="${modal.testid}"])`);
     await expect(dialog).toHaveAttribute('open', '');
     if (modal.testid === 'add-cli-instance-modal') {
@@ -706,16 +717,15 @@ async function captureRolesOpen(
     'article[data-testid^="consumer-row-"]',
   );
   await expect(consumerRows).toHaveCount(6);
-  // The edit button stretches to the card row's height (flex-1); its label is what must stay on one line.
+  // Card grids can vary in height; each assignment label must stay on one line.
   const cellHeights = await consumers
     .locator('[data-testid^="consumer-summary-"]')
     .evaluateAll((cells) =>
       cells.map((cell) => Math.round(cell.getBoundingClientRect().height)),
     );
-  const rowHeights = await consumerRows
-    .evaluateAll((rows) =>
-      rows.map((row) => Math.round(row.getBoundingClientRect().height)),
-    );
+  const rowHeights = await consumerRows.evaluateAll((rows) =>
+    rows.map((row) => Math.round(row.getBoundingClientRect().height)),
+  );
   console.log(
     `B35 role cells ${host}/${theme}: cell heights ${cellHeights.join(',')}; row heights ${rowHeights.join(',')}`,
   );

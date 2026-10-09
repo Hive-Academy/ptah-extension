@@ -68,7 +68,15 @@ const rolesDetails = (page: Page): Locator =>
   page.locator('[data-testid="background-roles-details"]');
 
 async function open(page: Page, modal: ModalCase): Promise<Locator> {
-  await modal.opener(page).click();
+  const opener = modal.opener(page);
+  if (modal.testid !== 'cli-tier-mapping-modal' || (await opener.isVisible()))
+    await opener.click();
+  else {
+    await page.locator(`[data-testid="cli-matrix-more-${GLM_ID}"]`).click();
+    await page
+      .locator(`[data-testid="cli-matrix-more-tiers-${GLM_ID}"]`)
+      .click();
+  }
   const dialog = dialogOf(page, modal.testid);
   await expect(dialog).toHaveAttribute('open', '');
   // showModal() moves focus into the dialog.

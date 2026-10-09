@@ -17,15 +17,8 @@ function keysWithin(record: object, allowed: readonly string[]): boolean {
 }
 
 describe('PROVIDER_MARKS', () => {
-  it('tables the inlined provider ids from plan Decision 10', () => {
-    for (const id of [
-      'openrouter',
-      'ollama',
-      'ollama-cloud',
-      'opencode',
-      'pi',
-      'ptah-cli',
-    ]) {
+  it('keeps only the hand-authored marks without vendored artwork', () => {
+    for (const id of ['pi', 'ptah-cli']) {
       expect(PROVIDER_MARKS[id]?.kind).toBe('stroke');
     }
   });
@@ -50,22 +43,16 @@ describe('PROVIDER_MARKS', () => {
     }
   });
 
-  it('shares one mark across both Ollama entries and never duplicates markup', () => {
-    expect(PROVIDER_MARKS['ollama']).toBe(PROVIDER_MARKS['ollama-cloud']);
-  });
-
-  it('pins lucide fallbacks by name, not by inlined markup', () => {
+  it('has no pinned Lucide fallback now that vendored artwork covers it', () => {
     const lucideEntries = Object.entries(PROVIDER_MARKS).filter(
       ([, mark]: [string, ProviderMark]) => mark.kind === 'lucide',
     );
-    expect(lucideEntries).toEqual([
-      ['lm-studio', { kind: 'lucide', icon: 'Server' }],
-    ]);
+    expect(lucideEntries).toEqual([]);
   });
 
-  it('holds no fallback record for a provider drawn from vendored artwork (R1), except the retained OpenCode fallback', () => {
+  it('holds no fallback record for a provider drawn from vendored artwork', () => {
     for (const id of Object.keys(PROVIDER_BRAND_SLUGS)) {
-      expect(Object.hasOwn(PROVIDER_MARKS, id)).toBe(id === 'opencode');
+      expect(Object.hasOwn(PROVIDER_MARKS, id)).toBe(false);
     }
   });
 });

@@ -68,13 +68,6 @@ export function strokeMark(segments: readonly string[]): ProviderStrokeMark {
  * Hand-authored simplified monochrome llama head shared by both Ollama
  * entries — Ollama and Ollama Cloud are the same vendor mark.
  */
-const OLLAMA_MARK: ProviderStrokeMark = strokeMark([
-  'M8 3 L8 6',
-  'M12 3 L12 6',
-  'M6 6 C4.3 6 3 7.3 3 9 L3 15 C3 18.9 6.1 21 10 21 L14 21 C17.9 21 21 18.9 21 15 L21 9 C21 7.3 19.7 6 18 6 Z',
-  'M9 11 L9.01 11',
-  'M14 21 L14 17',
-]);
 
 /**
  * The hand-authored mark table, keyed by registry provider id (merged
@@ -83,18 +76,6 @@ const OLLAMA_MARK: ProviderStrokeMark = strokeMark([
  * deliberately absent; they always fall back.
  */
 export const PROVIDER_MARKS: Readonly<Record<string, ProviderMark>> = {
-  // Simplified routing mark: two mirrored chevrons meeting at a point.
-  openrouter: strokeMark(['M3 6 L12 12 L3 18', 'M21 6 L12 12 L21 18']),
-  ollama: OLLAMA_MARK,
-  'ollama-cloud': OLLAMA_MARK,
-  // xAI's compact X mark for Grok. xAI does not publish a freely licensed
-  // SVG; this is a monochrome geometric rendering in the same safe path form.
-  grok: strokeMark(['M5 3 L19 21', 'M19 3 L5 21']),
-  // Simplified hexagon with an inner prompt chevron.
-  opencode: strokeMark([
-    'M12 2 L21 7 L21 17 L12 22 L3 17 L3 7 Z',
-    'M8.5 9 L13.5 12 L8.5 15',
-  ]),
   // Simplified pi glyph: top bar plus two legs.
   pi: strokeMark(['M5 7 L19 7', 'M8 7 L8 18', 'M14 7 L14 18']),
   // Ptah's own CLI agent id (`agent-process.types.ts`), rendered as a
@@ -102,8 +83,6 @@ export const PROVIDER_MARKS: Readonly<Record<string, ProviderMark>> = {
   'ptah-cli': strokeMark([
     'M8 21 L8 3 L14.5 3 C17.5 3 19.5 5 19.5 8 C19.5 11 17.5 13 14.5 13 L8 13',
   ]),
-  // Lucide pin: the table names the fallback glyph so the host does not
-  // have to. Everything NOT listed here (or in `PROVIDER_BRAND_SLUGS`) falls
+  // Everything NOT listed here (or in `PROVIDER_BRAND_SLUGS`) falls
   // back to the host-supplied `fallback` input of `ProviderMarkComponent`.
-  'lm-studio': { kind: 'lucide', icon: 'Server' },
 };

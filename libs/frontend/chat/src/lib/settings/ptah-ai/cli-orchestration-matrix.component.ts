@@ -307,7 +307,7 @@ const SAVE_SCOPE = 'global';
                     <!-- One line next to the name (prototype): the version is the normalised token (Batch 52.1); a line with none
                truncates, with the CLI's own line in the title. -->
                     <div
-                      class="flex min-w-0 flex-nowrap items-baseline gap-1.5 font-bold"
+                      class="cli-name-line flex min-w-0 flex-nowrap items-baseline gap-1.5 font-bold"
                       [class.text-base-content-muted]="!row.interactive"
                     >
                       <span class="shrink-0 whitespace-nowrap">{{
@@ -348,16 +348,17 @@ const SAVE_SCOPE = 'global';
                         {{ statusLabel(row) }}
                       </span>
                       <span
-                        class="flex w-0 min-w-0 flex-1 items-center gap-1 truncate text-xs text-base-content-muted"
+                        class="flex shrink-0 items-center gap-1 text-xs text-base-content-muted"
                         [title]="providerLabel(row)"
                       >
                         <ptah-provider-mark
                           [providerId]="providerMarkId(row)"
                           fallback="Terminal"
+                          size="sm"
                         />
-                        <span class="min-w-0 truncate">{{
-                          providerLabel(row)
-                        }}</span>
+                        <span class="sr-only"
+                          >Provider: {{ providerLabel(row) }}</span
+                        >
                       </span>
                     </div>
                     @if (row.kind === 'instance') {
@@ -425,7 +426,7 @@ const SAVE_SCOPE = 'global';
                     </span>
                   </td>
                   <!-- The model column keeps a readable width; long ids wrap at word breaks (prototype: 2 lines at most). -->
-                  <td class="min-w-[8rem]">
+                  <td>
                     @if (row.kind === 'system' && !row.installed) {
                       <span class="font-mono text-xs text-base-content-muted"
                         >—</span
@@ -717,7 +718,7 @@ const SAVE_SCOPE = 'global';
                         >
                           <button
                             type="button"
-                            [class]="ACTION"
+                            [class]="ACTION + ' cli-wide-only'"
                             [disabled]="busy() || !canWrite()"
                             (click)="openTiers(row)"
                             [attr.aria-label]="'Tiers for ' + row.name"
@@ -727,7 +728,7 @@ const SAVE_SCOPE = 'global';
                           </button>
                           <button
                             type="button"
-                            [class]="ACTION"
+                            [class]="ACTION + ' cli-wide-only'"
                             [ptahBusyDisabled]="testing()"
                             (click)="test(row.id)"
                             [attr.aria-label]="'Test ' + row.name"
@@ -773,6 +774,32 @@ const SAVE_SCOPE = 'global';
                                 class="flex w-40 flex-col p-1 text-left"
                                 data-testid="cli-matrix-more-menu"
                               >
+                                <button
+                                  type="button"
+                                  [class]="MENU_ITEM + ' cli-narrow-menu-item'"
+                                  [disabled]="busy() || !canWrite()"
+                                  (click)="close(); openTiers(row)"
+                                  [attr.aria-label]="'Tiers for ' + row.name"
+                                  [attr.data-testid]="
+                                    'cli-matrix-more-tiers-' + row.id
+                                  "
+                                >
+                                  Tiers
+                                </button>
+                                <button
+                                  type="button"
+                                  [class]="MENU_ITEM + ' cli-narrow-menu-item'"
+                                  [ptahBusyDisabled]="testing()"
+                                  (click)="close(); test(row.id)"
+                                  [attr.aria-label]="'Test ' + row.name"
+                                  [attr.data-testid]="
+                                    'cli-matrix-more-test-' + row.id
+                                  "
+                                >
+                                  {{
+                                    testingId() === row.id ? 'Testing…' : 'Test'
+                                  }}
+                                </button>
                                 <button
                                   type="button"
                                   [class]="MENU_ITEM"
@@ -1020,7 +1047,7 @@ const SAVE_SCOPE = 'global';
     <ptah-cli-tier-mapping-modal
       [open]="tierTarget() !== null"
       [target]="tierTarget()"
-      (closed)="tierTarget.set(null)"
+      (closed)="closeTiers()"
     />
   `,
   // Container-width layout (the routing map's Q-extra-1 rule): every column in a wide box (VS Code at 1024 px, as in the
@@ -1045,6 +1072,9 @@ const SAVE_SCOPE = 'global';
     .cli-narrow-only {
       display: none;
     }
+    .cli-narrow-menu-item {
+      display: none;
+    }
     @container (max-width: 47.99rem) {
       .cli-col-narrow-hidden,
       .cli-wide-only {
@@ -1054,6 +1084,9 @@ const SAVE_SCOPE = 'global';
         display: flex;
       }
       .cli-narrow-only {
+        display: inline-flex;
+      }
+      .cli-narrow-menu-item {
         display: inline-flex;
       }
       /* Electron fold with six installed rows (TASK_2026_617): 2 px instead of table-xs's 4 px above and below each
@@ -1068,6 +1101,13 @@ const SAVE_SCOPE = 'global';
     @container (min-width: 36rem) and (max-width: 47.99rem) {
       .cli-instance-subline {
         flex-wrap: nowrap;
+      }
+      .cli-name-line {
+        display: inline-flex;
+      }
+      .cli-narrow-inline {
+        display: inline-flex;
+        margin-left: 0.25rem;
       }
     }
   `,
@@ -1203,7 +1243,10 @@ export class CliOrchestrationMatrixComponent {
       return;
     }
     if (this.addOrigin === 'empty')
-      this.focusAfterRender(`[data-testid="cli-matrix-tiers-${created.id}"]`);
+      this.focusAfterRender(
+        `[data-testid="cli-matrix-tiers-${created.id}"]`,
+        `[data-testid="cli-matrix-more-${created.id}"]`,
+      );
     void this.test(created.id);
   }
 
@@ -1215,6 +1258,17 @@ export class CliOrchestrationMatrixComponent {
       providerId: row.providerId,
       providerName: row.provider,
     });
+  }
+
+  /** Focus returns to the row's Tiers button, or to More when the narrow layout moved Tiers into it. */
+  protected closeTiers(): void {
+    const id = this.tierTarget()?.id;
+    this.tierTarget.set(null);
+    if (id)
+      this.focusAfterRender(
+        `[data-testid="cli-matrix-tiers-${id}"]`,
+        `[data-testid="cli-matrix-more-${id}"]`,
+      );
   }
   /** The instance whose Test ran last, for a test that failed before it produced a result. */
   private readonly lastTestedId = signal<string | null>(null);
@@ -1299,11 +1353,15 @@ export class CliOrchestrationMatrixComponent {
   }
 
   protected focusFirstIn(testid: string): void {
-    this.element.nativeElement
-      .querySelector<HTMLElement>(
-        `[data-testid="${testid}"] button:not([disabled])`,
-      )
-      ?.focus();
+    const buttons = this.element.nativeElement.querySelectorAll<HTMLElement>(
+      `[data-testid="${testid}"] button:not([disabled])`,
+    );
+    for (const button of buttons) {
+      if (getComputedStyle(button).display !== 'none') {
+        button.focus();
+        return;
+      }
+    }
   }
 
   /** The Credentials popover's key field takes focus once the panel is positioned. */
@@ -1488,14 +1546,15 @@ export class CliOrchestrationMatrixComponent {
     if (result === 'saved') this.confirmDelete.set(null);
   }
 
-  /** Focuses the first selector present after the next render; later ones are fallbacks. */
+  /** Focuses the first selector present and shown after the next render; later ones are fallbacks. */
   private focusAfterRender(...selectors: readonly string[]): void {
     afterNextRender(
       () => {
         const root = this.element.nativeElement;
         for (const selector of selectors) {
           const target = root.querySelector<HTMLElement>(selector);
-          if (target) {
+          // The narrow layout hides inline Tiers and Test (they move into More).
+          if (target && getComputedStyle(target).display !== 'none') {
             target.focus();
             return;
           }

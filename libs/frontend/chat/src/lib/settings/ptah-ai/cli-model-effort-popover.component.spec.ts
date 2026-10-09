@@ -507,6 +507,13 @@ describe('CliModelEffortPopoverComponent', () => {
       expect(query('cli-matrix-model-count')).toBeNull();
     });
 
+    it('#45: shows no count when the host reports 0 static models (runtime-listed provider)', () => {
+      create(instance(), 'model');
+      state.cliAgents.set(ready([{ id: 'glm-1', modelCount: 0 }]));
+      fixture.detectChanges();
+      expect(query('cli-matrix-model-count')).toBeNull();
+    });
+
     it('#45: shows no model count on a system CLI popover', () => {
       create(system(), 'model');
       expect(query('cli-matrix-model-count')).toBeNull();
