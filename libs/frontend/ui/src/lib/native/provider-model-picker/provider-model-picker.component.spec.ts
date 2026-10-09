@@ -337,6 +337,7 @@ describe('ProviderModelPickerComponent', () => {
       expect(el(fixture, 'provider-model-picker-error')?.textContent).toContain(
         'auth failed',
       );
+      expect(el(fixture, 'provider-model-picker-empty')).toBeNull();
     });
 
     it('surfaces a rejected load without letting it escape', async () => {
@@ -589,10 +590,12 @@ describe('ProviderModelPickerComponent', () => {
       );
 
       const fixture = TestBed.createComponent(ProviderModelPickerComponent);
+      fixture.componentRef.setInput('fixedProvider', ANTHROPIC_PROVIDERS[0].id);
       fixture.detectChanges();
       expect(select(fixture, 'provider-model-picker-model').disabled).toBe(
         true,
       );
+      expect(el(fixture, 'provider-model-picker-empty')).toBeNull();
 
       release(result([]));
       await fixture.whenStable();
@@ -950,6 +953,12 @@ describe('ProviderModelPickerComponent', () => {
       ).toBe('3 models · 2 support tool use');
     });
 
+    it('does not show the empty-catalogue message when the summary renders', async () => {
+      const fixture = await create({ provider: first.id });
+      expect(el(fixture, 'provider-model-picker-tooluse-summary')).not.toBeNull();
+      expect(el(fixture, 'provider-model-picker-empty')).toBeNull();
+    });
+
     it('V36-4: the summary label is base-content; the info colour is only on the icon and border', async () => {
       listModels.mockResolvedValue(result([model({ id: 'm-1', name: 'One', supportsToolUse: true })]));
       const fixture = await create({ provider: first.id });
@@ -991,10 +1000,13 @@ describe('ProviderModelPickerComponent', () => {
       ).toBe('1 model · 0 support tool use');
     });
 
-    it('renders no summary for an empty catalogue', async () => {
+    it('shows an empty-catalogue message after a successful empty load', async () => {
       listModels.mockResolvedValue(result([]));
       const fixture = await create({ provider: first.id });
       expect(el(fixture, 'provider-model-picker-tooluse-summary')).toBeNull();
+      expect(
+        el(fixture, 'provider-model-picker-empty')?.textContent?.trim(),
+      ).toBe('No models available from this provider.');
     });
 
     it('shows the summary without requiresToolUse (not only as a warning)', async () => {

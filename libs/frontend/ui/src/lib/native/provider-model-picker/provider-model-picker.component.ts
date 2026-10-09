@@ -290,6 +290,13 @@ function buildDefaultModelLabel(
             {{ summary }}
           </span>
         </p>
+      } @else if (emptyCatalogue()) {
+        <p
+          class="px-3 pb-2 text-xs text-base-content-muted"
+          data-testid="provider-model-picker-empty"
+        >
+          No models available from this provider.
+        </p>
       }
 
       @if (toolUseWarning()) {
@@ -479,6 +486,8 @@ export class ProviderModelPickerComponent {
   private readonly _models = signal<readonly ProviderModelInfo[]>([]);
   private readonly _modelsLoading = signal<boolean>(false);
   private readonly _modelsError = signal<string | null>(null);
+  /** A load for the current provider has finished (before the first one, nothing is known). */
+  private readonly _modelsLoaded = signal<boolean>(false);
   private readonly _manualDraft = signal<string>('');
   private readonly _registryVersion = signal(0);
 
@@ -551,6 +560,15 @@ export class ProviderModelPickerComponent {
     const verb = capable === 1 ? 'supports' : 'support';
     return `${models.length} ${noun} · ${capable} ${verb} tool use`;
   });
+
+  /** A completed, successful provider catalogue may genuinely contain no models. */
+  protected readonly emptyCatalogue = computed(
+    () =>
+      this._modelsLoaded() &&
+      !this._modelsLoading() &&
+      this._modelsError() === null &&
+      this._models().length === 0,
+  );
 
   protected readonly defaultModelLabel = computed(() =>
     buildDefaultModelLabel(this._provider(), this.defaultTier()),
@@ -715,6 +733,7 @@ export class ProviderModelPickerComponent {
     const generation = ++this.loadGeneration;
     this.catalogueProvider = providerId;
     this._modelsLoading.set(true);
+    this._modelsLoaded.set(false);
     this._modelsError.set(null);
     try {
       // `''` is this component's "inherit" sentinel, not a provider id; the
@@ -740,7 +759,10 @@ export class ProviderModelPickerComponent {
           : 'Failed to load models',
       );
     } finally {
-      if (generation === this.loadGeneration) this._modelsLoading.set(false);
+      if (generation === this.loadGeneration) {
+        this._modelsLoading.set(false);
+        this._modelsLoaded.set(true);
+      }
     }
   }
 }
