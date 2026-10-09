@@ -403,6 +403,11 @@ describe('brand slug tables', () => {
     expect(PROVIDER_BRAND_SLUGS).toEqual({
       anthropic: 'anthropic',
       'claude-cli': 'claude',
+      codex: 'openai',
+      cursor: 'cursor',
+      copilot: 'github-copilot',
+      antigravity: 'google-gemini',
+      opencode: 'opencode',
     });
     for (const slug of Object.values(PROVIDER_BRAND_SLUGS)) {
       expect(Object.hasOwn(PROVIDER_BRAND_ART, slug)).toBe(true);

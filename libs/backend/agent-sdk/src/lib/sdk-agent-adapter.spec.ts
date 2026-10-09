@@ -37,6 +37,7 @@ import type {
   AISessionConfig,
   AuthEnv,
   FlatStreamEventUnion,
+  ProviderProfile,
   SessionBudgetState,
   SessionId,
   SessionStatsEntry,
