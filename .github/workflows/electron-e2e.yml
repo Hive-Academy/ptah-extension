@@ -32,11 +32,18 @@ env:
   NX_TUI: false
 
 jobs:
-  electron-e2e:
+  electron-e2e-shard:
+    name: electron-e2e (shard ${{ matrix.shard }}/3)
     runs-on: ubuntu-latest
     # 45, not 30: the suite only started running to completion once the 11
     # failing specs were fixed — earlier runs bailed early at 13-18m.
-    timeout-minutes: 45
+    # Three shards keep each test segment safely below 30 minutes; the former
+    # single-shard suite needed 45 minutes once all 244 specs ran to completion.
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
     # Skip closed/merged PRs and bot bumps from publish-cli.yml,
     # publish-electron.yml, and publish-extension.yml: chore/bump-cli-v*,
     # chore/bump-electron-v*, and chore/bump-extension-v*. Human
@@ -95,7 +102,7 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       - name: Install xvfb (headless Electron needs an X server)
-        run: sudo apt-get update && sudo apt-get install -y xvfb
+        run: sudo apt-get update && sudo apt-get install -y xvfb dbus
 
       - name: Set NX SHAs
         uses: nrwl/nx-set-shas@v4
@@ -113,13 +120,13 @@ jobs:
         run: npx nx run ptah-electron:copy-renderer-dev
 
       - name: Run Electron E2E specs under xvfb
-        run: xvfb-run --auto-servernum npx nx run ptah-electron-e2e:e2e --skip-nx-cache
+        run: xvfb-run --auto-servernum dbus-run-session -- npx nx run ptah-electron-e2e:e2e --skip-nx-cache -- --shard=${{ matrix.shard }}/3
 
       - name: Upload Playwright report on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: electron-playwright-report
+          name: electron-playwright-report-${{ matrix.shard }}
           path: dist/apps/ptah-electron-e2e/playwright-report/
           retention-days: 7
 
@@ -127,6 +134,28 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: electron-test-results
+          name: electron-test-results-${{ matrix.shard }}
           path: dist/apps/ptah-electron-e2e/test-results/
           retention-days: 7
+
+  electron-e2e:
+    name: electron-e2e
+    needs: [electron-e2e-shard]
+    runs-on: ubuntu-latest
+    if: |
+      always() &&
+      (github.event_name != 'pull_request' || github.event.pull_request.state == 'open') &&
+      !startsWith(github.head_ref, 'chore/bump-cli-v') &&
+      !startsWith(github.head_ref, 'chore/bump-electron-v') &&
+      !startsWith(github.head_ref, 'chore/bump-extension-v') &&
+      !contains(github.event.head_commit.message, 'chore(release)')
+    steps:
+      - name: Require all Electron E2E shards
+        env:
+          SHARDS_RESULT: ${{ needs['electron-e2e-shard'].result }}
+        shell: bash
+        run: |
+          if [ "$SHARDS_RESULT" != 'success' ]; then
+            echo "electron-e2e-shard=$SHARDS_RESULT"
+            exit 1
+          fi
