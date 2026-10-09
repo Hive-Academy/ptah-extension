@@ -1389,7 +1389,7 @@ export class ChatSessionService {
   private async autoResumeIfInactive(
     sessionId: SessionId,
     tabId: string,
-    workspacePath: string,
+    requestedWorkspacePath: string,
     prompt: string,
     params: AutoResumePreflight,
     /**
@@ -1441,6 +1441,16 @@ export class ChatSessionService {
 
     this.logger.info(
       `[RPC] Session ${sessionId} not active, attempting resume...`,
+    );
+
+    // chat:continue passes the workspace root. A worktree child must resume in
+    // its own worktree, the cwd chat:resume restores, or its edits land on the
+    // parent's branch.
+    const metadata = await this.sessionMetadataStore.get(sessionId);
+    const workspacePath = await this.historyRead.resolveWorkingDirectory(
+      sessionId,
+      requestedWorkspacePath,
+      metadata?.workingDirectory,
     );
 
     const mcpServerRunning =

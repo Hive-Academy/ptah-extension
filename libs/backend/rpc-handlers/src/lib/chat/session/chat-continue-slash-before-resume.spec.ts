@@ -175,6 +175,9 @@ function makeHarness(opts: SessionState, autopilot = false): Harness {
         events: [],
         resolvedWorkspacePath: OPEN_FOLDER,
       }),
+      resolveWorkingDirectory: jest.fn(
+        async (_sessionId: string, fallbackPath: string) => fallbackPath,
+      ),
     } as never,
     {
       restoreResumableBySession: jest.fn().mockReturnValue(0),

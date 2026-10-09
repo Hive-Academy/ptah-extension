@@ -48,20 +48,36 @@ export class ChatHistoryReadService {
     private readonly platformInfo: IPlatformInfo,
   ) {}
 
-  async readForResume(
+  /**
+   * The session's persisted cwd (a worktree, for agent children) when it is
+   * still open, safe and present; otherwise `fallbackPath`.
+   */
+  resolveWorkingDirectory(
     sessionId: SessionId,
-    fallbackWorkspacePath: string,
+    fallbackPath: string,
     persistedPath?: string,
-  ) {
-    const resolvedWorkspacePath = await resolveResumeWorkingDirectory({
+  ): Promise<string> {
+    return resolveResumeWorkingDirectory({
       persistedPath,
-      fallbackPath: fallbackWorkspacePath,
+      fallbackPath,
       sessionId,
       workspaceProvider: this.workspaceProvider,
       fileSystemProvider: this.fileSystemProvider,
       platformInfo: this.platformInfo,
       logger: this.logger,
     });
+  }
+
+  async readForResume(
+    sessionId: SessionId,
+    fallbackWorkspacePath: string,
+    persistedPath?: string,
+  ) {
+    const resolvedWorkspacePath = await this.resolveWorkingDirectory(
+      sessionId,
+      fallbackWorkspacePath,
+      persistedPath,
+    );
     const history = await this.historyReader.readSessionHistory(
       sessionId,
       resolvedWorkspacePath,
