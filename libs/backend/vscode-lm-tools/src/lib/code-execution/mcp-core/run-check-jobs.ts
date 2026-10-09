@@ -133,14 +133,16 @@ export function createRunCheckJobRegistry(
       if (job.outcome !== undefined) return job.outcome;
       if (signal?.aborted) return undefined;
       return await new Promise<RunCheckOutcome | undefined>((resolve) => {
-        let timer: ReturnType<typeof setTimeout> | undefined;
         const settle = (outcome: RunCheckOutcome | undefined) => {
-          if (timer !== undefined) clearTimeout(timer);
+          clearTimeout(timer);
           signal?.removeEventListener('abort', onAbort);
           resolve(outcome);
         };
         const onAbort = () => settle(undefined);
-        timer = setTimeout(() => settle(undefined), Math.max(0, timeoutMs));
+        const timer = setTimeout(
+          () => settle(undefined),
+          Math.max(0, timeoutMs),
+        );
         signal?.addEventListener('abort', onAbort, { once: true });
         void job.done.then((outcome) => settle(outcome));
       });
