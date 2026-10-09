@@ -153,7 +153,7 @@ export async function activateThoth(
     return refs;
   }
 
-  const workspaceRoot = resolveWorkspaceRoot(container);
+  const workspaceRoot = resolveWorkspaceRoot(container, logger);
   // Direct runtime callers (and the existing tier spec) start here.
   // `withEngine` passes `workspaceIndex: false` and is the only start for
   // every engine host, including runtime, so the scan cannot run twice.

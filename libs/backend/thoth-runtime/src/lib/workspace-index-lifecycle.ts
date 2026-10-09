@@ -376,6 +376,7 @@ export class WorkspaceIndexLifecycleService {
       pending = this.indexer.indexWorkspace(this.workspaceRoot, {
         signal: controller.signal,
       });
+      // degradation-audit: reported - non-abort failures are forwarded through onError; aborts are expected when disposal cancels the run.
     } catch (error: unknown) {
       if (this.runAbort === controller) this.runAbort = undefined;
       if (!controller.signal.aborted && !isAbort(error)) {

@@ -83,6 +83,7 @@ function readSymbolDatabasePath(
     return container.resolve<SqliteConnectionService>(
       PERSISTENCE_TOKENS.SQLITE_CONNECTION,
     ).dbPath;
+    // degradation-audit: optional-capability - resolving the optional SQLite service can fail; the lifecycle still runs without database artifact filtering.
   } catch {
     return undefined;
   }
