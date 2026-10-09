@@ -85,6 +85,24 @@ describe('FloatingUIService', () => {
       expect(floating.style.top).toBe('900px');
     });
 
+    it('makes floating-ui compute against the window, even under a containing-block ancestor it detects', async () => {
+      mockedCompute.mockResolvedValueOnce({ x: 300, y: 400 });
+      const containingBlock = document.createElement('div');
+      containingBlock.style.transform = 'translateX(280px)';
+      containingBlock.appendChild(floating);
+      document.body.appendChild(containingBlock);
+      await service.position(reference, floating);
+      const config = (
+        mockedCompute.mock.calls[0] as [
+          unknown,
+          unknown,
+          { platform: FloatingDom.Platform },
+        ]
+      )[2];
+      expect(await config.platform.getOffsetParent?.(floating)).toBe(window);
+      containingBlock.remove();
+    });
+
     it('should compute position with default options', async () => {
       mockedCompute.mockResolvedValueOnce({ x: 10, y: 20 });
 

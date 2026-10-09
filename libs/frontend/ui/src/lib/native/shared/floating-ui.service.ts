@@ -32,8 +32,16 @@ import {
   shift,
   offset,
   autoUpdate,
+  platform,
   Placement,
+  Platform,
 } from '@floating-ui/dom';
+
+/** floating-ui's DOM platform with the window as every offset parent, so it always returns viewport coordinates. */
+const VIEWPORT_PLATFORM: Platform = {
+  ...platform,
+  getOffsetParent: () => window,
+};
 
 /**
  * Configuration options for positioning floating elements.
@@ -134,20 +142,20 @@ export class FloatingUIService {
       ...(enableFlip ? [flip()] : []),
       ...(enableShift ? [shift({ padding: shiftPadding })] : []),
     ];
-    // `fixed` matches the `position: fixed` that applyPosition writes (viewport coordinates).
-    const { x, y } = await computePosition(referenceEl, floatingEl, {
+    // `fixed` matches the `position: fixed` that applyPosition writes. The window as offset parent keeps `x`/`y`
+    // in viewport coordinates even when floating-ui detects a containing-block ancestor: applyPosition measures
+    // the frame the browser really uses, which can differ from the one floating-ui would assume.
+    const config = {
       placement,
       middleware,
-      strategy: 'fixed',
-    });
+      strategy: 'fixed' as const,
+      platform: VIEWPORT_PLATFORM,
+    };
+    const { x, y } = await computePosition(referenceEl, floatingEl, config);
     if (this.isDestroyed) return;
     this.applyPosition(floatingEl, x, y);
     this.cleanupFn = autoUpdate(referenceEl, floatingEl, async () => {
-      const result = await computePosition(referenceEl, floatingEl, {
-        placement,
-        middleware,
-        strategy: 'fixed',
-      });
+      const result = await computePosition(referenceEl, floatingEl, config);
       if (this.isDestroyed) return;
       this.applyPosition(floatingEl, result.x, result.y);
     });
@@ -164,9 +172,9 @@ export class FloatingUIService {
       top: `${y}px`,
       visibility: 'visible',
     });
-    // `x`/`y` are viewport coordinates. An ancestor floating-ui does not detect can still be the containing block
-    // of a fixed element (seen in the CLI matrix: the Cursor panel landed hundreds of px off when the page was
-    // scrolled). Measure where the panel really is and shift it by the difference.
+    // `x`/`y` are viewport coordinates, but a containing-block ancestor offsets a fixed element: the CLI matrix
+    // host's `container-type` (floating-ui misses it) or a modal box's transform. Measure where the panel really
+    // is and shift it by the difference.
     const rect = floatingEl.getBoundingClientRect();
     // No box (hidden, or no layout engine as in JSDOM): nothing to measure.
     if (rect.width === 0 && rect.height === 0) return;
