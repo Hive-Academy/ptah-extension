@@ -58,9 +58,10 @@ interface ThothTabSpec {
     MessagingGatewayTabComponent,
   ],
   template: `
-    <div class="flex h-full w-full flex-col bg-base-100 lg:flex-row">
+    <div class="flex h-full w-full flex-col bg-surface-0 lg:flex-row">
       <aside
-        class="flex shrink-0 flex-col border-b border-base-300 bg-base-200/40 lg:w-64 lg:border-b-0 lg:border-r"
+        class="surface-1 flex shrink-0 flex-col lg:w-64"
+        data-testid="thoth-section-nav"
       >
         <div class="flex items-center gap-2 px-3 pb-3 pt-4 lg:px-4">
           <button
@@ -97,11 +98,9 @@ interface ThothTabSpec {
             <button
               type="button"
               role="tab"
-              class="flex min-w-[8.5rem] flex-col gap-1.5 rounded-lg border px-3 py-2.5 text-left transition-colors duration-150 lg:min-w-0"
-              [class.border-base-300]="isActive"
-              [class.bg-base-300/50]="isActive"
-              [class.border-transparent]="!isActive"
-              [class.hover:bg-base-300/30]="!isActive"
+              class="flex min-w-[8.5rem] flex-col gap-1.5 rounded-xl px-3 py-3 text-left transition-colors duration-150 lg:min-w-0"
+              [class.surface-3]="isActive"
+              [class.hover:bg-surface-2]="!isActive"
               [class.opacity-70]="!status.available"
               [attr.aria-selected]="isActive"
               [attr.aria-controls]="'thoth-panel-' + tab.id"
@@ -173,6 +172,7 @@ interface ThothTabSpec {
 
       <section
         class="flex-1 overflow-y-auto"
+        data-testid="thoth-section-panel"
         role="tabpanel"
         [id]="'thoth-panel-' + activeTab()"
         [attr.aria-labelledby]="'thoth-tab-' + activeTab()"

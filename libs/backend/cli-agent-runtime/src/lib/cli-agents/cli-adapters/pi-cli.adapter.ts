@@ -148,6 +148,36 @@ interface PiEvent {
 /** Cap on the un-newlined stdout buffer before we discard it (runaway line). */
 const LINE_BUF_CAP = 1024 * 1024;
 
+/**
+ * Parse `pi --list-models` stdout into `--model` values.
+ *
+ * Pi 0.80 prints a table: a `provider  model  context  max-out ...` header,
+ * then one row per model. Each row becomes `provider/model`, the
+ * "provider/id" form `--model` accepts. Older builds printed one model id per
+ * line with no header; those lines are kept as they are.
+ */
+export function parsePiModelList(stdout: string): CliModelInfo[] {
+  const lines = stdout
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+  const header = lines[0]?.split(/\s+/) ?? [];
+  if (header[0] !== 'provider' || header[1] !== 'model') {
+    return lines.map((id) => ({ id, name: id }));
+  }
+  const seen = new Set<string>();
+  const models: CliModelInfo[] = [];
+  for (const line of lines.slice(1)) {
+    const [provider, model] = line.split(/\s+/);
+    if (!provider || !model) continue;
+    const id = `${provider}/${model}`;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    models.push({ id, name: id });
+  }
+  return models;
+}
+
 export class PiCliAdapter implements CliAdapter {
   readonly name = 'pi' as const;
   readonly displayName = 'Pi';
@@ -211,9 +241,8 @@ export class PiCliAdapter implements CliAdapter {
   }
 
   /**
-   * List available models by parsing `pi --list-models` stdout. Each non-empty
-   * line is treated as a model id (the value passed to `--model`), serving as
-   * both id and display name. Falls back to an empty list when the probe fails.
+   * List available models from `pi --list-models` (see parsePiModelList).
+   * Falls back to an empty list when the probe fails.
    */
   async listModels(): Promise<CliModelInfo[]> {
     const binaryPath = (await resolveCliPath('pi')) ?? 'pi';
@@ -221,11 +250,7 @@ export class PiCliAdapter implements CliAdapter {
     if (!raw) {
       return [];
     }
-    return stripAnsiCodes(raw)
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter((line) => line.length > 0)
-      .map((id) => ({ id, name: id }));
+    return parsePiModelList(stripAnsiCodes(raw));
   }
 
   /**

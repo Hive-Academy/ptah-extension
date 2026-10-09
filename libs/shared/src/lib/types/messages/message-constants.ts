@@ -126,6 +126,7 @@ export const MESSAGE_TYPES = {
   RPC_CALL: 'rpc:call',
   RPC_RESPONSE: 'rpc:response',
   CHAT_CHUNK: 'chat:chunk',
+  CHAT_STREAM_SNAPSHOT: 'chat:streamSnapshot',
   CHAT_COMPLETE: 'chat:complete',
   CHAT_ERROR: 'chat:error',
   SESSION_ID_RESOLVED: 'session:id-resolved',

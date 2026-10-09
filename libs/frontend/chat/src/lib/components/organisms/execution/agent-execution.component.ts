@@ -63,11 +63,11 @@ import type {
     <div class="flex flex-col gap-2">
       <!-- Summary Section -->
       @if (agentInfo().hasSummary || agentInfo().summaryContent) {
-        <div class="border border-base-300/50 rounded-lg overflow-hidden">
+        <div class="surface-1 rounded-lg overflow-hidden">
           <!-- Summary Header (collapsible) -->
           <button
             type="button"
-            class="w-full flex items-center gap-2 px-2.5 py-1.5 bg-base-300/30 hover:bg-base-300/50 transition-colors text-left"
+            class="w-full flex items-center gap-2 px-2.5 py-1.5 bg-surface-2 hover:bg-surface-3 transition-colors text-left"
             (click)="toggleSummary()"
             [attr.aria-expanded]="!summaryCollapsed()"
           >
@@ -128,11 +128,11 @@ import type {
 
       <!-- Execution Section -->
       @if (agentInfo().hasExecution || hasExecutionNodes()) {
-        <div class="border border-base-300/50 rounded-lg overflow-hidden">
+        <div class="surface-1 rounded-lg overflow-hidden">
           <!-- Execution Header (collapsible) -->
           <button
             type="button"
-            class="w-full flex items-center gap-2 px-2.5 py-1.5 bg-base-300/30 hover:bg-base-300/50 transition-colors text-left"
+            class="w-full flex items-center gap-2 px-2.5 py-1.5 bg-surface-2 hover:bg-surface-3 transition-colors text-left"
             (click)="toggleExecution()"
             [attr.aria-expanded]="!executionCollapsed()"
           >

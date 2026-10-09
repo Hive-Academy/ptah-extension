@@ -79,10 +79,12 @@ export interface ResultStatsPayload {
    */
   readonly sessionStats?: SessionStatsEntry;
   /**
-   * The session's budget state computed from `sessionStats`. Absent = keep
-   * the last state: no figure to evaluate, or no budget service on the host.
+   * The session's budget state computed from `sessionStats`. `undefined` means
+   * no budget update was available (including degraded observation), while
+   * `null` explicitly means this session has no budget state and clears a
+   * previously rendered card.
    */
-  readonly budget?: SessionBudgetState;
+  readonly budget?: SessionBudgetState | null;
 }
 
 export type ResultStatsCallback = (stats: ResultStatsPayload) => void;

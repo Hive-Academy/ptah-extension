@@ -95,7 +95,12 @@ export interface PlanWindowDetailModel {
   readonly sourceChips: readonly string[];
 }
 
-export type PlanLimitTileKind = 'window' | 'evidence' | 'cooldown' | 'status';
+export type PlanLimitTileKind =
+  | 'window'
+  | 'local-usage'
+  | 'evidence'
+  | 'cooldown'
+  | 'status';
 
 export interface PlanLimitTileModel {
   /** Stable id: `plan:<owner>:<window>`, `plan-evidence:<owner>[:<scope>]`, … */

@@ -291,7 +291,7 @@ interface AgentOutcomeTile {
 
                   <!-- Pro Tips -->
                   <div
-                    class="bg-base-300/30 rounded-lg p-4 border border-base-300"
+                  class="surface-2 rounded-lg p-4"
                   >
                     <div class="flex gap-3">
                       <lucide-angular

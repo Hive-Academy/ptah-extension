@@ -11,6 +11,16 @@ import type { CliOutputSegment } from '../types/agent-process.types';
 /** Accumulated usage of one CLI lane run. */
 export type CliUsageTotals = NonNullable<CliOutputSegment['usage']>;
 
+/** Whether a provider supplied either prompt-cache token field. */
+export function hasReportedCliCacheTokens(
+  usage: CliUsageTotals | null | undefined,
+): boolean {
+  return (
+    usage?.cacheReadTokens !== undefined ||
+    usage?.cacheWriteTokens !== undefined
+  );
+}
+
 /**
  * Fold one usage report into the running totals.
  *
@@ -31,6 +41,9 @@ export function addCliUsage(
     model: usage.model ?? base.model,
     inputTokens: sumDefined(base.inputTokens, usage.inputTokens),
     outputTokens: sumDefined(base.outputTokens, usage.outputTokens),
+    cacheReadTokens: sumDefined(base.cacheReadTokens, usage.cacheReadTokens),
+    cacheWriteTokens: sumDefined(base.cacheWriteTokens, usage.cacheWriteTokens),
+    contextTokens: usage.contextTokens ?? base.contextTokens,
     totalTokens: sumDefined(base.totalTokens, usage.totalTokens),
     costUsd: usage.costUsd ?? base.costUsd,
     durationMs: usage.durationMs ?? base.durationMs,

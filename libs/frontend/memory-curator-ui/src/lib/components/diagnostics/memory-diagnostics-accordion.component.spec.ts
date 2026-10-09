@@ -189,8 +189,8 @@ describe('MemoryDiagnosticsAccordionComponent', () => {
     );
     const root = fixture.nativeElement as HTMLElement;
     const line = (): string =>
-      root.querySelector('section[aria-label="Curator model"]')?.textContent ??
-      '';
+      root.querySelector('ptah-surface-card[aria-label="Curator model"]')
+        ?.textContent ?? '';
     fixture.detectChanges();
 
     // No route checked yet: the not-ready arm answers instead.
@@ -558,20 +558,24 @@ describe('MemoryDiagnosticsAccordionComponent', () => {
     expect(setTriggersMock).toHaveBeenCalledWith({ maxCuratesPerHour: 120 });
   });
 
-  it('keeps curator assignment read-only and links to Providers', () => {
+  it('shows the read-only curator assignment in a message card and links to Background Model Roles', () => {
     const fixture = TestBed.createComponent(
       MemoryDiagnosticsAccordionComponent,
     );
     fixture.detectChanges();
     const root = fixture.nativeElement as HTMLElement;
     expect(root.querySelector('ptah-provider-model-picker')).toBeNull();
-    const link = Array.from(root.querySelectorAll('button')).find((node) =>
-      node.textContent?.includes('Manage in Providers'),
+    expect(root.querySelector('ptah-surface-card')).not.toBeNull();
+    const link = Array.from(root.querySelectorAll('button')).find(
+      (node) => node.textContent?.trim() === 'Change',
     );
     link?.click();
     expect(
       TestBed.inject(AppStateManager).requestSettingsTab,
-    ).toHaveBeenCalledWith({ tab: 'providers', section: 'memory-curator' });
+    ).toHaveBeenCalledWith({
+      tab: 'orchestration',
+      section: 'background-models',
+    });
     expect(setTriggersMock).not.toHaveBeenCalled();
   });
 

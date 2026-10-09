@@ -373,7 +373,10 @@ describe('ModelResolver', () => {
         },
       ];
       const configValues = {
-        'provider.openrouter.modelCatalog': { models: CATALOG, timestamp: 1 },
+        'provider.openrouter.modelCatalog': {
+          models: CATALOG,
+          timestamp: Date.now(),
+        },
       };
       const config = createMockConfigManager({ values: configValues });
       const scope = {

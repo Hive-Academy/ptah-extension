@@ -275,6 +275,7 @@ function createMockCodexAuthService(): MockCodexAuthService {
 
 interface Harness {
   handlers: ProviderRpcHandlers;
+  lmStudioProxy: { listModels: jest.Mock };
   logger: MockLogger;
   rpcHandler: MockRpcHandler;
   configManager: MockConfigManager;
@@ -375,6 +376,17 @@ function makeHarness(
     },
   );
 
+  const lmStudioProxy = {
+    listModels: jest.fn(async () => [
+      {
+        id: 'qwen3-coder-local',
+        name: 'qwen3-coder-local',
+        description: '',
+        contextLength: 0,
+        supportsToolUse: true,
+      },
+    ]),
+  };
   const handlers = new ProviderRpcHandlers(
     logger as unknown as Logger,
     rpcHandler as unknown as import('@ptah-extension/vscode-core').RpcHandler,
@@ -406,10 +418,12 @@ function makeHarness(
     } as unknown as import('@ptah-extension/settings-core').CustomProviderStore,
     new ConnectionCheckRecorder(),
     planLimitsService,
+    lmStudioProxy,
   );
 
   return {
     planLimits,
+    lmStudioProxy,
     handlers,
     logger,
     rpcHandler,
@@ -915,6 +929,19 @@ describe('ProviderRpcHandlers', () => {
           'ollama-cloud',
         ]),
       );
+    });
+
+    it('eagerly registers the LM Studio fetcher, which lists through the proxy', async () => {
+      const h = makeHarness();
+      h.handlers.register();
+      const entry = h.providerModels.registerDynamicFetcher.mock.calls.find(
+        ([id]) => id === 'lm-studio',
+      );
+      if (!entry) throw new Error('Missing LM Studio fetcher');
+      expect((await entry[1]()).map((m: { id: string }) => m.id)).toEqual([
+        'qwen3-coder-local',
+      ]);
+      expect(h.lmStudioProxy.listModels).toHaveBeenCalledTimes(1);
     });
 
     it.each(['api', 'sdk', 'fallback', 'claude-cli'])(

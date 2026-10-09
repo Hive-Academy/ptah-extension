@@ -42,8 +42,10 @@
  *   `--print=''`; direct spawn receives the quote-free argv item `--print=`.
  * - `--dangerously-skip-permissions` maps to autoApprove; required or
  *   file-writing tool calls hang waiting for interactive approval.
- * - `--effort` takes `low|medium|high` only; other values are dropped rather
- *   than passed through (same allowlist shape as the Codex adapter).
+ * - With an explicit model, `agy` expects the effort in its model id (for
+ *   example `claude-sonnet-5-5-high`) and rejects a separate `--effort`.
+ *   Without a model, `--effort` takes `low|medium|high|xhigh|max`; other values
+ *   are dropped rather than passed through.
  * - `agy` has no GEMINI_SYSTEM_MD support, so projectGuidance is
  *   prepended to the task prompt via buildTaskPrompt (the shared fallback).
  *
@@ -96,7 +98,28 @@ import { z } from 'zod';
 const PRINT_TIMEOUT = '3600s';
 
 /** Values `agy --effort` accepts. Anything else is dropped. */
-const AGY_EFFORTS = ['low', 'medium', 'high'] as const;
+const AGY_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
+
+const AGY_EFFORT_SUFFIX = /-(?:low|medium|high|xhigh|max)$/;
+
+/**
+ * Bases represented by the live `agy models` catalogue on 2026-10-08. Only
+ * these bases can safely be combined with an effort suffix; an unknown model
+ * is still passed through unchanged, but never with a conflicting `--effort`.
+ */
+const AGY_EFFORT_MODEL_BASES = new Set([
+  'gemini-3.8-flash',
+  'gemini-3.7-flash',
+  'gemini-3.6-flash',
+  'gemini-3.1-pro',
+  'claude-opus-5-5',
+  'claude-sonnet-5-5',
+]);
+
+/** Historical default removed from `agy models`; retain saved settings safely. */
+const AGY_STALE_MODEL_IDS: Readonly<Record<string, string>> = {
+  'claude-sonnet-4-6': 'claude-sonnet-5-5-medium',
+};
 
 /** Token/cost accounting attached to `agent_response` / `checkpoint` / `result`. */
 const AgyUsageSchema = z
@@ -244,7 +267,13 @@ export function parseAgyModels(stdout: string): CliModelInfo[] {
  * `id<TAB>name` line; only its id is passed (Batch 52.2).
  */
 export function agyModelId(value: string): string {
-  return value.split('\t')[0].trim();
+  const modelId = value.split('\t')[0].trim();
+  return AGY_STALE_MODEL_IDS[modelId] ?? modelId;
+}
+
+function agyModelWithEffort(model: string, effort: string | undefined): string {
+  if (!effort || AGY_EFFORT_SUFFIX.test(model)) return model;
+  return AGY_EFFORT_MODEL_BASES.has(model) ? `${model}-${effort}` : model;
 }
 
 function buildAntigravityArgs(
@@ -265,15 +294,16 @@ function buildAntigravityArgs(
     args.push('--dangerously-skip-permissions');
   }
   args.push('--print-timeout', PRINT_TIMEOUT);
-  const model = options.model ? agyModelId(options.model) : '';
-  if (model) {
-    args.push('--model', model);
-  }
-  if (
+  const effort =
     options.reasoningEffort &&
     (AGY_EFFORTS as readonly string[]).includes(options.reasoningEffort)
-  ) {
-    args.push('--effort', options.reasoningEffort);
+      ? options.reasoningEffort
+      : undefined;
+  const model = options.model ? agyModelId(options.model) : '';
+  if (model) {
+    args.push('--model', agyModelWithEffort(model, effort));
+  } else if (effort) {
+    args.push('--effort', effort);
   }
   if (options.workingDirectory) {
     args.push('--add-dir', options.workingDirectory);

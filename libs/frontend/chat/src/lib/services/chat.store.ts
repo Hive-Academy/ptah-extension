@@ -223,6 +223,17 @@ export class ChatStore {
     await this.sessionLoader.switchSession(sessionId, opts);
   }
 
+  /** Rebuild one tab from the canonical resume stream after a v2 tail overflow. */
+  async resyncStream(tabId: string, sessionId: string): Promise<void> {
+    const parsedTabId = TabId.safeParse(tabId);
+    const parsedSessionId = SessionId.safeParse(sessionId);
+    if (!parsedTabId || !parsedSessionId) return;
+    await this.sessionLoader.switchSession(parsedSessionId, {
+      targetTabId: parsedTabId,
+      reason: 'resync',
+    });
+  }
+
   removeSessionFromList(sessionId: SessionId): void {
     return this.sessionLoader.removeSessionFromList(sessionId);
   }

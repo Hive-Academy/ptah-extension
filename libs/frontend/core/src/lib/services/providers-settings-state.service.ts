@@ -24,6 +24,7 @@ import {
   type PtahCliConfig,
 } from '@ptah-extension/shared';
 import { ClaudeRpcService } from './claude-rpc.service';
+import { AuthStateService } from './auth-state.service';
 import { EffortSettingsChangeService } from './effort-settings-change.service';
 import {
   ProvidersCommitService,
@@ -103,6 +104,7 @@ const CLI_TEST_REASONS: Readonly<Record<string, string>> = {
 @Injectable({ providedIn: 'root' })
 export class ProvidersSettingsStateService {
   private readonly rpc = inject(ClaudeRpcService);
+  private readonly authState = inject(AuthStateService);
   private readonly commits = inject(ProvidersCommitService);
   private readonly setup = inject(ProvidersConnectionSetupService);
   private readonly effortChanges = inject(EffortSettingsChangeService);
@@ -795,21 +797,23 @@ export class ProvidersSettingsStateService {
   /**
    * Re-detects installed CLIs, then rereads everything derived from them. A failed detection
    * leaves `cliDetection()` in error and rereads nothing. Each call decides on its own detection
-   * result, not the shared section, which an overlapping call may have replaced.
+   * result, not the shared section, which an overlapping call may have replaced, and returns it
+   * so callers can do the same.
    */
-  async redetectClis(): Promise<void> {
+  async redetectClis(): Promise<boolean> {
     let detected = false;
     await this.read(this.detectionStore, async () => {
       const { clis } = await this.require('agent:detectClis', undefined);
       detected = true;
       return clis;
     });
-    if (!detected) return;
+    if (!detected) return false;
     await Promise.all([
       this.refreshOrchestration(),
       this.refreshCliAgents(),
       this.refreshCliModels(),
     ]);
+    return true;
   }
   async refreshTiers(
     params: RpcMethodParams<'provider:getModelTiers'>,
@@ -980,6 +984,7 @@ export class ProvidersSettingsStateService {
     refreshConnections: () => this.refreshConnections(),
     refreshRoute: () => this.refreshRoute(),
     route: () => this.route(),
+    refreshAuthStatus: () => this.authState.refreshAuthStatus(),
   };
   /** Resolves `false` when refused because another save is in flight (see `ProvidersCommitService.run`). */
   private runCommit(

@@ -291,13 +291,54 @@ describe('AppShell sidebar organization (TASK_2026_580)', () => {
       expect(actions?.classList).toContain('-translate-y-1/2');
       expect(actions?.classList).not.toContain('bottom-1.5');
       expect(
-        row?.querySelector('button span.text-xs')?.classList,
+        row?.querySelector('[data-testid="session-row-meta"]')?.classList,
       ).not.toContain('whitespace-nowrap');
       expect(
         Array.from(row?.querySelectorAll('[aria-label]') ?? []).map((el) =>
           el.getAttribute('aria-label'),
         ),
       ).toEqual(['Rename session: Alpha', 'Delete session: Alpha']);
+    });
+
+    it('keeps the 26px text edge and paints the sidebar as one surface-1 panel', () => {
+      store.sessions.set([session('a', 'Alpha')]);
+      const fixture = configure(store);
+      fixture.detectChanges();
+
+      const aside = query(fixture, 'aside');
+      expect(aside?.classList).toContain('bg-surface-1');
+      expect(aside?.className ?? '').not.toContain('bg-base-200');
+      expect(aside?.className ?? '').not.toContain('border-r');
+      expect(aside?.className ?? '').not.toContain('border-l');
+
+      const header = Array.from(aside?.querySelectorAll('div') ?? []).find(
+        (el) => el.classList.contains('pl-[26px]'),
+      );
+      expect(header?.classList).toContain('pl-[26px]');
+      expect(header?.classList).toContain('pr-2');
+
+      const list = query(fixture, 'aside .sidebar-scroll');
+      expect(list?.classList).toContain('pl-4');
+      expect(list?.classList).toContain('pr-2');
+
+      const button = query(fixture, 'li.group button');
+      expect(button?.classList).toContain('px-2.5');
+      expect(button?.classList).toContain('rounded-md');
+      expect(button?.classList).toContain('hover:bg-surface-2');
+      expect(button?.className ?? '').not.toContain('hover:bg-base-300');
+      expect(
+        button?.querySelector('[class*="text-[13px]"]')?.classList,
+      ).toContain('text-[13px]');
+
+      const search = query(
+        fixture,
+        '[data-testid="session-search-local"]',
+      )?.closest('label');
+      expect(search?.classList).toContain('input-sm');
+      expect(search?.classList).toContain('h-8');
+      expect(search?.classList).toContain('rounded-lg');
+      expect(search?.classList).toContain('bg-surface-0');
+      expect(search?.className ?? '').not.toContain('bg-base-100');
     });
 
     it('filters by name locally and sends nothing to the server', async () => {
@@ -415,7 +456,7 @@ describe('AppShell sidebar organization (TASK_2026_580)', () => {
       const actions = row?.querySelector('div.absolute');
       expect(actions?.classList).toContain('bottom-1.5');
       expect(actions?.classList).not.toContain('top-1/2');
-      const meta = button?.querySelector('span.text-xs');
+      const meta = button?.querySelector('[data-testid="session-row-meta"]');
       expect(meta?.classList).toContain('whitespace-nowrap');
       expect(meta?.classList).toContain('pr-20');
     });

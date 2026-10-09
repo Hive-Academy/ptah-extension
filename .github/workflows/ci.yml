@@ -28,7 +28,7 @@ env:
   NX_TUI: false
 
 jobs:
-  main:
+  checks:
     runs-on: ubuntu-latest
     # Minimal job-level permissions (githubactions:S8264: permissions moved
     # from workflow level to jobs): `contents: read` for the checkout,
@@ -36,10 +36,7 @@ jobs:
     permissions:
       actions: read
       contents: read
-    # 60, not 30: every run before 2026-08-19 died at the test step and never
-    # reached "nx affected -t build", so 30 was only ever measured against a
-    # failing job. The first fully-passing run was cut off mid-build at 30m.
-    timeout-minutes: 60
+    timeout-minutes: 30
     # Skip closed/merged PRs and bot bumps from publish-cli.yml,
     # publish-electron.yml, and publish-extension.yml: chore/bump-cli-v*,
     # chore/bump-electron-v*, and chore/bump-extension-v*. Human
@@ -58,78 +55,19 @@ jobs:
           filter: tree:0
           fetch-depth: 0
 
-      - uses: actions/setup-node@v4
+      - uses: ./.github/actions/setup-ci
         with:
-          node-version: ${{ env.NODE_VERSION }}
-
-      # Cache node_modules directly — skips npm ci entirely on cache hit
-      - name: Cache node_modules
-        id: cache-modules
-        uses: actions/cache@v4
-        with:
-          path: node_modules
-          key: node-modules-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
-
-      - name: Install dependencies
-        if: steps.cache-modules.outputs.cache-hit != 'true'
-        # Fall back to `npm install` if lockfile drift (npm/cli#4828:
-        # Windows-generated lockfiles omit transitive deps under
-        # sass-embedded's catch-all packages, breaking `npm ci` on Linux).
-        run: npm ci || npm install --no-audit --no-fund
-
-      # Always run — cached node_modules may be missing Linux platform
-      # binaries (npm/cli#4828: package-lock.json generated on Windows omits
-      # them). Without unrs-resolver, jest can't resolve preset paths.
-      - name: Install Linux platform binaries
-        run: npm install @rollup/rollup-linux-x64-gnu @unrs/resolver-binding-linux-x64-gnu --no-save --force
-
-      # Cache key is keyed on package-lock.json only. When the runner Node
-      # ABI changes (or when the cache was populated by a different OS), the
-      # better-sqlite3 prebuilt binary fails to self-register at require()
-      # time. Rebuilding it is cheap and idempotent — always run.
-      - name: Rebuild native modules for runner Node ABI
-        run: npm rebuild better-sqlite3
-
-      # Cache Prisma generated client
-      - name: Cache Prisma client
-        id: cache-prisma
-        uses: actions/cache@v4
-        with:
-          path: node_modules/.prisma
-          key: prisma-${{ runner.os }}-${{ hashFiles('apps/ptah-license-server/prisma/schema.prisma') }}
-
-      - name: Generate Prisma client
-        if: steps.cache-prisma.outputs.cache-hit != 'true'
-        run: npx nx run ptah-license-server:prisma:generate
-
-      # Nx task cache. `affected` only picks the task LIST; the cache decides
-      # which of those tasks actually execute. Without this, every run starts
-      # cold, so a PR that touches `libs/shared` re-runs ~80 projects from
-      # scratch even though their own test/build inputs never changed
-      # (measured on PR #464: 73 of 97 projects affected by the source files
-      # alone, 97 once the root eslint.config.mjs is counted). The key carries
-      # the SHA because GitHub cache entries are immutable — the prefix
-      # restore-key is what actually reuses the previous run's results.
-      - name: Cache Nx task results
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
-        with:
-          path: .nx/cache
-          key: nx-${{ runner.os }}-${{ github.sha }}
-          restore-keys: |
-            nx-${{ runner.os }}-
-
-      - name: Set NX SHAs
-        uses: nrwl/nx-set-shas@v4
-        with:
-          main-branch-name: main
+          NODE_VERSION: ${{ env.NODE_VERSION }}
+          NX_CACHE_KEY: nx-${{ runner.os }}-${{ github.sha }}-checks
+          NX_CACHE_RESTORE_KEY: nx-${{ runner.os }}-
 
       # DI invariant gate — every @inject(token) must resolve to a
       # register*(token, ...) call somewhere. Also runs the meta self-test
       # against a planted fixture so a broken linter can't silently pass.
       - name: di-lint (DI invariant + self-test)
         run: |
-          npx nx run di-lint:self-test
-          npx nx run di-lint:lint
+          node_modules/.bin/nx run di-lint:self-test
+          node_modules/.bin/nx run di-lint:lint
 
       # Degradation-audit ratchet (TASK_2026_383 Batch 3) — per-directory
       # inventory of silently swallowed catch/`.catch()` sites. Also runs its
@@ -145,14 +83,65 @@ jobs:
           node_modules/.bin/nx run degradation-audit:self-test
           node_modules/.bin/nx run degradation-audit:lint
 
+      # `scripts/` is not an Nx project, so affected Nx tasks cannot see it and
+      # the root `jest.config.ts` (`getJestProjectsAsync()`) cannot either. Run
+      # its standalone config explicitly — `scripts/drain-observation-queue.spec.ts`
+      # covers a script that DELETES rows from the production database, and an
+      # un-run spec rots into a false green.
+      - name: Run scripts/ tests
+        run: npm run test:scripts
+
+      - run: node_modules/.bin/nx affected -t build
+
+      - name: Enforce eager-closure bundle gate
+        if: hashFiles('dist/apps/ptah-extension-webview/stats.json') != ''
+        run: npm run gate:eager-closure
+
+  test-shard:
+    name: test (shard ${{ matrix.shard }}/4)
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    if: |
+      (github.event_name != 'pull_request' || github.event.pull_request.state == 'open') &&
+      !startsWith(github.head_ref, 'chore/bump-cli-v') &&
+      !startsWith(github.head_ref, 'chore/bump-electron-v') &&
+      !startsWith(github.head_ref, 'chore/bump-extension-v') &&
+      !contains(github.event.head_commit.message, 'chore(release)')
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          filter: tree:0
+          fetch-depth: 0
+
+      - uses: ./.github/actions/setup-ci
+        with:
+          NODE_VERSION: ${{ env.NODE_VERSION }}
+          NX_CACHE_KEY: nx-${{ runner.os }}-${{ github.sha }}-test-${{ matrix.shard }}
+          NX_CACHE_RESTORE_KEY: nx-${{ runner.os }}-
+
+      - name: Assign affected test projects to this shard
+        id: bucket
+        shell: bash
+        run: |
+          AFFECTED_PROJECTS="$(node_modules/.bin/nx show projects --affected -t test --json)" \
+            node -e 'const affected = JSON.parse(process.env.AFFECTED_PROJECTS); const heavy = ["@ptah-extension/vscode-lm-tools", "@ptah-extension/agent-sdk", "@ptah-extension/chat", "@ptah-extension/rpc-handlers", "@ptah-extension/cli-agent-runtime", "@ptah-extension/chat-streaming", "@ptah-extension/cli-engine"]; const remaining = new Set(affected); const ordered = [...heavy.filter((project) => remaining.delete(project)), ...[...remaining].sort()]; const shard = Number(process.argv[1]); const shardCount = Number(process.argv[2]); const bucket = ordered.filter((_, index) => index % shardCount === shard - 1); console.error(`Shard ${shard}/${shardCount}: ${bucket.join(", ") || "no affected test projects"}`); console.log(`projects=${bucket.join(",")}`);' "${{ matrix.shard }}" 4 >> "$GITHUB_OUTPUT"
+
       # Required coverage gate (TASK_2025_294 W8.B1). Per-project
       # `coverageThreshold` stanzas in each `jest.config.ts` are ratcheted
       # to the current baseline rounded down to the nearest 5. A drop below
       # the floor fails the job; specs are free to increase coverage.
-      # `--maxWorkers=2`, because `--parallel=3` bounds the wrong thing. It caps
-      # Nx TASKS; each task then starts its own Jest coordinator with its own
-      # worker pool, so the two numbers multiply. Three tasks on a runner
-      # therefore ask for three coordinators plus up to ~45 workers, under
+      #
+      # `--maxWorkers=2` remains mandatory: the four CI shards distribute Nx
+      # TASKS, while each task starts its own Jest coordinator with its own
+      # worker pool, so the two numbers multiply. Two tasks in a shard can
+      # therefore ask for two coordinators plus up to ~30 workers, under
       # coverage instrumentation, beside the real `node` children cli-engine's
       # auth specs spawn on purpose. That is the oversubscription behind suites
       # running 114-250 s in CI against seconds locally (TASK_2026_404_edeb).
@@ -180,22 +169,37 @@ jobs:
       # S8543 — cwe:494, cwe:829). Do not reach into Nx package internals:
       # Nx 23 removed `nx/bin/nx.js`, while this install-generated shim follows
       # the package's current `bin` field.
-      - name: Run affected tests with coverage
-        run: node_modules/.bin/nx affected -t test --coverage --parallel=3 --maxWorkers=2
+      - name: Run assigned affected tests with coverage
+        shell: bash
+        run: |
+          if [ -z "${{ steps.bucket.outputs.projects }}" ]; then
+            echo "No affected test projects assigned to shard ${{ matrix.shard }}/4."
+            exit 0
+          fi
+          node_modules/.bin/nx run-many -t test -p "${{ steps.bucket.outputs.projects }}" --coverage --parallel=2 --maxWorkers=2
 
-      # `scripts/` is not an Nx project, so the step above cannot see it and the
-      # root `jest.config.ts` (`getJestProjectsAsync()`) cannot either. Run its
-      # standalone config explicitly — `scripts/drain-observation-queue.spec.ts`
-      # covers a script that DELETES rows from the production database, and an
-      # un-run spec rots into a false green.
-      - name: Run scripts/ tests
-        run: npm run test:scripts
-
-      - run: npx nx affected -t build
-
-      - name: Enforce eager-closure bundle gate
-        if: hashFiles('dist/apps/ptah-extension-webview/stats.json') != ''
-        run: npm run gate:eager-closure
+  main:
+    name: main
+    needs: [checks, test-shard]
+    runs-on: ubuntu-latest
+    if: |
+      always() &&
+      (github.event_name != 'pull_request' || github.event.pull_request.state == 'open') &&
+      !startsWith(github.head_ref, 'chore/bump-cli-v') &&
+      !startsWith(github.head_ref, 'chore/bump-electron-v') &&
+      !startsWith(github.head_ref, 'chore/bump-extension-v') &&
+      !contains(github.event.head_commit.message, 'chore(release)')
+    steps:
+      - name: Require all CI checks
+        env:
+          CHECKS_RESULT: ${{ needs.checks.result }}
+          TEST_SHARD_RESULT: ${{ needs['test-shard'].result }}
+        shell: bash
+        run: |
+          if [ "$CHECKS_RESULT" != 'success' ] || [ "$TEST_SHARD_RESULT" != 'success' ]; then
+            echo "checks=$CHECKS_RESULT test-shard=$TEST_SHARD_RESULT"
+            exit 1
+          fi
 
   # Batch 8 (TASK_2026_576_e16a, Component 9 / R3): the real-git suites for
   # RC5 (git-watcher) and RC4/RC7 (git-info.service paths + diff-config) are
@@ -228,9 +232,8 @@ jobs:
       !startsWith(github.head_ref, 'chore/bump-extension-v') &&
       !contains(github.event.head_commit.message, 'chore(release)')
     # Force bash everywhere: windows-latest defaults `run:` steps to pwsh,
-    # and the `npm ci || npm install` fallback below relies on POSIX `||`
-    # semantics being identical across all three runners. Git Bash ships on
-    # windows-latest.
+    # and the install steps below expect identical POSIX shell semantics
+    # across all three runners. Git Bash ships on windows-latest.
     defaults:
       run:
         shell: bash
@@ -293,7 +296,7 @@ jobs:
         # Same fallback as the main job: npm/cli#4828 -- a Windows-generated
         # lockfile can omit transitive deps under sass-embedded's catch-all
         # packages, breaking a plain `npm ci` on Linux.
-        run: npm ci || npm install --no-audit --no-fund
+        run: npm ci --ignore-scripts --no-audit --no-fund
 
       - name: Install Linux platform binaries
         if: matrix.os == 'ubuntu-latest'

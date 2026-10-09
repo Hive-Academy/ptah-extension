@@ -198,7 +198,7 @@ function getFullPurifier(): ReturnType<typeof DOMPurify> {
  * past a text-level policy.
  */
 function createPermissiveSanitizer(): (html: string) => string {
-  return (html: string) => wrapInContainmentRoot(sanitizeFull(html));
+  return (html: string) => wrapInContainmentRoot(sanitizeFullMarkdownHtml(html));
 }
 
 /**
@@ -224,7 +224,8 @@ function wrapInContainmentRoot(html: string): string {
   return `<div class="${MARKDOWN_CONTAINMENT_ROOT_CLASS}" style="contain: layout paint; isolation: isolate; overflow-x: auto;">${html}</div>`;
 }
 
-function sanitizeFull(html: string): string {
+/** Sanitizes HTML with the exact policy used by the full webview preset. */
+export function sanitizeFullMarkdownHtml(html: string): string {
   return getFullPurifier().sanitize(html, {
     FORBID_TAGS: [
       'script',

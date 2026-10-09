@@ -455,4 +455,151 @@ describe('SessionBudgetBannerComponent', () => {
 
     expect(banner(root)).toBeNull();
   });
+
+  // Main-side coverage retained for the merged handoff/limit surface.
+  it('renders nothing without a budget or below tighten', () => {
+    expect(banner(render(null))).toBeNull();
+    TestBed.resetTestingModule();
+    expect(banner(render({ ...BASE, stage: 'unknown' }))).toBeNull();
+    TestBed.resetTestingModule();
+    expect(banner(render({ ...BASE, stage: 'tighten' }))).toBeNull();
+  });
+
+  it('draws a sparkline once two usage samples exist', () => {
+    const root = render(
+      { ...BASE, stage: 'handoff', handoff: HANDOFF },
+      {
+        usage: [
+          { at: 1, used: 10, percent: 10 },
+          { at: 2, used: 25_000_000, percent: 50 },
+        ],
+      },
+    );
+
+    const spark = root.querySelector('[data-testid="session-budget-sparkline"]');
+    expect(spark?.getAttribute('aria-label')).toBe(
+      'Budget use over this session, 2 samples',
+    );
+    expect(spark?.querySelector('polyline')?.getAttribute('points')).toContain(',');
+    expect(spark?.querySelector('polyline')?.classList.contains('stroke-error')).toBe(
+      true,
+    );
+  });
+
+  it('hides the sparkline with fewer than two samples', () => {
+    const root = render(
+      { ...BASE, stage: 'handoff', handoff: HANDOFF },
+      { usage: [{ at: 1, used: 10, percent: 10 }] },
+    );
+
+    expect(
+      root.querySelector('[data-testid="session-budget-sparkline"]'),
+    ).toBeNull();
+  });
+
+  it('stays hidden once dismissed at this stage', () => {
+    const root = render({
+      ...BASE,
+      stage: 'handoff',
+      handoff: HANDOFF,
+      dismissedStage: 'handoff',
+    });
+
+    expect(banner(root)).toBeNull();
+  });
+
+  it('status role, percent text, saved handoff, one Continue now button', () => {
+    const root = render({
+      ...BASE,
+      stage: 'handoff',
+      used: 40_000_000,
+      percent: 80,
+      handoff: HANDOFF,
+    });
+
+    expect(banner(root)?.getAttribute('role')).toBe('status');
+    expect(banner(root)?.classList).toContain('surface-2');
+    expect(banner(root)?.classList).toContain('rounded-lg');
+    expect(banner(root)?.classList).toContain('border-error');
+    expect(text(root, 'session-budget-percent')).toBe('80%');
+    expect(text(root, 'session-budget-body')).toBe(
+      'Waiting for handover to start at 40.0M of 50.0M tokens. You can continue now if needed.',
+    );
+    expect(Array.from(root.querySelectorAll('button')).map((item) => item.textContent?.trim())).toEqual([
+      'Continue now',
+    ]);
+  });
+
+  it('keeps a meaningful body when no compaction has completed and the handoff write failed', () => {
+    const root = render({
+      ...BASE,
+      stage: 'handoff',
+      used: 40_000_000,
+      handoff: { ...HANDOFF, path: null, writeError: 'EACCES' },
+    });
+
+    expect(text(root, 'session-budget-body')).toContain(
+      'Waiting for handover to start at 40.0M of 50.0M tokens.',
+    );
+    expect(text(root, 'session-budget-write-error')).toContain('EACCES');
+  });
+
+  it('alert role, F7 pause sentence, handoff size, three buttons', () => {
+    const root = render(
+      {
+        ...BASE,
+        stage: 'limit',
+        used: 50_100_000,
+        percent: 100.2,
+        blocked: true,
+        handoff: HANDOFF,
+      },
+      { contextTokens: 180_000 },
+    );
+
+    expect(banner(root)?.getAttribute('role')).toBe('alert');
+    expect(banner(root)?.classList).toContain('surface-2');
+    expect(banner(root)?.classList).toContain('border-error');
+    expect(text(root, 'session-budget-body')).toContain(
+      'Limit reached — new turns are held until you continue',
+    );
+    expect(text(root, 'session-budget-body')).toContain(
+      'about 1.5k tokens instead of 180.0k',
+    );
+    expect(text(root, 'session-budget-percent')).toBe('100.2%');
+    expect(Array.from(root.querySelectorAll('button')).map((item) => item.textContent?.trim())).toEqual([
+      'New session',
+      'Preview handoff',
+      'Allow 20% more',
+    ]);
+  });
+
+  it('cannot be dismissed away', () => {
+    const root = render({
+      ...BASE,
+      stage: 'limit',
+      blocked: true,
+      handoff: HANDOFF,
+      dismissedStage: 'limit',
+    });
+
+    expect(banner(root)).not.toBeNull();
+  });
+
+  it('renders the handoff as plain text in a <pre>, never as HTML', () => {
+    const hostile = '# Goal\n<img src=x onerror="alert(1)"><b>bold</b>';
+    const root = render(
+      { ...BASE, stage: 'limit', handoff: HANDOFF },
+      { preview: hostile },
+    );
+
+    button(root, 'Preview handoff').click();
+    fixture.detectChanges();
+
+    const pre = root.querySelector('[data-testid="session-budget-preview"]');
+    expect(pre?.tagName).toBe('PRE');
+    expect(pre?.textContent).toBe(hostile);
+    expect(pre?.querySelector('img')).toBeNull();
+    expect(pre?.querySelector('b')).toBeNull();
+  });
 });

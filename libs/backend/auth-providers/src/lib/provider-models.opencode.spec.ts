@@ -15,7 +15,7 @@ describe('ProviderModelsService OpenCode catalog', () => {
   afterEach(() => jest.restoreAllMocks());
 
   it.each(['opencode-zen', 'opencode-go'] as const)(
-    '%s returns only reviewed static IDs with or without credentials',
+    '%s returns the whole reviewed route table when the public list cannot be read',
     async (id) => {
       const unknown = {
         id: 'unreviewed-model',
@@ -25,7 +25,12 @@ describe('ProviderModelsService OpenCode catalog', () => {
         supportsToolUse: true,
       };
       const config = createMockConfigManager({
-        values: { [`provider.${id}.modelCatalog`]: { models: [unknown] } },
+        values: {
+          [`provider.${id}.modelCatalog`]: {
+            models: [unknown],
+            timestamp: Date.now(),
+          },
+        },
       });
       const service = new ProviderModelsService(
         createMockLogger() as unknown as Logger,
@@ -37,14 +42,16 @@ describe('ProviderModelsService OpenCode catalog', () => {
       );
       const dynamic = jest.fn(async () => [unknown]);
       service.registerDynamicFetcher(id, dynamic);
-      const network = jest.spyOn(axios, 'get');
+      const network = jest
+        .spyOn(axios, 'get')
+        .mockRejectedValue(new Error('offline'));
       for (const key of [null, 'configured-key']) {
         const result = await service.fetchModels(id, key);
         expect(result.isStatic).toBe(true);
         expect(result.models.map((m) => m.id)).toEqual(
           Object.keys(OPENCODE_MODEL_ROUTES[id]),
         );
-        expect(result.totalCount).toBe(id === 'opencode-zen' ? 66 : 31);
+        expect(result.totalCount).toBe(id === 'opencode-zen' ? 78 : 35);
         for (const model of result.models)
           expect(model).toMatchObject({
             contextLength: 0,
@@ -56,7 +63,11 @@ describe('ProviderModelsService OpenCode catalog', () => {
         expect(await service.fetchModels(id, key, true)).toEqual(result);
       }
       expect(dynamic).not.toHaveBeenCalled();
-      expect(network).not.toHaveBeenCalled();
+      // Only the public list, never with the user's key.
+      for (const [url, options] of network.mock.calls) {
+        expect(url).toBe(`${getAnthropicProvider(id)?.baseUrl}/models`);
+        expect(JSON.stringify(options)).not.toContain('configured-key');
+      }
       expect(config.get).not.toHaveBeenCalledWith(
         `provider.${id}.modelCatalog`,
       );
@@ -64,6 +75,30 @@ describe('ProviderModelsService OpenCode catalog', () => {
       expect(getAnthropicProvider('opencode-go')?.pricingModel).toBe(
         'subscription',
       );
+    },
+  );
+
+  it.each(['opencode-zen', 'opencode-go'] as const)(
+    '%s drops routed IDs the public list no longer serves and ignores unrouted ones',
+    async (id) => {
+      const routed = Object.keys(OPENCODE_MODEL_ROUTES[id]);
+      const stillLive = routed.slice(0, 3);
+      jest.spyOn(axios, 'get').mockResolvedValue({
+        data: {
+          data: [...stillLive, 'no-route-model'].map((m) => ({ id: m })),
+        },
+      });
+      const service = new ProviderModelsService(
+        createMockLogger() as unknown as Logger,
+        createMockConfigManager({ values: {} }) as unknown as ConfigManager,
+        {},
+        new ActiveProviderResolver({
+          read: () => undefined,
+        } as unknown as WorkspaceScopeResolver),
+      );
+      const result = await service.fetchModels(id, null);
+      expect(result.models.map((m) => m.id)).toEqual(stillLive);
+      expect(result.isStatic).toBe(false);
     },
   );
 });

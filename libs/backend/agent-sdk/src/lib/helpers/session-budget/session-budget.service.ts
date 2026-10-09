@@ -191,7 +191,7 @@ export class SessionBudgetService {
    */
   observe(
     snapshot: SessionStatsEntry | undefined,
-  ): SessionBudgetState | undefined {
+  ): SessionBudgetState | null | undefined {
     if (!snapshot) return undefined;
     return this.accept(snapshot, 'live');
   }
@@ -203,7 +203,7 @@ export class SessionBudgetService {
    */
   observeLoaded(
     snapshot: SessionStatsEntry | null,
-  ): SessionBudgetState | undefined {
+  ): SessionBudgetState | null | undefined {
     if (!snapshot) return undefined;
     return this.accept(snapshot, 'loaded');
   }
@@ -314,7 +314,7 @@ export class SessionBudgetService {
   private accept(
     snapshot: SessionStatsEntry,
     source: ObserveSource,
-  ): SessionBudgetState | undefined {
+  ): SessionBudgetState | null | undefined {
     try {
       return this.acceptOrThrow(snapshot, source);
     } catch (error: unknown) {
@@ -333,11 +333,13 @@ export class SessionBudgetService {
   private acceptOrThrow(
     snapshot: SessionStatsEntry,
     source: ObserveSource,
-  ): SessionBudgetState | undefined {
+  ): SessionBudgetState | null | undefined {
     // The entry first: a throwing config read below is then WARNed once per
     // session (the catch in `accept` finds the entry).
     const entry = this.trackedEntry(snapshot.sessionId, source);
-    if (!entry) return undefined;
+    // A released session without a new owner is a known absence, unlike an
+    // observation fault (which `accept` reports as `undefined`).
+    if (!entry) return null;
     const config = this.configSource.getConfig();
 
     if (!config.enabled) {
@@ -920,7 +922,11 @@ export class SessionBudgetService {
   }
 
   private noState(): SessionBudgetActionResult {
-    return { success: false, error: 'No budget state for this session' };
+    return {
+      success: false,
+      error: 'No budget state for this session',
+      errorCode: 'NO_SESSION_BUDGET_STATE',
+    };
   }
 
   private logStageChange(

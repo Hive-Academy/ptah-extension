@@ -111,27 +111,41 @@ interface CopilotCliEvent {
 
 /** Copilot CLI model list (kept in sync with `copilot --help`).
  *  This list is shared with the provider-registry entry. */
-const COPILOT_MODELS: CliModelInfo[] = [
-  { id: 'claude-sonnet-4.6', name: 'Claude Sonnet 4.6' },
+export const COPILOT_MODELS: CliModelInfo[] = [
+  { id: 'claude-opus-5.5', name: 'Claude Opus 5.5' },
+  { id: 'claude-sonnet-5.5', name: 'Claude Sonnet 5.5' },
+  { id: 'claude-fable-5.1', name: 'Claude Fable 5.1' },
+  { id: 'claude-opus-5', name: 'Claude Opus 5' },
+  { id: 'claude-sonnet-5', name: 'Claude Sonnet 5' },
+  { id: 'claude-fable-5', name: 'Claude Fable 5' },
+  { id: 'claude-opus-4.8', name: 'Claude Opus 4.8' },
   { id: 'claude-opus-4.7', name: 'Claude Opus 4.7' },
-  { id: 'claude-opus-4.7-fast', name: 'Claude Opus 4.7 Fast' },
-  { id: 'claude-opus-4.6', name: 'Claude Opus 4.6' },
-  { id: 'claude-opus-4.6-fast', name: 'Claude Opus 4.6 Fast' },
-  { id: 'claude-opus-4.5', name: 'Claude Opus 4.5' },
-  { id: 'claude-sonnet-4.5', name: 'Claude Sonnet 4.5' },
-  { id: 'claude-sonnet-4', name: 'Claude Sonnet 4' },
+  { id: 'claude-sonnet-4.6', name: 'Claude Sonnet 4.6' },
   { id: 'claude-haiku-4.5', name: 'Claude Haiku 4.5' },
-  { id: 'gpt-5.4', name: 'GPT 5.4' },
-  { id: 'gpt-5.3-codex', name: 'GPT 5.3 Codex' },
-  { id: 'gpt-5.2-codex', name: 'GPT 5.2 Codex' },
-  { id: 'gpt-5.2', name: 'GPT 5.2' },
-  { id: 'gpt-5.1-codex-max', name: 'GPT 5.1 Codex Max' },
-  { id: 'gpt-5.1-codex', name: 'GPT 5.1 Codex' },
-  { id: 'gpt-5.1-codex-mini', name: 'GPT 5.1 Codex Mini' },
-  { id: 'gpt-5.1', name: 'GPT 5.1' },
-  { id: 'gpt-5-mini', name: 'GPT 5 Mini' },
-  { id: 'gpt-4.1', name: 'GPT 4.1' },
-  { id: 'gemini-3-pro-preview', name: 'Gemini 3 Pro Preview' },
+  { id: 'gpt-6.1-sol', name: 'GPT-6.1 Sol' },
+  { id: 'gpt-6-sol', name: 'GPT-6 Sol' },
+  { id: 'gpt-6-astra', name: 'GPT-6 Astra' },
+  { id: 'gpt-6-luna', name: 'GPT-6 Luna' },
+  { id: 'gpt-5.6-sol', name: 'GPT-5.6 Sol' },
+  { id: 'gpt-5.6-terra', name: 'GPT-5.6 Terra' },
+  { id: 'gpt-5.6-luna', name: 'GPT-5.6 Luna' },
+  { id: 'gpt-5.5', name: 'GPT-5.5' },
+  { id: 'gpt-5.4', name: 'GPT-5.4' },
+  { id: 'gpt-5.4-mini', name: 'GPT-5.4 mini' },
+  { id: 'gpt-5.4-nano', name: 'GPT-5.4 nano' },
+  { id: 'gpt-5.3-codex', name: 'GPT-5.3 Codex' },
+  { id: 'gpt-5-mini', name: 'GPT-5 Mini' },
+  { id: 'gemini-3.8-flash', name: 'Gemini 3.8 Flash' },
+  { id: 'gemini-3.7-flash', name: 'Gemini 3.7 Flash' },
+  { id: 'gemini-3.6-flash', name: 'Gemini 3.6 Flash' },
+  { id: 'gemini-3.5-flash', name: 'Gemini 3.5 Flash' },
+  { id: 'grok-4.7', name: 'Grok 4.7' },
+  { id: 'grok-4.6', name: 'Grok 4.6' },
+  { id: 'grok-4.5', name: 'Grok 4.5' },
+  { id: 'kimi-k3', name: 'Kimi K3' },
+  { id: 'kimi-k2.7-code', name: 'Kimi K2.7 Code' },
+  { id: 'mai-code-1.1-flash', name: 'MAI-Code-1.1-Flash' },
+  { id: 'mai-code-1-flash-picker', name: 'MAI-Code-1-Flash' },
 ];
 
 /**
@@ -605,11 +619,9 @@ export class CopilotSdkAdapter implements CliAdapter {
       case 'tool.execution_complete': {
         const success = data['success'] as boolean | undefined;
         const result = data['result'] as
-          | { content?: string; detailedContent?: string }
-          | undefined;
+          { content?: string; detailedContent?: string } | undefined;
         const error = data['error'] as
-          | { message?: string; code?: string }
-          | undefined;
+          { message?: string; code?: string } | undefined;
         const toolCallId = data['toolCallId'] as string | undefined;
         const exitCode = data['exitCode'] as number | undefined;
         const toolName = toolCallId

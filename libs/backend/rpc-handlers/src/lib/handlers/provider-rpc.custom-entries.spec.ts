@@ -133,6 +133,7 @@ function buildSuite(activeProviderId = 'anthropic'): Suite {
         kind: 'no-owner' as const,
       })),
     },
+    { listModels: jest.fn(async () => []) },
   );
   handlers.register();
 

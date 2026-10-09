@@ -231,6 +231,11 @@
           "default": null,
           "description": "Override the Ptah license server URL (e.g., http://localhost:3000 for local development). Defaults to production if not set."
         },
+        "ptah.zoneChangeDetectionFallback": {
+          "type": "boolean",
+          "default": false,
+          "description": "Temporary one-release fallback to Zone-based webview change detection. Reload the Ptah webview after changing this setting."
+        },
         "ptah.authMethod": {
           "type": "string",
           "enum": [

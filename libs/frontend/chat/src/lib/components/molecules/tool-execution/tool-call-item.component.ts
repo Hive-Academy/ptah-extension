@@ -122,11 +122,11 @@ export class ToolCallItemComponent {
    */
   readonly containerClass = computed(() => {
     const toolName = this.node().toolName || '';
-    const base = 'bg-base-200/60 rounded my-0.5 border';
+    const base = 'bg-surface-1 rounded my-0.5 border border-surface-border';
     if (toolName.startsWith('mcp__ptah')) {
       return base + ' ptah-gold-border';
     }
-    return base + ' border-base-300/60';
+    return base;
   });
 
   /**

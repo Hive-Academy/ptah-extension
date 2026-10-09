@@ -310,23 +310,64 @@ describe('CopilotAuthService', () => {
       mockedAxios.get.mockResolvedValueOnce(makeTokenResponse());
       const { service } = makeService();
       await service.login();
-      const fetchMock = jest
-        .spyOn(globalThis, 'fetch')
-        .mockResolvedValue(
-          new Response(
-            JSON.stringify({
-              data: [200000, 0, -1, null].map((context_window, i) => ({
-                id: `model-${i}`,
-                context_window,
-              })),
-            }),
-          ),
-        );
+      const fetchMock = jest.spyOn(globalThis, 'fetch').mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            data: [200000, 0, -1, null].map((context_window, i) => ({
+              id: `model-${i}`,
+              context_window,
+            })),
+          }),
+        ),
+      );
       try {
         const models = await service.listModels();
         expect(models[0]).toHaveProperty('contextLengthSource', 'provider');
         for (const model of models.slice(1))
           expect(model).not.toHaveProperty('contextLengthSource');
+      } finally {
+        fetchMock.mockRestore();
+      }
+    });
+    it('offers only picker-enabled models and reads the nested context window', async () => {
+      mockedReadCopilotToken.mockResolvedValueOnce('fixture-token');
+      mockedAxios.get.mockResolvedValueOnce(makeTokenResponse());
+      const { service } = makeService();
+      await service.login();
+      const fetchMock = jest.spyOn(globalThis, 'fetch').mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: 'claude-sonnet-5-5',
+                name: 'Claude Sonnet 5.5',
+                model_picker_enabled: true,
+                capabilities: {
+                  supports: { tool_calls: true },
+                  limits: { max_context_window_tokens: 200000 },
+                },
+              },
+              {
+                id: 'text-embedding-3-small',
+                model_picker_enabled: false,
+                capabilities: { limits: { max_context_window_tokens: 8191 } },
+              },
+              {
+                id: 'gpt-4o-2024-05-13',
+                model_picker_enabled: false,
+                capabilities: { supports: { tool_calls: true } },
+              },
+            ],
+          }),
+        ),
+      );
+      try {
+        const models = await service.listModels();
+        expect(models.map((m) => m.id)).toEqual(['claude-sonnet-5-5']);
+        expect(models[0]).toMatchObject({
+          contextLength: 200000,
+          contextLengthSource: 'provider',
+        });
       } finally {
         fetchMock.mockRestore();
       }

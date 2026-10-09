@@ -117,6 +117,34 @@ ANUBIS MYSTICAL EFFECTS - Glass Morphism & Divine Gradients
 }
 
 /* ============================================================================
+   SEMANTIC SURFACES + ELEVATION (design-elevation Batch 0)
+   ============================================================================
+   Structural containers use these rather than composing `bg-base-*` and an
+   arbitrary shadow. They deliberately derive from daisyUI's b1/b2/b3/bc so
+   every picker theme works, including deferred themes. `data-theme-mode` is
+   the ThemeService marker for every dark theme; do not replace it with a
+   hand-maintained theme-name list.
+   ============================================================================ */
+:root,
+[data-theme] {
+  --surface-0: oklch(var(--b1));
+  --surface-1: color-mix(in oklch, oklch(var(--b2)) 88%, oklch(var(--b1)));
+  --surface-2: oklch(var(--b2));
+  --surface-3: color-mix(in oklch, oklch(var(--b3)) 86%, oklch(var(--b2)));
+  --surface-border: color-mix(in oklch, oklch(var(--bc)) 14%, transparent);
+  --surface-border-strong: color-mix(in oklch, oklch(var(--bc)) 22%, transparent);
+  --surface-highlight: color-mix(in oklch, oklch(var(--bc)) 10%, transparent);
+  --elev-shadow: 0 1px 2px oklch(var(--bc) / 0.1);
+  --elev-shadow-raised: 0 8px 24px oklch(var(--bc) / 0.18);
+}
+
+[data-theme-mode='dark'] {
+  --surface-highlight: color-mix(in oklch, oklch(var(--bc)) 13%, transparent);
+  --elev-shadow: 0 1px 1px oklch(0% 0 0 / 0.28);
+  --elev-shadow-raised: 0 12px 30px oklch(0% 0 0 / 0.42);
+}
+
+/* ============================================================================
    `--bcm` / base-content-muted — SECONDARY TEXT TIER, PER THEME (TASK_2026_186)
    ============================================================================
 
@@ -268,6 +296,36 @@ ANUBIS MYSTICAL EFFECTS - Glass Morphism & Divine Gradients
       whose controls are built for it; other surfaces keep their own styles.
    Both live in `@layer components`: after daisyUI, and before utilities. ==== */
 @layer components {
+  /* Semantic structural surfaces. Keep bg-base-* for intentional local fills. */
+  .surface-1,
+  .surface-2,
+  .surface-3 {
+    border: 1px solid var(--surface-border);
+  }
+
+  .surface-1 {
+    background: oklch(var(--b2)); /* Electron fallback before color-mix. */
+    background: var(--surface-1);
+    box-shadow: inset 0 1px 0 var(--surface-highlight);
+  }
+
+  .surface-2 {
+    background: oklch(var(--b2));
+    background: var(--surface-2);
+    box-shadow: inset 0 1px 0 var(--surface-highlight), var(--elev-shadow);
+  }
+
+  .surface-3 {
+    background: oklch(var(--b3));
+    background: var(--surface-3);
+    border-color: var(--surface-border-strong);
+    box-shadow: inset 0 1px 0 var(--surface-highlight), var(--elev-shadow-raised);
+  }
+
+  .elev-0 { box-shadow: none; }
+  .elev-1 { box-shadow: var(--elev-shadow); }
+  .elev-3 { box-shadow: var(--elev-shadow-raised); }
+
   .table :where(thead, tfoot) {
     color: var(--fallback-bc, oklch(var(--bcm, var(--bc))));
   }
@@ -2020,10 +2078,11 @@ Ensures proper contrast for buttons, icons, and text in warm cream backgrounds
   }
 
   /* ===== Navbar Header Fixes ===== */
-  /* Navbar should have clear boundary */
+  /* Navbar is the surface-1 title bar. One bottom edge, not base-100,
+     so the light theme does not flatten it back to the canvas. */
   .navbar {
-    background-color: oklch(var(--b1)); /* Ensure proper background */
-    border-bottom-color: oklch(var(--b3)); /* Visible border */
+    background-color: var(--surface-1);
+    border-bottom-color: var(--surface-border);
   }
 
   /* ===== Dropdown/Popover Fixes ===== */
@@ -2116,12 +2175,18 @@ Ensures proper contrast for buttons, icons, and text in warm cream backgrounds
 
   /* Sidebar session list overrides for light theme */
   .sidebar-item-active {
-    background-color: oklch(var(--b2));
-    border-left-color: oklch(var(--n));
+    background-color: oklch(var(--b3));
+    background-color: var(--surface-3);
+    /* 2px left bar on the rounded row (`rounded-md`). The row's px-2.5
+       (10px) keeps the bar off the title. Fill is the active tile;
+       the inset accent is unchanged. */
+    border-radius: 0.375rem;
+    box-shadow: inset 2px 0 0 oklch(var(--n));
   }
 
   .sidebar-item-open-tab {
-    border-left-color: oklch(var(--n) / 0.3);
+    border-radius: 0.375rem;
+    box-shadow: inset 2px 0 0 oklch(var(--n) / 0.3);
   }
 }
 
@@ -2131,13 +2196,20 @@ SIDEBAR SESSION LIST STYLES
 
 /* Active session in sidebar */
 .sidebar-item-active {
-  background-color: oklch(var(--b3) / 0.7);
-  border-left-color: oklch(var(--p));
+  background-color: oklch(var(--b3));
+  background-color: var(--surface-3);
+  /* Inset 2px bar on the rounded row, so the accent is not a border box
+     and does not shift the title. Row padding (`px-2.5`, 10px) keeps it
+     off the text. Fill is the active tile (surface-3); the primary inset
+     accent is unchanged. Open-tab rows do not use this fill. */
+  border-radius: 0.375rem;
+  box-shadow: inset 2px 0 0 oklch(var(--p));
 }
 
 /* Session with open tab (but not active) */
 .sidebar-item-open-tab {
-  border-left-color: oklch(var(--p) / 0.3);
+  border-radius: 0.375rem;
+  box-shadow: inset 2px 0 0 oklch(var(--p) / 0.3);
 }
 
 /* Sidebar-specific thin scrollbar (only visible on aside hover) */

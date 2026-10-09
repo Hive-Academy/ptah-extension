@@ -38,7 +38,7 @@ function numericOrSwitched(value: boolean | number, onDefault: number): number {
   imports: [SkillTriggerToggleComponent],
   template: `
     <section
-      class="max-w-2xl overflow-hidden rounded-xl border border-base-300 bg-base-200/40 px-4 py-3"
+      class="surface-2 max-w-2xl overflow-hidden rounded-xl px-4 py-3"
       aria-label="Triggers"
       data-test="panel-triggers"
     >

@@ -206,54 +206,24 @@ export const ANTHROPIC_PROVIDERS = [
     maskedKeyDisplay: '••••••••••••',
     modelsEndpoint: 'https://api.moonshot.ai/v1/models',
     defaultTiers: {
-      sonnet: 'kimi-k2.6',
-      opus: 'kimi-k2.7-code',
-      haiku: 'kimi-k2.5',
+      sonnet: 'kimi-k2.7-code',
+      opus: 'kimi-k3',
+      haiku: 'kimi-k2.6',
     },
+    // Fallback for when the live list cannot be read. Synced with models.dev
+    // `moonshotai` on 2026-10-07: kimi-k3 added; kimi-k2, kimi-k2-0905-preview,
+    // kimi-k2-thinking and kimi-k2.5, no longer listed, removed.
     staticModels: [
       {
-        id: 'kimi-k2',
-        name: 'Kimi K2',
-        description: 'Flagship model (128K context)',
-        contextLength: 128000,
+        id: 'kimi-k3',
+        name: 'Kimi K3',
+        description: 'Latest flagship model (1M context)',
+        contextLength: 1048576,
         supportsToolUse: true,
-        inputCostPerToken: 0.23e-6, // $0.23 per 1M tokens
-        outputCostPerToken: 3e-6, // $3.00 per 1M tokens
-        cacheReadCostPerToken: 0.023e-6, // 10% of input
-        cacheCreationCostPerToken: 0.2875e-6, // 125% of input
-      },
-      {
-        id: 'kimi-k2-0905-preview',
-        name: 'Kimi K2 (0905)',
-        description: 'Preview release (256K context)',
-        contextLength: 256000,
-        supportsToolUse: true,
-        inputCostPerToken: 0.23e-6, // $0.23 per 1M tokens
-        outputCostPerToken: 3e-6, // $3.00 per 1M tokens
-        cacheReadCostPerToken: 0.023e-6, // 10% of input
-        cacheCreationCostPerToken: 0.2875e-6, // 125% of input
-      },
-      {
-        id: 'kimi-k2-thinking',
-        name: 'Kimi K2 Thinking',
-        description: 'Extended thinking model (256K context)',
-        contextLength: 256000,
-        supportsToolUse: true,
-        inputCostPerToken: 0.4e-6, // $0.40 per 1M tokens
-        outputCostPerToken: 1.75e-6, // $1.75 per 1M tokens
-        cacheReadCostPerToken: 0.04e-6, // 10% of input
-        cacheCreationCostPerToken: 0.5e-6, // 125% of input
-      },
-      {
-        id: 'kimi-k2.5',
-        name: 'Kimi K2.5',
-        description: 'Latest generation model (256K context)',
-        contextLength: 256000,
-        supportsToolUse: true,
-        inputCostPerToken: 0.23e-6, // $0.23 per 1M tokens
-        outputCostPerToken: 3e-6, // $3.00 per 1M tokens
-        cacheReadCostPerToken: 0.023e-6, // 10% of input
-        cacheCreationCostPerToken: 0.2875e-6, // 125% of input
+        inputCostPerToken: 3e-6, // $3.00 per 1M tokens
+        outputCostPerToken: 15e-6, // $15.00 per 1M tokens
+        cacheReadCostPerToken: 0.3e-6, // $0.30 per 1M tokens (cache hit)
+        cacheCreationCostPerToken: 3e-6, // $3.00 per 1M tokens
       },
       {
         id: 'kimi-k2.6',
@@ -299,14 +269,50 @@ export const ANTHROPIC_PROVIDERS = [
     keyPrefix: '',
     helpUrl: 'https://open.z.ai/open/api/openkey',
     description: 'GLM models via Anthropic-compatible API',
+    // Z.AI's model list is the OpenAI-compatible one; the IDs are the same on
+    // the Anthropic-compatible endpoint Ptah calls. Needs the API key.
+    modelsEndpoint: 'https://api.z.ai/api/paas/v4/models',
     keyPlaceholder: 'Enter Z.AI API key...',
     maskedKeyDisplay: '••••••••••••',
     defaultTiers: {
-      sonnet: 'glm-5.1',
-      opus: 'glm-5.2',
-      haiku: 'glm-4.7-flashx',
+      sonnet: 'glm-5.2',
+      opus: 'glm-5.3',
+      haiku: 'glm-5.3-flash',
     },
+    // Fallback when the live list cannot be read. Synced with models.dev's
+    // `zai` list on 2026-10-07 (glm-5.3 family added; glm-5-code, glm-4.5-x
+    // and glm-4.5-airx, no longer listed, removed).
     staticModels: [
+      {
+        id: 'glm-5.3',
+        name: 'GLM-5.3',
+        description: 'Latest flagship GLM model (1M context)',
+        contextLength: 1000000,
+        supportsToolUse: true,
+        inputCostPerToken: 1.4e-6, // $1.40 per 1M tokens
+        outputCostPerToken: 4.4e-6, // $4.40 per 1M tokens
+        cacheReadCostPerToken: 0.26e-6, // $0.26 per 1M tokens (cache hit)
+      },
+      {
+        id: 'glm-5.3-flashx',
+        name: 'GLM-5.3-FlashX',
+        description: 'Fast GLM-5.3 tier (1M context)',
+        contextLength: 1000000,
+        supportsToolUse: true,
+        inputCostPerToken: 0.37e-6, // $0.37 per 1M tokens
+        outputCostPerToken: 1.25e-6, // $1.25 per 1M tokens
+        cacheReadCostPerToken: 0.075e-6, // $0.075 per 1M tokens (cache hit)
+      },
+      {
+        id: 'glm-5.3-flash',
+        name: 'GLM-5.3-Flash',
+        description: 'Lightweight GLM-5.3 tier (1M context)',
+        contextLength: 1000000,
+        supportsToolUse: true,
+        inputCostPerToken: 0.15e-6, // $0.15 per 1M tokens
+        outputCostPerToken: 0.5e-6, // $0.50 per 1M tokens
+        cacheReadCostPerToken: 0.03e-6, // $0.03 per 1M tokens (cache hit)
+      },
       {
         id: 'glm-5.2',
         name: 'GLM-5.2',
@@ -350,17 +356,6 @@ export const ANTHROPIC_PROVIDERS = [
         supportsToolUse: true,
         inputCostPerToken: 1.2e-6, // $1.20 per 1M tokens
         outputCostPerToken: 4.0e-6, // $4.00 per 1M tokens
-        cacheReadCostPerToken: 0.12e-6, // 10% of input
-        cacheCreationCostPerToken: 1.5e-6, // 125% of input
-      },
-      {
-        id: 'glm-5-code',
-        name: 'GLM-5 Code',
-        description: 'Optimized for coding tasks (200K context)',
-        contextLength: 200000,
-        supportsToolUse: true,
-        inputCostPerToken: 1.2e-6, // $1.20 per 1M tokens
-        outputCostPerToken: 5.0e-6, // $5.00 per 1M tokens
         cacheReadCostPerToken: 0.12e-6, // 10% of input
         cacheCreationCostPerToken: 1.5e-6, // 125% of input
       },
@@ -409,17 +404,6 @@ export const ANTHROPIC_PROVIDERS = [
         cacheCreationCostPerToken: 0.75e-6, // 125% of input
       },
       {
-        id: 'glm-4.5-x',
-        name: 'GLM-4.5-X',
-        description: 'Premium extended thinking (128K context)',
-        contextLength: 128000,
-        supportsToolUse: true,
-        inputCostPerToken: 2.2e-6, // $2.20 per 1M tokens
-        outputCostPerToken: 8.9e-6, // $8.90 per 1M tokens
-        cacheReadCostPerToken: 0.22e-6, // 10% of input
-        cacheCreationCostPerToken: 2.75e-6, // 125% of input
-      },
-      {
         id: 'glm-4.5',
         name: 'GLM-4.5',
         description: 'Hybrid thinking (128K context)',
@@ -429,17 +413,6 @@ export const ANTHROPIC_PROVIDERS = [
         outputCostPerToken: 2.2e-6, // $2.20 per 1M tokens
         cacheReadCostPerToken: 0.06e-6, // 10% of input
         cacheCreationCostPerToken: 0.75e-6, // 125% of input
-      },
-      {
-        id: 'glm-4.5-airx',
-        name: 'GLM-4.5 AirX',
-        description: 'Accelerated MoE variant (128K context)',
-        contextLength: 128000,
-        supportsToolUse: true,
-        inputCostPerToken: 1.1e-6, // $1.10 per 1M tokens
-        outputCostPerToken: 4.5e-6, // $4.50 per 1M tokens
-        cacheReadCostPerToken: 0.11e-6, // 10% of input
-        cacheCreationCostPerToken: 1.375e-6, // 125% of input
       },
       {
         id: 'glm-4.5-air',

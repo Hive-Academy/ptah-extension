@@ -687,12 +687,17 @@ export class AgentMonitorTreeBuilderService {
     return createExecutionNode({
       id: toolStart.id,
       type: 'tool',
-      status: resultEvent ? 'complete' : 'streaming',
+      status: resultEvent?.isError
+        ? 'error'
+        : resultEvent
+          ? 'complete'
+          : 'streaming',
       content: null,
       toolInput,
       toolName: toolStart.toolName,
       toolCallId: toolStart.toolCallId,
       toolOutput: resultEvent?.output,
+      isError: resultEvent?.isError,
       isPermissionRequest: resultEvent?.isPermissionRequest,
       children: [],
       startTime: toolStart.timestamp,

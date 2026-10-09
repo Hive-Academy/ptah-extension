@@ -44,6 +44,8 @@ describe('StatCardComponent', () => {
     render({ value: 12, unit: 'servers', subLine: '2 blocked removals' });
     const card = byTestId('stat-card');
     expect(card?.getAttribute('role')).toBe('group');
+    expect(card?.classList).toContain('surface-2');
+    expect(card?.classList).not.toContain('bg-base-200');
     const labelId = card?.getAttribute('aria-labelledby');
     expect(element.querySelector(`#${labelId}`)?.textContent?.trim()).toBe(
       'Apps & MCP servers',

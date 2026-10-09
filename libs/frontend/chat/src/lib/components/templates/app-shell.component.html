@@ -69,14 +69,15 @@
 
 <!-- 2. Shared chrome — ALWAYS rendered, hidden when standalone view is active -->
 <!-- Uses [class.hidden] (CSS display:none) so canvas tiles survive navigation to settings/analytics -->
-<div #shellRow class="flex h-full" [class.hidden]="isStandaloneView()">
+<div #shellRow class="flex h-full bg-surface-0" [class.hidden]="isStandaloneView()">
   <!-- Session Sidebar (toggleable and resizable width, no border — tab
-       provides visual edge). Open width defaults to 272 px, follows the
+       provides the one visual edge, so this surface-1 panel does not add
+       another). Open width defaults to 272 px, follows the
        right-edge resize handle (bottom of the aside) and persists, capped so
        the main area keeps room (never below the old 224 px; see
        session-sidebar-width.ts). -->
   <aside
-    class="relative flex flex-col bg-base-200 duration-300"
+    class="relative flex flex-col bg-surface-1 duration-300"
     [class.transition-all]="!sidebarResizing()"
     [class.transition-none]="sidebarResizing()"
     [style.width.px]="sidebarOpen() ? sidebarWidth() : 0"
@@ -84,7 +85,7 @@
   >
     <!-- Sidebar header with Ptah icon -->
     <div
-      class="p-3 border-b border-base-content/10 flex items-center justify-center"
+      class="p-3 border-b border-surface-border flex items-center justify-center"
     >
       <!-- Ptah icon -->
 
@@ -98,7 +99,10 @@
     </div>
 
     <!-- Session search & filter -->
-    <div class="px-1.5 pt-1.5 pb-0.5 flex flex-col gap-1">
+    <!-- Header left edge = list gutter (`pl-4`, 16px) + row padding
+         (`px-2.5`, 10px) = 26px, so search, Filters, the two selects and
+         Date range share the session title's left edge. -->
+    <div class="pl-[26px] pr-2 pt-3 pb-3 flex flex-col gap-2">
       @if (organizationAvailable()) {
         <!-- Organization host: search text, filters, sort and grouping go to
              the server (TASK_2026_580). The date range below stays local. -->
@@ -109,7 +113,7 @@
       } @else {
         <!-- Search input (local name filter over the loaded pages) -->
         <label
-          class="input input-xs w-full flex items-center gap-1.5 bg-base-100 border-base-content/10"
+          class="input input-sm rounded-lg h-8 min-h-8 w-full flex items-center gap-1.5 bg-surface-0 border-surface-border"
         >
           <lucide-angular
             [img]="SearchIcon"
@@ -141,12 +145,12 @@
       <div class="flex items-center gap-1">
         <button
           type="button"
-          class="btn btn-ghost btn-xs gap-1 text-base-content-muted hover:text-base-content flex-1 justify-start px-1"
+          class="btn btn-ghost btn-sm h-8 min-h-8 gap-1 text-base-content-muted hover:text-base-content flex-1 justify-start px-1"
           (click)="toggleDateFilter()"
           aria-label="Toggle date filter"
         >
           <lucide-angular [img]="CalendarDaysIcon" class="w-3 h-3" />
-          <span class="text-[10px]">Date range</span>
+          <span class="text-xs">Date range</span>
           <lucide-angular
             [img]="ChevronDownIcon"
             class="w-2.5 h-2.5 transition-transform duration-200"
@@ -156,7 +160,7 @@
         @if (hasActiveFilters()) {
           <button
             type="button"
-            class="btn btn-ghost btn-xs text-[10px] text-base-content-muted hover:text-error px-1"
+            class="btn btn-ghost btn-xs text-xs text-base-content-muted hover:text-error px-1"
             (click)="clearFilters()"
             aria-label="Clear all filters"
           >
@@ -170,25 +174,25 @@
         <div class="flex flex-col gap-1 px-0.5 pb-0.5">
           <label
             for="session-filter-date-from"
-            class="text-[10px] text-base-content-muted"
+            class="text-xs text-base-content-muted"
             >From</label
           >
           <input
             id="session-filter-date-from"
             type="date"
-            class="input input-xs w-full bg-base-100 border-base-content/10 text-xs"
+            class="input input-sm rounded-lg h-8 min-h-8 w-full bg-surface-0 border-surface-border text-xs"
             [ngModel]="dateFrom()"
             (ngModelChange)="setDateFrom($event)"
           />
           <label
             for="session-filter-date-to"
-            class="text-[10px] text-base-content-muted"
+            class="text-xs text-base-content-muted"
             >To</label
           >
           <input
             id="session-filter-date-to"
             type="date"
-            class="input input-xs w-full bg-base-100 border-base-content/10 text-xs"
+            class="input input-sm rounded-lg h-8 min-h-8 w-full bg-surface-0 border-surface-border text-xs"
             [ngModel]="dateTo()"
             (ngModelChange)="setDateTo($event)"
           />
@@ -197,7 +201,7 @@
     </div>
 
     <!-- Session list (scrollable) -->
-    <div class="flex-1 overflow-y-auto p-1.5 sidebar-scroll">
+    <div class="flex-1 overflow-y-auto pl-4 pr-2 py-3 sidebar-scroll">
       <!-- One sidebar row. Rendered for every group below; `depth` > 0 only
            when organization nests a child under its parent. -->
       <ng-template #sessionRow let-session let-depth="depth">
@@ -210,11 +214,11 @@
         >
           @if (editingSessionId() === session.id) {
             <!-- Inline edit mode -->
-            <div class="flex items-center gap-1 py-2.5 px-3 w-full">
+            <div class="flex items-center gap-1 py-1.5 pl-2.5 pr-2 w-full">
               <input
                 #editSessionInput
                 type="text"
-                class="input input-xs input-bordered flex-1 text-sm bg-base-100"
+                class="input input-xs input-bordered rounded-md flex-1 text-[13px] bg-surface-0"
                 maxlength="200"
                 aria-label="Edit session name"
                 [ngModel]="editingSessionName()"
@@ -227,7 +231,7 @@
           } @else {
             <button
               type="button"
-              class="flex items-center gap-2 py-2.5 px-3 w-full text-left rounded-md transition-all duration-200 border-l-2 border-transparent hover:bg-base-300/50"
+              class="relative block w-full py-1.5 px-2.5 text-left rounded-md transition-all duration-200 hover:bg-surface-2"
               [class.pr-16]="!organizationAvailable()"
               [class.sidebar-item-active]="
                 session.id === chatStore.currentSession()?.id
@@ -241,21 +245,25 @@
               "
               (click)="onSessionClick(session)"
             >
-              <!-- Leading live-phase column (organization hosts): the
-                   running/waiting/failed marker, vertically centered beside
-                   the name and time instead of under them. Idle hides it, so
-                   the row keeps its no-marker layout. -->
+              <!-- Live-phase marker sits in the list gutter (`pl-4` / 16px),
+                   out of flow. `-left-4` matches that gutter, so the 16px host
+                   ends on the button's left edge and neither an idle
+                   (`invisible`) row nor a live row shifts the title. Title,
+                   time and the chips below share the button's `px-2.5` edge. -->
               @if (organizationAvailable()) {
-                <ptah-session-live-phase-indicator [session]="session" />
+                <ptah-session-live-phase-indicator
+                  class="absolute -left-4 top-1/2 z-[1] -translate-y-1/2"
+                  [session]="session"
+                />
               }
               <!-- Session name and metadata: the row's main column -->
-              <span class="flex flex-col items-start gap-1 min-w-0 flex-1">
+              <span class="flex flex-col items-start gap-0.5 min-w-0">
                 <!-- Session name -->
                 @if (depth > 0) {
                   <span class="sr-only">Child session:</span>
                 }
                 <span
-                  class="font-medium text-sm truncate w-full leading-snug"
+                  class="font-medium text-[13px] truncate w-full leading-tight"
                   [class.text-primary]="
                     session.id === chatStore.currentSession()?.id ||
                     isSessionOpen(session.id)
@@ -268,10 +276,11 @@
                 </span>
                 <!-- Session metadata row -->
                 <span
-                  class="text-xs text-base-content-muted flex items-center gap-2 w-full"
+                  class="text-[11px] text-base-content-muted flex items-center gap-1.5 w-full leading-tight"
                   [class.whitespace-nowrap]="organizationAvailable()"
                   [class.overflow-hidden]="organizationAvailable()"
                   [class.pr-20]="organizationAvailable()"
+                  data-testid="session-row-meta"
                 >
                   <span>{{
                     formatRelativeDate(session.lastActivityAt)
@@ -341,15 +350,14 @@
             @if (organizationAvailable()) {
               <!-- Organization chips sit beside the row button, not inside
                      it: a list is not phrasing content, and the chips would
-                     otherwise all be read as part of the button's name. (The
-                     live-phase indicator above is a span — phrasing content —
-                     so it stays inside the button as the row's leading
-                     column.) Here the hover actions anchor to the row's
-                     bottom line (chips or metadata), so the title keeps the
-                     full width; `pr-24` on this line and `pr-20` on the
-                     metadata line keep the actions off both. -->
+                     otherwise all be read as part of the button's name. The
+                     live-phase indicator is positioned out of flow, so this
+                     line uses the same `pl-2.5` as the button and shares the
+                     title and time edge.
+                     Hover actions anchor to the bottom line; `pr-24` here and
+                     `pr-20` on the metadata line keep the actions off both. -->
 
-              <div class="pl-3 pr-24 has-[li]:-mt-1.5 has-[li]:pb-2">
+              <div class="pl-2.5 pr-24 has-[li]:-mt-1 has-[li]:pb-1.5">
                 <ptah-session-organization-chips [session]="session" />
               </div>
             }
@@ -376,7 +384,7 @@
             >
               <h3
                 [id]="'session-group-' + group.key"
-                class="px-3 pt-2 pb-0.5 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-base-content-muted"
+                class="pt-2 pb-0.5 pl-2.5 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-base-content-muted"
               >
                 <span class="truncate">{{ group.label }}</span>
                 <span class="tabular-nums font-normal">{{
@@ -461,7 +469,7 @@
       ) {
         <div class="px-1.5 pt-1 pb-1">
           <button
-            class="btn btn-ghost btn-xs w-full text-base-content-muted hover:text-base-content hover:bg-base-300/30 transition-all duration-200 gap-1"
+            class="btn btn-ghost btn-xs w-full text-base-content-muted hover:text-base-content hover:bg-surface-2 transition-all duration-200 gap-1"
             [class.loading]="chatStore.isLoadingMoreSessions()"
             [disabled]="chatStore.isLoadingMoreSessions()"
             (click)="chatStore.loadMoreSessions()"
@@ -527,7 +535,7 @@
   <div class="flex-1 flex flex-col min-w-0">
     <!-- Header: hidden in Electron grid mode (global navbar provides all controls) -->
     <div
-      class="navbar bg-base-100 border-b border-base-300 min-h-[40px] px-2 gap-2"
+      class="navbar bg-surface-1 border-b border-surface-border min-h-[40px] px-2 gap-2"
       [class.hidden]="isElectron && layoutMode() === 'grid'"
     >
       <!-- Dashboard (gold accent, VS Code only — Electron has it in global navbar) -->

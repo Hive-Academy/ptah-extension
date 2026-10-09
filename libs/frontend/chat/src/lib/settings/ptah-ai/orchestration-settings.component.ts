@@ -15,10 +15,12 @@ import {
   AppStateManager,
   ProvidersSettingsStateService,
 } from '@ptah-extension/core';
+import { SurfaceSectionComponent } from '@ptah-extension/ui';
 import { AgentOrchestrationConfigComponent } from './agent-orchestration-config.component';
 import { CliOrchestrationMatrixComponent } from './cli-orchestration-matrix.component';
 import { SubagentCacheTtlSettingComponent } from './subagent-cache-ttl-setting.component';
 import { SessionBudgetSettingsComponent } from './session-budget-settings.component';
+import { LaneGuardsSettingsComponent } from './lane-guards-settings.component';
 import { ProviderConsumerAssignmentsComponent } from '../providers/provider-consumer-assignments.component';
 import type { BackgroundConsumerId } from '../providers/provider-consumer-rows';
 
@@ -65,9 +67,11 @@ const FOCUS =
     ProviderConsumerAssignmentsComponent,
     SubagentCacheTtlSettingComponent,
     SessionBudgetSettingsComponent,
+    LaneGuardsSettingsComponent,
+    SurfaceSectionComponent,
   ],
   template: `
-    <div class="space-y-2.5 font-sans text-sm text-base-content">
+    <div class="flex flex-col gap-4 font-sans text-sm text-base-content">
       <ptah-agent-orchestration-config />
 
       <!-- Deferred (own chunk; the eager bundle is at its budget) behind a same-footprint placeholder. -->
@@ -122,63 +126,61 @@ const FOCUS =
       }
 
       <!-- Deviation 4: closed by default; the background-role deep links open it (focusTarget). -->
-      <details
-        class="group rounded-xl border border-base-300 bg-base-200"
-        data-testid="background-roles-details"
-      >
-        <summary
-          [class]="
-            'flex cursor-pointer list-none items-center gap-2 scroll-mt-2 rounded-xl px-3 py-2 select-none [&::-webkit-details-marker]:hidden ' +
-            focusRing
-          "
-          data-testid="background-roles-summary"
-        >
-          <!-- Points right (›) closed, down (⌄) open. The turn sits on this wrapper: lucide-angular copies its host class onto
+      <ptah-surface-section tone="subtle" padding="md">
+        <details class="group" data-testid="background-roles-details">
+          <summary
+            [class]="
+              'flex cursor-pointer list-none items-center gap-2 scroll-mt-2 rounded-lg py-0 select-none [&::-webkit-details-marker]:hidden ' +
+              focusRing
+            "
+            data-testid="background-roles-summary"
+          >
+            <!-- Points right (›) closed, down (⌄) open. The turn sits on this wrapper: lucide-angular copies its host class onto
                the inner <svg>, so a rotate class on the icon would apply twice (180°, pointing left). -->
-          <span
-            class="inline-flex shrink-0 transition-transform group-open:rotate-90"
-            aria-hidden="true"
-            data-testid="background-roles-chevron"
-          >
-            <lucide-angular
-              [img]="ChevronIcon"
-              class="block h-3.5 w-3.5 text-info"
+            <span
+              class="inline-flex shrink-0 transition-transform group-open:rotate-90"
               aria-hidden="true"
+              data-testid="background-roles-chevron"
+            >
+              <lucide-angular
+                [img]="ChevronIcon"
+                class="block h-3.5 w-3.5 text-info"
+                aria-hidden="true"
+              />
+            </span>
+            <span
+              class="text-xs font-bold uppercase tracking-wider text-base-content"
+              >Background Model Roles</span
+            >
+            <span
+              class="badge badge-outline badge-xs whitespace-nowrap border-info/30 bg-info/10 font-medium text-base-content"
+              >{{ roleCount }} roles</span
+            >
+            <!-- Secondary helper text uses the theme's contrast-tested muted-content token. -->
+            <span
+              class="ml-auto hidden min-w-0 truncate text-xs text-base-content-muted sm:block"
+              data-testid="background-roles-list"
+              >Memory curator, archaeologist, synthesis, judge, replay,
+              judging</span
+            >
+          </summary>
+          <section
+            data-focus="background-models"
+            tabindex="-1"
+            aria-label="Background models"
+            class="mt-2 scroll-mt-4 border-t border-base-content/10 pt-2"
+          >
+            <ptah-provider-consumer-assignments
+              [disabled]="saving()"
+              [initialEditingConsumerId]="consumerTarget()"
+              (setupProviderRequested)="openProviderSetup($event)"
+              (deepLinkOpened)="onRoleOpened($event)"
+              (assignmentSaved)="state.refresh()"
+              (timeoutSaved)="state.refreshJudging()"
             />
-          </span>
-          <span
-            class="text-xs font-bold uppercase tracking-wider text-base-content"
-            >Background Model Roles</span
-          >
-          <span
-            class="badge badge-outline badge-xs whitespace-nowrap border-info/30 bg-info/10 font-medium text-base-content"
-            >{{ roleCount }} roles</span
-          >
-          <!-- text-base-content: the light theme's rose-tinted muted grey read as coloured words (deviation 6). 12 px helper
-               text (Gate V 36, V36-2). -->
-          <span
-            class="ml-auto hidden min-w-0 truncate text-xs text-base-content sm:block"
-            data-testid="background-roles-list"
-            >Memory curator, archaeologist, synthesis, judge, replay,
-            judging</span
-          >
-        </summary>
-        <section
-          data-focus="background-models"
-          tabindex="-1"
-          aria-label="Background models"
-          class="scroll-mt-4 border-t border-base-300 p-3"
-        >
-          <ptah-provider-consumer-assignments
-            [disabled]="saving()"
-            [initialEditingConsumerId]="consumerTarget()"
-            (setupProviderRequested)="openProviderSetup($event)"
-            (deepLinkOpened)="onRoleOpened($event)"
-            (assignmentSaved)="state.refresh()"
-            (timeoutSaved)="state.refreshJudging()"
-          />
-        </section>
-      </details>
+          </section>
+        </details>
+      </ptah-surface-section>
 
       <!-- Session budget (TASK_2026_597 N7): its own chunk, loaded when scrolled into view. It sits after the
            background roles — below the Orchestration fold content (Batch 36: the roles summary ends within the
@@ -192,6 +194,9 @@ const FOCUS =
           data-testid="session-budget-placeholder"
         ></div>
       }
+
+      <!-- Independent of the tall budget form: guards are small and should always be available. -->
+      <ptah-lane-guards-settings />
 
       @if (state.commit().status !== 'idle') {
         <div

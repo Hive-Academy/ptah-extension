@@ -54,6 +54,7 @@ function harness(
     route?: SessionQuotaRoute | null;
     account?: ClaudeAccountInfo;
     codexOwnerKey?: string | null;
+    codexOwnerKeyAfterRead?: string | null;
     fileContent?: string;
     fileReadFails?: boolean;
   } = {},
@@ -78,14 +79,35 @@ function harness(
     if (options.fileReadFails) throw new Error('account file unavailable');
     return options.fileContent ?? '';
   });
+  let codexUsageRead = false;
+  const codexAccountUsage = {
+    currentOwnerKey: () =>
+      codexUsageRead
+        ? (options.codexOwnerKeyAfterRead ?? options.codexOwnerKey ?? null)
+        : (options.codexOwnerKey ?? null),
+    getAccountUsage: jest.fn(async () => {
+      codexUsageRead = true;
+      return { status: 'available' as const, providerId: 'openai-codex' };
+    }),
+    clearCache: jest.fn(),
+    close: jest.fn(async () => undefined),
+  };
   const resolver = new ProviderOwnerResolver(
     logger as unknown as Logger,
     { getProviderKey } as unknown as IAuthSecretsService,
     probe,
-    { currentOwnerKey: () => options.codexOwnerKey ?? null },
+    codexAccountUsage,
     codexHome,
   );
-  return { resolver, logger, getProviderKey, probe, codexHome, readFile };
+  return {
+    resolver,
+    logger,
+    getProviderKey,
+    probe,
+    codexHome,
+    readFile,
+    codexAccountUsage,
+  };
 }
 
 function expectRestorable(ref: QuotaOwnerRef): void {
@@ -430,6 +452,19 @@ describe('ProviderOwnerResolver', () => {
     const unknown = resolver.ownerForCodexHome();
     expect(unknown.key).toBe(unknownOwnerKey('openai-codex', codexHome.path));
     expectRestorable(unknown);
+  });
+
+  it('reads Codex account usage before resolving its discovery owner', async () => {
+    const known = accountOwnerKey(
+      'openai-codex',
+      `${resolve('synthetic-codex-home')}\0${EMAIL}`,
+    );
+    const h = harness({ codexOwnerKeyAfterRead: known });
+
+    await expect(h.resolver.resolveCodexHomeOwner()).resolves.toMatchObject({
+      key: known,
+    });
+    expect(h.codexAccountUsage.getAccountUsage).toHaveBeenCalledTimes(1);
   });
 
   it('keys CLI stores by their on-disk root', () => {

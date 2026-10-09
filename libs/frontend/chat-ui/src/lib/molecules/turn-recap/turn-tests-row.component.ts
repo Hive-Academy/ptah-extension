@@ -3,7 +3,16 @@ import {
   Component,
   computed,
   input,
+  signal,
 } from '@angular/core';
+import {
+  ChevronRight,
+  CircleCheck,
+  CircleHelp,
+  CircleX,
+  LoaderCircle,
+  LucideAngularModule,
+} from 'lucide-angular';
 import {
   summarizeTurnTests,
   type TurnTestOutcome,
@@ -17,8 +26,10 @@ import {
  */
 interface TurnTestRow {
   readonly command: string;
+  readonly project?: string;
   readonly outcome: TurnTestOutcome;
-  readonly cls: string;
+  readonly label: string;
+  readonly failures: readonly string[];
 }
 
 /**
@@ -28,8 +39,11 @@ interface TurnTestRow {
 const OUTCOME_CLASS: Readonly<Record<TurnTestOutcome, string>> = {
   passed: 'font-semibold w-14 shrink-0 diff-add-text',
   failed: 'font-semibold w-14 shrink-0 diff-del-text',
+  running: 'font-semibold w-14 shrink-0 text-info',
   unknown: 'font-semibold w-14 shrink-0 text-base-content-muted',
 };
+
+let nextTurnTestsBodyId = 0;
 
 /**
  * TurnTestsRowComponent - the tests-run section a turn that ran test commands
@@ -56,17 +70,28 @@ const OUTCOME_CLASS: Readonly<Record<TurnTestOutcome, string>> = {
 @Component({
   selector: 'ptah-turn-tests-row',
   standalone: true,
+  imports: [LucideAngularModule],
   template: `
     @if (summary().total > 0) {
       <section
-        class="bg-base-300/30 rounded max-w-md py-1.5 px-2 text-[11px] text-base-content"
+        class="cs-card surface-2 rounded max-w-md text-[11px] text-base-content overflow-hidden"
         [attr.aria-label]="ariaLabel()"
         data-testid="turn-tests-row"
       >
-        <div
-          class="flex flex-wrap items-center gap-x-1.5 gap-y-1"
+        <button
+          type="button"
+          class="w-full flex flex-wrap items-center gap-x-1.5 gap-y-1 py-1.5 px-2 text-left focus-visible:-outline-offset-2"
+          [attr.aria-expanded]="expanded()"
+          [attr.aria-controls]="bodyId"
+          (click)="expanded.update((value) => !value)"
           data-testid="turn-tests-header"
         >
+          <lucide-angular
+            [img]="ChevronRightIcon"
+            class="w-3 h-3 shrink-0 text-base-content-muted transition-transform duration-150"
+            [class.rotate-90]="expanded()"
+            aria-hidden="true"
+          />
           <span
             class="font-semibold text-base-content-muted"
             data-testid="turn-tests-heading"
@@ -82,31 +107,93 @@ const OUTCOME_CLASS: Readonly<Record<TurnTestOutcome, string>> = {
               >(incomplete)</span
             >
           }
-        </div>
-        <ul class="mt-1 border-t border-base-300/30" role="list">
-          @for (row of rows(); track $index) {
-            <li
-              class="flex items-baseline gap-1.5 py-0.5"
-              data-testid="turn-tests-run"
-            >
-              <span [class]="row.cls" data-testid="turn-tests-run-outcome">{{
-                row.outcome
-              }}</span>
-              <span
-                class="font-mono text-[10px] text-base-content-muted min-w-0 flex-1 break-all"
-                [title]="row.command"
-                data-testid="turn-tests-run-command"
-                >{{ row.command }}</span
+        </button>
+        @if (expanded()) {
+          <ul [id]="bodyId" class="border-t border-base-content/10" role="list">
+            @for (row of rows(); track $index) {
+              <li
+                class="px-2 py-1 border-b border-base-300/30 last:border-b-0"
+                data-testid="turn-tests-run"
               >
-            </li>
-          }
-        </ul>
+                <div class="flex items-center gap-1.5 min-w-0">
+                  @switch (row.outcome) {
+                    @case ('passed') {
+                      <lucide-angular
+                        [img]="PassedIcon"
+                        class="w-3 h-3 shrink-0 diff-add-text"
+                        aria-label="passed"
+                      />
+                    }
+                    @case ('failed') {
+                      <lucide-angular
+                        [img]="FailedIcon"
+                        class="w-3 h-3 shrink-0 diff-del-text"
+                        aria-label="failed"
+                      />
+                    }
+                    @case ('running') {
+                      <lucide-angular
+                        [img]="RunningIcon"
+                        class="w-3 h-3 shrink-0 text-info animate-spin"
+                        aria-label="running in background"
+                      />
+                    }
+                    @default {
+                      <lucide-angular
+                        [img]="UnknownIcon"
+                        class="w-3 h-3 shrink-0 text-base-content-muted"
+                        aria-label="unknown"
+                      />
+                    }
+                  }
+                  <span
+                    [class]="OUTCOME_CLASS[row.outcome]"
+                    data-testid="turn-tests-run-outcome"
+                    >{{ row.label }}</span
+                  >
+                  <span
+                    class="font-mono text-[10px] text-base-content-muted min-w-0 flex-1 break-all"
+                    [title]="row.command"
+                    data-testid="turn-tests-run-command"
+                    >{{ row.project ?? row.command }}</span
+                  >
+                </div>
+                <details class="mt-1 ml-4">
+                  <summary
+                    class="cursor-pointer font-mono text-[10px] text-base-content-muted"
+                  >
+                    command
+                  </summary>
+                  <code
+                    class="block mt-0.5 break-all text-[10px] text-base-content-muted"
+                    >{{ row.command }}</code
+                  >
+                </details>
+                @if (row.failures.length > 0) {
+                  <ul class="mt-1 ml-4 text-[10px] diff-del-text" role="list">
+                    @for (failure of row.failures; track failure) {
+                      <li>{{ failure }}</li>
+                    }
+                  </ul>
+                }
+              </li>
+            }
+          </ul>
+        }
       </section>
     }
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class TurnTestsRowComponent {
+  protected readonly OUTCOME_CLASS = OUTCOME_CLASS;
+  protected readonly ChevronRightIcon = ChevronRight;
+  protected readonly PassedIcon = CircleCheck;
+  protected readonly FailedIcon = CircleX;
+  protected readonly RunningIcon = LoaderCircle;
+  protected readonly UnknownIcon = CircleHelp;
+  protected readonly expanded = signal(true);
+  protected readonly bodyId = `turn-tests-body-${nextTurnTestsBodyId++}`;
   /** The test commands the turn ran, in execution order. */
   readonly runs = input.required<readonly TurnTestRun[]>();
   /** The turn aborted or errored before these runs finished (Req 1.7). */
@@ -122,10 +209,11 @@ export class TurnTestsRowComponent {
    * "unknown" (Req 1.6) — the rows, not the header, carry the detail there.
    */
   protected readonly outcomeLabel = computed<string>(() => {
-    const { passed, failed, unknown } = this.summary();
+    const { passed, failed, running, unknown } = this.summary();
     const parts: string[] = [];
     if (passed > 0) parts.push(`${passed} passed`);
     if (failed > 0) parts.push(`${failed} failed`);
+    if (running > 0) parts.push(`${running} running in background`);
     if (unknown > 0) {
       parts.push(
         passed === 0 && failed === 0 ? 'unknown' : `${unknown} unknown`,
@@ -148,8 +236,10 @@ export class TurnTestsRowComponent {
   protected readonly rows = computed<readonly TurnTestRow[]>(() =>
     this.runs().map((run) => ({
       command: run.command,
+      project: run.project,
       outcome: run.outcome,
-      cls: OUTCOME_CLASS[run.outcome],
+      label: run.project ?? run.outcome,
+      failures: run.failures ?? [],
     })),
   );
 }

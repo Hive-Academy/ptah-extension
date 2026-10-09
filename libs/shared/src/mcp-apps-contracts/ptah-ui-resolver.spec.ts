@@ -33,7 +33,7 @@ const snapshot: TurnSourceSnapshot = {
   tests: {
     kind: 'available',
     runs: [{ command: 'npm test', outcome: 'passed' }],
-    summary: { total: 1, passed: 1, failed: 0, unknown: 0 },
+    summary: { total: 1, passed: 1, failed: 0, running: 0, unknown: 0 },
   },
   usage: {
     kind: 'available',
@@ -167,7 +167,7 @@ describe('resolvePtahUi', () => {
         tests: {
           kind: 'available',
           runs: [{ command, outcome: 'passed' }],
-          summary: { total: 1, passed: 1, failed: 0, unknown: 0 },
+          summary: { total: 1, passed: 1, failed: 0, running: 0, unknown: 0 },
         },
       },
       countBytes: bytes,

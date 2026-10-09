@@ -5,19 +5,17 @@
  * CLAUDE.md`: "Same build artifact is copied into both
  * apps/ptah-extension-vscode and apps/ptah-electron renderer/ directories").
  *
- * WHY THE ASSERTIONS LIVE ON THE PROVIDERS PAGE (TASK_2026_523, plan
+ * WHY THE ASSERTIONS LIVE IN AGENT ORCHESTRATION (TASK_2026_523, plan
  * Decision 9 row 6). The four lane pickers were REMOVED from
  * `SkillSettingsPanelComponent` ("REMOVE the four picker mounts. Unrelated
  * synthesis policy stays."); lane provider/model selection moved to the
- * Providers settings page's "Background models" section
+ * Agent Orchestration settings page's "Background Model Roles" section
  * (`ProviderConsumerAssignmentsComponent`, which mounts the same
  * `ProviderModelPickerComponent` extracted into `libs/frontend/ui` — the
  * component this scenario always really tested, batches B1.9/B1.10). The
- * skills panel now owns one thing per lane: a "Manage <lane> in Providers"
- * deep-link button (`AppStateManager.requestSettingsTab({ tab: 'providers',
- * section })` + `setCurrentView('settings')`). So the scenario drives the
- * real user path: thoth > Skills > Settings, click "Manage synthesis in
- * Providers", land on the Providers page, and assert the picker there —
+ * skills panel no longer owns lane-navigation controls. So the scenario drives
+ * the real user path: thoth > Skills > Settings > Agent Orchestration >
+ * Background Model Roles, and asserts the picker there —
  * enumeration over the merged registry, the pinned synthesis lane showing
  * ITS provider/model (the regressed case of commit 9e42f9c81: a lone
  * `[value]` on the `<select>` without `[selected]` on the `@for` options
@@ -355,8 +353,8 @@ async function installRpcAutoResponder(
  */
 test.use({ useAppBuild: true });
 
-test.describe('webview > settings > providers > background model pickers', () => {
-  test('lane deep-link opens the Providers page where the shared picker enumerates providers and renders pinned lanes', async ({
+test.describe('webview > settings > agent orchestration > background model pickers', () => {
+  test('the shared picker enumerates providers and renders pinned lanes', async ({
     page,
     fixtureServer,
   }) => {
@@ -374,26 +372,26 @@ test.describe('webview > settings > providers > background model pickers', () =>
 
     await page.locator('[data-testid="skills-subview-settings"]').click();
 
-    // Decision 9 row 6: the pickers are gone from the skills panel. What
-    // remains per lane is the deep-link button into the Providers page —
-    // assert the panel no longer mounts a picker and still offers the link.
+    // Decision 9 row 6: the pickers and their redundant navigation controls
+    // are gone from the skills panel.
     const panel = page.locator('ptah-skill-settings-panel');
-    await expect(
-      panel.locator('ptah-provider-model-picker'),
-    ).toHaveCount(0);
-    const lanesSection = panel.locator('[data-testid="skills-lanes-section"]');
-    await expect(lanesSection).toBeVisible();
-    const manageSynthesis = lanesSection.getByRole('button', {
-      name: 'Manage synthesis in Providers',
-    });
-    await expect(manageSynthesis).toBeVisible();
-    await manageSynthesis.click();
+    await expect(panel.locator('ptah-provider-model-picker')).toHaveCount(0);
+    await expect(panel.getByText('Manage synthesis in Providers')).toHaveCount(
+      0,
+    );
+    await bridge.inject({ type: 'switchView', payload: { view: 'settings' } });
+    await expect(page.locator('[data-testid="settings-back"]')).toBeVisible();
+    await page
+      .locator('ptah-settings')
+      .getByRole('button', { name: 'Agent Orchestration', exact: true })
+      .click();
+    await page.locator('[data-testid="background-roles-summary"]').click();
 
-    // The deep-link routes to the settings view; the Providers tab is its
-    // default tab. Wait for the Background models section to be LOADED (a
-    // row's summary only renders once its section read landed), because
-    // `toggleEdit` refuses to open an editor for a not-loaded row.
-    const assignments = page.locator('[data-testid="provider-consumer-assignments"]');
+    // Background model rows render only after their section read lands, so
+    // wait for the assignment surface before opening a picker.
+    const assignments = page.locator(
+      '[data-testid="provider-consumer-assignments"]',
+    );
     await assignments.waitFor({ state: 'visible' });
     for (const rowId of CONSUMER_ROW_IDS) {
       await expect(
@@ -404,10 +402,9 @@ test.describe('webview > settings > providers > background model pickers', () =>
       page.locator('[data-testid="consumer-summary-synthesis"]'),
     ).toBeVisible();
 
-    // The deep-link's auto-open effect is one-shot and races the lanes read
-    // (`appliedDeepLinkId` is set even when `toggleEdit` bails), so open the
-    // editor explicitly when the deep-link lost that race.
-    const synthesisEditor = page.locator('[data-testid="consumer-editor-synthesis"]');
+    const synthesisEditor = page.locator(
+      '[data-testid="consumer-editor-synthesis"]',
+    );
     if (!(await synthesisEditor.isVisible())) {
       await page.locator('[data-testid="consumer-edit-synthesis"]').click();
     }
@@ -419,7 +416,9 @@ test.describe('webview > settings > providers > background model pickers', () =>
     const synthesisPicker = page.locator(
       '[data-testid="consumer-editor-synthesis"] ptah-provider-model-picker',
     );
-    await expect(synthesisEditor.locator('[data-testid="picker-synthesis"]')).toHaveCount(1);
+    await expect(
+      synthesisEditor.locator('[data-testid="picker-synthesis"]'),
+    ).toHaveCount(1);
     await expect(
       synthesisPicker
         .locator('[data-testid="provider-model-picker-provider"]')

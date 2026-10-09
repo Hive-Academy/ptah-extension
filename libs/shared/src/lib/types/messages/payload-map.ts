@@ -6,6 +6,7 @@ import type {
   PermissionRequest,
   PermissionResponse,
 } from '../permission.types';
+import type { FlatStreamEventUnion } from '../execution';
 
 import type {
   ChatAgentActivityPayload,
@@ -252,6 +253,17 @@ export interface DashboardSpecProposedPayload {
   readonly toolCallId: string;
 }
 
+/** Ordered hidden-stream tail delivered after a v2 tab becomes visible. */
+export interface ChatStreamSnapshotPayload {
+  readonly protocolVersion: 2;
+  readonly tabId: string;
+  readonly sessionId?: string;
+  readonly fromSequence: number;
+  readonly toSequence: number;
+  readonly events?: readonly FlatStreamEventUnion[];
+  readonly resyncRequired?: true;
+}
+
 /** Payload for MESSAGE_TYPES.SURFACE_UPDATED ('surface:updated'). */
 export interface SurfaceUpdatedPayload {
   /** The tabId-or-sessionId routing id, the same value v1 sent as sessionId. */
@@ -288,6 +300,7 @@ export interface SessionOrganizationChangedPayload {
  * Type mapping for message payloads - eliminates 'any' types
  */
 export interface MessagePayloadMap {
+  'chat:streamSnapshot': ChatStreamSnapshotPayload;
   'chat:sendMessage': ChatSendMessagePayload;
   'chat:messageChunk': ChatMessageChunkPayload;
   'chat:sessionStart': ChatSessionStartPayload;

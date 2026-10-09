@@ -7,16 +7,22 @@ import type {
 } from '@ptah-extension/vscode-core';
 import { getAnthropicProvider } from '@ptah-extension/shared';
 import { createMockLogger } from '@ptah-extension/shared/testing';
-import { OllamaModelDiscoveryService } from './ollama-model-discovery.service';
+import {
+  KNOWN_CLOUD_MODELS,
+  OllamaModelDiscoveryService,
+} from './ollama-model-discovery.service';
 import type { OllamaCloudMetadataService } from './ollama-cloud-metadata.service';
 
 describe('Ollama capacity evidence', () => {
-  function harness(configGet: jest.Mock = jest.fn()) {
+  function harness(
+    configGet: jest.Mock = jest.fn(),
+    cloudTags: readonly { id: string }[] = [],
+  ) {
     const service = new OllamaModelDiscoveryService(
       createMockLogger() as unknown as Logger,
       { get: configGet } as unknown as ConfigManager,
       {
-        fetchCloudTags: jest.fn().mockResolvedValue([]),
+        fetchCloudTags: jest.fn().mockResolvedValue(cloudTags),
       } as unknown as OllamaCloudMetadataService,
       {
         getProviderKey: jest.fn().mockResolvedValue(null),
@@ -32,6 +38,24 @@ describe('Ollama capacity evidence', () => {
       .mockResolvedValue({ models: [{ name: 'llama3:latest' }] });
     return { service, post: jest.spyOn(http, 'httpPost') };
   }
+
+  it('lists exactly the live cloud models, keeping known metadata, when ollama.com answers', async () => {
+    const { service } = harness(jest.fn(), [
+      { id: 'glm-5.3:cloud' },
+      { id: 'brand-new-model:cloud' },
+    ]);
+    const models = await service.listCloudModels();
+    expect(models.map((m) => m.id)).toEqual([
+      'glm-5.3:cloud',
+      'brand-new-model:cloud',
+    ]);
+    // Catalog metadata still applies to a live model it knows.
+    expect(models[0].contextLength).toBe(
+      KNOWN_CLOUD_MODELS['glm-5.3'].contextLength,
+    );
+    // Retired catalog entries are not merged back in.
+    expect(models.map((m) => m.id)).not.toContain('kimi-k2.5:cloud');
+  });
 
   it.each([200000, undefined, 0, -1, NaN, Infinity])(
     'certifies only a valid /api/show window (%s), including cached reads',

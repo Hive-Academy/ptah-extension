@@ -1269,7 +1269,7 @@ export class ChatSessionService {
         success: true,
         events: page?.events ?? fullEvents,
         stats,
-        ...(budget ? { budget } : {}),
+        ...(budget !== undefined ? { budget } : {}),
         resumableSubagents,
         cliSessions,
         activated,

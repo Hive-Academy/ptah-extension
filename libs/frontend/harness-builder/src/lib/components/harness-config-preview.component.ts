@@ -32,7 +32,7 @@ import { HarnessBuilderStateService } from '../services/harness-builder-state.se
     <div class="space-y-2">
       <!-- Persona -->
       @if (persona(); as p) {
-        <div class="collapse collapse-arrow bg-base-200/50 rounded-lg">
+        <div class="collapse collapse-arrow surface-2 rounded-lg">
           <input type="checkbox" checked />
           <div
             class="collapse-title flex items-center gap-2 text-sm font-medium py-2 min-h-0"
@@ -73,7 +73,7 @@ import { HarnessBuilderStateService } from '../services/harness-builder-state.se
 
       <!-- Agents -->
       @if (agentCount() > 0) {
-        <div class="collapse collapse-arrow bg-base-200/50 rounded-lg">
+        <div class="collapse collapse-arrow surface-2 rounded-lg">
           <input type="checkbox" />
           <div
             class="collapse-title flex items-center gap-2 text-sm font-medium py-2 min-h-0"
@@ -102,7 +102,7 @@ import { HarnessBuilderStateService } from '../services/harness-builder-state.se
 
       <!-- Skills -->
       @if (skillCount() > 0) {
-        <div class="collapse collapse-arrow bg-base-200/50 rounded-lg">
+        <div class="collapse collapse-arrow surface-2 rounded-lg">
           <input type="checkbox" />
           <div
             class="collapse-title flex items-center gap-2 text-sm font-medium py-2 min-h-0"
@@ -131,7 +131,7 @@ import { HarnessBuilderStateService } from '../services/harness-builder-state.se
 
       <!-- Prompt -->
       @if (hasPrompt()) {
-        <div class="collapse collapse-arrow bg-base-200/50 rounded-lg">
+        <div class="collapse collapse-arrow surface-2 rounded-lg">
           <input type="checkbox" />
           <div
             class="collapse-title flex items-center gap-2 text-sm font-medium py-2 min-h-0"
@@ -155,7 +155,7 @@ import { HarnessBuilderStateService } from '../services/harness-builder-state.se
 
       <!-- MCP Servers -->
       @if (mcpCount() > 0) {
-        <div class="collapse collapse-arrow bg-base-200/50 rounded-lg">
+        <div class="collapse collapse-arrow surface-2 rounded-lg">
           <input type="checkbox" />
           <div
             class="collapse-title flex items-center gap-2 text-sm font-medium py-2 min-h-0"

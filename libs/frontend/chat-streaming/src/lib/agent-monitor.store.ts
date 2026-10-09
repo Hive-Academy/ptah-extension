@@ -32,6 +32,7 @@ import type {
   SubagentPromptCacheTtl,
   SubagentTranscriptMessage,
   AgentFailureKind,
+  LaneStopReason,
   CliUsageTotals,
   ModelPricing,
   QuotaOwnerRef,
@@ -39,6 +40,7 @@ import type {
 } from '@ptah-extension/shared';
 import {
   addCliUsage,
+  hasReportedCliCacheTokens,
   calculateMessageCost,
   computeSubagentCacheState,
   findModelPricing,
@@ -376,10 +378,8 @@ export function subagentUsageView(
 }
 
 /**
- * Cache fields of every CLI lane card. Lane adapters report no cache tokens
- * and no per-request context yet (TASK_2026_597 Batches 13 and 32 are
- * deferred), so a lane shows "not reported" and no warm/cold badge.
- * `contextTokens` stays absent.
+ * Cache state starts unknown for CLI lanes. Usage reports can subsequently
+ * establish whether the provider exposes prompt-cache token counts.
  */
 const CLI_LANE_CACHE_FIELDS = {
   cacheState: 'unknown',
@@ -474,6 +474,12 @@ export interface MonitoredAgent {
   role?: string;
   /** Classified failure reason of the run, from `AgentProcessInfo`. */
   failureKind?: AgentFailureKind;
+  /**
+   * Why the host stopped the lane (`tool-call-budget` or `repeat-call`).
+   * Copied from `AgentProcessInfo.stopReason`. Absent when the lane ended
+   * on its own or the caller stopped it.
+   */
+  stopReason?: LaneStopReason;
   /**
    * Quota owner this run used (full G3 reference, not a key string). Absent
    * when the backend never recorded one — consumers render that as an
@@ -1153,6 +1159,7 @@ export class AgentMonitorStore implements OnDestroy {
           // re-open is a new attempt, so a previous failure no longer applies.
           role: info.role ?? existing.role,
           failureKind: info.failureKind,
+          stopReason: info.stopReason,
           quotaOwner: info.quotaOwner ?? existing.quotaOwner,
           // The backend always sends the run's resolved model scope (spawn and
           // exit share the same tracked.info), so `null` is authoritative and
@@ -1205,6 +1212,7 @@ export class AgentMonitorStore implements OnDestroy {
           usageTotals: null,
           role: info.role,
           failureKind: info.failureKind,
+          stopReason: info.stopReason,
           quotaOwner: info.quotaOwner,
           modelScope: info.modelScope ?? null,
           ...CLI_LANE_CACHE_FIELDS,
@@ -1239,6 +1247,7 @@ export class AgentMonitorStore implements OnDestroy {
         usageTotals: null,
         role: info.role,
         failureKind: info.failureKind,
+        stopReason: info.stopReason,
         quotaOwner: info.quotaOwner,
         modelScope: info.modelScope ?? null,
         ...CLI_LANE_CACHE_FIELDS,
@@ -1276,7 +1285,7 @@ export class AgentMonitorStore implements OnDestroy {
       if (foundIndex === -1) return list;
 
       const agent = list[foundIndex];
-      const updated: MonitoredAgent = { ...agent };
+      let updated: MonitoredAgent = { ...agent };
 
       if (delta.stdoutDelta) {
         updated.stdout = capBuffer(
@@ -1305,6 +1314,9 @@ export class AgentMonitorStore implements OnDestroy {
           }
         }
         updated.usageTotals = usageTotals;
+        if (hasReportedCliCacheTokens(usageTotals)) {
+          updated = { ...updated, cacheReported: true };
+        }
         const existing = updated.segments;
         const incoming = delta.segments;
         const lastIdx = existing.length - 1;
@@ -1383,6 +1395,7 @@ export class AgentMonitorStore implements OnDestroy {
           info.supportsContinuation ?? agent.supportsContinuation,
         role: info.role ?? agent.role,
         failureKind: info.failureKind,
+        stopReason: info.stopReason,
         // The backend may only upgrade an unknown owner to a known one, or a
         // cli-store owner to an account of the same provider, so the exit
         // payload's owner wins; keep the spawn-time one if absent.

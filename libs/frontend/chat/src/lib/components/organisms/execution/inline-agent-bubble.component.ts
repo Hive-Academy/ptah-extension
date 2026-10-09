@@ -48,6 +48,7 @@ import type {
   PermissionResponse,
 } from '@ptah-extension/shared';
 import { NgClass, NgTemplateOutlet } from '@angular/common';
+import { ScrollDirtyService } from '../../../services/scroll-dirty.service';
 import { resolveModelDisplayName } from '@ptah-extension/shared';
 import { ModelStateService } from '@ptah-extension/core';
 import { SubagentTranscriptViewerService } from '../../../services/subagent-transcript-viewer.service';
@@ -83,9 +84,8 @@ import { SubagentTranscriptViewerService } from '../../../services/subagent-tran
     <!-- Interrupted agents get warning border + tinted background to stand out -->
     <!-- Background agents get dashed border + info tint -->
     <div
-      class="my-3 border-l-2 rounded-lg overflow-hidden transition-colors"
+      class="surface-1 my-3 border-l-2 rounded-lg overflow-hidden transition-colors"
       [ngClass]="{
-        'bg-base-200/50': !isInterrupted() && !isResumed() && !isBackground(),
         'bg-warning/10': isInterrupted(),
         'border-warning': isInterrupted(),
         'ring-1': isInterrupted() || isResumed() || isBackground(),
@@ -618,14 +618,13 @@ export class InlineAgentBubbleComponent {
   private readonly backgroundAgentStore = inject(BackgroundAgentStore);
   private readonly modelState = inject(ModelStateService);
   private readonly transcriptViewer = inject(SubagentTranscriptViewerService);
+  private readonly scrollDirty = inject(ScrollDirtyService);
 
   /**
    * MutationObserver for auto-scroll behavior.
    * Watches DOM mutations to trigger scroll after recursive ExecutionNode tree completes.
    */
   private observer: MutationObserver | null = null;
-  private scrollTimeoutId: ReturnType<typeof setTimeout> | null = null;
-  private readonly SCROLL_DEBOUNCE_MS = 50;
 
   /**
    * Whether the inner content container is pinned to its bottom. Set false
@@ -763,7 +762,9 @@ export class InlineAgentBubbleComponent {
     if (!container || container === this.scrollElement) return;
     this.scrollElement?.removeEventListener('scroll', this.scrollHandler);
     this.ngZone.runOutsideAngular(() => {
-      container.addEventListener('scroll', this.scrollHandler, { passive: true });
+      container.addEventListener('scroll', this.scrollHandler, {
+        passive: true,
+      });
     });
     this.scrollElement = container;
   }
@@ -796,10 +797,7 @@ export class InlineAgentBubbleComponent {
   private scheduleScroll(): void {
     const isStreaming = this.node().status === 'streaming';
     if (!isStreaming || this.isCollapsed() || !this.pinnedToBottom) return;
-    if (this.scrollTimeoutId) {
-      clearTimeout(this.scrollTimeoutId);
-    }
-    this.scrollTimeoutId = setTimeout(() => {
+    this.scrollDirty.markDirty(() => {
       if (
         this.node().status === 'streaming' &&
         !this.isCollapsed() &&
@@ -807,8 +805,7 @@ export class InlineAgentBubbleComponent {
       ) {
         this.scrollAgentContentToBottom();
       }
-      this.scrollTimeoutId = null;
-    }, this.SCROLL_DEBOUNCE_MS);
+    });
   }
 
   /**
@@ -820,10 +817,6 @@ export class InlineAgentBubbleComponent {
     if (this.observer) {
       this.observer.disconnect();
       this.observer = null;
-    }
-    if (this.scrollTimeoutId) {
-      clearTimeout(this.scrollTimeoutId);
-      this.scrollTimeoutId = null;
     }
   }
   readonly isStreaming = computed(() => this.node().status === 'streaming');

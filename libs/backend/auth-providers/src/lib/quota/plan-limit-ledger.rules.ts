@@ -237,7 +237,7 @@ export function cooldownEnd(cooldown: PlanLimitCooldown): number {
 }
 
 const FIXED_WINDOW_LABELS: Readonly<Record<string, string>> = {
-  five_hour: '5-hour session',
+  five_hour: '5-hour',
   weekly: 'Weekly',
   monthly: 'Monthly',
   overage: 'Overage',

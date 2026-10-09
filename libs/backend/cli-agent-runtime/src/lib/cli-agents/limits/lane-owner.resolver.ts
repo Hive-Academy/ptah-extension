@@ -31,6 +31,7 @@ import type { CliType, QuotaOwnerRef } from '@ptah-extension/shared';
 export type LaneOwnerSource = Pick<
   ProviderOwnerResolver,
   | 'ownerForCodexHome'
+  | 'resolveCodexHomeOwner'
   | 'ownerForCliStore'
   | 'ownerForAntigravity'
   | 'ownerForClaudeAccount'

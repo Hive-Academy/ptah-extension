@@ -25,7 +25,10 @@ import {
 import type { MarketplaceSkillSource } from '@ptah-extension/core';
 import { NativeDrawerComponent } from '@ptah-extension/ui';
 import { MarketplaceInventoryStore } from '../../data/marketplace-inventory.store';
-import { decodeSkillRef, type MarketplaceSkillKind } from '../../data/skill-ref';
+import {
+  decodeSkillRef,
+  type MarketplaceSkillKind,
+} from '../../data/skill-ref';
 import { MarketplaceLayout } from '../../layout/marketplace-layout';
 import { marketplaceRouteLink } from '../../shell/marketplace-route-url';
 import { DockedInspectorComponent } from '../../ui/docked-inspector.component';
@@ -144,14 +147,14 @@ const ROW_LINK_SELECTOR = '[data-testid="installed-skill-open"]';
         <div class="space-y-4" (keydown)="onListKeydown($event)">
           @for (group of groups(); track group.id) {
             <section
-              class="rounded-xl border border-base-300 bg-base-200"
+              class="surface-1 rounded-xl"
               data-testid="installed-skills-group"
               [attr.data-group]="group.id"
               [attr.aria-labelledby]="'installed-skills-heading-' + group.id"
               [attr.aria-busy]="group.state === 'loading'"
             >
               <header
-                class="flex items-center gap-2 border-b border-base-300 px-4 py-3"
+                class="flex items-center gap-2 border-b border-surface-border px-4 py-3"
               >
                 <h2
                   class="text-sm font-semibold text-base-content"
@@ -214,10 +217,7 @@ const ROW_LINK_SELECTOR = '[data-testid="installed-skill-open"]';
                 >
                   <span class="sr-only">Loading {{ group.label }}…</span>
                   @for (line of skeletonLines; track line) {
-                    <div
-                      class="flex items-center gap-3"
-                      aria-hidden="true"
-                    >
+                    <div class="flex items-center gap-3" aria-hidden="true">
                       <div class="skeleton h-8 w-8 shrink-0 rounded-lg"></div>
                       <div class="flex-1 space-y-1.5">
                         <div class="skeleton h-3 w-2/5"></div>
@@ -252,12 +252,12 @@ const ROW_LINK_SELECTOR = '[data-testid="installed-skill-open"]';
                   @for (row of group.rows; track row.ref) {
                     <li
                       class="flex items-center gap-3 px-4 py-2.5"
-                      [class.bg-base-300]="row.ref === openRef()"
+                      [class.surface-3]="row.ref === openRef()"
                       data-testid="installed-skill-row"
                       [attr.data-ref]="row.ref"
                     >
                       <span
-                        class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-base-300 bg-base-100"
+                        class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-surface-border bg-surface-0"
                         aria-hidden="true"
                       >
                         <lucide-angular
@@ -403,7 +403,10 @@ export class InstalledSkillsPageComponent {
   }));
 
   protected readonly groups = computed(() =>
-    filterInstalledSkillGroups(installedSkillGroups(this.slices()), this.query()),
+    filterInstalledSkillGroups(
+      installedSkillGroups(this.slices()),
+      this.query(),
+    ),
   );
 
   private readonly visibleRows = computed(() =>
@@ -441,7 +444,10 @@ export class InstalledSkillsPageComponent {
   protected readonly detailHeading = computed(() => {
     const ref = decodeSkillRef(this.openRef());
     if (ref === null) return FALLBACK_DETAIL_HEADING;
-    return findInstalledSkill(ref, this.slices())?.row.name ?? FALLBACK_DETAIL_HEADING;
+    return (
+      findInstalledSkill(ref, this.slices())?.row.name ??
+      FALLBACK_DETAIL_HEADING
+    );
   });
 
   /**

@@ -34,7 +34,7 @@ import {
       aria-label="Aggregate session metrics"
     >
       <div
-        class="bg-base-200/50 rounded-lg px-3 py-2.5 border border-success/20"
+        class="bg-surface-2 rounded-lg p-3 border border-success/20"
         [title]="totalTitle()"
       >
         <div
@@ -57,9 +57,7 @@ import {
         </div>
       </div>
 
-      <div
-        class="bg-base-200/50 rounded-lg px-3 py-2.5 border border-cyan-600/20"
-      >
+      <div class="bg-surface-2 rounded-lg p-3 border border-cyan-600/20">
         <div
           class="text-[10px] uppercase tracking-wider text-base-content-muted mb-1"
         >
@@ -70,7 +68,7 @@ import {
         </div>
       </div>
 
-      <div class="bg-base-200/50 rounded-lg px-3 py-2.5 border border-info/20">
+      <div class="bg-surface-2 rounded-lg p-3 border border-info/20">
         <div
           class="text-[10px] uppercase tracking-wider text-base-content-muted mb-1"
         >
@@ -81,9 +79,7 @@ import {
         </div>
       </div>
 
-      <div
-        class="bg-base-200/50 rounded-lg px-3 py-2.5 border border-purple-600/20"
-      >
+      <div class="bg-surface-2 rounded-lg p-3 border border-purple-600/20">
         <div
           class="text-[10px] uppercase tracking-wider text-base-content-muted mb-1"
         >
@@ -94,9 +90,7 @@ import {
         </div>
       </div>
 
-      <div
-        class="bg-base-200/50 rounded-lg px-3 py-2.5 border border-warning/20"
-      >
+      <div class="bg-surface-2 rounded-lg p-3 border border-warning/20">
         <div
           class="text-[10px] uppercase tracking-wider text-base-content-muted mb-1"
         >
@@ -108,7 +102,7 @@ import {
       </div>
 
       <div
-        class="bg-base-200/50 rounded-lg px-3 py-2.5 border border-base-content/15"
+        class="bg-surface-2 rounded-lg p-3 border border-base-content/15"
         [title]="avgTitle()"
       >
         <div
@@ -133,7 +127,8 @@ import {
 export class MetricsCardsComponent {
   readonly aggregates = input.required<AggregateTotals>();
 
-  readonly estimateLabel = 'Estimated from recorded usage and current rate card';
+  readonly estimateLabel =
+    'Estimated from recorded usage and current rate card';
   readonly formatTokenCount = formatTokenCount;
   readonly costValueClass = costValueClass;
 

@@ -298,8 +298,23 @@ export class CursorCliAdapter implements CliAdapter {
       const mapped = models
         .filter((m) => typeof m.id === 'string' && m.id.length > 0)
         .map((m) => ({ id: m.id, name: m.displayName ?? m.id }));
-      return mapped.length > 0 ? mapped : CursorCliAdapter.FALLBACK_MODELS;
-    } catch {
+      if (mapped.length > 0) return mapped;
+      this.logger?.warn(
+        '[CursorCliAdapter] Cursor models.list() returned no models; showing the fallback list',
+      );
+      return CursorCliAdapter.FALLBACK_MODELS;
+    } catch (error: unknown) {
+      // degradation-audit: reported - logged with the redacted SDK message;
+      // the curated list keeps the picker usable until the API answers.
+      this.logger?.warn(
+        '[CursorCliAdapter] Cursor models.list() failed; showing the fallback list',
+        {
+          error: redactSecrets(
+            error instanceof Error ? error.message : String(error),
+            [apiKey],
+          ),
+        },
+      );
       return CursorCliAdapter.FALLBACK_MODELS;
     }
   }

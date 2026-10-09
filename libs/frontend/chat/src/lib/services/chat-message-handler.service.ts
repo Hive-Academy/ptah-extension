@@ -22,6 +22,7 @@ import { Injectable, inject } from '@angular/core';
 import { type MessageHandler } from '@ptah-extension/core';
 import {
   FlatStreamEventUnion,
+  type ChatStreamSnapshotPayload,
   GatewaySessionAttachedPayload,
   GatewaySessionDetachedPayload,
   MESSAGE_TYPES,
@@ -37,6 +38,8 @@ import {
   type SessionSuccessorReplacementPayload,
 } from '@ptah-extension/shared';
 import { ChatStore } from './chat.store';
+import { StreamFlushScheduler } from './stream-flush-scheduler.service';
+import { StreamViewportController } from './stream-viewport-controller.service';
 import { BoardTaskLinkCaptureService } from './chat-store/board-task-link-capture.service';
 import {
   AgentSessionAdoptionService,
@@ -82,6 +85,9 @@ function isSuccessorReplacementPayload(
 @Injectable({ providedIn: 'root' })
 export class ChatMessageHandler implements MessageHandler {
   private readonly chatStore = inject(ChatStore);
+  private readonly streamScheduler = inject(StreamFlushScheduler);
+  // Eager construction installs the layout declaration effect before streams arrive.
+  private readonly streamViewport = inject(StreamViewportController);
   private readonly agentMonitorStore = inject(AgentMonitorStore);
   private readonly tabManager = inject(TabManagerService);
   private readonly liveness = inject(SessionLivenessRegistry);
@@ -131,6 +137,7 @@ export class ChatMessageHandler implements MessageHandler {
 
   readonly handledMessageTypes = [
     MESSAGE_TYPES.CHAT_CHUNK,
+    MESSAGE_TYPES.CHAT_STREAM_SNAPSHOT,
     MESSAGE_TYPES.CHAT_COMPLETE,
     MESSAGE_TYPES.CHAT_ERROR,
     MESSAGE_TYPES.PERMISSION_REQUEST,
@@ -158,6 +165,9 @@ export class ChatMessageHandler implements MessageHandler {
     switch (message.type) {
       case MESSAGE_TYPES.CHAT_CHUNK:
         this.handleChatChunk(message.payload);
+        break;
+      case MESSAGE_TYPES.CHAT_STREAM_SNAPSHOT:
+        this.handleStreamSnapshot(message.payload);
         break;
       case MESSAGE_TYPES.CHAT_COMPLETE:
         this.handleChatComplete(message.payload);
@@ -525,6 +535,16 @@ export class ChatMessageHandler implements MessageHandler {
 
     // Liveness is no longer pinged per chunk: `StreamingHandlerService`
     // intercepts the `turn_state` event and `TurnStateApplier` marks it.
+    this.streamScheduler.enqueue(tabId, () =>
+      this.applyChatStreamEvent(event, tabId, sessionId),
+    );
+  }
+
+  private applyChatStreamEvent(
+    event: FlatStreamEventUnion,
+    tabId: string | undefined,
+    sessionId: string | undefined,
+  ): void {
     const deliver = (): void => {
       this.chatStore.processStreamEvent(event, tabId, sessionId);
       const originTabId = tabId ? TabId.safeParse(tabId) : null;
@@ -536,6 +556,47 @@ export class ChatMessageHandler implements MessageHandler {
       return;
     }
     deliver();
+  }
+  private handleStreamSnapshot(payload: unknown): void {
+    const snapshot = this.parseStreamSnapshot(payload);
+    if (!snapshot) return;
+    if (snapshot.resyncRequired) {
+      const sessionId = snapshot.sessionId ?? this.tabsSessionId(snapshot.tabId);
+      if (sessionId) void this.chatStore.resyncStream(snapshot.tabId, sessionId);
+      return;
+    }
+    this.streamScheduler.enqueueSnapshot(snapshot, () => {
+      for (const event of snapshot.events ?? []) {
+        this.applyChatStreamEvent(event, snapshot.tabId, snapshot.sessionId);
+      }
+    });
+  }
+
+  private tabsSessionId(tabId: string): string | undefined {
+    return (
+      this.tabManager.tabs().find((tab) => tab.id === tabId)?.claudeSessionId ??
+      undefined
+    );
+  }
+
+  private parseStreamSnapshot(payload: unknown): ChatStreamSnapshotPayload | null {
+    if (!payload || typeof payload !== 'object') return null;
+    const value = payload as Partial<ChatStreamSnapshotPayload>;
+    if (
+      value.protocolVersion !== 2 ||
+      typeof value.tabId !== 'string' ||
+      value.tabId.length === 0 ||
+      (value.sessionId !== undefined && typeof value.sessionId !== 'string') ||
+      !Number.isInteger(value.fromSequence) ||
+      !Number.isInteger(value.toSequence) ||
+      (value.fromSequence ?? -1) < 0 ||
+      (value.toSequence ?? -1) < (value.fromSequence ?? 0) ||
+      (value.resyncRequired === true && value.events !== undefined) ||
+      (value.resyncRequired !== true && !Array.isArray(value.events))
+    ) {
+      return null;
+    }
+    return value as ChatStreamSnapshotPayload;
   }
   private handleChatError(payload: unknown): void {
     const { tabId, sessionId, error, surfaceMode } =

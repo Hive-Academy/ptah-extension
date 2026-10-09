@@ -13,7 +13,6 @@ import {
   viewChildren,
 } from '@angular/core';
 import { NgTemplateOutlet } from '@angular/common';
-import { LucideAngularModule, X } from 'lucide-angular';
 import type { MonitoredAgent } from '@ptah-extension/chat-streaming';
 import { SplitHandleComponent } from '@ptah-extension/chat-ui';
 import { AgentLaneScrollDirective } from './agent-lane-scroll.directive';
@@ -29,12 +28,7 @@ import {
 @Component({
   selector: 'ptah-agent-lane-grid',
   standalone: true,
-  imports: [
-    NgTemplateOutlet,
-    LucideAngularModule,
-    SplitHandleComponent,
-    AgentLaneScrollDirective,
-  ],
+  imports: [NgTemplateOutlet, SplitHandleComponent, AgentLaneScrollDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'flex min-w-0 min-h-0 h-full overflow-hidden' },
   template: `
@@ -52,51 +46,14 @@ import {
         [attr.data-lane-id]="agent.agentId"
         [attr.aria-label]="agent.displayName || agent.cli"
       >
-        <div
-          class="flex items-center gap-1.5 px-2 py-1.5 border-b border-base-content/10 shrink-0"
-        >
-          <span
-            class="w-2 h-2 rounded-full shrink-0"
-            [class.bg-info]="agent.status === 'running'"
-            [class.bg-success]="agent.status === 'completed'"
-            [class.bg-error]="
-              agent.status === 'failed' || agent.status === 'timeout'
-            "
-            [class.bg-warning]="agent.status === 'stopped'"
-            [class.animate-pulse]="agent.status === 'running'"
-            [title]="agent.status"
-          ></span>
-          <span class="text-xs font-medium truncate flex-1">{{
-            agent.displayName || agent.cli
-          }}</span>
-          @if (agent.permissionQueue.length) {
-            <span
-              class="badge badge-xs badge-warning"
-              title="Pending permissions"
-              >{{ agent.permissionQueue.length }}</span
-            >
-          }
-          <button
-            type="button"
-            class="btn btn-ghost btn-xs btn-square"
-            [attr.aria-label]="
-              'Remove ' + (agent.displayName || agent.cli) + ' column'
-            "
-            title="Remove column"
-            (click)="remove(agent.agentId)"
-          >
-            <lucide-angular
-              [img]="XIcon"
-              class="w-3.5 h-3.5"
-              aria-hidden="true"
-            />
-          </button>
-        </div>
         <div ptahAgentLaneScroll class="flex-1 min-h-0 min-w-0 overflow-y-auto">
           <div>
             <ng-container
               [ngTemplateOutlet]="detailTemplate()"
-              [ngTemplateOutletContext]="{ $implicit: agent }"
+              [ngTemplateOutletContext]="{
+                $implicit: agent,
+                remove: remove,
+              }"
             />
           </div>
         </div>
@@ -125,10 +82,13 @@ export class AgentLaneGridComponent {
   readonly agents = input.required<readonly MonitoredAgent[]>();
   readonly capacity = input.required<number>();
   readonly width = input.required<number>();
-  readonly detailTemplate =
-    input.required<TemplateRef<{ $implicit: MonitoredAgent }>>();
+  readonly detailTemplate = input.required<
+    TemplateRef<{
+      $implicit: MonitoredAgent;
+      remove: (agentId: string) => void;
+    }>
+  >();
   readonly expandAgent = output<string>();
-  readonly XIcon = X;
   readonly minimumWidth = MIN_LANE_WIDTH;
   readonly shownIds = signal<readonly string[]>([]);
   readonly fractions = signal<number[]>([]);
