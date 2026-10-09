@@ -20,6 +20,7 @@ import {
   MEMORY_CONTRACT_TOKENS,
   type ICuratorLLM,
 } from '@ptah-extension/memory-contracts';
+import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
 import {
   MEMORY_TOKENS,
   MemoryCuratorService,
@@ -34,6 +35,7 @@ import {
   RecordedLaneRunner,
   type LaneRunnerDouble,
 } from '../doubles/recorded-lane-runner';
+import type { ModelDispatchProvenanceTap } from '../recorder/provider-provenance';
 import type { MemorySkillsPlan } from './plan.schema';
 
 export interface InstalledDoubles {
@@ -63,6 +65,32 @@ function resolveReal<T>(
 }
 
 /**
+ * `SdkQueryRunner` captures its optional provenance tap in its constructor.
+ * The bench's `afterContainerReady` hook can therefore arrive after the
+ * singleton is already live, even though it registers the tap before it wraps
+ * the curator. Attach the same tap to that live runner: the runner still
+ * emits the event at its real SDK-launch boundary, rather than treating a
+ * cassette write or a curator call as a dispatch.
+ */
+function attachProvenanceTap(
+  container: BenchHostContainer,
+  provenanceTap: ModelDispatchProvenanceTap | undefined,
+): void {
+  if (provenanceTap === undefined) return;
+  const token = SDK_TOKENS.SDK_QUERY_RUNNER;
+  if (!container.isRegistered(token, true)) return;
+  const runner = container.resolve<{
+    provenanceTap?: ModelDispatchProvenanceTap | null;
+  }>(token);
+  if (!('provenanceTap' in runner)) {
+    throw new DoublesOverrideError(
+      'record mode SDK query runner does not expose the provenance tap',
+    );
+  }
+  runner.provenanceTap = provenanceTap;
+}
+
+/**
  * Register the doubles for `CURATOR_LLM` and `LANE_RUNNER_SERVICE` and verify
  * that the container now resolves exactly them. Throws
  * {@link DoublesOverrideError}; the boot then aborts before MCP starts.
@@ -70,10 +98,13 @@ function resolveReal<T>(
 export function installRecordReplayDoubles(
   container: BenchHostContainer,
   plan: Pick<MemorySkillsPlan, 'cassetteMode' | 'cassettes'>,
+  provenanceTap?: ModelDispatchProvenanceTap,
 ): InstalledDoubles {
   const mode = plan.cassetteMode;
   const curatorToken = MEMORY_CONTRACT_TOKENS.CURATOR_LLM;
   const laneToken = SKILL_SYNTHESIS_TOKENS.LANE_RUNNER_SERVICE;
+
+  if (mode === 'record') attachProvenanceTap(container, provenanceTap);
 
   const curator = new RecordedCuratorLlm({
     store: new CassetteStore({ path: plan.cassettes.curator.path, mode }),

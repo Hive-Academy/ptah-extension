@@ -18,6 +18,7 @@ import {
   MEMORY_CONTRACT_TOKENS,
   type ICuratorLLM,
 } from '@ptah-extension/memory-contracts';
+import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
 import {
   MEMORY_TOKENS,
   MemoryCuratorService,
@@ -27,6 +28,7 @@ import { container as rootContainer, type DependencyContainer } from 'tsyringe';
 
 import { CassetteMissError } from '../doubles/cassette-store';
 import { curatorExtractKey } from '../doubles/recorded-curator-llm';
+import { DispatchProvenanceCollector } from '../recorder/provider-provenance';
 import {
   DoublesOverrideError,
   installRecordReplayDoubles,
@@ -120,6 +122,45 @@ describe('installRecordReplayDoubles', () => {
     expect(container.resolve(CURATOR)).toBe(doubles.curator);
     await doubles.curator.extract('hello');
     expect(realCurator.extract).toHaveBeenCalledTimes(1);
+  });
+
+  it('record: attaches the collector to a runner constructed before the host tap', async () => {
+    const runner: {
+      provenanceTap: DispatchProvenanceCollector | null;
+    } = { provenanceTap: null };
+    const collector = new DispatchProvenanceCollector();
+    const realCurator: ICuratorLLM = {
+      extract: jest.fn(async () => {
+        runner.provenanceTap?.onModelDispatched({
+          resolvedProviderId: 'openai-codex',
+          resolvedModelId: 'gpt-5.6-terra',
+          component: 'memory-curator',
+          laneId: 'memory-curator',
+        });
+        return { status: 'extracted' as const, drafts: [] };
+      }),
+      resolve: jest.fn(async () => []),
+    };
+    container.register(CURATOR, { useValue: realCurator });
+    container.register(LANE, { useValue: { run: jest.fn() } });
+    container.register(SDK_TOKENS.SDK_QUERY_RUNNER, { useValue: runner });
+
+    const doubles = installRecordReplayDoubles(
+      container,
+      { cassetteMode: 'record', cassettes },
+      collector,
+    );
+    await doubles.curator.extract('hello');
+
+    expect(runner.provenanceTap).toBe(collector);
+    expect(collector.events).toEqual([
+      {
+        resolvedProviderId: 'openai-codex',
+        resolvedModelId: 'gpt-5.6-terra',
+        component: 'memory-curator',
+        laneId: 'memory-curator',
+      },
+    ]);
   });
 
   it('replaces a curator singleton that captured the pre-override adapter', () => {

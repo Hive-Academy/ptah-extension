@@ -320,7 +320,7 @@ export async function runMemorySkillsHost(
             useValue: provenance,
           });
         }
-        doubles = installRecordReplayDoubles(container, plan);
+        doubles = installRecordReplayDoubles(container, plan, provenance);
       },
     });
 
