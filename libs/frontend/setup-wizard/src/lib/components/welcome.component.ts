@@ -146,10 +146,10 @@ import { WizardRpcService } from '../services/wizard-rpc.service';
           <!-- Model Selection -->
           <div class="max-w-sm mx-auto mb-4 text-left">
             <label
-              for="wizard-model-select"
+              for="wizard-provider-select"
               class="text-xs font-semibold text-base-content-muted mb-1.5 block"
             >
-              Analysis model
+              Provider
             </label>
             <select
               id="wizard-provider-select"

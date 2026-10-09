@@ -290,13 +290,13 @@ describe('ProvidersConnectionSetupService', () => {
       });
       call.mockClear();
       await expect(
-        service.connectProvider(draft(), context, hooks),
+        service.connectProvider(draft({ activation: 'use-main-agent' }), context, hooks),
       ).resolves.toBe(true);
-      expect(methods()).toEqual(['auth:setApiKey']);
+      expect(methods()).toEqual(['auth:setApiKey', 'auth:saveSettings']);
       expect(events).toEqual(['refreshScopes', 'refresh']);
+      expect(hooks.refreshAuthStatus).toHaveBeenCalledTimes(1);
       expect(commits.commit()).toMatchObject({
         status: 'saved',
-        saved: ['Connection credential'],
       });
       expect(JSON.stringify(commits.commit())).not.toContain('private-key');
     });

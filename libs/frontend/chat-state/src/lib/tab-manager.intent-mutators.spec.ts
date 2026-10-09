@@ -1464,6 +1464,21 @@ describe('TabManagerService — intent-named mutators', () => {
       expect(tab?.streamingState).toBe(state);
     });
 
+    it('clears a budget owned by the previously bound session', () => {
+      const id = service.createTab('resume budget');
+      service.attachSession(id, SESS_X);
+      service.installSessionStats(id, sessionSnapshot(SESS_X, 1, 1), budgetState(SESS_X, 1, 100));
+
+      service.applyResumingSession(id, {
+        sessionId: SESS_R,
+        name: 'name',
+        title: 'title',
+        streamingState: createEmptyStreamingState(),
+      });
+
+      expect(service.tabs().find((tab) => tab.id === id)?.sessionBudget).toBeNull();
+    });
+
     it('applyResumeFailure clears streamingState', () => {
       const id = service.createTab('failure');
       service.setStreamingState(id, createEmptyStreamingState());

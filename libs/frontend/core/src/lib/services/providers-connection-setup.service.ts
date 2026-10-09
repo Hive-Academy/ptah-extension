@@ -434,7 +434,7 @@ export class ProvidersConnectionSetupService {
           })),
       );
     }
-    return this.commits.run(
+    const committed = await this.commits.run(
       operations,
       context,
       hooks.commit,
@@ -442,6 +442,10 @@ export class ProvidersConnectionSetupService {
         draft.activation !== 'use-main-agent' ||
         this.authWritable(hooks, draft.saveTo, !nativeAnthropic),
     );
+    if (committed && draft.activation === 'use-main-agent' && this.commits.commit().status === 'saved') {
+      await hooks.refreshAuthStatus();
+    }
+    return committed;
   }
 
   /**
