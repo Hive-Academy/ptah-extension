@@ -379,6 +379,17 @@ describe('TurnSummaryChipComponent', () => {
     },
   );
 
+  it('is flat base-200 with no hero gradient (prototype .chip, decision #70)', () => {
+    render(model());
+    const section = query('turn-summary-chip') as HTMLElement;
+    expect(section.classList).toContain('bg-base-200');
+    const source = readFileSync(
+      join(__dirname, 'turn-summary-chip.component.ts'),
+      'utf8',
+    );
+    expect(source).not.toMatch(/linear-gradient|ts-hero/);
+  });
+
   it('imports neither the surface renderer nor the dashboard library (D14)', () => {
     for (const file of [
       'turn-summary-chip.component.ts',

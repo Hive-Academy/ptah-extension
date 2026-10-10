@@ -53,18 +53,11 @@ const METRIC_CLASS: Readonly<Record<MetricTone, string>> = {
 /**
  * Same collapse pattern as the display chip and the panel accordion (design
  * section 7): the hidden body is `inert` and `visibility:hidden`; motion only
- * under `prefers-reduced-motion: no-preference`. The warm hero gradient marks
- * the host-built summary (design-spec section 1, decision #13).
+ * under `prefers-reduced-motion: no-preference`. The chip is flat `base-200`
+ * (prototype `.chip`, decision #70).
  */
 const CHIP_STYLES = `
   :host { display: block; min-width: 0; }
-  .ts-hero {
-    background: linear-gradient(
-      135deg,
-      color-mix(in oklab, oklch(var(--s)) 12%, oklch(var(--b2))),
-      oklch(var(--b2)) 62%
-    );
-  }
   .dp-collapse { display: grid; grid-template-rows: 1fr; min-width: 0; }
   .dp-collapse[data-open='false'] { grid-template-rows: 0fr; visibility: hidden; }
   .dp-collapse-inner { min-height: 0; min-width: 0; }
@@ -121,7 +114,7 @@ function shown(value: number | string, format: (n: number) => string): string {
   styles: [CHIP_STYLES],
   template: `
     <section
-      class="ts-hero my-2 min-w-0 rounded-box border border-base-300 text-base-content"
+      class="my-2 min-w-0 rounded-box border border-base-300 bg-base-200 text-base-content"
       [attr.aria-label]="ariaLabel()"
       data-testid="turn-summary-chip"
       (keydown.escape)="collapse($event)"

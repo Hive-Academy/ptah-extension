@@ -1,6 +1,6 @@
 # Batches - TASK_2026_623_3492
 
-Total tasks: 76 | Batches: 37 (incl. fix batches 6F, 12F, 15F, post-cap correction 12F2) | Complete: 24/37
+Total tasks: 77 | Batches: 37 (incl. fix batches 6F, 12F, 15F, post-cap correction 12F2) | Complete: 25/37
 
 Worktree root `W` = `D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel` (branch
 `feat/task-623-display-panel`, base `70f995a56`). Every path below is absolute.
@@ -1165,7 +1165,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
   (counts unavailable shows "?"), #70 (chip gradient overturned; chip goes flat `base-200`).
 - Follow-ons carried: Batch 21 (Task 21.2 notes, new Task 21.3), Batch 24 (Task 24.1 `openable`/`open` binding).
 
-## Batch 20: C5 display-panel entry, surfaces and sync — COMPLETE (commit see `git log`, subject "batch 20")
+## Batch 20: C5 display-panel entry, surfaces and sync — COMPLETE (commit 5558f064a)
 
 - Recommended executor: frontend-developer
 - Fallback executor: general-purpose subagent
@@ -1228,7 +1228,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - Follow-ons carried: Batch 21 (Task 21.1), Batch 22 (Task 22.2), Batch 23 (Tasks 23.1, 23.4; Task 23.2 heading
   repaired), Batch 24 (Task 24.1), Batch 32 (Task 32.1).
 
-## Batch 21: C6 display panel and turn summary cards — PENDING
+## Batch 21: C6 display panel and turn summary cards — COMPLETE (commit PENDING_SHA)
 
 - Recommended executor: frontend-developer
 - Fallback executor: general-purpose subagent
@@ -1237,7 +1237,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - Tasks: 3 | Depends on: Batches 19, 20, 14
 - Phase: 4 (last batch) | Phase review: code-logic + style on Batches 16-21
 
-### Task 21.1: display panel component — PENDING
+### Task 21.1: display panel component — COMPLETE
 
 - Files (CREATE):
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\organisms\display-panel\display-panel.component.ts
@@ -1249,11 +1249,13 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
   R1.6 scroll target is the surface with the highest `updatedSeq`. Bind `viewState`/`viewStateChange` to the store;
   the panel does not prune view state (the store applies `retainedViewStateIds`).
 
-### Task 21.2: turn summary cards — PENDING
+### Task 21.2: turn summary cards — COMPLETE
 
 - Files (CREATE):
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\organisms\display-panel\turn-summary.component.ts
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\organisms\display-panel\turn-summary.component.spec.ts
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\organisms\display-panel\turn-summary-files.component.ts (added, decision #82)
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\organisms\display-panel\turn-summary-tests.component.ts (added, decision #82)
 - Quality requirements: R6.1-R6.4, R6.8; tests-row capabilities (expand/collapse ARIA, run rows, icons with labels,
   `<details>` command, failure lines); 1 column at 300 px (R9.6).
 - Validation notes (from Batch 19):
@@ -1265,7 +1267,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
   - The warm hero gradient (decision #13) goes on this host-built section: `secondary @12%` into card colour at
     135 deg (design-spec.md:27, prototype `.dp-card.dhero`, `prototype/index.html:81`).
 
-### Task 21.3: summary chip back to flat `base-200` — PENDING
+### Task 21.3: summary chip back to flat `base-200` — COMPLETE
 
 - Files:
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\molecules\turn-recap\turn-summary-chip.component.ts
@@ -1279,6 +1281,19 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 
 - `npx jest -c libs/frontend/chat-ui/jest.config.ts libs/frontend/chat-ui/src/lib/organisms/display-panel libs/frontend/chat-ui/src/lib/molecules/turn-recap --coverage=false --maxWorkers=2 2>&1 | tail -n 40 && npx nx typecheck @ptah-extension/chat-ui --parallel=1 2>&1 | tail -n 20 && npx nx lint @ptah-extension/chat-ui --parallel=1 2>&1 | tail -n 20`
 - Phase 4 code-logic + style review due after commit
+
+### Batch 21 result (recorded at verification)
+
+- Team-leader re-ran in the worktree (command-line `--moduleNameMapper` for `^vscode$`/`^marked$`): Jest 7 suites,
+  147 passed; `nx typecheck @ptah-extension/chat-ui` succeeded; `nx lint` 0 errors, 10 baseline warnings, none in a
+  batch file. No TODO/FIXME/placeholder markers, timers or observers.
+- Files committed: the six `organisms/display-panel` files (panel, summary, files child, tests child, two specs) and
+  the chip plus its spec. Not committed: stray unreferenced `_files.html` and `_tests.html` (decision #82; deleted by
+  Task 23.5).
+- Rulings: #82 (two child files), #84 (no `openScm`), #87 (no stacked layout), #89 (entry exports) accepted; #83 (one
+  row action), #85 (no sparklines/trend pills), #86 (Lines/Tokens/Cost/Duration expand), #88 (subtitle) provisional,
+  NEEDS USER; #90 acceptance.
+- Follow-ons carried: Batch 23 (new Task 23.5), Batch 25 (Task 25.1 outputs and imports).
 
 ## Batch 22: H1 transcript projections — PENDING
 
@@ -1328,7 +1343,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - Fallback executor: general-purpose subagent
 - Execution mode: sequential
 - Rationale: the per-tab store and the host-sources provider the transcript wires next.
-- Tasks: 4 (Task 23.4 added by decision #59) | Depends on: Batches 16, 20, 22
+- Tasks: 5 (Task 23.4 added by decision #59, Task 23.5 by #89) | Depends on: Batches 16, 20, 21, 22
 - Phase: 5 | Phase review: after Batch 25
 
 ### Task 23.1: `DisplayDockState` — PENDING
@@ -1376,6 +1391,18 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
   `PtahUiDisplaySurfacesPublication`. If `DisplayDockState` needs to name `DisplaySurface`, add
   `export type { DisplaySurface } from './lib/organisms/display-panel/display-surfaces'` (type-only, erased); never a
   value export from that folder. The grep check must show line 2 of the dock file as `import type`.
+
+### Task 23.5: display-panel lazy entry exports the panel (decision #89) — PENDING
+
+- File: D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\display-panel.ts
+- Implementation details: add `export { DisplayPanelComponent, DISPLAY_PANEL_SUMMARY_KEY } from
+  './lib/organisms/display-panel/display-panel.component'` and `export type { DisplayPanelViewStateChange }` from the
+  same file. Lazy entry only: nothing is added to `src/index.ts` for these. `TurnSummaryComponent` and its children
+  stay unexported.
+- Cleanup (decision #82): delete the untracked, unreferenced scratch files
+  `libs\frontend\chat-ui\src\lib\organisms\display-panel\_files.html` and `_tests.html`; report that
+  `grep -rn "_files.html\|_tests.html" libs/frontend/chat-ui/src` finds nothing.
+- Validation: the chat-ui typecheck and lint in the Batch 23 verification line cover the entry.
 
 ### Task 23.2: transcript host-sources provider — PENDING
 
@@ -1453,6 +1480,12 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - Pattern to follow: `libs/frontend/chat/src/lib/components/organisms/agent-monitor-panel.component.ts`
 - Quality requirements: pin, close, resize; Agents tab always controls a `role="tabpanel"` with "No agents in this
   session" (decisions #11, R1.13); lazy `display-panel` import; chunk failure → dock alert line.
+- Batch 21 follow-ons (decisions #84, #89): import `DisplayPanelComponent`, `DISPLAY_PANEL_SUMMARY_KEY` and the type
+  `DisplayPanelViewStateChange` from `@ptah-extension/chat-ui/display-panel` (Task 23.5) inside the lazy boundary.
+  Bind the panel's inputs (`surfaces`, `summary`, `selectedKey`, `pinned`, `viewStates`, `actionError`) to the dock
+  store and handle its outputs: `selectedKeyChange`, `viewStateChange` → `setViewState(tabId, surfaceKey, …)`,
+  `openFile(path)` → `ChangeSetActionsService.openFile(changeSet, path)`, `review()` → `review(changeSet)`; a
+  rejection sets `actionError`. No `openScm` wiring. The summary pill selects `DISPLAY_PANEL_SUMMARY_KEY`.
 
 ### Task 25.2: ChatView mounts the dock; monitor panel becomes the Agents tabpanel — PENDING
 
