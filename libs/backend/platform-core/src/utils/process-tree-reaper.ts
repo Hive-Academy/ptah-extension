@@ -63,6 +63,7 @@ export async function killProcessTree(
         execFile(
           resolveTaskkill(),
           ['/pid', String(pid), '/T', '/F'],
+          { windowsHide: true },
           (error: Error | null) => (error ? reject(error) : resolve()),
         );
       });
