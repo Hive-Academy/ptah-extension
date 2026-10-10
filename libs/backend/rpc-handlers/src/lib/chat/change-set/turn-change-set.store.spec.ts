@@ -5,9 +5,14 @@
  */
 
 import 'reflect-metadata';
-import type { IStateStorage } from '@ptah-extension/platform-core';
+import { container as rootContainer } from 'tsyringe';
+import {
+  PLATFORM_TOKENS,
+  type IStateStorage,
+} from '@ptah-extension/platform-core';
+import { createMockSessionBlobStore } from '@ptah-extension/platform-core/testing';
 import type { TurnChangeSet } from '@ptah-extension/shared';
-import type { Logger } from '@ptah-extension/vscode-core';
+import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 
 import {
   MAX_CHANGE_SETS_PER_SESSION,
@@ -80,7 +85,13 @@ describe('TurnChangeSetStore', () => {
     const first = changeSet('s1', 100, { baselineMissing: true });
     const second = changeSet('s1', 200, {
       files: [
-        { path: 'b.ts', origPath: 'a.ts', status: 'R', additions: null, deletions: null },
+        {
+          path: 'b.ts',
+          origPath: 'a.ts',
+          status: 'R',
+          additions: null,
+          deletions: null,
+        },
       ],
       countsUnavailable: true,
     });
@@ -91,7 +102,10 @@ describe('TurnChangeSetStore', () => {
     expect(await store.list('s1')).toEqual([first, second]);
     expect(await store.list('s2')).toHaveLength(1);
     expect(storage.keys()).toEqual(
-      expect.arrayContaining(['ptah.turnChangeSets:s1', 'ptah.turnChangeSets:s2']),
+      expect.arrayContaining([
+        'ptah.turnChangeSets:s1',
+        'ptah.turnChangeSets:s2',
+      ]),
     );
   });
 
@@ -129,7 +143,7 @@ describe('TurnChangeSetStore', () => {
     expect((await store.list('s1')).map((c) => c.turnEndedAt)).toEqual([2]);
   });
 
-  it('remove deletes only that session\'s key', async () => {
+  it("remove deletes only that session's key", async () => {
     await store.append(changeSet('s1', 1));
     await store.append(changeSet('s2', 2));
 
@@ -182,7 +196,9 @@ describe('TurnChangeSetStore', () => {
     });
     await store.list('s1');
     expect(logger.warn).toHaveBeenCalledTimes(1);
-    expect(logger.warn.mock.calls[0][0]).toContain('dropped 2 stored change set(s)');
+    expect(logger.warn.mock.calls[0][0]).toContain(
+      'dropped 2 stored change set(s)',
+    );
     expect(logger.warn.mock.calls[0][0]).toContain('sessionId=s1');
 
     storage.data.set(turnChangeSetsKey('s3'), {
@@ -190,7 +206,9 @@ describe('TurnChangeSetStore', () => {
       changeSets: [changeSet('s3', 1), changeSet('s3', 2)],
     });
     await store.list('s3');
-    expect(logger.warn.mock.calls[1][0]).toContain('dropped 2 stored change set(s)');
+    expect(logger.warn.mock.calls[1][0]).toContain(
+      'dropped 2 stored change set(s)',
+    );
   });
 
   it('does not warn when nothing is stored or every record is valid', async () => {
@@ -215,5 +233,44 @@ describe('TurnChangeSetStore', () => {
     expect(asyncStorage.getAsync).toHaveBeenCalledWith(
       'ptah.turnChangeSets:s1',
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// MP-1 (PTAH-35): with the session blob store bound, a session's change sets
+// live in its own folder, never in the workspace-routed state storage.
+// ---------------------------------------------------------------------------
+describe('TurnChangeSetStore — per-session files', () => {
+  function build() {
+    const storage = new MemoryStorage();
+    const blobs = createMockSessionBlobStore();
+    const c = rootContainer.createChildContainer();
+    c.register(PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE, { useValue: storage });
+    c.register(TOKENS.LOGGER, { useValue: { warn: jest.fn() } });
+    c.register(PLATFORM_TOKENS.SESSION_BLOB_STORE, { useValue: blobs });
+    return { storage, blobs, store: c.resolve(TurnChangeSetStore) };
+  }
+
+  it('appends to and lists from the session file only', async () => {
+    const { storage, blobs, store } = build();
+
+    await store.append(changeSet('sess-1', 100));
+    await store.append(changeSet('sess-1', 200));
+
+    expect(storage.data.size).toBe(0);
+    expect([...blobs.__blobs.keys()]).toEqual(['sess-1/turn-change-sets']);
+    expect((await store.list('sess-1')).map((c) => c.turnEndedAt)).toEqual([
+      100, 200,
+    ]);
+  });
+
+  it('removes the session file', async () => {
+    const { blobs, store } = build();
+    await store.append(changeSet('sess-1', 100));
+
+    await store.remove('sess-1');
+
+    expect(blobs.__blobs.size).toBe(0);
+    expect(await store.list('sess-1')).toEqual([]);
   });
 });
