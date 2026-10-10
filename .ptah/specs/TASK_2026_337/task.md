@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_337
-status: in_review
+status: done
 type: BUGFIX
 title: >-
   fingerprintNode does not fold summaryContent or toolCount, so a node can be
@@ -18,12 +18,12 @@ description: >-
   replay and force exactly the full re-render the incremental rebuild exists to
   avoid. `summaryContent` and `toolCount` look like omissions rather than
   decisions. Low risk in practice today because both move together with `cost`,
-  `duration` and `tokenUsage`, which ARE folded — so the fields that would betray
-  a stale node usually change alongside ones that invalidate it. That is a
-  coincidence of the current producers, not a guarantee. Surfaced by the
+  `duration` and `tokenUsage`, which ARE folded — so the fields that would
+  betray a stale node usually change alongside ones that invalidate it. That is
+  a coincidence of the current producers, not a guarantee. Surfaced by the
   TASK_2026_333 implementer, who declined to widen a production reuse key on
-  their own judgement inside a bugfix. That was the right call and it is why this
-  is a separate task.
+  their own judgement inside a bugfix. That was the right call and it is why
+  this is a separate task.
 relates_to:
   - TASK_2026_333
   - TASK_2026_323
@@ -32,6 +32,7 @@ labels:
   - cache-invalidation
 executor: frontend-developer
 estimate: S
+updated: '2026-10-10T18:19:12.420Z'
 ---
 
 # fingerprintNode under-folds two rendered fields

@@ -1,14 +1,15 @@
 ---
 id: TASK_2026_575_74a4
-status: in_review
+status: done
 type: BUGFIX
 title: Make session and analytics cost accounting correct and pinned by tests
 description: >-
-  Per-message cost badge shows the cumulative SDK process total, the live header omits subagent and CLI-lane spend,
-  the analytics page drops the whole cost of partially priced sessions, and [1m] model ids get no price.
+  Per-message cost badge shows the cumulative SDK process total, the live header
+  omits subagent and CLI-lane spend, the analytics page drops the whole cost of
+  partially priced sessions, and [1m] model ids get no price.
 depends_on: []
 created: 2026-09-29T00:00:00.000Z
-updated: 2026-09-29T00:00:00.000Z
+updated: '2026-10-10T18:17:29.782Z'
 ---
 
 ## Description

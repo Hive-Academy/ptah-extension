@@ -1,12 +1,12 @@
 ---
 id: TASK_2026_594_31ff
-status: in_review
+status: done
 type: FEATURE
 title: Add daisyUI status kinds to the surface catalog and a surface-authoring skill
 depends_on:
   - TASK_2026_595_1c01
 created: '2026-10-02T15:09:17.520Z'
-updated: '2026-10-05T23:56:04.382Z'
+updated: '2026-10-10T18:17:26.371Z'
 description: >-
   dashboard-catalog/3 adds alert, badge, progress, radial-progress, divider
   (semantic tone enums mapped to daisy classes by the renderer); new

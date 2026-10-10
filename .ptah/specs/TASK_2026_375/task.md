@@ -1,12 +1,14 @@
 ---
 id: TASK_2026_375
-status: in_review
+status: done
 type: FEATURE
-title: Ptah Connectors — one surface for every remote MCP server, with live auth status
+title: >-
+  Ptah Connectors — one surface for every remote MCP server, with live auth
+  status
 depends_on:
   - TASK_2026_373
 created: '2026-09-03T19:10:00.000Z'
-updated: '2026-09-03T19:10:00.000Z'
+updated: '2026-10-10T18:19:10.262Z'
 description: >-
   Ptah has four disconnected ways to reach a remote MCP server and none of them
   tells the user whether the server is usable. Installed Smithery servers and

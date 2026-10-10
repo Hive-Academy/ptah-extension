@@ -1,13 +1,16 @@
 ---
 id: TASK_2026_576_e16a
-status: in_progress
+status: in_review
 type: FEATURE
 title: Overhaul the git review experience
 description: >-
-  Fix the ranked git reliability root causes and build a new review UI (change-set cards, review canvas with hunk accept/reject, commit composer, task/worktree view, conflict banner, history timeline). Replace Monaco in the review surface. VS Code host uses native diff views.
+  Fix the ranked git reliability root causes and build a new review UI
+  (change-set cards, review canvas with hunk accept/reject, commit composer,
+  task/worktree view, conflict banner, history timeline). Replace Monaco in the
+  review surface. VS Code host uses native diff views.
 depends_on: []
 created: 2026-09-28T23:08:16.000Z
-updated: 2026-09-28T23:08:16.000Z
+updated: '2026-10-10T18:17:30.334Z'
 ---
 
 ## Description

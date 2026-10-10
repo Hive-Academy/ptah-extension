@@ -1,13 +1,14 @@
 ---
-status: in_review
+status: done
 type: devops
 title: Systematic npm and Nx dependency migration
 description: >-
   Bring the outdated npm packages to their latest reachable versions in ordered
   waves, following Nx and npm migration practice. Includes Nx 23, Angular 22,
-  TypeScript 6, ESLint 10, Electron 44, and Tailwind 4 with daisyui 5. Also lifts
-  the two deliberate pins on @anthropic-ai/claude-agent-sdk and zod. Four targets
-  are measured as unreachable and are excluded with evidence.
+  TypeScript 6, ESLint 10, Electron 44, and Tailwind 4 with daisyui 5. Also
+  lifts the two deliberate pins on @anthropic-ai/claude-agent-sdk and zod. Four
+  targets are measured as unreachable and are excluded with evidence.
+updated: '2026-10-10T18:17:32.034Z'
 ---
 
 # Dependency migration

@@ -1,11 +1,12 @@
 ---
-status: in_review
+status: done
 type: RESEARCH
-title: Investigate the three failing CI jobs on pull request #497
+title: Investigate the three failing CI jobs on pull request
 description: >-
   Investigated the content-manifest drift, the degradation-audit ratchet
   failure, and the canvas Electron E2E failure on pull request #497. Findings
   and fixes are recorded in ci-investigation.md.
+updated: '2026-10-10T18:17:37.488Z'
 ---
 
 ## Outcome
