@@ -1,12 +1,12 @@
 ---
 id: TASK_2026_555
-status: in-progress
+status: done
 type: FEATURE
 title: 'Providers settings: restore lost capabilities and replace the flat button-heavy UI'
 depends_on: []
-created: "2026-09-24T08:26:07.000Z"
-updated: "2026-09-29T00:00:00.000Z"
-description: "PR #575 (TASK_2026_523) shipped a flat, button-heavy Providers settings UI and removed 16 working capabilities. PR #581 (TASK_2026_534) fixed the runtime regressions and dead controls only and left the visual design out of scope. No task owned the rest."
+created: '2026-09-24T08:26:07.000Z'
+updated: '2026-10-10T00:00:00.000Z'
+description: 'PR #575 (TASK_2026_523) shipped a flat, button-heavy Providers settings UI and removed 16 working capabilities. PR #581 (TASK_2026_534) fixed the runtime regressions and dead controls only and left the visual design out of scope. No task owned the rest.'
 executor: ui-ux-designer
 estimate: L
 labels:

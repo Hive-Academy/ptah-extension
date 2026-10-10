@@ -1,12 +1,15 @@
 ---
 id: TASK_2026_616_de8a
-status: in_review
+status: done
 type: BUGFIX
 title: Plan-limit owner and quota-window follow-ups from TASK_2026_615
 depends_on: []
-created: "2026-10-05T19:33:22.498Z"
-updated: "2026-10-05T19:33:22.498Z"
-description: "Antigravity account owner from the language server, cli-store owner upgrade, google_accounts cache, broadcaster bound, Claude-only model scope, UI meter and captions."
+created: '2026-10-05T19:33:22.498Z'
+updated: '2026-10-10T18:17:25.764Z'
+description: >-
+  Antigravity account owner from the language server, cli-store owner upgrade,
+  google_accounts cache, broadcaster bound, Claude-only model scope, UI meter
+  and captions.
 estimate: L
 relates_to:
   - TASK_2026_615_04b0

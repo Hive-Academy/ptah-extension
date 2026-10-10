@@ -1,9 +1,8 @@
 ---
 id: TASK_2026_472_a7e2
-status: in_review
+status: done
 type: BUGFIX
-title: >-
-  Keep slash-command sessions alive so background subagents keep their tools
+title: Keep slash-command sessions alive so background subagents keep their tools
 description: >-
   A slash-command session passes a finite raw string as the SDK prompt, so the
   SDK marks it single-turn and closes the input after the first result. Claude
@@ -17,6 +16,7 @@ description: >-
   SDKUserMessage through an open stream, so the session can stay alive. The fix
   is to route slash commands through the persistent stream that resumed sessions
   already use.
+updated: '2026-10-10T18:17:38.582Z'
 ---
 
 # Keep slash-command sessions alive

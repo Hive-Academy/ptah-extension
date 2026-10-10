@@ -266,6 +266,7 @@ describe('ClaudeCliDetector — timeout', () => {
       expect(mockExecFile).toHaveBeenCalledWith(
         expect.stringContaining('taskkill'),
         ['/pid', '4242', '/T', '/F'],
+        { windowsHide: true },
         expect.any(Function),
       );
     } finally {

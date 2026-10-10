@@ -618,6 +618,7 @@ function spawnGitChild(
     cwd,
     stdio: ['pipe', 'pipe', 'pipe'],
     env,
+    windowsHide: true,
   });
   return {
     stdin: child.stdin,

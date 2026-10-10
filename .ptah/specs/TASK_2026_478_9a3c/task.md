@@ -1,11 +1,14 @@
 ---
-status: in_review
+status: done
 type: bugfix
-title: Memory retention never purges a row (governor wait consumes the whole run budget)
+title: >-
+  Memory retention never purges a row (governor wait consumes the whole run
+  budget)
 description: >-
   MemoryRetentionService has never completed a run. It burns its entire 60s wall
   budget inside the first BackgroundWorkGovernor wait, then hard-stops with
   processed_purged 0. observation_queue has grown to 177,919 rows / 878 MB.
+updated: '2026-10-10T18:18:03.176Z'
 ---
 
 Confirmed livelock. `retention-run-budget.ts:70` passes the run's own remaining

@@ -56,6 +56,7 @@ describe('probeStackToolchain process cleanup', () => {
       expect(mockExecFile).toHaveBeenCalledWith(
         expect.stringContaining('taskkill'),
         ['/pid', '5150', '/T', '/F'],
+        { windowsHide: true },
         expect.any(Function),
       );
     } finally {

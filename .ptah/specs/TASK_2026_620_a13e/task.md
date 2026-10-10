@@ -1,11 +1,11 @@
 ---
 id: TASK_2026_620_a13e
-status: in_progress
+status: done
 type: FEATURE
 title: 'Memory and skills: benchmark-first quality program'
 depends_on: []
 created: '2026-10-06T19:38:13.388Z'
-updated: '2026-10-06T20:24:25.805Z'
+updated: '2026-10-10T19:48:54.885Z'
 description: >-
   Forensics, a frozen-corpus benchmark with baselines, a per-release scorecard
   and a CI gate for memory curation and the skill trajectory; then fixes, each

@@ -1,11 +1,12 @@
 ---
-status: in_review
+status: done
 type: bugfix
 title: Diagnose the failing platform-electron real-process suites
 description: >-
   Three tests in AC-7 real host-kill and ST-2 mass delete storm fail on clean
   origin/main. Determine whether they are load-sensitive or genuinely broken,
   then fix or quarantine them with evidence.
+updated: '2026-10-10T18:18:04.045Z'
 ---
 
 # Diagnose the failing platform-electron real-process suites

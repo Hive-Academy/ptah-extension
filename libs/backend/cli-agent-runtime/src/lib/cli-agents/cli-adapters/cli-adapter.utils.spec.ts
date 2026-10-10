@@ -1050,6 +1050,7 @@ describe('probeCliVersion', () => {
       expect(mockExecFile).toHaveBeenCalledWith(
         expect.stringContaining('taskkill'),
         ['/pid', '8675', '/T', '/F'],
+        { windowsHide: true },
         expect.any(Function),
       );
     } finally {
@@ -1150,6 +1151,7 @@ describe('probeCliVersion', () => {
       expect(mockExecFile).toHaveBeenCalledWith(
         expect.stringContaining('taskkill'),
         ['/pid', '8675', '/T', '/F'],
+        { windowsHide: true },
         expect.any(Function),
       );
     } finally {

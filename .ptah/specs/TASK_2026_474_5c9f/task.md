@@ -1,5 +1,5 @@
 ---
-status: in_review
+status: done
 type: bugfix
 title: Cost and token display reports zero instead of the truth
 description: >-
@@ -11,6 +11,7 @@ labels:
   - pricing
   - agent-sdk
   - chat-streaming
+updated: '2026-10-10T18:17:39.143Z'
 ---
 
 # Cost and token display reports zero instead of the truth

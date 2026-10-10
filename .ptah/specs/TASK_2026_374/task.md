@@ -1,17 +1,20 @@
 ---
 id: TASK_2026_374
-status: in_review
+status: done
 type: bugfix
 title: >-
-  SessionTurnStateRegistry.records is unbounded and leaks one entry per user abort
+  SessionTurnStateRegistry.records is unbounded and leaks one entry per user
+  abort
 description: >-
-  `ChatStreamBroadcaster`'s loop-exit guard skips both `turnState.clear` calls when
-  `endSessionIfTokenMatches` returns false, which is exactly what a user abort
-  produces. The `TurnRecord` for that session then stays in
-  `SessionTurnStateRegistry.records` for the life of the process. `records` has no
-  bound and no eviction, so it grows one entry per abort, and `session:status` keeps
-  returning a `turnState` for sessions that ended long ago. MUST be fixed together
-  with the revision-floor eviction hazard (TASK_2026_371 review F1) — see the body.
+  `ChatStreamBroadcaster`'s loop-exit guard skips both `turnState.clear` calls
+  when `endSessionIfTokenMatches` returns false, which is exactly what a user
+  abort produces. The `TurnRecord` for that session then stays in
+  `SessionTurnStateRegistry.records` for the life of the process. `records` has
+  no bound and no eviction, so it grows one entry per abort, and
+  `session:status` keeps returning a `turnState` for sessions that ended long
+  ago. MUST be fixed together with the revision-floor eviction hazard
+  (TASK_2026_371 review F1) — see the body.
+updated: '2026-10-10T18:19:14.011Z'
 ---
 
 # The leak
