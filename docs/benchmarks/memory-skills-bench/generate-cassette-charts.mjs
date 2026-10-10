@@ -1,8 +1,8 @@
 // Builds cassette-stats.json and cassette-charts.html from the extraction
 // cassette recorded by `extraction-record-v1` (TASK_2026_620).
 //
-// Usage: node generate-cassette-charts.mjs [path/to/extraction.v1.jsonl]
-// Default path: %LOCALAPPDATA%/ptah-mcp-bench/cassettes/memory/extraction.v1.jsonl
+// Usage: node generate-cassette-charts.mjs
+// Reads %LOCALAPPDATA%/ptah-mcp-bench/cassettes/memory/extraction.v1.jsonl
 //
 // Only aggregates are written. The cassette itself is private bench data and
 // stays outside the repository. The numbers are descriptive: the suite never
@@ -12,19 +12,17 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const cassettePath =
-  process.argv[2] ??
-  join(
-    process.env.LOCALAPPDATA ?? '',
-    'ptah-mcp-bench',
-    'cassettes',
-    'memory',
-    'extraction.v1.jsonl',
-  );
+const cassettePath = join(
+  process.env.LOCALAPPDATA ?? '',
+  'ptah-mcp-bench',
+  'cassettes',
+  'memory',
+  'extraction.v1.jsonl',
+);
 
 const entries = readFileSync(cassettePath, 'utf8')
-  .trim()
-  .split('\n')
+  .split(/\r?\n/)
+  .filter((line) => line.trim())
   .map((line) => JSON.parse(line));
 const drafts = entries.flatMap((e) => e.response?.drafts ?? []);
 
@@ -50,7 +48,9 @@ const draftsPerCall = Array.from({ length: maxPerCall + 1 }, (_, n) => ({
 }));
 
 const salience = drafts.map((d) => d.salienceHint).sort((a, b) => a - b);
-const quantile = (p) => salience[Math.floor(p * (salience.length - 1))];
+const quantile = (p) =>
+  salience.length ? salience[Math.floor(p * (salience.length - 1))] : null;
+const fmtSalience = (v) => (v === null ? 'n/a' : v.toFixed(2));
 const binWidth = 0.05;
 const salienceBins = Array.from({ length: 20 }, (_, i) => ({
   label: `${(i * binWidth).toFixed(2)}–${((i + 1) * binWidth).toFixed(2)}`,
@@ -126,7 +126,8 @@ function columnChart(id, rows, xTitle, yTitle) {
       bh > 0
         ? `M${x},${m.top + ph}V${top + radius}Q${x},${top} ${x + radius},${top}H${x + barW - radius}Q${x + barW},${top} ${x + barW},${top + radius}V${m.top + ph}Z`
         : '';
-    svg += `<g class="hit" tabindex="0" data-tip="${escapeHtml(`${xTitle} ${r.label}: ${r.value}`)}">`;
+    const tip = escapeHtml(xTitle + ' ' + r.label + ': ' + r.value);
+    svg += `<g class="hit" tabindex="0" data-tip="${tip}">`;
     svg += `<rect x="${m.left + i * step}" y="${m.top}" width="${step}" height="${ph}" fill="transparent"/>`;
     if (path) svg += `<path class="mark" d="${path}"/>`;
     svg += `</g>`;
@@ -155,7 +156,8 @@ function barChart(id, rows, valueTitle) {
     const bw = (r.value / max) * pw;
     const radius = Math.min(4, bh / 2, bw / 2);
     const path = `M${m.left},${yTop}H${m.left + bw - radius}Q${m.left + bw},${yTop} ${m.left + bw},${yTop + radius}V${yTop + bh - radius}Q${m.left + bw},${yTop + bh} ${m.left + bw - radius},${yTop + bh}H${m.left}Z`;
-    svg += `<g class="hit" tabindex="0" data-tip="${escapeHtml(`${r.label}: ${r.value} ${valueTitle}`)}">`;
+    const tip = escapeHtml(r.label + ': ' + r.value + ' ' + valueTitle);
+    svg += `<g class="hit" tabindex="0" data-tip="${tip}">`;
     svg += `<rect x="0" y="${m.top + i * rowH}" width="${w}" height="${rowH}" fill="transparent"/>`;
     svg += `<path class="mark" d="${path}"/></g>`;
     svg += `<text class="label" x="${m.left - 8}" y="${yTop + bh / 2 + 4}" text-anchor="end">${escapeHtml(r.label)}</text>`;
@@ -230,14 +232,14 @@ ${tile(stats.calls, 'recorded calls')}
 ${tile(stats.drafts, 'memory drafts')}
 ${tile(stats.distinctSubjects, 'distinct subjects')}
 ${tile(stats.draftsWithFiles, 'drafts that cite a file')}
-${tile(stats.salience.p50.toFixed(2), 'median salience hint')}
+${tile(fmtSalience(stats.salience.p50), 'median salience hint')}
 </div>
 ${figure('per-call', 'Drafts per call', 'How many memory drafts each extraction call returned.', columnChart('per-call', stats.draftsPerCall, 'Drafts', 'Calls'), stats.draftsPerCall, 'Drafts', 'Calls')}
 ${figure('kind', 'Draft kind', 'The <code>kind</code> field of each draft.', barChart('kind', stats.kind, 'drafts'), stats.kind, 'Kind', 'Drafts')}
 ${figure('type', 'Draft type', 'The <code>type</code> field of each draft.', barChart('type', stats.type, 'drafts'), stats.type, 'Type', 'Drafts')}
-${figure('salience', 'Salience hint', `The model's own importance estimate per draft, in bins of 0.05. p10 ${stats.salience.p10}, p50 ${stats.salience.p50}, p90 ${stats.salience.p90}.`, columnChart('salience', stats.salienceBins, 'Salience', 'Drafts'), stats.salienceBins, 'Salience bin', 'Drafts')}
+${figure('salience', 'Salience hint', `The model's own importance estimate per draft, in bins of 0.05. p10 ${fmtSalience(stats.salience.p10)}, p50 ${fmtSalience(stats.salience.p50)}, p90 ${fmtSalience(stats.salience.p90)}.`, columnChart('salience', stats.salienceBins, 'Salience', 'Drafts'), stats.salienceBins, 'Salience bin', 'Drafts')}
 ${figure('concepts', 'Top 12 concepts', 'Concept tags across all drafts. The seeded sessions are fixture data, so these tags reflect the fixtures.', barChart('concepts', stats.topConcepts, 'drafts'), stats.topConcepts, 'Concept', 'Drafts')}
-<div id="tip" role="status"></div>
+<output id="tip"></output>
 <script>
   const tip = document.getElementById('tip');
   const show = (g, x, y) => { tip.textContent = g.dataset.tip; tip.style.display = 'block'; tip.style.left = (x + 12) + 'px'; tip.style.top = (y + 12) + 'px'; };

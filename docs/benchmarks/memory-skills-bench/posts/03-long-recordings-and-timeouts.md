@@ -21,7 +21,7 @@ const DEFAULT_HOST_COMPLETION_TIMEOUT_MS = 4 * 60 * 60 * 1000;
 
 The runner uses `options.hostCompletionTimeoutMs ?? DEFAULT_HOST_COMPLETION_TIMEOUT_MS`. <!-- source: tools/mcp-bench/src/memory-skills/runner/run-memory-skills.ts:290 --> The command line exposes an override, `--host-timeout-ms`, which must be a positive integer. <!-- source: tools/mcp-bench/src/memory-skills/runner/run-memory-skills.args.ts:38-58 --> The recording was started without it.
 
-The arithmetic made the timeout hard to avoid. The cassette held 229 distinct entries, at about 63 seconds per live call, so the suite needs roughly 4.5 to 5 hours. <!-- source: .ptah/specs/TASK_2026_620_a13e/follow-up-recordings.md:46-48 --> A 4-hour limit cannot contain a 4.5-hour job. The 229 entries sat in the staged cassette, but the run was recorded as incomplete, so there was no accepted recording.
+The arithmetic made the timeout hard to avoid. The cassette held 229 distinct entries before the timeout. The plan called for 255+ cases, and at about 63 seconds per live call, the full run needs roughly 4.5 to 5 hours. <!-- source: .ptah/specs/TASK_2026_620_a13e/follow-up-recordings.md:46-48 --> A 4-hour limit cannot contain a 4.5-hour job. The 229 entries sat in the staged cassette, but the run was recorded as incomplete, so there was no accepted recording.
 
 ## Why the plan kept growing
 
