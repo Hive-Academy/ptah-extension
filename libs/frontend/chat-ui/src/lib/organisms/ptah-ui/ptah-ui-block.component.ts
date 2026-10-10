@@ -38,6 +38,8 @@ import {
   PTAH_UI_HOST_SOURCES,
   type PtahUiHostSources,
 } from '../../services/ptah-ui-host-sources';
+import { PtahUiAgentsSource } from './sources/ptah-ui-agents.source';
+import { PtahUiLaneLimitsSource } from './sources/ptah-ui-lane-limits.source';
 
 /**
  * The fence pipeline in its two D5 halves: `compile` parses and converts once
@@ -80,11 +82,31 @@ export interface PtahUiBlockLiveSources {
 }
 
 /**
- * Optional, like `PTAH_UI_HOST_SOURCES`: when it is absent, `$agents` and
- * `$limits` resolve to "unavailable" and the block stays valid (R10.7).
+ * Provided by default from the root `PtahUiAgentsSource` and
+ * `PtahUiLaneLimitsSource` adapters (decision #52). The factory lives here, in
+ * the lazy `ptah-ui` entry, so the adapters and `chat-streaming` stay out of
+ * the eager closure; nothing eager provides it.
+ *
+ * The block still injects it as optional: a host or a spec that provides it
+ * explicitly as `null` gets the absent path, where `$agents` and `$limits`
+ * resolve to "unavailable" and the block stays valid (R10.7).
  */
 export const PTAH_UI_BLOCK_LIVE_SOURCES =
-  new InjectionToken<PtahUiBlockLiveSources>('PTAH_UI_BLOCK_LIVE_SOURCES');
+  new InjectionToken<PtahUiBlockLiveSources>('PTAH_UI_BLOCK_LIVE_SOURCES', {
+    providedIn: 'root',
+    factory: (): PtahUiBlockLiveSources => {
+      // Resolved on first use, not here: every block injects this token, and a
+      // block that names neither source must not build the agent monitor or
+      // plan-limit stores.
+      const injector = inject(Injector);
+      return {
+        agentsInput: (hostSources, turnIndex) =>
+          injector.get(PtahUiAgentsSource).agentsInput(hostSources, turnIndex),
+        acquireLimits: () => injector.get(PtahUiLaneLimitsSource).acquire(),
+        releaseLimits: () => injector.get(PtahUiLaneLimitsSource).release(),
+      };
+    },
+  });
 
 /**
  * Display only (Req 2.17): no selection, no submit. The renderer keeps its

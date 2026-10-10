@@ -933,7 +933,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - Re-review (b66148f4c, Codex cross-side): APPROVED 8/10, Serious #1 CLOSED, no new findings
   (`code-logic-review-phase3-fix.md`; focused Jest 3 suites / 93 tests passed). Phase 3 (Batches 13-15, 15F) accepted.
 
-## Batch 16: C1 host-sources token and ptah-ui block — COMPLETE (commit see `git log`, subject "batch 16")
+## Batch 16: C1 host-sources token and ptah-ui block — COMPLETE (commit 24e882f14)
 
 - Recommended executor: frontend-developer
 - Fallback executor: general-purpose subagent
@@ -985,7 +985,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - Out-of-list seam `PTAH_UI_BLOCK_LIVE_SOURCES` in `ptah-ui-block.component.ts`: accepted under decision #52. Batch 17
   (Task 17.3) provides it.
 
-## Batch 17: C2 live source adapters (`$agents`, `$limits`) — IN_PROGRESS
+## Batch 17: C2 live source adapters (`$agents`, `$limits`) — COMPLETE (commit see `git log`, subject "batch 17")
 
 - Recommended executor: frontend-developer
 - Fallback executor: general-purpose subagent
@@ -995,7 +995,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - Tasks: 3 | Depends on: Batches 16, 7
 - Phase: 4 | Phase review: after Batch 21
 
-### Task 17.1: `$agents` adapter — IN_PROGRESS
+### Task 17.1: `$agents` adapter — COMPLETE
 
 - Files (CREATE):
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\organisms\ptah-ui\sources\ptah-ui-agents.source.ts
@@ -1003,7 +1003,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - Plan reference: implementation-plan.md:674-719 (component 4a)
 - Quality requirements: R5.4 live during the turn; allow-list projection only.
 
-### Task 17.2: `$limits` adapter — IN_PROGRESS
+### Task 17.2: `$limits` adapter — COMPLETE
 
 - Files (CREATE):
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\organisms\ptah-ui\sources\ptah-ui-lane-limits.source.ts
@@ -1016,8 +1016,15 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
   - A successful read maps 1:1 onto `{kind:'available', rows, lanes, atLimit, nearLimit, unknown, asOf}`: five string
     cells per row, and `asOf` in epoch ms.
   - No owner, account or session fields are copied.
+- Fix required (decision #56; not accepted at the first verification):
+  - Remove the `burstFailed` latch. A failed read sets `{kind:'unavailable'}`, logs as today, and leaves the watcher
+    armed. The next `snapshot()` change re-reads once, and a successful read restores "available".
+  - Keep single-flight, the one queued follow-up per push, and no timers.
+  - Spec: replace "makes one attempt per acquire burst on a host without the method" with two cases:
+    - after a failed read with no push, no further call is made;
+    - a push after a failed read makes exactly one call, and a success there shows "available".
 
-### Task 17.3: provide `PTAH_UI_BLOCK_LIVE_SOURCES` from the two adapters (decision #52) — IN_PROGRESS
+### Task 17.3: provide `PTAH_UI_BLOCK_LIVE_SOURCES` from the two adapters (decision #52) — COMPLETE
 
 - Depends on: Tasks 17.1, 17.2
 - Files:
@@ -1042,8 +1049,10 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
   - Do not provide anything from the `chat` lib.
   - The chat-ui → chat-streaming import is allowed (plan:654, 699). Lint confirms it.
   - A host without the `agent:getLanePlanLimits` method (VS Code, capability false) must end in
-    `{kind:'unavailable'}` through Task 17.2's failure path: one RPC attempt per acquire burst, no retry loop, no
-    timer.
+    `{kind:'unavailable'}` through Task 17.2's failure path, with no retry loop and no timer.
+    - Corrected by decision #56: this does not mean one attempt per burst. Each `snapshot()` push still re-reads once
+      after a failure (R10.6, plan:704).
+    - The factory resolves the adapters lazily through `injector.get` (decision #53).
 - Spec requirements (`ptah-ui-block.component.spec.ts`):
   - By default, the existing tests provide a stub for `PTAH_UI_BLOCK_LIVE_SOURCES`, so no real store or RPC is built.
   - The "no adapter" cases provide the token explicitly as `null`. Each one still shows "unavailable" with a valid
@@ -1060,8 +1069,14 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - `npx jest -c libs/frontend/chat-ui/jest.config.ts libs/frontend/chat-ui/src/lib/organisms/ptah-ui/sources libs/frontend/chat-ui/src/lib/organisms/ptah-ui/ptah-ui-block.component.spec.ts libs/frontend/chat-ui/src/lib/organisms/ptah-ui/ptah-ui-message-text.component.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -n 40 && npx nx typecheck @ptah-extension/chat-ui --parallel=1 2>&1 | tail -n 20 && npx nx lint @ptah-extension/chat-ui --parallel=1 2>&1 | tail -n 20`
 - Lint stays at 0 errors, with warnings at or below the 10-warning baseline and none in a batch file. Pass the
   `--moduleNameMapper` override from handoff.md on the Jest command line only.
+- Verified by the team-leader after the decision #56 fix round:
+  - Jest on `sources/`, the block spec and the message-text spec: 4 suites, 74 tests passed (mapper override on the
+    command line only).
+  - `@ptah-extension/chat-ui` typecheck passed (uncached). Lint: 0 errors, 10 warnings (baseline), none in a batch file.
+  - On disk: no `burstFailed`, no timers, no TODO markers under `sources/`. The two new failure cases are present. The
+    token factory resolves adapters lazily via `injector.get` (decision #53).
 
-## Batch 18: C3 display chip and message text — PENDING
+## Batch 18: C3 display chip and message text — IN_PROGRESS
 
 - Recommended executor: frontend-developer
 - Fallback executor: general-purpose subagent
@@ -1070,7 +1085,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - Tasks: 2 | Depends on: Batch 16
 - Phase: 4 | Phase review: after Batch 21
 
-### Task 18.1: display chip — PENDING
+### Task 18.1: display chip — IN_PROGRESS
 
 - Files (CREATE):
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\organisms\ptah-ui\ptah-ui-display-chip.component.ts
@@ -1079,7 +1094,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - Quality requirements: R1.11, R2.10-R2.11, decisions #7 ("Open in display", "updated later" when superseded);
   collapsible and responsive (decisions #9).
 
-### Task 18.2: message text renders the chip for display fences — PENDING
+### Task 18.2: message text renders the chip for display fences — IN_PROGRESS
 
 - Files:
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\organisms\ptah-ui\ptah-ui-message-text.component.ts
@@ -1251,6 +1266,8 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 
 - File (CREATE): D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat\src\lib\components\organisms\transcript\transcript-ptah-ui-host-sources.ts
 - Plan reference: implementation-plan.md:833-881, 977-993
+- Quality requirements (decision #54): `capacities` is `[liveModelStats.contextCapacity]` of the tab when that value
+  is present, and `[]` otherwise. `PtahUiAgentsSource` reads only this list (plan:685). The spec covers both cases.
 
 ### Task 23.3: sidebar tab atom (count badge / tab ARIA) — PENDING
 
@@ -1279,6 +1296,8 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - Plan reference: implementation-plan.md:833-881, 1219-1242
 - Quality requirements: R6.5, R6.9, R6.10; Electron: change-set card and tests row replaced by the summary chip
   (decisions #5, #10); VS Code transcript unchanged (keeps the card, still no tests row); sync under `@defer`.
+- R10.9 webview half (decision #56): with `isElectron` false, a `$limits` fence renders as an ordinary code block and
+  `agent:getLanePlanLimits` is never called. `chat-transcript.display.spec.ts` asserts both.
 
 ### Task 24.2: delete the tests row — PENDING
 

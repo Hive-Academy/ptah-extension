@@ -37,6 +37,8 @@ import {
   type PtahUiBlockLiveSources,
   type PtahUiBlockPipeline,
 } from './ptah-ui-block.component';
+import { PtahUiAgentsSource } from './sources/ptah-ui-agents.source';
+import { PtahUiLaneLimitsSource } from './sources/ptah-ui-lane-limits.source';
 
 const LITERAL_BODY =
   'title Release checklist\nstats\n  Reviewers | 2\n  Risk | low\ntable\n  Area | Status\n  Parser | ready\n  Renderer | queued\nlist\n  - Run the focused shared tests\n  - Attach the compactness report\nchart bar Completed checks\n  Draft | 1\n  Verified | 3\n';
@@ -72,6 +74,13 @@ const LIMITS_AVAILABLE: PtahUiLimitsInput = {
   nearLimit: 0,
   unknown: 0,
   asOf: 0,
+};
+
+/** The default live sources of every case: inert, no store, no RPC. */
+const STUB_LIVE_SOURCES: PtahUiBlockLiveSources = {
+  agentsInput: () => signal(agentsWith(0)),
+  acquireLimits: () => signal<PtahUiLimitsInput>({ kind: 'unavailable' }),
+  releaseLimits: () => undefined,
 };
 
 const fence = (body: string): string => '```ptah-ui\n' + body + '```\n';
@@ -244,6 +253,9 @@ describe('PtahUiBlockComponent', () => {
       providers: [
         provideMarkdown(),
         { provide: PTAH_UI_BLOCK_PIPELINE, useValue: pipeline },
+        // Replaces the root factory so no real store or RPC is built; a case
+        // that needs another adapter (or `null`) provides it after this one.
+        { provide: PTAH_UI_BLOCK_LIVE_SOURCES, useValue: STUB_LIVE_SOURCES },
         ...extraProviders,
       ],
     });
@@ -663,7 +675,10 @@ describe('PtahUiBlockComponent', () => {
         agents = signal(agentsWith(1));
         limits = signal<PtahUiLimitsInput>({ kind: 'pending' });
         live = {
-          agentsInput: jest.fn(() => agents.asReadonly()),
+          agentsInput: jest.fn<
+            Signal<PtahUiAgentsInput>,
+            [PtahUiHostSources, number]
+          >(() => agents.asReadonly()),
           acquireLimits: jest.fn(() => limits.asReadonly()),
           releaseLimits: jest.fn(),
         };
@@ -747,13 +762,70 @@ describe('PtahUiBlockComponent', () => {
         expect(reasonLine()).toBeNull();
       });
 
-      it('renders both "unavailable" when no live-source adapter is provided', async () => {
-        create(undefined, [{ provide: PTAH_UI_HOST_SOURCES, useValue: host }]);
+      it('renders both "unavailable" when the live-source adapter is provided as null', async () => {
+        create(undefined, [
+          { provide: PTAH_UI_HOST_SOURCES, useValue: host },
+          { provide: PTAH_UI_BLOCK_LIVE_SOURCES, useValue: null },
+        ]);
         useBody(LIVE_BODY);
         await settle(fixture);
 
         expect(statValues()).toEqual(['unavailable', 'unavailable']);
         expect(reasonLine()).toBeNull();
+      });
+
+      it('reads through the root adapters when the token is not overridden', async () => {
+        const agentsAdapter = {
+          agentsInput: jest.fn<
+            Signal<PtahUiAgentsInput>,
+            [PtahUiHostSources, number]
+          >(() => agents.asReadonly()),
+        };
+        const limitsAdapter = {
+          acquire: jest.fn(() => limits.asReadonly()),
+          release: jest.fn(),
+        };
+        pipelineCalls = new Map();
+        compileCalls = new Map();
+        TestBed.configureTestingModule({
+          providers: [
+            provideMarkdown(),
+            { provide: PTAH_UI_BLOCK_PIPELINE, useValue: countingPipeline() },
+            { provide: PTAH_UI_HOST_SOURCES, useValue: host },
+            { provide: PtahUiAgentsSource, useValue: agentsAdapter },
+            { provide: PtahUiLaneLimitsSource, useValue: limitsAdapter },
+          ],
+        });
+
+        // A block naming both sources: one acquire on mount, one release on destroy.
+        fixture = TestBed.createComponent(BlockHostComponent);
+        useBody(LIVE_BODY);
+        limits.set(LIMITS_AVAILABLE);
+        await settle(fixture);
+
+        expect(agentsAdapter.agentsInput).toHaveBeenCalledTimes(1);
+        expect(agentsAdapter.agentsInput).toHaveBeenCalledWith(host, 0);
+        expect(limitsAdapter.acquire).toHaveBeenCalledTimes(1);
+        expect(limitsAdapter.release).not.toHaveBeenCalled();
+        expect(statValues()).toEqual([1, 7]);
+        fixture.destroy();
+        expect(limitsAdapter.acquire).toHaveBeenCalledTimes(1);
+        expect(limitsAdapter.release).toHaveBeenCalledTimes(1);
+
+        // A `$diff`-only block calls neither adapter.
+        agentsAdapter.agentsInput.mockClear();
+        limitsAdapter.acquire.mockClear();
+        limitsAdapter.release.mockClear();
+        fixture = TestBed.createComponent(BlockHostComponent);
+        useBody('table $diff\n');
+        fixture.componentInstance.snapshot.set(EMPTY);
+        await settle(fixture);
+
+        expect(rendererInstance()).not.toBeNull();
+        fixture.destroy();
+        expect(agentsAdapter.agentsInput).not.toHaveBeenCalled();
+        expect(limitsAdapter.acquire).not.toHaveBeenCalled();
+        expect(limitsAdapter.release).not.toHaveBeenCalled();
       });
 
       it('takes the $limits read only while the body names it', async () => {
