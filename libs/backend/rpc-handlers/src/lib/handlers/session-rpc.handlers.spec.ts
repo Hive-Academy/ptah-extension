@@ -2009,6 +2009,7 @@ describe('SessionRpcHandlers', () => {
         AGENT_ID,
         'cursor-1',
         32 * 1024,
+        VALID_SESSION_ID,
       );
       expect(result).toEqual({ items: [], nextCursor: 'next-2', done: false });
     });

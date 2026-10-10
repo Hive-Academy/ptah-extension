@@ -1092,6 +1092,7 @@ export class SessionRpcHandlers {
           parsed.agentId,
           parsed.cursor,
           parsed.maxBytes,
+          sessionId,
         );
       } catch (error: unknown) {
         this.throwCliOutputPageError(error, parsed.agentId);
