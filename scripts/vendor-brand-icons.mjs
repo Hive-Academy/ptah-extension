@@ -43,7 +43,9 @@
  *   - the TS table (`output`), read only by lazily loaded code;
  *   - the provider subset (`providerOutput`, same directory): the artwork the
  *     eager `ProviderMarkComponent` reads. A separate module, so esbuild keeps
- *     the table out of the initial bundle (R7);
+ *     the table out of the initial bundle (R7). This script overwrites it only
+ *     when it carries this script's generator marker; hand-vendored provider
+ *     artwork is retained after its keys and exports are checked for parity;
  *   - the SHIPPED plain-text notices (`notices`): theSVG's licence plus every
  *     mark whose own licence asks for attribution or notice. Production
  *     minification strips the TS header comment, so this file is what carries
@@ -584,8 +586,59 @@ async function buildOutputs({ source, outputs, outcomes, licenseText, a4 }) {
       noticesPath: outputs.notices,
     }),
   );
+  const existingProviderArt = readOrEmpty(
+    resolve(ROOT_DIR, outputs.providerArt),
+  );
+  const keepProviderArt =
+    existingProviderArt.length > 0 &&
+    !existingProviderArt.includes(
+      'VENDORED by `scripts/vendor-brand-icons.mjs`',
+    );
+  if (keepProviderArt) {
+    const providerObject = existingProviderArt.match(
+      /export const PROVIDER_BRAND_ART[^=]*=\s*\{([\s\S]*?)\n\};/,
+    );
+    const providerSlugs = new Set(
+      [
+        ...(providerObject?.[1].matchAll(
+          /^  (?:'([^']+)'|([A-Za-z_$][\w$-]*)):/gm,
+        ) ?? []),
+      ].map((match) => match[1] ?? match[2]),
+    );
+    const providerImports = new Set(
+      [...table.matchAll(/\b(PROVIDER_ART_[A-Z0-9_]+)\b/g)].map(
+        (match) => match[1],
+      ),
+    );
+    const expectedProviderSlugs = outcomes
+      .filter((outcome) => isProvider(outcome))
+      .map((outcome) => outcome.slug);
+    const missingSlugs = expectedProviderSlugs.filter(
+      (slug) => !providerSlugs.has(slug),
+    );
+    const missingExports = [...providerImports].filter(
+      (name) =>
+        !new RegExp(`export const ${name}\\b`).test(existingProviderArt),
+    );
+    if (missingSlugs.length > 0 || missingExports.length > 0) {
+      const missing = [
+        missingSlugs.length > 0 && `keys: ${missingSlugs.join(', ')}`,
+        missingExports.length > 0 && `exports: ${missingExports.join(', ')}`,
+      ]
+        .filter(Boolean)
+        .join('; ');
+      throw new VendorError(
+        `${outputs.providerArt} is hand-vendored but missing generated table requirements (${missing}); nothing written`,
+      );
+    }
+    console.log(
+      `Kept ${outputs.providerArt}: hand-vendored provider art, not owned by this script (${providerSlugs.size} marks)`,
+    );
+  }
   // One budget for the vendored artwork, however many modules carry it.
-  const tableBytes = Buffer.byteLength(table) + Buffer.byteLength(providerArt);
+  const tableBytes =
+    Buffer.byteLength(table) +
+    Buffer.byteLength(keepProviderArt ? existingProviderArt : providerArt);
   if (tableBytes > OUTPUT_BUDGET_BYTES) {
     throw new VendorError(
       `${outputs.table} + ${outputs.providerArt} would be ${tableBytes} bytes, above the ${OUTPUT_BUDGET_BYTES}-byte budget; nothing written`,
@@ -628,7 +681,7 @@ async function buildOutputs({ source, outputs, outcomes, licenseText, a4 }) {
   return {
     files: [
       [outputs.table, table],
-      [outputs.providerArt, providerArt],
+      ...(keepProviderArt ? [] : [[outputs.providerArt, providerArt]]),
       [outputs.notices, notices],
       [outputs.report, report],
     ],

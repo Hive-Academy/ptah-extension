@@ -58,55 +58,81 @@ export class ComputedSettingHandle<T> implements SettingHandle<T> {
     return parsed.success ? parsed.data : this.def.default;
   }
 
+  /**
+   * @throws {Error} when `target` is 'workspace' and no workspace is active;
+   *   the store is not touched. The resolver would otherwise fall back to the
+   *   global key, turning a stale per-workspace save into a machine-wide one.
+   */
   async set(value: T, target: WorkspaceWriteTarget = 'global'): Promise<void> {
     const validated = this.def.schema.parse(value);
     if (this.resolver) {
-      await this.resolver.write(
-        this.resolveKey(),
-        validated,
-        target,
-        this.def.appScopable === true,
-      );
+      const key = this.resolveKey();
+      if (target === 'workspace' && !this.resolver.getActivePath()) {
+        throw new Error(
+          `Cannot save '${key}' for this workspace: no workspace is open.`,
+        );
+      }
+      const appScopable = this.def.appScopable === true;
+      await this.resolver.write(key, validated, target, appScopable);
+      // Drop narrower overrides so the value saved at `target` is the one
+      // read back — as `auth:saveSettings` does for the provider. Otherwise a
+      // leftover app/workspace model shadows the new one for the new provider.
+      await this.resolver.clearMoreSpecific(key, target, appScopable);
       return;
     }
     await this.store.writeGlobal(this.resolveKey(), validated);
   }
 
+  /**
+   * Notify `cb` whenever the resolved value may have changed.
+   *
+   * The physical key depends on the resolver-scoped `authMethod` and
+   * `anthropicProviderId`, and every one of the three settings can be written
+   * at any scope. A workspace write lands on a hashed `workspace.<hash>.*` key
+   * and never fires a watcher on the bare key, so watching only the bare keys
+   * missed a workspace-scoped provider switch and kept reporting the previous
+   * provider's model. This subscribes to every candidate key of all three
+   * settings (the resolver's `scopedKeys`) and re-derives that set after each
+   * change, so a provider switch at any scope re-targets the model key.
+   */
   watch(cb: (value: T) => void): IDisposable {
-    let currentKey = this.physicalKey();
-    let innerSub: IDisposable = this.store.watchGlobal(currentKey, () => {
-      cb(this.get());
-    });
-    const resubscribe = () => {
-      const newKey = this.physicalKey();
-      if (newKey !== currentKey) {
-        innerSub.dispose();
-        currentKey = newKey;
-        innerSub = this.store.watchGlobal(currentKey, () => {
-          cb(this.get());
-        });
+    let subs: IDisposable[] = [];
+    let watched = '';
+
+    const keysToWatch = (): string[] => {
+      const modelKey = this.resolveKey();
+      if (!this.resolver) {
+        return [this.authMethodKey, this.anthropicProviderIdKey, modelKey];
       }
+      return [
+        ...this.resolver.scopedKeys(this.authMethodKey, true),
+        ...this.resolver.scopedKeys(this.anthropicProviderIdKey, true),
+        ...this.resolver.scopedKeys(modelKey, this.def.appScopable === true),
+      ];
+    };
+    const subscribe = (): void => {
+      const keys = [...new Set(keysToWatch())];
+      const signature = keys.join('|');
+      if (signature === watched) return;
+      for (const sub of subs) sub.dispose();
+      watched = signature;
+      subs = keys.map((key) => this.store.watchGlobal(key, onChange));
+    };
+    const onChange = (): void => {
+      subscribe();
       cb(this.get());
     };
 
-    const authMethodSub = this.store.watchGlobal(
-      this.authMethodKey,
-      resubscribe,
-    );
-    const providerIdSub = this.store.watchGlobal(
-      this.anthropicProviderIdKey,
-      resubscribe,
-    );
+    subscribe();
 
     let activeChangeSub: IDisposable | undefined;
     if (this.resolver) {
       activeChangeSub = this.resolver.onActiveChange(() => {
         if (hasInvalidateCache(this.store)) {
           this.store.invalidateCache(this.resolveKey());
-          this.store.invalidateCache(currentKey);
           this.store.invalidateCache(this.physicalKey());
         }
-        resubscribe();
+        onChange();
       });
     }
 
@@ -114,9 +140,8 @@ export class ComputedSettingHandle<T> implements SettingHandle<T> {
 
     return {
       dispose: () => {
-        innerSub.dispose();
-        authMethodSub.dispose();
-        providerIdSub.dispose();
+        for (const sub of subs) sub.dispose();
+        subs = [];
         activeChangeSub?.dispose();
       },
     };

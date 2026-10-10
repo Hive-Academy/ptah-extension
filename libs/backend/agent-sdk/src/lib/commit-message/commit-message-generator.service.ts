@@ -18,7 +18,7 @@ import {
   type NetworkFailureSignal,
   type NetworkObservableMessage,
 } from '../internal-query/network-failure';
-import type { IProviderAuthResolver } from '../auth/provider-auth-resolver.port';
+import type { IWorkspaceLlmResolver } from '../auth/workspace-llm-resolver.port';
 import type { OneShotAuthOverride } from '../helpers/sdk-query-runner.service';
 import { AuthRequiredError, InternalQueryQueueTimeoutError } from '../errors';
 import {
@@ -50,8 +50,6 @@ export const COMMIT_MESSAGE_MODEL_TIER = 'haiku';
  * `auth-providers`, which depends on this lib. Same mirrors as the curator's
  * (`sdk-internal-query.curator-llm.ts`).
  */
-const PROVIDER_AUTH_ERROR_NAME = 'ProviderAuthError';
-const PROVIDER_QUOTA_ERROR_NAME = 'ProviderQuotaError';
 
 const LOG_TAG = '[commit-message]';
 
@@ -97,8 +95,8 @@ export class CommitMessageGenerator {
     @inject(SDK_TOKENS.SDK_INTERNAL_QUERY_SERVICE)
     private readonly internalQuery: InternalQueryService,
     @inject(TOKENS.GIT_INFO_SERVICE) private readonly gitInfo: GitInfoService,
-    @inject(SDK_TOKENS.SDK_PROVIDER_AUTH_RESOLVER, { isOptional: true })
-    private readonly resolver: IProviderAuthResolver | null = null,
+    @inject(SDK_TOKENS.SDK_WORKSPACE_LLM_RESOLVER, { isOptional: true })
+    private readonly workspaceLlm: IWorkspaceLlmResolver | null = null,
   ) {}
 
   async generate(
@@ -115,7 +113,7 @@ export class CommitMessageGenerator {
       return unavailable('no-provider');
     }
 
-    const decision = await this.resolveAuth();
+    const decision = await this.resolveAuth(workspaceRoot);
     if (decision.kind === 'rate-limited') return unavailable('rate-limited');
 
     this.logger.debug(`${LOG_TAG} generating a commit message`, {
@@ -139,34 +137,33 @@ export class CommitMessageGenerator {
   }
 
   /**
-   * `''` asks for the active provider. A configured-but-unusable provider
-   * (`ProviderAuthError`) rides the active one with no override, as the
-   * curator does; a quota cooldown (`ProviderQuotaError`) stops, because the
-   * provider a fallback would ride is the one that just refused.
+   * The provider of the REPOSITORY's workspace (`workspaceRoot`), not of
+   * whichever workspace is active: a commit message for A is written on A's
+   * provider even while B is focused. The model stays the cheap
+   * `COMMIT_MESSAGE_MODEL_TIER` alias, which the query resolves against this
+   * same snapshot's tier mapping. A provider cooling down from a 429 stops,
+   * because it is the one this query would dial. Without a resolver (a host
+   * that registers none) the query rides the active provider, as before.
    */
-  private async resolveAuth(): Promise<AuthDecision> {
-    if (!this.resolver) return { kind: 'ride-active' };
+  private async resolveAuth(workspaceRoot: string): Promise<AuthDecision> {
+    if (!this.workspaceLlm) return { kind: 'ride-active' };
     try {
-      const auth = await this.resolver.resolve('');
-      return auth ? { kind: 'override', auth } : { kind: 'ride-active' };
-    } catch (error: unknown) {
-      if (error instanceof Error && error.name === PROVIDER_QUOTA_ERROR_NAME) {
-        this.logger.warn(`${LOG_TAG} the active provider is rate-limited`, {
-          error: error.message,
+      const snapshot = await this.workspaceLlm.resolveForPath(workspaceRoot);
+      if (snapshot.cooldownMs !== undefined && snapshot.cooldownMs > 0) {
+        this.logger.warn(`${LOG_TAG} the workspace provider is rate-limited`, {
+          providerId: snapshot.providerId,
+          retryAfterMs: snapshot.cooldownMs,
         });
         return { kind: 'rate-limited' };
       }
-      if (error instanceof Error && error.name === PROVIDER_AUTH_ERROR_NAME) {
-        this.logger.warn(
-          `${LOG_TAG} provider auth unavailable; riding the active provider`,
-          { error: error.message },
-        );
-        return { kind: 'ride-active' };
-      }
-      // Anything else is not a decision the resolver made; the query itself
-      // will report whether the active provider can be reached.
+      return snapshot.auth
+        ? { kind: 'override', auth: snapshot.auth }
+        : { kind: 'ride-active' };
+    } catch (error: unknown) {
+      // The resolver logs and degrades on its own; a throw is not a decision
+      // it made. The query itself reports whether a provider can be reached.
       this.logger.warn(
-        `${LOG_TAG} provider auth resolution failed; riding the active provider`,
+        `${LOG_TAG} workspace provider resolution failed; riding the active provider`,
         { error: error instanceof Error ? error.message : String(error) },
       );
       return { kind: 'ride-active' };

@@ -195,6 +195,39 @@ describe('AuthManager', () => {
   // Strategy selection
   // -------------------------------------------------------------------------
 
+  describe('configured identity', () => {
+    it('reports the provider of the last successful configuration, and null after a failed one or a clear', async () => {
+      const { manager, strategies } = makeManager();
+      expect(manager.getConfiguredAuth()).toBeNull();
+
+      strategies.apiKey.configure.mockResolvedValueOnce({
+        configured: true,
+        details: [],
+      });
+      await manager.configureAuthentication('apiKey');
+      expect(manager.getConfiguredAuth()).toEqual({
+        authMethod: 'apiKey',
+        providerId: 'anthropic',
+      });
+
+      strategies.cli.configure.mockResolvedValueOnce({
+        configured: false,
+        details: [],
+        errorMessage: 'not logged in',
+      });
+      await manager.configureAuthentication('claudeCli');
+      expect(manager.getConfiguredAuth()).toBeNull();
+
+      strategies.apiKey.configure.mockResolvedValueOnce({
+        configured: true,
+        details: [],
+      });
+      await manager.configureAuthentication('apiKey');
+      manager.clearAuthentication();
+      expect(manager.getConfiguredAuth()).toBeNull();
+    });
+  });
+
   describe('strategy selection', () => {
     it("routes 'apiKey' to the api-key strategy with anthropic provider id", async () => {
       const { manager, strategies } = makeManager();

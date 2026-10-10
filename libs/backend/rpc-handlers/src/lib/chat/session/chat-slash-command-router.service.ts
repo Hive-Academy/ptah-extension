@@ -15,7 +15,15 @@ import { injectable, inject } from 'tsyringe';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
 import type { ModelSettings } from '@ptah-extension/settings-core';
-import { SDK_TOKENS, SlashCommandInterceptor } from '@ptah-extension/agent-sdk';
+import {
+  AuthRequiredError,
+  SDK_TOKENS,
+  SlashCommandInterceptor,
+} from '@ptah-extension/agent-sdk';
+import {
+  AUTH_PROVIDERS_TOKENS,
+  type WorkspaceProviderProfileResolver,
+} from '@ptah-extension/auth-providers';
 import type {
   IAgentAdapter,
   SessionId,
@@ -48,6 +56,8 @@ export class ChatSlashCommandRouterService {
     private readonly sdkContext: ChatSdkContextService,
     @inject(CHAT_TOKENS.STREAM_BROADCASTER)
     private readonly streamBroadcaster: ChatStreamBroadcaster,
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_WORKSPACE_PROVIDER_PROFILE_RESOLVER)
+    private readonly workspaceProviderProfileResolver: WorkspaceProviderProfileResolver,
   ) {}
 
   /**
@@ -113,16 +123,23 @@ export class ChatSlashCommandRouterService {
       const enhancedPromptsContent =
         await this.sdkContext.resolveEnhancedPromptsContent(workspacePath);
       const command = interceptResult.rawCommand ?? prompt;
+      const model =
+        params.model || this.modelSettings.selectedModel.get() || 'default';
       try {
+        // The relaunch is a new query: it gets the same per-workspace provider
+        // snapshot as chat:start / resume, never whatever the shared auth env
+        // was last configured for (AuthRequiredError on a mismatch).
+        const providerProfile =
+          await this.workspaceProviderProfileResolver.resolveProviderProfileForWorkspace(
+            workspacePath ?? '',
+            model,
+          );
         const stream = await this.sdkAdapter.executeSlashCommand(
           sessionId,
           command,
           {
             sessionConfig: {
-              model:
-                params.model ||
-                this.modelSettings.selectedModel.get() ||
-                'default',
+              model,
               projectPath: workspacePath,
               ...(params.mcpToolProfile
                 ? { mcpToolProfile: params.mcpToolProfile }
@@ -134,6 +151,7 @@ export class ChatSlashCommandRouterService {
             mcpServerRunning,
             enhancedPromptsContent,
             tabId,
+            providerProfile,
           },
         );
         this.streamBroadcaster.streamEventsToWebview(sessionId, stream, tabId);
@@ -150,6 +168,14 @@ export class ChatSlashCommandRouterService {
           success: false,
           sessionId,
           error: message,
+          ...(slashError instanceof AuthRequiredError
+            ? {
+                errorCode: 'AUTH_REQUIRED' as const,
+                ...(slashError.providerId
+                  ? { providerId: slashError.providerId }
+                  : {}),
+              }
+            : {}),
         };
         return result;
       }

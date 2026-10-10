@@ -5,6 +5,7 @@ import {
   EffortStateService,
   ProvidersSettingsStateService,
   VSCodeService,
+  WorkspaceScopeService,
 } from '@ptah-extension/core';
 import { rpcError, rpcSuccess } from '@ptah-extension/core/testing';
 import type { EffortLevel } from '@ptah-extension/shared';
@@ -160,6 +161,13 @@ describe('AgentBehaviourSectionComponent', () => {
       await feedback.undo();
       expect(call).toHaveBeenLastCalledWith('enhancedPrompts:getStatus', { workspacePath: '.' });
       expect(call).toHaveBeenCalledWith('enhancedPrompts:setEnabled', { workspacePath: '.', enabled: false });
+    });
+
+    it('writes the mode for the active workspace root, not ".", when the host tracks one', async () => {
+      await render();
+      TestBed.inject(WorkspaceScopeService).switchTo('/ws/project-a');
+      await click('Toggle Enhanced System Prompt');
+      expect(call).toHaveBeenCalledWith('enhancedPrompts:setEnabled', { workspacePath: '/ws/project-a', enabled: true });
     });
 
     it('D15: a failed write reverts the checkbox and raises an alert toast with fixed message', async () => {

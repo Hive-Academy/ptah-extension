@@ -808,6 +808,16 @@ export class ProviderModelsService {
    *
    * Returns `{}` — never a guess — when the provider has no catalogue on hand.
    */
+  /**
+   * Model ids of the most recent catalogue this provider returned (in-memory,
+   * then persisted), read synchronously. `null` when none is on hand — a
+   * caller must then not treat any model as unavailable.
+   */
+  getCachedModelIds(providerId: string): string[] | null {
+    const catalog = this.readLiveCatalog(providerId);
+    return catalog && catalog.length > 0 ? catalog.map((m) => m.id) : null;
+  }
+
   getLiveDerivedTiers(providerId: string): DerivedTierMap {
     return deriveTiersFromCatalog(this.readLiveCatalog(providerId));
   }

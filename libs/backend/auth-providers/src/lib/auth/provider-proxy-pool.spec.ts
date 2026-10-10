@@ -2,11 +2,11 @@
  * ProviderProxyPool — unit specs (Phase 3 per-workspace isolated proxies).
  *
  * Verifies the isolation guarantees the pool exists to provide:
- *   (a) two different workspacePaths for the same provider yield two DISTINCT
- *       started proxy instances on distinct ports;
+ *   (a) two workspacePaths on the same provider configuration share ONE
+ *       started proxy instance (also when they acquire concurrently);
  *   (b) the same workspace+provider reuses a single running instance;
- *   (c) disposeForScope() stops ONLY that workspace's proxies, leaving others
- *       running;
+ *   (c) disposeForScope() unbinds that workspace and stops a proxy only once
+ *       no other workspace is bound to it;
  *   (d) a non-proxy provider (requiresProxy !== true) yields undefined;
  *   (e) a proxy provider with a missing required credential (Sakana key) yields
  *       undefined (workspace falls back to global auth).
@@ -335,22 +335,31 @@ describe('ProviderProxyPool', () => {
     expect(lmStudioProvider().requiresProxy).toBe(true);
   });
 
-  it('(a) two different workspaces → two distinct started proxies on distinct ports', async () => {
+  it('(a) two workspaces on the same provider configuration share one started proxy', async () => {
     const lm = lmStudioProvider();
 
     const a = await harness.pool.acquire('/ws/a', 'lm-studio', lm);
     const b = await harness.pool.acquire('/ws/b', 'lm-studio', lm);
 
     expect(a).toBeDefined();
-    expect(b).toBeDefined();
     expect(a?.authToken).toBe('local-proxy-managed');
+    expect(b).toEqual(a);
 
     const instances = fakeInstances();
-    expect(instances).toHaveLength(2);
-    expect(instances[0]).not.toBe(instances[1]);
+    expect(instances).toHaveLength(1);
     expect(instances[0].isRunning()).toBe(true);
-    expect(instances[1].isRunning()).toBe(true);
-    expect(a?.baseUrl).not.toBe(b?.baseUrl);
+  });
+
+  it('(a) concurrent acquires for one configuration start a single proxy', async () => {
+    const lm = lmStudioProvider();
+
+    const [a, b] = await Promise.all([
+      harness.pool.acquire('/ws/a', 'lm-studio', lm),
+      harness.pool.acquire('/ws/b', 'lm-studio', lm),
+    ]);
+
+    expect(fakeInstances()).toHaveLength(1);
+    expect(b).toEqual(a);
   });
 
   it('(b) same workspace+provider reuses one running instance', async () => {
@@ -363,25 +372,138 @@ describe('ProviderProxyPool', () => {
     expect(first?.baseUrl).toBe(second?.baseUrl);
   });
 
-  it('(c) disposeForScope stops only that workspace, leaving others running', async () => {
+  it('(c) disposeForScope keeps a shared proxy while another workspace is bound, stops it with the last', async () => {
     const lm = lmStudioProvider();
 
     await harness.pool.acquire('/ws/a', 'lm-studio', lm);
     const b = await harness.pool.acquire('/ws/b', 'lm-studio', lm);
 
-    const [proxyA, proxyB] = fakeInstances();
-    expect(proxyA.isRunning()).toBe(true);
-    expect(proxyB.isRunning()).toBe(true);
+    const [shared] = fakeInstances();
+    expect(shared.isRunning()).toBe(true);
 
     await harness.pool.disposeForScope('/ws/a');
+    expect(shared.isRunning()).toBe(true);
 
-    expect(proxyA.isRunning()).toBe(false);
-    expect(proxyB.isRunning()).toBe(true);
-
-    // /ws/b still reuses its live proxy (no new instance created).
+    // /ws/b still reuses the live proxy (no new instance created).
     const bAgain = await harness.pool.acquire('/ws/b', 'lm-studio', lm);
-    expect(fakeInstances()).toHaveLength(2);
+    expect(fakeInstances()).toHaveLength(1);
     expect(bAgain?.baseUrl).toBe(b?.baseUrl);
+
+    await harness.pool.disposeForScope('/ws/b');
+    expect(shared.isRunning()).toBe(false);
+  });
+
+  describe('disposal racing an in-flight start', () => {
+    type LmStudioProxy = InstanceType<
+      typeof localModule.LmStudioTranslationProxy
+    >;
+
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    /** Hold the next LM Studio `start()` until the returned release is called. */
+    function gateNextStart(): () => void {
+      const proto = localModule.LmStudioTranslationProxy.prototype;
+      const realStart = proto.start;
+      let release: () => void = () => undefined;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      jest.spyOn(proto, 'start').mockImplementationOnce(async function (
+        this: LmStudioProxy,
+      ) {
+        await gate;
+        return realStart.call(this);
+      });
+      return () => release();
+    }
+
+    /** Let the acquire run until it is parked on the gated start. */
+    async function untilStartIsPending(): Promise<void> {
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(fakeInstances()).toHaveLength(1);
+      expect(fakeInstances()[0].isRunning()).toBe(false);
+    }
+
+    it('disposeForScope during the start stops the proxy and binds nothing', async () => {
+      const release = gateNextStart();
+      const pending = harness.pool.acquire(
+        '/ws/a',
+        'lm-studio',
+        lmStudioProvider(),
+      );
+      await untilStartIsPending();
+
+      await harness.pool.disposeForScope('/ws/a');
+      release();
+
+      expect(await pending).toBeUndefined();
+      expect(fakeInstances()[0].isRunning()).toBe(false);
+    });
+
+    it('disposeAll during the start stops the proxy and binds nothing', async () => {
+      const release = gateNextStart();
+      const pending = harness.pool.acquire(
+        '/ws/a',
+        'lm-studio',
+        lmStudioProvider(),
+      );
+      await untilStartIsPending();
+
+      await harness.pool.disposeAll();
+      release();
+
+      expect(await pending).toBeUndefined();
+      expect(fakeInstances()[0].isRunning()).toBe(false);
+    });
+
+    it('a workspace re-acquires normally after a dispose that raced its start', async () => {
+      const lm = lmStudioProvider();
+      const release = gateNextStart();
+      const pending = harness.pool.acquire('/ws/a', 'lm-studio', lm);
+      await untilStartIsPending();
+      await harness.pool.disposeForScope('/ws/a');
+      release();
+      await pending;
+
+      const reopened = await harness.pool.acquire('/ws/a', 'lm-studio', lm);
+
+      expect(fakeInstances()).toHaveLength(2);
+      expect(reopened?.baseUrl).toBe(fakeInstances()[1].url);
+      expect(fakeInstances()[1].isRunning()).toBe(true);
+    });
+
+    it('a workspace sharing the start keeps a running proxy when the other is disposed', async () => {
+      const lm = lmStudioProvider();
+      const release = gateNextStart();
+      const pendingA = harness.pool.acquire('/ws/a', 'lm-studio', lm);
+      const pendingB = harness.pool.acquire('/ws/b', 'lm-studio', lm);
+      await untilStartIsPending();
+
+      await harness.pool.disposeForScope('/ws/a');
+      release();
+      const [a, b] = await Promise.all([pendingA, pendingB]);
+
+      expect(a).toBeUndefined();
+      const servingB = fakeInstances().find((p) => p.url === b?.baseUrl);
+      expect(servingB?.isRunning()).toBe(true);
+    });
+
+    it('a failed start stops the half-started proxy', async () => {
+      const proto = localModule.LmStudioTranslationProxy.prototype;
+      jest.spyOn(proto, 'start').mockRejectedValueOnce(new Error('EADDRINUSE'));
+      const stop = jest.spyOn(proto, 'stop');
+
+      const result = await harness.pool.acquire(
+        '/ws/a',
+        'lm-studio',
+        lmStudioProvider(),
+      );
+
+      expect(result).toBeUndefined();
+      expect(stop).toHaveBeenCalledTimes(1);
+    });
   });
 
   it('(d) a non-proxy provider (requiresProxy !== true) returns undefined', async () => {
@@ -434,14 +556,14 @@ describe('ProviderProxyPool', () => {
       expect(created[0].proxy.isRunning()).toBe(true);
     });
 
-    it('(f) two workspaces on the same entry get two distinct isolated proxies', async () => {
+    it('(f) two workspaces on the same entry share one proxy', async () => {
       const provider = customProvider(OPENAI_LANE_ID);
 
       const a = await harness.pool.acquire('/ws/a', OPENAI_LANE_ID, provider);
       const b = await harness.pool.acquire('/ws/b', OPENAI_LANE_ID, provider);
 
-      expect(createdCustomProxies()).toHaveLength(2);
-      expect(a?.baseUrl).not.toBe(b?.baseUrl);
+      expect(createdCustomProxies()).toHaveLength(1);
+      expect(b?.baseUrl).toBe(a?.baseUrl);
 
       // ...and re-acquiring reuses the live instance rather than leaking one.
       const aAgain = await harness.pool.acquire(
@@ -449,8 +571,44 @@ describe('ProviderProxyPool', () => {
         OPENAI_LANE_ID,
         provider,
       );
-      expect(createdCustomProxies()).toHaveLength(2);
+      expect(createdCustomProxies()).toHaveLength(1);
       expect(aAgain?.baseUrl).toBe(a?.baseUrl);
+    });
+
+    it('(h) a re-pointed entry keeps the old proxy until every workspace holding it is disposed', async () => {
+      const provider = customProvider(OPENAI_LANE_ID);
+      const a = await harness.pool.acquire('/ws/a', OPENAI_LANE_ID, provider);
+      await harness.pool.acquire('/ws/b', OPENAI_LANE_ID, provider);
+      const oldProxy = createdCustomProxies()[0].proxy;
+
+      harness.config.__seed({
+        [`provider.${OPENAI_LANE_ID}.baseUrl`]: 'https://moved.example.com',
+      });
+
+      const aMoved = await harness.pool.acquire(
+        '/ws/a',
+        OPENAI_LANE_ID,
+        provider,
+      );
+      expect(aMoved?.baseUrl).not.toBe(a?.baseUrl);
+      // /ws/b is still bound to the old configuration.
+      expect(oldProxy.isRunning()).toBe(true);
+
+      const bMoved = await harness.pool.acquire(
+        '/ws/b',
+        OPENAI_LANE_ID,
+        provider,
+      );
+      expect(bMoved).toEqual(aMoved);
+      expect(createdCustomProxies()).toHaveLength(2);
+      // Both workspaces moved off it, but each keeps it as its retired
+      // generation — a session may still stream through it.
+      expect(oldProxy.isRunning()).toBe(true);
+
+      await harness.pool.disposeForScope('/ws/a');
+      expect(oldProxy.isRunning()).toBe(true);
+      await harness.pool.disposeForScope('/ws/b');
+      expect(oldProxy.isRunning()).toBe(false);
     });
 
     it('(f) a `provider.<id>.baseUrl` override wins over the entry own base URL', async () => {
@@ -532,7 +690,108 @@ describe('ProviderProxyPool', () => {
       expect(created).toHaveLength(2);
       expect(created[1].baseUrl).toBe('https://moved.example.com');
       expect(second?.baseUrl).not.toBe(first?.baseUrl);
-      expect(firstProxy.proxy.isRunning()).toBe(false);
+      // Retired, not stopped: a session may still stream through the old host.
+      expect(firstProxy.proxy.isRunning()).toBe(true);
+    });
+
+    describe('credential rotation', () => {
+      const MOVED_ONCE = 'https://moved-once.example.com';
+      const MOVED_TWICE = 'https://moved-twice.example.com';
+
+      /** Re-point the fixture entry, i.e. rotate its credential fingerprint. */
+      function repoint(baseUrl: string): void {
+        harness.config.__seed({
+          [`provider.${OPENAI_LANE_ID}.baseUrl`]: baseUrl,
+        });
+      }
+
+      function acquireGateway(
+        workspacePath: string,
+      ): ReturnType<ProviderProxyPool['acquire']> {
+        return harness.pool.acquire(
+          workspacePath,
+          OPENAI_LANE_ID,
+          customProvider(OPENAI_LANE_ID),
+        );
+      }
+
+      it('keeps the superseded proxy running until disposeForScope', async () => {
+        await acquireGateway('/ws/a');
+        const original = createdCustomProxies()[0].proxy;
+
+        repoint(MOVED_ONCE);
+        await acquireGateway('/ws/a');
+        const current = createdCustomProxies()[1].proxy;
+        expect(original.isRunning()).toBe(true);
+
+        await harness.pool.disposeForScope('/ws/a');
+        expect(original.isRunning()).toBe(false);
+        expect(current.isRunning()).toBe(false);
+      });
+
+      it('a second rotation stops the first retired proxy', async () => {
+        await acquireGateway('/ws/a');
+        repoint(MOVED_ONCE);
+        await acquireGateway('/ws/a');
+        repoint(MOVED_TWICE);
+        await acquireGateway('/ws/a');
+
+        const [first, second, third] = createdCustomProxies().map(
+          (c) => c.proxy,
+        );
+        expect(first.isRunning()).toBe(false);
+        expect(second.isRunning()).toBe(true);
+        expect(third.isRunning()).toBe(true);
+      });
+
+      it('returns undefined when the workspace is disposed while the oldest retired proxy stops', async () => {
+        await acquireGateway('/ws/a');
+        repoint(MOVED_ONCE);
+        await acquireGateway('/ws/a');
+        const first = createdCustomProxies()[0].proxy;
+        const realStop = first.stop.bind(first);
+        let release: () => void = () => undefined;
+        const gate = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        jest.spyOn(first, 'stop').mockImplementationOnce(async () => {
+          await gate;
+          return realStop();
+        });
+
+        repoint(MOVED_TWICE);
+        const pending = acquireGateway('/ws/a');
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        const disposing = harness.pool.disposeForScope('/ws/a');
+        release();
+        await disposing;
+
+        expect(await pending).toBeUndefined();
+        expect(createdCustomProxies()[2].proxy.isRunning()).toBe(false);
+      });
+
+      it('never hands a retired proxy to a new acquire', async () => {
+        const original = await acquireGateway('/ws/a');
+        repoint(MOVED_ONCE);
+        await acquireGateway('/ws/a');
+
+        // Back to the original fingerprint: the retired entry matches it, but
+        // a new acquire must get a fresh proxy.
+        repoint(OPENAI_LANE_BASE_URL);
+        const b = await acquireGateway('/ws/b');
+
+        const created = createdCustomProxies();
+        expect(created).toHaveLength(3);
+        expect(b?.baseUrl).toBe(created[2].proxy.url);
+        expect(b?.baseUrl).not.toBe(original?.baseUrl);
+
+        // Releasing /ws/a stops its bound and retired proxies, not /ws/b's
+        // newer one that shares the retired entry's pool key.
+        await harness.pool.disposeForScope('/ws/a');
+        expect(created[0].proxy.isRunning()).toBe(false);
+        expect(created[1].proxy.isRunning()).toBe(false);
+        expect(created[2].proxy.isRunning()).toBe(true);
+      });
     });
 
     it('(i) a built-in id behaves exactly as before while custom entries are registered', async () => {
@@ -585,7 +844,7 @@ describe('ProviderProxyPool', () => {
 });
 
 describe('ProviderProxyPool OpenCode isolation', () => {
-  it('isolates workspace and product, reuses matching keys, and replaces only rotated credentials', async () => {
+  it('shares a product across workspaces, isolates products, and replaces only rotated credentials', async () => {
     const { pool, authSecrets } = makePool();
     let zenKey = 'zen-first';
     authSecrets.getProviderKey.mockImplementation(async (id: string) =>
@@ -598,7 +857,8 @@ describe('ProviderProxyPool OpenCode isolation', () => {
       const b = await pool.acquire('/b', zen.id, zen);
       const g = await pool.acquire('/a', go.id, go);
       expect(a?.authToken).toBe('opencode-proxy-token');
-      expect(new Set([a?.baseUrl, b?.baseUrl, g?.baseUrl]).size).toBe(3);
+      expect(b).toEqual(a);
+      expect(g?.baseUrl).not.toBe(a?.baseUrl);
       expect(await pool.acquire('/a', zen.id, zen)).toEqual(a);
       zenKey = 'zen-rotated';
       const rotated = await pool.acquire('/a', zen.id, zen);

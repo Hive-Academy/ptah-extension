@@ -13,6 +13,7 @@ import { AuthManager } from '../auth/auth-manager';
 import { ModelResolver } from '../auth/model-resolver';
 import { ActiveProviderResolver } from '../auth/active-provider-resolver';
 import { WorkspaceProviderProfileResolver } from '../auth/workspace-provider-profile-resolver';
+import { WorkspaceLlmResolver } from '../auth/workspace-llm-resolver';
 import { ProviderProxyPool } from '../auth/provider-proxy-pool';
 import {
   ApiKeyStrategy,
@@ -102,6 +103,13 @@ export function registerAuthProvidersServices(
   container.register(
     AUTH_PROVIDERS_TOKENS.SDK_WORKSPACE_PROVIDER_PROFILE_RESOLVER,
     { useClass: WorkspaceProviderProfileResolver },
+    { lifecycle: Lifecycle.Singleton },
+  );
+  // Provider + model snapshot for one workspace path, for every one-shot
+  // workflow (harness, wizard, cron, commit message, curator).
+  container.register(
+    SDK_TOKENS.SDK_WORKSPACE_LLM_RESOLVER,
+    { useClass: WorkspaceLlmResolver },
     { lifecycle: Lifecycle.Singleton },
   );
   container.register(

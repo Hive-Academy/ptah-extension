@@ -121,6 +121,13 @@ export type CuratorExtraction =
  */
 export interface CuratorCallOptions {
   readonly userInitiated?: boolean;
+  /**
+   * The curated session's workspace. The adapter resolves the provider, model
+   * and cwd for THIS root — a queued pass can run long after another
+   * workspace became active. Absent/`null`: a rootless session, which runs on
+   * the app/global provider in the home directory.
+   */
+  readonly workspaceRoot?: string | null;
 }
 
 export interface ICuratorLLM {

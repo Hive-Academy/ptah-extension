@@ -48,10 +48,14 @@ export class AnalysisRunCheckpoint {
    * With `resume === true` the existing version-3 manifest of the slug is
    * loaded without deleting anything: stale `running` phases go back to
    * `pending` and the lifecycle returns to `running`. When no resumable
-   * manifest exists (missing, malformed, version 2, or already completed),
-   * the run falls back to a FRESH run: the slug directory is recreated and a
-   * new `runId` is minted. The manifest is persisted before this returns, so
-   * a persistence failure surfaces before any SDK work starts.
+   * manifest exists (missing, malformed, version 2, already completed, or
+   * recorded for a different model than `model`), the run falls back to a
+   * FRESH run: the slug directory is recreated and a new `runId` is minted.
+   * The model check keeps one run on one model — resuming after the
+   * workspace's provider/model changed would mix the old model's completed
+   * phases with the new model's pending ones under the old manifest model.
+   * The manifest is persisted before this returns, so a persistence failure
+   * surfaces before any SDK work starts.
    */
   static async open(
     storage: AnalysisStorageService,
@@ -66,7 +70,11 @@ export class AnalysisRunCheckpoint {
         projectDescription,
       );
       const existing = await storage.loadManifest(slugDir);
-      if (existing && existing.lifecycle !== 'completed') {
+      if (
+        existing &&
+        existing.lifecycle !== 'completed' &&
+        existing.model === model
+      ) {
         for (const phase of Object.values(existing.phases)) {
           if (phase.status === 'running') phase.status = 'pending';
         }
