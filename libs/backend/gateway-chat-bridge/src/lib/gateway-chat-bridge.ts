@@ -35,6 +35,7 @@ import {
 import {
   GATEWAY_TOKENS,
   ConversationKey,
+  type GatewayMessageId,
   resolveEffectiveWorkspaceRoot,
   type ConversationStore,
   type ConversationTurnTracker,
@@ -49,6 +50,7 @@ import {
   type IAgentAdapter,
   type FlatStreamEventUnion,
   type PermissionLevel,
+  type ProviderProfile,
 } from '@ptah-extension/shared';
 import {
   SETTINGS_TOKENS,
@@ -57,6 +59,7 @@ import {
 import { type CodeExecutionMCP } from '@ptah-extension/vscode-lm-tools';
 import {
   SDK_TOKENS,
+  AuthRequiredError,
   type PermissionPromptLifecycleEvent,
   type SdkPermissionHandler,
 } from '@ptah-extension/agent-sdk';
@@ -64,6 +67,10 @@ import {
   AGENT_GENERATION_TOKENS,
   type EnhancedPromptsService,
 } from '@ptah-extension/agent-generation';
+import {
+  AUTH_PROVIDERS_TOKENS,
+  type WorkspaceProviderProfileResolver,
+} from '@ptah-extension/auth-providers';
 import { ConversationQueue } from './conversation-queue';
 
 /**
@@ -73,6 +80,14 @@ import { ConversationQueue } from './conversation-queue';
  * the per-conversation {@link ConversationQueue} chain always settles.
  */
 const TURN_WATCHDOG_MS = 10 * 60_000;
+
+/**
+ * Deadline for a turn's pre-session preparation (SDK context plus the
+ * per-workspace provider profile, which may wait on a local proxy start). It
+ * runs before {@link TURN_WATCHDOG_MS} is armed, so without its own bound a
+ * stalled proxy start would hold the conversation queue forever.
+ */
+const TURN_PREPARATION_DEADLINE_MS = 60_000;
 
 /**
  * Re-arm interval for the "bot is typing" indicator (TASK_2026_271). Every
@@ -170,6 +185,24 @@ interface SdkSessionContext {
 }
 
 /**
+ * Provider a turn runs against, resolved once per turn for the turn's
+ * workspace — the same per-workspace snapshot the webview chat path passes —
+ * so a gateway session never rides the process-wide AuthEnv when another
+ * workspace's provider is the active one. `providerProfile` is `undefined`
+ * only when the shared AuthEnv already serves this workspace's provider.
+ */
+interface TurnProvider {
+  model: string;
+  providerProfile: ProviderProfile | undefined;
+}
+
+/** Result of a turn's pre-session preparation (see `prepareTurn`). */
+interface TurnPreparation {
+  sdkContext: SdkSessionContext;
+  provider: TurnProvider;
+}
+
+/**
  * Per-turn cancellation flag tripped by the turn watchdog. Once tripped, the
  * now-abandoned turn's background continuation must become an inert no-op: it
  * must not bind a session id, append outbound chunks, retry via a fresh
@@ -210,6 +243,8 @@ export class GatewayChatBridge {
     private readonly turnTracker: ConversationTurnTracker,
     @inject(SDK_TOKENS.SDK_PERMISSION_HANDLER)
     private readonly permissionHandler: SdkPermissionHandler,
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_WORKSPACE_PROVIDER_PROFILE_RESOLVER)
+    private readonly workspaceProviderProfileResolver: WorkspaceProviderProfileResolver,
   ) {}
 
   start(): void {
@@ -352,39 +387,28 @@ export class GatewayChatBridge {
       workspace: this.workspace,
     });
     // Both exits below return BEFORE the end-of-turn seal is wired, so they own
-    // their own outbound cleanup — which is why they go through `sendError`
-    // (drain + discard) and not a raw drain. They own their own
-    // `recordTurnOutcome` for the same reason: the `finally` that reports every
-    // other turn is not wired yet, so without these calls a fail-closed turn
-    // answers the user and marks the row, but the Gateway tab shows nothing —
-    // the same partial silence the `resolveSdkContext` catch below exists to
-    // close.
+    // their own outbound cleanup and outcome via `failTurnBeforeSession` — see
+    // its doc for why each of its three steps is required.
     if (!resolved.ok) {
-      await this.sendErrorQuietly(
+      await this.failTurnBeforeSession(
         route,
+        messageId,
         resolved.reason === 'conversation-root-revoked'
           ? WORKSPACE_UNAVAILABLE_MESSAGE
           : 'No workspace is open in Ptah. Open a project folder, then try again.',
         'workspace-unresolved',
+        `workspace unresolved (${resolved.reason})`,
       );
-      this.gateway.recordTurnOutcome(route.platform, {
-        ok: false,
-        reason: `workspace unresolved (${resolved.reason})`,
-      });
-      this.gateway.markInboundTurnState(messageId, 'failed');
       return;
     }
     if (!(await this.workspaceRootExists(resolved.root))) {
-      await this.sendErrorQuietly(
+      await this.failTurnBeforeSession(
         route,
+        messageId,
         WORKSPACE_UNAVAILABLE_MESSAGE,
         'workspace-missing-on-disk',
+        'workspace missing on disk',
       );
-      this.gateway.recordTurnOutcome(route.platform, {
-        ok: false,
-        reason: 'workspace missing on disk',
-      });
-      this.gateway.markInboundTurnState(messageId, 'failed');
       return;
     }
     const workspaceRoot = resolved.root;
@@ -419,30 +443,77 @@ export class GatewayChatBridge {
     // `resolveSdkContext` guards every step internally, but it runs before the
     // try/finally below owns the heartbeat and the active-route entry — if it
     // ever did throw, both would leak. Clean up and rethrow.
-    let sdkContext: SdkSessionContext;
+    //
+    // Preparation runs before the turn watchdog exists, and the profile resolve
+    // can await a proxy start that never settles. It is therefore raced
+    // against its own deadline: past it the turn fails closed and the queue
+    // moves on. The abandoned preparation only ever produces a value nobody
+    // reads — sessions start after this point — so a late completion cannot
+    // start a session or touch the next turn.
+    let prepared: TurnPreparation | null;
+    let preparationTimer: ReturnType<typeof setTimeout> | undefined;
     try {
-      sdkContext = await this.resolveSdkContext(workspaceRoot);
+      const preparation = this.prepareTurn(workspaceRoot);
+      // A rejection that lands after the deadline has no awaiting reader.
+      preparation.catch(() => undefined);
+      prepared = await Promise.race([
+        preparation,
+        new Promise<null>((resolve) => {
+          preparationTimer = setTimeout(
+            () => resolve(null),
+            TURN_PREPARATION_DEADLINE_MS,
+          );
+        }),
+      ]);
     } catch (error: unknown) {
       stopTyping();
       this.activeRoutes.delete(tabId);
+      if (error instanceof AuthRequiredError) {
+        // An expected, user-fixable state rather than a fault: tell the chat
+        // user which provider to check and end the turn without a rethrow.
+        await this.failTurnBeforeSession(
+          route,
+          messageId,
+          error.message,
+          'auth-required',
+          `auth-required (${error.providerId ?? 'unknown provider'})`,
+        );
+        return;
+      }
       // Report before rethrowing. The throw lands in `onInbound`'s swallowing
-      // `.catch`, so without these three lines this path is total silence —
-      // no reply, no Gateway-tab status, no terminal turn state — which is the
-      // exact failure class this task exists to close.
-      await this.sendErrorQuietly(
+      // `.catch`, so without the report this path is total silence.
+      await this.failTurnBeforeSession(
         route,
+        messageId,
         'Ptah could not complete this request. Please try again.',
         'sdk-context',
-      );
-      this.gateway.recordTurnOutcome(route.platform, {
-        ok: false,
-        reason: `session context failed (${
+        `session context failed (${
           error instanceof Error ? error.message : String(error)
         })`,
-      });
-      this.gateway.markInboundTurnState(messageId, 'failed');
+      );
       throw error;
+    } finally {
+      clearTimeout(preparationTimer);
     }
+
+    if (prepared === null) {
+      cancellation.cancelled = true;
+      stopTyping();
+      this.activeRoutes.delete(tabId);
+      this.logger.warn('[gateway-chat-bridge] turn preparation timed out', {
+        conversationId: String(conversation.id),
+        timeoutMs: TURN_PREPARATION_DEADLINE_MS,
+      });
+      await this.failTurnBeforeSession(
+        route,
+        messageId,
+        'Ptah could not complete this request. Please try again.',
+        'preparation-timeout',
+        'provider resolution timed out',
+      );
+      return;
+    }
+    const { sdkContext, provider } = prepared;
 
     // How this turn ended, for the Gateway tab (TASK_2026_271 #7). Set at
     // each failure site below; `null` at the end means success.
@@ -456,6 +527,7 @@ export class GatewayChatBridge {
           workspaceRoot,
           tabId,
           sdkContext,
+          provider,
         );
         if (cancellation.cancelled) return;
         sessionToEnd =
@@ -475,6 +547,7 @@ export class GatewayChatBridge {
           tabId,
           route,
           sdkContext,
+          provider,
           cancellation,
         );
         if (recovered.ok) {
@@ -601,6 +674,24 @@ export class GatewayChatBridge {
   }
 
   /**
+   * Everything a turn needs before its session starts. The provider profile
+   * is resolved here, ONCE, and deliberately outside `resolveSdkContext`'s
+   * degrade-to-defaults guards: a workspace whose provider cannot be served
+   * must fail the turn closed, never silently run on whichever provider the
+   * shared AuthEnv happens to hold.
+   */
+  private async prepareTurn(workspaceRoot: string): Promise<TurnPreparation> {
+    const sdkContext = await this.resolveSdkContext(workspaceRoot);
+    const model = this.resolveModel();
+    const providerProfile =
+      await this.workspaceProviderProfileResolver.resolveProviderProfileForWorkspace(
+        workspaceRoot,
+        model,
+      );
+    return { sdkContext, provider: { model, providerProfile } };
+  }
+
+  /**
    * Resolve the session context for a turn, mirroring the webview chat path
    * (`ChatSessionService` + `ChatSdkContextService`). Every external call
    * is guarded so a prompt/plugin/MCP failure degrades to safe defaults
@@ -700,12 +791,13 @@ export class GatewayChatBridge {
     workspaceRoot: string,
     tabId: string,
     sdkContext: SdkSessionContext,
+    provider: TurnProvider,
   ): Promise<AsyncIterable<FlatStreamEventUnion>> {
     const persistedId = conversation.ptahSessionId;
     const canResume =
       !!persistedId &&
       this.agentAdapter.isSessionActive(SessionId.from(persistedId));
-    const model = this.resolveModel();
+    const { model, providerProfile } = provider;
     const permissionLevel = this.resolvePermissionLevel();
     if (persistedId && canResume) {
       return this.agentAdapter.resumeSession(SessionId.from(persistedId), {
@@ -716,6 +808,7 @@ export class GatewayChatBridge {
         permissionLevel,
         mcpServerRunning: sdkContext.mcpServerRunning,
         enhancedPromptsContent: sdkContext.enhancedPromptsContent,
+        providerProfile,
       });
     }
     if (persistedId) {
@@ -730,6 +823,7 @@ export class GatewayChatBridge {
             permissionLevel,
             mcpServerRunning: sdkContext.mcpServerRunning,
             enhancedPromptsContent: sdkContext.enhancedPromptsContent,
+            providerProfile,
           },
         );
       } catch (error: unknown) {
@@ -742,7 +836,7 @@ export class GatewayChatBridge {
         );
       }
     }
-    return this.startNew(body, workspaceRoot, tabId, sdkContext);
+    return this.startNew(body, workspaceRoot, tabId, sdkContext, provider);
   }
 
   private startNew(
@@ -750,17 +844,19 @@ export class GatewayChatBridge {
     workspaceRoot: string,
     tabId: string,
     sdkContext: SdkSessionContext,
+    provider: TurnProvider,
   ): Promise<AsyncIterable<FlatStreamEventUnion>> {
     return this.agentAdapter.startChatSession({
       tabId,
       prompt: body,
       projectPath: workspaceRoot,
       workspaceId: workspaceRoot,
-      model: this.resolveModel(),
+      model: provider.model,
       includePartialMessages: true,
       permissionLevel: this.resolvePermissionLevel(),
       mcpServerRunning: sdkContext.mcpServerRunning,
       enhancedPromptsContent: sdkContext.enhancedPromptsContent,
+      providerProfile: provider.providerProfile,
     });
   }
 
@@ -837,6 +933,7 @@ export class GatewayChatBridge {
     tabId: string,
     route: OutboundRoute,
     sdkContext: SdkSessionContext,
+    provider: TurnProvider,
     cancellation: TurnCancellation,
   ): Promise<{ ok: boolean; sessionId: string | null }> {
     // Turn already watchdog-terminated — do not start a stray retry session or
@@ -861,6 +958,7 @@ export class GatewayChatBridge {
         workspaceRoot,
         tabId,
         sdkContext,
+        provider,
       );
       if (cancellation.cancelled) return { ok: false, sessionId: null };
       const sessionId = await this.pumpStream(
@@ -936,6 +1034,25 @@ export class GatewayChatBridge {
    * leaving no record of the turn anywhere — the exact silence this task
    * exists to remove.
    */
+  /**
+   * End a turn that never reached a session. Such exits return before the
+   * end-of-turn seal and its `finally` are wired, so they own all three steps:
+   * the reply goes through `sendError` (drain + discard, not a raw drain); the
+   * outcome is recorded, or the Gateway tab shows nothing; and the inbound row
+   * gets a terminal state, or the next boot asks the user to resend.
+   */
+  private async failTurnBeforeSession(
+    route: OutboundRoute,
+    messageId: GatewayMessageId,
+    reply: string,
+    context: string,
+    reason: string,
+  ): Promise<void> {
+    await this.sendErrorQuietly(route, reply, context);
+    this.gateway.recordTurnOutcome(route.platform, { ok: false, reason });
+    this.gateway.markInboundTurnState(messageId, 'failed');
+  }
+
   private async sendErrorQuietly(
     route: OutboundRoute,
     message: string,

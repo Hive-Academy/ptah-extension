@@ -72,8 +72,12 @@ const accessMock = access as jest.MockedFunction<typeof access>;
 import type {
   FlatStreamEventUnion,
   IAgentAdapter,
+  ProviderProfile,
 } from '@ptah-extension/shared';
-import type { PermissionPromptLifecycleEvent } from '@ptah-extension/agent-sdk';
+import {
+  AuthRequiredError,
+  type PermissionPromptLifecycleEvent,
+} from '@ptah-extension/agent-sdk';
 
 function createLogger(): Logger {
   return {
@@ -337,6 +341,12 @@ interface Harness {
   };
   enhancedPromptsService: { getEnhancedPromptContent: jest.Mock };
   permissionHandler: FakePermissionHandler;
+  providerProfileResolver: {
+    resolveProviderProfileForWorkspace: jest.Mock<
+      Promise<ProviderProfile | undefined>,
+      [string, string]
+    >;
+  };
 }
 
 function setup(options?: {
@@ -358,6 +368,11 @@ function setup(options?: {
    * {@link DeliveringGateway}) instead of the default no-op mocks.
    */
   gateway?: FakeGateway;
+  /**
+   * What the per-workspace provider resolver returns. `undefined` (the
+   * default) means the shared AuthEnv serves the workspace's provider.
+   */
+  providerProfile?: ProviderProfile;
 }): Harness {
   const gateway = options?.gateway ?? new FakeGateway();
   const conversations = {
@@ -414,6 +429,11 @@ function setup(options?: {
       .mockResolvedValue(options?.enhancedPromptsContent ?? null),
   };
   const permissionHandler = new FakePermissionHandler();
+  const providerProfileResolver: Harness['providerProfileResolver'] = {
+    resolveProviderProfileForWorkspace: jest
+      .fn<Promise<ProviderProfile | undefined>, [string, string]>()
+      .mockResolvedValue(options?.providerProfile),
+  };
 
   const ctorArgs = [
     createLogger(),
@@ -426,6 +446,7 @@ function setup(options?: {
     enhancedPromptsService,
     turnTracker,
     permissionHandler,
+    providerProfileResolver,
   ] as unknown as ConstructorParameters<typeof GatewayChatBridge>;
   const bridge = new GatewayChatBridge(...ctorArgs);
   return {
@@ -439,6 +460,7 @@ function setup(options?: {
     codeExecutionMcp,
     enhancedPromptsService,
     permissionHandler,
+    providerProfileResolver,
   };
 }
 
@@ -2479,5 +2501,333 @@ describe('GatewayChatBridge — a failed turn never pollutes the next reply', ()
     expect(gateway.delivered).toHaveLength(2);
     expect(gateway.delivered[1]).toBe('second reply');
     expect(gateway.delivered[1]).not.toContain('could not deliver');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Per-workspace provider snapshot
+// ---------------------------------------------------------------------------
+//
+// Gateway sessions get the same per-workspace provider profile as the webview
+// chat path instead of riding the process-wide AuthEnv. The profile is
+// resolved once per turn for the turn's workspace and threaded into every
+// start/resume; a workspace whose provider cannot be served fails closed.
+describe('GatewayChatBridge — per-workspace provider profile', () => {
+  const PROFILE: ProviderProfile = {
+    providerId: 'openrouter',
+    authEnv: { ANTHROPIC_BASE_URL: 'http://127.0.0.1:4000' },
+    model: 'claude-sonnet-4',
+  };
+
+  it('resolves the profile once for the turn workspace and model, and passes it to startChatSession', async () => {
+    const h = setup({ providerProfile: PROFILE, selectedModel: 'opus' });
+    const binding = makeBinding({ workspaceRoot: '/ws/proj' });
+    h.adapter.startChatSession.mockResolvedValue(
+      await scriptedStream([
+        textDelta(SDK_UUID, 'hi'),
+        messageComplete(SDK_UUID),
+      ]),
+    );
+
+    h.bridge.start();
+    h.gateway.emit('inbound', makeEvent(binding, 'go'));
+    await flushUntil(
+      () => h.gateway.completeOutboundTurn.mock.calls.length > 0,
+    );
+
+    expect(
+      h.providerProfileResolver.resolveProviderProfileForWorkspace.mock.calls,
+    ).toEqual([['/ws/proj', 'opus']]);
+    const config = h.adapter.startChatSession.mock.calls[0][0];
+    expect(config.providerProfile).toBe(PROFILE);
+    expect(config.model).toBe('opus');
+  });
+
+  it('passes the profile to resumeSession', async () => {
+    const h = setup({ providerProfile: PROFILE });
+    const binding = makeBinding({ workspaceRoot: '/ws/proj' });
+    const conversation = makeConversation(binding, { ptahSessionId: SDK_UUID });
+    h.adapter.isSessionActive.mockReturnValue(true);
+    h.adapter.resumeSession.mockResolvedValue(
+      await scriptedStream([
+        textDelta(SDK_UUID, 'r'),
+        messageComplete(SDK_UUID),
+      ]),
+    );
+
+    h.bridge.start();
+    h.gateway.emit('inbound', makeEvent(binding, 'again', { conversation }));
+    await flushUntil(
+      () => h.gateway.completeOutboundTurn.mock.calls.length > 0,
+    );
+
+    expect(h.adapter.resumeSession).toHaveBeenCalledTimes(1);
+    expect(h.adapter.resumeSession.mock.calls[0][1]?.providerProfile).toBe(
+      PROFILE,
+    );
+  });
+
+  it('passes the model and profile to resumeSession for a persisted session that is no longer active', async () => {
+    const h = setup({ providerProfile: PROFILE, selectedModel: 'opus' });
+    const binding = makeBinding({ workspaceRoot: '/ws/proj' });
+    const conversation = makeConversation(binding, { ptahSessionId: SDK_UUID });
+    // Not active: skips the fast path and takes openStream's second resume.
+    h.adapter.isSessionActive.mockReturnValue(false);
+    h.adapter.resumeSession.mockResolvedValue(
+      await scriptedStream([
+        textDelta(SDK_UUID, 'restored'),
+        messageComplete(SDK_UUID),
+      ]),
+    );
+
+    h.bridge.start();
+    h.gateway.emit('inbound', makeEvent(binding, 'again', { conversation }));
+    await flushUntil(
+      () => h.gateway.completeOutboundTurn.mock.calls.length > 0,
+    );
+
+    expect(h.adapter.resumeSession).toHaveBeenCalledTimes(1);
+    expect(h.adapter.startChatSession).not.toHaveBeenCalled();
+    const config = h.adapter.resumeSession.mock.calls[0][1];
+    expect(config?.model).toBe('opus');
+    expect(config?.providerProfile).toBe(PROFILE);
+  });
+
+  it('passes the same profile to the fallback new session after a failed resume', async () => {
+    const h = setup({ providerProfile: PROFILE });
+    const binding = makeBinding({ workspaceRoot: '/ws/proj' });
+    const conversation = makeConversation(binding, { ptahSessionId: SDK_UUID });
+    h.adapter.isSessionActive.mockReturnValue(true);
+    // A zero-event resume throws the bridge's sentinel, driving tryFallbackStart.
+    h.adapter.resumeSession.mockResolvedValue(await scriptedStream([]));
+    h.adapter.startChatSession.mockResolvedValue(
+      await scriptedStream([
+        textDelta(SDK_UUID_B, 'fresh'),
+        messageComplete(SDK_UUID_B),
+      ]),
+    );
+
+    h.bridge.start();
+    h.gateway.emit('inbound', makeEvent(binding, 'again', { conversation }));
+    await flushUntil(
+      () => h.gateway.completeOutboundTurn.mock.calls.length > 0,
+    );
+
+    expect(h.adapter.startChatSession).toHaveBeenCalledTimes(1);
+    expect(h.adapter.startChatSession.mock.calls[0][0].providerProfile).toBe(
+      PROFILE,
+    );
+    expect(
+      h.providerProfileResolver.resolveProviderProfileForWorkspace,
+    ).toHaveBeenCalledTimes(1);
+  });
+
+  it('passes an undefined profile through when the shared AuthEnv serves the same provider', async () => {
+    const h = setup();
+    const binding = makeBinding({ workspaceRoot: '/ws/proj' });
+    h.adapter.startChatSession.mockResolvedValue(
+      await scriptedStream([
+        textDelta(SDK_UUID, 'hi'),
+        messageComplete(SDK_UUID),
+      ]),
+    );
+
+    h.bridge.start();
+    h.gateway.emit('inbound', makeEvent(binding, 'go'));
+    await flushUntil(
+      () => h.gateway.completeOutboundTurn.mock.calls.length > 0,
+    );
+
+    const config = h.adapter.startChatSession.mock.calls[0][0];
+    expect('providerProfile' in config).toBe(true);
+    expect(config.providerProfile).toBeUndefined();
+    expect(h.gateway.recordTurnOutcome).toHaveBeenCalledWith(binding.platform, {
+      ok: true,
+    });
+  });
+
+  it('fails the turn closed on AuthRequiredError: no session, a provider reply, turn marked failed', async () => {
+    const h = setup();
+    const binding = makeBinding({ workspaceRoot: '/ws/proj' });
+    const conversation = makeConversation(binding, { ptahSessionId: SDK_UUID });
+    h.adapter.isSessionActive.mockReturnValue(true);
+    const message =
+      'Cannot start this session: OpenRouter is not ready for this workspace, and the active connection uses a different provider. Check OpenRouter in Settings and retry.';
+    h.providerProfileResolver.resolveProviderProfileForWorkspace.mockRejectedValue(
+      new AuthRequiredError(message, {
+        providerId: 'openrouter',
+        recoveryHint: 'Check OpenRouter in Settings and retry.',
+      }),
+    );
+
+    h.bridge.start();
+    h.gateway.emit(
+      'inbound',
+      makeEvent(binding, 'go', { conversation, messageId: 'gwmsg-auth' }),
+    );
+    await flushUntil(
+      () => h.gateway.markInboundTurnState.mock.calls.length > 1,
+    );
+
+    expect(h.adapter.startChatSession).not.toHaveBeenCalled();
+    expect(h.adapter.resumeSession).not.toHaveBeenCalled();
+    expect(h.gateway.appendOutboundChunk).toHaveBeenCalledWith(
+      expect.objectContaining({ platform: binding.platform }),
+      message,
+    );
+    expect(h.gateway.discardOutbound).toHaveBeenCalled();
+    expect(h.gateway.recordTurnOutcome).toHaveBeenCalledWith(binding.platform, {
+      ok: false,
+      reason: 'auth-required (openrouter)',
+    });
+    expect(h.gateway.markInboundTurnState.mock.calls).toEqual([
+      ['gwmsg-auth', 'running'],
+      ['gwmsg-auth', 'failed'],
+    ]);
+    // Never sealed: the early exit owns its own outbound cleanup.
+    expect(h.gateway.completeOutboundTurn).not.toHaveBeenCalled();
+  });
+
+  it('treats any other resolver failure like a session-context failure', async () => {
+    const h = setup();
+    const binding = makeBinding({ workspaceRoot: '/ws/proj' });
+    h.providerProfileResolver.resolveProviderProfileForWorkspace.mockRejectedValue(
+      new Error('resolver exploded'),
+    );
+
+    h.bridge.start();
+    h.gateway.emit(
+      'inbound',
+      makeEvent(binding, 'go', { messageId: 'gwmsg-err' }),
+    );
+    await flushUntil(
+      () => h.gateway.markInboundTurnState.mock.calls.length > 1,
+    );
+
+    expect(h.adapter.startChatSession).not.toHaveBeenCalled();
+    expect(h.gateway.appendOutboundChunk).toHaveBeenCalledWith(
+      expect.objectContaining({ platform: binding.platform }),
+      'Ptah could not complete this request. Please try again.',
+    );
+    expect(h.gateway.recordTurnOutcome).toHaveBeenCalledWith(binding.platform, {
+      ok: false,
+      reason: 'session context failed (resolver exploded)',
+    });
+    expect(h.gateway.markInboundTurnState).toHaveBeenLastCalledWith(
+      'gwmsg-err',
+      'failed',
+    );
+  });
+
+  describe('preparation deadline', () => {
+    const PREPARATION_DEADLINE_MS = 60_000;
+    const TYPING_REARM_MS = 8_000;
+
+    async function settle(predicate: () => boolean, ticks = 10): Promise<void> {
+      for (let i = 0; i < ticks && !predicate(); i++) {
+        await jest.advanceTimersByTimeAsync(0);
+      }
+    }
+
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    it('fails a turn whose provider resolve never settles, releases the queue, and ignores the late result', async () => {
+      jest.useFakeTimers();
+      const h = setup();
+      const binding = makeBinding({ workspaceRoot: '/ws/proj' });
+      const conversation = makeConversation(binding, { id: 'conv-slow' });
+      const key = ConversationKey.for(binding.platform, binding.externalChatId);
+      let settleLate!: (profile: ProviderProfile | undefined) => void;
+      h.providerProfileResolver.resolveProviderProfileForWorkspace
+        .mockImplementationOnce(
+          () =>
+            new Promise<ProviderProfile | undefined>((resolve) => {
+              settleLate = resolve;
+            }),
+        )
+        .mockResolvedValue(undefined);
+      h.adapter.startChatSession.mockResolvedValue(
+        await scriptedStream([
+          textDelta(SDK_UUID, 'next reply'),
+          messageComplete(SDK_UUID),
+        ]),
+      );
+
+      h.bridge.start();
+      h.gateway.emit(
+        'inbound',
+        makeEvent(binding, 'stalls', { conversation, messageId: 'gwmsg-slow' }),
+      );
+      await settle(
+        () =>
+          h.providerProfileResolver.resolveProviderProfileForWorkspace.mock
+            .calls.length > 0,
+      );
+      expect(h.turnTracker.isBusy(key)).toBe(true);
+
+      await jest.advanceTimersByTimeAsync(PREPARATION_DEADLINE_MS);
+      await settle(() => !h.turnTracker.isBusy(key));
+
+      expect(h.adapter.startChatSession).not.toHaveBeenCalled();
+      expect(h.adapter.resumeSession).not.toHaveBeenCalled();
+      expect(h.gateway.appendOutboundChunk).toHaveBeenCalledWith(
+        expect.objectContaining({ conversationKey: key }),
+        'Ptah could not complete this request. Please try again.',
+      );
+      expect(h.gateway.recordTurnOutcome).toHaveBeenCalledWith(
+        binding.platform,
+        { ok: false, reason: 'provider resolution timed out' },
+      );
+      expect(h.gateway.markInboundTurnState.mock.calls).toEqual([
+        ['gwmsg-slow', 'running'],
+        ['gwmsg-slow', 'failed'],
+      ]);
+      expect(h.turnTracker.isBusy(key)).toBe(false);
+
+      // Typing stopped: no further pings across several re-arm windows.
+      const typed = h.gateway.sendTyping.mock.calls.length;
+      await jest.advanceTimersByTimeAsync(TYPING_REARM_MS * 3);
+      expect(h.gateway.sendTyping).toHaveBeenCalledTimes(typed);
+
+      // Route removed: a prompt for the tab reaches no chat user.
+      h.permissionHandler.fire({
+        phase: 'requested',
+        requestId: 'r-slow',
+        routingHint: 'gw-conv-slow',
+        toolName: 'Write',
+        description: 'Write /ws/proj/a.ts',
+        routable: false,
+        timeoutMs: 60_000,
+      });
+      expect(h.gateway.sendNotice).not.toHaveBeenCalled();
+
+      // The next message for the same conversation runs normally.
+      h.gateway.emit(
+        'inbound',
+        makeEvent(binding, 'next', { conversation, messageId: 'gwmsg-next' }),
+      );
+      await settle(
+        () => h.gateway.completeOutboundTurn.mock.calls.length > 0,
+        50,
+      );
+      expect(h.adapter.startChatSession).toHaveBeenCalledTimes(1);
+      expect(h.adapter.startChatSession.mock.calls[0][0].prompt).toBe('next');
+      expect(h.gateway.markInboundTurnState).toHaveBeenLastCalledWith(
+        'gwmsg-next',
+        'done',
+      );
+
+      // The stalled resolve finally settles: nothing else happens.
+      const outcomes = h.gateway.recordTurnOutcome.mock.calls.length;
+      const states = h.gateway.markInboundTurnState.mock.calls.length;
+      settleLate(PROFILE);
+      await settle(() => false);
+      expect(h.adapter.startChatSession).toHaveBeenCalledTimes(1);
+      expect(h.adapter.resumeSession).not.toHaveBeenCalled();
+      expect(h.gateway.recordTurnOutcome).toHaveBeenCalledTimes(outcomes);
+      expect(h.gateway.markInboundTurnState).toHaveBeenCalledTimes(states);
+    });
   });
 });
