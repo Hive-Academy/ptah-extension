@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_403_403b
-status: in_progress
+status: done
 type: refactoring
 title: >-
   Make task ids collision-proof across worktrees and open PRs with a unique
@@ -13,7 +13,7 @@ description: >-
   so two allocations of the same number can never share a folder, and widen the
   allocator scan to origin/main and every worktree so duplicate numbers become
   rare as well as harmless.
-updated: '2026-10-10T18:19:16.780Z'
+updated: '2026-10-10T19:48:55.940Z'
 ---
 
 See context.md for the evidence (three collisions in one week, one inside the PR that
