@@ -54,6 +54,13 @@ export {
   SESSION_METADATA_MIGRATION,
   SESSION_METADATA_WORKER_CACHE_EXCLUSIONS,
 } from './lib/session-metadata-store';
+export {
+  LegacySessionStoreMigrator,
+  openReadOnlyJsonStateFile,
+  type LegacySessionKeyMapping,
+  type LegacySessionMigrationResult,
+  type LegacySessionSource,
+} from './lib/session-store-migrator';
 export type {
   SessionMetadata,
   PersistedAgentOutput,
