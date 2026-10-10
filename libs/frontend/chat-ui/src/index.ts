@@ -101,6 +101,10 @@ export {
   PTAH_UI_LIVE_CAP,
 } from './lib/services/ptah-ui-live-window';
 export {
+  PTAH_UI_HOST_SOURCES,
+  type PtahUiHostSources,
+} from './lib/services/ptah-ui-host-sources';
+export {
   generateAgentColor,
   generateAgentColorOklch,
   formatOklch,

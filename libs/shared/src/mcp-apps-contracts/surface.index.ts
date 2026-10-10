@@ -137,12 +137,29 @@ export { parsePtahUi } from './ptah-ui-parser';
 export { convertPtahUi } from './ptah-ui-converter';
 export type { PtahUiBinding, PtahUiConversion } from './ptah-ui-converter';
 export { resolvePtahUi } from './ptah-ui-resolver';
-export type { ResolvedPtahUiContent } from './ptah-ui-resolver';
-export { renderPtahUiBlock } from './ptah-ui-pipeline';
 export type {
+  PtahUiLimitRow,
+  PtahUiLimitsInput,
+  PtahUiLiveSources,
+  ResolvedPtahUiContent,
+} from './ptah-ui-resolver';
+export {
+  compilePtahUiBlock,
+  renderPtahUiBlock,
+  resolveCompiledPtahUiBlock,
+} from './ptah-ui-pipeline';
+export type {
+  CompiledPtahUiBlock,
+  CompilePtahUiBlockResult,
   RenderPtahUiBlockInput,
   RenderPtahUiBlockResult,
+  ResolvePtahUiBlockInput,
 } from './ptah-ui-pipeline';
+// Types only: the `$agents` module itself is lazy (forbidden-eager, D6).
+export type {
+  PtahUiAgentsInput,
+  TurnAgentFacts,
+} from './ptah-ui-agents-source';
 export type {
   PtahUiDocument,
   PtahUiElement,

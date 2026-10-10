@@ -1,7 +1,14 @@
 import axe from 'axe-core';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { Component, input, signal } from '@angular/core';
+import {
+  Component,
+  input,
+  signal,
+  type Provider,
+  type Signal,
+  type WritableSignal,
+} from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
 import { MarkdownModule, provideMarkdown } from 'ngx-markdown';
@@ -10,12 +17,24 @@ import {
   SurfaceRendererComponent,
   type SurfaceViewModelBuilder,
 } from '@ptah-extension/declarative-dashboard';
-import { renderPtahUiBlock } from '@ptah-extension/shared/mcp-apps-contracts/surface';
+import {
+  compilePtahUiBlock,
+  resolveCompiledPtahUiBlock,
+  type CompiledPtahUiBlock,
+  type PtahUiAgentsInput,
+  type PtahUiLimitsInput,
+} from '@ptah-extension/shared/mcp-apps-contracts/surface';
 import type { TurnSourceSnapshot } from '@ptah-extension/shared';
 import { PtahUiLiveWindow } from '../../services/ptah-ui-live-window';
 import {
+  PTAH_UI_HOST_SOURCES,
+  type PtahUiHostSources,
+} from '../../services/ptah-ui-host-sources';
+import {
+  PTAH_UI_BLOCK_LIVE_SOURCES,
   PTAH_UI_BLOCK_PIPELINE,
   PtahUiBlockComponent,
+  type PtahUiBlockLiveSources,
   type PtahUiBlockPipeline,
 } from './ptah-ui-block.component';
 
@@ -24,6 +43,36 @@ const LITERAL_BODY =
 const SOURCE_BODY =
   'title Turn summary\nstats\n  Files changed | $diff.files\n  Prompt cost | $usage.cost\ntable $diff\nlist $tests\nchart line Coverage by run\n  Baseline | 72.4\n  Pipeline | 84.6\n';
 const INVALID_BODY = 'title Status\ngauge 5\n';
+/** A literal block that also names `$diff`, so turn snapshots reach it. */
+const DIFF_BODY = LITERAL_BODY + 'table $diff\n';
+const LIVE_BODY = 'stats\n  Agents | $agents.total\n  Lanes | $limits.lanes\n';
+
+const agentsWith = (count: number): PtahUiAgentsInput => ({
+  turnIndex: 0,
+  turns: [
+    {
+      startedAt: 0,
+      nodes: Array.from({ length: count }, (_, index) => ({
+        id: `agent-${index}`,
+        agentType: 'coder',
+        status: 'complete',
+      })),
+      spawnToolCallIds: [],
+    },
+  ],
+  records: [],
+  lanes: [],
+  capacities: [],
+});
+const LIMITS_AVAILABLE: PtahUiLimitsInput = {
+  kind: 'available',
+  rows: [],
+  lanes: 7,
+  atLimit: 0,
+  nearLimit: 0,
+  unknown: 0,
+  asOf: 0,
+};
 
 const fence = (body: string): string => '```ptah-ui\n' + body + '```\n';
 
@@ -114,8 +163,8 @@ class BlockHostComponent {
   `,
 })
 class TranscriptHostComponent {
-  readonly body = LITERAL_BODY;
-  readonly raw = fence(LITERAL_BODY);
+  readonly body = DIFF_BODY;
+  readonly raw = fence(DIFF_BODY);
   readonly blocks = signal<readonly BlockSpec[]>([]);
   readonly snapshot = signal<TurnSourceSnapshot | null>(null);
 }
@@ -158,24 +207,44 @@ function setTheme(theme: 'light' | 'dark'): void {
 }
 
 describe('PtahUiBlockComponent', () => {
+  /** Resolve runs per surface id. */
   let pipelineCalls: Map<string, number>;
-  let pipeline: PtahUiBlockPipeline;
+  /** Compile (parse + convert) runs per surface id. */
+  let compileCalls: Map<string, number>;
 
-  function configure(stub?: PtahUiBlockPipeline): void {
+  const bump = (counts: Map<string, number>, key: string): void => {
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  };
+
+  /** The shipped pipeline, counting each half per surface id. */
+  function countingPipeline(): PtahUiBlockPipeline {
+    const surfaceOf = new WeakMap<CompiledPtahUiBlock, string>();
+    return {
+      compile: (body, surfaceId) => {
+        bump(compileCalls, surfaceId);
+        const compiled = compilePtahUiBlock(body, surfaceId);
+        if (compiled.ok) surfaceOf.set(compiled, surfaceId);
+        return compiled;
+      },
+      resolve: (compiled, input) => {
+        bump(pipelineCalls, surfaceOf.get(compiled) ?? '?');
+        return resolveCompiledPtahUiBlock(compiled, input);
+      },
+    };
+  }
+
+  function configure(
+    stub?: Partial<PtahUiBlockPipeline>,
+    extraProviders: Provider[] = [],
+  ): void {
     pipelineCalls = new Map();
-    pipeline =
-      stub ??
-      ((body, options) => {
-        pipelineCalls.set(
-          options.surfaceId,
-          (pipelineCalls.get(options.surfaceId) ?? 0) + 1,
-        );
-        return renderPtahUiBlock(body, options);
-      });
+    compileCalls = new Map();
+    const pipeline = { ...countingPipeline(), ...stub };
     TestBed.configureTestingModule({
       providers: [
         provideMarkdown(),
         { provide: PTAH_UI_BLOCK_PIPELINE, useValue: pipeline },
+        ...extraProviders,
       ],
     });
   }
@@ -197,9 +266,27 @@ describe('PtahUiBlockComponent', () => {
     const reasonLine = (): HTMLElement | null =>
       native().querySelector<HTMLElement>('[data-ptah-ui-reason]');
 
-    function create(stub?: PtahUiBlockPipeline): void {
-      configure(stub);
+    function create(
+      stub?: Partial<PtahUiBlockPipeline>,
+      extraProviders: Provider[] = [],
+    ): void {
+      configure(stub, extraProviders);
       fixture = TestBed.createComponent(BlockHostComponent);
+    }
+
+    const blockInstance = (): PtahUiBlockComponent =>
+      fixture.debugElement.query(By.directive(PtahUiBlockComponent))
+        .componentInstance as PtahUiBlockComponent;
+    const rendererInstance = (): SurfaceRendererComponent | null =>
+      (fixture.debugElement.query(By.directive(SurfaceRendererComponent))
+        ?.componentInstance as SurfaceRendererComponent | undefined) ?? null;
+    /** The literal `value` of each top-level stat the renderer received. */
+    function statValues(): unknown[] {
+      const content = rendererInstance()?.renderable() as
+        { surface: { components: readonly { value?: unknown }[] } } | undefined;
+      return (
+        content?.surface.components.map((component) => component.value) ?? []
+      );
     }
 
     function useBody(body: string): void {
@@ -326,18 +413,80 @@ describe('PtahUiBlockComponent', () => {
       ).toBeNull();
     });
 
-    it('falls back with "internal error" when the pipeline throws, and the host still renders', async () => {
-      create(() => {
-        throw new Error('boom');
+    it.each(['compile', 'resolve'] as const)(
+      'falls back with "internal error" when %s throws, and the host still renders',
+      async (half) => {
+        create({
+          [half]: () => {
+            throw new Error('boom');
+          },
+        });
+        await settle(fixture);
+
+        expect(reasonLine()?.textContent?.trim()).toBe(
+          'Not rendered: internal error',
+        );
+        expect(native().querySelector('markdown code')?.textContent).toContain(
+          'Release checklist',
+        );
+      },
+    );
+
+    it('falls back with the reason of a reserved-id compile failure, before any resolve', async () => {
+      create({
+        compile: () => ({
+          ok: false,
+          code: 'reserved-id',
+          reason: 'reserved display id',
+        }),
       });
       await settle(fixture);
 
-      expect(reasonLine()?.textContent?.trim()).toBe(
-        'Not rendered: internal error',
+      const reason = reasonLine();
+      expect(reason?.textContent?.trim()).toBe(
+        'Not rendered: reserved display id',
       );
-      expect(native().querySelector('markdown code')?.textContent).toContain(
+      const blockMarkdown = native().querySelector('markdown');
+      expect(blockMarkdown?.querySelector('code')?.textContent).toContain(
         'Release checklist',
       );
+      expect(blockMarkdown?.getAttribute('aria-describedby')).toBe(reason?.id);
+      expect(rendererInstance()).toBeNull();
+      expect(pipelineCalls.size).toBe(0);
+    });
+
+    it('renders through the renderer at container width', async () => {
+      create();
+      await settle(fixture);
+
+      const renderer = rendererInstance();
+      expect(renderer?.layoutWidth()).toBe('container');
+      expect(
+        native()
+          .querySelector('ptah-surface-renderer')
+          ?.classList.contains('dp-root'),
+      ).toBe(true);
+    });
+
+    it('compiles once per body: snapshot changes only re-resolve', async () => {
+      create();
+      useBody(SOURCE_BODY);
+      await settle(fixture);
+      const surfaceId = 'ptah-ui-node-1-0';
+      expect(compileCalls.get(surfaceId)).toBe(1);
+      expect(pipelineCalls.get(surfaceId)).toBe(1);
+
+      fixture.componentInstance.snapshot.set(PENDING);
+      await settle(fixture);
+      fixture.componentInstance.snapshot.set(EMPTY);
+      await settle(fixture);
+      expect(compileCalls.get(surfaceId)).toBe(1);
+      expect(pipelineCalls.get(surfaceId)).toBe(3);
+
+      // A new body is the only thing that compiles again.
+      useBody(LITERAL_BODY);
+      await settle(fixture);
+      expect(compileCalls.get(surfaceId)).toBe(2);
     });
 
     it('updates a live block in place when the snapshot changes', async () => {
@@ -483,6 +632,8 @@ describe('PtahUiBlockComponent', () => {
       await settle(fixture);
 
       expect(native().textContent).toBe(before);
+      // Resolve reruns only for used sources (D5): no turn source, no rerun.
+      expect(pipelineCalls.get('ptah-ui-node-1-0')).toBe(1);
       expect(
         native()
           .querySelector('[data-testid="ptah-ui-block"]')
@@ -493,6 +644,153 @@ describe('PtahUiBlockComponent', () => {
         By.directive(SurfaceRendererComponent),
       ).componentInstance as SurfaceRendererComponent;
       expect(rendererAfter).toBe(rendererBefore);
+    });
+
+    describe('live sources ($agents, $limits)', () => {
+      let agents: WritableSignal<PtahUiAgentsInput>;
+      let limits: WritableSignal<PtahUiLimitsInput>;
+      let live: {
+        agentsInput: jest.Mock<
+          Signal<PtahUiAgentsInput>,
+          [PtahUiHostSources, number]
+        >;
+        acquireLimits: jest.Mock<Signal<PtahUiLimitsInput>, []>;
+        releaseLimits: jest.Mock<void, []>;
+      };
+      let host: PtahUiHostSources & { turnIndexOf: jest.Mock };
+
+      beforeEach(() => {
+        agents = signal(agentsWith(1));
+        limits = signal<PtahUiLimitsInput>({ kind: 'pending' });
+        live = {
+          agentsInput: jest.fn(() => agents.asReadonly()),
+          acquireLimits: jest.fn(() => limits.asReadonly()),
+          releaseLimits: jest.fn(),
+        };
+        host = {
+          tabId: signal('tab-1'),
+          sessionId: signal<string | null>('s1'),
+          turnFacts: signal([]),
+          turnIndexOf: jest.fn(() => 0),
+          capacities: signal([]),
+        };
+      });
+
+      function createLive(withHost = true): void {
+        create(undefined, [
+          {
+            provide: PTAH_UI_BLOCK_LIVE_SOURCES,
+            useValue: live satisfies PtahUiBlockLiveSources,
+          },
+          ...(withHost
+            ? [{ provide: PTAH_UI_HOST_SOURCES, useValue: host }]
+            : []),
+        ]);
+      }
+
+      it('reads no live source for a $diff-only block', async () => {
+        createLive();
+        useBody('table $diff\n');
+        await settle(fixture);
+        fixture.componentInstance.snapshot.set(EMPTY);
+        await settle(fixture);
+
+        expect(rendererInstance()).not.toBeNull();
+        expect(host.turnIndexOf).not.toHaveBeenCalled();
+        expect(live.agentsInput).not.toHaveBeenCalled();
+        expect(live.acquireLimits).not.toHaveBeenCalled();
+        fixture.destroy();
+        expect(live.releaseLimits).not.toHaveBeenCalled();
+      });
+
+      it('updates $agents and $limits live, in place, without re-instantiation or recompiling', async () => {
+        createLive();
+        useBody(LIVE_BODY);
+        await settle(fixture);
+        const block = blockInstance();
+        const renderer = rendererInstance();
+        const surfaceId = 'ptah-ui-node-1-0';
+
+        expect(host.turnIndexOf).toHaveBeenCalledWith('m1');
+        expect(live.agentsInput).toHaveBeenCalledWith(host, 0);
+        expect(live.acquireLimits).toHaveBeenCalledTimes(1);
+        expect(statValues()[0]).toBe(1);
+        expect(native().textContent).toContain('pending');
+
+        agents.set(agentsWith(2));
+        limits.set(LIMITS_AVAILABLE);
+        await settle(fixture);
+
+        expect(statValues()).toEqual([2, 7]);
+        expect(native().textContent).not.toContain('pending');
+        expect(blockInstance()).toBe(block);
+        expect(rendererInstance()).toBe(renderer);
+        expect(
+          fixture.debugElement.queryAll(By.directive(PtahUiBlockComponent)),
+        ).toHaveLength(1);
+        expect(live.agentsInput).toHaveBeenCalledTimes(1);
+        expect(live.acquireLimits).toHaveBeenCalledTimes(1);
+        expect(compileCalls.get(surfaceId)).toBe(1);
+
+        fixture.destroy();
+        expect(live.releaseLimits).toHaveBeenCalledTimes(1);
+      });
+
+      it('renders $agents "unavailable" without host sources, and still takes $limits', async () => {
+        createLive(false);
+        useBody(LIVE_BODY);
+        limits.set(LIMITS_AVAILABLE);
+        await settle(fixture);
+
+        expect(live.agentsInput).not.toHaveBeenCalled();
+        expect(statValues()).toEqual(['unavailable', 7]);
+        expect(reasonLine()).toBeNull();
+      });
+
+      it('renders both "unavailable" when no live-source adapter is provided', async () => {
+        create(undefined, [{ provide: PTAH_UI_HOST_SOURCES, useValue: host }]);
+        useBody(LIVE_BODY);
+        await settle(fixture);
+
+        expect(statValues()).toEqual(['unavailable', 'unavailable']);
+        expect(reasonLine()).toBeNull();
+      });
+
+      it('takes the $limits read only while the body names it', async () => {
+        createLive();
+        useBody(LIVE_BODY);
+        await settle(fixture);
+        expect(live.acquireLimits).toHaveBeenCalledTimes(1);
+
+        useBody(LITERAL_BODY);
+        await settle(fixture);
+        expect(live.releaseLimits).toHaveBeenCalledTimes(1);
+
+        fixture.destroy();
+        expect(live.releaseLimits).toHaveBeenCalledTimes(1);
+      });
+
+      it('drops the $limits read once a settled snapshot block retires', async () => {
+        createLive();
+        // Eight newer blocks already hold the window: this one mounts as a snapshot.
+        const window = fixture.debugElement.injector.get(PtahUiLiveWindow);
+        for (let index = 0; index < 8; index += 1)
+          window.register(`newer-${index}`, 100 + index);
+        useBody(LIVE_BODY);
+        limits.set(LIMITS_AVAILABLE);
+        await settle(fixture);
+
+        expect(
+          native()
+            .querySelector('[data-testid="ptah-ui-block"]')
+            ?.getAttribute('data-ptah-ui-mode'),
+        ).toBe('snapshot');
+        expect(statValues()).toEqual([1, 7]);
+        expect(live.releaseLimits).toHaveBeenCalledTimes(1);
+
+        fixture.destroy();
+        expect(live.releaseLimits).toHaveBeenCalledTimes(1);
+      });
     });
 
     it('keeps every control a natural tab stop in a live block (no trap)', async () => {

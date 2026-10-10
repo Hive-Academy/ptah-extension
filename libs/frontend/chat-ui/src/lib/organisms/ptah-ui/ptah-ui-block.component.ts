@@ -23,25 +23,68 @@ import {
 } from '@ptah-extension/declarative-dashboard';
 import {
   SURFACE_LIMITS,
-  renderPtahUiBlock,
+  compilePtahUiBlock,
   renderSurfaceText,
+  resolveCompiledPtahUiBlock,
+  type CompilePtahUiBlockResult,
+  type PtahUiAgentsInput,
+  type PtahUiLimitsInput,
+  type PtahUiSourceName,
   type RenderPtahUiBlockResult,
 } from '@ptah-extension/shared/mcp-apps-contracts/surface';
 import type { TurnSourceSnapshot } from '@ptah-extension/shared';
 import { PtahUiLiveWindow } from '../../services/ptah-ui-live-window';
+import {
+  PTAH_UI_HOST_SOURCES,
+  type PtahUiHostSources,
+} from '../../services/ptah-ui-host-sources';
 
-/** The fence pipeline: parse, convert, resolve sources, validate. */
-export type PtahUiBlockPipeline = typeof renderPtahUiBlock;
+/**
+ * The fence pipeline in its two D5 halves: `compile` parses and converts once
+ * per body; `resolve` resolves the compiled block against the current sources
+ * and validates it, as often as a used source changes.
+ */
+export interface PtahUiBlockPipeline {
+  readonly compile: typeof compilePtahUiBlock;
+  readonly resolve: typeof resolveCompiledPtahUiBlock;
+}
 
 /**
  * The pipeline every `ptah-ui` block runs. A token rather than a direct call
- * so a spec can count (or break) pipeline runs; same precedent as
+ * so a spec can count (or break) compile and resolve runs; same precedent as
  * `SURFACE_VIEW_MODEL_BUILDER` in `declarative-dashboard`.
  */
 export const PTAH_UI_BLOCK_PIPELINE = new InjectionToken<PtahUiBlockPipeline>(
   'PTAH_UI_BLOCK_PIPELINE',
-  { providedIn: 'root', factory: () => renderPtahUiBlock },
+  {
+    providedIn: 'root',
+    factory: () => ({
+      compile: compilePtahUiBlock,
+      resolve: resolveCompiledPtahUiBlock,
+    }),
+  },
 );
+
+/**
+ * The live-source adapters a block reads `$agents` and `$limits` through
+ * (component 4a): `agentsInput` projects the store facts of one turn,
+ * `acquireLimits`/`releaseLimits` reference-count the lane plan-limit read.
+ */
+export interface PtahUiBlockLiveSources {
+  agentsInput(
+    hostSources: PtahUiHostSources,
+    turnIndex: number,
+  ): Signal<PtahUiAgentsInput>;
+  acquireLimits(): Signal<PtahUiLimitsInput>;
+  releaseLimits(): void;
+}
+
+/**
+ * Optional, like `PTAH_UI_HOST_SOURCES`: when it is absent, `$agents` and
+ * `$limits` resolve to "unavailable" and the block stays valid (R10.7).
+ */
+export const PTAH_UI_BLOCK_LIVE_SOURCES =
+  new InjectionToken<PtahUiBlockLiveSources>('PTAH_UI_BLOCK_LIVE_SOURCES');
 
 /**
  * Display only (Req 2.17): no selection, no submit. The renderer keeps its
@@ -58,6 +101,12 @@ const READ_ONLY_INTERACTION: SurfaceInteractionState = {
 
 const SURFACE_ID_PREFIX = 'ptah-ui-';
 const UTF8 = new TextEncoder();
+const NO_SOURCES: ReadonlySet<PtahUiSourceName> = new Set();
+/** A thrown compile or resolve; assignable to both pipeline result types. */
+const INTERNAL_ERROR: { readonly ok: false; readonly reason: string } = {
+  ok: false,
+  reason: 'internal error',
+};
 
 function utf8JsonBytes(value: unknown): number {
   return UTF8.encode(JSON.stringify(value)).length;
@@ -76,8 +125,9 @@ function blockSurfaceId(nodeId: string, ordinal: number): string {
 
 /**
  * Whether a snapshot's sources are final: no snapshot at all (no host data,
- * every source `unavailable`), or a terminal turn none of whose sources is
- * still `pending`. A block frozen before this point re-resolves once on it.
+ * every source `unavailable`, or a block that names no turn source), or a
+ * terminal turn none of whose sources is still `pending`. A block frozen
+ * before this point re-resolves once on it.
  */
 function isSettled(snapshot: TurnSourceSnapshot | null): boolean {
   return (
@@ -91,15 +141,22 @@ function isSettled(snapshot: TurnSourceSnapshot | null): boolean {
 
 /**
  * PtahUiBlockComponent - one closed ```` ```ptah-ui ```` fence of an assistant
- * message (TASK_2026_610, component 9, decision 10).
+ * message (TASK_2026_610, component 9, decision 10; TASK_2026_623 component 4).
  *
- * - Valid block: the validated surface through `ptah-surface-renderer`, with
- *   a read-only interaction state and only the `void` `renderFailed` output
- *   bound (it switches the block to the fallback, "could not display").
- * - Invalid block, or a pipeline that throws: the raw fence through the same
- *   `<markdown>` + `surfaceMarkdown` path as any other fence, so the code HTML
- *   is identical, plus a muted reason line OUTSIDE the code, linked with
- *   `aria-describedby`. Copy actions read node text, never this DOM (A-5).
+ * - Compile once per body (D5): the body is parsed and converted once; input
+ *   changes re-resolve the compiled block and never parse again. Only the
+ *   sources the block names are read: the turn snapshot for `$diff`/`$tests`/
+ *   `$usage`, the live `$agents` facts, and the `$limits` read, which is
+ *   acquired only while a block that names it is mounted and live.
+ * - Valid block: the validated surface through `ptah-surface-renderer` at
+ *   container width, with a read-only interaction state and only the `void`
+ *   `renderFailed` output bound (it switches the block to the fallback,
+ *   "could not display").
+ * - Invalid block (any compile failure, a reserved display id included), or a
+ *   pipeline that throws: the raw fence through the same `<markdown>` +
+ *   `surfaceMarkdown` path as any other fence, so the code HTML is identical,
+ *   plus a muted reason line OUTSIDE the code, linked with `aria-describedby`.
+ *   Copy actions read node text, never this DOM (A-5).
  * - Live cap: the block registers with the tab's `PtahUiLiveWindow`. Once it
  *   falls outside the newest `PTAH_UI_LIVE_CAP` blocks it becomes a snapshot
  *   for the rest of its life: the result is frozen (no source reads), the
@@ -125,6 +182,7 @@ function isSettled(snapshot: TurnSourceSnapshot | null): boolean {
         <ptah-surface-renderer
           [renderable]="content"
           [interaction]="readOnlyInteraction"
+          layoutWidth="container"
           (renderFailed)="markRenderFailed()"
         />
       </div>
@@ -154,6 +212,12 @@ function isSettled(snapshot: TurnSourceSnapshot | null): boolean {
 export class PtahUiBlockComponent implements OnInit {
   private readonly pipeline = inject(PTAH_UI_BLOCK_PIPELINE);
   private readonly liveWindow = inject(PtahUiLiveWindow);
+  private readonly hostSources = inject(PTAH_UI_HOST_SOURCES, {
+    optional: true,
+  });
+  private readonly liveSources = inject(PTAH_UI_BLOCK_LIVE_SOURCES, {
+    optional: true,
+  });
   private readonly cdr = inject(ChangeDetectorRef);
   private readonly injector = inject(Injector);
   private readonly destroyRef = inject(DestroyRef);
@@ -182,34 +246,90 @@ export class PtahUiBlockComponent implements OnInit {
   /** Frozen on an unsettled snapshot: re-resolve once when it settles. */
   private readonly awaitingSettle = signal(false);
   private readonly live = signal<Signal<boolean> | null>(null);
+  /** The acquired `$limits` read; `null` while this block holds none. */
+  private readonly limitsHeld = signal<Signal<PtahUiLimitsInput> | null>(null);
+  /** Set once the block is frozen and detached; it reads no source again. */
+  private retired = false;
 
   private readonly surfaceId = computed(() =>
     blockSurfaceId(this.nodeId(), this.ordinal()),
   );
   protected readonly reasonId = computed(() => `${this.surfaceId()}-reason`);
 
+  /** One compile per body (and surface id); snapshots and live sources never re-run it. */
+  private readonly compiled = computed((): CompilePtahUiBlockResult => {
+    const body = this.body();
+    const surfaceId = this.surfaceId();
+    try {
+      return this.pipeline.compile(body, surfaceId);
+    } catch {
+      // The shipped pipeline never throws; an injected one might. Either way
+      // the message renders and this block falls back (Req 2.4).
+      return INTERNAL_ERROR;
+    }
+  });
+
+  private readonly usedSources = computed(() => {
+    const compiled = this.compiled();
+    return compiled.ok ? compiled.usedSources : NO_SOURCES;
+  });
+  private readonly usesTurnSources = computed(() => {
+    const used = this.usedSources();
+    return used.has('diff') || used.has('tests') || used.has('usage');
+  });
+  private readonly usesAgents = computed(() =>
+    this.usedSources().has('agents'),
+  );
+  private readonly usesLimits = computed(() =>
+    this.usedSources().has('limits'),
+  );
+
+  /** The turn snapshot, read only for a block that names a turn source. */
+  private readonly turnSnapshot = computed(() =>
+    this.usesTurnSources() ? this.snapshot() : null,
+  );
+
   /**
-   * One pipeline run per input change while live; none once frozen, because
-   * the frozen branch reads no input at all.
+   * The adapter's `$agents` signal for this block's turn, created only for a
+   * block that names `$agents`. `null` (rendered "unavailable") without host
+   * sources, without an adapter, or for a message outside every turn.
+   */
+  private readonly agentsSource = computed(
+    (): Signal<PtahUiAgentsInput> | null => {
+      if (!this.usesAgents()) return null;
+      const host = this.hostSources;
+      const sources = this.liveSources;
+      if (host === null || sources === null) return null;
+      const turnIndex = host.turnIndexOf(this.messageId());
+      if (turnIndex === null) return null;
+      return untracked(() => sources.agentsInput(host, turnIndex));
+    },
+  );
+
+  /**
+   * One resolve per change of a used input while live; none once frozen,
+   * because the frozen branch reads no input at all.
    */
   private readonly result = computed(
     (): RenderPtahUiBlockResult => this.frozen() ?? this.resolve(),
   );
 
-  /** One pipeline run over the current inputs. */
+  /** One resolve of the compiled block over the current used inputs. */
   private resolve(): RenderPtahUiBlockResult {
-    const body = this.body();
-    const options = {
-      surfaceId: this.surfaceId(),
-      snapshot: this.snapshot(),
+    const compiled = this.compiled();
+    if (!compiled.ok) return { ok: false, reason: compiled.reason };
+    const agents = this.agentsSource();
+    const limits = this.usesLimits() ? this.limitsHeld() : null;
+    const input = {
+      snapshot: this.turnSnapshot(),
+      agents: agents === null ? null : agents(),
+      limits: limits === null ? null : limits(),
       countBytes: utf8JsonBytes,
     };
     try {
-      return this.pipeline(body, options);
+      return this.pipeline.resolve(compiled, input);
     } catch {
-      // The shipped pipeline never throws; an injected one might. Either way
-      // the message renders and this block falls back (Req 2.4).
-      return { ok: false, reason: 'internal error' };
+      return INTERNAL_ERROR;
     }
   }
 
@@ -253,16 +373,25 @@ export class PtahUiBlockComponent implements OnInit {
     // Reads the snapshot only while a frozen block awaits it; once refreshed,
     // `awaitingSettle` stays false and this effect has nothing left to track.
     effect(() => {
-      if (!this.awaitingSettle() || !isSettled(this.snapshot())) return;
+      if (!this.awaitingSettle() || !isSettled(this.turnSnapshot())) return;
       untracked(() => {
         this.awaitingSettle.set(false);
         this.frozen.set(this.resolve());
-        this.detachAfterRender();
+        this.retire();
       });
     });
+    // A body that starts or stops naming `$limits` takes or drops the read.
+    effect(() => {
+      const wanted = this.usesLimits();
+      untracked(() => this.holdLimits(wanted));
+    });
+    this.destroyRef.onDestroy(() => this.holdLimits(false));
   }
 
   ngOnInit(): void {
+    // Take the `$limits` read before the first resolve, so a live block shows
+    // "pending" rather than a transient "unavailable".
+    this.holdLimits(untracked(this.usesLimits));
     const key = `${this.messageId()}:${this.nodeId()}:${this.ordinal()}`;
     const live = this.liveWindow.register(key, this.orderKey());
     this.destroyRef.onDestroy(() => this.liveWindow.release(key));
@@ -282,8 +411,28 @@ export class PtahUiBlockComponent implements OnInit {
   private freeze(): void {
     this.frozen.set(untracked(this.result));
     this.snapshotMode.set(true);
-    if (isSettled(untracked(this.snapshot))) this.detachAfterRender();
+    if (isSettled(untracked(this.turnSnapshot))) this.retire();
     else this.awaitingSettle.set(true);
+  }
+
+  /** The frozen block reads nothing again: drop the `$limits` read and detach. */
+  private retire(): void {
+    this.retired = true;
+    this.holdLimits(false);
+    this.detachAfterRender();
+  }
+
+  /** Acquires or releases this block's single `$limits` reference. */
+  private holdLimits(wanted: boolean): void {
+    const sources = this.liveSources;
+    if (sources === null) return;
+    const held = untracked(this.limitsHeld) !== null;
+    if (wanted && !held && !this.retired) {
+      this.limitsHeld.set(sources.acquireLimits());
+    } else if (!wanted && held) {
+      this.limitsHeld.set(null);
+      sources.releaseLimits();
+    }
   }
 
   /**

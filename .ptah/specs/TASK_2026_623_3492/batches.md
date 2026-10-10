@@ -1,6 +1,6 @@
 # Batches - TASK_2026_623_3492
 
-Total tasks: 73 | Batches: 37 (incl. fix batches 6F, 12F, 15F, post-cap correction 12F2) | Complete: 18/37
+Total tasks: 74 | Batches: 37 (incl. fix batches 6F, 12F, 15F, post-cap correction 12F2) | Complete: 20/37
 
 Worktree root `W` = `D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel` (branch
 `feat/task-623-display-panel`, base `70f995a56`). Every path below is absolute.
@@ -91,7 +91,7 @@ Edge cases:
 | ----- | ------- | ------------ |
 | 1 Contract `/4` and grammar | 1-6, 6F (fix) | code-logic (REVISE 6/10, `code-logic-review.md`); re-review of 6F: APPROVED 8/10 (`code-logic-review-phase1-fix.md`). Phase 1 ACCEPTED |
 | 2 Lane plan-limit read (R10 backend) | 7-12, 12F (fix) | code-logic (REVISE 6/10, `code-logic-review-phase2.md`), style (APPROVED 8/10, `code-style-review-phase2.md`); fix round 12F, re-review REVISE 5/10 (`code-logic-review-phase2-fix.md`, Serious #1 open); post-cap correction 12F2 (decision #46), cross-side re-review APPROVED 9/10 (`code-logic-review-phase2-fix2.md`). Phase 2 ACCEPTED |
-| 3 Renderer `/4` | 13-15, 15F (fix) | code-logic (REVISE 6/10, `code-logic-review-phase3.md`, Serious #1); fix round 15F, re-review pending. No style (Task 15.3 added no exports) |
+| 3 Renderer `/4` | 13-15, 15F (fix) | code-logic (REVISE 6/10, `code-logic-review-phase3.md`, Serious #1); fix round 15F, re-review APPROVED 8/10, Serious #1 CLOSED, no new findings (`code-logic-review-phase3-fix.md`). No style (Task 15.3 and 15F added no barrel exports). Phase 3 ACCEPTED |
 | 4 chat-ui display panel | 16-21 | code-logic, plus style (new entry `@ptah-extension/chat-ui/display-panel`, new host-sources token) |
 | 5 Transcript and dock | 22-25 | code-logic |
 | 6 Previews (R7, both webviews) | 26-28 | code-logic, plus style (new exported `copy-text-button` atom and `tool-language` util) |
@@ -880,7 +880,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - Phase 3 review (range e05d8250f..5bfbb8b00, Codex cross-side): REVISE 6/10 (`code-logic-review-phase3.md`), 1
   Serious, no Moderate/Minor. Fix round: Batch 15F.
 
-## Batch 15F: Phase 3 review fix — override builder result bypasses `/4` atom validation — COMPLETE (commit see `git log`, subject "batch 15F"; Phase 3 re-review pending)
+## Batch 15F: Phase 3 review fix — override builder result bypasses `/4` atom validation — COMPLETE (commit b66148f4c; re-review APPROVED 8/10, code-logic-review-phase3-fix.md)
 
 - Recommended executor: frontend-developer
 - Fallback executor: general-purpose subagent
@@ -930,8 +930,10 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 
 - `npx jest -c libs/frontend/declarative-dashboard/jest.config.ts libs/frontend/declarative-dashboard/src/lib/components/surface-renderer.component.spec.ts libs/frontend/declarative-dashboard/src/lib/view-model --coverage=false --maxWorkers=2 2>&1 | tail -n 40`; then `npx nx typecheck @ptah-extension/declarative-dashboard --parallel=1 2>&1 | tail -n 20`; then `npx nx lint @ptah-extension/declarative-dashboard --parallel=1 2>&1 | tail -n 20` (0 errors; warnings at or below the 127 baseline). One at a time. Apply the `marked` `--moduleNameMapper` override on the Jest command line only if the suite needs it.
 - Phase 3 code-logic re-review scoped to the 15F commit after commit
+- Re-review (b66148f4c, Codex cross-side): APPROVED 8/10, Serious #1 CLOSED, no new findings
+  (`code-logic-review-phase3-fix.md`; focused Jest 3 suites / 93 tests passed). Phase 3 (Batches 13-15, 15F) accepted.
 
-## Batch 16: C1 host-sources token and ptah-ui block — PENDING
+## Batch 16: C1 host-sources token and ptah-ui block — COMPLETE (commit see `git log`, subject "batch 16")
 
 - Recommended executor: frontend-developer
 - Fallback executor: general-purpose subagent
@@ -940,7 +942,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - Tasks: 2 | Depends on: Batches 5, 13
 - Phase: 4 chat-ui display panel | Phase review: code-logic + style (after Batch 21)
 
-### Task 16.1: host-sources token (component 9) — PENDING
+### Task 16.1: host-sources token (component 9) — COMPLETE
 
 - Files:
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\services\ptah-ui-host-sources.ts (CREATE)
@@ -949,7 +951,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - Validation notes: `chat-ui/src/index.ts` is edited again in Batch 27; sequential only. No `mcp-apps-contracts`
   runtime import (eager-light).
 
-### Task 16.2: ptah-ui block uses `compilePtahUiBlock`, container layout, live inputs — PENDING
+### Task 16.2: ptah-ui block uses `compilePtahUiBlock`, container layout, live inputs — COMPLETE
 
 - Depends on: Task 16.1
 - Files:
@@ -974,17 +976,26 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 ### Batch 16 verification
 
 - `npx jest -c libs/frontend/chat-ui/jest.config.ts libs/frontend/chat-ui/src/lib/organisms/ptah-ui/ptah-ui-block.component.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -n 40 && npx nx typecheck @ptah-extension/shared --parallel=1 2>&1 | tail -n 20 && npx nx lint @ptah-extension/shared --parallel=1 2>&1 | tail -n 20 && npx nx typecheck @ptah-extension/chat-ui --parallel=1 2>&1 | tail -n 20 && npx nx lint @ptah-extension/chat-ui --parallel=1 2>&1 | tail -n 20`
+- Verified by the team-leader:
+  - Jest on the block spec and the message-text spec: 2 suites, 44 tests passed. The `marked` mapper override was
+    passed on the command line only.
+  - `@ptah-extension/shared` typecheck passed. Its lint has 0 errors and 6 warnings, the Batch 5 baseline.
+  - `@ptah-extension/chat-ui` typecheck passed (uncached). Its lint has 0 errors and 10 warnings, all in pre-existing
+    files and none in a batch file.
+- Out-of-list seam `PTAH_UI_BLOCK_LIVE_SOURCES` in `ptah-ui-block.component.ts`: accepted under decision #52. Batch 17
+  (Task 17.3) provides it.
 
-## Batch 17: C2 live source adapters (`$agents`, `$limits`) — PENDING
+## Batch 17: C2 live source adapters (`$agents`, `$limits`) — IN_PROGRESS
 
 - Recommended executor: frontend-developer
 - Fallback executor: general-purpose subagent
 - Execution mode: sequential
-- Rationale: two lazy adapters with the same acquire/release shape.
-- Tasks: 2 | Depends on: Batches 16, 7
+- Rationale: two lazy adapters with the same acquire/release shape. Task 17.3 then wires them into the block through
+  the Batch 16 seam (decision #52).
+- Tasks: 3 | Depends on: Batches 16, 7
 - Phase: 4 | Phase review: after Batch 21
 
-### Task 17.1: `$agents` adapter — PENDING
+### Task 17.1: `$agents` adapter — IN_PROGRESS
 
 - Files (CREATE):
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\organisms\ptah-ui\sources\ptah-ui-agents.source.ts
@@ -992,7 +1003,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - Plan reference: implementation-plan.md:674-719 (component 4a)
 - Quality requirements: R5.4 live during the turn; allow-list projection only.
 
-### Task 17.2: `$limits` adapter — PENDING
+### Task 17.2: `$limits` adapter — IN_PROGRESS
 
 - Files (CREATE):
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\organisms\ptah-ui\sources\ptah-ui-lane-limits.source.ts
@@ -1006,9 +1017,49 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
     cells per row, and `asOf` in epoch ms.
   - No owner, account or session fields are copied.
 
+### Task 17.3: provide `PTAH_UI_BLOCK_LIVE_SOURCES` from the two adapters (decision #52) — IN_PROGRESS
+
+- Depends on: Tasks 17.1, 17.2
+- Files:
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\organisms\ptah-ui\ptah-ui-block.component.ts
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\organisms\ptah-ui\ptah-ui-block.component.spec.ts
+- Plan reference: implementation-plan.md:636-637 (the block reads through 4a), 674-693, 858 (lazy entries only inside
+  `@defer`), 986-988
+- Pattern to follow: the `PTAH_UI_BLOCK_PIPELINE` root factory in the same file (`ptah-ui-block.component.ts:57-65`).
+- Implementation details:
+  - Give `PTAH_UI_BLOCK_LIVE_SOURCES` the options `{ providedIn: 'root', factory }`.
+  - The factory calls `inject(PtahUiAgentsSource)` and `inject(PtahUiLaneLimitsSource)`.
+  - It returns `{ agentsInput: (h, i) => agents.agentsInput(h, i), acquireLimits: () => limits.acquire(),
+    releaseLimits: () => limits.release() }`.
+  - Keep the `PtahUiBlockLiveSources` interface and the block's consuming code unchanged. Keep `optional: true` on the
+    inject, so a test or a host can still provide `null`.
+  - Update the token's doc comment. It now says the token is provided by default, and that the absent path applies
+    only when the token is explicitly provided as `null`.
+- Validation notes:
+  - The factory lives only in the block file, which is reachable only through the lazy `@ptah-extension/chat-ui/ptah-ui`
+    entry.
+  - Do not export the adapters or the token from the main `chat-ui` barrel (`src/index.ts`).
+  - Do not provide anything from the `chat` lib.
+  - The chat-ui → chat-streaming import is allowed (plan:654, 699). Lint confirms it.
+  - A host without the `agent:getLanePlanLimits` method (VS Code, capability false) must end in
+    `{kind:'unavailable'}` through Task 17.2's failure path: one RPC attempt per acquire burst, no retry loop, no
+    timer.
+- Spec requirements (`ptah-ui-block.component.spec.ts`):
+  - By default, the existing tests provide a stub for `PTAH_UI_BLOCK_LIVE_SOURCES`, so no real store or RPC is built.
+  - The "no adapter" cases provide the token explicitly as `null`. Each one still shows "unavailable" with a valid
+    block.
+  - Add one case where the root factory is used, with `PtahUiAgentsSource` and `PtahUiLaneLimitsSource` overridden by
+    stubs. It asserts the following:
+    - `agentsInput` receives the host sources and the turn index;
+    - a `$limits` block calls `acquire` once on mount and `release` once on destroy;
+    - a `$diff`-only block calls neither.
+  - The 37 Batch 16 cases keep passing.
+
 ### Batch 17 verification
 
-- `npx jest -c libs/frontend/chat-ui/jest.config.ts libs/frontend/chat-ui/src/lib/organisms/ptah-ui/sources --coverage=false --maxWorkers=2 2>&1 | tail -n 40 && npx nx typecheck @ptah-extension/chat-ui --parallel=1 2>&1 | tail -n 20 && npx nx lint @ptah-extension/chat-ui --parallel=1 2>&1 | tail -n 20`
+- `npx jest -c libs/frontend/chat-ui/jest.config.ts libs/frontend/chat-ui/src/lib/organisms/ptah-ui/sources libs/frontend/chat-ui/src/lib/organisms/ptah-ui/ptah-ui-block.component.spec.ts libs/frontend/chat-ui/src/lib/organisms/ptah-ui/ptah-ui-message-text.component.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -n 40 && npx nx typecheck @ptah-extension/chat-ui --parallel=1 2>&1 | tail -n 20 && npx nx lint @ptah-extension/chat-ui --parallel=1 2>&1 | tail -n 20`
+- Lint stays at 0 errors, with warnings at or below the 10-warning baseline and none in a batch file. Pass the
+  `--moduleNameMapper` override from handoff.md on the Jest command line only.
 
 ## Batch 18: C3 display chip and message text — PENDING
 
