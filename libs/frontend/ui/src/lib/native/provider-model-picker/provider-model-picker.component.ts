@@ -550,9 +550,11 @@ export class ProviderModelPickerComponent {
   /**
    * Always-on catalogue summary (#38): "`N` models · `M` support tool use",
    * counted over the loaded catalogue only (a pinned out-of-catalogue id is
-   * not evidence either way). Null while the catalogue is empty.
+   * not evidence either way). Null while the catalogue is empty, and while a
+   * load is in flight: `_models` still holds the previous provider's list then.
    */
   protected readonly toolUseSummary = computed<string | null>(() => {
+    if (this._modelsLoading()) return null;
     const models = this._models();
     if (models.length === 0) return null;
     const capable = models.filter((m) => m.supportsToolUse).length;
