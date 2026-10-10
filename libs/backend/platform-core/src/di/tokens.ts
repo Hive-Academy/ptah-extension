@@ -75,6 +75,19 @@ export const PLATFORM_TOKENS = {
     'PlatformSessionOrganizationRecorder',
   ),
 
+  /**
+   * ISessionRecordRepository — one session store for every project (MP-1).
+   * Adapter: @ptah-extension/persistence-sqlite, registered on Electron and
+   * the CLI. Unregistered on VS Code; inject it `{ isOptional: true }`.
+   */
+  SESSION_RECORD_REPOSITORY: Symbol.for('PlatformSessionRecordRepository'),
+
+  /** ISessionBlobStore — per-session bulk files. Registered with SESSION_RECORD_REPOSITORY. */
+  SESSION_BLOB_STORE: Symbol.for('PlatformSessionBlobStore'),
+
+  /** ISessionStoreGate — legacy copy-forward finished. Registered with SESSION_RECORD_REPOSITORY. */
+  SESSION_STORE_GATE: Symbol.for('PlatformSessionStoreGate'),
+
   /** IMasterKeyProvider — platform-specific 32-byte AES-256 master key retrieval. */
   MASTER_KEY_PROVIDER: Symbol.for('PlatformMasterKeyProvider'),
 

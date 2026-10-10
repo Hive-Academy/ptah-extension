@@ -105,3 +105,10 @@ export {
   type MockWorkspaceWatcherState,
   type MockWorkspaceSubscription,
 } from './workspace-watcher.mock';
+
+export {
+  createMockSessionRecordRepository,
+  createMockSessionBlobStore,
+  type MockSessionRecordRepository,
+  type MockSessionBlobStore,
+} from './session-record-repository.mock';
