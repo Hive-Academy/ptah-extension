@@ -1017,17 +1017,23 @@ export class SessionMetadataStore {
    * Update session activity timestamp
    */
   async touch(sessionId: string): Promise<void> {
-    const metadata = await this.get(sessionId);
-    if (!metadata) {
-      this.logger.debug(
-        `[SessionMetadataStore] touch skipped: no metadata for ${sessionId} in the active workspace`,
-      );
-      return;
-    }
-    await this.save({
-      ...metadata,
-      lastActiveAt: Date.now(),
+    // Read inside the queue: a read taken before it would write back whatever
+    // a queued rename or CLI link changed meanwhile.
+    let workspaceId: string | undefined;
+    await this.enqueueWrite(async () => {
+      const metadata = await this.get(sessionId);
+      if (!metadata) {
+        this.logger.debug(
+          `[SessionMetadataStore] touch skipped: no metadata for ${sessionId} in the active workspace`,
+        );
+        return;
+      }
+      workspaceId = metadata.workspaceId;
+      await this._saveInternal({ ...metadata, lastActiveAt: Date.now() });
     });
+    if (workspaceId !== undefined) {
+      this.emitChange('updated', sessionId, workspaceId);
+    }
   }
 
   /**

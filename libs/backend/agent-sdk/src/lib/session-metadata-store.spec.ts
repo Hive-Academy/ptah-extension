@@ -1760,6 +1760,14 @@ describe('SessionMetadataStore', () => {
       const after = await store.get('a');
       expect(after?.lastActiveAt ?? 0).toBeGreaterThan(original);
     });
+
+    it('touch racing a rename keeps the new name', async () => {
+      await store.create('a', WORKSPACE, 'Original');
+
+      await Promise.all([store.touch('a'), store.rename('a', 'Renamed')]);
+
+      expect((await store.get('a'))?.name).toBe('Renamed');
+    });
   });
 });
 
