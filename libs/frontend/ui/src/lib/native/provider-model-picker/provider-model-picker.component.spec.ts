@@ -1009,6 +1009,29 @@ describe('ProviderModelPickerComponent', () => {
       ).toBe('No models available from this provider.');
     });
 
+    it('hides the summary and the empty message while a provider switch loads', async () => {
+      const [, second] = ANTHROPIC_PROVIDERS;
+      const fixture = await create({ provider: first.id });
+      expect(el(fixture, 'provider-model-picker-tooluse-summary')).not.toBeNull();
+
+      let release: (r: ProviderListModelsResult) => void = () => undefined;
+      listModels.mockReturnValue(
+        new Promise<ProviderListModelsResult>((resolve) => {
+          release = resolve;
+        }),
+      );
+      fixture.componentRef.setInput('provider', second.id);
+      fixture.detectChanges();
+      expect(listModels).toHaveBeenLastCalledWith(second.id);
+      expect(el(fixture, 'provider-model-picker-tooluse-summary')).toBeNull();
+      expect(el(fixture, 'provider-model-picker-empty')).toBeNull();
+
+      release(result([]));
+      await fixture.whenStable();
+      fixture.detectChanges();
+      expect(el(fixture, 'provider-model-picker-empty')).not.toBeNull();
+    });
+
     it('shows the summary without requiresToolUse (not only as a warning)', async () => {
       const fixture = await create({
         provider: first.id,
