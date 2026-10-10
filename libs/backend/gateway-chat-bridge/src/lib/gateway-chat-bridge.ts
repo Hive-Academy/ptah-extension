@@ -454,8 +454,14 @@ export class GatewayChatBridge {
     let preparationTimer: ReturnType<typeof setTimeout> | undefined;
     try {
       const preparation = this.prepareTurn(workspaceRoot);
-      // A rejection that lands after the deadline has no awaiting reader.
-      preparation.catch(() => undefined);
+      // A rejection that lands after the deadline has no awaiting reader, so
+      // it is logged here; one inside the deadline is also reported below.
+      preparation.catch((error: unknown) => {
+        this.logger.debug('[gateway-chat-bridge] turn preparation rejected', {
+          conversationId: String(conversation.id),
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
       prepared = await Promise.race([
         preparation,
         new Promise<null>((resolve) => {
