@@ -3,7 +3,8 @@
  *
  * Mirrors the contract of `registerMessagingGatewayServices`: callers must
  * already have `TOKENS.LOGGER`, `PLATFORM_TOKENS.WORKSPACE_PROVIDER`,
- * `TOKENS.AGENT_ADAPTER`, `SETTINGS_TOKENS.MODEL_SETTINGS`, and the
+ * `TOKENS.AGENT_ADAPTER`, `SETTINGS_TOKENS.MODEL_SETTINGS`,
+ * `AUTH_PROVIDERS_TOKENS.SDK_WORKSPACE_PROVIDER_PROFILE_RESOLVER`, and the
  * `GATEWAY_TOKENS` services registered.
  */
 import type { DependencyContainer } from 'tsyringe';

@@ -805,7 +805,10 @@ export class ChatSessionService {
       );
       return { delivered: true };
     } catch (error: unknown) {
-      return { delivered: false, error: error instanceof Error ? error.message : String(error) };
+      return {
+        delivered: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
     }
   }
 
