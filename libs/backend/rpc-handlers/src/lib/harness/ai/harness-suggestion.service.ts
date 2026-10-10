@@ -16,8 +16,6 @@
 
 import { inject, injectable } from 'tsyringe';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
-import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
-import type { ModelSettings } from '@ptah-extension/settings-core';
 import { McpRegistryProvider } from '@ptah-extension/cli-agent-runtime';
 import type {
   AgentOverride,
@@ -97,8 +95,6 @@ export class HarnessSuggestionService {
 
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
-    @inject(SETTINGS_TOKENS.MODEL_SETTINGS)
-    private readonly modelSettings: ModelSettings,
     @inject(HARNESS_TOKENS.WORKSPACE_CONTEXT)
     private readonly workspaceContext: HarnessWorkspaceContextService,
     @inject(HARNESS_TOKENS.LLM_RUNNER)
@@ -174,7 +170,6 @@ export class HarnessSuggestionService {
       timeoutMs: 45_000,
       execute: {
         cwd: workspaceRoot,
-        model: this.modelSettings.selectedModel.get() || 'default',
         prompt: buildSuggestionPrompt({
           description,
           goals,
@@ -512,7 +507,6 @@ export class HarnessSuggestionService {
         timeoutMs: 150_000,
         execute: {
           cwd: workspaceRoot,
-          model: this.modelSettings.selectedModel.get() || 'default',
           prompt: buildIntentAnalysisPrompt({
             input,
             availableAgents,

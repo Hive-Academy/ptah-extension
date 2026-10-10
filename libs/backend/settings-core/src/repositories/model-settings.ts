@@ -1,4 +1,3 @@
-import { resolveAuthProviderKey } from '@ptah-extension/platform-core';
 import type { ISettingsStore } from '../ports/settings-store.interface';
 import {
   AUTH_METHOD_DEF,
@@ -6,6 +5,7 @@ import {
 } from '../schema/auth-schema';
 import { providerSelectedModelDef } from '../schema/provider-schema';
 import { ComputedSettingHandle } from './computed-setting-handle';
+import { activeProviderAuthKey } from './active-provider-auth-key';
 import { BaseSettingsRepository } from './base-repository';
 import type { WorkspaceScopeResolver } from '../scope/workspace-scope-resolver';
 
@@ -28,19 +28,8 @@ export class ModelSettings extends BaseSettingsRepository {
   constructor(store: ISettingsStore, resolver?: WorkspaceScopeResolver) {
     super(store);
 
-    const resolveKey = () => {
-      const authMethod =
-        (resolver
-          ? resolver.read<string>(AUTH_METHOD_DEF.key, true)
-          : store.readGlobal<string>(AUTH_METHOD_DEF.key)) ??
-        AUTH_METHOD_DEF.default;
-      const providerId =
-        (resolver
-          ? resolver.read<string>(ANTHROPIC_PROVIDER_ID_DEF.key, true)
-          : store.readGlobal<string>(ANTHROPIC_PROVIDER_ID_DEF.key)) ?? '';
-      const authKey = resolveAuthProviderKey(authMethod, providerId);
-      return `provider.${authKey}.selectedModel`;
-    };
+    const resolveKey = () =>
+      `provider.${activeProviderAuthKey(store, resolver)}.selectedModel`;
 
     this.selectedModel = new ComputedSettingHandle(
       store,

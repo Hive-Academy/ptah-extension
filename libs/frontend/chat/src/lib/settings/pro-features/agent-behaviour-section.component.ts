@@ -14,7 +14,7 @@ import {
   LucideAngularModule,
   Sparkles,
 } from 'lucide-angular';
-import { ClaudeRpcService, EffortStateService } from '@ptah-extension/core';
+import { ClaudeRpcService, EffortStateService, WorkspaceScopeService } from '@ptah-extension/core';
 import { NativePopoverComponent } from '@ptah-extension/ui';
 import type {
   EffortLevel,
@@ -266,6 +266,7 @@ interface LoadError {
 })
 export class AgentBehaviourSectionComponent implements OnInit {
   private readonly rpcService = inject(ClaudeRpcService);
+  private readonly workspaceScope = inject(WorkspaceScopeService);
   private readonly effortState = inject(EffortStateService);
   private readonly feedback = inject(SettingsSaveFeedbackService);
   readonly ultracode = inject(UltracodeStateService);
@@ -383,7 +384,7 @@ export class AgentBehaviourSectionComponent implements OnInit {
    */
   protected async loadPromptStatus(): Promise<boolean> {
     try {
-      const result = await this.rpcService.call('enhancedPrompts:getStatus', { workspacePath: '.' });
+      const result = await this.rpcService.call('enhancedPrompts:getStatus', { workspacePath: this.workspaceScope.activeWorkspacePath() ?? '.' });
       if (result.isSuccess() && !result.data.error) {
         this.promptStatus.set(result.data);
         this.promptLoadError.set(null);
@@ -417,7 +418,7 @@ export class AgentBehaviourSectionComponent implements OnInit {
    */
   private async writePromptMode(enabled: boolean): Promise<WriteResult> {
     try {
-      const result = await this.rpcService.call('enhancedPrompts:setEnabled', { workspacePath: '.', enabled });
+      const result = await this.rpcService.call('enhancedPrompts:setEnabled', { workspacePath: this.workspaceScope.activeWorkspacePath() ?? '.', enabled });
       if (!result.isSuccess() || !result.data.success) {
         return { ok: false, message: PROMPT_MODE_SAVE_FAILED };
       }

@@ -294,6 +294,8 @@ export interface SlashCommandConfig {
    * the builder when unspecified.
    */
   includePartialMessages?: boolean;
+  /** Mirrors `ExecuteQueryConfig.authEnvOverride` (from a ProviderProfile). */
+  authEnvOverride?: AuthEnv;
 }
 
 /**
@@ -739,9 +741,46 @@ export class SessionLifecycleManager {
    * Cleanup all active sessions.
    * Calls cleanupPendingPermissions to prevent unhandled promise rejections,
    * and marks all running subagents as interrupted for each session.
+   * Each session's pending handover is told its source ended first, exactly
+   * as {@link endSession} does for a single session.
    */
   async disposeAllSessions(): Promise<void> {
+    this.notifyHandoverSourcesEnded(
+      Array.from(this._registry.entries(), ([tabId]) => tabId),
+    );
     return this._control.disposeAllSessions();
+  }
+
+  /** Tab ids of the live sessions of one workspace (normalized path match). */
+  getSessionIdsForWorkspace(workspacePath: string): string[] {
+    return this._control.getSessionIdsForWorkspace(workspacePath);
+  }
+
+  /**
+   * End only the sessions of one workspace; other workspaces keep running.
+   * Each session's pending handover is told its source ended first, exactly
+   * as {@link endSession} does for a single session.
+   */
+  async disposeSessionsForWorkspace(workspacePath: string): Promise<void> {
+    this.notifyHandoverSourcesEnded(
+      this.getSessionIdsForWorkspace(workspacePath),
+    );
+    return this._control.disposeSessionsForWorkspace(workspacePath);
+  }
+
+  /** Tell the handover coordinator each registered session is ending. */
+  private notifyHandoverSourcesEnded(tabIds: readonly string[]): void {
+    for (const id of tabIds) {
+      const sessionId = id as SessionId;
+      const token = this.getSessionToken(sessionId);
+      if (token) {
+        this.handoverCoordinator?.sourceEnded(
+          this.handoverKey(sessionId),
+          token,
+          'session ended',
+        );
+      }
+    }
   }
 
   /**
@@ -847,6 +886,7 @@ export class SessionLifecycleManager {
       forkSession: config.forkSession,
       enableFileCheckpointing: config.enableFileCheckpointing,
       includePartialMessages: config.includePartialMessages,
+      authEnvOverride: config.authEnvOverride,
     });
   }
 

@@ -529,11 +529,15 @@ describe('ProvidersSettingsComponent', () => {
       if (!select) throw new Error('Missing provider select');
       select.value = 'second'; select.dispatchEvent(new Event('change')); await render();
       const confirm = element.querySelector('[data-testid="main-agent-provider-confirm"]');
-      expect(confirm?.textContent).toContain('New main-agent requests use second. Changing the provider ends running chat sessions.');
+      expect(confirm?.textContent).toContain('New main-agent requests use second. Changing the provider ends running chat sessions in this workspace.');
       expect(element.querySelector('[data-testid="activation-unchecked-note"]')?.textContent).toContain('cannot check this connection');
       Array.from(confirm?.querySelectorAll('button') ?? []).find((node) => node.textContent?.trim() === 'Use for main agent')?.click();
       await render();
-      expect(state.activateConnection).toHaveBeenCalledWith('second', 'global', { scopeKey: 'workspace', activePath: '/workspace' });
+      // Batch 4 (TASK_PROVIDER_SCOPE): the confirm joins the draft; the popover's Save writes it.
+      expect(state.activateConnection).not.toHaveBeenCalled();
+      element.querySelector<HTMLButtonElement>('[data-testid="main-agent-save"]')?.click();
+      await render();
+      expect(state.activateConnection).toHaveBeenCalledWith('second', 'workspace', { scopeKey: 'workspace', activePath: '/workspace' });
     });
 
     it.each(['main-agent', 'main-model', 'main-effort'] as const)('the %s deep link opens the popover focused on that control', async (target) => {

@@ -69,6 +69,7 @@ describe('WelcomeComponent', () => {
             connections: connections.asReadonly(),
             activeProviderId: activeProviderId.asReadonly(),
             reviewContext: jest.fn(() => ({})),
+            writeScopes: jest.fn((): string[] => ['global', 'app']),
             open: jest.fn(),
             activateConnection: jest.fn(),
             refreshRoute: jest.fn(),
@@ -126,6 +127,34 @@ describe('WelcomeComponent', () => {
     expect(
       TestBed.inject(ModelStateService).switchModel,
     ).toHaveBeenCalledWith('model-a');
+  });
+
+  it('activates the provider for this workspace when a workspace is open', async () => {
+    const providers = TestBed.inject(ProvidersSettingsStateService);
+    (providers.writeScopes as jest.Mock).mockReturnValue([
+      'global',
+      'app',
+      'workspace',
+    ]);
+    connections.set({
+      status: 'ready',
+      data: [{ id: 'provider-a', name: 'Provider A', configured: true }],
+    });
+    activeProviderId.set(null);
+    fixture.detectChanges();
+
+    const providerSelect = fixture.nativeElement.querySelector(
+      '#wizard-provider-select',
+    ) as HTMLSelectElement;
+    providerSelect.value = 'provider-a';
+    providerSelect.dispatchEvent(new Event('change'));
+    await fixture.whenStable();
+
+    expect(providers.activateConnection).toHaveBeenCalledWith(
+      'provider-a',
+      'workspace',
+      expect.any(Object),
+    );
   });
 
   describe('Start Setup', () => {

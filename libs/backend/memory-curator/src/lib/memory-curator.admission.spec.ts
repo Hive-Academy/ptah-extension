@@ -146,14 +146,20 @@ describe('MemoryCuratorService — a background pass waits for the governor BEFO
 
     expect(manual.outcome).toBe('ran');
     expect(extract).toHaveBeenCalledTimes(1);
-    expect(extract.mock.calls[0][2]).toEqual({ userInitiated: true });
+    expect(extract.mock.calls[0][2]).toEqual({
+      userInitiated: true,
+      workspaceRoot: '/ws',
+    });
     await flush();
     expect(backgroundSettled).toBe(false);
 
     endTurn();
     await expect(background).resolves.toMatchObject({ outcome: 'ran' });
     expect(extract).toHaveBeenCalledTimes(2);
-    expect(extract.mock.calls[1][2]).toEqual({ userInitiated: undefined });
+    expect(extract.mock.calls[1][2]).toEqual({
+      userInitiated: undefined,
+      workspaceRoot: '/ws',
+    });
     governor.dispose();
   });
 
@@ -193,7 +199,10 @@ describe('MemoryCuratorService — a background pass waits for the governor BEFO
     await expect(manual).resolves.toMatchObject({ outcome: 'ran' });
     await expect(background).resolves.toMatchObject({ outcome: 'ran' });
     expect(extract).toHaveBeenCalledTimes(1);
-    expect(extract.mock.calls[0][2]).toEqual({ userInitiated: true });
+    expect(extract.mock.calls[0][2]).toEqual({
+      userInitiated: true,
+      workspaceRoot: '/ws',
+    });
     expect(logger.info).toHaveBeenCalledWith(
       '[memory-curator] user-initiated curate promoted a pass waiting for background-work clearance; it runs on the user-action lane',
       { sessionId: 'shared-1' },

@@ -81,14 +81,6 @@ export const CONTENT_GENERATION_SERVICE = Symbol.for(
 );
 
 /**
- * AgentCustomizationService - LLM-based content customization
- * Responsibilities: Customize agent sections, validate outputs, batch customize via InternalQueryService
- */
-export const AGENT_CUSTOMIZATION_SERVICE = Symbol.for(
-  'AgentCustomizationService',
-);
-
-/**
  * OutputValidationService - Multi-stage output validation
  * Responsibilities: Validate schema, safety, factual accuracy for LLM outputs
  */
@@ -184,7 +176,6 @@ export const AGENT_GENERATION_TOKENS = {
   AGENT_SELECTION_SERVICE,
   AGENT_RECOMMENDATION_SERVICE,
   CONTENT_GENERATION_SERVICE,
-  AGENT_CUSTOMIZATION_SERVICE,
   OUTPUT_VALIDATION_SERVICE,
   AGENT_FILE_WRITER_SERVICE,
   MIGRATION_SERVICE,

@@ -13,8 +13,6 @@
 
 import { inject, injectable } from 'tsyringe';
 import { TOKENS } from '@ptah-extension/vscode-core';
-import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
-import type { ModelSettings } from '@ptah-extension/settings-core';
 import type {
   HarnessConfig,
   HarnessGenerateDocumentParams,
@@ -28,8 +26,6 @@ import { HarnessLlmRunner } from './harness-llm-runner.service';
 @injectable()
 export class HarnessDocumentGenerationService {
   constructor(
-    @inject(SETTINGS_TOKENS.MODEL_SETTINGS)
-    private readonly modelSettings: ModelSettings,
     @inject(HARNESS_TOKENS.WORKSPACE_CONTEXT)
     private readonly workspaceContext: HarnessWorkspaceContextService,
     @inject(HARNESS_TOKENS.LLM_RUNNER)
@@ -133,7 +129,6 @@ Write in a professional but engaging tone. Use markdown formatting with headers,
         timeoutMs: 60_000,
         execute: {
           cwd: workspaceRoot,
-          model: this.modelSettings.selectedModel.get() || 'default',
           prompt:
             prompt +
             '\n\nReturn a JSON object with a single "document" field containing the full markdown PRD as a string.',

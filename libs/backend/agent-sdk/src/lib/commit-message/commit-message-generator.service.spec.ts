@@ -11,23 +11,12 @@ import {
   buildCommitMessageUserPrompt,
 } from './commit-message-prompt';
 import type { InternalQueryService } from '../internal-query';
-import type { IProviderAuthResolver } from '../auth/provider-auth-resolver.port';
+import type {
+  IWorkspaceLlmResolver,
+  WorkspaceLlmSnapshot,
+} from '../auth/workspace-llm-resolver.port';
 import type { OneShotAuthOverride } from '../helpers/sdk-query-runner.service';
 import { AuthRequiredError, InternalQueryQueueTimeoutError } from '../errors';
-
-class FakeProviderAuthError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'ProviderAuthError';
-  }
-}
-
-class FakeProviderQuotaError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'ProviderQuotaError';
-  }
-}
 
 const PATCH = 'diff --git a/a.ts b/a.ts\n+export const a = 1;\n';
 const WORKSPACE = '/repo';
@@ -71,9 +60,9 @@ function makeQuery(
 }
 
 function makeResolver(
-  impl: () => Promise<OneShotAuthOverride | null>,
-): IProviderAuthResolver {
-  return { resolve: jest.fn(impl) };
+  impl: () => Promise<WorkspaceLlmSnapshot>,
+): IWorkspaceLlmResolver & { resolveForPath: jest.Mock } {
+  return { resolveForPath: jest.fn(impl) };
 }
 
 const OVERRIDE: OneShotAuthOverride = {
@@ -83,7 +72,7 @@ const OVERRIDE: OneShotAuthOverride = {
 function build(opts: {
   read?: StagedPatch;
   query?: InternalQueryService;
-  resolver?: IProviderAuthResolver | null;
+  resolver?: IWorkspaceLlmResolver | null;
   logger?: Logger;
 }) {
   const logger = opts.logger ?? makeLogger();
@@ -312,20 +301,25 @@ describe('CommitMessageGenerator', () => {
   });
 
   describe('provider auth', () => {
-    it('asks for the active provider and forwards its override', async () => {
-      const resolver = makeResolver(async () => OVERRIDE);
+    it('resolves the provider of the repository workspace and forwards its snapshot auth', async () => {
+      const resolver = makeResolver(async () => ({
+        providerId: 'moonshot',
+        model: 'kimi-k2.5',
+        auth: OVERRIDE,
+      }));
       const { generator, query } = build({ resolver });
       await generator.generate(WORKSPACE);
-      expect(resolver.resolve).toHaveBeenCalledWith('');
+      expect(resolver.resolveForPath).toHaveBeenCalledWith(WORKSPACE);
       expect(query.execute).toHaveBeenCalledWith(
         expect.objectContaining({ auth: OVERRIDE }),
       );
     });
 
-    it('rides the active provider with no auth on ProviderAuthError', async () => {
-      const resolver = makeResolver(async () => {
-        throw new FakeProviderAuthError('key missing');
-      });
+    it('rides the active provider with no auth when no snapshot could be built', async () => {
+      const resolver = makeResolver(async () => ({
+        providerId: 'moonshot',
+        model: 'kimi-k2.5',
+      }));
       const { generator, query } = build({ resolver });
       await expect(generator.generate(WORKSPACE)).resolves.toEqual({
         status: 'generated',
@@ -336,10 +330,13 @@ describe('CommitMessageGenerator', () => {
       );
     });
 
-    it('stops on ProviderQuotaError without dialling the provider', async () => {
-      const resolver = makeResolver(async () => {
-        throw new FakeProviderQuotaError('cooling down');
-      });
+    it('stops on a provider cooling down without dialling it', async () => {
+      const resolver = makeResolver(async () => ({
+        providerId: 'moonshot',
+        model: 'kimi-k2.5',
+        auth: OVERRIDE,
+        cooldownMs: 30_000,
+      }));
       const { generator, query } = build({ resolver });
       await expect(generator.generate(WORKSPACE)).resolves.toEqual({
         status: 'unavailable',

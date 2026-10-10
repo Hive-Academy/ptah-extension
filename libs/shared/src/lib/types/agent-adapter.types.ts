@@ -215,6 +215,8 @@ export interface SlashCommandRunConfig {
   enhancedPromptsContent?: string;
   pluginPaths?: string[];
   tabId?: string;
+  /** See {@link AgentSessionStartConfig.providerProfile}. */
+  providerProfile?: ProviderProfile;
 }
 
 /**

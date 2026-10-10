@@ -107,6 +107,11 @@ export {
   type ModelDispatchRoute,
 } from './lib/curator-llm-adapter/model-dispatch-provenance';
 export type { IProviderAuthResolver } from './lib/auth/provider-auth-resolver.port';
+export type {
+  IWorkspaceLlmResolver,
+  WorkspaceLlmSnapshot,
+  WorkspaceLlmResolveOptions,
+} from './lib/auth/workspace-llm-resolver.port';
 export type { OneShotAuthOverride } from './lib/helpers';
 export type { IPricingProvider } from './lib/pricing.port';
 export {
