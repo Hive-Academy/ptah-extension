@@ -1,6 +1,6 @@
 # Batches - TASK_2026_623_3492
 
-Total tasks: 76 | Batches: 37 (incl. fix batches 6F, 12F, 15F, post-cap correction 12F2) | Complete: 22/37
+Total tasks: 76 | Batches: 37 (incl. fix batches 6F, 12F, 15F, post-cap correction 12F2) | Complete: 24/37
 
 Worktree root `W` = `D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel` (branch
 `feat/task-623-display-panel`, base `70f995a56`). Every path below is absolute.
@@ -1122,7 +1122,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - Follow-ons carried: Batch 20 (Task 20.2), Batch 23 (Task 23.1, new Task 23.4), Batch 25 (Task 25.2), Batch 32
   (Task 32.1), Batch 33 (Task 33.3).
 
-## Batch 19: C4 turn summary model and chip — COMPLETE (commit see `git log`, subject "batch 19")
+## Batch 19: C4 turn summary model and chip — COMPLETE (commit 4229545e1)
 
 - Recommended executor: frontend-developer
 - Fallback executor: general-purpose subagent
@@ -1165,7 +1165,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
   (counts unavailable shows "?"), #70 (chip gradient overturned; chip goes flat `base-200`).
 - Follow-ons carried: Batch 21 (Task 21.2 notes, new Task 21.3), Batch 24 (Task 24.1 `openable`/`open` binding).
 
-## Batch 20: C5 display-panel entry, surfaces and sync — PENDING
+## Batch 20: C5 display-panel entry, surfaces and sync — COMPLETE (commit see `git log`, subject "batch 20")
 
 - Recommended executor: frontend-developer
 - Fallback executor: general-purpose subagent
@@ -1174,7 +1174,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - Tasks: 2 | Depends on: Batches 17, 18
 - Phase: 4 | Phase review: after Batch 21
 
-### Task 20.1: `display-surfaces.ts` pure computation — PENDING
+### Task 20.1: `display-surfaces.ts` pure computation — COMPLETE
 
 - Files (CREATE):
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\organisms\display-panel\display-surfaces.ts
@@ -1184,7 +1184,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
   cap via `SURFACE_STORE_LIMITS.maxSurfacesPerRoutingId`, LRU drop with `evicted`; view-state pruning on replace;
   pure function of ordered candidates.
 
-### Task 20.2: surface sync, entry file and tsconfig path — PENDING
+### Task 20.2: surface sync, entry file and tsconfig path — COMPLETE
 
 - Depends on: Task 20.1
 - Files:
@@ -1215,6 +1215,19 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 
 - `npx jest -c libs/frontend/chat-ui/jest.config.ts libs/frontend/chat-ui/src/lib/organisms/display-panel --coverage=false --maxWorkers=2 2>&1 | tail -n 40 && npx nx typecheck @ptah-extension/chat-ui --parallel=1 2>&1 | tail -n 20 && npx nx lint @ptah-extension/chat-ui --parallel=1 2>&1 | tail -n 20`
 
+### Batch 20 result (recorded at verification)
+
+- Team-leader re-ran in the worktree (command-line `--moduleNameMapper` for `^vscode$`/`^marked$`, handoff.md Batch 8
+  ruling): Jest 2 suites, 33 passed; `nx typecheck @ptah-extension/chat-ui` succeeded; `nx lint` 0 errors, 10
+  baseline warnings (same as Batch 19), none in a batch file. No TODO/FIXME/placeholder markers or timers.
+- On disk: `display-panel.ts` exports the sync and the pure functions only; `index.ts` untouched; the dock port file's
+  runtime import is `@angular/core` only (line 2 is `import type`); `tsconfig.base.json` has the
+  `@ptah-extension/chat-ui/display-panel` path. With the dock-sync token absent the sync registers no effects.
+- Rulings: decisions #71-#79 (nine deviations accepted as gap fills or equivalent wiring; none changes the approved
+  architecture), #80 (acceptance).
+- Follow-ons carried: Batch 21 (Task 21.1), Batch 22 (Task 22.2), Batch 23 (Tasks 23.1, 23.4; Task 23.2 heading
+  repaired), Batch 24 (Task 24.1), Batch 32 (Task 32.1).
+
 ## Batch 21: C6 display panel and turn summary cards — PENDING
 
 - Recommended executor: frontend-developer
@@ -1232,6 +1245,9 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - Plan reference: implementation-plan.md:720-801; design-spec.md sections 1-10; prototype/
 - Quality requirements: R1.13 (summary first, strip, surfaces, per-surface view state); collapsible, responsive at
   300/960 px (decisions #9); R9.1-R9.4.
+- Batch 20 follow-ons (decisions #74, #79): render the strip and the body in the published surface order. The unpinned
+  R1.6 scroll target is the surface with the highest `updatedSeq`. Bind `viewState`/`viewStateChange` to the store;
+  the panel does not prune view state (the store applies `retainedViewStateIds`).
 
 ### Task 21.2: turn summary cards — PENDING
 
@@ -1288,6 +1304,10 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - Quality requirements: R2.1, R2.7, R2.10-R2.11; `blockKey`, `orderKey`, `turnKey`, `live`.
 - Validation notes: resolve A4 (streaming text nodes in `vm().messages`). Decision #26: display fences are segments
   with `target === 'display'` (absent `target` = inline), `displayId` optional.
+- Batch 20 follow-on (decision #71): each candidate also carries `messageId` and `nodeId`, the same ids that form
+  `blockKey` (`messageId:nodeId`). Type the result with
+  `import type { DisplayCandidate } from '@ptah-extension/chat-ui/display-panel'`, type-only (never a value import
+  from that entry in eager code). The spec asserts both fields, including an id that contains `:`.
 
 ### Task 22.3: `collectTurnAgentFacts` — PENDING
 
@@ -1328,6 +1348,15 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
   - `openSurface(tabId, surfaceKey)` opens the tab's dock on the Displays tab and selects that surface.
   - The spec covers both ports: a status written through the sync port is read back through `fenceStatus`, and an
     unknown tab or key returns `null`.
+- Batch 20 follow-ons (decisions #73, #74):
+  - Implement all five `PtahUiDisplayDockSync` methods per tab: `surfaces(tabId)` returns the last published
+    surfaces (empty for an unknown tab); `setSurfaces(tabId, {surfaces, statuses})`; `hasSeen(tabId, fenceKey)` /
+    `markSeen(tabId, fenceKeys)` over `seenBlockKeys` (the key is `displayFenceKey`, equal to `blockKey:ordinal`);
+    `requestAutoOpen(tabId, turnKey, surfaceKey)` opens on the Displays tab and selects the surface, or, when
+    `userClosedTurnKey === turnKey`, stays closed and increments `newCount`. It never moves focus (R1.7).
+  - `setSurfaces` applies D10: drop the view state of surface keys no longer present; per surface keep only
+    view-state entries whose component id is in `retainedViewStateIds`. The spec covers both, plus the R1.8 sequence
+    through the real store (open, user close, second block same turn → closed with `newCount` 1, next turn opens).
 
 ### Task 23.4: main-barrel export of the dock port (decision #59) — PENDING
 
@@ -1342,7 +1371,13 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
   that every non-`@angular/core` import is `import type`; report the output. Batch 32 lists the file as an allowed
   eager input and Batch 33 measures it.
 - Why here: `DisplayDockState` (eager `chat` code, Task 23.1) is the first eager consumer, and this batch already
-  lints chat-ui.: transcript host-sources provider — PENDING
+  lints chat-ui.
+- Batch 20 follow-ons (decisions #73, #76): also export `PTAH_UI_DISPLAY_DOCK_SYNC`, `PtahUiDisplayDockSync` and
+  `PtahUiDisplaySurfacesPublication`. If `DisplayDockState` needs to name `DisplaySurface`, add
+  `export type { DisplaySurface } from './lib/organisms/display-panel/display-surfaces'` (type-only, erased); never a
+  value export from that folder. The grep check must show line 2 of the dock file as `import type`.
+
+### Task 23.2: transcript host-sources provider — PENDING
 
 - File (CREATE): D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat\src\lib\components\organisms\transcript\transcript-ptah-ui-host-sources.ts
 - Plan reference: implementation-plan.md:833-881, 977-993
@@ -1382,6 +1417,10 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
   summary model reuses its `formatFileCounts` (decision #68).
 - R10.9 webview half (decision #56): with `isElectron` false, a `$limits` fence renders as an ordinary code block and
   `agent:getLanePlanLimits` is never called. `chat-transcript.display.spec.ts` asserts both.
+- Batch 20 follow-on (decision #72): the sync has no `hostSources` input; it injects `PTAH_UI_HOST_SOURCES`. Mount
+  `ptah-display-surface-sync` in the transcript's own template (under `@defer`) with `[tabId]`, `[candidates]` and
+  `[snapshots]` (the transcript's `ptahUiSnapshots`), so it sits under the transcript's provider. The spec asserts a
+  `$agents` display fence resolves through the transcript's host sources.
 
 ### Task 24.2: delete the tests row — PENDING
 
@@ -1653,6 +1692,11 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
   - Since Batch 5, `ptah-ui-resolver.ts` imports it at runtime, and the `surface` barrel re-exports the resolver and
     pipeline, so an eager barrel importer could pull it in.
   - If the real gate run trips on it, report the eager importer chain as a finding. Do not drop or loosen the pattern.
+- Batch 20 follow-on (decision #76): the eager port `ptah-ui-display-dock.ts` has an erased
+  `import type { DisplaySurface }` from `organisms/display-panel/`. Keep matching patterns against esbuild output
+  inputs, never source import text. Add a synthetic fixture whose eager `main.js` lists `ptah-ui-display-dock.ts` and
+  no `display-panel` input, and assert it passes. The sync's reuse of `organisms/ptah-ui/ptah-ui-block.component.ts`
+  is already covered by the existing `organisms/ptah-ui/` pattern.
 
 ### Batch 32 verification
 

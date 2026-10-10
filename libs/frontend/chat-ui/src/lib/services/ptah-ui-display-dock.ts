@@ -1,4 +1,5 @@
 import { InjectionToken } from '@angular/core';
+import type { DisplaySurface } from '../organisms/display-panel/display-surfaces';
 
 /** Where a valid display fence's version stands in the tab's display panel. */
 export type PtahUiDisplayFenceState = 'applied' | 'superseded' | 'evicted';
@@ -49,6 +50,58 @@ export interface PtahUiDisplayDock {
 export const PTAH_UI_DISPLAY_DOCK = new InjectionToken<PtahUiDisplayDock>(
   'PTAH_UI_DISPLAY_DOCK',
 );
+
+/**
+ * What the display sync publishes for a tab in one computation (component 5):
+ * the agent surfaces (at most `maxSurfacesPerRoutingId`, creation order) and
+ * one status per closed display fence, keyed by `displayFenceKey`.
+ */
+export interface PtahUiDisplaySurfacesPublication {
+  readonly surfaces: readonly DisplaySurface[];
+  readonly statuses: ReadonlyMap<string, PtahUiDisplayFenceStatus>;
+}
+
+/**
+ * The write side of the dock store, used only by the headless display sync
+ * (decision #60). Kept apart from `PtahUiDisplayDock` so the chip never sees
+ * a write. The sync calls these outside any reactive context.
+ */
+export interface PtahUiDisplayDockSync {
+  /** The surfaces last published for the tab (the D10 comparison input). */
+  surfaces(tabId: string): readonly DisplaySurface[];
+  /**
+   * Replaces the tab's surfaces and fence statuses. The store drops view state
+   * of keys no longer present and, per surface, keeps only the component
+   * entries listed in `retainedViewStateIds` (D10).
+   */
+  setSurfaces(
+    tabId: string,
+    publication: PtahUiDisplaySurfacesPublication,
+  ): void;
+  /**
+   * Whether the fence (`displayFenceKey`, which equals `blockKey:ordinal`) is in
+   * the tab's `seenBlockKeys`. The set lives in the store, so a sync remount
+   * cannot re-trigger auto-open (D12).
+   */
+  hasSeen(tabId: string, fenceKey: string): boolean;
+  /** Adds fences to the tab's `seenBlockKeys`. */
+  markSeen(tabId: string, fenceKeys: readonly string[]): void;
+  /**
+   * D12: a live, applied, unseen fence asks the panel to open on its surface.
+   * The store ignores it when the user closed the panel in this turn
+   * (`userClosedTurnKey === turnKey`) and increments `newCount` instead. The
+   * store never moves focus (R1.7).
+   */
+  requestAutoOpen(tabId: string, turnKey: string, surfaceKey: string): void;
+}
+
+/**
+ * Provided by the ChatView alongside `PTAH_UI_DISPLAY_DOCK` (both
+ * `useExisting` the dock store). Optional: without it the sync publishes
+ * nothing and never throws.
+ */
+export const PTAH_UI_DISPLAY_DOCK_SYNC =
+  new InjectionToken<PtahUiDisplayDockSync>('PTAH_UI_DISPLAY_DOCK_SYNC');
 
 /** The per-fence key the sync and the chip share: `messageId:nodeId:ordinal`. */
 export function displayFenceKey(
