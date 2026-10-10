@@ -21,6 +21,10 @@
  *   SURFACE_SUBMIT_TURN       ← STREAM_BROADCASTER
  *   CLI_AGENT_RUNTIME_TOKENS.CHILD_CHAT_SESSION_HOST ← SESSION
  *
+ * `SLASH_COMMAND_ROUTER` and `SESSION` also resolve
+ * `AUTH_PROVIDERS_TOKENS.SDK_WORKSPACE_PROVIDER_PROFILE_RESOLVER`, registered
+ * by `registerAuthProvidersServices` on every host.
+ *
  * `SESSION` also resolves `OUTPUT_STYLE_TOKENS.SESSION_ACTIVATION`, which is
  * NOT registered here — `registerOutputStyleServices` owns it, because the
  * CLI-agent spawn path in `cli-agent-runtime` needs the same composition and

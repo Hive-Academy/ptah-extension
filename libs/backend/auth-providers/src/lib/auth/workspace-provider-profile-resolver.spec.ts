@@ -45,6 +45,9 @@ import { ProviderModelsService } from '../provider-models.service';
 import { ModelResolver } from './model-resolver';
 import { ActiveProviderResolver } from './active-provider-resolver';
 import type { ProviderProxyPool } from './provider-proxy-pool';
+import type { AuthManager } from './auth-manager';
+import type { ActiveAuth } from './active-provider-resolver';
+import { AuthRequiredError } from '@ptah-extension/agent-sdk';
 
 const WORKSPACE = 'D:/projects/pinned-workspace';
 
@@ -78,6 +81,8 @@ interface Harness {
   /** The process-global auth env. Nothing here may write it. */
   globalAuthEnv: AuthEnv;
   acquire: jest.Mock;
+  /** Mutable: what the shared AuthEnv is configured for. */
+  shared: { auth: ActiveAuth | null };
 }
 
 function createHarness(opts: {
@@ -86,6 +91,15 @@ function createHarness(opts: {
   /** Values on the mock ConfigManager (persisted catalogue, tier overrides). */
   configValues?: Record<string, unknown>;
   providerKeys?: Record<string, string>;
+  /**
+   * Whether `workspaceSettings` are the workspace's OWN overrides (default) or
+   * only the app/global values it inherits.
+   */
+  ownOverride?: boolean;
+  /** What the shared AuthEnv is configured for (`AuthManager`). */
+  sharedAuth?: ActiveAuth | null;
+  /** Workspace-scoped overrides by path, over `workspaceSettings` (mutable). */
+  settingsByPath?: Record<string, Record<string, unknown>>;
 }): Harness {
   const logger = createMockLogger() as unknown as Logger;
   const config = createMockConfigManager({
@@ -98,9 +112,10 @@ function createHarness(opts: {
   const settings = opts.workspaceSettings ?? {};
   const scope = {
     read: <T>(key: string): T | undefined => settings[key] as T | undefined,
-    readForPath: <T>(key: string): T | undefined =>
-      settings[key] as T | undefined,
-    hasOverrideForPath: (key: string): boolean => key in settings,
+    readForPath: <T>(key: string, path: string): T | undefined =>
+      (opts.settingsByPath?.[path]?.[key] ?? settings[key]) as T | undefined,
+    hasOverrideForPath: (key: string): boolean =>
+      (opts.ownOverride ?? true) && key in settings,
   } as unknown as WorkspaceScopeResolver;
 
   const globalAuthEnv: AuthEnv = {};
@@ -118,6 +133,10 @@ function createHarness(opts: {
     authToken: 'isolated-proxy-token',
   }));
   const proxyPool = { acquire } as unknown as ProviderProxyPool;
+  const shared = { auth: opts.sharedAuth ?? null };
+  const authManager = {
+    getConfiguredAuth: () => shared.auth,
+  } as unknown as AuthManager;
 
   const resolver = new WorkspaceProviderProfileResolver(
     logger,
@@ -126,11 +145,11 @@ function createHarness(opts: {
     providerModels,
     modelResolver,
     activeProviderResolver,
-    scope,
+    authManager,
     proxyPool,
   );
 
-  return { resolver, globalAuthEnv, acquire };
+  return { resolver, globalAuthEnv, acquire, shared };
 }
 
 // ---------------------------------------------------------------------------
@@ -357,15 +376,166 @@ describe('WorkspaceProviderProfileResolver — the post-fallback ladder', () => 
 // Untouched guarantees
 // ---------------------------------------------------------------------------
 
-describe('WorkspaceProviderProfileResolver — global-auth fallback', () => {
-  it('returns undefined when the workspace has no explicit provider override', async () => {
-    const { resolver } = createHarness({ workspaceSettings: {} });
+describe('WorkspaceProviderProfileResolver — chat sessions without an override', () => {
+  it('builds a snapshot of the inherited app/global provider when the workspace has no override', async () => {
+    const { resolver, globalAuthEnv } = createHarness({
+      workspaceSettings: {
+        authMethod: 'thirdParty',
+        anthropicProviderId: 'moonshot',
+      },
+      ownOverride: false,
+      providerKeys: { moonshot: 'ms-key' },
+    });
+
+    const profile = await resolver.resolveProviderProfileForWorkspace(
+      WORKSPACE,
+      'default',
+    );
+
+    expect(profile?.providerId).toBe('moonshot');
+    expect(Object.values(profile?.authEnv ?? {})).toContain('ms-key');
+    expect(globalAuthEnv).toEqual({});
+  });
+
+  it('pins an inherited proxy provider to the pooled proxy', async () => {
+    const { resolver, acquire } = createHarness({
+      workspaceSettings: {
+        authMethod: 'thirdParty',
+        anthropicProviderId: 'lm-studio',
+      },
+      ownOverride: false,
+    });
+
+    const profile = await resolver.resolveProviderProfileForWorkspace(
+      WORKSPACE,
+      'default',
+    );
+
+    expect(acquire).toHaveBeenCalledWith(
+      WORKSPACE,
+      'lm-studio',
+      expect.objectContaining({ id: 'lm-studio' }),
+    );
+    expect(profile?.authEnv.ANTHROPIC_BASE_URL).toBe('http://127.0.0.1:51234');
+  });
+});
+
+describe('WorkspaceProviderProfileResolver — cross-workspace isolation', () => {
+  it('a workspace-scoped save in workspace A does not change the snapshot of a session in workspace B', async () => {
+    const WS_A = 'D:/projects/a';
+    const WS_B = 'D:/projects/b';
+    const settingsByPath: Record<string, Record<string, unknown>> = {
+      [WS_A]: { authMethod: 'thirdParty', anthropicProviderId: 'moonshot' },
+    };
+    const { resolver, globalAuthEnv, shared } = createHarness({
+      // B has no override: it inherits the global provider.
+      workspaceSettings: {
+        authMethod: 'thirdParty',
+        anthropicProviderId: 'z-ai',
+      },
+      settingsByPath,
+      providerKeys: {
+        moonshot: 'ms-key',
+        'z-ai': 'zai-key',
+        requesty: 'rq-key',
+      },
+      sharedAuth: { authMethod: 'thirdParty', providerId: 'moonshot' },
+    });
+
+    const sessionB = await resolver.resolveProviderProfileForWorkspace(
+      WS_B,
+      'default',
+    );
+    const authEnvB = { ...sessionB?.authEnv };
+    expect(sessionB?.providerId).toBe('z-ai');
+
+    // Workspace A saves a different provider for itself; the shared env is
+    // re-initialized for the active workspace (A).
+    settingsByPath[WS_A] = {
+      authMethod: 'thirdParty',
+      anthropicProviderId: 'requesty',
+    };
+    globalAuthEnv.ANTHROPIC_BASE_URL = 'https://router.requesty.ai';
+    globalAuthEnv.ANTHROPIC_AUTH_TOKEN = 'rq-key';
+    shared.auth = { authMethod: 'thirdParty', providerId: 'requesty' };
+
+    // The session already running in B keeps its snapshot untouched...
+    expect(sessionB?.authEnv).toEqual(authEnvB);
+    // ...and B's next query (resume) resolves B's own provider again.
+    const nextB = await resolver.resolveProviderProfileForWorkspace(
+      WS_B,
+      'default',
+    );
+    expect(nextB?.providerId).toBe('z-ai');
+    expect(nextB?.authEnv).toEqual(authEnvB);
+    const nextA = await resolver.resolveProviderProfileForWorkspace(
+      WS_A,
+      'default',
+    );
+    expect(nextA?.providerId).toBe('requesty');
+  });
+});
+
+describe('WorkspaceProviderProfileResolver — no snapshot', () => {
+  it('fails closed when the shared auth env serves a different provider', async () => {
+    // Moonshot resolved, but no key is stored: no snapshot can be built.
+    const { resolver } = createHarness({
+      workspaceSettings: {
+        authMethod: 'thirdParty',
+        anthropicProviderId: 'moonshot',
+      },
+      sharedAuth: { authMethod: 'thirdParty', providerId: 'openrouter' },
+    });
+
+    const attempt = resolver.resolveProviderProfileForWorkspace(
+      WORKSPACE,
+      'default',
+    );
+
+    await expect(attempt).rejects.toBeInstanceOf(AuthRequiredError);
+    await expect(attempt).rejects.toMatchObject({ providerId: 'moonshot' });
+  });
+
+  it('fails closed when the shared auth env holds no configuration', async () => {
+    const { resolver } = createHarness({
+      workspaceSettings: { authMethod: 'apiKey' },
+      sharedAuth: null,
+    });
+
+    await expect(
+      resolver.resolveProviderProfileForWorkspace(WORKSPACE, 'default'),
+    ).rejects.toMatchObject({
+      name: 'AuthRequiredError',
+      providerId: 'anthropic',
+    });
+  });
+
+  it('uses the shared auth env when it serves the same provider', async () => {
+    // Direct API key resolved but none stored: the snapshot cannot be built,
+    // and the shared env is configured for exactly this provider.
+    const { resolver } = createHarness({
+      workspaceSettings: { authMethod: 'apiKey' },
+      sharedAuth: { authMethod: 'apiKey', providerId: 'anthropic' },
+    });
 
     await expect(
       resolver.resolveProviderProfileForWorkspace(WORKSPACE, 'default'),
     ).resolves.toBeUndefined();
   });
 
+  it('buildProfileForPath returns undefined without consulting the shared env', async () => {
+    const { resolver } = createHarness({
+      workspaceSettings: { authMethod: 'apiKey' },
+      sharedAuth: null,
+    });
+
+    await expect(
+      resolver.buildProfileForPath(WORKSPACE, 'default'),
+    ).resolves.toBeUndefined();
+  });
+});
+
+describe('WorkspaceProviderProfileResolver — direct Anthropic', () => {
   it('keeps direct Anthropic on the SDK sentinel rather than deriving a tier for it', async () => {
     // `claudeCli` builds a deliberately empty snapshot, so `isDirectAnthropic`
     // holds and `'default'` is a valid model string all the way down. No

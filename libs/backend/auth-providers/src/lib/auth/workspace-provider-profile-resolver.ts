@@ -19,12 +19,15 @@
  *   work concurrently across workspaces after this change.
  * - Proxy-based providers (Copilot/Codex OAuth proxies, OpenRouter/Sakana/LM
  *   Studio translation proxies) require a running local proxy. Phase 3: this
- *   resolver now acquires a per-workspace ISOLATED proxy from
- *   {@link ProviderProxyPool} (a dedicated instance on its own ephemeral port),
- *   so concurrent workspaces run different proxy providers with zero
- *   cross-workspace interference. It still returns `undefined` (global-auth
- *   fallback) when no isolated proxy can be acquired (missing credentials,
- *   unknown provider, or start failure) rather than emit a broken proxy env.
+ *   resolver acquires a pooled proxy from {@link ProviderProxyPool} (one
+ *   instance per provider configuration, shared by the workspaces on it,
+ *   independent of the auth strategies' proxies), so concurrent workspaces run
+ *   different proxy providers with zero cross-workspace interference.
+ * - Every chat session gets a snapshot, with or without a workspace override.
+ *   Without one (missing credentials, unknown provider, proxy start failure)
+ *   the session may use the shared AuthEnv only when that env is configured
+ *   for the same provider; otherwise the session is refused
+ *   ({@link WorkspaceProviderProfileResolver.resolveProviderProfileForWorkspace}).
  */
 
 import { injectable, inject } from 'tsyringe';
@@ -45,14 +48,15 @@ import {
   OLLAMA_CLOUD_DIRECT_BASE_URL,
   ANTHROPIC_DIRECT_PROVIDER_ID,
 } from '@ptah-extension/shared';
-import {
-  SETTINGS_TOKENS,
-  type WorkspaceScopeResolver,
-} from '@ptah-extension/settings-core';
+import { AuthRequiredError } from '@ptah-extension/agent-sdk';
 import { AUTH_PROVIDERS_TOKENS } from '../di/tokens';
 import type { ProviderModelsService } from '../provider-models.service';
 import type { DerivedTierMap } from '../model-tier-derivation';
-import { ActiveProviderResolver } from './active-provider-resolver';
+import {
+  ActiveProviderResolver,
+  type ActiveAuth,
+} from './active-provider-resolver';
+import type { AuthManager } from './auth-manager';
 import type { ModelResolver } from './model-resolver';
 import type { ProviderProxyPool } from './provider-proxy-pool';
 import { OLLAMA_AUTH_TOKEN_PLACEHOLDER } from '../providers/local';
@@ -70,53 +74,81 @@ export class WorkspaceProviderProfileResolver {
     private readonly modelResolver: ModelResolver,
     @inject(AUTH_PROVIDERS_TOKENS.SDK_ACTIVE_PROVIDER_RESOLVER)
     private readonly activeProviderResolver: ActiveProviderResolver,
-    @inject(SETTINGS_TOKENS.WORKSPACE_SCOPE_RESOLVER)
-    private readonly scope: WorkspaceScopeResolver,
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_AUTH_MANAGER)
+    private readonly authManager: AuthManager,
     @inject(AUTH_PROVIDERS_TOKENS.SDK_PROVIDER_PROXY_POOL)
     private readonly proxyPool: ProviderProxyPool,
   ) {}
 
   /**
-   * Resolve the isolated provider profile for a workspace's interactive chat.
+   * Resolve the provider profile for one chat session (start, resume, slash
+   * relaunch) in `workspacePath`.
    *
-   * Returns `undefined` (→ caller keeps the process-global auth behavior, no
-   * regression for single-provider users) when:
-   * - `workspacePath` is empty, or
-   * - the workspace has NO explicit per-workspace provider override, or
-   * - the resolved provider is unknown, its credentials are missing, or it is a
-   *   proxy provider that does not match the global active provider.
+   * Every session gets an isolated snapshot of the provider its workspace
+   * resolves to — its own override, else the app- then global-scoped provider
+   * — so a later auth change in another workspace (which rewrites the shared
+   * AuthEnv) cannot move this session's next query to another provider.
+   *
+   * When no snapshot can be built (unknown provider, missing credentials,
+   * proxy start failure):
+   * - returns `undefined` — the session uses the shared AuthEnv — only when the
+   *   shared AuthEnv is configured for this same provider;
+   * - otherwise throws {@link AuthRequiredError} rather than run the session on
+   *   another workspace's provider and credentials.
    */
   async resolveProviderProfileForWorkspace(
     workspacePath: string,
     requestedModel: string,
   ): Promise<ProviderProfile | undefined> {
-    if (!workspacePath || workspacePath.trim() === '') {
+    const active =
+      this.activeProviderResolver.resolveActiveAuthForPath(workspacePath);
+    const profile = await this.buildProfile(
+      active,
+      workspacePath,
+      requestedModel,
+    );
+    if (profile) {
+      return profile;
+    }
+
+    const shared = this.authManager.getConfiguredAuth();
+    if (
+      shared &&
+      shared.authMethod === active.authMethod &&
+      shared.providerId === active.providerId
+    ) {
+      this.logger.info(
+        '[WorkspaceProviderProfileResolver] No isolated snapshot — the shared auth env serves the same provider, using it',
+        { ...active, workspacePath },
+      );
       return undefined;
     }
 
-    // Only take over the auth env when the workspace has EXPLICITLY chosen a
-    // provider/auth method (workspace- or app-scoped override). Otherwise the
-    // workspace uses the global default and must keep today's behavior.
-    const hasExplicit =
-      this.scope.hasOverrideForPath(
-        'anthropicProviderId',
+    const providerName = this.providerDisplayName(active);
+    this.logger.warn(
+      '[WorkspaceProviderProfileResolver] No isolated snapshot and the shared auth env serves a different provider — refusing the session',
+      {
+        ...active,
         workspacePath,
-        true,
-      ) || this.scope.hasOverrideForPath('authMethod', workspacePath, true);
-    if (!hasExplicit) {
-      return undefined;
-    }
-
-    return this.buildProfileForPath(workspacePath, requestedModel);
+        sharedProviderId: shared?.providerId ?? null,
+      },
+    );
+    throw new AuthRequiredError(
+      `Cannot start this session: ${providerName} is not ready for this workspace, and the active connection uses a different provider. Check ${providerName} in Settings and retry.`,
+      {
+        providerId: active.providerId,
+        recoveryHint: `Check ${providerName} in Settings and retry.`,
+      },
+    );
   }
 
   /**
    * Build the isolated profile for the provider that `workspacePath` resolves
    * to — its own override when it has one, else the app- then global-scoped
-   * provider. Unlike {@link resolveProviderProfileForWorkspace} there is no
-   * "explicit override" gate: callers that must never ride the process-wide
-   * auth env (one-shot workflows, `WorkspaceLlmResolver`) always get the
-   * snapshot. `''` resolves the app/global provider (rootless callers).
+   * provider. Used by callers that must never ride the process-wide auth env
+   * (one-shot workflows, `WorkspaceLlmResolver`) and decide on their own what
+   * to do without a snapshot. `''` resolves the app/global provider (rootless
+   * callers).
    *
    * Returns `undefined` when no isolated snapshot can be built (unknown
    * provider, missing credentials, proxy start failure); logged here.
@@ -125,9 +157,29 @@ export class WorkspaceProviderProfileResolver {
     workspacePath: string,
     requestedModel: string,
   ): Promise<ProviderProfile | undefined> {
-    const { authMethod, providerId } =
-      this.activeProviderResolver.resolveActiveAuthForPath(workspacePath);
+    return this.buildProfile(
+      this.activeProviderResolver.resolveActiveAuthForPath(workspacePath),
+      workspacePath,
+      requestedModel,
+    );
+  }
 
+  /** User-facing name of a resolved provider for error messages. */
+  private providerDisplayName({ authMethod, providerId }: ActiveAuth): string {
+    if (authMethod === 'apiKey') {
+      return 'the Anthropic API key';
+    }
+    if (authMethod === 'claudeCli') {
+      return 'the Claude CLI login';
+    }
+    return getAnthropicProvider(providerId)?.name ?? providerId;
+  }
+
+  private async buildProfile(
+    { authMethod, providerId }: ActiveAuth,
+    workspacePath: string,
+    requestedModel: string,
+  ): Promise<ProviderProfile | undefined> {
     try {
       if (authMethod === 'claudeCli') {
         return this.buildNativeAnthropicProfile(requestedModel);
@@ -139,7 +191,7 @@ export class WorkspaceProviderProfileResolver {
       const provider = getAnthropicProvider(providerId);
       if (!provider) {
         this.logger.warn(
-          '[WorkspaceProviderProfileResolver] Unknown per-workspace provider — falling back to global auth',
+          '[WorkspaceProviderProfileResolver] Unknown per-workspace provider — no isolated snapshot',
           { providerId, workspacePath },
         );
         return undefined;
@@ -161,7 +213,7 @@ export class WorkspaceProviderProfileResolver {
       );
     } catch (error: unknown) {
       this.logger.warn(
-        '[WorkspaceProviderProfileResolver] Failed to resolve per-workspace provider profile — falling back to global auth',
+        '[WorkspaceProviderProfileResolver] Failed to resolve per-workspace provider profile — no isolated snapshot',
         {
           providerId,
           workspacePath,
@@ -197,7 +249,7 @@ export class WorkspaceProviderProfileResolver {
     const apiKey = (await this.authSecrets.getCredential('apiKey'))?.trim();
     if (!apiKey) {
       this.logger.warn(
-        '[WorkspaceProviderProfileResolver] Workspace requests direct Anthropic API key but none is stored — falling back to global auth',
+        '[WorkspaceProviderProfileResolver] Workspace requests direct Anthropic API key but none is stored — no isolated snapshot',
       );
       return undefined;
     }
@@ -272,7 +324,7 @@ export class WorkspaceProviderProfileResolver {
     )?.trim();
     if (!providerKey) {
       this.logger.warn(
-        '[WorkspaceProviderProfileResolver] No API key stored for per-workspace provider — falling back to global auth',
+        '[WorkspaceProviderProfileResolver] No API key stored for per-workspace provider — no isolated snapshot',
         { providerId },
       );
       return undefined;
@@ -289,17 +341,17 @@ export class WorkspaceProviderProfileResolver {
 
   /**
    * Proxy-based providers (Copilot/Codex OAuth proxies; OpenRouter/Sakana/LM
-   * Studio translation proxies). Phase 3: acquire a per-workspace ISOLATED proxy
-   * from {@link ProviderProxyPool} — a dedicated instance on its own ephemeral
-   * port, so workspace A and workspace B can run different proxy providers (or
-   * the same provider with different keys) concurrently without interference.
+   * Studio translation proxies). Phase 3: acquire a pooled proxy from
+   * {@link ProviderProxyPool} — one instance per provider configuration on its
+   * own ephemeral port, shared by the workspaces on that configuration — so
+   * workspace A and workspace B can run different proxy providers concurrently
+   * without interference.
    *
    * The pool shares the OAuth/OpenRouter auth-service singletons (isolating the
    * PORT, not the machine-global credential state) and key-binds Sakana to the
-   * workspace-resolved key. On `undefined` (non-proxy, unknown proxy provider,
-   * missing credentials, or start failure) we keep the prior fallback: return
-   * `undefined` so the workspace rides the process-global auth path (no
-   * regression, no broken proxy env).
+   * stored key. On `undefined` (non-proxy, unknown proxy provider, missing
+   * credentials, or start failure) return `undefined` — no broken proxy env;
+   * the caller decides whether the shared env may serve the session.
    */
   private async buildProxyProviderProfile(
     providerId: string,
@@ -314,7 +366,7 @@ export class WorkspaceProviderProfileResolver {
     );
     if (!acquired) {
       this.logger.warn(
-        '[WorkspaceProviderProfileResolver] No isolated proxy acquired for proxy provider — falling back to global auth for this workspace.',
+        '[WorkspaceProviderProfileResolver] No isolated proxy acquired for proxy provider — no isolated snapshot for this workspace.',
         { providerId, workspacePath },
       );
       return undefined;

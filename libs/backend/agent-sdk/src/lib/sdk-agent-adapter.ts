@@ -1474,15 +1474,35 @@ export class SdkAgentAdapter implements IAgentAdapter {
   async executeSlashCommand(
     sessionId: SessionId,
     command: string,
-    config: SlashCommandConfig & { tabId?: string },
+    config: SlashCommandConfig & {
+      tabId?: string;
+      providerProfile?: ProviderProfile;
+    },
   ): Promise<AsyncIterable<FlatStreamEventUnion>> {
     if (!this.initialized) {
       throw this.notInitializedError();
     }
 
+    // Same per-session provider pinning as start/resume: the relaunch runs on
+    // the profile's isolated auth env, model and cli.js when one is supplied.
+    const { providerProfile } = config;
+    const sessionConfig =
+      providerProfile && config.sessionConfig
+        ? {
+            ...config.sessionConfig,
+            model: providerProfile.model,
+            ...(providerProfile.reasoningEffort
+              ? { effort: providerProfile.reasoningEffort }
+              : {}),
+          }
+        : config.sessionConfig;
+
     this.logger.info(
       `[SdkAgentAdapter] Executing slash command for session: ${sessionId}`,
-      { command: command.substring(0, 50) },
+      {
+        command: command.substring(0, 50),
+        providerId: providerProfile?.providerId,
+      },
     );
 
     // The re-query resumes the same transcript: same owner, new run. Its
@@ -1503,14 +1523,16 @@ export class SdkAgentAdapter implements IAgentAdapter {
       sessionId,
       command,
       {
-        sessionConfig: config.sessionConfig,
+        sessionConfig,
         mcpServerRunning: config.mcpServerRunning,
         enhancedPromptsContent: config.enhancedPromptsContent,
         onCompactionStart: this.callbacks.getCompactionStart(),
         onWorktreeCreated: this.callbacks.getWorktreeCreated(),
         onWorktreeRemoved: this.callbacks.getWorktreeRemoved(),
         pathToClaudeCodeExecutable:
-          this.runtimeState.getCliJsPath() || undefined,
+          (providerProfile?.cliJsPath ?? this.runtimeState.getCliJsPath()) ||
+          undefined,
+        authEnvOverride: providerProfile?.authEnv,
         beforeRelaunch: async () => {
           prepared.run = await this.prepareStatsForRun(
             sessionId,

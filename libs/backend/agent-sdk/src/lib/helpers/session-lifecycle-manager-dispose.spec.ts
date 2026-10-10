@@ -399,4 +399,70 @@ describe('SessionLifecycleManager — disposeSessionsForWorkspace handover', () 
 
     manager.dispose();
   });
+
+  it('disposeAllSessions reports sourceEnded for every session, with its token, before teardown', async () => {
+    const handoverCoordinator = {
+      sourceEnded: jest.fn(),
+      snapshotFor: jest.fn().mockReturnValue(undefined),
+      attachRuntime: jest.fn(),
+      admitInterrupt: jest.fn().mockReturnValue({ held: false }),
+    };
+    const subagentRegistry = {
+      beginSessionTeardown: jest.fn(),
+      endSessionTeardown: jest.fn(),
+      markAllInterrupted: jest.fn(),
+    } as unknown as SubagentRegistryService;
+    const manager = new SessionLifecycleManager(
+      asLogger(createMockLogger()),
+      {
+        cleanupPendingPermissions: jest.fn(),
+      } as unknown as ISdkPermissionHandler,
+      { getQueryFunction: jest.fn() } as unknown as SdkModuleLoader,
+      { build: jest.fn() } as unknown as SdkQueryOptionsBuilder,
+      {} as unknown as SdkMessageFactory,
+      subagentRegistry,
+      {} as AuthEnv,
+      { resolve: jest.fn((m: string) => m) } as unknown as IModelResolver,
+      { notifyAll: jest.fn() } as unknown as SessionEndCallbackRegistry,
+      {} as unknown as SdkQueryRunner,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      handoverCoordinator as unknown as ConstructorParameters<
+        typeof SessionLifecycleManager
+      >[17],
+    );
+
+    const inA = { model: 'm', projectPath: '/ws/a' } as AISessionConfig;
+    const inB = { model: 'm', projectPath: '/ws/b' } as AISessionConfig;
+    const a1 = manager.register('tab_a1', inA, new AbortController());
+    const b1 = manager.register('tab_b1', inB, new AbortController());
+    // The registry still holds both records when the coordinator is told.
+    handoverCoordinator.sourceEnded.mockImplementation(() => {
+      expect(manager.getSessionIdsForWorkspace('/ws/a')).toEqual(['tab_a1']);
+      expect(manager.getSessionIdsForWorkspace('/ws/b')).toEqual(['tab_b1']);
+    });
+
+    await manager.disposeAllSessions();
+
+    expect(handoverCoordinator.sourceEnded).toHaveBeenCalledTimes(2);
+    expect(handoverCoordinator.sourceEnded).toHaveBeenCalledWith(
+      'tab_a1',
+      a1.token,
+      'session ended',
+    );
+    expect(handoverCoordinator.sourceEnded).toHaveBeenCalledWith(
+      'tab_b1',
+      b1.token,
+      'session ended',
+    );
+    expect(manager.getSessionIdsForWorkspace('/ws/a')).toEqual([]);
+    expect(manager.getSessionIdsForWorkspace('/ws/b')).toEqual([]);
+
+    manager.dispose();
+  });
 });

@@ -851,8 +851,9 @@ export class ChatSessionService {
     );
     // Resolve an isolated per-workspace provider profile so a session in
     // workspace A runs against A's provider even when a different workspace's
-    // provider is currently the process-global active one. `undefined` → the
-    // session rides the global auth env (unchanged single-provider behavior).
+    // provider is currently the process-global active one. `undefined` only
+    // when the shared auth env serves this same provider; a mismatch throws
+    // AuthRequiredError, which each caller result-shapes as AUTH_REQUIRED.
     const providerProfile =
       await this.workspaceProviderProfileResolver.resolveProviderProfileForWorkspace(
         workspaceId,
@@ -1568,23 +1569,26 @@ export class ChatSessionService {
     const currentModel =
       params.model || this.modelSettings.selectedModel.get() || 'default';
 
-    // Same per-workspace isolation as chat:start — the resumed turn must run
-    // against the session's own workspace provider, not whichever provider is
-    // globally active after a workspace switch.
-    const providerProfile =
-      await this.workspaceProviderProfileResolver.resolveProviderProfileForWorkspace(
-        workspacePath,
-        currentModel,
+    try {
+      // Same per-workspace isolation as chat:start — the resumed turn must run
+      // against the session's own workspace provider, not whichever provider
+      // is globally active after a workspace switch. Throws AuthRequiredError
+      // (→ AUTH_REQUIRED below) rather than resume on another provider.
+      const providerProfile =
+        await this.workspaceProviderProfileResolver.resolveProviderProfileForWorkspace(
+          workspacePath,
+          currentModel,
+        );
+
+      // Re-resolved for the resumed turn rather than carried over from the
+      // original start: the provider or the style may have changed since, and
+      // Req 5.6 forbids caching the decision across sessions.
+      const outputStyle = await this.outputStyleActivation.resolveSessionFields(
+        {
+          workspaceRoot: workspacePath,
+        },
       );
 
-    // Re-resolved for the resumed turn rather than carried over from the
-    // original start: the provider or the style may have changed since, and
-    // Req 5.6 forbids caching the decision across sessions.
-    const outputStyle = await this.outputStyleActivation.resolveSessionFields({
-      workspaceRoot: workspacePath,
-    });
-
-    try {
       const stream = await this.sdkAdapter.resumeSession(sessionId, {
         projectPath: workspacePath,
         model: currentModel,
@@ -1626,6 +1630,7 @@ export class ChatSessionService {
           success: false,
           sessionId: sessionId as SessionId,
           error: message,
+          ...this.authErrorFields(resumeError),
         },
       };
     }

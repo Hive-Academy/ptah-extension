@@ -2049,6 +2049,58 @@ describe('SdkAgentAdapter', () => {
       expect(transformArg.sdkQuery).toBe(sdkQuery);
       expect(transformArg.tabId).toBe('tab-1');
     });
+
+    it('runs the relaunch on the provider profile: its auth env, model and cli.js', async () => {
+      const h = makeAdapter();
+      await h.adapter.initialize();
+      h.sessionLifecycle.executeSlashCommandQuery.mockResolvedValueOnce({
+        sdkQuery: createFakeQuery(),
+        initialModel: 'kimi-k2.5',
+        abortController: new AbortController(),
+      } as ExecuteQueryResult);
+      const authEnv = {
+        ANTHROPIC_BASE_URL: 'https://api.moonshot.ai/anthropic',
+        ANTHROPIC_AUTH_TOKEN: 'ms-key',
+      };
+
+      await h.adapter.executeSlashCommand('sess-1' as SessionId, '/compact', {
+        sessionConfig: { model: 'default', projectPath: '/ws/b' },
+        providerProfile: {
+          providerId: 'moonshot',
+          authEnv,
+          model: 'kimi-k2.5',
+          cliJsPath: '/profile/cli.js',
+        },
+      });
+
+      const [, , slashConfig] =
+        h.sessionLifecycle.executeSlashCommandQuery.mock.calls[0];
+      expect(slashConfig.authEnvOverride).toBe(authEnv);
+      expect(slashConfig.sessionConfig).toMatchObject({
+        model: 'kimi-k2.5',
+        projectPath: '/ws/b',
+      });
+      expect(slashConfig.pathToClaudeCodeExecutable).toBe('/profile/cli.js');
+    });
+
+    it('leaves the relaunch on the shared auth env without a profile', async () => {
+      const h = makeAdapter();
+      await h.adapter.initialize();
+      h.sessionLifecycle.executeSlashCommandQuery.mockResolvedValueOnce({
+        sdkQuery: createFakeQuery(),
+        initialModel: 'default',
+        abortController: new AbortController(),
+      } as ExecuteQueryResult);
+
+      await h.adapter.executeSlashCommand('sess-1' as SessionId, '/compact', {
+        sessionConfig: { model: 'default', projectPath: '/ws/b' },
+      });
+
+      const [, , slashConfig] =
+        h.sessionLifecycle.executeSlashCommandQuery.mock.calls[0];
+      expect(slashConfig.authEnvOverride).toBeUndefined();
+      expect(slashConfig.sessionConfig).toMatchObject({ model: 'default' });
+    });
   });
 
   describe('callback wiring', () => {
