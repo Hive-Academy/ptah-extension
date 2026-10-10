@@ -1,6 +1,6 @@
 # Batches - TASK_2026_623_3492
 
-Total tasks: 77 | Batches: 37 (incl. fix batches 6F, 12F, 15F, post-cap correction 12F2) | Complete: 25/37
+Total tasks: 78 | Batches: 38 (incl. fix batches 6F, 12F, 15F, 21F, post-cap correction 12F2) | Complete: 25/38
 
 Worktree root `W` = `D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel` (branch
 `feat/task-623-display-panel`, base `70f995a56`). Every path below is absolute.
@@ -1228,7 +1228,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - Follow-ons carried: Batch 21 (Task 21.1), Batch 22 (Task 22.2), Batch 23 (Tasks 23.1, 23.4; Task 23.2 heading
   repaired), Batch 24 (Task 24.1), Batch 32 (Task 32.1).
 
-## Batch 21: C6 display panel and turn summary cards — COMPLETE (commit PENDING_SHA)
+## Batch 21: C6 display panel and turn summary cards — COMPLETE (commit 5f356dc96; Phase 4 review: code-logic APPROVED, code-style REVISE → fix Batch 21F)
 
 - Recommended executor: frontend-developer
 - Fallback executor: general-purpose subagent
@@ -1291,9 +1291,61 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
   the chip plus its spec. Not committed: stray unreferenced `_files.html` and `_tests.html` (decision #82; deleted by
   Task 23.5).
 - Rulings: #82 (two child files), #84 (no `openScm`), #87 (no stacked layout), #89 (entry exports) accepted; #83 (one
-  row action), #85 (no sparklines/trend pills), #86 (Lines/Tokens/Cost/Duration expand), #88 (subtitle) provisional,
-  NEEDS USER; #90 acceptance.
+  row action), #85 (no sparklines/trend pills), #86 (Lines/Tokens/Cost/Duration expand), #88 (subtitle) accepted,
+  user-confirmed in #91 (R6.1 amended by #86); #90 acceptance.
 - Follow-ons carried: Batch 23 (new Task 23.5), Batch 25 (Task 25.1 outputs and imports).
+- Phase 4 review (Batches 16-21, `b66148f4c..5f356dc96`): code-logic APPROVED 7/10, no findings
+  (code-logic-review-phase4.md); code-style REVISE 7/10, one Serious (code-style-review-phase4.md). Ruling #92: one
+  fix round, Batch 21F. Phase 4 closes when the 21F re-review accepts.
+
+## Batch 21F: Phase 4 review fix — dock port re-exported from the lazy `ptah-ui` entry — IN_PROGRESS
+
+- Recommended executor: frontend-developer
+- Fallback executor: general-purpose subagent
+- Execution mode: sequential
+- Rationale: one export block in one file; a single sub-agent is cheaper than a lane.
+- Tasks: 1 | Depends on: Batch 21
+- Phase: 4 (fix round) | Phase review: code-style re-review scoped to the 21F commit (decision #92)
+
+### Task 21F.1: remove the dock-port re-export from `src/ptah-ui.ts` — COMPLETE
+
+- File (MODIFY):
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\ptah-ui.ts
+- Plan reference: code-style-review-phase4.md (Serious); decisions #59, #60, #73, #76, #92
+- Pattern to follow: `libs/frontend/chat-ui/src/change-set-card.ts` and `src/mermaid.ts` (lazy entries export only
+  their lazy component surface).
+- Quality requirements: delete the `export { PTAH_UI_DISPLAY_DOCK, displayFenceKey, type PtahUiDisplayDock,
+  type PtahUiDisplayFenceState, type PtahUiDisplayFenceStatus } from './lib/services/ptah-ui-display-dock';` block
+  (lines 25-31 at `5f356dc96`). Keep the header comment's paragraph at lines 17-21 (it already says an eager provider
+  must not import the port through this entry); reword it only if it would otherwise imply the port is exported here.
+  Do NOT add the port to `src/index.ts` — that is Batch 23 Task 23.1. No other file changes.
+- Validation notes: import-site check done (decision #92) — no file in `libs` or `apps` imports a dock symbol
+  through `@ptah-extension/chat-ui/ptah-ui`; chat-ui consumers import `../../services/ptah-ui-display-dock`
+  directly. Re-run `grep -rn "PTAH_UI_DISPLAY_DOCK\|displayFenceKey\|PtahUiDisplayFence\|PtahUiDisplayDock"
+  libs apps --include=*.ts` after the edit and confirm no hit imports from `ptah-ui` (the entry) and no
+  `ptah-ui` mock in a spec returns those names. If one does, change that import to the relative service path (chat-ui)
+  and report it; there should be none.
+
+### Batch 21F verification
+
+- Bash, not PowerShell. `npx nx typecheck @ptah-extension/chat-ui --parallel=1 2>&1 | tail -n 20 && npx nx lint
+  @ptah-extension/chat-ui --parallel=1 2>&1 | tail -n 20 && npx jest -c libs/frontend/chat-ui/jest.config.ts
+  libs/frontend/chat-ui/src/lib/organisms/display-panel libs/frontend/chat-ui/src/lib/organisms/ptah-ui --coverage=false
+  --maxWorkers=2 --moduleNameMapper='{"^vscode$":"<rootDir>/../../../__mocks__/vscode.ts","^marked$":"D:/projects/ptah-extension/node_modules/marked/lib/marked.umd.js"}'
+  2>&1 | tail -n 40` (handoff.md Batch 8 ruling; run sequentially, one heavy check at a time).
+- Then the code-style re-review scoped to the 21F commit.
+
+### Batch 21F result (recorded at verification)
+
+- Diff verified on disk: the five-name dock export block is gone from `src/ptah-ui.ts`, and the header paragraph now
+  says the port is not exported from this entry. `src/index.ts` is untouched. No other code file changed.
+- Team-leader re-ran the grep. The only hits outside `src/lib/` are comments (`src/display-panel.ts:13`,
+  `src/ptah-ui.ts:17`). The four `chat-ui/ptah-ui` consumers in `libs/frontend/chat` import no dock symbol.
+- Checks re-run in bash: `nx typecheck @ptah-extension/chat-ui` succeeded. `nx lint` gave 0 errors and the same 10
+  baseline warnings, none in `ptah-ui.ts`. Jest (display-panel and ptah-ui, with the command-line override) gave
+  9 suites and 184 tests passed.
+- Not committed: `_files.html` and `_tests.html` (Task 23.5 deletes them).
+- Phase 4 closes when the code-style re-review of this commit accepts.
 
 ## Batch 22: H1 transcript projections — PENDING
 
@@ -1766,5 +1818,8 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
   summary, states, agents, atoms, dock, empty, the Agents empty tabpanel; R9.5 width script (prototype `?check=1`);
   collapsed row ≤ 36 px (R7.9); axe zero serious/critical. Writes visual-review.md in the task folder.
 - Approved differences from the prototype (not fidelity defects): the expanded display chip shows no item counts or
-  totals (decision #63); an evicted chip has no open button (decision #61).
+  totals (decision #63); an evicted chip has no open button (decision #61); user-approved in decision #91: each
+  Files row has one action, "Review"/"Resolve", no "Open file" pill (#83); summary stat cards have no sparklines or
+  trend pills (#85); Lines/Tokens/Cost/Duration cards expand to a short detail, R6.1 amended (#86); the Turn summary
+  subtitle reads "host-built" only (#88).
 - Plan reference: implementation-plan.md:1324-1345, 1420
