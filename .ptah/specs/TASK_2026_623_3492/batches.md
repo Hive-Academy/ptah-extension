@@ -1,6 +1,6 @@
 # Batches - TASK_2026_623_3492
 
-Total tasks: 78 | Batches: 38 (incl. fix batches 6F, 12F, 15F, 21F, post-cap correction 12F2) | Complete: 25/38
+Total tasks: 78 | Batches: 38 (incl. fix batches 6F, 12F, 15F, 21F, post-cap correction 12F2) | Complete: 27/38
 
 Worktree root `W` = `D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel` (branch
 `feat/task-623-display-panel`, base `70f995a56`). Every path below is absolute.
@@ -32,9 +32,12 @@ Assumptions:
 - A2 `TOKENS.PTAH_API_BUILDER` registered before `registerRpcSurface` in Electron — verified:
   `registerVsCodeLmToolsServices` runs in `apps/ptah-electron/src/di/phase-3-storage.ts:134`, and
   `container.smoke.spec.ts:683` already resolves `TOKENS.PTAH_API_BUILDER`. Task 11.2 adds the resolution test.
-- A3 every SDK subagent record's `parentToolUseId` matches a transcript node `toolCallId` — unverified; checked in
-  Task 22.3 (unmatched R belongs to no turn, D7).
-- A4 open-turn messages carry streaming text nodes in `vm().messages` — unverified; checked in Task 22.2.
+- A3 every SDK subagent record's `parentToolUseId` matches a transcript node `toolCallId` — verified in Task 22.3
+  (decision #93): it is the Task tool_use id, carried on the Task tool node even with no agent node; an unmatched R
+  belongs to no turn (D7).
+- A4 open-turn messages carry streaming text nodes in `vm().messages` — FALSE on the default path (Task 22.2,
+  decision #94): with `STREAM_PRESENTATION_RECORDS_ENABLED` `vm().messages` changes only on structural changes. Task
+  24.1 feeds both projections `vm().slots.map((slot) => slot.record())` with `vm().streamingBoundary`.
 - A5 capabilities default false; expected-absent lists asserted — verified: `EXPECTED_ABSENT_CAPABILITIES` is read by
   `apps/ptah-extension-vscode/src/di/container.smoke.spec.ts` and `libs/backend/cli-engine/src/lib/rpc/rpc-surface.spec.ts`;
   Task 12.1 adds `lanePlanLimits` to both lists and runs both specs.
@@ -1298,7 +1301,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
   (code-logic-review-phase4.md); code-style REVISE 7/10, one Serious (code-style-review-phase4.md). Ruling #92: one
   fix round, Batch 21F. Phase 4 closes when the 21F re-review accepts.
 
-## Batch 21F: Phase 4 review fix — dock port re-exported from the lazy `ptah-ui` entry — IN_PROGRESS
+## Batch 21F: Phase 4 review fix — dock port re-exported from the lazy `ptah-ui` entry — COMPLETE (commit b57910d88; code-style re-review APPROVED 9/10, code-style-review-phase4-fix.md; Phase 4 ACCEPTED)
 
 - Recommended executor: frontend-developer
 - Fallback executor: general-purpose subagent
@@ -1346,8 +1349,10 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
   9 suites and 184 tests passed.
 - Not committed: `_files.html` and `_tests.html` (Task 23.5 deletes them).
 - Phase 4 closes when the code-style re-review of this commit accepts.
+- Phase 4 accepted: code-logic APPROVED 7/10 (code-logic-review-phase4.md); code-style re-review of `b57910d88`
+  APPROVED 9/10, Serious finding CLOSED, no new findings (code-style-review-phase4-fix.md, Codex lane).
 
-## Batch 22: H1 transcript projections — PENDING
+## Batch 22: H1 transcript projections — COMPLETE
 
 - Recommended executor: frontend-developer
 - Fallback executor: general-purpose subagent
@@ -1356,14 +1361,14 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - Tasks: 3 | Depends on: Batch 3
 - Phase: 5 Transcript and dock | Phase review: code-logic (after Batch 25)
 
-### Task 22.1: fence-line display check — PENDING
+### Task 22.1: fence-line display check — COMPLETE
 
 - Files:
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat\src\lib\components\organisms\execution\ptah-ui-fence-line.ts
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat\src\lib\components\organisms\execution\ptah-ui-fence-line.spec.ts (CREATE)
 - Plan reference: implementation-plan.md:833-881 (component 7)
 
-### Task 22.2: `collectDisplayCandidates` — PENDING
+### Task 22.2: `collectDisplayCandidates` — COMPLETE
 
 - Files (CREATE):
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat\src\lib\components\organisms\transcript\transcript-display-candidates.ts
@@ -1376,7 +1381,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
   `import type { DisplayCandidate } from '@ptah-extension/chat-ui/display-panel'`, type-only (never a value import
   from that entry in eager code). The spec asserts both fields, including an id that contains `:`.
 
-### Task 22.3: `collectTurnAgentFacts` — PENDING
+### Task 22.3: `collectTurnAgentFacts` — COMPLETE
 
 - Files (CREATE):
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat\src\lib\components\organisms\transcript\transcript-agent-facts.ts
@@ -1389,7 +1394,18 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 
 - `npx jest -c libs/frontend/chat/jest.config.ts libs/frontend/chat/src/lib/components/organisms/execution/ptah-ui-fence-line.spec.ts libs/frontend/chat/src/lib/components/organisms/transcript/transcript-display-candidates.spec.ts libs/frontend/chat/src/lib/components/organisms/transcript/transcript-agent-facts.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -n 40 && npx nx typecheck @ptah-extension/chat --parallel=1 2>&1 | tail -n 20 && npx nx lint @ptah-extension/chat --parallel=1 2>&1 | tail -n 20`
 
-## Batch 23: H2 dock state, transcript host sources, sidebar tab — PENDING
+### Batch 22 acceptance (team-leader)
+
+- Files verified on disk: `ptah-ui-fence-line.ts` (modified) and its new spec; `transcript-display-candidates.ts` and
+  `transcript-agent-facts.ts` with specs. Real implementations; no TODO/placeholder/skip markers.
+- Reruns in bash with the command-line `^vscode$`/`^marked$` mapper: Jest 4 suites / 92 passed (the three batch specs
+  plus the `hasPtahUiFenceLine` consumer `execution-node.ptah-ui.spec.ts`); `nx typecheck @ptah-extension/chat`
+  succeeded; `nx lint` 0 errors, 34 baseline warnings, none in a batch file.
+- A3 verified (decision #93). A4 FALSE on the default path; carried into Task 24.1 (decision #94).
+- Deviations: 1, 2, 4, 5 accepted (decision #95); 3 accepted provisionally, NEEDS USER (decision #96), no batch
+  blocked on it.
+
+## Batch 23: H2 dock state, transcript host sources, sidebar tab — IN_PROGRESS
 
 - Recommended executor: frontend-developer
 - Fallback executor: general-purpose subagent
@@ -1397,8 +1413,11 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - Rationale: the per-tab store and the host-sources provider the transcript wires next.
 - Tasks: 5 (Task 23.4 added by decision #59, Task 23.5 by #89) | Depends on: Batches 16, 20, 21, 22
 - Phase: 5 | Phase review: after Batch 25
+- Decision #81 hard check (repeat in the executor prompt): `DisplayDockState.hasSeen`/`markSeen` stay synchronous
+  and per-tab (no await between `hasSeen` -> open -> `markSeen`); `setSurfaces` applies `retainedViewStateIds`; each
+  sync mounts under its own transcript's `PTAH_UI_HOST_SOURCES` provider. Omitting any is a Serious defect.
 
-### Task 23.1: `DisplayDockState` — PENDING
+### Task 23.1: `DisplayDockState` — IN_PROGRESS
 
 - Files (CREATE):
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat\src\lib\services\display-dock\display-dock.state.ts
@@ -1425,7 +1444,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
     view-state entries whose component id is in `retainedViewStateIds`. The spec covers both, plus the R1.8 sequence
     through the real store (open, user close, second block same turn → closed with `newCount` 1, next turn opens).
 
-### Task 23.4: main-barrel export of the dock port (decision #59) — PENDING
+### Task 23.4: main-barrel export of the dock port (decision #59) — IN_PROGRESS
 
 - Order: runs first in the batch; Task 23.1 imports from it.
 
@@ -1444,7 +1463,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
   `export type { DisplaySurface } from './lib/organisms/display-panel/display-surfaces'` (type-only, erased); never a
   value export from that folder. The grep check must show line 2 of the dock file as `import type`.
 
-### Task 23.5: display-panel lazy entry exports the panel (decision #89) — PENDING
+### Task 23.5: display-panel lazy entry exports the panel (decision #89) — IN_PROGRESS
 
 - File: D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\display-panel.ts
 - Implementation details: add `export { DisplayPanelComponent, DISPLAY_PANEL_SUMMARY_KEY } from
@@ -1456,20 +1475,28 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
   `grep -rn "_files.html\|_tests.html" libs/frontend/chat-ui/src` finds nothing.
 - Validation: the chat-ui typecheck and lint in the Batch 23 verification line cover the entry.
 
-### Task 23.2: transcript host-sources provider — PENDING
+### Task 23.2: transcript host-sources provider — IN_PROGRESS
 
 - File (CREATE): D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat\src\lib\components\organisms\transcript\transcript-ptah-ui-host-sources.ts
 - Plan reference: implementation-plan.md:833-881, 977-993
 - Quality requirements (decision #54): `capacities` is `[liveModelStats.contextCapacity]` of the tab when that value
   is present, and `[]` otherwise. `PtahUiAgentsSource` reads only this list (plan:685). The spec covers both cases.
+- Batch 22 follow-on (report, "Decision #81 compatibility"): `turnIndexOf(messageId)` uses the same turn rule as
+  `collectTurnAgentFacts` and a candidate's `turnKey`: count user messages up to and including the message's turn
+  opener, index from 0, and return `null` for a message before the first user message. Index `i` must address
+  `collectTurnAgentFacts(...)[i]`. The spec covers a message before the first user message (`null`) and a message
+  in the second turn (`1`). The provider takes its messages from the same current records as Task 24.1 (#94).
 
-### Task 23.3: sidebar tab atom (count badge / tab ARIA) — PENDING
+### Task 23.3: sidebar tab atom (count badge / tab ARIA) — IN_PROGRESS
 
 - File: D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\atoms\sidebar-tab.component.ts
 - Plan reference: implementation-plan.md:975
 
 ### Batch 23 verification
 
+- Run in bash with the command-line `--moduleNameMapper` override from handoff.md (Batch 8 ruling) on each Jest call;
+  the chat Jest call also names `libs/frontend/chat/src/lib/components/organisms/transcript/transcript-ptah-ui-host-sources.spec.ts`,
+  and a chat-ui Jest call (`-c libs/frontend/chat-ui/jest.config.ts`) runs the sidebar-tab spec if one is added.
 - `npx jest -c libs/frontend/chat/jest.config.ts libs/frontend/chat/src/lib/services/display-dock --coverage=false --maxWorkers=2 2>&1 | tail -n 40 && npx nx typecheck @ptah-extension/chat --parallel=1 2>&1 | tail -n 20 && npx nx lint @ptah-extension/chat --parallel=1 2>&1 | tail -n 20 && npx nx typecheck @ptah-extension/chat-ui --parallel=1 2>&1 | tail -n 20 && npx nx lint @ptah-extension/chat-ui --parallel=1 2>&1 | tail -n 20`
 
 ## Batch 24: H3 transcript wiring and tests-row removal — PENDING
@@ -1480,6 +1507,9 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - Rationale: the Electron placement move; export removal and deletion stay together so the boundary compiles.
 - Tasks: 2 | Depends on: Batches 23, 19, 20
 - Phase: 5 | Phase review: after Batch 25
+- Decision #81 hard check (repeat in the executor prompt): `DisplayDockState.hasSeen`/`markSeen` stay synchronous
+  and per-tab (no await between `hasSeen` -> open -> `markSeen`); `setSurfaces` applies `retainedViewStateIds`; each
+  sync mounts under its own transcript's `PTAH_UI_HOST_SOURCES` provider. Omitting any is a Serious defect.
 
 ### Task 24.1: transcript publishes candidates/summary inputs, mounts sync and chip — PENDING
 
@@ -1500,6 +1530,17 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
   `ptah-display-surface-sync` in the transcript's own template (under `@defer`) with `[tabId]`, `[candidates]` and
   `[snapshots]` (the transcript's `ptahUiSnapshots`), so it sits under the transcript's provider. The spec asserts a
   `$agents` display fence resolves through the transcript's host sources.
+- Batch 22 follow-on (decisions #94, #95), HARD INPUT REQUIREMENT (A4 is false on the default path):
+  - Feed BOTH projections the current records, never `vm().messages`: inside one `computed`, read
+    `records = vm().slots.map((slot) => slot.record())`, then
+    `collectDisplayCandidates(records, vm().streamingBoundary, previous)` and `collectTurnAgentFacts(records)`. With
+    `STREAM_PRESENTATION_RECORDS_ENABLED` (default true) `vm().messages` changes only on a structural change, so
+    using it makes candidates and N values lag the stream (R2.7, R5.4): a Serious defect in the Phase 5 review.
+  - `previous`: keep the last candidates array in a per-instance field (the `_allMessagesCache` pattern in
+    `chat-transcript.component.ts`) and pass it back, so an unchanged tick returns the same array. No module-level
+    state (#81).
+  - `chat-transcript.display.spec.ts` covers a content-only streaming write (no id, boundary or `isStreaming` change)
+    that adds a display fence opener to the streaming message, and asserts the candidate appears.
 
 ### Task 24.2: delete the tests row — PENDING
 
@@ -1522,6 +1563,10 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - Rationale: one coherent UI integration (dock, ChatView, monitor move); closes Phase 5.
 - Tasks: 2 | Depends on: Batches 24, 21
 - Phase: 5 (last batch) | Phase review: code-logic on Batches 22-25
+- Decision #81 hard check (repeat in the executor prompt): `DisplayDockState.hasSeen`/`markSeen` stay synchronous
+  and per-tab (no await between `hasSeen` -> open -> `markSeen`); `setSurfaces` applies `retainedViewStateIds`; each
+  sync mounts under its own transcript's `PTAH_UI_HOST_SOURCES` provider. Omitting any is a Serious defect. The
+  Phase 5 code-logic review checks all three.
 
 ### Task 25.1: display dock component (Displays and Agents tabpanels) — PENDING
 
