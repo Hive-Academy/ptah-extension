@@ -81,16 +81,19 @@ test.describe('Ptah Electron harness smoke', () => {
     // No assertion on initial value -- only that the call resolves.
     expect(['object', 'undefined']).toContain(typeof initial);
 
-    const value = { e2eMarker: 'wave-b1', ts: Date.now() };
-    await rpcBridge.setState(value);
-
-    // 'set-state' is async on the main side -- give the persistence layer
-    // a beat, then read back. We tolerate any shape because the cache may
-    // wrap the object (e.g. inside a `value` property).
-    await mainWindow.waitForTimeout(150);
-    const after = await rpcBridge.getState();
-    // Either the raw object or a wrapper containing our marker is acceptable.
-    const json = JSON.stringify(after ?? {});
-    expect(json).toContain('wave-b1');
+    // 'set-state' replaces the whole 'webview-state' object and commits
+    // asynchronously. During start-up the renderer's services (ThemeService,
+    // ElectronLayoutService, ...) read-modify-write that same object; a write
+    // that read the state before ours committed lands after it and drops the
+    // marker. Re-write until a read-back holds it, so the round-trip is proven
+    // without racing those start-up writes.
+    await expect(async () => {
+      await rpcBridge.setState({ e2eMarker: 'wave-b1', ts: Date.now() });
+      await expect
+        .poll(async () => JSON.stringify((await rpcBridge.getState()) ?? {}), {
+          timeout: 2_000,
+        })
+        .toContain('wave-b1');
+    }).toPass({ timeout: 15_000 });
   });
 });
