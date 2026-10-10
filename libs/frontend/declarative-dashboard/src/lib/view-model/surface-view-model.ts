@@ -177,24 +177,48 @@ function mapStatus(component: StatusComponent): StatusNode {
   }
 }
 
+/*
+ * `/4` atom shape predicates. The default mapper and the renderer's guard for an
+ * overridden builder share them, so the two boundaries cannot drift. They are
+ * internal to the lib (not in the barrel) and never throw on plain data.
+ */
+
 /** `/4` stat trend: closed enums, a finite non-negative magnitude, and a boolean percent flag. */
+export function isSurfaceStatTrend(value: unknown): boolean {
+  if (!isObject(value)) return false;
+  const trend = value as { readonly direction?: unknown; readonly amount?: unknown; readonly percent?: unknown;
+    readonly polarity?: unknown };
+  return (SURFACE_TREND_DIRECTIONS as readonly unknown[]).includes(trend.direction)
+    && typeof trend.amount === 'number' && Number.isFinite(trend.amount) && trend.amount >= 0
+    && typeof trend.percent === 'boolean'
+    && (trend.polarity === undefined || (SURFACE_TREND_POLARITIES as readonly unknown[]).includes(trend.polarity));
+}
+
+/** `/4` spark: one series of finite numbers, counted against `maxSeriesPoints` like a chart series. */
+export function isSurfaceSpark(value: unknown): boolean {
+  return Array.isArray(value) && value.length >= SURFACE_SPARK_MIN_POINTS
+    && value.length <= SURFACE_LIMITS.maxSeriesPoints
+    && value.every((point: unknown) => typeof point === 'number' && Number.isFinite(point));
+}
+
+/** `/4` avatar name: a plain string with visible text. */
+export function isSurfaceAvatarName(value: unknown): boolean {
+  return typeof value === 'string' && value.trim().length > 0;
+}
+
+/** `/4` avatar subtitle: absent or a plain string. */
+export function isSurfaceAvatarSubtitle(value: unknown): boolean {
+  return value === undefined || typeof value === 'string';
+}
+
 function checkTrend(trend: SurfaceStatTrend): SurfaceStatTrend {
-  if (!isObject(trend) || !SURFACE_TREND_DIRECTIONS.includes(trend.direction)
-    || typeof trend.amount !== 'number' || !Number.isFinite(trend.amount) || trend.amount < 0
-    || typeof trend.percent !== 'boolean'
-    || (trend.polarity !== undefined && !SURFACE_TREND_POLARITIES.includes(trend.polarity))) {
-    throw new TypeError('Invalid surface stat trend.');
-  }
+  if (!isSurfaceStatTrend(trend)) throw new TypeError('Invalid surface stat trend.');
   return { direction: trend.direction, amount: trend.amount, percent: trend.percent,
     ...(trend.polarity === undefined ? {} : { polarity: trend.polarity }) };
 }
 
-/** `/4` spark: one series of finite numbers, counted against `maxSeriesPoints` like a chart series. */
 function checkSpark(spark: readonly number[]): readonly number[] {
-  if (!Array.isArray(spark) || spark.length < SURFACE_SPARK_MIN_POINTS || spark.length > SURFACE_LIMITS.maxSeriesPoints
-    || !spark.every((point: unknown) => typeof point === 'number' && Number.isFinite(point))) {
-    throw new TypeError('Invalid surface stat spark.');
-  }
+  if (!isSurfaceSpark(spark)) throw new TypeError('Invalid surface stat spark.');
   return [...spark];
 }
 
@@ -214,12 +238,8 @@ function withStatExtras(node: DisplayNode, component: SurfaceStatComponent, cata
 
 /** `/4` avatar: plain name and optional subtitle; any other field is dropped. */
 function mapAvatar(component: SurfaceAvatarComponent): AvatarNode {
-  if (typeof component.name !== 'string' || component.name.trim().length === 0) {
-    throw new TypeError('Invalid surface avatar name.');
-  }
-  if (component.subtitle !== undefined && typeof component.subtitle !== 'string') {
-    throw new TypeError('Invalid surface avatar subtitle.');
-  }
+  if (!isSurfaceAvatarName(component.name)) throw new TypeError('Invalid surface avatar name.');
+  if (!isSurfaceAvatarSubtitle(component.subtitle)) throw new TypeError('Invalid surface avatar subtitle.');
   return { id: component.id, kind: component.kind, name: component.name,
     ...(component.subtitle === undefined ? {} : { subtitle: component.subtitle }), selectable: false };
 }

@@ -1,6 +1,6 @@
 # Batches - TASK_2026_623_3492
 
-Total tasks: 72 | Batches: 36 (incl. fix batches 6F, 12F, post-cap correction 12F2) | Complete: 17/36
+Total tasks: 73 | Batches: 37 (incl. fix batches 6F, 12F, 15F, post-cap correction 12F2) | Complete: 18/37
 
 Worktree root `W` = `D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel` (branch
 `feat/task-623-display-panel`, base `70f995a56`). Every path below is absolute.
@@ -91,7 +91,7 @@ Edge cases:
 | ----- | ------- | ------------ |
 | 1 Contract `/4` and grammar | 1-6, 6F (fix) | code-logic (REVISE 6/10, `code-logic-review.md`); re-review of 6F: APPROVED 8/10 (`code-logic-review-phase1-fix.md`). Phase 1 ACCEPTED |
 | 2 Lane plan-limit read (R10 backend) | 7-12, 12F (fix) | code-logic (REVISE 6/10, `code-logic-review-phase2.md`), style (APPROVED 8/10, `code-style-review-phase2.md`); fix round 12F, re-review REVISE 5/10 (`code-logic-review-phase2-fix.md`, Serious #1 open); post-cap correction 12F2 (decision #46), cross-side re-review APPROVED 9/10 (`code-logic-review-phase2-fix2.md`). Phase 2 ACCEPTED |
-| 3 Renderer `/4` | 13-15 | code-logic, plus style only if Task 15.3 adds exports |
+| 3 Renderer `/4` | 13-15, 15F (fix) | code-logic (REVISE 6/10, `code-logic-review-phase3.md`, Serious #1); fix round 15F, re-review pending. No style (Task 15.3 added no exports) |
 | 4 chat-ui display panel | 16-21 | code-logic, plus style (new entry `@ptah-extension/chat-ui/display-panel`, new host-sources token) |
 | 5 Transcript and dock | 22-25 | code-logic |
 | 6 Previews (R7, both webviews) | 26-28 | code-logic, plus style (new exported `copy-text-button` atom and `tool-language` util) |
@@ -839,7 +839,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
   0 errors / 127 warnings (new warnings are spec `no-non-null-assertion` only).
 - Failing-series signal ruled: `trend.polarity === 'bad'` draws the latest spark bar in `--dp-er-fill` (decision #51).
 
-## Batch 15: D3 container-width and trust-boundary specs, exports — COMPLETE (Phase 3 review pending)
+## Batch 15: D3 container-width and trust-boundary specs, exports — COMPLETE (commit 5bfbb8b00; Phase 3 review REVISE 6/10, fix batch 15F)
 
 - Recommended executor: frontend-developer
 - Fallback executor: general-purpose subagent
@@ -877,6 +877,59 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - `npx jest -c libs/frontend/declarative-dashboard/jest.config.ts libs/frontend/declarative-dashboard/src/lib/components/surface-container-width.spec.ts libs/frontend/declarative-dashboard/src/lib/trust-boundary.spec.ts libs/frontend/declarative-dashboard/src/lib/components/surface-node.component.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -n 40 && npx nx typecheck @ptah-extension/declarative-dashboard --parallel=1 2>&1 | tail -n 20 && npx nx lint @ptah-extension/declarative-dashboard --parallel=1 2>&1 | tail -n 20`
 - Phase 3 code-logic review due after commit
 - Verified by team-leader: Jest 3 suites / 46 tests passed; typecheck passed (re-run after the spec-only change); lint 0 errors, 127 warnings (Batch 14 baseline). Task 15.3: no exports (no consumer outside the lib), so no style review for Phase 3.
+- Phase 3 review (range e05d8250f..5bfbb8b00, Codex cross-side): REVISE 6/10 (`code-logic-review-phase3.md`), 1
+  Serious, no Moderate/Minor. Fix round: Batch 15F.
+
+## Batch 15F: Phase 3 review fix — override builder result bypasses `/4` atom validation — COMPLETE (commit see `git log`, subject "batch 15F"; Phase 3 re-review pending)
+
+- Recommended executor: frontend-developer
+- Fallback executor: general-purpose subagent
+- Execution mode: sequential
+- Rationale: one guard function and its renderer spec in one lib; the finding sits in `isRenderableNode()`.
+- Tasks: 1 | Depends on: Batch 15
+- Phase: 3 (fix batch, last of phase) | Phase review: code-logic re-review scoped to the 15F commit only (no style:
+  no new public API)
+
+### Task 15F.1: `isRenderableNode()` validates avatar, stat trend and stat spark fields — COMPLETE
+
+- Files:
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\declarative-dashboard\src\lib\components\surface-renderer.component.ts
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\declarative-dashboard\src\lib\components\surface-renderer.component.spec.ts
+  - Optional, only if the executor shares predicates instead of duplicating them:
+    D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\declarative-dashboard\src\lib\view-model\surface-view-model.ts
+- Review reference: code-logic-review-phase3.md Serious #1 (`:10-16`); decision #51 unchanged.
+- Pattern to follow: the default mapper's closed checks `checkTrend` / `checkSpark` / `mapAvatar`
+  (`view-model/surface-view-model.ts:180-225`). Same rules, applied as boolean predicates in the renderer guard:
+  - `avatar`: `name` a string with non-empty trimmed length; `subtitle` absent or a string.
+  - `stat` with `trend` present: plain object; `direction` in `SURFACE_TREND_DIRECTIONS`; `amount` a finite number
+    `>= 0`; `percent` boolean; `polarity` absent or in `SURFACE_TREND_POLARITIES`.
+  - `stat` with `spark` present: array, length in `[SURFACE_SPARK_MIN_POINTS, SURFACE_LIMITS.maxSeriesPoints]`, every
+    item a finite number.
+  - A failing check makes `isRenderableNode()` return false, so `attemptBuild()` returns null and the component emits
+    `renderFailed` once and renders nothing. Must stay non-throwing (it already runs inside the try/catch).
+- Preferred shape: export small boolean predicates (e.g. `isSurfaceStatTrend`, `isSurfaceSpark`, `isAvatarText`) from
+  the view-model file and have both `checkTrend`/`checkSpark`/`mapAvatar` and the renderer guard use them, so the two
+  boundaries cannot drift. Not exported from the lib barrel (`src/index.ts` untouched). If the executor keeps them
+  local to the renderer instead, the rules must match the mapper exactly.
+- Regression tests (required, in `surface-renderer.component.spec.ts`, via a `SURFACE_VIEW_MODEL_BUILDER` override that
+  returns `{ renderFailed: false, viewModel }`), each asserting no rendered node and exactly one `renderFailed`:
+  1. avatar `name: { text: 'Agent' }` (rich-text object).
+  2. avatar valid name with `subtitle: { text: 'x' }`.
+  3. avatar `name: '   '` (blank).
+  4. stat `trend: { direction: 'sideways', amount: 1, percent: false }`.
+  5. stat trend with `polarity: 'danger'`; and one with `amount: NaN` (or `-1`).
+  6. stat `spark` containing `NaN`, one containing `Infinity`, one below `SURFACE_SPARK_MIN_POINTS`, one longer than
+     `SURFACE_LIMITS.maxSeriesPoints` (`it.each` is fine).
+  7. positive control: a well-formed avatar and a stat with valid trend and spark through the same override render and
+     emit no `renderFailed`.
+- Must not change: the agent-content contract, the default mapper's behaviour and error texts, the 21-kind catalog,
+  decision #51 (`bad` polarity → `--dp-er-fill`), templates, barrel exports. `sparklineGeometry()` stays as is (the
+  guard closes its exposure; reviewer Q5 resolved by this fix).
+
+### Batch 15F verification
+
+- `npx jest -c libs/frontend/declarative-dashboard/jest.config.ts libs/frontend/declarative-dashboard/src/lib/components/surface-renderer.component.spec.ts libs/frontend/declarative-dashboard/src/lib/view-model --coverage=false --maxWorkers=2 2>&1 | tail -n 40`; then `npx nx typecheck @ptah-extension/declarative-dashboard --parallel=1 2>&1 | tail -n 20`; then `npx nx lint @ptah-extension/declarative-dashboard --parallel=1 2>&1 | tail -n 20` (0 errors; warnings at or below the 127 baseline). One at a time. Apply the `marked` `--moduleNameMapper` override on the Jest command line only if the suite needs it.
+- Phase 3 code-logic re-review scoped to the 15F commit after commit
 
 ## Batch 16: C1 host-sources token and ptah-ui block — PENDING
 

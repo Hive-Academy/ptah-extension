@@ -22,7 +22,14 @@ import type {
   SurfaceSelectionChange,
 } from '../surface-interaction';
 import type { SurfaceRenderable, SurfaceViewState } from '../surface-view-state';
-import { buildSurfaceViewModel, type SurfaceViewModelBuild } from '../view-model/surface-view-model';
+import {
+  buildSurfaceViewModel,
+  isSurfaceAvatarName,
+  isSurfaceAvatarSubtitle,
+  isSurfaceSpark,
+  isSurfaceStatTrend,
+  type SurfaceViewModelBuild,
+} from '../view-model/surface-view-model';
 import type { InputNode, SurfaceNode, SurfaceViewModel } from '../view-model/view-model.types';
 import { committedInputValue, plainText } from './surface-input-messages';
 import { SURFACE_CONTAINER_GRID_STYLES, type SurfaceLayoutWidth } from './surface-layout.component';
@@ -128,17 +135,29 @@ function isOption(value: unknown): boolean {
 }
 
 /**
+ * `/4` atom fields, by the default mapper's own rules: an avatar's plain name
+ * and optional subtitle; a stat's trend and spark when present.
+ */
+function hasRenderableAtomFields(kind: string, value: Record<string, unknown>): boolean {
+  if (kind === 'avatar') return isSurfaceAvatarName(value['name']) && isSurfaceAvatarSubtitle(value['subtitle']);
+  if (kind !== 'stat') return true;
+  return (value['trend'] === undefined || isSurfaceStatTrend(value['trend']))
+    && (value['spark'] === undefined || isSurfaceSpark(value['spark']));
+}
+
+/**
  * The fields the node and input components dereference without a guard: a
  * known kind, a string id, `selectable`; per layout, `children` and
  * `submitActions`; per input, `label`, `path`, a host value and, for a
- * choice, well-formed options; v1 display `children` when present. A node
- * that is its own ancestor is malformed too (the check would never end).
+ * choice, well-formed options; the `/4` avatar and stat atom fields; v1
+ * display `children` when present. A node that is its own ancestor is
+ * malformed too (the check would never end).
  */
 function isRenderableNode(value: unknown, ancestors: Set<unknown>): boolean {
   if (!isObject(value) || ancestors.has(value)) return false;
   const kind = value['kind'];
   if (typeof kind !== 'string' || !SURFACE_NODE_KINDS.has(kind) || typeof value['id'] !== 'string'
-    || typeof value['selectable'] !== 'boolean') return false;
+    || typeof value['selectable'] !== 'boolean' || !hasRenderableAtomFields(kind, value)) return false;
   if (INPUT_KINDS.has(kind)) {
     if (typeof value['label'] !== 'string' || typeof value['path'] !== 'string' || value['hostValue'] === undefined) return false;
     const options = value['options'];
