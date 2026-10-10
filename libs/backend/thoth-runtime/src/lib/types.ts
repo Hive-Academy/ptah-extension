@@ -40,6 +40,15 @@ export interface BootThothRuntimeOptions {
    * it. An ALREADY-aborted signal skips it entirely.
    */
   signal?: AbortSignal;
+  /**
+   * Called with the skill trigger service the moment it starts (B-P review
+   * round 2). The trigger starts on the continuation of the UNAWAITED skill
+   * synthesis start — and, after a failed boot start, only when the service's
+   * retry succeeds — so it is almost never set on the refs this function
+   * returns. A host that copies refs at return time uses this to hold the
+   * trigger that actually runs, so its shutdown can stop it.
+   */
+  onSkillTriggerStarted?: (skillTrigger: SkillTriggerService) => void;
 }
 
 export interface StartThothCronOptions {
@@ -89,12 +98,15 @@ export interface ThothRuntimeRefs {
   memoryTrigger: MemoryTriggerService | null;
   /**
    * Skill synthesis service handle for orderly shutdown. Null when
-   * persistence-sqlite is unavailable or `start()` failed.
+   * persistence-sqlite is unavailable or the service did not resolve. Kept
+   * when `start()` fails: the service retries its start, and `stop()` must
+   * still dispose it.
    */
   skillSynthesis: SkillSynthesisService | null;
   /**
-   * Skill trigger service handle for orderly shutdown. Null when the
-   * parent skill synthesis did not start or `start()` failed. Must be
+   * Skill trigger service handle for orderly shutdown. Null until skill
+   * synthesis has started (it may start late, after a retried start), or
+   * when `start()` failed. Must be
    * stopped BEFORE the skill synthesis in the LIFO teardown chain.
    */
   skillTrigger: SkillTriggerService | null;

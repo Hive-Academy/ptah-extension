@@ -13,7 +13,6 @@ describe('skill-trigger-config', () => {
       const ws = createMockWorkspaceProvider();
       const out = readSkillTriggers(ws);
       expect(out).toEqual({
-        sessionEnd: SKILL_TRIGGER_DEFAULTS.sessionEnd,
         idleMs: SKILL_TRIGGER_DEFAULTS.idleMs,
         bootScan: SKILL_TRIGGER_DEFAULTS.bootScan,
         subagentStop: {
@@ -33,7 +32,6 @@ describe('skill-trigger-config', () => {
     it('reads seeded values across all keys', () => {
       const ws = createMockWorkspaceProvider({
         config: {
-          [`ptah.${SKILL_TRIGGER_KEYS.sessionEnd}`]: false,
           [`ptah.${SKILL_TRIGGER_KEYS.idleMs}`]: 12000,
           [`ptah.${SKILL_TRIGGER_KEYS.bootScan}`]: false,
           [`ptah.${SKILL_TRIGGER_KEYS.subagentStop.enabled}`]: false,
@@ -45,7 +43,6 @@ describe('skill-trigger-config', () => {
       });
       const out = readSkillTriggers(ws);
       expect(out).toEqual({
-        sessionEnd: false,
         idleMs: 12000,
         bootScan: false,
         subagentStop: { enabled: false },
@@ -123,12 +120,10 @@ describe('skill-trigger-config', () => {
 
     it('emits leaf keys for scalar fields', () => {
       const out = flattenSkillTriggers({
-        sessionEnd: false,
         idleMs: 60,
         maxAnalyzesPerHour: 10,
       });
       expect(out).toEqual([
-        [SKILL_TRIGGER_KEYS.sessionEnd, false],
         [SKILL_TRIGGER_KEYS.idleMs, 60],
         [SKILL_TRIGGER_KEYS.maxAnalyzesPerHour, 10],
       ]);
@@ -136,7 +131,6 @@ describe('skill-trigger-config', () => {
 
     it('skips undefined entries', () => {
       const out = flattenSkillTriggers({
-        sessionEnd: undefined,
         idleMs: 1,
       });
       expect(out).toEqual([[SKILL_TRIGGER_KEYS.idleMs, 1]]);

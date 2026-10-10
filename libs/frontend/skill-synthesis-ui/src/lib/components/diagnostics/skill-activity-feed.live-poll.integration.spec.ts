@@ -82,7 +82,7 @@ function diagnosticsResult(
       accepted: 0,
     },
     recentEvents,
-    triggers: { sessionEnd: true, idleMs: 600_000, bootScan: true },
+    triggers: { idleMs: 600_000, bootScan: true },
   };
 }
 

@@ -50,6 +50,7 @@ export {
   type RecordInvocationResult,
 } from './lib/skill-invocation-tracker';
 export { SkillSynthesisService } from './lib/skill-synthesis.service';
+export type { SkillSynthesisStartOutcome } from './lib/skill-synthesis.service';
 export {
   TrajectoryExtractor,
   type ExtractedTrajectory,

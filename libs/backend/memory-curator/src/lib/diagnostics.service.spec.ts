@@ -148,7 +148,6 @@ function makeSqlite(
 
 function makeWorkspace(): IWorkspaceProvider {
   const cfg: Record<string, unknown> = {
-    'memory.triggers.preCompact': true,
     'memory.triggers.idleMs': 600000,
     'memory.triggers.turnThreshold': 20,
     'memory.triggers.bootScan': true,

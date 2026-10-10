@@ -13,7 +13,10 @@ import type {
 } from '@ptah-extension/shared';
 
 import { SkillClonesViewComponent } from './skill-clones-view.component';
-import { SkillSynthesisRpcService } from '../../services/skill-synthesis-rpc.service';
+import {
+  SkillSynthesisRpcService,
+  SkillsPausedError,
+} from '../../services/skill-synthesis-rpc.service';
 import {
   SkillClonesStateService,
   SkillCloneDetail,
@@ -265,6 +268,7 @@ function setup(opts: {
   rpc?: RpcStub;
   harness?: HarnessStub;
   divergedFilterRequest?: number;
+  skillsPaused?: boolean;
 }) {
   const state = opts.state ?? makeStateStub();
   const rpc = opts.rpc ?? makeRpcStub();
@@ -288,6 +292,9 @@ function setup(opts: {
       'divergedFilterRequest',
       opts.divergedFilterRequest,
     );
+  }
+  if (opts.skillsPaused) {
+    fixture.componentRef.setInput('skillsPaused', true);
   }
   fixture.detectChanges();
 
@@ -619,6 +626,50 @@ describe('SkillClonesViewComponent — enhancement preview', () => {
     expect(btn?.disabled).toBe(true);
     btn?.click();
     expect(rpc.previewEnhancement).not.toHaveBeenCalled();
+  });
+});
+
+describe('SkillClonesViewComponent — Skills paused', () => {
+  it('greys out Enhance now on every card with the paused reason and shows one notice', () => {
+    const state = makeStateStub([clone()]);
+    const rpc = makeRpcStub();
+    const { q } = setup({ state, rpc, skillsPaused: true });
+
+    const btn = q<HTMLButtonElement>('clones-enhance-btn');
+    expect(btn?.disabled).toBe(true);
+    expect(btn?.getAttribute('title')).toBe('Paused — resume Skills to run');
+    expect(q('clones-paused-notice')?.getAttribute('role')).toBe('status');
+    btn?.click();
+    expect(rpc.previewEnhancement).not.toHaveBeenCalled();
+  });
+
+  it('greys out Enhance now in the detail drawer with the paused reason as text', () => {
+    const state = makeStateStub([clone()]);
+    const { q, openFirstCard } = setup({ state, skillsPaused: true });
+
+    openFirstCard();
+
+    expect(q<HTMLButtonElement>('drawer-enhance-btn')?.disabled).toBe(true);
+    expect(q('drawer-enhance-reason')?.textContent).toContain(
+      'Paused — resume Skills to run',
+    );
+  });
+
+  it('turns a PAUSED refusal into a paused notice, not a preview failure', async () => {
+    const state = makeStateStub([clone()]);
+    const rpc = makeRpcStub();
+    rpc.previewEnhancement.mockRejectedValueOnce(new SkillsPausedError());
+    const { fixture, q, settle } = setup({ state, rpc });
+    const refused = jest.fn();
+    fixture.componentInstance.pausedRefusal.subscribe(refused);
+
+    (q<HTMLButtonElement>('clones-enhance-btn') as HTMLButtonElement).click();
+    await settle();
+
+    expect(refused).toHaveBeenCalledTimes(1);
+    expect(q('preview-error')).toBeNull();
+    expect(q('clones-toast')?.textContent).toContain('Skills is paused');
+    expect(q('clones-toast')?.classList).toContain('alert-info');
   });
 });
 

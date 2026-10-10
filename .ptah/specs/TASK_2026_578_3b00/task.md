@@ -1,12 +1,18 @@
 ---
 id: TASK_2026_578_3b00
-status: in_progress
+status: done
 type: FEATURE
-title: 'Close the skill lifecycle: merge suggestions into broader skills, gate on the judge, promote on accept, retire unused skills'
+title: >-
+  Close the skill lifecycle: merge suggestions into broader skills, gate on the
+  judge, promote on accept, retire unused skills
 depends_on: []
 created: '2026-09-30T13:53:38.000Z'
-updated: '2026-09-30T13:53:38.000Z'
-description: 'The pipeline has a judge, clustering and a 24h curator, but nothing merges suggestions into umbrella skills, the judge panel never decides, accepting a suggestion never promotes a candidate, and nothing retires skills with no invocations. 578 candidates, 0 promoted'
+updated: '2026-10-06T19:38:48.610Z'
+description: >-
+  The pipeline has a judge, clustering and a 24h curator, but nothing merges
+  suggestions into umbrella skills, the judge panel never decides, accepting a
+  suggestion never promotes a candidate, and nothing retires skills with no
+  invocations. 578 candidates, 0 promoted
 labels:
   - skill-synthesis
 relates_to:

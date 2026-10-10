@@ -9,6 +9,9 @@ import { TOKENS } from '@ptah-extension/vscode-core';
 import type { Logger, RpcHandler } from '@ptah-extension/vscode-core';
 import {
   MEMORY_TOKENS,
+  MEMORY_TRIGGER_DEFAULTS,
+  MEMORY_TRIGGER_KEYS,
+  MEMORY_TRIGGER_SECTION,
   memoryId,
   flattenMemoryTriggers,
   readMemoryTriggers,
@@ -211,6 +214,21 @@ export class MemoryRpcHandlers {
     if (scope === 'all') return undefined;
     if (workspaceRoot !== undefined) return workspaceRoot;
     return this.workspaceProvider.getWorkspaceRoot() ?? null;
+  }
+
+  /**
+   * `memory.enabled`, the memory pause switch, re-read on every call so a
+   * write from the tray, the CLI or a hand edit is honoured at once. A
+   * non-boolean stored value falls back to the default, as the trigger
+   * service's own read does.
+   */
+  private readMemoryEnabled(): boolean {
+    const value = this.workspaceProvider.getConfiguration<boolean>(
+      MEMORY_TRIGGER_SECTION,
+      MEMORY_TRIGGER_KEYS.enabled,
+      MEMORY_TRIGGER_DEFAULTS.enabled,
+    );
+    return typeof value === 'boolean' ? value : MEMORY_TRIGGER_DEFAULTS.enabled;
   }
 
   register(): void {
@@ -593,7 +611,6 @@ export class MemoryRpcHandlers {
             },
             storage: snapshot.storage,
             triggers: {
-              preCompact: snapshot.triggers.preCompact,
               idleMs: snapshot.triggers.idleMs,
               turnThreshold: snapshot.triggers.turnThreshold,
               bootScan: snapshot.triggers.bootScan,
@@ -650,6 +667,14 @@ export class MemoryRpcHandlers {
             'Workspace not authorized',
             'UNAUTHORIZED_WORKSPACE',
           );
+        }
+        // The pause switch stops ALL memory model work, the manual run
+        // included (TASK_2026_620 B-P, user decision 3).
+        if (!this.readMemoryEnabled()) {
+          this.logger.info('[memory] runNow refused — memory is paused', {
+            sessionId: validated.sessionId,
+          });
+          throw new RpcUserError('Memory is paused', 'PAUSED');
         }
         const startedAt = Date.now();
         try {
@@ -744,7 +769,20 @@ export class MemoryRpcHandlers {
               flatValue,
             );
           }
-          return { triggers: readMemoryTriggers(this.workspaceProvider) };
+          // The master switch sits above the triggers and is written only when
+          // sent, so the pause toggle's `{ triggers: {}, enabled }` touches
+          // `memory.enabled` and nothing else.
+          if (validated.enabled !== undefined) {
+            await this.workspaceProvider.setConfiguration(
+              MEMORY_TRIGGER_SECTION,
+              MEMORY_TRIGGER_KEYS.enabled,
+              validated.enabled,
+            );
+          }
+          return {
+            triggers: readMemoryTriggers(this.workspaceProvider),
+            enabled: this.readMemoryEnabled(),
+          };
         } catch (err: unknown) {
           const message = err instanceof Error ? err.message : String(err);
           this.logger.error('[memory] setTriggers failed', { error: message });
@@ -772,7 +810,10 @@ export class MemoryRpcHandlers {
             'INVALID_PARAMS',
           );
         }
-        return { triggers: readMemoryTriggers(this.workspaceProvider) };
+        return {
+          triggers: readMemoryTriggers(this.workspaceProvider),
+          enabled: this.readMemoryEnabled(),
+        };
       },
     );
 

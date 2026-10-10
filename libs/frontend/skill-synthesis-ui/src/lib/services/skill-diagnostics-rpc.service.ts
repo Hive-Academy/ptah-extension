@@ -11,6 +11,8 @@ import type {
   SkillTriggersDto,
 } from '@ptah-extension/shared';
 
+import { throwIfSkillsPaused } from './skill-synthesis-rpc.service';
+
 const SKILL_DIAGNOSTICS_RPC_TIMEOUTS = {
   DIAGNOSTICS_MS: 10_000,
   ANALYZE_MS: 60_000,
@@ -42,6 +44,7 @@ export class SkillDiagnosticsRpcService {
     if (result.isSuccess() && result.data) {
       return result.data;
     }
+    throwIfSkillsPaused(result);
     throw new Error(result.error || 'skillSynthesis:analyzeNow failed');
   }
 

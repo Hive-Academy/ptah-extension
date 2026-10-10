@@ -4,7 +4,6 @@ import { SkillSettingsPanelComponent } from './skill-settings-panel.component';
 function settingsForm(): FormGroup {
   const fb = new FormBuilder();
   return fb.group({
-    enabled: [true],
     successesToPromote: [3],
     dedupCosineThreshold: [0.85],
     maxActiveSkills: [50],
@@ -270,6 +269,22 @@ describe('SkillSettingsPanelComponent', () => {
         el.querySelector('[data-testid="skills-background-section"]'),
       ).toBeNull();
       expect(el.querySelector('[aria-busy="true"]')).not.toBeNull();
+    });
+  });
+
+  describe('master switch', () => {
+    it('has no "Enabled" control; it points to the Skills switch at the top of the tab', () => {
+      const { el } = render();
+
+      expect(el.querySelector('[formControlName="enabled"]')).toBeNull();
+      const labels = Array.from(el.querySelectorAll('label span')).map((s) =>
+        (s.textContent ?? '').trim(),
+      );
+      expect(labels).not.toContain('Enabled');
+      expect(
+        el.querySelector('[data-testid="skills-settings-switch-note"]')
+          ?.textContent,
+      ).toContain('Skills switch at the top of this');
     });
   });
 

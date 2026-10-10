@@ -7,6 +7,7 @@
  * the bound on how many times a single `run()` may call the LLM.
  */
 import 'reflect-metadata';
+import { MODEL_DISPATCH_PROVENANCE_TAP } from '@ptah-extension/agent-sdk';
 import type { IMcpServerStatus } from '@ptah-extension/platform-core';
 import {
   LANE_DEGRADED_RETRY_MS,
@@ -869,5 +870,151 @@ describe('timeoutBackoffMs — 2^attempt x 60s, capped at 6h', () => {
 
   it('caps at six hours rather than overflowing', () => {
     expect(timeoutBackoffMs(50)).toBe(6 * 60 * 60_000);
+  });
+});
+
+describe('LaneRunnerService — dispatch provenance tap', () => {
+  const snap = { env: { ANTHROPIC_AUTH_TOKEN: 'snap' } };
+  const rideActive = {
+    providerSource: 'ride-active' as const,
+    component: 'skill-lane' as const,
+    laneId: 'judge',
+  };
+
+  function runWith(opts: {
+    lane: ReturnType<typeof resolvedLane>;
+    logger?: ReturnType<typeof makeLogger>;
+    scripts?: Parameters<typeof makeQueryStub>[0];
+  }) {
+    const query = makeQueryStub(
+      opts.scripts ?? [[assistantText('hello'), resultMessage()]],
+    );
+    const logger = opts.logger ?? makeLogger();
+    const runner = new LaneRunnerService(
+      logger,
+      makeResolverStub(opts.lane).service,
+      makeBudgetStub().store,
+      query.query,
+      null,
+      null,
+      null,
+    );
+    return { query, logger, runner };
+  }
+
+  it('shares the agent-sdk provenance token', () => {
+    expect(MODEL_DISPATCH_PROVENANCE_TAP).toBe(
+      Symbol.for('PtahModelDispatchProvenanceTap'),
+    );
+  });
+
+  it('hands ride-active metadata and does not read active auth', async () => {
+    const resolveActiveAuth = jest.fn();
+    const lane = resolvedLane('judge', {
+      config: { provider: 'openai-codex' },
+      model: 'haiku',
+    });
+    const { query, runner } = runWith({ lane });
+
+    const out = await runner.run({ laneId: 'judge', prompt: 'hi' });
+
+    expect(out).toMatchObject({ status: 'ok', run: { text: 'hello' } });
+    expect(resolveActiveAuth).not.toHaveBeenCalled();
+    expect(query.calls[0]?.model).toBe('haiku');
+    expect(query.calls[0]?.auth).toBeUndefined();
+    expect(query.calls[0]?.dispatch).toEqual(rideActive);
+  });
+
+  it('hands the configured override id and keeps the auth snapshot', async () => {
+    const resolveActiveAuth = jest.fn();
+    const lane = resolvedLane('synthesis', {
+      config: { provider: 'openai-codex' },
+      auth: snap,
+      model: 'haiku',
+    });
+    const { query, runner } = runWith({ lane });
+
+    await runner.run({ laneId: 'synthesis', prompt: 'hi' });
+
+    expect(resolveActiveAuth).not.toHaveBeenCalled();
+    expect(query.calls[0]?.auth).toBe(snap);
+    expect(query.calls[0]?.model).toBe('haiku');
+    expect(query.calls[0]?.dispatch).toEqual({
+      providerSource: 'override',
+      overrideProviderId: 'openai-codex',
+      component: 'skill-lane',
+      laneId: 'synthesis',
+    });
+  });
+
+  it('attaches the same ride-active route on the structured-output re-run', async () => {
+    const lane = resolvedLane('judge', {
+      config: { provider: '', toolUse: 'none', maxPasses: 1 },
+      auth: undefined,
+      model: 'haiku',
+    });
+    const { query, runner } = runWith({
+      lane,
+      scripts: [
+        [resultMessage({ subtype: 'success', result: 'no json' })],
+        [assistantText('{"novelty":7}'), resultMessage({ subtype: 'success' })],
+      ],
+    });
+
+    const out = await runner.run({
+      laneId: 'judge',
+      prompt: 'hi',
+      outputSchema: { type: 'object' },
+    });
+
+    expect(query.execute).toHaveBeenCalledTimes(2);
+    expect(query.calls[0]?.dispatch).toEqual(rideActive);
+    expect(query.calls[1]?.dispatch).toEqual(rideActive);
+    expect(query.calls[0]?.model).toBe('haiku');
+    expect(out.status === 'ok' && out.run.json).toEqual({ novelty: 7 });
+  });
+
+  it('does not warn about the active provider on ride-active', async () => {
+    const lane = resolvedLane('judge', {
+      config: { provider: 'openai-codex' },
+      model: 'haiku',
+    });
+    const logger = makeLogger();
+    const { runner } = runWith({ lane, logger });
+
+    const out = await runner.run({ laneId: 'judge', prompt: 'hi' });
+
+    expect(out).toMatchObject({ status: 'ok', run: { text: 'hello' } });
+    expect(logger.warn).not.toHaveBeenCalledWith(
+      '[skill-synthesis] active provider unreadable',
+      expect.anything(),
+    );
+  });
+
+  it('does not call the model when the resolver stalls', async () => {
+    const resolveActiveAuth = jest.fn();
+    const query = makeQueryStub([[assistantText('hello'), resultMessage()]]);
+    const runner = new LaneRunnerService(
+      makeLogger(),
+      makeFailingResolverStub({
+        ok: false,
+        failure: {
+          kind: 'auth-unresolvable',
+          reason: 'Lane judge: endpoint unreachable',
+          retryAfterMs: LANE_AUTH_RETRY_MS,
+        },
+      }).service,
+      makeBudgetStub().store,
+      query.query,
+      null,
+      null,
+      null,
+    );
+
+    const out = await runner.run({ laneId: 'judge', prompt: 'hi' });
+
+    expect(resolveActiveAuth).not.toHaveBeenCalled();
+    expect(out.status).toBe('failed');
+    expect(query.execute).not.toHaveBeenCalled();
   });
 });

@@ -255,9 +255,13 @@ const STATUS_HINT: Record<SkillCloneStatus, string> = {
           type="button"
           class="btn btn-ghost btn-xs transition-colors duration-150"
           data-testid="clones-enhance-btn"
-          [disabled]="!actions().enhance.enabled || busy()"
-          [title]="actions().enhance.reason ?? enhanceEnabledTitle"
-          [attr.aria-disabled]="!actions().enhance.enabled || busy()"
+          [disabled]="enhanceDisabled()"
+          [title]="
+            enhanceBlockedReason() ??
+            actions().enhance.reason ??
+            enhanceEnabledTitle
+          "
+          [attr.aria-disabled]="enhanceDisabled()"
           (click)="enhance.emit(clone())"
         >
           Enhance now
@@ -325,6 +329,11 @@ export class CloneCardComponent {
    * confirm through it. `null` renders nothing (other tabs, VS Code host).
    */
   public readonly modelGuard = input<ReconcileGuardComponent | null>(null);
+  /**
+   * Why "Enhance now" is unavailable regardless of this entry (today: the
+   * Skills switch is paused). `null` leaves the per-entry gating alone.
+   */
+  public readonly enhanceBlockedReason = input<string | null>(null);
 
   public readonly opened = output<CloneSummary>();
   public readonly enhance = output<CloneSummary>();
@@ -353,6 +362,13 @@ export class CloneCardComponent {
 
   protected readonly actions = computed<CloneActionModel>(() =>
     cloneActionModel(this.clone()),
+  );
+
+  protected readonly enhanceDisabled = computed(
+    () =>
+      !this.actions().enhance.enabled ||
+      this.busy() ||
+      this.enhanceBlockedReason() !== null,
   );
 
   protected readonly statusLabel = computed<SkillCloneStatus>(() =>

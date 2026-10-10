@@ -1,0 +1,67 @@
+{
+  "schemaVersion": 1,
+  "id": "planted-negatives@v1",
+  "source": "benchmark-design.md §4.3 negative control",
+  "documents": [
+    {
+      "file": "pn-01.md",
+      "kind": "restated-user-request",
+      "derivedFrom": "synthetic",
+      "sha256": "63358168c187ab8e86908c68a059d2c61bef4cd890d5920332ba6035ad7648da"
+    },
+    {
+      "file": "pn-02.md",
+      "kind": "restated-user-request",
+      "derivedFrom": "synthetic",
+      "sha256": "f870f7baee3ea3876e82ccedd95cba16fd7b66d0fc0395bf1c489cc10bbda252"
+    },
+    {
+      "file": "pn-03.md",
+      "kind": "raw-trajectory-dump",
+      "derivedFrom": "synthetic",
+      "sha256": "1904708d750f28c10d6007b8c0ed4948986d1d15272cdb737cf648a39a777b03"
+    },
+    {
+      "file": "pn-04.md",
+      "kind": "raw-trajectory-dump",
+      "derivedFrom": "synthetic",
+      "sha256": "ca2e8cef1b288da5e26f54a59879b10896fb8ef90c4c100b6c8955674358404a"
+    },
+    {
+      "file": "pn-05.md",
+      "kind": "empty-steps",
+      "derivedFrom": "synthetic",
+      "sha256": "8c2e86f758a37c2efb9a313c86e774ccb02d32a146db8ed782e13116293d3dfa"
+    },
+    {
+      "file": "pn-06.md",
+      "kind": "empty-steps",
+      "derivedFrom": "synthetic",
+      "sha256": "2d44ef1b1f9428774ddb32d9242228558370f9f53886dcf88e9fe369c7665b49"
+    },
+    {
+      "file": "pn-07.md",
+      "kind": "trigger-description-deleted",
+      "derivedFrom": ".claude/skills/tribunal/SKILL.md@d995a1e1a237193e011c46ab89d40d3133b338f5",
+      "sha256": "8d0ce86e29b2d012ac384229dc3d679963969a78638ee442596529938d4baebd"
+    },
+    {
+      "file": "pn-08.md",
+      "kind": "trigger-description-deleted",
+      "derivedFrom": ".claude/skills/video-showcase/SKILL.md@d995a1e1a237193e011c46ab89d40d3133b338f5",
+      "sha256": "cdbe433bc062553b19d874e8ecdacc8f1f1d869378e0a19c7108976d8cdf6a9f"
+    },
+    {
+      "file": "pn-09.md",
+      "kind": "copied-body-renamed",
+      "derivedFrom": ".claude/skills/nestjs-deployment/SKILL.md@d995a1e1a237193e011c46ab89d40d3133b338f5",
+      "sha256": "f76f82694bb0148655fb542ab17248ad71e4eede46231c159383f1464935b011"
+    },
+    {
+      "file": "pn-10.md",
+      "kind": "copied-body-renamed",
+      "derivedFrom": ".claude/skills/ddd-architecture/SKILL.md@d995a1e1a237193e011c46ab89d40d3133b338f5",
+      "sha256": "61d8cf258ca63bff87f78f3b8b9bad0b8fc24b1ed9967a2877aef29d92fd0892"
+    }
+  ]
+}

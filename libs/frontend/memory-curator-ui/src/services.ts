@@ -21,3 +21,4 @@ export {
   type RecoveryToast,
 } from './lib/services/vec-embedder-recovery.service';
 export { MemoryRpcService } from './lib/services/memory-rpc.service';
+export { MemoryDiagnosticsRpcService } from './lib/services/memory-diagnostics-rpc.service';

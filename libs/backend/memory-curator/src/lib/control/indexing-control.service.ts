@@ -5,7 +5,10 @@
 import { inject, injectable } from 'tsyringe';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
-import type { IFileSystemProvider } from '@ptah-extension/platform-core';
+import type {
+  IFileSystemProvider,
+  IWorkspaceProvider,
+} from '@ptah-extension/platform-core';
 import {
   PERSISTENCE_TOKENS,
   SqliteConnectionService,
@@ -15,6 +18,11 @@ import { WebviewManager } from '@ptah-extension/vscode-core';
 import { MEMORY_TOKENS } from '../di/tokens';
 import { MemoryCuratorService } from '../memory-curator.service';
 import { EmbedderStatusService } from '../embedder/embedder-status.service';
+import {
+  MEMORY_TRIGGER_DEFAULTS,
+  MEMORY_TRIGGER_KEYS,
+  MEMORY_TRIGGER_SECTION,
+} from '../triggers/memory-trigger-config';
 import {
   deriveWorkspaceFingerprint,
   deriveGitHeadSha,
@@ -126,6 +134,8 @@ export class IndexingControlService {
     private readonly memoryCurator: MemoryCuratorService,
     @inject(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER)
     private readonly fs: IFileSystemProvider,
+    @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
+    private readonly workspace: IWorkspaceProvider,
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.WEBVIEW_MANAGER)
     private readonly webviewManager: WebviewManager,
@@ -301,7 +311,11 @@ export class IndexingControlService {
         if (signal.aborted) return; // paused or cancelled — state handled by pause()/cancel()
       }
 
-      if (runMemory && (row?.memory_enabled !== 0 || options?.force)) {
+      if (
+        runMemory &&
+        (row?.memory_enabled !== 0 || options?.force) &&
+        (options?.force || this.readMemoryEnabled())
+      ) {
         if (deps.runMemory) {
           await deps.runMemory(workspaceRoot);
         }
@@ -336,6 +350,16 @@ export class IndexingControlService {
       this.activeAbortController = null;
       this.activeWorkspaceFp = null;
     }
+  }
+
+  private readMemoryEnabled(): boolean {
+    return (
+      this.workspace.getConfiguration<boolean>(
+        MEMORY_TRIGGER_SECTION,
+        MEMORY_TRIGGER_KEYS.enabled,
+        MEMORY_TRIGGER_DEFAULTS.enabled,
+      ) !== false
+    );
   }
 
   /** Pause an active run — fires AbortController, persists cursor. */

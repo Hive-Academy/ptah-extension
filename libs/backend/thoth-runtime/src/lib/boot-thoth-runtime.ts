@@ -432,9 +432,12 @@ export async function bootThothRuntime(
   /**
    * The skill trigger, which may only start once skill synthesis has. Kept as
    * a named step because that ordering now happens on the continuation of an
-   * unawaited promise rather than inline.
+   * unawaited promise rather than inline. Reached twice on a normal boot (the
+   * `onStarted` hook and the `start()` continuation) and later from a retried
+   * start, so it brings the trigger up at most once.
    */
   const startSkillTrigger = (): void => {
+    if (refs.skillTrigger !== null) return;
     try {
       if (
         refs.skillSynthesis !== null &&
@@ -447,6 +450,7 @@ export async function bootThothRuntime(
         skillTrigger.start();
         refs.skillTrigger = skillTrigger;
         console.log(`${logPrefix} Skill trigger service started`);
+        options.onSkillTriggerStarted?.(skillTrigger);
       }
     } catch (error: unknown) {
       console.warn(
@@ -458,31 +462,43 @@ export async function bootThothRuntime(
   };
 
   try {
-    refs.skillSynthesis = container.resolve<SkillSynthesisService>(
+    const skillSynthesis = container.resolve<SkillSynthesisService>(
       SKILL_SYNTHESIS_TOKENS.SKILL_SYNTHESIS_SERVICE,
     );
+    refs.skillSynthesis = skillSynthesis;
+    // Subscribed BEFORE `start()`: a boot start that fails can succeed later
+    // through the service's `skillSynthesis.enabled` listener retry, which
+    // this function's continuation never sees. Every successful start brings
+    // the trigger up, so a recovered host gets hooks, boot scan and harvest
+    // like a normal boot (B-P review N1). `stop()` drops the subscription.
+    skillSynthesis.onStarted(startSkillTrigger);
     // STARTED, NOT AWAITED. `start()` re-opens SQLite (idempotent — already
     // open above), walks every SKILL.md on disk and runs the boot trajectory
     // scan. None of that produces anything this function returns, and all of it
     // used to sit between the user's launch and the window.
     //
-    // The trigger still starts only AFTER a SUCCESSFUL synthesis start, and a
-    // failure still nulls the ref, exactly as the awaited version did. Both
-    // now happen on the continuation instead of inline, which is safe because
-    // `refs` is the host's stable object: a late write is still disposed.
-    void refs.skillSynthesis
+    // The continuation still starts the trigger after a start that RESOLVED —
+    // including a paused boot, whose trigger arms its owed boot scan for the
+    // resume. A failed start keeps the ref: the service's retry path is still
+    // live, and shutdown's `stop()` must dispose its config listener.
+    void skillSynthesis
       .start()
-      .then(() => {
-        if (isAborted()) return;
+      .then((outcome) => {
+        // `abandoned`: a stop() overtook the boot work, which registered
+        // nothing; the host is stopping, so no trigger either. `failed`: this
+        // boot joined a start that rejected; a later retry brings the trigger
+        // up through `onStarted`.
+        if (isAborted() || outcome === 'abandoned' || outcome === 'failed') {
+          return;
+        }
         console.log(`${logPrefix} Skill synthesis started`);
         startSkillTrigger();
       })
       .catch((error: unknown) => {
         console.warn(
-          `${logPrefix} Skill synthesis start skipped (non-fatal):`,
+          `${logPrefix} Skill synthesis start failed (non-fatal; retried when skillSynthesis.enabled changes):`,
           error instanceof Error ? error.message : String(error),
         );
-        refs.skillSynthesis = null;
       });
   } catch (error: unknown) {
     console.warn(

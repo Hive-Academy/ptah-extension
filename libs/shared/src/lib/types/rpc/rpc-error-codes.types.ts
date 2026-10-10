@@ -26,5 +26,11 @@ export type RpcUserErrorCode =
    * allows more, compacts, clears or continues in a new session.
    */
   | 'SESSION_BUDGET_REACHED'
+  /**
+   * The feature's background-learning switch (`memory.enabled` or
+   * `skillSynthesis.enabled`) is off, so a manual run that would do the same
+   * model work is refused until the user resumes it.
+   */
+  | 'PAUSED'
   /** A queued prompt has been accepted into the handover transfer FIFO. */
   | 'SESSION_HANDOVER_HELD';

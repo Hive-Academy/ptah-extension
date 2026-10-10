@@ -100,6 +100,38 @@ export class SkillTriggerService {
    */
   private bootScanScheduler: BootScanScheduler | null = null;
   /**
+   * Whether a boot scan is still OWED (TASK_2026_620 B-P, S3). Set when
+   * `start()` found the boot-scan flag on but the master switch off, and when
+   * a scan stalled on the switch. Cleared only by {@link maybeRearmBootScan}
+   * arming one. The resume paths (the config-change event, and the lazy
+   * `onActivity` re-arm for an external edit that fires no event) read it, so
+   * a pause never advances the watermark past a session it never queued and
+   * resume needs no restart.
+   */
+  private bootScanOwed = false;
+  /**
+   * Whether {@link bootScanScheduler} is currently holding an armed (not yet
+   * spent) scan. The guard that keeps {@link maybeRearmBootScan} from
+   * double-arming. Reset when the armed run completes — a mid-scan stall on an
+   * EXTERNAL pause fires no event, so nothing would ever clear it otherwise
+   * and the owed sessions could never re-arm.
+   */
+  private bootScanArmed = false;
+  /**
+   * Which armed scan {@link bootScanArmed} describes (review finding 9).
+   * Bumped by {@link maybeRearmBootScan} on every arm, so a pause→resume that
+   * arms scan B while a CANCELED scan A is still unwinding leaves A's
+   * completion unable to clear B's arm: only the scan whose generation is
+   * still current may reset the flag. Without it, A's `finally` would clear
+   * B's arm and the flag would lie about a live scan.
+   */
+  private bootScanGeneration = 0;
+  /**
+   * Disposer of the `skillSynthesis.enabled` config listener, registered in
+   * `start()` and disposed in `stop()`.
+   */
+  private configurationDisposer: { dispose(): void } | null = null;
+  /**
    * When the last chat turn was observed, or `null` when none has been in this
    * process. `null` — not `0` — because the boot-scan deferral reads "more
    * recent than the backoff means someone is working"; a fresh process with no
@@ -179,11 +211,25 @@ export class SkillTriggerService {
       },
     );
 
-    if (this.readBootScanFlag()) {
-      this.bootScanController = new AbortController();
-      this.bootScanScheduler = this.createBootScanScheduler();
-      this.bootScanScheduler.schedule(this.bootScanController.signal);
-    }
+    // The boot scan is owed whenever its OWN flag is on, and armed only when
+    // the master switch is on too (TASK_2026_620 B-P, S3). A host that booted
+    // paused keeps the debt; the resume paths below arm it.
+    this.bootScanOwed = this.readBootScanFlag();
+    this.configurationDisposer = this.workspace.onDidChangeConfiguration(
+      (event) => {
+        if (!event.affectsConfiguration('ptah.skillSynthesis.enabled')) return;
+        if (this.readMasterEnabled()) {
+          this.maybeRearmBootScan();
+          return;
+        }
+        // Pause: drop the armed (not yet spent) scan — it stays owed, and the
+        // resume paths re-arm it. The per-session idle/turn-complete timers are
+        // deliberately NOT cleared here: their work is `enqueueAnalyze`, which
+        // re-reads the switch live and no-ops while paused.
+        this.cancelBootScan(true);
+      },
+    );
+    this.maybeRearmBootScan();
 
     this.logger.info('[skill-synthesis] trigger service started');
   }
@@ -213,10 +259,10 @@ export class SkillTriggerService {
     this.sessions.clear();
     this.editTestStates.clear();
     this.turnCompleteStates.clear();
-    this.bootScanScheduler?.cancel();
-    this.bootScanScheduler = null;
-    this.bootScanController?.abort();
-    this.bootScanController = null;
+    this.configurationDisposer?.dispose();
+    this.configurationDisposer = null;
+    this.cancelBootScan(false);
+    this.bootScanOwed = false;
     this.lastActivityAt = null;
     this.started = false;
     this.logger.info('[skill-synthesis] trigger service stopped');
@@ -232,6 +278,11 @@ export class SkillTriggerService {
    * ever analysed.
    */
   private onActivity(payload: SessionActivityPayload): void {
+    // The lazy resume path for the boot scan (B-P, S3). First statement: an
+    // external edit of `~/.ptah/settings.json` that flips the switch back on
+    // fires no config event, so the next chat activity is the only signal
+    // left that can re-arm an owed scan.
+    this.maybeRearmBootScan();
     if (blankToUndefined(payload.sessionId) === undefined) return;
 
     // Stamped ABOVE the `idleMs` guard, because this is the only foreground
@@ -423,6 +474,11 @@ export class SkillTriggerService {
   }
 
   private async fireHarvest(workspaceRoot: string): Promise<void> {
+    // B-P (S4): the spec harvest is background capture, gated by the master
+    // switch like every other write. Invocation telemetry (S5) is deliberately
+    // NOT gated — pausing usage recording while the user keeps using skills
+    // would retire them after `dormantAfterDays` once resumed.
+    if (!this.readMasterEnabled()) return;
     try {
       await this.harvester.harvest(workspaceRoot);
     } catch (error: unknown) {
@@ -766,11 +822,7 @@ export class SkillTriggerService {
     sessionId: string,
     workspaceRoot: string,
     source:
-      | 'idle'
-      | 'boot'
-      | 'subagent-stop'
-      | 'edit-then-test'
-      | 'turn-complete',
+      'idle' | 'boot' | 'subagent-stop' | 'edit-then-test' | 'turn-complete',
     transcriptPath?: string,
     signal?: AbortSignal,
   ): Promise<void> {
@@ -809,7 +861,7 @@ export class SkillTriggerService {
    * with window creation and the SDK boot for the main thread. The
    * delay/backoff reasoning lives on the scheduler.
    */
-  private createBootScanScheduler(): BootScanScheduler {
+  private createBootScanScheduler(generation: number): BootScanScheduler {
     return new BootScanScheduler({
       logPrefix: '[skill-synthesis]',
       logger: this.logger,
@@ -821,15 +873,22 @@ export class SkillTriggerService {
       idleBackoffMsDefault: SKILL_TRIGGER_DEFAULTS.bootScanIdleBackoffMs,
       lastActivityAt: () => this.lastActivityAt,
       run: (signal) => {
-        void this.runBootScan(signal);
+        void this.runBootScan(signal, generation);
       },
     });
   }
 
-  private async runBootScan(signal: AbortSignal): Promise<void> {
-    const root = this.workspace.getWorkspaceRoot();
-    if (!root) return;
+  private async runBootScan(
+    signal: AbortSignal,
+    generation: number,
+  ): Promise<void> {
     try {
+      // Inside the `try` so the `finally` below releases this run's arm when
+      // no workspace is open (B-P review N4). Returning before the `try` left
+      // `bootScanArmed` set for the current generation, so `maybeRearmBootScan`
+      // could never arm a scan again in this process.
+      const root = this.workspace.getWorkspaceRoot();
+      if (!root) return;
       const { fp } = await deriveWorkspaceFingerprint(root, this.fs);
       const sessionsDir = await this.jsonl.findSessionsDirectory(root);
       const runner = new BootScanRunner();
@@ -849,11 +908,13 @@ export class SkillTriggerService {
         // the stage handler still reaches `analyzeSession` with the boot
         // source and its template-only, no-LLM behaviour is preserved.
         //
-        // Always `'ran'`. Enqueueing is a local INSERT and spends nothing
-        // upstream, so no provider gate can stall it — the `'stalled'` outcome
-        // belongs to the memory pipeline, which dials the curator LLM inline
-        // (TASK_2026_306 Batch 10). Returning it here would stop the scan for
-        // a condition that cannot arise.
+        // B-P (S3): paused → `'stalled'`, never `'ran'`. The enqueue itself is
+        // a local INSERT, but marking a session `'ran'` while the switch is
+        // off would advance the watermark past a session that was never
+        // queued, and the next boot's `mtime > watermark` filter would lose it
+        // permanently. `BootScanRunner` stops the scan and keeps the watermark
+        // below the stalled session; the owed flag above re-arms the scan on
+        // resume, so the skipped sessions are queued then.
         //
         // For the same reason there is NO rate-limiter call here, and the
         // asymmetry with the memory pipeline is deliberate. TASK_2026_319 put
@@ -863,6 +924,10 @@ export class SkillTriggerService {
         // insert. What this row costs is gated later, by the drain's own token
         // budget and tier caps.
         run: async (sessionId, workspaceRoot, runSignal) => {
+          if (!this.readMasterEnabled()) {
+            this.bootScanOwed = true;
+            return 'stalled';
+          }
           await this.synthesis.enqueueAnalyze(sessionId, workspaceRoot, {
             source: 'boot',
             signal: runSignal,
@@ -877,6 +942,7 @@ export class SkillTriggerService {
           scanned: result.scanned,
           succeeded: result.succeeded,
           skipped: result.skipped,
+          stalled: result.stalled,
         },
       });
       await this.fireHarvest(root);
@@ -890,6 +956,18 @@ export class SkillTriggerService {
       this.logger.warn('[skill-synthesis] boot-scan failed', {
         error: message,
       });
+    } finally {
+      // The arm is spent once the run completes, whatever the outcome — but
+      // only if THIS run is still the armed one (review finding 9). A pause
+      // event cancels a scan whose async body is still unwinding; the resume
+      // arms a NEWER scan while that happens, and the older run's `finally`
+      // must not clear the newer arm. A mid-scan stall on an EXTERNAL pause
+      // fires no config event, so `cancelBootScan` never runs on that path —
+      // without the generational check that path (or a stale one) would leave
+      // `bootScanArmed` true forever, or clear an arm it does not own.
+      if (this.bootScanGeneration === generation) {
+        this.bootScanArmed = false;
+      }
     }
   }
 
@@ -909,6 +987,60 @@ export class SkillTriggerService {
       SKILL_TRIGGER_DEFAULTS.bootScan,
     );
     return typeof v === 'boolean' ? v : SKILL_TRIGGER_DEFAULTS.bootScan;
+  }
+
+  /**
+   * The skills master switch (`skillSynthesis.enabled`, B-P), live per read.
+   *
+   * Gates the boot scan (arming and the per-session callback) and the spec
+   * harvest. It does NOT gate invocation telemetry (S5) — see
+   * {@link fireHarvest}.
+   */
+  private readMasterEnabled(): boolean {
+    const v = this.workspace.getConfiguration<boolean>(
+      SKILL_TRIGGER_SECTION,
+      SKILL_TRIGGER_KEYS.enabled,
+      SKILL_TRIGGER_DEFAULTS.enabled,
+    );
+    return typeof v === 'boolean' ? v : SKILL_TRIGGER_DEFAULTS.enabled;
+  }
+
+  /** Drop an armed or in-flight boot scan. `owed` keeps the debt for a re-arm. */
+  private cancelBootScan(owed: boolean): void {
+    this.bootScanScheduler?.cancel();
+    this.bootScanScheduler = null;
+    this.bootScanController?.abort();
+    this.bootScanController = null;
+    this.bootScanArmed = false;
+    this.bootScanOwed ||= owed;
+  }
+
+  /**
+   * Arm the boot scan when one is owed and every gate allows it: started,
+   * owed, not already armed, master switch on, boot-scan flag on.
+   *
+   * Called from the `skillSynthesis.enabled` config-change event (in-process
+   * writes) and lazily from `onActivity` — which runs on every session event —
+   * so an external-edit resume re-arms on the next chat activity without a
+   * restart.
+   */
+  private maybeRearmBootScan(): void {
+    if (
+      !this.started ||
+      !this.bootScanOwed ||
+      this.bootScanArmed ||
+      !this.readMasterEnabled() ||
+      !this.readBootScanFlag()
+    )
+      return;
+    this.bootScanArmed = true;
+    this.bootScanOwed = false;
+    // The generation the armed run carries, so only the CURRENT scan's
+    // completion may clear `bootScanArmed` (review finding 9).
+    const generation = ++this.bootScanGeneration;
+    this.bootScanController = new AbortController();
+    this.bootScanScheduler = this.createBootScanScheduler(generation);
+    this.bootScanScheduler.schedule(this.bootScanController.signal);
   }
 
   private readTurnCompleteEnabled(): boolean {

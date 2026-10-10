@@ -1,6 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { ClaudeRpcService } from '@ptah-extension/core';
 import { SkillDiagnosticsRpcService } from './skill-diagnostics-rpc.service';
+import { SkillsPausedError } from './skill-synthesis-rpc.service';
 
 describe('SkillDiagnosticsRpcService', () => {
   let service: SkillDiagnosticsRpcService;
@@ -46,7 +47,7 @@ describe('SkillDiagnosticsRpcService', () => {
         accepted: 0,
       },
       recentEvents: [],
-      triggers: { sessionEnd: true, idleMs: 600_000, bootScan: true },
+      triggers: { idleMs: 600_000, bootScan: true },
     };
     rpcCall.mockResolvedValue(okResult(payload));
 
@@ -85,7 +86,7 @@ describe('SkillDiagnosticsRpcService', () => {
   });
 
   it('setTriggers() wraps the partial dto', async () => {
-    const triggers = { sessionEnd: true, idleMs: 600_000, bootScan: false };
+    const triggers = { idleMs: 600_000, bootScan: false };
     rpcCall.mockResolvedValue(okResult({ triggers }));
 
     const result = await service.setTriggers({ bootScan: false });
@@ -99,7 +100,7 @@ describe('SkillDiagnosticsRpcService', () => {
   });
 
   it('getTriggers() returns the triggers dto on success', async () => {
-    const triggers = { sessionEnd: true, idleMs: 600_000, bootScan: true };
+    const triggers = { idleMs: 600_000, bootScan: true };
     rpcCall.mockResolvedValue(okResult({ triggers }));
 
     const result = await service.getTriggers();
@@ -122,5 +123,15 @@ describe('SkillDiagnosticsRpcService', () => {
     await expect(
       service.analyzeNow({ sessionId: 's', workspaceRoot: '/w' }),
     ).rejects.toThrow('skillSynthesis:analyzeNow failed');
+  });
+
+  it('throws SkillsPausedError when analyzeNow() is refused with PAUSED', async () => {
+    rpcCall.mockResolvedValue({
+      ...errResult('Skill synthesis is paused'),
+      errorCode: 'PAUSED',
+    });
+    await expect(
+      service.analyzeNow({ sessionId: 's', workspaceRoot: '/w' }),
+    ).rejects.toBeInstanceOf(SkillsPausedError);
   });
 });

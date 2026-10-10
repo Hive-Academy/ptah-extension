@@ -1,9 +1,8 @@
 ---
 id: TASK_2026_473_c9f4
-status: backlog
+status: done
 type: FEATURE
-title: >-
-  Make skills and memory produce output the user will actually use
+title: Make skills and memory produce output the user will actually use
 description: >-
   Two independent tracks over the same learning subsystem. Track A fixes memory
   retrieval and the merge path: the full-text query joins every token with OR
@@ -15,6 +14,7 @@ description: >-
   names, and produced 2,433 candidates with 0 promoted and 1 suggestion accepted
   of 17. Track A is small and proven on live data. Track B ends in a measured
   experiment that may retire the generator instead.
+updated: '2026-10-06T19:38:50.362Z'
 ---
 
 # Make skills and memory produce output the user will actually use
