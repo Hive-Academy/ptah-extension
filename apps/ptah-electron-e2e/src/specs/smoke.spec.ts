@@ -87,13 +87,16 @@ test.describe('Ptah Electron harness smoke', () => {
     // that read the state before ours committed lands after it and drops the
     // marker. Re-write until a read-back holds it, so the round-trip is proven
     // without racing those start-up writes.
+    // Unique per run, so a marker left in storage by an earlier run cannot
+    // satisfy the read-back.
+    const marker = `wave-b1-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     await expect(async () => {
-      await rpcBridge.setState({ e2eMarker: 'wave-b1', ts: Date.now() });
+      await rpcBridge.setState({ e2eMarker: marker });
       await expect
         .poll(async () => JSON.stringify((await rpcBridge.getState()) ?? {}), {
           timeout: 2_000,
         })
-        .toContain('wave-b1');
+        .toContain(marker);
     }).toPass({ timeout: 15_000 });
   });
 });
