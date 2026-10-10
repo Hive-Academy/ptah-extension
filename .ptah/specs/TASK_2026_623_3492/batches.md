@@ -1,6 +1,6 @@
 # Batches - TASK_2026_623_3492
 
-Total tasks: 75 | Batches: 37 (incl. fix batches 6F, 12F, 15F, post-cap correction 12F2) | Complete: 21/37
+Total tasks: 76 | Batches: 37 (incl. fix batches 6F, 12F, 15F, post-cap correction 12F2) | Complete: 22/37
 
 Worktree root `W` = `D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel` (branch
 `feat/task-623-display-panel`, base `70f995a56`). Every path below is absolute.
@@ -1076,7 +1076,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
   - On disk: no `burstFailed`, no timers, no TODO markers under `sources/`. The two new failure cases are present. The
     token factory resolves adapters lazily via `injector.get` (decision #53).
 
-## Batch 18: C3 display chip and message text — COMPLETE (commit see `git log`, subject "batch 18")
+## Batch 18: C3 display chip and message text — COMPLETE (commit 3ee10e554)
 
 - Recommended executor: frontend-developer
 - Fallback executor: general-purpose subagent
@@ -1122,7 +1122,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - Follow-ons carried: Batch 20 (Task 20.2), Batch 23 (Task 23.1, new Task 23.4), Batch 25 (Task 25.2), Batch 32
   (Task 32.1), Batch 33 (Task 33.3).
 
-## Batch 19: C4 turn summary model and chip — IN_PROGRESS
+## Batch 19: C4 turn summary model and chip — COMPLETE (commit see `git log`, subject "batch 19")
 
 - Recommended executor: frontend-developer
 - Fallback executor: general-purpose subagent
@@ -1131,7 +1131,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - Tasks: 2 | Depends on: Batch 1
 - Phase: 4 | Phase review: after Batch 21
 
-### Task 19.1: summary model (ports every tests-row case) — IN_PROGRESS
+### Task 19.1: summary model (ports every tests-row case) — COMPLETE
 
 - Files (CREATE):
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\molecules\turn-recap\turn-summary.model.ts
@@ -1140,7 +1140,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - Quality requirements: R6.1-R6.4, R6.6, R6.8; Tests card omitted when empty; "(incomplete)" for aborted turns; label
   cases ported from `turn-tests-row.component.spec.ts`; Files and Lines cards carry change-set capabilities.
 
-### Task 19.2: summary chip and entry export — IN_PROGRESS
+### Task 19.2: summary chip and entry export — COMPLETE
 
 - Files:
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\molecules\turn-recap\turn-summary-chip.component.ts (CREATE)
@@ -1152,6 +1152,18 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 ### Batch 19 verification
 
 - `npx jest -c libs/frontend/chat-ui/jest.config.ts libs/frontend/chat-ui/src/lib/molecules/turn-recap --coverage=false --maxWorkers=2 2>&1 | tail -n 40 && npx nx typecheck @ptah-extension/chat-ui --parallel=1 2>&1 | tail -n 20 && npx nx lint @ptah-extension/chat-ui --parallel=1 2>&1 | tail -n 20`
+
+### Batch 19 result (recorded at verification)
+
+- Team-leader re-ran in the worktree (no `--moduleNameMapper` needed): Jest 3 suites, 69 passed (model, chip,
+  unchanged tests-row); `nx typecheck @ptah-extension/chat-ui` succeeded; `nx lint` 0 errors, 10 baseline warnings
+  (same count as Batch 18). No TODO/FIXME/placeholder markers in the batch files.
+- On disk: `turn-summary.model.spec.ts` compiles a real `ptah-ui` block and compares `resolvePtahUi` output with the
+  model (R6.1); every `turn-tests-row.component.spec.ts` case is ported (report table). `src/index.ts` untouched; the
+  new exports are in the lazy `turn-recap.ts` only.
+- Rulings: decisions #66 (Lines omitted with Files), #67 (`openable` input), #68 (`formatFileCounts` reuse), #69
+  (counts unavailable shows "?"), #70 (chip gradient overturned; chip goes flat `base-200`).
+- Follow-ons carried: Batch 21 (Task 21.2 notes, new Task 21.3), Batch 24 (Task 24.1 `openable`/`open` binding).
 
 ## Batch 20: C5 display-panel entry, surfaces and sync — PENDING
 
@@ -1209,7 +1221,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - Fallback executor: general-purpose subagent
 - Execution mode: sequential
 - Rationale: the two visible panel components; closes Phase 4.
-- Tasks: 2 | Depends on: Batches 19, 20, 14
+- Tasks: 3 | Depends on: Batches 19, 20, 14
 - Phase: 4 (last batch) | Phase review: code-logic + style on Batches 16-21
 
 ### Task 21.1: display panel component — PENDING
@@ -1228,10 +1240,28 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\organisms\display-panel\turn-summary.component.spec.ts
 - Quality requirements: R6.1-R6.4, R6.8; tests-row capabilities (expand/collapse ARIA, run rows, icons with labels,
   `<details>` command, failure lines); 1 column at 300 px (R9.6).
+- Validation notes (from Batch 19):
+  - Build from `buildTurnSummaryModel` (`turn-recap` model) and render `model.cards` in order. Do not add omission
+    logic: the model already omits Files, Lines and Tests when there is nothing to show (decision #66).
+  - Counts unavailable: Files and Lines read "?" with a neutral "counts unavailable" pill. Cost keeps the word
+    "unavailable" (decision #69, design-spec.md:154).
+  - Map the model's run-row `tone` to the tests-row classes and pass `tests.polarity` to the stat trend (decision #51).
+  - The warm hero gradient (decision #13) goes on this host-built section: `secondary @12%` into card colour at
+    135 deg (design-spec.md:27, prototype `.dp-card.dhero`, `prototype/index.html:81`).
+
+### Task 21.3: summary chip back to flat `base-200` — PENDING
+
+- Files:
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\molecules\turn-recap\turn-summary-chip.component.ts
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\molecules\turn-recap\turn-summary-chip.component.spec.ts
+- Plan reference: decision #70; prototype `.chip{background:oklch(var(--b2))}` (`prototype/index.html:169`)
+- Quality requirements: remove the hero `linear-gradient` from the chip host style (`turn-summary-chip.component.ts`
+  around lines 56-62, including its doc comment); the chip background is flat `base-200`. Update any spec assertion
+  on the gradient. Nothing else in the chip changes.
 
 ### Batch 21 verification
 
-- `npx jest -c libs/frontend/chat-ui/jest.config.ts libs/frontend/chat-ui/src/lib/organisms/display-panel --coverage=false --maxWorkers=2 2>&1 | tail -n 40 && npx nx typecheck @ptah-extension/chat-ui --parallel=1 2>&1 | tail -n 20 && npx nx lint @ptah-extension/chat-ui --parallel=1 2>&1 | tail -n 20`
+- `npx jest -c libs/frontend/chat-ui/jest.config.ts libs/frontend/chat-ui/src/lib/organisms/display-panel libs/frontend/chat-ui/src/lib/molecules/turn-recap --coverage=false --maxWorkers=2 2>&1 | tail -n 40 && npx nx typecheck @ptah-extension/chat-ui --parallel=1 2>&1 | tail -n 20 && npx nx lint @ptah-extension/chat-ui --parallel=1 2>&1 | tail -n 20`
 - Phase 4 code-logic + style review due after commit
 
 ## Batch 22: H1 transcript projections — PENDING
@@ -1346,6 +1376,10 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - Plan reference: implementation-plan.md:833-881, 1219-1242
 - Quality requirements: R6.5, R6.9, R6.10; Electron: change-set card and tests row replaced by the summary chip
   (decisions #5, #10); VS Code transcript unchanged (keeps the card, still no tests row); sync under `@defer`.
+- Chip wiring (decision #67): bind `[openable]` to whether the optional `DisplayDockState` was injected, and
+  `(open)` to `dock.openSummary(tabId, turnKey)`. `chat-transcript.display.spec.ts` asserts both the openable and the
+  "Display panel unavailable" state. Leave `change-set-card.component.ts` in place: VS Code still mounts it, and the
+  summary model reuses its `formatFileCounts` (decision #68).
 - R10.9 webview half (decision #56): with `isElectron` false, a `$limits` fence renders as an ordinary code block and
   `agent:getLanePlanLimits` is never called. `chat-transcript.display.spec.ts` asserts both.
 
