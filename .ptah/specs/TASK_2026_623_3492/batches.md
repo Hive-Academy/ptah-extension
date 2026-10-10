@@ -1,6 +1,6 @@
 # Batches - TASK_2026_623_3492
 
-Total tasks: 74 | Batches: 37 (incl. fix batches 6F, 12F, 15F, post-cap correction 12F2) | Complete: 20/37
+Total tasks: 75 | Batches: 37 (incl. fix batches 6F, 12F, 15F, post-cap correction 12F2) | Complete: 21/37
 
 Worktree root `W` = `D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel` (branch
 `feat/task-623-display-panel`, base `70f995a56`). Every path below is absolute.
@@ -985,7 +985,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - Out-of-list seam `PTAH_UI_BLOCK_LIVE_SOURCES` in `ptah-ui-block.component.ts`: accepted under decision #52. Batch 17
   (Task 17.3) provides it.
 
-## Batch 17: C2 live source adapters (`$agents`, `$limits`) — COMPLETE (commit see `git log`, subject "batch 17")
+## Batch 17: C2 live source adapters (`$agents`, `$limits`) — COMPLETE (commit b3d5ce368)
 
 - Recommended executor: frontend-developer
 - Fallback executor: general-purpose subagent
@@ -1076,7 +1076,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
   - On disk: no `burstFailed`, no timers, no TODO markers under `sources/`. The two new failure cases are present. The
     token factory resolves adapters lazily via `injector.get` (decision #53).
 
-## Batch 18: C3 display chip and message text — IN_PROGRESS
+## Batch 18: C3 display chip and message text — COMPLETE (commit see `git log`, subject "batch 18")
 
 - Recommended executor: frontend-developer
 - Fallback executor: general-purpose subagent
@@ -1085,16 +1085,18 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - Tasks: 2 | Depends on: Batch 16
 - Phase: 4 | Phase review: after Batch 21
 
-### Task 18.1: display chip — IN_PROGRESS
+### Task 18.1: display chip — COMPLETE
 
 - Files (CREATE):
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\organisms\ptah-ui\ptah-ui-display-chip.component.ts
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\organisms\ptah-ui\ptah-ui-display-chip.component.spec.ts
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\services\ptah-ui-display-dock.ts
+    (out-of-list, accepted under decision #59)
 - Plan reference: implementation-plan.md:630-673
 - Quality requirements: R1.11, R2.10-R2.11, decisions #7 ("Open in display", "updated later" when superseded);
   collapsible and responsive (decisions #9).
 
-### Task 18.2: message text renders the chip for display fences — IN_PROGRESS
+### Task 18.2: message text renders the chip for display fences — COMPLETE
 
 - Files:
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\organisms\ptah-ui\ptah-ui-message-text.component.ts
@@ -1108,7 +1110,19 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 
 - `npx jest -c libs/frontend/chat-ui/jest.config.ts libs/frontend/chat-ui/src/lib/organisms/ptah-ui/ptah-ui-display-chip.component.spec.ts libs/frontend/chat-ui/src/lib/organisms/ptah-ui/ptah-ui-message-text.component.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -n 40 && npx nx typecheck @ptah-extension/chat-ui --parallel=1 2>&1 | tail -n 20 && npx nx lint @ptah-extension/chat-ui --parallel=1 2>&1 | tail -n 20`
 
-## Batch 19: C4 turn summary model and chip — PENDING
+### Batch 18 result (recorded at verification)
+
+- Team-leader re-ran in the worktree (command-line `--moduleNameMapper` for `^marked$` only, handoff.md Batch 8
+  ruling): Jest 2 suites, 40 passed; `nx typecheck @ptah-extension/chat-ui` succeeded; `nx lint` 0 errors, 10 baseline
+  warnings, none in a batch file. No TODO/placeholder markers or timers in the batch files.
+- `src/index.ts` untouched; the token file's only runtime import is `@angular/core`.
+- Rulings: decisions #59 (chat-ui-owned dock port), #60 (Batch 20 sync write port and status keying), #61 (evicted
+  chip has no action, R1.12), #62 (superseded "Open latest"), #63 (no counts/totals in the expanded chip; approved
+  difference for Batch 33).
+- Follow-ons carried: Batch 20 (Task 20.2), Batch 23 (Task 23.1, new Task 23.4), Batch 25 (Task 25.2), Batch 32
+  (Task 32.1), Batch 33 (Task 33.3).
+
+## Batch 19: C4 turn summary model and chip — IN_PROGRESS
 
 - Recommended executor: frontend-developer
 - Fallback executor: general-purpose subagent
@@ -1117,7 +1131,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - Tasks: 2 | Depends on: Batch 1
 - Phase: 4 | Phase review: after Batch 21
 
-### Task 19.1: summary model (ports every tests-row case) — PENDING
+### Task 19.1: summary model (ports every tests-row case) — IN_PROGRESS
 
 - Files (CREATE):
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\molecules\turn-recap\turn-summary.model.ts
@@ -1126,7 +1140,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - Quality requirements: R6.1-R6.4, R6.6, R6.8; Tests card omitted when empty; "(incomplete)" for aborted turns; label
   cases ported from `turn-tests-row.component.spec.ts`; Files and Lines cards carry change-set capabilities.
 
-### Task 19.2: summary chip and entry export — PENDING
+### Task 19.2: summary chip and entry export — IN_PROGRESS
 
 - Files:
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\molecules\turn-recap\turn-summary-chip.component.ts (CREATE)
@@ -1166,9 +1180,24 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\organisms\display-panel\display-surface-sync.component.spec.ts (CREATE)
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\display-panel.ts (CREATE)
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\tsconfig.base.json
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\services\ptah-ui-display-dock.ts (MODIFY, decision #60)
 - Pattern to follow: `tsconfig.base.json:52-60` (`chat-ui/ptah-ui`, `chat-ui/turn-recap` paths)
 - Quality requirements: R1.1, R1.5, R1.6, R1.8; compile cache by body; auto-open only for applied, live, unseen
   `blockKey:ordinal`; `seenBlockKeys` in the ChatView store; summary never auto-opens.
+- Validation notes (decisions #59, #60, from Batch 18):
+  - chat-ui cannot import `DisplayDockState` (`chat` depends on `chat-ui`). The sync writes through a write-side port
+    added to `ptah-ui-display-dock.ts`: a separate interface and optional token (e.g. `PtahUiDisplayDockSync` /
+    `PTAH_UI_DISPLAY_DOCK_SYNC`) carrying the plan's `setSurfaces(tabId, …)`, statuses and auto-open request. Keep the
+    chip's read port (`PTAH_UI_DISPLAY_DOCK`) read-only.
+  - That file stays eager-light: runtime import `@angular/core` only; anything else (e.g. surface types from
+    `display-surfaces.ts`) is `import type`.
+  - Key every per-fence status with `displayFenceKey(messageId, nodeId, ordinal)` (the chip's lookup,
+    `ptah-ui-display-chip.component.ts:318-321`). `applied` / `superseded` / `evicted` carry `surfaceKey`, `title`
+    and `description` (`null` when absent); `invalid` carries `reason`. A spec asserts a chip-shaped lookup finds
+    what the sync published.
+  - No dock-sync provider (absent token) → the sync does nothing and does not throw.
+  - Do not touch `src/index.ts`; Batch 23 adds the main-barrel export. If the port cannot carry D12 auto-open, stop
+    and report it for the architect.
 
 ### Batch 20 verification
 
@@ -1249,7 +1278,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - Fallback executor: general-purpose subagent
 - Execution mode: sequential
 - Rationale: the per-tab store and the host-sources provider the transcript wires next.
-- Tasks: 3 | Depends on: Batches 16, 22
+- Tasks: 4 (Task 23.4 added by decision #59) | Depends on: Batches 16, 20, 22
 - Phase: 5 | Phase review: after Batch 25
 
 ### Task 23.1: `DisplayDockState` — PENDING
@@ -1261,8 +1290,29 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - Quality requirements: per-tab `open`, `pinned`, `activeTab`, `widthPx`, `userClosedTurnKey`, `newCount`,
   `seenBlockKeys`, selections, surfaces, statuses, summaries; `requestAutoOpen` ignored when the user closed this turn
   (increments `newCount`); types-only import from `mcp-apps-contracts`.
+- Validation notes (decisions #59, #60, from Batch 18):
+  - `DisplayDockState implements PtahUiDisplayDock` and the Batch 20 sync port, imported from the main barrel
+    `@ptah-extension/chat-ui` (Task 23.4), never from `@ptah-extension/chat-ui/ptah-ui` or `/display-panel`.
+  - Statuses are stored per tab keyed by `displayFenceKey(messageId, nodeId, ordinal)`; `fenceStatus(tabId, key)` is
+    an O(1) signal-backed lookup returning `null` when absent, so a chip's `computed` re-runs on change.
+  - `openSurface(tabId, surfaceKey)` opens the tab's dock on the Displays tab and selects that surface.
+  - The spec covers both ports: a status written through the sync port is read back through `fenceStatus`, and an
+    unknown tab or key returns `null`.
 
-### Task 23.2: transcript host-sources provider — PENDING
+### Task 23.4: main-barrel export of the dock port (decision #59) — PENDING
+
+- Order: runs first in the batch; Task 23.1 imports from it.
+
+- File: D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\index.ts
+- Pattern to follow: `libs/frontend/chat-ui/src/index.ts:103-106` (`PTAH_UI_HOST_SOURCES` export)
+- Implementation details: export `PTAH_UI_DISPLAY_DOCK`, the sync token, `displayFenceKey` and the port/status types
+  from `./lib/services/ptah-ui-display-dock`. Export nothing from `./ptah-ui` or `./display-panel`.
+- Validation notes: eager bundle stays light only while that file's runtime imports are `@angular/core` alone. Before
+  adding the export, confirm with `grep -n "^import" libs/frontend/chat-ui/src/lib/services/ptah-ui-display-dock.ts`
+  that every non-`@angular/core` import is `import type`; report the output. Batch 32 lists the file as an allowed
+  eager input and Batch 33 measures it.
+- Why here: `DisplayDockState` (eager `chat` code, Task 23.1) is the first eager consumer, and this batch already
+  lints chat-ui.: transcript host-sources provider — PENDING
 
 - File (CREATE): D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat\src\lib\components\organisms\transcript\transcript-ptah-ui-host-sources.ts
 - Plan reference: implementation-plan.md:833-881, 977-993
@@ -1276,7 +1326,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 
 ### Batch 23 verification
 
-- `npx jest -c libs/frontend/chat/jest.config.ts libs/frontend/chat/src/lib/services/display-dock --coverage=false --maxWorkers=2 2>&1 | tail -n 40 && npx nx typecheck @ptah-extension/chat --parallel=1 2>&1 | tail -n 20 && npx nx lint @ptah-extension/chat --parallel=1 2>&1 | tail -n 20 && npx nx lint @ptah-extension/chat-ui --parallel=1 2>&1 | tail -n 20`
+- `npx jest -c libs/frontend/chat/jest.config.ts libs/frontend/chat/src/lib/services/display-dock --coverage=false --maxWorkers=2 2>&1 | tail -n 40 && npx nx typecheck @ptah-extension/chat --parallel=1 2>&1 | tail -n 20 && npx nx lint @ptah-extension/chat --parallel=1 2>&1 | tail -n 20 && npx nx typecheck @ptah-extension/chat-ui --parallel=1 2>&1 | tail -n 20 && npx nx lint @ptah-extension/chat-ui --parallel=1 2>&1 | tail -n 20`
 
 ## Batch 24: H3 transcript wiring and tests-row removal — PENDING
 
@@ -1342,6 +1392,11 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - Quality requirements: R1.2-R1.4, R1.7, R1.9, R1.14; `DisplayDockState` provided by ChatView; dock under
   `@defer (when dockOpen())`; one panel element, one visible tabpanel, chat width = host − one dock width at 1280 px;
   the user-closed rule.
+- Validation notes (decisions #59, #60, from Batch 18): ChatView `providers` add
+  `{ provide: PTAH_UI_DISPLAY_DOCK, useExisting: DisplayDockState }` and the Batch 20 sync token with `useExisting`
+  too, imported from `@ptah-extension/chat-ui` (main barrel), never from `/ptah-ui`. `chat-view.dock.spec.ts` asserts
+  both tokens resolve to the same `DisplayDockState` instance, so the transcript's chips leave "Display panel
+  unavailable".
 - Note: this batch touches 6 files in one lib (limit reached).
 
 ### Batch 25 verification
@@ -1555,7 +1610,9 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - Plan reference: implementation-plan.md:1193-1216 (component 13)
 - Pattern to follow: `scripts/eager-closure-gate.js:11-25,76,99-104`
 - Quality requirements: forbidden: `chat-ui/src/display-panel.ts`, `chat-ui/src/lib/organisms/display-panel/`,
-  `chat/.*/organisms/display-dock/`; allowed growth: the five eager files; fails closed; synthetic fixtures per pattern.
+  `chat/.*/organisms/display-dock/`; allowed growth: the five eager files plus
+  `chat-ui/src/lib/services/ptah-ui-display-dock.ts` (decision #59, eager port, `@angular/core` only); fails closed;
+  synthetic fixtures per pattern.
 - Validation notes (decision #37b):
   - Add `shared/src/mcp-apps-contracts/ptah-ui-agents-source.ts` to the forbidden-eager patterns (D6), with its own
     synthetic fixture.
@@ -1597,4 +1654,6 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
   collapsed and expanded; chat chips, previews (Bash/Read/Write/Edit, Electron and VS Code webviews per R7.8/R7.10),
   summary, states, agents, atoms, dock, empty, the Agents empty tabpanel; R9.5 width script (prototype `?check=1`);
   collapsed row ≤ 36 px (R7.9); axe zero serious/critical. Writes visual-review.md in the task folder.
+- Approved differences from the prototype (not fidelity defects): the expanded display chip shows no item counts or
+  totals (decision #63); an evicted chip has no open button (decision #61).
 - Plan reference: implementation-plan.md:1324-1345, 1420

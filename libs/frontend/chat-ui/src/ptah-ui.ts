@@ -13,8 +13,22 @@
  * exported from the main barrel.
  *
  * Do not re-export anything from this file in `index.ts`.
+ *
+ * `PTAH_UI_DISPLAY_DOCK` lives in its own eager-light file
+ * (`lib/services/ptah-ui-display-dock.ts`, `@angular/core` only). An eager
+ * provider must not import it through this entry, which would pull the whole
+ * entry into the initial chunk; it needs a main-barrel export of that file,
+ * the same way `PTAH_UI_HOST_SOURCES` is exported.
  */
 export { PtahUiMessageTextComponent } from './lib/organisms/ptah-ui/ptah-ui-message-text.component';
+export { PtahUiDisplayChipComponent } from './lib/organisms/ptah-ui/ptah-ui-display-chip.component';
+export {
+  PTAH_UI_DISPLAY_DOCK,
+  displayFenceKey,
+  type PtahUiDisplayDock,
+  type PtahUiDisplayFenceState,
+  type PtahUiDisplayFenceStatus,
+} from './lib/services/ptah-ui-display-dock';
 export {
   PtahUiBlockComponent,
   PTAH_UI_BLOCK_PIPELINE,
