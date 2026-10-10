@@ -19,6 +19,7 @@ import type {
 import {
   TOKENS,
   SentryService,
+  type Logger,
   type WorkspaceAwareStateStorage,
 } from '@ptah-extension/vscode-core';
 import {
@@ -34,6 +35,7 @@ import {
 } from '@ptah-extension/rpc-handlers';
 import { ElectronDIContainer } from '../di/container';
 import { restoreWorkspaces } from './workspace-restore';
+import { runSessionStoreMigration } from './session-store-migration';
 import { IpcBridge } from '../ipc/ipc-bridge';
 import { ElectronWebviewManagerAdapter } from '../ipc/webview-manager-adapter';
 import { ElectronBootReadinessProvider } from '../services/platform/electron-boot-readiness';
@@ -361,11 +363,20 @@ export async function bootstrapElectron(
   // The exact active delegate completes verification/migration before IPC,
   // RPC activation, session import, or the Angular renderer can observe it.
   bootStep('workspace state storage whenReady');
-  await container
-    .resolve<WorkspaceAwareStateStorage>(
-      PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE,
-    )
-    .whenReady();
+  const workspaceStateStorage = container.resolve<WorkspaceAwareStateStorage>(
+    PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE,
+  );
+  await workspaceStateStorage.whenReady();
+
+  // Every registered folder now has its live store, so the copy-forward reads
+  // through those and never opens a second worker on one folder. Not awaited:
+  // session reads wait on the store's gate instead (PTAH-35).
+  void runSessionStoreMigration(container, {
+    userDataPath: platformOptions.userDataPath,
+    stateStorageWorkerPath: platformOptions.stateStorageWorkerPath,
+    liveStorage: workspaceStateStorage,
+    logger: container.resolve<Logger>(TOKENS.LOGGER),
+  });
 
   // Started, NOT awaited — see `startMembershipVerification`. The settings
   // migration and `restoreWorkspaces()` above stay awaited because the renderer
