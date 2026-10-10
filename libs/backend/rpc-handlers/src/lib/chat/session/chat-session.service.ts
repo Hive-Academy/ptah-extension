@@ -810,8 +810,9 @@ export class ChatSessionService {
   }
 
   /** Stop an unacknowledged replacement so it cannot outlive its source. */
-  async stopHandoverSuccessor(tabId: string): Promise<void> {
+  stopHandoverSuccessor(tabId: string): Promise<void> {
     this.sdkAdapter.endSession(tabId as SessionId);
+    return Promise.resolve();
   }
 
   /**

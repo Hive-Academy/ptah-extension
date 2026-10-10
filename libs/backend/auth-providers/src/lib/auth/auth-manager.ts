@@ -120,7 +120,7 @@ export class AuthManager implements IAuthEnvProvider {
    * 5. Log env summary (boolean presence, no secrets)
    */
   async configureAuthentication(rawAuthMethod?: string): Promise<AuthResult> {
-    if (this.configInProgress) {
+    if (this.configInProgress !== null) {
       this.logger.debug(
         '[AuthManager] configureAuthentication already in progress, awaiting existing call',
       );

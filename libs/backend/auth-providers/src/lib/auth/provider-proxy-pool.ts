@@ -333,7 +333,7 @@ export class ProviderProxyPool {
     spec: EntrySpec,
   ): Promise<ProxyPoolEntry | undefined> {
     const pending = this.starting.get(entryKey);
-    if (pending) {
+    if (pending !== undefined) {
       return pending;
     }
     const started = this.createAndStartEntry(entryKey, spec).finally(() => {
