@@ -1180,7 +1180,7 @@ other rows stay as recorded.
   then `npx nx typecheck @ptah-extension/shared --parallel=1`; then
   `npx nx lint @ptah-extension/shared --parallel=1`.
 
-## Batch 11: Budget service display-only live stage, wrap-up on request, adapter live wiring (S1-part, B3, B2-part) — COMPLETE
+## Batch 11: Budget service display-only live stage, wrap-up on request, adapter live wiring (S1-part, B3, B2-part) — COMPLETE (a465ac77f)
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer, fresh session
