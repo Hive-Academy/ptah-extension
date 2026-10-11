@@ -1,6 +1,6 @@
 # Batches - TASK_2026_627
 
-Total tasks: 20 | Batches: 9 (Batch 0 to Batch 8) | Complete: 3/9
+Total tasks: 20 | Batches: 9 (Batch 0 to Batch 8) | Complete: 4/9
 
 Worktree: `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff` (branch
 `fix/session-budget-handoff`). Every executor works only there, never in the main checkout
@@ -274,7 +274,7 @@ Edge cases:
 - `npx jest -c libs/backend/agent-sdk/jest.config.ts <subagent-budget-monitor.spec.ts> <session-query-executor.service.spec.ts> --coverage=false --maxWorkers=2`,
   then `npx nx typecheck @ptah-extension/agent-sdk --parallel=1`.
 
-## Batch 3: Agent handoff kept in full; budget remembers the workspace — IN_PROGRESS
+## Batch 3: Agent handoff kept in full; budget remembers the workspace — COMPLETE (306ee2732)
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer, fresh session
@@ -284,7 +284,7 @@ Edge cases:
 - Tasks: 2 | Depends on: none
 - Phase: 1 (Backend gates) | Phase review: after Batch 5
 
-### Task 3.1: Handoff builder puts the agent handoff first, in the file and the seed (R8) — IN_PROGRESS
+### Task 3.1: Handoff builder puts the agent handoff first, in the file and the seed (R8) — COMPLETE
 
 - Files: MODIFY `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff\libs\backend\agent-sdk\src\lib\helpers\session-budget\session-handoff-builder.ts`
   and `…\session-handoff-builder.spec.ts`
@@ -296,7 +296,7 @@ Edge cases:
 - Validation notes: regression for R8 — full deterministic document plus a 5,000-char agent handoff
   keeps all 5,000 chars in seed and content; 7,000 chars → truncated with the marker.
 
-### Task 3.2: `SessionBudgetService` caches the session workspace for `buildHandoff` (R7 preview) — IN_PROGRESS
+### Task 3.2: `SessionBudgetService` caches the session workspace for `buildHandoff` (R7 preview) — COMPLETE
 
 - Files: MODIFY `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff\libs\backend\agent-sdk\src\lib\helpers\session-budget\session-budget.service.ts`
   and `…\session-budget.service.spec.ts`
@@ -312,12 +312,31 @@ Edge cases:
 - Validation notes: do NOT add `observeLive`, `liveFigure`, notices or `onTurnTerminal` here — those
   are Batch 7. Batch 7 adds the same caching call in `observeLive`.
 
+### Batch 3 result
+
+- Verified on disk by the team-leader: `agentHandoffChars` 6,000, `seedChars` 14,200, `totalChars`
+  8,000; `withAgentHandoff` renders a sanitised, block-quoted `## Agent handoff` section directly
+  under the `# Session handoff` title in `content`, rebuilds the seed from the content, and returns
+  the document unchanged without agent text; `quoteWithin` caps the quoted form (marker included)
+  and its loop strictly shrinks. `BudgetEntry.workspacePath` is set once in `acceptOrThrow`;
+  `buildHandoff` falls back to it; `release`/`clearAll` call the optional `noticeQueue?.clear`.
+- In scope (accepted deviation): `di/register.ts` +1 line passes `c.resolve(MainThreadNoticeQueue)`
+  to the `SessionBudgetService` factory; without it the queue never reaches the service in
+  production. The queue is registered earlier in the same file.
+- Accepted placement: the agent section sits under the title line, not before it. The plan
+  (implementation-plan.md:340) says "at the top of `document.content`"; the document keeps its title
+  as the first line and the agent section is its first section. See decisions.md D1.
+- Stale comment `libs/shared/src/lib/types/session-budget.types.ts:319` (seed "8,200" → 14,200) is
+  moved to Task 4.1. See decisions.md D2.
+- Jest on both specs: 2 suites, 107 tests passed. Typecheck `@ptah-extension/agent-sdk` passed. Lint
+  (reported by the executor): 0 errors, 52 warnings, same as the Batch 1-2 baseline.
+
 ### Batch 3 verification
 
 - `npx jest -c libs/backend/agent-sdk/jest.config.ts <session-handoff-builder.spec.ts> <session-budget.service.spec.ts> --coverage=false --maxWorkers=2`,
   then `npx nx typecheck @ptah-extension/agent-sdk --parallel=1`.
 
-## Batch 4: Handover coordinator gates, shared contract, lifecycle runtime — PENDING
+## Batch 4: Handover coordinator gates, shared contract, lifecycle runtime — IN_PROGRESS
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer, fresh session
@@ -326,21 +345,25 @@ Edge cases:
   lifecycle; all three must land together to type-check
 - Tasks: 3 | Depends on: Batch 1 (register.ts ordering only); Batch 2 for the same reason
 - Phase: 1 (Backend gates) | Phase review: after Batch 5
-- Files (6, 2 libs): `libs/shared/src/lib/types/session-handover.types.ts`;
+- Files (7, 2 libs; the 7th is a comment-only line): `libs/shared/src/lib/types/session-handover.types.ts`;
   `libs/backend/agent-sdk/src/lib/helpers/session-handoff/session-handover-coordinator.service.ts` (+ spec);
   `libs/backend/agent-sdk/src/lib/helpers/session-lifecycle-manager.ts` (+ `session-lifecycle-manager.spec.ts`);
-  `libs/backend/agent-sdk/src/lib/di/register.ts`
+  `libs/backend/agent-sdk/src/lib/di/register.ts`; plus one doc-comment line in
+  `libs/shared/src/lib/types/session-budget.types.ts` (comment only, carried from Batch 3; decisions.md D2)
 
-### Task 4.1: Shared contract — `waitingFor` and `source-unavailable` (Component 6) — PENDING
+### Task 4.1: Shared contract — `waitingFor` and `source-unavailable` (Component 6) — IN_PROGRESS
 
 - File: MODIFY `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff\libs\shared\src\lib\types\session-handover.types.ts`
+- Also (from Batch 3, comment only): in `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff\libs\shared\src\lib\types\session-budget.types.ts:319`
+  the `SessionBudgetActionResult.handoff.seed` doc comment says "at most 8,200 characters"; change it
+  to 14,200 (`SESSION_HANDOFF_LIMITS.seedChars` since Batch 3). No code change.
 - Plan reference: implementation-plan.md:303-317
 - Quality requirements: `SessionHandoverState.waitingFor?: { readonly subagents: number; readonly lanes: number }`;
   `BeginSessionHandoverResult` error `'unavailable' | 'source-unavailable'`.
 - Validation notes: no shared parser exists for this state; the webview guard
   (`libs/frontend/chat/src/lib/services/session-handover-client.service.ts:10-20`) needs no change.
 
-### Task 4.2: Coordinator — work-in-flight gate, one-click confirm, source check, prompt, logging (Component 5) — PENDING
+### Task 4.2: Coordinator — work-in-flight gate, one-click confirm, source check, prompt, logging (Component 5) — IN_PROGRESS
 
 - Depends on: Task 4.1
 - Files: MODIFY `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff\libs\backend\agent-sdk\src\lib\helpers\session-handoff\session-handover-coordinator.service.ts`
@@ -359,7 +382,7 @@ Edge cases:
 - Validation notes: lane provider throw → 0 lanes, one WARN. `cancelledAutomaticSources` unchanged.
   Spec cases listed in plan :290-297, including the R6 and R7 regressions.
 
-### Task 4.3: Lifecycle runtime — `subagentsInFlight` and `armHandoverIfIdle` (lifecycle part of Component 3) — PENDING
+### Task 4.3: Lifecycle runtime — `subagentsInFlight` and `armHandoverIfIdle` (lifecycle part of Component 3) — IN_PROGRESS
 
 - Depends on: Task 4.2 (the runtime interface gains the method)
 - Files: MODIFY `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff\libs\backend\agent-sdk\src\lib\helpers\session-lifecycle-manager.ts`
