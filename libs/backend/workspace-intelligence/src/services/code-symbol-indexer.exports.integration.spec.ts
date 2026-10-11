@@ -127,6 +127,19 @@ class TableSink implements ISymbolSink {
     }
   }
 
+  async replaceFileSymbols(
+    workspaceRoot: string,
+    filePath: string,
+    chunks: readonly SymbolChunkInsert[],
+  ): Promise<void> {
+    this.deleteSymbolsForFile(filePath, workspaceRoot);
+    await this.insertSymbols(chunks);
+  }
+
+  purgeMissing(): number {
+    return 0;
+  }
+
   exactName(name: string): SymbolRow[] {
     return [...this.rows.values()].filter((row) => row.symbolName === name);
   }

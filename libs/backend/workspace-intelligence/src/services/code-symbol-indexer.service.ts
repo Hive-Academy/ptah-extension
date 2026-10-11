@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import * as path from 'path';
 import picomatch from 'picomatch';
 import { inject, injectable } from 'tsyringe';
@@ -45,9 +46,10 @@ export interface CodeSymbolIndexerOptions {
   /** Number of files to process per batch before yielding. Default: 20 */
   batchSize?: number;
   /**
-   * Most indexable files one run processes, counted after the skip filter
-   * (config, test and generated files never use the budget). Past it the
-   * run's census is `truncated`. Default: 2000
+   * Optional bound on eligible files after the skip filter. Omitted (the
+   * default) indexes every eligible file. When set and the tree has more
+   * eligible files, the run's census is `truncated` and `omittedByCap` is
+   * the number of eligible files not selected.
    */
   maxFilesPerRun?: number;
   /**
@@ -100,7 +102,11 @@ const DISCOVERY_PATTERNS: readonly string[] = recognisedSourceExtensions().map(
 const DEFAULT_BATCH_SIZE = 20;
 /** `whenClear` lane name; it only labels the governor's ceiling log line. */
 const GOVERNOR_LANE = 'code-symbol-indexer';
-const DEFAULT_MAX_FILES = 2000;
+/**
+ * Paths indexed last so source trees fill the run (and any optional cap)
+ * before workspace-local skills and agent files.
+ */
+const DEFERRED_DISCOVERY = /(?:^|\/)(?:\.ptah|\.github\/skills)(?:\/|$)/;
 /**
  * A run never reads a file larger than this (the discovery stream's old
  * silent size limit, now counted as `failed` with reason `too-large`).
@@ -160,6 +166,18 @@ function shouldSkipFile(absoluteFilePath: string): boolean {
   return SKIP_MATCHER(path.basename(absoluteFilePath));
 }
 
+function normalizeIndexPath(filePath: string): string {
+  return filePath.replace(/\\/g, '/');
+}
+
+/** Source files first; `.ptah/` and `.github/skills` last; then path order. */
+function compareDiscoveryOrder(a: string, b: string): number {
+  const deferredA = DEFERRED_DISCOVERY.test(a) ? 1 : 0;
+  const deferredB = DEFERRED_DISCOVERY.test(b) ? 1 : 0;
+  if (deferredA !== deferredB) return deferredA - deferredB;
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
 /**
  * Maps a file extension to the tree-sitter SupportedLanguage.
  *
@@ -200,6 +218,10 @@ interface FileStats {
   errors: number;
   durationMs: number;
   outcome: FileOutcome;
+  /** `replaceFileSymbols` finished. A failed read or parse does not set it. */
+  wrote?: boolean;
+  /** Census saw a deletion tombstone and did not replace. */
+  skippedTombstone?: boolean;
 }
 
 /** A completed write of one file; `seq` orders writes across runs and per-file calls. */
@@ -217,12 +239,27 @@ interface IndexRun {
    */
   census: CoverageCensus | null;
   censusLimit?: number;
+  /** Eligible files past `maxFilesPerRun`; 0 when the run was not capped. */
+  omittedByCap: number;
   /** Path identities the run set out to index. */
   selected: string[];
   unsupported: number;
   unsupportedByLanguage: Partial<Record<UnsupportedLanguageKey, number>>;
   /** Writes this run made, by path identity. */
   readonly writes: Map<string, RecordedWrite>;
+  /**
+   * Store paths a non-census `reindexFile` wrote while this run was in
+   * progress, keyed by the file-lock identity. Merged into the purge-present
+   * set. Not a disk stat.
+   */
+  readonly keptPaths: Map<string, string>;
+  /**
+   * File-lock identities deleted while this run was in progress. A later
+   * census replace of the same identity is skipped, and purge drops the
+   * path even when discovery saw it. A successful non-census reindex clears
+   * the entry.
+   */
+  readonly tombstones: Set<string>;
   /**
    * Another writer changed this root's rows while the run was in progress
    * (see {@link CodeSymbolIndexer.invalidateCoverage}): the run ends
@@ -237,7 +274,7 @@ interface IndexRun {
  * here can say what they cover.
  */
 interface RootRecord {
-  /** The run currently writing this root; a newer run supersedes it. */
+  /** The run currently writing this root. */
   active: IndexRun | null;
   /** The last run that ended, and how. Dropped when a new run begins. */
   settled: {
@@ -245,19 +282,43 @@ interface RootRecord {
     readonly state: 'current' | 'incomplete';
   } | null;
   /**
-   * Writes made outside the active run (a per-file reindex, a superseded
-   * run) since the last run began, by path identity. Bounded by
-   * {@link PER_FILE_RECORD_LIMIT}.
+   * Writes made outside the active run (a per-file reindex) since the last
+   * run began, by path identity. Bounded by {@link PER_FILE_RECORD_LIMIT}.
    */
   readonly perFile: Map<string, RecordedWrite>;
   /** The per-file record hit its limit and stopped tracking new files. */
   perFileTruncated: boolean;
   /**
-   * Runs of this root still in progress, the superseded ones included: a
-   * superseded run keeps writing until it ends.
+   * The full census still in progress for this root. Full censuses are
+   * serialized, so this holds the active run only.
    */
   readonly runsInProgress: Set<IndexRun>;
 }
+
+/**
+ * The one full census in flight for a root. Joiners share `promise`.
+ * There is no follow-up: the workspace index lifecycle owns trailing runs.
+ */
+interface ActiveCensus {
+  readonly promise: Promise<IndexingStats>;
+  /** Progress recipients added by starter and joiners while the census runs. */
+  readonly progressListeners: Set<
+    NonNullable<CodeSymbolIndexerOptions['onProgress']>
+  >;
+  /** A faulty callback is warned once per census without interrupting indexing. */
+  readonly warnedProgressListeners: Set<
+    NonNullable<CodeSymbolIndexerOptions['onProgress']>
+  >;
+  /** Once a user joins, remaining batches must not wait for background work. */
+  userInitiated: boolean;
+}
+
+const EMPTY_INDEX_STATS: IndexingStats = {
+  filesScanned: 0,
+  symbolsIndexed: 0,
+  errors: 0,
+  durationMs: 0,
+};
 
 const ANALYZED: FileOutcome = { kind: 'analyzed' };
 const UNSUPPORTED: FileOutcome = { kind: 'unsupported' };
@@ -412,10 +473,23 @@ export class CodeSymbolIndexer {
    */
   private readonly roots = new Map<string, RootRecord>();
   /**
+   * The one full census per root identity. An entry exists only while that
+   * census is running, and is removed in its `finally` before the promise
+   * settles. There is no follow-up queue.
+   */
+  private readonly activeCensuses = new Map<string, ActiveCensus>();
+  /**
    * Tail of the write chain per file identity (see {@link withFileLock}); an
    * entry lives only while a write of that file is running or queued.
    */
   private readonly fileLocks = new Map<string, Promise<void>>();
+  /**
+   * Identity of the file lock the current async chain already holds, so a
+   * delete or reindex invoked from inside that write (after the read) can
+   * record a tombstone before the replace. A caller from outside the chain
+   * does not see it and waits.
+   */
+  private readonly fileLockContext = new AsyncLocalStorage<string>();
   /** Orders every recorded write, so the latest write of a file wins. */
   private writeSeq = 0;
   /**
@@ -459,8 +533,23 @@ export class CodeSymbolIndexer {
    * Coverage (TASK_2026_559 Batch 24b): the run begins synchronously, before
    * this method's first `await`, so a caller that starts it without awaiting
    * (the lazy reindex) already reads `state: 'updating'`. A run that returns
-   * normally ends `current`; an abort, a failed discovery or a thrown error
-   * ends `incomplete`, which stays until a later run succeeds.
+   * normally ends `current`; an abort, a failed discovery, a purge failure,
+   * or a thrown error ends `incomplete`, which stays until a later run succeeds.
+   * `IndexingStats` has no completeness field. A purge failure is thrown so
+   * callers that only observe the promise (the host `.catch`) can schedule
+   * a retry. Discovery failure still returns, because there is no write error.
+   *
+   * One census per root (path identity). A call that arrives while that
+   * census is active joins it and receives the active run's `IndexingStats`.
+   * A joiner's cap, batch size, and signal ownership remain starter-only. Its
+   * `onProgress` callback receives later batch updates, and `userInitiated`
+   * permanently makes remaining batches bypass the background governor. If the joiner
+   * passes `signal` and that signal is already aborted or aborts later, only
+   * the joiner's promise rejects with `DOMException` (`'Aborted'`, name
+   * `'AbortError'`, the same error {@link throwIfAborted} throws). The
+   * active census continues under the starter's signal. There is no
+   * follow-up census here; a later full run is a new call after this one
+   * settles. The workspace index lifecycle owns that trailing run.
    */
   async indexWorkspace(
     workspaceRoot: string,
@@ -470,22 +559,28 @@ export class CodeSymbolIndexer {
       this.logger.warn(
         '[CodeSymbolIndexer] indexWorkspace called with empty workspaceRoot — skipping',
       );
-      return { filesScanned: 0, symbolsIndexed: 0, errors: 0, durationMs: 0 };
+      return EMPTY_INDEX_STATS;
     }
 
-    const run = this.beginRun(workspaceRoot);
-    let state: 'current' | 'incomplete' = 'incomplete';
-    try {
-      const { stats, complete } = await this.runIndex(
-        workspaceRoot,
-        run,
-        options,
-      );
-      if (complete) state = 'current';
-      return stats;
-    } finally {
-      this.settleRun(workspaceRoot, run, state);
+    const key = graphPathIdentity(workspaceRoot);
+    const active = this.activeCensuses.get(key);
+    if (active !== undefined) {
+      return this.joinActiveCensus(active, options);
     }
+    return this.startCensus(workspaceRoot, key, options);
+  }
+
+  /**
+   * True while this root has an active full census. The key is the root's
+   * path identity, so a trailing slash is the same run. A per-file
+   * `reindexFile` does not count. The flag is the active-census record:
+   * it is set before discovery and cleared in the census `finally`, before
+   * the census promise settles, including when the census rejects. There
+   * is no follow-up wait, so a gap between two full runs reads false.
+   */
+  isIndexing(workspaceRoot: string): boolean {
+    if (!workspaceRoot) return false;
+    return this.activeCensuses.has(graphPathIdentity(workspaceRoot));
   }
 
   /**
@@ -494,8 +589,9 @@ export class CodeSymbolIndexer {
    * run began; it never claims to be a snapshot of the SQLite rows.
    *
    * - No run in this session: `census: 'unknown'`, no `state`, counts `null`.
-   * - A run is writing: `state: 'updating'`, counts `null` (the previous
-   *   run's counts were dropped when it began).
+   * - A run is discovering: `state: 'updating'`, counts `null`. Once
+   *   discovery selected its files, a writing run reports its known partial
+   *   counts from that run and concurrent per-file writes.
    * - The last run succeeded: `state: 'current'`; it failed or was aborted:
    *   `state: 'incomplete'`, with its files not yet written in `unchecked`.
    * - `unrecognised`, `nonSource` and `excluded` are `null`: discovery asks
@@ -505,11 +601,15 @@ export class CodeSymbolIndexer {
   getCoverage(workspaceRoot: string): LanguageCoverage {
     const record = this.roots.get(graphPathIdentity(workspaceRoot));
     if (record === undefined) return unknownCoverage();
-    if (record.active !== null) return unknownCoverage('updating');
+    if (record.active !== null) {
+      const { active } = record;
+      if (active.census === null) return unknownCoverage('updating');
+      return this.coverageForRun(record, active, 'updating', active.census);
+    }
     if (record.settled === null) return unknownCoverage();
     const { run } = record.settled;
-    // A per-file write or a superseded run still writing: the rows a search
-    // reads may be mid-change (cleared, not yet re-inserted).
+    // A per-file write or a census still writing: the rows a search reads
+    // may be mid-change (cleared, not yet re-inserted).
     const writing =
       (this.pendingWrites.get(graphPathIdentity(workspaceRoot)) ?? 0) > 0 ||
       record.runsInProgress.size > 0;
@@ -519,6 +619,21 @@ export class CodeSymbolIndexer {
         : record.settled.state;
     if (run.census === null) return unknownCoverage(state);
 
+    return this.coverageForRun(
+      record,
+      run,
+      state,
+      record.perFileTruncated ? 'truncated' : run.census,
+    );
+  }
+
+  /** Builds coverage from one run and the newest completed write per file. */
+  private coverageForRun(
+    record: RootRecord,
+    run: IndexRun,
+    state: CoverageState,
+    census: CoverageCensus,
+  ): LanguageCoverage {
     const latest = new Map(run.writes);
     for (const [identity, write] of record.perFile) {
       const previous = latest.get(identity);
@@ -553,7 +668,7 @@ export class CodeSymbolIndexer {
 
     return withCoverageVerdict({
       supportedLanguages: supportedLanguagesFor('codeIndex'),
-      census: record.perFileTruncated ? 'truncated' : run.census,
+      census,
       ...(run.censusLimit === undefined
         ? {}
         : { censusLimit: run.censusLimit }),
@@ -565,8 +680,7 @@ export class CodeSymbolIndexer {
       unrecognised: null,
       nonSource: null,
       excluded: null,
-      // Discovery stopped at the cap, so how many more were eligible is unknown.
-      omittedByCap: run.census === 'truncated' ? null : 0,
+      omittedByCap: run.census === 'truncated' ? saturate(run.omittedByCap) : 0,
       ...(run.unsupported > 0
         ? {
             unsupportedByLanguage: limitLanguageCounts(
@@ -580,18 +694,114 @@ export class CodeSymbolIndexer {
   }
 
   /**
+   * Starts the one census for `key`. The active-census record is stored
+   * before {@link beginRun}, so coverage is `updating` and {@link isIndexing}
+   * is true before this promise yields. The record is removed in `finally`
+   * only when it is still this census, and before the returned promise
+   * settles.
+   */
+  private startCensus(
+    workspaceRoot: string,
+    key: string,
+    options?: CodeSymbolIndexerOptions,
+  ): Promise<IndexingStats> {
+    let resolveCensus!: (stats: IndexingStats) => void;
+    let rejectCensus!: (error: unknown) => void;
+    const promise = new Promise<IndexingStats>((resolve, reject) => {
+      resolveCensus = resolve;
+      rejectCensus = reject;
+    });
+    const record: ActiveCensus = {
+      promise,
+      progressListeners: new Set(
+        options?.onProgress === undefined ? [] : [options.onProgress],
+      ),
+      warnedProgressListeners: new Set(),
+      userInitiated: options?.userInitiated === true,
+    };
+    this.activeCensuses.set(key, record);
+    const run = this.beginRun(workspaceRoot);
+    let state: 'current' | 'incomplete' = 'incomplete';
+    void this.runIndex(workspaceRoot, run, options, record)
+      .then(({ stats, complete }) => {
+        if (complete) state = 'current';
+        return stats;
+      })
+      .finally(() => {
+        this.settleRun(workspaceRoot, run, state);
+        record.progressListeners.clear();
+        record.warnedProgressListeners.clear();
+        if (this.activeCensuses.get(key) === record) {
+          this.activeCensuses.delete(key);
+        }
+      })
+      .then(resolveCensus, rejectCensus);
+    return promise;
+  }
+
+  /**
+   * Shares the active census. A joiner's progress listener receives later
+   * batches only; its abort removes that listener and rejects only the joiner.
+   */
+  private joinActiveCensus(
+    active: ActiveCensus,
+    options: CodeSymbolIndexerOptions | undefined,
+  ): Promise<IndexingStats> {
+    if (options?.userInitiated === true) active.userInitiated = true;
+    const progress = options?.onProgress;
+    if (progress !== undefined) active.progressListeners.add(progress);
+    const signal = options?.signal;
+    if (signal === undefined) return active.promise;
+    if (signal.aborted) {
+      if (progress !== undefined) active.progressListeners.delete(progress);
+      return Promise.reject(new DOMException('Aborted', 'AbortError'));
+    }
+    return new Promise<IndexingStats>((resolve, reject) => {
+      let settled = false;
+      const onAbort = (): void => {
+        if (settled) return;
+        settled = true;
+        if (progress !== undefined) active.progressListeners.delete(progress);
+        reject(new DOMException('Aborted', 'AbortError'));
+      };
+      signal.addEventListener('abort', onAbort, { once: true });
+      const finish = (): void => {
+        signal.removeEventListener('abort', onAbort);
+        if (progress !== undefined) active.progressListeners.delete(progress);
+      };
+      active.promise.then(
+        (stats) => {
+          finish();
+          if (settled) return;
+          settled = true;
+          resolve(stats);
+        },
+        (error: unknown) => {
+          finish();
+          if (settled) return;
+          settled = true;
+          reject(error);
+        },
+      );
+    });
+  }
+
+  /**
    * Starts a run for `workspaceRoot`: synchronous, so it holds before any
-   * write. The run supersedes one still running for the root (that run's
-   * later writes count as per-file writes and its end changes nothing), and
-   * the previous run's counts and per-file record are dropped.
+   * write. Full censuses for one root are serialized, so this does not
+   * overlap another run. The previous run's counts and per-file record are
+   * dropped.
    */
   private beginRun(workspaceRoot: string): IndexRun {
     const run: IndexRun = {
       census: null,
+      omittedByCap: 0,
       selected: [],
       unsupported: 0,
       unsupportedByLanguage: {},
       writes: new Map(),
+      keptPaths: new Map(),
+      tombstones: new Set(),
       invalidated: false,
     };
     const key = graphPathIdentity(workspaceRoot);
@@ -632,7 +842,7 @@ export class CodeSymbolIndexer {
     }
   }
 
-  /** Ends `run` for its root, unless a newer run superseded it. */
+  /** Ends `run` for its root. A run that is no longer active changes nothing. */
   private settleRun(
     workspaceRoot: string,
     run: IndexRun,
@@ -648,10 +858,10 @@ export class CodeSymbolIndexer {
 
   /**
    * Records a completed write of one file for coverage. A write by the active
-   * run is that run's; any other write (a per-file reindex, a superseded run)
-   * goes to the per-file record, and the latest write of a file wins when
-   * coverage is read. A root with no record (no run in this session) gets
-   * none: a per-file write never creates a census.
+   * run is that run's; any other write (a per-file reindex) goes to the
+   * per-file record, and the latest write of a file wins when coverage is
+   * read. A root with no record (no run in this session) gets none: a
+   * per-file write never creates a census.
    */
   private recordWrite(
     workspaceRoot: string,
@@ -686,6 +896,9 @@ export class CodeSymbolIndexer {
     identity: string,
     write: () => Promise<T>,
   ): Promise<T> {
+    if (this.fileLockContext.getStore() === identity) {
+      return write();
+    }
     const previous = this.fileLocks.get(identity) ?? Promise.resolve();
     let release!: () => void;
     const done = new Promise<void>((resolve) => (release = resolve));
@@ -693,12 +906,45 @@ export class CodeSymbolIndexer {
     this.fileLocks.set(identity, tail);
     await previous;
     try {
-      return await write();
+      return await this.fileLockContext.run(identity, write);
     } finally {
       release();
       if (this.fileLocks.get(identity) === tail) {
         this.fileLocks.delete(identity);
       }
+    }
+  }
+
+  /** In-progress censuses for this root. A root with no run yields none. */
+  private runsInProgress(workspaceRoot: string): Set<IndexRun> | undefined {
+    return this.roots.get(graphPathIdentity(workspaceRoot))?.runsInProgress;
+  }
+
+  /**
+   * Remember a store path a non-census write just committed, and drop any
+   * tombstone for it. Every census still running for the root purges with
+   * its own snapshot, so each of them must keep the path.
+   */
+  private rememberKeptPath(
+    workspaceRoot: string,
+    identity: string,
+    storePath: string,
+  ): void {
+    const runs = this.runsInProgress(workspaceRoot);
+    if (runs === undefined) return;
+    for (const run of runs) {
+      run.tombstones.delete(identity);
+      run.keptPaths.set(identity, storePath);
+    }
+  }
+
+  /** Tombstone `identity` on every census still running for the root. */
+  private rememberTombstone(workspaceRoot: string, identity: string): void {
+    const runs = this.runsInProgress(workspaceRoot);
+    if (runs === undefined) return;
+    for (const run of runs) {
+      run.keptPaths.delete(identity);
+      run.tombstones.add(identity);
     }
   }
 
@@ -716,7 +962,11 @@ export class CodeSymbolIndexer {
     this.pendingWrites.set(rootKey, (this.pendingWrites.get(rootKey) ?? 0) + 1);
     try {
       return await this.withFileLock(identity, async () => {
-        const stats = await this._indexFile(filePath, workspaceRoot);
+        const stats = await this._indexFile(filePath, workspaceRoot, run);
+        if (stats.skippedTombstone) return stats;
+        if (run === null && stats.wrote === true) {
+          this.rememberKeptPath(workspaceRoot, identity, filePath);
+        }
         this.recordWrite(workspaceRoot, identity, stats.outcome, run);
         return stats;
       });
@@ -743,35 +993,37 @@ export class CodeSymbolIndexer {
     workspaceRoot: string,
     run: IndexRun,
     options: CodeSymbolIndexerOptions | undefined,
+    active: ActiveCensus,
   ): Promise<{ stats: IndexingStats; complete: boolean }> {
     const startMs = Date.now();
     const batchSize = options?.batchSize ?? DEFAULT_BATCH_SIZE;
-    const maxFilesPerRun = options?.maxFilesPerRun ?? DEFAULT_MAX_FILES;
-    const files: Array<{
+    const maxFilesPerRun = options?.maxFilesPerRun;
+    const eligible: Array<{
       readonly path: string;
       readonly size: number;
       /** Discovery could not stat it (locked, permission denied). */
       readonly unreadable: boolean;
     }> = [];
-    let truncated = false;
-    /** Classify one discovered file; false once the eligible cap is passed. */
+    const presentPaths: string[] = [];
+    const seenPresent = new Set<string>();
+    /** Classify one discovered file; every path is recorded as present on disk. */
     const consider = (
       filePath: string,
       size: number,
       unreadable: boolean,
-    ): boolean => {
+    ): void => {
+      const normalized = normalizeIndexPath(filePath);
+      if (!seenPresent.has(normalized)) {
+        seenPresent.add(normalized);
+        presentPaths.push(normalized);
+      }
       const fileClass = classifyFileForCoverage(filePath, 'codeIndex');
       if (fileClass === 'unsupported') {
         this.countUnsupported(run, filePath);
-        return true;
+        return;
       }
-      if (fileClass !== 'eligible' || shouldSkipFile(filePath)) return true;
-      if (files.length >= maxFilesPerRun) {
-        truncated = true;
-        return false;
-      }
-      files.push({ path: filePath, size, unreadable });
-      return true;
+      if (fileClass !== 'eligible' || shouldSkipFile(filePath)) return;
+      eligible.push({ path: normalized, size, unreadable });
     };
 
     try {
@@ -784,14 +1036,15 @@ export class CodeSymbolIndexer {
         maxFileSize: Number.MAX_SAFE_INTEGER,
         // A locked file is counted as `failed` (`read`), not lost.
         onUnreadableEntry: (filePath) => {
-          if (!truncated) consider(filePath, 0, true);
+          consider(filePath, 0, true);
         },
       });
 
-      // The skip filter runs before the cap, so config, test and generated
-      // files never use the eligible-only budget.
+      // The skip filter runs before any optional cap, so config, test and
+      // generated files never use the eligible-only budget. Discovery
+      // always finishes so `omittedByCap` is a real count.
       for await (const file of stream) {
-        if (!consider(file.path, file.size, false)) break;
+        consider(file.path, file.size, false);
       }
     } catch (error: unknown) {
       // The root's coverage stays `incomplete` with an unknown census.
@@ -809,7 +1062,18 @@ export class CodeSymbolIndexer {
       };
     }
 
+    eligible.sort((a, b) => compareDiscoveryOrder(a.path, b.path));
+    let files = eligible;
+    let truncated = false;
+    let omittedByCap = 0;
+    if (maxFilesPerRun !== undefined && eligible.length > maxFilesPerRun) {
+      truncated = true;
+      omittedByCap = eligible.length - maxFilesPerRun;
+      files = eligible.slice(0, maxFilesPerRun);
+    }
+
     run.census = truncated ? 'truncated' : 'complete';
+    run.omittedByCap = omittedByCap;
     if (truncated) run.censusLimit = maxFilesPerRun;
     run.selected = files.map((file) => graphPathIdentity(file.path));
 
@@ -817,10 +1081,14 @@ export class CodeSymbolIndexer {
     let totalErrors = 0;
     let attempted = 0;
 
-    const governed = options?.userInitiated !== true;
     let filesProcessed = 0;
+    // Before any write, after every batch (including the last), and again
+    // immediately before purge. A cancel during the only or last batch used
+    // to fall through into purgeAbsentPaths.
+    this.throwIfAborted(options?.signal);
     for (let i = 0; i < files.length; i += batchSize) {
-      if (governed) await this.yieldToForeground(options?.signal);
+      if (!active.userInitiated) await this.yieldToForeground(options?.signal);
+      this.throwIfAborted(options?.signal);
       const batch = files.slice(i, i + batchSize);
 
       for (const file of batch) {
@@ -844,33 +1112,49 @@ export class CodeSymbolIndexer {
         filesProcessed++;
       }
 
-      if (options?.onProgress) {
-        options.onProgress({
-          filesScanned: filesProcessed,
-          totalFiles: files.length,
-          symbolsIndexed: totalSymbols,
-          currentFile: batch[batch.length - 1]?.path ?? '',
-        });
+      const progress = {
+        filesScanned: filesProcessed,
+        totalFiles: files.length,
+        symbolsIndexed: totalSymbols,
+        currentFile: batch[batch.length - 1]?.path ?? '',
+      };
+      for (const listener of active.progressListeners) {
+        try {
+          listener(progress);
+        } catch (error: unknown) {
+          if (active.warnedProgressListeners.has(listener)) continue;
+          active.warnedProgressListeners.add(listener);
+          this.logger.warn('[CodeSymbolIndexer] Progress listener failed', {
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
       }
 
       if (i + batchSize < files.length) {
         await yieldToEventLoop();
-        if (options?.signal?.aborted) {
-          this.logger.debug?.(
-            '[CodeSymbolIndexer] Abort signal received at batch boundary — stopping early',
-          );
-          throw new DOMException('Aborted', 'AbortError');
-        }
       }
+      this.throwIfAborted(options?.signal);
     }
 
     const durationMs = Date.now() - startMs;
+
+    // A cancelled run throws AbortError, including when this was the only
+    // or last batch. It must not be reported as a finished index.
+    this.throwIfAborted(options?.signal);
 
     if (attempted > 0 && totalSymbols === 0 && totalErrors === attempted) {
       throw new Error(
         `Code symbol indexing failed: all ${totalErrors} files errored and 0 symbols were produced. ` +
           `This usually means the tree-sitter WASM runtime or the symbol sink failed to initialize — check the logs for the underlying error.`,
       );
+    }
+
+    // Truncated, discovery-failed (returned above), and aborted (thrown
+    // above) runs never reach this. A governor AbortError is thrown from
+    // yieldToForeground and likewise never purges.
+    this.throwIfAborted(options?.signal);
+    if (run.census === 'complete') {
+      this.purgeAbsentPaths(workspaceRoot, presentPaths, run);
     }
 
     this.logger.info('[CodeSymbolIndexer] Workspace indexing complete', {
@@ -939,6 +1223,29 @@ export class CodeSymbolIndexer {
    * running full run, or into the per-file record — but never turns an
    * unknown or incomplete census complete; only a successful full run does.
    */
+  /**
+   * Delete one file's rows after every earlier write of that file has
+   * finished, and tombstone the path on every census still running for the
+   * root. The lock identity matches `reindexFile`. A later successful
+   * non-census `reindexFile` of the same path clears the tombstone.
+   */
+  deleteFileSymbols(filePath: string, workspaceRoot: string): Promise<number> {
+    let normalized: string;
+    let identity: string;
+    try {
+      normalized = filePath.replaceAll('\\', '/');
+      identity = graphPathIdentity(normalized);
+    } catch (error) {
+      return Promise.reject(error);
+    }
+    return this.withFileLock(identity, () =>
+      Promise.resolve().then(() => {
+        this.rememberTombstone(workspaceRoot, identity);
+        return this.sink.deleteSymbolsForFile(normalized, workspaceRoot);
+      }),
+    );
+  }
+
   async reindexFile(
     absoluteFilePath: string,
     workspaceRoot: string,
@@ -979,9 +1286,84 @@ export class CodeSymbolIndexer {
     }
   }
 
+  /** A cancelled run throws AbortError and must not purge. */
+  private throwIfAborted(signal: AbortSignal | undefined): void {
+    if (!signal?.aborted) return;
+    this.logger.debug?.(
+      '[CodeSymbolIndexer] Abort signal received — stopping before purge',
+    );
+    throw new DOMException('Aborted', 'AbortError');
+  }
+
   /**
-   * Index a single file: parse AST, delete stale symbols, insert new ones.
-   * Returns per-file stats including durationMs.
+   * Per-file write. {@link ISymbolSink.replaceFileSymbols} is one
+   * transaction in the store, so a failed insert keeps the previous rows.
+   */
+  private async writeFileSymbols(
+    filePath: string,
+    workspaceRoot: string,
+    chunks: readonly SymbolChunkInsert[],
+  ): Promise<void> {
+    await this.sink.replaceFileSymbols(workspaceRoot, filePath, chunks);
+  }
+
+  /**
+   * Paths the purge must treat as present: discovery's snapshot, plus store
+   * paths a non-census reindex wrote during this run, minus deletion
+   * tombstones. Tombstoned paths are omitted even when discovery saw them,
+   * so the purge removes their rows. No path is statted.
+   */
+  private purgePresentPaths(
+    presentPaths: readonly string[],
+    run: IndexRun,
+  ): readonly string[] {
+    if (run.tombstones.size === 0 && run.keptPaths.size === 0) {
+      return presentPaths;
+    }
+    const kept: string[] = [];
+    for (const filePath of presentPaths) {
+      if (!run.tombstones.has(graphPathIdentity(filePath))) {
+        kept.push(filePath);
+      }
+    }
+    const seen = new Set(kept.map((filePath) => graphPathIdentity(filePath)));
+    for (const [identity, storePath] of run.keptPaths) {
+      if (run.tombstones.has(identity) || seen.has(identity)) continue;
+      kept.push(storePath);
+      seen.add(identity);
+    }
+    return kept;
+  }
+
+  private purgeAbsentPaths(
+    workspaceRoot: string,
+    presentPaths: readonly string[],
+    run: IndexRun,
+  ): void {
+    let deleted: number;
+    try {
+      deleted = this.sink.purgeMissing(
+        workspaceRoot,
+        this.purgePresentPaths(presentPaths, run),
+      );
+    } catch (err: unknown) {
+      const reason = err instanceof Error ? err.message : String(err);
+      this.logger.warn(
+        '[CodeSymbolIndexer] Failed to purge missing paths after a complete run',
+        { error: reason },
+      );
+      throw err;
+    }
+    if (deleted > 0) {
+      this.logger.debug?.(
+        `[CodeSymbolIndexer] Purged ${deleted} symbol rows for paths absent from disk`,
+      );
+    }
+  }
+
+  /**
+   * Index a single file: parse AST, then replace its symbol rows in one
+   * write. Returns per-file stats including durationMs.
    *
    * `absoluteFilePath` must already be normalized to forward slashes before
    * calling this method (callers are responsible for normalization).
@@ -989,6 +1371,7 @@ export class CodeSymbolIndexer {
   private async _indexFile(
     absoluteFilePath: string,
     workspaceRoot: string,
+    run: IndexRun | null,
   ): Promise<FileStats> {
     const startMs = Date.now();
     const normalizedFilePath = absoluteFilePath.replace(/\\/g, '/');
@@ -1047,28 +1430,6 @@ export class CodeSymbolIndexer {
     }
 
     const relPath = path.relative(workspaceRoot, normalizedFilePath);
-    try {
-      const deletedCount = this.sink.deleteSymbolsForFile(
-        normalizedFilePath,
-        workspaceRoot,
-      );
-      if (deletedCount > 0) {
-        this.logger.debug?.(
-          `[CodeSymbolIndexer] Cleared ${deletedCount} stale entries for ${normalizedFilePath}`,
-        );
-      }
-    } catch (err: unknown) {
-      this.logger.warn(
-        `[CodeSymbolIndexer] Failed to clear stale entries for ${normalizedFilePath}`,
-        { error: err instanceof Error ? err.message : String(err) },
-      );
-      return {
-        symbolsIndexed: 0,
-        errors: 1,
-        durationMs: Date.now() - startMs,
-        outcome: failure('write'),
-      };
-    }
 
     const chunks: SymbolChunkInsert[] = [];
     // The store keys a row by (workspace root, subject) and overwrites on
@@ -1177,24 +1538,36 @@ export class CodeSymbolIndexer {
       });
     }
 
-    if (chunks.length > 0) {
-      try {
-        await this.sink.insertSymbols(chunks);
-      } catch (insertError: unknown) {
-        const msg =
-          insertError instanceof Error
-            ? insertError.message
-            : String(insertError);
-        this.logger.warn(
-          `[CodeSymbolIndexer] Symbols deleted but insert failed for ${normalizedFilePath}: ${msg}. Re-index this file to recover.`,
-        );
-        return {
-          symbolsIndexed: 0,
-          errors: 1,
-          durationMs: Date.now() - startMs,
-          outcome: failure('write'),
-        };
-      }
+    // Inside the file lock, after the read. A delete that ran once the
+    // read had the content (or that won the lock earlier) wins: do not
+    // put the census snapshot back.
+    if (
+      run !== null &&
+      run.tombstones.has(graphPathIdentity(normalizedFilePath))
+    ) {
+      return {
+        symbolsIndexed: 0,
+        errors: 0,
+        durationMs: Date.now() - startMs,
+        outcome: UNCHECKED,
+        skippedTombstone: true,
+      };
+    }
+
+    try {
+      await this.writeFileSymbols(normalizedFilePath, workspaceRoot, chunks);
+    } catch (writeError: unknown) {
+      const msg =
+        writeError instanceof Error ? writeError.message : String(writeError);
+      this.logger.warn(
+        `[CodeSymbolIndexer] Failed to write symbols for ${normalizedFilePath}: ${msg}`,
+      );
+      return {
+        symbolsIndexed: 0,
+        errors: 1,
+        durationMs: Date.now() - startMs,
+        outcome: failure('write'),
+      };
     }
 
     return {
@@ -1203,6 +1576,7 @@ export class CodeSymbolIndexer {
       errors: insights.parseStatus === 'recovered' ? 1 : 0,
       durationMs: Date.now() - startMs,
       outcome: outcomeOfParse(insights),
+      wrote: true,
     };
   }
 }

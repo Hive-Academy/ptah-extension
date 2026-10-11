@@ -51,7 +51,7 @@ const FOCUS =
   'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content';
 const ACTION = `btn btn-ghost btn-xs h-6 min-h-6 px-1.5 text-[11px] font-medium text-base-content underline underline-offset-2 ${FOCUS}`;
 /** Reassignment cell: an own provider shows as a value with a chevron, "Follows main agent →" as a link-styled chip. */
-const CELL = `inline-flex min-w-0 flex-1 items-center gap-1 whitespace-nowrap rounded px-1 text-left text-xs text-base-content hover:bg-base-200 hover:underline ${FOCUS}`;
+const CELL = `flex w-full min-w-0 items-center gap-1 whitespace-nowrap rounded px-1 text-left text-xs text-base-content hover:bg-base-200 hover:underline ${FOCUS}`;
 /** Background roles are settings for every Ptah app (`supportedTargets: ['global']`). */
 const SAVE_SCOPE = 'global';
 const TIMEOUT_NOT_SAVED =
@@ -107,7 +107,7 @@ const TIMEOUT_REFUSED =
       </header>
 
       <div
-        class="grid gap-2"
+        class="consumer-grid grid items-stretch gap-2"
         aria-label="Background model roles"
         data-testid="consumer-table"
       >
@@ -116,12 +116,10 @@ const TIMEOUT_REFUSED =
             [attr.data-testid]="'consumer-row-' + row.id"
             [class.surface-2]="activeEditId() !== row.id"
             [class.surface-3]="activeEditId() === row.id"
-            class="rounded-lg p-3"
+            class="flex min-w-0 flex-col gap-2 rounded-lg p-3"
           >
-            <div
-              class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between"
-            >
-              <div class="min-w-0 sm:max-w-[20rem]">
+            <div class="flex min-w-0 items-start justify-between gap-2">
+              <div class="min-w-0">
                 <h3
                   class="text-xs font-bold text-base-content"
                   [attr.data-testid]="'consumer-name-' + row.id"
@@ -130,30 +128,202 @@ const TIMEOUT_REFUSED =
                 </h3>
                 @if (row.helperCopy) {
                   <p
-                    class="mt-0.5 text-xs leading-snug text-base-content-muted"
+                    class="mt-0.5 line-clamp-2 text-xs leading-snug text-base-content-muted"
+                    [title]="row.helperCopy"
                     [attr.data-testid]="'consumer-helper-' + row.id"
                   >
                     {{ row.helperCopy }}
                   </p>
                 }
               </div>
-              @if (!row.loaded) {
-                <!-- Not loaded: no effective value renders, only the section's state and its own Retry. -->
-                <div
-                  class="flex flex-wrap items-center gap-1.5 sm:justify-end"
-                  [attr.data-testid]="'consumer-notloaded-' + row.id"
+              <span
+                class="badge badge-xs shrink-0 whitespace-nowrap border-base-300 bg-base-300 text-[9px] text-base-content"
+                [attr.data-testid]="'consumer-tier-' + row.id"
+                >{{ row.tierLabel }}</span
+              >
+            </div>
+            @if (!row.loaded) {
+              <!-- Not loaded: no effective value renders, only the section's state and its own Retry. -->
+              <div
+                class="mt-auto flex flex-wrap items-center gap-1.5"
+                [attr.data-testid]="'consumer-notloaded-' + row.id"
+              >
+                <span
+                  class="text-xs text-base-content"
+                  [attr.data-testid]="'consumer-notloaded-copy-' + row.id"
                 >
+                  {{
+                    row.sectionStatus === 'loading'
+                      ? 'Loading…'
+                      : 'Could not load this section. Retry.'
+                  }}
+                </span>
+                @if (row.sectionStatus !== 'loading') {
+                  <button
+                    type="button"
+                    [class]="action"
+                    [attr.aria-label]="'Retry loading ' + row.name"
+                    [disabled]="busy()"
+                    (click)="retrySection(row.retryKey)"
+                    [attr.data-testid]="'consumer-retry-' + row.id"
+                  >
+                    Retry
+                  </button>
+                }
+              </div>
+            } @else {
+              <div class="mt-auto min-w-0 space-y-1.5">
+                <ptah-native-popover
+                  class="consumer-cell-popover block w-full min-w-0"
+                  [isOpen]="activeEditId() === row.id"
+                  placement="bottom-start"
+                  [hasBackdrop]="true"
+                  backdropClass="transparent"
+                  (closed)="cancelEdit()"
+                >
+                  <button
+                    trigger
+                    type="button"
+                    [class]="cell + (row.followsMain ? ' font-medium' : '')"
+                    [attr.aria-disabled]="busy() ? 'true' : null"
+                    [attr.aria-label]="
+                      row.name + ': ' + row.resolvedSummary + '. Reassign'
+                    "
+                    [attr.aria-expanded]="activeEditId() === row.id"
+                    [title]="row.resolvedSummary"
+                    aria-haspopup="dialog"
+                    (click)="toggleEdit(row.id)"
+                    [attr.data-testid]="'consumer-edit-' + row.id"
+                  >
+                    <ptah-provider-mark
+                      [providerId]="
+                        row.provider ||
+                        state.route().data?.driverProviderId ||
+                        ''
+                      "
+                      fallback="Bot"
+                    />
+                    <span
+                      class="min-w-0 truncate"
+                      [attr.data-testid]="'consumer-summary-' + row.id"
+                      >{{ row.cellLabel }}</span
+                    >
+                    <lucide-angular
+                      [img]="row.followsMain ? ArrowIcon : ChevronIcon"
+                      [class]="
+                        'h-3 w-3 shrink-0 ' +
+                        (row.followsMain
+                          ? 'text-primary'
+                          : 'text-base-content-muted')
+                      "
+                      aria-hidden="true"
+                    />
+                  </button>
+                  @if (activeEditId() === row.id) {
+                    <!-- The picker's own header (the role name) is the visible title; Close sits in its empty right corner. -->
+                    <div
+                      content
+                      role="dialog"
+                      [attr.aria-label]="'Reassign ' + row.name"
+                      class="relative w-[27rem] max-w-[calc(100vw-2rem)] space-y-2 whitespace-normal p-2 text-left text-xs"
+                      [attr.data-testid]="'consumer-editor-' + row.id"
+                    >
+                      <button
+                        type="button"
+                        [class]="
+                          'btn btn-ghost btn-xs btn-square absolute right-3 top-3 z-10 min-h-6 ' +
+                          focusRing
+                        "
+                        aria-label="Close"
+                        (click)="cancelEdit()"
+                        [attr.data-testid]="'consumer-close-' + row.id"
+                      >
+                        <lucide-angular
+                          [img]="CloseIcon"
+                          class="h-3.5 w-3.5"
+                          aria-hidden="true"
+                        />
+                      </button>
+                      <ptah-provider-model-picker
+                        [label]="row.name"
+                        [provider]="currentDraft().provider"
+                        [model]="currentDraft().model"
+                        [defaultTier]="row.defaultTier"
+                        [requiresToolUse]="row.requiresToolUse"
+                        [extraProviders]="extraProviders()"
+                        [disabled]="busy() || disabled()"
+                        (selectionChange)="onDraftChange(row.id, $event)"
+                        [attr.data-testid]="'picker-' + row.id"
+                      />
+                      @if (draftProviderReadiness(); as readiness) {
+                        <div
+                          class="flex flex-wrap items-center gap-1.5 rounded border border-base-300 bg-base-200 p-2"
+                          [attr.role]="readiness.blocking ? 'alert' : 'status'"
+                          [attr.data-testid]="'readiness-alert-' + row.id"
+                        >
+                          <lucide-angular
+                            [img]="AlertTriangleIcon"
+                            class="h-3.5 w-3.5 shrink-0 text-warning"
+                            aria-hidden="true"
+                          />
+                          <span
+                            class="min-w-0 flex-1 text-base-content"
+                            [attr.data-testid]="'readiness-message-' + row.id"
+                          >
+                            {{ readiness.message
+                            }}{{ readiness.blocking ? ' Not saved.' : '' }}
+                          </span>
+                          @if (readiness.setupProviderId !== null) {
+                            <button
+                              type="button"
+                              [class]="action"
+                              [attr.aria-label]="
+                                'Set up ' + readiness.providerDisplayName
+                              "
+                              (click)="
+                                onSetupProvider(readiness.setupProviderId)
+                              "
+                              [attr.data-testid]="'readiness-setup-' + row.id"
+                            >
+                              Set up {{ readiness.providerDisplayName }}
+                            </button>
+                          }
+                        </div>
+                      }
+                      <p class="px-1 text-xs text-base-content-muted">
+                        Each choice saves at once, with Undo. No provider
+                        follows the main agent.
+                      </p>
+                    </div>
+                  }
+                </ptah-native-popover>
+                @if (row.scopeShown) {
+                  <ptah-setting-scope-row
+                    [fieldName]="row.providerFieldName"
+                    [scope]="row.providerScope"
+                    [hasOverride]="row.providerOverride"
+                    [supportedTargets]="['global']"
+                    [disabled]="disabled()"
+                    [attr.data-testid]="'scope-row-provider-' + row.id"
+                  />
+                  <ptah-setting-scope-row
+                    [fieldName]="row.modelFieldName"
+                    [scope]="row.modelScope"
+                    [hasOverride]="row.modelOverride"
+                    [supportedTargets]="['global']"
+                    [disabled]="disabled()"
+                    [attr.data-testid]="'scope-row-model-' + row.id"
+                  />
+                }
+                @if (row.sectionStatus === 'error') {
+                  <!-- Loaded earlier; the latest refresh failed, so the values may be stale. -->
                   <span
                     class="text-xs text-base-content"
-                    [attr.data-testid]="'consumer-notloaded-copy-' + row.id"
+                    [attr.data-testid]="'consumer-reload-' + row.id"
                   >
-                    {{
-                      row.sectionStatus === 'loading'
-                        ? 'Loading…'
-                        : 'Could not load this section. Retry.'
-                    }}
-                  </span>
-                  @if (row.sectionStatus !== 'loading') {
+                    <span [attr.data-testid]="'consumer-reload-copy-' + row.id"
+                      >Could not load this section. Retry.</span
+                    >
                     <button
                       type="button"
                       [class]="action"
@@ -164,189 +334,14 @@ const TIMEOUT_REFUSED =
                     >
                       Retry
                     </button>
-                  }
-                </div>
-              } @else {
-                <div
-                  class="flex min-w-0 flex-wrap items-center gap-1.5 sm:justify-end"
-                >
-                  <ptah-native-popover
-                    [isOpen]="activeEditId() === row.id"
-                    placement="bottom-start"
-                    [hasBackdrop]="true"
-                    backdropClass="transparent"
-                    (closed)="cancelEdit()"
-                  >
-                    <button
-                      trigger
-                      type="button"
-                      [class]="cell + (row.followsMain ? ' font-medium' : '')"
-                      [attr.aria-disabled]="busy() ? 'true' : null"
-                      [attr.aria-label]="
-                        row.name + ': ' + row.resolvedSummary + '. Reassign'
-                      "
-                      [attr.aria-expanded]="activeEditId() === row.id"
-                      [title]="row.resolvedSummary"
-                      aria-haspopup="dialog"
-                      (click)="toggleEdit(row.id)"
-                      [attr.data-testid]="'consumer-edit-' + row.id"
-                    >
-                      <ptah-provider-mark
-                        [providerId]="
-                          row.provider ||
-                          state.route().data?.driverProviderId ||
-                          ''
-                        "
-                        fallback="Bot"
-                      />
-                      <span
-                        class="min-w-0 truncate"
-                        [attr.data-testid]="'consumer-summary-' + row.id"
-                        >{{ row.cellLabel }}</span
-                      >
-                      <lucide-angular
-                        [img]="row.followsMain ? ArrowIcon : ChevronIcon"
-                        [class]="
-                          'h-3 w-3 shrink-0 ' +
-                          (row.followsMain
-                            ? 'text-primary'
-                            : 'text-base-content-muted')
-                        "
-                        aria-hidden="true"
-                      />
-                    </button>
-                    @if (activeEditId() === row.id) {
-                      <!-- The picker's own header (the role name) is the visible title; Close sits in its empty right corner. -->
-                      <div
-                        content
-                        role="dialog"
-                        [attr.aria-label]="'Reassign ' + row.name"
-                        class="relative w-[27rem] max-w-[calc(100vw-2rem)] space-y-2 whitespace-normal p-2 text-left text-xs"
-                        [attr.data-testid]="'consumer-editor-' + row.id"
-                      >
-                        <button
-                          type="button"
-                          [class]="
-                            'btn btn-ghost btn-xs btn-square absolute right-3 top-3 z-10 min-h-6 ' +
-                            focusRing
-                          "
-                          aria-label="Close"
-                          (click)="cancelEdit()"
-                          [attr.data-testid]="'consumer-close-' + row.id"
-                        >
-                          <lucide-angular
-                            [img]="CloseIcon"
-                            class="h-3.5 w-3.5"
-                            aria-hidden="true"
-                          />
-                        </button>
-                        <ptah-provider-model-picker
-                          [label]="row.name"
-                          [provider]="currentDraft().provider"
-                          [model]="currentDraft().model"
-                          [defaultTier]="row.defaultTier"
-                          [requiresToolUse]="row.requiresToolUse"
-                          [extraProviders]="extraProviders()"
-                          [disabled]="busy() || disabled()"
-                          (selectionChange)="onDraftChange(row.id, $event)"
-                          [attr.data-testid]="'picker-' + row.id"
-                        />
-                        @if (draftProviderReadiness(); as readiness) {
-                          <div
-                            class="flex flex-wrap items-center gap-1.5 rounded border border-base-300 bg-base-200 p-2"
-                            [attr.role]="
-                              readiness.blocking ? 'alert' : 'status'
-                            "
-                            [attr.data-testid]="'readiness-alert-' + row.id"
-                          >
-                            <lucide-angular
-                              [img]="AlertTriangleIcon"
-                              class="h-3.5 w-3.5 shrink-0 text-warning"
-                              aria-hidden="true"
-                            />
-                            <span
-                              class="min-w-0 flex-1 text-base-content"
-                              [attr.data-testid]="'readiness-message-' + row.id"
-                            >
-                              {{ readiness.message
-                              }}{{ readiness.blocking ? ' Not saved.' : '' }}
-                            </span>
-                            @if (readiness.setupProviderId !== null) {
-                              <button
-                                type="button"
-                                [class]="action"
-                                [attr.aria-label]="
-                                  'Set up ' + readiness.providerDisplayName
-                                "
-                                (click)="
-                                  onSetupProvider(readiness.setupProviderId)
-                                "
-                                [attr.data-testid]="'readiness-setup-' + row.id"
-                              >
-                                Set up {{ readiness.providerDisplayName }}
-                              </button>
-                            }
-                          </div>
-                        }
-                        <p class="px-1 text-xs text-base-content-muted">
-                          Each choice saves at once, with Undo. No provider
-                          follows the main agent.
-                        </p>
-                      </div>
-                    }
-                  </ptah-native-popover>
-                  @if (row.scopeShown) {
-                    <ptah-setting-scope-row
-                      [fieldName]="row.providerFieldName"
-                      [scope]="row.providerScope"
-                      [hasOverride]="row.providerOverride"
-                      [supportedTargets]="['global']"
-                      [disabled]="disabled()"
-                      [attr.data-testid]="'scope-row-provider-' + row.id"
-                    />
-                    <ptah-setting-scope-row
-                      [fieldName]="row.modelFieldName"
-                      [scope]="row.modelScope"
-                      [hasOverride]="row.modelOverride"
-                      [supportedTargets]="['global']"
-                      [disabled]="disabled()"
-                      [attr.data-testid]="'scope-row-model-' + row.id"
-                    />
-                  }
-                  @if (row.sectionStatus === 'error') {
-                    <!-- Loaded earlier; the latest refresh failed, so the values may be stale. -->
-                    <span
-                      class="text-xs text-base-content"
-                      [attr.data-testid]="'consumer-reload-' + row.id"
-                    >
-                      <span
-                        [attr.data-testid]="'consumer-reload-copy-' + row.id"
-                        >Could not load this section. Retry.</span
-                      >
-                      <button
-                        type="button"
-                        [class]="action"
-                        [attr.aria-label]="'Retry loading ' + row.name"
-                        [disabled]="busy()"
-                        (click)="retrySection(row.retryKey)"
-                        [attr.data-testid]="'consumer-retry-' + row.id"
-                      >
-                        Retry
-                      </button>
-                    </span>
-                  }
-                </div>
-                <span
-                  class="badge badge-xs whitespace-nowrap border-base-300 bg-base-300 text-[9px] text-base-content"
-                  [attr.data-testid]="'consumer-tier-' + row.id"
-                  >{{ row.tierLabel }}</span
-                >
-              }
-            </div>
+                  </span>
+                }
+              </div>
+            }
           </article>
           @if (row.id === 'judging-enhancement' && timeoutMeta()) {
             <section
-              class="surface-2 space-y-1.5 rounded-lg p-3"
+              class="surface-2 consumer-timeout-section space-y-1.5 rounded-lg p-3"
               data-testid="enhancement-timeout-section"
             >
               @if (timeoutNotice(); as notice) {
@@ -495,6 +490,37 @@ const TIMEOUT_REFUSED =
         }
       </div>
     </section>
+  `,
+  styles: `
+    /* An inline host cannot be a size container; without display: block the column queries never match. */
+    :host {
+      display: block;
+      container-type: inline-size;
+    }
+
+    @container (min-width: 24rem) {
+      .consumer-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+
+    @container (min-width: 36rem) {
+      .consumer-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+    }
+
+    /* The popover wraps its trigger in an inline-block sized by its content, so the summary could not truncate and
+       overflowed a one-third card. Block width lets the cell's label truncate (its full text is the title). */
+    :host ::ng-deep .consumer-cell-popover > .popover-trigger {
+      display: block;
+      min-width: 0;
+    }
+
+    .consumer-timeout-section {
+      grid-column: 1 / -1;
+      order: 1;
+    }
   `,
 })
 export class ProviderConsumerAssignmentsComponent {

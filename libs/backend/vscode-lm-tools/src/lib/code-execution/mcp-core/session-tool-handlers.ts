@@ -185,6 +185,12 @@ export function sessionStartReply(
   result: SessionChildStartResult,
 ): SessionToolReply {
   if (result.ok) {
+    if ('successor' in result) {
+      return {
+        isError: false,
+        text: 'Successor handover accepted. The replacement will bind and focus before this session closes.',
+      };
+    }
     const child = result.child;
     return {
       isError: false,
@@ -225,7 +231,9 @@ export function sessionSendReply(
   if (result.delivered) {
     return {
       isError: false,
-      text: `Message delivered to ${childSessionId}: ${SEND_EFFECTS[result.effect]}.`,
+      text:
+        `Message delivered to ${childSessionId}: ${SEND_EFFECTS[result.effect]}.` +
+        (result.code ? ` ${result.code}` : ''),
     };
   }
   return {

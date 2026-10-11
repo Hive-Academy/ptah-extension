@@ -39,5 +39,7 @@ export const AgentSpawnArgsSchema = z
     // Free string, not an enum: each CLI accepts its own scale, and the lane
     // spawn policy ignores a value its CLI does not take (R2.3 step 1).
     effort: z.string().min(1).max(MAX_EFFORT_LENGTH).optional(),
+    // Overrides the pre-spawn limit gate; never forwarded to `agent.spawn`.
+    force: z.boolean().optional(),
   })
   .strict();

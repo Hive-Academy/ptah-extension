@@ -1,0 +1,31 @@
+# Codex auth-source flag logic review
+
+Verdict: **APPROVED**  
+Score: **9/10**
+
+## Scope and evidence
+
+Reviewed the complete changed entry point, extracted parser, and parser spec, compared the former entry parser from `HEAD`, and traced `codexAuthSource` through the existing runner and host bootstrap boundary. The old parser's options, strict/positional policy, plan requirement, absolute-path normalization, and timeout validation are retained in [run-memory-skills.args.ts:30](../../../../tools/mcp-bench/src/memory-skills/runner/run-memory-skills.args.ts:30)-[73](../../../../tools/mcp-bench/src/memory-skills/runner/run-memory-skills.args.ts:73); the entry passes the parsed value into `runMemorySkills` at [run-memory-skills.entry.ts:52](../../../../tools/mcp-bench/src/memory-skills/runner/run-memory-skills.entry.ts:52)-[72](../../../../tools/mcp-bench/src/memory-skills/runner/run-memory-skills.entry.ts:72).
+
+The source path is absolute-checked then normalized at [run-memory-skills.args.ts:19](../../../../tools/mcp-bench/src/memory-skills/runner/run-memory-skills.args.ts:19)-[25](../../../../tools/mcp-bench/src/memory-skills/runner/run-memory-skills.args.ts:25) and [69](../../../../tools/mcp-bench/src/memory-skills/runner/run-memory-skills.args.ts:69)-[72](../../../../tools/mcp-bench/src/memory-skills/runner/run-memory-skills.args.ts:72). It reaches the child only as `PTAH_BENCH_CODEX_AUTH_SOURCE` at [run-memory-skills.ts:280](../../../../tools/mcp-bench/src/memory-skills/runner/run-memory-skills.ts:280)-[293](../../../../tools/mcp-bench/src/memory-skills/runner/run-memory-skills.ts:293); `writeHostPlan` constructs its serializable object without that option at [run-memory-skills.ts:231](../../../../tools/mcp-bench/src/memory-skills/runner/run-memory-skills.ts:231)-[272](../../../../tools/mcp-bench/src/memory-skills/runner/run-memory-skills.ts:272), and the entry's stdout JSON likewise omits it at [run-memory-skills.entry.ts:85](../../../../tools/mcp-bench/src/memory-skills/runner/run-memory-skills.entry.ts:85)-[100](../../../../tools/mcp-bench/src/memory-skills/runner/run-memory-skills.entry.ts:100). This conforms to the privacy requirement in [design-addendum-codex-recording-and-model-panel.md:24](design-addendum-codex-recording-and-model-panel.md:24).
+
+The new spec exercises default values, every supported flag, accepted-and-normalized auth paths, rejected relative auth paths, missing plans, invalid timeouts, and unknown flags at [run-memory-skills.args.spec.ts:9](../../../../tools/mcp-bench/src/memory-skills/runner/run-memory-skills.args.spec.ts:9)-[89](../../../../tools/mcp-bench/src/memory-skills/runner/run-memory-skills.args.spec.ts:89). Its use of `tmpdir()`, `join()`, and `resolve()` at [run-memory-skills.args.spec.ts:1](../../../../tools/mcp-bench/src/memory-skills/runner/run-memory-skills.args.spec.ts:1)-[2](../../../../tools/mcp-bench/src/memory-skills/runner/run-memory-skills.args.spec.ts:2) avoids hard-coded POSIX or Windows paths.
+
+## Numbered findings
+
+No material logic findings. The examined behavior has no blocking, serious, or moderate defect.
+
+The score is 9 rather than 10 because the new unit spec validates parser output but does not run the entry-to-runner boundary as an integration test; source inspection verifies that boundary at [run-memory-skills.entry.ts:52](../../../../tools/mcp-bench/src/memory-skills/runner/run-memory-skills.entry.ts:52)-[72](../../../../tools/mcp-bench/src/memory-skills/runner/run-memory-skills.entry.ts:72). This is remaining verification uncertainty, not a defect or a revision requirement. A 10/10 would require direct automated proof that the entry forwards the normalized value and its stdout remains path-free.
+
+## Five logic questions
+
+1. **Silent failure:** None found. A relative source fails before launch at [run-memory-skills.args.ts:21](../../../../tools/mcp-bench/src/memory-skills/runner/run-memory-skills.args.ts:21)-[23](../../../../tools/mcp-bench/src/memory-skills/runner/run-memory-skills.args.ts:23); a child-side missing, non-regular, or unreadable file rejects explicitly rather than reporting a successful run at [recording-bootstrap.ts:158](../../../../tools/mcp-bench/src/memory-skills/host/recording-bootstrap.ts:158)-[178](../../../../tools/mcp-bench/src/memory-skills/host/recording-bootstrap.ts:178).
+2. **Unexpected user action:** Passing a relative auth path is predictably rejected, and the flag does not alter existing option parsing because the prior options and validation remain intact at [run-memory-skills.args.ts:32](../../../../tools/mcp-bench/src/memory-skills/runner/run-memory-skills.args.ts:32)-[60](../../../../tools/mcp-bench/src/memory-skills/runner/run-memory-skills.args.ts:60).
+3. **Wrong-answer input:** None found. An absolute path with `.` or `..` segments is canonicalized for the host by `resolve()` at [run-memory-skills.args.ts:24](../../../../tools/mcp-bench/src/memory-skills/runner/run-memory-skills.args.ts:24), rather than being retained in a potentially ambiguous form.
+4. **Dependency failure or malformed shape:** The parser rejects malformed command input through strict `parseArgs` at [run-memory-skills.args.ts:30](../../../../tools/mcp-bench/src/memory-skills/runner/run-memory-skills.args.ts:30)-[43](../../../../tools/mcp-bench/src/memory-skills/runner/run-memory-skills.args.ts:43). The existing bootstrap rejects absent/unreadable/link/non-file sources before copying at [recording-bootstrap.ts:158](../../../../tools/mcp-bench/src/memory-skills/host/recording-bootstrap.ts:158)-[198](../../../../tools/mcp-bench/src/memory-skills/host/recording-bootstrap.ts:198).
+5. **Unspecified requirement:** No implementation gap was identified. The requirement did not prescribe a platform-neutral literal-path grammar; using Node's host-native `isAbsolute` and test-generated native paths at [run-memory-skills.args.ts:6](../../../../tools/mcp-bench/src/memory-skills/runner/run-memory-skills.args.ts:6) and [run-memory-skills.args.spec.ts:7](../../../../tools/mcp-bench/src/memory-skills/runner/run-memory-skills.args.spec.ts:7) is appropriate for a local filesystem CLI.
+
+## Verification
+
+- `ptah_get_diagnostics` scoped to the three changed files: 0 errors, 0 warnings.
+- Required focused Jest command run once: 1 suite passed, 7 tests passed, 0 snapshots.

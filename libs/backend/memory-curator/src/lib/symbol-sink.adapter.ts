@@ -34,7 +34,28 @@ export class MemoryStoreSymbolSink implements ISymbolSink {
   }
 
   async insertSymbols(chunks: readonly SymbolChunkInsert[]): Promise<void> {
-    if (chunks.length === 0) return;
+    const entries = this.toEntries(chunks);
+    if (entries.length === 0) return;
+    await this.codeSymbols.insertBatch(entries);
+  }
+
+  async replaceFileSymbols(
+    workspaceRoot: string,
+    filePath: string,
+    chunks: readonly SymbolChunkInsert[],
+  ): Promise<void> {
+    await this.codeSymbols.replaceFileSymbols(
+      workspaceRoot,
+      filePath,
+      this.toEntries(chunks),
+    );
+  }
+
+  purgeMissing(workspaceRoot: string, presentPaths: readonly string[]): number {
+    return this.codeSymbols.purgeMissing(workspaceRoot, presentPaths);
+  }
+
+  private toEntries(chunks: readonly SymbolChunkInsert[]): CodeSymbolInsert[] {
     const entries: CodeSymbolInsert[] = [];
     for (const chunk of chunks) {
       // A producer-supplied kind and name win: a name holding `:` cannot be
@@ -58,6 +79,6 @@ export class MemoryStoreSymbolSink implements ISymbolSink {
         tokenCount: chunk.tokenCount,
       });
     }
-    await this.codeSymbols.insertBatch(entries);
+    return entries;
   }
 }

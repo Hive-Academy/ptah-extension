@@ -25,6 +25,7 @@ import {
   BootStatusService,
   ClaudeRpcService,
   SurfaceRouterService,
+  ThemeService,
   VSCodeService,
 } from '@ptah-extension/core';
 import { provideSurfaceRouterTesting } from '@ptah-extension/core/testing';
@@ -39,6 +40,8 @@ import { ChatStore } from '../../services/chat.store';
 import { KeyboardShortcutsService } from '../../services/keyboard-shortcuts.service';
 import { SessionDisplayUtils } from '../../services/session-display-utils.service';
 import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-ender.service';
+import { AgentFollowUpQueueService } from '../../services/agent-follow-up-queue.service';
+import { NotificationLedgerService } from '@ptah-extension/notification-center';
 
 interface AuthStub {
   loadAuthStatus: jest.Mock<Promise<void>, []>;
@@ -77,6 +80,13 @@ function configure(auth: AuthStub): void {
         provide: ClosedTabSessionEnderService,
         useFactory: closedTabSessionEnderFactory,
       },
+      // Created eagerly by the shell; its behaviour is covered by
+      // app-shell.retained-chrome.spec.ts and the notification-center specs.
+      { provide: NotificationLedgerService, useValue: {} },
+      // Created eagerly by the shell; covered by theme.service.spec.ts and
+      // agent-follow-up-queue.service.spec.ts.
+      { provide: ThemeService, useValue: {} },
+      { provide: AgentFollowUpQueueService, useValue: {} },
       ...provideSurfaceRouterTesting(),
       AppStateManager,
       { provide: AuthStateService, useValue: auth },

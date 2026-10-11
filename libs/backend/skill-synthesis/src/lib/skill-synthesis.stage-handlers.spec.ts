@@ -164,6 +164,9 @@ function makeService(opts: {
       (_section: string, key: string, fallback: unknown) =>
         key === 'skillSynthesis.enabled' ? (opts.enabled ?? true) : fallback,
     ),
+    // B-P: `start()` subscribes to `skillSynthesis.enabled` above its early
+    // returns; a plain `jest.fn()` stands in for the disposer it returns.
+    onDidChangeConfiguration: jest.fn(),
   } as unknown as ConstructorParameters<typeof SkillSynthesisService>[3];
 
   const unembedded = {
@@ -258,7 +261,15 @@ function makeService(opts: {
     for (let i = 0; i < 8; i++) await Promise.resolve();
   }
 
-  return { svc, store, md, extractor, embedder, fireSessionEnd };
+  return {
+    svc,
+    store,
+    md,
+    extractor,
+    embedder,
+    workspaceProvider,
+    fireSessionEnd,
+  };
 }
 
 /** A queue double that serves exactly one row to the drain, then nothing. */
@@ -390,18 +401,56 @@ describe('SkillSynthesisService — drain stage handlers (B0.9.1)', () => {
 
     await drain.drain(drainOpts());
 
-    // The row is still skipped — `start()` bailed, so the worker has nothing
-    // to say — but it is skipped by the HANDLER, with the handler's reason.
+    // The row is still answered by the HANDLER, with the handler's reason —
     // "no handler for stage prefilter" would mean the wiring itself was lost.
-    expect(queue.markSkipped).toHaveBeenCalledWith('row-1', {
-      reason: 'no candidate from this session',
+    // B-P (S7): with the analyzer not started the answer is `unscored` with a
+    // retry, never a terminal `skipped` — a paused row is not a verdict on
+    // the session, and the row survives to re-open after a resume.
+    expect(queue.markUnscored).toHaveBeenCalledWith('row-1', {
+      reason: 'analyzer-not-started',
+      notBefore: expect.any(Number),
     });
+    expect(queue.markSkipped).not.toHaveBeenCalled();
+  });
+
+  it('a pause landing between the per-item gate and the analyzer leaves the row retryable (review finding 3)', async () => {
+    const row = queueRow();
+    const queue = makeOneRowQueue(row);
+    const drain = makeDrainOver(queue);
+    const { svc, workspaceProvider } = makeService({ queue, drain });
+    await svc.start();
+
+    // The pause lands inside the CAS CLAIM — after the drain's per-item gate
+    // has read `enabled` (the DRAIN's own workspace, which stays on) and
+    // before `analyzeSession` re-reads it through THIS service's workspace:
+    // the exact window finding 3 describes. The analyzer then answers `null`
+    // without ever looking at the session.
+    (queue.tryClaim as jest.Mock).mockImplementation(() => {
+      (workspaceProvider.getConfiguration as jest.Mock).mockImplementation(
+        (_s: string, key: string, fallback: unknown) =>
+          key === 'skillSynthesis.enabled' ? false : fallback,
+      );
+      return { ...row, status: 'claimed' as const };
+    });
+
+    const summary = await drain.drain(drainOpts());
+
+    // A paused null is NOT "no candidate from this session": the row takes
+    // the same retry path as 'analyzer-not-started' and stays eligible for
+    // the next tick after a resume.
+    expect(summary).toMatchObject({ claimed: 1, unscored: 1 });
+    expect(queue.markUnscored).toHaveBeenCalledWith('row-1', {
+      reason: 'analyzer-paused',
+      notBefore: expect.any(Number),
+    });
+    expect(queue.markSkipped).not.toHaveBeenCalled();
+    expect(queue.markFailed).not.toHaveBeenCalled();
   });
 
   it('starts cleanly in a host with no drain registered', async () => {
     const queue = makeOneRowQueue(queueRow());
     const { svc } = makeService({ queue, drain: null });
-    await expect(svc.start()).resolves.toBeUndefined();
+    await expect(svc.start()).resolves.toBe('started');
   });
 });
 

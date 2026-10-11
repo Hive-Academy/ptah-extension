@@ -15,6 +15,7 @@ import {
   SYMBOL_INDEX_DEFAULT_LIMIT,
   SYMBOL_INDEX_MAX_LIMIT,
 } from '../namespace-builders/symbol-index-query';
+import { HTTP_MAX_AGENT_WAIT_SEC } from './wait-tools-args.schema';
 import {
   TASK_CHECK_ENTRY_CAP,
   TASK_LIST_DEFAULT_LIMIT,
@@ -599,7 +600,9 @@ export function buildCountTokensTool(): MCPToolDefinition {
  * Build the ptah_agent_spawn tool definition
  * Spawn a CLI agent to work on a task in the background
  */
-export function buildAgentSpawnTool(): MCPToolDefinition {
+export function buildAgentSpawnTool({
+  transport = 'http',
+}: { transport?: 'http' | 'stdio' } = {}): MCPToolDefinition {
   return {
     name: 'ptah_agent_spawn',
     description:
@@ -615,8 +618,10 @@ export function buildAgentSpawnTool(): MCPToolDefinition {
       'whether each declared file was actually written. A verdict of ' +
       '"no-deliverable" means the agent exited cleanly WITHOUT doing the ' +
       'work, so declare "deliverables" on every spawn whose output is a file. ' +
-      'To block until lanes end, make one ptah_agent_wait call, never a ' +
-      'ptah_agent_status loop. ' +
+      'To block until lanes end, call ptah_agent_wait; never poll ptah_agent_status. ' +
+      (transport === 'http'
+        ? `HTTP calls wait at most ${HTTP_MAX_AGENT_WAIT_SEC} s, so repeat while lanes run. `
+        : '') +
       'Use ptah_agent_status and ptah_agent_read as the fallback when no ' +
       'signal arrives (some adapters report nothing useful, and a signal is ' +
       'refused when this session is no longer live). ' +
@@ -729,6 +734,12 @@ export function buildAgentSpawnTool(): MCPToolDefinition {
             'Reasoning effort for this lane: minimal, low, medium, high, xhigh ' +
             'or max. Wins over the per-CLI setting and the chat effort. A value ' +
             'the chosen CLI does not take is ignored. Omit to use the setting.',
+        },
+        force: {
+          type: 'boolean',
+          description:
+            'Spawn even when ptah_agent_list shows this lane at its plan limit ' +
+            'or in a cooldown. Use only when the limit is known to be wrong.',
         },
       },
       required: ['task'],
@@ -901,7 +912,9 @@ export function buildAgentListTool(): MCPToolDefinition {
     description:
       'List all available agents (CLI and Ptah CLI) that can be spawned. ' +
       'Returns agent type, installation status, and capabilities. ' +
-      'Ptah CLI agents include ptahCliId needed for ptah_agent_spawn.',
+      'Ptah CLI agents include ptahCliId needed for ptah_agent_spawn. ' +
+      'AT LIMIT lanes refuse spawns; an unknown Limit state means the limit ' +
+      'could not be read, not room.',
     inputSchema: {
       type: 'object',
       properties: {},

@@ -1,0 +1,3480 @@
+{
+  "id": "memory",
+  "version": "1",
+  "method": "seeded",
+  "frozenAt": "2026-10-06T22:56:56.132Z",
+  "corpusCommit": "7910f34cf",
+  "generator": "memory-questions.ts",
+  "seed": null,
+  "counts": {
+    "facts": 150,
+    "rows": 300,
+    "verbatim": 150,
+    "paraphrase": 300,
+    "worktree": 15,
+    "abstention": 20,
+    "labelled": 4,
+    "total": 489
+  },
+  "questions": [
+    {
+      "id": "fact-001-v",
+      "scope": "<rootA>",
+      "query": "alpha lint max lines ceiling",
+      "expectedFactIds": ["fact-001-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-001-p1",
+      "scope": "<rootA>",
+      "query": "how long can a source file be in the alpha project",
+      "expectedFactIds": ["fact-001-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-001-p2",
+      "scope": "<rootA>",
+      "query": "largest permitted file length for alpha",
+      "expectedFactIds": ["fact-001-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "wt-fact-001",
+      "scope": "<worktreeOfA>",
+      "query": "largest permitted file length for alpha",
+      "expectedFactIds": ["fact-001-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-002-v",
+      "scope": "<rootB>",
+      "query": "alpha lint max lines ceiling",
+      "expectedFactIds": ["fact-002-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-002-p1",
+      "scope": "<rootB>",
+      "query": "how long can a source file be in the alpha project",
+      "expectedFactIds": ["fact-002-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-002-p2",
+      "scope": "<rootB>",
+      "query": "largest permitted file length for alpha",
+      "expectedFactIds": ["fact-002-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-003-v",
+      "scope": "<rootA>",
+      "query": "bravo lint max lines ceiling",
+      "expectedFactIds": ["fact-003-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-003-p1",
+      "scope": "<rootA>",
+      "query": "how long can a source file be in the bravo project",
+      "expectedFactIds": ["fact-003-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-003-p2",
+      "scope": "<rootA>",
+      "query": "largest permitted file length for bravo",
+      "expectedFactIds": ["fact-003-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-004-v",
+      "scope": "<rootB>",
+      "query": "bravo lint max lines ceiling",
+      "expectedFactIds": ["fact-004-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-004-p1",
+      "scope": "<rootB>",
+      "query": "how long can a source file be in the bravo project",
+      "expectedFactIds": ["fact-004-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-004-p2",
+      "scope": "<rootB>",
+      "query": "largest permitted file length for bravo",
+      "expectedFactIds": ["fact-004-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-005-v",
+      "scope": "<rootA>",
+      "query": "charlie lint max lines ceiling",
+      "expectedFactIds": ["fact-005-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-005-p1",
+      "scope": "<rootA>",
+      "query": "how long can a source file be in the charlie project",
+      "expectedFactIds": ["fact-005-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-005-p2",
+      "scope": "<rootA>",
+      "query": "largest permitted file length for charlie",
+      "expectedFactIds": ["fact-005-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-006-v",
+      "scope": "<rootB>",
+      "query": "charlie lint max lines ceiling",
+      "expectedFactIds": ["fact-006-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-006-p1",
+      "scope": "<rootB>",
+      "query": "how long can a source file be in the charlie project",
+      "expectedFactIds": ["fact-006-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-006-p2",
+      "scope": "<rootB>",
+      "query": "largest permitted file length for charlie",
+      "expectedFactIds": ["fact-006-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-007-v",
+      "scope": "<rootA>",
+      "query": "delta lint max lines ceiling",
+      "expectedFactIds": ["fact-007-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-007-p1",
+      "scope": "<rootA>",
+      "query": "how long can a source file be in the delta project",
+      "expectedFactIds": ["fact-007-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-007-p2",
+      "scope": "<rootA>",
+      "query": "largest permitted file length for delta",
+      "expectedFactIds": ["fact-007-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-008-v",
+      "scope": "<rootB>",
+      "query": "delta lint max lines ceiling",
+      "expectedFactIds": ["fact-008-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-008-p1",
+      "scope": "<rootB>",
+      "query": "how long can a source file be in the delta project",
+      "expectedFactIds": ["fact-008-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-008-p2",
+      "scope": "<rootB>",
+      "query": "largest permitted file length for delta",
+      "expectedFactIds": ["fact-008-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-009-v",
+      "scope": "<rootA>",
+      "query": "echo lint max lines ceiling",
+      "expectedFactIds": ["fact-009-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-009-p1",
+      "scope": "<rootA>",
+      "query": "how long can a source file be in the echo project",
+      "expectedFactIds": ["fact-009-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-009-p2",
+      "scope": "<rootA>",
+      "query": "largest permitted file length for echo",
+      "expectedFactIds": ["fact-009-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-010-v",
+      "scope": "<rootB>",
+      "query": "echo lint max lines ceiling",
+      "expectedFactIds": ["fact-010-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-010-p1",
+      "scope": "<rootB>",
+      "query": "how long can a source file be in the echo project",
+      "expectedFactIds": ["fact-010-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-010-p2",
+      "scope": "<rootB>",
+      "query": "largest permitted file length for echo",
+      "expectedFactIds": ["fact-010-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-011-v",
+      "scope": "<rootA>",
+      "query": "commit message format for alpha",
+      "expectedFactIds": ["fact-011-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-011-p1",
+      "scope": "<rootA>",
+      "query": "how should the alpha git history read",
+      "expectedFactIds": ["fact-011-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-011-p2",
+      "scope": "<rootA>",
+      "query": "git wording rules in alpha",
+      "expectedFactIds": ["fact-011-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "wt-fact-011",
+      "scope": "<worktreeOfA>",
+      "query": "git wording rules in alpha",
+      "expectedFactIds": ["fact-011-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-012-v",
+      "scope": "<rootB>",
+      "query": "commit message format for alpha",
+      "expectedFactIds": ["fact-012-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-012-p1",
+      "scope": "<rootB>",
+      "query": "how should the alpha git history read",
+      "expectedFactIds": ["fact-012-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-012-p2",
+      "scope": "<rootB>",
+      "query": "git wording rules in alpha",
+      "expectedFactIds": ["fact-012-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-013-v",
+      "scope": "<rootA>",
+      "query": "commit message format for bravo",
+      "expectedFactIds": ["fact-013-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-013-p1",
+      "scope": "<rootA>",
+      "query": "how should the bravo git history read",
+      "expectedFactIds": ["fact-013-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-013-p2",
+      "scope": "<rootA>",
+      "query": "git wording rules in bravo",
+      "expectedFactIds": ["fact-013-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-014-v",
+      "scope": "<rootB>",
+      "query": "commit message format for bravo",
+      "expectedFactIds": ["fact-014-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-014-p1",
+      "scope": "<rootB>",
+      "query": "how should the bravo git history read",
+      "expectedFactIds": ["fact-014-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-014-p2",
+      "scope": "<rootB>",
+      "query": "git wording rules in bravo",
+      "expectedFactIds": ["fact-014-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-015-v",
+      "scope": "<rootA>",
+      "query": "commit message format for charlie",
+      "expectedFactIds": ["fact-015-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-015-p1",
+      "scope": "<rootA>",
+      "query": "how should the charlie git history read",
+      "expectedFactIds": ["fact-015-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-015-p2",
+      "scope": "<rootA>",
+      "query": "git wording rules in charlie",
+      "expectedFactIds": ["fact-015-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-016-v",
+      "scope": "<rootB>",
+      "query": "commit message format for charlie",
+      "expectedFactIds": ["fact-016-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-016-p1",
+      "scope": "<rootB>",
+      "query": "how should the charlie git history read",
+      "expectedFactIds": ["fact-016-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-016-p2",
+      "scope": "<rootB>",
+      "query": "git wording rules in charlie",
+      "expectedFactIds": ["fact-016-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-017-v",
+      "scope": "<rootA>",
+      "query": "commit message format for delta",
+      "expectedFactIds": ["fact-017-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-017-p1",
+      "scope": "<rootA>",
+      "query": "how should the delta git history read",
+      "expectedFactIds": ["fact-017-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-017-p2",
+      "scope": "<rootA>",
+      "query": "git wording rules in delta",
+      "expectedFactIds": ["fact-017-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-018-v",
+      "scope": "<rootB>",
+      "query": "commit message format for delta",
+      "expectedFactIds": ["fact-018-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-018-p1",
+      "scope": "<rootB>",
+      "query": "how should the delta git history read",
+      "expectedFactIds": ["fact-018-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-018-p2",
+      "scope": "<rootB>",
+      "query": "git wording rules in delta",
+      "expectedFactIds": ["fact-018-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-019-v",
+      "scope": "<rootA>",
+      "query": "commit message format for echo",
+      "expectedFactIds": ["fact-019-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-019-p1",
+      "scope": "<rootA>",
+      "query": "how should the echo git history read",
+      "expectedFactIds": ["fact-019-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-019-p2",
+      "scope": "<rootA>",
+      "query": "git wording rules in echo",
+      "expectedFactIds": ["fact-019-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-020-v",
+      "scope": "<rootB>",
+      "query": "commit message format for echo",
+      "expectedFactIds": ["fact-020-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-020-p1",
+      "scope": "<rootB>",
+      "query": "how should the echo git history read",
+      "expectedFactIds": ["fact-020-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-020-p2",
+      "scope": "<rootB>",
+      "query": "git wording rules in echo",
+      "expectedFactIds": ["fact-020-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-021-v",
+      "scope": "<rootA>",
+      "query": "alpha dev server port number",
+      "expectedFactIds": ["fact-021-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-021-p1",
+      "scope": "<rootA>",
+      "query": "which port does alpha serve on locally",
+      "expectedFactIds": ["fact-021-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-021-p2",
+      "scope": "<rootA>",
+      "query": "alpha local network port for development",
+      "expectedFactIds": ["fact-021-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "wt-fact-021",
+      "scope": "<worktreeOfA>",
+      "query": "alpha local network port for development",
+      "expectedFactIds": ["fact-021-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-022-v",
+      "scope": "<rootB>",
+      "query": "alpha dev server port number",
+      "expectedFactIds": ["fact-022-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-022-p1",
+      "scope": "<rootB>",
+      "query": "which port does alpha serve on locally",
+      "expectedFactIds": ["fact-022-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-022-p2",
+      "scope": "<rootB>",
+      "query": "alpha local network port for development",
+      "expectedFactIds": ["fact-022-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-023-v",
+      "scope": "<rootA>",
+      "query": "bravo dev server port number",
+      "expectedFactIds": ["fact-023-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-023-p1",
+      "scope": "<rootA>",
+      "query": "which port does bravo serve on locally",
+      "expectedFactIds": ["fact-023-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-023-p2",
+      "scope": "<rootA>",
+      "query": "bravo local network port for development",
+      "expectedFactIds": ["fact-023-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-024-v",
+      "scope": "<rootB>",
+      "query": "bravo dev server port number",
+      "expectedFactIds": ["fact-024-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-024-p1",
+      "scope": "<rootB>",
+      "query": "which port does bravo serve on locally",
+      "expectedFactIds": ["fact-024-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-024-p2",
+      "scope": "<rootB>",
+      "query": "bravo local network port for development",
+      "expectedFactIds": ["fact-024-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-025-v",
+      "scope": "<rootA>",
+      "query": "charlie dev server port number",
+      "expectedFactIds": ["fact-025-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-025-p1",
+      "scope": "<rootA>",
+      "query": "which port does charlie serve on locally",
+      "expectedFactIds": ["fact-025-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-025-p2",
+      "scope": "<rootA>",
+      "query": "charlie local network port for development",
+      "expectedFactIds": ["fact-025-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-026-v",
+      "scope": "<rootB>",
+      "query": "charlie dev server port number",
+      "expectedFactIds": ["fact-026-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-026-p1",
+      "scope": "<rootB>",
+      "query": "which port does charlie serve on locally",
+      "expectedFactIds": ["fact-026-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-026-p2",
+      "scope": "<rootB>",
+      "query": "charlie local network port for development",
+      "expectedFactIds": ["fact-026-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-027-v",
+      "scope": "<rootA>",
+      "query": "delta dev server port number",
+      "expectedFactIds": ["fact-027-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-027-p1",
+      "scope": "<rootA>",
+      "query": "which port does delta serve on locally",
+      "expectedFactIds": ["fact-027-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-027-p2",
+      "scope": "<rootA>",
+      "query": "delta local network port for development",
+      "expectedFactIds": ["fact-027-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-028-v",
+      "scope": "<rootB>",
+      "query": "delta dev server port number",
+      "expectedFactIds": ["fact-028-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-028-p1",
+      "scope": "<rootB>",
+      "query": "which port does delta serve on locally",
+      "expectedFactIds": ["fact-028-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-028-p2",
+      "scope": "<rootB>",
+      "query": "delta local network port for development",
+      "expectedFactIds": ["fact-028-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-029-v",
+      "scope": "<rootA>",
+      "query": "echo dev server port number",
+      "expectedFactIds": ["fact-029-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-029-p1",
+      "scope": "<rootA>",
+      "query": "which port does echo serve on locally",
+      "expectedFactIds": ["fact-029-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-029-p2",
+      "scope": "<rootA>",
+      "query": "echo local network port for development",
+      "expectedFactIds": ["fact-029-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-030-v",
+      "scope": "<rootB>",
+      "query": "echo dev server port number",
+      "expectedFactIds": ["fact-030-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-030-p1",
+      "scope": "<rootB>",
+      "query": "which port does echo serve on locally",
+      "expectedFactIds": ["fact-030-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-030-p2",
+      "scope": "<rootB>",
+      "query": "echo local network port for development",
+      "expectedFactIds": ["fact-030-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-031-v",
+      "scope": "<rootA>",
+      "query": "node version for alpha",
+      "expectedFactIds": ["fact-031-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-031-p1",
+      "scope": "<rootA>",
+      "query": "which runtime does alpha target",
+      "expectedFactIds": ["fact-031-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-031-p2",
+      "scope": "<rootA>",
+      "query": "alpha javascript engine requirement",
+      "expectedFactIds": ["fact-031-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "wt-fact-031",
+      "scope": "<worktreeOfA>",
+      "query": "alpha javascript engine requirement",
+      "expectedFactIds": ["fact-031-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-032-v",
+      "scope": "<rootB>",
+      "query": "node version for alpha",
+      "expectedFactIds": ["fact-032-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-032-p1",
+      "scope": "<rootB>",
+      "query": "which runtime does alpha target",
+      "expectedFactIds": ["fact-032-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-032-p2",
+      "scope": "<rootB>",
+      "query": "alpha javascript engine requirement",
+      "expectedFactIds": ["fact-032-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-033-v",
+      "scope": "<rootA>",
+      "query": "node version for bravo",
+      "expectedFactIds": ["fact-033-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-033-p1",
+      "scope": "<rootA>",
+      "query": "which runtime does bravo target",
+      "expectedFactIds": ["fact-033-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-033-p2",
+      "scope": "<rootA>",
+      "query": "bravo javascript engine requirement",
+      "expectedFactIds": ["fact-033-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-034-v",
+      "scope": "<rootB>",
+      "query": "node version for bravo",
+      "expectedFactIds": ["fact-034-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-034-p1",
+      "scope": "<rootB>",
+      "query": "which runtime does bravo target",
+      "expectedFactIds": ["fact-034-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-034-p2",
+      "scope": "<rootB>",
+      "query": "bravo javascript engine requirement",
+      "expectedFactIds": ["fact-034-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-035-v",
+      "scope": "<rootA>",
+      "query": "node version for charlie",
+      "expectedFactIds": ["fact-035-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-035-p1",
+      "scope": "<rootA>",
+      "query": "which runtime does charlie target",
+      "expectedFactIds": ["fact-035-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-035-p2",
+      "scope": "<rootA>",
+      "query": "charlie javascript engine requirement",
+      "expectedFactIds": ["fact-035-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-036-v",
+      "scope": "<rootB>",
+      "query": "node version for charlie",
+      "expectedFactIds": ["fact-036-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-036-p1",
+      "scope": "<rootB>",
+      "query": "which runtime does charlie target",
+      "expectedFactIds": ["fact-036-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-036-p2",
+      "scope": "<rootB>",
+      "query": "charlie javascript engine requirement",
+      "expectedFactIds": ["fact-036-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-037-v",
+      "scope": "<rootA>",
+      "query": "node version for delta",
+      "expectedFactIds": ["fact-037-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-037-p1",
+      "scope": "<rootA>",
+      "query": "which runtime does delta target",
+      "expectedFactIds": ["fact-037-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-037-p2",
+      "scope": "<rootA>",
+      "query": "delta javascript engine requirement",
+      "expectedFactIds": ["fact-037-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-038-v",
+      "scope": "<rootB>",
+      "query": "node version for delta",
+      "expectedFactIds": ["fact-038-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-038-p1",
+      "scope": "<rootB>",
+      "query": "which runtime does delta target",
+      "expectedFactIds": ["fact-038-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-038-p2",
+      "scope": "<rootB>",
+      "query": "delta javascript engine requirement",
+      "expectedFactIds": ["fact-038-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-039-v",
+      "scope": "<rootA>",
+      "query": "node version for echo",
+      "expectedFactIds": ["fact-039-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-039-p1",
+      "scope": "<rootA>",
+      "query": "which runtime does echo target",
+      "expectedFactIds": ["fact-039-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-039-p2",
+      "scope": "<rootA>",
+      "query": "echo javascript engine requirement",
+      "expectedFactIds": ["fact-039-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-040-v",
+      "scope": "<rootB>",
+      "query": "node version for echo",
+      "expectedFactIds": ["fact-040-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-040-p1",
+      "scope": "<rootB>",
+      "query": "which runtime does echo target",
+      "expectedFactIds": ["fact-040-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-040-p2",
+      "scope": "<rootB>",
+      "query": "echo javascript engine requirement",
+      "expectedFactIds": ["fact-040-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-041-v",
+      "scope": "<rootA>",
+      "query": "test runner for alpha",
+      "expectedFactIds": ["fact-041-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-041-p1",
+      "scope": "<rootA>",
+      "query": "what executes the alpha test suite",
+      "expectedFactIds": ["fact-041-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-041-p2",
+      "scope": "<rootA>",
+      "query": "alpha unit testing framework choice",
+      "expectedFactIds": ["fact-041-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "wt-fact-041",
+      "scope": "<worktreeOfA>",
+      "query": "alpha unit testing framework choice",
+      "expectedFactIds": ["fact-041-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-042-v",
+      "scope": "<rootB>",
+      "query": "test runner for alpha",
+      "expectedFactIds": ["fact-042-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-042-p1",
+      "scope": "<rootB>",
+      "query": "what executes the alpha test suite",
+      "expectedFactIds": ["fact-042-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-042-p2",
+      "scope": "<rootB>",
+      "query": "alpha unit testing framework choice",
+      "expectedFactIds": ["fact-042-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-043-v",
+      "scope": "<rootA>",
+      "query": "test runner for bravo",
+      "expectedFactIds": ["fact-043-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-043-p1",
+      "scope": "<rootA>",
+      "query": "what executes the bravo test suite",
+      "expectedFactIds": ["fact-043-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-043-p2",
+      "scope": "<rootA>",
+      "query": "bravo unit testing framework choice",
+      "expectedFactIds": ["fact-043-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-044-v",
+      "scope": "<rootB>",
+      "query": "test runner for bravo",
+      "expectedFactIds": ["fact-044-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-044-p1",
+      "scope": "<rootB>",
+      "query": "what executes the bravo test suite",
+      "expectedFactIds": ["fact-044-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-044-p2",
+      "scope": "<rootB>",
+      "query": "bravo unit testing framework choice",
+      "expectedFactIds": ["fact-044-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-045-v",
+      "scope": "<rootA>",
+      "query": "test runner for charlie",
+      "expectedFactIds": ["fact-045-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-045-p1",
+      "scope": "<rootA>",
+      "query": "what executes the charlie test suite",
+      "expectedFactIds": ["fact-045-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-045-p2",
+      "scope": "<rootA>",
+      "query": "charlie unit testing framework choice",
+      "expectedFactIds": ["fact-045-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-046-v",
+      "scope": "<rootB>",
+      "query": "test runner for charlie",
+      "expectedFactIds": ["fact-046-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-046-p1",
+      "scope": "<rootB>",
+      "query": "what executes the charlie test suite",
+      "expectedFactIds": ["fact-046-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-046-p2",
+      "scope": "<rootB>",
+      "query": "charlie unit testing framework choice",
+      "expectedFactIds": ["fact-046-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-047-v",
+      "scope": "<rootA>",
+      "query": "test runner for delta",
+      "expectedFactIds": ["fact-047-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-047-p1",
+      "scope": "<rootA>",
+      "query": "what executes the delta test suite",
+      "expectedFactIds": ["fact-047-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-047-p2",
+      "scope": "<rootA>",
+      "query": "delta unit testing framework choice",
+      "expectedFactIds": ["fact-047-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-048-v",
+      "scope": "<rootB>",
+      "query": "test runner for delta",
+      "expectedFactIds": ["fact-048-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-048-p1",
+      "scope": "<rootB>",
+      "query": "what executes the delta test suite",
+      "expectedFactIds": ["fact-048-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-048-p2",
+      "scope": "<rootB>",
+      "query": "delta unit testing framework choice",
+      "expectedFactIds": ["fact-048-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-049-v",
+      "scope": "<rootA>",
+      "query": "test runner for echo",
+      "expectedFactIds": ["fact-049-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-049-p1",
+      "scope": "<rootA>",
+      "query": "what executes the echo test suite",
+      "expectedFactIds": ["fact-049-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-049-p2",
+      "scope": "<rootA>",
+      "query": "echo unit testing framework choice",
+      "expectedFactIds": ["fact-049-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-050-v",
+      "scope": "<rootB>",
+      "query": "test runner for echo",
+      "expectedFactIds": ["fact-050-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-050-p1",
+      "scope": "<rootB>",
+      "query": "what executes the echo test suite",
+      "expectedFactIds": ["fact-050-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-050-p2",
+      "scope": "<rootB>",
+      "query": "echo unit testing framework choice",
+      "expectedFactIds": ["fact-050-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-051-v",
+      "scope": "<rootA>",
+      "query": "package manager for alpha",
+      "expectedFactIds": ["fact-051-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-051-p1",
+      "scope": "<rootA>",
+      "query": "which tool installs alpha dependencies",
+      "expectedFactIds": ["fact-051-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-051-p2",
+      "scope": "<rootA>",
+      "query": "alpha dependency install command",
+      "expectedFactIds": ["fact-051-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "wt-fact-051",
+      "scope": "<worktreeOfA>",
+      "query": "alpha dependency install command",
+      "expectedFactIds": ["fact-051-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-052-v",
+      "scope": "<rootB>",
+      "query": "package manager for alpha",
+      "expectedFactIds": ["fact-052-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-052-p1",
+      "scope": "<rootB>",
+      "query": "which tool installs alpha dependencies",
+      "expectedFactIds": ["fact-052-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-052-p2",
+      "scope": "<rootB>",
+      "query": "alpha dependency install command",
+      "expectedFactIds": ["fact-052-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-053-v",
+      "scope": "<rootA>",
+      "query": "package manager for bravo",
+      "expectedFactIds": ["fact-053-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-053-p1",
+      "scope": "<rootA>",
+      "query": "which tool installs bravo dependencies",
+      "expectedFactIds": ["fact-053-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-053-p2",
+      "scope": "<rootA>",
+      "query": "bravo dependency install command",
+      "expectedFactIds": ["fact-053-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-054-v",
+      "scope": "<rootB>",
+      "query": "package manager for bravo",
+      "expectedFactIds": ["fact-054-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-054-p1",
+      "scope": "<rootB>",
+      "query": "which tool installs bravo dependencies",
+      "expectedFactIds": ["fact-054-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-054-p2",
+      "scope": "<rootB>",
+      "query": "bravo dependency install command",
+      "expectedFactIds": ["fact-054-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-055-v",
+      "scope": "<rootA>",
+      "query": "package manager for charlie",
+      "expectedFactIds": ["fact-055-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-055-p1",
+      "scope": "<rootA>",
+      "query": "which tool installs charlie dependencies",
+      "expectedFactIds": ["fact-055-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-055-p2",
+      "scope": "<rootA>",
+      "query": "charlie dependency install command",
+      "expectedFactIds": ["fact-055-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-056-v",
+      "scope": "<rootB>",
+      "query": "package manager for charlie",
+      "expectedFactIds": ["fact-056-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-056-p1",
+      "scope": "<rootB>",
+      "query": "which tool installs charlie dependencies",
+      "expectedFactIds": ["fact-056-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-056-p2",
+      "scope": "<rootB>",
+      "query": "charlie dependency install command",
+      "expectedFactIds": ["fact-056-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-057-v",
+      "scope": "<rootA>",
+      "query": "package manager for delta",
+      "expectedFactIds": ["fact-057-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-057-p1",
+      "scope": "<rootA>",
+      "query": "which tool installs delta dependencies",
+      "expectedFactIds": ["fact-057-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-057-p2",
+      "scope": "<rootA>",
+      "query": "delta dependency install command",
+      "expectedFactIds": ["fact-057-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-058-v",
+      "scope": "<rootB>",
+      "query": "package manager for delta",
+      "expectedFactIds": ["fact-058-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-058-p1",
+      "scope": "<rootB>",
+      "query": "which tool installs delta dependencies",
+      "expectedFactIds": ["fact-058-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-058-p2",
+      "scope": "<rootB>",
+      "query": "delta dependency install command",
+      "expectedFactIds": ["fact-058-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-059-v",
+      "scope": "<rootA>",
+      "query": "package manager for echo",
+      "expectedFactIds": ["fact-059-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-059-p1",
+      "scope": "<rootA>",
+      "query": "which tool installs echo dependencies",
+      "expectedFactIds": ["fact-059-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-059-p2",
+      "scope": "<rootA>",
+      "query": "echo dependency install command",
+      "expectedFactIds": ["fact-059-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-060-v",
+      "scope": "<rootB>",
+      "query": "package manager for echo",
+      "expectedFactIds": ["fact-060-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-060-p1",
+      "scope": "<rootB>",
+      "query": "which tool installs echo dependencies",
+      "expectedFactIds": ["fact-060-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-060-p2",
+      "scope": "<rootB>",
+      "query": "echo dependency install command",
+      "expectedFactIds": ["fact-060-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-061-v",
+      "scope": "<rootA>",
+      "query": "code formatter for alpha",
+      "expectedFactIds": ["fact-061-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-061-p1",
+      "scope": "<rootA>",
+      "query": "which tool styles alpha source files",
+      "expectedFactIds": ["fact-061-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-061-p2",
+      "scope": "<rootA>",
+      "query": "alpha formatting engine",
+      "expectedFactIds": ["fact-061-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "wt-fact-061",
+      "scope": "<worktreeOfA>",
+      "query": "alpha formatting engine",
+      "expectedFactIds": ["fact-061-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-062-v",
+      "scope": "<rootB>",
+      "query": "code formatter for alpha",
+      "expectedFactIds": ["fact-062-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-062-p1",
+      "scope": "<rootB>",
+      "query": "which tool styles alpha source files",
+      "expectedFactIds": ["fact-062-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-062-p2",
+      "scope": "<rootB>",
+      "query": "alpha formatting engine",
+      "expectedFactIds": ["fact-062-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-063-v",
+      "scope": "<rootA>",
+      "query": "code formatter for bravo",
+      "expectedFactIds": ["fact-063-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-063-p1",
+      "scope": "<rootA>",
+      "query": "which tool styles bravo source files",
+      "expectedFactIds": ["fact-063-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-063-p2",
+      "scope": "<rootA>",
+      "query": "bravo formatting engine",
+      "expectedFactIds": ["fact-063-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-064-v",
+      "scope": "<rootB>",
+      "query": "code formatter for bravo",
+      "expectedFactIds": ["fact-064-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-064-p1",
+      "scope": "<rootB>",
+      "query": "which tool styles bravo source files",
+      "expectedFactIds": ["fact-064-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-064-p2",
+      "scope": "<rootB>",
+      "query": "bravo formatting engine",
+      "expectedFactIds": ["fact-064-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-065-v",
+      "scope": "<rootA>",
+      "query": "code formatter for charlie",
+      "expectedFactIds": ["fact-065-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-065-p1",
+      "scope": "<rootA>",
+      "query": "which tool styles charlie source files",
+      "expectedFactIds": ["fact-065-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-065-p2",
+      "scope": "<rootA>",
+      "query": "charlie formatting engine",
+      "expectedFactIds": ["fact-065-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-066-v",
+      "scope": "<rootB>",
+      "query": "code formatter for charlie",
+      "expectedFactIds": ["fact-066-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-066-p1",
+      "scope": "<rootB>",
+      "query": "which tool styles charlie source files",
+      "expectedFactIds": ["fact-066-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-066-p2",
+      "scope": "<rootB>",
+      "query": "charlie formatting engine",
+      "expectedFactIds": ["fact-066-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-067-v",
+      "scope": "<rootA>",
+      "query": "code formatter for delta",
+      "expectedFactIds": ["fact-067-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-067-p1",
+      "scope": "<rootA>",
+      "query": "which tool styles delta source files",
+      "expectedFactIds": ["fact-067-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-067-p2",
+      "scope": "<rootA>",
+      "query": "delta formatting engine",
+      "expectedFactIds": ["fact-067-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-068-v",
+      "scope": "<rootB>",
+      "query": "code formatter for delta",
+      "expectedFactIds": ["fact-068-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-068-p1",
+      "scope": "<rootB>",
+      "query": "which tool styles delta source files",
+      "expectedFactIds": ["fact-068-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-068-p2",
+      "scope": "<rootB>",
+      "query": "delta formatting engine",
+      "expectedFactIds": ["fact-068-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-069-v",
+      "scope": "<rootA>",
+      "query": "code formatter for echo",
+      "expectedFactIds": ["fact-069-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-069-p1",
+      "scope": "<rootA>",
+      "query": "which tool styles echo source files",
+      "expectedFactIds": ["fact-069-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-069-p2",
+      "scope": "<rootA>",
+      "query": "echo formatting engine",
+      "expectedFactIds": ["fact-069-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-070-v",
+      "scope": "<rootB>",
+      "query": "code formatter for echo",
+      "expectedFactIds": ["fact-070-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-070-p1",
+      "scope": "<rootB>",
+      "query": "which tool styles echo source files",
+      "expectedFactIds": ["fact-070-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-070-p2",
+      "scope": "<rootB>",
+      "query": "echo formatting engine",
+      "expectedFactIds": ["fact-070-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-071-v",
+      "scope": "<rootA>",
+      "query": "migration language for alpha",
+      "expectedFactIds": ["fact-071-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-071-p1",
+      "scope": "<rootA>",
+      "query": "how are alpha schema changes authored",
+      "expectedFactIds": ["fact-071-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-071-p2",
+      "scope": "<rootA>",
+      "query": "alpha database change file format",
+      "expectedFactIds": ["fact-071-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "wt-fact-071",
+      "scope": "<worktreeOfA>",
+      "query": "alpha database change file format",
+      "expectedFactIds": ["fact-071-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-072-v",
+      "scope": "<rootB>",
+      "query": "migration language for alpha",
+      "expectedFactIds": ["fact-072-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-072-p1",
+      "scope": "<rootB>",
+      "query": "how are alpha schema changes authored",
+      "expectedFactIds": ["fact-072-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-072-p2",
+      "scope": "<rootB>",
+      "query": "alpha database change file format",
+      "expectedFactIds": ["fact-072-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-073-v",
+      "scope": "<rootA>",
+      "query": "migration language for bravo",
+      "expectedFactIds": ["fact-073-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-073-p1",
+      "scope": "<rootA>",
+      "query": "how are bravo schema changes authored",
+      "expectedFactIds": ["fact-073-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-073-p2",
+      "scope": "<rootA>",
+      "query": "bravo database change file format",
+      "expectedFactIds": ["fact-073-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-074-v",
+      "scope": "<rootB>",
+      "query": "migration language for bravo",
+      "expectedFactIds": ["fact-074-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-074-p1",
+      "scope": "<rootB>",
+      "query": "how are bravo schema changes authored",
+      "expectedFactIds": ["fact-074-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-074-p2",
+      "scope": "<rootB>",
+      "query": "bravo database change file format",
+      "expectedFactIds": ["fact-074-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-075-v",
+      "scope": "<rootA>",
+      "query": "migration language for charlie",
+      "expectedFactIds": ["fact-075-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-075-p1",
+      "scope": "<rootA>",
+      "query": "how are charlie schema changes authored",
+      "expectedFactIds": ["fact-075-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-075-p2",
+      "scope": "<rootA>",
+      "query": "charlie database change file format",
+      "expectedFactIds": ["fact-075-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-076-v",
+      "scope": "<rootB>",
+      "query": "migration language for charlie",
+      "expectedFactIds": ["fact-076-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-076-p1",
+      "scope": "<rootB>",
+      "query": "how are charlie schema changes authored",
+      "expectedFactIds": ["fact-076-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-076-p2",
+      "scope": "<rootB>",
+      "query": "charlie database change file format",
+      "expectedFactIds": ["fact-076-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-077-v",
+      "scope": "<rootA>",
+      "query": "migration language for delta",
+      "expectedFactIds": ["fact-077-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-077-p1",
+      "scope": "<rootA>",
+      "query": "how are delta schema changes authored",
+      "expectedFactIds": ["fact-077-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-077-p2",
+      "scope": "<rootA>",
+      "query": "delta database change file format",
+      "expectedFactIds": ["fact-077-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-078-v",
+      "scope": "<rootB>",
+      "query": "migration language for delta",
+      "expectedFactIds": ["fact-078-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-078-p1",
+      "scope": "<rootB>",
+      "query": "how are delta schema changes authored",
+      "expectedFactIds": ["fact-078-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-078-p2",
+      "scope": "<rootB>",
+      "query": "delta database change file format",
+      "expectedFactIds": ["fact-078-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-079-v",
+      "scope": "<rootA>",
+      "query": "migration language for echo",
+      "expectedFactIds": ["fact-079-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-079-p1",
+      "scope": "<rootA>",
+      "query": "how are echo schema changes authored",
+      "expectedFactIds": ["fact-079-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-079-p2",
+      "scope": "<rootA>",
+      "query": "echo database change file format",
+      "expectedFactIds": ["fact-079-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-080-v",
+      "scope": "<rootB>",
+      "query": "migration language for echo",
+      "expectedFactIds": ["fact-080-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-080-p1",
+      "scope": "<rootB>",
+      "query": "how are echo schema changes authored",
+      "expectedFactIds": ["fact-080-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-080-p2",
+      "scope": "<rootB>",
+      "query": "echo database change file format",
+      "expectedFactIds": ["fact-080-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-081-v",
+      "scope": "<rootA>",
+      "query": "review approval needed in alpha",
+      "expectedFactIds": ["fact-081-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-081-p1",
+      "scope": "<rootA>",
+      "query": "how many approvals gate a alpha merge",
+      "expectedFactIds": ["fact-081-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-081-p2",
+      "scope": "<rootA>",
+      "query": "alpha merge rule on reviewers",
+      "expectedFactIds": ["fact-081-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "wt-fact-081",
+      "scope": "<worktreeOfA>",
+      "query": "alpha merge rule on reviewers",
+      "expectedFactIds": ["fact-081-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-082-v",
+      "scope": "<rootB>",
+      "query": "review approval needed in alpha",
+      "expectedFactIds": ["fact-082-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-082-p1",
+      "scope": "<rootB>",
+      "query": "how many approvals gate a alpha merge",
+      "expectedFactIds": ["fact-082-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-082-p2",
+      "scope": "<rootB>",
+      "query": "alpha merge rule on reviewers",
+      "expectedFactIds": ["fact-082-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-083-v",
+      "scope": "<rootA>",
+      "query": "review approval needed in bravo",
+      "expectedFactIds": ["fact-083-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-083-p1",
+      "scope": "<rootA>",
+      "query": "how many approvals gate a bravo merge",
+      "expectedFactIds": ["fact-083-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-083-p2",
+      "scope": "<rootA>",
+      "query": "bravo merge rule on reviewers",
+      "expectedFactIds": ["fact-083-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-084-v",
+      "scope": "<rootB>",
+      "query": "review approval needed in bravo",
+      "expectedFactIds": ["fact-084-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-084-p1",
+      "scope": "<rootB>",
+      "query": "how many approvals gate a bravo merge",
+      "expectedFactIds": ["fact-084-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-084-p2",
+      "scope": "<rootB>",
+      "query": "bravo merge rule on reviewers",
+      "expectedFactIds": ["fact-084-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-085-v",
+      "scope": "<rootA>",
+      "query": "review approval needed in charlie",
+      "expectedFactIds": ["fact-085-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-085-p1",
+      "scope": "<rootA>",
+      "query": "how many approvals gate a charlie merge",
+      "expectedFactIds": ["fact-085-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-085-p2",
+      "scope": "<rootA>",
+      "query": "charlie merge rule on reviewers",
+      "expectedFactIds": ["fact-085-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-086-v",
+      "scope": "<rootB>",
+      "query": "review approval needed in charlie",
+      "expectedFactIds": ["fact-086-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-086-p1",
+      "scope": "<rootB>",
+      "query": "how many approvals gate a charlie merge",
+      "expectedFactIds": ["fact-086-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-086-p2",
+      "scope": "<rootB>",
+      "query": "charlie merge rule on reviewers",
+      "expectedFactIds": ["fact-086-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-087-v",
+      "scope": "<rootA>",
+      "query": "review approval needed in delta",
+      "expectedFactIds": ["fact-087-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-087-p1",
+      "scope": "<rootA>",
+      "query": "how many approvals gate a delta merge",
+      "expectedFactIds": ["fact-087-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-087-p2",
+      "scope": "<rootA>",
+      "query": "delta merge rule on reviewers",
+      "expectedFactIds": ["fact-087-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-088-v",
+      "scope": "<rootB>",
+      "query": "review approval needed in delta",
+      "expectedFactIds": ["fact-088-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-088-p1",
+      "scope": "<rootB>",
+      "query": "how many approvals gate a delta merge",
+      "expectedFactIds": ["fact-088-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-088-p2",
+      "scope": "<rootB>",
+      "query": "delta merge rule on reviewers",
+      "expectedFactIds": ["fact-088-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-089-v",
+      "scope": "<rootA>",
+      "query": "review approval needed in echo",
+      "expectedFactIds": ["fact-089-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-089-p1",
+      "scope": "<rootA>",
+      "query": "how many approvals gate a echo merge",
+      "expectedFactIds": ["fact-089-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-089-p2",
+      "scope": "<rootA>",
+      "query": "echo merge rule on reviewers",
+      "expectedFactIds": ["fact-089-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-090-v",
+      "scope": "<rootB>",
+      "query": "review approval needed in echo",
+      "expectedFactIds": ["fact-090-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-090-p1",
+      "scope": "<rootB>",
+      "query": "how many approvals gate a echo merge",
+      "expectedFactIds": ["fact-090-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-090-p2",
+      "scope": "<rootB>",
+      "query": "echo merge rule on reviewers",
+      "expectedFactIds": ["fact-090-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-091-v",
+      "scope": "<rootA>",
+      "query": "release branch for alpha",
+      "expectedFactIds": ["fact-091-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-091-p1",
+      "scope": "<rootA>",
+      "query": "where do alpha releases come from",
+      "expectedFactIds": ["fact-091-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-091-p2",
+      "scope": "<rootA>",
+      "query": "which branch ships alpha versions",
+      "expectedFactIds": ["fact-091-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "wt-fact-091",
+      "scope": "<worktreeOfA>",
+      "query": "which branch ships alpha versions",
+      "expectedFactIds": ["fact-091-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-092-v",
+      "scope": "<rootB>",
+      "query": "release branch for alpha",
+      "expectedFactIds": ["fact-092-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-092-p1",
+      "scope": "<rootB>",
+      "query": "where do alpha releases come from",
+      "expectedFactIds": ["fact-092-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-092-p2",
+      "scope": "<rootB>",
+      "query": "which branch ships alpha versions",
+      "expectedFactIds": ["fact-092-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-093-v",
+      "scope": "<rootA>",
+      "query": "release branch for bravo",
+      "expectedFactIds": ["fact-093-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-093-p1",
+      "scope": "<rootA>",
+      "query": "where do bravo releases come from",
+      "expectedFactIds": ["fact-093-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-093-p2",
+      "scope": "<rootA>",
+      "query": "which branch ships bravo versions",
+      "expectedFactIds": ["fact-093-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-094-v",
+      "scope": "<rootB>",
+      "query": "release branch for bravo",
+      "expectedFactIds": ["fact-094-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-094-p1",
+      "scope": "<rootB>",
+      "query": "where do bravo releases come from",
+      "expectedFactIds": ["fact-094-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-094-p2",
+      "scope": "<rootB>",
+      "query": "which branch ships bravo versions",
+      "expectedFactIds": ["fact-094-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-095-v",
+      "scope": "<rootA>",
+      "query": "release branch for charlie",
+      "expectedFactIds": ["fact-095-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-095-p1",
+      "scope": "<rootA>",
+      "query": "where do charlie releases come from",
+      "expectedFactIds": ["fact-095-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-095-p2",
+      "scope": "<rootA>",
+      "query": "which branch ships charlie versions",
+      "expectedFactIds": ["fact-095-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-096-v",
+      "scope": "<rootB>",
+      "query": "release branch for charlie",
+      "expectedFactIds": ["fact-096-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-096-p1",
+      "scope": "<rootB>",
+      "query": "where do charlie releases come from",
+      "expectedFactIds": ["fact-096-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-096-p2",
+      "scope": "<rootB>",
+      "query": "which branch ships charlie versions",
+      "expectedFactIds": ["fact-096-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-097-v",
+      "scope": "<rootA>",
+      "query": "release branch for delta",
+      "expectedFactIds": ["fact-097-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-097-p1",
+      "scope": "<rootA>",
+      "query": "where do delta releases come from",
+      "expectedFactIds": ["fact-097-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-097-p2",
+      "scope": "<rootA>",
+      "query": "which branch ships delta versions",
+      "expectedFactIds": ["fact-097-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-098-v",
+      "scope": "<rootB>",
+      "query": "release branch for delta",
+      "expectedFactIds": ["fact-098-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-098-p1",
+      "scope": "<rootB>",
+      "query": "where do delta releases come from",
+      "expectedFactIds": ["fact-098-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-098-p2",
+      "scope": "<rootB>",
+      "query": "which branch ships delta versions",
+      "expectedFactIds": ["fact-098-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-099-v",
+      "scope": "<rootA>",
+      "query": "release branch for echo",
+      "expectedFactIds": ["fact-099-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-099-p1",
+      "scope": "<rootA>",
+      "query": "where do echo releases come from",
+      "expectedFactIds": ["fact-099-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-099-p2",
+      "scope": "<rootA>",
+      "query": "which branch ships echo versions",
+      "expectedFactIds": ["fact-099-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-100-v",
+      "scope": "<rootB>",
+      "query": "release branch for echo",
+      "expectedFactIds": ["fact-100-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-100-p1",
+      "scope": "<rootB>",
+      "query": "where do echo releases come from",
+      "expectedFactIds": ["fact-100-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-100-p2",
+      "scope": "<rootB>",
+      "query": "which branch ships echo versions",
+      "expectedFactIds": ["fact-100-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-101-v",
+      "scope": "<rootA>",
+      "query": "error reporting tool for alpha",
+      "expectedFactIds": ["fact-101-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-101-p1",
+      "scope": "<rootA>",
+      "query": "where do alpha failures get reported",
+      "expectedFactIds": ["fact-101-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-101-p2",
+      "scope": "<rootA>",
+      "query": "alpha crash reporting destination",
+      "expectedFactIds": ["fact-101-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "wt-fact-101",
+      "scope": "<worktreeOfA>",
+      "query": "alpha crash reporting destination",
+      "expectedFactIds": ["fact-101-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-102-v",
+      "scope": "<rootB>",
+      "query": "error reporting tool for alpha",
+      "expectedFactIds": ["fact-102-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-102-p1",
+      "scope": "<rootB>",
+      "query": "where do alpha failures get reported",
+      "expectedFactIds": ["fact-102-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-102-p2",
+      "scope": "<rootB>",
+      "query": "alpha crash reporting destination",
+      "expectedFactIds": ["fact-102-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-103-v",
+      "scope": "<rootA>",
+      "query": "error reporting tool for bravo",
+      "expectedFactIds": ["fact-103-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-103-p1",
+      "scope": "<rootA>",
+      "query": "where do bravo failures get reported",
+      "expectedFactIds": ["fact-103-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-103-p2",
+      "scope": "<rootA>",
+      "query": "bravo crash reporting destination",
+      "expectedFactIds": ["fact-103-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-104-v",
+      "scope": "<rootB>",
+      "query": "error reporting tool for bravo",
+      "expectedFactIds": ["fact-104-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-104-p1",
+      "scope": "<rootB>",
+      "query": "where do bravo failures get reported",
+      "expectedFactIds": ["fact-104-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-104-p2",
+      "scope": "<rootB>",
+      "query": "bravo crash reporting destination",
+      "expectedFactIds": ["fact-104-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-105-v",
+      "scope": "<rootA>",
+      "query": "error reporting tool for charlie",
+      "expectedFactIds": ["fact-105-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-105-p1",
+      "scope": "<rootA>",
+      "query": "where do charlie failures get reported",
+      "expectedFactIds": ["fact-105-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-105-p2",
+      "scope": "<rootA>",
+      "query": "charlie crash reporting destination",
+      "expectedFactIds": ["fact-105-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-106-v",
+      "scope": "<rootB>",
+      "query": "error reporting tool for charlie",
+      "expectedFactIds": ["fact-106-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-106-p1",
+      "scope": "<rootB>",
+      "query": "where do charlie failures get reported",
+      "expectedFactIds": ["fact-106-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-106-p2",
+      "scope": "<rootB>",
+      "query": "charlie crash reporting destination",
+      "expectedFactIds": ["fact-106-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-107-v",
+      "scope": "<rootA>",
+      "query": "error reporting tool for delta",
+      "expectedFactIds": ["fact-107-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-107-p1",
+      "scope": "<rootA>",
+      "query": "where do delta failures get reported",
+      "expectedFactIds": ["fact-107-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-107-p2",
+      "scope": "<rootA>",
+      "query": "delta crash reporting destination",
+      "expectedFactIds": ["fact-107-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-108-v",
+      "scope": "<rootB>",
+      "query": "error reporting tool for delta",
+      "expectedFactIds": ["fact-108-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-108-p1",
+      "scope": "<rootB>",
+      "query": "where do delta failures get reported",
+      "expectedFactIds": ["fact-108-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-108-p2",
+      "scope": "<rootB>",
+      "query": "delta crash reporting destination",
+      "expectedFactIds": ["fact-108-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-109-v",
+      "scope": "<rootA>",
+      "query": "error reporting tool for echo",
+      "expectedFactIds": ["fact-109-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-109-p1",
+      "scope": "<rootA>",
+      "query": "where do echo failures get reported",
+      "expectedFactIds": ["fact-109-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-109-p2",
+      "scope": "<rootA>",
+      "query": "echo crash reporting destination",
+      "expectedFactIds": ["fact-109-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-110-v",
+      "scope": "<rootB>",
+      "query": "error reporting tool for echo",
+      "expectedFactIds": ["fact-110-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-110-p1",
+      "scope": "<rootB>",
+      "query": "where do echo failures get reported",
+      "expectedFactIds": ["fact-110-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-110-p2",
+      "scope": "<rootB>",
+      "query": "echo crash reporting destination",
+      "expectedFactIds": ["fact-110-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-111-v",
+      "scope": "<rootA>",
+      "query": "cache backend for alpha",
+      "expectedFactIds": ["fact-111-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-111-p1",
+      "scope": "<rootA>",
+      "query": "where does alpha keep cached data",
+      "expectedFactIds": ["fact-111-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-111-p2",
+      "scope": "<rootA>",
+      "query": "alpha cache storage engine",
+      "expectedFactIds": ["fact-111-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "wt-fact-111",
+      "scope": "<worktreeOfA>",
+      "query": "alpha cache storage engine",
+      "expectedFactIds": ["fact-111-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-112-v",
+      "scope": "<rootB>",
+      "query": "cache backend for alpha",
+      "expectedFactIds": ["fact-112-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-112-p1",
+      "scope": "<rootB>",
+      "query": "where does alpha keep cached data",
+      "expectedFactIds": ["fact-112-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-112-p2",
+      "scope": "<rootB>",
+      "query": "alpha cache storage engine",
+      "expectedFactIds": ["fact-112-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-113-v",
+      "scope": "<rootA>",
+      "query": "cache backend for bravo",
+      "expectedFactIds": ["fact-113-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-113-p1",
+      "scope": "<rootA>",
+      "query": "where does bravo keep cached data",
+      "expectedFactIds": ["fact-113-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-113-p2",
+      "scope": "<rootA>",
+      "query": "bravo cache storage engine",
+      "expectedFactIds": ["fact-113-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-114-v",
+      "scope": "<rootB>",
+      "query": "cache backend for bravo",
+      "expectedFactIds": ["fact-114-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-114-p1",
+      "scope": "<rootB>",
+      "query": "where does bravo keep cached data",
+      "expectedFactIds": ["fact-114-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-114-p2",
+      "scope": "<rootB>",
+      "query": "bravo cache storage engine",
+      "expectedFactIds": ["fact-114-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-115-v",
+      "scope": "<rootA>",
+      "query": "cache backend for charlie",
+      "expectedFactIds": ["fact-115-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-115-p1",
+      "scope": "<rootA>",
+      "query": "where does charlie keep cached data",
+      "expectedFactIds": ["fact-115-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-115-p2",
+      "scope": "<rootA>",
+      "query": "charlie cache storage engine",
+      "expectedFactIds": ["fact-115-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-116-v",
+      "scope": "<rootB>",
+      "query": "cache backend for charlie",
+      "expectedFactIds": ["fact-116-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-116-p1",
+      "scope": "<rootB>",
+      "query": "where does charlie keep cached data",
+      "expectedFactIds": ["fact-116-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-116-p2",
+      "scope": "<rootB>",
+      "query": "charlie cache storage engine",
+      "expectedFactIds": ["fact-116-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-117-v",
+      "scope": "<rootA>",
+      "query": "cache backend for delta",
+      "expectedFactIds": ["fact-117-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-117-p1",
+      "scope": "<rootA>",
+      "query": "where does delta keep cached data",
+      "expectedFactIds": ["fact-117-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-117-p2",
+      "scope": "<rootA>",
+      "query": "delta cache storage engine",
+      "expectedFactIds": ["fact-117-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-118-v",
+      "scope": "<rootB>",
+      "query": "cache backend for delta",
+      "expectedFactIds": ["fact-118-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-118-p1",
+      "scope": "<rootB>",
+      "query": "where does delta keep cached data",
+      "expectedFactIds": ["fact-118-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-118-p2",
+      "scope": "<rootB>",
+      "query": "delta cache storage engine",
+      "expectedFactIds": ["fact-118-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-119-v",
+      "scope": "<rootA>",
+      "query": "cache backend for echo",
+      "expectedFactIds": ["fact-119-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-119-p1",
+      "scope": "<rootA>",
+      "query": "where does echo keep cached data",
+      "expectedFactIds": ["fact-119-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-119-p2",
+      "scope": "<rootA>",
+      "query": "echo cache storage engine",
+      "expectedFactIds": ["fact-119-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-120-v",
+      "scope": "<rootB>",
+      "query": "cache backend for echo",
+      "expectedFactIds": ["fact-120-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-120-p1",
+      "scope": "<rootB>",
+      "query": "where does echo keep cached data",
+      "expectedFactIds": ["fact-120-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-120-p2",
+      "scope": "<rootB>",
+      "query": "echo cache storage engine",
+      "expectedFactIds": ["fact-120-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-121-v",
+      "scope": "<rootA>",
+      "query": "ci schedule for alpha",
+      "expectedFactIds": ["fact-121-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-121-p1",
+      "scope": "<rootA>",
+      "query": "when does the alpha pipeline trigger",
+      "expectedFactIds": ["fact-121-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-121-p2",
+      "scope": "<rootA>",
+      "query": "alpha build automation timing",
+      "expectedFactIds": ["fact-121-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "wt-fact-121",
+      "scope": "<worktreeOfA>",
+      "query": "alpha build automation timing",
+      "expectedFactIds": ["fact-121-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-122-v",
+      "scope": "<rootB>",
+      "query": "ci schedule for alpha",
+      "expectedFactIds": ["fact-122-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-122-p1",
+      "scope": "<rootB>",
+      "query": "when does the alpha pipeline trigger",
+      "expectedFactIds": ["fact-122-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-122-p2",
+      "scope": "<rootB>",
+      "query": "alpha build automation timing",
+      "expectedFactIds": ["fact-122-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-123-v",
+      "scope": "<rootA>",
+      "query": "ci schedule for bravo",
+      "expectedFactIds": ["fact-123-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-123-p1",
+      "scope": "<rootA>",
+      "query": "when does the bravo pipeline trigger",
+      "expectedFactIds": ["fact-123-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-123-p2",
+      "scope": "<rootA>",
+      "query": "bravo build automation timing",
+      "expectedFactIds": ["fact-123-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-124-v",
+      "scope": "<rootB>",
+      "query": "ci schedule for bravo",
+      "expectedFactIds": ["fact-124-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-124-p1",
+      "scope": "<rootB>",
+      "query": "when does the bravo pipeline trigger",
+      "expectedFactIds": ["fact-124-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-124-p2",
+      "scope": "<rootB>",
+      "query": "bravo build automation timing",
+      "expectedFactIds": ["fact-124-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-125-v",
+      "scope": "<rootA>",
+      "query": "ci schedule for charlie",
+      "expectedFactIds": ["fact-125-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-125-p1",
+      "scope": "<rootA>",
+      "query": "when does the charlie pipeline trigger",
+      "expectedFactIds": ["fact-125-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-125-p2",
+      "scope": "<rootA>",
+      "query": "charlie build automation timing",
+      "expectedFactIds": ["fact-125-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-126-v",
+      "scope": "<rootB>",
+      "query": "ci schedule for charlie",
+      "expectedFactIds": ["fact-126-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-126-p1",
+      "scope": "<rootB>",
+      "query": "when does the charlie pipeline trigger",
+      "expectedFactIds": ["fact-126-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-126-p2",
+      "scope": "<rootB>",
+      "query": "charlie build automation timing",
+      "expectedFactIds": ["fact-126-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-127-v",
+      "scope": "<rootA>",
+      "query": "ci schedule for delta",
+      "expectedFactIds": ["fact-127-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-127-p1",
+      "scope": "<rootA>",
+      "query": "when does the delta pipeline trigger",
+      "expectedFactIds": ["fact-127-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-127-p2",
+      "scope": "<rootA>",
+      "query": "delta build automation timing",
+      "expectedFactIds": ["fact-127-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-128-v",
+      "scope": "<rootB>",
+      "query": "ci schedule for delta",
+      "expectedFactIds": ["fact-128-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-128-p1",
+      "scope": "<rootB>",
+      "query": "when does the delta pipeline trigger",
+      "expectedFactIds": ["fact-128-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-128-p2",
+      "scope": "<rootB>",
+      "query": "delta build automation timing",
+      "expectedFactIds": ["fact-128-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-129-v",
+      "scope": "<rootA>",
+      "query": "ci schedule for echo",
+      "expectedFactIds": ["fact-129-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-129-p1",
+      "scope": "<rootA>",
+      "query": "when does the echo pipeline trigger",
+      "expectedFactIds": ["fact-129-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-129-p2",
+      "scope": "<rootA>",
+      "query": "echo build automation timing",
+      "expectedFactIds": ["fact-129-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-130-v",
+      "scope": "<rootB>",
+      "query": "ci schedule for echo",
+      "expectedFactIds": ["fact-130-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-130-p1",
+      "scope": "<rootB>",
+      "query": "when does the echo pipeline trigger",
+      "expectedFactIds": ["fact-130-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-130-p2",
+      "scope": "<rootB>",
+      "query": "echo build automation timing",
+      "expectedFactIds": ["fact-130-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-131-v",
+      "scope": "<rootA>",
+      "query": "tool result budget in alpha",
+      "expectedFactIds": ["fact-131-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-131-p1",
+      "scope": "<rootA>",
+      "query": "how large can a alpha tool answer be",
+      "expectedFactIds": ["fact-131-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-131-p2",
+      "scope": "<rootA>",
+      "query": "alpha response size limit",
+      "expectedFactIds": ["fact-131-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "wt-fact-131",
+      "scope": "<worktreeOfA>",
+      "query": "alpha response size limit",
+      "expectedFactIds": ["fact-131-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-132-v",
+      "scope": "<rootB>",
+      "query": "tool result budget in alpha",
+      "expectedFactIds": ["fact-132-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-132-p1",
+      "scope": "<rootB>",
+      "query": "how large can a alpha tool answer be",
+      "expectedFactIds": ["fact-132-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-132-p2",
+      "scope": "<rootB>",
+      "query": "alpha response size limit",
+      "expectedFactIds": ["fact-132-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-133-v",
+      "scope": "<rootA>",
+      "query": "tool result budget in bravo",
+      "expectedFactIds": ["fact-133-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-133-p1",
+      "scope": "<rootA>",
+      "query": "how large can a bravo tool answer be",
+      "expectedFactIds": ["fact-133-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-133-p2",
+      "scope": "<rootA>",
+      "query": "bravo response size limit",
+      "expectedFactIds": ["fact-133-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-134-v",
+      "scope": "<rootB>",
+      "query": "tool result budget in bravo",
+      "expectedFactIds": ["fact-134-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-134-p1",
+      "scope": "<rootB>",
+      "query": "how large can a bravo tool answer be",
+      "expectedFactIds": ["fact-134-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-134-p2",
+      "scope": "<rootB>",
+      "query": "bravo response size limit",
+      "expectedFactIds": ["fact-134-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-135-v",
+      "scope": "<rootA>",
+      "query": "tool result budget in charlie",
+      "expectedFactIds": ["fact-135-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-135-p1",
+      "scope": "<rootA>",
+      "query": "how large can a charlie tool answer be",
+      "expectedFactIds": ["fact-135-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-135-p2",
+      "scope": "<rootA>",
+      "query": "charlie response size limit",
+      "expectedFactIds": ["fact-135-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-136-v",
+      "scope": "<rootB>",
+      "query": "tool result budget in charlie",
+      "expectedFactIds": ["fact-136-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-136-p1",
+      "scope": "<rootB>",
+      "query": "how large can a charlie tool answer be",
+      "expectedFactIds": ["fact-136-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-136-p2",
+      "scope": "<rootB>",
+      "query": "charlie response size limit",
+      "expectedFactIds": ["fact-136-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-137-v",
+      "scope": "<rootA>",
+      "query": "tool result budget in delta",
+      "expectedFactIds": ["fact-137-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-137-p1",
+      "scope": "<rootA>",
+      "query": "how large can a delta tool answer be",
+      "expectedFactIds": ["fact-137-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-137-p2",
+      "scope": "<rootA>",
+      "query": "delta response size limit",
+      "expectedFactIds": ["fact-137-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-138-v",
+      "scope": "<rootB>",
+      "query": "tool result budget in delta",
+      "expectedFactIds": ["fact-138-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-138-p1",
+      "scope": "<rootB>",
+      "query": "how large can a delta tool answer be",
+      "expectedFactIds": ["fact-138-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-138-p2",
+      "scope": "<rootB>",
+      "query": "delta response size limit",
+      "expectedFactIds": ["fact-138-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-139-v",
+      "scope": "<rootA>",
+      "query": "tool result budget in echo",
+      "expectedFactIds": ["fact-139-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-139-p1",
+      "scope": "<rootA>",
+      "query": "how large can a echo tool answer be",
+      "expectedFactIds": ["fact-139-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-139-p2",
+      "scope": "<rootA>",
+      "query": "echo response size limit",
+      "expectedFactIds": ["fact-139-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-140-v",
+      "scope": "<rootB>",
+      "query": "tool result budget in echo",
+      "expectedFactIds": ["fact-140-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-140-p1",
+      "scope": "<rootB>",
+      "query": "how large can a echo tool answer be",
+      "expectedFactIds": ["fact-140-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-140-p2",
+      "scope": "<rootB>",
+      "query": "echo response size limit",
+      "expectedFactIds": ["fact-140-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-141-v",
+      "scope": "<rootA>",
+      "query": "symbol index file cap for alpha",
+      "expectedFactIds": ["fact-141-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-141-p1",
+      "scope": "<rootA>",
+      "query": "how many files does the alpha index track",
+      "expectedFactIds": ["fact-141-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-141-p2",
+      "scope": "<rootA>",
+      "query": "alpha indexer coverage limit",
+      "expectedFactIds": ["fact-141-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "wt-fact-141",
+      "scope": "<worktreeOfA>",
+      "query": "alpha indexer coverage limit",
+      "expectedFactIds": ["fact-141-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-142-v",
+      "scope": "<rootB>",
+      "query": "symbol index file cap for alpha",
+      "expectedFactIds": ["fact-142-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-142-p1",
+      "scope": "<rootB>",
+      "query": "how many files does the alpha index track",
+      "expectedFactIds": ["fact-142-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-142-p2",
+      "scope": "<rootB>",
+      "query": "alpha indexer coverage limit",
+      "expectedFactIds": ["fact-142-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-143-v",
+      "scope": "<rootA>",
+      "query": "symbol index file cap for bravo",
+      "expectedFactIds": ["fact-143-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-143-p1",
+      "scope": "<rootA>",
+      "query": "how many files does the bravo index track",
+      "expectedFactIds": ["fact-143-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-143-p2",
+      "scope": "<rootA>",
+      "query": "bravo indexer coverage limit",
+      "expectedFactIds": ["fact-143-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-144-v",
+      "scope": "<rootB>",
+      "query": "symbol index file cap for bravo",
+      "expectedFactIds": ["fact-144-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-144-p1",
+      "scope": "<rootB>",
+      "query": "how many files does the bravo index track",
+      "expectedFactIds": ["fact-144-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-144-p2",
+      "scope": "<rootB>",
+      "query": "bravo indexer coverage limit",
+      "expectedFactIds": ["fact-144-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-145-v",
+      "scope": "<rootA>",
+      "query": "symbol index file cap for charlie",
+      "expectedFactIds": ["fact-145-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-145-p1",
+      "scope": "<rootA>",
+      "query": "how many files does the charlie index track",
+      "expectedFactIds": ["fact-145-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-145-p2",
+      "scope": "<rootA>",
+      "query": "charlie indexer coverage limit",
+      "expectedFactIds": ["fact-145-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-146-v",
+      "scope": "<rootB>",
+      "query": "symbol index file cap for charlie",
+      "expectedFactIds": ["fact-146-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-146-p1",
+      "scope": "<rootB>",
+      "query": "how many files does the charlie index track",
+      "expectedFactIds": ["fact-146-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-146-p2",
+      "scope": "<rootB>",
+      "query": "charlie indexer coverage limit",
+      "expectedFactIds": ["fact-146-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-147-v",
+      "scope": "<rootA>",
+      "query": "symbol index file cap for delta",
+      "expectedFactIds": ["fact-147-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-147-p1",
+      "scope": "<rootA>",
+      "query": "how many files does the delta index track",
+      "expectedFactIds": ["fact-147-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-147-p2",
+      "scope": "<rootA>",
+      "query": "delta indexer coverage limit",
+      "expectedFactIds": ["fact-147-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-148-v",
+      "scope": "<rootB>",
+      "query": "symbol index file cap for delta",
+      "expectedFactIds": ["fact-148-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-148-p1",
+      "scope": "<rootB>",
+      "query": "how many files does the delta index track",
+      "expectedFactIds": ["fact-148-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-148-p2",
+      "scope": "<rootB>",
+      "query": "delta indexer coverage limit",
+      "expectedFactIds": ["fact-148-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-149-v",
+      "scope": "<rootA>",
+      "query": "symbol index file cap for echo",
+      "expectedFactIds": ["fact-149-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-149-p1",
+      "scope": "<rootA>",
+      "query": "how many files does the echo index track",
+      "expectedFactIds": ["fact-149-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-149-p2",
+      "scope": "<rootA>",
+      "query": "echo indexer coverage limit",
+      "expectedFactIds": ["fact-149-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-150-v",
+      "scope": "<rootB>",
+      "query": "symbol index file cap for echo",
+      "expectedFactIds": ["fact-150-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-150-p1",
+      "scope": "<rootB>",
+      "query": "how many files does the echo index track",
+      "expectedFactIds": ["fact-150-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "fact-150-p2",
+      "scope": "<rootB>",
+      "query": "echo indexer coverage limit",
+      "expectedFactIds": ["fact-150-new"],
+      "expectedLeakCount": 0
+    },
+    {
+      "id": "abstain-01",
+      "scope": "<rootA>",
+      "query": "which espresso machine is in the office kitchen",
+      "expectedFactIds": [],
+      "expectedLeakCount": 0,
+      "abstain": true
+    },
+    {
+      "id": "abstain-02",
+      "scope": "<rootB>",
+      "query": "what is the wifi password in the studio",
+      "expectedFactIds": [],
+      "expectedLeakCount": 0,
+      "abstain": true
+    },
+    {
+      "id": "abstain-03",
+      "scope": "<worktreeOfA>",
+      "query": "who won the company football tournament",
+      "expectedFactIds": [],
+      "expectedLeakCount": 0,
+      "abstain": true
+    },
+    {
+      "id": "abstain-04",
+      "scope": "<rootA>",
+      "query": "which plant sits on the meeting room shelf",
+      "expectedFactIds": [],
+      "expectedLeakCount": 0,
+      "abstain": true
+    },
+    {
+      "id": "abstain-05",
+      "scope": "<rootB>",
+      "query": "what brand of pens does the design team prefer",
+      "expectedFactIds": [],
+      "expectedLeakCount": 0,
+      "abstain": true
+    },
+    {
+      "id": "abstain-06",
+      "scope": "<worktreeOfA>",
+      "query": "where is the company offsite next year",
+      "expectedFactIds": [],
+      "expectedLeakCount": 0,
+      "abstain": true
+    },
+    {
+      "id": "abstain-07",
+      "scope": "<rootA>",
+      "query": "what colour are the office walls",
+      "expectedFactIds": [],
+      "expectedLeakCount": 0,
+      "abstain": true
+    },
+    {
+      "id": "abstain-08",
+      "scope": "<rootB>",
+      "query": "who waters the office plants",
+      "expectedFactIds": [],
+      "expectedLeakCount": 0,
+      "abstain": true
+    },
+    {
+      "id": "abstain-09",
+      "scope": "<worktreeOfA>",
+      "query": "which podcast does the team listen to on Fridays",
+      "expectedFactIds": [],
+      "expectedLeakCount": 0,
+      "abstain": true
+    },
+    {
+      "id": "abstain-10",
+      "scope": "<rootA>",
+      "query": "what snacks are stocked in the pantry",
+      "expectedFactIds": [],
+      "expectedLeakCount": 0,
+      "abstain": true
+    },
+    {
+      "id": "abstain-11",
+      "scope": "<rootB>",
+      "query": "how many desks are in the corner room",
+      "expectedFactIds": [],
+      "expectedLeakCount": 0,
+      "abstain": true
+    },
+    {
+      "id": "abstain-12",
+      "scope": "<worktreeOfA>",
+      "query": "which streaming service plays in the lobby",
+      "expectedFactIds": [],
+      "expectedLeakCount": 0,
+      "abstain": true
+    },
+    {
+      "id": "abstain-13",
+      "scope": "<rootA>",
+      "query": "what is the founder favourite pizza topping",
+      "expectedFactIds": [],
+      "expectedLeakCount": 0,
+      "abstain": true
+    },
+    {
+      "id": "abstain-14",
+      "scope": "<rootB>",
+      "query": "who owns the shared coffee grinder",
+      "expectedFactIds": [],
+      "expectedLeakCount": 0,
+      "abstain": true
+    },
+    {
+      "id": "abstain-15",
+      "scope": "<worktreeOfA>",
+      "query": "which neighbourhood has the best lunch spots near the studio",
+      "expectedFactIds": [],
+      "expectedLeakCount": 0,
+      "abstain": true
+    },
+    {
+      "id": "abstain-16",
+      "scope": "<rootA>",
+      "query": "what board game is popular after hours",
+      "expectedFactIds": [],
+      "expectedLeakCount": 0,
+      "abstain": true
+    },
+    {
+      "id": "abstain-17",
+      "scope": "<rootB>",
+      "query": "who organises the birthday calendar",
+      "expectedFactIds": [],
+      "expectedLeakCount": 0,
+      "abstain": true
+    },
+    {
+      "id": "abstain-18",
+      "scope": "<worktreeOfA>",
+      "query": "which mug belongs to the intern",
+      "expectedFactIds": [],
+      "expectedLeakCount": 0,
+      "abstain": true
+    },
+    {
+      "id": "abstain-19",
+      "scope": "<rootA>",
+      "query": "what ringtone does the front desk phone use",
+      "expectedFactIds": [],
+      "expectedLeakCount": 0,
+      "abstain": true
+    },
+    {
+      "id": "abstain-20",
+      "scope": "<rootB>",
+      "query": "which season had the best weather for the picnic",
+      "expectedFactIds": [],
+      "expectedLeakCount": 0,
+      "abstain": true
+    },
+    {
+      "id": "track-a-q1",
+      "scope": "<rootA>",
+      "query": "what did we decide about the judge threshold",
+      "expectedFactIds": [],
+      "expectedLeakCount": 0,
+      "method": "labelled",
+      "raterCount": 1,
+      "scorable": false,
+      "unscorableReason": "hand-graded against real user memory rows that cannot be seeded without user data"
+    },
+    {
+      "id": "track-a-q2",
+      "scope": "<rootA>",
+      "query": "how do we name DI tokens",
+      "expectedFactIds": [],
+      "expectedLeakCount": 0,
+      "method": "labelled",
+      "raterCount": 1,
+      "scorable": false,
+      "unscorableReason": "hand-graded against real user memory rows that cannot be seeded without user data"
+    },
+    {
+      "id": "track-a-q3",
+      "scope": "<rootA>",
+      "query": "why did the release branch drift",
+      "expectedFactIds": [],
+      "expectedLeakCount": 0,
+      "method": "labelled",
+      "raterCount": 1,
+      "scorable": false,
+      "unscorableReason": "hand-graded against real user memory rows that cannot be seeded without user data"
+    },
+    {
+      "id": "track-a-q4",
+      "scope": "<rootA>",
+      "query": "what is the user's preference for commit messages",
+      "expectedFactIds": [],
+      "expectedLeakCount": 0,
+      "method": "labelled",
+      "raterCount": 1,
+      "scorable": false,
+      "unscorableReason": "hand-graded against real user memory rows that cannot be seeded without user data"
+    }
+  ]
+}

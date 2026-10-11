@@ -153,14 +153,16 @@ export class PlanLimitsSnapshotService {
     };
   }
 
-  private ownerSnapshot(
+  private async ownerSnapshot(
     entry: DiscoveredPlanOwner,
     refresh: boolean,
     withDeadline: boolean,
   ): Promise<PlanLimitOwnerSnapshot> {
-    return entry.kind === 'known'
-      ? Promise.resolve(entry.snapshot)
-      : this.readOwner(entry.target, refresh, withDeadline);
+    if (entry.kind === 'known') return entry.snapshot;
+    const snapshot = await this.readOwner(entry.target, refresh, withDeadline);
+    return entry.unknownReason
+      ? { ...snapshot, unknownReason: entry.unknownReason }
+      : snapshot;
   }
 
   /**

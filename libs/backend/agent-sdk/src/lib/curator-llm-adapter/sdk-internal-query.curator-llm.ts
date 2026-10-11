@@ -22,6 +22,7 @@ import {
 } from '../internal-query/internal-query-concurrency-gate';
 import type { OneShotAuthOverride } from '../helpers/sdk-query-runner.service';
 import type { IProviderAuthResolver } from '../auth/provider-auth-resolver.port';
+import type { IWorkspaceLlmResolver } from '../auth/workspace-llm-resolver.port';
 import {
   isAssistantMessage,
   isErrorResult,
@@ -44,6 +45,7 @@ import {
 } from './extract.schema';
 import { ResolvedDraftSchema, ResolvedResponseSchema } from './resolve.schema';
 import { CuratorLlmQueryError } from './curator-llm-query.error';
+import type { ModelDispatchRoute } from './model-dispatch-provenance';
 import {
   classifyThrownNetworkFailure,
   QueryNetworkObserver,
@@ -99,7 +101,12 @@ const PROVIDER_QUOTA_ERROR_NAME = 'ProviderQuotaError';
  */
 type CuratorAuthDecision =
   | { readonly kind: 'ride-active' }
-  | { readonly kind: 'override'; readonly auth: OneShotAuthOverride }
+  | {
+      readonly kind: 'override';
+      readonly auth: OneShotAuthOverride;
+      /** The provider whose snapshot `auth` is. Not the active provider. */
+      readonly providerId: string;
+    }
   | { readonly kind: 'cooling-down'; readonly providerId: string };
 
 /**
@@ -215,6 +222,14 @@ export class SdkInternalQueryCuratorLlm implements ICuratorLLM {
     private readonly resolver: IProviderAuthResolver | null = null,
     @inject(PLATFORM_TOKENS.MCP_SERVER_STATUS, { isOptional: true })
     private readonly mcpServerStatus: IMcpServerStatus | null = null,
+    /**
+     * Provider snapshot for the curated session's OWN workspace. Used when no
+     * curator provider is pinned (`''` = inherit): the pass inherits the
+     * provider of the workspace it curates, not of whichever is active when
+     * the queued pass finally runs.
+     */
+    @inject(SDK_TOKENS.SDK_WORKSPACE_LLM_RESOLVER, { isOptional: true })
+    private readonly workspaceLlm: IWorkspaceLlmResolver | null = null,
   ) {}
 
   private resolveCuratorProviderId(): string {
@@ -226,12 +241,20 @@ export class SdkInternalQueryCuratorLlm implements ICuratorLLM {
     return (typeof rawProvider === 'string' ? rawProvider : '').trim();
   }
 
-  private async resolveCuratorAuth(): Promise<CuratorAuthDecision> {
-    if (!this.resolver) return { kind: 'ride-active' };
+  private async resolveCuratorAuth(
+    workspaceRoot: string | undefined,
+  ): Promise<CuratorAuthDecision> {
+    if (!this.resolver && !this.workspaceLlm) return { kind: 'ride-active' };
     const curatorProviderId = this.resolveCuratorProviderId();
+    if (curatorProviderId.length === 0 && this.workspaceLlm) {
+      return this.inheritWorkspaceProvider(workspaceRoot);
+    }
+    if (!this.resolver) return { kind: 'ride-active' };
     try {
       const auth = await this.resolver.resolve(curatorProviderId);
-      return auth ? { kind: 'override', auth } : { kind: 'ride-active' };
+      return auth
+        ? { kind: 'override', auth, providerId: curatorProviderId }
+        : { kind: 'ride-active' };
     } catch (error: unknown) {
       if (error instanceof Error && error.name === PROVIDER_QUOTA_ERROR_NAME) {
         // The quota branch. See the constants' docblock for why this does NOT
@@ -254,11 +277,41 @@ export class SdkInternalQueryCuratorLlm implements ICuratorLLM {
     }
   }
 
-  private resolveQueryCwd(): string {
-    const root = this.workspace.getWorkspaceRoot();
-    return typeof root === 'string' && root.trim().length > 0
-      ? root
-      : os.homedir();
+  /**
+   * No curator provider pinned: inherit the provider of the curated session's
+   * workspace (a rootless session: the app/global provider), never the
+   * active workspace's. A provider cooling down from a 429 stalls the pass,
+   * exactly as the pinned-provider path does.
+   */
+  private async inheritWorkspaceProvider(
+    workspaceRoot: string | undefined,
+  ): Promise<CuratorAuthDecision> {
+    const snapshot = await (
+      this.workspaceLlm as IWorkspaceLlmResolver
+    ).resolveForPath(workspaceRoot);
+    if (snapshot.cooldownMs !== undefined && snapshot.cooldownMs > 0) {
+      this.logger.warn(
+        '[memory-curator] the workspace provider is rate-limited; skipping this curation pass until its quota refills',
+        { providerId: snapshot.providerId },
+      );
+      return { kind: 'cooling-down', providerId: snapshot.providerId };
+    }
+    return snapshot.auth
+      ? {
+          kind: 'override',
+          auth: snapshot.auth,
+          providerId: snapshot.providerId,
+        }
+      : { kind: 'ride-active' };
+  }
+
+  /**
+   * The curated session's workspace — queued work runs there even after
+   * another workspace became active. A session without one runs in the home
+   * directory rather than borrowing the active workspace.
+   */
+  private resolveQueryCwd(workspaceRoot: string | undefined): string {
+    return workspaceRoot ?? os.homedir();
   }
 
   private resolveCuratorModel(): string {
@@ -385,6 +438,29 @@ export class SdkInternalQueryCuratorLlm implements ICuratorLLM {
     return this.parseResolved(outcome.text, drafts);
   }
 
+  /**
+   * Inert. Ride-active does not name a provider; the runner reads the
+   * auth env it actually dials, and only when a tap is registered.
+   */
+  private dispatchRoute(
+    decision: Exclude<CuratorAuthDecision, { kind: 'cooling-down' }>,
+    laneId: string,
+  ): ModelDispatchRoute {
+    if (decision.kind === 'override') {
+      return {
+        providerSource: 'override',
+        overrideProviderId: decision.providerId,
+        component: 'memory-curator',
+        laneId,
+      };
+    }
+    return {
+      providerSource: 'ride-active',
+      component: 'memory-curator',
+      laneId,
+    };
+  }
+
   private async runQuery(
     systemPromptAppend: string,
     prompt: string,
@@ -400,7 +476,12 @@ export class SdkInternalQueryCuratorLlm implements ICuratorLLM {
         });
     }
     try {
-      const decision = await this.resolveCuratorAuth();
+      const workspaceRoot =
+        typeof options.workspaceRoot === 'string' &&
+        options.workspaceRoot.trim().length > 0
+          ? options.workspaceRoot
+          : undefined;
+      const decision = await this.resolveCuratorAuth(workspaceRoot);
       if (decision.kind === 'cooling-down') {
         // Stop, before the query rather than after it — the point of the gate
         // is that the second and later passes cost zero upstream requests.
@@ -414,9 +495,14 @@ export class SdkInternalQueryCuratorLlm implements ICuratorLLM {
         return { kind: 'cooling-down', providerId: decision.providerId };
       }
       const auth = decision.kind === 'override' ? decision.auth : undefined;
+      const model = this.resolveCuratorModel();
+      const laneId =
+        options.userInitiated === true
+          ? USER_ACTION_QUERY_LANE
+          : MEMORY_CURATOR_QUERY_LANE;
       const handle = await this.internalQuery.execute({
-        cwd: this.resolveQueryCwd(),
-        model: this.resolveCuratorModel(),
+        cwd: this.resolveQueryCwd(workspaceRoot),
+        model,
         prompt,
         systemPromptAppend,
         // Was hard-coded false (defect 13). The curator reads and writes memory
@@ -434,12 +520,10 @@ export class SdkInternalQueryCuratorLlm implements ICuratorLLM {
         // A user-initiated pass (`memory:runNow`) takes the ungoverned
         // `user-action` lane instead, so a click never waits behind the
         // governor or a wizard call (C14, Batch 16b).
-        lane:
-          options.userInitiated === true
-            ? USER_ACTION_QUERY_LANE
-            : MEMORY_CURATOR_QUERY_LANE,
+        lane: laneId,
         abortController,
         auth,
+        dispatch: this.dispatchRoute(decision, laneId),
       });
       // The text of the LAST assistant message, not the concatenation of every
       // one of them (TASK_2026_376 R1, logic finding 1).

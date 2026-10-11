@@ -102,6 +102,16 @@ export class WorkspaceScopeResolver {
     return candidates;
   }
 
+  /**
+   * Every physical key `read(globalKey)` may resolve from for the active
+   * workspace, most specific first. A watcher that must notice a write at ANY
+   * scope (a workspace write lands on a hashed key, never the bare one)
+   * subscribes to all of them.
+   */
+  scopedKeys(globalKey: string, appScopable = false): string[] {
+    return this.candidateKeys(globalKey, appScopable);
+  }
+
   getActivePath(): string | undefined {
     return this.activeNormalizedPath();
   }

@@ -7,6 +7,9 @@
  * tabs of children that are still live. The webview adopts it into the panel
  * that holds `parentTabId`; every other panel ignores it.
  */
+import type { EffortLevel } from '../ai-provider.types';
+import type { PermissionLevel } from '../model-autopilot.types';
+
 export interface AgentSessionOpenedPayload {
   /** Child tab id: the stream key the child's events are routed by. */
   readonly tabId: string;
@@ -27,4 +30,22 @@ export interface AgentSessionOpenedPayload {
   readonly displayPrompt: string;
   /** Epoch milliseconds the child was started at. */
   readonly startedAt: number;
+}
+
+/**
+ * Backend-to-webview replacement request for a handover successor. The
+ * webview must bind and focus this tab, then acknowledge `session:successorBound`.
+ */
+export interface SessionSuccessorReplacementPayload {
+  readonly operationId: string;
+  readonly sourceSessionId: string;
+  readonly sourceTabId: string;
+  readonly successorSessionId: string;
+  readonly successorTabId: string;
+  readonly config: {
+    readonly model?: string;
+    readonly effort?: EffortLevel;
+    readonly permissionLevel?: PermissionLevel;
+    readonly workspacePath: string;
+  };
 }

@@ -25,6 +25,7 @@ import {
   type PermissionLevel,
   type SessionBudgetState,
   type SessionStatsEntry,
+  type LiveStatsCallback,
   blankToUndefined,
 } from '@ptah-extension/shared';
 import type { SdkRuntimeStateService } from './helpers/sdk-runtime-state.service';
@@ -38,6 +39,7 @@ import { AuthRequiredError } from './errors';
 import { getActiveProviderId } from './helpers';
 import { SessionMetadataStore } from './session-metadata-store';
 import type { SessionHistoryReaderService } from './session-history-reader.service';
+import type { QueuedSessionInput } from './helpers/session-handoff/session-handover-coordinator.service';
 import type {
   OwnerLease,
   RunPreparation,
@@ -160,6 +162,15 @@ export class SdkAgentAdapter implements IAgentAdapter {
    */
   private resetChain: Promise<void> | null = null;
 
+  /**
+   * Workspace-scoped auth changes in flight ({@link applyWorkspaceAuthChange}).
+   * While above zero the `configChanged` handler stands down: the change it
+   * would react to (a saved key fires the `ptah.auth.*` secret watcher) is
+   * already being applied to the one workspace it belongs to, and the
+   * handler's `disposeAllSessions()` would end every other workspace's chats.
+   */
+  private workspaceAuthChanges = 0;
+
   private cliInstallation: ClaudeInstallation | null = null;
 
   private lastConfiguredAuth: {
@@ -252,7 +263,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
     @inject(SDK_TOKENS.SDK_SESSION_BUDGET)
     private readonly sessionBudget: Pick<
       SessionBudgetService,
-      'observe' | 'recordCompaction' | 'release' | 'clearAll'
+      'observe' | 'recordCompaction' | 'release' | 'clearAll' | 'canSend'
     >,
   ) {
     this.callbacks = new SdkAdapterCallbackRegistry();
@@ -264,7 +275,14 @@ export class SdkAgentAdapter implements IAgentAdapter {
     this.workspaceProvider.onDidChangeWorkspaceFolders(() => {
       this.handleWorkspaceChanged();
     });
-    this.events.onConfigChanged(async () => {
+    this.events.onConfigChanged(async (event) => {
+      if (this.workspaceAuthChanges > 0) {
+        this.logger.info(
+          '[SdkAgentAdapter] Config change during a workspace-scoped auth save — applied to that workspace only',
+          { key: event?.key },
+        );
+        return;
+      }
       this.logger.info(
         '[SdkAgentAdapter] Config change detected, re-initializing...',
       );
@@ -701,6 +719,60 @@ export class SdkAgentAdapter implements IAgentAdapter {
     await this.initialize();
   }
 
+  /**
+   * Apply an auth change saved for ONE workspace (`auth:saveSettings` with
+   * `applyTo: 'workspace'`). Unlike {@link reset}, which disposes the whole
+   * adapter and so ends every session in the process, this ends only the
+   * sessions of `workspacePath` and re-configures auth for the active
+   * workspace — the same per-workspace path a workspace switch takes.
+   *
+   * `write` performs the settings and secret writes. It runs inside the
+   * window in which the `configChanged` handler stands down, so a secret
+   * change it fires cannot tear down every other workspace's sessions.
+   */
+  async applyWorkspaceAuthChange(
+    workspacePath: string,
+    write: () => Promise<void>,
+  ): Promise<void> {
+    this.workspaceAuthChanges += 1;
+    try {
+      await write();
+      await this.endSessionsForWorkspace(workspacePath);
+      // Like `doReset`, never let an in-flight pass (started before the write)
+      // answer this one.
+      const running = this.initInFlight;
+      if (running !== null) {
+        // degradation-audit: optional-capability - the result of a pass that
+        // predates the write is discarded; a fresh pass follows regardless.
+        await running.catch(() => false);
+      }
+      this.cliDetector.clearCache();
+      this.modelService.invalidateForAuthChange();
+      await this.initialize();
+    } finally {
+      this.workspaceAuthChanges -= 1;
+    }
+  }
+
+  /**
+   * End every live session of one workspace with the same accounting the
+   * single-session `endSession` does (pending activity, stats owners, budget),
+   * captured before the teardown awaits while the records still exist.
+   */
+  private async endSessionsForWorkspace(workspacePath: string): Promise<void> {
+    const ids = this.sessionLifecycle.getSessionIdsForWorkspace(workspacePath);
+    const leases: OwnerLease[] = [];
+    const budgetKeys: string[] = [];
+    for (const id of ids) {
+      this.flushPendingUserActivityFor(id as SessionId);
+      leases.push(...this.captureStatsLeases(id as SessionId));
+      budgetKeys.push(...this.sessionKeys(id as SessionId));
+    }
+    await this.sessionLifecycle.disposeSessionsForWorkspace(workspacePath);
+    this.releaseStatsOwners(leases);
+    this.releaseBudget(budgetKeys);
+  }
+
   async startChatSession(
     config: AISessionConfig & {
       tabId: string;
@@ -841,6 +913,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
         trackingId,
         this.callbacks.getResultStats(),
       ),
+      onLiveStats: this.callbacks.getLiveStats(),
       onTurnEnd: this.releaseTurnOnResult(trackingId),
       onCompactBoundary: this.recordBudgetCompaction,
       tabId: config?.tabId,
@@ -999,6 +1072,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
           sessionId,
           this.callbacks.getResultStats(),
         ),
+        onLiveStats: this.callbacks.getLiveStats(),
         onTurnEnd: this.releaseTurnOnResult(sessionId),
         onCompactBoundary: this.recordBudgetCompaction,
         tabId: config?.tabId,
@@ -1145,6 +1219,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
         sessionId,
         this.callbacks.getResultStats(),
       ),
+      onLiveStats: this.callbacks.getLiveStats(),
       onTurnEnd: this.releaseTurnOnResult(sessionId),
       onCompactBoundary: this.recordBudgetCompaction,
       tabId: config?.tabId,
@@ -1361,6 +1436,15 @@ export class SdkAgentAdapter implements IAgentAdapter {
     this.callbacks.setResultStats(callback);
   }
 
+  /**
+   * Provisional in-turn snapshots. Passed to every stream as-is, never through
+   * `wrapResultStatsForActivity`: a live estimate is not a result, so it must
+   * not notify activity or feed the session budget.
+   */
+  setLiveStatsCallback(callback: LiveStatsCallback): void {
+    this.callbacks.setLiveStats(callback);
+  }
+
   setCompactionStartCallback(callback: CompactionStartCallback): void {
     this.callbacks.setCompactionStart(callback);
   }
@@ -1393,18 +1477,45 @@ export class SdkAgentAdapter implements IAgentAdapter {
     );
   }
 
+  async enqueueTransferInputs(
+    sessionId: SessionId,
+    inputs: readonly QueuedSessionInput[],
+  ): Promise<void> {
+    return this.sessionLifecycle.enqueueTransferInputs(sessionId, inputs);
+  }
+
   async executeSlashCommand(
     sessionId: SessionId,
     command: string,
-    config: SlashCommandConfig & { tabId?: string },
+    config: SlashCommandConfig & {
+      tabId?: string;
+      providerProfile?: ProviderProfile;
+    },
   ): Promise<AsyncIterable<FlatStreamEventUnion>> {
     if (!this.initialized) {
       throw this.notInitializedError();
     }
 
+    // Same per-session provider pinning as start/resume: the relaunch runs on
+    // the profile's isolated auth env, model and cli.js when one is supplied.
+    const { providerProfile } = config;
+    const sessionConfig =
+      providerProfile && config.sessionConfig
+        ? {
+            ...config.sessionConfig,
+            model: providerProfile.model,
+            ...(providerProfile.reasoningEffort
+              ? { effort: providerProfile.reasoningEffort }
+              : {}),
+          }
+        : config.sessionConfig;
+
     this.logger.info(
       `[SdkAgentAdapter] Executing slash command for session: ${sessionId}`,
-      { command: command.substring(0, 50) },
+      {
+        command: command.substring(0, 50),
+        providerId: providerProfile?.providerId,
+      },
     );
 
     // The re-query resumes the same transcript: same owner, new run. Its
@@ -1425,14 +1536,16 @@ export class SdkAgentAdapter implements IAgentAdapter {
       sessionId,
       command,
       {
-        sessionConfig: config.sessionConfig,
+        sessionConfig,
         mcpServerRunning: config.mcpServerRunning,
         enhancedPromptsContent: config.enhancedPromptsContent,
         onCompactionStart: this.callbacks.getCompactionStart(),
         onWorktreeCreated: this.callbacks.getWorktreeCreated(),
         onWorktreeRemoved: this.callbacks.getWorktreeRemoved(),
         pathToClaudeCodeExecutable:
-          this.runtimeState.getCliJsPath() || undefined,
+          (providerProfile?.cliJsPath ?? this.runtimeState.getCliJsPath()) ||
+          undefined,
+        authEnvOverride: providerProfile?.authEnv,
         beforeRelaunch: async () => {
           prepared.run = await this.prepareStatsForRun(
             sessionId,
@@ -1467,6 +1580,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
         sessionId,
         this.callbacks.getResultStats(),
       ),
+      onLiveStats: this.callbacks.getLiveStats(),
       onTurnEnd: this.releaseTurnOnResult(sessionId),
       onCompactBoundary: this.recordBudgetCompaction,
       tabId: config.tabId,
@@ -1745,7 +1859,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
    */
   private releaseTurnOnResult(sessionId: SessionId): () => void {
     return () => {
-      this.sessionLifecycle.markTurnEnded(sessionId);
+      this.sessionLifecycle.onTurnTerminal(sessionId);
     };
   }
 }

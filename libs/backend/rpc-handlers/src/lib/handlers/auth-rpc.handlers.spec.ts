@@ -211,7 +211,9 @@ function createMockScopeResolver(opts: {
 // Narrow mock surfaces — only what the handler touches
 // ---------------------------------------------------------------------------
 
-type MockSdkAdapter = jest.Mocked<Pick<SdkAgentAdapter, 'getHealth' | 'reset'>>;
+type MockSdkAdapter = jest.Mocked<
+  Pick<SdkAgentAdapter, 'getHealth' | 'reset' | 'applyWorkspaceAuthChange'>
+>;
 
 function createMockSdkAdapter(
   initial: { status?: 'available' | 'error' | 'initializing' } = {},
@@ -224,6 +226,10 @@ function createMockSdkAdapter(
       errorMessage: status === 'error' ? 'bad auth' : undefined,
     }),
     reset: jest.fn().mockResolvedValue(undefined),
+    // Runs the handler's writes, as the real adapter does inside its window.
+    applyWorkspaceAuthChange: jest.fn(
+      async (_workspacePath: string, write: () => Promise<void>) => write(),
+    ),
   };
 }
 
@@ -1395,6 +1401,66 @@ describe('AuthRpcHandlers', () => {
       );
       expect(h.scopeResolver.globalStore.has('authMethod')).toBe(false);
     });
+
+    it('a workspace-scoped save ends only the sessions of that workspace and never resets the adapter', async () => {
+      const h = makeHarness({ activePath: '/ws/project-a' });
+      h.handlers.register();
+
+      const result = await call<{ success: boolean }>(h, 'auth:saveSettings', {
+        authMethod: 'thirdParty',
+        anthropicProviderId: 'openrouter',
+        providerApiKey: 'sk-or-new',
+        applyTo: 'workspace',
+      });
+
+      expect(result.success).toBe(true);
+      // A full reset disposes every session of every workspace.
+      expect(h.sdkAdapter.reset).not.toHaveBeenCalled();
+      expect(h.sdkAdapter.applyWorkspaceAuthChange).toHaveBeenCalledTimes(1);
+      expect(h.sdkAdapter.applyWorkspaceAuthChange).toHaveBeenCalledWith(
+        '/ws/project-a',
+        expect.any(Function),
+      );
+      // The writes (including the secret that fires the config watcher) run
+      // inside the adapter's workspace window.
+      expect(h.scopeResolver.workspaceStore.get('anthropicProviderId')).toBe(
+        'openrouter',
+      );
+      expect(h.authSecrets.setProviderKey).toHaveBeenCalledWith(
+        'openrouter',
+        'sk-or-new',
+      );
+    });
+
+    it('a workspace-scoped save with no active workspace is refused and writes nothing', async () => {
+      const h = makeHarness({ activePath: undefined });
+      h.handlers.register();
+
+      await expect(
+        call(h, 'auth:saveSettings', {
+          authMethod: 'thirdParty',
+          anthropicProviderId: 'openrouter',
+          applyTo: 'workspace',
+        }),
+      ).rejects.toThrow('Open a workspace to save settings for it.');
+
+      expect(h.scopeResolver.write).not.toHaveBeenCalled();
+      expect(h.sdkAdapter.applyWorkspaceAuthChange).not.toHaveBeenCalled();
+      expect(h.sdkAdapter.reset).not.toHaveBeenCalled();
+    });
+
+    it('a global save still resets the adapter (it affects every workspace)', async () => {
+      const h = makeHarness();
+      h.handlers.register();
+
+      await call(h, 'auth:saveSettings', {
+        authMethod: 'apiKey',
+        applyTo: 'global',
+      });
+
+      expect(h.sdkAdapter.reset).toHaveBeenCalledTimes(1);
+      expect(h.sdkAdapter.applyWorkspaceAuthChange).not.toHaveBeenCalled();
+    });
   });
 
   // -------------------------------------------------------------------------
@@ -1493,6 +1559,29 @@ describe('AuthRpcHandlers', () => {
       );
       // Overrides gone → reads now fall through to the global tier.
       expect(h.scopeResolver.workspaceStore.has('authMethod')).toBe(false);
+      // Only this workspace's sessions end; every other workspace keeps going.
+      expect(h.sdkAdapter.reset).not.toHaveBeenCalled();
+      expect(h.sdkAdapter.applyWorkspaceAuthChange).toHaveBeenCalledWith(
+        '/ws/project-c',
+        expect.any(Function),
+      );
+    });
+
+    it('with no active workspace, clears the app-level override and resets the adapter', async () => {
+      const h = makeHarness({ activePath: undefined });
+      h.handlers.register();
+
+      const result = await call<{ success: boolean }>(
+        h,
+        'auth:clearWorkspaceOverride',
+      );
+
+      expect(result.success).toBe(true);
+      expect(h.scopeResolver.clearOverride).toHaveBeenCalledWith(
+        'authMethod',
+        true,
+      );
+      expect(h.sdkAdapter.applyWorkspaceAuthChange).not.toHaveBeenCalled();
       expect(h.sdkAdapter.reset).toHaveBeenCalledTimes(1);
     });
   });

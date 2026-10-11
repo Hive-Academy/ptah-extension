@@ -4,6 +4,7 @@ import 'reflect-metadata';
 import {
   buildExecuteCodeTool,
   buildAgentMessageTool,
+  buildAgentListTool,
   buildAgentReadTool,
   buildAgentReportTool,
   buildAgentSpawnTool,
@@ -309,6 +310,28 @@ describe('buildAgentSpawnTool — role', () => {
     for (const cli of SYSTEM_CLI_TYPES) {
       expect(description).not.toMatch(new RegExp(`\\b${cli}\\b`, 'i'));
     }
+  });
+});
+
+describe('agent limit tool guidance', () => {
+  it('keeps the list description within budget and distinguishes unknown from room', () => {
+    const description = buildAgentListTool().description;
+    expect(description.length).toBeLessThan(DESCRIPTION_CHAR_BUDGET);
+    expect(description).toContain('AT LIMIT lanes refuse spawns');
+    expect(description).toContain('limit could not be read, not room');
+  });
+
+  it('exposes a boolean force override', () => {
+    const tool = buildAgentSpawnTool();
+    const properties = tool.inputSchema.properties as Record<
+      string,
+      { type?: string; description?: string }
+    >;
+    expect(properties['force']).toMatchObject({ type: 'boolean' });
+    expect(properties['force']?.description).toContain(
+      'Use only when the limit is known to be wrong',
+    );
+    expect(tool.inputSchema.required).not.toContain('force');
   });
 });
 

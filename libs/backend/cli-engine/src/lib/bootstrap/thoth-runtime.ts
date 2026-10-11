@@ -3,6 +3,7 @@ import type { DependencyContainer } from 'tsyringe';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
+import { CODE_SYMBOL_INDEXER } from '@ptah-extension/workspace-intelligence';
 import {
   KEEP_BY_KIND,
   PERSISTENCE_TOKENS,
@@ -46,7 +47,13 @@ import {
 } from '@ptah-extension/gateway-chat-bridge';
 
 import type { CliWebviewManagerAdapter } from '../transport/cli-webview-manager-adapter.js';
+import {
+  attachWorkspaceIndex,
+  resolveWorkspaceRoot,
+} from './cli-workspace-index.js';
 import { wireThothPushBridges } from './wire-thoth-push-bridges.js';
+
+export { startWorkspaceIndexLifecycle } from './cli-workspace-index.js';
 
 export type ThothTier = 'oneshot' | 'runtime';
 export type ThothTierOption = ThothTier | 'off';
@@ -66,6 +73,11 @@ export interface ThothRefs {
   chatBridge: GatewayChatBridge | null;
   embedderClient: EmbedderDisposable | null;
   pushDisposables: { dispose: () => void }[];
+  /**
+   * Boot-time code-symbol index. Set only for the runtime tier. Optional so
+   * refs built before this field existed still dispose.
+   */
+  workspaceIndex?: { dispose(): void } | null;
 }
 
 const BACKUP_HANDLER_NAME = 'backup:daily';
@@ -87,13 +99,24 @@ function emptyRefs(): ThothRefs {
     chatBridge: null,
     embedderClient: null,
     pushDisposables: [],
+    workspaceIndex: null,
   };
+}
+
+export interface ActivateThothOptions {
+  /**
+   * Start the code-symbol index on the runtime tier. Default true.
+   * `withEngine` passes false and starts the index itself, so a host cannot
+   * start it twice.
+   */
+  workspaceIndex?: boolean;
 }
 
 export async function activateThoth(
   container: DependencyContainer,
   tier: ThothTier,
   logger: Logger,
+  options?: ActivateThothOptions,
 ): Promise<ThothRefs> {
   const refs = emptyRefs();
 
@@ -130,7 +153,13 @@ export async function activateThoth(
     return refs;
   }
 
-  const workspaceRoot = resolveWorkspaceRoot(container);
+  const workspaceRoot = resolveWorkspaceRoot(container, logger);
+  // Direct runtime callers (and the existing tier spec) start here.
+  // `withEngine` passes `workspaceIndex: false` and is the only start for
+  // every engine host, including runtime, so the scan cannot run twice.
+  if (options?.workspaceIndex !== false) {
+    startWorkspaceIndex(container, refs, workspaceRoot, logger);
+  }
 
   await startMemory(container, refs, workspaceRoot, logger);
   await startSkillSynthesis(container, refs, logger);
@@ -157,14 +186,17 @@ export async function disposeThoth(
 ): Promise<void> {
   if (!refs) return;
 
+  await guard('workspaceIndex.dispose', logger, () =>
+    Promise.resolve().then(() => refs.workspaceIndex?.dispose()),
+  );
   for (const disposable of refs.pushDisposables) {
-    await guard('pushBridge.dispose', logger, async () => {
-      disposable.dispose();
-    });
+    await guard('pushBridge.dispose', logger, () =>
+      Promise.resolve().then(() => disposable.dispose()),
+    );
   }
-  await guard('chatBridge.stop', logger, async () => {
-    refs.chatBridge?.stop();
-  });
+  await guard('chatBridge.stop', logger, () =>
+    Promise.resolve().then(() => refs.chatBridge?.stop()),
+  );
   await guard('gateway.stop', logger, async () => {
     await refs.gateway?.stop();
   });
@@ -186,9 +218,9 @@ export async function disposeThoth(
   await guard('embedderClient.dispose', logger, async () => {
     await refs.embedderClient?.dispose();
   });
-  await guard('sqliteConnection.close', logger, async () => {
-    refs.sqliteConnection?.close();
-  });
+  await guard('sqliteConnection.close', logger, () =>
+    Promise.resolve().then(() => refs.sqliteConnection?.close()),
+  );
 }
 
 async function guard(
@@ -205,17 +237,15 @@ async function guard(
   }
 }
 
-function resolveWorkspaceRoot(
+function startWorkspaceIndex(
   container: DependencyContainer,
-): string | undefined {
-  try {
-    const workspaceProvider = container.resolve<IWorkspaceProvider>(
-      PLATFORM_TOKENS.WORKSPACE_PROVIDER,
-    );
-    return workspaceProvider.getWorkspaceRoot();
-  } catch {
-    return undefined;
-  }
+  refs: ThothRefs,
+  workspaceRoot: string | undefined,
+  logger: Logger,
+): void {
+  if (!workspaceRoot || !refs.sqliteConnection?.isOpen) return;
+  if (!container.isRegistered(CODE_SYMBOL_INDEXER)) return;
+  refs.workspaceIndex = attachWorkspaceIndex(container, workspaceRoot, logger);
 }
 
 async function startMemory(
@@ -279,6 +309,32 @@ async function startSkillSynthesis(
   refs: ThothRefs,
   logger: Logger,
 ): Promise<void> {
+  /**
+   * The skill trigger, which may only start once skill synthesis has. Reached
+   * from the `onStarted` hook and after `start()` resolves, and later from a
+   * retried start, so it brings the trigger up at most once.
+   */
+  const startSkillTrigger = (): void => {
+    if (refs.skillTrigger !== null) return;
+    try {
+      if (
+        refs.skillSynthesis !== null &&
+        container.isRegistered(SKILL_SYNTHESIS_TOKENS.SKILL_TRIGGER_SERVICE)
+      ) {
+        const skillTrigger = container.resolve<SkillTriggerService>(
+          SKILL_SYNTHESIS_TOKENS.SKILL_TRIGGER_SERVICE,
+        );
+        skillTrigger.start();
+        refs.skillTrigger = skillTrigger;
+      }
+    } catch (error: unknown) {
+      logger.warn('[CLI Thoth] Skill trigger start skipped (non-fatal)', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      refs.skillTrigger = null;
+    }
+  };
+
   try {
     if (
       container.isRegistered(SKILL_SYNTHESIS_TOKENS.SKILL_SYNTHESIS_SERVICE)
@@ -286,32 +342,27 @@ async function startSkillSynthesis(
       const skillSynthesis = container.resolve<SkillSynthesisService>(
         SKILL_SYNTHESIS_TOKENS.SKILL_SYNTHESIS_SERVICE,
       );
-      await skillSynthesis.start();
       refs.skillSynthesis = skillSynthesis;
+      // Subscribed BEFORE `start()`: a start that fails here can succeed later
+      // through the service's `skillSynthesis.enabled` listener retry, and
+      // every successful start must bring the trigger up (B-P review N1).
+      // `stop()` in `disposeThoth` drops the subscription.
+      skillSynthesis.onStarted(startSkillTrigger);
+      const outcome = await skillSynthesis.start();
+      // A start that resolved, including a paused boot, whose trigger arms
+      // its owed boot scan for the resume. Not one a stop() abandoned, and not
+      // a joined start that failed: a later retry brings the trigger up
+      // through `onStarted`.
+      if (outcome !== 'abandoned' && outcome !== 'failed') startSkillTrigger();
     }
   } catch (error: unknown) {
-    logger.warn('[CLI Thoth] Skill synthesis start skipped (non-fatal)', {
-      error: error instanceof Error ? error.message : String(error),
-    });
-    refs.skillSynthesis = null;
-  }
-
-  try {
-    if (
-      refs.skillSynthesis !== null &&
-      container.isRegistered(SKILL_SYNTHESIS_TOKENS.SKILL_TRIGGER_SERVICE)
-    ) {
-      const skillTrigger = container.resolve<SkillTriggerService>(
-        SKILL_SYNTHESIS_TOKENS.SKILL_TRIGGER_SERVICE,
-      );
-      skillTrigger.start();
-      refs.skillTrigger = skillTrigger;
-    }
-  } catch (error: unknown) {
-    logger.warn('[CLI Thoth] Skill trigger start skipped (non-fatal)', {
-      error: error instanceof Error ? error.message : String(error),
-    });
-    refs.skillTrigger = null;
+    // A failed `start()` keeps the ref: the service's retry path is still
+    // live, and `disposeThoth` must `stop()` it to dispose its config
+    // listener. A failed resolve leaves it null.
+    logger.warn(
+      '[CLI Thoth] Skill synthesis start failed (non-fatal; retried when skillSynthesis.enabled changes)',
+      { error: error instanceof Error ? error.message : String(error) },
+    );
   }
 }
 

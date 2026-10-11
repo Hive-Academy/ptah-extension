@@ -110,6 +110,14 @@ export {
   CURATOR_TRANSCRIPT_MAX_CHARS,
 } from './lib/curator-llm/clamp-transcript';
 export type { ClampedTranscript } from './lib/curator-llm/clamp-transcript';
+export {
+  planCuratorWindows,
+  CURATOR_MAX_WINDOWS,
+} from './lib/curator-llm/transcript-windows';
+export type {
+  CuratorWindow,
+  CuratorWindowPlan,
+} from './lib/curator-llm/transcript-windows';
 export { EmbedderWorkerClient } from './lib/embedder/embedder-worker-client';
 export type {
   Disposable,
@@ -160,9 +168,11 @@ export {
 } from './lib/retention/memory-lifecycle-config';
 export type { MemoryLifecycleSettings } from './lib/retention/memory-lifecycle-config';
 export {
+  DAY_MS,
   MEMORY_RETENTION_DEFAULTS,
   MEMORY_RETENTION_KEYS,
   MEMORY_RETENTION_LIMITS,
+  RETENTION_CAP_EVICTION_GRACE_MS,
 } from './lib/retention/memory-retention-config';
 export type {
   MemoryRetentionLimits,

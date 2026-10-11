@@ -9,6 +9,7 @@ import type { ContextCapacity } from '../utils/pricing.utils';
 import type {
   IAIProvider,
   AISessionConfig,
+  AIMessageOrigin,
   EffortLevel,
 } from './ai-provider.types';
 import type { SessionId } from './branded.types';
@@ -87,6 +88,35 @@ export interface ResultStatsPayload {
 }
 
 export type ResultStatsCallback = (stats: ResultStatsPayload) => void;
+
+/**
+ * One in-turn update, as published on `session:stats-live`.
+ *
+ * Throttled and provisional: never a completion signal, never a footer
+ * update. The next `session:stats` snapshot (higher revision) replaces it.
+ */
+export interface SessionStatsLivePayload {
+  readonly sessionId: SessionId;
+  /**
+   * Owner snapshot: `provisional: true` while it includes an estimate;
+   * no `provisional` field for an authoritative snapshot (agent-count
+   * update with no estimate, or the settle at a boundary).
+   */
+  readonly sessionStats: SessionStatsEntry;
+  /**
+   * Main-loop latest request size, when the stream tracked one. Present
+   * ONLY when `sessionStats.provisional === true`; an authoritative
+   * snapshot (settle, release-settle, agent-count update) never carries
+   * it, so it cannot replace the context the result path derived from
+   * `modelUsage`.
+   */
+  readonly context?: {
+    readonly model: string;
+    readonly contextTokens: number;
+  };
+}
+
+export type LiveStatsCallback = (payload: SessionStatsLivePayload) => void;
 
 export type CompactionStartCallback = (data: {
   sessionId: string;
@@ -214,6 +244,8 @@ export interface SlashCommandRunConfig {
   enhancedPromptsContent?: string;
   pluginPaths?: string[];
   tabId?: string;
+  /** See {@link AgentSessionStartConfig.providerProfile}. */
+  providerProfile?: ProviderProfile;
 }
 
 /**
@@ -232,6 +264,21 @@ export interface AgentModelInfo {
  * runtime MUST throw an Error rather than silently no-op.
  */
 export interface IAgentAdapter extends IAIProvider {
+  /**
+   * Atomically accept an already-admitted ordered batch for a successor
+   * session. The promise resolves only after the complete batch is owned by
+   * the runtime queue, so callers can safely release the source batch once.
+   */
+  enqueueTransferInputs(
+    sessionId: SessionId,
+    inputs: readonly {
+      readonly content: string;
+      readonly files?: readonly string[];
+      readonly images?: readonly { readonly data: string; readonly mediaType: string }[];
+      readonly origin?: AIMessageOrigin;
+    }[],
+  ): Promise<void>;
+
   /** Pre-warm any heavy SDK modules (no-op if nothing to pre-load). */
   preloadSdk(): Promise<void>;
 
@@ -314,6 +361,11 @@ export interface IAgentAdapter extends IAIProvider {
   ): Promise<void>;
   setSessionIdResolvedCallback(cb: SessionIdResolvedCallback): void;
   setResultStatsCallback(cb: ResultStatsCallback): void;
+  /**
+   * Throttled, provisional in-turn snapshots (`session:stats-live`). Never a
+   * completion signal: no footer, budget or activity side effects.
+   */
+  setLiveStatsCallback(cb: LiveStatsCallback): void;
   setCompactionStartCallback(cb: CompactionStartCallback): void;
   setWorktreeCreatedCallback(cb: WorktreeCreatedCallback): void;
   setWorktreeRemovedCallback(cb: WorktreeRemovedCallback): void;

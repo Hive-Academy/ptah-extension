@@ -6,9 +6,11 @@ import type {
 import type { SdkAgentAdapter } from '@ptah-extension/agent-sdk';
 import { resolveAuthProviderKey } from '@ptah-extension/platform-core';
 import type { WorkspaceScopeResolver } from '@ptah-extension/settings-core';
-import type {
-  AuthClearWorkspaceOverrideResult,
-  AuthGetScopeResult,
+import {
+  DEFAULT_PROVIDER_ID,
+  normalizeAuthMethod,
+  type AuthClearWorkspaceOverrideResult,
+  type AuthGetScopeResult,
 } from '@ptah-extension/shared';
 import { resolveScopeFromKey } from '../setting-scope';
 
@@ -83,24 +85,42 @@ export class WorkspaceScopeMethods {
       AuthClearWorkspaceOverrideResult
     >('auth:clearWorkspaceOverride', async () => {
       try {
-        const authMethod =
-          scopeResolver.read<string>('authMethod', true) ?? 'apiKey';
+        // The same provider key `ModelSettings` / the Settings UI use.
+        const authMethod = normalizeAuthMethod(
+          scopeResolver.read<string>('authMethod', true),
+        );
         const providerId =
-          scopeResolver.read<string>('anthropicProviderId', true) ?? '';
+          scopeResolver.read<string>('anthropicProviderId', true) ??
+          DEFAULT_PROVIDER_ID;
         const authKey = resolveAuthProviderKey(authMethod, providerId);
 
-        await scopeResolver.clearOverride('authMethod', true);
-        await scopeResolver.clearOverride('anthropicProviderId', true);
-        await scopeResolver.clearOverride(
-          `provider.${authKey}.selectedModel`,
-          true,
-        );
-        await scopeResolver.clearOverride(
-          `provider.${authKey}.reasoningEffort`,
-          true,
-        );
+        const clearOverrides = async (): Promise<void> => {
+          await scopeResolver.clearOverride('authMethod', true);
+          await scopeResolver.clearOverride('anthropicProviderId', true);
+          await scopeResolver.clearOverride(
+            `provider.${authKey}.selectedModel`,
+            true,
+          );
+          await scopeResolver.clearOverride(
+            `provider.${authKey}.reasoningEffort`,
+            true,
+          );
+        };
 
-        await sdkAdapter.reset();
+        const workspacePath = scopeResolver.getActivePath();
+        if (workspacePath) {
+          // Only this workspace changes: end its sessions and re-configure
+          // auth for it. `reset()` would end every workspace's sessions.
+          await sdkAdapter.applyWorkspaceAuthChange(
+            workspacePath,
+            clearOverrides,
+          );
+        } else {
+          // No workspace: the override cleared is app-level, which every
+          // workspace inherits.
+          await clearOverrides();
+          await sdkAdapter.reset();
+        }
         this.deps.invalidateAuthStatusCache();
 
         return { success: true };

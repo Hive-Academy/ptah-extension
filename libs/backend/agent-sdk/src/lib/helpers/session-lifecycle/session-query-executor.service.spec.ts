@@ -115,6 +115,7 @@ function makeSdkQuery(): Query {
 interface Harness {
   executor: SessionQueryExecutor;
   registry: SessionRegistry;
+  messageFactory: SdkMessageFactory;
   buildSpy: jest.Mock;
   getPermissionLevelSpy: jest.Mock;
   cleanupSpy: jest.Mock;
@@ -211,6 +212,7 @@ function makeHarness(
   return {
     executor,
     registry,
+    messageFactory,
     buildSpy,
     getPermissionLevelSpy,
     cleanupSpy,
@@ -431,7 +433,7 @@ describe('SessionQueryExecutor — usage cost authority (TASK_2026_533)', () => 
   });
 
   it('freezes the authority of the EFFECTIVE route on the record and returns it with the run token', async () => {
-    const { executor, registry } = makeHarness('ask');
+    const { executor, registry, messageFactory } = makeHarness('ask');
 
     const direct = await executor.executeQuery(makeConfig('tab-direct'));
     const proxied = await executor.executeQuery(
@@ -620,14 +622,14 @@ describe('real watchdog query ownership regressions', () => {
   });
 
   it('real pump starts a turn, result protects idle, and pending approval protects long wait', async () => {
-    const { executor, registry } = makeHarness('ask');
+    const { executor, registry, messageFactory } = makeHarness('ask');
     const result = await executor.executeQuery(
       makeConfig('pump', { initialPrompt: { content: 'hello' } }),
     );
     const pump = new SessionStreamPump(
       makeLogger(),
       registry,
-      {} as SdkMessageFactory,
+      messageFactory,
     );
     result.activityWatchdog.start();
     const stream = pump.createUserMessageStream(

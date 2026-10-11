@@ -342,7 +342,10 @@ describe('executeCode — index freshness through the namespaces', () => {
       getCodeSymbolSearch: () => reader,
       getMemorySearch: () => undefined,
       getSymbolIndexer: () =>
-        ({ indexWorkspace }) as unknown as CodeSymbolIndexer,
+        ({
+          indexWorkspace,
+          isIndexing: jest.fn(() => false),
+        }) as unknown as CodeSymbolIndexer,
       getWorkspaceRoot: () => '/ws',
       getHostWorkspaceRoots: () => ['/ws'],
       logger,

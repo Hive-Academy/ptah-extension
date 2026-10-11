@@ -1,9 +1,8 @@
 ---
 id: TASK_2026_584_5e7a
-status: in_review
+status: done
 type: FEATURE
-title: >-
-  Let an agent start and steer full Ptah chat sessions, each in its own worktree
+title: 'Let an agent start and steer full Ptah chat sessions, each in its own worktree'
 description: >-
   Expose session start, message, status and stop as MCP tools backed by the
   existing chat RPC path, so an orchestrating agent can open several Ptah
@@ -23,7 +22,7 @@ relates_to:
   - TASK_2026_580_9f77
 depends_on: []
 created: 2026-09-30T00:00:00.000Z
-updated: 2026-09-30T00:00:00.000Z
+updated: '2026-10-10T18:17:29.222Z'
 ---
 
 ## Description

@@ -64,6 +64,12 @@ import {
 } from './session-lifecycle/session-query-executor.service';
 import type { IContextUsagePort } from './compaction/context-usage.port';
 import { SessionControl } from './session-lifecycle/session-control.service';
+import {
+  isInProgress,
+  SessionHandoverCoordinator,
+  type QueuedSessionInput,
+} from './session-handoff/session-handover-coordinator.service';
+import { SessionBudgetService } from './session-budget/session-budget.service';
 import type { SessionEndCallbackRegistry } from './session-end-callback-registry';
 import type { SdkQueryRunner } from './sdk-query-runner.service';
 import type { NoActivityWatchdog } from './no-activity-watchdog';
@@ -288,6 +294,8 @@ export interface SlashCommandConfig {
    * the builder when unspecified.
    */
   includePartialMessages?: boolean;
+  /** Mirrors `ExecuteQueryConfig.authEnvOverride` (from a ProviderProfile). */
+  authEnvOverride?: AuthEnv;
 }
 
 /**
@@ -410,12 +418,17 @@ export class SessionLifecycleManager {
     private readonly contextUsagePort: IContextUsagePort | null = null,
     @inject(SDK_TOKENS.SDK_SUBAGENT_BUDGET_MONITOR, { isOptional: true })
     private readonly subagentBudgetMonitor: SubagentBudgetSink | null = null,
+    @inject(SessionHandoverCoordinator, { isOptional: true })
+    private readonly handoverCoordinator: SessionHandoverCoordinator | null = null,
+    @inject(SDK_TOKENS.SDK_SESSION_BUDGET, { isOptional: true })
+    private readonly sessionBudget: SessionBudgetService | null = null,
   ) {
     this._registry = new SessionRegistry(this.logger);
     this._streamPump = new SessionStreamPump(
       this.logger,
       this._registry,
       this.messageFactory,
+      this.handoverCoordinator,
     );
     this._queryExecutor = new SessionQueryExecutor(
       this.logger,
@@ -442,9 +455,100 @@ export class SessionLifecycleManager {
       this.modelResolver,
       this.sessionEndRegistry,
       compactionProvider ? () => compactionProvider.getConfig() : null,
+      (sessionId) => this.onTurnTerminal(sessionId),
+      (sessionId) =>
+        !this.handoverCoordinator?.admitInterrupt(
+          this.handoverKey(sessionId),
+        ).held,
     );
+    this.handoverCoordinator?.attachRuntime({
+      sourceSnapshot: (sourceSessionId) => {
+        const rec = this._registry.find(sourceSessionId);
+        const workspacePath = rec?.config.projectPath;
+        if (!rec || !workspacePath) return undefined;
+        return {
+          sessionId: rec.realSessionId ?? sourceSessionId,
+          tabId: rec.tabId,
+          token: rec.token,
+          workspacePath,
+          successorConfig: {
+            model: rec.currentModel,
+            effort: rec.config.effort,
+            permissionLevel: rec.permissionLevel,
+            workspacePath: rec.config.workspaceId ?? workspacePath,
+          },
+          resourceLease: {
+            worktreePath: workspacePath,
+            inheritedParentIds: [],
+          },
+        };
+      },
+      queueOwnedHandoff: (sourceSessionId, prompt) =>
+        this._streamPump.enqueueOwnedHandoff(sourceSessionId as SessionId, prompt),
+      restoreInputs: (sourceSessionId, inputs) => {
+        return this._registry.restoreQueuedInputs(sourceSessionId, inputs);
+      },
+      closeIfTokenMatches: (sourceSessionId, token) =>
+        this.endSessionIfTokenMatches(sourceSessionId as SessionId, token),
+      isOwnedHandoffPendingOrRunning: (sourceSessionId, token) => {
+        const rec = this._registry.find(sourceSessionId);
+        return !!rec && rec.token === token && (
+          rec.turnInFlight ||
+          rec.messageQueue.some(
+            (input) => input.admission === 'owned-handoff',
+          )
+        );
+      },
+    });
     this._registry.startEvictionSweep();
     this.watchCompactionThreshold();
+  }
+
+  /** Arm a handover before waking a held source queue. */
+  onTurnTerminal(
+    sessionId: SessionId,
+    atBlockingLimit: boolean = this.isAtBlockingLimit(sessionId),
+  ): void {
+    const rec = this._registry.find(sessionId as string);
+    if (rec && this.handoverCoordinator) {
+      const canonicalId = this.handoverKey(sessionId);
+      const budgetSessionId = rec.realSessionId ?? (sessionId as string);
+      this.handoverCoordinator.armAtTerminal(
+        canonicalId,
+        atBlockingLimit,
+        rec.messageQueue,
+        this.sessionBudget?.stageFor(budgetSessionId) === 'handoff',
+      );
+    }
+    this._registry.markTurnEnded(sessionId as string);
+  }
+
+  /** Read the current refusal before an interrupt releases the source turn. */
+  private isAtBlockingLimit(sessionId: SessionId): boolean {
+    const rec = this._registry.find(sessionId as string);
+    const budgetSessionId = rec?.realSessionId ?? (sessionId as string);
+    const check = this.sessionBudget?.canSend(budgetSessionId);
+    return check?.ok === false;
+  }
+
+  /**
+   * Use the SDK session id once it is known. An operation started before the
+   * SDK init message remains under its tab id, so continue addressing that
+   * existing operation instead of creating a second handover.
+   */
+  private handoverKey(sessionId: SessionId): string {
+    const rec = this._registry.find(sessionId as string);
+    if (!rec) return sessionId as string;
+
+    const canonicalId = rec.realSessionId ?? rec.tabId;
+    if (
+      canonicalId !== rec.tabId &&
+      isInProgress(this.handoverCoordinator?.snapshotFor(rec.tabId)) &&
+      !this.handoverCoordinator?.snapshotFor(canonicalId)
+    ) {
+      return rec.tabId;
+    }
+    return canonicalId;
   }
 
   /**
@@ -596,6 +700,14 @@ export class SessionLifecycleManager {
    * subagents for this session are marked as 'interrupted' to enable resumption.
    */
   async endSession(sessionId: SessionId): Promise<void> {
+    const token = this.getSessionToken(sessionId);
+    if (token) {
+      this.handoverCoordinator?.sourceEnded(
+        this.handoverKey(sessionId),
+        token,
+        'session ended',
+      );
+    }
     await this._control.endSession(sessionId);
   }
 
@@ -615,6 +727,13 @@ export class SessionLifecycleManager {
     sessionId: SessionId,
     token: string,
   ): Promise<boolean> {
+    if (this.getSessionToken(sessionId) === token) {
+      this.handoverCoordinator?.sourceEnded(
+        this.handoverKey(sessionId),
+        token,
+        'session ended',
+      );
+    }
     return this._control.endSessionIfTokenMatches(sessionId, token);
   }
 
@@ -622,9 +741,46 @@ export class SessionLifecycleManager {
    * Cleanup all active sessions.
    * Calls cleanupPendingPermissions to prevent unhandled promise rejections,
    * and marks all running subagents as interrupted for each session.
+   * Each session's pending handover is told its source ended first, exactly
+   * as {@link endSession} does for a single session.
    */
   async disposeAllSessions(): Promise<void> {
+    this.notifyHandoverSourcesEnded(
+      Array.from(this._registry.entries(), ([tabId]) => tabId),
+    );
     return this._control.disposeAllSessions();
+  }
+
+  /** Tab ids of the live sessions of one workspace (normalized path match). */
+  getSessionIdsForWorkspace(workspacePath: string): string[] {
+    return this._control.getSessionIdsForWorkspace(workspacePath);
+  }
+
+  /**
+   * End only the sessions of one workspace; other workspaces keep running.
+   * Each session's pending handover is told its source ended first, exactly
+   * as {@link endSession} does for a single session.
+   */
+  async disposeSessionsForWorkspace(workspacePath: string): Promise<void> {
+    this.notifyHandoverSourcesEnded(
+      this.getSessionIdsForWorkspace(workspacePath),
+    );
+    return this._control.disposeSessionsForWorkspace(workspacePath);
+  }
+
+  /** Tell the handover coordinator each registered session is ending. */
+  private notifyHandoverSourcesEnded(tabIds: readonly string[]): void {
+    for (const id of tabIds) {
+      const sessionId = id as SessionId;
+      const token = this.getSessionToken(sessionId);
+      if (token) {
+        this.handoverCoordinator?.sourceEnded(
+          this.handoverKey(sessionId),
+          token,
+          'session ended',
+        );
+      }
+    }
   }
 
   /**
@@ -686,6 +842,14 @@ export class SessionLifecycleManager {
     );
   }
 
+  /** Transfer a coordinator-held FIFO to a successor in one queue operation. */
+  async enqueueTransferInputs(
+    sessionId: SessionId,
+    inputs: readonly QueuedSessionInput[],
+  ): Promise<void> {
+    return this._streamPump.enqueueTransferInputs(sessionId, inputs);
+  }
+
   /**
    * Execute a slash command as a new query within an existing session.
    * Used when follow-up messages contain slash commands (e.g., /compact, /orchestrate).
@@ -722,6 +886,7 @@ export class SessionLifecycleManager {
       forkSession: config.forkSession,
       enableFileCheckpointing: config.enableFileCheckpointing,
       includePartialMessages: config.includePartialMessages,
+      authEnvOverride: config.authEnvOverride,
     });
   }
 

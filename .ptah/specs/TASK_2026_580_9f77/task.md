@@ -1,13 +1,21 @@
 ---
 id: TASK_2026_580_9f77
-status: in_review
+status: done
 type: FEATURE
-title: 'Organize sessions: priority, workflow status, worktree and PR links, and links to tasks'
+title: >-
+  Organize sessions: priority, workflow status, worktree and PR links, and links
+  to tasks
 depends_on: []
 estimate: L
 created: '2026-09-30T14:06:07.000Z'
-updated: '2026-09-30T14:06:07.000Z'
-description: 'Sessions carry only a name, timestamps and a working directory, and the list sorts by last activity with client-side search over loaded pages. Add a SQLite-backed organization record per session (priority, workflow status, pin, worktree, branch, PR links) and a session-task link table, with server-side filter and sort, automatic capture from worktree hooks, gh pr create and board starts, and session links on task cards'
+updated: '2026-10-10T18:17:28.806Z'
+description: >-
+  Sessions carry only a name, timestamps and a working directory, and the list
+  sorts by last activity with client-side search over loaded pages. Add a
+  SQLite-backed organization record per session (priority, workflow status, pin,
+  worktree, branch, PR links) and a session-task link table, with server-side
+  filter and sort, automatic capture from worktree hooks, gh pr create and board
+  starts, and session links on task cards
 labels:
   - sessions
   - tasks

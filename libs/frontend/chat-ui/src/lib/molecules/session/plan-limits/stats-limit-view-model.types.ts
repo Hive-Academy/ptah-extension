@@ -96,11 +96,7 @@ export interface PlanWindowDetailModel {
 }
 
 export type PlanLimitTileKind =
-  | 'window'
-  | 'local-usage'
-  | 'evidence'
-  | 'cooldown'
-  | 'status';
+  'window' | 'local-usage' | 'evidence' | 'cooldown' | 'status';
 
 export interface PlanLimitTileModel {
   /** Stable id: `plan:<owner>:<window>`, `plan-evidence:<owner>[:<scope>]`, … */

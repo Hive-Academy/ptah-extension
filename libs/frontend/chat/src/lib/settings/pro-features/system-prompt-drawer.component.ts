@@ -22,7 +22,7 @@ import {
   RotateCw,
   Sparkles,
 } from 'lucide-angular';
-import { ClaudeRpcService } from '@ptah-extension/core';
+import { ClaudeRpcService, WorkspaceScopeService } from '@ptah-extension/core';
 import { MarkdownBlockComponent } from '@ptah-extension/markdown';
 import type { EnhancedPromptsGetStatusResponse } from '@ptah-extension/shared';
 import { NativeDrawerComponent } from '@ptah-extension/ui';
@@ -309,6 +309,11 @@ const DOWNLOAD_CANCELLED_BY_USER = 'Save cancelled by user';
 })
 export class SystemPromptDrawerComponent {
   private readonly rpcService = inject(ClaudeRpcService);
+  private readonly workspaceScope = inject(WorkspaceScopeService);
+  /** The real workspace root; `'.'` only where the host tracks none (VS Code). */
+  private workspacePath(): string {
+    return this.workspaceScope.activeWorkspacePath() ?? '.';
+  }
   private readonly injector = inject(Injector);
   private readonly regenerateCancel = viewChild<ElementRef<HTMLButtonElement>>('regenerateCancel');
   private readonly regenerateButton = viewChild<ElementRef<HTMLButtonElement>>('regenerateButton');
@@ -397,7 +402,7 @@ export class SystemPromptDrawerComponent {
     this.error.set(null);
     try {
       const result = await this.rpcService.call('enhancedPrompts:getStatus', {
-        workspacePath: '.',
+        workspacePath: this.workspacePath(),
       });
       if (result.isSuccess() && !result.data.error) {
         this.status.set(result.data);
@@ -445,7 +450,7 @@ export class SystemPromptDrawerComponent {
     try {
       const result = await this.rpcService.call(
         'enhancedPrompts:regenerate',
-        { workspacePath: '.', force: true },
+        { workspacePath: this.workspacePath(), force: true },
         { timeout: REGENERATE_TIMEOUT_MS },
       );
       if (result.isSuccess() && result.data.success) {
@@ -507,7 +512,7 @@ export class SystemPromptDrawerComponent {
     this.downloadNote.set(null);
     try {
       const result = await this.rpcService.call('enhancedPrompts:download', {
-        workspacePath: '.',
+        workspacePath: this.workspacePath(),
       });
       if (!result.isSuccess()) {
         this.error.set(PROMPT_DOWNLOAD_FAILED);
@@ -533,7 +538,7 @@ export class SystemPromptDrawerComponent {
       try {
         const result = await this.rpcService.call(
           'enhancedPrompts:getPromptContent',
-          { workspacePath: '.' },
+          { workspacePath: this.workspacePath() },
         );
         if (result.isSuccess() && result.data.content) {
           this.promptPreviewContent.set(result.data.content);

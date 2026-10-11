@@ -63,6 +63,8 @@ interface Harness {
 
 function makeHarness(
   getCompactionConfig: (() => CompactionConfig) | null = null,
+  onTurnTerminal: ((sessionId: SessionId) => void) | null = null,
+  mayInterrupt: ((sessionId: SessionId) => boolean) | null = null,
 ): Harness {
   const logger = makeLogger();
   const registry = new SessionRegistry(logger);
@@ -96,6 +98,8 @@ function makeHarness(
     modelResolver,
     sessionEndRegistry,
     getCompactionConfig,
+    onTurnTerminal,
+    mayInterrupt,
   );
 
   return {
@@ -107,6 +111,33 @@ function makeHarness(
     logger,
   };
 }
+
+describe('SessionControl.interruptCurrentTurn', () => {
+  it('notifies the terminal hook after a successful interrupt', async () => {
+    const terminal = jest.fn();
+    const h = makeHarness(null, terminal);
+    const rec = h.registry.register(KEY, makeConfig(), new AbortController());
+    rec.query = {
+      interrupt: jest.fn().mockResolvedValue(undefined),
+    } as unknown as typeof rec.query;
+
+    await expect(h.control.interruptCurrentTurn(KEY_ID)).resolves.toBe(true);
+
+    expect(terminal).toHaveBeenCalledWith(KEY_ID);
+  });
+
+  it('refuses an interrupt once handover owns the source', async () => {
+    const h = makeHarness(null, null, () => false);
+    const rec = h.registry.register(KEY, makeConfig(), new AbortController());
+    const interrupt = jest.fn().mockResolvedValue(undefined);
+    rec.query = {
+      interrupt,
+    } as unknown as typeof rec.query;
+
+    await expect(h.control.interruptCurrentTurn(KEY_ID)).resolves.toBe(false);
+    expect(interrupt).not.toHaveBeenCalled();
+  });
+});
 
 describe('SessionControl.endSessionIfTokenMatches', () => {
   it('refuses a stale token and leaves the REPLACEMENT record intact', async () => {
@@ -883,5 +914,81 @@ describe('SessionControl.applySessionAutoCompactWindow — E2-gated tighten (TAS
 
   it('leaves the A1 class defaults null (E2 has not passed)', () => {
     expect(A1_DEFAULT_WINDOW).toEqual({ claude: null, proxied: null });
+  });
+});
+
+describe('SessionControl.disposeSessionsForWorkspace — one workspace only', () => {
+  function register(
+    h: Harness,
+    tabId: string,
+    projectPath: string | undefined,
+  ): { abort: AbortController } {
+    const abort = new AbortController();
+    h.registry.register(
+      tabId,
+      { model: 'test-model', projectPath } as AISessionConfig,
+      abort,
+    );
+    return { abort };
+  }
+
+  it('ends the sessions of the given workspace and leaves every other workspace running', async () => {
+    const h = makeHarness();
+    const a1 = register(h, 'tab_a1', '/ws/project-a');
+    const a2 = register(h, 'tab_a2', '/ws/project-a/');
+    const b = register(h, 'tab_b', '/ws/project-b');
+    const none = register(h, 'tab_none', undefined);
+
+    expect(h.control.getSessionIdsForWorkspace('/ws/project-a').sort()).toEqual(
+      ['tab_a1', 'tab_a2'],
+    );
+
+    await h.control.disposeSessionsForWorkspace('/ws/project-a');
+
+    expect(a1.abort.signal.aborted).toBe(true);
+    expect(a2.abort.signal.aborted).toBe(true);
+    expect(h.registry.find('tab_a1')).toBeUndefined();
+    expect(h.registry.find('tab_a2')).toBeUndefined();
+
+    // Another workspace, and a session with no workspace, are untouched.
+    expect(b.abort.signal.aborted).toBe(false);
+    expect(none.abort.signal.aborted).toBe(false);
+    expect(h.registry.find('tab_b')).toBeDefined();
+    expect(h.registry.find('tab_none')).toBeDefined();
+    expect(h.cleanupPendingPermissions).not.toHaveBeenCalledWith('tab_b');
+
+    // Each ended session announces its own workspace end, and only those.
+    expect(h.notifyAll).toHaveBeenCalledTimes(2);
+    for (const [event] of h.notifyAll.mock.calls) {
+      expect(event.workspaceRoot).toMatch(/project-a/);
+    }
+  });
+
+  it('matches the workspace through path normalization (separators, trailing slash, drive-letter case)', async () => {
+    const h = makeHarness();
+    const win = process.platform === 'win32';
+    // The stored and the requested spelling of the SAME workspace differ.
+    const stored = win ? 'D:\\repo\\app' : '/repo//app';
+    const requested = win ? 'd:/repo/app/' : '/repo/app/';
+    const s = register(h, 'tab_norm', stored);
+
+    expect(h.control.getSessionIdsForWorkspace(requested)).toEqual([
+      'tab_norm',
+    ]);
+
+    await h.control.disposeSessionsForWorkspace(requested);
+    expect(s.abort.signal.aborted).toBe(true);
+  });
+
+  it('is a no-op for an empty path or a workspace with no sessions', async () => {
+    const h = makeHarness();
+    const b = register(h, 'tab_b', '/ws/project-b');
+
+    await h.control.disposeSessionsForWorkspace('');
+    await h.control.disposeSessionsForWorkspace('/ws/project-z');
+
+    expect(b.abort.signal.aborted).toBe(false);
+    expect(h.registry.find('tab_b')).toBeDefined();
+    expect(h.notifyAll).not.toHaveBeenCalled();
   });
 });

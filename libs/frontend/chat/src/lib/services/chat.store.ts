@@ -16,6 +16,7 @@ import type {
   SdkSubagentEndedPayload,
   SdkTurnEndedPayload,
   SdkTurnFailedPayload,
+  SessionStatsLiveWire,
 } from '@ptah-extension/shared';
 import {
   SessionManager,
@@ -415,10 +416,18 @@ export class ChatStore {
       this.handleCompactionStart(result.compactionSessionId);
       return;
     }
-    if (result && result.queuedContent) {
-      const queuedContent = result.queuedContent;
-      const resultTabId = result.tabId;
-      this.messageDispatch.sendQueuedMessage(resultTabId, queuedContent);
+    const queueFlushes = result?.queueFlushes ??
+      (result?.queuedContent
+        ? [{ tabId: result.tabId, content: result.queuedContent }]
+        : []);
+    // A terminal turn_state reaches this point only after it was applied by
+    // StreamingHandlerService. Start each send now, before signal rendering
+    // observes the newly-idle tab and may reveal its budget banner.
+    for (const queueFlush of queueFlushes) {
+      this.messageDispatch.sendQueuedMessage(
+        queueFlush.tabId,
+        queueFlush.content,
+      );
     }
   }
 
@@ -523,6 +532,11 @@ export class ChatStore {
   /** Handle session stats update. Delegates to SessionStatsAggregatorService. */
   handleSessionStats(stats: SessionStatsEvent): void {
     this.statsAggregator.handleSessionStats(stats);
+  }
+
+  /** Handle an in-turn `session:stats-live` update. Delegates to SessionStatsAggregatorService. */
+  handleSessionStatsLive(event: SessionStatsLiveWire): void {
+    this.statsAggregator.handleLiveSessionStats(event);
   }
 
   /** Handle session ID resolution from backend. Delegates to ChatLifecycleService. */

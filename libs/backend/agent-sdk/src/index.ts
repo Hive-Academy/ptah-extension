@@ -100,7 +100,18 @@ export {
   type UnattendedSessionPolicy,
 } from './lib/permission/unattended-session-policy.registry';
 export type { IAuthEnvProvider } from './lib/auth-env.port';
+export {
+  MODEL_DISPATCH_PROVENANCE_TAP,
+  type ModelDispatchProvenance,
+  type ModelDispatchProvenanceTap,
+  type ModelDispatchRoute,
+} from './lib/curator-llm-adapter/model-dispatch-provenance';
 export type { IProviderAuthResolver } from './lib/auth/provider-auth-resolver.port';
+export type {
+  IWorkspaceLlmResolver,
+  WorkspaceLlmSnapshot,
+  WorkspaceLlmResolveOptions,
+} from './lib/auth/workspace-llm-resolver.port';
 export type { OneShotAuthOverride } from './lib/helpers';
 export type { IPricingProvider } from './lib/pricing.port';
 export {
@@ -341,6 +352,11 @@ export {
 export { SlashCommandInterceptor } from './lib/helpers';
 export type { SlashCommandResult, SlashCommandConfig } from './lib/helpers';
 export { SettingsExportService } from './lib/settings-export.service';
+export {
+  SessionHandoverCoordinator,
+  type QueuedSessionInput,
+  type SessionQueueItem,
+} from './lib/helpers/session-handoff/session-handover-coordinator.service';
 export { SettingsImportService } from './lib/settings-import.service';
 export type { SettingsImportOptions } from './lib/settings-import.service';
 export {

@@ -8,12 +8,7 @@
 
 import 'reflect-metadata';
 import { EventEmitter } from 'node:events';
-import {
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { container as rootContainer } from 'tsyringe';
@@ -21,10 +16,15 @@ import type { DependencyContainer } from 'tsyringe';
 
 const activateThothMock = jest.fn();
 const disposeThothMock = jest.fn();
+const startWorkspaceIndexLifecycleMock = jest.fn((..._args: unknown[]) => ({
+  dispose: jest.fn(),
+}));
 
 jest.mock('./thoth-runtime.js', () => ({
   activateThoth: (...args: unknown[]) => activateThothMock(...args),
   disposeThoth: (...args: unknown[]) => disposeThothMock(...args),
+  startWorkspaceIndexLifecycle: (...args: unknown[]) =>
+    startWorkspaceIndexLifecycleMock(...args),
 }));
 
 const runCursorApiKeyMigrationMock = jest.fn(async () => undefined);
@@ -1157,6 +1157,7 @@ describe('withEngine', () => {
     beforeEach(() => {
       activateThothMock.mockReset();
       disposeThothMock.mockReset();
+      startWorkspaceIndexLifecycleMock.mockClear();
       activateThothMock.mockResolvedValue({ marker: 'thoth-refs' });
       disposeThothMock.mockResolvedValue(undefined);
     });
@@ -1173,6 +1174,7 @@ describe('withEngine', () => {
       );
       expect(activateThothMock).not.toHaveBeenCalled();
       expect(disposeThothMock).not.toHaveBeenCalled();
+      expect(startWorkspaceIndexLifecycleMock).not.toHaveBeenCalled();
     });
 
     it('thoth=off explicit is identical to default — no activation', async () => {
@@ -1184,6 +1186,7 @@ describe('withEngine', () => {
       );
       expect(activateThothMock).not.toHaveBeenCalled();
       expect(disposeThothMock).not.toHaveBeenCalled();
+      expect(startWorkspaceIndexLifecycleMock).not.toHaveBeenCalled();
     });
 
     it('thoth=oneshot activates with the oneshot tier and stashes refs', async () => {
@@ -1199,6 +1202,7 @@ describe('withEngine', () => {
       );
       expect(activateThothMock).toHaveBeenCalledTimes(1);
       expect(activateThothMock.mock.calls[0]?.[1]).toBe('oneshot');
+      expect(startWorkspaceIndexLifecycleMock).not.toHaveBeenCalled();
       expect(seenRefs).toEqual({ marker: 'thoth-refs' });
       expect(disposeThothMock).toHaveBeenCalledTimes(1);
       expect(disposeThothMock.mock.calls[0]?.[0]).toEqual({
@@ -1215,7 +1219,79 @@ describe('withEngine', () => {
       );
       expect(activateThothMock).toHaveBeenCalledTimes(1);
       expect(activateThothMock.mock.calls[0]?.[1]).toBe('runtime');
+      expect(activateThothMock.mock.calls[0]?.[3]).toEqual({
+        workspaceIndex: false,
+      });
+      expect(startWorkspaceIndexLifecycleMock).toHaveBeenCalledTimes(1);
+      const handle = startWorkspaceIndexLifecycleMock.mock.results[0]
+        ?.value as { dispose: jest.Mock };
+      expect(handle.dispose).toHaveBeenCalledTimes(1);
       expect(disposeThothMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('oneshot with workspaceIndex true starts the index once and disposes it', async () => {
+      const { bootstrap } = makeFakeBootstrap();
+      await withEngine(
+        baseGlobals,
+        { mode: 'full', thoth: 'oneshot', workspaceIndex: true, bootstrap },
+        async () => undefined,
+      );
+      expect(activateThothMock).toHaveBeenCalledTimes(1);
+      expect(activateThothMock.mock.calls[0]?.[3]).toEqual({
+        workspaceIndex: false,
+      });
+      expect(startWorkspaceIndexLifecycleMock).toHaveBeenCalledTimes(1);
+      const handle = startWorkspaceIndexLifecycleMock.mock.results[0]
+        ?.value as { dispose: jest.Mock };
+      expect(handle.dispose).toHaveBeenCalledTimes(1);
+      expect(disposeThothMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('calls the serving callback before a pending workspace-index start resolves', async () => {
+      const { bootstrap } = makeFakeBootstrap();
+      let served = false;
+      startWorkspaceIndexLifecycleMock.mockImplementationOnce(
+        () =>
+          new Promise(() => undefined) as unknown as {
+            dispose: jest.Mock;
+          },
+      );
+      const pending = withEngine(
+        baseGlobals,
+        { mode: 'full', thoth: 'off', workspaceIndex: true, bootstrap },
+        async () => {
+          served = true;
+          return 'ready';
+        },
+      );
+      const result = await Promise.race([
+        pending,
+        new Promise<string>((_, reject) => {
+          setTimeout(
+            () =>
+              reject(new Error('serving callback waited on the index start')),
+            250,
+          );
+        }),
+      ]);
+      expect(served).toBe(true);
+      expect(result).toBe('ready');
+      expect(startWorkspaceIndexLifecycleMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('thoth off with workspaceIndex true starts the index once and does not activate Thoth', async () => {
+      const { bootstrap } = makeFakeBootstrap();
+      await withEngine(
+        baseGlobals,
+        { mode: 'full', thoth: 'off', workspaceIndex: true, bootstrap },
+        async () => undefined,
+      );
+      expect(activateThothMock).not.toHaveBeenCalled();
+      expect(startWorkspaceIndexLifecycleMock).toHaveBeenCalledTimes(1);
+      const handle = startWorkspaceIndexLifecycleMock.mock.results[0]
+        ?.value as { dispose: jest.Mock };
+      expect(handle.dispose).toHaveBeenCalledTimes(1);
+      expect(disposeThothMock).not.toHaveBeenCalled();
     });
 
     it('disposes Thoth BEFORE the container teardown', async () => {
@@ -1300,7 +1376,11 @@ describe('migrateLegacyAuthMethod (TASK_2026_555 Batch 2b)', () => {
 
   function writeUserFile(content: Record<string, unknown>): string {
     const raw = JSON.stringify(
-      { $schema: 'https://ptah.live/schemas/settings.json', version: 1, ...content },
+      {
+        $schema: 'https://ptah.live/schemas/settings.json',
+        version: 1,
+        ...content,
+      },
       null,
       2,
     );

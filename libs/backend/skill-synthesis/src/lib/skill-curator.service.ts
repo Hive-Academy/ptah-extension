@@ -108,6 +108,15 @@ export interface SkillCuratorStartOptions {
     timestamp: number;
     stats?: Record<string, number | string | boolean | null>;
   }) => void;
+  /**
+   * LIVE settings for the periodic tick (TASK_2026_620 B-P, S9). When present
+   * the tick re-reads the effective settings through it before every pass and
+   * no-ops while `enabled` (the skills master switch) or `curatorEnabled` is
+   * false, so a pause/resume applies on the next tick without a restart. The
+   * `settings` snapshot passed beside it remains the fallback for callers
+   * that have no live reader (specs, the bench harness).
+   */
+  readonly readSettings?: () => SkillSynthesisSettings;
 }
 
 /** What an accept or adopt merged inside its transaction. */
@@ -186,6 +195,12 @@ const EMPTY_STATS: CuratorPassStats = {
 export class SkillCuratorService {
   private intervalHandle: ReturnType<typeof setInterval> | null = null;
   private currentSettings: SkillSynthesisSettings | null = null;
+  /**
+   * The live settings supplier handed to `start()` (B-P, S9). `null` for
+   * callers that pass only a snapshot — the tick then reads
+   * {@link currentSettings}, the pre-B-P behaviour.
+   */
+  private settingsSupplier: (() => SkillSynthesisSettings) | null = null;
   private onPassComplete: ((timestamp: number) => void) | null = null;
   private onEvent: SkillCuratorStartOptions['onEvent'] | null = null;
   /** The in-flight startup reconcile; a pass waits for it. */
@@ -218,22 +233,45 @@ export class SkillCuratorService {
     settings: SkillSynthesisSettings,
     options?: SkillCuratorStartOptions,
   ): void {
+    // Clear-before-arm (B-P, S13): `start()` is no longer a once-per-lifetime
+    // call — `restartCurator()` and the resume re-arm reach it on a LIVE
+    // curator — and an interval that survives beside the new one would double
+    // the cadence on every settings change.
+    if (this.intervalHandle !== null) {
+      clearInterval(this.intervalHandle);
+      this.intervalHandle = null;
+    }
     this.currentSettings = settings;
+    this.settingsSupplier = options?.readSettings ?? null;
     this.onPassComplete = options?.onPassComplete ?? null;
     this.onEvent = options?.onEvent ?? null;
+    const initial = this.liveSettings() ?? settings;
+    if (!initial.enabled) {
+      // The skills master switch is off: pause stops the reconcile too — it
+      // is a skills write, not DB maintenance. The resume paths start the
+      // curator with the switch on and it runs then.
+      this.logger.info(
+        '[skill-curator] skills master switch off; not starting',
+      );
+      return;
+    }
     // Data repair, not curation: it runs even with the curator disabled.
-    this.startReconciliation(settings);
-    if (!settings.curatorEnabled) {
+    this.startReconciliation(initial);
+    if (!initial.curatorEnabled) {
       this.logger.info('[skill-curator] disabled via settings; not scheduling');
       return;
     }
-    const intervalMs = settings.curatorIntervalHours * 3_600_000;
+    const intervalMs = initial.curatorIntervalHours * 3_600_000;
     this.logger.info('[skill-curator] scheduling periodic pass', {
-      intervalHours: settings.curatorIntervalHours,
+      intervalHours: initial.curatorIntervalHours,
     });
     this.intervalHandle = setInterval(() => {
-      const s = this.currentSettings;
-      if (!s) return;
+      // Live read (B-P, S9): the master switch and the curator sub-switch are
+      // re-read before every pass, so a pause applies on the next tick without
+      // a restart. A paused tick no-ops and keeps the interval — resume then
+      // needs no restart either.
+      const s = this.liveSettings();
+      if (!s || !s.enabled || !s.curatorEnabled) return;
       void this.runPass(s).catch((err: unknown) => {
         this.logger.warn('[skill-curator] runPass error', {
           error: err instanceof Error ? err.message : String(err),
@@ -242,11 +280,24 @@ export class SkillCuratorService {
     }, intervalMs);
   }
 
+  /** The effective settings for the next pass: live, else the snapshot. */
+  private liveSettings(): SkillSynthesisSettings | null {
+    return this.settingsSupplier
+      ? this.settingsSupplier()
+      : this.currentSettings;
+  }
+
+  /** Whether the periodic pass interval is currently armed (B-P). */
+  isScheduled(): boolean {
+    return this.intervalHandle !== null;
+  }
+
   stop(): void {
     if (this.intervalHandle !== null) {
       clearInterval(this.intervalHandle);
       this.intervalHandle = null;
     }
+    this.settingsSupplier = null;
     this.onPassComplete = null;
     this.onEvent = null;
   }
@@ -254,15 +305,19 @@ export class SkillCuratorService {
   /**
    * One pass now (RPC `skillSynthesis:runCurator`). The RPC handler passes
    * `userInitiated: true`; the interval in {@link start} never does.
+   *
+   * Reads the LIVE settings when a supplier was handed to `start()` (B-P),
+   * so a manual run sees a settings change without a restart.
    */
   runManual(origin: QueryOrigin = {}): Promise<CuratorReport> {
-    if (!this.currentSettings) {
+    const settings = this.liveSettings();
+    if (!settings) {
       this.logger.warn(
         '[skill-curator] runManual called before start (no settings); returning empty report',
       );
       return Promise.resolve(this.emptyReport());
     }
-    return this.runPass(this.currentSettings, origin);
+    return this.runPass(settings, origin);
   }
 
   private async runPass(

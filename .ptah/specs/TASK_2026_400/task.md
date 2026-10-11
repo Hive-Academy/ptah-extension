@@ -1,19 +1,19 @@
 ---
 id: TASK_2026_400
-status: in_review
+status: done
 type: bugfix
 title: >-
   Compaction leaves the tile empty and the context gauge reading the lifetime
   total
 description: >-
-  Three defects on the manual-compaction path. The reload cleared every
-  fan-out tab by tab id but reloaded by session id, so with two tab
-  representations of one session the originating tile was emptied and never
-  restored. Once targeting was fixed the tile stayed empty anyway, because a
-  stale deferred StreamingState outranked the replay during the finalizer's
-  unscoped flush. Separately, the context gauge divided the lifetime token
-  total by the model window, reading 89.6% on a session compacted to 11,016
-  tokens.
+  Three defects on the manual-compaction path. The reload cleared every fan-out
+  tab by tab id but reloaded by session id, so with two tab representations of
+  one session the originating tile was emptied and never restored. Once
+  targeting was fixed the tile stayed empty anyway, because a stale deferred
+  StreamingState outranked the replay during the finalizer's unscoped flush.
+  Separately, the context gauge divided the lifetime token total by the model
+  window, reading 89.6% on a session compacted to 11,016 tokens.
+updated: '2026-10-10T18:19:15.663Z'
 ---
 
 # TASK_2026_400

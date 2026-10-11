@@ -1,16 +1,17 @@
 ---
 id: TASK_2026_592_a44d
-status: in_review
+status: done
 type: BUGFIX
 title: Closing a chat tab ends its Claude session process
 description: >-
-  Closing a chat tab after its turn finished leaves the tab's claude.exe (Agent SDK streaming-input
-  query) running forever, because the frontend sends chat:abort only while a turn streams and the
-  backend has no idle reaper. Fix tab close so it ends the tab's session; never end sessions on
-  workspace switch, pop-out transfer, or when another tab still shows the same session.
+  Closing a chat tab after its turn finished leaves the tab's claude.exe (Agent
+  SDK streaming-input query) running forever, because the frontend sends
+  chat:abort only while a turn streams and the backend has no idle reaper. Fix
+  tab close so it ends the tab's session; never end sessions on workspace
+  switch, pop-out transfer, or when another tab still shows the same session.
 depends_on: []
 created: 2026-10-02T01:10:00.000Z
-updated: 2026-10-02T01:10:00.000Z
+updated: '2026-10-10T18:17:26.921Z'
 ---
 
 ## Description

@@ -127,6 +127,7 @@ import {
   classifyThrownNetworkFailure,
   NETWORK_BACKOFF_INITIAL_MS,
   QueryNetworkObserver,
+  type ModelDispatchRoute,
   type NetworkBackoff,
   type NetworkFailureSignal,
 } from '@ptah-extension/agent-sdk';
@@ -599,6 +600,27 @@ export class LaneRunnerService {
   }
 
   /**
+   * Inert. An auth snapshot names `config.provider`. No snapshot is
+   * ride-active: the runner reads the auth env it dials, and only when
+   * a tap is registered.
+   */
+  private dispatchRoute(lane: ResolvedSkillLane): ModelDispatchRoute {
+    if (lane.auth !== undefined) {
+      return {
+        providerSource: 'override',
+        overrideProviderId: lane.config.provider.trim(),
+        component: 'skill-lane',
+        laneId: lane.config.id,
+      };
+    }
+    return {
+      providerSource: 'ride-active',
+      component: 'skill-lane',
+      laneId: lane.config.id,
+    };
+  }
+
+  /**
    * One `execute` call, fully bounded. Returns rather than throws for the two
    * abort shapes and for a network-class failure; anything else propagates to
    * the drain.
@@ -644,6 +666,7 @@ export class LaneRunnerService {
         abortController: controller,
         // R2: BY REFERENCE. Do not spread, clone, parse or filter this.
         auth: lane.auth,
+        dispatch: this.dispatchRoute(lane),
         outputFormat: opts.outputFormat,
       });
 

@@ -62,7 +62,6 @@ export interface SkillSynthesisEventWire {
 }
 
 export interface MemoryTriggersDto {
-  readonly preCompact: boolean;
   readonly idleMs: number;
   readonly turnThreshold: number;
   readonly bootScan: boolean;
@@ -89,7 +88,6 @@ export interface MemoryTriggersDto {
 }
 
 export interface SkillTriggersDto {
-  readonly sessionEnd: boolean;
   readonly idleMs: number;
   readonly bootScan: boolean;
   readonly subagentStop?: {
@@ -223,16 +221,27 @@ export interface MemoryRunNowResult {
 
 export interface MemorySetTriggersParams {
   readonly triggers: Partial<MemoryTriggersDto>;
+  /**
+   * The memory master switch (`memory.enabled`). Kept outside
+   * `MemoryTriggersDto` because it is the switch above the triggers, not one
+   * of them. Omitted → left as is. The pause toggle sends
+   * `{ triggers: {}, enabled }`, which writes no trigger key.
+   */
+  readonly enabled?: boolean;
 }
 
 export interface MemorySetTriggersResult {
   readonly triggers: MemoryTriggersDto;
+  /** `memory.enabled` read back after the write; `false` means paused. */
+  readonly enabled: boolean;
 }
 
 export type MemoryGetTriggersParams = Record<string, never>;
 
 export interface MemoryGetTriggersResult {
   readonly triggers: MemoryTriggersDto;
+  /** `memory.enabled`; `false` means memory background work is paused. */
+  readonly enabled: boolean;
 }
 
 export interface SkillDiagnosticsParams {

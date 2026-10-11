@@ -16,7 +16,7 @@ import type { ISymbolSink } from './symbol-sink.port';
 
 /** Recalls nothing. `bm25Only` is true — there is no vector index to consult. */
 export const NullMemoryReader: IMemoryReader = Object.freeze({
-  search: async () => ({ hits: [], bm25Only: true }),
+  search: () => Promise.resolve({ hits: [], bm25Only: true }),
 });
 
 /** Lists nothing. */
@@ -32,5 +32,7 @@ export const NullMemoryUsageRecorder: IMemoryUsageRecorder = Object.freeze({
 /** Swallows symbol chunks; nothing is persisted and nothing was deleted. */
 export const NullSymbolSink: ISymbolSink = Object.freeze({
   deleteSymbolsForFile: () => 0,
-  insertSymbols: async () => undefined,
+  insertSymbols: () => Promise.resolve(undefined),
+  replaceFileSymbols: () => Promise.resolve(undefined),
+  purgeMissing: () => 0,
 });

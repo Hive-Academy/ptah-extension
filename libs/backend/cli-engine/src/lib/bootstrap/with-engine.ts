@@ -36,6 +36,7 @@ import { runCursorApiKeyMigration } from '@ptah-extension/rpc-handlers';
 import {
   activateThoth,
   disposeThoth,
+  startWorkspaceIndexLifecycle,
   type ThothRefs,
   type ThothTierOption,
 } from './thoth-runtime.js';
@@ -178,6 +179,13 @@ export interface WithEngineOptions {
    * hosts (`ptah interact`, interactive `ptah session start`).
    */
   thoth?: ThothTierOption;
+  /**
+   * Start the governed code-symbol index without waiting for it, and without
+   * the rest of the Thoth runtime. Defaults to true only when `thoth` is
+   * `'runtime'`. `mcp-serve` (thoth off) and the bench host (thoth oneshot)
+   * pass true. Disposed in this helper's `finally` on every tier.
+   */
+  workspaceIndex?: boolean;
   pushAdapter?: CliWebviewManagerAdapter;
   /**
    * Override hook for tests — replaces `CliDIContainer.setup`. Production
@@ -368,10 +376,16 @@ export async function withEngine<T>(
   }
 
   const thothTier = opts.thoth ?? 'off';
+  // One start site for every withEngine host. activateThoth is told not to
+  // start the index itself, including on the runtime tier.
+  const startIndex = opts.workspaceIndex ?? thothTier === 'runtime';
+  let workspaceIndex: { dispose(): void } | null = null;
   if (thothTier !== 'off') {
     try {
       const logger = ctx.container.resolve<Logger>(LOGGER_TOKEN);
-      ctx.thothRefs = await activateThoth(ctx.container, thothTier, logger);
+      ctx.thothRefs = await activateThoth(ctx.container, thothTier, logger, {
+        workspaceIndex: false,
+      });
     } catch (activationErr) {
       process.stderr.write(
         `[ptah] withEngine: Thoth activation failed (non-fatal): ${
@@ -382,10 +396,38 @@ export async function withEngine<T>(
       );
     }
   }
+  if (startIndex) {
+    try {
+      const logger = ctx.container.resolve<Logger>(LOGGER_TOKEN);
+      // Handle returns before open/migrate. The serving callback must not
+      // wait on SQLite. dispose() on this handle cancels a start that has
+      // not finished.
+      workspaceIndex = startWorkspaceIndexLifecycle(ctx.container, logger);
+    } catch (indexErr) {
+      process.stderr.write(
+        `[ptah] withEngine: workspace index start failed (non-fatal): ${
+          indexErr instanceof Error ? indexErr.message : String(indexErr)
+        }\n`,
+      );
+    }
+  }
 
   try {
     return await fn(ctx);
   } finally {
+    if (workspaceIndex) {
+      try {
+        workspaceIndex.dispose();
+      } catch (indexDisposeErr) {
+        process.stderr.write(
+          `[ptah] withEngine: workspace index dispose failed (non-fatal): ${
+            indexDisposeErr instanceof Error
+              ? indexDisposeErr.message
+              : String(indexDisposeErr)
+          }\n`,
+        );
+      }
+    }
     if (ctx.thothRefs) {
       try {
         const logger = ctx.container.resolve<Logger>(LOGGER_TOKEN);

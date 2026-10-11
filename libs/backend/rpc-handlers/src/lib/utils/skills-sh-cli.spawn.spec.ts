@@ -132,6 +132,7 @@ describe('runSkillsCli', () => {
       expect(mockExecFile).toHaveBeenCalledWith(
         expect.stringContaining('taskkill'),
         ['/pid', '2468', '/T', '/F'],
+        { windowsHide: true },
         expect.any(Function),
       );
     } finally {

@@ -1,5 +1,5 @@
 ---
-status: in_review
+status: done
 type: bugfix
 title: Pricing lookup bills a model at another model's rates
 description: >-
@@ -12,6 +12,7 @@ description: >-
 labels:
   - pricing
   - shared
+updated: '2026-10-10T18:17:39.772Z'
 ---
 
 # Pricing lookup bills a model at another model's rates

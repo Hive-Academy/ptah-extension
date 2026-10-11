@@ -274,7 +274,6 @@ function makeWorkspace(
   overrides: Partial<Record<string, unknown>> = {},
 ): IWorkspaceProvider {
   const cfg: Record<string, unknown> = {
-    'skillSynthesis.triggers.sessionEnd': true,
     'skillSynthesis.triggers.idleMs': 600000,
     'skillSynthesis.triggers.bootScan': false,
     'skillSynthesis.triggers.subagentStop.enabled': true,
@@ -350,6 +349,7 @@ function buildService(opts?: {
   synthesis?: SkillSynthesisService;
   rateLimiter?: CuratorRateLimitService;
   extractor?: SubagentMetricsExtractor;
+  harvester?: { harvest: jest.Mock };
 }): {
   service: SkillTriggerService;
   activity: ActivityHarness;
@@ -364,6 +364,7 @@ function buildService(opts?: {
   workspace: IWorkspaceProvider;
   rateLimiter: CuratorRateLimitService;
   extractor: SubagentMetricsExtractor;
+  harvester: { harvest: jest.Mock };
 } {
   const activity = makeActivityRegistry();
   const sessionEnd = makeSessionEndRegistry();
@@ -378,6 +379,9 @@ function buildService(opts?: {
   const rateLimiter =
     opts?.rateLimiter ?? new CuratorRateLimitService(makeLogger());
   const extractor = opts?.extractor ?? makeExtractor();
+  const harvester =
+    opts?.harvester ??
+    ({ harvest: jest.fn().mockResolvedValue(undefined) } as never);
   const service = new SkillTriggerService(
     makeLogger(),
     synthesis,
@@ -393,7 +397,7 @@ function buildService(opts?: {
     expansion.registry,
     recorder,
     stop.registry,
-    { harvest: jest.fn().mockResolvedValue(undefined) } as never,
+    harvester as never,
     extractor,
     sessionIdResolved.registry,
   );
@@ -411,6 +415,7 @@ function buildService(opts?: {
     workspace,
     rateLimiter,
     extractor,
+    harvester,
   };
 }
 
@@ -1827,5 +1832,71 @@ describe('SkillTriggerService — rekeySession (TASK_2026_296)', () => {
     jest.advanceTimersByTime(500_000);
     await Promise.resolve();
     expect(h.synthesis.enqueueAnalyze).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * TASK_2026_620 B-P — the skills master switch on the trigger surface.
+ *
+ * `skillSynthesis.enabled` gates the spec harvest (S4) and nothing else here:
+ * the enqueue body lives in `SkillSynthesisService.enqueueAnalyze` and is
+ * gated there (S2, plus the deferred-start lazy path), while invocation
+ * telemetry (S5) stays ON while paused on purpose — pausing usage recording
+ * while the user keeps using skills would retire them after
+ * `dormantAfterDays` once resumed.
+ */
+describe('SkillTriggerService — the skills master switch (B-P)', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+  });
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  const TURN_COMPLETE_DEBOUNCE_MS = 90 * 1000;
+
+  it('does not harvest specs while paused, and does once enabled', async () => {
+    const harvester = { harvest: jest.fn().mockResolvedValue(undefined) };
+    const paused = buildService({
+      harvester,
+      workspace: makeWorkspace({ 'skillSynthesis.enabled': false }),
+    });
+    paused.service.start();
+    paused.stop.fire(stopPayload());
+    jest.advanceTimersByTime(TURN_COMPLETE_DEBOUNCE_MS);
+    await flushMicrotasks();
+    expect(harvester.harvest).not.toHaveBeenCalled();
+    paused.service.stop();
+
+    const enabled = buildService({ harvester });
+    enabled.service.start();
+    enabled.stop.fire(stopPayload());
+    jest.advanceTimersByTime(TURN_COMPLETE_DEBOUNCE_MS);
+    await flushMicrotasks();
+    expect(harvester.harvest).toHaveBeenCalledWith('/ws');
+    enabled.service.stop();
+  });
+
+  it('still records Skill-tool invocation telemetry while paused (S5)', async () => {
+    const h = buildService({
+      workspace: makeWorkspace({ 'skillSynthesis.enabled': false }),
+    });
+    h.service.start();
+
+    h.postToolUse.registry.notifyAll(
+      postToolUsePayload({
+        toolName: 'Skill',
+        toolInput: { command: '/my-skill' },
+      }),
+    );
+    await flushMicrotasks();
+
+    expect(h.recorder.recordSkillEvent).toHaveBeenCalledTimes(1);
+    // Telemetry is the ONLY thing that ran: the enqueue gating (S2) is the
+    // synthesis service's own live read, pinned in
+    // `skill-synthesis.pause-resume.spec.ts` — at this layer the call is
+    // expected, and the harvest stayed gated.
+    expect(h.harvester.harvest).not.toHaveBeenCalled();
+    h.service.stop();
   });
 });

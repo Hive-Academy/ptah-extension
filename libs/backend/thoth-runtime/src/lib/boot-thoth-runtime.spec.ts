@@ -61,6 +61,26 @@ function makeWebviewManager() {
  * immediately-resolving stubs these specs use — real work is naturally still
  * in flight, which is the point of the change.
  */
+/**
+ * A `SkillSynthesisService` double with the real `onStarted` contract: the
+ * listeners fire when a start succeeds. `start` is the caller's mock; a
+ * resolved start does not fire them by itself — `fireStarted()` stands in for
+ * the end of the real `performStart()`.
+ */
+function makeSkillSynthesis(start: jest.Mock) {
+  const listeners = new Set<() => void>();
+  return {
+    start,
+    onStarted: jest.fn((listener: () => void) => {
+      listeners.add(listener);
+      return { dispose: () => listeners.delete(listener) };
+    }),
+    fireStarted(): void {
+      for (const l of [...listeners]) l();
+    },
+  };
+}
+
 async function flushDeferredStarts(): Promise<void> {
   for (let i = 0; i < 8; i++) {
     await Promise.resolve();
@@ -419,7 +439,9 @@ describe('bootThothRuntime', () => {
   });
 
   it('starts skill synthesis then the skill trigger', async () => {
-    const skillSynthesis = { start: jest.fn().mockResolvedValue(undefined) };
+    const skillSynthesis = makeSkillSynthesis(
+      jest.fn().mockResolvedValue(undefined),
+    );
     const skillTrigger = { start: jest.fn() };
     const container = makeContainer([
       [PERSISTENCE_TOKENS.SQLITE_CONNECTION, makeSqlite()],
@@ -437,14 +459,14 @@ describe('bootThothRuntime', () => {
     expect(refs.skillTrigger).toBe(skillTrigger);
   });
 
-  it('leaves the skill trigger unstarted when skill synthesis fails to start', async () => {
+  it('leaves the skill trigger unstarted when skill synthesis fails to start, keeping the ref for shutdown', async () => {
+    const skillSynthesis = makeSkillSynthesis(
+      jest.fn().mockRejectedValue(new Error('boom')),
+    );
     const skillTrigger = { start: jest.fn() };
     const container = makeContainer([
       [PERSISTENCE_TOKENS.SQLITE_CONNECTION, makeSqlite()],
-      [
-        SKILL_SYNTHESIS_TOKENS.SKILL_SYNTHESIS_SERVICE,
-        { start: jest.fn().mockRejectedValue(new Error('boom')) },
-      ],
+      [SKILL_SYNTHESIS_TOKENS.SKILL_SYNTHESIS_SERVICE, skillSynthesis],
       [SKILL_SYNTHESIS_TOKENS.SKILL_TRIGGER_SERVICE, skillTrigger],
       [TOKENS.WEBVIEW_MANAGER, makeWebviewManager()],
     ]);
@@ -452,8 +474,99 @@ describe('bootThothRuntime', () => {
     const refs = await bootThothRuntime(container, { workspaceRoot: '/ws' });
     await flushDeferredStarts();
 
-    expect(refs.skillSynthesis).toBeNull();
+    // Kept: the service retries its start, and shutdown must `stop()` it.
+    expect(refs.skillSynthesis).toBe(skillSynthesis);
     expect(refs.skillTrigger).toBeNull();
+    expect(skillTrigger.start).not.toHaveBeenCalled();
+  });
+
+  it('starts the skill trigger exactly once when a failed boot start is retried successfully (B-P N1)', async () => {
+    const skillSynthesis = makeSkillSynthesis(
+      jest.fn().mockRejectedValue(new Error('boom')),
+    );
+    const skillTrigger = { start: jest.fn() };
+    const container = makeContainer([
+      [PERSISTENCE_TOKENS.SQLITE_CONNECTION, makeSqlite()],
+      [SKILL_SYNTHESIS_TOKENS.SKILL_SYNTHESIS_SERVICE, skillSynthesis],
+      [SKILL_SYNTHESIS_TOKENS.SKILL_TRIGGER_SERVICE, skillTrigger],
+      [TOKENS.WEBVIEW_MANAGER, makeWebviewManager()],
+    ]);
+
+    const onSkillTriggerStarted = jest.fn();
+    const refs = await bootThothRuntime(container, {
+      workspaceRoot: '/ws',
+      onSkillTriggerStarted,
+    });
+    await flushDeferredStarts();
+    expect(skillTrigger.start).not.toHaveBeenCalled();
+    expect(onSkillTriggerStarted).not.toHaveBeenCalled();
+
+    // The service's `skillSynthesis.enabled` listener retries and succeeds.
+    skillSynthesis.fireStarted();
+    // A second successful start (e.g. a later resume) must not double-start.
+    skillSynthesis.fireStarted();
+
+    expect(skillTrigger.start).toHaveBeenCalledTimes(1);
+    expect(refs.skillTrigger).toBe(skillTrigger);
+    // The host hears the late start, once, with the running instance.
+    expect(onSkillTriggerStarted).toHaveBeenCalledTimes(1);
+    expect(onSkillTriggerStarted).toHaveBeenCalledWith(skillTrigger);
+  });
+
+  it('a normal boot that fires onStarted and resolves starts the trigger once', async () => {
+    const skillSynthesis = makeSkillSynthesis(jest.fn());
+    skillSynthesis.start.mockImplementation(async () => {
+      skillSynthesis.fireStarted();
+    });
+    const skillTrigger = { start: jest.fn() };
+    const container = makeContainer([
+      [PERSISTENCE_TOKENS.SQLITE_CONNECTION, makeSqlite()],
+      [SKILL_SYNTHESIS_TOKENS.SKILL_SYNTHESIS_SERVICE, skillSynthesis],
+      [SKILL_SYNTHESIS_TOKENS.SKILL_TRIGGER_SERVICE, skillTrigger],
+      [TOKENS.WEBVIEW_MANAGER, makeWebviewManager()],
+    ]);
+
+    await bootThothRuntime(container, { workspaceRoot: '/ws' });
+    await flushDeferredStarts();
+
+    expect(skillTrigger.start).toHaveBeenCalledTimes(1);
+  });
+
+  it('a joined start that failed resolves but starts no trigger', async () => {
+    const skillSynthesis = makeSkillSynthesis(
+      jest.fn(async () => 'failed' as const),
+    );
+    const skillTrigger = { start: jest.fn() };
+    const container = makeContainer([
+      [PERSISTENCE_TOKENS.SQLITE_CONNECTION, makeSqlite()],
+      [SKILL_SYNTHESIS_TOKENS.SKILL_SYNTHESIS_SERVICE, skillSynthesis],
+      [SKILL_SYNTHESIS_TOKENS.SKILL_TRIGGER_SERVICE, skillTrigger],
+      [TOKENS.WEBVIEW_MANAGER, makeWebviewManager()],
+    ]);
+
+    await bootThothRuntime(container, { workspaceRoot: '/ws' });
+    await flushDeferredStarts();
+
+    expect(skillTrigger.start).not.toHaveBeenCalled();
+  });
+
+  it('a start that a stop() overtook resolves but starts no trigger', async () => {
+    // The real service resolves `'abandoned'` when stop() ran during its
+    // database open; the boot must not bring the trigger up for it.
+    const skillSynthesis = makeSkillSynthesis(
+      jest.fn(async () => 'abandoned' as const),
+    );
+    const skillTrigger = { start: jest.fn() };
+    const container = makeContainer([
+      [PERSISTENCE_TOKENS.SQLITE_CONNECTION, makeSqlite()],
+      [SKILL_SYNTHESIS_TOKENS.SKILL_SYNTHESIS_SERVICE, skillSynthesis],
+      [SKILL_SYNTHESIS_TOKENS.SKILL_TRIGGER_SERVICE, skillTrigger],
+      [TOKENS.WEBVIEW_MANAGER, makeWebviewManager()],
+    ]);
+
+    await bootThothRuntime(container, { workspaceRoot: '/ws' });
+    await flushDeferredStarts();
+
     expect(skillTrigger.start).not.toHaveBeenCalled();
   });
 
@@ -463,9 +576,9 @@ describe('bootThothRuntime', () => {
       indexWorkspace: jest.fn(
         async (
           _root: string,
-          opts: { onProgress: (p: unknown) => void },
+          opts?: { onProgress?: (p: unknown) => void; userInitiated?: boolean },
         ): Promise<void> => {
-          opts.onProgress({ filesScanned: 5, totalFiles: 10 });
+          opts?.onProgress?.({ filesScanned: 5, totalFiles: 10 });
         },
       ),
     };
@@ -485,12 +598,17 @@ describe('bootThothRuntime', () => {
     };
     await runDeps.runSymbols('/ws');
 
-    expect(symbolIndexer.indexWorkspace).toHaveBeenCalledTimes(1);
+    // Boot starts one governed run (no userInitiated). The click is the second.
+    expect(symbolIndexer.indexWorkspace).toHaveBeenCalledTimes(2);
     // These deps only serve `indexing:start` / `indexing:resume` — a click —
     // so the run never waits on the background-work governor (TASK_2026_437).
     expect(symbolIndexer.indexWorkspace).toHaveBeenCalledWith(
       '/ws',
       expect.objectContaining({ userInitiated: true }),
+    );
+    expect(symbolIndexer.indexWorkspace).toHaveBeenCalledWith(
+      '/ws',
+      expect.not.objectContaining({ userInitiated: true }),
     );
     expect(webviewManager.broadcastMessage).toHaveBeenCalledWith(
       MESSAGE_TYPES.INDEXING_PROGRESS,
@@ -507,11 +625,18 @@ describe('bootThothRuntime', () => {
     const setRunDeps = jest.fn();
     const abortError = new Error('aborted');
     abortError.name = 'AbortError';
+    const scripted = [abortError, new Error('real failure')];
     const symbolIndexer = {
-      indexWorkspace: jest
-        .fn()
-        .mockRejectedValueOnce(abortError)
-        .mockRejectedValueOnce(new Error('real failure')),
+      indexWorkspace: jest.fn(
+        async (
+          _root: string,
+          opts?: { userInitiated?: boolean },
+        ): Promise<void> => {
+          if (!opts?.userInitiated) return;
+          const next = scripted.shift();
+          if (next) throw next;
+        },
+      ),
     };
     const container = makeContainer([
       [PERSISTENCE_TOKENS.SQLITE_CONNECTION, makeSqlite()],
@@ -531,9 +656,10 @@ describe('bootThothRuntime', () => {
 
   it('does not wire the symbol indexer when the connection is closed', async () => {
     const setRunDeps = jest.fn();
+    const indexWorkspace = jest.fn();
     const container = makeContainer([
       [PERSISTENCE_TOKENS.SQLITE_CONNECTION, makeSqlite({ isOpen: false })],
-      [CODE_SYMBOL_INDEXER, { indexWorkspace: jest.fn() }],
+      [CODE_SYMBOL_INDEXER, { indexWorkspace }],
       [IndexingRpcHandlers, { setRunDeps }],
       [TOKENS.WEBVIEW_MANAGER, makeWebviewManager()],
     ]);
@@ -541,6 +667,58 @@ describe('bootThothRuntime', () => {
     await bootThothRuntime(container, { workspaceRoot: '/ws' });
 
     expect(setRunDeps).not.toHaveBeenCalled();
+    expect(indexWorkspace).not.toHaveBeenCalled();
+  });
+
+  it('does not await the background symbol index', async () => {
+    let settled = false;
+    let release: (() => void) | undefined;
+    const symbolIndexer = {
+      indexWorkspace: jest.fn(
+        () =>
+          new Promise<void>((resolve) => {
+            release = () => {
+              settled = true;
+              resolve();
+            };
+          }),
+      ),
+    };
+    const container = makeContainer([
+      [PERSISTENCE_TOKENS.SQLITE_CONNECTION, makeSqlite()],
+      [CODE_SYMBOL_INDEXER, symbolIndexer],
+      [TOKENS.WEBVIEW_MANAGER, makeWebviewManager()],
+    ]);
+
+    const refs = await bootThothRuntime(container, { workspaceRoot: '/ws' });
+    await flushDeferredStarts();
+
+    expect(symbolIndexer.indexWorkspace).toHaveBeenCalledTimes(1);
+    expect(settled).toBe(false);
+    expect(refs.symbolWatcher).not.toBeNull();
+    await refs.symbolWatcher?.close();
+    await refs.symbolWatcher?.close();
+    release?.();
+  });
+
+  it('logs one non-fatal warning when the background symbol index fails', async () => {
+    const symbolIndexer = {
+      indexWorkspace: jest.fn().mockRejectedValue(new Error('disk')),
+    };
+    const container = makeContainer([
+      [PERSISTENCE_TOKENS.SQLITE_CONNECTION, makeSqlite()],
+      [CODE_SYMBOL_INDEXER, symbolIndexer],
+      [TOKENS.WEBVIEW_MANAGER, makeWebviewManager()],
+    ]);
+
+    await bootThothRuntime(container, { workspaceRoot: '/ws' });
+    await flushDeferredStarts();
+
+    const warnings = (console.warn as jest.Mock).mock.calls.filter((call) =>
+      String(call[0]).includes('indexWorkspace failed'),
+    );
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]?.[1]).toBe('disk');
   });
 
   it('starts the workspace file index for the active workspace root', async () => {
@@ -595,14 +773,14 @@ describe('bootThothRuntime', () => {
 
   it('resolves while a slow skill-synthesis start is still pending', async () => {
     let releaseStart!: () => void;
-    const skillSynthesis = {
-      start: jest.fn(
+    const skillSynthesis = makeSkillSynthesis(
+      jest.fn(
         () =>
           new Promise<void>((resolve) => {
             releaseStart = resolve;
           }),
       ),
-    };
+    );
     const skillTrigger = { start: jest.fn() };
     const container = makeContainer([
       [PERSISTENCE_TOKENS.SQLITE_CONNECTION, makeSqlite()],
@@ -682,11 +860,11 @@ describe('bootThothRuntime', () => {
       ],
       [
         SKILL_SYNTHESIS_TOKENS.SKILL_SYNTHESIS_SERVICE,
-        {
-          start: jest.fn(async () => {
+        makeSkillSynthesis(
+          jest.fn(async () => {
             order.push('skillSynthesis.start');
           }),
-        },
+        ),
       ],
       [
         TOKENS.WORKSPACE_FILE_INDEX_SERVICE,
@@ -712,7 +890,9 @@ describe('bootThothRuntime', () => {
     const sqlite = makeSqlite();
     const memoryCurator = { start: jest.fn(), onEvent: jest.fn() };
     const memoryTrigger = { start: jest.fn() };
-    const skillSynthesis = { start: jest.fn().mockResolvedValue(undefined) };
+    const skillSynthesis = makeSkillSynthesis(
+      jest.fn().mockResolvedValue(undefined),
+    );
     const fileIndex = { start: jest.fn().mockResolvedValue(undefined) };
     const container = makeContainer([
       [PERSISTENCE_TOKENS.SQLITE_CONNECTION, sqlite],
@@ -749,7 +929,9 @@ describe('bootThothRuntime', () => {
       }),
     });
     const memoryTrigger = { start: jest.fn() };
-    const skillSynthesis = { start: jest.fn().mockResolvedValue(undefined) };
+    const skillSynthesis = makeSkillSynthesis(
+      jest.fn().mockResolvedValue(undefined),
+    );
     const container = makeContainer([
       [PERSISTENCE_TOKENS.SQLITE_CONNECTION, sqlite],
       [MEMORY_TOKENS.MEMORY_CURATOR, { start: jest.fn(), onEvent: jest.fn() }],

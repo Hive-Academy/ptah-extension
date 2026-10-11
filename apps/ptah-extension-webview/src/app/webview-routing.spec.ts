@@ -564,8 +564,9 @@ describe('app.routes', () => {
   });
 
   it('keeps chat component-less, so the outlet renders nothing on chat', () => {
-    // The chat and canvas content area is NOT routed: it stays mounted behind
-    // `[class.hidden]` so `CanvasStore` survives navigation.
+    // The chat and canvas content area is NOT routed: `AppShellComponent`
+    // retains it with `*ptahRetainWhile` (detached, never destroyed) so
+    // `CanvasStore` survives navigation.
     const chat = appRoutes.find((route) => route.path === 'chat');
     expect(chat).toMatchObject({ path: 'chat', children: [] });
     expect(chat?.component).toBeUndefined();

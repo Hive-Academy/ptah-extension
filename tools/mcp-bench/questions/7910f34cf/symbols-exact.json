@@ -1,0 +1,3378 @@
+{
+  "id": "symbols-exact",
+  "version": "1",
+  "method": "generated",
+  "frozenAt": "2026-10-06T23:31:56.133Z",
+  "corpusCommit": "7910f34cf",
+  "generator": "symbol-questions.ts",
+  "seed": 6190501,
+  "counts": {
+    "small": 100,
+    "large": 100,
+    "largest-lib": 100,
+    "negative": 50
+  },
+  "questions": [
+    {
+      "id": "symbol-small-1",
+      "query": "AgentPanel",
+      "truth": ["apps/ptah-tui/src/components/sidebar/AgentPanel.tsx:7"],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-small-2",
+      "query": "TargetMarkView",
+      "truth": [
+        "libs/frontend/marketplace/src/lib/ui/target-marks.component.ts:27"
+      ],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-small-3",
+      "query": "LITERAL_PREFIX",
+      "truth": ["libs/shared/src/lib/types/capability-id-codec.ts:34"],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-small-4",
+      "query": "DetailView",
+      "truth": [
+        "libs/frontend/marketplace/src/lib/pages/servers/server-detail.component.ts:66"
+      ],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-small-5",
+      "query": "cleanupWaitlistByEmail",
+      "truth": ["apps/ptah-landing-page-e2e/src/support/db.ts:91"],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-small-6",
+      "query": "DEFAULT_EDITOR_WIDTH",
+      "truth": [
+        "libs/frontend/core/src/lib/services/electron-layout.service.ts:39"
+      ],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-small-7",
+      "query": "runAction",
+      "truth": [
+        "libs/frontend/chat/src/lib/services/session-budget-actions.service.ts:207"
+      ],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-small-8",
+      "query": "step1Complete",
+      "truth": [
+        "libs/web/admin/src/lib/marketing/marketing-compose/marketing-compose.ts:214"
+      ],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-small-9",
+      "query": "SkillSynthesisGetAgentModelsParams",
+      "truth": ["libs/shared/src/lib/types/rpc/rpc-skill-clone.types.ts:377"],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-small-10",
+      "query": "nextInstanceId",
+      "truth": [
+        "libs/frontend/skill-synthesis-ui/src/lib/components/clones/quarantined-agents-panel.component.ts:97"
+      ],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-small-11",
+      "query": "prepare",
+      "truth": [
+        "libs/frontend/tribunal-panel/src/lib/services/tribunal-run.service.ts:150",
+        "libs/backend/agent-generation/src/lib/services/file-writer.service.ts:187",
+        "apps/ptah-electron-e2e/src/support/ui-driver.ts:199",
+        "libs/backend/persistence-sqlite/src/lib/testing/fake-sqlite-database.ts:199",
+        "libs/backend/workspace-intelligence/src/ast/tree-sitter-parser.service.ts:293"
+      ],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 5
+    },
+    {
+      "id": "symbol-small-12",
+      "query": "shouldCacheKey",
+      "truth": [
+        "libs/backend/platform-electron/src/implementations/electron-state-storage-worker-host.ts:264"
+      ],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-small-13",
+      "query": "DbHealthParams",
+      "truth": [
+        "libs/backend/rpc-handlers/src/lib/handlers/persistence-rpc.handlers.ts:81"
+      ],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-small-14",
+      "query": "escapeMarkdownTableCell",
+      "truth": [
+        "libs/backend/workspace-intelligence/src/quality/services/quality-export.service.ts:285"
+      ],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-small-15",
+      "query": "DEFAULT_OVERLAY_OFFSET",
+      "truth": ["libs/frontend/ui/src/lib/native/shared/floating-offsets.ts:7"],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-small-16",
+      "query": "SessionListForTasksResult",
+      "truth": ["libs/shared/src/lib/types/rpc/rpc-session.types.ts:232"],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-small-17",
+      "query": "parseDrafts",
+      "truth": [
+        "libs/backend/agent-sdk/src/lib/curator-llm-adapter/sdk-internal-query.curator-llm.ts:533"
+      ],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-small-18",
+      "query": "fromLiveness",
+      "truth": [
+        "libs/frontend/chat/src/lib/components/atoms/session-organization-chips/session-live-phase-indicator.component.ts:47"
+      ],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-small-19",
+      "query": "taskExclusionReasonLabel",
+      "truth": ["libs/frontend/tasks-ui/src/lib/task-presentation.ts:423"],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-small-20",
+      "query": "AgentReportRefusalReason",
+      "truth": [
+        "libs/backend/cli-agent-runtime/src/lib/cli-agents/agent-report-router.service.ts:116"
+      ],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-small-21",
+      "query": "fireConfigurationChange",
+      "truth": [
+        "libs/backend/platform-core/src/testing/mocks/workspace-provider.mock.ts:75"
+      ],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-small-22",
+      "query": "OutputReducer",
+      "truth": [
+        "libs/backend/tool-output-reducers/src/lib/reducer.types.ts:47"
+      ],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-small-23",
+      "query": "scopeAgentsRoot",
+      "truth": [
+        "libs/backend/harness-sync/src/lib/sources/plugin-config-source-resolver.ts:123"
+      ],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-small-24",
+      "query": "PtySession",
+      "truth": ["apps/ptah-cli/tests/e2e/_harness/pty-runner.ts:72"],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-small-25",
+      "query": "send",
+      "truth": [
+        "libs/frontend/chat/src/lib/services/agent-feedback/chat-agent-feedback-sender.service.ts:29",
+        "libs/backend/agent-sdk/src/lib/peer-sessions/peer-session-messenger.service.ts:71",
+        "libs/frontend/core/src/lib/services/peer-session.facade.ts:145",
+        "libs/frontend/git-ui/src/lib/review-canvas/draft-comments-bar.component.ts:167",
+        "libs/frontend/git-ui/src/lib/services/review-comment-draft.store.ts:183",
+        "libs/backend/rpc-handlers/src/lib/chat/streaming/stream-batch-buffer.ts:184",
+        "apps/ptah-tui/src/hooks/use-chat.ts:211",
+        "apps/ptah-cli/src/cli/jsonrpc/server.ts:269",
+        "libs/backend/rpc-handlers/src/lib/chat/session/surface-submit-turn.service.ts:292",
+        "libs/frontend/mcp-apps-page/src/lib/services/apps-session.service.ts:295",
+        "libs/frontend/chat/src/lib/services/message-sender.service.ts:331",
+        "libs/backend/platform-core/src/workspace-watch/workspace-watch-supervisor.ts:355",
+        "libs/frontend/mcp-apps-page/src/lib/components/apps-page.component.ts:460",
+        "libs/frontend/mcp-apps-page/src/lib/services/apps-submit-flow.ts:468",
+        "libs/frontend/mcp-apps-page/src/lib/services/apps-surface-lanes.ts:499",
+        "libs/backend/cli-agent-runtime/src/lib/session-children/session-spawner.service.ts:536",
+        "libs/backend/platform-electron/src/implementations/electron-state-storage-worker-host.ts:722"
+      ],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 17
+    },
+    {
+      "id": "symbol-small-26",
+      "query": "SkillSyncGate",
+      "truth": [
+        "libs/backend/harness-sync/src/lib/state/skill-sync-gate.ts:86"
+      ],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-small-27",
+      "query": "EffectiveRouteResult",
+      "truth": ["libs/shared/src/lib/types/rpc/rpc-auth.types.ts:306"],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-small-28",
+      "query": "toCounts",
+      "truth": [
+        "libs/frontend/skill-synthesis-ui/src/lib/components/skill-digest-panel.component.ts:300"
+      ],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-small-29",
+      "query": "EmbedderStatusResult",
+      "truth": ["libs/shared/src/lib/types/rpc/rpc-persistence.types.ts:140"],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-small-30",
+      "query": "buildersSessionSchema",
+      "truth": ["libs/web/core/src/lib/services/members-api.service.ts:21"],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-small-31",
+      "query": "ensureCapacity",
+      "truth": [
+        "libs/backend/agent-generation/src/lib/services/prompt-designer/prompt-cache.service.ts:356"
+      ],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-small-32",
+      "query": "quarantineIncompleteV2",
+      "truth": [
+        "libs/backend/platform-electron/src/implementations/electron-state-storage-commit-store.ts:386"
+      ],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-small-33",
+      "query": "UsersList",
+      "truth": ["libs/web/admin/src/lib/users/users-list.ts:99"],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-small-34",
+      "query": "symbolQuery",
+      "truth": [
+        "libs/frontend/memory-curator-ui/src/lib/services/memory-state.service.ts:87"
+      ],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-small-35",
+      "query": "taskInputId",
+      "truth": [
+        "libs/frontend/chat/src/lib/components/molecules/session-filter-bar/session-filter-bar.component.ts:334",
+        "libs/frontend/chat/src/lib/components/molecules/session-organization-editor/session-organization-editor.component.ts:506"
+      ],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 2
+    },
+    {
+      "id": "symbol-small-36",
+      "query": "TaskFrontmatterSchema",
+      "truth": ["libs/backend/task-specs/src/lib/task-frontmatter.ts:34"],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-small-37",
+      "query": "messageStarted",
+      "truth": [
+        "apps/ptah-cli/src/services/proxy/anthropic-sse-translator.ts:109"
+      ],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-small-38",
+      "query": "ClampedTranscript",
+      "truth": [
+        "libs/backend/memory-curator/src/lib/curator-llm/clamp-transcript.ts:71"
+      ],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-small-39",
+      "query": "GenerationAgentCheckpoint",
+      "truth": [
+        "libs/backend/agent-generation/src/lib/types/generation-checkpoint.types.ts:12"
+      ],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-small-40",
+      "query": "SubagentStopPayload",
+      "truth": [
+        "libs/backend/agent-sdk/src/lib/helpers/subagent-stop-callback-registry.ts:8"
+      ],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-small-41",
+      "query": "removeBackgroundTaskToolUseId",
+      "truth": [
+        "libs/backend/agent-sdk/src/lib/sdk-message-transformer.ts:518"
+      ],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-small-42",
+      "query": "directStateMutationRule",
+      "truth": [
+        "libs/backend/workspace-intelligence/src/quality/rules/react-rules.ts:115"
+      ],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-small-43",
+      "query": "GO_CLASS_QUERY",
+      "truth": [
+        "libs/backend/workspace-intelligence/src/ast/languages/go.language.ts:27"
+      ],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-small-44",
+      "query": "PERSISTED_CACHE_KEY",
+      "truth": [
+        "libs/backend/vscode-core/src/services/license/license-cache.ts:30"
+      ],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-small-45",
+      "query": "compactionStateFor",
+      "truth": [
+        "libs/frontend/chat-state/src/lib/conversation-registry.service.ts:263"
+      ],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-small-46",
+      "query": "BUSY_REASON",
+      "truth": [
+        "libs/frontend/skill-synthesis-ui/src/lib/components/clones/reconcile-guard.ts:77"
+      ],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-small-47",
+      "query": "CampaignDetail",
+      "truth": [
+        "libs/web/admin/src/lib/marketing/campaign-history/campaign-detail/campaign-detail.ts:70"
+      ],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-small-48",
+      "query": "SpawnedProcessHandle",
+      "truth": [
+        "libs/backend/platform-core/src/interfaces/process-spawner.interface.ts:101"
+      ],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-small-49",
+      "query": "readPath",
+      "truth": [
+        "libs/backend/rpc-handlers/src/lib/utils/custom-provider-probe.ts:339"
+      ],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-small-50",
+      "query": "editName",
+      "truth": [
+        "libs/web/admin/src/lib/builders/community/components/category-manager/category-manager.ts:120",
+        "libs/frontend/skill-synthesis-ui/src/lib/components/suggestions/skill-suggestions-view.component.ts:427"
+      ],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 2
+    },
+    {
+      "id": "symbol-small-51",
+      "query": "PlanLimitLedgerListener",
+      "truth": [
+        "libs/backend/auth-providers/src/lib/quota/plan-limit-ledger.service.ts:135"
+      ],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-small-52",
+      "query": "unsafeRepositoryRule",
+      "truth": [
+        "libs/backend/workspace-intelligence/src/quality/rules/nestjs-rules.ts:219"
+      ],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-small-53",
+      "query": "listContentFiles",
+      "truth": ["libs/backend/harness-sync/src/lib/hash/content-hash.ts:162"],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-small-54",
+      "query": "ContextUsageSource",
+      "truth": [
+        "libs/backend/agent-sdk/src/lib/helpers/compaction/context-usage.port.ts:36"
+      ],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-small-55",
+      "query": "HarnessPassAbortedError",
+      "truth": ["libs/backend/harness-sync/src/lib/abort/pass-abort.ts:39"],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-small-56",
+      "query": "LinkedPathForm",
+      "truth": [
+        "libs/backend/rpc-handlers/src/lib/handlers/workspace-file-path.ts:87"
+      ],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-small-57",
+      "query": "oauthTargetOf",
+      "truth": [
+        "libs/frontend/marketplace/src/lib/data/connector-links.store.ts:908"
+      ],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-small-58",
+      "query": "SessionTransport",
+      "truth": ["apps/ptah-tui/src/hooks/use-sessions.ts:34"],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-small-59",
+      "query": "ScopeLayer",
+      "truth": [
+        "libs/frontend/chat/src/lib/settings/providers/setting-scope-row.component.ts:34"
+      ],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-small-60",
+      "query": "canSaveEndpoint",
+      "truth": [
+        "libs/frontend/chat/src/lib/settings/providers/connection-drawer/advanced-tab.component.ts:208"
+      ],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-small-61",
+      "query": "LITERAL_TYPES",
+      "truth": [
+        "libs/backend/workspace-intelligence/src/context-analysis/declaration-summary.ts:201"
+      ],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-small-62",
+      "query": "catalogOpen",
+      "truth": [
+        "libs/frontend/chat/src/lib/settings/providers/providers-settings.component.ts:252"
+      ],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-small-63",
+      "query": "abortProbe",
+      "truth": [
+        "libs/frontend/core/src/lib/services/providers-connection-setup.service.ts:498"
+      ],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-small-64",
+      "query": "controls",
+      "truth": [
+        "libs/frontend/git-ui/src/lib/review-canvas/hunk-toolbar.component.ts:306"
+      ],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-small-65",
+      "query": "AgentFailureKind",
+      "truth": ["libs/shared/src/lib/types/agent-process.types.ts:55"],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-small-66",
+      "query": "RecommendAgentsResponse",
+      "truth": ["apps/ptah-cli/src/cli/commands/setup.ts:95"],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-small-67",
+      "query": "EVENT_MAP",
+      "truth": ["apps/ptah-cli/src/cli/output/event-pipe.ts:25"],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-small-68",
+      "query": "replaceKeyDraft",
+      "truth": [
+        "libs/frontend/chat/src/lib/settings/providers/connection-drawer/credentials-tab.component.ts:52"
+      ],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-small-69",
+      "query": "ConceptSceneProps",
+      "truth": ["apps/ptah-video-studio/src/PromoReel.tsx:144"],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-small-70",
+      "query": "logEnvSummary",
+      "truth": ["libs/backend/auth-providers/src/lib/auth/auth-manager.ts:293"],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-small-71",
+      "query": "isQuestionRequest",
+      "truth": ["apps/ptah-cli/src/cli/session/approval-bridge.ts:391"],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-small-72",
+      "query": "nonNegativeUsd",
+      "truth": [
+        "libs/backend/agent-sdk/src/lib/session-stats/session-stats-owner.service.ts:865"
+      ],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-small-73",
+      "query": "unsafeBody",
+      "truth": ["tools/di-lint/__fixtures__/default-equivalence.ts:21"],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-small-74",
+      "query": "toValidationError",
+      "truth": [
+        "libs/backend/output-styles/src/lib/output-style-frontmatter.ts:185"
+      ],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-small-75",
+      "query": "FALLBACK_MANIFEST",
+      "truth": ["apps/ptah-video-studio/src/Root.tsx:34"],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-small-76",
+      "query": "KEY_INFO",
+      "truth": [
+        "apps/ptah-electron/src/services/platform/electron-safe-storage-vault.ts:35",
+        "libs/backend/platform-electron/src/settings/machine-seed-key.ts:46"
+      ],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 2
+    },
+    {
+      "id": "symbol-small-77",
+      "query": "allOptions",
+      "truth": [
+        "libs/frontend/ui/src/lib/native/provider-model-picker/provider-model-search-field.component.ts:233"
+      ],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-small-78",
+      "query": "setTriggers",
+      "truth": [
+        "libs/frontend/skill-synthesis-ui/src/lib/services/skill-diagnostics-rpc.service.ts:48",
+        "libs/frontend/memory-curator-ui/src/lib/services/memory-diagnostics-rpc.service.ts:53",
+        "libs/frontend/memory-curator-ui/src/lib/services/memory-diagnostics-state.service.ts:101",
+        "libs/frontend/skill-synthesis-ui/src/lib/services/skill-diagnostics-state.service.ts:183"
+      ],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 4
+    },
+    {
+      "id": "symbol-small-79",
+      "query": "SKILL_LANE_IDS",
+      "truth": ["libs/backend/skill-synthesis/src/lib/lanes/lane.types.ts:36"],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-small-80",
+      "query": "EventPipeGlobals",
+      "truth": ["apps/ptah-cli/src/cli/output/event-pipe.ts:66"],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-small-81",
+      "query": "fetchListingsSection",
+      "truth": [
+        "libs/frontend/tasks-ui/src/lib/services/task-prompt-context.service.ts:164"
+      ],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-small-82",
+      "query": "shownIds",
+      "truth": [
+        "libs/frontend/chat/src/lib/components/organisms/agent-monitor/agent-lane-grid.component.ts:133"
+      ],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-small-83",
+      "query": "localBranches",
+      "truth": [
+        "libs/frontend/git-ui/src/lib/services/git-branches.service.ts:142"
+      ],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-small-84",
+      "query": "SdkAdapterInitializedEvent",
+      "truth": [
+        "libs/backend/agent-sdk/src/lib/helpers/sdk-adapter-events.service.ts:14"
+      ],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-small-85",
+      "query": "setPrimedSessionIds",
+      "truth": [
+        "libs/backend/memory-curator/src/lib/knowledge-agents/corpus.store.ts:244"
+      ],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-small-86",
+      "query": "OrchestratorGenerationOptions",
+      "truth": [
+        "libs/backend/agent-generation/src/lib/types/core.types.ts:593"
+      ],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-small-87",
+      "query": "LockedLesson",
+      "truth": [
+        "libs/web/members/src/lib/services/member-learning-api.service.ts:112"
+      ],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-small-88",
+      "query": "resolveForView",
+      "truth": [
+        "libs/backend/rpc-handlers/src/lib/handlers/file-link-root-policy.ts:300"
+      ],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-small-89",
+      "query": "MappingOptions",
+      "truth": [
+        "libs/backend/workspace-intelligence/src/ast/import-resolution/tsconfig-mapping.ts:46"
+      ],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-small-90",
+      "query": "AuthCodexLoginParams",
+      "truth": ["libs/shared/src/lib/types/rpc/rpc-auth.types.ts:90"],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-small-91",
+      "query": "cachedStatus",
+      "truth": [
+        "libs/backend/agent-generation/src/lib/services/setup-status.service.ts:60"
+      ],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-small-92",
+      "query": "bringUpSubsystems",
+      "truth": [
+        "libs/backend/vscode-core/src/services/subsystem-bringup.ts:145"
+      ],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-small-93",
+      "query": "syncAgain",
+      "truth": [
+        "libs/frontend/skill-synthesis-ui/src/lib/components/clones/agent-model-editor.component.ts:670"
+      ],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-small-94",
+      "query": "normalizeModel",
+      "truth": [
+        "libs/frontend/tribunal-panel/src/lib/services/tribunal-roster-rules.ts:124"
+      ],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-small-95",
+      "query": "ResponsesStreamTranslator",
+      "truth": [
+        "libs/backend/auth-providers/src/lib/translation/responses-stream-translator.ts:165"
+      ],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-small-96",
+      "query": "projectTabForPersist",
+      "truth": ["libs/frontend/chat-state/src/lib/tab-persistence.ts:109"],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-small-97",
+      "query": "WRITE_INTERVAL_MS",
+      "truth": ["libs/web/members/src/lib/learning/course-player.store.ts:32"],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-small-98",
+      "query": "ScopeFallbackPreview",
+      "truth": [
+        "libs/frontend/chat/src/lib/settings/providers/setting-scope-row.component.ts:29"
+      ],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-small-99",
+      "query": "exportTopicSchema",
+      "truth": [
+        "apps/ptah-license-server/prisma/seed/discourse-export.schema.ts:90"
+      ],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-small-100",
+      "query": "harnessAsked",
+      "truth": [
+        "libs/frontend/marketplace/src/lib/pages/connectors/connectors-page.component.ts:337"
+      ],
+      "abstain": false,
+      "stratum": "small",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-101",
+      "query": "onKeepEditing",
+      "truth": [
+        "libs/frontend/chat/src/lib/settings/providers/provider-setup-wizard.component.ts:2334"
+      ],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-102",
+      "query": "feedPricingMap",
+      "truth": [
+        "libs/backend/auth-providers/src/lib/provider-models.service.ts:1210"
+      ],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-103",
+      "query": "toolNameOf",
+      "truth": [
+        "libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/protocol-dispatcher.ts:842"
+      ],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-104",
+      "query": "runStashMutation",
+      "truth": [
+        "libs/backend/vscode-core/src/services/git-info.service.ts:3335"
+      ],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-105",
+      "query": "_customEntryError",
+      "truth": [
+        "libs/frontend/core/src/lib/services/auth-state.service.ts:214"
+      ],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-106",
+      "query": "SeedQuarantineMarkerValidation",
+      "truth": [
+        "libs/backend/agent-generation/src/lib/services/user-layer/user-layer-seed-quarantine.ts:108"
+      ],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-107",
+      "query": "onAgentProgress",
+      "truth": [
+        "libs/frontend/chat-streaming/src/lib/agent-monitor.store.ts:2004"
+      ],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-108",
+      "query": "promoteAtomically",
+      "truth": [
+        "libs/backend/skill-synthesis/src/lib/skill-candidate.store.ts:451"
+      ],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-109",
+      "query": "filteredIds",
+      "truth": [
+        "libs/frontend/tasks-ui/src/lib/services/tasks-store.service.ts:884"
+      ],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-110",
+      "query": "CODEX_BUDGET_DEFAULTS",
+      "truth": [
+        "libs/backend/rpc-handlers/src/lib/handlers/agent-rpc.handlers.ts:111"
+      ],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-111",
+      "query": "sanitizeName",
+      "truth": [
+        "libs/backend/vscode-lm-tools/src/lib/code-execution/namespace-builders/harness-namespace.builder.ts:433"
+      ],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-112",
+      "query": "UNROUTABLE_PERMISSION_TIMEOUT_MS",
+      "truth": ["libs/backend/agent-sdk/src/lib/sdk-permission-handler.ts:88"],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-113",
+      "query": "generations",
+      "truth": [
+        "libs/frontend/chat/src/lib/services/change-set/change-set.store.ts:307",
+        "libs/backend/workspace-intelligence/src/ast/dependency-graph.service.ts:383"
+      ],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 2
+    },
+    {
+      "id": "symbol-large-114",
+      "query": "PtahCliRegistry",
+      "truth": [
+        "libs/backend/cli-agent-runtime/src/lib/ptah-cli/ptah-cli-registry.ts:114"
+      ],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-115",
+      "query": "effectiveWorkflowSubagents",
+      "truth": [
+        "libs/frontend/chat/src/lib/components/organisms/agent-monitor-panel.component.ts:742"
+      ],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-116",
+      "query": "countLessons",
+      "truth": ["libs/api/learning/src/lib/courses/courses.service.ts:853"],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-117",
+      "query": "planHomeReap",
+      "truth": [
+        "libs/backend/harness-sync/src/lib/targets/workspace-target.ts:774"
+      ],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-118",
+      "query": "WORD_IDENTIFIER_CHARS",
+      "truth": [
+        "apps/ptah-electron/src/services/electron-ide-capabilities.ts:273"
+      ],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-119",
+      "query": "routeStore",
+      "truth": [
+        "libs/frontend/core/src/lib/services/providers-settings-state.service.ts:113"
+      ],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-120",
+      "query": "preloadSdk",
+      "truth": ["libs/backend/agent-sdk/src/lib/sdk-agent-adapter.ts:313"],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-121",
+      "query": "LocalConfig",
+      "truth": ["apps/ptah-tui/src/components/settings/AuthSection.tsx:672"],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-122",
+      "query": "_layoutMode",
+      "truth": ["libs/frontend/core/src/lib/services/app-state.service.ts:413"],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-123",
+      "query": "registerGetPopular",
+      "truth": [
+        "libs/backend/rpc-handlers/src/lib/handlers/skills-sh-rpc.handlers.ts:475",
+        "libs/backend/rpc-handlers/src/lib/handlers/mcp-directory-rpc.handlers.ts:572"
+      ],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 2
+    },
+    {
+      "id": "symbol-large-124",
+      "query": "globalInvalidatedAt",
+      "truth": [
+        "libs/backend/workspace-intelligence/src/diagnostics/language-aware-diagnostics-provider.ts:507"
+      ],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-125",
+      "query": "toStoredAgentModelLayer",
+      "truth": [
+        "libs/backend/rpc-handlers/src/lib/handlers/skills-synthesis-rpc.handlers.ts:3079"
+      ],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-126",
+      "query": "queueDepth",
+      "truth": ["libs/backend/agent-sdk/src/lib/session-metadata-store.ts:396"],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-127",
+      "query": "initialSetup",
+      "truth": [
+        "libs/frontend/chat/src/lib/settings/providers/provider-setup-wizard.component.ts:1446"
+      ],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-128",
+      "query": "providerIcon",
+      "truth": ["apps/ptah-tui/src/components/settings/AuthSection.tsx:82"],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-129",
+      "query": "buildExecuteCodeTool",
+      "truth": [
+        "libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/tool-description.builder.ts:331"
+      ],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-130",
+      "query": "proxyFingerprint",
+      "truth": [
+        "libs/backend/cli-agent-runtime/src/lib/ptah-cli/ptah-cli-registry.ts:1305"
+      ],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-131",
+      "query": "GatewaySetAllowListParams",
+      "truth": ["libs/shared/src/lib/types/rpc.types.ts:3219"],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-132",
+      "query": "onCustomNameInput",
+      "truth": [
+        "libs/frontend/chat/src/lib/settings/providers/provider-setup-wizard.component.ts:2025"
+      ],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-133",
+      "query": "DEFAULT_GIT_MAX_OUTPUT_BYTES",
+      "truth": ["libs/backend/vscode-core/src/utils/exec-git.ts:14"],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-134",
+      "query": "resumePtahCliSession",
+      "truth": [
+        "libs/backend/rpc-handlers/src/lib/handlers/agent-rpc.handlers.ts:1144"
+      ],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-135",
+      "query": "storeProviderKey",
+      "truth": [
+        "libs/backend/rpc-handlers/src/lib/handlers/provider-rpc.handlers.ts:982"
+      ],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-136",
+      "query": "switchDebounceTimer",
+      "truth": ["apps/ptah-electron/src/services/git-watcher.service.ts:191"],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-137",
+      "query": "DiagnosticsGoVetConsentGetParams",
+      "truth": ["libs/shared/src/lib/types/rpc.types.ts:3634"],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-138",
+      "query": "WorkflowTileVM",
+      "truth": [
+        "libs/frontend/chat/src/lib/components/organisms/agent-monitor-panel.component.ts:91"
+      ],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-139",
+      "query": "curatorReport",
+      "truth": [
+        "libs/frontend/skill-synthesis-ui/src/lib/components/skill-synthesis-tab.component.ts:854"
+      ],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-140",
+      "query": "sessionIdResolvedDisposer",
+      "truth": [
+        "libs/backend/skill-synthesis/src/lib/triggers/skill-trigger.service.ts:91",
+        "libs/backend/memory-curator/src/lib/triggers/memory-trigger.service.ts:97"
+      ],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 2
+    },
+    {
+      "id": "symbol-large-141",
+      "query": "layerGlobalItems",
+      "truth": [
+        "libs/backend/agent-sdk/src/lib/helpers/plugin-loader.service.ts:175"
+      ],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-142",
+      "query": "WorkspaceWatchHostCoreOptions",
+      "truth": [
+        "libs/backend/platform-core/src/workspace-watch/workspace-watch-host-core.ts:147"
+      ],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-143",
+      "query": "previewFile",
+      "truth": [
+        "libs/backend/rpc-handlers/src/lib/handlers/wizard-generation-rpc.handlers.ts:588"
+      ],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-144",
+      "query": "GitResolvedReviewRef",
+      "truth": ["libs/shared/src/lib/types/rpc/rpc-git.types.ts:54"],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-145",
+      "query": "backgroundAgent",
+      "truth": [
+        "libs/frontend/chat-streaming/src/lib/agent-monitor.store.ts:2501"
+      ],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-146",
+      "query": "readReboundSource",
+      "truth": ["libs/backend/agent-sdk/src/lib/sdk-agent-adapter.ts:1286"],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-147",
+      "query": "findNode",
+      "truth": [
+        "libs/backend/workspace-intelligence/src/ast/dependency-graph.service.ts:1061"
+      ],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-148",
+      "query": "currentBindingTabIds",
+      "truth": [
+        "libs/frontend/chat/src/lib/services/chat-store/session-loader.service.ts:1109"
+      ],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-149",
+      "query": "activeTabAgents",
+      "truth": [
+        "libs/frontend/chat-streaming/src/lib/agent-monitor.store.ts:833"
+      ],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-150",
+      "query": "DoctorCrossFileCode",
+      "truth": ["libs/backend/task-specs/src/lib/task-doctor.service.ts:231"],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-151",
+      "query": "DIGEST_MISSED_TRIGGER_MAX",
+      "truth": [
+        "libs/backend/skill-synthesis/src/lib/digest/skill-gap-curator.service.ts:157"
+      ],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-152",
+      "query": "GRAPH_BUILD_RETRY_AFTER_MS",
+      "truth": [
+        "libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/protocol-dispatcher.ts:2677"
+      ],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-153",
+      "query": "analysisByRoot",
+      "truth": [
+        "libs/backend/workspace-intelligence/src/workspace/workspace.service.ts:258"
+      ],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-154",
+      "query": "getEffectivePluginConfig",
+      "truth": [
+        "libs/backend/agent-sdk/src/lib/helpers/plugin-loader.service.ts:988"
+      ],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-155",
+      "query": "RPC_ERROR_KEY",
+      "truth": [
+        "libs/frontend/webview-e2e-harness/src/lib/scenarios/marketplace/marketplace.fixtures.ts:103"
+      ],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-156",
+      "query": "fetchAtSuggestions",
+      "truth": [
+        "libs/frontend/chat/src/lib/components/molecules/chat-input/chat-input.component.ts:1139"
+      ],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-157",
+      "query": "actionWarning",
+      "truth": [
+        "libs/frontend/chat/src/lib/components/templates/chat-view.component.ts:322"
+      ],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-158",
+      "query": "SystemPromptAssemblyResult",
+      "truth": [
+        "libs/backend/agent-sdk/src/lib/helpers/sdk-query-options-builder.ts:280"
+      ],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-159",
+      "query": "restorePersistedCatalog",
+      "truth": [
+        "libs/backend/agent-sdk/src/lib/helpers/sdk-model-service.ts:464"
+      ],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-160",
+      "query": "toggleTask",
+      "truth": [
+        "libs/frontend/tasks-ui/src/lib/components/board/task-card.component.ts:743"
+      ],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-161",
+      "query": "formatWebSearch",
+      "truth": [
+        "libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/mcp-response-formatter.ts:2060"
+      ],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-162",
+      "query": "BULK_CONFIRM_THRESHOLD",
+      "truth": [
+        "libs/frontend/tasks-ui/src/lib/services/tasks-store.service.ts:208"
+      ],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-163",
+      "query": "refreshAuthStatus",
+      "truth": [
+        "libs/frontend/core/src/lib/services/auth-state.service.ts:597"
+      ],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-164",
+      "query": "hasUserDraft",
+      "truth": [
+        "libs/frontend/chat/src/lib/settings/providers/provider-setup-wizard.component.ts:1848"
+      ],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-165",
+      "query": "getForWorkspace",
+      "truth": ["libs/backend/agent-sdk/src/lib/session-metadata-store.ts:661"],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-166",
+      "query": "hasKeyForProvider",
+      "truth": [
+        "libs/frontend/core/src/lib/services/auth-state.service.ts:554"
+      ],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-167",
+      "query": "buildAgentListTool",
+      "truth": [
+        "libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/tool-description.builder.ts:898"
+      ],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-168",
+      "query": "sendToAgent",
+      "truth": [
+        "libs/backend/cli-agent-runtime/src/lib/cli-agents/agent-process-manager.service.ts:1704"
+      ],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-169",
+      "query": "ElectronStateWorkerOperationError",
+      "truth": [
+        "libs/backend/platform-electron/src/implementations/electron-state-storage-worker-protocol.ts:574"
+      ],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-170",
+      "query": "removeAgent",
+      "truth": [
+        "libs/frontend/chat-streaming/src/lib/agent-monitor.store.ts:1820"
+      ],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-171",
+      "query": "keyStatusVariant",
+      "truth": ["apps/ptah-tui/src/components/settings/AuthSection.tsx:137"],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-172",
+      "query": "registerListAnalyses",
+      "truth": [
+        "libs/backend/rpc-handlers/src/lib/handlers/setup-rpc.handlers.ts:755"
+      ],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-173",
+      "query": "handleSlashClosed",
+      "truth": [
+        "libs/frontend/chat/src/lib/components/molecules/chat-input/chat-input.component.ts:1118"
+      ],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-174",
+      "query": "TaskEstimateBuckets",
+      "truth": [
+        "libs/frontend/tasks-ui/src/lib/services/tasks-store.service.ts:84"
+      ],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-175",
+      "query": "GIT_DEBOUNCE_MS",
+      "truth": ["apps/ptah-electron/src/services/git-watcher.service.ts:295"],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-176",
+      "query": "pickStandalone",
+      "truth": [
+        "libs/frontend/chat/src/lib/components/organisms/agent-monitor-panel.component.ts:1133"
+      ],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-177",
+      "query": "toneGlyph",
+      "truth": [
+        "libs/frontend/chat-ui/src/lib/molecules/compact-session/compact-session-activity.component.ts:1017"
+      ],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-178",
+      "query": "ProviderOptions",
+      "truth": ["apps/ptah-cli/src/cli/commands/provider.ts:96"],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-179",
+      "query": "cacheCensus",
+      "truth": [
+        "libs/backend/workspace-intelligence/src/diagnostics/language-aware-diagnostics-provider.ts:1216"
+      ],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-180",
+      "query": "CALENDAR_EVENT_MISSING",
+      "truth": [
+        "libs/api/community/src/lib/google-sessions/session-requests.service.ts:865"
+      ],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-181",
+      "query": "emitTabClosed",
+      "truth": ["libs/frontend/chat-state/src/lib/tab-manager.service.ts:287"],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-182",
+      "query": "GraphicScene",
+      "truth": ["apps/ptah-video-studio/src/selfshot/graphics.tsx:1002"],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-183",
+      "query": "getChunks",
+      "truth": ["libs/backend/memory-curator/src/lib/memory.store.ts:543"],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-184",
+      "query": "writePromotedContent",
+      "truth": [
+        "libs/backend/skill-synthesis/src/lib/skill-candidate.store.ts:598"
+      ],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-185",
+      "query": "TRANSCRIPT_BYTES_PER_OUTPUT_KIB",
+      "truth": [
+        "libs/backend/cli-agent-runtime/src/lib/session-children/session-spawner.service.ts:113"
+      ],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-186",
+      "query": "SkillSynthesisPromoteBulkDecision",
+      "truth": ["libs/shared/src/lib/types/rpc.types.ts:2657"],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-187",
+      "query": "DIAGNOSTICS_DISPLAY_CAP",
+      "truth": [
+        "libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/mcp-response-formatter.ts:490"
+      ],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-188",
+      "query": "DependencyGraphService",
+      "truth": [
+        "libs/backend/workspace-intelligence/src/ast/dependency-graph.service.ts:357"
+      ],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-189",
+      "query": "SkillSynthesisGetCandidateParams",
+      "truth": ["libs/shared/src/lib/types/rpc.types.ts:2623"],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-190",
+      "query": "handleInput",
+      "truth": [
+        "libs/frontend/chat/src/lib/components/molecules/chat-input/chat-input.component.ts:756"
+      ],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-191",
+      "query": "_resumableSubagentsSessionId",
+      "truth": [
+        "libs/frontend/chat/src/lib/services/chat-store/session-loader.service.ts:200"
+      ],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-192",
+      "query": "totalsCost",
+      "truth": [
+        "libs/frontend/chat-streaming/src/lib/agent-monitor.store.ts:308"
+      ],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-193",
+      "query": "mergeCandidates",
+      "truth": [
+        "libs/backend/memory-curator/src/lib/memory-curator.service.ts:206"
+      ],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-194",
+      "query": "_lastTranscriptKey",
+      "truth": [
+        "libs/frontend/chat/src/lib/components/organisms/agent-monitor-panel.component.ts:952"
+      ],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-195",
+      "query": "onRowEnter",
+      "truth": [
+        "libs/frontend/tasks-ui/src/lib/components/board/task-list.component.ts:1045"
+      ],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-196",
+      "query": "selectAriaLabel",
+      "truth": [
+        "libs/frontend/tasks-ui/src/lib/components/board/task-list.component.ts:916",
+        "libs/frontend/tasks-ui/src/lib/components/board/task-card.component.ts:1073"
+      ],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 2
+    },
+    {
+      "id": "symbol-large-197",
+      "query": "reapDeletedUpstream",
+      "truth": [
+        "libs/backend/agent-generation/src/lib/services/user-layer/user-layer-mirror.service.ts:577"
+      ],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-198",
+      "query": "touchedForFormatting",
+      "truth": ["tools/migration/extract-domain.ts:214"],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-199",
+      "query": "cacheBoard",
+      "truth": [
+        "libs/frontend/tasks-ui/src/lib/services/tasks-store.service.ts:2408"
+      ],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-large-200",
+      "query": "sessionRunOwnerKeys",
+      "truth": [
+        "libs/frontend/chat/src/lib/components/templates/chat-view.component.ts:897"
+      ],
+      "abstain": false,
+      "stratum": "large",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-largest-lib-201",
+      "query": "sessionContext",
+      "truth": [
+        "libs/frontend/chat/src/lib/components/organisms/execution/workflow-card.component.ts:77",
+        "libs/frontend/chat/src/lib/components/molecules/peer-session-send/peer-session-send.component.ts:87"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 2
+    },
+    {
+      "id": "symbol-largest-lib-202",
+      "query": "routingRevision",
+      "truth": [
+        "libs/frontend/chat/src/lib/components/molecules/compact-session/compact-session-card.component.ts:63"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-largest-lib-203",
+      "query": "providerOptions",
+      "truth": [
+        "libs/frontend/chat/src/lib/settings/providers/add-cli-instance-modal.component.ts:176",
+        "libs/frontend/chat/src/lib/settings/ptah-ai/web-search-config.component.ts:320",
+        "libs/frontend/ui/src/lib/native/provider-model-picker/provider-model-picker.component.ts:429",
+        "libs/frontend/chat/src/lib/settings/providers/provider-setup-wizard.component.ts:1573"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 4
+    },
+    {
+      "id": "symbol-largest-lib-204",
+      "query": "SDK_ERROR_MESSAGES",
+      "truth": [
+        "libs/frontend/chat/src/lib/services/chat-store/turn-end-handler.service.ts:19"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-largest-lib-205",
+      "query": "asProviderIds",
+      "truth": [
+        "libs/frontend/chat/src/lib/settings/ptah-ai/web-search-config.component.ts:80"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-largest-lib-206",
+      "query": "applyRecordedCheck",
+      "truth": [
+        "libs/frontend/chat/src/lib/settings/providers/provider-connection-card.state.ts:78"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-largest-lib-207",
+      "query": "reviewWizardContext",
+      "truth": [
+        "libs/frontend/chat/src/lib/settings/providers/providers-settings.component.ts:599"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-largest-lib-208",
+      "query": "detachErrorLabel",
+      "truth": [
+        "libs/frontend/chat/src/lib/components/molecules/send-to-messaging/send-to-messaging.component.ts:532"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-largest-lib-209",
+      "query": "ConnectionUsage",
+      "truth": [
+        "libs/frontend/chat/src/lib/settings/providers/connection-usage.ts:56"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-largest-lib-210",
+      "query": "orchestrationPatch",
+      "truth": [
+        "libs/frontend/chat/src/lib/settings/ptah-ai/cli-model-effort-popover.component.ts:481"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-largest-lib-211",
+      "query": "tiersApply",
+      "truth": [
+        "libs/frontend/chat/src/lib/settings/providers/connection-drawer/models-tiers-tab.component.ts:25",
+        "libs/frontend/chat/src/lib/settings/providers/provider-setup-wizard.component.ts:1663"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 2
+    },
+    {
+      "id": "symbol-largest-lib-212",
+      "query": "pendingTimer",
+      "truth": [
+        "libs/frontend/chat/src/lib/components/molecules/session-filter-bar/session-filter-bar.component.ts:395"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-largest-lib-213",
+      "query": "_rowError",
+      "truth": [
+        "libs/frontend/chat/src/lib/components/molecules/send-to-messaging/send-to-messaging.component.ts:193"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-largest-lib-214",
+      "query": "SwitchSessionOptions",
+      "truth": [
+        "libs/frontend/chat/src/lib/services/chat-store/session-loader.service.ts:108"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-largest-lib-215",
+      "query": "MODALITY",
+      "truth": [
+        "libs/frontend/chat/src/lib/settings/providers/provider-catalog-modal.component.ts:8",
+        "libs/frontend/chat/src/lib/settings/providers/main-agent-reassign-popover.component.ts:21",
+        "libs/frontend/chat/src/lib/settings/providers/add-cli-instance-modal.component.ts:22"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 3
+    },
+    {
+      "id": "symbol-largest-lib-216",
+      "query": "onWorkflowsChange",
+      "truth": [
+        "libs/frontend/chat/src/lib/settings/pro-features/agent-behaviour-section.component.ts:357"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-largest-lib-217",
+      "query": "applySidebarWidth",
+      "truth": [
+        "libs/frontend/chat/src/lib/components/templates/app-shell.component.ts:566"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-largest-lib-218",
+      "query": "saveModel",
+      "truth": [
+        "libs/frontend/chat/src/lib/settings/providers/main-agent-reassign-popover.component.ts:391"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-largest-lib-219",
+      "query": "OUTPUT_STYLE_ACTIVATE_FAILED",
+      "truth": [
+        "libs/frontend/chat/src/lib/settings/output-style/output-style-config.component.ts:37"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-largest-lib-220",
+      "query": "atClosed",
+      "truth": [
+        "libs/frontend/chat/src/lib/directives/at-trigger.directive.ts:99"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-largest-lib-221",
+      "query": "SessionRow",
+      "truth": [
+        "libs/frontend/chat/src/lib/components/templates/session-row-groups.ts:16",
+        "libs/frontend/tasks-ui/src/lib/components/detail/task-detail.component.ts:108"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 2
+    },
+    {
+      "id": "symbol-largest-lib-222",
+      "query": "taskLabel",
+      "truth": [
+        "libs/frontend/chat/src/lib/components/atoms/session-organization-chips/session-organization-chips.component.ts:189"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-largest-lib-223",
+      "query": "_scroll",
+      "truth": [
+        "libs/frontend/chat/src/lib/components/organisms/agent-monitor-panel.component.ts:701"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-largest-lib-224",
+      "query": "addPr",
+      "truth": [
+        "libs/frontend/chat/src/lib/components/molecules/session-organization-editor/session-organization-editor.component.ts:633"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-largest-lib-225",
+      "query": "ProviderOption",
+      "truth": [
+        "libs/frontend/chat/src/lib/settings/ptah-ai/web-search-config.component.ts:30",
+        "libs/frontend/ui/src/lib/native/provider-model-picker/provider-model-picker.component.ts:94"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 2
+    },
+    {
+      "id": "symbol-largest-lib-226",
+      "query": "filterCompactionNoise",
+      "truth": [
+        "libs/frontend/chat/src/lib/components/organisms/transcript/transcript-filter.utils.ts:24"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-largest-lib-227",
+      "query": "_onKeydown",
+      "truth": [
+        "libs/frontend/chat/src/lib/components/templates/chat-view.component.ts:532"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-largest-lib-228",
+      "query": "runAction",
+      "truth": [
+        "libs/frontend/chat/src/lib/services/session-budget-actions.service.ts:207"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-largest-lib-229",
+      "query": "openPricing",
+      "truth": [
+        "libs/frontend/chat/src/lib/settings/license/license-status-card.component.ts:679"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-largest-lib-230",
+      "query": "executionNodes",
+      "truth": [
+        "libs/frontend/chat/src/lib/components/molecules/agent-card/cli-agent-output.component.ts:155",
+        "libs/frontend/harness-builder/src/lib/components/harness-builder-view.component.ts:566"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 2
+    },
+    {
+      "id": "symbol-largest-lib-231",
+      "query": "_allMessagesFinalizedRef",
+      "truth": [
+        "libs/frontend/chat/src/lib/components/organisms/transcript/chat-transcript.component.ts:450"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-largest-lib-232",
+      "query": "onNameInput",
+      "truth": [
+        "libs/web/admin/src/lib/groups/components/group-form-modal/group-form-modal.ts:86",
+        "libs/frontend/memory-curator-ui/src/lib/components/corpus-build-dialog.component.ts:186",
+        "libs/frontend/chat/src/lib/settings/output-style/output-style-editor.component.ts:571",
+        "libs/frontend/marketplace/src/lib/oauth-surface.component.ts:582"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 4
+    },
+    {
+      "id": "symbol-largest-lib-233",
+      "query": "requestedProviderId",
+      "truth": [
+        "libs/frontend/chat/src/lib/settings/settings.component.ts:117",
+        "libs/frontend/chat/src/lib/settings/providers/providers-settings.component.ts:226"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 2
+    },
+    {
+      "id": "symbol-largest-lib-234",
+      "query": "projectSelection",
+      "truth": [
+        "libs/frontend/chat/src/lib/settings/output-style/output-style.store.ts:345"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-largest-lib-235",
+      "query": "getActiveTabId",
+      "truth": ["libs/frontend/chat/src/lib/services/chat.store.ts:324"],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-largest-lib-236",
+      "query": "reloadFile",
+      "truth": [
+        "libs/frontend/chat/src/lib/settings/output-style/output-style-editor.component.ts:607"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-largest-lib-237",
+      "query": "haltedCliOutputLoads",
+      "truth": [
+        "libs/frontend/chat/src/lib/services/chat-store/session-loader.service.ts:221"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-largest-lib-238",
+      "query": "selectionId",
+      "truth": [
+        "libs/frontend/chat/src/lib/settings/providers/provider-setup-wizard.component.ts:1524"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-largest-lib-239",
+      "query": "probeState",
+      "truth": [
+        "libs/frontend/chat/src/lib/settings/providers/connection-drawer/advanced-tab.component.ts:183",
+        "libs/frontend/chat/src/lib/settings/providers/connection-drawer/credentials-tab.component.ts:364",
+        "libs/frontend/chat/src/lib/settings/providers/provider-setup-wizard.component.ts:1507"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 3
+    },
+    {
+      "id": "symbol-largest-lib-240",
+      "query": "onPickerOpened",
+      "truth": [
+        "libs/frontend/chat/src/lib/components/molecules/peer-session-send/peer-session-send.component.ts:172"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-largest-lib-241",
+      "query": "organizingSession",
+      "truth": [
+        "libs/frontend/chat/src/lib/components/templates/app-shell.component.ts:392"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-largest-lib-242",
+      "query": "cliInstalled",
+      "truth": [
+        "libs/frontend/chat/src/lib/settings/providers/provider-setup-wizard.component.ts:1638"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-largest-lib-243",
+      "query": "inputValue",
+      "truth": [
+        "libs/frontend/git-ui/src/lib/review-canvas/comparison-bar.component.ts:354",
+        "libs/frontend/chat/src/lib/settings/providers/providers-settings.component.ts:389",
+        "libs/frontend/chat/src/lib/components/molecules/session-organization-editor/session-organization-editor.component.ts:559",
+        "libs/frontend/git-ui/src/lib/task/task-worktree-view.component.ts:654",
+        "libs/frontend/cron-scheduler-ui/src/lib/components/cron-scheduler-tab.component.ts:678"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 5
+    },
+    {
+      "id": "symbol-largest-lib-244",
+      "query": "TIMEOUT_CLOCK_TOLERANCE_MS",
+      "truth": [
+        "libs/frontend/chat/src/lib/settings/pro-features/system-prompt-drawer.component.ts:40"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-largest-lib-245",
+      "query": "instanceRow",
+      "truth": [
+        "libs/frontend/chat/src/lib/settings/ptah-ai/cli-matrix-rows.ts:220"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-largest-lib-246",
+      "query": "file",
+      "truth": [
+        "libs/frontend/git-ui/src/lib/services/git-review.service.ts:41",
+        "libs/frontend/chat/src/lib/components/file-suggestions/file-tag.component.ts:48",
+        "libs/frontend/git-ui/src/lib/review-canvas/changed-file-row-actions.component.ts:116",
+        "libs/frontend/git-ui/src/lib/review-canvas/file-section-header.component.ts:307",
+        "libs/frontend/git-ui/src/lib/spot-editor/spot-editor.component.ts:378",
+        "libs/frontend/git-ui/src/lib/review-canvas/file-diff-section.component.ts:481"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 6
+    },
+    {
+      "id": "symbol-largest-lib-247",
+      "query": "latestError",
+      "truth": [
+        "libs/frontend/chat/src/lib/services/voice-provider-error.service.ts:25"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-largest-lib-248",
+      "query": "addOrigin",
+      "truth": [
+        "libs/frontend/chat/src/lib/settings/ptah-ai/cli-orchestration-matrix.component.ts:460"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-largest-lib-249",
+      "query": "_isLoadingSuggestions",
+      "truth": [
+        "libs/frontend/chat/src/lib/components/molecules/chat-input/chat-input.component.ts:658"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-largest-lib-250",
+      "query": "anchorInTurnWindow",
+      "truth": [
+        "libs/frontend/chat/src/lib/components/organisms/transcript/transcript-change-set-anchors.ts:47"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-largest-lib-251",
+      "query": "cancelClear",
+      "truth": [
+        "libs/frontend/chat/src/lib/settings/ptah-ai/web-search-config.component.ts:516",
+        "libs/frontend/chat/src/lib/settings/ptah-ai/elevenlabs-panel.component.ts:533"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 2
+    },
+    {
+      "id": "symbol-largest-lib-252",
+      "query": "KEY_SAVED_NAME_NOT",
+      "truth": [
+        "libs/frontend/chat/src/lib/settings/providers/add-cli-instance-modal.component.ts:33"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-largest-lib-253",
+      "query": "savedDisabledNamespaces",
+      "truth": [
+        "libs/frontend/chat/src/lib/settings/pro-features/mcp-port-config.component.ts:261"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-largest-lib-254",
+      "query": "resolvedLiveModelStats",
+      "truth": [
+        "libs/frontend/chat/src/lib/components/templates/chat-view.component.ts:853"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-largest-lib-255",
+      "query": "workflowsNote",
+      "truth": [
+        "libs/frontend/chat/src/lib/settings/pro-features/agent-behaviour-section.component.ts:279"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-largest-lib-256",
+      "query": "hasConfiguredSkills",
+      "truth": [
+        "libs/frontend/chat/src/lib/components/molecules/setup-plugins/project-setup-card.component.ts:132"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-largest-lib-257",
+      "query": "editTimeout",
+      "truth": [
+        "libs/frontend/chat/src/lib/settings/providers/provider-consumer-assignments.component.ts:379"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-largest-lib-258",
+      "query": "consumeDeepLink",
+      "truth": [
+        "libs/frontend/chat/src/lib/settings/providers/providers-settings.component.ts:605"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-largest-lib-259",
+      "query": "onCopyToProject",
+      "truth": [
+        "libs/frontend/chat/src/lib/settings/output-style/output-style-config.component.ts:225"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-largest-lib-260",
+      "query": "triggerTooltip",
+      "truth": [
+        "libs/frontend/chat/src/lib/components/molecules/peer-session-send/peer-session-send.component.ts:150",
+        "libs/frontend/chat/src/lib/components/molecules/send-to-messaging/send-to-messaging.component.ts:251"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 2
+    },
+    {
+      "id": "symbol-largest-lib-261",
+      "query": "supportsOptionalKey",
+      "truth": [
+        "libs/frontend/chat/src/lib/settings/providers/provider-setup-wizard.component.ts:1630"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-largest-lib-262",
+      "query": "EffortOption",
+      "truth": [
+        "libs/frontend/chat/src/lib/components/molecules/chat-input/effort-selector.component.ts:32",
+        "libs/frontend/chat/src/lib/settings/ptah-ai/cli-model-effort-popover.component.ts:42"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 2
+    },
+    {
+      "id": "symbol-largest-lib-263",
+      "query": "NO_TURN_TESTS_ANCHORS",
+      "truth": [
+        "libs/frontend/chat/src/lib/components/organisms/transcript/transcript-turns.ts:63"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-largest-lib-264",
+      "query": "_latestError",
+      "truth": [
+        "libs/frontend/chat/src/lib/services/voice-provider-error.service.ts:20"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-largest-lib-265",
+      "query": "onCustomModelInput",
+      "truth": [
+        "libs/frontend/chat/src/lib/settings/ptah-ai/local-stt-panel.component.ts:383",
+        "libs/frontend/chat/src/lib/settings/ptah-ai/local-tts-panel.component.ts:456"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 2
+    },
+    {
+      "id": "symbol-largest-lib-266",
+      "query": "pendingHistoryLoad",
+      "truth": [
+        "libs/frontend/chat/src/lib/services/agent-session-adoption.service.ts:131"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-largest-lib-267",
+      "query": "cancelParitySelection",
+      "truth": [
+        "libs/frontend/chat/src/lib/settings/output-style/output-style-list.component.ts:483"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-largest-lib-268",
+      "query": "LocalTtsPanelComponent",
+      "truth": [
+        "libs/frontend/chat/src/lib/settings/ptah-ai/local-tts-panel.component.ts:319"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-largest-lib-269",
+      "query": "replacingKey",
+      "truth": [
+        "libs/frontend/chat/src/lib/settings/providers/provider-setup-wizard.component.ts:1505"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-largest-lib-270",
+      "query": "previewMaxConcurrent",
+      "truth": [
+        "libs/frontend/chat/src/lib/settings/ptah-ai/agent-orchestration-config.component.ts:270"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-largest-lib-271",
+      "query": "rollBackUnsentPrompt",
+      "truth": [
+        "libs/frontend/chat/src/lib/services/message-sender.service.ts:793"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-largest-lib-272",
+      "query": "autoSelectAgent",
+      "truth": [
+        "libs/frontend/chat/src/lib/components/organisms/agent-monitor-panel.component.ts:1167"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-largest-lib-273",
+      "query": "ultracode",
+      "truth": [
+        "libs/frontend/chat/src/lib/services/message-sender.service.ts:95",
+        "libs/frontend/chat/src/lib/settings/pro-features/agent-behaviour-section.component.ts:271"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 2
+    },
+    {
+      "id": "symbol-largest-lib-274",
+      "query": "WizardProviderOption",
+      "truth": [
+        "libs/frontend/chat/src/lib/settings/providers/provider-setup-wizard.component.ts:161"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-largest-lib-275",
+      "query": "selectedOption",
+      "truth": [
+        "libs/frontend/chat/src/lib/components/molecules/chat-input/effort-selector.component.ts:264"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-largest-lib-276",
+      "query": "SettingsComponent",
+      "truth": ["libs/frontend/chat/src/lib/settings/settings.component.ts:95"],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-largest-lib-277",
+      "query": "FakeIntersectionObserver",
+      "truth": [
+        "libs/frontend/chat/src/lib/components/organisms/transcript/testing/transcript-spec-harness.ts:135"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-largest-lib-278",
+      "query": "COPILOT",
+      "truth": [
+        "libs/frontend/chat/src/lib/settings/providers/add-cli-instance-modal.component.ts:21"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-largest-lib-279",
+      "query": "manualDraft",
+      "truth": [
+        "libs/frontend/chat/src/lib/settings/providers/cli-tier-mapping-modal.component.ts:166",
+        "libs/frontend/chat/src/lib/settings/providers/main-agent-reassign-popover.component.ts:202",
+        "libs/frontend/ui/src/lib/native/provider-model-picker/provider-model-picker.component.ts:545"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 3
+    },
+    {
+      "id": "symbol-largest-lib-280",
+      "query": "ConfirmationDialogComponent",
+      "truth": [
+        "libs/frontend/chat/src/lib/components/molecules/confirmation-dialog.component.ts:64"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-largest-lib-281",
+      "query": "parityActivated",
+      "truth": [
+        "libs/frontend/chat/src/lib/settings/output-style/output-style-list.component.ts:515"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-largest-lib-282",
+      "query": "showList",
+      "truth": [
+        "libs/frontend/chat/src/lib/settings/output-style/output-style-config.component.ts:241"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-largest-lib-283",
+      "query": "READY",
+      "truth": [
+        "libs/frontend/chat/src/lib/settings/ptah-ai/voice-config.component.ts:55",
+        "libs/frontend/chat/src/lib/settings/ptah-ai/cli-matrix-rows.ts:131"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 2
+    },
+    {
+      "id": "symbol-largest-lib-284",
+      "query": "getHostElement",
+      "truth": [
+        "libs/frontend/ui/src/lib/selection/option/option.component.ts:113",
+        "libs/frontend/chat/src/lib/components/file-suggestions/suggestion-option.component.ts:145",
+        "libs/frontend/ui/src/lib/native/option/native-option.component.ts:166"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 3
+    },
+    {
+      "id": "symbol-largest-lib-285",
+      "query": "_transcriptMessages",
+      "truth": [
+        "libs/frontend/chat/src/lib/components/organisms/agent-monitor-panel.component.ts:941"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-largest-lib-286",
+      "query": "ChatInputComponent",
+      "truth": [
+        "libs/frontend/chat/src/lib/components/molecules/chat-input/chat-input.component.ts:447"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-largest-lib-287",
+      "query": "clearError",
+      "truth": [
+        "libs/frontend/tasks-ui/src/lib/services/task-start.service.ts:63",
+        "libs/frontend/marketplace/src/lib/pages/connectors/connector-actions.ts:234",
+        "libs/frontend/harness-builder/src/lib/services/harness-workflow.service.ts:251",
+        "libs/frontend/chat/src/lib/settings/ptah-ai/web-search-config.component.ts:337",
+        "libs/frontend/mcp-apps-page/src/lib/services/apps-session.service.ts:431",
+        "libs/frontend/dashboard/src/lib/services/thoth-status.service.ts:452",
+        "libs/frontend/tasks-ui/src/lib/services/task-views.service.ts:455",
+        "libs/frontend/messaging-gateway-ui/src/lib/services/gateway-state.service.ts:492"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 8
+    },
+    {
+      "id": "symbol-largest-lib-288",
+      "query": "KEY_SAVED_NAME_UNKNOWN",
+      "truth": [
+        "libs/frontend/chat/src/lib/settings/providers/add-cli-instance-modal.component.ts:34"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-largest-lib-289",
+      "query": "compactionRecoveryTimers",
+      "truth": [
+        "libs/frontend/chat/src/lib/services/chat-store/compaction-lifecycle.service.ts:64"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-largest-lib-290",
+      "query": "labels",
+      "truth": [
+        "libs/frontend/tasks-ui/src/lib/components/detail/task-metadata-editor.component.ts:263",
+        "libs/frontend/chat/src/lib/settings/ptah-ai/session-budget-settings.component.ts:332"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 2
+    },
+    {
+      "id": "symbol-largest-lib-291",
+      "query": "ConsumerRowSpec",
+      "truth": [
+        "libs/frontend/chat/src/lib/settings/providers/provider-consumer-rows.ts:106"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-largest-lib-292",
+      "query": "handleAgentSessionOpened",
+      "truth": [
+        "libs/frontend/chat/src/lib/services/chat-message-handler.service.ts:209"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-largest-lib-293",
+      "query": "retryControl",
+      "truth": [
+        "libs/frontend/chat/src/lib/settings/providers/providers-settings.component.ts:382"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-largest-lib-294",
+      "query": "handleTurnFailedNotification",
+      "truth": ["libs/frontend/chat/src/lib/services/chat.store.ts:294"],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-largest-lib-295",
+      "query": "parseStderr",
+      "truth": [
+        "libs/frontend/chat/src/lib/components/molecules/agent-card/agent-card.utils.ts:188"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-largest-lib-296",
+      "query": "badgeTooltipRef",
+      "truth": [
+        "libs/frontend/chat/src/lib/components/organisms/tab-bar.component.ts:230"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-largest-lib-297",
+      "query": "WizardProbeState",
+      "truth": [
+        "libs/frontend/chat/src/lib/settings/providers/provider-setup-wizard.component.ts:172"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-largest-lib-298",
+      "query": "MAX_RECORDING_MS",
+      "truth": [
+        "libs/frontend/chat/src/lib/services/voice-input.service.ts:24"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-largest-lib-299",
+      "query": "shellRow",
+      "truth": [
+        "libs/frontend/chat/src/lib/components/templates/app-shell.component.ts:416"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-largest-lib-300",
+      "query": "startGrace",
+      "truth": [
+        "libs/frontend/chat/src/lib/services/change-set/change-set.store.ts:472"
+      ],
+      "abstain": false,
+      "stratum": "largest-lib",
+      "truthCount": 1
+    },
+    {
+      "id": "symbol-negative-1",
+      "query": "ptahAbsentSymbol0_543724",
+      "truth": [],
+      "abstain": true,
+      "truthCount": 0,
+      "stratum": "negative"
+    },
+    {
+      "id": "symbol-negative-2",
+      "query": "ptahAbsentSymbol1_543675",
+      "truth": [],
+      "abstain": true,
+      "truthCount": 0,
+      "stratum": "negative"
+    },
+    {
+      "id": "symbol-negative-3",
+      "query": "ptahAbsentSymbol2_608254",
+      "truth": [],
+      "abstain": true,
+      "truthCount": 0,
+      "stratum": "negative"
+    },
+    {
+      "id": "symbol-negative-4",
+      "query": "ptahAbsentSymbol3_789265",
+      "truth": [],
+      "abstain": true,
+      "truthCount": 0,
+      "stratum": "negative"
+    },
+    {
+      "id": "symbol-negative-5",
+      "query": "ptahAbsentSymbol4_411163",
+      "truth": [],
+      "abstain": true,
+      "truthCount": 0,
+      "stratum": "negative"
+    },
+    {
+      "id": "symbol-negative-6",
+      "query": "ptahAbsentSymbol5_453163",
+      "truth": [],
+      "abstain": true,
+      "truthCount": 0,
+      "stratum": "negative"
+    },
+    {
+      "id": "symbol-negative-7",
+      "query": "ptahAbsentSymbol6_934010",
+      "truth": [],
+      "abstain": true,
+      "truthCount": 0,
+      "stratum": "negative"
+    },
+    {
+      "id": "symbol-negative-8",
+      "query": "ptahAbsentSymbol7_447917",
+      "truth": [],
+      "abstain": true,
+      "truthCount": 0,
+      "stratum": "negative"
+    },
+    {
+      "id": "symbol-negative-9",
+      "query": "ptahAbsentSymbol8_624437",
+      "truth": [],
+      "abstain": true,
+      "truthCount": 0,
+      "stratum": "negative"
+    },
+    {
+      "id": "symbol-negative-10",
+      "query": "ptahAbsentSymbol9_366284",
+      "truth": [],
+      "abstain": true,
+      "truthCount": 0,
+      "stratum": "negative"
+    },
+    {
+      "id": "symbol-negative-11",
+      "query": "ptahAbsentSymbol10_570929",
+      "truth": [],
+      "abstain": true,
+      "truthCount": 0,
+      "stratum": "negative"
+    },
+    {
+      "id": "symbol-negative-12",
+      "query": "ptahAbsentSymbol11_261061",
+      "truth": [],
+      "abstain": true,
+      "truthCount": 0,
+      "stratum": "negative"
+    },
+    {
+      "id": "symbol-negative-13",
+      "query": "ptahAbsentSymbol12_630177",
+      "truth": [],
+      "abstain": true,
+      "truthCount": 0,
+      "stratum": "negative"
+    },
+    {
+      "id": "symbol-negative-14",
+      "query": "ptahAbsentSymbol13_751717",
+      "truth": [],
+      "abstain": true,
+      "truthCount": 0,
+      "stratum": "negative"
+    },
+    {
+      "id": "symbol-negative-15",
+      "query": "ptahAbsentSymbol14_659202",
+      "truth": [],
+      "abstain": true,
+      "truthCount": 0,
+      "stratum": "negative"
+    },
+    {
+      "id": "symbol-negative-16",
+      "query": "ptahAbsentSymbol15_331415",
+      "truth": [],
+      "abstain": true,
+      "truthCount": 0,
+      "stratum": "negative"
+    },
+    {
+      "id": "symbol-negative-17",
+      "query": "ptahAbsentSymbol16_993327",
+      "truth": [],
+      "abstain": true,
+      "truthCount": 0,
+      "stratum": "negative"
+    },
+    {
+      "id": "symbol-negative-18",
+      "query": "ptahAbsentSymbol17_672347",
+      "truth": [],
+      "abstain": true,
+      "truthCount": 0,
+      "stratum": "negative"
+    },
+    {
+      "id": "symbol-negative-19",
+      "query": "ptahAbsentSymbol18_586038",
+      "truth": [],
+      "abstain": true,
+      "truthCount": 0,
+      "stratum": "negative"
+    },
+    {
+      "id": "symbol-negative-20",
+      "query": "ptahAbsentSymbol19_600944",
+      "truth": [],
+      "abstain": true,
+      "truthCount": 0,
+      "stratum": "negative"
+    },
+    {
+      "id": "symbol-negative-21",
+      "query": "ptahAbsentSymbol20_911306",
+      "truth": [],
+      "abstain": true,
+      "truthCount": 0,
+      "stratum": "negative"
+    },
+    {
+      "id": "symbol-negative-22",
+      "query": "ptahAbsentSymbol21_798498",
+      "truth": [],
+      "abstain": true,
+      "truthCount": 0,
+      "stratum": "negative"
+    },
+    {
+      "id": "symbol-negative-23",
+      "query": "ptahAbsentSymbol22_672002",
+      "truth": [],
+      "abstain": true,
+      "truthCount": 0,
+      "stratum": "negative"
+    },
+    {
+      "id": "symbol-negative-24",
+      "query": "ptahAbsentSymbol23_810355",
+      "truth": [],
+      "abstain": true,
+      "truthCount": 0,
+      "stratum": "negative"
+    },
+    {
+      "id": "symbol-negative-25",
+      "query": "ptahAbsentSymbol24_744688",
+      "truth": [],
+      "abstain": true,
+      "truthCount": 0,
+      "stratum": "negative"
+    },
+    {
+      "id": "symbol-negative-26",
+      "query": "ptahAbsentSymbol25_88094",
+      "truth": [],
+      "abstain": true,
+      "truthCount": 0,
+      "stratum": "negative"
+    },
+    {
+      "id": "symbol-negative-27",
+      "query": "ptahAbsentSymbol26_303326",
+      "truth": [],
+      "abstain": true,
+      "truthCount": 0,
+      "stratum": "negative"
+    },
+    {
+      "id": "symbol-negative-28",
+      "query": "ptahAbsentSymbol27_775855",
+      "truth": [],
+      "abstain": true,
+      "truthCount": 0,
+      "stratum": "negative"
+    },
+    {
+      "id": "symbol-negative-29",
+      "query": "ptahAbsentSymbol28_830290",
+      "truth": [],
+      "abstain": true,
+      "truthCount": 0,
+      "stratum": "negative"
+    },
+    {
+      "id": "symbol-negative-30",
+      "query": "ptahAbsentSymbol29_433155",
+      "truth": [],
+      "abstain": true,
+      "truthCount": 0,
+      "stratum": "negative"
+    },
+    {
+      "id": "symbol-negative-31",
+      "query": "ptahAbsentSymbol30_487810",
+      "truth": [],
+      "abstain": true,
+      "truthCount": 0,
+      "stratum": "negative"
+    },
+    {
+      "id": "symbol-negative-32",
+      "query": "ptahAbsentSymbol31_599602",
+      "truth": [],
+      "abstain": true,
+      "truthCount": 0,
+      "stratum": "negative"
+    },
+    {
+      "id": "symbol-negative-33",
+      "query": "ptahAbsentSymbol32_830266",
+      "truth": [],
+      "abstain": true,
+      "truthCount": 0,
+      "stratum": "negative"
+    },
+    {
+      "id": "symbol-negative-34",
+      "query": "ptahAbsentSymbol33_150428",
+      "truth": [],
+      "abstain": true,
+      "truthCount": 0,
+      "stratum": "negative"
+    },
+    {
+      "id": "symbol-negative-35",
+      "query": "ptahAbsentSymbol34_46628",
+      "truth": [],
+      "abstain": true,
+      "truthCount": 0,
+      "stratum": "negative"
+    },
+    {
+      "id": "symbol-negative-36",
+      "query": "ptahAbsentSymbol35_641406",
+      "truth": [],
+      "abstain": true,
+      "truthCount": 0,
+      "stratum": "negative"
+    },
+    {
+      "id": "symbol-negative-37",
+      "query": "ptahAbsentSymbol36_858186",
+      "truth": [],
+      "abstain": true,
+      "truthCount": 0,
+      "stratum": "negative"
+    },
+    {
+      "id": "symbol-negative-38",
+      "query": "ptahAbsentSymbol37_998875",
+      "truth": [],
+      "abstain": true,
+      "truthCount": 0,
+      "stratum": "negative"
+    },
+    {
+      "id": "symbol-negative-39",
+      "query": "ptahAbsentSymbol38_420513",
+      "truth": [],
+      "abstain": true,
+      "truthCount": 0,
+      "stratum": "negative"
+    },
+    {
+      "id": "symbol-negative-40",
+      "query": "ptahAbsentSymbol39_76697",
+      "truth": [],
+      "abstain": true,
+      "truthCount": 0,
+      "stratum": "negative"
+    },
+    {
+      "id": "symbol-negative-41",
+      "query": "ptahAbsentSymbol40_513104",
+      "truth": [],
+      "abstain": true,
+      "truthCount": 0,
+      "stratum": "negative"
+    },
+    {
+      "id": "symbol-negative-42",
+      "query": "ptahAbsentSymbol41_442228",
+      "truth": [],
+      "abstain": true,
+      "truthCount": 0,
+      "stratum": "negative"
+    },
+    {
+      "id": "symbol-negative-43",
+      "query": "ptahAbsentSymbol42_953275",
+      "truth": [],
+      "abstain": true,
+      "truthCount": 0,
+      "stratum": "negative"
+    },
+    {
+      "id": "symbol-negative-44",
+      "query": "ptahAbsentSymbol43_73899",
+      "truth": [],
+      "abstain": true,
+      "truthCount": 0,
+      "stratum": "negative"
+    },
+    {
+      "id": "symbol-negative-45",
+      "query": "ptahAbsentSymbol44_646276",
+      "truth": [],
+      "abstain": true,
+      "truthCount": 0,
+      "stratum": "negative"
+    },
+    {
+      "id": "symbol-negative-46",
+      "query": "ptahAbsentSymbol45_338203",
+      "truth": [],
+      "abstain": true,
+      "truthCount": 0,
+      "stratum": "negative"
+    },
+    {
+      "id": "symbol-negative-47",
+      "query": "ptahAbsentSymbol46_731728",
+      "truth": [],
+      "abstain": true,
+      "truthCount": 0,
+      "stratum": "negative"
+    },
+    {
+      "id": "symbol-negative-48",
+      "query": "ptahAbsentSymbol47_131444",
+      "truth": [],
+      "abstain": true,
+      "truthCount": 0,
+      "stratum": "negative"
+    },
+    {
+      "id": "symbol-negative-49",
+      "query": "ptahAbsentSymbol48_597793",
+      "truth": [],
+      "abstain": true,
+      "truthCount": 0,
+      "stratum": "negative"
+    },
+    {
+      "id": "symbol-negative-50",
+      "query": "ptahAbsentSymbol49_334467",
+      "truth": [],
+      "abstain": true,
+      "truthCount": 0,
+      "stratum": "negative"
+    }
+  ]
+}

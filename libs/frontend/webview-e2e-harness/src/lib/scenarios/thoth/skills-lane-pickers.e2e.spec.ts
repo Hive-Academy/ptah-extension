@@ -210,7 +210,6 @@ const RPC_FIXTURES: Record<string, unknown> = {
   'skillSynthesis:getLanes': { lanes: LANES_FIXTURE },
   'memory:getTriggers': {
     triggers: {
-      preCompact: true,
       idleMs: 300_000,
       turnThreshold: 20,
       bootScan: true,
@@ -411,7 +410,7 @@ test.describe('webview > settings > agent orchestration > background model picke
     await synthesisEditor.waitFor({ state: 'visible' });
 
     // The shared `ProviderModelPickerComponent` (batches B1.9/B1.10) mounts
-    // inside the webview bundle on the Providers page, enumerating the
+    // inside the webview bundle on the Agent Orchestration page, enumerating the
     // merged registry.
     const synthesisPicker = page.locator(
       '[data-testid="consumer-editor-synthesis"] ptah-provider-model-picker',

@@ -31,10 +31,15 @@ import {
 } from '@ptah-extension/vscode-core';
 import { SDK_TOKENS, type SessionQuotaProbe } from '@ptah-extension/agent-sdk';
 import type {
+  PlanLimitOwnerSnapshot,
   QuotaOwnerIdentityKind,
   QuotaOwnerRef,
 } from '@ptah-extension/shared';
 import { AUTH_PROVIDERS_TOKENS } from '../di/tokens';
+import {
+  hasOpenCodeGoCredentialSync,
+  openCodeDataDir,
+} from './opencode-go-credential';
 import type { CodexHomeResolver } from '../providers/codex/codex-home-resolver';
 import {
   CODEX_PROXY_TOKEN_PLACEHOLDER,
@@ -110,7 +115,16 @@ export type ClaudeAccountInfo = Awaited<
 >;
 
 /** CLIs whose quota owner is the CLI's own credential store. */
-export type CliStoreOwner = 'opencode' | 'antigravity';
+export type CliStoreOwner = 'opencode' | 'antigravity' | 'grok';
+
+/** Live discovery metadata; never persisted on the strict owner reference. */
+export interface OwnerResolutionDetails {
+  readonly unknownReason?: PlanLimitOwnerSnapshot['unknownReason'];
+  /** The same SDK process and native Claude configuration as other native routes. */
+  readonly nativeClaudeRoute?: boolean;
+  /** True only when accountInfo returned an account object without an email. */
+  readonly confirmedMissingEmail?: boolean;
+}
 
 const GeminiAccountsSchema = z.object({ active: z.string() });
 
@@ -392,6 +406,23 @@ function realCredential(raw: string | undefined): string | null {
  */
 @injectable()
 export class ProviderOwnerResolver {
+  // Metadata follows this exact owner object; copying it loses the WeakMap entry.
+  private readonly details = new WeakMap<
+    QuotaOwnerRef,
+    OwnerResolutionDetails
+  >();
+
+  detailsFor(owner: QuotaOwnerRef): OwnerResolutionDetails {
+    return this.details.get(owner) ?? {};
+  }
+
+  private mark(
+    owner: QuotaOwnerRef,
+    details: OwnerResolutionDetails,
+  ): QuotaOwnerRef {
+    this.details.set(owner, details);
+    return owner;
+  }
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.AUTH_SECRETS_SERVICE)
@@ -412,11 +443,17 @@ export class ProviderOwnerResolver {
    */
   async ownerForProviderKey(providerId: string): Promise<QuotaOwnerRef> {
     const credential = await this.readSecret(providerId, providerId);
-    return quotaOwnerRefFromKey(
+    const owner = quotaOwnerRefFromKey(
       credential
         ? credentialOwnerKey(providerId, credential)
         : unknownOwnerKey(providerId, `provider-key:${providerId}`),
     );
+    return credential
+      ? owner
+      : this.mark(
+          { ...owner, label: `${owner.label} (key unavailable)` },
+          { unknownReason: 'missing-api-key' },
+        );
   }
 
   /** The owner of a Ptah CLI agent's own key (`ptahCli.<id>` slot). */
@@ -428,11 +465,17 @@ export class ProviderOwnerResolver {
       ptahCliKeySlot(ptahCliId),
       providerId,
     );
-    return quotaOwnerRefFromKey(
+    const owner = quotaOwnerRefFromKey(
       credential
         ? credentialOwnerKey(providerId, credential)
         : unknownOwnerKey(providerId, `ptah-cli:${ptahCliId}`),
     );
+    return credential
+      ? owner
+      : this.mark(
+          { ...owner, label: `${owner.label} (key unavailable)` },
+          { unknownReason: 'missing-api-key' },
+        );
   }
 
   /**
@@ -446,8 +489,18 @@ export class ProviderOwnerResolver {
   ): QuotaOwnerRef {
     const email = account?.email?.trim();
     if (!email) {
-      return quotaOwnerRefFromKey(
-        unknownOwnerKey(CLAUDE_PROVIDER_ID, routeMaterial),
+      return this.mark(
+        {
+          ...quotaOwnerRefFromKey(
+            unknownOwnerKey(CLAUDE_PROVIDER_ID, routeMaterial),
+          ),
+          label: 'Claude identity unavailable (no email)',
+        },
+        {
+          unknownReason:
+            account === null ? 'unresolved-route' : 'missing-account-email',
+          confirmedMissingEmail: account !== null,
+        },
       );
     }
     const organization = account?.organization?.trim() ?? '';
@@ -462,9 +515,15 @@ export class ProviderOwnerResolver {
    */
   ownerForCodexHome(): QuotaOwnerRef {
     const key = this.codexAccountUsage.currentOwnerKey();
-    return quotaOwnerRefFromKey(
+    const owner = quotaOwnerRefFromKey(
       key ?? unknownOwnerKey(CODEX_PROVIDER_ID, this.codexHome.path),
     );
+    return key
+      ? owner
+      : this.mark(
+          { ...owner, label: 'Codex identity unavailable' },
+          { unknownReason: 'codex-not-read' },
+        );
   }
 
   /**
@@ -482,6 +541,27 @@ export class ProviderOwnerResolver {
   /** A CLI whose quota follows its own on-disk credential store. */
   ownerForCliStore(cli: CliStoreOwner): QuotaOwnerRef {
     return quotaOwnerRefFromKey(cliStoreOwnerKey(cli, cliStorePath(cli)));
+  }
+
+  /**
+   * The owner an OpenCode lane bills. A model with a provider prefix other than
+   * `opencode-go` (Zen, a third-party key) bills the OpenCode store. Otherwise
+   * an OpenCode Go key in that store makes the Go subscription the owner, keyed
+   * by the same directory the Go reader reads; without one the store owns it.
+   */
+  ownerForOpenCode(model?: string): QuotaOwnerRef {
+    const slash = model?.indexOf('/') ?? -1;
+    const provider =
+      model && slash > 0 ? model.slice(0, slash).trim().toLowerCase() : '';
+    if (provider && provider !== 'opencode-go') {
+      return this.ownerForCliStore('opencode');
+    }
+    if (hasOpenCodeGoCredentialSync()) {
+      return quotaOwnerRefFromKey(
+        cliStoreOwnerKey('opencode-go', openCodeDataDir()),
+      );
+    }
+    return this.ownerForCliStore('opencode');
   }
 
   /**
@@ -517,19 +597,43 @@ export class ProviderOwnerResolver {
     // Cloud fallback. Its route has no selected provider/auth-method evidence,
     // so it deliberately remains an unknown owner rather than being guessed.
     if (!route || route.routeKind === 'unknown' || !route.providerId) {
-      return quotaOwnerRefFromKey(
+      const owner = quotaOwnerRefFromKey(
         unknownOwnerKey(
           route?.providerId ?? UNROUTED_PROVIDER_ID,
           sessionMaterial,
         ),
       );
+      return this.mark(
+        {
+          ...owner,
+          label:
+            route?.providerId === 'ollama-cloud'
+              ? 'Ollama route unresolved'
+              : `${owner.label} (route unresolved)`,
+        },
+        {
+          unknownReason:
+            route?.providerId === 'ollama-cloud'
+              ? 'unrouted-daemon'
+              : 'unresolved-route',
+          nativeClaudeRoute:
+            route?.providerId === CLAUDE_PROVIDER_ID &&
+            route.routeKind === 'unknown',
+        },
+      );
     }
     switch (route.routeKind) {
-      case 'native':
-        return this.ownerForClaudeAccount(
-          await this.probe.readAccount(sessionId),
-          sessionMaterial,
-        );
+      case 'native': {
+        const account = await this.probe.readAccount(sessionId);
+        const owner = this.ownerForClaudeAccount(account, sessionMaterial);
+        if (owner.identityKind === 'unknown') {
+          return this.mark(owner, {
+            ...this.detailsFor(owner),
+            nativeClaudeRoute: true,
+          });
+        }
+        return owner;
+      }
       case 'direct-key':
         return this.ownerForProviderKey(route.providerId);
       case 'proxy':
@@ -560,11 +664,9 @@ export class ProviderOwnerResolver {
 }
 
 function cliStorePath(cli: CliStoreOwner): string {
-  if (cli === 'opencode') {
-    const dataHome =
-      process.env['XDG_DATA_HOME']?.trim() ||
-      join(homedir(), '.local', 'share');
-    return join(dataHome, 'opencode');
+  if (cli === 'grok') {
+    return process.env['GROK_HOME']?.trim() || join(homedir(), '.grok');
   }
+  if (cli === 'opencode') return openCodeDataDir();
   return join(homedir(), '.gemini');
 }

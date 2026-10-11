@@ -27,10 +27,8 @@
  * state field, WARNs once per session and failure kind, and the stage still
  * advances.
  *
- * Bounded overshoot (F7, accepted): the result that crosses 100% is the first
- * to block, and a follow-up the user queued during that turn is released by
- * `onTurnEnd` before the crossing figure reaches `observe`. So at most the
- * crossing turn plus one held follow-up run past the limit.
+ * A terminal handover gate arms before the pump is released, so follow-ups
+ * held during the crossing turn transfer rather than starting on the source.
  */
 
 import { inject, injectable } from 'tsyringe';
@@ -245,6 +243,11 @@ export class SessionBudgetService {
       this.warnOnce(entry, sessionId, 'can-send', error);
       return SEND_OK;
     }
+  }
+
+  /** Current stage without turning an advisory handoff stage into a refusal. */
+  stageFor(sessionId: string): SessionBudgetStage | undefined {
+    return this.entries.get(sessionId)?.figure?.stage;
   }
 
   /** A user action from the budget banner. Never throws. */

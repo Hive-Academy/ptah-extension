@@ -91,6 +91,9 @@ describe('SkillSynthesisService — session end enqueues (P0-1)', () => {
         (_section: string, key: string, fallback: unknown) =>
           key === 'skillSynthesis.enabled' ? (opts.enabled ?? true) : fallback,
       ),
+      // B-P: `start()` subscribes to `skillSynthesis.enabled` above its early
+      // returns; a plain `jest.fn()` stands in for the disposer it returns.
+      onDidChangeConfiguration: jest.fn(),
     } as unknown as ConstructorParameters<typeof SkillSynthesisService>[3];
     const store = {
       findByTrajectoryHash: jest.fn(() => null),

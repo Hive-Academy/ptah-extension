@@ -23,6 +23,12 @@ export const WAIT_SUMMARY_MAX_CHARS = 4_000;
  */
 export const MAX_WAIT_TIMEOUT_SEC = MAX_AGENT_WAIT_MS / 1000;
 
+/**
+ * HTTP MCP clients abort a request after about 60 seconds (measured in
+ * TASK_2026_619). Leave enough margin for the non-streaming JSON reply.
+ */
+export const HTTP_MAX_AGENT_WAIT_SEC = 45;
+
 /** Default `ptah_agent_wait` timeout when the caller gives none. */
 export const DEFAULT_AGENT_WAIT_TIMEOUT_SEC = 600;
 
@@ -94,3 +100,19 @@ export const RunCheckArgsSchema = z
   .strict();
 
 export type RunCheckArgs = z.infer<typeof RunCheckArgsSchema>;
+
+/** Arguments for the HTTP-only collection/cancellation side of run_check jobs. */
+export const RunCheckWaitArgsSchema = z
+  .object({
+    jobId: z.string().uuid().max(128),
+    timeoutSec: z
+      .number()
+      .int()
+      .min(0)
+      .max(MAX_WAIT_TIMEOUT_SEC)
+      .default(HTTP_MAX_AGENT_WAIT_SEC),
+    cancel: z.boolean().optional(),
+  })
+  .strict();
+
+export type RunCheckWaitArgs = z.infer<typeof RunCheckWaitArgsSchema>;

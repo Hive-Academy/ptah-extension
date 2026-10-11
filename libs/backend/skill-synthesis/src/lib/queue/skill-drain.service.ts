@@ -31,6 +31,16 @@
  * `skill-drain.gates.spec.ts`, which asserts the reason string produced when
  * several gates are true at once.
  *
+ * Gate 1 is ALSO re-read PER ITEM inside the tick (B-P, S6): a nightly (40) or
+ * weekly (400) tick that already passed gate 1 must stop the moment the switch
+ * flips off mid-run — the tray write, the Thoth toggle or an external edit of
+ * `~/.ptah/settings.json`, which fires no event. The item being processed
+ * finishes (in-flight units are never aborted; an aborted claim would wait for
+ * the stale reaper and waste the tokens it already spent), every row not yet
+ * claimed stays `queued` — eligible again on the next tick after a resume, under
+ * that tier's own caps — and the tick ends with `reason: 'paused-mid-run'` while
+ * `skipped` stays false, because claims were attempted.
+ *
  * ## R3 — cost scales with session count
  *
  * The budget is a HARD stop, not a target. Gate 2 stops a tick that starts over
@@ -207,7 +217,13 @@ export type DrainSkipReason =
   | 'daily-token-budget-exhausted'
   | 'on-battery'
   | 'foreground-active'
-  | 'aborted';
+  | 'aborted'
+  /**
+   * The master switch was flipped off AFTER this tick passed gate 1
+   * (TASK_2026_620 B-P, S6). Not a skip: claims may already have been made —
+   * `DrainSummary.skipped` stays false and this rides `reason` alone.
+   */
+  | 'paused-mid-run';
 
 export interface DrainOptions {
   tier: DrainTier;
@@ -820,6 +836,23 @@ export class SkillDrainService {
 
       for (const row of this.select(cfg, opts.tier, now, summary)) {
         if (opts.signal.aborted) break;
+        // Gate 1, re-read per item (B-P, S6): the master switch may have been
+        // flipped off after this tick passed gate 1. The item above has
+        // finished; everything not yet claimed stays `queued`, and the next
+        // tick after a resume drains it under its own caps. NOT a skip:
+        // claims may already have been made, so only `reason` is set.
+        if (!this.readMasterEnabled()) {
+          summary.reason = 'paused-mid-run';
+          this.logger.debug(
+            '[skill-synthesis] drain paused mid-run; unclaimed rows stay queued',
+            {
+              tier: summary.tier,
+              claimed: summary.claimed,
+              done: summary.done,
+            },
+          );
+          break;
+        }
         if (
           TOKEN_SPENDING_STAGES.has(row.stage) &&
           this.isBudgetExhausted(cfg, Date.now())
@@ -1250,6 +1283,22 @@ export class SkillDrainService {
       reason,
     });
     return summary;
+  }
+
+  /**
+   * Gate 1's live re-read (B-P, S6): the master switch alone, once more
+   * before each item. Reads the single key rather than {@link readConfig}
+   * (eleven reads) because this runs per item, and mirrors the memory
+   * trigger's master read (`readMemoryEnabled`) rather than inventing a
+   * second shape.
+   */
+  private readMasterEnabled(): boolean {
+    const raw = this.workspace.getConfiguration<boolean>(
+      SKILL_DRAIN_SECTION,
+      SKILL_DRAIN_KEYS.enabled,
+      SKILL_DRAIN_DEFAULTS.enabled,
+    );
+    return typeof raw === 'boolean' ? raw : SKILL_DRAIN_DEFAULTS.enabled;
   }
 
   private readConfig(): SkillDrainConfig {

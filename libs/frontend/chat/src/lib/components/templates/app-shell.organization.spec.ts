@@ -27,6 +27,7 @@ import {
   AuthStateService,
   BootStatusService,
   ClaudeRpcService,
+  ThemeService,
   VSCodeService,
 } from '@ptah-extension/core';
 import { provideSurfaceRouterTesting } from '@ptah-extension/core/testing';
@@ -44,6 +45,8 @@ import { AppShellComponent } from './app-shell.component';
 import { groupSessionRows } from './session-row-groups';
 import { ChatStore } from '../../services/chat.store';
 import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-ender.service';
+import { AgentFollowUpQueueService } from '../../services/agent-follow-up-queue.service';
+import { NotificationLedgerService } from '@ptah-extension/notification-center';
 import type { SessionListQuery } from '../../services/chat-store/session-loader.service';
 import { KeyboardShortcutsService } from '../../services/keyboard-shortcuts.service';
 import { SessionDisplayUtils } from '../../services/session-display-utils.service';
@@ -159,6 +162,13 @@ function configure(store: StoreStub): ComponentFixture<AppShellComponent> {
       // The shell creates this eagerly; its behaviour is covered by
       // closed-tab-session-ender.service.spec.ts.
       { provide: ClosedTabSessionEnderService, useValue: {} },
+      // Created eagerly by the shell; its behaviour is covered by
+      // app-shell.retained-chrome.spec.ts and the notification-center specs.
+      { provide: NotificationLedgerService, useValue: {} },
+      // Created eagerly by the shell; covered by theme.service.spec.ts and
+      // agent-follow-up-queue.service.spec.ts.
+      { provide: ThemeService, useValue: {} },
+      { provide: AgentFollowUpQueueService, useValue: {} },
       {
         provide: TabManagerService,
         useValue: { activeTab: signal(null), findTabBySessionId: () => null },

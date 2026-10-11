@@ -52,6 +52,19 @@ function addChild(
 }
 
 describe('SessionChildRegistry', () => {
+  it('rekeys a child while retaining its parent and concurrency slot', () => {
+    const registry = new SessionChildRegistry();
+    addChild(registry, 'source', { sdkSessionId: 'sdk-source' });
+
+    expect(registry.rekey('source', 'successor')).toEqual(expect.objectContaining({
+      childSessionId: 'successor',
+      parentSessionId: PARENT,
+    }));
+    expect(registry.get('source')).toBeUndefined();
+    expect(registry.get('sdk-source')?.childSessionId).toBe('successor');
+    expect(registry.liveCount()).toBe(1);
+  });
+
   describe('slot reservation', () => {
     it('refuses the second of two racing reservations when the cap is 1', () => {
       const registry = new SessionChildRegistry();

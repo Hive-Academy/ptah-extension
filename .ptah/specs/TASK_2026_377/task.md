@@ -1,12 +1,16 @@
 ---
 id: TASK_2026_377
-status: in_review
+status: done
 type: FEATURE
-title: 'Admin portal: community categories, admin-authored threads, courses screen, Seshat re-target'
+title: >-
+  Admin portal: community categories, admin-authored threads, courses screen,
+  Seshat re-target
 depends_on: []
 created: '2026-09-03T21:35:29.756Z'
-updated: '2026-09-03T21:35:29.756Z'
-description: 'Let the admin operate the native community and course content from the portal, and re-target the Seshat harness docs from Discourse to the native forum'
+updated: '2026-10-10T18:19:09.715Z'
+description: >-
+  Let the admin operate the native community and course content from the portal,
+  and re-target the Seshat harness docs from Discourse to the native forum
 executor: cli-agents
 estimate: L
 labels:

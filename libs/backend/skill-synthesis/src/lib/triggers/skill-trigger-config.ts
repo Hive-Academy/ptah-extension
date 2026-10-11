@@ -5,7 +5,20 @@ import type { SkillTriggersDto } from '@ptah-extension/shared';
 export const SKILL_TRIGGER_SECTION = 'ptah';
 
 export const SKILL_TRIGGER_KEYS = {
-  sessionEnd: 'skillSynthesis.triggers.sessionEnd',
+  /**
+   * The skills master switch (TASK_2026_620 B-P), the same key
+   * `skillSynthesis.enabled` the drain reads as its gate 1.
+   *
+   * Deliberately NOT `skillSynthesis.triggers.enabled`: it gates the boot
+   * scan and the spec harvest here, and the enqueue body, the drain ticks,
+   * the stage handlers and the curator interval in `skill-synthesis.service`
+   * — none of which are per-trigger toggles. Deliberately absent from
+   * `SkillTriggersDto` / {@link SKILL_TRIGGER_PREFIXES} for the same reason
+   * `memory.enabled` is: the settings panel round-trips the sub-switches, and
+   * this is the switch above them. Read through `IWorkspaceProvider`,
+   * so it resolves from `~/.ptah/settings.json` on every host.
+   */
+  enabled: 'skillSynthesis.enabled',
   idleMs: 'skillSynthesis.triggers.idleMs',
   bootScan: 'skillSynthesis.triggers.bootScan',
   /**
@@ -41,7 +54,7 @@ export const SKILL_TRIGGER_KEYS = {
 } as const;
 
 export const SKILL_TRIGGER_DEFAULTS = {
-  sessionEnd: true,
+  enabled: true,
   idleMs: 600000,
   bootScan: true,
   /** 5 min. Matches `MEMORY_TRIGGER_DEFAULTS.bootScanDelayMs`. */
@@ -65,7 +78,6 @@ export const SKILL_TRIGGER_DEFAULTS = {
 } as const;
 
 export const SKILL_TRIGGER_PREFIXES: Record<keyof SkillTriggersDto, string> = {
-  sessionEnd: SKILL_TRIGGER_KEYS.sessionEnd,
   idleMs: SKILL_TRIGGER_KEYS.idleMs,
   bootScan: SKILL_TRIGGER_KEYS.bootScan,
   subagentStop: 'skillSynthesis.triggers.subagentStop',
@@ -75,7 +87,6 @@ export const SKILL_TRIGGER_PREFIXES: Record<keyof SkillTriggersDto, string> = {
 };
 
 export interface PopulatedSkillTriggers {
-  readonly sessionEnd: boolean;
   readonly idleMs: number;
   readonly bootScan: boolean;
   readonly subagentStop: {
@@ -94,12 +105,6 @@ export interface PopulatedSkillTriggers {
 export function readSkillTriggers(
   ws: IWorkspaceProvider,
 ): PopulatedSkillTriggers {
-  const sessionEnd =
-    ws.getConfiguration<boolean>(
-      SKILL_TRIGGER_SECTION,
-      SKILL_TRIGGER_KEYS.sessionEnd,
-      SKILL_TRIGGER_DEFAULTS.sessionEnd,
-    ) ?? SKILL_TRIGGER_DEFAULTS.sessionEnd;
   const idleMs =
     ws.getConfiguration<number>(
       SKILL_TRIGGER_SECTION,
@@ -143,7 +148,6 @@ export function readSkillTriggers(
       SKILL_TRIGGER_DEFAULTS.maxAnalyzesPerHour,
     ) ?? SKILL_TRIGGER_DEFAULTS.maxAnalyzesPerHour;
   return {
-    sessionEnd,
     idleMs,
     bootScan,
     subagentStop: {

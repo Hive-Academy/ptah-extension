@@ -61,7 +61,11 @@ import type {
 import { createMockLogger } from '@ptah-extension/shared/testing';
 import { createMockWorkspaceProvider } from '@ptah-extension/platform-core/testing';
 import type { ModelSettings } from '@ptah-extension/settings-core';
-import { SessionBudgetService } from '@ptah-extension/agent-sdk';
+import {
+  SessionBudgetService,
+  type SessionHandoverCoordinator,
+} from '@ptah-extension/agent-sdk';
+import { SESSION_HANDOVER_HELD } from '@ptah-extension/shared';
 
 import { createMockModelSettings } from '../../../test-utils/mock-settings';
 import { ChatSessionService } from './chat-session.service';
@@ -157,10 +161,18 @@ interface Harness {
   routeFollowUpSlashCommand: jest.Mock;
   handleContinue: jest.Mock;
   readForResume: jest.Mock;
+  interruptCurrentTurn: jest.Mock;
+  getWithDefault: jest.Mock;
 }
 
-function makeHarness(budget: BudgetFake | null): Harness {
+type HandoverFake = Pick<SessionHandoverCoordinator, 'admitOrHold'>;
+
+function makeHarness(
+  budget: BudgetFake | null,
+  handover: HandoverFake | null = null,
+): Harness {
   const noop = jest.fn();
+  const getWithDefault = jest.fn().mockReturnValue(false);
   const provider = createMockWorkspaceProvider({ folders: [OPEN_FOLDER] });
   const emptyStream = (): AsyncGenerator<never> =>
     (async function* () {
@@ -169,6 +181,7 @@ function makeHarness(budget: BudgetFake | null): Harness {
 
   const resumeSession = jest.fn().mockImplementation(async () => emptyStream());
   const sendMessageToSession = jest.fn().mockResolvedValue(undefined);
+  const interruptCurrentTurn = jest.fn().mockResolvedValue(true);
   const sdkAdapter = {
     startChatSession: jest.fn().mockImplementation(async () => emptyStream()),
     isSessionActive: jest.fn().mockReturnValue(true),
@@ -176,7 +189,7 @@ function makeHarness(budget: BudgetFake | null): Harness {
     sendMessageToSession,
     endSession: jest.fn().mockResolvedValue(undefined),
     interruptSession: jest.fn().mockResolvedValue(undefined),
-    interruptCurrentTurn: jest.fn().mockResolvedValue(true),
+    interruptCurrentTurn,
   } as unknown as IAgentAdapter;
 
   const routeFollowUpSlashCommand = jest
@@ -200,7 +213,7 @@ function makeHarness(budget: BudgetFake | null): Harness {
     { broadcastMessage: noop } as never,
     {
       get: noop,
-      getWithDefault: jest.fn().mockReturnValue(false),
+      getWithDefault,
     } as unknown as ConfigManager,
     sdkAdapter,
     { captureException: jest.fn() } as unknown as SentryService,
@@ -264,6 +277,7 @@ function makeHarness(budget: BudgetFake | null): Harness {
     { register: jest.fn().mockReturnValue(() => undefined) } as never,
     null,
     budget,
+    handover as unknown as SessionHandoverCoordinator | null,
   );
 
   return {
@@ -273,6 +287,8 @@ function makeHarness(budget: BudgetFake | null): Harness {
     routeFollowUpSlashCommand,
     handleContinue,
     readForResume,
+    interruptCurrentTurn,
+    getWithDefault,
   };
 }
 
@@ -302,6 +318,49 @@ const REFUSED = {
 };
 
 describe('chat:continue — session budget gate', () => {
+  it('holds a prompt for an active handover before the CLI and budget gates', async () => {
+    const handover: HandoverFake = {
+      admitOrHold: jest.fn(() => ({ held: true })),
+    };
+    const budget = blockedBudget();
+    const h = makeHarness(budget, handover);
+
+    await expect(h.service.continueSession(params('continue in successor'))).resolves.toEqual({
+      success: false,
+      error: SESSION_HANDOVER_HELD,
+    });
+    expect(handover.admitOrHold).toHaveBeenCalledWith(SESSION_ID, {
+      content: 'continue in successor',
+      admission: 'require-idle',
+    });
+    expect(h.handleContinue).not.toHaveBeenCalled();
+    expect(budget.canSend).not.toHaveBeenCalled();
+    expect(h.sendMessageToSession).not.toHaveBeenCalled();
+  });
+
+  it('holds stop intent during handover instead of interrupting the current turn', async () => {
+    const handover: HandoverFake = {
+      admitOrHold: jest
+        .fn()
+        .mockReturnValueOnce({ held: false })
+        .mockReturnValueOnce({ held: true }),
+    };
+    const h = makeHarness(null, handover);
+    h.getWithDefault.mockImplementation((key: string, fallback: unknown) => {
+      if (key === 'autopilot.enabled') return true;
+      if (key === 'autopilot.permissionLevel') return 'auto-edit';
+      return fallback;
+    });
+
+    await expect(h.service.continueSession(params('stop'))).resolves.toEqual({
+      success: false,
+      error: SESSION_HANDOVER_HELD,
+    });
+    expect(handover.admitOrHold).toHaveBeenCalledTimes(2);
+    expect(h.interruptCurrentTurn).not.toHaveBeenCalled();
+    expect(h.sendMessageToSession).not.toHaveBeenCalled();
+  });
+
   it('refuses a plain prompt with SESSION_BUDGET_REACHED before any send', async () => {
     const budget = blockedBudget();
     const h = makeHarness(budget);

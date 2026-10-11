@@ -14,10 +14,14 @@
 -->
 
 <div class="h-full overflow-y-auto bg-surface-0">
-  <div class="mx-auto w-full max-w-screen-2xl px-3 py-3 space-y-3 md:px-6 lg:px-8">
+  <div
+    class="mx-auto w-full max-w-screen-2xl px-3 py-3 space-y-3 md:px-6 lg:px-8"
+  >
     <!-- Header (prototypes/final/index.html:82-95): Back, title, workspace and app context -->
-    <header>
-      <div class="flex items-center justify-between gap-3 pb-2 border-b border-base-300">
+    <header class="settings-header">
+      <div
+        class="flex items-center justify-between gap-3 pb-2 border-b border-base-300"
+      >
         <div class="flex items-center gap-2.5">
           <button
             type="button"
@@ -27,73 +31,74 @@
             title="Back to Chat"
             data-testid="settings-back"
           >
-            <lucide-angular [img]="ArrowLeftIcon" class="w-4 h-4" aria-hidden="true" />
+            <lucide-angular
+              [img]="ArrowLeftIcon"
+              class="w-4 h-4"
+              aria-hidden="true"
+            />
           </button>
-          <h1 class="text-base font-bold tracking-tight text-base-content">Settings</h1>
+          <h1 class="text-base font-bold tracking-tight text-base-content">
+            Settings
+          </h1>
         </div>
-        <p class="flex min-w-0 items-center text-xs text-base-content-muted whitespace-pre" data-testid="settings-context">
+        <p
+          class="flex min-w-0 items-center text-xs text-base-content-muted whitespace-pre"
+          data-testid="settings-context"
+        >
           @if (workspaceName(); as name) {
-            <span class="min-w-0 truncate" [attr.title]="workspacePath()">Workspace: <strong class="font-medium text-base-content">{{ name }}</strong></span>
+            <span class="min-w-0 truncate" [attr.title]="workspacePath()"
+              >Workspace:
+              <strong class="font-medium text-base-content">{{
+                name
+              }}</strong></span
+            >
             <span> · </span>
           }
-          <span class="shrink-0">App: <strong class="font-medium text-base-content">{{ appLabel }}</strong></span>
+          <span class="shrink-0"
+            >App:
+            <strong class="font-medium text-base-content">{{
+              appLabel
+            }}</strong></span
+          >
         </p>
       </div>
 
       <!-- Tab bar: 4 enabled tabs (D9); buttons keep their names (live-app scripts use getByRole('button')) -->
-      <nav class="tabs tabs-bordered mt-1.5" aria-label="Settings sections" data-testid="settings-tabs">
-        <button
-          type="button"
-          class="tab flex-1 gap-1.5 text-[13px] text-base-content-muted"
-          [class.tab-active]="activeSettingsTab() === 'claude-auth'"
-          [class.!text-base-content]="activeSettingsTab() === 'claude-auth'"
-          [class.!border-primary]="activeSettingsTab() === 'claude-auth'"
-          [class.!border-transparent]="activeSettingsTab() !== 'claude-auth'"
-          [attr.aria-current]="activeSettingsTab() === 'claude-auth' ? 'page' : null"
-          (click)="setActiveTab('claude-auth')"
-        >
-          <lucide-angular [img]="KeyIcon" class="w-3.5 h-3.5" aria-hidden="true" />
-          <span>Providers</span>
-        </button>
-        <button
-          type="button"
-          class="tab flex-1 gap-1.5 text-[13px] text-base-content-muted"
-          [class.tab-active]="activeSettingsTab() === 'orchestration'"
-          [class.!text-base-content]="activeSettingsTab() === 'orchestration'"
-          [class.!border-primary]="activeSettingsTab() === 'orchestration'"
-          [class.!border-transparent]="activeSettingsTab() !== 'orchestration'"
-          [attr.aria-current]="activeSettingsTab() === 'orchestration' ? 'page' : null"
-          (click)="setActiveTab('orchestration')"
-        >
-          <lucide-angular [img]="CpuIcon" class="w-3.5 h-3.5" aria-hidden="true" />
-          <span>Agent Orchestration</span>
-        </button>
-        <button
-          type="button"
-          class="tab flex-1 gap-1.5 text-[13px] text-base-content-muted"
-          [class.tab-active]="activeSettingsTab() === 'pro-features'"
-          [class.!text-base-content]="activeSettingsTab() === 'pro-features'"
-          [class.!border-primary]="activeSettingsTab() === 'pro-features'"
-          [class.!border-transparent]="activeSettingsTab() !== 'pro-features'"
-          [attr.aria-current]="activeSettingsTab() === 'pro-features' ? 'page' : null"
-          (click)="setActiveTab('pro-features')"
-        >
-          <lucide-angular [img]="SparklesIcon" class="w-3.5 h-3.5" aria-hidden="true" />
-          <span>Advanced</span>
-        </button>
-        <button
-          type="button"
-          class="tab flex-1 gap-1.5 text-[13px] text-base-content-muted"
-          [class.tab-active]="activeSettingsTab() === 'tools'"
-          [class.!text-base-content]="activeSettingsTab() === 'tools'"
-          [class.!border-primary]="activeSettingsTab() === 'tools'"
-          [class.!border-transparent]="activeSettingsTab() !== 'tools'"
-          [attr.aria-current]="activeSettingsTab() === 'tools' ? 'page' : null"
-          (click)="setActiveTab('tools')"
-        >
-          <lucide-angular [img]="GlobeIcon" class="w-3.5 h-3.5" aria-hidden="true" />
-          <span>Search &amp; Voice</span>
-        </button>
+      <!-- Card tabs. `tab-active` stays on the active button as the e2e hook (settings scenarios assert it). -->
+      <nav
+        class="settings-tabs mt-2"
+        aria-label="Settings sections"
+        data-testid="settings-tabs"
+      >
+        @for (tab of settingsTabs; track tab.id) {
+          @let active = activeSettingsTab() === tab.id;
+          <button
+            type="button"
+            class="settings-tab relative flex min-w-0 items-center justify-center gap-2 rounded-lg px-2.5 py-2 text-[13px] leading-5 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
+            [class.surface-2]="!active"
+            [class.text-base-content-muted]="!active"
+            [class.surface-3]="active"
+            [class.tab-active]="active"
+            [class.!border-primary]="active"
+            [class.font-semibold]="active"
+            [class.text-base-content]="active"
+            [attr.data-active]="active ? 'true' : null"
+            [attr.aria-current]="active ? 'page' : null"
+            [attr.aria-label]="tab.label"
+            [attr.title]="tab.label"
+            (click)="setActiveTab(tab.id)"
+          >
+            <lucide-angular
+              [img]="tab.icon"
+              class="h-4 w-4 shrink-0"
+              [class.text-primary]="active"
+              aria-hidden="true"
+            />
+            <span class="settings-tab-label min-w-0 text-center">{{
+              tab.label
+            }}</span>
+          </button>
+        }
       </nav>
     </header>
 
@@ -114,11 +119,20 @@
         <div
           class="mb-2 flex min-w-0 items-center gap-1.5 text-[11px] text-base-content-muted"
           data-testid="custom-provider-security-copy"
-          [attr.title]="'Your own endpoint. Credentials and prompts go from this machine to ' + authState.selectedCustomHost() + ' — a host you added.'"
+          [attr.title]="
+            'Your own endpoint. Credentials and prompts go from this machine to ' +
+            authState.selectedCustomHost() +
+            ' — a host you added.'
+          "
         >
-          <span class="h-1.5 w-1.5 shrink-0 rounded-full bg-warning" aria-hidden="true"></span>
+          <span
+            class="h-1.5 w-1.5 shrink-0 rounded-full bg-warning"
+            aria-hidden="true"
+          ></span>
           <p class="min-w-0 truncate">
-            <strong class="font-semibold text-base-content">Your own endpoint.</strong>
+            <strong class="font-semibold text-base-content"
+              >Your own endpoint.</strong
+            >
             Credentials and prompts go from this machine to
             <code class="font-semibold">{{
               authState.selectedCustomHost()
@@ -132,23 +146,34 @@
           class="mb-2 flex min-w-0 items-center gap-1.5 text-[11px] text-base-content-muted"
           data-testid="builtin-provider-security-copy"
         >
-          <span class="h-1.5 w-1.5 shrink-0 rounded-full bg-success" aria-hidden="true"></span>
+          <span
+            class="h-1.5 w-1.5 shrink-0 rounded-full bg-success"
+            aria-hidden="true"
+          ></span>
           <p class="min-w-0 truncate">
-            <strong class="font-semibold text-base-content">Runs 100% locally.</strong>
+            <strong class="font-semibold text-base-content"
+              >Runs 100% locally.</strong
+            >
             Your credentials go directly from this machine to the AI provider —
             no proxies, no Ptah servers involved.
           </p>
         </div>
       }
-      <ptah-providers-settings [focusTarget]="providersTarget()" [requestedProviderId]="requestedProviderId() ?? ''"
-        (requestedProviderConsumed)="consumeRequestedProvider($event)" />
+      <ptah-providers-settings
+        [focusTarget]="providersTarget()"
+        [requestedProviderId]="requestedProviderId() ?? ''"
+        (requestedProviderConsumed)="consumeRequestedProvider($event)"
+      />
     }
 
     <!-- ============================================ -->
     <!-- Tab 2: Agent Orchestration                  -->
     <!-- ============================================ -->
     @if (activeSettingsTab() === 'orchestration') {
-      <ptah-orchestration-settings [focusTarget]="orchestrationTarget()" (focusTargetConsumed)="orchestrationTarget.set(null)" />
+      <ptah-orchestration-settings
+        [focusTarget]="orchestrationTarget()"
+        (focusTargetConsumed)="orchestrationTarget.set(null)"
+      />
     }
 
     <!-- ============================================ -->

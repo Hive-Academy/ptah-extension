@@ -99,6 +99,6 @@ Tavily
 3. All other marks
 ------------------
 
-The other 49 vendored marks are published by theSVG under a
+The other 47 vendored marks are published by theSVG under a
 public-domain dedication (CC0-1.0) or a permissive licence satisfied by the
 theSVG licence text in section 1.

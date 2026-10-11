@@ -50,7 +50,6 @@ function curatorRoute(
 
 describe('MemoryDiagnosticsAccordionComponent', () => {
   const triggers = signal<MemoryTriggersDto | null>({
-    preCompact: true,
     idleMs: 600000,
     turnThreshold: 20,
     bootScan: true,
@@ -77,6 +76,8 @@ describe('MemoryDiagnosticsAccordionComponent', () => {
   const loading = signal<boolean>(false);
   const error = signal<string | null>(null);
   const hasActiveSession = signal<boolean>(true);
+  const memoryPaused = signal<boolean>(false);
+  const pausedNotice = signal<string | null>(null);
 
   let runNowMock: jest.Mock;
   let setTriggersMock: jest.Mock;
@@ -87,7 +88,6 @@ describe('MemoryDiagnosticsAccordionComponent', () => {
 
   beforeEach(async () => {
     triggers.set({
-      preCompact: true,
       idleMs: 600000,
       turnThreshold: 20,
       bootScan: true,
@@ -109,6 +109,8 @@ describe('MemoryDiagnosticsAccordionComponent', () => {
     loading.set(false);
     error.set(null);
     hasActiveSession.set(true);
+    memoryPaused.set(false);
+    pausedNotice.set(null);
 
     runNowMock = jest.fn(() => Promise.resolve());
     setTriggersMock = jest.fn(() => Promise.resolve());
@@ -147,6 +149,8 @@ describe('MemoryDiagnosticsAccordionComponent', () => {
             loading,
             error,
             hasActiveSession,
+            memoryPaused,
+            pausedNotice,
             runNow: runNowMock,
             setTriggers: setTriggersMock,
             refresh: refreshMock,
@@ -325,11 +329,11 @@ describe('MemoryDiagnosticsAccordionComponent', () => {
       'input[type="checkbox"]',
     );
     expect(toggles.length).toBeGreaterThan(0);
-    const preCompact = toggles[0] as HTMLInputElement;
-    preCompact.checked = false;
-    preCompact.dispatchEvent(new Event('change'));
+    const idle = toggles[0] as HTMLInputElement;
+    idle.checked = false;
+    idle.dispatchEvent(new Event('change'));
 
-    expect(setTriggersMock).toHaveBeenCalledWith({ preCompact: false });
+    expect(setTriggersMock).toHaveBeenCalledWith({ idleMs: 0 });
   });
 
   it('shows ✗ MISMATCH when DB health is incoherent', () => {
@@ -462,9 +466,52 @@ describe('MemoryDiagnosticsAccordionComponent', () => {
     expect(hint).toBeNull();
   });
 
+  it('greys out Run curator now with the paused reason while Memory is paused', () => {
+    memoryPaused.set(true);
+    const fixture = TestBed.createComponent(
+      MemoryDiagnosticsAccordionComponent,
+    );
+    fixture.detectChanges();
+
+    const root = fixture.nativeElement as HTMLElement;
+    const btn = root.querySelector(
+      '[data-testid="run-curator-now"]',
+    ) as HTMLButtonElement;
+    expect(btn.disabled).toBe(true);
+    expect(btn.getAttribute('title')).toBe('Paused — resume Memory to run');
+    expect(
+      root.querySelector('[data-testid="run-curator-paused-hint"]')
+        ?.textContent,
+    ).toContain('Paused — resume Memory to run');
+    // The paused reason replaces the no-session hint rather than stacking.
+    expect(root.querySelector('[data-testid="no-active-session-hint"]')).toBe(
+      null,
+    );
+
+    btn.click();
+    expect(runNowMock).not.toHaveBeenCalled();
+
+    memoryPaused.set(false);
+    fixture.detectChanges();
+    expect(btn.disabled).toBe(false);
+  });
+
+  it('shows a PAUSED refusal as a paused notice, not as an error alert', () => {
+    pausedNotice.set('Memory is paused, so the curator did not run.');
+    const fixture = TestBed.createComponent(
+      MemoryDiagnosticsAccordionComponent,
+    );
+    fixture.detectChanges();
+
+    const root = fixture.nativeElement as HTMLElement;
+    const notice = root.querySelector('[data-testid="memory-paused-notice"]');
+    expect(notice?.getAttribute('role')).toBe('status');
+    expect(notice?.textContent).toContain('Memory is paused');
+    expect(root.querySelector('.alert-error')).toBeNull();
+  });
+
   it('toggling PostToolUse persists nested DTO via setTriggers', () => {
     triggers.set({
-      preCompact: true,
       idleMs: 600_000,
       turnThreshold: 20,
       bootScan: true,
@@ -494,7 +541,6 @@ describe('MemoryDiagnosticsAccordionComponent', () => {
 
   it('toggling UserPromptSubmit persists nested DTO with cue list preserved', () => {
     triggers.set({
-      preCompact: true,
       idleMs: 600_000,
       turnThreshold: 20,
       bootScan: true,
@@ -532,7 +578,6 @@ describe('MemoryDiagnosticsAccordionComponent', () => {
 
   it('changing Max curates per hour value persists via setTriggers', () => {
     triggers.set({
-      preCompact: true,
       idleMs: 600_000,
       turnThreshold: 20,
       bootScan: true,
@@ -594,7 +639,6 @@ describe('MemoryDiagnosticsAccordionComponent', () => {
 
   it('renders read-only cue list textarea joined by newlines', () => {
     triggers.set({
-      preCompact: true,
       idleMs: 600_000,
       turnThreshold: 20,
       bootScan: true,

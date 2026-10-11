@@ -74,12 +74,6 @@ export class BackgroundAgentStore {
     Map<BackgroundAgentId, BackgroundAgentEntry>
   >(new Map());
 
-  /**
-   * One-time-per-id warn dedup for the SDK-omits-agentId fallback path.
-   * Bounded by MAX_COMPLETED_AGENTS + running set, so no leak risk.
-   */
-  private readonly warnedFallbackIds = new Set<string>();
-
   private readonly _revision = signal(0);
 
   /**
@@ -177,7 +171,9 @@ export class BackgroundAgentStore {
 
   /**
    * Resolve the storage key for an event. Prefers the SDK-issued `agentId`;
-   * falls back to `toolCallId` if absent (and warns once per offending id).
+   * falls back to `toolCallId` if absent. The fallback is an expected path,
+   * not an error: a SendMessage-resumed subagent is announced before any
+   * agentId is known, and the backend encodes that as an empty string.
    *
    * The cast bypasses `BackgroundAgentId.from()` validation: the brand is a
    * UUID-v4 smart constructor, but actual SDK agent ids are short hex strings
@@ -188,18 +184,9 @@ export class BackgroundAgentStore {
     agentId: string | undefined,
     toolCallId: string,
   ): BackgroundAgentId {
-    if (agentId && agentId.length > 0) {
-      return agentId as BackgroundAgentId;
-    }
-    if (!this.warnedFallbackIds.has(toolCallId)) {
-      this.warnedFallbackIds.add(toolCallId);
-      console.warn(
-        '[BackgroundAgentStore] background_agent event missing agentId; ' +
-          'falling back to toolCallId as storage key:',
-        toolCallId,
-      );
-    }
-    return toolCallId as BackgroundAgentId;
+    return (
+      agentId && agentId.length > 0 ? agentId : toolCallId
+    ) as BackgroundAgentId;
   }
 
   /**

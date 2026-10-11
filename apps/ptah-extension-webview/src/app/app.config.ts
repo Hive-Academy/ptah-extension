@@ -230,9 +230,11 @@ export const appConfig: ApplicationConfig = {
     // Electron startup TTI, because ElectronShellComponent forces grid mode in
     // its constructor — the canvas IS the launch surface there, so there is no
     // path on which deferring it helps. Do not convert this to a loader, and
-    // do not turn it into a route: the canvas is kept mounted behind
-    // `[class.hidden]` so `CanvasStore` survives navigation (batch 3 replaces
-    // that with a `RouteReuseStrategy`).
+    // do not turn it into a route: the canvas lives in the shell row that
+    // `AppShellComponent` retains with `*ptahRetainWhile` — detached on a
+    // standalone surface, never destroyed — so its single `CanvasStore`
+    // survives navigation. No `RouteReuseStrategy` exists; routed surfaces are
+    // not retained.
     { provide: ORCHESTRA_CANVAS_COMPONENT, useValue: OrchestraCanvasComponent },
     { provide: MESSAGE_HANDLERS, useExisting: TasksStore, multi: true },
     {

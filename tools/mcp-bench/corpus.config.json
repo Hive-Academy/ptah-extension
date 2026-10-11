@@ -1,0 +1,23 @@
+{
+  "repository": "../..",
+  "commit": "7910f34cf",
+  "eligibleExtensions": [".ts", ".tsx", ".js", ".jsx"],
+  "polyglot": [
+    {
+      "id": "python-attrs",
+      "language": "python",
+      "repository": "https://github.com/python-attrs/attrs",
+      "tag": "25.4.0",
+      "commit": "9a98e00a7c078360add417c5d62db820d4645ab1",
+      "license": "MIT"
+    },
+    {
+      "id": "go-logrus",
+      "language": "go",
+      "repository": "https://github.com/sirupsen/logrus",
+      "tag": "v1.9.4",
+      "commit": "b61f268f75b6ff134a62cd62aee1095fa12e8d2e",
+      "license": "MIT"
+    }
+  ]
+}

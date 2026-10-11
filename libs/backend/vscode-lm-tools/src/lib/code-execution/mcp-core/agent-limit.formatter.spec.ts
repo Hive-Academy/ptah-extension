@@ -18,6 +18,7 @@ import {
   formatSpawnLimitBlock,
   spawnRequestTarget,
   targetRowKey,
+  unknownCause,
   type AgentLimit,
 } from './agent-limit.formatter';
 
@@ -267,7 +268,9 @@ describe('agent limit formatter (TASK_2026_596 Batch 14)', () => {
       cliRow('codex'),
       snapshot({ status: 'stale', windows: [FIVE_HOUR_ROOM] }),
     );
-    expect(formatLimitColumn(aged, NOW)).toBe('unknown (aged value)');
+    expect(formatLimitColumn(aged, NOW)).toBe(
+      'unknown (reader failed, aged value)',
+    );
     const partial = lane(
       cliRow('copilot'),
       snapshot({ windowSetEstablished: false, windows: [FIVE_HOUR_ROOM] }),
@@ -458,7 +461,7 @@ describe('agent limit formatter (TASK_2026_596 Batch 14)', () => {
       NOW,
     );
     expect(block).toContain(
-      '**Limit state:** unknown (cooldown active until 2026-10-03 12:01 UTC)',
+      '**Limit state:** AT LIMIT (cooldown, retry after 2026-10-03 12:01 UTC)',
     );
     expect(block).toContain(
       '**Cooldown:** retrying after 2026-10-03 12:01 UTC (in 1m). This is a retry delay, not a plan reset.',
@@ -701,5 +704,98 @@ describe('formatPlanLimitRows: one implementation for the list and $limits (TASK
 
   it('keeps list order across a mixed roster', () => {
     expect(expectListEquivalent(ROSTER)).toHaveLength(8);
+  });
+});
+
+describe('unknown causes and the gate-aware spawn block (cli-lane-limits)', () => {
+  function withSnapshot(overrides: Partial<PlanLimitOwnerSnapshot>): AgentLimit {
+    return lane(cliRow('codex'), snapshot({ windows: [], ...overrides }));
+  }
+
+  it.each([
+    [{ status: 'no-usage-source' as const }, 'no usage source'],
+    [
+      {
+        status: 'service-unavailable' as const,
+        unavailableReason: 'no-open-session' as const,
+      },
+      'no open session',
+    ],
+    [{ status: 'service-unavailable' as const }, 'reader failed'],
+    [{ status: 'stale' as const }, 'reader failed, aged value'],
+    [{ status: 'provider-unsupported' as const }, 'no reader for provider'],
+    [{ status: 'unsupported-config' as const }, 'credential missing'],
+    [{ status: 'unsupported-auth' as const }, 'API key, no plan'],
+    [{ status: 'cli-unavailable' as const }, 'cli unavailable'],
+  ])('names the cause of %o', (overrides, cause) => {
+    const limit = withSnapshot(overrides);
+    expect(limit.state.state).toBe('unknown');
+    expect(unknownCause(limit)).toBe(cause);
+    expect(formatLimitColumn(limit, NOW)).toBe(`unknown (${cause})`);
+  });
+
+  it('says limits are not tracked for a lane with no owner', () => {
+    const untracked: AgentLimit = {
+      ...lane(cliRow('cursor'), undefined),
+      lookup: 'no-owner',
+    };
+    expect(formatLimitColumn(untracked, NOW)).toBe(
+      'unknown (limits not tracked)',
+    );
+    expect(formatAlternatives([untracked], { now: NOW })).toContain(
+      '- cursor: limits not tracked, no limit recorded',
+    );
+  });
+
+  it('adds the unknown note to a spawn on an unknown lane', () => {
+    const untracked: AgentLimit = {
+      ...lane(cliRow('cursor'), undefined),
+      lookup: 'no-owner',
+    };
+    expect(
+      formatSpawnLimitBlock([untracked], { cli: 'cursor' }, false, NOW),
+    ).toContain(
+      '> Note: limit state unknown (limits not tracked); spawned without a limit check.',
+    );
+    expect(
+      formatSpawnLimitBlock([timedOutLane], timedOutLane.row, true, NOW),
+    ).toContain(
+      '> Note: limit state unknown (limit lookup timed out); attempted without a limit check.',
+    );
+  });
+
+  it('never adds the unknown note to a lane with confirmed room', () => {
+    expect(
+      formatSpawnLimitBlock([roomLane], { cli: 'codex' }, false, NOW),
+    ).not.toContain('> Note: limit state unknown');
+  });
+
+  it('says a forced spawn passed the gate', () => {
+    const block = formatSpawnLimitBlock(
+      [atLimitLane],
+      { cli: 'copilot' },
+      false,
+      NOW,
+      { forced: true },
+    );
+    expect(block).toContain('The spawn was forced past the limit gate.');
+    expect(block).not.toContain('The spawn was still started.');
+  });
+
+  it('warns on a forced spawn past a cooldown', () => {
+    const cooling = lane(
+      cliRow('codex'),
+      snapshot({
+        windows: [FIVE_HOUR_ROOM],
+        cooldown: { until: NOW + MIN, observedAt: NOW - MIN },
+      }),
+    );
+    expect(
+      formatSpawnLimitBlock([cooling], { cli: 'codex' }, false, NOW, {
+        forced: true,
+      }),
+    ).toContain(
+      '> WARNING: codex is in a cooldown, a retry delay. The spawn was forced past the limit gate.',
+    );
   });
 });

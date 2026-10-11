@@ -8,9 +8,10 @@
  * (`credentialRef`), and `PlanUsageService` resolves that just before its one
  * reader call. Providers outside the plan-limit scope have no plan here.
  */
-import type {
-  PlanLimitLedgerService,
-  PlanOwnerTarget,
+import {
+  snapshotWindowsForStatus,
+  type PlanLimitLedgerService,
+  type PlanOwnerTarget,
 } from '@ptah-extension/auth-providers';
 import type {
   PlanLimitOwnerSnapshot,
@@ -50,13 +51,6 @@ const KEYLESS_READ_PROVIDERS: ReadonlySet<string> = new Set([
   'opencode-go',
   'opencode-zen',
   'grok',
-]);
-
-/** Statuses after which no window of the owner applies. */
-const INELIGIBLE_STATUSES: ReadonlySet<ProviderAccountUsageStatus> = new Set([
-  'unsupported-auth',
-  'unsupported-config',
-  'provider-unsupported',
 ]);
 
 /**
@@ -107,26 +101,27 @@ export function planOwnerRead(
         },
       };
     case 'grok':
-      return context.cliSessionId
-        ? {
-            kind: 'read',
-            target: {
-              providerId: 'grok',
-              ownerRef: owner,
-              cliSessionId: context.cliSessionId,
-            },
-          }
-        : { kind: 'known', status: 'service-unavailable' };
+      return {
+        kind: 'read',
+        target: {
+          providerId: 'grok',
+          ownerRef: owner,
+          ...(context.cliSessionId && { cliSessionId: context.cliSessionId }),
+        },
+      };
     default:
       return KEYLESS_READ_PROVIDERS.has(owner.providerId)
-        ? { kind: 'read', target: { providerId: owner.providerId, ownerRef: owner } }
+        ? {
+            kind: 'read',
+            target: { providerId: owner.providerId, ownerRef: owner },
+          }
         : null;
   }
 }
 
 /**
  * An owner's snapshot with no provider read: the given status plus the
- * ledger's evidence. An ineligible status carries no windows, as in
+ * ledger's evidence. Its windows follow `snapshotWindowsForStatus`, as in
  * `PlanUsageService`; the window set is never established without a read.
  */
 export function snapshotWithoutRead(
@@ -139,9 +134,7 @@ export function snapshotWithoutRead(
     owner,
     status: known.status,
     windowSetEstablished: false,
-    windows: INELIGIBLE_STATUSES.has(known.status)
-      ? []
-      : (evidence?.windows ?? []),
+    windows: snapshotWindowsForStatus(known.status, evidence?.windows ?? []),
     ownerEvidence: evidence?.ownerEvidence ?? [],
     ...(evidence?.cooldown && { cooldown: evidence.cooldown }),
     ...(known.unavailableReason && {

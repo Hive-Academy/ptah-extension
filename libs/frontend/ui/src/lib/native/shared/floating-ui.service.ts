@@ -134,17 +134,17 @@ export class FloatingUIService {
       ...(enableFlip ? [flip()] : []),
       ...(enableShift ? [shift({ padding: shiftPadding })] : []),
     ];
-    const { x, y } = await computePosition(referenceEl, floatingEl, {
-      placement,
-      middleware,
-    });
+    // `fixed` matches the `position: fixed` that applyPosition writes: with the default `absolute`, `x`/`y` carry
+    // the page scroll, and a scrolled page put the CLI matrix Cursor panel hundreds of px off. Set it first:
+    // floating-ui resolves a fixed element's offset parent from its containing block (a modal box's transform),
+    // any other element's from its offsetParent.
+    floatingEl.style.position = 'fixed';
+    const config = { placement, middleware, strategy: 'fixed' as const };
+    const { x, y } = await computePosition(referenceEl, floatingEl, config);
     if (this.isDestroyed) return;
     this.applyPosition(floatingEl, x, y);
     this.cleanupFn = autoUpdate(referenceEl, floatingEl, async () => {
-      const result = await computePosition(referenceEl, floatingEl, {
-        placement,
-        middleware,
-      });
+      const result = await computePosition(referenceEl, floatingEl, config);
       if (this.isDestroyed) return;
       this.applyPosition(floatingEl, result.x, result.y);
     });

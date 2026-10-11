@@ -183,8 +183,6 @@ export function buildCodeNamespace(
   } = deps;
   const now = deps.now ?? Date.now;
 
-  /** Roots with a background reindex running; an entry clears when its run settles. */
-  const inFlight = new Set<string>();
   /** When the last background run for a root started (epoch ms). */
   const lastRunStartedAt = new Map<string, number>();
 
@@ -229,6 +227,15 @@ export function buildCodeNamespace(
     }
   }
 
+  /**
+   * A full census is already owned for `root` when the indexer has one
+   * (this namespace or any other caller, same path identity).
+   */
+  function runIsActive(root: string): boolean {
+    const indexer = getSymbolIndexer();
+    return indexer !== undefined && indexer.isIndexing(root);
+  }
+
   function ageOf(freshness: CodeIndexFreshness | undefined): number | null {
     if (freshness === undefined || freshness.newestUpdatedAt === null) {
       return null;
@@ -244,8 +251,9 @@ export function buildCodeNamespace(
   }
 
   /**
-   * Starts `indexWorkspace` without awaiting it. The latch is set before this
-   * returns, so a concurrent caller sees it; it clears when the run settles.
+   * Starts `indexWorkspace` without awaiting it. The indexer records the
+   * census synchronously, before its first `await`, so {@link runIsActive}
+   * is true before this returns and clears when that census settles.
    * A lazy run is `userInitiated: false` and so waits on the background-work
    * governor before each batch; it is never awaited from inside a tool call,
    * which would make the generating turn wait for itself (TASK_2026_437).
@@ -260,22 +268,19 @@ export function buildCodeNamespace(
     root: string,
     userInitiated: boolean,
   ): void {
-    inFlight.add(root);
     lastRunStartedAt.set(root, now());
     void new Promise<unknown>((resolve) =>
       resolve(indexer.indexWorkspace(root, { userInitiated })),
-    )
-      .finally(() => inFlight.delete(root))
-      .catch((error: unknown) => {
-        // degradation-audit: reported — a background reindex failure is logged
-        // at warn and never reaches the tool call that started it. Fixed text:
-        // indexer errors can carry file paths, so only the error name is kept.
-        if (isAbortError(error)) return;
-        logger.warn('[ptah.code] background code-symbol reindex failed', {
-          errorName: error instanceof Error ? error.name : typeof error,
-          userInitiated,
-        });
+    ).catch((error: unknown) => {
+      // degradation-audit: reported — a background reindex failure is logged
+      // at warn and never reaches the tool call that started it. Fixed text:
+      // indexer errors can carry file paths, so only the error name is kept.
+      if (isAbortError(error)) return;
+      logger.warn('[ptah.code] background code-symbol reindex failed', {
+        errorName: error instanceof Error ? error.name : typeof error,
+        userInitiated,
       });
+    });
   }
 
   /**
@@ -310,7 +315,7 @@ export function buildCodeNamespace(
       freshness !== undefined &&
       indexer !== undefined &&
       hostRoot !== undefined &&
-      !inFlight.has(hostRoot) &&
+      !runIsActive(hostRoot) &&
       isStale(freshness) &&
       !startedWithinThreshold(hostRoot)
     ) {
@@ -321,7 +326,7 @@ export function buildCodeNamespace(
       symbolCount: freshness?.symbolCount ?? null,
       indexAgeMs: ageOf(freshness),
       reindexStarted,
-      reindexInFlight: inFlight.has(searchRoot),
+      reindexInFlight: runIsActive(searchRoot),
     };
   }
 
@@ -349,7 +354,7 @@ export function buildCodeNamespace(
         symbolCount: null,
         indexAgeMs: null,
         reindexStarted: false,
-        reindexInFlight: searchRoot !== undefined && inFlight.has(searchRoot),
+        reindexInFlight: searchRoot !== undefined && runIsActive(searchRoot),
       };
     }
   }
@@ -497,7 +502,7 @@ export function buildCodeNamespace(
         // starts in the background and this returns at once. It is
         // user-initiated: the agent asked for it, and a governed run would wait
         // for the very turn that requested it to end (TASK_2026_437).
-        const started = !inFlight.has(workspaceRoot);
+        const started = !runIsActive(workspaceRoot);
         if (started) {
           startBackgroundRun(indexer, workspaceRoot, true);
         }
@@ -506,7 +511,7 @@ export function buildCodeNamespace(
           started,
           symbolCount: freshness?.symbolCount ?? null,
           indexAgeMs: ageOf(freshness),
-          reindexInFlight: inFlight.has(workspaceRoot),
+          reindexInFlight: runIsActive(workspaceRoot),
         };
       } catch (err) {
         return { error: err instanceof Error ? err.message : String(err) };

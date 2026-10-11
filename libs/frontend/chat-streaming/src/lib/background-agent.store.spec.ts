@@ -123,11 +123,8 @@ describe('BackgroundAgentStore', () => {
       // hasRealAgentId is false on the fallback path — the id addresses no
       // real subagent transcript, so transcript reads must be gated off it.
       expect(store.agents()[0].hasRealAgentId).toBe(false);
-      // Warn fires exactly once for the missing-agentId fallback.
-      expect(warn).toHaveBeenCalledTimes(1);
-      expect(warn.mock.calls[0][0]).toContain(
-        'background_agent event missing agentId',
-      );
+      // The fallback is an expected path, so it must not spam the console.
+      expect(warn).not.toHaveBeenCalled();
       warn.mockRestore();
     });
 
@@ -355,21 +352,15 @@ describe('BackgroundAgentStore', () => {
     });
   });
 
-  describe('agentId fallback warning', () => {
-    it('warns exactly once per offending toolCallId when SDK omits agentId', () => {
+  describe('agentId fallback', () => {
+    it('does not warn when the SDK omits agentId (expected for resumed subagents)', () => {
       const warn = jest.spyOn(console, 'warn').mockImplementation();
 
-      // First fallback for tc-fb1 — warns.
       store.onStarted(startEvent({ agentId: '', toolCallId: 'tc-fb1' }));
-      // Second event (stopped) for the same tc-fb1 — no extra warn.
       store.onStopped(stoppedEvent({ agentId: '', toolCallId: 'tc-fb1' }));
-      // Different toolCallId — warns again (one per id).
       store.onStarted(startEvent({ agentId: '', toolCallId: 'tc-fb2' }));
 
-      expect(warn).toHaveBeenCalledTimes(2);
-      const messages = warn.mock.calls.map((c) => c.join(' '));
-      expect(messages.some((m) => m.includes('tc-fb1'))).toBe(true);
-      expect(messages.some((m) => m.includes('tc-fb2'))).toBe(true);
+      expect(warn).not.toHaveBeenCalled();
       warn.mockRestore();
     });
 

@@ -11,6 +11,12 @@ import { CuratorLlmQueryError } from './curator-llm-query.error';
 import { EXTRACT_SYSTEM_PROMPT } from './extract-prompt';
 import { RESOLVE_SYSTEM_PROMPT } from './resolve-prompt';
 import type { IProviderAuthResolver } from '../auth/provider-auth-resolver.port';
+import type { ModelDispatchRoute } from './model-dispatch-provenance';
+import {
+  MEMORY_CURATOR_QUERY_LANE,
+  USER_ACTION_QUERY_LANE,
+} from '../internal-query/internal-query-concurrency-gate';
+
 import type { OneShotAuthOverride } from '../helpers/sdk-query-runner.service';
 import type { InternalQueryService } from '../internal-query';
 import type { AuthEnv } from '@ptah-extension/shared';
@@ -147,6 +153,7 @@ interface ExecuteCapture {
   maxTurns?: number;
   lane?: string;
   systemPromptAppend?: string;
+  dispatch?: ModelDispatchRoute;
 }
 
 function makeInternalQuery(opts: {
@@ -166,6 +173,7 @@ function makeInternalQuery(opts: {
         lane?: string;
         auth?: OneShotAuthOverride;
         systemPromptAppend?: string;
+        dispatch?: ExecuteCapture['dispatch'];
       }) => {
         if (opts.capture) {
           opts.capture.systemPromptAppend = config.systemPromptAppend;
@@ -175,6 +183,7 @@ function makeInternalQuery(opts: {
           opts.capture.maxTurns = config.maxTurns;
           opts.capture.auth = config.auth;
           opts.capture.authWasPresent = 'auth' in config;
+          opts.capture.dispatch = config.dispatch;
         }
         if (opts.throwOnExecute) throw opts.throwOnExecute;
         if (opts.messages) {
@@ -302,7 +311,7 @@ describe('SdkInternalQueryCuratorLlm — resolveCuratorModel', () => {
 });
 
 describe('SdkInternalQueryCuratorLlm — query cwd', () => {
-  it('roots the internal query at the active workspace, not process.cwd()', async () => {
+  it("roots the internal query at the curated session's workspace, not the active one", async () => {
     const capture: ExecuteCapture = {};
     const internalQuery = makeInternalQuery({
       text: '{"memories":[]}',
@@ -311,11 +320,28 @@ describe('SdkInternalQueryCuratorLlm — query cwd', () => {
     const adapter = new SdkInternalQueryCuratorLlm(
       makeLogger(),
       internalQuery,
-      makeWorkspace('', '/home/abdo/project'),
+      makeWorkspace('', '/home/abdo/active-project'),
     );
-    await adapter.extract(EXTRACT_TRANSCRIPT);
+    await adapter.extract(EXTRACT_TRANSCRIPT, undefined, {
+      workspaceRoot: '/home/abdo/project',
+    });
     expect(capture.cwd).toBe('/home/abdo/project');
     expect(capture.cwd).not.toBe(process.cwd());
+  });
+
+  it('a session without a workspace runs in the home dir, never the active workspace', async () => {
+    const capture: ExecuteCapture = {};
+    const internalQuery = makeInternalQuery({
+      text: '{"memories":[]}',
+      capture,
+    });
+    const adapter = new SdkInternalQueryCuratorLlm(
+      makeLogger(),
+      internalQuery,
+      makeWorkspace('', '/home/abdo/active-project'),
+    );
+    await adapter.extract(EXTRACT_TRANSCRIPT);
+    expect(capture.cwd).toBe(os.homedir());
   });
 
   it('falls back to the user home dir when no workspace folder is open', async () => {
@@ -1237,5 +1263,231 @@ describe('SdkInternalQueryCuratorLlm — an unreachable provider stalls the pass
     });
     const result = await adapter.extract(EXTRACT_TRANSCRIPT);
     expect(result.status).toBe('extracted');
+  });
+});
+
+describe('SdkInternalQueryCuratorLlm — inherits the curated workspace provider', () => {
+  const SNAPSHOT_AUTH = {
+    env: { ANTHROPIC_AUTH_TOKEN: 'ws-a-key' },
+  } as unknown as OneShotAuthOverride;
+
+  function build(snapshot: {
+    providerId: string;
+    model: string;
+    auth?: OneShotAuthOverride;
+    cooldownMs?: number;
+  }) {
+    const capture: ExecuteCapture = {};
+    const internalQuery = makeInternalQuery({
+      text: '{"memories":[]}',
+      capture,
+    });
+    const resolveForPath = jest.fn(async () => snapshot);
+    const adapter = new SdkInternalQueryCuratorLlm(
+      makeLogger(),
+      internalQuery,
+      makeWorkspace('', '/ws/active'),
+      null,
+      null,
+      { resolveForPath },
+    );
+    return { adapter, capture, resolveForPath, internalQuery };
+  }
+
+  it('with no curator provider pinned, uses the snapshot of the session workspace', async () => {
+    const { adapter, capture, resolveForPath } = build({
+      providerId: 'moonshot',
+      model: 'kimi-k2.5',
+      auth: SNAPSHOT_AUTH,
+    });
+
+    await adapter.extract(EXTRACT_TRANSCRIPT, undefined, {
+      workspaceRoot: '/ws/a',
+    });
+
+    expect(resolveForPath).toHaveBeenCalledWith('/ws/a');
+    expect(capture.auth).toBe(SNAPSHOT_AUTH);
+    // The curator keeps its own cheap tier, resolved against that provider.
+    expect(capture.model).toBe(CURATOR_DEFAULT_MODEL_TIER);
+    expect(capture.dispatch).toEqual({
+      providerSource: 'override',
+      overrideProviderId: 'moonshot',
+      component: 'memory-curator',
+      laneId: MEMORY_CURATOR_QUERY_LANE,
+    });
+  });
+
+  it('a rootless session resolves the app/global snapshot', async () => {
+    const { adapter, resolveForPath } = build({
+      providerId: 'openrouter',
+      model: 'x',
+      auth: SNAPSHOT_AUTH,
+    });
+
+    await adapter.extract(EXTRACT_TRANSCRIPT);
+
+    expect(resolveForPath).toHaveBeenCalledWith(undefined);
+  });
+
+  it('stalls without a query when the workspace provider is cooling down', async () => {
+    const { adapter, internalQuery } = build({
+      providerId: 'moonshot',
+      model: 'kimi-k2.5',
+      auth: SNAPSHOT_AUTH,
+      cooldownMs: 10_000,
+    });
+
+    const result = await adapter.extract(EXTRACT_TRANSCRIPT, undefined, {
+      workspaceRoot: '/ws/a',
+    });
+
+    expect(result.status).toBe('stalled');
+    expect(internalQuery.execute).not.toHaveBeenCalled();
+  });
+});
+
+describe('SdkInternalQueryCuratorLlm — dispatch provenance tap', () => {
+  const snap: OneShotAuthOverride = { env: { ANTHROPIC_AUTH_TOKEN: 'snap' } };
+
+  function adapterWith(opts: {
+    provider?: string;
+    model?: string;
+    resolver?: IProviderAuthResolver | null;
+    logger?: Logger;
+    capture?: ExecuteCapture;
+  }) {
+    const capture = opts.capture ?? {};
+    const internalQuery = makeInternalQuery({
+      text: '{"memories":[]}',
+      capture,
+    });
+    const workspace = makeWorkspaceFromConfig({
+      'memory.curatorProvider': opts.provider ?? '',
+      'memory.curatorModel': opts.model ?? 'gpt-5.6-terra',
+    });
+    const adapter = new SdkInternalQueryCuratorLlm(
+      opts.logger ?? makeLogger(),
+      internalQuery,
+      workspace,
+      opts.resolver ?? null,
+      null,
+    );
+    return { adapter, capture, internalQuery };
+  }
+
+  it('hands ride-active metadata and does not read active auth', async () => {
+    const resolveActiveAuth = jest.fn();
+    const { adapter, capture } = adapterWith({
+      provider: 'openai-codex',
+      model: 'haiku',
+    });
+
+    await expect(adapter.extract(EXTRACT_TRANSCRIPT)).resolves.toEqual({
+      status: 'extracted',
+      drafts: [],
+    });
+    expect(resolveActiveAuth).not.toHaveBeenCalled();
+    expect(capture.model).toBe('haiku');
+    expect(capture.auth).toBeUndefined();
+    expect(capture.dispatch).toEqual({
+      providerSource: 'ride-active',
+      component: 'memory-curator',
+      laneId: MEMORY_CURATOR_QUERY_LANE,
+    });
+  });
+
+  it('hands the configured override id and keeps the alias', async () => {
+    const resolveActiveAuth = jest.fn();
+    const { adapter, capture } = adapterWith({
+      provider: 'openai-codex',
+      model: 'haiku',
+      resolver: makeResolver(async () => snap),
+    });
+
+    await adapter.extract(EXTRACT_TRANSCRIPT);
+
+    expect(resolveActiveAuth).not.toHaveBeenCalled();
+    expect(capture.auth).toBe(snap);
+    expect(capture.model).toBe('haiku');
+    expect(capture.dispatch).toEqual({
+      providerSource: 'override',
+      overrideProviderId: 'openai-codex',
+      component: 'memory-curator',
+      laneId: MEMORY_CURATOR_QUERY_LANE,
+    });
+  });
+
+  it('stays ride-active when auth fails', async () => {
+    const { adapter, capture } = adapterWith({
+      provider: 'openai-codex',
+      resolver: makeResolver(async () => {
+        throw new FakeProviderAuthError('openai-codex', 'login expired');
+      }),
+    });
+
+    await adapter.extract(EXTRACT_TRANSCRIPT);
+
+    expect(capture.auth).toBeUndefined();
+    expect(capture.model).toBe('gpt-5.6-terra');
+    expect(capture.dispatch).toEqual({
+      providerSource: 'ride-active',
+      component: 'memory-curator',
+      laneId: MEMORY_CURATOR_QUERY_LANE,
+    });
+  });
+
+  it('stays ride-active when the resolver returns null', async () => {
+    const { adapter, capture } = adapterWith({
+      provider: 'openai-codex',
+      resolver: makeResolver(async () => null),
+    });
+
+    await adapter.extract(EXTRACT_TRANSCRIPT, undefined, {
+      userInitiated: true,
+    });
+
+    expect(capture.dispatch).toEqual({
+      providerSource: 'ride-active',
+      component: 'memory-curator',
+      laneId: USER_ACTION_QUERY_LANE,
+    });
+  });
+
+  it('does not dispatch when the provider is cooling down', async () => {
+    const resolveActiveAuth = jest.fn();
+    const capture: ExecuteCapture = {};
+    const { adapter } = adapterWith({
+      provider: 'openai-codex',
+      resolver: makeResolver(async () => {
+        throw new FakeProviderQuotaError('openai-codex', 60_000, 'slow down');
+      }),
+      capture,
+    });
+
+    await expect(adapter.extract(EXTRACT_TRANSCRIPT)).resolves.toEqual({
+      status: 'stalled',
+      reason: 'provider-cooling-down',
+      providerId: 'openai-codex',
+    });
+    expect(resolveActiveAuth).not.toHaveBeenCalled();
+    expect(capture.model).toBeUndefined();
+    expect(capture.dispatch).toBeUndefined();
+  });
+
+  it('does not warn about the active provider on ride-active', async () => {
+    const logger = makeLogger();
+    const { adapter } = adapterWith({
+      provider: 'openai-codex',
+      logger,
+    });
+
+    await expect(adapter.extract(EXTRACT_TRANSCRIPT)).resolves.toEqual({
+      status: 'extracted',
+      drafts: [],
+    });
+    expect(logger.warn).not.toHaveBeenCalledWith(
+      '[memory-curator] active provider unreadable',
+      expect.anything(),
+    );
   });
 });

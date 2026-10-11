@@ -13,6 +13,7 @@ import {
 } from './wait-tools-args.schema';
 import { buildAgentWaitTool } from './agent-wait.tool';
 import { buildRunCheckTool } from './run-check.tool';
+import { buildRunCheckWaitTool } from './run-check-wait.tool';
 import {
   buildMcpAgentSpawnTool,
   buildMcpAgentWaitTool,
@@ -101,22 +102,19 @@ describe('agent spawn surface parity', () => {
     expect(advertised).toEqual(accepted);
   });
 
-  it('gives the stdio tool the HTTP definition under its own name', () => {
+  it('gives spawn each transport its own name and wait guidance', () => {
     const http = buildAgentSpawnTool();
     const stdio = buildMcpAgentSpawnTool();
 
     expect(http.name).toBe('ptah_agent_spawn');
     expect(stdio.name).toBe('agent_spawn');
-    // The HTTP `tools/list` stamps the result ceiling onto the builder's
-    // definition (`declareResultBudgets`); the stdio builder declares the
-    // same ceiling itself, so the two served definitions are equal.
-    expect({ ...stdio, name: http.name }).toEqual({
-      ...http,
-      _meta: {
-        ...http._meta,
-        'anthropic/maxResultSizeChars': getToolResultBudget(http.name).chars,
-      },
+    expect(stdio.inputSchema).toEqual(http.inputSchema);
+    expect(stdio._meta).toEqual({
+      ...http._meta,
+      'anthropic/maxResultSizeChars': getToolResultBudget(http.name).chars,
     });
+    expect(http.description).toContain('HTTP calls wait at most 45 s');
+    expect(stdio.description).not.toContain('HTTP');
   });
 
   it('requires only task on both surfaces', () => {
@@ -309,13 +307,30 @@ describe('blocking wait surface parity', () => {
 
       expect(http.name).toBe(httpName);
       expect(stdio.name).toBe(stdioName);
-      expect({ ...stdio, name: http.name }).toEqual({
-        ...http,
-        _meta: {
-          ...http._meta,
-          'anthropic/maxResultSizeChars': getToolResultBudget(http.name).chars,
-        },
+      if (httpName === 'ptah_agent_wait') {
+        expect(stdio.inputSchema).toMatchObject({
+          type: http.inputSchema.type,
+          required: http.inputSchema.required,
+        });
+        expect(stdio.inputSchema.properties['timeoutSec']).toMatchObject({
+          maximum: 900,
+        });
+      } else {
+        expect(stdio.inputSchema).toEqual(http.inputSchema);
+      }
+      expect(stdio._meta).toEqual({
+        ...http._meta,
+        'anthropic/maxResultSizeChars': getToolResultBudget(http.name).chars,
       });
+      if (httpName === 'ptah_agent_wait') {
+        expect(http.description).toContain('HTTP calls wait at most 45 s');
+        expect(stdio.description).not.toContain('HTTP');
+      } else if (httpName === 'ptah_run_check') {
+        expect(http.description).toContain('HTTP calls block at most 45 s');
+        expect(stdio.description).not.toContain('HTTP');
+      } else {
+        expect(stdio.description).toBe(http.description);
+      }
     },
   );
 
@@ -345,7 +360,11 @@ describe('blocking wait surface parity', () => {
     const stdioNames = buildMcpMvpTools().map((t) => t.name);
 
     expect(httpNames).toEqual(
-      expect.arrayContaining(['ptah_agent_wait', 'ptah_run_check']),
+      expect.arrayContaining([
+        'ptah_agent_wait',
+        'ptah_run_check',
+        'ptah_run_check_wait',
+      ]),
     );
     expect(stdioNames).toEqual(
       expect.arrayContaining(['agent_wait', 'run_check']),
@@ -370,6 +389,14 @@ describe('blocking wait surface parity', () => {
 
     expect(names).not.toContain('ptah_agent_wait');
     expect(names).not.toContain('ptah_run_check');
+    expect(names).not.toContain('ptah_run_check_wait');
+  });
+
+  it('keeps run_check_wait HTTP-only', () => {
+    expect(buildRunCheckWaitTool().name).toBe('ptah_run_check_wait');
+    expect(buildMcpMvpTools().map((tool) => tool.name)).not.toContain(
+      'run_check_wait',
+    );
   });
 
   it('waits through the same PtahAPI call and returns the same reply on both surfaces', async () => {
@@ -407,6 +434,92 @@ describe('blocking wait surface parity', () => {
         { agentId: 'ghost', state: 'not_found' },
       ],
     });
+  });
+
+  it('caps only HTTP waits below its request timeout and reports the partial result', async () => {
+    const runningResult = {
+      mode: 'all' as const,
+      timedOut: true,
+      cancelled: false,
+      waitedMs: 45_000,
+      entries: [
+        {
+          agentId: 'a-1',
+          state: 'running' as const,
+          info: {
+            agentId: 'a-1',
+            cli: 'codex' as const,
+            task: 't',
+            workingDirectory: '/ws',
+            status: 'running' as const,
+            startedAt: '2026-10-03T00:00:00.000Z',
+          },
+        },
+      ],
+    };
+    const httpApi = waitApi();
+    httpApi.agent.waitForAgents.mockResolvedValue(runningResult);
+    const http = await callOverHttp(
+      'ptah_agent_wait',
+      { agentIds: ['a-1'], timeoutSec: 600 },
+      httpApi,
+    );
+
+    expect(httpApi.agent.waitForAgents).toHaveBeenCalledWith(
+      ['a-1'],
+      'all',
+      45_000,
+      undefined,
+    );
+    expect(textOf(http)).toContain(
+      'WAIT CAPPED at 45 s on the HTTP transport (requested 600 s): 0 of 1 known lane(s) ended, 1 still running. Partial result; call ptah_agent_wait again to keep waiting.',
+    );
+    expect(textOf(http).length).toBeLessThanOrEqual(4_000);
+
+    const shortHttpApi = waitApi();
+    await callOverHttp(
+      'ptah_agent_wait',
+      { agentIds: ['a-1'], timeoutSec: 20 },
+      shortHttpApi,
+    );
+    expect(shortHttpApi.agent.waitForAgents).toHaveBeenCalledWith(
+      ['a-1'],
+      'all',
+      20_000,
+      undefined,
+    );
+
+    const stdioApi = waitApi();
+    const stdio = await callOverStdio(
+      'agent_wait',
+      { agentIds: ['a-1'], timeoutSec: 600 },
+      stdioApi,
+    );
+    expect(stdioApi.agent.waitForAgents).toHaveBeenCalledWith(
+      ['a-1'],
+      'all',
+      600_000,
+      undefined,
+    );
+    expect(textOf(stdio)).not.toContain('WAIT CAPPED');
+    expect(textOf(stdio)).not.toContain('HTTP');
+  });
+
+  it('does not cap an HTTP zero-second wait', async () => {
+    const api = waitApi();
+    const reply = await callOverHttp(
+      'ptah_agent_wait',
+      { agentIds: ['a-1'], timeoutSec: 0 },
+      api,
+    );
+
+    expect(api.agent.waitForAgents).toHaveBeenCalledWith(
+      ['a-1'],
+      'all',
+      0,
+      undefined,
+    );
+    expect(textOf(reply)).not.toContain('WAIT CAPPED');
   });
 
   it.each([
@@ -459,13 +572,7 @@ describe('blocking wait surface parity', () => {
       const args = { project: 'app', targets: ['lint'] };
       // HTTP: the caller declares its root in the MCP URL (S4-a review S1);
       // stdio: the launching process's working directory.
-      const http = await callOverHttp(
-        'ptah_run_check',
-        args,
-        {},
-        [root],
-        root,
-      );
+      const http = await callOverHttp('ptah_run_check', args, {}, [root], root);
       const stdio = await callOverStdio('run_check', args, {}, root);
 
       expect(isError(http)).toBe(true);

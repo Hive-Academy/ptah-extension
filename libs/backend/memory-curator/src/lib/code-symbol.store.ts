@@ -123,6 +123,25 @@ const EXACT_NAME_RRF_WEIGHT = 3;
 /** A query SQLite `NOCASE` can compare case-insensitively on its own. */
 const ASCII_ONLY = /^\p{ASCII}*$/u;
 
+/** Files deleted per transaction in {@link CodeSymbolStore.purgeMissing}. */
+const PURGE_MISSING_BATCH = 200;
+
+/**
+ * Marker row in `indexing_state`, the database's existing per-key meta
+ * table (migration 0012). Real workspace fingerprints are 16 hex characters
+ * (`deriveWorkspaceFingerprint`); this key is not, and every reader of the
+ * table looks up a fingerprint it already has, so the row is not a workspace.
+ * Presence means a symbol replace, purge, delete, or insert committed while
+ * sqlite-vec was unloaded. The next time vec is available, every
+ * `code_symbols_vec` row is deleted and this row is removed. Embeddings are
+ * absent until the next index run. Lexical search does not read them.
+ */
+const VEC_STALE_FINGERPRINT = 'code-symbols-vec-stale';
+
+function normalizeStoredPath(filePath: string): string {
+  return filePath.replaceAll('\\', '/');
+}
+
 /** Row columns selected by the exact-name lookups. */
 const EXACT_NAME_COLUMNS = `cs.rowid AS rowid, cs.id AS id, cs.workspace_root AS workspace_root,
              cs.file_path AS file_path, cs.kind AS kind, cs.symbol_name AS symbol_name,
@@ -131,6 +150,12 @@ const EXACT_NAME_COLUMNS = `cs.rowid AS rowid, cs.id AS id, cs.workspace_root AS
 @injectable()
 export class CodeSymbolStore implements ICodeSymbolReader {
   private embedderWarnedOnce = false;
+  /**
+   * Set after orphan `code_symbols_vec` rows have been removed for the
+   * current stretch of vec availability. Cleared when vec is unavailable
+   * so the next time it loads, leftovers from that outage are removed.
+   */
+  private vecOrphansReconciled = false;
 
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
@@ -141,19 +166,354 @@ export class CodeSymbolStore implements ICodeSymbolReader {
     private readonly vecStatus: VecStatusService,
   ) {}
 
-  deleteByFile(workspaceRoot: string, filePath: string): number {
-    const result = this.connection.db
+  /**
+   * `code_symbols.id` is `TEXT PRIMARY KEY` (migration 0013), not
+   * `INTEGER PRIMARY KEY AUTOINCREMENT`. The implicit rowid can be reused
+   * after a delete. sqlite-vec's `vec0` table cannot be written while the
+   * extension is unloaded, so a delete or replace during an outage leaves
+   * the old `code_symbols_vec` row in place. Once vec returns, that rowid
+   * may already belong to a different symbol, so deleting only orphans
+   * keeps the stale embedding.
+   *
+   * A committed symbol write during the outage inserts
+   * {@link VEC_STALE_FINGERPRINT} in the same transaction. The first call
+   * after vec is available again, including a search, deletes every vec
+   * row and clears the marker. A missing vector is not a semantic
+   * candidate. Lexical search still runs. While vec stayed available, only
+   * true orphans are removed, and each vec insert still deletes that rowid
+   * first (`vec0` is not written with `INSERT OR REPLACE`).
+   *
+   * The marker lives in SQLite, so an outage that lasts the whole process
+   * is still repaired in the next process. Returns whether vec reads and
+   * writes may run.
+   */
+  private reconcileOrphanVecRows(): boolean {
+    if (!this.vecStatus.available) {
+      this.vecOrphansReconciled = false;
+      return false;
+    }
+    if (this.vecOrphansReconciled) return true;
+
+    const db = this.connection.db;
+    try {
+      const stale = db
+        .prepare(
+          `SELECT 1 AS present FROM indexing_state WHERE workspace_fingerprint = ?`,
+        )
+        .get(VEC_STALE_FINGERPRINT) as { present: number } | undefined;
+      if (stale) {
+        this.dropAllVecRows(db);
+      } else {
+        this.dropOrphanVecRows(db);
+      }
+    } catch (err: unknown) {
+      this.connection.handleFatalWriteError(err);
+      throw err;
+    }
+    this.vecOrphansReconciled = true;
+    return true;
+  }
+
+  /** Record that symbol rows changed while vec rows could not. */
+  private markVecStale(): void {
+    this.connection.db
       .prepare(
-        `DELETE FROM code_symbols WHERE workspace_root = ? AND file_path = ?`,
+        `INSERT OR IGNORE INTO indexing_state (workspace_fingerprint) VALUES (?)`,
       )
-      .run(workspaceRoot, filePath);
-    return result.changes;
+      .run(VEC_STALE_FINGERPRINT);
+  }
+
+  /**
+   * Delete every vec row, then the stale marker. The marker is cleared
+   * only after the deletes, inside the same transaction: a failure leaves
+   * the marker so the next call tries again. vec0 is deleted by rowid.
+   */
+  private dropAllVecRows(db: SqliteConnectionService['db']): void {
+    const rowids = db
+      .prepare(`SELECT rowid AS rowid FROM code_symbols_vec_rowids`)
+      .all() as Array<{ rowid: number }>;
+    const deleteVec = db.prepare(
+      `DELETE FROM code_symbols_vec WHERE rowid = ?`,
+    );
+    const clearMarker = db.prepare(
+      `DELETE FROM indexing_state WHERE workspace_fingerprint = ?`,
+    );
+    const txnFn = ((): void => {
+      for (const row of rowids) deleteVec.run(row.rowid);
+      clearMarker.run(VEC_STALE_FINGERPRINT);
+    }) as unknown as (...args: unknown[]) => unknown;
+    const txn = db.transaction(txnFn) as unknown as () => void;
+    txn();
+    this.logger.debug?.(
+      '[code-symbol-store] dropped code_symbols_vec after a vec outage',
+      { removed: rowids.length },
+    );
+  }
+
+  /**
+   * vec0 accepts `DELETE … WHERE rowid = ?`. A `NOT IN` delete against the
+   * virtual table is not that shape, so the predicate runs on the vec0
+   * rowid shadow and each orphan is deleted by rowid.
+   */
+  private dropOrphanVecRows(db: SqliteConnectionService['db']): void {
+    const orphans = db
+      .prepare(
+        `SELECT rowid AS rowid FROM code_symbols_vec_rowids
+         WHERE rowid NOT IN (SELECT rowid FROM code_symbols)`,
+      )
+      .all() as Array<{ rowid: number }>;
+    if (orphans.length === 0) return;
+    const deleteVec = db.prepare(
+      `DELETE FROM code_symbols_vec WHERE rowid = ?`,
+    );
+    const txnFn = ((rows: ReadonlyArray<{ rowid: number }>): void => {
+      for (const row of rows) deleteVec.run(row.rowid);
+    }) as unknown as (...args: unknown[]) => unknown;
+    const txn = db.transaction(txnFn) as unknown as (
+      rows: ReadonlyArray<{ rowid: number }>,
+    ) => void;
+    txn(orphans);
+    this.logger.debug?.(
+      '[code-symbol-store] removed orphan code_symbols_vec rows',
+      { removed: orphans.length },
+    );
+  }
+
+  deleteByFile(workspaceRoot: string, filePath: string): number {
+    return this.deleteFileRows(workspaceRoot, filePath);
+  }
+
+  /**
+   * Delete every symbol row for `filePath` and insert `rows` in one
+   * transaction. A failed insert leaves the previous rows (and their FTS
+   * and vector rows) in place. FTS follows the `code_symbols` triggers;
+   * vector rows are deleted by rowid before the symbol rows.
+   */
+  async replaceFileSymbols(
+    workspaceRoot: string,
+    filePath: string,
+    rows: readonly CodeSymbolInsert[],
+  ): Promise<void> {
+    const now = Date.now();
+    const vecAvailable = this.reconcileOrphanVecRows();
+    const embeddings: Float32Array[] =
+      vecAvailable && rows.length > 0
+        ? await this.embedderEmbed(rows.map((entry) => entry.text))
+        : [];
+
+    const db = this.connection.db;
+    const selectRowidsStmt = vecAvailable
+      ? db.prepare(
+          `SELECT rowid AS rowid FROM code_symbols WHERE workspace_root = ? AND file_path = ?`,
+        )
+      : null;
+    const deleteVecStmt = vecAvailable
+      ? db.prepare(`DELETE FROM code_symbols_vec WHERE rowid = ?`)
+      : null;
+    const deleteSymbolsStmt = db.prepare(
+      `DELETE FROM code_symbols WHERE workspace_root = ? AND file_path = ?`,
+    );
+    const upsertStmt = db.prepare(
+      `INSERT INTO code_symbols (id, workspace_root, file_path, kind, symbol_name, subject, text, token_count, created_at, updated_at)
+       VALUES (@id, @workspace_root, @file_path, @kind, @symbol_name, @subject, @text, @token_count, @created_at, @updated_at)
+       ON CONFLICT(workspace_root, subject) DO UPDATE SET
+         file_path = excluded.file_path,
+         kind = excluded.kind,
+         symbol_name = excluded.symbol_name,
+         text = excluded.text,
+         token_count = excluded.token_count,
+         updated_at = excluded.updated_at`,
+    );
+    const fetchRowidStmt = db.prepare(
+      `SELECT rowid AS rowid FROM code_symbols WHERE workspace_root = ? AND subject = ?`,
+    );
+    const insertVecStmt = vecAvailable
+      ? db.prepare(
+          `INSERT INTO code_symbols_vec(rowid, embedding) VALUES (CAST(? AS INTEGER), ?)`,
+        )
+      : null;
+
+    type Payload = { readonly entries: readonly CodeSymbolInsert[] };
+    const txnFn = ((payload: Payload): void => {
+      if (selectRowidsStmt && deleteVecStmt) {
+        const oldRows = selectRowidsStmt.all(workspaceRoot, filePath) as Array<{
+          rowid: number;
+        }>;
+        for (const old of oldRows) {
+          deleteVecStmt.run(old.rowid);
+        }
+      }
+      const removed = deleteSymbolsStmt.run(workspaceRoot, filePath);
+      if (
+        !vecAvailable &&
+        (removed.changes > 0 || payload.entries.length > 0)
+      ) {
+        this.markVecStale();
+      }
+      for (let i = 0; i < payload.entries.length; i++) {
+        const e = payload.entries[i];
+        upsertStmt.run({
+          id: ulid(),
+          workspace_root: e.workspaceRoot,
+          file_path: e.filePath,
+          kind: e.kind,
+          symbol_name: e.symbolName,
+          subject: e.subject,
+          text: e.text,
+          token_count: e.tokenCount,
+          created_at: now,
+          updated_at: now,
+        });
+        if (insertVecStmt && deleteVecStmt) {
+          const vec = embeddings[i];
+          if (vec && vec.length === this.embedder.dim) {
+            const row = fetchRowidStmt.get(e.workspaceRoot, e.subject) as
+              { rowid: number } | undefined;
+            if (row) {
+              // Drop a stale embedding if this rowid was reused while vec
+              // was down (implicit rowid, no AUTOINCREMENT).
+              deleteVecStmt.run(row.rowid);
+              insertVecStmt.run(
+                row.rowid,
+                Buffer.from(vec.buffer, vec.byteOffset, vec.byteLength),
+              );
+            }
+          }
+        }
+      }
+    }) as unknown as (...args: unknown[]) => unknown;
+    const txn = db.transaction(txnFn) as unknown as (p: Payload) => void;
+    try {
+      txn({ entries: rows });
+    } catch (err: unknown) {
+      this.connection.handleFatalWriteError(err);
+      throw err;
+    }
+  }
+
+  /**
+   * Delete symbol rows (and their FTS/vector rows) whose `file_path` is not
+   * in `presentPaths`. Scoped to `workspaceRoot`; other roots are untouched.
+   * Deletes run in batches of {@link PURGE_MISSING_BATCH} files. Each
+   * batch is its own transaction: a failure rolls that batch back (no
+   * file in it loses its symbol row while keeping a vec row) and leaves
+   * earlier batches committed. Those paths are already absent, and the
+   * next purge deletes whatever remains. One transaction for the whole
+   * set would hold the write lock for every missing file.
+   */
+  purgeMissing(workspaceRoot: string, presentPaths: readonly string[]): number {
+    const vecAvailable = this.reconcileOrphanVecRows();
+    const present = new Set(
+      presentPaths.map((filePath) => normalizeStoredPath(filePath)),
+    );
+    const db = this.connection.db;
+    const listed = db
+      .prepare(
+        `SELECT DISTINCT file_path AS file_path FROM code_symbols WHERE workspace_root = ?`,
+      )
+      .all(workspaceRoot) as Array<{ file_path: string }>;
+    const missing: string[] = [];
+    for (const row of listed) {
+      if (!present.has(normalizeStoredPath(row.file_path))) {
+        missing.push(row.file_path);
+      }
+    }
+    if (missing.length === 0) return 0;
+
+    const selectRowidsStmt = vecAvailable
+      ? db.prepare(
+          `SELECT rowid AS rowid FROM code_symbols WHERE workspace_root = ? AND file_path = ?`,
+        )
+      : null;
+    const deleteVecStmt = vecAvailable
+      ? db.prepare(`DELETE FROM code_symbols_vec WHERE rowid = ?`)
+      : null;
+    const deleteSymbolsStmt = db.prepare(
+      `DELETE FROM code_symbols WHERE workspace_root = ? AND file_path = ?`,
+    );
+
+    type Payload = { readonly paths: readonly string[] };
+    const txnFn = ((payload: Payload): number => {
+      if (!vecAvailable && payload.paths.length > 0) this.markVecStale();
+      let changes = 0;
+      for (const filePath of payload.paths) {
+        if (selectRowidsStmt && deleteVecStmt) {
+          const ids = selectRowidsStmt.all(workspaceRoot, filePath) as Array<{
+            rowid: number;
+          }>;
+          for (const id of ids) {
+            deleteVecStmt.run(id.rowid);
+          }
+        }
+        changes += deleteSymbolsStmt.run(workspaceRoot, filePath).changes;
+      }
+      return changes;
+    }) as unknown as (...args: unknown[]) => unknown;
+    const txn = db.transaction(txnFn) as unknown as (p: Payload) => number;
+
+    let totalDeleted = 0;
+    try {
+      for (let i = 0; i < missing.length; i += PURGE_MISSING_BATCH) {
+        totalDeleted += txn({
+          paths: missing.slice(i, i + PURGE_MISSING_BATCH),
+        });
+      }
+    } catch (err: unknown) {
+      this.connection.handleFatalWriteError(err);
+      throw err;
+    }
+    return totalDeleted;
+  }
+
+  /** Delete one file's symbol rows and their vector rows, FTS via triggers. */
+  private deleteFileRows(workspaceRoot: string, filePath: string): number {
+    const db = this.connection.db;
+    const vecAvailable = this.reconcileOrphanVecRows();
+    const selectRowidsStmt = vecAvailable
+      ? db.prepare(
+          `SELECT rowid AS rowid FROM code_symbols WHERE workspace_root = ? AND file_path = ?`,
+        )
+      : null;
+    const deleteVecStmt = vecAvailable
+      ? db.prepare(`DELETE FROM code_symbols_vec WHERE rowid = ?`)
+      : null;
+    const deleteSymbolsStmt = db.prepare(
+      `DELETE FROM code_symbols WHERE workspace_root = ? AND file_path = ?`,
+    );
+    type Payload = {
+      readonly workspaceRoot: string;
+      readonly filePath: string;
+    };
+    const txnFn = ((payload: Payload): number => {
+      if (selectRowidsStmt && deleteVecStmt) {
+        const ids = selectRowidsStmt.all(
+          payload.workspaceRoot,
+          payload.filePath,
+        ) as Array<{ rowid: number }>;
+        for (const id of ids) {
+          deleteVecStmt.run(id.rowid);
+        }
+      }
+      const removed = deleteSymbolsStmt.run(
+        payload.workspaceRoot,
+        payload.filePath,
+      );
+      if (!vecAvailable && removed.changes > 0) this.markVecStale();
+      return removed.changes;
+    }) as unknown as (...args: unknown[]) => unknown;
+    const txn = db.transaction(txnFn) as unknown as (p: Payload) => number;
+    try {
+      return txn({ workspaceRoot, filePath });
+    } catch (err: unknown) {
+      this.connection.handleFatalWriteError(err);
+      throw err;
+    }
   }
 
   async insertBatch(entries: readonly CodeSymbolInsert[]): Promise<void> {
     if (entries.length === 0) return;
     const now = Date.now();
-    const vecAvailable = this.vecStatus.available;
+    const vecAvailable = this.reconcileOrphanVecRows();
     const embeddings: Float32Array[] = vecAvailable
       ? await this.embedderEmbed(entries.map((e) => e.text))
       : [];
@@ -184,6 +544,7 @@ export class CodeSymbolStore implements ICodeSymbolReader {
 
     type Payload = { readonly entries: readonly CodeSymbolInsert[] };
     const txnFn = ((payload: Payload): void => {
+      if (!vecAvailable) this.markVecStale();
       for (let i = 0; i < payload.entries.length; i++) {
         const e = payload.entries[i];
         upsertStmt.run({
@@ -346,7 +707,7 @@ export class CodeSymbolStore implements ICodeSymbolReader {
     const exactRows = this.exactNameSymbols(trimmed, limit, workspaceRoot);
     const bm25Rows = this.bm25SearchSymbols(trimmed, limit * 4, workspaceRoot);
     let vecRows: CodeSymbolHitRow[] = [];
-    let bm25Only = !this.vecStatus.available;
+    let bm25Only = !this.reconcileOrphanVecRows();
     if (!bm25Only) {
       try {
         vecRows = await this.vecSearchSymbols(
@@ -612,28 +973,90 @@ export class CodeSymbolStore implements ICodeSymbolReader {
       '/target/',
       '/tmp/',
     ];
-    let totalDeleted = 0;
+    const db = this.connection.db;
+    const vecAvailable = this.reconcileOrphanVecRows();
     const clause = workspaceClause(workspaceRoot);
-    const sql = `DELETE FROM code_symbols WHERE file_path LIKE ? ESCAPE '\\'${
+    const where = `file_path LIKE ? ESCAPE '\\'${
       clause.sql ? ` AND ${clause.sql}` : ''
     }`;
-    const stmt = this.connection.db.prepare(sql);
-    for (const segment of junkSegments) {
+    const selectRowidsStmt = vecAvailable
+      ? db.prepare(`SELECT rowid AS rowid FROM code_symbols WHERE ${where}`)
+      : null;
+    const deleteVecStmt = vecAvailable
+      ? db.prepare(`DELETE FROM code_symbols_vec WHERE rowid = ?`)
+      : null;
+    const deleteSymbolsStmt = db.prepare(
+      `DELETE FROM code_symbols WHERE ${where}`,
+    );
+    const patterns = junkSegments.map((segment) => {
       const escaped = segment
         .replace(/\\/g, '\\\\')
         .replace(/%/g, '\\%')
         .replace(/_/g, '\\_');
-      const result = stmt.run(`%${escaped}%`, ...clause.values);
-      totalDeleted += result.changes;
+      return `%${escaped}%`;
+    });
+    type Payload = { readonly patterns: readonly string[] };
+    const txnFn = ((payload: Payload): number => {
+      let totalDeleted = 0;
+      for (const pattern of payload.patterns) {
+        if (selectRowidsStmt && deleteVecStmt) {
+          const ids = selectRowidsStmt.all(pattern, ...clause.values) as Array<{
+            rowid: number;
+          }>;
+          for (const id of ids) {
+            deleteVecStmt.run(id.rowid);
+          }
+        }
+        const removed = deleteSymbolsStmt.run(pattern, ...clause.values);
+        totalDeleted += removed.changes;
+      }
+      if (!vecAvailable && totalDeleted > 0) this.markVecStale();
+      return totalDeleted;
+    }) as unknown as (...args: unknown[]) => unknown;
+    const txn = db.transaction(txnFn) as unknown as (p: Payload) => number;
+    try {
+      return txn({ patterns });
+    } catch (err: unknown) {
+      this.connection.handleFatalWriteError(err);
+      throw err;
     }
-    return totalDeleted;
   }
 
   purgeWorkspace(workspaceRoot: string): number {
-    const result = this.connection.db
-      .prepare(`DELETE FROM code_symbols WHERE workspace_root = ?`)
-      .run(workspaceRoot);
-    return result.changes;
+    const db = this.connection.db;
+    const vecAvailable = this.reconcileOrphanVecRows();
+    const selectRowidsStmt = vecAvailable
+      ? db.prepare(
+          `SELECT rowid AS rowid FROM code_symbols WHERE workspace_root = ?`,
+        )
+      : null;
+    const deleteVecStmt = vecAvailable
+      ? db.prepare(`DELETE FROM code_symbols_vec WHERE rowid = ?`)
+      : null;
+    const deleteSymbolsStmt = db.prepare(
+      `DELETE FROM code_symbols WHERE workspace_root = ?`,
+    );
+    type Payload = { readonly workspaceRoot: string };
+    const txnFn = ((payload: Payload): number => {
+      if (selectRowidsStmt && deleteVecStmt) {
+        const ids = selectRowidsStmt.all(payload.workspaceRoot) as Array<{
+          rowid: number;
+        }>;
+        for (const id of ids) {
+          deleteVecStmt.run(id.rowid);
+        }
+      }
+      const removed = deleteSymbolsStmt.run(payload.workspaceRoot);
+      if (!vecAvailable && removed.changes > 0) this.markVecStale();
+      return removed.changes;
+    }) as unknown as (...args: unknown[]) => unknown;
+    const txn = db.transaction(txnFn) as unknown as (p: Payload) => number;
+    try {
+      return txn({ workspaceRoot });
+    } catch (err: unknown) {
+      this.connection.handleFatalWriteError(err);
+      throw err;
+    }
   }
 
   private async embedderEmbed(

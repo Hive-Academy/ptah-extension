@@ -1,7 +1,9 @@
 ---
-status: in_review
+status: done
 type: bugfix
-title: SdkMessageTransformer singleton shares per-stream state across concurrent chat sessions
+title: >-
+  SdkMessageTransformer singleton shares per-stream state across concurrent chat
+  sessions
 description: >-
   `SdkMessageTransformer` is registered `Lifecycle.Singleton` and keeps its
   streaming bookkeeping in instance maps keyed by `parent_tool_use_id || ''`
@@ -11,6 +13,7 @@ description: >-
   six `content_block_start but no active message for context: root` warnings,
   each a dropped content block. A compact boundary in one session also calls
   `clearStreamingState()`, which wipes every other session's state.
+updated: '2026-10-10T18:19:13.510Z'
 ---
 
 # Shared transformer state across sessions

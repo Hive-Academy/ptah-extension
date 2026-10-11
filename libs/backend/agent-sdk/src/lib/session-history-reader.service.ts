@@ -76,10 +76,18 @@ import type {
 } from './helpers/history/history.types';
 
 const MAX_COMPACTION_RETRIES = 5;
+export const COMPACT_BOUNDARY_WAIT_TIMEOUT_MS = 120_000;
+export const COMPACT_BOUNDARY_POLL_INTERVAL_MS = 500;
 const MISSING_SESSION_LOG = '[SessionHistoryReader] Session file not found';
 
 function yieldToEventLoop(): Promise<void> {
   return new Promise((resolve) => setImmediate(resolve));
+}
+
+function waitForCompactBoundaryPoll(): Promise<void> {
+  return new Promise((resolve) =>
+    setTimeout(resolve, COMPACT_BOUNDARY_POLL_INTERVAL_MS),
+  );
 }
 
 /**
@@ -105,6 +113,12 @@ export interface TranscriptWindowOptions {
   readonly tailBytes?: number;
   /** Aborts the read between parse batches. */
   readonly signal?: AbortSignal;
+}
+
+/** Durable transcript position captured before the coordinator issues `/compact`. */
+export interface CompactBoundaryCheckpoint {
+  readonly count: number;
+  readonly latestId?: string;
 }
 
 type SessionEventData = {
@@ -149,6 +163,50 @@ export class SessionHistoryReaderService {
     private readonly statsOwner: SessionStatsOwnerService,
   ) {
     this.readTiming = new SessionHistoryReadTiming(logger);
+  }
+
+  /** Capture the last durable compact boundary before a coordinator-owned compact. */
+  async captureCompactBoundary(
+    sessionId: string,
+    workspacePath: string,
+  ): Promise<CompactBoundaryCheckpoint> {
+    const snapshot = await this.readCompactBoundarySnapshot(
+      sessionId,
+      workspacePath,
+    );
+    return { count: snapshot.messages.length, latestId: snapshot.latest?.uuid };
+  }
+
+  /**
+   * Wait for a compact boundary newer than `checkpoint`, while its owned turn
+   * remains queued or in flight. A compact can take tens of seconds, so this is
+   * bounded by wall-clock time rather than event-loop turns.
+   * The returned line is the durable source used by the handoff builder; no
+   * streamed callback is treated as sufficient evidence.
+   */
+  async waitForNewCompactBoundary(
+    sessionId: string,
+    workspacePath: string,
+    checkpoint: CompactBoundaryCheckpoint,
+    isCompactPendingOrRunning: () => boolean = () => true,
+  ): Promise<SessionHistoryMessage | null> {
+    const deadline = Date.now() + COMPACT_BOUNDARY_WAIT_TIMEOUT_MS;
+    while (Date.now() <= deadline) {
+      const snapshot = await this.readCompactBoundarySnapshot(
+        sessionId,
+        workspacePath,
+      );
+      if (
+        snapshot.latest &&
+        snapshot.messages.length > checkpoint.count &&
+        snapshot.latest.uuid !== checkpoint.latestId
+      ) {
+        return snapshot.latest;
+      }
+      if (!isCompactPendingOrRunning()) return null;
+      await waitForCompactBoundaryPoll();
+    }
+    return null;
   }
 
   /**
@@ -522,6 +580,41 @@ export class SessionHistoryReaderService {
     return mainMessages.filter(
       (m) => m.type === 'system' && m.subtype === 'compact_boundary',
     ).length;
+  }
+
+  private async readCompactBoundarySnapshot(
+    sessionId: string,
+    workspacePath: string,
+  ): Promise<{
+    messages: readonly SessionHistoryMessage[];
+    latest: SessionHistoryMessage | undefined;
+  }> {
+    if (!this.isValidSessionId(sessionId)) {
+      return { messages: [], latest: undefined };
+    }
+    try {
+      const sessionsDir = await this.jsonlReader.findSessionsDirectory(
+        workspacePath,
+      );
+      if (!sessionsDir) return { messages: [], latest: undefined };
+      const messages = await this.jsonlReader.readJsonlMessages(
+        path.join(sessionsDir, `${sessionId}.jsonl`),
+      );
+      const boundaries = messages.filter(
+        (message) =>
+          message.type === 'system' && message.subtype === 'compact_boundary',
+      );
+      return {
+        messages: boundaries,
+        latest: boundaries.at(-1),
+      };
+    } catch (error: unknown) {
+      this.logger.warn(
+        '[SessionHistoryReader] Compact boundary was not readable',
+        error instanceof Error ? error : new Error(String(error)),
+      );
+      return { messages: [], latest: undefined };
+    }
   }
 
   private latestCompactBoundaryId(

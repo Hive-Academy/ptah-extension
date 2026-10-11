@@ -23,6 +23,7 @@ import { inject, injectable, type DependencyContainer } from 'tsyringe';
 import { isAbsolute, resolve } from 'node:path';
 import {
   SDK_TOKENS,
+  SessionHandoverCoordinator,
   SessionAdmissionRefusedError,
   type PermissionPromptLifecycleEvent,
   type SdkAdapterEvents,
@@ -36,6 +37,7 @@ import {
   type SessionIdResolvedPayload,
   type SessionLifecycleManager,
   type SessionTurnStateRegistry,
+  type UnattendedSessionPolicy,
   type UnattendedSessionPolicyRegistry,
 } from '@ptah-extension/agent-sdk';
 import {
@@ -53,6 +55,7 @@ import {
 } from '@ptah-extension/platform-core';
 import {
   SessionId,
+  SESSION_HANDOVER_HELD,
   normalizeWorkspaceRoot,
   type AgentSessionOpenedPayload,
   type AIMessageOrigin,
@@ -98,6 +101,7 @@ import type {
   SessionChildSettle,
   SessionChildSnapshot,
   SessionChildStartRequest,
+  SessionStartRequest,
   SessionChildStartResult,
   SessionChildStatus,
   SessionSpawnRefusalCode,
@@ -115,11 +119,16 @@ const TRANSCRIPT_BYTES_PER_OUTPUT_KIB = 4 * 1024;
 /** Per-child state that is not part of the serialisable record. */
 interface ChildRuntime {
   readonly worktree: ChildWorktree;
+  readonly policy: UnattendedSessionPolicy;
   releasePolicy?: () => void;
   /** The exact string given to `retainRoot`; `releaseRoot` must get the same one. */
   mcpRoot?: string;
   runtimeTimer?: ReturnType<typeof setTimeout>;
+  runtimeDeadline?: number;
+  runtimeCapMinutes?: number;
   graceTimer?: ReturnType<typeof setTimeout>;
+  graceDeadline?: number;
+  graceWasWorking?: boolean;
   /** Timestamp of the last settled turn event, for dedupe. */
   lastSettleTimestamp?: number;
   /** Set while the spawner itself ends the child; events are then ignored. */
@@ -150,6 +159,8 @@ interface StartGuardPass {
 export class SessionSpawnerService implements ISessionSpawner {
   private readonly runtimes = new Map<string, ChildRuntime>();
   private readonly disposers: Array<() => void> = [];
+  /** Source SDK and tab ids mapped to a successor until the source really ends. */
+  private readonly pendingLeaseTransfers = new Map<string, string>();
   private disposed = false;
 
   constructor(
@@ -217,6 +228,8 @@ export class SessionSpawnerService implements ISessionSpawner {
      */
     @inject(SDK_TOKENS.SDK_SESSION_BUDGET, { isOptional: true })
     private readonly sessionBudget: Pick<SessionBudgetService, 'release'> | null = null,
+    @inject(SessionHandoverCoordinator, { isOptional: true })
+    private readonly handoverCoordinator: SessionHandoverCoordinator | null = null,
   ) {
     this.disposers.push(
       adapterEvents.onTurnEnded((event) => this.onTurnEnded(event)),
@@ -225,6 +238,33 @@ export class SessionSpawnerService implements ISessionSpawner {
       sessionEnd.register((payload) => this.onSessionEnd(payload)),
       permissions.onPromptLifecycle((event) => this.onPromptLifecycle(event)),
     );
+    if (this.handoverCoordinator) {
+      this.disposers.push(
+        this.handoverCoordinator.setResourceLeaseProvider((sourceSessionId) => {
+          const child = this.registry.get(sourceSessionId);
+          const runtime = child && this.runtimes.get(child.childSessionId);
+          return child && runtime
+            ? {
+                worktreePath: child.worktreePath,
+                ...(runtime.mcpRoot ? { mcpRootPath: runtime.mcpRoot } : {}),
+                inheritedParentIds: [child.parentSessionId],
+              }
+            : undefined;
+        }),
+        this.handoverCoordinator.onStateChange((state) => {
+          if (state.phase === 'closing' && state.successorTabId) {
+            this.recordPendingLeaseTransfer(
+              state.sourceSessionId,
+              state.successorTabId,
+            );
+          } else if (state.phase === 'failed' || state.phase === 'cancelled') {
+            // `closed` is published before the source end event; that event
+            // applies and clears the pending transfer.
+            this.clearPendingLeaseTransfer(state.sourceSessionId);
+          }
+        }),
+      );
+    }
   }
 
   /* ------------------------------------------------------------------------
@@ -232,8 +272,9 @@ export class SessionSpawnerService implements ISessionSpawner {
    * ---------------------------------------------------------------------- */
 
   async start(
-    request: SessionChildStartRequest,
+    request: SessionStartRequest,
   ): Promise<SessionChildStartResult> {
+    if (request.mode === 'successor') return this.startSuccessor(request);
     const guard = this.guardStart(request.callerSessionId);
     if (!guard.ok) return guard;
     // `add` consumes the reservation; releasing it afterwards is a no-op, so
@@ -243,6 +284,30 @@ export class SessionSpawnerService implements ISessionSpawner {
     } finally {
       this.registry.release(guard.reservation);
     }
+  }
+
+  private async startSuccessor(
+    request: Extract<SessionStartRequest, { readonly mode: 'successor' }>,
+  ): Promise<SessionChildStartResult> {
+    const caller = SessionId.safeParse(request.callerSessionId?.trim());
+    if (!caller || !this.adapter?.isSessionActive(caller)) {
+      return this.refuseStart('unattributed-caller', 'ptah_session_start must be called from a live chat session');
+    }
+    if (!this.handoverCoordinator) {
+      return this.refuseStart('chat-runtime-unavailable', 'this host has no handover coordinator');
+    }
+    const activeId = this.sdkIdOf(caller) ?? caller;
+    const turnInFlight = this.turnState.get(activeId)?.phase === 'generating';
+    const result = this.handoverCoordinator.begin(
+      activeId,
+      'successor',
+      turnInFlight,
+      request.handoff,
+    );
+    if (!result.accepted) {
+      return this.refuseStart('chat-runtime-unavailable', 'the successor host is unavailable');
+    }
+    return { ok: true, successor: true };
   }
 
   /** The synchronous guards, in order; the slot is reserved last. */
@@ -371,16 +436,15 @@ export class SessionSpawnerService implements ISessionSpawner {
       task,
     };
 
-    const runtime: ChildRuntime = { worktree, stopping: false };
+    const runtime: ChildRuntime = {
+      worktree,
+      policy: this.policyFor(guard.settings, label, worktree.worktreePath),
+      stopping: false,
+    };
     try {
       this.registry.add(record, guard.reservation);
       this.runtimes.set(childTabId, runtime);
-      runtime.releasePolicy = this.policies.register(childTabId, {
-        bashAllowlist: guard.settings.bashAllowlist,
-        writableRoot: worktree.worktreePath,
-        denyWindowMs: guard.settings.permissionDenyWindowMs,
-        ownerLabel: `child session ${label}`,
-      });
+      runtime.releasePolicy = this.policies.register(childTabId, runtime.policy);
       await this.retainMcpRoot(childTabId, runtime, worktree.worktreePath);
 
       const contract = renderSessionChildContract({
@@ -407,11 +471,7 @@ export class SessionSpawnerService implements ISessionSpawner {
         return await this.failStart(childTabId, runtime, outcome.error);
       }
 
-      runtime.runtimeTimer = this.armTimer(
-        guard.settings.maxRuntimeMinutes * 60_000,
-        () =>
-          this.onRuntimeExceeded(childTabId, guard.settings.maxRuntimeMinutes),
-      );
+      this.armRuntimeCap(runtime, childTabId, guard.settings.maxRuntimeMinutes);
       this.log(
         `started ${childTabId} (${label}) for ${guard.caller} on ${branch} in ` +
           `${worktree.worktreePath}; tab announced: ${outcome.uiAnnounced}`,
@@ -581,6 +641,19 @@ export class SessionSpawnerService implements ISessionSpawner {
               origin,
             });
             return this.sent(child, request.mode, 'started-turn');
+          }
+          const admission = this.handoverCoordinator?.admitOrHold(target, {
+            content: request.message,
+            origin,
+          });
+          if (admission?.held) {
+            this.log(`steer to ${child.childSessionId} held by handover ${admission.operationId}`);
+            return {
+              delivered: true,
+              effect: 'held-until-turn-end',
+              held: true,
+              code: SESSION_HANDOVER_HELD,
+            };
           }
           const interrupted = await this.interruptTurn(adapter, target);
           if (!interrupted.ok) {
@@ -868,6 +941,8 @@ export class SessionSpawnerService implements ISessionSpawner {
     if (runtime?.graceTimer) {
       clearTimeout(runtime.graceTimer);
       runtime.graceTimer = undefined;
+      runtime.graceDeadline = undefined;
+      runtime.graceWasWorking = undefined;
       this.log(`${tabId} re-registered; grace cancelled`);
     }
   }
@@ -909,11 +984,14 @@ export class SessionSpawnerService implements ISessionSpawner {
     if (!child || child.terminalStatus) return;
     const runtime = this.runtimes.get(child.childSessionId);
     if (!runtime || runtime.stopping) return;
+    const successorTabId = this.pendingLeaseTransfers.get(payload.sessionId);
+    if (successorTabId) {
+      this.transferChildLease(child, successorTabId);
+      this.clearPendingLeaseTransfer(payload.sessionId, child);
+      return;
+    }
     const wasWorking = this.phaseOf(child) === 'generating';
-    if (runtime.graceTimer) clearTimeout(runtime.graceTimer);
-    runtime.graceTimer = this.armTimer(SESSION_CHILD_GRACE_MS, () =>
-      this.onGraceExpired(child.childSessionId, wasWorking),
-    );
+    this.armGrace(runtime, child.childSessionId, wasWorking);
     this.log(
       `${child.childSessionId} session ended; ${SESSION_CHILD_GRACE_MS / 1000}s grace armed`,
     );
@@ -921,7 +999,11 @@ export class SessionSpawnerService implements ISessionSpawner {
 
   private onGraceExpired(childSessionId: string, wasWorking: boolean): void {
     const runtime = this.runtimes.get(childSessionId);
-    if (runtime) runtime.graceTimer = undefined;
+    if (runtime) {
+      runtime.graceTimer = undefined;
+      runtime.graceDeadline = undefined;
+      runtime.graceWasWorking = undefined;
+    }
     const child = this.registry.get(childSessionId);
     if (!child || child.terminalStatus) return;
     if (this.activeIdOf(child)) {
@@ -945,11 +1027,75 @@ export class SessionSpawnerService implements ISessionSpawner {
     );
   }
 
+  /** Record a bound successor; ownership moves only when the source really ends. */
+  private recordPendingLeaseTransfer(
+    sourceSessionId: string,
+    successorTabId: string,
+  ): void {
+    const source = this.registry.get(sourceSessionId);
+    if (!source || source.childSessionId === successorTabId) return;
+    this.pendingLeaseTransfers.set(source.childSessionId, successorTabId);
+    if (source.sdkSessionId) {
+      this.pendingLeaseTransfers.set(source.sdkSessionId, successorTabId);
+    }
+  }
+
+  private clearPendingLeaseTransfer(
+    sourceSessionId: string,
+    source = this.registry.get(sourceSessionId),
+  ): void {
+    this.pendingLeaseTransfers.delete(sourceSessionId);
+    if (!source) return;
+    this.pendingLeaseTransfers.delete(source.childSessionId);
+    if (source.sdkSessionId) this.pendingLeaseTransfers.delete(source.sdkSessionId);
+  }
+
+  /** Move ownership from a source which has actually ended to its successor. */
+  private transferChildLease(
+    source: SessionChildRecord,
+    successorTabId: string,
+  ): void {
+    if (!source || source.childSessionId === successorTabId) return;
+    const runtime = this.runtimes.get(source.childSessionId);
+    if (!runtime || !this.registry.rekey(source.childSessionId, successorTabId)) return;
+    const runtimeDeadline = runtime.runtimeDeadline;
+    const graceDeadline = runtime.graceDeadline;
+    const graceWasWorking = runtime.graceWasWorking;
+    this.clearTimers(runtime);
+    runtime.releasePolicy?.();
+    runtime.releasePolicy = this.policies.register(successorTabId, runtime.policy);
+    this.runtimes.delete(source.childSessionId);
+    this.runtimes.set(successorTabId, runtime);
+    // The successor resolved its SDK id before the source ended, while it had
+    // no record here; bind it now so its turn events reach the parent.
+    this.registry.update(successorTabId, {
+      sdkSessionId: this.sdkIdOf(successorTabId),
+    });
+    if (runtimeDeadline !== undefined && runtime.runtimeCapMinutes !== undefined) {
+      this.armRuntimeCap(
+        runtime,
+        successorTabId,
+        runtime.runtimeCapMinutes,
+        Math.max(0, runtimeDeadline - Date.now()),
+      );
+    }
+    if (graceDeadline !== undefined && graceWasWorking !== undefined) {
+      this.armGrace(
+        runtime,
+        successorTabId,
+        graceWasWorking,
+        Math.max(0, graceDeadline - Date.now()),
+      );
+    }
+    this.log(`transferred child lease ${source.childSessionId} to successor ${successorTabId}`);
+  }
+
   private onRuntimeExceeded(childSessionId: string, minutes: number): void {
     const child = this.registry.get(childSessionId);
     const runtime = this.runtimes.get(childSessionId);
     if (!child || child.terminalStatus || !runtime) return;
     runtime.runtimeTimer = undefined;
+    runtime.runtimeDeadline = undefined;
     if (this.phaseOf(child) === 'generating') {
       void this.settle(childSessionId, 'timeout', undefined, Date.now());
     }
@@ -1353,6 +1499,50 @@ export class SessionSpawnerService implements ISessionSpawner {
     if (runtime.graceTimer) clearTimeout(runtime.graceTimer);
     runtime.runtimeTimer = undefined;
     runtime.graceTimer = undefined;
+    runtime.runtimeDeadline = undefined;
+    runtime.graceDeadline = undefined;
+    runtime.graceWasWorking = undefined;
+  }
+
+  private policyFor(
+    settings: SessionChildSettings,
+    label: string,
+    worktreePath: string,
+  ): UnattendedSessionPolicy {
+    return {
+      bashAllowlist: settings.bashAllowlist,
+      writableRoot: worktreePath,
+      denyWindowMs: settings.permissionDenyWindowMs,
+      ownerLabel: `child session ${label}`,
+    };
+  }
+
+  private armRuntimeCap(
+    runtime: ChildRuntime,
+    childSessionId: string,
+    minutes: number,
+    delayMs = minutes * 60_000,
+  ): void {
+    if (runtime.runtimeTimer) clearTimeout(runtime.runtimeTimer);
+    runtime.runtimeCapMinutes = minutes;
+    runtime.runtimeDeadline = Date.now() + delayMs;
+    runtime.runtimeTimer = this.armTimer(delayMs, () =>
+      this.onRuntimeExceeded(childSessionId, minutes),
+    );
+  }
+
+  private armGrace(
+    runtime: ChildRuntime,
+    childSessionId: string,
+    wasWorking: boolean,
+    delayMs = SESSION_CHILD_GRACE_MS,
+  ): void {
+    if (runtime.graceTimer) clearTimeout(runtime.graceTimer);
+    runtime.graceWasWorking = wasWorking;
+    runtime.graceDeadline = Date.now() + delayMs;
+    runtime.graceTimer = this.armTimer(delayMs, () =>
+      this.onGraceExpired(childSessionId, wasWorking),
+    );
   }
 
   /** A timer that never keeps the host process alive on its own. */

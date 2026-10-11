@@ -128,6 +128,8 @@ export interface SessionBudgetState {
   readonly extensions: number;
   readonly window?: SessionBudgetWindow;
   readonly handoff?: SessionBudgetHandoff;
+  /** Active transfer operation. The UI waits for terminal idle before display. */
+  readonly handover?: import('./session-handover.types').SessionHandoverState;
   /** True when sends are refused (`limit` with `blockAtLimit`). */
   readonly blocked: boolean;
   /** The stage whose banner the user dismissed; it reappears on a higher stage. */

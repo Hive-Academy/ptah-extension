@@ -122,7 +122,35 @@ export interface SkillStageWorkers {
   ): Promise<RegisterCandidateResult | null>;
   backfillEmbeddings(): Promise<number>;
   readSettings(): SkillSynthesisSettings;
+  /**
+   * The deferred-start seam (TASK_2026_620 B-P, S7): complete the boot work a
+   * paused boot skipped, lazily, when this tick is the first enabled moment —
+   * an external-edit resume fires no config event, so the drain may be the
+   * only thing that has noticed. Returns whether the analyzer is started
+   * after the call; `false` means still paused, and the `prefilter` stage
+   * must NOT treat that as a verdict on the session.
+   */
+  ensureStarted(): Promise<boolean>;
 }
+
+/**
+ * The reason tokens + backoff for a `prefilter` row the pause machinery
+ * answered instead of the analyzer — TASK_2026_620 B-P, S7 + review finding 3.
+ *
+ * `analyzer-not-started`: the host booted paused and still is, or the deferred
+ * start failed. `analyzer-paused`: the switch flipped off BETWEEN the drain's
+ * per-item gate and `analyzeSession`'s own read, so the analyzer answered
+ * `null` without a verdict on the session.
+ *
+ * Both are `unscored`, never `skipped`: a paused row is not a verdict on the
+ * session, and a terminal `skipped` would drop work the pause had no opinion
+ * about. The backoff keeps the row eligible; fifteen minutes matches the
+ * frequent tier's cadence, so a resumed host retries it on the next tick
+ * rather than waiting a night for it.
+ */
+const PREFILTER_NOT_STARTED_REASON = 'analyzer-not-started';
+const PREFILTER_PAUSED_REASON = 'analyzer-paused';
+const PREFILTER_RETRY_MS = 15 * 60_000;
 
 @injectable()
 export class SkillStageHandlersService {
@@ -268,6 +296,19 @@ export class SkillStageHandlersService {
     workers: SkillStageWorkers,
   ): Promise<SkillStageResult> {
     const { row } = ctx;
+    // Deferred start, lazily (B-P, S7): a host that booted paused has handlers
+    // (registration sits above the early return) but no started analyzer, and
+    // a resumed external edit fires no config event, so this tick may be the
+    // first enabled moment. Not started → `unscored` + a retry, never a
+    // terminal `skipped`: the row survives the pause and re-opens after the
+    // resume instead of being lost as "no candidate from this session".
+    if (!(await workers.ensureStarted())) {
+      return {
+        outcome: 'unscored',
+        reason: PREFILTER_NOT_STARTED_REASON,
+        retryInMs: PREFILTER_RETRY_MS,
+      };
+    }
     const result = await this.withClaimHeartbeat(ctx, (signal) =>
       workers.analyzeSession(row.sessionId, row.workspaceRoot, {
         force: true,
@@ -277,6 +318,19 @@ export class SkillStageHandlersService {
       }),
     );
     if (!result) {
+      // The pause can land BETWEEN the drain's per-item gate and
+      // `analyzeSession`'s own live read (review finding 3): the analyzer then
+      // answers `null` without ever looking at the session. A null read
+      // THROUGH the current switch is the paused case, and it takes the same
+      // retry path as 'analyzer-not-started' — never the terminal `skipped`
+      // below, which would drop the row the pause had no opinion about.
+      if (!workers.readSettings().enabled) {
+        return {
+          outcome: 'unscored',
+          reason: PREFILTER_PAUSED_REASON,
+          retryInMs: PREFILTER_RETRY_MS,
+        };
+      }
       // Ineligible, prefiltered out, or dominated by an authored skill. All
       // three are "we looked and there is nothing to promote", which is a
       // finished row, not a failure and not a retry.

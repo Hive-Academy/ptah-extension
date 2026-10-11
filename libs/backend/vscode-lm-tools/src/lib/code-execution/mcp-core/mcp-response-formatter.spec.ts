@@ -1941,6 +1941,19 @@ describe('mcp-response-formatter › agent namespace', () => {
     expect(out).toMatch(/sess-xyz/);
   });
 
+  it('keeps spawn text byte-identical when limits are absent, even with force', () => {
+    const result = {
+      agentId: 'agent-42',
+      cli: 'codex',
+      status: 'running',
+      startedAt: '2026-04-24T00:00:00Z',
+    } as unknown as SpawnAgentResult;
+
+    expect(formatAgentSpawn(result, { forced: true }, undefined)).toBe(
+      formatAgentSpawn(result),
+    );
+  });
+
   it('formatAgentStatus normalizes single-result input to an array', () => {
     const single = {
       agentId: 'agent-1',

@@ -766,7 +766,11 @@ describe('ptah mcp-serve', () => {
       const h = makeHarness();
       const promise = execute(NO_OPTS, baseGlobals, h.hooks);
       await flushAsync();
-      expect(h.engineOpts[0]).toEqual({ mode: 'full', requireSdk: false });
+      expect(h.engineOpts[0]).toEqual({
+        mode: 'full',
+        requireSdk: false,
+        workspaceIndex: true,
+      });
       h.stdin.end();
       await promise;
     });

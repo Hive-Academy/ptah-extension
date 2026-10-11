@@ -339,6 +339,17 @@ export default [
               sourceTag: 'scope:e2e',
               onlyDependOnLibsWithTags: ['scope:shared', 'scope:e2e'],
             },
+            // tools/* (type:tool) are workspace applications — benches,
+            // linters, migrations — that drive the product from outside, so
+            // they may depend on any lib. The reverse cannot happen: every
+            // type:tool project is projectType application, and the rule
+            // already rejects importing an application. Without this entry,
+            // type:tool matches no sourceTag and any lib import trips
+            // projectWithoutTagsCannotHaveDependencies.
+            {
+              sourceTag: 'type:tool',
+              onlyDependOnLibsWithTags: ['*'],
+            },
             {
               sourceTag: 'type:application',
               onlyDependOnLibsWithTags: [

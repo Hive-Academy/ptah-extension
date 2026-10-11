@@ -1,0 +1,1275 @@
+{
+  "id": "python-attrs",
+  "language": "python",
+  "version": "1",
+  "method": "generated",
+  "frozenAt": "2026-10-07T00:35:20.112Z",
+  "corpusCommit": "9a98e00a7c078360add417c5d62db820d4645ab1",
+  "generator": "scip-cross-check.ts",
+  "seed": 6190701,
+  "counts": {
+    "references": 37,
+    "references-target": 50,
+    "under-5": 17,
+    "under-5-target": 17,
+    "5-50": 17,
+    "5-50-target": 17,
+    "over-50": 3,
+    "over-50-target": 16,
+    "unfilled-strata": 1,
+    "dependencies": 50,
+    "dependencies-target": 50
+  },
+  "questions": [
+    {
+      "id": "reference-1",
+      "query": "x",
+      "file": "tests/test_hooks.py",
+      "line": 251,
+      "truth": ["tests/test_hooks.py:251"],
+      "declarationIncluded": true,
+      "stratum": "under-5"
+    },
+    {
+      "id": "reference-2",
+      "query": "C",
+      "file": "tests/test_dunders.py",
+      "line": 359,
+      "truth": ["tests/test_dunders.py:359", "tests/test_dunders.py:362"],
+      "declarationIncluded": true,
+      "stratum": "under-5"
+    },
+    {
+      "id": "reference-3",
+      "query": "a",
+      "file": "tests/dataclass_transform_example.py",
+      "line": 9,
+      "truth": ["tests/dataclass_transform_example.py:9"],
+      "declarationIncluded": true,
+      "stratum": "under-5"
+    },
+    {
+      "id": "reference-4",
+      "query": "test_exceptions",
+      "file": "tests/test_next_gen.py",
+      "line": 545,
+      "truth": ["tests/test_next_gen.py:545"],
+      "declarationIncluded": true,
+      "stratum": "under-5"
+    },
+    {
+      "id": "reference-5",
+      "query": "b",
+      "file": "tests/test_filters.py",
+      "line": 18,
+      "truth": ["tests/test_filters.py:18"],
+      "declarationIncluded": true,
+      "stratum": "under-5"
+    },
+    {
+      "id": "reference-6",
+      "query": "test_no_modifications",
+      "file": "tests/test_make.py",
+      "line": 181,
+      "truth": ["tests/test_make.py:181"],
+      "declarationIncluded": true,
+      "stratum": "under-5"
+    },
+    {
+      "id": "reference-7",
+      "query": "B",
+      "file": "tests/test_setattr.py",
+      "line": 265,
+      "truth": [
+        "tests/test_setattr.py:265",
+        "tests/test_setattr.py:268",
+        "tests/test_setattr.py:271"
+      ],
+      "declarationIncluded": true,
+      "stratum": "under-5"
+    },
+    {
+      "id": "reference-8",
+      "query": "x",
+      "file": "tests/test_make.py",
+      "line": 1083,
+      "truth": ["tests/test_make.py:1083", "tests/test_make.py:1091"],
+      "declarationIncluded": true,
+      "stratum": "under-5"
+    },
+    {
+      "id": "reference-9",
+      "query": "c",
+      "file": "tests/test_annotations.py",
+      "line": 560,
+      "truth": ["tests/test_annotations.py:560"],
+      "declarationIncluded": true,
+      "stratum": "under-5"
+    },
+    {
+      "id": "reference-10",
+      "query": "test_fail_invalid_key",
+      "file": "tests/test_validators.py",
+      "line": 702,
+      "truth": ["tests/test_validators.py:702"],
+      "declarationIncluded": true,
+      "stratum": "under-5"
+    },
+    {
+      "id": "reference-11",
+      "query": "HashCacheSerializationTestUncached",
+      "file": "tests/test_dunders.py",
+      "line": 450,
+      "truth": ["tests/test_dunders.py:450", "tests/test_dunders.py:691"],
+      "declarationIncluded": true,
+      "stratum": "under-5"
+    },
+    {
+      "id": "reference-12",
+      "query": "test_sets_no_retain",
+      "file": "tests/test_funcs.py",
+      "line": 172,
+      "truth": ["tests/test_funcs.py:172"],
+      "declarationIncluded": true,
+      "stratum": "under-5"
+    },
+    {
+      "id": "reference-13",
+      "query": "attach_hash",
+      "file": "src/attr/_make.py",
+      "line": 1066,
+      "truth": ["src/attr/_make.py:1066", "src/attr/_make.py:1069"],
+      "declarationIncluded": true,
+      "stratum": "under-5"
+    },
+    {
+      "id": "reference-14",
+      "query": "test_no_references_to_original",
+      "file": "tests/test_make.py",
+      "line": 2190,
+      "truth": ["tests/test_make.py:2190"],
+      "declarationIncluded": true,
+      "stratum": "under-5"
+    },
+    {
+      "id": "reference-15",
+      "query": "x",
+      "file": "tests/test_make.py",
+      "line": 2262,
+      "truth": ["tests/test_make.py:2262"],
+      "declarationIncluded": true,
+      "stratum": "under-5"
+    },
+    {
+      "id": "reference-16",
+      "query": "eq",
+      "file": "src/attrs/__init__.pyi",
+      "line": 230,
+      "truth": ["src/attrs/__init__.pyi:230", "src/attrs/__init__.pyi:256"],
+      "declarationIncluded": true,
+      "stratum": "under-5"
+    },
+    {
+      "id": "reference-17",
+      "query": "B",
+      "file": "tests/test_slots.py",
+      "line": 730,
+      "truth": [
+        "tests/test_slots.py:730",
+        "tests/test_slots.py:735",
+        "tests/test_slots.py:736"
+      ],
+      "declarationIncluded": true,
+      "stratum": "under-5"
+    },
+    {
+      "id": "reference-18",
+      "query": "_determine_whether_to_implement",
+      "file": "src/attr/_make.py",
+      "line": 1293,
+      "truth": [
+        "src/attr/_make.py:1293",
+        "src/attr/_make.py:1447",
+        "src/attr/_make.py:1491",
+        "src/attr/_make.py:1494",
+        "src/attr/_make.py:1499",
+        "src/attr/_make.py:1510"
+      ],
+      "declarationIncluded": true,
+      "stratum": "5-50"
+    },
+    {
+      "id": "reference-19",
+      "query": "Factory",
+      "file": "src/attr/_make.py",
+      "line": 2983,
+      "truth": [
+        "src/attr/__init__.py:18",
+        "src/attr/_make.py:181",
+        "src/attr/_make.py:2200",
+        "src/attr/_make.py:2793",
+        "src/attr/_make.py:2983",
+        "src/attr/_make.py:3005",
+        "src/attr/_make.py:3006",
+        "src/attr/_make.py:3035",
+        "src/attr/_make.py:3038",
+        "src/attr/converters.py:10",
+        "src/attr/converters.py:101",
+        "src/attr/converters.py:103",
+        "src/attr/converters.py:104",
+        "src/attr/converters.py:112"
+      ],
+      "declarationIncluded": true,
+      "stratum": "5-50"
+    },
+    {
+      "id": "reference-20",
+      "query": "recurse",
+      "file": "src/attr/_funcs.py",
+      "line": 30,
+      "truth": [
+        "src/attr/_funcs.py:30",
+        "src/attr/_funcs.py:90",
+        "src/attr/_funcs.py:97",
+        "src/attr/_funcs.py:174",
+        "src/attr/_next_gen.py:632"
+      ],
+      "declarationIncluded": true,
+      "stratum": "5-50"
+    },
+    {
+      "id": "reference-21",
+      "query": "D",
+      "file": "typing-examples/mypy.py",
+      "line": 30,
+      "truth": [
+        "typing-examples/mypy.py:30",
+        "typing-examples/mypy.py:217",
+        "typing-examples/mypy.py:220",
+        "typing-examples/mypy.py:225",
+        "typing-examples/mypy.py:227",
+        "typing-examples/mypy.py:231",
+        "typing-examples/mypy.py:235",
+        "typing-examples/mypy.py:241"
+      ],
+      "declarationIncluded": true,
+      "stratum": "5-50"
+    },
+    {
+      "id": "reference-22",
+      "query": "C",
+      "file": "tests/test_dunders.py",
+      "line": 977,
+      "truth": [
+        "tests/test_dunders.py:977",
+        "tests/test_dunders.py:982",
+        "tests/test_dunders.py:986",
+        "tests/test_dunders.py:990",
+        "tests/test_dunders.py:994",
+        "tests/test_dunders.py:1032",
+        "tests/test_dunders.py:1036",
+        "tests/test_dunders.py:1040"
+      ],
+      "declarationIncluded": true,
+      "stratum": "5-50"
+    },
+    {
+      "id": "reference-23",
+      "query": "inst",
+      "file": "src/attr/_funcs.py",
+      "line": 29,
+      "truth": [
+        "src/attr/_funcs.py:29",
+        "src/attr/_funcs.py:80",
+        "src/attr/_funcs.py:83",
+        "src/attr/_funcs.py:88",
+        "src/attr/_next_gen.py:631"
+      ],
+      "declarationIncluded": true,
+      "stratum": "5-50"
+    },
+    {
+      "id": "reference-24",
+      "query": "_compile_and_eval",
+      "file": "src/attr/_make.py",
+      "line": 216,
+      "truth": [
+        "src/attr/_make.py:216",
+        "src/attr/_make.py:260",
+        "src/attr/_make.py:1684",
+        "src/attr/_make.py:1804",
+        "src/attr/_make.py:1878"
+      ],
+      "declarationIncluded": true,
+      "stratum": "5-50"
+    },
+    {
+      "id": "reference-25",
+      "query": "retain_collection_types",
+      "file": "src/attr/_funcs.py",
+      "line": 159,
+      "truth": [
+        "src/attr/_funcs.py:111",
+        "src/attr/_funcs.py:133",
+        "src/attr/_funcs.py:141",
+        "src/attr/_funcs.py:159",
+        "src/attr/_funcs.py:177",
+        "src/attr/_funcs.py:181",
+        "src/attr/_funcs.py:195",
+        "src/attr/_funcs.py:210",
+        "src/attr/_funcs.py:218"
+      ],
+      "declarationIncluded": true,
+      "stratum": "5-50"
+    },
+    {
+      "id": "reference-26",
+      "query": "_EqOrderType",
+      "file": "src/attrs/__init__.pyi",
+      "line": 53,
+      "truth": [
+        "src/attrs/__init__.pyi:53",
+        "src/attrs/__init__.pyi:105",
+        "src/attrs/__init__.pyi:106",
+        "src/attrs/__init__.pyi:128",
+        "src/attrs/__init__.pyi:129",
+        "src/attrs/__init__.pyi:151",
+        "src/attrs/__init__.pyi:152"
+      ],
+      "declarationIncluded": true,
+      "stratum": "5-50"
+    },
+    {
+      "id": "reference-27",
+      "query": "on_setattr",
+      "file": "src/attr/_make.py",
+      "line": 1340,
+      "truth": [
+        "src/attr/_make.py:1340",
+        "src/attr/_make.py:1432",
+        "src/attr/_make.py:1433",
+        "src/attr/_make.py:1517",
+        "src/attr/_next_gen.py:386"
+      ],
+      "declarationIncluded": true,
+      "stratum": "5-50"
+    },
+    {
+      "id": "reference-28",
+      "query": "Sub",
+      "file": "tests/test_functional.py",
+      "line": 69,
+      "truth": [
+        "tests/test_functional.py:69",
+        "tests/test_functional.py:220",
+        "tests/test_functional.py:230",
+        "tests/test_functional.py:281",
+        "tests/test_functional.py:305"
+      ],
+      "declarationIncluded": true,
+      "stratum": "5-50"
+    },
+    {
+      "id": "reference-29",
+      "query": "LEAVE_ALONE",
+      "file": "src/attr/_make.py",
+      "line": 2883,
+      "truth": [
+        "src/attr/_make.py:1454",
+        "src/attr/_make.py:1462",
+        "src/attr/_make.py:1465",
+        "src/attr/_make.py:1473",
+        "src/attr/_make.py:2883"
+      ],
+      "declarationIncluded": true,
+      "stratum": "5-50"
+    },
+    {
+      "id": "reference-30",
+      "query": "gen_attr_names",
+      "file": "tests/strategies.py",
+      "line": 23,
+      "truth": [
+        "tests/strategies.py:23",
+        "tests/strategies.py:71",
+        "tests/strategies.py:157",
+        "tests/strategies.py:159",
+        "tests/strategies.py:161",
+        "tests/test_make.py:49",
+        "tests/test_make.py:1892",
+        "tests/test_make.py:1939",
+        "tests/test_make.py:1956"
+      ],
+      "declarationIncluded": true,
+      "stratum": "5-50"
+    },
+    {
+      "id": "reference-31",
+      "query": "_M",
+      "file": "src/attr/validators.pyi",
+      "line": 29,
+      "truth": [
+        "src/attr/validators.pyi:29",
+        "src/attr/validators.pyi:76",
+        "src/attr/validators.pyi:75",
+        "src/attr/validators.pyi:82",
+        "src/attr/validators.pyi:81"
+      ],
+      "declarationIncluded": true,
+      "stratum": "5-50"
+    },
+    {
+      "id": "reference-32",
+      "query": "or_",
+      "file": "src/attr/validators.py",
+      "line": 725,
+      "truth": [
+        "src/attr/validators.py:725",
+        "src/attr/validators.pyi:97",
+        "src/attr/validators.pyi:102",
+        "src/attr/validators.pyi:108",
+        "src/attr/validators.pyi:115",
+        "src/attr/validators.pyi:123",
+        "src/attr/validators.pyi:132"
+      ],
+      "declarationIncluded": true,
+      "stratum": "5-50"
+    },
+    {
+      "id": "reference-33",
+      "query": "_asdict_anything",
+      "file": "src/attr/_funcs.py",
+      "line": 154,
+      "truth": [
+        "src/attr/_funcs.py:106",
+        "src/attr/_funcs.py:128",
+        "src/attr/_funcs.py:136",
+        "src/attr/_funcs.py:154",
+        "src/attr/_funcs.py:190",
+        "src/attr/_funcs.py:205",
+        "src/attr/_funcs.py:213"
+      ],
+      "declarationIncluded": true,
+      "stratum": "5-50"
+    },
+    {
+      "id": "reference-34",
+      "query": "_T",
+      "file": "src/attrs/__init__.pyi",
+      "line": 50,
+      "truth": [
+        "src/attrs/__init__.pyi:50",
+        "src/attrs/__init__.pyi:54",
+        "src/attrs/__init__.pyi:67",
+        "src/attrs/__init__.pyi:110",
+        "src/attrs/__init__.pyi:94",
+        "src/attrs/__init__.pyi:103",
+        "src/attrs/__init__.pyi:133",
+        "src/attrs/__init__.pyi:116",
+        "src/attrs/__init__.pyi:117",
+        "src/attrs/__init__.pyi:126",
+        "src/attrs/__init__.pyi:139",
+        "src/attrs/__init__.pyi:140",
+        "src/attrs/__init__.pyi:149"
+      ],
+      "declarationIncluded": true,
+      "stratum": "5-50"
+    },
+    {
+      "id": "reference-35",
+      "query": "simple_attr",
+      "file": "tests/utils.py",
+      "line": 39,
+      "truth": [
+        "tests/test_dunders.py:29",
+        "tests/test_dunders.py:114",
+        "tests/test_dunders.py:402",
+        "tests/test_dunders.py:816",
+        "tests/test_dunders.py:817",
+        "tests/test_dunders.py:818",
+        "tests/test_dunders.py:837",
+        "tests/test_dunders.py:838",
+        "tests/test_dunders.py:934",
+        "tests/test_make.py:57",
+        "tests/test_make.py:315",
+        "tests/test_validators.py:35",
+        "tests/test_validators.py:117",
+        "tests/test_validators.py:125",
+        "tests/test_validators.py:132",
+        "tests/test_validators.py:279",
+        "tests/test_validators.py:288",
+        "tests/test_validators.py:327",
+        "tests/test_validators.py:334",
+        "tests/test_validators.py:341",
+        "tests/test_validators.py:392",
+        "tests/test_validators.py:401",
+        "tests/test_validators.py:419",
+        "tests/test_validators.py:485",
+        "tests/test_validators.py:494",
+        "tests/test_validators.py:531",
+        "tests/test_validators.py:542",
+        "tests/test_validators.py:553",
+        "tests/test_validators.py:656",
+        "tests/test_validators.py:698",
+        "tests/test_validators.py:709",
+        "tests/test_validators.py:720",
+        "tests/test_validators.py:758",
+        "tests/test_validators.py:767",
+        "tests/test_validators.py:807",
+        "tests/test_validators.py:815",
+        "tests/test_validators.py:1088",
+        "tests/test_validators.py:1096",
+        "tests/test_validators.py:1103",
+        "tests/test_validators.py:1155",
+        "tests/test_validators.py:1169",
+        "tests/test_validators.py:1190",
+        "tests/test_validators.py:1201",
+        "tests/test_validators.py:1222",
+        "tests/test_validators.py:1233",
+        "tests/test_validators.py:1255",
+        "tests/test_validators.py:1265",
+        "tests/test_validators.py:1286",
+        "tests/test_validators.py:1300",
+        "tests/test_validators.py:1318",
+        "tests/test_validators.py:1360",
+        "tests/test_validators.py:1369",
+        "tests/utils.py:39"
+      ],
+      "declarationIncluded": true,
+      "stratum": "over-50"
+    },
+    {
+      "id": "reference-36",
+      "query": "Attribute",
+      "file": "src/attr/_make.py",
+      "line": 2418,
+      "truth": [
+        "src/attr/__init__.py:16",
+        "src/attr/_make.py:290",
+        "src/attr/_make.py:320",
+        "src/attr/_make.py:439",
+        "src/attr/_make.py:453",
+        "src/attr/_make.py:457",
+        "src/attr/_make.py:475",
+        "src/attr/_make.py:476",
+        "src/attr/_make.py:480",
+        "src/attr/_make.py:487",
+        "src/attr/_make.py:493",
+        "src/attr/_make.py:686",
+        "src/attr/_make.py:1606",
+        "src/attr/_make.py:1609",
+        "src/attr/_make.py:1647",
+        "src/attr/_make.py:1648",
+        "src/attr/_make.py:1649",
+        "src/attr/_make.py:1651",
+        "src/attr/_make.py:1654",
+        "src/attr/_make.py:1677",
+        "src/attr/_make.py:2144",
+        "src/attr/_make.py:2189",
+        "src/attr/_make.py:2192",
+        "src/attr/_make.py:2193",
+        "src/attr/_make.py:2194",
+        "src/attr/_make.py:2198",
+        "src/attr/_make.py:2200",
+        "src/attr/_make.py:2201",
+        "src/attr/_make.py:2203",
+        "src/attr/_make.py:2204",
+        "src/attr/_make.py:2206",
+        "src/attr/_make.py:2208",
+        "src/attr/_make.py:2210",
+        "src/attr/_make.py:2220",
+        "src/attr/_make.py:2231",
+        "src/attr/_make.py:2241",
+        "src/attr/_make.py:2252",
+        "src/attr/_make.py:2254",
+        "src/attr/_make.py:2266",
+        "src/attr/_make.py:2274",
+        "src/attr/_make.py:2281",
+        "src/attr/_make.py:2299",
+        "src/attr/_make.py:2315",
+        "src/attr/_make.py:2317",
+        "src/attr/_make.py:2329",
+        "src/attr/_make.py:2335",
+        "src/attr/_make.py:2373",
+        "src/attr/_make.py:2418",
+        "src/attr/_make.py:2598",
+        "src/attr/_make.py:2625",
+        "src/attr/_make.py:2638",
+        "src/attr/_make.py:2641",
+        "src/attr/_make.py:2643",
+        "src/attr/_make.py:2644",
+        "src/attr/_make.py:2646",
+        "src/attr/_make.py:2679",
+        "src/attr/_make.py:2708",
+        "src/attr/_make.py:2964",
+        "src/attr/_make.py:3023",
+        "src/attr/_make.py:3142",
+        "src/attr/filters.py:7",
+        "src/attr/filters.py:17"
+      ],
+      "declarationIncluded": true,
+      "stratum": "over-50"
+    },
+    {
+      "id": "reference-37",
+      "query": "_ClassBuilder",
+      "file": "src/attr/_make.py",
+      "line": 637,
+      "truth": [
+        "src/attr/_make.py:637",
+        "src/attr/_make.py:683",
+        "src/attr/_make.py:684",
+        "src/attr/_make.py:685",
+        "src/attr/_make.py:686",
+        "src/attr/_make.py:687",
+        "src/attr/_make.py:688",
+        "src/attr/_make.py:689",
+        "src/attr/_make.py:690",
+        "src/attr/_make.py:691",
+        "src/attr/_make.py:692",
+        "src/attr/_make.py:695",
+        "src/attr/_make.py:696",
+        "src/attr/_make.py:697",
+        "src/attr/_make.py:702",
+        "src/attr/_make.py:703",
+        "src/attr/_make.py:704",
+        "src/attr/_make.py:705",
+        "src/attr/_make.py:706",
+        "src/attr/_make.py:708",
+        "src/attr/_make.py:709",
+        "src/attr/_make.py:711",
+        "src/attr/_make.py:712",
+        "src/attr/_make.py:715",
+        "src/attr/_make.py:716",
+        "src/attr/_make.py:718",
+        "src/attr/_make.py:719",
+        "src/attr/_make.py:735",
+        "src/attr/_make.py:738",
+        "src/attr/_make.py:739",
+        "src/attr/_make.py:744",
+        "src/attr/_make.py:748",
+        "src/attr/_make.py:749",
+        "src/attr/_make.py:756",
+        "src/attr/_make.py:760",
+        "src/attr/_make.py:761",
+        "src/attr/_make.py:763",
+        "src/attr/_make.py:765",
+        "src/attr/_make.py:768",
+        "src/attr/_make.py:781",
+        "src/attr/_make.py:786",
+        "src/attr/_make.py:795",
+        "src/attr/_make.py:797",
+        "src/attr/_make.py:817",
+        "src/attr/_make.py:818",
+        "src/attr/_make.py:821",
+        "src/attr/_make.py:822",
+        "src/attr/_make.py:834",
+        "src/attr/_make.py:839",
+        "src/attr/_make.py:844",
+        "src/attr/_make.py:855",
+        "src/attr/_make.py:856",
+        "src/attr/_make.py:861",
+        "src/attr/_make.py:871",
+        "src/attr/_make.py:874",
+        "src/attr/_make.py:875",
+        "src/attr/_make.py:884",
+        "src/attr/_make.py:894",
+        "src/attr/_make.py:896",
+        "src/attr/_make.py:898",
+        "src/attr/_make.py:899",
+        "src/attr/_make.py:915",
+        "src/attr/_make.py:931",
+        "src/attr/_make.py:949",
+        "src/attr/_make.py:954",
+        "src/attr/_make.py:957",
+        "src/attr/_make.py:983",
+        "src/attr/_make.py:993",
+        "src/attr/_make.py:996",
+        "src/attr/_make.py:999",
+        "src/attr/_make.py:1003",
+        "src/attr/_make.py:1010",
+        "src/attr/_make.py:1019",
+        "src/attr/_make.py:1028",
+        "src/attr/_make.py:1055",
+        "src/attr/_make.py:1060",
+        "src/attr/_make.py:1061",
+        "src/attr/_make.py:1062",
+        "src/attr/_make.py:1063",
+        "src/attr/_make.py:1067",
+        "src/attr/_make.py:1075",
+        "src/attr/_make.py:1076",
+        "src/attr/_make.py:1077",
+        "src/attr/_make.py:1078",
+        "src/attr/_make.py:1079",
+        "src/attr/_make.py:1080",
+        "src/attr/_make.py:1081",
+        "src/attr/_make.py:1082",
+        "src/attr/_make.py:1083",
+        "src/attr/_make.py:1084",
+        "src/attr/_make.py:1085",
+        "src/attr/_make.py:1092",
+        "src/attr/_make.py:1099",
+        "src/attr/_make.py:1105",
+        "src/attr/_make.py:1107",
+        "src/attr/_make.py:1113",
+        "src/attr/_make.py:1114",
+        "src/attr/_make.py:1115",
+        "src/attr/_make.py:1116",
+        "src/attr/_make.py:1117",
+        "src/attr/_make.py:1118",
+        "src/attr/_make.py:1119",
+        "src/attr/_make.py:1120",
+        "src/attr/_make.py:1121",
+        "src/attr/_make.py:1122",
+        "src/attr/_make.py:1123",
+        "src/attr/_make.py:1130",
+        "src/attr/_make.py:1137",
+        "src/attr/_make.py:1139",
+        "src/attr/_make.py:1142",
+        "src/attr/_make.py:1151",
+        "src/attr/_make.py:1154",
+        "src/attr/_make.py:1155",
+        "src/attr/_make.py:1162",
+        "src/attr/_make.py:1163",
+        "src/attr/_make.py:1170",
+        "src/attr/_make.py:1186",
+        "src/attr/_make.py:1187",
+        "src/attr/_make.py:1188",
+        "src/attr/_make.py:1196",
+        "src/attr/_make.py:1198",
+        "src/attr/_make.py:1201",
+        "src/attr/_make.py:1211",
+        "src/attr/_make.py:1214",
+        "src/attr/_make.py:1217",
+        "src/attr/_make.py:1525"
+      ],
+      "declarationIncluded": true,
+      "stratum": "over-50"
+    },
+    {
+      "id": "dependency-1",
+      "file": "src/attr/_version_info.pyi",
+      "pathForms": ["relative", "absolute"],
+      "dependencies": [],
+      "dependents": ["src/attr/__init__.py", "src/attr/__init__.pyi"],
+      "imports": []
+    },
+    {
+      "id": "dependency-2",
+      "file": "src/attr/_funcs.py",
+      "pathForms": ["relative", "absolute"],
+      "dependencies": [
+        "src/attr/_compat.py",
+        "src/attr/_make.py",
+        "src/attr/exceptions.py",
+        "src/attr/exceptions.pyi"
+      ],
+      "dependents": [
+        "src/attr/__init__.py",
+        "src/attr/_next_gen.py",
+        "src/attr/_version_info.py"
+      ],
+      "imports": [
+        "src/attr/_compat.py",
+        "src/attr/_make.py",
+        "src/attr/exceptions.py",
+        "src/attr/exceptions.pyi"
+      ]
+    },
+    {
+      "id": "dependency-3",
+      "file": "tests/test_filters.py",
+      "pathForms": ["relative", "absolute"],
+      "dependencies": [],
+      "dependents": [],
+      "imports": []
+    },
+    {
+      "id": "dependency-4",
+      "file": "docs/conf.py",
+      "pathForms": ["relative", "absolute"],
+      "dependencies": [],
+      "dependents": [],
+      "imports": []
+    },
+    {
+      "id": "dependency-5",
+      "file": "tests/test_version_info.py",
+      "pathForms": ["relative", "absolute"],
+      "dependencies": [],
+      "dependents": [],
+      "imports": []
+    },
+    {
+      "id": "dependency-6",
+      "file": "tests/conftest.py",
+      "pathForms": ["relative", "absolute"],
+      "dependencies": [],
+      "dependents": [],
+      "imports": []
+    },
+    {
+      "id": "dependency-7",
+      "file": "tests/dataclass_transform_example.py",
+      "pathForms": ["relative", "absolute"],
+      "dependencies": [],
+      "dependents": [],
+      "imports": []
+    },
+    {
+      "id": "dependency-8",
+      "file": "src/attr/_typing_compat.pyi",
+      "pathForms": ["relative", "absolute"],
+      "dependencies": [],
+      "dependents": ["src/attr/__init__.pyi"],
+      "imports": []
+    },
+    {
+      "id": "dependency-9",
+      "file": "src/attrs/converters.py",
+      "pathForms": ["relative", "absolute"],
+      "dependencies": [],
+      "dependents": [],
+      "imports": []
+    },
+    {
+      "id": "dependency-10",
+      "file": "tests/test_validators.py",
+      "pathForms": ["relative", "absolute"],
+      "dependencies": ["tests/utils.py"],
+      "dependents": [],
+      "imports": ["tests/utils.py"]
+    },
+    {
+      "id": "dependency-11",
+      "file": "tests/test_forward_references.py",
+      "pathForms": ["relative", "absolute"],
+      "dependencies": [],
+      "dependents": [],
+      "imports": []
+    },
+    {
+      "id": "dependency-12",
+      "file": "src/attrs/validators.py",
+      "pathForms": ["relative", "absolute"],
+      "dependencies": [],
+      "dependents": [],
+      "imports": []
+    },
+    {
+      "id": "dependency-13",
+      "file": "tests/test_utils.py",
+      "pathForms": ["relative", "absolute"],
+      "dependencies": ["tests/utils.py"],
+      "dependents": [],
+      "imports": ["tests/utils.py"]
+    },
+    {
+      "id": "dependency-14",
+      "file": "src/attr/validators.pyi",
+      "pathForms": ["relative", "absolute"],
+      "dependencies": ["src/attr/validators.py"],
+      "dependents": ["src/attr/validators.py"],
+      "imports": ["src/attr/validators.py"]
+    },
+    {
+      "id": "dependency-15",
+      "file": "tests/test_import.py",
+      "pathForms": ["relative", "absolute"],
+      "dependencies": [],
+      "dependents": [],
+      "imports": []
+    },
+    {
+      "id": "dependency-16",
+      "file": "src/attrs/setters.py",
+      "pathForms": ["relative", "absolute"],
+      "dependencies": [],
+      "dependents": [],
+      "imports": []
+    },
+    {
+      "id": "dependency-17",
+      "file": "src/attrs/exceptions.py",
+      "pathForms": ["relative", "absolute"],
+      "dependencies": [],
+      "dependents": [],
+      "imports": []
+    },
+    {
+      "id": "dependency-18",
+      "file": "typing-examples/baseline.py",
+      "pathForms": ["relative", "absolute"],
+      "dependencies": [],
+      "dependents": [],
+      "imports": []
+    },
+    {
+      "id": "dependency-19",
+      "file": "src/attr/setters.pyi",
+      "pathForms": ["relative", "absolute"],
+      "dependencies": ["src/attr/__init__.pyi"],
+      "dependents": [
+        "src/attr/_make.py",
+        "src/attr/_next_gen.py",
+        "src/attr/setters.py"
+      ],
+      "imports": ["src/attr/__init__.pyi"]
+    },
+    {
+      "id": "dependency-20",
+      "file": "src/attr/exceptions.pyi",
+      "pathForms": ["relative", "absolute"],
+      "dependencies": ["src/attr/exceptions.py"],
+      "dependents": [
+        "src/attr/_funcs.py",
+        "src/attr/_make.py",
+        "src/attr/_next_gen.py",
+        "src/attr/exceptions.py",
+        "src/attr/setters.py",
+        "src/attr/validators.py"
+      ],
+      "imports": ["src/attr/exceptions.py"]
+    },
+    {
+      "id": "dependency-21",
+      "file": "tests/test_init_subclass.py",
+      "pathForms": ["relative", "absolute"],
+      "dependencies": [],
+      "dependents": [],
+      "imports": []
+    },
+    {
+      "id": "dependency-22",
+      "file": "tests/test_hooks.py",
+      "pathForms": ["relative", "absolute"],
+      "dependencies": [],
+      "dependents": [],
+      "imports": []
+    },
+    {
+      "id": "dependency-23",
+      "file": "src/attr/_config.py",
+      "pathForms": ["relative", "absolute"],
+      "dependencies": [],
+      "dependents": [
+        "src/attr/__init__.py",
+        "src/attr/_make.py",
+        "src/attr/setters.py",
+        "src/attr/validators.py"
+      ],
+      "imports": []
+    },
+    {
+      "id": "dependency-24",
+      "file": "tests/attr_import_star.py",
+      "pathForms": ["relative", "absolute"],
+      "dependencies": [],
+      "dependents": [],
+      "imports": []
+    },
+    {
+      "id": "dependency-25",
+      "file": "src/attrs/__init__.pyi",
+      "pathForms": ["relative", "absolute"],
+      "dependencies": [],
+      "dependents": [],
+      "imports": []
+    },
+    {
+      "id": "dependency-26",
+      "file": "src/attr/_make.py",
+      "pathForms": ["relative", "absolute"],
+      "dependencies": [
+        "src/attr/_compat.py",
+        "src/attr/_config.py",
+        "src/attr/exceptions.py",
+        "src/attr/exceptions.pyi",
+        "src/attr/setters.py",
+        "src/attr/setters.pyi"
+      ],
+      "dependents": [
+        "src/attr/__init__.py",
+        "src/attr/_cmp.py",
+        "src/attr/_funcs.py",
+        "src/attr/_next_gen.py",
+        "src/attr/_version_info.py",
+        "src/attr/converters.py",
+        "src/attr/filters.py",
+        "src/attr/setters.py",
+        "src/attr/validators.py"
+      ],
+      "imports": [
+        "src/attr/_compat.py",
+        "src/attr/_config.py",
+        "src/attr/exceptions.py",
+        "src/attr/exceptions.pyi",
+        "src/attr/setters.py",
+        "src/attr/setters.pyi"
+      ]
+    },
+    {
+      "id": "dependency-27",
+      "file": "tests/test_functional.py",
+      "pathForms": ["relative", "absolute"],
+      "dependencies": [],
+      "dependents": [],
+      "imports": []
+    },
+    {
+      "id": "dependency-28",
+      "file": "src/attr/_next_gen.py",
+      "pathForms": ["relative", "absolute"],
+      "dependencies": [
+        "src/attr/_funcs.py",
+        "src/attr/_make.py",
+        "src/attr/exceptions.py",
+        "src/attr/exceptions.pyi",
+        "src/attr/setters.pyi"
+      ],
+      "dependents": ["src/attr/__init__.py"],
+      "imports": [
+        "src/attr/_funcs.py",
+        "src/attr/_make.py",
+        "src/attr/exceptions.py",
+        "src/attr/exceptions.pyi",
+        "src/attr/setters.pyi"
+      ]
+    },
+    {
+      "id": "dependency-29",
+      "file": "tests/test_slots.py",
+      "pathForms": ["relative", "absolute"],
+      "dependencies": [],
+      "dependents": [],
+      "imports": []
+    },
+    {
+      "id": "dependency-30",
+      "file": "tests/test_packaging.py",
+      "pathForms": ["relative", "absolute"],
+      "dependencies": [],
+      "dependents": [],
+      "imports": []
+    },
+    {
+      "id": "dependency-31",
+      "file": "tests/utils.py",
+      "pathForms": ["relative", "absolute"],
+      "dependencies": [],
+      "dependents": [
+        "tests/test_dunders.py",
+        "tests/test_make.py",
+        "tests/test_utils.py",
+        "tests/test_validators.py"
+      ],
+      "imports": []
+    },
+    {
+      "id": "dependency-32",
+      "file": "tests/test_funcs.py",
+      "pathForms": ["relative", "absolute"],
+      "dependencies": ["tests/strategies.py"],
+      "dependents": [],
+      "imports": ["tests/strategies.py"]
+    },
+    {
+      "id": "dependency-33",
+      "file": "src/attr/converters.py",
+      "pathForms": ["relative", "absolute"],
+      "dependencies": [
+        "src/attr/_compat.py",
+        "src/attr/_make.py",
+        "src/attr/converters.pyi"
+      ],
+      "dependents": ["src/attr/converters.pyi", "src/attr/validators.py"],
+      "imports": [
+        "src/attr/_compat.py",
+        "src/attr/_make.py",
+        "src/attr/converters.pyi"
+      ]
+    },
+    {
+      "id": "dependency-34",
+      "file": "src/attr/validators.py",
+      "pathForms": ["relative", "absolute"],
+      "dependencies": [
+        "src/attr/_config.py",
+        "src/attr/_make.py",
+        "src/attr/converters.py",
+        "src/attr/converters.pyi",
+        "src/attr/exceptions.py",
+        "src/attr/exceptions.pyi",
+        "src/attr/validators.pyi"
+      ],
+      "dependents": ["src/attr/validators.pyi"],
+      "imports": [
+        "src/attr/_config.py",
+        "src/attr/_make.py",
+        "src/attr/converters.py",
+        "src/attr/converters.pyi",
+        "src/attr/exceptions.py",
+        "src/attr/exceptions.pyi",
+        "src/attr/validators.pyi"
+      ]
+    },
+    {
+      "id": "dependency-35",
+      "file": "src/attr/__init__.pyi",
+      "pathForms": ["relative", "absolute"],
+      "dependencies": [
+        "src/attr/__init__.py",
+        "src/attr/_cmp.py",
+        "src/attr/_cmp.pyi",
+        "src/attr/_typing_compat.pyi",
+        "src/attr/_version_info.py",
+        "src/attr/_version_info.pyi"
+      ],
+      "dependents": ["src/attr/filters.pyi", "src/attr/setters.pyi"],
+      "imports": [
+        "src/attr/__init__.py",
+        "src/attr/_cmp.py",
+        "src/attr/_cmp.pyi",
+        "src/attr/_typing_compat.pyi",
+        "src/attr/_version_info.py",
+        "src/attr/_version_info.pyi"
+      ]
+    },
+    {
+      "id": "dependency-36",
+      "file": "src/attr/_cmp.py",
+      "pathForms": ["relative", "absolute"],
+      "dependencies": ["src/attr/_cmp.pyi", "src/attr/_make.py"],
+      "dependents": ["src/attr/__init__.py", "src/attr/__init__.pyi"],
+      "imports": ["src/attr/_cmp.pyi", "src/attr/_make.py"]
+    },
+    {
+      "id": "dependency-37",
+      "file": "src/attr/filters.pyi",
+      "pathForms": ["relative", "absolute"],
+      "dependencies": ["src/attr/__init__.pyi"],
+      "dependents": ["src/attr/filters.py"],
+      "imports": ["src/attr/__init__.pyi"]
+    },
+    {
+      "id": "dependency-38",
+      "file": "tests/test_3rd_party.py",
+      "pathForms": ["relative", "absolute"],
+      "dependencies": ["tests/strategies.py"],
+      "dependents": [],
+      "imports": ["tests/strategies.py"]
+    },
+    {
+      "id": "dependency-39",
+      "file": "src/attr/converters.pyi",
+      "pathForms": ["relative", "absolute"],
+      "dependencies": ["src/attr/converters.py"],
+      "dependents": ["src/attr/converters.py", "src/attr/validators.py"],
+      "imports": ["src/attr/converters.py"]
+    },
+    {
+      "id": "dependency-40",
+      "file": "tests/test_dunders.py",
+      "pathForms": ["relative", "absolute"],
+      "dependencies": ["tests/utils.py"],
+      "dependents": [],
+      "imports": ["tests/utils.py"]
+    },
+    {
+      "id": "dependency-41",
+      "file": "src/attrs/__init__.py",
+      "pathForms": ["relative", "absolute"],
+      "dependencies": [],
+      "dependents": [],
+      "imports": []
+    },
+    {
+      "id": "dependency-42",
+      "file": "typing-examples/mypy.py",
+      "pathForms": ["relative", "absolute"],
+      "dependencies": [],
+      "dependents": [],
+      "imports": []
+    },
+    {
+      "id": "dependency-43",
+      "file": "tests/test_pyright.py",
+      "pathForms": ["relative", "absolute"],
+      "dependencies": [],
+      "dependents": [],
+      "imports": []
+    },
+    {
+      "id": "dependency-44",
+      "file": "tests/test_abc.py",
+      "pathForms": ["relative", "absolute"],
+      "dependencies": [],
+      "dependents": [],
+      "imports": []
+    },
+    {
+      "id": "dependency-45",
+      "file": "tests/test_converters.py",
+      "pathForms": ["relative", "absolute"],
+      "dependencies": [],
+      "dependents": [],
+      "imports": []
+    },
+    {
+      "id": "dependency-46",
+      "file": "tests/test_cmp.py",
+      "pathForms": ["relative", "absolute"],
+      "dependencies": [],
+      "dependents": [],
+      "imports": []
+    },
+    {
+      "id": "dependency-47",
+      "file": "tests/test_compat.py",
+      "pathForms": ["relative", "absolute"],
+      "dependencies": [],
+      "dependents": [],
+      "imports": []
+    },
+    {
+      "id": "dependency-48",
+      "file": "tests/test_next_gen.py",
+      "pathForms": ["relative", "absolute"],
+      "dependencies": [],
+      "dependents": [],
+      "imports": []
+    },
+    {
+      "id": "dependency-49",
+      "file": "src/attr/setters.py",
+      "pathForms": ["relative", "absolute"],
+      "dependencies": [
+        "src/attr/_config.py",
+        "src/attr/_make.py",
+        "src/attr/exceptions.py",
+        "src/attr/exceptions.pyi",
+        "src/attr/setters.pyi"
+      ],
+      "dependents": ["src/attr/_make.py"],
+      "imports": [
+        "src/attr/_config.py",
+        "src/attr/_make.py",
+        "src/attr/exceptions.py",
+        "src/attr/exceptions.pyi",
+        "src/attr/setters.pyi"
+      ]
+    },
+    {
+      "id": "dependency-50",
+      "file": "src/attr/_cmp.pyi",
+      "pathForms": ["relative", "absolute"],
+      "dependencies": [],
+      "dependents": [
+        "src/attr/__init__.py",
+        "src/attr/__init__.pyi",
+        "src/attr/_cmp.py"
+      ],
+      "imports": []
+    }
+  ]
+}

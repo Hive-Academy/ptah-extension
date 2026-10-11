@@ -650,14 +650,21 @@ describe('PHP, Ruby and C++ grammar integration (real tree-sitter WASM, Batch 31
       );
       const rows = new Map<string, SymbolChunkInsert>();
       let inserted = 0;
+      const record = (chunks: readonly SymbolChunkInsert[]): void => {
+        for (const chunk of chunks) {
+          inserted += 1;
+          rows.set(chunk.subject, chunk);
+        }
+      };
       const sink: ISymbolSink = {
         deleteSymbolsForFile: () => 0,
-        insertSymbols: async (chunks: readonly SymbolChunkInsert[]) => {
-          for (const chunk of chunks) {
-            inserted += 1;
-            rows.set(chunk.subject, chunk);
-          }
+        insertSymbols: async (chunks) => {
+          record(chunks);
         },
+        replaceFileSymbols: async (_workspaceRoot, _filePath, chunks) => {
+          record(chunks);
+        },
+        purgeMissing: () => 0,
       };
       const discovery = {
         indexWorkspaceStream: () =>
@@ -846,6 +853,8 @@ describe('PHP, Ruby and C++ grammar integration (real tree-sitter WASM, Batch 31
           {
             deleteSymbolsForFile: () => 0,
             insertSymbols: async () => undefined,
+            replaceFileSymbols: async () => undefined,
+            purgeMissing: () => 0,
           },
         );
         const { coverage } = await indexer.reindexFile(
@@ -1016,7 +1025,12 @@ describe('PHP, Ruby and C++ grammar integration (real tree-sitter WASM, Batch 31
         {
           readFile: async () => 'MACRO_DEF(x) {}\n',
         } as unknown as IFileSystemProvider,
-        { deleteSymbolsForFile: () => 0, insertSymbols: async () => undefined },
+        {
+          deleteSymbolsForFile: () => 0,
+          insertSymbols: async () => undefined,
+          replaceFileSymbols: async () => undefined,
+          purgeMissing: () => 0,
+        },
       );
       const { coverage } = await indexer.reindexFile(`${root}/a.cpp`, root);
       expect(coverage.analyzed).toBe(0);

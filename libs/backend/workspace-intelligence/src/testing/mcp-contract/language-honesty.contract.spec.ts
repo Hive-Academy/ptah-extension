@@ -1279,15 +1279,22 @@ async function codeIndexHonesty(subject: {
   // repeated subject is a lost row (Batch 30 r1 R30-02).
   const subjects = new Set<string>();
   const overwritten: string[] = [];
+  const record = (chunks: readonly SymbolChunkInsert[]): void => {
+    for (const c of chunks) {
+      if (subjects.has(c.subject)) overwritten.push(c.subject);
+      subjects.add(c.subject);
+      if (c.symbolName !== undefined) names.push(c.symbolName);
+    }
+  };
   const sink: ISymbolSink = {
     deleteSymbolsForFile: () => 0,
-    insertSymbols: async (chunks: readonly SymbolChunkInsert[]) => {
-      for (const c of chunks) {
-        if (subjects.has(c.subject)) overwritten.push(c.subject);
-        subjects.add(c.subject);
-        if (c.symbolName !== undefined) names.push(c.symbolName);
-      }
+    insertSymbols: async (chunks) => {
+      record(chunks);
     },
+    replaceFileSymbols: async (_workspaceRoot, _filePath, chunks) => {
+      record(chunks);
+    },
+    purgeMissing: () => 0,
   };
   const discovery = {
     indexWorkspaceStream: () =>
@@ -1497,6 +1504,16 @@ async function symbolIndexerHonesty(): Promise<void> {
           });
         }
       }
+    }
+    async replaceFileSymbols(
+      _workspaceRoot: string,
+      _filePath: string,
+      chunks: readonly SymbolChunkInsert[],
+    ): Promise<void> {
+      await this.insertSymbols(chunks);
+    }
+    purgeMissing(): number {
+      return 0;
     }
     all(): readonly SymbolRow[] {
       return this.rows;

@@ -18,7 +18,10 @@ import { formatCompact } from '../utils/format.utils';
 // `ptah.openDashboard` command), so importing the wide barrels here would drag
 // all four Thoth tab libs into the initial bundle and defeat the @defer on
 // ThothShellComponent. See TASK_2026_187 Unit 4.
-import { MemoryRpcService } from '@ptah-extension/memory-curator-ui/services';
+import {
+  MemoryDiagnosticsRpcService,
+  MemoryRpcService,
+} from '@ptah-extension/memory-curator-ui/services';
 import { SkillSynthesisRpcService } from '@ptah-extension/skill-synthesis-ui/services';
 import { CronRpcService } from '@ptah-extension/cron-scheduler-ui/services';
 import { GatewayRpcService } from '@ptah-extension/messaging-gateway-ui/services';
@@ -94,6 +97,12 @@ export interface ThothStatusSummary {
   readonly errors: Readonly<
     Record<'memory' | 'skills' | 'cron' | 'gateway', string | null>
   >;
+  /**
+   * The Memory / Skills master switches are paused (`memory.enabled` /
+   * `skillSynthesis.enabled` is `false`). Desktop only; always `false` in
+   * VS Code, where neither runs.
+   */
+  readonly paused: Readonly<Record<'memory' | 'skills', boolean>>;
 }
 
 /**
@@ -114,6 +123,8 @@ export interface ThothPillarStatus {
   readonly available: boolean;
   readonly platforms: readonly ThothGatewayPlatformSummary[];
   readonly error: string | null;
+  /** The pillar's master switch is paused; the shell shows a "Paused" badge. */
+  readonly paused: boolean;
 }
 
 const PILLAR_ACCENTS: Readonly<Record<ThothActiveTabId, string>> = {
@@ -149,6 +160,7 @@ export class ThothStatusService implements MessageHandler {
   private readonly vscode = inject(VSCodeService);
   private readonly appState = inject(AppStateManager);
   private readonly memoryRpc = inject(MemoryRpcService);
+  private readonly memoryDiagnosticsRpc = inject(MemoryDiagnosticsRpcService);
   private readonly skillsRpc = inject(SkillSynthesisRpcService);
   private readonly cronRpc = inject(CronRpcService);
   private readonly gatewayRpc = inject(GatewayRpcService);
@@ -197,6 +209,13 @@ export class ThothStatusService implements MessageHandler {
     gateway: string | null;
   }>({ memory: null, skills: null, cron: null, gateway: null });
 
+  private readonly _paused = signal<{ memory: boolean; skills: boolean }>({
+    memory: false,
+    skills: false,
+  });
+  /** Newest {@link refreshPaused}; an older one drops its answer. */
+  private pausedGeneration = 0;
+
   /** Single computed summary signal consumed by the status card. */
   readonly summary = computed<ThothStatusSummary>(() => {
     const isElectron = this.vscode.config()?.isElectron === true;
@@ -216,6 +235,7 @@ export class ThothStatusService implements MessageHandler {
       isLoading: this._isLoading(),
       lastUpdatedAt: this._lastUpdatedAt(),
       errors: this._errors(),
+      paused: this._paused(),
     };
   });
 
@@ -251,6 +271,10 @@ export class ThothStatusService implements MessageHandler {
 
     const memoryPromise = this.loadMemory(isCurrent);
     const skillsPromise = this.loadSkills(isCurrent);
+    // Pause badges are supplementary state. Do not let an unavailable or slow
+    // pause RPC delay the primary status load: callers rely on hasLoadedOnce()
+    // to avoid re-fetching a gateway push on a quick close/reopen.
+    void this.refreshPaused();
     const cronPromise = isElectron
       ? this.loadCron(isCurrent)
       : Promise.resolve(this.markDesktopOnly('cron'));
@@ -281,6 +305,36 @@ export class ThothStatusService implements MessageHandler {
   async refreshIfNeeded(): Promise<void> {
     if (this._hasLoadedOnce()) return;
     await this.refresh();
+  }
+
+  /**
+   * Re-read only the two pause flags behind the sidebar "Paused" badges
+   * (`memory:getTriggers` → `enabled`, `skillSynthesis:getSettings` →
+   * `enabled`). Cheap enough for the shell to call on window focus and when a
+   * tab reports that its switch flipped. A read that fails keeps the last
+   * known flag rather than blinking the badge off.
+   */
+  async refreshPaused(): Promise<void> {
+    const generation = ++this.pausedGeneration;
+    if (this.vscode.config()?.isElectron !== true) {
+      this._paused.set({ memory: false, skills: false });
+      return;
+    }
+    const [memory, skills] = await Promise.allSettled([
+      this.memoryDiagnosticsRpc.getTriggers(),
+      this.skillsRpc.getSettings(),
+    ]);
+    if (generation !== this.pausedGeneration) return;
+    this._paused.update((current) => ({
+      memory:
+        memory.status === 'fulfilled'
+          ? memory.value.enabled === false
+          : current.memory,
+      skills:
+        skills.status === 'fulfilled'
+          ? skills.value.enabled === false
+          : current.skills,
+    }));
   }
 
   public handleMessage(msg: { type: string; payload?: unknown }): void {
@@ -473,12 +527,13 @@ export function deriveThothPillars(
 function pillarBase(
   id: ThothActiveTabId,
   s: ThothStatusSummary,
-): Pick<ThothPillarStatus, 'id' | 'accent' | 'platforms' | 'error'> {
+): Pick<ThothPillarStatus, 'id' | 'accent' | 'platforms' | 'error' | 'paused'> {
   return {
     id,
     accent: PILLAR_ACCENTS[id],
     platforms: [],
     error: s.errors[id],
+    paused: id === 'memory' || id === 'skills' ? s.paused[id] : false,
   };
 }
 
