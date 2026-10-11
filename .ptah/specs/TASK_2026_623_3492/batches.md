@@ -1,6 +1,6 @@
 # Batches - TASK_2026_623_3492
 
-Total tasks: 79 | Batches: 38 (incl. fix batches 6F, 12F, 15F, 21F, post-cap correction 12F2) | Complete: 32/38
+Total tasks: 79 | Batches: 38 (incl. fix batches 6F, 12F, 15F, 21F, post-cap correction 12F2) | Complete: 33/38
 
 Worktree root `W` = `D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel` (branch
 `feat/task-623-display-panel`, base `70f995a56`). Every path below is absolute.
@@ -97,7 +97,7 @@ Edge cases:
 | 3 Renderer `/4` | 13-15, 15F (fix) | code-logic (REVISE 6/10, `code-logic-review-phase3.md`, Serious #1); fix round 15F, re-review APPROVED 8/10, Serious #1 CLOSED, no new findings (`code-logic-review-phase3-fix.md`). No style (Task 15.3 and 15F added no barrel exports). Phase 3 ACCEPTED |
 | 4 chat-ui display panel | 16-21 | code-logic, plus style (new entry `@ptah-extension/chat-ui/display-panel`, new host-sources token) |
 | 5 Transcript and dock | 22-25 | code-logic (APPROVED WITH NOTES 8/10, `code-logic-review-phase5.md`, Codex lane on `b57910d88..2ca5c9048`); #81 a/b/c and #94 PASS; one Minor (closed-tab dock state retained) recorded as a later item, decision #115. Phase 5 ACCEPTED |
-| 6 Previews (R7, both webviews) | 26-28 | code-logic, plus style (new exported `copy-text-button` atom and `tool-language` util) |
+| 6 Previews (R7, both webviews) | 26-28 | code-logic, plus style (new exported `copy-text-button` atom and `tool-language` util). Implementation complete (Batches 26-28 committed); review on `ec4347772..HEAD` pending (`code-logic-review-phase6.md`, `code-style-review-phase6.md`) |
 | 7 Hint, skill, measurement, eager gate | 29-32 | code-logic |
 | 8 Visual verification (V1) | 33 | visual (visual-reviewer subagent); no code-logic |
 
@@ -1765,7 +1765,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 
 - `npx jest -c libs/frontend/chat-ui/jest.config.ts libs/frontend/chat-ui/src/lib/utils/tool-language.utils.spec.ts libs/frontend/chat-ui/src/lib/atoms/copy-text-button.component.spec.ts libs/frontend/chat-ui/src/lib/molecules/tool-execution/code-output.component.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -n 40 && npx nx typecheck @ptah-extension/chat-ui --parallel=1 2>&1 | tail -n 20 && npx nx lint @ptah-extension/chat-ui --parallel=1 2>&1 | tail -n 20`
 
-## Batch 27: P2 tool-call header and tool-call item — COMPLETE (commit PENDING_SHA; deviations ruled in decisions #122-#124)
+## Batch 27: P2 tool-call header and tool-call item — COMPLETE (commit f70499432; deviations ruled in decisions #122-#124)
 
 - Recommended executor: frontend-developer
 - Fallback executor: general-purpose subagent
@@ -1841,7 +1841,7 @@ override (`^vscode$`, `^marked$`) to each Jest run when the default config fails
 5. `npx nx lint @ptah-extension/chat-ui --parallel=1 2>&1 | tail -n 20`
 6. `npx nx lint @ptah-extension/chat --parallel=1 2>&1 | tail -n 20`
 
-## Batch 28: P3 diff, input and output displays — IN_PROGRESS
+## Batch 28: P3 diff, input and output displays — COMPLETE (commit PENDING_SHA; deviations ruled in decisions #125-#128, fix verified #130; Phase 6 implementation complete, review pending)
 
 - Recommended executor: frontend-developer
 - Fallback executor: general-purpose subagent
@@ -1881,21 +1881,30 @@ override (`^vscode$`, `^marked$`) to each Jest run when the default config fails
     `{ provide: VSCodeService, useValue: { isElectron } }`; file opening through `FILE_LINK_OPENER` in both.
   - Existing spec cases stay green unedited; only add cases.
 
-### Task 28.1: diff display (+/− counts, gutter) — IN_PROGRESS
+### Task 28.1: diff display (+/− counts, gutter) — COMPLETE
 
 - Files:
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\molecules\tool-execution\diff-display.component.ts
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\molecules\tool-execution\diff-display.component.spec.ts
 - Quality requirements: R7.6; keeps path link, replacements badge, `max-h-64`.
+- Mode 2 result (decision #125): NOT ACCEPTED as built — dead `formattedDiff`. Fix (same executor, these two files
+  only): delete `formattedDiff`, `generateUnifiedDiff` and the `fenceCodeBlock` import from the component; delete the
+  original spec case "fences a diff beyond the longest backtick run in either input" (reason recorded in #125: it pins
+  only dead code; `code-fence.spec.ts` keeps the fence contract); add one case in the `describe.each([true, false])`
+  block: `old_string` = three backticks, `new_string` = ten backticks + `\n<div class="fixed">x</div>` -> both render
+  verbatim as `.diff-code` text and no `div.fixed` element exists; drop `provideMarkdown()` /
+  `provideSurfaceActiveTesting()` from the diff spec only if it passes without them. Then re-run the three checks.
+- Fix result (decision #130): verified on disk and accepted; dead code and the pinned spec case gone, new case in
+  `describe.each([true, false])`, `provideMarkdown()` / `provideSurfaceActiveTesting()` dropped.
 
-### Task 28.2: tool input display (full command, Write preview) — IN_PROGRESS
+### Task 28.2: tool input display (full command, Write preview) — COMPLETE
 
 - Files:
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\molecules\tool-execution\tool-input-display.component.ts
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\molecules\tool-execution\tool-input-display.component.spec.ts
 - Quality requirements: R7.2, R7.7; trivial-input hiding, 60-char truncation for other params, retention notice kept.
 
-### Task 28.3: tool output display — IN_PROGRESS
+### Task 28.3: tool output display — COMPLETE
 
 - Files:
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\molecules\tool-execution\tool-output-display.component.ts
@@ -2080,5 +2089,8 @@ Run ONE AT A TIME (memory-safe rules, CLAUDE.md), from the worktree root, with t
   totals (decision #63); an evicted chip has no open button (decision #61); user-approved in decision #91: each
   Files row has one action, "Review"/"Resolve", no "Open file" pill (#83); summary stat cards have no sparklines or
   trend pills (#85); Lines/Tokens/Cost/Duration cards expand to a short detail, R6.1 amended (#86); the Turn summary
-  subtitle reads "host-built" only (#88).
+  subtitle reads "host-built" only (#88). Pending the #127 peer review: the Edit meta bar has no "Lines 41-46" (diff
+  gutter numbers lines within the snippet) and the Write meta reads "N lines", not "New file - N lines" (#127).
+- Shared path link (#128): record the diff-header `ptah-file-path-link` with a long path at chat-narrow (360); it
+  ellipsises (`truncate`) where design-spec.md:140 wants wrapping. A defect there is a named later task (shared atom).
 - Plan reference: implementation-plan.md:1324-1345, 1420

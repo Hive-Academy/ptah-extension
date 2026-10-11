@@ -1,6 +1,8 @@
 import { provideSurfaceActiveTesting } from '@ptah-extension/core/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideMarkdown } from 'ngx-markdown';
+import { Clipboard } from '@angular/cdk/clipboard';
+import { FILE_LINK_OPENER, VSCodeService } from '@ptah-extension/core';
 import type {
   ExecutionNode,
   NodeRetentionNotice,
@@ -199,3 +201,158 @@ describe('ToolOutputDisplayComponent — retention marker', () => {
     });
   });
 });
+
+/** Classes that would let a block scroll sideways (decision #119, R9.5). */
+const HORIZONTAL_SCROLL =
+  '.overflow-x-auto, .overflow-x-scroll, .whitespace-nowrap';
+
+describe.each([true, false])(
+  'ToolOutputDisplayComponent — routing, notices and wrapping (isElectron=%s)',
+  (isElectron) => {
+    let fixture: ComponentFixture<ToolOutputDisplayComponent>;
+    let open: jest.Mock;
+
+    function node(partial: Partial<ExecutionNode>): ExecutionNode {
+      return {
+        id: 'n1',
+        type: 'tool',
+        status: 'complete',
+        content: null,
+        children: [],
+        startTime: 0,
+        toolName: 'Bash',
+        ...partial,
+      } as ExecutionNode;
+    }
+
+    function render(partial: Partial<ExecutionNode>): HTMLElement {
+      fixture.componentRef.setInput('node', node(partial));
+      fixture.detectChanges();
+      return fixture.nativeElement as HTMLElement;
+    }
+
+    const edit: Partial<ExecutionNode> = {
+      toolName: 'Edit',
+      toolInput: {
+        file_path: '/repo/src/source.ts',
+        old_string: 'a',
+        new_string: 'b'.repeat(400),
+      },
+    };
+
+    const longOutput = Array.from(
+      { length: 20 },
+      (_, i) => `line ${i} ` + 'o'.repeat(i * 30),
+    ).join('\n');
+
+    beforeEach(async () => {
+      open = jest.fn().mockResolvedValue(undefined);
+      await TestBed.configureTestingModule({
+        imports: [ToolOutputDisplayComponent],
+        providers: [
+          provideSurfaceActiveTesting(),
+          provideMarkdown(),
+          { provide: Clipboard, useValue: { copy: jest.fn() } },
+          { provide: FILE_LINK_OPENER, useValue: { open } },
+          { provide: VSCodeService, useValue: { isElectron } },
+        ],
+      }).compileComponents();
+      fixture = TestBed.createComponent(ToolOutputDisplayComponent);
+    });
+
+    it('routes TodoWrite to the todo list', () => {
+      const host = render({
+        toolName: 'TodoWrite',
+        toolInput: {
+          todos: [
+            { content: 'Ship it', status: 'pending', activeForm: 'Shipping' },
+          ],
+        },
+        toolOutput: 'ok',
+      });
+
+      expect(host.querySelector('ptah-todo-list-display')).not.toBeNull();
+      expect(host.querySelector('ptah-diff-display')).toBeNull();
+      expect(host.querySelector('ptah-code-output')).toBeNull();
+    });
+
+    it('routes Edit to the diff, with the replacement count from the output', () => {
+      const host = render({
+        ...edit,
+        toolOutput: {
+          message: 'ok',
+          replacements: 3,
+          file_path: '/repo/src/source.ts',
+        },
+      });
+
+      expect(host.querySelector('ptah-diff-display')).not.toBeNull();
+      expect(host.querySelector('ptah-code-output')).toBeNull();
+      expect(host.textContent).toContain('3 replacements');
+    });
+
+    it('routes Edit to the diff even before any output arrives', () => {
+      const host = render(edit);
+
+      expect(host.querySelector('ptah-diff-display')).not.toBeNull();
+      expect(host.textContent).toContain('1 replacement');
+    });
+
+    it('routes other tools to the code output', () => {
+      const host = render({ toolOutput: 'ok' });
+
+      expect(host.querySelector('ptah-code-output')).not.toBeNull();
+      expect(host.querySelector('ptah-diff-display')).toBeNull();
+    });
+
+    it('keeps the retention notice and the error alert', () => {
+      const host = render({
+        toolOutput: 'partial',
+        retention: {
+          droppedChars: 5,
+          capped: ['toolOutput'],
+          foldFailed: false,
+        },
+        error: 'exit code 2',
+      });
+
+      expect(host.textContent).toContain('Output truncated');
+      expect(host.querySelector('ptah-error-alert')?.textContent).toContain(
+        'exit code 2',
+      );
+    });
+
+    it('never carries a horizontal-scroll class, in any state', () => {
+      let host = render({ toolOutput: longOutput });
+      const toggle = host.querySelector(
+        'ptah-code-output button[aria-expanded]',
+      ) as HTMLButtonElement;
+      expect(toggle.getAttribute('aria-expanded')).toBe('false');
+      expect(host.querySelectorAll(HORIZONTAL_SCROLL)).toHaveLength(0);
+
+      toggle.click();
+      fixture.detectChanges();
+      expect(toggle.getAttribute('aria-expanded')).toBe('true');
+      expect(host.querySelectorAll(HORIZONTAL_SCROLL)).toHaveLength(0);
+
+      host = render(edit);
+      expect(host.querySelector('ptah-diff-display')).not.toBeNull();
+      expect(host.querySelectorAll(HORIZONTAL_SCROLL)).toHaveLength(0);
+
+      host = render({
+        toolName: 'TodoWrite',
+        toolInput: {
+          todos: [
+            {
+              content: 't'.repeat(300),
+              status: 'in_progress',
+              activeForm: 'Working',
+            },
+          ],
+        },
+        toolOutput: 'ok',
+      });
+      expect(host.querySelectorAll(HORIZONTAL_SCROLL)).toHaveLength(0);
+    });
+  },
+);
