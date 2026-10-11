@@ -398,7 +398,9 @@ describe('AppStateManager', () => {
       service.openSkillsDivergedClones();
       await settle();
 
-      expect(navigate).toHaveBeenCalledWith('thoth', ['skills']);
+      expect(navigate).toHaveBeenCalledWith('thoth', ['skills'], {
+        replaceUrl: false,
+      });
       expect(router.url).toBe('/thoth/skills');
       expect(service.currentView()).toBe('thoth');
       expect(service.consumeSkillsDivergedRequest()).toBe(true);
@@ -420,10 +422,15 @@ describe('AppStateManager', () => {
       expect(router.url).toBe('/thoth/memory');
       service.setThothActiveTab('cron');
       const setTab = jest.spyOn(service, 'setThothActiveTab');
+      const navigate = jest.spyOn(surfaceRouter, 'navigateToSurface');
 
       service.openSkillsDivergedClones();
       await settle();
 
+      // A tab switch inside Thoth replaces the history entry (D6).
+      expect(navigate).toHaveBeenCalledWith('thoth', ['skills'], {
+        replaceUrl: true,
+      });
       expect(router.url).toBe('/thoth/skills');
       expect(service.currentView()).toBe('thoth');
       // The Thoth shell records the tab on settle; this method never writes it.
@@ -1552,7 +1559,7 @@ describe('AppStateManager', () => {
 
       service.openMarketplace({ page: 'overview' });
       await settle();
-      expect(navigate).toHaveBeenCalledWith('marketplace', ['overview']);
+      expect(navigate).toHaveBeenCalledWith('marketplace', ['overview'], {});
       expect(router.url).toBe('/marketplace/overview');
     });
   });
@@ -1588,7 +1595,7 @@ describe('AppStateManager', () => {
       service.setCurrentView('tasks');
       await settle();
 
-      expect(navigate).toHaveBeenCalledWith('tasks', []);
+      expect(navigate).toHaveBeenCalledWith('tasks', [], {});
       expect(service.currentView()).toBe('tasks');
     });
 
@@ -1607,7 +1614,7 @@ describe('AppStateManager', () => {
       await settle();
 
       expect(navigate).toHaveBeenCalledTimes(1);
-      expect(navigate).toHaveBeenCalledWith('analytics', []);
+      expect(navigate).toHaveBeenCalledWith('analytics', [], {});
 
       // Owned again, so the next identical request is the no-op.
       service.setCurrentView('analytics');
@@ -1642,7 +1649,7 @@ describe('AppStateManager', () => {
       service.setCurrentView('analytics');
       await settle();
 
-      expect(navigate).toHaveBeenCalledWith('analytics', []);
+      expect(navigate).toHaveBeenCalledWith('analytics', [], {});
       expect(surfaceRouter.pendingSurface()).toBeNull();
       expect(service.currentView()).toBe('analytics');
     });

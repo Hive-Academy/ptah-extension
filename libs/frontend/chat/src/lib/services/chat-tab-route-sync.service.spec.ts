@@ -343,6 +343,35 @@ describe('ChatTabRouteSync', () => {
       expect(router.url).toBe(`/chat/${TAB_C}`);
     });
 
+    it('holds an id the legacy tabs already have active, against a load that activates another', async () => {
+      setUp([TAB_A], TAB_A, { workspace: null });
+      await router.navigateByUrl(`/chat/${TAB_A}`);
+      await settle();
+
+      // The workspace keeps A but its stored active tab is B.
+      tabManager.loadWorkspace('/ws', [TAB_A, TAB_B], TAB_B);
+      await settle();
+
+      expect(tabManager.switchTab).toHaveBeenLastCalledWith(TAB_A);
+      expect(tabManager.activeTabId()).toBe(TAB_A);
+      expect(router.url).toBe(`/chat/${TAB_A}`);
+      expect(settledUrls).toEqual([`/chat/${TAB_A}`]);
+    });
+
+    it('shows a legacy tab the URL names at once, and still holds it across the load', async () => {
+      setUp([TAB_A, TAB_C], TAB_A, { workspace: null });
+      await router.navigateByUrl(`/chat/${TAB_C}`);
+      await settle();
+      expect(tabManager.activeTabId()).toBe(TAB_C);
+
+      tabManager.loadWorkspace('/ws', [TAB_B, TAB_C], TAB_B);
+      await settle();
+
+      expect(tabManager.activeTabId()).toBe(TAB_C);
+      expect(router.url).toBe(`/chat/${TAB_C}`);
+      expect(settledUrls).toEqual([`/chat/${TAB_C}`]);
+    });
+
     it('corrects a malformed id at once, without waiting for the tabs', async () => {
       setUp([TAB_A], TAB_A, { workspace: null });
 

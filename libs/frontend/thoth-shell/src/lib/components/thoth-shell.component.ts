@@ -253,7 +253,8 @@ export class ThothShellComponent implements OnInit {
    *
    * Seeded synchronously from the snapshot, because
    * `SurfaceRouterService.remountActiveSurface` re-creates the shell on a
-   * workspace switch with no navigation, so no `NavigationEnd` follows it.
+   * workspace switch with no navigation, so no `NavigationEnd` follows it. A
+   * remount then moves it to the incoming workspace's remembered tab.
    */
   private readonly routeTab = signal<ThothActiveTabId | null>(
     this.tabOfRoute(),
@@ -286,13 +287,24 @@ export class ThothShellComponent implements OnInit {
     });
 
     // Tab memory is written at settle time only, never ahead of a navigation
-    // (TASK_2026_317 rule, as `MarketplaceShellComponent` does). A remount runs
-    // with the Router idle, so its seeded tab is already settled: record it now,
-    // against the workspace the shell was re-created for. Constructed during a
-    // navigation instead, the NavigationEnd below records it.
+    // (TASK_2026_317 rule, as `MarketplaceShellComponent` does). A shell built
+    // with the Router idle is a remount for a workspace switch: the URL still
+    // names the OUTGOING workspace's tab. The incoming workspace's remembered
+    // tab wins, and the URL is replaced to match. Recording the seeded tab
+    // instead would overwrite the incoming workspace's memory with it.
+    // Constructed during a navigation instead, the NavigationEnd below records
+    // the tab.
     const seeded = this.routeTab();
     if (seeded !== null && this.router.currentNavigation() === null) {
-      this.appState.setThothActiveTab(seeded);
+      const remembered = this.appState.thothActiveTab();
+      if (remembered !== seeded) {
+        this.routeTab.set(remembered);
+        void this.surfaceRouter.navigateToSurface(
+          THOTH_SURFACE_PATH,
+          [remembered],
+          { replaceUrl: true },
+        );
+      }
     }
 
     // Subscribed during construction, which happens while the Router is

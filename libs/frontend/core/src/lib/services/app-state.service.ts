@@ -608,11 +608,16 @@ export class AppStateManager implements MessageHandler {
   private requestSurface(
     surface: ViewType,
     subPath: readonly string[] = [],
+    extras: { readonly replaceUrl?: boolean } = {},
   ): Promise<SurfaceNavigationResult> {
     const generation = ++this._navigationGeneration;
     const workspacePath = this._activeWorkspacePath();
 
-    const navigation = this.surfaceRouter.navigateToSurface(surface, subPath);
+    const navigation = this.surfaceRouter.navigateToSurface(
+      surface,
+      subPath,
+      extras,
+    );
     void navigation.then((result) =>
       this.recordSettledSurface(generation, workspacePath, surface, result),
     );
@@ -1104,6 +1109,10 @@ export class AppStateManager implements MessageHandler {
    * request, so a later ordinary visit to Skills does not open the filter. It
    * clears only that request: a newer deep link raised while it was in flight
    * holds a different token and survives. `already-there` counts as landed.
+   *
+   * From another Thoth tab the navigation is a tab switch, so it replaces the
+   * URL (D6), as `ThothShellComponent.selectTab` does. From another surface it
+   * pushes.
    */
   openSkillsDivergedClones(): void {
     if (!this.canSwitchViews()) return;
@@ -1111,12 +1120,15 @@ export class AppStateManager implements MessageHandler {
       workspacePath: this._activeWorkspacePath(),
     };
     this._skillsDivergedRequest.set(request);
-    void this.requestSurface('thoth', ['skills']).then((result) => {
-      if (surfaceNavigationLanded(result)) return;
-      if (this._skillsDivergedRequest() === request) {
-        this._skillsDivergedRequest.set(null);
-      }
-    });
+    const replaceUrl = this.currentView() === 'thoth';
+    void this.requestSurface('thoth', ['skills'], { replaceUrl }).then(
+      (result) => {
+        if (surfaceNavigationLanded(result)) return;
+        if (this._skillsDivergedRequest() === request) {
+          this._skillsDivergedRequest.set(null);
+        }
+      },
+    );
   }
 
   /**

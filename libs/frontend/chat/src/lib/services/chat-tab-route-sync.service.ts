@@ -55,9 +55,10 @@ interface Correction {
  * Two orderings need more than that (review round 1):
  * - **Boot.** On Electron the workspace's tabs load only on the first
  *   `switchWorkspace`, which can come after the restored `/chat/<id>` has
- *   settled. A well-formed id that is not loaded yet is HELD, with the URL left
- *   as it is, until the tab set is ready; it is then switched to if it exists
- *   and corrected if not. A malformed id is corrected at once.
+ *   settled. A well-formed id is HELD, with the URL left as it is, until the
+ *   tab set is ready — also when the pre-load tab set already has it, since
+ *   the load can still change the active tab. It is then switched to if it
+ *   exists and corrected if not. A malformed id is corrected at once.
  * - **A tab change during a navigation.** A URL that lands after the user (or
  *   a workspace switch) changed the active tab is stale. It never switches the
  *   tab back; it is corrected toward the current active tab instead.
@@ -139,25 +140,36 @@ export class ChatTabRouteSync {
     }
 
     const activeTabId = this.tabManager.activeTabId();
+    // `stale`: this URL was chosen before the active tab last changed — it is
+    // our own correction landing late, or a navigation that was in flight
+    // across a tab switch. Selecting its tab would undo the newer choice.
+    const selectable =
+      !stale && urlTab !== null && TabId.validate(urlTab) ? urlTab : null;
+
+    if (selectable !== null && !this.tabsReady()) {
+      // Held even when the pre-load tab set has it, or it is already active:
+      // the workspace load can still replace the active tab, and the URL must
+      // win over that. A tab that exists now is shown meanwhile.
+      if (selectable !== activeTabId && this.isExistingTab(selectable)) {
+        this.tabManager.switchTab(selectable);
+      }
+      this.held = {
+        tabId: selectable,
+        activeAtHold: this.tabManager.activeTabId(),
+      };
+      return;
+    }
+
     if (urlTab === activeTabId) {
       this.held = null;
       return;
     }
 
-    // `stale`: this URL was chosen before the active tab last changed — it is
-    // our own correction landing late, or a navigation that was in flight
-    // across a tab switch. Selecting its tab would undo the newer choice.
-    if (!stale && urlTab !== null && TabId.validate(urlTab)) {
-      if (this.isExistingTab(urlTab)) {
-        this.held = null;
-        // The effect below then sees the URL already naming this tab.
-        this.tabManager.switchTab(urlTab);
-        return;
-      }
-      if (!this.tabsReady()) {
-        this.held = { tabId: urlTab, activeAtHold: activeTabId };
-        return;
-      }
+    if (selectable !== null && this.isExistingTab(selectable)) {
+      this.held = null;
+      // The effect below then sees the URL already naming this tab.
+      this.tabManager.switchTab(selectable);
+      return;
     }
 
     this.held = null;

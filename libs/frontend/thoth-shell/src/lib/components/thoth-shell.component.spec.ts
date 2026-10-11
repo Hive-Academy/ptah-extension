@@ -390,13 +390,11 @@ describe('ThothShellComponent', () => {
       expect(appState.setThothActiveTab.mock.calls).toEqual([['cron']]);
     });
 
-    it('seeds the tab from the route snapshot when remounted with no navigation', async () => {
+    it('keeps the seeded tab when a remount finds it already remembered', async () => {
       const first = await harness.navigateByUrl(
         '/thoth/cron',
         ThothShellComponent,
       );
-      // The workspace switched to remembers another tab.
-      activeTabSignal.set('memory');
       appState.setThothActiveTab.mockClear();
 
       TestBed.inject(SurfaceRouterService).remountActiveSurface();
@@ -406,9 +404,33 @@ describe('ThothShellComponent', () => {
       expect(remounted).not.toBe(first);
       // Synchronous: no NavigationEnd follows a remount.
       expect(remounted.activeTab()).toBe('cron');
-      // The Router is idle, so the seeded tab is settled and recorded.
-      expect(appState.setThothActiveTab).toHaveBeenCalledWith('cron');
+      expect(appState.setThothActiveTab).not.toHaveBeenCalled();
       expect(router.url).toBe('/thoth/cron');
+    });
+
+    it("moves a remount to the incoming workspace's remembered tab and replaces the URL", async () => {
+      await harness.navigateByUrl('/thoth/skills', ThothShellComponent);
+      // The workspace switched to remembers another tab.
+      activeTabSignal.set('cron');
+      appState.setThothActiveTab.mockClear();
+      const location = TestBed.inject(Location) as SpyLocation;
+      const changesBefore = location.urlChanges.length;
+      const settled = nextNavigationEnd();
+
+      TestBed.inject(SurfaceRouterService).remountActiveSurface();
+
+      const remounted = outletShell();
+      // The outgoing workspace's tab is never shown or written.
+      expect(remounted.activeTab()).toBe('cron');
+      expect(appState.setThothActiveTab).not.toHaveBeenCalledWith('skills');
+
+      await settled;
+      expect(router.url).toBe('/thoth/cron');
+      expect(remounted.activeTab()).toBe('cron');
+      expect(appState.setThothActiveTab).not.toHaveBeenCalledWith('skills');
+      expect(location.urlChanges.slice(changesBefore)).toEqual([
+        'replace: /thoth/cron',
+      ]);
     });
   });
 
