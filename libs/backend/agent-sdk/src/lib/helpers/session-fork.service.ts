@@ -1,9 +1,6 @@
 import { injectable, inject } from 'tsyringe';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
-import type {
-  ISessionOrganizationRecorder,
-  IWorkspaceProvider,
-} from '@ptah-extension/platform-core';
+import type { ISessionOrganizationRecorder } from '@ptah-extension/platform-core';
 import type { SessionId, MessageAnchorHint } from '@ptah-extension/shared';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
@@ -56,8 +53,6 @@ export class SessionForkService {
     private readonly historyReader: SessionHistoryReaderService,
     @inject(SDK_TOKENS.SDK_SESSION_LIFECYCLE_MANAGER)
     private readonly sessionLifecycle: SessionLifecycleManager,
-    @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
-    private readonly workspaceProvider: IWorkspaceProvider,
     @inject(TOKENS.SENTRY_SERVICE)
     private readonly sentryService: SentryService,
     /**
@@ -91,13 +86,20 @@ export class SessionForkService {
         );
       }
 
+      // The fork belongs to the source's project, never the active folder:
+      // with two projects open that would file it under the wrong one
+      // (PTAH-37). Checked before the SDK call so a failure leaves no
+      // orphan transcript behind.
       const sourceMetadata = await this.metadataStore.get(sessionId);
-      // eslint-disable-next-line no-restricted-properties -- MP-3 pending (PTAH-37)
-      const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
-      const forkWorkspacePath = sourceMetadata?.workspaceId ?? workspaceRoot;
+      const forkWorkspacePath = sourceMetadata?.workspaceId?.trim();
+      if (!forkWorkspacePath) {
+        throw new SdkError(
+          `Cannot fork session ${sessionId}: it has no saved project folder. Forking would create a metadata record the sidebar and authorization layer would reject.`,
+        );
+      }
 
       let resolvedUpToMessageId: string | undefined = upToMessageId;
-      if (upToMessageId !== undefined && forkWorkspacePath) {
+      if (upToMessageId !== undefined) {
         resolvedUpToMessageId = await this.historyReader.resolveNativeMessageId(
           sessionId,
           forkWorkspacePath,
@@ -121,7 +123,7 @@ export class SessionForkService {
         title,
         // Pin the project directory so the SDK reads the same transcript the
         // resolver validated against, instead of relying on a global scan.
-        ...(forkWorkspacePath ? { dir: forkWorkspacePath } : {}),
+        dir: forkWorkspacePath,
       });
 
       const suffix = kind === 'rewind' ? '(rewind)' : '(fork)';
@@ -131,15 +133,7 @@ export class SessionForkService {
           ? `${sourceMetadata.name} ${suffix}`
           : 'Forked session');
 
-      const workspaceId =
-        sourceMetadata?.workspaceId ??
-        // eslint-disable-next-line no-restricted-properties -- MP-3 pending (PTAH-37)
-        this.workspaceProvider.getWorkspaceRoot();
-      if (!workspaceId) {
-        throw new SdkError(
-          `Cannot fork session ${sessionId}: source metadata has no workspaceId and no active workspace folder is open. Forking would create a poisoned metadata record that the sidebar and authorization layer would reject.`,
-        );
-      }
+      const workspaceId = forkWorkspacePath;
       await this.metadataStore.create(
         result.sessionId,
         workspaceId,
@@ -210,9 +204,9 @@ export class SessionForkService {
     // same way fork does. Best-effort: if resolution fails (e.g. the line is
     // not yet flushed), fall back to the raw id rather than blocking the rewind.
     const sourceMetadata = await this.metadataStore.get(sessionId);
-    const rewindWorkspacePath =
-      // eslint-disable-next-line no-restricted-properties -- MP-3 pending (PTAH-37)
-      sourceMetadata?.workspaceId ?? this.workspaceProvider.getWorkspaceRoot();
+    // The session's own project, not the active folder (PTAH-37). Without
+    // one the raw id is used, as for any failed resolution.
+    const rewindWorkspacePath = sourceMetadata?.workspaceId?.trim();
     let resolvedUserMessageId = userMessageId;
     if (rewindWorkspacePath) {
       try {
