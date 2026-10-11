@@ -28,3 +28,20 @@ Team-leader decisions taken while verifying batches. Each names the batch, the c
 - Why: the service is built by a factory, not decorator injection; without the line the optional
   queue is never supplied in production and `release`/`clearAll` would clear nothing (Task 3.2's
   requirement). `MainThreadNoticeQueue` is registered earlier in the same file (Batch 1).
+
+## D4 (Batch 4): `SessionHandoverRuntime.subagentsInFlight` becomes required (in Task 5.2)
+
+- Finding: the executor made the method optional (`subagentsInFlight?(id): number`) so that
+  `session-lifecycle/session-stream-pump.service.spec.ts:290`, whose `attachRuntime({...})` literal
+  sits outside the batch, keeps compiling.
+- Judgement: optional is safe at runtime. The coordinator reads
+  `this.runtime?.subagentsInFlight?.(id) ?? 0`, so a missing method counts as 0 subagents, which is
+  the pre-batch behaviour. The only production runtime (`session-lifecycle-manager.ts:502`) supplies
+  it, and the lifecycle spec asserts the count. So Batch 4 is accepted and committed (833e5dadd).
+- Choice: still make it required, and add `subagentsInFlight: jest.fn().mockReturnValue(0)` to the
+  stream-pump spec mock. This is Task 5.2, not a Batch 4 rejection.
+- Why: with an optional member, a runtime that forgets the method fails open without any signal.
+  The work-in-flight gate this task adds is then disabled, and a handover cuts off running
+  subagents. A required member lets the compiler catch that. The fix is one line in a test-only file
+  in the same lib, so "outside the batch" is a scoping reason, not a design reason. It goes in
+  Batch 5 because that batch already precedes the Phase 1 review and is small (2 libs, 4 files).

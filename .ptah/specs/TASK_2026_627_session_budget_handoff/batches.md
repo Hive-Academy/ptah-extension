@@ -1,6 +1,6 @@
 # Batches - TASK_2026_627
 
-Total tasks: 20 | Batches: 9 (Batch 0 to Batch 8) | Complete: 4/9
+Total tasks: 21 | Batches: 9 (Batch 0 to Batch 8) | Complete: 5/9
 
 Worktree: `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff` (branch
 `fix/session-budget-handoff`). Every executor works only there, never in the main checkout
@@ -336,7 +336,7 @@ Edge cases:
 - `npx jest -c libs/backend/agent-sdk/jest.config.ts <session-handoff-builder.spec.ts> <session-budget.service.spec.ts> --coverage=false --maxWorkers=2`,
   then `npx nx typecheck @ptah-extension/agent-sdk --parallel=1`.
 
-## Batch 4: Handover coordinator gates, shared contract, lifecycle runtime — IN_PROGRESS
+## Batch 4: Handover coordinator gates, shared contract, lifecycle runtime — COMPLETE (833e5dadd)
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer, fresh session
@@ -351,7 +351,7 @@ Edge cases:
   `libs/backend/agent-sdk/src/lib/di/register.ts`; plus one doc-comment line in
   `libs/shared/src/lib/types/session-budget.types.ts` (comment only, carried from Batch 3; decisions.md D2)
 
-### Task 4.1: Shared contract — `waitingFor` and `source-unavailable` (Component 6) — IN_PROGRESS
+### Task 4.1: Shared contract — `waitingFor` and `source-unavailable` (Component 6) — COMPLETE
 
 - File: MODIFY `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff\libs\shared\src\lib\types\session-handover.types.ts`
 - Also (from Batch 3, comment only): in `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff\libs\shared\src\lib\types\session-budget.types.ts:319`
@@ -363,7 +363,7 @@ Edge cases:
 - Validation notes: no shared parser exists for this state; the webview guard
   (`libs/frontend/chat/src/lib/services/session-handover-client.service.ts:10-20`) needs no change.
 
-### Task 4.2: Coordinator — work-in-flight gate, one-click confirm, source check, prompt, logging (Component 5) — IN_PROGRESS
+### Task 4.2: Coordinator — work-in-flight gate, one-click confirm, source check, prompt, logging (Component 5) — COMPLETE
 
 - Depends on: Task 4.1
 - Files: MODIFY `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff\libs\backend\agent-sdk\src\lib\helpers\session-handoff\session-handover-coordinator.service.ts`
@@ -382,7 +382,7 @@ Edge cases:
 - Validation notes: lane provider throw → 0 lanes, one WARN. `cancelledAutomaticSources` unchanged.
   Spec cases listed in plan :290-297, including the R6 and R7 regressions.
 
-### Task 4.3: Lifecycle runtime — `subagentsInFlight` and `armHandoverIfIdle` (lifecycle part of Component 3) — IN_PROGRESS
+### Task 4.3: Lifecycle runtime — `subagentsInFlight` and `armHandoverIfIdle` (lifecycle part of Component 3) — COMPLETE
 
 - Depends on: Task 4.2 (the runtime interface gains the method)
 - Files: MODIFY `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff\libs\backend\agent-sdk\src\lib\helpers\session-lifecycle-manager.ts`
@@ -398,23 +398,59 @@ Edge cases:
 - Validation notes: do NOT add the `sessionBudget.onTurnTerminal` call (Batch 8) and do NOT touch
   `sdk-agent-adapter.ts` (626 also changes it; its caller is Batch 8).
 
+### Batch 4 result
+
+- Verified on disk by the team-leader: `SessionHandoverState.waitingFor?` and the
+  `'unavailable' | 'source-unavailable'` begin error; seed comment says 14,200 (D2 closed).
+  Coordinator: `armAtTerminal` gates only `budget-auto` (created or in `waiting-for-turn-end`, not
+  user-confirmed) on `workInFlight` and publishes `waiting-for-turn-end` with `waitingFor` without
+  holding inputs; `waitingFor` is cleared when armed; `budget-limit` is never gated.
+  `setLaneWorkProvider` mirrors `setResourceLeaseProvider` (disposer only clears its own provider);
+  a throwing provider counts 0 lanes with one WARN. `request('successor')` on a live budget
+  operation calls `confirmBudgetOperation` (awaiting-confirmation or idle waiting → writing-handoff
+  + `complete`; mid-turn → `userConfirmed`, which skips the gate and `awaiting-confirmation` at the
+  next terminal). `begin` returns `source-unavailable` before creating anything. New structured
+  `HANDOFF_REQUEST_PROMPT` keeps "Do not call tools". Optional `TOKENS.LOGGER`, INFO on every
+  `publish`. Lifecycle: `attachRuntime` supplies `subagentsInFlight` (unique `toolCallId`s over
+  source id, `realSessionId`, `tabId`, running + live background); `armHandoverIfIdle` is a no-op
+  without record/coordinator or mid-turn and never calls `markTurnEnded`.
+- In scope: `di/register.ts` +1 line passes `c.resolve<Logger>(TOKENS.LOGGER)` to the coordinator
+  factory; without it the coordinator never logs in production.
+- Accepted deviation, tightened in Task 5.2: `SessionHandoverRuntime.subagentsInFlight` was made
+  optional to avoid editing `session-stream-pump.service.spec.ts`. Safe at runtime (missing → 0,
+  i.e. pre-batch behaviour; the only production runtime supplies it), but it lets a future runtime
+  silently disable the gate. See decisions.md D4.
+- Accepted: `agentHandoff` is ignored when `begin` confirms an existing budget operation
+  (`Operation.agentHandoff` is readonly; the coordinator still asks the agent for its handoff).
+  The lane provider's `tabId` falls back to the source id when there is no snapshot.
+- Carried forward: frontend copy for `source-unavailable`
+  (`libs/frontend/chat/src/lib/services/session-budget-actions.service.ts:216`) is Task 6.1;
+  nothing re-arms a gated `budget-auto` after the last background subagent ends with no later
+  parent turn until Batch 8 wires `armHandoverIfIdle`.
+- Checks re-run by the team-leader: Jest on the coordinator, lifecycle and stream-pump specs — 3
+  suites, 97 tests passed. Typecheck `@ptah-extension/agent-sdk` passed. Typecheck
+  `@ptah-extension/shared` passed. Lint (reported by the executor): 0 errors, 52 warnings, equal to
+  the baseline (the coordinator stays under `max-lines`).
+
 ### Batch 4 verification
 
 - `npx jest -c libs/backend/agent-sdk/jest.config.ts <session-handover-coordinator.service.spec.ts> <session-lifecycle-manager.spec.ts> --coverage=false --maxWorkers=2`,
   then `npx nx typecheck @ptah-extension/agent-sdk --parallel=1`, then
   `npx nx typecheck @ptah-extension/shared --parallel=1` (one at a time).
 
-## Batch 5: Lane work provider in cli-agent-runtime (Component 7) — PENDING
+## Batch 5: Lane work provider in cli-agent-runtime (Component 7) — IN_PROGRESS
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer, fresh session
 - Execution mode: sequential
-- Rationale: one service and its spec in another lib; needs `setLaneWorkProvider` from Batch 4
-- Tasks: 1 | Depends on: Batch 4
+- Rationale: one service and its spec in another lib; needs `setLaneWorkProvider` from Batch 4.
+  Task 5.2 (added at Batch 4 verification, decisions.md D4) is a two-file tightening in agent-sdk;
+  the batch stays at 2 libs and 4 files
+- Tasks: 2 | Depends on: Batch 4
 - Phase: 1 (Backend gates) | Phase review: code-logic + style (new public `setLaneWorkProvider`,
   shared contract change), on the combined diff of Batches 1-5
 
-### Task 5.1: `AgentProcessManager` registers the lane work provider — PENDING
+### Task 5.1: `AgentProcessManager` registers the lane work provider — IN_PROGRESS
 
 - Files: MODIFY `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff\libs\backend\cli-agent-runtime\src\lib\cli-agents\agent-process-manager.service.ts`
   and `…\agent-process-manager.service.spec.ts`
@@ -426,10 +462,27 @@ Edge cases:
 - Validation notes: no coordinator → nothing registered. `'running'` is the only non-terminal
   `AgentStatus` (verified).
 
+### Task 5.2: Make `SessionHandoverRuntime.subagentsInFlight` required — IN_PROGRESS
+
+- Files: MODIFY `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff\libs\backend\agent-sdk\src\lib\helpers\session-handoff\session-handover-coordinator.service.ts`
+  and `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff\libs\backend\agent-sdk\src\lib\helpers\session-lifecycle\session-stream-pump.service.spec.ts`
+- Source: decisions.md D4 (Batch 4 verification)
+- Quality requirements: in the interface, `subagentsInFlight(sourceSessionId: string): number;`
+  (drop the `?` and the "Optional so test runtimes…" sentence; keep "Running plus background
+  subagents of the source"); in `workInFlight`, call `this.runtime?.subagentsInFlight(sourceSessionId) ?? 0`
+  (the runtime itself may still be null). In the stream-pump spec's `coordinator.attachRuntime({...})`
+  literal (near line 290), add `subagentsInFlight: jest.fn().mockReturnValue(0),`. Update any
+  `runtime.subagentsInFlight?.(` call in `session-lifecycle-manager.spec.ts` and the coordinator spec
+  only if the typecheck requires it.
+- Validation notes: no behaviour change; the production lifecycle runtime already supplies the method.
+
 ### Batch 5 verification
 
 - `npx jest -c libs/backend/cli-agent-runtime/jest.config.ts libs/backend/cli-agent-runtime/src/lib/cli-agents/agent-process-manager.service.spec.ts --coverage=false --maxWorkers=2`,
   then `npx nx typecheck @ptah-extension/cli-agent-runtime --parallel=1`.
+- For Task 5.2 (after the above, one at a time):
+  `npx jest -c libs/backend/agent-sdk/jest.config.ts libs/backend/agent-sdk/src/lib/helpers/session-handoff/session-handover-coordinator.service.spec.ts libs/backend/agent-sdk/src/lib/helpers/session-lifecycle/session-stream-pump.service.spec.ts libs/backend/agent-sdk/src/lib/helpers/session-lifecycle-manager.spec.ts --coverage=false --maxWorkers=2`,
+  then `npx nx typecheck @ptah-extension/agent-sdk --parallel=1`.
 
 ## Batch 6: Frontend — never stuck at the limit (Component 9) — PENDING
 
