@@ -292,9 +292,17 @@ export class ToolInputDisplayComponent {
     return typeof content === 'string' ? content : '';
   });
 
-  protected readonly writeLineCount = computed(
-    () => this.writeContent().replace(/\n$/, '').split('\n').length,
+  /**
+   * The Write content split into lines. Line terminators are CRLF, CR or LF;
+   * a trailing terminator does not start an extra line.
+   */
+  private readonly writeLines = computed((): string[] =>
+    this.writeContent()
+      .replace(/(?:\r\n|\r|\n)$/, '')
+      .split(/\r\n|\r|\n/),
   );
+
+  protected readonly writeLineCount = computed(() => this.writeLines().length);
 
   protected readonly writeLanguageLabel = computed(() => {
     const toolInput = this.node()?.toolInput;
@@ -315,12 +323,13 @@ export class ToolInputDisplayComponent {
   /**
    * Whether the Write preview is taller than its collapsed limit. Estimated
    * from wrapped rows (no layout measurement), the same rule as code-output
-   * (decision #118). A preview that is not collapsible is never clipped: it
-   * keeps the `max-h-96` scroll.
+   * (decision #118), over the same lines as the line count (CRLF, CR or LF
+   * terminators, so a `\r` never widens a row). A preview that is not
+   * collapsible is never clipped: it keeps the `max-h-96` scroll.
    */
   protected readonly writePreviewCollapsible = computed(() => {
     let rows = 0;
-    for (const line of this.writeContent().split('\n')) {
+    for (const line of this.writeLines()) {
       rows += Math.max(1, Math.ceil(line.length / WRAP_CHARS));
       if (rows > PREVIEW_ROWS) return true;
     }

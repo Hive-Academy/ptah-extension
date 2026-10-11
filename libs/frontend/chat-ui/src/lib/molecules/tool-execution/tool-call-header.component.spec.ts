@@ -358,5 +358,39 @@ describe.each([true, false])(
       expect(document.activeElement).toBe(toggle(host));
       host.remove();
     });
+
+    // Batch 28F.2 / decision #131(d): the collapsed path is one line.
+    const longPath =
+      '/repo/' + 'deeply-nested-directory/'.repeat(7) + 'component-renderer.spec.ts';
+
+    it.each([
+      ['Read', { file_path: longPath }],
+      ['Write', { file_path: longPath, content: 'x' }],
+      [
+        'Edit',
+        { file_path: longPath, old_string: 'a', new_string: 'b' },
+      ],
+    ] as const)(
+      'keeps a collapsed %s path on one line and wraps it when expanded',
+      (toolName, toolInput) => {
+        expect(longPath).toHaveLength(200);
+        const pathSpan = (host: HTMLElement): HTMLElement =>
+          host.querySelector('[data-testid="tool-file-path"]') as HTMLElement;
+
+        let path = pathSpan(render({ toolName, toolInput, toolOutput: 'ok' }));
+        expect(path.classList.contains('truncate')).toBe(true);
+        expect(path.classList.contains('break-all')).toBe(false);
+        expect(path.classList.contains('flex-1')).toBe(true);
+        expect(path.classList.contains('min-w-0')).toBe(true);
+        expect(path.getAttribute('title')).toBe(longPath);
+
+        path = pathSpan(
+          render({ toolName, toolInput, toolOutput: 'ok' }, false),
+        );
+        expect(path.classList.contains('truncate')).toBe(false);
+        expect(path.classList.contains('break-all')).toBe(true);
+        expect(path.getAttribute('title')).toBe(longPath);
+      },
+    );
   },
 );

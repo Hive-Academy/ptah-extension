@@ -498,5 +498,60 @@ describe.each([true, false])(
         'Input truncated',
       );
     });
+
+    // Batch 28F.1: CRLF, CR and LF all end a line; `\r` never widens a row and
+    // a trailing terminator is not an extra line.
+    const crlfLines = (count: number): string =>
+      Array.from({ length: count }, () => 'w'.repeat(100) + '\r\n').join('');
+
+    function lineCountText(host: HTMLElement): string | undefined {
+      return host
+        .querySelector('[data-testid="write-preview-lines"]')
+        ?.textContent?.replace(/\s+/g, ' ')
+        .trim();
+    }
+
+    it('shows no toggle for 11 CRLF-terminated lines of 100 characters and counts 11 lines', () => {
+      const host = renderOpen(write(crlfLines(11)));
+
+      expect(previewToggle(host)).toBeNull();
+      expect(host.textContent).not.toContain('Show all');
+      expect(previewBlock(host).classList).not.toContain('is-clipped');
+      expect(previewBlock(host).classList).toContain('max-h-96');
+      expect(lineCountText(host)).toBe('11 lines');
+    });
+
+    it('shows the toggle for 12 CRLF-terminated lines of 100 characters', () => {
+      const host = renderOpen(write(crlfLines(12)));
+
+      expect(previewToggle(host)?.textContent?.trim()).toBe(
+        'Show all 12 lines',
+      );
+      expect(previewBlock(host).classList).toContain('is-clipped');
+      expect(lineCountText(host)).toBe('12 lines');
+    });
+
+    it('reports "Show all 11 lines" for 11 CRLF-terminated longer lines', () => {
+      const content = Array.from(
+        { length: 11 },
+        () => 'v'.repeat(150) + '\r\n',
+      ).join('');
+      const host = renderOpen(write(content));
+
+      expect(previewToggle(host)?.textContent?.trim()).toBe(
+        'Show all 11 lines',
+      );
+      expect(lineCountText(host)).toBe('11 lines');
+    });
+
+    it('counts lines separated by a lone CR', () => {
+      const content = Array.from({ length: 5 }, () => 'r'.repeat(60)).join(
+        '\r',
+      );
+      const host = renderOpen(write(content));
+
+      expect(lineCountText(host)).toBe('5 lines');
+      expect(previewToggle(host)).toBeNull();
+    });
   },
 );

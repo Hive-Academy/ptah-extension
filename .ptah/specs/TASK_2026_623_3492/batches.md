@@ -1,6 +1,6 @@
 # Batches - TASK_2026_623_3492
 
-Total tasks: 79 | Batches: 38 (incl. fix batches 6F, 12F, 15F, 21F, post-cap correction 12F2) | Complete: 33/38
+Total tasks: 82 | Batches: 39 (incl. fix batches 6F, 12F, 15F, 21F, 28F, post-cap correction 12F2) | Complete: 34/39
 
 Worktree root `W` = `D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel` (branch
 `feat/task-623-display-panel`, base `70f995a56`). Every path below is absolute.
@@ -1841,7 +1841,7 @@ override (`^vscode$`, `^marked$`) to each Jest run when the default config fails
 5. `npx nx lint @ptah-extension/chat-ui --parallel=1 2>&1 | tail -n 20`
 6. `npx nx lint @ptah-extension/chat --parallel=1 2>&1 | tail -n 20`
 
-## Batch 28: P3 diff, input and output displays — COMPLETE (commit PENDING_SHA; deviations ruled in decisions #125-#128, fix verified #130; Phase 6 implementation complete, review pending)
+## Batch 28: P3 diff, input and output displays — COMPLETE (commit f96a6d5a7; deviations ruled in decisions #125-#128, fix verified #130; Phase 6 implementation complete, review pending)
 
 - Recommended executor: frontend-developer
 - Fallback executor: general-purpose subagent
@@ -1920,6 +1920,93 @@ Run ONE AT A TIME (memory-safe rules, CLAUDE.md), from the worktree root, with t
 2. `npx nx typecheck @ptah-extension/chat-ui --parallel=1 2>&1 | tail -n 20`
 3. `npx nx lint @ptah-extension/chat-ui --parallel=1 2>&1 | tail -n 20` (baseline 0 errors / 9 warnings)
 - Phase 6 code-logic + style review due after commit
+- Phase 6 review result (decision #133): code-logic REVISE 6/10 (2 Moderate, CRLF row estimate), style APPROVED
+  WITH NOTES 8/10 (0 findings). One fix round: Batch 28F.
+
+## Batch 28F: Phase 6 fix round — CRLF row estimate, collapsed header path, diff snippet gutter — COMPLETE (commit PENDING_SHA; spec edit ruled #134; Phase 6 code-logic re-review pending)
+
+- Recommended executor: frontend-developer (fresh sub-agent)
+- Fallback executor: general-purpose subagent
+- Execution mode: sequential
+- Rationale: four small edits in four sibling molecules of one directory, each with its own spec; one scoped Jest
+  run covers them. 8 files exceeds the 6-file cap by ruling #133(e) (single fix batch allowed per phase).
+- Tasks: 3 | Depends on: Batch 28 (f96a6d5a7)
+- Phase: 6 (fix round) | Phase review: one scoped Codex code-logic re-review on the 28F commit
+  (`code-logic-review-phase6-fix.md`); no style re-review (#133(f))
+- Executor writes `batch-28F-report.md` in the task folder; does not edit `batches.md`, `decisions.md`, or commit.
+- Constraints (all tasks):
+  - Edit only the 8 files listed below. `chat-ui/src/index.ts`, `tool-language.utils.ts`, the copy button,
+    `tool-call-item`, `tool-output-display` and anything in `libs/frontend/chat` stay unchanged.
+  - Existing spec cases stay green unedited; only add cases. New cases go inside the existing
+    `describe.each([true, false])` blocks (decision #8, `VSCodeService` `isElectron` both ways, `FILE_LINK_OPENER`).
+  - No `isElectron` gating; no horizontal-scroll or `whitespace-nowrap` on code/diff/input/output blocks (#119).
+    `truncate` on the collapsed header path is allowed: it is a one-line header label, not a code block, and mirrors
+    the Bash command row (#131(d)).
+  - `tool-input-display.component.ts` stays under 500 lines (#133(b)).
+  - No TODO, stub or placeholder; no new exported symbol.
+
+### Task 28F.1: CRLF-safe row estimate (code-logic Moderates 1 and 2) — COMPLETE
+
+- Files:
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\molecules\tool-execution\code-output.component.ts
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\molecules\tool-execution\code-output.component.spec.ts
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\molecules\tool-execution\tool-input-display.component.ts
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\molecules\tool-execution\tool-input-display.component.spec.ts
+- Review reference: `code-logic-review-phase6.md` findings 1-2; explicit check 7.
+- Implementation details: `collapsible` (`code-output.component.ts:182-189`) and `writePreviewCollapsible`
+  (`tool-input-display.component.ts:321-328`) split on `/\r\n|\r|\n/` instead of `'\n'`; the Write line count
+  (`tool-input-display.component.ts:295-297`) uses the same line split (trailing line terminator, CRLF or LF, still
+  not counted as an extra line). Update the doc comments to say line terminators are CRLF, CR or LF.
+- Acceptance (spec cases, each in both `isElectron` values):
+  - code-output: 6 CRLF-terminated lines of exactly 100 characters -> not collapsible (no "Show full output",
+    not clipped); 7 such lines -> collapsible; empty output -> not collapsible; one single 701-character line ->
+    collapsible (wrapped-row count).
+  - tool-input-display: Write content of 11 CRLF lines of exactly 100 characters -> not collapsible / not clipped;
+    12 such lines -> collapsible; "Show all N lines" reports 11 (not 12) for 11 CRLF-terminated lines; lone-CR
+    content counts its lines.
+
+### Task 28F.2: collapsed header file path one line (decision #131(d)) — COMPLETE
+
+- Files:
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\molecules\tool-execution\tool-call-header.component.ts
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\molecules\tool-execution\tool-call-header.component.spec.ts
+- Pattern to follow: the Bash command row in the same file (`tool-call-header.component.ts:246-266`:
+  `[class.truncate]="isCollapsed()"`, wrap classes only when `!isCollapsed()`, `[title]`).
+- Implementation details: the `data-testid="tool-file-path"` span (`:127-140`) uses `truncate` (one line,
+  ellipsis) while `isCollapsed()` and `break-all` only while expanded; `[title]="filePath()"` kept in both states;
+  it stays `flex-1 min-w-0` (Tailwind `flex-1` is `flex: 1 1 0%`, so the path shrinks instead of wrapping to its own
+  line) and the language badge stays `flex-shrink-0`. File name stays visible first, directory muted after it.
+- Acceptance (spec, both `isElectron` values): collapsed Read/Write/Edit with a 200-character path -> path span has
+  `truncate`, lacks `break-all`, `title` equals the full path; after expanding -> lacks `truncate`, has `break-all`,
+  `title` unchanged. Height <= 36 px at 360 px is asserted in Batch 33 Task 33.3, not here (jsdom has no layout).
+
+### Task 28F.3: diff gutter labelled as snippet line numbers (decision #132) and CRLF split — COMPLETE
+
+- Files:
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\molecules\tool-execution\diff-display.component.ts
+  - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat-ui\src\lib\molecules\tool-execution\diff-display.component.spec.ts
+- Implementation details: add a visible caption "Snippet lines" (muted, `text-[10px]`, `data-testid` e.g.
+  `diff-gutter-caption`) in the diff header row or above the gutter; `blockLabel` becomes
+  `Diff of <name>, line numbers count within the replaced snippet`. Gutter numbers stay `aria-hidden` and keep
+  their current ordinals; no file-relative range is computed or shown (inputs carry no file offset, #132).
+  `splitLines` (`:24-26`) splits on `/\r\n|\r|\n/` so no `\r` remains in `.diff-code` text and counts are unchanged.
+- Acceptance (spec, both `isElectron` values): the caption text "Snippet lines" is rendered; the region's
+  `aria-label` contains "line numbers count within the replaced snippet"; the rendered text contains no
+  file-relative range (no "line N of", no `L<n>-<m>`); a CRLF `old_string`/`new_string` gives `.diff-code` texts
+  without `\r` and the same -/+ counts as the LF equivalent.
+
+### Batch 28F verification
+
+Run ONE AT A TIME (memory-safe rules, CLAUDE.md), from the worktree root, in bash, with the command-line override
+`--moduleNameMapper='{"^vscode$":"<rootDir>/../../../__mocks__/vscode.ts","^marked$":"D:/projects/ptah-extension/node_modules/marked/lib/marked.umd.js"}'` on the Jest run:
+
+1. `npx jest -c libs/frontend/chat-ui/jest.config.ts libs/frontend/chat-ui/src/lib/molecules/tool-execution --coverage=false --maxWorkers=2 2>&1 | tail -n 40`
+   (baseline 6 suites / 174 tests before 28F; all pass, count grows by the new cases)
+2. `npx nx typecheck @ptah-extension/chat-ui --parallel=1 2>&1 | tail -n 20`
+3. `npx nx lint @ptah-extension/chat-ui --parallel=1 2>&1 | tail -n 20` (baseline 0 errors / 8 warnings; none new
+   in the 8 batch files)
+- Team-leader commits 28F (8 files plus `batches.md`), then the orchestrator runs the scoped Codex code-logic
+  re-review on that commit. Phase 6 ACCEPTED when it approves.
 
 ## Batch 29: A1 prompt hint and no-write-back fixtures — PENDING
 

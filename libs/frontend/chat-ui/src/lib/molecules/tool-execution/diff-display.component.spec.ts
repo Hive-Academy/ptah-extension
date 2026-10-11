@@ -139,13 +139,65 @@ describe.each([true, false])(
       const block = host.querySelector('[role="region"]') as HTMLElement;
 
       expect(block.getAttribute('tabindex')).toBe('0');
-      expect(block.getAttribute('aria-label')).toBe('Diff of source.ts');
+      expect(block.getAttribute('aria-label')).toBe(
+        'Diff of source.ts, line numbers count within the replaced snippet',
+      );
       expect(block.classList).toContain('max-h-64');
       expect(block.classList).toContain('overflow-y-auto');
       expect(host.querySelectorAll(HORIZONTAL_SCROLL)).toHaveLength(0);
       expect(
         host.querySelector('[data-kind="added"] .diff-code')?.textContent,
       ).toBe(longLine);
+    });
+
+    // Batch 28F.3 / decision #132: the gutter counts within the snippet.
+    it('captions the gutter as snippet lines and names it in the region label', () => {
+      const host = render(edit);
+      const caption = host.querySelector(
+        '[data-testid="diff-gutter-caption"]',
+      ) as HTMLElement;
+      const block = host.querySelector('[role="region"]') as HTMLElement;
+
+      expect(caption.textContent?.trim()).toBe('Snippet lines');
+      expect(caption.classList).toContain('text-[10px]');
+      expect(caption.classList).toContain('text-base-content-muted');
+      expect(block.getAttribute('aria-label')).toContain(
+        'line numbers count within the replaced snippet',
+      );
+    });
+
+    it('shows no file-relative line range', () => {
+      const text = render(edit).textContent ?? '';
+
+      expect(text).not.toMatch(/line \d+ of/i);
+      expect(text).not.toMatch(/L\d+-\d+/);
+    });
+
+    it('splits CRLF strings with no \\r left and the same counts as LF', () => {
+      const lf = {
+        ...edit,
+        old_string: 'const a = 1;\nconst b = 2;\nconst c = 3;',
+        new_string: 'const a = 4;\nconst b = 5;',
+      };
+      const crlf = {
+        ...lf,
+        old_string: lf.old_string.replace(/\n/g, '\r\n'),
+        new_string: lf.new_string.replace(/\n/g, '\r\n'),
+      };
+      const snapshot = (host: HTMLElement) => ({
+        codes: Array.from(host.querySelectorAll('.diff-code')).map(
+          (code) => code.textContent,
+        ),
+        counts: host.querySelector('[data-testid="diff-counts"] .sr-only')
+          ?.textContent,
+      });
+
+      const fromLf = snapshot(render(lf));
+      const fromCrlf = snapshot(render(crlf));
+
+      expect(fromCrlf.codes.some((code) => code?.includes('\r'))).toBe(false);
+      expect(fromCrlf).toEqual(fromLf);
+      expect(fromCrlf.counts).toBe('3 lines removed, 2 lines added');
     });
   },
 );

@@ -123,9 +123,12 @@ interface CommandOutcome {
         }
 
         <!-- Target (file or generic) - HIDDEN during streaming to avoid redundancy -->
+        <!-- File path: one line while collapsed, wraps when expanded -->
         @if (node().status !== 'streaming' && filePath()) {
           <span
-            class="flex-1 min-w-0 font-mono text-[10px] break-all"
+            class="flex-1 min-w-0 font-mono text-[10px]"
+            [class.truncate]="isCollapsed()"
+            [class.break-all]="!isCollapsed()"
             [title]="filePath()"
             data-testid="tool-file-path"
           >

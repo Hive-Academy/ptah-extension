@@ -345,5 +345,44 @@ describe.each([true, false])(
       expect(outer).toHaveBeenCalledTimes(1);
       expect(block.classList).toContain('is-clipped');
     });
+
+    // Batch 28F.1: CRLF, CR and LF all end a line; `\r` never widens a row.
+    const crlfLines = (count: number): string =>
+      Array.from({ length: count }, () => 'x'.repeat(100) + '\r\n').join('');
+
+    it('shows no toggle for 6 CRLF-terminated lines of 100 characters', () => {
+      const host = render({ toolName: 'Bash', toolOutput: crlfLines(6) });
+      expect(host.querySelector('button[aria-expanded]')).toBeNull();
+      expect(host.textContent).not.toContain('Show full output');
+      expect(host.querySelector('[role="region"]')?.classList).not.toContain(
+        'is-clipped',
+      );
+    });
+
+    it('shows the toggle for 7 CRLF-terminated lines of 100 characters', () => {
+      const host = render({ toolName: 'Bash', toolOutput: crlfLines(7) });
+      expect(
+        host.querySelector('button[aria-expanded]')?.textContent?.trim(),
+      ).toBe('Show full output');
+      expect(host.querySelector('[role="region"]')?.classList).toContain(
+        'is-clipped',
+      );
+    });
+
+    it('shows no toggle for empty output', () => {
+      const host = render({ toolName: 'Bash', toolOutput: '' });
+      expect(host.querySelector('button[aria-expanded]')).toBeNull();
+      expect(host.querySelector('[role="region"]')?.classList).not.toContain(
+        'is-clipped',
+      );
+    });
+
+    it('shows the toggle for one 701-character line (wrapped rows)', () => {
+      const host = render({ toolName: 'Bash', toolOutput: 'x'.repeat(701) });
+      expect(host.querySelector('button[aria-expanded]')).not.toBeNull();
+      expect(host.querySelector('[role="region"]')?.classList).toContain(
+        'is-clipped',
+      );
+    });
   },
 );

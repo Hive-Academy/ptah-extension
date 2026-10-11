@@ -15,14 +15,20 @@ import {
 /** One rendered diff row: removed rows first, then added rows. */
 interface DiffRow {
   kind: 'removed' | 'added';
-  /** 1-based line number within the old (removed) or new (added) text. */
+  /**
+   * 1-based line number within the old (removed) or new (added) snippet, not
+   * within the file: the Edit input carries no file offset (decision #132).
+   */
   lineNumber: number;
   text: string;
 }
 
-/** Lines of an Edit string; an empty string has none. */
+/**
+ * Lines of an Edit string; an empty string has none. Line terminators are
+ * CRLF, CR or LF, so no `\r` is left in a row's text.
+ */
 function splitLines(value: string | undefined): string[] {
-  return value ? value.split('\n') : [];
+  return value ? value.split(/\r\n|\r|\n/) : [];
 }
 
 /**
@@ -79,6 +85,12 @@ function splitLines(value: string | undefined): string[] {
             {{ replacements() }} replacement{{ replacements() > 1 ? 's' : '' }}
           </span>
         }
+        <!-- Gutter numbers count within the snippet; Edit input has no file offset -->
+        <span
+          class="text-[10px] text-base-content-muted"
+          data-testid="diff-gutter-caption"
+          >Snippet lines</span
+        >
       </div>
 
       <div
@@ -178,6 +190,6 @@ export class DiffDisplayComponent {
   protected readonly blockLabel = computed(() => {
     const path = (this.filePath() ?? '').replace(/\\/g, '/');
     const name = path.split('/').pop() || 'file';
-    return `Diff of ${name}`;
+    return `Diff of ${name}, line numbers count within the replaced snippet`;
   });
 }

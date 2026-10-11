@@ -177,10 +177,12 @@ export class CodeOutputComponent {
    * Whether the output is taller than the collapsed limit. Estimated from
    * wrapped rows (no layout measurement, so no observer per tool row). Every
    * language wraps, so each line counts `max(1, ceil(length / WRAP_CHARS))`.
-   * A block that is not collapsible is never clipped (it keeps `max-h-48`).
+   * Line terminators are CRLF, CR or LF, so a `\r` never adds to a line's
+   * length. A block that is not collapsible is never clipped (it keeps
+   * `max-h-48`).
    */
   protected readonly collapsible = computed(() => {
-    const lines = this.plainOutput().split('\n');
+    const lines = this.plainOutput().split(/\r\n|\r|\n/);
     let rows = 0;
     for (const line of lines) {
       rows += Math.max(1, Math.ceil(line.length / WRAP_CHARS));
