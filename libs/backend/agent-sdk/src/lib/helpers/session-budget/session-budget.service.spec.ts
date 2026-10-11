@@ -17,7 +17,10 @@ import type {
   SessionStatsEntry,
 } from '@ptah-extension/shared';
 import { SESSION_BUDGET_DEFAULT_CONFIG } from './session-budget-config.provider';
-import type { SessionHandoffDocument } from './session-handoff-builder';
+import {
+  sessionHandoffSeed,
+  type SessionHandoffDocument,
+} from './session-handoff-builder';
 import {
   SESSION_BUDGET_NO_WINDOW_TARGET,
   SessionBudgetService,
@@ -90,6 +93,8 @@ interface Harness {
   getWorkspace: jest.Mock;
   build: jest.Mock;
   write: jest.Mock;
+  /** The writer's `read`: the handoff file on disk, `null` by default. */
+  read: jest.Mock;
   /** The context-usage port's `getLast`. */
   getLast: jest.Mock;
   notices: MainThreadNoticeQueue;
@@ -120,6 +125,11 @@ function harness(initial: Partial<SessionBudgetConfig> = {}): Harness {
   const write = jest.fn(async (sessionId: string) => ({
     path: `/home/.ptah/handoffs/${sessionId}.md`,
   }));
+  const read = jest.fn(
+    async (
+      _sessionId: string,
+    ): Promise<{ path: string; content: string } | null> => null,
+  );
 
   const getLast = jest.fn(
     (_sessionId: string): ContextUsageReading | undefined => undefined,
@@ -145,7 +155,7 @@ function harness(initial: Partial<SessionBudgetConfig> = {}): Harness {
       getSessionWorkspace: getWorkspace,
     } as unknown as SessionBudgetSessionControl,
     { build } as unknown as SessionBudgetHandoffBuilder,
-    { write } as unknown as SessionBudgetHandoffWriter,
+    { write, read } as unknown as SessionBudgetHandoffWriter,
     advisor,
     notices,
   );
@@ -162,6 +172,7 @@ function harness(initial: Partial<SessionBudgetConfig> = {}): Harness {
     getWorkspace,
     build,
     write,
+    read,
     getLast,
     notices,
   };
@@ -819,10 +830,57 @@ describe('SessionBudgetService.act', () => {
         errorCode: 'NO_SESSION_BUDGET_STATE',
       });
     }
-    // No transcript read, no file written (so the writer's prune never ran).
+    // No transcript read, no file written (so the writer's prune never ran);
+    // preview only looked for a handoff file and found none.
     expect(h.build).not.toHaveBeenCalled();
     expect(h.getWorkspace).not.toHaveBeenCalled();
     expect(h.write).not.toHaveBeenCalled();
+    expect(h.read).toHaveBeenCalledWith(OTHER);
+  });
+
+  // TASK_2026_627 6F S1: the rotate fallback runs after the session ended and
+  // `release` dropped its entry; the handoff file written at the stage survives.
+  it('preview-handoff for a released session returns the persisted handoff file', async () => {
+    const h = harness();
+    h.service.observe(at(10, 1));
+    h.service.release(SID);
+    const path = `/home/.ptah/handoffs/${SID}.md`;
+    h.read.mockResolvedValue({ path, content: '# Persisted' });
+
+    const result = await h.service.act(SID, 'preview-handoff');
+
+    expect(result).toEqual({
+      success: true,
+      handoff: {
+        content: '# Persisted',
+        seed: sessionHandoffSeed('# Persisted'),
+        path,
+      },
+    });
+    expect(result.handoff?.seed).toContain('# Persisted');
+    expect(h.read).toHaveBeenCalledWith(SID);
+    expect(h.build).not.toHaveBeenCalled();
+    expect(h.write).not.toHaveBeenCalled();
+  });
+
+  it('preview-handoff for a released session with no handoff file reports no state', async () => {
+    const h = harness();
+    h.service.observe(at(10, 1));
+    h.service.release(SID);
+
+    expect(await h.service.act(SID, 'preview-handoff')).toEqual({
+      success: false,
+      error: 'No budget state for this session',
+      errorCode: 'NO_SESSION_BUDGET_STATE',
+    });
+    expect(h.build).not.toHaveBeenCalled();
+  });
+
+  it('preview-handoff for a live session never reads the file', async () => {
+    const h = harness();
+    h.service.observe(at(10, 1));
+    await h.service.act(SID, 'preview-handoff');
+    expect(h.read).not.toHaveBeenCalled();
   });
 
   it('M5: write-handoff for a released session fails and writes nothing', async () => {

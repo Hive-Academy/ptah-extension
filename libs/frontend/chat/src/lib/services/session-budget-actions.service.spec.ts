@@ -66,6 +66,11 @@ describe('SessionBudgetActionsService (TASK_2026_597 N7)', () => {
     const tabId = signal<string | null>('tab-abc');
     const handoverTab = { queuedContent: ' queued follow-up ' };
     const clearQueuedContentAndOptionsMock = jest.fn();
+    const showWarningMock = jest.fn();
+    const switchTabMock = jest.fn();
+    const findTabMock = jest.fn(
+      (_id: string): { tab: typeof handoverTab } | null => ({ tab: handoverTab }),
+    );
 
     TestBed.configureTestingModule({
       providers: [
@@ -73,7 +78,7 @@ describe('SessionBudgetActionsService (TASK_2026_597 N7)', () => {
         { provide: ClaudeRpcService, useValue: { call: rpcCallMock } },
         {
           provide: ActionBannerService,
-          useValue: { showError: showErrorMock },
+          useValue: { showError: showErrorMock, showWarning: showWarningMock },
         },
         {
           provide: TabManagerService,
@@ -81,8 +86,9 @@ describe('SessionBudgetActionsService (TASK_2026_597 N7)', () => {
             createTab: createTabMock,
             clearSessionBudget: clearSessionBudgetMock,
             activeWorkspacePath: '/ws',
-            findTabByIdAcrossWorkspaces: jest.fn(() => ({ tab: handoverTab })),
+            findTabByIdAcrossWorkspaces: findTabMock,
             clearQueuedContentAndOptions: clearQueuedContentAndOptionsMock,
+            switchTab: switchTabMock,
           },
         },
         {
@@ -119,8 +125,29 @@ describe('SessionBudgetActionsService (TASK_2026_597 N7)', () => {
       handoverTab,
       clearQueuedContentAndOptionsMock,
       clearSessionBudgetMock,
+      showWarningMock,
+      switchTabMock,
+      findTabMock,
     };
   }
+
+  /** A handover that failed because the coordinator found no source. */
+  function recordSourceUnavailableFailure(): void {
+    TestBed.inject(SessionHandoverClientService).record(SESSION, {
+      ...HANDOVER,
+      phase: 'failed',
+      revision: 2,
+      error: 'source session unavailable',
+    });
+  }
+
+  const NO_STATE = {
+    success: false,
+    error: 'No budget state for this session',
+    errorCode: 'NO_SESSION_BUDGET_STATE',
+  };
+  const NO_HANDOFF_NOTICE =
+    'The previous session has ended and no handoff could be built for it. This new session starts without its context.';
 
   afterEach(() => {
     TestBed.resetTestingModule();
@@ -443,6 +470,111 @@ describe('SessionBudgetActionsService (TASK_2026_597 N7)', () => {
       expect.objectContaining({ sourceSessionId: SESSION }),
     );
     expect(h.createTabMock).not.toHaveBeenCalled();
+  });
+
+  // 627 6F S1: the session ended, so the host released its budget entry and
+  // the webview may already have cleared the card.
+  it('Retry for an ended source with no budget card still asks the host and opens a seeded tab', async () => {
+    const h = setup(null);
+    recordSourceUnavailableFailure();
+    h.rpcCallMock.mockResolvedValue(
+      rpcOk({
+        success: true,
+        handoff: { content: '# H', path: `/h/${SESSION}.md`, seed: 'FILE SEED' },
+      }),
+    );
+
+    await h.service.continueInNewSession();
+
+    expect(h.rpcCallMock).toHaveBeenCalledWith('session:budgetAction', {
+      sessionId: SESSION,
+      action: 'preview-handoff',
+    });
+    expect(h.createTabMock).toHaveBeenCalledTimes(1);
+    expect(h.requestComposerPrefillMock).toHaveBeenCalledWith('FILE SEED', null);
+    expect(h.showWarningMock).not.toHaveBeenCalled();
+    expect(h.service.busy()).toBe(false);
+  });
+
+  it('an ended source with no handoff still opens a new tab, with a visible notice', async () => {
+    const h = setup();
+    h.rpcCallMock
+      .mockResolvedValueOnce(rpcOk({ accepted: false, error: 'source-unavailable' }))
+      .mockResolvedValueOnce(rpcOk(NO_STATE));
+
+    await h.service.continueInNewSession();
+
+    expect(h.createTabMock).toHaveBeenCalledTimes(1);
+    expect(h.requestComposerPrefillMock).not.toHaveBeenCalled();
+    expect(h.showWarningMock).toHaveBeenCalledWith(NO_HANDOFF_NOTICE, 'tab-new');
+    // The host no longer tracks the session: its stale card is cleared.
+    expect(h.clearSessionBudgetMock).toHaveBeenCalledWith('tab-abc', SESSION);
+    expect(h.service.busy()).toBe(false);
+  });
+
+  it('an ended source whose preview call throws still opens a new tab, with the notice', async () => {
+    const h = setup();
+    recordSourceUnavailableFailure();
+    h.rpcCallMock.mockRejectedValue(new Error('transport closed'));
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    await h.service.continueInNewSession();
+
+    expect(h.createTabMock).toHaveBeenCalledTimes(1);
+    expect(h.showWarningMock).toHaveBeenCalledWith(NO_HANDOFF_NOTICE, 'tab-new');
+    expect(warn).toHaveBeenCalled();
+    expect(h.service.busy()).toBe(false);
+    warn.mockRestore();
+  });
+
+  // 627 6F M1: one tab per gone source, however often Retry is pressed.
+  it('a second Retry after the fallback switches to the tab it opened', async () => {
+    const h = setup();
+    recordSourceUnavailableFailure();
+    h.rpcCallMock.mockResolvedValue(
+      rpcOk({ success: true, handoff: { content: '# H', path: null, seed: 'SEED' } }),
+    );
+
+    await h.service.continueInNewSession();
+    await h.service.continueInNewSession();
+
+    expect(h.createTabMock).toHaveBeenCalledTimes(1);
+    expect(h.requestComposerPrefillMock).toHaveBeenCalledTimes(1);
+    expect(h.rpcCallMock).toHaveBeenCalledTimes(1);
+    expect(h.switchTabMock).toHaveBeenCalledWith('tab-new');
+  });
+
+  it('a second Continue after a refused begin switches to the tab it opened', async () => {
+    const h = setup();
+    h.rpcCallMock.mockImplementation(async (method: string) =>
+      method === 'session:beginHandover'
+        ? rpcOk({ accepted: false, error: 'source-unavailable' })
+        : rpcOk({ success: true, handoff: { content: '# H', path: null, seed: 'SEED' } }),
+    );
+
+    await h.service.continueInNewSession();
+    await h.service.continueInNewSession();
+
+    expect(h.createTabMock).toHaveBeenCalledTimes(1);
+    expect(h.switchTabMock).toHaveBeenCalledWith('tab-new');
+  });
+
+  it('opens a fresh tab when the one opened for the gone source was closed', async () => {
+    const h = setup();
+    recordSourceUnavailableFailure();
+    h.rpcCallMock.mockResolvedValue(
+      rpcOk({ success: true, handoff: { content: '# H', path: null, seed: 'SEED' } }),
+    );
+
+    await h.service.continueInNewSession();
+    h.findTabMock.mockImplementation((id: string) =>
+      id === 'tab-new' ? null : { tab: h.handoverTab },
+    );
+    h.createTabMock.mockReturnValue('tab-newer');
+    await h.service.continueInNewSession();
+
+    expect(h.createTabMock).toHaveBeenCalledTimes(2);
+    expect(h.switchTabMock).not.toHaveBeenCalled();
   });
 
   it('cancels an active handover to keep working', async () => {

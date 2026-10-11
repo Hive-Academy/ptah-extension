@@ -42,11 +42,19 @@ export interface SessionBudgetUsageSample {
 const USAGE_CAP = 60;
 
 /**
- * The coordinator's `failed` error when the source session no longer exists
- * (`session-handover-coordinator.service.ts`). Not part of the shared
- * contract, so it is matched as published.
+ * The handover `failed` error published when the source session no longer
+ * exists. Backend source: `SessionHandoverCoordinator.complete()`, the
+ * `fail(operation, 'source session unavailable')` call in
+ * `libs/backend/agent-sdk/src/lib/helpers/session-handoff/session-handover-coordinator.service.ts`.
+ * Not part of the shared contract, so it is matched as published; if that
+ * wording changes, Retry falls through to `session:beginHandover`, which
+ * refuses with `source-unavailable` and still reaches the rotate fallback.
  */
 const SOURCE_UNAVAILABLE_FAILURE = 'source session unavailable';
+
+/** Shown in the new tab when the ended source left no handoff to seed it. */
+const NO_HANDOFF_NOTICE =
+  'The previous session has ended and no handoff could be built for it. This new session starts without its context.';
 
 const NO_VIEW: SessionBudgetView = {
   activeTab: signal(null),
@@ -111,6 +119,10 @@ export class SessionBudgetActionsService {
   private readonly _usage = signal<readonly SessionBudgetUsageSample[]>([]);
   readonly usage = this._usage.asReadonly();
   private usageSessionId: string | null = null;
+
+  /** The tab the gone-source fallback opened, so a repeat click reuses it. */
+  private goneSourceTab: { sourceSessionId: string; tabId: string } | null =
+    null;
 
   constructor() {
     effect(() => {
@@ -208,7 +220,9 @@ export class SessionBudgetActionsService {
       handover?.phase === 'failed' &&
       handover.error === SOURCE_UNAVAILABLE_FAILURE
     ) {
-      await this.rotateSession();
+      await this.continueFromGoneSource(sessionId);
+      // Deliberately skips the queued-input transfer below: no handover runs,
+      // so the queued text stays in this tab's composer (deferred 627-L9).
       return;
     }
     const queuedInput = this.tabManager
@@ -249,8 +263,8 @@ export class SessionBudgetActionsService {
     } finally {
       this._busy.set(false);
     }
-    // After `finally`: the rotate runs its own busy-guarded budget action.
-    if (sourceGone) await this.rotateSession();
+    // After `finally`: the fallback runs its own busy-guarded preview call.
+    if (sourceGone) await this.continueFromGoneSource(sessionId);
   }
 
   /** Release the backend-held transfer and keep the source session active. */
@@ -290,6 +304,69 @@ export class SessionBudgetActionsService {
     const { tabId, grid } = this.openTabForHandoff();
     // Only canvas tiles have SESSION_CONTEXT; null targets the main panel.
     this.appState.requestComposerPrefill(seed, grid ? tabId : null);
+  }
+
+  /**
+   * The source can never be handed over, so the user always gets a new tab:
+   * seeded with the best handoff the host still has (the live budget's, or
+   * the file written at the handoff or limit stage), else empty with a
+   * visible notice. One tab per source: while the tab opened for it is still
+   * open, a repeated Continue or Retry switches to it instead (627 6F M1).
+   * Asks the host by session id, so it works after the budget card cleared.
+   */
+  private async continueFromGoneSource(sessionId: string): Promise<void> {
+    const opened = this.goneSourceTab;
+    if (
+      opened?.sourceSessionId === sessionId &&
+      this.tabManager.findTabByIdAcrossWorkspaces(opened.tabId)
+    ) {
+      this.tabManager.switchTab(opened.tabId);
+      return;
+    }
+    if (this._busy()) return;
+    const seed = await this.goneSourceSeed(sessionId);
+    const { tabId, grid } = this.openTabForHandoff();
+    this.goneSourceTab = { sourceSessionId: sessionId, tabId };
+    if (seed) {
+      // Only canvas tiles have SESSION_CONTEXT; null targets the main panel.
+      this.appState.requestComposerPrefill(seed, grid ? tabId : null);
+      return;
+    }
+    this.actionBanner.showWarning(NO_HANDOFF_NOTICE, tabId);
+  }
+
+  /**
+   * `preview-handoff` for a source that is gone; `null` when the host has no
+   * handoff for it. A host without the session's budget means the session
+   * ended, so its stale card is cleared as {@link runAction} does.
+   */
+  private async goneSourceSeed(sessionId: string): Promise<string | null> {
+    this._busy.set(true);
+    try {
+      const result = await this.claudeRpc.call('session:budgetAction', {
+        sessionId,
+        action: 'preview-handoff',
+      });
+      const data = result.isSuccess() ? result.data : null;
+      const seed = data?.success ? data.handoff?.seed : undefined;
+      if (seed) return seed;
+      if (data?.errorCode === 'NO_SESSION_BUDGET_STATE') {
+        this.actionState.set(null);
+        const tabId = this.view().tabId();
+        if (tabId) this.tabManager.clearSessionBudget(tabId, sessionId);
+      }
+      console.warn('[SessionBudget] No handoff for the ended session', {
+        error: data?.error ?? result.error ?? 'no seed',
+      });
+      return null;
+    } catch (error: unknown) {
+      console.warn('[SessionBudget] Could not load the ended session handoff', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    } finally {
+      this._busy.set(false);
+    }
   }
 
   private tabBudget(): SessionBudgetState | null {

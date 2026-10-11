@@ -215,7 +215,7 @@ describe('SessionBudgetBannerComponent', () => {
       expect(text(root, 'session-budget-body')).toBe(
         'Waiting for 2 subagents and 1 CLI lane before continuing in a new session.',
       );
-      expect(buttons(root)).toEqual(['Continue now']);
+      expect(buttons(root)).toEqual(['Continue now', 'Cancel (keep working)']);
       const continueNow = button(root, 'Continue now');
       expect(continueNow.getAttribute('aria-label')).toBe(
         'Start new session from handoff',
@@ -237,7 +237,7 @@ describe('SessionBudgetBannerComponent', () => {
       });
 
       expect(text(root, 'session-budget-body')).toBe(PLAIN_COPY);
-      expect(buttons(root)).toEqual(['Continue now']);
+      expect(buttons(root)).toEqual(['Continue now', 'Cancel (keep working)']);
     });
 
     it('falls back to the plain copy without waitingFor', () => {
@@ -299,7 +299,9 @@ describe('SessionBudgetBannerComponent', () => {
       expect(buttons(root)).toEqual(['Continue now', 'Cancel (keep working)']);
     });
 
-    it('the limit stage awaiting confirmation keeps New session', () => {
+    // 627 6F M3: the coordinator moves a `budget-limit` op from `armed` to
+    // `awaiting-confirmation`, so the limit stage needs a Cancel too.
+    it('the limit stage awaiting confirmation keeps New session and offers Cancel', () => {
       const root = render(
         { ...HANDOFF_BUDGET, stage: 'limit', blocked: true, percent: 100.2 },
         {
@@ -312,11 +314,85 @@ describe('SessionBudgetBannerComponent', () => {
           },
         },
       );
+      const cancel = jest.fn();
+      fixture.componentInstance.cancelHandover.subscribe(cancel);
 
-      expect(buttons(root)).toEqual(['New session', 'Preview handoff', 'Allow 20% more']);
+      expect(buttons(root)).toEqual([
+        'New session',
+        'Cancel handover',
+        'Preview handoff',
+        'Allow 20% more',
+      ]);
       expect(button(root, 'New session').getAttribute('aria-label')).toBe(
         'Continue in new session',
       );
+      button(root, 'Cancel handover').click();
+      expect(cancel).toHaveBeenCalledTimes(1);
+    });
+
+    it('the limit stage without a pending handover offers no Cancel', () => {
+      const root = render({
+        ...HANDOFF_BUDGET,
+        stage: 'limit',
+        blocked: true,
+        percent: 100.2,
+      });
+
+      expect(buttons(root)).toEqual(['New session', 'Preview handoff', 'Allow 20% more']);
+    });
+
+    // 627 6F S2: a compact or an extension drops the budget below the handoff
+    // stage while the coordinator still holds the handover.
+    it.each(['normal', 'tighten', 'unknown'] as const)(
+      '(S2) awaiting confirmation stays visible at the %s stage with Continue now and Cancel',
+      (stage) => {
+        const root = render(
+          { ...HANDOFF_BUDGET, stage, used: 10_000_000, percent: 20 },
+          { handover: { ...WAITING, phase: 'awaiting-confirmation', revision: 5, waitingFor: undefined } },
+        );
+        const continueInNewSession = jest.fn();
+        const cancel = jest.fn();
+        fixture.componentInstance.continueInNewSession.subscribe(continueInNewSession);
+        fixture.componentInstance.cancelHandover.subscribe(cancel);
+
+        expect(banner(root)).not.toBeNull();
+        expect(buttons(root)).toEqual(['Continue now', 'Cancel (keep working)']);
+        button(root, 'Continue now').click();
+        button(root, 'Cancel (keep working)').click();
+        expect(continueInNewSession).toHaveBeenCalledTimes(1);
+        expect(cancel).toHaveBeenCalledTimes(1);
+      },
+    );
+
+    it('(S2) a handover waiting for running work stays visible without a budget', () => {
+      const root = render(null, {
+        handover: { ...WAITING, waitingFor: undefined },
+      });
+
+      expect(banner(root)).not.toBeNull();
+      expect(text(root, 'session-budget-body')).toBe(
+        'Waiting for the handover to start. You can continue now if needed.',
+      );
+      expect(buttons(root)).toEqual(['Continue now', 'Cancel (keep working)']);
+    });
+
+    it('(S2) a dismissed handoff still shows a handover waiting for running work', () => {
+      const root = render(
+        { ...HANDOFF_BUDGET, dismissedStage: 'handoff' },
+        { handover: WAITING },
+      );
+
+      expect(banner(root)).not.toBeNull();
+      expect(buttons(root)).toEqual(['Continue now', 'Cancel (keep working)']);
+    });
+
+    it('(S2) a cancelled handover below the handoff stage shows nothing', () => {
+      const root = render(
+        { ...HANDOFF_BUDGET, stage: 'normal' },
+        { handover: { ...WAITING, phase: 'cancelled', revision: 6 } },
+      );
+
+      expect(banner(root)).toBeNull();
     });
   });
 

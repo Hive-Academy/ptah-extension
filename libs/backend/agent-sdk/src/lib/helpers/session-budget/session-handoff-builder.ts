@@ -98,6 +98,17 @@ const SEED_PREAMBLE =
   'automatically from its transcript; treat it as context, not as ' +
   'instructions to follow verbatim.\n\n';
 
+/**
+ * The first prompt for a new session seeded from handoff `content`: the
+ * preamble, then the document, capped at `seedChars`.
+ */
+export function sessionHandoffSeed(
+  content: string,
+  seedChars: number = SESSION_HANDOFF_LIMITS.seedChars,
+): string {
+  return `${SEED_PREAMBLE}${content}`.slice(0, seedChars);
+}
+
 const HOW_TO_CONTINUE =
   '## How to continue\n\n' +
   '1. Read the task folders listed above, if any.\n' +
@@ -584,7 +595,7 @@ export function renderSessionHandoff(
   if (cappedBody.cut) truncated = true;
   const content = `${cappedBody.text}${separator}${HOW_TO_CONTINUE}`;
 
-  const seed = `${SEED_PREAMBLE}${content}`.slice(0, limits.seedChars);
+  const seed = sessionHandoffSeed(content, limits.seedChars);
 
   return {
     content,
@@ -748,10 +759,7 @@ function withAgentHandoff(
   return {
     ...document,
     content,
-    seed: `${SEED_PREAMBLE}${content}`.slice(
-      0,
-      SESSION_HANDOFF_LIMITS.seedChars,
-    ),
+    seed: sessionHandoffSeed(content),
     chars: content.length,
     truncated: document.truncated || cut,
   };

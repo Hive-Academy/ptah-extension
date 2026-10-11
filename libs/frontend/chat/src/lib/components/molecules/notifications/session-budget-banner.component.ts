@@ -93,7 +93,8 @@ const FOCUS =
  *
  * The notification starts at the configured handoff stage and may transition
  * into handover progress or failure. A dismissed handoff stays hidden until
- * the limit stage escalates it.
+ * the limit stage escalates it. A pending handover (awaiting confirmation or
+ * waiting for running work) is always shown, whatever the budget stage.
  */
 @Component({
   selector: 'ptah-session-budget-banner',
@@ -308,7 +309,7 @@ const FOCUS =
             >
               Continue now
             </button>
-            @if (awaitingConfirmation()) {
+            @if (pendingHandover()) {
               <button
                 type="button"
                 class="btn btn-xs btn-outline {{ focus }}"
@@ -328,6 +329,16 @@ const FOCUS =
             >
               New session
             </button>
+            @if (pendingHandover()) {
+              <button
+                type="button"
+                class="btn btn-xs btn-outline {{ focus }}"
+                [disabled]="busy()"
+                (click)="cancelHandover.emit()"
+              >
+                Cancel handover
+              </button>
+            }
             <button
               type="button"
               class="btn btn-xs btn-outline {{ focus }}"
@@ -454,30 +465,39 @@ export class SessionBudgetBannerComponent {
       return 'handover-progress';
     }
     const budget = this.budget();
+    // A pending handover is shown whatever the budget says: a compact, an
+    // extension or a dismissal must not leave it waiting unseen while the
+    // coordinator still holds (or is about to hold) the source (627 6F S2).
+    if (this.pendingHandover()) {
+      return budget?.stage === 'limit' ? 'limit' : 'handoff';
+    }
     if (!budget || (budget.stage !== 'handoff' && budget.stage !== 'limit')) {
       return null;
     }
-    // A handover waiting for the user's click is never hidden by a dismissal,
-    // or it would wait unseen (Batch 5F wait limit).
-    if (
-      budget.stage === 'handoff' &&
-      budget.dismissedStage === 'handoff' &&
-      handover?.phase !== 'awaiting-confirmation'
-    ) {
+    if (budget.stage === 'handoff' && budget.dismissedStage === 'handoff') {
       return null;
     }
     return budget.stage;
   });
 
   /**
-   * True while a handover at the handoff stage waits for the user (an
-   * automatic one past its work-in-flight wait limit). "Continue now"
+   * True while the coordinator keeps a handover for this session that the
+   * user can still confirm or cancel: `awaiting-confirmation` (it waits for
+   * the click) or `waiting-for-turn-end` (it waits for running work). The
+   * handoff and limit stages then offer "Continue now" and Cancel.
+   */
+  protected readonly pendingHandover = computed(() => {
+    const phase = this.handover()?.phase;
+    return phase === 'awaiting-confirmation' || phase === 'waiting-for-turn-end';
+  });
+
+  /**
+   * True while a handover waits for the user's click (an automatic one past
+   * its work-in-flight wait limit, or a budget-limit one). "Continue now"
    * confirms it; Cancel releases it.
    */
   protected readonly awaitingConfirmation = computed(
-    () =>
-      this.stage() === 'handoff' &&
-      this.handover()?.phase === 'awaiting-confirmation',
+    () => this.handover()?.phase === 'awaiting-confirmation',
   );
 
   /**
@@ -601,7 +621,6 @@ export class SessionBudgetBannerComponent {
       return this.handover()?.error ?? 'The handover did not complete. Your queued message remains in this composer.';
     }
     const budget = this.budget();
-    if (!budget || !stage) return '';
     if (stage === 'handoff') {
       const waiting = this.waitingFor();
       if (waiting) {
@@ -610,8 +629,12 @@ export class SessionBudgetBannerComponent {
       if (this.awaitingConfirmation()) {
         return 'Work is still running in this session. Continue now in a new session, or cancel to keep working here.';
       }
-      return `Waiting for handover to start at ${this.amount(budget)}. You can continue now if needed.`;
+      // A pending handover can outlive the handoff stage (compact, extension).
+      return budget?.stage === 'handoff'
+        ? `Waiting for handover to start at ${this.amount(budget)}. You can continue now if needed.`
+        : 'Waiting for the handover to start. You can continue now if needed.';
     }
+    if (!budget || !stage) return '';
     return this.limitBody(budget);
   });
 

@@ -53,6 +53,7 @@ import { SessionBudgetConfigProvider } from './session-budget-config.provider';
 import {
   SessionHandoffBuilder,
   assembleSessionHandoff,
+  sessionHandoffSeed,
   type SessionHandoffDocument,
 } from './session-handoff-builder';
 import { SessionHandoffWriter } from './session-handoff-writer';
@@ -84,7 +85,10 @@ export type SessionBudgetConfigSource = Pick<
 
 export type SessionBudgetHandoffBuilder = Pick<SessionHandoffBuilder, 'build'>;
 
-export type SessionBudgetHandoffWriter = Pick<SessionHandoffWriter, 'write'>;
+export type SessionBudgetHandoffWriter = Pick<
+  SessionHandoffWriter,
+  'write' | 'read'
+>;
 
 export type SessionBudgetRotationAdvisor = Pick<
   SessionRotationAdvisor,
@@ -776,13 +780,14 @@ export class SessionBudgetService {
    * The kept handoff when no newer usage (snapshot or extend) was observed
    * since it was built, else one built now (not written). Rotation seeds the
    * new session from this, so a copy older than the usage is never reused.
+   * With no entry (an unknown or released session) only the handoff file on
+   * disk can answer.
    */
   private async previewHandoff(
     sessionId: string,
     entry: BudgetEntry | undefined,
   ): Promise<SessionBudgetActionResult> {
-    // No entry: an unknown or released session; no transcript is read.
-    if (!entry) return this.noState();
+    if (!entry) return this.persistedHandoff(sessionId);
     if (entry.handoffCopy && entry.handoffCopySeq === entry.usageSeq) {
       return {
         success: true,
@@ -797,6 +802,28 @@ export class SessionBudgetService {
       path: null,
     };
     return { success: true, ...this.stateField(entry), handoff: built };
+  }
+
+  /**
+   * The handoff file written at the handoff or limit stage. It outlives the
+   * entry `release` drops when the session ends, so the webview's rotate
+   * fallback for an ended source still gets a seed (TASK_2026_627 6F S1). No
+   * transcript is read and nothing is written; with no file the answer stays
+   * "no state". No `state` field: the session has no budget any more.
+   */
+  private async persistedHandoff(
+    sessionId: string,
+  ): Promise<SessionBudgetActionResult> {
+    const persisted = await this.handoffWriter.read(sessionId);
+    if (!persisted) return this.noState();
+    return {
+      success: true,
+      handoff: {
+        content: persisted.content,
+        seed: sessionHandoffSeed(persisted.content),
+        path: persisted.path,
+      },
+    };
   }
 
   // ---------------------------------------------------------------------------

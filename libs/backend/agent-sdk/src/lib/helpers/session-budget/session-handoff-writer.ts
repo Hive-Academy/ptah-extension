@@ -3,7 +3,8 @@
  *
  * Writes a handoff document to `~/.ptah/handoffs/<sessionId>.md` and keeps
  * only the newest {@link SESSION_HANDOFF_RETENTION} handoff files. Never
- * writes inside a workspace.
+ * writes inside a workspace. `read` returns a written handoff after its
+ * session ended (TASK_2026_627 batch 6F).
  *
  * - The session id must match `UUID_REGEX`, and the resolved path must stay
  *   directly under the handoffs directory (F12).
@@ -151,6 +152,32 @@ export class SessionHandoffWriter {
 
     await this.prune(target);
     return { path: target };
+  }
+
+  /**
+   * The handoff last written for `sessionId`, or `null` when there is none
+   * (never written, pruned, or an invalid id). Read failures other than a
+   * missing file are WARNed once. Never throws.
+   */
+  async read(
+    sessionId: string,
+  ): Promise<{ readonly path: string; readonly content: string } | null> {
+    const target = resolveSessionHandoffPath(this.handoffsDir, sessionId);
+    if (target === null) return null;
+    try {
+      const content = await fs.readFile(target, 'utf8');
+      return content.length > 0 ? { path: target, content } : null;
+    } catch (error: unknown) {
+      const code = errorCode(error);
+      if (code !== 'ENOENT' && code !== 'ENOTDIR') {
+        this.warnOnce(
+          `read:${code}`,
+          '[SessionHandoffWriter] Could not read a handoff file',
+          { sessionId, code },
+        );
+      }
+      return null;
+    }
   }
 
   /**
