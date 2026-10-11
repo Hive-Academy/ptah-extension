@@ -7,6 +7,7 @@ describe('SdkAdapterCallbackRegistry', () => {
     const reg = new SdkAdapterCallbackRegistry();
     expect(reg.getSessionIdResolved()).toBeUndefined();
     expect(reg.getResultStats()).toBeUndefined();
+    expect(reg.getLiveStats()).toBeUndefined();
     expect(reg.getCompactionStart()).toBeUndefined();
     expect(reg.getWorktreeCreated()).toBeUndefined();
     expect(reg.getWorktreeRemoved()).toBeUndefined();
@@ -16,18 +17,21 @@ describe('SdkAdapterCallbackRegistry', () => {
     const reg = new SdkAdapterCallbackRegistry();
     const sessionIdCb = jest.fn();
     const statsCb = jest.fn();
+    const liveStatsCb = jest.fn();
     const compactCb = jest.fn();
     const worktreeAddCb = jest.fn();
     const worktreeRmCb = jest.fn();
 
     reg.setSessionIdResolved(sessionIdCb);
     reg.setResultStats(statsCb);
+    reg.setLiveStats(liveStatsCb);
     reg.setCompactionStart(compactCb);
     reg.setWorktreeCreated(worktreeAddCb);
     reg.setWorktreeRemoved(worktreeRmCb);
 
     expect(reg.getSessionIdResolved()).toBe(sessionIdCb);
     expect(reg.getResultStats()).toBe(statsCb);
+    expect(reg.getLiveStats()).toBe(liveStatsCb);
     expect(reg.getCompactionStart()).toBe(compactCb);
     expect(reg.getWorktreeCreated()).toBe(worktreeAddCb);
     expect(reg.getWorktreeRemoved()).toBe(worktreeRmCb);
@@ -60,6 +64,7 @@ describe('SdkAdapterCallbackRegistry', () => {
     const reg = new SdkAdapterCallbackRegistry();
     reg.setSessionIdResolved(jest.fn());
     reg.setResultStats(jest.fn());
+    reg.setLiveStats(jest.fn());
     reg.setCompactionStart(jest.fn());
     reg.setWorktreeCreated(jest.fn());
     reg.setWorktreeRemoved(jest.fn());
@@ -68,6 +73,7 @@ describe('SdkAdapterCallbackRegistry', () => {
 
     expect(reg.getSessionIdResolved()).toBeUndefined();
     expect(reg.getResultStats()).toBeUndefined();
+    expect(reg.getLiveStats()).toBeUndefined();
     expect(reg.getCompactionStart()).toBeUndefined();
     expect(reg.getWorktreeCreated()).toBeUndefined();
     expect(reg.getWorktreeRemoved()).toBeUndefined();
@@ -82,5 +88,16 @@ describe('SdkAdapterCallbackRegistry', () => {
     reg.setResultStats(second);
     expect(reg.getResultStats()).toBe(second);
     expect(reg.getResultStats()).not.toBe(first);
+  });
+
+  it('the live-stats slot is independent of the result-stats slot', () => {
+    const reg = new SdkAdapterCallbackRegistry();
+    const resultCb = jest.fn();
+    const liveCb = jest.fn();
+    reg.setResultStats(resultCb);
+    expect(reg.getLiveStats()).toBeUndefined();
+    reg.setLiveStats(liveCb);
+    expect(reg.getResultStats()).toBe(resultCb);
+    expect(reg.getLiveStats()).toBe(liveCb);
   });
 });

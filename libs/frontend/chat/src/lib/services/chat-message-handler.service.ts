@@ -11,6 +11,7 @@
  * - PERMISSION_REQUEST: Permission prompt from backend
  * - AGENT_SUMMARY_CHUNK: Real-time agent summary streaming
  * - SESSION_STATS: Cost/token data after completion (authoritative completion signal)
+ * - SESSION_STATS_LIVE: In-turn session snapshot for the header only (never a completion signal)
  * - SESSION_ID_RESOLVED: Real SDK UUID resolution
  * - ASK_USER_QUESTION_REQUEST: AskUserQuestion tool from SDK
  * - PERMISSION_AUTO_RESOLVED: Always Allow sibling resolution
@@ -35,6 +36,7 @@ import {
   parseSdkTurnEndedPayload,
   parseSdkTurnFailedPayload,
   parseSessionMcpStatusPayload,
+  parseSessionStatsLivePayload,
   type SessionSuccessorReplacementPayload,
 } from '@ptah-extension/shared';
 import { ChatStore } from './chat.store';
@@ -143,6 +145,7 @@ export class ChatMessageHandler implements MessageHandler {
     MESSAGE_TYPES.PERMISSION_REQUEST,
     MESSAGE_TYPES.AGENT_SUMMARY_CHUNK,
     MESSAGE_TYPES.SESSION_STATS,
+    MESSAGE_TYPES.SESSION_STATS_LIVE,
     MESSAGE_TYPES.SESSION_MCP_STATUS,
     MESSAGE_TYPES.SESSION_ID_RESOLVED,
     MESSAGE_TYPES.ASK_USER_QUESTION_REQUEST,
@@ -183,6 +186,9 @@ export class ChatMessageHandler implements MessageHandler {
         break;
       case MESSAGE_TYPES.SESSION_STATS:
         this.handleSessionStats(message.payload);
+        break;
+      case MESSAGE_TYPES.SESSION_STATS_LIVE:
+        this.handleSessionStatsLive(message.payload);
         break;
       case MESSAGE_TYPES.SESSION_MCP_STATUS:
         this.handleSessionMcpStatus(message.payload);
@@ -702,6 +708,26 @@ export class ChatMessageHandler implements MessageHandler {
     this.chatStore.handleSessionStats(
       payload as Parameters<typeof this.chatStore.handleSessionStats>[0],
     );
+  }
+
+  /**
+   * `session:stats-live` — an in-turn session snapshot for the header
+   * (TASK_2026_626). Never a completion signal. A payload the parser refuses
+   * is dropped with one warning that names only its session, never the
+   * snapshot's figures.
+   */
+  private handleSessionStatsLive(payload: unknown): void {
+    const parsed = parseSessionStatsLivePayload(payload);
+    if (!parsed) {
+      const sessionId = (payload as { sessionId?: unknown } | null | undefined)
+        ?.sessionId;
+      console.warn(
+        '[ChatMessageHandler] session:stats-live payload rejected — dropped',
+        { sessionId: typeof sessionId === 'string' ? sessionId : undefined },
+      );
+      return;
+    }
+    this.chatStore.handleSessionStatsLive(parsed);
   }
   private handleSessionIdResolved(payload: unknown): void {
     const { tabId, realSessionId } =

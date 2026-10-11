@@ -14,7 +14,8 @@ import type { SessionStatsEntry } from '@ptah-extension/shared';
  * is legitimate — see {@link SessionStatsRevisionFloor}); the optional
  * figures the stats surfaces display; and the optional `contextSnapshot`
  * (string `model`, non-negative `contextTokens` and `contextWindow`), which the
- * resume path turns into the context badge.
+ * resume path turns into the context badge; and `provisional`, when present, as
+ * a boolean (a live mid-turn estimate from `session:stats-live`).
  */
 export function isValidSessionStatsSnapshot(
   value: unknown,
@@ -49,7 +50,8 @@ export function isValidSessionStatsSnapshot(
     isOptional(value['agentSessionCount'], isRevision) &&
     isOptional(value['durationMs'], isNullableAmount) &&
     isOptional(value['modelUsageList'], isModelUsageList) &&
-    isOptional(value['contextSnapshot'], isContextSnapshot)
+    isOptional(value['contextSnapshot'], isContextSnapshot) &&
+    isOptional(value['provisional'], isBoolean)
   );
 }
 
@@ -98,6 +100,10 @@ function isAmount(value: unknown): value is number {
 
 function isNullableAmount(value: unknown): boolean {
   return value === null || isAmount(value);
+}
+
+function isBoolean(value: unknown): boolean {
+  return typeof value === 'boolean';
 }
 
 function isRevision(value: unknown): boolean {

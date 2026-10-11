@@ -20,6 +20,8 @@ import {
   SessionStatsOwnerService,
   resolveRunBase,
   subtractRunBase,
+  type OwnerWatcher,
+  type RunModelUsage,
   type RunPreparationLoaders,
   type RunUsageResult,
   type SavedCostState,
@@ -1309,6 +1311,503 @@ describe('SessionStatsOwnerService.replaceRun turnCost (TASK_2026_575)', () => {
       const reportedLower = offer(run(3, [{ input: 300, output: 30 }]));
 
       expect(reportedLower.outcome).toBe('rejected-non-monotonic');
+    });
+  });
+});
+
+// TASK_2026_626: the in-turn estimate lives on its run and is visible only in
+// the LIVE snapshot (`provisional: true`). Every authoritative snapshot built
+// after a live one carries a strictly greater revision, and a successful
+// release settles the estimate through the owner's watchers.
+describe('SessionStatsOwnerService live estimate (TASK_2026_626)', () => {
+  type Snapshot = ReturnType<SessionStatsOwnerService['snapshot']>;
+  const OTHER_MODEL = 'zz-model-secondary';
+
+  function liveOwner(...runTokens: string[]): {
+    owner: SessionStatsOwnerService;
+    gen: number;
+  } {
+    const owner = new SessionStatsOwnerService();
+    const { generation } = owner.startNew(SESSION);
+    for (const token of runTokens.length > 0 ? runTokens : ['run-1']) {
+      owner.beginRun(SESSION, generation, token, null);
+    }
+    return { owner, gen: generation };
+  }
+
+  /** Estimate rows; `costUSD` defaults to 1 per row. */
+  function estimate(rows: readonly Row[]): RunModelUsage[] {
+    return rows.map((r) => ({
+      model: r.model ?? MODEL,
+      inputTokens: r.input ?? 10,
+      outputTokens: r.output ?? 10,
+      cacheRead: r.cacheRead ?? 0,
+      cacheCreation: r.cacheCreation ?? 0,
+      costUSD: r.costUSD === undefined ? 1 : r.costUSD,
+    }));
+  }
+
+  function recordingWatcher(): OwnerWatcher & {
+    agents: number;
+    released: Snapshot[];
+  } {
+    const watcher = {
+      agents: 0,
+      released: [] as Snapshot[],
+      onAgentRecorded: () => {
+        watcher.agents++;
+      },
+      onReleased: (settled: Snapshot) => {
+        watcher.released.push(settled);
+      },
+    };
+    return watcher;
+  }
+
+  /** A loader that never settles, so the prefix read stays pending. */
+  function pendingLoaders(): RunPreparationLoaders {
+    return {
+      loadPrefix: () => new Promise<SessionStatsPrefix | null>(() => undefined),
+      loadSavedCostState: async () => null,
+    };
+  }
+
+  it('the live snapshot is the authoritative one plus the estimate, marked provisional', () => {
+    const { owner, gen } = liveOwner();
+    const accepted = owner.replaceRun(
+      SESSION,
+      gen,
+      'run-1',
+      run(10, [{ input: 100, output: 10 }]),
+    ).snapshot;
+    const before = owner.snapshot(SESSION);
+
+    const live = owner.publishLive(
+      SESSION,
+      gen,
+      'run-1',
+      estimate([{ input: 5, output: 5, costUSD: 2 }]),
+    );
+
+    expect(live?.provisional).toBe(true);
+    expect(live?.totalCost).toBe(12);
+    expect(live?.tokens.input).toBe(105);
+    expect(live?.tokens.output).toBe(15);
+    expect(Object.isFrozen(live)).toBe(true);
+    expect(live?.revision).toBeGreaterThan(accepted?.revision ?? Infinity);
+
+    // `snapshot()` never contains an estimate, before or after.
+    expect(before).not.toHaveProperty('provisional');
+    expect(before?.totalCost).toBe(10);
+    const after = owner.snapshot(SESSION);
+    expect(after).not.toHaveProperty('provisional');
+    expect(after?.totalCost).toBe(10);
+    expect(after?.tokens.input).toBe(100);
+  });
+
+  it('a later cumulative result replaces the estimate instead of adding to it', () => {
+    const { owner, gen } = liveOwner();
+    owner.replaceRun(SESSION, gen, 'run-1', run(10, [{ input: 100 }]));
+    owner.publishLive(SESSION, gen, 'run-1', estimate([{ input: 50, costUSD: 5 }]));
+    owner.clearProvisional(SESSION, gen, 'run-1');
+    const second = owner.replaceRun(
+      SESSION,
+      gen,
+      'run-1',
+      run(15, [{ input: 150 }]),
+    ).snapshot;
+
+    expect(second?.totalCost).toBe(15);
+    expect(second?.tokens.input).toBe(150);
+    const settled = owner.publishLive(SESSION, gen, 'run-1', null);
+    expect(settled).toBe(owner.snapshot(SESSION));
+    expect(settled).not.toHaveProperty('provisional');
+  });
+
+  type Exit =
+    | 'accepted'
+    | 'duplicate'
+    | 'rejected-non-monotonic'
+    | 'rejected-invalid'
+    | 'incomplete'
+    | 'no-call';
+
+  it.each<Exit>([
+    'accepted',
+    'duplicate',
+    'rejected-non-monotonic',
+    'rejected-invalid',
+    'incomplete',
+    'no-call',
+  ])(
+    'after clearProvisional, the %s exit settles above the live revision',
+    (exit) => {
+      const { owner, gen } = liveOwner();
+      owner.replaceRun(SESSION, gen, 'run-1', run(10, [{ input: 100 }]));
+      const live = owner.publishLive(
+        SESSION,
+        gen,
+        'run-1',
+        estimate([{ input: 20 }]),
+      );
+      const liveRevision = live?.revision ?? Infinity;
+
+      owner.clearProvisional(SESSION, gen, 'run-1');
+      const offer = (result: RunUsageResult, outcome: string): Snapshot => {
+        const r = owner.replaceRun(SESSION, gen, 'run-1', result);
+        expect(r.outcome).toBe(outcome);
+        return r.snapshot;
+      };
+      let returned: Snapshot = null;
+      if (exit === 'accepted') returned = offer(run(15, [{ input: 150 }]), exit);
+      if (exit === 'duplicate') returned = offer(run(10, [{ input: 100 }]), exit);
+      if (exit === 'rejected-non-monotonic') {
+        returned = offer(run(5, [{ input: 50 }]), exit);
+      }
+      if (exit === 'rejected-invalid') returned = offer(run(-1), exit);
+      if (exit === 'incomplete') {
+        returned = owner.markRunIncomplete(SESSION, gen, 'run-1');
+      }
+      if (returned !== null) {
+        expect(returned.revision).toBeGreaterThan(liveRevision);
+        expect(returned).not.toHaveProperty('provisional');
+      }
+
+      const settled = owner.publishLive(SESSION, gen, 'run-1', null);
+      expect(settled).not.toHaveProperty('provisional');
+      expect(settled?.revision).toBeGreaterThan(liveRevision);
+      expect(settled).toBe(owner.snapshot(SESSION));
+    },
+  );
+
+  it('publishLive(null) with no estimate returns the cached snapshot and keeps the revision', () => {
+    const { owner, gen } = liveOwner();
+    owner.replaceRun(SESSION, gen, 'run-1', run(10));
+    const cached = owner.snapshot(SESSION);
+
+    const result = owner.publishLive(SESSION, gen, 'run-1', null);
+
+    expect(result).toBe(cached);
+    expect(owner.snapshot(SESSION)?.revision).toBe(cached?.revision);
+  });
+
+  it('an estimate whose rows are all invalid is treated as no estimate', () => {
+    const { owner, gen } = liveOwner();
+    const cached = owner.snapshot(SESSION);
+
+    const result = owner.publishLive(
+      SESSION,
+      gen,
+      'run-1',
+      estimate([{ input: Number.NaN }, { model: '  ' }]),
+    );
+
+    expect(result).toBe(cached);
+  });
+
+  it('an invalid row is dropped while the valid rows are kept', () => {
+    const { owner, gen } = liveOwner();
+
+    const live = owner.publishLive(
+      SESSION,
+      gen,
+      'run-1',
+      estimate([{ input: 7, costUSD: 1 }, { model: OTHER_MODEL, output: -1 }]),
+    );
+
+    expect(live?.provisional).toBe(true);
+    expect(live?.tokens.input).toBe(7);
+    expect(live?.modelUsageList?.map((m) => m.model)).toEqual([MODEL]);
+  });
+
+  it('an unpriced estimate row leaves the total unknown and keeps the priced part', () => {
+    const { owner, gen } = liveOwner();
+
+    const live = owner.publishLive(
+      SESSION,
+      gen,
+      'run-1',
+      estimate([{ costUSD: 2 }, { model: OTHER_MODEL, costUSD: null }]),
+    );
+
+    expect(live?.totalCost).toBeNull();
+    expect(live?.knownCost).toBe(2);
+    expect(live?.pricingCoverage).toBe('partial');
+  });
+
+  it('the live snapshot counts agents recorded before the flush', () => {
+    const { owner, gen } = liveOwner();
+    owner.recordAgent(SESSION, 'a1');
+    owner.recordAgent(SESSION, 'agent-a2');
+
+    const live = owner.publishLive(SESSION, gen, 'run-1', estimate([{}]));
+
+    expect(live?.agentSessionCount).toBe(2);
+  });
+
+  it('a stale generation or a pending prefix read publishes nothing', () => {
+    const { owner, gen } = liveOwner();
+    expect(
+      owner.publishLive(SESSION, gen + 1000, 'run-1', estimate([{}])),
+    ).toBeNull();
+
+    const pendingOwner = new SessionStatsOwnerService();
+    void pendingOwner.prepareRun(SESSION, pendingLoaders());
+    const lease = pendingOwner.leaseOf(SESSION);
+    expect(lease).not.toBeNull();
+    expect(
+      pendingOwner.publishLive(
+        SESSION,
+        lease?.generation ?? -1,
+        'run-1',
+        estimate([{}]),
+      ),
+    ).toBeNull();
+  });
+
+  it('clearing one run keeps the live snapshot provisional while another run holds an estimate', () => {
+    const { owner, gen } = liveOwner('run-A', 'run-B');
+    owner.publishLive(SESSION, gen, 'run-A', estimate([{ input: 3 }]));
+    owner.publishLive(SESSION, gen, 'run-B', estimate([{ input: 4 }]));
+
+    owner.clearProvisional(SESSION, gen, 'run-A');
+    const live = owner.publishLive(SESSION, gen, 'run-A', null);
+
+    expect(live?.provisional).toBe(true);
+    expect(live?.tokens.input).toBe(4);
+    expect(owner.snapshot(SESSION)?.tokens.input).toBe(0);
+  });
+
+  it('clearProvisional never creates a run or an owner and does not touch without an estimate', () => {
+    const { owner, gen } = liveOwner();
+    const before = owner.snapshot(SESSION);
+
+    owner.clearProvisional(SESSION, gen, 'run-unknown');
+    owner.clearProvisional(SESSION, gen, 'run-1');
+    owner.clearProvisional('nobody', gen, 'run-1');
+
+    expect(owner.snapshot(SESSION)).toBe(before);
+    expect(owner.snapshot('nobody')).toBeNull();
+  });
+
+  describe('watchers', () => {
+    it('recordAgent signals once per new identity, after the mutation', () => {
+      const { owner, gen } = liveOwner();
+      const seen: number[] = [];
+      owner.watch(SESSION, gen, {
+        onAgentRecorded: () => {
+          seen.push(owner.snapshot(SESSION)?.agentSessionCount ?? -1);
+        },
+        onReleased: () => undefined,
+      });
+
+      expect(owner.recordAgent(SESSION, 'a1')).toBe(true);
+      expect(owner.recordAgent(SESSION, 'a1')).toBe(false);
+      expect(owner.recordAgent(SESSION, 'agent-a1')).toBe(false);
+
+      expect(seen).toEqual([1]);
+    });
+
+    it('a detached watcher is not called', () => {
+      const { owner, gen } = liveOwner();
+      const watcher = recordingWatcher();
+      const detach = owner.watch(SESSION, gen, watcher);
+
+      detach?.();
+      owner.recordAgent(SESSION, 'a1');
+      const lease = owner.leaseOf(SESSION);
+      expect(lease && owner.release(lease)).toBe(true);
+
+      expect(watcher.agents).toBe(0);
+      expect(watcher.released).toEqual([]);
+    });
+
+    it('a watcher follows its owner across a rebind and still detaches', () => {
+      const owner = new SessionStatsOwnerService();
+      const { generation } = owner.startNew('tab-1');
+      const watcher = recordingWatcher();
+      const detach = owner.watch('tab-1', generation, watcher);
+
+      owner.rebind('tab-1', SESSION, generation);
+      owner.recordAgent(SESSION, 'a1');
+      expect(watcher.agents).toBe(1);
+
+      detach?.();
+      owner.recordAgent(SESSION, 'a2');
+      expect(watcher.agents).toBe(1);
+    });
+
+    it('watch on a stale generation or an unknown key returns null', () => {
+      const { owner, gen } = liveOwner();
+      expect(owner.watch(SESSION, gen + 1000, recordingWatcher())).toBeNull();
+      expect(owner.watch('nobody', gen, recordingWatcher())).toBeNull();
+    });
+
+    it('a throwing watcher breaks neither recordAgent, release nor the next watcher', () => {
+      const { owner, gen } = liveOwner();
+      const next = recordingWatcher();
+      owner.watch(SESSION, gen, {
+        onAgentRecorded: () => {
+          throw new Error('boom');
+        },
+        onReleased: () => {
+          throw new Error('boom');
+        },
+      });
+      owner.watch(SESSION, gen, next);
+
+      expect(() => owner.recordAgent(SESSION, 'a1')).not.toThrow();
+      expect(next.agents).toBe(1);
+
+      const lease = owner.leaseOf(SESSION);
+      expect(lease && owner.release(lease)).toBe(true);
+      expect(owner.snapshot(SESSION)).toBeNull();
+      expect(next.released).toHaveLength(1);
+    });
+  });
+
+  describe('release settle', () => {
+    it('settles a shown estimate once, after the owner is gone, with a higher revision', () => {
+      const { owner, gen } = liveOwner();
+      owner.replaceRun(SESSION, gen, 'run-1', run(10, [{ input: 100 }]));
+      const live = owner.publishLive(
+        SESSION,
+        gen,
+        'run-1',
+        estimate([{ input: 9 }]),
+      );
+      const liveRevision = live?.revision ?? Infinity;
+      let seenDuringSignal: unknown = 'not called';
+      const watcher = recordingWatcher();
+      owner.watch(SESSION, gen, {
+        onAgentRecorded: () => watcher.onAgentRecorded(),
+        onReleased: (settled) => {
+          seenDuringSignal = owner.snapshot(SESSION);
+          watcher.onReleased(settled);
+        },
+      });
+
+      const lease = owner.leaseOf(SESSION);
+      expect(lease && owner.release(lease)).toBe(true);
+
+      expect(watcher.released).toHaveLength(1);
+      const settled = watcher.released[0];
+      expect(settled).not.toHaveProperty('provisional');
+      expect(settled?.revision).toBeGreaterThan(liveRevision);
+      expect(settled?.totalCost).toBe(10);
+      expect(settled?.tokens.input).toBe(100);
+      // Watchers run after the delete: a re-entrant read sees no owner.
+      expect(seenDuringSignal).toBeNull();
+      expect(owner.snapshot(SESSION)).toBeNull();
+
+      // Neither signal is raised again.
+      owner.recordAgent(SESSION, 'a1');
+      expect(lease && owner.release(lease)).toBe(false);
+      expect(watcher.released).toHaveLength(1);
+      expect(watcher.agents).toBe(0);
+    });
+
+    it('a release after clearProvisional still hands over the authoritative snapshot', () => {
+      const { owner, gen } = liveOwner();
+      const live = owner.publishLive(SESSION, gen, 'run-1', estimate([{}]));
+      owner.clearProvisional(SESSION, gen, 'run-1');
+      const watcher = recordingWatcher();
+      owner.watch(SESSION, gen, watcher);
+
+      const lease = owner.leaseOf(SESSION);
+      expect(lease && owner.release(lease)).toBe(true);
+
+      expect(watcher.released).toHaveLength(1);
+      expect(watcher.released[0]).not.toHaveProperty('provisional');
+      expect(watcher.released[0]?.revision).toBeGreaterThan(
+        live?.revision ?? Infinity,
+      );
+    });
+
+    it('a release with no estimate hands over the cached snapshot at the same revision', () => {
+      const { owner, gen } = liveOwner();
+      owner.replaceRun(SESSION, gen, 'run-1', run(4));
+      const cached = owner.snapshot(SESSION);
+      const watcher = recordingWatcher();
+      owner.watch(SESSION, gen, watcher);
+
+      const lease = owner.leaseOf(SESSION);
+      expect(lease && owner.release(lease)).toBe(true);
+
+      expect(watcher.released).toHaveLength(1);
+      expect(watcher.released[0]).toBe(cached);
+    });
+
+    it('a release while the prefix read is pending hands over null', () => {
+      const owner = new SessionStatsOwnerService();
+      void owner.prepareRun(SESSION, pendingLoaders());
+      const lease = owner.leaseOf(SESSION);
+      const watcher = recordingWatcher();
+      owner.watch(SESSION, lease?.generation ?? -1, watcher);
+
+      expect(lease && owner.release(lease)).toBe(true);
+
+      expect(watcher.released).toEqual([null]);
+    });
+
+    it('a stale-epoch release notifies nobody and leaves the estimate in place', async () => {
+      const owner = new SessionStatsOwnerService();
+      const first = await owner.prepareRun(SESSION, loaders(prefix(10)));
+      owner.beginRun(SESSION, first.generation, 'run-1', first.candidate);
+      const captured = owner.leaseOf(SESSION);
+      await owner.prepareRun(SESSION, loaders(prefix(10)));
+      owner.publishLive(
+        SESSION,
+        first.generation,
+        'run-1',
+        estimate([{ costUSD: 3 }]),
+      );
+      const watcher = recordingWatcher();
+      owner.watch(SESSION, first.generation, watcher);
+
+      expect(captured && owner.release(captured)).toBe(false);
+
+      expect(watcher.released).toEqual([]);
+      const live = owner.publishLive(SESSION, first.generation, 'run-1', null);
+      expect(live?.provisional).toBe(true);
+      expect(live?.totalCost).toBe(13);
+    });
+
+    it('a lease of a replaced generation calls no watcher of the replacement', () => {
+      const owner = new SessionStatsOwnerService();
+      owner.startNew(SESSION);
+      const captured = owner.leaseOf(SESSION);
+      const { generation } = owner.startNew(SESSION);
+      const watcher = recordingWatcher();
+      owner.watch(SESSION, generation, watcher);
+
+      expect(captured && owner.release(captured)).toBe(false);
+
+      expect(watcher.released).toEqual([]);
+    });
+
+    it('startNew over an existing key calls no watcher', () => {
+      const { owner, gen } = liveOwner();
+      const watcher = recordingWatcher();
+      owner.watch(SESSION, gen, watcher);
+      owner.publishLive(SESSION, gen, 'run-1', estimate([{}]));
+
+      owner.startNew(SESSION);
+      owner.recordAgent(SESSION, 'a1');
+
+      expect(watcher.released).toEqual([]);
+      expect(watcher.agents).toBe(0);
+    });
+
+    it('clearAll calls no watcher', () => {
+      const { owner, gen } = liveOwner();
+      const watcher = recordingWatcher();
+      owner.watch(SESSION, gen, watcher);
+
+      owner.clearAll();
+
+      expect(watcher.released).toEqual([]);
+      expect(watcher.agents).toBe(0);
     });
   });
 });

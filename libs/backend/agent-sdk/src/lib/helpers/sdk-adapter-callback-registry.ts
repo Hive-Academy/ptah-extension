@@ -1,3 +1,4 @@
+import type { LiveStatsCallback } from '@ptah-extension/shared';
 import type {
   SessionIdResolvedCallback,
   ResultStatsCallback,
@@ -9,6 +10,7 @@ import type {
 export class SdkAdapterCallbackRegistry {
   private sessionIdResolved: SessionIdResolvedCallback | null = null;
   private resultStats: ResultStatsCallback | null = null;
+  private liveStats: LiveStatsCallback | null = null;
   private compactionStart: CompactionStartCallback | null = null;
   private worktreeCreated: WorktreeCreatedCallback | null = null;
   private worktreeRemoved: WorktreeRemovedCallback | null = null;
@@ -19,6 +21,10 @@ export class SdkAdapterCallbackRegistry {
 
   setResultStats(cb: ResultStatsCallback): void {
     this.resultStats = cb;
+  }
+
+  setLiveStats(cb: LiveStatsCallback): void {
+    this.liveStats = cb;
   }
 
   setCompactionStart(cb: CompactionStartCallback): void {
@@ -39,6 +45,10 @@ export class SdkAdapterCallbackRegistry {
 
   getResultStats(): ResultStatsCallback | undefined {
     return this.resultStats ?? undefined;
+  }
+
+  getLiveStats(): LiveStatsCallback | undefined {
+    return this.liveStats ?? undefined;
   }
 
   getCompactionStart(): CompactionStartCallback | undefined {
@@ -69,6 +79,7 @@ export class SdkAdapterCallbackRegistry {
   clear(): void {
     this.sessionIdResolved = null;
     this.resultStats = null;
+    this.liveStats = null;
     this.compactionStart = null;
     this.worktreeCreated = null;
     this.worktreeRemoved = null;

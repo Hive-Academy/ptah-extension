@@ -609,13 +609,13 @@ describe('buildStatsLimitViewModel', () => {
       ).planTiles[0];
 
       expect(canonical).toMatchObject({
-        captionLead: 'Claude account plan limit',
+        captionLead: 'Claude account',
         captionTail: '· aaaa',
-        caption: 'Claude account plan limit · aaaa',
+        caption: 'Claude account · aaaa',
       });
-      expect(nonCanonical.captionLead).toBe('Claude account plan limit');
+      expect(nonCanonical.captionLead).toBe('Claude account');
       expect(nonCanonical.captionTail).toBeUndefined();
-      expect(nonCanonical.caption).toBe('Claude account plan limit');
+      expect(nonCanonical.caption).toBe('Claude account');
     });
 
     it('renders absolute times in the zone it is given', () => {
@@ -824,8 +824,8 @@ describe('buildStatsLimitViewModel', () => {
           id: `plan-status:${CLAUDE_A.key}`,
           value: 'Unavailable',
           resetLine: 'no open session',
-          caption: 'Claude account plan limit · aaaa',
-          captionLead: 'Claude account plan limit',
+          caption: 'Claude account · aaaa',
+          captionLead: 'Claude account',
           captionTail: '· aaaa',
         }),
       ]);

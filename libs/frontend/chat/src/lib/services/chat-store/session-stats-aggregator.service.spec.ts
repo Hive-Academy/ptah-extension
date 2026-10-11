@@ -13,6 +13,9 @@
  *   - clears compaction state via CompactionLifecycleService
  *   - calls streamingHandler.handleSessionStats and triggers auto-send
  *   - refreshes sidebar via SessionLoader.loadSessions
+ *   - `session:stats-live` (TASK_2026_626), against the real TabManagerService:
+ *     header-only install, no result-path side effect, revision ordering
+ *     against `session:stats` in both arrival orders, the surface path
  */
 
 import { TestBed } from '@angular/core/testing';
@@ -23,20 +26,28 @@ import {
 } from './session-stats-aggregator.service';
 import { CostBadgeComponent } from '@ptah-extension/chat-ui';
 import {
+  ConfirmationDialogService,
   ConversationRegistry,
+  MODEL_REFRESH_CONTROL,
   SurfaceSessionStatsRegistry,
   TabManagerService,
+  TabSessionBinding,
+  TabWorkspacePartitionService,
+  type ModelRefreshControl,
 } from '@ptah-extension/chat-state';
 import { StreamRouter } from '@ptah-extension/chat-routing';
 import { StreamingHandlerService } from '@ptah-extension/chat-streaming';
 import { SessionLoaderService } from './session-loader.service';
 import { CompactionLifecycleService } from './compaction-lifecycle.service';
 import { MessageDispatchService } from './message-dispatch.service';
+import { SessionHandoverClientService } from '../session-handover-client.service';
 import type { TabState } from '@ptah-extension/chat-types';
 import {
   SessionId,
   type SessionBudgetState,
   type SessionStatsEntry,
+  type SessionStatsLiveWire,
+  type TabId,
 } from '@ptah-extension/shared';
 
 // Production `SessionStatsAggregatorService.handleSessionStats` validates the
@@ -101,7 +112,7 @@ describe('SessionStatsAggregatorService', () => {
   let setLiveModelStatsMock: jest.Mock;
   let installSessionStatsMock: jest.Mock;
   let findTabsBySessionIdMock: jest.Mock;
-  let findAcrossWorkspacesMock: jest.Mock;
+  let findBackgroundTabsMock: jest.Mock;
   let activeTabMock: jest.Mock;
   let streamHandleStatsMock: jest.Mock;
   let loadSessionsMock: jest.Mock;
@@ -190,7 +201,7 @@ describe('SessionStatsAggregatorService', () => {
     findTabsBySessionIdMock = jest.fn((sid: string) =>
       tabs.filter((t) => t.claudeSessionId === sid),
     );
-    findAcrossWorkspacesMock = jest.fn(() => null);
+    findBackgroundTabsMock = jest.fn((): TabState[] => []);
     activeTabMock = jest.fn(() => tabs[0] ?? null);
     streamHandleStatsMock = jest.fn().mockReturnValue(null);
     loadSessionsMock = jest.fn().mockResolvedValue(undefined);
@@ -202,7 +213,7 @@ describe('SessionStatsAggregatorService', () => {
 
     const tabManagerMock = {
       findTabsBySessionId: findTabsBySessionIdMock,
-      findTabBySessionIdAcrossWorkspaces: findAcrossWorkspacesMock,
+      findBackgroundTabsBySessionId: findBackgroundTabsMock,
       activeTab: activeTabMock,
       setLiveModelStats: setLiveModelStatsMock,
       installSessionStats: installSessionStatsMock,
@@ -278,12 +289,9 @@ describe('SessionStatsAggregatorService', () => {
     const BG_SESSION = SessionId.create();
 
     it('applies the stats to the background tab and delegates to streamingHandler instead of dropping', () => {
-      const bgTab = makeTab({ id: 'bg-tab', claudeSessionId: BG_SESSION });
+      const bgTab = makeTab({ id: 'bg-tab' as TabId, claudeSessionId: BG_SESSION });
       findTabsBySessionIdMock.mockReturnValue([]);
-      findAcrossWorkspacesMock.mockReturnValue({
-        tab: bgTab,
-        workspacePath: 'D:\\projects\\other',
-      });
+      findBackgroundTabsMock.mockReturnValue([bgTab]);
 
       service.handleSessionStats({
         ...baseStats,
@@ -301,7 +309,7 @@ describe('SessionStatsAggregatorService', () => {
         ],
       });
 
-      expect(findAcrossWorkspacesMock).toHaveBeenCalledWith(BG_SESSION);
+      expect(findBackgroundTabsMock).toHaveBeenCalledWith(BG_SESSION);
       expect(clearCompactionStateMock).toHaveBeenCalledWith('bg-tab');
       expect(setLiveModelStatsMock).toHaveBeenCalledWith(
         'bg-tab',
@@ -314,9 +322,29 @@ describe('SessionStatsAggregatorService', () => {
       );
     });
 
-    it('prefers the active-workspace tabs and never consults the partition when one is bound', () => {
-      service.handleSessionStats(baseStats);
-      expect(findAcrossWorkspacesMock).not.toHaveBeenCalled();
+    it('updates every bound tab: active ones and each background one, once per tab', () => {
+      const bgA = makeTab({ id: 'bg-a' as TabId, claudeSessionId: SESS_1 });
+      const bgB = makeTab({ id: 'bg-b' as TabId, claudeSessionId: SESS_1 });
+      // The active lookup's unbound fallback may already return a background
+      // tab; it must not be updated twice.
+      findTabsBySessionIdMock.mockReturnValue([tabs[0], bgA]);
+      findBackgroundTabsMock.mockReturnValue([bgA, bgB]);
+      const snap = makeSnapshot(SESS_1, 3, 0.3);
+
+      service.handleSessionStats({ ...baseStats, sessionStats: snap });
+
+      expect(findBackgroundTabsMock).toHaveBeenCalledWith(SESS_1);
+      expect(installSessionStatsMock.mock.calls.map((c) => c[0])).toEqual([
+        'tab-1',
+        'bg-a',
+        'bg-b',
+      ]);
+      expect(clearCompactionStateMock.mock.calls.map((c) => c[0])).toEqual([
+        'tab-1',
+        'bg-a',
+        'bg-b',
+      ]);
+      expect(streamHandleStatsMock).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -1098,6 +1126,551 @@ describe('SessionStatsAggregatorService', () => {
       const secondPick = (secondStats as { model: string }).model;
 
       expect(firstPick).toBe(secondPick);
+    });
+  });
+});
+
+/**
+ * `session:stats-live` (TASK_2026_626) against the REAL TabManagerService, so
+ * admission (revision floor) and the context gate run as in production. Only
+ * the result-path collaborators are mocked — every one of them is a spy that
+ * a live update must never reach.
+ */
+describe('SessionStatsAggregatorService — session:stats-live (TASK_2026_626)', () => {
+  const MODEL = 'claude-sonnet-4-5';
+  const contextCapacity = {
+    tokens: 200_000,
+    source: 'provider-catalog' as const,
+    providerId: 'anthropic',
+    model: MODEL,
+  };
+
+  let service: SessionStatsAggregatorService;
+  let tabManager: TabManagerService;
+  let surfaceStats: SurfaceSessionStatsRegistry;
+  let sessionId: SessionId;
+  let tabId: string;
+  let surfacesForSession: jest.Mock;
+  let streamHandleStats: jest.Mock;
+  let loadSessions: jest.Mock;
+  let sendQueued: jest.Mock;
+  let clearCompactionState: jest.Mock;
+  let handoverRecord: jest.Mock;
+  let setLiveModelStats: jest.SpyInstance;
+  let warn: jest.SpyInstance;
+
+  function snapshot(
+    revision: number,
+    overrides: Partial<SessionStatsEntry> = {},
+  ): SessionStatsEntry {
+    return {
+      sessionId,
+      model: MODEL,
+      totalCost: 0.1 * revision,
+      tokens: {
+        input: 100 * revision,
+        output: 10 * revision,
+        cacheRead: 0,
+        cacheCreation: 0,
+      },
+      messageCount: revision,
+      status: 'ok',
+      revision,
+      ...overrides,
+    };
+  }
+
+  /** A provisional live payload, optionally with a context reading. */
+  function provisional(
+    revision: number,
+    contextTokens?: number,
+  ): SessionStatsLiveWire {
+    const sessionStats = snapshot(revision, { provisional: true });
+    return contextTokens === undefined
+      ? { sessionId, sessionStats }
+      : { sessionId, sessionStats, context: { model: MODEL, contextTokens } };
+  }
+
+  /** An authoritative live payload (agent-count update or settle). */
+  function authoritative(revision: number): SessionStatsLiveWire {
+    return { sessionId, sessionStats: snapshot(revision) };
+  }
+
+  /** A `session:stats` result whose `modelUsage` derives a 60 000 fill. */
+  function result(revision: number): SessionStatsResultEvent {
+    return {
+      sessionId,
+      turnCost: 0.2,
+      tokens: { input: 100, output: 50, cacheRead: 0, cacheCreation: 0 },
+      duration: 1000,
+      sessionStats: snapshot(revision),
+      modelUsage: [
+        {
+          model: MODEL,
+          inputTokens: 100,
+          outputTokens: 50,
+          contextWindow: 200_000,
+          contextCapacity,
+          costUSD: 0.2,
+          lastTurnContextTokens: 60_000,
+        },
+      ],
+    };
+  }
+
+  const tab = (): TabState | undefined =>
+    tabManager.tabs().find((candidate) => candidate.id === tabId);
+
+  function clearResultPathSpies(): void {
+    for (const spy of [
+      streamHandleStats,
+      loadSessions,
+      sendQueued,
+      clearCompactionState,
+      handoverRecord,
+    ]) {
+      spy.mockClear();
+    }
+    setLiveModelStats.mockClear();
+  }
+
+  function expectNoResultPathEffect(): void {
+    expect(streamHandleStats).not.toHaveBeenCalled();
+    expect(loadSessions).not.toHaveBeenCalled();
+    expect(sendQueued).not.toHaveBeenCalled();
+    expect(clearCompactionState).not.toHaveBeenCalled();
+    expect(handoverRecord).not.toHaveBeenCalled();
+    expect(setLiveModelStats).not.toHaveBeenCalled();
+  }
+
+  beforeEach(() => {
+    localStorage.clear();
+    surfacesForSession = jest.fn(() => []);
+    // If the live path ever reached the streaming handler on a tab with a
+    // queue, this return value would make the aggregator send it.
+    streamHandleStats = jest.fn(() => ({
+      tabId: 'any',
+      queuedContent: 'queued follow-up',
+    }));
+    loadSessions = jest.fn().mockResolvedValue(undefined);
+    sendQueued = jest.fn();
+    clearCompactionState = jest.fn();
+    handoverRecord = jest.fn();
+    warn = jest.spyOn(console, 'warn').mockImplementation();
+    const modelRefresh = {
+      refreshModels: jest.fn().mockResolvedValue(undefined),
+    } as jest.Mocked<ModelRefreshControl>;
+
+    TestBed.configureTestingModule({
+      providers: [
+        SessionStatsAggregatorService,
+        TabManagerService,
+        TabWorkspacePartitionService,
+        ConversationRegistry,
+        TabSessionBinding,
+        ConfirmationDialogService,
+        SurfaceSessionStatsRegistry,
+        { provide: MODEL_REFRESH_CONTROL, useValue: modelRefresh },
+        {
+          provide: StreamRouter,
+          useValue: { surfacesForSession } as unknown as StreamRouter,
+        },
+        {
+          provide: StreamingHandlerService,
+          useValue: { handleSessionStats: streamHandleStats },
+        },
+        { provide: SessionLoaderService, useValue: { loadSessions } },
+        {
+          provide: CompactionLifecycleService,
+          useValue: { clearCompactionState },
+        },
+        {
+          provide: MessageDispatchService,
+          useValue: { sendQueuedMessage: sendQueued },
+        },
+        {
+          provide: SessionHandoverClientService,
+          useValue: { record: handoverRecord },
+        },
+      ],
+    });
+    service = TestBed.inject(SessionStatsAggregatorService);
+    tabManager = TestBed.inject(TabManagerService);
+    surfaceStats = TestBed.inject(SurfaceSessionStatsRegistry);
+
+    tabManager.switchWorkspace('/ws/live');
+    sessionId = SessionId.create();
+    tabId = tabManager.createTab('live');
+    tabManager.attachSession(tabId, sessionId);
+    // The tab already shows a same-model 40 000-token fill from an earlier turn.
+    tabManager.setLiveModelStats(tabId, {
+      model: MODEL,
+      contextKnown: true,
+      contextCapacity,
+      contextUsed: 40_000,
+      contextWindow: 200_000,
+      contextPercent: 20,
+    });
+    setLiveModelStats = jest.spyOn(tabManager, 'setLiveModelStats');
+  });
+
+  afterEach(() => {
+    warn.mockRestore();
+    localStorage.clear();
+    TestBed.resetTestingModule();
+  });
+
+  it('installs a provisional snapshot and its context reading on the tab', () => {
+    const live = provisional(5, 90_000);
+
+    service.handleLiveSessionStats(live);
+
+    expect(tab()?.sessionStats).toBe(live.sessionStats);
+    expect(tab()?.sessionStats?.provisional).toBe(true);
+    expect(tab()?.liveModelStats?.contextUsed).toBe(90_000);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  describe('never runs a result-path effect', () => {
+    function streamingTab(): void {
+      tabManager.setStatus(tabId, 'streaming');
+      tabManager.markTabStreaming(tabId);
+    }
+
+    function finalizedTabWithQueue(): void {
+      tabManager.setStatus(tabId, 'loaded');
+      tabManager.setQueuedContent(tabId, 'queued follow-up');
+    }
+
+    it.each([
+      ['provisional', 'streaming', () => provisional(5, 90_000), streamingTab],
+      ['authoritative', 'streaming', () => authoritative(5), streamingTab],
+      [
+        'provisional',
+        'finalized with queued content',
+        () => provisional(5, 90_000),
+        finalizedTabWithQueue,
+      ],
+      [
+        'authoritative',
+        'finalized with queued content',
+        () => authoritative(5),
+        finalizedTabWithQueue,
+      ],
+    ])(
+      'for a %s payload on a %s tab',
+      (_kind, _state, payload: () => SessionStatsLiveWire, arrange) => {
+        arrange();
+        const before = tab();
+        const live = payload();
+
+        service.handleLiveSessionStats(live);
+
+        expectNoResultPathEffect();
+        const after = tab();
+        expect(after?.sessionStats).toBe(live.sessionStats);
+        expect(after?.status).toBe(before?.status);
+        expect(after?.queuedContent).toBe(before?.queuedContent);
+        expect(after?.messages).toBe(before?.messages);
+      },
+    );
+  });
+
+  it('out of order: a live r8 after session:stats r10 changes neither the snapshot nor the fill', () => {
+    service.handleSessionStats(result(10));
+    const installed = tab()?.sessionStats;
+    const fill = tab()?.liveModelStats;
+    expect(installed?.revision).toBe(10);
+    expect(fill?.contextUsed).toBe(60_000);
+    clearResultPathSpies();
+
+    service.handleLiveSessionStats(provisional(8, 90_000));
+
+    expect(tab()?.sessionStats).toBe(installed);
+    expect(tab()?.liveModelStats).toBe(fill);
+    expectNoResultPathEffect();
+  });
+
+  it('settle: an authoritative live r6 after a provisional r5 clears the estimate with no session:stats', () => {
+    service.handleLiveSessionStats(provisional(5, 90_000));
+    const settle = authoritative(6);
+
+    service.handleLiveSessionStats(settle);
+
+    expect(tab()?.sessionStats).toBe(settle.sessionStats);
+    expect(tab()?.sessionStats?.provisional).toBeUndefined();
+    expectNoResultPathEffect();
+  });
+
+  it('a later session:stats replaces a live snapshot', () => {
+    service.handleLiveSessionStats(provisional(5, 90_000));
+    const next = result(6);
+
+    service.handleSessionStats(next);
+
+    expect(tab()?.sessionStats).toBe(next.sessionStats);
+    expect(tab()?.sessionStats?.provisional).toBeUndefined();
+    expect(tab()?.liveModelStats?.contextUsed).toBe(60_000);
+  });
+
+  describe('context, both arrival orders at revision 6', () => {
+    beforeEach(() => {
+      service.handleLiveSessionStats(provisional(5, 90_000));
+      expect(tab()?.liveModelStats?.contextUsed).toBe(90_000);
+    });
+
+    it('(a) session:stats r6 then the settle r6 ends at r6, no provisional, fill 60 000', () => {
+      service.handleSessionStats(result(6));
+      clearResultPathSpies();
+      const settle = authoritative(6);
+
+      service.handleLiveSessionStats(settle);
+
+      expect(tab()?.sessionStats).toBe(settle.sessionStats);
+      expect(tab()?.sessionStats?.revision).toBe(6);
+      expect(tab()?.sessionStats?.provisional).toBeUndefined();
+      expect(tab()?.liveModelStats?.contextUsed).toBe(60_000);
+      expectNoResultPathEffect();
+    });
+
+    it('(b) the settle r6 then session:stats r6 ends in the same state', () => {
+      service.handleLiveSessionStats(authoritative(6));
+      service.handleSessionStats(result(6));
+
+      expect(tab()?.sessionStats?.revision).toBe(6);
+      expect(tab()?.sessionStats?.provisional).toBeUndefined();
+      expect(tab()?.liveModelStats?.contextUsed).toBe(60_000);
+    });
+
+    it('a stray context on an authoritative r6 after session:stats keeps the fill at 60 000', () => {
+      service.handleSessionStats(result(6));
+      clearResultPathSpies();
+
+      service.handleLiveSessionStats({
+        ...authoritative(6),
+        context: { model: MODEL, contextTokens: 90_000 },
+      });
+
+      expect(tab()?.sessionStats?.provisional).toBeUndefined();
+      expect(tab()?.liveModelStats?.contextUsed).toBe(60_000);
+      expectNoResultPathEffect();
+    });
+  });
+
+  it('Stop on an open tab: provisional r5 then the release-settle r6 hides the estimate and leaves the tab alone', () => {
+    tabManager.setStatus(tabId, 'streaming');
+    tabManager.markTabStreaming(tabId);
+
+    service.handleLiveSessionStats(provisional(5, 90_000));
+    expect(tab()?.sessionStats?.provisional).toBe(true);
+    const before = tab();
+
+    service.handleLiveSessionStats(authoritative(6));
+
+    const after = tab();
+    expect(after).toBeDefined();
+    expect(after?.sessionStats?.revision).toBe(6);
+    expect(after?.sessionStats?.provisional).toBeUndefined();
+    expect(after?.status).toBe('streaming');
+    expect(after?.status).toBe(before?.status);
+    expect(after?.messages).toBe(before?.messages);
+    expect(after?.streamingState).toBe(before?.streamingState);
+    expectNoResultPathEffect();
+  });
+
+  describe('the same session in several tabs across workspaces (review finding 1)', () => {
+    /** A tab's state wherever it lives — active or a background partition. */
+    const anyTab = (id: string): TabState | undefined =>
+      tabManager.findTabByIdAcrossWorkspaces(id)?.tab;
+
+    function openSessionTab(title: string): string {
+      const id = tabManager.createTab(title);
+      tabManager.attachSession(id, sessionId);
+      return id;
+    }
+
+    it('two background tabs in one workspace and one in another all receive the estimate and the settle', () => {
+      // /ws/live: the original tab plus a second tab on the same session.
+      const secondLive = openSessionTab('live 2');
+      // /ws/other: a third tab on the same session.
+      tabManager.switchWorkspace('/ws/other');
+      const other = openSessionTab('other');
+      // The user switches folders mid-turn: every bound tab is now background.
+      tabManager.switchWorkspace('/ws/third');
+      const ids = [tabId, secondLive, other];
+      const install = jest.spyOn(tabManager, 'installSessionStats');
+
+      const estimate = provisional(5);
+      service.handleLiveSessionStats(estimate);
+
+      expect(install.mock.calls.map((c) => c[0]).sort()).toEqual(
+        [...ids].sort(),
+      );
+      for (const id of ids) {
+        expect(anyTab(id)?.sessionStats).toBe(estimate.sessionStats);
+        expect(anyTab(id)?.sessionStats?.provisional).toBe(true);
+      }
+
+      const settle = authoritative(6);
+      service.handleLiveSessionStats(settle);
+
+      for (const id of ids) {
+        expect(anyTab(id)?.sessionStats).toBe(settle.sessionStats);
+        expect(anyTab(id)?.sessionStats?.provisional).toBeUndefined();
+      }
+      expect(surfacesForSession).not.toHaveBeenCalled();
+      expectNoResultPathEffect();
+    });
+
+    it('an active tab does not hide a background tab on the same session', () => {
+      tabManager.switchWorkspace('/ws/other');
+      const other = openSessionTab('other');
+      tabManager.switchWorkspace('/ws/live');
+
+      const estimate = provisional(5);
+      service.handleLiveSessionStats(estimate);
+
+      expect(tab()?.sessionStats?.provisional).toBe(true);
+      expect(anyTab(other)?.sessionStats).toBe(estimate.sessionStats);
+
+      service.handleLiveSessionStats(authoritative(6));
+
+      expect(tab()?.sessionStats?.provisional).toBeUndefined();
+      expect(anyTab(other)?.sessionStats?.revision).toBe(6);
+      expect(anyTab(other)?.sessionStats?.provisional).toBeUndefined();
+    });
+
+    it('each tab runs its own admission: a stale revision reaches none of them', () => {
+      const secondLive = openSessionTab('live 2');
+      tabManager.switchWorkspace('/ws/third');
+      service.handleLiveSessionStats(authoritative(6));
+
+      service.handleLiveSessionStats(provisional(5));
+
+      for (const id of [tabId, secondLive]) {
+        expect(anyTab(id)?.sessionStats?.revision).toBe(6);
+        expect(anyTab(id)?.sessionStats?.provisional).toBeUndefined();
+      }
+    });
+
+    it('session:stats settles every background tab, clearing the estimate marker on each', () => {
+      const secondLive = openSessionTab('live 2');
+      tabManager.switchWorkspace('/ws/other');
+      const other = openSessionTab('other');
+      tabManager.switchWorkspace('/ws/third');
+      service.handleLiveSessionStats(provisional(5));
+      const next = result(6);
+
+      service.handleSessionStats(next);
+
+      for (const id of [tabId, secondLive, other]) {
+        expect(anyTab(id)?.sessionStats).toBe(next.sessionStats);
+        expect(anyTab(id)?.sessionStats?.provisional).toBeUndefined();
+      }
+      expect(streamHandleStats).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it('drops a snapshot naming another session with one warning that names only the session', () => {
+    const before = tab();
+
+    service.handleLiveSessionStats({
+      sessionId,
+      sessionStats: snapshot(5, { sessionId: SessionId.create() }),
+    });
+
+    expect(tab()).toBe(before);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith(
+      '[ChatStore] handleLiveSessionStats: session snapshot names a different session, ignoring it',
+      expect.objectContaining({ sessionId }),
+    );
+  });
+
+  it('drops a malformed snapshot with one warning', () => {
+    const before = tab();
+
+    service.handleLiveSessionStats({
+      sessionId,
+      sessionStats: {
+        ...snapshot(5),
+        totalCost: 'free',
+      } as unknown as SessionStatsEntry,
+    });
+
+    expect(tab()).toBe(before);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith(
+      '[ChatStore] handleLiveSessionStats: rejected a malformed session snapshot',
+      { sessionId },
+    );
+  });
+
+  describe('surface path (no tab)', () => {
+    let surfaceSession: SessionId;
+
+    beforeEach(() => {
+      surfaceSession = SessionId.create();
+    });
+
+    function surfaceSnapshot(
+      revision: number,
+      provisionalFlag?: true,
+    ): SessionStatsLiveWire {
+      return {
+        sessionId: surfaceSession,
+        sessionStats: {
+          ...snapshot(revision),
+          sessionId: surfaceSession,
+          ...(provisionalFlag && { provisional: provisionalFlag }),
+        },
+      };
+    }
+
+    it('records the snapshot and keeps the stored live reading', () => {
+      surfacesForSession.mockReturnValue(['surface-1']);
+      const reading = {
+        model: MODEL,
+        contextKnown: true,
+        contextUsed: 30_000,
+        contextWindow: 200_000,
+        contextPercent: 15,
+      };
+      surfaceStats.record(surfaceSession, { live: reading, snapshot: null });
+      const live = {
+        ...surfaceSnapshot(5, true),
+        context: { model: MODEL, contextTokens: 90_000 },
+      };
+
+      service.handleLiveSessionStats(live);
+
+      expect(surfaceStats.peek(surfaceSession)?.snapshot).toBe(
+        live.sessionStats,
+      );
+      expect(surfaceStats.peek(surfaceSession)?.live).toBe(reading);
+      expectNoResultPathEffect();
+    });
+
+    it('a lower-revision live payload after an authoritative one changes nothing', () => {
+      surfacesForSession.mockReturnValue(['surface-1']);
+      const settled = surfaceSnapshot(6);
+      service.handleLiveSessionStats(settled);
+      const recorded = surfaceStats.peek(surfaceSession);
+
+      service.handleLiveSessionStats(surfaceSnapshot(4, true));
+
+      expect(surfaceStats.peek(surfaceSession)?.snapshot).toBe(
+        settled.sessionStats,
+      );
+      expect(surfaceStats.peek(surfaceSession)).toEqual(recorded);
+    });
+
+    it('drops an update for a session nobody routes, without a warning', () => {
+      service.handleLiveSessionStats(surfaceSnapshot(5, true));
+
+      expect(surfaceStats.peek(surfaceSession)).toBeNull();
+      expect(warn).not.toHaveBeenCalled();
+      expectNoResultPathEffect();
     });
   });
 });

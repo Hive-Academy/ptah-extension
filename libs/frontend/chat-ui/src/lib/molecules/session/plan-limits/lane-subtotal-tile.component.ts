@@ -1,15 +1,16 @@
 import { ChangeDetectionStrategy, Component, input } from '@angular/core';
-import { LANE_FACE_FILL } from './stats-tile.styles';
+import { LANE_ROW_FILL } from './stats-tile.styles';
 import type { LaneSubtotalTileModel } from './stats-limit-view-model.types';
 
 /**
- * "Lanes · subtotal" tile that closes the lane group (design §3.3, Req 8
- * cue 3). Known token and cost sums of the lane runs plus the count of runs
- * whose cost is unknown. It is never added to the session Tokens or Cost
- * cards and carries the "lane · not in totals" caption.
+ * "Subtotal" row that closes the Lanes section (design §3.3, Req 8 cue 3).
+ * Known token and cost sums of the lane runs plus the count of runs whose
+ * cost is unknown. It is never added to the session tokens or cost, and its
+ * "lane · not in totals" caption shows here only when the section header
+ * cannot share it (`captionShared`).
  *
- * Not a disclosure: everything it says is on its face (prototype `.tile.sub`),
- * so it renders as a plain card rather than a button with an empty panel.
+ * Not a disclosure: everything it says is on its face, so it renders as a
+ * plain row rather than a button with an empty panel.
  */
 @Component({
   selector: 'ptah-lane-subtotal-tile',
@@ -18,35 +19,39 @@ import type { LaneSubtotalTileModel } from './stats-limit-view-model.types';
   template: `
     @let t = tile();
     <div [class]="faceClass" data-testid="lane-subtotal-tile">
-      <div
-        class="text-[10px] uppercase tracking-wider text-base-content-muted leading-tight"
-      >
-        Lanes · subtotal
+      <div class="flex min-w-0 items-center gap-2">
+        <span class="min-w-16 shrink-0 text-xs text-base-content"
+          >Subtotal</span
+        >
+        <span
+          class="text-xs font-semibold tabular-nums"
+          data-testid="lane-subtotal-tokens"
+          >{{ t.tokensText }}</span
+        >
       </div>
       <div
-        class="text-[10px] text-base-content-muted leading-tight truncate"
-        [attr.title]="t.caption"
-      >
-        {{ t.caption }}
-      </div>
-      <div
-        class="text-sm font-semibold leading-tight mt-0.5 tabular-nums"
-        data-testid="lane-subtotal-tokens"
-      >
-        {{ t.tokensText }}
-      </div>
-      <div
-        class="text-[11px] text-base-content-muted leading-tight mt-0.5"
+        class="pl-[4.5rem] text-[11px] leading-tight text-base-content-muted"
         data-testid="lane-subtotal-summary"
       >
         {{ t.summary }}
       </div>
+      @if (!captionShared()) {
+        <div
+          class="truncate pl-[4.5rem] text-[10px] leading-tight text-base-content-muted"
+          [attr.title]="t.caption"
+          data-testid="lane-subtotal-caption"
+        >
+          {{ t.caption }}
+        </div>
+      }
     </div>
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class LaneSubtotalTileComponent {
   readonly tile = input.required<LaneSubtotalTileModel>();
+  /** The section header already shows this row's caption. */
+  readonly captionShared = input<boolean>(false);
 
-  protected readonly faceClass = `rounded px-2 py-1.5 border ${LANE_FACE_FILL} border-base-content/40`;
+  protected readonly faceClass = `rounded-sm border-l-2 pl-1.5 pr-5 py-1 ${LANE_ROW_FILL} border-base-content/40`;
 }
