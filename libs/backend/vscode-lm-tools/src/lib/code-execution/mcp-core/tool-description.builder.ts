@@ -600,9 +600,9 @@ export function buildCountTokensTool(): MCPToolDefinition {
  * Build the ptah_agent_spawn tool definition
  * Spawn a CLI agent to work on a task in the background
  */
-export function buildAgentSpawnTool(
-  { transport = 'http' }: { transport?: 'http' | 'stdio' } = {},
-): MCPToolDefinition {
+export function buildAgentSpawnTool({
+  transport = 'http',
+}: { transport?: 'http' | 'stdio' } = {}): MCPToolDefinition {
   return {
     name: 'ptah_agent_spawn',
     description:
@@ -611,9 +611,6 @@ export function buildAgentSpawnTool(
       'agents, which are user-configured Anthropic-compatible providers. ' +
       'WHICH of either family exists on this machine is a runtime fact — call ' +
       'ptah_agent_list; do not assume a provider from any list you have read. ' +
-      'A spawn on a lane at its plan limit or in a cooldown is refused with ' +
-      'the reset time and alternatives; pass force: true only when you know ' +
-      'the limit is wrong. ' +
       'The agent runs while you continue working. ' +
       'You do NOT need to poll: when the agent reaches a terminal status, a ' +
       '<agent-lane-completed> turn is pushed into this session carrying its ' +
@@ -916,9 +913,8 @@ export function buildAgentListTool(): MCPToolDefinition {
       'List all available agents (CLI and Ptah CLI) that can be spawned. ' +
       'Returns agent type, installation status, and capabilities. ' +
       'Ptah CLI agents include ptahCliId needed for ptah_agent_spawn. ' +
-      'Each row shows a Limit state: AT LIMIT lanes refuse spawns until their ' +
-      'reset; "unknown (…)" means the limit could not be read, not that the ' +
-      'lane has room. Prefer lanes with confirmed room.',
+      'AT LIMIT lanes refuse spawns; an unknown Limit state means the limit ' +
+      'could not be read, not room.',
     inputSchema: {
       type: 'object',
       properties: {},
