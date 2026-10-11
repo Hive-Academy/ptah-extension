@@ -1245,7 +1245,7 @@ other rows stay as recorded.
   then `npx nx typecheck @ptah-extension/agent-sdk --parallel=1`; then lint both with `--parallel=1`.
 - Grep: `noticeQueue?.post` in `session-budget.service.ts` appears only on the `request-wrap-up` path.
 
-## Batch 12: RPC handlers (R1) — PENDING
+## Batch 12: RPC handlers (R1) — COMPLETE
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer, fresh session
@@ -1254,7 +1254,7 @@ other rows stay as recorded.
 - Tasks: 2 | Depends on: Batches 9 and 11
 - Phase: 4 | Phase review: as Batch 9
 
-### Task 12.1: `session:beginHandover` passes `continueNow` and the draft; no `admitOrHold` — PENDING
+### Task 12.1: `session:beginHandover` passes `continueNow` and the draft; no `admitOrHold` — COMPLETE
 
 - Files: `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff\libs\backend\rpc-handlers\src\lib\handlers\session-handover-rpc.schema.ts`;
   `session-handover-rpc.handlers.ts` and `session-handover-rpc.handlers.spec.ts`
@@ -1266,7 +1266,7 @@ other rows stay as recorded.
   handler unchanged (its `state` carries `draftText`). Specs: S8 (`continueNow` passed), S9/S19 (no
   `admitOrHold`; cancel result carries `draftText`).
 
-### Task 12.2: `request-wrap-up` in the budget RPC — PENDING
+### Task 12.2: `request-wrap-up` in the budget RPC — COMPLETE
 
 - Files: `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff\libs\backend\rpc-handlers\src\lib\handlers\session-budget-rpc.schema.ts`
   and `session-budget-rpc.handlers.spec.ts`
@@ -1280,6 +1280,10 @@ other rows stay as recorded.
 - `npx jest -c libs/backend/rpc-handlers/jest.config.ts libs/backend/rpc-handlers/src/lib/handlers/session-handover-rpc.handlers.spec.ts libs/backend/rpc-handlers/src/lib/handlers/session-budget-rpc.handlers.spec.ts libs/backend/rpc-handlers/src/lib/chat/session/chat-session-budget.spec.ts --coverage=false --maxWorkers=2`;
   then `npx nx typecheck @ptah-extension/rpc-handlers --parallel=1`; then
   `npx nx lint @ptah-extension/rpc-handlers --parallel=1`.
+- Team-leader verified: jest 3 suites / 55 tests passed (with the `marked`/`vscode` mapper);
+  typecheck passed; lint 0 errors / 50 warnings (baseline, none in the five changed files). Grep:
+  production coordinator `.begin(` only at `session-handover-rpc.handlers.ts:99`; no `admitOrHold`
+  or `restoreInputs` in the handler.
 
 ## Batch 13: Agent successor tool asks the user (C1, D23) — PENDING
 

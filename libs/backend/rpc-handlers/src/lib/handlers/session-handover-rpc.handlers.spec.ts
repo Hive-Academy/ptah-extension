@@ -25,6 +25,7 @@ const SUCCESSOR_TAB_ID = 'bbbbbbbb-cccc-4ddd-8eee-ffffffffffff';
 
 interface Harness {
   readonly registerMethod: jest.Mock;
+  readonly logger: ReturnType<typeof createMockLogger>;
   readonly coordinator: {
     begin: jest.Mock;
     cancel: jest.Mock;
@@ -58,8 +59,9 @@ function makeHarness(withCoordinator = true): Harness {
   };
   const successorHost = { acknowledgeSuccessorBound: jest.fn(() => true) };
   const broadcastMessage = jest.fn().mockResolvedValue(undefined);
+  const logger = createMockLogger();
   const handler = new SessionHandoverRpcHandlers(
-    createMockLogger() as unknown as Logger,
+    logger as unknown as Logger,
     { registerMethod } as unknown as RpcHandler,
     (withCoordinator
       ? coordinator
@@ -69,7 +71,7 @@ function makeHarness(withCoordinator = true): Harness {
     { broadcastMessage },
   );
   handler.register();
-  return { registerMethod, coordinator, successorHost, broadcastMessage };
+  return { registerMethod, logger, coordinator, successorHost, broadcastMessage };
 }
 
 function registered(harness: Harness, method: string): (params: unknown) => Promise<unknown> {
@@ -101,7 +103,7 @@ describe('SessionHandoverRpcHandlers', () => {
     expect(harness.coordinator.begin).not.toHaveBeenCalled();
   });
 
-  it('begins a successor handover and holds composer text with the operation', async () => {
+  it('begins a successor handover with the composer text as the draft, never holding it', async () => {
     const harness = makeHarness();
 
     await expect(registered(harness, 'session:beginHandover')({
@@ -110,16 +112,67 @@ describe('SessionHandoverRpcHandlers', () => {
       handoff: 'handoff notes',
       queuedInput: 'continue this work',
     })).resolves.toEqual({ accepted: true, state: state() });
+    expect(harness.coordinator.begin).toHaveBeenCalledTimes(1);
     expect(harness.coordinator.begin).toHaveBeenCalledWith(
       SESSION_ID,
       'successor',
       true,
       'handoff notes',
+      { continueNow: false, queuedInput: 'continue this work' },
     );
-    expect(harness.coordinator.admitOrHold).toHaveBeenCalledWith(SESSION_ID, {
-      content: 'continue this work',
-      admission: 'require-idle',
-    });
+    expect(harness.coordinator.admitOrHold).not.toHaveBeenCalled();
+  });
+
+  it('passes continueNow to begin and logs it (S8)', async () => {
+    const harness = makeHarness();
+
+    await expect(registered(harness, 'session:beginHandover')({
+      sourceSessionId: SESSION_ID,
+      sourceTabId: 'source-tab',
+      continueNow: true,
+    })).resolves.toEqual({ accepted: true, state: state() });
+    expect(harness.coordinator.begin).toHaveBeenCalledWith(
+      SESSION_ID,
+      'successor',
+      true,
+      undefined,
+      { continueNow: true, queuedInput: undefined },
+    );
+    expect(harness.logger.info).toHaveBeenCalledWith(
+      '[SessionHandoverRpcHandlers] user began a successor handover',
+      { sourceSessionId: SESSION_ID, continueNow: true },
+    );
+    expect(harness.coordinator.admitOrHold).not.toHaveBeenCalled();
+  });
+
+  it('rejects a non-boolean continueNow without reaching the coordinator', async () => {
+    const harness = makeHarness();
+
+    await expect(registered(harness, 'session:beginHandover')({
+      sourceSessionId: SESSION_ID,
+      sourceTabId: 'source-tab',
+      continueNow: 'yes',
+    })).resolves.toEqual({ accepted: false, error: 'unavailable' });
+    expect(harness.coordinator.begin).not.toHaveBeenCalled();
+  });
+
+  it('returns the cancelled state with the draft text and never holds it (S9/S19)', async () => {
+    const harness = makeHarness();
+    const cancelled: SessionHandoverState = {
+      ...state(),
+      phase: 'cancelled',
+      revision: 5,
+      draftText: 'continue this work',
+    };
+    harness.coordinator.cancel.mockReturnValue([]);
+    harness.coordinator.snapshotFor.mockReturnValue(cancelled);
+
+    await expect(registered(harness, 'session:cancelHandover')({
+      sourceSessionId: SESSION_ID,
+      operationId: OPERATION_ID,
+    })).resolves.toEqual({ cancelled: true, state: cancelled });
+    expect(harness.coordinator.cancel).toHaveBeenCalledWith(SESSION_ID, OPERATION_ID);
+    expect(harness.coordinator.admitOrHold).not.toHaveBeenCalled();
   });
 
   it('acknowledges only a valid successor bind correlation', async () => {

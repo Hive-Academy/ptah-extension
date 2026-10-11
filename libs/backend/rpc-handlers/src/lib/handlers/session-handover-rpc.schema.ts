@@ -8,6 +8,7 @@ export const BeginSessionHandoverParamsSchema = z.object({
   sourceTabId: z.string().min(1).max(200),
   handoff: boundedText.optional(),
   queuedInput: boundedText.optional(),
+  continueNow: z.boolean().optional(),
 });
 
 export const CancelSessionHandoverParamsSchema = z.object({
