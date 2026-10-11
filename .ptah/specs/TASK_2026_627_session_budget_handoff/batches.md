@@ -1053,7 +1053,7 @@ approved plan folds into B1 and spec S9 asserts (`waitingFor` cleared on cancel)
 task — L7 (re-measured in Task 9.2), L18 (a skipped park after a throwing `inner` is harmless). All
 other rows stay as recorded.
 
-## Batch 9: Coordinator user-only start, lifecycle and adapter result path (S1-part, B1, B2-part) — COMPLETE
+## Batch 9: Coordinator user-only start, lifecycle and adapter result path (S1-part, B1, B2-part) — COMPLETE (907d9f405)
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer, fresh session
