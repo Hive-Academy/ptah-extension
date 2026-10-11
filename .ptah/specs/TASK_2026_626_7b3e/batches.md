@@ -1,6 +1,6 @@
 # Batches - TASK_2026_626_7b3e
 
-Total tasks: 20 | Batches: 9 | Complete: 8/9
+Total tasks: 20 | Batches: 9 | Complete: 9/9
 
 Worktree root (all relative paths below resolve against it):
 `D:/projects/ptah-extension/.claude-worktrees/fix-live-session-stats-a1634d3869cb`
@@ -267,7 +267,7 @@ Edge cases:
   - lint shared: 0 errors, 5 warnings.
 - Carried to Batch 5: the `sdk-callbacks.spec.ts` adapter mocks lack `setLiveStatsCallback`, so Task 5.2 must add it.
 
-## Batch 5: Host broadcast wiring (cli-agent-runtime) — PENDING
+## Batch 5: Host broadcast wiring (cli-agent-runtime) — COMPLETE
 
 - Recommended executor: backend-developer (sub-agent)
 - Fallback executor: CLI lane x1
@@ -276,7 +276,7 @@ Edge cases:
 - Tasks: 2 | Depends on: Batch 4
 - Phase: BACKEND (last batch) | Phase review: code-logic + style due after this commit
 
-### Task 5.1: `wireLiveStatsCallback` — PENDING
+### Task 5.1: `wireLiveStatsCallback` — COMPLETE
 
 - Files: MODIFY `libs/backend/cli-agent-runtime/src/lib/wiring/sdk-callbacks.ts`
 - Plan reference: implementation-plan.md:768-795 (C6)
@@ -284,7 +284,7 @@ Edge cases:
   `MESSAGE_TYPES.SESSION_STATS_LIVE` fire-and-forget with `.catch` logging at `debug` (session id + error name
   only); no `retryWithBackoff`; no per-publish info log; summary log line (`:118-122`) mentions live stats.
 
-### Task 5.2: Spec — PENDING
+### Task 5.2: Spec — COMPLETE
 
 - Files: MODIFY `libs/backend/cli-agent-runtime/src/lib/wiring/sdk-callbacks.spec.ts`
 - Depends on: Task 5.1
@@ -295,6 +295,22 @@ Edge cases:
 
 - `npx jest -c libs/backend/cli-agent-runtime/jest.config.ts libs/backend/cli-agent-runtime/src/lib/wiring/sdk-callbacks.spec.ts --coverage=false --maxWorkers=2`
 - `npx nx typecheck @ptah-extension/cli-agent-runtime --parallel=1`; `npx nx lint @ptah-extension/cli-agent-runtime --parallel=1`
+
+### Batch 5 verification record (team-leader)
+
+- On disk: `wireLiveStatsCallback` (`sdk-callbacks.ts:162`) is called at `:99`, directly after
+  `wireResultStatsCallback`. It broadcasts `MESSAGE_TYPES.SESSION_STATS_LIVE` with the payload unchanged. The
+  `.catch` logs at `debug` only, with the session id and `errorName`. It has no `retryWithBackoff` and no
+  per-publish `info`. The summary log line mentions live stats. A synchronous throw is caught by
+  `LiveSessionStatsPublisher.emit` (try/catch plus thenable handling).
+- All five adapter mocks in the spec gain `setLiveStatsCallback`. The two new cases cover exactly-once delivery
+  with the same payload, and a rejection that is neither retried nor thrown.
+- Host forwarding: the only call site is `register-rpc-surface.ts:244`, which serves all three hosts. The
+  VS Code, Electron and CLI `broadcastMessage` paths are async and have no type allowlist.
+- Re-run serially (temporary node_modules junction, removed afterwards):
+  - jest: 17/17 passed.
+  - typecheck cli-agent-runtime: OK.
+  - lint cli-agent-runtime: 0 errors, 45 warnings (baseline; none in the changed files).
 
 ## Batch 6: Snapshot validator + admitted live install (chat-state) — COMPLETE (commit 74fa44175)
 
