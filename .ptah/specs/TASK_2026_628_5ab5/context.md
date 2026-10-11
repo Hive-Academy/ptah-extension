@@ -43,6 +43,28 @@ Conclusions:
    main-process handle-leak observation. It is **out of scope** here. File it
    separately if it continues.
 
+### Follow-up measurement (20:27, same renderer, app 0.1.70)
+
+- `performance.memory`: `totalJSHeapSize` 103 MB, `usedJSHeapSize` 81 MB.
+  At the same time, the renderer has **2,900 MB private**.
+- So **more than 95% of the renderer memory is not V8 JavaScript objects.** It
+  is native memory: Blink's DOM and layout heap (Oilpan), PartitionAlloc and
+  malloc, and allocator pages that churn keeps committed after objects are freed.
+- **This raises hot spot 2 to first place.** DOMPurify parses HTML into DOM
+  nodes, and `[innerHTML]` replacement creates and drops DOM and layout objects
+  every frame. All of these allocate in Blink, not in V8. Hot spot 1 (tree
+  rebuild) is mainly V8 garbage and CPU cost. Still fix it, but do not expect
+  it to explain the GBs alone.
+- The allocation-sampling profile (`tmp/Heap-20261011T202717.heapprofile`)
+  recorded only 3.7 MB in 178 samples. It held only surviving objects, so it
+  cannot rank the churn. Record it again with "Include objects discarded by
+  major/minor GC" selected.
+- Next evidence to collect:
+  1. `process.getBlinkMemoryInfo()` and `await process.getProcessMemoryInfo()`
+     in the "Electron Isolated Context" of the DevTools console.
+  2. A Performance recording with **Memory** selected, to see the DOM node
+     count and the JS heap over time while streaming.
+
 ## Hot spots (code read, ranked by likely garbage)
 
 Found by reading the code, then spot-checked. Confirm the ranking with an
