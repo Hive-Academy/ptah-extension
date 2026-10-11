@@ -22,3 +22,4 @@ export {
 
 export { SURFACE_ACTIVE, surfaceActiveFor } from './surface-active';
 export { SurfaceActiveDirective } from './surface-active.directive';
+export { RetainedViewDirective } from './retained-view.directive';

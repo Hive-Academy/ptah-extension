@@ -19,6 +19,7 @@ import {
 import { PermissionHandlerService } from '@ptah-extension/chat-streaming';
 import { NOTIFICATION_FOCUS_ROUTER } from '@ptah-extension/core';
 import { NotificationCenterComponent } from './notification-center.component';
+import { NotificationAnnouncerComponent } from './notification-announcer.component';
 import { NotificationCenterStore } from './notification-center.store';
 import { NotificationSoundService } from './notification-sound.service';
 import type { PendingNotificationEntry } from './notification-center.types';
@@ -30,9 +31,9 @@ describe('NotificationCenterComponent injector topology', () => {
   @Component({
     selector: 'ptah-notification-center-host',
     standalone: true,
-    imports: [NotificationCenterComponent],
+    imports: [NotificationCenterComponent, NotificationAnnouncerComponent],
     providers: [{ provide: NOTIFICATION_FOCUS_ROUTER, useValue: { focus } }],
-    template: '<ptah-notification-center />',
+    template: '<ptah-notification-center /><ptah-notification-announcer />',
   })
   class NotificationCenterHostComponent {}
 

@@ -18,10 +18,8 @@ import {
 import { PermissionHandlerService } from '@ptah-extension/chat-streaming';
 import { NOTIFICATION_FOCUS_ROUTER } from '@ptah-extension/core';
 import type { PermissionRequest } from '@ptah-extension/shared';
-import {
-  deriveOutcomeLabel,
-  NotificationCenterStore,
-} from './notification-center.store';
+import { NotificationCenterStore } from './notification-center.store';
+import { deriveOutcomeLabel } from './notification-ledger.service';
 import { NotificationSoundService } from './notification-sound.service';
 
 describe('NotificationCenterStore', () => {

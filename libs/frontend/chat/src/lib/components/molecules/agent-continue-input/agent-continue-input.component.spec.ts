@@ -1,3 +1,4 @@
+import { signal } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { AgentContinueInputComponent } from './agent-continue-input.component';
 import {
@@ -29,8 +30,10 @@ describe('AgentContinueInputComponent', () => {
   let component: AgentContinueInputComponent;
   let continueAgent: jest.Mock;
   let resumeAgentWithMessage: jest.Mock;
+  let agents: ReturnType<typeof signal<readonly MonitoredAgent[]>>;
 
   function setup(agent: MonitoredAgent): void {
+    agents = signal<readonly MonitoredAgent[]>([agent]);
     continueAgent = jest.fn().mockResolvedValue({ ok: true });
     resumeAgentWithMessage = jest.fn().mockResolvedValue({ ok: true });
     TestBed.resetTestingModule();
@@ -39,12 +42,23 @@ describe('AgentContinueInputComponent', () => {
       providers: [
         {
           provide: AgentMonitorStore,
-          useValue: { continueAgent, resumeAgentWithMessage },
+          useValue: { agents, continueAgent, resumeAgentWithMessage },
         },
       ],
     });
     fixture = TestBed.createComponent(AgentContinueInputComponent);
     component = fixture.componentInstance;
+    fixture.componentRef.setInput('agent', agent);
+    fixture.detectChanges();
+  }
+
+  /**
+   * Move the agent to a new state the way the app does: the store publishes it
+   * (which is what the root queue service flushes from) and the card input
+   * follows.
+   */
+  function publish(agent: MonitoredAgent): void {
+    agents.set([agent]);
     fixture.componentRef.setInput('agent', agent);
     fixture.detectChanges();
   }
@@ -134,11 +148,7 @@ describe('AgentContinueInputComponent', () => {
       await component['submit']();
       expect(continueAgent).not.toHaveBeenCalled();
 
-      fixture.componentRef.setInput(
-        'agent',
-        makeAgent({ status: 'completed' }),
-      );
-      fixture.detectChanges();
+      publish(makeAgent({ status: 'completed' }));
       await Promise.resolve();
 
       expect(continueAgent).toHaveBeenCalledWith('agent-1', 'follow up');
@@ -150,14 +160,9 @@ describe('AgentContinueInputComponent', () => {
       component['draft'].set('follow up');
       await component['submit']();
 
-      fixture.componentRef.setInput(
-        'agent',
-        makeAgent({ status: 'completed' }),
-      );
-      fixture.detectChanges();
+      publish(makeAgent({ status: 'completed' }));
       await Promise.resolve();
-      fixture.componentRef.setInput('agent', makeAgent({ status: 'failed' }));
-      fixture.detectChanges();
+      publish(makeAgent({ status: 'failed' }));
       await Promise.resolve();
 
       expect(continueAgent).toHaveBeenCalledTimes(1);
@@ -180,13 +185,12 @@ describe('AgentContinueInputComponent', () => {
       await component['submit']();
       continueAgent.mockResolvedValueOnce({ ok: false, code: 'unknown' });
 
-      fixture.componentRef.setInput(
-        'agent',
-        makeAgent({ status: 'completed' }),
-      );
+      publish(makeAgent({ status: 'completed' }));
+      await Promise.resolve();
+      await Promise.resolve();
+      // The flush ran in the service; the box takes the text back on its
+      // next change detection pass.
       fixture.detectChanges();
-      await Promise.resolve();
-      await Promise.resolve();
 
       expect(component['draft']()).toBe('follow up');
       expect(component['error']()).toContain('Could not send');
@@ -209,6 +213,28 @@ describe('AgentContinueInputComponent', () => {
       );
       expect(component['draft']()).toBe('');
       expect(component['error']()).toBeNull();
+    });
+
+    it('resumes with a cliSessionId the store merged while continue was pending', async () => {
+      // Direct send: the card had no session id when the user pressed send.
+      setup(makeAgent({ cliSessionId: undefined }));
+      let answer!: (value: { ok: boolean; code?: string }) => void;
+      continueAgent.mockReturnValueOnce(
+        new Promise((resolve) => (answer = resolve)),
+      );
+      component['draft'].set('follow up');
+
+      const sent = component['submit']();
+      agents.set([makeAgent({ cliSessionId: 'sess-late' })]);
+      answer({ ok: false, code: 'not_found' });
+      await sent;
+
+      expect(resumeAgentWithMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ cliSessionId: 'sess-late' }),
+        'follow up',
+      );
+      expect(component['error']()).toBeNull();
+      expect(component['draft']()).toBe('');
     });
 
     it('skips the doomed continue call once the card is known expired', async () => {
@@ -360,18 +386,13 @@ describe('AgentContinueInputComponent', () => {
       expect(component['queued']()).toBe('my real follow up');
       expect(component['draft']()).toBe('');
 
-      // The same flush mechanism the TASK_2026_294 queue tests use: update the
-      // agent input to leave running, then run change detection so the
-      // flushOnIdle effect fires.
-      fixture.componentRef.setInput(
-        'agent',
-        makeAgent({
+      // The same flush mechanism the TASK_2026_294 queue tests use: publish the
+      // agent leaving running, so the queue service's root effect fires.
+      publish(makeAgent({
           supportsContinuation: undefined,
           cliSessionId: 'sess-a',
           status: 'completed',
-        }),
-      );
-      fixture.detectChanges();
+        }));
       await Promise.resolve();
 
       // Delivered by resume with the exact text. continueAgent is never called
