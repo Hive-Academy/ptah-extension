@@ -145,16 +145,13 @@ function fileKeyState(
   let state: FileKeyState;
   try {
     metadata = stat(path);
-    if (
-      cached &&
-      cached.mtimeMs === metadata.mtimeMs &&
-      cached.size === metadata.size
-    ) {
+    if (cached?.mtimeMs === metadata.mtimeMs && cached.size === metadata.size) {
       cached.checkedAt = checkedAt;
       return cached.state;
     }
     const key = fileKey(read(path, 'utf8'));
-    state = key === undefined ? 'absent' : key.trim() ? 'usable' : 'blank';
+    if (key === undefined) state = 'absent';
+    else state = key.trim() ? 'usable' : 'blank';
   } catch (error) {
     // degradation-audit: optional-capability - a missing file is "no key";
     // any other failure means the reader reports unavailable.

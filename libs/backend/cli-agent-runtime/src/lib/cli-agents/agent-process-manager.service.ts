@@ -2630,15 +2630,17 @@ export class AgentProcessManager {
     });
     try {
       const done = tracked.sdkHandle?.done;
-      await (done
-        ? Promise.race([
-            done.then(
-              () => undefined,
-              () => undefined,
-            ),
-            bounded,
-          ])
-        : bounded);
+      if (done === undefined) {
+        await bounded;
+      } else {
+        await Promise.race([
+          done.then(
+            () => undefined,
+            () => undefined,
+          ),
+          bounded,
+        ]);
+      }
     } finally {
       if (settleTimer) {
         clearTimeout(settleTimer);

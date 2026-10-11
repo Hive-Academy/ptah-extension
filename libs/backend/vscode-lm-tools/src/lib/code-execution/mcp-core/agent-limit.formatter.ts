@@ -218,7 +218,11 @@ export function laneBlock(
   if (limit.state.state === 'at-limit') return atLimitBlock(limit);
   const cooldown = activeCooldown(limit, now);
   if (cooldown) {
-    return { kind: 'cooldown', resetsAt: cooldown.until, detail: 'cooldown active' };
+    return {
+      kind: 'cooldown',
+      resetsAt: cooldown.until,
+      detail: 'cooldown active',
+    };
   }
   const full = fullWindow(limit, now);
   if (full) {
@@ -287,7 +291,11 @@ function blockedColumn(block: LaneBlock): string {
   if (block.kind === 'cooldown') {
     return `AT LIMIT (cooldown, retry after ${block.resetsAt === undefined ? 'an unknown time' : formatToolUtc(block.resetsAt)})`;
   }
-  return `AT LIMIT (${block.detail}, ${block.resetsAt === undefined ? 'reset unknown' : `resets ${formatToolUtc(block.resetsAt)}`})`;
+  const reset =
+    block.resetsAt === undefined
+      ? 'reset unknown'
+      : 'resets ' + formatToolUtc(block.resetsAt);
+  return `AT LIMIT (${block.detail}, ${reset})`;
 }
 
 /** The list's `Limit state` cell and the spawn's `**Limit state:**` value. */
@@ -587,19 +595,19 @@ export function formatSpawnLimitBlock(
       alternatives,
     ].join('\n\n');
   }
-  const outcome = options.forced
-    ? 'The spawn was forced past the limit gate.'
-    : attempted
-      ? 'The spawn was still attempted.'
-      : 'The spawn was still started.';
+  let outcome = 'The spawn was still started.';
+  if (options.forced) outcome = 'The spawn was forced past the limit gate.';
+  else if (attempted) outcome = 'The spawn was still attempted.';
   const lines = [`**Limit state:** ${formatLimitColumn(limit, now)}`];
   const block = laneBlock(limit, now);
-  const notice =
-    limit.state.state === 'at-limit' || limit.state.state === 'near-limit'
-      ? spawnWarning(limit, outcome, now)
-      : block
-        ? blockWarning(limit, block, outcome, now)
-        : estimateNote(limit, now);
+  let notice: string | undefined;
+  if (limit.state.state === 'at-limit' || limit.state.state === 'near-limit') {
+    notice = spawnWarning(limit, outcome, now);
+  } else if (block) {
+    notice = blockWarning(limit, block, outcome, now);
+  } else {
+    notice = estimateNote(limit, now);
+  }
   if (notice) lines.push(notice);
   if (!block && limit.state.state === 'unknown') {
     lines.push(
