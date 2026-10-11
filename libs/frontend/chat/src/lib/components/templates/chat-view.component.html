@@ -281,8 +281,9 @@
     <!-- Separator on the dock's left edge: pointer, arrows, Home/End, Enter
          or double-click reset (R1.5, design-spec section 8 assertions 10-11). -->
     @if (panelOpen() && !isOverlay()) {
-      <div
-        class="flex items-center justify-center cursor-col-resize px-1 flex-shrink-0 z-10 group touch-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-base-content"
+      <button
+        type="button"
+        class="flex items-center justify-center cursor-col-resize px-1 flex-shrink-0 z-10 group touch-none border-0 bg-transparent focus-visible:outline focus-visible:outline-2 focus-visible:outline-base-content"
         role="separator"
         aria-orientation="vertical"
         aria-label="Resize display panel"
@@ -300,7 +301,7 @@
         <div
           class="w-0.5 h-9 rounded-full bg-base-content/20 group-hover:h-14 group-hover:bg-primary/60 group-focus-visible:h-14 group-focus-visible:bg-primary group-active:bg-primary transition-colors"
         ></div>
-      </div>
+      </button>
     }
 
     @defer (when panelOpen()) {

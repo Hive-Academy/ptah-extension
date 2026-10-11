@@ -145,6 +145,7 @@ function errorName(error: unknown): string {
   try {
     return error instanceof Error ? String(error.name) : typeof error;
   } catch {
+    // degradation-audit: optional-capability — inspecting a hostile thrown value is best-effort; the caller logs this fixed safe diagnostic.
     return 'uninspectable';
   }
 }

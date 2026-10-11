@@ -188,7 +188,7 @@ export class DiffDisplayComponent {
   });
 
   protected readonly blockLabel = computed(() => {
-    const path = (this.filePath() ?? '').replace(/\\/g, '/');
+    const path = (this.filePath() ?? '').replaceAll('\\', '/');
     const name = path.split('/').pop() || 'file';
     return `Diff of ${name}, line numbers count within the replaced snippet`;
   });

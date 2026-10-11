@@ -1,4 +1,10 @@
-import { ChangeDetectionStrategy, Component, computed, input, type InputSignal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  input,
+  type InputSignal,
+} from '@angular/core';
 import type { AvatarNode } from '../view-model/view-model.types';
 
 /**
@@ -37,8 +43,12 @@ const AVATAR_TONE_CLASSES: Readonly<Record<AvatarTone, string>> = {
  */
 export function avatarInitials(name: string): string {
   const trimmed = name.trim();
-  const words = trimmed.split(/[\s\-_./]+/u).filter(word => word.length > 0);
-  if (words.length >= 2) return words.slice(0, 2).map(word => firstChar(word).toLocaleUpperCase()).join('');
+  const words = trimmed.split(/[\s\-_./]+/u).filter((word) => word.length > 0);
+  if (words.length >= 2)
+    return words
+      .slice(0, 2)
+      .map((word) => firstChar(word).toLocaleUpperCase())
+      .join('');
   // A name made only of separators ("--") keeps its own characters.
   const [first = '', second = ''] = Array.from(words[0] ?? trimmed);
   return `${first.toLocaleUpperCase()}${second}`;
@@ -49,11 +59,11 @@ function firstChar(word: string): string {
   return first;
 }
 
-/** Deterministic tone: FNV-1a over the name's UTF-16 code units, so a name keeps its colour across renders. */
+/** Deterministic tone: FNV-1a over the name's Unicode code points, so a name keeps its colour across renders. */
 export function avatarTone(name: string): AvatarTone {
   let hash = 0x811c9dc5;
-  for (let index = 0; index < name.length; index++) {
-    hash = Math.imul(hash ^ name.charCodeAt(index), 0x01000193) >>> 0;
+  for (const character of name) {
+    hash = Math.imul(hash ^ (character.codePointAt(0) ?? 0), 0x01000193) >>> 0;
   }
   return AVATAR_TONES[hash % AVATAR_TONES.length] ?? 'neutral';
 }
@@ -70,11 +80,24 @@ export function avatarTone(name: string): AvatarTone {
   styles: [AVATAR_STYLES],
   template: `
     <div class="flex min-w-0 items-center gap-2 text-base-content">
-      <span [class]="toneClasses()" aria-hidden="true" data-testid="avatar-initials">{{ initials() }}</span>
+      <span
+        [class]="toneClasses()"
+        aria-hidden="true"
+        data-testid="avatar-initials"
+        >{{ initials() }}</span
+      >
       <span class="flex min-w-0 flex-col">
-        <span class="break-words text-sm font-semibold leading-tight" data-testid="avatar-name">{{ node().name }}</span>
+        <span
+          class="break-words text-sm font-semibold leading-tight"
+          data-testid="avatar-name"
+          >{{ node().name }}</span
+        >
         @if (node().subtitle) {
-          <span class="break-words text-xs leading-tight text-base-content-muted" data-testid="avatar-subtitle">{{ node().subtitle }}</span>
+          <span
+            class="break-words text-xs leading-tight text-base-content-muted"
+            data-testid="avatar-subtitle"
+            >{{ node().subtitle }}</span
+          >
         }
       </span>
     </div>
@@ -84,5 +107,7 @@ export class DashboardAvatarComponent {
   public readonly node: InputSignal<AvatarNode> = input.required<AvatarNode>();
 
   public readonly initials = computed(() => avatarInitials(this.node().name));
-  public readonly toneClasses = computed(() => AVATAR_TONE_CLASSES[avatarTone(this.node().name)]);
+  public readonly toneClasses = computed(
+    () => AVATAR_TONE_CLASSES[avatarTone(this.node().name)],
+  );
 }

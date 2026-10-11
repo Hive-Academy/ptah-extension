@@ -112,7 +112,7 @@ let nextDisplayPanelInstance = 0;
 function idSafe(key: string): string {
   return key.replace(
     /[^A-Za-z0-9-]/g,
-    (char) => `_${char.charCodeAt(0).toString(16)}_`,
+    (char) => `_${char.codePointAt(0)?.toString(16) ?? ''}_`,
   );
 }
 
@@ -143,7 +143,11 @@ function idSafe(key: string): string {
 @Component({
   selector: 'ptah-display-panel',
   standalone: true,
-  imports: [LucideAngularModule, SurfaceRendererComponent, TurnSummaryComponent],
+  imports: [
+    LucideAngularModule,
+    SurfaceRendererComponent,
+    TurnSummaryComponent,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: [PANEL_STYLES],
   template: `
@@ -161,8 +165,8 @@ function idSafe(key: string): string {
           Nothing to show yet
         </p>
         <p class="max-w-xs text-xs text-base-content-muted">
-          A turn that changes files or runs tests leaves its summary here,
-          next to any displays the agent sends to this panel.
+          A turn that changes files or runs tests leaves its summary here, next
+          to any displays the agent sends to this panel.
         </p>
       </div>
     } @else {
@@ -260,9 +264,8 @@ export class DisplayPanelComponent {
   /** Pinned: a new or updated surface moves neither scroll nor focus (R1.6). */
   readonly pinned = input(false);
   /** The store's per-surface view state, keyed by surface key. */
-  readonly viewStates = input<ReadonlyMap<string, SurfaceViewState>>(
-    NO_VIEW_STATES,
-  );
+  readonly viewStates =
+    input<ReadonlyMap<string, SurfaceViewState>>(NO_VIEW_STATES);
   /** The last summary action failure, shown inside the Files card (R6.8). */
   readonly actionError = input<string | null>(null);
 
@@ -329,7 +332,9 @@ export class DisplayPanelComponent {
       const surfaces = this.surfaces();
       const newest = surfaces.reduce<DisplaySurface | null>(
         (best, surface) =>
-          best === null || surface.updatedSeq > best.updatedSeq ? surface : best,
+          best === null || surface.updatedSeq > best.updatedSeq
+            ? surface
+            : best,
         null,
       );
       const newestSeq = newest?.updatedSeq ?? -1;
@@ -338,7 +343,9 @@ export class DisplayPanelComponent {
           // First read: what is already there is not new.
           this.newestSeq = newestSeq;
           this.seenSeq.set(
-            new Map(surfaces.map((surface) => [surface.key, surface.updatedSeq])),
+            new Map(
+              surfaces.map((surface) => [surface.key, surface.updatedSeq]),
+            ),
           );
           return;
         }
@@ -360,9 +367,7 @@ export class DisplayPanelComponent {
         const next = new Map<string, number>();
         for (const surface of surfaces) {
           const seen =
-            surface.key === key
-              ? surface.updatedSeq
-              : current.get(surface.key);
+            surface.key === key ? surface.updatedSeq : current.get(surface.key);
           if (seen !== undefined) next.set(surface.key, seen);
         }
         if (!sameSeq(current, next)) this.seenSeq.set(next);
@@ -422,7 +427,10 @@ export class DisplayPanelComponent {
     this.tabElement(next)?.focus();
   }
 
-  protected onViewStateChange(surfaceKey: string, viewState: SurfaceViewState): void {
+  protected onViewStateChange(
+    surfaceKey: string,
+    viewState: SurfaceViewState,
+  ): void {
     this.viewStateChange.emit({ surfaceKey, viewState });
   }
 

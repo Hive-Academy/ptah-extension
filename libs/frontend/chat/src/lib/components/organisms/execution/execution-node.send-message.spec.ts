@@ -38,7 +38,7 @@ jest.mock('ngx-markdown', () => {
 });
 
 import { TestBed } from '@angular/core/testing';
-import { SURFACE_ACTIVE } from '@ptah-extension/core';
+import { FILE_LINK_OPENER, SURFACE_ACTIVE } from '@ptah-extension/core';
 import type {
   ExecutionNode,
   PermissionRequest,
@@ -93,7 +93,10 @@ describe('ExecutionNodeComponent — SendMessage branch', () => {
   beforeEach(() => {
     TestBed.configureTestingModule({
       imports: [ExecutionNodeComponent],
-      providers: [{ provide: SURFACE_ACTIVE, useValue: signal(true) }],
+      providers: [
+        { provide: SURFACE_ACTIVE, useValue: signal(true) },
+        { provide: FILE_LINK_OPENER, useValue: { open: jest.fn() } },
+      ],
     });
     TestBed.overrideComponent(ExecutionNodeComponent, {
       remove: { imports: [InlineAgentBubbleComponent] },

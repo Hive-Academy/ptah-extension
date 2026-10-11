@@ -162,15 +162,13 @@ export class PtahUiLaneLimitsSource {
 function toLimitsInput(result: LanePlanLimitsResult): PtahUiLimitsInput {
   return {
     kind: 'available',
-    rows: result.rows.map(
-      (row): PtahUiLimitRow => ({
-        lane: row.lane,
-        window: row.window,
-        used: row.used,
-        state: row.state,
-        reset: row.reset,
-      }),
-    ),
+    rows: result.rows.map((row): PtahUiLimitRow => ({
+      lane: row.lane,
+      window: row.window,
+      used: row.used,
+      state: row.state,
+      reset: row.reset,
+    })),
     lanes: result.lanes,
     atLimit: result.atLimit,
     nearLimit: result.nearLimit,
@@ -187,7 +185,9 @@ function hasExactKeys(
   value: Record<string, unknown>,
   keys: readonly string[],
 ): boolean {
-  const own = Object.keys(value).sort();
+  const own = Object.keys(value).sort((left, right) =>
+    left.localeCompare(right),
+  );
   return own.length === keys.length && own.every((key, i) => key === keys[i]);
 }
 

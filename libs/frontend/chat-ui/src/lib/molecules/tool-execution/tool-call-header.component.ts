@@ -327,13 +327,13 @@ export class ToolCallHeaderComponent {
 
   /** Last path segment, shown prominently. */
   protected readonly fileName = computed(() => {
-    const path = this.filePath().replace(/\\/g, '/');
+    const path = this.filePath().replaceAll('\\', '/');
     return path.slice(path.lastIndexOf('/') + 1);
   });
 
   /** Directory part of the path (no trailing slash), shown muted. */
   protected readonly fileDirectory = computed(() => {
-    const path = this.filePath().replace(/\\/g, '/');
+    const path = this.filePath().replaceAll('\\', '/');
     return path.slice(0, Math.max(0, path.lastIndexOf('/')));
   });
 

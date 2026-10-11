@@ -408,15 +408,62 @@ function parseSourceList(state: State, content: string): ItemResult {
   };
 }
 
+interface KeywordWordText {
+  readonly word: string;
+  readonly text: string;
+}
+
+/**
+ * Parses the ASCII-space-separated header forms without a backtracking regex.
+ * The grammar deliberately permits only U+0020 as a separator.
+ */
+function keywordWordAndOptionalText(
+  content: string,
+  keyword: string,
+):
+  | KeywordWordText
+  | { readonly word: string; readonly text?: undefined }
+  | null {
+  const text = textAfterKeyword(content, keyword);
+  if (text === undefined || text === '') return null;
+  const separator = text.indexOf(' ');
+  if (separator === -1) return { word: text };
+  const word = text.slice(0, separator);
+  if (word === '') return null;
+  let index = separator;
+  while (text[index] === ' ') index += 1;
+  return { word, text: text.slice(index) };
+}
+
+function keywordWordAndText(
+  content: string,
+  keyword: string,
+): KeywordWordText | null {
+  const header = keywordWordAndOptionalText(content, keyword);
+  return header?.text === undefined || header.text === '' ? null : header;
+}
+
+/** Returns the rest of a keyword line after one or more ASCII spaces. */
+function textAfterKeyword(
+  content: string,
+  keyword: string,
+): string | undefined {
+  if (!content.startsWith(keyword) || content[keyword.length] !== ' ')
+    return undefined;
+  let index = keyword.length;
+  while (content[index] === ' ') index += 1;
+  return content.slice(index);
+}
+
 function parseChart(state: State, depth: number, content: string): ItemResult {
-  const header = content.match(/^chart +(\S+)(?: +(.*))?$/);
-  if (!header || (header[1] !== 'line' && header[1] !== 'bar'))
+  const header = keywordWordAndOptionalText(content, 'chart');
+  if (!header || (header.word !== 'line' && header.word !== 'bar'))
     return failureAt(
       'syntax',
       'chart kind must be line or bar',
       state.index + 1,
     );
-  const title = decodeText(header[2]?.trim() ?? '');
+  const title = decodeText(header.text?.trim() ?? '');
   if (title === undefined || title === '')
     return failureAt('syntax', 'chart title is required', state.index + 1);
   const points: { label: string; value: number }[] = [];
@@ -449,7 +496,7 @@ function parseChart(state: State, depth: number, content: string): ItemResult {
   if (!counted.ok) return counted;
   const chart: PtahUiChartElement = {
     kind: 'chart',
-    chart: header[1],
+    chart: header.word,
     title,
     points,
   };
@@ -459,15 +506,15 @@ function parseChart(state: State, depth: number, content: string): ItemResult {
 /** `note = "note" SPS ntone SPS text`; an unescaped pipe in text is literal. */
 function parseNote(state: State, content: string): ItemResult {
   const line = state.index + 1;
-  const match = content.match(/^note +(\S+) +(.+)$/);
-  const tone = match?.[1] ?? '';
+  const match = keywordWordAndText(content, 'note');
+  const tone = match?.word ?? '';
   if (match === null || !includes(NOTE_TONES, tone))
     return failureAt(
       'syntax',
       'note needs a tone (info, ok, warn or error) and text',
       line,
     );
-  const text = decodeText(match[2]);
+  const text = decodeText(match.text);
   if (text === undefined || text === '')
     return failureAt('syntax', 'note text is required', line);
   const note: PtahUiNoteElement = { kind: 'note', tone, text };
@@ -477,15 +524,15 @@ function parseNote(state: State, content: string): ItemResult {
 /** `badge = "badge" SPS tone SPS text`; an unescaped pipe in text is literal. */
 function parseBadge(state: State, content: string): ItemResult {
   const line = state.index + 1;
-  const match = content.match(/^badge +(\S+) +(.+)$/);
-  const tone = match?.[1] ?? '';
+  const match = keywordWordAndText(content, 'badge');
+  const tone = match?.word ?? '';
   if (match === null || !includes(TONES, tone))
     return failureAt(
       'syntax',
       'badge needs a tone (neutral, info, ok, warn or error) and text',
       line,
     );
-  const text = decodeText(match[2]);
+  const text = decodeText(match.text);
   if (text === undefined || text === '')
     return failureAt('syntax', 'badge text is required', line);
   const badge: PtahUiBadgeElement = { kind: 'badge', tone, text };
@@ -495,8 +542,8 @@ function parseBadge(state: State, content: string): ItemResult {
 /** `progress = "progress" SPS cell BAR pct [ BAR tone ]`; literal only. */
 function parseProgress(state: State, content: string): ItemResult {
   const line = state.index + 1;
-  const match = content.match(/^progress +(.*)$/);
-  const cells = match === null ? undefined : parseCells(match[1]);
+  const text = textAfterKeyword(content, 'progress');
+  const cells = text === undefined ? undefined : parseCells(text);
   if (
     cells === undefined ||
     !cells.ok ||
@@ -538,8 +585,8 @@ function parseProgress(state: State, content: string): ItemResult {
 /** `avatar = "avatar" SPS cell [ BAR cell ]`; name non-empty, literal only. */
 function parseAvatar(state: State, content: string): ItemResult {
   const line = state.index + 1;
-  const match = content.match(/^avatar +(.*)$/);
-  const cells = match === null ? undefined : parseCells(match[1]);
+  const text = textAfterKeyword(content, 'avatar');
+  const cells = text === undefined ? undefined : parseCells(text);
   if (
     cells === undefined ||
     !cells.ok ||

@@ -66,7 +66,7 @@ export type ToolLanguageSource = Pick<
 
 /** Highlight language id for a file path, from its extension; `text` when unknown. */
 export function getLanguageFromPath(filePath: string): string {
-  const normalized = filePath.replace(/\\/g, '/');
+  const normalized = filePath.replaceAll('\\', '/');
   const ext = '.' + normalized.split('.').pop()?.toLowerCase();
   return LANGUAGE_BY_EXTENSION[ext] || 'text';
 }

@@ -11,22 +11,21 @@ import {
 } from '../../support/perf-session-fixture';
 
 /**
- * Turn change-set card in the Electron transcript (TASK_2026_576 Batch 31,
- * Requirement 4).
+ * Turn summary chip in the Electron transcript (TASK_2026_623).
  *
  * The backend recorder, store and RPC have their own unit and real-git specs.
  * What only the real renderer can prove is the join: a `git:turnChangeSet`
  * push reaches `ChangeSetStore` through `MESSAGE_HANDLERS`, the transcript
- * places the lazily loaded card after the turn's last assistant message, and a
- * renderer that starts from nothing (reload, then reopen the session) renders
- * the same card from `git:turnChangeSets` alone.
+ * places the lazily loaded summary chip after the turn's last assistant
+ * message, and a renderer that starts from nothing (reload, then reopen the
+ * session) renders the same chip from `git:turnChangeSets` alone.
  *
  * The session is replayed history (the `chat:resume` seam the paging specs
  * use), so the turn's messages carry the recorded timestamps the join reads.
  */
 
 const WORKSPACE = 'C:\\ptah-e2e-ws';
-const CARD = '[data-testid="change-set-card"]';
+const SUMMARY = '[data-testid="chat-turn-summary"]';
 
 /** Text tokens that identify each transcript message in DOM order. */
 const TOKENS = {
@@ -43,8 +42,8 @@ interface ChangeSetSession {
 }
 
 /**
- * Two turns, ten seconds apart. Only the first one changed files, so its card
- * must sit between the first assistant reply and the second prompt.
+ * Two turns, ten seconds apart. Only the first one changed files, so its
+ * summary chip must sit between the first assistant reply and second prompt.
  */
 function makeChangeSetSession(): ChangeSetSession {
   const id = randomUUID();
@@ -150,15 +149,15 @@ async function openSession(
 
 /**
  * The transcript's children in DOM order, each reduced to the message token
- * it shows or `card` for a change-set card.
+ * it shows or `summary` for a turn summary chip.
  */
 async function transcriptOrder(tile: Locator): Promise<string[]> {
   return tile.evaluate((host, tokens) => {
     const content = host.querySelector('.chat-scroll-content');
     if (!content) return [];
     return Array.from(content.children).flatMap((child) => {
-      if (child.getAttribute('data-testid') === 'chat-change-set') {
-        return ['card'];
+      if (child.getAttribute('data-testid') === 'chat-turn-summary') {
+        return ['summary'];
       }
       const text = child.textContent ?? '';
       return tokens.filter((token) => text.includes(token));
@@ -166,8 +165,8 @@ async function transcriptOrder(tile: Locator): Promise<string[]> {
   }, Object.values(TOKENS));
 }
 
-test.describe('change-set card', () => {
-  test('a turn that edits two files shows its card, and the card survives reopening the session', async ({
+test.describe('turn summary chip', () => {
+  test('TASK_2026_623: a turn that edits two files shows its summary chip, and the chip survives reopening the session', async ({
     mainWindow,
     ui,
   }) => {
@@ -186,7 +185,7 @@ test.describe('change-set card', () => {
     });
 
     // -----------------------------------------------------------------------
-    // 1. Live: the turn-end push adds the card to the open session.
+    // 1. Live: the turn-end push adds the chip to the open session.
     // -----------------------------------------------------------------------
     await prepareCanvasWithSessions(ui, [session], { supportsPaging: false });
     const tile = await openSession(mainWindow, session);
@@ -199,26 +198,31 @@ test.describe('change-set card', () => {
         ),
       )
       .toBe(true);
-    await expect(tile.locator(CARD)).toHaveCount(0);
+    await expect(tile.locator(SUMMARY)).toHaveCount(0);
 
     await ui.pushEvent({
       type: 'git:turnChangeSet',
       payload: { changeSet },
     });
 
-    const card = tile.locator(CARD);
-    await expect(card).toBeVisible();
-    await expect(card.getByTestId('change-set-files')).toHaveText(
-      '2 files changed',
+    const summary = tile.locator(SUMMARY);
+    await expect(summary).toBeVisible();
+    await expect(summary.getByTestId('turn-summary-chip-metrics')).toContainText(
+      '2 files',
     );
-    await expect(card).toContainText('src/helpers.ts');
-    await expect(card).toContainText('src/helpers.spec.ts');
-    await expect(card.getByTestId('change-set-review')).toBeVisible();
-    await expect(card).not.toContainText('No longer changes HEAD');
+    await expect(summary.getByTestId('turn-summary-chip-toggle')).toHaveAttribute(
+      'aria-expanded',
+      'false',
+    );
+    await summary.getByTestId('turn-summary-chip-toggle').click();
+    const filesCard = summary
+      .getByTestId('turn-summary-chip-card')
+      .filter({ hasText: 'Files' });
+    await expect(filesCard).toContainText('2');
     expect(await transcriptOrder(tile)).toEqual([
       TOKENS.user0,
       TOKENS.assistant0,
-      'card',
+      'summary',
       TOKENS.user1,
       TOKENS.assistant1,
     ]);
@@ -231,23 +235,21 @@ test.describe('change-set card', () => {
     await prepareCanvasWithSessions(ui, [session], { supportsPaging: false });
     const reopened = await openSession(mainWindow, session);
 
-    const persisted = reopened.locator(CARD);
+    const persisted = reopened.locator(SUMMARY);
     await expect(persisted).toBeVisible();
-    await expect(persisted.getByTestId('change-set-files')).toHaveText(
-      '2 files changed',
+    await expect(persisted.getByTestId('turn-summary-chip-metrics')).toContainText(
+      '2 files',
     );
-    await expect(persisted).toContainText('src/helpers.ts');
-    await expect(persisted).toContainText('src/helpers.spec.ts');
     expect(await transcriptOrder(reopened)).toEqual([
       TOKENS.user0,
       TOKENS.assistant0,
-      'card',
+      'summary',
       TOKENS.user1,
       TOKENS.assistant1,
     ]);
   });
 
-  test('the change-set card has no critical or serious a11y violations in dark and light', async ({
+  test('TASK_2026_623: the collapsed and expanded turn summary chip have no critical or serious a11y violations in dark and light', async ({
     mainWindow,
     ui,
   }, testInfo) => {
@@ -265,15 +267,21 @@ test.describe('change-set card', () => {
     });
     await prepareCanvasWithSessions(ui, [session], { supportsPaging: false });
     const tile = await openSession(mainWindow, session);
-    const card = tile.locator(CARD);
-    await expect(card).toBeVisible();
-    await expect(card.getByTestId('change-set-review')).toBeVisible();
+    const summary = tile.locator(SUMMARY);
+    await expect(summary).toBeVisible();
     await ui.page.mouse.move(2, 2);
     await expectNoBlockingViolationsInBothThemes(
       ui.page,
-      'change-set-card',
+      'turn-summary-chip-collapsed',
       testInfo,
-      { include: CARD, evidence: true },
+      { include: SUMMARY, evidence: true },
+    );
+    await summary.getByTestId('turn-summary-chip-toggle').click();
+    await expectNoBlockingViolationsInBothThemes(
+      ui.page,
+      'turn-summary-chip-expanded',
+      testInfo,
+      { include: SUMMARY, evidence: true },
     );
   });
 });

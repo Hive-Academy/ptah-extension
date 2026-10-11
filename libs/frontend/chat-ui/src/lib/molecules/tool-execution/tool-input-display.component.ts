@@ -316,7 +316,7 @@ export class ToolInputDisplayComponent {
   protected readonly writePreviewLabel = computed(() => {
     const toolInput = this.node()?.toolInput;
     if (!isWriteToolInput(toolInput)) return 'Write content';
-    const name = toolInput.file_path.replace(/\\/g, '/').split('/').pop();
+    const name = toolInput.file_path.replaceAll('\\', '/').split('/').pop();
     return name ? `Write content: ${name}` : 'Write content';
   });
 
