@@ -1,6 +1,6 @@
 # Batches - TASK_2026_627
 
-Total tasks: 23 | Batches: 10 (Batch 0 to Batch 8, plus fix Batch 5F) | Complete: 7/10
+Total tasks: 23 | Batches: 10 (Batch 0 to Batch 8, plus fix Batch 5F) | Complete: 8/10
 
 Worktree: `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff` (branch
 `fix/session-budget-handoff`). Every executor works only there, never in the main checkout
@@ -690,7 +690,7 @@ Run these one at a time, in the foreground, from the worktree root, with the out
 | 627-L7 | `max-lines` warning on `session-handover-coordinator.service.ts` (726 vs 700) after Batch 5F | Lint warning, not an error; extracting now would turn the scoped S1/S2 re-review into a refactor review (decisions.md D9) | Follow-up after the Phase 1 re-review accepts: extract the work-in-flight gate (`workInFlight`, the wait bound, the S1 conversion, `setLaneWorkProvider` slot) into its own helper file in `session-handoff/`; behaviour-preserving, specs unchanged |
 | 627-L8 | Re-review 5F minor: the `capHeadAndTail` fallback tail (no `## Still running` or `## Next action` heading) can start inside a fenced code block | Display only (reviewer); the cut is marked with `[truncated]`, and the heading-based tail is unaffected (decisions.md D11) | Follow-up: move the fallback cut point past an unbalanced fence |
 
-## Batch 6: Frontend — never stuck at the limit (Component 9) — IN_PROGRESS
+## Batch 6: Frontend — never stuck at the limit (Component 9) — COMPLETE (0917b8074)
 
 - Recommended executor: frontend-developer
 - Fallback executor: frontend-developer, fresh session
@@ -701,7 +701,7 @@ Run these one at a time, in the foreground, from the worktree root, with the out
   Batch 6 commits. Completion needs dark and light before/after screenshots of the budget banner and
   the compaction card (no prototype; no new surface).
 
-### Task 6.1: `continueInNewSession` falls back to `rotateSession()` when the source is gone — IN_PROGRESS
+### Task 6.1: `continueInNewSession` falls back to `rotateSession()` when the source is gone — COMPLETE
 
 - Files: MODIFY `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff\libs\frontend\chat\src\lib\services\session-budget-actions.service.ts`
   and its spec
@@ -710,7 +710,7 @@ Run these one at a time, in the foreground, from the worktree root, with the out
 - Quality requirements: `{ accepted: false, error: 'source-unavailable' }` → `rotateSession()`; same
   on Retry when the handover state is `failed` with `source session unavailable`.
 
-### Task 6.2: Banner waiting copy with counts — IN_PROGRESS
+### Task 6.2: Banner waiting copy with counts — COMPLETE
 
 - Files: MODIFY `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff\libs\frontend\chat\src\lib\components\molecules\notifications\session-budget-banner.component.ts`
   and its spec
@@ -726,7 +726,7 @@ Run these one at a time, in the foreground, from the worktree root, with the out
   `awaiting-confirmation` at the handoff stage. That state must still offer "Continue now" and
   "Cancel".
 
-### Task 6.3: `MessageSender` logs budget refusals and handover holds at `console.info` (R9) — IN_PROGRESS
+### Task 6.3: `MessageSender` logs budget refusals and handover holds at `console.info` (R9) — COMPLETE
 
 - Files: MODIFY `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff\libs\frontend\chat\src\lib\services\message-sender.service.ts`
   and `message-sender.service.spec.ts`
@@ -738,6 +738,16 @@ Run these one at a time, in the foreground, from the worktree root, with the out
 
 - `npx jest -c libs/frontend/chat/jest.config.ts <the three changed specs> --coverage=false --maxWorkers=2`,
   then `npx nx typecheck @ptah-extension/chat --parallel=1`.
+
+Result (team-leader re-run before commit): Jest 3 suites, 129 tests passed; typecheck passed.
+Executor lint: 0 errors (35 existing project warnings). Report: `batch-6-report.md`. One addition
+beyond the plan text, accepted: a dismissed handoff stays visible while a handover is
+`awaiting-confirmation`, so the 6.2 validation note (Continue now and Cancel must stay reachable)
+holds. Code commit `0917b8074`.
+
+Phase 2 review: PENDING. Code-logic + visual on the Batch 0 commit `f0882e60d` and the Batch 6 commit
+`0917b8074`. The visual review must capture dark and light before/after screenshots of the budget
+banner and the compaction card (before = base commit, no prototype).
 
 ## Batch 7: Budget live feed (Component 1, live part) — BLOCKED
 
