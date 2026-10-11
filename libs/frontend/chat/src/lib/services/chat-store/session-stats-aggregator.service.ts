@@ -201,7 +201,8 @@ export class SessionStatsAggregatorService {
    * refresh, no queued send, no handover record and no `setLiveModelStats`.
    * Turn finalization stays with `turn_state`.
    *
-   * Tabs install through `installLiveSessionStats`, which admits the snapshot
+   * Every bound tab, in any workspace, installs through `installSessionStats`
+   * with the event's context, which admits the snapshot
    * and applies the context reading in one update, so a snapshot the revision
    * floor rejects carries no context with it. A session with no tab records
    * only the snapshot on its surface (`live: null` keeps the stored reading);
@@ -226,26 +227,41 @@ export class SessionStatsAggregatorService {
       return;
     }
     for (const t of targetTabs) {
-      this.tabManager.installLiveSessionStats(t.id, snapshot, event.context);
+      // `undefined` budget keeps each tab's last budget; each tab runs its own
+      // admission, and the context is applied only for a provisional snapshot.
+      this.tabManager.installSessionStats(
+        t.id,
+        snapshot,
+        undefined,
+        event.context,
+      );
     }
   }
 
   /**
-   * The tabs bound to a session, falling back to a background workspace.
+   * Every tab bound to a session, in the active workspace AND every
+   * background workspace.
    *
-   * `findTabsBySessionId` resolves active-workspace tabs only. A turn that
-   * ends while its tab sits in a BACKGROUND workspace (user switched folders
-   * mid-stream) still owns its stats. Every tab setter routes through the
-   * workspace-aware `updateTabInternal`, and `streamingHandler.handleSessionStats`
-   * has its own background branch, so the normal path is safe for a
-   * partitioned tab — mirrors `TurnEndHandlerService` / `StreamingHandlerService`.
+   * `findTabsBySessionId` resolves active-workspace tabs only. A session open
+   * in several tabs can have some of them in a BACKGROUND workspace (user
+   * switched folders mid-stream); each still shows the session's stats, so
+   * each must receive the update, or it keeps stale figures or an estimate
+   * marker. Every tab setter routes through the workspace-aware
+   * `updateTabInternal`, each install runs its own revision admission, and
+   * `streamingHandler.handleSessionStats` has its own background branch, so
+   * the normal path is safe for a partitioned tab. Deduplicated by id because
+   * the active lookup's unbound fallback can itself return a background tab.
    */
   private tabsForSession(sessionId: SessionId): readonly TabState[] {
-    const tabs = this.tabManager.findTabsBySessionId(sessionId);
-    if (tabs.length > 0) return tabs;
-    const lookup =
-      this.tabManager.findTabBySessionIdAcrossWorkspaces(sessionId);
-    return lookup ? [lookup.tab] : [];
+    const tabs = [...this.tabManager.findTabsBySessionId(sessionId)];
+    const seen = new Set(tabs.map((t) => t.id));
+    for (const t of this.tabManager.findBackgroundTabsBySessionId(sessionId)) {
+      if (!seen.has(t.id)) {
+        seen.add(t.id);
+        tabs.push(t);
+      }
+    }
+    return tabs;
   }
 
   /**

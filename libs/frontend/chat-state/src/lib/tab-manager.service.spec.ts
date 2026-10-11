@@ -216,7 +216,9 @@ describe('TabManagerService — abort streaming on tab close (Wave E2)', () => {
       .spyOn(service, 'saveTabState')
       .mockImplementation(() => undefined);
     const received = jest.fn();
-    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const warn = jest
+      .spyOn(console, 'warn')
+      .mockImplementation(() => undefined);
     service.onTabClosed(() => {
       throw new Error('view listener failure');
     });
@@ -341,7 +343,9 @@ describe('TabManagerService — abort streaming on tab close (Wave E2)', () => {
         postCompactionContextTokens: 1200,
       });
 
-      expect(service.tabs().find((tab) => tab.id === tabId)?.liveModelStats).toEqual({
+      expect(
+        service.tabs().find((tab) => tab.id === tabId)?.liveModelStats,
+      ).toEqual({
         model: 'claude-sonnet-4-5',
         contextKnown: true,
         contextCapacity,
@@ -422,7 +426,9 @@ describe('TabManagerService — abort streaming on tab close (Wave E2)', () => {
         postCompactionContextTokens: 1200,
       });
 
-      expect(service.tabs().find((tab) => tab.id === tabId)?.liveModelStats).toEqual({
+      expect(
+        service.tabs().find((tab) => tab.id === tabId)?.liveModelStats,
+      ).toEqual({
         model: 'unrecognized-model',
         contextKnown: true,
         contextCapacity: undefined,
@@ -440,7 +446,9 @@ describe('TabManagerService — abort streaming on tab close (Wave E2)', () => {
         postCompactionContextTokens: 1200,
       });
 
-      expect(service.tabs().find((tab) => tab.id === tabId)?.liveModelStats).toBeNull();
+      expect(
+        service.tabs().find((tab) => tab.id === tabId)?.liveModelStats,
+      ).toBeNull();
     });
 
     it('preserves the backend session snapshot while seeding only context', () => {
@@ -508,13 +516,14 @@ describe('TabManagerService — abort streaming on tab close (Wave E2)', () => {
         contextWindow: 200000,
         contextPercent: 0.7,
       });
-      expect(service.tabs().find((tab) => tab.id === otherTabId)?.liveModelStats)
-        .toEqual({
-          model: 'claude-sonnet-4-5',
-          contextUsed: 5678,
-          contextWindow: 200000,
-          contextPercent: 2.8,
-        });
+      expect(
+        service.tabs().find((tab) => tab.id === otherTabId)?.liveModelStats,
+      ).toEqual({
+        model: 'claude-sonnet-4-5',
+        contextUsed: 5678,
+        contextWindow: 200000,
+        contextPercent: 2.8,
+      });
     });
 
     it('seeds verified late boundary context without resetting messages or compaction count', () => {
@@ -533,9 +542,9 @@ describe('TabManagerService — abort streaming on tab close (Wave E2)', () => {
         contextWindow: 200000,
         contextPercent: 0.6,
       });
-      const messagesBefore = service.tabs().find(
-        (candidate) => candidate.id === tabId,
-      )?.messages;
+      const messagesBefore = service
+        .tabs()
+        .find((candidate) => candidate.id === tabId)?.messages;
 
       service.seedPostCompactionContext(tabId, 1600);
 
@@ -565,7 +574,9 @@ describe('TabManagerService — abort streaming on tab close (Wave E2)', () => {
 
         service.seedPostCompactionContext(tabId, postTokens);
 
-        expect(service.tabs().find((tab) => tab.id === tabId)?.liveModelStats).toBeNull();
+        expect(
+          service.tabs().find((tab) => tab.id === tabId)?.liveModelStats,
+        ).toBeNull();
       },
     );
 
@@ -587,12 +598,12 @@ describe('TabManagerService — abort streaming on tab close (Wave E2)', () => {
   });
 
   // ---------------------------------------------------------------------
-  // installLiveSessionStats (TASK_2026_626)
+  // installSessionStats with a live context (TASK_2026_626)
   // A `session:stats-live` snapshot is admitted exactly like
   // `installSessionStats`; its context reading is applied in the same update
   // only for a provisional snapshot whose model matches the tab's live reading.
   // ---------------------------------------------------------------------
-  describe('installLiveSessionStats (TASK_2026_626)', () => {
+  describe('installSessionStats with a live context (TASK_2026_626)', () => {
     const MODEL = 'claude-sonnet-4-5';
     const SESSION = SessionId.create();
     const contextCapacity = {
@@ -610,7 +621,12 @@ describe('TabManagerService — abort streaming on tab close (Wave E2)', () => {
         sessionId: SESSION,
         model: MODEL,
         totalCost: 0.5,
-        tokens: { input: 100 * revision, output: 10, cacheRead: 0, cacheCreation: 0 },
+        tokens: {
+          input: 100 * revision,
+          output: 10,
+          cacheRead: 0,
+          cacheCreation: 0,
+        },
         messageCount: revision,
         status: 'ok',
         revision,
@@ -652,7 +668,7 @@ describe('TabManagerService — abort streaming on tab close (Wave E2)', () => {
       const live = provisional(5);
       const update = spyOnUpdates();
 
-      const admitted = service.installLiveSessionStats(tabId, live, {
+      const admitted = service.installSessionStats(tabId, live, undefined, {
         model: MODEL,
         contextTokens: 60000,
       });
@@ -674,7 +690,7 @@ describe('TabManagerService — abort streaming on tab close (Wave E2)', () => {
     it('matches the model under normalizeModelKey', () => {
       const tabId = tabWithFill();
 
-      service.installLiveSessionStats(tabId, provisional(5), {
+      service.installSessionStats(tabId, provisional(5), undefined, {
         model: 'Anthropic/Claude-Sonnet-4-5-20250929',
         contextTokens: 60000,
       });
@@ -689,10 +705,15 @@ describe('TabManagerService — abort streaming on tab close (Wave E2)', () => {
       const fillBefore = tabOf(tabId)?.liveModelStats;
       const update = spyOnUpdates();
 
-      const admitted = service.installLiveSessionStats(tabId, provisional(8), {
-        model: MODEL,
-        contextTokens: 90000,
-      });
+      const admitted = service.installSessionStats(
+        tabId,
+        provisional(8),
+        undefined,
+        {
+          model: MODEL,
+          contextTokens: 90000,
+        },
+      );
 
       expect(admitted).toBe(false);
       expect(update).not.toHaveBeenCalled();
@@ -711,9 +732,10 @@ describe('TabManagerService — abort streaming on tab close (Wave E2)', () => {
       const before = tabOf(tabId);
       const update = spyOnUpdates();
 
-      const admitted = service.installLiveSessionStats(
+      const admitted = service.installSessionStats(
         tabId,
         snapshot(2, { provisional: true, ...overrides }),
+        undefined,
         { model: MODEL, contextTokens: 90000 },
       );
 
@@ -724,7 +746,7 @@ describe('TabManagerService — abort streaming on tab close (Wave E2)', () => {
 
     it('returns false for an unknown tab', () => {
       expect(
-        service.installLiveSessionStats('missing-tab', provisional(1), {
+        service.installSessionStats('missing-tab', provisional(1), undefined, {
           model: MODEL,
           contextTokens: 90000,
         }),
@@ -736,7 +758,7 @@ describe('TabManagerService — abort streaming on tab close (Wave E2)', () => {
       const live = provisional(5);
 
       expect(
-        service.installLiveSessionStats(tabId, live, {
+        service.installSessionStats(tabId, live, undefined, {
           model: 'claude-opus-4-1',
           contextTokens: 90000,
         }),
@@ -753,7 +775,7 @@ describe('TabManagerService — abort streaming on tab close (Wave E2)', () => {
       const fillBefore = tabOf(tabId)?.liveModelStats;
 
       expect(
-        service.installLiveSessionStats(tabId, live, {
+        service.installSessionStats(tabId, live, undefined, {
           model: MODEL,
           contextTokens: 90000,
         }),
@@ -768,7 +790,7 @@ describe('TabManagerService — abort streaming on tab close (Wave E2)', () => {
       const live = provisional(5);
 
       expect(
-        service.installLiveSessionStats(tabId, live, {
+        service.installSessionStats(tabId, live, undefined, {
           model: MODEL,
           contextTokens: 0,
         }),
@@ -783,10 +805,15 @@ describe('TabManagerService — abort streaming on tab close (Wave E2)', () => {
       service.installSessionStats(tabId, snapshot(10));
       const authoritative = snapshot(10, { totalCost: 0.75 });
 
-      const admitted = service.installLiveSessionStats(tabId, authoritative, {
-        model: MODEL,
-        contextTokens: 90000,
-      });
+      const admitted = service.installSessionStats(
+        tabId,
+        authoritative,
+        undefined,
+        {
+          model: MODEL,
+          contextTokens: 90000,
+        },
+      );
 
       expect(admitted).toBe(true);
       expect(tabOf(tabId)?.sessionStats).toBe(authoritative);
@@ -811,7 +838,7 @@ describe('TabManagerService — abort streaming on tab close (Wave E2)', () => {
       };
       service.installSessionStats(tabId, snapshot(3), budget);
 
-      expect(service.installLiveSessionStats(tabId, provisional(4))).toBe(true);
+      expect(service.installSessionStats(tabId, provisional(4))).toBe(true);
 
       expect(tabOf(tabId)?.sessionBudget).toBe(budget);
     });

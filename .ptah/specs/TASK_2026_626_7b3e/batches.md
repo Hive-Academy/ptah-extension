@@ -1,6 +1,6 @@
 # Batches - TASK_2026_626_7b3e
 
-Total tasks: 16 | Batches: 8 | Complete: 5/8
+Total tasks: 20 | Batches: 9 | Complete: 6/9
 
 Worktree root (all relative paths below resolve against it):
 `D:/projects/ptah-extension/.claude-worktrees/fix-live-session-stats-a1634d3869cb`
@@ -308,7 +308,7 @@ Edge cases:
 - `npx jest -c libs/frontend/chat-state/jest.config.ts libs/frontend/chat-state/src/lib/session-stats-snapshot.spec.ts libs/frontend/chat-state/src/lib/tab-manager.service.spec.ts libs/frontend/chat-state/src/lib/surface-session-stats.registry.spec.ts --coverage=false --maxWorkers=2`
 - `npx nx typecheck @ptah-extension/chat-state --parallel=1`; `npx nx lint @ptah-extension/chat-state --parallel=1`
 
-## Batch 7: Routing and aggregation (chat) — COMPLETE
+## Batch 7: Routing and aggregation (chat) — COMPLETE (commit 820e89eda)
 
 - Recommended executor: frontend-developer (sub-agent)
 - Fallback executor: same sub-agent re-run
@@ -390,6 +390,53 @@ Edge cases:
 
 - `npx jest -c libs/frontend/chat-ui/jest.config.ts libs/frontend/chat-ui/src/lib/molecules/session/session-stats-summary.component.spec.ts --coverage=false --maxWorkers=2`
 - `npx nx typecheck @ptah-extension/chat-ui --parallel=1`; `npx nx lint @ptah-extension/chat-ui --parallel=1`
+
+## Batch 9: FRONTEND phase fix round (chat-state, chat, chat-ui) — COMPLETE
+
+- Recommended executor: frontend-developer (sub-agent)
+- Execution mode: sequential
+- Tasks: 4 | Depends on: Batches 6-8
+- Phase: FRONTEND | Phase review: the single re-review, scoped to this fix commit (code-logic + style)
+- Inputs: `code-logic-review-frontend.md` (NEEDS_FIXES 7/10), `code-style-review-frontend.md` (NEEDS_FIXES 7/10);
+  orchestrator ruling: fix logic #1 and style #1, #2, #4, #7; defer style #3, #5, #6. Report: `frontend-fix-report.md`.
+
+### Task 9.1: Fan session stats out to every bound tab across workspaces (logic #1) — COMPLETE
+
+- `TabManagerService.findBackgroundTabsBySessionId` (`tab-manager.service.ts:617`); aggregator `tabsForSession`
+  unions active + background tabs, deduplicated by id (`session-stats-aggregator.service.ts:255-265`). Each tab
+  runs its own `acceptSessionStats` admission through `installSessionStats`. Applies to both the live and the
+  authoritative path.
+
+### Task 9.2: Extract context-fill helpers to `live-context-stats.ts` (style #1) — COMPLETE
+
+- `contextFillStats` (moved unchanged from private `postCompactionContextStats`) and `liveContextStats`, with spec.
+
+### Task 9.3: Single install path + shared context type (style #2, #4) — COMPLETE
+
+- `installLiveSessionStats` removed (no remaining references in `libs/` or `apps/`). `installSessionStats(tabId,
+  snapshot, budget?, context?)` returns `boolean`; with three arguments it writes exactly the prior patch
+  (`sessionStats` + `budgetPatch`), because the context patch requires `provisional === true && context`.
+  Context typed `SessionStatsLiveContext`.
+
+### Task 9.4: sr-only text `estimated ` (style #7) — COMPLETE
+
+### Batch 9 verification record (team-leader)
+
+- Jest (serial, `--maxWorkers=2`): chat-state `tab-manager.service.spec.ts` + `live-context-stats.spec.ts` 60/60;
+  chat `session-stats-aggregator.service.spec.ts` 60/60; chat-ui `session-stats-summary.component.spec.ts` 37/37.
+- `nx typecheck` chat-state, chat, chat-ui: pass. `nx lint` chat-state, chat, chat-ui: 0 errors (warnings only).
+- Recorded, not fixed: branded `TabId` type errors in `session-stats-aggregator.service.spec.ts:290,324,325`
+  (`makeTab({ id: 'bg-tab' })`). Visible only to the spec tsconfig (project has 252 such spec-only errors);
+  Jest passes; lib typecheck excludes specs. Cheap fix later: `id: 'bg-tab' as TabId`.
+- A temporary `node_modules` junction was used for the checks and removed afterwards.
+
+### Deferred to later work (orchestrator ruling; none can break a lane config or lose data)
+
+- Style #3: the estimate-marker markup is repeated in `session-stats-summary.component.html`; extract once.
+- Style #5: `snapshotFor` takes a handler-name parameter only for logging; simplify.
+- Style #6: double warning and a raw session id in a log line in the aggregator.
+- Not checked: whether `StreamingHandlerService.handleSessionStats` (chat-streaming) fans out to several
+  background tabs (outside this task's file scope).
 
 ## Common verification rules (every batch)
 

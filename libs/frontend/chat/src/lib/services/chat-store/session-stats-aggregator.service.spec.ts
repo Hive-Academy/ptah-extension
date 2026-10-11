@@ -111,7 +111,7 @@ describe('SessionStatsAggregatorService', () => {
   let setLiveModelStatsMock: jest.Mock;
   let installSessionStatsMock: jest.Mock;
   let findTabsBySessionIdMock: jest.Mock;
-  let findAcrossWorkspacesMock: jest.Mock;
+  let findBackgroundTabsMock: jest.Mock;
   let activeTabMock: jest.Mock;
   let streamHandleStatsMock: jest.Mock;
   let loadSessionsMock: jest.Mock;
@@ -200,7 +200,7 @@ describe('SessionStatsAggregatorService', () => {
     findTabsBySessionIdMock = jest.fn((sid: string) =>
       tabs.filter((t) => t.claudeSessionId === sid),
     );
-    findAcrossWorkspacesMock = jest.fn(() => null);
+    findBackgroundTabsMock = jest.fn((): TabState[] => []);
     activeTabMock = jest.fn(() => tabs[0] ?? null);
     streamHandleStatsMock = jest.fn().mockReturnValue(null);
     loadSessionsMock = jest.fn().mockResolvedValue(undefined);
@@ -212,7 +212,7 @@ describe('SessionStatsAggregatorService', () => {
 
     const tabManagerMock = {
       findTabsBySessionId: findTabsBySessionIdMock,
-      findTabBySessionIdAcrossWorkspaces: findAcrossWorkspacesMock,
+      findBackgroundTabsBySessionId: findBackgroundTabsMock,
       activeTab: activeTabMock,
       setLiveModelStats: setLiveModelStatsMock,
       installSessionStats: installSessionStatsMock,
@@ -290,10 +290,7 @@ describe('SessionStatsAggregatorService', () => {
     it('applies the stats to the background tab and delegates to streamingHandler instead of dropping', () => {
       const bgTab = makeTab({ id: 'bg-tab', claudeSessionId: BG_SESSION });
       findTabsBySessionIdMock.mockReturnValue([]);
-      findAcrossWorkspacesMock.mockReturnValue({
-        tab: bgTab,
-        workspacePath: 'D:\\projects\\other',
-      });
+      findBackgroundTabsMock.mockReturnValue([bgTab]);
 
       service.handleSessionStats({
         ...baseStats,
@@ -311,7 +308,7 @@ describe('SessionStatsAggregatorService', () => {
         ],
       });
 
-      expect(findAcrossWorkspacesMock).toHaveBeenCalledWith(BG_SESSION);
+      expect(findBackgroundTabsMock).toHaveBeenCalledWith(BG_SESSION);
       expect(clearCompactionStateMock).toHaveBeenCalledWith('bg-tab');
       expect(setLiveModelStatsMock).toHaveBeenCalledWith(
         'bg-tab',
@@ -324,9 +321,29 @@ describe('SessionStatsAggregatorService', () => {
       );
     });
 
-    it('prefers the active-workspace tabs and never consults the partition when one is bound', () => {
-      service.handleSessionStats(baseStats);
-      expect(findAcrossWorkspacesMock).not.toHaveBeenCalled();
+    it('updates every bound tab: active ones and each background one, once per tab', () => {
+      const bgA = makeTab({ id: 'bg-a', claudeSessionId: SESS_1 });
+      const bgB = makeTab({ id: 'bg-b', claudeSessionId: SESS_1 });
+      // The active lookup's unbound fallback may already return a background
+      // tab; it must not be updated twice.
+      findTabsBySessionIdMock.mockReturnValue([tabs[0], bgA]);
+      findBackgroundTabsMock.mockReturnValue([bgA, bgB]);
+      const snap = makeSnapshot(SESS_1, 3, 0.3);
+
+      service.handleSessionStats({ ...baseStats, sessionStats: snap });
+
+      expect(findBackgroundTabsMock).toHaveBeenCalledWith(SESS_1);
+      expect(installSessionStatsMock.mock.calls.map((c) => c[0])).toEqual([
+        'tab-1',
+        'bg-a',
+        'bg-b',
+      ]);
+      expect(clearCompactionStateMock.mock.calls.map((c) => c[0])).toEqual([
+        'tab-1',
+        'bg-a',
+        'bg-b',
+      ]);
+      expect(streamHandleStatsMock).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -1460,29 +1477,97 @@ describe('SessionStatsAggregatorService — session:stats-live (TASK_2026_626)',
     expectNoResultPathEffect();
   });
 
-  it('resolves a background-workspace tab exactly as session:stats does', () => {
-    jest.spyOn(tabManager, 'findTabsBySessionId').mockReturnValue([]);
-    const lookup = jest
-      .spyOn(tabManager, 'findTabBySessionIdAcrossWorkspaces')
-      .mockReturnValue({
-        tab: { id: 'bg-tab' } as TabState,
-        workspacePath: '/ws/other',
-      });
-    const install = jest
-      .spyOn(tabManager, 'installLiveSessionStats')
-      .mockReturnValue(true);
-    const live = provisional(5, 90_000);
+  describe('the same session in several tabs across workspaces (review finding 1)', () => {
+    /** A tab's state wherever it lives — active or a background partition. */
+    const anyTab = (id: string): TabState | undefined =>
+      tabManager.findTabByIdAcrossWorkspaces(id)?.tab;
 
-    service.handleLiveSessionStats(live);
+    function openSessionTab(title: string): string {
+      const id = tabManager.createTab(title);
+      tabManager.attachSession(id, sessionId);
+      return id;
+    }
 
-    expect(lookup).toHaveBeenCalledWith(sessionId);
-    expect(install).toHaveBeenCalledWith(
-      'bg-tab',
-      live.sessionStats,
-      live.context,
-    );
-    expect(surfacesForSession).not.toHaveBeenCalled();
-    expectNoResultPathEffect();
+    it('two background tabs in one workspace and one in another all receive the estimate and the settle', () => {
+      // /ws/live: the original tab plus a second tab on the same session.
+      const secondLive = openSessionTab('live 2');
+      // /ws/other: a third tab on the same session.
+      tabManager.switchWorkspace('/ws/other');
+      const other = openSessionTab('other');
+      // The user switches folders mid-turn: every bound tab is now background.
+      tabManager.switchWorkspace('/ws/third');
+      const ids = [tabId, secondLive, other];
+      const install = jest.spyOn(tabManager, 'installSessionStats');
+
+      const estimate = provisional(5);
+      service.handleLiveSessionStats(estimate);
+
+      expect(install.mock.calls.map((c) => c[0]).sort()).toEqual(
+        [...ids].sort(),
+      );
+      for (const id of ids) {
+        expect(anyTab(id)?.sessionStats).toBe(estimate.sessionStats);
+        expect(anyTab(id)?.sessionStats?.provisional).toBe(true);
+      }
+
+      const settle = authoritative(6);
+      service.handleLiveSessionStats(settle);
+
+      for (const id of ids) {
+        expect(anyTab(id)?.sessionStats).toBe(settle.sessionStats);
+        expect(anyTab(id)?.sessionStats?.provisional).toBeUndefined();
+      }
+      expect(surfacesForSession).not.toHaveBeenCalled();
+      expectNoResultPathEffect();
+    });
+
+    it('an active tab does not hide a background tab on the same session', () => {
+      tabManager.switchWorkspace('/ws/other');
+      const other = openSessionTab('other');
+      tabManager.switchWorkspace('/ws/live');
+
+      const estimate = provisional(5);
+      service.handleLiveSessionStats(estimate);
+
+      expect(tab()?.sessionStats?.provisional).toBe(true);
+      expect(anyTab(other)?.sessionStats).toBe(estimate.sessionStats);
+
+      service.handleLiveSessionStats(authoritative(6));
+
+      expect(tab()?.sessionStats?.provisional).toBeUndefined();
+      expect(anyTab(other)?.sessionStats?.revision).toBe(6);
+      expect(anyTab(other)?.sessionStats?.provisional).toBeUndefined();
+    });
+
+    it('each tab runs its own admission: a stale revision reaches none of them', () => {
+      const secondLive = openSessionTab('live 2');
+      tabManager.switchWorkspace('/ws/third');
+      service.handleLiveSessionStats(authoritative(6));
+
+      service.handleLiveSessionStats(provisional(5));
+
+      for (const id of [tabId, secondLive]) {
+        expect(anyTab(id)?.sessionStats?.revision).toBe(6);
+        expect(anyTab(id)?.sessionStats?.provisional).toBeUndefined();
+      }
+    });
+
+    it('session:stats settles every background tab, clearing the estimate marker on each', () => {
+      const secondLive = openSessionTab('live 2');
+      tabManager.switchWorkspace('/ws/other');
+      const other = openSessionTab('other');
+      tabManager.switchWorkspace('/ws/third');
+      service.handleLiveSessionStats(provisional(5));
+      const next = result(6);
+
+      service.handleSessionStats(next);
+
+      for (const id of [tabId, secondLive, other]) {
+        expect(anyTab(id)?.sessionStats).toBe(next.sessionStats);
+        expect(anyTab(id)?.sessionStats?.provisional).toBeUndefined();
+      }
+      expect(streamHandleStats).toHaveBeenCalledTimes(1);
+    });
   });
 
   it('drops a snapshot naming another session with one warning that names only the session', () => {

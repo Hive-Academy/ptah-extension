@@ -9,4 +9,7 @@
 | D5 | (architect) Late live events are rejected by the existing revision floor, not by turn status; the authoritative snapshot always gets a higher revision. | `session-stats-snapshot.ts:77-89`; status gating would hide background-subagent spend. | Evidence |
 | D6 | (architect) `recordAgent` unchanged; `task_started` frames trigger a live flush that reads the agent count. | Hook handler has no stream handle (`subagent-hook-handler.ts:89-102`). | Evidence |
 | D7 | (architect) Accumulate from `assistant` frames (deduped per `message.id`), not `stream_event`, because stream events are main-loop only. | `stream-transformer.ts:517-523`. | Evidence |
+| D9 | Continue to a PR, including the webview build for the visual screenshots. | User, 2026-10-11: "lets do all remaining step until we open up a PR". | User |
+| D10 | The frontend style review moved from `opencode` (failed, exit 1, no deliverable) to `grok`. | Lane status: failed. | Evidence |
+| D11 | Batch 3 continues from the partial, unverified `stream-transformer.ts` diff that a session restart left. | `git status`: file modified, no spec, no report. | Evidence |
 | D8 | (architect) Host-source registry baseline unchanged. | New name does not match the baseline test pattern; changing it needs the TASK_2026_610 Gate 2 exception. | Evidence |

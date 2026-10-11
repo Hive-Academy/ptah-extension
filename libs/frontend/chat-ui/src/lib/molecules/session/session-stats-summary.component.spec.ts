@@ -488,7 +488,8 @@ describe('SessionStatsSummaryComponent', () => {
       const marker = required(root, `[data-testid="${testId}"]`);
       const visible = required(marker, '[aria-hidden="true"]');
       expect(visible.textContent).toBe('~');
-      expect(required(marker, '.sr-only').textContent).toBe('estimated');
+      // Trailing space: AT must not read "estimated12.3k" (style review #7).
+      expect(required(marker, '.sr-only').textContent).toBe('estimated ');
     }
 
     /** Title of the chip or card holding the given value element. */
