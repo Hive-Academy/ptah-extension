@@ -1923,7 +1923,7 @@ Run ONE AT A TIME (memory-safe rules, CLAUDE.md), from the worktree root, with t
 - Phase 6 review result (decision #133): code-logic REVISE 6/10 (2 Moderate, CRLF row estimate), style APPROVED
   WITH NOTES 8/10 (0 findings). One fix round: Batch 28F.
 
-## Batch 28F: Phase 6 fix round — CRLF row estimate, collapsed header path, diff snippet gutter — COMPLETE (commit PENDING_SHA; spec edit ruled #134; Phase 6 code-logic re-review pending)
+## Batch 28F: Phase 6 fix round — CRLF row estimate, collapsed header path, diff snippet gutter — COMPLETE (commit 1527efcc1; spec edit ruled #134; Phase 6 code-logic re-review code-logic-review-phase6-fix.md APPROVED WITH NOTES 8/10, decision #135; Phase 6 ACCEPTED)
 
 - Recommended executor: frontend-developer (fresh sub-agent)
 - Fallback executor: general-purpose subagent
@@ -2008,7 +2008,7 @@ Run ONE AT A TIME (memory-safe rules, CLAUDE.md), from the worktree root, in bas
 - Team-leader commits 28F (8 files plus `batches.md`), then the orchestrator runs the scoped Codex code-logic
   re-review on that commit. Phase 6 ACCEPTED when it approves.
 
-## Batch 29: A1 prompt hint and no-write-back fixtures — PENDING
+## Batch 29: A1 prompt hint and no-write-back fixtures — IN_PROGRESS
 
 - Recommended executor: backend-developer
 - Fallback executor: general-purpose subagent
@@ -2017,7 +2017,7 @@ Run ONE AT A TIME (memory-safe rules, CLAUDE.md), from the worktree root, in bas
 - Tasks: 2 | Depends on: Batches 6, 7, 19
 - Phase: 7 Hint, skill, measurement, eager gate | Phase review: code-logic (after Batch 32)
 
-### Task 29.1: `PTAH_UI_HINT` — PENDING
+### Task 29.1: `PTAH_UI_HINT` — IN_PROGRESS
 
 - Files:
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\backend\agent-sdk\src\lib\prompt-harness\ptah-ui-hint.ts
@@ -2026,7 +2026,7 @@ Run ONE AT A TIME (memory-safe rules, CLAUDE.md), from the worktree root, in bas
 - Quality requirements: R8.1 ≤ 100 tokens; names `display [id]`, the id-update rule, `$diff $tests $usage $agents
   $limits`, points to the skill; examples parse; no `/note/i`; if over budget drop `$limits` and record both counts.
 
-### Task 29.2: host-data sentinel specs — PENDING
+### Task 29.2: host-data sentinel specs — IN_PROGRESS
 
 - Files:
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\backend\agent-sdk\src\lib\helpers\sdk-query-options-builder.host-data.spec.ts
@@ -2036,6 +2036,10 @@ Run ONE AT A TIME (memory-safe rules, CLAUDE.md), from the worktree root, in bas
 
 ### Batch 29 verification
 
+- Run ONE AT A TIME (memory-safe rules, CLAUDE.md), from the worktree root, in bash, adding to each Jest call
+  `--moduleNameMapper='{"^vscode$":"<rootDir>/../../../__mocks__/vscode.ts","^marked$":"D:/projects/ptah-extension/node_modules/marked/lib/marked.umd.js"}'`
+  (the worktree has no local `node_modules/marked`; decision #135), then `npx nx typecheck @ptah-extension/agent-sdk
+  --parallel=1 2>&1 | tail -n 20` after the command below.
 - `npx jest -c libs/backend/agent-sdk/jest.config.ts libs/backend/agent-sdk/src/lib/prompt-harness/ptah-ui-hint.spec.ts libs/backend/agent-sdk/src/lib/helpers/sdk-query-options-builder.host-data.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -n 40 && npx jest -c libs/frontend/chat/jest.config.ts libs/frontend/chat/src/lib/services/message-sender.host-data.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -n 40 && npx nx lint @ptah-extension/agent-sdk --parallel=1 2>&1 | tail -n 20`
 
 ## Batch 30: DOC1 `ptah-surface-authoring` skill text — PENDING
