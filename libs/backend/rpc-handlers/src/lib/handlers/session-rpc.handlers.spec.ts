@@ -330,6 +330,7 @@ function makeHarness(
     workspaceFolders?: string[];
     organization?: FakeOrganization;
     taskIndex?: FakeTaskIndex;
+    agentProcessManager?: { restoreAgents: jest.Mock };
   } = {},
 ): Harness {
   const logger = createMockLogger();
@@ -371,7 +372,7 @@ function makeHarness(
     mcpStatus as never,
     sessionTitle as never,
     turnChangeSets as never,
-    null,
+    (opts.agentProcessManager ?? null) as never,
     (opts.organization ?? null) as SessionOrganizationService | null,
     (opts.taskIndex ?? null) as TaskIndexService | null,
   );
@@ -1952,6 +1953,61 @@ describe('SessionRpcHandlers', () => {
         VALID_SESSION_ID,
       );
       expect(result.cliSessions).toEqual([realCli, mcpSpawned, codex]);
+    });
+
+    describe("agent records go under the session's own folder (PTAH-37)", () => {
+      const OTHER_PROJECT = '/fake/other-project';
+      const refs = [{ cli: 'codex', agentId: 'agent-1' }] as never[];
+
+      function restoreHarness(): {
+        h: Harness;
+        restoreAgents: jest.Mock;
+      } {
+        const restoreAgents = jest.fn().mockReturnValue(1);
+        // WORKSPACE is the active folder; the session belongs to OTHER_PROJECT.
+        const h = makeHarness({
+          workspaceFolders: [WORKSPACE, OTHER_PROJECT],
+          agentProcessManager: { restoreAgents },
+        });
+        h.workspace.getWorkspaceRoot.mockReturnValue(WORKSPACE);
+        h.metadataStore.get.mockResolvedValue(
+          makeMetadata({
+            sessionId: VALID_SESSION_ID,
+            workspaceId: OTHER_PROJECT,
+          }) as never,
+        );
+        h.metadataStore.getCliSessionsForRestore.mockResolvedValue(refs);
+        h.handlers.register();
+        return { h, restoreAgents };
+      }
+
+      it('files restored agents under the session project, not the active one', async () => {
+        const { h, restoreAgents } = restoreHarness();
+        h.fileSystem.exists.mockResolvedValue(true);
+
+        const result = await call<{ cliSessions: CliSessionReference[] }>(
+          h,
+          'session:cli-sessions',
+          { sessionId: VALID_SESSION_ID },
+        );
+
+        expect(result.cliSessions).toEqual(refs);
+        expect(restoreAgents).toHaveBeenCalledWith(refs, OTHER_PROJECT);
+      });
+
+      it('keeps the cards but skips the registry when the folder is gone', async () => {
+        const { h, restoreAgents } = restoreHarness();
+        h.fileSystem.exists.mockResolvedValue(false);
+
+        const result = await call<{ cliSessions: CliSessionReference[] }>(
+          h,
+          'session:cli-sessions',
+          { sessionId: VALID_SESSION_ID },
+        );
+
+        expect(result.cliSessions).toEqual(refs);
+        expect(restoreAgents).not.toHaveBeenCalled();
+      });
     });
 
     it('returns [] and captures to Sentry when the store throws (never bubbles)', async () => {

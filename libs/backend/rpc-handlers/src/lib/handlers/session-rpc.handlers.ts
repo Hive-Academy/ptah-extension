@@ -67,6 +67,7 @@ import { z } from 'zod';
 import { CHAT_TOKENS } from '../chat/tokens';
 import { TurnChangeSetStore } from '../chat/change-set/turn-change-set.store';
 import { resolveResumeWorkingDirectory } from '../chat/session/resume-working-directory';
+import { resolveSessionFolder } from '../chat/session/session-folder';
 import type { ChatSessionService } from '../chat/session/chat-session.service';
 import type { SessionMcpStatusRegistry } from '../chat/session/session-mcp-status.registry';
 import type {
@@ -1053,7 +1054,7 @@ export class SessionRpcHandlers {
         const cliSessions =
           await this.metadataStore.getCliSessionsForRestore(sessionId);
 
-        this.restoreAgentRecords(cliSessions);
+        await this.restoreAgentRecords(sessionId, cliSessions);
 
         return { cliSessions };
       } catch (error) {
@@ -1128,16 +1129,26 @@ export class SessionRpcHandlers {
    * for. The references carry the persisted output; this hands it back.
    *
    * A failure here NEVER costs the caller its cards. The enclosing handler
-   * returns an empty list on any throw, so this keeps its own guard.
+   * returns an empty list on any throw, so this keeps its own guard. A session
+   * whose folder is not open keeps its cards but gets no registry records.
    */
-  private restoreAgentRecords(refs: readonly CliSessionReference[]): void {
+  private async restoreAgentRecords(
+    sessionId: string,
+    refs: readonly CliSessionReference[],
+  ): Promise<void> {
     if (!this.agentProcessManager || refs.length === 0) return;
     try {
-      this.agentProcessManager.restoreAgents(
-        refs,
-        // eslint-disable-next-line no-restricted-properties -- MP-3 pending (PTAH-37)
-        this.workspaceProvider.getWorkspaceRoot() ?? '',
-      );
+      // Filed under the session's own folder, as chat:resume does. The active
+      // folder would put them in another project's agent list (PTAH-37).
+      const folder = await resolveSessionFolder({
+        sessionId,
+        metadataStore: this.metadataStore,
+        workspaceProvider: this.workspaceProvider,
+        fileSystemProvider: this.fileSystemProvider,
+        platformInfo: this.platformInfo,
+        logger: this.logger,
+      });
+      this.agentProcessManager.restoreAgents(refs, folder);
     } catch (error: unknown) {
       this.logger.warn('[RPC] Could not restore agent records', {
         error: error instanceof Error ? error.message : String(error),
