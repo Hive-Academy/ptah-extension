@@ -728,7 +728,7 @@ describe('ThothShellComponent', () => {
 
         expect(pausedBadge(el, 'skills')?.textContent?.trim()).toBe('Paused');
         // Only the flags were re-read, not every pillar.
-        expect(listCandidates.mock.calls.length).toBe(statsCalls);
+        expect(listCandidates.mock.calls).toHaveLength(statsCalls);
       });
 
       it('re-reads the pause flags when the window regains focus, and stops after destroy', async () => {
@@ -750,7 +750,7 @@ describe('ThothShellComponent', () => {
         const calls = getSettings.mock.calls.length;
         window.dispatchEvent(new Event('focus'));
         await flushAsync();
-        expect(getSettings.mock.calls.length).toBe(calls);
+        expect(getSettings.mock.calls).toHaveLength(calls);
       });
     });
   });

@@ -961,7 +961,7 @@ export class AppStateManager implements MessageHandler {
     // the previous workspace's surface still on screen, and a later switch
     // away will refuse to stamp it. That is the honest outcome — the wrong
     // behaviour would be to record a surface this workspace never reached.
-    this.requestSurface(
+    void this.requestSurface(
       this._viewSlices().get(newPath)?.currentView ?? DEFAULT_SURFACE_ID,
     );
   }
@@ -1017,7 +1017,7 @@ export class AppStateManager implements MessageHandler {
     ) {
       return;
     }
-    this.requestSurface(surface);
+    void this.requestSurface(surface);
   }
 
   /** Close a view tab pill. Chat can never be closed. Falls back to chat if closing the active view. */
@@ -1033,7 +1033,7 @@ export class AppStateManager implements MessageHandler {
     // a navigation. The slice's `currentView` memory is not written here — the
     // constructor effect records chat once the navigation settles.
     if (this.currentView() === view) {
-      this.requestSurface(DEFAULT_SURFACE_ID);
+      void this.requestSurface(DEFAULT_SURFACE_ID);
     }
   }
 
@@ -1065,7 +1065,7 @@ export class AppStateManager implements MessageHandler {
   }): void {
     if (data.workspaceInfo) this.setWorkspaceInfo(data.workspaceInfo);
     if (data.currentView) {
-      this.requestSurface(this.normalizeView(data.currentView));
+      void this.requestSurface(this.normalizeView(data.currentView));
     }
     this.setConnected(true);
   }
@@ -1073,7 +1073,7 @@ export class AppStateManager implements MessageHandler {
   handleViewSwitch(view: ViewType): void {
     if (!this.canSwitchViews()) return;
 
-    this.requestSurface(this.normalizeView(view));
+    void this.requestSurface(this.normalizeView(view));
   }
 
   handleError(error: string): void {
@@ -1179,7 +1179,7 @@ export class AppStateManager implements MessageHandler {
    */
   openMarketplace(route: MarketplaceRoute): void {
     if (!this.canSwitchViews()) return;
-    this.requestSurface('marketplace', marketplaceRouteCommands(route));
+    void this.requestSurface('marketplace', marketplaceRouteCommands(route));
   }
 
   /**
