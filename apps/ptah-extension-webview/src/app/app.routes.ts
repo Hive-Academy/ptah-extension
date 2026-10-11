@@ -31,13 +31,22 @@ import { electronOnlySurface } from './electron-only-surface.guard';
  * navigation sets is a single edit to the constant plus this table.
  *
  * **Only the surfaces the old `@switch` already destroyed are routed.** The
- * chat and canvas content area is deliberately NOT in the outlet: it is kept
- * mounted and toggled with `[class.hidden]` so `CanvasStore`, the gridstack
- * instance and the tile-to-session bindings survive navigation. The `chat`
- * route below is therefore a **component-less route** — it addresses "no
- * standalone surface is showing" so that state has a URL, and
- * `AppShellComponent` un-hides the shared chrome for it. Replacing the CSS
- * hiding with a workspace-keyed `RouteReuseStrategy` is batch 3, not this one.
+ * chat and canvas content area is deliberately NOT in the outlet. It is one
+ * instance, never keyed by workspace (`CanvasStore` partitions workspaces
+ * itself), and `AppShellComponent` retains it with `*ptahRetainWhile`: on a
+ * standalone surface the row is detached from the DOM and from change
+ * detection but never destroyed, so `CanvasStore`, the gridstack instance and
+ * the tile-to-session bindings survive navigation. The `chat` route below is
+ * therefore a **component-less route** — it addresses "no standalone surface
+ * is showing" so that state has a URL, and the shell re-inserts the retained
+ * chrome for it.
+ *
+ * **No routed surface is retained.** There is no `RouteReuseStrategy`: every
+ * surface below is destroyed on leave and re-created on return, as under the
+ * old `@switch`. Configuration surfaces re-mount on a workspace switch, and
+ * `tasks` / `harness-builder` rely on construction-time work, so a stored
+ * handle would be stale. Retaining one needs its mount-time work moved onto
+ * `SURFACE_ACTIVE` edges first (TASK_2026_524 implementation plan, L3).
  *
  * Eagerness is chosen per surface, not by default:
  * - `chat` — no component to load.

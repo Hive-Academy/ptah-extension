@@ -1,0 +1,7 @@
+# Batch 3a cross-side review
+
+**Verdict: APPROVE**
+
+1. **Minor — test components omit `OnPush`.** `libs/frontend/core/src/lib/routing/retained-view.directive.spec.ts:53-58,86-94`: `Probe` and `Host` use Angular's default change detection, contrary to the repo's every-component `OnPush` convention. A change that works only under default change detection could leave these tests green while failing in an `OnPush` host. Add `changeDetection: ChangeDetectionStrategy.OnPush` to both test components and import the enum.
+
+The directive's only `ViewContainerRef.detach()` call is in the `write` callback (`retained-view.directive.ts:84-97`); the `read` fence only checks the generation and registers that callback (`:82-88`). Angular defers registrations made during hook execution to a later pass (`_debug_node-chunk.mjs:4352-4358,4371-4375`), and maps a single-function `afterRenderEffect` to `mixedReadWrite` (`:4458-4463`). Thus the canvas layout latch (`canvas-layout.service.ts:73-82`) and grid view effect (`canvas-workspace-grid.component.ts:422-429`) observe the inactive attached pass before removal. The generation check and destruction of the single pending ref cover returns at both stages; host destruction cancels it and destroys a detached view (`retained-view.directive.ts:100-110`). The focused T12/T13/T14 tests assert a DOM-attached inactive latch observation, cancellation after the fence, and actual `detach()` calls stamped `write`; their private-method spies do not make those assertions vacuous. The focused Jest run passed: 14/14 tests.

@@ -68,6 +68,7 @@ import { SessionDisplayUtils } from '../../services/session-display-utils.servic
 import { SubagentTranscriptViewerService } from '../../services/subagent-transcript-viewer.service';
 import {
   AppStateManager,
+  RetainedViewDirective,
   SurfaceActiveDirective,
   AuthStateService,
   BootStatusService,
@@ -78,10 +79,16 @@ import {
   ORCHESTRA_CANVAS_COMPONENT,
   NOTIFICATION_FOCUS_ROUTER,
   SurfaceRouterService,
+  ThemeService,
 } from '@ptah-extension/core';
-import { NotificationCenterComponent } from '@ptah-extension/notification-center';
+import {
+  NotificationAnnouncerComponent,
+  NotificationCenterComponent,
+  NotificationLedgerService,
+} from '@ptah-extension/notification-center';
 import { NotificationFocusCoordinator } from '../../services/notification-focus-coordinator.service';
 import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-ender.service';
+import { AgentFollowUpQueueService } from '../../services/agent-follow-up-queue.service';
 import type { ChatSessionSummary } from '@ptah-extension/shared';
 import type { SessionListQuery } from '../../services/chat-store/session-loader.service';
 import type { TitleOrigin } from '@ptah-extension/chat-types';
@@ -105,9 +112,10 @@ import type { TitleOrigin } from '@ptah-extension/chat-types';
  *   `@ptah-extension/core` is imported by.
  * - `currentView()` still answers "which surface", but it now reads the Router
  *   through `SurfaceRouterService` instead of a signal write.
- * - The chat and canvas content area is deliberately NOT routed: it stays
- *   mounted and is toggled with `[class.hidden]` so `CanvasStore` and the
- *   gridstack instance survive navigation.
+ * - The chat and canvas content area is deliberately NOT routed: the shell row
+ *   is retained by `*ptahRetainWhile` (`RetainedViewDirective`), detached from
+ *   the DOM and change detection on a standalone surface but never destroyed,
+ *   so `CanvasStore` and the gridstack instance survive navigation.
  *
  * **Signal Dependencies**:
  * - currentView: AppStateManager.currentView (Router-derived)
@@ -123,6 +131,7 @@ import type { TitleOrigin } from '@ptah-extension/chat-types';
   standalone: true,
   imports: [
     ChatViewComponent,
+    RetainedViewDirective,
     SurfaceActiveDirective,
     RouterOutlet,
     NgComponentOutlet,
@@ -138,6 +147,7 @@ import type { TitleOrigin } from '@ptah-extension/chat-types';
     SidebarTabComponent,
     SkeletonBlockComponent,
     NotificationCenterComponent,
+    NotificationAnnouncerComponent,
     SessionFilterBarComponent,
     SessionOrganizationChipsComponent,
     SessionLivePhaseIndicatorComponent,
@@ -182,6 +192,17 @@ export class AppShellComponent {
   private readonly _closedTabSessionEnder = inject(
     ClosedTabSessionEnderService,
   );
+  // Injected only to instantiate the root notification ledger eagerly. The
+  // bell lives in the retained row, which a standalone-first boot does not
+  // build, and completions and prompts must be processed from the start.
+  private readonly _notificationLedger = inject(NotificationLedgerService);
+  // Same reason: agent follow-ups queued in the retained row must still be
+  // sent when the run ends while a standalone surface is showing.
+  private readonly _agentFollowUps = inject(AgentFollowUpQueueService);
+  // Same reason: in the VS Code webview only `<ptah-theme-toggle>` in the
+  // retained row injects ThemeService, so a standalone-first boot would delay
+  // the theme fallback and recovery until the first visit to chat.
+  private readonly _theme = inject(ThemeService);
   readonly currentView = this.appState.currentView;
   readonly layoutMode = this.appState.layoutMode;
 
@@ -213,7 +234,10 @@ export class AppShellComponent {
    * This is the LAST remaining `*ngComponentOutlet` surface in this template.
    * The five deferred ones (harness builder, setup hub, marketplace, tribunal,
    * tasks) became `loadComponent` routes in TASK_2026_524; the canvas did not,
-   * because it must stay mounted while the user is elsewhere.
+   * because it is retained detached while the user is elsewhere: it lives in
+   * the `*ptahRetainWhile` shell row, so its instance and component-scoped
+   * `CanvasStore` outlive every standalone visit. It is constructed on the
+   * first visit to chat, not at shell construction.
    */
   readonly orchestraCanvasComponent =
     inject(ORCHESTRA_CANVAS_COMPONENT, { optional: true }) ?? null;
@@ -577,7 +601,9 @@ export class AppShellComponent {
 
   /**
    * Track the shell row's width so the open sidebar leaves room for the main
-   * area. A hidden row (standalone view) reports 0 and keeps the last width.
+   * area. While the row is retained detached (standalone view) the query is
+   * empty, the observer is disconnected and the last width is kept; the
+   * hidden pass before the detach reports 0, which is ignored.
    */
   private observeShellRowWidth(row: HTMLElement): () => void {
     if (typeof ResizeObserver === 'undefined') return () => undefined;

@@ -154,6 +154,78 @@ test.describe('Canvas', () => {
     await expect(page.locator('[data-testid="canvas-tile"]')).toHaveCount(1);
   });
 
+  test('retains the same canvas instance across a settings round-trip (TASK_2026_524 batch 3)', async ({
+    ui,
+  }) => {
+    // The shell row holding the canvas is retained by `*ptahRetainWhile`:
+    // detached on a standalone surface, never destroyed. The render-metrics
+    // counters live on the canvas's component-scoped
+    // `CanvasRenderMetricsService`, so a re-created canvas would restart them
+    // from zero; unchanged counters prove the same instance came back.
+    const page = ui.page;
+    await page.setViewportSize({ width: 2600, height: 1200 });
+    await ui.goto('canvas');
+
+    await page.getByRole('button', { name: 'Create new session' }).click();
+    await page.getByRole('button', { name: 'Create', exact: true }).click();
+
+    const items = page.locator('gridstack-item');
+    await expect(items).toHaveCount(1);
+    const tile = items.nth(0);
+    const grid = page.locator('ptah-canvas-workspace-grid:visible');
+    const metric = async (name: string): Promise<number> =>
+      Number((await grid.getAttribute(name)) ?? '-1');
+
+    // Commit one real gesture first, so "did not reset" cannot pass vacuously
+    // on a counter that was zero all along.
+    await tile.locator('[data-testid="tile-view-mode-toggle"]').click();
+    await expect(tile).toHaveAttribute('gs-h', '2');
+    const commitsBeforeGesture = await metric('data-canvas-gesture-commits');
+    await dragSouthHandle(page, tile, (await rowPitch(tile)) * 2);
+    await expect(tile).toHaveAttribute('gs-h', '4');
+    await expect
+      .poll(() => metric('data-canvas-gesture-commits'))
+      .toBeGreaterThan(commitsBeforeGesture);
+    await waitForSettledHeight(tile);
+
+    const marker = `retained-${Date.now()}`;
+    await tile.evaluate(
+      (el, value) => el.setAttribute('data-retained-marker', value),
+      marker,
+    );
+    const tileCount = await page.locator('[data-testid="canvas-tile"]').count();
+    const rows = await items.evaluateAll((nodes) =>
+      nodes.map((node) => node.getAttribute('gs-y')),
+    );
+    const gestureCommits = await metric('data-canvas-gesture-commits');
+    const layoutComputations = await metric('data-canvas-layout-computations');
+    expect(gestureCommits).toBeGreaterThan(0);
+    expect(layoutComputations).toBeGreaterThan(0);
+
+    // On settings the retained row is out of the document, not merely hidden.
+    await ui.goto('settings');
+    await expect(page.locator('ptah-canvas-workspace-grid')).toHaveCount(0);
+
+    await ui.goto('canvas');
+    await expect(grid).toBeVisible();
+
+    await expect(page.locator('[data-testid="canvas-tile"]')).toHaveCount(
+      tileCount,
+    );
+    await expect(tile).toHaveAttribute('data-retained-marker', marker);
+    await expect
+      .poll(() =>
+        items.evaluateAll((nodes) =>
+          nodes.map((node) => node.getAttribute('gs-y')),
+        ),
+      )
+      .toEqual(rows);
+    expect(await metric('data-canvas-gesture-commits')).toBe(gestureCommits);
+    expect(
+      await metric('data-canvas-layout-computations'),
+    ).toBeGreaterThanOrEqual(layoutComputations);
+  });
+
   test('keeps a tile mounted (no remount) across a workspace round-trip', async ({
     ui,
   }) => {
