@@ -897,7 +897,7 @@ describe('SessionStatsSummaryComponent limits', () => {
       plan.querySelector('[data-testid="plan-limits-caption"]')?.getAttribute(
         'title',
       ),
-    ).toContain('Claude account plan limit');
+    ).toContain('Claude account');
     expect(
       plan.querySelectorAll('[data-testid="plan-limits-source"]').length,
     ).toBeGreaterThan(0);

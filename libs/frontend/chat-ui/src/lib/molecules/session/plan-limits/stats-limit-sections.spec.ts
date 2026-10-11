@@ -19,9 +19,9 @@ function planTile(
     id,
     kind: 'window',
     label: id,
-    captionLead: 'Claude account plan limit',
+    captionLead: 'Claude account',
     captionTail: '· a1b2',
-    caption: 'Claude account plan limit · a1b2',
+    caption: 'Claude account · a1b2',
     value: '40% used',
     resetLine: 'resets 15:10',
     tone: 'neutral',
@@ -58,8 +58,8 @@ describe('planSectionProvenance', () => {
     const result = planSectionProvenance([planTile('a'), planTile('b')]);
 
     expect(result.caption).toEqual({
-      caption: 'Claude account plan limit · a1b2',
-      captionLead: 'Claude account plan limit',
+      caption: 'Claude account · a1b2',
+      captionLead: 'Claude account',
       captionTail: '· a1b2',
     });
   });
@@ -67,7 +67,7 @@ describe('planSectionProvenance', () => {
   it('keeps captions on the rows when they differ', () => {
     const result = planSectionProvenance([
       planTile('a'),
-      planTile('b', { caption: 'plan limit', captionLead: 'plan limit' }),
+      planTile('b', { caption: 'unknown account', captionLead: 'unknown account' }),
     ]);
 
     expect(result.caption).toBeNull();

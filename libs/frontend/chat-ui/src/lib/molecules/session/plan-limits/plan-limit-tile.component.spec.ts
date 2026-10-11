@@ -23,9 +23,9 @@ function windowTile(
     id: 'plan:claude-cli#account:0123456789abcdef:five_hour',
     kind: 'window',
     label: '5-hour',
-    captionLead: 'Claude account plan limit',
+    captionLead: 'Claude account',
     captionTail: '· cdef',
-    caption: 'Claude account plan limit · cdef',
+    caption: 'Claude account · cdef',
     value: '94% used',
     resetLine: 'resets 15:10 · in 3h 10m',
     chip: NEAR_WINDOW.chip,
@@ -96,7 +96,7 @@ describe('PlanLimitTileComponent', () => {
     expect(
       button(root).querySelector('[data-testid="plan-limit-caption"]')
         ?.textContent,
-    ).toBe('Claude account plan limit· cdef');
+    ).toBe('Claude account· cdef');
     expect(face).toContain('94% used');
     expect(face).toContain('resets 15:10 · in 3h 10m');
     expect(face).toContain('Near limit');
@@ -200,7 +200,7 @@ describe('PlanLimitTileComponent', () => {
     expect(tail?.textContent?.trim()).toBe('· cdef');
     expect(tail?.textContent).toBe('· cdef');
     expect(caption?.getAttribute('title')).toBe(
-      'Claude account plan limit · cdef',
+      'Claude account · cdef',
     );
 
     // An open row shows its whole caption, so it may wrap.
@@ -209,7 +209,7 @@ describe('PlanLimitTileComponent', () => {
 
     expect(lead?.classList.contains('truncate')).toBe(false);
     expect(caption?.getAttribute('title')).toBe(
-      'Claude account plan limit · cdef',
+      'Claude account · cdef',
     );
   });
 
