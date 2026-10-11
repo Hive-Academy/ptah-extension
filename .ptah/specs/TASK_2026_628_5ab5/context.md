@@ -65,6 +65,55 @@ Conclusions:
   2. A Performance recording with **Memory** selected, to see the DOM node
      count and the JS heap over time while streaming.
 
+### Performance trace (20:34, `tmp/Trace-20261011T203430.json`, 26 s while streaming)
+
+| Measurement | Value |
+|---|---|
+| Main thread: Rendering / Scripting | **23,393 ms** / 1,069 ms of 25,854 ms |
+| Recalculate Style (`UpdateLayoutTree`) | **81 runs, 18,146 ms, average 224 ms**, average 12,823 elements, max 28,916 |
+| Layout | 40 runs, 338 ms (cheap) |
+| Layerize / PrePaint / Paint | 3,864 / 1,202 / 870 ms |
+| DOM nodes (one document) | 104,832 → 108,817 |
+| Documents | **30 → 50** |
+| JS heap used | 87.9 → 88.1 MB (flat) |
+| Frames | about 1 s each at the worst (1,450 / 1,066 / 967 / 950 ms) |
+
+Conclusions:
+
+1. **The slowness is style recalculation over a very large DOM, not
+   JavaScript.** Almost every frame restyles about 13,000 elements and costs
+   about 224 ms, so the UI runs at about 3–4 frames per second. 30 of the 36
+   recalculations over 100 ms run in the frame's rendering step and are not
+   forced by script. Only 1 s of the 26 s is scripting.
+2. **The DOM is about 105,000 nodes.** All the live transcripts, sidebars and
+   agent panels of all the canvas sessions are mounted at the same time. The
+   cost of a recalculation scales with the number of elements that it touches.
+   This is the direct performance case for TASK_2026_629_c0b3 (one live view,
+   summary cards for the others).
+3. **The document count increases by about 0.8 per second.** DOMPurify creates
+   a new `Document` for each `sanitize()` call
+   (`new DOMParser().parseFromString`, `dompurify/dist/purify.es.mjs:1470`).
+   `sanitizeFullMarkdownHtml` runs on every streaming frame (hot spot 2), so
+   each frame creates and drops a whole parsed document in Blink memory. This
+   matches a renderer that is 2.9 GB with a 103 MB JS heap.
+4. **Hover over the sidebar restyles the whole sidebar and starts transitions.**
+   - `apps/ptah-extension-webview/src/styles.css:2221`
+     (`aside:not(:hover) .sidebar-scroll { scrollbar-color: transparent transparent; }`)
+     changes `scrollbar-color` when the pointer enters or leaves the aside.
+   - `scrollbar-color` is inherited, so every descendant changes too. Every
+     button with `transition-all` then starts a main-thread `scrollbar-color`
+     transition. The trace shows 36 + 24 + 9 + 5 such transitions on sidebar
+     buttons in 26 s.
+   - The same defect was fixed once before in `effort-selector.component.ts:124-126`.
+   - Fix: replace `transition-all` with `transition-colors` (or a narrower
+     property list) on these elements. Do not toggle an inherited property on
+     `:hover` of a large subtree.
+5. **Next evidence:** record about 10 s again with the Performance settings
+   **Enable CSS selector stats** and **Enable advanced rendering
+   instrumentation**. The selector stats show which selectors cost the most in
+   each recalculation. The invalidation tracking shows which DOM changes
+   schedule them.
+
 ## Hot spots (code read, ranked by likely garbage)
 
 Found by reading the code, then spot-checked. Confirm the ranking with an

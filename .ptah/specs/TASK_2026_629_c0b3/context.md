@@ -18,6 +18,18 @@ The renderer memory problem is handled by TASK_2026_628_5ab5. This task
 reduces render work and makes many sessions readable. It does not, by itself,
 fix allocation churn in the stores.
 
+## Performance evidence
+
+A 26 s trace with 5–6 streaming sessions (see TASK_2026_628_5ab5 `context.md`)
+measured these values:
+- Recalculate Style used 18.1 s of 25.9 s, about 224 ms per frame.
+- Each recalculation touched about 13,000 elements of a 105,000-node DOM.
+
+The cost scales with the number of mounted elements. So this task's main
+performance goal is fewer mounted elements: one live transcript instead of
+one per session. Record the DOM node count and the Recalculate Style time
+before and after.
+
 ## Agreed design (prototype A, "mission board")
 
 Prototypes: [./prototypes/index.html](./prototypes/index.html). Open the HTML
