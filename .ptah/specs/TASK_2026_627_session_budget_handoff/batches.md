@@ -1380,7 +1380,7 @@ other rows stay as recorded.
 - Accepted deviation: D25 "clear on budget disabled" and the persisted stage were left out (files not
   owned); both moved to Task 15.4.
 
-## Batch 15: Frontend services — live stage, draft bookkeeping, actions (F1) — COMPLETE
+## Batch 15: Frontend services — live stage, draft bookkeeping, actions (F1) — COMPLETE (5f0ebad4c)
 
 - Recommended executor: frontend-developer
 - Fallback executor: frontend-developer, fresh session
@@ -1445,6 +1445,12 @@ other rows stay as recorded.
   (if it fails with "Could not locate module marked", re-run with the mapper from the Verification
   rules); then `npx nx typecheck @ptah-extension/chat --parallel=1`; then
   `npx nx lint @ptah-extension/chat --parallel=1`.
+- Accepted by team-leader: chat specs 3 suites / 133 passed; chat-state specs (intent-mutators,
+  restore-sanitize, tab-manager.service) 3 suites / 210 passed; typecheck chat and chat-state clean;
+  lint chat-state 0 errors / 2 warnings (baseline), chat 0 errors / 35 warnings, none in changed files.
+  Deviations accepted: `liveBudgetStage` in `NON_PERSISTED_TAB_KEYS` (both readers null it); extra
+  `tab-restore-sanitize.spec.ts` case; the wrap-up key is cleared on any failed `runAction`, including
+  the `WRAP_UP_UNAVAILABLE` refusal (nothing was accepted, so no request counts for that stage).
 
 ## Batch 16: Banner copy and buttons; composer draft write (F2-part) — PENDING
 
