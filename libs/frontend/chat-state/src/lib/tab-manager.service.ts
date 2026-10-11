@@ -2268,11 +2268,17 @@ export class TabManagerService {
     this.updateTabInternal(tabId, { sessionBudget: budget });
   }
 
-  /** Clear a tab's budget only when it still belongs to the expected session. */
+  /**
+   * Clear a tab's budget, and the live stage that only counts beside it, only
+   * when the tab still belongs to the expected session.
+   */
   clearSessionBudget(tabId: string, sessionId: string): void {
     const tab = this.findTabByIdAcrossWorkspaces(tabId)?.tab;
     if (!tab || tab.claudeSessionId !== sessionId) return;
-    this.updateTabInternal(tabId, { sessionBudget: null });
+    this.updateTabInternal(tabId, {
+      sessionBudget: null,
+      liveBudgetStage: null,
+    });
   }
 
   /**
@@ -2296,7 +2302,9 @@ export class TabManagerService {
    * Drop the budget state from every open tab in every workspace. Called when
    * the user saves `sessionBudget.enabled = false`: sends already go through,
    * so a limit banner must not wait for the next stats snapshot to go away.
-   * A rotation advisory, if any, comes back with that snapshot.
+   * A rotation advisory, if any, comes back with that snapshot. The live
+   * stage is cleared with it (D25): it is display-only and means nothing
+   * without a budget.
    */
   clearSessionBudgets(): void {
     const tabIds = [
@@ -2308,7 +2316,10 @@ export class TabManagerService {
       ),
     ];
     for (const tabId of tabIds) {
-      this.updateTabInternal(tabId, { sessionBudget: null });
+      this.updateTabInternal(tabId, {
+        sessionBudget: null,
+        liveBudgetStage: null,
+      });
     }
   }
 

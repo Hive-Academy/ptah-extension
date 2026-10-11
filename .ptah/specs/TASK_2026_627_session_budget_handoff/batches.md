@@ -1380,7 +1380,7 @@ other rows stay as recorded.
 - Accepted deviation: D25 "clear on budget disabled" and the persisted stage were left out (files not
   owned); both moved to Task 15.4.
 
-## Batch 15: Frontend services — live stage, draft bookkeeping, actions (F1) — PENDING
+## Batch 15: Frontend services — live stage, draft bookkeeping, actions (F1) — COMPLETE
 
 - Recommended executor: frontend-developer
 - Fallback executor: frontend-developer, fresh session
@@ -1389,7 +1389,7 @@ other rows stay as recorded.
 - Tasks: 4 | Depends on: Batches 9, 10, 11, 14
 - Phase: 4 | Phase review: as Batch 9
 
-### Task 15.1: Aggregator applies and clears `liveBudgetStage` — PENDING
+### Task 15.1: Aggregator applies and clears `liveBudgetStage` — COMPLETE
 
 - Files: `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff\libs\frontend\chat\src\lib\services\chat-store\session-stats-aggregator.service.ts`
   and `session-stats-aggregator.service.spec.ts`
@@ -1398,7 +1398,7 @@ other rows stay as recorded.
   set, only for a payload the revision floor accepted. `handleSessionStats` clears it on a result, not
   on a snapshot-only broadcast.
 
-### Task 15.2: `SessionHandoverClientService.peekDraft` and `acknowledgeDraft` — PENDING
+### Task 15.2: `SessionHandoverClientService.peekDraft` and `acknowledgeDraft` — COMPLETE
 
 - Files: `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff\libs\frontend\chat\src\lib\services\session-handover-client.service.ts`
   and `session-handover-client.service.spec.ts`
@@ -1408,7 +1408,7 @@ other rows stay as recorded.
   acknowledged; it changes nothing. `acknowledgeDraft(operationId)` adds to a root-scoped `Set`.
 - Validation notes: R-P6.
 
-### Task 15.3: `SessionBudgetActionsService` — display stage, wrap-up, continue now, Approve — PENDING
+### Task 15.3: `SessionBudgetActionsService` — display stage, wrap-up, continue now, Approve — COMPLETE
 
 - Files: `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff\libs\frontend\chat\src\lib\services\session-budget-actions.service.ts`
   and `session-budget-actions.service.spec.ts`
@@ -1425,7 +1425,7 @@ other rows stay as recorded.
   (`source-unavailable` fallback) stays green.
 - Validation notes: R-P4, R-P7; 627-L16 display half (the streaming-only rule).
 
-### Task 15.4: Clear `liveBudgetStage` on disable and on persist/restore (Batch 14 follow-ups) — PENDING
+### Task 15.4: Clear `liveBudgetStage` on disable and on persist/restore (Batch 14 follow-ups) — COMPLETE
 
 - Added by team-leader at Batch 14 acceptance. Adds chat-state files to Batch 15 (above the 6-file
   cap; accepted because each change is one line).

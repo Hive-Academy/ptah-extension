@@ -29,9 +29,42 @@ export class SessionHandoverClientService {
   private readonly tabManager = inject(TabManagerService);
   private readonly rpc = inject(ClaudeRpcService);
   private readonly states = signal<Record<string, SessionHandoverState>>({});
+  /**
+   * Operations whose returned draft a composer already took. Root-scoped, so
+   * a canvas tile and the main panel showing the same session cannot both
+   * apply it. Grows by one id per cancelled or failed handover that carried
+   * a draft, and only after the user's own click.
+   */
+  private readonly acknowledgedDrafts = new Set<string>();
 
   stateFor(sessionId: string | null): SessionHandoverState | null {
     return sessionId ? (this.states()[sessionId] ?? null) : null;
+  }
+
+  /**
+   * The composer text a cancelled or failed handover returned for this
+   * session (D24), or `null`. Only a non-empty string `draftText` on a
+   * `cancelled`/`failed` state whose operation is not yet acknowledged
+   * counts. Reading it changes nothing: the caller acknowledges with
+   * {@link acknowledgeDraft} only after the text is in a composer, so a view
+   * without a mounted composer, or a write that throws, leaves it recoverable.
+   */
+  peekDraft(
+    sessionId: string | null,
+  ): { readonly operationId: string; readonly text: string } | null {
+    const state = this.stateFor(sessionId);
+    if (!state || (state.phase !== 'cancelled' && state.phase !== 'failed')) {
+      return null;
+    }
+    const text: unknown = state.draftText;
+    if (typeof text !== 'string' || text.trim().length === 0) return null;
+    if (this.acknowledgedDrafts.has(state.operationId)) return null;
+    return { operationId: state.operationId, text };
+  }
+
+  /** Marks an operation's draft as applied to a composer; it is never offered again. */
+  acknowledgeDraft(operationId: string): void {
+    this.acknowledgedDrafts.add(operationId);
   }
 
   /** Installs only a newer coordinator publication for its source session. */

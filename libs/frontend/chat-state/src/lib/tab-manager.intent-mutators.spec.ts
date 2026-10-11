@@ -1330,22 +1330,44 @@ describe('TabManagerService — intent-named mutators', () => {
           budgetState(SESS_X, 2, 200),
         );
         service.installSessionBudget(second, budgetState(other, 3, 300));
+        service.setLiveBudgetStage(first, SESS_X, 'handoff');
         expect(budgetOf(second)).not.toBeNull();
         const plainBefore = service.tabs().find((t) => t.id === plain);
         partitionMock.findBackgroundTabIds?.mockReturnValue(['background-tab']);
 
         service.clearSessionBudgets();
 
+        // D25: the live stage goes with the budget it only counts beside.
         expect(partitionMock.updateBackgroundTab).toHaveBeenCalledWith(
           'background-tab',
-          { sessionBudget: null },
+          { sessionBudget: null, liveBudgetStage: null },
         );
         expect(budgetOf(first)).toBeNull();
         expect(budgetOf(second)).toBeNull();
         expect(
+          service.tabs().find((t) => t.id === first)?.liveBudgetStage,
+        ).toBeNull();
+        expect(
           service.tabs().find((t) => t.id === first)?.sessionStats,
         ).toBeTruthy();
         expect(service.tabs().find((t) => t.id === plain)).toBe(plainBefore);
+      });
+
+      it('clearSessionBudget clears the live stage with the budget, for the bound session only', () => {
+        const id = service.createTab('budget clear one');
+        service.attachSession(id, SESS_X);
+        service.installSessionBudget(id, budgetState(SESS_X, 2, 200));
+        service.setLiveBudgetStage(id, SESS_X, 'limit');
+
+        service.clearSessionBudget(id, 'other-session');
+        const kept = service.tabs().find((t) => t.id === id);
+        expect(kept?.sessionBudget).not.toBeNull();
+        expect(kept?.liveBudgetStage).toBe('limit');
+
+        service.clearSessionBudget(id, SESS_X);
+        const cleared = service.tabs().find((t) => t.id === id);
+        expect(cleared?.sessionBudget).toBeNull();
+        expect(cleared?.liveBudgetStage).toBeNull();
       });
 
       it('resetTabToFresh clears the budget with the snapshot', () => {

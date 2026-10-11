@@ -34,6 +34,7 @@ import {
   LEGACY_COMPACT_HEIGHT_UNITS,
   LEGACY_COMPACT_TALL_HEIGHT_UNITS,
   PERSISTED_TAB_STATE_VERSION,
+  projectTabForPersist,
   sanitizeRestoredTab,
 } from './tab-persistence';
 
@@ -289,6 +290,18 @@ describe('restored tabs — one sanitize, both readers', () => {
       expect(tabs.every((tab) => tab.queuedContent === null)).toBe(true);
       expect(tabs.every((tab) => tab.attachedBinding === null)).toBe(true);
     });
+  });
+
+  // TASK_2026_627 Task 15.4: a live budget stage belongs to a turn that ended
+  // with the old process; it is neither written nor restored.
+  it('drops the live budget stage on the way out and on the way back in', () => {
+    const stored = storedTab('tab-1', 'loaded', {
+      liveBudgetStage: 'handoff',
+    }) as unknown as TabState;
+
+    expect(projectTabForPersist(stored).liveBudgetStage).toBeNull();
+    expect(sanitizeRestoredTab(stored).liveBudgetStage).toBeNull();
+    expect(stored.liveBudgetStage).toBe('handoff');
   });
 
   it('does not mutate the object it was handed', () => {

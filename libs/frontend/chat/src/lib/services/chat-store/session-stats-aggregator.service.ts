@@ -140,6 +140,8 @@ export class SessionStatsAggregatorService {
     }
     for (const t of targetTabs) {
       this.compactionLifecycle.clearCompactionState(t.id);
+      // The live stage was an estimate for this turn; the result ends it.
+      this.tabManager.setLiveBudgetStage(t.id, stats.sessionId, null);
     }
     if (targetTabs.length === 0) {
       // A workflow surface — New Project / harness builder / a wizard analysis
@@ -204,7 +206,9 @@ export class SessionStatsAggregatorService {
    * Every bound tab, in any workspace, installs through `installSessionStats`
    * with the event's context, which admits the snapshot
    * and applies the context reading in one update, so a snapshot the revision
-   * floor rejects carries no context with it. A session with no tab records
+   * floor rejects carries no context with it. The display-only
+   * `liveBudgetStage` follows the same admission (TASK_2026_627 D25); the
+   * turn's result clears it in {@link handleSessionStats}. A session with no tab records
    * only the snapshot on its surface (`live: null` keeps the stored reading);
    * an unknown session is dropped without a warning, because live events for
    * a session being torn down are expected.
@@ -226,15 +230,21 @@ export class SessionStatsAggregatorService {
       this.surfaceStats.record(event.sessionId, { live: null, snapshot });
       return;
     }
+    const liveStage = event.liveBudgetStage;
     for (const t of targetTabs) {
       // `undefined` budget keeps each tab's last budget; each tab runs its own
       // admission, and the context is applied only for a provisional snapshot.
-      this.tabManager.installSessionStats(
+      const accepted = this.tabManager.installSessionStats(
         t.id,
         snapshot,
         undefined,
         event.context,
       );
+      // D25: an absent stage keeps the shown one; `null` clears it; a value
+      // sets it. Only a payload the revision floor accepted may change it.
+      if (accepted && liveStage !== undefined) {
+        this.tabManager.setLiveBudgetStage(t.id, event.sessionId, liveStage);
+      }
     }
   }
 
