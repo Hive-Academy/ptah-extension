@@ -131,6 +131,13 @@ export const MESSAGE_TYPES = {
   CHAT_ERROR: 'chat:error',
   SESSION_ID_RESOLVED: 'session:id-resolved',
   SESSION_STATS: 'session:stats',
+  /**
+   * Backend → Frontend: throttled, PROVISIONAL in-turn session stats
+   * (`SessionStatsLivePayload`). An estimate the next `session:stats` snapshot
+   * (higher revision) replaces. Never a completion signal: it does not end a
+   * turn, release a queued send or update the per-message footer.
+   */
+  SESSION_STATS_LIVE: 'session:stats-live',
   /** Push notification: session metadata changed (created/updated/deleted/forked). */
   SESSION_METADATA_CHANGED: 'session:metadataChanged',
   /** Backend → Frontend: SDK PostCompact hook fired (edge-triggered stamp). */

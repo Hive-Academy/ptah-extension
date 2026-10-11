@@ -89,6 +89,35 @@ export interface ResultStatsPayload {
 
 export type ResultStatsCallback = (stats: ResultStatsPayload) => void;
 
+/**
+ * One in-turn update, as published on `session:stats-live`.
+ *
+ * Throttled and provisional: never a completion signal, never a footer
+ * update. The next `session:stats` snapshot (higher revision) replaces it.
+ */
+export interface SessionStatsLivePayload {
+  readonly sessionId: SessionId;
+  /**
+   * Owner snapshot: `provisional: true` while it includes an estimate;
+   * no `provisional` field for an authoritative snapshot (agent-count
+   * update with no estimate, or the settle at a boundary).
+   */
+  readonly sessionStats: SessionStatsEntry;
+  /**
+   * Main-loop latest request size, when the stream tracked one. Present
+   * ONLY when `sessionStats.provisional === true`; an authoritative
+   * snapshot (settle, release-settle, agent-count update) never carries
+   * it, so it cannot replace the context the result path derived from
+   * `modelUsage`.
+   */
+  readonly context?: {
+    readonly model: string;
+    readonly contextTokens: number;
+  };
+}
+
+export type LiveStatsCallback = (payload: SessionStatsLivePayload) => void;
+
 export type CompactionStartCallback = (data: {
   sessionId: string;
   trigger: 'manual' | 'auto';
