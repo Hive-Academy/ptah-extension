@@ -1,6 +1,6 @@
 # Batches - TASK_2026_627
 
-Total tasks: 20 | Batches: 9 (Batch 0 to Batch 8) | Complete: 2/9
+Total tasks: 20 | Batches: 9 (Batch 0 to Batch 8) | Complete: 3/9
 
 Worktree: `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff` (branch
 `fix/session-budget-handoff`). Every executor works only there, never in the main checkout
@@ -212,7 +212,7 @@ Edge cases:
   then `npx nx typecheck @ptah-extension/agent-sdk --parallel=1` (one at a time, output tailed).
 - No per-batch review.
 
-## Batch 2: Subagent monitor learns task ids from `task_started` and hands off via the queue — IN_PROGRESS
+## Batch 2: Subagent monitor learns task ids from `task_started` and hands off via the queue — COMPLETE (221537118)
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer, fresh session
@@ -221,7 +221,7 @@ Edge cases:
 - Tasks: 3 | Depends on: Batch 1
 - Phase: 1 (Backend gates) | Phase review: after Batch 5
 
-### Task 2.1: `SubagentBudgetMonitor.recordTaskStarted` and task-id lookup in `stop()` — IN_PROGRESS
+### Task 2.1: `SubagentBudgetMonitor.recordTaskStarted` and task-id lookup in `stop()` — COMPLETE
 
 - Files: MODIFY `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff\libs\backend\agent-sdk\src\lib\helpers\compaction\subagent-budget-monitor.ts`
   and `…\subagent-budget-monitor.spec.ts`
@@ -235,7 +235,7 @@ Edge cases:
 - Validation notes: R5 regression — no registry record + recorded task id → stop and handoff posted.
 - Implementation details: spec cases listed in plan :251-254.
 
-### Task 2.2: Feed `task_started` to the monitor from `SessionQueryExecutor` — IN_PROGRESS
+### Task 2.2: Feed `task_started` to the monitor from `SessionQueryExecutor` — COMPLETE
 
 - Depends on: Task 2.1
 - Files: MODIFY `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff\libs\backend\agent-sdk\src\lib\helpers\session-lifecycle\session-query-executor.service.ts`
@@ -247,7 +247,7 @@ Edge cases:
   existing monitor feed (a throw becomes one WARN).
 - Validation notes: non-agent task types go through; the monitor ignores unknown ids.
 
-### Task 2.3: Re-bind the monitor's `pushParentMessage` to `MainThreadNoticeQueue` — IN_PROGRESS
+### Task 2.3: Re-bind the monitor's `pushParentMessage` to `MainThreadNoticeQueue` — COMPLETE
 
 - Depends on: Batch 1
 - File: MODIFY `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff\libs\backend\agent-sdk\src\lib\di\register.ts`
@@ -256,12 +256,25 @@ Edge cases:
 - Quality requirements: only the monitor's closure changes; the dispatcher's `pushParentMessage` stays
   (RPC steering uses its sibling). The monitor's port type is unchanged.
 
+### Batch 2 result
+
+- Verified on disk by the team-leader: `recordTaskStarted` stores `toolUseId -> { taskId, subagentType }`
+  on the alias-aware session state (merged on rekey, released with the session); `stop()` uses the
+  recorded id first, then the registry; `registry.update` runs only with a record; the executor
+  routes `task_started` with a `tool_use_id` through a guarded `recordTaskStarted`; the monitor's
+  `pushParentMessage` posts to `MainThreadNoticeQueue`, `stopSubagent` still uses the dispatcher.
+- Jest on both specs: 2 suites, 93 tests passed. Typecheck `@ptah-extension/agent-sdk` passed. Lint:
+  0 errors, 52 warnings; the 2 in `session-query-executor.service.spec.ts` (`:436`, `:662`) exist
+  before this batch too.
+- Accepted: recorded `task_started` entries live until session release (bounded by the number of
+  tasks started in the session).
+
 ### Batch 2 verification
 
 - `npx jest -c libs/backend/agent-sdk/jest.config.ts <subagent-budget-monitor.spec.ts> <session-query-executor.service.spec.ts> --coverage=false --maxWorkers=2`,
   then `npx nx typecheck @ptah-extension/agent-sdk --parallel=1`.
 
-## Batch 3: Agent handoff kept in full; budget remembers the workspace — PENDING
+## Batch 3: Agent handoff kept in full; budget remembers the workspace — IN_PROGRESS
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer, fresh session
@@ -271,7 +284,7 @@ Edge cases:
 - Tasks: 2 | Depends on: none
 - Phase: 1 (Backend gates) | Phase review: after Batch 5
 
-### Task 3.1: Handoff builder puts the agent handoff first, in the file and the seed (R8) — PENDING
+### Task 3.1: Handoff builder puts the agent handoff first, in the file and the seed (R8) — IN_PROGRESS
 
 - Files: MODIFY `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff\libs\backend\agent-sdk\src\lib\helpers\session-budget\session-handoff-builder.ts`
   and `…\session-handoff-builder.spec.ts`
@@ -283,7 +296,7 @@ Edge cases:
 - Validation notes: regression for R8 — full deterministic document plus a 5,000-char agent handoff
   keeps all 5,000 chars in seed and content; 7,000 chars → truncated with the marker.
 
-### Task 3.2: `SessionBudgetService` caches the session workspace for `buildHandoff` (R7 preview) — PENDING
+### Task 3.2: `SessionBudgetService` caches the session workspace for `buildHandoff` (R7 preview) — IN_PROGRESS
 
 - Files: MODIFY `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff\libs\backend\agent-sdk\src\lib\helpers\session-budget\session-budget.service.ts`
   and `…\session-budget.service.spec.ts`
