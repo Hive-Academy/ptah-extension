@@ -196,7 +196,8 @@ export class AgentLaneGridComponent {
     this.focusId.set(id);
   }
 
-  remove(id: string): void {
+  // Arrow property: the template hands `remove` to the detail outlet unbound.
+  readonly remove = (id: string): void => {
     this.userPicked = true;
     this.dismissed.add(id);
     const index = this.shownIds().indexOf(id);
@@ -211,7 +212,7 @@ export class AgentLaneGridComponent {
     this.focusId.set(
       this.shownIds()[Math.min(index, this.shownIds().length - 1)] ?? null,
     );
-  }
+  };
 
   resize(index: number, size: number): void {
     this.fractions.update((weights) =>

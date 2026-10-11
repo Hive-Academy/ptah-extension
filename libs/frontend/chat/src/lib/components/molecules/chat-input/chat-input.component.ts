@@ -1114,7 +1114,7 @@ export class ChatInputComponent implements OnInit, OnDestroy {
    * Does NOT overwrite _currentQuery — handleQueryChanged already has the latest value.
    */
   handleSlashTriggered(): void {
-    console.log('ChatInputComponent.handleSlashTriggered called');
+    // Intentionally empty: handleQueryChanged already holds the latest query.
   }
 
   /**
