@@ -1,6 +1,6 @@
 # Batches - TASK_2026_623_3492
 
-Total tasks: 82 | Batches: 39 (incl. fix batches 6F, 12F, 15F, 21F, 28F, post-cap correction 12F2) | Complete: 34/39
+Total tasks: 82 | Batches: 39 (incl. fix batches 6F, 12F, 15F, 21F, 28F, post-cap correction 12F2) | Complete: 35/39
 
 Worktree root `W` = `D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel` (branch
 `feat/task-623-display-panel`, base `70f995a56`). Every path below is absolute.
@@ -2008,7 +2008,7 @@ Run ONE AT A TIME (memory-safe rules, CLAUDE.md), from the worktree root, in bas
 - Team-leader commits 28F (8 files plus `batches.md`), then the orchestrator runs the scoped Codex code-logic
   re-review on that commit. Phase 6 ACCEPTED when it approves.
 
-## Batch 29: A1 prompt hint and no-write-back fixtures — IN_PROGRESS
+## Batch 29: A1 prompt hint and no-write-back fixtures — COMPLETE (commit "batch 29", SHA recorded at the next transition; deviations ruled in decisions #136-#139, #136 GAP)
 
 - Recommended executor: backend-developer
 - Fallback executor: general-purpose subagent
@@ -2017,7 +2017,7 @@ Run ONE AT A TIME (memory-safe rules, CLAUDE.md), from the worktree root, in bas
 - Tasks: 2 | Depends on: Batches 6, 7, 19
 - Phase: 7 Hint, skill, measurement, eager gate | Phase review: code-logic (after Batch 32)
 
-### Task 29.1: `PTAH_UI_HINT` — IN_PROGRESS
+### Task 29.1: `PTAH_UI_HINT` — COMPLETE
 
 - Files:
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\backend\agent-sdk\src\lib\prompt-harness\ptah-ui-hint.ts
@@ -2026,7 +2026,7 @@ Run ONE AT A TIME (memory-safe rules, CLAUDE.md), from the worktree root, in bas
 - Quality requirements: R8.1 ≤ 100 tokens; names `display [id]`, the id-update rule, `$diff $tests $usage $agents
   $limits`, points to the skill; examples parse; no `/note/i`; if over budget drop `$limits` and record both counts.
 
-### Task 29.2: host-data sentinel specs — IN_PROGRESS
+### Task 29.2: host-data sentinel specs — COMPLETE
 
 - Files:
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\backend\agent-sdk\src\lib\helpers\sdk-query-options-builder.host-data.spec.ts
@@ -2042,7 +2042,7 @@ Run ONE AT A TIME (memory-safe rules, CLAUDE.md), from the worktree root, in bas
   --parallel=1 2>&1 | tail -n 20` after the command below.
 - `npx jest -c libs/backend/agent-sdk/jest.config.ts libs/backend/agent-sdk/src/lib/prompt-harness/ptah-ui-hint.spec.ts libs/backend/agent-sdk/src/lib/helpers/sdk-query-options-builder.host-data.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -n 40 && npx jest -c libs/frontend/chat/jest.config.ts libs/frontend/chat/src/lib/services/message-sender.host-data.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -n 40 && npx nx lint @ptah-extension/agent-sdk --parallel=1 2>&1 | tail -n 20`
 
-## Batch 30: DOC1 `ptah-surface-authoring` skill text — PENDING
+## Batch 30: DOC1 `ptah-surface-authoring` skill text — IN_PROGRESS
 
 - Recommended executor: technical-content-writer
 - Fallback executor: backend-developer
@@ -2051,7 +2051,7 @@ Run ONE AT A TIME (memory-safe rules, CLAUDE.md), from the worktree root, in bas
 - Tasks: 2 | Depends on: Batches 6, 29
 - Phase: 7 | Phase review: after Batch 32
 
-### Task 30.1: asset skill copy — PENDING
+### Task 30.1: asset skill copy — IN_PROGRESS
 
 - Files:
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\apps\ptah-extension-vscode\assets\plugins\ptah-core\skills\ptah-surface-authoring\SKILL.md
@@ -2059,10 +2059,11 @@ Run ONE AT A TIME (memory-safe rules, CLAUDE.md), from the worktree root, in bas
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\apps\ptah-extension-vscode\assets\plugins\ptah-core\skills\ptah-surface-authoring\references\catalog.md
 - Plan reference: implementation-plan.md:1146-1192
 - Quality requirements: R3 EBNF and lexical delta; display and id rules; `$agents` (context, unavailable/no-percent,
+- Gate note (decision #136, GAP): the hint has no example fence (87/100 tokens), so the skill must carry every worked example; do not add examples to the hint.
   `session`, CLI context unavailable today); `$limits`; the three worked examples; "Common mistakes" for `session` and
   indentation; `/4` kinds in catalog.md.
 
-### Task 30.2: `.claude/skills` mirror — PENDING
+### Task 30.2: `.claude/skills` mirror — IN_PROGRESS
 
 - Files:
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\.claude\skills\ptah-surface-authoring\SKILL.md
