@@ -1,6 +1,6 @@
 # Batches - TASK_2026_623_3492
 
-Total tasks: 78 | Batches: 38 (incl. fix batches 6F, 12F, 15F, 21F, post-cap correction 12F2) | Complete: 28/38
+Total tasks: 78 | Batches: 38 (incl. fix batches 6F, 12F, 15F, 21F, post-cap correction 12F2) | Complete: 30/38
 
 Worktree root `W` = `D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel` (branch
 `feat/task-623-display-panel`, base `70f995a56`). Every path below is absolute.
@@ -1514,7 +1514,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 - Deviations ruled in decisions #98-#103: 3, 5, 6, 7, 8 accepted; 1, 2, 4 accepted as GAP RULINGS (Codex peer
   review). Follow-ons below in Tasks 24.1, 25.1 and 25.2.
 
-## Batch 24: H3 transcript wiring and tests-row removal — IN_PROGRESS
+## Batch 24: H3 transcript wiring and tests-row removal — COMPLETE (commit 1d85c1dfa)
 
 - Recommended executor: frontend-developer
 - Fallback executor: general-purpose subagent
@@ -1526,7 +1526,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
   and per-tab (no await between `hasSeen` -> open -> `markSeen`); `setSurfaces` applies `retainedViewStateIds`; each
   sync mounts under its own transcript's `PTAH_UI_HOST_SOURCES` provider. Omitting any is a Serious defect.
 
-### Task 24.1: transcript publishes candidates/summary inputs, mounts sync and chip — IMPLEMENTED
+### Task 24.1: transcript publishes candidates/summary inputs, mounts sync and chip — COMPLETE
 
 - Files:
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat\src\lib\components\organisms\transcript\chat-transcript.component.ts
@@ -1583,7 +1583,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
     cached outside `DisplayDockState`'s tab-keyed state. The display spec adds: rejection-then-retry publishes on the
     next eligible update; two transcripts (one destroyed and remounted) never publish each other's or stale summaries.
 
-### Task 24.2: delete the tests row — IMPLEMENTED
+### Task 24.2: delete the tests row — COMPLETE
 
 - Depends on: Task 24.1 and Task 19.1 (cases already ported)
 - Files:
@@ -1595,8 +1595,16 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 ### Batch 24 verification
 
 - `npx jest -c libs/frontend/chat/jest.config.ts libs/frontend/chat/src/lib/components/organisms/transcript/chat-transcript.display.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -n 40 && npx nx typecheck @ptah-extension/chat-ui --parallel=1 2>&1 | tail -n 20 && npx nx typecheck @ptah-extension/chat --parallel=1 2>&1 | tail -n 20 && npx nx lint @ptah-extension/chat --parallel=1 2>&1 | tail -n 20`
+- Result (team-leader, before commit 1d85c1dfa): display + change-set specs 2 suites / 16 passed; typecheck chat-ui and
+  chat passed; lint chat 0 errors / 34 warnings (baseline); lint chat-ui 0 errors / 10 warnings; no
+  `TurnTestsRowComponent` / `ptah-turn-tests-row` reference left. #81 and #94 hard checks verified on disk.
+  Deviations ruled in decisions.md #105 (GAP, Codex peer), #106, #107, #108.
+- Follow-ons for Batch 25 (decision #108): add nothing inline to `chat-transcript.component.ts` (at the 700-line
+  ceiling); provide `DisplayDockState` only where the dock mounts, so the live-turn effect stays inert in VS Code.
+  Batch 32: the new eager transcript files (`transcript-display-feed.ts`, `transcript-turn-summaries.ts`,
+  `transcript-turn-recap-loader.ts`) are eager growth the allow-list must name (decision #107).
 
-## Batch 25: H4 dock component and ChatView integration — PENDING
+## Batch 25: H4 dock component and ChatView integration — COMPLETE (Phase 5 implementation complete; code-logic review on Batches 22-25 pending)
 
 - Recommended executor: frontend-developer
 - Fallback executor: general-purpose subagent
@@ -1609,7 +1617,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
   sync mounts under its own transcript's `PTAH_UI_HOST_SOURCES` provider. Omitting any is a Serious defect. The
   Phase 5 code-logic review checks all three.
 
-### Task 25.1: display dock component (Displays and Agents tabpanels) — PENDING
+### Task 25.1: display dock component (Displays and Agents tabpanels) — COMPLETE
 
 - Files (CREATE):
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat\src\lib\components\organisms\display-dock\display-dock.component.ts
@@ -1632,7 +1640,7 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
     `dock.summaryFor(tabId)?.changeSet`, and a `null` change set sets `actionError` instead of calling the service.
   - No `setCandidates` exists (deviation 5); surface counts come from `tab(tabId).surfaces`.
 
-### Task 25.2: ChatView mounts the dock; monitor panel becomes the Agents tabpanel — PENDING
+### Task 25.2: ChatView mounts the dock; monitor panel becomes the Agents tabpanel — COMPLETE
 
 - Files:
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\frontend\chat\src\lib\components\templates\chat-view.component.ts
@@ -1665,6 +1673,31 @@ at a time, output filtered with `| tail -n 40`, no build/serve/dev/e2e/package e
 
 - `npx jest -c libs/frontend/chat/jest.config.ts libs/frontend/chat/src/lib/components/organisms/display-dock libs/frontend/chat/src/lib/components/templates/chat-view.dock.spec.ts libs/frontend/chat/src/lib/components/templates/chat-view.component.spec.ts libs/frontend/chat/src/lib/components/templates/chat-view.keepalive.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -n 40 && npx jest -c libs/frontend/chat/jest.config.ts execution-node.ptah-ui.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -n 20 && npx nx typecheck @ptah-extension/chat --parallel=1 2>&1 | tail -n 20 && npx nx lint @ptah-extension/chat --parallel=1 2>&1 | tail -n 20`
 - Phase 5 code-logic review due after commit
+- Result (team-leader, first verification, not committed): all scoped checks pass (Jest dock + chat-view +
+  keepalive + agent-monitor-panel: 6 suites / 143 passed; execution-node ptah-ui: 27 passed; typecheck chat passed;
+  lint chat 0 errors / 34 warnings, baseline). #81 and #94 hard checks pass on disk (store and transcript files
+  unchanged; `hasSeen`/`markSeen` synchronous per tab; `setSurfaces` applies `retainedViewStateIds`; per-transcript
+  `PTAH_UI_HOST_SOURCES` provider; no `.messages` read in added code). NOT ACCEPTED on deviation 2 (decision #109,
+  GAP, Serious parity regression): a failed dock chunk leaves Electron with no agent monitor. Deviations 1, 3, 5
+  accepted (#110, #112); deviation 4 accepted as GAP (#111); later items #113.
+- Fix required in Task 25.2 (decision #109), files `chat-view.component.html` and `chat-view.dock.spec.ts` only: the
+  dock `@error` block keeps the one-line `role="alert"` "Display panel failed to load" and, while `panelOpen()`,
+  renders the eager `ptah-agent-monitor-panel` with the VS Code branch bindings (`[embeddedAgents]="sessionAgents()"`,
+  `[embeddedOpen]="panelOpen()"`, `[sessionId]="resolvedSessionId()"`, `[isOverlay]="isOverlay()"`,
+  `(closed)="closeAgentPanel()"`, not `docked`). Spec: render the dock defer block in `DeferBlockState.Error`
+  (`DeferBlockBehavior.Manual`) with a running agent; assert the alert, exactly one `ptah-agent-monitor-panel`, no
+  `ptah-display-dock`, and that the toggle closes it. Re-run the Batch 25 verification commands plus the
+  agent-monitor-panel spec.
+- Result (team-leader, final verification before commit, after fix rounds #109 and #114): Jest 9 suites / 168 passed
+  (display-dock, chat-view dock/component/keepalive/memo, agent-monitor-panel + scope, chat-transcript display +
+  change-set; command-line `^vscode$`/`^marked$` mapper); execution-node ptah-ui 1 suite / 27 passed; `nx typecheck
+  @ptah-extension/chat` succeeded (uncached); `nx lint @ptah-extension/chat` 0 errors / 34 warnings (baseline). #109
+  fallback on disk: dock `@error` keeps the `role="alert"` line and, while `panelOpen()`, the eager non-docked
+  `ptah-agent-monitor-panel` with the VS Code bindings. #81: store and transcript production files unchanged since
+  1d85c1dfa (`git diff` empty), ChatView provides only the store and the two `useExisting` ports, never
+  `PTAH_UI_HOST_SOURCES`. #94: no `.messages` read in added code. #100: `_userExplicitlyClosed` and `agentPanelOpen`
+  gone from ChatView. #114(a) spec changes present (exact publication log; shared pending-load case). Eager-closure
+  gate: Batch 32 (#107, #113(b)), not this batch. Next: Phase 5 code-logic review on `b57910d88..HEAD`.
 
 ## Batch 26: P1 tool-language util, copy button, code output — PENDING
 

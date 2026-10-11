@@ -213,14 +213,16 @@ function subagentToTile(r: SubagentRecord): WorkflowTileVM {
     <aside
       class="surface-1 flex flex-col min-w-0 overflow-hidden h-full"
       [class.bg-base-200]="!isOverlay()"
-      [class.border-l]="!isOverlay()"
-      [class.agent-panel-open]="effectiveOpen() && !isOverlay()"
-      [class.w-full]="effectiveOpen() && isOverlay()"
+      [class.border-l]="!isOverlay() && !docked()"
+      [class.agent-panel-open]="effectiveOpen() && !isOverlay() && !docked()"
+      [class.w-full]="(effectiveOpen() && isOverlay()) || docked()"
       [class.w-0]="!effectiveOpen()"
-      [class.transition-all]="!resizeService.dragging()"
-      [class.duration-300]="!resizeService.dragging()"
+      [class.transition-all]="!resizeService.dragging() && !docked()"
+      [class.duration-300]="!resizeService.dragging() && !docked()"
       [style.width.px]="
-        effectiveOpen() && !isOverlay() ? resizeService.customWidth() : null
+        effectiveOpen() && !isOverlay() && !docked()
+          ? resizeService.customWidth()
+          : null
       "
     >
       <!-- Header -->
@@ -267,18 +269,21 @@ function subagentToTile(r: SubagentRecord): WorkflowTileVM {
               />
             </button>
           }
-          <button
-            #closeButton
-            class="btn btn-ghost btn-xs btn-square"
-            title="Close panel"
-            (click)="onClose()"
-          >
-            <lucide-angular
-              [img]="XIcon"
-              class="w-3.5 h-3.5"
-              aria-hidden="true"
-            />
-          </button>
+          <!-- Docked: the dock header owns close. -->
+          @if (!docked()) {
+            <button
+              #closeButton
+              class="btn btn-ghost btn-xs btn-square"
+              title="Close panel"
+              (click)="onClose()"
+            >
+              <lucide-angular
+                [img]="XIcon"
+                class="w-3.5 h-3.5"
+                aria-hidden="true"
+              />
+            </button>
+          }
         </div>
       </div>
 
@@ -607,7 +612,9 @@ function subagentToTile(r: SubagentRecord): WorkflowTileVM {
                 <div
                   class="flex flex-col items-center justify-center h-32 text-center"
                 >
-                  <span class="text-sm text-base-content-muted">No agents</span>
+                  <span class="text-sm text-base-content-muted">{{
+                    docked() ? 'No agents in this session' : 'No agents'
+                  }}</span>
                   <span class="text-xs text-base-content-muted mt-1"
                     >Agents will appear here when spawned</span
                   >
@@ -646,6 +653,13 @@ export class AgentMonitorPanelComponent {
 
   /** Whether the panel is rendering as a full-width overlay (narrow host). */
   readonly isOverlay = input<boolean>(false);
+
+  /**
+   * Inside the Display dock's Agents tabpanel (TASK_2026_623, R1.13): the
+   * panel fills its parent, hides its own close button (the dock owns close)
+   * and its empty state reads "No agents in this session".
+   */
+  readonly docked = input(false);
 
   /**
    * Owning session of this panel. `null` means the GLOBAL panel (no scope, act

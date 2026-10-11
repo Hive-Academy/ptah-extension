@@ -574,11 +574,50 @@ describe('ChatTranscriptComponent display wiring (TASK_2026_623 Task 24.1)', () 
       const published = setSummaries.mock.calls.map(
         ([tabId, summaries]) => `${tabId}:${[...summaries.keys()].join(',')}`,
       );
-      expect(published).toEqual(
-        expect.arrayContaining(['tab-1:u9', 'tab-2:t2-u1']),
-      );
-      expect(published.every((entry) => !entry.includes(':u1'))).toBe(true);
+      // Exactly the two allowed publications, in mount order: no transient
+      // stale (`u1`) or cross-tab write before, between or after them.
+      expect(published).toEqual(['tab-1:u9', 'tab-2:t2-u1']);
       expect([...dock.tab(TAB).summaries.keys()]).toEqual(['u9']);
+      expect([...dock.tab('tab-2').summaries.keys()]).toEqual(['t2-u1']);
+    });
+
+    it('two transcripts share one pending load of the root loader and each publishes only its own tab', async () => {
+      const load = deferred<TranscriptTurnRecap>();
+      const underlying = jest.fn(() => load.promise);
+      const shared = jest.fn(cachedTurnRecapLoader(underlying));
+      configure({
+        tabs: signal([
+          tab(TAB, SUMMARY_MESSAGES),
+          tab('tab-2', [
+            makeTranscriptMessage('t2-u1', 'user', 100),
+            assistant('t2-a1', 120, [bashNode('t2-jest', 'npx jest libs/y')]),
+          ]),
+        ]),
+        changeSets: signal([TURN_1_CHANGE_SET]),
+        loader: shared,
+      });
+      const dock = TestBed.inject(DisplayDockState);
+      const setSummaries = jest.spyOn(dock, 'setSummaries');
+
+      const first = mount(TAB);
+      const second = mount('tab-2');
+      await settle(first, second);
+
+      // Both transcripts asked the one root loader; only one load started.
+      expect(TestBed.inject(TRANSCRIPT_TURN_RECAP_LOADER)).toBe(shared);
+      expect(shared).toHaveBeenCalledTimes(2);
+      expect(underlying).toHaveBeenCalledTimes(1);
+      expect(setSummaries).not.toHaveBeenCalled();
+
+      load.resolve(RECAP);
+      await settle(first, second);
+
+      expect(underlying).toHaveBeenCalledTimes(1);
+      const published = setSummaries.mock.calls.map(
+        ([tabId, summaries]) => `${tabId}:${[...summaries.keys()].join(',')}`,
+      );
+      expect(published).toEqual(['tab-1:u1', 'tab-2:t2-u1']);
+      expect([...dock.tab(TAB).summaries.keys()]).toEqual(['u1']);
       expect([...dock.tab('tab-2').summaries.keys()]).toEqual(['t2-u1']);
     });
 

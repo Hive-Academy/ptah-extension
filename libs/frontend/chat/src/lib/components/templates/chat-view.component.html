@@ -260,13 +260,84 @@
     }
   </div>
 
-  @if (!hideAgentSidebar) {
+  @if (dockEnabled) {
+    <!-- Electron: one right-side dock with Displays | Agents tabs (R1.3). The
+         toggle hides while the dock is an overlay, as the monitor's did. -->
+    @if (!isOverlay() || !panelOpen()) {
+      <ptah-sidebar-tab
+        label="Display"
+        side="right"
+        [isOpen]="panelOpen()"
+        [badgeType]="agentBadgeType()"
+        [newCount]="panelTab().newCount"
+        size="sm"
+        (toggled)="toggleAgentPanel()"
+      />
+    }
+
+    <!-- Separator on the dock's left edge: pointer, arrows, Home/End, Enter
+         or double-click reset (R1.5, design-spec section 8 assertions 10-11). -->
+    @if (panelOpen() && !isOverlay()) {
+      <div
+        class="flex items-center justify-center cursor-col-resize px-1 flex-shrink-0 z-10 group touch-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-base-content"
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize display panel"
+        tabindex="0"
+        [attr.aria-valuenow]="dockWidth()"
+        [attr.aria-valuemin]="dockMinWidth()"
+        [attr.aria-valuemax]="dockMaxWidth()"
+        [attr.aria-valuetext]="'Panel width ' + dockWidth() + ' pixels'"
+        title="Drag to resize · double-click to reset"
+        data-testid="display-dock-separator"
+        (pointerdown)="onResizeStart($event)"
+        (dblclick)="onResizeReset()"
+        (keydown)="onDockSeparatorKeydown($event)"
+      >
+        <div
+          class="w-0.5 h-9 rounded-full bg-base-content/20 group-hover:h-14 group-hover:bg-primary/60 group-focus-visible:h-14 group-focus-visible:bg-primary group-active:bg-primary transition-colors"
+        ></div>
+      </div>
+    }
+
+    @defer (when panelOpen()) {
+      <ptah-display-dock
+        [tabId]="panelKey()"
+        [isOverlay]="isOverlay()"
+        [widthPx]="dockWidth()"
+        [agents]="sessionAgents()"
+        [sessionId]="resolvedSessionId()"
+        [focusRequest]="dockFocusRequest()"
+        (closed)="closeAgentPanel()"
+      />
+    } @error {
+      <!-- The dock chunk failed: say so, and keep the Agents capability by
+           falling back to the eager monitor the dock replaced (decision #109).
+           The dock never renders in this branch, so there is one monitor. -->
+      @if (panelOpen()) {
+        <p
+          class="flex-shrink-0 self-start px-3 py-2 text-xs text-error"
+          role="alert"
+          data-testid="display-dock-load-failed"
+        >
+          Display panel failed to load
+        </p>
+        <ptah-agent-monitor-panel
+          [embeddedAgents]="sessionAgents()"
+          [embeddedOpen]="panelOpen()"
+          [sessionId]="resolvedSessionId()"
+          [isOverlay]="isOverlay()"
+          (closed)="closeAgentPanel()"
+        />
+      }
+    }
+  } @else if (!hideAgentSidebar) {
     <!-- Agents vertical toggle tab (per-session). In overlay mode, hide when open to give chat 100% width. -->
-    @if (!isOverlay() || !agentPanelOpen()) {
+    @if (!isOverlay() || !panelOpen()) {
       <ptah-sidebar-tab
         label="Agents"
         side="right"
-        [isOpen]="agentPanelOpen()"
+        [isOpen]="panelOpen()"
         [badgeType]="agentBadgeType()"
         size="sm"
         (toggled)="toggleAgentPanel()"
@@ -274,7 +345,7 @@
     }
 
     <!-- Resize handle between chat and agent panel (hidden in overlay mode) -->
-    @if (agentPanelOpen() && !isOverlay()) {
+    @if (panelOpen() && !isOverlay()) {
       <div
         class="flex items-center justify-center cursor-col-resize px-1 flex-shrink-0 z-10 group touch-none"
         role="separator"
@@ -292,7 +363,7 @@
     <!-- Agent monitor panel (session-scoped) -->
     <ptah-agent-monitor-panel
       [embeddedAgents]="sessionAgents()"
-      [embeddedOpen]="agentPanelOpen()"
+      [embeddedOpen]="panelOpen()"
       [sessionId]="resolvedSessionId()"
       [isOverlay]="isOverlay()"
       (closed)="closeAgentPanel()"
