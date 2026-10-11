@@ -499,6 +499,8 @@ export class SessionLifecycleManager {
           )
         );
       },
+      subagentsInFlight: (sourceSessionId) =>
+        this.subagentsInFlight(sourceSessionId),
     });
     this._registry.startEvictionSweep();
     this.watchCompactionThreshold();
@@ -521,6 +523,47 @@ export class SessionLifecycleManager {
       );
     }
     this._registry.markTurnEnded(sessionId as string);
+  }
+
+  /**
+   * Arm a handover for an idle source whose budget stage moved after its
+   * turn already ended. Same arguments as `onTurnTerminal`, but the turn
+   * state is left alone. A no-op mid-turn: that turn's terminal arms instead.
+   */
+  armHandoverIfIdle(sessionId: SessionId): void {
+    const rec = this._registry.find(sessionId as string);
+    if (!rec || rec.turnInFlight || !this.handoverCoordinator) return;
+    const budgetSessionId = rec.realSessionId ?? (sessionId as string);
+    this.handoverCoordinator.armAtTerminal(
+      this.handoverKey(sessionId),
+      this.isAtBlockingLimit(sessionId),
+      rec.messageQueue,
+      this.sessionBudget?.stageFor(budgetSessionId) === 'handoff',
+    );
+  }
+
+  /**
+   * Running and background subagents of a source, looked up under both its
+   * SDK id and its tab id (records may carry either) and counted once each.
+   */
+  private subagentsInFlight(sourceSessionId: string): number {
+    const rec = this._registry.find(sourceSessionId);
+    const parentIds = new Set(
+      [sourceSessionId, rec?.realSessionId, rec?.tabId].filter(
+        (id): id is string => !!id,
+      ),
+    );
+    const toolCallIds = new Set<string>();
+    for (const parentId of parentIds) {
+      for (const record of this.subagentRegistry.getRunningBySession(parentId)) {
+        toolCallIds.add(record.toolCallId);
+      }
+      // Only live (`background`, unexpired) records are returned here.
+      for (const record of this.subagentRegistry.getBackgroundAgents(parentId)) {
+        toolCallIds.add(record.toolCallId);
+      }
+    }
+    return toolCallIds.size;
   }
 
   /** Read the current refusal before an interrupt releases the source turn. */

@@ -316,7 +316,7 @@ export interface SessionBudgetActionResult {
     readonly path: string | null;
     /**
      * The backend-built first prompt for "Continue in new session" (at most
-     * 8,200 characters). The webview sends it as-is and never assembles it.
+     * 14,200 characters). The webview sends it as-is and never assembles it.
      */
     readonly seed: string;
   };

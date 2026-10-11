@@ -1,6 +1,7 @@
 import 'reflect-metadata';
 
 import type { SessionHandoverState } from '@ptah-extension/shared';
+import type { Logger } from '@ptah-extension/vscode-core';
 
 import { SessionHandoffBuilder } from '../session-budget/session-handoff-builder';
 import { SessionHandoffWriter } from '../session-budget/session-handoff-writer';
@@ -42,6 +43,8 @@ interface Harness {
   readonly build: jest.Mock;
   readonly write: jest.Mock;
   readonly history: jest.Mock;
+  readonly logger: { readonly info: jest.Mock; readonly warn: jest.Mock };
+  readonly subagents: jest.Mock;
 }
 
 function makeHarness(
@@ -55,14 +58,17 @@ function makeHarness(
     startSuccessorSession: jest.fn().mockResolvedValue({ started: true }),
     deliverTransferInputs: jest.fn().mockResolvedValue({ delivered: true }),
   }) as jest.Mocked<SessionSuccessorHost>;
+  const subagents = jest.fn().mockReturnValue(0);
   const runtime: jest.Mocked<SessionHandoverRuntime> = {
     sourceSnapshot: jest.fn().mockReturnValue(SOURCE),
     queueOwnedHandoff: jest.fn().mockResolvedValue(undefined),
     restoreInputs: jest.fn().mockReturnValue(true),
     closeIfTokenMatches: jest.fn().mockResolvedValue(options.close ?? true),
     isOwnedHandoffPendingOrRunning: jest.fn().mockReturnValue(false),
+    subagentsInFlight: subagents,
   };
   const history = jest.fn().mockResolvedValue([]);
+  const logger = { info: jest.fn(), warn: jest.fn() };
   const coordinator = new SessionHandoverCoordinator(
     { build } as unknown as SessionHandoffBuilder,
     { write } as unknown as SessionHandoffWriter,
@@ -70,9 +76,10 @@ function makeHarness(
       readHistoryForCuration: history,
     } as unknown as SessionHistoryReaderService,
     () => host,
+    logger as unknown as Logger,
   );
   coordinator.attachRuntime(runtime);
-  return { coordinator, host, runtime, build, write, history };
+  return { coordinator, host, runtime, build, write, history, logger, subagents };
 }
 
 describe('SessionHandoverCoordinator', () => {
@@ -558,5 +565,183 @@ describe('SessionHandoverCoordinator', () => {
       lostInputTexts: ['a'.repeat(2_000)],
     }));
     expect(runtime.restoreInputs).not.toHaveBeenCalled();
+  });
+
+  describe('work-in-flight gate', () => {
+    it('keeps an automatic handover waiting while a subagent runs and starts once it is done', () => {
+      const { coordinator, subagents } = makeHarness();
+      subagents.mockReturnValue(1);
+      const queue: QueuedSessionInput[] = [{ content: 'lane done' }];
+
+      const waiting = coordinator.armAtTerminal('source', false, queue, true);
+
+      expect(subagents).toHaveBeenCalledWith('source');
+      expect(waiting).toEqual(expect.objectContaining({
+        reason: 'budget-auto',
+        phase: 'waiting-for-turn-end',
+        waitingFor: { subagents: 1, lanes: 0 },
+        heldInputCount: 0,
+      }));
+      expect(queue).toEqual([{ content: 'lane done' }]);
+      expect(coordinator.admitOrHold('source', { content: 'user' })).toEqual({ held: false });
+
+      subagents.mockReturnValue(0);
+      const armed = coordinator.armAtTerminal('source', false, [], true);
+
+      expect(armed?.operationId).toBe(waiting?.operationId);
+      expect(armed?.waitingFor).toBeUndefined();
+      expect(coordinator.snapshotFor('source')).toEqual(
+        expect.objectContaining({ phase: 'writing-handoff' }),
+      );
+    });
+
+    it('waits for CLI lanes reported by the lane provider', () => {
+      const { coordinator } = makeHarness();
+      const provider = jest.fn().mockReturnValue(2);
+      coordinator.setLaneWorkProvider(provider);
+
+      expect(coordinator.armAtTerminal('source', false, [], true)).toEqual(
+        expect.objectContaining({
+          phase: 'waiting-for-turn-end',
+          waitingFor: { subagents: 0, lanes: 2 },
+        }),
+      );
+      expect(provider).toHaveBeenCalledWith({ sessionId: 'source', tabId: SOURCE.tabId });
+    });
+
+    it('treats a throwing lane provider as no lanes and warns once', () => {
+      const { coordinator, logger } = makeHarness();
+      coordinator.setLaneWorkProvider(() => {
+        throw new Error('lane registry down');
+      });
+
+      coordinator.armAtTerminal('source', false, [], true);
+
+      expect(coordinator.snapshotFor('source')).toEqual(
+        expect.objectContaining({ phase: 'writing-handoff' }),
+      );
+      expect(logger.warn).toHaveBeenCalledTimes(1);
+    });
+
+    it('stops counting lanes once the provider is disposed', () => {
+      const { coordinator } = makeHarness();
+      const dispose = coordinator.setLaneWorkProvider(() => 3);
+      dispose();
+
+      coordinator.armAtTerminal('source', false, [], true);
+
+      expect(coordinator.snapshotFor('source')).toEqual(
+        expect.objectContaining({ phase: 'writing-handoff' }),
+      );
+    });
+
+    it('does not gate the blocking limit, which the user confirms', () => {
+      const { coordinator, subagents } = makeHarness();
+      subagents.mockReturnValue(2);
+
+      expect(coordinator.armAtTerminal('source', true, [], true)).toEqual(
+        expect.objectContaining({ reason: 'budget-limit', phase: 'awaiting-confirmation' }),
+      );
+    });
+  });
+
+  describe('one-click confirmation', () => {
+    it('starts the handover from awaiting-confirmation on a single begin (R6)', () => {
+      const { coordinator } = makeHarness();
+      const limit = coordinator.armAtTerminal('source', true, [], false);
+      expect(limit?.phase).toBe('awaiting-confirmation');
+
+      expect(coordinator.begin('source', 'successor', false)).toEqual({
+        accepted: true,
+        state: expect.objectContaining({
+          operationId: limit?.operationId,
+          reason: 'budget-limit',
+          phase: 'writing-handoff',
+        }),
+      });
+    });
+
+    it('starts a waiting automatic handover at once when the user confirms while idle', () => {
+      const { coordinator, subagents } = makeHarness();
+      subagents.mockReturnValue(1);
+      const waiting = coordinator.armAtTerminal('source', false, [], true);
+
+      const result = coordinator.begin('source', 'successor', false);
+
+      expect(result).toEqual({
+        accepted: true,
+        state: expect.objectContaining({
+          operationId: waiting?.operationId,
+          phase: 'writing-handoff',
+        }),
+      });
+      expect(result.accepted && result.state.waitingFor).toBeFalsy();
+    });
+
+    it('remembers a mid-turn confirmation and starts at the next terminal despite work in flight', () => {
+      const { coordinator, subagents } = makeHarness();
+      subagents.mockReturnValue(1);
+      coordinator.armAtTerminal('source', false, [], true);
+
+      const result = coordinator.begin('source', 'successor', true);
+      expect(result).toEqual({
+        accepted: true,
+        state: expect.objectContaining({ phase: 'waiting-for-turn-end' }),
+      });
+
+      coordinator.armAtTerminal('source', false, [], true);
+
+      expect(coordinator.snapshotFor('source')).toEqual(
+        expect.objectContaining({ reason: 'budget-auto', phase: 'writing-handoff' }),
+      );
+    });
+  });
+
+  it('refuses begin with source-unavailable and creates nothing when the source is gone (R7)', () => {
+    const { coordinator, runtime } = makeHarness();
+    runtime.sourceSnapshot.mockReturnValue(undefined);
+
+    expect(coordinator.begin('source', 'successor', false)).toEqual({
+      accepted: false,
+      error: 'source-unavailable',
+    });
+    expect(coordinator.snapshotFor('source')).toBeUndefined();
+  });
+
+  it('logs one INFO line for every published state', () => {
+    const { coordinator, logger } = makeHarness();
+    const changes: SessionHandoverState[] = [];
+    coordinator.onStateChange((state) => changes.push(state));
+
+    coordinator.request('source', 'budget-limit', false);
+    coordinator.armAtTerminal('source', true, []);
+
+    expect(changes).toHaveLength(2);
+    expect(logger.info).toHaveBeenCalledTimes(changes.length);
+    expect(logger.info).toHaveBeenLastCalledWith(
+      '[SessionHandover] State published',
+      expect.objectContaining({
+        operationId: changes[1].operationId,
+        reason: 'budget-limit',
+        phase: 'awaiting-confirmation',
+        heldInputCount: 0,
+      }),
+    );
+  });
+
+  it('asks the agent for the required handoff headings and forbids tools', () => {
+    for (const heading of [
+      'Goal',
+      'Decisions',
+      'Task folders',
+      'Changed files',
+      'Open items',
+      'Still running',
+      'Next action',
+    ]) {
+      expect(HANDOFF_REQUEST_PROMPT).toContain(`## ${heading}`);
+    }
+    expect(HANDOFF_REQUEST_PROMPT).toContain('subagents and CLI agent lanes');
+    expect(HANDOFF_REQUEST_PROMPT).toContain('Do not call tools');
   });
 });

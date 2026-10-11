@@ -64,7 +64,10 @@ import type {
 } from './sdk-query-options-builder';
 import type { SdkMessageFactory } from './sdk-message-factory';
 import type { IModelResolver } from '../auth-env.port';
-import type { SessionHandoverCoordinator } from './session-handoff/session-handover-coordinator.service';
+import type {
+  SessionHandoverCoordinator,
+  SessionHandoverRuntime,
+} from './session-handoff/session-handover-coordinator.service';
 import type { SessionBudgetService } from './session-budget/session-budget.service';
 import type {
   QueryFunction,
@@ -165,13 +168,19 @@ function createMockMessageFactory(): jest.Mocked<
 function createMockSubagentRegistry(): jest.Mocked<
   Pick<
     SubagentRegistryService,
-    'markAllInterrupted' | 'beginSessionTeardown' | 'endSessionTeardown'
+    | 'markAllInterrupted'
+    | 'beginSessionTeardown'
+    | 'endSessionTeardown'
+    | 'getRunningBySession'
+    | 'getBackgroundAgents'
   >
 > {
   return {
     markAllInterrupted: jest.fn(),
     beginSessionTeardown: jest.fn(),
     endSessionTeardown: jest.fn(),
+    getRunningBySession: jest.fn().mockReturnValue([]),
+    getBackgroundAgents: jest.fn().mockReturnValue([]),
   };
 }
 
@@ -833,6 +842,118 @@ describe('SessionLifecycleManager', () => {
         expect.any(Array),
         false,
       );
+    });
+  });
+
+  describe('handover runtime: subagentsInFlight and armHandoverIfIdle', () => {
+    const tabId = 'tab_runtime' as SessionId;
+    const realSessionId = 'sdk_runtime';
+
+    function records(
+      ...toolCallIds: string[]
+    ): ReturnType<SubagentRegistryService['getRunningBySession']> {
+      return toolCallIds.map((toolCallId) => ({
+        toolCallId,
+      })) as unknown as ReturnType<SubagentRegistryService['getRunningBySession']>;
+    }
+
+    async function makeRuntimeHarness() {
+      const coordinator = {
+        attachRuntime: jest.fn(),
+        armAtTerminal: jest.fn(),
+        snapshotFor: jest.fn(),
+      } as unknown as SessionHandoverCoordinator;
+      const budget = {
+        canSend: jest.fn().mockReturnValue({ ok: true }),
+        stageFor: jest.fn().mockReturnValue('handoff'),
+      } as unknown as SessionBudgetService;
+      const harness = makeHarness({
+        handoverCoordinator: coordinator,
+        sessionBudget: budget,
+      });
+      await harness.manager.executeQuery({
+        sessionId: tabId,
+        sessionConfig: createSessionConfig(),
+      });
+      harness.manager.bindRealSessionId(tabId as string, realSessionId);
+      const runtime = (coordinator.attachRuntime as jest.Mock).mock
+        .calls[0][0] as SessionHandoverRuntime;
+      return { harness, coordinator, budget, runtime };
+    }
+
+    it('counts running and background subagents under the real and tab ids once each', async () => {
+      const { harness, runtime } = await makeRuntimeHarness();
+      harness.subagentRegistry.getRunningBySession.mockImplementation((id) =>
+        id === realSessionId
+          ? records('a')
+          : id === (tabId as string)
+            ? records('a', 'b')
+            : records(),
+      );
+      harness.subagentRegistry.getBackgroundAgents.mockImplementation((id) =>
+        id === realSessionId ? records('c') : records(),
+      );
+
+      expect(runtime.subagentsInFlight?.(realSessionId)).toBe(3);
+      expect(harness.subagentRegistry.getRunningBySession).toHaveBeenCalledWith(
+        tabId as string,
+      );
+      expect(harness.subagentRegistry.getBackgroundAgents).toHaveBeenCalledWith(
+        realSessionId,
+      );
+    });
+
+    it('counts no subagents for an idle source', async () => {
+      const { runtime } = await makeRuntimeHarness();
+
+      expect(runtime.subagentsInFlight?.(realSessionId)).toBe(0);
+    });
+
+    it('arms an idle source with the onTurnTerminal arguments and leaves the turn state alone', async () => {
+      const { harness, coordinator, budget } = await makeRuntimeHarness();
+      const rec = harness.manager.find(tabId as string);
+      expect(rec).toBeDefined();
+      if (rec) rec.turnInFlight = false;
+      const markTurnEnded = jest.spyOn(
+        harness.manager['_registry'],
+        'markTurnEnded',
+      );
+
+      harness.manager.armHandoverIfIdle(tabId);
+
+      expect(budget.canSend).toHaveBeenCalledWith(realSessionId);
+      expect(budget.stageFor).toHaveBeenCalledWith(realSessionId);
+      expect(coordinator.armAtTerminal).toHaveBeenCalledWith(
+        realSessionId,
+        false,
+        rec?.messageQueue,
+        true,
+      );
+      expect(markTurnEnded).not.toHaveBeenCalled();
+    });
+
+    it('does nothing while a turn is in flight', async () => {
+      const { harness, coordinator } = await makeRuntimeHarness();
+      const rec = harness.manager.find(tabId as string);
+      if (rec) rec.turnInFlight = true;
+
+      harness.manager.armHandoverIfIdle(tabId);
+
+      expect(coordinator.armAtTerminal).not.toHaveBeenCalled();
+    });
+
+    it('does nothing for an unknown session or without a coordinator', async () => {
+      const { harness, coordinator } = await makeRuntimeHarness();
+
+      harness.manager.armHandoverIfIdle('unknown_session' as SessionId);
+      expect(coordinator.armAtTerminal).not.toHaveBeenCalled();
+
+      const plain = makeHarness();
+      await plain.manager.executeQuery({
+        sessionId: tabId,
+        sessionConfig: createSessionConfig(),
+      });
+      expect(() => plain.manager.armHandoverIfIdle(tabId)).not.toThrow();
     });
   });
 

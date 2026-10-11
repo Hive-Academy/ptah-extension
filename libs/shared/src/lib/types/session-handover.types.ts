@@ -28,6 +28,14 @@ export interface SessionHandoverState {
   readonly lostInputsMessage?: string;
   /** Bounded source texts that could not be restored after the source ended. */
   readonly lostInputTexts?: readonly string[];
+  /**
+   * Work still running on the source while an automatic handover waits in
+   * `waiting-for-turn-end`: in-flight subagents and CLI agent lanes.
+   */
+  readonly waitingFor?: {
+    readonly subagents: number;
+    readonly lanes: number;
+  };
   readonly error?: string;
 }
 
@@ -60,7 +68,11 @@ export interface SuccessorBoundResult {
 
 export type BeginSessionHandoverResult =
   | { readonly accepted: true; readonly state: SessionHandoverState }
-  | { readonly accepted: false; readonly error: 'unavailable' };
+  | {
+      readonly accepted: false;
+      /** `source-unavailable`: the source session no longer exists. */
+      readonly error: 'unavailable' | 'source-unavailable';
+    };
 
 export interface CancelSessionHandoverParams {
   readonly sourceSessionId: string;

@@ -1,4 +1,5 @@
 import { inject, injectable } from 'tsyringe';
+import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import type {
   InlineImageAttachment,
   BeginSessionHandoverResult,
@@ -81,7 +82,17 @@ export interface SessionHandoverRuntime {
   restoreInputs(sourceSessionId: string, inputs: readonly QueuedSessionInput[]): boolean;
   closeIfTokenMatches(sourceSessionId: string, token: string): Promise<boolean>;
   isOwnedHandoffPendingOrRunning(sourceSessionId: string, token: string): boolean;
+  /**
+   * Running plus background subagents of the source. Optional so test
+   * runtimes without subagents keep compiling; absent counts as none.
+   */
+  subagentsInFlight?(sourceSessionId: string): number;
 }
+
+/** Counts CLI agent lanes still working for a source session. */
+export type LaneWorkProvider = (ids: { readonly sessionId: string; readonly tabId: string }) => number;
+
+type WaitingFor = NonNullable<SessionHandoverState['waitingFor']>;
 
 export type SessionHandoverListener = (state: SessionHandoverState) => void;
 
@@ -108,6 +119,10 @@ interface Operation {
   lostInputCount: number;
   lostInputTexts: string[];
   successorTabId?: string;
+  /** Work an automatic handover waits for in `waiting-for-turn-end`. */
+  waitingFor?: WaitingFor;
+  /** The user asked to go now mid-turn: the next terminal skips the work gate. */
+  userConfirmed?: boolean;
 }
 
 const HELD_SOURCE_PHASES: ReadonlySet<SessionHandoverState['phase']> = new Set([
@@ -120,7 +135,18 @@ const HELD_SOURCE_PHASES: ReadonlySet<SessionHandoverState['phase']> = new Set([
 ]);
 
 export const HANDOFF_REQUEST_TIMEOUT_MS = 180_000;
-export const HANDOFF_REQUEST_PROMPT = `Write a concise Markdown handoff for the next agent taking over this work. Include the goal, current state, decisions made, files touched, open todos, exact next steps, and pitfalls. Do not call tools; respond only with the handoff.`;
+export const HANDOFF_REQUEST_PROMPT = [
+  'Write a concise Markdown handoff for the next agent taking over this work.',
+  'Use exactly these headings, in this order:',
+  '## Goal',
+  '## Decisions',
+  '## Task folders',
+  '## Changed files (include files changed by subagents and CLI agent lanes)',
+  '## Open items',
+  '## Still running (subagents and CLI agent lanes with their ids, or "None")',
+  '## Next action',
+  'Do not call tools; respond only with the handoff.',
+].join('\n');
 
 const CANCELLABLE_PHASES: ReadonlySet<SessionHandoverState['phase']> = new Set([
   'waiting-for-turn-end',
@@ -145,6 +171,7 @@ export class SessionHandoverCoordinator {
   private resourceLeaseProvider: ((
     sourceSessionId: string,
   ) => Partial<HandoverSourceSnapshot['resourceLease']> | undefined) | null = null;
+  private laneWorkProvider: LaneWorkProvider | null = null;
 
   constructor(
     @inject(SessionHandoffBuilder, { isOptional: true })
@@ -158,6 +185,8 @@ export class SessionHandoverCoordinator {
     > | null = null,
     private readonly successorHostResolver: () => SessionSuccessorHost | null =
       () => null,
+    @inject(TOKENS.LOGGER, { isOptional: true })
+    private readonly logger: Logger | null = null,
   ) {}
 
   attachRuntime(runtime: SessionHandoverRuntime): void {
@@ -171,6 +200,14 @@ export class SessionHandoverCoordinator {
     this.resourceLeaseProvider = provider;
     return () => {
       if (this.resourceLeaseProvider === provider) this.resourceLeaseProvider = null;
+    };
+  }
+
+  /** Lets the CLI lane runtime report lanes still working for a source. */
+  setLaneWorkProvider(provider: LaneWorkProvider): () => void {
+    this.laneWorkProvider = provider;
+    return () => {
+      if (this.laneWorkProvider === provider) this.laneWorkProvider = null;
     };
   }
 
@@ -194,6 +231,11 @@ export class SessionHandoverCoordinator {
     if (!this.successorHostResolver()) {
       return { accepted: false, error: 'unavailable' };
     }
+    // A source that no longer exists can never be handed over; refuse before
+    // an operation is created so the caller can fall back at once.
+    if (this.runtime && !this.runtime.sourceSnapshot(sourceSessionId)) {
+      return { accepted: false, error: 'source-unavailable' };
+    }
     const state = this.request(sourceSessionId, reason, turnInFlight, agentHandoff);
     if (!turnInFlight && reason === 'successor') {
       const operation = this.operations.get(sourceSessionId);
@@ -212,7 +254,12 @@ export class SessionHandoverCoordinator {
     agentHandoff?: string,
   ): SessionHandoverState {
     const existing = this.operations.get(sourceSessionId);
-    if (existing && !this.isRestartable(existing)) return this.snapshot(existing);
+    if (existing && !this.isRestartable(existing)) {
+      if (reason === 'successor' && existing.reason !== 'successor') {
+        this.confirmBudgetOperation(existing, turnInFlight);
+      }
+      return this.snapshot(existing);
+    }
     const operation: Operation = {
       id: crypto.randomUUID(),
       sourceSessionId,
@@ -247,17 +294,36 @@ export class SessionHandoverCoordinator {
     if ((!operation || this.isRestartable(operation)) && !atBlockingLimit && !atHandoffStage) {
       return undefined;
     }
-    if (!operation || this.isRestartable(operation)) {
-      operation = this.createBudgetOperation(
-        sourceSessionId,
-        atBlockingLimit ? 'budget-limit' : 'budget-auto',
-      );
+    const live = operation && !this.isRestartable(operation) ? operation : undefined;
+    const reason = live?.reason ?? (atBlockingLimit ? 'budget-limit' : 'budget-auto');
+    // Work-in-flight gate: an automatic handover waits for running subagents
+    // and lanes. Inputs are not held in `waiting-for-turn-end`, so their
+    // completion turns run on the source and re-arm here at their terminal.
+    if (
+      reason === 'budget-auto' &&
+      (!live || live.phase === 'waiting-for-turn-end') &&
+      !live?.userConfirmed
+    ) {
+      const waitingFor = this.workInFlight(sourceSessionId);
+      if (waitingFor) {
+        const waiting =
+          live ?? this.createBudgetOperation(sourceSessionId, 'budget-auto', 'waiting-for-turn-end');
+        if (live) live.revision += 1;
+        waiting.waitingFor = waitingFor;
+        return this.publish(waiting);
+      }
     }
+    operation = live ?? this.createBudgetOperation(sourceSessionId, reason);
     if (operation.phase === 'waiting-for-turn-end') {
       operation.phase = 'armed';
+      operation.waitingFor = undefined;
       operation.revision += 1;
     }
-    if (operation.phase === 'armed' && operation.reason === 'budget-limit') {
+    if (
+      operation.phase === 'armed' &&
+      operation.reason === 'budget-limit' &&
+      !operation.userConfirmed
+    ) {
       operation.phase = 'awaiting-confirmation';
       operation.revision += 1;
     }
@@ -269,7 +335,10 @@ export class SessionHandoverCoordinator {
     if (operation.reason === 'successor' && operation.phase === 'armed') {
       this.confirmSuccessor(operation);
     }
-    if (operation.reason === 'budget-auto' && operation.phase === 'armed') {
+    if (
+      operation.phase === 'armed' &&
+      (operation.reason === 'budget-auto' || operation.userConfirmed)
+    ) {
       this.startAutomatic(operation);
     }
     return state;
@@ -348,13 +417,14 @@ export class SessionHandoverCoordinator {
 
   private createBudgetOperation(
     sourceSessionId: string,
-    reason: 'budget-limit' | 'budget-auto' = 'budget-limit',
+    reason: SessionHandoverReason,
+    phase: 'armed' | 'waiting-for-turn-end' = 'armed',
   ): Operation {
     const operation: Operation = {
       id: crypto.randomUUID(),
       sourceSessionId,
       reason,
-      phase: 'armed',
+      phase,
       revision: 1,
       inputs: [],
       restored: false,
@@ -363,6 +433,45 @@ export class SessionHandoverCoordinator {
     };
     this.operations.set(sourceSessionId, operation);
     return operation;
+  }
+
+  /**
+   * One click on a budget banner means "go now": start from
+   * `awaiting-confirmation` or an idle `waiting-for-turn-end`, skipping the
+   * work gate. Mid-turn, remember the choice so the next terminal starts.
+   */
+  private confirmBudgetOperation(operation: Operation, turnInFlight: boolean): void {
+    if (operation.phase === 'awaiting-confirmation') {
+      this.transition(operation, 'writing-handoff');
+      void this.complete(operation);
+      return;
+    }
+    if (operation.phase !== 'waiting-for-turn-end') return;
+    if (turnInFlight) {
+      operation.userConfirmed = true;
+      return;
+    }
+    operation.waitingFor = undefined;
+    this.transition(operation, 'writing-handoff');
+    void this.complete(operation);
+  }
+
+  /** Subagents and lanes still working for the source; undefined when none. */
+  private workInFlight(sourceSessionId: string): WaitingFor | undefined {
+    const subagents = this.runtime?.subagentsInFlight?.(sourceSessionId) ?? 0;
+    let lanes = 0;
+    if (this.laneWorkProvider) {
+      const tabId = this.runtime?.sourceSnapshot(sourceSessionId)?.tabId ?? sourceSessionId;
+      try {
+        lanes = this.laneWorkProvider({ sessionId: sourceSessionId, tabId });
+      } catch (error: unknown) {
+        // Fail open toward rotating (lanes stay 0): held inputs move to the
+        // successor, so an unreadable lane count must not block the source.
+        const reason = error instanceof Error ? error.message : String(error);
+        this.logger?.warn('[SessionHandover] Lane work provider failed; counting 0 lanes', { sourceSessionId, error: reason });
+      }
+    }
+    return subagents > 0 || lanes > 0 ? { subagents, lanes } : undefined;
   }
 
   private confirmSuccessor(operation: Operation): void {
@@ -658,6 +767,8 @@ export class SessionHandoverCoordinator {
 
   private publish(operation: Operation): SessionHandoverState {
     const state = this.snapshot(operation);
+    const { operationId, reason, phase, heldInputCount, waitingFor, error } = state;
+    this.logger?.info('[SessionHandover] State published', { operationId, reason, phase, heldInputCount, waitingFor, error });
     for (const listener of this.listeners) listener(state);
     return state;
   }
@@ -671,6 +782,7 @@ export class SessionHandoverCoordinator {
       revision: operation.revision,
       heldInputCount: operation.inputs.length,
       ...(operation.successorTabId ? { successorTabId: operation.successorTabId } : {}),
+      ...(operation.waitingFor ? { waitingFor: { ...operation.waitingFor } } : {}),
       ...(operation.lostInputCount > 0
         ? {
             lostInputCount: operation.lostInputCount,

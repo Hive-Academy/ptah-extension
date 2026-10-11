@@ -790,6 +790,7 @@ export function registerSdkServices(
             c.isRegistered(SESSION_SUCCESSOR_HOST, true)
               ? c.resolve(SESSION_SUCCESSOR_HOST)
               : null,
+          c.resolve<Logger>(TOKENS.LOGGER),
         ),
     ),
   });
