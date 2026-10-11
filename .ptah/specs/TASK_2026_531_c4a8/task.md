@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_531_c4a8
-status: backlog
+status: done
 type: BUGFIX
 title: >-
   Gate the canvas grid on SURFACE_ACTIVE without regressing the real Gridstack
