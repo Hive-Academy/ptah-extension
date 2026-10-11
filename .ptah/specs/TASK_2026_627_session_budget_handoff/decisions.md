@@ -143,3 +143,32 @@ Dropped as not a defect in this diff, with evidence:
 - "Seed-cap doc comment may duplicate the constant". Verified: `14_200` is defined once, in
   `SESSION_HANDOFF_LIMITS.seedChars` (`session-handoff-builder.ts:50`).
   `session-budget.types.ts:319` only refers to it in prose (D2).
+
+## D9 (Batch 5F): accept the new `max-lines` warning now; extract the work gate later (627-L7)
+
+- Evidence: `npx nx lint @ptah-extension/agent-sdk --parallel=1` after 5F reports 0 errors and 53
+  warnings (baseline 52). The new one is `session-handover-coordinator.service.ts:811:1 max-lines`,
+  "File has too many lines (726). Maximum allowed is 700". The file was at about 697 counted lines
+  before 5F (Batch 4 record: "the coordinator stays under `max-lines`"). The growth is the S1
+  in-place conversion, the S2 bound and the M3 fallback, all required by the fix round.
+- Options: (a) accept the warning and name a later extraction task; (b) a Batch 5G extraction before
+  the re-review.
+- Choice: (a). The re-review is meant to check S1, S2, M3 and M4 only, on one commit
+  (`6cb27e3e4..44eba9fc3`). An extraction first would move the very code under review into a new
+  file and add a second commit, so the re-review would also have to prove a refactor preserved
+  behaviour. It is a warning, not an error, and the 5F verification rule ("no warning on a changed
+  line") holds: it is reported on the last line.
+- Follow-up 627-L7 (batches.md "Deferred follow-ups"): after the re-review accepts, extract the
+  work-in-flight gate (`workInFlight`, the wait bound, the S1 conversion and the lane-provider slot)
+  into its own helper in `session-handoff/`, split by responsibility, no suppression comment.
+  Behaviour-preserving; existing specs must pass unchanged.
+
+## D10 (out of scope): unbound `remove` in the agent lane grid (OOS-1)
+
+- Reported by the user from the running app: closing a lane throws "Cannot set properties of
+  undefined (setting 'userPicked')".
+- Cause: `libs/frontend/chat/src/lib/components/organisms/agent-monitor/agent-lane-grid.component.ts:55`
+  passes the unbound method `remove` into the template context, so `this.userPicked = true` at
+  `:200` runs with `this` undefined.
+- Not caused by this branch and not a task of it. Recorded only; awaiting the user's choice (a
+  separate task, or a batch on this branch).

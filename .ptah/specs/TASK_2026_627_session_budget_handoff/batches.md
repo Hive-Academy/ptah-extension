@@ -1,6 +1,6 @@
 # Batches - TASK_2026_627
 
-Total tasks: 23 | Batches: 10 (Batch 0 to Batch 8, plus fix Batch 5F) | Complete: 6/10
+Total tasks: 23 | Batches: 10 (Batch 0 to Batch 8, plus fix Batch 5F) | Complete: 7/10
 
 Worktree: `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff` (branch
 `fix/session-budget-handoff`). Every executor works only there, never in the main checkout
@@ -519,7 +519,7 @@ Edge cases:
   `npx jest -c libs/backend/agent-sdk/jest.config.ts libs/backend/agent-sdk/src/lib/helpers/session-handoff/session-handover-coordinator.service.spec.ts libs/backend/agent-sdk/src/lib/helpers/session-lifecycle/session-stream-pump.service.spec.ts libs/backend/agent-sdk/src/lib/helpers/session-lifecycle-manager.spec.ts --coverage=false --maxWorkers=2`,
   then `npx nx typecheck @ptah-extension/agent-sdk --parallel=1`.
 
-## Batch 5F: Phase 1 fix round — IN_PROGRESS
+## Batch 5F: Phase 1 fix round — COMPLETE (44eba9fc3)
 
 - Source: Phase 1 review on `af9ed9112..6cb27e3e4`. `code-logic-review.md` NEEDS_REVISION 6/10
   (0 B, 2 S, 5 M, 4 minor); `code-style-review.md` APPROVED 7/10 (0 B, 0 S, 2 M, 4 minor). Each
@@ -539,7 +539,7 @@ Edge cases:
 - Phase: 1 (Backend gates) | Phase review: one code-logic re-review scoped to the 5F fix commit (no
   new public API except the exported constant `WORK_IN_FLIGHT_WAIT_LIMIT_MS`, so no style review)
 
-### Task 5F.1: Coordinator — blocking limit beats the work gate, bounded wait, safe handoff window — IN_PROGRESS
+### Task 5F.1: Coordinator — blocking limit beats the work gate, bounded wait, safe handoff window — COMPLETE
 
 - Files: MODIFY `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff\libs\backend\agent-sdk\src\lib\helpers\session-handoff\session-handover-coordinator.service.ts`
   and `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff\libs\backend\agent-sdk\src\lib\helpers\session-handoff\session-handover-coordinator.service.spec.ts`
@@ -597,7 +597,7 @@ Edge cases:
   then cancelled is suppressed until the hard limit, as today. Clearing `waitingFor` on these paths
   is required by S1 and S2 only.
 
-### Task 5F.2: Builder — an over-cap agent handoff keeps its last sections — IN_PROGRESS
+### Task 5F.2: Builder — an over-cap agent handoff keeps its last sections — COMPLETE
 
 - Files: MODIFY `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff\libs\backend\agent-sdk\src\lib\helpers\session-budget\session-handoff-builder.ts`
   and `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff\libs\backend\agent-sdk\src\lib\helpers\session-budget\session-handoff-builder.spec.ts`
@@ -642,6 +642,38 @@ Run these one at a time, in the foreground, from the worktree root, with the out
   an executor touches it anyway, the override in "Verification rules" applies.
 - Then one code-logic re-review, scoped to the 5F commit. It checks S1, S2, M3 and M4 only.
 
+### Batch 5F result
+
+- Commit: `44eba9fc3` (`fix(agent-sdk): batch 5F - ...`), 4 files: the coordinator and builder and
+  their specs. Report: `batch-5F-report.md`.
+- Verified on disk by the team-leader: S1 in-place conversion in `armAtTerminal` (same id, reason
+  `budget-limit`, `waitingFor`/`waitingSince` cleared, gate skipped at the blocking limit); S2
+  `WORK_IN_FLIGHT_WAIT_LIMIT_MS = 900_000`, `waitingSince ??=` stamp, one WARN and
+  `awaiting-confirmation` without `startAutomatic`, no timer; M3 missing-anchor path takes only the
+  last assistant text, with one DEBUG line; M4 `capHeadAndTail` used by `quoteWithin` only, `capText`
+  unchanged; prompt carries the 5,000-character line. No TODO, stub, `.only` or `.skip` markers.
+- Checks re-run by the team-leader, one at a time: Jest on the coordinator and builder specs — 2
+  suites, 84 tests passed. Typecheck `@ptah-extension/agent-sdk` passed. Lint
+  `@ptah-extension/agent-sdk`: 0 errors, 53 warnings (baseline 52). The one new warning is
+  `max-lines` on `session-handover-coordinator.service.ts:811` (726 counted lines, limit 700),
+  reported on the file's last line, not a changed line. Accepted for now and scheduled as 627-L7
+  (decisions.md D9).
+- Accepted deviations (report "Deviations"): M3 picks the last assistant message with text (a
+  trailing tool-only entry would otherwise lose the handoff again); one existing coordinator spec
+  now includes the anchor so it still covers the normal path; two builder specs updated to the
+  head-and-tail shape; R8 (5,000 characters kept in full) unchanged.
+- Phase 1 closes only when the code-logic re-review on `6cb27e3e4..44eba9fc3` (S1, S2, M3, M4)
+  accepts.
+
+## Out-of-scope findings (not tasks of this branch unless the user asks)
+
+- OOS-1 (reported by the user from the running app, 2026-10-11): closing a lane throws
+  "Cannot set properties of undefined (setting 'userPicked')".
+  `libs/frontend/chat/src/lib/components/organisms/agent-monitor/agent-lane-grid.component.ts:55`
+  passes the unbound method `remove` into the template context, so `this.userPicked = true` (`:200`)
+  runs with `this` undefined. Not caused by this branch. Awaiting the user's choice (separate task, or
+  a batch here). Recorded in decisions.md D10.
+
 ## Deferred follow-ups from the Phase 1 review (named later tasks; decisions.md D8)
 
 | Id | Finding | Why deferred | Target |
@@ -652,6 +684,7 @@ Run these one at a time, in the foreground, from the worktree root, with the out
 | 627-L4 | Style M1 and M2: cli-agent-runtime injects the concrete coordinator and registers in its constructor | Allowed boundary; no runtime fault | Follow-up: `Pick<SessionHandoverCoordinator, 'setLaneWorkProvider'>` and registration from `cli-agent-runtime/src/lib/di/register.ts` |
 | 627-L5 | INFO publish on every terminal while waiting (logic) and INFO-per-publish noise (style minor) | Noisy but bounded | Follow-up: publish only when `waitingFor` changes; per-event lines at DEBUG |
 | 627-L6 | `admitInterrupt` refuses an interrupt while an op is `waiting-for-turn-end` | Existing behaviour (9fe19b56e); the message is queued, not lost; the wait is now bounded by S2 | Follow-up: allow interrupts in `waiting-for-turn-end` |
+| 627-L7 | `max-lines` warning on `session-handover-coordinator.service.ts` (726 vs 700) after Batch 5F | Lint warning, not an error; extracting now would turn the scoped S1/S2 re-review into a refactor review (decisions.md D9) | Follow-up after the Phase 1 re-review accepts: extract the work-in-flight gate (`workInFlight`, the wait bound, the S1 conversion, `setLaneWorkProvider` slot) into its own helper file in `session-handoff/`; behaviour-preserving, specs unchanged |
 
 ## Batch 6: Frontend — never stuck at the limit (Component 9) — PENDING
 
