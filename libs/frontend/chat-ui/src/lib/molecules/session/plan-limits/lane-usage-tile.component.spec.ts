@@ -147,6 +147,17 @@ describe('LaneUsageTileComponent', () => {
     expect(caption?.classList.contains('truncate')).toBe(false);
   });
 
+  it('omits the caption when the Lanes section header shows it', () => {
+    const root = render(laneTile());
+    fixture.componentRef.setInput('captionShared', true);
+    fixture.detectChanges();
+
+    expect(root.querySelector('[data-testid="lane-caption"]')).toBeNull();
+    // The dashed accent and own fill still mark it as outside the totals.
+    expect(face(root).className).toContain('border-dashed');
+    expect(text(root, 'lane-cost')).toBe('cost $0.32 · 2 runs');
+  });
+
   it('is a closed disclosure button wired to its sibling panel', () => {
     const root = render(laneTile());
     const panel = root.querySelector<HTMLElement>(
@@ -190,7 +201,6 @@ describe('LaneUsageTileComponent', () => {
     );
 
     expect(face(root).getAttribute('aria-expanded')).toBe('true');
-    expect(root.classList.contains('col-span-full')).toBe(true);
     expect(groups.map((group) => group.dataset['ownerStatus'])).toEqual([
       'same',
       'different',
@@ -209,9 +219,7 @@ describe('LaneUsageTileComponent', () => {
       'Different owner · Codex account · cccc',
     );
     expect(
-      groups[1]
-        .querySelector('[role="progressbar"]')
-        ?.getAttribute('aria-valuenow'),
+      groups[1].querySelector('[role="meter"]')?.getAttribute('aria-valuenow'),
     ).toBe('12');
     expect(text(groups[1], 'lane-run-row')).toContain('Tokens 31.4k');
   });
@@ -268,10 +276,7 @@ describe('LaneUsageTileComponent', () => {
   });
 
   it('a restored lane of a last-known owner: the face agrees with its panel', () => {
-    const CLAUDE_B: QuotaOwnerRef = {
-      ...CLAUDE_A,
-      key: 'claude-cli#account:bbbbbbbbbbbbbbbb',
-    };
+    const CLAUDE_B: QuotaOwnerRef = { ...CLAUDE_A, key: 'claude-cli#account:bbbbbbbbbbbbbbbb' };
     const vm = buildStatsLimitViewModel({
       sessionId: 'session-1',
       sessionOwnerKey: CLAUDE_A.key,
@@ -338,9 +343,7 @@ describe('LaneUsageTileComponent', () => {
   it('draws a focus ring in base-content, which reaches 3:1 in both themes', () => {
     const root = render(laneTile());
 
-    expect(face(root).className).toContain(
-      'focus-visible:outline-base-content',
-    );
+    expect(face(root).className).toContain('focus-visible:outline-base-content');
     expect(face(root).className).not.toContain('outline-info');
   });
 

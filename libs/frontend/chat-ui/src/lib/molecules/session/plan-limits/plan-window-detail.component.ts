@@ -14,25 +14,20 @@ import type { PlanWindowDetailModel } from './stats-limit-view-model.types';
  * and the next reset kept apart, the aged / not-confirmed note and the
  * per-field source chips.
  *
- * Used by the plan-limit tile panel and by a lane subgroup that shows a
- * window in full. The plan tile passes `showSummary="false"` because its own
- * face already shows the label, chip, used value and source chips; a lane
- * subgroup keeps the default and shows everything. A tile panel keeps the
- * known-percent meter but omits repeated summary text and source chips.
- * Unknown is never 0: without a percent no meter is drawn and the full row
- * reads "Used: unknown". The meter fill is neutral; the stripes on a hot
+ * Used by the plan-limit row panel and by a lane subgroup that shows a
+ * window in full. The plan row passes `showSummary="false"` because its own
+ * face already shows the label, usage bar, chip, used value and source
+ * chips, so its panel adds only the reset facts and the note; a lane
+ * subgroup keeps the default and shows everything. Unknown is never 0:
+ * without a percent no meter is drawn and the full row reads "Used: unknown". The meter fill is neutral; the stripes on a hot
  * window are decoration.
  */
 @Component({
   selector: 'ptah-plan-window-detail',
   standalone: true,
-  host: { '[class.contents]': '!showSummary()' },
   template: `
     @let w = window();
-    <div
-      [class]="showSummary() ? 'py-1' : 'contents'"
-      data-testid="plan-window-detail"
-    >
+    <div class="py-1" data-testid="plan-window-detail">
       @if (showSummary()) {
         <div class="flex flex-wrap items-center justify-between gap-1.5">
           <span class="font-semibold text-xs">{{ w.label }}</span>
@@ -46,84 +41,43 @@ import type { PlanWindowDetailModel } from './stats-limit-view-model.types';
           }
         </div>
       }
-      @if (!showSummary()) {
-        <span class="text-base-content-muted">Used</span>
-        <span class="min-w-0">
-          @if (percent() !== null) {
-            <span
-              class="block h-1.5 overflow-hidden rounded bg-base-content/10"
-              role="progressbar"
-              aria-valuemin="0"
-              aria-valuemax="100"
-              [attr.aria-valuenow]="percent()"
-              [attr.aria-label]="w.label + ' used'"
-            >
-              <span
-                class="block h-full rounded bg-base-content/70"
-                [style.width.%]="percent()"
-              ></span>
-            </span>
-          } @else {
-            {{ w.usedText }}
-          }
-        </span>
-        <span class="text-right tabular-nums whitespace-nowrap">{{
-          percent() !== null ? percent() + '%' : '—'
-        }}</span>
-        @for (fact of w.resetFacts; track $index) {
-          <span class="text-base-content-muted">{{
-            $first ? 'Resets' : 'Next reset'
-          }}</span
-          ><span class="col-span-2 min-w-0">{{ fact }}</span>
-        }
-        @if (w.note) {
-          <span class="text-base-content-muted">Observed</span
-          ><span class="col-span-2 min-w-0">{{ w.note }}</span>
-        }
-      } @else {
-        @if (percent() !== null) {
-          <div class="flex items-center gap-2 mt-1">
+      @if (showSummary() && percent() !== null) {
+        <div class="flex items-center gap-2 mt-1">
+          <div
+            class="relative flex-1 h-1.5 rounded bg-base-content/10 overflow-hidden"
+            role="meter"
+            aria-valuemin="0"
+            aria-valuemax="100"
+            [attr.aria-valuenow]="percent()"
+            [attr.aria-valuetext]="w.usedText"
+            [attr.aria-label]="w.label + ' used'"
+          >
             <div
-              class="relative flex-1 h-1.5 rounded bg-base-content/10 overflow-hidden"
-              role="meter"
-              aria-valuemin="0"
-              aria-valuemax="100"
-              [attr.aria-valuenow]="percent()"
-              [attr.aria-valuetext]="w.usedText"
-              [attr.aria-label]="w.label + ' used'"
-            >
-              <div
-                class="h-full rounded bg-base-content/70"
-                [class.stripes-error]="w.chip?.tone === 'error'"
-                [class.stripes-warning]="w.chip?.tone === 'warning'"
-                [style.width.%]="percent()"
-              ></div>
-              <div
-                class="absolute top-0 h-full w-px bg-base-content"
-                [style.left.%]="nearLimitPercent"
-                aria-hidden="true"
-              ></div>
-            </div>
-            @if (showSummary()) {
-              <span
-                class="text-xs font-semibold tabular-nums whitespace-nowrap"
-                >{{ w.usedText }}</span
-              >
-            }
+              class="h-full rounded bg-base-content/70"
+              [class.stripes-error]="w.chip?.tone === 'error'"
+              [class.stripes-warning]="w.chip?.tone === 'warning'"
+              [style.width.%]="percent()"
+            ></div>
+            <div
+              class="absolute top-0 h-full w-px bg-base-content"
+              [style.left.%]="nearLimitPercent"
+              aria-hidden="true"
+            ></div>
           </div>
-        } @else if (showSummary()) {
-          <div class="text-xs mt-1 font-semibold">Used: {{ w.usedText }}</div>
-        }
-        @for (fact of w.resetFacts; track $index) {
-          <div class="text-[11px] text-base-content-muted mt-0.5">
-            {{ fact }}
-          </div>
-        }
-        @if (w.note) {
-          <div class="text-[11px] text-base-content-muted mt-0.5">
-            {{ w.note }}
-          </div>
-        }
+          <span class="text-xs font-semibold tabular-nums whitespace-nowrap">{{
+            w.usedText
+          }}</span>
+        </div>
+      } @else if (showSummary()) {
+        <div class="text-xs mt-1 font-semibold">Used: {{ w.usedText }}</div>
+      }
+      @for (fact of w.resetFacts; track $index) {
+        <div class="text-[11px] text-base-content-muted mt-0.5">{{ fact }}</div>
+      }
+      @if (w.note) {
+        <div class="text-[11px] text-base-content-muted mt-0.5">
+          {{ w.note }}
+        </div>
       }
       @if (showSummary()) {
         @if (w.sourceChips.length > 0) {
@@ -159,10 +113,9 @@ import type { PlanWindowDetailModel } from './stats-limit-view-model.types';
 export class PlanWindowDetailComponent {
   readonly window = input.required<PlanWindowDetailModel>();
   /**
-   * False from the plan tile panel, whose face already shows the label,
-   * chip, used value and source chips; its known-percent meter remains as a
-   * visual detail. True (default) from a lane subgroup, which shows the
-   * window in full.
+   * False from the plan row panel, whose face already shows the label, usage
+   * bar, chip, used value and source chips. True (default) from a lane
+   * subgroup, which shows the window in full.
    */
   readonly showSummary = input<boolean>(true);
 

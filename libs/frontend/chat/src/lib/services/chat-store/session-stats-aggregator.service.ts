@@ -15,6 +15,7 @@ import {
   type SessionBudgetState,
   type SessionHandoverState,
   type SessionStatsEntry,
+  type SessionStatsLiveWire,
 } from '@ptah-extension/shared';
 import {
   deriveLiveModelStats,
@@ -95,6 +96,8 @@ function isSnapshotOnly(
  *   assignment only. Session totals are never added up here (TASK_2026_533).
  * - Forward the per-result footer fields to StreamingHandlerService unchanged
  * - Trigger sidebar refresh + auto-send re-steering
+ * - Install `session:stats-live` snapshots on the header only
+ *   ({@link SessionStatsAggregatorService.handleLiveSessionStats})
  *
  * A snapshot-only broadcast installs its snapshot and stops there: it is not a
  * turn result, so compaction clearing, footer forwarding (which would overwrite
@@ -123,23 +126,8 @@ export class SessionStatsAggregatorService {
     if (stats.handover) {
       this.handoverClient.record(stats.sessionId, stats.handover);
     }
-    let targetTabs: readonly TabState[] = this.tabManager.findTabsBySessionId(
-      SessionId.from(stats.sessionId),
-    );
-    if (targetTabs.length === 0) {
-      // `findTabsBySessionId` resolves active-workspace tabs only. A turn that
-      // ends while its tab sits in a BACKGROUND workspace (user switched
-      // folders mid-stream) still owns these stats. Every tab setter below
-      // routes through the workspace-aware `updateTabInternal`, and
-      // `streamingHandler.handleSessionStats` has its own background branch,
-      // so the normal path is safe for a partitioned tab — mirrors
-      // `TurnEndHandlerService` / `StreamingHandlerService`.
-      const lookup = this.tabManager.findTabBySessionIdAcrossWorkspaces(
-        stats.sessionId,
-      );
-      if (lookup) targetTabs = [lookup.tab];
-    }
-    const snapshot = this.snapshotFor(stats);
+    const targetTabs = this.tabsForSession(SessionId.from(stats.sessionId));
+    const snapshot = this.snapshotFor(stats, 'handleSessionStats');
     if (isSnapshotOnly(stats)) {
       if (targetTabs.length === 0) {
         this.recordSurfaceStats(stats, snapshot);
@@ -203,6 +191,80 @@ export class SessionStatsAggregatorService {
   }
 
   /**
+   * Apply one `session:stats-live` update to the header (TASK_2026_626).
+   *
+   * The same for a provisional estimate and for an authoritative snapshot
+   * (agent-count update, settle): `provisional` only changes the header
+   * marker. This is never a turn result, so none of the `session:stats`
+   * result-path effects run here — no compaction clearing, no footer or
+   * `pendingStats` write (`streamingHandler.handleSessionStats`), no sidebar
+   * refresh, no queued send, no handover record and no `setLiveModelStats`.
+   * Turn finalization stays with `turn_state`.
+   *
+   * Every bound tab, in any workspace, installs through `installSessionStats`
+   * with the event's context, which admits the snapshot
+   * and applies the context reading in one update, so a snapshot the revision
+   * floor rejects carries no context with it. A session with no tab records
+   * only the snapshot on its surface (`live: null` keeps the stored reading);
+   * an unknown session is dropped without a warning, because live events for
+   * a session being torn down are expected.
+   */
+  handleLiveSessionStats(event: SessionStatsLiveWire): void {
+    const sessionId = SessionId.safeParse(event.sessionId);
+    if (!sessionId) {
+      console.warn(
+        '[ChatStore] handleLiveSessionStats: dropped an update with a malformed session id',
+        { sessionId: event.sessionId },
+      );
+      return;
+    }
+    const snapshot = this.snapshotFor(event, 'handleLiveSessionStats');
+    if (!snapshot) return;
+    const targetTabs = this.tabsForSession(sessionId);
+    if (targetTabs.length === 0) {
+      if (this.streamRouter.surfacesForSession(sessionId).length === 0) return;
+      this.surfaceStats.record(event.sessionId, { live: null, snapshot });
+      return;
+    }
+    for (const t of targetTabs) {
+      // `undefined` budget keeps each tab's last budget; each tab runs its own
+      // admission, and the context is applied only for a provisional snapshot.
+      this.tabManager.installSessionStats(
+        t.id,
+        snapshot,
+        undefined,
+        event.context,
+      );
+    }
+  }
+
+  /**
+   * Every tab bound to a session, in the active workspace AND every
+   * background workspace.
+   *
+   * `findTabsBySessionId` resolves active-workspace tabs only. A session open
+   * in several tabs can have some of them in a BACKGROUND workspace (user
+   * switched folders mid-stream); each still shows the session's stats, so
+   * each must receive the update, or it keeps stale figures or an estimate
+   * marker. Every tab setter routes through the workspace-aware
+   * `updateTabInternal`, each install runs its own revision admission, and
+   * `streamingHandler.handleSessionStats` has its own background branch, so
+   * the normal path is safe for a partitioned tab. Deduplicated by id because
+   * the active lookup's unbound fallback can itself return a background tab.
+   */
+  private tabsForSession(sessionId: SessionId): readonly TabState[] {
+    const tabs = [...this.tabManager.findTabsBySessionId(sessionId)];
+    const seen = new Set(tabs.map((t) => t.id));
+    for (const t of this.tabManager.findBackgroundTabsBySessionId(sessionId)) {
+      if (!seen.has(t.id)) {
+        seen.add(t.id);
+        tabs.push(t);
+      }
+    }
+    return tabs;
+  }
+
+  /**
    * Fold a turn's stats into the surface registry for a session with no tab.
    *
    * Uses the same {@link deriveLiveModelStats} the tab path does, so the New
@@ -248,19 +310,25 @@ export class SessionStatsAggregatorService {
    * event itself (routing would install it on the wrong tab). A malformed
    * snapshot is rejected whole with one warning that names only the session.
    */
-  private snapshotFor(stats: SessionStatsEvent): SessionStatsEntry | null {
+  private snapshotFor(
+    stats: {
+      readonly sessionId: string;
+      readonly sessionStats?: SessionStatsEntry;
+    },
+    handler: 'handleSessionStats' | 'handleLiveSessionStats',
+  ): SessionStatsEntry | null {
     const snapshot: unknown = stats.sessionStats;
     if (snapshot === undefined || snapshot === null) return null;
     if (!isValidSessionStatsSnapshot(snapshot)) {
       console.warn(
-        '[ChatStore] handleSessionStats: rejected a malformed session snapshot',
+        `[ChatStore] ${handler}: rejected a malformed session snapshot`,
         { sessionId: stats.sessionId },
       );
       return null;
     }
     if (snapshot.sessionId !== stats.sessionId) {
       console.warn(
-        '[ChatStore] handleSessionStats: session snapshot names a different session, ignoring it',
+        `[ChatStore] ${handler}: session snapshot names a different session, ignoring it`,
         { sessionId: stats.sessionId, snapshotSessionId: snapshot.sessionId },
       );
       return null;

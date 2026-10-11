@@ -25,6 +25,7 @@ import {
   type PermissionLevel,
   type SessionBudgetState,
   type SessionStatsEntry,
+  type LiveStatsCallback,
   blankToUndefined,
 } from '@ptah-extension/shared';
 import type { SdkRuntimeStateService } from './helpers/sdk-runtime-state.service';
@@ -912,6 +913,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
         trackingId,
         this.callbacks.getResultStats(),
       ),
+      onLiveStats: this.callbacks.getLiveStats(),
       onTurnEnd: this.releaseTurnOnResult(trackingId),
       onCompactBoundary: this.recordBudgetCompaction,
       tabId: config?.tabId,
@@ -1070,6 +1072,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
           sessionId,
           this.callbacks.getResultStats(),
         ),
+        onLiveStats: this.callbacks.getLiveStats(),
         onTurnEnd: this.releaseTurnOnResult(sessionId),
         onCompactBoundary: this.recordBudgetCompaction,
         tabId: config?.tabId,
@@ -1216,6 +1219,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
         sessionId,
         this.callbacks.getResultStats(),
       ),
+      onLiveStats: this.callbacks.getLiveStats(),
       onTurnEnd: this.releaseTurnOnResult(sessionId),
       onCompactBoundary: this.recordBudgetCompaction,
       tabId: config?.tabId,
@@ -1432,6 +1436,15 @@ export class SdkAgentAdapter implements IAgentAdapter {
     this.callbacks.setResultStats(callback);
   }
 
+  /**
+   * Provisional in-turn snapshots. Passed to every stream as-is, never through
+   * `wrapResultStatsForActivity`: a live estimate is not a result, so it must
+   * not notify activity or feed the session budget.
+   */
+  setLiveStatsCallback(callback: LiveStatsCallback): void {
+    this.callbacks.setLiveStats(callback);
+  }
+
   setCompactionStartCallback(callback: CompactionStartCallback): void {
     this.callbacks.setCompactionStart(callback);
   }
@@ -1567,6 +1580,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
         sessionId,
         this.callbacks.getResultStats(),
       ),
+      onLiveStats: this.callbacks.getLiveStats(),
       onTurnEnd: this.releaseTurnOnResult(sessionId),
       onCompactBoundary: this.recordBudgetCompaction,
       tabId: config.tabId,
