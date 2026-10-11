@@ -301,7 +301,7 @@ export class PlanUsageService {
         if (
           providerId === 'grok' &&
           !target.cliSessionId &&
-          reading.status !== 'available'
+          reading.status === 'no-usage-source'
         ) {
           reading = { ...reading, unavailableReason: 'no-open-session' };
         }

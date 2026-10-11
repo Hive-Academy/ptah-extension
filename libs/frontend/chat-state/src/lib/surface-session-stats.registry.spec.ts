@@ -202,6 +202,21 @@ describe('SurfaceSessionStatsRegistry', () => {
     expect(svc.peek('s2')?.snapshot?.totalCost).toBe(2);
   });
 
+  // TASK_2026_626: a late live estimate below the authoritative revision must
+  // neither replace the snapshot nor clear the context reading.
+  it('keeps authoritative r10 and its live reading when a provisional r8 arrives later', () => {
+    const authoritative = snapshot('s1', 10, 10);
+    svc.record('s1', { live, snapshot: authoritative });
+
+    svc.record('s1', {
+      live: null,
+      snapshot: { ...snapshot('s1', 8, 8), provisional: true },
+    });
+
+    expect(svc.peek('s1')?.snapshot).toBe(authoritative);
+    expect(svc.peek('s1')?.live).toBe(live);
+  });
+
   it('ignores a blank session id', () => {
     svc.record('', { live: null, snapshot: snapshot('', 1, 1) });
     expect(svc.sessions()).toEqual([]);

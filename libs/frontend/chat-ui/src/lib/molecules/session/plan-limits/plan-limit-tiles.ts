@@ -98,7 +98,7 @@ export function sessionPlan(
   // The suffixed owner label ("Claude account · a1b2") so two owners of one
   // provider are told apart in the tile captions.
   const suffix = ownerKeySuffix(snapshot.owner.key);
-  const captionLead = `${snapshot.owner.label} plan limit`;
+  const captionLead = snapshot.owner.label;
   const captionTail = suffix === null ? undefined : `· ${suffix}`;
   const caption: TileCaption = {
     caption: captionTail ? `${captionLead} ${captionTail}` : captionLead,
@@ -223,8 +223,8 @@ function unavailableTile(
     id,
     kind: 'status',
     label,
-    captionLead: 'plan limit',
-    caption: 'plan limit',
+    captionLead: 'unknown account',
+    caption: 'unknown account',
     value: 'Unavailable',
     resetLine,
     tone: 'neutral',
@@ -248,10 +248,6 @@ function windowTile(
     ...caption,
     value: detail.usedText,
     resetLine: windowResetLine(entry, ctx),
-    shortReset:
-      entry.window.resetsAt === undefined
-        ? 'Reset unknown'
-        : formatRelative(entry.window.resetsAt, ctx.now),
     ...(chip && { chip }),
     tone: windowTone(entry.state),
     sourceChips: detail.sourceChips,

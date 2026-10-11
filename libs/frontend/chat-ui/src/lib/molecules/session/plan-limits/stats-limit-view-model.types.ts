@@ -111,8 +111,6 @@ export interface PlanLimitTileModel {
   readonly caption: string;
   readonly value: string;
   readonly resetLine: string;
-  /** Compact relative reset for the closed face. */
-  readonly shortReset?: string;
   readonly chip?: StatsChip;
   readonly tone: StatsTileTone;
   /** Short source chips for the values on the closed face. */

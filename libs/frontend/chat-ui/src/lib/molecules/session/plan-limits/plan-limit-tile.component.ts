@@ -7,25 +7,32 @@ import {
 } from '@angular/core';
 import { ChevronDown, ChevronUp, LucideAngularModule } from 'lucide-angular';
 import { PlanWindowDetailComponent } from './plan-window-detail.component';
+import { sameSources } from './stats-limit-sections';
 import {
-  TILE_PANEL,
+  ROW_PANEL,
   chipClass,
   newPanelId,
-  planFaceClass,
+  planRowClass,
   sourceChipClass,
+  usageBarFillClass,
 } from './stats-tile.styles';
 import type { PlanLimitTileModel } from './stats-limit-view-model.types';
 
 /**
- * One session plan-limit tile in the stats card grid (design §3.2): a plan
- * window, owner-level evidence, a cooldown, or a usage status ("No usage
- * source", "Stale", "Unavailable").
+ * One session plan-limit row in the expanded stats card (design §3.2): a
+ * plan window, owner-level evidence, a cooldown, local usage, or a usage
+ * status ("No usage source", "Stale", "Unavailable").
  *
- * The whole face is a disclosure button; its detail panel is the next
- * sibling and is `hidden` while closed. The open state is owned by the host
+ * A window with a known percent reads label, linear usage bar, value and
+ * state chip, with its reset line underneath; every other kind is one line.
+ * The caption and source chips the whole section shares are shown once in
+ * the section header (`captionShared`, `sharedSources`), so the row shows
+ * its own only when they differ.
+ *
+ * The whole row is a disclosure button; its detail panel is the next sibling
+ * and is `hidden` while closed. The open state is owned by the host
  * (`StatsTileExpansionState`, keyed by session and stable tile id), so a
- * re-render or a snapshot push never closes it. An open tile spans both grid
- * columns.
+ * re-render or a snapshot push never closes it.
  */
 @Component({
   selector: 'ptah-plan-limit-tile',
@@ -33,7 +40,6 @@ import type { PlanLimitTileModel } from './stats-limit-view-model.types';
   imports: [LucideAngularModule, PlanWindowDetailComponent],
   host: {
     class: 'block min-w-0',
-    '[class.col-span-full]': 'open() && tile().kind !== "status"',
     '[attr.data-tile-id]': 'tile().id',
   },
   template: `
@@ -41,7 +47,6 @@ import type { PlanLimitTileModel } from './stats-limit-view-model.types';
     <button
       type="button"
       [class]="faceClass()"
-      [class.rounded-b-none]="open()"
       [class.cursor-default]="!expandable()"
       [disabled]="!expandable()"
       [attr.aria-expanded]="expandable() ? open() : null"
@@ -49,88 +54,101 @@ import type { PlanLimitTileModel } from './stats-limit-view-model.types';
       data-testid="plan-limit-tile"
       (click)="toggled.emit()"
     >
-      @if (t.kind === 'status') {
+      <span class="flex min-w-0 items-center gap-2">
         <span
-          class="block text-[10px] uppercase tracking-wider text-base-content-muted leading-tight"
+          class="min-w-16 max-w-[50%] shrink-0 truncate text-xs text-base-content"
+          [attr.title]="t.label"
           >{{ t.label }}</span
         >
-        <span
-          class="flex min-w-0 gap-1 text-[10px] text-base-content-muted leading-tight"
-          [attr.title]="t.caption"
-          data-testid="plan-limit-caption"
-        >
-          <span [class.truncate]="!open()">{{ t.captionLead }}</span>
-          @if (t.captionTail; as tail) {
-            <span class="shrink-0 whitespace-nowrap">{{ tail }}</span>
-          }
-        </span>
-        <span
-          [class]="chipClass('neutral')"
-          [attr.title]="statusTitle()"
-          data-testid="plan-limit-status"
-          >{{ t.value }} · {{ t.resetLine }}</span
-        >
-      } @else {
-        <span
-          class="grid min-w-0 grid-cols-[4.75rem_minmax(0,1fr)_4rem_1rem] items-center gap-1"
-          [attr.title]="t.caption + '. ' + t.resetLine"
-        >
+        @if (t.kind === 'status') {
           <span
-            class="text-[10px] uppercase tracking-wider text-base-content-muted leading-tight"
-            >{{ t.label }}</span
+            class="min-w-0 flex-1 text-[11px] text-base-content-muted"
+            [attr.title]="statusTitle()"
+            data-testid="plan-limit-status"
+            >{{ t.value }} · {{ t.resetLine }}</span
           >
-          <span class="min-w-0">
-            @if (progressPercent() !== null) {
-              <span
-                class="block h-1.5 overflow-hidden rounded bg-base-content/10"
-                role="progressbar"
-                aria-valuemin="0"
-                aria-valuemax="100"
-                [attr.aria-valuenow]="progressPercent()"
-                [attr.aria-valuetext]="
-                  roundedProgressPercent() + '% used, ' + t.resetLine
-                "
-                [attr.aria-label]="t.label + ' plan usage'"
-                data-testid="plan-limit-progress"
-              >
-                <span
-                  class="block h-full rounded"
-                  [class.bg-error]="t.tone === 'error'"
-                  [class.bg-warning]="t.tone === 'warning'"
-                  [class.bg-base-content]="
-                    t.tone !== 'error' && t.tone !== 'warning'
-                  "
-                  [style.width.%]="progressPercent()"
-                ></span>
-              </span>
-            }
+        } @else if (hasBar()) {
+          <span
+            class="relative h-1.5 min-w-8 flex-1 overflow-hidden rounded-full bg-base-content/10"
+            role="progressbar"
+            aria-valuemin="0"
+            aria-valuemax="100"
+            [attr.aria-valuenow]="progressPercent()"
+            [attr.aria-valuetext]="t.value"
+            [attr.aria-label]="t.label + ' plan usage'"
+            [attr.title]="t.value + '. ' + t.resetLine"
+            data-testid="plan-limit-progress"
+          >
             <span
-              class="block text-[11px] text-base-content-muted leading-tight mt-0.5 break-words"
-              >{{ t.shortReset ?? t.resetLine }}
-              @if (faceStatus(); as status) {
-                <span
-                  class="font-semibold text-base-content"
-                  data-testid="plan-limit-face-status"
-                  >· {{ status }}</span
-                >
-              }
-            </span>
+              [class]="barFillClass()"
+              [style.width.%]="progressPercent()"
+              data-testid="plan-limit-progress-fill"
+            ></span>
           </span>
           <span
-            class="text-right text-sm font-semibold tabular-nums whitespace-nowrap"
+            class="shrink-0 whitespace-nowrap text-xs font-semibold tabular-nums"
             data-testid="plan-limit-tile-value"
-            >{{
-              progressPercent() !== null ? roundedProgressPercent() + '%' : '—'
-            }}</span
+            >{{ t.value }}</span
           >
-          @if (expandable()) {
-            <lucide-angular
-              [img]="open() ? ChevronUpIcon : ChevronDownIcon"
-              class="w-3 h-3 text-base-content-muted"
-              aria-hidden="true"
-            />
+        } @else {
+          <span class="min-w-0 flex-1 text-xs">
+            <span
+              class="font-semibold tabular-nums"
+              data-testid="plan-limit-tile-value"
+              >{{ t.value }}</span
+            >
+            @if (t.resetLine) {
+              <span class="text-[11px] text-base-content-muted">
+                · {{ t.resetLine }}</span
+              >
+            }
+          </span>
+        }
+        @if (t.chip; as chip) {
+          <span
+            [class]="chipClass(chip.tone) + ' shrink-0'"
+            data-testid="plan-limit-chip"
+          >
+            @if (chip.glyph) {
+              <span aria-hidden="true">{{ chip.glyph }}</span>
+            }
+            {{ chip.text }}
+          </span>
+        }
+      </span>
+      @if (hasBar() && t.resetLine) {
+        <span
+          class="block pl-[4.5rem] text-[11px] leading-tight text-base-content-muted"
+          >{{ t.resetLine }}</span
+        >
+      }
+      @if (!captionShared() || ownSources().length > 0) {
+        <span
+          class="mt-0.5 flex min-w-0 flex-wrap items-center gap-1 pl-[4.5rem]"
+        >
+          @if (!captionShared()) {
+            <span
+              class="flex min-w-0 gap-1 text-[10px] text-base-content-muted leading-tight"
+              [attr.title]="t.caption"
+              data-testid="plan-limit-caption"
+            >
+              <span [class.truncate]="!open()">{{ t.captionLead }}</span>
+              @if (t.captionTail; as tail) {
+                <span class="shrink-0 whitespace-nowrap">{{ tail }}</span>
+              }
+            </span>
+          }
+          @for (source of ownSources(); track source) {
+            <span [class]="sourceChipClass(source)">{{ source }}</span>
           }
         </span>
+      }
+      @if (expandable()) {
+        <lucide-angular
+          [img]="open() ? ChevronUpIcon : ChevronDownIcon"
+          class="absolute top-1.5 right-1 w-3 h-3 text-base-content-muted"
+          aria-hidden="true"
+        />
       }
     </button>
     <div
@@ -140,28 +158,12 @@ import type { PlanLimitTileModel } from './stats-limit-view-model.types';
       data-testid="plan-limit-panel"
     >
       @if (open()) {
-        <div
-          class="grid grid-cols-[minmax(6rem,auto)_minmax(0,1fr)_4.5rem] gap-x-2 gap-y-1 break-words"
-        >
-          <span class="text-base-content-muted">Account</span
-          ><span class="col-span-2 min-w-0">{{ t.caption }}</span>
-          @if (t.window; as window) {
-            <ptah-plan-window-detail [window]="window" [showSummary]="false" />
-          }
-          <span class="text-base-content-muted">Status</span
-          ><span class="col-span-2">{{ t.chip?.text ?? 'Available' }}</span>
-          <span class="text-base-content-muted">Source</span
-          ><span class="col-span-2 flex flex-wrap gap-1">
-            @for (source of t.sourceChips; track source) {
-              <span [class]="sourceChipClass(source)">{{ source }}</span>
-            }
-          </span>
-          @for (line of t.detailLines; track $index) {
-            <p class="col-span-full text-[11px] text-base-content-muted mt-0.5">
-              {{ line }}
-            </p>
-          }
-        </div>
+        @if (t.window; as window) {
+          <ptah-plan-window-detail [window]="window" [showSummary]="false" />
+        }
+        @for (line of t.detailLines; track $index) {
+          <p class="text-[11px] text-base-content-muted mt-0.5">{{ line }}</p>
+        }
       }
     </div>
   `,
@@ -170,39 +172,42 @@ import type { PlanLimitTileModel } from './stats-limit-view-model.types';
 export class PlanLimitTileComponent {
   readonly tile = input.required<PlanLimitTileModel>();
   readonly open = input<boolean>(false);
+  /** The section header already shows this row's caption. */
+  readonly captionShared = input<boolean>(false);
+  /** Source chips the section header shows; an equal list is omitted here. */
+  readonly sharedSources = input<readonly string[]>([]);
   readonly toggled = output<void>();
 
   protected readonly panelId = newPanelId();
-  protected readonly panelClass = TILE_PANEL;
+  protected readonly panelClass = ROW_PANEL;
   protected readonly chipClass = chipClass;
   protected readonly sourceChipClass = sourceChipClass;
   protected readonly ChevronDownIcon = ChevronDown;
   protected readonly ChevronUpIcon = ChevronUp;
 
-  protected readonly faceClass = computed(() =>
-    planFaceClass(this.tile().tone),
-  );
+  protected readonly faceClass = computed(() => planRowClass(this.tile().tone));
   protected readonly expandable = computed(
     () => this.tile().kind !== 'status' && this.tile().kind !== 'local-usage',
   );
   protected readonly statusTitle = computed(() =>
     this.tile().detailLines.join(' '),
   );
+  protected readonly ownSources = computed(() => {
+    const own = this.tile().sourceChips;
+    return sameSources(own, this.sharedSources()) ? [] : own;
+  });
+  /** Clamped to 0-100; `null` (no bar) when the used value is unknown. */
   protected readonly progressPercent = computed<number | null>(() => {
     const percent = this.tile().window?.percent;
     return typeof percent === 'number' && Number.isFinite(percent)
       ? Math.max(0, Math.min(100, percent))
       : null;
   });
-  protected readonly roundedProgressPercent = computed(() =>
-    Math.round(this.progressPercent() ?? 0),
+  protected readonly hasBar = computed(
+    () => this.tile().kind !== 'status' && this.progressPercent() !== null,
   );
-  protected readonly faceStatus = computed(() => {
-    const state = this.tile().window?.state;
-    if (state === 'near-limit') return 'Near limit';
-    if (state === 'limit-reached') return 'Limit reached';
-    return this.tile().tone === 'warning' && this.tile().chip?.text === 'Stale'
-      ? 'Stale'
-      : null;
-  });
+  protected readonly barFillClass = computed(
+    () =>
+      `block h-full rounded-full ${usageBarFillClass(this.tile().tone, this.progressPercent() ?? 0)}`,
+  );
 }

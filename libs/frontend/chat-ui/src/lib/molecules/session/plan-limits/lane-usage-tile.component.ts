@@ -8,24 +8,27 @@ import {
 import { ChevronDown, ChevronUp, LucideAngularModule } from 'lucide-angular';
 import { PlanWindowDetailComponent } from './plan-window-detail.component';
 import {
-  TILE_PANEL,
+  ROW_PANEL,
   chipClass,
-  laneFaceClass,
+  laneRowClass,
   newPanelId,
   sourceChipClass,
 } from './stats-tile.styles';
 import type { LaneUsageTileModel } from './stats-limit-view-model.types';
 
 /**
- * One CLI lane (CLI + role) as a stats-grid tile (design §3.3).
+ * One CLI lane (CLI + role) as a row of the expanded stats card's Lanes
+ * section (design §3.3).
  *
- * Lane usage is outside the session totals (Req 8): the tile carries the
- * caption "lane · not in totals", a dashed border and its own fill. The face
- * shows the summed known tokens and cost (unknown is never 0), the run state
- * and the limit state aggregated over the owner + model-scope subgroups. The
- * panel shows each subgroup: its runs, how its owner relates to the session
- * owner (A1), "see plan tiles" chips only for windows a session plan tile
- * renders (A2), and the full window detail for every other window.
+ * Lane usage is outside the session totals (Req 8): the row has a dashed
+ * accent and its own fill, and the caption "lane · not in totals" is shown
+ * once in the section header (`captionShared`), or on the row when the
+ * section cannot share it. The row shows the summed known tokens and cost
+ * (unknown is never 0), the run state and the limit state aggregated over
+ * the owner + model-scope subgroups. The panel shows each subgroup: its runs,
+ * how its owner relates to the session owner (A1), "see plan tiles" chips
+ * only for windows a session plan row renders (A2), and the full window
+ * detail for every other window.
  *
  * The open state is owned by the host (`StatsTileExpansionState`, A3).
  */
@@ -35,7 +38,6 @@ import type { LaneUsageTileModel } from './stats-limit-view-model.types';
   imports: [LucideAngularModule, PlanWindowDetailComponent],
   host: {
     class: 'block min-w-0',
-    '[class.col-span-full]': 'open()',
     '[attr.data-tile-id]': 'tile().id',
   },
   template: `
@@ -43,39 +45,27 @@ import type { LaneUsageTileModel } from './stats-limit-view-model.types';
     <button
       type="button"
       [class]="faceClass()"
-      [class.rounded-b-none]="open()"
       [attr.aria-expanded]="open()"
       [attr.aria-controls]="panelId"
       data-testid="lane-usage-tile"
       (click)="toggled.emit()"
     >
-      <span
-        class="block text-[10px] uppercase tracking-wider text-base-content-muted leading-tight"
-        >{{ t.label }}</span
-      >
-      <span
-        class="block text-[10px] text-base-content-muted leading-tight"
-        [class.truncate]="!open()"
-        [attr.title]="t.caption"
-        data-testid="lane-caption"
-        >{{ t.caption }}</span
-      >
-      <span
-        class="block text-sm font-semibold leading-tight mt-0.5 tabular-nums"
-        data-testid="lane-tokens"
-        >{{ t.tokensText }}
-        @if (t.tokensUnknownText) {
-          <span class="text-[10px] font-normal text-base-content-muted">{{
-            t.tokensUnknownText
-          }}</span>
-        }
-      </span>
-      <span
-        class="block text-[11px] text-base-content-muted leading-tight mt-0.5"
-        data-testid="lane-cost"
-        >{{ t.costLine }}</span
-      >
-      <span class="flex flex-wrap gap-1 mt-1">
+      <span class="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
+        <span
+          class="min-w-16 max-w-[50%] shrink-0 truncate text-xs text-base-content"
+          [attr.title]="t.label"
+          >{{ t.label }}</span
+        >
+        <span
+          class="text-xs font-semibold tabular-nums"
+          data-testid="lane-tokens"
+          >{{ t.tokensText }}
+          @if (t.tokensUnknownText) {
+            <span class="text-[10px] font-normal text-base-content-muted">{{
+              t.tokensUnknownText
+            }}</span>
+          }
+        </span>
         <span [class]="chipClass(t.runChip.tone)" data-testid="lane-run-chip">
           @if (t.runChip.tone === 'live') {
             <span
@@ -88,9 +78,7 @@ import type { LaneUsageTileModel } from './stats-limit-view-model.types';
           }
           {{ t.runChip.text }}
         </span>
-      </span>
-      @for (face of t.limitChips; track $index) {
-        <span class="flex flex-wrap gap-1 mt-1">
+        @for (face of t.limitChips; track $index) {
           <span
             [class]="chipClass(face.chip.tone)"
             data-testid="lane-limit-chip"
@@ -103,8 +91,22 @@ import type { LaneUsageTileModel } from './stats-limit-view-model.types';
           @for (source of face.sourceChips; track source) {
             <span [class]="sourceChipClass(source)">{{ source }}</span>
           }
-        </span>
-      }
+        }
+      </span>
+      <span
+        class="flex min-w-0 gap-1 pl-[4.5rem] text-[11px] leading-tight text-base-content-muted"
+      >
+        <span class="shrink-0" data-testid="lane-cost">{{ t.costLine }}</span>
+        @if (!captionShared()) {
+          <span
+            class="min-w-0"
+            [class.truncate]="!open()"
+            [attr.title]="t.caption"
+            data-testid="lane-caption"
+            >{{ t.caption }}</span
+          >
+        }
+      </span>
       <lucide-angular
         [img]="open() ? ChevronUpIcon : ChevronDownIcon"
         class="absolute top-1.5 right-1 w-3 h-3 text-base-content-muted"
@@ -120,21 +122,13 @@ import type { LaneUsageTileModel } from './stats-limit-view-model.types';
       @if (open()) {
         @for (group of t.subgroups; track group.key; let first = $first) {
           <section
-            [class]="
-              (first ? 'py-1' : subgroupDivider) +
-              ' grid grid-cols-[minmax(6rem,auto)_minmax(0,1fr)_4.5rem] gap-x-2 gap-y-1 break-words'
-            "
+            [class]="first ? 'py-1' : subgroupDivider"
             [attr.data-owner-status]="group.ownerStatus"
             data-testid="lane-subgroup"
           >
-            <h4 class="col-span-full text-xs font-semibold">
-              {{ group.heading }}
-            </h4>
+            <h4 class="text-xs font-semibold">{{ group.heading }}</h4>
             @for (run of group.runs; track run.runId) {
-              <p
-                class="col-span-full text-xs mt-0.5"
-                data-testid="lane-run-row"
-              >
+              <p class="text-xs mt-0.5" data-testid="lane-run-row">
                 <span class="font-semibold">{{ run.label }}</span>
                 · Model {{ run.model }} · Tokens {{ run.tokensText }} · Cost
                 {{ run.costText }} · {{ run.stateText }}
@@ -143,15 +137,10 @@ import type { LaneUsageTileModel } from './stats-limit-view-model.types';
                 }
               </p>
             }
-            <span class="text-base-content-muted">Account</span>
-            <p
-              class="col-span-2 min-w-0 text-xs font-semibold"
-              data-testid="lane-owner-text"
-            >
+            <p class="text-xs mt-1 font-semibold" data-testid="lane-owner-text">
               {{ group.ownerText }}
             </p>
-            <span class="text-base-content-muted">Status</span>
-            <div class="col-span-2 flex flex-wrap gap-1">
+            <div class="flex flex-wrap gap-1 mt-1">
               <span [class]="chipClass(group.stateChip.tone)">
                 @if (group.stateChip.glyph) {
                   <span aria-hidden="true">{{ group.stateChip.glyph }}</span>
@@ -174,40 +163,21 @@ import type { LaneUsageTileModel } from './stats-limit-view-model.types';
               }
             </div>
             @for (window of group.windows; track window.windowKey) {
-              <span class="col-span-full font-semibold">{{
-                window.label
-              }}</span>
-              <ptah-plan-window-detail
-                [window]="window"
-                [showSummary]="false"
-              />
-              <span class="text-base-content-muted">Source</span
-              ><span class="col-span-2 flex flex-wrap gap-1">
-                @for (source of window.sourceChips; track source) {
-                  <span [class]="sourceChipClass(source)">{{ source }}</span>
-                }
-              </span>
+              <ptah-plan-window-detail [window]="window" />
             }
             @for (line of group.evidenceLines; track $index) {
-              <p
-                class="col-span-full text-[11px] text-base-content-muted mt-0.5"
-              >
+              <p class="text-[11px] text-base-content-muted mt-0.5">
                 {{ line }}
               </p>
             }
             @if (group.cooldownLine) {
-              <p
-                class="col-span-full text-[11px] text-base-content-muted mt-0.5"
-              >
+              <p class="text-[11px] text-base-content-muted mt-0.5">
                 {{ group.cooldownLine }}
               </p>
             }
             @for (note of group.notes; track $index) {
               <p
-                [class]="
-                  (note.tone === 'info' ? infoNote : neutralNote) +
-                  ' col-span-full'
-                "
+                [class]="note.tone === 'info' ? infoNote : neutralNote"
                 [attr.data-note-tone]="note.tone"
                 data-testid="lane-note"
               >
@@ -224,10 +194,12 @@ import type { LaneUsageTileModel } from './stats-limit-view-model.types';
 export class LaneUsageTileComponent {
   readonly tile = input.required<LaneUsageTileModel>();
   readonly open = input<boolean>(false);
+  /** The section header already shows this row's caption. */
+  readonly captionShared = input<boolean>(false);
   readonly toggled = output<void>();
 
   protected readonly panelId = newPanelId();
-  protected readonly panelClass = `${TILE_PANEL} border-dashed`;
+  protected readonly panelClass = `${ROW_PANEL} border-dashed`;
   protected readonly subgroupDivider =
     'py-1 mt-1 border-t border-dashed border-base-content/30';
   /** Explanatory notes are informational, never warnings. */
@@ -240,7 +212,5 @@ export class LaneUsageTileComponent {
   protected readonly ChevronDownIcon = ChevronDown;
   protected readonly ChevronUpIcon = ChevronUp;
 
-  protected readonly faceClass = computed(() =>
-    laneFaceClass(this.tile().tone),
-  );
+  protected readonly faceClass = computed(() => laneRowClass(this.tile().tone));
 }

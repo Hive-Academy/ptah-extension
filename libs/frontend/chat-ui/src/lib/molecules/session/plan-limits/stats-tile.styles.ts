@@ -1,11 +1,11 @@
 /**
- * Class strings shared by the stats-grid limit tiles (TASK_2026_596,
- * design §1, §3.2, §8).
+ * Class strings shared by the limit rows of the expanded stats card
+ * (TASK_2026_596, design §1, §3.2, §8).
  *
  * Text is always `text-base-content` (or the registered `-muted` tier for
- * secondary text): semantic colours are only chip borders, chip tints and tile
- * borders, never text colour, because warning, error, success and info text
- * fail contrast in at least one theme (design §8).
+ * secondary text): semantic colours are only chip borders, chip tints, row
+ * accents and usage-bar fills, never text colour, because warning, error,
+ * success and info text fail contrast in at least one theme (design §8).
  */
 import { PLAN_LIMIT_SOURCE_LABELS } from '@ptah-extension/shared';
 import type {
@@ -14,19 +14,20 @@ import type {
 } from './stats-limit-view-model.types';
 
 /**
- * The card face every tile shares with the existing session cards. The focus
- * ring is `base-content`, not `info`: light `info` is about 2.6:1 on the
- * light card, under the 3:1 non-text minimum (visual review finding 2).
+ * The face every limit row shares: a full-width disclosure button with a
+ * left accent. The focus ring is `base-content`, not `info`: light `info` is
+ * about 2.6:1 on the light card, under the 3:1 non-text minimum (visual
+ * review finding 2).
  */
-export const TILE_FACE =
-  'block w-full text-left rounded px-2 py-1.5 border relative pr-5 cursor-pointer transition-colors hover:bg-base-200/80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content';
+export const ROW_FACE =
+  'block w-full text-left rounded-sm border-l-2 pl-1.5 pr-5 py-1 relative cursor-pointer transition-colors hover:bg-base-content/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-base-content';
 
-/** The detail panel joined under an open tile. */
-export const TILE_PANEL =
-  'rounded-b border border-t-0 border-base-content/15 bg-base-200/40 px-2 pt-1 pb-1.5 text-xs';
+/** The detail panel opened inline under a row, full width. */
+export const ROW_PANEL =
+  'mt-0.5 mb-1 rounded border border-base-content/15 bg-base-100/40 px-2 pt-1 pb-1.5 text-xs';
 
-/** Lane tiles: dashed border plus a different fill (Req 8 cue 2). */
-export const LANE_FACE_FILL = 'border-dashed bg-base-300/40';
+/** Lane rows: dashed accent plus a different fill (Req 8 cue 2). */
+export const LANE_ROW_FILL = 'border-dashed bg-base-300/40';
 
 const CHIP_BASE =
   'inline-flex items-center gap-1 rounded border px-1 py-px text-[10px] leading-tight text-base-content whitespace-normal text-left';
@@ -44,23 +45,42 @@ export function chipClass(tone: StatsChipTone): string {
   return `${CHIP_BASE} ${CHIP_TONE[tone]}`;
 }
 
-const TILE_BORDER: Readonly<Record<StatsTileTone, string>> = {
+const ROW_ACCENT: Readonly<Record<StatsTileTone, string>> = {
   error: 'border-error',
   warning: 'border-warning',
   info: 'border-info',
-  neutral: 'border-base-content/10',
+  neutral: 'border-transparent',
 };
 
-/** Solid session tile: card fill plus the tone border (redundant to the chip). */
-export function planFaceClass(tone: StatsTileTone): string {
-  return `${TILE_FACE} bg-base-200/50 ${TILE_BORDER[tone]}`;
+/** Session plan row: the tone accent is redundant to the chip and the bar. */
+export function planRowClass(tone: StatsTileTone): string {
+  return `${ROW_FACE} ${ROW_ACCENT[tone]}`;
 }
 
-/** Lane tile: dashed border; a neutral lane keeps a stronger dash. */
-export function laneFaceClass(tone: StatsTileTone): string {
-  const border =
-    tone === 'neutral' ? 'border-base-content/40' : TILE_BORDER[tone];
-  return `${TILE_FACE} ${LANE_FACE_FILL} ${border}`;
+/** Lane row: dashed accent; a neutral lane keeps a visible dash. */
+export function laneRowClass(tone: StatsTileTone): string {
+  const accent =
+    tone === 'neutral' ? 'border-base-content/40' : ROW_ACCENT[tone];
+  return `${ROW_FACE} ${LANE_ROW_FILL} ${accent}`;
+}
+
+/** Usage at or above this percent fills the bar in the warning colour. */
+const BAR_WARNING_PERCENT = 75;
+
+/**
+ * Fill colour of a plan row's usage bar: error for an error-toned row,
+ * warning from 75%, success below. A fill is non-text, so the semantic
+ * colour is allowed here (design §8).
+ */
+export function usageBarFillClass(
+  tone: StatsTileTone,
+  percent: number,
+): string {
+  return tone === 'error'
+    ? 'bg-error'
+    : percent >= BAR_WARNING_PERCENT
+      ? 'bg-warning'
+      : 'bg-success';
 }
 
 const UNOFFICIAL_LABELS = [
@@ -83,7 +103,7 @@ export function sourceChipClass(text: string): string {
 
 let nextPanelId = 0;
 
-/** A document-unique id for a tile's detail panel (`aria-controls`). */
+/** A document-unique id for a row's detail panel (`aria-controls`). */
 export function newPanelId(): string {
   nextPanelId += 1;
   return `ptah-stats-tile-panel-${nextPanelId}`;

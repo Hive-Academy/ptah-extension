@@ -70,16 +70,17 @@ describe('PlanWindowDetailComponent', () => {
     expect(text).not.toMatch(/\b0%/);
   });
 
-  it('with showSummary false, keeps only the meter from the summary', () => {
+  it('with showSummary false, shows only the reset facts and the note', () => {
     const root = render(NEAR_WINDOW, false);
     const text = detail(root)?.textContent ?? '';
 
+    // The plan row's face already draws the usage bar and the summary.
     expect(text).not.toContain('5-hour');
     expect(text).not.toContain('Near limit');
     expect(text).not.toContain('94% used');
     expect(text).not.toContain('used · reset Provider API');
     expect(text).not.toContain('limit From error');
-    expect(root.querySelector('[role="progressbar"]')).not.toBeNull();
+    expect(root.querySelector('[role="meter"]')).toBeNull();
     expect(text).toContain('Resets today 15:10 UTC · in 3h 10m');
     expect(text).toContain('observed 10m ago');
   });

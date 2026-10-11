@@ -184,6 +184,7 @@ async function hasGrokCliLogin(): Promise<boolean> {
         (!('auth_mode' in entry) || entry.auth_mode !== 'api_key'),
     );
   } catch {
+    // degradation-audit: optional-capability - Missing or invalid optional Grok login means no authenticated CLI store.
     return false;
   }
 }
@@ -453,7 +454,11 @@ export class PlanLimitOwnerDiscoveryService {
           this.retainNextCodexHomeOwner = false;
         }
       })
-      .catch(() => undefined)
+      .catch((error: unknown) => {
+        this.logger.debug('[PlanLimitOwnerDiscovery] Codex owner read failed', {
+          errorName: error instanceof Error ? error.name : typeof error,
+        });
+      })
       .finally(() => {
         if (this.codexHomeOwnerInFlight === read) {
           this.codexHomeOwnerInFlight = null;

@@ -174,11 +174,6 @@ describe('buildStatsLimitViewModel', () => {
       );
       const group = onlySubgroup(vm);
       expect(group.ownerStatus).toBe('different');
-      expect(
-        vm.planTiles
-          .filter((tile) => tile.kind === 'window')
-          .map((tile) => tile.shortReset),
-      ).toEqual(['in 3h 10m', 'in 3d 0h']);
       expect(group.ownerLabel).toBe('Different owner');
       expect(group.planTileChips).toEqual([]);
       expect(group.windows.map((entry) => entry.windowKey)).toEqual([
@@ -566,6 +561,18 @@ describe('buildStatsLimitViewModel', () => {
       ]);
     });
 
+    it('uses the upcoming reset after a previous reset passed', () => {
+      const passed = planWindow({
+        lastResetAt: NOW - 40 * MIN,
+        resetsAt: NOW + 4 * HOUR,
+        observedAt: NOW - 68 * MIN,
+      });
+      const vm = buildStatsLimitViewModel(
+        input({ owners: [snapshot(CLAUDE_A, { windows: [passed] })] }),
+      );
+      expect(vm.planTiles[0].resetLine).toContain('in 4h 0m');
+    });
+
     it('expired owner evidence never claims current exhaustion', () => {
       const vm = buildStatsLimitViewModel(
         input({
@@ -632,13 +639,13 @@ describe('buildStatsLimitViewModel', () => {
       ).planTiles[0];
 
       expect(canonical).toMatchObject({
-        captionLead: 'Claude account plan limit',
+        captionLead: 'Claude account',
         captionTail: '· aaaa',
-        caption: 'Claude account plan limit · aaaa',
+        caption: 'Claude account · aaaa',
       });
-      expect(nonCanonical.captionLead).toBe('Claude account plan limit');
+      expect(nonCanonical.captionLead).toBe('Claude account');
       expect(nonCanonical.captionTail).toBeUndefined();
-      expect(nonCanonical.caption).toBe('Claude account plan limit');
+      expect(nonCanonical.caption).toBe('Claude account');
     });
 
     it('renders absolute times in the zone it is given', () => {
@@ -847,8 +854,8 @@ describe('buildStatsLimitViewModel', () => {
           id: `plan-status:${CLAUDE_A.key}`,
           value: 'Unavailable',
           resetLine: 'no open session',
-          caption: 'Claude account plan limit · aaaa',
-          captionLead: 'Claude account plan limit',
+          caption: 'Claude account · aaaa',
+          captionLead: 'Claude account',
           captionTail: '· aaaa',
         }),
       ]);

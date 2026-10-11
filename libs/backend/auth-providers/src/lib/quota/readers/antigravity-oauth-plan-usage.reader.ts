@@ -160,6 +160,7 @@ export async function readAntigravityOAuthQuota(
       cachedAccess = accessToken;
     }
     const observedAt = now();
+    let forbidden = false;
     for (const operation of [
       'retrieveUserQuotaSummary',
       'fetchAvailableModels',
@@ -181,7 +182,11 @@ export async function readAntigravityOAuthQuota(
               signal: controller.signal,
             },
           );
-          if (response.status === 401 || response.status === 403) {
+          if (response.status === 403) {
+            forbidden = true;
+            continue;
+          }
+          if (response.status === 401) {
             cachedAccess = undefined;
             return retryUnauthorized
               ? readAntigravityOAuthQuota(
@@ -192,9 +197,7 @@ export async function readAntigravityOAuthQuota(
                   env,
                   false,
                 )
-              : response.status === 403
-                ? noPlan()
-                : unavailable();
+              : unavailable();
           }
           if (!response.ok) continue;
           const body: unknown = await boundedJson(response);
@@ -214,7 +217,7 @@ export async function readAntigravityOAuthQuota(
         }
       }
     }
-    return unavailable();
+    return forbidden ? noPlan() : unavailable();
   } catch {
     return unavailable();
   } finally {
