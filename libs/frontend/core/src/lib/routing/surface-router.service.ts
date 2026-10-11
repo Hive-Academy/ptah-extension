@@ -5,6 +5,7 @@ import {
   NavigationEnd,
   PRIMARY_OUTLET,
   Router,
+  UrlSerializer,
   type UrlTree,
 } from '@angular/router';
 import { filter, map } from 'rxjs/operators';
@@ -64,6 +65,7 @@ export function surfaceNavigationLanded(
 export class SurfaceRouterService {
   private readonly router = inject(Router);
   private readonly outletContexts = inject(ChildrenOutletContexts);
+  private readonly urlSerializer = inject(UrlSerializer);
 
   /**
    * The last URL the Router successfully settled on.
@@ -119,10 +121,14 @@ export class SurfaceRouterService {
    * caller that cannot act on a failure (a navbar click) can fire and forget
    * while `App.handleInitialView` and `HarnessWorkflowMessageHandler` can tell
    * the three interesting cases apart.
+   *
+   * `extras.replaceUrl` replaces the current history entry instead of pushing
+   * one (D6: tab switches replace, surface changes push).
    */
   async navigateToSurface(
     id: ViewType,
     subPath: readonly string[] = [],
+    extras: { readonly replaceUrl?: boolean } = {},
   ): Promise<SurfaceNavigationResult> {
     const target = isSurfaceRouteId(id) ? id : DEFAULT_SURFACE_ID;
     if (target !== id) {
@@ -142,26 +148,39 @@ export class SurfaceRouterService {
         target,
         ...(target === id ? subPath : []),
       ]);
-      // Compared as serialized trees on both sides: `router.url` is the
-      // serializer's output for the current tree, so an encoded segment
-      // (`external:owner%2Frepo`) matches itself rather than its decoded form.
-      const targetUrl = this.router.serializeUrl(targetTree);
-      // Read BEFORE navigating: this is the only honest test of "the Router
-      // had nothing to do", because after the call `router.url` looks
-      // identical whether the navigation was skipped or completed.
-      const startedAtTarget = this.router.url === targetUrl;
-
-      const navigated = await this.router.navigateByUrl(targetTree);
-      if (navigated) return 'navigated';
-      return startedAtTarget && this.router.url === targetUrl
-        ? 'already-there'
-        : 'cancelled';
+      return await this.navigateToTree(targetTree, extras.replaceUrl === true);
     } catch (error: unknown) {
-      console.error(
-        `[SurfaceRouterService] Navigation to "${target}" failed:`,
-        error instanceof Error ? error.message : String(error),
-      );
-      return 'failed';
+      return this.reportFailure(target, error);
+    }
+  }
+
+  /**
+   * Navigate to a whole logical URL — the route a restored webview persisted
+   * (`WebviewRouteState.route`).
+   *
+   * The URL must address a surface: its first primary segment has to be a
+   * surface route id as written, not something `surfaceOf` would fall back
+   * from. A URL from an older build naming a removed id therefore reports
+   * `failed` without navigating, and the boot path falls back to the host's
+   * `initialView` (Risk R8) instead of the wildcard silently landing on chat.
+   *
+   * Parsed with the `UrlSerializer` rather than `Router.parseUrl`, which
+   * swallows a malformed URL and returns `/`; here a parse error must become
+   * `failed`. Results map exactly as {@link navigateToSurface}'s do, and the
+   * method never rejects.
+   */
+  async navigateToUrl(route: string): Promise<SurfaceNavigationResult> {
+    try {
+      const targetTree = this.urlSerializer.parse(route);
+      if (!isSurfaceRouteId(this.firstPrimaryPath(targetTree))) {
+        console.warn(
+          `[SurfaceRouterService] "${route}" addresses no surface — not navigating.`,
+        );
+        return 'failed';
+      }
+      return await this.navigateToTree(targetTree);
+    } catch (error: unknown) {
+      return this.reportFailure(route, error);
     }
   }
 
@@ -206,8 +225,52 @@ export class SurfaceRouterService {
    * parameters, which is exactly the id.
    */
   private surfaceOf(tree: UrlTree): ViewType {
+    return surfaceIdFromSegment(this.firstPrimaryPath(tree));
+  }
+
+  /** The first primary segment's path, without matrix parameters. */
+  private firstPrimaryPath(tree: UrlTree): string | undefined {
     const segments =
       tree.root.children[PRIMARY_OUTLET]?.segments ?? tree.root.segments;
-    return surfaceIdFromSegment(segments[0]?.path);
+    return segments[0]?.path;
+  }
+
+  /**
+   * Navigate to an already-built tree and name the outcome. Callers wrap this
+   * in `try`, because `navigateByUrl` rejects when a lazy chunk fails to load.
+   */
+  private async navigateToTree(
+    targetTree: UrlTree,
+    replaceUrl = false,
+  ): Promise<SurfaceNavigationResult> {
+    // Compared as serialized trees on both sides: `router.url` is the
+    // serializer's output for the current tree, so an encoded segment
+    // (`external:owner%2Frepo`) matches itself rather than its decoded form.
+    const targetUrl = this.router.serializeUrl(targetTree);
+    // Read BEFORE navigating: this is the only honest test of "the Router
+    // had nothing to do", because after the call `router.url` looks
+    // identical whether the navigation was skipped or completed.
+    const startedAtTarget = this.router.url === targetUrl;
+
+    // Extras only when replacing, so a pushing call is exactly what it was
+    // before the flag existed.
+    const navigated = await (replaceUrl
+      ? this.router.navigateByUrl(targetTree, { replaceUrl: true })
+      : this.router.navigateByUrl(targetTree));
+    if (navigated) return 'navigated';
+    return startedAtTarget && this.router.url === targetUrl
+      ? 'already-there'
+      : 'cancelled';
+  }
+
+  private reportFailure(
+    destination: string,
+    error: unknown,
+  ): SurfaceNavigationResult {
+    console.error(
+      `[SurfaceRouterService] Navigation to "${destination}" failed:`,
+      error instanceof Error ? error.message : String(error),
+    );
+    return 'failed';
   }
 }

@@ -391,14 +391,119 @@ describe('AppStateManager', () => {
 
     it('opens Skills with a one-shot diverged-clones request', async () => {
       const service = createService();
+      const router = TestBed.inject(Router);
+      const surfaceRouter = TestBed.inject(SurfaceRouterService);
+      const navigate = jest.spyOn(surfaceRouter, 'navigateToSurface');
 
       service.openSkillsDivergedClones();
       await settle();
 
+      expect(navigate).toHaveBeenCalledWith('thoth', ['skills'], {
+        replaceUrl: false,
+      });
+      expect(router.url).toBe('/thoth/skills');
       expect(service.currentView()).toBe('thoth');
-      expect(service.thothActiveTab()).toBe('skills');
       expect(service.consumeSkillsDivergedRequest()).toBe(true);
       expect(service.consumeSkillsDivergedRequest()).toBe(false);
+    });
+
+    it('lands /thoth/skills even when Thoth is already open on another tab', async () => {
+      // Covers only the service's URL/request contract: the testing route is
+      // component-less, so no shell or Skills tab mounts here. The shell's tab
+      // settle and the Skills diverged filter are covered by the thoth-shell
+      // and skill-synthesis-tab component specs.
+      const service = createService();
+      const router = TestBed.inject(Router);
+      const surfaceRouter = TestBed.inject(SurfaceRouterService);
+      service.switchWorkspace('C:/a');
+      await settle();
+      await surfaceRouter.navigateToSurface('thoth', ['memory']);
+      await settle();
+      expect(router.url).toBe('/thoth/memory');
+      service.setThothActiveTab('cron');
+      const setTab = jest.spyOn(service, 'setThothActiveTab');
+      const navigate = jest.spyOn(surfaceRouter, 'navigateToSurface');
+
+      service.openSkillsDivergedClones();
+      await settle();
+
+      // A tab switch inside Thoth replaces the history entry (D6).
+      expect(navigate).toHaveBeenCalledWith('thoth', ['skills'], {
+        replaceUrl: true,
+      });
+      expect(router.url).toBe('/thoth/skills');
+      expect(service.currentView()).toBe('thoth');
+      // The Thoth shell records the tab on settle; this method never writes it.
+      expect(setTab).not.toHaveBeenCalled();
+      expect(service.thothActiveTab()).toBe('cron');
+      expect(service.consumeSkillsDivergedRequest()).toBe(true);
+    });
+
+    it.each(['failed', 'cancelled'] as const)(
+      'clears the request when the navigation is %s, so a later Skills visit is ordinary',
+      async (result) => {
+        const service = createService();
+        const surfaceRouter = TestBed.inject(SurfaceRouterService);
+        const navigate = jest
+          .spyOn(surfaceRouter, 'navigateToSurface')
+          .mockResolvedValueOnce(result);
+
+        service.openSkillsDivergedClones();
+        await settle();
+        navigate.mockRestore();
+
+        // An ordinary visit to Skills afterwards must not open the filter.
+        await surfaceRouter.navigateToSurface('thoth', ['skills']);
+        await settle();
+        expect(service.consumeSkillsDivergedRequest()).toBe(false);
+      },
+    );
+
+    it('keeps the request when the navigation is already-there', async () => {
+      const service = createService();
+      const surfaceRouter = TestBed.inject(SurfaceRouterService);
+      jest
+        .spyOn(surfaceRouter, 'navigateToSurface')
+        .mockResolvedValueOnce('already-there');
+
+      service.openSkillsDivergedClones();
+      await settle();
+
+      expect(service.consumeSkillsDivergedRequest()).toBe(true);
+    });
+
+    it('clears the request when a later navigation supersedes the deep link', async () => {
+      const service = createService();
+
+      service.openSkillsDivergedClones();
+      service.setCurrentView('analytics');
+      await settle();
+
+      expect(service.currentView()).toBe('analytics');
+      expect(service.consumeSkillsDivergedRequest()).toBe(false);
+    });
+
+    it('an older cancelled deep link does not clear a newer one raised while it was in flight', async () => {
+      const service = createService();
+      const surfaceRouter = TestBed.inject(SurfaceRouterService);
+      let settleFirst: (result: 'cancelled') => void = () => undefined;
+      jest
+        .spyOn(surfaceRouter, 'navigateToSurface')
+        .mockImplementationOnce(
+          () =>
+            new Promise((resolve) => {
+              settleFirst = resolve;
+            }),
+        )
+        .mockResolvedValueOnce('navigated');
+
+      service.openSkillsDivergedClones();
+      service.openSkillsDivergedClones();
+      await settle();
+      settleFirst('cancelled');
+      await settle();
+
+      expect(service.consumeSkillsDivergedRequest()).toBe(true);
     });
 
     it('drops a diverged-clones request the user left behind by switching workspace', async () => {
@@ -416,12 +521,19 @@ describe('AppStateManager', () => {
 
     it('raises no diverged-clones request while view switches are blocked', async () => {
       const service = createService();
+      const surfaceRouter = TestBed.inject(SurfaceRouterService);
       service.setLoading(true);
+      expect(service.canSwitchViews()).toBe(false);
+      const navigate = jest.spyOn(surfaceRouter, 'navigateToSurface');
+      const setTab = jest.spyOn(service, 'setThothActiveTab');
 
       service.openSkillsDivergedClones();
       await settle();
 
+      expect(navigate).not.toHaveBeenCalled();
+      expect(setTab).not.toHaveBeenCalled();
       expect(service.currentView()).toBe('chat');
+      expect(service.thothActiveTab()).toBe('memory');
       expect(service.consumeSkillsDivergedRequest()).toBe(false);
     });
   });
@@ -1447,7 +1559,7 @@ describe('AppStateManager', () => {
 
       service.openMarketplace({ page: 'overview' });
       await settle();
-      expect(navigate).toHaveBeenCalledWith('marketplace', ['overview']);
+      expect(navigate).toHaveBeenCalledWith('marketplace', ['overview'], {});
       expect(router.url).toBe('/marketplace/overview');
     });
   });
@@ -1483,7 +1595,7 @@ describe('AppStateManager', () => {
       service.setCurrentView('tasks');
       await settle();
 
-      expect(navigate).toHaveBeenCalledWith('tasks', []);
+      expect(navigate).toHaveBeenCalledWith('tasks', [], {});
       expect(service.currentView()).toBe('tasks');
     });
 
@@ -1502,7 +1614,7 @@ describe('AppStateManager', () => {
       await settle();
 
       expect(navigate).toHaveBeenCalledTimes(1);
-      expect(navigate).toHaveBeenCalledWith('analytics', []);
+      expect(navigate).toHaveBeenCalledWith('analytics', [], {});
 
       // Owned again, so the next identical request is the no-op.
       service.setCurrentView('analytics');
@@ -1537,7 +1649,7 @@ describe('AppStateManager', () => {
       service.setCurrentView('analytics');
       await settle();
 
-      expect(navigate).toHaveBeenCalledWith('analytics', []);
+      expect(navigate).toHaveBeenCalledWith('analytics', [], {});
       expect(surfaceRouter.pendingSurface()).toBeNull();
       expect(service.currentView()).toBe('analytics');
     });

@@ -162,6 +162,14 @@ export interface PendingSettingsTab {
 }
 
 /**
+ * One diverged-clones deep link. Compared by identity, so a navigation can
+ * tell its own request from a newer one raised while it was in flight.
+ */
+interface SkillsDivergedRequest {
+  readonly workspacePath: string | null;
+}
+
+/**
  * Request to launch a chat session seeded with an initial prompt — e.g. the
  * standalone Tasks board firing `/orchestrate <TASK_ID>`. Consumed by
  * the chat lib (a root-provided bridge service), which creates/focuses a
@@ -493,8 +501,12 @@ export class AppStateManager implements MessageHandler {
    * It is still workspace-BOUND, because the diverged entries it points at are
    * one workspace's — carried into another workspace the deep link would
    * filter that workspace's Library on a divergence the user never saw.
+   *
+   * Held as an object token so the navigation that raised it can clear its
+   * own request, and only its own, when it does not land.
    */
-  private readonly _skillsDivergedRequest = signal<string | null>(null);
+  private readonly _skillsDivergedRequest =
+    signal<SkillsDivergedRequest | null>(null);
   private readonly _pendingSettingsTab = signal<PendingSettingsTab | null>(
     null,
   );
@@ -589,19 +601,27 @@ export class AppStateManager implements MessageHandler {
    * {@link SurfaceRouterService.navigateToSurface}). The settlement records
    * the SURFACE only; the page inside it is recorded by the surface itself
    * once the Router has settled there.
+   *
+   * Resolves with the navigation's result, for a caller that holds state tied
+   * to the navigation landing; most callers ignore it.
    */
   private requestSurface(
     surface: ViewType,
     subPath: readonly string[] = [],
-  ): void {
+    extras: { readonly replaceUrl?: boolean } = {},
+  ): Promise<SurfaceNavigationResult> {
     const generation = ++this._navigationGeneration;
     const workspacePath = this._activeWorkspacePath();
 
-    void this.surfaceRouter
-      .navigateToSurface(surface, subPath)
-      .then((result) =>
-        this.recordSettledSurface(generation, workspacePath, surface, result),
-      );
+    const navigation = this.surfaceRouter.navigateToSurface(
+      surface,
+      subPath,
+      extras,
+    );
+    void navigation.then((result) =>
+      this.recordSettledSurface(generation, workspacePath, surface, result),
+    );
+    return navigation;
   }
 
   /**
@@ -946,7 +966,7 @@ export class AppStateManager implements MessageHandler {
     // the previous workspace's surface still on screen, and a later switch
     // away will refuse to stamp it. That is the honest outcome — the wrong
     // behaviour would be to record a surface this workspace never reached.
-    this.requestSurface(
+    void this.requestSurface(
       this._viewSlices().get(newPath)?.currentView ?? DEFAULT_SURFACE_ID,
     );
   }
@@ -1002,7 +1022,7 @@ export class AppStateManager implements MessageHandler {
     ) {
       return;
     }
-    this.requestSurface(surface);
+    void this.requestSurface(surface);
   }
 
   /** Close a view tab pill. Chat can never be closed. Falls back to chat if closing the active view. */
@@ -1018,7 +1038,7 @@ export class AppStateManager implements MessageHandler {
     // a navigation. The slice's `currentView` memory is not written here — the
     // constructor effect records chat once the navigation settles.
     if (this.currentView() === view) {
-      this.requestSurface(DEFAULT_SURFACE_ID);
+      void this.requestSurface(DEFAULT_SURFACE_ID);
     }
   }
 
@@ -1050,7 +1070,7 @@ export class AppStateManager implements MessageHandler {
   }): void {
     if (data.workspaceInfo) this.setWorkspaceInfo(data.workspaceInfo);
     if (data.currentView) {
-      this.requestSurface(this.normalizeView(data.currentView));
+      void this.requestSurface(this.normalizeView(data.currentView));
     }
     this.setConnected(true);
   }
@@ -1058,7 +1078,7 @@ export class AppStateManager implements MessageHandler {
   handleViewSwitch(view: ViewType): void {
     if (!this.canSwitchViews()) return;
 
-    this.requestSurface(this.normalizeView(view));
+    void this.requestSurface(this.normalizeView(view));
   }
 
   handleError(error: string): void {
@@ -1073,18 +1093,42 @@ export class AppStateManager implements MessageHandler {
   }
 
   /**
-   * Open the Skills tab and raise a one-shot request for its diverged filter.
+   * Navigate to `/thoth/skills` and raise a one-shot request for its diverged
+   * filter.
+   *
+   * It always navigates — even when Thoth is already open on another tab — so
+   * the URL decides the tab. The Thoth shell records `thothActiveTab` once the
+   * Router settles there; this method does not write it.
    *
    * Gated on {@link canSwitchViews} — the same guard {@link setCurrentView}
    * applies. Without it the view switch would be dropped while disconnected or
    * loading and the request would survive, so the filter fired later against
    * whatever surface the user reached next.
+   *
+   * A navigation that does not land (cancelled or failed) clears its own
+   * request, so a later ordinary visit to Skills does not open the filter. It
+   * clears only that request: a newer deep link raised while it was in flight
+   * holds a different token and survives. `already-there` counts as landed.
+   *
+   * From another Thoth tab the navigation is a tab switch, so it replaces the
+   * URL (D6), as `ThothShellComponent.selectTab` does. From another surface it
+   * pushes.
    */
   openSkillsDivergedClones(): void {
     if (!this.canSwitchViews()) return;
-    this.setCurrentView('thoth');
-    this.setThothActiveTab('skills');
-    this._skillsDivergedRequest.set(this._activeWorkspacePath());
+    const request: SkillsDivergedRequest = {
+      workspacePath: this._activeWorkspacePath(),
+    };
+    this._skillsDivergedRequest.set(request);
+    const replaceUrl = this.currentView() === 'thoth';
+    void this.requestSurface('thoth', ['skills'], { replaceUrl }).then(
+      (result) => {
+        if (surfaceNavigationLanded(result)) return;
+        if (this._skillsDivergedRequest() === request) {
+          this._skillsDivergedRequest.set(null);
+        }
+      },
+    );
   }
 
   /**
@@ -1093,10 +1137,10 @@ export class AppStateManager implements MessageHandler {
    * user walked away from by switching workspaces is cleared, not honoured.
    */
   consumeSkillsDivergedRequest(): boolean {
-    const requestedFor = this._skillsDivergedRequest();
+    const request = this._skillsDivergedRequest();
     this._skillsDivergedRequest.set(null);
     return (
-      requestedFor !== null && requestedFor === this._activeWorkspacePath()
+      request !== null && request.workspacePath === this._activeWorkspacePath()
     );
   }
 
@@ -1147,7 +1191,7 @@ export class AppStateManager implements MessageHandler {
    */
   openMarketplace(route: MarketplaceRoute): void {
     if (!this.canSwitchViews()) return;
-    this.requestSurface('marketplace', marketplaceRouteCommands(route));
+    void this.requestSurface('marketplace', marketplaceRouteCommands(route));
   }
 
   /**

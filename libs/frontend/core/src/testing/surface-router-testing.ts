@@ -7,11 +7,24 @@ import {
   withDisabledInitialNavigation,
   type Routes,
 } from '@angular/router';
+import type { ViewType } from '@ptah-extension/shared';
 import { MemoryPlatformLocation } from '../lib/routing/memory-platform-location';
 import {
   DEFAULT_SURFACE_ID,
   SURFACE_ROUTE_IDS,
 } from '../lib/routing/surface-routes';
+
+/** Production child shapes, component-less, for the surfaces that have them. */
+const SURFACE_TEST_CHILDREN: Partial<Record<ViewType, Routes>> = {
+  chat: [
+    { path: '', children: [] },
+    { path: ':tabId', children: [] },
+  ],
+  thoth: [
+    { path: '', pathMatch: 'full', redirectTo: 'memory' },
+    { path: ':tab', children: [] },
+  ],
+};
 
 /**
  * A component-less route per surface id, plus the two fallbacks the real table
@@ -23,10 +36,19 @@ import {
  * reach one it can. The route COMPONENTS are deliberately absent: a unit spec
  * asserting where navigation landed has no business instantiating the
  * marketplace hub to find out.
+ *
+ * The child SHAPES are kept, though, wherever production gives a surface
+ * addressable sub-state, so a spec sees the same URLs production settles on:
+ * `chat` takes an optional `:tabId`, and `thoth` redirects its bare root to
+ * `memory` and takes a `:tab` (TASK_2026_524 Batch 4; Risk R4 — change these
+ * together with the real route tables).
  */
 export function surfaceTestRoutes(): Routes {
   return [
-    ...SURFACE_ROUTE_IDS.map((id) => ({ path: id, children: [] })),
+    ...SURFACE_ROUTE_IDS.map((id) => ({
+      path: id,
+      children: SURFACE_TEST_CHILDREN[id] ?? [],
+    })),
     { path: '', pathMatch: 'full' as const, redirectTo: DEFAULT_SURFACE_ID },
     { path: '**', redirectTo: DEFAULT_SURFACE_ID },
   ];
