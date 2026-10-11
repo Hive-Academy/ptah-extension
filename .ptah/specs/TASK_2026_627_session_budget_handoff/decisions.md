@@ -45,3 +45,8 @@ Team-leader decisions taken while verifying batches. Each names the batch, the c
   subagents. A required member lets the compiler catch that. The fix is one line in a test-only file
   in the same lib, so "outside the batch" is a scoping reason, not a design reason. It goes in
   Batch 5 because that batch already precedes the Phase 1 review and is small (2 libs, 4 files).
+- Resolved in Batch 5 (6cb27e3e4): the method is required, `workInFlight` calls
+  `this.runtime?.subagentsInFlight(id) ?? 0`, and the stream-pump spec mock supplies it. Typecheck of
+  `@ptah-extension/agent-sdk` passed with no other edits. The leftover `subagentsInFlight?.(` calls
+  in `session-lifecycle-manager.spec.ts:897, 909` still compile and are harmless; they can be tidied
+  later.

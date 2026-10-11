@@ -1,6 +1,6 @@
 # Batches - TASK_2026_627
 
-Total tasks: 21 | Batches: 9 (Batch 0 to Batch 8) | Complete: 5/9
+Total tasks: 21 | Batches: 9 (Batch 0 to Batch 8) | Complete: 6/9
 
 Worktree: `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff` (branch
 `fix/session-budget-handoff`). Every executor works only there, never in the main checkout
@@ -31,6 +31,13 @@ Defaults chosen (the user gave the ordering, so no clarification was needed):
 - Run every command from the worktree root. The worktree has no `node_modules` of its own: Node
   resolves the main checkout's `node_modules` by walking up the directories. That is expected. Do not
   run `npm install` in the worktree.
+- Worktree-only Jest quirk (found in Batch 5): the root `jest.preset.js:31-34` resolves `marked` with
+  `path.resolve(__dirname, 'node_modules/...')`, which points at the worktree's missing
+  `node_modules`. Any Jest project whose graph reaches `marked` (for example cli-agent-runtime)
+  fails with "Could not locate module marked". Do not change any config file. Pass the mapper on the
+  command line instead, keeping the project's own `vscode` mock:
+  `--moduleNameMapper='{"^marked$":"D:/projects/ptah-extension/node_modules/marked/lib/marked.umd.js","^vscode$":"D:/projects/ptah-extension/.claude-worktrees/session-budget-handoff/__mocks__/vscode.ts"}'`.
+  agent-sdk specs do not need it.
 - Executors do not run git. The team-leader owns commits.
 
 Nx project names: `@ptah-extension/agent-sdk`, `@ptah-extension/shared`,
@@ -438,7 +445,7 @@ Edge cases:
   then `npx nx typecheck @ptah-extension/agent-sdk --parallel=1`, then
   `npx nx typecheck @ptah-extension/shared --parallel=1` (one at a time).
 
-## Batch 5: Lane work provider in cli-agent-runtime (Component 7) — IN_PROGRESS
+## Batch 5: Lane work provider in cli-agent-runtime (Component 7) — COMPLETE (6cb27e3e4)
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer, fresh session
@@ -450,7 +457,7 @@ Edge cases:
 - Phase: 1 (Backend gates) | Phase review: code-logic + style (new public `setLaneWorkProvider`,
   shared contract change), on the combined diff of Batches 1-5
 
-### Task 5.1: `AgentProcessManager` registers the lane work provider — IN_PROGRESS
+### Task 5.1: `AgentProcessManager` registers the lane work provider — COMPLETE
 
 - Files: MODIFY `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff\libs\backend\cli-agent-runtime\src\lib\cli-agents\agent-process-manager.service.ts`
   and `…\agent-process-manager.service.spec.ts`
@@ -462,7 +469,7 @@ Edge cases:
 - Validation notes: no coordinator → nothing registered. `'running'` is the only non-terminal
   `AgentStatus` (verified).
 
-### Task 5.2: Make `SessionHandoverRuntime.subagentsInFlight` required — IN_PROGRESS
+### Task 5.2: Make `SessionHandoverRuntime.subagentsInFlight` required — COMPLETE
 
 - Files: MODIFY `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff\libs\backend\agent-sdk\src\lib\helpers\session-handoff\session-handover-coordinator.service.ts`
   and `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff\libs\backend\agent-sdk\src\lib\helpers\session-lifecycle\session-stream-pump.service.spec.ts`
@@ -475,6 +482,31 @@ Edge cases:
   `runtime.subagentsInFlight?.(` call in `session-lifecycle-manager.spec.ts` and the coordinator spec
   only if the typecheck requires it.
 - Validation notes: no behaviour change; the production lifecycle runtime already supplies the method.
+
+### Batch 5 result
+
+- Verified on disk by the team-leader: `AgentProcessManager` takes a trailing
+  `@inject(SessionHandoverCoordinator, { isOptional: true })` argument (imported from
+  `@ptah-extension/agent-sdk`, the same edge `session-spawner.service.ts` already uses) and, when
+  present, registers `({ sessionId, tabId }) => countRunningLanes(...)`; the disposer is kept and run
+  once in `disposeAll`. `countRunningLanes` counts `status === 'running'` lanes with a non-empty
+  `parentSessionId` equal to the session id or the tab id. New spec block (4 tests): no coordinator →
+  nothing registered; counts only running lanes of the session or tab id; empty tab id does not match
+  parentless lanes; disposer runs once. Task 5.2 matches decisions.md D4 exactly (resolved there).
+- Accepted deviation: a private loop over `this.agents` instead of
+  `listTrackedAgents().filter(...).length` (same result, no per-call copies), plus the non-empty
+  parent guard (TASK_2026_295 hazard).
+- Carried forward: `session-lifecycle-manager.spec.ts:897, 909` still call `subagentsInFlight?.(`;
+  harmless, may be tidied later. Root `jest.preset.js:31-34` `marked` resolution is out of scope (see
+  the worktree-only Jest quirk in the verification rules).
+- Checks re-run by the team-leader, one at a time: Jest on `agent-process-manager.service.spec.ts`
+  plus `register.agent-process-manager.smoke.spec.ts` (with the `--moduleNameMapper` override) — 2
+  suites, 186 tests passed. Typecheck `@ptah-extension/cli-agent-runtime` passed. Jest on the
+  coordinator, stream-pump and lifecycle specs — 3 suites, 97 tests passed. Typecheck
+  `@ptah-extension/agent-sdk` passed. Lint (reported by the executor): cli-agent-runtime 0 errors /
+  45 warnings, agent-sdk 0 errors / 52 warnings; no warning on a changed line.
+- Phase 1 is now complete (Batches 1-5); its code-logic + style review is due on the combined diff
+  `af9ed9112..6cb27e3e4`.
 
 ### Batch 5 verification
 
