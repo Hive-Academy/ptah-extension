@@ -1,6 +1,6 @@
 # Batches - TASK_2026_623_3492
 
-Total tasks: 82 | Batches: 39 (incl. fix batches 6F, 12F, 15F, 21F, 28F, post-cap correction 12F2) | Complete: 35/39
+Total tasks: 82 | Batches: 39 (incl. fix batches 6F, 12F, 15F, 21F, 28F, post-cap correction 12F2) | Complete: 36/39
 
 Worktree root `W` = `D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel` (branch
 `feat/task-623-display-panel`, base `70f995a56`). Every path below is absolute.
@@ -2008,7 +2008,7 @@ Run ONE AT A TIME (memory-safe rules, CLAUDE.md), from the worktree root, in bas
 - Team-leader commits 28F (8 files plus `batches.md`), then the orchestrator runs the scoped Codex code-logic
   re-review on that commit. Phase 6 ACCEPTED when it approves.
 
-## Batch 29: A1 prompt hint and no-write-back fixtures — COMPLETE (commit "batch 29", SHA recorded at the next transition; deviations ruled in decisions #136-#139, #136 GAP)
+## Batch 29: A1 prompt hint and no-write-back fixtures — COMPLETE (commit 36a8b37f9; deviations ruled in decisions #136-#139, #136 GAP)
 
 - Recommended executor: backend-developer
 - Fallback executor: general-purpose subagent
@@ -2042,7 +2042,7 @@ Run ONE AT A TIME (memory-safe rules, CLAUDE.md), from the worktree root, in bas
   --parallel=1 2>&1 | tail -n 20` after the command below.
 - `npx jest -c libs/backend/agent-sdk/jest.config.ts libs/backend/agent-sdk/src/lib/prompt-harness/ptah-ui-hint.spec.ts libs/backend/agent-sdk/src/lib/helpers/sdk-query-options-builder.host-data.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -n 40 && npx jest -c libs/frontend/chat/jest.config.ts libs/frontend/chat/src/lib/services/message-sender.host-data.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -n 40 && npx nx lint @ptah-extension/agent-sdk --parallel=1 2>&1 | tail -n 20`
 
-## Batch 30: DOC1 `ptah-surface-authoring` skill text — IN_PROGRESS
+## Batch 30: DOC1 `ptah-surface-authoring` skill text — COMPLETE
 
 - Recommended executor: technical-content-writer
 - Fallback executor: backend-developer
@@ -2051,7 +2051,7 @@ Run ONE AT A TIME (memory-safe rules, CLAUDE.md), from the worktree root, in bas
 - Tasks: 2 | Depends on: Batches 6, 29
 - Phase: 7 | Phase review: after Batch 32
 
-### Task 30.1: asset skill copy — IN_PROGRESS
+### Task 30.1: asset skill copy — COMPLETE
 
 - Files:
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\apps\ptah-extension-vscode\assets\plugins\ptah-core\skills\ptah-surface-authoring\SKILL.md
@@ -2059,11 +2059,11 @@ Run ONE AT A TIME (memory-safe rules, CLAUDE.md), from the worktree root, in bas
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\apps\ptah-extension-vscode\assets\plugins\ptah-core\skills\ptah-surface-authoring\references\catalog.md
 - Plan reference: implementation-plan.md:1146-1192
 - Quality requirements: R3 EBNF and lexical delta; display and id rules; `$agents` (context, unavailable/no-percent,
-- Gate note (decision #136, GAP): the hint has no example fence (87/100 tokens), so the skill must carry every worked example; do not add examples to the hint.
   `session`, CLI context unavailable today); `$limits`; the three worked examples; "Common mistakes" for `session` and
   indentation; `/4` kinds in catalog.md.
+- Gate note (decision #136, GAP): the hint has no example fence (87/100 tokens), so the skill must carry every worked example; do not add examples to the hint.
 
-### Task 30.2: `.claude/skills` mirror — IN_PROGRESS
+### Task 30.2: `.claude/skills` mirror — COMPLETE
 
 - Files:
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\.claude\skills\ptah-surface-authoring\SKILL.md
@@ -2076,31 +2076,76 @@ Run ONE AT A TIME (memory-safe rules, CLAUDE.md), from the worktree root, in bas
 - `diff -r apps/ptah-extension-vscode/assets/plugins/ptah-core/skills/ptah-surface-authoring .claude/skills/ptah-surface-authoring && npx jest -c libs/shared/jest.config.ts libs/shared/src/mcp-apps-contracts/ptah-ui-compactness.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -n 20`
 - Team-leader also confirms each skill example appears in `ptah-ui.corpus.ts`.
 
-## Batch 31: DOC2 content manifest and measurement — PENDING
+### Batch 30 verification round 1 — NOT ACCEPTED (team-leader)
+
+- Checks pass: `diff -r` exit 0; compactness spec 31/31; `surface-catalog-reference.spec.ts` 4/4.
+- Ruling (a), ACCEPTED: the `/4` kinds in catalog.md are a table with no `###` headings or fences, because
+  `surface-catalog-reference.spec.ts` needs exactly one JSON example per `/3` kind. No GAP; later batches need not
+  touch it.
+- Ruling (b), claims checked against code:
+  - TRUE: turn scope and `$agents session` covering turns `0..turnIndex` (`ptah-ui-agents-source.ts:136-141,175`);
+    order turn, start, key (`:217-226`); session scalars over every in-scope row (`:103-108`); `$agents` table
+    "+N more" (`ptah-ui-resolver.ts:353-366`); `$limits` "as of", table "+N more", list one item per lane with a
+    trailing "+N more" item (`ptah-ui-resolver.ts:369-404`); `$limits` read only for a valid block that names it
+    (`ptah-ui-block.component.ts:294-307,405-416`).
+  - FALSE 1: `references/ptah-ui.md:144` says a `$agents` *list* ends with "+N more". A list renders no notes
+    (`ptah-ui-resolver.ts:249-258`, comment `:374`) and `agentsRows` puts no "+N more" item in `listItems`
+    (`:362-366`). A `list $agents` past 1,000 rows shows the first 1,000 names and nothing else.
+  - FALSE 2: `SKILL.md:20` says `session` widens `$agents` "to the whole session". It covers the block's turn and
+    earlier turns only, never a later one (`ptah-ui-agents-source.ts:136-141`).
+  - IMPRECISE: `references/ptah-ui.md:145` omits that rows with no known start time sort last within their turn
+    (`ptah-ui-agents-source.ts:217-223`).
+- Fix: text-only edits to those three places in the asset copy, then re-mirror; Batch 30 stays IN_PROGRESS.
+
+### Batch 30 verification round 2 — ACCEPTED (team-leader)
+
+- Report `batch-30-fix-report.md`. The three edits are on disk: `SKILL.md:20` (turns up to and including the
+  block's own turn, never a later one), `references/ptah-ui.md:144` (table "+N more"; `list $agents` first 1,000
+  names, no note), `:145` (unknown start time sorts last within its turn).
+- Citation drift only, not a defect: current lines are `ptah-ui-agents-source.ts:171-172` (`firstTurn` 0 or
+  `turnIndex` .. `turnIndex`), `:175-176` (cap at `maxTableRows` = 1,000), `:325-334` (`compareScopedRows`, null
+  start returns after known).
+- "list $agents has no +N more" confirmed: `ptah-ui-resolver.ts` `agentsRows` returns `listItems:
+  rows.map(firstCellText)` with the omitted count only in `notes`; the list branch renders `listItems` and never
+  `notes`. Contrast `laneListItems`, which appends a "+N more" item for `$limits` only.
+- Checks: `diff -r` exit 0; `ptah-ui-compactness.spec.ts` 31/31. No fence, example or catalog.md touched. No GAP.
+
+## Batch 31: DOC2 content manifest and measurement — IN_PROGRESS
 
 - Recommended executor: backend-developer
 - Fallback executor: general-purpose subagent
 - Execution mode: sequential
 - Rationale: generated manifest plus the measurement record.
-- Tasks: 2 | Depends on: Batches 30, 29
+- Tasks: 3 | Depends on: Batches 30, 29
 - Phase: 7 | Phase review: after Batch 32
 
-### Task 31.1: regenerate `content-manifest.json` — PENDING
+### Task 31.1: regenerate `content-manifest.json` — IN_PROGRESS
 
 - File: D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\content-manifest.json
 - Quality requirements: `npm run manifest:generate` then `npm run manifest:check` (scripts, not build targets).
 
-### Task 31.2: `measurement.md` and A8 — PENDING
+### Task 31.2: `measurement.md` and A8 — IN_PROGRESS
 
 - Files:
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\.ptah\specs\TASK_2026_623_3492\measurement.md (CREATE)
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\backend\vscode-lm-tools\src\lib\code-execution\surface-catalog-reference.spec.ts (only if A8 requires a change)
 - Quality requirements: hint text, characters and tokens; corpus fence vs JSON (R8.4) and fence vs markdown (R8.5);
   coding `tools/list` parity (NFR 5.10); Apps `tools/list` delta (A8); an eager-closure section left for Batch 33.
+- Decision #140 (amends #136's rationale after Codex peer review): `measurement.md` must not repeat the 106-token
+  claim. Record only the hint counts measured in this batch, with the command that produced them.
+
+### Task 31.3: relabel two hint spec case titles (decision #140) — IN_PROGRESS
+
+- File: D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\backend\agent-sdk\src\lib\prompt-harness\ptah-ui-hint.spec.ts
+- Quality requirements: title-only edit of the two cases about the future-fence guard and component syntax
+  coverage, so each title states what the case asserts under #140's amended rationale. No assertion, fixture,
+  import or `PTAH_UI_HINT` change.
 
 ### Batch 31 verification
 
 - `npm run manifest:check 2>&1 | tail -n 20 && npx jest -c libs/backend/vscode-lm-tools/jest.config.ts libs/backend/vscode-lm-tools/src/lib/code-execution/surface-catalog-reference.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -n 40`
+- Then, one at a time: `npx jest -c libs/backend/agent-sdk/jest.config.ts libs/backend/agent-sdk/src/lib/prompt-harness/ptah-ui-hint.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -n 20` (Task 31.3).
+- Every Jest call adds the `--moduleNameMapper` from Batch 29 verification (decision #135).
 
 ## Batch 32: G1 eager-closure gate patterns — PENDING
 
