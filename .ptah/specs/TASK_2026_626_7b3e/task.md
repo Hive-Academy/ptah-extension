@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_626_7b3e
-status: in_progress
+status: in_review
 type: BUGFIX
 title: Show live session stats while a turn runs
 description: >-

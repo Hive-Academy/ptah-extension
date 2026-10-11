@@ -267,7 +267,7 @@ Edge cases:
   - lint shared: 0 errors, 5 warnings.
 - Carried to Batch 5: the `sdk-callbacks.spec.ts` adapter mocks lack `setLiveStatsCallback`, so Task 5.2 must add it.
 
-## Batch 5: Host broadcast wiring (cli-agent-runtime) — COMPLETE
+## Batch 5: Host broadcast wiring (cli-agent-runtime) — COMPLETE (commit 2d8a14086)
 
 - Recommended executor: backend-developer (sub-agent)
 - Fallback executor: CLI lane x1
@@ -501,3 +501,77 @@ Edge cases:
 - No per-batch review; the phase review covers the batch's commit.
 - Explicitly untouched (plan `:1124-1128`): `host-source-registry.baseline.ts`, `apps/ptah-tui/**`, host transports,
   `subagent-hook-handler.ts`, `surface-session-stats.registry.ts`, `libs/frontend/chat-streaming/**`.
+
+## Completion
+
+Final verdict: COMPLETE, handed to review (task status `in_review`). 9/9 batches COMPLETE, 20 tasks COMPLETE,
+10 commits (9 batch commits plus one `test(chat)` phase-review correction). Every SHA below resolves on
+`fix-live-session-stats` (`git log 69a2b835e..HEAD`).
+
+### Commits
+
+| Batch | Name | Commit |
+| ----- | ---- | ------ |
+| 1 | Shared contract | 9f9a3f04f |
+| 2 | Owner provisional state + live publisher (agent-sdk) | 46ba9ed65 |
+| 3 | StreamTransformer wiring (agent-sdk) | f24f363aa |
+| 4 | Adapter port + callback registry (shared + agent-sdk) | c28c150e7 |
+| 5 | Host broadcast wiring (cli-agent-runtime) | 2d8a14086 |
+| 6 | Snapshot validator + admitted live install (chat-state) | 74fa44175 |
+| 7 | Routing and aggregation (chat) | 820e89eda |
+| 8 | Header estimate marker (chat-ui) | 6ea2de360 |
+| 9 | FRONTEND phase fix round | b44707139 |
+| 9 (review correction) | Branded `TabId` in spec fixtures | 6aec7b0c2 |
+
+### Checks per project (scoped, serial, before each commit)
+
+- `@ptah-extension/shared`: parser spec + host-source-registry contract spec (Batch 1); lint 0 errors, 5 warnings (Batch 4 re-run). Registry baseline untouched.
+- `@ptah-extension/agent-sdk`: Batch 2 jest 122/122; Batch 3 jest 157/157 (4 suites); Batch 4 jest 120/120; typecheck pass; lint 0 errors, 52 baseline warnings.
+- `@ptah-extension/cli-agent-runtime`: jest 17/17; typecheck pass; lint 0 errors, 45 baseline warnings.
+- `@ptah-extension/chat-state`: Batch 6 specs; Batch 9 re-run jest 60/60, typecheck pass, lint 0 errors.
+- `@ptah-extension/chat`: Batch 7 jest 105/105; Batch 9 aggregator spec 60/60; typecheck pass; lint 0 errors (35 warnings).
+- `@ptah-extension/chat-ui`: Batch 8 component spec; Batch 9 re-run 37/37, typecheck pass, lint 0 errors.
+
+### Review verdicts
+
+- BACKEND (Batches 1-5): `code-style-review-backend.md` APPROVED (0 Blocking/Serious, 3 Moderate, 4 Minor);
+  `code-logic-review-backend.md` NEEDS_REVISION on one Moderate (concurrent-run settle), accepted and deferred per decisions.md D12.
+- FRONTEND (Batches 6-9): `code-logic-review-frontend.md` + `code-style-review-frontend.md` NEEDS_FIXES, fixed in
+  Batch 9; `frontend-fix-rereview.md` raised one Minor (branded `TabId`), fixed in 6aec7b0c2. Phase CLOSED.
+- VISUAL: `visual-review.md` APPROVED 8/10 (0 breaking, 0 Serious, 2 Moderate). Before (69a2b835e) / after
+  screenshots in dark (`anubis`) and light (`anubis-light`), compact and full layouts, in `screenshots/`.
+  Non-provisional rendering is byte-identical before/after; provisional-to-authoritative settle verified.
+
+### Mode 3 checks
+
+- Parity: N/A. No surface replaced, consolidated, rebuilt or redesigned; the change adds a `~` estimate marker to the existing header.
+- Rendered visual evidence: present (before/after, dark + light); no prototype required for this non-redesign UI change.
+- Write-path trace: N/A. No persisted settings, configuration or storage writes; the new `session:stats-live` payload
+  is broadcast to hosts and installed into in-memory tab state only (`installSessionStats`).
+
+### Accepted deviations
+
+- `IAgentAdapter.setLiveStatsCallback` landed in Batch 4 with its implementor, not Batch 1 (keeps agent-sdk typecheck green per commit).
+- Batch 2 deviations 1-6 (above), notably #3 concurrent-run settle → D12.
+- Batch 3 continued from a partial pre-restart diff (D11).
+- Frontend style review ran on a different lane after the first lane failed (D10).
+- Visual review used a development webview build at 440 px only, Chromium only.
+
+### Later work (not in this PR)
+
+1. D12: reword the "one authoritative settle per shown estimate" invariant in `live-session-stats-publisher.ts` to
+   session level and add a two-run test covering both completion orders.
+2. Backend style Moderates (D13): split `LiveSessionStatsPublisher` responsibilities; share one pricing/usage-row
+   helper with the result path; revisit the `try/finally` around the `stream-transformer.ts` result branch. Plus the 4 backend Minors.
+3. Frontend style #3 (estimate-marker markup repeated in `session-stats-summary.component.html`), #5 (`snapshotFor`
+   name parameter), #6 (double warning / raw session id in aggregator log).
+4. Compact-layout chip width (visual-review Moderate 1): the provisional `~` widens Tokens/Cost chips ~12 px; reserve
+   width if the jitter matters. Moderate 2 (Cost chip clipped at 440 px) is pre-existing.
+5. Pre-existing spec-tsconfig errors (e.g. `session-stats-aggregator.service.spec.ts:150`, `:177`, `:519`; 252 spec-only errors in the chat project).
+6. The TUI (`apps/ptah-tui`) has no `session:stats-live` listener, so it shows no live estimate.
+7. Unchecked: whether `StreamingHandlerService.handleSessionStats` (chat-streaming) fans out to several background tabs.
+
+### Not committed
+
+- `scratch/` (Playwright fixture `gen.e2e.spec.ts`, `pw.config.ts`, `test-results/`) stays untracked: it is
+  throwaway test code, not a review artifact, and a `*.e2e.spec.ts` under the repo could be picked up by tooling.
