@@ -611,6 +611,9 @@ export function buildAgentSpawnTool(
       'agents, which are user-configured Anthropic-compatible providers. ' +
       'WHICH of either family exists on this machine is a runtime fact — call ' +
       'ptah_agent_list; do not assume a provider from any list you have read. ' +
+      'A spawn on a lane at its plan limit or in a cooldown is refused with ' +
+      'the reset time and alternatives; pass force: true only when you know ' +
+      'the limit is wrong. ' +
       'The agent runs while you continue working. ' +
       'You do NOT need to poll: when the agent reaches a terminal status, a ' +
       '<agent-lane-completed> turn is pushed into this session carrying its ' +
@@ -734,6 +737,12 @@ export function buildAgentSpawnTool(
             'Reasoning effort for this lane: minimal, low, medium, high, xhigh ' +
             'or max. Wins over the per-CLI setting and the chat effort. A value ' +
             'the chosen CLI does not take is ignored. Omit to use the setting.',
+        },
+        force: {
+          type: 'boolean',
+          description:
+            'Spawn even when ptah_agent_list shows this lane at its plan limit ' +
+            'or in a cooldown. Use only when the limit is known to be wrong.',
         },
       },
       required: ['task'],
@@ -906,7 +915,10 @@ export function buildAgentListTool(): MCPToolDefinition {
     description:
       'List all available agents (CLI and Ptah CLI) that can be spawned. ' +
       'Returns agent type, installation status, and capabilities. ' +
-      'Ptah CLI agents include ptahCliId needed for ptah_agent_spawn.',
+      'Ptah CLI agents include ptahCliId needed for ptah_agent_spawn. ' +
+      'Each row shows a Limit state: AT LIMIT lanes refuse spawns until their ' +
+      'reset; "unknown (…)" means the limit could not be read, not that the ' +
+      'lane has room. Prefer lanes with confirmed room.',
     inputSchema: {
       type: 'object',
       properties: {},

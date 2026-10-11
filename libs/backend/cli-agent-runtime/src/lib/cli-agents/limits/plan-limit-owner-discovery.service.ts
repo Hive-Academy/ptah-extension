@@ -133,6 +133,7 @@ export type DiscoveryOwnerSource = Pick<
   | 'ownerForCodexHome'
   | 'resolveCodexHomeOwner'
   | 'ownerForCliStore'
+  | 'ownerForOpenCode'
   | 'ownerForAntigravity'
   | 'ownerForSession'
   | 'detailsFor'
@@ -394,9 +395,10 @@ export class PlanLimitOwnerDiscoveryService {
       isInstalled(detected, cli),
     ).map((cli) =>
       this.entryFor(
+        // The same owner an OpenCode lane bills, so card and lane agree.
         cli === 'antigravity'
           ? this.owners.ownerForAntigravity()
-          : this.owners.ownerForCliStore(cli),
+          : this.owners.ownerForOpenCode(),
         'cli-store',
       ),
     );

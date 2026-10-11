@@ -38,6 +38,7 @@ export {
   PlanUsageService,
   type PlanUsageRequestOptions,
 } from './plan-usage.service';
+export { snapshotWindowsForStatus } from './plan-snapshot-windows';
 // Reader contracts
 export type {
   PlanCredentialRef,

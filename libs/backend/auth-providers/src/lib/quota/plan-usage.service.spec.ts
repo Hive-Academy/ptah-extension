@@ -529,6 +529,64 @@ describe('PlanUsageService', () => {
       expect(snapshot.ownerEvidence).toEqual([hit]);
     });
 
+    it('keeps an exhausted ledger window and a cooldown for a no-usage-source owner', async () => {
+      const h = harness();
+      stubOpenCodeReader(h.service, 'opencode', {
+        status: 'service-unavailable',
+        windowSetEstablished: false,
+        windows: [],
+      });
+      const owner = quotaOwnerRefFromKey(cliStoreOwnerKey('opencode', '/oc'));
+      h.ledger.recordWindowEvidence(owner, {
+        key: 'five_hour',
+        kind: 'five_hour',
+        label: '5-hour',
+        observedAt: T0 - 60_000,
+        exhaustion: { observedAt: T0 - 60_000, source: 'error-derived' },
+      });
+      h.ledger.recordWindowEvidence(owner, {
+        key: 'weekly',
+        kind: 'weekly',
+        label: 'Weekly',
+        observedAt: T0 - 60_000,
+      });
+      const cooldown = { until: T0 + 60_000, observedAt: T0 - 1_000 };
+      h.ledger.recordCooldown(owner, cooldown);
+
+      const snapshot = await h.service.getOwnerSnapshot({
+        providerId: 'opencode',
+        ownerRef: owner,
+      });
+
+      expect(snapshot.status).toBe('no-usage-source');
+      expect(snapshot.windowSetEstablished).toBe(false);
+      expect(snapshot.windows.map((window) => window.key)).toEqual([
+        'five_hour',
+      ]);
+      expect(snapshot.cooldown).toEqual(cooldown);
+    });
+
+    it('an unsupported-auth owner carries no windows even with exhaustion evidence', async () => {
+      const h = harness();
+      h.readPlanUsage.mockResolvedValue({
+        subscription_type: null,
+        rate_limits_available: false,
+        rate_limits: null,
+      } as unknown as ClaudePlanUsage);
+      h.ledger.recordWindowEvidence(CLAUDE_A, {
+        key: 'five_hour',
+        kind: 'five_hour',
+        label: '5-hour',
+        observedAt: T0 - 1_000,
+        exhaustion: { observedAt: T0 - 1_000, source: 'error-derived' },
+      });
+
+      const snapshot = await h.service.getOwnerSnapshot(claudeTarget());
+
+      expect(snapshot.status).toBe('unsupported-auth');
+      expect(snapshot.windows).toEqual([]);
+    });
+
     it('answers provider-unsupported for a provider without a reader', async () => {
       const h = harness();
       const owner = quotaOwnerRefFromKey(credentialOwnerKey('openrouter', 'k'));

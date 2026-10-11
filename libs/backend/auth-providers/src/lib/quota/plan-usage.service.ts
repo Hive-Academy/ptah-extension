@@ -35,7 +35,8 @@
  * `staleSince` = the first failure. Its windows keep their original
  * observation time and are given to the ledger with `{stale:true}`, which
  * never lets them clear live evidence. Eligibility and configuration
- * statuses replace the cached reading and carry no windows. With no open
+ * statuses replace the cached reading; they carry only ledger windows with
+ * exhaustion evidence, or none for an owner that cannot be on a plan. With no open
  * Claude session the stream-event evidence is returned as is (Req 2.2).
  *
  * One owner's failure never touches another owner's cache or snapshot.
@@ -55,6 +56,7 @@ import type {
   PlanSecret,
 } from './plan-credential.source';
 import { normaliseOwnerProviderId } from './provider-owner.resolver';
+import { snapshotWindowsForStatus } from './plan-snapshot-windows';
 import {
   createClaudePlanUsageReader,
   type ClaudePlanUsageProbe,
@@ -83,7 +85,10 @@ export const PLAN_USAGE_MAX_OWNERS = 64;
 /** Providers that have an owner but no source reporting its limits. */
 const NO_USAGE_SOURCE_PROVIDERS: ReadonlySet<string> = new Set([]);
 
-/** The owner cannot be read at all; such a snapshot carries no windows. */
+/**
+ * The owner cannot be read at all; such a snapshot never has an established
+ * window set. Its windows follow `snapshotWindowsForStatus`.
+ */
 const ELIGIBILITY_STATUSES: ReadonlySet<ProviderAccountUsageStatus> = new Set([
   'unsupported-auth',
   'unsupported-config',
@@ -400,7 +405,10 @@ export class PlanUsageService {
       ...(reading.fetchedAt !== undefined && { fetchedAt: reading.fetchedAt }),
       ...(staleSince !== undefined && { staleSince }),
       windowSetEstablished: !ineligible && reading.windowSetEstablished,
-      windows: ineligible ? [] : (evidence?.windows ?? []),
+      windows: snapshotWindowsForStatus(
+        reading.status,
+        evidence?.windows ?? [],
+      ),
       ownerEvidence: evidence?.ownerEvidence ?? [],
       ...(evidence?.cooldown && { cooldown: evidence.cooldown }),
       ...(reading.account && { account: reading.account }),

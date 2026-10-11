@@ -13,6 +13,7 @@ configured ptah-cli provider. This skill is the one place lane mechanics are wri
 
 No `ptah_agent_*` tools in this session → do the work natively and say so. Otherwise call
 `ptah_agent_list` before choosing. Its rows are the only lanes that exist on this machine now.
+Read each row's Limit state: never pick an AT LIMIT lane (spawn refuses it unless force: true); treat "unknown (…)" as unverified, not as room.
 The `cli` enum on the `ptah_agent_spawn` schema lists adapters this build ships, not what is installed.
 
 ```
