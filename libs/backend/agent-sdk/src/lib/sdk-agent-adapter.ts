@@ -927,6 +927,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
     workspacePath: string | undefined,
   ): Promise<RunPreparation> {
     const root = (): string | null => {
+      // eslint-disable-next-line no-restricted-properties -- MP-3 pending (PTAH-37)
       const found = workspacePath || this.workspaceProvider.getWorkspaceRoot();
       if (!found) {
         this.logger.warn(

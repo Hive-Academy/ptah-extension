@@ -69,6 +69,7 @@ export class SessionTitleService {
       // neither is known, which is the SDK's documented "search all" mode.
       const metadata = await this.metadataStore.get(sessionId);
       const dir =
+        // eslint-disable-next-line no-restricted-properties -- MP-3 pending (PTAH-37)
         metadata?.workspaceId ?? this.workspaceProvider.getWorkspaceRoot();
 
       await rename(sessionId, title, dir ? { dir } : undefined);

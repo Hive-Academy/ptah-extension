@@ -92,6 +92,7 @@ export class SessionForkService {
       }
 
       const sourceMetadata = await this.metadataStore.get(sessionId);
+      // eslint-disable-next-line no-restricted-properties -- MP-3 pending (PTAH-37)
       const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
       const forkWorkspacePath = sourceMetadata?.workspaceId ?? workspaceRoot;
 
@@ -132,6 +133,7 @@ export class SessionForkService {
 
       const workspaceId =
         sourceMetadata?.workspaceId ??
+        // eslint-disable-next-line no-restricted-properties -- MP-3 pending (PTAH-37)
         this.workspaceProvider.getWorkspaceRoot();
       if (!workspaceId) {
         throw new SdkError(
@@ -209,6 +211,7 @@ export class SessionForkService {
     // not yet flushed), fall back to the raw id rather than blocking the rewind.
     const sourceMetadata = await this.metadataStore.get(sessionId);
     const rewindWorkspacePath =
+      // eslint-disable-next-line no-restricted-properties -- MP-3 pending (PTAH-37)
       sourceMetadata?.workspaceId ?? this.workspaceProvider.getWorkspaceRoot();
     let resolvedUserMessageId = userMessageId;
     if (rewindWorkspacePath) {
