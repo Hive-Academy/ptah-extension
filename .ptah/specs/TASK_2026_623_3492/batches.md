@@ -2042,7 +2042,7 @@ Run ONE AT A TIME (memory-safe rules, CLAUDE.md), from the worktree root, in bas
   --parallel=1 2>&1 | tail -n 20` after the command below.
 - `npx jest -c libs/backend/agent-sdk/jest.config.ts libs/backend/agent-sdk/src/lib/prompt-harness/ptah-ui-hint.spec.ts libs/backend/agent-sdk/src/lib/helpers/sdk-query-options-builder.host-data.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -n 40 && npx jest -c libs/frontend/chat/jest.config.ts libs/frontend/chat/src/lib/services/message-sender.host-data.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -n 40 && npx nx lint @ptah-extension/agent-sdk --parallel=1 2>&1 | tail -n 20`
 
-## Batch 30: DOC1 `ptah-surface-authoring` skill text — COMPLETE
+## Batch 30: DOC1 `ptah-surface-authoring` skill text — COMPLETE (commit d7a69fbd0; round 2 accepted, no GAP)
 
 - Recommended executor: technical-content-writer
 - Fallback executor: backend-developer
@@ -2110,7 +2110,7 @@ Run ONE AT A TIME (memory-safe rules, CLAUDE.md), from the worktree root, in bas
   `notes`. Contrast `laneListItems`, which appends a "+N more" item for `$limits` only.
 - Checks: `diff -r` exit 0; `ptah-ui-compactness.spec.ts` 31/31. No fence, example or catalog.md touched. No GAP.
 
-## Batch 31: DOC2 content manifest and measurement — IN_PROGRESS
+## Batch 31: DOC2 content manifest and measurement — COMPLETE (decisions #141-#142)
 
 - Recommended executor: backend-developer
 - Fallback executor: general-purpose subagent
@@ -2119,12 +2119,12 @@ Run ONE AT A TIME (memory-safe rules, CLAUDE.md), from the worktree root, in bas
 - Tasks: 3 | Depends on: Batches 30, 29
 - Phase: 7 | Phase review: after Batch 32
 
-### Task 31.1: regenerate `content-manifest.json` — IN_PROGRESS
+### Task 31.1: regenerate `content-manifest.json` — COMPLETE
 
 - File: D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\content-manifest.json
 - Quality requirements: `npm run manifest:generate` then `npm run manifest:check` (scripts, not build targets).
 
-### Task 31.2: `measurement.md` and A8 — IN_PROGRESS
+### Task 31.2: `measurement.md` and A8 — COMPLETE
 
 - Files:
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\.ptah\specs\TASK_2026_623_3492\measurement.md (CREATE)
@@ -2134,12 +2134,25 @@ Run ONE AT A TIME (memory-safe rules, CLAUDE.md), from the worktree root, in bas
 - Decision #140 (amends #136's rationale after Codex peer review): `measurement.md` must not repeat the 106-token
   claim. Record only the hint counts measured in this batch, with the command that produced them.
 
-### Task 31.3: relabel two hint spec case titles (decision #140) — IN_PROGRESS
+### Task 31.3: relabel two hint spec case titles (decision #140) — COMPLETE
 
 - File: D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\backend\agent-sdk\src\lib\prompt-harness\ptah-ui-hint.spec.ts
 - Quality requirements: title-only edit of the two cases about the future-fence guard and component syntax
   coverage, so each title states what the case asserts under #140's amended rationale. No assertion, fixture,
   import or `PTAH_UI_HINT` change.
+
+### Batch 31 verification — ACCEPTED (team-leader)
+
+- Report `batch-31-report.md`. On disk: `content-manifest.json` hash `a40c077c...` (2-line diff); `measurement.md`
+  (untracked, decision #142) records hint 371 chars / 87 tokens with its command, R8.4 22/22 fence smaller, R8.5
+  25 vs 127, NFR 5.10 byte-identical coding `tools/list`, A8 delta 0; no "106-token" claim. Spec diff is the two
+  titles only (2+/2-).
+- Team-leader checks, one at a time: `manifest:check` up to date (229 files); hint spec 1 suite 7/7;
+  `nx lint agent-sdk` 0 errors, 50 warnings (baseline).
+- No `zz-*` scratch files remain (`git status --untracked-files=all` shows only the three batch files and task-folder
+  artifacts).
+- Stale in-body comment in the component-syntax case ("no full example to stay in budget") carried to Task 32.2
+  (decision #141).
 
 ### Batch 31 verification
 
@@ -2147,16 +2160,17 @@ Run ONE AT A TIME (memory-safe rules, CLAUDE.md), from the worktree root, in bas
 - Then, one at a time: `npx jest -c libs/backend/agent-sdk/jest.config.ts libs/backend/agent-sdk/src/lib/prompt-harness/ptah-ui-hint.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -n 20` (Task 31.3).
 - Every Jest call adds the `--moduleNameMapper` from Batch 29 verification (decision #135).
 
-## Batch 32: G1 eager-closure gate patterns — PENDING
+## Batch 32: G1 eager-closure gate patterns — IN_PROGRESS
 
 - Recommended executor: backend-developer
 - Fallback executor: general-purpose subagent
 - Execution mode: sequential
-- Rationale: script plus its synthetic spec; closes Phase 7.
-- Tasks: 1 | Depends on: Batch 25
+- Rationale: script plus its synthetic spec; closes Phase 7. Task 32.2 is a one-line comment fix carried in from
+  Batch 31 (decision #141) so the Phase 7 review sees no stale #136 rationale.
+- Tasks: 2 | Depends on: Batch 25
 - Phase: 7 (last batch) | Phase review: code-logic on Batches 29-32
 
-### Task 32.1: forbidden and allowed eager inputs — PENDING
+### Task 32.1: forbidden and allowed eager inputs — IN_PROGRESS
 
 - Files:
   - D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\scripts\eager-closure-gate.js
@@ -2178,10 +2192,23 @@ Run ONE AT A TIME (memory-safe rules, CLAUDE.md), from the worktree root, in bas
   inputs, never source import text. Add a synthetic fixture whose eager `main.js` lists `ptah-ui-display-dock.ts` and
   no `display-panel` input, and assert it passes. The sync's reuse of `organisms/ptah-ui/ptah-ui-block.component.ts`
   is already covered by the existing `organisms/ptah-ui/` pattern.
+- Decision #113(b): name `libs/frontend/chat/src/lib/components/organisms/display-dock/display-dock.component.ts`
+  explicitly as lazy-only (a comment or entry next to the `chat/.*/organisms/display-dock/` forbidden pattern), and
+  add a synthetic fixture whose eager `main.js` lists that exact input and assert the gate fails closed on it.
+
+### Task 32.2: correct the stale rationale comment in the hint spec (decision #141) — IN_PROGRESS
+
+- File: D:\projects\ptah-extension\.claude-worktrees\task-623-display-panel\libs\backend\agent-sdk\src\lib\prompt-harness\ptah-ui-hint.spec.ts
+- Quality requirements: comment-only edit inside the `component syntax coverage: ...` case. Replace "The hint carries
+  no full example to stay in budget" with #140's rationale: the hint carries no example because R8.1 does not require
+  one and R8.3 assigns worked examples to the `ptah-surface-authoring` skill, so the forms it names are checked
+  instead. No title, assertion, fixture, import or `PTAH_UI_HINT` change.
 
 ### Batch 32 verification
 
 - `npx jest -c apps/ptah-electron/jest.config.ts apps/ptah-electron/src/config/eager-closure-gate.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -n 40`
+- Then (Task 32.2): `npx jest -c libs/backend/agent-sdk/jest.config.ts libs/backend/agent-sdk/src/lib/prompt-harness/ptah-ui-hint.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -n 20`
+- Every Jest call adds the `--moduleNameMapper` from Batch 29 verification (decision #135).
 - Phase 7 code-logic review due after commit
 
 ## Batch 33: V1 single build, gate run and visual review — PENDING

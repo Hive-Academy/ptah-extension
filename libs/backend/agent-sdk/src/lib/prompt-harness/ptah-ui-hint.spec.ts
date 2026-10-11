@@ -47,7 +47,7 @@ describe('PTAH_UI_HINT', () => {
     expect(PTAH_UI_HINT).not.toMatch(/\bcontext\b/);
   });
 
-  it('uses only parseable ptah-ui examples', () => {
+  it('future-fence guard: every ptah-ui fence the hint may contain parses (it contains none today)', () => {
     const examples = Array.from(
       PTAH_UI_HINT.matchAll(/```ptah-ui(?: display(?: \S+)?)?\n([\s\S]*?)\n```/g),
       (match) => match[1],
@@ -58,7 +58,7 @@ describe('PTAH_UI_HINT', () => {
     }
   });
 
-  it('names an opener and sources that the fence grammar accepts', () => {
+  it('component syntax coverage: the named display [id] opener segments as a display fence and each listed source parses as a stat value', () => {
     // The hint carries no full example to stay in budget, so the forms it names
     // are checked instead: the display opener with a concrete id, and each listed
     // source as a stat value.
