@@ -587,6 +587,237 @@ describe('TabManagerService — abort streaming on tab close (Wave E2)', () => {
   });
 
   // ---------------------------------------------------------------------
+  // installLiveSessionStats (TASK_2026_626)
+  // A `session:stats-live` snapshot is admitted exactly like
+  // `installSessionStats`; its context reading is applied in the same update
+  // only for a provisional snapshot whose model matches the tab's live reading.
+  // ---------------------------------------------------------------------
+  describe('installLiveSessionStats (TASK_2026_626)', () => {
+    const MODEL = 'claude-sonnet-4-5';
+    const SESSION = SessionId.create();
+    const contextCapacity = {
+      tokens: 200000,
+      source: 'provider-catalog' as const,
+      providerId: 'anthropic',
+      model: MODEL,
+    };
+
+    function snapshot(
+      revision: number,
+      overrides: Partial<SessionStatsEntry> = {},
+    ): SessionStatsEntry {
+      return {
+        sessionId: SESSION,
+        model: MODEL,
+        totalCost: 0.5,
+        tokens: { input: 100 * revision, output: 10, cacheRead: 0, cacheCreation: 0 },
+        messageCount: revision,
+        status: 'ok',
+        revision,
+        ...overrides,
+      };
+    }
+
+    function provisional(revision: number): SessionStatsEntry {
+      return snapshot(revision, { provisional: true });
+    }
+
+    /** A tab bound to SESSION showing a same-model 40 000-token fill. */
+    function tabWithFill(): string {
+      const tabId = service.createTab('live tab');
+      service.attachSession(tabId, SESSION);
+      service.setLiveModelStats(tabId, {
+        model: MODEL,
+        contextKnown: true,
+        contextCapacity,
+        contextUsed: 40000,
+        contextWindow: 200000,
+        contextPercent: 20,
+      });
+      return tabId;
+    }
+
+    const tabOf = (tabId: string) =>
+      service.tabs().find((candidate) => candidate.id === tabId);
+
+    function spyOnUpdates(): jest.SpyInstance {
+      const internal = service as unknown as {
+        updateTabInternal: (id: string, updates: Partial<TabState>) => void;
+      };
+      return jest.spyOn(internal, 'updateTabInternal');
+    }
+
+    it('installs an admitted snapshot and its fill (prior capacity) in one update', () => {
+      const tabId = tabWithFill();
+      const live = provisional(5);
+      const update = spyOnUpdates();
+
+      const admitted = service.installLiveSessionStats(tabId, live, {
+        model: MODEL,
+        contextTokens: 60000,
+      });
+
+      expect(admitted).toBe(true);
+      expect(update).toHaveBeenCalledTimes(1);
+      const tab = tabOf(tabId);
+      expect(tab?.sessionStats).toBe(live);
+      expect(tab?.liveModelStats).toEqual({
+        model: MODEL,
+        contextKnown: true,
+        contextCapacity,
+        contextUsed: 60000,
+        contextWindow: 200000,
+        contextPercent: 30,
+      });
+    });
+
+    it('matches the model under normalizeModelKey', () => {
+      const tabId = tabWithFill();
+
+      service.installLiveSessionStats(tabId, provisional(5), {
+        model: 'Anthropic/Claude-Sonnet-4-5-20250929',
+        contextTokens: 60000,
+      });
+
+      expect(tabOf(tabId)?.liveModelStats?.contextUsed).toBe(60000);
+    });
+
+    it('rejects a live snapshot older than an installed authoritative one and writes nothing', () => {
+      const tabId = tabWithFill();
+      const authoritative = snapshot(10);
+      service.installSessionStats(tabId, authoritative);
+      const fillBefore = tabOf(tabId)?.liveModelStats;
+      const update = spyOnUpdates();
+
+      const admitted = service.installLiveSessionStats(tabId, provisional(8), {
+        model: MODEL,
+        contextTokens: 90000,
+      });
+
+      expect(admitted).toBe(false);
+      expect(update).not.toHaveBeenCalled();
+      const tab = tabOf(tabId);
+      expect(tab?.sessionStats).toBe(authoritative);
+      expect(tab?.liveModelStats).toBe(fillBefore);
+      expect(tab?.liveModelStats?.contextUsed).toBe(40000);
+    });
+
+    it.each([
+      ['an invalid snapshot', { provisional: 'yes' as unknown as boolean }],
+      ['another session', { sessionId: SessionId.create() }],
+    ])('returns false and writes nothing for %s', (_label, overrides) => {
+      const tabId = tabWithFill();
+      service.installSessionStats(tabId, snapshot(1));
+      const before = tabOf(tabId);
+      const update = spyOnUpdates();
+
+      const admitted = service.installLiveSessionStats(
+        tabId,
+        snapshot(2, { provisional: true, ...overrides }),
+        { model: MODEL, contextTokens: 90000 },
+      );
+
+      expect(admitted).toBe(false);
+      expect(update).not.toHaveBeenCalled();
+      expect(tabOf(tabId)).toBe(before);
+    });
+
+    it('returns false for an unknown tab', () => {
+      expect(
+        service.installLiveSessionStats('missing-tab', provisional(1), {
+          model: MODEL,
+          contextTokens: 90000,
+        }),
+      ).toBe(false);
+    });
+
+    it('installs the snapshot but leaves the fill on a model mismatch', () => {
+      const tabId = tabWithFill();
+      const live = provisional(5);
+
+      expect(
+        service.installLiveSessionStats(tabId, live, {
+          model: 'claude-opus-4-1',
+          contextTokens: 90000,
+        }),
+      ).toBe(true);
+
+      expect(tabOf(tabId)?.sessionStats).toBe(live);
+      expect(tabOf(tabId)?.liveModelStats?.contextUsed).toBe(40000);
+    });
+
+    it('installs the snapshot but writes no fill when the tab has no live reading', () => {
+      const tabId = service.createTab('no reading');
+      service.attachSession(tabId, SESSION);
+      const live = provisional(5);
+      const fillBefore = tabOf(tabId)?.liveModelStats;
+
+      expect(
+        service.installLiveSessionStats(tabId, live, {
+          model: MODEL,
+          contextTokens: 90000,
+        }),
+      ).toBe(true);
+
+      expect(tabOf(tabId)?.sessionStats).toBe(live);
+      expect(tabOf(tabId)?.liveModelStats).toBe(fillBefore);
+    });
+
+    it('installs the snapshot but leaves the fill for zero context tokens', () => {
+      const tabId = tabWithFill();
+      const live = provisional(5);
+
+      expect(
+        service.installLiveSessionStats(tabId, live, {
+          model: MODEL,
+          contextTokens: 0,
+        }),
+      ).toBe(true);
+
+      expect(tabOf(tabId)?.sessionStats).toBe(live);
+      expect(tabOf(tabId)?.liveModelStats?.contextUsed).toBe(40000);
+    });
+
+    it('never writes the fill from an equal-revision authoritative snapshot carrying a context', () => {
+      const tabId = tabWithFill();
+      service.installSessionStats(tabId, snapshot(10));
+      const authoritative = snapshot(10, { totalCost: 0.75 });
+
+      const admitted = service.installLiveSessionStats(tabId, authoritative, {
+        model: MODEL,
+        contextTokens: 90000,
+      });
+
+      expect(admitted).toBe(true);
+      expect(tabOf(tabId)?.sessionStats).toBe(authoritative);
+      expect(tabOf(tabId)?.liveModelStats?.contextUsed).toBe(40000);
+    });
+
+    it('preserves the session budget across a live install', () => {
+      const tabId = tabWithFill();
+      const budget = {
+        sessionId: SESSION,
+        stage: 'normal' as const,
+        unit: 'tokens' as const,
+        measure: 'tokens' as const,
+        used: 100,
+        limit: 1000,
+        percent: 10,
+        lowerBound: false,
+        revision: 3,
+        compactions: 0,
+        extensions: 0,
+        blocked: false,
+      };
+      service.installSessionStats(tabId, snapshot(3), budget);
+
+      expect(service.installLiveSessionStats(tabId, provisional(4))).toBe(true);
+
+      expect(tabOf(tabId)?.sessionBudget).toBe(budget);
+    });
+  });
+
+  // ---------------------------------------------------------------------
   // Messaging-gateway attachment intents (markTabAttached / markTabDetached /
   // findTabIdsBySessionId). These are the frontend-only read-only flag driven
   // by backend gateway:sessionAttached / gateway:sessionDetached push events.

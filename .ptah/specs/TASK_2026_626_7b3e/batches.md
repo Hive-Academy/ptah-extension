@@ -1,6 +1,6 @@
 # Batches - TASK_2026_626_7b3e
 
-Total tasks: 16 | Batches: 8 | Complete: 1/8
+Total tasks: 16 | Batches: 8 | Complete: 3/8
 
 Worktree root (all relative paths below resolve against it):
 `D:/projects/ptah-extension/.claude-worktrees/fix-live-session-stats-a1634d3869cb`
@@ -252,7 +252,7 @@ Edge cases:
 - `npx jest -c libs/backend/cli-agent-runtime/jest.config.ts libs/backend/cli-agent-runtime/src/lib/wiring/sdk-callbacks.spec.ts --coverage=false --maxWorkers=2`
 - `npx nx typecheck @ptah-extension/cli-agent-runtime --parallel=1`; `npx nx lint @ptah-extension/cli-agent-runtime --parallel=1`
 
-## Batch 6: Snapshot validator + admitted live install (chat-state) — IN_PROGRESS
+## Batch 6: Snapshot validator + admitted live install (chat-state) — COMPLETE
 
 - Recommended executor: frontend-developer (sub-agent)
 - Fallback executor: same sub-agent re-run
@@ -261,14 +261,14 @@ Edge cases:
 - Tasks: 2 | Depends on: Batch 1
 - Phase: FRONTEND | Phase review: code-logic + style + visual (after Batch 7 and Batch 8 both commit)
 
-### Task 6.1: `isValidSessionStatsSnapshot` accepts `provisional` — IMPLEMENTED
+### Task 6.1: `isValidSessionStatsSnapshot` accepts `provisional` — COMPLETE
 
 - Files: MODIFY `libs/frontend/chat-state/src/lib/session-stats-snapshot.ts`; CREATE `libs/frontend/chat-state/src/lib/session-stats-snapshot.spec.ts`
 - Plan reference: implementation-plan.md:797-871 (C7)
 - Acceptance: `provisional` accepted only as `undefined` or boolean; spec: `true` accepted, `'yes'` rejected, floor
   admits live r, then after authoritative r+1 rejects a later live r-1.
 
-### Task 6.2: `TabManagerService.installLiveSessionStats` — IN_PROGRESS
+### Task 6.2: `TabManagerService.installLiveSessionStats` — COMPLETE
 
 - Files: MODIFY `libs/frontend/chat-state/src/lib/tab-manager.service.ts`, `libs/frontend/chat-state/src/lib/tab-manager.service.spec.ts`,
   `libs/frontend/chat-state/src/lib/surface-session-stats.registry.spec.ts`
@@ -286,7 +286,7 @@ Edge cases:
 - `npx jest -c libs/frontend/chat-state/jest.config.ts libs/frontend/chat-state/src/lib/session-stats-snapshot.spec.ts libs/frontend/chat-state/src/lib/tab-manager.service.spec.ts libs/frontend/chat-state/src/lib/surface-session-stats.registry.spec.ts --coverage=false --maxWorkers=2`
 - `npx nx typecheck @ptah-extension/chat-state --parallel=1`; `npx nx lint @ptah-extension/chat-state --parallel=1`
 
-## Batch 7: Routing and aggregation (chat) — PENDING
+## Batch 7: Routing and aggregation (chat) — IN_PROGRESS
 
 - Recommended executor: frontend-developer (sub-agent)
 - Fallback executor: same sub-agent re-run
@@ -295,7 +295,7 @@ Edge cases:
 - Tasks: 3 | Depends on: Batch 6
 - Phase: FRONTEND | Phase review: code-logic + style + visual (after Batch 7 and Batch 8 both commit)
 
-### Task 7.1: ChatMessageHandler route — PENDING
+### Task 7.1: ChatMessageHandler route — IN_PROGRESS
 
 - Files: MODIFY `libs/frontend/chat/src/lib/services/chat-message-handler.service.ts`, `libs/frontend/chat/src/lib/services/chat-message-handler.service.spec.ts`
 - Plan reference: implementation-plan.md:873-961 (C8)
@@ -303,13 +303,13 @@ Edge cases:
   `handleSessionStatsLive` parses with `parseSessionStatsLivePayload`, warns once (session only) and drops on
   `null`; header comment list updated; `SESSION_STATS` handling unchanged.
 
-### Task 7.2: ChatStore facade — PENDING
+### Task 7.2: ChatStore facade — IN_PROGRESS
 
 - Files: MODIFY `libs/frontend/chat/src/lib/services/chat.store.ts`
 - Pattern to follow: facade `chat.store.ts:532-534`
 - Acceptance: `handleSessionStatsLive` delegates to the aggregator only.
 
-### Task 7.3: `SessionStatsAggregatorService.handleLiveSessionStats` — PENDING
+### Task 7.3: `SessionStatsAggregatorService.handleLiveSessionStats` — IN_PROGRESS
 
 - Files: MODIFY `libs/frontend/chat/src/lib/services/chat-store/session-stats-aggregator.service.ts`,
   `libs/frontend/chat/src/lib/services/chat-store/session-stats-aggregator.service.spec.ts`
@@ -328,7 +328,7 @@ Edge cases:
 - `npx jest -c libs/frontend/chat/jest.config.ts libs/frontend/chat/src/lib/services/chat-message-handler.service.spec.ts libs/frontend/chat/src/lib/services/chat-store/session-stats-aggregator.service.spec.ts --coverage=false --maxWorkers=2`
 - `npx nx typecheck @ptah-extension/chat --parallel=1`; `npx nx lint @ptah-extension/chat --parallel=1`
 
-## Batch 8: Header estimate marker (chat-ui) — COMPLETE
+## Batch 8: Header estimate marker (chat-ui) — COMPLETE (commit 6ea2de360)
 
 - Recommended executor: frontend-developer (sub-agent)
 - Fallback executor: CLI lane x1

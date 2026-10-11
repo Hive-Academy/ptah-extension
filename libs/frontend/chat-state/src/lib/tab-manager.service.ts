@@ -27,6 +27,7 @@ import {
   isTerminalTurnPhase,
   GatewayPlatformId,
   createExecutionChatMessage,
+  normalizeModelKey,
   type AgentSessionOpenedPayload,
   type SessionStatsEntry,
   type SessionBudgetState,
@@ -2259,6 +2260,61 @@ export class TabManagerService {
       sessionStats: snapshot,
       ...budgetPatch(snapshot, budget),
     });
+  }
+
+  /**
+   * Install a `session:stats-live` snapshot on the tab (TASK_2026_626).
+   *
+   * Admission is exactly {@link installSessionStats}'s: a malformed snapshot,
+   * an unknown tab, another session or a revision below the session's floor
+   * returns `false` and writes nothing — neither the snapshot nor the context
+   * reading. An admitted snapshot replaces the tab's snapshot and keeps the
+   * last budget.
+   *
+   * `context` (the estimate's context-window reading) is applied in the same
+   * update only when the snapshot is provisional and the tab already shows a
+   * live reading for the same model (compared with `normalizeModelKey`); the
+   * fill reuses that reading's capacity. An authoritative snapshot never writes
+   * the fill, even if a context reached this method. In every other case the
+   * fill is left as it is.
+   *
+   * @returns whether the snapshot was admitted.
+   */
+  installLiveSessionStats(
+    tabId: string,
+    snapshot: SessionStatsEntry,
+    context?: { model: string; contextTokens: number },
+  ): boolean {
+    if (!this.acceptSessionStats(tabId, snapshot)) return false;
+    const liveModelStats =
+      snapshot.provisional === true && context
+        ? this.liveContextStats(tabId, context)
+        : null;
+    this.updateTabInternal(tabId, {
+      sessionStats: snapshot,
+      ...budgetPatch(snapshot, undefined),
+      ...(liveModelStats && { liveModelStats }),
+    });
+    return true;
+  }
+
+  /**
+   * The tab's live reading with `context.contextTokens` as the fill, or `null`
+   * when the tab has no live reading for `context.model` or the tokens are not
+   * a positive count.
+   */
+  private liveContextStats(
+    tabId: string,
+    context: { model: string; contextTokens: number },
+  ): LiveModelStatsPayload | null {
+    const prior = this.findTabByIdAcrossWorkspaces(tabId)?.tab.liveModelStats;
+    if (
+      !prior ||
+      normalizeModelKey(prior.model) !== normalizeModelKey(context.model)
+    ) {
+      return null;
+    }
+    return this.postCompactionContextStats(prior, context.contextTokens);
   }
 
   /**
