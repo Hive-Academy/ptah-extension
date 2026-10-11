@@ -1,6 +1,6 @@
 # Batches - TASK_2026_627
 
-Total tasks: 20 | Batches: 9 (Batch 0 to Batch 8) | Complete: 1/9
+Total tasks: 20 | Batches: 9 (Batch 0 to Batch 8) | Complete: 2/9
 
 Worktree: `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff` (branch
 `fix/session-budget-handoff`). Every executor works only there, never in the main checkout
@@ -101,7 +101,7 @@ Assumptions (checked against the code in this worktree and the 626 worktree):
 Edge cases:
 
 - Notice posted for a session that ends before the next tool result: `release`/`clearAll` clear the
-  queue (Task 1.1, Task 7.1).
+  queue (Task 3.2; Task 7.1 keeps it).
 - Subagent tool results must never drain the main-thread queue (`agent_id` set): Task 1.2.
 - Capper rewrite and notice in the same hook result: Task 1.2.
 - `task_started` for a non-agent task type (bash, workflow): the monitor ignores unknown ids, Task 2.2.
@@ -145,7 +145,7 @@ Edge cases:
   re-run by the team-leader: 2/2 passed. `nx typecheck @ptah-extension/chat` passed (reported by the
   author). The only consumer of the component is `chat-view.component.html:68`.
 
-## Batch 1: Main-thread notice queue and PostToolUse delivery — IN_PROGRESS
+## Batch 1: Main-thread notice queue and PostToolUse delivery — COMPLETE (28e3ddc05)
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer, fresh session with this section and the plan
@@ -155,7 +155,7 @@ Edge cases:
 - Tasks: 3 | Depends on: none
 - Phase: 1 (Backend gates) | Phase review: after Batch 5
 
-### Task 1.1: Create `MainThreadNoticeQueue` — IN_PROGRESS
+### Task 1.1: Create `MainThreadNoticeQueue` — COMPLETE
 
 - Files: CREATE `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff\libs\backend\agent-sdk\src\lib\helpers\main-thread-notice-queue.ts`
   and `…\helpers\main-thread-notice-queue.spec.ts`
@@ -169,7 +169,7 @@ Edge cases:
 - Validation notes: no timers; host-authored text only.
 - Implementation details: plain `Map<string, string[]>`; spec covers bounds, cap, take-once, clear.
 
-### Task 1.2: Drain the queue in `PostToolUseHookHandler` on main-thread tool results — IN_PROGRESS
+### Task 1.2: Drain the queue in `PostToolUseHookHandler` on main-thread tool results — COMPLETE
 
 - Depends on: Task 1.1
 - Files: MODIFY `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff\libs\backend\agent-sdk\src\lib\helpers\post-tool-use-hook-handler.ts`
@@ -185,7 +185,7 @@ Edge cases:
 - Implementation details: spec cases: main-thread call returns the notice once then not again;
   subagent call leaves it pending; capped output plus notice in one response; no queue → unchanged.
 
-### Task 1.3: Register the queue in DI — IN_PROGRESS
+### Task 1.3: Register the queue in DI — COMPLETE
 
 - Depends on: Task 1.1
 - File: MODIFY `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff\libs\backend\agent-sdk\src\lib\di\register.ts`
@@ -194,6 +194,17 @@ Edge cases:
 - Quality requirements: registered before the PostToolUse hook handler is resolved.
 - Implementation details: `container.registerSingleton(MainThreadNoticeQueue)`.
 
+### Batch 1 result
+
+- Verified on disk by the team-leader. Jest on both specs: 2 suites, 31 tests passed. Typecheck
+  `@ptah-extension/agent-sdk` passed. Lint `@ptah-extension/agent-sdk`: 0 errors, 52 warnings, none
+  in the batch files.
+- Deviation accepted: the queue is registered just before `SDK_POST_TOOL_USE_HOOK_HANDLER`, not next
+  to `SessionRotationAdvisor`. It is not exported from `helpers/index.ts` (producers in the same lib
+  import it directly).
+- Open item: the queue's `clear(sessionId)` has no caller yet. Moved to Task 3.2 (budget
+  `release`/`clearAll`), so cleanup on session end does not wait for the 626 merge.
+
 ### Batch 1 verification
 
 - The files above exist with real code.
@@ -201,7 +212,7 @@ Edge cases:
   then `npx nx typecheck @ptah-extension/agent-sdk --parallel=1` (one at a time, output tailed).
 - No per-batch review.
 
-## Batch 2: Subagent monitor learns task ids from `task_started` and hands off via the queue — PENDING
+## Batch 2: Subagent monitor learns task ids from `task_started` and hands off via the queue — IN_PROGRESS
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer, fresh session
@@ -210,7 +221,7 @@ Edge cases:
 - Tasks: 3 | Depends on: Batch 1
 - Phase: 1 (Backend gates) | Phase review: after Batch 5
 
-### Task 2.1: `SubagentBudgetMonitor.recordTaskStarted` and task-id lookup in `stop()` — PENDING
+### Task 2.1: `SubagentBudgetMonitor.recordTaskStarted` and task-id lookup in `stop()` — IN_PROGRESS
 
 - Files: MODIFY `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff\libs\backend\agent-sdk\src\lib\helpers\compaction\subagent-budget-monitor.ts`
   and `…\subagent-budget-monitor.spec.ts`
@@ -224,7 +235,7 @@ Edge cases:
 - Validation notes: R5 regression — no registry record + recorded task id → stop and handoff posted.
 - Implementation details: spec cases listed in plan :251-254.
 
-### Task 2.2: Feed `task_started` to the monitor from `SessionQueryExecutor` — PENDING
+### Task 2.2: Feed `task_started` to the monitor from `SessionQueryExecutor` — IN_PROGRESS
 
 - Depends on: Task 2.1
 - Files: MODIFY `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff\libs\backend\agent-sdk\src\lib\helpers\session-lifecycle\session-query-executor.service.ts`
@@ -236,7 +247,7 @@ Edge cases:
   existing monitor feed (a throw becomes one WARN).
 - Validation notes: non-agent task types go through; the monitor ignores unknown ids.
 
-### Task 2.3: Re-bind the monitor's `pushParentMessage` to `MainThreadNoticeQueue` — PENDING
+### Task 2.3: Re-bind the monitor's `pushParentMessage` to `MainThreadNoticeQueue` — IN_PROGRESS
 
 - Depends on: Batch 1
 - File: MODIFY `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff\libs\backend\agent-sdk\src\lib\di\register.ts`
@@ -281,6 +292,10 @@ Edge cases:
 - Quality requirements: remember the workspace on the entry the first time
   `sessionControl.getSessionWorkspace` answers (in `acceptOrThrow`); `buildHandoff` falls back to it
   when the live lookup returns `undefined`; never known → `workspace-unknown` as today.
+- Also (from the Batch 1 result): inject `MainThreadNoticeQueue` into `SessionBudgetService` as an
+  optional dependency and call `clear(sessionId)` in `release` and for every session in `clearAll`,
+  so pending notices (posted by the subagent monitor since Batch 2) are dropped when a session ends.
+  Spec: a notice posted before `release` is gone after it.
 - Validation notes: do NOT add `observeLive`, `liveFigure`, notices or `onTurnTerminal` here — those
   are Batch 7. Batch 7 adds the same caching call in `observeLive`.
 
