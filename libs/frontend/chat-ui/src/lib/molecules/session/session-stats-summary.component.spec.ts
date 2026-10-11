@@ -474,6 +474,165 @@ describe('SessionStatsSummaryComponent', () => {
       expect(root.querySelector('[data-testid="stats-cost"]')).toBeNull();
     });
   });
+
+  describe('in-turn estimate (TASK_2026_626 C9)', () => {
+    const ESTIMATE_LINE =
+      'Live estimate while the turn runs; final figures replace it when it ends.';
+
+    const PROVISIONAL: SessionStatsEntry = { ...SNAPSHOT, provisional: true };
+
+    const MARKERS = ['stats-tokens-estimate', 'stats-cost-estimate'] as const;
+
+    /** The `~` marker: visible tilde, hidden from AT; "estimated" for AT. */
+    function expectMarker(root: HTMLElement, testId: string): void {
+      const marker = required(root, `[data-testid="${testId}"]`);
+      const visible = required(marker, '[aria-hidden="true"]');
+      expect(visible.textContent).toBe('~');
+      expect(required(marker, '.sr-only').textContent).toBe('estimated');
+    }
+
+    /** Title of the chip or card holding the given value element. */
+    function chipTitle(root: HTMLElement, testId: string): string | null {
+      return (
+        root
+          .querySelector(`[data-testid="${testId}"]`)
+          ?.closest('[title]')
+          ?.getAttribute('title') ?? null
+      );
+    }
+
+    it('marks the tokens and cost chips with "~" in both layouts', () => {
+      const root = render(PROVISIONAL);
+
+      MARKERS.forEach((id) => expectMarker(root, id));
+      // The figures themselves are unchanged; only the marker is added.
+      expect(text(root, 'stats-tokens')).toBe('14.9M');
+      expect(
+        root.querySelector('[data-testid="stats-cost"] ptah-cost-badge')
+          ?.textContent,
+      ).toContain('$38.18');
+
+      click(root, '[data-testid="stats-expand"]');
+      MARKERS.forEach((id) => expectMarker(root, id));
+      expect(text(root, 'stats-tokens')).toBe('14.9M');
+    });
+
+    it('leads the tokens and cost tooltips with the estimate line in both layouts', () => {
+      const root = render(PROVISIONAL);
+
+      const tokens = chipTitle(root, 'stats-tokens') ?? '';
+      expect(tokens.startsWith(`${ESTIMATE_LINE}\n\nInput (uncached):`)).toBe(
+        true,
+      );
+      // No budget: the estimate line is the whole cost tooltip.
+      expect(chipTitle(root, 'stats-cost-estimate')).toBe(ESTIMATE_LINE);
+
+      click(root, '[data-testid="stats-expand"]');
+      expect(chipTitle(root, 'stats-tokens')).toBe(tokens);
+      expect(chipTitle(root, 'stats-cost-estimate')).toBe(ESTIMATE_LINE);
+    });
+
+    it('keeps the budget line after the estimate line on the cost tooltip', () => {
+      const root = render(PROVISIONAL);
+      fixture.componentRef.setInput('budget', {
+        sessionId: 'session-1',
+        stage: 'normal',
+        unit: 'cost',
+        measure: 'cost',
+        used: 1,
+        limit: 30,
+        percent: 40,
+        lowerBound: false,
+        revision: 4,
+        compactions: 0,
+        extensions: 0,
+        blocked: false,
+      } satisfies SessionBudgetState);
+      fixture.detectChanges();
+
+      expect(chipTitle(root, 'stats-cost-estimate')).toContain(
+        `${ESTIMATE_LINE}\n\nSession budget: 40% used ($38.18 of $30).`,
+      );
+    });
+
+    it('marks the budget fallback text when it replaces the cost badge', () => {
+      const root = render({
+        ...PROVISIONAL,
+        totalCost: null,
+        knownCost: null,
+        pricingCoverage: 'none',
+      });
+      fixture.componentRef.setInput('budget', {
+        sessionId: 'session-1',
+        stage: 'normal',
+        unit: 'cost',
+        measure: 'weighted-fallback',
+        used: 6_200_000,
+        limit: 9_000_000,
+        percent: 68.9,
+        lowerBound: false,
+        revision: 4,
+        compactions: 0,
+        extensions: 0,
+        blocked: false,
+      } satisfies SessionBudgetState);
+      fixture.detectChanges();
+
+      expectMarker(root, 'stats-cost-estimate');
+      click(root, '[data-testid="stats-expand"]');
+      expectMarker(root, 'stats-cost-estimate');
+      expect(text(root, 'stats-cost-budget')).toContain(
+        'est. 6.2M / 9.0M weighted tokens (no price for this model)',
+      );
+    });
+
+    it.each([
+      { label: 'absent', snapshot: SNAPSHOT },
+      { label: 'false', snapshot: { ...SNAPSHOT, provisional: false } },
+    ])(
+      'adds no marker and no tooltip line when provisional is $label',
+      ({ snapshot }) => {
+        const root = render(snapshot);
+
+        const assertUnmarked = (): void => {
+          MARKERS.forEach((id) =>
+            expect(root.querySelector(`[data-testid="${id}"]`)).toBeNull(),
+          );
+          expect(chipTitle(root, 'stats-tokens')).not.toContain(ESTIMATE_LINE);
+          // No budget and no estimate: the cost chip/card keeps no title.
+          const cost = required(root, '[data-testid="stats-cost"]');
+          expect(cost.parentElement?.hasAttribute('title')).toBe(false);
+        };
+
+        assertUnmarked();
+        expect(text(root, 'stats-tokens')).toBe('14.9M');
+        expect(text(root, 'stats-cost')).toBe('$38.18');
+        expect(fixture.componentInstance.isEstimate()).toBe(false);
+
+        click(root, '[data-testid="stats-expand"]');
+        assertUnmarked();
+        expect(text(root, 'stats-cost')).toBe('$38.18');
+      },
+    );
+
+    it('drops the marker once the authoritative snapshot replaces the estimate', () => {
+      const root = render(PROVISIONAL);
+      expectMarker(root, 'stats-tokens-estimate');
+
+      const { provisional, ...authoritative } = PROVISIONAL;
+      void provisional;
+      fixture.componentRef.setInput('snapshot', {
+        ...authoritative,
+        revision: 5,
+      });
+      fixture.detectChanges();
+
+      MARKERS.forEach((id) =>
+        expect(root.querySelector(`[data-testid="${id}"]`)).toBeNull(),
+      );
+      expect(chipTitle(root, 'stats-tokens')).not.toContain(ESTIMATE_LINE);
+    });
+  });
 });
 
 /**

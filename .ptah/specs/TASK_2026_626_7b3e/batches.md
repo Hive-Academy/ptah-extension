@@ -77,7 +77,7 @@ Edge cases:
 - Because tracks interleave, each phase review is scoped to the listed commit SHAs of its
   batches, not a contiguous range.
 
-## Batch 1: Shared contract — COMPLETE
+## Batch 1: Shared contract — COMPLETE (commit 9f9a3f04f)
 
 - Recommended executor: backend-developer (sub-agent)
 - Fallback executor: CLI lane x1 with the batch section as a self-contained prompt
@@ -261,7 +261,7 @@ Edge cases:
 - Tasks: 2 | Depends on: Batch 1
 - Phase: FRONTEND | Phase review: code-logic + style + visual (after Batch 7 and Batch 8 both commit)
 
-### Task 6.1: `isValidSessionStatsSnapshot` accepts `provisional` — IN_PROGRESS
+### Task 6.1: `isValidSessionStatsSnapshot` accepts `provisional` — IMPLEMENTED
 
 - Files: MODIFY `libs/frontend/chat-state/src/lib/session-stats-snapshot.ts`; CREATE `libs/frontend/chat-state/src/lib/session-stats-snapshot.spec.ts`
 - Plan reference: implementation-plan.md:797-871 (C7)
@@ -328,7 +328,7 @@ Edge cases:
 - `npx jest -c libs/frontend/chat/jest.config.ts libs/frontend/chat/src/lib/services/chat-message-handler.service.spec.ts libs/frontend/chat/src/lib/services/chat-store/session-stats-aggregator.service.spec.ts --coverage=false --maxWorkers=2`
 - `npx nx typecheck @ptah-extension/chat --parallel=1`; `npx nx lint @ptah-extension/chat --parallel=1`
 
-## Batch 8: Header estimate marker (chat-ui) — IN_PROGRESS
+## Batch 8: Header estimate marker (chat-ui) — COMPLETE
 
 - Recommended executor: frontend-developer (sub-agent)
 - Fallback executor: CLI lane x1
@@ -337,7 +337,7 @@ Edge cases:
 - Tasks: 1 | Depends on: Batch 1
 - Phase: FRONTEND | Phase review: code-logic + style + visual (after Batch 7 and Batch 8 both commit)
 
-### Task 8.1: `~` marker and tooltip line — IN_PROGRESS
+### Task 8.1: `~` marker and tooltip line — COMPLETE
 
 - Files: MODIFY `libs/frontend/chat-ui/src/lib/molecules/session/session-stats-summary.component.ts`,
   `libs/frontend/chat-ui/src/lib/molecules/session/session-stats-summary.component.html` (only if the chips live there),

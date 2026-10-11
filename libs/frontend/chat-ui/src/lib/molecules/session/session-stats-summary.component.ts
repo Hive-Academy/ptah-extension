@@ -35,6 +35,17 @@ import {
 } from './session-stats-format';
 import { SessionModelBreakdownComponent } from './session-model-breakdown.component';
 
+/** Tooltip line the TOKENS and COST chips add while showing an estimate. */
+const ESTIMATE_TOOLTIP_LINE =
+  'Live estimate while the turn runs; final figures replace it when it ends.';
+
+/** Puts the estimate line before an existing tooltip, or alone without one. */
+function withEstimateLine(tooltip: string | null): string {
+  return tooltip
+    ? `${ESTIMATE_TOOLTIP_LINE}\n\n${tooltip}`
+    : ESTIMATE_TOOLTIP_LINE;
+}
+
 /**
  * Live model stats from current session
  * Updated after each turn completion with context window info
@@ -276,14 +287,31 @@ export class SessionStatsSummaryComponent {
     }),
   );
 
-  readonly costTooltip = computed(() =>
-    costTooltip(this.budget(), this.budgetTooltip()),
-  );
+  /**
+   * Whether the snapshot carries an in-turn estimate (`session:stats-live`).
+   * Only then do the TOKENS and COST chips show a leading `~` and the
+   * estimate tooltip line; any other value leaves them unchanged.
+   */
+  readonly isEstimate = computed(() => this.snapshot()?.provisional === true);
 
-  /** Tooltip with the backend's token breakdown, plus any budget line. */
-  readonly tokenTooltip = computed(() =>
-    tokensTooltip(this.budget(), this.budgetTooltip(), this.tokenBreakdown()),
-  );
+  /** COST chip tooltip: any budget line, led by the estimate line while estimating. */
+  readonly costTooltip = computed(() => {
+    const tooltip = costTooltip(this.budget(), this.budgetTooltip());
+    return this.isEstimate() ? withEstimateLine(tooltip) : tooltip;
+  });
+
+  /**
+   * Tooltip with the backend's token breakdown, plus any budget line, led by
+   * the estimate line while estimating.
+   */
+  readonly tokenTooltip = computed(() => {
+    const tooltip = tokensTooltip(
+      this.budget(),
+      this.budgetTooltip(),
+      this.tokenBreakdown(),
+    );
+    return this.isEstimate() ? withEstimateLine(tooltip) : tooltip;
+  });
 
   private readonly tokenBreakdown = computed(() => {
     const stats = this.snapshot();

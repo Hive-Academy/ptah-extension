@@ -58,6 +58,16 @@
           <span class="text-[10px] uppercase text-base-content-muted"
             >Tokens</span
           >
+          @if (isEstimate()) {
+            <!-- In-turn estimate (session:stats-live): "~" for sight,
+                 "estimated" for screen readers; the tooltip explains it. -->
+            <span
+              class="text-base-content-muted"
+              data-testid="stats-tokens-estimate"
+              ><span aria-hidden="true">~</span
+              ><span class="sr-only">estimated</span></span
+            >
+          }
           <span class="tabular-nums" data-testid="stats-tokens">{{
             tokensLabel()
           }}</span>
@@ -76,6 +86,14 @@
           <span class="text-[10px] uppercase text-base-content-muted"
             >Cost</span
           >
+          @if (isEstimate()) {
+            <span
+              class="text-base-content-muted"
+              data-testid="stats-cost-estimate"
+              ><span aria-hidden="true">~</span
+              ><span class="sr-only">estimated</span></span
+            >
+          }
           @if (costBudgetText(); as budgetText) {
             <span class="tabular-nums" data-testid="stats-cost-budget">{{
               budgetText
@@ -287,6 +305,14 @@
           Tokens
         </div>
         <div class="text-sm font-semibold tabular-nums leading-tight mt-0.5">
+          @if (isEstimate()) {
+            <span
+              class="font-normal text-base-content-muted"
+              data-testid="stats-tokens-estimate"
+              ><span aria-hidden="true">~</span
+              ><span class="sr-only">estimated</span></span
+            >
+          }
           <span data-testid="stats-tokens">{{ tokensLabel() }}</span>
           @if (tokensBudgetSuffix(); as suffix) {
             <span
@@ -313,10 +339,26 @@
             class="text-xs tabular-nums leading-tight mt-0.5"
             data-testid="stats-cost-budget"
           >
+            @if (isEstimate()) {
+              <span
+                class="text-base-content-muted"
+                data-testid="stats-cost-estimate"
+                ><span aria-hidden="true">~</span
+                ><span class="sr-only">estimated</span></span
+              >
+            }
             {{ budgetText }}
           </div>
         } @else {
           <div data-testid="stats-cost">
+            @if (isEstimate()) {
+              <span
+                class="text-base-content-muted"
+                data-testid="stats-cost-estimate"
+                ><span aria-hidden="true">~</span
+                ><span class="sr-only">estimated</span></span
+              >
+            }
             <ptah-cost-badge [cost]="totalCost()" />
           </div>
           @if (costBudgetSuffix(); as suffix) {
