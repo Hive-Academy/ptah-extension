@@ -23,7 +23,9 @@ const UsageSchema = z.object({
       session: UsageLimitSchema.optional(),
       weekly: UsageLimitSchema.optional(),
     })
-    .refine((limits) => limits.session !== undefined || limits.weekly !== undefined),
+    .refine(
+      (limits) => limits.session !== undefined || limits.weekly !== undefined,
+    ),
 });
 
 type FetchLike = typeof fetch;
@@ -51,10 +53,11 @@ export function createOllamaCloudPlanUsageReader(
         redirect: 'error',
         signal: controller.signal,
       });
-      // A rejected key is an auth state, not a transient failure to retry.
+      // Rejected credentials are an authentication failure.
       if (response.status === 401 || response.status === 403) {
         return unavailable('unsupported-auth');
       }
+      if (response.status === 404) return unavailable('no-usage-source');
       if (!response.ok) return unavailable('service-unavailable');
       const parsed = UsageSchema.safeParse(await response.json());
       if (!parsed.success) {
@@ -93,10 +96,12 @@ function windows(
   },
   observedAt: number,
 ): PlanLimitWindow[] {
-  return ([
-    ['session', 'five_hour', 'Session'],
-    ['weekly', 'weekly', 'Weekly'],
-  ] as const).flatMap(([key, kind, label]) => {
+  return (
+    [
+      ['session', 'five_hour', 'Session'],
+      ['weekly', 'weekly', 'Weekly'],
+    ] as const
+  ).flatMap(([key, kind, label]) => {
     const value = limits[key];
     if (!value) return [];
     const reset = Date.parse(
@@ -127,7 +132,11 @@ function windows(
 }
 
 function unavailable(
-  status: 'unsupported-config' | 'unsupported-auth' | 'service-unavailable',
+  status:
+    | 'no-usage-source'
+    | 'service-unavailable'
+    | 'unsupported-config'
+    | 'unsupported-auth',
 ): PlanUsageReading {
   return { status, windowSetEstablished: false, windows: [] };
 }

@@ -71,6 +71,8 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
     handleSessionIdResolved: jest.Mock;
     loadSessions: jest.Mock;
     resyncStream: jest.Mock;
+    handleSessionStats: jest.Mock;
+    handleSessionStatsLive: jest.Mock;
   };
   let linkCapture: { onSessionIdResolved: jest.Mock };
   let streamRouter: {
@@ -115,6 +117,8 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
       handleSessionIdResolved: jest.fn(),
       loadSessions: jest.fn().mockResolvedValue(undefined),
       resyncStream: jest.fn().mockResolvedValue(undefined),
+      handleSessionStats: jest.fn(),
+      handleSessionStatsLive: jest.fn(),
     };
     linkCapture = {
       onSessionIdResolved: jest.fn().mockResolvedValue(undefined),
@@ -239,6 +243,124 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
 
     expect(chatStore.handleQuestionRequest).toHaveBeenCalledTimes(1);
     expect(streamRouter.routeQuestionPrompt).toHaveBeenCalledTimes(1);
+  });
+
+  // ----- SESSION_STATS / SESSION_STATS_LIVE (TASK_2026_626) -----------------
+
+  describe('session:stats-live', () => {
+    function liveSnapshot(overrides: Record<string, unknown> = {}) {
+      return {
+        sessionId: SESS_VALID,
+        model: 'claude-sonnet-4-5',
+        totalCost: 0.5,
+        tokens: { input: 100, output: 10, cacheRead: 0, cacheCreation: 0 },
+        messageCount: 2,
+        status: 'ok',
+        revision: 5,
+        provisional: true,
+        ...overrides,
+      };
+    }
+
+    it('is a handled message type', () => {
+      expect(handler.handledMessageTypes).toContain(
+        MESSAGE_TYPES.SESSION_STATS_LIVE,
+      );
+    });
+
+    it('routes a provisional payload, with its context, to the store live path only', () => {
+      const sessionStats = liveSnapshot();
+      const context = { model: 'claude-sonnet-4-5', contextTokens: 90000 };
+
+      handler.handleMessage({
+        type: MESSAGE_TYPES.SESSION_STATS_LIVE,
+        payload: { sessionId: SESS_VALID, sessionStats, context },
+      });
+
+      expect(chatStore.handleSessionStatsLive).toHaveBeenCalledTimes(1);
+      expect(chatStore.handleSessionStatsLive).toHaveBeenCalledWith({
+        sessionId: SESS_VALID,
+        sessionStats,
+        context,
+      });
+      expect(chatStore.handleSessionStats).not.toHaveBeenCalled();
+      expect(consoleWarnSpy).not.toHaveBeenCalled();
+    });
+
+    it('strips a stray context from an authoritative payload before the store is called', () => {
+      // No `provisional` field: the settle snapshot is authoritative.
+      const authoritative = liveSnapshot({ revision: 6 });
+      delete (authoritative as { provisional?: boolean }).provisional;
+
+      handler.handleMessage({
+        type: MESSAGE_TYPES.SESSION_STATS_LIVE,
+        payload: {
+          sessionId: SESS_VALID,
+          sessionStats: authoritative,
+          context: { model: 'claude-sonnet-4-5', contextTokens: 90000 },
+        },
+      });
+
+      expect(chatStore.handleSessionStatsLive).toHaveBeenCalledTimes(1);
+      const [forwarded] = chatStore.handleSessionStatsLive.mock.calls[0];
+      expect(forwarded).toEqual({
+        sessionId: SESS_VALID,
+        sessionStats: authoritative,
+      });
+      expect('context' in forwarded).toBe(false);
+    });
+
+    it.each([
+      ['a non-object payload', 'oops'],
+      ['a missing snapshot', { sessionId: SESS_VALID }],
+      [
+        'a non-true provisional flag',
+        {
+          sessionId: SESS_VALID,
+          sessionStats: liveSnapshot({ provisional: false }),
+        },
+      ],
+      [
+        'a missing revision',
+        {
+          sessionId: SESS_VALID,
+          sessionStats: liveSnapshot({ revision: undefined }),
+        },
+      ],
+    ])(
+      'drops %s with one warning naming only the session',
+      (_label, payload) => {
+        expect(() =>
+          handler.handleMessage({
+            type: MESSAGE_TYPES.SESSION_STATS_LIVE,
+            payload,
+          }),
+        ).not.toThrow();
+
+        expect(chatStore.handleSessionStatsLive).not.toHaveBeenCalled();
+        expect(chatStore.handleSessionStats).not.toHaveBeenCalled();
+        expect(consoleWarnSpy).toHaveBeenCalledTimes(1);
+        const expectedSessionId =
+          typeof payload === 'object' ? SESS_VALID : undefined;
+        expect(consoleWarnSpy).toHaveBeenCalledWith(
+          '[ChatMessageHandler] session:stats-live payload rejected — dropped',
+          { sessionId: expectedSessionId },
+        );
+      },
+    );
+
+    it('leaves session:stats routing unchanged', () => {
+      const payload = { sessionId: SESS_VALID, turnCost: 0.1 };
+
+      handler.handleMessage({ type: MESSAGE_TYPES.SESSION_STATS, payload });
+
+      expect(handler.handledMessageTypes).toContain(
+        MESSAGE_TYPES.SESSION_STATS,
+      );
+      expect(chatStore.handleSessionStats).toHaveBeenCalledTimes(1);
+      expect(chatStore.handleSessionStats).toHaveBeenCalledWith(payload);
+      expect(chatStore.handleSessionStatsLive).not.toHaveBeenCalled();
+    });
   });
 
   // ----- GATEWAY_SESSION_ATTACHED / DETACHED --------------------------------

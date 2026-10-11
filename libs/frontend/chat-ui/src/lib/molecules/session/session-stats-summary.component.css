@@ -2,16 +2,11 @@
   display: block;
 }
 
-@container (min-width: 380px) {
-  .stats-grid .stats-cards {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-}
-
-@container (min-width: 500px) {
-  .stats-grid .stats-cards {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
+/* Expanded summary line: a muted "·" between items, silent to screen
+   readers (the empty alt text after the slash). */
+.stats-summary-line > .stats-item + .stats-item::before {
+  content: '·' / '';
+  color: oklch(var(--bcm, var(--bc)));
 }
 
 .context-bar-track {

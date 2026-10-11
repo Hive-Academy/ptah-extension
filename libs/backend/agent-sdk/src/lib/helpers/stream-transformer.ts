@@ -22,6 +22,7 @@ import {
   AuthEnv,
   normalizeModelKey,
   type ModelPricing,
+  type LiveStatsCallback,
   type ResultStatsPayload,
   type SessionStatsEntry,
 } from '@ptah-extension/shared';
@@ -55,6 +56,7 @@ import {
 import type { IModelResolver } from '../auth-env.port';
 import type { IPricingProvider } from '../pricing.port';
 import type { NoActivityWatchdog } from './no-activity-watchdog';
+import { LiveSessionStatsPublisher } from './live-session-stats-publisher';
 import type { SessionMcpStatusCallbackRegistry } from './session-mcp-status-callback-registry';
 import type { SessionPlanLimitCallbackRegistry } from './plan-limits/session-plan-limit-callback-registry';
 import {
@@ -214,6 +216,14 @@ export interface StreamTransformConfig {
   statsGeneration: number | null;
   onSessionIdResolved?: SessionIdResolvedCallback;
   onResultStats?: ResultStatsCallback;
+  /**
+   * In-turn session-stats estimates (TASK_2026_626): the owner's provisional
+   * snapshot, throttled to one per interval, then one authoritative settle
+   * payload when the estimate ends (result, owner release, stream end). Never
+   * a completion signal; the session budget never sees it. Absent: nothing
+   * live is computed.
+   */
+  onLiveStats?: LiveStatsCallback;
   /**
    * Fired on the SDK `result` message — the turn boundary — BEFORE any stats
    * work. Deliberately separate from `onResultStats`, which is skipped when
@@ -429,6 +439,7 @@ export class StreamTransformer {
       initialModel,
       onSessionIdResolved,
       onResultStats,
+      onLiveStats,
       onTurnEnd,
       onCompactBoundary,
       tabId,
@@ -492,6 +503,29 @@ export class StreamTransformer {
         const turnScopes = new Set<string>();
         let turnBilling: ClaudeTurnBilling = 'unknown';
         let turnStartPending = true;
+        // In-turn estimate of this stream (TASK_2026_626). Built here, not with
+        // `messageTransformer`, because its context reading closes over the
+        // tracker state above. Inert without `onLiveStats` or an owner.
+        const livePublisher = new LiveSessionStatsPublisher({
+          statsOwner,
+          modelResolver,
+          accountingAuthEnv,
+          statsGeneration,
+          runToken,
+          onLiveStats,
+          logger,
+          readMainContext: () => {
+            const model = currentStreamModel;
+            const tracked =
+              model === null ? undefined : lastTurnContextByModel.get(model);
+            if (model === null || !tracked) return null;
+            return {
+              model,
+              contextTokens:
+                tracked.input + tracked.cacheRead + tracked.cacheCreation,
+            };
+          },
+        });
 
         // Arm the no-activity watchdog before consuming the stream. It fires
         // only if NO SDK message arrives for the full inactivity window; every
@@ -576,6 +610,9 @@ export class StreamTransformer {
               if (onSessionIdResolved) {
                 onSessionIdResolved(tabId, realSessionId);
               }
+              // After the callback above rebinds the owner to the real id; a
+              // refused bind leaves no owner under it and the publisher silent.
+              livePublisher.setSessionKey(realSessionId as SessionId);
               if (!loggedEagerMcpTools) {
                 loggedEagerMcpTools = true;
                 const eagerPtahTools = sdkMessage.tools.filter((name) =>
@@ -611,6 +648,9 @@ export class StreamTransformer {
                 });
               }
             }
+            // After the context tracking above, so a flush reads the current
+            // main-loop context, and after `init`, so frames are keyed.
+            livePublisher.observe(sdkMessage);
             // Plan limits (TASK_2026_596). Placed after `init` so signals carry
             // the real session id. Nothing here changes what is forwarded: the
             // limit messages are not forwarded below, and a rate-limited
@@ -656,297 +696,313 @@ export class StreamTransformer {
               // Turn boundary first — see `onTurnEnd`'s contract. Nothing below
               // may gate it.
               onTurnEnd?.();
-              // S1 success (Decision 4), then reset the per-turn state.
-              if (isSuccessResult(sdkMessage) && !sdkMessage.is_error) {
-                planLimits.notifyAll({
-                  sessionId: effectiveSessionId,
-                  signal: {
-                    kind: 'success',
-                    turnScopes: [...turnScopes],
-                    billing: turnBilling,
-                    observedAt: Date.now(),
-                  },
-                });
-              }
-              turnScopes.clear();
-              turnBilling = 'unknown';
-              turnStartPending = true;
-              const reported = usageCostSource === 'reported';
-              // Footer/context rows, labelled by the resolved pricing id as
-              // they always were.
-              const modelUsageList: ResultModelUsage[] = [];
-              // Accounting rows, labelled by the SDK's OWN model id — the key
-              // its saved `cost-state` uses — with all four token classes.
-              const runModels: RunModelUsage[] = [];
-              if (sdkMessage.modelUsage) {
-                const usageEntries = Object.entries(sdkMessage.modelUsage)
-                  .filter(
-                    ([model]) =>
-                      !(model.startsWith('<') && model.endsWith('>')),
-                  )
-                  .map(([model, usage]) => ({
-                    model,
-                    usage,
-                    // Alias resolution stays (proxy routes report Claude
-                    // aliases for other models), but against the query's
-                    // FROZEN effective env, never the mutable process-global
-                    // one.
-                    priced: modelResolver.resolveForCost(
-                      model,
-                      accountingAuthEnv,
-                    ),
-                  }));
-                const trackedContextByModel = matchTrackedContexts(
-                  usageEntries.map(({ model, usage, priced }) => ({
-                    key: model,
-                    aliases: [usage.canonicalModel, priced.modelId].filter(
-                      (alias): alias is string => Boolean(alias),
-                    ),
-                  })),
-                  lastTurnContextByModel,
-                );
-                const untrackedModels = usageEntries
-                  .map(({ model }) => model)
-                  .filter((model) => !trackedContextByModel.has(model));
-                if (untrackedModels.length > 0) {
-                  // Not an error: a model that streamed nothing on the main
-                  // loop since the last compaction (a subagent-only model, a
-                  // turn with no API call) has no fill to report, and the
-                  // frontend falls back for it. Logged so a key mismatch
-                  // that slips past `matchTrackedContexts` is diagnosable.
-                  logger.debug(
-                    '[StreamTransformer] No last-turn context tracked for some modelUsage keys',
-                    {
-                      sessionId: effectiveSessionId,
-                      untrackedModels,
-                      modelUsageKeys: usageEntries.map(({ model }) => model),
-                      canonicalModels: usageEntries.map(
-                        ({ usage }) => usage.canonicalModel ?? null,
-                      ),
-                      trackedKeys: [...lastTurnContextByModel.keys()],
+              // Before any await: the turn's estimate is dropped now, so every
+              // authoritative snapshot built below supersedes every live one.
+              livePublisher.onResult();
+              // Every exit of the branch settles a shown estimate exactly once:
+              // no owner, any `replaceRun` outcome, `markRunIncomplete`, empty
+              // usage, a duplicate, a `validateStats` rejection, no
+              // `onResultStats`, or a throw (which still propagates).
+              try {
+                // S1 success (Decision 4), then reset the per-turn state.
+                if (isSuccessResult(sdkMessage) && !sdkMessage.is_error) {
+                  planLimits.notifyAll({
+                    sessionId: effectiveSessionId,
+                    signal: {
+                      kind: 'success',
+                      turnScopes: [...turnScopes],
+                      billing: turnBilling,
+                      observedAt: Date.now(),
                     },
-                  );
+                  });
                 }
-                for (const { model, usage, priced } of usageEntries) {
-                  const resolvedModel = priced.modelId;
-                  const cacheRead = usage.cacheReadInputTokens ?? 0;
-                  const cacheCreation = usage.cacheCreationInputTokens ?? 0;
-                  let costUSD: number | null;
-                  let rate: ModelPricing | null = null;
-                  if (reported) {
-                    costUSD =
-                      typeof usage.costUSD === 'number' ? usage.costUSD : null;
-                  } else {
-                    // Prefer the already-hydrated map; only pay for a catalog
-                    // round-trip when the model is genuinely unknown to it.
-                    rate =
-                      priced.pricing ??
-                      (await pricingProvider.getPricing(resolvedModel));
-                    costUSD = rate
-                      ? calculateMessageCost(
-                          resolvedModel,
-                          {
-                            input: usage.inputTokens,
-                            output: usage.outputTokens,
-                            cacheHit: cacheRead,
-                            cacheCreation,
-                          },
-                          rate,
-                        )
-                      : null;
+                turnScopes.clear();
+                turnBilling = 'unknown';
+                turnStartPending = true;
+                const reported = usageCostSource === 'reported';
+                // Footer/context rows, labelled by the resolved pricing id as
+                // they always were.
+                const modelUsageList: ResultModelUsage[] = [];
+                // Accounting rows, labelled by the SDK's OWN model id — the key
+                // its saved `cost-state` uses — with all four token classes.
+                const runModels: RunModelUsage[] = [];
+                if (sdkMessage.modelUsage) {
+                  const usageEntries = Object.entries(sdkMessage.modelUsage)
+                    .filter(
+                      ([model]) =>
+                        !(model.startsWith('<') && model.endsWith('>')),
+                    )
+                    .map(([model, usage]) => ({
+                      model,
+                      usage,
+                      // Alias resolution stays (proxy routes report Claude
+                      // aliases for other models), but against the query's
+                      // FROZEN effective env, never the mutable process-global
+                      // one.
+                      priced: modelResolver.resolveForCost(
+                        model,
+                        accountingAuthEnv,
+                      ),
+                    }));
+                  const trackedContextByModel = matchTrackedContexts(
+                    usageEntries.map(({ model, usage, priced }) => ({
+                      key: model,
+                      aliases: [usage.canonicalModel, priced.modelId].filter(
+                        (alias): alias is string => Boolean(alias),
+                      ),
+                    })),
+                    lastTurnContextByModel,
+                  );
+                  const untrackedModels = usageEntries
+                    .map(({ model }) => model)
+                    .filter((model) => !trackedContextByModel.has(model));
+                  if (untrackedModels.length > 0) {
+                    // Not an error: a model that streamed nothing on the main
+                    // loop since the last compaction (a subagent-only model, a
+                    // turn with no API call) has no fill to report, and the
+                    // frontend falls back for it. Logged so a key mismatch
+                    // that slips past `matchTrackedContexts` is diagnosable.
+                    logger.debug(
+                      '[StreamTransformer] No last-turn context tracked for some modelUsage keys',
+                      {
+                        sessionId: effectiveSessionId,
+                        untrackedModels,
+                        modelUsageKeys: usageEntries.map(({ model }) => model),
+                        canonicalModels: usageEntries.map(
+                          ({ usage }) => usage.canonicalModel ?? null,
+                        ),
+                        trackedKeys: [...lastTurnContextByModel.keys()],
+                      },
+                    );
                   }
-                  runModels.push({
-                    model,
-                    inputTokens: usage.inputTokens,
-                    outputTokens: usage.outputTokens,
-                    cacheRead,
-                    cacheCreation,
-                    costUSD,
-                    ...(!reported && { pricing: rate }),
-                  });
-                  const trackedContext = trackedContextByModel.get(model);
-                  const contextCapacity = resolveContextCapacity({
-                    route: capacityRoute,
-                    model: resolvedModel,
-                    sdkContextWindow: usage.contextWindow,
-                  });
-                  modelUsageList.push({
-                    model: resolvedModel,
-                    inputTokens: usage.inputTokens,
-                    outputTokens: usage.outputTokens,
-                    contextWindow: contextCapacity.tokens ?? 0,
-                    contextCapacity,
-                    costUSD: reported ? usage.costUSD : costUSD,
-                    cacheReadInputTokens: cacheRead,
-                    lastTurnContextTokens: trackedContext
-                      ? trackedContext.input +
-                        trackedContext.cacheRead +
-                        trackedContext.cacheCreation
-                      : undefined,
-                  });
-                }
-                if (modelUsageList.length > 1) {
-                  modelUsageList.sort((a, b) => {
-                    if (initialModel) {
-                      const normalizedInit = initialModel.toLowerCase();
-                      const aFuzzy =
-                        a.model === initialModel ||
-                        a.model.toLowerCase().includes(normalizedInit) ||
-                        normalizedInit.includes(a.model.toLowerCase())
-                          ? 1
-                          : 0;
-                      const bFuzzy =
-                        b.model === initialModel ||
-                        b.model.toLowerCase().includes(normalizedInit) ||
-                        normalizedInit.includes(b.model.toLowerCase())
-                          ? 1
-                          : 0;
-                      if (aFuzzy !== bFuzzy) return bFuzzy - aFuzzy;
+                  for (const { model, usage, priced } of usageEntries) {
+                    const resolvedModel = priced.modelId;
+                    const cacheRead = usage.cacheReadInputTokens ?? 0;
+                    const cacheCreation = usage.cacheCreationInputTokens ?? 0;
+                    let costUSD: number | null;
+                    let rate: ModelPricing | null = null;
+                    if (reported) {
+                      costUSD =
+                        typeof usage.costUSD === 'number'
+                          ? usage.costUSD
+                          : null;
+                    } else {
+                      // Prefer the already-hydrated map; only pay for a catalog
+                      // round-trip when the model is genuinely unknown to it.
+                      rate =
+                        priced.pricing ??
+                        (await pricingProvider.getPricing(resolvedModel));
+                      costUSD = rate
+                        ? calculateMessageCost(
+                            resolvedModel,
+                            {
+                              input: usage.inputTokens,
+                              output: usage.outputTokens,
+                              cacheHit: cacheRead,
+                              cacheCreation,
+                            },
+                            rate,
+                          )
+                        : null;
                     }
-                    return b.outputTokens - a.outputTokens;
-                  });
+                    runModels.push({
+                      model,
+                      inputTokens: usage.inputTokens,
+                      outputTokens: usage.outputTokens,
+                      cacheRead,
+                      cacheCreation,
+                      costUSD,
+                      ...(!reported && { pricing: rate }),
+                    });
+                    const trackedContext = trackedContextByModel.get(model);
+                    const contextCapacity = resolveContextCapacity({
+                      route: capacityRoute,
+                      model: resolvedModel,
+                      sdkContextWindow: usage.contextWindow,
+                    });
+                    modelUsageList.push({
+                      model: resolvedModel,
+                      inputTokens: usage.inputTokens,
+                      outputTokens: usage.outputTokens,
+                      contextWindow: contextCapacity.tokens ?? 0,
+                      contextCapacity,
+                      costUSD: reported ? usage.costUSD : costUSD,
+                      cacheReadInputTokens: cacheRead,
+                      lastTurnContextTokens: trackedContext
+                        ? trackedContext.input +
+                          trackedContext.cacheRead +
+                          trackedContext.cacheCreation
+                        : undefined,
+                    });
+                  }
+                  if (modelUsageList.length > 1) {
+                    modelUsageList.sort((a, b) => {
+                      if (initialModel) {
+                        const normalizedInit = initialModel.toLowerCase();
+                        const aFuzzy =
+                          a.model === initialModel ||
+                          a.model.toLowerCase().includes(normalizedInit) ||
+                          normalizedInit.includes(a.model.toLowerCase())
+                            ? 1
+                            : 0;
+                        const bFuzzy =
+                          b.model === initialModel ||
+                          b.model.toLowerCase().includes(normalizedInit) ||
+                          normalizedInit.includes(b.model.toLowerCase())
+                            ? 1
+                            : 0;
+                        if (aFuzzy !== bFuzzy) return bFuzzy - aFuzzy;
+                      }
+                      return b.outputTokens - a.outputTokens;
+                    });
+                  }
                 }
-              }
-              // The run's CUMULATIVE cost so far (per query process, subagents
-              // included). Handed to the session owner only; it is never a
-              // message cost.
-              let totalCost: number | null;
-              if (reported) {
-                totalCost = sdkMessage.total_cost_usd;
-              } else if (
-                runModels.length === 0 ||
-                runModels.some((m) => m.costUSD === null)
-              ) {
-                totalCost = null;
-              } else {
-                totalCost = 0;
-                for (const row of runModels) {
-                  totalCost += row.costUSD ?? 0;
+                // The run's CUMULATIVE cost so far (per query process, subagents
+                // included). Handed to the session owner only; it is never a
+                // message cost.
+                let totalCost: number | null;
+                if (reported) {
+                  totalCost = sdkMessage.total_cost_usd;
+                } else if (
+                  runModels.length === 0 ||
+                  runModels.some((m) => m.costUSD === null)
+                ) {
+                  totalCost = null;
+                } else {
+                  totalCost = 0;
+                  for (const row of runModels) {
+                    totalCost += row.costUSD ?? 0;
+                  }
                 }
-              }
 
-              const sdkTokens = {
-                input: sdkMessage.usage.input_tokens,
-                output: sdkMessage.usage.output_tokens,
-                cacheRead: sdkMessage.usage.cache_read_input_tokens ?? 0,
-                cacheCreation:
-                  sdkMessage.usage.cache_creation_input_tokens ?? 0,
-              };
-              const hasNoSdkTokenUsage =
-                sdkTokens.input === 0 &&
-                sdkTokens.output === 0 &&
-                sdkTokens.cacheRead === 0 &&
-                sdkTokens.cacheCreation === 0;
+                const sdkTokens = {
+                  input: sdkMessage.usage.input_tokens,
+                  output: sdkMessage.usage.output_tokens,
+                  cacheRead: sdkMessage.usage.cache_read_input_tokens ?? 0,
+                  cacheCreation:
+                    sdkMessage.usage.cache_creation_input_tokens ?? 0,
+                };
+                const hasNoSdkTokenUsage =
+                  sdkTokens.input === 0 &&
+                  sdkTokens.output === 0 &&
+                  sdkTokens.cacheRead === 0 &&
+                  sdkTokens.cacheCreation === 0;
 
-              // Session accounting runs for EVERY result, whether or not a UI
-              // callback is registered. `modelUsage` is the query's cumulative
-              // running total (sdk.d.ts), so the owner REPLACES this run's
-              // stored value with it. `usage` is per-turn and main-loop only:
-              // it is never counted as a run total — a result that carries
-              // only that marks the run under-counted instead.
-              // The owner generation is checked HERE, after every pricing
-              // await above: a result whose owner was released or replaced
-              // meanwhile is dropped, and can never recreate an owner.
-              // The message cost is the owner's `turnCost` for an accepted
-              // result; with no owner, no model rows, or any other outcome it
-              // stays unknown — the cumulative `totalCost` is never published
-              // in its place. A duplicate is not published at all: it belongs
-              // to a turn whose cost was already published.
-              let sessionStats: SessionStatsEntry | undefined;
-              let turnCost: number | null = null;
-              let duplicate = false;
-              if (statsGeneration === null) {
-                // No owner was prepared for this stream: nothing to publish.
-              } else if (runModels.length > 0) {
-                const offered = statsOwner.replaceRun(
-                  effectiveSessionId,
-                  statsGeneration,
-                  runToken,
-                  {
-                    models: runModels,
-                    totalCost: typeof totalCost === 'number' ? totalCost : null,
-                    costSource: usageCostSource,
-                    isErrorResult:
-                      sdkMessage.subtype !== 'success' || sdkMessage.is_error,
-                    // Per turn; the owner adds it only when it accepts the
-                    // result, and validates it.
-                    durationMs: sdkMessage.duration_ms,
-                  },
-                );
-                const { outcome, snapshot, firstRejection } = offered;
-                turnCost = offered.turnCost;
-                duplicate = outcome === 'duplicate';
-                if (offered.runCostDecreased) {
-                  logger.warn(
-                    '[StreamTransformer] The run cost went down between two accepted results (a model rate changed mid-run); this turn cost is unknown',
-                    { sessionId: effectiveSessionId },
-                  );
-                }
-                if (outcome === 'rejected-invalid') {
-                  logger.warn(
-                    '[StreamTransformer] Session stats owner rejected a malformed result; keeping the accepted snapshot',
-                    { sessionId: effectiveSessionId },
-                  );
-                } else if (firstRejection) {
-                  // The owner reports this once per run: an SDK that keeps
-                  // omitting a model would otherwise log on every turn.
-                  logger.warn(
-                    '[StreamTransformer] Session stats owner rejected a result that does not continue the run total (a model is missing or a counter decreased); keeping the accepted snapshot',
-                    { sessionId: effectiveSessionId },
-                  );
-                } else if (outcome === 'stale-owner') {
-                  logger.debug(
-                    '[StreamTransformer] Dropped a result for a released session stats owner',
-                    { sessionId: effectiveSessionId },
-                  );
-                }
-                sessionStats = snapshot ?? undefined;
-              } else if (!hasNoSdkTokenUsage) {
-                sessionStats =
-                  statsOwner.markRunIncomplete(
+                // Session accounting runs for EVERY result, whether or not a UI
+                // callback is registered. `modelUsage` is the query's cumulative
+                // running total (sdk.d.ts), so the owner REPLACES this run's
+                // stored value with it. `usage` is per-turn and main-loop only:
+                // it is never counted as a run total — a result that carries
+                // only that marks the run under-counted instead.
+                // The owner generation is checked HERE, after every pricing
+                // await above: a result whose owner was released or replaced
+                // meanwhile is dropped, and can never recreate an owner.
+                // The message cost is the owner's `turnCost` for an accepted
+                // result; with no owner, no model rows, or any other outcome it
+                // stays unknown — the cumulative `totalCost` is never published
+                // in its place. A duplicate is not published at all: it belongs
+                // to a turn whose cost was already published.
+                let sessionStats: SessionStatsEntry | undefined;
+                let turnCost: number | null = null;
+                let duplicate = false;
+                if (statsGeneration === null) {
+                  // No owner was prepared for this stream: nothing to publish.
+                } else if (runModels.length > 0) {
+                  const offered = statsOwner.replaceRun(
                     effectiveSessionId,
                     statsGeneration,
                     runToken,
-                  ) ?? undefined;
-              }
-
-              if (!onResultStats) {
-                logger.error(
-                  '[StreamTransformer] Result stats callback not set - stats will be lost!',
-                  { sessionId: effectiveSessionId },
-                );
-              } else if (duplicate) {
-                // Identical to the run's accepted cumulative value: a repeat of
-                // a turn whose cost, footer and snapshot were already
-                // published. Publishing it would overwrite that message's cost.
-              } else if (!hasNoSdkTokenUsage || modelUsageList.length > 0) {
-                // A result with neither aggregate usage nor per-model usage is
-                // a turn boundary, not a stats update. Emitting its zero values
-                // would overwrite the populated session header after resume.
-                // `sdkTokens` (main loop only) and `turnCost` (every model of
-                // the turn, subagents included) are this turn's own figures
-                // for the message footer; `modelUsageList` is cumulative per
-                // query and must not be summed into them or earlier turns are
-                // counted again.
-                const rawStats: TransformerResultStats = {
-                  sessionId: effectiveSessionId,
-                  turnCost,
-                  tokens: sdkTokens,
-                  duration: sdkMessage.duration_ms,
-                  modelUsage:
-                    modelUsageList.length > 0 ? modelUsageList : undefined,
-                };
-                const validatedStats = validateStats(
-                  rawStats,
-                  totalCost,
-                  logger,
-                );
-                if (validatedStats) {
-                  onResultStats({
-                    ...validatedStats,
-                    ...(sessionStats && { sessionStats }),
-                  });
+                    {
+                      models: runModels,
+                      totalCost:
+                        typeof totalCost === 'number' ? totalCost : null,
+                      costSource: usageCostSource,
+                      isErrorResult:
+                        sdkMessage.subtype !== 'success' || sdkMessage.is_error,
+                      // Per turn; the owner adds it only when it accepts the
+                      // result, and validates it.
+                      durationMs: sdkMessage.duration_ms,
+                    },
+                  );
+                  const { outcome, snapshot, firstRejection } = offered;
+                  turnCost = offered.turnCost;
+                  duplicate = outcome === 'duplicate';
+                  if (offered.runCostDecreased) {
+                    logger.warn(
+                      '[StreamTransformer] The run cost went down between two accepted results (a model rate changed mid-run); this turn cost is unknown',
+                      { sessionId: effectiveSessionId },
+                    );
+                  }
+                  if (outcome === 'rejected-invalid') {
+                    logger.warn(
+                      '[StreamTransformer] Session stats owner rejected a malformed result; keeping the accepted snapshot',
+                      { sessionId: effectiveSessionId },
+                    );
+                  } else if (firstRejection) {
+                    // The owner reports this once per run: an SDK that keeps
+                    // omitting a model would otherwise log on every turn.
+                    logger.warn(
+                      '[StreamTransformer] Session stats owner rejected a result that does not continue the run total (a model is missing or a counter decreased); keeping the accepted snapshot',
+                      { sessionId: effectiveSessionId },
+                    );
+                  } else if (outcome === 'stale-owner') {
+                    logger.debug(
+                      '[StreamTransformer] Dropped a result for a released session stats owner',
+                      { sessionId: effectiveSessionId },
+                    );
+                  }
+                  sessionStats = snapshot ?? undefined;
+                } else if (!hasNoSdkTokenUsage) {
+                  sessionStats =
+                    statsOwner.markRunIncomplete(
+                      effectiveSessionId,
+                      statsGeneration,
+                      runToken,
+                    ) ?? undefined;
                 }
+
+                if (!onResultStats) {
+                  logger.error(
+                    '[StreamTransformer] Result stats callback not set - stats will be lost!',
+                    { sessionId: effectiveSessionId },
+                  );
+                } else if (duplicate) {
+                  // Identical to the run's accepted cumulative value: a repeat of
+                  // a turn whose cost, footer and snapshot were already
+                  // published. Publishing it would overwrite that message's cost.
+                } else if (!hasNoSdkTokenUsage || modelUsageList.length > 0) {
+                  // A result with neither aggregate usage nor per-model usage is
+                  // a turn boundary, not a stats update. Emitting its zero values
+                  // would overwrite the populated session header after resume.
+                  // `sdkTokens` (main loop only) and `turnCost` (every model of
+                  // the turn, subagents included) are this turn's own figures
+                  // for the message footer; `modelUsageList` is cumulative per
+                  // query and must not be summed into them or earlier turns are
+                  // counted again.
+                  const rawStats: TransformerResultStats = {
+                    sessionId: effectiveSessionId,
+                    turnCost,
+                    tokens: sdkTokens,
+                    duration: sdkMessage.duration_ms,
+                    modelUsage:
+                      modelUsageList.length > 0 ? modelUsageList : undefined,
+                  };
+                  const validatedStats = validateStats(
+                    rawStats,
+                    totalCost,
+                    logger,
+                  );
+                  if (validatedStats) {
+                    onResultStats({
+                      ...validatedStats,
+                      ...(sessionStats && { sessionStats }),
+                    });
+                  }
+                }
+              } finally {
+                // After `onResultStats`, so `session:stats` leaves first; the
+                // settle payload carries the same snapshot and no `context`.
+                livePublisher.settle();
               }
             }
             if (isCompactBoundary(sdkMessage)) {
@@ -1031,6 +1087,9 @@ export class StreamTransformer {
           // Stop the watchdog on every teardown path (end-of-stream, error,
           // abort) so it can neither leak nor fire after the turn ends.
           activityWatchdog?.stop();
+          // Cancels the throttle timer, detaches the owner watcher and settles
+          // an estimate the stream ended on without a result. Never throws.
+          livePublisher.dispose();
           // Thrown from a finally it would replace the stream's own outcome
           // (a clean end or the original error).
           if (onStreamEnd) {

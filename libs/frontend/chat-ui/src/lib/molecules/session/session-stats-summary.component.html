@@ -1,4 +1,4 @@
-<div class="stats-grid" style="container-type: inline-size">
+<div class="stats-grid">
   <!-- Failed refresh while limit data is held: neutral, both layouts -->
   @if (limits()?.refreshNotice; as notice) {
     <p
@@ -58,6 +58,16 @@
           <span class="text-[10px] uppercase text-base-content-muted"
             >Tokens</span
           >
+          @if (isEstimate()) {
+            <!-- In-turn estimate (session:stats-live): "~" for sight,
+                 "estimated" for screen readers; the tooltip explains it. -->
+            <span
+              class="text-base-content-muted"
+              data-testid="stats-tokens-estimate"
+              ><span aria-hidden="true">~</span
+              ><span class="sr-only">estimated </span></span
+            >
+          }
           <span class="tabular-nums" data-testid="stats-tokens">{{
             tokensLabel()
           }}</span>
@@ -76,6 +86,14 @@
           <span class="text-[10px] uppercase text-base-content-muted"
             >Cost</span
           >
+          @if (isEstimate()) {
+            <span
+              class="text-base-content-muted"
+              data-testid="stats-cost-estimate"
+              ><span aria-hidden="true">~</span
+              ><span class="sr-only">estimated </span></span
+            >
+          }
           @if (costBudgetText(); as budgetText) {
             <span class="tabular-nums" data-testid="stats-cost-budget">{{
               budgetText
@@ -206,246 +224,265 @@
       </button>
     </div>
   } @else {
-    <!-- Expanded: the grid header owns its collapse affordance, never a tile. -->
-    <div class="stats-cards-header mb-1 flex items-center justify-end">
-      <button
-        class="btn btn-ghost btn-xs btn-square text-base-content-muted hover:text-base-content"
-        data-testid="stats-collapse"
-        (click)="isStatsCollapsed.set(true)"
-        type="button"
-        title="Collapse stats"
-        aria-label="Collapse stats"
-      >
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          width="14"
-          height="14"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          aria-hidden="true"
+    <!-- Expanded: one card. The header owns the collapse affordance; the
+         summary line, plan limits and lanes are stacked sections. Values
+         print base-content ink: semantic and purple/cyan colours stay out of
+         text, because the 400 shades fail contrast on the light card. -->
+    <div
+      class="stats-card rounded border border-base-content/10 bg-base-200/50 px-2 py-1.5"
+      data-testid="stats-card"
+    >
+      <div class="stats-card-header flex items-center justify-between">
+        <span
+          class="text-[10px] uppercase tracking-wider text-base-content-muted"
+          >Session</span
         >
-          <polyline points="6 15 12 9 18 15" />
-        </svg>
-      </button>
-    </div>
-    <div class="stats-cards grid auto-rows-fr grid-cols-2 gap-1.5">
-      <!-- Model Card -->
-      @if (!hasMultipleModels() && primaryModelName(); as modelName) {
-        <div
-          class="bg-base-200/50 rounded px-2 py-1.5 border border-purple-600/20"
-          [title]="modelName"
+        <button
+          class="btn btn-ghost btn-xs btn-square text-base-content-muted hover:text-base-content"
+          data-testid="stats-collapse"
+          (click)="isStatsCollapsed.set(true)"
+          type="button"
+          title="Collapse stats"
+          aria-label="Collapse stats"
         >
-          <div
-            class="text-[10px] uppercase tracking-wider text-base-content-muted leading-tight"
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
           >
-            Model
-          </div>
-          <div
-            class="text-sm font-semibold text-base-content truncate leading-tight mt-0.5"
-          >
-            {{ formatModelName(modelName) }}
-          </div>
-        </div>
-      }
+            <polyline points="6 15 12 9 18 15" />
+          </svg>
+        </button>
+      </div>
 
-      <!-- Context Card -->
-      @if (liveModelStats(); as live) {
-        <div
-          class="bg-base-200/50 rounded px-2 py-1.5 border border-cyan-600/20"
-          [title]="contextTooltip()"
-        >
-          <div
-            class="text-[10px] uppercase tracking-wider text-base-content-muted leading-tight"
-          >
-            Context
-          </div>
-          <div
-            class="text-sm font-semibold text-base-content leading-tight mt-0.5"
-          >
-            <span data-testid="stats-context">{{ contextPercentLabel() }}</span>
-            @if (hasKnownContextWindow()) {
-              <span class="text-[10px] font-normal text-base-content-muted">
-                ({{ formatTokens(live.contextUsed) }})
-              </span>
-            }
-          </div>
-        </div>
-      }
-
-      <!-- Tokens Card -->
+      <!-- Summary line: inline items; the "·" separators come from the CSS. -->
       <div
-        class="bg-base-200/50 rounded px-2 py-1.5 border border-base-content/10"
-        [title]="tokenTooltip()"
+        class="stats-summary-line flex flex-wrap items-center gap-x-1 gap-y-0.5 text-xs tabular-nums text-base-content"
+        data-testid="stats-summary-line"
       >
-        <div
-          class="text-[10px] uppercase tracking-wider text-base-content-muted leading-tight"
+        @if (!hasMultipleModels() && primaryModelName(); as modelName) {
+          <span
+            class="stats-item inline-flex min-w-0 max-w-full items-baseline gap-1 font-semibold"
+            [title]="modelName"
+            ><span class="truncate">{{
+              formatModelName(modelName)
+            }}</span></span
+          >
+        }
+        <span
+          class="stats-item inline-flex items-baseline gap-1"
+          [title]="tokenTooltip()"
         >
-          Tokens
-        </div>
-        <div class="text-sm font-semibold tabular-nums leading-tight mt-0.5">
-          <span data-testid="stats-tokens">{{ tokensLabel() }}</span>
+          <span class="font-semibold">
+            @if (isEstimate()) {
+              <span
+                class="font-normal text-base-content-muted"
+                data-testid="stats-tokens-estimate"
+                ><span aria-hidden="true">~</span
+                ><span class="sr-only">estimated </span></span
+              >
+            }
+            <span data-testid="stats-tokens">{{ tokensLabel() }}</span>
+          </span>
           @if (tokensBudgetSuffix(); as suffix) {
             <span
-              class="text-[10px] font-normal text-base-content-muted"
+              class="text-base-content-muted"
               data-testid="stats-tokens-budget"
               >{{ suffix }}</span
             >
           }
-        </div>
-      </div>
-
-      <!-- Cost Card -->
-      <div
-        class="bg-base-200/50 rounded px-2 py-1.5 border border-success/20"
-        [attr.title]="costTooltip()"
-      >
-        <div
-          class="text-[10px] uppercase tracking-wider text-base-content-muted leading-tight"
+          <span class="text-base-content-muted">tok</span>
+        </span>
+        <span
+          class="stats-item inline-flex items-baseline gap-1"
+          [attr.title]="costTooltip()"
         >
-          Cost
-        </div>
-        @if (costBudgetText(); as budgetText) {
-          <div
-            class="text-xs tabular-nums leading-tight mt-0.5"
-            data-testid="stats-cost-budget"
+          @if (isEstimate()) {
+            <span
+              class="text-base-content-muted"
+              data-testid="stats-cost-estimate"
+              ><span aria-hidden="true">~</span
+              ><span class="sr-only">estimated </span></span
+            >
+          }
+          @if (costBudgetText(); as budgetText) {
+            <span data-testid="stats-cost-budget">{{ budgetText }}</span>
+          } @else {
+            <span data-testid="stats-cost">
+              <ptah-cost-badge [cost]="totalCost()" />
+            </span>
+            @if (costBudgetSuffix(); as suffix) {
+              <span
+                class="text-base-content-muted"
+                data-testid="stats-cost-limit"
+                >{{ suffix }}</span
+              >
+            }
+            @if (knownSubtotal(); as known) {
+              <span
+                class="text-[11px] text-base-content-muted"
+                data-testid="stats-known-subtotal"
+                [title]="knownSubtotalTooltip"
+                >known subtotal {{ formatCost(known.value) }}</span
+              >
+            }
+          }
+        </span>
+        @if (liveModelStats(); as live) {
+          <span
+            class="stats-item inline-flex items-baseline gap-1"
+            [title]="contextTooltip()"
           >
-            {{ budgetText }}
-          </div>
-        } @else {
-          <div data-testid="stats-cost">
-            <ptah-cost-badge [cost]="totalCost()" />
-          </div>
-          @if (costBudgetSuffix(); as suffix) {
-            <div
-              class="text-[10px] text-base-content-muted tabular-nums leading-tight"
-              data-testid="stats-cost-limit"
-            >
-              {{ suffix }}
-            </div>
-          }
-          @if (knownSubtotal(); as known) {
-            <div
-              class="text-[10px] text-base-content-muted tabular-nums leading-tight mt-0.5"
-              data-testid="stats-known-subtotal"
-              [title]="knownSubtotalTooltip"
-            >
-              known subtotal {{ formatCost(known.value) }}
-            </div>
-          }
+            <span class="text-base-content-muted">Context</span>
+            <span data-testid="stats-context">{{ contextPercentLabel() }}</span>
+            @if (hasKnownContextWindow()) {
+              <span class="text-base-content-muted"
+                >({{ formatTokens(live.contextUsed) }})</span
+              >
+            }
+          </span>
         }
-      </div>
-
-      <!-- Duration Card (backend-supplied only) -->
-      @if (durationMs(); as duration) {
-        <div
-          class="bg-base-200/50 rounded px-2 py-1.5 border border-base-content/10"
-        >
-          <div
-            class="text-[10px] uppercase tracking-wider text-base-content-muted leading-tight"
+        @if (durationMs(); as duration) {
+          <span
+            class="stats-item inline-flex items-baseline gap-1"
+            title="Session duration"
           >
-            Duration
-          </div>
-          <div
-            class="text-sm font-semibold tabular-nums leading-tight mt-0.5"
-            data-testid="stats-duration"
+            <span data-testid="stats-duration">{{
+              formatDuration(duration)
+            }}</span>
+          </span>
+        }
+        @if (agentCount(); as agents) {
+          <span
+            class="stats-item inline-flex items-baseline gap-1"
+            [title]="agentsTooltip"
           >
-            {{ formatDuration(duration) }}
-          </div>
-        </div>
-      }
-
-      <!-- Agents Card (backend lifetime count) -->
-      @if (agentCount(); as agents) {
-        <div
-          class="bg-base-200/50 rounded px-2 py-1.5 border border-info/20"
-          [title]="agentsTooltip"
-        >
-          <div
-            class="text-[10px] uppercase tracking-wider text-base-content-muted leading-tight"
+            <span data-testid="stats-agents">{{ agents }}</span>
+            <span class="text-base-content-muted">{{
+              agents === 1 ? 'agent' : 'agents'
+            }}</span>
+          </span>
+        }
+        @if (compactionCount() > 0) {
+          <span
+            class="stats-item inline-flex items-baseline gap-1"
+            title="Number of context compactions during this session"
           >
-            Agents
-          </div>
-          <div
-            class="text-sm font-semibold text-info tabular-nums leading-tight mt-0.5"
-            data-testid="stats-agents"
+            <span data-testid="stats-compactions">{{ compactionCount() }}</span>
+            <span class="text-base-content-muted">{{
+              compactionCount() === 1 ? 'compaction' : 'compactions'
+            }}</span>
+          </span>
+        }
+        @if (hasMultipleModels()) {
+          <button
+            class="stats-item inline-flex items-baseline gap-1 cursor-pointer rounded px-0.5 hover:bg-base-content/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-base-content"
+            data-testid="stats-models-toggle"
+            (click)="isExpanded.set(!isExpanded())"
+            type="button"
+            [attr.aria-expanded]="isExpanded()"
+            [title]="
+              isExpanded()
+                ? 'Hide per-model breakdown'
+                : 'Show per-model breakdown'
+            "
           >
-            {{ agents }}
-          </div>
-        </div>
-      }
-
-      <!-- Compactions Card (conditional) -->
-      @if (compactionCount() > 0) {
-        <div
-          class="bg-base-200/50 rounded px-2 py-1.5 border border-warning/20"
-          title="Number of context compactions during this session"
-        >
-          <div
-            class="text-[10px] uppercase tracking-wider text-base-content-muted leading-tight"
-          >
-            Compactions
-          </div>
-          <div
-            class="text-sm font-semibold text-warning tabular-nums leading-tight mt-0.5"
-          >
-            {{ compactionCount() }}
-          </div>
-        </div>
-      }
-
-      <!-- Multi-model Toggle Card (conditional) -->
-      @if (hasMultipleModels()) {
-        <button
-          class="bg-base-200/50 rounded px-2 py-1.5 border border-purple-600/20 cursor-pointer hover:bg-base-200/80 text-left transition-colors"
-          data-testid="stats-models-toggle"
-          (click)="isExpanded.set(!isExpanded())"
-          type="button"
-          [attr.aria-expanded]="isExpanded()"
-          [title]="
-            isExpanded()
-              ? 'Hide per-model breakdown'
-              : 'Show per-model breakdown'
-          "
-        >
-          <div
-            class="text-[10px] uppercase tracking-wider text-base-content-muted leading-tight"
-          >
-            Models
-          </div>
-          <div
-            class="text-sm font-semibold text-base-content leading-tight mt-0.5"
-          >
-            {{ modelRows().length }}
-            <span class="text-[10px] font-normal" aria-hidden="true">{{
+            <span class="font-semibold">{{ modelRows().length }}</span>
+            <span class="text-base-content-muted">models</span>
+            <span class="text-[10px]" aria-hidden="true">{{
               isExpanded() ? '▲' : '▼'
             }}</span>
-          </div>
-        </button>
-      }
+          </button>
+        }
+      </div>
 
-      <!-- Plan-limit and lane tiles: after the session cards, in DOM order
-           (no dense packing). Lanes stay outside the session totals. -->
       @if (limits(); as vm) {
-        @for (tile of vm.planTiles; track tile.id) {
-          <ptah-plan-limit-tile
-            [tile]="tile"
-            [open]="isTileOpen(tile.id)"
-            (toggled)="toggleTile(tile.id)"
-          />
+        <!-- Plan limits: the caption and source the rows share print once
+             in the section header; a row that differs keeps its own. -->
+        @if (vm.planTiles.length > 0) {
+          <section
+            class="mt-1.5 border-t border-base-content/10 pt-1"
+            aria-label="Plan limits"
+            data-testid="stats-plan-section"
+          >
+            <div
+              class="mb-0.5 flex min-w-0 items-center gap-1 text-[10px] leading-tight text-base-content-muted"
+              data-testid="plan-limits-header"
+            >
+              <span class="shrink-0 uppercase tracking-wider">Plan limits</span>
+              @if (planProvenance().caption; as caption) {
+                <span class="shrink-0" aria-hidden="true">·</span>
+                <span
+                  class="flex min-w-0 gap-1"
+                  [attr.title]="caption.caption"
+                  data-testid="plan-limits-caption"
+                >
+                  <span class="truncate">{{ caption.captionLead }}</span>
+                  @if (caption.captionTail; as tail) {
+                    <span class="shrink-0 whitespace-nowrap">{{ tail }}</span>
+                  }
+                </span>
+              }
+              @for (source of planProvenance().sourceChips; track source) {
+                <span
+                  [class]="sourceChipClass(source) + ' shrink-0'"
+                  data-testid="plan-limits-source"
+                  >{{ source }}</span
+                >
+              }
+            </div>
+            @for (tile of vm.planTiles; track tile.id) {
+              <ptah-plan-limit-tile
+                [tile]="tile"
+                [open]="isTileOpen(tile.id)"
+                [captionShared]="planProvenance().caption !== null"
+                [sharedSources]="planProvenance().sourceChips"
+                (toggled)="toggleTile(tile.id)"
+              />
+            }
+          </section>
         }
-        @for (tile of vm.laneTiles; track tile.id) {
-          <ptah-lane-usage-tile
-            [tile]="tile"
-            [open]="isTileOpen(tile.id)"
-            (toggled)="toggleTile(tile.id)"
-          />
-        }
-        @if (vm.subtotal; as subtotal) {
-          <ptah-lane-subtotal-tile [tile]="subtotal" />
+        <!-- Lanes stay outside the session totals (Req 8). -->
+        @if (vm.laneTiles.length > 0 || vm.subtotal) {
+          <section
+            class="mt-1.5 border-t border-base-content/10 pt-1"
+            aria-label="Lanes"
+            data-testid="stats-lanes-section"
+          >
+            <div
+              class="mb-0.5 flex min-w-0 items-center gap-1 text-[10px] leading-tight text-base-content-muted"
+              data-testid="lanes-header"
+            >
+              <span class="shrink-0 uppercase tracking-wider">Lanes</span>
+              @if (laneCaption(); as caption) {
+                <span class="shrink-0" aria-hidden="true">·</span>
+                <span class="truncate" data-testid="lanes-caption">{{
+                  caption
+                }}</span>
+              }
+            </div>
+            @for (tile of vm.laneTiles; track tile.id) {
+              <ptah-lane-usage-tile
+                [tile]="tile"
+                [open]="isTileOpen(tile.id)"
+                [captionShared]="laneCaption() !== null"
+                (toggled)="toggleTile(tile.id)"
+              />
+            }
+            @if (vm.subtotal; as subtotal) {
+              <ptah-lane-subtotal-tile
+                [tile]="subtotal"
+                [captionShared]="laneCaption() !== null"
+              />
+            }
+          </section>
         }
       }
     </div>

@@ -1,7 +1,8 @@
 /**
  * SDK adapter callback wiring.
  *
- * Centralizes `setResultStatsCallback`, `setSessionIdResolvedCallback`,
+ * Centralizes `setResultStatsCallback`, `setLiveStatsCallback`,
+ * `setSessionIdResolvedCallback`,
  * `setCompactionStartCallback` and (optionally) the two worktree callbacks
  * so VS Code / Electron / TUI no longer re-implement the same 150 lines.
  *
@@ -95,6 +96,7 @@ export function wireSdkCallbacks(
     );
 
     wireResultStatsCallback(sdkAdapter, webviewManager, logger, tag);
+    wireLiveStatsCallback(sdkAdapter, webviewManager, logger, tag);
     wireSessionIdResolvedCallback(
       sdkAdapter,
       webviewManager,
@@ -116,7 +118,7 @@ export function wireSdkCallbacks(
     }
 
     logger.info(
-      `${tag} SDK callbacks wired (stats, sessionId, compaction${
+      `${tag} SDK callbacks wired (stats, live stats, sessionId, compaction${
         options.worktree ? ', worktree' : ''
       })`,
     );
@@ -144,6 +146,36 @@ function wireResultStatsCallback(
       sessionStatsRevision: stats.sessionStats?.revision,
     });
     await sendStatsWithRetry(webviewManager, stats, logger, tag);
+  });
+}
+
+/**
+ * Broadcast the throttled in-turn estimate on `session:stats-live`.
+ *
+ * Fire-and-forget on purpose: no `retryWithBackoff`, because a retried
+ * estimate is already stale and could land after the authoritative
+ * `session:stats` snapshot (the frontend revision floor would reject it, so
+ * the retry is wasted work). No per-publish `info` log either — this fires
+ * up to once a second. A dropped broadcast is corrected by the next publish
+ * or by the authoritative snapshot.
+ */
+function wireLiveStatsCallback(
+  sdkAdapter: IAgentAdapter,
+  webviewManager: WebviewManagerLike,
+  logger: Logger,
+  tag: string,
+): void {
+  sdkAdapter.setLiveStatsCallback((payload) => {
+    webviewManager
+      .broadcastMessage(MESSAGE_TYPES.SESSION_STATS_LIVE, payload)
+      .catch((error: unknown) => {
+        // Session id and error name only: the payload and the error message
+        // are not needed to diagnose a dropped estimate.
+        logger.debug(
+          `${tag} Live session stats broadcast dropped: ${payload.sessionId}`,
+          { errorName: error instanceof Error ? error.name : typeof error },
+        );
+      });
   });
 }
 

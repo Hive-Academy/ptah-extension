@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Orchestra Canvas — mission-control prototypes</title>
+<link rel="stylesheet" href="shared.css" />
+<style>
+  body { overflow-y: auto; }
+  main { max-width: 980px; margin: 0 auto; padding: 48px 24px 80px; }
+  h1 { font-size: 22px; margin: 0 0 6px; }
+  .lead { color: var(--muted); max-width: 720px; margin: 0 0 28px; }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+  a.proto { display: flex; flex-direction: column; gap: 8px; padding: 16px; border-radius: 12px; background: var(--s2); border: 1px solid var(--line); color: inherit; text-decoration: none; }
+  a.proto:hover { border-color: rgba(212, 175, 55, 0.5); }
+  a.proto .tag { font-size: 11px; color: var(--gold); letter-spacing: 0.08em; text-transform: uppercase; }
+  a.proto h2 { margin: 0; font-size: 15px; }
+  a.proto p { margin: 0; color: var(--muted); font-size: 12.5px; }
+  h3 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 36px 0 10px; }
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--faint); font-weight: 600; }
+  ul { color: var(--muted); padding-left: 18px; }
+  li { margin: 4px 0; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Orchestra Canvas — mission-control prototypes</h1>
+  <p class="lead">Three layouts for many sessions with many agents. All pages share one simulated event store: about 100 stream events per second over 6–9 sessions, with permission requests and failures. The HUD at the bottom left shows the DOM node count, stream events/s, UI patches/s and the number of live transcripts.</p>
+
+  <div class="grid">
+    <a class="proto" href="01-board.html">
+      <span class="tag">A · Recommended</span>
+      <h2>Mission board</h2>
+      <p>Cards never move. Click a card and its detail opens directly below its row, with one tab for the orchestrator and one for each sub-agent, CLI lane and background task. Click a lane row on a card to open that lane's output. Use the <b>Fidelity</b> switch to compare with today's "all live" canvas.</p>
+    </a>
+    <a class="proto" href="02-focus-rail.html">
+      <span class="tag">B</span>
+      <h2>Focus + rail</h2>
+      <p>The layout from the reference image. A left rail groups sessions by attention, the centre shows one live chat, and the inspector is on the right. Ctrl+K switcher, Alt+↑/↓ to move between sessions.</p>
+    </a>
+    <a class="proto" href="03-overview.html">
+      <span class="tag">C</span>
+      <h2>Zoomed-out overview</h2>
+      <p>No transcripts at all. One row per session with agent lanes, todos, context, cost and inline Allow/Deny. For 9+ sessions, and as the zoom-out level of A.</p>
+    </a>
+  </div>
+
+  <h3>Detail levels</h3>
+  <table>
+    <tr><th>Level</th><th>Where</th><th>Data source</th><th>Update rate</th></tr>
+    <tr><td>Live</td><td>Focused tile (+1 pinned)</td><td>Raw stream events</td><td>Real time</td></tr>
+    <tr><td>Peek</td><td>Card hover</td><td>Session summary, plain text</td><td>Sample (500 ms)</td></tr>
+    <tr><td>Card</td><td>Other tiles, rail rows</td><td>Session summary</td><td>Sample (500 ms)</td></tr>
+    <tr><td>Row</td><td>Overview</td><td>Session summary</td><td>Sample (500 ms)</td></tr>
+  </table>
+
+  <h3>What to try</h3>
+  <ul>
+    <li>In A, set <b>Fidelity</b> to "All live (today)" and watch the DOM nodes and UI patches/s in the HUD. Then switch back.</li>
+    <li>Wait for a permission request. Approve it from the card, the attention menu or the overview row, without opening the transcript.</li>
+    <li>In A, click a CLI lane row (›_) on a card: the detail opens on that lane's output. Use <kbd>←</kbd>/<kbd>→</kbd> to move the detail to the next session.</li>
+    <li>In C, click a row: it opens the same session in B.</li>
+  </ul>
+
+  <h3>Limits of these prototypes</h3>
+  <ul>
+    <li>The data is simulated in the page. The real summary must be a computed selector over the existing chat store.</li>
+    <li>The live transcript adds one node for each stream event, as an approximation of incremental markdown rendering. It does not include markdown parsing, so real costs are higher.</li>
+    <li>Gridstack drag and resize are not modelled. The CSS grid only shows the spans.</li>
+  </ul>
+</main>
+</body>
+</html>

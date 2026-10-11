@@ -38,12 +38,7 @@ export type PlanLimitSource =
 
 /** The kind of allowance a window measures. */
 export type PlanWindowKind =
-  | 'five_hour'
-  | 'weekly'
-  | 'weekly_model'
-  | 'monthly'
-  | 'overage'
-  | 'other';
+  'five_hour' | 'weekly' | 'weekly_model' | 'monthly' | 'overage' | 'other';
 
 /**
  * Stable window identity within one owner. `weekly_model:<scope>` carries the
@@ -110,10 +105,7 @@ export interface PlanLimitWindow {
  *   with another owner, even when the keys are equal.
  */
 export type QuotaOwnerIdentityKind =
-  | 'account'
-  | 'credential'
-  | 'cli-store'
-  | 'unknown';
+  'account' | 'credential' | 'cli-store' | 'unknown';
 
 /**
  * Minimal, non-secret reference to the owner of a quota. Persisted per run
@@ -158,6 +150,13 @@ export type PlanLimitUnavailableReason = 'no-open-session';
 /** Everything known about one owner's limits. */
 export interface PlanLimitOwnerSnapshot {
   readonly owner: QuotaOwnerRef;
+  /** Neutral explanation for an unresolved owner, without account material. */
+  readonly unknownReason?:
+    | 'missing-account-email'
+    | 'codex-not-read'
+    | 'unrouted-daemon'
+    | 'missing-api-key'
+    | 'unresolved-route';
   readonly status: ProviderAccountUsageStatus;
   readonly fetchedAt?: number;
   readonly staleSince?: number;

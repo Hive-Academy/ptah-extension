@@ -638,6 +638,19 @@ describe('agent panel lanes', () => {
     expect(grid.shownIds()).toContain('c');
   });
 
+  it('closes a lane through the card close button (unbound template callback)', () => {
+    const fixture = create();
+    const grid = fixture.componentInstance.laneGrid();
+    if (!grid) throw new Error('Expected the lane grid to be rendered');
+    const card = fixture.debugElement
+      .queryAll(By.directive(CardStub))
+      .find((el) => el.componentInstance.agent().agentId === 'b');
+    if (!card) throw new Error('Expected a card for lane b');
+    expect(() => card.componentInstance.closeLane.emit('b')).not.toThrow();
+    fixture.detectChanges();
+    expect(grid.shownIds()).not.toContain('b');
+  });
+
   it('keeps removed columns out during output updates and permits picking them again', () => {
     const fixture = create();
     const grid = fixture.componentInstance.laneGrid();

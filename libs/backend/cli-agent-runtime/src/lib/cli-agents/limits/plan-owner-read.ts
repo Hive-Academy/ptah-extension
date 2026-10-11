@@ -107,19 +107,20 @@ export function planOwnerRead(
         },
       };
     case 'grok':
-      return context.cliSessionId
-        ? {
-            kind: 'read',
-            target: {
-              providerId: 'grok',
-              ownerRef: owner,
-              cliSessionId: context.cliSessionId,
-            },
-          }
-        : { kind: 'known', status: 'service-unavailable' };
+      return {
+        kind: 'read',
+        target: {
+          providerId: 'grok',
+          ownerRef: owner,
+          ...(context.cliSessionId && { cliSessionId: context.cliSessionId }),
+        },
+      };
     default:
       return KEYLESS_READ_PROVIDERS.has(owner.providerId)
-        ? { kind: 'read', target: { providerId: owner.providerId, ownerRef: owner } }
+        ? {
+            kind: 'read',
+            target: { providerId: owner.providerId, ownerRef: owner },
+          }
         : null;
   }
 }

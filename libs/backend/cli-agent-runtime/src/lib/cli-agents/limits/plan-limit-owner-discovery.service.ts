@@ -42,6 +42,9 @@
  * that throws or misses the deadline is dropped alone, logged at debug; the
  * others still return. `discoverTargets` never rejects.
  */
+import { readFile } from 'node:fs/promises';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import { inject, injectable } from 'tsyringe';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import {
@@ -98,6 +101,9 @@ export type DiscoveredPlanOwner =
       readonly kind: 'read';
       readonly origin: PlanOwnerOrigin;
       readonly target: PlanOwnerTarget;
+      readonly unknownReason?: PlanLimitOwnerSnapshot['unknownReason'];
+      readonly nativeClaudeRoute?: boolean;
+      readonly confirmedMissingEmail?: boolean;
     }
   | {
       readonly kind: 'known';
@@ -129,6 +135,7 @@ export type DiscoveryOwnerSource = Pick<
   | 'ownerForCliStore'
   | 'ownerForAntigravity'
   | 'ownerForSession'
+  | 'detailsFor'
 >;
 export type DiscoveryLedger = Pick<
   PlanLimitLedgerService,
@@ -154,6 +161,32 @@ const STORED_KEY_PROVIDERS: ReadonlySet<string> = new Set([
   'opencode-zen',
 ]);
 const CLI_STORE_CLIS = ['opencode', 'antigravity'] as const;
+
+async function hasGrokCliLogin(): Promise<boolean> {
+  const home = process.env['GROK_HOME']?.trim() || join(homedir(), '.grok');
+  try {
+    const auth: unknown = JSON.parse(
+      await readFile(join(home, 'auth.json'), 'utf8'),
+    );
+    if (!auth || typeof auth !== 'object' || Array.isArray(auth)) return false;
+    const credentials = auth as Record<string, unknown>;
+    return [
+      credentials['https://auth.x.ai::b1a00492-073a-47ea-816f-4c329264a828'],
+      credentials['https://accounts.x.ai/sign-in'],
+    ].some(
+      (entry) =>
+        entry !== null &&
+        typeof entry === 'object' &&
+        'key' in entry &&
+        typeof entry.key === 'string' &&
+        entry.key.trim().length > 0 &&
+        (!('auth_mode' in entry) || entry.auth_mode !== 'api_key'),
+    );
+  } catch {
+    // degradation-audit: optional-capability - Missing or invalid optional Grok login means no authenticated CLI store.
+    return false;
+  }
+}
 /** What a source's deadline resolves with. */
 const TIMED_OUT: unique symbol = Symbol('plan-owner-source-timed-out');
 
@@ -207,7 +240,11 @@ export class PlanLimitOwnerDiscoveryService {
       this.fromSource(
         'selected-provider',
         async () => [
-          await this.selectedProvider(request.selectedProviderId, sessionIds, cachedCodexHomeOwner),
+          await this.selectedProvider(
+            request.selectedProviderId,
+            sessionIds,
+            cachedCodexHomeOwner,
+          ),
         ],
         () => (this.retainNextCodexHomeOwner = true),
       ),
@@ -217,7 +254,8 @@ export class PlanLimitOwnerDiscoveryService {
       this.fromSource('session', () => this.sessions(sessionIds)),
       this.fromSource(
         'lane',
-        async () => this.detectedLanes((await detected) ?? [], cachedCodexHomeOwner),
+        async () =>
+          this.detectedLanes((await detected) ?? [], cachedCodexHomeOwner),
         () => (this.retainNextCodexHomeOwner = true),
       ),
       this.fromSource('ptah-cli', () => this.ptahCliLanes()),
@@ -233,7 +271,32 @@ export class PlanLimitOwnerDiscoveryService {
       ),
     ];
     for (const entries of await Promise.all(sources)) add(entries ?? []);
-    return [...listed.values()];
+    const entries = [...listed.values()];
+    // Native Claude routes in this SDK process use the same config home.
+    // Suppress a missing-email route only when exactly one verified account
+    // is present. Multiple verified accounts make the fallback ambiguous.
+    const verified = new Set(
+      entries
+        .map(ownerOf)
+        .filter(
+          (owner) =>
+            owner.providerId === 'anthropic' &&
+            owner.identityKind === 'account',
+        )
+        .map((owner) => owner.key),
+    );
+    return entries.filter((entry) => {
+      const owner = ownerOf(entry);
+      return !(
+        owner.providerId === 'anthropic' &&
+        owner.identityKind === 'unknown' &&
+        entry.kind === 'read' &&
+        entry.nativeClaudeRoute === true &&
+        (entry.confirmedMissingEmail === true ||
+          entry.unknownReason === 'unresolved-route') &&
+        verified.size === 1
+      );
+    });
   }
 
   /**
@@ -325,18 +388,25 @@ export class PlanLimitOwnerDiscoveryService {
     );
   }
 
-  private cliStores(
+  private async cliStores(
     detected: readonly CliDetectionResult[],
-  ): Array<DiscoveredPlanOwner | undefined> {
-    return CLI_STORE_CLIS.filter((cli) => isInstalled(detected, cli)).map(
-      (cli) =>
-        this.entryFor(
-          cli === 'antigravity'
-            ? this.owners.ownerForAntigravity()
-            : this.owners.ownerForCliStore(cli),
-          'cli-store',
-        ),
+  ): Promise<Array<DiscoveredPlanOwner | undefined>> {
+    const entries = CLI_STORE_CLIS.filter((cli) =>
+      isInstalled(detected, cli),
+    ).map((cli) =>
+      this.entryFor(
+        cli === 'antigravity'
+          ? this.owners.ownerForAntigravity()
+          : this.owners.ownerForCliStore(cli),
+        'cli-store',
+      ),
     );
+    if (isInstalled(detected, 'grok') && (await hasGrokCliLogin())) {
+      entries.push(
+        this.entryFor(this.owners.ownerForCliStore('grok'), 'cli-store'),
+      );
+    }
+    return entries;
   }
 
   private async sessions(
@@ -371,7 +441,8 @@ export class PlanLimitOwnerDiscoveryService {
     if (cachedCodexHomeOwner !== undefined) {
       return Promise.resolve(cachedCodexHomeOwner);
     }
-    if (this.codexHomeOwnerInFlight !== null) return this.codexHomeOwnerInFlight;
+    if (this.codexHomeOwnerInFlight !== null)
+      return this.codexHomeOwnerInFlight;
     const read = this.owners.resolveCodexHomeOwner();
     this.codexHomeOwnerInFlight = read;
     void read
@@ -381,7 +452,11 @@ export class PlanLimitOwnerDiscoveryService {
           this.retainNextCodexHomeOwner = false;
         }
       })
-      .catch(() => undefined)
+      .catch((error: unknown) => {
+        this.logger.debug('[PlanLimitOwnerDiscovery] Codex owner read failed', {
+          errorName: error instanceof Error ? error.name : typeof error,
+        });
+      })
       .finally(() => {
         if (this.codexHomeOwnerInFlight === read) {
           this.codexHomeOwnerInFlight = null;
@@ -507,8 +582,9 @@ export class PlanLimitOwnerDiscoveryService {
   ): DiscoveredPlanOwner | undefined {
     const plan = planOwnerRead(owner, context);
     if (!plan) return undefined;
+    const details = this.owners.detailsFor(owner);
     return plan.kind === 'read'
-      ? { kind: 'read', origin, target: plan.target }
+      ? { kind: 'read', origin, target: plan.target, ...details }
       : this.known(owner, plan, origin);
   }
 
@@ -520,7 +596,12 @@ export class PlanLimitOwnerDiscoveryService {
     return {
       kind: 'known',
       origin,
-      snapshot: snapshotWithoutRead(owner, status, this.ledger),
+      snapshot: {
+        ...snapshotWithoutRead(owner, status, this.ledger),
+        ...(this.owners.detailsFor(owner).unknownReason && {
+          unknownReason: this.owners.detailsFor(owner).unknownReason,
+        }),
+      },
     };
   }
 
