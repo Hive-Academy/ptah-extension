@@ -750,17 +750,26 @@ describe('SessionStatsSummaryComponent limits', () => {
     return found;
   }
 
-  /** Expanded-grid children as short names, in DOM order. */
-  function gridOrder(root: HTMLElement): string[] {
-    const grid = root.querySelector('.stats-cards');
-    if (!grid) throw new Error('grid not expanded');
-    return Array.from(grid.children).map((child) => {
-      const tag = child.tagName.toLowerCase();
-      if (tag.startsWith('ptah-')) return tag.replace('ptah-', '');
-      const testId = child.getAttribute('data-testid');
-      if (testId) return testId;
-      return (child.firstElementChild?.textContent ?? '').trim();
-    });
+  /** Expanded summary-line items, named by their (first) test id, in DOM order. */
+  function summaryOrder(root: HTMLElement): string[] {
+    const line = root.querySelector('[data-testid="stats-summary-line"]');
+    if (!line) throw new Error('card not expanded');
+    return Array.from(line.children).map(
+      (item) =>
+        item.getAttribute('data-testid') ??
+        item.querySelector('[data-testid]')?.getAttribute('data-testid') ??
+        (item.textContent ?? '').trim(),
+    );
+  }
+
+  /** Rows of one expanded-card section, as short component names. */
+  function sectionRows(root: HTMLElement, testId: string): string[] {
+    const section = root.querySelector(`[data-testid="${testId}"]`);
+    if (!section) throw new Error(`no section ${testId}`);
+    return Array.from(section.children)
+      .map((child) => child.tagName.toLowerCase())
+      .filter((tag) => tag.startsWith('ptah-'))
+      .map((tag) => tag.replace('ptah-', ''));
   }
 
   afterEach(() => TestBed.resetTestingModule());
@@ -769,7 +778,8 @@ describe('SessionStatsSummaryComponent limits', () => {
     const withoutInput = render(null);
     const collapsedHtml = withoutInput.innerHTML;
     click(withoutInput, '[data-testid="stats-expand"]');
-    const expandedOrder = gridOrder(withoutInput);
+    const expandedOrder = summaryOrder(withoutInput);
+    const sections = withoutInput.querySelectorAll('section');
     TestBed.resetTestingModule();
 
     const explicitNull = render(null, { sessionId: null });
@@ -782,12 +792,13 @@ describe('SessionStatsSummaryComponent limits', () => {
       explicitNull.querySelector('[data-testid="stats-lanes"]'),
     ).toBeNull();
     expect(expandedOrder).toEqual([
-      'Context',
-      'Tokens',
-      'Cost',
-      'Agents',
+      'stats-tokens',
+      'stats-cost',
+      'stats-context',
+      'stats-agents',
       'stats-models-toggle',
     ]);
+    expect(sections).toHaveLength(0);
   });
 
   it('shows the limits alert as a status line above the chip strip (variant A)', () => {
@@ -838,27 +849,70 @@ describe('SessionStatsSummaryComponent limits', () => {
     ).toBe('$38.18');
   });
 
-  it('appends plan, lane and subtotal tiles after the session cards in DOM order', () => {
+  it('stacks the summary line, plan-limit rows and lane rows in one card', () => {
     const root = render(limitsFor(40), { sessionId: 'session-1' });
     click(root, '[data-testid="stats-expand"]');
-    const grid = root.querySelector('.stats-cards') as HTMLElement;
+    const card = root.querySelector('[data-testid="stats-card"]') as HTMLElement;
 
-    expect(gridOrder(root)).toEqual([
-      'Context',
-      'Tokens',
-      'Cost',
-      'Agents',
+    expect(
+      Array.from(card.children).map((child) =>
+        child.getAttribute('data-testid'),
+      ),
+    ).toEqual([
+      null,
+      'stats-summary-line',
+      'stats-plan-section',
+      'stats-lanes-section',
+    ]);
+    expect(summaryOrder(root)).toEqual([
+      'stats-tokens',
+      'stats-cost',
+      'stats-context',
+      'stats-agents',
       'stats-models-toggle',
-      'plan-limit-tile',
+    ]);
+    expect(sectionRows(root, 'stats-plan-section')).toEqual(['plan-limit-tile']);
+    expect(sectionRows(root, 'stats-lanes-section')).toEqual([
       'lane-usage-tile',
       'lane-subtotal-tile',
     ]);
-    expect(grid.className).not.toContain('dense');
-    expect(grid.getAttribute('style') ?? '').not.toContain('dense');
-    // Every tile starts closed.
-    for (const button of Array.from(grid.querySelectorAll('[aria-expanded]'))) {
+    // Every row starts closed.
+    for (const button of Array.from(card.querySelectorAll('[aria-expanded]'))) {
+      if (button.getAttribute('data-testid') === 'stats-models-toggle') continue;
       expect(button.getAttribute('aria-expanded')).toBe('false');
     }
+  });
+
+  it('prints the shared provenance once per section header, not on every row', () => {
+    const root = render(limitsFor(40), { sessionId: 'session-1' });
+    click(root, '[data-testid="stats-expand"]');
+    const plan = root.querySelector(
+      '[data-testid="stats-plan-section"]',
+    ) as HTMLElement;
+    const lanes = root.querySelector(
+      '[data-testid="stats-lanes-section"]',
+    ) as HTMLElement;
+
+    expect(
+      plan.querySelector('[data-testid="plan-limits-caption"]')?.getAttribute(
+        'title',
+      ),
+    ).toContain('Claude account plan limit');
+    expect(
+      plan.querySelectorAll('[data-testid="plan-limits-source"]').length,
+    ).toBeGreaterThan(0);
+    expect(plan.querySelector('[data-testid="plan-limit-caption"]')).toBeNull();
+    expect(
+      plan.querySelector('ptah-plan-limit-tile')?.textContent,
+    ).not.toContain('Provider API');
+
+    expect(
+      lanes.querySelector('[data-testid="lanes-caption"]')?.textContent?.trim(),
+    ).toBe('lane · not in totals');
+    expect(lanes.querySelector('[data-testid="lane-caption"]')).toBeNull();
+    expect(
+      lanes.querySelector('[data-testid="lane-subtotal-caption"]'),
+    ).toBeNull();
   });
 
   it('toggles a tile open and closed', () => {
@@ -983,7 +1037,7 @@ describe('SessionStatsSummaryComponent limits', () => {
     expect(root.textContent).not.toContain('Main context');
   });
 
-  it('keeps the expanded-grid collapse control in the header, outside stat tiles', () => {
+  it('keeps the expanded-card collapse control in the header, outside the summary line', () => {
     const root = render(limitsFor(40), { sessionId: 'session-1' });
 
     click(root, '[data-testid="stats-expand"]');
@@ -991,7 +1045,8 @@ describe('SessionStatsSummaryComponent limits', () => {
       '[data-testid="stats-collapse"]',
     );
 
-    expect(collapse?.closest('.stats-cards')).toBeNull();
+    expect(collapse?.closest('.stats-card-header')).not.toBeNull();
+    expect(collapse?.closest('[data-testid="stats-summary-line"]')).toBeNull();
     collapse?.click();
     fixture.detectChanges();
     expect(root.querySelector('[data-testid="stats-expand"]')).not.toBeNull();

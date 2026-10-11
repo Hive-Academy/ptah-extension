@@ -147,6 +147,17 @@ describe('LaneUsageTileComponent', () => {
     expect(caption?.classList.contains('truncate')).toBe(false);
   });
 
+  it('omits the caption when the Lanes section header shows it', () => {
+    const root = render(laneTile());
+    fixture.componentRef.setInput('captionShared', true);
+    fixture.detectChanges();
+
+    expect(root.querySelector('[data-testid="lane-caption"]')).toBeNull();
+    // The dashed accent and own fill still mark it as outside the totals.
+    expect(face(root).className).toContain('border-dashed');
+    expect(text(root, 'lane-cost')).toBe('cost $0.32 · 2 runs');
+  });
+
   it('is a closed disclosure button wired to its sibling panel', () => {
     const root = render(laneTile());
     const panel = root.querySelector<HTMLElement>(
@@ -190,7 +201,6 @@ describe('LaneUsageTileComponent', () => {
     );
 
     expect(face(root).getAttribute('aria-expanded')).toBe('true');
-    expect(root.classList.contains('col-span-full')).toBe(true);
     expect(groups.map((group) => group.dataset['ownerStatus'])).toEqual([
       'same',
       'different',

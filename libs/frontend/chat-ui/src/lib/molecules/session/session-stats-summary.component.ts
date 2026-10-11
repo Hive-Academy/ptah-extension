@@ -18,8 +18,13 @@ import { LaneSubtotalTileComponent } from './plan-limits/lane-subtotal-tile.comp
 import { LaneUsageTileComponent } from './plan-limits/lane-usage-tile.component';
 import { LimitsAlertComponent } from './plan-limits/limits-alert.component';
 import { PlanLimitTileComponent } from './plan-limits/plan-limit-tile.component';
+import {
+  planSectionProvenance,
+  sharedLaneCaption,
+} from './plan-limits/stats-limit-sections';
 import type { StatsLimitViewModel } from './plan-limits/stats-limit-view-model.types';
 import { StatsTileExpansionState } from './plan-limits/stats-tile-expansion.state';
+import { sourceChipClass } from './plan-limits/stats-tile.styles';
 import {
   budgetTooltip,
   costBudgetSuffix,
@@ -136,6 +141,19 @@ export class SessionStatsSummaryComponent {
     const count = this.limits()?.lanesCount ?? 0;
     return count > 0 ? count : null;
   });
+
+  /** Caption and source chips the plan rows share, shown once in the header. */
+  protected readonly planProvenance = computed(() =>
+    planSectionProvenance(this.limits()?.planTiles ?? []),
+  );
+
+  /** Caption every lane row and the subtotal share ("lane · not in totals"). */
+  protected readonly laneCaption = computed(() => {
+    const vm = this.limits();
+    return vm ? sharedLaneCaption(vm.laneTiles, vm.subtotal) : null;
+  });
+
+  protected readonly sourceChipClass = sourceChipClass;
 
   protected readonly lanesTooltip =
     'Lane runs are counted separately from session totals';

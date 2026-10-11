@@ -8,24 +8,27 @@ import {
 import { ChevronDown, ChevronUp, LucideAngularModule } from 'lucide-angular';
 import { PlanWindowDetailComponent } from './plan-window-detail.component';
 import {
-  TILE_PANEL,
+  ROW_PANEL,
   chipClass,
-  laneFaceClass,
+  laneRowClass,
   newPanelId,
   sourceChipClass,
 } from './stats-tile.styles';
 import type { LaneUsageTileModel } from './stats-limit-view-model.types';
 
 /**
- * One CLI lane (CLI + role) as a stats-grid tile (design §3.3).
+ * One CLI lane (CLI + role) as a row of the expanded stats card's Lanes
+ * section (design §3.3).
  *
- * Lane usage is outside the session totals (Req 8): the tile carries the
- * caption "lane · not in totals", a dashed border and its own fill. The face
- * shows the summed known tokens and cost (unknown is never 0), the run state
- * and the limit state aggregated over the owner + model-scope subgroups. The
- * panel shows each subgroup: its runs, how its owner relates to the session
- * owner (A1), "see plan tiles" chips only for windows a session plan tile
- * renders (A2), and the full window detail for every other window.
+ * Lane usage is outside the session totals (Req 8): the row has a dashed
+ * accent and its own fill, and the caption "lane · not in totals" is shown
+ * once in the section header (`captionShared`), or on the row when the
+ * section cannot share it. The row shows the summed known tokens and cost
+ * (unknown is never 0), the run state and the limit state aggregated over
+ * the owner + model-scope subgroups. The panel shows each subgroup: its runs,
+ * how its owner relates to the session owner (A1), "see plan tiles" chips
+ * only for windows a session plan row renders (A2), and the full window
+ * detail for every other window.
  *
  * The open state is owned by the host (`StatsTileExpansionState`, A3).
  */
@@ -35,7 +38,6 @@ import type { LaneUsageTileModel } from './stats-limit-view-model.types';
   imports: [LucideAngularModule, PlanWindowDetailComponent],
   host: {
     class: 'block min-w-0',
-    '[class.col-span-full]': 'open()',
     '[attr.data-tile-id]': 'tile().id',
   },
   template: `
@@ -43,39 +45,27 @@ import type { LaneUsageTileModel } from './stats-limit-view-model.types';
     <button
       type="button"
       [class]="faceClass()"
-      [class.rounded-b-none]="open()"
       [attr.aria-expanded]="open()"
       [attr.aria-controls]="panelId"
       data-testid="lane-usage-tile"
       (click)="toggled.emit()"
     >
-      <span
-        class="block text-[10px] uppercase tracking-wider text-base-content-muted leading-tight"
-        >{{ t.label }}</span
-      >
-      <span
-        class="block text-[10px] text-base-content-muted leading-tight"
-        [class.truncate]="!open()"
-        [attr.title]="t.caption"
-        data-testid="lane-caption"
-        >{{ t.caption }}</span
-      >
-      <span
-        class="block text-sm font-semibold leading-tight mt-0.5 tabular-nums"
-        data-testid="lane-tokens"
-        >{{ t.tokensText }}
-        @if (t.tokensUnknownText) {
-          <span class="text-[10px] font-normal text-base-content-muted">{{
-            t.tokensUnknownText
-          }}</span>
-        }
-      </span>
-      <span
-        class="block text-[11px] text-base-content-muted leading-tight mt-0.5"
-        data-testid="lane-cost"
-        >{{ t.costLine }}</span
-      >
-      <span class="flex flex-wrap gap-1 mt-1">
+      <span class="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
+        <span
+          class="min-w-16 max-w-[50%] shrink-0 truncate text-xs text-base-content"
+          [attr.title]="t.label"
+          >{{ t.label }}</span
+        >
+        <span
+          class="text-xs font-semibold tabular-nums"
+          data-testid="lane-tokens"
+          >{{ t.tokensText }}
+          @if (t.tokensUnknownText) {
+            <span class="text-[10px] font-normal text-base-content-muted">{{
+              t.tokensUnknownText
+            }}</span>
+          }
+        </span>
         <span [class]="chipClass(t.runChip.tone)" data-testid="lane-run-chip">
           @if (t.runChip.tone === 'live') {
             <span
@@ -88,9 +78,7 @@ import type { LaneUsageTileModel } from './stats-limit-view-model.types';
           }
           {{ t.runChip.text }}
         </span>
-      </span>
-      @for (face of t.limitChips; track $index) {
-        <span class="flex flex-wrap gap-1 mt-1">
+        @for (face of t.limitChips; track $index) {
           <span
             [class]="chipClass(face.chip.tone)"
             data-testid="lane-limit-chip"
@@ -103,8 +91,22 @@ import type { LaneUsageTileModel } from './stats-limit-view-model.types';
           @for (source of face.sourceChips; track source) {
             <span [class]="sourceChipClass(source)">{{ source }}</span>
           }
-        </span>
-      }
+        }
+      </span>
+      <span
+        class="flex min-w-0 gap-1 pl-[4.5rem] text-[11px] leading-tight text-base-content-muted"
+      >
+        <span class="shrink-0" data-testid="lane-cost">{{ t.costLine }}</span>
+        @if (!captionShared()) {
+          <span
+            class="min-w-0"
+            [class.truncate]="!open()"
+            [attr.title]="t.caption"
+            data-testid="lane-caption"
+            >{{ t.caption }}</span
+          >
+        }
+      </span>
       <lucide-angular
         [img]="open() ? ChevronUpIcon : ChevronDownIcon"
         class="absolute top-1.5 right-1 w-3 h-3 text-base-content-muted"
@@ -192,10 +194,12 @@ import type { LaneUsageTileModel } from './stats-limit-view-model.types';
 export class LaneUsageTileComponent {
   readonly tile = input.required<LaneUsageTileModel>();
   readonly open = input<boolean>(false);
+  /** The section header already shows this row's caption. */
+  readonly captionShared = input<boolean>(false);
   readonly toggled = output<void>();
 
   protected readonly panelId = newPanelId();
-  protected readonly panelClass = `${TILE_PANEL} border-dashed`;
+  protected readonly panelClass = `${ROW_PANEL} border-dashed`;
   protected readonly subgroupDivider =
     'py-1 mt-1 border-t border-dashed border-base-content/30';
   /** Explanatory notes are informational, never warnings. */
@@ -208,7 +212,5 @@ export class LaneUsageTileComponent {
   protected readonly ChevronDownIcon = ChevronDown;
   protected readonly ChevronUpIcon = ChevronUp;
 
-  protected readonly faceClass = computed(() =>
-    laneFaceClass(this.tile().tone),
-  );
+  protected readonly faceClass = computed(() => laneRowClass(this.tile().tone));
 }
