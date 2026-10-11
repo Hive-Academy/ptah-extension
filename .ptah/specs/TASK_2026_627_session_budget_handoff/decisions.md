@@ -185,3 +185,47 @@ Dropped as not a defect in this diff, with evidence:
   unaffected. Scheduled as 627-L8.
 - Phase 1 (Batches 1-5 and 5F) is closed. Batch 6 (Phase 2) starts. Task 6.2 already carries the M2
   guard (627-L2): counts only while the phase is `waiting-for-turn-end`.
+
+## D12 (Phase 3 unblock): `origin/main` with TASK_2026_626 merged into the branch at `91376becf`
+
+- 626 (PR #698) is in main. The orchestrator merged `origin/main` into `fix/session-budget-handoff`
+  (`91376becf`); Batches 7 and 8 are unblocked.
+- One conflict, `libs/frontend/chat/src/lib/services/message-sender.service.ts`: resolved to the
+  branch side (R9 `console.info` for a budget refusal and a handover hold), a superset of main's
+  change.
+- Post-merge checks (orchestrator): typecheck of shared, agent-sdk, cli-agent-runtime, chat-ui and
+  chat passed; chat `message-sender` and `session-budget-actions` specs 90/90 passed.
+- Lint: the agent-sdk warning count rose 53 -> 54 with the merge, not with Batch 7. Checked per file
+  with eslint against the pre-merge commit `0ab622eb4`: `session-stats-owner.service.ts` grew from
+  902 to 1112 lines and now has a `max-lines` warning (709 > 700) it did not have before; the other
+  merged files kept their warning counts, and `session-budget.service.ts` had its `max-lines` warning
+  before Batch 7. Owned by 626; not fixed here.
+
+## D13 (Batch 7): a newer authoritative revision drops the live figure; an older live one is ignored
+
+- Accepted. 626's owner contract (`session-stats-owner.service.ts:15`, `clearProvisional`) says every
+  authoritative snapshot carries a higher revision than any live one before it, so `>` in
+  `acceptOrThrow` and `<` in `observeLive` are the right comparisons; an equal-revision live snapshot
+  (another run still holds an estimate) is accepted.
+- Without it, a turn-end overestimate would stay in `stageFor`, which the lifecycle reads before
+  Batch 8's `onTurnTerminal` runs, and could arm a `budget-auto` handover the result does not justify.
+
+## D14 (Batch 7): disable, extend and a settings change clear the live figure
+
+- Accepted. Each changes the limit or the measure the estimate was computed against; resetting
+  `liveNoticedRank` on extend or a settings change lets the wrap-up notice post again against the
+  new limit. Disable never creates an entry.
+
+## D15 (Batch 7): the first turn's live figure is evaluated without the measure check
+
+- Accepted. With no authoritative figure there is nothing to compare against. Residual (Minor,
+  recorded): on a cost budget whose first-turn estimate has an unpriced row, the live figure may be
+  measured as a lower bound or the weighted fallback and raise `stageFor` (advisory only; it never
+  refuses a send) until the first authoritative snapshot, whose higher revision drops it (D13).
+  For the Phase 3 code-logic review to weigh; no fix now.
+
+## D16 (Batch 7): the small amount formatter in `session-budget.service.ts` is kept
+
+- Accepted. `formatAmount` in `session-handoff-builder.ts` is not exported, and the executor stayed
+  within its two files. Recorded as Minor duplication; can be unified with any later touch of the
+  handoff builder.

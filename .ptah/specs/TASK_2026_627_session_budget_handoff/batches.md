@@ -1,14 +1,14 @@
 # Batches - TASK_2026_627
 
-Total tasks: 24 | Batches: 11 (Batch 0 to Batch 8, plus fix Batches 5F and 6F) | Complete: 9/11
+Total tasks: 24 | Batches: 11 (Batch 0 to Batch 8, plus fix Batches 5F and 6F) | Complete: 10/11
 
 Worktree: `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff` (branch
 `fix/session-budget-handoff`). Every executor works only there, never in the main checkout
 `D:\projects\ptah-extension`. No push, no PR, no merge into main.
 
 Batching boundary: everything that does not need TASK_2026_626_7b3e ships first (Phases 1 and 2).
-The live feed and the adapter wiring (Phase 3) are BLOCKED until 626 is merged and this branch has
-taken it in.
+The live feed and the adapter wiring (Phase 3) waited for 626. 626 (PR #698) is merged into main
+and was merged into this branch at `91376becf` (D12), so Phase 3 is unblocked.
 
 Defaults chosen (the user gave the ordering, so no clarification was needed):
 
@@ -802,25 +802,28 @@ chat 35). Report: `batch-6F-report.md`. Code commit `98852ac81`.
 - Behaviour change accepted: a `waiting-for-turn-end` handover at the handoff stage now also offers
   "Cancel (keep working)" (both phases are in the coordinator's `CANCELLABLE_PHASES`).
 
-## Batch 7: Budget live feed (Component 1, live part) — BLOCKED
+## Batch 7: Budget live feed (Component 1, live part) — COMPLETE (af073e5a2)
 
-Blocked on: TASK_2026_626_7b3e merged into main and merged or rebased into `fix/session-budget-handoff`.
-Status word stays PENDING in the task lines until unblocked.
+Unblocked: 626 merged into the branch at `91376becf` (D12). Report: `batch-7-report.md`. Executor
+additions beyond the plan accepted in D13-D16.
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer, fresh session
 - Execution mode: sequential
 - Rationale: one service and its spec; needs `SessionStatsEntry.provisional` from 626
 - Tasks: 2 | Depends on: 626 merge, Batches 1 and 3
-- Phase: 3 (Live feed, blocked) | Phase review: after Batch 8
+- Phase: 3 (Live feed) | Phase review: after Batch 8
 
-### Task 7.0: Re-check A3 against the merged 626 types — PENDING
+### Task 7.0: Re-check A3 against the merged 626 types — COMPLETE
+
+- Result: A3 holds for token budgets; for cost budgets it holds unless an estimate row is unpriced,
+  in which case the measure guard (Task 7.1) ignores the live figure. No design change.
 
 - Read the merged `libs/shared/src/lib/types/rpc/rpc-session.types.ts` (`provisional`, `revision`) and
   `session-stats-owner.service.ts` `build`/`estimateResult`; record any change in the report before
   coding Task 7.1.
 
-### Task 7.1: `observeLive`, live `stageFor`, wrap-up notice, `onTurnTerminal` — PENDING
+### Task 7.1: `observeLive`, live `stageFor`, wrap-up notice, `onTurnTerminal` — COMPLETE
 
 - Files: MODIFY `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff\libs\backend\agent-sdk\src\lib\helpers\session-budget\session-budget.service.ts`
   and `…\session-budget.service.spec.ts`
@@ -835,20 +838,27 @@ Status word stays PENDING in the task lines until unblocked.
 
 - `npx jest -c libs/backend/agent-sdk/jest.config.ts <session-budget.service.spec.ts> --coverage=false --maxWorkers=2`,
   then `npx nx typecheck @ptah-extension/agent-sdk --parallel=1`.
+- Result (team-leader re-run): spec 83/83 passed; agent-sdk typecheck passed. Verified on disk:
+  `observeLive` writes only `liveFigure`, `liveNoticedRank` and `workspacePath` (via
+  `rememberWorkspace`); it never writes `snapshot`, `figure`, `revision`, `usageSeq` or `blocked`,
+  and schedules no stage action. `canSend`/`checkStored`/`checkSnapshot` still read only the
+  authoritative figure. Lint: no new warning from this batch (`session-budget.service.ts` already
+  had its `max-lines` warning before the batch); the 53 -> 54 agent-sdk count comes from the 626
+  merge (`session-stats-owner.service.ts`, 709 lines, new `max-lines`) — see D12.
 
-## Batch 8: Adapter and lifecycle live wiring (Component 3, adapter part) — BLOCKED
+## Batch 8: Adapter and lifecycle live wiring (Component 3, adapter part) — IN_PROGRESS
 
-Blocked on: TASK_2026_626_7b3e merged (needs its `setLiveStatsCallback` and the four `transform()`
-call sites) and Batch 7.
+Unblocked: 626 merged into the branch at `91376becf` (provides `setLiveStatsCallback` and the four
+`transform()` call sites) and Batch 7 is COMPLETE (`af073e5a2`).
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer, fresh session
 - Execution mode: sequential
 - Rationale: the adapter and the lifecycle are wired together and tested together
 - Tasks: 2 | Depends on: 626 merge, Batches 4 and 7
-- Phase: 3 (Live feed, blocked) | Phase review: code-logic on the combined diff of Batches 7-8
+- Phase: 3 (Live feed) | Phase review: code-logic on the combined diff of Batches 7-8
 
-### Task 8.1: `wrapLiveStatsForBudget` and post-result `armHandoverIfIdle` in `SdkAgentAdapter` — PENDING
+### Task 8.1: `wrapLiveStatsForBudget` and post-result `armHandoverIfIdle` in `SdkAgentAdapter` — IN_PROGRESS
 
 - Files: MODIFY `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff\libs\backend\agent-sdk\src\lib\sdk-agent-adapter.ts`
   and `…\sdk-agent-adapter.spec.ts`
@@ -858,7 +868,7 @@ call sites) and Batch 7.
   `observeBudget`, a `handoff`/`limit` state calls `sessionLifecycle.armHandoverIfIdle(sessionId)`
   (R2).
 
-### Task 8.2: Lifecycle `onTurnTerminal` calls `sessionBudget.onTurnTerminal` after arming — PENDING
+### Task 8.2: Lifecycle `onTurnTerminal` calls `sessionBudget.onTurnTerminal` after arming — IN_PROGRESS
 
 - Files: MODIFY `D:\projects\ptah-extension\.claude-worktrees\session-budget-handoff\libs\backend\agent-sdk\src\lib\helpers\session-lifecycle-manager.ts`
   and `…\session-lifecycle-manager.spec.ts`
