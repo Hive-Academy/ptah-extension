@@ -108,11 +108,16 @@ const SavedCostStateSchema = z.object({
  * Validate the raw payload of a transcript `cost-state` entry. Returns `null`
  * when it is absent or malformed.
  */
-export function parseSavedCostState(raw: {
-  readonly totalCostUSD?: unknown;
-  readonly modelUsage?: unknown;
-  readonly hasUnknownModelCost?: unknown;
-} | null | undefined): SavedCostState | null {
+export function parseSavedCostState(
+  raw:
+    | {
+        readonly totalCostUSD?: unknown;
+        readonly modelUsage?: unknown;
+        readonly hasUnknownModelCost?: unknown;
+      }
+    | null
+    | undefined,
+): SavedCostState | null {
   if (!raw) return null;
   const parsed = SavedCostStateSchema.safeParse(raw);
   if (!parsed.success) return null;
@@ -445,9 +450,10 @@ export class SessionStatsOwnerService {
     // epoch can no longer release this owner.
     state.epoch = ++this.epochCounter;
     const lease = { generation: state.generation, epoch: state.epoch };
-    const candidate = state.pending
-      ? ((await state.pending)?.savedCostState ?? null)
-      : await readOrNull(loaders.loadSavedCostState);
+    const candidate =
+      state.pending !== null
+        ? ((await state.pending)?.savedCostState ?? null)
+        : await readOrNull(loaders.loadSavedCostState);
     return { ...lease, candidate };
   }
 
@@ -474,7 +480,11 @@ export class SessionStatsOwnerService {
    * Move a provisional key's owner to the canonical session id once the SDK
    * reports it. Moved, never cloned; only the named generation moves.
    */
-  rebind(provisionalKey: string, canonicalId: string, generation: number): void {
+  rebind(
+    provisionalKey: string,
+    canonicalId: string,
+    generation: number,
+  ): void {
     if (provisionalKey === canonicalId) return;
     const state = this.currentState(provisionalKey, generation);
     if (!state) return;

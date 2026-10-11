@@ -99,13 +99,13 @@ const LOG_TAG = '[LiveSessionStatsPublisher]';
  * reads them).
  */
 const UsageCounter = z
-  .number()
-  .finite()
-  .nonnegative()
+  .unknown()
   .optional()
-  // degradation-audit: optional-capability - a malformed counter reads as
-  // absent; the frame's other counters still count.
-  .catch(undefined);
+  .transform((value): number | undefined =>
+    typeof value === 'number' && Number.isFinite(value) && value >= 0
+      ? value
+      : undefined,
+  );
 
 /** Boundary schema for the fields an estimate reads from an `assistant` frame. */
 const AssistantFrameSchema = z.object({
@@ -310,7 +310,13 @@ export class LiveSessionStatsPublisher {
     const previous = this.usageById.get(id);
     if (!previous) {
       if (input + output + cacheRead + cacheCreation === 0) return false;
-      this.usageById.set(id, { model, input, output, cacheRead, cacheCreation });
+      this.usageById.set(id, {
+        model,
+        input,
+        output,
+        cacheRead,
+        cacheCreation,
+      });
       this.dirty = true;
       return true;
     }
@@ -510,6 +516,8 @@ export class LiveSessionStatsPublisher {
         priced.pricing,
       );
     } catch (error: unknown) {
+      // degradation-audit: optional-capability — an unpriced model leaves the
+      // provisional cost unknown; the authoritative result still prices it.
       this.warnOnce('price', 'Live stats pricing failed', error);
       return null;
     }
@@ -533,6 +541,8 @@ export class LiveSessionStatsPublisher {
       ).modelId;
       return { model, contextTokens: reading.contextTokens };
     } catch (error: unknown) {
+      // degradation-audit: optional-capability — an unread context leaves the
+      // provisional fill unknown; the authoritative result still reports it.
       this.warnOnce('context', 'Live stats context read failed', error);
       return null;
     }
